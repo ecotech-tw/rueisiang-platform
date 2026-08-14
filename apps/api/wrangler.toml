@@ -1,0 +1,35 @@
+name = "rueisiang-platform"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+workers_dev = true
+
+# 靜態檔與 API 同一個 Worker、同一個網域。
+# 這組設定沿用出金表工具 worker/wrangler.toml 已驗證可行的做法：
+# run_worker_first 讓 /api/* 一定進 Worker，其餘走 Static Assets。
+# not_found_handling 讓 React Router 的 client-side 路由重新整理時不會 404。
+[assets]
+directory = "../portal/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+# 建立方式：npx wrangler d1 create rueisiang-platform
+# 產生的 database_id 貼回這裡（這個值不是機密，可以進版控）。
+[[d1_databases]]
+binding = "DB"
+database_name = "rueisiang-platform"
+database_id = "TODO_建立後填入"
+migrations_dir = "../../packages/db/migrations"
+
+# 正式網域。子網域委派完成後再打開。
+# [[routes]]
+# pattern = "tools.rueisiang.com"
+# custom_domain = true
+
+# 部署前要設的 secret（值不進版控）：
+#   npx wrangler secret put AUTH_SESSION_SECRET
+#   npx wrangler secret put GOOGLE_OAUTH_CLIENT_ID
+#   npx wrangler secret put GOOGLE_OAUTH_CLIENT_SECRET
+
+[observability]
+enabled = true

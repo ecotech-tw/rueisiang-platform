@@ -1,0 +1,21 @@
+{
+  "name": "rueisiang-platform",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint",
+    "test": "turbo test"
+  },
+  "devDependencies": {
+    "turbo": "^2.6.1",
+    "typescript": "5.9.3"
+  }
+}

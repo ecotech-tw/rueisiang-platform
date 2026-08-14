@@ -1,0 +1,25 @@
+# 相依套件與建置產物
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# 機密
+.env
+.env.*
+!.env.example
+.dev.vars
+
+# Cloudflare
+.wrangler/
+
+# 本機開發用的 SQLite 檔
+*.sqlite
+*.sqlite-journal
+local.db
+
+# 編輯器與作業系統
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

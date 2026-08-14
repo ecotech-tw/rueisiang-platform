@@ -1,0 +1,15 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# 明確授權可以執行安裝腳本的套件，其餘一律不跑。
+allowBuilds:
+  # Vite 建置必需——安裝腳本負責連結對應平台的執行檔。
+  esbuild: true
+  # wrangler 的本機執行環境。開發機是 Windows on ARM，workerd 的 postinstall
+  # 在這個平台會直接失敗並中斷整個安裝，所以關閉。
+  # 影響：本機跑不了 `wrangler dev`（反正本來就跑不了）。部署在 CI 上做，
+  # 若 CI 的 wrangler deploy 需要這支執行檔，在部署 workflow 裡單獨處理。
+  workerd: false
+  # wrangler 拉進來的選用影像處理套件，本專案沒有用到。
+  sharp: false

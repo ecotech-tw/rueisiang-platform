@@ -1,0 +1,22 @@
+{
+  "name": "@rueisiang/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy",
+    "dry-run": "wrangler deploy --dry-run"
+  },
+  "dependencies": {
+    "@rueisiang/db": "workspace:*",
+    "hono": "^4.9.10"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "@rueisiang/config": "workspace:*",
+    "typescript": "5.9.3",
+    "wrangler": "4.92.0"
+  }
+}

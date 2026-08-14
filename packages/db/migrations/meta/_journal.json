@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1786728337583,
+      "tag": "0000_skinny_doomsday",
+      "breakpoints": true
+    }
+  ]
+}

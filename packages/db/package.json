@@ -1,0 +1,23 @@
+{
+  "name": "@rueisiang/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "@rueisiang/config": "workspace:*",
+    "drizzle-kit": "0.31.10",
+    "typescript": "5.9.3"
+  }
+}

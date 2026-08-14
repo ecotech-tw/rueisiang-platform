@@ -1,0 +1,123 @@
+/* 沿用 CRM app/globals.css 的品牌變數，讓整合後的入口與現有系統視覺連續。 */
+:root {
+  --brand: #d5383b;
+  --brand-dark: #ad282c;
+  --brand-soft: #fbe8e5;
+  --secondary: #d4958c;
+  --ink: #351c1d;
+  --muted: #806c69;
+  --line: #ead8d4;
+  --soft-line: #f1e7e4;
+  --paper: #fffefd;
+  --canvas: #fbf7f5;
+  --shadow: 0 18px 45px rgba(96, 55, 48, 0.09);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { min-height: 100%; }
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: Inter, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+button { font: inherit; cursor: pointer; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 244px minmax(0, 1fr);
+  transition: grid-template-columns .22s ease;
+}
+.shell.sidebar-collapsed { grid-template-columns: 76px minmax(0, 1fr); }
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px 18px;
+  background: #fffafa;
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+.brand-row {
+  height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 5px;
+  white-space: nowrap;
+}
+.brand-name { color: var(--brand); font-size: 15px; letter-spacing: .08em; }
+.product-badge {
+  padding: 3px 7px;
+  border: 1px solid var(--secondary);
+  border-radius: 7px;
+  color: var(--brand);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+.nav { flex: 1; overflow-y: auto; margin-top: 10px; }
+.nav-section + .nav-section { margin-top: 18px; }
+.nav-section-label {
+  padding: 0 8px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  white-space: nowrap;
+}
+.shell.sidebar-collapsed .nav-section-label,
+.shell.sidebar-collapsed .nav-item { overflow: hidden; text-overflow: ellipsis; }
+
+.nav-item {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 9px;
+  color: var(--ink);
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.nav-item:hover { background: var(--soft-line); }
+.nav-item.active { background: var(--brand); color: #fff; font-weight: 700; }
+
+.nav-footer { border-top: 1px solid var(--soft-line); padding-top: 12px; }
+.sidebar-toggle {
+  width: 100%;
+  margin-top: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.sidebar-toggle:hover { border-color: var(--secondary); color: var(--brand); }
+
+.content { padding: 32px 36px; min-width: 0; }
+.page-head { margin-bottom: 20px; }
+.page-head h1 { margin: 0 0 4px; font-size: 24px; }
+.muted { color: var(--muted); margin: 0; }
+.panel {
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+@media (max-width: 900px) {
+  .shell, .shell.sidebar-collapsed { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; }
+  .content { padding: 20px 16px; }
+}
