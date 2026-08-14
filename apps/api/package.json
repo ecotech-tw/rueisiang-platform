@@ -4,19 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
-    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
     "deploy": "wrangler deploy",
     "dry-run": "wrangler deploy --dry-run"
   },
   "dependencies": {
+    "@rueisiang/auth": "workspace:*",
     "@rueisiang/db": "workspace:*",
     "hono": "^4.9.10"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260702.1",
     "@rueisiang/config": "workspace:*",
+    "@types/node": "^22.19.19",
+    "drizzle-orm": "0.45.2",
     "typescript": "5.9.3",
+    "vitest": "^3.2.4",
     "wrangler": "4.92.0"
   }
 }

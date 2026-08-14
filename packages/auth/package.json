@@ -8,10 +8,13 @@
     "./permissions": "./src/permissions.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
     "@rueisiang/config": "workspace:*",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^3.2.4"
   }
 }

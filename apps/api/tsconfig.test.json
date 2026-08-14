@@ -1,0 +1,8 @@
+{
+  "extends": "@rueisiang/config/tsconfig.base.json",
+  "comment": "測試跑在 Node（vitest）上，所以這裡才允許 node: 內建模組。",
+  "compilerOptions": {
+    "types": ["node", "@cloudflare/workers-types"]
+  },
+  "include": ["src/**/*.ts"]
+}

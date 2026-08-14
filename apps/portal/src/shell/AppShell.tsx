@@ -1,14 +1,11 @@
-import type { Permission } from "@rueisiang/auth/permissions";
 import { useState } from "react";
 import { Outlet } from "react-router";
+import { logout, useSession } from "../auth/session.js";
 import { Sidebar } from "./Sidebar.js";
 
-interface AppShellProps {
-  permissions: ReadonlySet<Permission>;
-}
-
-export function AppShell({ permissions }: AppShellProps) {
+export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
+  const { user, permissions } = useSession();
 
   return (
     <div className={`shell${collapsed ? " sidebar-collapsed" : ""}`}>
@@ -16,6 +13,8 @@ export function AppShell({ permissions }: AppShellProps) {
         permissions={permissions}
         collapsed={collapsed}
         onToggle={() => setCollapsed((value) => !value)}
+        user={user}
+        onLogout={() => void logout()}
       />
       <main className="content">
         <Outlet />

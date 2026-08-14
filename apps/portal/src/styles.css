@@ -116,6 +116,57 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   box-shadow: var(--shadow);
 }
 
+.account { padding: 8px 4px 2px; }
+.account-name {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.boot { padding: 48px; color: var(--muted); }
+
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.login-card {
+  width: min(400px, 100%);
+  padding: 36px 32px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.login-card h1 { margin: 10px 0 6px; font-size: 22px; }
+.login-button {
+  display: block;
+  margin: 22px 0 14px;
+  padding: 11px 16px;
+  border-radius: 10px;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+}
+.login-button:hover { background: var(--brand-dark); }
+.login-error {
+  margin: 14px 0 0;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  font-size: 13px;
+}
+.login-note { margin-top: 6px; font-size: 12px; }
+
 @media (max-width: 900px) {
   .shell, .shell.sidebar-collapsed { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }

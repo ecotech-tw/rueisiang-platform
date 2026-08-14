@@ -1,20 +1,37 @@
-import { ALL_PERMISSIONS, type Permission } from "@rueisiang/auth/permissions";
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useLocation } from "react-router";
+import { useSession } from "./auth/session.js";
+import { Login } from "./routes/Login.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { AppShell } from "./shell/AppShell.js";
-
-// Phase 0 還沒有登入，先當成全權限以便檢視 sidebar 全貌。
-// Phase 1 接上 /api/auth/me 之後改成從伺服器取得。
-const DEV_PERMISSIONS: ReadonlySet<Permission> = new Set(ALL_PERMISSIONS);
 
 const CRM = "rueisiang-crm";
 const WMS = "warehouse-inventory";
 const TOOLS = "cyberbiz-monthly-payout";
 
+/** 未登入就導去登入頁。這只是體驗上的導引，資料的把關在 API。 */
+function RequireSession({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useSession();
+  const location = useLocation();
+
+  if (loading) return <div className="boot">載入中…</div>;
+  if (!user) {
+    return <Navigate to={`/login?returnTo=${encodeURIComponent(location.pathname)}`} replace />;
+  }
+  return <>{children}</>;
+}
+
 export function App() {
   return (
     <Routes>
-      <Route element={<AppShell permissions={DEV_PERMISSIONS} />}>
+      <Route path="/login" element={<Login />} />
+
+      <Route
+        element={
+          <RequireSession>
+            <AppShell />
+          </RequireSession>
+        }
+      >
         <Route index element={<Navigate to="/crm/customers" replace />} />
 
         <Route path="crm">
@@ -39,7 +56,7 @@ export function App() {
         </Route>
 
         <Route path="admin">
-          <Route path="users" element={<Placeholder title="權限管理" phase="Phase 1" from="新建（取代兩套各自的 app_users）" />} />
+          <Route path="users" element={<Placeholder title="權限管理" phase="Phase 1（進行中）" from="新建（取代兩套各自的 app_users）" />} />
         </Route>
 
         <Route path="*" element={<Placeholder title="找不到頁面" phase="—" from="—" />} />

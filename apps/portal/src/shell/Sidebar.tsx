@@ -1,12 +1,14 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { NavLink } from "react-router";
+import type { SessionUser } from "../auth/session.js";
 import { ADMIN_SECTION, NAV_SECTIONS, type NavSection } from "./nav.js";
 
 interface SidebarProps {
-  /** 目前使用者擁有的權限。Phase 1 接上真的登入之後由 /api/auth/me 提供。 */
   permissions: ReadonlySet<Permission>;
   collapsed: boolean;
   onToggle: () => void;
+  user: SessionUser | null;
+  onLogout: () => void;
 }
 
 function Section({ section, permissions }: { section: NavSection; permissions: ReadonlySet<Permission> }) {
@@ -30,7 +32,7 @@ function Section({ section, permissions }: { section: NavSection; permissions: R
   );
 }
 
-export function Sidebar({ permissions, collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ permissions, collapsed, onToggle, user, onLogout }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="brand-row">
@@ -46,6 +48,14 @@ export function Sidebar({ permissions, collapsed, onToggle }: SidebarProps) {
 
       <div className="nav-footer">
         <Section section={ADMIN_SECTION} permissions={permissions} />
+
+        {user && !collapsed ? (
+          <div className="account">
+            <div className="account-name" title={user.email}>{user.name || user.email}</div>
+            <button type="button" className="link-button" onClick={onLogout}>登出</button>
+          </div>
+        ) : null}
+
         <button type="button" className="sidebar-toggle" onClick={onToggle}>
           {collapsed ? "»" : "« 收合選單"}
         </button>
