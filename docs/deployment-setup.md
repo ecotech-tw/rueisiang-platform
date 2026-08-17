@@ -217,14 +217,12 @@ repo（`ecotech-tw/rueisiang-platform`）已經存在，不必新開。要加的
 
 這個 token 等同於部署權限，只放在 GitHub secret 裡，不要貼進任何檔案。
 
-### 4.2 Variables
+### 4.2 Variables — 不需要
 
-| 名稱 | 值 |
-|---|---|
-| `WORKER_URL` | 部署後的網址，例如 `https://tools.rueisiang.com` |
+不必設任何 repository variable。健康檢查的網址是從 `wrangler deploy` 的輸出直接抓的，
+所以綁了自訂網域之後也會自動跟著換，沒有第二個地方要記得改。
 
-部署完會 curl `$WORKER_URL/api/health`，回應裡沒有 `"database":"ok"` 就讓 workflow 失敗。
-沒設定的話只會跳過健康檢查並留一則警告，不會擋住部署。
+部署完會 curl `<網址>/api/health`，回應裡沒有 `"database":"ok"` 就讓 workflow 失敗。
 
 ### 4.3 自動部署
 
@@ -251,8 +249,7 @@ Worker 還不存在（沒地方放 secret），而且它的網址也還不知道
 | 4 | 設五個 secret | Cloudflare 儀表板（2.3） | Worker 存在之後才有地方設 |
 | 5 | `curl -X POST .../api/setup` | 終端機（2.5） | 寫入角色、建立第一位管理者 |
 | 6 | 登入，邀請其他同仁 | 瀏覽器 | 這時候才算真的上線 |
-| 7 | 加 `WORKER_URL` 變數 | GitHub（4.2） | 之後每次部署都會自動做健康檢查 |
-| 8 | 網域委派 | DNS（3） | 隨時可做，不擋前面任何一步 |
+| 7 | 網域委派 | DNS（3） | 隨時可做，不擋前面任何一步 |
 
 第 2 步的部署會成功但還不能登入——secret 是執行時才讀的，缺了不影響部署，
 只有 `/api/auth/google/start` 會壞。`/api/health` 那時就該回 `"database":"ok"`。

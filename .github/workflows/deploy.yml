@@ -50,23 +50,32 @@ jobs:
         working-directory: apps/api
         run: npx wrangler d1 migrations apply rueisiang-platform --remote
 
+      # 網址從部署輸出裡讀，不要求人另外維護一個變數：手寫的變數會忘記加
+      # https://、會在綁自訂網域之後過期，而部署輸出永遠是當下的事實。
       - name: 部署 Worker
+        id: deploy
         working-directory: apps/api
-        run: npx wrangler deploy
+        run: |
+          set -o pipefail
+          npx wrangler deploy | tee deploy.log
+          url=$(grep -oE 'https://[A-Za-z0-9.-]+' deploy.log \
+            | grep -vE 'github\.com|cloudflare\.com' \
+            | head -1)
+          if [ -z "$url" ]; then
+            echo "::error::部署輸出裡找不到網址，無法做健康檢查。"
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "::notice::已部署到 $url"
 
       # 煙霧測試：確認 Worker 活著，而且 D1 綁定真的接上了。
-      # WORKER_URL 是 repository variable（Settings → Secrets and variables →
-      # Actions → Variables），例如 https://tools.rueisiang.com
+      # 新部署的 Worker 要幾秒才會在所有節點生效，所以帶重試。
       - name: 確認部署結果
-        if: ${{ vars.WORKER_URL != '' }}
         run: |
-          response=$(curl -sS --retry 5 --retry-delay 3 --retry-all-errors "${{ vars.WORKER_URL }}/api/health")
+          response=$(curl -sS --retry 5 --retry-delay 3 --retry-all-errors \
+            "${{ steps.deploy.outputs.url }}/api/health")
           echo "$response"
           echo "$response" | grep -q '"database":"ok"' || {
-            echo "健康檢查沒過：D1 綁定可能沒接上。"
+            echo "::error::健康檢查沒過：D1 綁定可能沒接上。"
             exit 1
           }
-
-      - name: 提醒設定 WORKER_URL
-        if: ${{ vars.WORKER_URL == '' }}
-        run: echo "::warning::沒有設定 WORKER_URL 這個 repository variable，略過健康檢查。"
