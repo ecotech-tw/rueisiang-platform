@@ -100,8 +100,9 @@ Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
 | `AUTH_SESSION_SECRET` | 一串夠長的亂數，見下方 |
 | `GOOGLE_OAUTH_CLIENT_ID` | 1.2 拿到的用戶端 ID |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | 1.2 拿到的用戶端密鑰 |
-| `SETUP_TOKEN` | 自己想一組長字串，只有第一次要 |
-| `BOOTSTRAP_ADMIN_EMAIL` | 你自己的公司信箱，只有第一次要 |
+
+> **儀表板的變更是「暫存」的，要按 Deploy 才會生效。** 分批新增時很容易漏按，
+> 症狀是 Worker 讀到空值——這件事實際發生過一次，查了三輪才找到。
 
 `AUTH_SESSION_SECRET` 可以在本機這樣產生（這是純 Node，跑得起來）：
 
@@ -138,26 +139,36 @@ Deployed rueisiang-platform triggers (0.52 sec)
 （若之後在 WSL 或別台 Linux 上要手動部署，指令是 `pnpm build` 之後
 `cd apps/api && npx wrangler deploy`。）
 
-### 2.5 初始化資料
+### 2.5 生出第一位管理者（只有全新環境需要）
 
-全新的 D1 只有空表：`roles` 是空的、`users` 也是空的，等於沒有人拿得到權限、
-也沒有人能登入去邀請別人。這一步就是打破這個死結：
+正式環境已經做過這一步了，這節是給日後另開環境（例如 staging）時看的。
 
-```bash
-curl -X POST https://<你的 worker 網址>/api/setup -H "X-Setup-Token: <剛才設的 SETUP_TOKEN>"
+全新的 D1 只有 migration 建出來的空表：`roles` 是空的（沒有人拿得到權限）、
+`users` 也是空的（邀請制，沒有人能登入）。這是個死結，只能從資料庫外面打破。
+
+到 **Storage & Databases → D1 → 你的資料庫 → Console**，把信箱換成你自己的之後執行：
+
+```sql
+INSERT INTO roles (id, key, name, is_system) VALUES ('role-admin', 'admin', '管理者', 1)
+  ON CONFLICT(key) DO NOTHING;
+INSERT INTO role_permissions (role_id, permission) VALUES
+  ('role-admin', 'admin:user:read'), ('role-admin', 'admin:user:write'), ('role-admin', 'admin:role:write')
+  ON CONFLICT DO NOTHING;
+INSERT INTO users (id, email, invited_by) VALUES ('user-bootstrap', 'you@ecotech.tw', 'bootstrap')
+  ON CONFLICT(email) DO NOTHING;
+INSERT INTO user_roles (user_id, role_id, granted_by)
+  SELECT id, 'role-admin', 'bootstrap' FROM users WHERE email = 'you@ecotech.tw'
+  ON CONFLICT DO NOTHING;
 ```
 
-回應 `{"roles":"synced","bootstrap":"created"}` 就成功了。它做兩件事，都可以重複執行：
+刻意只塞三個 `admin:*` 權限，剛好夠這個人登入並進到權限管理頁。其餘的角色與權限
+不必手寫——登入之後按一次「重新同步」，`permissions.ts` 的完整內容就會寫進資料庫。
 
-1. 把 `packages/auth/src/permissions.ts` 定義的四個角色與權限寫進資料庫
-2. 系統完全沒有管理者時，用 `BOOTSTRAP_ADMIN_EMAIL` 建立第一位（狀態是「已邀請」）
+這四行是唯一需要手動碰資料庫的地方，而且它們不依賴 `permissions.ts` 的內容，
+所以日後權限怎麼增減都不會讓這段 SQL 過期。
 
-跑完之後建議把憑證刪掉，那條路由就等同不存在：儀表板的
-**Variables and Secrets** 裡把 `SETUP_TOKEN` 刪除即可
-（等價指令：`npx wrangler secret delete SETUP_TOKEN`）。
-
-**日後改了 `permissions.ts` 要重新同步**：設回 `SETUP_TOKEN`、部署、再打一次
-`/api/setup`、刪掉。角色的權限清單是整組重寫，所以增減權限都會生效。
+**日後改了 `permissions.ts`**：部署之後到權限管理頁按「重新同步」即可，
+那條端點需要 `admin:role:write`，沒有額外的 secret 要管理。
 
 ### 2.6 確認
 
@@ -167,7 +178,7 @@ curl https://<你的 worker 網址>/api/health
 
 看到 `{"status":"ok","database":"ok",...}` 代表 Worker 活著而且 D1 綁定接上了。
 
-接著用瀏覽器開首頁 → 用 `BOOTSTRAP_ADMIN_EMAIL` 那個 Google 帳號登入 →
+接著用瀏覽器開首頁 → 用 2.5 那個信箱的 Google 帳號登入 →
 進「系統管理 / 權限管理」邀請其他同仁。第一次登入會把你的狀態從「已邀請」轉成「啟用中」。
 
 ---
@@ -247,7 +258,7 @@ Worker 還不存在（沒地方放 secret），而且它的網址也還不知道
 | 2 | 跑 Deploy workflow | GitHub Actions（2.4） | 建出 Worker，**輸出會印出 workers.dev 網址** |
 | 3 | 用第 2 步的網址建 Google OAuth client | Google Cloud（1） | 重新導向 URI 需要那個網址 |
 | 4 | 設五個 secret | Cloudflare 儀表板（2.3） | Worker 存在之後才有地方設 |
-| 5 | `curl -X POST .../api/setup` | 終端機（2.5） | 寫入角色、建立第一位管理者 |
+| 5 | 跑四行 SQL 生出第一位管理者 | D1 主控台（2.5） | 空資料庫沒有人能登入，只能從外面打破 |
 | 6 | 登入，邀請其他同仁 | 瀏覽器 | 這時候才算真的上線 |
 | 7 | 網域委派 | DNS（3） | 隨時可做，不擋前面任何一步 |
 

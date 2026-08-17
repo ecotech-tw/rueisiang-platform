@@ -29,7 +29,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 244px minmax(0, 1fr);
+  grid-template-columns: 252px minmax(0, 1fr);
   transition: grid-template-columns .22s ease;
 }
 .shell.sidebar-collapsed { grid-template-columns: 76px minmax(0, 1fr); }
@@ -44,17 +44,20 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   padding: 24px 16px 18px;
   background: #fffafa;
   border-right: 1px solid var(--line);
-  overflow: hidden;
 }
+
+/* 品牌列：展開時是完整字標，收合時換成只有圖記的方章。 */
 .brand-row {
   height: 54px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 5px;
+  overflow: hidden;
   white-space: nowrap;
 }
-.brand-name { color: var(--brand); font-size: 15px; letter-spacing: .08em; }
+.brand-logo { width: 142px; height: auto; object-fit: contain; flex: 0 1 auto; }
+.brand-icon { display: none; width: 34px; height: 34px; object-fit: contain; }
 .product-badge {
   padding: 3px 7px;
   border: 1px solid var(--secondary);
@@ -65,44 +68,270 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   letter-spacing: .12em;
 }
 
-.nav { flex: 1; overflow-y: auto; margin-top: 10px; }
-.nav-section + .nav-section { margin-top: 18px; }
-.nav-section-label {
-  padding: 0 8px 6px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: .1em;
-  white-space: nowrap;
-}
-.shell.sidebar-collapsed .nav-section-label,
-.shell.sidebar-collapsed .nav-item { overflow: hidden; text-overflow: ellipsis; }
-
-.nav-item {
-  display: block;
-  padding: 8px 10px;
-  border-radius: 9px;
-  color: var(--ink);
-  font-size: 13px;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.nav-item:hover { background: var(--soft-line); }
-.nav-item.active { background: var(--brand); color: #fff; font-weight: 700; }
-
-.nav-footer { border-top: 1px solid var(--soft-line); padding-top: 12px; }
 .sidebar-toggle {
-  width: 100%;
-  margin-top: 10px;
-  padding: 7px 10px;
+  position: absolute;
+  top: 28px;
+  right: -17px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--brand);
+  box-shadow: 0 5px 16px rgba(80, 35, 35, .12);
+}
+.sidebar-toggle span {
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+}
+.sidebar-toggle .arrow-left { transform: translateX(2px) rotate(-135deg); }
+.sidebar-toggle .arrow-right { transform: translateX(-2px) rotate(45deg); }
+
+.primary-nav {
+  flex: 1;
+  min-height: 0;
+  margin-top: 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* both-edges：捲軸出現時兩側都留一樣的空間，收合成圖示欄時才不會被推得偏一邊。 */
+  scrollbar-gutter: stable both-edges;
+}
+
+/* ── 階層 ────────────────────────────────────────────────────────────────
+   三層：大項（nav-section）→ 功能（nav-item）→ 子頁面（nav-children 裡的 nav-item）。
+   大項用可收合的標題列，子頁面用左側導引線，讓「誰從屬於誰」不必靠縮排猜。 */
+.nav-section + .nav-section { margin-top: 6px; }
+.nav-section-head {
+  width: 100%;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 11px;
   background: transparent;
   color: var(--muted);
   font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-align: left;
   white-space: nowrap;
 }
-.sidebar-toggle:hover { border-color: var(--secondary); color: var(--brand); }
+.nav-section-head:hover { background: var(--soft-line); color: var(--brand-dark); }
+.nav-section .section-icon { border-color: var(--line); color: var(--secondary); }
+.nav-section.open .section-icon { color: var(--brand); border-color: var(--secondary); }
+.nav-chevron {
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform .18s ease;
+}
+.nav-section.open .nav-chevron { transform: rotate(45deg); }
+
+.nav-section-items { display: none; padding: 2px 0 6px; }
+.nav-section.open .nav-section-items { display: grid; gap: 3px; }
+
+.nav-item {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 12px;
+  color: #6f5a58;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.nav-item:hover { background: #f8ece9; }
+.nav-item.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), #e14842);
+  box-shadow: 0 8px 20px rgba(213, 56, 59, .2);
+}
+.nav-item.active:hover {
+  background: linear-gradient(135deg, var(--brand-dark), var(--brand));
+  box-shadow: 0 10px 24px rgba(173, 40, 44, .28);
+}
+.nav-label { overflow: hidden; text-overflow: ellipsis; }
+.nav-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* 子頁面：左側一條導引線從父項延伸下來，末端一個小節點。 */
+.nav-children { position: relative; margin: 3px 0 3px 25px; display: grid; gap: 3px; }
+.nav-children::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  bottom: 14px;
+  left: 0;
+  width: 1px;
+  background: var(--line);
+}
+.nav-children .nav-node { position: relative; padding-left: 12px; }
+.nav-children .nav-node::before {
+  content: "";
+  position: absolute;
+  top: 20px;
+  left: 0;
+  width: 8px;
+  height: 1px;
+  background: var(--line);
+}
+.nav-children .nav-item { min-height: 36px; grid-template-columns: 22px minmax(0, 1fr); font-size: 12.5px; }
+.nav-children .nav-icon { width: 20px; height: 20px; border-radius: 7px; font-size: 10px; }
+
+.sidebar-foot { border-top: 1px solid var(--soft-line); padding-top: 10px; }
+.sidebar-foot .nav-section + .nav-section { margin-top: 0; }
+
+/* ── 帳號 ───────────────────────────────────────────────────────────────
+   頭像＋姓名一列，點開才出現操作。登出這種一去不復返的動作不該裸露在選單上。 */
+.account-panel { position: relative; margin-top: 10px; min-width: 0; }
+.account-trigger {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+.account-trigger:hover,
+.account-trigger[aria-expanded="true"] { border-color: var(--secondary); background: #fff9f8; }
+.account-avatar {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(145deg, var(--brand), #e86a63);
+  box-shadow: 0 0 0 1px var(--line), 0 5px 12px rgba(173, 40, 44, .16);
+}
+.account-avatar-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.account-avatar-initial { font-size: 15px; font-weight: 800; }
+.account-copy { min-width: 0; display: grid; }
+.account-copy strong,
+.account-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-copy strong { font-size: 12px; }
+.account-copy small { color: var(--muted); font-size: 10px; }
+.account-chevron {
+  width: 8px;
+  height: 8px;
+  margin-right: 3px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform .18s ease;
+}
+.account-trigger[aria-expanded="true"] .account-chevron { transform: rotate(225deg); }
+
+.account-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 9px);
+  z-index: 40;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 16px 36px rgba(64, 30, 30, .16);
+}
+.account-menu-profile { display: grid; gap: 2px; padding: 12px; border-bottom: 1px solid var(--soft-line); }
+.account-menu-profile strong { font-size: 13px; }
+.account-menu-profile small { color: var(--muted); font-size: 11px; word-break: break-all; }
+.account-roles { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.account-role {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  font-size: 11px;
+  font-weight: 700;
+}
+.account-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+}
+.account-menu-item:hover { background: var(--soft-line); }
+.account-menu-item.danger { color: var(--brand-dark); font-weight: 700; }
+.account-menu-item.danger:hover { background: var(--brand-soft); }
+
+/* ── 收合後的窄欄 ─────────────────────────────────────────────────────── */
+.sidebar-collapsed .sidebar { padding-inline: 8px; }
+.sidebar-collapsed .brand-logo,
+.sidebar-collapsed .product-badge,
+.sidebar-collapsed .nav-label,
+.sidebar-collapsed .nav-chevron,
+.sidebar-collapsed .account-copy,
+.sidebar-collapsed .account-chevron { display: none; }
+.sidebar-collapsed .brand-row { justify-content: center; }
+.sidebar-collapsed .brand-icon { display: block; }
+/* 只剩圖示就不需要那麼高的點擊區，壓縮一點讓整份選單在筆電上不用捲。 */
+.sidebar-collapsed .nav-item { grid-template-columns: 1fr; justify-items: center; padding: 0; min-height: 38px; }
+/*
+ * 收合後標題讀不到，留著大項的標題列只會多一排看不懂的圖示，
+ * 所以整段藏起來、把功能項一律攤開，改用分隔線表達分組。
+ */
+.sidebar-collapsed .nav-section-head { display: none; }
+.sidebar-collapsed .nav-section-items { display: grid; gap: 3px; }
+.sidebar-collapsed .nav-section + .nav-section {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--soft-line);
+}
+.sidebar-collapsed .nav-children { margin-left: 0; }
+.sidebar-collapsed .nav-children::before,
+.sidebar-collapsed .nav-children .nav-node::before { display: none; }
+.sidebar-collapsed .nav-children .nav-node { padding-left: 0; }
+.sidebar-collapsed .nav-children .nav-item { grid-template-columns: 1fr; }
+.sidebar-collapsed .account-trigger { display: flex; justify-content: center; gap: 0; padding: 6px; }
+.sidebar-collapsed .account-menu { left: 52px; right: auto; bottom: 0; width: 232px; }
+
+.mobile-topbar,
+.mobile-menu-backdrop { display: none; }
 
 .content { padding: 32px 36px; min-width: 0; }
 .page-head { margin-bottom: 20px; }
@@ -118,6 +347,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 
 .panel + .panel { margin-top: 20px; }
 .panel-title { margin: 0 0 14px; font-size: 15px; }
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.panel-head .panel-title { margin-bottom: 0; }
 
 /* 權限管理頁 */
 .admin-form {
@@ -245,14 +481,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 }
 .role-card ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
 
-.account { padding: 8px 4px 2px; }
-.account-name {
-  color: var(--muted);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .link-button {
   padding: 0;
   border: 0;
@@ -296,8 +524,83 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 }
 .login-note { margin-top: 6px; font-size: 12px; }
 
+/* 手機：sidebar 變成從左側滑出的抽屜，平常收著不佔版面。 */
 @media (max-width: 900px) {
-  .shell, .shell.sidebar-collapsed { grid-template-columns: 1fr; }
-  .sidebar { position: static; height: auto; }
+  .shell,
+  .shell.sidebar-collapsed {
+    grid-template-columns: 1fr;
+    /* 不寫這行的話，兩個自動列會平分 100vh 的剩餘空間，上方列被拉成一大塊空白。 */
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .mobile-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    background: #fffafa;
+    border-bottom: 1px solid var(--line);
+  }
+  .mobile-topbar img { width: 118px; height: auto; }
+  .mobile-topbar button {
+    display: grid;
+    gap: 4px;
+    width: 40px;
+    padding: 9px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--paper);
+  }
+  .mobile-topbar button span { height: 2px; border-radius: 2px; background: var(--brand); }
+
+  .sidebar,
+  .shell.sidebar-collapsed .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 264px;
+    padding-inline: 16px;
+    transform: translateX(-100%);
+    transition: transform .22s ease;
+  }
+  /* 打開時要疊在上方列之上，否則抽屜自己的品牌列會被蓋掉半截。
+     抽屜只有 264px 寬，右邊的漢堡鈕露在外面，仍然點得到（用來關閉）。 */
+  .mobile-menu-open .sidebar {
+    z-index: 31;
+    transform: translateX(0);
+    box-shadow: 0 0 60px rgba(64, 30, 30, .28);
+  }
+
+  /* 抽屜是靠 transform 開合的，收合窄欄那套在手機上沒有意義。 */
+  .shell.sidebar-collapsed .brand-logo,
+  .shell.sidebar-collapsed .product-badge,
+  .shell.sidebar-collapsed .nav-label,
+  .shell.sidebar-collapsed .nav-chevron,
+  .shell.sidebar-collapsed .account-copy,
+  .shell.sidebar-collapsed .account-chevron { display: revert; }
+  .shell.sidebar-collapsed .brand-icon { display: none; }
+  .shell.sidebar-collapsed .nav-section-head,
+  .shell.sidebar-collapsed .nav-item { grid-template-columns: 30px minmax(0, 1fr); justify-items: stretch; padding: 0 10px; }
+  .shell.sidebar-collapsed .nav-section-items { display: none; }
+  .shell.sidebar-collapsed .nav-section.open .nav-section-items { display: grid; }
+  .shell.sidebar-collapsed .nav-children { margin-left: 25px; }
+  .shell.sidebar-collapsed .account-trigger { display: grid; gap: 9px; padding: 8px; }
+  .shell.sidebar-collapsed .account-menu { left: 0; right: 0; bottom: calc(100% + 9px); width: auto; }
+  .sidebar-toggle { display: none; }
+
+  .mobile-menu-open .mobile-menu-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    border: 0;
+    background: rgba(53, 28, 29, .38);
+  }
+
   .content { padding: 20px 16px; }
 }

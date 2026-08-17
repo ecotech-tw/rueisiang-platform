@@ -6,6 +6,7 @@ import {
   useInvite,
   useRevokeRole,
   useSetStatus,
+  useSyncRoles,
   useUsers,
   type AdminUser,
   type Assignment,
@@ -260,6 +261,7 @@ export function AdminUsers() {
   const { user } = useSession();
   const users = useUsers();
   const catalog = useCatalog();
+  const syncRoles = useSyncRoles();
 
   if (users.isPending || catalog.isPending) {
     return <div className="boot">載入中…</div>;
@@ -315,11 +317,22 @@ export function AdminUsers() {
       </section>
 
       <section className="panel">
-        <h2 className="panel-title">角色各自能做什麼</h2>
+        <div className="panel-head">
+          <h2 className="panel-title">角色各自能做什麼</h2>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={syncRoles.isPending}
+            onClick={() => syncRoles.mutate()}
+          >
+            {syncRoles.isPending ? "同步中…" : "重新同步"}
+          </button>
+        </div>
         <p className="muted">
-          權限清單定義在程式碼（<code>packages/auth/src/permissions.ts</code>），部署後由 <code>syncSystemRoles</code>
-          同步進資料庫，所以這一頁改不了角色的內容，只能決定誰拿到哪個角色。
+          權限清單定義在程式碼（<code>packages/auth/src/permissions.ts</code>），改過並部署之後按一次
+          「重新同步」就會寫進資料庫。這一頁改不了角色的內容，只能決定誰拿到哪個角色。
         </p>
+        {syncRoles.error ? <p className="form-error" role="alert">{syncRoles.error.message}</p> : null}
         <div className="role-grid">
           {catalogData.roles.map((role) => (
             <div className="role-card" key={role.key}>

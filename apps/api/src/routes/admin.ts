@@ -9,6 +9,7 @@ import {
   listUsers,
   revokeRole,
   setUserStatus,
+  syncSystemRoles,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -90,6 +91,17 @@ export const admin = new Hono<AppEnv>()
       permissions: PERMISSIONS,
       scopeTypes: SCOPE_TYPES,
     });
+  })
+
+  /**
+   * 把 permissions.ts 定義的角色權限重新寫進資料庫。改過那個檔案並部署之後跑一次。
+   *
+   * 這件事本來是靠一條用共用憑證保護的 /api/setup。系統有管理者之後就不需要了——
+   * 誰能調權限本來就該由 RBAC 自己回答，不必再多一組要記得刪掉的 secret。
+   */
+  .post("/roles/sync", requirePermission("admin:role:write"), async (c) => {
+    await syncSystemRoles(c.get("db"));
+    return c.json({ roles: await listRoles(c.get("db")) });
   })
 
   /** 邀請。帳號建立時是 invited，對方用 Google 登入過才會變成 active。 */

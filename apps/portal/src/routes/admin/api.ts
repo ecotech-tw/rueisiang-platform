@@ -106,6 +106,18 @@ export function useAssignRole() {
   );
 }
 
+/**
+ * 把 permissions.ts 的內容重新寫進資料庫。改過權限並部署之後按一次。
+ * 這裡要把整個 admin 的快取都作廢——角色目錄與每個人的權限都可能變了。
+ */
+export function useSyncRoles() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => request("/api/admin/roles/sync", { method: "POST" }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["admin"] }),
+  });
+}
+
 export function useRevokeRole() {
   return useAdminMutation((input: { id: string; roleKey: string } & ScopeInput) => {
     const params = new URLSearchParams({ roleKey: input.roleKey });

@@ -9,10 +9,6 @@ export interface Env {
   AUTH_SESSION_SECRET: string;
   GOOGLE_OAUTH_CLIENT_ID: string;
   GOOGLE_OAUTH_CLIENT_SECRET: string;
-  /** 系統還沒有任何管理者時，用來建立第一位的信箱。建好之後就不再作用。 */
-  BOOTSTRAP_ADMIN_EMAIL?: string;
-  /** 部署後呼叫 /api/setup 用的憑證。沒設定時那條路由等同不存在。 */
-  SETUP_TOKEN?: string;
 }
 
 export interface AppEnv {
