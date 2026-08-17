@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { userRoles, users } from "@rueisiang/db/schema";
-import { eq } from "drizzle-orm";
+import { rolePermissions, userRoles, users } from "@rueisiang/db/schema";
+import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTestD1, type TestD1 } from "./test-support/d1.js";
@@ -323,6 +323,48 @@ describe("角色目錄", () => {
     expect(body.roles.find((role) => role.key === "viewer")?.permissions).not.toContain("admin:user:write");
     expect(body.permissions["admin:user:write"]).toBe("邀請與停用帳號");
     expect(body.scopeTypes).toEqual(["store", "warehouse"]);
+  });
+});
+
+describe("重新同步角色權限", () => {
+  it("一般同仁打不到", async () => {
+    const id = await seedUser("staff@ecotech.tw", "role-staff");
+    const response = await as(id, "staff@ecotech.tw", "/api/admin/roles/sync", { method: "POST" });
+    expect(response.status).toBe(403);
+  });
+
+  it("把資料庫裡被亂改的權限修回程式碼定義的樣子", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+
+    // 模擬有人直接動資料庫：多塞一筆不存在的權限，再刪掉一筆該有的。
+    await db().insert(rolePermissions).values({ roleId: "role-viewer", permission: "crm:customer:write" });
+    await db()
+      .delete(rolePermissions)
+      .where(
+        and(eq(rolePermissions.roleId, "role-viewer"), eq(rolePermissions.permission, "crm:customer:read")),
+      );
+
+    const response = await as(admin, "admin@ecotech.tw", "/api/admin/roles/sync", { method: "POST" });
+    expect(response.status).toBe(200);
+
+    const viewer = await db().select().from(rolePermissions).where(eq(rolePermissions.roleId, "role-viewer"));
+    const permissions = viewer.map((row) => row.permission);
+    expect(permissions).toContain("crm:customer:read");
+    expect(permissions).not.toContain("crm:customer:write");
+  });
+
+  it("同步完當場就影響授權判定", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const viewer = await seedUser("viewer@ecotech.tw", "role-viewer");
+
+    // 把 admin:user:read 塞給檢視者，他就看得到帳號列表了。
+    await db().insert(rolePermissions).values({ roleId: "role-viewer", permission: "admin:user:read" });
+    expect((await as(viewer, "viewer@ecotech.tw", "/api/admin/users")).status).toBe(200);
+
+    await as(admin, "admin@ecotech.tw", "/api/admin/roles/sync", { method: "POST" });
+
+    // 同步之後那筆多出來的權限被清掉，下一個請求就擋下來。
+    expect((await as(viewer, "viewer@ecotech.tw", "/api/admin/users")).status).toBe(403);
   });
 });
 

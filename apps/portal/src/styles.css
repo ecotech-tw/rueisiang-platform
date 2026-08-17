@@ -118,6 +118,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 
 .panel + .panel { margin-top: 20px; }
 .panel-title { margin: 0 0 14px; font-size: 15px; }
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.panel-head .panel-title { margin-bottom: 0; }
 
 /* 權限管理頁 */
 .admin-form {

@@ -26,16 +26,13 @@ migrations_dir = "../../packages/db/migrations"
 # pattern = "tools.rueisiang.com"
 # custom_domain = true
 
-# 部署前要設的 secret（值不進版控）：
-#   npx wrangler secret put AUTH_SESSION_SECRET
-#   npx wrangler secret put GOOGLE_OAUTH_CLIENT_ID
-#   npx wrangler secret put GOOGLE_OAUTH_CLIENT_SECRET
+# 需要的 secret 一共三個（值不進版控，在 Cloudflare 儀表板或用指令設）：
+#   AUTH_SESSION_SECRET        簽 session cookie 用，換掉等於所有人登出
+#   GOOGLE_OAUTH_CLIENT_ID
+#   GOOGLE_OAUTH_CLIENT_SECRET
 #
-# 只有第一次上線（或改過 permissions.ts 要重新同步）才需要的兩個：
-#   npx wrangler secret put SETUP_TOKEN            # 呼叫 POST /api/setup 的憑證
-#   npx wrangler secret put BOOTSTRAP_ADMIN_EMAIL  # 第一位管理者的信箱
-# 跑完 /api/setup 之後可以 `wrangler secret delete SETUP_TOKEN` 把那條路由關掉。
-# 詳細步驟見 docs/deployment-setup.md。
+# 改過 permissions.ts 之後，用權限管理頁的「重新同步」按鈕寫進資料庫，
+# 不需要額外的 secret。詳細步驟見 docs/deployment-setup.md。
 
 [observability]
 enabled = true

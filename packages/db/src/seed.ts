@@ -1,13 +1,17 @@
 import { SYSTEM_ROLES } from "@rueisiang/auth";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { rolePermissions, roles, userRoles, users } from "./schema/auth.js";
+import { rolePermissions, roles } from "./schema/auth.js";
 
 /**
  * 把程式碼裡定義的系統角色同步進資料庫。
  *
- * 每次部署後執行都安全（冪等）：角色照 key 對應，權限整組重寫，
+ * 每次執行都安全（冪等）：角色照 key 對應，權限整組重寫，
  * 所以在 permissions.ts 增減權限之後跑一次就會生效，不必手動改資料。
+ *
+ * 由 POST /api/admin/roles/sync 呼叫，需要 admin:role:write。全新的環境要怎麼
+ * 生出第一位管理者見 docs/deployment-setup.md——那是一次性的、資料庫層的動作，
+ * 不該在程式裡留一條平常沒人走的路。
  */
 export async function syncSystemRoles(db: Database): Promise<void> {
   for (const [key, definition] of Object.entries(SYSTEM_ROLES)) {
@@ -28,40 +32,4 @@ export async function syncSystemRoles(db: Database): Promise<void> {
       );
     }
   }
-}
-
-/**
- * 建立第一位管理者。系統完全沒有可用管理者時才會動作，
- * 否則直接跳過——避免部署設定殘留把某個信箱一直塞回管理者。
- */
-export async function ensureBootstrapAdmin(db: Database, email: string): Promise<"created" | "skipped"> {
-  const normalized = email.trim().toLowerCase();
-  if (!normalized) return "skipped";
-
-  const [existingAdmin] = await db
-    .select({ userId: userRoles.userId })
-    .from(userRoles)
-    .innerJoin(roles, eq(roles.id, userRoles.roleId))
-    .where(eq(roles.key, "admin"))
-    .limit(1);
-  if (existingAdmin) return "skipped";
-
-  const [existingUser] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.email, normalized))
-    .limit(1);
-
-  const userId = existingUser?.id ?? `user-${crypto.randomUUID()}`;
-  if (!existingUser) {
-    await db.insert(users).values({ id: userId, email: normalized, invitedBy: "bootstrap" });
-  }
-
-  await db
-    .insert(userRoles)
-    .values({ userId, roleId: "role-admin", grantedBy: "bootstrap" })
-    .onConflictDoNothing();
-
-  await db.update(users).set({ updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(users.id, userId));
-  return "created";
 }

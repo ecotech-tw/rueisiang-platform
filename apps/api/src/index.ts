@@ -6,7 +6,6 @@ import type { AppEnv } from "./env.js";
 import { admin } from "./routes/admin.js";
 import { auth } from "./routes/auth.js";
 import { health } from "./routes/health.js";
-import { setup } from "./routes/setup.js";
 
 /**
  * 平台唯一的 Worker：/api/* 由這裡處理，其餘交給 Static Assets（portal 的 SPA）。
@@ -24,8 +23,7 @@ app.use("*", withDatabase);
 const routes = app
   .route("/health", health)
   .route("/auth", auth)
-  .route("/admin", admin)
-  .route("/setup", setup);
+  .route("/admin", admin);
 
 // 打錯的 API 路徑要回 JSON，不要掉進 SPA 的 index.html。
 app.notFound((c) => c.json({ error: "Not found" }, 404));

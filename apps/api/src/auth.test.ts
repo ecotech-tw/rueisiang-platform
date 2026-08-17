@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, ensureBootstrapAdmin, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, syncSystemRoles } from "@rueisiang/db";
 import { users, userRoles } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -159,21 +159,3 @@ describe("已登入", () => {
   });
 });
 
-describe("第一位管理者", () => {
-  it("系統沒有管理者時會建立", async () => {
-    const db = createDatabase(d1 as never);
-    expect(await ensureBootstrapAdmin(db, "first@ecotech.tw")).toBe("created");
-
-    const user = await db.select().from(users).where(eq(users.email, "first@ecotech.tw"));
-    expect(user[0]?.status).toBe("invited");
-  });
-
-  it("已經有管理者就不再動作——避免設定殘留把某個信箱塞回管理者", async () => {
-    const db = createDatabase(d1 as never);
-    await seedUser("existing@ecotech.tw", "role-admin");
-    expect(await ensureBootstrapAdmin(db, "someone@ecotech.tw")).toBe("skipped");
-
-    const rows = await db.select().from(users).where(eq(users.email, "someone@ecotech.tw"));
-    expect(rows).toHaveLength(0);
-  });
-});
