@@ -35,15 +35,28 @@ Cloudflare 帳號，沒辦法由程式自己生出來。照著這份文件走一
 
 「憑證」→「建立憑證」→「OAuth 用戶端 ID」→ 類型選 **網頁應用程式**。
 
-**已授權的重新導向 URI** 要填這兩條（先各填一條，正式網域還沒通之前用 workers.dev 那條測）：
+**已授權的重新導向 URI** 要填兩條：正式網域一條，workers.dev 一條
+（網域還沒委派之前就是靠後者測）。
 
 ```
 https://tools.rueisiang.com/api/auth/google/callback
 https://rueisiang-platform.<你的帳號子網域>.workers.dev/api/auth/google/callback
 ```
 
-路徑必須**一字不差**——程式用同一個 URL 去換 token，Google 會逐字比對
-（`apps/api/src/routes/auth.ts` 的 `CALLBACK_PATH`）。
+`rueisiang-platform` 是 Worker 的名字，來自 `apps/api/wrangler.toml` 的 `name`，
+這個不會變。**`<你的帳號子網域>` 則是 Cloudflare 帳號層級的設定，猜不出來**，
+三個地方都看得到：
+
+1. 先跑一次 2.4 的部署，輸出會直接印出完整網址（最省事）
+2. Cloudflare 儀表板 → Compute (Workers) → 右側資訊欄的 `xxx.workers.dev`
+3. 部署完之後 Worker 頁面上的網址
+
+如果你的帳號從來沒用過 Workers，第一次部署時 Cloudflare 會要你挑一個子網域，
+挑完就固定了。
+
+路徑部分必須**一字不差**——程式換 token 時會把同一個 URL 再送一次，
+Google 會逐字比對（`apps/api/src/routes/auth.ts` 的 `CALLBACK_PATH`）。
+結尾沒有斜線，`http` 不行、大小寫也要一致。
 
 建完會拿到 **用戶端 ID** 與 **用戶端密鑰**，下一節要用。程式要的 scope 是
 `openid email profile`，這是預設值，不必另外開通任何 API。
@@ -52,45 +65,55 @@ https://rueisiang-platform.<你的帳號子網域>.workers.dev/api/auth/google/c
 
 ## 2. Cloudflare — Worker 與 D1
 
-需要一個 Cloudflare 帳號（免費方案就夠）。以下指令在專案根目錄執行。
+需要一個 Cloudflare 帳號（免費方案就夠）。
 
-### 2.1 登入並建立資料庫
+> **這台開發機不能執行任何 wrangler 指令。** Windows on ARM 沒有 workerd 執行檔，
+> 而 wrangler 一啟動就會載入它——`whoami`、`secret put`、`d1 create` 全都會直接
+> 拋 `Unsupported platform: win32 arm64 LE`，不是只有 `dev` 和 `deploy` 而已。
+>
+> 所以底下用**儀表板**操作。如果你手上有 WSL 或別台 Linux/macOS，
+> 括號裡的 wrangler 指令是等價的做法。
 
-```bash
-npx wrangler login
-npx wrangler d1 create rueisiang-platform
-```
+### 2.1 建立資料庫 ✅ 已完成
 
-第二行會印出一段 `database_id`。把它貼進 `apps/api/wrangler.toml` 取代
-`"TODO_建立後填入"`。這個值不是機密，可以進版控。
+D1 資料庫 `rueisiang-platform` 已經建好，`database_id` 也填進
+`apps/api/wrangler.toml` 了。這個值不是機密，可以進版控。
 
-### 2.2 套用 migration
+（等價指令：`npx wrangler d1 create rueisiang-platform`）
 
-```bash
-cd apps/api
-npx wrangler d1 migrations apply rueisiang-platform --remote
-```
+### 2.2 套用 migration — 不用手動做
 
-`--remote` 是打真正的 D1；不加會套用到本機的模擬檔案。
+`deploy.yml` 每次部署都會執行 `wrangler d1 migrations apply --remote`，
+而且排在部署之前。已經套用過的 migration 不會重複執行。
 
 ### 2.3 設定 secret
 
+**要等第一次部署之後**——Worker 還不存在的時候，儀表板上沒有地方可以放這些值。
+所以真正的順序是「先部署（2.4）→ 回來設 secret → 再初始化（2.5）」。
+第一次部署不會因為缺少這些 secret 而失敗，它們是執行時才讀的。
+
+Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
+**Settings** → **Variables and Secrets** → Add，型別選 **Secret**：
+
+| 名稱 | 值 |
+|---|---|
+| `AUTH_SESSION_SECRET` | 一串夠長的亂數，見下方 |
+| `GOOGLE_OAUTH_CLIENT_ID` | 1.2 拿到的用戶端 ID |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | 1.2 拿到的用戶端密鑰 |
+| `SETUP_TOKEN` | 自己想一組長字串，只有第一次要 |
+| `BOOTSTRAP_ADMIN_EMAIL` | 你自己的公司信箱，只有第一次要 |
+
+`AUTH_SESSION_SECRET` 可以在本機這樣產生（這是純 Node，跑得起來）：
+
 ```bash
-cd apps/api
-
-# 簽 session cookie 用的金鑰。隨便一串夠長的亂數，只有這個 Worker 需要知道。
-node -e "console.log(crypto.randomUUID() + crypto.randomUUID())" | npx wrangler secret put AUTH_SESSION_SECRET
-
-npx wrangler secret put GOOGLE_OAUTH_CLIENT_ID       # 貼上 1.2 的用戶端 ID
-npx wrangler secret put GOOGLE_OAUTH_CLIENT_SECRET   # 貼上 1.2 的用戶端密鑰
-
-# 只有第一次上線需要的兩個
-npx wrangler secret put SETUP_TOKEN                  # 自己想一組長字串
-npx wrangler secret put BOOTSTRAP_ADMIN_EMAIL        # 你自己的公司信箱
+node -e "console.log(crypto.randomUUID() + crypto.randomUUID())"
 ```
 
-`AUTH_SESSION_SECRET` 換掉會讓所有人的登入狀態失效（cookie 驗不過），
-所以之後不要隨手換。
+這把金鑰換掉會讓所有人的登入狀態失效（cookie 驗不過），所以之後不要隨手換。
+
+secret 存進去就立即生效，不必重新部署；之後的部署也不會把它們洗掉。
+
+（等價指令：`cd apps/api && npx wrangler secret put <名稱>`）
 
 ### 2.4 部署
 
@@ -99,6 +122,18 @@ npx wrangler secret put BOOTSTRAP_ADMIN_EMAIL        # 你自己的公司信箱
 
 workflow 的順序是：安裝 → 型別檢查 → 測試 → build → 套用 D1 migration → 部署 → 健康檢查。
 migration 排在部署之前，因為新欄位要在讀它的程式上線之前就存在。
+
+**這是整個流程裡第一個該做的動作**，即使 secret 都還沒設、Google client 也還沒建。
+理由是部署的輸出會印出這個 Worker 的正式網址：
+
+```
+Deployed rueisiang-platform triggers (0.52 sec)
+  https://rueisiang-platform.<你的帳號子網域>.workers.dev
+```
+
+那串 `<你的帳號子網域>` 不是可以自己猜的——它是 Cloudflare 帳號層級的設定，
+每個帳號一組。1.2 的重新導向 URI 和 4.2 的 `WORKER_URL` 都要用到它，
+先部署一次就一次拿到，不必去別的地方翻。
 
 （若之後在 WSL 或別台 Linux 上要手動部署，指令是 `pnpm build` 之後
 `cd apps/api && npx wrangler deploy`。）
@@ -117,11 +152,9 @@ curl -X POST https://<你的 worker 網址>/api/setup -H "X-Setup-Token: <剛才
 1. 把 `packages/auth/src/permissions.ts` 定義的四個角色與權限寫進資料庫
 2. 系統完全沒有管理者時，用 `BOOTSTRAP_ADMIN_EMAIL` 建立第一位（狀態是「已邀請」）
 
-跑完之後建議把憑證刪掉，那條路由就等同不存在：
-
-```bash
-npx wrangler secret delete SETUP_TOKEN
-```
+跑完之後建議把憑證刪掉，那條路由就等同不存在：儀表板的
+**Variables and Secrets** 裡把 `SETUP_TOKEN` 刪除即可
+（等價指令：`npx wrangler secret delete SETUP_TOKEN`）。
 
 **日後改了 `permissions.ts` 要重新同步**：設回 `SETUP_TOKEN`、部署、再打一次
 `/api/setup`、刪掉。角色的權限清單是整組重寫，所以增減權限都會生效。
@@ -173,7 +206,7 @@ repo（`ecotech-tw/rueisiang-platform`）已經存在，不必新開。要加的
 | 名稱 | 哪裡拿 |
 |---|---|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare 儀表板 → 右上角個人資料 → API Tokens → Create Token |
-| `CLOUDFLARE_ACCOUNT_ID` | 儀表板網址列那串十六進位，或本機執行 `npx wrangler whoami` |
+| `CLOUDFLARE_ACCOUNT_ID` | 儀表板網址列 `dash.cloudflare.com/` 後面那串十六進位 |
 
 建 API token 時從「**Edit Cloudflare Workers**」範本開始，**再手動加上 D1 的編輯權限**——
 範本預設不含 D1，少了它 `d1 migrations apply` 會失敗。最後需要的權限是：
@@ -205,15 +238,29 @@ repo（`ecotech-tw/rueisiang-platform`）已經存在，不必新開。要加的
 
 ---
 
-## 順序建議
+## 執行順序
 
-前兩節（Google + Cloudflare）可以先做，用 `*.workers.dev` 的網址就能完整測登入與權限管理。
-網域委派牽涉到現有 DNS，可以晚一點再處理，不會擋住驗證。
+文件的章節是照主題分的，實際動手的順序不一樣——**先部署一次**，因為在那之前
+Worker 還不存在（沒地方放 secret），而且它的網址也還不知道。
+
+| # | 做什麼 | 在哪裡 | 為什麼是這個順序 |
+|---|---|---|---|
+| 1 | 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` | GitHub（4.1） | 部署的前提 |
+| 2 | 跑 Deploy workflow | GitHub Actions（2.4） | 建出 Worker，**輸出會印出 workers.dev 網址** |
+| 3 | 用第 2 步的網址建 Google OAuth client | Google Cloud（1） | 重新導向 URI 需要那個網址 |
+| 4 | 設五個 secret | Cloudflare 儀表板（2.3） | Worker 存在之後才有地方設 |
+| 5 | `curl -X POST .../api/setup` | 終端機（2.5） | 寫入角色、建立第一位管理者 |
+| 6 | 登入，邀請其他同仁 | 瀏覽器 | 這時候才算真的上線 |
+| 7 | 加 `WORKER_URL` 變數 | GitHub（4.2） | 之後每次部署都會自動做健康檢查 |
+| 8 | 網域委派 | DNS（3） | 隨時可做，不擋前面任何一步 |
+
+第 2 步的部署會成功但還不能登入——secret 是執行時才讀的，缺了不影響部署，
+只有 `/api/auth/google/start` 會壞。`/api/health` 那時就該回 `"database":"ok"`。
 
 | 步驟 | 需要誰 | 卡點 |
 |---|---|---|
 | Google OAuth client | 你（Workspace 管理者） | 同意畫面選內部還是外部，取決於同仁信箱網域 |
-| Cloudflare 帳號與 D1 | 你 | 無，免費方案即可 |
+| Cloudflare 帳號與 D1 | 你 | 已完成 |
 | GitHub secret 與變數 | 你 | API token 的 D1 權限要手動加，範本沒有 |
-| 部署 | GitHub Actions | 這台開發機跑不了 `workerd` |
+| 部署 | GitHub Actions | 這台開發機連 `wrangler whoami` 都跑不了 |
 | 網域委派 | 管 `rueisiang.com` DNS 的人 | 要確認現有記錄不會被弄斷 |
