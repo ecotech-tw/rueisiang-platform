@@ -1,0 +1,118 @@
+import type { Permission } from "@rueisiang/auth/permissions";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+/**
+ * 權限管理頁的資料層。型別在這裡重寫一份而不是從 @rueisiang/db 匯入——
+ * portal 是純前端，不該相依資料庫套件；這些形狀由 API 的回應決定。
+ */
+
+export interface Assignment {
+  roleKey: string;
+  roleName: string;
+  scopeType: string;
+  scopeId: string;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  status: "invited" | "active" | "disabled";
+  lastLoginAt: string | null;
+  createdAt: string;
+  assignments: Assignment[];
+}
+
+export interface RoleInfo {
+  key: string;
+  name: string;
+  isSystem: boolean;
+  permissions: Permission[];
+}
+
+export interface Catalog {
+  roles: RoleInfo[];
+  permissions: Record<string, string>;
+  scopeTypes: string[];
+}
+
+/** API 的錯誤訊息本來就是要給人看的中文，直接往上丟給畫面顯示。 */
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: init.body ? { "Content-Type": "application/json" } : undefined,
+    ...init,
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? `操作失敗（${response.status}）`);
+  }
+  return (await response.json()) as T;
+}
+
+const USERS_KEY = ["admin", "users"];
+
+export function useUsers() {
+  return useQuery({
+    queryKey: USERS_KEY,
+    queryFn: () => request<{ users: AdminUser[] }>("/api/admin/users").then((data) => data.users),
+  });
+}
+
+export function useCatalog() {
+  return useQuery({
+    queryKey: ["admin", "catalog"],
+    queryFn: () => request<Catalog>("/api/admin/roles"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** 每個異動都重新拉一次列表：管理操作不頻繁，正確性比省一次往返重要。 */
+function useAdminMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => client.invalidateQueries({ queryKey: USERS_KEY }),
+  });
+}
+
+export interface ScopeInput {
+  scopeType: string;
+  scopeId: string;
+}
+
+export function useInvite() {
+  return useAdminMutation((input: { email: string; roleKey?: string } & Partial<ScopeInput>) =>
+    request("/api/admin/users", { method: "POST", body: JSON.stringify(input) }),
+  );
+}
+
+export function useSetStatus() {
+  return useAdminMutation((input: { id: string; status: "active" | "disabled" }) =>
+    request(`/api/admin/users/${encodeURIComponent(input.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: input.status }),
+    }),
+  );
+}
+
+export function useAssignRole() {
+  return useAdminMutation((input: { id: string; roleKey: string } & ScopeInput) =>
+    request(`/api/admin/users/${encodeURIComponent(input.id)}/roles`, {
+      method: "POST",
+      body: JSON.stringify({ roleKey: input.roleKey, scopeType: input.scopeType, scopeId: input.scopeId }),
+    }),
+  );
+}
+
+export function useRevokeRole() {
+  return useAdminMutation((input: { id: string; roleKey: string } & ScopeInput) => {
+    const params = new URLSearchParams({ roleKey: input.roleKey });
+    if (input.scopeType) {
+      params.set("scopeType", input.scopeType);
+      params.set("scopeId", input.scopeId);
+    }
+    return request(`/api/admin/users/${encodeURIComponent(input.id)}/roles?${params}`, { method: "DELETE" });
+  });
+}

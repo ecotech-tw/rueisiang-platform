@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useSession } from "./auth/session.js";
+import { AdminUsers } from "./routes/admin/Users.js";
 import { Login } from "./routes/Login.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { AppShell } from "./shell/AppShell.js";
@@ -56,7 +57,7 @@ export function App() {
         </Route>
 
         <Route path="admin">
-          <Route path="users" element={<Placeholder title="權限管理" phase="Phase 1（進行中）" from="新建（取代兩套各自的 app_users）" />} />
+          <Route path="users" element={<AdminUsers />} />
         </Route>
 
         <Route path="*" element={<Placeholder title="找不到頁面" phase="—" from="—" />} />

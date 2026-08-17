@@ -116,6 +116,135 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   box-shadow: var(--shadow);
 }
 
+.panel + .panel { margin-top: 20px; }
+.panel-title { margin: 0 0 14px; font-size: 15px; }
+
+/* 權限管理頁 */
+.admin-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.admin-form.inline { margin-top: 8px; }
+.admin-form input,
+.admin-form select {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.admin-form input:focus-visible,
+.admin-form select:focus-visible { outline: 2px solid var(--secondary); outline-offset: 1px; }
+.admin-form input[type="email"] { min-width: 260px; }
+
+.primary-button {
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+}
+.primary-button:hover:not(:disabled) { background: var(--brand-dark); }
+.primary-button:disabled { opacity: .55; cursor: not-allowed; }
+
+.ghost-button {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ghost-button:hover:not(:disabled) { border-color: var(--secondary); }
+.ghost-button.danger { color: var(--brand-dark); }
+.ghost-button:disabled { opacity: .45; cursor: not-allowed; }
+
+.form-error {
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 8px 11px;
+  border-radius: 9px;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  font-size: 13px;
+}
+
+.table-scroll { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th {
+  padding: 0 10px 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-align: left;
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--soft-line);
+  vertical-align: top;
+}
+.cell-strong { font-weight: 700; }
+.cell-sub { color: var(--muted); font-size: 12px; }
+
+.status {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.status-active { background: #e8f3ec; color: #2f6b45; }
+.status-invited { background: var(--soft-line); color: var(--muted); }
+.status-disabled { background: var(--brand-soft); color: var(--brand-dark); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 12px;
+  font-weight: 700;
+}
+.chip-scope { color: var(--muted); font-weight: 400; }
+.chip button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--soft-line);
+  color: var(--muted);
+  line-height: 1;
+}
+.chip button:hover { background: var(--brand); color: #fff; }
+
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.role-card {
+  padding: 12px 14px;
+  border: 1px solid var(--soft-line);
+  border-radius: 11px;
+}
+.role-card ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+
 .account { padding: 8px 4px 2px; }
 .account-name {
   color: var(--muted);

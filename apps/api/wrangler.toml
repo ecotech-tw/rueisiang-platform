@@ -18,7 +18,7 @@ run_worker_first = ["/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "rueisiang-platform"
-database_id = "TODO_建立後填入"
+database_id = "51443700-c187-4ddb-868b-6b88d7ea43f1"
 migrations_dir = "../../packages/db/migrations"
 
 # 正式網域。子網域委派完成後再打開。
@@ -30,6 +30,12 @@ migrations_dir = "../../packages/db/migrations"
 #   npx wrangler secret put AUTH_SESSION_SECRET
 #   npx wrangler secret put GOOGLE_OAUTH_CLIENT_ID
 #   npx wrangler secret put GOOGLE_OAUTH_CLIENT_SECRET
+#
+# 只有第一次上線（或改過 permissions.ts 要重新同步）才需要的兩個：
+#   npx wrangler secret put SETUP_TOKEN            # 呼叫 POST /api/setup 的憑證
+#   npx wrangler secret put BOOTSTRAP_ADMIN_EMAIL  # 第一位管理者的信箱
+# 跑完 /api/setup 之後可以 `wrangler secret delete SETUP_TOKEN` 把那條路由關掉。
+# 詳細步驟見 docs/deployment-setup.md。
 
 [observability]
 enabled = true

@@ -2,7 +2,9 @@
 
 把 CRM、WMS 與營運工具整合成一個入口：一次登入、一個 sidebar、一套權限，部署在 Cloudflare。
 
-目前狀態：**Phase 0（骨架）完成**。登入與各模組尚未搬入，畫面上的項目都是佔位頁。
+目前狀態：**Phase 1 的程式碼完成**——Google 登入、角色＋資料範圍的 RBAC、權限管理頁都能用了。
+還沒部署：D1 與 Google OAuth client 尚未開通，步驟見 `docs/deployment-setup.md`。
+三大項底下的業務功能仍是佔位頁，從 Phase 2 起逐一搬入。
 
 ## 為什麼要做這件事
 
@@ -55,7 +57,7 @@ cd packages/db && pnpm generate    # 產生 migration SQL
 | Phase | 內容 |
 |---|---|
 | 0 ✅ | monorepo 骨架、portal 外殼與 sidebar、Hono worker、D1 schema 與 migration |
-| 1 | Google OAuth 登入、RBAC 判定與權限管理頁、部署到 `tools.rueisiang.com` |
+| 1 | Google OAuth 登入 ✅、RBAC 判定 ✅、權限管理頁 ✅、部署到 `tools.rueisiang.com`（待開通資源） |
 | 2 | CRM 搬入 |
 | 3 | 營運工具搬入、webhook relay 收編 |
 | 4 | WMS 搬入（含拆掉 1816 行的 `warehouse-app.tsx`） |

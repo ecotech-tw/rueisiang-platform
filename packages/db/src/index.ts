@@ -3,3 +3,17 @@ export * as schema from "./schema/index.js";
 export { GLOBAL_SCOPE, type Role, type User, type UserRole } from "./schema/auth.js";
 export { countOtherActiveAdmins, loadAuthUser, recordLogin } from "./users.js";
 export { ensureBootstrapAdmin, syncSystemRoles } from "./seed.js";
+export {
+  assignRole,
+  findUser,
+  hasRole,
+  inviteUser,
+  listRoles,
+  listUsers,
+  revokeRole,
+  setUserStatus,
+  type AdminUserRow,
+  type AssignmentRow,
+  type RoleGrant,
+  type RoleRow,
+} from "./admin.js";

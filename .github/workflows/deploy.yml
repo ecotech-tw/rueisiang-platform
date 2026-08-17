@@ -1,0 +1,72 @@
+name: Deploy
+
+# 目前只能手動觸發（Actions 分頁 → Deploy → Run workflow）。
+#
+# 等第一次上線順利、secret 都設好之後，把下面這段加進 on: 就會變成
+# 推上 main 自動部署：
+#
+#   push:
+#     branches: [main]
+on:
+  workflow_dispatch:
+
+# 同時只跑一個部署。兩個部署交錯執行會讓 migration 的順序變得沒辦法推理。
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # pnpm-workspace.yaml 把 workerd 的安裝腳本關掉了（開發機是 Windows on ARM，
+      # 開著會讓整個 install 失敗）。Linux 上沒這個問題，這裡單獨補跑。
+      - name: 補上 workerd 執行檔
+        run: pnpm rebuild workerd
+
+      # 部署前再驗一次。CI 已經跑過，但手動觸發可能挑的是還沒跑過 CI 的 commit。
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      # portal 的產物要先出來——wrangler.toml 的 [assets] 指向 ../portal/dist。
+      - run: pnpm build
+
+      # schema 先於程式碼：新欄位要在讀它的程式上線之前就存在。
+      - name: 套用 D1 migration
+        working-directory: apps/api
+        run: npx wrangler d1 migrations apply rueisiang-platform --remote
+
+      - name: 部署 Worker
+        working-directory: apps/api
+        run: npx wrangler deploy
+
+      # 煙霧測試：確認 Worker 活著，而且 D1 綁定真的接上了。
+      # WORKER_URL 是 repository variable（Settings → Secrets and variables →
+      # Actions → Variables），例如 https://tools.rueisiang.com
+      - name: 確認部署結果
+        if: ${{ vars.WORKER_URL != '' }}
+        run: |
+          response=$(curl -sS --retry 5 --retry-delay 3 --retry-all-errors "${{ vars.WORKER_URL }}/api/health")
+          echo "$response"
+          echo "$response" | grep -q '"database":"ok"' || {
+            echo "健康檢查沒過：D1 綁定可能沒接上。"
+            exit 1
+          }
+
+      - name: 提醒設定 WORKER_URL
+        if: ${{ vars.WORKER_URL == '' }}
+        run: echo "::warning::沒有設定 WORKER_URL 這個 repository variable，略過健康檢查。"

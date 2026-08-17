@@ -1,0 +1,43 @@
+name: CI
+
+# 每次推送與 PR 都跑。這個 workflow 不需要任何 secret，
+# 所以在 Cloudflare 還沒開通之前就能用。
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # 版本從 package.json 的 packageManager 欄位讀，不在這裡再寫一次。
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          # 測試用 node:sqlite 當 D1 的替身，需要 Node 24 才是內建可用。
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      - run: pnpm build
+
+      # 開發機是 Windows on ARM，起不了 workerd，所以「設定檔到底能不能部署」
+      # 這件事只有在 Linux 上才驗得到。放在最後：前面都過了才有意義。
+      - name: 驗證 Worker 設定與打包
+        working-directory: apps/api
+        run: |
+          pnpm rebuild workerd
+          npx wrangler deploy --dry-run
