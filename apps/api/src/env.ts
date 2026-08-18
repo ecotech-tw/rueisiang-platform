@@ -9,6 +9,11 @@ export interface Env {
   AUTH_SESSION_SECRET: string;
   GOOGLE_OAUTH_CLIENT_ID: string;
   GOOGLE_OAUTH_CLIENT_SECRET: string;
+
+  /** CYBERBIZ App Store API 的 token。沒設定時碰到同步相關的功能才會失敗。 */
+  CYBERBIZ_API_TOKEN?: string;
+  /** 只有測試環境或自架才需要覆寫，預設打正式的 app-store-api。 */
+  CYBERBIZ_API_BASE_URL?: string;
 }
 
 export interface AppEnv {
