@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +26,37 @@ const DB_FILE = path.resolve(here, "../../local.sqlite");
 // 本機專用的假密鑰。正式環境是 wrangler secret，兩邊不會共用。
 const DEV_SECRET = "local-development-only";
 
+/**
+ * 讀 apps/api/.dev.vars——沿用 wrangler 的慣例，格式就是一行一個 KEY=value。
+ *
+ * 這個檔在 .gitignore 裡，用來放不能進版控又只有本機需要的東西，
+ * 目前是 CYBERBIZ_API_TOKEN。沒有這個檔也能跑，只是碰到 CYBERBIZ 的功能會失敗。
+ */
+function loadDevVars(): Record<string, string> {
+  const file = path.resolve(here, "../../.dev.vars");
+  if (!fs.existsSync(file)) return {};
+
+  // Node 內建的 .env 解析器，不必為了幾行設定拉一個 dotenv 進來。
+  process.loadEnvFile(file);
+
+  const keys = fs
+    .readFileSync(file, "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => line.split("=")[0]?.trim())
+    .filter((key): key is string => Boolean(key));
+
+  const vars: Record<string, string> = {};
+  for (const key of keys) {
+    const value = process.env[key];
+    if (value !== undefined) vars[key] = value;
+  }
+
+  console.log(`.dev.vars 讀到 ${keys.length} 個設定：${keys.join("、")}`);
+  return vars;
+}
+
 const d1 = createLocalD1(DB_FILE);
 await seedDevData(d1);
 
@@ -33,6 +65,8 @@ const env = {
   AUTH_SESSION_SECRET: DEV_SECRET,
   GOOGLE_OAUTH_CLIENT_ID: "local-client-id",
   GOOGLE_OAUTH_CLIENT_SECRET: "local-client-secret",
+  // .dev.vars 放最後，這樣要蓋掉上面任何一個預設值都可以。
+  ...loadDevVars(),
 };
 
 function devIndex(): string {

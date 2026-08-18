@@ -48,6 +48,13 @@ pnpm test
 不同權限看到的畫面。
 
 資料存在 `apps/api/local.sqlite`（已 gitignore），重開會留著；想重來就把檔案刪掉。
+
+需要金鑰的功能（例如 CYBERBIZ 同步）從 `apps/api/.dev.vars` 讀，格式跟 wrangler 一樣，
+一行一個。這個檔也在 .gitignore 裡：
+
+```
+CYBERBIZ_API_TOKEN=你的token
+```
 `/dev` 那兩條路由是 dev server 自己接的，不在 Hono app 裡，所以正式環境不存在。
 
 資料庫 schema 改動後：
