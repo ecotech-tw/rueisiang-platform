@@ -1,4 +1,4 @@
-import { GLOBAL_SCOPE, PERMISSIONS, SCOPE_TYPES, type UserStatus } from "@rueisiang/auth";
+import { PERMISSIONS, type UserStatus } from "@rueisiang/auth";
 import {
   assignRole,
   countOtherActiveAdmins,
@@ -56,27 +56,6 @@ function parseEmail(input: Record<string, unknown>): string {
   return email;
 }
 
-/**
- * 資料範圍：兩個欄位要嘛都空（全域），要嘛都有值。
- * 只填一半代表呼叫端搞錯了，與其猜意圖不如直接擋下來。
- */
-function parseScope(source: { scopeType?: unknown; scopeId?: unknown }): {
-  scopeType: string;
-  scopeId: string;
-} {
-  const scopeType = typeof source.scopeType === "string" ? source.scopeType.trim() : "";
-  const scopeId = typeof source.scopeId === "string" ? source.scopeId.trim() : "";
-
-  if (!scopeType && !scopeId) return { scopeType: GLOBAL_SCOPE, scopeId: GLOBAL_SCOPE };
-  if (!scopeType || !scopeId) {
-    throw new HTTPException(400, { message: "資料範圍的種類與名稱要一起填寫。" });
-  }
-  if (!(SCOPE_TYPES as readonly string[]).includes(scopeType)) {
-    throw new HTTPException(400, { message: `不認得的資料範圍種類：${scopeType}` });
-  }
-  return { scopeType, scopeId };
-}
-
 export const admin = new Hono<AppEnv>()
   .use("*", requireAuth)
 
@@ -86,11 +65,7 @@ export const admin = new Hono<AppEnv>()
 
   /** 角色與權限目錄。權限的說明文字來自程式碼，資料庫只存「角色有哪些鍵值」。 */
   .get("/roles", requirePermission("admin:user:read"), async (c) => {
-    return c.json({
-      roles: await listRoles(c.get("db")),
-      permissions: PERMISSIONS,
-      scopeTypes: SCOPE_TYPES,
-    });
+    return c.json({ roles: await listRoles(c.get("db")), permissions: PERMISSIONS });
   })
 
   /**
@@ -117,11 +92,9 @@ export const admin = new Hono<AppEnv>()
     // 邀請時可以順便給一個角色，省掉「先建帳號再回來指派」這一步。
     if (input.roleKey !== undefined) {
       const roleKey = requireString(input, "roleKey", "角色");
-      const scope = parseScope(input);
       const assigned = await assignRole(c.get("db"), {
         userId: result.id,
         roleKey,
-        ...scope,
         grantedBy: c.get("user").id,
       });
       if (assigned === "unknown-role") {
@@ -167,7 +140,6 @@ export const admin = new Hono<AppEnv>()
   .post("/users/:id/roles", requirePermission("admin:role:write"), async (c) => {
     const input = await body(c);
     const roleKey = requireString(input, "roleKey", "角色");
-    const scope = parseScope(input);
 
     const id = c.req.param("id");
     if (!(await findUser(c.get("db"), id))) {
@@ -177,13 +149,12 @@ export const admin = new Hono<AppEnv>()
     const result = await assignRole(c.get("db"), {
       userId: id,
       roleKey,
-      ...scope,
       grantedBy: c.get("user").id,
     });
     if (result === "unknown-role") {
       throw new HTTPException(400, { message: `不認得的角色：${roleKey}` });
     }
-    return c.json({ id, roleKey, ...scope }, 201);
+    return c.json({ id, roleKey }, 201);
   })
 
   /**
@@ -193,7 +164,6 @@ export const admin = new Hono<AppEnv>()
   .delete("/users/:id/roles", requirePermission("admin:role:write"), async (c) => {
     const roleKey = c.req.query("roleKey");
     if (!roleKey) throw new HTTPException(400, { message: "請指定要收回的角色。" });
-    const scope = parseScope({ scopeType: c.req.query("scopeType"), scopeId: c.req.query("scopeId") });
 
     const id = c.req.param("id");
     const target = await findUser(c.get("db"), id);
@@ -206,7 +176,7 @@ export const admin = new Hono<AppEnv>()
       }
     }
 
-    const removed = await revokeRole(c.get("db"), { userId: id, roleKey, ...scope });
+    const removed = await revokeRole(c.get("db"), { userId: id, roleKey });
     if (!removed) throw new HTTPException(404, { message: "找不到這一筆角色指派。" });
     return c.json({ ok: true });
   });

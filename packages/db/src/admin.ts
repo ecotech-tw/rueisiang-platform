@@ -11,8 +11,6 @@ import { rolePermissions, roles, userRoles, users } from "./schema/auth.js";
 export interface AssignmentRow {
   roleKey: string;
   roleName: string;
-  scopeType: string;
-  scopeId: string;
 }
 
 export interface AdminUserRow {
@@ -51,22 +49,15 @@ export async function listUsers(db: Database): Promise<AdminUserRow[]> {
       userId: userRoles.userId,
       roleKey: roles.key,
       roleName: roles.name,
-      scopeType: userRoles.scopeType,
-      scopeId: userRoles.scopeId,
     })
     .from(userRoles)
     .innerJoin(roles, eq(roles.id, userRoles.roleId))
-    .orderBy(asc(roles.key), asc(userRoles.scopeId));
+    .orderBy(asc(roles.key));
 
   const byUser = new Map<string, AssignmentRow[]>();
   for (const item of granted) {
     const list = byUser.get(item.userId) ?? [];
-    list.push({
-      roleKey: item.roleKey,
-      roleName: item.roleName,
-      scopeType: item.scopeType,
-      scopeId: item.scopeId,
-    });
+    list.push({ roleKey: item.roleKey, roleName: item.roleName });
     byUser.set(item.userId, list);
   }
 
@@ -153,11 +144,9 @@ export async function hasRole(db: Database, userId: string, roleKey: string): Pr
 export interface RoleGrant {
   userId: string;
   roleKey: string;
-  scopeType: string;
-  scopeId: string;
 }
 
-/** 指派角色。已經有同樣的 (人, 角色, 範圍) 就當作成功，不重複插入。 */
+/** 指派角色。已經有同一組 (人, 角色) 就當作成功，不重複插入。 */
 export async function assignRole(
   db: Database,
   grant: RoleGrant & { grantedBy: string },
@@ -165,15 +154,10 @@ export async function assignRole(
   const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.key, grant.roleKey)).limit(1);
   if (!role) return "unknown-role";
 
+  // scope_type / scope_id 留白＝全域。欄位還在，但目前沒有東西照範圍切資料。
   await db
     .insert(userRoles)
-    .values({
-      userId: grant.userId,
-      roleId: role.id,
-      scopeType: grant.scopeType,
-      scopeId: grant.scopeId,
-      grantedBy: grant.grantedBy,
-    })
+    .values({ userId: grant.userId, roleId: role.id, grantedBy: grant.grantedBy })
     .onConflictDoNothing();
   return "ok";
 }
@@ -185,13 +169,6 @@ export async function revokeRole(db: Database, grant: RoleGrant): Promise<boolea
 
   const result = await db
     .delete(userRoles)
-    .where(
-      and(
-        eq(userRoles.userId, grant.userId),
-        eq(userRoles.roleId, role.id),
-        eq(userRoles.scopeType, grant.scopeType),
-        eq(userRoles.scopeId, grant.scopeId),
-      ),
-    );
+    .where(and(eq(userRoles.userId, grant.userId), eq(userRoles.roleId, role.id)));
   return (result.meta?.changes ?? 0) > 0;
 }

@@ -15,17 +15,6 @@ const ROLE_LABEL: Record<string, string> = {
   viewer: "檢視者",
 };
 
-const SCOPE_LABEL: Record<string, string> = {
-  store: "店別",
-  warehouse: "倉庫",
-};
-
-function roleText(role: { role: string; scopeType: string; scopeId: string }): string {
-  const name = ROLE_LABEL[role.role] ?? role.role;
-  if (!role.scopeType) return name;
-  return `${name}（${SCOPE_LABEL[role.scopeType] ?? role.scopeType}：${role.scopeId}）`;
-}
-
 /**
  * Sidebar 左下角的帳號區。沿用 CRM 的作法：頭像＋姓名一列，點開才出現操作，
  * 而不是把「登出」這種一去不復返的動作直接裸露在選單上。
@@ -94,9 +83,7 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
                 <span className="account-role">沒有任何角色</span>
               ) : (
                 user.roles.map((role) => (
-                  <span className="account-role" key={`${role.role}-${role.scopeType}-${role.scopeId}`}>
-                    {roleText(role)}
-                  </span>
+                  <span className="account-role" key={role}>{ROLE_LABEL[role] ?? role}</span>
                 ))
               )}
             </div>

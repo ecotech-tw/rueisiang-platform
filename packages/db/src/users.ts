@@ -25,8 +25,6 @@ export async function loadAuthUser(
   const granted = await db
     .select({
       roleKey: roles.key,
-      scopeType: userRoles.scopeType,
-      scopeId: userRoles.scopeId,
       permission: rolePermissions.permission,
     })
     .from(userRoles)
@@ -34,21 +32,13 @@ export async function loadAuthUser(
     .leftJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
     .where(eq(userRoles.userId, row.id));
 
-  // 同一個 (角色, 範圍) 會因為多個權限而出現多列，收攏成一筆 assignment。
-  // 用 JSON 陣列當 Map 的鍵：scopeId 是使用者自己輸入的字串（例如「誠品西門店3F」），
-  // 用單一分隔字元去串會有碰撞風險，JSON 則本來就把分隔與內容區分開。
+  // 同一個角色會因為多個權限而出現多列，收攏成一筆 assignment。
   const byAssignment = new Map<string, RoleAssignment>();
   for (const item of granted) {
-    const key = JSON.stringify([item.roleKey, item.scopeType, item.scopeId]);
-    let assignment = byAssignment.get(key);
+    let assignment = byAssignment.get(item.roleKey);
     if (!assignment) {
-      assignment = {
-        roleKey: item.roleKey,
-        permissions: [],
-        scopeType: item.scopeType,
-        scopeId: item.scopeId,
-      };
-      byAssignment.set(key, assignment);
+      assignment = { roleKey: item.roleKey, permissions: [] };
+      byAssignment.set(item.roleKey, assignment);
     }
     // leftJoin：角色可能一個權限都沒有，那一列的 permission 會是 null。
     if (item.permission) {

@@ -106,52 +106,76 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 /* ── 階層 ────────────────────────────────────────────────────────────────
    三層：大項（nav-section）→ 功能（nav-item）→ 子頁面（nav-children 裡的 nav-item）。
    大項用可收合的標題列，子頁面用左側導引線，讓「誰從屬於誰」不必靠縮排猜。 */
-.nav-section + .nav-section { margin-top: 14px; }
+.nav-section + .nav-section { margin-top: 18px; }
+
 /*
- * 大項不是「另一個可以點的功能」，所以刻意不長得像 nav-item：沒有圖示方框、
- * 字級更小、顏色更淡。它是一張分類標籤，底下的項目才是能點的東西。
+ * 大項不是「另一個可以點的功能」，所以不長得像 nav-item：沒有圖示方框。
+ * 但它也不該小到像註腳——它是選單的骨架，字級要撐得住。
+ *
+ * 左側那根短豎線是這一段的錨點：收合時是淡的，展開時變成品牌紅，而且它跟
+ * 底下項目的導引線落在同一條垂直線上，整段從標題一路貫到最後一個項目。
  */
 .nav-section-head {
+  position: relative;
   width: 100%;
-  min-height: 26px;
+  min-height: 34px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 10px 0 12px;
+  padding: 0 10px 0 16px;
   border: 0;
+  border-radius: 10px;
   background: transparent;
-  color: #a08c88;
+  color: #6b5350;
   text-align: left;
   white-space: nowrap;
+  transition: background .18s ease, color .18s ease;
 }
-.nav-section-head:hover { color: var(--brand); }
-.nav-section-label { font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+.nav-section-head::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--line);
+  transform: translateY(-50%);
+  transition: background .18s ease, height .18s ease;
+}
+.nav-section-head:hover { background: var(--soft-line); color: var(--brand-dark); }
+.nav-section.open .nav-section-head { color: var(--brand-dark); }
+.nav-section.open .nav-section-head::before { height: 18px; background: var(--brand); }
+
+.nav-section-label { font-size: 13px; font-weight: 800; letter-spacing: .04em; }
+
 .nav-chevron {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   margin-right: 4px;
   border-right: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
+  color: var(--secondary);
   transform: rotate(-45deg);
   transition: transform .18s ease;
 }
 .nav-section.open .nav-chevron { transform: rotate(45deg); }
 
 .nav-section-items { display: none; }
-/* 往內縮並掛在一條垂直線上：這些項目屬於上面那張標籤，不用猜。 */
+/* 導引線接在標題那根短豎線的正下方，兩者中心對齊在同一個 x。 */
 .nav-section.open .nav-section-items {
   position: relative;
   display: grid;
   gap: 2px;
-  margin: 4px 0 0 5px;
-  padding-left: 9px;
+  margin: 3px 0 0 5px;
+  padding-left: 11px;
 }
 .nav-section.open .nav-section-items::before {
   content: "";
   position: absolute;
-  top: 4px;
-  bottom: 4px;
+  top: 2px;
+  bottom: 6px;
   left: 0;
   width: 1px;
   background: var(--line);
