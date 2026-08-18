@@ -8,7 +8,7 @@ export function Login() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <strong className="brand-name">RUEI SIANG</strong>
+        <img className="login-logo" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={168} height={45} />
         <h1>內部系統</h1>
         <p className="muted">請使用公司的 Google 帳號登入。</p>
 

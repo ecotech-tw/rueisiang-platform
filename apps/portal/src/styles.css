@@ -106,31 +106,30 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 /* ── 階層 ────────────────────────────────────────────────────────────────
    三層：大項（nav-section）→ 功能（nav-item）→ 子頁面（nav-children 裡的 nav-item）。
    大項用可收合的標題列，子頁面用左側導引線，讓「誰從屬於誰」不必靠縮排猜。 */
-.nav-section + .nav-section { margin-top: 6px; }
+.nav-section + .nav-section { margin-top: 14px; }
+/*
+ * 大項不是「另一個可以點的功能」，所以刻意不長得像 nav-item：沒有圖示方框、
+ * 字級更小、顏色更淡。它是一張分類標籤，底下的項目才是能點的東西。
+ */
 .nav-section-head {
   width: 100%;
-  min-height: 40px;
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  min-height: 26px;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 0 10px;
+  padding: 0 10px 0 12px;
   border: 0;
-  border-radius: 11px;
   background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: .06em;
+  color: #a08c88;
   text-align: left;
   white-space: nowrap;
 }
-.nav-section-head:hover { background: var(--soft-line); color: var(--brand-dark); }
-.nav-section .section-icon { border-color: var(--line); color: var(--secondary); }
-.nav-section.open .section-icon { color: var(--brand); border-color: var(--secondary); }
+.nav-section-head:hover { color: var(--brand); }
+.nav-section-label { font-size: 11px; font-weight: 800; letter-spacing: .12em; }
 .nav-chevron {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   margin-right: 4px;
   border-right: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
@@ -139,8 +138,24 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 }
 .nav-section.open .nav-chevron { transform: rotate(45deg); }
 
-.nav-section-items { display: none; padding: 2px 0 6px; }
-.nav-section.open .nav-section-items { display: grid; gap: 3px; }
+.nav-section-items { display: none; }
+/* 往內縮並掛在一條垂直線上：這些項目屬於上面那張標籤，不用猜。 */
+.nav-section.open .nav-section-items {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0 5px;
+  padding-left: 9px;
+}
+.nav-section.open .nav-section-items::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  width: 1px;
+  background: var(--line);
+}
 
 .nav-item {
   width: 100%;
@@ -316,7 +331,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
  * 所以整段藏起來、把功能項一律攤開，改用分隔線表達分組。
  */
 .sidebar-collapsed .nav-section-head { display: none; }
-.sidebar-collapsed .nav-section-items { display: grid; gap: 3px; }
+.sidebar-collapsed .nav-section.open .nav-section-items,
+.sidebar-collapsed .nav-section-items { display: grid; gap: 3px; margin: 0; padding-left: 0; }
+.sidebar-collapsed .nav-section-items::before { display: none; }
 .sidebar-collapsed .nav-section + .nav-section {
   margin-top: 9px;
   padding-top: 9px;
@@ -492,6 +509,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 
 .boot { padding: 48px; color: var(--muted); }
 
+.form-hint { color: var(--success, #2d7a54); font-size: 13px; font-weight: 700; }
+.form-foot { margin-top: 12px; font-size: 12px; }
+.detail-list { display: grid; gap: 12px; margin: 0; }
+.detail-list > div { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 12px; }
+.detail-list dt { color: var(--muted); font-size: 13px; }
+.detail-list dd { margin: 0; }
+@media (max-width: 620px) {
+  .detail-list > div { grid-template-columns: 1fr; gap: 2px; }
+}
+
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .login-card {
   width: min(400px, 100%);
@@ -502,6 +529,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   box-shadow: var(--shadow);
   text-align: center;
 }
+.login-logo { width: 168px; height: auto; object-fit: contain; }
 .login-card h1 { margin: 10px 0 6px; font-size: 22px; }
 .login-button {
   display: block;
@@ -586,8 +614,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   .shell.sidebar-collapsed .brand-icon { display: none; }
   .shell.sidebar-collapsed .nav-section-head,
   .shell.sidebar-collapsed .nav-item { grid-template-columns: 30px minmax(0, 1fr); justify-items: stretch; padding: 0 10px; }
+  .shell.sidebar-collapsed .nav-section-head { display: flex; }
   .shell.sidebar-collapsed .nav-section-items { display: none; }
-  .shell.sidebar-collapsed .nav-section.open .nav-section-items { display: grid; }
+  .shell.sidebar-collapsed .nav-section.open .nav-section-items {
+    display: grid;
+    margin: 4px 0 0 5px;
+    padding-left: 9px;
+  }
+  .shell.sidebar-collapsed .nav-section-items::before { display: revert; }
   .shell.sidebar-collapsed .nav-children { margin-left: 25px; }
   .shell.sidebar-collapsed .account-trigger { display: grid; gap: 9px; padding: 8px; }
   .shell.sidebar-collapsed .account-menu { left: 0; right: 0; bottom: calc(100% + 9px); width: auto; }

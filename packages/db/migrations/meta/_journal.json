@@ -8,6 +8,13 @@
       "when": 1786728337583,
       "tag": "0000_skinny_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787020052690,
+      "tag": "0001_many_moondragon",
+      "breakpoints": true
     }
   ]
 }

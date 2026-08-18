@@ -59,7 +59,9 @@ export async function loadAuthUser(
   return {
     id: row.id,
     email: row.email,
-    name: row.name,
+    // 自己設定的顯示名稱優先，沒設才退回 Google 帳號上的姓名。
+    name: row.displayName || row.name,
+    googleName: row.name,
     pictureUrl: row.pictureUrl,
     status: row.status as UserStatus,
     assignments: [...byAssignment.values()],
@@ -82,6 +84,23 @@ export async function recordLogin(
       lastLoginAt: sql`CURRENT_TIMESTAMP`,
       updatedAt: sql`CURRENT_TIMESTAMP`,
     })
+    .where(eq(users.id, userId));
+}
+
+/**
+ * 更新使用者自己能改的欄位。
+ *
+ * 只碰 display_name——email 是身分本身（授權與紀錄都認它），name 與 picture_url
+ * 由 Google 每次登入覆寫，兩者都不該讓人從個人資料頁改掉。
+ */
+export async function updateProfile(
+  db: Database,
+  userId: string,
+  input: { displayName: string },
+): Promise<void> {
+  await db
+    .update(users)
+    .set({ displayName: input.displayName.trim(), updatedAt: sql`CURRENT_TIMESTAMP` })
     .where(eq(users.id, userId));
 }
 

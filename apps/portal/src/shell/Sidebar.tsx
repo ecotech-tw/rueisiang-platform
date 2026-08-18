@@ -4,7 +4,6 @@ import { NavLink, useLocation } from "react-router";
 import type { SessionUser } from "../auth/session.js";
 import { AccountPanel } from "./AccountPanel.js";
 import {
-  ADMIN_SECTION,
   NAV_SECTIONS,
   containsPath,
   sectionContainsPath,
@@ -28,14 +27,14 @@ function visibleItems(items: NavItem[], permissions: ReadonlySet<Permission>): N
     .map((item) => ({ ...item, children: visibleItems(item.children ?? [], permissions) }));
 }
 
-function Item({ item, depth, onNavigate }: { item: NavItem; depth: number; onNavigate: () => void }) {
+function Item({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
   const location = useLocation();
   const children = item.children ?? [];
   // 子項只在父項那一段路徑底下時才展開，不必讓人自己點開。
   const expanded = children.length > 0 && containsPath(item, location.pathname);
 
   return (
-    <div className={`nav-node depth-${depth}`}>
+    <div className="nav-node">
       <NavLink
         to={item.to}
         end
@@ -50,7 +49,7 @@ function Item({ item, depth, onNavigate }: { item: NavItem; depth: number; onNav
       {expanded ? (
         <div className="nav-children">
           {children.map((child) => (
-            <Item key={child.to} item={child} depth={depth + 1} onNavigate={onNavigate} />
+            <Item key={child.to} item={child} onNavigate={onNavigate} />
           ))}
         </div>
       ) : null}
@@ -85,16 +84,15 @@ function Section({
         className="nav-section-head"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        title={section.label}
       >
-        <span className="nav-icon section-icon" aria-hidden="true">{section.icon}</span>
-        <span className="nav-label">{section.label}</span>
+        <span className="nav-section-label">{section.label}</span>
         <span className="nav-chevron" aria-hidden="true" />
       </button>
 
+      {/* 項目往內縮並掛在一條垂直線上，讓「這些屬於上面那個大項」不必用猜的。 */}
       <div className="nav-section-items">
         {items.map((item) => (
-          <Item key={item.to} item={item} depth={0} onNavigate={onNavigate} />
+          <Item key={item.to} item={item} onNavigate={onNavigate} />
         ))}
       </div>
     </div>
@@ -107,7 +105,6 @@ export function Sidebar({ permissions, collapsed, onToggle, user, onLogout, onNa
       <div className="brand-row">
         <img className="brand-logo" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={142} height={38} />
         <img className="brand-icon" src="/ruei-siang-icon.png" alt="RUEI SIANG" width={34} height={34} />
-        <span className="product-badge">內部系統</span>
       </div>
 
       <button
@@ -127,8 +124,7 @@ export function Sidebar({ permissions, collapsed, onToggle, user, onLogout, onNa
       </nav>
 
       <div className="sidebar-foot">
-        <Section section={ADMIN_SECTION} permissions={permissions} onNavigate={onNavigate} />
-        <AccountPanel user={user} onLogout={onLogout} onNavigate={onNavigate} permissions={permissions} />
+        <AccountPanel user={user} onLogout={onLogout} onNavigate={onNavigate} />
       </div>
     </aside>
   );

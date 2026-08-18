@@ -21,7 +21,10 @@ export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull(),
   googleSubject: text("google_subject"),
+  // Google 帳號上的姓名。每次登入都會被覆寫，所以不是使用者能改的東西。
   name: text("name").notNull().default(""),
+  // 使用者自己設定的顯示名稱。有值時一律優先，登入不會動它。
+  displayName: text("display_name").notNull().default(""),
   pictureUrl: text("picture_url").notNull().default(""),
   // invited：已邀請未登入過／active：可用／disabled：停權
   status: text("status").notNull().default("invited"),

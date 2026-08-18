@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, recordLogin, syncSystemRoles } from "@rueisiang/db";
 import { users, userRoles } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -159,3 +159,81 @@ describe("已登入", () => {
   });
 });
 
+describe("個人資料", () => {
+  async function patch(userId: string, email: string, body: string) {
+    return call("/api/auth/profile", {
+      method: "PATCH",
+      headers: { Cookie: await sessionCookie(userId, email), "Content-Type": "application/json" },
+      body,
+    });
+  }
+
+  it("未登入不能改", async () => {
+    const response = await call("/api/auth/profile", {
+      method: "PATCH",
+      body: JSON.stringify({ displayName: "駭客" }),
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("設定顯示名稱之後，/me 回傳的就是它", async () => {
+    const id = await seedUser("who@ecotech.tw", "role-staff");
+    await createDatabase(d1 as never).update(users).set({ name: "Google 上的姓名" }).where(eq(users.id, id));
+
+    expect((await patch(id, "who@ecotech.tw", JSON.stringify({ displayName: "  小林  " }))).status).toBe(200);
+
+    const me = (await (
+      await call("/api/auth/me", { headers: { Cookie: await sessionCookie(id, "who@ecotech.tw") } })
+    ).json()) as { name: string; googleName: string; email: string };
+    expect(me.name).toBe("小林");
+    // Google 那邊的姓名要原封不動留著，個人資料頁靠它顯示「你原本叫什麼」。
+    expect(me.googleName).toBe("Google 上的姓名");
+    expect(me.email).toBe("who@ecotech.tw");
+  });
+
+  it("清空就退回 Google 帳號上的姓名", async () => {
+    const id = await seedUser("back@ecotech.tw", "role-staff");
+    await createDatabase(d1 as never).update(users).set({ name: "Google 姓名" }).where(eq(users.id, id));
+
+    await patch(id, "back@ecotech.tw", JSON.stringify({ displayName: "暫時的" }));
+    await patch(id, "back@ecotech.tw", JSON.stringify({ displayName: "" }));
+
+    const me = (await (
+      await call("/api/auth/me", { headers: { Cookie: await sessionCookie(id, "back@ecotech.tw") } })
+    ).json()) as { name: string };
+    expect(me.name).toBe("Google 姓名");
+  });
+
+  it("下次 Google 登入不會蓋掉自己設的名字", async () => {
+    const db = createDatabase(d1 as never);
+    const id = await seedUser("keep@ecotech.tw", "role-staff");
+    await patch(id, "keep@ecotech.tw", JSON.stringify({ displayName: "我自己取的" }));
+
+    // 模擬再登入一次：recordLogin 會覆寫 Google 那邊的姓名與頭像。
+    await recordLogin(db, id, { googleSubject: "sub-1", name: "Google 姓名", pictureUrl: "https://x/y.png" });
+
+    const me = (await (
+      await call("/api/auth/me", { headers: { Cookie: await sessionCookie(id, "keep@ecotech.tw") } })
+    ).json()) as { name: string; pictureUrl: string };
+    expect(me.name).toBe("我自己取的");
+    expect(me.pictureUrl).toBe("https://x/y.png");
+  });
+
+  it("改名字動不到 email——授權與紀錄都認它", async () => {
+    const id = await seedUser("stable@ecotech.tw", "role-staff");
+    await patch(id, "stable@ecotech.tw", JSON.stringify({ displayName: "改過了" }));
+
+    const [row] = await createDatabase(d1 as never).select().from(users).where(eq(users.id, id));
+    expect(row?.email).toBe("stable@ecotech.tw");
+  });
+
+  it.each([
+    ["不是字串", JSON.stringify({ displayName: 123 })],
+    ["沒帶欄位", JSON.stringify({})],
+    ["超過 40 個字", JSON.stringify({ displayName: "字".repeat(41) })],
+    ["不是 JSON", "not-json"],
+  ])("擋下不合法的輸入（%s）", async (_label, body) => {
+    const id = await seedUser("bad@ecotech.tw", "role-staff");
+    expect((await patch(id, "bad@ecotech.tw", body)).status).toBe(400);
+  });
+});
