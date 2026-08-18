@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 interface SyncStatus {
   configured: boolean;
@@ -25,8 +25,21 @@ interface SyncRun {
   ignored: number;
   fromPage: number;
   toPage: number;
+  nextPage: number;
   totalPages: number;
   hasMore: boolean;
+}
+
+interface SyncProgress {
+  page: number;
+  totalPages: number;
+  received: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  ignored: number;
+  done: boolean;
+  stopped: boolean;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -53,7 +66,10 @@ function formatTime(value: string | null): string {
 
 export function Sync() {
   const client = useQueryClient();
-  const [lastRun, setLastRun] = useState<SyncRun | null>(null);
+  const [progress, setProgress] = useState<SyncProgress | null>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState("");
+  const stopRequested = useRef(false);
 
   const status = useQuery({
     queryKey: ["crm", "sync", "status"],
@@ -66,13 +82,46 @@ export function Sync() {
     void client.invalidateQueries({ queryKey: ["crm"] });
   };
 
-  const runSync = useMutation({
-    mutationFn: (page: number) => call<SyncRun>(`/api/crm/sync?page=${page}`, { method: "POST" }),
-    onSuccess: (result) => {
-      setLastRun(result);
+  /**
+   * 一路拉到完。
+   *
+   * 官網目前有兩百多頁會員，一輪只能拉 10 頁（Worker 有執行時間上限），
+   * 讓人按二十幾次不合理。所以由前端連續呼叫，每一輪都是一個獨立、
+   * 有界的請求——中間斷掉也只是停在某一頁，重按會從那裡接下去。
+   */
+  async function runFullSync(startPage: number) {
+    setRunning(true);
+    setError("");
+    stopRequested.current = false;
+
+    const totals = { received: 0, created: 0, updated: 0, unchanged: 0, ignored: 0 };
+    let page = startPage;
+
+    try {
+      for (;;) {
+        const result = await call<SyncRun>(`/api/crm/sync?page=${page}`, { method: "POST" });
+        for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += result[key];
+
+        const stopped = stopRequested.current;
+        setProgress({
+          ...totals,
+          page: result.toPage,
+          totalPages: result.totalPages,
+          done: !result.hasMore,
+          stopped: stopped && result.hasMore,
+        });
+
+        if (!result.hasMore || stopped) break;
+        page = result.nextPage;
+      }
       refresh();
-    },
-  });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "同步失敗");
+      refresh();
+    } finally {
+      setRunning(false);
+    }
+  }
 
   const retry = useMutation({
     mutationFn: () =>
@@ -123,41 +172,51 @@ export function Sync() {
         <div className="panel-head">
           <h2 className="panel-title">手動同步</h2>
           <div className="pager-buttons">
+            {running ? (
+              <button type="button" className="ghost-button" onClick={() => { stopRequested.current = true; }}>
+                跑完這一輪就停
+              </button>
+            ) : null}
             <button
               type="button"
               className="primary-button"
-              disabled={!data.configured || runSync.isPending}
-              onClick={() => runSync.mutate(1)}
+              disabled={!data.configured || running}
+              onClick={() => runFullSync(1)}
             >
-              {runSync.isPending ? "同步中…" : "從第 1 頁開始"}
+              {running ? "同步中…" : "全部重新同步"}
             </button>
-            {lastRun?.hasMore ? (
+            {!running && progress && !progress.done ? (
               <button
                 type="button"
                 className="ghost-button"
-                disabled={runSync.isPending}
-                onClick={() => runSync.mutate(lastRun.toPage + 1)}
+                onClick={() => runFullSync(progress.page + 1)}
               >
-                繼續拉第 {lastRun.toPage + 1} 頁
+                從第 {progress.page + 1} 頁接著跑
               </button>
             ) : null}
           </div>
         </div>
 
         <p className="muted">
-          一次最多拉 10 頁（每頁 50 筆）。Worker 有執行時間上限，拉不完會回報還有下一頁，
-          按「繼續」接著拉。最後一次同步：{formatTime(data.lastSyncedAt)}
+          會一路拉到最後一頁為止。每一輪送一個獨立的請求（10 頁、500 筆），
+          中途斷掉也只是停在某一頁，重按會從那裡接下去。
+          最後一次同步：{formatTime(data.lastSyncedAt)}
         </p>
 
-        {runSync.error ? <p className="form-error" role="alert">{runSync.error.message}</p> : null}
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
 
-        {lastRun ? (
-          <p className="muted form-foot">
-            第 {lastRun.fromPage}–{lastRun.toPage} 頁（共 {lastRun.totalPages} 頁）：
-            收到 {lastRun.received} 筆，新增 {lastRun.created}、更新 {lastRun.updated}、
-            無變化 {lastRun.unchanged}、略過 {lastRun.ignored}。
-            {lastRun.hasMore ? "後面還有。" : "已經拉到最後一頁。"}
-          </p>
+        {progress ? (
+          <>
+            <div className="progress-bar" role="progressbar" aria-valuenow={progress.page} aria-valuemin={0} aria-valuemax={progress.totalPages}>
+              <span style={{ width: `${Math.min(100, (progress.page / Math.max(1, progress.totalPages)) * 100)}%` }} />
+            </div>
+            <p className="muted form-foot">
+              第 {progress.page}／{progress.totalPages} 頁：收到 {progress.received} 筆，
+              新增 {progress.created}、更新 {progress.updated}、無變化 {progress.unchanged}
+              {progress.ignored ? `、略過 ${progress.ignored}` : ""}。
+              {progress.done ? "已經拉完。" : progress.stopped ? "已停在這裡。" : ""}
+            </p>
+          </>
         ) : null}
       </section>
 

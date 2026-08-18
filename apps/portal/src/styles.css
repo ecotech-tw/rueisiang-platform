@@ -482,6 +482,21 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 }
 .pager-buttons { display: flex; gap: 8px; }
 
+.progress-bar {
+  height: 6px;
+  margin-top: 14px;
+  border-radius: 999px;
+  background: var(--soft-line);
+  overflow: hidden;
+}
+.progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand), #e14842);
+  transition: width .3s ease;
+}
+
 .table-scroll { overflow-x: auto; }
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table th {

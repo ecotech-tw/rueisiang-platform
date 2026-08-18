@@ -75,12 +75,16 @@ export const crm = new Hono<AppEnv>()
 
     const startPage = Math.max(1, Number(new URL(c.req.url).searchParams.get("page") || 1));
     const totals = { received: 0, created: 0, updated: 0, unchanged: 0, ignored: 0 };
-    let page = startPage;
     let totalPages = 1;
+    // 最後一頁「實際拉到的」頁碼。下一輪要從這個數字 +1 開始，
+    // 記成「準備要拉的下一頁」的話，接續時會整頁被跳過。
+    let lastFetchedPage = startPage - 1;
 
     for (let index = 0; index < MAX_PAGES_PER_RUN; index += 1) {
+      const page = startPage + index;
       const result = await client.fetchPage(page, PAGE_SIZE);
       totalPages = result.totalPages;
+      lastFetchedPage = page;
 
       const summary = await syncCyberbizCustomers(c.get("db"), result.customers, {
         topic: "manual-sync",
@@ -88,10 +92,16 @@ export const crm = new Hono<AppEnv>()
       for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += summary[key];
 
       if (!result.customers.length || page >= totalPages) break;
-      page += 1;
     }
 
-    return c.json({ ...totals, fromPage: startPage, toPage: page, totalPages, hasMore: page < totalPages });
+    return c.json({
+      ...totals,
+      fromPage: startPage,
+      toPage: lastFetchedPage,
+      nextPage: lastFetchedPage + 1,
+      totalPages,
+      hasMore: lastFetchedPage < totalPages,
+    });
   })
 
   /** 補跑處理失敗的 webhook。Cron 也會做同一件事，這條是給人手動催的。 */
