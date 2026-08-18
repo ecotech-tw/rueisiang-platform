@@ -1,7 +1,7 @@
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
 import { customers, cyberbizCustomerWebhooks } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
@@ -159,5 +159,58 @@ describe("webhook 的處理", () => {
       env as never,
     );
     expect(await response.json()).toMatchObject({ ok: true, configured: true });
+  });
+});
+
+describe("處理失敗時", () => {
+  const query = `?token=${SECRET}`;
+
+  /**
+   * 模擬「回官網重讀時查不到這個會員」。設了 API token 之後這是最常見的失敗：
+   * ID 是假的、或 token 過期。回 404 而不是連線失敗，這樣不會觸發重試等待。
+   */
+  beforeEach(() => {
+    env = { ...env, CYBERBIZ_API_TOKEN: "token" };
+    vi.stubGlobal("fetch", async () =>
+      new Response(JSON.stringify({ error: "Customer not found" }), { status: 404 }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("仍然回 200，並在回應裡說明失敗原因", async () => {
+    const body = JSON.stringify({ topic: "customers/update", customer: { id: "not-a-real-member" } });
+    const response = await post(body, { query });
+
+    // 回 5xx 讓 CYBERBIZ 重送在這裡沒有用：重送會被識別碼判為 duplicate
+    // 而不會重新處理，只換來一連串沒有效果的重試。
+    expect(response.status).toBe(200);
+    const outcome = (await response.json()) as { status: string; error?: string };
+    expect(outcome.status).toBe("failed");
+    expect(outcome.error).toBeTruthy();
+  });
+
+  it("事件仍然落地，狀態是 failed，Cron 之後撿得到", async () => {
+    const body = JSON.stringify({ topic: "customers/update", customer: { id: "not-a-real-member" } });
+    await post(body, { query });
+
+    const [event] = await db().select().from(cyberbizCustomerWebhooks);
+    expect(event?.status).toBe("failed");
+    expect(event?.lastError).toBeTruthy();
+    expect(event?.payloadJson).toBe(body);
+  });
+
+  it("沒有設 API token 時不重讀，直接用 payload 內容處理", async () => {
+    vi.unstubAllGlobals();
+    env = { ...env, CYBERBIZ_API_TOKEN: "" };
+    const body = JSON.stringify({
+      topic: "customers/update",
+      customer: { id: "cb-9", mobile: "0900000000", name: "只靠 payload" },
+    });
+
+    const outcome = (await (await post(body, { query })).json()) as { status: string; action?: string };
+    expect(outcome).toMatchObject({ status: "processed", action: "created" });
   });
 });
