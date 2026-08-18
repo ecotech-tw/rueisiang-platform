@@ -136,7 +136,7 @@ describe("PKCE 與授權網址", () => {
     const url = new URL(
       buildAuthorizeUrl({
         clientId: CLIENT_ID,
-        redirectUri: "https://tools.rueisiang.com/api/auth/google/callback",
+        redirectUri: "https://platform.rueisiang.com/api/auth/google/callback",
         state: "state-1",
         nonce: NONCE,
         codeChallenge: "challenge-1",

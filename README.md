@@ -57,7 +57,7 @@ cd packages/db && pnpm generate    # 產生 migration SQL
 | Phase | 內容 |
 |---|---|
 | 0 ✅ | monorepo 骨架、portal 外殼與 sidebar、Hono worker、D1 schema 與 migration |
-| 1 | Google OAuth 登入 ✅、RBAC 判定 ✅、權限管理頁 ✅、部署到 `tools.rueisiang.com`（待開通資源） |
+| 1 | Google OAuth 登入 ✅、RBAC 判定 ✅、權限管理頁 ✅、部署到 `platform.rueisiang.com`（待開通資源） |
 | 2 | CRM 搬入 |
 | 3 | 營運工具搬入、webhook relay 收編 |
 | 4 | WMS 搬入（含拆掉 1816 行的 `warehouse-app.tsx`） |

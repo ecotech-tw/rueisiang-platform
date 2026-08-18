@@ -39,7 +39,7 @@ Cloudflare 帳號，沒辦法由程式自己生出來。照著這份文件走一
 （網域還沒委派之前就是靠後者測）。
 
 ```
-https://tools.rueisiang.com/api/auth/google/callback
+https://platform.rueisiang.com/api/auth/google/callback
 https://rueisiang-platform.<你的帳號子網域>.workers.dev/api/auth/google/callback
 ```
 
@@ -183,27 +183,28 @@ curl https://<你的 worker 網址>/api/health
 
 ---
 
-## 3. 網域 — tools.rueisiang.com
+## 3. 網域 — platform.rueisiang.com
 
-`rueisiang.com` 的 DNS 要指到 Cloudflare 才能綁自訂網域。兩種做法：
+`rueisiang.com` 的 DNS 要在 Cloudflare 底下，這個網域才綁得上。
 
-**A. 整個網域搬進 Cloudflare**（Cloudflare 官方建議，也最單純）
-在 Cloudflare 加入 `rueisiang.com`，把 name server 改成 Cloudflare 給的兩支。
-其他既有的 DNS 記錄要先確認都搬過去，不然官網或信箱會斷。
-
-**B. 只委派子網域**
-在現有的 DNS 服務商把 `tools.rueisiang.com` 的 NS 記錄指向 Cloudflare。
-影響範圍只有這個子網域，其餘不動——如果官網的 DNS 由別人管，這個選項比較安全。
-
-任一種完成之後，把 `apps/api/wrangler.toml` 裡這段的註解拿掉再部署一次：
+**不要手動加 DNS 記錄。** `wrangler.toml` 裡的 `custom_domain = true` 會讓 Cloudflare
+自己建立對應的記錄並簽發憑證；那個主機名稱如果已經有一筆記錄存在，部署反而會失敗，
+要先把它刪掉。
 
 ```toml
 [[routes]]
-pattern = "tools.rueisiang.com"
+pattern = "platform.rueisiang.com"
 custom_domain = true
 ```
 
-然後回到 1.2，確認 Google 的重新導向 URI 有 `tools.rueisiang.com` 那一條。
+所以流程是：確認 `rueisiang.com` 這個 zone 在 Cloudflare 帳號底下 → 合併這個設定 →
+跑 Deploy workflow → Cloudflare 建好記錄與憑證（通常幾分鐘內生效）。
+
+憑證還在簽發時網址會短暫回 5xx 或憑證錯誤，這是正常的，等一下再試。
+
+綁好之後記得回到 1.2，把 `https://platform.rueisiang.com/api/auth/google/callback`
+加進 Google 的重新導向 URI——**在那之前不要把 workers.dev 那條刪掉**，
+不然憑證還沒好的空窗期就沒有路可以登入了。
 
 ---
 
