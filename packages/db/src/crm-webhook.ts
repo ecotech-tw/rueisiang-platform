@@ -19,6 +19,8 @@ export interface WebhookOutcome {
   action?: CyberbizSyncResult["action"];
   customerId?: string | null;
   reason?: string;
+  /** status 是 failed 時，處理當下的錯誤訊息。 */
+  error?: string;
 }
 
 export interface ProcessWebhookInput {
@@ -96,9 +98,19 @@ export async function processCustomerWebhook(
       reason: result.reason,
     };
   } catch (error) {
+    /*
+     * 處理失敗時仍然回「收到了」，不往上丟。
+     *
+     * 直覺會想回 5xx 讓 CYBERBIZ 重送，但那在這裡沒有用：事件的識別碼是內容的
+     * 雜湊，重送進來會走到上面那條 duplicate 判斷，直接回 200 而不會重新處理。
+     * 也就是說 5xx 只換來一連串沒有效果的重送，還讓對方的後台一直亮紅燈。
+     *
+     * 真正會重試的是我們自己的 Cron（每 15 分鐘撿 failed 的來補跑）。所以這裡
+     * 誠實地說「收到了、但還沒處理成功」，把錯誤留在事件上讓同步頁看得到。
+     */
     const message = error instanceof Error ? error.message : "webhook 處理失敗";
     await markEvent(db, eventId, { status: "failed", error: message });
-    throw error;
+    return { eventId, topic, status: "failed", error: message };
   }
 }
 
