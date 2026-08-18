@@ -32,7 +32,7 @@ async function sessionCookie(userId: string, email: string) {
 }
 
 function call(path: string, init: RequestInit = {}) {
-  return app.fetch(new Request(`https://tools.rueisiang.com${path}`, init), env as never);
+  return app.fetch(new Request(`https://platform.rueisiang.com${path}`, init), env as never);
 }
 
 beforeEach(async () => {

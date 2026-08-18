@@ -21,10 +21,11 @@ database_name = "rueisiang-platform"
 database_id = "51443700-c187-4ddb-868b-6b88d7ea43f1"
 migrations_dir = "../../packages/db/migrations"
 
-# 正式網域。子網域委派完成後再打開。
-# [[routes]]
-# pattern = "tools.rueisiang.com"
-# custom_domain = true
+# 正式網域。custom_domain 會由 Cloudflare 自己建立對應的 DNS 記錄——
+# 所以不要先手動加一筆，已經有同名記錄的話這裡會掛。
+[[routes]]
+pattern = "platform.rueisiang.com"
+custom_domain = true
 
 # 需要的 secret 一共三個（值不進版控，在 Cloudflare 儀表板或用指令設）：
 #   AUTH_SESSION_SECRET        簽 session cookie 用，換掉等於所有人登出

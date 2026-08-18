@@ -15,7 +15,7 @@
 
 **時機正確**：兩個 repo 都只有一個月大、加起來 105 個 commit，分歧還只有幾百行。這個數字只會單向成長。
 
-**目標**：一個 monorepo、一次登入、一個 sidebar 分成【客戶關係管理】【倉儲管理系統】【營運工具】三大項，部署在 Cloudflare 的 `tools.rueisiang.com`，權限用新的「角色＋資料範圍」RBAC 控管。
+**目標**：一個 monorepo、一次登入、一個 sidebar 分成【客戶關係管理】【倉儲管理系統】【營運工具】三大項，部署在 Cloudflare 的 `platform.rueisiang.com`，權限用新的「角色＋資料範圍」RBAC 控管。
 
 ---
 
@@ -29,7 +29,7 @@
 | 後端 | **Hono on Cloudflare Workers** |
 | RBAC | 角色 ＋ 資料範圍 |
 | 規模 | 10–50 人內部使用 |
-| 網域 | `tools.rueisiang.com` |
+| 網域 | `platform.rueisiang.com` |
 | 預算 | 以免費額度為主 |
 | 第一個搬的模組 | **CRM** |
 
@@ -156,7 +156,7 @@ user_roles        user ↔ role，**附帶 scope**（scope_type, scope_id，null
 - `packages/auth`：統一 OAuth ＋ 新 RBAC schema 與 `can()` 判定
 - `packages/ui`：AppShell ＋ 三段式 sidebar
 - portal 能登入、看到三個空的大項、`/admin/users` 能管人與權限
-- 部署到 `tools.rueisiang.com`
+- 部署到 `platform.rueisiang.com`
 - **此時尚未搬任何業務功能**——先讓殼站穩
 
 **Phase 2 — CRM 搬入**
