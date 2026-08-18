@@ -20,6 +20,9 @@ importers:
       '@rueisiang/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@rueisiang/cyberbiz':
+        specifier: workspace:*
+        version: link:../../packages/cyberbiz
       '@rueisiang/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -126,6 +129,9 @@ importers:
       '@rueisiang/auth':
         specifier: workspace:*
         version: link:../auth
+      '@rueisiang/cyberbiz':
+        specifier: workspace:*
+        version: link:../cyberbiz
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260702.1)

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@rueisiang/auth": "workspace:*",
+    "@rueisiang/cyberbiz": "workspace:*",
     "@rueisiang/db": "workspace:*",
     "hono": "^4.9.10"
   },

@@ -26,3 +26,12 @@ export {
   type CustomerQuery,
   type CustomerSortField,
 } from "./crm.js";
+export { normalizePhone, validatePhone } from "./phone.js";
+export {
+  syncCyberbizCustomer,
+  syncCyberbizCustomers,
+  type BatchSyncSummary,
+  type CyberbizSyncAction,
+  type CyberbizSyncResult,
+  type SyncContext,
+} from "./crm-sync.js";

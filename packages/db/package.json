@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@rueisiang/auth": "workspace:*",
+    "@rueisiang/cyberbiz": "workspace:*",
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
