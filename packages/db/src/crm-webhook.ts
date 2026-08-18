@@ -75,10 +75,28 @@ export async function processCustomerWebhook(
      * 就用 webhook 原本那份——它的身分是簽章驗證過的，比一筆沒有 ID 的
      * 資料可信。
      */
+    let refetchError: string | undefined;
     if (incoming.externalId && client) {
       const fromWebhook = incoming;
-      const refreshed = await client.fetchOne(incoming.externalId);
-      incoming = refreshed.externalId ? refreshed : fromWebhook;
+      try {
+        const refreshed = await client.fetchOne(incoming.externalId);
+        incoming = refreshed.externalId ? refreshed : fromWebhook;
+      } catch (error) {
+        /*
+         * 重讀失敗不等於這個事件沒有用。
+         *
+         * 實際跑起來才看到：官網對某些會員的單筆查詢會回 404「無此資源」，
+         * 但那些 ID 是簽章驗證過的 webhook 送來的，會員本身確實存在
+         * （之後的全量同步也拉得到）。原本的作法是整個事件標成失敗，
+         * 結果就是一堆紅色的 failed，而我們手上其實有可用的資料。
+         *
+         * 所以改成：有會員 ID 就用 webhook 自己那份往下寫，把重讀的錯誤
+         * 記在結果裡。資料可能比官網舊一點，但下一次同步就會補正。
+         * 沒有會員 ID 的情況仍然照舊擋下來，那才是會生出幽靈客戶的那種。
+         */
+        refetchError = error instanceof Error ? error.message : "重讀會員資料失敗";
+        incoming = fromWebhook;
+      }
     }
 
     const result = await syncCyberbizCustomer(db, incoming, { topic, eventId });
@@ -86,7 +104,10 @@ export async function processCustomerWebhook(
       status: result.action === "ignored" ? "ignored" : "processed",
       customerId: result.customerId,
       cyberbizCustomerId: incoming.externalId || null,
-      result,
+      result: { ...result, refetchError },
+      // 重讀失敗但仍然寫成功時，把原因留在事件上——狀態是「已處理」，
+      // 但看得出這一筆用的是 webhook 自己帶的資料。
+      ...(refetchError ? { error: refetchError } : {}),
     });
 
     return {
@@ -96,6 +117,7 @@ export async function processCustomerWebhook(
       action: result.action,
       customerId: result.customerId,
       reason: result.reason,
+      ...(refetchError ? { error: refetchError } : {}),
     };
   } catch (error) {
     /*

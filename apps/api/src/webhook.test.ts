@@ -180,26 +180,32 @@ describe("處理失敗時", () => {
     vi.unstubAllGlobals();
   });
 
-  it("仍然回 200，並在回應裡說明失敗原因", async () => {
-    const body = JSON.stringify({ topic: "customers/update", customer: { id: "not-a-real-member" } });
+  it("重讀失敗時改用 webhook 自己帶的資料，仍然寫得進去", async () => {
+    // 官網對某些會員的單筆查詢會回 404，但那個 ID 是簽章驗證過的，
+    // 會員也真的存在——手上已經有可用資料時不該整筆丟掉。
+    const body = JSON.stringify({
+      topic: "customers/update",
+      customer: { id: "79797774", mobile: "0912000111", name: "官網查不到但事件有帶" },
+    });
     const response = await post(body, { query });
 
-    // 回 5xx 讓 CYBERBIZ 重送在這裡沒有用：重送會被識別碼判為 duplicate
-    // 而不會重新處理，只換來一連串沒有效果的重試。
     expect(response.status).toBe(200);
-    const outcome = (await response.json()) as { status: string; error?: string };
-    expect(outcome.status).toBe("failed");
-    expect(outcome.error).toBeTruthy();
+    const outcome = (await response.json()) as { status: string; action?: string; error?: string };
+    expect(outcome.status).toBe("processed");
+    expect(outcome.action).toBe("created");
+    // 仍然把重讀失敗的原因留著，看得出這一筆用的不是官網最新資料。
+    expect(outcome.error).toContain("404");
+
+    const [row] = await db().select().from(customers).where(eq(customers.cyberbizCustomerId, "79797774"));
+    expect(row?.name).toBe("官網查不到但事件有帶");
   });
 
-  it("事件仍然落地，狀態是 failed，Cron 之後撿得到", async () => {
-    const body = JSON.stringify({ topic: "customers/update", customer: { id: "not-a-real-member" } });
-    await post(body, { query });
+  it("重讀失敗且事件沒有會員 ID 時才擋下來", async () => {
+    const body = JSON.stringify({ topic: "customers/update", customer: { mobile: "0912000222" } });
+    const outcome = (await (await post(body, { query })).json()) as { status: string };
 
-    const [event] = await db().select().from(cyberbizCustomerWebhooks);
-    expect(event?.status).toBe("failed");
-    expect(event?.lastError).toBeTruthy();
-    expect(event?.payloadJson).toBe(body);
+    expect(outcome.status).toBe("ignored");
+    expect(await db().select().from(customers)).toHaveLength(0);
   });
 
   it("沒有設 API token 時不重讀，直接用 payload 內容處理", async () => {

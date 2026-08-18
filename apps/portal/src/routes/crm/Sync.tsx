@@ -28,6 +28,8 @@ interface SyncRun {
   nextPage: number;
   totalPages: number;
   hasMore: boolean;
+  /** 某一頁失敗時停在那裡，前面的成果仍然算數。 */
+  error?: string;
 }
 
 interface SyncProgress {
@@ -111,6 +113,11 @@ export function Sync() {
           stopped: stopped && result.hasMore,
         });
 
+        if (result.error) {
+          // 停在失敗的那一頁，但保留進度：按「從第 N 頁接著跑」就能重來。
+          setError(`第 ${result.nextPage} 頁失敗：${result.error}`);
+          break;
+        }
         if (!result.hasMore || stopped) break;
         page = result.nextPage;
       }

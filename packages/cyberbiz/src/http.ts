@@ -89,7 +89,7 @@ export async function cyberbizRequest(
   if (!config.apiToken) throw new Error("尚未設定 CYBERBIZ_API_TOKEN");
 
   const baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, "");
-  const retries = options.retries ?? 2;
+  const retries = options.retries ?? 3;
   const sleep = options.sleep ?? defaultSleep;
 
   let lastError: unknown;
@@ -120,6 +120,9 @@ export async function cyberbizRequest(
         const error = new CyberbizApiError(response.status, readErrorMessage(payload), payload);
         if (error.retryable && attempt < retries) {
           lastError = error;
+          // 對方明講要等多久就照做——自己猜的退避常常比它要求的還短。
+          const retryAfter = Number(response.headers.get("retry-after"));
+          if (Number.isFinite(retryAfter) && retryAfter > 0) await sleep(retryAfter * 1000);
           continue;
         }
         throw error;
