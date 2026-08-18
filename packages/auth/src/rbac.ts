@@ -16,7 +16,10 @@ export type UserStatus = "invited" | "active" | "disabled";
 export interface AuthUser {
   id: string;
   email: string;
+  /** 實際要顯示的名字：使用者自己設的顯示名稱優先，沒設才是 Google 上的姓名。 */
   name: string;
+  /** Google 帳號上的姓名，每次登入覆寫。個人資料頁要拿它跟顯示名稱對照。 */
+  googleName: string;
   pictureUrl: string;
   status: UserStatus;
   assignments: readonly RoleAssignment[];

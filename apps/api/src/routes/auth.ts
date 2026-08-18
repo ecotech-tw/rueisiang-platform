@@ -16,8 +16,9 @@ import {
   verifyPayload,
   type Expiring,
 } from "@rueisiang/auth";
-import { loadAuthUser, recordLogin } from "@rueisiang/db";
+import { loadAuthUser, recordLogin, updateProfile } from "@rueisiang/db";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { requireAuth } from "../middleware/auth.js";
 
@@ -141,6 +142,33 @@ export const auth = new Hono<AppEnv>()
     return c.json({ ok: true });
   })
 
+  /**
+   * 更新自己的個人資料。只開放顯示名稱——email 是身分本身，授權判定與往後的
+   * 操作紀錄都認它，讓人自己改等於讓人改掉自己在紀錄裡是誰。
+   *
+   * 不需要額外權限：這條只動 requireAuth 認出來的那個人自己的那一列。
+   */
+  .patch("/profile", requireAuth, async (c) => {
+    let input: unknown;
+    try {
+      input = await c.req.json();
+    } catch {
+      throw new HTTPException(400, { message: "請求內容不是有效的 JSON。" });
+    }
+
+    const value = (input as { displayName?: unknown } | null)?.displayName;
+    if (typeof value !== "string") {
+      throw new HTTPException(400, { message: "顯示名稱格式不正確。" });
+    }
+    const displayName = value.trim();
+    if (displayName.length > 40) {
+      throw new HTTPException(400, { message: "顯示名稱不能超過 40 個字。" });
+    }
+
+    await updateProfile(c.get("db"), c.get("user").id, { displayName });
+    return c.json({ displayName });
+  })
+
   /** 前端啟動時呼叫這一條決定 sidebar 顯示什麼。權限仍以每個 API 自己的檢查為準。 */
   .get("/me", requireAuth, (c) => {
     const user = c.get("user");
@@ -148,6 +176,7 @@ export const auth = new Hono<AppEnv>()
       id: user.id,
       email: user.email,
       name: user.name,
+      googleName: user.googleName,
       pictureUrl: user.pictureUrl,
       permissions: permissionsOf(user),
       roles: user.assignments.map((assignment) => ({

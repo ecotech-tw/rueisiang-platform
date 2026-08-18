@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useSession } from "./auth/session.js";
 import { AdminUsers } from "./routes/admin/Users.js";
 import { Login } from "./routes/Login.js";
+import { Profile } from "./routes/me/Profile.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { AppShell } from "./shell/AppShell.js";
 
@@ -59,6 +60,8 @@ export function App() {
         <Route path="admin">
           <Route path="users" element={<AdminUsers />} />
         </Route>
+
+        <Route path="me" element={<Profile />} />
 
         <Route path="*" element={<Placeholder title="找不到頁面" phase="—" from="—" />} />
       </Route>

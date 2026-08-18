@@ -8,8 +8,9 @@ export interface NavItem {
   /** 側邊選單收合成窄欄時只剩這個字符，所以每一項都要有。 */
   icon: string;
   /**
-   * 從屬於這一項的子頁面。父項自己仍然是可點的連結，子項只是把「這是它底下的東西」
-   * 畫出來——舊系統把它們攤平成同一層，項目一多就看不出誰跟誰有關。
+   * 從屬於這一項的子頁面。目前沒有人用——CRM 與 WMS 搬進來之後才會出現，
+   * 例如倉位地圖底下的個別倉區。留著渲染與樣式，等有真的子頁面再掛上去，
+   * 不要為了展示階層而把平行的功能硬塞成從屬關係。
    */
   children?: NavItem[];
 }
@@ -17,29 +18,20 @@ export interface NavItem {
 export interface NavSection {
   key: string;
   label: string;
-  icon: string;
   items: NavItem[];
 }
 
 /**
- * Sidebar 的三大項。整合的目的就是讓這三塊出現在同一個選單、共用一次登入。
- * 項目與舊系統各自的 nav 對齊，方便逐一搬移時比對。
+ * Sidebar 的大項。前三塊是整合的目的——讓三套系統出現在同一個選單、共用一次登入；
+ * 系統管理跟它們一樣由權限決定看不看得到，所以排在同一個清單裡而不是另外做一區。
  */
 export const NAV_SECTIONS: NavSection[] = [
   {
     key: "crm",
     label: "客戶關係管理",
-    icon: "♟",
     items: [
-      {
-        label: "客戶列表",
-        to: "/crm/customers",
-        permission: "crm:customer:read",
-        icon: "☰",
-        children: [
-          { label: "新增客人", to: "/crm/customers/new", permission: "crm:customer:write", icon: "＋" },
-        ],
-      },
+      { label: "客戶列表", to: "/crm/customers", permission: "crm:customer:read", icon: "☰" },
+      { label: "新增客人", to: "/crm/customers/new", permission: "crm:customer:write", icon: "＋" },
       { label: "標籤管理", to: "/crm/tags", permission: "crm:tag:read", icon: "#" },
       { label: "操作紀錄", to: "/crm/activity", permission: "crm:activity:read", icon: "↺" },
       { label: "CYBERBIZ 同步", to: "/crm/sync", permission: "crm:sync:read", icon: "↻" },
@@ -48,7 +40,6 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     key: "wms",
     label: "倉儲管理系統",
-    icon: "▤",
     items: [
       { label: "倉位地圖", to: "/wms/map", permission: "wms:map:read", icon: "⌂" },
       { label: "商品庫存", to: "/wms/inventory", permission: "wms:inventory:read", icon: "▤" },
@@ -60,30 +51,19 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     key: "tools",
     label: "營運工具",
-    icon: "⚙",
     items: [
-      {
-        label: "出金表執行",
-        to: "/tools/payout",
-        permission: "tools:payout:run",
-        icon: "$",
-        children: [
-          { label: "店別設定", to: "/tools/payout/settings", permission: "tools:payout:config", icon: "⚙" },
-        ],
-      },
+      { label: "出金表執行", to: "/tools/payout", permission: "tools:payout:run", icon: "$" },
+      { label: "店別設定", to: "/tools/payout/settings", permission: "tools:payout:config", icon: "⚙" },
+    ],
+  },
+  {
+    key: "admin",
+    label: "系統管理",
+    items: [
+      { label: "權限管理", to: "/admin/users", permission: "admin:user:read", icon: "♦" },
     ],
   },
 ];
-
-/** 系統管理獨立於三大項之外，放在 sidebar 底部。 */
-export const ADMIN_SECTION: NavSection = {
-  key: "admin",
-  label: "系統管理",
-  icon: "♦",
-  items: [
-    { label: "權限管理", to: "/admin/users", permission: "admin:user:read", icon: "♦" },
-  ],
-};
 
 /** 這個路徑是否落在某一項（或它的子項）底下，用來決定要不要自動展開。 */
 export function containsPath(item: NavItem, pathname: string): boolean {

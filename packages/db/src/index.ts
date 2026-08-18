@@ -1,7 +1,7 @@
 export { createDatabase, type Database } from "./client.js";
 export * as schema from "./schema/index.js";
 export { GLOBAL_SCOPE, type Role, type User, type UserRole } from "./schema/auth.js";
-export { countOtherActiveAdmins, loadAuthUser, recordLogin } from "./users.js";
+export { countOtherActiveAdmins, loadAuthUser, recordLogin, updateProfile } from "./users.js";
 export { syncSystemRoles } from "./seed.js";
 export {
   assignRole,

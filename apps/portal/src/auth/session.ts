@@ -5,6 +5,8 @@ export interface SessionUser {
   id: string;
   email: string;
   name: string;
+  /** Google 帳號上的姓名，個人資料頁拿它跟顯示名稱對照。 */
+  googleName: string;
   pictureUrl: string;
   permissions: Permission[];
   roles: { role: string; scopeType: string; scopeId: string }[];

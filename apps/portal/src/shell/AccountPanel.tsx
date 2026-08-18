@@ -1,11 +1,9 @@
-import type { Permission } from "@rueisiang/auth/permissions";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import type { SessionUser } from "../auth/session.js";
 
 interface AccountPanelProps {
   user: SessionUser | null;
-  permissions: ReadonlySet<Permission>;
   onLogout: () => void;
   onNavigate: () => void;
 }
@@ -31,8 +29,10 @@ function roleText(role: { role: string; scopeType: string; scopeId: string }): s
 /**
  * Sidebar 左下角的帳號區。沿用 CRM 的作法：頭像＋姓名一列，點開才出現操作，
  * 而不是把「登出」這種一去不復返的動作直接裸露在選單上。
+ *
+ * 這裡只放跟「我自己」有關的東西。權限管理是管別人的，屬於系統管理那一段。
  */
-export function AccountPanel({ user, permissions, onLogout, onNavigate }: AccountPanelProps) {
+export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -102,20 +102,18 @@ export function AccountPanel({ user, permissions, onLogout, onNavigate }: Accoun
             </div>
           </div>
 
-          {permissions.has("admin:user:read") ? (
-            <Link
-              className="account-menu-item"
-              role="menuitem"
-              to="/admin/users"
-              onClick={() => {
-                setOpen(false);
-                onNavigate();
-              }}
-            >
-              <span aria-hidden="true">♦</span>
-              權限管理
-            </Link>
-          ) : null}
+          <Link
+            className="account-menu-item"
+            role="menuitem"
+            to="/me"
+            onClick={() => {
+              setOpen(false);
+              onNavigate();
+            }}
+          >
+            <span aria-hidden="true">☺</span>
+            個人資料
+          </Link>
 
           <button type="button" className="account-menu-item danger" role="menuitem" onClick={onLogout}>
             <span aria-hidden="true">↪</span>

@@ -24,6 +24,7 @@ function user(assignments: RoleAssignment[], status: UserStatus = "active"): Aut
     id: "u1",
     email: "someone@ecotech.tw",
     name: "測試",
+    googleName: "測試",
     pictureUrl: "",
     status,
     assignments,
