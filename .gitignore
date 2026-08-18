@@ -18,6 +18,9 @@ dist/
 *.sqlite-journal
 local.db
 
+# Playwright MCP 在專案根目錄留下的快照與 log
+.playwright-mcp/
+
 # 編輯器與作業系統
 .DS_Store
 Thumbs.db
