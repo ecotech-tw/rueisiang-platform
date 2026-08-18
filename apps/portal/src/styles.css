@@ -466,6 +466,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .status-sync-synced { background: #e8f3ec; color: #2f6b45; }
 .status-sync-local_only { background: var(--soft-line); color: var(--muted); }
 .status-sync-failed { background: var(--brand-soft); color: var(--brand-dark); }
+.status-webhook-processed { background: #e8f3ec; color: #2f6b45; }
+.status-webhook-ignored { background: var(--soft-line); color: var(--muted); }
+.status-webhook-processing { background: #fff3d9; color: #93621f; }
+.status-webhook-failed { background: var(--brand-soft); color: var(--brand-dark); }
 
 .pager {
   display: flex;
@@ -477,6 +481,21 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   border-top: 1px solid var(--soft-line);
 }
 .pager-buttons { display: flex; gap: 8px; }
+
+.progress-bar {
+  height: 6px;
+  margin-top: 14px;
+  border-radius: 999px;
+  background: var(--soft-line);
+  overflow: hidden;
+}
+.progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand), #e14842);
+  transition: width .3s ease;
+}
 
 .table-scroll { overflow-x: auto; }
 .data-table { width: 100%; border-collapse: collapse; }
