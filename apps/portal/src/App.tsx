@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useSession } from "./auth/session.js";
 import { AdminUsers } from "./routes/admin/Users.js";
+import { Customers } from "./routes/crm/Customers.js";
 import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
 import { Placeholder } from "./routes/Placeholder.js";
@@ -37,7 +38,7 @@ export function App() {
         <Route index element={<Navigate to="/crm/customers" replace />} />
 
         <Route path="crm">
-          <Route path="customers" element={<Placeholder title="客戶列表" phase="Phase 2" from={`${CRM}/app/crm-app.tsx`} />} />
+          <Route path="customers" element={<Customers />} />
           <Route path="customers/new" element={<Placeholder title="新增客人" phase="Phase 2" from={`${CRM}/app/customers/new`} />} />
           <Route path="tags" element={<Placeholder title="標籤管理" phase="Phase 2" from={`${CRM}/app/tag-management.tsx`} />} />
           <Route path="activity" element={<Placeholder title="操作紀錄" phase="Phase 2" from={`${CRM}/app/activity-log.tsx`} />} />
