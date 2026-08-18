@@ -3,12 +3,27 @@ import {
   CUSTOMER_SORT_FIELDS,
   defaultCustomerQuery,
   listCustomers,
+  readSyncStatus,
+  retryFailedWebhooks,
+  syncCyberbizCustomers,
   type CustomerQuery,
   type CustomerSortField,
 } from "@rueisiang/db";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
+import { cyberbizClient } from "../cyberbiz.js";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
+
+/**
+ * 一次手動同步最多拉幾頁。
+ *
+ * Worker 有執行時間上限，全量拉一次可能拉不完，所以分批：回報還有沒有下一頁，
+ * 讓人再按一次，Cron 也會自己往下接。與其冒著跑到一半被砍掉、狀態不明的風險，
+ * 不如每次都在可預期的範圍內結束。
+ */
+const MAX_PAGES_PER_RUN = 10;
+const PAGE_SIZE = 50;
 
 /**
  * 客戶關係管理。
@@ -43,4 +58,43 @@ export const crm = new Hono<AppEnv>()
   .get("/customers", requirePermission("crm:customer:read"), async (c) => {
     const result = await listCustomers(c.get("db"), parseQuery(new URL(c.req.url)));
     return c.json(result);
+  })
+
+  .get("/sync/status", requirePermission("crm:sync:read"), async (c) => {
+    return c.json({
+      ...(await readSyncStatus(c.get("db"))),
+      configured: Boolean(c.env.CYBERBIZ_API_TOKEN),
+      webhookConfigured: Boolean(c.env.CYBERBIZ_WEBHOOK_SECRET),
+    });
+  })
+
+  /** 手動把官網的會員拉一輪進來。從第幾頁開始由呼叫端指定，方便接著上次拉完的地方。 */
+  .post("/sync", requirePermission("crm:sync:trigger"), async (c) => {
+    const client = cyberbizClient(c.env);
+    if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN。" });
+
+    const startPage = Math.max(1, Number(new URL(c.req.url).searchParams.get("page") || 1));
+    const totals = { received: 0, created: 0, updated: 0, unchanged: 0, ignored: 0 };
+    let page = startPage;
+    let totalPages = 1;
+
+    for (let index = 0; index < MAX_PAGES_PER_RUN; index += 1) {
+      const result = await client.fetchPage(page, PAGE_SIZE);
+      totalPages = result.totalPages;
+
+      const summary = await syncCyberbizCustomers(c.get("db"), result.customers, {
+        topic: "manual-sync",
+      });
+      for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += summary[key];
+
+      if (!result.customers.length || page >= totalPages) break;
+      page += 1;
+    }
+
+    return c.json({ ...totals, fromPage: startPage, toPage: page, totalPages, hasMore: page < totalPages });
+  })
+
+  /** 補跑處理失敗的 webhook。Cron 也會做同一件事，這條是給人手動催的。 */
+  .post("/sync/retry", requirePermission("crm:sync:trigger"), async (c) => {
+    return c.json(await retryFailedWebhooks(c.get("db"), { client: cyberbizClient(c.env) }));
   });

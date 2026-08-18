@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useSession } from "./auth/session.js";
 import { AdminUsers } from "./routes/admin/Users.js";
 import { Customers } from "./routes/crm/Customers.js";
+import { Sync } from "./routes/crm/Sync.js";
 import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
 import { Placeholder } from "./routes/Placeholder.js";
@@ -42,7 +43,7 @@ export function App() {
           <Route path="customers/new" element={<Placeholder title="新增客人" phase="Phase 2" from={`${CRM}/app/customers/new`} />} />
           <Route path="tags" element={<Placeholder title="標籤管理" phase="Phase 2" from={`${CRM}/app/tag-management.tsx`} />} />
           <Route path="activity" element={<Placeholder title="操作紀錄" phase="Phase 2" from={`${CRM}/app/activity-log.tsx`} />} />
-          <Route path="sync" element={<Placeholder title="CYBERBIZ 同步" phase="Phase 2" from={`${CRM}/app/cyberbiz-integration.tsx`} />} />
+          <Route path="sync" element={<Sync />} />
         </Route>
 
         <Route path="wms">

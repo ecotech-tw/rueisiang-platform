@@ -14,6 +14,8 @@ export interface Env {
   CYBERBIZ_API_TOKEN?: string;
   /** 只有測試環境或自架才需要覆寫，預設打正式的 app-store-api。 */
   CYBERBIZ_API_BASE_URL?: string;
+  /** 驗證 CYBERBIZ webhook 用。沒設定時那條路由一律回 401。 */
+  CYBERBIZ_WEBHOOK_SECRET?: string;
 }
 
 export interface AppEnv {

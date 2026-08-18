@@ -35,3 +35,11 @@ export {
   type CyberbizSyncResult,
   type SyncContext,
 } from "./crm-sync.js";
+export {
+  processCustomerWebhook,
+  readSyncStatus,
+  retryFailedWebhooks,
+  type ProcessWebhookInput,
+  type SyncStatus,
+  type WebhookOutcome,
+} from "./crm-webhook.js";

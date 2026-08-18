@@ -35,5 +35,11 @@ custom_domain = true
 # 改過 permissions.ts 之後，用權限管理頁的「重新同步」按鈕寫進資料庫，
 # 不需要額外的 secret。詳細步驟見 docs/deployment-setup.md。
 
+# 定時補跑處理失敗的 CYBERBIZ webhook。取代舊 CRM 那個前端每 15 秒的輪詢——
+# 那要有人開著分頁才會動。全量同步不放這裡，它會打很多次官網 API，
+# 不該在沒人看著的時候自己跑起來。
+[triggers]
+crons = ["*/15 * * * *"]
+
 [observability]
 enabled = true
