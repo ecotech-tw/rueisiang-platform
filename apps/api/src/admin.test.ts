@@ -14,21 +14,10 @@ function db() {
   return createDatabase(d1 as never);
 }
 
-async function seedUser(
-  email: string,
-  roleId: string | null,
-  options: { status?: string; scope?: { type: string; id: string } } = {},
-) {
+async function seedUser(email: string, roleId: string | null, options: { status?: string } = {}) {
   const id = `user-${email}`;
   await db().insert(users).values({ id, email, status: options.status ?? "active" });
-  if (roleId) {
-    await db().insert(userRoles).values({
-      userId: id,
-      roleId,
-      scopeType: options.scope?.type ?? "",
-      scopeId: options.scope?.id ?? "",
-    });
-  }
+  if (roleId) await db().insert(userRoles).values({ userId: id, roleId });
   return id;
 }
 
@@ -118,34 +107,25 @@ describe("邀請帳號", () => {
     expect(second.status).toBe(409);
   });
 
-  it("可以在邀請的同時指定角色與資料範圍", async () => {
+  it("可以在邀請的同時指定角色", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     const response = await as(admin, "admin@ecotech.tw", "/api/admin/users", {
       method: "POST",
-      body: JSON.stringify({
-        email: "store@ecotech.tw",
-        roleKey: "staff",
-        scopeType: "store",
-        scopeId: "誠品西門店3F",
-      }),
+      body: JSON.stringify({ email: "store@ecotech.tw", roleKey: "staff" }),
     });
     expect(response.status).toBe(201);
 
     const list = (await (await as(admin, "admin@ecotech.tw", "/api/admin/users")).json()) as {
-      users: { email: string; assignments: { roleKey: string; scopeType: string; scopeId: string }[] }[];
+      users: { email: string; assignments: { roleKey: string; roleName: string }[] }[];
     };
     const invited = list.users.find((user) => user.email === "store@ecotech.tw");
-    expect(invited?.assignments).toEqual([
-      { roleKey: "staff", roleName: "一般同仁", scopeType: "store", scopeId: "誠品西門店3F" },
-    ]);
+    expect(invited?.assignments).toEqual([{ roleKey: "staff", roleName: "一般同仁" }]);
   });
 
   it.each([
     ["信箱空白", { email: "  " }],
     ["信箱格式錯誤", { email: "not-an-email" }],
     ["角色不存在", { email: "x@ecotech.tw", roleKey: "superuser" }],
-    ["範圍只填一半", { email: "y@ecotech.tw", roleKey: "staff", scopeType: "store" }],
-    ["範圍種類不認得", { email: "z@ecotech.tw", roleKey: "staff", scopeType: "galaxy", scopeId: "A" }],
   ])("擋下不合法的輸入（%s）", async (_label, payload) => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     const response = await as(admin, "admin@ecotech.tw", "/api/admin/users", {
@@ -220,14 +200,14 @@ describe("最後一位管理者的保護", () => {
 });
 
 describe("角色指派", () => {
-  it("同一個人可以在不同店別拿到不同角色", async () => {
+  it("同一個人可以同時有多個角色", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     const target = await seedUser("multi@ecotech.tw", null);
 
-    for (const [roleKey, scopeId] of [["manager", "A店"], ["viewer", "B店"]]) {
+    for (const roleKey of ["manager", "viewer"]) {
       const response = await as(admin, "admin@ecotech.tw", `/api/admin/users/${target}/roles`, {
         method: "POST",
-        body: JSON.stringify({ roleKey, scopeType: "store", scopeId }),
+        body: JSON.stringify({ roleKey }),
       });
       expect(response.status).toBe(201);
     }
@@ -266,27 +246,17 @@ describe("角色指派", () => {
     expect(response.status).toBe(404);
   });
 
-  it("收回帶範圍的指派要範圍也對得上", async () => {
+  it("收回之後那個人就沒有那個角色了", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
-    const target = await seedUser("scoped@ecotech.tw", "role-staff", {
-      scope: { type: "store", id: "誠品西門店3F" },
-    });
+    const target = await seedUser("revoked@ecotech.tw", "role-staff");
 
-    const wrongScope = await as(
+    const response = await as(
       admin,
       "admin@ecotech.tw",
-      `/api/admin/users/${target}/roles?roleKey=staff&scopeType=store&scopeId=${encodeURIComponent("別家店")}`,
+      `/api/admin/users/${target}/roles?roleKey=staff`,
       { method: "DELETE" },
     );
-    expect(wrongScope.status).toBe(404);
-
-    const right = await as(
-      admin,
-      "admin@ecotech.tw",
-      `/api/admin/users/${target}/roles?roleKey=staff&scopeType=store&scopeId=${encodeURIComponent("誠品西門店3F")}`,
-      { method: "DELETE" },
-    );
-    expect(right.status).toBe(200);
+    expect(response.status).toBe(200);
     expect(await db().select().from(userRoles).where(eq(userRoles.userId, target))).toHaveLength(0);
   });
 
@@ -308,7 +278,7 @@ describe("角色指派", () => {
 });
 
 describe("角色目錄", () => {
-  it("回傳角色、權限說明與可用的範圍種類", async () => {
+  it("回傳角色與權限說明", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     const response = await as(admin, "admin@ecotech.tw", "/api/admin/roles");
     expect(response.status).toBe(200);
@@ -316,13 +286,11 @@ describe("角色目錄", () => {
     const body = (await response.json()) as {
       roles: { key: string; name: string; isSystem: boolean; permissions: string[] }[];
       permissions: Record<string, string>;
-      scopeTypes: string[];
     };
 
     expect(body.roles.map((role) => role.key).sort()).toEqual(["admin", "manager", "staff", "viewer"]);
     expect(body.roles.find((role) => role.key === "viewer")?.permissions).not.toContain("admin:user:write");
     expect(body.permissions["admin:user:write"]).toBe("邀請與停用帳號");
-    expect(body.scopeTypes).toEqual(["store", "warehouse"]);
   });
 });
 

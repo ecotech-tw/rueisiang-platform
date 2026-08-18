@@ -9,11 +9,6 @@ const ROLE_LABEL: Record<string, string> = {
   viewer: "檢視者",
 };
 
-const SCOPE_LABEL: Record<string, string> = {
-  store: "店別",
-  warehouse: "倉庫",
-};
-
 /**
  * 個人資料。只有顯示名稱可以改。
  *
@@ -100,22 +95,16 @@ export function Profile() {
             <dd>{user.googleName || "—"}</dd>
           </div>
           <div>
-            <dt>角色與資料範圍</dt>
+            <dt>角色</dt>
             <dd>
               {user.roles.length === 0
                 ? "沒有任何角色"
-                : user.roles
-                    .map((role) => {
-                      const name = ROLE_LABEL[role.role] ?? role.role;
-                      if (!role.scopeType) return `${name}（全部資料）`;
-                      return `${name}（${SCOPE_LABEL[role.scopeType] ?? role.scopeType}：${role.scopeId}）`;
-                    })
-                    .join("、")}
+                : user.roles.map((role) => ROLE_LABEL[role] ?? role).join("、")}
             </dd>
           </div>
         </dl>
         <p className="muted form-foot">
-          要調整角色或資料範圍請找管理者，這一頁改不了——不然權限就形同虛設。
+          要調整角色請找管理者，這一頁改不了——不然權限就形同虛設。
         </p>
       </section>
     </div>

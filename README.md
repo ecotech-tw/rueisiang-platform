@@ -2,7 +2,7 @@
 
 把 CRM、WMS 與營運工具整合成一個入口：一次登入、一個 sidebar、一套權限，部署在 Cloudflare。
 
-目前狀態：**Phase 1 的程式碼完成**——Google 登入、角色＋資料範圍的 RBAC、權限管理頁都能用了。
+目前狀態：**Phase 1 的程式碼完成**——Google 登入、角色式 RBAC、權限管理頁都能用了。
 還沒部署：D1 與 Google OAuth client 尚未開通，步驟見 `docs/deployment-setup.md`。
 三大項底下的業務功能仍是佔位頁，從 Phase 2 起逐一搬入。
 

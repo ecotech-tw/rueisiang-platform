@@ -40,13 +40,6 @@ export type Permission = keyof typeof PERMISSIONS;
 
 export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
 
-/**
- * 資料範圍的種類。null scope＝全域。
- * store 對應各門市／專櫃，warehouse 對應倉庫。
- */
-export const SCOPE_TYPES = ["store", "warehouse"] as const;
-export type ScopeType = (typeof SCOPE_TYPES)[number];
-
 /** 系統預設角色。isSystem 的角色不允許從 UI 刪除。 */
 export const SYSTEM_ROLES = {
   admin: { name: "管理者", permissions: ALL_PERMISSIONS },

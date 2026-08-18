@@ -9,7 +9,7 @@ export interface SessionUser {
   googleName: string;
   pictureUrl: string;
   permissions: Permission[];
-  roles: { role: string; scopeType: string; scopeId: string }[];
+  roles: string[];
 }
 
 /** 未登入時回 null 而不是丟錯——這是預期中的狀態，不是異常。 */

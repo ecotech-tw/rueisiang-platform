@@ -9,7 +9,6 @@ import {
   useSyncRoles,
   useUsers,
   type AdminUser,
-  type Assignment,
   type Catalog,
 } from "./api.js";
 
@@ -19,16 +18,6 @@ const STATUS_LABEL: Record<AdminUser["status"], string> = {
   disabled: "已停用",
 };
 
-const SCOPE_LABEL: Record<string, string> = {
-  store: "店別",
-  warehouse: "倉庫",
-};
-
-function scopeText(assignment: Assignment): string {
-  if (!assignment.scopeType) return "全部資料";
-  return `${SCOPE_LABEL[assignment.scopeType] ?? assignment.scopeType}：${assignment.scopeId}`;
-}
-
 function formatTime(value: string | null): string {
   if (!value) return "—";
   // D1 存的是 UTC 的 CURRENT_TIMESTAMP（YYYY-MM-DD HH:MM:SS），沒有時區標記。
@@ -36,68 +25,10 @@ function formatTime(value: string | null): string {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
 }
 
-/** 角色與資料範圍的一組輸入。邀請表單與逐列指派共用同一個形狀。 */
-function ScopeFields({
-  catalog,
-  roleKey,
-  scopeType,
-  scopeId,
-  onChange,
-  allowEmptyRole,
-}: {
-  catalog: Catalog;
-  roleKey: string;
-  scopeType: string;
-  scopeId: string;
-  onChange: (next: { roleKey: string; scopeType: string; scopeId: string }) => void;
-  allowEmptyRole?: boolean;
-}) {
-  return (
-    <>
-      <select
-        aria-label="角色"
-        value={roleKey}
-        onChange={(event) => onChange({ roleKey: event.target.value, scopeType, scopeId })}
-      >
-        {allowEmptyRole ? <option value="">先不指定角色</option> : null}
-        {catalog.roles.map((role) => (
-          <option key={role.key} value={role.key}>
-            {role.name}
-          </option>
-        ))}
-      </select>
-
-      <select
-        aria-label="資料範圍種類"
-        value={scopeType}
-        onChange={(event) =>
-          onChange({ roleKey, scopeType: event.target.value, scopeId: event.target.value ? scopeId : "" })
-        }
-      >
-        <option value="">全部資料</option>
-        {catalog.scopeTypes.map((type) => (
-          <option key={type} value={type}>
-            {SCOPE_LABEL[type] ?? type}
-          </option>
-        ))}
-      </select>
-
-      {scopeType ? (
-        <input
-          aria-label="資料範圍名稱"
-          placeholder={scopeType === "store" ? "例如 誠品西門店3F" : "例如 三重倉"}
-          value={scopeId}
-          onChange={(event) => onChange({ roleKey, scopeType, scopeId: event.target.value })}
-        />
-      ) : null}
-    </>
-  );
-}
-
 function InviteForm({ catalog }: { catalog: Catalog }) {
   const invite = useInvite();
   const [email, setEmail] = useState("");
-  const [grant, setGrant] = useState({ roleKey: "", scopeType: "", scopeId: "" });
+  const [roleKey, setRoleKey] = useState("");
 
   return (
     <form
@@ -105,15 +36,11 @@ function InviteForm({ catalog }: { catalog: Catalog }) {
       onSubmit={(event) => {
         event.preventDefault();
         invite.mutate(
-          {
-            email,
-            ...(grant.roleKey ? { roleKey: grant.roleKey } : {}),
-            ...(grant.scopeType ? { scopeType: grant.scopeType, scopeId: grant.scopeId } : {}),
-          },
+          { email, ...(roleKey ? { roleKey } : {}) },
           {
             onSuccess: () => {
               setEmail("");
-              setGrant({ roleKey: "", scopeType: "", scopeId: "" });
+              setRoleKey("");
             },
           },
         );
@@ -128,7 +55,12 @@ function InviteForm({ catalog }: { catalog: Catalog }) {
         onChange={(event) => setEmail(event.target.value)}
       />
 
-      <ScopeFields catalog={catalog} {...grant} onChange={setGrant} allowEmptyRole />
+      <select aria-label="角色" value={roleKey} onChange={(event) => setRoleKey(event.target.value)}>
+        <option value="">先不指定角色</option>
+        {catalog.roles.map((role) => (
+          <option key={role.key} value={role.key}>{role.name}</option>
+        ))}
+      </select>
 
       <button type="submit" className="primary-button" disabled={invite.isPending}>
         {invite.isPending ? "邀請中…" : "邀請"}
@@ -141,21 +73,21 @@ function InviteForm({ catalog }: { catalog: Catalog }) {
 
 function AssignRow({ user, catalog, onDone }: { user: AdminUser; catalog: Catalog; onDone: () => void }) {
   const assign = useAssignRole();
-  const [grant, setGrant] = useState({
-    roleKey: catalog.roles[0]?.key ?? "",
-    scopeType: "",
-    scopeId: "",
-  });
+  const [roleKey, setRoleKey] = useState(catalog.roles[0]?.key ?? "");
 
   return (
     <form
       className="admin-form inline"
       onSubmit={(event) => {
         event.preventDefault();
-        assign.mutate({ id: user.id, ...grant }, { onSuccess: onDone });
+        assign.mutate({ id: user.id, roleKey }, { onSuccess: onDone });
       }}
     >
-      <ScopeFields catalog={catalog} {...grant} onChange={setGrant} />
+      <select aria-label="角色" value={roleKey} onChange={(event) => setRoleKey(event.target.value)}>
+        {catalog.roles.map((role) => (
+          <option key={role.key} value={role.key}>{role.name}</option>
+        ))}
+      </select>
       <button type="submit" className="primary-button" disabled={assign.isPending}>
         指派
       </button>
@@ -190,20 +122,12 @@ function UserRow({ user, catalog, isSelf }: { user: AdminUser; catalog: Catalog;
           <div className="chips">
             {user.assignments.length === 0 ? <span className="cell-sub">沒有任何角色</span> : null}
             {user.assignments.map((assignment) => (
-              <span className="chip" key={`${assignment.roleKey}-${assignment.scopeType}-${assignment.scopeId}`}>
+              <span className="chip" key={assignment.roleKey}>
                 {assignment.roleName}
-                <span className="chip-scope">{scopeText(assignment)}</span>
                 <button
                   type="button"
                   aria-label={`收回 ${assignment.roleName}`}
-                  onClick={() =>
-                    revoke.mutate({
-                      id: user.id,
-                      roleKey: assignment.roleKey,
-                      scopeType: assignment.scopeType,
-                      scopeId: assignment.scopeId,
-                    })
-                  }
+                  onClick={() => revoke.mutate({ id: user.id, roleKey: assignment.roleKey })}
                 >
                   ×
                 </button>
@@ -302,7 +226,7 @@ export function AdminUsers() {
               <tr>
                 <th>成員</th>
                 <th>狀態</th>
-                <th>角色與資料範圍</th>
+                <th>角色</th>
                 <th>最後登入</th>
                 <th />
               </tr>

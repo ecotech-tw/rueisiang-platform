@@ -9,8 +9,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 export interface Assignment {
   roleKey: string;
   roleName: string;
-  scopeType: string;
-  scopeId: string;
 }
 
 export interface AdminUser {
@@ -33,7 +31,6 @@ export interface RoleInfo {
 export interface Catalog {
   roles: RoleInfo[];
   permissions: Record<string, string>;
-  scopeTypes: string[];
 }
 
 /** API 的錯誤訊息本來就是要給人看的中文，直接往上丟給畫面顯示。 */
@@ -77,13 +74,8 @@ function useAdminMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown
   });
 }
 
-export interface ScopeInput {
-  scopeType: string;
-  scopeId: string;
-}
-
 export function useInvite() {
-  return useAdminMutation((input: { email: string; roleKey?: string } & Partial<ScopeInput>) =>
+  return useAdminMutation((input: { email: string; roleKey?: string }) =>
     request("/api/admin/users", { method: "POST", body: JSON.stringify(input) }),
   );
 }
@@ -98,10 +90,10 @@ export function useSetStatus() {
 }
 
 export function useAssignRole() {
-  return useAdminMutation((input: { id: string; roleKey: string } & ScopeInput) =>
+  return useAdminMutation((input: { id: string; roleKey: string }) =>
     request(`/api/admin/users/${encodeURIComponent(input.id)}/roles`, {
       method: "POST",
-      body: JSON.stringify({ roleKey: input.roleKey, scopeType: input.scopeType, scopeId: input.scopeId }),
+      body: JSON.stringify({ roleKey: input.roleKey }),
     }),
   );
 }
@@ -119,12 +111,8 @@ export function useSyncRoles() {
 }
 
 export function useRevokeRole() {
-  return useAdminMutation((input: { id: string; roleKey: string } & ScopeInput) => {
+  return useAdminMutation((input: { id: string; roleKey: string }) => {
     const params = new URLSearchParams({ roleKey: input.roleKey });
-    if (input.scopeType) {
-      params.set("scopeType", input.scopeType);
-      params.set("scopeId", input.scopeId);
-    }
     return request(`/api/admin/users/${encodeURIComponent(input.id)}/roles?${params}`, { method: "DELETE" });
   });
 }

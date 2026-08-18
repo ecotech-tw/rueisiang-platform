@@ -1,11 +1,4 @@
-import {
-  SESSION_COOKIE,
-  can,
-  readCookie,
-  verifySession,
-  type Permission,
-  type Scope,
-} from "@rueisiang/auth";
+import { SESSION_COOKIE, can, readCookie, verifySession, type Permission } from "@rueisiang/auth";
 import { loadAuthUser } from "@rueisiang/db";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
@@ -39,13 +32,10 @@ export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
   await next();
 });
 
-/**
- * 要求特定權限。scope 省略時代表「在任何範圍內有這個權限即可」，
- * 適用於列表類端點——實際能看到哪些資料由查詢層的 scope 過濾決定。
- */
-export function requirePermission(permission: Permission, scope?: Scope) {
+/** 要求特定權限。 */
+export function requirePermission(permission: Permission) {
   return createMiddleware<AppEnv>(async (c, next) => {
-    if (!can(c.get("user"), permission, scope)) {
+    if (!can(c.get("user"), permission)) {
       throw new HTTPException(403, { message: "沒有這項操作的權限。" });
     }
     await next();

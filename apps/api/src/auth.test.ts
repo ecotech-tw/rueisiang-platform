@@ -10,16 +10,11 @@ const SECRET = "test-secret";
 let d1: TestD1;
 let env: Record<string, unknown>;
 
-async function seedUser(email: string, roleId: string, scope?: { type: string; id: string }) {
+async function seedUser(email: string, roleId: string) {
   const db = createDatabase(d1 as never);
   const id = `user-${email}`;
   await db.insert(users).values({ id, email, status: "active" });
-  await db.insert(userRoles).values({
-    userId: id,
-    roleId,
-    scopeType: scope?.type ?? "",
-    scopeId: scope?.id ?? "",
-  });
+  await db.insert(userRoles).values({ userId: id, roleId });
   return id;
 }
 
@@ -116,14 +111,14 @@ describe("已登入", () => {
     expect(body.permissions).not.toContain("admin:user:write");
   });
 
-  it("帶資料範圍的指派會原樣回報", async () => {
-    const id = await seedUser("store@ecotech.tw", "role-staff", { type: "store", id: "誠品西門店3F" });
+  it("角色以鍵值回報，前端據此顯示身分", async () => {
+    const id = await seedUser("store@ecotech.tw", "role-staff");
     const response = await call("/api/auth/me", {
       headers: { Cookie: await sessionCookie(id, "store@ecotech.tw") },
     });
 
-    const body = (await response.json()) as { roles: { role: string; scopeType: string; scopeId: string }[] };
-    expect(body.roles).toEqual([{ role: "staff", scopeType: "store", scopeId: "誠品西門店3F" }]);
+    const body = (await response.json()) as { roles: string[] };
+    expect(body.roles).toEqual(["staff"]);
   });
 
   it("停權後下一個請求就失效，不必等 session 過期", async () => {

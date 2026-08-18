@@ -15,7 +15,7 @@
 
 **時機正確**：兩個 repo 都只有一個月大、加起來 105 個 commit，分歧還只有幾百行。這個數字只會單向成長。
 
-**目標**：一個 monorepo、一次登入、一個 sidebar 分成【客戶關係管理】【倉儲管理系統】【營運工具】三大項，部署在 Cloudflare 的 `platform.rueisiang.com`，權限用新的「角色＋資料範圍」RBAC 控管。
+**目標**：一個 monorepo、一次登入、一個 sidebar 分成【客戶關係管理】【倉儲管理系統】【營運工具】三大項，部署在 Cloudflare 的 `platform.rueisiang.com`，權限用新的角色式 RBAC 控管（原本規劃的「資料範圍」已移除，理由見下方 RBAC 一節）。
 
 ---
 
@@ -27,7 +27,7 @@
 | 語言 | 全 TypeScript |
 | 前端 | **Vite + React Router（純 SPA）**，離開 Next.js |
 | 後端 | **Hono on Cloudflare Workers** |
-| RBAC | 角色 ＋ 資料範圍 |
+| RBAC | 角色（原訂的「資料範圍」已移除——舊系統的資料沒有照店別或倉庫切） |
 | 規模 | 10–50 人內部使用 |
 | 網域 | `platform.rueisiang.com` |
 | 預算 | 以免費額度為主 |
@@ -107,7 +107,7 @@ rueisiang-platform/
 
 ---
 
-## RBAC 設計（角色 ＋ 資料範圍）
+## RBAC 設計（角色）
 
 現況是兩套各自硬編碼的 `admin | viewer`。新模型：
 
@@ -116,8 +116,27 @@ users             取代兩份 app_users（id, email, google_subject, name, stat
 roles             admin / manager / staff / viewer，可再增
 permissions       字串常數，定義在程式碼（如 crm:customer:write、wms:inventory:count）
 role_permissions  role ↔ permission
-user_roles        user ↔ role，**附帶 scope**（scope_type, scope_id，null = 全域）
+user_roles        user ↔ role
 ```
+
+> **修正（2026-08-18）：拿掉「資料範圍」。**
+>
+> 這份計畫原本寫的是「角色＋資料範圍」，角色可以綁在某個店別或倉庫上。實作完之後
+> 回頭對照兩套舊系統的 schema，發現那個前提不成立：
+>
+> - CRM 的 `customers` **沒有店別欄位**，客戶是全公司共用的（`source_channel` 是
+>   「手動還是 CYBERBIZ 來的」，與門市無關）
+> - WMS 的 `zones` **沒有倉庫欄位**，`warehouse_settings` 只有一列——就是一個倉庫、
+>   一張地圖。唯一叫 `warehouse_scope` 的欄位在 `cyberbiz_product_links`，值永遠是
+>   `'company'`，那是 CYBERBIZ 自己「公司層級 vs POS 門市層級庫存」的概念
+>
+> 沒有東西可以照範圍過濾，留著只會讓權限管理頁問一個沒有正確答案的問題，
+> 而且看起來像一道實際上不存在的防線——選了「店別」的人跟選「全部資料」的人
+> 看到的東西一模一樣。
+>
+> `user_roles` 的 `scope_type` / `scope_id` 欄位保留（預設空字串＝全域），
+> 哪天真的有模組需要時不必再開 migration。**但順序是：先給該資料表加上店別欄位、
+> 把過濾接進那條查詢，最後才在 UI 開放那一種範圍。** 不要再從 UI 開始做。
 
 `permissions` 刻意定義在**程式碼而非資料庫**——權限鍵值是程式邏輯的一部分，放 DB 只會讓「哪些權限存在」與「程式檢查哪些權限」兩邊漂移。
 
@@ -128,7 +147,7 @@ user_roles        user ↔ role，**附帶 scope**（scope_type, scope_id，null
 三個強制點：
 
 1. **`apps/api/src/middleware/auth.ts`** — 每條路由宣告所需權限，中介層驗證。取代 WMS `proxy.ts` 的角色。
-2. **`packages/db` 的 scope-aware helper** — 只導出**已套用 scope 過濾**的查詢函式，不導出裸的 db handle，讓「忘記過濾」在型別層就不可能發生。這是資料範圍的關鍵，也是最難的一層。
+2. **`packages/db` 的查詢 helper** — 只導出具名的查詢函式，不導出裸的 db handle。（原本這一條是「scope-aware helper」，資料範圍拿掉之後剩下這個原則。）
 3. **前端 sidebar / 按鈕顯示** — 只影響體驗，不負責安全。
 
 **必須保留的現有設計**：

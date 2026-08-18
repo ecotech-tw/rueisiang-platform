@@ -179,10 +179,6 @@ export const auth = new Hono<AppEnv>()
       googleName: user.googleName,
       pictureUrl: user.pictureUrl,
       permissions: permissionsOf(user),
-      roles: user.assignments.map((assignment) => ({
-        role: assignment.roleKey,
-        scopeType: assignment.scopeType,
-        scopeId: assignment.scopeId,
-      })),
+      roles: user.assignments.map((assignment) => assignment.roleKey),
     });
   });
