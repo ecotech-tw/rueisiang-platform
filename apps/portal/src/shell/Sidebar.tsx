@@ -1,8 +1,9 @@
 import type { Permission } from "@rueisiang/auth/permissions";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router";
 import type { SessionUser } from "../auth/session.js";
 import { AccountPanel } from "./AccountPanel.js";
+import { Icon } from "./icons.js";
 import {
   NAV_SECTIONS,
   containsPath,
@@ -42,7 +43,7 @@ function Item({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
         className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
         title={item.label}
       >
-        <span className="nav-icon" aria-hidden="true">{item.icon}</span>
+        <Icon name={item.icon} className="nav-icon" />
         <span className="nav-label">{item.label}</span>
       </NavLink>
 
@@ -84,8 +85,10 @@ function Section({
         className="nav-section-head"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
+        title={section.label}
       >
-        <span className="nav-section-label">{section.label}</span>
+        <Icon name={section.icon} className="nav-icon" />
+        <span className="nav-label">{section.label}</span>
         <span className="nav-chevron" aria-hidden="true" />
       </button>
 
@@ -100,6 +103,36 @@ function Section({
 }
 
 export function Sidebar({ permissions, collapsed, onToggle, user, onLogout, onNavigate }: SidebarProps) {
+  const navRef = useRef<HTMLElement>(null);
+  const [hasMoreBelow, setHasMoreBelow] = useState(false);
+
+  /**
+   * 收合成圖示欄時捲軸是藏起來的（見 styles.css），所以要自己給一個「下面還有」的提示。
+   * 展開時看得到捲軸，這個箭頭就不出現。
+   */
+  const measure = useCallback(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    setHasMoreBelow(nav.scrollHeight - nav.scrollTop - nav.clientHeight > 4);
+  }, []);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+
+    measure();
+    nav.addEventListener("scroll", measure, { passive: true });
+    // 展開／收合大項會改變高度，視窗縮放也會，兩者都要重新量。
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav);
+    for (const child of Array.from(nav.children)) observer.observe(child);
+
+    return () => {
+      nav.removeEventListener("scroll", measure);
+      observer.disconnect();
+    };
+  }, [measure, collapsed]);
+
   return (
     <aside className="sidebar" id="portal-sidebar">
       <div className="brand-row">
@@ -117,11 +150,24 @@ export function Sidebar({ permissions, collapsed, onToggle, user, onLogout, onNa
         <span className={collapsed ? "arrow-right" : "arrow-left"} />
       </button>
 
-      <nav className="primary-nav" aria-label="主要導覽">
-        {NAV_SECTIONS.map((section) => (
-          <Section key={section.key} section={section} permissions={permissions} onNavigate={onNavigate} />
-        ))}
-      </nav>
+      <div className="nav-viewport">
+        <nav className="primary-nav" aria-label="主要導覽" ref={navRef}>
+          {NAV_SECTIONS.map((section) => (
+            <Section key={section.key} section={section} permissions={permissions} onNavigate={onNavigate} />
+          ))}
+        </nav>
+
+        {hasMoreBelow ? (
+          <button
+            type="button"
+            className="nav-scroll-hint"
+            aria-label="往下捲動看更多項目"
+            onClick={() => navRef.current?.scrollBy({ top: 160, behavior: "smooth" })}
+          >
+            <span className="nav-scroll-arrow" aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
 
       <div className="sidebar-foot">
         <AccountPanel user={user} onLogout={onLogout} onNavigate={onNavigate} />

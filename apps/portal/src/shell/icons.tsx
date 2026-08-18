@@ -1,0 +1,163 @@
+/**
+ * 選單圖示。
+ *
+ * 手繪的 24×24 線性圖示，形狀比照 Material Symbols 的 outlined 風格：
+ * 統一 1.8 的線寬、圓端點、只用 currentColor，所以顏色跟著文字走。
+ *
+ * 為什麼不直接載 Material Symbols 字型：那是一個外部相依（字型檔或 CDN），
+ * 而我們只用得到十幾個圖示。內嵌 SVG 沒有額外請求、沒有 FOUT，
+ * 也不必為了 CSP 再開一個來源。
+ */
+
+export type IconName =
+  | "people"
+  | "list"
+  | "personAdd"
+  | "tag"
+  | "history"
+  | "sync"
+  | "warehouse"
+  | "grid"
+  | "box"
+  | "cloudSync"
+  | "category"
+  | "widgets"
+  | "payments"
+  | "storefront"
+  | "tune"
+  | "shieldPerson";
+
+const PATHS: Record<IconName, React.ReactNode> = {
+  people: (
+    <>
+      <circle cx="9.2" cy="8.6" r="3.3" />
+      <path d="M3.4 19.2c0-3.1 2.6-4.9 5.8-4.9s5.8 1.8 5.8 4.9" />
+      <path d="M16.4 5.9a3.3 3.3 0 0 1 0 5.6" />
+      <path d="M17.6 14.7c1.9.6 3 2 3 4.5" />
+    </>
+  ),
+  list: (
+    <>
+      <path d="M9 6.8h11.2M9 12h11.2M9 17.2h11.2" />
+      <circle cx="4.6" cy="6.8" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="4.6" cy="12" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="4.6" cy="17.2" r="1.2" fill="currentColor" stroke="none" />
+    </>
+  ),
+  personAdd: (
+    <>
+      <circle cx="10" cy="8.4" r="3.3" />
+      <path d="M3.8 19.2c0-3.1 2.8-4.9 6.2-4.9.9 0 1.7.12 2.5.37" />
+      <path d="M17.6 13.8v6.2M14.5 16.9h6.2" />
+    </>
+  ),
+  tag: (
+    <>
+      <path d="M4.2 6.6A2.4 2.4 0 0 1 6.6 4.2h5.1c.6 0 1.2.25 1.7.7l6 6a2.4 2.4 0 0 1 0 3.4l-4.9 4.9a2.4 2.4 0 0 1-3.4 0l-6-6a2.4 2.4 0 0 1-.9-1.7z" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+    </>
+  ),
+  history: (
+    <>
+      <path d="M4.3 12a7.7 7.7 0 1 0 2.5-5.7" />
+      <path d="M4.1 4.4v4h4" />
+      <path d="M12 7.9V12l2.9 1.7" />
+    </>
+  ),
+  sync: (
+    <>
+      <path d="M4.6 12a7.4 7.4 0 0 1 12.2-5.6" />
+      <path d="M17.4 3.4v3.5h-3.5" />
+      <path d="M19.4 12a7.4 7.4 0 0 1-12.2 5.6" />
+      <path d="M6.6 20.6v-3.5h3.5" />
+    </>
+  ),
+  warehouse: (
+    <>
+      <path d="M3.6 9.9 12 4.7l8.4 5.2v9.9H3.6z" />
+      <path d="M8.6 19.8v-6.1h6.8v6.1" />
+      <path d="M8.6 16.7h6.8" />
+    </>
+  ),
+  grid: (
+    <>
+      <rect x="3.6" y="4.4" width="16.8" height="15.2" rx="2.2" />
+      <path d="M9.9 4.4v15.2M3.6 12h16.8" />
+    </>
+  ),
+  box: (
+    <>
+      <path d="M3.9 8.2 12 4.1l8.1 4.1v7.6L12 19.9l-8.1-4.1z" />
+      <path d="m3.9 8.2 8.1 4.1 8.1-4.1M12 12.3v7.6" />
+    </>
+  ),
+  cloudSync: (
+    <>
+      <path d="M7.6 16.4a3.7 3.7 0 0 1 .3-7.4 5 5 0 0 1 9.4-.3 3.5 3.5 0 0 1 .9 6.9" />
+      <path d="M9.9 18.6a2.9 2.9 0 0 0 4.9 1.2" />
+      <path d="M9.6 21v-2.4H12" />
+    </>
+  ),
+  category: (
+    <>
+      <path d="M12 3.7 16.5 10.4h-9z" />
+      <rect x="4" y="13.2" width="6.8" height="6.8" rx="1.5" />
+      <circle cx="17" cy="16.6" r="3.4" />
+    </>
+  ),
+  widgets: (
+    <>
+      <rect x="3.9" y="3.9" width="6.8" height="6.8" rx="1.6" />
+      <rect x="13.3" y="3.9" width="6.8" height="6.8" rx="1.6" />
+      <rect x="3.9" y="13.3" width="6.8" height="6.8" rx="1.6" />
+      <rect x="13.3" y="13.3" width="6.8" height="6.8" rx="1.6" />
+    </>
+  ),
+  payments: (
+    <>
+      <rect x="2.9" y="5.9" width="18.2" height="12.2" rx="2.2" />
+      <circle cx="12" cy="12" r="2.7" />
+      <path d="M6.4 9.4v5.2M17.6 9.4v5.2" />
+    </>
+  ),
+  storefront: (
+    <>
+      <path d="M4.3 9.8h15.4v9.1a1 1 0 0 1-1 1H5.3a1 1 0 0 1-1-1z" />
+      <path d="M3.2 9.8 4.7 5.1a1 1 0 0 1 1-.7h12.6a1 1 0 0 1 1 .7l1.5 4.7" />
+      <path d="M9.7 19.9v-4.8h4.6v4.8" />
+    </>
+  ),
+  tune: (
+    <>
+      <path d="M3.8 7.6h9.4M18.1 7.6h2.1" />
+      <path d="M3.8 16.4h2.1M10.8 16.4h9.4" />
+      <circle cx="15.6" cy="7.6" r="2.4" />
+      <circle cx="8.4" cy="16.4" r="2.4" />
+    </>
+  ),
+  shieldPerson: (
+    <>
+      <path d="M12 3.5 19 5.9v5.9c0 4-2.8 6.9-7 8.2-4.2-1.3-7-4.2-7-8.2V5.9z" />
+      <circle cx="12" cy="10.1" r="1.9" />
+      <path d="M8.8 15.4c.5-1.4 1.8-2.2 3.2-2.2s2.7.8 3.2 2.2" />
+    </>
+  ),
+};
+
+export function Icon({ name, className }: { name: IconName; className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {PATHS[name]}
+    </svg>
+  );
+}
