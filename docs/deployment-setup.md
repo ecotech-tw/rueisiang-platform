@@ -238,9 +238,13 @@ repo（`ecotech-tw/rueisiang-platform`）已經存在，不必新開。要加的
 
 ### 4.3 自動部署
 
-`deploy.yml` 目前只能手動觸發，這樣在第一次上線、secret 還沒齊之前不會一直寄失敗通知。
-順利跑過一次之後，把檔案開頭註解裡的那三行 `push: branches: [main]` 加進 `on:`，
-推上 main 就會自動部署。
+**合併進 `main` 就會自動部署**，另外保留手動觸發（要重跑或回滾時用）。
+
+之所以敢這樣掛：能進 main 的東西都得先過 PR 的 CI——型別檢查、測試、build，
+外加在 Linux 上跑一次 `wrangler deploy --dry-run`。
+
+**要回滾**：Cloudflare 儀表板的 Worker 頁面可以直接切回上一個版本，比 revert 再等
+一輪 CI 快。之後再把 revert 的 PR 合進來讓程式碼跟線上一致。
 
 另外 `ci.yml` 不需要任何 secret，每次推送與 PR 都會跑型別檢查、測試、build，
 最後在 Linux 上跑一次 `wrangler deploy --dry-run`——這台開發機驗不到的

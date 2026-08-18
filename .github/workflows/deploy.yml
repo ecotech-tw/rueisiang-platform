@@ -1,13 +1,13 @@
 name: Deploy
 
-# 目前只能手動觸發（Actions 分頁 → Deploy → Run workflow）。
+# 推上 main 就自動部署，另外保留手動觸發（要重跑或回滾時用）。
 #
-# 等第一次上線順利、secret 都設好之後，把下面這段加進 on: 就會變成
-# 推上 main 自動部署：
-#
-#   push:
-#     branches: [main]
+# 之所以敢這樣掛：能進 main 的東西都得先過 PR 的 CI——型別檢查、測試、build，
+# 外加在 Linux 上跑一次 wrangler deploy --dry-run。這裡再跑一次是因為手動觸發
+# 可能挑到還沒跑過 CI 的 commit。
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 # 同時只跑一個部署。兩個部署交錯執行會讓 migration 的順序變得沒辦法推理。
