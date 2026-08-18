@@ -17,3 +17,12 @@ export {
   type RoleGrant,
   type RoleRow,
 } from "./admin.js";
+export {
+  CUSTOMER_PAGE_SIZES,
+  CUSTOMER_SORT_FIELDS,
+  defaultCustomerQuery,
+  listCustomers,
+  type CustomerListResult,
+  type CustomerQuery,
+  type CustomerSortField,
+} from "./crm.js";

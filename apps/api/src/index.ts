@@ -5,6 +5,7 @@ import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "./env.js";
 import { admin } from "./routes/admin.js";
 import { auth } from "./routes/auth.js";
+import { crm } from "./routes/crm.js";
 import { health } from "./routes/health.js";
 
 /**
@@ -23,7 +24,8 @@ app.use("*", withDatabase);
 const routes = app
   .route("/health", health)
   .route("/auth", auth)
-  .route("/admin", admin);
+  .route("/admin", admin)
+  .route("/crm", crm);
 
 // 打錯的 API 路徑要回 JSON，不要掉進 SPA 的 index.html。
 app.notFound((c) => c.json({ error: "Not found" }, 404));

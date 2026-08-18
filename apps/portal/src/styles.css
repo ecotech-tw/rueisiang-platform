@@ -433,6 +433,51 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   font-size: 13px;
 }
 
+/* 客戶列表 */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.stat {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+}
+.stat span { color: var(--muted); font-size: 12px; }
+.stat strong { font-size: 20px; }
+
+.nowrap { white-space: nowrap; }
+.table-note { margin: 16px 4px 0; }
+.chips.tight { margin-top: 4px; gap: 4px; }
+.chip.subtle {
+  padding: 1px 8px;
+  border-color: var(--soft-line);
+  background: var(--canvas);
+  font-size: 11px;
+  font-weight: 400;
+}
+.status-channel-cyberbiz { background: #eaf0fb; color: #2f4d86; }
+.status-channel-manual { background: var(--soft-line); color: var(--muted); }
+.status-sync-synced { background: #e8f3ec; color: #2f6b45; }
+.status-sync-local_only { background: var(--soft-line); color: var(--muted); }
+.status-sync-failed { background: var(--brand-soft); color: var(--brand-dark); }
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--soft-line);
+}
+.pager-buttons { display: flex; gap: 8px; }
+
 .table-scroll { overflow-x: auto; }
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table th {
