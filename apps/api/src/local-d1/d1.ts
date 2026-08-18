@@ -4,21 +4,24 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * 用 Node 24 內建的 node:sqlite 實作 D1 的介面。
+ * 用 Node 內建的 node:sqlite 實作 D1 的介面。
  *
- * 開發機是 Windows on ARM，跑不了 workerd，所以無法用 miniflare 起真的 D1。
- * 但 D1 底層就是 SQLite——照著 D1 的介面包一層，測試就能跑真正的 SQL 與
- * 真正的 migration，而不是靠 mock 猜行為。
+ * 開發機是 Windows on ARM，跑不了 workerd，所以無法用 miniflare 起真的 D1，
+ * 連 `wrangler dev` 都不行。但 D1 底層就是 SQLite——照著 D1 的介面包一層，
+ * 測試與本機開發就能跑真正的 SQL 與真正的 migration，而不是靠 mock 猜行為。
+ *
+ * 這一層只在測試與 `pnpm dev` 用得到，永遠不會進 Worker 的打包
+ * （apps/api/tsconfig.json 把這個目錄排除在外，誤用 node: 內建模組會被擋下）。
  */
-class TestStatement {
+class LocalStatement {
   constructor(
     private readonly db: DatabaseSync,
     private readonly sql: string,
     private readonly params: unknown[] = [],
   ) {}
 
-  bind(...values: unknown[]): TestStatement {
-    return new TestStatement(this.db, this.sql, values);
+  bind(...values: unknown[]): LocalStatement {
+    return new LocalStatement(this.db, this.sql, values);
   }
 
   private prepared() {
@@ -51,14 +54,14 @@ class TestStatement {
   }
 }
 
-export class TestD1 {
-  readonly sqlite = new DatabaseSync(":memory:");
+export class LocalD1 {
+  constructor(readonly sqlite: DatabaseSync) {}
 
-  prepare(query: string): TestStatement {
-    return new TestStatement(this.sqlite, query);
+  prepare(query: string): LocalStatement {
+    return new LocalStatement(this.sqlite, query);
   }
 
-  async batch(statements: TestStatement[]) {
+  async batch(statements: LocalStatement[]) {
     const results = [];
     for (const statement of statements) results.push(await statement.all());
     return results;
@@ -70,27 +73,43 @@ export class TestD1 {
   }
 
   async dump(): Promise<ArrayBuffer> {
-    throw new Error("測試替身不支援 dump()。");
+    throw new Error("本機替身不支援 dump()。");
   }
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(here, "../../../../packages/db/migrations");
 
-/** 套用 packages/db 的真實 migration，確保測試跑的 schema 與正式環境一致。 */
-export function createTestD1(): TestD1 {
-  const database = new TestD1();
+/**
+ * 套用 packages/db 的真實 migration，確保跑的 schema 與正式環境一致。
+ *
+ * 檔案路徑省略時用記憶體資料庫（測試要的：每次都從乾淨的狀態開始）。
+ * 給檔案路徑時資料會留著，所以 `pnpm dev` 重開不必重新建帳號。
+ */
+export function createLocalD1(filename = ":memory:"): LocalD1 {
+  if (filename !== ":memory:") fs.mkdirSync(path.dirname(filename), { recursive: true });
+
+  const database = new LocalD1(new DatabaseSync(filename));
   database.sqlite.exec("PRAGMA foreign_keys = ON;");
+  // 記下跑過哪幾支，這樣檔案型資料庫重開時不會重複套用。
+  database.sqlite.exec("CREATE TABLE IF NOT EXISTS _local_migrations (name TEXT PRIMARY KEY);");
+
+  const applied = new Set(
+    (database.sqlite.prepare("SELECT name FROM _local_migrations").all() as { name: string }[])
+      .map((row) => row.name),
+  );
 
   const files = fs.readdirSync(migrationsDir).filter((name) => name.endsWith(".sql")).sort();
   if (!files.length) throw new Error(`${migrationsDir} 裡沒有 migration。`);
 
   for (const file of files) {
+    if (applied.has(file)) continue;
     const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
     for (const statement of sql.split("--> statement-breakpoint")) {
       const trimmed = statement.trim();
       if (trimmed) database.sqlite.exec(trimmed);
     }
+    database.sqlite.prepare("INSERT INTO _local_migrations (name) VALUES (?)").run(file);
   }
   return database;
 }

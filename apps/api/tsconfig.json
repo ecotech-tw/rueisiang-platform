@@ -2,5 +2,5 @@
   "extends": "@rueisiang/config/tsconfig.worker.json",
   "comment": "只涵蓋真正部署到 Worker 的程式碼。types 僅有 workers-types，所以誤用 node: 內建模組會在這裡被擋下。",
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "src/test-support/**"]
+  "exclude": ["src/**/*.test.ts", "src/local-d1/**", "src/dev/**"]
 }

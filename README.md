@@ -33,10 +33,22 @@ packages/
 
 ```bash
 pnpm install
-pnpm dev          # portal 在 5173，/api 轉給 8787
+pnpm dev          # portal 在 5173，API 在 8787
 pnpm build
 pnpm typecheck
+pnpm test
 ```
+
+`pnpm dev` 會同時起兩個東西：Vite（前端，有 HMR）與 `apps/api/src/dev/server.ts`
+（把 Hono app 接上 node:http，配 node:sqlite 當 D1）。**這裡不用 `wrangler dev`**，
+理由見下面那節——這台開發機起不了 workerd。
+
+開 <http://localhost:5173/dev> 選一個身分直接進去，跳過 Google OAuth。種子帳號
+涵蓋管理者、主管、一般同仁、檢視者、沒有角色、已停用六種，方便直接比對
+不同權限看到的畫面。
+
+資料存在 `apps/api/local.sqlite`（已 gitignore），重開會留著；想重來就把檔案刪掉。
+`/dev` 那兩條路由是 dev server 自己接的，不在 Hono app 裡，所以正式環境不存在。
 
 資料庫 schema 改動後：
 
@@ -46,7 +58,9 @@ cd packages/db && pnpm generate    # 產生 migration SQL
 
 ## 這台開發機的兩個限制
 
-**1. Windows on ARM 跑不了 `workerd`。** `wrangler dev` 與 `wrangler deploy --dry-run` 在本機會失敗（`Unsupported platform: win32 arm64`）。這不是設定問題，是這個平台沒有對應的執行檔。部署與 Worker 的實機驗證都在 CI（Linux）上做。
+**1. Windows on ARM 跑不了 `workerd`。** **任何** wrangler 指令在本機都會失敗，連 `wrangler whoami` 都是（`Unsupported platform: win32 arm64`）——wrangler 一啟動就載入 workerd。這不是設定問題，是這個平台沒有對應的執行檔。
+
+所以本機開發改用 `apps/api/src/dev/server.ts`：Worker 的進入點本來就只是一個 fetch handler，接上 node:http 再配 node:sqlite 當 D1，就能跑真正的路由、真正的 SQL、真正的 migration。部署與 Worker 設定的實機驗證都在 CI（Linux）上做。
 
 因此 `pnpm-workspace.yaml` 裡把 `workerd` 的安裝腳本關掉——開著會讓整個 `pnpm install` 直接失敗。CI 若需要那支執行檔，在部署 workflow 裡單獨處理。
 

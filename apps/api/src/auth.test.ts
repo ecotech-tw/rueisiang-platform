@@ -4,10 +4,10 @@ import { users, userRoles } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
-import { createTestD1, type TestD1 } from "./test-support/d1.js";
+import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 const SECRET = "test-secret";
-let d1: TestD1;
+let d1: LocalD1;
 let env: Record<string, unknown>;
 
 async function seedUser(email: string, roleId: string) {
@@ -31,7 +31,7 @@ function call(path: string, init: RequestInit = {}) {
 }
 
 beforeEach(async () => {
-  d1 = createTestD1();
+  d1 = createLocalD1();
   env = {
     DB: d1,
     AUTH_SESSION_SECRET: SECRET,
