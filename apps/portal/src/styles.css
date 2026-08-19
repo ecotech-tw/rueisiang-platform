@@ -516,6 +516,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .status-webhook-ignored { background: var(--soft-line); color: var(--muted); }
 .status-webhook-processing { background: #fff3d9; color: #93621f; }
 .status-webhook-failed { background: var(--brand-soft); color: var(--brand-dark); }
+.status-source-crm { background: var(--soft-line); color: var(--muted); }
+.status-source-cyberbiz_webhook { background: #eaf0fb; color: #2f4d86; }
+.status-source-cyberbiz_sync { background: #e8f3ec; color: #2f6b45; }
+.cell-error { margin-top: 2px; color: var(--brand-dark); font-size: 12px; }
 
 .payload-peek { margin-top: 4px; }
 .payload-peek summary { color: var(--brand); cursor: pointer; font-size: 11px; }
