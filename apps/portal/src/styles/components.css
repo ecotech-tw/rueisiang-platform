@@ -1191,3 +1191,66 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   padding: 12px 0 14px;
   border-bottom: 1px solid var(--color-soft-line);
 }
+ * 登入卡片裡的表單。卡片本身是置中的窄欄，所以欄位要撐滿寬度——
+ * 沿用一般表單的 .field，只補「在這張卡片裡該有多寬」這件事。
+ */
+.login-form { width: 100%; display: grid; gap: 14px; margin-top: 16px; text-align: left; }
+.login-form .field input { width: 100%; }
+.login-form .primary-button { width: 100%; padding: 11px; font-size: 14px; }
+
+/*
+ * 兩條登入路之間的分隔線。中間的字用底色蓋掉線，不用額外的容器——
+ * 沒有這條線的話，下面的表單看起來會像 Google 按鈕的附屬欄位。
+ */
+.login-divider {
+  position: relative;
+  width: 100%;
+  margin-top: 20px;
+  text-align: center;
+}
+.login-divider::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--color-soft-line);
+}
+.login-divider span {
+  position: relative;
+  padding: 0 10px;
+  background: var(--color-paper);
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+/*
+ * 邀請連結。用 primary-container 的淡底標出「這是剛剛才產生、要你現在處理」的東西，
+ * 但不用警示紅——它是成功結果，不是錯誤。
+ */
+.invite-link {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--radius-card);
+  background: var(--color-brand-soft);
+}
+.invite-link strong { font-size: 14px; color: var(--color-brand-dark); }
+.invite-link .muted { margin-top: 4px; font-size: 12.5px; }
+.invite-link b { color: var(--color-brand-dark); }
+.invite-link-row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 連結長，讓輸入框吃掉剩下的寬度，按鈕維持自己的大小。 */
+.invite-link-row input {
+  flex: 1;
+  min-width: 240px;
+  padding: 8px 11px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-field);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.invite-link-row .ghost-button { background: var(--color-paper); }

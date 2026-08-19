@@ -4,13 +4,17 @@ export { GLOBAL_SCOPE, type Role, type User, type UserRole } from "./schema/auth
 export { countOtherActiveAdmins, loadAuthUser, recordLogin, updateProfile } from "./users.js";
 export { syncSystemRoles } from "./seed.js";
 export {
+  acceptInvitation,
   assignRole,
+  authenticateWithPassword,
   countRoleHolders,
   createRole,
   deleteRole,
+  findInvitation,
   findUser,
   hasRole,
   inviteUser,
+  regenerateInvitation,
   listRoles,
   listUsers,
   revokeRole,
@@ -19,6 +23,9 @@ export {
   type AdminUserRow,
   type AssignmentRow,
   type RoleGrant,
+  type InviteLookup,
+  type InviteResult,
+  type ReinviteResult,
   type RoleRow,
   type RoleWriteResult,
 } from "./admin.js";

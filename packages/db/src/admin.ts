@@ -1,4 +1,13 @@
-import { PERMISSIONS, type Permission, type UserStatus } from "@rueisiang/auth";
+import {
+  PERMISSIONS,
+  hashInviteToken,
+  hashPassword,
+  inviteExpiryFrom,
+  newInviteToken,
+  verifyPassword,
+  type Permission,
+  type UserStatus,
+} from "@rueisiang/auth";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { rolePermissions, roles, userRoles, users } from "./schema/auth.js";
@@ -103,11 +112,20 @@ export async function listRoles(db: Database): Promise<RoleRow[]> {
   }));
 }
 
-export type InviteResult = { kind: "created"; id: string } | { kind: "duplicate" };
+export type InviteResult =
+  | { kind: "created"; id: string; token: string }
+  | { kind: "duplicate" };
 
 /**
- * 邀請一個新帳號。status 停在 invited，等對方用 Google 登入過才會變成 active
- * （recordLogin 負責），所以這裡不會、也不該建立可直接使用的帳號。
+ * 邀請一個新帳號。
+ *
+ * status 停在 invited，要等對方真的完成其中一條登入路才會變成 active——
+ * 用 Google 登入（recordLogin 負責）或走邀請連結設密碼（acceptInvitation 負責）。
+ * 兩條路都通，邀請當下不綁死走哪一條：新同事手上不一定有公司 Google 帳號，
+ * 但發邀請的人當下不會知道。
+ *
+ * 回傳的 token 是明文，而且**只有這一次拿得到**——資料庫只存雜湊。
+ * 呼叫端要立刻把連結交給人，弄丟了只能重發。
  */
 export async function inviteUser(
   db: Database,
@@ -119,8 +137,132 @@ export async function inviteUser(
   if (existing) return { kind: "duplicate" };
 
   const id = `user-${crypto.randomUUID()}`;
-  await db.insert(users).values({ id, email, invitedBy: input.invitedBy });
-  return { kind: "created", id };
+  const token = newInviteToken();
+  await db.insert(users).values({
+    id,
+    email,
+    invitedBy: input.invitedBy,
+    invitationTokenHash: await hashInviteToken(token),
+    invitationExpiresAt: inviteExpiryFrom(new Date()),
+  });
+  return { kind: "created", id, token };
+}
+
+/**
+ * 重發邀請連結。舊的立刻失效——換新 token 而不是延長舊的到期日。
+ *
+ * 已經啟用的帳號不給重發：那條連結會讓人設一組新密碼，等同於一個不需要驗證
+ * 就能改密碼的後門。要協助已啟用的人重設密碼是另一件事，不能混用這條路。
+ */
+export type ReinviteResult =
+  | { kind: "ok"; token: string }
+  | { kind: "not-found" }
+  | { kind: "already-active" };
+
+export async function regenerateInvitation(db: Database, userId: string): Promise<ReinviteResult> {
+  const [row] = await db
+    .select({ id: users.id, status: users.status })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!row) return { kind: "not-found" };
+  if (row.status === "active") return { kind: "already-active" };
+
+  const token = newInviteToken();
+  await db
+    .update(users)
+    .set({
+      invitationTokenHash: await hashInviteToken(token),
+      invitationExpiresAt: inviteExpiryFrom(new Date()),
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    })
+    .where(eq(users.id, userId));
+  return { kind: "ok", token };
+}
+
+export type InviteLookup =
+  | { kind: "ok"; id: string; email: string }
+  | { kind: "invalid" };
+
+/**
+ * 拿邀請 token 換帳號。
+ *
+ * 過期、已停用、找不到，一律回同一種 invalid：對還沒登入的人吐出
+ * 「這個帳號存在但停用了」是在白送情報。
+ */
+export async function findInvitation(db: Database, token: string): Promise<InviteLookup> {
+  const [row] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      status: users.status,
+      expiresAt: users.invitationExpiresAt,
+    })
+    .from(users)
+    .where(eq(users.invitationTokenHash, await hashInviteToken(token)))
+    .limit(1);
+
+  if (!row || row.status === "disabled") return { kind: "invalid" };
+  if (!row.expiresAt || new Date(row.expiresAt).getTime() <= Date.now()) return { kind: "invalid" };
+  return { kind: "ok", id: row.id, email: row.email };
+}
+
+/**
+ * 走邀請連結設密碼。設完就把 token 清掉——一條連結只能用一次，
+ * 留著等於讓任何看過那個網址的人隨時能改密碼。
+ */
+export async function acceptInvitation(
+  db: Database,
+  input: { token: string; password: string; displayName?: string },
+): Promise<InviteLookup> {
+  const found = await findInvitation(db, input.token);
+  if (found.kind !== "ok") return found;
+
+  const now = new Date().toISOString();
+  await db
+    .update(users)
+    .set({
+      passwordHash: await hashPassword(input.password),
+      passwordSetAt: now,
+      invitationTokenHash: null,
+      invitationExpiresAt: null,
+      status: "active",
+      ...(input.displayName ? { displayName: input.displayName } : {}),
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    })
+    .where(eq(users.id, found.id));
+
+  return found;
+}
+
+/**
+ * 帳密登入。
+ *
+ * 三種失敗（查無此人、還沒設密碼、密碼錯）都回 null，由路由統一講一句
+ * 含糊的錯誤——分開講等於送人一支帳號列舉工具。
+ */
+export async function authenticateWithPassword(
+  db: Database,
+  email: string,
+  password: string,
+): Promise<{ id: string; email: string } | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized || !password) return null;
+
+  const [row] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      status: users.status,
+      passwordHash: users.passwordHash,
+    })
+    .from(users)
+    .where(eq(users.email, normalized))
+    .limit(1);
+
+  if (!row || row.status !== "active" || !row.passwordHash) return null;
+  if (!(await verifyPassword(password, row.passwordHash))) return null;
+  return { id: row.id, email: row.email };
 }
 
 export async function findUser(db: Database, id: string) {
