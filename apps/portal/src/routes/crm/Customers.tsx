@@ -127,6 +127,7 @@ export function Customers() {
   usePageTitle("客戶列表");
   const [filters, setFilters] = useState<CustomerFilters>(DEFAULT_FILTERS);
   const [editing, setEditing] = useState<Customer | "new" | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
   const query = useCustomers(filters);
   const block = useBlockCustomer();
   const { permissions } = useSession();
@@ -135,6 +136,14 @@ export function Customers() {
   const tagOptions = useTagOptions(permissions.has("crm:tag:read"));
 
   /** 改任何篩選條件都要回到第 1 頁，否則會停在一個新條件下不存在的頁碼。 */
+  /*
+   * 只算真正在「篩掉資料」的三個。排序與每頁筆數也在同一個面板裡，但它們不會
+   * 讓人看不到某些客戶——把它們算進去，數字會在什麼都沒篩的時候就亮著。
+   */
+  const activeFilterCount = [filters.channel, filters.status, filters.tag].filter(
+    (value) => value !== "all",
+  ).length;
+
   function update(patch: Partial<CustomerFilters>) {
     setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   }
@@ -177,12 +186,41 @@ export function Customers() {
 
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <input
+            className="search-input"
             aria-label="搜尋"
             type="search"
             placeholder="搜尋姓名、電話、Email、地址或標籤"
             value={filters.search}
             onChange={(event) => update({ search: event.target.value })}
           />
+          {/*
+            * 六個下拉全攤在一行，會把搜尋框擠到剩下一小格，而且大部分時候
+            * 一個都沒動到。收進一顆按鈕，用數字標出「現在有幾個條件生效中」——
+            * 收起來之後最重要的是「我有沒有在篩」，不是「每個篩選的當前值」。
+            */}
+          <button
+            type="button"
+            className={`ghost-button with-icon${showFilters ? " active" : ""}`}
+            aria-expanded={showFilters}
+            onClick={() => setShowFilters((open) => !open)}
+          >
+            <Icon name="filter" />
+            篩選
+            {activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}
+          </button>
+          {activeFilterCount ? (
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => update({ channel: "all", status: "all", tag: "all" })}
+            >
+              清除篩選
+            </button>
+          ) : null}
+        </form>
+
+        {showFilters ? (
+        <form className="admin-form filter-panel" onSubmit={(event) => event.preventDefault()}>
           <select
             aria-label="通路"
             value={filters.channel}
@@ -242,6 +280,7 @@ export function Customers() {
             ))}
           </select>
         </form>
+        ) : null}
 
         {query.error ? <p className="form-error" role="alert">{query.error.message}</p> : null}
         {block.error ? <p className="form-error" role="alert">{block.error.message}</p> : null}

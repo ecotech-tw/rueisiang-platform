@@ -27,6 +27,7 @@ export type IconName =
   | "tune"
   | "shieldPerson"
   | "key"
+  | "filter"
   | "edit"
   | "eye"
   | "copy"
@@ -42,6 +43,14 @@ export type IconName =
   | "external";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /* 漏斗。Material 的 filter_alt，簡化成三條線。 */
+  filter: (
+    <>
+      <path d="M4 5.5h16" />
+      <path d="M7.5 12h9" />
+      <path d="M10.5 18.5h3" />
+    </>
+  ),
   /* 角色＝一串權限的組合，鑰匙比盾牌更貼切；盾牌留給「帳號與權限」那一頁。 */
   key: (
     <>

@@ -1156,3 +1156,38 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 /* 權限清單本來就寬，對話框跟著放寬，兩欄才排得下。 */
 .modal-card.wide { width: min(760px, 100%); }
+
+/*
+ * ── 客戶列表的篩選 ────────────────────────────────────────────────────────
+ *
+ * 六個下拉全攤在工具列上會把搜尋框擠成一小格，而且大部分時候一個都沒動到。
+ * 收進一顆按鈕之後，工具列剩下「搜尋 ＋ 篩選」兩件事。
+ */
+.admin-form.toolbar .search-input { flex: 1; min-width: 220px; }
+
+/* 生效中的條件數。按鈕上有數字，收起來也知道自己在篩。 */
+.filter-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* 面板打開時按鈕維持「按下去」的樣子，不然看不出這片是誰展開的。 */
+.ghost-button.active {
+  border-color: var(--color-secondary);
+  background: var(--color-brand-soft);
+  color: var(--color-brand-dark);
+}
+
+.admin-form.filter-panel {
+  gap: 8px;
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--color-soft-line);
+}
