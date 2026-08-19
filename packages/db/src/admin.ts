@@ -439,3 +439,28 @@ export async function countRoleHolders(db: Database): Promise<Record<string, num
     .groupBy(roles.key);
   return Object.fromEntries(rows.map((row) => [row.roleKey, Number(row.holders)]));
 }
+
+export type DeleteUserResult = "ok" | "not-found" | "not-disabled";
+
+/**
+ * 刪除帳號。只接受已停用的。
+ *
+ * 「停用」與「刪除」解決的是不同問題：停用擋住登入（可逆），刪除是把名單整理
+ * 乾淨（不可逆）。強制先停用等於多一道確認——沒有人會不小心把還在用的帳號刪掉。
+ *
+ * 稽核軌跡不會斷：操作紀錄與出金表執行紀錄存的是當下的 email 快照
+ * （customer_events.actor_email、payout_runs.actor_email），不是外鍵，所以
+ * 「這筆是誰做的」在人被刪掉之後仍然答得出來。角色指派則靠 FK cascade 一起走。
+ */
+export async function deleteUser(db: Database, id: string): Promise<DeleteUserResult> {
+  const [row] = await db
+    .select({ id: users.id, status: users.status })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+  if (!row) return "not-found";
+  if (row.status !== "disabled") return "not-disabled";
+
+  await db.delete(users).where(eq(users.id, id));
+  return "ok";
+}

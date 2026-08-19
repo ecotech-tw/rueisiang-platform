@@ -108,6 +108,19 @@ export function useSetStatus() {
   );
 }
 
+/**
+ * 刪除帳號。只有已停用的能刪——後端擋，前端也只在停用時把按鈕畫出來。
+ * 這裡要把整個 admin 的快取作廢：角色的持有人數也跟著少了一個。
+ */
+export function useDeleteUser() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      request(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["admin"] }),
+  });
+}
+
 export function useAssignRole() {
   return useAdminMutation((input: { id: string; roleKey: string }) =>
     request(`/api/admin/users/${encodeURIComponent(input.id)}/roles`, {

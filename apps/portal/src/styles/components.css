@@ -1263,3 +1263,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-size: 12px;
 }
 .invite-link-row .ghost-button { background: var(--color-paper); }
+
+/* 危險動作靠左，跟右邊的「關閉／儲存」拉開距離——想關掉的人不該手滑按到刪除。 */
+.modal-actions .delete-action { margin-right: auto; }
