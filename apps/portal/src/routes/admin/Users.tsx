@@ -1,11 +1,14 @@
+import type { Permission } from "@rueisiang/auth/permissions";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import {
   useAssignRole,
   useCatalog,
   useDeleteUser,
+  useGrantPermission,
   useInvite,
   useResendInvite,
+  useRevokePermission,
   useRevokeRole,
   useSetStatus,
   useSyncRoles,
@@ -140,30 +143,48 @@ function InviteForm({
 function UserEditor({
   user,
   catalog,
+  direct,
+  isSelf,
   onClose,
 }: {
   user: AdminUser;
   catalog: Catalog;
+  direct: Permission[];
+  isSelf: boolean;
   onClose: () => void;
 }) {
   const assign = useAssignRole();
   const revoke = useRevokeRole();
   const setStatus = useSetStatus();
   const remove = useDeleteUser();
+  const grant = useGrantPermission();
+  const revokeDirect = useRevokePermission();
 
   const held = new Set(user.assignments.map((assignment) => assignment.roleKey));
-  const pending = assign.isPending || revoke.isPending || setStatus.isPending || remove.isPending;
-  const error = assign.error ?? revoke.error ?? setStatus.error ?? remove.error;
+  const pending =
+    assign.isPending ||
+    revoke.isPending ||
+    setStatus.isPending ||
+    remove.isPending ||
+    grant.isPending ||
+    revokeDirect.isPending;
+  const error =
+    assign.error ?? revoke.error ?? setStatus.error ?? remove.error ?? grant.error ?? revokeDirect.error;
+
+  // 自己的角色與權限一律不能改。後端也擋——這裡只是不要讓人白按一次。
+  const locked = pending || isSelf;
+  const directSet = new Set(direct);
 
   /*
    * 這個人實際上能做什麼＝手上所有角色的權限聯集。管理者最常問的其實是這句話，
    * 但原本的畫面只給角色名稱，要自己去角色管理頁一個一個點開對照。
    */
-  const effective = new Set(
+  const fromRoles = new Set(
     user.assignments.flatMap(
       (assignment) => catalog.roles.find((role) => role.key === assignment.roleKey)?.permissions ?? [],
     ),
   );
+  const effective = new Set([...fromRoles, ...direct]);
 
   return (
     <div
@@ -186,6 +207,12 @@ function UserEditor({
 
         <div className="modal-body">
           {error ? <p className="form-error" role="alert">{error.message}</p> : null}
+          {isSelf ? (
+            <p className="muted perm-hint">
+              這是你自己的帳號。角色與權限不能自己調整——否則「能改權限」就等於「是管理者」，
+              分層就沒有意義了。需要調整請由另一位管理者操作。
+            </p>
+          ) : null}
 
           <div className="field">
             <span>狀態</span>
@@ -225,7 +252,7 @@ function UserEditor({
                   <input
                     type="checkbox"
                     checked={held.has(role.key)}
-                    disabled={pending}
+                    disabled={locked}
                     onChange={(event) => {
                       // 勾＝指派、取消＝收回。兩個端點本來就存在，這裡只是換一個操作方式。
                       if (event.target.checked) assign.mutate({ id: user.id, roleKey: role.key });
@@ -238,12 +265,56 @@ function UserEditor({
             </div>
           </fieldset>
 
+          {/*
+            * 額外授予：繞過角色、只給這一個人的權限。
+            *
+            * 已經被角色涵蓋的項目畫成打勾但不可點——單獨再給一次不會有任何效果，
+            * 讓人按得下去只會製造「我明明給了為什麼收不回來」的困惑。
+            */}
+          <fieldset className="perm-group">
+            <legend>
+              額外授予的權限
+              <span className="perm-count">{direct.length}</span>
+            </legend>
+            <p className="muted perm-hint">
+              角色以外的例外。適合「這個月幫忙跑出金表」這種一個人的特例，
+              不必為了一個人開一個新角色。只加不減，收不掉角色本來就有的權限。
+            </p>
+            <div className="perm-grid">
+              {Object.entries(catalog.permissions).map(([key, label]) => {
+                const permission = key as Permission;
+                const byRole = fromRoles.has(permission);
+                return (
+                  <label
+                    className="perm-item"
+                    key={key}
+                    title={byRole ? `已由角色提供：${key}` : key}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={byRole || directSet.has(permission)}
+                      disabled={locked || byRole}
+                      onChange={(event) => {
+                        if (event.target.checked) grant.mutate({ id: user.id, permission });
+                        else revokeDirect.mutate({ id: user.id, permission });
+                      }}
+                    />
+                    <span>
+                      {label}
+                      {byRole ? <small>來自角色</small> : null}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
           <div className="field">
             <span>
               這個人實際能做什麼
               <span className="perm-count">{effective.size}</span>
             </span>
-            <small>由上面勾選的角色決定，不能單獨調整。</small>
+            <small>角色帶來的 ＋ 額外授予的，取聯集。</small>
             {effective.size === 0 ? (
               <p className="muted">沒有任何權限，登入後看不到任何頁面。</p>
             ) : (
@@ -296,11 +367,14 @@ function UserRow({
   user,
   catalog,
   isSelf,
+  direct,
   onInviteUrl,
 }: {
   user: AdminUser;
   catalog: Catalog;
   isSelf: boolean;
+  /** 單獨授予這個人的權限（不含角色帶來的）。 */
+  direct: Permission[];
   /** 重發出來的連結交給上層顯示——它跟邀請當下那條走同一塊 UI。 */
   onInviteUrl: (email: string, url: string) => void;
 }) {
@@ -378,7 +452,13 @@ function UserRow({
       ) : null}
 
       {editing ? (
-        <UserEditor user={user} catalog={catalog} onClose={() => setEditing(false)} />
+        <UserEditor
+          user={user}
+          catalog={catalog}
+          direct={direct}
+          isSelf={isSelf}
+          onClose={() => setEditing(false)}
+        />
       ) : null}
     </>
   );
@@ -408,7 +488,8 @@ export function AdminUsers() {
   }
 
   const catalogData = catalog.data;
-  const list = users.data ?? [];
+  const list = users.data?.users ?? [];
+  const directByUser = users.data?.directPermissions ?? {};
 
   return (
     <div className="page">
@@ -455,6 +536,7 @@ export function AdminUsers() {
                   user={row}
                   catalog={catalogData}
                   isSelf={row.id === user?.id}
+                  direct={directByUser[row.id] ?? []}
                   onInviteUrl={(email, url) => setInviteLink({ email, url })}
                 />
               ))}

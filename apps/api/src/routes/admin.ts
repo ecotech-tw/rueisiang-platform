@@ -7,11 +7,14 @@ import {
   deleteRole,
   deleteUser,
   findUser,
+  grantPermission,
   hasRole,
   inviteUser,
+  listDirectPermissions,
   listRoles,
   listUsers,
   regenerateInvitation,
+  revokePermission,
   revokeRole,
   setUserStatus,
   seedPayoutStores,
@@ -26,6 +29,23 @@ import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { body, optionalStringArray, requireString } from "../request.js";
 
 const ADMIN_ROLE = "admin";
+
+/**
+ * 不准調整自己的角色與權限。
+ *
+ * 沒有這道守衛，任何拿到 admin:role:write 的人都能直接給自己 admin:*——
+ * 那等於「能改權限」就自動等於「是管理者」，RBAC 的分層就沒有意義了。
+ * 要升級自己的權限，得由另一個管理者動手，這樣至少有兩個人知道這件事發生過。
+ *
+ * 這條擋在 API 而不是前端：把按鈕變灰擋不住直接打端點的人。
+ */
+function refuseSelfEdit(c: { get: (key: "user") => { id: string } }, targetId: string): void {
+  if (c.get("user").id === targetId) {
+    throw new HTTPException(409, {
+      message: "不能調整自己的角色與權限。請由另一位管理者操作。",
+    });
+  }
+}
 
 /**
  * 邀請連結的完整網址。從請求本身推導 origin 而不是要人維護一個環境變數——
@@ -72,7 +92,11 @@ export const admin = new Hono<AppEnv>()
   .use("*", requireAuth)
 
   .get("/users", requirePermission("admin:user:read"), async (c) => {
-    return c.json({ users: await listUsers(c.get("db")) });
+    return c.json({
+      users: await listUsers(c.get("db")),
+      // 直接授予的權限。畫面要分得出「這個權限是角色帶來的」還是「單獨給的」。
+      directPermissions: await listDirectPermissions(c.get("db")),
+    });
   })
 
   /** 角色與權限目錄。權限的說明文字來自程式碼，資料庫只存「角色有哪些鍵值」。 */
@@ -235,11 +259,55 @@ export const admin = new Hono<AppEnv>()
     return c.json({ id });
   })
 
+  /**
+   * 直接授予單一權限，繞過角色。
+   *
+   * 為什麼要有：實務上一定會出現例外——陳美玲是一般同仁，但這個月要幫忙跑
+   * 出金表。為了一個人開一個新角色，角色清單很快就會長出十幾個只有一個人在用
+   * 的東西，而那才是真正沒人看得懂「誰能做什麼」的開始。
+   */
+  .post("/users/:id/permissions", requirePermission("admin:role:write"), async (c) => {
+    const id = c.req.param("id");
+    refuseSelfEdit(c, id);
+    if (!(await findUser(c.get("db"), id))) {
+      throw new HTTPException(404, { message: "找不到這個帳號。" });
+    }
+
+    const input = await body(c);
+    const permission = requireString(input, "permission", "權限");
+    const result = await grantPermission(c.get("db"), {
+      userId: id,
+      permission,
+      grantedBy: c.get("user").id,
+    });
+    if (result === "unknown-permission") {
+      throw new HTTPException(400, { message: `沒有這個權限：${permission}` });
+    }
+    return c.json({ id, permission }, 201);
+  })
+
+  /** 收回直接授予。角色帶來的那一份收不回來，只能改角色。 */
+  .delete("/users/:id/permissions", requirePermission("admin:role:write"), async (c) => {
+    const id = c.req.param("id");
+    refuseSelfEdit(c, id);
+    const permission = c.req.query("permission");
+    if (!permission) throw new HTTPException(400, { message: "請指定要收回的權限。" });
+
+    const removed = await revokePermission(c.get("db"), { userId: id, permission });
+    if (!removed) {
+      throw new HTTPException(404, {
+        message: "這個人沒有被單獨授予這項權限。如果他仍然做得到，代表權限來自角色。",
+      });
+    }
+    return c.json({ id, permission });
+  })
+
   .post("/users/:id/roles", requirePermission("admin:role:write"), async (c) => {
     const input = await body(c);
     const roleKey = requireString(input, "roleKey", "角色");
 
     const id = c.req.param("id");
+    refuseSelfEdit(c, id);
     if (!(await findUser(c.get("db"), id))) {
       throw new HTTPException(404, { message: "找不到這個帳號。" });
     }
@@ -264,6 +332,7 @@ export const admin = new Hono<AppEnv>()
     if (!roleKey) throw new HTTPException(400, { message: "請指定要收回的角色。" });
 
     const id = c.req.param("id");
+    refuseSelfEdit(c, id);
     const target = await findUser(c.get("db"), id);
     if (!target) throw new HTTPException(404, { message: "找不到這個帳號。" });
 

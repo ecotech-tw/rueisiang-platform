@@ -10,7 +10,7 @@ import {
 } from "@rueisiang/auth";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { rolePermissions, roles, userRoles, users } from "./schema/auth.js";
+import { rolePermissions, roles, userPermissions, userRoles, users } from "./schema/auth.js";
 
 /**
  * 權限管理頁用到的查詢。與 users.ts 分開：那邊是每次請求都會跑的授權讀取路徑，
@@ -463,4 +463,61 @@ export async function deleteUser(db: Database, id: string): Promise<DeleteUserRe
 
   await db.delete(users).where(eq(users.id, id));
   return "ok";
+}
+
+/**
+ * ── 直接授予的權限 ────────────────────────────────────────────────────────
+ *
+ * 角色回答「這一類人能做什麼」，這裡回答「這一個人另外還能做什麼」。
+ * 只加不減，跟角色帶來的取聯集——理由見 user_permissions 的表頭註解。
+ */
+export async function listDirectPermissions(db: Database): Promise<Record<string, Permission[]>> {
+  const rows = await db
+    .select({ userId: userPermissions.userId, permission: userPermissions.permission })
+    .from(userPermissions);
+
+  const byUser: Record<string, Permission[]> = {};
+  for (const row of rows) {
+    (byUser[row.userId] ??= []).push(row.permission as Permission);
+  }
+  return byUser;
+}
+
+export type GrantResult = "ok" | "unknown-permission";
+
+/** 已經有同一組（人, 權限）就當作成功，不重複插入。 */
+export async function grantPermission(
+  db: Database,
+  input: { userId: string; permission: string; grantedBy: string },
+): Promise<GrantResult> {
+  if (!(input.permission in PERMISSIONS)) return "unknown-permission";
+
+  await db
+    .insert(userPermissions)
+    .values({
+      userId: input.userId,
+      permission: input.permission,
+      grantedBy: input.grantedBy,
+    })
+    .onConflictDoNothing();
+  return "ok";
+}
+
+/**
+ * 收回一筆直接授予。回傳有沒有真的刪到——收不回角色帶來的那一份，
+ * 所以「按了沒反應」通常代表那個權限其實來自角色，呼叫端要講得出這件事。
+ */
+export async function revokePermission(
+  db: Database,
+  input: { userId: string; permission: string },
+): Promise<boolean> {
+  const result = await db
+    .delete(userPermissions)
+    .where(
+      and(
+        eq(userPermissions.userId, input.userId),
+        eq(userPermissions.permission, input.permission),
+      ),
+    );
+  return (result.meta?.changes ?? 0) > 0;
 }

@@ -94,6 +94,26 @@ export const userRoles = sqliteTable("user_roles", {
   index("idx_user_roles_user").on(table.userId),
 ]);
 
+/**
+ * 直接授予某個人的權限，繞過角色。
+ *
+ * 角色回答的是「這一類人能做什麼」，這張表回答的是「這一個人另外還能做什麼」。
+ * 實務上一定會出現例外：陳美玲是一般同仁，但這個月要幫忙跑出金表——為了一個
+ * 人開一個新角色，角色清單很快就會長出十幾個只有一個人在用的東西。
+ *
+ * 只加不減：這裡的權限跟角色帶來的取聯集，沒有「扣掉某個權限」的機制。
+ * 減法會讓「這個人到底能做什麼」變成要同時看兩張表才算得出來的問題，
+ * 而授權判定是每個請求都要跑的路徑，愈簡單愈好。真的要收掉就換一個角色。
+ */
+export const userPermissions = sqliteTable("user_permissions", {
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  permission: text("permission").notNull(),
+  grantedBy: text("granted_by"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.permission] }),
+]);
+
 export type User = typeof users.$inferSelect;
 export type Role = typeof roles.$inferSelect;
 export type UserRole = typeof userRoles.$inferSelect;
