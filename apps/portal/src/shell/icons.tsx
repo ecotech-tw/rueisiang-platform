@@ -32,7 +32,11 @@ export type IconName =
   | "trash"
   | "close"
   | "bookmark"
-  | "check";
+  | "check"
+  | "calendar"
+  | "chevronLeft"
+  | "chevronRight"
+  | "external";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   people: (
@@ -171,6 +175,21 @@ const PATHS: Record<IconName, React.ReactNode> = {
   close: <path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6" />,
   bookmark: <path d="M7 4.2h10a.8.8 0 0 1 .8.8v14.4L12 16.1l-5.8 3.3V5a.8.8 0 0 1 .8-.8z" />,
   check: <path d="M5.2 12.6 9.8 17.2 18.8 7.4" />,
+  calendar: (
+    <>
+      <rect x="3.6" y="5.2" width="16.8" height="15.2" rx="2.4" />
+      <path d="M3.6 9.8h16.8M8.4 3.6v3.2M15.6 3.6v3.2" />
+    </>
+  ),
+  chevronLeft: <path d="M14.6 5.6 8.2 12l6.4 6.4" />,
+  chevronRight: <path d="M9.4 5.6 15.8 12l-6.4 6.4" />,
+  external: (
+    <>
+      <path d="M13.4 4.6h6v6" />
+      <path d="M19.4 4.6 11 13" />
+      <path d="M18.2 14.2v4.4a1.8 1.8 0 0 1-1.8 1.8H5.4a1.8 1.8 0 0 1-1.8-1.8V7.6a1.8 1.8 0 0 1 1.8-1.8h4.4" />
+    </>
+  ),
   shieldPerson: (
     <>
       <path d="M12 3.5 19 5.9v5.9c0 4-2.8 6.9-7 8.2-4.2-1.3-7-4.2-7-8.2V5.9z" />

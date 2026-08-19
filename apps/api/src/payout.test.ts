@@ -208,6 +208,21 @@ describe("執行", () => {
     });
   });
 
+  it("state 帶回最近一次的識別碼，重新整理才接得回去", async () => {
+    stubGithub();
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+    const run = await as(id, "manager@ecotech.tw", "/api/tools/payout/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: ["宏匯廣場1F"], ...RANGE }),
+    });
+    const { requestId } = (await run.json()) as { requestId: string };
+
+    const state = await as(id, "manager@ecotech.tw", "/api/tools/payout/state");
+    expect((await state.json()) as { latestRequestId: string }).toMatchObject({
+      latestRequestId: requestId,
+    });
+  });
+
   it("檢視者不能執行", async () => {
     stubGithub();
     const id = await seedUser("viewer@ecotech.tw", "role-viewer");
@@ -268,21 +283,105 @@ describe("查狀態", () => {
 });
 
 describe("店別設定", () => {
+  /** 讀 stores.json 的回應（GitHub 的 Contents API 回 base64）。 */
+  function storesFile(stores: unknown) {
+    const text = `${JSON.stringify({ stores }, null, 2)}
+`;
+    const bytes = new TextEncoder().encode(text);
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return { sha: "old-sha", content: btoa(binary) };
+  }
+
+  const TWO_STORES = [
+    { name: "乙店", driveFolderUrl: "", driveFolderName: "" },
+    { name: "甲店", driveFolderUrl: "https://drive.google.com/drive/folders/abc123", driveFolderName: "甲" },
+  ];
+
   it("整組換掉，順序照送進來的排", async () => {
+    stubGithub([{ status: 404, body: {} }, { body: {} }]);
     const id = await seedUser("eli@ecotech.tw", "role-admin");
     const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
       method: "PUT",
-      body: JSON.stringify({
-        stores: [
-          { name: "乙店", driveFolderUrl: "", driveFolderName: "" },
-          { name: "甲店", driveFolderUrl: "https://drive.google.com/drive/folders/abc123", driveFolderName: "甲" },
-        ],
-      }),
+      body: JSON.stringify({ stores: TWO_STORES }),
     });
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as { stores: { name: string }[] };
     expect(body.stores.map((store) => store.name)).toEqual(["乙店", "甲店"]);
+  });
+
+  it("commit 回帳務 repo 的 stores.json，帶上 sha 與是誰改的", async () => {
+    const calls = stubGithub([{ body: storesFile([{ name: "舊的" }]) }, { body: {} }]);
+    const id = await seedUser("eli@ecotech.tw", "role-admin");
+
+    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
+      method: "PUT",
+      body: JSON.stringify({ stores: TWO_STORES }),
+    });
+    expect((await response.json()) as { committed: boolean }).toMatchObject({
+      syncedToRepo: true,
+      committed: true,
+    });
+
+    const put = calls[1]!;
+    expect(put.method).toBe("PUT");
+    expect(put.url).toContain("/contents/tools/cyberbiz-monthly-payout/stores.json");
+
+    const sent = put.body as { message: string; content: string; sha: string; branch: string };
+    // 沒帶 sha 的話 GitHub 會當成「建立新檔案」而拒絕。
+    expect(sent.sha).toBe("old-sha");
+    expect(sent.branch).toBe("main");
+    expect(sent.message).toContain("eli@ecotech.tw");
+    // 中文店名要能正確還原——btoa 直接吃字串會炸，這裡驗的是有先轉 UTF-8。
+    expect(new TextDecoder().decode(Uint8Array.from(atob(sent.content), (ch) => ch.charCodeAt(0))))
+      .toContain("乙店");
+  });
+
+  it("內容一樣就不留下一筆什麼都沒動的 commit", async () => {
+    const calls = stubGithub([{ body: storesFile(TWO_STORES) }]);
+    const id = await seedUser("eli@ecotech.tw", "role-admin");
+
+    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
+      method: "PUT",
+      body: JSON.stringify({ stores: TWO_STORES }),
+    });
+
+    expect((await response.json()) as { committed: boolean }).toMatchObject({
+      syncedToRepo: true,
+      committed: false,
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("推不上 repo 就整筆不存——不然平台顯示的跟 driver 讀的會不一樣", async () => {
+    stubGithub([{ status: 403, body: { message: "no" } }]);
+    const id = await seedUser("eli@ecotech.tw", "role-admin");
+
+    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
+      method: "PUT",
+      body: JSON.stringify({ stores: TWO_STORES }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await db().select().from(payoutStores)).toHaveLength(9);
+  });
+
+  it("沒接 GitHub 時仍然存本地，但要說得出 repo 沒更新", async () => {
+    stubGithub();
+    env = { ...env, PAYOUT_GITHUB_TOKEN: undefined };
+    const id = await seedUser("eli@ecotech.tw", "role-admin");
+
+    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
+      method: "PUT",
+      body: JSON.stringify({ stores: TWO_STORES }),
+    });
+
+    expect((await response.json()) as { syncedToRepo: boolean }).toMatchObject({
+      syncedToRepo: false,
+      committed: false,
+    });
+    expect(await db().select().from(payoutStores)).toHaveLength(2);
   });
 
   it.each([
@@ -292,6 +391,7 @@ describe("店別設定", () => {
     ["連結不是 Drive 資料夾", [{ name: "甲店", driveFolderUrl: "https://example.com/x" }]],
     ["一家都不留", []],
   ])("擋下不合法的設定（%s）", async (_label, stores) => {
+    const calls = stubGithub();
     const id = await seedUser("eli@ecotech.tw", "role-admin");
     const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
       method: "PUT",
@@ -299,11 +399,13 @@ describe("店別設定", () => {
     });
     expect(response.status).toBe(400);
 
-    // 擋下來就不能動到原本的九家。
+    // 擋下來就不能動到原本的九家，也不該去碰 repo。
     expect(await db().select().from(payoutStores)).toHaveLength(9);
+    expect(calls).toHaveLength(0);
   });
 
   it("主管可以執行但不能改店別設定", async () => {
+    stubGithub();
     const id = await seedUser("manager@ecotech.tw", "role-manager");
     expect((await as(id, "manager@ecotech.tw", "/api/tools/payout/state")).status).toBe(200);
     expect(

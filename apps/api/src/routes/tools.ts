@@ -84,13 +84,24 @@ export const tools = new Hono<AppEnv>()
   .get("/payout/state", requirePermission("tools:payout:run"), async (c) => {
     const stores = await listPayoutStores(c.get("db"));
     const range = previousMonthRange();
+    const runs = await listPayoutRuns(c.get("db"), 10);
     return c.json({
-      stores: stores.map((store) => ({ name: store.name, folder: store.driveFolderName })),
+      stores: stores.map((store) => ({
+        name: store.name,
+        folder: store.driveFolderName,
+        // 連結帶出去，執行頁就能直接點進 Drive 看跑出來的檔案。
+        folderUrl: store.driveFolderUrl,
+      })),
       defaultStart: range.start,
       defaultEnd: range.end,
       // 沒設定 token 時要讓畫面說得出原因，而不是等按下去才報錯。
       configured: Boolean(payoutGithub(c.env)),
-      runs: await listPayoutRuns(c.get("db"), 10),
+      /*
+       * 最近一次執行的識別碼。重新整理或離開再回來時，畫面要能自己接回去問
+       * 狀態——不然人會不知道上一次到底跑完了沒，只好再按一次。
+       */
+      latestRequestId: runs[0]?.requestId ?? null,
+      runs,
     });
   })
 
@@ -157,10 +168,34 @@ export const tools = new Hono<AppEnv>()
     return c.json({ stores: await listPayoutStores(c.get("db")) });
   })
 
+  /**
+   * 存店別。
+   *
+   * 先寫帳務 repo 的 stores.json，成功了才寫本地——跟客戶那邊「先寫官網再寫本地」
+   * 同一個道理。反過來的話，平台上看起來改好了，driver 讀到的還是舊的，執行時
+   * 才發現找不到資料夾。
+   *
+   * 沒設定 GitHub token 時仍然存本地，但要明講 repo 沒更新，讓人知道還得自己
+   * 把檔案補上去。
+   */
   .put("/payout/stores", requirePermission("tools:payout:config"), async (c) => {
     const stores = readStores(await body(c));
     if (!stores.length) throw new HTTPException(400, { message: "至少要留一家店。" });
 
+    const github = payoutGithub(c.env);
+    let pushed = false;
+    if (github) {
+      pushed = await github.pushStores({
+        stores,
+        message: `chore(payout): 從平台更新店別清單（${c.get("user").email}）`,
+      });
+    }
+
     await replacePayoutStores(c.get("db"), stores);
-    return c.json({ stores: await listPayoutStores(c.get("db")) });
+    return c.json({
+      stores: await listPayoutStores(c.get("db")),
+      // pushed=false 有兩種可能：沒接 GitHub，或內容根本沒變。前端要分得出來。
+      syncedToRepo: Boolean(github),
+      committed: pushed,
+    });
   });

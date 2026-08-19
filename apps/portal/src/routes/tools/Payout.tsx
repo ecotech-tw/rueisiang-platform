@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
+import { usePageTitle } from "../../shell/usePageTitle.js";
 import {
   parseStores,
   usePayoutState,
@@ -33,12 +35,20 @@ function formatDate(value: string): string {
 }
 
 export function Payout() {
+  usePageTitle("出金表執行");
   const state = usePayoutState();
   const run = useRunPayout();
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  /**
+   * 正在追蹤的那一次執行。
+   *
+   * 初始值來自後端最近一筆紀錄，不是空的——離開網頁再回來、或直接重新整理時，
+   * 畫面要自己接回去問狀態。不然人會看到一片空白，不知道上次到底跑完了沒，
+   * 只好再按一次；出金表按第二次是會真的再跑一輪的。
+   */
   const [tracking, setTracking] = useState<string | null>(null);
-  const status = usePayoutStatus(tracking);
+  const status = usePayoutStatus(tracking ?? state.data?.latestRequestId ?? null);
 
   // 預設區間由後端算（上個月，Asia/Taipei），但人改過之後不要被覆蓋回去。
   useEffect(() => {
@@ -49,7 +59,8 @@ export function Payout() {
 
   const stores = state.data?.stores ?? [];
   const latest = status.data?.runs[0];
-  const running = Boolean(tracking) && (!latest || latest.status !== "completed");
+  const followed = tracking ?? state.data?.latestRequestId ?? null;
+  const running = Boolean(latest) && latest!.status !== "completed";
   const rangeError = start && end && start > end ? "起日不能晚於迄日。" : "";
   const blocked = running || run.isPending || !start || !end || Boolean(rangeError) || !state.data?.configured;
 
@@ -80,19 +91,15 @@ export function Payout() {
 
       <section className="panel">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
-          <label className="inline-label" htmlFor="payout-start">對帳區間</label>
-          <input
-            id="payout-start"
-            type="date"
-            value={start}
-            onChange={(event) => setStart(event.target.value)}
-          />
-          <span className="muted">~</span>
-          <input
-            aria-label="對帳迄日"
-            type="date"
-            value={end}
-            onChange={(event) => setEnd(event.target.value)}
+          <span className="inline-label">對帳區間</span>
+          <DateRangePicker
+            start={start}
+            end={end}
+            disabled={run.isPending}
+            onChange={(range) => {
+              setStart(range.start);
+              setEnd(range.end);
+            }}
           />
           <button
             type="button"
@@ -124,7 +131,22 @@ export function Payout() {
               {stores.map((store) => (
                 <tr key={store.name}>
                   <td className="cell-strong">{store.name}</td>
-                  <td className="cell-sub">{store.folder || "未設定資料夾"}</td>
+                  <td className="cell-sub">
+                    {store.folderUrl ? (
+                      <a
+                        className="link-external"
+                        href={store.folderUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`在新分頁開啟「${store.folder || store.name}」的 Drive 資料夾`}
+                      >
+                        {store.folder || store.name}
+                        <Icon name="external" />
+                      </a>
+                    ) : (
+                      "未設定資料夾"
+                    )}
+                  </td>
                   <td>
                     <div className="row-actions">
                       <button
@@ -149,10 +171,10 @@ export function Payout() {
         ) : null}
       </section>
 
-      {tracking ? (
+      {followed ? (
         <section className="panel">
           <h2 className="panel-title">
-            這次執行
+            {tracking ? "這次執行" : "上一次執行"}
             {latest ? (
               <span className={`status ${latest.status === "completed" ? (latest.conclusion === "success" ? "status-sync-synced" : "status-sync-failed") : "status-webhook-processing"}`}>
                 {latest.status !== "completed"

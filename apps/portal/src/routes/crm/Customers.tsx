@@ -13,6 +13,7 @@ import {
 } from "./api.js";
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
+import { usePageTitle } from "../../shell/usePageTitle.js";
 
 const CHANNEL_LABEL: Record<string, string> = { manual: "人工建立", cyberbiz: "CYBERBIZ" };
 const SYNC_LABEL: Record<string, string> = {
@@ -123,6 +124,7 @@ function CustomerRow({
 }
 
 export function Customers() {
+  usePageTitle("客戶列表");
   const [filters, setFilters] = useState<CustomerFilters>(DEFAULT_FILTERS);
   const [editing, setEditing] = useState<Customer | "new" | null>(null);
   const query = useCustomers(filters);

@@ -1,6 +1,8 @@
 import { useSearchParams } from "react-router";
+import { usePageTitle } from "../shell/usePageTitle.js";
 
 export function Login() {
+  usePageTitle("登入");
   const [params] = useSearchParams();
   const error = params.get("error");
   const returnTo = params.get("returnTo") ?? "/";

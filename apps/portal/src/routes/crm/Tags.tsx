@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
+import { usePageTitle } from "../../shell/usePageTitle.js";
 
 interface TagRow {
   name: string;
@@ -31,6 +32,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function Tags() {
+  usePageTitle("標籤管理");
   const client = useQueryClient();
   const { permissions } = useSession();
   const canWrite = permissions.has("crm:tag:write");

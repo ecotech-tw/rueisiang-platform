@@ -616,24 +616,105 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 .inline-label { font-size: 13px; color: var(--muted); }
 
-/* 說明「這件事還有一個外部前提」的橫幅。不是錯誤，所以用中性的底色。 */
-.notice {
-  margin: 0 0 18px;
-  padding: 12px 14px;
-  border: 1px solid var(--soft-line);
-  border-left: 3px solid var(--brand);
-  border-radius: 11px;
+/* 開新分頁的連結。箭頭圖示先講清楚會離開這一頁，不用等 hover。 */
+.link-external {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--brand-dark);
+  text-decoration: none;
+}
+.link-external svg { width: 14px; height: 14px; opacity: .65; }
+.link-external:hover { text-decoration: underline; }
+
+/*
+ * 區間選擇器。並排兩個月，選的過程中滑鼠移到哪就預覽到哪——選一段連續的日子，
+ * 看得到兩端的相對位置才好選。
+ */
+.range-picker { position: relative; }
+.range-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
   background: var(--paper);
-  font-size: 13px;
-  line-height: 1.7;
   color: var(--ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
 }
-.notice code {
-  padding: 1px 5px;
-  border-radius: 6px;
-  background: var(--canvas);
-  font-size: 12px;
+.range-trigger svg { width: 18px; height: 18px; color: var(--muted); }
+.range-trigger:hover:not(:disabled) { background: rgba(213, 56, 59, .05); }
+.range-trigger:disabled { opacity: .5; cursor: not-allowed; }
+.range-trigger:focus-visible { outline: 2px solid var(--secondary); outline-offset: 1px; }
+
+.range-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  left: 0;
+  padding: 14px;
+  border: 1px solid var(--soft-line);
+  border-radius: 14px;
+  background: var(--paper);
+  /* Material 的 elevation 3：浮起來的東西要投影，不然跟底下的表格黏成一片。 */
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .12), 0 2px 6px rgba(0, 0, 0, .06);
 }
+.range-presets {
+  display: flex;
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--soft-line);
+}
+.range-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.range-hint { font-size: 12px; color: var(--muted); }
+.range-months { display: flex; gap: 22px; }
+.range-month-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+.range-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 34px);
+  gap: 1px 0;
+}
+.range-weekday {
+  display: grid;
+  place-items: center;
+  height: 28px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.range-day {
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  /* 方角才連得成一條，圓角會在區間中間留下缺口。 */
+  border-radius: 0;
+}
+.range-day:hover { background: rgba(213, 56, 59, .07); border-radius: 999px; }
+.range-day.in { background: var(--brand-soft); color: var(--brand-dark); }
+.range-day.edge {
+  background: var(--brand);
+  color: #fff;
+  border-radius: 999px;
+  font-weight: 500;
+}
+.range-day:focus-visible { outline: 2px solid var(--secondary); outline-offset: -2px; }
 
 /* GitHub Actions 的步驟。做完的淡掉，正在跑的用品牌色標出來。 */
 .step-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePayoutStores, useSavePayoutStores, type PayoutStore } from "./api.js";
+import { usePageTitle } from "../../shell/usePageTitle.js";
 
 type Draft = Omit<PayoutStore, "id">;
 
@@ -8,14 +9,14 @@ type Draft = Omit<PayoutStore, "id">;
  * 出金表的店別設定。
  *
  * 舊版把 stores.json 打包進 Worker，改完要下載檔案、commit 回 repo、重新部署，
- * 執行頁才會看到——實務上沒有人會這樣改。現在存在 D1，按儲存就生效。
+ * 執行頁才會看到——實務上沒有人會這樣改。現在按儲存就做完整件事：先 commit 回
+ * 帳務 repo 的 stores.json（driver 在 runner 上讀的就是那一份），成功了才寫本地。
  *
- * 但有一件事沒有變，而且一定要講清楚：**跑在 GitHub Actions 上的 driver 讀的是
- * 帳務 repo 裡的 stores.json**。這一頁決定「執行頁看得到哪幾家店」，driver 決定
- * 「檔案上傳到哪個 Drive 資料夾」。在這裡新增一家帳務 repo 沒有的店，送出去會
- * 失敗——所以下載按鈕留著。
+ * 所以這一頁沒有下載按鈕。只有在平台還沒設定 GitHub token 時，才會退回「只存
+ * 本地」並提醒 repo 沒更新——那種狀態下兩邊是不一致的，必須講出來。
  */
 export function PayoutSettings() {
+  usePageTitle("出金表店別設定");
   const query = usePayoutStores();
   const save = useSavePayoutStores();
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -31,20 +32,6 @@ export function PayoutSettings() {
     setDrafts((current) => current.map((store, i) => (i === index ? { ...store, ...patch } : store)));
   }
 
-  function download() {
-    // 只給店別：系統參數（網址、信箱、欄位公式）留在帳務 repo 的 config.json，
-    // 不該被這一頁的產出蓋掉。
-    const blob = new Blob([`${JSON.stringify({ stores: drafts }, null, 2)}\n`], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "stores.json";
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
   if (query.isPending) return <div className="boot">載入中…</div>;
 
   return (
@@ -52,16 +39,11 @@ export function PayoutSettings() {
       <header className="page-head">
         <h1>出金表店別設定</h1>
         <p className="muted">
-          這裡決定執行頁看得到哪幾家店。<b>店名必須與 CYBERBIZ 後台的 POS 商店完全一致</b>，
-          driver 靠它找店。
+          這裡決定執行頁看得到哪幾家店，以及檔案要上傳到哪個 Drive 資料夾。
+          <b>店名必須與 CYBERBIZ 後台的 POS 商店完全一致</b>，driver 靠它找店。
+          儲存時會一併 commit 回帳務 repo 的 <code>stores.json</code>。
         </p>
       </header>
-
-      <p className="notice">
-        實際上傳到哪個 Drive 資料夾，是由帳務 repo 裡的 <code>stores.json</code> 決定的。
-        在這裡新增一家那邊還沒有的店，執行時會失敗——請下載這份清單、更新
-        <code>ecotech-tw/rueisiang-tool-billing</code> 之後再跑。
-      </p>
 
       <section className="panel">
         <div className="admin-form toolbar">
@@ -73,10 +55,6 @@ export function PayoutSettings() {
           >
             {save.isPending ? "儲存中…" : "儲存設定"}
           </button>
-          <button type="button" className="ghost-button with-icon" onClick={download}>
-            <Icon name="storefront" />
-            下載 stores.json
-          </button>
           <button
             type="button"
             className="ghost-button"
@@ -86,7 +64,15 @@ export function PayoutSettings() {
           >
             ＋ 新增一家
           </button>
-          {save.isSuccess && !save.isPending ? <span className="form-hint">已儲存。</span> : null}
+          {save.isSuccess && !save.isPending ? (
+            <span className="form-hint">
+              {!save.data.syncedToRepo
+                ? "已存在平台，但沒有寫回帳務 repo（未設定 PAYOUT_GITHUB_TOKEN）。"
+                : save.data.committed
+                  ? "已儲存，並更新帳務 repo 的 stores.json。"
+                  : "已儲存。內容與帳務 repo 相同，沒有產生新的 commit。"}
+            </span>
+          ) : null}
         </div>
 
         {save.error ? <p className="form-error" role="alert">{save.error.message}</p> : null}
