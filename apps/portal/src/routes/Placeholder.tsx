@@ -1,3 +1,5 @@
+import { usePageTitle } from "../shell/usePageTitle.js";
+
 interface PlaceholderProps {
   title: string;
   /** 這個畫面預計在哪個 Phase 從舊系統搬進來。 */
@@ -7,6 +9,7 @@ interface PlaceholderProps {
 
 /** Phase 0 的佔位畫面：先讓 sidebar 與路由成形，功能之後逐一搬入。 */
 export function Placeholder({ title, phase, from }: PlaceholderProps) {
+  usePageTitle(title);
   return (
     <div className="page">
       <header className="page-head">

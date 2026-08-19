@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { usePageTitle } from "../../shell/usePageTitle.js";
 
 interface EventRow {
   id: string;
@@ -47,6 +48,7 @@ function formatTime(value: string): string {
 }
 
 export function Activity() {
+  usePageTitle("操作紀錄");
   const [filters, setFilters] = useState<Filters>(DEFAULTS);
 
   const query = useQuery({

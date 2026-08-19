@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
+import { usePageTitle } from "../../shell/usePageTitle.js";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "管理者",
@@ -17,6 +18,7 @@ const ROLE_LABEL: Record<string, string> = {
  * 每次登入都會被 Google 覆寫，放在這裡讓人改只會讓人以為改得掉。
  */
 export function Profile() {
+  usePageTitle("我的帳號");
   const { user } = useSession();
   const client = useQueryClient();
   const [displayName, setDisplayName] = useState(user?.name ?? "");

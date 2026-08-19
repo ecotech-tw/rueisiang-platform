@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Icon } from "../../shell/icons.js";
+import { usePageTitle } from "../../shell/usePageTitle.js";
 
 interface SyncStatus {
   configured: boolean;
@@ -65,6 +66,7 @@ function formatTime(value: string | null): string {
 }
 
 export function Sync() {
+  usePageTitle("CYBERBIZ 同步");
   const client = useQueryClient();
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [running, setRunning] = useState(false);

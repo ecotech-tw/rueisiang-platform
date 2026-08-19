@@ -11,6 +11,7 @@ import {
   type AdminUser,
   type Catalog,
 } from "./api.js";
+import { usePageTitle } from "../../shell/usePageTitle.js";
 
 const STATUS_LABEL: Record<AdminUser["status"], string> = {
   invited: "已邀請",
@@ -182,6 +183,7 @@ function UserRow({ user, catalog, isSelf }: { user: AdminUser; catalog: Catalog;
 }
 
 export function AdminUsers() {
+  usePageTitle("權限管理");
   const { user } = useSession();
   const users = useUsers();
   const catalog = useCatalog();

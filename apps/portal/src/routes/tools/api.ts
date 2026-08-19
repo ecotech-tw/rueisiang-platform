@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 export interface PayoutStoreSummary {
   name: string;
   folder: string;
+  folderUrl: string;
 }
 
 export interface PayoutRunRecord {
@@ -21,6 +22,8 @@ export interface PayoutState {
   defaultEnd: string;
   /** 後端有沒有 GitHub token。沒有的話畫面要說得出原因，不是等按下去才報錯。 */
   configured: boolean;
+  /** 最近一次執行；重新整理或離開再回來時，畫面靠它自己接回去問狀態。 */
+  latestRequestId: string | null;
   runs: PayoutRunRecord[];
 }
 
@@ -109,10 +112,10 @@ export function useSavePayoutStores() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (stores: Omit<PayoutStore, "id">[]) =>
-      call<{ stores: PayoutStore[] }>("/api/tools/payout/stores", {
-        method: "PUT",
-        body: JSON.stringify({ stores }),
-      }),
+      call<{ stores: PayoutStore[]; syncedToRepo: boolean; committed: boolean }>(
+        "/api/tools/payout/stores",
+        { method: "PUT", body: JSON.stringify({ stores }) },
+      ),
     onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "payout"] }),
   });
 }
