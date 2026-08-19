@@ -939,6 +939,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .modal-head h2 { margin: 0; font-size: 20px; }
 .modal-body { display: grid; gap: 16px; padding: 0 24px 8px; overflow-y: auto; }
+/*
+ * 底部的按鈕列。負的左右 margin 是用來抵銷 .modal-body 的 24px padding——
+ * 讓上緣那條分隔線橫跨整張卡片，而不是縮在內容區裡面。
+ */
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -950,6 +954,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   background: var(--color-paper);
   border-top: 1px solid var(--color-soft-line);
 }
+/*
+ * 但它也可以直接掛在卡片下面（表單不需要包住按鈕時就會這樣寫）。那裡沒有
+ * padding 可以抵銷，負 margin 會把整條拉出卡片外，按鈕就貼死在右邊界上。
+ */
+.modal-card > .modal-actions { margin-inline: 0; }
 
 .field { display: grid; gap: 6px; }
 .field > span { font-size: 13px; font-weight: 700; }
