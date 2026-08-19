@@ -203,6 +203,58 @@ describe("重發邀請連結", () => {
   });
 });
 
+describe("後台看得到帳密使用者的資訊", () => {
+  /*
+   * 這兩件事之前都壞掉，而且只壞在帳密那條路——Google 那條有 recordLogin 撐著。
+   * 症狀是後台把天天在用的人顯示成「（尚未登入過）」、最後登入永遠是「—」。
+   */
+  it("設定密碼時填的顯示名稱，後台看得到", async () => {
+    const cookie = await adminCookie();
+    const { token } = await invite(cookie);
+    await json(`/api/auth/invite/${token}`, "POST", {
+      password: PASSWORD,
+      confirmPassword: PASSWORD,
+      displayName: "新來的同事",
+    });
+
+    const list = (await (await call("/api/admin/users", { headers: { Cookie: cookie } })).json()) as {
+      users: { email: string; name: string }[];
+    };
+    expect(list.users.find((user) => user.email === "newbie@ecotech.tw")?.name).toBe("新來的同事");
+  });
+
+  it("走邀請連結設完密碼就算登入過一次", async () => {
+    const cookie = await adminCookie();
+    const { token } = await invite(cookie);
+    await json(`/api/auth/invite/${token}`, "POST", { password: PASSWORD, confirmPassword: PASSWORD });
+
+    const list = (await (await call("/api/admin/users", { headers: { Cookie: cookie } })).json()) as {
+      users: { email: string; lastLoginAt: string | null }[];
+    };
+    expect(list.users.find((user) => user.email === "newbie@ecotech.tw")?.lastLoginAt).toBeTruthy();
+  });
+
+  it("用帳密登入會更新最後登入時間", async () => {
+    const cookie = await adminCookie();
+    const { token } = await invite(cookie);
+    await json(`/api/auth/invite/${token}`, "POST", { password: PASSWORD, confirmPassword: PASSWORD });
+
+    const read = async () => {
+      const body = (await (await call("/api/admin/users", { headers: { Cookie: cookie } })).json()) as {
+        users: { email: string; lastLoginAt: string | null }[];
+      };
+      return body.users.find((user) => user.email === "newbie@ecotech.tw")?.lastLoginAt;
+    };
+    const before = await read();
+
+    // 同一毫秒內寫入會看不出差別，等一下再登入。
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await json("/api/auth/password", "POST", { email: "newbie@ecotech.tw", password: PASSWORD });
+
+    expect(await read()).not.toBe(before);
+  });
+});
+
 describe("帳密登入", () => {
   async function inviteAndSetPassword(email = "newbie@ecotech.tw") {
     const cookie = await adminCookie();
