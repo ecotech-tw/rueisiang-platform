@@ -26,6 +26,7 @@ export type IconName =
   | "storefront"
   | "tune"
   | "shieldPerson"
+  | "key"
   | "edit"
   | "eye"
   | "copy"
@@ -41,6 +42,15 @@ export type IconName =
   | "external";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /* 角色＝一串權限的組合，鑰匙比盾牌更貼切；盾牌留給「帳號與權限」那一頁。 */
+  key: (
+    <>
+      <circle cx="8" cy="12" r="4" />
+      <path d="M12 12h9" />
+      <path d="M17.5 12v3.2" />
+      <path d="M20.4 12v2.2" />
+    </>
+  ),
   eye: (
     <>
       <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />

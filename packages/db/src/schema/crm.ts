@@ -45,9 +45,9 @@ export const customers = sqliteTable("customers", {
 ]);
 
 /**
- * 客戶列表的儲存檢視。
+ * 客戶列表的儲存視圖。
  *
- * 沿用舊系統的設計：這是**全公司共用**的一組檢視，不屬於個人（沒有 user_id）。
+ * 沿用舊系統的設計：這是**全公司共用**的一組視圖，不屬於個人（沒有 user_id）。
  * 是否要改成個人的，等實際用起來再決定——現在改等於替一個還沒發生的需求做設計。
  */
 export const savedViews = sqliteTable("saved_views", {
@@ -56,12 +56,12 @@ export const savedViews = sqliteTable("saved_views", {
   search: text("search").notNull().default(""),
   channel: text("channel").notNull().default("all"),
   status: text("status").notNull().default("all"),
-  // 標籤篩選是這一版才有的，舊系統的檢視存不了它，所以預設 all＝不篩。
+  // 標籤篩選是這一版才有的，舊系統的視圖存不了它，所以預設 all＝不篩。
   tag: text("tag").notNull().default("all"),
   sortField: text("sort_field").notNull().default("updatedAt"),
   sortDirection: text("sort_direction").notNull().default("desc"),
   pageSize: integer("page_size").notNull().default(10),
-  // 只留 email 不留 user_id：檢視是共用的，需要的是「去問誰」，而人可能已經離職。
+  // 只留 email 不留 user_id：視圖是共用的，需要的是「去問誰」，而人可能已經離職。
   createdByEmail: text("created_by_email").notNull().default(""),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [

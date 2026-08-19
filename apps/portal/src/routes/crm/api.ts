@@ -139,7 +139,7 @@ export function useBlockCustomer() {
   );
 }
 
-/** 一個檢視存的就是列表的篩選條件，只是不含頁碼。 */
+/** 一個視圖存的就是列表的篩選條件，只是不含頁碼。 */
 export type SavedViewFilters = Omit<CustomerFilters, "page">;
 
 export interface SavedView extends SavedViewFilters {
@@ -153,7 +153,7 @@ export function useSavedViews() {
     queryKey: ["crm", "views"],
     queryFn: async () => {
       const response = await fetch("/api/crm/views", { credentials: "same-origin" });
-      if (!response.ok) throw new Error(`讀取檢視失敗（${response.status}）`);
+      if (!response.ok) throw new Error(`讀取視圖失敗（${response.status}）`);
       return ((await response.json()) as { views: SavedView[] }).views;
     },
   });
@@ -172,9 +172,9 @@ export function useDeleteSavedView() {
 }
 
 /**
- * 目前的條件是不是就是這個檢視。
+ * 目前的條件是不是就是這個視圖。
  *
- * 頁碼不比——檢視不存頁碼，翻到第 2 頁不代表就離開了這個檢視。
+ * 頁碼不比——視圖不存頁碼，翻到第 2 頁不代表就離開了這個視圖。
  */
 export function matchesView(filters: CustomerFilters, view: SavedViewFilters): boolean {
   return (

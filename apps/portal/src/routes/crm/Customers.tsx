@@ -139,7 +139,7 @@ export function Customers() {
     setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   }
 
-  /** 套用檢視是整組換掉，不是疊加——沒存進檢視的條件要跟著回到預設值。 */
+  /** 套用視圖是整組換掉，不是疊加——沒存進視圖的條件要跟著回到預設值。 */
   function applyView(view: SavedViewFilters) {
     setFilters({ ...view, page: 1 });
   }

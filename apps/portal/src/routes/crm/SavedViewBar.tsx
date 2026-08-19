@@ -13,7 +13,7 @@ import {
 interface Props {
   filters: CustomerFilters;
   onApply: (view: SavedViewFilters) => void;
-  /** 有 crm:view:write 才看得到儲存與刪除。檢視是共用的，不是個人設定。 */
+  /** 有 crm:view:write 才看得到儲存與刪除。視圖是共用的，不是個人設定。 */
   canManage: boolean;
 }
 
@@ -83,8 +83,8 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
                 className="filter-chip-remove"
                 onClick={() => remove.mutate(view.id)}
                 disabled={remove.isPending}
-                title={`刪除檢視「${view.name}」，所有人都會看不到`}
-                aria-label={`刪除檢視 ${view.name}`}
+                title={`刪除視圖「${view.name}」，所有人都會看不到`}
+                aria-label={`刪除視圖 ${view.name}`}
               >
                 <Icon name="close" />
               </button>
@@ -100,12 +100,12 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
             disabled={saved}
             title={
               saved
-                ? "目前的條件已經是一個檢視了"
-                : "把現在的搜尋、篩選與排序存成一個檢視，所有人都看得到"
+                ? "目前的條件已經是一個視圖了"
+                : "把現在的搜尋、篩選與排序存成一個視圖，所有人都看得到"
             }
           >
             <Icon name="bookmark" />
-            儲存目前條件
+            儲存為視圖
           </button>
         ) : null}
 
@@ -123,7 +123,7 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
           >
             <input
               autoFocus
-              aria-label="檢視名稱"
+              aria-label="視圖名稱"
               placeholder="例如：待補地址的客人"
               maxLength={40}
               value={name}
