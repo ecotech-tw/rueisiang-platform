@@ -220,3 +220,67 @@ describe("處理失敗時", () => {
     expect(outcome).toMatchObject({ status: "processed", action: "created" });
   });
 });
+
+describe("不是會員的事件", () => {
+  const query = `?token=${SECRET}`;
+
+  /** 這就是實際打進來的商品庫存事件，一字未改（只縮短了欄位）。 */
+  const productEvent = {
+    product_id: 62458755,
+    name: "★潤白養膚小皂 - ",
+    sku: "ASOT02002",
+    inventory_quantity: 1098,
+    inventory_policy: "continue",
+    inventory_management: true,
+    price: 88.0,
+    updated_at: "2026-08-19 11:39:26",
+    id: 75900635,
+  };
+
+  it("商品庫存事件不會被寫成客戶", async () => {
+    const response = await post(JSON.stringify(productEvent), { query });
+
+    const outcome = (await response.json()) as { status: string; reason?: string };
+    expect(outcome.status).toBe("ignored");
+    expect(outcome.reason).toContain("商品");
+    // 先前這裡會建出一位叫「★潤白養膚小皂」的客人。
+    expect(await db().select().from(customers)).toHaveLength(0);
+  });
+
+  it("商品事件仍然留下紀錄，之後 Phase 4 用得到", async () => {
+    await post(JSON.stringify(productEvent), { query });
+
+    const [event] = await db().select().from(cyberbizCustomerWebhooks);
+    expect(event?.status).toBe("ignored");
+    expect(event?.payloadJson).toContain("inventory_quantity");
+  });
+
+  it("沒有 topic 標頭又看不出是什麼的事件不處理", async () => {
+    // 先前預設值是 customers/update，等於「猜不出來就當會員」。
+    const response = await post(JSON.stringify({ id: 123, name: "看不出是什麼" }), { query });
+
+    const outcome = (await response.json()) as { status: string; topic: string; reason?: string };
+    expect(outcome.topic).toBe("unknown");
+    expect(outcome.status).toBe("ignored");
+    expect(await db().select().from(customers)).toHaveLength(0);
+  });
+
+  it("payload 認得出是會員時，就算沒有 topic 標頭也會處理", async () => {
+    const response = await post(
+      JSON.stringify({ id: 35258347, mobile: "0912345678", name: "王小明", email: "w@example.com" }),
+      { query },
+    );
+
+    const outcome = (await response.json()) as { status: string; action?: string };
+    expect(outcome.status).toBe("processed");
+    expect(outcome.action).toBe("created");
+  });
+
+  it("topic 明確標成會員時照樣處理", async () => {
+    const response = await post(
+      JSON.stringify({ topic: "customers/create", customer: { id: 999, mobile: "0900111222" } }),
+      { query },
+    );
+    expect((await response.json()) as { status: string }).toMatchObject({ status: "processed" });
+  });
+});

@@ -17,8 +17,10 @@ export {
 } from "./customers.js";
 
 export {
+  classifyPayload,
   createWebhookEventId,
   isCustomerTopic,
+  type PayloadKind,
   readCyberbizTopic,
   verifyCyberbizWebhook,
 } from "./webhook.js";

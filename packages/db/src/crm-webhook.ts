@@ -1,5 +1,10 @@
 import type { CyberbizCustomerClient } from "@rueisiang/cyberbiz";
-import { createWebhookEventId, isCustomerTopic, parseCyberbizCustomer } from "@rueisiang/cyberbiz";
+import {
+  classifyPayload,
+  createWebhookEventId,
+  isCustomerTopic,
+  parseCyberbizCustomer,
+} from "@rueisiang/cyberbiz";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { syncCyberbizCustomer, type CyberbizSyncResult } from "./crm-sync.js";
@@ -70,9 +75,27 @@ export async function processCustomerWebhook(
   });
 
   try {
-    if (!isCustomerTopic(topic)) {
-      await markEvent(db, eventId, { status: "ignored", result: { reason: "非會員事件" } });
-      return { eventId, topic, status: "ignored", reason: "非會員事件" };
+    /*
+     * 判斷這到底是不是會員事件。
+     *
+     * 兩件事都要看，而且預設是「不處理」：
+     *   - topic：CYBERBIZ 不一定送標頭，沒送就是 unknown，不能當成會員
+     *   - payload 的欄位：商品事件同樣有 id 與 name，光看那兩個欄位跟會員
+     *     長得一模一樣。要靠 product_id／sku／inventory_quantity 這些
+     *     只有商品才有的欄位才分得出來
+     *
+     * 先前兩層都是「猜不出來就當會員」，結果整批商品庫存事件被寫成客戶。
+     */
+    const kind = classifyPayload(payload);
+    if (kind === "product") {
+      const reason = "商品／庫存事件，不是會員（Phase 4 才會用到）";
+      await markEvent(db, eventId, { status: "ignored", result: { reason } });
+      return { eventId, topic, status: "ignored", reason };
+    }
+    if (!isCustomerTopic(topic) && kind !== "customer") {
+      const reason = "無法判斷是不是會員事件，不處理";
+      await markEvent(db, eventId, { status: "ignored", result: { reason } });
+      return { eventId, topic, status: "ignored", reason };
     }
 
     /*
@@ -286,20 +309,29 @@ export async function readSyncStatus(db: Database): Promise<SyncStatus> {
 export async function deleteEmptyCyberbizCustomers(
   db: Database,
 ): Promise<{ deleted: number; ids: string[] }> {
-  const empties = await db
-    .select({ id: customers.id })
+  const suspicious = await db
+    .select({ id: customers.id, raw: customers.cyberbizRawJson })
     .from(customers)
     .where(
       and(
         eq(customers.sourceChannel, "cyberbiz"),
-        eq(customers.name, ""),
         eq(customers.email, ""),
         eq(customers.phone, ""),
         eq(customers.address, ""),
       ),
     );
 
-  const ids = empties.map((row) => row.id);
+  /*
+   * 兩種要清掉的東西，共通點是「沒有 Email、沒有電話、沒有地址」：
+   *   1. 只有 ID 的空殼（連姓名都沒有）
+   *   2. 被當成會員寫進來的商品——它有名字（商品名），所以光看空白判斷不到，
+   *      要看原始 payload 裡有沒有 product_id / sku / inventory_quantity
+   *
+   * 真的會員不會三個聯絡欄位全空又帶著商品欄位，所以這個條件不會誤刪。
+   */
+  const ids = suspicious
+    .filter((row) => !row.raw || row.raw === "{}" || /"(product_id|sku|inventory_quantity|variant_id)"/.test(row.raw))
+    .map((row) => row.id);
   for (const id of ids) {
     // customer_events 有 on delete cascade，紀錄會跟著走。
     await db.delete(customers).where(eq(customers.id, id));

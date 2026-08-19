@@ -81,7 +81,14 @@ export async function verifyCyberbizWebhook(
   return candidates.some((candidate) => constantTimeEqual(candidate, signature));
 }
 
-/** 事件類型。標頭優先，其次看 body，都沒有就當成一般的會員更新。 */
+/**
+ * 事件類型。標頭優先，其次看 body，都沒有就是 unknown。
+ *
+ * 先前的預設值是 "customers/update"——「猜不出來就當成會員更新」。實際上
+ * CYBERBIZ 的商品庫存事件不帶 topic 標頭，於是整批商品被當成會員寫進客戶表，
+ * 客戶列表裡出現一位叫「★潤白養膚小皂」的客人。預設值必須是「不知道」，
+ * 而不知道就不要處理。
+ */
 export function readCyberbizTopic(request: Request, payload: unknown): string {
   const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
   const header =
@@ -91,7 +98,7 @@ export function readCyberbizTopic(request: Request, payload: unknown): string {
   const body = [record.topic, record.event, record.event_type, record.type].find(
     (value) => typeof value === "string",
   );
-  return (header || body || "customers/update").toString().trim().toLowerCase();
+  return (header || body || "unknown").toString().trim().toLowerCase();
 }
 
 /**
@@ -107,7 +114,50 @@ export async function createWebhookEventId(topic: string, rawBody: string): Prom
   return toHex(bytes);
 }
 
-/** 是不是會員相關的事件。不是的話我們不處理，但仍然記錄下來。 */
+/** 明確標成會員相關的事件。unknown 不算——那是「沒有標」，不是「是會員」。 */
 export function isCustomerTopic(topic: string): boolean {
+  if (!topic || topic === "unknown") return false;
   return /customer|member|uid|tag/i.test(topic);
+}
+
+/** 只有商品／庫存事件才有的欄位。出現任何一個就確定不是會員。 */
+const PRODUCT_MARKERS = [
+  "product_id",
+  "variant_id",
+  "sku",
+  "inventory_quantity",
+  "inventory_policy",
+  "inventory_management",
+  "compare_at_price",
+];
+
+/** 只有會員才有的欄位。 */
+const CUSTOMER_MARKERS = [
+  "mobile",
+  "email",
+  "uid_providers",
+  "accepts_marketing",
+  "accepts_email_notification",
+  "bonus_remain",
+];
+
+export type PayloadKind = "customer" | "product" | "unknown";
+
+/**
+ * 用 payload 自己的欄位判斷這是什麼事件。
+ *
+ * CYBERBIZ 不一定送 topic 標頭，所以不能只靠 topic。商品事件的辨識特別重要——
+ * 它同樣有 id 與 name，光看那兩個欄位跟會員長得一模一樣。
+ */
+export function classifyPayload(payload: unknown): PayloadKind {
+  const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const nested =
+    (record.customer as Record<string, unknown> | undefined) ??
+    (record.member as Record<string, unknown> | undefined) ??
+    record;
+  const keys = new Set([...Object.keys(record), ...Object.keys(nested ?? {})]);
+
+  if (PRODUCT_MARKERS.some((marker) => keys.has(marker))) return "product";
+  if (CUSTOMER_MARKERS.some((marker) => keys.has(marker))) return "customer";
+  return "unknown";
 }
