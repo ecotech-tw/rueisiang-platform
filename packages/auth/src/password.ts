@@ -12,7 +12,22 @@ import { randomToken } from "./google-oauth.js";
  * 之後要調高輪數時，舊的雜湊照樣驗得過——驗證讀的是字串裡的輪數，不是常數。
  */
 
-const ITERATIONS = 120_000;
+/**
+ * 迭代次數。**這個值被 Cloudflare Workers 的上限釘死在 100,000。**
+ *
+ * Workers 為了防 DoS，把 PBKDF2 的迭代次數上限鎖在 100000，超過會直接丟
+ * `NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported`。
+ *
+ * 這裡原本抄 rueisiang-crm 的 120000——但 CRM 跑在 Node 上沒有這個限制，所以
+ * 本機測試全過（vitest 也是 Node），一上 Worker 就 500。錯誤只會出現在正式站，
+ * 這是最難發現的一種：測試綠燈、部署成功、使用者按下去才爆。
+ *
+ * 要調高只能等 Workers 放寬。不要為了「更安全」把它改上去——那不是更安全，
+ * 是整條設密碼與登入的路都掛掉。
+ *
+ * 參考：https://github.com/cloudflare/workerd/issues/1346
+ */
+const ITERATIONS = 100_000;
 
 /** 低於這個輪數的雜湊一律當作無效，避免有人塞一個 iterations=1 的字串進來。 */
 const MIN_ITERATIONS = 100_000;
