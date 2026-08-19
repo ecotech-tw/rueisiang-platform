@@ -12,6 +12,7 @@ import {
   type AdminUser,
   type Catalog,
 } from "./api.js";
+import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 
 const STATUS_LABEL: Record<AdminUser["status"], string> = {
@@ -125,31 +126,141 @@ function InviteForm({
   );
 }
 
-function AssignRow({ user, catalog, onDone }: { user: AdminUser; catalog: Catalog; onDone: () => void }) {
+/**
+ * 帳號的編輯對話框。
+ *
+ * 原本是在表格列裡直接長出一個下拉選單。問題不只是難看：那一列會突然變高、
+ * 把下面的資料往下推，而且角色一多，chips 就把「最後登入」擠到看不見——
+ * 每一列的高度都不一樣，整張表讀起來很吃力。
+ *
+ * 改成對話框之後表格只負責「看」，所有「改」集中在這裡。之後要加「額外授予
+ * 單一權限」也是長在這個對話框裡，不用再動表格。
+ */
+function UserEditor({
+  user,
+  catalog,
+  onClose,
+}: {
+  user: AdminUser;
+  catalog: Catalog;
+  onClose: () => void;
+}) {
   const assign = useAssignRole();
-  const [roleKey, setRoleKey] = useState(catalog.roles[0]?.key ?? "");
+  const revoke = useRevokeRole();
+  const setStatus = useSetStatus();
+
+  const held = new Set(user.assignments.map((assignment) => assignment.roleKey));
+  const pending = assign.isPending || revoke.isPending || setStatus.isPending;
+  const error = assign.error ?? revoke.error ?? setStatus.error;
+
+  /*
+   * 這個人實際上能做什麼＝手上所有角色的權限聯集。管理者最常問的其實是這句話，
+   * 但原本的畫面只給角色名稱，要自己去角色管理頁一個一個點開對照。
+   */
+  const effective = new Set(
+    user.assignments.flatMap(
+      (assignment) => catalog.roles.find((role) => role.key === assignment.roleKey)?.permissions ?? [],
+    ),
+  );
 
   return (
-    <form
-      className="admin-form inline"
-      onSubmit={(event) => {
-        event.preventDefault();
-        assign.mutate({ id: user.id, roleKey }, { onSuccess: onDone });
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !pending) onClose();
       }}
     >
-      <select aria-label="角色" value={roleKey} onChange={(event) => setRoleKey(event.target.value)}>
-        {catalog.roles.map((role) => (
-          <option key={role.key} value={role.key}>{role.name}</option>
-        ))}
-      </select>
-      <button type="submit" className="primary-button" disabled={assign.isPending}>
-        指派
-      </button>
-      <button type="button" className="link-button" onClick={onDone}>
-        取消
-      </button>
-      {assign.error ? <p className="form-error" role="alert">{assign.error.message}</p> : null}
-    </form>
+      <div className="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="user-editor-title">
+        <div className="modal-head">
+          <div>
+            <h2 id="user-editor-title">{user.name || "（尚未登入過）"}</h2>
+            <p className="muted">{user.email}</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} disabled={pending} title="關閉" aria-label="關閉">
+            <Icon name="close" />
+          </button>
+        </div>
+
+        <div className="modal-body">
+          {error ? <p className="form-error" role="alert">{error.message}</p> : null}
+
+          <div className="field">
+            <span>狀態</span>
+            <div className="admin-form inline">
+              <span className={`status status-${user.status}`}>{STATUS_LABEL[user.status]}</span>
+              {user.status === "disabled" ? (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  disabled={pending}
+                  onClick={() => setStatus.mutate({ id: user.id, status: "active" })}
+                >
+                  重新啟用
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="ghost-button danger"
+                  disabled={pending || user.status === "invited"}
+                  title={user.status === "invited" ? "還沒登入過的帳號不需要停用" : undefined}
+                  onClick={() => setStatus.mutate({ id: user.id, status: "disabled" })}
+                >
+                  停用
+                </button>
+              )}
+            </div>
+          </div>
+
+          <fieldset className="perm-group">
+            <legend>
+              角色
+              <span className="perm-count">{held.size}/{catalog.roles.length}</span>
+            </legend>
+            <div className="perm-grid">
+              {catalog.roles.map((role) => (
+                <label className="perm-item" key={role.key} title={role.description || undefined}>
+                  <input
+                    type="checkbox"
+                    checked={held.has(role.key)}
+                    disabled={pending}
+                    onChange={(event) => {
+                      // 勾＝指派、取消＝收回。兩個端點本來就存在，這裡只是換一個操作方式。
+                      if (event.target.checked) assign.mutate({ id: user.id, roleKey: role.key });
+                      else revoke.mutate({ id: user.id, roleKey: role.key });
+                    }}
+                  />
+                  <span>{role.name}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <div className="field">
+            <span>
+              這個人實際能做什麼
+              <span className="perm-count">{effective.size}</span>
+            </span>
+            <small>由上面勾選的角色決定，不能單獨調整。</small>
+            {effective.size === 0 ? (
+              <p className="muted">沒有任何權限，登入後看不到任何頁面。</p>
+            ) : (
+              <div className="chips tight">
+                {[...effective].map((permission) => (
+                  <span className="chip subtle" key={permission}>
+                    {catalog.permissions[permission] ?? permission}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="modal-actions">
+          <button type="button" className="ghost-button" onClick={onClose} disabled={pending}>關閉</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -165,11 +276,9 @@ function UserRow({
   /** 重發出來的連結交給上層顯示——它跟邀請當下那條走同一塊 UI。 */
   onInviteUrl: (email: string, url: string) => void;
 }) {
-  const setStatus = useSetStatus();
   const resend = useResendInvite();
-  const revoke = useRevokeRole();
-  const [assigning, setAssigning] = useState(false);
-  const error = setStatus.error ?? revoke.error ?? resend.error;
+  const [editing, setEditing] = useState(false);
+  const error = resend.error;
 
   return (
     <>
@@ -184,35 +293,32 @@ function UserRow({
           {isSelf ? <span className="cell-sub">這是你自己</span> : null}
         </td>
 
+        {/* 表格只負責看，所有的改都在對話框裡——每列高度才會一致。 */}
         <td>
-          <div className="chips">
-            {user.assignments.length === 0 ? <span className="cell-sub">沒有任何角色</span> : null}
-            {user.assignments.map((assignment) => (
-              <span className="chip" key={assignment.roleKey}>
-                {assignment.roleName}
-                <button
-                  type="button"
-                  aria-label={`收回 ${assignment.roleName}`}
-                  onClick={() => revoke.mutate({ id: user.id, roleKey: assignment.roleKey })}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-
-          {assigning ? (
-            <AssignRow user={user} catalog={catalog} onDone={() => setAssigning(false)} />
+          {user.assignments.length === 0 ? (
+            <span className="cell-sub">沒有任何角色</span>
           ) : (
-            <button type="button" className="link-button" onClick={() => setAssigning(true)}>
-              ＋ 指派角色
-            </button>
+            <div className="chips tight">
+              {user.assignments.map((assignment) => (
+                <span className="chip subtle" key={assignment.roleKey}>{assignment.roleName}</span>
+              ))}
+            </div>
           )}
         </td>
 
         <td className="cell-sub">{formatTime(user.lastLoginAt)}</td>
 
         <td>
+          <div className="row-actions">
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => setEditing(true)}
+            title="編輯角色與狀態"
+            aria-label={`編輯 ${user.email}`}
+          >
+            <Icon name="edit" />
+          </button>
           {/*
             * 還沒啟用的帳號才給重發。已啟用的人按這個會拿到一條能設新密碼的連結，
             * 那等於一個不必驗證就能改密碼的後門——後端也擋了，這裡不畫出來而已。
@@ -231,26 +337,7 @@ function UserRow({
               {resend.isPending ? "產生中…" : "重發連結"}
             </button>
           ) : null}
-          {user.status === "disabled" ? (
-            <button
-              type="button"
-              className="ghost-button"
-              disabled={setStatus.isPending}
-              onClick={() => setStatus.mutate({ id: user.id, status: "active" })}
-            >
-              重新啟用
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="ghost-button danger"
-              disabled={setStatus.isPending || user.status === "invited"}
-              title={user.status === "invited" ? "還沒登入過的帳號不需要停用" : undefined}
-              onClick={() => setStatus.mutate({ id: user.id, status: "disabled" })}
-            >
-              停用
-            </button>
-          )}
+          </div>
         </td>
       </tr>
 
@@ -260,6 +347,10 @@ function UserRow({
             <p className="form-error" role="alert">{error.message}</p>
           </td>
         </tr>
+      ) : null}
+
+      {editing ? (
+        <UserEditor user={user} catalog={catalog} onClose={() => setEditing(false)} />
       ) : null}
     </>
   );
