@@ -1266,3 +1266,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 /* 危險動作靠左，跟右邊的「關閉／儲存」拉開距離——想關掉的人不該手滑按到刪除。 */
 .modal-actions .delete-action { margin-right: auto; }
+
+/* 分組裡的說明文字。權限這種東西不解釋一下，人不會知道什麼時候該用。 */
+.perm-hint { margin: 2px 6px 10px; font-size: 12.5px; }
+/* 「來自角色」：標在項目後面，說明為什麼這個勾不能取消。 */
+.perm-item small { margin-left: 6px; color: var(--color-muted); font-size: 11px; font-weight: 400; }
+.perm-item:has(input:disabled) span { color: var(--color-muted); }

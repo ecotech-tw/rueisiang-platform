@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { rolePermissions, userRoles, users } from "@rueisiang/db/schema";
+import { rolePermissions, userPermissions, userRoles, users } from "@rueisiang/db/schema";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -594,5 +594,166 @@ describe("刪除帳號", () => {
     const staff = await seedUser("staff@ecotech.tw", "role-staff");
 
     expect((await as(staff, "staff@ecotech.tw", `/api/admin/users/${target}`, { method: "DELETE" })).status).toBe(403);
+  });
+});
+
+describe("不能調整自己的角色與權限", () => {
+  /*
+   * 這是防提權的守衛，所以每一條會改到權限的路都要釘。少擋任何一條，
+   * 「能改權限」就自動等於「是管理者」——RBAC 的分層就沒有意義了。
+   */
+  it.each([
+    ["指派角色", "POST", "/roles", JSON.stringify({ roleKey: "admin" })],
+    ["直接授予權限", "POST", "/permissions", JSON.stringify({ permission: "admin:role:write" })],
+  ])("擋下對自己%s", async (_label, method, path, payload) => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const response = await as(admin, "admin@ecotech.tw", `/api/admin/users/${admin}${path}`, {
+      method,
+      body: payload,
+    });
+
+    expect(response.status).toBe(409);
+    expect((await response.json() as { error: string }).error).toContain("自己");
+  });
+
+  it.each([
+    ["收回自己的角色", `/roles?roleKey=admin`],
+    ["收回自己的權限", `/permissions?permission=admin:role:write`],
+  ])("擋下%s", async (_label, query) => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const response = await as(admin, "admin@ecotech.tw", `/api/admin/users/${admin}${query}`, {
+      method: "DELETE",
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it("改別人還是可以", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const other = await seedUser("other@ecotech.tw", null);
+
+    const response = await as(admin, "admin@ecotech.tw", `/api/admin/users/${other}/roles`, {
+      method: "POST",
+      body: JSON.stringify({ roleKey: "staff" }),
+    });
+    expect(response.status).toBe(201);
+  });
+});
+
+describe("直接授予權限", () => {
+  it("一個角色都沒有也能靠直接授予做事", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const helper = await seedUser("helper@ecotech.tw", null);
+
+    expect((await as(helper, "helper@ecotech.tw", "/api/tools/payout/state")).status).toBe(403);
+
+    const granted = await as(admin, "admin@ecotech.tw", `/api/admin/users/${helper}/permissions`, {
+      method: "POST",
+      body: JSON.stringify({ permission: "tools:payout:run" }),
+    });
+    expect(granted.status).toBe(201);
+
+    expect((await as(helper, "helper@ecotech.tw", "/api/tools/payout/state")).status).toBe(200);
+  });
+
+  it("跟角色帶來的取聯集，不是取代", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const staff = await seedUser("staff@ecotech.tw", "role-staff");
+
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${staff}/permissions`, {
+      method: "POST",
+      body: JSON.stringify({ permission: "tools:payout:run" }),
+    });
+
+    // 角色本來就有的：還在
+    expect((await as(staff, "staff@ecotech.tw", "/api/crm/customers")).status).toBe(200);
+    // 單獨給的：也能用
+    expect((await as(staff, "staff@ecotech.tw", "/api/tools/payout/state")).status).toBe(200);
+  });
+
+  it("收回之後立刻失效", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const helper = await seedUser("helper@ecotech.tw", null);
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${helper}/permissions`, {
+      method: "POST",
+      body: JSON.stringify({ permission: "tools:payout:run" }),
+    });
+    expect((await as(helper, "helper@ecotech.tw", "/api/tools/payout/state")).status).toBe(200);
+
+    const removed = await as(
+      admin,
+      "admin@ecotech.tw",
+      `/api/admin/users/${helper}/permissions?permission=tools:payout:run`,
+      { method: "DELETE" },
+    );
+    expect(removed.status).toBe(200);
+    expect((await as(helper, "helper@ecotech.tw", "/api/tools/payout/state")).status).toBe(403);
+  });
+
+  it("停用之後直接授予的也不算數", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const helper = await seedUser("helper@ecotech.tw", null);
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${helper}/permissions`, {
+      method: "POST",
+      body: JSON.stringify({ permission: "tools:payout:run" }),
+    });
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${helper}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "disabled" }),
+    });
+
+    expect((await as(helper, "helper@ecotech.tw", "/api/tools/payout/state")).status).toBe(403);
+  });
+
+  it("不存在的權限鍵值擋下來", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const helper = await seedUser("helper@ecotech.tw", null);
+
+    const response = await as(admin, "admin@ecotech.tw", `/api/admin/users/${helper}/permissions`, {
+      method: "POST",
+      body: JSON.stringify({ permission: "tools:payout:destroy" }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("收回一個本來就沒單獨給的，回 404 並說明可能來自角色", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const staff = await seedUser("staff@ecotech.tw", "role-staff");
+
+    const response = await as(
+      admin,
+      "admin@ecotech.tw",
+      `/api/admin/users/${staff}/permissions?permission=crm:customer:read`,
+      { method: "DELETE" },
+    );
+    expect(response.status).toBe(404);
+    expect((await response.json() as { error: string }).error).toContain("角色");
+  });
+
+  it("刪掉帳號時直接授予的也一起消失", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const helper = await seedUser("helper@ecotech.tw", null);
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${helper}/permissions`, {
+      method: "POST",
+      body: JSON.stringify({ permission: "tools:payout:run" }),
+    });
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${helper}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "disabled" }),
+    });
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${helper}`, { method: "DELETE" });
+
+    const rows = await db().select().from(userPermissions).where(eq(userPermissions.userId, helper));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("一般同仁不能授予權限給別人", async () => {
+    const staff = await seedUser("staff@ecotech.tw", "role-staff");
+    const other = await seedUser("other@ecotech.tw", null);
+
+    const response = await as(staff, "staff@ecotech.tw", `/api/admin/users/${other}/permissions`, {
+      method: "POST",
+      body: JSON.stringify({ permission: "tools:payout:run" }),
+    });
+    expect(response.status).toBe(403);
   });
 });

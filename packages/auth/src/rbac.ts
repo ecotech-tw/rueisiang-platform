@@ -23,11 +23,25 @@ export interface AuthUser {
   pictureUrl: string;
   status: UserStatus;
   assignments: readonly RoleAssignment[];
+  /**
+   * 繞過角色、直接授予這個人的權限。跟角色帶來的取聯集，只加不減。
+   * 見 packages/db 的 user_permissions 表頭註解。
+   */
+  directPermissions: readonly Permission[];
 }
 
-/** 只有 active 的帳號有權限。invited（還沒登入過）與 disabled（停權）一律為零。 */
+/**
+ * 只有 active 的帳號有權限。invited（還沒登入過）與 disabled（停權）一律為零。
+ *
+ * 直接授予的權限也走同一道閘門——停權要能一次關掉這個人的所有權限，
+ * 漏掉這裡的話「停用」就會變成只擋角色、擋不住例外授權。
+ */
 function usableAssignments(user: AuthUser): readonly RoleAssignment[] {
   return user.status === "active" ? user.assignments : [];
+}
+
+function usableDirect(user: AuthUser): readonly Permission[] {
+  return user.status === "active" ? user.directPermissions : [];
 }
 
 /**
@@ -43,12 +57,13 @@ function usableAssignments(user: AuthUser): readonly RoleAssignment[] {
  * user_roles 的 scope_type / scope_id 欄位仍然留著，不必再開一次 migration。
  */
 export function can(user: AuthUser, permission: Permission): boolean {
+  if (usableDirect(user).includes(permission)) return true;
   return usableAssignments(user).some((assignment) => assignment.permissions.includes(permission));
 }
 
 /** 這個人擁有的所有權限。給前端決定顯示什麼用。 */
 export function permissionsOf(user: AuthUser): Permission[] {
-  const all = new Set<Permission>();
+  const all = new Set<Permission>(usableDirect(user));
   for (const assignment of usableAssignments(user)) {
     for (const permission of assignment.permissions) all.add(permission);
   }

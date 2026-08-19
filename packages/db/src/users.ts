@@ -1,7 +1,7 @@
 import type { AuthUser, Permission, RoleAssignment, UserStatus } from "@rueisiang/auth";
 import { and, eq, ne, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { rolePermissions, roles, userRoles, users } from "./schema/auth.js";
+import { rolePermissions, roles, userPermissions, userRoles, users } from "./schema/auth.js";
 
 /**
  * 載入使用者與他所有的角色指派。
@@ -46,6 +46,16 @@ export async function loadAuthUser(
     }
   }
 
+  /*
+   * 直接授予的權限。跟角色分開撈而不是拼成一次查詢——兩者的形狀不同
+   * （一個要收攏成 assignment，一個是平的清單），硬併在一起只會讓這段更難讀，
+   * 而這是每個請求都會跑的路徑，可讀性比省一次往返重要。
+   */
+  const direct = await db
+    .select({ permission: userPermissions.permission })
+    .from(userPermissions)
+    .where(eq(userPermissions.userId, row.id));
+
   return {
     id: row.id,
     email: row.email,
@@ -55,6 +65,7 @@ export async function loadAuthUser(
     pictureUrl: row.pictureUrl,
     status: row.status as UserStatus,
     assignments: [...byAssignment.values()],
+    directPermissions: direct.map((item) => item.permission as Permission),
   };
 }
 

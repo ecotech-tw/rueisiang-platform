@@ -6,7 +6,11 @@ function assignment(permissions: Permission[]): RoleAssignment {
   return { roleKey: "test", permissions };
 }
 
-function user(assignments: RoleAssignment[], status: UserStatus = "active"): AuthUser {
+function user(
+  assignments: RoleAssignment[],
+  status: UserStatus = "active",
+  directPermissions: Permission[] = [],
+): AuthUser {
   return {
     id: "u1",
     email: "someone@ecotech.tw",
@@ -15,6 +19,7 @@ function user(assignments: RoleAssignment[], status: UserStatus = "active"): Aut
     pictureUrl: "",
     status,
     assignments,
+    directPermissions,
   };
 }
 
@@ -58,5 +63,31 @@ describe("permissionsOf", () => {
 
   it("停權的人回空陣列——前端據此把整個 sidebar 收乾淨", () => {
     expect(permissionsOf(user([assignment(["crm:customer:read"])], "disabled"))).toEqual([]);
+  });
+});
+
+describe("直接授予的權限", () => {
+  it("一個角色都沒有也能靠直接授予拿到權限", () => {
+    expect(can(user([], "active", ["tools:payout:run"]), "tools:payout:run")).toBe(true);
+  });
+
+  it("跟角色帶來的取聯集", () => {
+    const someone = user([assignment(["crm:customer:read"])], "active", ["tools:payout:run"]);
+    expect(permissionsOf(someone).sort()).toEqual(["crm:customer:read", "tools:payout:run"]);
+  });
+
+  it("重複的不會出現兩次", () => {
+    const someone = user([assignment(["crm:customer:read"])], "active", ["crm:customer:read"]);
+    expect(permissionsOf(someone)).toEqual(["crm:customer:read"]);
+  });
+
+  /*
+   * 停權要能一次關掉這個人的所有權限。漏掉直接授予的話，「停用」就會變成
+   * 只擋角色、擋不住例外授權——那是最容易被忽略、後果也最嚴重的一種漏。
+   */
+  it.each([["disabled"], ["invited"]] as const)("%s 的帳號連直接授予的也不算數", (status) => {
+    const someone = user([], status, ["tools:payout:run"]);
+    expect(can(someone, "tools:payout:run")).toBe(false);
+    expect(permissionsOf(someone)).toEqual([]);
   });
 });

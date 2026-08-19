@@ -53,10 +53,36 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 const USERS_KEY = ["admin", "users"];
 
+export interface UsersResponse {
+  users: AdminUser[];
+  /** userId → 單獨授予這個人的權限。畫面要分得出「角色帶來的」與「單獨給的」。 */
+  directPermissions: Record<string, Permission[]>;
+}
+
 export function useUsers() {
   return useQuery({
     queryKey: USERS_KEY,
-    queryFn: () => request<{ users: AdminUser[] }>("/api/admin/users").then((data) => data.users),
+    queryFn: () => request<UsersResponse>("/api/admin/users"),
+  });
+}
+
+/** 直接授予一個權限，繞過角色。 */
+export function useGrantPermission() {
+  return useRoleMutation((input: { id: string; permission: Permission }) =>
+    request(`/api/admin/users/${encodeURIComponent(input.id)}/permissions`, {
+      method: "POST",
+      body: JSON.stringify({ permission: input.permission }),
+    }),
+  );
+}
+
+/** 收回直接授予。角色帶來的那一份收不回來——後端會回 404 並說明原因。 */
+export function useRevokePermission() {
+  return useRoleMutation((input: { id: string; permission: Permission }) => {
+    const params = new URLSearchParams({ permission: input.permission });
+    return request(`/api/admin/users/${encodeURIComponent(input.id)}/permissions?${params}`, {
+      method: "DELETE",
+    });
   });
 }
 

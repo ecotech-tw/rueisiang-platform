@@ -43,6 +43,13 @@
       "when": 1787135207363,
       "tag": "0005_ambiguous_ultimo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787150782752,
+      "tag": "0006_small_devos",
+      "breakpoints": true
     }
   ]
 }
