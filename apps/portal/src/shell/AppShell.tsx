@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Outlet } from "react-router";
 import { logout, useSession } from "../auth/session.js";
 import { Sidebar } from "./Sidebar.js";
+import { ToastProvider } from "./Toast.js";
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
@@ -17,6 +18,7 @@ export function AppShell() {
     .join(" ");
 
   return (
+    <ToastProvider>
     <div className={shellClass}>
       {/* 手機上 sidebar 收成抽屜，靠這條上方列開關——沿用 CRM 的作法。 */}
       <header className="mobile-topbar">
@@ -54,5 +56,6 @@ export function AppShell() {
         <Outlet />
       </main>
     </div>
+    </ToastProvider>
   );
 }

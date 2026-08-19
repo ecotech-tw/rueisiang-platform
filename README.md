@@ -149,10 +149,13 @@ node setup.mjs mail  eli-lin@ecotech.tw         # → GMAIL_REFRESH_TOKEN
 | Phase | 內容 |
 |---|---|
 | 0 ✅ | monorepo 骨架、portal 外殼與 sidebar、Hono worker、D1 schema 與 migration |
-| 1 | Google OAuth 登入 ✅、RBAC 判定 ✅、權限管理頁 ✅、部署到 `platform.rueisiang.com`（待開通資源） |
-| 2 | CRM 搬入 |
-| 3 | 營運工具搬入、webhook relay 收編 |
+| 1 ✅ | Google OAuth ＋ 帳密登入、邀請連結、RBAC、自訂角色與直接授予、權限管理頁、部署到 `platform.rueisiang.com` |
+| 2 ✅ | CRM 搬入：客戶列表與編輯、標籤、儲存的視圖、操作紀錄、CYBERBIZ 同步與 webhook |
+| 3 ✅ | 營運工具搬入：出金表執行頁與店別設定，driver 與 workflow 一起進 `tools/` |
 | 4 | WMS 搬入（含拆掉 1816 行的 `warehouse-app.tsx`） |
 | 5 | 舊系統下線、Cloud SQL 關掉 |
+
+Phase 1 的權限比原訂計畫多做了兩層：**自訂角色**（管理者自己組合權限，不必改
+程式碼）與**直接授予**（繞過角色，給單一個人的例外）。原本只有四個寫死的系統角色。
 
 完整計畫與去蕪存菁清單見 `docs/migration-plan.md`。

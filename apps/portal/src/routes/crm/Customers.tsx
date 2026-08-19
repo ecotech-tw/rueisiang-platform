@@ -58,9 +58,14 @@ function CustomerRow({
 }) {
   const tags = parseTags(customer.cyberbizTagsJson);
 
+  /*
+   * data-label 是給手機版用的：窄螢幕時 CSS 把每個 td 變成「標籤 ＋ 值」的一列，
+   * 整個 tr 變成一張卡片。用同一份 markup 而不是另外寫一套手機版元件——兩份
+   * markup 一定會漂移，而且這裡的差別純粹是排版。
+   */
   return (
     <tr>
-      <td>
+      <td data-label="客人">
         <div className="cell-strong">{customer.name || "未填姓名"}</div>
         <div className="cell-sub">{customer.email || "未填 Email"}</div>
         {tags.length ? (
@@ -72,14 +77,14 @@ function CustomerRow({
           </div>
         ) : null}
       </td>
-      <td className="whitespace-nowrap">{customer.phone}</td>
-      <td>
+      <td data-label="電話" className="whitespace-nowrap">{customer.phone}</td>
+      <td data-label="通路">
         <span className={`status status-channel-${customer.sourceChannel}`}>
           {CHANNEL_LABEL[customer.sourceChannel] ?? customer.sourceChannel}
         </span>
       </td>
-      <td className="cell-sub">{customer.address || "—"}</td>
-      <td>
+      <td data-label="地址" className="cell-sub">{customer.address || "—"}</td>
+      <td data-label="狀態">
         <span className={`status status-sync-${customer.syncStatus}`}>
           {SYNC_LABEL[customer.syncStatus] ?? customer.syncStatus}
         </span>
@@ -88,9 +93,9 @@ function CustomerRow({
           <div className="cell-sub" title={customer.syncError}>{customer.syncError}</div>
         ) : null}
       </td>
-      <td className="cell-sub whitespace-nowrap">{formatDate(customer.updatedAt)}</td>
+      <td data-label="最近更新" className="cell-sub whitespace-nowrap">{formatDate(customer.updatedAt)}</td>
       {canWrite || canBlock ? (
-        <td>
+        <td data-label="操作">
           <div className="row-actions">
             {canWrite ? (
               <button
