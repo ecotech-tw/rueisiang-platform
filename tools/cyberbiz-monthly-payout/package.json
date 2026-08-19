@@ -1,0 +1,14 @@
+{
+  "name": "cyberbiz-monthly-payout",
+  "private": true,
+  "type": "module",
+  "description": "每月 CYBERBIZ 各 POS 商店出金表：匯出、取檔、上傳 Google Drive、加對帳欄位",
+  "scripts": {
+    "run": "node driver.mjs",
+    "setup": "node setup.mjs",
+    "test": "node selftest.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

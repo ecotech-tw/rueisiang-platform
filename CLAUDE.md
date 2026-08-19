@@ -45,6 +45,8 @@ apps/
     src/middleware/   requireAuth / requirePermission，唯一的把關點
     src/dev/          本機 dev server 與假資料，永遠不會進 Worker 打包
     src/local-d1/     用 node:sqlite 實作 D1 介面，測試與 dev 共用
+tools/       **刻意不在 pnpm workspace 裡**（pnpm-workspace.yaml 只 glob apps/* 與 packages/*）
+  cyberbiz-monthly-payout/   出金表的 driver，純 JS ＋ npm 自己的 lockfile
 packages/
   auth/      權限目錄、RBAC 判定、session 簽章、Google OAuth
   db/        drizzle schema、migrations，以及所有查詢與同步邏輯
@@ -68,6 +70,15 @@ docs/        deployment-setup.md（首次開通）、migration-plan.md（各 Pha
 **本機開發不用 `wrangler dev`。** 開發機是 Windows on ARM，沒有 workerd 執行檔。改成 `apps/api/src/dev/server.ts`：Worker 進入點本來就只是一個 fetch handler，接上 `node:http`，再用 `src/local-d1/d1.ts`（`node:sqlite` 包成 D1 介面）當資料庫。跑的是真正的路由、真正的 SQL、真正的 migration，不是 mock。測試用同一個 `createLocalD1()`，不給檔名就是記憶體庫。
 
 **package 之間直接 export `.ts` 原始碼**（`"exports": { ".": "./src/index.ts" }`），沒有中間建置步驟，改完立刻生效。
+
+**出金表的 driver 放在 `tools/`，不進 pnpm workspace。** 它相依 Playwright，拉進
+workspace 會讓每個開發者的 `pnpm install` 都扛一份只有 GitHub Actions 用得到的
+瀏覽器函式庫。它跑在 runner 上（開 Chrome、登 CYBERBIZ、讀 Gmail、寫 Drive），
+用 `npm ci` 自己安裝，CI 另外跑一步 `node selftest.mjs`。
+
+平台這一端只負責「有哪些店」「誰按了執行」，憑證一個都不碰——那些是本 repo 的
+Actions secrets。設定頁存檔時會把店別寫回 `tools/cyberbiz-monthly-payout/stores.json`，
+driver 的 `loadConfig` 讀到它就以它為準（沒有這個檔案時照 `config.json` 走）。
 
 **CYBERBIZ 同步分批做。** Worker 有執行時間上限，全量拉一次可能拉不完，所以每次最多 `MAX_PAGES_PER_RUN` 頁，回報還有沒有下一頁。cron（每 15 分）只補跑失敗的 webhook，不做全量同步。
 

@@ -30,7 +30,7 @@ custom_domain = true
 # 出金表：執行本身跑在帳務 repo 的 GitHub Actions 上，平台只負責觸發與查狀態。
 # CYBERBIZ 帳密、Gmail 與 Drive 的授權都留在那邊的 Actions secrets，這裡碰不到。
 [vars]
-PAYOUT_GITHUB_REPO = "ecotech-tw/rueisiang-tool-billing"
+PAYOUT_GITHUB_REPO = "ecotech-tw/rueisiang-platform"
 PAYOUT_WORKFLOW_FILE = "payout.yml"
 PAYOUT_GITHUB_REF = "main"
 
@@ -40,7 +40,7 @@ PAYOUT_GITHUB_REF = "main"
 #   GOOGLE_OAUTH_CLIENT_SECRET
 #   CYBERBIZ_API_TOKEN         客戶同步
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
-#   PAYOUT_GITHUB_TOKEN        fine-grained PAT，只給帳務 repo 的 Actions 讀寫
+#   PAYOUT_GITHUB_TOKEN        fine-grained PAT，只給本 repo 的 Actions 與 Contents 讀寫
 #
 # 改過 permissions.ts 之後，用權限管理頁的「重新同步」按鈕寫進資料庫，
 # 不需要額外的 secret。詳細步驟見 docs/deployment-setup.md。
