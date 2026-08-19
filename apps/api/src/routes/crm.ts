@@ -79,10 +79,27 @@ export const crm = new Hono<AppEnv>()
     // 最後一頁「實際拉到的」頁碼。下一輪要從這個數字 +1 開始，
     // 記成「準備要拉的下一頁」的話，接續時會整頁被跳過。
     let lastFetchedPage = startPage - 1;
+    let failure: string | undefined;
 
     for (let index = 0; index < MAX_PAGES_PER_RUN; index += 1) {
       const page = startPage + index;
-      const result = await client.fetchPage(page, PAGE_SIZE);
+
+      /*
+       * 某一頁失敗不該把整輪的成果丟掉。
+       *
+       * 一萬多筆會員要打兩百多次 API，中途碰到 429 或短暫的 5xx 是正常的。
+       * 原本整個往上丟，畫面只會看到「伺服器發生錯誤」，前面幾百筆有沒有寫進去
+       * 完全不知道，也不知道該從哪一頁接。改成停在失敗的那一頁、把已完成的
+       * 回報出去，並告訴呼叫端從哪裡重來。
+       */
+      let result;
+      try {
+        result = await client.fetchPage(page, PAGE_SIZE);
+      } catch (error) {
+        failure = error instanceof Error ? error.message : "讀取 CYBERBIZ 會員失敗";
+        break;
+      }
+
       totalPages = result.totalPages;
       lastFetchedPage = page;
 
@@ -100,7 +117,9 @@ export const crm = new Hono<AppEnv>()
       toPage: lastFetchedPage,
       nextPage: lastFetchedPage + 1,
       totalPages,
-      hasMore: lastFetchedPage < totalPages,
+      // 失敗時 hasMore 仍然是 true，讓前端知道還沒拉完、可以從 nextPage 接。
+      hasMore: Boolean(failure) || lastFetchedPage < totalPages,
+      error: failure,
     });
   })
 
