@@ -39,11 +39,15 @@ export type IconName =
   | "bookmark"
   | "check"
   | "calendar"
+  | "chevronUp"
+  | "chevronDown"
   | "chevronLeft"
   | "chevronRight"
   | "external";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  chevronUp: <path d="M6.5 14.5 12 9l5.5 5.5" />,
+  chevronDown: <path d="M6.5 9.5 12 15l5.5-5.5" />,
   info: (
     <>
       <circle cx="12" cy="12" r="9" />

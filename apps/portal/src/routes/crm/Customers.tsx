@@ -133,6 +133,8 @@ export function Customers() {
   const [filters, setFilters] = useState<CustomerFilters>(DEFAULT_FILTERS);
   const [editing, setEditing] = useState<Customer | "new" | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  // 手機上統計預設收起來，把畫面讓給客戶清單。桌機的 CSS 不理這個狀態。
+  const [statsOpen, setStatsOpen] = useState(false);
   const query = useCustomers(filters);
   const block = useBlockCustomer();
   const { permissions } = useSession();
@@ -178,7 +180,23 @@ export function Customers() {
       </header>
 
       {data ? (
-        <div className="stat-row">
+        /*
+         * 統計在手機上收起來。四張卡在 400px 寬的螢幕上會排成兩列、吃掉半個
+         * 畫面，而它們是「偶爾看一眼」的東西——真正要滑的是下面的客戶清單。
+         *
+         * 收起來時把總數留在按鈕上：完全看不到數字的話，這個切換就沒有意義了。
+         * 桌機不受影響，CSS 只在 760px 以下才把展開狀態當一回事。
+         */
+        <div className={`stat-row${statsOpen ? " open" : ""}`}>
+          <button
+            type="button"
+            className="stat-toggle"
+            aria-expanded={statsOpen}
+            onClick={() => setStatsOpen((open) => !open)}
+          >
+            <span>共 {data.stats.total} 位客戶</span>
+            <Icon name={statsOpen ? "chevronUp" : "chevronDown"} />
+          </button>
           <div className="stat"><span>全部</span><strong>{data.stats.total}</strong></div>
           <div className="stat"><span>正常</span><strong>{data.stats.active}</strong></div>
           <div className="stat"><span>已封鎖</span><strong>{data.stats.blocked}</strong></div>
