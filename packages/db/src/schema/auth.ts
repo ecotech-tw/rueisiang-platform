@@ -28,7 +28,17 @@ export const users = sqliteTable("users", {
   pictureUrl: text("picture_url").notNull().default(""),
   // invited：已邀請未登入過／active：可用／disabled：停權
   status: text("status").notNull().default("invited"),
+  /*
+   * 兩條登入路都通向同一列。邀請一律同時支援 Google 與帳密——
+   * 對方走哪一條由他自己決定，我們不預先綁死：新同事手上不一定有公司 Google 帳號，
+   * 但邀請當下沒有人知道這件事。
+   */
   passwordHash: text("password_hash"),
+  /** 只存邀請 token 的 SHA-256。資料庫外洩時拿到的那一串換不到帳號。 */
+  invitationTokenHash: text("invitation_token_hash"),
+  invitationExpiresAt: text("invitation_expires_at"),
+  /** 設過密碼的時間。用來在後台區分「還沒設」與「設了但沒登入過」。 */
+  passwordSetAt: text("password_set_at"),
   invitedBy: text("invited_by"),
   lastLoginAt: text("last_login_at"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -37,6 +47,8 @@ export const users = sqliteTable("users", {
   uniqueIndex("idx_users_email").on(table.email),
   uniqueIndex("idx_users_google_subject").on(table.googleSubject),
   index("idx_users_status").on(table.status),
+  // 拿 token 換帳號是每次開邀請連結都會做的查詢，而且必須唯一。
+  uniqueIndex("idx_users_invitation_token_hash").on(table.invitationTokenHash),
 ]);
 
 /** 角色。isSystem 的角色不允許從 UI 刪除。 */
