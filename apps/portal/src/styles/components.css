@@ -18,17 +18,22 @@
   border-right: 1px solid var(--color-line);
 }
 
-/* 品牌列：展開時是完整字標，收合時換成只有圖記的方章。 */
+/*
+ * 品牌列：展開時是完整字標，收合時換成只有圖記的方章。
+ * 字標置中而不是靠左，所以可以放大到接近欄寬——靠左時放大會撞到收合鈕。
+ */
 .brand-row {
-  height: 54px;
+  height: 60px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: 0 5px;
   overflow: hidden;
   white-space: nowrap;
 }
-.brand-logo { width: 142px; height: auto; object-fit: contain; flex: 0 1 auto; }
+/* 原圖 400×100（4:1），184px 寬＝46px 高，左右各留約 12px 呼吸空間。 */
+.brand-logo { width: 184px; height: auto; object-fit: contain; flex: 0 1 auto; }
 .brand-icon { display: none; width: 34px; height: 34px; object-fit: contain; }
 .product-badge {
   padding: 3px 7px;
@@ -318,7 +323,6 @@
 .sidebar-collapsed .nav-chevron,
 .sidebar-collapsed .account-copy,
 .sidebar-collapsed .account-chevron { display: none; }
-.sidebar-collapsed .brand-row { justify-content: center; }
 .sidebar-collapsed .brand-icon { display: block; }
 /* 只剩圖示就不需要那麼高的點擊區，壓縮一點讓整份選單在筆電上不用捲。 */
 .sidebar-collapsed .nav-item { grid-template-columns: 1fr; justify-items: center; padding: 0; min-height: 38px; }

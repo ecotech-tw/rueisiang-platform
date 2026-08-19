@@ -153,7 +153,7 @@ export function Sidebar({ permissions, collapsed, onToggle, user, onLogout, onNa
   return (
     <aside className="sidebar" id="portal-sidebar">
       <div className="brand-row">
-        <img className="brand-logo" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={142} height={38} />
+        <img className="brand-logo" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={184} height={46} />
         <img className="brand-icon" src="/ruei-siang-icon.png" alt="RUEI SIANG" width={34} height={34} />
       </div>
 
