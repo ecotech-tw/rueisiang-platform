@@ -189,9 +189,22 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 }
 .nav-section.open .nav-chevron { transform: translateY(-2px) rotate(45deg); }
 
-.nav-section-items { display: none; }
-/* 子項往內縮一個圖示的距離，讓它們明顯掛在上面那一列底下。 */
-.nav-section.open .nav-section-items { display: grid; gap: 2px; margin: 2px 0 4px; padding-left: 14px; }
+/*
+ * 展開／收合的動畫：grid-template-rows 從 0fr 到 1fr。
+ * max-height 那種要先猜一個高度——猜太小會截斷，猜太大會讓收合看起來拖很久。
+ * grid 這招不必知道內容多高，而且 0fr 時完全不佔空間。
+ */
+.nav-section-items {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .22s ease, margin .22s ease;
+}
+.nav-section-items-inner { overflow: hidden; display: grid; gap: 2px; padding-left: 14px; }
+.nav-section.open .nav-section-items { grid-template-rows: 1fr; margin: 2px 0 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-section-items { transition: none; }
+}
 
 .nav-item {
   width: 100%;
@@ -345,7 +358,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .sidebar-collapsed .nav-item { grid-template-columns: 24px; justify-content: center; gap: 0; padding: 0; }
 .sidebar-collapsed .nav-section-head { min-height: 40px; }
 .sidebar-collapsed .nav-item { min-height: 40px; }
-.sidebar-collapsed .nav-section.open .nav-section-items { gap: 2px; margin: 2px 0 0; padding-left: 0; }
+.sidebar-collapsed .nav-section.open .nav-section-items { margin: 2px 0 0; }
+.sidebar-collapsed .nav-section-items-inner { gap: 2px; padding-left: 0; }
 .sidebar-collapsed .nav-children { margin-left: 0; }
 .sidebar-collapsed .nav-children .nav-item { grid-template-columns: 24px; }
 .sidebar-collapsed .nav-children .nav-icon { width: 24px; height: 24px; }
@@ -468,6 +482,38 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .ghost-button:hover:not(:disabled) { border-color: var(--secondary); }
 .ghost-button.danger { color: var(--brand-dark); }
 .ghost-button:disabled { opacity: .45; cursor: not-allowed; }
+
+/*
+ * 圖示按鈕（Material 的 icon button）：40px 的圓，hover 才浮出 state layer。
+ * 表格裡一列有兩三個操作時，文字按鈕會把欄位撐得很寬又互相干擾，改用圖示；
+ * 每一顆都要有 title 與 aria-label，不能只靠圖形猜。
+ */
+.icon-button {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  transition: background .12s ease, color .12s ease;
+}
+.icon-button svg { width: 20px; height: 20px; }
+.icon-button:hover:not(:disabled) { background: rgba(213, 56, 59, .08); color: var(--brand); }
+.icon-button:focus-visible { outline: 2px solid var(--secondary); outline-offset: -2px; }
+.icon-button:disabled { opacity: .4; cursor: not-allowed; }
+.icon-button.danger:hover:not(:disabled) { background: var(--brand-soft); color: var(--brand-dark); }
+
+/* 一列裡的圖示按鈕群組，靠右並縮成一組。 */
+.row-actions { display: flex; justify-content: flex-end; gap: 2px; }
+
+/* 帶圖示的實心按鈕。 */
+.primary-button.with-icon,
+.ghost-button.with-icon { display: inline-flex; align-items: center; gap: 8px; }
+.primary-button.with-icon svg,
+.ghost-button.with-icon svg { width: 18px; height: 18px; }
 
 .form-error {
   width: 100%;
@@ -839,12 +885,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   }
   .shell.sidebar-collapsed .nav-section-head { min-height: 48px; }
   .shell.sidebar-collapsed .nav-item { min-height: 44px; }
-  .shell.sidebar-collapsed .nav-section-items { display: none; }
-  .shell.sidebar-collapsed .nav-section.open .nav-section-items {
-    display: grid;
-    margin: 2px 0 4px;
-    padding-left: 14px;
-  }
+  .shell.sidebar-collapsed .nav-section.open .nav-section-items { margin: 2px 0 4px; }
+  .shell.sidebar-collapsed .nav-section-items-inner { padding-left: 14px; }
   .shell.sidebar-collapsed .nav-children { margin-left: 14px; }
   .shell.sidebar-collapsed .nav-children .nav-item { grid-template-columns: 20px minmax(0, 1fr); }
   .shell.sidebar-collapsed .account-trigger { display: grid; gap: 9px; padding: 8px; }

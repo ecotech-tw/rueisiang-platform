@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
+import { Icon } from "../../shell/icons.js";
 
 interface SyncStatus {
   configured: boolean;
@@ -188,10 +189,12 @@ export function Sync() {
             ) : null}
             <button
               type="button"
-              className="primary-button"
+              className="primary-button with-icon"
               disabled={!data.configured || running}
               onClick={() => runFullSync(1)}
+              title="從第 1 頁開始，一路拉到官網的最後一頁"
             >
+              <Icon name="sync" />
               {running ? "同步中…" : "全部重新同步"}
             </button>
             {!running && progress && !progress.done ? (
@@ -235,11 +238,12 @@ export function Sync() {
           <div className="pager-buttons">
             <button
               type="button"
-              className="ghost-button"
+              className="ghost-button with-icon"
               disabled={cleanup.isPending}
               onClick={() => cleanup.mutate()}
-              title="刪掉只有 CYBERBIZ ID、姓名電話地址全空的客戶"
+              title="刪掉只有 CYBERBIZ ID、姓名電話地址全空的客戶，以及被誤寫成客戶的商品"
             >
+              <Icon name="trash" />
               {cleanup.isPending
                 ? "清理中…"
                 : cleanup.data

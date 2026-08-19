@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
+import { Icon } from "../../shell/icons.js";
 import {
   DEFAULT_FILTERS,
   parseTags,
@@ -86,20 +87,29 @@ function CustomerRow({
       <td className="cell-sub nowrap">{formatDate(customer.updatedAt)}</td>
       {canWrite || canBlock ? (
         <td>
-          <div className="pager-buttons">
+          <div className="row-actions">
             {canWrite ? (
-              <button type="button" className="ghost-button" onClick={onEdit} disabled={busy}>
-                編輯
+              <button
+                type="button"
+                className="icon-button"
+                onClick={onEdit}
+                disabled={busy}
+                title="編輯客戶資料"
+                aria-label={`編輯 ${customer.name || customer.phone}`}
+              >
+                <Icon name="edit" />
               </button>
             ) : null}
             {canBlock ? (
               <button
                 type="button"
-                className={`ghost-button${customer.status === "blocked" ? "" : " danger"}`}
+                className={`icon-button${customer.status === "blocked" ? "" : " danger"}`}
                 onClick={onBlock}
                 disabled={busy}
+                title={customer.status === "blocked" ? "解除封鎖這位客戶" : "封鎖這位客戶"}
+                aria-label={`${customer.status === "blocked" ? "解除封鎖" : "封鎖"} ${customer.name || customer.phone}`}
               >
-                {customer.status === "blocked" ? "解除封鎖" : "封鎖"}
+                <Icon name={customer.status === "blocked" ? "unblock" : "block"} />
               </button>
             ) : null}
           </div>

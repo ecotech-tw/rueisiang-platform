@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
+import { Icon } from "../../shell/icons.js";
 
 interface TagRow {
   name: string;
@@ -186,27 +187,34 @@ export function Tags() {
                   </td>
                   {canWrite ? (
                     <td>
-                      <div className="pager-buttons">
+                      <div className="row-actions">
                         <button
                           type="button"
-                          className="ghost-button"
+                          className="icon-button"
                           disabled={Boolean(busy)}
                           onClick={() => setEditing({ name: tag.name, next: tag.name })}
+                          title={
+                            tag.customerCount
+                              ? `改名，並更新 ${tag.customerCount} 位客戶身上的標籤`
+                              : "改名（目前沒有客戶在用）"
+                          }
+                          aria-label={`改名標籤 ${tag.name}`}
                         >
-                          改名
+                          <Icon name="edit" />
                         </button>
                         <button
                           type="button"
-                          className="ghost-button danger"
+                          className="icon-button danger"
                           disabled={Boolean(busy)}
                           onClick={() => void applyChange(tag.name, null)}
                           title={
                             tag.customerCount
-                              ? `會從 ${tag.customerCount} 位客戶身上移除這個標籤`
-                              : "字典裡沒有人在用，直接移除"
+                              ? `移除，並從 ${tag.customerCount} 位客戶身上拿掉這個標籤`
+                              : "移除（目前沒有客戶在用）"
                           }
+                          aria-label={`移除標籤 ${tag.name}`}
                         >
-                          移除
+                          <Icon name="trash" />
                         </button>
                       </div>
                     </td>

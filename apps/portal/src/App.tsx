@@ -10,7 +10,6 @@ import { Profile } from "./routes/me/Profile.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { AppShell } from "./shell/AppShell.js";
 
-const CRM = "rueisiang-crm";
 const WMS = "warehouse-inventory";
 const TOOLS = "cyberbiz-monthly-payout";
 
@@ -42,7 +41,6 @@ export function App() {
 
         <Route path="crm">
           <Route path="customers" element={<Customers />} />
-          <Route path="customers/new" element={<Placeholder title="新增客人" phase="Phase 2" from={`${CRM}/app/customers/new`} />} />
           <Route path="tags" element={<Tags />} />
           <Route path="activity" element={<Activity />} />
           <Route path="sync" element={<Sync />} />

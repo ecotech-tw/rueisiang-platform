@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Icon } from "../../shell/icons.js";
 import {
   parseTags,
   useCreateCustomer,
@@ -72,8 +73,15 @@ export function CustomerForm({ customer, onClose }: Props) {
       <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="customer-form-title">
         <div className="modal-head">
           <h2 id="customer-form-title">{customer ? "編輯客戶" : "新增客人"}</h2>
-          <button type="button" className="link-button" onClick={onClose} disabled={pending}>
-            關閉
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
+            disabled={pending}
+            title="關閉"
+            aria-label="關閉"
+          >
+            <Icon name="close" />
           </button>
         </div>
 
