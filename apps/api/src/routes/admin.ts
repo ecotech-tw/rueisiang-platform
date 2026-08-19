@@ -238,7 +238,7 @@ export const admin = new Hono<AppEnv>()
   })
 
   /**
-   * 刪除帳號。只接受已停用的，而且不能刪自己。
+   * 刪除帳號。**啟用中的不能刪**，已停用與還沒登入過的都可以，而且不能刪自己。
    *
    * 「先停用再刪」是刻意的兩步：停用可逆、刪除不可逆，中間那一步就是確認。
    * 不能刪自己則是為了避免一個很蠢但會發生的情境——刪完之後才想起來自己是
@@ -253,8 +253,8 @@ export const admin = new Hono<AppEnv>()
 
     const result = await deleteUser(c.get("db"), id);
     if (result === "not-found") throw new HTTPException(404, { message: "找不到這個帳號。" });
-    if (result === "not-disabled") {
-      throw new HTTPException(409, { message: "只有已停用的帳號能刪除。請先停用再刪。" });
+    if (result === "still-active") {
+      throw new HTTPException(409, { message: "啟用中的帳號不能直接刪除。請先停用再刪。" });
     }
     return c.json({ id });
   })

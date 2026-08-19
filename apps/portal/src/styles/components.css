@@ -1273,3 +1273,171 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /* 「來自角色」：標在項目後面，說明為什麼這個勾不能取消。 */
 .perm-item small { margin-left: 6px; color: var(--color-muted); font-size: 11px; font-weight: 400; }
 .perm-item:has(input:disabled) span { color: var(--color-muted); }
+
+/*
+ * ── 操作提示 ──────────────────────────────────────────────────────────────
+ *
+ * 桌機釘右下角，手機改成從上方滑下來——手機的右下角是拇指區，浮一張卡片在
+ * 那裡會擋住正要按的東西。
+ */
+.toast-stack {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  /*
+   * 要比對話框（60）高。很多提示就是從對話框裡的操作發出來的——同層的話
+   * 後出現的 backdrop 會蓋住它，變成「按了角色沒有任何回饋」。
+   */
+  z-index: 70;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(380px, calc(100vw - 32px));
+  padding: 12px 12px 12px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-paper);
+  box-shadow: 0 12px 32px rgba(64, 30, 30, .18);
+  font-size: 13.5px;
+  pointer-events: auto;
+  animation: toast-in .18s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+.toast svg { width: 20px; height: 20px; flex: none; }
+.toast span { flex: 1; min-width: 0; }
+.toast button {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-muted);
+}
+.toast button:hover { background: var(--color-soft-line); }
+.toast button svg { width: 14px; height: 14px; }
+.toast-success { border-color: var(--color-ok); color: var(--color-ok); }
+.toast-success span { color: var(--color-ink); }
+.toast-info { border-color: var(--color-secondary); color: var(--color-brand); }
+.toast-info span { color: var(--color-ink); }
+
+/* 確認對話框：比一般對話框窄，因為裡面只有一段話跟兩顆按鈕。 */
+.confirm-card { width: min(420px, 100%); }
+.confirm-body { display: grid; gap: 8px; padding-bottom: 4px; }
+.confirm-body p { margin: 0; }
+.confirm-body strong { color: var(--color-brand-dark); }
+/* 破壞性動作的主要按鈕。primary 的紅底已經夠醒目，這裡只是換成深一階。 */
+.primary-button.danger { background: var(--color-brand-dark); }
+.primary-button.danger:hover:not(:disabled) { background: #8f1f22; }
+
+/*
+ * ── 手機版的資料表 ────────────────────────────────────────────────────────
+ *
+ * 表格在 400px 寬的螢幕上沒救：七個欄位擠不下，橫向捲的話看得到第一欄就看不到
+ * 狀態，而且 .page.fills 的「只有表格自己捲」在手機上會讓整片資料躲在第二個
+ * 捲軸裡——實際情況是打開頁面連一筆資料都看不到。
+ *
+ * 改成卡片：每一列變一張卡，每個欄位變「標籤 ＋ 值」的一行。標籤來自 td 的
+ * data-label，所以 markup 只有一份。
+ */
+@media (max-width: 760px) {
+  /* 內捲改回整頁捲。手機上兩層捲軸永遠是災難。 */
+  .content:has(.page.fills) { overflow-y: auto; }
+  .page.fills { height: auto; }
+  .page.fills > .panel.grows { overflow: visible; }
+  .page.fills > .panel.grows > .table-scroll { overflow: visible; }
+
+  .table-scroll { overflow-x: visible; }
+  .data-table thead { display: none; }
+  .data-table,
+  .data-table tbody,
+  .data-table tr,
+  .data-table td { display: block; width: auto; }
+
+  .data-table tbody tr {
+    margin: 0 0 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    background: var(--color-paper);
+  }
+  .data-table tbody tr:hover { background: var(--color-paper); }
+
+  .data-table td {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+    height: auto;
+    min-height: 0;
+    padding: 5px 0;
+    border: 0;
+  }
+  /* 第一格是「這是誰」，讓它獨占一行當卡片標題。 */
+  .data-table td:first-child {
+    display: block;
+    padding: 0 0 8px;
+    border-bottom: 1px solid var(--color-soft-line);
+    margin-bottom: 6px;
+  }
+  .data-table td:first-child::before { display: none; }
+
+  .data-table td::before {
+    content: attr(data-label);
+    color: var(--color-muted);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  /* 沒有 data-label 的欄位（例如純操作欄）不要留一格空白。 */
+  .data-table td:not([data-label]) { grid-template-columns: minmax(0, 1fr); }
+  .data-table td:not([data-label])::before { display: none; }
+
+  .data-table .numeric { text-align: left; }
+  .row-actions { justify-content: flex-start; }
+
+  /*
+   * 值那一欄是 grid item，預設會被拉滿整格——膠囊撐成一整條就不像標記了。
+   * justify-self: start 讓它縮回內容寬度。
+   */
+  .data-table td > .status,
+  .data-table td > .chips { justify-self: start; }
+  /* 同一格裡有兩個標記（例如「已同步」＋「已封鎖」）時要能並排。 */
+  .data-table td > .status + .status { margin-left: 6px; }
+
+  /* 統計卡在手機上壓成兩欄，不要一張佔掉半個螢幕。 */
+  .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .stat { padding: 10px 12px; }
+  .stat strong { font-size: 17px; }
+
+  /* 頁首的動作鈕不要被標題擠成兩行字。 */
+  .page-head-row { flex-direction: column; align-items: stretch; gap: 12px; }
+  .page-head-row .primary-button { width: 100%; }
+
+  /* 篩選面板的下拉在窄螢幕各佔一整行，比擠成兩欄好按。 */
+  .admin-form.filter-panel select { width: 100%; max-width: none; }
+
+  /* 提示改從上面下來：手機的右下角是拇指區，浮卡片在那裡會擋住要按的東西。 */
+  .toast-stack {
+    top: 12px;
+    right: 12px;
+    left: 12px;
+    bottom: auto;
+    justify-items: stretch;
+  }
+  .toast { max-width: none; }
+}

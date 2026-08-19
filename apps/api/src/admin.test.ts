@@ -566,14 +566,24 @@ describe("刪除帳號", () => {
 
     const response = await as(admin, "admin@ecotech.tw", `/api/admin/users/${target}`, { method: "DELETE" });
     expect(response.status).toBe(409);
-    expect((await response.json() as { error: string }).error).toContain("已停用");
+    expect((await response.json() as { error: string }).error).toContain("先停用");
   });
 
-  it("還沒登入過的帳號也不能直接刪", async () => {
+  /*
+   * 邀請時 email 打錯的那一列會永遠停在 invited：不會有人登入，所以也不會變成
+   * active。不放行的話那筆資料就無解，只能留在名單裡。
+   */
+  it("還沒登入過的帳號可以直接刪掉——打錯的邀請要清得掉", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
-    const target = await seedUser("invited@ecotech.tw", null, { status: "invited" });
+    const target = await seedUser("typo@ecotech.tw", null, { status: "invited" });
 
-    expect((await as(admin, "admin@ecotech.tw", `/api/admin/users/${target}`, { method: "DELETE" })).status).toBe(409);
+    const response = await as(admin, "admin@ecotech.tw", `/api/admin/users/${target}`, { method: "DELETE" });
+    expect(response.status).toBe(200);
+
+    const list = (await (await as(admin, "admin@ecotech.tw", "/api/admin/users")).json()) as {
+      users: { id: string }[];
+    };
+    expect(list.users.map((user) => user.id)).not.toContain(target);
   });
 
   it("不能刪自己", async () => {

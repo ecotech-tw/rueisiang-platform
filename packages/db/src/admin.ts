@@ -440,13 +440,17 @@ export async function countRoleHolders(db: Database): Promise<Record<string, num
   return Object.fromEntries(rows.map((row) => [row.roleKey, Number(row.holders)]));
 }
 
-export type DeleteUserResult = "ok" | "not-found" | "not-disabled";
+export type DeleteUserResult = "ok" | "not-found" | "still-active";
 
 /**
- * 刪除帳號。只接受已停用的。
+ * 刪除帳號。**啟用中的不能刪**，已停用與還沒登入過的都可以。
  *
- * 「停用」與「刪除」解決的是不同問題：停用擋住登入（可逆），刪除是把名單整理
- * 乾淨（不可逆）。強制先停用等於多一道確認——沒有人會不小心把還在用的帳號刪掉。
+ * 原本只放行已停用的，但那讓「邀請時 email 打錯」變成無解：那一列永遠停在
+ * invited，既不能刪、也不會有人登入。現在的規則改成「只要不是啟用中的都能刪」，
+ * 語意更直接：**還在用的帳號不能刪，其他的可以整理掉。**
+ *
+ * 啟用中的仍然要先停用。停用可逆、刪除不可逆，中間那一步就是確認——沒有人會
+ * 不小心把還在用的帳號清掉。
  *
  * 稽核軌跡不會斷：操作紀錄與出金表執行紀錄存的是當下的 email 快照
  * （customer_events.actor_email、payout_runs.actor_email），不是外鍵，所以
@@ -459,7 +463,7 @@ export async function deleteUser(db: Database, id: string): Promise<DeleteUserRe
     .where(eq(users.id, id))
     .limit(1);
   if (!row) return "not-found";
-  if (row.status !== "disabled") return "not-disabled";
+  if (row.status === "active") return "still-active";
 
   await db.delete(users).where(eq(users.id, id));
   return "ok";

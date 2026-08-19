@@ -16,7 +16,9 @@ import {
   type AdminUser,
   type Catalog,
 } from "./api.js";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
+import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 
 const STATUS_LABEL: Record<AdminUser["status"], string> = {
@@ -159,6 +161,8 @@ function UserEditor({
   const remove = useDeleteUser();
   const grant = useGrantPermission();
   const revokeDirect = useRevokePermission();
+  const toast = useToast();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const held = new Set(user.assignments.map((assignment) => assignment.roleKey));
   const pending =
@@ -223,7 +227,12 @@ function UserEditor({
                   type="button"
                   className="ghost-button"
                   disabled={pending}
-                  onClick={() => setStatus.mutate({ id: user.id, status: "active" })}
+                  onClick={() =>
+                    setStatus.mutate(
+                      { id: user.id, status: "active" },
+                      { onSuccess: () => toast.show(`已重新啟用 ${user.email}`) },
+                    )
+                  }
                 >
                   重新啟用
                 </button>
@@ -233,7 +242,12 @@ function UserEditor({
                   className="ghost-button danger"
                   disabled={pending || user.status === "invited"}
                   title={user.status === "invited" ? "還沒登入過的帳號不需要停用" : undefined}
-                  onClick={() => setStatus.mutate({ id: user.id, status: "disabled" })}
+                  onClick={() =>
+                    setStatus.mutate(
+                      { id: user.id, status: "disabled" },
+                      { onSuccess: () => toast.show(`已停用 ${user.email}`) },
+                    )
+                  }
                 >
                   停用
                 </button>
@@ -255,8 +269,14 @@ function UserEditor({
                     disabled={locked}
                     onChange={(event) => {
                       // 勾＝指派、取消＝收回。兩個端點本來就存在，這裡只是換一個操作方式。
-                      if (event.target.checked) assign.mutate({ id: user.id, roleKey: role.key });
-                      else revoke.mutate({ id: user.id, roleKey: role.key });
+                      const done = {
+                        onSuccess: () =>
+                          toast.show(
+                            `${event.target.checked ? "已指派" : "已收回"}「${role.name}」`,
+                          ),
+                      };
+                      if (event.target.checked) assign.mutate({ id: user.id, roleKey: role.key }, done);
+                      else revoke.mutate({ id: user.id, roleKey: role.key }, done);
                     }}
                   />
                   <span>{role.name}</span>
@@ -295,8 +315,12 @@ function UserEditor({
                       checked={byRole || directSet.has(permission)}
                       disabled={locked || byRole}
                       onChange={(event) => {
-                        if (event.target.checked) grant.mutate({ id: user.id, permission });
-                        else revokeDirect.mutate({ id: user.id, permission });
+                        const done = {
+                          onSuccess: () =>
+                            toast.show(`${event.target.checked ? "已授予" : "已收回"}「${label}」`),
+                        };
+                        if (event.target.checked) grant.mutate({ id: user.id, permission }, done);
+                        else revokeDirect.mutate({ id: user.id, permission }, done);
                       }}
                     />
                     <span>
@@ -335,30 +359,43 @@ function UserEditor({
             * 刪除不可逆，中間那一步就是確認。靠左放，跟右邊的「關閉」拉開距離，
             * 免得想關掉的人手滑按到。
             */}
-          {user.status === "disabled" ? (
+          {/* 啟用中的要先停用才能刪；已停用與還沒登入過的都可以直接清掉。 */}
+          {user.status !== "active" ? (
             <button
               type="button"
               className="ghost-button danger delete-action"
               disabled={pending}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `確定要刪除「${user.email}」嗎？
-
-這個動作無法復原。他的角色指派會一起消失，` +
-                      `但操作紀錄與出金表執行紀錄會留著（那些存的是當時的信箱，不是帳號連結）。`,
-                  )
-                ) {
-                  remove.mutate(user.id, { onSuccess: onClose });
-                }
-              }}
+              onClick={() => setConfirmingDelete(true)}
             >
-              {remove.isPending ? "刪除中…" : "刪除帳號"}
+              刪除帳號
             </button>
           ) : null}
           <button type="button" className="ghost-button" onClick={onClose} disabled={pending}>關閉</button>
         </div>
       </div>
+
+      {confirmingDelete ? (
+        <ConfirmDialog
+          title={`刪除「${user.email}」？`}
+          confirmLabel="刪除帳號"
+          pending={remove.isPending}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() =>
+            remove.mutate(user.id, {
+              onSuccess: () => {
+                toast.show(`已刪除 ${user.email}`);
+                onClose();
+              },
+            })
+          }
+        >
+          <p>這個動作<strong>無法復原</strong>。</p>
+          <p className="muted">
+            他的角色指派與額外授予的權限會一起消失。操作紀錄與出金表執行紀錄會留著——
+            那些存的是當時的信箱，不是帳號連結，所以「這筆是誰做的」仍然答得出來。
+          </p>
+        </ConfirmDialog>
+      ) : null}
     </div>
   );
 }

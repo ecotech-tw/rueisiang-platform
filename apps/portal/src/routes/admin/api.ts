@@ -99,7 +99,17 @@ function useAdminMutation<TInput, TResult>(mutationFn: (input: TInput) => Promis
   const client = useQueryClient();
   return useMutation({
     mutationFn,
-    onSuccess: () => client.invalidateQueries({ queryKey: USERS_KEY }),
+    /*
+     * 這裡刻意不回傳 invalidateQueries 的 promise。
+     *
+     * react-query 會等 hook 層的 onSuccess 完成，才呼叫 mutate() 那一層的
+     * onSuccess。回傳 promise 的話它會等重新抓資料跑完——而重新抓完，被刪掉的
+     * 那一列就從畫面上消失、元件跟著卸載，於是 mutate 那層的回呼被整個跳過。
+     *
+     * 症狀是「東西確實刪掉了，但沒有任何提示」。用 void 讓它非同步跑，元件還
+     * 活著的時候回呼就會執行。
+     */
+    onSuccess: () => void client.invalidateQueries({ queryKey: USERS_KEY }),
   });
 }
 
@@ -143,7 +153,7 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: (id: string) =>
       request(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["admin"] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin"] }),
   });
 }
 
@@ -164,7 +174,7 @@ export function useSyncRoles() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => request("/api/admin/roles/sync", { method: "POST" }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["admin"] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin"] }),
   });
 }
 
@@ -185,7 +195,7 @@ function useRoleMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown>
   const client = useQueryClient();
   return useMutation({
     mutationFn,
-    onSuccess: () => client.invalidateQueries({ queryKey: ["admin"] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin"] }),
   });
 }
 

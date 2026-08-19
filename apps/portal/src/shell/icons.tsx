@@ -28,6 +28,7 @@ export type IconName =
   | "shieldPerson"
   | "key"
   | "filter"
+  | "info"
   | "edit"
   | "eye"
   | "copy"
@@ -43,6 +44,13 @@ export type IconName =
   | "external";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5.5" />
+      <path d="M12 7.6v.9" />
+    </>
+  ),
   /* 漏斗。Material 的 filter_alt，簡化成三條線。 */
   filter: (
     <>
