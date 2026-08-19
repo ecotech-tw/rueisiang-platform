@@ -53,6 +53,7 @@ packages/
   cyberbiz/  CYBERBIZ API client 與 webhook 驗證
   config/    共用 tsconfig
 docs/        deployment-setup.md（首次開通）、migration-plan.md（各 Phase 範圍）
+.claude/skills/  跟著程式一起搬進來的操作知識。目前只有 cyberbiz-monthly-payout
 ```
 
 **業務邏輯放在 `packages/db`**，不放路由。路由只做參數解析、權限檢查、回應格式；查詢與同步寫在 `packages/db/src/*.ts` 再從 `src/index.ts` 具名 export。要改行為先找那裡。
