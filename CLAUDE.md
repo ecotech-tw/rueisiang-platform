@@ -63,15 +63,41 @@ docs/        deployment-setup.md（首次開通）、migration-plan.md（各 Pha
 UI 一律照 Material 3 的規格做，不要自己發明一套。既有的元件已經照這份做過一輪，
 新增畫面沿用同樣的規則，不要在旁邊長出第二種風格。
 
-品牌色套進 Material 的角色：`--brand` 當 primary，`--brand-soft` 當
-primary-container，`--muted` 當 on-surface-variant。
+品牌色套進 Material 的角色：`--color-brand` 當 primary，`--color-brand-soft` 當
+primary-container，`--color-muted` 當 on-surface-variant。
+
+### CSS 怎麼分工：Tailwind v4 ＋ 語意化元件 class
+
+**token 只有一份，寫在 `apps/portal/src/styles.css` 的 `@theme` 裡。**
+Tailwind v4 沒有 `tailwind.config.js`，設定就是 CSS。`@theme` 裡的每個值同時是
+CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`），所以
+不會有「CSS 改了但 config 沒改」這種漂移。要加顏色、圓角、陰影就加在那裡，
+不要在元件裡寫死色碼。
+
+**元件樣式在 `apps/portal/src/styles/components.css`，用 `layer(components)` 匯入。**
+掛在 layer 裡的理由：utility 一定贏。沒有 layer 的話「`.panel` 的 padding」跟
+「`p-6`」誰贏要看誰寫在後面，那是最難查的一種 bug。
+
+分工原則：
+
+- **會重複出現的東西寫成語意化 class**（`.panel`、`.data-table`、`.nav-item`）。
+  一個 `.panel` 比一串 `rounded-card border border-line bg-paper p-5 shadow-panel`
+  好讀，而且改規格時只改一個地方。這一套就是上面那份 Material 3 規格的實作。
+- **一次性的版面微調用 utility**（`whitespace-nowrap`、`mt-4`）。為了一個地方
+  發明一個 class 名字不划算。
+- Tailwind 已經有的東西不要再自己寫一個同義的 class。
+- 半透明的品牌色用 `--alpha(var(--color-brand) / 7%)`，不要手寫 `rgba(213, 56, 59, .07)`——
+  色碼改了那些 rgba 不會跟著改。
+
+**preflight 會重置掉瀏覽器預設樣式**，所以標題字重、清單的項目符號這類東西要自己寫回來
+（`styles.css` 的 `@layer base` 已經處理了 `h1`–`h3`）。新加標籤時記得確認。
 
 ### 通則
 
-- **選中狀態用「色調容器」**：淡底＋深字（`--brand-soft` ＋ `--brand-dark`），
+- **選中狀態用「色調容器」**：淡底＋深字（`--color-brand-soft` ＋ `--color-brand-dark`），
   不要高彩度的填滿或漸層。Material 的選中是安靜地成立，不是跳出來搶視線。
 - **hover 是 state layer**：在原本的底色上疊一層 4–8% 的品牌色
-  （`rgba(213, 56, 59, .04)` ～ `.07`），不是換一個顏色。
+  （`--alpha(var(--color-brand) / 4%)` ～ `7%`），不是換一個顏色。
 - **圓角**：可點的列與按鈕用全圓角膠囊（`border-radius: 999px`），
   卡片 14px，輸入框與小元件 9–12px。
 - **圖示** 24px、線性、`currentColor`，不加外框。見 `shell/icons.tsx`，
@@ -82,10 +108,10 @@ primary-container，`--muted` 當 on-surface-variant。
 
 | 項目 | 規格 |
 |---|---|
-| 表頭列高 | 56px，14px、字重 500、`--muted` |
-| 內文列高 | 52px，14px、`--ink` |
+| 表頭列高 | 56px，14px、字重 500、`--color-muted` |
+| 內文列高 | 52px，14px、`--color-ink` |
 | 欄距 | 16px，最外側 24px |
-| 分隔線 | 只有列與列之間（`--soft-line`），欄之間沒有 |
+| 分隔線 | 只有列與列之間（`--color-soft-line`），欄之間沒有 |
 | hover | 4% 的品牌色 state layer |
 | 數字欄 | 靠右並用 `tabular-nums`（加 `.numeric`） |
 

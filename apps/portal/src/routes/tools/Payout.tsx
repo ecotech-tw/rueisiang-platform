@@ -223,9 +223,9 @@ export function Payout() {
                 const names = parseStores(record.storesJson);
                 return (
                   <tr key={record.id}>
-                    <td className="cell-sub nowrap">{formatDate(record.createdAt)}</td>
+                    <td className="cell-sub whitespace-nowrap">{formatDate(record.createdAt)}</td>
                     <td>{names.length > 1 ? `全部 ${names.length} 家` : names[0] ?? "—"}</td>
-                    <td className="cell-sub nowrap">{record.startDate} ~ {record.endDate}</td>
+                    <td className="cell-sub whitespace-nowrap">{record.startDate} ~ {record.endDate}</td>
                     <td className="cell-sub">{record.actorEmail}</td>
                   </tr>
                 );

@@ -72,7 +72,7 @@ function CustomerRow({
           </div>
         ) : null}
       </td>
-      <td className="nowrap">{customer.phone}</td>
+      <td className="whitespace-nowrap">{customer.phone}</td>
       <td>
         <span className={`status status-channel-${customer.sourceChannel}`}>
           {CHANNEL_LABEL[customer.sourceChannel] ?? customer.sourceChannel}
@@ -88,7 +88,7 @@ function CustomerRow({
           <div className="cell-sub" title={customer.syncError}>{customer.syncError}</div>
         ) : null}
       </td>
-      <td className="cell-sub nowrap">{formatDate(customer.updatedAt)}</td>
+      <td className="cell-sub whitespace-nowrap">{formatDate(customer.updatedAt)}</td>
       {canWrite || canBlock ? (
         <td>
           <div className="row-actions">
