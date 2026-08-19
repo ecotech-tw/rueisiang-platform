@@ -10,6 +10,7 @@ import {
   inviteUser,
   listRoles,
   listUsers,
+  regenerateInvitation,
   revokeRole,
   setUserStatus,
   seedPayoutStores,
@@ -24,6 +25,15 @@ import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { body, optionalStringArray, requireString } from "../request.js";
 
 const ADMIN_ROLE = "admin";
+
+/**
+ * 邀請連結的完整網址。從請求本身推導 origin 而不是要人維護一個環境變數——
+ * 手寫的變數會忘記加 https://、會在綁自訂網域之後過期，而請求的 host 永遠是
+ * 對方現在真的打得到的位置。
+ */
+function inviteUrl(requestUrl: string, token: string): string {
+  return new URL(`/invite/${encodeURIComponent(token)}`, requestUrl).toString();
+}
 
 /**
  * 帳號與權限管理。
@@ -151,7 +161,23 @@ export const admin = new Hono<AppEnv>()
       }
     }
 
-    return c.json({ id: result.id, email }, 201);
+    return c.json({ id: result.id, email, inviteUrl: inviteUrl(c.req.url, result.token) }, 201);
+  })
+
+  /**
+   * 重發邀請連結。舊的立刻失效。
+   *
+   * 連結只在建立的當下拿得到一次（DB 只存雜湊），所以「弄丟了」的解法是重發，
+   * 不是去資料庫翻。已經啟用的帳號不給重發：那條連結能設一組新密碼，
+   * 等於一個不必驗證就能改密碼的後門。
+   */
+  .post("/users/:id/invite", requirePermission("admin:user:write"), async (c) => {
+    const result = await regenerateInvitation(c.get("db"), c.req.param("id"));
+    if (result.kind === "not-found") throw new HTTPException(404, { message: "找不到這個帳號。" });
+    if (result.kind === "already-active") {
+      throw new HTTPException(409, { message: "這個帳號已經啟用，不需要邀請連結。" });
+    }
+    return c.json({ inviteUrl: inviteUrl(c.req.url, result.token) });
   })
 
   /**

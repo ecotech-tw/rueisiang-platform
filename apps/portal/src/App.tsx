@@ -6,6 +6,7 @@ import { Activity } from "./routes/crm/Activity.js";
 import { Customers } from "./routes/crm/Customers.js";
 import { Tags } from "./routes/crm/Tags.js";
 import { Sync } from "./routes/crm/Sync.js";
+import { Invite } from "./routes/Invite.js";
 import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
 import { Payout } from "./routes/tools/Payout.js";
@@ -31,6 +32,8 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* 設密碼頁在登入之前，跟 /login 一樣不套 AppShell。 */}
+      <Route path="/invite/:token" element={<Invite />} />
 
       <Route
         element={

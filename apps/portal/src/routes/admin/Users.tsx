@@ -4,6 +4,7 @@ import {
   useAssignRole,
   useCatalog,
   useInvite,
+  useResendInvite,
   useRevokeRole,
   useSetStatus,
   useSyncRoles,
@@ -26,7 +27,58 @@ function formatTime(value: string | null): string {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
 }
 
-function InviteForm({ catalog }: { catalog: Catalog }) {
+/**
+ * 邀請連結。
+ *
+ * 目前沒有寄信，所以連結要直接顯示出來讓管理者自己傳給對方。
+ * 它**只有這一次拿得到**——資料庫只存雜湊，弄丟了只能重發。所以這一塊不會
+ * 自動收起來，要按「知道了」才消失。
+ */
+function InviteLink({ email, url, onDismiss }: { email: string; url: string; onDismiss: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div className="invite-link" role="status">
+      <div>
+        <strong>已邀請 {email}</strong>
+        <p className="muted">
+          把這條連結傳給對方，他設定密碼之後就能登入。連結七天內有效，
+          而且<b>只會出現這一次</b>——關掉之後要重發才拿得到新的。
+        </p>
+      </div>
+      <div className="invite-link-row">
+        <input readOnly value={url} onFocus={(event) => event.target.select()} />
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={async () => {
+            /*
+             * clipboard API 在非 HTTPS 或使用者拒絕權限時會丟。連結本來就顯示在
+             * 旁邊而且是全選狀態，複製不了自己框起來也行，不要跳一個錯誤嚇人。
+             */
+            try {
+              await navigator.clipboard.writeText(url);
+              setCopied(true);
+            } catch {
+              setCopied(false);
+            }
+          }}
+        >
+          {copied ? "已複製" : "複製"}
+        </button>
+        <button type="button" className="ghost-button" onClick={onDismiss}>知道了</button>
+      </div>
+    </div>
+  );
+}
+
+function InviteForm({
+  catalog,
+  onInviteUrl,
+}: {
+  catalog: Catalog;
+  onInviteUrl: (email: string, url: string) => void;
+}) {
   const invite = useInvite();
   const [email, setEmail] = useState("");
   const [roleKey, setRoleKey] = useState("");
@@ -39,7 +91,8 @@ function InviteForm({ catalog }: { catalog: Catalog }) {
         invite.mutate(
           { email, ...(roleKey ? { roleKey } : {}) },
           {
-            onSuccess: () => {
+            onSuccess: (result) => {
+              onInviteUrl(result.email, result.inviteUrl);
               setEmail("");
               setRoleKey("");
             },
@@ -51,7 +104,7 @@ function InviteForm({ catalog }: { catalog: Catalog }) {
         aria-label="電子信箱"
         type="email"
         required
-        placeholder="要邀請的 Google 帳號信箱"
+        placeholder="要邀請的信箱"
         value={email}
         onChange={(event) => setEmail(event.target.value)}
       />
@@ -100,11 +153,23 @@ function AssignRow({ user, catalog, onDone }: { user: AdminUser; catalog: Catalo
   );
 }
 
-function UserRow({ user, catalog, isSelf }: { user: AdminUser; catalog: Catalog; isSelf: boolean }) {
+function UserRow({
+  user,
+  catalog,
+  isSelf,
+  onInviteUrl,
+}: {
+  user: AdminUser;
+  catalog: Catalog;
+  isSelf: boolean;
+  /** 重發出來的連結交給上層顯示——它跟邀請當下那條走同一塊 UI。 */
+  onInviteUrl: (email: string, url: string) => void;
+}) {
   const setStatus = useSetStatus();
+  const resend = useResendInvite();
   const revoke = useRevokeRole();
   const [assigning, setAssigning] = useState(false);
-  const error = setStatus.error ?? revoke.error;
+  const error = setStatus.error ?? revoke.error ?? resend.error;
 
   return (
     <>
@@ -148,6 +213,24 @@ function UserRow({ user, catalog, isSelf }: { user: AdminUser; catalog: Catalog;
         <td className="cell-sub">{formatTime(user.lastLoginAt)}</td>
 
         <td>
+          {/*
+            * 還沒啟用的帳號才給重發。已啟用的人按這個會拿到一條能設新密碼的連結，
+            * 那等於一個不必驗證就能改密碼的後門——後端也擋了，這裡不畫出來而已。
+            */}
+          {user.status === "invited" ? (
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={resend.isPending}
+              onClick={() =>
+                resend.mutate(user.id, {
+                  onSuccess: (result) => onInviteUrl(user.email, result.inviteUrl),
+                })
+              }
+            >
+              {resend.isPending ? "產生中…" : "重發連結"}
+            </button>
+          ) : null}
           {user.status === "disabled" ? (
             <button
               type="button"
@@ -188,6 +271,8 @@ export function AdminUsers() {
   const users = useUsers();
   const catalog = useCatalog();
   const syncRoles = useSyncRoles();
+  // 邀請與重發都會產出連結，共用同一塊顯示區域。
+  const [inviteLink, setInviteLink] = useState<{ email: string; url: string } | null>(null);
 
   if (users.isPending || catalog.isPending) {
     return <div className="boot">載入中…</div>;
@@ -217,7 +302,18 @@ export function AdminUsers() {
 
       <section className="panel">
         <h2 className="panel-title">邀請新帳號</h2>
-        <InviteForm catalog={catalogData} />
+        <InviteForm catalog={catalogData} onInviteUrl={(email, url) => setInviteLink({ email, url })} />
+        {/*
+          * 連結放在表單下面而不是跳一個對話框：管理者常常要連續邀好幾個人，
+          * 每次都要關掉一個 modal 才能打下一個 email 很煩。
+          */}
+        {inviteLink ? (
+          <InviteLink
+            email={inviteLink.email}
+            url={inviteLink.url}
+            onDismiss={() => setInviteLink(null)}
+          />
+        ) : null}
       </section>
 
       <section className="panel">
@@ -235,7 +331,13 @@ export function AdminUsers() {
             </thead>
             <tbody>
               {list.map((row) => (
-                <UserRow key={row.id} user={row} catalog={catalogData} isSelf={row.id === user?.id} />
+                <UserRow
+                  key={row.id}
+                  user={row}
+                  catalog={catalogData}
+                  isSelf={row.id === user?.id}
+                  onInviteUrl={(email, url) => setInviteLink({ email, url })}
+                />
               ))}
             </tbody>
           </table>

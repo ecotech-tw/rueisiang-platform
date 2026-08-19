@@ -69,7 +69,7 @@ export function useCatalog() {
 }
 
 /** 每個異動都重新拉一次列表：管理操作不頻繁，正確性比省一次往返重要。 */
-function useAdminMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown>) {
+function useAdminMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise<TResult>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn,
@@ -77,9 +77,25 @@ function useAdminMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown
   });
 }
 
+/** 邀請連結只有這一次拿得到——後端只存雜湊，弄丟了只能重發。 */
+export interface InviteCreated {
+  id: string;
+  email: string;
+  inviteUrl: string;
+}
+
 export function useInvite() {
   return useAdminMutation((input: { email: string; roleKey?: string }) =>
-    request("/api/admin/users", { method: "POST", body: JSON.stringify(input) }),
+    request<InviteCreated>("/api/admin/users", { method: "POST", body: JSON.stringify(input) }),
+  );
+}
+
+/** 重發邀請連結。舊的立刻失效。 */
+export function useResendInvite() {
+  return useAdminMutation((id: string) =>
+    request<{ inviteUrl: string }>(`/api/admin/users/${encodeURIComponent(id)}/invite`, {
+      method: "POST",
+    }),
   );
 }
 

@@ -13,15 +13,24 @@ import {
   serializeCookie,
   signPayload,
   signSession,
+  validatePassword,
   verifyIdToken,
   verifyPayload,
   type Expiring,
 } from "@rueisiang/auth";
-import { loadAuthUser, recordLogin, updateProfile } from "@rueisiang/db";
+import {
+  acceptInvitation,
+  authenticateWithPassword,
+  findInvitation,
+  loadAuthUser,
+  recordLogin,
+  updateProfile,
+} from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { requireAuth } from "../middleware/auth.js";
+import { body } from "../request.js";
 
 /** 授權流程進行中的暫存狀態，用簽章 cookie 帶著走，不佔伺服器狀態。 */
 const TRANSACTION_COOKIE = "rueisiang_oauth";
@@ -43,6 +52,31 @@ function callbackUrl(requestUrl: string): string {
 function safeReturnTo(value: string | undefined): string {
   if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
   return value;
+}
+
+/**
+ * 發 session cookie。三條登入路（Google、帳密、走邀請連結設完密碼）共用，
+ * 免得 maxAge 或 cookie 名稱在其中一條被寫得不一樣。
+ *
+ * claims 裡的 name 與 pictureUrl 只是給畫面用的快取；真正的權限判定在
+ * requireAuth，每次請求都回 DB 重讀。
+ */
+async function issueSession(
+  c: { env: { AUTH_SESSION_SECRET: string }; header: (name: string, value: string, options?: { append?: boolean }) => void },
+  user: { id: string; email: string; name?: string; pictureUrl?: string },
+): Promise<void> {
+  const session = await signSession(
+    newSessionClaims({
+      id: user.id,
+      email: user.email,
+      name: user.name ?? "",
+      pictureUrl: user.pictureUrl ?? "",
+    }),
+    c.env.AUTH_SESSION_SECRET,
+  );
+  c.header("Set-Cookie", serializeCookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_SECONDS }), {
+    append: true,
+  });
 }
 
 export const auth = new Hono<AppEnv>()
@@ -146,6 +180,74 @@ export const auth = new Hono<AppEnv>()
   .post("/logout", (c) => {
     c.header("Set-Cookie", clearCookie(SESSION_COOKIE));
     return c.json({ ok: true });
+  })
+
+  /**
+   * ── 帳密登入 ────────────────────────────────────────────────────────────
+   *
+   * Google 之外的第二條路。兩條都通向同一列 users，走哪一條由本人決定：
+   * 有些同事手上沒有公司 Google 帳號，但邀請發出去的當下沒有人知道。
+   *
+   * 仍然是邀請制——這條只認名單裡已經設過密碼的帳號，不會建立任何東西。
+   */
+  .post("/password", async (c) => {
+    const input = await body(c);
+    const email = typeof input.email === "string" ? input.email : "";
+    const password = typeof input.password === "string" ? input.password : "";
+
+    const user = await authenticateWithPassword(c.get("db"), email, password);
+    /*
+     * 查無此人、還沒設密碼、密碼錯——三種都回同一句。分開講等於送人一支
+     * 帳號列舉工具：試一個 email 就知道公司有沒有這個人。
+     */
+    if (!user) {
+      throw new HTTPException(401, { message: "Email 或密碼不正確，或這個帳號還沒完成啟用。" });
+    }
+
+    await issueSession(c, user);
+    return c.json({ ok: true });
+  })
+
+  /**
+   * 邀請連結的狀態。設密碼頁載入時先問一次，才能顯示「你正在為 xxx@ 設定密碼」，
+   * 而不是讓人填完整張表才被告知連結已經過期。
+   */
+  .get("/invite/:token", async (c) => {
+    const found = await findInvitation(c.get("db"), c.req.param("token"));
+    if (found.kind !== "ok") {
+      throw new HTTPException(404, { message: "邀請連結無效或已過期，請聯絡管理者重新發送。" });
+    }
+    return c.json({ email: found.email });
+  })
+
+  /** 走邀請連結設密碼。設完直接發 session，不用再叫人回登入頁輸入一次。 */
+  .post("/invite/:token", async (c) => {
+    const input = await body(c);
+    const password = typeof input.password === "string" ? input.password : "";
+    const confirm = typeof input.confirmPassword === "string" ? input.confirmPassword : "";
+
+    const invalid = validatePassword(password);
+    if (invalid) throw new HTTPException(400, { message: invalid });
+    if (password !== confirm) {
+      throw new HTTPException(400, { message: "兩次輸入的密碼不一致。" });
+    }
+
+    const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
+    if (displayName.length > 40) {
+      throw new HTTPException(400, { message: "顯示名稱不能超過 40 個字。" });
+    }
+
+    const result = await acceptInvitation(c.get("db"), {
+      token: c.req.param("token"),
+      password,
+      ...(displayName ? { displayName } : {}),
+    });
+    if (result.kind !== "ok") {
+      throw new HTTPException(404, { message: "邀請連結無效或已過期，請聯絡管理者重新發送。" });
+    }
+
+    await issueSession(c, result);
+    return c.json({ email: result.email });
   })
 
   /**
