@@ -16,6 +16,16 @@ export interface Env {
   CYBERBIZ_API_BASE_URL?: string;
   /** 驗證 CYBERBIZ webhook 用。沒設定時那條路由一律回 401。 */
   CYBERBIZ_WEBHOOK_SECRET?: string;
+
+  /*
+   * 出金表。真正的執行在帳務 repo 的 GitHub Actions 上——CYBERBIZ 帳密、Gmail 與
+   * Drive 的授權都只存在那邊的 Actions secrets，平台一個都不碰。這裡的 token 是
+   * fine-grained PAT，權限僅限那個 repo 的 Actions 讀寫。
+   */
+  PAYOUT_GITHUB_TOKEN?: string;
+  PAYOUT_GITHUB_REPO?: string;
+  PAYOUT_WORKFLOW_FILE?: string;
+  PAYOUT_GITHUB_REF?: string;
 }
 
 export interface AppEnv {

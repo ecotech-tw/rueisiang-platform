@@ -10,6 +10,8 @@ import { auth } from "./routes/auth.js";
 import { crm } from "./routes/crm.js";
 import { webhooks } from "./routes/webhooks.js";
 import { health } from "./routes/health.js";
+import { PayoutGithubError } from "./payout/github.js";
+import { tools } from "./routes/tools.js";
 
 /**
  * 平台唯一的 Worker：/api/* 由這裡處理，其餘交給 Static Assets（portal 的 SPA）。
@@ -29,6 +31,7 @@ const routes = app
   .route("/auth", auth)
   .route("/admin", admin)
   .route("/crm", crm)
+  .route("/tools", tools)
   .route("/webhooks", webhooks);
 
 // 打錯的 API 路徑要回 JSON，不要掉進 SPA 的 index.html。
@@ -55,6 +58,12 @@ app.onError((error, c) => {
     }
     console.error(error);
     return c.json({ error: "CYBERBIZ 暫時無法回應，請稍後再試。" }, 502);
+  }
+
+  // 同理，GitHub 拒絕觸發時要說得出是憑證問題還是別的，不然沒人查得下去。
+  if (error instanceof PayoutGithubError) {
+    console.error("GitHub Actions 觸發失敗", error.message);
+    return c.json({ error: error.message }, 502);
   }
 
   console.error(error);

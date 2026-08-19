@@ -7,11 +7,12 @@ import { Tags } from "./routes/crm/Tags.js";
 import { Sync } from "./routes/crm/Sync.js";
 import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
+import { Payout } from "./routes/tools/Payout.js";
+import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { AppShell } from "./shell/AppShell.js";
 
 const WMS = "warehouse-inventory";
-const TOOLS = "cyberbiz-monthly-payout";
 
 /** 未登入就導去登入頁。這只是體驗上的導引，資料的把關在 API。 */
 function RequireSession({ children }: { children: React.ReactNode }) {
@@ -55,8 +56,8 @@ export function App() {
         </Route>
 
         <Route path="tools">
-          <Route path="payout" element={<Placeholder title="出金表執行" phase="Phase 3" from={`${TOOLS}/web/src/pages/RunPage.tsx`} />} />
-          <Route path="payout/settings" element={<Placeholder title="出金表店別設定" phase="Phase 3" from={`${TOOLS}/web/src/pages/SettingsPage.tsx`} />} />
+          <Route path="payout" element={<Payout />} />
+          <Route path="payout/settings" element={<PayoutSettings />} />
         </Route>
 
         <Route path="admin">
