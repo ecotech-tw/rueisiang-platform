@@ -1,5 +1,5 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizePhone } from "./phone.js";
 import { customerEvents, customers } from "./schema/crm.js";
@@ -209,4 +209,97 @@ export async function syncCyberbizCustomers(
   }
 
   return summary;
+}
+
+export interface BulkSyncSummary {
+  received: number;
+  written: number;
+  skipped: number;
+}
+
+/**
+ * 全量同步用的批次寫入。
+ *
+ * 為什麼跟 syncCyberbizCustomer 分開：逐筆走那條，每個會員要一次 select 加一到
+ * 兩次寫入，一頁 50 筆就是上百次 D1 呼叫。一萬多名會員跑下來，光是往返次數就
+ * 會撞上 Worker 對單次請求的限制——實際跑起來就是同步跑到一半回「伺服器發生錯誤」。
+ *
+ * 舊 CRM 的 cyberbiz-initial-sync.ts 用的是 d1.batch()：一頁一次呼叫。這裡照做，
+ * 但把合併規則寫進 ON CONFLICT，讓兩條路徑的行為一致（舊版批次那條會用空值
+ * 蓋掉既有的姓名地址，那是它跟單筆版本不一致的地方）。
+ *
+ * 差別只有一個：批次不寫 customer_events。一次匯入一萬多筆等於灌一萬多筆紀錄，
+ * 那是雜訊不是紀錄；舊系統的批次路徑也沒有寫。webhook 進來的異動仍然逐筆記。
+ */
+export async function upsertCyberbizCustomers(
+  db: Database,
+  incoming: CyberbizCustomer[],
+): Promise<BulkSyncSummary> {
+  const usable = incoming.filter((customer) => customer.externalId);
+  if (!usable.length) {
+    return { received: incoming.length, written: 0, skipped: incoming.length };
+  }
+
+  const now = new Date().toISOString();
+  const statements = usable.map((customer) => {
+    const createdAt = customer.createdAt || now;
+    return db
+      .insert(customers)
+      .values({
+        id: crypto.randomUUID(),
+        phone: customer.phone,
+        normalizedPhone: normalizePhone(customer.phone),
+        name: customer.name,
+        email: customer.email,
+        address: customer.address,
+        sourceChannel: "cyberbiz",
+        status: customer.blocked ? "blocked" : "active",
+        cyberbizCustomerId: customer.externalId,
+        cyberbizUid: customer.uid || null,
+        cyberbizTagsJson: JSON.stringify(customer.tags),
+        cyberbizUpdatedAt: customer.updatedAt || null,
+        cyberbizRawJson: JSON.stringify(customer.raw),
+        syncStatus: "synced",
+        syncError: null,
+        lastSyncedAt: now,
+        blockedAt: customer.blocked ? now : null,
+        createdAt,
+        updatedAt: customer.updatedAt || createdAt,
+      })
+      .onConflictDoUpdate({
+        target: customers.cyberbizCustomerId,
+        set: {
+          // 電話以官網的 mobile 為準，空值也照寫（會員本人沒填就是沒填）。
+          phone: sql`excluded.phone`,
+          normalizedPhone: sql`excluded.normalized_phone`,
+          // 其餘欄位空值不覆蓋，跟單筆路徑同一套規則。
+          name: sql`coalesce(nullif(excluded.name, ''), ${customers.name})`,
+          email: sql`coalesce(nullif(excluded.email, ''), ${customers.email})`,
+          address: sql`coalesce(nullif(excluded.address, ''), ${customers.address})`,
+          // 人工建立的客戶不會被同步改成 cyberbiz 來源。
+          sourceChannel: sql`case when ${customers.sourceChannel} = 'manual' then 'manual' else 'cyberbiz' end`,
+          // 官網解除封鎖不會自動解除本地封鎖。
+          status: sql`case when excluded.status = 'blocked' then 'blocked' else ${customers.status} end`,
+          cyberbizUid: sql`coalesce(nullif(excluded.cyberbiz_uid, ''), ${customers.cyberbizUid})`,
+          cyberbizTagsJson: sql`case when excluded.cyberbiz_tags_json in ('[]', '') then ${customers.cyberbizTagsJson} else excluded.cyberbiz_tags_json end`,
+          cyberbizUpdatedAt: sql`coalesce(nullif(excluded.cyberbiz_updated_at, ''), ${customers.cyberbizUpdatedAt})`,
+          cyberbizRawJson: sql`excluded.cyberbiz_raw_json`,
+          syncStatus: sql`'synced'`,
+          syncError: sql`null`,
+          lastSyncedAt: sql`excluded.last_synced_at`,
+          blockedAt: sql`case when excluded.status = 'blocked' then coalesce(${customers.blockedAt}, excluded.blocked_at) else ${customers.blockedAt} end`,
+          createdAt: sql`coalesce(nullif(excluded.created_at, ''), ${customers.createdAt})`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      });
+  });
+
+  // 一頁一次 D1 呼叫。逐筆送的話光往返次數就會撞上 Worker 的限制。
+  await db.batch(statements as [typeof statements[number], ...typeof statements]);
+
+  return {
+    received: incoming.length,
+    written: usable.length,
+    skipped: incoming.length - usable.length,
+  };
 }

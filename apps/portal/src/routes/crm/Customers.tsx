@@ -22,8 +22,14 @@ const SORT_OPTIONS = [
 ] as const;
 
 function formatDate(value: string): string {
-  // D1 存的是 UTC 的 CURRENT_TIMESTAMP（YYYY-MM-DD HH:MM:SS），沒有時區標記。
-  const parsed = new Date(value.replace(" ", "T") + "Z");
+  if (!value) return "—";
+  /*
+   * 這一欄有兩種格式：D1 的 CURRENT_TIMESTAMP 是「YYYY-MM-DD HH:MM:SS」而且沒有
+   * 時區標記，CYBERBIZ 同步進來的則已經是帶 Z 的 ISO。先前一律補一個 Z，
+   * 結果 ISO 那種變成兩個 Z、解析失敗，畫面就直接印出原始字串。
+   */
+  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+  const parsed = new Date(normalized);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
 }
 
@@ -78,7 +84,7 @@ export function Customers() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
-    <div className="page">
+    <div className="page fills">
       <header className="page-head">
         <h1>客戶列表</h1>
         <p className="muted">查看、搜尋 CYBERBIZ 與人工建立的客戶資料。</p>
@@ -93,7 +99,7 @@ export function Customers() {
         </div>
       ) : null}
 
-      <section className="panel">
+      <section className="panel grows">
         <form className="admin-form" onSubmit={(event) => event.preventDefault()}>
           <input
             aria-label="搜尋"

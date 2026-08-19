@@ -14,15 +14,14 @@ interface SyncStatus {
     cyberbizCustomerId: string | null;
     lastError: string | null;
     receivedAt: string;
+    payloadJson: string;
   }[];
 }
 
 interface SyncRun {
   received: number;
-  created: number;
-  updated: number;
-  unchanged: number;
-  ignored: number;
+  written: number;
+  skipped: number;
   fromPage: number;
   toPage: number;
   nextPage: number;
@@ -36,10 +35,8 @@ interface SyncProgress {
   page: number;
   totalPages: number;
   received: number;
-  created: number;
-  updated: number;
-  unchanged: number;
-  ignored: number;
+  written: number;
+  skipped: number;
   done: boolean;
   stopped: boolean;
 }
@@ -96,7 +93,7 @@ export function Sync() {
     setError("");
     stopRequested.current = false;
 
-    const totals = { received: 0, created: 0, updated: 0, unchanged: 0, ignored: 0 };
+    const totals = { received: 0, written: 0, skipped: 0 };
     let page = startPage;
 
     try {
@@ -130,6 +127,11 @@ export function Sync() {
     }
   }
 
+  const cleanup = useMutation({
+    mutationFn: () => call<{ deleted: number }>("/api/crm/sync/cleanup-empty", { method: "POST" }),
+    onSuccess: refresh,
+  });
+
   const retry = useMutation({
     mutationFn: () =>
       call<{ attempted: number; recovered: number }>("/api/crm/sync/retry", { method: "POST" }),
@@ -149,7 +151,7 @@ export function Sync() {
   const data = status.data!;
 
   return (
-    <div className="page">
+    <div className="page fills">
       <header className="page-head">
         <h1>CYBERBIZ 同步</h1>
         <p className="muted">
@@ -219,25 +221,40 @@ export function Sync() {
             </div>
             <p className="muted form-foot">
               第 {progress.page}／{progress.totalPages} 頁：收到 {progress.received} 筆，
-              新增 {progress.created}、更新 {progress.updated}、無變化 {progress.unchanged}
-              {progress.ignored ? `、略過 ${progress.ignored}` : ""}。
+              寫入 {progress.written}
+              {progress.skipped ? `、略過 ${progress.skipped}（沒有會員 ID）` : ""}。
               {progress.done ? "已經拉完。" : progress.stopped ? "已停在這裡。" : ""}
             </p>
           </>
         ) : null}
       </section>
 
-      <section className="panel">
+      <section className="panel grows">
         <div className="panel-head">
           <h2 className="panel-title">Webhook</h2>
-          <button
-            type="button"
-            className="ghost-button"
-            disabled={retry.isPending || data.webhooks.failed === 0}
-            onClick={() => retry.mutate()}
-          >
-            {retry.isPending ? "補跑中…" : `補跑失敗的（${data.webhooks.failed}）`}
-          </button>
+          <div className="pager-buttons">
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={cleanup.isPending}
+              onClick={() => cleanup.mutate()}
+              title="刪掉只有 CYBERBIZ ID、姓名電話地址全空的客戶"
+            >
+              {cleanup.isPending
+                ? "清理中…"
+                : cleanup.data
+                  ? `已清掉 ${cleanup.data.deleted} 筆空白客戶`
+                  : "清理空白客戶"}
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={retry.isPending || data.webhooks.failed === 0}
+              onClick={() => retry.mutate()}
+            >
+              {retry.isPending ? "補跑中…" : `補跑失敗的（${data.webhooks.failed}）`}
+            </button>
+          </div>
         </div>
 
         <p className="muted">
@@ -247,6 +264,7 @@ export function Sync() {
         </p>
 
         {retry.error ? <p className="form-error" role="alert">{retry.error.message}</p> : null}
+        {cleanup.error ? <p className="form-error" role="alert">{cleanup.error.message}</p> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -270,7 +288,14 @@ export function Sync() {
                     </span>
                   </td>
                   <td className="cell-sub">{event.cyberbizCustomerId ?? "—"}</td>
-                  <td className="cell-sub">{event.lastError ?? "—"}</td>
+                  <td className="cell-sub">
+                    {event.lastError ?? "—"}
+                    {/* 原始內容：查「這個 ID 到底是什麼」時，沒有它就只能猜。 */}
+                    <details className="payload-peek">
+                      <summary>原始內容</summary>
+                      <pre>{event.payloadJson}</pre>
+                    </details>
+                  </td>
                 </tr>
               ))}
             </tbody>

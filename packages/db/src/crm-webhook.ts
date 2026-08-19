@@ -1,6 +1,6 @@
 import type { CyberbizCustomerClient } from "@rueisiang/cyberbiz";
 import { createWebhookEventId, isCustomerTopic, parseCyberbizCustomer } from "@rueisiang/cyberbiz";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { syncCyberbizCustomer, type CyberbizSyncResult } from "./crm-sync.js";
 import { customers, cyberbizCustomerWebhooks } from "./schema/crm.js";
@@ -21,6 +21,14 @@ export interface WebhookOutcome {
   reason?: string;
   /** status 是 failed 時，處理當下的錯誤訊息。 */
   error?: string;
+}
+
+/**
+ * 這份資料除了 ID 以外還有沒有真的內容。
+ * 只有 ID 的話寫進去就是一筆空殼客戶，不如記成失敗讓人看得見。
+ */
+function hasUsableProfile(customer: { phone: string; name: string; email: string; address: string }): boolean {
+  return Boolean(customer.phone || customer.name || customer.email || customer.address);
 }
 
 export interface ProcessWebhookInput {
@@ -83,18 +91,20 @@ export async function processCustomerWebhook(
         incoming = refreshed.externalId ? refreshed : fromWebhook;
       } catch (error) {
         /*
-         * 重讀失敗不等於這個事件沒有用。
+         * 重讀失敗時，只有在 webhook 自己帶了可用的個資時才往下寫。
          *
-         * 實際跑起來才看到：官網對某些會員的單筆查詢會回 404「無此資源」，
-         * 但那些 ID 是簽章驗證過的 webhook 送來的，會員本身確實存在
-         * （之後的全量同步也拉得到）。原本的作法是整個事件標成失敗，
-         * 結果就是一堆紅色的 failed，而我們手上其實有可用的資料。
+         * 上一版放寬成「有會員 ID 就寫」，結果製造出一批姓名、電話、Email
+         * 全空的客戶——因為那些事件只帶了一個 ID，而那個 ID 用單筆查詢
+         * 是 404（實測：列表拿到的 ID 查得到，webhook 帶的那些查不到，
+         * 所以它根本不是會員 ID）。
          *
-         * 所以改成：有會員 ID 就用 webhook 自己那份往下寫，把重讀的錯誤
-         * 記在結果裡。資料可能比官網舊一點，但下一次同步就會補正。
-         * 沒有會員 ID 的情況仍然照舊擋下來，那才是會生出幽靈客戶的那種。
+         * 空殼客戶比一筆紅色的 failed 糟得多：failed 看得到、補得回來，
+         * 空殼卻會混進客戶列表，看起來像真的資料。
          */
         refetchError = error instanceof Error ? error.message : "重讀會員資料失敗";
+        if (!hasUsableProfile(fromWebhook)) {
+          throw new Error(`${refetchError}（事件只帶了 ID，沒有可用的會員資料）`);
+        }
         incoming = fromWebhook;
       }
     }
@@ -212,6 +222,8 @@ export interface SyncStatus {
     cyberbizCustomerId: string | null;
     lastError: string | null;
     receivedAt: string;
+    /** 原始事件內容。查「這個 ID 到底是什麼」時沒有它就只能猜。 */
+    payloadJson: string;
   }[];
 }
 
@@ -236,6 +248,7 @@ export async function readSyncStatus(db: Database): Promise<SyncStatus> {
         cyberbizCustomerId: cyberbizCustomerWebhooks.cyberbizCustomerId,
         lastError: cyberbizCustomerWebhooks.lastError,
         receivedAt: cyberbizCustomerWebhooks.receivedAt,
+        payloadJson: cyberbizCustomerWebhooks.payloadJson,
       })
       .from(cyberbizCustomerWebhooks)
       .orderBy(desc(cyberbizCustomerWebhooks.receivedAt))
@@ -261,4 +274,36 @@ export async function readSyncStatus(db: Database): Promise<SyncStatus> {
     },
     recent,
   };
+}
+
+/**
+ * 清掉「只有 CYBERBIZ ID、其餘全空」的客戶。
+ *
+ * 這些是上一版 webhook 放寬判斷時製造出來的：事件只帶一個 ID，重讀又失敗，
+ * 卻仍然建了一列。判斷條件刻意收得很窄——姓名、電話、Email、地址全空，
+ * 而且沒有任何人在本地編輯過（沒有對應的操作紀錄）。
+ */
+export async function deleteEmptyCyberbizCustomers(
+  db: Database,
+): Promise<{ deleted: number; ids: string[] }> {
+  const empties = await db
+    .select({ id: customers.id })
+    .from(customers)
+    .where(
+      and(
+        eq(customers.sourceChannel, "cyberbiz"),
+        eq(customers.name, ""),
+        eq(customers.email, ""),
+        eq(customers.phone, ""),
+        eq(customers.address, ""),
+      ),
+    );
+
+  const ids = empties.map((row) => row.id);
+  for (const id of ids) {
+    // customer_events 有 on delete cascade，紀錄會跟著走。
+    await db.delete(customers).where(eq(customers.id, id));
+  }
+
+  return { deleted: ids.length, ids };
 }
