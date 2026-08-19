@@ -1,0 +1,220 @@
+import { useEffect, useState } from "react";
+import { Icon } from "../../shell/icons.js";
+import {
+  parseStores,
+  usePayoutState,
+  usePayoutStatus,
+  useRunPayout,
+  type WorkflowStep,
+} from "./api.js";
+
+/**
+ * 出金表執行頁。
+ *
+ * 真正的流程跑在帳務 repo 的 GitHub Actions 上：開 Chrome、登 CYBERBIZ、從 Gmail
+ * 取回報表、寫欄位、上傳 Drive。這一頁只做兩件事——送出，然後把狀態問回來。
+ * 送出之後可以直接關掉分頁，工作在 GitHub 那邊照樣跑完。
+ */
+
+const STEP_MARK: Record<string, string> = { completed: "✓", in_progress: "▶" };
+
+function stepClass(step: WorkflowStep): string {
+  if (step.conclusion === "failure") return "step fail";
+  if (step.status === "completed") return "step done";
+  if (step.status === "in_progress") return "step doing";
+  return "step";
+}
+
+function formatDate(value: string): string {
+  if (!value) return "—";
+  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
+}
+
+export function Payout() {
+  const state = usePayoutState();
+  const run = useRunPayout();
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [tracking, setTracking] = useState<string | null>(null);
+  const status = usePayoutStatus(tracking);
+
+  // 預設區間由後端算（上個月，Asia/Taipei），但人改過之後不要被覆蓋回去。
+  useEffect(() => {
+    if (!state.data) return;
+    setStart((current) => current || state.data.defaultStart);
+    setEnd((current) => current || state.data.defaultEnd);
+  }, [state.data]);
+
+  const stores = state.data?.stores ?? [];
+  const latest = status.data?.runs[0];
+  const running = Boolean(tracking) && (!latest || latest.status !== "completed");
+  const rangeError = start && end && start > end ? "起日不能晚於迄日。" : "";
+  const blocked = running || run.isPending || !start || !end || Boolean(rangeError) || !state.data?.configured;
+
+  function start_(names: string[]) {
+    run.mutate(
+      { stores: names, start, end },
+      { onSuccess: (result) => setTracking(result.requestId) },
+    );
+  }
+
+  if (state.isPending) return <div className="boot">載入中…</div>;
+
+  return (
+    <div className="page">
+      <header className="page-head">
+        <h1>出金表執行</h1>
+        <p className="muted">
+          送到 GitHub Actions 執行：登入 CYBERBIZ 後台匯出每日出金報表、從 Gmail 取回檔案、
+          補上 H/I/J/K 欄之後上傳到該通路的 Drive 資料夾。送出後可以直接關掉這一頁。
+        </p>
+      </header>
+
+      {!state.data?.configured ? (
+        <p className="form-error" role="alert">
+          平台還沒設定 PAYOUT_GITHUB_TOKEN，目前無法觸發執行。
+        </p>
+      ) : null}
+
+      <section className="panel">
+        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+          <label className="inline-label" htmlFor="payout-start">對帳區間</label>
+          <input
+            id="payout-start"
+            type="date"
+            value={start}
+            onChange={(event) => setStart(event.target.value)}
+          />
+          <span className="muted">~</span>
+          <input
+            aria-label="對帳迄日"
+            type="date"
+            value={end}
+            onChange={(event) => setEnd(event.target.value)}
+          />
+          <button
+            type="button"
+            className="primary-button with-icon"
+            disabled={blocked || !stores.length}
+            onClick={() => start_(stores.map((store) => store.name))}
+            title="所有店別跑同一段區間"
+          >
+            <Icon name="payments" />
+            全部執行
+          </button>
+          {running ? <span className="form-hint">執行中…可以關掉這一頁</span> : null}
+        </form>
+
+        {rangeError ? <p className="form-error" role="alert">{rangeError}</p> : null}
+        {run.error ? <p className="form-error" role="alert">{run.error.message}</p> : null}
+        {status.error ? <p className="form-error" role="alert">{status.error.message}</p> : null}
+
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>通路</th>
+                <th>Drive 資料夾</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {stores.map((store) => (
+                <tr key={store.name}>
+                  <td className="cell-strong">{store.name}</td>
+                  <td className="cell-sub">{store.folder || "未設定資料夾"}</td>
+                  <td>
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        disabled={blocked}
+                        onClick={() => start_([store.name])}
+                        title={`只跑 ${store.name}`}
+                      >
+                        執行
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {stores.length === 0 ? (
+          <p className="muted table-note">還沒有任何店別，先到「店別設定」加一家。</p>
+        ) : null}
+      </section>
+
+      {tracking ? (
+        <section className="panel">
+          <h2 className="panel-title">
+            這次執行
+            {latest ? (
+              <span className={`status ${latest.status === "completed" ? (latest.conclusion === "success" ? "status-sync-synced" : "status-sync-failed") : "status-webhook-processing"}`}>
+                {latest.status !== "completed"
+                  ? latest.status === "queued" ? "排隊中" : "執行中"
+                  : latest.conclusion === "success" ? "完成" : "有項目未完成"}
+              </span>
+            ) : (
+              <span className="status status-webhook-processing">等 GitHub 建立工作…</span>
+            )}
+          </h2>
+
+          {status.data?.steps.length ? (
+            <ol className="step-list">
+              {status.data.steps.map((step, index) => (
+                <li className={stepClass(step)} key={`${step.name}-${index}`}>
+                  <span className="step-mark">{STEP_MARK[step.status] ?? "·"}</span>
+                  {step.name}
+                </li>
+              ))}
+            </ol>
+          ) : null}
+
+          {latest?.url ? (
+            <p className="muted table-note">
+              <a href={latest.url} target="_blank" rel="noopener noreferrer">在 GitHub 看完整紀錄</a>
+              　執行完的 xlsx 與報告放在該次工作的 Artifacts（保留 30 天）。
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section className="panel">
+        <h2 className="panel-title">最近執行</h2>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>時間</th>
+                <th>通路</th>
+                <th>區間</th>
+                <th>執行的人</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(state.data?.runs ?? []).map((record) => {
+                const names = parseStores(record.storesJson);
+                return (
+                  <tr key={record.id}>
+                    <td className="cell-sub nowrap">{formatDate(record.createdAt)}</td>
+                    <td>{names.length > 1 ? `全部 ${names.length} 家` : names[0] ?? "—"}</td>
+                    <td className="cell-sub nowrap">{record.startDate} ~ {record.endDate}</td>
+                    <td className="cell-sub">{record.actorEmail}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {(state.data?.runs.length ?? 0) === 0 ? (
+          <p className="muted table-note">還沒有人從這裡執行過。</p>
+        ) : null}
+      </section>
+    </div>
+  );
+}

@@ -1,4 +1,4 @@
-import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
 import { customers, userRoles, users } from "@rueisiang/db/schema";
 import type { LocalD1 } from "../local-d1/d1.js";
 
@@ -32,6 +32,7 @@ const DEV_CUSTOMERS = [
 export async function seedDevData(d1: LocalD1): Promise<void> {
   const db = createDatabase(d1 as never);
   await syncSystemRoles(db);
+  await seedPayoutStores(db);
   await seedDevCustomers(db);
 
   const existing = await db.select({ id: users.id }).from(users).limit(1);

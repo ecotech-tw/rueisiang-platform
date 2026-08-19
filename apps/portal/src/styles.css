@@ -418,7 +418,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 }
 
 .panel + .panel { margin-top: 20px; }
-.panel-title { margin: 0 0 14px; font-size: 15px; }
+.panel-title { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: 15px; }
 .panel-head {
   display: flex;
   align-items: center;
@@ -594,6 +594,61 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .row-actions { display: flex; justify-content: flex-end; gap: 2px; }
 
 /* 帶圖示的實心按鈕。 */
+/* 表格內可直接編輯的欄位。邊框只在 hover 或聚焦時出現，不然整張表會滿是框線。 */
+.cell-input {
+  width: 100%;
+  min-width: 120px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+.cell-input.wide { min-width: 260px; }
+.cell-input:hover { border-color: var(--soft-line); }
+.cell-input:focus-visible {
+  border-color: var(--line);
+  background: var(--paper);
+  outline: 2px solid var(--secondary);
+  outline-offset: 1px;
+}
+
+.inline-label { font-size: 13px; color: var(--muted); }
+
+/* 說明「這件事還有一個外部前提」的橫幅。不是錯誤，所以用中性的底色。 */
+.notice {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--soft-line);
+  border-left: 3px solid var(--brand);
+  border-radius: 11px;
+  background: var(--paper);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.notice code {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--canvas);
+  font-size: 12px;
+}
+
+/* GitHub Actions 的步驟。做完的淡掉，正在跑的用品牌色標出來。 */
+.step-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.step {
+  display: flex;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.step-mark { width: 16px; text-align: center; }
+.step.done { color: var(--muted); }
+.step.doing { color: var(--brand-dark); font-weight: 500; }
+.step.fail { color: var(--brand); font-weight: 500; }
+
 .primary-button.with-icon,
 .ghost-button.with-icon { display: inline-flex; align-items: center; gap: 8px; }
 .primary-button.with-icon svg,

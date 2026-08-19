@@ -9,6 +9,7 @@ import {
   listUsers,
   revokeRole,
   setUserStatus,
+  seedPayoutStores,
   syncSystemRoles,
 } from "@rueisiang/db";
 import { Hono } from "hono";
@@ -48,13 +49,17 @@ export const admin = new Hono<AppEnv>()
   })
 
   /**
-   * 把 permissions.ts 定義的角色權限重新寫進資料庫。改過那個檔案並部署之後跑一次。
+   * 把程式碼裡定義的東西重新寫進資料庫。改過 permissions.ts 並部署之後跑一次。
    *
    * 這件事本來是靠一條用共用憑證保護的 /api/setup。系統有管理者之後就不需要了——
    * 誰能調權限本來就該由 RBAC 自己回答，不必再多一組要記得刪掉的 secret。
+   *
+   * 兩者的語意刻意不同：角色權限是程式碼說了算，每次整組重寫；出金表的店別是
+   * 同仁自己維護的資料，只在完全空的時候塞一份起始清單，之後絕不覆蓋。
    */
   .post("/roles/sync", requirePermission("admin:role:write"), async (c) => {
     await syncSystemRoles(c.get("db"));
+    await seedPayoutStores(c.get("db"));
     return c.json({ roles: await listRoles(c.get("db")) });
   })
 
