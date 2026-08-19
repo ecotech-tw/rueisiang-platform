@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useSession } from "./auth/session.js";
+import { Roles } from "./routes/admin/Roles.js";
 import { AdminUsers } from "./routes/admin/Users.js";
 import { Activity } from "./routes/crm/Activity.js";
 import { Customers } from "./routes/crm/Customers.js";
@@ -62,6 +63,7 @@ export function App() {
 
         <Route path="admin">
           <Route path="users" element={<AdminUsers />} />
+          <Route path="roles" element={<Roles />} />
         </Route>
 
         <Route path="me" element={<Profile />} />

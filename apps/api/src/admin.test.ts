@@ -368,3 +368,158 @@ describe("帳號狀態", () => {
     expect(response.status).toBe(404);
   });
 });
+
+describe("自訂角色", () => {
+  /** 使用者要的形狀：只能碰營運工具的角色。 */
+  const OPS_ONLY = ["tools:payout:run", "tools:payout:config"];
+
+  async function createOpsRole(adminId: string) {
+    const response = await as(adminId, "admin@ecotech.tw", "/api/admin/roles", {
+      method: "POST",
+      body: JSON.stringify({ name: "出金表操作員", description: "只跑出金表", permissions: OPS_ONLY }),
+    });
+    const body = (await response.json()) as { roles: { key: string; name: string; permissions: string[] }[] };
+    return { response, roles: body.roles };
+  }
+
+  it("建立之後帶著指定的權限出現在角色清單", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const { response, roles } = await createOpsRole(admin);
+
+    expect(response.status).toBe(201);
+    const created = roles.find((role) => role.name === "出金表操作員");
+    expect(created?.permissions.sort()).toEqual([...OPS_ONLY].sort());
+  });
+
+  it("自訂角色排在系統角色後面", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const { roles } = await createOpsRole(admin);
+    expect(roles.at(-1)?.name).toBe("出金表操作員");
+  });
+
+  it("拿到自訂角色的人只能用清單裡的權限", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const { roles } = await createOpsRole(admin);
+    const roleKey = roles.find((role) => role.name === "出金表操作員")!.key;
+
+    const staff = await seedUser("ops@ecotech.tw", null);
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${staff}/roles`, {
+      method: "POST",
+      body: JSON.stringify({ roleKey }),
+    });
+
+    // 給了的：出金表看得到。
+    expect((await as(staff, "ops@ecotech.tw", "/api/tools/payout/stores")).status).toBe(200);
+    // 沒給的：客戶列表擋下來。
+    expect((await as(staff, "ops@ecotech.tw", "/api/crm/customers")).status).toBe(403);
+  });
+
+  it("改權限之後立刻生效，不用等 session 過期", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const { roles } = await createOpsRole(admin);
+    const roleKey = roles.find((role) => role.name === "出金表操作員")!.key;
+
+    const staff = await seedUser("ops@ecotech.tw", null);
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${staff}/roles`, {
+      method: "POST",
+      body: JSON.stringify({ roleKey }),
+    });
+    expect((await as(staff, "ops@ecotech.tw", "/api/crm/customers")).status).toBe(403);
+
+    await as(admin, "admin@ecotech.tw", `/api/admin/roles/${roleKey}`, {
+      method: "PATCH",
+      body: JSON.stringify({ permissions: [...OPS_ONLY, "crm:customer:read"] }),
+    });
+
+    expect((await as(staff, "ops@ecotech.tw", "/api/crm/customers")).status).toBe(200);
+  });
+
+  it("改名字不會動到權限", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const { roles } = await createOpsRole(admin);
+    const roleKey = roles.at(-1)!.key;
+
+    const response = await as(admin, "admin@ecotech.tw", `/api/admin/roles/${roleKey}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: "出金表專員" }),
+    });
+    const body = (await response.json()) as { roles: { key: string; name: string; permissions: string[] }[] };
+    const updated = body.roles.find((role) => role.key === roleKey);
+
+    expect(updated?.name).toBe("出金表專員");
+    expect(updated?.permissions.sort()).toEqual([...OPS_ONLY].sort());
+  });
+
+  it("不存在的權限鍵值會被擋下來", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const response = await as(admin, "admin@ecotech.tw", "/api/admin/roles", {
+      method: "POST",
+      body: JSON.stringify({ name: "亂寫", permissions: ["crm:customer:destroy"] }),
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json() as { error?: string }).error).toContain("crm:customer:destroy");
+  });
+
+  it("刪除之後持有它的人也一起失去那些權限", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const { roles } = await createOpsRole(admin);
+    const roleKey = roles.at(-1)!.key;
+
+    const staff = await seedUser("ops@ecotech.tw", null);
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${staff}/roles`, {
+      method: "POST",
+      body: JSON.stringify({ roleKey }),
+    });
+    expect((await as(staff, "ops@ecotech.tw", "/api/tools/payout/stores")).status).toBe(200);
+
+    const response = await as(admin, "admin@ecotech.tw", `/api/admin/roles/${roleKey}`, { method: "DELETE" });
+    expect(response.status).toBe(200);
+    expect((await as(staff, "ops@ecotech.tw", "/api/tools/payout/stores")).status).toBe(403);
+  });
+
+  it("角色清單帶著每個角色的持有人數", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const response = await as(admin, "admin@ecotech.tw", "/api/admin/roles");
+    const body = (await response.json()) as { holders: Record<string, number> };
+    expect(body.holders.admin).toBe(1);
+  });
+
+  it.each([
+    ["PATCH", JSON.stringify({ name: "改名" })],
+    ["DELETE", undefined],
+  ])("系統角色擋下 %s", async (method, payload) => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const response = await as(admin, "admin@ecotech.tw", "/api/admin/roles/manager", {
+      method,
+      ...(payload ? { body: payload } : {}),
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json() as { error?: string }).error).toContain("系統角色");
+  });
+
+  it("重新同步不會洗掉自訂角色", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const { roles } = await createOpsRole(admin);
+    const roleKey = roles.at(-1)!.key;
+
+    await as(admin, "admin@ecotech.tw", "/api/admin/roles/sync", { method: "POST" });
+
+    const after = (await (await as(admin, "admin@ecotech.tw", "/api/admin/roles")).json()) as {
+      roles: { key: string; permissions: string[] }[];
+    };
+    expect(after.roles.find((role) => role.key === roleKey)?.permissions.sort()).toEqual(
+      [...OPS_ONLY].sort(),
+    );
+  });
+
+  it("一般同仁不能建角色", async () => {
+    const staff = await seedUser("staff@ecotech.tw", "role-staff");
+    const response = await as(staff, "staff@ecotech.tw", "/api/admin/roles", {
+      method: "POST",
+      body: JSON.stringify({ name: "自己加的", permissions: [] }),
+    });
+    expect(response.status).toBe(403);
+  });
+});
