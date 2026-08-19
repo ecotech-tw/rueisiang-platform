@@ -6,8 +6,8 @@ import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 /**
- * 儲存的檢視。重點在於「存進去的東西一定跑得起來」——這些條件會直接變成
- * 客戶列表的查詢，讓一筆亂寫的檢視把列表頁弄壞是最不能接受的。
+ * 儲存的視圖。重點在於「存進去的東西一定跑得起來」——這些條件會直接變成
+ * 客戶列表的查詢，讓一筆亂寫的視圖把列表頁弄壞是最不能接受的。
  */
 
 const SECRET = "test-secret";
@@ -72,7 +72,7 @@ beforeEach(async () => {
   await syncSystemRoles(db());
 });
 
-describe("儲存檢視", () => {
+describe("儲存視圖", () => {
   it("存下整組條件，並記下是誰建的", async () => {
     const id = await seedUser("staff@ecotech.tw", "role-staff");
     const response = await as(id, "staff@ecotech.tw", "/api/crm/views", {
@@ -129,7 +129,7 @@ describe("儲存檢視", () => {
     });
   });
 
-  it("存下的檢視拿去查詢真的跑得起來", async () => {
+  it("存下的視圖拿去查詢真的跑得起來", async () => {
     const id = await seedUser("staff@ecotech.tw", "role-staff");
     await as(id, "staff@ecotech.tw", "/api/crm/views", {
       method: "POST",
@@ -151,7 +151,7 @@ describe("儲存檢視", () => {
     expect((await response.json()) as { pageSize: number }).toMatchObject({ pageSize: 25 });
   });
 
-  it("同名的檢視不會建立兩次", async () => {
+  it("同名的視圖不會建立兩次", async () => {
     const id = await seedUser("staff@ecotech.tw", "role-staff");
     const payload = JSON.stringify({ name: "重複" });
     expect((await as(id, "staff@ecotech.tw", "/api/crm/views", { method: "POST", body: payload })).status).toBe(201);
@@ -177,7 +177,7 @@ describe("套用與刪除", () => {
     return ((await response.json()) as { id: string }).id;
   }
 
-  it("檢視是共用的，別人建的自己也看得到", async () => {
+  it("視圖是共用的，別人建的自己也看得到", async () => {
     const manager = await seedUser("manager@ecotech.tw", "role-manager");
     await seedView(manager, "manager@ecotech.tw", "主管建的");
 
@@ -210,7 +210,7 @@ describe("套用與刪除", () => {
     expect(await listViews(id, "staff@ecotech.tw")).toHaveLength(0);
   });
 
-  it("刪不存在的檢視回 404，不是默默成功", async () => {
+  it("刪不存在的視圖回 404，不是默默成功", async () => {
     const id = await seedUser("staff@ecotech.tw", "role-staff");
     const response = await as(id, "staff@ecotech.tw", "/api/crm/views/不存在", { method: "DELETE" });
     expect(response.status).toBe(404);

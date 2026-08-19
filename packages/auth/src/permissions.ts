@@ -12,7 +12,7 @@ export const PERMISSIONS = {
   "crm:customer:block": "封鎖客戶",
   "crm:tag:read": "檢視標籤",
   "crm:tag:write": "管理標籤",
-  "crm:view:write": "管理共用的客戶檢視",
+  "crm:view:write": "管理共用的客戶視圖",
   "crm:activity:read": "檢視操作紀錄",
   "crm:sync:read": "檢視 CYBERBIZ 同步狀態",
   "crm:sync:trigger": "手動觸發 CYBERBIZ 同步",

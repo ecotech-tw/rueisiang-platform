@@ -1100,3 +1100,94 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
   .content { padding: 20px 16px; }
 }
+
+/*
+ * ── 權限勾選 ──────────────────────────────────────────────────────────────
+ *
+ * 22 個權限一列一個的話，對話框要捲兩倍以上才看得完，而右半邊整片空白。
+ * 改成依模組分組的區塊 ＋ 兩欄排列：一眼看得到「這個角色碰得到哪幾個模組」，
+ * 而不是一條沒有段落的清單。
+ */
+.perm-group {
+  margin: 0;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--color-soft-line);
+  border-radius: var(--radius-card);
+}
+.perm-group legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+/* 「3/9」讓人不用自己數就知道這一組勾了多少。 */
+.perm-count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-soft-line);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.perm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 2px 14px;
+}
+/* 整列可點，不是只有那顆 18px 的方塊。 */
+.perm-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-field);
+  font-size: 13px;
+  cursor: pointer;
+}
+.perm-item:hover { background: --alpha(var(--color-brand) / 5%); }
+.perm-item input { width: 18px; height: 18px; margin: 0; cursor: pointer; }
+.perm-item:has(input:disabled) { cursor: default; }
+.perm-item:has(input:disabled):hover { background: transparent; }
+.perm-item:has(input:checked) { color: var(--color-brand-dark); font-weight: 500; }
+
+/* 權限清單本來就寬，對話框跟著放寬，兩欄才排得下。 */
+.modal-card.wide { width: min(760px, 100%); }
+
+/*
+ * ── 客戶列表的篩選 ────────────────────────────────────────────────────────
+ *
+ * 六個下拉全攤在工具列上會把搜尋框擠成一小格，而且大部分時候一個都沒動到。
+ * 收進一顆按鈕之後，工具列剩下「搜尋 ＋ 篩選」兩件事。
+ */
+.admin-form.toolbar .search-input { flex: 1; min-width: 220px; }
+
+/* 生效中的條件數。按鈕上有數字，收起來也知道自己在篩。 */
+.filter-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* 面板打開時按鈕維持「按下去」的樣子，不然看不出這片是誰展開的。 */
+.ghost-button.active {
+  border-color: var(--color-secondary);
+  background: var(--color-brand-soft);
+  color: var(--color-brand-dark);
+}
+
+.admin-form.filter-panel {
+  gap: 8px;
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--color-soft-line);
+}

@@ -205,7 +205,7 @@ export function Roles() {
             if (event.target === event.currentTarget && !pending) setEditor(null);
           }}
         >
-          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="role-form-title">
+          <div className="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="role-form-title">
             <div className="modal-head">
               <h2 id="role-form-title">
                 {editor.readOnly ? editor.name : editor.key ? "編輯角色" : "新增角色"}
@@ -235,7 +235,7 @@ export function Roles() {
                   所以不開放在這裡編輯。要客製的話按上一頁的「複製成自訂角色」。
                 </p>
               ) : (
-                <>
+                <div className="field-grid">
                   <label className="field">
                     <span>角色名稱<b>必填</b></span>
                     <input
@@ -254,7 +254,7 @@ export function Roles() {
                       placeholder="這個角色是給誰用的"
                     />
                   </label>
-                </>
+                </div>
               )}
 
               {groups.map((group) => {
@@ -262,14 +262,14 @@ export function Roles() {
                 const checkedCount = all.filter((key) => editor.permissions.has(key)).length;
 
                 return (
-                  <div className="field" key={group.module}>
-                    <span>
+                  <fieldset className="perm-group" key={group.module}>
+                    <legend>
                       {group.label}
+                      <span className="perm-count">{checkedCount}/{all.length}</span>
                       {!editor.readOnly ? (
                         <button
                           type="button"
                           className="link-button"
-                          style={{ marginLeft: 8 }}
                           onClick={() => {
                             const next = new Set(editor.permissions);
                             // 已經全勾就整組取消，否則整組勾起來。
@@ -281,27 +281,32 @@ export function Roles() {
                           {checkedCount === all.length ? "全部取消" : "全選"}
                         </button>
                       ) : null}
-                    </span>
-                    {group.items.map((item) => (
-                      <label className="field checkbox" key={item.key}>
-                        <input
-                          type="checkbox"
-                          checked={editor.permissions.has(item.key)}
-                          disabled={editor.readOnly}
-                          onChange={(event) => {
-                            const next = new Set(editor.permissions);
-                            if (event.target.checked) next.add(item.key);
-                            else next.delete(item.key);
-                            setEditor({ ...editor, permissions: next });
-                          }}
-                        />
-                        <span>
-                          {item.label}
-                          <small>{item.key}</small>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                    </legend>
+
+                    <div className="perm-grid">
+                      {group.items.map((item) => (
+                        /*
+                         * 權限鍵值放 title 而不是印在標籤下面：它對管理者沒有意義，
+                         * 但每一項多一行會讓 22 個權限變成一條要捲兩倍的長清單。
+                         * 需要對照鍵值的人（通常是查 bug）滑上去就看得到。
+                         */
+                        <label className="perm-item" key={item.key} title={item.key}>
+                          <input
+                            type="checkbox"
+                            checked={editor.permissions.has(item.key)}
+                            disabled={editor.readOnly}
+                            onChange={(event) => {
+                              const next = new Set(editor.permissions);
+                              if (event.target.checked) next.add(item.key);
+                              else next.delete(item.key);
+                              setEditor({ ...editor, permissions: next });
+                            }}
+                          />
+                          <span>{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
                 );
               })}
             </form>
