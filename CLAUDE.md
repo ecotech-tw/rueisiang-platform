@@ -58,6 +58,47 @@ docs/        deployment-setup.md（首次開通）、migration-plan.md（各 Pha
 - **註解寫「為什麼」，不寫「做什麼」。** 這個 codebase 的註解密度偏高而且都在解釋取捨與踩過的坑，跟著這個調性寫；不要加 `// 設定使用者` 這種複述程式碼的註解。
 - TypeScript 嚴格模式全開，含 `noUncheckedIndexedAccess`、`noUnusedLocals`、`noUnusedParameters`。
 
+## 設計語彙：Material Design 3
+
+UI 一律照 Material 3 的規格做，不要自己發明一套。既有的元件已經照這份做過一輪，
+新增畫面沿用同樣的規則，不要在旁邊長出第二種風格。
+
+品牌色套進 Material 的角色：`--brand` 當 primary，`--brand-soft` 當
+primary-container，`--muted` 當 on-surface-variant。
+
+### 通則
+
+- **選中狀態用「色調容器」**：淡底＋深字（`--brand-soft` ＋ `--brand-dark`），
+  不要高彩度的填滿或漸層。Material 的選中是安靜地成立，不是跳出來搶視線。
+- **hover 是 state layer**：在原本的底色上疊一層 4–8% 的品牌色
+  （`rgba(213, 56, 59, .04)` ～ `.07`），不是換一個顏色。
+- **圓角**：可點的列與按鈕用全圓角膠囊（`border-radius: 999px`），
+  卡片 14px，輸入框與小元件 9–12px。
+- **圖示** 24px、線性、`currentColor`，不加外框。見 `shell/icons.tsx`，
+  不要引入圖示字型。
+- **焦點** 一律有 `:focus-visible` 外框，鍵盤操作看得到自己在哪裡。
+
+### 資料表
+
+| 項目 | 規格 |
+|---|---|
+| 表頭列高 | 56px，14px、字重 500、`--muted` |
+| 內文列高 | 52px，14px、`--ink` |
+| 欄距 | 16px，最外側 24px |
+| 分隔線 | 只有列與列之間（`--soft-line`），欄之間沒有 |
+| hover | 4% 的品牌色 state layer |
+| 數字欄 | 靠右並用 `tabular-nums`（加 `.numeric`） |
+
+表格上方的工具列（搜尋、篩選）要有自己的下緣分隔線，跟表頭分成兩個區塊——
+沒有那條線的話兩排東西會黏在一起。
+
+長列表用 `.page.fills` ＋ `.panel.grows`：整頁不捲，只有表格自己捲，表頭 sticky。
+
+### 導覽
+
+側邊選單是 Material 的 navigation drawer：膠囊列、24px 圖示、大項可收合、
+收合成窄欄時只剩圖示。細節見 `shell/Sidebar.tsx` 與 `styles.css` 的導覽段落。
+
 ## 禁止事項
 
 - **不要在這台機器跑任何 wrangler 指令。** Windows on ARM 沒有 workerd，連 `wrangler whoami` 都會失敗。`wrangler dev`、`deploy`、`--dry-run`、`d1` 全部不行。設定檔的實機驗證只在 CI（Linux）上做。

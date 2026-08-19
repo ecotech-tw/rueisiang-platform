@@ -46,3 +46,10 @@ export {
   type SyncStatus,
   type WebhookOutcome,
 } from "./crm-webhook.js";
+export {
+  EVENT_PAGE_SIZES,
+  defaultEventQuery,
+  listCustomerEvents,
+  type EventQuery,
+  type EventRow,
+} from "./crm-events.js";

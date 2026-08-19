@@ -1,6 +1,9 @@
 import {
   CUSTOMER_PAGE_SIZES,
   CUSTOMER_SORT_FIELDS,
+  EVENT_PAGE_SIZES,
+  defaultEventQuery,
+  listCustomerEvents,
   defaultCustomerQuery,
   listCustomers,
   deleteEmptyCyberbizCustomers,
@@ -58,6 +61,23 @@ export const crm = new Hono<AppEnv>()
 
   .get("/customers", requirePermission("crm:customer:read"), async (c) => {
     const result = await listCustomers(c.get("db"), parseQuery(new URL(c.req.url)));
+    return c.json(result);
+  })
+
+  /** 操作紀錄。分頁用「多抓一筆」判斷還有沒有下一頁，不做全表 count。 */
+  .get("/events", requirePermission("crm:activity:read"), async (c) => {
+    const url = new URL(c.req.url);
+    const defaults = defaultEventQuery();
+    const pageSize = Number(url.searchParams.get("pageSize"));
+    const page = Number(url.searchParams.get("page"));
+
+    const result = await listCustomerEvents(c.get("db"), {
+      search: url.searchParams.get("search")?.trim() ?? defaults.search,
+      source: url.searchParams.get("source") ?? defaults.source,
+      customerId: url.searchParams.get("customerId")?.trim() ?? defaults.customerId,
+      page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : defaults.page,
+      pageSize: (EVENT_PAGE_SIZES as readonly number[]).includes(pageSize) ? pageSize : defaults.pageSize,
+    });
     return c.json(result);
   })
 
