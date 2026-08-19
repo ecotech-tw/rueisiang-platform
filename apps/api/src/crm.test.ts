@@ -88,7 +88,7 @@ describe("客戶列表的把關", () => {
 
 describe("搜尋與篩選", () => {
   beforeEach(async () => {
-    await seedCustomer({ id: "c1", phone: "0912345678", name: "王小明", email: "wang@example.com", address: "台北市", sourceChannel: "cyberbiz", cyberbizTagsJson: '["VIP","熟客"]' });
+    await seedCustomer({ id: "c1", phone: "0912 345 678", name: "王小明", email: "wang@example.com", address: "台北市", sourceChannel: "cyberbiz", cyberbizTagsJson: '["VIP","熟客"]' });
     await seedCustomer({ id: "c2", phone: "0922333444", name: "陳美玲", email: "chen@example.com", address: "新北市", sourceChannel: "manual" });
     await seedCustomer({ id: "c3", phone: "0933555666", name: "", email: "", address: "", sourceChannel: "cyberbiz", status: "blocked" });
   });
@@ -104,6 +104,8 @@ describe("搜尋與篩選", () => {
   it.each([
     ["姓名", "?search=王小明", ["c1"]],
     ["電話片段", "?search=2233", ["c2"]],
+    // 使用者打的是連號，資料存的可能帶空格（CYBERBIZ 原樣帶進來的）。
+    ["沒有空格的完整電話", "?search=0912345678", ["c1"]],
     ["Email", "?search=chen@example", ["c2"]],
     ["地址", "?search=新北", ["c2"]],
     ["標籤", "?search=VIP", ["c1"]],

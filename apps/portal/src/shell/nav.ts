@@ -28,6 +28,10 @@ export interface NavSection {
  * Sidebar 的大項。前三塊是整合的目的——讓三套系統出現在同一個選單、共用一次登入；
  * 系統管理跟它們一樣由權限決定看不看得到，所以排在同一個清單裡而不是另外做一區。
  */
+/*
+ * 「新增客人」不在這裡：它是客戶列表上的一個動作，不是一個要導覽過去的地方。
+ * 放進側邊選單會讓人以為那是另一個畫面，實際上只是同一頁開一個對話框。
+ */
 export const NAV_SECTIONS: NavSection[] = [
   {
     key: "crm",
@@ -35,7 +39,6 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: "people",
     items: [
       { label: "客戶列表", to: "/crm/customers", permission: "crm:customer:read", icon: "list" },
-      { label: "新增客人", to: "/crm/customers/new", permission: "crm:customer:write", icon: "personAdd" },
       { label: "標籤管理", to: "/crm/tags", permission: "crm:tag:read", icon: "tag" },
       { label: "操作紀錄", to: "/crm/activity", permission: "crm:activity:read", icon: "history" },
       { label: "CYBERBIZ 同步", to: "/crm/sync", permission: "crm:sync:read", icon: "sync" },

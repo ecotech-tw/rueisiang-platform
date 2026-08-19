@@ -61,21 +61,17 @@ function Item({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
 function Section({
   section,
   permissions,
+  open,
+  onToggle,
   onNavigate,
 }: {
   section: NavSection;
   permissions: ReadonlySet<Permission>;
+  open: boolean;
+  onToggle: () => void;
   onNavigate: () => void;
 }) {
-  const location = useLocation();
   const items = visibleItems(section.items, permissions);
-  const [open, setOpen] = useState(() => sectionContainsPath(section, location.pathname));
-
-  // 從別的地方跳進這一段（例如網址列直接打）時要自動打開。
-  useEffect(() => {
-    if (sectionContainsPath(section, location.pathname)) setOpen(true);
-  }, [location.pathname, section]);
-
   if (!items.length) return null;
 
   return (
@@ -84,7 +80,7 @@ function Section({
         type="button"
         className="nav-section-head"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={onToggle}
         title={section.label}
       >
         <Icon name={section.icon} className="nav-icon" />
@@ -92,11 +88,17 @@ function Section({
         <span className="nav-chevron" aria-hidden="true" />
       </button>
 
-      {/* 項目往內縮並掛在一條垂直線上，讓「這些屬於上面那個大項」不必用猜的。 */}
-      <div className="nav-section-items">
-        {items.map((item) => (
-          <Item key={item.to} item={item} onNavigate={onNavigate} />
-        ))}
+      {/*
+        展開的動畫用 grid-template-rows 0fr → 1fr。
+        max-height 那種要先猜一個高度，猜太小會截斷、猜太大會讓動畫看起來拖很久；
+        grid 這招不必知道內容多高。
+      */}
+      <div className="nav-section-items" aria-hidden={!open}>
+        <div className="nav-section-items-inner">
+          {items.map((item) => (
+            <Item key={item.to} item={item} onNavigate={onNavigate} />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -104,7 +106,22 @@ function Section({
 
 export function Sidebar({ permissions, collapsed, onToggle, user, onLogout, onNavigate }: SidebarProps) {
   const navRef = useRef<HTMLElement>(null);
+  const location = useLocation();
   const [hasMoreBelow, setHasMoreBelow] = useState(false);
+
+  /*
+   * 一次只開一段。四段全開的話清單會長到要捲，反而更難找——手風琴式的展開
+   * 讓「現在在哪一段」永遠只有一個答案。
+   */
+  const [openKey, setOpenKey] = useState<string | null>(
+    () => NAV_SECTIONS.find((section) => sectionContainsPath(section, location.pathname))?.key ?? null,
+  );
+
+  // 從別的地方跳進某一段（網址列直接打、或選單外的連結）時要自動切過去。
+  useEffect(() => {
+    const active = NAV_SECTIONS.find((section) => sectionContainsPath(section, location.pathname));
+    if (active) setOpenKey(active.key);
+  }, [location.pathname]);
 
   /**
    * 收合成圖示欄時捲軸是藏起來的（見 styles.css），所以要自己給一個「下面還有」的提示。
@@ -153,7 +170,14 @@ export function Sidebar({ permissions, collapsed, onToggle, user, onLogout, onNa
       <div className="nav-viewport">
         <nav className="primary-nav" aria-label="主要導覽" ref={navRef}>
           {NAV_SECTIONS.map((section) => (
-            <Section key={section.key} section={section} permissions={permissions} onNavigate={onNavigate} />
+            <Section
+              key={section.key}
+              section={section}
+              permissions={permissions}
+              open={openKey === section.key}
+              onToggle={() => setOpenKey((current) => (current === section.key ? null : section.key))}
+              onNavigate={onNavigate}
+            />
           ))}
         </nav>
 

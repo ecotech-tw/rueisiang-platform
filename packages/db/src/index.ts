@@ -53,3 +53,21 @@ export {
   type EventQuery,
   type EventRow,
 } from "./crm-events.js";
+export {
+  applyTagChange,
+  createTag,
+  deleteTagFromCatalog,
+  listTags,
+  renameTagInCatalog,
+  type TagChangeResult,
+  type TagRow,
+} from "./crm-tags.js";
+export {
+  createCustomer,
+  findCustomer,
+  findCustomerByPhone,
+  setCustomerBlocked,
+  updateCustomer,
+  type Actor,
+  type CustomerInput,
+} from "./crm-write.js";

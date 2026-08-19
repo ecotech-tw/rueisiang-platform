@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, like, or, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { normalizePhone } from "./phone.js";
 import { customers } from "./schema/crm.js";
 
 /**
@@ -61,10 +62,18 @@ function buildWhere(query: CustomerQuery): SQL | undefined {
 
   if (query.search) {
     const term = `%${query.search}%`;
-    // 標籤存成 JSON 字串，所以搜尋一併掃過它——使用者不會知道標籤跟其他欄位不同。
+    /*
+     * 電話比對兩種形式。使用者打「0912345678」，但資料可能存成「0912 345 678」
+     * ——那是 CYBERBIZ 帶進來的原樣。只比對 phone 的話這種搜尋一定落空，
+     * 所以把搜尋字串也正規化一次，去跟 normalized_phone 比。
+     *
+     * 標籤存成 JSON 字串，也一併掃過去——使用者不會知道標籤跟其他欄位存法不同。
+     */
+    const digits = normalizePhone(query.search);
     conditions.push(
       or(
         like(customers.phone, term),
+        ...(digits ? [like(customers.normalizedPhone, `%${digits}%`)] : []),
         like(customers.name, term),
         like(customers.email, term),
         like(customers.address, term),

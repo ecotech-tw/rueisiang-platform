@@ -2,7 +2,18 @@ import {
   CUSTOMER_PAGE_SIZES,
   CUSTOMER_SORT_FIELDS,
   EVENT_PAGE_SIZES,
+  applyTagChange,
+  createCustomer,
+  createTag,
+  findCustomer,
+  findCustomerByPhone,
+  setCustomerBlocked,
+  updateCustomer,
+  validatePhone,
   defaultEventQuery,
+  deleteTagFromCatalog,
+  listTags,
+  renameTagInCatalog,
   listCustomerEvents,
   defaultCustomerQuery,
   listCustomers,
@@ -18,6 +29,7 @@ import { HTTPException } from "hono/http-exception";
 import { cyberbizClient } from "../cyberbiz.js";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { body, requireString } from "../request.js";
 
 /**
  * 一次手動同步最多拉幾頁。
@@ -56,11 +68,164 @@ function parseQuery(url: URL): CustomerQuery {
   };
 }
 
+/** 讀出並檢查客戶欄位。電話是唯一必填——它是辨識客戶的主要依據。 */
+function readCustomerFields(input: Record<string, unknown>) {
+  const phone = typeof input.phone === "string" ? input.phone.trim() : "";
+  const phoneError = validatePhone(phone);
+  if (phoneError) throw new HTTPException(400, { message: phoneError });
+
+  const text = (field: string) => (typeof input[field] === "string" ? (input[field] as string).trim() : "");
+  const tags = Array.isArray(input.tags)
+    ? [
+        ...new Set(
+          input.tags
+            .filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim()))
+            .map((tag) => tag.trim()),
+        ),
+      ]
+    : [];
+
+  return { phone, name: text("name"), email: text("email"), address: text("address"), tags };
+}
+
 export const crm = new Hono<AppEnv>()
   .use("*", requireAuth)
 
   .get("/customers", requirePermission("crm:customer:read"), async (c) => {
     const result = await listCustomers(c.get("db"), parseQuery(new URL(c.req.url)));
+    return c.json(result);
+  })
+
+  /**
+   * 讀出並檢查客戶欄位。電話是唯一必填——它是辨識客戶的主要依據。
+   */
+  .post("/customers", requirePermission("crm:customer:write"), async (c) => {
+    const input = await body(c);
+    const fields = readCustomerFields(input);
+
+    const duplicate = await findCustomerByPhone(c.get("db"), fields.phone);
+    if (duplicate) throw new HTTPException(409, { message: "這支電話已經建立過客戶資料。" });
+
+    /*
+     * 先在官網建會員，成功了才寫本地。
+     *
+     * 反過來的話，官網失敗時本地會留下一筆「看起來同步過」的客戶，實際上
+     * 官網根本沒有這個人。沿用舊 CRM 的順序，理由一樣。
+     */
+    const client = cyberbizClient(c.env);
+    const wantsCyberbiz = input.sourceChannel !== "manual";
+    let remote;
+
+    if (wantsCyberbiz) {
+      if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN，只能建立本地客戶。" });
+      const created = await client.create(fields);
+      if (!created.externalId) {
+        throw new HTTPException(502, { message: "CYBERBIZ 已建立會員但沒有回傳會員 ID，請重新同步確認。" });
+      }
+      remote = {
+        externalId: created.externalId,
+        uid: created.uid,
+        tags: created.tags,
+        raw: created.raw,
+        blocked: created.blocked,
+      };
+    }
+
+    const user = c.get("user");
+    const result = await createCustomer(c.get("db"), {
+      ...fields,
+      remote,
+      actor: { id: user.id, email: user.email },
+    });
+    return c.json({ id: result.id, linked: Boolean(remote) }, 201);
+  })
+
+  .patch("/customers/:id", requirePermission("crm:customer:write"), async (c) => {
+    const id = c.req.param("id");
+    const existing = await findCustomer(c.get("db"), id);
+    if (!existing) throw new HTTPException(404, { message: "找不到這筆客戶資料。" });
+
+    const fields = readCustomerFields(await body(c));
+
+    // 電話換成別人已經在用的，會讓兩筆資料指向同一個人。
+    const duplicate = await findCustomerByPhone(c.get("db"), fields.phone);
+    if (duplicate && duplicate.id !== id) {
+      throw new HTTPException(409, { message: "這支電話已經是另一位客戶的資料。" });
+    }
+
+    const client = cyberbizClient(c.env);
+    if (existing.cyberbizCustomerId) {
+      if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN，無法更新已連結官網的客戶。" });
+      await client.update(existing.cyberbizCustomerId, fields);
+    }
+
+    const user = c.get("user");
+    await updateCustomer(c.get("db"), id, {
+      ...fields,
+      syncedToRemote: Boolean(existing.cyberbizCustomerId),
+      actor: { id: user.id, email: user.email },
+    });
+    return c.json({ id });
+  })
+
+  .post("/customers/:id/block", requirePermission("crm:customer:block"), async (c) => {
+    const id = c.req.param("id");
+    const existing = await findCustomer(c.get("db"), id);
+    if (!existing) throw new HTTPException(404, { message: "找不到這筆客戶資料。" });
+
+    const input = await body(c);
+    const blocked = input.blocked !== false;
+
+    const client = cyberbizClient(c.env);
+    if (existing.cyberbizCustomerId && client) {
+      await client.setBlocked(existing.cyberbizCustomerId, blocked);
+    }
+
+    const user = c.get("user");
+    await setCustomerBlocked(c.get("db"), id, blocked, { id: user.id, email: user.email });
+    return c.json({ id, blocked });
+  })
+
+  .get("/tags", requirePermission("crm:tag:read"), async (c) => {
+    return c.json({ tags: await listTags(c.get("db")) });
+  })
+
+  .post("/tags", requirePermission("crm:tag:write"), async (c) => {
+    const input = await body(c);
+    const name = requireString(input, "name", "標籤名稱");
+    if (name.length > 40) throw new HTTPException(400, { message: "標籤名稱不能超過 40 個字。" });
+
+    const result = await createTag(c.get("db"), name);
+    if (result === "duplicate") throw new HTTPException(409, { message: "這個標籤已經存在。" });
+    return c.json({ name }, 201);
+  })
+
+  /**
+   * 改名或刪除一個標籤。
+   *
+   * 一輪只處理一批客戶（每位有連到官網的都要打一次 API），回傳 hasMore 讓呼叫端
+   * 接著跑——跟全量同步同一個模式。第一輪才動字典，之後幾輪只處理剩下的客戶。
+   */
+  .patch("/tags/:name", requirePermission("crm:tag:write"), async (c) => {
+    const original = decodeURIComponent(c.req.param("name"));
+    const input = await body(c);
+    const nextName = input.name === null ? null : requireString(input, "name", "標籤名稱");
+    if (nextName === original) return c.json({ processed: 0, linked: 0, hasMore: false, failures: [] });
+
+    const client = cyberbizClient(c.env);
+    const user = c.get("user");
+    const result = await applyTagChange(c.get("db"), original, {
+      nextName,
+      actor: { actorType: "user", actorId: user.id, actorEmail: user.email },
+      pushTags: client ? (externalId, tags) => client.updateTags(externalId, tags).then(() => undefined) : undefined,
+    });
+
+    // 字典只在第一輪動一次，後面幾輪是在收尾剩下的客戶。
+    if (new URL(c.req.url).searchParams.get("continue") !== "1") {
+      if (nextName) await renameTagInCatalog(c.get("db"), original, nextName);
+      else await deleteTagFromCatalog(c.get("db"), original);
+    }
+
     return c.json(result);
   })
 

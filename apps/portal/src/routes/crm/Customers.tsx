@@ -1,11 +1,15 @@
 import { useState } from "react";
+import { useSession } from "../../auth/session.js";
+import { Icon } from "../../shell/icons.js";
 import {
   DEFAULT_FILTERS,
   parseTags,
+  useBlockCustomer,
   useCustomers,
   type Customer,
   type CustomerFilters,
 } from "./api.js";
+import { CustomerForm } from "./CustomerForm.js";
 
 const CHANNEL_LABEL: Record<string, string> = { manual: "人工建立", cyberbiz: "CYBERBIZ" };
 const SYNC_LABEL: Record<string, string> = {
@@ -33,7 +37,21 @@ function formatDate(value: string): string {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
 }
 
-function CustomerRow({ customer }: { customer: Customer }) {
+function CustomerRow({
+  customer,
+  canWrite,
+  canBlock,
+  onEdit,
+  onBlock,
+  busy,
+}: {
+  customer: Customer;
+  canWrite: boolean;
+  canBlock: boolean;
+  onEdit: () => void;
+  onBlock: () => void;
+  busy: boolean;
+}) {
   const tags = parseTags(customer.cyberbizTagsJson);
 
   return (
@@ -67,13 +85,48 @@ function CustomerRow({ customer }: { customer: Customer }) {
         ) : null}
       </td>
       <td className="cell-sub nowrap">{formatDate(customer.updatedAt)}</td>
+      {canWrite || canBlock ? (
+        <td>
+          <div className="row-actions">
+            {canWrite ? (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={onEdit}
+                disabled={busy}
+                title="編輯客戶資料"
+                aria-label={`編輯 ${customer.name || customer.phone}`}
+              >
+                <Icon name="edit" />
+              </button>
+            ) : null}
+            {canBlock ? (
+              <button
+                type="button"
+                className={`icon-button${customer.status === "blocked" ? "" : " danger"}`}
+                onClick={onBlock}
+                disabled={busy}
+                title={customer.status === "blocked" ? "解除封鎖這位客戶" : "封鎖這位客戶"}
+                aria-label={`${customer.status === "blocked" ? "解除封鎖" : "封鎖"} ${customer.name || customer.phone}`}
+              >
+                <Icon name={customer.status === "blocked" ? "unblock" : "block"} />
+              </button>
+            ) : null}
+          </div>
+        </td>
+      ) : null}
     </tr>
   );
 }
 
 export function Customers() {
   const [filters, setFilters] = useState<CustomerFilters>(DEFAULT_FILTERS);
+  const [editing, setEditing] = useState<Customer | "new" | null>(null);
   const query = useCustomers(filters);
+  const block = useBlockCustomer();
+  const { permissions } = useSession();
+  const canWrite = permissions.has("crm:customer:write");
+  const canBlock = permissions.has("crm:customer:block");
 
   /** 改任何篩選條件都要回到第 1 頁，否則會停在一個新條件下不存在的頁碼。 */
   function update(patch: Partial<CustomerFilters>) {
@@ -86,8 +139,17 @@ export function Customers() {
   return (
     <div className="page fills">
       <header className="page-head">
-        <h1>客戶列表</h1>
-        <p className="muted">查看、搜尋 CYBERBIZ 與人工建立的客戶資料。</p>
+        <div className="page-head-row">
+          <div>
+            <h1>客戶列表</h1>
+            <p className="muted">查看、搜尋 CYBERBIZ 與人工建立的客戶資料。</p>
+          </div>
+          {canWrite ? (
+            <button type="button" className="primary-button" onClick={() => setEditing("new")}>
+              ＋ 新增客人
+            </button>
+          ) : null}
+        </div>
       </header>
 
       {data ? (
@@ -155,6 +217,7 @@ export function Customers() {
         </form>
 
         {query.error ? <p className="form-error" role="alert">{query.error.message}</p> : null}
+        {block.error ? <p className="form-error" role="alert">{block.error.message}</p> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -166,10 +229,23 @@ export function Customers() {
                 <th>地址</th>
                 <th>狀態</th>
                 <th>最近更新</th>
+                {canWrite || canBlock ? <th /> : null}
               </tr>
             </thead>
             <tbody>
-              {data?.customers.map((customer) => <CustomerRow key={customer.id} customer={customer} />)}
+              {data?.customers.map((customer) => (
+                <CustomerRow
+                  key={customer.id}
+                  customer={customer}
+                  canWrite={canWrite}
+                  canBlock={canBlock}
+                  busy={block.isPending}
+                  onEdit={() => setEditing(customer)}
+                  onBlock={() =>
+                    block.mutate({ id: customer.id, blocked: customer.status !== "blocked" })
+                  }
+                />
+              ))}
             </tbody>
           </table>
         </div>
@@ -210,6 +286,13 @@ export function Customers() {
           </footer>
         ) : null}
       </section>
+
+      {editing ? (
+        <CustomerForm
+          customer={editing === "new" ? undefined : editing}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
     </div>
   );
 }

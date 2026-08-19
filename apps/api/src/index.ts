@@ -1,3 +1,4 @@
+import { CyberbizApiError } from "@rueisiang/cyberbiz";
 import { createDatabase, retryFailedWebhooks } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -37,6 +38,25 @@ app.onError((error, c) => {
   if (error instanceof HTTPException) {
     return c.json({ error: error.message }, error.status);
   }
+
+  /*
+   * CYBERBIZ 的錯誤要照原樣讓人看到，不要一律變成「伺服器發生錯誤」。
+   * 官網回「這支手機已存在」時，使用者需要看到的是那句話，而不是我們吞掉之後
+   * 的一句廢話——他改一下電話就能繼續，看到 500 只會來問是不是壞了。
+   */
+  if (error instanceof CyberbizApiError) {
+    if (error.status === 401 || error.status === 403) {
+      // 這是我們的 token 有問題，不是使用者送錯東西。
+      console.error("CYBERBIZ 憑證被拒絕", error.message);
+      return c.json({ error: "平台與 CYBERBIZ 的憑證有問題，請聯絡管理者確認 API token。" }, 502);
+    }
+    if (error.status >= 400 && error.status < 500) {
+      return c.json({ error: `CYBERBIZ：${error.message.replace(/^CYBERBIZ API \d+: /, "")}` }, error.status as 400);
+    }
+    console.error(error);
+    return c.json({ error: "CYBERBIZ 暫時無法回應，請稍後再試。" }, 502);
+  }
+
   console.error(error);
   return c.json({ error: "伺服器發生錯誤。" }, 500);
 });

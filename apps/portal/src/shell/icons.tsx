@@ -25,7 +25,12 @@ export type IconName =
   | "payments"
   | "storefront"
   | "tune"
-  | "shieldPerson";
+  | "shieldPerson"
+  | "edit"
+  | "block"
+  | "unblock"
+  | "trash"
+  | "close";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   people: (
@@ -135,6 +140,33 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <circle cx="8.4" cy="16.4" r="2.4" />
     </>
   ),
+  edit: (
+    <>
+      <path d="M4.4 16.2V19.6h3.4L19 8.4l-3.4-3.4z" />
+      <path d="m14.4 5.8 3.4 3.4" />
+    </>
+  ),
+  block: (
+    <>
+      <circle cx="12" cy="12" r="8.2" />
+      <path d="m6.2 6.2 11.6 11.6" />
+    </>
+  ),
+  unblock: (
+    <>
+      <circle cx="12" cy="12" r="8.2" />
+      <path d="m8.3 12.2 2.6 2.6 4.8-5.2" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M4.6 6.6h14.8" />
+      <path d="M9.4 6.6V4.9a.9.9 0 0 1 .9-.9h3.4a.9.9 0 0 1 .9.9v1.7" />
+      <path d="m6.6 6.6.9 12.4a1.4 1.4 0 0 0 1.4 1.3h6.2a1.4 1.4 0 0 0 1.4-1.3l.9-12.4" />
+      <path d="M10.4 10.4v6M13.6 10.4v6" />
+    </>
+  ),
+  close: <path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6" />,
   shieldPerson: (
     <>
       <path d="M12 3.5 19 5.9v5.9c0 4-2.8 6.9-7 8.2-4.2-1.3-7-4.2-7-8.2V5.9z" />
