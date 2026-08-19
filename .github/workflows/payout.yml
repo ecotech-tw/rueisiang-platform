@@ -1,0 +1,141 @@
+name: 出金表月結
+run-name: 出金表｜${{ inputs.store }}｜${{ inputs.start && format('{0} ~ {1}', inputs.start, inputs.end) || inputs.month || '上個月' }}｜${{ inputs.request_id }}
+
+# 同仁在 Actions 頁面按「Run workflow」，選店別與月份即可執行。
+# 執行環境是 GitHub 提供的 Ubuntu runner，跑完把報告貼在摘要、檔案放進 artifact。
+on:
+  workflow_dispatch:
+    inputs:
+      store:
+        description: 要執行的通路（店名需與工具的 config.json 一致）
+        type: string
+        default: 全部
+      month:
+        description: 對帳月份 YYYY-MM（留空＝上個月；有填起訖日時會被忽略）
+        type: string
+        default: ""
+      start:
+        description: 對帳起日 YYYY-MM-DD（要跟迄日一起填）
+        type: string
+        default: ""
+      end:
+        description: 對帳迄日 YYYY-MM-DD（要跟起日一起填）
+        type: string
+        default: ""
+      skip_upload:
+        description: 只匯出與加欄位，不上傳 Drive
+        type: boolean
+        default: false
+      request_id:
+        description: 網頁執行識別碼（從 GitHub 手動執行時留空）
+        type: string
+        default: ""
+
+# 同時只跑一個：CYBERBIZ 後台與 Chrome profile 都禁不起並行
+concurrency:
+  group: payout
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: tools/cyberbiz-monthly-payout
+    env:
+      TZ: Asia/Taipei
+      CI: "true"
+      # ubuntu-24.04 的 image 內建 Google Chrome（151），不用另外裝。寫成明碼而不是
+      # 靠 browser.mjs 的預設值：以後有人改本機預設，CI 不會跟著悄悄換瀏覽器。
+      PAYOUT_BROWSER_CHANNEL: chrome
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/cyberbiz-monthly-payout/package-lock.json
+
+      - name: 安裝相依套件
+        run: npm ci
+
+      - name: 產生 .env
+        env:
+          CYBERBIZ_USERNAME: ${{ secrets.CYBERBIZ_USERNAME }}
+          CYBERBIZ_PASSWORD: ${{ secrets.CYBERBIZ_PASSWORD }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+        run: |
+          umask 077
+          {
+            echo "CYBERBIZ_USERNAME=$CYBERBIZ_USERNAME"
+            echo "CYBERBIZ_PASSWORD=$CYBERBIZ_PASSWORD"
+            echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"
+            echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"
+            echo "GOOGLE_REFRESH_TOKEN=$GOOGLE_REFRESH_TOKEN"
+            echo "GMAIL_REFRESH_TOKEN=$GMAIL_REFRESH_TOKEN"
+          } > .env
+          missing=$(grep -c '=$' .env || true)
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::有 $missing 個 secret 是空的，請到 Settings → Secrets 補齊"
+            exit 1
+          fi
+
+      - name: 執行出金表
+        id: payout
+        env:
+          # 經由 env 傳入，避免店名等自由字串被當成 shell 指令。
+          STORE: ${{ inputs.store }}
+          MONTH: ${{ inputs.month }}
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          SKIP_UPLOAD: ${{ inputs.skip_upload }}
+        run: |
+          args=(--headless)
+          if [ -n "$START" ] || [ -n "$END" ]; then
+            args+=(--start "$START" --end "$END")
+          elif [ -n "$MONTH" ]; then
+            args+=(--month "$MONTH")
+          fi
+          if [ "$STORE" != "全部" ]; then
+            args+=(--store "$STORE")
+          fi
+          if [ "$SKIP_UPLOAD" = "true" ]; then
+            args+=(--skip-upload)
+          fi
+          echo "執行：node driver.mjs ${args[*]}"
+          set +e
+          node driver.mjs "${args[@]}"
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: 把報告貼到執行摘要
+        if: always()
+        run: |
+          for file in reports/*.md; do
+            [ -e "$file" ] || continue
+            cat "$file" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: 保留產出的檔案
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: payout-${{ inputs.start || inputs.month || 'last-month' }}-${{ github.run_number }}
+          retention-days: 30
+          if-no-files-found: ignore
+          path: |
+            tools/cyberbiz-monthly-payout/staging/**/*.xlsx
+            tools/cyberbiz-monthly-payout/reports/*.md
+            tools/cyberbiz-monthly-payout/screenshots/*.png
+
+      - name: 有店沒完成就讓這次執行標記失敗
+        if: always() && steps.payout.outputs.exit_code != '0'
+        run: |
+          echo "::error::有通路未完成，詳見上方摘要與 artifact"
+          exit 1
