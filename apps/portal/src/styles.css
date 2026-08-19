@@ -445,6 +445,90 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   padding: 4px 22px 18px;
   border-bottom: 1px solid var(--line);
 }
+/* 下拉選單會撐到最長的那個選項——標籤名稱一長，整排就被推到第二行。 */
+.admin-form.toolbar select { max-width: 190px; }
+/*
+ * 儲存的檢視，做成 Material 的 filter chip：一列膠囊，選中的用色調容器
+ * （淡底深字）＋前置打勾，不是高彩度的填滿。
+ *
+ * 它在工具列上方而且自己沒有分隔線——檢視是「一次選好一整組條件」的捷徑，
+ * 跟底下那排篩選器講的是同一件事，中間再切一條線只會把它看成另一個區塊。
+ */
+.view-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: -4px -22px 0;
+  padding: 2px 22px 12px;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.filter-chip:hover { background: rgba(213, 56, 59, .05); }
+.filter-chip.selected {
+  border-color: transparent;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+}
+/* 有刪除鈕時，外層是膠囊、裡面兩顆按鈕各自可點。 */
+span.filter-chip { padding: 0 4px 0 0; gap: 0; }
+.filter-chip-label,
+.filter-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 4px 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.filter-chip-label svg,
+.filter-chip svg { width: 18px; height: 18px; }
+.filter-chip-remove {
+  width: 24px;
+  padding: 0;
+  justify-content: center;
+  color: var(--muted);
+}
+.filter-chip.selected .filter-chip-remove { color: var(--brand-dark); }
+.filter-chip-remove svg { width: 14px; height: 14px; }
+.filter-chip-remove:hover:not(:disabled) { background: rgba(0, 0, 0, .07); }
+.filter-chip-label:focus-visible,
+.filter-chip-remove:focus-visible,
+.filter-chip:focus-visible,
+.chip-action:focus-visible { outline: 2px solid var(--secondary); outline-offset: 1px; }
+
+/* 「儲存目前條件」：虛線邊，看得出是新增而不是又一個檢視。 */
+.chip-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+.chip-action svg { width: 18px; height: 18px; }
+.chip-action:hover:not(:disabled) { background: rgba(213, 56, 59, .05); color: var(--brand); border-color: var(--brand); }
+.chip-action:disabled { opacity: .45; cursor: not-allowed; }
+
 .admin-form input,
 .admin-form select {
   padding: 7px 10px;

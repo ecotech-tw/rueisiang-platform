@@ -27,6 +27,7 @@ export interface CustomerFilters {
   search: string;
   channel: string;
   status: string;
+  tag: string;
   page: number;
   pageSize: number;
   sortField: string;
@@ -37,6 +38,7 @@ export const DEFAULT_FILTERS: CustomerFilters = {
   search: "",
   channel: "all",
   status: "all",
+  tag: "all",
   page: 1,
   pageSize: 25,
   sortField: "updatedAt",
@@ -48,6 +50,7 @@ export function useCustomers(filters: CustomerFilters) {
     search: filters.search,
     channel: filters.channel,
     status: filters.status,
+    tag: filters.tag,
     page: String(filters.page),
     pageSize: String(filters.pageSize),
     sortField: filters.sortField,
@@ -134,4 +137,67 @@ export function useBlockCustomer() {
       { method: "POST", body: JSON.stringify({ blocked: input.blocked }) },
     ),
   );
+}
+
+/** 一個檢視存的就是列表的篩選條件，只是不含頁碼。 */
+export type SavedViewFilters = Omit<CustomerFilters, "page">;
+
+export interface SavedView extends SavedViewFilters {
+  id: string;
+  name: string;
+  createdByEmail: string;
+}
+
+export function useSavedViews() {
+  return useQuery({
+    queryKey: ["crm", "views"],
+    queryFn: async () => {
+      const response = await fetch("/api/crm/views", { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`讀取檢視失敗（${response.status}）`);
+      return ((await response.json()) as { views: SavedView[] }).views;
+    },
+  });
+}
+
+export function useCreateSavedView() {
+  return useCrmMutation((input: SavedViewFilters & { name: string }) =>
+    write<{ id: string }>("/api/crm/views", { method: "POST", body: JSON.stringify(input) }),
+  );
+}
+
+export function useDeleteSavedView() {
+  return useCrmMutation((id: string) =>
+    write<{ ok: true }>(`/api/crm/views/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  );
+}
+
+/**
+ * 目前的條件是不是就是這個檢視。
+ *
+ * 頁碼不比——檢視不存頁碼，翻到第 2 頁不代表就離開了這個檢視。
+ */
+export function matchesView(filters: CustomerFilters, view: SavedViewFilters): boolean {
+  return (
+    filters.search === view.search &&
+    filters.channel === view.channel &&
+    filters.status === view.status &&
+    filters.tag === view.tag &&
+    filters.sortField === view.sortField &&
+    filters.sortDirection === view.sortDirection &&
+    filters.pageSize === view.pageSize
+  );
+}
+
+/** 標籤篩選的選項。沒有 crm:tag:read 的人不會呼叫這支，篩選器也就不顯示。 */
+export function useTagOptions(enabled: boolean) {
+  return useQuery({
+    enabled,
+    // 標籤管理頁用的是同一支 API 但存整個回應，鍵值分開才不會兩邊互相蓋掉。
+    queryKey: ["crm", "tag-options"],
+    queryFn: async () => {
+      const response = await fetch("/api/crm/tags", { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`讀取標籤失敗（${response.status}）`);
+      return ((await response.json()) as { tags: { name: string; customerCount: number }[] }).tags;
+    },
+  });
 }

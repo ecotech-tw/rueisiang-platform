@@ -6,10 +6,13 @@ import {
   parseTags,
   useBlockCustomer,
   useCustomers,
+  useTagOptions,
   type Customer,
   type CustomerFilters,
+  type SavedViewFilters,
 } from "./api.js";
 import { CustomerForm } from "./CustomerForm.js";
+import { SavedViewBar } from "./SavedViewBar.js";
 
 const CHANNEL_LABEL: Record<string, string> = { manual: "人工建立", cyberbiz: "CYBERBIZ" };
 const SYNC_LABEL: Record<string, string> = {
@@ -127,10 +130,16 @@ export function Customers() {
   const { permissions } = useSession();
   const canWrite = permissions.has("crm:customer:write");
   const canBlock = permissions.has("crm:customer:block");
+  const tagOptions = useTagOptions(permissions.has("crm:tag:read"));
 
   /** 改任何篩選條件都要回到第 1 頁，否則會停在一個新條件下不存在的頁碼。 */
   function update(patch: Partial<CustomerFilters>) {
     setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
+  }
+
+  /** 套用檢視是整組換掉，不是疊加——沒存進檢視的條件要跟著回到預設值。 */
+  function applyView(view: SavedViewFilters) {
+    setFilters({ ...view, page: 1 });
   }
 
   const data = query.data;
@@ -162,6 +171,8 @@ export function Customers() {
       ) : null}
 
       <section className="panel grows">
+        <SavedViewBar filters={filters} onApply={applyView} canManage={permissions.has("crm:view:write")} />
+
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <input
             aria-label="搜尋"
@@ -188,6 +199,20 @@ export function Customers() {
             <option value="active">正常</option>
             <option value="blocked">已封鎖</option>
           </select>
+          {tagOptions.data?.length ? (
+            <select
+              aria-label="標籤"
+              value={filters.tag}
+              onChange={(event) => update({ tag: event.target.value })}
+            >
+              <option value="all">全部標籤</option>
+              {tagOptions.data.map((tag) => (
+                <option key={tag.name} value={tag.name}>
+                  {tag.name}（{tag.customerCount}）
+                </option>
+              ))}
+            </select>
+          ) : null}
           <select
             aria-label="排序"
             value={filters.sortField}
