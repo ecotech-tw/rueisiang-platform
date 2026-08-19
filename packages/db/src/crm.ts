@@ -57,6 +57,34 @@ export function defaultCustomerQuery(): CustomerQuery {
   };
 }
 
+/**
+ * 把任意來源的條件收斂成一組跑得起來的查詢。
+ *
+ * 網址列與儲存的檢視都走這裡。兩邊都可能帶著看不懂的值：網址是人手動改的，
+ * 檢視則可能是排序欄位改名之前存下來的。不認得的一律退回預設值而不是報錯——
+ * 整頁壞掉比忽略一個篩選條件嚴重得多。
+ */
+export function normalizeCustomerQuery(
+  input: Partial<Record<keyof CustomerQuery, unknown>>,
+): CustomerQuery {
+  const defaults = defaultCustomerQuery();
+  const page = Number(input.page);
+  const pageSize = Number(input.pageSize);
+
+  return {
+    search: typeof input.search === "string" ? input.search.trim() : defaults.search,
+    channel: input.channel === "manual" || input.channel === "cyberbiz" ? input.channel : defaults.channel,
+    status: input.status === "active" || input.status === "blocked" ? input.status : defaults.status,
+    tag: typeof input.tag === "string" && input.tag.trim() ? input.tag.trim() : defaults.tag,
+    page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : defaults.page,
+    pageSize: (CUSTOMER_PAGE_SIZES as readonly number[]).includes(pageSize) ? pageSize : defaults.pageSize,
+    sortField: CUSTOMER_SORT_FIELDS.includes(input.sortField as CustomerSortField)
+      ? (input.sortField as CustomerSortField)
+      : defaults.sortField,
+    sortDirection: input.sortDirection === "asc" ? "asc" : "desc",
+  };
+}
+
 function buildWhere(query: CustomerQuery): SQL | undefined {
   const conditions: SQL[] = [];
 

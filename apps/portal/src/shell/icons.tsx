@@ -30,7 +30,9 @@ export type IconName =
   | "block"
   | "unblock"
   | "trash"
-  | "close";
+  | "close"
+  | "bookmark"
+  | "check";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   people: (
@@ -167,6 +169,8 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   close: <path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6" />,
+  bookmark: <path d="M7 4.2h10a.8.8 0 0 1 .8.8v14.4L12 16.1l-5.8 3.3V5a.8.8 0 0 1 .8-.8z" />,
+  check: <path d="M5.2 12.6 9.8 17.2 18.8 7.4" />,
   shieldPerson: (
     <>
       <path d="M12 3.5 19 5.9v5.9c0 4-2.8 6.9-7 8.2-4.2-1.3-7-4.2-7-8.2V5.9z" />

@@ -1,10 +1,12 @@
 import {
-  CUSTOMER_PAGE_SIZES,
-  CUSTOMER_SORT_FIELDS,
   EVENT_PAGE_SIZES,
   applyTagChange,
   createCustomer,
+  createSavedView,
   createTag,
+  deleteSavedView,
+  listSavedViews,
+  normalizeCustomerQuery,
   findCustomer,
   findCustomerByPhone,
   setCustomerBlocked,
@@ -15,14 +17,12 @@ import {
   listTags,
   renameTagInCatalog,
   listCustomerEvents,
-  defaultCustomerQuery,
   listCustomers,
   deleteEmptyCyberbizCustomers,
   readSyncStatus,
   retryFailedWebhooks,
   upsertCyberbizCustomers,
   type CustomerQuery,
-  type CustomerSortField,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -46,26 +46,11 @@ const PAGE_SIZE = 50;
  *
  * 查詢參數全部當成不可信輸入：不認得的排序欄位、超出白名單的每頁筆數、
  * 負數的頁碼，一律退回預設值而不是報錯——列表頁被人手動改網址是常態，
- * 為此回 400 只會讓畫面壞掉。
+ * 為此回 400 只會讓畫面壞掉。收斂的規則跟儲存的檢視共用同一份
+ * （packages/db 的 normalizeCustomerQuery），兩邊才不會各自認得不同的值。
  */
 function parseQuery(url: URL): CustomerQuery {
-  const defaults = defaultCustomerQuery();
-  const sortField = url.searchParams.get("sortField");
-  const pageSize = Number(url.searchParams.get("pageSize"));
-  const page = Number(url.searchParams.get("page"));
-
-  return {
-    search: url.searchParams.get("search")?.trim() ?? defaults.search,
-    channel: url.searchParams.get("channel") ?? defaults.channel,
-    status: url.searchParams.get("status") ?? defaults.status,
-    tag: url.searchParams.get("tag")?.trim() ?? defaults.tag,
-    page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : defaults.page,
-    pageSize: (CUSTOMER_PAGE_SIZES as readonly number[]).includes(pageSize) ? pageSize : defaults.pageSize,
-    sortField: CUSTOMER_SORT_FIELDS.includes(sortField as CustomerSortField)
-      ? (sortField as CustomerSortField)
-      : defaults.sortField,
-    sortDirection: url.searchParams.get("sortDirection") === "asc" ? "asc" : "desc",
-  };
+  return normalizeCustomerQuery(Object.fromEntries(url.searchParams));
 }
 
 /** 讀出並檢查客戶欄位。電話是唯一必填——它是辨識客戶的主要依據。 */
@@ -184,6 +169,36 @@ export const crm = new Hono<AppEnv>()
     const user = c.get("user");
     await setCustomerBlocked(c.get("db"), id, blocked, { id: user.id, email: user.email });
     return c.json({ id, blocked });
+  })
+
+  /*
+   * 儲存的檢視是全公司共用的一組篩選條件，不是個人設定。
+   *
+   * 所以讀取只要看得到客戶就行，但建立與刪除要另外的權限——共用的東西被
+   * 任何人隨手刪掉，其他人只會看到自己常用的檢視突然不見。
+   */
+  .get("/views", requirePermission("crm:customer:read"), async (c) => {
+    return c.json({ views: await listSavedViews(c.get("db")) });
+  })
+
+  .post("/views", requirePermission("crm:view:write"), async (c) => {
+    const input = await body(c);
+    const name = requireString(input, "name", "檢視名稱");
+    if (name.length > 40) throw new HTTPException(400, { message: "檢視名稱不能超過 40 個字。" });
+
+    const result = await createSavedView(c.get("db"), {
+      ...input,
+      name,
+      createdByEmail: c.get("user").email,
+    });
+    if (result === "duplicate") throw new HTTPException(409, { message: "已經有同名的檢視了。" });
+    return c.json({ id: result.id, name }, 201);
+  })
+
+  .delete("/views/:id", requirePermission("crm:view:write"), async (c) => {
+    const deleted = await deleteSavedView(c.get("db"), c.req.param("id"));
+    if (!deleted) throw new HTTPException(404, { message: "找不到這個檢視。" });
+    return c.json({ ok: true });
   })
 
   .get("/tags", requirePermission("crm:tag:read"), async (c) => {

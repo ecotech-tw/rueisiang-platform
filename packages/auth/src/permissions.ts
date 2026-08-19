@@ -12,6 +12,7 @@ export const PERMISSIONS = {
   "crm:customer:block": "封鎖客戶",
   "crm:tag:read": "檢視標籤",
   "crm:tag:write": "管理標籤",
+  "crm:view:write": "管理共用的客戶檢視",
   "crm:activity:read": "檢視操作紀錄",
   "crm:sync:read": "檢視 CYBERBIZ 同步狀態",
   "crm:sync:trigger": "手動觸發 CYBERBIZ 同步",
@@ -47,7 +48,7 @@ export const SYSTEM_ROLES = {
     name: "主管",
     permissions: [
       "crm:customer:read", "crm:customer:write", "crm:customer:block",
-      "crm:tag:read", "crm:tag:write", "crm:activity:read",
+      "crm:tag:read", "crm:tag:write", "crm:view:write", "crm:activity:read",
       "crm:sync:read", "crm:sync:trigger",
       "wms:map:read", "wms:map:write",
       "wms:inventory:read", "wms:inventory:write", "wms:inventory:count",
@@ -59,7 +60,7 @@ export const SYSTEM_ROLES = {
     name: "一般同仁",
     permissions: [
       "crm:customer:read", "crm:customer:write",
-      "crm:tag:read", "crm:activity:read",
+      "crm:tag:read", "crm:view:write", "crm:activity:read",
       "wms:map:read", "wms:inventory:read", "wms:inventory:count",
     ],
   },

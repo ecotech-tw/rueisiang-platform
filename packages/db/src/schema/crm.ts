@@ -56,9 +56,13 @@ export const savedViews = sqliteTable("saved_views", {
   search: text("search").notNull().default(""),
   channel: text("channel").notNull().default("all"),
   status: text("status").notNull().default("all"),
+  // 標籤篩選是這一版才有的，舊系統的檢視存不了它，所以預設 all＝不篩。
+  tag: text("tag").notNull().default("all"),
   sortField: text("sort_field").notNull().default("updatedAt"),
   sortDirection: text("sort_direction").notNull().default("desc"),
   pageSize: integer("page_size").notNull().default(10),
+  // 只留 email 不留 user_id：檢視是共用的，需要的是「去問誰」，而人可能已經離職。
+  createdByEmail: text("created_by_email").notNull().default(""),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_saved_views_name").on(table.name),

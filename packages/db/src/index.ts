@@ -22,10 +22,19 @@ export {
   CUSTOMER_SORT_FIELDS,
   defaultCustomerQuery,
   listCustomers,
+  normalizeCustomerQuery,
   type CustomerListResult,
   type CustomerQuery,
   type CustomerSortField,
 } from "./crm.js";
+export {
+  createSavedView,
+  deleteSavedView,
+  listSavedViews,
+  savedViewQuery,
+  type SavedViewQuery,
+  type SavedViewRow,
+} from "./crm-views.js";
 export { normalizePhone, validatePhone } from "./phone.js";
 export {
   syncCyberbizCustomer,
