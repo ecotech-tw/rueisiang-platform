@@ -30,7 +30,20 @@ describe("密碼雜湊", () => {
     const encoded = await hashPassword("whatever");
     const [algorithm, iterations] = encoded.split("$");
     expect(algorithm).toBe("pbkdf2-sha256");
-    expect(Number(iterations)).toBe(120_000);
+    expect(Number(iterations)).toBe(100_000);
+  });
+
+  /*
+   * 這條測試在 Node 上跑，而 Node 沒有迭代次數上限——所以它抓不到「實際在
+   * Worker 上會不會爆」。它能做的是把那個上限寫成一個會失敗的斷言：有人為了
+   * 「更安全」把輪數調高時，CI 會先擋下來，而不是等使用者在正式站按下去才 500。
+   *
+   * Workers 的限制是 100000，超過丟 NotSupportedError。
+   * https://github.com/cloudflare/workerd/issues/1346
+   */
+  it("輪數不能超過 Cloudflare Workers 的 100000 上限", async () => {
+    const encoded = await hashPassword("whatever");
+    expect(Number(encoded.split("$")[1])).toBeLessThanOrEqual(100_000);
   });
 
   it.each([

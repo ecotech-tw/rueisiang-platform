@@ -1200,6 +1200,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   padding: 12px 0 14px;
   border-bottom: 1px solid var(--color-soft-line);
 }
+/*
  * 登入卡片裡的表單。卡片本身是置中的窄欄，所以欄位要撐滿寬度——
  * 沿用一般表單的 .field，只補「在這張卡片裡該有多寬」這件事。
  */
