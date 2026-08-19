@@ -3,6 +3,7 @@ import { useSession } from "../../auth/session.js";
 import {
   useAssignRole,
   useCatalog,
+  useDeleteUser,
   useInvite,
   useResendInvite,
   useRevokeRole,
@@ -148,10 +149,11 @@ function UserEditor({
   const assign = useAssignRole();
   const revoke = useRevokeRole();
   const setStatus = useSetStatus();
+  const remove = useDeleteUser();
 
   const held = new Set(user.assignments.map((assignment) => assignment.roleKey));
-  const pending = assign.isPending || revoke.isPending || setStatus.isPending;
-  const error = assign.error ?? revoke.error ?? setStatus.error;
+  const pending = assign.isPending || revoke.isPending || setStatus.isPending || remove.isPending;
+  const error = assign.error ?? revoke.error ?? setStatus.error ?? remove.error;
 
   /*
    * 這個人實際上能做什麼＝手上所有角色的權限聯集。管理者最常問的其實是這句話，
@@ -257,6 +259,32 @@ function UserEditor({
         </div>
 
         <div className="modal-actions">
+          {/*
+            * 刪除只在已停用時出現。「先停用再刪」是刻意的兩步：停用可逆、
+            * 刪除不可逆，中間那一步就是確認。靠左放，跟右邊的「關閉」拉開距離，
+            * 免得想關掉的人手滑按到。
+            */}
+          {user.status === "disabled" ? (
+            <button
+              type="button"
+              className="ghost-button danger delete-action"
+              disabled={pending}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `確定要刪除「${user.email}」嗎？
+
+這個動作無法復原。他的角色指派會一起消失，` +
+                      `但操作紀錄與出金表執行紀錄會留著（那些存的是當時的信箱，不是帳號連結）。`,
+                  )
+                ) {
+                  remove.mutate(user.id, { onSuccess: onClose });
+                }
+              }}
+            >
+              {remove.isPending ? "刪除中…" : "刪除帳號"}
+            </button>
+          ) : null}
           <button type="button" className="ghost-button" onClick={onClose} disabled={pending}>關閉</button>
         </div>
       </div>

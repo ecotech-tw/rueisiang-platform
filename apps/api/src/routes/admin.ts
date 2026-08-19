@@ -5,6 +5,7 @@ import {
   countRoleHolders,
   createRole,
   deleteRole,
+  deleteUser,
   findUser,
   hasRole,
   inviteUser,
@@ -210,6 +211,28 @@ export const admin = new Hono<AppEnv>()
 
     await setUserStatus(c.get("db"), id, status as UserStatus);
     return c.json({ id, status });
+  })
+
+  /**
+   * 刪除帳號。只接受已停用的，而且不能刪自己。
+   *
+   * 「先停用再刪」是刻意的兩步：停用可逆、刪除不可逆，中間那一步就是確認。
+   * 不能刪自己則是為了避免一個很蠢但會發生的情境——刪完之後才想起來自己是
+   * 唯一的管理者。（實際上停用最後一位管理者已經被擋，所以自己不可能是停用
+   * 狀態；這條是保險，不是主要防線。）
+   */
+  .delete("/users/:id", requirePermission("admin:user:write"), async (c) => {
+    const id = c.req.param("id");
+    if (id === c.get("user").id) {
+      throw new HTTPException(409, { message: "不能刪除自己的帳號。" });
+    }
+
+    const result = await deleteUser(c.get("db"), id);
+    if (result === "not-found") throw new HTTPException(404, { message: "找不到這個帳號。" });
+    if (result === "not-disabled") {
+      throw new HTTPException(409, { message: "只有已停用的帳號能刪除。請先停用再刪。" });
+    }
+    return c.json({ id });
   })
 
   .post("/users/:id/roles", requirePermission("admin:role:write"), async (c) => {

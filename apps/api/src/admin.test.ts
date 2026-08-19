@@ -523,3 +523,76 @@ describe("自訂角色", () => {
     expect(response.status).toBe(403);
   });
 });
+
+describe("刪除帳號", () => {
+  /*
+   * 刪除不可逆，所以每個守衛都要釘住。特別是「只有已停用的能刪」——
+   * 少了它，一個手滑就能把還在用的帳號清掉。
+   */
+  async function disabledUser(admin: string) {
+    const id = await seedUser("left@ecotech.tw", "role-viewer");
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "disabled" }),
+    });
+    return id;
+  }
+
+  it("已停用的帳號可以刪，刪完就不在列表裡了", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const target = await disabledUser(admin);
+
+    const response = await as(admin, "admin@ecotech.tw", `/api/admin/users/${target}`, { method: "DELETE" });
+    expect(response.status).toBe(200);
+
+    const list = (await (await as(admin, "admin@ecotech.tw", "/api/admin/users")).json()) as {
+      users: { id: string }[];
+    };
+    expect(list.users.map((user) => user.id)).not.toContain(target);
+  });
+
+  it("角色指派跟著一起消失", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const target = await disabledUser(admin);
+    await as(admin, "admin@ecotech.tw", `/api/admin/users/${target}`, { method: "DELETE" });
+
+    const rows = await db().select().from(userRoles).where(eq(userRoles.userId, target));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("啟用中的帳號不能刪——要先停用", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const target = await seedUser("still-here@ecotech.tw", "role-staff");
+
+    const response = await as(admin, "admin@ecotech.tw", `/api/admin/users/${target}`, { method: "DELETE" });
+    expect(response.status).toBe(409);
+    expect((await response.json() as { error: string }).error).toContain("已停用");
+  });
+
+  it("還沒登入過的帳號也不能直接刪", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const target = await seedUser("invited@ecotech.tw", null, { status: "invited" });
+
+    expect((await as(admin, "admin@ecotech.tw", `/api/admin/users/${target}`, { method: "DELETE" })).status).toBe(409);
+  });
+
+  it("不能刪自己", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const response = await as(admin, "admin@ecotech.tw", `/api/admin/users/${admin}`, { method: "DELETE" });
+    expect(response.status).toBe(409);
+    expect((await response.json() as { error: string }).error).toContain("自己");
+  });
+
+  it("刪不存在的帳號回 404，不是默默成功", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    expect((await as(admin, "admin@ecotech.tw", "/api/admin/users/user-nope", { method: "DELETE" })).status).toBe(404);
+  });
+
+  it("沒有 admin:user:write 的人不能刪", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const target = await disabledUser(admin);
+    const staff = await seedUser("staff@ecotech.tw", "role-staff");
+
+    expect((await as(staff, "staff@ecotech.tw", `/api/admin/users/${target}`, { method: "DELETE" })).status).toBe(403);
+  });
+});
