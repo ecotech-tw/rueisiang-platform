@@ -46,7 +46,13 @@ export async function listUsers(db: Database): Promise<AdminUserRow[]> {
     .select({
       id: users.id,
       email: users.email,
+      /*
+       * 兩個名字都要撈。users.name 是 Google 帳號上的姓名，只有 Google 登入
+       * 才會寫；走邀請連結設密碼的人那一欄永遠是空的。只看它的話，後台會把
+       * 每一個帳密使用者都顯示成「（尚未登入過）」——即使他天天在用。
+       */
       name: users.name,
+      displayName: users.displayName,
       status: users.status,
       lastLoginAt: users.lastLoginAt,
       createdAt: users.createdAt,
@@ -71,8 +77,10 @@ export async function listUsers(db: Database): Promise<AdminUserRow[]> {
     byUser.set(item.userId, list);
   }
 
-  return rows.map((row) => ({
+  return rows.map(({ displayName, ...row }) => ({
     ...row,
+    // 與 loadAuthUser 同一條規則：自己設的顯示名稱優先，沒設才退回 Google 的姓名。
+    name: displayName || row.name,
     status: row.status as UserStatus,
     assignments: byUser.get(row.id) ?? [],
   }));
@@ -224,6 +232,8 @@ export async function acceptInvitation(
     .set({
       passwordHash: await hashPassword(input.password),
       passwordSetAt: now,
+      // 設完密碼會直接發 session，那一刻就是這個人的第一次登入。
+      lastLoginAt: now,
       invitationTokenHash: null,
       invitationExpiresAt: null,
       status: "active",
@@ -262,6 +272,16 @@ export async function authenticateWithPassword(
 
   if (!row || row.status !== "active" || !row.passwordHash) return null;
   if (!(await verifyPassword(password, row.passwordHash))) return null;
+
+  /*
+   * 記錄最後登入時間。Google 那條路由 recordLogin 負責，帳密這條原本什麼都沒寫——
+   * 結果後台的「最後登入」對帳密使用者永遠是「—」，看起來像沒人在用這個帳號。
+   */
+  await db
+    .update(users)
+    .set({ lastLoginAt: new Date().toISOString(), updatedAt: sql`CURRENT_TIMESTAMP` })
+    .where(eq(users.id, row.id));
+
   return { id: row.id, email: row.email };
 }
 

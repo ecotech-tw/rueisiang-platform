@@ -27,6 +27,18 @@ const STATUS_LABEL: Record<AdminUser["status"], string> = {
   disabled: "已停用",
 };
 
+/**
+ * 列表上要顯示的名字。
+ *
+ * 「（尚未登入過）」原本是用「名字是空的」推出來的，但那兩件事不是同一回事：
+ * 走邀請連結設密碼的人可能沒填顯示名稱，卻天天在用。改成看 lastLoginAt——
+ * 那才是「有沒有登入過」的真正答案。
+ */
+function displayNameOf(user: AdminUser): string {
+  if (user.name) return user.name;
+  return user.lastLoginAt ? "（未設定名稱）" : "（尚未登入過）";
+}
+
 function formatTime(value: string | null): string {
   if (!value) return "—";
   // D1 存的是 UTC 的 CURRENT_TIMESTAMP（YYYY-MM-DD HH:MM:SS），沒有時區標記。
@@ -201,7 +213,7 @@ function UserEditor({
       <div className="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="user-editor-title">
         <div className="modal-head">
           <div>
-            <h2 id="user-editor-title">{user.name || "（尚未登入過）"}</h2>
+            <h2 id="user-editor-title">{displayNameOf(user)}</h2>
             <p className="muted">{user.email}</p>
           </div>
           <button type="button" className="icon-button" onClick={onClose} disabled={pending} title="關閉" aria-label="關閉">
@@ -428,7 +440,7 @@ function UserRow({
     <>
       <tr>
         <td>
-          <div className="cell-strong">{user.name || "（尚未登入過）"}</div>
+          <div className="cell-strong">{displayNameOf(user)}</div>
           <div className="cell-sub">{user.email}</div>
         </td>
 
