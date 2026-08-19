@@ -5,6 +5,9 @@ export { countOtherActiveAdmins, loadAuthUser, recordLogin, updateProfile } from
 export { syncSystemRoles } from "./seed.js";
 export {
   assignRole,
+  countRoleHolders,
+  createRole,
+  deleteRole,
   findUser,
   hasRole,
   inviteUser,
@@ -12,10 +15,12 @@ export {
   listUsers,
   revokeRole,
   setUserStatus,
+  updateRole,
   type AdminUserRow,
   type AssignmentRow,
   type RoleGrant,
   type RoleRow,
+  type RoleWriteResult,
 } from "./admin.js";
 export {
   CUSTOMER_PAGE_SIZES,

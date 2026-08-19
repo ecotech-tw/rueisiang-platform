@@ -26,3 +26,20 @@ export function requireString(input: Record<string, unknown>, field: string, lab
   }
   return value.trim();
 }
+
+/**
+ * 讀一個字串陣列。缺欄位跟空陣列是兩件事：前者是「這次不動它」，
+ * 後者是「明確設成一個都沒有」——權限清單兩種都要能表達，所以回 undefined 而不是 []。
+ */
+export function optionalStringArray(
+  input: Record<string, unknown>,
+  field: string,
+  label: string,
+): string[] | undefined {
+  const value = input[field];
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new HTTPException(400, { message: `${label}的格式不正確。` });
+  }
+  return value as string[];
+}
