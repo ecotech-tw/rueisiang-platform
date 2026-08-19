@@ -1462,9 +1462,48 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .stat { padding: 10px 12px; }
   .stat strong { font-size: 17px; }
 
-  /* 頁首的動作鈕不要被標題擠成兩行字。 */
-  .page-head-row { flex-direction: column; align-items: stretch; gap: 12px; }
-  .page-head-row .primary-button { width: 100%; }
+  /*
+   * 頁首壓扁：標題與動作鈕排同一行，動作鈕縮成一顆圓形的圖示。
+   *
+   * 上一版把它拉成滿寬的一整列，那在 375px 的螢幕上又吃掉 60px——加上統計、
+   * 檢視列、搜尋、篩選，資料開始的位置被推到快 500px，等於一個螢幕只看得到
+   * 一張半的卡片。
+   */
+  .page-head { margin-bottom: 12px; }
+  .page-head h1 { font-size: 20px; }
+  .page-head-row { align-items: center; gap: 12px; }
+  .add-action {
+    width: 44px;
+    height: 44px;
+    flex: none;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+  }
+  .add-action span { display: none; }
+  .add-action svg { width: 22px; height: 22px; }
+
+  /*
+   * 搜尋與篩選併成一行。搜尋框原本的 min-width: 220px 會把篩選鈕擠到下一列，
+   * 而那顆按鈕本身只要一個圖示就講得完。
+   */
+  .admin-form.toolbar { flex-wrap: nowrap; gap: 8px; }
+  .admin-form.toolbar .search-input { min-width: 0; }
+  .admin-form.toolbar .ghost-button.with-icon {
+    flex: none;
+    padding: 0 12px;
+    gap: 6px;
+  }
+
+  /* 檢視列的膠囊改成水平捲，不要換行疊高。 */
+  .view-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .view-bar::-webkit-scrollbar { display: none; }
+  .view-bar > * { flex: none; }
 
   /* 篩選面板的下拉在窄螢幕各佔一整行，比擠成兩欄好按。 */
   .admin-form.filter-panel select { width: 100%; max-width: none; }

@@ -172,8 +172,15 @@ export function Customers() {
             <p className="muted">查看、搜尋 CYBERBIZ 與人工建立的客戶資料。</p>
           </div>
           {canWrite ? (
-            <button type="button" className="primary-button" onClick={() => setEditing("new")}>
-              ＋ 新增客人
+            <button
+              type="button"
+              className="primary-button with-icon add-action"
+              onClick={() => setEditing("new")}
+              aria-label="新增客人"
+            >
+              {/* 手機上文字會被 CSS 藏起來，只剩一顆圓形的 ＋。aria-label 補回名稱。 */}
+              <Icon name="plus" />
+              <span>新增客人</span>
             </button>
           ) : null}
         </div>
