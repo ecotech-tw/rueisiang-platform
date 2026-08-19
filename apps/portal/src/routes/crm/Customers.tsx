@@ -100,7 +100,7 @@ export function Customers() {
       ) : null}
 
       <section className="panel grows">
-        <form className="admin-form" onSubmit={(event) => event.preventDefault()}>
+        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <input
             aria-label="搜尋"
             type="search"
