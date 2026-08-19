@@ -286,8 +286,8 @@ export function Sync() {
             <tbody>
               {data.recent.map((event) => (
                 <tr key={event.id}>
-                  <td className="cell-sub nowrap">{formatTime(event.receivedAt)}</td>
-                  <td className="nowrap">{event.topic}</td>
+                  <td className="cell-sub whitespace-nowrap">{formatTime(event.receivedAt)}</td>
+                  <td className="whitespace-nowrap">{event.topic}</td>
                   <td>
                     <span className={`status status-webhook-${event.status}`}>
                       {STATUS_LABEL[event.status] ?? event.status}

@@ -132,7 +132,7 @@ export function Activity() {
             <tbody>
               {data?.events.map((event) => (
                 <tr key={event.id}>
-                  <td className="cell-sub nowrap">{formatTime(event.createdAt)}</td>
+                  <td className="cell-sub whitespace-nowrap">{formatTime(event.createdAt)}</td>
                   <td>
                     <div className="cell-strong">{event.customerName || "未填姓名"}</div>
                     <div className="cell-sub">{event.customerPhone || "未填電話"}</div>
