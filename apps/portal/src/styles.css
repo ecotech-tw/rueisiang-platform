@@ -666,6 +666,67 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 
 .boot { padding: 48px; color: var(--muted); }
 
+.page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+
+/* ── 對話框（Material 的 dialog）───────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(53, 28, 29, .42);
+}
+.modal-card {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 28px;
+  background: var(--paper);
+  box-shadow: 0 24px 60px rgba(64, 30, 30, .28);
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px 24px 14px;
+}
+.modal-head h2 { margin: 0; font-size: 20px; }
+.modal-body { display: grid; gap: 16px; padding: 0 24px 8px; overflow-y: auto; }
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  position: sticky;
+  bottom: 0;
+  margin: 8px -24px 0;
+  padding: 16px 24px;
+  background: var(--paper);
+  border-top: 1px solid var(--soft-line);
+}
+
+.field { display: grid; gap: 6px; }
+.field > span { font-size: 13px; font-weight: 700; }
+.field > span b { margin-left: 6px; color: var(--brand); font-size: 11px; }
+.field > small { color: var(--muted); font-size: 12px; }
+.field input {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.field input:focus-visible { outline: 2px solid var(--secondary); outline-offset: 1px; }
+.field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+.field.checkbox { grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; }
+.field.checkbox input { width: 18px; height: 18px; margin-top: 2px; }
+.field.checkbox small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-weight: 400; }
+
 .form-hint { color: var(--success, #2d7a54); font-size: 13px; font-weight: 700; }
 .form-foot { margin-top: 12px; font-size: 12px; }
 .detail-list { display: grid; gap: 12px; margin: 0; }

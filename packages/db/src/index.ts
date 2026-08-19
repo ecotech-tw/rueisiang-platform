@@ -62,3 +62,12 @@ export {
   type TagChangeResult,
   type TagRow,
 } from "./crm-tags.js";
+export {
+  createCustomer,
+  findCustomer,
+  findCustomerByPhone,
+  setCustomerBlocked,
+  updateCustomer,
+  type Actor,
+  type CustomerInput,
+} from "./crm-write.js";
