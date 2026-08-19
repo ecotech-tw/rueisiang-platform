@@ -32,6 +32,7 @@ export {
   buildAuthorizeUrl,
   createPkce,
   exchangeCode,
+  fetchGoogleAvatar,
   randomToken,
   verifyIdToken,
   type GoogleIdentity,

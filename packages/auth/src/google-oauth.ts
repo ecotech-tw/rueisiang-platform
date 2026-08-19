@@ -56,7 +56,7 @@ export async function exchangeCode(options: {
   clientSecret: string;
   redirectUri: string;
   codeVerifier: string;
-}): Promise<{ idToken: string }> {
+}): Promise<{ idToken: string; accessToken: string }> {
   const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -73,9 +73,10 @@ export async function exchangeCode(options: {
   if (!response.ok) {
     throw new Error(`Google 授權碼交換失敗（${response.status}）。`);
   }
-  const body = (await response.json()) as { id_token?: string };
+  const body = (await response.json()) as { id_token?: string; access_token?: string };
   if (!body.id_token) throw new Error("Google 沒有回傳 id_token。");
-  return { idToken: body.id_token };
+  // access token 只拿來補頭像（見 fetchGoogleAvatar），不存也不傳給前端。
+  return { idToken: body.id_token, accessToken: body.access_token ?? "" };
 }
 
 interface Jwk extends JsonWebKey {
@@ -172,4 +173,31 @@ export async function verifyIdToken(
 /** 測試用：清掉 JWKS 快取。 */
 export function resetJwksCache(): void {
   jwksCache = null;
+}
+
+const USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
+
+/**
+ * 補一次頭像網址。
+ *
+ * ID token 的 picture 欄位不是每次都有——Workspace 帳號尤其常常沒有，即使
+ * 使用者有設大頭照。舊 CRM 是打 userinfo 端點拿的，所以它一直都有頭像。
+ *
+ * 這裡當成「有更好、沒有也不影響登入」：任何失敗都回空字串，不要讓拿頭像
+ * 這種裝飾性的事擋住登入流程。
+ */
+export async function fetchGoogleAvatar(accessToken: string): Promise<string> {
+  if (!accessToken) return "";
+
+  try {
+    const response = await fetch(USERINFO_URL, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) return "";
+
+    const body = (await response.json()) as { picture?: string };
+    return typeof body.picture === "string" ? body.picture : "";
+  } catch {
+    return "";
+  }
 }

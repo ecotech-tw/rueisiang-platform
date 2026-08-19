@@ -355,7 +355,41 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .mobile-topbar,
 .mobile-menu-backdrop { display: none; }
 
-.content { padding: 32px 36px; min-width: 0; }
+/*
+ * 內容區自己就是一個 100vh 的欄。頁面不整頁捲動，改由需要的區塊（例如客戶列表）
+ * 自己捲——這樣篩選列與統計固定在上面，滑動時不會把它們一起帶走。
+ */
+.content { padding: 32px 36px; min-width: 0; height: 100vh; overflow-y: auto; }
+.content:has(.page.fills) { overflow-y: hidden; }
+
+/* 撐滿剩餘高度、內部捲動的頁面。 */
+.page.fills { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.page.fills > .page-head,
+.page.fills > .stat-row { flex: none; }
+.page.fills > .panel.grows {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.page.fills > .panel.grows > .panel-head,
+.page.fills > .panel.grows > .muted,
+.page.fills > .panel.grows > .admin-form,
+.page.fills > .panel.grows > .pager,
+.page.fills > .panel.grows > .form-error,
+.page.fills > .panel.grows > .table-note { flex: none; }
+.page.fills > .panel.grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
+
+/* 表頭在自己的捲動容器裡固定。 */
+.table-scroll .data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--paper);
+  /* sticky 的元素沒有邊框會在捲動時「切」到內容，用陰影代替 border-bottom。 */
+  box-shadow: inset 0 -1px 0 var(--line);
+}
 .page-head { margin-bottom: 20px; }
 .page-head h1 { margin: 0 0 4px; font-size: 24px; }
 .muted { color: var(--muted); margin: 0; }
@@ -470,6 +504,21 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .status-webhook-ignored { background: var(--soft-line); color: var(--muted); }
 .status-webhook-processing { background: #fff3d9; color: #93621f; }
 .status-webhook-failed { background: var(--brand-soft); color: var(--brand-dark); }
+
+.payload-peek { margin-top: 4px; }
+.payload-peek summary { color: var(--brand); cursor: pointer; font-size: 11px; }
+.payload-peek pre {
+  max-width: 520px;
+  max-height: 220px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--canvas);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 
 .pager {
   display: flex;

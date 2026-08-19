@@ -3,9 +3,10 @@ import {
   CUSTOMER_SORT_FIELDS,
   defaultCustomerQuery,
   listCustomers,
+  deleteEmptyCyberbizCustomers,
   readSyncStatus,
   retryFailedWebhooks,
-  syncCyberbizCustomers,
+  upsertCyberbizCustomers,
   type CustomerQuery,
   type CustomerSortField,
 } from "@rueisiang/db";
@@ -74,7 +75,7 @@ export const crm = new Hono<AppEnv>()
     if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN。" });
 
     const startPage = Math.max(1, Number(new URL(c.req.url).searchParams.get("page") || 1));
-    const totals = { received: 0, created: 0, updated: 0, unchanged: 0, ignored: 0 };
+    const totals = { received: 0, written: 0, skipped: 0 };
     let totalPages = 1;
     // 最後一頁「實際拉到的」頁碼。下一輪要從這個數字 +1 開始，
     // 記成「準備要拉的下一頁」的話，接續時會整頁被跳過。
@@ -103,9 +104,7 @@ export const crm = new Hono<AppEnv>()
       totalPages = result.totalPages;
       lastFetchedPage = page;
 
-      const summary = await syncCyberbizCustomers(c.get("db"), result.customers, {
-        topic: "manual-sync",
-      });
+      const summary = await upsertCyberbizCustomers(c.get("db"), result.customers);
       for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += summary[key];
 
       if (!result.customers.length || page >= totalPages) break;
@@ -126,4 +125,10 @@ export const crm = new Hono<AppEnv>()
   /** 補跑處理失敗的 webhook。Cron 也會做同一件事，這條是給人手動催的。 */
   .post("/sync/retry", requirePermission("crm:sync:trigger"), async (c) => {
     return c.json(await retryFailedWebhooks(c.get("db"), { client: cyberbizClient(c.env) }));
+  })
+
+  /** 清掉只有 CYBERBIZ ID、其餘全空的客戶（上一版 webhook 判斷太鬆造成的）。 */
+  .post("/sync/cleanup-empty", requirePermission("crm:sync:trigger"), async (c) => {
+    const result = await deleteEmptyCyberbizCustomers(c.get("db"));
+    return c.json({ deleted: result.deleted });
   });

@@ -30,12 +30,15 @@ export { normalizePhone, validatePhone } from "./phone.js";
 export {
   syncCyberbizCustomer,
   syncCyberbizCustomers,
+  upsertCyberbizCustomers,
+  type BulkSyncSummary,
   type BatchSyncSummary,
   type CyberbizSyncAction,
   type CyberbizSyncResult,
   type SyncContext,
 } from "./crm-sync.js";
 export {
+  deleteEmptyCyberbizCustomers,
   processCustomerWebhook,
   readSyncStatus,
   retryFailedWebhooks,

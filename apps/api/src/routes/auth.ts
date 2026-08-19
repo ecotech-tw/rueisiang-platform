@@ -5,6 +5,7 @@ import {
   clearCookie,
   createPkce,
   exchangeCode,
+  fetchGoogleAvatar,
   newSessionClaims,
   permissionsOf,
   randomToken,
@@ -94,7 +95,7 @@ export const auth = new Hono<AppEnv>()
 
     let identity;
     try {
-      const { idToken } = await exchangeCode({
+      const { idToken, accessToken } = await exchangeCode({
         code,
         clientId: c.env.GOOGLE_OAUTH_CLIENT_ID,
         clientSecret: c.env.GOOGLE_OAUTH_CLIENT_SECRET,
@@ -105,6 +106,11 @@ export const auth = new Hono<AppEnv>()
         clientId: c.env.GOOGLE_OAUTH_CLIENT_ID,
         nonce: transaction.nonce,
       });
+
+      // ID token 不一定帶 picture（Workspace 帳號常常沒有），跟 userinfo 再要一次。
+      if (!identity.pictureUrl) {
+        identity = { ...identity, pictureUrl: await fetchGoogleAvatar(accessToken) };
+      }
     } catch (error) {
       console.error("Google 登入失敗", error);
       return failure("Google 登入失敗，請再試一次。");
