@@ -71,6 +71,7 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: "tune",
     items: [
       { label: "權限管理", to: "/admin/users", permission: "admin:user:read", icon: "shieldPerson" },
+      { label: "角色管理", to: "/admin/roles", permission: "admin:role:write", icon: "tune" },
     ],
   },
 ];

@@ -24,6 +24,7 @@ export interface AdminUser {
 export interface RoleInfo {
   key: string;
   name: string;
+  description: string;
   isSystem: boolean;
   permissions: Permission[];
 }
@@ -31,6 +32,8 @@ export interface RoleInfo {
 export interface Catalog {
   roles: RoleInfo[];
   permissions: Record<string, string>;
+  /** roleKey → 目前有幾個人持有。刪除前的確認訊息要講得出數字。 */
+  holders: Record<string, number>;
 }
 
 /** API 的錯誤訊息本來就是要給人看的中文，直接往上丟給畫面顯示。 */
@@ -115,4 +118,46 @@ export function useRevokeRole() {
     const params = new URLSearchParams({ roleKey: input.roleKey });
     return request(`/api/admin/users/${encodeURIComponent(input.id)}/roles?${params}`, { method: "DELETE" });
   });
+}
+
+/**
+ * ── 自訂角色 ──────────────────────────────────────────────────────────────
+ *
+ * 角色改動會影響「誰能看到什麼」，所以整個 admin 的快取都要作廢，
+ * 不是只有角色目錄——帳號列表上顯示的角色名稱也可能跟著變。
+ */
+function useRoleMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => client.invalidateQueries({ queryKey: ["admin"] }),
+  });
+}
+
+export interface RoleDraft {
+  name: string;
+  description: string;
+  permissions: Permission[];
+}
+
+export function useCreateRole() {
+  return useRoleMutation((input: RoleDraft) =>
+    request("/api/admin/roles", { method: "POST", body: JSON.stringify(input) }),
+  );
+}
+
+export function useUpdateRole() {
+  return useRoleMutation((input: { key: string } & Partial<RoleDraft>) => {
+    const { key, ...patch } = input;
+    return request(`/api/admin/roles/${encodeURIComponent(key)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  });
+}
+
+export function useDeleteRole() {
+  return useRoleMutation((key: string) =>
+    request(`/api/admin/roles/${encodeURIComponent(key)}`, { method: "DELETE" }),
+  );
 }

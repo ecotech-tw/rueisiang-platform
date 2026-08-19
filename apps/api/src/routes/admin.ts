@@ -2,6 +2,9 @@ import { PERMISSIONS, type UserStatus } from "@rueisiang/auth";
 import {
   assignRole,
   countOtherActiveAdmins,
+  countRoleHolders,
+  createRole,
+  deleteRole,
   findUser,
   hasRole,
   inviteUser,
@@ -11,12 +14,14 @@ import {
   setUserStatus,
   seedPayoutStores,
   syncSystemRoles,
+  updateRole,
+  type RoleWriteResult,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
-import { body, requireString } from "../request.js";
+import { body, optionalStringArray, requireString } from "../request.js";
 
 const ADMIN_ROLE = "admin";
 
@@ -36,6 +41,22 @@ function parseEmail(input: Record<string, unknown>): string {
   return email;
 }
 
+/** 角色寫入的失敗情形都對應到一個 HTTP 狀態碼，路由那邊就不必每條各寫一次。 */
+function throwOnRoleWriteFailure(result: RoleWriteResult): void {
+  switch (result.kind) {
+    case "ok":
+      return;
+    case "not-found":
+      throw new HTTPException(404, { message: "找不到這個角色。" });
+    case "system-role":
+      throw new HTTPException(400, {
+        message: "系統角色的權限寫在程式碼裡，不能從這裡改。請複製成自訂角色再調整。",
+      });
+    case "unknown-permission":
+      throw new HTTPException(400, { message: `沒有這個權限：${result.permission}` });
+  }
+}
+
 export const admin = new Hono<AppEnv>()
   .use("*", requireAuth)
 
@@ -45,7 +66,12 @@ export const admin = new Hono<AppEnv>()
 
   /** 角色與權限目錄。權限的說明文字來自程式碼，資料庫只存「角色有哪些鍵值」。 */
   .get("/roles", requirePermission("admin:user:read"), async (c) => {
-    return c.json({ roles: await listRoles(c.get("db")), permissions: PERMISSIONS });
+    return c.json({
+      roles: await listRoles(c.get("db")),
+      permissions: PERMISSIONS,
+      // 帶上「每個角色幾個人在用」，刪除前的確認訊息才講得出數字。
+      holders: await countRoleHolders(c.get("db")),
+    });
   })
 
   /**
@@ -60,6 +86,45 @@ export const admin = new Hono<AppEnv>()
   .post("/roles/sync", requirePermission("admin:role:write"), async (c) => {
     await syncSystemRoles(c.get("db"));
     await seedPayoutStores(c.get("db"));
+    return c.json({ roles: await listRoles(c.get("db")) });
+  })
+
+  /**
+   * ── 自訂角色 ────────────────────────────────────────────────────────────
+   *
+   * 系統角色不開放從這裡改。它們的權限每次 /roles/sync 都會被程式碼整組重寫，
+   * 讓人在 UI 改只會得到一個下次同步就消失的設定——那比不給改更難查。
+   * 要「像主管但不能碰出金表」就複製一份成自訂角色再調整。
+   */
+  .post("/roles", requirePermission("admin:role:write"), async (c) => {
+    const input = await body(c);
+    const result = await createRole(c.get("db"), {
+      name: requireString(input, "name", "角色名稱"),
+      description: typeof input.description === "string" ? input.description : "",
+      permissions: optionalStringArray(input, "permissions", "權限清單") ?? [],
+    });
+    throwOnRoleWriteFailure(result);
+    return c.json({ roles: await listRoles(c.get("db")) }, 201);
+  })
+
+  .patch("/roles/:key", requirePermission("admin:role:write"), async (c) => {
+    const input = await body(c);
+    const result = await updateRole(c.get("db"), c.req.param("key"), {
+      // 三個欄位都可以單獨送。沒帶的欄位代表「這次不動它」，不是清空。
+      ...(input.name !== undefined ? { name: requireString(input, "name", "角色名稱") } : {}),
+      ...(typeof input.description === "string" ? { description: input.description } : {}),
+      ...(() => {
+        const permissions = optionalStringArray(input, "permissions", "權限清單");
+        return permissions ? { permissions } : {};
+      })(),
+    });
+    throwOnRoleWriteFailure(result);
+    return c.json({ roles: await listRoles(c.get("db")) });
+  })
+
+  .delete("/roles/:key", requirePermission("admin:role:write"), async (c) => {
+    const result = await deleteRole(c.get("db"), c.req.param("key"));
+    throwOnRoleWriteFailure(result);
     return c.json({ roles: await listRoles(c.get("db")) });
   })
 

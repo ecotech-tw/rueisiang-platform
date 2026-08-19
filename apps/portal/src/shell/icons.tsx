@@ -27,6 +27,8 @@ export type IconName =
   | "tune"
   | "shieldPerson"
   | "edit"
+  | "eye"
+  | "copy"
   | "block"
   | "unblock"
   | "trash"
@@ -39,6 +41,18 @@ export type IconName =
   | "external";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  eye: (
+    <>
+      <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+      <circle cx="12" cy="12" r="2.8" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2.5" />
+      <path d="M15 5.5A2.5 2.5 0 0 0 12.5 3H6.5A2.5 2.5 0 0 0 4 5.5v6A2.5 2.5 0 0 0 6.5 14" />
+    </>
+  ),
   people: (
     <>
       <circle cx="9.2" cy="8.6" r="3.3" />

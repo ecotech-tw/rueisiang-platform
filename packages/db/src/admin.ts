@@ -1,5 +1,5 @@
-import type { Permission, UserStatus } from "@rueisiang/auth";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { PERMISSIONS, type Permission, type UserStatus } from "@rueisiang/auth";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { rolePermissions, roles, userRoles, users } from "./schema/auth.js";
 
@@ -26,6 +26,7 @@ export interface AdminUserRow {
 export interface RoleRow {
   key: string;
   name: string;
+  description: string;
   isSystem: boolean;
   permissions: Permission[];
 }
@@ -71,9 +72,16 @@ export async function listUsers(db: Database): Promise<AdminUserRow[]> {
 /** 角色與各自的權限。給前端顯示「這個角色實際上能做什麼」。 */
 export async function listRoles(db: Database): Promise<RoleRow[]> {
   const rows = await db
-    .select({ id: roles.id, key: roles.key, name: roles.name, isSystem: roles.isSystem })
+    .select({
+      id: roles.id,
+      key: roles.key,
+      name: roles.name,
+      description: roles.description,
+      isSystem: roles.isSystem,
+    })
     .from(roles)
-    .orderBy(asc(roles.key));
+    // 系統角色排前面，自訂的接在後面——人找「管理者」的頻率遠高於找自己建的那幾個。
+    .orderBy(desc(roles.isSystem), asc(roles.key));
 
   const granted = await db
     .select({ roleId: rolePermissions.roleId, permission: rolePermissions.permission })
@@ -89,6 +97,7 @@ export async function listRoles(db: Database): Promise<RoleRow[]> {
   return rows.map((row) => ({
     key: row.key,
     name: row.name,
+    description: row.description,
     isSystem: row.isSystem,
     permissions: byRole.get(row.id) ?? [],
   }));
@@ -171,4 +180,120 @@ export async function revokeRole(db: Database, grant: RoleGrant): Promise<boolea
     .delete(userRoles)
     .where(and(eq(userRoles.userId, grant.userId), eq(userRoles.roleId, role.id)));
   return (result.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * ── 角色維護 ──────────────────────────────────────────────────────────────
+ *
+ * 系統角色（isSystem）的權限是程式碼說了算，見 packages/auth 的 SYSTEM_ROLES：
+ * 每次按「重新同步」都會整組重寫。所以這裡的編輯與刪除**只開放自訂角色**——
+ * 讓人在 UI 改系統角色只會得到一個下次同步就消失的設定，那比不給改更糟。
+ *
+ * 要「像主管但不能碰出金表」這種角色，作法是複製一份成自訂角色再調整。
+ */
+
+/** 自訂角色的 key 由系統產生。人只需要取名字，不必再發明一組英數代號。 */
+function newRoleKey(): string {
+  return `custom-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+export type RoleWriteResult =
+  | { kind: "ok"; key: string }
+  | { kind: "not-found" }
+  | { kind: "system-role" }
+  | { kind: "unknown-permission"; permission: string };
+
+/** 未知的權限鍵值一律擋下來。默默存進去只會讓「設定看起來有給」但實際上不生效。 */
+function findUnknownPermission(permissions: readonly string[]): string | null {
+  return permissions.find((permission) => !(permission in PERMISSIONS)) ?? null;
+}
+
+export async function createRole(
+  db: Database,
+  input: { name: string; description?: string; permissions: readonly string[] },
+): Promise<RoleWriteResult> {
+  const unknown = findUnknownPermission(input.permissions);
+  if (unknown) return { kind: "unknown-permission", permission: unknown };
+
+  const key = newRoleKey();
+  const id = `role-${crypto.randomUUID()}`;
+  await db.insert(roles).values({
+    id,
+    key,
+    name: input.name.trim(),
+    description: (input.description ?? "").trim(),
+    isSystem: false,
+  });
+  await writePermissions(db, id, input.permissions);
+  return { kind: "ok", key };
+}
+
+export async function updateRole(
+  db: Database,
+  key: string,
+  input: { name?: string; description?: string; permissions?: readonly string[] },
+): Promise<RoleWriteResult> {
+  if (input.permissions) {
+    const unknown = findUnknownPermission(input.permissions);
+    if (unknown) return { kind: "unknown-permission", permission: unknown };
+  }
+
+  const [role] = await db
+    .select({ id: roles.id, isSystem: roles.isSystem })
+    .from(roles)
+    .where(eq(roles.key, key))
+    .limit(1);
+  if (!role) return { kind: "not-found" };
+  if (role.isSystem) return { kind: "system-role" };
+
+  const patch: Record<string, string> = {};
+  if (input.name !== undefined) patch.name = input.name.trim();
+  if (input.description !== undefined) patch.description = input.description.trim();
+  if (Object.keys(patch).length) {
+    await db.update(roles).set(patch).where(eq(roles.id, role.id));
+  }
+  if (input.permissions) await writePermissions(db, role.id, input.permissions);
+
+  return { kind: "ok", key };
+}
+
+/** 整組重寫而不是逐一比對。權限清單很短，差異計算省下的那點 I/O 不值得那份複雜度。 */
+async function writePermissions(
+  db: Database,
+  roleId: string,
+  permissions: readonly string[],
+): Promise<void> {
+  await db.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
+  if (permissions.length) {
+    await db.insert(rolePermissions).values(
+      [...new Set(permissions)].map((permission) => ({ roleId, permission })),
+    );
+  }
+}
+
+/**
+ * 刪除自訂角色。指派給使用者的那幾列由 FK 的 onDelete cascade 一起帶走，
+ * 所以呼叫端要先問清楚「這個角色還有幾個人在用」再送出。
+ */
+export async function deleteRole(db: Database, key: string): Promise<RoleWriteResult> {
+  const [role] = await db
+    .select({ id: roles.id, isSystem: roles.isSystem })
+    .from(roles)
+    .where(eq(roles.key, key))
+    .limit(1);
+  if (!role) return { kind: "not-found" };
+  if (role.isSystem) return { kind: "system-role" };
+
+  await db.delete(roles).where(eq(roles.id, role.id));
+  return { kind: "ok", key };
+}
+
+/** 每個角色目前有幾個人持有。刪除前的確認訊息要講得出數字才有意義。 */
+export async function countRoleHolders(db: Database): Promise<Record<string, number>> {
+  const rows = await db
+    .select({ roleKey: roles.key, holders: sql<number>`count(*)` })
+    .from(userRoles)
+    .innerJoin(roles, eq(roles.id, userRoles.roleId))
+    .groupBy(roles.key);
+  return Object.fromEntries(rows.map((row) => [row.roleKey, Number(row.holders)]));
 }
