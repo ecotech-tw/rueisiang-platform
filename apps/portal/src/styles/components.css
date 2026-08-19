@@ -736,6 +736,26 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   border-radius: 14px;
   background: var(--color-paper);
 }
+/*
+ * 統計的收合鈕。只在手機出現——桌機空間夠，四張卡直接攤開比多一次點擊好。
+ * 用 grid-column: 1 / -1 讓它自己佔滿一列，不跟統計卡擠在同一格。
+ */
+.stat-toggle {
+  display: none;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.stat-toggle svg { width: 20px; height: 20px; color: var(--color-muted); }
+
 .stat span { color: var(--color-muted); font-size: 12px; }
 .stat strong { font-size: 20px; }
 
@@ -1042,6 +1062,14 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
     background: #fffafa;
     border-bottom: 1px solid var(--color-line);
   }
+  /*
+   * .content 寫死 height: 100vh，但手機上它頭上還有一條 topbar——加起來就超過
+   * 一個螢幕，整頁因此多一個捲軸，內捲的頁面就變成兩層捲軸（外面那層只能捲
+   * 出十幾像素，滑起來像卡住）。改成讓它填滿 grid 分到的那一列。
+   */
+  .shell { height: 100vh; }
+  .content { height: 100%; }
+
   .mobile-topbar img { width: 118px; height: auto; }
   .mobile-topbar button {
     display: grid;
@@ -1356,12 +1384,13 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * data-label，所以 markup 只有一份。
  */
 @media (max-width: 760px) {
-  /* 內捲改回整頁捲。手機上兩層捲軸永遠是災難。 */
-  .content:has(.page.fills) { overflow-y: auto; }
-  .page.fills { height: auto; }
-  .page.fills > .panel.grows { overflow: visible; }
-  .page.fills > .panel.grows > .table-scroll { overflow: visible; }
-
+  /*
+   * 手機上仍然只有清單自己捲——標題、搜尋與篩選釘在上面，滑資料時不會把它們
+   * 帶走。這在桌機本來就是這樣做的（.page.fills ＋ .panel.grows），手機更需要：
+   * 螢幕小，每次要改搜尋條件都得先往上滑一大段的話很難用。
+   *
+   * 前提是上面那一段夠矮，所以統計卡在這個斷點以下是收起來的。
+   */
   .table-scroll { overflow-x: visible; }
   .data-table thead { display: none; }
   .data-table,
@@ -1419,8 +1448,17 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   /* 同一格裡有兩個標記（例如「已同步」＋「已封鎖」）時要能並排。 */
   .data-table td > .status + .status { margin-left: 6px; }
 
-  /* 統計卡在手機上壓成兩欄，不要一張佔掉半個螢幕。 */
-  .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  /*
+   * 統計預設收起來，只留一顆帶總數的按鈕。展開時壓成兩欄——四張卡在 400px
+   * 寬的螢幕上會排成兩列、吃掉半個畫面，而真正要滑的是下面的客戶清單。
+   */
+  .stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .stat-toggle { display: flex; }
+  .stat-row:not(.open) .stat { display: none; }
   .stat { padding: 10px 12px; }
   .stat strong { font-size: 17px; }
 

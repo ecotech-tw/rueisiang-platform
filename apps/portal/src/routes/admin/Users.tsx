@@ -268,14 +268,18 @@ function UserEditor({
                     checked={held.has(role.key)}
                     disabled={locked}
                     onChange={(event) => {
-                      // 勾＝指派、取消＝收回。兩個端點本來就存在，這裡只是換一個操作方式。
+                      /*
+                       * 勾＝指派、取消＝收回。兩個端點本來就存在，這裡只是換一個操作方式。
+                       *
+                       * 點擊當下就把值抓成常數。onSuccess 是等 API 回來才跑的，那時候
+                       * 資料已經重抓、checkbox 也重繪了——在回呼裡讀 event.target.checked
+                       * 拿到的是新狀態，訊息會剛好講反。
+                       */
+                      const adding = event.target.checked;
                       const done = {
-                        onSuccess: () =>
-                          toast.show(
-                            `${event.target.checked ? "已指派" : "已收回"}「${role.name}」`,
-                          ),
+                        onSuccess: () => toast.show(`${adding ? "已指派" : "已收回"}「${role.name}」`),
                       };
-                      if (event.target.checked) assign.mutate({ id: user.id, roleKey: role.key }, done);
+                      if (adding) assign.mutate({ id: user.id, roleKey: role.key }, done);
                       else revoke.mutate({ id: user.id, roleKey: role.key }, done);
                     }}
                   />
@@ -315,11 +319,12 @@ function UserEditor({
                       checked={byRole || directSet.has(permission)}
                       disabled={locked || byRole}
                       onChange={(event) => {
+                        // 同上：回呼裡讀 event.target.checked 會拿到重繪後的新狀態。
+                        const adding = event.target.checked;
                         const done = {
-                          onSuccess: () =>
-                            toast.show(`${event.target.checked ? "已授予" : "已收回"}「${label}」`),
+                          onSuccess: () => toast.show(`${adding ? "已授予" : "已收回"}「${label}」`),
                         };
-                        if (event.target.checked) grant.mutate({ id: user.id, permission }, done);
+                        if (adding) grant.mutate({ id: user.id, permission }, done);
                         else revokeDirect.mutate({ id: user.id, permission }, done);
                       }}
                     />
