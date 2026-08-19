@@ -15,6 +15,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { body, requireString } from "../request.js";
 
 const ADMIN_ROLE = "admin";
 
@@ -24,28 +25,6 @@ const ADMIN_ROLE = "admin";
  * 這裡的每一條都自己宣告需要的權限——前端有沒有把「權限管理」這一項畫出來
  * 完全不影響這裡，直接對端點發請求一樣會被擋下。
  */
-
-/** 收下來的 JSON 一律當成不可信輸入。等 Phase 2 有真正複雜的 payload 再引入 zod。 */
-async function body(c: { req: { json: () => Promise<unknown> } }): Promise<Record<string, unknown>> {
-  try {
-    const parsed = await c.req.json();
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new HTTPException(400, { message: "請求內容格式不正確。" });
-    }
-    return parsed as Record<string, unknown>;
-  } catch (error) {
-    if (error instanceof HTTPException) throw error;
-    throw new HTTPException(400, { message: "請求內容不是有效的 JSON。" });
-  }
-}
-
-function requireString(input: Record<string, unknown>, field: string, label: string): string {
-  const value = input[field];
-  if (typeof value !== "string" || !value.trim()) {
-    throw new HTTPException(400, { message: `請填寫${label}。` });
-  }
-  return value.trim();
-}
 
 /** 內部系統只收公司信箱以外也可能有的一般格式，所以只做最基本的形狀檢查。 */
 function parseEmail(input: Record<string, unknown>): string {

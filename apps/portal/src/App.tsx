@@ -3,6 +3,7 @@ import { useSession } from "./auth/session.js";
 import { AdminUsers } from "./routes/admin/Users.js";
 import { Activity } from "./routes/crm/Activity.js";
 import { Customers } from "./routes/crm/Customers.js";
+import { Tags } from "./routes/crm/Tags.js";
 import { Sync } from "./routes/crm/Sync.js";
 import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
@@ -42,7 +43,7 @@ export function App() {
         <Route path="crm">
           <Route path="customers" element={<Customers />} />
           <Route path="customers/new" element={<Placeholder title="新增客人" phase="Phase 2" from={`${CRM}/app/customers/new`} />} />
-          <Route path="tags" element={<Placeholder title="標籤管理" phase="Phase 2" from={`${CRM}/app/tag-management.tsx`} />} />
+          <Route path="tags" element={<Tags />} />
           <Route path="activity" element={<Activity />} />
           <Route path="sync" element={<Sync />} />
         </Route>
