@@ -8,56 +8,34 @@ import {
   CATEGORY_COLORS,
   useCreateCategory,
   useDeleteCategory,
-  useUpdateCategory,
   useWarehouse,
   type ProductCategory,
 } from "./api.js";
+import { CategoryDialog } from "./CategoryDialog.js";
 
 /**
- * 一排色票。
+ * 新分類的顏色。
  *
- * 用 radio 而不是自己做一組 div：鍵盤的左右鍵本來就會在同一組 radio 之間移動，
- * 而且螢幕閱讀器會念出「10 個裡的第 3 個」。自己刻的話這些都要重寫一遍。
+ * 建立時不問顏色——顏色是次要屬性，把十顆色票攤在工具列上會比「新增分類」這個
+ * 動作本身還搶眼，而九成的情況下沒人在意新分類是什麼顏色。要改的人到那一列
+ * 按編輯，那裡有完整的色票。
+ *
+ * 挑第一個沒人用的：這樣連著建幾個分類時，它們自然是不同顏色，不必有人去分配。
+ * 十個用完就從頭循環，重複總比沒有顏色好。
  */
-function ColorPicker({
-  value,
-  name,
-  onChange,
-}: {
-  value: string;
-  /** 同一頁上可能同時有好幾組（新增一組、每一列編輯時各一組），name 不能撞。 */
-  name: string;
-  onChange: (color: string) => void;
-}) {
-  return (
-    <div className="color-picker" role="radiogroup" aria-label="分類顏色">
-      {CATEGORY_COLORS.map((color) => (
-        <label key={color} className={`color-swatch tone-${color}${value === color ? " selected" : ""}`}>
-          <input
-            type="radio"
-            name={name}
-            value={color}
-            checked={value === color}
-            onChange={() => onChange(color)}
-          />
-          {/* 顏色本身對看不到顏色的人沒有意義，用名字補上。 */}
-          <span className="sr-only">{color}</span>
-        </label>
-      ))}
-    </div>
-  );
+function nextColor(taken: ProductCategory[]): string {
+  const used = new Set(taken.map((category) => category.color));
+  return CATEGORY_COLORS.find((color) => !used.has(color)) ?? CATEGORY_COLORS[taken.length % CATEGORY_COLORS.length]!;
 }
 
 export function Categories() {
   usePageTitle("分類管理");
   const [newName, setNewName] = useState("");
-  const [newColor, setNewColor] = useState<string>(CATEGORY_COLORS[0]);
-  const [editing, setEditing] = useState<{ id: string; name: string; color: string } | null>(null);
+  const [editing, setEditing] = useState<ProductCategory | null>(null);
   const [deleting, setDeleting] = useState<ProductCategory | null>(null);
 
   const query = useWarehouse();
   const create = useCreateCategory();
-  const update = useUpdateCategory();
   const remove = useDeleteCategory();
   const toast = useToast();
   const { permissions } = useSession();
@@ -66,11 +44,11 @@ export function Categories() {
   const categories = query.data?.categories ?? [];
   const items = query.data?.items ?? [];
 
-  /** 每個分類有幾項商品。刪除前要知道，改名時也想看得到影響範圍。 */
+  /** 每個分類有幾項商品。刪不刪得掉看它，改名時也要講出影響範圍。 */
   const usage = new Map<string, number>();
   for (const item of items) usage.set(item.category, (usage.get(item.category) ?? 0) + 1);
 
-  const error = create.error ?? update.error ?? remove.error ?? query.error;
+  const error = create.error ?? remove.error ?? query.error;
 
   return (
     <div className="page fills">
@@ -88,11 +66,12 @@ export function Categories() {
             className="admin-form toolbar category-form"
             onSubmit={(event) => {
               event.preventDefault();
+              const name = newName.trim();
               create.mutate(
-                { name: newName.trim(), color: newColor },
+                { name, color: nextColor(categories) },
                 {
                   onSuccess: () => {
-                    toast.show(`已新增「${newName.trim()}」`);
+                    toast.show(`已新增「${name}」`);
                     setNewName("");
                   },
                 },
@@ -106,7 +85,6 @@ export function Categories() {
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
             />
-            <ColorPicker value={newColor} name="new-category-color" onChange={setNewColor} />
             <button type="submit" className="primary-button" disabled={!newName.trim() || create.isPending}>
               {create.isPending ? "新增中…" : "新增分類"}
             </button>
@@ -127,55 +105,11 @@ export function Categories() {
             <tbody>
               {categories.map((category) => {
                 const count = usage.get(category.name) ?? 0;
-                const isEditing = editing?.id === category.id;
 
                 return (
                   <tr key={category.id}>
                     <td data-label="分類">
-                      {isEditing ? (
-                        <form
-                          className="admin-form inline category-edit"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            const name = editing.name.trim();
-                            if (!name) return;
-                            update.mutate(
-                              { id: category.id, name, color: editing.color },
-                              {
-                                onSuccess: () => {
-                                  toast.show(
-                                    name === category.name
-                                      ? `已更新「${name}」的顏色`
-                                      : `已改名為「${name}」${count ? `，同時更新 ${count} 項商品` : ""}`,
-                                  );
-                                  setEditing(null);
-                                },
-                              },
-                            );
-                          }}
-                        >
-                          <input
-                            aria-label="新的分類名稱"
-                            autoFocus
-                            maxLength={40}
-                            value={editing.name}
-                            onChange={(event) => setEditing({ ...editing, name: event.target.value })}
-                          />
-                          <ColorPicker
-                            value={editing.color}
-                            name={`category-color-${category.id}`}
-                            onChange={(color) => setEditing({ ...editing, color })}
-                          />
-                          <button type="submit" className="primary-button" disabled={update.isPending}>
-                            儲存
-                          </button>
-                          <button type="button" className="link-button" onClick={() => setEditing(null)}>
-                            取消
-                          </button>
-                        </form>
-                      ) : (
-                        <span className={`status status-tone-${category.color}`}>{category.name}</span>
-                      )}
+                      <span className={`status status-tone-${category.color}`}>{category.name}</span>
                     </td>
                     <td data-label="使用中的商品" className="numeric">{count}</td>
                     {canWrite ? (
@@ -184,16 +118,10 @@ export function Categories() {
                           <button
                             type="button"
                             className="icon-button"
-                            disabled={update.isPending || remove.isPending}
-                            onClick={() =>
-                              setEditing({ id: category.id, name: category.name, color: category.color })
-                            }
-                            title={
-                              count
-                                ? `修改，改名會一起更新 ${count} 項商品`
-                                : "修改（目前沒有商品在用）"
-                            }
-                            aria-label={`修改分類 ${category.name}`}
+                            disabled={remove.isPending}
+                            onClick={() => setEditing(category)}
+                            title={count ? `編輯，改名會一起更新 ${count} 項商品` : "編輯名稱與顏色"}
+                            aria-label={`編輯分類 ${category.name}`}
                           >
                             <Icon name="edit" />
                           </button>
@@ -201,9 +129,9 @@ export function Categories() {
                             type="button"
                             className="icon-button danger"
                             /*
-                              * 還有商品在用就直接把按鈕停掉，不要等使用者按下去再吐
-                              * 一句 409。旁邊的「使用中的商品」已經寫著幾項了，
-                              * 為什麼不能刪是看得出來的。
+                              * 還有商品在用就直接停用，不要等按下去再吐一句 409。
+                              * 旁邊的「使用中的商品」已經寫著幾項，為什麼不能刪
+                              * 是看得出來的。
                               */
                             disabled={count > 0 || remove.isPending}
                             onClick={() => setDeleting(category)}
@@ -234,6 +162,14 @@ export function Categories() {
           </p>
         ) : null}
       </section>
+
+      {editing ? (
+        <CategoryDialog
+          category={editing}
+          usageCount={usage.get(editing.name) ?? 0}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
 
       {deleting ? (
         <ConfirmDialog

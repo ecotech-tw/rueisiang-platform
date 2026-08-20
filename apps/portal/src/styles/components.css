@@ -821,15 +821,24 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 焦點），外面那個 label 才是看得到的圓點。
  */
 /*
- * 十顆色票要在手機上排成一行：26px × 10 ＋ 6px × 9 = 314px，而 390 的螢幕扣掉
- * 面板內距只剩約 300。差那十幾像素，第十顆就會自己掉到第二行。縮成 24/5
- * （285px）讓它們待在同一行——一行十顆看得出是一組色，兩行會像兩組。
+ * 十顆色票永遠排成一行。折成兩行的話會看起來像兩組不同的色，而它們是一組。
+ *
+ * 用十欄的 grid 而不是 flex ＋ 固定尺寸：固定尺寸就要去算「幾 px 乘十再加間距
+ * 塞不塞得下」，而那個寬度隨對話框、隨螢幕、隨字級變。試過 26px 與 28px，
+ * 兩次都在某個寬度下折行。讓格線決定大小，色票跟著縮就不必算了。
  */
-.color-picker { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.color-picker {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 8px;
+  /* 寬的地方不要把它們拉成十顆巨大的圓——那不是重點所在。 */
+  max-width: 360px;
+}
 .color-swatch {
   position: relative;
-  width: 24px;
-  height: 24px;
+  /* 大小交給格線，只鎖定它是正圓。 */
+  width: 100%;
+  aspect-ratio: 1;
   border-radius: 50%;
   cursor: pointer;
   /* 未選中時只有一圈很淡的邊，讓淺色的色票在白底上也看得出邊界。 */
@@ -873,10 +882,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 看起來像壞掉。給它一個上限，剩下的空間留給色票。
  */
 .category-form input { flex: 0 1 280px; min-width: 0; }
-/* 表格裡就地編輯：換行時色票與按鈕不要被擠成一直條。 */
-.category-edit { flex-wrap: wrap; gap: 8px; }
-.category-edit input { flex: 1 1 160px; min-width: 0; }
-
 /*
  * 分類表只有三欄。不給約束的話瀏覽器會把寬度平均分掉，「使用中的商品」那個
  * 個位數會被推到畫面正中央，離它的表頭很遠——欄位少的表格反而更需要指定寬度。
