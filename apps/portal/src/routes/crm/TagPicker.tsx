@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../shell/icons.js";
 
 /**
@@ -21,6 +21,9 @@ export function TagPicker({
   const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const comboRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
 
   const term = input.trim();
   const matches = useMemo(() => {
@@ -32,6 +35,29 @@ export function TagPicker({
       .sort((a, b) => b.customerCount - a.customerCount)
       .slice(0, 8);
   }, [options, term, value]);
+
+  /*
+   * 展開時把**清單的底部**捲進可視範圍。
+   *
+   * 標籤是這張表單的最後一欄，而對話框底部有一條 sticky 的按鈕列。只捲輸入框
+   * （block: "nearest"）不夠——輸入框看得到了，但它下面整串選項仍然躲在按鈕列
+   * 後面，量出來 8 個選項有 8 個點不到。改捲清單本身、對齊底部，再靠
+   * scroll-margin-bottom 讓出按鈕列的高度。
+   */
+  useEffect(() => {
+    if (!open) return;
+    /*
+     * 等一幀再捲。清單是這一次 render 才長出來的，同一幀就呼叫的話瀏覽器還是
+     * 用舊的高度算，捲不到底（實測差 15px，剛好是最後一列露不出來）。
+     *
+     * behavior 用預設的 instant：捲動只是為了讓選項露出來，不是要給人看動畫，
+     * 而 smooth 期間如果使用者已經在打字，畫面會跟著飄。
+     */
+    const frame = requestAnimationFrame(() => {
+      (listRef.current ?? comboRef.current)?.scrollIntoView({ block: "end" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, matches.length]);
 
   /** 打的字剛好等於某個既有標籤時，不該再提示「新增」——那會建出重複的。 */
   const exact = options.some((option) => option.name === term) || value.includes(term);
@@ -67,11 +93,11 @@ export function TagPicker({
       ) : null}
 
       {/*
-        * 輸入框與下拉包在同一層。下拉要掛在**輸入框**的下緣，不是整個 .tag-picker
-        * 的——沒有這一層的話絕對定位會落在 grid 流的靜態位置上，把上面的標籤標題
-        * 與已選的 chips 整個蓋掉。
+        * 下拉在流內展開（不是絕對定位）。這張表單在一個會捲動、而且外層
+        * overflow: hidden 的對話框裡——浮起來的下拉一超過卡片底部就被裁掉，
+        * 那些選項看得到一半卻點不到。在流內就交給對話框自己捲。
         */}
-      <div className="tag-combo">
+      <div className="tag-combo" ref={comboRef}>
       <div className="tag-search">
         <Icon name="search" />
         <input
@@ -101,7 +127,7 @@ export function TagPicker({
       </div>
 
       {open && (matches.length > 0 || (term && !exact)) ? (
-        <ul className="tag-options">
+        <ul className="tag-options" ref={listRef}>
           {matches.map((option) => (
             <li key={option.name}>
               <button type="button" onClick={() => add(option.name)}>
