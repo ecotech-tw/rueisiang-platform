@@ -1016,7 +1016,21 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   color: var(--color-ink);
   font: inherit;
 }
-.field input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
+/*
+ * select 也要一份。原本只寫了 input，所以對話框裡的下拉（地址的縣市／區域）
+ * 是瀏覽器原生外觀——跟旁邊的輸入框放在一起特別明顯。
+ */
+.field select {
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font: inherit;
+}
+.field select:disabled { background: var(--color-soft-line); color: var(--color-muted); }
+.field input:focus-visible,
+.field select:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
 .field.checkbox { grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; }
 .field.checkbox input { width: 18px; height: 18px; margin-top: 2px; }
@@ -1583,8 +1597,17 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
    * 搜尋與篩選併成一行。搜尋框原本的 min-width: 220px 會把篩選鈕擠到下一列，
    * 而那顆按鈕本身只要一個圖示就講得完。
    */
-  .admin-form.toolbar { flex-wrap: nowrap; gap: 8px; }
-  .admin-form.toolbar .search-input { min-width: 0; }
+  /*
+   * 要 wrap，不然 flex-basis: 100% 的篩選區沒地方去，只會被壓成一條 96px。
+   * 搜尋與篩選鈕靠 min-width: 0 ＋ flex: none 待在第一行，篩選區用 100% 的
+   * basis 自己換到第二行。
+   */
+  .admin-form.toolbar { flex-wrap: wrap; gap: 8px; }
+  /*
+   * 搜尋要縮到跟篩選鈕共用第一行。width: min(340px, 100%) 讓它宣告成滿寬，
+   * flex 就沒有理由把按鈕留在同一行——改用 flex-basis: 0 讓它只吃「剩下的」。
+   */
+  .admin-form.toolbar .search-input { flex: 1 1 0; width: auto; min-width: 0; }
   .admin-form.toolbar .ghost-button.with-icon {
     flex: none;
     padding: 0 12px;
@@ -1607,14 +1630,19 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
    */
   .ghost-button.filter-toggle { display: inline-flex; }
   .filter-fields { display: none; }
+  /*
+   * flex-basis: 100% 才會換到新的一行。只寫 width: 100% 在 flex 子項上不夠——
+   * flex-basis 預設是 auto，寬度仍然由內容決定，量出來只有 96px，三個下拉就
+   * 擠成細細一條。
+   */
   .filter-fields.open {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    width: 100%;
+    flex-basis: 100%;
     padding-top: 4px;
   }
-  .filter-fields.open select { width: 100%; max-width: none; }
+  .filter-fields.open select { flex: 1 1 100%; width: 100%; max-width: none; }
 
   /*
    * 分頁器在手機上疊成兩列：上面是「共 N 筆 ＋ 每頁」，下面是導覽。
@@ -1662,10 +1690,15 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 原本是空白輸入框加一顆「新增」，打字的人看不到公司已經有哪些標籤，於是
  * 「需追蹤」「待追蹤」「要追蹤」會同時存在。改成先搜尋、找不到才新增。
  */
-.tag-picker { position: relative; }
+/*
+ * 定位的錨點是輸入框那一層（.tag-combo），不是整個 .tag-picker。
+ * 掛在 .tag-picker 上的話，絕對定位會落在 grid 流的靜態位置，把上面的標籤標題
+ * 與已選的 chips 整個蓋掉——那正是「上了標籤但畫面沒呈現」的原因。
+ */
+.tag-combo { position: relative; }
 
 /* 放大鏡疊在輸入框左邊，跟一般搜尋框長得一樣。 */
-.tag-search { position: relative; display: flex; align-items: center; }
+.tag-search { display: flex; align-items: center; }
 .tag-search svg {
   position: absolute;
   left: 11px;
@@ -1681,11 +1714,12 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  */
 .tag-options {
   position: absolute;
+  top: calc(100% + 4px);
   left: 0;
   right: 0;
   z-index: 5;
   max-height: 220px;
-  margin: 4px 0 0;
+  margin: 0;
   padding: 4px;
   overflow-y: auto;
   list-style: none;

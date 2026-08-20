@@ -66,6 +66,12 @@ export function TagPicker({
         </div>
       ) : null}
 
+      {/*
+        * 輸入框與下拉包在同一層。下拉要掛在**輸入框**的下緣，不是整個 .tag-picker
+        * 的——沒有這一層的話絕對定位會落在 grid 流的靜態位置上，把上面的標籤標題
+        * 與已選的 chips 整個蓋掉。
+        */}
+      <div className="tag-combo">
       <div className="tag-search">
         <Icon name="search" />
         <input
@@ -114,6 +120,7 @@ export function TagPicker({
           ) : null}
         </ul>
       ) : null}
+      </div>
     </div>
   );
 }
