@@ -354,6 +354,15 @@
 
 /* 撐滿剩餘高度、內部捲動的頁面。 */
 .page.fills { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+/*
+ * 欄位少的頁面（分類管理只有三欄）。
+ *
+ * 收的是**整頁**，不是頁裡的表格。先前只給表格 max-width，結果面板仍然滿版：
+ * 表格縮在左邊，右邊空了一大片白，而且分隔線在半路就斷掉——看起來像沒載完。
+ * 標題、工具列、表格一起收，它們才在同一條軸線上。
+ */
+.page.narrow { max-width: 780px; }
 .page.fills > .page-head,
 .page.fills > .stat-row { flex: none; }
 .page.fills > .panel.grows {
@@ -886,13 +895,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 分類表只有三欄。不給約束的話瀏覽器會把寬度平均分掉，「使用中的商品」那個
  * 個位數會被推到畫面正中央，離它的表頭很遠——欄位少的表格反而更需要指定寬度。
  */
-/*
- * 三個短欄位不該攤開到 1100px。不設上限的話，分類膠囊留在最左邊、數量被推到
- * 700px 外的地方，同一列的東西看起來毫不相干——欄位少的表格反而更需要收窄。
- *
- * 靠左而不是置中：上面的工具列是靠左的，表格跟著對齊才是同一條軸線。
- */
-.category-table { max-width: 680px; }
 .category-table th:nth-child(2),
 .category-table td:nth-child(2) { width: 140px; }
 .category-table th:last-child,
