@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
+import { Pager } from "../../shell/Pager.js";
+import { SortableHeader } from "../../shell/SortableHeader.js";
 import {
   DEFAULT_FILTERS,
   parseTags,
@@ -22,12 +24,8 @@ const SYNC_LABEL: Record<string, string> = {
   failed: "同步失敗",
 };
 
-const SORT_OPTIONS = [
-  { value: "updatedAt", label: "最近更新" },
-  { value: "createdAt", label: "建立時間" },
-  { value: "name", label: "姓名" },
-  { value: "phone", label: "電話" },
-] as const;
+/** 每頁筆數的選項。與後端的 CUSTOMER_PAGE_SIZES 一致。 */
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 function formatDate(value: string): string {
   if (!value) return "—";
@@ -134,7 +132,7 @@ export function Customers() {
   const [editing, setEditing] = useState<Customer | "new" | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   // 手機上統計預設收起來，把畫面讓給客戶清單。桌機的 CSS 不理這個狀態。
-  const [statsOpen, setStatsOpen] = useState(false);
+
   const query = useCustomers(filters);
   const block = useBlockCustomer();
   const { permissions } = useSession();
@@ -150,6 +148,11 @@ export function Customers() {
   const activeFilterCount = [filters.channel, filters.status, filters.tag].filter(
     (value) => value !== "all",
   ).length;
+
+  /** 點表頭排序。換欄位時 SortableHeader 會給 asc，同一欄再點就翻轉。 */
+  function sortBy(sortField: string, sortDirection: "asc" | "desc") {
+    update({ sortField, sortDirection });
+  }
 
   function update(patch: Partial<CustomerFilters>) {
     setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
@@ -186,30 +189,6 @@ export function Customers() {
         </div>
       </header>
 
-      {data ? (
-        /*
-         * 統計在手機上收起來。四張卡在 400px 寬的螢幕上會排成兩列、吃掉半個
-         * 畫面，而它們是「偶爾看一眼」的東西——真正要滑的是下面的客戶清單。
-         *
-         * 收起來時把總數留在按鈕上：完全看不到數字的話，這個切換就沒有意義了。
-         * 桌機不受影響，CSS 只在 760px 以下才把展開狀態當一回事。
-         */
-        <div className={`stat-row${statsOpen ? " open" : ""}`}>
-          <button
-            type="button"
-            className="stat-toggle"
-            aria-expanded={statsOpen}
-            onClick={() => setStatsOpen((open) => !open)}
-          >
-            <span>共 {data.stats.total} 位客戶</span>
-            <Icon name={statsOpen ? "chevronUp" : "chevronDown"} />
-          </button>
-          <div className="stat"><span>全部</span><strong>{data.stats.total}</strong></div>
-          <div className="stat"><span>正常</span><strong>{data.stats.active}</strong></div>
-          <div className="stat"><span>已封鎖</span><strong>{data.stats.blocked}</strong></div>
-          <div className="stat"><span>資料不完整</span><strong>{data.stats.incomplete}</strong></div>
-        </div>
-      ) : null}
 
       <section className="panel grows">
         <SavedViewBar filters={filters} onApply={applyView} canManage={permissions.has("crm:view:write")} />
@@ -224,13 +203,13 @@ export function Customers() {
             onChange={(event) => update({ search: event.target.value })}
           />
           {/*
-            * 六個下拉全攤在一行，會把搜尋框擠到剩下一小格，而且大部分時候
-            * 一個都沒動到。收進一顆按鈕，用數字標出「現在有幾個條件生效中」——
-            * 收起來之後最重要的是「我有沒有在篩」，不是「每個篩選的當前值」。
+            * 這顆按鈕只在手機出現（CSS 控制）。窄螢幕放不下三個下拉，收起來時用
+            * 數字標出「現在有幾個條件生效中」——那才是收合狀態下最重要的資訊，
+            * 不是每個篩選的當前值。桌機直接把下拉攤開，不需要這一步。
             */}
           <button
             type="button"
-            className={`ghost-button with-icon${showFilters ? " active" : ""}`}
+            className={`ghost-button with-icon filter-toggle${showFilters ? " active" : ""}`}
             aria-expanded={showFilters}
             onClick={() => setShowFilters((open) => !open)}
           >
@@ -247,10 +226,13 @@ export function Customers() {
               清除篩選
             </button>
           ) : null}
-        </form>
 
-        {showFilters ? (
-        <form className="admin-form filter-panel" onSubmit={(event) => event.preventDefault()}>
+          {/*
+            * 三個下拉直接排在搜尋旁邊。桌機一行放得下，多一顆「篩選」按鈕加一整列
+            * 只是把兩次點擊塞進本來就看得到的東西前面。
+            * 手機空間不夠才收起來——那顆按鈕與這裡的 open 狀態都只在窄螢幕生效。
+            */}
+          <div className={`filter-fields${showFilters ? " open" : ""}`}>
           <select
             aria-label="通路"
             value={filters.channel}
@@ -283,34 +265,8 @@ export function Customers() {
               ))}
             </select>
           ) : null}
-          <select
-            aria-label="排序"
-            value={filters.sortField}
-            onChange={(event) => update({ sortField: event.target.value })}
-          >
-            {SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-          <select
-            aria-label="排序方向"
-            value={filters.sortDirection}
-            onChange={(event) => update({ sortDirection: event.target.value as "asc" | "desc" })}
-          >
-            <option value="desc">由新到舊</option>
-            <option value="asc">由舊到新</option>
-          </select>
-          <select
-            aria-label="每頁筆數"
-            value={String(filters.pageSize)}
-            onChange={(event) => update({ pageSize: Number(event.target.value) })}
-          >
-            {[10, 25, 50, 100].map((size) => (
-              <option key={size} value={size}>每頁 {size} 筆</option>
-            ))}
-          </select>
+          </div>
         </form>
-        ) : null}
 
         {query.error ? <p className="form-error" role="alert">{query.error.message}</p> : null}
         {block.error ? <p className="form-error" role="alert">{block.error.message}</p> : null}
@@ -319,12 +275,16 @@ export function Customers() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>客人</th>
-                <th>電話</th>
+                {/*
+                  * 只有真的排得動的欄位做成可點。通路與狀態是分類，排序沒有意義；
+                  * 地址是自由字串，照字典序排也不會有人想看。
+                  */}
+                <SortableHeader label="客人" field="name" active={filters.sortField} direction={filters.sortDirection} onSort={sortBy} />
+                <SortableHeader label="電話" field="phone" active={filters.sortField} direction={filters.sortDirection} onSort={sortBy} />
                 <th>通路</th>
                 <th>地址</th>
                 <th>狀態</th>
-                <th>最近更新</th>
+                <SortableHeader label="最近更新" field="updatedAt" active={filters.sortField} direction={filters.sortDirection} onSort={sortBy} />
                 {canWrite || canBlock ? <th /> : null}
               </tr>
             </thead>
@@ -357,29 +317,15 @@ export function Customers() {
         ) : null}
 
         {data && data.total > 0 ? (
-          <footer className="pager">
-            <span className="cell-sub">
-              第 {data.page}／{totalPages} 頁，共 {data.total} 筆
-            </span>
-            <div className="pager-buttons">
-              <button
-                type="button"
-                className="ghost-button"
-                disabled={data.page <= 1}
-                onClick={() => update({ page: data.page - 1 })}
-              >
-                上一頁
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
-                disabled={data.page >= totalPages}
-                onClick={() => update({ page: data.page + 1 })}
-              >
-                下一頁
-              </button>
-            </div>
-          </footer>
+          <Pager
+            page={data.page}
+            pageSize={data.pageSize}
+            pageSizes={PAGE_SIZES}
+            totalPages={totalPages}
+            totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 筆`}
+            onPage={(page) => update({ page })}
+            onPageSize={(pageSize) => update({ pageSize })}
+          />
         ) : null}
       </section>
 

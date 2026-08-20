@@ -797,6 +797,30 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   word-break: break-all;
 }
 
+.pager-meta { display: flex; align-items: center; gap: 14px; }
+.pager-size { display: flex; align-items: center; gap: 6px; color: var(--color-muted); font-size: 13px; }
+.pager-size select { padding: 5px 8px; }
+.pager-nav { display: flex; align-items: center; gap: 2px; }
+/* 頁碼是膠囊，跟導覽列同一套形狀；目前這頁用色調容器標出來。 */
+.pager-page {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.pager-page:hover { background: --alpha(var(--color-brand) / 7%); }
+.pager-page.active {
+  background: var(--color-brand-soft);
+  color: var(--color-brand-dark);
+  font-weight: 700;
+}
+.pager-page:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
+
 .pager {
   display: flex;
   align-items: center;
@@ -1200,7 +1224,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 六個下拉全攤在工具列上會把搜尋框擠成一小格，而且大部分時候一個都沒動到。
  * 收進一顆按鈕之後，工具列剩下「搜尋 ＋ 篩選」兩件事。
  */
-.admin-form.toolbar .search-input { flex: 1; min-width: 220px; }
+/*
+ * 搜尋框給一個舒服的固定寬度，不要 flex: 1 吃滿整行——在 1440px 的螢幕上那會
+ * 變成一條 1000px 的輸入框，而沒有人會打那麼長的搜尋字串。
+ */
+.admin-form.toolbar .search-input { width: min(340px, 100%); }
 
 /* 生效中的條件數。按鈕上有數字，收起來也知道自己在篩。 */
 .filter-count {
@@ -1223,11 +1251,17 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   color: var(--color-brand-dark);
 }
 
-.admin-form.filter-panel {
-  gap: 8px;
-  padding: 12px 0 14px;
-  border-bottom: 1px solid var(--color-soft-line);
-}
+/*
+ * 桌機：篩選下拉直接參與工具列的排版（display: contents 讓中間這層容器消失），
+ * 而「篩選」那顆按鈕根本不出現。多一顆按鈕加一整列，只是把兩次點擊塞在本來
+ * 就看得到的東西前面。
+ */
+.filter-fields { display: contents; }
+/*
+ * 兩個 class 是為了壓過 .ghost-button.with-icon 的 display: inline-flex——
+ * 單一個 .filter-toggle 特異性較低，會輸給它。
+ */
+.ghost-button.filter-toggle { display: none; }
 /*
  * 登入卡片裡的表單。卡片本身是置中的窄欄，所以欄位要撐滿寬度——
  * 沿用一般表單的 .field，只補「在這張卡片裡該有多寬」這件事。
@@ -1437,6 +1471,68 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .data-table td:not([data-label])::before { display: none; }
 
   .data-table .numeric { text-align: left; }
+
+  /*
+   * 卡片本來是「每個欄位一列標籤＋值」，量出來一張 287px，一個螢幕只看得到
+   * 1.4 張——滑三下才換一個人。壓縮的作法是把「不必解釋的欄位」拿掉標籤：
+   * 看到一串數字就知道是電話，看到地址就知道是地址。
+   */
+  /*
+   * 卡片改成 flex-wrap，再用 order 重排欄位。markup 的順序是為了桌機表格
+   * （電話→通路→地址→狀態），照那個順序疊在手機上，兩個標記膠囊會被地址隔開、
+   * 各佔一列。用 order 把它們拉到一起，一列就放得下。
+   */
+  .data-table tbody tr {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 8px;
+    padding: 12px 14px 10px;
+  }
+  .data-table td:first-child { order: 1; width: 100%; }
+  .data-table td[data-label="電話"] { order: 2; width: 100%; }
+  .data-table td[data-label="地址"] { order: 3; width: 100%; }
+  .data-table td[data-label="通路"] { order: 4; }
+  .data-table td[data-label="狀態"] { order: 5; }
+  .data-table td[data-label="最近更新"] { order: 6; width: 100%; }
+
+  .data-table td[data-label="電話"],
+  .data-table td[data-label="地址"],
+  .data-table td[data-label="最近更新"] {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 2px 0;
+  }
+  .data-table td[data-label="電話"]::before,
+  .data-table td[data-label="地址"]::before,
+  .data-table td[data-label="最近更新"]::before { display: none; }
+  .data-table td[data-label="最近更新"] { color: var(--color-muted); font-size: 12px; }
+
+  /*
+   * 通路與狀態都是標記，讓它們排在同一行——各自佔一列的話，兩個小膠囊就吃掉
+   * 64px。用 inline-block 而不是 flex 容器：它們是分開的 td，包不進同一個父層。
+   */
+  .data-table td[data-label="通路"],
+  .data-table td[data-label="狀態"] {
+    display: block;
+    width: auto;
+    padding: 4px 0;
+  }
+  .data-table td[data-label="通路"]::before,
+  .data-table td[data-label="狀態"]::before { display: none; }
+
+  /* 操作鈕釘在卡片右上角，不要自己佔一列（那一列量出來 50px）。 */
+  .data-table td[data-label="操作"] {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: block;
+    padding: 0;
+  }
+  .data-table td[data-label="操作"]::before { display: none; }
+  /* 名字那一格要讓開右上角的按鈕，不然長名字會被壓到。 */
+  .data-table td:first-child { padding-right: 84px; }
+
   .row-actions { justify-content: flex-start; }
 
   /*
@@ -1505,8 +1601,28 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .view-bar::-webkit-scrollbar { display: none; }
   .view-bar > * { flex: none; }
 
-  /* 篩選面板的下拉在窄螢幕各佔一整行，比擠成兩欄好按。 */
-  .admin-form.filter-panel select { width: 100%; max-width: none; }
+  /*
+   * 手機：三個下拉收起來，由「篩選」按鈕開關。展開時每個各佔一整行，比擠成
+   * 兩欄好按。
+   */
+  .ghost-button.filter-toggle { display: inline-flex; }
+  .filter-fields { display: none; }
+  .filter-fields.open {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+    padding-top: 4px;
+  }
+  .filter-fields.open select { width: 100%; max-width: none; }
+
+  /*
+   * 分頁器在手機上疊成兩列：上面是「共 N 筆 ＋ 每頁」，下面是導覽。
+   * 擠成一列的話導覽會被推出畫面右緣——量出來需要 346px，而畫面只有 375px。
+   */
+  .pager { flex-direction: column; align-items: stretch; gap: 10px; }
+  .pager-meta { justify-content: space-between; }
+  .pager-nav { justify-content: center; }
 
   /* 提示改從上面下來：手機的右下角是拇指區，浮卡片在那裡會擋住要按的東西。 */
   .toast-stack {
@@ -1518,3 +1634,88 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   }
   .toast { max-width: none; }
 }
+
+/*
+ * 可排序的表頭。整格可點，箭頭跟著文字走。
+ * 沒在排序的欄位箭頭是透明的——每一欄都掛一個灰箭頭的話，「現在照哪一欄排」
+ * 反而看不出來；hover 時才淡淡浮出來當提示。
+ */
+.sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.sort-header svg { width: 16px; height: 16px; opacity: 0; transition: opacity .12s ease; }
+.sort-header:hover svg { opacity: .35; }
+.sort-header.active { color: var(--color-brand-dark); }
+.sort-header.active svg { opacity: 1; color: var(--color-brand); }
+.sort-header:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; border-radius: 4px; }
+
+/*
+ * ── 標籤選擇器 ────────────────────────────────────────────────────────────
+ *
+ * 原本是空白輸入框加一顆「新增」，打字的人看不到公司已經有哪些標籤，於是
+ * 「需追蹤」「待追蹤」「要追蹤」會同時存在。改成先搜尋、找不到才新增。
+ */
+.tag-picker { position: relative; }
+
+/* 放大鏡疊在輸入框左邊，跟一般搜尋框長得一樣。 */
+.tag-search { position: relative; display: flex; align-items: center; }
+.tag-search svg {
+  position: absolute;
+  left: 11px;
+  width: 18px;
+  height: 18px;
+  color: var(--color-muted);
+  pointer-events: none;
+}
+.tag-search input { width: 100%; padding-left: 36px; }
+
+/*
+ * 下拉浮在上層而不是把表單往下推——推的話每打一個字對話框就跳一次高度。
+ */
+.tag-options {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  max-height: 220px;
+  margin: 4px 0 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-paper);
+  box-shadow: 0 12px 28px rgba(64, 30, 30, .16);
+}
+.tag-options button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 13.5px;
+  text-align: left;
+}
+.tag-options button:hover { background: --alpha(var(--color-brand) / 7%); }
+.tag-options small { color: var(--color-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* 「新增標籤」跟既有選項分開，免得誤按而多開一個近似的標籤。 */
+.tag-create {
+  margin-top: 2px;
+  border-top: 1px solid var(--color-soft-line) !important;
+  border-radius: 0 0 var(--radius-field) var(--radius-field) !important;
+  color: var(--color-brand-dark) !important;
+  font-weight: 500;
+}
+.tag-create svg { width: 16px; height: 16px; flex: none; }
