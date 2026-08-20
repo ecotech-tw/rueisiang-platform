@@ -797,6 +797,30 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   word-break: break-all;
 }
 
+.pager-meta { display: flex; align-items: center; gap: 14px; }
+.pager-size { display: flex; align-items: center; gap: 6px; color: var(--color-muted); font-size: 13px; }
+.pager-size select { padding: 5px 8px; }
+.pager-nav { display: flex; align-items: center; gap: 2px; }
+/* 頁碼是膠囊，跟導覽列同一套形狀；目前這頁用色調容器標出來。 */
+.pager-page {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.pager-page:hover { background: --alpha(var(--color-brand) / 7%); }
+.pager-page.active {
+  background: var(--color-brand-soft);
+  color: var(--color-brand-dark);
+  font-weight: 700;
+}
+.pager-page:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
+
 .pager {
   display: flex;
   align-items: center;
@@ -1200,7 +1224,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 六個下拉全攤在工具列上會把搜尋框擠成一小格，而且大部分時候一個都沒動到。
  * 收進一顆按鈕之後，工具列剩下「搜尋 ＋ 篩選」兩件事。
  */
-.admin-form.toolbar .search-input { flex: 1; min-width: 220px; }
+/*
+ * 搜尋框給一個舒服的固定寬度，不要 flex: 1 吃滿整行——在 1440px 的螢幕上那會
+ * 變成一條 1000px 的輸入框，而沒有人會打那麼長的搜尋字串。
+ */
+.admin-form.toolbar .search-input { width: min(340px, 100%); }
 
 /* 生效中的條件數。按鈕上有數字，收起來也知道自己在篩。 */
 .filter-count {
@@ -1518,3 +1546,24 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   }
   .toast { max-width: none; }
 }
+
+/*
+ * 可排序的表頭。整格可點，箭頭跟著文字走。
+ * 沒在排序的欄位箭頭是透明的——每一欄都掛一個灰箭頭的話，「現在照哪一欄排」
+ * 反而看不出來；hover 時才淡淡浮出來當提示。
+ */
+.sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.sort-header svg { width: 16px; height: 16px; opacity: 0; transition: opacity .12s ease; }
+.sort-header:hover svg { opacity: .35; }
+.sort-header.active { color: var(--color-brand-dark); }
+.sort-header.active svg { opacity: 1; color: var(--color-brand); }
+.sort-header:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; border-radius: 4px; }
