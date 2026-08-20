@@ -94,8 +94,13 @@ function readProducts(payload: unknown): RawProduct[] {
   return [];
 }
 
-/** 一次最多拿幾筆。官網的上限，超過會被它自己截掉。 */
-export const MAX_PAGE_SIZE = 100;
+/**
+ * 一次最多拿幾筆。
+ *
+ * **50，不是 100。** 官網對超過 50 的 per_page 直接回 500「系統有誤」，不是
+ * 悄悄截短——所以這個數字不能亂調大。舊系統用的也是 50。
+ */
+export const MAX_PAGE_SIZE = 50;
 
 export interface CyberbizInventoryClient {
   /** 拿一頁商品。query 有值就走搜尋端點。 */

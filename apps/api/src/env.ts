@@ -25,6 +25,15 @@ export interface Env {
   CYBERBIZ_WEBHOOK_SECRET?: string;
 
   /*
+   * Upstash Redis。快取 CYBERBIZ 的商品目錄，讓「CYBERBIZ 庫存」那一頁不必每次
+   * 都去翻幾十頁 API。沿用舊 WMS 的同一個實例——它走的是 REST，Worker 直接打得到。
+   *
+   * 沒設定時只是變慢：那一頁改成直接問官網，其他功能完全不受影響。
+   */
+  UPSTASH_REDIS_REST_URL?: string;
+  UPSTASH_REDIS_REST_TOKEN?: string;
+
+  /*
    * 出金表。真正的執行在帳務 repo 的 GitHub Actions 上——CYBERBIZ 帳密、Gmail 與
    * Drive 的授權都只存在那邊的 Actions secrets，平台一個都不碰。這裡的 token 是
    * fine-grained PAT，權限僅限那個 repo 的 Actions 讀寫。

@@ -34,6 +34,8 @@ import { Hono } from "hono";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { cyberbizInventoryClient } from "../cyberbiz.js";
+import { loadCatalog, selectPage } from "../cyberbiz-catalog.js";
+import { cacheClient } from "../upstash.js";
 import { HTTPException } from "hono/http-exception";
 import { body, requireString } from "../request.js";
 
@@ -183,6 +185,40 @@ export const wms = new Hono<AppEnv>()
       email: user.email,
     });
     return c.json({ ...result, linked: links.length });
+  })
+
+  /**
+   * 瀏覽 CYBERBIZ 公司倉的商品目錄。
+   *
+   * 官網的 API 只能一頁一頁給商品，沒有搜尋與篩選，所以整份拉下來快取起來、
+   * 篩選在這裡做。?refresh=1 會跳過快取重拉。
+   *
+   * 掛 wms:inventory:read 而不是 sync:trigger——這是「看官網有什麼」，
+   * 不是「動它」。
+   */
+  .get("/cyberbiz/catalog", requirePermission("wms:inventory:read"), async (c) => {
+    const client = cyberbizInventoryClient(c.env);
+    if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN。" });
+
+    const url = new URL(c.req.url);
+    const size = Number(url.searchParams.get("pageSize"));
+    const page = Number(url.searchParams.get("page"));
+
+    const catalog = await loadCatalog(client, cacheClient(c.env), url.searchParams.get("refresh") === "1");
+
+    // 哪些款式已經連到 WMS 的品項。畫面上要看得出來，也是「未連結」篩選的依據。
+    const links = await listCompanyLinks(c.get("db"));
+    const linkedBy = new Map(links.map((link) => [link.cyberbizVariantId, link.inventoryItemId]));
+
+    return c.json(
+      selectPage(catalog, linkedBy, {
+        search: url.searchParams.get("search") ?? "",
+        link: url.searchParams.get("link") ?? "all",
+        stock: url.searchParams.get("stock") ?? "all",
+        page: Number.isFinite(page) && page > 0 ? Math.floor(page) : 1,
+        pageSize: [25, 50, 100].includes(size) ? size : 25,
+      }),
+    );
   })
 
   /** 用 SKU 在官網找到對應的款式並建立連結。 */

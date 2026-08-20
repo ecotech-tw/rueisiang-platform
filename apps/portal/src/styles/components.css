@@ -1347,6 +1347,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .change-values b { font-variant-numeric: tabular-nums; font-weight: 700; }
 .change-values i { color: var(--color-muted); font-style: normal; }
 
+/* 目錄的新鮮度說明。貼在工具列下方，跟表格分開。 */
+.catalog-note { margin: 0 4px 4px; font-size: 12px; }
+
 /*
  * 操作紀錄的欄寬。
  *

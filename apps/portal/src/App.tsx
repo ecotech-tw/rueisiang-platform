@@ -13,12 +13,11 @@ import { Payout } from "./routes/tools/Payout.js";
 import { Categories } from "./routes/wms/Categories.js";
 import { WarehouseMap } from "./routes/wms/Map.js";
 import { Activity as WmsActivity } from "./routes/wms/Activity.js";
+import { Cyberbiz } from "./routes/wms/Cyberbiz.js";
 import { Inventory } from "./routes/wms/Inventory.js";
 import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { AppShell } from "./shell/AppShell.js";
-
-const WMS = "warehouse-inventory";
 
 /** 未登入就導去登入頁。這只是體驗上的導引，資料的把關在 API。 */
 function RequireSession({ children }: { children: React.ReactNode }) {
@@ -91,7 +90,7 @@ export function App() {
         <Route path="wms">
           <Route path="map" element={<WarehouseMap />} />
           <Route path="inventory" element={<Inventory />} />
-          <Route path="cyberbiz" element={<Placeholder title="CYBERBIZ 庫存" phase="Phase 4" from={`${WMS}/lib/cyberbiz-inventory.ts`} />} />
+          <Route path="cyberbiz" element={<Cyberbiz />} />
           <Route path="categories" element={<Categories />} />
           <Route path="activity" element={<WmsActivity />} />
         </Route>
