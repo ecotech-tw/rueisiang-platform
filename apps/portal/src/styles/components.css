@@ -354,15 +354,6 @@
 
 /* 撐滿剩餘高度、內部捲動的頁面。 */
 .page.fills { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-
-/*
- * 欄位少的頁面（分類管理只有三欄）。
- *
- * 收的是**整頁**，不是頁裡的表格。先前只給表格 max-width，結果面板仍然滿版：
- * 表格縮在左邊，右邊空了一大片白，而且分隔線在半路就斷掉——看起來像沒載完。
- * 標題、工具列、表格一起收，它們才在同一條軸線上。
- */
-.page.narrow { max-width: 780px; }
 .page.fills > .page-head,
 .page.fills > .stat-row { flex: none; }
 .page.fills > .panel.grows {
@@ -895,10 +886,15 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 分類表只有三欄。不給約束的話瀏覽器會把寬度平均分掉，「使用中的商品」那個
  * 個位數會被推到畫面正中央，離它的表頭很遠——欄位少的表格反而更需要指定寬度。
  */
+/*
+ * 分類頁只有三欄，滿版。給後兩欄固定寬度，讓「分類」吃掉剩下的空間——跟客戶
+ * 列表的「客人」欄一樣，名字那一欄本來就該是最寬的那個。不給的話瀏覽器會把
+ * 寬度平均分掉，個位數的數量會停在畫面正中央、離它的表頭很遠。
+ */
 .category-table th:nth-child(2),
-.category-table td:nth-child(2) { width: 140px; }
+.category-table td:nth-child(2) { width: 160px; }
 .category-table th:last-child,
-.category-table td:last-child { width: 100px; }
+.category-table td:last-child { width: 120px; }
 
 /* 盤點按鈕比旁邊的圖示鈕高一點才對得齊，而且它有文字，要窄一點的內距。 */
 .count-action { padding: 4px 12px; font-size: 13px; }

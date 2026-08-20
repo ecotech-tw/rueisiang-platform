@@ -51,7 +51,7 @@ export function Categories() {
   const error = create.error ?? remove.error ?? query.error;
 
   return (
-    <div className="page fills narrow">
+    <div className="page fills">
       <header className="page-head">
         <h1>分類管理</h1>
         <p className="muted">
