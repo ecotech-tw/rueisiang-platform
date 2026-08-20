@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
@@ -105,8 +105,16 @@ export function WarehouseMap() {
   const items = query.data?.items ?? [];
   const itemsByZone = groupItems(items);
 
-  const zoneDrag = useDragBox((id, box) => updateZone.mutate({ id, ...box }));
-  const elementDrag = useDragBox((id, box) => updateElement.mutate({ id, ...box }));
+  /*
+   * 寫入失敗時要把暫存位置丟掉。不然方塊會停在一個伺服器不同意的地方，
+   * 而且看起來像存成功了。
+   */
+  const zoneDrag = useDragBox((id, box) =>
+    updateZone.mutate({ id, ...box }, { onError: () => zoneDrag.reset() }),
+  );
+  const elementDrag = useDragBox((id, box) =>
+    updateElement.mutate({ id, ...box }, { onError: () => elementDrag.reset() }),
+  );
 
   /**
    * 搜尋商品或 SKU，符合的倉位亮起來、其他暗下去。
@@ -127,6 +135,17 @@ export function WarehouseMap() {
       unassigned: found.filter((item) => !item.zoneId).length,
     };
   }, [items, search]);
+
+  /*
+   * 拖完之後暫存位置要留到伺服器的值追上來為止，這裡負責通知它「資料更新了」。
+   *
+   * 沒有這一段的話，放開手到清單重新載入之間的那幾十毫秒，方塊會用伺服器上的
+   * **舊**座標渲染——也就是使用者看到的「放開之後閃回原位再跳過去」。
+   */
+  useEffect(() => {
+    zoneDrag.settle(zones);
+    elementDrag.settle(elements);
+  }, [zones, elements, zoneDrag.settle, elementDrag.settle]);
 
   const selectedZone = zones.find((zone) => zone.id === selected) ?? null;
   const error =

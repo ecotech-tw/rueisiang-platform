@@ -119,18 +119,30 @@ export function useDragBox(onCommit: (id: string, box: Partial<Box>) => void) {
     setPreview({ id: current.id, box });
   }, []);
 
-  /** 回傳 true 代表這是一次拖曳，呼叫端就不該再把它當成點擊。 */
+  /**
+   * 回傳 true 代表這是一次拖曳，呼叫端就不該再把它當成點擊。
+   *
+   * **放開手時不清掉暫存位置。** 清掉的話，從送出請求到伺服器回來、清單重新
+   * 載入之間的那幾十毫秒，方塊會用伺服器上的**舊**座標渲染——看起來就是放開
+   * 之後閃回原位再跳到新位置。暫存要留到 settle() 確認伺服器追上來為止。
+   */
   const end = useCallback(
     (event: React.PointerEvent): boolean => {
       const current = state.current;
       state.current = null;
-      setPreview(null);
-      if (!current) return false;
+      if (!current) {
+        setPreview(null);
+        return false;
+      }
 
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
-      if (!current.moved) return false;
+      if (!current.moved) {
+        // 只是點了一下，沒有要送任何東西，暫存直接丟掉。
+        setPreview(null);
+        return false;
+      }
 
       const dx = event.clientX - current.pointerX;
       const dy = event.clientY - current.pointerY;
@@ -158,11 +170,34 @@ export function useDragBox(onCommit: (id: string, box: Partial<Box>) => void) {
     [onCommit],
   );
 
-  /** 這個方塊此刻該畫在哪。拖曳中的用暫時值，其他的用伺服器上的值。 */
+  /** 這個方塊此刻該畫在哪。拖曳中（或還在等伺服器）的用暫存值，其他的用伺服器的值。 */
   const boxOf = useCallback(
     (id: string, box: Box): Box => (preview?.id === id ? preview.box : box),
     [preview],
   );
 
-  return { start, move, end, boxOf, draggingId: preview?.id ?? null };
+  /**
+   * 伺服器的值追上來了就把暫存丟掉，回到「以伺服器為準」。
+   *
+   * 呼叫端在資料更新之後呼叫。留著暫存不放的話，別人改了同一個方塊時這裡會
+   * 一直顯示我自己的舊位置。找不到那個 id（被刪掉了）也一樣丟掉。
+   */
+  const settle = useCallback((boxes: (Box & { id: string })[]) => {
+    setPreview((current) => {
+      if (!current) return current;
+      const server = boxes.find((candidate) => candidate.id === current.id);
+      if (!server) return null;
+      const same =
+        server.x === current.box.x &&
+        server.y === current.box.y &&
+        server.width === current.box.width &&
+        server.height === current.box.height;
+      return same ? null : current;
+    });
+  }, []);
+
+  /** 寫入失敗時用。沒有它的話暫存會永遠停在一個伺服器不同意的位置。 */
+  const reset = useCallback(() => setPreview(null), []);
+
+  return { start, move, end, boxOf, settle, reset, draggingId: preview?.id ?? null };
 }

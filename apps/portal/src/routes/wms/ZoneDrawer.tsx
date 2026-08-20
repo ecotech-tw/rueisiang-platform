@@ -172,12 +172,36 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
       {rejected ? <p className="form-error" role="alert">{rejected}</p> : null}
 
       {canWrite ? (
-        <>
+        <label
+          className={`photo-drop${dragging ? " dragging" : ""}${upload.isPending ? " busy" : ""}`}
+          onDragOver={(event) => {
+            // 不擋掉預設行為的話，瀏覽器會直接把檔案當成網址打開，整頁被取代。
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            accept(event.dataTransfer.files?.[0]);
+          }}
+        >
+          {/*
+            * input **自己**就是那塊可點的區域：透明、鋪滿整個放置區。
+            *
+            * 先前是「label ＋ 藏起來的 input」，再先前是「按鈕呼叫 ref.click()」，
+            * 兩種都要靠一層轉介才能把點擊送到 input 上——使用者回報的正是
+            * 「拖曳可以、點選不行」，也就是那層轉介沒把手勢傳過去。直接點到
+            * input 本身就沒有轉介可以壞。
+            *
+            * 用 opacity: 0 而不是 sr-only 或 display: none：後兩者會讓它不能被
+            * 點到，那就又回到需要轉介的老路。
+            */}
           <input
             id={inputId}
             type="file"
             accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
-            className="sr-only"
+            aria-label="上傳倉位現場照片"
             onChange={(event) => {
               const file = event.target.files?.[0];
               // 清掉才能連續上傳同一個檔名，不然 change 不會再觸發。
@@ -186,26 +210,10 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
               accept(file);
             }}
           />
-          <label
-            htmlFor={inputId}
-            className={`photo-drop${dragging ? " dragging" : ""}${upload.isPending ? " busy" : ""}`}
-            onDragOver={(event) => {
-              // 不擋掉預設行為的話，瀏覽器會直接把檔案當成網址打開，整頁被取代。
-              event.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(event) => {
-              event.preventDefault();
-              setDragging(false);
-              accept(event.dataTransfer.files?.[0]);
-            }}
-          >
-            <Icon name="plus" />
-            <span>{upload.isPending ? "上傳中…" : "上傳照片"}</span>
-            <small>點一下選檔案，或把照片拖進來</small>
-          </label>
-        </>
+          <Icon name="plus" />
+          <span>{upload.isPending ? "上傳中…" : "上傳照片"}</span>
+          <small>點一下選檔案，或把照片拖進來</small>
+        </label>
       ) : null}
 
       {images.data?.length ? (
