@@ -24,3 +24,12 @@ export {
   readCyberbizTopic,
   verifyCyberbizWebhook,
 } from "./webhook.js";
+
+export {
+  MAX_PAGE_SIZE,
+  createInventoryClient,
+  flattenProducts,
+  isCompanyProduct,
+  type CyberbizInventoryClient,
+  type CyberbizInventoryItem,
+} from "./inventory.js";

@@ -1,6 +1,8 @@
 import { can } from "@rueisiang/auth";
 import {
   WMS_ENTITY_TYPES,
+  applySyncPlan,
+  buildSyncPlan,
   countItem,
   deleteZoneImage,
   findZoneImage,
@@ -15,8 +17,13 @@ import {
   deleteItem,
   deleteLayoutElement,
   deleteZone,
+  linkItemToCyberbiz,
   listActivity,
+  listCompanyLinks,
   loadWarehouse,
+  markLinkFailed,
+  markLinkSynced,
+  unlinkItemFromCyberbiz,
   updateCategory,
   updateItem,
   updateLayoutElement,
@@ -26,6 +33,7 @@ import {
 import { Hono } from "hono";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { cyberbizInventoryClient } from "../cyberbiz.js";
 import { HTTPException } from "hono/http-exception";
 import { body, requireString } from "../request.js";
 
@@ -136,6 +144,72 @@ export const wms = new Hono<AppEnv>()
       // 倉位已經刪掉了，這裡失敗只是多留幾個檔案，不該讓整個請求變成錯誤。
       await Promise.all(keys.map((key) => c.env.UPLOADS!.delete(key).catch(() => {})));
     }
+    return c.json({ ok: true });
+  })
+
+  // ───────────────────────── CYBERBIZ 庫存 ─────────────────────────
+
+  /**
+   * 從官網同步庫存到 WMS。
+   *
+   * **官網是庫存數量的真相來源**，所以這條路是「官網 → WMS」。反過來的那條是
+   * 盤點：人在現場數完之後推上去（見 /items/:id/count）。
+   *
+   * 帶 productId 就只同步那一個商品（webhook 與盤點後的回寫用），不帶就是全部
+   * 已連結的品項。
+   */
+  .post("/cyberbiz/sync", requirePermission("wms:sync:trigger"), async (c) => {
+    const client = cyberbizInventoryClient(c.env);
+    if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN。" });
+
+    const input = await body(c);
+    const productId = text(input, "productId");
+    const links = await listCompanyLinks(c.get("db"), productId || undefined);
+    if (!links.length) return c.json({ updated: 0, unchanged: 0, failed: 0, linked: 0 });
+
+    /*
+     * 只讀「有連結的那些商品」，不是整個目錄。
+     *
+     * 全量拉一次要翻幾十頁，Worker 有執行時間上限，而且絕大多數商品根本沒連到
+     * WMS——為了幾十筆連結去拉幾千筆商品是白費的。用 productId 去重之後，
+     * 通常只有個位數的請求。
+     */
+    const productIds = [...new Set(links.map((link) => link.cyberbizProductId))];
+    const remotes = (await Promise.all(productIds.map((id) => client.fetchProduct(id)))).flat();
+
+    const user = c.get("user");
+    const result = await applySyncPlan(c.get("db"), buildSyncPlan(links, remotes), {
+      id: user.id,
+      email: user.email,
+    });
+    return c.json({ ...result, linked: links.length });
+  })
+
+  /** 用 SKU 在官網找到對應的款式並建立連結。 */
+  .post("/items/:id/cyberbiz-link", requirePermission("wms:inventory:write"), async (c) => {
+    const client = cyberbizInventoryClient(c.env);
+    if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN。" });
+
+    const input = await body(c);
+    const sku = requireString(input, "sku", "SKU");
+    // 先問官網。找不到、或找到不只一個，都在這裡就擋下來，不會留下半套的連結。
+    const remote = await client.resolveBySku(sku);
+
+    const user = c.get("user");
+    const result = await linkItemToCyberbiz(c.get("db"), {
+      inventoryItemId: c.req.param("id"),
+      productId: remote.productId,
+      variantId: remote.variantId,
+      sku: remote.sku,
+      quantity: remote.quantity,
+      actor: { id: user.id, email: user.email },
+    });
+    return c.json({ ...result, remote }, 201);
+  })
+
+  .delete("/items/:id/cyberbiz-link", requirePermission("wms:inventory:write"), async (c) => {
+    const user = c.get("user");
+    await unlinkItemFromCyberbiz(c.get("db"), c.req.param("id"), { id: user.id, email: user.email });
     return c.json({ ok: true });
   })
 
@@ -302,16 +376,45 @@ export const wms = new Hono<AppEnv>()
    * wms:inventory:write。合在 PATCH /items/:id 裡的話這個界線就沒了。
    */
   .patch("/items/:id/count", requirePermission("wms:inventory:count"), async (c) => {
+    const id = c.req.param("id");
     const input = await body(c);
     const user = c.get("user");
-    const result = await countItem(
-      c.get("db"),
-      c.req.param("id"),
-      input.quantity,
-      { id: user.id, email: user.email },
-      text(input, "note"),
-    );
-    return c.json(result);
+    const actor = { id: user.id, email: user.email };
+
+    /*
+     * **先寫本地，再推官網。** 這跟 CRM 的順序刻意相反（那邊是先寫官網才寫本地）。
+     *
+     * 理由是真相來源不同：客戶的真相在官網，所以官網沒有的人本地不該有；但庫存
+     * 的真相是倉庫裡實際有幾件——人已經數完了，不能因為官網連不上就叫他重數，
+     * 更不能把他數的結果丟掉。
+     *
+     * 所以推不上去時盤點仍然成立，只是把那筆連結標成失敗，等下次同步補。
+     */
+    const result = await countItem(c.get("db"), id, input.quantity, actor, text(input, "note"));
+
+    const mine = (await listCompanyLinks(c.get("db"))).find((row) => row.inventoryItemId === id);
+    const client = cyberbizInventoryClient(c.env);
+    if (!mine || !client) return c.json({ ...result, cyberbiz: { status: "unlinked" } });
+
+    try {
+      const pushed = await client.setCompanyQuantity({
+        productId: mine.cyberbizProductId,
+        variantId: mine.cyberbizVariantId,
+        sku: mine.linkedSku,
+        targetQuantity: result.quantity,
+      });
+      await markLinkSynced(c.get("db"), mine.linkId, result.quantity);
+      return c.json({ ...result, cyberbiz: { status: "synced", changed: pushed.changed } });
+    } catch (failure) {
+      const message = failure instanceof Error ? failure.message : "CYBERBIZ 同步失敗";
+      await markLinkFailed(c.get("db"), mine.linkId, message, {
+        inventoryItemId: id,
+        label: mine.itemSku ? `${mine.itemSku} ${mine.itemName}` : mine.itemName,
+        actor,
+      });
+      // 盤點本身是成功的，所以回 200——只是附帶告訴呼叫端官網沒推上去。
+      return c.json({ ...result, cyberbiz: { status: "failed", error: message } });
+    }
   })
 
   // ───────────────────────────── 商品分類 ─────────────────────────────

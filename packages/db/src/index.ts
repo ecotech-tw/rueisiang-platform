@@ -145,3 +145,16 @@ export {
   type ActivityQuery,
   type ActivityRow,
 } from "./activity.js";
+export {
+  applySyncPlan,
+  buildSyncPlan,
+  linkItemToCyberbiz,
+  listCompanyLinks,
+  markLinkFailed,
+  markLinkSynced,
+  unlinkItemFromCyberbiz,
+  type LinkedItem,
+  type RemoteItem,
+  type SyncOutcome,
+  type SyncPlanEntry,
+} from "./wms-sync.js";
