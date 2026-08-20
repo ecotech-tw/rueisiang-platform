@@ -203,13 +203,13 @@ export function Customers() {
             onChange={(event) => update({ search: event.target.value })}
           />
           {/*
-            * 六個下拉全攤在一行，會把搜尋框擠到剩下一小格，而且大部分時候
-            * 一個都沒動到。收進一顆按鈕，用數字標出「現在有幾個條件生效中」——
-            * 收起來之後最重要的是「我有沒有在篩」，不是「每個篩選的當前值」。
+            * 這顆按鈕只在手機出現（CSS 控制）。窄螢幕放不下三個下拉，收起來時用
+            * 數字標出「現在有幾個條件生效中」——那才是收合狀態下最重要的資訊，
+            * 不是每個篩選的當前值。桌機直接把下拉攤開，不需要這一步。
             */}
           <button
             type="button"
-            className={`ghost-button with-icon${showFilters ? " active" : ""}`}
+            className={`ghost-button with-icon filter-toggle${showFilters ? " active" : ""}`}
             aria-expanded={showFilters}
             onClick={() => setShowFilters((open) => !open)}
           >
@@ -226,10 +226,13 @@ export function Customers() {
               清除篩選
             </button>
           ) : null}
-        </form>
 
-        {showFilters ? (
-        <form className="admin-form filter-panel" onSubmit={(event) => event.preventDefault()}>
+          {/*
+            * 三個下拉直接排在搜尋旁邊。桌機一行放得下，多一顆「篩選」按鈕加一整列
+            * 只是把兩次點擊塞進本來就看得到的東西前面。
+            * 手機空間不夠才收起來——那顆按鈕與這裡的 open 狀態都只在窄螢幕生效。
+            */}
+          <div className={`filter-fields${showFilters ? " open" : ""}`}>
           <select
             aria-label="通路"
             value={filters.channel}
@@ -262,8 +265,8 @@ export function Customers() {
               ))}
             </select>
           ) : null}
+          </div>
         </form>
-        ) : null}
 
         {query.error ? <p className="form-error" role="alert">{query.error.message}</p> : null}
         {block.error ? <p className="form-error" role="alert">{block.error.message}</p> : null}

@@ -1251,11 +1251,17 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   color: var(--color-brand-dark);
 }
 
-.admin-form.filter-panel {
-  gap: 8px;
-  padding: 12px 0 14px;
-  border-bottom: 1px solid var(--color-soft-line);
-}
+/*
+ * 桌機：篩選下拉直接參與工具列的排版（display: contents 讓中間這層容器消失），
+ * 而「篩選」那顆按鈕根本不出現。多一顆按鈕加一整列，只是把兩次點擊塞在本來
+ * 就看得到的東西前面。
+ */
+.filter-fields { display: contents; }
+/*
+ * 兩個 class 是為了壓過 .ghost-button.with-icon 的 display: inline-flex——
+ * 單一個 .filter-toggle 特異性較低，會輸給它。
+ */
+.ghost-button.filter-toggle { display: none; }
 /*
  * 登入卡片裡的表單。卡片本身是置中的窄欄，所以欄位要撐滿寬度——
  * 沿用一般表單的 .field，只補「在這張卡片裡該有多寬」這件事。
@@ -1595,8 +1601,20 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .view-bar::-webkit-scrollbar { display: none; }
   .view-bar > * { flex: none; }
 
-  /* 篩選面板的下拉在窄螢幕各佔一整行，比擠成兩欄好按。 */
-  .admin-form.filter-panel select { width: 100%; max-width: none; }
+  /*
+   * 手機：三個下拉收起來，由「篩選」按鈕開關。展開時每個各佔一整行，比擠成
+   * 兩欄好按。
+   */
+  .ghost-button.filter-toggle { display: inline-flex; }
+  .filter-fields { display: none; }
+  .filter-fields.open {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+    padding-top: 4px;
+  }
+  .filter-fields.open select { width: 100%; max-width: none; }
 
   /*
    * 分頁器在手機上疊成兩列：上面是「共 N 筆 ＋ 每頁」，下面是導覽。
