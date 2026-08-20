@@ -3,3 +3,4 @@ export * from "./activity.js";
 export * from "./auth.js";
 export * from "./crm.js";
 export * from "./tools.js";
+export * from "./wms.js";
