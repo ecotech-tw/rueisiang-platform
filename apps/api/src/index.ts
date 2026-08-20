@@ -1,5 +1,5 @@
 import { CyberbizApiError } from "@rueisiang/cyberbiz";
-import { createDatabase, retryFailedWebhooks } from "@rueisiang/db";
+import { WmsError, createDatabase, retryFailedWebhooks } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { createMiddleware } from "hono/factory";
@@ -12,6 +12,7 @@ import { webhooks } from "./routes/webhooks.js";
 import { health } from "./routes/health.js";
 import { PayoutGithubError } from "./payout/github.js";
 import { tools } from "./routes/tools.js";
+import { wms } from "./routes/wms.js";
 
 /**
  * 平台唯一的 Worker：/api/* 由這裡處理，其餘交給 Static Assets（portal 的 SPA）。
@@ -32,6 +33,7 @@ const routes = app
   .route("/admin", admin)
   .route("/crm", crm)
   .route("/tools", tools)
+  .route("/wms", wms)
   .route("/webhooks", webhooks);
 
 // 打錯的 API 路徑要回 JSON，不要掉進 SPA 的 index.html。
@@ -58,6 +60,15 @@ app.onError((error, c) => {
     }
     console.error(error);
     return c.json({ error: "CYBERBIZ 暫時無法回應，請稍後再試。" }, 502);
+  }
+
+  /*
+   * 倉儲的錯誤自己帶著「是哪一種」。全部回 500 的話，「這個倉位還有商品」
+   * 會被前端當成系統故障重試，但那是使用者要自己處理的事，重試幾次都一樣。
+   */
+  if (error instanceof WmsError) {
+    const status = error.kind === "not_found" ? 404 : error.kind === "conflict" ? 409 : 400;
+    return c.json({ error: error.message }, status);
   }
 
   // 同理，GitHub 拒絕觸發時要說得出是憑證問題還是別的，不然沒人查得下去。

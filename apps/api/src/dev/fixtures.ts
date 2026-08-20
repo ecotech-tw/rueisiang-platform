@@ -1,5 +1,14 @@
 import { createDatabase, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
-import { customers, userRoles, users } from "@rueisiang/db/schema";
+import {
+  customers,
+  inventoryItems,
+  layoutElements,
+  productCategories,
+  userRoles,
+  users,
+  warehouseSettings,
+  zones,
+} from "@rueisiang/db/schema";
 import type { LocalD1 } from "../local-d1/d1.js";
 
 /**
@@ -34,6 +43,7 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
   await syncSystemRoles(db);
   await seedPayoutStores(db);
   await seedDevCustomers(db);
+  await seedDevWarehouse(db);
 
   const existing = await db.select({ id: users.id }).from(users).limit(1);
   if (existing.length) return;
@@ -75,4 +85,44 @@ async function seedDevCustomers(db: ReturnType<typeof createDatabase>): Promise<
       blockedAt: customer.status === "blocked" ? "2026-08-01 09:00:00" : null,
     });
   }
+}
+
+/**
+ * 假倉庫。跟客戶一樣分開判斷，舊的 local.sqlite 才會補上。
+ *
+ * 涵蓋的狀態：有東西與空的倉位、有層與沒指定層的商品、低於安全庫存的、
+ * 沒有 SKU 的、沒放進任何倉位的。地圖與庫存兩頁的每一種呈現都有東西可看。
+ */
+const DEV_ZONES = [
+  { id: "dev-zone-a", code: "A-01", name: "備品區", category: "一般備品", color: "mint", x: 8, y: 10, width: 24, height: 20 },
+  { id: "dev-zone-b", code: "B-01", name: "包材區", category: "包材", color: "sky", x: 40, y: 10, width: 20, height: 18 },
+  { id: "dev-zone-c", code: "C-01", name: "待整理", category: "一般備品", color: "amber", x: 8, y: 45, width: 18, height: 16 },
+] as const;
+
+const DEV_CATEGORIES = [
+  { id: "dev-cat-1", name: "一般備品", color: "rose" },
+  { id: "dev-cat-2", name: "包材", color: "sky" },
+  { id: "dev-cat-3", name: "耗材", color: "amber" },
+] as const;
+
+const DEV_ITEMS = [
+  { id: "dev-item-1", sku: "BOX-M", name: "中型紙箱", category: "包材", quantity: 120, unit: "個", minStock: 50, zoneId: "dev-zone-b", shelfLevel: "top" },
+  { id: "dev-item-2", sku: "BOX-L", name: "大型紙箱", category: "包材", quantity: 12, unit: "個", minStock: 30, zoneId: "dev-zone-b", shelfLevel: "middle" },
+  { id: "dev-item-3", sku: "TAPE-01", name: "封箱膠帶", category: "耗材", quantity: 48, unit: "捲", minStock: 20, zoneId: "dev-zone-a", shelfLevel: "bottom" },
+  { id: "dev-item-4", sku: null, name: "緩衝氣泡紙", category: "包材", quantity: 3, unit: "卷", minStock: 10, zoneId: "dev-zone-a", shelfLevel: null },
+  { id: "dev-item-5", sku: "GLOVE-M", name: "工作手套", category: "耗材", quantity: 60, unit: "雙", minStock: 20, zoneId: null, shelfLevel: null },
+] as const;
+
+async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<void> {
+  const existing = await db.select({ id: zones.id }).from(zones).limit(1);
+  if (existing.length) return;
+
+  await db.insert(warehouseSettings).values({ id: "main", canvasWidth: 1600, canvasHeight: 900 });
+  await db.insert(productCategories).values([...DEV_CATEGORIES]);
+  await db.insert(zones).values([...DEV_ZONES]);
+  await db.insert(layoutElements).values([
+    { id: "dev-el-1", label: "出貨口", color: "rose", x: 66, y: 10, width: 14, height: 12 },
+    { id: "dev-el-2", label: "走道", color: "slate", x: 8, y: 34, width: 52, height: 8 },
+  ]);
+  await db.insert(inventoryItems).values([...DEV_ITEMS]);
 }
