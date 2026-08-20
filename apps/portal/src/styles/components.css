@@ -1301,6 +1301,36 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .zone-item-detail dt { color: var(--color-muted); }
 .zone-item-detail dd { display: flex; align-items: center; gap: 6px; margin: 0; }
 
+/*
+ * 上傳照片的放置區。
+ *
+ * 它是一個 <label>，點它就等於點那個看不見的 <input type="file">——那是瀏覽器
+ * 原生的行為，不經過 JavaScript。整塊都可點（而不是一行小字），因為手上拿著
+ * 檔案要上傳的人需要一個好按的目標。
+ */
+.photo-drop {
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  padding: 18px 12px;
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-field);
+  background: var(--color-canvas);
+  color: var(--color-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.photo-drop:hover { border-color: var(--color-secondary); background: --alpha(var(--color-brand) / 4%); }
+/* 鍵盤走到那個看不見的 input 時，焦點要顯示在看得見的 label 上。 */
+.photo-drop:has(+ input:focus-visible),
+input:focus-visible + .photo-drop { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.photo-drop svg { width: 20px; height: 20px; }
+.photo-drop span { color: var(--color-ink); font-weight: 700; }
+.photo-drop small { font-size: 11px; }
+/* 拖曳經過時整塊亮起來——不然使用者不知道可以放在哪裡。 */
+.photo-drop.dragging { border-color: var(--color-brand); border-style: solid; background: var(--color-brand-soft); }
+.photo-drop.busy { opacity: .7; cursor: progress; }
+
 .zone-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 .zone-images figure { position: relative; margin: 0; }
 .zone-images img {

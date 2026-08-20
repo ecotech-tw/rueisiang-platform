@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
@@ -115,59 +115,52 @@ function ZoneItem({ item, levelName }: { item: InventoryItem; levelName: string 
   );
 }
 
-/** 現場照片。上傳、預覽、刪除。 */
 /** 瀏覽器真的畫得出來的格式。HEIC 通過 accept="image/*" 但顯示不出來。 */
 const RENDERABLE = /^image\/(jpeg|png|webp|gif|avif)$/i;
 
+/**
+ * 現場照片。上傳、預覽、刪除。
+ *
+ * 上傳的觸發用**原生的 label ↔ input**，不是「一顆按鈕呼叫 ref.click()」。
+ * 後者多了三個會壞掉的環節：ref 要接上、JS 要跑得到、瀏覽器要肯把那次程式化的
+ * click 當成使用者手勢。label 是瀏覽器自己實作的，一個環節都不需要。
+ *
+ * 整塊區域都是放置區，不只是那行小字——上傳照片的人手上拿著檔案，目標大一點
+ * 比較好按，拖進來也行。
+ */
 function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean }) {
   const [rejected, setRejected] = useState("");
+  const [dragging, setDragging] = useState(false);
   const images = useZoneImages(zoneId);
   const upload = useUploadZoneImage();
   const remove = useDeleteZoneImage();
   const toast = useToast();
-  const fileRef = useRef<HTMLInputElement>(null);
+  /** label 要指到 input，而同一頁可能同時有多個抽屜的殘影，所以帶上 zoneId。 */
+  const inputId = `zone-photo-${zoneId}`;
+
+  function accept(file: File | undefined) {
+    if (!file) return;
+    /*
+     * iPhone 直接拍的 HEIC 會通過 accept="image/*"，但瀏覽器畫不出來——上傳成功、
+     * 清單裡卻是一張破圖，看起來就像功能壞了。與其讓人猜，不如先講清楚。
+     */
+    if (!RENDERABLE.test(file.type)) {
+      setRejected(`「${file.name}」這種格式瀏覽器顯示不出來，請改用 JPG、PNG 或 WebP。`);
+      return;
+    }
+    setRejected("");
+    upload.mutate({ zoneId, file }, { onSuccess: () => toast.show("照片已上傳") });
+  }
 
   return (
     <section className="zone-section">
       <div className="zone-section-head">
         <h3>區塊照片</h3>
-        {canWrite ? (
-          <>
-            <button
-              type="button"
-              className="link-button"
-              disabled={upload.isPending}
-              onClick={() => fileRef.current?.click()}
-            >
-              {upload.isPending ? "上傳中…" : "＋ 上傳照片"}
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                // 清掉才能連續上傳同一個檔名，不然 change 不會再觸發。
-                // File 物件已經拿在手上了，清 value 不會讓它失效。
-                event.target.value = "";
-                if (!file) return;
-
-                /*
-                 * iPhone 直接拍的 HEIC 會通過 accept="image/*"，但瀏覽器畫不出來
-                 * ——上傳成功、清單裡卻是一張破圖，看起來就像功能壞了。與其讓人
-                 * 猜，不如在送出去之前就講清楚。
-                 */
-                if (!RENDERABLE.test(file.type)) {
-                  setRejected(`「${file.name}」這種格式瀏覽器顯示不出來，請改用 JPG、PNG 或 WebP。`);
-                  return;
-                }
-                setRejected("");
-                upload.mutate({ zoneId, file }, { onSuccess: () => toast.show("照片已上傳") });
-              }}
-            />
-          </>
-        ) : null}
+        {/*
+          * 沒有權限時明講，不要把按鈕悄悄藏起來——「這裡本來就沒有上傳功能」跟
+          * 「我沒有權限」對使用者是兩件事，後者他知道該找誰。
+          */}
+        {canWrite ? null : <span className="muted">需要地圖編輯權限才能上傳</span>}
       </div>
 
       {/*
@@ -177,6 +170,43 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
       {upload.error ? <p className="form-error" role="alert">{upload.error.message}</p> : null}
       {remove.error ? <p className="form-error" role="alert">{remove.error.message}</p> : null}
       {rejected ? <p className="form-error" role="alert">{rejected}</p> : null}
+
+      {canWrite ? (
+        <>
+          <input
+            id={inputId}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              // 清掉才能連續上傳同一個檔名，不然 change 不會再觸發。
+              // File 物件已經拿在手上了，清 value 不會讓它失效。
+              event.target.value = "";
+              accept(file);
+            }}
+          />
+          <label
+            htmlFor={inputId}
+            className={`photo-drop${dragging ? " dragging" : ""}${upload.isPending ? " busy" : ""}`}
+            onDragOver={(event) => {
+              // 不擋掉預設行為的話，瀏覽器會直接把檔案當成網址打開，整頁被取代。
+              event.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragging(false);
+              accept(event.dataTransfer.files?.[0]);
+            }}
+          >
+            <Icon name="plus" />
+            <span>{upload.isPending ? "上傳中…" : "上傳照片"}</span>
+            <small>點一下選檔案，或把照片拖進來</small>
+          </label>
+        </>
+      ) : null}
 
       {images.data?.length ? (
         <div className="zone-images">
