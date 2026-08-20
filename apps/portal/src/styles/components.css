@@ -1288,18 +1288,52 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-variant-numeric: tabular-nums;
 }
 
-/* 圖示與文字要並排。.link-button 是純文字用的，沒有 flex，圖示會自己佔一行。 */
-.zone-item-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 12px; }
-.zone-item-toggle svg { width: 14px; height: 14px; }
-.zone-item-detail {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 4px 10px;
-  margin: 8px 0 0;
+/*
+ * 商品的細節。用原生的 <details>，所以要自己收掉瀏覽器預設的三角形標記。
+ * 展開的提示改用一個 ＋／−，跟這個系統其他地方的語彙一致。
+ */
+.zone-item-details { margin-top: 8px; }
+.zone-item-details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-brand);
   font-size: 12px;
+  cursor: pointer;
+  list-style: none;
 }
-.zone-item-detail dt { color: var(--color-muted); }
-.zone-item-detail dd { display: flex; align-items: center; gap: 6px; margin: 0; }
+.zone-item-details summary::-webkit-details-marker { display: none; }
+.zone-item-details summary:hover { text-decoration: underline; }
+.zone-item-details summary:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.zone-item-details[open] summary span::after { content: ""; }
+/* 展開之後把 ＋ 換成 −，不然「已經開著」跟「可以打開」看起來一樣。 */
+.zone-item-details[open] summary span { visibility: hidden; position: relative; }
+.zone-item-details[open] summary span::before {
+  content: "−";
+  position: absolute;
+  inset: 0;
+  visibility: visible;
+}
+
+/* 兩欄的欄位表：標籤在上、值在下，比左右對照省橫向空間。 */
+.zone-item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px 14px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-field);
+  background: var(--color-canvas);
+}
+.zone-item-grid span { display: grid; gap: 2px; min-width: 0; }
+.zone-item-grid small { color: var(--color-muted); font-size: 11px; }
+.zone-item-grid b { overflow: hidden; font-size: 13px; text-overflow: ellipsis; }
+
+.zone-item-note { margin-top: 8px; padding: 0 2px; }
+.zone-item-note small { color: var(--color-muted); font-size: 11px; }
+.zone-item-note p { margin: 2px 0 0; font-size: 13px; line-height: 1.5; }
+/* 沒有備註時整段淡下去——它是「這裡本來就沒東西」，不是要讀的內容。 */
+.zone-item-note.empty p { color: var(--color-muted); }
 
 /*
  * 上傳照片的放置區。

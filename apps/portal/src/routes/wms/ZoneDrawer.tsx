@@ -18,8 +18,7 @@ import {
  * 一般的編輯——每一次調整都會留下「誰、什麼時候、從幾改到幾」。站在架子前面
  * 邊數邊按的人，就是在盤點，只是不用開另一張表單。
  */
-function ZoneItem({ item, levelName }: { item: InventoryItem; levelName: string }) {
-  const [expanded, setExpanded] = useState(false);
+function ZoneItem({ item, levelName, placeLabel }: { item: InventoryItem; levelName: string; placeLabel: string }) {
   /*
    * 按 −／＋ 時先動畫面上的數字，不要等伺服器回來。
    *
@@ -90,27 +89,25 @@ function ZoneItem({ item, levelName }: { item: InventoryItem; levelName: string 
       </div>
 
       {/*
-        * 備註與細節預設收起來。一個倉位可能有二三十項商品，每項都攤開三行的話
-        * 就得一直捲——真正常看的是名稱與數量，其他是需要時才查的。
+        * 備註與細節預設收起來。一個倉位可能有二三十項商品，每項都攤開的話就得
+        * 一直捲——常看的是名稱與數量，其他是需要時才查的。
+        *
+        * 用原生的 <details>：開合本來就是它的工作，不需要一個 state、一個
+        * onClick、一個條件渲染，而且鍵盤與螢幕閱讀器的行為都是免費的。
         */}
-      <button type="button" className="link-button zone-item-toggle" onClick={() => setExpanded((open) => !open)}>
-        <Icon name={expanded ? "chevronUp" : "plus"} />
-        {expanded ? "收起" : "查看備註與商品資訊"}
-      </button>
-
-      {expanded ? (
-        <dl className="zone-item-detail">
-          <dt>單位</dt>
-          <dd>{item.unit}</dd>
-          <dt>安全庫存</dt>
-          <dd>
-            {item.minStock.toLocaleString("zh-TW")}
-            {low ? <span className="status status-sync-failed">需要補貨</span> : null}
-          </dd>
-          <dt>備註</dt>
-          <dd>{item.notes || "—"}</dd>
-        </dl>
-      ) : null}
+      <details className="zone-item-details">
+        <summary><span aria-hidden="true">＋</span> 查看備註與商品資訊</summary>
+        <div className="zone-item-grid">
+          <span><small>倉位 / 層架</small><b>{placeLabel}</b></span>
+          <span><small>SKU</small><b>{item.sku || "未設定"}</b></span>
+          <span><small>分類</small><b>{item.category}</b></span>
+          <span><small>安全庫存</small><b>{item.minStock.toLocaleString("zh-TW")} {item.unit}</b></span>
+        </div>
+        <div className={`zone-item-note${item.notes ? "" : " empty"}`}>
+          <small>備註</small>
+          <p>{item.notes || "目前沒有備註"}</p>
+        </div>
+      </details>
     </li>
   );
 }
@@ -121,9 +118,9 @@ const RENDERABLE = /^image\/(jpeg|png|webp|gif|avif)$/i;
 /**
  * 現場照片。上傳、預覽、刪除。
  *
- * 上傳的觸發用**原生的 label ↔ input**，不是「一顆按鈕呼叫 ref.click()」。
- * 後者多了三個會壞掉的環節：ref 要接上、JS 要跑得到、瀏覽器要肯把那次程式化的
- * click 當成使用者手勢。label 是瀏覽器自己實作的，一個環節都不需要。
+ * 上傳的觸發是**一個透明、鋪滿整塊放置區的 input 本身**，沒有按鈕、沒有 label、
+ * 沒有 ref.click()。中間每多一層轉介就多一個會壞掉的地方，而這條路已經因為
+ * 那些轉介壞過兩次了。詳見下面 input 上的說明。
  *
  * 整塊區域都是放置區，不只是那行小字——上傳照片的人手上拿著檔案，目標大一點
  * 比較好按，拖進來也行。
@@ -172,7 +169,7 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
       {rejected ? <p className="form-error" role="alert">{rejected}</p> : null}
 
       {canWrite ? (
-        <label
+        <div
           className={`photo-drop${dragging ? " dragging" : ""}${upload.isPending ? " busy" : ""}`}
           onDragOver={(event) => {
             // 不擋掉預設行為的話，瀏覽器會直接把檔案當成網址打開，整頁被取代。
@@ -187,15 +184,15 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
           }}
         >
           {/*
-            * input **自己**就是那塊可點的區域：透明、鋪滿整個放置區。
+            * **不要把 input 包在 <label> 裡。**
             *
-            * 先前是「label ＋ 藏起來的 input」，再先前是「按鈕呼叫 ref.click()」，
-            * 兩種都要靠一層轉介才能把點擊送到 input 上——使用者回報的正是
-            * 「拖曳可以、點選不行」，也就是那層轉介沒把手勢傳過去。直接點到
-            * input 本身就沒有轉介可以壞。
+            * 直接點在 input 上時，input 自己會處理那次點擊，label 又會再轉發一次
+            * 合成的點擊給它——Chrome 把重複的那一次當成非使用者手勢取消掉，
+            * 於是檔案選擇器就不開了。這個行為跟版本與時序有關，所以會出現
+            * 「有些人可以、有些人不行」。
             *
-            * 用 opacity: 0 而不是 sr-only 或 display: none：後兩者會讓它不能被
-            * 點到，那就又回到需要轉介的老路。
+            * 這裡沒有 label：input 自己就是唯一的互動元素，透明鋪滿整塊，
+            * 底下那個 div 只負責長相。點擊只會發生一次，沒有東西可以轉發。
             */}
           <input
             id={inputId}
@@ -213,7 +210,7 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
           <Icon name="plus" />
           <span>{upload.isPending ? "上傳中…" : "上傳照片"}</span>
           <small>點一下選檔案，或把照片拖進來</small>
-        </label>
+        </div>
       ) : null}
 
       {images.data?.length ? (
@@ -383,7 +380,12 @@ export function ZoneDrawer({
               {visible.length ? (
                 <ul className="zone-items-list">
                   {visible.map((item) => (
-                    <ZoneItem key={item.id} item={item} levelName={levelName(item.shelfLevel)} />
+                    <ZoneItem
+                      key={item.id}
+                      item={item}
+                      levelName={levelName(item.shelfLevel)}
+                      placeLabel={`${zone.code}・${levelName(item.shelfLevel)}`}
+                    />
                   ))}
                 </ul>
               ) : (
