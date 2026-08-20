@@ -18,7 +18,10 @@ export type ActivityEntityType =
   | "customer"
   | "zone"
   | "inventory_item"
-  | "product_category";
+  | "product_category"
+  | "layout_element"
+  /** 倉庫本身的設定（畫布尺寸）。只有一筆，entityId 固定是 main。 */
+  | "warehouse";
 
 /**
  * 哪裡寫的。前端的操作紀錄頁用它當篩選選項，所以值一改就要一起改那邊的下拉。

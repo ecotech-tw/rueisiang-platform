@@ -20,8 +20,9 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 /**
  * 倉位。地圖上的一個方塊，也是庫存的所在位置。
  *
- * x/y/width/height 是地圖畫布上的座標與大小，單位是像素——畫布尺寸存在
- * warehouse_settings，兩者一起才有意義。
+ * x/y/width/height 是**百分比**，不是像素：畫的時候是 canvasWidth * x / 100。
+ * 存百分比的好處是換畫布尺寸（warehouse_settings 有標準／寬版／大型三種）時
+ * 整張圖等比例縮放，不用把每個倉位的座標重算一遍。
  */
 export const zones = sqliteTable("zones", {
   id: text("id").primaryKey(),
