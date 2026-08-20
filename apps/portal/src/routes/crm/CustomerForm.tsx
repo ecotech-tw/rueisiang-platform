@@ -71,6 +71,8 @@ export function CustomerForm({ customer, onClose }: Props) {
     const payload = {
       ...fields,
       address: composeTaiwanAddress(address.city, address.district, address.addressLine),
+      // 拆開的三段也一起送，官網的地址欄位是分開的。
+      ...address,
     };
     if (customer) update.mutate({ ...payload, id: customer.id }, { onSuccess: onClose });
     else create.mutate(payload, { onSuccess: onClose });
@@ -134,9 +136,12 @@ export function CustomerForm({ customer, onClose }: Props) {
             * 地址拆成縣市／區域／街道三格，但**存進去的還是單一字串**。
             * CYBERBIZ 回來的地址本來就是一整串，拆成三個欄位就得在每次同步時猜
             * 它的結構，猜錯會把資料弄髒。所以只在編輯的當下拆開，送出前組回去。
+            *
+            * 三格外面不再包一個「地址」標題：縣市、區域、地址三個標籤已經講完了
+            * 這是什麼，多一層標題只是讓「地址」在同一塊裡出現兩次。改成靠間距
+            * 把這一組跟上面分開。
             */}
-          <div className="field">
-            <span>地址</span>
+          <div className="address-fields">
             <div className="field-grid">
               <label className="field">
                 <span>縣市</span>
@@ -168,7 +173,7 @@ export function CustomerForm({ customer, onClose }: Props) {
               </label>
             </div>
             <label className="field">
-              <span>詳細街道地址</span>
+              <span>地址</span>
               <input
                 placeholder="例如：中山東路 138 號 2 樓"
                 value={address.addressLine}

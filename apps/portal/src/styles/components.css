@@ -1032,6 +1032,12 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .field input:focus-visible,
 .field select:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+/*
+ * 地址那三格。原本外面包一層 .field 加「地址」標題，但裡面的標籤已經寫著
+ * 縣市／區域／地址，標題只是重複。拿掉標題之後這一組跟上面那排就黏在一起了
+ * （.modal-body 的 16px 對「一組」來說不夠），多給 8px 把它推開。
+ */
+.address-fields { display: grid; gap: 16px; margin-top: 8px; }
 .field.checkbox { grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; }
 .field.checkbox input { width: 18px; height: 18px; margin-top: 2px; }
 .field.checkbox small { display: block; margin-top: 2px; color: var(--color-muted); font-size: 12px; font-weight: 400; }
