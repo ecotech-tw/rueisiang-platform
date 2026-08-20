@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { customerEvents, customerTagCatalog, customers, userRoles, users } from "@rueisiang/db/schema";
+import { activityEvents, customerTagCatalog, customers, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -167,7 +167,7 @@ describe("改名與移除", () => {
       body: JSON.stringify({ name: "貴賓" }),
     });
 
-    const events = await db().select().from(customerEvents);
+    const events = await db().select().from(activityEvents);
     expect(events).toHaveLength(2);
     expect(events[0]?.eventType).toBe("tag_renamed");
     // 紀錄要留下是誰改的，人離職之後仍然查得到。

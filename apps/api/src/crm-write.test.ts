@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { customerEvents, customers, userRoles, users } from "@rueisiang/db/schema";
+import { activityEvents, customers, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -178,7 +178,7 @@ describe("新增客戶", () => {
     const id = await seedUser("staff@ecotech.tw", "role-staff");
     await as(id, "staff@ecotech.tw", "/api/crm/customers", { method: "POST", body: NEW_CUSTOMER });
 
-    const [event] = await db().select().from(customerEvents);
+    const [event] = await db().select().from(activityEvents);
     expect(event?.eventType).toBe("customer_created");
     expect(event?.actorEmail).toBe("staff@ecotech.tw");
   });

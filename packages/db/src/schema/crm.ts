@@ -68,33 +68,6 @@ export const savedViews = sqliteTable("saved_views", {
   uniqueIndex("idx_saved_views_name").on(table.name),
 ]);
 
-/**
- * 客戶身上發生過的事，也是操作紀錄的資料來源。
- *
- * actor_email 跟著存下來而不是只留 actor_id：人離職、帳號被刪之後，
- * 紀錄仍然要看得出當初是誰做的。
- */
-export const customerEvents = sqliteTable("customer_events", {
-  id: text("id").primaryKey(),
-  customerId: text("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  eventType: text("event_type").notNull(),
-  summary: text("summary").notNull(),
-  payloadJson: text("payload_json").notNull().default("{}"),
-  // user：有人操作／system：排程或同步自己做的
-  actorType: text("actor_type").notNull().default("system"),
-  actorId: text("actor_id"),
-  actorEmail: text("actor_email"),
-  // crm：本系統／cyberbiz：官網同步過來的
-  source: text("source").notNull().default("crm"),
-  status: text("status").notNull().default("succeeded"),
-  error: text("error"),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [
-  index("idx_customer_events_customer_created").on(table.customerId, table.createdAt),
-  index("idx_customer_events_source_created").on(table.source, table.createdAt),
-  index("idx_customer_events_actor_created").on(table.actorId, table.createdAt),
-]);
-
 /** 標籤字典。客戶身上的標籤存在 customers.cyberbiz_tags_json，這裡是可選清單。 */
 export const customerTagCatalog = sqliteTable("customer_tag_catalog", {
   id: text("id").primaryKey(),
@@ -132,6 +105,5 @@ export const cyberbizCustomerWebhooks = sqliteTable("cyberbiz_customer_webhooks"
 export type Customer = typeof customers.$inferSelect;
 export type NewCustomer = typeof customers.$inferInsert;
 export type SavedView = typeof savedViews.$inferSelect;
-export type CustomerEvent = typeof customerEvents.$inferSelect;
 export type CustomerTag = typeof customerTagCatalog.$inferSelect;
 export type CyberbizCustomerWebhook = typeof cyberbizCustomerWebhooks.$inferSelect;

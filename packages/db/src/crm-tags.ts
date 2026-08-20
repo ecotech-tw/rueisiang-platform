@@ -1,6 +1,8 @@
 import { and, asc, eq, like, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { customerEvents, customerTagCatalog, customers } from "./schema/crm.js";
+import { activityRow } from "./activity.js";
+import { activityEvents } from "./schema/activity.js";
+import { customerTagCatalog, customers } from "./schema/crm.js";
 
 /**
  * 標籤。
@@ -123,6 +125,8 @@ export async function applyTagChange(
   const candidates = await db
     .select({
       id: customers.id,
+      // 操作紀錄要存客戶當下的名字，所以這裡一起撈。
+      name: customers.name,
       cyberbizCustomerId: customers.cyberbizCustomerId,
       tags: customers.cyberbizTagsJson,
       syncStatus: customers.syncStatus,
@@ -168,19 +172,20 @@ export async function applyTagChange(
         .update(customers)
         .set({ cyberbizTagsJson: JSON.stringify(after), updatedAt: sql`CURRENT_TIMESTAMP` })
         .where(eq(customers.id, customer.id)),
-      db.insert(customerEvents).values({
-        id: crypto.randomUUID(),
-        customerId: customer.id,
-        eventType: options.nextName ? "tag_renamed" : "tag_removed",
-        summary: options.nextName
-          ? `標籤「${originalName}」改名為「${options.nextName}」`
-          : `移除標籤「${originalName}」`,
-        payloadJson: JSON.stringify({ before, after }),
-        actorType: options.actor.actorType,
-        actorId: options.actor.actorId,
-        actorEmail: options.actor.actorEmail,
-        source: "crm",
-      }),
+      db.insert(activityEvents).values(
+        activityRow({
+          entityType: "customer",
+          entityId: customer.id,
+          entityLabel: customer.name,
+          eventType: options.nextName ? "tag_renamed" : "tag_removed",
+          summary: options.nextName
+            ? `標籤「${originalName}」改名為「${options.nextName}」`
+            : `移除標籤「${originalName}」`,
+          payload: { before, after },
+          actor: { id: options.actor.actorId, email: options.actor.actorEmail },
+          source: "crm",
+        }),
+      ),
     ]);
   }
 

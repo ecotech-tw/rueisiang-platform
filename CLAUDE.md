@@ -173,6 +173,11 @@ CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`）�
 - **不要打開 `workerd` 的安裝腳本。** `pnpm-workspace.yaml` 刻意設 `workerd: false`，開著會讓整個 `pnpm install` 在這台機器直接失敗。
 - **改 CYBERBIZ 同步前先讀 `packages/db/src/crm-sync.ts` 的檔頭註解。** 那四條不變條件（只用會員 ID 對應、沒 ID 就不寫、manual 客戶不改成 cyberbiz、空值不覆蓋既有資料）是舊系統踩過才學到的。
 - **不要手改 `packages/db/migrations/` 裡的 SQL。** 改 schema 再用 `pnpm generate` 產生。
+  唯一的例外是**資料搬移**：drizzle 只會產「建新表」與「刪舊表」，中間那段
+  `INSERT INTO 新表 SELECT … FROM 舊表` 沒有人會幫你寫，不寫就是把歷史資料丟掉。
+  作法是**額外加一個檔案**（不改 drizzle 產的那幾個），順序切成三步：先讓兩張表
+  並存產出「建表」、手寫搬移、最後才移除舊表定義產出「刪表」。例子見
+  `0007`→`0008_move_customer_events`→`0009`，測試在 `activity-migration.test.ts`。
 
 ## 常用指令
 

@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { customerEvents, customers, userRoles, users } from "@rueisiang/db/schema";
+import { activityEvents, customers, userRoles, users } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -27,14 +27,19 @@ async function seedCustomer(id: string, name: string, phone: string) {
 async function seedEvent(input: {
   id: string;
   customerId: string;
+  /** 紀錄裡存的客戶名快照。搜尋姓名時比對的是它，不是 customers.name。 */
+  customerName?: string;
   summary: string;
   source?: string;
   actorEmail?: string;
   createdAt: string;
 }) {
-  await db().insert(customerEvents).values({
+  await db().insert(activityEvents).values({
     id: input.id,
-    customerId: input.customerId,
+    // 這一頁只看客戶那一種；WMS 的紀錄寫在同一張表，不標 entityType 會混進來。
+    entityType: "customer",
+    entityId: input.customerId,
+    entityLabel: input.customerName ?? "",
     eventType: "customer_updated",
     summary: input.summary,
     source: input.source ?? "crm",
@@ -104,9 +109,9 @@ describe("操作紀錄的把關", () => {
 
 describe("列表內容", () => {
   beforeEach(async () => {
-    await seedEvent({ id: "e1", customerId: "c1", summary: "由 CYBERBIZ webhook 更新", source: "cyberbiz_webhook", createdAt: "2026-08-01 10:00:00" });
-    await seedEvent({ id: "e2", customerId: "c2", summary: "有人手動編輯", actorEmail: "staff@ecotech.tw", createdAt: "2026-08-02 10:00:00" });
-    await seedEvent({ id: "e3", customerId: "c1", summary: "重新讀取 CYBERBIZ 資料", source: "cyberbiz_sync", createdAt: "2026-08-03 10:00:00" });
+    await seedEvent({ id: "e1", customerId: "c1", customerName: "王小明", summary: "由 CYBERBIZ webhook 更新", source: "cyberbiz_webhook", createdAt: "2026-08-01 10:00:00" });
+    await seedEvent({ id: "e2", customerId: "c2", customerName: "陳美玲", summary: "有人手動編輯", actorEmail: "staff@ecotech.tw", createdAt: "2026-08-02 10:00:00" });
+    await seedEvent({ id: "e3", customerId: "c1", customerName: "王小明", summary: "重新讀取 CYBERBIZ 資料", source: "cyberbiz_sync", createdAt: "2026-08-03 10:00:00" });
   });
 
   it("最新的排在最前面", async () => {
@@ -115,10 +120,15 @@ describe("列表內容", () => {
     expect(result.events.map((event) => event.id)).toEqual(["e3", "e2", "e1"]);
   });
 
+  /*
+   * 姓名現在讀 entityLabel（寫入當下的快照），不是 join customers。
+   * 客戶改名或被刪掉之後，這一頁仍然顯示「當時」的名字——那才是稽核要的。
+   */
   it("帶出客戶的姓名，不必再查一次", async () => {
     const id = await seedUser("staff@ecotech.tw", "role-staff");
     const result = await body(id, "staff@ecotech.tw");
-    expect(result.events[0]?.customerName).toBe("王小明");
+    // 由新到舊是 e3、e2、e1。
+    expect(result.events.map((event) => event.customerName)).toEqual(["王小明", "陳美玲", "王小明"]);
   });
 
   it("依來源篩選", async () => {
