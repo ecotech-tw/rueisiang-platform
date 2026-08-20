@@ -192,3 +192,59 @@ export function useDeleteCategory() {
     write<{ ok: true }>(`/api/wms/categories/${id}`, "DELETE"),
   );
 }
+
+// ───────────────────────────── 倉位與地圖 ─────────────────────────────
+
+export interface ZoneForm {
+  code: string;
+  name: string;
+  category: string;
+  color: string;
+  notes: string;
+  shelfLevels: ShelfLevel[];
+}
+
+export function useCreateZone() {
+  return useWarehouseMutation((input: ZoneForm) => write<{ id: string }>("/api/wms/zones", "POST", input));
+}
+
+/**
+ * 改倉位。**只送有帶的欄位**——拖曳只送 x/y，後端會保留其他值。
+ * 整包送的話，拖一下就會把當下畫面上的所有欄位覆寫回去，包含別人剛改過的。
+ */
+export function useUpdateZone() {
+  return useWarehouseMutation(({ id, ...input }: Partial<ZoneForm> & { id: string; x?: number; y?: number; width?: number; height?: number }) =>
+    write<{ ok: true }>(`/api/wms/zones/${id}`, "PATCH", input),
+  );
+}
+
+export function useDeleteZone() {
+  return useWarehouseMutation((id: string) => write<{ ok: true }>(`/api/wms/zones/${id}`, "DELETE"));
+}
+
+export interface ElementForm {
+  label: string;
+  color: string;
+}
+
+export function useCreateElement() {
+  return useWarehouseMutation((input: ElementForm) =>
+    write<{ id: string }>("/api/wms/elements", "POST", input),
+  );
+}
+
+export function useUpdateElement() {
+  return useWarehouseMutation(({ id, ...input }: Partial<ElementForm> & { id: string; x?: number; y?: number; width?: number; height?: number }) =>
+    write<{ ok: true }>(`/api/wms/elements/${id}`, "PATCH", input),
+  );
+}
+
+export function useDeleteElement() {
+  return useWarehouseMutation((id: string) => write<{ ok: true }>(`/api/wms/elements/${id}`, "DELETE"));
+}
+
+export function useUpdateSettings() {
+  return useWarehouseMutation((input: { canvasWidth: number; canvasHeight: number }) =>
+    write<{ canvasWidth: number; canvasHeight: number }>("/api/wms/settings", "PATCH", input),
+  );
+}

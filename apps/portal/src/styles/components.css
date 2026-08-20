@@ -814,6 +814,155 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .status.quiet { background: var(--color-soft-line); color: var(--color-muted); font-weight: 500; }
 
 /*
+ * ── 倉位地圖 ────────────────────────────────────────────────────────────
+ *
+ * 方塊是絕對定位的 DOM，座標用百分比。畫布用 aspect-ratio 維持比例，寬度隨面板
+ * 走——所以縮視窗時整張圖等比例縮，方塊的相對位置一個都不會跑掉。
+ */
+.map-panel { padding: 16px; overflow: auto; }
+.map-canvas {
+  position: relative;
+  width: 100%;
+  /* 畫布本身要看得出邊界，不然拖到邊緣時不知道哪裡是底。 */
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background:
+    /* 淡格線幫忙對齊，但不要搶戲——它是輔助線，不是內容。 */
+    linear-gradient(var(--color-soft-line) 1px, transparent 1px) 0 0 / 100% 10%,
+    linear-gradient(90deg, var(--color-soft-line) 1px, transparent 1px) 0 0 / 10% 100%,
+    var(--color-canvas);
+  /* 拖曳時不要選到文字，整段會反白很難看。 */
+  user-select: none;
+}
+
+.map-zone,
+.map-element {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid --alpha(var(--color-ink) / 20%);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.3;
+}
+/*
+ * touch-action: none 只放在拖得動的方塊上，不放在畫布。
+ *
+ * 放在畫布上的話，手指按在任何地方都不會捲動——地圖在手機上要靠平移才看得完，
+ * 那等於把整張圖鎖死。放在方塊上則剛好：按著方塊是拖它，按著空白處是平移。
+ */
+.map-zone.editable,
+.map-element.editable { cursor: grab; touch-action: none; }
+.map-zone.dragging { cursor: grabbing; opacity: .85; }
+
+/* 選中：Material 的作法是加一圈輪廓，不是換一個更亮的底色。 */
+.map-zone.selected { outline: 2px solid var(--color-brand); outline-offset: 1px; }
+.map-zone:focus-visible,
+.map-element:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+
+.map-zone-head { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.map-zone-head strong { font-size: 13px; }
+.map-zone-name { font-weight: 500; }
+.map-zone-meta { margin-top: auto; color: --alpha(var(--color-ink) / 62%); font-size: 11px; }
+/* 方塊可能只有 80px 寬，塞不下一句話，所以補貨提示只用一個點。 */
+.map-zone-alert {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 標示是牆、走道這種東西：文字置中、沒有內容，視覺上要退到倉位後面。 */
+.map-element {
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  font-weight: 500;
+}
+
+/* 右下角的縮放把手。只有 hover 或選中時才明顯，平常安靜地待著。 */
+.map-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  cursor: nwse-resize;
+}
+.map-resize::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid --alpha(var(--color-ink) / 45%);
+  border-bottom: 2px solid --alpha(var(--color-ink) / 45%);
+  opacity: 0;
+}
+.map-zone:hover .map-resize::after,
+.map-element:hover .map-resize::after,
+.map-zone.selected .map-resize::after,
+.map-resize:focus-visible::after { opacity: 1; }
+
+.map-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+}
+
+/* 地圖上的方塊：淡底＋深字，跟分類膠囊同一組色調。 */
+.map-zone.tone-rose, .map-element.tone-rose { background: --alpha(var(--color-tone-rose) / 16%); color: var(--color-tone-rose); }
+.map-zone.tone-sky, .map-element.tone-sky { background: --alpha(var(--color-tone-sky) / 16%); color: var(--color-tone-sky); }
+.map-zone.tone-mint, .map-element.tone-mint { background: --alpha(var(--color-tone-mint) / 16%); color: var(--color-tone-mint); }
+.map-zone.tone-amber, .map-element.tone-amber { background: --alpha(var(--color-tone-amber) / 16%); color: var(--color-tone-amber); }
+.map-zone.tone-violet, .map-element.tone-violet { background: --alpha(var(--color-tone-violet) / 16%); color: var(--color-tone-violet); }
+.map-zone.tone-teal, .map-element.tone-teal { background: --alpha(var(--color-tone-teal) / 16%); color: var(--color-tone-teal); }
+.map-zone.tone-peach, .map-element.tone-peach { background: --alpha(var(--color-tone-peach) / 16%); color: var(--color-tone-peach); }
+.map-zone.tone-slate, .map-element.tone-slate { background: --alpha(var(--color-tone-slate) / 16%); color: var(--color-tone-slate); }
+.map-zone.tone-lime, .map-element.tone-lime { background: --alpha(var(--color-tone-lime) / 16%); color: var(--color-tone-lime); }
+.map-zone.tone-sand, .map-element.tone-sand { background: --alpha(var(--color-tone-sand) / 16%); color: var(--color-tone-sand); }
+
+/*
+ * 手機上的地圖。
+ *
+ * 平面圖是本來就寬的東西。硬塞進 390px 的螢幕會變成 324×182 的畫布，倉位只有
+ * 36px 高——代碼、名稱、件數全部擠成一團，連點都點不準。給它一個最小寬度讓它
+ * 溢出，改成用手指平移；那才是地圖在手機上該有的操作方式。
+ */
+@media (max-width: 760px) {
+  .map-canvas { min-width: 680px; }
+}
+
+/* 標題列上不只一顆按鈕時。 */
+.head-actions { display: flex; align-items: center; gap: 8px; }
+
+/* 倉位明細裡的商品表：在對話框裡，不需要外框與捲動容器。 */
+.zone-items { margin-top: 4px; }
+.zone-items td { height: auto; min-height: 0; padding-block: 10px; }
+
+/* 層架清單：一行一層，右邊一顆移除。 */
+.shelf-levels { display: grid; gap: 6px; }
+.shelf-level { display: flex; align-items: center; gap: 6px; }
+.shelf-level input { flex: 1; min-width: 0; }
+
+/*
  * ── 分類的色票 ──────────────────────────────────────────────────────────
  *
  * 底層是一組 radio：鍵盤的左右鍵本來就會在同一組之間移動，螢幕閱讀器也會念出
