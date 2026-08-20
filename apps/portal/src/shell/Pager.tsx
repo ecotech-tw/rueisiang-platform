@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Icon } from "./icons.js";
 
 /**
@@ -22,6 +23,28 @@ function pageWindow(current: number, total: number, size = 5): number[] {
   return Array.from({ length: size }, (_, index) => start + index);
 }
 
+/**
+ * 中間顯示幾顆頁碼。手機放不下 5 顆（連同前後四顆箭頭要 346px，而畫面只有
+ * 375px 且面板還有內距），縮成 3 顆。
+ *
+ * 用 matchMedia 而不是 CSS 隱藏多餘的：藏起來的按鈕仍然佔著 tab 順序，鍵盤
+ * 操作的人會按到看不見的東西。
+ */
+function useWindowSize(): number {
+  const [size, setSize] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 620px)").matches ? 3 : 5,
+  );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 620px)");
+    const update = () => setSize(query.matches ? 3 : 5);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return size;
+}
+
 export function Pager({
   page,
   pageSize,
@@ -40,7 +63,7 @@ export function Pager({
   onPage: (page: number) => void;
   onPageSize: (size: number) => void;
 }) {
-  const pages = pageWindow(page, Math.max(totalPages, 1));
+  const pages = pageWindow(page, Math.max(totalPages, 1), useWindowSize());
   const atFirst = page <= 1;
   const atLast = page >= totalPages;
 

@@ -1536,6 +1536,14 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   /* 篩選面板的下拉在窄螢幕各佔一整行，比擠成兩欄好按。 */
   .admin-form.filter-panel select { width: 100%; max-width: none; }
 
+  /*
+   * 分頁器在手機上疊成兩列：上面是「共 N 筆 ＋ 每頁」，下面是導覽。
+   * 擠成一列的話導覽會被推出畫面右緣——量出來需要 346px，而畫面只有 375px。
+   */
+  .pager { flex-direction: column; align-items: stretch; gap: 10px; }
+  .pager-meta { justify-content: space-between; }
+  .pager-nav { justify-content: center; }
+
   /* 提示改從上面下來：手機的右下角是拇指區，浮卡片在那裡會擋住要按的東西。 */
   .toast-stack {
     top: 12px;
