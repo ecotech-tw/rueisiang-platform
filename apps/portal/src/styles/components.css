@@ -1336,6 +1336,31 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .zone-item-note.empty p { color: var(--color-muted); }
 
 /*
+ * 操作紀錄裡的「舊值 → 新值」。
+ *
+ * 兩個值等寬對齊，中間一個箭頭。數字用 tabular-nums，整欄掃下來時位數才對得齊
+ * ——那一欄多半是數量，看的人在找「哪一筆差很多」。
+ */
+.change { display: grid; gap: 2px; }
+.change small { color: var(--color-muted); font-size: 11px; }
+.change-values { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.change-values b { font-variant-numeric: tabular-nums; font-weight: 700; }
+.change-values i { color: var(--color-muted); font-style: normal; }
+
+/*
+ * 操作紀錄的欄寬。
+ *
+ * 不指定的話瀏覽器會把寬度分給內容最長的那一欄（摘要），「B-01 包材區」就被壓成
+ * 一欄三行、逐字折行。時間與對象是固定長度的東西，給它們一個下限。
+ */
+.activity-table th:nth-child(1),
+.activity-table td:nth-child(1) { width: 150px; }
+.activity-table th:nth-child(2),
+.activity-table td:nth-child(2) { width: 180px; }
+.activity-table th:nth-child(5),
+.activity-table td:nth-child(5) { width: 190px; }
+
+/*
  * 上傳照片的放置區。
  *
  * 它是一個 <label>，點它就等於點那個看不見的 <input type="file">——那是瀏覽器

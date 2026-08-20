@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 
@@ -78,12 +78,29 @@ export async function recordActivity(db: Database, input: ActivityInput): Promis
 
 export interface ActivityQuery {
   entityType?: ActivityEntityType;
+  /**
+   * 一次篩好幾種東西。
+   *
+   * 倉儲那一頁要的是「倉位、商品、分類、標示、倉庫設定」這一整組——它們是同一個
+   * 模組的五種資料，不是五個獨立的清單。用 source 篩不行：CYBERBIZ 同步改到庫存
+   * 時寫的是 cyberbiz_sync，但那也該出現在倉儲的紀錄裡。
+   */
+  entityTypes?: readonly ActivityEntityType[];
   entityId?: string;
   source: ActivitySource | "all";
   search: string;
   page: number;
   pageSize: number;
 }
+
+/** 倉儲會寫到的五種東西。倉儲的操作紀錄頁用它一次篩完。 */
+export const WMS_ENTITY_TYPES = [
+  "zone",
+  "inventory_item",
+  "product_category",
+  "layout_element",
+  "warehouse",
+] as const satisfies readonly ActivityEntityType[];
 
 export interface ActivityRow {
   id: string;
@@ -120,6 +137,9 @@ export interface ActivityResult {
 export async function listActivity(db: Database, query: ActivityQuery): Promise<ActivityResult> {
   const conditions: SQL[] = [];
   if (query.entityType) conditions.push(eq(activityEvents.entityType, query.entityType));
+  if (query.entityTypes?.length) {
+    conditions.push(inArray(activityEvents.entityType, [...query.entityTypes]));
+  }
   if (query.entityId) conditions.push(eq(activityEvents.entityId, query.entityId));
   if (query.source !== "all") conditions.push(eq(activityEvents.source, query.source));
 

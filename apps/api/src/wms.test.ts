@@ -536,3 +536,91 @@ describe("倉位現場照片", () => {
     expect(response.status).toBe(403);
   });
 });
+
+describe("操作紀錄", () => {
+  beforeEach(async () => {
+    await db.insert(zones).values({ id: "z1", code: "A-01", name: "備品區", x: 8, y: 10, width: 20, height: 18 });
+    await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
+  });
+
+  /**
+   * oldValue/newValue 會被直接印在「變更」那一欄。
+   *
+   * 一整包 JSON 塞進去的話那一欄會爆版，而且沒有人讀得下去——整包快照要放
+   * payloadJson。這條測試就是釘住這件事。
+   */
+  it("欄位級的值看得懂，整包快照放 payload", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    await as(id, "admin@ecotech.tw", "/api/wms/zones/z1", {
+      method: "PATCH",
+      body: JSON.stringify({ x: 30, y: 40 }),
+    });
+
+    const [event] = await db
+      .select()
+      .from(activityEvents)
+      .where(eq(activityEvents.eventType, "zone_moved"));
+
+    expect(event?.field).toBe("position");
+    expect(event?.oldValue).toBe("8%, 10%");
+    expect(event?.newValue).toBe("30%, 40%");
+    // 完整的前後狀態沒有不見，只是搬到不會被印出來的地方。
+    expect(JSON.parse(event?.payloadJson ?? "{}")).toMatchObject({ before: { x: 8 }, after: { x: 30 } });
+  });
+
+  it("新增與刪除不寫 oldValue/newValue，只留快照", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    await as(id, "admin@ecotech.tw", "/api/wms/zones", {
+      method: "POST",
+      body: JSON.stringify({ code: "B-01", name: "包材區" }),
+    });
+
+    const [event] = await db
+      .select()
+      .from(activityEvents)
+      .where(eq(activityEvents.eventType, "zone_created"));
+
+    // 「新增」沒有「從什麼變成什麼」，硬塞一個值只是製造噪音。
+    expect(event?.oldValue).toBeNull();
+    expect(event?.newValue).toBeNull();
+    expect(JSON.parse(event?.payloadJson ?? "{}")).toMatchObject({ code: "B-01" });
+  });
+
+  it("分類改名記的是名字本身，不是整個物件", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    await as(id, "admin@ecotech.tw", "/api/wms/categories/cat-1", {
+      method: "PATCH",
+      body: JSON.stringify({ name: "包材" }),
+    });
+
+    const [event] = await db
+      .select()
+      .from(activityEvents)
+      .where(eq(activityEvents.eventType, "category_updated"));
+    expect(event?.oldValue).toBe("一般備品");
+    expect(event?.newValue).toBe("包材");
+  });
+
+  it("只回倉儲的紀錄，CRM 的不會混進來", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    await db.insert(activityEvents).values({
+      id: "evt-crm", entityType: "customer", entityId: "c1", entityLabel: "王小明",
+      eventType: "customer_created", summary: "新增客戶", source: "crm",
+    });
+    await as(id, "admin@ecotech.tw", "/api/wms/zones/z1", {
+      method: "PATCH",
+      body: JSON.stringify({ x: 30 }),
+    });
+
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/activity");
+    const body = await response.json() as { events: { entityType: string }[] };
+    expect(body.events.length).toBeGreaterThan(0);
+    expect(body.events.some((event) => event.entityType === "customer")).toBe(false);
+  });
+
+  it("沒有倉儲紀錄權限的人看不到", async () => {
+    const id = await seedUser("none@ecotech.tw", null);
+    const response = await as(id, "none@ecotech.tw", "/api/wms/activity");
+    expect(response.status).toBe(403);
+  });
+});

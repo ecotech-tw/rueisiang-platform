@@ -1,5 +1,6 @@
 import { can } from "@rueisiang/auth";
 import {
+  WMS_ENTITY_TYPES,
   countItem,
   deleteZoneImage,
   findZoneImage,
@@ -14,6 +15,7 @@ import {
   deleteItem,
   deleteLayoutElement,
   deleteZone,
+  listActivity,
   loadWarehouse,
   updateCategory,
   updateItem,
@@ -135,6 +137,32 @@ export const wms = new Hono<AppEnv>()
       await Promise.all(keys.map((key) => c.env.UPLOADS!.delete(key).catch(() => {})));
     }
     return c.json({ ok: true });
+  })
+
+  /**
+   * 倉儲的操作紀錄。
+   *
+   * 篩的是「哪幾種東西」而不是「哪個模組寫的」——CYBERBIZ 同步改到庫存時
+   * source 是 cyberbiz_sync，但那當然也該出現在倉儲的紀錄裡。
+   */
+  .get("/activity", requirePermission("wms:activity:read"), async (c) => {
+    const url = new URL(c.req.url);
+    const entityType = url.searchParams.get("entityType") ?? "all";
+    const size = Number(url.searchParams.get("pageSize"));
+    const page = Number(url.searchParams.get("page"));
+
+    const result = await listActivity(c.get("db"), {
+      // 指定某一種就只看那一種，否則看倉儲的全部五種。
+      ...(WMS_ENTITY_TYPES.includes(entityType as (typeof WMS_ENTITY_TYPES)[number])
+        ? { entityType: entityType as (typeof WMS_ENTITY_TYPES)[number] }
+        : { entityTypes: WMS_ENTITY_TYPES }),
+      source: "all",
+      search: url.searchParams.get("search") ?? "",
+      // 網址是使用者改得到的，不認得的值退回預設而不是報錯。
+      page: Number.isFinite(page) && page > 0 ? Math.floor(page) : 1,
+      pageSize: [25, 50, 100].includes(size) ? size : 25,
+    });
+    return c.json(result);
   })
 
   // ───────────────────────── 倉位現場照片 ─────────────────────────

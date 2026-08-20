@@ -114,8 +114,17 @@ function writeEvent(
     eventType: string;
     summary: string;
     field?: string;
+    /**
+     * 欄位級的、**看得懂的**值——「48」「50」、「8%, 45%」。
+     *
+     * 整包物件的快照不要放這裡，放 payload。操作紀錄那一頁會把這兩個值直接印在
+     * 「變更」欄，塞一整行 JSON 進去只會把版面撐爆而且沒有人讀得下去；
+     * schema 上這兩欄本來就是給欄位級的變更用的。
+     */
     oldValue?: string | null;
     newValue?: string | null;
+    /** 完整快照。查得到，但不會被印在表格裡。 */
+    payload?: unknown;
     actor: Actor;
   },
 ) {
@@ -129,11 +138,16 @@ function writeEvent(
       field: input.field,
       oldValue: input.oldValue,
       newValue: input.newValue,
+      payload: input.payload,
       actor: input.actor,
       source: "wms",
     }),
   );
 }
+
+/** 位置與大小寫成看得懂的一小串，而不是一整包 JSON。 */
+const asPosition = (box: { x: number; y: number }) => `${box.x}%, ${box.y}%`;
+const asSize = (box: { width: number; height: number }) => `${box.width}% × ${box.height}%`;
 
 /** 呼叫端要能分辨「找不到」跟「不給改」，兩者的 HTTP 狀態不一樣。 */
 export class WmsError extends Error {
@@ -228,7 +242,7 @@ export async function createZone(db: Database, input: ZoneInput & { actor: Actor
       entityLabel: `${code} ${name}`,
       eventType: "zone_created",
       summary: "新增倉位",
-      newValue: JSON.stringify(zone),
+      payload: zone,
       actor: input.actor,
     }),
   ]);
@@ -300,8 +314,10 @@ export async function updateZone(
       eventType: moved ? "zone_moved" : resized ? "zone_resized" : "zone_updated",
       summary: moved ? "移動倉位" : resized ? "調整倉位大小" : "修改倉位資料",
       field: moved ? "position" : resized ? "size" : "details",
-      oldValue: JSON.stringify(current),
-      newValue: JSON.stringify(next),
+      // 移動與縮放寫得出「從哪到哪」；改資料的變更太雜，只留快照。
+      oldValue: moved ? asPosition(current) : resized ? asSize(current) : null,
+      newValue: moved ? asPosition(next) : resized ? asSize(next) : null,
+      payload: { before: current, after: next },
       actor: input.actor,
     }),
   ]);
@@ -334,7 +350,7 @@ export async function deleteZone(db: Database, id: string, actor: Actor) {
       entityLabel: `${zone.code} ${zone.name}`,
       eventType: "zone_deleted",
       summary: "刪除倉位",
-      oldValue: JSON.stringify(zone),
+      payload: zone,
       actor,
     }),
   ]);
@@ -417,7 +433,7 @@ export async function createItem(db: Database, input: ItemInput & { actor: Actor
       entityLabel: sku ? `${sku} ${name}` : name,
       eventType: "item_created",
       summary: "新增庫存商品",
-      newValue: JSON.stringify(item),
+      payload: item,
       actor: input.actor,
     }),
   ]);
@@ -472,8 +488,7 @@ export async function updateItem(
       eventType: moved ? "item_moved" : "item_updated",
       summary: moved ? "調整商品存放位置" : "修改商品資料",
       field: moved ? "placement" : "details",
-      oldValue: JSON.stringify(current),
-      newValue: JSON.stringify(next),
+      payload: { before: current, after: next },
       actor: input.actor,
     }),
   ]);
@@ -491,7 +506,7 @@ export async function deleteItem(db: Database, id: string, actor: Actor) {
       entityLabel: item.sku ? `${item.sku} ${item.name}` : item.name,
       eventType: "item_deleted",
       summary: "刪除庫存商品",
-      oldValue: JSON.stringify(item),
+      payload: item,
       actor,
     }),
   ]);
@@ -570,7 +585,7 @@ export async function createCategory(
       entityLabel: name,
       eventType: "category_created",
       summary: "新增商品分類",
-      newValue: JSON.stringify(category),
+      payload: category,
       actor: input.actor,
     }),
   ]);
@@ -614,8 +629,9 @@ export async function updateCategory(
       eventType: "category_updated",
       summary: renamed ? "重新命名商品分類" : "修改商品分類顏色",
       field: renamed ? "name" : "color",
-      oldValue: JSON.stringify(current),
-      newValue: JSON.stringify(next),
+      oldValue: renamed ? current.name : current.color,
+      newValue: renamed ? next.name : next.color,
+      payload: { before: current, after: next },
       actor: input.actor,
     }),
   ]);
@@ -642,7 +658,7 @@ export async function deleteCategory(db: Database, id: string, actor: Actor) {
       entityLabel: category.name,
       eventType: "category_deleted",
       summary: "刪除商品分類",
-      oldValue: JSON.stringify(category),
+      payload: category,
       actor,
     }),
   ]);
@@ -683,7 +699,7 @@ export async function createLayoutElement(
       entityLabel: label,
       eventType: "element_created",
       summary: "新增地圖標示",
-      newValue: JSON.stringify(element),
+      payload: element,
       actor: input.actor,
     }),
   ]);
@@ -719,8 +735,7 @@ export async function updateLayoutElement(
       entityLabel: next.label,
       eventType: "element_updated",
       summary: "調整地圖標示",
-      oldValue: JSON.stringify(current),
-      newValue: JSON.stringify(next),
+      payload: { before: current, after: next },
       actor: input.actor,
     }),
   ]);
@@ -738,7 +753,7 @@ export async function deleteLayoutElement(db: Database, id: string, actor: Actor
       entityLabel: element.label,
       eventType: "element_deleted",
       summary: "刪除地圖標示",
-      oldValue: JSON.stringify(element),
+      payload: element,
       actor,
     }),
   ]);
@@ -779,8 +794,8 @@ export async function updateWarehouseSettings(
       eventType: "canvas_resized",
       summary: `調整畫布為 ${next.canvasWidth} × ${next.canvasHeight}`,
       field: "canvas",
-      oldValue: JSON.stringify(current ?? {}),
-      newValue: JSON.stringify(next),
+      oldValue: current ? `${current.canvasWidth} × ${current.canvasHeight}` : null,
+      newValue: `${next.canvasWidth} × ${next.canvasHeight}`,
       actor: input.actor,
     }),
   ]);

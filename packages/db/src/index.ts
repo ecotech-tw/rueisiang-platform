@@ -138,3 +138,10 @@ export {
   type ShelfLevel,
   type ZoneInput,
 } from "./wms.js";
+export {
+  WMS_ENTITY_TYPES,
+  listActivity,
+  recordActivity,
+  type ActivityQuery,
+  type ActivityRow,
+} from "./activity.js";

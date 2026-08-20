@@ -12,6 +12,7 @@ import { Profile } from "./routes/me/Profile.js";
 import { Payout } from "./routes/tools/Payout.js";
 import { Categories } from "./routes/wms/Categories.js";
 import { WarehouseMap } from "./routes/wms/Map.js";
+import { Activity as WmsActivity } from "./routes/wms/Activity.js";
 import { Inventory } from "./routes/wms/Inventory.js";
 import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { Placeholder } from "./routes/Placeholder.js";
@@ -92,7 +93,7 @@ export function App() {
           <Route path="inventory" element={<Inventory />} />
           <Route path="cyberbiz" element={<Placeholder title="CYBERBIZ 庫存" phase="Phase 4" from={`${WMS}/lib/cyberbiz-inventory.ts`} />} />
           <Route path="categories" element={<Categories />} />
-          <Route path="activity" element={<Placeholder title="倉儲操作紀錄" phase="Phase 4" from={`${WMS}/app/warehouse-app.tsx`} />} />
+          <Route path="activity" element={<WmsActivity />} />
         </Route>
 
         <Route path="tools">
