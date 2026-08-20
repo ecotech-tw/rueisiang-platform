@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, like, or, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 
@@ -102,7 +102,9 @@ export interface ActivityRow {
 
 export interface ActivityResult {
   events: ActivityRow[];
-  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
 }
 
 /**
@@ -131,12 +133,11 @@ export async function listActivity(db: Database, query: ActivityQuery): Promise<
 
   const where = conditions.length ? and(...conditions) : undefined;
 
-  const [counted] = await db
-    .select({ total: sql<number>`count(*)` })
-    .from(activityEvents)
-    .where(where);
-
-  const events = await db
+  /*
+   * 多抓一筆判斷還有沒有下一頁，而不是另外跑一次 count。操作紀錄會長到幾十萬筆，
+   * 每次翻頁都全表 count 太貴，而這一頁只需要知道「後面還有沒有」。
+   */
+  const rows = await db
     .select({
       id: activityEvents.id,
       entityType: activityEvents.entityType,
@@ -158,8 +159,14 @@ export async function listActivity(db: Database, query: ActivityQuery): Promise<
     .where(where)
     // id 當第二排序鍵：同一秒寫入的多筆順序才穩定，翻頁不會重複或漏。
     .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
-    .limit(query.pageSize)
+    .limit(query.pageSize + 1)
     .offset((query.page - 1) * query.pageSize);
 
-  return { events, total: Number(counted?.total ?? 0) };
+  const hasMore = rows.length > query.pageSize;
+  return {
+    events: hasMore ? rows.slice(0, query.pageSize) : rows,
+    page: query.page,
+    pageSize: query.pageSize,
+    hasMore,
+  };
 }

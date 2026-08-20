@@ -1,7 +1,7 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
 import { createDatabase, syncCyberbizCustomer, syncCyberbizCustomers } from "@rueisiang/db";
-import { customerEvents, customers } from "@rueisiang/db/schema";
-import { eq } from "drizzle-orm";
+import { activityEvents, customers } from "@rueisiang/db/schema";
+import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
@@ -39,7 +39,11 @@ async function rowByExternalId(externalId: string) {
 }
 
 async function eventsFor(customerId: string) {
-  return db().select().from(customerEvents).where(eq(customerEvents.customerId, customerId));
+  // 紀錄現在用 entityType + entityId 定位，不再有 customerId 欄位。
+  return db()
+    .select()
+    .from(activityEvents)
+    .where(and(eq(activityEvents.entityType, "customer"), eq(activityEvents.entityId, customerId)));
 }
 
 beforeEach(() => {

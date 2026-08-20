@@ -1,8 +1,10 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { activityRow } from "./activity.js";
 import { normalizePhone } from "./phone.js";
-import { customerEvents, customers } from "./schema/crm.js";
+import { activityEvents } from "./schema/activity.js";
+import { customers } from "./schema/crm.js";
 
 /**
  * 把 CYBERBIZ 的會員資料寫進本地客戶表。
@@ -96,18 +98,21 @@ export async function syncCyberbizCustomer(
       return syncCyberbizCustomer(db, incoming, context);
     }
 
-    await db.insert(customerEvents).values({
-      id: crypto.randomUUID(),
-      customerId,
-      eventType: fromWebhook ? "cyberbiz_webhook_created" : "cyberbiz_imported",
-      summary: fromWebhook ? "由 CYBERBIZ webhook 建立客戶" : "由 CYBERBIZ 匯入客戶",
-      payloadJson: JSON.stringify({
-        topic: context.topic,
-        eventId: context.eventId,
-        cyberbizCustomerId: incoming.externalId,
+    await db.insert(activityEvents).values({
+      ...activityRow({
+        entityType: "customer",
+        entityId: customerId,
+        entityLabel: incoming.name ?? "",
+        eventType: fromWebhook ? "cyberbiz_webhook_created" : "cyberbiz_imported",
+        summary: fromWebhook ? "由 CYBERBIZ webhook 建立客戶" : "由 CYBERBIZ 匯入客戶",
+        payload: {
+          topic: context.topic,
+          eventId: context.eventId,
+          cyberbizCustomerId: incoming.externalId,
+        },
+        source: fromWebhook ? "cyberbiz_webhook" : "cyberbiz_sync",
       }),
-      actorType: "system",
-      source: fromWebhook ? "cyberbiz_webhook" : "cyberbiz_sync",
+      // 同步是批次跑的，時間要跟這一輪的其他寫入一致，不用各自取當下。
       createdAt: now,
     });
 
@@ -155,18 +160,20 @@ export async function syncCyberbizCustomer(
       .update(customers)
       .set({ ...next, lastSyncedAt: now, lastWebhookAt: fromWebhook ? now : existing.lastWebhookAt })
       .where(eq(customers.id, existing.id)),
-    db.insert(customerEvents).values({
-      id: crypto.randomUUID(),
-      customerId: existing.id,
-      eventType: fromWebhook ? "cyberbiz_webhook_updated" : "cyberbiz_refreshed",
-      summary: fromWebhook ? "CYBERBIZ webhook 更新客戶資料" : "重新讀取 CYBERBIZ 客戶資料",
-      payloadJson: JSON.stringify({
-        topic: context.topic,
-        eventId: context.eventId,
-        cyberbizCustomerId: incoming.externalId,
+    db.insert(activityEvents).values({
+      ...activityRow({
+        entityType: "customer",
+        entityId: existing.id,
+        entityLabel: incoming.name ?? existing.name,
+        eventType: fromWebhook ? "cyberbiz_webhook_updated" : "cyberbiz_refreshed",
+        summary: fromWebhook ? "CYBERBIZ webhook 更新客戶資料" : "重新讀取 CYBERBIZ 客戶資料",
+        payload: {
+          topic: context.topic,
+          eventId: context.eventId,
+          cyberbizCustomerId: incoming.externalId,
+        },
+        source: fromWebhook ? "cyberbiz_webhook" : "cyberbiz_sync",
       }),
-      actorType: "system",
-      source: fromWebhook ? "cyberbiz_webhook" : "cyberbiz_sync",
       createdAt: now,
     }),
   ]);

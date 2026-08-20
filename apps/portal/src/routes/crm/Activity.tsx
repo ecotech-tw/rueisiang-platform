@@ -6,7 +6,8 @@ interface EventRow {
   id: string;
   customerId: string;
   customerName: string;
-  customerPhone: string;
+  /** 客戶已經被刪掉時是 null。名字仍然讀得到——紀錄裡存的是當下的快照。 */
+  customerPhone: string | null;
   eventType: string;
   summary: string;
   actorType: string;

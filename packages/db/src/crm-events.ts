@@ -1,13 +1,14 @@
 import { and, desc, eq, like, or, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { customerEvents, customers } from "./schema/crm.js";
+import { activityEvents } from "./schema/activity.js";
+import { customers } from "./schema/crm.js";
 
 /**
- * 操作紀錄。
+ * CRM 的操作紀錄。
  *
- * 資料來源是 customer_events：webhook 進來的異動、手動的新增與編輯，都會寫一筆。
- * 全量同步刻意不寫（一次匯入上萬筆等於灌雜訊），所以這裡看到的是「有人或有事件
- * 真的動到某個客戶」的紀錄。
+ * 資料來源是共用的 activity_events，這裡只是把它篩成「客戶」那一種再補上電話。
+ * webhook 進來的異動、手動的新增與編輯，都會寫一筆；全量同步刻意不寫（一次匯入
+ * 上萬筆等於灌雜訊），所以這裡看到的是「有人或有事件真的動到某個客戶」的紀錄。
  */
 
 export interface EventQuery {
@@ -24,7 +25,8 @@ export interface EventRow {
   id: string;
   customerId: string;
   customerName: string;
-  customerPhone: string;
+  /** 客戶已經被刪掉時是 null——名字仍然讀得到（存的是快照），電話讀不到。 */
+  customerPhone: string | null;
   eventType: string;
   summary: string;
   actorType: string;
@@ -44,18 +46,24 @@ export function defaultEventQuery(): EventQuery {
 function buildWhere(query: EventQuery): SQL | undefined {
   const conditions: SQL[] = [];
 
-  if (query.customerId) conditions.push(eq(customerEvents.customerId, query.customerId));
-  if (query.source !== "all") conditions.push(eq(customerEvents.source, query.source));
+  // 這一頁只看客戶。WMS 的紀錄寫在同一張表，不篩的話會混進來。
+  conditions.push(eq(activityEvents.entityType, "customer"));
+  if (query.customerId) conditions.push(eq(activityEvents.entityId, query.customerId));
+  if (query.source !== "all") conditions.push(eq(activityEvents.source, query.source));
 
   if (query.search) {
     const term = `%${query.search}%`;
-    // 搜尋橫跨紀錄本身與客戶——找「某個人身上發生過什麼」是最常見的用法。
+    /*
+     * 搜尋橫跨紀錄本身與客戶——找「某個人身上發生過什麼」是最常見的用法。
+     * 名字比對 entityLabel（紀錄當下的快照）而不是 customers.name：客戶改名之後
+     * 用舊名字仍然找得到那段歷史，客戶被刪掉也還找得到。
+     */
     conditions.push(
       or(
-        like(customerEvents.summary, term),
-        like(customerEvents.eventType, term),
-        like(customerEvents.actorEmail, term),
-        like(customers.name, term),
+        like(activityEvents.summary, term),
+        like(activityEvents.eventType, term),
+        like(activityEvents.actorEmail, term),
+        like(activityEvents.entityLabel, term),
         like(customers.phone, term),
       )!,
     );
@@ -77,23 +85,29 @@ export async function listCustomerEvents(
    */
   const rows = await db
     .select({
-      id: customerEvents.id,
-      customerId: customerEvents.customerId,
-      customerName: customers.name,
+      id: activityEvents.id,
+      customerId: activityEvents.entityId,
+      // 名字讀快照，不讀 customers——客戶被刪掉之後這一頁仍然讀得懂。
+      customerName: activityEvents.entityLabel,
       customerPhone: customers.phone,
-      eventType: customerEvents.eventType,
-      summary: customerEvents.summary,
-      actorType: customerEvents.actorType,
-      actorEmail: customerEvents.actorEmail,
-      source: customerEvents.source,
-      status: customerEvents.status,
-      error: customerEvents.error,
-      createdAt: customerEvents.createdAt,
+      eventType: activityEvents.eventType,
+      summary: activityEvents.summary,
+      actorType: activityEvents.actorType,
+      actorEmail: activityEvents.actorEmail,
+      source: activityEvents.source,
+      status: activityEvents.status,
+      error: activityEvents.error,
+      createdAt: activityEvents.createdAt,
     })
-    .from(customerEvents)
-    .innerJoin(customers, eq(customers.id, customerEvents.customerId))
+    .from(activityEvents)
+    /*
+     * leftJoin 而不是 innerJoin。電話沒有快照（改號碼是常態，存快照反而會顯示
+     * 過時的），所以還是要 join；但用 inner 的話客戶一刪，他的操作紀錄就整批從
+     * 畫面上消失——連「刪掉這個客戶」這件事本身都查不到。
+     */
+    .leftJoin(customers, eq(customers.id, activityEvents.entityId))
     .where(where)
-    .orderBy(desc(customerEvents.createdAt), desc(customerEvents.id))
+    .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
     .limit(query.pageSize + 1)
     .offset((query.page - 1) * query.pageSize);
 

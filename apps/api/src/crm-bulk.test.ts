@@ -1,6 +1,6 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
 import { createDatabase, upsertCyberbizCustomers } from "@rueisiang/db";
-import { customerEvents, customers } from "@rueisiang/db/schema";
+import { activityEvents, customers } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -70,7 +70,7 @@ describe("批次寫入", () => {
 
   it("不寫操作紀錄——一次匯入上萬筆會把紀錄灌成雜訊", async () => {
     await upsertCyberbizCustomers(db(), [member()]);
-    expect(await db().select().from(customerEvents)).toHaveLength(0);
+    expect(await db().select().from(activityEvents)).toHaveLength(0);
   });
 });
 

@@ -1,7 +1,9 @@
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizePhone } from "./phone.js";
-import { customerEvents, customers } from "./schema/crm.js";
+import { activityRow } from "./activity.js";
+import { activityEvents } from "./schema/activity.js";
+import { customers } from "./schema/crm.js";
 
 /**
  * 客戶的寫入操作：新增、編輯、封鎖。
@@ -26,29 +28,35 @@ export interface CustomerInput {
   tags: string[];
 }
 
-/** 回傳查詢本身（不是 Promise），這樣才能跟客戶的寫入放進同一個 db.batch。 */
+/**
+ * 回傳查詢本身（不是 Promise），這樣才能跟客戶的寫入放進同一個 db.batch。
+ * 所以這裡用 activityRow() 而不是 recordActivity()——後者會自己 await。
+ */
 function writeEvent(
   db: Database,
   input: {
     customerId: string;
+    /** 客戶當下的名字。存快照，客戶被刪掉之後這筆紀錄還看得懂。 */
+    customerName: string;
     eventType: string;
     summary: string;
     payload: unknown;
     actor: Actor;
   },
 ) {
-  return db.insert(customerEvents).values({
-    id: crypto.randomUUID(),
-    customerId: input.customerId,
-    eventType: input.eventType,
-    summary: input.summary,
-    payloadJson: JSON.stringify(input.payload),
-    actorType: "user",
-    actorId: input.actor.id,
-    // email 跟著存：人離職、帳號被刪之後，紀錄仍然看得出當初是誰做的。
-    actorEmail: input.actor.email,
-    source: "crm",
-  });
+  return db.insert(activityEvents).values(
+    activityRow({
+      entityType: "customer",
+      entityId: input.customerId,
+      entityLabel: input.customerName,
+      eventType: input.eventType,
+      summary: input.summary,
+      payload: input.payload,
+      // email 跟著存：人離職、帳號被刪之後，紀錄仍然看得出當初是誰做的。
+      actor: input.actor,
+      source: "crm",
+    }),
+  );
 }
 
 export async function findCustomerByPhone(db: Database, phone: string) {
@@ -102,6 +110,7 @@ export async function createCustomer(
     }),
     writeEvent(db, {
       customerId: id,
+      customerName: input.name,
       eventType: "customer_created",
       summary: linked ? "新增客戶並同步到 CYBERBIZ" : "新增客戶（僅存在本地）",
       payload: { phone: input.phone, name: input.name, linked: Boolean(linked) },
@@ -141,6 +150,7 @@ export async function updateCustomer(
       .where(eq(customers.id, id)),
     writeEvent(db, {
       customerId: id,
+      customerName: input.name,
       eventType: "customer_updated",
       summary: "編輯客戶資料",
       payload: {
@@ -159,6 +169,10 @@ export async function setCustomerBlocked(
   blocked: boolean,
   actor: Actor,
 ): Promise<void> {
+  // 先讀名字：紀錄要存當下的客戶名，客戶被刪掉之後那一筆才看得懂。
+  const before = await findCustomer(db, id);
+  if (!before) throw new Error("找不到這筆客戶資料");
+
   await db.batch([
     db
       .update(customers)
@@ -170,6 +184,7 @@ export async function setCustomerBlocked(
       .where(eq(customers.id, id)),
     writeEvent(db, {
       customerId: id,
+      customerName: before.name,
       eventType: blocked ? "customer_blocked" : "customer_unblocked",
       summary: blocked ? "封鎖客戶" : "解除封鎖",
       payload: { changedFields: ["status"], after: { status: blocked ? "blocked" : "active" } },
