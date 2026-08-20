@@ -1,12 +1,26 @@
 import { useState } from "react";
+import {
+  composeTaiwanAddress,
+  splitTaiwanAddress,
+  taiwanDistricts,
+  type TaiwanCity,
+} from "../../lib/taiwan-address.js";
 import { Icon } from "../../shell/icons.js";
 import {
   parseTags,
   useCreateCustomer,
+  useTagOptions,
   useUpdateCustomer,
   type Customer,
   type CustomerForm as Fields,
 } from "./api.js";
+import { TagPicker } from "./TagPicker.js";
+
+const cities = Object.keys(taiwanDistricts) as TaiwanCity[];
+
+function districtsOf(city: string): readonly string[] {
+  return city in taiwanDistricts ? taiwanDistricts[city as TaiwanCity] : [];
+}
 
 interface Props {
   /** 有值就是編輯，沒有就是新增。 */
@@ -36,9 +50,14 @@ function fieldsOf(customer: Customer): Fields {
  */
 export function CustomerForm({ customer, onClose }: Props) {
   const [fields, setFields] = useState<Fields>(customer ? fieldsOf(customer) : emptyFields());
-  const [tagInput, setTagInput] = useState("");
-  const [localOnly, setLocalOnly] = useState(false);
+  /*
+   * 地址在表單裡拆成三塊，送出時才組回單一字串。既有資料用 splitTaiwanAddress
+   * 猜一次——猜不出縣市時整串會落在「詳細街道地址」，資料不會掉。
+   */
+  const [address, setAddress] = useState(() => splitTaiwanAddress(customer?.address ?? ""));
 
+  // 表單一開就要能搜尋，所以直接啟用。
+  const tagOptions = useTagOptions(true);
   const create = useCreateCustomer();
   const update = useUpdateCustomer();
   const pending = create.isPending || update.isPending;
@@ -48,22 +67,13 @@ export function CustomerForm({ customer, onClose }: Props) {
     setFields((current) => ({ ...current, ...patch }));
   }
 
-  function addTag() {
-    const tag = tagInput.trim();
-    if (!tag || fields.tags.includes(tag)) return;
-    set({ tags: [...fields.tags, tag] });
-    setTagInput("");
-  }
-
   function submit() {
-    if (customer) {
-      update.mutate({ ...fields, id: customer.id }, { onSuccess: onClose });
-    } else {
-      create.mutate(
-        { ...fields, ...(localOnly ? { sourceChannel: "manual" } : {}) },
-        { onSuccess: onClose },
-      );
-    }
+    const payload = {
+      ...fields,
+      address: composeTaiwanAddress(address.city, address.district, address.addressLine),
+    };
+    if (customer) update.mutate({ ...payload, id: customer.id }, { onSuccess: onClose });
+    else create.mutate(payload, { onSuccess: onClose });
   }
 
   return (
@@ -120,59 +130,58 @@ export function CustomerForm({ customer, onClose }: Props) {
             </label>
           </div>
 
-          <label className="field">
-            <span>地址</span>
-            <input value={fields.address} onChange={(event) => set({ address: event.target.value })} />
-          </label>
-
+          {/*
+            * 地址拆成縣市／區域／街道三格，但**存進去的還是單一字串**。
+            * CYBERBIZ 回來的地址本來就是一整串，拆成三個欄位就得在每次同步時猜
+            * 它的結構，猜錯會把資料弄髒。所以只在編輯的當下拆開，送出前組回去。
+            */}
           <div className="field">
-            <span>標籤</span>
-            <div className="chips tight">
-              {fields.tags.map((tag) => (
-                <span className="chip" key={tag}>
-                  {tag}
-                  <button
-                    type="button"
-                    aria-label={`移除 ${tag}`}
-                    onClick={() => set({ tags: fields.tags.filter((item) => item !== tag) })}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
+            <span>地址</span>
+            <div className="field-grid">
+              <label className="field">
+                <span>縣市</span>
+                <select
+                  value={address.city}
+                  onChange={(event) => {
+                    // 換縣市時清掉區域——舊的區域幾乎不會屬於新的縣市。
+                    setAddress({ ...address, city: event.target.value, district: "" });
+                  }}
+                >
+                  <option value="">請選擇縣市</option>
+                  {cities.map((city) => (
+                    <option key={city} value={city}>{city}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>區域</span>
+                <select
+                  value={address.district}
+                  disabled={!address.city}
+                  onChange={(event) => setAddress({ ...address, district: event.target.value })}
+                >
+                  <option value="">{address.city ? "請選擇區域" : "請先選擇縣市"}</option>
+                  {districtsOf(address.city).map((district) => (
+                    <option key={district} value={district}>{district}</option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <div className="admin-form inline">
+            <label className="field">
+              <span>詳細街道地址</span>
               <input
-                aria-label="新增標籤"
-                placeholder="輸入後按新增"
-                value={tagInput}
-                onChange={(event) => setTagInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addTag();
-                  }
-                }}
+                placeholder="例如：中山東路 138 號 2 樓"
+                value={address.addressLine}
+                onChange={(event) => setAddress({ ...address, addressLine: event.target.value })}
               />
-              <button type="button" className="ghost-button" onClick={addTag}>
-                新增
-              </button>
-            </div>
+            </label>
           </div>
 
-          {!customer ? (
-            <label className="field checkbox">
-              <input
-                type="checkbox"
-                checked={localOnly}
-                onChange={(event) => setLocalOnly(event.target.checked)}
-              />
-              <span>
-                只建在本平台，不同步到 CYBERBIZ
-                <small>預設會在官網建立會員。勾起來的話這位客戶只存在這裡。</small>
-              </span>
-            </label>
-          ) : null}
+          <TagPicker
+            value={fields.tags}
+            options={tagOptions.data ?? []}
+            onChange={(tags) => set({ tags })}
+          />
 
           {customer?.cyberbizCustomerId ? (
             <p className="muted form-foot">

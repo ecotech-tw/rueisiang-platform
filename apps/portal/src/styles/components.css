@@ -1655,3 +1655,67 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .sort-header.active { color: var(--color-brand-dark); }
 .sort-header.active svg { opacity: 1; color: var(--color-brand); }
 .sort-header:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; border-radius: 4px; }
+
+/*
+ * ── 標籤選擇器 ────────────────────────────────────────────────────────────
+ *
+ * 原本是空白輸入框加一顆「新增」，打字的人看不到公司已經有哪些標籤，於是
+ * 「需追蹤」「待追蹤」「要追蹤」會同時存在。改成先搜尋、找不到才新增。
+ */
+.tag-picker { position: relative; }
+
+/* 放大鏡疊在輸入框左邊，跟一般搜尋框長得一樣。 */
+.tag-search { position: relative; display: flex; align-items: center; }
+.tag-search svg {
+  position: absolute;
+  left: 11px;
+  width: 18px;
+  height: 18px;
+  color: var(--color-muted);
+  pointer-events: none;
+}
+.tag-search input { width: 100%; padding-left: 36px; }
+
+/*
+ * 下拉浮在上層而不是把表單往下推——推的話每打一個字對話框就跳一次高度。
+ */
+.tag-options {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  max-height: 220px;
+  margin: 4px 0 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-paper);
+  box-shadow: 0 12px 28px rgba(64, 30, 30, .16);
+}
+.tag-options button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 13.5px;
+  text-align: left;
+}
+.tag-options button:hover { background: --alpha(var(--color-brand) / 7%); }
+.tag-options small { color: var(--color-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* 「新增標籤」跟既有選項分開，免得誤按而多開一個近似的標籤。 */
+.tag-create {
+  margin-top: 2px;
+  border-top: 1px solid var(--color-soft-line) !important;
+  border-radius: 0 0 var(--radius-field) var(--radius-field) !important;
+  color: var(--color-brand-dark) !important;
+  font-weight: 500;
+}
+.tag-create svg { width: 16px; height: 16px; flex: none; }
