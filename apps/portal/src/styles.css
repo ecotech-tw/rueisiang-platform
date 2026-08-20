@@ -40,6 +40,27 @@
   --color-warn: #93621f;
   --color-warn-soft: #fff3d9;
 
+  /*
+   * 商品分類的十個色調。使用者從這一組固定值裡選，來源是 packages/db 的
+   * CATEGORY_COLORS——那邊加一個顏色，這裡就要補一個對應的 token。
+   *
+   * 只定義主色，底色一律用 --alpha() 從主色推出來，不另外存十個淡色值：
+   * 那樣改一次色要改兩個地方，而且兩者一定會慢慢對不上。
+   *
+   * 彩度都壓在同一個帶上（不是隨手挑的十個純色），這樣十個標籤並排時
+   * 看起來是一組，而不是十個互相搶戲的色塊。
+   */
+  --color-tone-rose: #b3474b;
+  --color-tone-sky: #2f6087;
+  --color-tone-mint: #2f6b52;
+  --color-tone-amber: #93621f;
+  --color-tone-violet: #6a4a8c;
+  --color-tone-teal: #2b6a6b;
+  --color-tone-peach: #a55b3c;
+  --color-tone-slate: #55606e;
+  --color-tone-lime: #566b26;
+  --color-tone-sand: #7d6540;
+
   /* Material 的圓角階層：卡片 14、輸入框與按鈕 9–12、可點的列是膠囊。 */
   --radius-card: 14px;
   --radius-field: 9px;
