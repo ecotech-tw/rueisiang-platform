@@ -1465,6 +1465,68 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .data-table td:not([data-label])::before { display: none; }
 
   .data-table .numeric { text-align: left; }
+
+  /*
+   * 卡片本來是「每個欄位一列標籤＋值」，量出來一張 287px，一個螢幕只看得到
+   * 1.4 張——滑三下才換一個人。壓縮的作法是把「不必解釋的欄位」拿掉標籤：
+   * 看到一串數字就知道是電話，看到地址就知道是地址。
+   */
+  /*
+   * 卡片改成 flex-wrap，再用 order 重排欄位。markup 的順序是為了桌機表格
+   * （電話→通路→地址→狀態），照那個順序疊在手機上，兩個標記膠囊會被地址隔開、
+   * 各佔一列。用 order 把它們拉到一起，一列就放得下。
+   */
+  .data-table tbody tr {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 8px;
+    padding: 12px 14px 10px;
+  }
+  .data-table td:first-child { order: 1; width: 100%; }
+  .data-table td[data-label="電話"] { order: 2; width: 100%; }
+  .data-table td[data-label="地址"] { order: 3; width: 100%; }
+  .data-table td[data-label="通路"] { order: 4; }
+  .data-table td[data-label="狀態"] { order: 5; }
+  .data-table td[data-label="最近更新"] { order: 6; width: 100%; }
+
+  .data-table td[data-label="電話"],
+  .data-table td[data-label="地址"],
+  .data-table td[data-label="最近更新"] {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 2px 0;
+  }
+  .data-table td[data-label="電話"]::before,
+  .data-table td[data-label="地址"]::before,
+  .data-table td[data-label="最近更新"]::before { display: none; }
+  .data-table td[data-label="最近更新"] { color: var(--color-muted); font-size: 12px; }
+
+  /*
+   * 通路與狀態都是標記，讓它們排在同一行——各自佔一列的話，兩個小膠囊就吃掉
+   * 64px。用 inline-block 而不是 flex 容器：它們是分開的 td，包不進同一個父層。
+   */
+  .data-table td[data-label="通路"],
+  .data-table td[data-label="狀態"] {
+    display: block;
+    width: auto;
+    padding: 4px 0;
+  }
+  .data-table td[data-label="通路"]::before,
+  .data-table td[data-label="狀態"]::before { display: none; }
+
+  /* 操作鈕釘在卡片右上角，不要自己佔一列（那一列量出來 50px）。 */
+  .data-table td[data-label="操作"] {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: block;
+    padding: 0;
+  }
+  .data-table td[data-label="操作"]::before { display: none; }
+  /* 名字那一格要讓開右上角的按鈕，不然長名字會被壓到。 */
+  .data-table td:first-child { padding-right: 84px; }
+
   .row-actions { justify-content: flex-start; }
 
   /*
