@@ -782,6 +782,76 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .status-source-cyberbiz_sync { background: var(--color-ok-soft); color: var(--color-ok); }
 .cell-error { margin-top: 2px; color: var(--color-brand-dark); font-size: 12px; }
 
+/*
+ * 商品分類的色調。主色從 @theme 來，底色用 --alpha() 推——寫死一組淡色的話，
+ * 主色改了那些淡色不會跟著改。
+ */
+.status-tone-rose { background: --alpha(var(--color-tone-rose) / 12%); color: var(--color-tone-rose); }
+.status-tone-sky { background: --alpha(var(--color-tone-sky) / 12%); color: var(--color-tone-sky); }
+.status-tone-mint { background: --alpha(var(--color-tone-mint) / 12%); color: var(--color-tone-mint); }
+.status-tone-amber { background: --alpha(var(--color-tone-amber) / 12%); color: var(--color-tone-amber); }
+.status-tone-violet { background: --alpha(var(--color-tone-violet) / 12%); color: var(--color-tone-violet); }
+.status-tone-teal { background: --alpha(var(--color-tone-teal) / 12%); color: var(--color-tone-teal); }
+.status-tone-peach { background: --alpha(var(--color-tone-peach) / 12%); color: var(--color-tone-peach); }
+.status-tone-slate { background: --alpha(var(--color-tone-slate) / 12%); color: var(--color-tone-slate); }
+.status-tone-lime { background: --alpha(var(--color-tone-lime) / 12%); color: var(--color-tone-lime); }
+.status-tone-sand { background: --alpha(var(--color-tone-sand) / 12%); color: var(--color-tone-sand); }
+
+/*
+ * 低於安全庫存的數字。
+ *
+ * 同一列右邊已經有「需要補貨」的標籤，這裡不再重複一個標籤，只把數字本身
+ * 染色——掃過一整欄數字時，眼睛找的是數字，不是旁邊那一欄。
+ */
+.stock-low { color: var(--color-brand-dark); font-weight: 700; }
+
+/*
+ * 「正常」這種不需要注意的狀態。
+ *
+ * 仍然給膠囊而不是留成裸字：同一欄一半有底色、一半沒有，看起來像哪一列沒渲染完，
+ * 而不像刻意的區別。用最低的對比讓它安靜地待著就好。
+ */
+.status.quiet { background: var(--color-soft-line); color: var(--color-muted); font-weight: 500; }
+
+/* 盤點按鈕比旁邊的圖示鈕高一點才對得齊，而且它有文字，要窄一點的內距。 */
+.count-action { padding: 4px 12px; font-size: 13px; }
+
+/* 表單裡的唯讀值。長得像輸入框的位置，但明確不是輸入框。 */
+.field-static {
+  margin: 0;
+  padding: 8px 0 0;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+.field-static small {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* 盤點對話框：正在數的是哪一項，釘在最上面。 */
+.count-subject {
+  padding: 12px 14px;
+  border-radius: var(--radius-field);
+  background: var(--color-canvas);
+}
+
+/*
+ * 盤點的差額。三種語氣：多了（中性）、少了（品牌紅）、低於安全庫存（警示黃）。
+ * 少了才用紅色——多出來通常是漏記了一批進貨，不是壞事。
+ */
+.count-diff {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.count-diff.short { color: var(--color-brand-dark); }
+.count-diff.warn { color: var(--color-warn); }
+
 .payload-peek { margin-top: 4px; }
 .payload-peek summary { color: var(--color-brand); cursor: pointer; font-size: 11px; }
 .payload-peek pre {
@@ -1004,7 +1074,14 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  */
 .modal-card > .modal-actions { margin-inline: 0; }
 
-.field { display: grid; gap: 6px; }
+/*
+ * align-content: start 是必要的，不是裝飾。
+ *
+ * .field 在 .field-grid 裡會被拉成整列的高度。少了這一行，多出來的高度會平均
+ * 塞進各列，於是「有說明文字的欄位」旁邊那個「沒有說明文字的欄位」，它的輸入框
+ * 會被往下推——兩個並排的輸入框差了 20px，看起來就是沒對齊。
+ */
+.field { display: grid; align-content: start; gap: 6px; }
 .field > span { font-size: 13px; font-weight: 700; }
 .field > span b { margin-left: 6px; color: var(--color-brand); font-size: 11px; }
 .field > small { color: var(--color-muted); font-size: 12px; }
@@ -1029,9 +1106,21 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font: inherit;
 }
 .field select:disabled { background: var(--color-soft-line); color: var(--color-muted); }
+/*
+ * input 的預設寬度是 ~20 個字元，而 grid item 的 min-width 預設是 auto——兩件事
+ * 加起來，欄位就縮不到比那個預設寬度更窄。三個窄欄位並排時會直接撐爆對話框，
+ * 長出一條橫向捲軸。min-width: 0 讓它可以照著格線縮。
+ */
+.field input,
+.field select { min-width: 0; }
 .field input:focus-visible,
 .field select:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+/*
+ * 三個窄欄位（數量、單位、安全庫存）。auto-fit 在對話框的寬度下只排得下兩欄，
+ * 第三個會自己掉到下一列、旁邊空一大格。這種一組的數字欄位就明講要三欄。
+ */
+.field-grid.trio { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 /*
  * 地址那三格。原本外面包一層 .field 加「地址」標題，但裡面的標籤已經寫著
  * 縣市／區域／地址，標題只是重複。拿掉標題之後這一組跟上面那排就黏在一起了
@@ -1540,6 +1629,28 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   }
   .data-table td[data-label="通路"]::before,
   .data-table td[data-label="狀態"]::before { display: none; }
+
+  /*
+   * 倉儲庫存的卡片。
+   *
+   * 上面那組 order 是照 CRM 的欄位名寫的（電話、地址、通路…），倉儲的欄位名不同，
+   * 所以那些規則一條都對不上，全部落在預設的 order: 0——結果是「商品」（唯一有
+   * order 的那個）被擠到所有欄位後面，卡片變成從「分類」開始讀。
+   *
+   * 這也是 order 這種寫法的代價：新增一張表就要在這裡補一次。與其把它做成通用的
+   * 機制，不如照實列出來——反正只有兩張表，而且每張表想要的順序本來就不一樣。
+   */
+  .data-table td[data-label="位置"] { order: 2; width: 100%; }
+  .data-table td[data-label="數量"] { order: 3; width: 100%; }
+  .data-table td[data-label="安全庫存"] { order: 4; width: 100%; }
+  /* 分類與狀態都是膠囊，跟 CRM 的通路一樣讓它們並排在最後一行。 */
+  .data-table td[data-label="分類"] {
+    order: 5;
+    display: block;
+    width: auto;
+    padding: 4px 0;
+  }
+  .data-table td[data-label="分類"]::before { display: none; }
 
   /* 操作鈕釘在卡片右上角，不要自己佔一列（那一列量出來 50px）。 */
   .data-table td[data-label="操作"] {
