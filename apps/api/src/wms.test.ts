@@ -4,14 +4,19 @@ import {
   activityEvents,
   inventoryItems,
   productCategories,
+  zoneImages,
   users,
   userRoles,
   zones,
 } from "@rueisiang/db/schema";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createLocalD1 } from "./local-d1/d1.js";
+import { createLocalR2 } from "./local-d1/r2.js";
 
 /**
  * 倉儲的 API。
@@ -23,10 +28,12 @@ import { createLocalD1 } from "./local-d1/d1.js";
 
 const SECRET = "test-secret-test-secret-test-secret";
 let d1: ReturnType<typeof createLocalD1>;
+let uploads: ReturnType<typeof createLocalR2>;
 let db: ReturnType<typeof createDatabase>;
 
 const env = () => ({
   DB: d1,
+  UPLOADS: uploads,
   AUTH_SESSION_SECRET: SECRET,
   GOOGLE_OAUTH_CLIENT_ID: "x",
   GOOGLE_OAUTH_CLIENT_SECRET: "x",
@@ -34,6 +41,8 @@ const env = () => ({
 
 beforeEach(async () => {
   d1 = createLocalD1();
+  // 每個測試一個乾淨的暫存目錄，不然上一個測試的檔案會留到下一個。
+  uploads = createLocalR2(fs.mkdtempSync(path.join(os.tmpdir(), "wms-uploads-")));
   db = createDatabase(d1 as never);
   await syncSystemRoles(db);
 });
@@ -55,7 +64,12 @@ async function as(userId: string, email: string, path: string, init: RequestInit
     new Request(`https://test.local${path}`, {
       ...init,
       headers: {
-        "Content-Type": "application/json",
+        /*
+         * 送 FormData 時不能自己設 Content-Type：那個標頭要帶 multipart 的
+         * boundary，只有 FormData 自己組得出來。寫死 application/json 的話
+         * 伺服器那端會解不開，回 500。
+         */
+        ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
         Cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
         ...(init.headers ?? {}),
       },
@@ -421,5 +435,104 @@ describe("畫布設定", () => {
       body: JSON.stringify({ canvasWidth: 99999, canvasHeight: 10 }),
     });
     expect(await response.json()).toEqual({ canvasWidth: 3200, canvasHeight: 550 });
+  });
+});
+
+describe("倉位現場照片", () => {
+  const PIXEL = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
+  function upload(bytes: Uint8Array = PIXEL, name = "shelf.png", type = "image/png") {
+    const form = new FormData();
+    // Workers 的型別裡沒有 BlobPart，測試跑在 Node 上所以實際型別是對的。
+    form.append("file", new File([bytes as never], name, { type }));
+    return form;
+  }
+
+  beforeEach(async () => {
+    await db.insert(zones).values({ id: "z1", code: "A-01", name: "備品區", x: 0, y: 0, width: 10, height: 10 });
+  });
+
+  it("上傳之後讀得回來，內容一模一樣", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    const created = await as(id, "admin@ecotech.tw", "/api/wms/zones/z1/images", {
+      method: "POST",
+      body: upload(),
+    });
+    expect(created.status).toBe(201);
+    const { id: imageId } = await created.json() as { id: string };
+
+    const read = await as(id, "admin@ecotech.tw", `/api/wms/images/${imageId}`);
+    expect(read.status).toBe(200);
+    expect(read.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await read.arrayBuffer())).toEqual(PIXEL);
+  });
+
+  it("不是圖片就擋下來，而且不會留下索引", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/zones/z1/images", {
+      method: "POST",
+      body: upload(new Uint8Array([1, 2, 3]), "notes.txt", "text/plain"),
+    });
+
+    expect(response.status).toBe(400);
+    const list = await as(id, "admin@ecotech.tw", "/api/wms/zones/z1/images");
+    expect((await list.json() as { images: unknown[] }).images).toHaveLength(0);
+  });
+
+  it("刪掉倉位時，R2 上的檔案也要跟著清掉", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    await as(id, "admin@ecotech.tw", "/api/wms/zones/z1/images", {
+      method: "POST", body: upload(),
+    });
+    const [row] = await db.select().from(zoneImages);
+    expect(await uploads.head(row!.objectKey)).not.toBeNull();
+
+    await as(id, "admin@ecotech.tw", "/api/wms/zones/z1", { method: "DELETE" });
+
+    // zone_images 是 cascade，索引會自己消失——但 R2 沒有 cascade，要自己刪。
+    expect(await db.select().from(zoneImages)).toHaveLength(0);
+    expect(await uploads.head(row!.objectKey)).toBeNull();
+  });
+
+  it("刪一張照片，檔案也要不見", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    const created = await as(id, "admin@ecotech.tw", "/api/wms/zones/z1/images", {
+      method: "POST", body: upload(),
+    });
+    const { id: imageId } = await created.json() as { id: string };
+    const [row] = await db.select().from(zoneImages);
+
+    await as(id, "admin@ecotech.tw", `/api/wms/images/${imageId}`, { method: "DELETE" });
+    expect(await uploads.head(row!.objectKey)).toBeNull();
+  });
+
+  it("沒有綁定 R2 時只有照片壞掉，其他功能照常", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    const noBucket = { ...env(), UPLOADS: undefined };
+
+    const upload503 = await app.fetch(
+      new Request("https://test.local/api/wms/zones/z1/images", {
+        method: "POST",
+        body: upload(),
+        headers: { Cookie: `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id, email: "admin@ecotech.tw", name: "測試", pictureUrl: "" }), SECRET))}` },
+      }),
+      noBucket as never,
+    );
+    expect(upload503.status).toBe(503);
+
+    // 地圖本身不該因為沒設定物件儲存就一起停擺。
+    const warehouse = await app.fetch(
+      new Request("https://test.local/api/wms/warehouse", {
+        headers: { Cookie: `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id, email: "admin@ecotech.tw", name: "測試", pictureUrl: "" }), SECRET))}` },
+      }),
+      noBucket as never,
+    );
+    expect(warehouse.status).toBe(200);
+  });
+
+  it("沒有地圖權限的人看不到照片", async () => {
+    const id = await seedUser("none@ecotech.tw", null);
+    const response = await as(id, "none@ecotech.tw", "/api/wms/zones/z1/images");
+    expect(response.status).toBe(403);
   });
 });

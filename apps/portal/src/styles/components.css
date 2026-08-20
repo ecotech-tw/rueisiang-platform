@@ -816,22 +816,28 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /*
  * ── 倉位地圖 ────────────────────────────────────────────────────────────
  *
- * 方塊是絕對定位的 DOM，座標用百分比。畫布用 aspect-ratio 維持比例，寬度隨面板
- * 走——所以縮視窗時整張圖等比例縮，方塊的相對位置一個都不會跑掉。
+ * 三層結構：map-scroll（捲動）→ map-stage（佔住縮放後的空間）→ map-canvas
+ * （像素尺寸，用 transform 縮放）。只縮 canvas 的話捲動範圍不會跟著變，
+ * 放大之後右下角就永遠捲不到。
  */
-.map-panel { padding: 16px; overflow: auto; }
-.map-canvas {
-  position: relative;
-  width: 100%;
-  /* 畫布本身要看得出邊界，不然拖到邊緣時不知道哪裡是底。 */
+.map-panel { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.map-scroll {
+  flex: 1;
+  min-height: 320px;
+  overflow: auto;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-card);
+  background: var(--color-canvas);
+}
+.map-stage { position: relative; }
+.map-canvas {
+  position: relative;
+  transform-origin: top left;
   background:
-    /* 淡格線幫忙對齊，但不要搶戲——它是輔助線，不是內容。 */
+    /* 淡格線幫忙對齊，但不搶戲——它是輔助線，不是內容。 */
     linear-gradient(var(--color-soft-line) 1px, transparent 1px) 0 0 / 100% 10%,
-    linear-gradient(90deg, var(--color-soft-line) 1px, transparent 1px) 0 0 / 10% 100%,
-    var(--color-canvas);
-  /* 拖曳時不要選到文字，整段會反白很難看。 */
+    linear-gradient(90deg, var(--color-soft-line) 1px, transparent 1px) 0 0 / 10% 100%;
+  /* 拖曳時整段文字反白很難看。 */
   user-select: none;
 }
 
@@ -840,48 +846,69 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   position: absolute;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid --alpha(var(--color-ink) / 20%);
+  padding: 7px 9px;
+  border: 1px solid --alpha(var(--color-ink) / 18%);
   border-radius: 10px;
   overflow: hidden;
   font-size: 12px;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 /*
- * touch-action: none 只放在拖得動的方塊上，不放在畫布。
- *
- * 放在畫布上的話，手指按在任何地方都不會捲動——地圖在手機上要靠平移才看得完，
- * 那等於把整張圖鎖死。放在方塊上則剛好：按著方塊是拖它，按著空白處是平移。
+ * touch-action: none 只放在拖得動的方塊上，不放在捲動容器。放在容器上的話
+ * 手指按在任何地方都不會捲動，等於把整張圖鎖死。
  */
 .map-zone.editable,
 .map-element.editable { cursor: grab; touch-action: none; }
-.map-zone.dragging { cursor: grabbing; opacity: .85; }
+.map-zone.dragging { cursor: grabbing; opacity: .85; z-index: 2; }
+.map-zone:not(.editable) { cursor: pointer; }
 
-/* 選中：Material 的作法是加一圈輪廓，不是換一個更亮的底色。 */
-.map-zone.selected { outline: 2px solid var(--color-brand); outline-offset: 1px; }
+/* 選中：加一圈輪廓，不換底色——換底色的話那一格就不再是它代表的顏色。 */
+.map-zone.selected { outline: 2px solid var(--color-brand); outline-offset: 1px; z-index: 1; }
 .map-zone:focus-visible,
 .map-element:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 
+/* 搜尋：符合的浮起來，其他退到背景。整個藏起來會失去「它在哪一區」的脈絡。 */
+.map-zone.search-match { outline: 2px solid var(--color-brand); outline-offset: 1px; z-index: 1; }
+.map-zone.search-dimmed { opacity: .3; }
+
 .map-zone-head { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-.map-zone-head strong { font-size: 13px; }
-.map-zone-name { font-weight: 500; }
-.map-zone-meta { margin-top: auto; color: --alpha(var(--color-ink) / 62%); font-size: 11px; }
-/* 方塊可能只有 80px 寬，塞不下一句話，所以補貨提示只用一個點。 */
-.map-zone-alert {
+.map-zone-head b { font-size: 12px; font-weight: 700; }
+.map-zone-head i {
   flex: none;
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: var(--color-brand);
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
+  font-style: normal;
   font-weight: 700;
 }
+.map-zone-name { font-size: 11px; opacity: .82; }
+/* 總件數放最大：遠遠看一眼地圖時，要找的就是這個數字。 */
+.map-zone-total { margin-top: auto; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+.map-zone-total small { margin-left: 2px; font-size: 10px; font-weight: 400; opacity: .7; }
 
-/* 標示是牆、走道這種東西：文字置中、沒有內容，視覺上要退到倉位後面。 */
+/* 每層的數量。欄數由 JS 依方塊的像素寬度算出來，放不下就收成「更多 +N」。 */
+.map-zone-levels { display: grid; gap: 3px; margin-top: 4px; }
+.map-zone-levels em {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: --alpha(var(--color-paper) / 70%);
+  font-style: normal;
+  font-size: 10px;
+}
+.map-zone-levels i { overflow: hidden; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.map-zone-levels b { flex: none; font-weight: 700; }
+.map-zone-more { background: --alpha(var(--color-ink) / 8%); }
+
+/* 標籤是牆、走道這種東西：文字置中、虛線框，視覺上退到倉位後面。 */
 .map-element {
   align-items: center;
   justify-content: center;
@@ -889,18 +916,32 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-weight: 500;
 }
 
-/* 右下角的縮放把手。只有 hover 或選中時才明顯，平常安靜地待著。 */
-.map-resize {
+/* 配置模式下才出現的兩顆控制項。 */
+.map-zone-delete {
   position: absolute;
-  right: 2px;
-  bottom: 2px;
-  width: 14px;
-  height: 14px;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: 0;
-  border-radius: 3px;
+  border-radius: 50%;
+  background: --alpha(var(--color-brand) / 90%);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+}
+.map-resize {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
   background: transparent;
   cursor: nwse-resize;
+  touch-action: none;
 }
 .map-resize::after {
   content: "";
@@ -909,45 +950,277 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   bottom: 3px;
   width: 7px;
   height: 7px;
-  border-right: 2px solid --alpha(var(--color-ink) / 45%);
-  border-bottom: 2px solid --alpha(var(--color-ink) / 45%);
-  opacity: 0;
-}
-.map-zone:hover .map-resize::after,
-.map-element:hover .map-resize::after,
-.map-zone.selected .map-resize::after,
-.map-resize:focus-visible::after { opacity: 1; }
-
-.map-empty {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  text-align: center;
+  border-right: 2px solid --alpha(var(--color-ink) / 50%);
+  border-bottom: 2px solid --alpha(var(--color-ink) / 50%);
 }
 
 /* 地圖上的方塊：淡底＋深字，跟分類膠囊同一組色調。 */
-.map-zone.tone-rose, .map-element.tone-rose { background: --alpha(var(--color-tone-rose) / 16%); color: var(--color-tone-rose); }
-.map-zone.tone-sky, .map-element.tone-sky { background: --alpha(var(--color-tone-sky) / 16%); color: var(--color-tone-sky); }
-.map-zone.tone-mint, .map-element.tone-mint { background: --alpha(var(--color-tone-mint) / 16%); color: var(--color-tone-mint); }
-.map-zone.tone-amber, .map-element.tone-amber { background: --alpha(var(--color-tone-amber) / 16%); color: var(--color-tone-amber); }
-.map-zone.tone-violet, .map-element.tone-violet { background: --alpha(var(--color-tone-violet) / 16%); color: var(--color-tone-violet); }
-.map-zone.tone-teal, .map-element.tone-teal { background: --alpha(var(--color-tone-teal) / 16%); color: var(--color-tone-teal); }
-.map-zone.tone-peach, .map-element.tone-peach { background: --alpha(var(--color-tone-peach) / 16%); color: var(--color-tone-peach); }
-.map-zone.tone-slate, .map-element.tone-slate { background: --alpha(var(--color-tone-slate) / 16%); color: var(--color-tone-slate); }
-.map-zone.tone-lime, .map-element.tone-lime { background: --alpha(var(--color-tone-lime) / 16%); color: var(--color-tone-lime); }
-.map-zone.tone-sand, .map-element.tone-sand { background: --alpha(var(--color-tone-sand) / 16%); color: var(--color-tone-sand); }
+.map-zone.tone-rose, .map-element.tone-rose { background: --alpha(var(--color-tone-rose) / 15%); color: var(--color-tone-rose); }
+.map-zone.tone-sky, .map-element.tone-sky { background: --alpha(var(--color-tone-sky) / 15%); color: var(--color-tone-sky); }
+.map-zone.tone-mint, .map-element.tone-mint { background: --alpha(var(--color-tone-mint) / 15%); color: var(--color-tone-mint); }
+.map-zone.tone-amber, .map-element.tone-amber { background: --alpha(var(--color-tone-amber) / 15%); color: var(--color-tone-amber); }
+.map-zone.tone-violet, .map-element.tone-violet { background: --alpha(var(--color-tone-violet) / 15%); color: var(--color-tone-violet); }
+.map-zone.tone-teal, .map-element.tone-teal { background: --alpha(var(--color-tone-teal) / 15%); color: var(--color-tone-teal); }
+.map-zone.tone-peach, .map-element.tone-peach { background: --alpha(var(--color-tone-peach) / 15%); color: var(--color-tone-peach); }
+.map-zone.tone-slate, .map-element.tone-slate { background: --alpha(var(--color-tone-slate) / 15%); color: var(--color-tone-slate); }
+.map-zone.tone-lime, .map-element.tone-lime { background: --alpha(var(--color-tone-lime) / 15%); color: var(--color-tone-lime); }
+.map-zone.tone-sand, .map-element.tone-sand { background: --alpha(var(--color-tone-sand) / 15%); color: var(--color-tone-sand); }
+
+/* 工具列。項目多，窄螢幕要換行而不是被切掉。 */
+.map-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ghost-button.active { border-color: var(--color-brand); background: var(--color-brand-soft); color: var(--color-brand-dark); }
+
+.zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-paper);
+}
+.zoom-control button {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 1;
+}
+.zoom-control button:hover:not(:disabled) { background: --alpha(var(--color-brand) / 7%); }
+.zoom-control button:disabled { color: var(--color-muted); }
+.zoom-control span { min-width: 44px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.edit-hint {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-field);
+  background: var(--color-brand-soft);
+  color: var(--color-brand-dark);
+  font-size: 12px;
+}
+
+.map-search { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.map-search label {
+  display: flex;
+  flex: 1 1 240px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-paper);
+}
+.map-search label:focus-within { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
+.map-search svg { width: 18px; height: 18px; flex: none; color: var(--color-muted); }
+.map-search input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+}
+.map-search input:focus { outline: none; }
+.map-search small { color: var(--color-muted); font-size: 12px; }
+.map-search i { font-size: 11px; font-style: normal; }
+
+.map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 12px; }
+.map-legend span { display: flex; align-items: center; gap: 6px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+.legend-dot.occupied { background: var(--color-tone-mint); }
+.legend-dot.low { background: var(--color-brand); }
+
+/* 畫布尺寸的預設值。 */
+.preset-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.preset-row .ghost-button { flex-direction: column; gap: 0; padding: 8px 14px; }
+.preset-row small { color: var(--color-muted); font-size: 11px; font-weight: 400; }
 
 /*
- * 手機上的地圖。
+ * ── 倉位明細抽屜 ────────────────────────────────────────────────────────
  *
- * 平面圖是本來就寬的東西。硬塞進 390px 的螢幕會變成 324×182 的畫布，倉位只有
- * 36px 高——代碼、名稱、件數全部擠成一團，連點都點不準。給它一個最小寬度讓它
- * 溢出，改成用手指平移；那才是地圖在手機上該有的操作方式。
+ * 貼右邊而不是置中：內容很長（統計、層架分頁、商品清單、照片），置中的對話框
+ * 在桌機上會變成又高又窄的一條，而且蓋住剛才點的那一格。抽屜留著地圖看得見。
  */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+  background: --alpha(var(--color-ink) / 32%);
+}
+.drawer {
+  display: flex;
+  flex-direction: column;
+  width: min(520px, 100%);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-panel);
+}
+.drawer-head { position: relative; padding: 22px 24px 18px; }
+.drawer-close { position: absolute; top: 14px; right: 14px; }
+.drawer-eyebrow {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  opacity: .65;
+}
+.drawer-title { display: flex; align-items: center; gap: 14px; }
+.drawer-title h2 { margin: 0; font-size: 21px; }
+.drawer-title p { margin: 2px 0 0; font-size: 13px; }
+/* 代碼做成一個方牌，跟名稱分開——它是編號不是標題。 */
+.drawer-code {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  flex: none;
+  border-radius: 12px;
+  background: --alpha(var(--color-paper) / 75%);
+  font-size: 15px;
+  font-weight: 700;
+}
+.drawer-head.tone-rose { background: --alpha(var(--color-tone-rose) / 18%); color: var(--color-tone-rose); }
+.drawer-head.tone-sky { background: --alpha(var(--color-tone-sky) / 18%); color: var(--color-tone-sky); }
+.drawer-head.tone-mint { background: --alpha(var(--color-tone-mint) / 18%); color: var(--color-tone-mint); }
+.drawer-head.tone-amber { background: --alpha(var(--color-tone-amber) / 18%); color: var(--color-tone-amber); }
+.drawer-head.tone-violet { background: --alpha(var(--color-tone-violet) / 18%); color: var(--color-tone-violet); }
+.drawer-head.tone-teal { background: --alpha(var(--color-tone-teal) / 18%); color: var(--color-tone-teal); }
+.drawer-head.tone-peach { background: --alpha(var(--color-tone-peach) / 18%); color: var(--color-tone-peach); }
+.drawer-head.tone-slate { background: --alpha(var(--color-tone-slate) / 18%); color: var(--color-tone-slate); }
+.drawer-head.tone-lime { background: --alpha(var(--color-tone-lime) / 18%); color: var(--color-tone-lime); }
+.drawer-head.tone-sand { background: --alpha(var(--color-tone-sand) / 18%); color: var(--color-tone-sand); }
+
+.drawer-body { flex: 1; display: grid; align-content: start; gap: 18px; padding: 18px 24px 28px; overflow-y: auto; }
+.drawer-actions { display: flex; justify-content: flex-end; }
+.drawer-stats { margin: 0; }
+.drawer-notes { margin: 0; font-size: 13px; }
+
+.zone-section { display: grid; gap: 10px; }
+.zone-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.zone-section-head h3 { margin: 0; font-size: 14px; font-weight: 700; }
+.zone-section-head .muted { font-size: 12px; }
+
+/* 層架分頁。放不下就換行，不要橫向捲——一排看得完才知道有幾層。 */
+.level-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--color-canvas);
+}
+.level-tabs button {
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.level-tabs button:hover { background: --alpha(var(--color-brand) / 5%); }
+.level-tabs button.active { background: var(--color-paper); color: var(--color-ink); font-weight: 700; }
+
+.zone-items-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.zone-item {
+  padding: 10px 12px;
+  border: 1px solid var(--color-soft-line);
+  border-radius: var(--radius-field);
+}
+.zone-item-row { display: flex; align-items: center; gap: 10px; }
+.zone-item-main { flex: 1; min-width: 0; }
+/* 層架徽章。名字可能很長，限寬省略而不是把整列撐開。 */
+.zone-item-level {
+  flex: none;
+  max-width: 62px;
+  padding: 3px 8px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--color-canvas);
+  color: var(--color-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zone-item-quantity { flex: none; font-weight: 700; }
+
+/* 數量的 −／＋。中間的數字寬度固定，按的時候按鈕不會左右跳。 */
+.quantity-stepper {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+}
+.quantity-stepper button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 1;
+}
+.quantity-stepper button:hover:not(:disabled) { background: --alpha(var(--color-brand) / 7%); }
+.quantity-stepper button:disabled { color: var(--color-muted); }
+.quantity-stepper span {
+  min-width: 46px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 圖示與文字要並排。.link-button 是純文字用的，沒有 flex，圖示會自己佔一行。 */
+.zone-item-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 12px; }
+.zone-item-toggle svg { width: 14px; height: 14px; }
+.zone-item-detail {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.zone-item-detail dt { color: var(--color-muted); }
+.zone-item-detail dd { display: flex; align-items: center; gap: 6px; margin: 0; }
+
+.zone-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.zone-images figure { position: relative; margin: 0; }
+.zone-images img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--radius-field);
+  background: var(--color-canvas);
+}
+.zone-images .icon-button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: --alpha(var(--color-paper) / 88%);
+}
+
 @media (max-width: 760px) {
-  .map-canvas { min-width: 680px; }
+  /* 抽屜在手機上是滿版的，不然商品那幾列擠不下。 */
+  .drawer { width: 100%; }
+  .drawer-head { padding: 18px 16px 14px; }
+  .drawer-body { padding: 14px 16px 24px; }
+
+  .map-panel { padding: 10px; }
+  /*
+   * 地圖要拿到足夠的高度。手機上這一頁本來就沒別的東西，把畫面讓給它——
+   * 只有 360px 高的地圖跟沒有地圖差不多。
+   */
+  .map-scroll { min-height: 60vh; }
 }
 
 /* 標題列上不只一顆按鈕時。 */
@@ -1947,6 +2220,15 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .page-head { margin-bottom: 12px; }
   .page-head h1 { font-size: 20px; }
   .page-head-row { align-items: center; gap: 12px; }
+  /*
+   * 地圖的工具列在手機上自己佔一整排，靠左。
+   *
+   * .page-head-row 是「標題在左、動作在右」；窄螢幕上那個「右」會把六七顆按鈕
+   * 擠成一疊靠右的階梯，還把標題壓成兩行。要讓它掉到下一行，換行得開在**容器**
+   * 上——只給按鈕 width: 100% 是沒用的，flex 項目不會自己換行。
+   */
+  .page-head-row:has(.map-toolbar) { flex-wrap: wrap; }
+  .map-toolbar { width: 100%; justify-content: flex-start; }
   .add-action {
     width: 44px;
     height: 44px;

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import app from "../index.js";
 import { createLocalD1 } from "../local-d1/d1.js";
+import { createLocalR2 } from "../local-d1/r2.js";
 import { DEV_ACCOUNTS, seedDevData } from "./fixtures.js";
 
 /**
@@ -58,10 +59,13 @@ function loadDevVars(): Record<string, string> {
 }
 
 const d1 = createLocalD1(DB_FILE);
+// 上傳的檔案跟 local.sqlite 放一起，想重來就把兩個一起刪掉。
+const uploads = createLocalR2(path.resolve(here, "../../local-uploads"));
 await seedDevData(d1);
 
 const env = {
   DB: d1,
+  UPLOADS: uploads,
   AUTH_SESSION_SECRET: DEV_SECRET,
   GOOGLE_OAUTH_CLIENT_ID: "local-client-id",
   GOOGLE_OAUTH_CLIENT_SECRET: "local-client-secret",

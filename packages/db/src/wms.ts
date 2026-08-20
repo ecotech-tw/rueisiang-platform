@@ -787,3 +787,102 @@ export async function updateWarehouseSettings(
 
   return next;
 }
+
+// ───────────────────────────── 倉位照片 ─────────────────────────────
+
+/**
+ * 照片本身放物件儲存（R2），這張表只存索引。
+ *
+ * 兩邊要一起成功才算數：先寫 R2 再寫 D1——反過來的話，D1 有一筆指向不存在的
+ * 檔案，畫面上會出現一張永遠載不出來的破圖。R2 寫成功但 D1 失敗只是留下一個
+ * 沒人參照的檔案，那個安靜得多。
+ */
+export async function recordZoneImage(
+  db: Database,
+  input: {
+    zoneId: string;
+    objectKey: string;
+    filename: string;
+    contentType: string;
+    size: number;
+    actor: Actor;
+  },
+) {
+  const [zone] = await db.select({ code: zones.code, name: zones.name }).from(zones).where(eq(zones.id, input.zoneId));
+  if (!zone) throw new WmsError("not_found", "找不到這個倉位。");
+
+  const id = crypto.randomUUID();
+  await db.batch([
+    db.insert(zoneImages).values({
+      id,
+      zoneId: input.zoneId,
+      objectKey: input.objectKey,
+      filename: input.filename,
+      contentType: input.contentType,
+      size: input.size,
+    }),
+    writeEvent(db, {
+      entityType: "zone",
+      entityId: input.zoneId,
+      entityLabel: `${zone.code} ${zone.name}`,
+      eventType: "image_uploaded",
+      summary: "上傳倉位現場照片",
+      field: "image",
+      newValue: input.filename,
+      actor: input.actor,
+    }),
+  ]);
+
+  return { id };
+}
+
+export async function listZoneImages(db: Database, zoneId: string) {
+  return db
+    .select()
+    .from(zoneImages)
+    .where(eq(zoneImages.zoneId, zoneId))
+    .orderBy(asc(zoneImages.createdAt));
+}
+
+export async function findZoneImage(db: Database, id: string) {
+  const [row] = await db.select().from(zoneImages).where(eq(zoneImages.id, id));
+  return row ?? null;
+}
+
+/**
+ * 刪照片。回傳 objectKey 讓呼叫端去把 R2 上的檔案也刪掉。
+ *
+ * 順序跟上傳相反：先刪 D1 再刪 R2。反過來的話，R2 刪掉但 D1 沒刪就會留下破圖；
+ * 這樣最壞的情況只是 R2 上多一個沒人參照的檔案。
+ */
+export async function deleteZoneImage(db: Database, id: string, actor: Actor) {
+  const [image] = await db.select().from(zoneImages).where(eq(zoneImages.id, id));
+  if (!image) throw new WmsError("not_found", "找不到這張照片。");
+
+  const [zone] = await db.select({ code: zones.code, name: zones.name }).from(zones).where(eq(zones.id, image.zoneId));
+
+  await db.batch([
+    db.delete(zoneImages).where(eq(zoneImages.id, id)),
+    writeEvent(db, {
+      entityType: "zone",
+      entityId: image.zoneId,
+      entityLabel: zone ? `${zone.code} ${zone.name}` : "",
+      eventType: "image_deleted",
+      summary: "刪除倉位現場照片",
+      field: "image",
+      oldValue: image.filename,
+      actor,
+    }),
+  ]);
+
+  return { objectKey: image.objectKey };
+}
+
+/** 刪倉位之前要把它的照片從 R2 清掉——資料表那邊是 cascade，但 R2 沒有。 */
+export async function zoneImageKeys(db: Database, zoneId: string): Promise<string[]> {
+  const rows = await db
+    .select({ objectKey: zoneImages.objectKey })
+    .from(zoneImages)
+    .where(eq(zoneImages.zoneId, zoneId));
+  return rows.map((row) => row.objectKey);
+}

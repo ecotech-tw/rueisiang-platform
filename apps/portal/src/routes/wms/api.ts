@@ -248,3 +248,65 @@ export function useUpdateSettings() {
     write<{ canvasWidth: number; canvasHeight: number }>("/api/wms/settings", "PATCH", input),
   );
 }
+
+// ───────────────────────────── 倉位照片 ─────────────────────────────
+
+export interface ZoneImage {
+  id: string;
+  zoneId: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  createdAt: string;
+}
+
+/**
+ * 一個倉位的照片。
+ *
+ * 不放進 /warehouse 一起回：地圖上只需要知道「有幾張」（那個已經在 imageCount
+ * 裡了），完整清單只有打開抽屜的那一個倉位需要。全部一起回的話，每次任何寫入
+ * 之後都要重新傳一遍所有倉位的照片索引。
+ */
+export function useZoneImages(zoneId: string) {
+  return useQuery({
+    queryKey: ["wms", "zone-images", zoneId],
+    queryFn: async () => {
+      const response = await fetch(`/api/wms/zones/${zoneId}/images`, { credentials: "same-origin" });
+      if (!response.ok) await readError(response);
+      return (await response.json() as { images: ZoneImage[] }).images;
+    },
+  });
+}
+
+/** 照片變動要同時失效兩個 key：照片清單本身，以及地圖上的張數。 */
+function useZoneImageMutation<TArgs>(run: (args: TArgs) => Promise<unknown>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["wms"] });
+    },
+  });
+}
+
+export function useUploadZoneImage() {
+  return useZoneImageMutation(async ({ zoneId, file }: { zoneId: string; file: File }) => {
+    const form = new FormData();
+    form.append("file", file);
+    /*
+     * 不要自己設 Content-Type：multipart 的 boundary 只有 FormData 自己組得出來，
+     * 手動寫一個 multipart/form-data 上去，伺服器那端會解不開。
+     */
+    const response = await fetch(`/api/wms/zones/${zoneId}/images`, {
+      method: "POST",
+      credentials: "same-origin",
+      body: form,
+    });
+    if (!response.ok) await readError(response);
+    return response.json();
+  });
+}
+
+export function useDeleteZoneImage() {
+  return useZoneImageMutation((id: string) => write<{ ok: true }>(`/api/wms/images/${id}`, "DELETE"));
+}

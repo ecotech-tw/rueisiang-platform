@@ -34,3 +34,6 @@ tools/cyberbiz-monthly-payout/screenshots/
 Thumbs.db
 .vscode/
 .idea/
+
+# 本機開發時上傳的倉位照片。跟 local.sqlite 一樣是暫時的東西。
+apps/api/local-uploads/
