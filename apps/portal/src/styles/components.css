@@ -1114,6 +1114,29 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 貼右邊而不是置中：內容很長（統計、層架分頁、商品清單、照片），置中的對話框
  * 在桌機上會變成又高又窄的一條，而且蓋住剛才點的那一格。抽屜留著地圖看得見。
  */
+/*
+ * 進場與退場的動畫。
+ *
+ * 抽屜從右邊滑進來，遮罩淡入。用 Material 的 emphasized decelerate——進場快、
+ * 收尾慢，看起來像被推進來停住，而不是等速滑行。退場用對稱的 accelerate：
+ * 離開的東西不需要慢慢停，快一點反而俐落。
+ *
+ * 退場之所以做得到，是因為 ZoneDrawer 在真正卸載前會先掛上 .closing 等動畫跑完
+ * ——那邊的毫秒數要跟這裡的 180ms 對齊。
+ */
+@keyframes drawer-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: none; }
+}
+@keyframes drawer-slide-out {
+  from { transform: none; }
+  to { transform: translateX(100%); }
+}
+@keyframes drawer-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .drawer-backdrop {
   position: fixed;
   inset: 0;
@@ -1121,13 +1144,30 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   display: flex;
   justify-content: flex-end;
   background: --alpha(var(--color-ink) / 32%);
+  animation: drawer-fade-in 200ms ease-out;
 }
+.drawer-backdrop.closing { animation: drawer-fade-in 180ms ease-in reverse forwards; }
 .drawer {
   display: flex;
   flex-direction: column;
   width: min(520px, 100%);
   background: var(--color-paper);
   box-shadow: var(--shadow-panel);
+  animation: drawer-slide-in 280ms cubic-bezier(.05, .7, .1, 1);
+}
+.drawer-backdrop.closing .drawer {
+  animation: drawer-slide-out 180ms cubic-bezier(.3, 0, .8, .15) forwards;
+}
+
+/*
+ * 會動的東西一律尊重系統設定。前庭功能失調的人看到滑動會不舒服，而這個動畫
+ * 純粹是修飾——關掉之後功能一模一樣。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .drawer-backdrop,
+  .drawer-backdrop.closing,
+  .drawer,
+  .drawer-backdrop.closing .drawer { animation: none; }
 }
 .drawer-head { position: relative; padding: 22px 24px 18px; }
 .drawer-close { position: absolute; top: 14px; right: 14px; }

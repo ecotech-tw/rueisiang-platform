@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
@@ -116,7 +116,11 @@ function ZoneItem({ item, levelName }: { item: InventoryItem; levelName: string 
 }
 
 /** 現場照片。上傳、預覽、刪除。 */
+/** 瀏覽器真的畫得出來的格式。HEIC 通過 accept="image/*" 但顯示不出來。 */
+const RENDERABLE = /^image\/(jpeg|png|webp|gif|avif)$/i;
+
 function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean }) {
+  const [rejected, setRejected] = useState("");
   const images = useZoneImages(zoneId);
   const upload = useUploadZoneImage();
   const remove = useDeleteZoneImage();
@@ -144,20 +148,35 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
               className="sr-only"
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (!file) return;
-                upload.mutate(
-                  { zoneId, file },
-                  { onSuccess: () => toast.show("照片已上傳") },
-                );
                 // 清掉才能連續上傳同一個檔名，不然 change 不會再觸發。
+                // File 物件已經拿在手上了，清 value 不會讓它失效。
                 event.target.value = "";
+                if (!file) return;
+
+                /*
+                 * iPhone 直接拍的 HEIC 會通過 accept="image/*"，但瀏覽器畫不出來
+                 * ——上傳成功、清單裡卻是一張破圖，看起來就像功能壞了。與其讓人
+                 * 猜，不如在送出去之前就講清楚。
+                 */
+                if (!RENDERABLE.test(file.type)) {
+                  setRejected(`「${file.name}」這種格式瀏覽器顯示不出來，請改用 JPG、PNG 或 WebP。`);
+                  return;
+                }
+                setRejected("");
+                upload.mutate({ zoneId, file }, { onSuccess: () => toast.show("照片已上傳") });
               }}
             />
           </>
         ) : null}
       </div>
 
+      {/*
+        * 上傳與刪除的錯誤都要顯示。先前只顯示上傳的——刪除失敗時畫面上一點反應
+        * 都沒有，看起來就是「按了沒用」，但實際上是伺服器回了一句話沒人轉達。
+        */}
       {upload.error ? <p className="form-error" role="alert">{upload.error.message}</p> : null}
+      {remove.error ? <p className="form-error" role="alert">{remove.error.message}</p> : null}
+      {rejected ? <p className="form-error" role="alert">{rejected}</p> : null}
 
       {images.data?.length ? (
         <div className="zone-images">
@@ -210,32 +229,51 @@ export function ZoneDrawer({
   onEdit: () => void;
 }) {
   const [level, setLevel] = useState("all");
+  const [closing, setClosing] = useState(false);
   const { permissions } = useSession();
   const canWrite = permissions.has("wms:map:write");
   const canReadItems = permissions.has("wms:inventory:read");
   const images = useZoneImages(zone.id);
 
+  /**
+   * 關閉要等退場動畫跑完。
+   *
+   * 直接呼叫 onClose 的話元件立刻卸載，滑進來的東西「啪」一聲消失——進場有動畫、
+   * 退場沒有，會比兩邊都沒有更奇怪。所以先標成 closing 讓 CSS 播退場，
+   * 時間到了才真的收掉。
+   *
+   * 這裡的毫秒數要跟 components.css 的 drawer-out 對齊，改一邊就要改另一邊。
+   */
+  const requestClose = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    window.setTimeout(onClose, 200);
+  }, [closing, onClose]);
+
   /** Esc 關掉。抽屜蓋住半個畫面，一定要有不用瞄準的關法。 */
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") requestClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [requestClose]);
 
   const visible = level === "all" ? items : items.filter((item) => (item.shelfLevel ?? "") === level);
-  const total = items.reduce((sum, item) => sum + item.quantity, 0);
   const levelName = (id: string | null) =>
     zone.shelfLevels.find((candidate) => candidate.id === id)?.name ?? "未指定";
 
   return (
-    <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
+    <div
+      className={`drawer-backdrop${closing ? " closing" : ""}`}
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) requestClose();
+      }}
+    >
       <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="zone-drawer-title">
         <header className={`drawer-head tone-${zone.color}`}>
-          <button type="button" className="icon-button drawer-close" onClick={onClose} aria-label="關閉">
+          <button type="button" className="icon-button drawer-close" onClick={requestClose} aria-label="關閉">
             <Icon name="close" />
           </button>
           <p className="drawer-eyebrow">STORAGE ZONE</p>
@@ -259,10 +297,6 @@ export function ZoneDrawer({
             <div className="stat">
               <strong>{items.length}</strong>
               <span>商品品項</span>
-            </div>
-            <div className="stat">
-              <strong>{total.toLocaleString("zh-TW")}</strong>
-              <span>庫存總數</span>
             </div>
             <div className="stat">
               <strong>{images.data?.length ?? 0}</strong>
