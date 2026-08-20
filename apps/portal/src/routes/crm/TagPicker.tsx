@@ -1,5 +1,38 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "../../shell/icons.js";
+
+/** 下拉浮在畫面上的位置。用 fixed，所以直接是視窗座標，不必自己扣捲動位移。 */
+interface DropdownBox {
+  left: number;
+  width: number;
+  /** 往下開就給 top，往上開就給 bottom——空間不夠時要能翻面。 */
+  top?: number;
+  bottom?: number;
+  maxHeight: number;
+}
+
+/** 下拉與輸入框之間的距離，以及離視窗邊緣至少要留的空白。 */
+const GAP = 4;
+const EDGE = 12;
+
+function measure(anchor: HTMLElement): DropdownBox {
+  const rect = anchor.getBoundingClientRect();
+  const below = window.innerHeight - rect.bottom - GAP - EDGE;
+  const above = rect.top - GAP - EDGE;
+
+  /*
+   * 預設往下開；下面塞不下、而上面比較寬敞時才翻上去。用「比較」而不是固定
+   * 門檻：在矮的手機視窗上兩邊都不夠，這時要選比較不糟的那一邊。
+   */
+  const flip = below < 180 && above > below;
+  return {
+    left: rect.left,
+    width: rect.width,
+    ...(flip ? { bottom: window.innerHeight - rect.top + GAP } : { top: rect.bottom + GAP }),
+    maxHeight: Math.max(120, Math.min(260, flip ? above : below)),
+  };
+}
 
 /**
  * 標籤選擇器。輸入時從既有標籤裡過濾，沒有符合的就按 Enter 新增一個。
@@ -36,28 +69,35 @@ export function TagPicker({
       .slice(0, 8);
   }, [options, term, value]);
 
+  const [box, setBox] = useState<DropdownBox | null>(null);
+
+  const reposition = useCallback(() => {
+    if (comboRef.current) setBox(measure(comboRef.current));
+  }, []);
+
   /*
-   * 展開時把**清單的底部**捲進可視範圍。
-   *
-   * 標籤是這張表單的最後一欄，而對話框底部有一條 sticky 的按鈕列。只捲輸入框
-   * （block: "nearest"）不夠——輸入框看得到了，但它下面整串選項仍然躲在按鈕列
-   * 後面，量出來 8 個選項有 8 個點不到。改捲清單本身、對齊底部，再靠
-   * scroll-margin-bottom 讓出按鈕列的高度。
+   * 用 layout effect 先算好位置再讓瀏覽器畫，不然會先在左上角閃一下。
+   * 跟著 matches 一起重算：選項數量變了，能不能塞在下面的答案也會變。
+   */
+  useLayoutEffect(() => {
+    if (open) reposition();
+    else setBox(null);
+  }, [open, matches.length, value.length, reposition]);
+
+  /*
+   * 對話框自己會捲，所以 scroll 要用 capture 才聽得到——事件不會冒泡到 window。
+   * 不重新定位的話，捲一下下拉就跟輸入框分家了。
    */
   useEffect(() => {
     if (!open) return;
-    /*
-     * 等一幀再捲。清單是這一次 render 才長出來的，同一幀就呼叫的話瀏覽器還是
-     * 用舊的高度算，捲不到底（實測差 15px，剛好是最後一列露不出來）。
-     *
-     * behavior 用預設的 instant：捲動只是為了讓選項露出來，不是要給人看動畫，
-     * 而 smooth 期間如果使用者已經在打字，畫面會跟著飄。
-     */
-    const frame = requestAnimationFrame(() => {
-      (listRef.current ?? comboRef.current)?.scrollIntoView({ block: "end" });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [open, matches.length]);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [open, reposition]);
+
 
   /** 打的字剛好等於某個既有標籤時，不該再提示「新增」——那會建出重複的。 */
   const exact = options.some((option) => option.name === term) || value.includes(term);
@@ -126,27 +166,50 @@ export function TagPicker({
         />
       </div>
 
-      {open && (matches.length > 0 || (term && !exact)) ? (
-        <ul className="tag-options" ref={listRef}>
-          {matches.map((option) => (
-            <li key={option.name}>
-              <button type="button" onClick={() => add(option.name)}>
-                <span>{option.name}</span>
-                <small>{option.customerCount}</small>
-              </button>
-            </li>
-          ))}
-          {term && !exact ? (
-            <li>
-              <button type="button" className="tag-create" onClick={() => add(term)}>
-                <Icon name="plus" />
-                新增標籤「{term}」
-              </button>
-            </li>
-          ) : null}
-        </ul>
-      ) : null}
       </div>
+
+      {/*
+        * 下拉用 portal 掛到 body，fixed 定位。
+        *
+        * 留在原地的話會被 .modal-card 的 overflow: hidden 裁掉（選項看得到卻
+        * 點不到）；改成在流內展開又會把表單推長、讓對話框長出捲軸——那是使用者
+        * 回報「很奇怪」的那一版。掛到 body 兩個問題都沒有：它浮在最上層，
+        * 表單的高度完全不受影響。
+        */}
+      {open && box && (matches.length > 0 || (term && !exact))
+        ? createPortal(
+            <ul
+              className="tag-options"
+              ref={listRef}
+              style={{
+                left: box.left,
+                width: box.width,
+                maxHeight: box.maxHeight,
+                ...(box.top !== undefined ? { top: box.top } : { bottom: box.bottom }),
+              }}
+              /* 按下去不要讓輸入框失焦，不然 blur 會在 click 之前把清單收掉。 */
+              onMouseDown={(event) => event.preventDefault()}
+            >
+              {matches.map((option) => (
+                <li key={option.name}>
+                  <button type="button" onClick={() => add(option.name)}>
+                    <span>{option.name}</span>
+                    <small>{option.customerCount}</small>
+                  </button>
+                </li>
+              ))}
+              {term && !exact ? (
+                <li>
+                  <button type="button" className="tag-create" onClick={() => add(term)}>
+                    <Icon name="plus" />
+                    新增標籤「{term}」
+                  </button>
+                </li>
+              ) : null}
+            </ul>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

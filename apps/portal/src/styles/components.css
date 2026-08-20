@@ -1712,20 +1712,18 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 下拉浮在上層而不是把表單往下推——推的話每打一個字對話框就跳一次高度。
  */
 /*
- * 下拉在流內展開，不用絕對定位。
+ * 下拉浮在最上層。位置由 JS 量出來後用 inline style 給（fixed，視窗座標）。
  *
- * 這張表單在 .modal-body（overflow-y: auto）裡，而 .modal-card 是 overflow:
- * hidden——絕對定位的下拉一超過卡片底部就被裁掉，量出來溢出 126px。那些選項
- * 看得到一半、**點不到**，於是症狀變成「選了沒反應」。
+ * 為什麼是 portal ＋ fixed：這張表單在 .modal-body（會捲）裡，外層 .modal-card
+ * 又是 overflow: hidden。留在原地會被裁掉——選項看得到卻點不到；改成在流內
+ * 展開又會把表單推長、讓對話框長出捲軸。掛到 body 兩個問題都沒有。
  *
- * 在流內就沒有這個問題：內容變高，對話框自己捲得到。代價是展開時下面的欄位
- * 會被往下推，但那比「有選項點不到」好太多。
+ * z-index 要比對話框（60）與提示（70）都高，它是當下最上層的互動元件。
  */
 .tag-options {
-  max-height: 220px;
-  /* 捲進可視範圍時讓出底部那條 sticky 按鈕列的高度，不然會停在它後面。 */
-  scroll-margin-bottom: 84px;
-  margin: 4px 0 0;
+  position: fixed;
+  z-index: 80;
+  margin: 0;
   padding: 4px;
   overflow-y: auto;
   list-style: none;
@@ -1759,15 +1757,3 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-weight: 500;
 }
 .tag-create svg { width: 16px; height: 16px; flex: none; }
-
-/*
- * 手機的對話框矮，220px 的清單加上輸入框就把整個可視區塞滿。縮短一點，讓上面
- * 至少還看得到剛選好的 chip。
- *
- * 放檔尾而不是上面那個 @media 區塊：.tag-options 的基礎規則排在它後面，寫在
- * 上面會被蓋掉——同樣的特異性，後面的贏。這個 codebase 已經被這件事咬過三次
- * （.stat-toggle、.filter-toggle，還有這一個）。
- */
-@media (max-width: 760px) {
-  .tag-options { max-height: 148px; }
-}
