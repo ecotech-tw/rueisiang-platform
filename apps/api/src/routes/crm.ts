@@ -70,7 +70,17 @@ function readCustomerFields(input: Record<string, unknown>) {
       ]
     : [];
 
-  return { phone, name: text("name"), email: text("email"), address: text("address"), tags };
+  return {
+    phone,
+    name: text("name"),
+    email: text("email"),
+    address: text("address"),
+    // 官網的地址是拆開的欄位，只給一整串的話縣市與區域會留白。
+    city: text("city"),
+    district: text("district"),
+    addressLine: text("addressLine"),
+    tags,
+  };
 }
 
 export const crm = new Hono<AppEnv>()

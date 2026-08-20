@@ -71,6 +71,8 @@ export function CustomerForm({ customer, onClose }: Props) {
     const payload = {
       ...fields,
       address: composeTaiwanAddress(address.city, address.district, address.addressLine),
+      // 拆開的三段也一起送，官網的地址欄位是分開的。
+      ...address,
     };
     if (customer) update.mutate({ ...payload, id: customer.id }, { onSuccess: onClose });
     else create.mutate(payload, { onSuccess: onClose });

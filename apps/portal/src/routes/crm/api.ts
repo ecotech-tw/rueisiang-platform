@@ -86,7 +86,15 @@ export interface CustomerForm {
   phone: string;
   name: string;
   email: string;
+  /** 拼好的完整地址。本地只存這一串，見 customers.address。 */
   address: string;
+  /*
+   * 拆開的縣市／區域／街道。本地不存，純粹是要讓 CYBERBIZ 的地址欄位對得起來——
+   * 只送一整串的話官網的縣市與區域會是空的，超商取貨與物流就選不到。
+   */
+  city?: string;
+  district?: string;
+  addressLine?: string;
   tags: string[];
 }
 

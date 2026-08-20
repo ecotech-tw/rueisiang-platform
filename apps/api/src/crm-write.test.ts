@@ -110,6 +110,57 @@ describe("新增客戶", () => {
     });
   });
 
+  /**
+   * 這張表單只有電話是必填，但 CYBERBIZ 的 POST /v1/customers 要 name、password、
+   * enable_cvs_pickup、accepts_marketing 才收。缺了就整批退回「name 缺失、
+   * password 缺失…」，連填好的電話都會被回報成缺——所以這邊要自己補齊。
+   */
+  it("只填電話也建得起來，缺的必填欄位由這邊補上", async () => {
+    const calls = stubCyberbiz([{ body: { id: "cb-new", mobile: "0900000002" } }]);
+    const id = await seedUser("staff@ecotech.tw", "role-staff");
+
+    const response = await as(id, "staff@ecotech.tw", "/api/crm/customers", {
+      method: "POST",
+      body: JSON.stringify({ phone: "0900000002" }),
+    });
+    expect(response.status).toBe(201);
+
+    const sent = calls[0]?.body as Record<string, unknown>;
+    // 包在 customer 底下的話官網一個欄位都讀不到。
+    expect(sent.customer).toBeUndefined();
+    expect(sent.mobile).toBe("0900000002");
+    expect(sent.name).toBe("未命名會員");
+    expect(sent.password).toBeTypeOf("string");
+    expect(sent.enable_cvs_pickup).toBe(false);
+    expect(sent.accepts_marketing).toBe(false);
+  });
+
+  it("縣市與區域會分開送，不是塞成一整串", async () => {
+    const calls = stubCyberbiz([{ body: { id: "cb-new" } }]);
+    const id = await seedUser("staff@ecotech.tw", "role-staff");
+
+    await as(id, "staff@ecotech.tw", "/api/crm/customers", {
+      method: "POST",
+      body: JSON.stringify({
+        phone: "0900000003",
+        address: "台北市大安區忠孝東路四段 1 號",
+        city: "台北市",
+        district: "大安區",
+        addressLine: "忠孝東路四段 1 號",
+      }),
+    });
+
+    expect((calls[0]?.body as Record<string, unknown>).address).toEqual({
+      phone: "0900000003",
+      address1: "忠孝東路四段 1 號",
+      city: "台北市",
+      district: "大安區",
+    });
+    // 本地仍然只存拼好的那一串。
+    const [row] = await db().select().from(customers);
+    expect(row?.address).toBe("台北市大安區忠孝東路四段 1 號");
+  });
+
   it("官網失敗時本地什麼都不留", async () => {
     stubCyberbiz([{ status: 422, body: { errors: { mobile: ["已存在"] } } }]);
     const id = await seedUser("staff@ecotech.tw", "role-staff");
@@ -197,7 +248,7 @@ describe("編輯客戶", () => {
   }
 
   it("已連結官網的客戶會先推上去再改本地", async () => {
-    const calls = stubCyberbiz([{ body: { id: "cb-1" } }]);
+    const calls = stubCyberbiz([{ body: { id: "cb-1", mobile: "0912345678" } }, { body: { id: "cb-1" } }]);
     await seedLinked();
     const id = await seedUser("staff@ecotech.tw", "role-staff");
 
@@ -207,7 +258,9 @@ describe("編輯客戶", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(calls[0]?.method).toBe("PUT");
+    // 先 GET 讀現況（地址沒改時要把官網原本的欄位原樣送回去），第二支才是寫入。
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[1]?.method).toBe("PUT");
     const [row] = await db().select().from(customers).where(eq(customers.id, "c1"));
     expect(row?.name).toBe("改過的名字");
   });
@@ -298,7 +351,8 @@ describe("封鎖客戶", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(calls[0]?.body).toEqual({ customer: { blocked: true } });
+    // 官網沒有 blocked 欄位，停權是改 status。
+    expect(calls[0]?.body).toEqual({ status: "disabled" });
     const [row] = await db().select().from(customers).where(eq(customers.id, "c1"));
     expect(row?.status).toBe("blocked");
     expect(row?.blockedAt).toBeTruthy();

@@ -170,7 +170,7 @@ describe("會員資料解析", () => {
 });
 
 describe("會員操作", () => {
-  it("建立會員送到 POST /v1/customers", async () => {
+  it("建立會員送到 POST /v1/customers，欄位在最上層", async () => {
     const calls = stubFetch({ body: { customer: { id: 7, mobile: "0912345678" } } });
     const client = createCustomerClient(config, { sleep: noSleep });
 
@@ -179,15 +179,92 @@ describe("會員操作", () => {
       name: "王小明",
       email: "wang@example.com",
       address: "台北市大安區",
+      city: "台北市",
+      district: "大安區",
+      addressLine: "忠孝東路四段 1 號",
       tags: ["VIP"],
     });
 
     expect(calls[0]?.init.method).toBe("POST");
     expect(calls[0]?.url).toBe("https://api.example.test/v1/customers");
-    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
-      customer: { mobile: "0912345678", name: "王小明", tags: ["VIP"] },
+    const sent = JSON.parse(String(calls[0]?.init.body));
+    // 包在 customer 底下的話 CYBERBIZ 一個欄位都讀不到，這是實際踩過的坑。
+    expect(sent.customer).toBeUndefined();
+    expect(sent).toMatchObject({
+      mobile: "0912345678",
+      name: "王小明",
+      email: "wang@example.com",
+      tags_text: "VIP",
+      address: { phone: "0912345678", address1: "忠孝東路四段 1 號", city: "台北市", district: "大安區" },
     });
     expect(created.externalId).toBe("7");
+  });
+
+  it("建立時補上 CYBERBIZ 必填但這邊用不到的欄位", async () => {
+    const calls = stubFetch({ body: { customer: { id: 7 } } });
+    await createCustomerClient(config, { sleep: noSleep }).create({
+      phone: "0900000002",
+      name: "",
+      email: "",
+      address: "",
+    });
+
+    const sent = JSON.parse(String(calls[0]?.init.body));
+    // 只填電話也要建得起來——這是這張表單唯一的必填欄位。
+    expect(sent.name).toBe("未命名會員");
+    expect(String(sent.password)).toMatch(/^Ruei!/);
+    expect(sent.enable_cvs_pickup).toBe(false);
+    expect(sent.accepts_marketing).toBe(false);
+    // 沒填的不要送空字串過去，官網會判成「email 為空」。
+    expect(sent.email).toBeUndefined();
+  });
+
+  it("更新時不會幫官網原本沒有電話的會員補上", async () => {
+    const calls = stubFetch(
+      { body: { customer: { id: 7, name: "王小明" } } },
+      { body: { customer: { id: 7 } } },
+    );
+    await createCustomerClient(config, { sleep: noSleep }).update("7", {
+      phone: "0912345678",
+      name: "王小明",
+      email: "",
+      address: "台北市",
+    });
+
+    // 第一次是讀現況，第二次才是寫入。
+    expect(calls[1]?.init.method).toBe("PUT");
+    expect(JSON.parse(String(calls[1]?.init.body)).mobile).toBeUndefined();
+  });
+
+  it("更新時官網已經有電話就照送", async () => {
+    const calls = stubFetch(
+      { body: { customer: { id: 7, mobile: "0912345678" } } },
+      { body: { customer: { id: 7 } } },
+    );
+    await createCustomerClient(config, { sleep: noSleep }).update("7", {
+      phone: "0987654321",
+      name: "王小明",
+      email: "",
+      address: "台北市",
+    });
+
+    expect(JSON.parse(String(calls[1]?.init.body)).mobile).toBe("0987654321");
+  });
+
+  it("更新時建立用的欄位不會再送一次", async () => {
+    const calls = stubFetch(
+      { body: { customer: { id: 7, mobile: "09" } } },
+      { body: { customer: { id: 7 } } },
+    );
+    await createCustomerClient(config, { sleep: noSleep }).update("7", {
+      phone: "0912345678",
+      name: "王小明",
+      email: "",
+      address: "台北市",
+    });
+
+    // 再送一次 password 等於把客戶的密碼改掉。
+    expect(JSON.parse(String(calls[1]?.init.body)).password).toBeUndefined();
   });
 
   it("外部 ID 有做 URL 編碼", async () => {
@@ -215,17 +292,20 @@ describe("會員操作", () => {
     expect(page.totalCustomers).toBe(2);
   });
 
-  it("封鎖只送 blocked，不會順手覆寫其他欄位", async () => {
-    const calls = stubFetch({ body: { id: 1, blocked: true } });
+  it("封鎖是改 status，不會順手覆寫其他欄位", async () => {
+    const calls = stubFetch({ body: { id: 1, status: "disabled" } });
     await createCustomerClient(config).setBlocked("1", true);
 
     expect(calls[0]?.init.method).toBe("PUT");
-    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ customer: { blocked: true } });
+    // 官網沒有 blocked 欄位，送它等於什麼都沒做。
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ status: "disabled" });
   });
 
-  it("改標籤只送 tags", async () => {
+  it("改標籤只送 tags_text，逗號分隔", async () => {
     const calls = stubFetch({ body: { id: 1 } });
-    await createCustomerClient(config).updateTags("1", ["熟客"]);
-    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ customer: { tags: ["熟客"] } });
+    const updated = await createCustomerClient(config).updateTags("1", ["熟客", " 熟客 ", "VIP", ""]);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ tags_text: "熟客,VIP" });
+    // 去掉前後空白與重複之後才是實際存進去的內容。
+    expect(updated.tags).toEqual(["熟客", "VIP"]);
   });
 });
