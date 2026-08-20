@@ -21,6 +21,12 @@ database_name = "rueisiang-platform"
 database_id = "51443700-c187-4ddb-868b-6b88d7ea43f1"
 migrations_dir = "../../packages/db/migrations"
 
+# 倉位現場照片。建立方式：npx wrangler r2 bucket create rueisiang-platform-uploads
+# 照片本身放這裡，D1 的 zone_images 只存索引（object_key、檔名、大小）。
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "rueisiang-platform-uploads"
+
 # 正式網域。custom_domain 會由 Cloudflare 自己建立對應的 DNS 記錄——
 # 所以不要先手動加一筆，已經有同名記錄的話這裡會掛。
 [[routes]]

@@ -5,6 +5,13 @@ import type { Database } from "@rueisiang/db";
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  /**
+   * 倉位現場照片。只存檔案，索引在 zone_images。
+   *
+   * 沒綁定時上傳會回 503 而不是整個 Worker 起不來——其他功能不該因為沒設定
+   * 物件儲存就一起停擺。
+   */
+  UPLOADS?: R2Bucket;
 
   AUTH_SESSION_SECRET: string;
   GOOGLE_OAUTH_CLIENT_ID: string;

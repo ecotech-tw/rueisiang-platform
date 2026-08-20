@@ -192,3 +192,121 @@ export function useDeleteCategory() {
     write<{ ok: true }>(`/api/wms/categories/${id}`, "DELETE"),
   );
 }
+
+// ───────────────────────────── 倉位與地圖 ─────────────────────────────
+
+export interface ZoneForm {
+  code: string;
+  name: string;
+  category: string;
+  color: string;
+  notes: string;
+  shelfLevels: ShelfLevel[];
+}
+
+export function useCreateZone() {
+  return useWarehouseMutation((input: ZoneForm) => write<{ id: string }>("/api/wms/zones", "POST", input));
+}
+
+/**
+ * 改倉位。**只送有帶的欄位**——拖曳只送 x/y，後端會保留其他值。
+ * 整包送的話，拖一下就會把當下畫面上的所有欄位覆寫回去，包含別人剛改過的。
+ */
+export function useUpdateZone() {
+  return useWarehouseMutation(({ id, ...input }: Partial<ZoneForm> & { id: string; x?: number; y?: number; width?: number; height?: number }) =>
+    write<{ ok: true }>(`/api/wms/zones/${id}`, "PATCH", input),
+  );
+}
+
+export function useDeleteZone() {
+  return useWarehouseMutation((id: string) => write<{ ok: true }>(`/api/wms/zones/${id}`, "DELETE"));
+}
+
+export interface ElementForm {
+  label: string;
+  color: string;
+}
+
+export function useCreateElement() {
+  return useWarehouseMutation((input: ElementForm) =>
+    write<{ id: string }>("/api/wms/elements", "POST", input),
+  );
+}
+
+export function useUpdateElement() {
+  return useWarehouseMutation(({ id, ...input }: Partial<ElementForm> & { id: string; x?: number; y?: number; width?: number; height?: number }) =>
+    write<{ ok: true }>(`/api/wms/elements/${id}`, "PATCH", input),
+  );
+}
+
+export function useDeleteElement() {
+  return useWarehouseMutation((id: string) => write<{ ok: true }>(`/api/wms/elements/${id}`, "DELETE"));
+}
+
+export function useUpdateSettings() {
+  return useWarehouseMutation((input: { canvasWidth: number; canvasHeight: number }) =>
+    write<{ canvasWidth: number; canvasHeight: number }>("/api/wms/settings", "PATCH", input),
+  );
+}
+
+// ───────────────────────────── 倉位照片 ─────────────────────────────
+
+export interface ZoneImage {
+  id: string;
+  zoneId: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  createdAt: string;
+}
+
+/**
+ * 一個倉位的照片。
+ *
+ * 不放進 /warehouse 一起回：地圖上只需要知道「有幾張」（那個已經在 imageCount
+ * 裡了），完整清單只有打開抽屜的那一個倉位需要。全部一起回的話，每次任何寫入
+ * 之後都要重新傳一遍所有倉位的照片索引。
+ */
+export function useZoneImages(zoneId: string) {
+  return useQuery({
+    queryKey: ["wms", "zone-images", zoneId],
+    queryFn: async () => {
+      const response = await fetch(`/api/wms/zones/${zoneId}/images`, { credentials: "same-origin" });
+      if (!response.ok) await readError(response);
+      return (await response.json() as { images: ZoneImage[] }).images;
+    },
+  });
+}
+
+/** 照片變動要同時失效兩個 key：照片清單本身，以及地圖上的張數。 */
+function useZoneImageMutation<TArgs>(run: (args: TArgs) => Promise<unknown>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["wms"] });
+    },
+  });
+}
+
+export function useUploadZoneImage() {
+  return useZoneImageMutation(async ({ zoneId, file }: { zoneId: string; file: File }) => {
+    const form = new FormData();
+    form.append("file", file);
+    /*
+     * 不要自己設 Content-Type：multipart 的 boundary 只有 FormData 自己組得出來，
+     * 手動寫一個 multipart/form-data 上去，伺服器那端會解不開。
+     */
+    const response = await fetch(`/api/wms/zones/${zoneId}/images`, {
+      method: "POST",
+      credentials: "same-origin",
+      body: form,
+    });
+    if (!response.ok) await readError(response);
+    return response.json();
+  });
+}
+
+export function useDeleteZoneImage() {
+  return useZoneImageMutation((id: string) => write<{ ok: true }>(`/api/wms/images/${id}`, "DELETE"));
+}
