@@ -813,6 +813,86 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  */
 .status.quiet { background: var(--color-soft-line); color: var(--color-muted); font-weight: 500; }
 
+/*
+ * ── 分類的色票 ──────────────────────────────────────────────────────────
+ *
+ * 底層是一組 radio：鍵盤的左右鍵本來就會在同一組之間移動，螢幕閱讀器也會念出
+ * 「10 個裡的第 3 個」。真正的 input 藏起來（不是 display: none——那會讓它拿不到
+ * 焦點），外面那個 label 才是看得到的圓點。
+ */
+/*
+ * 十顆色票要在手機上排成一行：26px × 10 ＋ 6px × 9 = 314px，而 390 的螢幕扣掉
+ * 面板內距只剩約 300。差那十幾像素，第十顆就會自己掉到第二行。縮成 24/5
+ * （285px）讓它們待在同一行——一行十顆看得出是一組色，兩行會像兩組。
+ */
+.color-picker { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.color-swatch {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  /* 未選中時只有一圈很淡的邊，讓淺色的色票在白底上也看得出邊界。 */
+  box-shadow: inset 0 0 0 1px --alpha(var(--color-ink) / 12%);
+}
+.color-swatch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+/*
+ * 選中的狀態：外面加一圈同色的環，中間留白。Material 的選中是「安靜地成立」，
+ * 不是換一個更亮的顏色——換顏色的話，被選中的那一顆就不再是它代表的顏色了。
+ */
+.color-swatch.selected {
+  box-shadow:
+    0 0 0 2px var(--color-paper) inset,
+    0 0 0 4px currentColor inset;
+}
+.color-swatch:has(input:focus-visible) {
+  outline: 2px solid var(--color-secondary);
+  outline-offset: 2px;
+}
+
+.color-swatch.tone-rose { background: var(--color-tone-rose); color: var(--color-tone-rose); }
+.color-swatch.tone-sky { background: var(--color-tone-sky); color: var(--color-tone-sky); }
+.color-swatch.tone-mint { background: var(--color-tone-mint); color: var(--color-tone-mint); }
+.color-swatch.tone-amber { background: var(--color-tone-amber); color: var(--color-tone-amber); }
+.color-swatch.tone-violet { background: var(--color-tone-violet); color: var(--color-tone-violet); }
+.color-swatch.tone-teal { background: var(--color-tone-teal); color: var(--color-tone-teal); }
+.color-swatch.tone-peach { background: var(--color-tone-peach); color: var(--color-tone-peach); }
+.color-swatch.tone-slate { background: var(--color-tone-slate); color: var(--color-tone-slate); }
+.color-swatch.tone-lime { background: var(--color-tone-lime); color: var(--color-tone-lime); }
+.color-swatch.tone-sand { background: var(--color-tone-sand); color: var(--color-tone-sand); }
+
+/* 新增分類那一列：名稱不必吃掉整條，色票跟按鈕要跟得上。 */
+/*
+ * 分類名稱最多 40 個字，輸入框不必吃掉整條工具列——990px 的框裡放五個字，
+ * 看起來像壞掉。給它一個上限，剩下的空間留給色票。
+ */
+.category-form input { flex: 0 1 280px; min-width: 0; }
+/* 表格裡就地編輯：換行時色票與按鈕不要被擠成一直條。 */
+.category-edit { flex-wrap: wrap; gap: 8px; }
+.category-edit input { flex: 1 1 160px; min-width: 0; }
+
+/*
+ * 分類表只有三欄。不給約束的話瀏覽器會把寬度平均分掉，「使用中的商品」那個
+ * 個位數會被推到畫面正中央，離它的表頭很遠——欄位少的表格反而更需要指定寬度。
+ */
+/*
+ * 三個短欄位不該攤開到 1100px。不設上限的話，分類膠囊留在最左邊、數量被推到
+ * 700px 外的地方，同一列的東西看起來毫不相干——欄位少的表格反而更需要收窄。
+ *
+ * 靠左而不是置中：上面的工具列是靠左的，表格跟著對齊才是同一條軸線。
+ */
+.category-table { max-width: 680px; }
+.category-table th:nth-child(2),
+.category-table td:nth-child(2) { width: 140px; }
+.category-table th:last-child,
+.category-table td:last-child { width: 100px; }
+
 /* 盤點按鈕比旁邊的圖示鈕高一點才對得齊，而且它有文字，要窄一點的內距。 */
 .count-action { padding: 4px 12px; font-size: 13px; }
 
@@ -1599,6 +1679,16 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
     gap: 0 8px;
     padding: 12px 14px 10px;
   }
+  /*
+   * 每個 td 都要有 order，而且預設值要大於標題那一格。
+   *
+   * 少了這一行的話，沒被下面列到的欄位會落在 order: 0——**排在標題前面**。
+   * 新增一張欄位名不同的表時，整張卡片會從第二個欄位開始讀，而標題被擠到最後。
+   * 這是分類管理頁真的踩到的。
+   *
+   * 下面那些具名的 order 是「刻意調整過順序」的例外，不是必填項目。
+   */
+  .data-table td { order: 10; }
   .data-table td:first-child { order: 1; width: 100%; }
   .data-table td[data-label="電話"] { order: 2; width: 100%; }
   .data-table td[data-label="地址"] { order: 3; width: 100%; }
@@ -1644,13 +1734,19 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .data-table td[data-label="數量"] { order: 3; width: 100%; }
   .data-table td[data-label="安全庫存"] { order: 4; width: 100%; }
   /* 分類與狀態都是膠囊，跟 CRM 的通路一樣讓它們並排在最後一行。 */
-  .data-table td[data-label="分類"] {
+  /*
+   * :not(:first-child) 是必要的。分類管理頁的第一格也叫「分類」，但那裡它是卡片
+   * 標題、要獨占一整行；這條規則是給庫存頁用的（分類在中間，跟狀態並排成一行）。
+   * 兩條規則的權重一樣，不排除的話後寫的這條會贏，分類管理頁的標題就縮到右邊
+   * 跟操作鈕擠在一起。
+   */
+  .data-table td[data-label="分類"]:not(:first-child) {
     order: 5;
     display: block;
     width: auto;
     padding: 4px 0;
   }
-  .data-table td[data-label="分類"]::before { display: none; }
+  .data-table td[data-label="分類"]:not(:first-child)::before { display: none; }
 
   /* 操作鈕釘在卡片右上角，不要自己佔一列（那一列量出來 50px）。 */
   .data-table td[data-label="操作"] {

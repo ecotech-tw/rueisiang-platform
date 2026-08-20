@@ -165,3 +165,30 @@ export function useCountItem() {
     write<CountResult>(`/api/wms/items/${id}/count`, "PATCH", { quantity, note }),
   );
 }
+
+/**
+ * 分類的顏色。與 packages/db 的 CATEGORY_COLORS 同一份清單——那邊加一個，
+ * 這裡與 @theme 的 --color-tone-* 都要跟著補。後端會擋掉不認得的值，
+ * 所以漏了不會寫進髒資料，只是選不到。
+ */
+export const CATEGORY_COLORS = [
+  "rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand",
+] as const;
+
+export function useCreateCategory() {
+  return useWarehouseMutation((input: { name: string; color: string }) =>
+    write<{ id: string }>("/api/wms/categories", "POST", input),
+  );
+}
+
+export function useUpdateCategory() {
+  return useWarehouseMutation(({ id, ...input }: { id: string; name?: string; color?: string }) =>
+    write<{ ok: true }>(`/api/wms/categories/${id}`, "PATCH", input),
+  );
+}
+
+export function useDeleteCategory() {
+  return useWarehouseMutation((id: string) =>
+    write<{ ok: true }>(`/api/wms/categories/${id}`, "DELETE"),
+  );
+}

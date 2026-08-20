@@ -10,6 +10,7 @@ import { Invite } from "./routes/Invite.js";
 import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
 import { Payout } from "./routes/tools/Payout.js";
+import { Categories } from "./routes/wms/Categories.js";
 import { Inventory } from "./routes/wms/Inventory.js";
 import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { Placeholder } from "./routes/Placeholder.js";
@@ -89,7 +90,7 @@ export function App() {
           <Route path="map" element={<Placeholder title="倉位地圖" phase="Phase 4" from={`${WMS}/app/warehouse-app.tsx`} />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="cyberbiz" element={<Placeholder title="CYBERBIZ 庫存" phase="Phase 4" from={`${WMS}/lib/cyberbiz-inventory.ts`} />} />
-          <Route path="categories" element={<Placeholder title="分類管理" phase="Phase 4" from={`${WMS}/app/warehouse-app.tsx`} />} />
+          <Route path="categories" element={<Categories />} />
           <Route path="activity" element={<Placeholder title="倉儲操作紀錄" phase="Phase 4" from={`${WMS}/app/warehouse-app.tsx`} />} />
         </Route>
 
