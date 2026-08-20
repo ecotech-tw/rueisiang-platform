@@ -63,11 +63,22 @@ export function useMapViewport(canvasWidth: number) {
   useEffect(() => {
     const scroller = scrollRef.current;
     if (fitted.current || !scroller || !canvasWidth) return;
-    const available = scroller.clientWidth;
-    if (!available) return;
+    /*
+     * clientWidth 含內距，但內距是刻意留給浮動按鈕的空白，不能拿來放地圖。
+     * 不扣掉的話算出來的比例會比真正放得下的大，右邊就多一條捲軸。
+     */
+    const style = getComputedStyle(scroller);
+    const available =
+      scroller.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    if (available <= 0) return;
     fitted.current = true;
+    /*
+     * 無條件捨去到 5% 的刻度，不是四捨五入。進位的話算出來的比例會比實際可用的
+     * 寬度大一點點（1348px 的視窗算成 85% ＝ 1360px），底下就多一條只能捲幾像素
+     * 的捲軸——那種捲軸看起來像壞掉。
+     */
     const fit = available / canvasWidth;
-    if (fit < 1) setZoom(Math.max(0.5, Math.round(fit * 20) / 20));
+    if (fit < 1) setZoom(Math.max(0.5, Math.floor(fit * 20) / 20));
   }, [canvasWidth]);
 
   /**

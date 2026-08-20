@@ -25,6 +25,10 @@ import { ZoneDrawer } from "./ZoneDrawer.js";
 /**
  * 倉位地圖。
  *
+ * **地圖鋪滿整個內容區，控制項浮在上面。** 先前是「標題列 ＋ 面板 ＋ 面板裡的
+ * 地圖」，層層內距之後真正給地圖的高度只剩一半多一點。地圖是這一頁唯一的內容，
+ * 其他東西都是為了操作它而存在的——那些該讓位，不該跟它平分畫面。
+ *
  * 用絕對定位的 DOM 而不是 canvas（舊系統的互動地圖也是 DOM，它那份 canvas 是
  * 給「下載整張圖」用的，見 exportMap.ts）。方塊只有幾十個，DOM 完全撐得住，
  * 而文字換行、hover、鍵盤焦點、螢幕閱讀器在 canvas 上全都要自己重寫一遍。
@@ -141,72 +145,194 @@ export function WarehouseMap() {
   }
 
   return (
-    <div className="page fills" ref={view.rootRef as React.RefObject<HTMLDivElement>}>
-      <header className="page-head">
-        <div className="page-head-row">
-          <div>
-            <h1>倉位地圖</h1>
-            <p className="muted">倉庫的平面配置。點一個倉位看裡面有什麼。</p>
-          </div>
-
-          <div className="map-toolbar">
-            {canWrite ? (
-              <>
-                <button
-                  type="button"
-                  className={`ghost-button${editing ? " active" : ""}`}
-                  aria-pressed={editing}
-                  onClick={() => setEditing((on) => !on)}
+    <div className="page bleed" ref={view.rootRef as React.RefObject<HTMLDivElement>}>
+      <div
+        className="map-scroll"
+        ref={view.scrollRef}
+        onTouchStart={view.onTouchStart}
+        onTouchMove={view.onTouchMove}
+        onTouchEnd={view.onTouchEnd}
+      >
+        {/*
+          * stage 佔住縮放後的空間，canvas 用 transform 縮放。只縮 canvas 的話
+          * 捲動範圍不會跟著變，放大之後右下角就捲不到。
+          */}
+        <div
+          className="map-stage"
+          style={{ width: settings.canvasWidth * view.zoom, height: settings.canvasHeight * view.zoom }}
+        >
+          <div
+            className="map-canvas"
+            style={{
+              width: settings.canvasWidth,
+              height: settings.canvasHeight,
+              transform: `scale(${view.zoom})`,
+            }}
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setSelected(null);
+            }}
+          >
+            {elements.map((element) => {
+              const box = elementDrag.boxOf(element.id, element);
+              return (
+                <div
+                  key={element.id}
+                  className={`map-element tone-${element.color}${editing ? " editable" : ""}`}
+                  style={boxStyle(box)}
+                  onPointerDown={(event) => editing && elementDrag.start(event, element.id, element, "move")}
+                  onPointerMove={elementDrag.move}
+                  onPointerUp={(event) => {
+                    if (!elementDrag.end(event) && editing) setElementForm(element);
+                  }}
                 >
-                  {editing ? "✓ 完成配置" : "調整配置"}
-                </button>
-                <button type="button" className="primary-button with-icon" onClick={() => setZoneForm("new")}>
-                  <Icon name="plus" />
-                  <span>新增區塊</span>
-                </button>
-                <button type="button" className="ghost-button with-icon" onClick={() => setElementForm("new")}>
-                  <Icon name="plus" />
-                  <span>新增標籤</span>
-                </button>
-                <button type="button" className="ghost-button" onClick={() => setCanvasForm(true)}>
-                  ▭ 畫布 {settings.canvasWidth} × {settings.canvasHeight}
-                </button>
-              </>
-            ) : null}
+                  <span>{element.label}</span>
+                  {editing ? (
+                    <button
+                      type="button"
+                      className="map-resize"
+                      aria-label={`調整 ${element.label} 的大小`}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        elementDrag.start(event, element.id, element, "resize");
+                      }}
+                      onPointerMove={elementDrag.move}
+                      onPointerUp={(event) => {
+                        event.stopPropagation();
+                        elementDrag.end(event);
+                      }}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
 
-            <button type="button" className="ghost-button" disabled={exporting} onClick={() => void exportImage()}>
-              {exporting ? "匯出中…" : "⇩ 下載整張圖"}
-            </button>
+            {zones.map((zone) => {
+              const box = zoneDrag.boxOf(zone.id, zone);
+              const zoneItems = itemsByZone.get(zone.id) ?? [];
+              const total = zoneItems.reduce((sum, item) => sum + item.quantity, 0);
+              const low = zoneItems.some((item) => item.quantity < item.minStock);
 
-            <div className="zoom-control">
-              <button type="button" aria-label="縮小" disabled={!view.canZoomOut} onClick={() => view.zoomTo(view.zoom - 0.1)}>−</button>
-              <span>{Math.round(view.zoom * 100)}%</span>
-              <button type="button" aria-label="放大" disabled={!view.canZoomIn} onClick={() => view.zoomTo(view.zoom + 0.1)}>＋</button>
-            </div>
+              // 用畫布的像素尺寸算，不是螢幕上的——縮放不該改變放得下幾格。
+              const { columns, slots } = shelfSlots(
+                (settings.canvasWidth * box.width) / 100,
+                (settings.canvasHeight * box.height) / 100,
+              );
+              const overflowing = zone.shelfLevels.length > slots;
+              const visibleLevels = zone.shelfLevels.slice(0, overflowing ? Math.max(0, slots - 1) : slots);
+              const hidden = zone.shelfLevels.length - visibleLevels.length;
 
-            <button
-              type="button"
-              className="icon-button"
-              aria-pressed={view.fullscreen}
-              title={view.fullscreen ? "退出全螢幕（Esc）" : "全螢幕"}
-              aria-label={view.fullscreen ? "退出全螢幕" : "全螢幕"}
-              onClick={() => void view.toggleFullscreen()}
-            >
-              <span aria-hidden="true">{view.fullscreen ? "↙" : "⛶"}</span>
-            </button>
+              return (
+                <article
+                  key={zone.id}
+                  className={[
+                    "map-zone",
+                    `tone-${zone.color}`,
+                    editing ? "editable" : "",
+                    selected === zone.id ? "selected" : "",
+                    zoneDrag.draggingId === zone.id ? "dragging" : "",
+                    matches ? (matches.zoneIds.has(zone.id) ? "search-match" : "search-dimmed") : "",
+                  ].filter(Boolean).join(" ")}
+                  style={boxStyle(box)}
+                  role="button"
+                  tabIndex={editing ? -1 : 0}
+                  aria-label={`${zone.code} ${zone.name}，庫存 ${total} 件`}
+                  onPointerDown={(event) => {
+                    if (editing) zoneDrag.start(event, zone.id, zone, "move");
+                    else pressAt.current = { x: event.clientX, y: event.clientY };
+                  }}
+                  onPointerMove={zoneDrag.move}
+                  onPointerUp={(event) => {
+                    // 配置模式下點方塊是選它來拖，不是看明細。
+                    if (zoneDrag.end(event) || editing) return;
+                    const from = pressAt.current;
+                    pressAt.current = null;
+                    if (from && Math.hypot(event.clientX - from.x, event.clientY - from.y) >= CLICK_SLOP) return;
+                    setSelected(zone.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (!editing && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                      setSelected(zone.id);
+                    }
+                  }}
+                >
+                  <span className="map-zone-head">
+                    <b>{zone.code}</b>
+                    {low ? <i title="有商品低於安全庫存">!</i> : null}
+                  </span>
+                  <span className="map-zone-name">{zone.name}</span>
+                  {canReadItems ? (
+                    <span className="map-zone-total">
+                      {total.toLocaleString("zh-TW")}<small>件</small>
+                    </span>
+                  ) : null}
+
+                  {/* 每層的數量。方塊太小就整塊不畫，硬擠只會變成一團看不懂的字。 */}
+                  {canReadItems && slots > 0 ? (
+                    <span
+                      className="map-zone-levels"
+                      style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+                    >
+                      {visibleLevels.map((level) => (
+                        <em key={level.id}>
+                          <i title={level.name}>{level.name}</i>
+                          <b>
+                            {zoneItems
+                              .filter((item) => item.shelfLevel === level.id)
+                              .reduce((sum, item) => sum + item.quantity, 0)
+                              .toLocaleString("zh-TW")}
+                          </b>
+                        </em>
+                      ))}
+                      {hidden > 0 ? (
+                        <em className="map-zone-more" title={`另有 ${hidden} 個層架`}>
+                          <i>更多</i><b>+{hidden}</b>
+                        </em>
+                      ) : null}
+                    </span>
+                  ) : null}
+
+                  {editing ? (
+                    <>
+                      <button
+                        type="button"
+                        className="map-zone-delete"
+                        title={`刪除 ${zone.code}`}
+                        aria-label={`刪除 ${zone.code} ${zone.name}`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDeletingZone(zone);
+                        }}
+                      >
+                        ×
+                      </button>
+                      <button
+                        type="button"
+                        className="map-resize"
+                        aria-label={`調整 ${zone.code} 的大小`}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          zoneDrag.start(event, zone.id, zone, "resize");
+                        }}
+                        onPointerMove={zoneDrag.move}
+                        onPointerUp={(event) => {
+                          event.stopPropagation();
+                          zoneDrag.end(event);
+                        }}
+                      />
+                    </>
+                  ) : null}
+                </article>
+              );
+            })}
           </div>
         </div>
-      </header>
+      </div>
 
-      {error ? <p className="form-error" role="alert">{error.message}</p> : null}
-
-      <section className="panel grows map-panel">
-        {editing ? (
-          <p className="edit-hint">
-            配置模式已開啟・倉位與標籤都可以拖曳、右下角可以縮放；倉位右上角的 × 可以刪除，點標籤可以改名
-          </p>
-        ) : null}
-
+      {/* 左上：標題與搜尋。搜尋是最常用的，放在最順手的角落。 */}
+      <div className="map-float start">
+        <h1>倉位地圖</h1>
         <div className="map-search">
           <label>
             <Icon name="search" />
@@ -218,209 +344,73 @@ export function WarehouseMap() {
               aria-label="在地圖上搜尋商品"
             />
           </label>
-          {matches ? (
-            <small aria-live="polite">
-              {matches.items
-                ? `找到 ${matches.items} 項商品・${matches.zoneIds.size} 個倉位${
-                    matches.unassigned ? `・${matches.unassigned} 項未設定倉位` : ""
-                  }`
-                : "找不到符合的商品"}
-            </small>
-          ) : (
-            <i className="muted">觸控板 Ctrl/⌘ ＋ 滾輪或雙指手勢可縮放</i>
-          )}
         </div>
+        {matches ? (
+          <small aria-live="polite" className="map-note">
+            {matches.items
+              ? `找到 ${matches.items} 項商品・${matches.zoneIds.size} 個倉位${
+                  matches.unassigned ? `・${matches.unassigned} 項未設定倉位` : ""
+                }`
+              : "找不到符合的商品"}
+          </small>
+        ) : null}
+        {editing ? (
+          <small className="map-note editing">
+            配置模式：倉位與標籤可拖曳、右下角可縮放，右上角的 × 可刪除，點標籤可改名
+          </small>
+        ) : null}
+        {error ? <small className="map-note failed" role="alert">{error.message}</small> : null}
+      </div>
 
-        <div
-          className="map-scroll"
-          ref={view.scrollRef}
-          onTouchStart={view.onTouchStart}
-          onTouchMove={view.onTouchMove}
-          onTouchEnd={view.onTouchEnd}
-        >
-          {/*
-            * stage 佔住縮放後的空間，canvas 用 transform 縮放。只縮 canvas 的話
-            * 捲動範圍不會跟著變，放大之後右下角就捲不到。
-            */}
-          <div
-            className="map-stage"
-            style={{ width: settings.canvasWidth * view.zoom, height: settings.canvasHeight * view.zoom }}
-          >
-            <div
-              className="map-canvas"
-              style={{
-                width: settings.canvasWidth,
-                height: settings.canvasHeight,
-                transform: `scale(${view.zoom})`,
-              }}
-              onPointerDown={(event) => {
-                if (event.target === event.currentTarget) setSelected(null);
-              }}
+      {/* 右上：所有動作。 */}
+      <div className="map-float end">
+        {canWrite ? (
+          <>
+            <button
+              type="button"
+              className={`ghost-button${editing ? " active" : ""}`}
+              aria-pressed={editing}
+              onClick={() => setEditing((on) => !on)}
             >
-              {elements.map((element) => {
-                const box = elementDrag.boxOf(element.id, element);
-                return (
-                  <div
-                    key={element.id}
-                    className={`map-element tone-${element.color}${editing ? " editable" : ""}`}
-                    style={boxStyle(box)}
-                    onPointerDown={(event) => editing && elementDrag.start(event, element.id, element, "move")}
-                    onPointerMove={elementDrag.move}
-                    onPointerUp={(event) => {
-                      if (!elementDrag.end(event) && editing) setElementForm(element);
-                    }}
-                  >
-                    <span>{element.label}</span>
-                    {editing ? (
-                      <button
-                        type="button"
-                        className="map-resize"
-                        aria-label={`調整 ${element.label} 的大小`}
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                          elementDrag.start(event, element.id, element, "resize");
-                        }}
-                        onPointerMove={elementDrag.move}
-                        onPointerUp={(event) => {
-                          event.stopPropagation();
-                          elementDrag.end(event);
-                        }}
-                      />
-                    ) : null}
-                  </div>
-                );
-              })}
+              {editing ? "✓ 完成配置" : "調整配置"}
+            </button>
+            <button type="button" className="primary-button with-icon" onClick={() => setZoneForm("new")}>
+              <Icon name="plus" />
+              <span>新增區塊</span>
+            </button>
+            <button type="button" className="ghost-button with-icon" onClick={() => setElementForm("new")}>
+              <Icon name="plus" />
+              <span>新增標籤</span>
+            </button>
+            <button type="button" className="ghost-button" onClick={() => setCanvasForm(true)}>
+              ▭ 畫布 {settings.canvasWidth} × {settings.canvasHeight}
+            </button>
+          </>
+        ) : null}
 
-              {zones.map((zone) => {
-                const box = zoneDrag.boxOf(zone.id, zone);
-                const zoneItems = itemsByZone.get(zone.id) ?? [];
-                const total = zoneItems.reduce((sum, item) => sum + item.quantity, 0);
-                const low = zoneItems.some((item) => item.quantity < item.minStock);
+        <button type="button" className="ghost-button" disabled={exporting} onClick={() => void exportImage()}>
+          {exporting ? "匯出中…" : "⇩ 下載整張圖"}
+        </button>
+      </div>
 
-                // 用畫布的像素尺寸算，不是螢幕上的——縮放不該改變放得下幾格。
-                const { columns, slots } = shelfSlots(
-                  (settings.canvasWidth * box.width) / 100,
-                  (settings.canvasHeight * box.height) / 100,
-                );
-                const overflowing = zone.shelfLevels.length > slots;
-                const visibleLevels = zone.shelfLevels.slice(0, overflowing ? Math.max(0, slots - 1) : slots);
-                const hidden = zone.shelfLevels.length - visibleLevels.length;
-
-                return (
-                  <article
-                    key={zone.id}
-                    className={[
-                      "map-zone",
-                      `tone-${zone.color}`,
-                      editing ? "editable" : "",
-                      selected === zone.id ? "selected" : "",
-                      zoneDrag.draggingId === zone.id ? "dragging" : "",
-                      matches ? (matches.zoneIds.has(zone.id) ? "search-match" : "search-dimmed") : "",
-                    ].filter(Boolean).join(" ")}
-                    style={boxStyle(box)}
-                    role="button"
-                    tabIndex={editing ? -1 : 0}
-                    aria-label={`${zone.code} ${zone.name}，庫存 ${total} 件`}
-                    onPointerDown={(event) => {
-                      if (editing) zoneDrag.start(event, zone.id, zone, "move");
-                      else pressAt.current = { x: event.clientX, y: event.clientY };
-                    }}
-                    onPointerMove={zoneDrag.move}
-                    onPointerUp={(event) => {
-                      // 配置模式下點方塊是選它來拖，不是看明細。
-                      if (zoneDrag.end(event) || editing) return;
-                      const from = pressAt.current;
-                      pressAt.current = null;
-                      if (from && Math.hypot(event.clientX - from.x, event.clientY - from.y) >= CLICK_SLOP) return;
-                      setSelected(zone.id);
-                    }}
-                    onKeyDown={(event) => {
-                      if (!editing && (event.key === "Enter" || event.key === " ")) {
-                        event.preventDefault();
-                        setSelected(zone.id);
-                      }
-                    }}
-                  >
-                    <span className="map-zone-head">
-                      <b>{zone.code}</b>
-                      {low ? <i title="有商品低於安全庫存">!</i> : null}
-                    </span>
-                    <span className="map-zone-name">{zone.name}</span>
-                    {canReadItems ? (
-                      <span className="map-zone-total">
-                        {total.toLocaleString("zh-TW")}<small>件</small>
-                      </span>
-                    ) : null}
-
-                    {/* 每層的數量。方塊太小就整塊不畫，硬擠只會變成一團看不懂的字。 */}
-                    {canReadItems && slots > 0 ? (
-                      <span
-                        className="map-zone-levels"
-                        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-                      >
-                        {visibleLevels.map((level) => (
-                          <em key={level.id}>
-                            <i title={level.name}>{level.name}</i>
-                            <b>
-                              {zoneItems
-                                .filter((item) => item.shelfLevel === level.id)
-                                .reduce((sum, item) => sum + item.quantity, 0)
-                                .toLocaleString("zh-TW")}
-                            </b>
-                          </em>
-                        ))}
-                        {hidden > 0 ? (
-                          <em className="map-zone-more" title={`另有 ${hidden} 個層架`}>
-                            <i>更多</i><b>+{hidden}</b>
-                          </em>
-                        ) : null}
-                      </span>
-                    ) : null}
-
-                    {editing ? (
-                      <>
-                        <button
-                          type="button"
-                          className="map-zone-delete"
-                          title={`刪除 ${zone.code}`}
-                          aria-label={`刪除 ${zone.code} ${zone.name}`}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setDeletingZone(zone);
-                          }}
-                        >
-                          ×
-                        </button>
-                        <button
-                          type="button"
-                          className="map-resize"
-                          aria-label={`調整 ${zone.code} 的大小`}
-                          onPointerDown={(event) => {
-                            event.stopPropagation();
-                            zoneDrag.start(event, zone.id, zone, "resize");
-                          }}
-                          onPointerMove={zoneDrag.move}
-                          onPointerUp={(event) => {
-                            event.stopPropagation();
-                            zoneDrag.end(event);
-                          }}
-                        />
-                      </>
-                    ) : null}
-                  </article>
-                );
-              })}
-            </div>
-          </div>
+      {/* 右下：縮放。離內容最遠的角落，最不會擋到東西。 */}
+      <div className="map-float corner">
+        <div className="zoom-control">
+          <button type="button" aria-label="縮小" disabled={!view.canZoomOut} onClick={() => view.zoomTo(view.zoom - 0.1)}>−</button>
+          <span>{Math.round(view.zoom * 100)}%</span>
+          <button type="button" aria-label="放大" disabled={!view.canZoomIn} onClick={() => view.zoomTo(view.zoom + 0.1)}>＋</button>
         </div>
-
-        <div className="map-legend">
-          <span><i className="legend-dot occupied" />有庫存</span>
-          <span><i className="legend-dot low" />含低庫存商品</span>
-          <span className="muted">圖面位置可隨實際倉庫持續調整</span>
-        </div>
-      </section>
+        <button
+          type="button"
+          className="icon-button"
+          aria-pressed={view.fullscreen}
+          title={view.fullscreen ? "退出全螢幕（Esc）" : "全螢幕"}
+          aria-label={view.fullscreen ? "退出全螢幕" : "全螢幕"}
+          onClick={() => void view.toggleFullscreen()}
+        >
+          <span aria-hidden="true">{view.fullscreen ? "↙" : "⛶"}</span>
+        </button>
+      </div>
 
       {selectedZone && !editing ? (
         <ZoneDrawer

@@ -351,6 +351,11 @@
  */
 .content { padding: 32px 36px; min-width: 0; height: 100vh; overflow-y: auto; }
 .content:has(.page.fills) { overflow-y: hidden; }
+/*
+ * 滿版的頁面（目前只有倉位地圖）。內容自己貼齊邊界，所以外層的內距要收掉——
+ * 留著的話地圖四周會有一圈 32px 的白邊，那正是「鋪滿」要拿掉的東西。
+ */
+.content:has(.page.bleed) { padding: 0; overflow: hidden; }
 
 /* 撐滿剩餘高度、內部捲動的頁面。 */
 .page.fills { display: flex; flex-direction: column; height: 100%; min-height: 0; }
@@ -816,18 +821,35 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /*
  * ── 倉位地圖 ────────────────────────────────────────────────────────────
  *
- * 三層結構：map-scroll（捲動）→ map-stage（佔住縮放後的空間）→ map-canvas
- * （像素尺寸，用 transform 縮放）。只縮 canvas 的話捲動範圍不會跟著變，
- * 放大之後右下角就永遠捲不到。
+ * 地圖鋪滿整個內容區，控制項浮在上面。先前是「標題列 ＋ 面板 ＋ 面板裡的地圖」，
+ * 層層內距之後真正給地圖的高度只剩一半多一點。地圖是這一頁唯一的內容，
+ * 其他東西都是為了操作它而存在的。
+ *
+ * 三層結構：map-scroll（鋪滿、捲動）→ map-stage（佔住縮放後的空間）→
+ * map-canvas（像素尺寸，用 transform 縮放）。只縮 canvas 的話捲動範圍不會跟著
+ * 變，放大之後右下角就永遠捲不到。
  */
-.map-panel { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.page.bleed { position: relative; height: 100%; }
 .map-scroll {
-  flex: 1;
-  min-height: 320px;
+  position: absolute;
+  inset: 0;
   overflow: auto;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-card);
   background: var(--color-canvas);
+  /*
+   * 地圖比視窗小的時候置中，不要黏在左上角——貼著角落看起來像沒載完。
+   * safe 是必要的：純 center 在內容比容器大時會把起點推到可視範圍外，
+   * 那時候左上角那一區就永遠捲不到了。
+   */
+  display: grid;
+  place-content: safe center;
+  /*
+   * 四周留白，而且是**捲得到的留白**（內距在捲動容器上，不是在畫布上）。
+   *
+   * 沒有它的話，捲到任何一邊時那一邊的浮動按鈕就正好壓在畫布邊緣的倉位上——
+   * 那些格子看得到卻點不到。留白的量要蓋得過各角落的浮動面板：上面是標題與
+   * 搜尋，右邊是動作列與縮放。
+   */
+  padding: 96px 100px 84px 28px;
 }
 .map-stage { position: relative; }
 .map-canvas {
@@ -840,6 +862,72 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   /* 拖曳時整段文字反白很難看。 */
   user-select: none;
 }
+
+/*
+ * 浮在地圖上的控制項。
+ *
+ * pointer-events: none 加在容器、auto 加回子元素：不這樣做的話，這幾塊的空白
+ * 區域會擋住底下的地圖——右上角那一塊看起來只有幾顆按鈕，實際上是一個蓋住
+ * 三分之一畫面的透明矩形，那一帶的倉位就點不到了。
+ */
+.map-float {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+  pointer-events: none;
+}
+.map-float > * { pointer-events: auto; }
+
+.map-float.start {
+  top: 16px;
+  left: 16px;
+  /* 標題、搜尋、提示由上往下疊，寬度跟著最寬的那個走。 */
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: min(420px, calc(100% - 32px));
+}
+.map-float.start h1 {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 20px;
+  /* 直接壓在地圖上，所以要有一點描邊才在淺色方塊上讀得出來。 */
+  text-shadow: 0 1px 0 var(--color-paper), 0 0 6px var(--color-paper);
+}
+.map-float.end {
+  top: 16px;
+  right: 16px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: calc(100% - 32px);
+}
+.map-float.corner { right: 16px; bottom: 16px; align-items: center; }
+
+/*
+ * 浮起來的東西都要有自己的底，不然壓在地圖的方塊上就讀不到了。
+ * 這是 Material 的 elevation：不是換顏色，是墊高一層。
+ */
+.map-float .ghost-button,
+.map-float .primary-button,
+.map-float .icon-button,
+.map-float .zoom-control,
+.map-float .map-search,
+.map-float .map-note {
+  box-shadow: var(--shadow-panel);
+}
+.map-float .ghost-button,
+.map-float .icon-button { background: var(--color-paper); }
+
+.map-note {
+  max-width: 100%;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--color-paper);
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.map-note.editing { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.map-note.failed { background: var(--color-brand-soft); color: var(--color-brand-dark); }
 
 .map-zone,
 .map-element {
@@ -966,8 +1054,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .map-zone.tone-lime, .map-element.tone-lime { background: --alpha(var(--color-tone-lime) / 15%); color: var(--color-tone-lime); }
 .map-zone.tone-sand, .map-element.tone-sand { background: --alpha(var(--color-tone-sand) / 15%); color: var(--color-tone-sand); }
 
-/* 工具列。項目多，窄螢幕要換行而不是被切掉。 */
-.map-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ghost-button.active { border-color: var(--color-brand); background: var(--color-brand-soft); color: var(--color-brand-dark); }
 
 .zoom-control {
@@ -993,19 +1079,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .zoom-control button:disabled { color: var(--color-muted); }
 .zoom-control span { min-width: 44px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
 
-.edit-hint {
-  margin: 0;
-  padding: 8px 12px;
-  border-radius: var(--radius-field);
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
-  font-size: 12px;
-}
-
-.map-search { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.map-search { width: 100%; }
 .map-search label {
   display: flex;
-  flex: 1 1 240px;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -1019,20 +1095,13 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .map-search input {
   flex: 1;
   min-width: 0;
+  width: 240px;
   height: 38px;
   border: 0;
   background: transparent;
   font-size: 14px;
 }
 .map-search input:focus { outline: none; }
-.map-search small { color: var(--color-muted); font-size: 12px; }
-.map-search i { font-size: 11px; font-style: normal; }
-
-.map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 12px; }
-.map-legend span { display: flex; align-items: center; gap: 6px; }
-.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
-.legend-dot.occupied { background: var(--color-tone-mint); }
-.legend-dot.low { background: var(--color-brand); }
 
 /* 畫布尺寸的預設值。 */
 .preset-row { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -1215,14 +1284,27 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .drawer-head { padding: 18px 16px 14px; }
   .drawer-body { padding: 14px 16px 24px; }
 
-  .map-panel { padding: 10px; }
   /*
-   * 地圖要拿到足夠的高度。手機上這一頁本來就沒別的東西，把畫面讓給它——
-   * 只有 360px 高的地圖跟沒有地圖差不多。
+   * 手機上浮動的東西改成貼齊上下緣、左右滿版。角落定位在 390px 的螢幕上會讓
+   * 左上那組跟右上那組直接重疊。
    */
-  .map-scroll { min-height: 60vh; }
+  .map-float { gap: 6px; }
+  .map-float.start,
+  .map-float.end { left: 10px; right: 10px; max-width: none; }
+  .map-float.start { top: 10px; }
+  .map-float.start h1 { font-size: 17px; }
+  .map-float.end { top: auto; bottom: 10px; justify-content: flex-start; }
+  /*
+   * 縮放放在動作列的正上方，不是右上角。
+   *
+   * 右上角在 390px 的螢幕上會直接壓在搜尋列上——那一塊是滿版的，兩者一定撞。
+   * 疊在動作列上面則是同一側、同一條軸線，而且拇指構得到。
+   */
+  .map-float.corner { right: 10px; bottom: 92px; }
+  /* 手機的浮動面板在上下兩端，所以留白也集中在上下。 */
+  .map-scroll { padding: 118px 16px 150px; }
+  .map-search input { width: auto; }
 }
-
 /* 標題列上不只一顆按鈕時。 */
 .head-actions { display: flex; align-items: center; gap: 8px; }
 
