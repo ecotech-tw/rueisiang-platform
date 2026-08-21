@@ -1,5 +1,5 @@
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { customers, cyberbizCustomerWebhooks } from "@rueisiang/db/schema";
+import { customers, cyberbizCustomerWebhooks, cyberbizProductWebhooks } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -36,7 +36,7 @@ async function hmac(secret: string, body: string): Promise<string> {
 
 function post(body: string, init: { headers?: Record<string, string>; query?: string } = {}) {
   return app.fetch(
-    new Request(`https://platform.rueisiang.com/api/webhooks/cyberbiz/customers${init.query ?? ""}`, {
+    new Request(`https://platform.rueisiang.com/api/webhooks/cyberbiz${init.query ?? ""}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
       body,
@@ -155,7 +155,7 @@ describe("webhook 的處理", () => {
 
   it("GET 是探測點，會說明密鑰有沒有設", async () => {
     const response = await app.fetch(
-      new Request("https://platform.rueisiang.com/api/webhooks/cyberbiz/customers"),
+      new Request("https://platform.rueisiang.com/api/webhooks/cyberbiz"),
       env as never,
     );
     expect(await response.json()).toMatchObject({ ok: true, configured: true });
@@ -247,12 +247,20 @@ describe("不是會員的事件", () => {
     expect(await db().select().from(customers)).toHaveLength(0);
   });
 
-  it("商品事件仍然留下紀錄，之後 Phase 4 用得到", async () => {
+  /*
+   * 這一條的斷言換過表。
+   *
+   * Phase 4 之前商品事件會被記進「會員 webhook」那張表並標成 ignored——當時沒有
+   * 別的地方可以放。現在一個網址進來會分派，商品事件落在自己的表裡，不再借住。
+   */
+  it("商品事件記在商品那張表，不是會員那張", async () => {
     await post(JSON.stringify(productEvent), { query });
 
-    const [event] = await db().select().from(cyberbizCustomerWebhooks);
+    expect(await db().select().from(cyberbizCustomerWebhooks)).toHaveLength(0);
+
+    const [event] = await db().select().from(cyberbizProductWebhooks);
+    expect(event?.variantId).toBe("75900635");
     expect(event?.status).toBe("ignored");
-    expect(event?.payloadJson).toContain("inventory_quantity");
   });
 
   it("沒有 topic 標頭又看不出是什麼的事件不處理", async () => {

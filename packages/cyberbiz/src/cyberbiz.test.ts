@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CyberbizApiError, cyberbizRequest, readErrorMessage } from "./http.js";
 import { createCustomerClient, parseCyberbizCustomer } from "./customers.js";
 import { createInventoryClient, flattenProducts, isCompanyProduct } from "./inventory.js";
+import { classifyPayload, parseProductEvent } from "./webhook.js";
 
 const config = { apiToken: "test-token", baseUrl: "https://api.example.test" };
 /** 測試不要真的等指數退避的秒數。 */
@@ -436,5 +437,53 @@ describe("商品庫存", () => {
       { id: 2, title: "門市", pos_shop: { id: 7, name: "中山店" }, product_variants: [{ id: 22, sku: "A" }] },
     ]);
     expect(items.filter(isCompanyProduct).map((item) => item.variantId)).toEqual(["11"]);
+  });
+});
+
+/*
+ * 分類要看得跟解析一樣深。
+ *
+ * Codex review 抓到的：parseProductEvent 會挖 data／variant／product_variant，
+ * 但 classifyPayload 只看最上層。差在這一層的事件會被判成「認不出來」，送去
+ * 會員那條路記成 ignored，然後永遠不同步——而且過程中不會有任何錯誤訊息。
+ */
+describe("事件分類的深度", () => {
+  const variant = { id: 68463869, sku: "BPK24004", inventory_quantity: 200 };
+
+  it("包在 data 裡的商品事件認得出來", () => {
+    expect(classifyPayload({ data: { product_id: "56750193", ...variant } })).toBe("product");
+  });
+
+  it("包在 product_variant 裡的也認得出來", () => {
+    expect(classifyPayload({ product_variant: variant })).toBe("product");
+  });
+
+  it("包在 variant 裡的也認得出來", () => {
+    expect(classifyPayload({ variant })).toBe("product");
+  });
+
+  it("包在 product 裡的也認得出來", () => {
+    expect(classifyPayload({ product: { id: 1, sku: "X" } })).toBe("product");
+  });
+
+  it("分類挖的位置跟 parseProductEvent 一致", () => {
+    // 這一條是規則本身：解析得出款式 id 的，分類就不該說「認不出來」。
+    for (const payload of [
+      { data: { variant_id: 68463869, inventory_quantity: 1 } },
+      { variant: { id: 68463869, sku: "A" } },
+      { product_variant: { id: 68463869, sku: "A" } },
+      { product: { id: 56750193 }, sku: "A" },
+    ]) {
+      expect(parseProductEvent(payload).variantId || parseProductEvent(payload).productId).toBeTruthy();
+      expect(classifyPayload(payload)).toBe("product");
+    }
+  });
+
+  it("包在 customer 裡的會員事件仍然認得出來", () => {
+    expect(classifyPayload({ customer: { id: 7, mobile: "0912345678" } })).toBe("customer");
+  });
+
+  it("兩邊都對不上就是認不出來", () => {
+    expect(classifyPayload({ id: 7, name: "看不出是什麼" })).toBe("unknown");
   });
 });

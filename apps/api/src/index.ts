@@ -1,9 +1,11 @@
 import { CyberbizApiError } from "@rueisiang/cyberbiz";
-import { WmsError, createDatabase, retryFailedWebhooks } from "@rueisiang/db";
+import { WmsError, createDatabase, retryFailedProductWebhooks, retryFailedWebhooks } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { createMiddleware } from "hono/factory";
-import { cyberbizClient } from "./cyberbiz.js";
+import { forgetCatalog } from "./cyberbiz-catalog.js";
+import { cyberbizClient, cyberbizInventoryClient } from "./cyberbiz.js";
+import { cacheClient } from "./upstash.js";
 import type { AppEnv, Env } from "./env.js";
 import { admin } from "./routes/admin.js";
 import { auth } from "./routes/auth.js";
@@ -100,9 +102,23 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
   ctx.waitUntil(
     retryFailedWebhooks(db, { client: cyberbizClient(env) })
       .then((result) => {
-        if (result.attempted) console.log("補跑失敗的 webhook", result);
+        if (result.attempted) console.log("補跑失敗的會員 webhook", result);
       })
-      .catch((error) => console.error("補跑失敗的 webhook 時出錯", error)),
+      .catch((error) => console.error("補跑失敗的會員 webhook 時出錯", error)),
+  );
+
+  // 商品那條分開跑：兩者互不相干，一邊掛掉不該連累另一邊。
+  ctx.waitUntil(
+    retryFailedProductWebhooks(db, { client: cyberbizInventoryClient(env) })
+      .then(async (result) => {
+        if (result.attempted) console.log("補跑失敗的商品 webhook", result);
+        /*
+         * 補跑改到庫存的話，快取的目錄一樣過期了。這條路不經過 webhook 路由，
+         * 所以要自己清一次——不清的話畫面上的數字會一直舊到 TTL 到期。
+         */
+        if (result.processed) await forgetCatalog(cacheClient(env));
+      })
+      .catch((error) => console.error("補跑失敗的商品 webhook 時出錯", error)),
   );
 }
 

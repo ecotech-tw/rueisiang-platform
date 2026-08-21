@@ -134,7 +134,11 @@ export interface SyncOutcome {
 export async function applySyncPlan(
   db: Database,
   plan: SyncPlanEntry[],
-  actor: { id: string; email: string },
+  /*
+   * 沒有人按的時候給 null——webhook 就是這種。activityRow 會把它記成 system，
+   * 操作紀錄那一頁顯示「系統」而不是一個空白的 email。
+   */
+  actor: { id?: string | null; email?: string | null } | null,
 ): Promise<SyncOutcome> {
   const syncedAt = new Date().toISOString();
   /*

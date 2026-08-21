@@ -37,3 +37,7 @@ Thumbs.db
 
 # 本機開發時上傳的倉位照片。跟 local.sqlite 一樣是暫時的東西。
 apps/api/local-uploads/
+
+# git worktree 開在 repo 裡面的話，`git add -A` 會把它整包當成一個嵌套的 repo
+# 加進來（實際發生過）。worktree 本來就是同一個 repo 的另一份簽出，不該被追蹤。
+rueisiang-platform-*/
