@@ -30,6 +30,7 @@ import {
   isLineWebhookEvent,
   lineEventGroup,
   lineEventIsMentioned,
+  lineEventRawText,
   lineEventText,
   lineQuestionText,
   pushLineMessage,
@@ -51,6 +52,26 @@ import {
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const LINE_TOOL_DEFINITIONS: AssistantToolDefinition[] = [openMeteoTool];
 const LINE_MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
+
+async function stableLineWebhookEventId(input: {
+  groupId: string;
+  sourceType: string;
+  timestamp?: number;
+  messageId?: string;
+  userId?: string;
+  text: string;
+}): Promise<string> {
+  const source = [
+    input.groupId,
+    input.sourceType,
+    input.timestamp ?? "",
+    input.messageId ?? "",
+    input.userId ?? "",
+    input.text,
+  ].join("\u001f");
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source)));
+  return `fallback:${Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
 
 async function runLineAssistant(input: {
   db: AppEnv["Variables"]["db"];
@@ -258,6 +279,7 @@ export const webhooks = new Hono<AppEnv>()
         continue;
       }
       const event = rawEvent;
+      const rawText = lineEventRawText(event);
       const text = lineEventText(event);
       const group = lineEventGroup(event);
       if (!text || !group || !lineEventIsMentioned(event)) {
@@ -269,8 +291,14 @@ export const webhooks = new Hono<AppEnv>()
         assistantKey: ASSISTANT_KEY,
         lineGroupId: group.id,
       });
-      const webhookEventId = event.webhookEventId
-        || `fallback:${event.timestamp ?? 0}:${event.message?.id ?? crypto.randomUUID()}`;
+      const webhookEventId = event.webhookEventId || await stableLineWebhookEventId({
+        groupId: group.id,
+        sourceType: group.sourceType,
+        timestamp: event.timestamp,
+        messageId: event.message?.id,
+        userId: event.source?.userId,
+        text,
+      });
       const result = await recordAssistantLineMessage(c.get("db"), {
         assistantKey: ASSISTANT_KEY,
         lineGroupId: lineGroup.lineGroupId,
@@ -285,7 +313,7 @@ export const webhooks = new Hono<AppEnv>()
 
       if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken) {
         const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
-        const questionText = lineQuestionText(text, selfMention);
+        const questionText = lineQuestionText(rawText ?? text, selfMention);
         if (event.replyToken) {
           try {
             await replyLineMessage(accessToken, event.replyToken, "收到，正在整理資訊，請稍候…");

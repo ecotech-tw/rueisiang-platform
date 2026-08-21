@@ -65,8 +65,14 @@ export function lineEventIsMentioned(event: LineWebhookEvent): boolean {
 }
 
 export function lineEventText(event: LineWebhookEvent): string | null {
+  const text = lineEventRawText(event);
+  return text === null ? null : text.trim();
+}
+
+/** 保留 LINE 原始文字，因為 mention offset 是以這個字串為基準。 */
+export function lineEventRawText(event: LineWebhookEvent): string | null {
   if (event.type !== "message" || event.message?.type !== "text" || typeof event.message.text !== "string") return null;
-  return event.message.text.trim();
+  return event.message.text;
 }
 
 export function lineQuestionText(
@@ -82,7 +88,9 @@ export function lineQuestionText(
     Number.isInteger(index) &&
     Number.isInteger(length) &&
     index >= 0 &&
-    length > 0
+    length > 0 &&
+    index <= text.length &&
+    index + length <= text.length
   ) {
     return `${text.slice(0, index)}${text.slice(index + length)}`.trim();
   }

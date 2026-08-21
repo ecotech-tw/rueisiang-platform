@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
+import { lineQuestionText } from "./line.js";
 
 const AUTH_SECRET = "line-test-auth-secret";
 let d1: LocalD1;
@@ -87,6 +88,13 @@ beforeEach(async () => {
 });
 
 describe("LINE webhook", () => {
+  it("用原始文字搭配 mention offset，避免 trim 造成切字位移", () => {
+    const rawText = "\n@Rueisiang 小香 今天天氣如何";
+    const mentionLength = "@Rueisiang 小香".length;
+    expect(lineQuestionText(rawText, { isSelf: true, index: 1, length: mentionLength })).toBe("今天天氣如何");
+    expect(lineQuestionText(rawText, { isSelf: true, index: 99, length: 2 })).toBe(rawText.trim());
+  });
+
   it("簽章不正確時不會寫入訊息", async () => {
     const body = JSON.stringify({ events: [mentionEvent()] });
     const response = await call("/api/webhooks/line", {
@@ -119,6 +127,22 @@ describe("LINE webhook", () => {
     await postLine(body);
     const response = await postLine(body);
     expect(await response.json()).toMatchObject({ recorded: 0, duplicates: 1 });
+    expect(await db().select().from(assistantLineMessages)).toHaveLength(1);
+  });
+
+  it("缺少 webhook event id 與 message id 時仍使用穩定 fallback 去重", async () => {
+    const body = JSON.stringify({ events: [mentionEvent({
+      webhookEventId: undefined,
+      message: {
+        type: "text",
+        text: "@Rueisiang 小香 沒有穩定 ID 的訊息",
+        mention: { mentionees: [{ isSelf: true }] },
+      },
+    })] });
+    const first = await postLine(body);
+    const second = await postLine(body);
+    expect(first.status).toBe(200);
+    expect(await second.json()).toMatchObject({ recorded: 0, duplicates: 1 });
     expect(await db().select().from(assistantLineMessages)).toHaveLength(1);
   });
 });
