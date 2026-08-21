@@ -35,7 +35,6 @@ import {
   lineEventText,
   lineQuestionText,
   pushLineMessage,
-  replyLineMessage,
   verifyLineWebhookSignature,
   type LineWebhookPayload,
 } from "../line.js";
@@ -342,13 +341,6 @@ async function receiveLine(c: Context<AppEnv>) {
     if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
       const questionText = lineQuestionText(rawText ?? text, selfMention);
-      if (event.replyToken) {
-        try {
-          await replyLineMessage(accessToken, event.replyToken, "收到，正在整理資訊，請稍候…");
-        } catch (error) {
-          console.error("LINE 收件確認訊息送出失敗", { groupId: lineGroup.lineGroupId, error });
-        }
-      }
       await scheduleLineAssistant(c, runLineAssistant({
         db: c.get("db"),
         env: c.env,
