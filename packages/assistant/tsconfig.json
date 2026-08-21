@@ -1,0 +1,4 @@
+{
+  "extends": "@rueisiang/config/tsconfig.worker.json",
+  "include": ["src/**/*.ts"]
+}
