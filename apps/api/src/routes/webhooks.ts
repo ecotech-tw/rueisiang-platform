@@ -16,11 +16,9 @@ import {
   ASSISTANT_MODELS,
   DEFAULT_ASSISTANT_MODEL,
   DEFAULT_ASSISTANT_PROMPT,
-  OPEN_METEO_TOOL_KEY,
-  openMeteoTool,
   runGemini,
-  type AssistantToolDefinition,
 } from "@rueisiang/assistant";
+import { PLATFORM_TOOL_KEYS, toolsForSurface } from "@rueisiang/tools";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { forgetCatalog } from "../cyberbiz-catalog.js";
@@ -57,7 +55,7 @@ import {
 
 /** 2 MB。正常的事件遠小於這個，超過的多半是打錯地方。 */
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
-const LINE_TOOL_DEFINITIONS: AssistantToolDefinition[] = [openMeteoTool];
+const LINE_TOOL_DEFINITIONS = toolsForSurface("line");
 const LINE_MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
 
 async function stableLineWebhookEventId(input: {
@@ -99,7 +97,7 @@ async function runLineAssistant(input: {
       assistantKey: ASSISTANT_KEY,
       defaultModel: DEFAULT_ASSISTANT_MODEL,
       defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
-      toolKeys: [OPEN_METEO_TOOL_KEY],
+      toolKeys: PLATFORM_TOOL_KEYS,
     });
     const [config, prompt, configuredTools, messages] = await Promise.all([
       getAssistantConfig(input.db, ASSISTANT_KEY),
@@ -130,6 +128,7 @@ async function runLineAssistant(input: {
       systemPrompt: prompt.systemPrompt,
       userText: promptText,
       tools,
+      toolContext: { surface: "line", db: input.db },
     });
     if (result.thoughts) {
       console.info("LINE 小香 thought summary", {

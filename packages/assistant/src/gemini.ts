@@ -1,4 +1,4 @@
-import { AssistantError, type AssistantConversationMessage, type AssistantRunResult, type AssistantToolCall, type AssistantToolDefinition, type AssistantUsage } from "./types.js";
+import { AssistantError, type AssistantConversationMessage, type AssistantRunResult, type AssistantToolCall, type AssistantToolContext, type AssistantToolDefinition, type AssistantUsage, type JsonSchema } from "./types.js";
 
 interface GeminiPart {
   text?: string;
@@ -34,8 +34,25 @@ interface GeminiRequest {
   tools?: Array<{ functionDeclarations: Array<{
     name: string;
     description: string;
-    parameters: AssistantToolDefinition["parameters"];
+    parameters: GeminiSchema;
   }> }>;
+}
+
+interface GeminiSchema {
+  type: "OBJECT";
+  properties: Record<string, { type: "STRING" | "NUMBER" | "INTEGER" | "BOOLEAN"; description: string; enum?: string[] }>;
+  required?: string[];
+}
+
+function toGeminiSchema(schema: JsonSchema): GeminiSchema {
+  return {
+    type: "OBJECT",
+    properties: Object.fromEntries(Object.entries(schema.properties).map(([key, property]) => [key, {
+      ...property,
+      type: property.type.toUpperCase() as "STRING" | "NUMBER" | "INTEGER" | "BOOLEAN",
+    }])),
+    ...(schema.required ? { required: schema.required } : {}),
+  };
 }
 
 function safeApiError(status: number): string {
@@ -134,6 +151,7 @@ export async function runGemini(input: {
   userText: string;
   conversation?: AssistantConversationMessage[];
   tools: AssistantToolDefinition[];
+  toolContext?: AssistantToolContext;
   maxToolRounds?: number;
 }): Promise<AssistantRunResult> {
   const toolsByName = new Map(input.tools.map((tool) => [tool.key, tool]));
@@ -147,7 +165,7 @@ export async function runGemini(input: {
   const declarations = input.tools.map((tool) => ({
     name: tool.key,
     description: tool.description,
-    parameters: tool.parameters,
+    parameters: toGeminiSchema(tool.parameters),
   }));
   const requestBase = {
     system_instruction: { parts: [{ text: input.systemPrompt }] },
@@ -186,7 +204,7 @@ export async function runGemini(input: {
         continue;
       }
       try {
-        const result = await tool.execute(call.args);
+        const result = await tool.execute(call.args, input.toolContext);
         toolCalls.push({ toolKey: tool.key, status: "success", durationMs: Date.now() - started });
         functionResponses.push({ functionResponse: { name: tool.key, response: { result: responseObject(result) } } });
       } catch (error) {

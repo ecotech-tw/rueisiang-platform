@@ -60,9 +60,9 @@ export const openMeteoTool: AssistantToolDefinition = {
   description: "使用免費 Open-Meteo API，依地點查詢目前天氣、體感溫度、濕度與風速。",
   defaultStatus: "development",
   parameters: {
-    type: "OBJECT",
+    type: "object",
     properties: {
-      location: { type: "STRING", description: "城市或地區名稱，例如台北、台南、Tokyo。" },
+      location: { type: "string", description: "城市或地區名稱，例如台北、台南、Tokyo。" },
     },
     required: ["location"],
   },

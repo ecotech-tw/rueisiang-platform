@@ -402,6 +402,7 @@ export function Sandbox() {
                     <span>
                       <strong>{tool.label}</strong>
                       <small>{tool.description}</small>
+                      {tool.requiredPermissions.length ? <small>需要權限：{tool.requiredPermissions.join("、")}</small> : null}
                     </span>
                     <em className={`status status-${tool.status}`}>{statusLabel(tool.status)}</em>
                   </label>

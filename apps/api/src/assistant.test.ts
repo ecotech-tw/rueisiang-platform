@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { userRoles, users } from "@rueisiang/db/schema";
+import { inventoryItems, userRoles, users } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -72,7 +72,19 @@ describe("AI 助理 Sandbox", () => {
     expect(result.configured).toBe(true);
     expect(result.activeModel).toBe("gemini-3.6-flash");
     expect(result.models.some((model) => model.id === "gemini-3.6-flash")).toBe(true);
-    expect(result.tools).toEqual([{ key: "weather_open_meteo", label: "Open-Meteo 天氣查詢", description: expect.any(String), status: "development" }]);
+    expect(result.tools.map((tool) => tool.key)).toEqual([
+      "weather_open_meteo",
+      "wms_search_inventory",
+      "wms_get_inventory_item",
+      "wms_list_low_stock_items",
+      "wms_get_activity",
+    ]);
+    expect(result.tools.find((tool) => tool.key === "wms_search_inventory")).toMatchObject({
+      label: "WMS 搜尋庫存",
+      status: "development",
+      surfaces: ["sandbox", "line", "mcp"],
+      requiredPermissions: ["wms:inventory:read"],
+    });
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
   });
 
@@ -121,7 +133,45 @@ describe("AI 助理 Sandbox", () => {
 
     const config = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config");
     const result = (await config.json()) as { tools: Array<{ key: string; status: string }> };
-    expect(result.tools).toEqual([{ key: "weather_open_meteo", label: "Open-Meteo 天氣查詢", description: expect.any(String), status: "enabled" }]);
+    expect(result.tools.find((tool) => tool.key === "weather_open_meteo")).toMatchObject({
+      key: "weather_open_meteo",
+      label: "Open-Meteo 天氣查詢",
+      status: "enabled",
+    });
+  });
+
+  it("Sandbox 可以透過共用 registry 執行 WMS 唯讀工具", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(inventoryItems).values({
+      id: "wms-item-1",
+      sku: "BOX-001",
+      name: "紙箱",
+      category: "一般備品",
+      quantity: 3,
+      minStock: 5,
+    });
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      const hasToolResult = JSON.stringify(body.contents).includes("wms-item-1");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: hasToolResult
+          ? [{ text: "紙箱目前有 3 件，低於安全庫存 5 件。" }]
+          : [{ functionCall: { name: "wms_search_inventory", args: { query: "紙箱", limit: "10" } } }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_search_inventory"], input: "查詢紙箱庫存" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "紙箱目前有 3 件，低於安全庫存 5 件。",
+      toolCalls: [{ toolKey: "wms_search_inventory", status: "success" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("使用選定 prompt 與模型執行 Gemini，並記錄可用量資訊", async () => {
