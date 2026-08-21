@@ -3,6 +3,7 @@ import { createDatabase, syncSystemRoles } from "@rueisiang/db";
 import {
   activityEvents,
   inventoryItems,
+  cyberbizProductLinks,
   productCategories,
   zoneImages,
   users,
@@ -13,7 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1 } from "./local-d1/d1.js";
 import { createLocalR2 } from "./local-d1/r2.js";
@@ -534,5 +535,232 @@ describe("倉位現場照片", () => {
     const id = await seedUser("none@ecotech.tw", null);
     const response = await as(id, "none@ecotech.tw", "/api/wms/zones/z1/images");
     expect(response.status).toBe(403);
+  });
+});
+
+describe("操作紀錄", () => {
+  beforeEach(async () => {
+    await db.insert(zones).values({ id: "z1", code: "A-01", name: "備品區", x: 8, y: 10, width: 20, height: 18 });
+    await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
+  });
+
+  /**
+   * oldValue/newValue 會被直接印在「變更」那一欄。
+   *
+   * 一整包 JSON 塞進去的話那一欄會爆版，而且沒有人讀得下去——整包快照要放
+   * payloadJson。這條測試就是釘住這件事。
+   */
+  it("欄位級的值看得懂，整包快照放 payload", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    await as(id, "admin@ecotech.tw", "/api/wms/zones/z1", {
+      method: "PATCH",
+      body: JSON.stringify({ x: 30, y: 40 }),
+    });
+
+    const [event] = await db
+      .select()
+      .from(activityEvents)
+      .where(eq(activityEvents.eventType, "zone_moved"));
+
+    expect(event?.field).toBe("position");
+    expect(event?.oldValue).toBe("8%, 10%");
+    expect(event?.newValue).toBe("30%, 40%");
+    // 完整的前後狀態沒有不見，只是搬到不會被印出來的地方。
+    expect(JSON.parse(event?.payloadJson ?? "{}")).toMatchObject({ before: { x: 8 }, after: { x: 30 } });
+  });
+
+  it("新增與刪除不寫 oldValue/newValue，只留快照", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    await as(id, "admin@ecotech.tw", "/api/wms/zones", {
+      method: "POST",
+      body: JSON.stringify({ code: "B-01", name: "包材區" }),
+    });
+
+    const [event] = await db
+      .select()
+      .from(activityEvents)
+      .where(eq(activityEvents.eventType, "zone_created"));
+
+    // 「新增」沒有「從什麼變成什麼」，硬塞一個值只是製造噪音。
+    expect(event?.oldValue).toBeNull();
+    expect(event?.newValue).toBeNull();
+    expect(JSON.parse(event?.payloadJson ?? "{}")).toMatchObject({ code: "B-01" });
+  });
+
+  it("分類改名記的是名字本身，不是整個物件", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    await as(id, "admin@ecotech.tw", "/api/wms/categories/cat-1", {
+      method: "PATCH",
+      body: JSON.stringify({ name: "包材" }),
+    });
+
+    const [event] = await db
+      .select()
+      .from(activityEvents)
+      .where(eq(activityEvents.eventType, "category_updated"));
+    expect(event?.oldValue).toBe("一般備品");
+    expect(event?.newValue).toBe("包材");
+  });
+
+  it("只回倉儲的紀錄，CRM 的不會混進來", async () => {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    await db.insert(activityEvents).values({
+      id: "evt-crm", entityType: "customer", entityId: "c1", entityLabel: "王小明",
+      eventType: "customer_created", summary: "新增客戶", source: "crm",
+    });
+    await as(id, "admin@ecotech.tw", "/api/wms/zones/z1", {
+      method: "PATCH",
+      body: JSON.stringify({ x: 30 }),
+    });
+
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/activity");
+    const body = await response.json() as { events: { entityType: string }[] };
+    expect(body.events.length).toBeGreaterThan(0);
+    expect(body.events.some((event) => event.entityType === "customer")).toBe(false);
+  });
+
+  it("沒有倉儲紀錄權限的人看不到", async () => {
+    const id = await seedUser("none@ecotech.tw", null);
+    const response = await as(id, "none@ecotech.tw", "/api/wms/activity");
+    expect(response.status).toBe(403);
+  });
+});
+
+/**
+ * 盤點推回 CYBERBIZ。
+ *
+ * 這一段釘的是**順序**：先寫本地，再推官網。跟 CRM 刻意相反，理由是真相來源
+ * 不同——人已經在現場數完了，不能因為官網連不上就把他數的結果丟掉。
+ */
+describe("盤點與 CYBERBIZ", () => {
+  /** 假的官網。回應依序取用，用完就一直重複最後一筆。 */
+  function stubCyberbiz(responses: { status?: number; body?: unknown }[]) {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    let index = 0;
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+      const spec = responses[Math.min(index, responses.length - 1)] ?? {};
+      index += 1;
+      return new Response(JSON.stringify(spec.body ?? {}), { status: spec.status ?? 200 });
+    });
+    return calls;
+  }
+
+  /** 官網回一個商品，帶一個款式。 */
+  const product = (quantity: number) => ({
+    body: {
+      product: {
+        id: "p1",
+        title: "紙箱",
+        published: true,
+        product_variants: [
+          { id: "v1", name: "單一款式", sku: "BOX-01", inventory_quantity: quantity, safety_inventory_quantity: 5 },
+        ],
+      },
+    },
+  });
+
+  const withToken = () => ({ ...env(), CYBERBIZ_API_TOKEN: "test-token", CYBERBIZ_API_BASE_URL: "https://api.example.test" });
+
+  async function asWithToken(userId: string, path: string, init: RequestInit = {}) {
+    const token = await signSession(newSessionClaims({ id: userId, email: "admin@ecotech.tw", name: "測試", pictureUrl: "" }), SECRET);
+    return app.fetch(
+      new Request(`https://test.local${path}`, {
+        ...init,
+        headers: { "Content-Type": "application/json", Cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}` },
+      }),
+      withToken() as never,
+    );
+  }
+
+  beforeEach(async () => {
+    await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
+    await db.insert(inventoryItems).values({
+      id: "i1", sku: "BOX-01", name: "紙箱", category: "一般備品", quantity: 10, minStock: 5,
+    });
+    await db.insert(cyberbizProductLinks).values({
+      id: "l1", inventoryItemId: "i1", cyberbizProductId: "p1", cyberbizVariantId: "v1", sku: "BOX-01",
+    });
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("盤點之後把差額推到官網，並重讀驗證", async () => {
+    // 讀現況 10 → 送調整 → 重讀驗證 42
+    const calls = stubCyberbiz([product(10), { body: {} }, product(42)]);
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+
+    const response = await asWithToken(id, "/api/wms/items/i1/count", {
+      method: "PATCH",
+      body: JSON.stringify({ quantity: 42 }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ quantity: 42, cyberbiz: { status: "synced", changed: true } });
+
+    // 官網收到的是**差額**（+32 的 surplus），不是「設成 42」。
+    const adjustment = calls.find((call) => call.url.includes("/stock_adjustments"));
+    expect(adjustment?.method).toBe("POST");
+    expect(adjustment?.body).toMatchObject({
+      pos_shop_id: 0,
+      items: [{ sku: "BOX-01", quantity: 32, type: "surplus" }],
+    });
+
+    const [link] = await db.select().from(cyberbizProductLinks);
+    expect(link?.syncStatus).toBe("synced");
+    expect(link?.lastSyncedQuantity).toBe(42);
+  });
+
+  it("官網掛掉時盤點仍然成立，只把連結標成失敗", async () => {
+    stubCyberbiz([{ status: 500, body: { error: "官網掛了" } }]);
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+
+    const response = await asWithToken(id, "/api/wms/items/i1/count", {
+      method: "PATCH",
+      body: JSON.stringify({ quantity: 42 }),
+    });
+
+    // 這是這一段最重要的一條：人數完的結果不能因為官網連不上就丟掉。
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ quantity: 42, cyberbiz: { status: "failed" } });
+    const [item] = await db.select().from(inventoryItems);
+    expect(item?.quantity).toBe(42);
+
+    const [link] = await db.select().from(cyberbizProductLinks);
+    expect(link?.syncStatus).toBe("failed");
+
+    // 而且要留下紀錄，不然沒有人知道兩邊從此不一致。
+    const [event] = await db
+      .select()
+      .from(activityEvents)
+      .where(eq(activityEvents.eventType, "cyberbiz_sync_failed"));
+    expect(event?.summary).toContain("沒有推上 CYBERBIZ");
+  });
+
+  it("數量沒變就不送調整，只確認一次", async () => {
+    const calls = stubCyberbiz([product(10)]);
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+
+    const response = await asWithToken(id, "/api/wms/items/i1/count", {
+      method: "PATCH",
+      body: JSON.stringify({ quantity: 10 }),
+    });
+
+    expect(await response.json()).toMatchObject({ changed: false, cyberbiz: { status: "synced", changed: false } });
+    expect(calls.some((call) => call.url.includes("/stock_adjustments"))).toBe(false);
+  });
+
+  it("沒有連結的商品不會去打官網", async () => {
+    await db.delete(cyberbizProductLinks);
+    const calls = stubCyberbiz([product(10)]);
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+
+    const response = await asWithToken(id, "/api/wms/items/i1/count", {
+      method: "PATCH",
+      body: JSON.stringify({ quantity: 42 }),
+    });
+
+    expect(await response.json()).toMatchObject({ cyberbiz: { status: "unlinked" } });
+    expect(calls).toHaveLength(0);
   });
 });
