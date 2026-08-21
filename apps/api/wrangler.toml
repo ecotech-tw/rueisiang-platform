@@ -44,6 +44,7 @@ PAYOUT_GITHUB_REF = "main"
 #   AUTH_SESSION_SECRET        簽 session cookie 用，換掉等於所有人登出
 #   GOOGLE_OAUTH_CLIENT_ID
 #   GOOGLE_OAUTH_CLIENT_SECRET
+#   GEMINI_API_KEY              AI 助理 Sandbox 與後續 LINE 回覆
 #   CYBERBIZ_API_TOKEN         客戶同步
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
 #   PAYOUT_GITHUB_TOKEN        fine-grained PAT，只給本 repo 的 Actions 與 Contents 讀寫

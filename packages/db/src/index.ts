@@ -1,4 +1,15 @@
 export { createDatabase, type Database } from "./client.js";
+export {
+  createAssistantPromptRevision,
+  ensureAssistantDefaults,
+  findAssistantPromptRevision,
+  getActiveAssistantPrompt,
+  listAssistantPromptRevisions,
+  listAssistantToolConfigs,
+  recordAssistantRun,
+  type AssistantChannel,
+  type AssistantRunStatus,
+} from "./assistant.js";
 export * as schema from "./schema/index.js";
 export { GLOBAL_SCOPE, type Role, type User, type UserRole } from "./schema/auth.js";
 export { countOtherActiveAdmins, loadAuthUser, recordLogin, updateProfile } from "./users.js";

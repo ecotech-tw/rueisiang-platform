@@ -408,6 +408,33 @@
 }
 .panel-head .panel-title { margin-bottom: 0; }
 
+/* AI 助理 Sandbox */
+.assistant-grid { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 20px; }
+.assistant-grid .panel { min-width: 0; }
+.assistant-subsection { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--color-soft-line); }
+.assistant-subsection h3 { margin: 0 0 4px; font-size: 14px; }
+.assistant-subsection-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.assistant-tool-list { display: grid; gap: 8px; }
+.assistant-tool { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 11px 12px; border: 1px solid var(--color-line); border-radius: 10px; cursor: pointer; }
+.assistant-tool:hover { background: var(--color-canvas); }
+.assistant-tool input { margin-top: 3px; accent-color: var(--color-brand); }
+.assistant-tool strong, .assistant-tool small { display: block; }
+.assistant-tool small { margin-top: 2px; color: var(--color-muted); font-size: 12px; }
+.assistant-tool em { font-style: normal; white-space: nowrap; }
+.assistant-textarea, .assistant-input { width: 100%; min-height: 270px; resize: vertical; padding: 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-paper); color: var(--color-ink); font: inherit; line-height: 1.65; }
+.assistant-input { min-height: 110px; }
+.assistant-textarea:focus-visible, .assistant-input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
+.assistant-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.assistant-revisions { display: grid; gap: 6px; max-height: 190px; overflow: auto; }
+.assistant-revision { display: flex; justify-content: space-between; gap: 12px; padding: 9px 11px; border: 1px solid var(--color-line); border-radius: 9px; background: transparent; color: var(--color-ink); text-align: left; font: inherit; }
+.assistant-revision:hover, .assistant-revision.selected { border-color: var(--color-secondary); background: var(--color-brand-soft); }
+.assistant-revision small { color: var(--color-muted); white-space: nowrap; }
+.assistant-result { margin-top: 18px; padding: 16px; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-canvas); }
+.assistant-result-meta { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-weight: 700; }
+.assistant-result-meta small { color: var(--color-muted); font-weight: 400; }
+.assistant-result pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
+.assistant-tool-calls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+
 /* 權限管理頁 */
 .admin-form {
   display: flex;
@@ -1719,6 +1746,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   white-space: nowrap;
 }
 .status-active { background: var(--color-ok-soft); color: var(--color-ok); }
+.status-enabled { background: var(--color-ok-soft); color: var(--color-ok); }
+.status-development { background: var(--color-warn-soft); color: var(--color-warn); }
 .status-invited { background: var(--color-soft-line); color: var(--color-muted); }
 .status-disabled { background: var(--color-brand-soft); color: var(--color-brand-dark); }
 

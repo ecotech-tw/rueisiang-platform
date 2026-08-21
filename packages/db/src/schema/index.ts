@@ -1,5 +1,6 @@
 // 每個模組一個 schema 檔。activity 是跨模組共用的操作紀錄，不屬於任何一個。
 export * from "./activity.js";
+export * from "./assistant.js";
 export * from "./auth.js";
 export * from "./crm.js";
 export * from "./tools.js";

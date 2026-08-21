@@ -45,7 +45,8 @@ const DEV_SECRET = "local-development-only";
  * 讀 apps/api/.dev.vars——沿用 wrangler 的慣例，格式就是一行一個 KEY=value。
  *
  * 這個檔在 .gitignore 裡，用來放不能進版控又只有本機需要的東西，
- * 目前是 CYBERBIZ_API_TOKEN。沒有這個檔也能跑，只是碰到 CYBERBIZ 的功能會失敗。
+ * 目前是 CYBERBIZ_API_TOKEN 與 GEMINI_API_KEY。沒有這個檔也能跑，只是碰到
+ * CYBERBIZ 或 AI Sandbox 的功能會失敗。
  */
 function loadDevVars(): Record<string, string> {
   const file = path.resolve(here, "../../.dev.vars");

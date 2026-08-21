@@ -31,6 +31,10 @@ export const PERMISSIONS = {
   "tools:payout:run": "執行出金表",
   "tools:payout:config": "修改出金表店別設定",
 
+  // 小香助理
+  "assistant:sandbox:read": "檢視 AI 助理 Sandbox",
+  "assistant:sandbox:write": "執行 AI 助理 Sandbox 與儲存 prompt",
+
   // 系統
   "admin:user:read": "檢視帳號",
   "admin:user:write": "邀請與停用帳號",

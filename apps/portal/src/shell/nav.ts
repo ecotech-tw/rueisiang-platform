@@ -66,6 +66,14 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: "assistant",
+    label: "小香助理",
+    icon: "tune",
+    items: [
+      { label: "Sandbox", to: "/assistant/sandbox", permission: "assistant:sandbox:read", icon: "widgets" },
+    ],
+  },
+  {
     key: "admin",
     label: "系統管理",
     icon: "tune",
