@@ -46,11 +46,13 @@ const platformOpenMeteoTool: PlatformToolDefinition = {
 
 export const WMS_SEARCH_INVENTORY_TOOL_KEY = "wms_search_inventory";
 export const WMS_LIST_INVENTORY_TOOL_KEY = "wms_list_inventory";
+export const WMS_LIST_MAP_LABELS_TOOL_KEY = "wms_list_map_labels";
 export const WMS_GET_INVENTORY_ITEM_TOOL_KEY = "wms_get_inventory_item";
 export const WMS_LIST_LOW_STOCK_TOOL_KEY = "wms_list_low_stock_items";
 export const WMS_GET_ACTIVITY_TOOL_KEY = "wms_get_activity";
 
 const wmsPermission = ["wms:inventory:read"] as const;
+const wmsMapPermission = ["wms:map:read"] as const;
 
 const wmsListInventoryTool: PlatformToolDefinition = {
   key: WMS_LIST_INVENTORY_TOOL_KEY,
@@ -128,6 +130,37 @@ const wmsSearchInventoryTool: PlatformToolDefinition = {
       query,
       total: matches.length,
       items: matches.slice(0, boundedNumber(input, "limit", 20, 50)),
+    });
+  },
+};
+
+const wmsListMapLabelsTool: PlatformToolDefinition = {
+  key: WMS_LIST_MAP_LABELS_TOOL_KEY,
+  label: "WMS 地圖標籤",
+  description: "列出 WMS 地圖上的標籤、顏色、座標與尺寸，可依標籤名稱搜尋。只讀。",
+  defaultStatus: "development",
+  surfaces: ["sandbox", "line", "mcp"],
+  requiredPermissions: wmsMapPermission,
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "可選的地圖標籤名稱關鍵字；留空時列出全部。" },
+      limit: { type: "string", description: "最多回傳幾筆，預設 50，最多 100。" },
+    },
+  },
+  async execute(input, context) {
+    const warehouse = await loadWarehouse(database(context));
+    const query = textInput(input, "query").toLocaleLowerCase();
+    const filtered = warehouse.layoutElements
+      .filter((element) => !query || element.label.toLocaleLowerCase().includes(query));
+    const labels = filtered
+      .slice(0, boundedNumber(input, "limit", 50, 100))
+      .map(({ id, label, color, x, y, width, height }) => ({ id, label, color, x, y, width, height }));
+    return json({
+      query: textInput(input, "query"),
+      total: filtered.length,
+      canvas: warehouse.settings,
+      labels,
     });
   },
 };
@@ -221,6 +254,7 @@ export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   platformOpenMeteoTool,
   wmsListInventoryTool,
   wmsSearchInventoryTool,
+  wmsListMapLabelsTool,
   wmsGetInventoryItemTool,
   wmsListLowStockTool,
   wmsGetActivityTool,

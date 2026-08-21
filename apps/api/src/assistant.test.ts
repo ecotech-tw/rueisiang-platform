@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { inventoryItems, userRoles, users } from "@rueisiang/db/schema";
+import { inventoryItems, layoutElements, userRoles, users } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -76,6 +76,7 @@ describe("AI 助理 Sandbox", () => {
       "weather_open_meteo",
       "wms_list_inventory",
       "wms_search_inventory",
+      "wms_list_map_labels",
       "wms_get_inventory_item",
       "wms_list_low_stock_items",
       "wms_get_activity",
@@ -201,6 +202,40 @@ describe("AI 助理 Sandbox", () => {
     expect(await response.json()).toMatchObject({
       text: "已取得 2 筆商品，可繼續做 SKU mapping。",
       toolCalls: [{ toolKey: "wms_list_inventory", status: "success" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("Sandbox 可以查詢 WMS 地圖上的標籤", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(layoutElements).values({
+      id: "map-label-1",
+      label: "冷藏區入口",
+      color: "sky",
+      x: 12,
+      y: 18,
+      width: 20,
+      height: 10,
+    });
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      const hasToolResult = JSON.stringify(body.contents).includes("map-label-1");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: hasToolResult
+          ? [{ text: "冷藏區入口位於地圖 x=12、y=18。" }]
+          : [{ functionCall: { name: "wms_list_map_labels", args: { query: "冷藏" } } }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_list_map_labels"], input: "冷藏區入口在哪裡？" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "冷藏區入口位於地圖 x=12、y=18。",
+      toolCalls: [{ toolKey: "wms_list_map_labels", status: "success" }],
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
