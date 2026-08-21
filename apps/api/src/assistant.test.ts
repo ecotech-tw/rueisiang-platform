@@ -64,11 +64,13 @@ describe("AI 助理 Sandbox", () => {
     expect(response.status).toBe(200);
     const result = (await response.json()) as {
       configured: boolean;
+      activeModel: string;
       models: Array<{ id: string }>;
       tools: Array<{ key: string; status: string }>;
       activePrompt: { revision: number; isActive: boolean };
     };
     expect(result.configured).toBe(true);
+    expect(result.activeModel).toBe("gemini-3.6-flash");
     expect(result.models.some((model) => model.id === "gemini-3.6-flash")).toBe(true);
     expect(result.tools).toEqual([{ key: "weather_open_meteo", label: "Open-Meteo 天氣查詢", description: expect.any(String), status: "development" }]);
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
@@ -85,6 +87,41 @@ describe("AI 助理 Sandbox", () => {
     const config = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config");
     const result = (await config.json()) as { activePrompt: { revision: number; systemPrompt: string; isActive: boolean } };
     expect(result.activePrompt).toMatchObject({ revision: 2, systemPrompt: "你是新的測試 prompt。", isActive: true });
+  });
+
+  it("儲存 active model 後，小香的後續執行會使用新模型", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const saved = await as("admin", "admin@ecotech.tw", "/api/assistant/config", {
+      method: "PATCH",
+      body: JSON.stringify({ model: "gemini-3.1-flash-lite" }),
+    });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ activeModel: "gemini-3.1-flash-lite" });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: "已使用新模型。" }] } }],
+      usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ toolKeys: [], input: "測試 active model" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ model: "gemini-3.1-flash-lite", text: "已使用新模型。" });
+  });
+
+  it("可以從小香設定更新 tool 狀態", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/tools/weather_open_meteo", {
+      method: "PATCH",
+      body: JSON.stringify({ status: "enabled" }),
+    });
+    expect(response.status).toBe(200);
+
+    const config = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config");
+    const result = (await config.json()) as { tools: Array<{ key: string; status: string }> };
+    expect(result.tools).toEqual([{ key: "weather_open_meteo", label: "Open-Meteo 天氣查詢", description: expect.any(String), status: "enabled" }]);
   });
 
   it("使用選定 prompt 與模型執行 Gemini，並記錄可用量資訊", async () => {

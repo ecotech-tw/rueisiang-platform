@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { useRunSandbox, useSandboxConfig, useSavePrompt, type PromptRevision, type SandboxResult } from "./api.js";
+import {
+  useRunSandbox,
+  useSandboxConfig,
+  useSaveAssistantModel,
+  useSavePrompt,
+  type PromptRevision,
+  type SandboxResult,
+} from "./api.js";
 
 function formatDate(value: string): string {
   const date = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
@@ -16,6 +23,7 @@ function statusLabel(status: "enabled" | "development" | "disabled"): string {
 export function Sandbox() {
   usePageTitle("小香助理 Sandbox");
   const config = useSandboxConfig();
+  const saveModel = useSaveAssistantModel();
   const savePrompt = useSavePrompt();
   const run = useRunSandbox();
   const [model, setModel] = useState("");
@@ -27,7 +35,7 @@ export function Sandbox() {
 
   useEffect(() => {
     if (!config.data) return;
-    setModel((current) => current || config.data.defaultModel);
+    setModel((current) => current || config.data.activeModel);
     setPromptId((current) => current || config.data.activePrompt?.id || "");
     setPrompt((current) => current || config.data.activePrompt?.systemPrompt || "");
     setToolKeys((current) => current.length ? current : config.data.tools.filter((tool) => tool.status !== "disabled").map((tool) => tool.key));
@@ -56,6 +64,11 @@ export function Sandbox() {
         setPromptId(revision.id);
       },
     });
+  }
+
+  function submitModel() {
+    if (!model || model === data.activeModel) return;
+    saveModel.mutate(model);
   }
 
   function submitRun() {
@@ -89,6 +102,19 @@ export function Sandbox() {
                 ))}
               </select>
               <small>{selectedModel?.note ?? "模型與配額清單沿用 warehouse-inventory 的 snapshot。"}</small>
+              <small>目前小香正式使用：{data.models.find((item) => item.id === data.activeModel)?.label ?? data.activeModel}</small>
+              <div className="assistant-actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={!model || model === data.activeModel || saveModel.isPending}
+                  onClick={submitModel}
+                >
+                  {saveModel.isPending ? "套用中…" : "儲存並套用到小香"}
+                </button>
+                {saveModel.isSuccess ? <span className="form-hint">已更新，小香之後會使用這個模型。</span> : null}
+                {saveModel.error ? <span className="form-error">{saveModel.error.message}</span> : null}
+              </div>
             </label>
           </div>
 

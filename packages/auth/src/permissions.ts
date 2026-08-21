@@ -34,6 +34,8 @@ export const PERMISSIONS = {
   // 小香助理
   "assistant:sandbox:read": "檢視 AI 助理 Sandbox",
   "assistant:sandbox:write": "執行 AI 助理 Sandbox 與儲存 prompt",
+  "assistant:settings:read": "檢視小香助理設定",
+  "assistant:settings:write": "修改小香助理設定",
 
   // 系統
   "admin:user:read": "檢視帳號",

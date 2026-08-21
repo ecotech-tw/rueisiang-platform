@@ -71,6 +71,7 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: "tune",
     items: [
       { label: "Sandbox", to: "/assistant/sandbox", permission: "assistant:sandbox:read", icon: "widgets" },
+      { label: "設定", to: "/assistant/settings", permission: "assistant:settings:read", icon: "tune" },
     ],
   },
   {

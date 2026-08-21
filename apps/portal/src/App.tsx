@@ -3,6 +3,7 @@ import { useSession } from "./auth/session.js";
 import { Roles } from "./routes/admin/Roles.js";
 import { AdminUsers } from "./routes/admin/Users.js";
 import { Sandbox } from "./routes/assistant/Sandbox.js";
+import { AssistantSettings } from "./routes/assistant/Settings.js";
 import { Activity } from "./routes/crm/Activity.js";
 import { Customers } from "./routes/crm/Customers.js";
 import { Tags } from "./routes/crm/Tags.js";
@@ -103,6 +104,7 @@ export function App() {
 
         <Route path="assistant">
           <Route path="sandbox" element={<Sandbox />} />
+          <Route path="settings" element={<AssistantSettings />} />
         </Route>
 
         <Route path="admin">

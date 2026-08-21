@@ -21,6 +21,7 @@ pnpm dev
 ## 第一階段提供的功能
 
 - 使用 `warehouse-inventory` 的 Gemini 模型清單，支援模型切換；清單中的 quota 是 snapshot，不是即時配額。
+- Sandbox 選定模型後按「儲存並套用到小香」，會寫入 assistant 設定；之後沒有明確指定模型的執行會使用這個 active model。
 - 編輯 system prompt；每次儲存會建立新 revision，並立即設為 active。
 - 選擇要傳給模型的 tool。現在只有 `Open-Meteo 天氣查詢`，狀態預設為「開發中」。
 - 輸入測試內容、看到模型回答、tool 呼叫結果、延遲與 Gemini usage metadata。
@@ -31,14 +32,16 @@ Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calli
 ## API
 
 - `GET /api/assistant/sandbox/config`：模型、tool、active prompt 與 revision history。
+- `PATCH /api/assistant/config`：儲存小香目前使用的模型。
+- `PATCH /api/assistant/tools/:key`：更新 tool 的啟用、開發中或停用狀態。
 - `POST /api/assistant/prompts`：建立並啟用新的 prompt revision。
 - `POST /api/assistant/sandbox/run`：依指定模型、prompt revision 與 tool 執行一次測試。
 
 上述路由需要已登入且具備 `assistant:sandbox:read` 或 `assistant:sandbox:write` 權限；目前只有系統管理者預設擁有這兩個權限。
 
-## 後續階段
+## 目前進度與後續階段
 
-1. 把 tool catalog 的啟用／停用／開發中狀態做成後台設定頁。
+1. ✅ 已完成小香設定頁：active model 與 tool catalog 狀態可在後台調整。
 2. 建立 LINE channel 設定、webhook URL、群組 allowlist 與每群組的對話訊息表。
-3. 將 active prompt 與 tool policy 套用到 LINE 執行，僅允許「已啟用」工具在線上回覆。
+3. 將 active model、active prompt 與 tool policy 套用到 LINE 執行，僅允許「已啟用」工具在線上回覆。
 4. 建立日／週／月與自訂 duration 的群組、模型、tool 用量分析頁。

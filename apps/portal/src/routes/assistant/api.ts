@@ -30,6 +30,8 @@ export interface SandboxConfig {
   assistantKey: string;
   configured: boolean;
   defaultModel: string;
+  activeModel: string;
+  activeModelUpdatedAt: string | null;
   models: AssistantModel[];
   tools: AssistantTool[];
   activePrompt: PromptRevision | null;
@@ -73,6 +75,30 @@ export function useSavePrompt() {
       request<{ revision: PromptRevision }>("/api/assistant/prompts", {
         method: "POST",
         body: JSON.stringify({ systemPrompt }),
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["assistant", "sandbox", "config"] }),
+  });
+}
+
+export function useSaveAssistantModel() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (model: string) =>
+      request<{ activeModel: string; updatedAt: string }>("/api/assistant/config", {
+        method: "PATCH",
+        body: JSON.stringify({ model }),
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["assistant", "sandbox", "config"] }),
+  });
+}
+
+export function useSaveAssistantToolStatus() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { key: string; status: AssistantTool["status"] }) =>
+      request<{ key: string; status: AssistantTool["status"]; updatedAt: string }>(`/api/assistant/tools/${input.key}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: input.status }),
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["assistant", "sandbox", "config"] }),
   });

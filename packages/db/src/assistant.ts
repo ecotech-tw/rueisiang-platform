@@ -1,11 +1,17 @@
 import { and, desc, eq } from "drizzle-orm";
-import type { AssistantToolCall as RecordedToolCall, AssistantUsage } from "@rueisiang/assistant";
+import type {
+  AssistantToolCall as RecordedToolCall,
+  AssistantToolStatus,
+  AssistantUsage,
+} from "@rueisiang/assistant";
 import type { Database } from "./client.js";
 import {
   assistantPromptRevisions,
+  assistantConfigs,
   assistantRuns,
   assistantToolCalls,
   assistantToolConfigs,
+  type AssistantConfig,
   type AssistantPromptRevision,
   type AssistantToolConfig,
 } from "./schema/assistant.js";
@@ -15,8 +21,21 @@ export type AssistantRunStatus = "success" | "failed";
 
 export async function ensureAssistantDefaults(
   db: Database,
-  input: { assistantKey: string; defaultPrompt: string; toolKeys: string[] },
+  input: { assistantKey: string; defaultModel: string; defaultPrompt: string; toolKeys: string[] },
 ): Promise<void> {
+  const [config] = await db
+    .select({ assistantKey: assistantConfigs.assistantKey })
+    .from(assistantConfigs)
+    .where(eq(assistantConfigs.assistantKey, input.assistantKey))
+    .limit(1);
+  if (!config) {
+    await db.insert(assistantConfigs).values({
+      assistantKey: input.assistantKey,
+      activeModel: input.defaultModel,
+      updatedBy: "system",
+    });
+  }
+
   const [prompt] = await db
     .select({ id: assistantPromptRevisions.id })
     .from(assistantPromptRevisions)
@@ -39,6 +58,37 @@ export async function ensureAssistantDefaults(
     if (existing.has(key)) continue;
     await db.insert(assistantToolConfigs).values({ key, status: "development", updatedBy: "system" });
   }
+}
+
+export async function getAssistantConfig(db: Database, assistantKey: string): Promise<AssistantConfig | null> {
+  const [row] = await db.select().from(assistantConfigs).where(eq(assistantConfigs.assistantKey, assistantKey)).limit(1);
+  return row ?? null;
+}
+
+export async function setActiveAssistantModel(
+  db: Database,
+  input: { assistantKey: string; activeModel: string; updatedBy: string },
+): Promise<AssistantConfig> {
+  await db
+    .update(assistantConfigs)
+    .set({ activeModel: input.activeModel, updatedBy: input.updatedBy, updatedAt: new Date().toISOString() })
+    .where(eq(assistantConfigs.assistantKey, input.assistantKey));
+  const config = await getAssistantConfig(db, input.assistantKey);
+  if (!config) throw new Error("更新小香模型後找不到設定。");
+  return config;
+}
+
+export async function setAssistantToolStatus(
+  db: Database,
+  input: { key: string; status: AssistantToolStatus; updatedBy: string },
+): Promise<AssistantToolConfig> {
+  await db
+    .update(assistantToolConfigs)
+    .set({ status: input.status, updatedBy: input.updatedBy, updatedAt: new Date().toISOString() })
+    .where(eq(assistantToolConfigs.key, input.key));
+  const [config] = await db.select().from(assistantToolConfigs).where(eq(assistantToolConfigs.key, input.key)).limit(1);
+  if (!config) throw new Error("更新 tool 狀態後找不到設定。");
+  return config;
 }
 
 export async function listAssistantPromptRevisions(db: Database, assistantKey: string): Promise<AssistantPromptRevision[]> {

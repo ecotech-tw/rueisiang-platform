@@ -2,6 +2,13 @@ import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /** AI 助理 Sandbox 與後續 LINE channel 共用的設定與執行紀錄。 */
+export const assistantConfigs = sqliteTable("assistant_configs", {
+  assistantKey: text("assistant_key").primaryKey(),
+  activeModel: text("active_model").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const assistantPromptRevisions = sqliteTable("assistant_prompt_revisions", {
   id: text("id").primaryKey(),
   assistantKey: text("assistant_key").notNull(),
@@ -62,6 +69,7 @@ export const assistantToolCalls = sqliteTable("assistant_tool_calls", {
 ]);
 
 export type AssistantPromptRevision = typeof assistantPromptRevisions.$inferSelect;
+export type AssistantConfig = typeof assistantConfigs.$inferSelect;
 export type AssistantToolConfig = typeof assistantToolConfigs.$inferSelect;
 export type AssistantRun = typeof assistantRuns.$inferSelect;
 export type AssistantToolCall = typeof assistantToolCalls.$inferSelect;

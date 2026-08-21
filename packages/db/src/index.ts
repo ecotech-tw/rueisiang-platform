@@ -2,11 +2,14 @@ export { createDatabase, type Database } from "./client.js";
 export {
   createAssistantPromptRevision,
   ensureAssistantDefaults,
+  getAssistantConfig,
   findAssistantPromptRevision,
   getActiveAssistantPrompt,
   listAssistantPromptRevisions,
   listAssistantToolConfigs,
   recordAssistantRun,
+  setActiveAssistantModel,
+  setAssistantToolStatus,
   type AssistantChannel,
   type AssistantRunStatus,
 } from "./assistant.js";

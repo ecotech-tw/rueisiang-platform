@@ -12,16 +12,19 @@ import {
 import {
   createAssistantPromptRevision,
   ensureAssistantDefaults,
+  getAssistantConfig,
   findAssistantPromptRevision,
   getActiveAssistantPrompt,
   listAssistantPromptRevisions,
   listAssistantToolConfigs,
   recordAssistantRun,
+  setActiveAssistantModel,
+  setAssistantToolStatus,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
-import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { requireAnyPermission, requireAuth, requirePermission } from "../middleware/auth.js";
 import { body, requireString } from "../request.js";
 
 const TOOL_DEFINITIONS: AssistantToolDefinition[] = [openMeteoTool];
@@ -35,6 +38,7 @@ function validToolStatus(value: string): value is AssistantToolStatus {
 async function ensureDefaults(db: AppEnv["Variables"]["db"]): Promise<void> {
   await ensureAssistantDefaults(db, {
     assistantKey: ASSISTANT_KEY,
+    defaultModel: DEFAULT_ASSISTANT_MODEL,
     defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
     toolKeys: [OPEN_METEO_TOOL_KEY],
   });
@@ -42,7 +46,8 @@ async function ensureDefaults(db: AppEnv["Variables"]["db"]): Promise<void> {
 
 async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["db"]) {
   await ensureDefaults(db);
-  const [prompts, activePrompt, configuredTools] = await Promise.all([
+  const [assistantConfig, prompts, activePrompt, configuredTools] = await Promise.all([
+    getAssistantConfig(db, ASSISTANT_KEY),
     listAssistantPromptRevisions(db, ASSISTANT_KEY),
     getActiveAssistantPrompt(db, ASSISTANT_KEY),
     listAssistantToolConfigs(db),
@@ -52,6 +57,8 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
     assistantKey: ASSISTANT_KEY,
     configured: Boolean(env.GEMINI_API_KEY),
     defaultModel: DEFAULT_ASSISTANT_MODEL,
+    activeModel: assistantConfig?.activeModel ?? DEFAULT_ASSISTANT_MODEL,
+    activeModelUpdatedAt: assistantConfig?.updatedAt ?? null,
     models: ASSISTANT_MODELS,
     tools: TOOL_DEFINITIONS.map((tool) => {
       const configuredStatus = statuses.get(tool.key);
@@ -83,8 +90,44 @@ function readToolKeys(input: Record<string, unknown>): string[] {
 export const assistant = new Hono<AppEnv>()
   .use("*", requireAuth)
 
-  .get("/sandbox/config", requirePermission("assistant:sandbox:read"), async (c) => {
+  .get("/sandbox/config", requireAnyPermission("assistant:sandbox:read", "assistant:settings:read"), async (c) => {
     return c.json(await sandboxConfig(c.env, c.get("db")));
+  })
+
+  .patch("/config", requirePermission("assistant:settings:write"), async (c) => {
+    const input = await body(c);
+    const modelId = requireString(input, "model", "模型");
+    const model = MODEL_MAP.get(modelId);
+    if (!model || !model.supported) {
+      throw new HTTPException(400, { message: "只能套用目前清單中標示為可用的模型。" });
+    }
+
+    await ensureDefaults(c.get("db"));
+    const config = await setActiveAssistantModel(c.get("db"), {
+      assistantKey: ASSISTANT_KEY,
+      activeModel: model.id,
+      updatedBy: c.get("user").id,
+    });
+    return c.json({ activeModel: config.activeModel, updatedAt: config.updatedAt });
+  })
+
+  .patch("/tools/:key", requirePermission("assistant:settings:write"), async (c) => {
+    const key = c.req.param("key");
+    if (!TOOL_MAP.has(key)) throw new HTTPException(404, { message: `找不到工具：${key}` });
+
+    const input = await body(c);
+    const status = input.status;
+    if (typeof status !== "string" || !validToolStatus(status)) {
+      throw new HTTPException(400, { message: "tool 狀態必須是 enabled、development 或 disabled。" });
+    }
+
+    await ensureDefaults(c.get("db"));
+    const config = await setAssistantToolStatus(c.get("db"), {
+      key,
+      status,
+      updatedBy: c.get("user").id,
+    });
+    return c.json({ key: config.key, status: config.status, updatedAt: config.updatedAt });
   })
 
   .post("/prompts", requirePermission("assistant:sandbox:write"), async (c) => {
@@ -109,13 +152,16 @@ export const assistant = new Hono<AppEnv>()
     const userText = requireString(input, "input", "測試內容");
     if (userText.length > 8_000) throw new HTTPException(400, { message: "測試內容不能超過 8,000 字元。" });
 
-    const modelId = typeof input.model === "string" && input.model.trim() ? input.model.trim() : DEFAULT_ASSISTANT_MODEL;
+    await ensureDefaults(c.get("db"));
+    const assistantConfig = await getAssistantConfig(c.get("db"), ASSISTANT_KEY);
+    const modelId = typeof input.model === "string" && input.model.trim()
+      ? input.model.trim()
+      : assistantConfig?.activeModel ?? DEFAULT_ASSISTANT_MODEL;
     const model = MODEL_MAP.get(modelId);
     if (!model || !model.supported) {
       throw new HTTPException(400, { message: "請選擇清單中標示為可用的 Gemini 模型。" });
     }
 
-    await ensureDefaults(c.get("db"));
     const promptId = typeof input.promptRevisionId === "string" ? input.promptRevisionId : undefined;
     const prompt = promptId
       ? await findAssistantPromptRevision(c.get("db"), promptId)

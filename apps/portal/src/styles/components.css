@@ -421,6 +421,10 @@
 .assistant-tool strong, .assistant-tool small { display: block; }
 .assistant-tool small { margin-top: 2px; color: var(--color-muted); font-size: 12px; }
 .assistant-tool em { font-style: normal; white-space: nowrap; }
+.assistant-status-field { display: block; }
+.assistant-status-select { min-width: 104px; padding: 7px 9px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-paper); color: var(--color-ink); font: inherit; }
+.assistant-status-select:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
+.settings-summary { margin: 0; line-height: 1.7; }
 .assistant-textarea, .assistant-input { width: 100%; min-height: 270px; resize: vertical; padding: 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-paper); color: var(--color-ink); font: inherit; line-height: 1.65; }
 .assistant-input { min-height: 110px; }
 .assistant-textarea:focus-visible, .assistant-input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
