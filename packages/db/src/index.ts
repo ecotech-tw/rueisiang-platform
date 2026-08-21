@@ -158,3 +158,10 @@ export {
   type SyncOutcome,
   type SyncPlanEntry,
 } from "./wms-sync.js";
+
+export {
+  processProductWebhook,
+  retryFailedProductWebhooks,
+  type ProcessProductWebhookInput,
+  type ProductWebhookOutcome,
+} from "./wms-webhook.js";

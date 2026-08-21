@@ -20,6 +20,8 @@ export {
   classifyPayload,
   createWebhookEventId,
   isCustomerTopic,
+  parseProductEvent,
+  type CyberbizProductEvent,
   type PayloadKind,
   readCyberbizTopic,
   verifyCyberbizWebhook,

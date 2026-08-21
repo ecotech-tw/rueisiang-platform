@@ -1,0 +1,357 @@
+import { createDatabase, retryFailedProductWebhooks, syncSystemRoles } from "@rueisiang/db";
+import {
+  activityEvents,
+  cyberbizProductLinks,
+  cyberbizProductWebhooks,
+  customers,
+  inventoryItems,
+  productCategories,
+} from "@rueisiang/db/schema";
+import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import app from "./index.js";
+import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
+
+/**
+ * CYBERBIZ 的商品庫存 webhook。
+ *
+ * 這條路存在的理由：沒有它的話，官網改了數量要等人按「同步到庫存」平台才知道。
+ * 倉庫的人看到的是一個安靜地過期的數字——比看到錯誤還糟，因為沒有任何跡象說
+ * 它舊了。
+ *
+ * 這裡釘的重點是「**事件說的數量不算數**」：一律回官網重讀。不然簽章驗過的
+ * 事件就等於可以直接寫庫存，那三條不變條件（款式在不在、product_id 對不對、
+ * SKU 對不對）就全部形同虛設。
+ */
+
+const SECRET = "webhook-secret";
+const TOKEN = "api-token";
+const BASE = "https://api.example.test";
+
+let d1: LocalD1;
+let env: Record<string, unknown>;
+
+function db() {
+  return createDatabase(d1 as never);
+}
+
+/** 官網對 /v1/products/{id} 回的形狀。注意：**沒有 id**，那是真的行為。 */
+function product(overrides: { quantity?: number; safety?: number; sku?: string; variantId?: number } = {}) {
+  return {
+    title: "干貝XO醬",
+    published: true,
+    pos_shop: null,
+    product_variants: [
+      {
+        id: overrides.variantId ?? 68463869,
+        name: "干貝XO醬 -",
+        sku: overrides.sku ?? "BPK24004",
+        inventory_quantity: overrides.quantity ?? 200,
+        safety_inventory_quantity: overrides.safety ?? 24,
+        inventory_management: true,
+      },
+    ],
+  };
+}
+
+/** 記錄官網被打了幾次、打了什麼。回應用完就重複最後一筆。 */
+function stubCyberbiz(...responses: { status?: number; body?: unknown }[]) {
+  const calls: string[] = [];
+  let index = 0;
+  vi.stubGlobal("fetch", async (url: string) => {
+    calls.push(String(url));
+    const spec = responses[Math.min(index, responses.length - 1)] ?? {};
+    index += 1;
+    return new Response(spec.body === undefined ? "{}" : JSON.stringify(spec.body), {
+      status: spec.status ?? 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+  return calls;
+}
+
+async function hmac(secret: string, body: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const bytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(body)));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function post(payload: unknown, init: { topic?: string; secret?: string } = {}) {
+  const body = JSON.stringify(payload);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-cyberbiz-hmac-sha256": await hmac(init.secret ?? SECRET, body),
+  };
+  if (init.topic !== undefined) headers["x-cyberbiz-topic"] = init.topic;
+
+  const response = await app.fetch(
+    new Request("https://platform.rueisiang.com/api/webhooks/cyberbiz/inventory", {
+      method: "POST",
+      headers,
+      body,
+    }),
+    env as never,
+  );
+  return { response, json: (await response.json()) as Record<string, unknown> };
+}
+
+beforeEach(async () => {
+  d1 = createLocalD1();
+  env = {
+    DB: d1,
+    AUTH_SESSION_SECRET: "test-secret",
+    GOOGLE_OAUTH_CLIENT_ID: "client-id",
+    GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
+    CYBERBIZ_WEBHOOK_SECRET: SECRET,
+    CYBERBIZ_API_TOKEN: TOKEN,
+    CYBERBIZ_API_BASE_URL: BASE,
+  };
+  await syncSystemRoles(db());
+  await db().insert(productCategories).values({ id: "cat-1", name: "醬菜類", color: "sky" });
+  await db().insert(inventoryItems).values({
+    id: "item-1", sku: "BPK24004", name: "干貝XO醬", category: "醬菜類", quantity: 178, minStock: 24,
+  });
+  await db().insert(cyberbizProductLinks).values({
+    id: "link-1",
+    inventoryItemId: "item-1",
+    cyberbizProductId: "56750193",
+    cyberbizVariantId: "68463869",
+    sku: "BPK24004",
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("驗證", () => {
+  it("簽章不對就 401，而且什麼都不落地", async () => {
+    stubCyberbiz();
+    const { response } = await post({ product_id: "56750193" }, { secret: "wrong" });
+    expect(response.status).toBe(401);
+    expect(await db().select().from(cyberbizProductWebhooks)).toHaveLength(0);
+  });
+
+  it("沒設密鑰就一律不收", async () => {
+    stubCyberbiz();
+    env.CYBERBIZ_WEBHOOK_SECRET = "";
+    const { response } = await post({ product_id: "56750193" });
+    expect(response.status).toBe(401);
+  });
+
+  it("探測點看得出密鑰有沒有設", async () => {
+    const response = await app.fetch(
+      new Request("https://platform.rueisiang.com/api/webhooks/cyberbiz/inventory"),
+      env as never,
+    );
+    expect(await response.json()).toMatchObject({ ok: true, configured: true });
+  });
+});
+
+describe("處理", () => {
+  it("官網的數量寫進 WMS，並留下一筆「系統」的紀錄", async () => {
+    const calls = stubCyberbiz({ body: product({ quantity: 200 }) });
+
+    const { json } = await post(
+      { product_id: "56750193", variant_id: "68463869", sku: "BPK24004", inventory_quantity: 200 },
+      { topic: "variants/update" },
+    );
+
+    expect(json).toMatchObject({
+      status: "processed",
+      productId: "56750193",
+      sync: { updated: 1, unchanged: 0, failed: 0, linked: 1 },
+    });
+
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.quantity).toBe(200);
+
+    const [event] = await db()
+      .select()
+      .from(activityEvents)
+      .where(eq(activityEvents.eventType, "cyberbiz_synced"));
+    expect(event?.oldValue).toBe("178");
+    expect(event?.newValue).toBe("200");
+    // 沒有人按這一下，所以是系統做的——操作紀錄那一頁會顯示「系統」。
+    expect(event?.actorType).toBe("system");
+
+    // 只打官網一次，而且是重讀那個商品。
+    expect(calls).toEqual([`${BASE}/v1/products/56750193`]);
+  });
+
+  /*
+   * 這是整個檔案最重要的一條。
+   *
+   * 事件是簽章驗過的，但簽章只證明「是 CYBERBIZ 送的」，不證明「這個數字現在
+   * 還是對的」——事件可能延遲、可能亂序。採信它等於讓事件自己證明自己。
+   */
+  it("**不採信 payload 的數量**：寫進去的是官網重讀回來的那個", async () => {
+    stubCyberbiz({ body: product({ quantity: 200 }) });
+
+    await post(
+      // 事件說 999，官網說 200。
+      { product_id: "56750193", variant_id: "68463869", sku: "BPK24004", inventory_quantity: 999 },
+      { topic: "variants/update" },
+    );
+
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.quantity).toBe(200);
+  });
+
+  it("安全庫存也跟著官網走", async () => {
+    stubCyberbiz({ body: product({ quantity: 200, safety: 50 }) });
+    await post({ product_id: "56750193" }, { topic: "variants/update" });
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.minStock).toBe(50);
+  });
+
+  it("只帶款式 id 時，從連結反查出商品 id", async () => {
+    const calls = stubCyberbiz({ body: product({ quantity: 200 }) });
+    // variants/update 的最上層 id 就是款式 id，沒有 product_id。
+    const { json } = await post({ id: 68463869, sku: "BPK24004", inventory_quantity: 200 });
+
+    expect(json).toMatchObject({ status: "processed", productId: "56750193" });
+    expect(calls).toEqual([`${BASE}/v1/products/56750193`]);
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.quantity).toBe(200);
+  });
+
+  it("數量沒變就不寫商品，也不留紀錄", async () => {
+    stubCyberbiz({ body: product({ quantity: 178, safety: 24 }) });
+    const { json } = await post({ product_id: "56750193" }, { topic: "variants/update" });
+
+    expect(json).toMatchObject({ sync: { updated: 0, unchanged: 1, failed: 0 } });
+    // 沒變就不該留紀錄，不然每個 webhook 都灌一整頁「什麼都沒發生」。
+    expect(await db().select().from(activityEvents)).toHaveLength(0);
+  });
+
+  it("SKU 對不上時連結標成失敗，數量一動也不動", async () => {
+    stubCyberbiz({ body: product({ quantity: 200, sku: "換過了" }) });
+    const { json } = await post({ product_id: "56750193" }, { topic: "variants/update" });
+
+    expect(json).toMatchObject({ sync: { updated: 0, failed: 1 } });
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.quantity).toBe(178);
+    const [link] = await db().select().from(cyberbizProductLinks);
+    expect(link?.syncStatus).toBe("failed");
+  });
+});
+
+describe("不處理的", () => {
+  it("沒連結到 WMS 的商品就跳過——官網幾千個商品絕大多數跟倉儲無關", async () => {
+    const calls = stubCyberbiz({ body: product() });
+    const { json } = await post({ product_id: "99999999" }, { topic: "variants/update" });
+
+    expect(json).toMatchObject({ status: "ignored" });
+    // 沒連結就連問都不必問官網。
+    expect(calls).toHaveLength(0);
+  });
+
+  it("沒連結的款式 id 也一樣跳過", async () => {
+    stubCyberbiz({ body: product() });
+    const { json } = await post({ id: 111, sku: "沒看過" });
+    expect(json).toMatchObject({ status: "ignored" });
+  });
+
+  it("認不出是哪個商品就記下來、不處理", async () => {
+    stubCyberbiz();
+    const { json } = await post({ sku: "只有 SKU", inventory_quantity: 5 });
+    expect(json).toMatchObject({ status: "ignored" });
+    expect(String(json.reason)).toContain("認不出");
+  });
+
+  it("會員事件打錯到這條路要擋下來，不能寫成客戶", async () => {
+    stubCyberbiz();
+    const { json } = await post({ id: 7, mobile: "0912345678", name: "王小明" });
+
+    expect(json).toMatchObject({ status: "ignored" });
+    expect(String(json.reason)).toContain("會員");
+    expect(await db().select().from(customers)).toHaveLength(0);
+  });
+
+  it("同一筆事件送兩次只處理一次", async () => {
+    stubCyberbiz({ body: product({ quantity: 200 }) });
+    const payload = { product_id: "56750193", variant_id: "68463869" };
+
+    const first = await post(payload, { topic: "variants/update" });
+    const second = await post(payload, { topic: "variants/update" });
+
+    expect(first.json).toMatchObject({ status: "processed" });
+    expect(second.json).toMatchObject({ status: "duplicate" });
+    // 只有第一次留下紀錄。
+    expect(await db().select().from(activityEvents)).toHaveLength(1);
+  });
+});
+
+describe("失敗與補跑", () => {
+  // 5xx 會重試三次（真的退避），所以這個案例慢——留一個就夠了，其他用 4xx。
+  it("官網掛掉時記成 failed，但仍然回 200——不能讓 CYBERBIZ 用完重送次數", { timeout: 20_000 }, async () => {
+    stubCyberbiz({ status: 500, body: { error: "系統有誤" } });
+    const { response, json } = await post({ product_id: "56750193" }, { topic: "variants/update" });
+
+    expect(response.status).toBe(200);
+    expect(json).toMatchObject({ status: "failed" });
+
+    const [row] = await db().select().from(cyberbizProductWebhooks);
+    expect(row?.status).toBe("failed");
+    expect(row?.productId).toBe("56750193");
+
+    // 數量沒被亂寫。
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.quantity).toBe(178);
+  });
+
+  it("補跑會把失敗的重新同步一次", async () => {
+    // 用 401（token 過期）而不是 500：4xx 不重試，測試不必真的等退避的秒數。
+    stubCyberbiz({ status: 401, body: { error: "token 過期" } });
+    await post({ product_id: "56750193" }, { topic: "variants/update" });
+
+    // 官網恢復了。
+    vi.unstubAllGlobals();
+    stubCyberbiz({ body: product({ quantity: 200 }) });
+
+    const result = await retryFailedProductWebhooks(db(), {
+      client: (await import("@rueisiang/cyberbiz")).createInventoryClient({
+        apiToken: TOKEN,
+        baseUrl: BASE,
+      }),
+    });
+
+    expect(result).toMatchObject({ attempted: 1, processed: 1, failed: 0 });
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.quantity).toBe(200);
+    const [row] = await db().select().from(cyberbizProductWebhooks);
+    expect(row?.status).toBe("processed");
+    // 補跑算第二次嘗試。
+    expect(row?.attempts).toBe(2);
+  });
+
+  it("補跑還是失敗就留在 failed，次數往上加", async () => {
+    stubCyberbiz({ status: 401, body: { error: "token 過期" } });
+    await post({ product_id: "56750193" }, { topic: "variants/update" });
+
+    const result = await retryFailedProductWebhooks(db(), {
+      client: (await import("@rueisiang/cyberbiz")).createInventoryClient({
+        apiToken: TOKEN,
+        baseUrl: BASE,
+      }),
+    });
+
+    expect(result).toMatchObject({ attempted: 1, processed: 0, failed: 1 });
+    const [row] = await db().select().from(cyberbizProductWebhooks);
+    expect(row?.status).toBe("failed");
+    expect(row?.attempts).toBe(2);
+  });
+
+  it("沒有要補跑的時候什麼都不做", async () => {
+    const result = await retryFailedProductWebhooks(db(), {});
+    expect(result).toEqual({ attempted: 0, processed: 0, failed: 0 });
+  });
+});

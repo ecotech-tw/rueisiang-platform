@@ -291,6 +291,38 @@ UPSTASH_REDIS_REST_TOKEN
 
 ---
 
+## 6. CYBERBIZ — 兩個 webhook ⚠️ 商品那條還沒訂閱
+
+兩條路，兩個網址。用的是同一個密鑰（Worker secret `CYBERBIZ_WEBHOOK_SECRET`）。
+
+| 事件 | 網址 | 狀態 |
+|---|---|---|
+| 會員（註冊、修改、標籤…） | `https://platform.rueisiang.com/api/webhooks/cyberbiz/customers` | ✅ 已訂閱 |
+| **商品款式更新（`variants/update`）** | `https://platform.rueisiang.com/api/webhooks/cyberbiz/inventory` | ⚠️ **要去 CYBERBIZ 後台加** |
+
+**沒訂閱商品那條會怎樣**：官網改了庫存數量，平台不會知道，要等人按「同步到
+庫存」。倉庫的人看到的是一個安靜地過期的數字——比看到錯誤還糟，因為沒有任何
+跡象說它舊了。
+
+驗證方式接受兩種，CYBERBIZ 後台給哪一種都行：
+
+- 共用密鑰：網址加 `?token=<密鑰>`，或 `Authorization: Bearer <密鑰>`
+- HMAC-SHA256 簽章：`x-cyberbiz-hmac-sha256`（也吃 `x-cyberbiz-signature`、
+  `x-hub-signature-256`；hex 與 base64 都認）
+
+確認有沒有接上：直接開那兩個網址（GET），會回 `configured: true/false`。
+
+```
+https://platform.rueisiang.com/api/webhooks/cyberbiz/inventory
+```
+
+**收到之後不採信事件裡的數量**，一律拿 `product_id` 回官網重讀。事件只用來知道
+「哪個商品動了」——簽章只證明是 CYBERBIZ 送的，不證明那個數字現在還是對的
+（事件會延遲、會亂序）。
+
+處理失敗一律回 200 並把事件存下來，由 cron（每 15 分）補跑。回 5xx 只會讓
+CYBERBIZ 用掉重送次數，用完那筆事件就真的消失了，而我們手上其實還留著它。
+
 ## 執行順序
 
 文件的章節是照主題分的，實際動手的順序不一樣——**先部署一次**，因為在那之前
