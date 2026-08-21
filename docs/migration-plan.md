@@ -212,16 +212,8 @@ user_roles        user ↔ role
 
 **舊資料怎麼搬過來**（Phase 4 的收尾）：
 
-不碰 Cloud SQL 的憑證。舊系統的 `GET /api/dashboard` 一次回傳倉位、標示、分類、
-商品與 CYBERBIZ 連結，剛好就是要搬的東西——在瀏覽器裡登入舊站、打開那個網址、
-存成檔案就好。三步：
-
-1. `node packages/db/scripts/import-wms.mjs dashboard.json > packages/db/imports/wms-YYYY-MM-DD.sql`
-2. SQL 進 PR，逐行看清楚會寫什麼。資料搬遷不可逆，看不到內容就按下去不是好主意
-3. 合併後跑 `匯入舊 WMS 的資料` 這支 workflow（手動觸發，要自己打檔名）
-
-全部是 `INSERT OR IGNORE`——**只補不改**，重跑安全，已經在平台上編輯過的資料
-不會被舊資料蓋掉。
+舊 WMS 的一次性資料匯入已完成，原本用來套用匯入 SQL 的 GitHub Actions workflow
+與相關腳本已移除；之後不再從舊 WMS 匯入資料。
 
 **兩件事沒搬**：現場照片（檔案在 GCS、平台用 R2，只搬索引會變成一堆破圖；
 2026-08-21 那份匯出的 `images` 是空的，所以目前沒有東西要搬），以及操作歷史
