@@ -75,17 +75,16 @@ describe("AI 助理 Sandbox", () => {
     expect(result.tools.map((tool) => tool.key)).toEqual([
       "weather_open_meteo",
       "wms_list_inventory",
-      "wms_search_inventory",
-      "wms_list_map_labels",
+      "wms_search_warehouse",
       "wms_get_inventory_item",
       "wms_list_low_stock_items",
       "wms_get_activity",
     ]);
-    expect(result.tools.find((tool) => tool.key === "wms_search_inventory")).toMatchObject({
-      label: "WMS 搜尋庫存",
+    expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
+      label: "WMS 搜尋倉庫位置",
       status: "development",
       surfaces: ["sandbox", "line", "mcp"],
-      requiredPermissions: ["wms:inventory:read"],
+      requiredPermissions: ["wms:inventory:read", "wms:map:read"],
     });
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
   });
@@ -142,7 +141,7 @@ describe("AI 助理 Sandbox", () => {
     });
   });
 
-  it("Sandbox 可以透過共用 registry 執行 WMS 唯讀工具", async () => {
+  it("Sandbox 可以透過共用 registry 搜尋 WMS 商品與位置", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
     await db().insert(inventoryItems).values({
       id: "wms-item-1",
@@ -159,19 +158,19 @@ describe("AI 助理 Sandbox", () => {
       return new Response(JSON.stringify({
         candidates: [{ content: { parts: hasToolResult
           ? [{ text: "紙箱目前有 3 件，低於安全庫存 5 件。" }]
-          : [{ functionCall: { name: "wms_search_inventory", args: { query: "紙箱", limit: "10" } } }] } }],
+          : [{ functionCall: { name: "wms_search_warehouse", args: { query: "紙箱", scope: "inventory", limit: "10" } } }] } }],
         usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_search_inventory"], input: "查詢紙箱庫存" }),
+      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_search_warehouse"], input: "查詢紙箱庫存" }),
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       text: "紙箱目前有 3 件，低於安全庫存 5 件。",
-      toolCalls: [{ toolKey: "wms_search_inventory", status: "success" }],
+      toolCalls: [{ toolKey: "wms_search_warehouse", status: "success" }],
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -206,36 +205,48 @@ describe("AI 助理 Sandbox", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("Sandbox 可以查詢 WMS 地圖上的標籤", async () => {
+  it("Sandbox 可以查詢 WMS 地圖標籤與相對位置", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
-    await db().insert(layoutElements).values({
-      id: "map-label-1",
-      label: "冷藏區入口",
-      color: "sky",
-      x: 12,
-      y: 18,
-      width: 20,
-      height: 10,
-    });
+    await db().insert(layoutElements).values([
+      {
+        id: "map-label-1",
+        label: "冷藏區",
+        color: "sky",
+        x: 12,
+        y: 18,
+        width: 20,
+        height: 10,
+      },
+      {
+        id: "map-label-2",
+        label: "大門入口",
+        color: "rose",
+        x: 40,
+        y: 18,
+        width: 12,
+        height: 10,
+      },
+    ]);
 
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
-      const hasToolResult = JSON.stringify(body.contents).includes("map-label-1");
+      const hasToolResult = JSON.stringify(body.contents).includes("map-label-1")
+        && JSON.stringify(body.contents).includes("右側");
       return new Response(JSON.stringify({
         candidates: [{ content: { parts: hasToolResult
-          ? [{ text: "冷藏區入口位於地圖 x=12、y=18。" }]
-          : [{ functionCall: { name: "wms_list_map_labels", args: { query: "冷藏" } } }] } }],
+          ? [{ text: "冷藏區在大門入口的左側。" }]
+          : [{ functionCall: { name: "wms_search_warehouse", args: { query: "冷藏", scope: "map" } } }] } }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_list_map_labels"], input: "冷藏區入口在哪裡？" }),
+      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_search_warehouse"], input: "冷藏區入口在哪裡？" }),
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      text: "冷藏區入口位於地圖 x=12、y=18。",
-      toolCalls: [{ toolKey: "wms_list_map_labels", status: "success" }],
+      text: "冷藏區在大門入口的左側。",
+      toolCalls: [{ toolKey: "wms_search_warehouse", status: "success" }],
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

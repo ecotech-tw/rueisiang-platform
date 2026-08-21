@@ -44,9 +44,8 @@ const platformOpenMeteoTool: PlatformToolDefinition = {
   surfaces: ["sandbox", "line", "mcp"],
 };
 
-export const WMS_SEARCH_INVENTORY_TOOL_KEY = "wms_search_inventory";
 export const WMS_LIST_INVENTORY_TOOL_KEY = "wms_list_inventory";
-export const WMS_LIST_MAP_LABELS_TOOL_KEY = "wms_list_map_labels";
+export const WMS_SEARCH_WAREHOUSE_TOOL_KEY = "wms_search_warehouse";
 export const WMS_GET_INVENTORY_ITEM_TOOL_KEY = "wms_get_inventory_item";
 export const WMS_LIST_LOW_STOCK_TOOL_KEY = "wms_list_low_stock_items";
 export const WMS_GET_ACTIVITY_TOOL_KEY = "wms_get_activity";
@@ -95,72 +94,155 @@ const wmsListInventoryTool: PlatformToolDefinition = {
   },
 };
 
-const wmsSearchInventoryTool: PlatformToolDefinition = {
-  key: WMS_SEARCH_INVENTORY_TOOL_KEY,
-  label: "WMS 搜尋庫存",
-  description: "搜尋 WMS 商品庫存，可依 SKU、商品名稱、分類或儲位名稱查詢。只讀。",
+type WarehouseMapObject = {
+  id: string;
+  sourceId: string;
+  kind: "zone" | "label";
+  name: string;
+  code?: string;
+  color: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type WarehouseData = Awaited<ReturnType<typeof loadWarehouse>>;
+
+function warehouseMapObjects(warehouse: WarehouseData): WarehouseMapObject[] {
+  return [
+    ...warehouse.zones.map((zone) => ({
+      id: `zone:${zone.id}`,
+      sourceId: zone.id,
+      kind: "zone" as const,
+      name: zone.name,
+      code: zone.code,
+      color: zone.color,
+      x: zone.x,
+      y: zone.y,
+      width: zone.width,
+      height: zone.height,
+    })),
+    ...warehouse.layoutElements.map((element) => ({
+      id: `label:${element.id}`,
+      sourceId: element.id,
+      kind: "label" as const,
+      name: element.label,
+      color: element.color,
+      x: element.x,
+      y: element.y,
+      width: element.width,
+      height: element.height,
+    })),
+  ];
+}
+
+function relativeDirection(target: WarehouseMapObject, other: WarehouseMapObject): string {
+  const targetCenterX = target.x + target.width / 2;
+  const targetCenterY = target.y + target.height / 2;
+  const otherCenterX = other.x + other.width / 2;
+  const otherCenterY = other.y + other.height / 2;
+  const dx = otherCenterX - targetCenterX;
+  const dy = otherCenterY - targetCenterY;
+  const distance = Math.sqrt(dx ** 2 + dy ** 2);
+  if (distance < 5) return "附近";
+
+  const horizontal = dx >= 0 ? "右" : "左";
+  const vertical = dy < 0 ? "上" : "下";
+  if (Math.abs(dx) > Math.abs(dy) * 1.5) return `${horizontal}側`;
+  if (Math.abs(dy) > Math.abs(dx) * 1.5) return `${vertical}方`;
+  return `${horizontal}${vertical}方`;
+}
+
+function mapDistance(target: WarehouseMapObject, other: WarehouseMapObject): number {
+  const targetCenterX = target.x + target.width / 2;
+  const targetCenterY = target.y + target.height / 2;
+  const otherCenterX = other.x + other.width / 2;
+  const otherCenterY = other.y + other.height / 2;
+  return Math.sqrt((otherCenterX - targetCenterX) ** 2 + (otherCenterY - targetCenterY) ** 2);
+}
+
+function mapObjectView(target: WarehouseMapObject, objects: WarehouseMapObject[]) {
+  const nearby = objects
+    .filter((object) => object.id !== target.id)
+    .sort((left, right) => mapDistance(target, left) - mapDistance(target, right))
+    .slice(0, 6)
+    .map((object) => ({
+      id: object.id,
+      kind: object.kind,
+      name: object.name,
+      code: object.code,
+      relation: relativeDirection(target, object),
+      distancePercent: Math.round(mapDistance(target, object) * 10) / 10,
+    }));
+
+  return {
+    id: target.id,
+    sourceId: target.sourceId,
+    kind: target.kind,
+    name: target.name,
+    code: target.code,
+    color: target.color,
+    x: target.x,
+    y: target.y,
+    width: target.width,
+    height: target.height,
+    center: { x: target.x + target.width / 2, y: target.y + target.height / 2 },
+    nearby,
+  };
+}
+
+const wmsSearchWarehouseTool: PlatformToolDefinition = {
+  key: WMS_SEARCH_WAREHOUSE_TOOL_KEY,
+  label: "WMS 搜尋倉庫位置",
+  description: "用一個查詢同時搜尋商品、倉位與地圖標籤；商品結果會附所在倉位，地圖結果會附附近物件的上下左右相對位置。只讀。",
   defaultStatus: "development",
   surfaces: ["sandbox", "line", "mcp"],
-  requiredPermissions: wmsPermission,
+  requiredPermissions: [...wmsPermission, ...wmsMapPermission],
   parameters: {
     type: "object",
     properties: {
-      query: { type: "string", description: "SKU、商品名稱、分類或儲位的關鍵字。" },
-      limit: { type: "string", description: "最多回傳幾筆，預設 20，最多 50。" },
+      query: { type: "string", description: "商品名稱、SKU、倉位代碼/名稱或地圖標籤關鍵字。" },
+      scope: { type: "string", description: "可選 inventory、map 或 all，預設 all。" },
+      limit: { type: "string", description: "各類結果最多回傳幾筆，預設 20，最多 50。" },
     },
     required: ["query"],
   },
   async execute(input, context) {
     const query = textInput(input, "query");
-    if (!query) throw new AssistantError("WMS 搜尋庫存需要關鍵字。");
+    if (!query) throw new AssistantError("WMS 搜尋倉庫位置需要關鍵字。");
     if (query.length > 120) throw new AssistantError("WMS 搜尋關鍵字不能超過 120 字。");
 
     const warehouse = await loadWarehouse(database(context));
     const term = query.toLocaleLowerCase();
-    const zoneNames = new Map(warehouse.zones.map((zone) => [zone.id, `${zone.code} ${zone.name}`]));
-    const matches = warehouse.items.filter((item) => [
-      item.sku,
-      item.name,
-      item.category,
-      item.zoneId ? zoneNames.get(item.zoneId) : "",
-      item.notes,
-    ].some((value) => String(value ?? "").toLocaleLowerCase().includes(term)));
+    const scopeInput = textInput(input, "scope").toLocaleLowerCase();
+    const scope = scopeInput === "inventory" || scopeInput === "map" ? scopeInput : "all";
+    const limit = boundedNumber(input, "limit", 20, 50);
+    const objects = warehouseMapObjects(warehouse);
+    const zonesById = new Map(objects.filter((object) => object.kind === "zone").map((object) => [object.sourceId, object]));
+    const inventoryMatches = scope === "map" ? [] : warehouse.items.filter((item) => {
+      const zone = item.zoneId ? zonesById.get(item.zoneId) : undefined;
+      return [item.sku, item.name, item.category, item.notes, zone?.name, zone?.code]
+        .some((value) => String(value ?? "").toLocaleLowerCase().includes(term));
+    });
+    const mapMatches = scope === "inventory" ? [] : objects.filter((object) => [object.name, object.code]
+      .some((value) => String(value ?? "").toLocaleLowerCase().includes(term)));
+    const matchedZoneIds = new Set(inventoryMatches.flatMap((item) => item.zoneId ? [item.zoneId] : []));
+    const mapResultObjects = objects.filter((object) => mapMatches.some((match) => match.id === object.id) || matchedZoneIds.has(object.sourceId));
 
     return json({
       query,
-      total: matches.length,
-      items: matches.slice(0, boundedNumber(input, "limit", 20, 50)),
-    });
-  },
-};
-
-const wmsListMapLabelsTool: PlatformToolDefinition = {
-  key: WMS_LIST_MAP_LABELS_TOOL_KEY,
-  label: "WMS 地圖標籤",
-  description: "列出 WMS 地圖上的標籤、顏色、座標與尺寸，可依標籤名稱搜尋。只讀。",
-  defaultStatus: "development",
-  surfaces: ["sandbox", "line", "mcp"],
-  requiredPermissions: wmsMapPermission,
-  parameters: {
-    type: "object",
-    properties: {
-      query: { type: "string", description: "可選的地圖標籤名稱關鍵字；留空時列出全部。" },
-      limit: { type: "string", description: "最多回傳幾筆，預設 50，最多 100。" },
-    },
-  },
-  async execute(input, context) {
-    const warehouse = await loadWarehouse(database(context));
-    const query = textInput(input, "query").toLocaleLowerCase();
-    const filtered = warehouse.layoutElements
-      .filter((element) => !query || element.label.toLocaleLowerCase().includes(query));
-    const labels = filtered
-      .slice(0, boundedNumber(input, "limit", 50, 100))
-      .map(({ id, label, color, x, y, width, height }) => ({ id, label, color, x, y, width, height }));
-    return json({
-      query: textInput(input, "query"),
-      total: filtered.length,
+      scope,
+      inventoryTotal: inventoryMatches.length,
+      mapTotal: mapResultObjects.length,
+      inventoryItems: inventoryMatches.slice(0, limit).map((item) => ({
+        ...item,
+        location: item.zoneId && zonesById.has(item.zoneId)
+          ? mapObjectView(zonesById.get(item.zoneId)!, objects)
+          : null,
+      })),
+      mapObjects: mapResultObjects.slice(0, limit).map((object) => mapObjectView(object, objects)),
       canvas: warehouse.settings,
-      labels,
     });
   },
 };
@@ -253,8 +335,7 @@ const wmsGetActivityTool: PlatformToolDefinition = {
 export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   platformOpenMeteoTool,
   wmsListInventoryTool,
-  wmsSearchInventoryTool,
-  wmsListMapLabelsTool,
+  wmsSearchWarehouseTool,
   wmsGetInventoryItemTool,
   wmsListLowStockTool,
   wmsGetActivityTool,

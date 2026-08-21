@@ -48,7 +48,10 @@ export function Sandbox() {
     setModel((current) => current || config.data.activeModel);
     setPromptId((current) => current || config.data.activePrompt?.id || "");
     setPrompt((current) => current || config.data.activePrompt?.systemPrompt || "");
-    setToolKeys((current) => current.length ? current : config.data.tools.filter((tool) => tool.status !== "disabled").map((tool) => tool.key));
+    const availableToolKeys = new Set(config.data.tools.map((tool) => tool.key));
+    setToolKeys((current) => current.length
+      ? current.filter((key) => availableToolKeys.has(key))
+      : config.data.tools.filter((tool) => tool.status !== "disabled").map((tool) => tool.key));
   }, [config.data]);
 
   useEffect(() => {
