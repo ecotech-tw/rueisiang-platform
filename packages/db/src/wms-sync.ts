@@ -3,6 +3,7 @@ import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 import { cyberbizProductLinks, inventoryItems } from "./schema/wms.js";
+import { WmsError } from "./wms.js";
 
 /**
  * WMS 與 CYBERBIZ 的庫存對帳。
@@ -254,7 +255,7 @@ export async function linkItemToCyberbiz(
   },
 ) {
   const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, input.inventoryItemId));
-  if (!item) throw new Error("找不到這項商品。");
+  if (!item) throw new WmsError("not_found", "找不到這項商品。");
 
   const id = crypto.randomUUID();
   await db.batch([
@@ -297,7 +298,7 @@ export async function unlinkItemFromCyberbiz(
   actor: { id: string; email: string },
 ) {
   const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, inventoryItemId));
-  if (!item) throw new Error("找不到這項商品。");
+  if (!item) throw new WmsError("not_found", "找不到這項商品。");
 
   await db.batch([
     db.delete(cyberbizProductLinks).where(eq(cyberbizProductLinks.inventoryItemId, inventoryItemId)),

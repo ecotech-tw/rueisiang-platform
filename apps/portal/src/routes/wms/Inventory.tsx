@@ -109,6 +109,18 @@ function ItemRow({
       <td data-label="安全庫存" className="numeric cell-sub">{item.minStock.toLocaleString("zh-TW")}</td>
       <td data-label="狀態">
         {low ? <span className="status status-sync-failed">需要補貨</span> : <span className="status quiet">正常</span>}
+        {/*
+          * 有連結才顯示，沒連結不顯示「未連結」——大部分商品本來就不連，
+          * 每一列都掛一個「未連結」只是把整欄變成雜訊。同步失敗才要跳出來。
+          */}
+        {item.cyberbiz ? (
+          <span
+            className={`status ${item.cyberbiz.syncStatus === "failed" ? "status-sync-failed" : "status-sync-synced"}`}
+            title={item.cyberbiz.lastError || `已連結 CYBERBIZ 款式 ${item.cyberbiz.cyberbizVariantId}`}
+          >
+            {item.cyberbiz.syncStatus === "failed" ? "同步失敗" : "CYBERBIZ"}
+          </span>
+        ) : null}
       </td>
       {canWrite || canCount ? (
         <td data-label="操作">
@@ -372,7 +384,18 @@ export function Inventory() {
 
       {editing ? (
         <ItemForm
-          item={editing === "new" ? undefined : editing}
+          /*
+           * 用 id 去現有清單裡拿最新的那一份，不要直接用 state 裡的物件。
+           *
+           * state 裡的是「打開對話框那一刻」的快照。連結 CYBERBIZ 之後清單會重新
+           * 載入，但快照不會跟著變——畫面上就會看起來像沒成功（實際上資料庫已經
+           * 寫進去了）。找不到就退回快照：那代表這一項剛被別人刪掉。
+           */
+          item={
+            editing === "new"
+              ? undefined
+              : items.find((candidate) => candidate.id === editing.id) ?? editing
+          }
           zones={zones}
           categories={categories}
           onClose={() => setEditing(null)}

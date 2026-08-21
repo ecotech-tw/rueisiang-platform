@@ -1350,6 +1350,22 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /* 目錄的新鮮度說明。貼在工具列下方，跟表格分開。 */
 .catalog-note { margin: 0 4px 4px; font-size: 12px; }
 
+/* 商品表單裡的 CYBERBIZ 連結區：說明在左、按鈕在右。 */
+.link-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-field);
+  background: var(--color-canvas);
+}
+.link-panel > div { min-width: 0; }
+.link-panel .ghost-button { flex: none; }
+/* 已連結的用綠色的邊，一眼看得出狀態不同。 */
+.link-panel.linked { border-color: var(--color-ok); background: var(--color-ok-soft); }
+
 /*
  * 操作紀錄的欄寬。
  *

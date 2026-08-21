@@ -107,8 +107,6 @@ export interface CyberbizInventoryClient {
   fetchPage(options?: { page?: number; perPage?: number; query?: string }): Promise<CyberbizInventoryItem[]>;
   /** 一個商品的所有款式。更新數量前後都要用它重讀。 */
   fetchProduct(productId: string): Promise<CyberbizInventoryItem[]>;
-  /** 用 SKU 找公司倉的那一個款式。連結商品時用。 */
-  resolveBySku(sku: string): Promise<CyberbizInventoryItem>;
   /** 把公司倉的數量調整成 target。回報調整前後與是否真的動過。 */
   setCompanyQuantity(input: {
     productId: string;
@@ -145,28 +143,6 @@ export function createInventoryClient(
     },
 
     fetchProduct,
-
-    async resolveBySku(sku) {
-      const wanted = sku.trim().toUpperCase();
-      if (!wanted) throw new Error("要連結 CYBERBIZ 必須先填 SKU。");
-
-      const { payload } = await request(`/v1/products/search?q=${encodeURIComponent(sku.trim())}`);
-      const matches = flattenProducts(readProducts(payload))
-        .filter(isCompanyProduct)
-        .filter((item) => item.sku.trim().toUpperCase() === wanted);
-
-      if (!matches.length) throw new Error(`CYBERBIZ 的公司倉找不到 SKU「${sku.trim()}」。`);
-      /*
-       * 找到不只一個就拒絕，不要自己挑一個。
-       *
-       * SKU 在官網不保證唯一；猜錯的後果是之後每一次盤點都把數量寫到別的商品上，
-       * 而且沒有人會發現。讓人去官網把重複的 SKU 處理掉才是對的解法。
-       */
-      if (matches.length > 1) {
-        throw new Error(`CYBERBIZ 有 ${matches.length} 個款式都是 SKU「${sku.trim()}」，請先在官網處理重複。`);
-      }
-      return matches[0]!;
-    },
 
     /**
      * 調整公司倉的數量。

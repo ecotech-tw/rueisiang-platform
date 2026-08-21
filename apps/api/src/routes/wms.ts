@@ -228,8 +228,30 @@ export const wms = new Hono<AppEnv>()
 
     const input = await body(c);
     const sku = requireString(input, "sku", "SKU");
-    // 先問官網。找不到、或找到不只一個，都在這裡就擋下來，不會留下半套的連結。
-    const remote = await client.resolveBySku(sku);
+
+    /*
+     * 在**目錄**裡找，不是打 /v1/products/search。
+     *
+     * 那個端點搜的是商品名稱，不是 SKU——拿 SKU 去搜一定找不到（實際踩過）。
+     * 目錄本來就會被快取，所以在裡面找又快又準。
+     */
+    const wanted = sku.trim().toUpperCase();
+    const catalog = await loadCatalog(client, cacheClient(c.env));
+    const matches = catalog.items.filter((entry) => entry.sku.trim().toUpperCase() === wanted);
+
+    if (!matches.length) {
+      throw new HTTPException(404, { message: `CYBERBIZ 的公司倉找不到 SKU「${sku.trim()}」。` });
+    }
+    /*
+     * 找到不只一個就拒絕，不要自己挑一個。SKU 在官網不保證唯一；猜錯的後果是
+     * 之後每一次盤點都把數量寫到別的商品上，而且沒有人會發現。
+     */
+    if (matches.length > 1) {
+      throw new HTTPException(409, {
+        message: `CYBERBIZ 有 ${matches.length} 個款式都是 SKU「${sku.trim()}」，請先在官網處理重複。`,
+      });
+    }
+    const remote = matches[0]!;
 
     const user = c.get("user");
     const result = await linkItemToCyberbiz(c.get("db"), {
