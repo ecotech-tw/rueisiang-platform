@@ -45,11 +45,53 @@ const platformOpenMeteoTool: PlatformToolDefinition = {
 };
 
 export const WMS_SEARCH_INVENTORY_TOOL_KEY = "wms_search_inventory";
+export const WMS_LIST_INVENTORY_TOOL_KEY = "wms_list_inventory";
 export const WMS_GET_INVENTORY_ITEM_TOOL_KEY = "wms_get_inventory_item";
 export const WMS_LIST_LOW_STOCK_TOOL_KEY = "wms_list_low_stock_items";
 export const WMS_GET_ACTIVITY_TOOL_KEY = "wms_get_activity";
 
 const wmsPermission = ["wms:inventory:read"] as const;
+
+const wmsListInventoryTool: PlatformToolDefinition = {
+  key: WMS_LIST_INVENTORY_TOOL_KEY,
+  label: "WMS 列出商品庫存",
+  description: "分頁列出 WMS 商品庫存，適合先取得商品清單，再依 SKU 或商品名稱做 mapping。只讀。",
+  defaultStatus: "development",
+  surfaces: ["sandbox", "line", "mcp"],
+  requiredPermissions: wmsPermission,
+  parameters: {
+    type: "object",
+    properties: {
+      page: { type: "string", description: "頁碼，預設 1。" },
+      pageSize: { type: "string", description: "每頁筆數，預設 50，最多 100。" },
+      search: { type: "string", description: "可選的 SKU、商品名稱、分類或儲位關鍵字。" },
+      category: { type: "string", description: "可選的商品分類名稱。" },
+    },
+  },
+  async execute(input, context) {
+    const warehouse = await loadWarehouse(database(context));
+    const page = boundedNumber(input, "page", 1, 10_000);
+    const pageSize = boundedNumber(input, "pageSize", 50, 100);
+    const search = textInput(input, "search").toLocaleLowerCase();
+    const category = textInput(input, "category").toLocaleLowerCase();
+    const zoneNames = new Map(warehouse.zones.map((zone) => [zone.id, `${zone.code} ${zone.name}`]));
+    const filtered = warehouse.items.filter((item) => {
+      const zone = item.zoneId ? zoneNames.get(item.zoneId) ?? "" : "";
+      const matchesSearch = !search || [item.sku, item.name, item.category, zone]
+        .some((value) => String(value ?? "").toLocaleLowerCase().includes(search));
+      const matchesCategory = !category || item.category.toLocaleLowerCase() === category;
+      return matchesSearch && matchesCategory;
+    });
+    const start = (page - 1) * pageSize;
+    return json({
+      page,
+      pageSize,
+      total: filtered.length,
+      hasMore: start + pageSize < filtered.length,
+      items: filtered.slice(start, start + pageSize),
+    });
+  },
+};
 
 const wmsSearchInventoryTool: PlatformToolDefinition = {
   key: WMS_SEARCH_INVENTORY_TOOL_KEY,
@@ -177,6 +219,7 @@ const wmsGetActivityTool: PlatformToolDefinition = {
 
 export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   platformOpenMeteoTool,
+  wmsListInventoryTool,
   wmsSearchInventoryTool,
   wmsGetInventoryItemTool,
   wmsListLowStockTool,

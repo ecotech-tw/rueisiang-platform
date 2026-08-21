@@ -52,12 +52,6 @@ export function Sandbox() {
   }, [config.data]);
 
   useEffect(() => {
-    if (sessionId || !sessions.data) return;
-    const openSession = sessions.data.sessions.find((item) => item.status === "open");
-    if (openSession) setSessionId(openSession.id);
-  }, [sessions.data, sessionId]);
-
-  useEffect(() => {
     const current = session.data?.session;
     if (!current || current.id !== sessionId || !config.data) return;
     setModel(current.model);
@@ -157,6 +151,7 @@ export function Sandbox() {
                 </select>
                 <small>{selectedModel?.note ?? "模型與配額清單沿用 warehouse-inventory 的 snapshot。"}</small>
                 <small>目前小香正式使用：{data.models.find((item) => item.id === data.activeModel)?.label ?? data.activeModel}</small>
+                {!sessionId ? <small>尚未選擇 session，建立新 session 時會使用目前小香的 active model 與 active revision。</small> : null}
                 {sessionOpen ? <small>目前 session 可直接切換模型；下一次送出時會套用選取的模型。</small> : null}
                 <div className="assistant-actions">
                   <button
