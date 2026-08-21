@@ -4,38 +4,44 @@
 --
 -- 這支 migration 刻意只補不刪，且用 INSERT OR IGNORE，重跑不會重複插入。
 -- 之後權限目錄若有變更，仍由 /api/admin/roles/sync 以 permissions.ts 為準。
+WITH `admin_role` AS (
+  SELECT `id`
+  FROM `roles`
+  WHERE `key` = 'admin'
+    AND `is_system` = 1
+),
+`admin_permissions` (`permission`) AS (
+  VALUES
+    ('crm:customer:read'),
+    ('crm:customer:write'),
+    ('crm:customer:block'),
+    ('crm:tag:read'),
+    ('crm:tag:write'),
+    ('crm:view:write'),
+    ('crm:activity:read'),
+    ('crm:sync:read'),
+    ('crm:sync:trigger'),
+    ('wms:map:read'),
+    ('wms:map:write'),
+    ('wms:inventory:read'),
+    ('wms:inventory:write'),
+    ('wms:inventory:count'),
+    ('wms:category:write'),
+    ('wms:activity:read'),
+    ('wms:sync:trigger'),
+    ('tools:payout:run'),
+    ('tools:payout:config'),
+    ('assistant:sandbox:read'),
+    ('assistant:sandbox:write'),
+    ('assistant:settings:read'),
+    ('assistant:settings:write'),
+    ('assistant:line:read'),
+    ('assistant:line:write'),
+    ('admin:user:read'),
+    ('admin:user:write'),
+    ('admin:role:write')
+)
 INSERT OR IGNORE INTO `role_permissions` (`role_id`, `permission`)
-SELECT `roles`.`id`, `admin_permissions`.`permission`
-FROM `roles`
-CROSS JOIN (
-  SELECT 'crm:customer:read' AS `permission`
-  UNION ALL SELECT 'crm:customer:write'
-  UNION ALL SELECT 'crm:customer:block'
-  UNION ALL SELECT 'crm:tag:read'
-  UNION ALL SELECT 'crm:tag:write'
-  UNION ALL SELECT 'crm:view:write'
-  UNION ALL SELECT 'crm:activity:read'
-  UNION ALL SELECT 'crm:sync:read'
-  UNION ALL SELECT 'crm:sync:trigger'
-  UNION ALL SELECT 'wms:map:read'
-  UNION ALL SELECT 'wms:map:write'
-  UNION ALL SELECT 'wms:inventory:read'
-  UNION ALL SELECT 'wms:inventory:write'
-  UNION ALL SELECT 'wms:inventory:count'
-  UNION ALL SELECT 'wms:category:write'
-  UNION ALL SELECT 'wms:activity:read'
-  UNION ALL SELECT 'wms:sync:trigger'
-  UNION ALL SELECT 'tools:payout:run'
-  UNION ALL SELECT 'tools:payout:config'
-  UNION ALL SELECT 'assistant:sandbox:read'
-  UNION ALL SELECT 'assistant:sandbox:write'
-  UNION ALL SELECT 'assistant:settings:read'
-  UNION ALL SELECT 'assistant:settings:write'
-  UNION ALL SELECT 'assistant:line:read'
-  UNION ALL SELECT 'assistant:line:write'
-  UNION ALL SELECT 'admin:user:read'
-  UNION ALL SELECT 'admin:user:write'
-  UNION ALL SELECT 'admin:role:write'
-) AS `admin_permissions`
-WHERE `roles`.`key` = 'admin'
-  AND `roles`.`is_system` = 1;
+SELECT `admin_role`.`id`, `admin_permissions`.`permission`
+FROM `admin_role`
+CROSS JOIN `admin_permissions`;
