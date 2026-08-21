@@ -1,4 +1,4 @@
-export { runGemini } from "./gemini.js";
+export { runGemini, summarizeAssistantConversation } from "./gemini.js";
 export { ASSISTANT_MODELS, DEFAULT_ASSISTANT_MODEL, type AssistantModel, type GeminiQuota } from "./models.js";
 export { OPEN_METEO_TOOL_KEY, openMeteoTool } from "./open-meteo.js";
 export {
@@ -8,6 +8,7 @@ export {
   type AssistantToolDefinition,
   type AssistantToolStatus,
   type AssistantUsage,
+  type AssistantConversationMessage,
   type JsonSchema,
 } from "./types.js";
 

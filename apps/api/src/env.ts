@@ -20,6 +20,12 @@ export interface Env {
   /** Gemini generateContent 使用的 API key。Sandbox 沒有設定時會清楚提示管理者。 */
   GEMINI_API_KEY?: string;
 
+  /** LINE Messaging API 憑證；只由 webhook 與回覆 transport 使用。 */
+  LINE_CHANNEL_SECRET?: string;
+  LINE_CHANNEL_ACCESS_TOKEN?: string;
+  /** 正式環境用來產生後台顯示的 webhook URL；本機未設定時使用 request origin。 */
+  PUBLIC_APP_URL?: string;
+
   /** CYBERBIZ App Store API 的 token。沒設定時碰到同步相關的功能才會失敗。 */
   CYBERBIZ_API_TOKEN?: string;
   /** 只有測試環境或自架才需要覆寫，預設打正式的 app-store-api。 */

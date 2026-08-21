@@ -68,18 +68,19 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     key: "assistant",
     label: "小香助理",
-    icon: "tune",
+    icon: "assistant",
     items: [
-      { label: "Sandbox", to: "/assistant/sandbox", permission: "assistant:sandbox:read", icon: "widgets" },
+      { label: "Sandbox", to: "/assistant/sandbox", permission: "assistant:sandbox:read", icon: "science" },
       { label: "設定", to: "/assistant/settings", permission: "assistant:settings:read", icon: "tune" },
+      { label: "LINE 前台", to: "/assistant/line", permission: "assistant:line:read", icon: "line" },
     ],
   },
   {
     key: "admin",
     label: "系統管理",
-    icon: "tune",
+    icon: "shieldPerson",
     items: [
-      { label: "權限管理", to: "/admin/users", permission: "admin:user:read", icon: "shieldPerson" },
+      { label: "權限管理", to: "/admin/users", permission: "admin:user:read", icon: "people" },
       { label: "角色管理", to: "/admin/roles", permission: "admin:role:write", icon: "key" },
     ],
   },

@@ -36,6 +36,7 @@ custom_domain = true
 # 出金表：執行本身跑在帳務 repo 的 GitHub Actions 上，平台只負責觸發與查狀態。
 # CYBERBIZ 帳密、Gmail 與 Drive 的授權都留在那邊的 Actions secrets，這裡碰不到。
 [vars]
+PUBLIC_APP_URL = "https://platform.rueisiang.com"
 PAYOUT_GITHUB_REPO = "ecotech-tw/rueisiang-platform"
 PAYOUT_WORKFLOW_FILE = "payout.yml"
 PAYOUT_GITHUB_REF = "main"
@@ -45,6 +46,8 @@ PAYOUT_GITHUB_REF = "main"
 #   GOOGLE_OAUTH_CLIENT_ID
 #   GOOGLE_OAUTH_CLIENT_SECRET
 #   GEMINI_API_KEY              AI 助理 Sandbox 與後續 LINE 回覆
+#   LINE_CHANNEL_SECRET         LINE webhook 簽章驗證
+#   LINE_CHANNEL_ACCESS_TOKEN   LINE Messaging API 回覆用 token
 #   CYBERBIZ_API_TOKEN         客戶同步
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
 #   PAYOUT_GITHUB_TOKEN        fine-grained PAT，只給本 repo 的 Actions 與 Contents 讀寫

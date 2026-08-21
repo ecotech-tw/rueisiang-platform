@@ -1,0 +1,1 @@
+ALTER TABLE `assistant_sandbox_messages` ADD `thoughts` text DEFAULT '' NOT NULL;

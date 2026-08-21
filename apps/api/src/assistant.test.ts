@@ -144,4 +144,175 @@ describe("AI 助理 Sandbox", () => {
     });
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
+
+  it("Gemma 4 Sandbox 將 thought channel 與正式回答分開", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ content: { parts: [
+        { text: "這是模型的內部思考", thought: true },
+        { text: "這是給使用者的正式回答" },
+      ] } }],
+      usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemma-4-31b-it", toolKeys: [], input: "請回答測試問題" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "這是給使用者的正式回答",
+      thoughts: "這是模型的內部思考",
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      generationConfig?: { thinkingConfig?: { thinkingLevel?: string; includeThoughts?: boolean } };
+    };
+    expect(body.generationConfig).toEqual({ thinkingConfig: { thinkingLevel: "high", includeThoughts: true } });
+  });
+
+  it("Sandbox session 會保留多輪對話，關閉後不能繼續執行", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const configResponse = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config");
+    const config = await configResponse.json() as { activePrompt: { id: string } };
+    const createdResponse = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+    });
+    expect(createdResponse.status).toBe(201);
+    const created = await createdResponse.json() as { session: { id: string; status: string; messages: unknown[] } };
+    expect(created.session).toMatchObject({ status: "open", messages: [] });
+
+    const geminiBodies: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      geminiBodies.push(typeof init?.body === "string" ? init.body : "");
+      const text = geminiBodies.length === 1 ? "第一輪回答" : "第二輪回答";
+      const parts = geminiBodies.length === 1
+        ? [{ text: "第一輪 thinking", thought: true }, { text }]
+        : [{ text }];
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const firstRun = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "第一輪問題" }),
+    });
+    expect(firstRun.status).toBe(200);
+    expect(await firstRun.json()).toMatchObject({ sessionId: created.session.id, text: "第一輪回答", thoughts: "第一輪 thinking" });
+
+    const secondRun = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "第二輪問題" }),
+    });
+    expect(secondRun.status).toBe(200);
+    expect(await secondRun.json()).toMatchObject({ sessionId: created.session.id, text: "第二輪回答" });
+    expect(geminiBodies[1]).toContain("第一輪問題");
+    expect(geminiBodies[1]).toContain("第一輪回答");
+
+    const detail = await as("admin", "admin@ecotech.tw", `/api/assistant/sandbox/sessions/${created.session.id}`);
+    const detailResult = await detail.json() as { session: { messages: Array<{ role: string; text: string; thoughts: string }> } };
+    expect(detailResult.session.messages).toEqual([
+      { role: "user", text: "第一輪問題", model: "", thoughts: "", toolCalls: [], id: expect.any(String), createdAt: expect.any(String) },
+      { role: "model", text: "第一輪回答", model: "gemini-3.6-flash", thoughts: "第一輪 thinking", toolCalls: [], id: expect.any(String), createdAt: expect.any(String) },
+      { role: "user", text: "第二輪問題", model: "", thoughts: "", toolCalls: [], id: expect.any(String), createdAt: expect.any(String) },
+      { role: "model", text: "第二輪回答", model: "gemini-3.6-flash", thoughts: "", toolCalls: [], id: expect.any(String), createdAt: expect.any(String) },
+    ]);
+
+    const closed = await as("admin", "admin@ecotech.tw", `/api/assistant/sandbox/sessions/${created.session.id}/close`, { method: "POST" });
+    expect(closed.status).toBe(200);
+    expect(await closed.json()).toMatchObject({ session: { status: "closed" } });
+
+    const rejected = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "不應該送出" }),
+    });
+    expect(rejected.status).toBe(409);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("同一個 Sandbox session 可以在每一輪切換模型，並記錄每則回答的實際模型", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    const urls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "回答 " + urls.length }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const first = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "先用 Flash" }),
+    });
+    const second = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: created.session.id, model: "gemma-4-31b-it", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "改用 Gemma" }),
+    });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(urls[0]).toContain("/gemini-3.6-flash:");
+    expect(urls[1]).toContain("/gemma-4-31b-it:");
+
+    const detail = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions/" + created.session.id);
+    const result = await detail.json() as { session: { model: string; messages: Array<{ model: string }> } };
+    expect(result.session.model).toBe("gemma-4-31b-it");
+    expect(result.session.messages.map((message) => message.model)).toEqual(["", "gemini-3.6-flash", "", "gemma-4-31b-it"]);
+  });
+
+  it("長對話會保留完整歷史，並在送出前自動建立 rolling summary", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    const requests: Array<{ body: Record<string, unknown>; summary: boolean }> = [];
+    let mainCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const systemPrompt = JSON.stringify(body.system_instruction);
+      const summary = systemPrompt.includes("Summarize the supplied conversation");
+      requests.push({ body, summary });
+      const text = summary ? "已更新摘要" : "長對話回答 " + ++mainCount;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text }] } }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, totalTokenCount: 15 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const longQuestion = "問題".repeat(3_500);
+    for (let index = 0; index < 6; index += 1) {
+      const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId: created.session.id,
+          model: "gemini-3.6-flash",
+          promptRevisionId: config.activePrompt.id,
+          toolKeys: [],
+          input: longQuestion + index,
+        }),
+      });
+      expect(response.status).toBe(200);
+    }
+
+    expect(requests.some((request) => request.summary)).toBe(true);
+    const lastMainRequest = requests.filter((request) => !request.summary).at(-1);
+    expect(JSON.stringify(lastMainRequest?.body.contents)).toContain("已更新摘要");
+    expect(JSON.stringify(lastMainRequest?.body.contents)).not.toContain(longQuestion + "0");
+
+    const detail = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions/" + created.session.id);
+    const result = await detail.json() as {
+      session: { contextSummaryMessageCount: number; messages: unknown[] };
+    };
+    expect(result.session.contextSummaryMessageCount).toBeGreaterThan(0);
+    expect(result.session.messages).toHaveLength(12);
+  });
 });

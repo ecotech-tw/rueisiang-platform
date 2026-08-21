@@ -28,8 +28,14 @@ export interface AssistantUsage {
   totalTokens: number;
 }
 
+export interface AssistantConversationMessage {
+  role: "user" | "model";
+  text: string;
+}
+
 export interface AssistantRunResult {
   text: string;
+  thoughts: string;
   toolCalls: AssistantToolCall[];
   usage: AssistantUsage;
 }

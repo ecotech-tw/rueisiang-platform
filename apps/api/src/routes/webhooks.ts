@@ -1,9 +1,42 @@
 import { readCyberbizTopic, verifyCyberbizWebhook } from "@rueisiang/cyberbiz";
-import { processCustomerWebhook } from "@rueisiang/db";
+import {
+  ensureAssistantDefaults,
+  getActiveAssistantPrompt,
+  getAssistantConfig,
+  ensureAssistantLineChannel,
+  listAssistantLineMessages,
+  listAssistantToolConfigs,
+  processCustomerWebhook,
+  recordAssistantRun,
+  recordAssistantLineMessage,
+  upsertAssistantLineGroup,
+} from "@rueisiang/db";
+import {
+  ASSISTANT_KEY,
+  ASSISTANT_MODELS,
+  DEFAULT_ASSISTANT_MODEL,
+  DEFAULT_ASSISTANT_PROMPT,
+  OPEN_METEO_TOOL_KEY,
+  openMeteoTool,
+  runGemini,
+  type AssistantToolDefinition,
+} from "@rueisiang/assistant";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { cyberbizClient } from "../cyberbiz.js";
+import { decryptLineSecret } from "../line-secrets.js";
+import {
+  isLineWebhookEvent,
+  lineEventGroup,
+  lineEventIsMentioned,
+  lineEventText,
+  lineQuestionText,
+  pushLineMessage,
+  replyLineMessage,
+  verifyLineWebhookSignature,
+  type LineWebhookPayload,
+} from "../line.js";
 
 /**
  * CYBERBIZ 送進來的 webhook。
@@ -16,6 +49,108 @@ import { cyberbizClient } from "../cyberbiz.js";
 
 /** 2 MB。正常的會員事件遠小於這個，超過的多半是打錯地方。 */
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const LINE_TOOL_DEFINITIONS: AssistantToolDefinition[] = [openMeteoTool];
+const LINE_MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
+
+async function runLineAssistant(input: {
+  db: AppEnv["Variables"]["db"];
+  env: AppEnv["Bindings"];
+  accessToken: string;
+  lineGroupId: string;
+  userText: string;
+}): Promise<void> {
+  if (!input.env.GEMINI_API_KEY || !input.accessToken) return;
+  await ensureAssistantDefaults(input.db, {
+    assistantKey: ASSISTANT_KEY,
+    defaultModel: DEFAULT_ASSISTANT_MODEL,
+    defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
+    toolKeys: [OPEN_METEO_TOOL_KEY],
+  });
+  const [config, prompt, configuredTools, messages] = await Promise.all([
+    getAssistantConfig(input.db, ASSISTANT_KEY),
+    getActiveAssistantPrompt(input.db, ASSISTANT_KEY),
+    listAssistantToolConfigs(input.db),
+    listAssistantLineMessages(input.db, { assistantKey: ASSISTANT_KEY, lineGroupId: input.lineGroupId, limit: 12 }),
+  ]);
+  const model = LINE_MODEL_MAP.get(config?.activeModel ?? DEFAULT_ASSISTANT_MODEL);
+  if (!model?.supported || !prompt) throw new Error("小香的模型或 prompt 設定目前無法使用。");
+
+  const enabledTools = new Set(configuredTools.filter((tool) => tool.status === "enabled").map((tool) => tool.key));
+  const tools = LINE_TOOL_DEFINITIONS.filter((tool) => enabledTools.has(tool.key));
+  const context = messages
+    .map((message) => message.text.length > 1_000 ? `${message.text.slice(0, 1_000)}…` : message.text)
+    .join("\n");
+  const promptText = [
+    "以下是同一個 LINE 群組中最近的提及訊息，請把它們視為使用者提供的對話內容：",
+    context,
+    "\n請回答這次最新問題：",
+    lineQuestionText(input.userText),
+  ].join("\n").slice(0, 8_000);
+  const runId = crypto.randomUUID();
+  const started = Date.now();
+  try {
+    const result = await runGemini({
+      apiKey: input.env.GEMINI_API_KEY,
+      model: model.id,
+      systemPrompt: prompt.systemPrompt,
+      userText: promptText,
+      tools,
+    });
+    if (result.thoughts) {
+      console.info("LINE 小香 thought summary", {
+        runId,
+        groupId: input.lineGroupId,
+        thoughts: result.thoughts.slice(0, 12_000),
+      });
+    }
+    await pushLineMessage(input.accessToken, input.lineGroupId, result.text);
+    await recordAssistantRun(input.db, {
+      id: runId,
+      channel: "line",
+      groupId: input.lineGroupId,
+      model: model.id,
+      promptRevisionId: prompt.id,
+      inputChars: promptText.length,
+      outputChars: result.text.length,
+      usage: result.usage,
+      status: "success",
+      durationMs: Date.now() - started,
+      toolCalls: result.toolCalls,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "小香目前無法完成回答。";
+    console.error("LINE 小香回覆失敗", { runId, groupId: input.lineGroupId, error });
+    await recordAssistantRun(input.db, {
+      id: runId,
+      channel: "line",
+      groupId: input.lineGroupId,
+      model: model.id,
+      promptRevisionId: prompt.id,
+      inputChars: promptText.length,
+      outputChars: 0,
+      usage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
+      status: "failed",
+      durationMs: Date.now() - started,
+      errorMessage: message,
+      toolCalls: [],
+    });
+    try {
+      await pushLineMessage(input.accessToken, input.lineGroupId, "小香目前無法完成回答，請稍後再試。");
+    } catch (pushError) {
+      console.error("LINE 錯誤提示也無法送出", { runId, groupId: input.lineGroupId, error: pushError });
+    }
+  }
+}
+
+function scheduleLineAssistant(c: { executionCtx: { waitUntil(promise: Promise<unknown>): void } }, job: Promise<void>): Promise<void> {
+  try {
+    c.executionCtx.waitUntil(job);
+    return Promise.resolve();
+  } catch {
+    // 本機 node:http 與單元測試沒有 ExecutionContext，改成等待完成讓行為可驗證。
+    return job;
+  }
+}
 
 export const webhooks = new Hono<AppEnv>()
   .post("/cyberbiz/customers", async (c) => {
@@ -61,4 +196,93 @@ export const webhooks = new Hono<AppEnv>()
       configured: Boolean(c.env.CYBERBIZ_WEBHOOK_SECRET),
       events: ["會員註冊", "會員修改", "會員 UID 資料新增", "會員 UID 資料更新", "更新會員標籤"],
     });
+  })
+
+  .post("/line", async (c) => {
+    const declared = Number(c.req.header("content-length") || 0);
+    if (declared > MAX_BODY_BYTES) throw new HTTPException(413, { message: "Payload too large" });
+
+    const rawBody = await c.req.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+      throw new HTTPException(413, { message: "Payload too large" });
+    }
+    const lineChannel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    const storedSecret = lineChannel.channelSecretEncrypted
+      ? await decryptLineSecret(lineChannel.channelSecretEncrypted, c.env.AUTH_SESSION_SECRET)
+      : null;
+    const webhookSecret = storedSecret || c.env.LINE_CHANNEL_SECRET;
+    if (!webhookSecret) throw new HTTPException(503, { message: "LINE channel 尚未設定 webhook secret。" });
+    const storedAccessToken = lineChannel.accessTokenEncrypted
+      ? await decryptLineSecret(lineChannel.accessTokenEncrypted, c.env.AUTH_SESSION_SECRET)
+      : null;
+    const accessToken = storedAccessToken || c.env.LINE_CHANNEL_ACCESS_TOKEN;
+
+    const verified = await verifyLineWebhookSignature(
+      rawBody,
+      c.req.header("x-line-signature"),
+      webhookSecret,
+    );
+    if (!verified) throw new HTTPException(401, { message: "Invalid LINE webhook signature" });
+
+    let payload: LineWebhookPayload;
+    try {
+      payload = (rawBody ? JSON.parse(rawBody) : {}) as LineWebhookPayload;
+    } catch {
+      throw new HTTPException(400, { message: "Invalid JSON payload" });
+    }
+    if (!Array.isArray(payload.events)) throw new HTTPException(400, { message: "LINE webhook events 格式不正確。" });
+
+    let recorded = 0;
+    let duplicates = 0;
+    let ignored = 0;
+    for (const rawEvent of payload.events) {
+      if (!isLineWebhookEvent(rawEvent)) {
+        ignored += 1;
+        continue;
+      }
+      const event = rawEvent;
+      const text = lineEventText(event);
+      const group = lineEventGroup(event);
+      if (!text || !group || !lineEventIsMentioned(event)) {
+        ignored += 1;
+        continue;
+      }
+
+      const lineGroup = await upsertAssistantLineGroup(c.get("db"), {
+        assistantKey: ASSISTANT_KEY,
+        lineGroupId: group.id,
+      });
+      const webhookEventId = event.webhookEventId
+        || `fallback:${event.timestamp ?? 0}:${event.message?.id ?? crypto.randomUUID()}`;
+      const result = await recordAssistantLineMessage(c.get("db"), {
+        assistantKey: ASSISTANT_KEY,
+        lineGroupId: lineGroup.lineGroupId,
+        sourceType: group.sourceType,
+        webhookEventId,
+        lineMessageId: event.message?.id,
+        lineUserId: event.source?.userId,
+        text,
+      });
+      if (result.inserted) recorded += 1;
+      else duplicates += 1;
+
+      if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken) {
+        if (event.replyToken) {
+          try {
+            await replyLineMessage(accessToken, event.replyToken, "收到，正在整理資訊，請稍候…");
+          } catch (error) {
+            console.error("LINE 收件確認訊息送出失敗", { groupId: lineGroup.lineGroupId, error });
+          }
+        }
+        await scheduleLineAssistant(c, runLineAssistant({
+          db: c.get("db"),
+          env: c.env,
+          accessToken,
+          lineGroupId: lineGroup.lineGroupId,
+          userText: text,
+        }));
+      }
+    }
+
+    return c.json({ status: "accepted", recorded, duplicates, ignored });
   });

@@ -1,7 +1,8 @@
-import { AssistantError, type AssistantRunResult, type AssistantToolCall, type AssistantToolDefinition, type AssistantUsage } from "./types.js";
+import { AssistantError, type AssistantConversationMessage, type AssistantRunResult, type AssistantToolCall, type AssistantToolDefinition, type AssistantUsage } from "./types.js";
 
 interface GeminiPart {
   text?: string;
+  thought?: boolean;
   functionCall?: { name?: string; args?: unknown };
   functionResponse?: { name?: string; response?: unknown };
   [key: string]: unknown;
@@ -24,6 +25,12 @@ interface GeminiResponse {
 interface GeminiRequest {
   system_instruction: { parts: Array<{ text: string }> };
   contents: GeminiContent[];
+  generationConfig?: {
+    thinkingConfig?: {
+      includeThoughts?: boolean;
+      thinkingLevel?: "minimal" | "low" | "medium" | "high";
+    };
+  };
   tools?: Array<{ functionDeclarations: Array<{
     name: string;
     description: string;
@@ -92,11 +99,32 @@ function readToolCalls(parts: GeminiPart[]): Array<{ name: string; args: unknown
 }
 
 function readText(parts: GeminiPart[]): string {
-  return parts.map((part) => part.text ?? "").join("").trim();
+  return parts
+    .filter((part) => part.thought !== true)
+    .map((part) => part.text ?? "")
+    .join("")
+    .trim();
+}
+
+function readThoughts(parts: GeminiPart[]): string {
+  return parts
+    .filter((part) => part.thought === true)
+    .map((part) => part.text ?? "")
+    .join("")
+    .trim();
 }
 
 function modelId(value: string): string {
   return value.replace(/^models\//, "");
+}
+
+function generationConfigFor(model: string): GeminiRequest["generationConfig"] {
+  // Keep thought summaries available to the caller. Sandbox collapses them;
+  // LINE writes them to the Worker log but only sends the final answer.
+  if (model.startsWith("gemma-4-")) {
+    return { thinkingConfig: { thinkingLevel: "high", includeThoughts: true } };
+  }
+  return { thinkingConfig: { includeThoughts: true } };
 }
 
 export async function runGemini(input: {
@@ -104,12 +132,17 @@ export async function runGemini(input: {
   model: string;
   systemPrompt: string;
   userText: string;
+  conversation?: AssistantConversationMessage[];
   tools: AssistantToolDefinition[];
   maxToolRounds?: number;
 }): Promise<AssistantRunResult> {
   const toolsByName = new Map(input.tools.map((tool) => [tool.key, tool]));
-  const contents: GeminiContent[] = [{ role: "user", parts: [{ text: input.userText }] }];
+  const contents: GeminiContent[] = [
+    ...(input.conversation ?? []).map((message) => ({ role: message.role, parts: [{ text: message.text }] })),
+    { role: "user", parts: [{ text: input.userText }] },
+  ];
   const usage = emptyUsage();
+  const thoughts: string[] = [];
   const toolCalls: AssistantToolCall[] = [];
   const declarations = input.tools.map((tool) => ({
     name: tool.key,
@@ -118,6 +151,7 @@ export async function runGemini(input: {
   }));
   const requestBase = {
     system_instruction: { parts: [{ text: input.systemPrompt }] },
+    generationConfig: generationConfigFor(modelId(input.model)),
     tools: declarations.length ? [{ functionDeclarations: declarations }] : undefined,
   };
   const maxToolRounds = input.maxToolRounds ?? 3;
@@ -129,10 +163,12 @@ export async function runGemini(input: {
     });
     addUsage(usage, response.usageMetadata);
     const parts = response.candidates?.[0]?.content?.parts ?? [];
+    const thoughtText = readThoughts(parts);
+    if (thoughtText) thoughts.push(thoughtText);
     const calls = readToolCalls(parts);
     if (!calls.length) {
       const text = readText(parts);
-      if (text) return { text, toolCalls, usage };
+      if (text) return { text, thoughts: thoughts.join("\n\n"), toolCalls, usage };
       throw new AssistantError("模型沒有產生可顯示的文字回答。");
     }
     if (round === maxToolRounds) throw new AssistantError("工具呼叫次數已達上限，請縮小問題範圍後再試。" );
@@ -163,5 +199,36 @@ export async function runGemini(input: {
     contents.push({ role: "user", parts: functionResponses });
   }
 
-  throw new AssistantError("AI 助理沒有完成回答。");
+  throw new AssistantError("AI assistant did not complete the response.");
+}
+
+/**
+ * Create a compact, durable memory for a long Sandbox conversation.
+ * The source conversation stays in D1; this result is only used as model context.
+ */
+export async function summarizeAssistantConversation(input: {
+  apiKey: string;
+  model: string;
+  existingSummary?: string;
+  messages: AssistantConversationMessage[];
+}): Promise<AssistantRunResult> {
+  const source = [
+    input.existingSummary?.trim() ? `Existing summary:\n${input.existingSummary.trim()}` : "",
+    ...input.messages.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.text}`),
+  ].filter(Boolean).join("\n\n").slice(-48_000);
+
+  return runGemini({
+    apiKey: input.apiKey,
+    model: input.model,
+    systemPrompt: [
+      "You maintain memory for an internal company assistant.",
+      "Summarize the supplied conversation in Traditional Chinese.",
+      "Keep confirmed facts, user intent, decisions, constraints, unresolved questions, and useful tool results.",
+      "Remove greetings, repetition, hidden reasoning, and unsupported assumptions.",
+      "Output only the summary. Do not output JSON, headings about your process, API keys, or chain-of-thought.",
+    ].join("\n"),
+    userText: source || "目前沒有可摘要的對話。",
+    tools: [],
+    maxToolRounds: 0,
+  });
 }
