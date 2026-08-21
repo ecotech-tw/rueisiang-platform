@@ -270,6 +270,94 @@ describe("庫存品項", () => {
   });
 });
 
+/*
+ * 安全庫存的真相來源。
+ *
+ * 已連結的商品，數量與安全庫存都以官網為準（見 wms-sync.ts）。數量本來就走盤點
+ * 不走這張表單，安全庫存也要比照——不擋的話會發生一件很難查的事：改了不會推上
+ * 官網，而且下次同步就被官網的值蓋回去，使用者看到自己的修改安靜地消失。
+ */
+describe("安全庫存以官網為準", () => {
+  beforeEach(async () => {
+    await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
+    await db.insert(inventoryItems).values({
+      id: "i1", sku: "BOX-01", name: "紙箱", category: "一般備品", quantity: 10, minStock: 5,
+    });
+  });
+
+  async function edit(body: Record<string, unknown>) {
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    return as(id, "admin@ecotech.tw", "/api/wms/items/i1", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function link() {
+    await db.insert(cyberbizProductLinks).values({
+      id: "l1", inventoryItemId: "i1", cyberbizProductId: "p1", cyberbizVariantId: "v1", sku: "BOX-01",
+    });
+  }
+
+  it("沒連結時照樣可以改", async () => {
+    const response = await edit({ minStock: 50 });
+    expect(response.status).toBe(200);
+    const [item] = await db.select().from(inventoryItems);
+    expect(item?.minStock).toBe(50);
+  });
+
+  it("已連結時改安全庫存會被擋下來，而且值沒有動", async () => {
+    await link();
+    const response = await edit({ minStock: 50 });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("官網") });
+    const [item] = await db.select().from(inventoryItems);
+    expect(item?.minStock).toBe(5);
+  });
+
+  /*
+   * 表單會把整份欄位送回來，其中包含沒有變動的安全庫存。那種情況報錯的話，
+   * 已連結的商品就連名字都改不了了。
+   */
+  it("已連結但安全庫存沒變時，其他欄位照樣改得動", async () => {
+    await link();
+    const response = await edit({ name: "大紙箱", minStock: 5 });
+
+    expect(response.status).toBe(200);
+    const [item] = await db.select().from(inventoryItems);
+    expect(item?.name).toBe("大紙箱");
+  });
+
+  it("已連結時完全不送 minStock 也不受影響", async () => {
+    await link();
+    const response = await edit({ name: "大紙箱" });
+
+    expect(response.status).toBe(200);
+    const [item] = await db.select().from(inventoryItems);
+    expect(item?.minStock).toBe(5);
+  });
+
+  /*
+   * 反方向仍然要通：官網同步回來時就是要改這個值，那條路不受這個限制。
+   */
+  it("從官網同步回來時照樣寫得進去", async () => {
+    await link();
+    const { applySyncPlan, buildSyncPlan } = await import("@rueisiang/db");
+    await applySyncPlan(
+      db,
+      buildSyncPlan(
+        [{ linkId: "l1", inventoryItemId: "i1", cyberbizProductId: "p1", cyberbizVariantId: "v1", linkedSku: "BOX-01", itemSku: "BOX-01", itemName: "紙箱", quantity: 10, minStock: 5 }],
+        [{ productId: "p1", variantId: "v1", sku: "BOX-01", quantity: 10, safetyQuantity: 99 }],
+      ),
+      null,
+    );
+
+    const [item] = await db.select().from(inventoryItems);
+    expect(item?.minStock).toBe(99);
+  });
+});
+
 describe("盤點", () => {
   beforeEach(async () => {
     await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });

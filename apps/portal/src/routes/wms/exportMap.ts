@@ -113,8 +113,18 @@ export async function downloadMapImage(data: ExportInput): Promise<void> {
     const padding = Math.max(6, Math.min(12, width * 0.05));
 
     const items = data.items.filter((item) => item.zoneId === zone.id);
-    const total = items.reduce((sum, item) => sum + item.quantity, 0);
     const low = items.some((item) => item.quantity < item.minStock);
+
+    /*
+     * 依層架順序排，同一層之內照名稱——跟畫面上那張圖一致。印出來貼在倉庫牆上
+     * 的人，看到的順序要對得上架上實際由上而下的位置。
+     */
+    const shelfOrder = new Map(zone.shelfLevels.map((level, index) => [level.id, index]));
+    const listed = [...items].sort((a, b) => {
+      const left = shelfOrder.get(a.shelfLevel ?? "") ?? Number.MAX_SAFE_INTEGER;
+      const right = shelfOrder.get(b.shelfLevel ?? "") ?? Number.MAX_SAFE_INTEGER;
+      return left - right || a.name.localeCompare(b.name, "zh-TW");
+    });
 
     context.save();
     roundedRect(context, x, y, width, height, 10);
@@ -155,17 +165,43 @@ export async function downloadMapImage(data: ExportInput): Promise<void> {
     context.font = font(Math.max(9, Math.min(13, height * 0.1)), 500);
     context.fillText(fit(context, zone.name, width - padding * 2), x + padding, y + padding + codeSize + 4);
 
-    // 總件數：印出來之後最常被遠遠看一眼的就是這個數字，所以放最大。
-    const totalSize = Math.max(13, Math.min(24, height * 0.2));
-    context.textBaseline = "bottom";
-    context.font = font(totalSize, 700);
-    // 「件」要接在數字後面，所以寬度要用**大字型**量——換成小字型再量會短一截，
-    // 單位就疊到數字上。
-    const totalText = fit(context, total.toLocaleString("zh-TW"), width - padding * 2 - 20);
-    const totalWidth = context.measureText(totalText).width;
-    context.fillText(totalText, x + padding, y + height - padding);
-    context.font = font(Math.max(8, totalSize * 0.5), 400);
-    context.fillText("件", x + padding + totalWidth + 3, y + height - padding);
+    /*
+     * 放了什麼商品，不是放了幾件。
+     *
+     * 這張圖會被印出來貼在倉庫牆上，看它的人要找的是「那個東西在哪一格」。
+     * 數量印在紙上第二天就過期了，反而會被當真。
+     */
+    const lineSize = Math.max(8, Math.min(11, height * 0.08));
+    const lineHeight = lineSize + 3;
+    const top = y + padding + codeSize + Math.max(9, Math.min(13, height * 0.1)) + 8;
+    const rows = Math.floor((y + height - padding - top) / lineHeight);
+
+    if (rows > 0) {
+      const overflowing = listed.length > rows;
+      const visible = listed.slice(0, overflowing ? Math.max(0, rows - 1) : rows);
+
+      context.font = font(lineSize, 400);
+      context.fillStyle = ink;
+      context.globalAlpha = 0.85;
+      visible.forEach((item, index) => {
+        context.fillText(
+          fit(context, item.name, width - padding * 2),
+          x + padding,
+          top + index * lineHeight,
+        );
+      });
+
+      const hidden = listed.length - visible.length;
+      if (hidden > 0) {
+        context.globalAlpha = 0.6;
+        context.fillText(
+          `還有 ${hidden} 項`,
+          x + padding,
+          top + visible.length * lineHeight,
+        );
+      }
+      context.globalAlpha = 1;
+    }
 
     context.restore();
   }

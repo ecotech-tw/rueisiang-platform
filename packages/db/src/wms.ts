@@ -482,6 +482,31 @@ export async function updateItem(
   const placement = await resolvePlacement(db, zoneId, shelfLevel ?? null);
 
   /*
+   * 已連結的商品不能在這裡改安全庫存。
+   *
+   * **官網是安全庫存的真相來源**，跟數量一樣（見 wms-sync.ts）。在這裡改的話
+   * 有兩件事會發生：不會推上官網，而且下次同步就被官網的值蓋回去——改動不是
+   * 沒生效，是會消失。與其讓它安靜地消失，不如當場說清楚。
+   *
+   * 只有真的要改成不同的值才擋。表單會把整份欄位送回來，其中包含沒有變動的
+   * 安全庫存；那種情況不該報錯。
+   */
+  const wantsMinStock = clamp(input.minStock, current.minStock, QUANTITY);
+  if (wantsMinStock !== current.minStock) {
+    const [link] = await db
+      .select({ id: cyberbizProductLinks.id })
+      .from(cyberbizProductLinks)
+      .where(eq(cyberbizProductLinks.inventoryItemId, id))
+      .limit(1);
+    if (link) {
+      throw new WmsError(
+        "conflict",
+        "這項商品已連結 CYBERBIZ，安全庫存以官網為準，請到官網修改。",
+      );
+    }
+  }
+
+  /*
    * 數量不在這裡改，要走 countItem。
    *
    * 「編輯商品資料」與「盤點」是兩件事，權限也不同（wms:inventory:write 與
@@ -493,7 +518,7 @@ export async function updateItem(
     name: input.name?.trim() || current.name,
     category,
     unit: input.unit?.trim() || current.unit,
-    minStock: clamp(input.minStock, current.minStock, QUANTITY),
+    minStock: wantsMinStock,
     zoneId: placement.zoneId,
     shelfLevel: placement.shelfLevel,
     notes: input.notes === undefined ? current.notes : input.notes.trim(),

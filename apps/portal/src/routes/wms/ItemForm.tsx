@@ -36,6 +36,12 @@ export function ItemForm({
   categories: ProductCategory[];
   onClose: () => void;
 }) {
+  /*
+   * 已連結的話，數量與安全庫存的真相來源都是官網（見 packages/db 的 wms-sync.ts）。
+   * 數量本來就不在這張表單裡改（走盤點），安全庫存也要比照。
+   */
+  const linkedToCyberbiz = Boolean(item?.cyberbiz);
+
   const [fields, setFields] = useState({
     sku: item?.sku ?? "",
     name: item?.name ?? "",
@@ -177,6 +183,13 @@ export function ItemForm({
                 onChange={(event) => set({ unit: event.target.value })}
               />
             </label>
+            {/*
+              * 已連結的商品，安全庫存以官網為準，這裡鎖起來。
+              *
+              * 不鎖的話會很難解釋：改了不會推上官網，而且下次同步就被官網的值蓋
+              * 回去——使用者看到的是自己的修改安靜地消失。與其之後才發現，不如
+              * 一開始就說清楚要去哪裡改。
+              */}
             <label className="field">
               <span>安全庫存</span>
               <input
@@ -184,9 +197,14 @@ export function ItemForm({
                 min={0}
                 inputMode="numeric"
                 value={fields.minStock}
+                disabled={linkedToCyberbiz}
                 onChange={(event) => set({ minStock: event.target.value })}
               />
-              <small>低於這個數量會被標成需要補貨。</small>
+              <small>
+                {linkedToCyberbiz
+                  ? "已連結 CYBERBIZ，安全庫存以官網為準，請到官網修改。"
+                  : "低於這個數量會被標成需要補貨。"}
+              </small>
             </label>
           </div>
 

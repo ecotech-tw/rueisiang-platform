@@ -975,26 +975,23 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-weight: 700;
 }
 .map-zone-name { font-size: 11px; opacity: .82; }
-/* 總件數放最大：遠遠看一眼地圖時，要找的就是這個數字。 */
-.map-zone-total { margin-top: auto; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
-.map-zone-total small { margin-left: 2px; font-size: 10px; font-weight: 400; opacity: .7; }
-
-/* 每層的數量。欄數由 JS 依方塊的像素寬度算出來，放不下就收成「更多 +N」。 */
-.map-zone-levels { display: grid; gap: 3px; margin-top: 4px; }
-.map-zone-levels em {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
+/*
+ * 放了什麼商品。列數由 JS 依方塊的像素高度算出來，放不下就收成「還有 N 項」。
+ *
+ * 單欄不分欄：商品名稱長，分兩欄之後每欄只剩兩三個字加省略號，等於什麼都沒說。
+ */
+.map-zone-items { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; min-height: 0; }
+.map-zone-items em {
+  overflow: hidden;
   padding: 1px 5px;
   border-radius: 4px;
   background: --alpha(var(--color-paper) / 70%);
   font-style: normal;
   font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.map-zone-levels i { overflow: hidden; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
-.map-zone-levels b { flex: none; font-weight: 700; }
-.map-zone-more { background: --alpha(var(--color-ink) / 8%); }
+.map-zone-more { background: --alpha(var(--color-ink) / 8%); opacity: .75; }
 
 /* 標籤是牆、走道這種東西：文字置中、虛線框，視覺上退到倉位後面。 */
 .map-element {
@@ -1856,6 +1853,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font: inherit;
 }
 .field select:disabled { background: var(--color-soft-line); color: var(--color-muted); }
+/* 唯讀的欄位（例如已連結 CYBERBIZ 的安全庫存）跟 select 用同一個外觀，看起來是鎖住不是壞掉。 */
+.field input:disabled { background: var(--color-soft-line); color: var(--color-muted); cursor: not-allowed; }
 /*
  * input 的預設寬度是 ~20 個字元，而 grid item 的 min-width 預設是 auto——兩件事
  * 加起來，欄位就縮不到比那個預設寬度更窄。三個窄欄位並排時會直接撐爆對話框，
