@@ -33,6 +33,17 @@ export interface Zone {
   imageCount: number;
 }
 
+/** 一個品項跟 CYBERBIZ 款式的連結。沒連結時是 null。 */
+export interface CyberbizLink {
+  cyberbizProductId: string;
+  cyberbizVariantId: string;
+  sku: string;
+  syncStatus: string;
+  lastSyncedQuantity: number | null;
+  lastSyncedAt: string | null;
+  lastError: string;
+}
+
 export interface InventoryItem {
   id: string;
   sku: string | null;
@@ -45,6 +56,8 @@ export interface InventoryItem {
   shelfLevel: string | null;
   notes: string;
   updatedAt: string;
+  /** 連到 CYBERBIZ 的哪一個款式。地圖與庫存頁都要看得出來。 */
+  cyberbiz: CyberbizLink | null;
 }
 
 export interface ProductCategory {
@@ -309,4 +322,39 @@ export function useUploadZoneImage() {
 
 export function useDeleteZoneImage() {
   return useZoneImageMutation((id: string) => write<{ ok: true }>(`/api/wms/images/${id}`, "DELETE"));
+}
+
+// ───────────────────────── CYBERBIZ 連結 ─────────────────────────
+
+/**
+ * 用 SKU 把品項連到官網的款式。
+ *
+ * 連結是用 **SKU 去官網找**，不是讓人自己貼 product_id／variant_id——那兩個
+ * 沒有人記得住，貼錯又不會馬上出事（要等下一次同步才發現數量寫到別的商品上）。
+ */
+export function useLinkCyberbiz() {
+  return useWarehouseMutation(({ id, sku }: { id: string; sku: string }) =>
+    write<{ id: string; remote: { productName: string; variantName: string; quantity: number } }>(
+      `/api/wms/items/${id}/cyberbiz-link`,
+      "POST",
+      { sku },
+    ),
+  );
+}
+
+export function useUnlinkCyberbiz() {
+  return useWarehouseMutation((id: string) =>
+    write<{ ok: true }>(`/api/wms/items/${id}/cyberbiz-link`, "DELETE"),
+  );
+}
+
+/** 手動把官網的數量同步進來。只動已連結的品項。 */
+export function useSyncCyberbiz() {
+  return useWarehouseMutation((productId?: string) =>
+    write<{ updated: number; unchanged: number; failed: number; linked: number }>(
+      "/api/wms/cyberbiz/sync",
+      "POST",
+      productId ? { productId } : {},
+    ),
+  );
 }

@@ -1,12 +1,22 @@
 import { useState } from "react";
 import { Icon } from "../../shell/icons.js";
+import { useToast } from "../../shell/Toast.js";
 import {
   useCreateItem,
+  useLinkCyberbiz,
+  useUnlinkCyberbiz,
   useUpdateItem,
   type InventoryItem,
   type ProductCategory,
   type Zone,
 } from "./api.js";
+
+/** 這一欄有兩種格式：D1 的 CURRENT_TIMESTAMP 沒有時區，同步寫進來的是帶 Z 的 ISO。 */
+function formatTime(value: string): string {
+  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
+}
 
 /**
  * 新增／編輯商品。
@@ -41,6 +51,9 @@ export function ItemForm({
 
   const create = useCreateItem();
   const update = useUpdateItem();
+  const link = useLinkCyberbiz();
+  const unlink = useUnlinkCyberbiz();
+  const toast = useToast();
   const pending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
 
@@ -216,6 +229,72 @@ export function ItemForm({
             <span>備註</span>
             <input value={fields.notes} onChange={(event) => set({ notes: event.target.value })} />
           </label>
+
+          {/*
+            * CYBERBIZ 連結只在編輯既有商品時出現。
+            *
+            * 新增時不給連結：要連結得先去官網用 SKU 找到對應的款式，而那個請求
+            * 可能失敗（找不到、或有重複的 SKU）——那時候商品都還沒建起來，
+            * 使用者會停在一個「到底建了沒」的狀態。分成兩步比較清楚。
+            */}
+          {item ? (
+            <div className="field">
+              <span>CYBERBIZ 連結</span>
+              {item.cyberbiz ? (
+                <div className="link-panel linked">
+                  <div>
+                    <div className="cell-strong">已連結款式 {item.cyberbiz.cyberbizVariantId}</div>
+                    <div className="cell-sub">
+                      SKU {item.cyberbiz.sku}
+                      {item.cyberbiz.lastSyncedAt ? `・上次同步 ${formatTime(item.cyberbiz.lastSyncedAt)}` : ""}
+                    </div>
+                    {item.cyberbiz.lastError ? (
+                      <div className="cell-error">{item.cyberbiz.lastError}</div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button danger"
+                    disabled={unlink.isPending}
+                    onClick={() =>
+                      unlink.mutate(item.id, { onSuccess: () => toast.show("已解除連結，庫存數量保留") })
+                    }
+                  >
+                    {unlink.isPending ? "解除中…" : "解除連結"}
+                  </button>
+                </div>
+              ) : (
+                <div className="link-panel">
+                  <div>
+                    <div className="cell-sub">
+                      連結之後，盤點會把數量推回官網，官網的異動也同步得回來。
+                    </div>
+                    {!fields.sku.trim() ? (
+                      <div className="cell-sub">要先填 SKU——連結是用 SKU 去官網找的。</div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    disabled={!fields.sku.trim() || link.isPending}
+                    onClick={() =>
+                      link.mutate(
+                        { id: item.id, sku: fields.sku.trim() },
+                        {
+                          onSuccess: (result) =>
+                            toast.show(`已連結「${result.remote.productName}」，官網庫存 ${result.remote.quantity}`),
+                        },
+                      )
+                    }
+                  >
+                    {link.isPending ? "查詢官網中…" : "用 SKU 連結"}
+                  </button>
+                </div>
+              )}
+              {link.error ? <small className="form-error">{link.error.message}</small> : null}
+              {unlink.error ? <small className="form-error">{unlink.error.message}</small> : null}
+            </div>
+          ) : null}
 
           {error ? <p className="form-error" role="alert">{error.message}</p> : null}
 

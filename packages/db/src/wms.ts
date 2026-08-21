@@ -3,6 +3,7 @@ import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 import {
+  cyberbizProductLinks,
   inventoryItems,
   layoutElements,
   productCategories,
@@ -171,16 +172,24 @@ export async function loadWarehouse(db: Database) {
     .from(warehouseSettings)
     .where(eq(warehouseSettings.id, SETTINGS_ID));
 
-  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows] = await Promise.all([
     db.select().from(zones).orderBy(asc(zones.code)),
     db.select().from(layoutElements).orderBy(asc(layoutElements.label)),
     db.select().from(productCategories).orderBy(asc(productCategories.name)),
     db.select().from(inventoryItems).orderBy(asc(inventoryItems.name)),
     // 只要數量：地圖上每個倉位顯示一個相機圖示與張數，不需要圖片本身。
     db.select({ zoneId: zoneImages.zoneId, total: count() }).from(zoneImages).groupBy(zoneImages.zoneId),
+    /*
+     * 連結另外查一次，不 join 在商品上。
+     *
+     * join 的話兩張表都有 sku 欄位，回來的結果會對映錯位——這在 listCompanyLinks
+     * 踩過一次（quantity 拿到 minStock 的值）。分開查再自己配對，沒有那個問題。
+     */
+    db.select().from(cyberbizProductLinks),
   ]);
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
+  const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
 
   return {
     // 設定那一列可能還沒建（全新的資料庫），給預設值而不是回 null。
@@ -195,7 +204,23 @@ export async function loadWarehouse(db: Database) {
     })),
     layoutElements: elementRows,
     categories: categoryRows,
-    items: itemRows,
+    items: itemRows.map((item) => {
+      const link = linksByItem.get(item.id);
+      return {
+        ...item,
+        cyberbiz: link
+          ? {
+              cyberbizProductId: link.cyberbizProductId,
+              cyberbizVariantId: link.cyberbizVariantId,
+              sku: link.sku,
+              syncStatus: link.syncStatus,
+              lastSyncedQuantity: link.lastSyncedQuantity,
+              lastSyncedAt: link.lastSyncedAt,
+              lastError: link.lastError,
+            }
+          : null,
+      };
+    }),
   };
 }
 
