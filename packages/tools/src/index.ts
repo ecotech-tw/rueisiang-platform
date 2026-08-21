@@ -5,6 +5,11 @@ import {
   openMeteoTool,
 } from "@rueisiang/assistant";
 import {
+  createOrderClient,
+  type CyberbizOrder,
+  type CyberbizOrderListFilters,
+} from "@rueisiang/cyberbiz";
+import {
   WMS_ENTITY_TYPES,
   findCustomer,
   listCustomerEvents,
@@ -137,6 +142,8 @@ export const CRM_GET_CUSTOMER_CONTEXT_TOOL_KEY = "crm_get_customer_context";
 export const CRM_LIST_CUSTOMER_EVENTS_TOOL_KEY = "crm_list_customer_events";
 export const CRM_LIST_CUSTOMER_TAGS_TOOL_KEY = "crm_list_customer_tags";
 export const CRM_GET_SYNC_STATUS_TOOL_KEY = "crm_get_sync_status";
+export const CRM_GET_CUSTOMER_ORDERS_TOOL_KEY = "crm_get_customer_orders";
+export const CRM_GET_CUSTOMER_SPENDING_SUMMARY_TOOL_KEY = "crm_get_customer_spending_summary";
 
 const wmsPermission = ["wms:inventory:read"] as const;
 const wmsMapPermission = ["wms:map:read"] as const;
@@ -423,7 +430,7 @@ const wmsGetActivityTool: PlatformToolDefinition = {
 const crmSearchCustomersTool: PlatformToolDefinition = {
   key: CRM_SEARCH_CUSTOMERS_TOOL_KEY,
   label: "CRM 搜尋客戶",
-  description: "搜尋與篩選 CRM 客戶資料，適合先找出客戶 ID，再取得單一客戶的完整背景；可依 Asia/Taipei 某天新增或更新的客戶篩選。CRM 目前沒有訂單或消費紀錄。只讀。",
+  description: "搜尋與篩選 CRM 客戶資料，適合先找出客戶 ID，再取得單一客戶的完整背景；可依 Asia/Taipei 某天新增或更新的客戶篩選。若要查訂單或消費紀錄，請再使用 CRM 客戶消費工具。只讀。",
   defaultStatus: "development",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["crm:customer:read"],
@@ -512,6 +519,309 @@ const crmGetCustomerContextTool: PlatformToolDefinition = {
   },
 };
 
+type CyberbizToolEnv = {
+  CYBERBIZ_API_TOKEN?: string;
+  CYBERBIZ_API_BASE_URL?: string;
+};
+
+type CustomerOrderSubject = {
+  crmCustomerId: string | null;
+  cyberbizCustomerId: string | null;
+  name: string;
+  phone: string;
+  email: string;
+};
+
+type CustomerOrderIdentity = {
+  subject: CustomerOrderSubject;
+  customer: CustomerToolRecord | null;
+};
+
+type CustomerOrderLookup =
+  | { kind: "not_found"; customerId: string }
+  | { kind: "unlinked"; subject: CustomerOrderSubject }
+  | {
+    kind: "matched";
+    subject: CustomerOrderSubject;
+    orders: CyberbizOrder[];
+    filters: CyberbizOrderListFilters;
+    dateRange: { fromDate: string | null; toDate: string | null; timeZone: string };
+    hasMore: boolean;
+    truncated: boolean;
+    scannedPages: number;
+  };
+
+const MAX_ORDER_SCAN_PAGES = 20;
+
+function cyberbizToolEnv(context: ToolContext | undefined): CyberbizToolEnv {
+  const env = (context?.env ?? {}) as CyberbizToolEnv;
+  if (!env.CYBERBIZ_API_TOKEN) {
+    throw new AssistantError("尚未設定 CYBERBIZ_API_TOKEN，無法即時查詢 CYBERBIZ 消費紀錄。");
+  }
+  return env;
+}
+
+function normalizePhoneCandidates(value: string): string[] {
+  const digits = value.replace(/\D/gu, "");
+  if (!digits) return [];
+  const candidates = new Set([digits]);
+  if (digits.startsWith("886") && digits.length > 3) candidates.add(`0${digits.slice(3)}`);
+  if (digits.startsWith("0") && digits.length > 1) candidates.add(`886${digits.slice(1)}`);
+  return [...candidates];
+}
+
+function samePhone(left: string, right: string): boolean {
+  const rightCandidates = new Set(normalizePhoneCandidates(right));
+  return normalizePhoneCandidates(left).some((candidate) => rightCandidates.has(candidate));
+}
+
+function sameEmail(left: string, right: string): boolean {
+  return Boolean(left.trim() && right.trim() && left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase());
+}
+
+function cyberbizDateTime(date: string, endOfDay: boolean): string {
+  taipeiDayRange(date);
+  return `${date} ${endOfDay ? "23:59:59" : "00:00:00"}`;
+}
+
+function customerOrderSubject(customer: CustomerToolRecord | null, input: unknown): CustomerOrderSubject {
+  return {
+    crmCustomerId: customer?.id ?? (textInput(input, "customerId") || null),
+    cyberbizCustomerId: textInput(input, "cyberbizCustomerId") || customer?.cyberbizCustomerId || null,
+    name: customer?.name ?? "",
+    phone: textInput(input, "phone") || customer?.phone || "",
+    email: textInput(input, "email") || customer?.email || "",
+  };
+}
+
+async function resolveCustomerOrderIdentity(input: unknown, context: ToolContext | undefined): Promise<CustomerOrderIdentity> {
+  const customerId = textInput(input, "customerId");
+  const customer = customerId ? await findCustomer(database(context), customerId) : null;
+  if (customerId && !customer) {
+    return {
+      customer: null,
+      subject: {
+        crmCustomerId: customerId,
+        cyberbizCustomerId: null,
+        name: "",
+        phone: "",
+        email: "",
+      },
+    };
+  }
+
+  const subject = customerOrderSubject(customer, input);
+  if (!subject.cyberbizCustomerId && !subject.phone && !subject.email) {
+    throw new AssistantError("CRM 查詢消費紀錄需要 customerId、cyberbizCustomerId、phone 或 email 其中一項。");
+  }
+  return { customer, subject };
+}
+
+function orderMatchesCustomer(order: CyberbizOrder, subject: CustomerOrderSubject): boolean {
+  const cyberbizIdMatches = Boolean(
+    subject.cyberbizCustomerId && order.customer.id && subject.cyberbizCustomerId === order.customer.id,
+  );
+  const emailMatches = [order.customer.email, order.buyerEmail].some((email) => sameEmail(subject.email, email));
+  const phoneMatches = [order.customer.phone, order.buyerPhone, order.receiverPhone]
+    .some((phone) => samePhone(subject.phone, phone));
+  return cyberbizIdMatches || emailMatches || phoneMatches;
+}
+
+function orderQueryFilters(input: unknown): {
+  filters: CyberbizOrderListFilters;
+  dateRange: { fromDate: string | null; toDate: string | null; timeZone: string };
+} {
+  const fromDate = textInput(input, "fromDate") || null;
+  const toDate = textInput(input, "toDate") || null;
+  if (fromDate && toDate && fromDate > toDate) {
+    throw new AssistantError("CRM 消費紀錄的 fromDate 不能晚於 toDate。");
+  }
+
+  const financialStatus = textInput(input, "financialStatus");
+  const fulfillmentStatus = textInput(input, "fulfillmentStatus");
+  return {
+    filters: {
+      ...(fromDate ? { startTime: cyberbizDateTime(fromDate, false) } : {}),
+      ...(toDate ? { endTime: cyberbizDateTime(toDate, true) } : {}),
+      ...(financialStatus ? { financialStatuses: [financialStatus] } : {}),
+      ...(fulfillmentStatus ? { fulfillmentStatuses: [fulfillmentStatus] } : {}),
+    },
+    dateRange: { fromDate, toDate, timeZone: ASSISTANT_TIME_ZONE },
+  };
+}
+
+async function lookupCustomerOrders(
+  input: unknown,
+  context: ToolContext | undefined,
+  defaultLimit: number,
+  maxLimit: number,
+): Promise<CustomerOrderLookup> {
+  const identity = await resolveCustomerOrderIdentity(input, context);
+  if (textInput(input, "customerId") && !identity.customer) {
+    return { kind: "not_found", customerId: textInput(input, "customerId") };
+  }
+  if (!identity.subject.cyberbizCustomerId && !identity.subject.phone && !identity.subject.email) {
+    return { kind: "unlinked", subject: identity.subject };
+  }
+
+  const { filters, dateRange } = orderQueryFilters(input);
+  const requestedLimit = Math.min(maxLimit, boundedNumber(input, "limit", defaultLimit, maxLimit));
+  const env = cyberbizToolEnv(context);
+  const client = createOrderClient({ apiToken: env.CYBERBIZ_API_TOKEN!, baseUrl: env.CYBERBIZ_API_BASE_URL });
+  const orders: CyberbizOrder[] = [];
+  let scannedPages = 0;
+  let hasMore = false;
+
+  for (let page = 1; page <= MAX_ORDER_SCAN_PAGES; page += 1) {
+    const result = await client.fetchPage({ ...filters, page, perPage: 50, offset: (page - 1) * 50 });
+    scannedPages += 1;
+    for (const order of result.orders) {
+      if (orderMatchesCustomer(order, identity.subject)) orders.push(order);
+    }
+    hasMore = result.hasMore;
+    if (orders.length >= requestedLimit || !result.hasMore || result.orders.length === 0) break;
+  }
+
+  return {
+    kind: "matched",
+    subject: identity.subject,
+    orders: orders.slice(0, requestedLimit),
+    filters,
+    dateRange,
+    hasMore,
+    truncated: hasMore && scannedPages >= MAX_ORDER_SCAN_PAGES,
+    scannedPages,
+  };
+}
+
+function orderToolResult(lookup: CustomerOrderLookup): string {
+  if (lookup.kind === "not_found") return json({ found: false, customerId: lookup.customerId });
+  if (lookup.kind === "unlinked") {
+    return json({
+      found: true,
+      linked: false,
+      customer: lookup.subject,
+      message: "CRM 客戶尚未有可用的 CYBERBIZ customer id、phone 或 email，無法比對即時訂單。",
+    });
+  }
+  return json({
+    source: "cyberbiz_live",
+    customer: lookup.subject,
+    dateRange: lookup.dateRange,
+    filters: lookup.filters,
+    totalReturned: lookup.orders.length,
+    hasMore: lookup.hasMore,
+    truncated: lookup.truncated,
+    scannedPages: lookup.scannedPages,
+    retrievedAt: new Date().toISOString(),
+    orders: lookup.orders,
+  });
+}
+
+const crmGetCustomerOrdersTool: PlatformToolDefinition = {
+  key: CRM_GET_CUSTOMER_ORDERS_TOOL_KEY,
+  label: "CRM 查詢客戶消費紀錄",
+  description: "即時查詢 CYBERBIZ 訂單並依 CRM customerId、CYBERBIZ customerId、電話或 email 比對客戶；可依 Asia/Taipei 日期與付款／配送狀態篩選。這是即時訂單資料，不是 CRM 操作紀錄。只讀。",
+  defaultStatus: "development",
+  surfaces: ["sandbox", "mcp"],
+  requiredPermissions: ["crm:order:read"],
+  parameters: {
+    type: "object",
+    properties: {
+      customerId: { type: "string", description: "CRM 客戶 ID，通常先由 crm_search_customers 取得。" },
+      cyberbizCustomerId: { type: "string", description: "CYBERBIZ customer ID；若已有此 ID 可直接查詢。" },
+      phone: { type: "string", description: "客戶電話，可用來比對 CYBERBIZ 訂單。" },
+      email: { type: "string", description: "客戶 email，可用來比對 CYBERBIZ 訂單。" },
+      fromDate: { type: "string", description: "訂單建立起始日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
+      toDate: { type: "string", description: "訂單建立結束日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
+      financialStatus: { type: "string", description: "付款狀態，例如 paid、cod、refunded；可留空。" },
+      fulfillmentStatus: { type: "string", description: "配送狀態，例如 unshipped、fulfilled、received；可留空。" },
+      limit: { type: "string", description: "最多回傳幾筆訂單，預設 10，最多 25。" },
+    },
+  },
+  async execute(input, context) {
+    return orderToolResult(await lookupCustomerOrders(input, context, 10, 25));
+  },
+};
+
+const crmGetCustomerSpendingSummaryTool: PlatformToolDefinition = {
+  key: CRM_GET_CUSTOMER_SPENDING_SUMMARY_TOOL_KEY,
+  label: "CRM 客戶消費摘要",
+  description: "即時查詢 CYBERBIZ 訂單，彙整客戶訂單數、消費金額、平均客單價、最近消費與熱銷商品；可依 Asia/Taipei 日期與付款／配送狀態篩選。結果可能受掃描上限影響。只讀。",
+  defaultStatus: "development",
+  surfaces: ["sandbox", "mcp"],
+  requiredPermissions: ["crm:order:read"],
+  parameters: {
+    type: "object",
+    properties: {
+      customerId: { type: "string", description: "CRM 客戶 ID，通常先由 crm_search_customers 取得。" },
+      cyberbizCustomerId: { type: "string", description: "CYBERBIZ customer ID；若已有此 ID 可直接查詢。" },
+      phone: { type: "string", description: "客戶電話，可用來比對 CYBERBIZ 訂單。" },
+      email: { type: "string", description: "客戶 email，可用來比對 CYBERBIZ 訂單。" },
+      fromDate: { type: "string", description: "訂單建立起始日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
+      toDate: { type: "string", description: "訂單建立結束日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
+      financialStatus: { type: "string", description: "付款狀態，例如 paid、cod、refunded；可留空。" },
+      fulfillmentStatus: { type: "string", description: "配送狀態，例如 unshipped、fulfilled、received；可留空。" },
+    },
+  },
+  async execute(input, context) {
+    const lookup = await lookupCustomerOrders(input, context, 100, 100);
+    if (lookup.kind !== "matched") return orderToolResult(lookup);
+
+    const amounts = lookup.orders
+      .map((order) => order.totalPrice)
+      .filter((value): value is number => value !== null);
+    const totalSpent = Math.round(amounts.reduce((total, amount) => total + amount, 0) * 100) / 100;
+    const productMap = new Map<string, { name: string; sku: string; quantity: number; spent: number }>();
+    for (const order of lookup.orders) {
+      for (const item of order.lineItems) {
+        const key = `${item.sku}|${item.title}|${item.variantTitle}`;
+        const current = productMap.get(key) ?? {
+          name: [item.title, item.variantTitle].filter(Boolean).join(" / "),
+          sku: item.sku,
+          quantity: 0,
+          spent: 0,
+        };
+        current.quantity += item.quantity;
+        current.spent += item.totalPriceAfterDiscounts ?? (item.price === null ? 0 : item.price * item.quantity);
+        productMap.set(key, current);
+      }
+    }
+    const topProducts = [...productMap.values()]
+      .sort((left, right) => right.quantity - left.quantity || right.spent - left.spent)
+      .slice(0, 10)
+      .map((product) => ({ ...product, spent: Math.round(product.spent * 100) / 100 }));
+    const lastOrderAt = lookup.orders
+      .map((order) => order.createdAt)
+      .filter(Boolean)
+      .sort()
+      .at(-1) ?? null;
+    const refundedOrderCount = lookup.orders.filter((order) =>
+      ["refunded", "partial_refunded", "pending_refund"].includes(order.statuses.financialStatus) ||
+      ["returned", "partial_return"].includes(order.statuses.returnStatus),
+    ).length;
+
+    return json({
+      source: "cyberbiz_live",
+      customer: lookup.subject,
+      dateRange: lookup.dateRange,
+      filters: lookup.filters,
+      orderCount: lookup.orders.length,
+      totalSpent,
+      currency: "TWD",
+      averageOrderValue: lookup.orders.length ? Math.round((totalSpent / lookup.orders.length) * 100) / 100 : 0,
+      lastOrderAt,
+      refundedOrderCount,
+      topProducts,
+      complete: !lookup.hasMore && !lookup.truncated,
+      hasMore: lookup.hasMore,
+      truncated: lookup.truncated,
+      scannedPages: lookup.scannedPages,
+      retrievedAt: new Date().toISOString(),
+    });
+  },
+};
+
 const crmListCustomerEventsTool: PlatformToolDefinition = {
   key: CRM_LIST_CUSTOMER_EVENTS_TOOL_KEY,
   label: "CRM 查詢客戶操作紀錄",
@@ -590,6 +900,8 @@ export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   wmsGetActivityTool,
   crmSearchCustomersTool,
   crmGetCustomerContextTool,
+  crmGetCustomerOrdersTool,
+  crmGetCustomerSpendingSummaryTool,
   crmListCustomerEventsTool,
   crmListCustomerTagsTool,
   crmGetSyncStatusTool,

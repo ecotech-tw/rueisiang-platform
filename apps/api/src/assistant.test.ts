@@ -45,6 +45,7 @@ beforeEach(async () => {
     GOOGLE_OAUTH_CLIENT_ID: "client-id",
     GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
     GEMINI_API_KEY: "test-key",
+    CYBERBIZ_API_TOKEN: "cyberbiz-test-token",
   };
   await syncSystemRoles(db());
   vi.restoreAllMocks();
@@ -81,6 +82,8 @@ describe("AI 助理 Sandbox", () => {
       "wms_get_activity",
       "crm_search_customers",
       "crm_get_customer_context",
+      "crm_get_customer_orders",
+      "crm_get_customer_spending_summary",
       "crm_list_customer_events",
       "crm_list_customer_tags",
       "crm_get_sync_status",
@@ -96,6 +99,11 @@ describe("AI 助理 Sandbox", () => {
       status: "development",
       surfaces: ["sandbox", "line", "mcp"],
       requiredPermissions: ["crm:customer:read"],
+    });
+    expect(result.tools.find((tool) => tool.key === "crm_get_customer_orders")).toMatchObject({
+      status: "development",
+      surfaces: ["sandbox", "mcp"],
+      requiredPermissions: ["crm:order:read"],
     });
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
   });
@@ -346,6 +354,70 @@ describe("AI 助理 Sandbox", () => {
         { toolKey: "crm_search_customers", status: "success" },
         { toolKey: "crm_get_customer_context", status: "success" },
       ],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("Sandbox 可以即時查詢 CYBERBIZ 客戶訂單並只回傳整理後的資料", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(customers).values({
+      id: "crm-customer-order-1",
+      phone: "0912-345-678",
+      normalizedPhone: "0912345678",
+      name: "王小明",
+      email: "ming@example.com",
+      cyberbizCustomerId: "cyberbiz-7",
+      cyberbizRawJson: JSON.stringify({ secret: "should-not-leak" }),
+      createdAt: "2026-08-20 16:30:00",
+      updatedAt: "2026-08-20 16:30:00",
+    });
+
+    let geminiCalls = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/v1/orders")) {
+        expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer cyberbiz-test-token");
+        return new Response(JSON.stringify([{
+          id: 99,
+          order_number: "R-00099",
+          created_at: "2026-08-21 10:20:30",
+          customer: { id: "cyberbiz-7", name: "王小明", email: "ming@example.com", mobile: "0912345678" },
+          prices: { total_price: 1_280 },
+          statuses: { financial_status: "paid", fulfillment_status: "fulfilled" },
+          line_items: [{ title: "測試商品", sku: "SKU-1", quantity: 2, price: 640 }],
+        }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      geminiCalls += 1;
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      if (geminiCalls === 1) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ functionCall: {
+            name: "crm_get_customer_orders",
+            args: { customerId: "crm-customer-order-1", fromDate: "2026-08-21", toDate: "2026-08-21" },
+          } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      expect(JSON.stringify(body.contents)).toContain("R-00099");
+      expect(JSON.stringify(body.contents)).not.toContain("should-not-leak");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "王小明今天有 1 筆已付款訂單，金額為 1,280 元。" }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "gemini-3.6-flash",
+        toolKeys: ["crm_get_customer_orders"],
+        input: "請查詢王小明今天的消費紀錄",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "王小明今天有 1 筆已付款訂單，金額為 1,280 元。",
+      toolCalls: [{ toolKey: "crm_get_customer_orders", status: "success" }],
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });

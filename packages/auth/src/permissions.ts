@@ -16,6 +16,7 @@ export const PERMISSIONS = {
   "crm:activity:read": "檢視操作紀錄",
   "crm:sync:read": "檢視 CYBERBIZ 同步狀態",
   "crm:sync:trigger": "手動觸發 CYBERBIZ 同步",
+  "crm:order:read": "檢視客戶訂單與消費紀錄",
 
   // 倉儲管理系統
   "wms:map:read": "檢視倉位地圖",
@@ -58,6 +59,7 @@ export const SYSTEM_ROLES = {
       "crm:customer:read", "crm:customer:write", "crm:customer:block",
       "crm:tag:read", "crm:tag:write", "crm:view:write", "crm:activity:read",
       "crm:sync:read", "crm:sync:trigger",
+      "crm:order:read",
       "wms:map:read", "wms:map:write",
       "wms:inventory:read", "wms:inventory:write", "wms:inventory:count",
       "wms:category:write", "wms:activity:read", "wms:sync:trigger",

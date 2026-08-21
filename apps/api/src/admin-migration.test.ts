@@ -9,6 +9,9 @@ import { createLocalD1 } from "./local-d1/d1.js";
 const REPAIR_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0019_restore_admin_permissions.sql", import.meta.url),
 );
+const ORDER_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0020_add_crm_order_permission.sql", import.meta.url),
+);
 
 describe("bootstrap 管理員權限 migration", () => {
   it("把只有三個 admin 權限的既有管理員補齊，而且可以安全重跑", async () => {
@@ -30,6 +33,9 @@ describe("bootstrap 管理員權限 migration", () => {
     const sql = readFileSync(REPAIR_MIGRATION, "utf8");
     d1.sqlite.exec(sql);
     d1.sqlite.exec(sql);
+    const orderPermissionSql = readFileSync(ORDER_PERMISSION_MIGRATION, "utf8");
+    d1.sqlite.exec(orderPermissionSql);
+    d1.sqlite.exec(orderPermissionSql);
 
     const permissions = await db.select().from(rolePermissions);
     expect(permissions).toHaveLength(ALL_PERMISSIONS.length);

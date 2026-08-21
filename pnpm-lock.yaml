@@ -181,6 +181,9 @@ importers:
       '@rueisiang/assistant':
         specifier: workspace:*
         version: link:../assistant
+      '@rueisiang/cyberbiz':
+        specifier: workspace:*
+        version: link:../cyberbiz
       '@rueisiang/db':
         specifier: workspace:*
         version: link:../db
