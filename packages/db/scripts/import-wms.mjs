@@ -22,10 +22,24 @@
 
 import fs from "node:fs";
 
-/** SQLite 的字串常值：單引號要變成兩個。這是唯一需要跳脫的字元。 */
+/**
+ * SQLite 的字串常值。
+ *
+ * 兩件事要處理，第二件是實際搬資料時才發現的：
+ *
+ * 1. 單引號要變成兩個。
+ * 2. **換行不能留在常值裡。** SQLite 允許字串跨行，但套用這個檔案的工具是逐行
+ *    讀的——一句 INSERT 被換行切成兩半，就是兩句壞掉的 SQL。倉位 B003 的備註
+ *    （「黑豆乳：24」換行「護手霜：156」）就是這樣炸的。接成
+ *    `'甲' || char(10) || '乙'` 之後每一句保證在同一行，存進去的值一模一樣。
+ */
 function quote(value) {
   if (value === null || value === undefined) return "NULL";
-  return `'${String(value).replace(/'/g, "''")}'`;
+  const escaped = String(value).replace(/'/g, "''");
+  // CR 與 LF 都吃掉：來源是網頁的多行輸入框，兩種換行都可能出現。
+  const lines = escaped.split(/\r\n|\r|\n/);
+  if (lines.length === 1) return `'${escaped}'`;
+  return lines.map((line) => `'${line}'`).join(" || char(10) || ");
 }
 
 function number(value, fallback = 0) {

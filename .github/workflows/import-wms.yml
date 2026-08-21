@@ -1,0 +1,84 @@
+name: 匯入舊 WMS 的資料
+
+# 只能手動觸發，而且要自己打檔名——沒有預設值。
+#
+# 這支 workflow 會寫進**正式** D1。它之所以存在，是因為開發機跑不了 wrangler
+# （Windows on ARM 沒有 workerd），寫入正式資料庫只能在 Linux runner 上做。
+#
+# 安全性靠三件事：
+#
+# 1. 檔案裡全部是 INSERT OR IGNORE——**只補不改**。已經在平台上編輯過的資料
+#    不會被舊資料蓋掉，重跑也不會變成兩份。
+# 2. 檔案本身進過 PR，每一句寫什麼都看得到。
+# 3. 套用前後各數一次筆數，印在 log 裡。多了幾筆、什麼都沒多，一眼就知道。
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: "packages/db/imports/ 底下的檔名，例如 wms-2026-08-21.sql"
+        required: true
+        type: string
+
+# 不要跟部署同時跑：部署會套 migration，兩邊交錯改 schema 沒辦法推理。
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SQL_FILE: packages/db/imports/${{ inputs.file }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 補上 workerd 執行檔
+        run: pnpm rebuild workerd
+
+      # 路徑寫死在 packages/db/imports/ 底下，inputs 只給檔名——不讓 ../ 之類的
+      # 東西把這支 workflow 變成「拿任意檔案去打正式資料庫」的工具。
+      - name: 確認檔案存在且沒有越界
+        run: |
+          case "${{ inputs.file }}" in
+            */*|"") echo "::error::檔名不能包含路徑分隔符號。"; exit 1 ;;
+          esac
+          if [ ! -f "$SQL_FILE" ]; then
+            echo "::error::找不到 $SQL_FILE"
+            exit 1
+          fi
+          echo "::notice::準備套用 $SQL_FILE（$(grep -c '^INSERT' "$SQL_FILE") 句 INSERT）"
+
+      - name: 套用前的筆數
+        working-directory: apps/api
+        run: |
+          npx wrangler d1 execute rueisiang-platform --remote -y --command \
+            "SELECT 'zones' AS t, COUNT(*) AS n FROM zones
+             UNION ALL SELECT 'layout_elements', COUNT(*) FROM layout_elements
+             UNION ALL SELECT 'product_categories', COUNT(*) FROM product_categories
+             UNION ALL SELECT 'inventory_items', COUNT(*) FROM inventory_items
+             UNION ALL SELECT 'cyberbiz_product_links', COUNT(*) FROM cyberbiz_product_links"
+
+      - name: 匯入
+        working-directory: apps/api
+        run: npx wrangler d1 execute rueisiang-platform --remote -y --file "../../$SQL_FILE"
+
+      - name: 套用後的筆數
+        working-directory: apps/api
+        run: |
+          npx wrangler d1 execute rueisiang-platform --remote -y --command \
+            "SELECT 'zones' AS t, COUNT(*) AS n FROM zones
+             UNION ALL SELECT 'layout_elements', COUNT(*) FROM layout_elements
+             UNION ALL SELECT 'product_categories', COUNT(*) FROM product_categories
+             UNION ALL SELECT 'inventory_items', COUNT(*) FROM inventory_items
+             UNION ALL SELECT 'cyberbiz_product_links', COUNT(*) FROM cyberbiz_product_links"

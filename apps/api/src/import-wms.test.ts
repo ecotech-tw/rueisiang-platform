@@ -26,8 +26,8 @@ const DASHBOARD = {
       id: "z1", code: "A006", name: "醬菜類", category: "一般備品", color: "sky",
       x: 8, y: 10, width: 20, height: 18,
       shelfLevels: [{ id: "top", name: "板模1" }, { id: "mid", name: "板模2" }],
-      // 名字裡有單引號：SQL 常值一定要跳脫，不然整個檔案從這裡斷掉
-      notes: "老闆說 'don't touch'", createdAt: "2026-06-01 10:00:00", updatedAt: "2026-07-01 10:00:00",
+      // 兩個都是真的踩過的：單引號要跳脫，換行不能留在常值裡（見 quote() 的註解）
+      notes: "老闆說 'don't touch'\n第二行：不要動", createdAt: "2026-06-01 10:00:00", updatedAt: "2026-07-01 10:00:00",
     },
     { id: "z2", code: "D001", name: "包裝耗材", category: "包材", color: "sand", x: 40, y: 10, width: 25, height: 14, shelfLevels: [], notes: "", createdAt: null, updatedAt: null },
   ],
@@ -75,9 +75,9 @@ describe("匯入舊 WMS 的資料", () => {
     expect(all("SELECT * FROM layout_elements")).toHaveLength(1);
     expect(all("SELECT * FROM inventory_items")).toHaveLength(3);
 
-    // 名字裡的單引號要活著過來，而且沒有把 SQL 弄斷
+    // 單引號與換行都要活著過來，而且沒有把 SQL 弄斷
     const [zone] = all("SELECT notes, shelf_levels FROM zones WHERE code = 'A006'");
-    expect(zone?.notes).toBe("老闆說 'don't touch'");
+    expect(zone?.notes).toBe("老闆說 'don't touch'\n第二行：不要動");
     expect(JSON.parse(String(zone?.shelf_levels))).toHaveLength(2);
 
     // 沒有層架的倉位要補上預設的三層，不然商品沒地方放
@@ -107,6 +107,19 @@ describe("匯入舊 WMS 的資料", () => {
       sku: "ABALL001",
       warehouse_scope: "company",
     });
+  });
+
+  /*
+   * 一句 SQL 一行，這是套用端的前提。
+   *
+   * 真的搬資料時才發現倉位 B003 的備註裡有換行，而 quote() 當時直接把它寫進
+   * 常值——SQLite 允許，但逐行讀的套用端會把那句 INSERT 看成兩句壞掉的 SQL。
+   * 上面那個「備註有換行」的案例已經會踩到，這裡再直接把規則本身釘住。
+   */
+  it("每一句 SQL 都在同一行——套用端是逐行讀的", () => {
+    for (const line of generate(DASHBOARD).split("\n")) {
+      if (line.startsWith("INSERT")) expect(line.endsWith(";")).toBe(true);
+    }
   });
 
   it("照片不匯入——檔案還在 GCS，只搬索引會變成一堆破圖", () => {
