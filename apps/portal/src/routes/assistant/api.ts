@@ -166,6 +166,8 @@ export interface AssistantLineConfig {
   credentials: {
     channelSecretConfigured: boolean;
     accessTokenConfigured: boolean;
+    channelSecretDecryptionFailed: boolean;
+    accessTokenDecryptionFailed: boolean;
   };
   webhookUrl: string;
   groups: AssistantLineGroup[];

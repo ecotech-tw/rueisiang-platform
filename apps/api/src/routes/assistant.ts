@@ -26,6 +26,7 @@ import {
   getActiveAssistantPrompt,
   listAssistantPromptRevisions,
   listAssistantLineGroups,
+  listAllAssistantSandboxMessages,
   listAssistantSandboxMessages,
   listAssistantSandboxSessions,
   listAssistantToolConfigs,
@@ -35,13 +36,14 @@ import {
   updateAssistantLineChannel,
   updateAssistantLineGroup,
   updateAssistantSandboxContext,
+  updateAssistantSandboxSessionPromptRevision,
   updateAssistantSandboxSessionModel,
   upsertAssistantLineGroup,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
-import { encryptLineSecret } from "../line-secrets.js";
+import { decryptLineSecret, encryptLineSecret } from "../line-secrets.js";
 import { requireAnyPermission, requireAuth, requirePermission } from "../middleware/auth.js";
 import { body, requireString } from "../request.js";
 
@@ -80,8 +82,8 @@ function buildSandboxConversation(
   let retained = messages.slice(summaryCount);
   let context = [...summaryMessages, ...retained];
   while (context.length > 1 && contextChars(context) + userText.length > SANDBOX_CONTEXT_CHAR_LIMIT) {
-    if (retained.length) retained = retained.slice(1);
-    else context = context.slice(1);
+    if (!retained.length) break;
+    retained = retained.slice(1);
     context = [...summaryMessages, ...retained];
   }
   if (contextChars(context) + userText.length > SANDBOX_CONTEXT_CHAR_LIMIT && context.length) {
@@ -201,6 +203,14 @@ async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; ge
   const db = c.get("db");
   const channel = await ensureAssistantLineChannel(db, { assistantKey: ASSISTANT_KEY });
   const groups = await listAssistantLineGroups(db, ASSISTANT_KEY);
+  const [storedSecret, storedAccessToken] = await Promise.all([
+    channel.channelSecretEncrypted
+      ? decryptLineSecret(channel.channelSecretEncrypted, c.env.AUTH_SESSION_SECRET)
+      : Promise.resolve(null),
+    channel.accessTokenEncrypted
+      ? decryptLineSecret(channel.accessTokenEncrypted, c.env.AUTH_SESSION_SECRET)
+      : Promise.resolve(null),
+  ]);
   const baseUrl = c.env.PUBLIC_APP_URL?.trim() || new URL(c.req.url).origin;
   return {
     channel: {
@@ -213,6 +223,8 @@ async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; ge
     credentials: {
       channelSecretConfigured: Boolean(channel.channelSecretEncrypted || c.env.LINE_CHANNEL_SECRET),
       accessTokenConfigured: Boolean(channel.accessTokenEncrypted || c.env.LINE_CHANNEL_ACCESS_TOKEN),
+      channelSecretDecryptionFailed: Boolean(channel.channelSecretEncrypted) && !storedSecret,
+      accessTokenDecryptionFailed: Boolean(channel.accessTokenEncrypted) && !storedAccessToken,
     },
     webhookUrl: new URL("/api/webhooks/line", `${baseUrl.replace(/\/$/u, "")}/`).toString(),
     groups: groups.map((group) => ({
@@ -366,9 +378,17 @@ export const assistant = new Hono<AppEnv>()
     if (displayName.length > 120) throw new HTTPException(400, { message: "LINE 顯示名稱不能超過 120 字元。" });
     const channelId = requireString(input, "channelId", "LINE Channel ID");
     if (channelId.length > 120) throw new HTTPException(400, { message: "LINE Channel ID 不能超過 120 字元。" });
-    const channelSecret = input.channelSecret === undefined ? "" : requireString(input, "channelSecret", "LINE Channel Secret");
+    const channelSecret = input.channelSecret === undefined
+      ? ""
+      : typeof input.channelSecret === "string"
+        ? input.channelSecret.trim()
+        : requireString(input, "channelSecret", "LINE Channel Secret");
     if (channelSecret.length > 500) throw new HTTPException(400, { message: "LINE Channel Secret 格式不正確。" });
-    const accessToken = input.accessToken === undefined ? "" : requireString(input, "accessToken", "LINE Channel Access Token");
+    const accessToken = input.accessToken === undefined
+      ? ""
+      : typeof input.accessToken === "string"
+        ? input.accessToken.trim()
+        : requireString(input, "accessToken", "LINE Channel Access Token");
     if (accessToken.length > 2_000) throw new HTTPException(400, { message: "LINE Channel Access Token 格式不正確。" });
     await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
     await updateAssistantLineChannel(c.get("db"), {
@@ -501,12 +521,23 @@ export const assistant = new Hono<AppEnv>()
       });
     }
 
-    const promptId = session?.promptRevisionId ?? (typeof input.promptRevisionId === "string" ? input.promptRevisionId : undefined);
+    const requestedPromptId = typeof input.promptRevisionId === "string" && input.promptRevisionId.trim()
+      ? input.promptRevisionId.trim()
+      : undefined;
+    const promptId = requestedPromptId ?? session?.promptRevisionId;
     const prompt = promptId
       ? await findAssistantPromptRevision(c.get("db"), promptId)
       : await getActiveAssistantPrompt(c.get("db"), ASSISTANT_KEY);
     if (!prompt || prompt.assistantKey !== ASSISTANT_KEY) {
       throw new HTTPException(400, { message: "找不到這個 system prompt revision。" });
+    }
+    if (session && session.promptRevisionId !== prompt.id) {
+      await updateAssistantSandboxSessionPromptRevision(c.get("db"), {
+        assistantKey: ASSISTANT_KEY,
+        createdBy: c.get("user").id,
+        id: session.id,
+        promptRevisionId: prompt.id,
+      });
     }
 
     const configuredTools = await listAssistantToolConfigs(c.get("db"));
@@ -521,7 +552,7 @@ export const assistant = new Hono<AppEnv>()
     const runId = crypto.randomUUID();
     const started = Date.now();
     const sandboxMessages = session
-      ? await listAssistantSandboxMessages(c.get("db"), session.id)
+      ? await listAllAssistantSandboxMessages(c.get("db"), session.id)
       : [];
     if (session) {
       await maybeSummarizeSandboxContext({
@@ -545,7 +576,6 @@ export const assistant = new Hono<AppEnv>()
         userText,
       )
       : undefined;
-    if (session) await appendAssistantSandboxMessage(c.get("db"), { sessionId: session.id, role: "user", text: userText });
     try {
       const result = await runGemini({
         apiKey: c.env.GEMINI_API_KEY,
@@ -570,6 +600,7 @@ export const assistant = new Hono<AppEnv>()
         toolCalls: result.toolCalls,
       });
       if (session) {
+        await appendAssistantSandboxMessage(c.get("db"), { sessionId: session.id, role: "user", text: userText });
         await appendAssistantSandboxMessage(c.get("db"), {
           sessionId: session.id,
           role: "model",

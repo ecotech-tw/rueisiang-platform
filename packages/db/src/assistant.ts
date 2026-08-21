@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type {
   AssistantToolCall as RecordedToolCall,
   AssistantToolStatus,
@@ -43,6 +43,7 @@ export async function ensureAssistantLineChannel(
     .limit(1);
   if (existing) return existing;
 
+  const now = new Date().toISOString();
   await db.insert(assistantLineChannels).values({
     assistantKey: input.assistantKey,
     channelId: "",
@@ -51,6 +52,7 @@ export async function ensureAssistantLineChannel(
     displayName: DEFAULT_ASSISTANT_LINE_DISPLAY_NAME,
     enabled: false,
     updatedBy: input.updatedBy ?? "system",
+    updatedAt: now,
   }).onConflictDoNothing();
   const [created] = await db
     .select()
@@ -113,7 +115,10 @@ export async function listAssistantLineGroups(db: Database, assistantKey: string
     .select()
     .from(assistantLineGroups)
     .where(eq(assistantLineGroups.assistantKey, assistantKey))
-    .orderBy(desc(assistantLineGroups.discoveredAt));
+    .orderBy(
+      sql`CASE WHEN instr(${assistantLineGroups.discoveredAt}, 'T') > 0 THEN ${assistantLineGroups.discoveredAt} ELSE replace(${assistantLineGroups.discoveredAt}, ' ', 'T') || '.000Z' END DESC`,
+      desc(assistantLineGroups.id),
+    );
 }
 
 export async function findAssistantLineGroup(db: Database, input: { assistantKey: string; id: string }): Promise<AssistantLineGroup | null> {
@@ -130,11 +135,14 @@ export async function upsertAssistantLineGroup(
   input: { assistantKey: string; lineGroupId: string; displayName?: string },
 ): Promise<AssistantLineGroup> {
   const id = crypto.randomUUID();
+  const now = new Date().toISOString();
   await db.insert(assistantLineGroups).values({
     id,
     assistantKey: input.assistantKey,
     lineGroupId: input.lineGroupId,
     displayName: input.displayName ?? "",
+    discoveredAt: now,
+    updatedAt: now,
   }).onConflictDoNothing();
   const [created] = await db
     .select()
@@ -177,7 +185,7 @@ export async function recordAssistantLineMessage(
   },
 ): Promise<{ message: AssistantLineMessage; inserted: boolean }> {
   const id = crypto.randomUUID();
-  await db.insert(assistantLineMessages).values({ id, ...input }).onConflictDoNothing();
+  await db.insert(assistantLineMessages).values({ id, ...input, createdAt: new Date().toISOString() }).onConflictDoNothing();
   const [created] = await db.select().from(assistantLineMessages).where(and(
     eq(assistantLineMessages.assistantKey, input.assistantKey),
     eq(assistantLineMessages.webhookEventId, input.webhookEventId),
@@ -198,7 +206,10 @@ export async function listAssistantLineMessages(
       eq(assistantLineMessages.assistantKey, input.assistantKey),
       eq(assistantLineMessages.lineGroupId, input.lineGroupId),
     ))
-    .orderBy(desc(assistantLineMessages.createdAt))
+    .orderBy(
+      sql`CASE WHEN instr(${assistantLineMessages.createdAt}, 'T') > 0 THEN ${assistantLineMessages.createdAt} ELSE replace(${assistantLineMessages.createdAt}, ' ', 'T') || '.000Z' END DESC`,
+      desc(assistantLineMessages.id),
+    )
     .limit(limit);
   return rows.reverse();
 }
@@ -208,6 +219,7 @@ export async function createAssistantSandboxSession(
   input: { assistantKey: string; createdBy: string; model: string; promptRevisionId: string },
 ): Promise<AssistantSandboxSession> {
   const id = crypto.randomUUID();
+  const now = new Date().toISOString();
   await db.insert(assistantSandboxSessions).values({
     id,
     assistantKey: input.assistantKey,
@@ -215,6 +227,8 @@ export async function createAssistantSandboxSession(
     model: input.model,
     promptRevisionId: input.promptRevisionId,
     status: "open",
+    createdAt: now,
+    updatedAt: now,
   });
   const session = await getAssistantSandboxSession(db, { assistantKey: input.assistantKey, createdBy: input.createdBy, id });
   if (!session) throw new Error("建立 Sandbox session 後找不到資料。");
@@ -233,7 +247,10 @@ export async function listAssistantSandboxSessions(
       eq(assistantSandboxSessions.assistantKey, input.assistantKey),
       eq(assistantSandboxSessions.createdBy, input.createdBy),
     ))
-    .orderBy(desc(assistantSandboxSessions.updatedAt))
+    .orderBy(
+      sql`CASE WHEN instr(${assistantSandboxSessions.updatedAt}, 'T') > 0 THEN ${assistantSandboxSessions.updatedAt} ELSE replace(${assistantSandboxSessions.updatedAt}, ' ', 'T') || '.000Z' END DESC`,
+      desc(assistantSandboxSessions.id),
+    )
     .limit(limit);
 }
 
@@ -259,6 +276,20 @@ export async function updateAssistantSandboxSessionModel(
 ): Promise<AssistantSandboxSession | null> {
   await db.update(assistantSandboxSessions)
     .set({ model: input.model, updatedAt: new Date().toISOString() })
+    .where(and(
+      eq(assistantSandboxSessions.assistantKey, input.assistantKey),
+      eq(assistantSandboxSessions.createdBy, input.createdBy),
+      eq(assistantSandboxSessions.id, input.id),
+    ));
+  return getAssistantSandboxSession(db, input);
+}
+
+export async function updateAssistantSandboxSessionPromptRevision(
+  db: Database,
+  input: { assistantKey: string; createdBy: string; id: string; promptRevisionId: string },
+): Promise<AssistantSandboxSession | null> {
+  await db.update(assistantSandboxSessions)
+    .set({ promptRevisionId: input.promptRevisionId, updatedAt: new Date().toISOString() })
     .where(and(
       eq(assistantSandboxSessions.assistantKey, input.assistantKey),
       eq(assistantSandboxSessions.createdBy, input.createdBy),
@@ -314,8 +345,27 @@ export async function listAssistantSandboxMessages(
     .select()
     .from(assistantSandboxMessages)
     .where(eq(assistantSandboxMessages.sessionId, sessionId))
-    .orderBy(asc(assistantSandboxMessages.createdAt))
-    .limit(Math.min(Math.max(limit, 1), 200));
+    .orderBy(
+      sql`CASE WHEN instr(${assistantSandboxMessages.createdAt}, 'T') > 0 THEN ${assistantSandboxMessages.createdAt} ELSE replace(${assistantSandboxMessages.createdAt}, ' ', 'T') || '.000Z' END DESC`,
+      desc(assistantSandboxMessages.id),
+    )
+    .limit(Math.min(Math.max(limit, 1), 200))
+    .then((rows) => rows.reverse());
+}
+
+/** Sandbox 執行需要完整序列，才能讓 contextSummaryMessageCount 對應到絕對位置。 */
+export async function listAllAssistantSandboxMessages(
+  db: Database,
+  sessionId: string,
+): Promise<AssistantSandboxMessage[]> {
+  return db
+    .select()
+    .from(assistantSandboxMessages)
+    .where(eq(assistantSandboxMessages.sessionId, sessionId))
+    .orderBy(
+      sql`CASE WHEN instr(${assistantSandboxMessages.createdAt}, 'T') > 0 THEN ${assistantSandboxMessages.createdAt} ELSE replace(${assistantSandboxMessages.createdAt}, ' ', 'T') || '.000Z' END ASC`,
+      asc(assistantSandboxMessages.id),
+    );
 }
 
 export async function appendAssistantSandboxMessage(
@@ -330,6 +380,19 @@ export async function appendAssistantSandboxMessage(
   },
 ): Promise<AssistantSandboxMessage> {
   const id = crypto.randomUUID();
+  const [latest] = await db
+    .select({ createdAt: assistantSandboxMessages.createdAt })
+    .from(assistantSandboxMessages)
+    .where(eq(assistantSandboxMessages.sessionId, input.sessionId))
+    .orderBy(
+      sql`CASE WHEN instr(${assistantSandboxMessages.createdAt}, 'T') > 0 THEN ${assistantSandboxMessages.createdAt} ELSE replace(${assistantSandboxMessages.createdAt}, ' ', 'T') || '.000Z' END DESC`,
+      desc(assistantSandboxMessages.id),
+    )
+    .limit(1);
+  const latestTime = latest?.createdAt
+    ? Date.parse(latest.createdAt.includes("T") ? latest.createdAt : `${latest.createdAt.replace(" ", "T")}Z`)
+    : Number.NaN;
+  const createdAt = new Date(Math.max(Date.now(), Number.isNaN(latestTime) ? 0 : latestTime + 1)).toISOString();
   await db.batch([
     db.insert(assistantSandboxMessages).values({
       id,
@@ -339,6 +402,7 @@ export async function appendAssistantSandboxMessage(
       model: input.model ?? "",
       thoughts: input.thoughts ?? "",
       toolCalls: JSON.stringify(input.toolCalls ?? []),
+      createdAt,
     }),
     db.update(assistantSandboxSessions).set({ updatedAt: new Date().toISOString() }).where(eq(assistantSandboxSessions.id, input.sessionId)),
   ]);
@@ -351,6 +415,7 @@ export async function ensureAssistantDefaults(
   db: Database,
   input: { assistantKey: string; defaultModel: string; defaultPrompt: string; toolKeys: string[] },
 ): Promise<void> {
+  const now = new Date().toISOString();
   const [config] = await db
     .select({ assistantKey: assistantConfigs.assistantKey })
     .from(assistantConfigs)
@@ -361,7 +426,8 @@ export async function ensureAssistantDefaults(
       assistantKey: input.assistantKey,
       activeModel: input.defaultModel,
       updatedBy: "system",
-    });
+      updatedAt: now,
+    }).onConflictDoNothing();
   }
 
   const [prompt] = await db
@@ -377,14 +443,15 @@ export async function ensureAssistantDefaults(
       systemPrompt: input.defaultPrompt,
       isActive: true,
       createdBy: "system",
-    });
+      createdAt: now,
+    }).onConflictDoNothing();
   }
 
   const existingTools = await db.select({ key: assistantToolConfigs.key }).from(assistantToolConfigs);
   const existing = new Set(existingTools.map((tool) => tool.key));
   for (const key of input.toolKeys) {
     if (existing.has(key)) continue;
-    await db.insert(assistantToolConfigs).values({ key, status: "development", updatedBy: "system" });
+    await db.insert(assistantToolConfigs).values({ key, status: "development", updatedBy: "system", updatedAt: now }).onConflictDoNothing();
   }
 }
 
@@ -453,25 +520,34 @@ export async function createAssistantPromptRevision(
   db: Database,
   input: { assistantKey: string; systemPrompt: string; createdBy: string },
 ): Promise<AssistantPromptRevision> {
-  const revisions = await listAssistantPromptRevisions(db, input.assistantKey);
-  const revision = (revisions[0]?.revision ?? 0) + 1;
-  const id = crypto.randomUUID();
-  await db.batch([
-    db.update(assistantPromptRevisions)
-      .set({ isActive: false })
-      .where(eq(assistantPromptRevisions.assistantKey, input.assistantKey)),
-    db.insert(assistantPromptRevisions).values({
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const revisions = await listAssistantPromptRevisions(db, input.assistantKey);
+    const revision = (revisions[0]?.revision ?? 0) + 1;
+    const id = crypto.randomUUID();
+    await db.insert(assistantPromptRevisions).values({
       id,
       assistantKey: input.assistantKey,
       revision,
       systemPrompt: input.systemPrompt,
-      isActive: true,
+      isActive: false,
       createdBy: input.createdBy,
-    }),
-  ]);
-  const created = await findAssistantPromptRevision(db, id);
-  if (!created) throw new Error("建立 prompt revision 後找不到資料。");
-  return created;
+      createdAt: new Date().toISOString(),
+    }).onConflictDoNothing();
+    const created = await findAssistantPromptRevision(db, id);
+    if (!created) continue;
+
+    await db.batch([
+      db.update(assistantPromptRevisions)
+        .set({ isActive: false })
+        .where(eq(assistantPromptRevisions.assistantKey, input.assistantKey)),
+      db.update(assistantPromptRevisions)
+        .set({ isActive: true })
+        .where(eq(assistantPromptRevisions.id, id)),
+    ]);
+    const active = await findAssistantPromptRevision(db, id);
+    if (active) return active;
+  }
+  throw new Error("建立 prompt revision 失敗，請稍後再試。");
 }
 
 export async function recordAssistantRun(

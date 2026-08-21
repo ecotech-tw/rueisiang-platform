@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles } from "@rueisiang/db";
 import { userRoles, users } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -265,6 +265,65 @@ describe("AI 助理 Sandbox", () => {
     const result = await detail.json() as { session: { model: string; messages: Array<{ model: string }> } };
     expect(result.session.model).toBe("gemma-4-31b-it");
     expect(result.session.messages.map((message) => message.model)).toEqual(["", "gemini-3.6-flash", "", "gemma-4-31b-it"]);
+  });
+
+  it("同一個 Sandbox session 可以套用新 prompt revision", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    const revision = await (await as("admin", "admin@ecotech.tw", "/api/assistant/prompts", {
+      method: "POST",
+      body: JSON.stringify({ systemPrompt: "這是新的 session prompt。" }),
+    })).json() as { revision: { id: string } };
+    const requests: Array<Record<string, unknown>> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "使用新 prompt 回覆" }] } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: revision.revision.id, toolKeys: [], input: "套用新 prompt" }),
+    });
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(requests[0]?.system_instruction)).toContain("這是新的 session prompt。");
+
+    const detail = await as("admin", "admin@ecotech.tw", `/api/assistant/sandbox/sessions/${created.session.id}`);
+    expect(await detail.json()).toMatchObject({ session: { promptRevisionId: revision.revision.id } });
+  });
+
+  it("Sandbox session 超過 100 則訊息時仍取最近的對話", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    for (let index = 0; index < 51; index += 1) {
+      await appendAssistantSandboxMessage(db(), { sessionId: created.session.id, role: "user", text: `歷史問題 ${index}` });
+      await appendAssistantSandboxMessage(db(), { sessionId: created.session.id, role: "model", text: `歷史回答 ${index}`, model: "gemini-3.6-flash" });
+    }
+    let requestBody: Record<string, unknown> | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "最新回答" }] } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "最新問題" }),
+    });
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(requestBody?.contents)).toContain("歷史問題 50");
   });
 
   it("長對話會保留完整歷史，並在送出前自動建立 rolling summary", async () => {

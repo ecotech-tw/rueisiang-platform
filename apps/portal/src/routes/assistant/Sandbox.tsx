@@ -59,14 +59,17 @@ export function Sandbox() {
 
   useEffect(() => {
     const current = session.data?.session;
-    if (!current || !config.data) return;
+    if (!current || current.id !== sessionId || !config.data) return;
     setModel(current.model);
     const revision = config.data.revisions.find((item) => item.id === current.promptRevisionId);
     if (revision) {
       setPromptId(revision.id);
       setPrompt(revision.systemPrompt);
     }
-  }, [config.data, session.data]);
+    // Only load server state when switching sessions. Config invalidations caused by
+    // saving a prompt/tool/model must not overwrite the user's current editor.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, session.data?.session?.id]);
 
   if (config.isPending) return <div className="boot">載入中…</div>;
   if (config.error) return <div className="page"><p className="form-error" role="alert">{config.error.message}</p></div>;

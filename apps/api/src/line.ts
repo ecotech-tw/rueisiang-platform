@@ -15,7 +15,7 @@ export interface LineWebhookEvent {
     type?: string;
     text?: string;
     mention?: {
-      mentionees?: Array<{ isSelf?: boolean }>;
+      mentionees?: Array<{ isSelf?: boolean; index?: number; length?: number }>;
     };
   };
 }
@@ -23,8 +23,6 @@ export interface LineWebhookEvent {
 export interface LineWebhookPayload {
   events?: unknown;
 }
-
-const LINE_MENTION = /@Rueisiang\s+小香/u;
 
 function decodeBase64(value: string): Uint8Array | null {
   try {
@@ -63,8 +61,7 @@ export function lineEventGroup(event: LineWebhookEvent): { id: string; sourceTyp
 
 /** 只接受 LINE 同時標出的 self mention，避免有人在文字中手動輸入名稱就觸發。 */
 export function lineEventIsMentioned(event: LineWebhookEvent): boolean {
-  const text = event.message?.text ?? "";
-  return LINE_MENTION.test(text) && Boolean(event.message?.mention?.mentionees?.some((mentionee) => mentionee.isSelf));
+  return Boolean(event.message?.mention?.mentionees?.some((mentionee) => mentionee.isSelf));
 }
 
 export function lineEventText(event: LineWebhookEvent): string | null {
@@ -72,8 +69,26 @@ export function lineEventText(event: LineWebhookEvent): string | null {
   return event.message.text.trim();
 }
 
-export function lineQuestionText(text: string): string {
-  return text.replace(LINE_MENTION, "").trim();
+export function lineQuestionText(
+  text: string,
+  mentionee?: { isSelf?: boolean; index?: number; length?: number },
+): string {
+  const index = mentionee?.index;
+  const length = mentionee?.length;
+  if (
+    mentionee?.isSelf &&
+    typeof index === "number" &&
+    typeof length === "number" &&
+    Number.isInteger(index) &&
+    Number.isInteger(length) &&
+    index >= 0 &&
+    length > 0
+  ) {
+    return `${text.slice(0, index)}${text.slice(index + length)}`.trim();
+  }
+  // Actual LINE webhook payloads include offsets. Without them, keep the text
+  // unchanged instead of guessing a display name that may have been renamed.
+  return text.trim();
 }
 
 export function isLineWebhookEvent(value: unknown): value is LineWebhookEvent {

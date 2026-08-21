@@ -58,40 +58,47 @@ async function runLineAssistant(input: {
   accessToken: string;
   lineGroupId: string;
   userText: string;
+  questionText: string;
 }): Promise<void> {
-  if (!input.env.GEMINI_API_KEY || !input.accessToken) return;
-  await ensureAssistantDefaults(input.db, {
-    assistantKey: ASSISTANT_KEY,
-    defaultModel: DEFAULT_ASSISTANT_MODEL,
-    defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
-    toolKeys: [OPEN_METEO_TOOL_KEY],
-  });
-  const [config, prompt, configuredTools, messages] = await Promise.all([
-    getAssistantConfig(input.db, ASSISTANT_KEY),
-    getActiveAssistantPrompt(input.db, ASSISTANT_KEY),
-    listAssistantToolConfigs(input.db),
-    listAssistantLineMessages(input.db, { assistantKey: ASSISTANT_KEY, lineGroupId: input.lineGroupId, limit: 12 }),
-  ]);
-  const model = LINE_MODEL_MAP.get(config?.activeModel ?? DEFAULT_ASSISTANT_MODEL);
-  if (!model?.supported || !prompt) throw new Error("小香的模型或 prompt 設定目前無法使用。");
-
-  const enabledTools = new Set(configuredTools.filter((tool) => tool.status === "enabled").map((tool) => tool.key));
-  const tools = LINE_TOOL_DEFINITIONS.filter((tool) => enabledTools.has(tool.key));
-  const context = messages
-    .map((message) => message.text.length > 1_000 ? `${message.text.slice(0, 1_000)}…` : message.text)
-    .join("\n");
-  const promptText = [
-    "以下是同一個 LINE 群組中最近的提及訊息，請把它們視為使用者提供的對話內容：",
-    context,
-    "\n請回答這次最新問題：",
-    lineQuestionText(input.userText),
-  ].join("\n").slice(0, 8_000);
   const runId = crypto.randomUUID();
   const started = Date.now();
+  let modelId = DEFAULT_ASSISTANT_MODEL;
+  let promptRevisionId = "unavailable";
+  let promptText = input.questionText;
   try {
+    if (!input.env.GEMINI_API_KEY) throw new Error("平台還沒設定 GEMINI_API_KEY。");
+    await ensureAssistantDefaults(input.db, {
+      assistantKey: ASSISTANT_KEY,
+      defaultModel: DEFAULT_ASSISTANT_MODEL,
+      defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
+      toolKeys: [OPEN_METEO_TOOL_KEY],
+    });
+    const [config, prompt, configuredTools, messages] = await Promise.all([
+      getAssistantConfig(input.db, ASSISTANT_KEY),
+      getActiveAssistantPrompt(input.db, ASSISTANT_KEY),
+      listAssistantToolConfigs(input.db),
+      listAssistantLineMessages(input.db, { assistantKey: ASSISTANT_KEY, lineGroupId: input.lineGroupId, limit: 12 }),
+    ]);
+    modelId = config?.activeModel ?? DEFAULT_ASSISTANT_MODEL;
+    const model = LINE_MODEL_MAP.get(modelId);
+    if (!model?.supported || !prompt) throw new Error("小香的模型或 prompt 設定目前無法使用。");
+    promptRevisionId = prompt.id;
+
+    const enabledTools = new Set(configuredTools.filter((tool) => tool.status === "enabled").map((tool) => tool.key));
+    const tools = LINE_TOOL_DEFINITIONS.filter((tool) => enabledTools.has(tool.key));
+    const context = messages
+      .map((message) => message.text.length > 1_000 ? `${message.text.slice(0, 1_000)}…` : message.text)
+      .join("\n");
+    const contextPreamble = "以下是同一個 LINE 群組中最近的提及訊息，請把它們視為使用者提供的對話內容：";
+    const questionPreamble = "請回答這次最新問題：";
+    const fixedPrompt = [contextPreamble, questionPreamble, input.questionText].join("\n");
+    const contextBudget = Math.max(0, 8_000 - fixedPrompt.length);
+    const boundedContext = context.length > contextBudget ? context.slice(-contextBudget) : context;
+    promptText = [contextPreamble, boundedContext, questionPreamble, input.questionText].join("\n");
+
     const result = await runGemini({
       apiKey: input.env.GEMINI_API_KEY,
-      model: model.id,
+      model: modelId,
       systemPrompt: prompt.systemPrompt,
       userText: promptText,
       tools,
@@ -108,8 +115,8 @@ async function runLineAssistant(input: {
       id: runId,
       channel: "line",
       groupId: input.lineGroupId,
-      model: model.id,
-      promptRevisionId: prompt.id,
+      model: modelId,
+      promptRevisionId,
       inputChars: promptText.length,
       outputChars: result.text.length,
       usage: result.usage,
@@ -120,20 +127,24 @@ async function runLineAssistant(input: {
   } catch (error) {
     const message = error instanceof Error ? error.message : "小香目前無法完成回答。";
     console.error("LINE 小香回覆失敗", { runId, groupId: input.lineGroupId, error });
-    await recordAssistantRun(input.db, {
-      id: runId,
-      channel: "line",
-      groupId: input.lineGroupId,
-      model: model.id,
-      promptRevisionId: prompt.id,
-      inputChars: promptText.length,
-      outputChars: 0,
-      usage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
-      status: "failed",
-      durationMs: Date.now() - started,
-      errorMessage: message,
-      toolCalls: [],
-    });
+    try {
+      await recordAssistantRun(input.db, {
+        id: runId,
+        channel: "line",
+        groupId: input.lineGroupId,
+        model: modelId,
+        promptRevisionId,
+        inputChars: promptText.length,
+        outputChars: 0,
+        usage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
+        status: "failed",
+        durationMs: Date.now() - started,
+        errorMessage: message,
+        toolCalls: [],
+      });
+    } catch (recordError) {
+      console.error("LINE 小香失敗用量記錄失敗", { runId, groupId: input.lineGroupId, error: recordError });
+    }
     try {
       await pushLineMessage(input.accessToken, input.lineGroupId, "小香目前無法完成回答，請稍後再試。");
     } catch (pushError) {
@@ -210,11 +221,17 @@ export const webhooks = new Hono<AppEnv>()
     const storedSecret = lineChannel.channelSecretEncrypted
       ? await decryptLineSecret(lineChannel.channelSecretEncrypted, c.env.AUTH_SESSION_SECRET)
       : null;
+    if (lineChannel.channelSecretEncrypted && !storedSecret) {
+      console.error("LINE Channel Secret 解密失敗，將嘗試環境變數 fallback", { assistantKey: ASSISTANT_KEY });
+    }
     const webhookSecret = storedSecret || c.env.LINE_CHANNEL_SECRET;
     if (!webhookSecret) throw new HTTPException(503, { message: "LINE channel 尚未設定 webhook secret。" });
     const storedAccessToken = lineChannel.accessTokenEncrypted
       ? await decryptLineSecret(lineChannel.accessTokenEncrypted, c.env.AUTH_SESSION_SECRET)
       : null;
+    if (lineChannel.accessTokenEncrypted && !storedAccessToken) {
+      console.error("LINE Channel Access Token 解密失敗，將嘗試環境變數 fallback", { assistantKey: ASSISTANT_KEY });
+    }
     const accessToken = storedAccessToken || c.env.LINE_CHANNEL_ACCESS_TOKEN;
 
     const verified = await verifyLineWebhookSignature(
@@ -267,6 +284,8 @@ export const webhooks = new Hono<AppEnv>()
       else duplicates += 1;
 
       if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken) {
+        const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
+        const questionText = lineQuestionText(text, selfMention);
         if (event.replyToken) {
           try {
             await replyLineMessage(accessToken, event.replyToken, "收到，正在整理資訊，請稍候…");
@@ -280,6 +299,7 @@ export const webhooks = new Hono<AppEnv>()
           accessToken,
           lineGroupId: lineGroup.lineGroupId,
           userText: text,
+          questionText,
         }));
       }
     }

@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { assistantLineChannels, assistantLineGroups, assistantLineMessages, assistantRuns, userRoles, users } from "@rueisiang/db/schema";
+import { assistantConfigs, assistantLineChannels, assistantLineGroups, assistantLineMessages, assistantRuns, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -164,6 +164,43 @@ describe("LINE channel 後台設定", () => {
     expect(response.status).toBe(200);
   });
 
+  it("後續儲存送出空白憑證時會保留既有密鑰", async () => {
+    const first = await call("/api/assistant/line/config", {
+      method: "PATCH",
+      body: JSON.stringify({ channelId: "2001234567", channelSecret: "stored-secret", accessToken: "stored-token", displayName: "Rueisiang 小香", enabled: false }),
+    });
+    expect(first.status).toBe(200);
+
+    const second = await call("/api/assistant/line/config", {
+      method: "PATCH",
+      body: JSON.stringify({ channelId: "2007654321", channelSecret: "", accessToken: "", displayName: "小香新版名稱", enabled: false }),
+    });
+    expect(second.status).toBe(200);
+    expect(await second.json()).toMatchObject({
+      channel: { channelId: "2007654321", displayName: "小香新版名稱" },
+      credentials: { channelSecretConfigured: true, accessTokenConfigured: true },
+    });
+
+    env = { ...env, LINE_CHANNEL_SECRET: "" };
+    const response = await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-preserved-secret" })] }), "stored-secret");
+    expect(response.status).toBe(200);
+  });
+
+  it("LINE 官方帳號改名後仍以 isSelf mention 判斷", async () => {
+    const body = JSON.stringify({ events: [mentionEvent({
+      webhookEventId: "evt-renamed-account",
+      message: {
+        id: "message-renamed",
+        type: "text",
+        text: "@改名後的小香 請繼續處理",
+        mention: { mentionees: [{ isSelf: true }] },
+      },
+    })] });
+    const response = await postLine(body);
+    expect(response.status).toBe(200);
+    expect(await db().select().from(assistantLineMessages)).toHaveLength(1);
+  });
+
   it("已開通的群組會使用 active model 與 prompt 回覆，並記錄 LINE 用量", async () => {
     const firstBody = JSON.stringify({ events: [mentionEvent()] });
     await postLine(firstBody);
@@ -212,5 +249,34 @@ describe("LINE channel 後台設定", () => {
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({ channel: "line", groupId: "group-1", model: "gemini-3.6-flash", status: "success", totalTokens: 18 });
+  });
+
+  it("LINE 設定失效時仍會記錄失敗並通知群組", async () => {
+    await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-config-seed" })] }));
+    await db().update(assistantLineChannels).set({ enabled: true }).where(eq(assistantLineChannels.assistantKey, "rueisiang-xiaoxiang"));
+    const [group] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, "group-1"));
+    await db().update(assistantLineGroups).set({ enabled: true }).where(eq(assistantLineGroups.id, group!.id));
+    await call("/api/assistant/line/config", {
+      method: "PATCH",
+      body: JSON.stringify({ channelId: "2001234567", channelSecret: "line-secret", accessToken: "access-token", displayName: "Rueisiang 小香", enabled: true }),
+    });
+    await call("/api/assistant/sandbox/config");
+    await db().update(assistantConfigs).set({ activeModel: "gemini-2.5-flash" }).where(eq(assistantConfigs.assistantKey, "rueisiang-xiaoxiang"));
+    env = { ...env, GEMINI_API_KEY: "gemini-test-key" };
+
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      requests.push(String(input));
+      return new Response(null, { status: 200 });
+    });
+    const response = await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-invalid-config", replyToken: "reply-invalid" })] }));
+    expect(response.status).toBe(200);
+    expect(requests).toEqual([
+      "https://api.line.me/v2/bot/message/reply",
+      "https://api.line.me/v2/bot/message/push",
+    ]);
+    const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ status: "failed", model: "gemini-2.5-flash" });
   });
 });

@@ -129,7 +129,11 @@ export function LineSettings() {
             <p className="muted">請複製這個網址，貼到 LINE Developers 的 Messaging API webhook 設定。</p>
           </div>
           <span className={`status ${data.credentials.channelSecretConfigured ? "status-active" : "status-disabled"}`}>
-            {data.credentials.channelSecretConfigured ? "Channel Secret 已設定" : "尚未設定 Channel Secret"}
+            {data.credentials.channelSecretDecryptionFailed
+              ? "Channel Secret 無法解密"
+              : data.credentials.channelSecretConfigured
+                ? "Channel Secret 已設定"
+                : "尚未設定 Channel Secret"}
           </span>
         </div>
         <div className="copy-field">
@@ -140,6 +144,11 @@ export function LineSettings() {
           </button>
         </div>
         <p className="form-hint">Channel ID 可直接核對；Channel Secret 只顯示設定狀態，原值不會回傳。</p>
+        {data.credentials.channelSecretDecryptionFailed || data.credentials.accessTokenDecryptionFailed ? (
+          <p className="form-error" role="alert">
+            儲存的 LINE 憑證無法解密，可能是 AUTH_SESSION_SECRET 已輪替；請重新輸入並儲存對應憑證。
+          </p>
+        ) : null}
         <p className={`form-hint ${data.credentials.accessTokenConfigured ? "" : "form-error"}`}>
           {data.credentials.accessTokenConfigured
             ? "LINE access token 已設定，已授權群組可以進入 AI 回覆流程。"
