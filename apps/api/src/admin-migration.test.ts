@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { createLocalD1 } from "./local-d1/d1.js";
 
 const REPAIR_MIGRATION = fileURLToPath(
-  new URL("../../../packages/db/migrations/0011_restore_admin_permissions.sql", import.meta.url),
+  new URL("../../../packages/db/migrations/0019_restore_admin_permissions.sql", import.meta.url),
 );
 
 describe("bootstrap 管理員權限 migration", () => {

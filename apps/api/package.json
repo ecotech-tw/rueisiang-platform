@@ -12,6 +12,7 @@
     "dry-run": "wrangler deploy --dry-run"
   },
   "dependencies": {
+    "@rueisiang/assistant": "workspace:*",
     "@rueisiang/auth": "workspace:*",
     "@rueisiang/cyberbiz": "workspace:*",
     "@rueisiang/db": "workspace:*",

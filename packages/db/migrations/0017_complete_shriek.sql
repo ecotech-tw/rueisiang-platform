@@ -1,0 +1,1 @@
+ALTER TABLE `assistant_sandbox_messages` ADD `tool_calls` text DEFAULT '[]' NOT NULL;
