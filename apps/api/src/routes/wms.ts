@@ -34,7 +34,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { cyberbizInventoryClient } from "../cyberbiz.js";
-import { loadCatalog, selectPage } from "../cyberbiz-catalog.js";
+import { forgetCatalog, loadCatalog, selectPage } from "../cyberbiz-catalog.js";
 import { cacheClient } from "../upstash.js";
 import { HTTPException } from "hono/http-exception";
 import { body, requireString } from "../request.js";
@@ -462,6 +462,9 @@ export const wms = new Hono<AppEnv>()
         targetQuantity: result.quantity,
       });
       await markLinkSynced(c.get("db"), mine.linkId, result.quantity);
+      // 官網那邊的數字變了，快取的目錄就過期了。不清掉的話「CYBERBIZ 庫存」
+      // 那一頁最多一整天還顯示舊數量，看的人會以為根本沒推成功。
+      await forgetCatalog(cacheClient(c.env));
       return c.json({ ...result, cyberbiz: { status: "synced", changed: pushed.changed } });
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : "CYBERBIZ 同步失敗";

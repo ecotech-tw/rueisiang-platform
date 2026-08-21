@@ -1,6 +1,6 @@
 import type { CyberbizInventoryClient, CyberbizInventoryItem } from "@rueisiang/cyberbiz";
 import { describe, expect, it } from "vitest";
-import { loadCatalog, selectPage, type Catalog } from "./cyberbiz-catalog.js";
+import { forgetCatalog, loadCatalog, selectPage, type Catalog } from "./cyberbiz-catalog.js";
 import type { CacheClient } from "./upstash.js";
 
 /**
@@ -43,6 +43,18 @@ function stubClient(pages: CyberbizInventoryItem[][]): CyberbizInventoryClient &
   return client as unknown as CyberbizInventoryClient & { calls: number };
 }
 
+/** 一份什麼都不做的假快取。只覆寫這個測試在意的那一兩個方法。 */
+function fakeCache(overrides: Partial<CacheClient> = {}): CacheClient {
+  return {
+    get: async () => null,
+    mget: async () => [],
+    set: async () => {},
+    setMany: async () => {},
+    del: async () => {},
+    ...overrides,
+  };
+}
+
 describe("目錄快取", () => {
   it("沒有快取時直接問官網", async () => {
     const client = stubClient([[item()]]);
@@ -57,12 +69,7 @@ describe("目錄快取", () => {
       fetchedAt: "2026-08-20T00:00:00.000Z",
       truncated: false,
     };
-    const cache: CacheClient = {
-      get: async () => JSON.stringify(stored),
-      mget: async () => [],
-      set: async () => {},
-      setMany: async () => {},
-    };
+    const cache = fakeCache({ get: async () => JSON.stringify(stored) });
     const client = stubClient([[item()]]);
 
     const catalog = await loadCatalog(client, cache);
@@ -72,46 +79,26 @@ describe("目錄快取", () => {
   });
 
   it("refresh 會跳過快取", async () => {
-    const cache: CacheClient = {
-      get: async () => JSON.stringify({ items: [item({ sku: "OLD" })], fetchedAt: "x", truncated: false }),
-      mget: async () => [],
-      set: async () => {},
-      setMany: async () => {},
-    };
+    const cache = fakeCache({ get: async () => JSON.stringify({ items: [item({ sku: "OLD" })], fetchedAt: "x", truncated: false }) });
     const catalog = await loadCatalog(stubClient([[item({ sku: "NEW" })]]), cache, true);
     expect(catalog.items[0]?.sku).toBe("NEW");
     expect(catalog.cached).toBe(false);
   });
 
   it("快取讀不到時退回問官網，不是整個壞掉", async () => {
-    const cache: CacheClient = {
-      get: async () => { throw new Error("Redis 掛了"); },
-      mget: async () => [],
-      set: async () => {},
-      setMany: async () => {},
-    };
+    const cache = fakeCache({ get: async () => { throw new Error("Redis 掛了"); } });
     const catalog = await loadCatalog(stubClient([[item()]]), cache);
     expect(catalog.items).toHaveLength(1);
   });
 
   it("快取內容壞掉時也退回問官網", async () => {
-    const cache: CacheClient = {
-      get: async () => "這不是 JSON",
-      mget: async () => [],
-      set: async () => {},
-      setMany: async () => {},
-    };
+    const cache = fakeCache({ get: async () => "這不是 JSON" });
     const catalog = await loadCatalog(stubClient([[item()]]), cache);
     expect(catalog.items).toHaveLength(1);
   });
 
   it("寫不進快取不影響這一次的結果", async () => {
-    const cache: CacheClient = {
-      get: async () => null,
-      mget: async () => [],
-      set: async () => { throw new Error("寫入失敗"); },
-      setMany: async () => {},
-    };
+    const cache = fakeCache({ get: async () => null, set: async () => { throw new Error("寫入失敗"); } });
     const catalog = await loadCatalog(stubClient([[item()]]), cache);
     expect(catalog.items).toHaveLength(1);
   });
@@ -128,6 +115,23 @@ describe("目錄快取", () => {
     const client = stubClient([[item()]]);
     await loadCatalog(client, undefined);
     expect(client.calls).toBe(1);
+  });
+});
+
+describe("丟掉快取", () => {
+  it("會刪掉目錄那個 key", async () => {
+    const deleted: string[] = [];
+    await forgetCatalog(fakeCache({ del: async (key) => { deleted.push(key); } }));
+    expect(deleted).toEqual(["cyberbiz:catalog:company"]);
+  });
+
+  it("沒設定快取時什麼都不做", async () => {
+    await expect(forgetCatalog(undefined)).resolves.toBeUndefined();
+  });
+
+  it("刪不掉也不往上丟——推已經成功了，畫面舊一點不該變成錯誤", async () => {
+    const cache = fakeCache({ del: async () => { throw new Error("Redis 掛了"); } });
+    await expect(forgetCatalog(cache)).resolves.toBeUndefined();
   });
 });
 

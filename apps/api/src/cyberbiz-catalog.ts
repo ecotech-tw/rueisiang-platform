@@ -85,6 +85,24 @@ export async function loadCatalog(
   return { ...fresh, cached: false };
 }
 
+/**
+ * 丟掉快取的目錄。
+ *
+ * 盤點推上官網之後要叫一次：不叫的話「CYBERBIZ 庫存」那一頁最多會有一整天顯示
+ * 推上去之前的數量，看的人會以為根本沒推成功。
+ *
+ * 失敗不往上丟——推已經成功了，快取沒清掉只是畫面舊一點，不該把整個盤點變成
+ * 錯誤。下次 TTL 到期或按「重新讀取官網」都會修正。
+ */
+export async function forgetCatalog(cache: CacheClient | undefined): Promise<void> {
+  if (!cache) return;
+  try {
+    await cache.del(CATALOG_KEY);
+  } catch {
+    /* 見上面。 */
+  }
+}
+
 export interface CatalogQuery {
   search: string;
   /** all／linked／unlinked：有沒有連到 WMS 的品項。 */
