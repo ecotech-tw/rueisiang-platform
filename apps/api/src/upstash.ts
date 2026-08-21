@@ -26,6 +26,7 @@ export interface CacheClient {
   mget(keys: string[]): Promise<(string | null)[]>;
   set(key: string, value: string, ttlSeconds: number): Promise<void>;
   setMany(entries: { key: string; value: string; ttlSeconds: number }[]): Promise<void>;
+  del(key: string): Promise<void>;
 }
 
 /**
@@ -66,6 +67,10 @@ export function cacheClient(env: Env): CacheClient | undefined {
 
     async set(key, value, ttlSeconds) {
       await command<string>("", ["SET", key, value, "EX", ttlSeconds]);
+    },
+
+    async del(key) {
+      await command<number>("", ["DEL", key]);
     },
 
     async setMany(entries) {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CyberbizApiError, cyberbizRequest, readErrorMessage } from "./http.js";
 import { createCustomerClient, parseCyberbizCustomer } from "./customers.js";
+import { createInventoryClient, flattenProducts, isCompanyProduct } from "./inventory.js";
 
 const config = { apiToken: "test-token", baseUrl: "https://api.example.test" };
 /** 測試不要真的等指數退避的秒數。 */
@@ -307,5 +308,133 @@ describe("會員操作", () => {
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ tags_text: "熟客,VIP" });
     // 去掉前後空白與重複之後才是實際存進去的內容。
     expect(updated.tags).toEqual(["熟客", "VIP"]);
+  });
+});
+
+/*
+ * 商品庫存。
+ *
+ * 這一段是真的把正式站打壞之後才補的：`/v1/products/{id}` 不回 `id`，
+ * flattenProducts 就把整個商品丟掉，於是「盤點推上官網」與「官網同步回 WMS」
+ * 兩條路一起死，錯誤訊息還說是 SKU 對不上。假資料當時每一筆都帶著 id——
+ * 又一次照抄了自己的假設。
+ */
+describe("商品庫存", () => {
+  /** 官網對 /v1/products/{id} 真正回的形狀：有 product_variants，但沒有 id。 */
+  const PRODUCT_WITHOUT_ID = {
+    title: "干貝XO醬",
+    published: true,
+    pos_shop: null,
+    product_variants: [
+      {
+        id: 68463869,
+        name: "干貝XO醬 -",
+        sku: "BPK24004",
+        inventory_quantity: 190,
+        safety_inventory_quantity: 24,
+        inventory_management: true,
+      },
+    ],
+  };
+
+  it("回應裡沒有 id 時，用問的時候就知道的那個補上", async () => {
+    stubFetch({ body: PRODUCT_WITHOUT_ID });
+    const items = await createInventoryClient(config).fetchProduct("56750193");
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      productId: "56750193",
+      variantId: "68463869",
+      sku: "BPK24004",
+      quantity: 190,
+      safetyQuantity: 24,
+    });
+    // pos_shop 是 null 代表公司倉，門市才會有值。
+    expect(isCompanyProduct(items[0]!)).toBe(true);
+  });
+
+  it("官網真的回了 id 就以它為準", async () => {
+    stubFetch({ body: { ...PRODUCT_WITHOUT_ID, id: 99 } });
+    const [item] = await createInventoryClient(config).fetchProduct("56750193");
+    expect(item?.productId).toBe("99");
+  });
+
+  it("被包在 product 底下也讀得到", async () => {
+    stubFetch({ body: { product: PRODUCT_WITHOUT_ID } });
+    const [item] = await createInventoryClient(config).fetchProduct("56750193");
+    expect(item?.variantId).toBe("68463869");
+  });
+
+  it("盤點推得上去：讀現況、送差額、再讀一次驗證", async () => {
+    const calls = stubFetch(
+      { body: PRODUCT_WITHOUT_ID },
+      { body: { ok: true } },
+      { body: { ...PRODUCT_WITHOUT_ID, product_variants: [{ ...PRODUCT_WITHOUT_ID.product_variants[0], inventory_quantity: 200 }] } },
+    );
+
+    const result = await createInventoryClient(config).setCompanyQuantity({
+      productId: "56750193",
+      variantId: "68463869",
+      sku: "BPK24004",
+      targetQuantity: 200,
+    });
+
+    expect(result).toMatchObject({ previousQuantity: 190, quantity: 200, changed: true });
+    // 官網收的是差額，不是「設成 200」。190 → 200 是 surplus 10。
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({
+      pos_shop_id: 0,
+      items: [{ sku: "BPK24004", quantity: 10, type: "surplus" }],
+    });
+  });
+
+  it("數量一樣就不送調整，也不算動過", async () => {
+    const calls = stubFetch({ body: PRODUCT_WITHOUT_ID });
+    const result = await createInventoryClient(config).setCompanyQuantity({
+      productId: "56750193",
+      variantId: "68463869",
+      sku: "BPK24004",
+      targetQuantity: 190,
+    });
+
+    expect(result.changed).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("送完之後對不上就丟錯，不留下「以為同步過了」的狀態", async () => {
+    stubFetch(
+      { body: PRODUCT_WITHOUT_ID },
+      { body: { ok: true } },
+      // 重讀還是 190：官網收了但沒真的照做。
+      { body: PRODUCT_WITHOUT_ID },
+    );
+
+    await expect(
+      createInventoryClient(config).setCompanyQuantity({
+        productId: "56750193",
+        variantId: "68463869",
+        sku: "BPK24004",
+        targetQuantity: 200,
+      }),
+    ).rejects.toThrow("重新讀取是 190");
+  });
+
+  it("SKU 真的對不上時才說連結失效", async () => {
+    stubFetch({ body: PRODUCT_WITHOUT_ID });
+    await expect(
+      createInventoryClient(config).setCompanyQuantity({
+        productId: "56750193",
+        variantId: "68463869",
+        sku: "換過了",
+        targetQuantity: 200,
+      }),
+    ).rejects.toThrow("連結已失效");
+  });
+
+  it("列表端點：門市的商品濾得掉", () => {
+    const items = flattenProducts([
+      { id: 1, title: "公司倉", pos_shop: null, product_variants: [{ id: 11, sku: "A" }] },
+      { id: 2, title: "門市", pos_shop: { id: 7, name: "中山店" }, product_variants: [{ id: 22, sku: "A" }] },
+    ]);
+    expect(items.filter(isCompanyProduct).map((item) => item.variantId)).toEqual(["11"]);
   });
 });

@@ -128,7 +128,17 @@ export function createInventoryClient(
     // 單一商品可能被包在 product 底下，也可能就是根物件。
     const root = (payload ?? {}) as Record<string, unknown>;
     const product = (root.product ?? payload) as RawProduct;
-    return flattenProducts([product]);
+    /*
+     * **`/v1/products/{id}` 的回應裡沒有 `id`。** 列表端點有，單一商品端點沒有
+     * ——它大概覺得你既然是拿 id 來問的，就不必再告訴你一次。
+     *
+     * 但 flattenProducts 看到沒有 id 的商品會整個丟掉，於是這裡永遠回空陣列，
+     * 而呼叫端把「空陣列」讀成「連結失效」。結果是盤點推不上去、官網也同步不
+     * 回來，兩個方向一起壞，錯誤訊息還指向完全無辜的 SKU。
+     *
+     * 用問的時候就知道的那個 id 補上。萬一哪天官網真的開始回 id，以它為準。
+     */
+    return flattenProducts([{ ...product, id: product.id ?? productId }]);
   };
 
   return {
