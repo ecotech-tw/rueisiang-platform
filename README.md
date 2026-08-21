@@ -2,9 +2,11 @@
 
 把 CRM、WMS 與營運工具整合成一個入口：一次登入、一個 sidebar、一套權限，部署在 Cloudflare。
 
-目前狀態：**Phase 1 的程式碼完成**——Google 登入、角色式 RBAC、權限管理頁都能用了。
-還沒部署：D1 與 Google OAuth client 尚未開通，步驟見 `docs/deployment-setup.md`。
-三大項底下的業務功能仍是佔位頁，從 Phase 2 起逐一搬入。
+目前狀態：**四套系統都搬完了**（Phase 0–4），跑在 <https://platform.rueisiang.com>。
+CRM、倉儲、營運工具三大項底下已經沒有佔位頁。
+
+剩下 Phase 5：舊系統下線、Cloud SQL 關掉。那要等實際用一段時間、確認沒有漏掉的
+功能之後再做——不急著關。
 
 ## 為什麼要做這件事
 
@@ -56,7 +58,12 @@ pnpm test
 
 ```
 CYBERBIZ_API_TOKEN=你的token
+UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
+UPSTASH_REDIS_REST_TOKEN=你的token
 ```
+
+Upstash 只影響「CYBERBIZ 庫存」那一頁的速度：沒設定的話每次開頁都會去翻官網的
+商品目錄，功能是好的，只是要等幾秒。
 `/dev` 那兩條路由是 dev server 自己接的，不在 Hono app 裡，所以正式環境不存在。
 
 資料庫 schema 改動後：
@@ -134,6 +141,28 @@ node setup.mjs mail  eli-lin@ecotech.tw         # → GMAIL_REFRESH_TOKEN
 - 測試中的 token 官方說法是 7 天到期。若重產出來的 token 過幾天就失效，就是卡在
   這條，要把發布狀態改成「正式版」
 
+## 倉儲需要的兩個外部服務
+
+兩個都是「沒有也能跑，只是少一塊」，不會讓整個系統起不來——這是刻意的，
+而且有測試釘著。
+
+| 服務 | 給誰用 | 沒設定會怎樣 | 正式站 |
+|---|---|---|---|
+| **R2** bucket `rueisiang-platform-uploads` | 倉位的現場照片 | 上傳回「尚未設定照片儲存空間」，地圖與庫存完全正常 | ❌ 還沒開 |
+| **Upstash Redis**（`UPSTASH_REDIS_REST_URL` / `_TOKEN`） | 快取 CYBERBIZ 商品目錄一天 | 「CYBERBIZ 庫存」每次開頁直接翻官網，慢幾秒但功能正常 | ✅ |
+
+Upstash 沿用舊 WMS 的**同一個實例**，不必另外開。Workers 開不了原生的 Redis
+連線，但 Upstash 的 REST 端點只是一個 HTTPS 請求——那正好是 Worker 做得到的形式。
+
+R2 要先建 bucket：
+
+```bash
+npx wrangler r2 bucket create rueisiang-platform-uploads
+```
+
+（開通 R2 要在 Cloudflare 完成一次訂閱流程。用量在免費額度內是 $0：10 GB 儲存、
+流量不計費，而倉位照片撐死幾百 MB。）
+
 ## 這台開發機的兩個限制
 
 **1. Windows on ARM 跑不了 `workerd`。** **任何** wrangler 指令在本機都會失敗，連 `wrangler whoami` 都是（`Unsupported platform: win32 arm64`）——wrangler 一啟動就載入 workerd。這不是設定問題，是這個平台沒有對應的執行檔。
@@ -152,10 +181,14 @@ node setup.mjs mail  eli-lin@ecotech.tw         # → GMAIL_REFRESH_TOKEN
 | 1 ✅ | Google OAuth ＋ 帳密登入、邀請連結、RBAC、自訂角色與直接授予、權限管理頁、部署到 `platform.rueisiang.com` |
 | 2 ✅ | CRM 搬入：客戶列表與編輯、標籤、儲存的視圖、操作紀錄、CYBERBIZ 同步與 webhook |
 | 3 ✅ | 營運工具搬入：出金表執行頁與店別設定，driver 與 workflow 一起進 `tools/` |
-| 4 | WMS 搬入（含拆掉 1816 行的 `warehouse-app.tsx`） |
+| 4 ✅ | 倉儲搬入：倉位地圖、商品庫存與盤點、分類管理、操作紀錄、CYBERBIZ 庫存同步 |
 | 5 | 舊系統下線、Cloud SQL 關掉 |
 
 Phase 1 的權限比原訂計畫多做了兩層：**自訂角色**（管理者自己組合權限，不必改
 程式碼）與**直接授予**（繞過角色，給單一個人的例外）。原本只有四個寫死的系統角色。
 
-完整計畫與去蕪存菁清單見 `docs/migration-plan.md`。
+Phase 4 的地圖沒有照原訂計畫「拆掉 1816 行的 `warehouse-app.tsx`」——那份檔案
+沒有被拆，是被**重寫**的。舊的互動地圖與匯出邏輯混在同一個元件裡，照著拆只會把
+同樣的糾纏搬過來；重寫之後互動用 DOM、匯出用 canvas，兩件事各自獨立。
+
+完整計畫、已定案的決策與去蕪存菁清單見 `docs/migration-plan.md`。

@@ -1,10 +1,11 @@
 # 第一次上線要開通什麼
 
-Phase 1 的程式碼已經完成，剩下的是**帳號與資源的開通**——這些都需要你本人的 Google 與
-Cloudflare 帳號，沒辦法由程式自己生出來。照著這份文件走一次，之後的部署就只是 `wrangler deploy`。
+這份文件講的是**帳號與資源的開通**——那些需要你本人的 Google 與 Cloudflare 帳號，
+沒辦法由程式自己生出來。
 
-需要的東西一共三樣：**一個 Google OAuth client**、**一個 Cloudflare 帳號與 D1 資料庫**、
-**一組網域設定**。
+平台已經在 <https://platform.rueisiang.com> 上跑，1–4 節與 5.2 都做完了。留著這份
+文件是為了兩件事：換人接手時知道每個東西在哪、以及 5.1（R2）——**唯一還沒開通的
+東西**。
 
 ---
 
@@ -252,6 +253,44 @@ repo（`ecotech-tw/rueisiang-platform`）已經存在，不必新開。要加的
 
 ---
 
+## 5. 倉儲的兩個外部資源
+
+兩個都是「沒有也能跑，只是少一塊」——不會讓系統起不來，而且有測試釘著這件事。
+
+### 5.1 R2 — 倉位的現場照片 ❌ 還沒開通
+
+沒開通的話，上傳照片會回「尚未設定照片儲存空間，請聯絡管理者」，地圖與庫存
+其他功能完全正常。
+
+```bash
+npx wrangler r2 bucket create rueisiang-platform-uploads
+```
+
+bucket 名稱要跟 `apps/api/wrangler.toml` 的 `[[r2_buckets]]` 一致，binding 是
+`UPLOADS`。**開通 R2 要在 Cloudflare 完成一次訂閱流程**（會要求留付款方式），
+但用量在免費額度內是 $0：10 GB 儲存、流量不計費，而倉位照片撐死幾百 MB。
+
+照片本身放 R2，D1 的 `zone_images` 只存索引（object key、檔名、大小）。讀取走
+`/api/wms/images/:id` 而不是 R2 的公開網址——倉庫內部的照片，拿到連結的人不該
+就看得到。
+
+### 5.2 Upstash Redis — CYBERBIZ 商品目錄的快取 ✅ 已設定
+
+**沿用舊 WMS 的同一個實例**，不必另外開。兩個值已經設成 Worker secret：
+
+```
+UPSTASH_REDIS_REST_URL
+UPSTASH_REDIS_REST_TOKEN
+```
+
+沒設定的話，「CYBERBIZ 庫存」那一頁每次開都會去翻官網的商品目錄（139 個款式
+要翻 3 頁），慢幾秒但功能正常。
+
+> Workers 開不了原生的 Redis 連線，但 Upstash 的 REST 端點只是一個 HTTPS 請求
+> ——那正好是 Worker 唯一做得到的形式，所以舊系統那份程式碼直接就能用。
+
+---
+
 ## 執行順序
 
 文件的章節是照主題分的，實際動手的順序不一樣——**先部署一次**，因為在那之前
@@ -274,6 +313,8 @@ Worker 還不存在（沒地方放 secret），而且它的網址也還不知道
 |---|---|---|
 | Google OAuth client | 你（Workspace 管理者） | 同意畫面選內部還是外部，取決於同仁信箱網域 |
 | Cloudflare 帳號與 D1 | 你 | 已完成 |
+| R2 bucket（選用） | 你 | **還沒開通**。要走一次訂閱流程；用量在免費額度內是 $0 |
+| Upstash secret（選用） | 你 | 已完成，用的是舊 WMS 的同一組值 |
 | GitHub secret 與變數 | 你 | API token 的 D1 權限要手動加，範本沒有 |
 | 部署 | GitHub Actions | 這台開發機連 `wrangler whoami` 都跑不了 |
 | 網域委派 | 管 `rueisiang.com` DNS 的人 | 要確認現有記錄不會被弄斷 |
