@@ -63,16 +63,18 @@ function boxStyle(box: Box): React.CSSProperties {
 }
 
 /**
- * 一個倉位方塊裡放得下幾格層架。
+ * 一個倉位方塊裡列得下幾個商品。
  *
- * 每一格大約 82×25 像素，扣掉方塊自己的內距與上半部的代碼／名稱／總數。
- * 放不下全部時最後一格改成「更多 +N」，所以可見的要再少一格。
+ * 每一列大約 17 像素，扣掉方塊自己的內距與上半部的代碼與名稱。放不下全部時
+ * 最後一列改成「還有 +N 項」，所以可見的要再少一列。
+ *
+ * 單欄不分欄：商品名稱長（「童拾手工麻花捲隨手包-黃金芝麻」），分成兩欄之後
+ * 每一欄都只剩兩三個字加省略號，等於什麼都沒說。
  */
-function shelfSlots(pixelWidth: number, pixelHeight: number) {
-  const columns = Math.max(1, Math.floor((pixelWidth - 16) / 82));
-  const rows = Math.max(0, Math.floor((pixelHeight - 92) / 25));
-  // 上限 8：再多就看不清了，而且方塊本身也放不下那麼多行。
-  return { columns, slots: Math.min(8, columns * rows) };
+function itemSlots(pixelHeight: number) {
+  const rows = Math.floor((pixelHeight - 46) / 17);
+  // 上限 8：再多字就疊成一團，而且方塊本身也放不下那麼多列。
+  return Math.max(0, Math.min(8, rows));
 }
 
 export function WarehouseMap() {
@@ -228,17 +230,26 @@ export function WarehouseMap() {
             {zones.map((zone) => {
               const box = zoneDrag.boxOf(zone.id, zone);
               const zoneItems = itemsByZone.get(zone.id) ?? [];
-              const total = zoneItems.reduce((sum, item) => sum + item.quantity, 0);
               const low = zoneItems.some((item) => item.quantity < item.minStock);
 
-              // 用畫布的像素尺寸算，不是螢幕上的——縮放不該改變放得下幾格。
-              const { columns, slots } = shelfSlots(
-                (settings.canvasWidth * box.width) / 100,
-                (settings.canvasHeight * box.height) / 100,
-              );
-              const overflowing = zone.shelfLevels.length > slots;
-              const visibleLevels = zone.shelfLevels.slice(0, overflowing ? Math.max(0, slots - 1) : slots);
-              const hidden = zone.shelfLevels.length - visibleLevels.length;
+              /*
+               * 依層架順序排，同一層之內照名稱。
+               *
+               * 地圖是拿來找東西的，所以列出來的順序要對得上架上實際由上而下的
+               * 位置。沒有指定層架的排在最後——它們不在任何一層上。
+               */
+              const shelfOrder = new Map(zone.shelfLevels.map((level, index) => [level.id, index]));
+              const listed = [...zoneItems].sort((a, b) => {
+                const left = shelfOrder.get(a.shelfLevel ?? "") ?? Number.MAX_SAFE_INTEGER;
+                const right = shelfOrder.get(b.shelfLevel ?? "") ?? Number.MAX_SAFE_INTEGER;
+                return left - right || a.name.localeCompare(b.name, "zh-TW");
+              });
+
+              // 用畫布的像素尺寸算，不是螢幕上的——縮放不該改變列得下幾項。
+              const slots = itemSlots((settings.canvasHeight * box.height) / 100);
+              const overflowing = listed.length > slots;
+              const visibleItems = listed.slice(0, overflowing ? Math.max(0, slots - 1) : slots);
+              const hidden = listed.length - visibleItems.length;
 
               return (
                 <article
@@ -254,7 +265,7 @@ export function WarehouseMap() {
                   style={boxStyle(box)}
                   role="button"
                   tabIndex={editing ? -1 : 0}
-                  aria-label={`${zone.code} ${zone.name}，庫存 ${total} 件`}
+                  aria-label={`${zone.code} ${zone.name}，放了 ${zoneItems.length} 項商品`}
                   onPointerDown={(event) => {
                     if (editing) zoneDrag.start(event, zone.id, zone, "move");
                     else pressAt.current = { x: event.clientX, y: event.clientY };
@@ -280,32 +291,28 @@ export function WarehouseMap() {
                     {low ? <i title="有商品低於安全庫存">!</i> : null}
                   </span>
                   <span className="map-zone-name">{zone.name}</span>
-                  {canReadItems ? (
-                    <span className="map-zone-total">
-                      {total.toLocaleString("zh-TW")}<small>件</small>
-                    </span>
-                  ) : null}
-
-                  {/* 每層的數量。方塊太小就整塊不畫，硬擠只會變成一團看不懂的字。 */}
-                  {canReadItems && slots > 0 ? (
-                    <span
-                      className="map-zone-levels"
-                      style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-                    >
-                      {visibleLevels.map((level) => (
-                        <em key={level.id}>
-                          <i title={level.name}>{level.name}</i>
-                          <b>
-                            {zoneItems
-                              .filter((item) => item.shelfLevel === level.id)
-                              .reduce((sum, item) => sum + item.quantity, 0)
-                              .toLocaleString("zh-TW")}
-                          </b>
-                        </em>
+                  {/*
+                    * 放了什麼，不是放了幾件。
+                    *
+                    * 數量在地圖上沒有用：站在倉庫裡看這張圖的人要找的是「那個東西
+                    * 在哪一格」，不是「這一格總共幾件」。要看數量去商品庫存那一頁，
+                    * 那裡才排得下也篩得動。方塊太小就整塊不畫——硬擠只會變成一團
+                    * 看不懂的字。
+                    */}
+                  {/*
+                    * hidden > 0 也要畫：只放得下一列而裡面有兩項以上時，
+                    * visibleItems 會是空的、hidden 是全部——只看 visibleItems
+                    * 的話這一格會整個空白，看起來像沒放東西。匯出那邊畫得出來，
+                    * 兩邊不能不一致。
+                    */}
+                  {canReadItems && slots > 0 && (visibleItems.length > 0 || hidden > 0) ? (
+                    <span className="map-zone-items">
+                      {visibleItems.map((item) => (
+                        <em key={item.id} title={item.name}>{item.name}</em>
                       ))}
                       {hidden > 0 ? (
-                        <em className="map-zone-more" title={`另有 ${hidden} 個層架`}>
-                          <i>更多</i><b>+{hidden}</b>
+                        <em className="map-zone-more" title={`還有 ${hidden} 項沒列出來`}>
+                          還有 {hidden} 項
                         </em>
                       ) : null}
                     </span>
