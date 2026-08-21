@@ -80,6 +80,7 @@ export {
   type CustomerListResult,
   type CustomerQuery,
   type CustomerSortField,
+  type CustomerDateFilters,
 } from "./crm.js";
 export {
   createSavedView,

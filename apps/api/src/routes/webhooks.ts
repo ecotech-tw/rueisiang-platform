@@ -16,6 +16,7 @@ import {
   ASSISTANT_MODELS,
   DEFAULT_ASSISTANT_MODEL,
   DEFAULT_ASSISTANT_PROMPT,
+  currentAssistantRuntimeContext,
   runGemini,
 } from "@rueisiang/assistant";
 import { PLATFORM_TOOL_KEYS, toolsForSurface } from "@rueisiang/tools";
@@ -125,6 +126,7 @@ async function runLineAssistant(input: {
       apiKey: input.env.GEMINI_API_KEY,
       model: modelId,
       systemPrompt: prompt.systemPrompt,
+      runtimeContext: currentAssistantRuntimeContext(),
       userText: promptText,
       tools,
       toolContext: { surface: "line", db: input.db },

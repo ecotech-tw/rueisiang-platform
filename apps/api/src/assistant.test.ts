@@ -275,6 +275,16 @@ describe("AI 助理 Sandbox", () => {
       cyberbizTagsJson: JSON.stringify(["VIP", "北區"]),
       cyberbizRawJson: JSON.stringify({ secret: "should-not-leak" }),
       syncStatus: "synced",
+      createdAt: "2026-08-20 16:30:00",
+      updatedAt: "2026-08-20 16:30:00",
+    });
+    await db().insert(customers).values({
+      id: "crm-customer-2",
+      phone: "0922-345-678",
+      normalizedPhone: "0922345678",
+      name: "陳小華",
+      createdAt: "2026-08-20 15:59:59",
+      updatedAt: "2026-08-20 15:59:59",
     });
     await db().insert(customerTagCatalog).values({ id: "tag-vip", name: "VIP" });
     await db().insert(activityEvents).values({
@@ -291,19 +301,21 @@ describe("AI 助理 Sandbox", () => {
 
     const requestBodies: string[] = [];
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[]; system_instruction?: unknown };
       const contents = JSON.stringify(body.contents);
       requestBodies.push(contents);
       if (requestBodies.length === 1) {
+        expect(JSON.stringify(body.system_instruction)).toContain("Asia/Taipei");
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_search_customers",
-            args: { search: "王小明", pageSize: "10" },
+            args: { search: "", date: "2026-08-21", dateField: "createdAt", pageSize: "10" },
           } }] } }],
         }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (requestBodies.length === 2) {
         expect(contents).toContain("crm-customer-1");
+        expect(contents).not.toContain("crm-customer-2");
         expect(contents).not.toContain("should-not-leak");
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {

@@ -1,4 +1,5 @@
 import {
+  ASSISTANT_TIME_ZONE,
   AssistantError,
   OPEN_METEO_TOOL_KEY,
   openMeteoTool,
@@ -96,6 +97,28 @@ function customerToolView(customer: CustomerToolRecord) {
     createdAt: customer.createdAt,
     updatedAt: customer.updatedAt,
   };
+}
+
+function taipeiDayRange(date: string): { from: string; to: string } {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(date)) {
+    throw new AssistantError("CRM 日期請使用 YYYY-MM-DD 格式。");
+  }
+  const start = new Date(`${date}T00:00:00+08:00`);
+  if (!Number.isFinite(start.getTime())) throw new AssistantError("CRM 日期格式無效。");
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ASSISTANT_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(start);
+  const normalized = [
+    parts.find((part) => part.type === "year")?.value,
+    parts.find((part) => part.type === "month")?.value,
+    parts.find((part) => part.type === "day")?.value,
+  ].join("-");
+  if (normalized !== date) throw new AssistantError("CRM 日期格式無效。");
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1_000);
+  return { from: start.toISOString(), to: end.toISOString() };
 }
 
 const platformOpenMeteoTool: PlatformToolDefinition = {
@@ -400,7 +423,7 @@ const wmsGetActivityTool: PlatformToolDefinition = {
 const crmSearchCustomersTool: PlatformToolDefinition = {
   key: CRM_SEARCH_CUSTOMERS_TOOL_KEY,
   label: "CRM 搜尋客戶",
-  description: "搜尋與篩選 CRM 客戶資料，適合先找出客戶 ID，再取得單一客戶的完整背景。只讀。",
+  description: "搜尋與篩選 CRM 客戶資料，適合先找出客戶 ID，再取得單一客戶的完整背景；可依 Asia/Taipei 某天新增或更新的客戶篩選。CRM 目前沒有訂單或消費紀錄。只讀。",
   defaultStatus: "development",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["crm:customer:read"],
@@ -411,6 +434,8 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
       channel: { type: "string", description: "客戶來源：all、manual 或 cyberbiz。預設 all。", enum: ["all", "manual", "cyberbiz"] },
       status: { type: "string", description: "客戶狀態：all、active 或 blocked。預設 all。", enum: ["all", "active", "blocked"] },
       tag: { type: "string", description: "指定標籤名稱，可留空。" },
+      date: { type: "string", description: "指定日期，使用 YYYY-MM-DD；例如今天要填入系統提供的 currentDate。可留空。" },
+      dateField: { type: "string", description: "日期欄位：createdAt 查詢當天新增客戶，updatedAt 查詢當天更新客戶。預設 createdAt。", enum: ["createdAt", "updatedAt"] },
       page: { type: "string", description: "頁碼，預設 1。" },
       pageSize: { type: "string", description: "每頁筆數，可用 10、25、50 或 100，預設 25。" },
       sortField: { type: "string", description: "排序欄位：name、phone、sourceChannel、status、createdAt 或 updatedAt。預設 updatedAt。" },
@@ -420,6 +445,9 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
   async execute(input, context) {
     const search = textInput(input, "search");
     if (search.length > 120) throw new AssistantError("CRM 客戶搜尋關鍵字不能超過 120 字。");
+    const date = textInput(input, "date");
+    const dateField = textInput(input, "dateField") === "updatedAt" ? "updatedAt" : "createdAt";
+    const dateRange = date ? taipeiDayRange(date) : null;
 
     const query = normalizeCustomerQuery({
       search,
@@ -431,10 +459,15 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
       sortField: textInput(input, "sortField"),
       sortDirection: textInput(input, "sortDirection"),
     });
-    const result = await listCustomers(database(context), query);
+    const result = await listCustomers(database(context), query, dateRange
+      ? dateField === "updatedAt"
+        ? { updatedFrom: dateRange.from, updatedTo: dateRange.to }
+        : { createdFrom: dateRange.from, createdTo: dateRange.to }
+      : {});
     return json({
       ...result,
       query,
+      dateFilter: dateRange ? { date, field: dateField, timeZone: ASSISTANT_TIME_ZONE } : null,
       customers: result.customers.map((customer) => customerToolView(customer)),
     });
   },
