@@ -1,4 +1,5 @@
 import { AssistantError, type AssistantConversationMessage, type AssistantRunResult, type AssistantToolCall, type AssistantToolContext, type AssistantToolDefinition, type AssistantUsage, type JsonSchema } from "./types.js";
+import { runtimeContextInstruction, type AssistantRuntimeContext } from "./runtime.js";
 
 interface GeminiPart {
   text?: string;
@@ -148,6 +149,7 @@ export async function runGemini(input: {
   apiKey: string;
   model: string;
   systemPrompt: string;
+  runtimeContext?: AssistantRuntimeContext;
   userText: string;
   conversation?: AssistantConversationMessage[];
   tools: AssistantToolDefinition[];
@@ -168,7 +170,12 @@ export async function runGemini(input: {
     parameters: toGeminiSchema(tool.parameters),
   }));
   const requestBase = {
-    system_instruction: { parts: [{ text: input.systemPrompt }] },
+    system_instruction: {
+      parts: [
+        { text: input.systemPrompt },
+        ...(input.runtimeContext ? [{ text: runtimeContextInstruction(input.runtimeContext) }] : []),
+      ],
+    },
     generationConfig: generationConfigFor(modelId(input.model)),
     tools: declarations.length ? [{ functionDeclarations: declarations }] : undefined,
   };

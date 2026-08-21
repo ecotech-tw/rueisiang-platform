@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { inventoryItems, layoutElements, userRoles, users } from "@rueisiang/db/schema";
+import { activityEvents, customerTagCatalog, customers, inventoryItems, layoutElements, userRoles, users } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -79,12 +79,23 @@ describe("AI 助理 Sandbox", () => {
       "wms_get_inventory_item",
       "wms_list_low_stock_items",
       "wms_get_activity",
+      "crm_search_customers",
+      "crm_get_customer_context",
+      "crm_list_customer_events",
+      "crm_list_customer_tags",
+      "crm_get_sync_status",
     ]);
     expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
       label: "WMS 搜尋倉庫位置",
       status: "development",
       surfaces: ["sandbox", "line", "mcp"],
       requiredPermissions: ["wms:inventory:read", "wms:map:read"],
+    });
+    expect(result.tools.find((tool) => tool.key === "crm_search_customers")).toMatchObject({
+      label: "CRM 搜尋客戶",
+      status: "development",
+      surfaces: ["sandbox", "line", "mcp"],
+      requiredPermissions: ["crm:customer:read"],
     });
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
   });
@@ -249,6 +260,94 @@ describe("AI 助理 Sandbox", () => {
       toolCalls: [{ toolKey: "wms_search_warehouse", status: "success" }],
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("Sandbox 可以透過共用 registry 查詢 CRM 客戶與背景", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(customers).values({
+      id: "crm-customer-1",
+      phone: "0912-345-678",
+      normalizedPhone: "0912345678",
+      name: "王小明",
+      email: "ming@example.com",
+      address: "台北市中山區測試路 1 號",
+      cyberbizCustomerId: "cyberbiz-1",
+      cyberbizTagsJson: JSON.stringify(["VIP", "北區"]),
+      cyberbizRawJson: JSON.stringify({ secret: "should-not-leak" }),
+      syncStatus: "synced",
+      createdAt: "2026-08-20 16:30:00",
+      updatedAt: "2026-08-20 16:30:00",
+    });
+    await db().insert(customers).values({
+      id: "crm-customer-2",
+      phone: "0922-345-678",
+      normalizedPhone: "0922345678",
+      name: "陳小華",
+      createdAt: "2026-08-20 15:59:59",
+      updatedAt: "2026-08-20 15:59:59",
+    });
+    await db().insert(customerTagCatalog).values({ id: "tag-vip", name: "VIP" });
+    await db().insert(activityEvents).values({
+      id: "crm-event-1",
+      entityType: "customer",
+      entityId: "crm-customer-1",
+      entityLabel: "王小明",
+      eventType: "customer_updated",
+      summary: "更新客戶資料",
+      actorType: "user",
+      actorEmail: "admin@ecotech.tw",
+      source: "crm",
+    });
+
+    const requestBodies: string[] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[]; system_instruction?: unknown };
+      const contents = JSON.stringify(body.contents);
+      requestBodies.push(contents);
+      if (requestBodies.length === 1) {
+        expect(JSON.stringify(body.system_instruction)).toContain("Asia/Taipei");
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ functionCall: {
+            name: "crm_search_customers",
+            args: { search: "", date: "2026-08-21", dateField: "createdAt", pageSize: "10" },
+          } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (requestBodies.length === 2) {
+        expect(contents).toContain("crm-customer-1");
+        expect(contents).not.toContain("crm-customer-2");
+        expect(contents).not.toContain("should-not-leak");
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ functionCall: {
+            name: "crm_get_customer_context",
+            args: { customerId: "crm-customer-1", eventLimit: "5" },
+          } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      expect(contents).toContain("更新客戶資料");
+      expect(contents).not.toContain("should-not-leak");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "找到王小明，CRM 顯示他是 VIP 客戶，最近有更新資料紀錄。" }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "gemini-3.6-flash",
+        toolKeys: ["crm_search_customers", "crm_get_customer_context"],
+        input: "請查詢王小明最近的 CRM 狀態",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "找到王小明，CRM 顯示他是 VIP 客戶，最近有更新資料紀錄。",
+      toolCalls: [
+        { toolKey: "crm_search_customers", status: "success" },
+        { toolKey: "crm_get_customer_context", status: "success" },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("使用選定 prompt 與模型執行 Gemini，並記錄可用量資訊", async () => {

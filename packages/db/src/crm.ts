@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, like, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizePhone } from "./phone.js";
 import { customers } from "./schema/crm.js";
@@ -44,6 +44,13 @@ export interface CustomerListResult {
   stats: { total: number; active: number; blocked: number; incomplete: number };
 }
 
+export interface CustomerDateFilters {
+  createdFrom?: string;
+  createdTo?: string;
+  updatedFrom?: string;
+  updatedTo?: string;
+}
+
 export function defaultCustomerQuery(): CustomerQuery {
   return {
     search: "",
@@ -85,7 +92,7 @@ export function normalizeCustomerQuery(
   };
 }
 
-function buildWhere(query: CustomerQuery): SQL | undefined {
+function buildWhere(query: CustomerQuery, dates: CustomerDateFilters): SQL | undefined {
   const conditions: SQL[] = [];
 
   if (query.search) {
@@ -121,11 +128,28 @@ function buildWhere(query: CustomerQuery): SQL | undefined {
     conditions.push(like(customers.cyberbizTagsJson, `%${JSON.stringify(query.tag).slice(1, -1)}%`));
   }
 
+  if (dates.createdFrom) {
+    conditions.push(sql`datetime(${customers.createdAt}) >= datetime(${dates.createdFrom})`);
+  }
+  if (dates.createdTo) {
+    conditions.push(sql`datetime(${customers.createdAt}) < datetime(${dates.createdTo})`);
+  }
+  if (dates.updatedFrom) {
+    conditions.push(sql`datetime(${customers.updatedAt}) >= datetime(${dates.updatedFrom})`);
+  }
+  if (dates.updatedTo) {
+    conditions.push(sql`datetime(${customers.updatedAt}) < datetime(${dates.updatedTo})`);
+  }
+
   return conditions.length ? and(...conditions) : undefined;
 }
 
-export async function listCustomers(db: Database, query: CustomerQuery): Promise<CustomerListResult> {
-  const where = buildWhere(query);
+export async function listCustomers(
+  db: Database,
+  query: CustomerQuery,
+  dates: CustomerDateFilters = {},
+): Promise<CustomerListResult> {
+  const where = buildWhere(query, dates);
   const sortColumn = SORT_COLUMNS[query.sortField] ?? customers.updatedAt;
 
   const [rows, [totalRow], [allRow], [activeRow], [blockedRow], [incompleteRow]] = await Promise.all([
