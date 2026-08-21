@@ -16,7 +16,8 @@ Rueisiang/
 建立 worktree：
 
 ```powershell
-cd C:\Users\llin8\Documents\Rueisiang
+# 先切到包含 rueisiang-platform 的父資料夾
+cd C:\path\to\Rueisiang
 git -C .\rueisiang-platform fetch origin
 git -C .\rueisiang-platform worktree add -b feat/<需求名稱>-codex .\rueisiang-platform-codex origin/main
 git -C .\rueisiang-platform worktree add -b feat/<需求名稱>-claude .\rueisiang-platform-claude origin/main
@@ -24,6 +25,8 @@ git -C .\rueisiang-platform worktree list
 ```
 
 `<需求名稱>` 由當次需求決定；不要讓兩個 worktree 使用同一個 branch。
+
+常駐 worktree 建立後，每個 agent 只在自己的路徑切換到下一個需求 branch；review 別人的 branch 時使用 detached review worktree，不要把同一個 branch 同時掛到兩個 worktree。
 
 ## Agent 規則
 
@@ -41,6 +44,8 @@ git -C .\rueisiang-platform worktree list
 
 Codex worktree：Portal `5174`、API `8788`。
 
+Claude worktree：Portal `5175`、API `8789`。
+
 ```powershell
 $env:API_PORT = "8788"
 $env:PORTAL_PORT = "5174"
@@ -49,9 +54,11 @@ pnpm dev
 
 Portal 的 Vite proxy 會使用同一個 `API_PORT`，所以不會把 Codex 的請求送到另一個 worktree。
 
+Claude worktree 使用 `API_PORT=8789` 與 `PORTAL_PORT=5175`。
+
 ## 本機資料與 secrets
 
 - 每個 worktree 有自己的 `apps/api/local.sqlite`。
 - 每個 worktree 的 `apps/api/.dev.vars` 都要自行準備，不提交到 Git。
-- Redis 等 Docker 外部服務可以共用，但 app server 必須使用不同 port。
+- 外部服務若要共用，先確認測試資料與憑證不會互相污染；app server 必須使用不同 port。
 - 看到別的 worktree 有未提交修改時，不要替對方整理、reset 或刪除。

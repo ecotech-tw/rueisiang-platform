@@ -94,7 +94,7 @@ worktree 啟動，避免某一方 `git switch` 時把另一方正在看的檔案
 Rueisiang/
 ├─ rueisiang-platform/          # 原始 checkout；保留給現有工作或人類整合
 ├─ rueisiang-platform-codex/    # Codex 專用，API 8788、Portal 5174
-└─ rueisiang-platform-claude/   # Claude 專用，另分配一組 port
+└─ rueisiang-platform-claude/   # Claude 專用，API 8789、Portal 5175
 ```
 
 規則：
@@ -118,6 +118,10 @@ pnpm dev
 
 這兩個 port 設定只影響本機 dev server，不會進 Worker production 設定。API dev server
 仍接受舊的 `PORT`，未設定時維持 8787；Portal 未設定時維持 5173。
+
+Claude worktree 使用 `API_PORT=8789`、`PORTAL_PORT=5175`。常駐 worktree 建立後，
+每個 agent 可以只在自己的路徑切換到下一個需求 branch；需要 review 別人的 branch
+則使用 detached review worktree，不要把同一個 branch 同時掛到兩個 worktree。
 
 ## 命名慣例與 Coding Style
 
@@ -221,6 +225,7 @@ CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`）�
 pnpm install
 pnpm dev          # portal（Vite）5173 + API 8787，同時起
 # Codex worktree：$env:API_PORT="8788"; $env:PORTAL_PORT="5174"; pnpm dev
+# Claude worktree：$env:API_PORT="8789"; $env:PORTAL_PORT="5175"; pnpm dev
 pnpm build        # portal 產 dist；api 只做型別檢查
 pnpm typecheck    # Worker 與測試兩份 tsconfig 都跑，兩份都要過
 pnpm test
@@ -241,4 +246,4 @@ pnpm --filter @rueisiang/api exec vitest run src/crm.test.ts -t "封鎖"
 cd packages/db && pnpm generate
 ```
 
-本機開發：打開 <http://localhost:5173/dev> 選身分直接登入（六種帳號涵蓋管理者到已停用），跳過 Google OAuth。Codex worktree 使用 <http://localhost:5174/dev>。資料在各自 worktree 的 `apps/api/local.sqlite`，想重來就刪檔。需要金鑰的功能（CYBERBIZ、Gemini Sandbox）從 `apps/api/.dev.vars` 讀，格式同 wrangler。
+本機開發：打開 <http://localhost:5173/dev> 選身分直接登入（六種帳號涵蓋管理者到已停用），跳過 Google OAuth。Codex worktree 使用 <http://localhost:5174/dev>，Claude worktree 使用 <http://localhost:5175/dev>。資料在各自 worktree 的 `apps/api/local.sqlite`，想重來就刪檔。需要金鑰的功能（CYBERBIZ）從 `apps/api/.dev.vars` 讀，格式同 wrangler。

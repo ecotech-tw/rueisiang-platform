@@ -20,9 +20,19 @@ import { DEV_ACCOUNTS, seedDevData } from "./fixtures.js";
  * apps/api/tsconfig.json 也把 src/dev 排除在 Worker 的型別檢查之外。
  * /dev 那兩條假登入的路由是這裡自己接的，不在 Hono app 裡，所以正式環境不存在。
  */
+function readPort(raw: string | undefined, fallback: number, label: string): number {
+  const value = raw?.trim();
+  if (!value) return fallback;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${label} 必須是 1–65535 的整數，目前是「${raw}」。`);
+  }
+  return port;
+}
+
 // API_PORT 讓同一台開發機可以同時跑多個 worktree；PORT 保留給舊的單一 worktree 用法。
-const PORT = Number(process.env.API_PORT ?? process.env.PORT ?? 8787);
-const PORTAL_PORT = Number(process.env.PORTAL_PORT ?? 5173);
+const PORT = readPort(process.env.API_PORT ?? process.env.PORT, 8787, "API_PORT");
+const PORTAL_PORT = readPort(process.env.PORTAL_PORT, 5173, "PORTAL_PORT");
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DB_FILE = path.resolve(here, "../../local.sqlite");
 
@@ -33,8 +43,7 @@ const DEV_SECRET = "local-development-only";
  * 讀 apps/api/.dev.vars——沿用 wrangler 的慣例，格式就是一行一個 KEY=value。
  *
  * 這個檔在 .gitignore 裡，用來放不能進版控又只有本機需要的東西，
- * 目前是 CYBERBIZ_API_TOKEN 與 GEMINI_API_KEY。沒有這個檔也能跑，只是碰到
- * CYBERBIZ 或 AI Sandbox 的功能會失敗。
+ * 目前是 CYBERBIZ_API_TOKEN。沒有這個檔也能跑，只是碰到 CYBERBIZ 的功能會失敗。
  */
 function loadDevVars(): Record<string, string> {
   const file = path.resolve(here, "../../.dev.vars");
