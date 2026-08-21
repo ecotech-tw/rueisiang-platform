@@ -47,6 +47,10 @@ pnpm test
 （把 Hono app 接上 node:http，配 node:sqlite 當 D1）。**這裡不用 `wrangler dev`**，
 理由見下面那節——這台開發機起不了 workerd。
 
+Codex 與 Claude 同時開發時，請使用各自的 worktree 與 port：Codex 是 Portal `5174`、
+API `8788`；Claude 是 Portal `5175`、API `8789`。完整規則見
+[`docs/development-workflow.md`](./docs/development-workflow.md)。
+
 開 <http://localhost:5173/dev> 選一個身分直接進去，跳過 Google OAuth。種子帳號
 涵蓋管理者、主管、一般同仁、檢視者、沒有角色、已停用六種，方便直接比對
 不同權限看到的畫面。

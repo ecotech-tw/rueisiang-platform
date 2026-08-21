@@ -83,6 +83,17 @@ driver 的 `loadConfig` 讀到它就以它為準（沒有這個檔案時照 `con
 
 **CYBERBIZ 同步分批做。** Worker 有執行時間上限，全量拉一次可能拉不完，所以每次最多 `MAX_PAGES_PER_RUN` 頁，回報還有沒有下一頁。cron（每 15 分）只補跑失敗的 webhook，不做全量同步。
 
+## 多 agent 協作：Git worktree（v1）
+
+worktree 的建立指令、目錄配置、port 對照、branch 生命週期與 review 規則集中放在
+[`docs/development-workflow.md`](./docs/development-workflow.md)；本節只保留不可違反的邊界。
+
+Codex、Claude 與人類不能共用同一個 working directory。具體的目錄配置與 agent 規則請以
+上面的 workflow 文件為準。
+
+本機 worktree 的啟動方式與 `PORT` 相容規則見 workflow 文件；這些設定只影響 dev server，
+不會進 Worker production 設定。
+
 ## 命名慣例與 Coding Style
 
 照現代 TypeScript / ESM 標準，沒有額外的 linter（見「禁止事項」）。
@@ -184,6 +195,8 @@ CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`）�
 ```bash
 pnpm install
 pnpm dev          # portal（Vite）5173 + API 8787，同時起
+# Codex worktree：$env:API_PORT="8788"; $env:PORTAL_PORT="5174"; pnpm dev
+# Claude worktree：$env:API_PORT="8789"; $env:PORTAL_PORT="5175"; pnpm dev
 pnpm build        # portal 產 dist；api 只做型別檢查
 pnpm typecheck    # Worker 與測試兩份 tsconfig 都跑，兩份都要過
 pnpm test
@@ -204,4 +217,4 @@ pnpm --filter @rueisiang/api exec vitest run src/crm.test.ts -t "封鎖"
 cd packages/db && pnpm generate
 ```
 
-本機開發：打開 <http://localhost:5173/dev> 選身分直接登入（六種帳號涵蓋管理者到已停用），跳過 Google OAuth。資料在 `apps/api/local.sqlite`，想重來就刪檔。需要金鑰的功能（CYBERBIZ）從 `apps/api/.dev.vars` 讀，格式同 wrangler。
+本機開發：打開 <http://localhost:5173/dev> 選身分直接登入（六種帳號涵蓋管理者到已停用），跳過 Google OAuth。Codex worktree 使用 <http://localhost:5174/dev>，Claude worktree 使用 <http://localhost:5175/dev>。資料在各自 worktree 的 `apps/api/local.sqlite`，想重來就刪檔。需要金鑰的功能（CYBERBIZ）從 `apps/api/.dev.vars` 讀，格式同 wrangler。
