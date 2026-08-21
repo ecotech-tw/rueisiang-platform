@@ -241,6 +241,21 @@ SQL。改成接 `|| char(10) ||`，存進去的值一模一樣。假資料裡只
   WMS」兩條路一起死，而錯誤訊息指向完全無辜的 SKU。修法是把問的時候就知道的
   那個 id 補回去
 
+**商品庫存的 webhook**（Phase 4 的最後一塊）：舊系統有 `variants/update` 這條路，
+搬進來的時候漏掉了——表（`cyberbiz_product_webhooks`）建了，路由沒寫。症狀是
+官網改了數量平台不動，而且沒有任何跡象說那個數字舊了。網址與訂閱方式見
+deployment-setup 的第 6 節。
+
+跟舊系統不同的兩點：
+
+- **一個網址收全部的事件**（`/api/webhooks/cyberbiz`），進來之後由程式分派。
+  後台的訂閱是人手動設的，每多一個網址就多一個「有沒有設到」的問題，而設漏了
+  不會有任何錯誤訊息——只會安靜地不同步。分派那段邏輯本來就跑不掉，集中在一處
+  只有一份。舊的 `/cyberbiz/customers` 留著當相容別名，走同一段程式。
+- **topic 標頭不當成主要判斷依據**。舊系統的 `cyberbizWebhookTopic` 在沒有標頭
+  時預設回 `variants/update`，等於根本沒在檢查。改成先看 payload 自己的欄位
+  （`classifyPayload`），topic 只在 payload 看不出來時當補充。
+
 **Phase 5 — 舊系統下線**
 - 兩個 Cloud Run 服務停掉、Cloud SQL instance 關掉（月費歸零）
 - **先別急著關**：平台這邊要實際用一段時間，確認沒有漏掉的功能。舊系統還在

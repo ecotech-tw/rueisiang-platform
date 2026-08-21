@@ -114,6 +114,17 @@ export async function createWebhookEventId(topic: string, rawBody: string): Prom
   return toHex(bytes);
 }
 
+/**
+ * 明確標成商品／庫存相關的事件。
+ *
+ * 跟 isCustomerTopic 一樣，unknown 不算。CYBERBIZ 常常不送 topic 標頭，所以這個
+ * 判斷只是輔助——真正擋得住東西的是 classifyPayload（看 payload 自己的欄位）。
+ */
+export function isProductTopic(topic: string): boolean {
+  if (!topic || topic === "unknown") return false;
+  return /variant|product|inventory|stock/i.test(topic);
+}
+
 /** 明確標成會員相關的事件。unknown 不算——那是「沒有標」，不是「是會員」。 */
 export function isCustomerTopic(topic: string): boolean {
   if (!topic || topic === "unknown") return false;
@@ -160,4 +171,71 @@ export function classifyPayload(payload: unknown): PayloadKind {
   if (PRODUCT_MARKERS.some((marker) => keys.has(marker))) return "product";
   if (CUSTOMER_MARKERS.some((marker) => keys.has(marker))) return "customer";
   return "unknown";
+}
+
+/**
+ * 商品／庫存事件裡的身分。
+ *
+ * CYBERBIZ 把同一組欄位放在好幾個不同的位置，看它是從哪個介面觸發的——有時在
+ * 最上層、有時包在 `data` 裡、有時包在 `product_variant` 或 `variant` 裡。每個
+ * 欄位都要把所有已知的位置找過一遍，少找一個就是整筆事件被當成「認不出來」。
+ * 這份對照是舊系統跟正式站對打之後留下來的，不要照文件重寫。
+ */
+export interface CyberbizProductEvent {
+  productId: string;
+  variantId: string;
+  sku: string;
+  /** 事件自己說的數量。**只拿來記錄，不拿來寫庫存**——寫之前一律回官網重讀。 */
+  quantity: number | null;
+}
+
+function textOf(...values: unknown[]): string {
+  for (const value of values) {
+    if (value !== null && value !== undefined && String(value).trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function intOf(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.round(parsed);
+  }
+  return null;
+}
+
+function objectOf(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+export function parseProductEvent(payload: unknown): CyberbizProductEvent {
+  const root = objectOf(payload);
+  const data = objectOf(root.data);
+  const variant = objectOf(
+    root.product_variant ?? root.variant ?? data.product_variant ?? data.variant ?? data,
+  );
+  const product = objectOf(root.product ?? data.product);
+
+  return {
+    productId: textOf(root.product_id, data.product_id, variant.product_id, product.id),
+    variantId: textOf(
+      root.variant_id,
+      root.product_variant_id,
+      data.variant_id,
+      data.product_variant_id,
+      variant.id,
+      // 最後才看 payload 自己的 id：variants/update 的最上層 id 就是款式 id。
+      root.id,
+    ),
+    sku: textOf(root.sku, data.sku, variant.sku),
+    quantity: intOf(
+      root.inventory_quantity,
+      root.quantity,
+      data.inventory_quantity,
+      data.quantity,
+      variant.inventory_quantity,
+      variant.quantity,
+    ),
+  };
 }
