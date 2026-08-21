@@ -21,6 +21,7 @@ import { DEV_ACCOUNTS, seedDevData } from "./fixtures.js";
  * /dev 那兩條假登入的路由是這裡自己接的，不在 Hono app 裡，所以正式環境不存在。
  */
 function readPort(raw: string | undefined, fallback: number, label: string): number {
+  // Portal dev server uses the same validation in apps/portal/vite.config.ts.
   const value = raw?.trim();
   if (!value) return fallback;
   const port = Number(value);
@@ -31,7 +32,8 @@ function readPort(raw: string | undefined, fallback: number, label: string): num
 }
 
 // API_PORT 讓同一台開發機可以同時跑多個 worktree；PORT 保留給舊的單一 worktree 用法。
-const PORT = readPort(process.env.API_PORT ?? process.env.PORT, 8787, "API_PORT");
+const apiPortOverride = process.env.API_PORT?.trim();
+const PORT = readPort(apiPortOverride || process.env.PORT?.trim(), 8787, apiPortOverride ? "API_PORT" : "PORT");
 const PORTAL_PORT = readPort(process.env.PORTAL_PORT, 5173, "PORTAL_PORT");
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DB_FILE = path.resolve(here, "../../local.sqlite");
@@ -132,7 +134,7 @@ async function devLogin(url: URL): Promise<{ status: number; headers: Record<str
   };
 }
 
-http
+const server = http
   .createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
@@ -163,9 +165,20 @@ http
 
     res.writeHead(response.status, Object.fromEntries(response.headers));
     res.end(Buffer.from(await response.arrayBuffer()));
-  })
-  .listen(PORT, () => {
-    console.log(`API      http://localhost:${PORT}`);
-    console.log(`假登入   http://localhost:${PORTAL_PORT}/dev  （portal 起來之後）`);
   });
+
+server.on("error", (error) => {
+  const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+  if (code === "EADDRINUSE") {
+    console.error(`API port ${PORT} 已被占用，請改用 API_PORT 或停止占用中的程序。`);
+  } else {
+    console.error("API dev server 啟動失敗", error);
+  }
+  process.exitCode = 1;
+});
+
+server.listen(PORT, () => {
+  console.log(`API      http://localhost:${PORT}`);
+  console.log(`假登入   http://localhost:${PORTAL_PORT}/dev  （portal 起來之後）`);
+});
 

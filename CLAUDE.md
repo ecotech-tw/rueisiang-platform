@@ -85,43 +85,14 @@ driver 的 `loadConfig` 讀到它就以它為準（沒有這個檔案時照 `con
 
 ## 多 agent 協作：Git worktree（v1）
 
-Codex、Claude 與人類不能共用同一個 working directory。每一個 agent 都要從自己的
-worktree 啟動，避免某一方 `git switch` 時把另一方正在看的檔案整棵樹換掉。
+worktree 的建立指令、目錄配置、port 對照、branch 生命週期與 review 規則集中放在
+[`docs/development-workflow.md`](./docs/development-workflow.md)；本節只保留不可違反的邊界。
 
-預設目錄配置如下，目錄名稱是協作約定，不是 Git 的特殊功能：
+Codex、Claude 與人類不能共用同一個 working directory。具體的目錄配置與 agent 規則請以
+上面的 workflow 文件為準。
 
-```text
-Rueisiang/
-├─ rueisiang-platform/          # 原始 checkout；保留給現有工作或人類整合
-├─ rueisiang-platform-codex/    # Codex 專用，API 8788、Portal 5174
-└─ rueisiang-platform-claude/   # Claude 專用，API 8789、Portal 5175
-```
-
-規則：
-
-- agent 啟動前先確認 `git worktree list` 與目前 branch；之後只在自己的 worktree 工作。
-- 不得在別的 agent 的 worktree 執行 `git switch`、`git checkout` 或修改檔案。
-- 同一個 branch 不可同時掛在兩個 worktree；每個需求使用自己的 feature branch。
-- Codex 預設使用 `rueisiang-platform-codex`，Claude 預設使用 `rueisiang-platform-claude`。
-- 每個 agent 只提交自己 branch 的 commit；review 以 PR 為單位，不直接改 reviewer 的未提交檔案。
-- 所有 PR 的 merge 都要由人類確認；agent 不得自行 merge。
-- `CLAUDE.md` 是規格唯一來源；`AGENTS.md` 維持指向它的一行說明，不另外複製規則。
-- worktree 共用 Git object database，但各自有工作檔與 index；不要把未提交修改當成另一個 worktree 的輸入。
-
-Codex worktree 的本機啟動方式：
-
-```powershell
-$env:API_PORT = "8788"
-$env:PORTAL_PORT = "5174"
-pnpm dev
-```
-
-這兩個 port 設定只影響本機 dev server，不會進 Worker production 設定。API dev server
-仍接受舊的 `PORT`，未設定時維持 8787；Portal 未設定時維持 5173。
-
-Claude worktree 使用 `API_PORT=8789`、`PORTAL_PORT=5175`。常駐 worktree 建立後，
-每個 agent 可以只在自己的路徑切換到下一個需求 branch；需要 review 別人的 branch
-則使用 detached review worktree，不要把同一個 branch 同時掛到兩個 worktree。
+本機 worktree 的啟動方式與 `PORT` 相容規則見 workflow 文件；這些設定只影響 dev server，
+不會進 Worker production 設定。
 
 ## 命名慣例與 Coding Style
 

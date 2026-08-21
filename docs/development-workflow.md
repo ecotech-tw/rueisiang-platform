@@ -18,10 +18,11 @@ Rueisiang/
 ```powershell
 # 先切到包含 rueisiang-platform 的父資料夾
 cd C:\path\to\Rueisiang
-git -C .\rueisiang-platform fetch origin
-git -C .\rueisiang-platform worktree add -b feat/<需求名稱>-codex .\rueisiang-platform-codex origin/main
-git -C .\rueisiang-platform worktree add -b feat/<需求名稱>-claude .\rueisiang-platform-claude origin/main
-git -C .\rueisiang-platform worktree list
+cd .\rueisiang-platform
+git fetch origin
+git worktree add -b feat/<需求名稱>-codex ..\rueisiang-platform-codex origin/main
+git worktree add -b feat/<需求名稱>-claude ..\rueisiang-platform-claude origin/main
+git worktree list
 ```
 
 `<需求名稱>` 由當次需求決定；不要讓兩個 worktree 使用同一個 branch。
@@ -36,7 +37,7 @@ git -C .\rueisiang-platform worktree list
 4. 完成後在自己的 branch commit，push 後建立或更新 PR。
 5. Review 透過 PR 留言與 review；不要直接改 reviewer 的工作檔。
 6. Merge 永遠由人類確認後執行。
-7. `CLAUDE.md` 是唯一規格來源，`AGENTS.md` 不複製內容。
+7. 專案 coding 規格以 `CLAUDE.md` 為準；本文件只維護 worktree、port 與 review 的操作規則。
 
 ## 本機 port
 
