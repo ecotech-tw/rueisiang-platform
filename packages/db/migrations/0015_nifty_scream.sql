@@ -1,0 +1,1 @@
+ALTER TABLE `assistant_line_channels` ADD `access_token_encrypted` text DEFAULT '' NOT NULL;

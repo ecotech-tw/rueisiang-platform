@@ -2,6 +2,9 @@ import { Navigate, Route, Routes, useLocation, useSearchParams } from "react-rou
 import { useSession } from "./auth/session.js";
 import { Roles } from "./routes/admin/Roles.js";
 import { AdminUsers } from "./routes/admin/Users.js";
+import { Sandbox } from "./routes/assistant/Sandbox.js";
+import { AssistantSettings } from "./routes/assistant/Settings.js";
+import { LineSettings } from "./routes/assistant/LineSettings.js";
 import { Activity } from "./routes/crm/Activity.js";
 import { Customers } from "./routes/crm/Customers.js";
 import { Tags } from "./routes/crm/Tags.js";
@@ -98,6 +101,12 @@ export function App() {
         <Route path="tools">
           <Route path="payout" element={<Payout />} />
           <Route path="payout/settings" element={<PayoutSettings />} />
+        </Route>
+
+        <Route path="assistant">
+          <Route path="sandbox" element={<Sandbox />} />
+          <Route path="settings" element={<AssistantSettings />} />
+          <Route path="line" element={<LineSettings />} />
         </Route>
 
         <Route path="admin">

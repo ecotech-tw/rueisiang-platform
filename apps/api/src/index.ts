@@ -8,6 +8,7 @@ import { cyberbizClient, cyberbizInventoryClient } from "./cyberbiz.js";
 import { cacheClient } from "./upstash.js";
 import type { AppEnv, Env } from "./env.js";
 import { admin } from "./routes/admin.js";
+import { assistant } from "./routes/assistant.js";
 import { auth } from "./routes/auth.js";
 import { crm } from "./routes/crm.js";
 import { webhooks } from "./routes/webhooks.js";
@@ -33,6 +34,7 @@ const routes = app
   .route("/health", health)
   .route("/auth", auth)
   .route("/admin", admin)
+  .route("/assistant", assistant)
   .route("/crm", crm)
   .route("/tools", tools)
   .route("/wms", wms)
