@@ -83,6 +83,42 @@ driver 的 `loadConfig` 讀到它就以它為準（沒有這個檔案時照 `con
 
 **CYBERBIZ 同步分批做。** Worker 有執行時間上限，全量拉一次可能拉不完，所以每次最多 `MAX_PAGES_PER_RUN` 頁，回報還有沒有下一頁。cron（每 15 分）只補跑失敗的 webhook，不做全量同步。
 
+## 多 agent 協作：Git worktree（v1）
+
+Codex、Claude 與人類不能共用同一個 working directory。每一個 agent 都要從自己的
+worktree 啟動，避免某一方 `git switch` 時把另一方正在看的檔案整棵樹換掉。
+
+預設目錄配置如下，目錄名稱是協作約定，不是 Git 的特殊功能：
+
+```text
+Rueisiang/
+├─ rueisiang-platform/          # 原始 checkout；保留給現有工作或人類整合
+├─ rueisiang-platform-codex/    # Codex 專用，API 8788、Portal 5174
+└─ rueisiang-platform-claude/   # Claude 專用，另分配一組 port
+```
+
+規則：
+
+- agent 啟動前先確認 `git worktree list` 與目前 branch；之後只在自己的 worktree 工作。
+- 不得在別的 agent 的 worktree 執行 `git switch`、`git checkout` 或修改檔案。
+- 同一個 branch 不可同時掛在兩個 worktree；每個需求使用自己的 feature branch。
+- Codex 預設使用 `rueisiang-platform-codex`，Claude 預設使用 `rueisiang-platform-claude`。
+- 每個 agent 只提交自己 branch 的 commit；review 以 PR 為單位，不直接改 reviewer 的未提交檔案。
+- 所有 PR 的 merge 都要由人類確認；agent 不得自行 merge。
+- `CLAUDE.md` 是規格唯一來源；`AGENTS.md` 維持指向它的一行說明，不另外複製規則。
+- worktree 共用 Git object database，但各自有工作檔與 index；不要把未提交修改當成另一個 worktree 的輸入。
+
+Codex worktree 的本機啟動方式：
+
+```powershell
+$env:API_PORT = "8788"
+$env:PORTAL_PORT = "5174"
+pnpm dev
+```
+
+這兩個 port 設定只影響本機 dev server，不會進 Worker production 設定。API dev server
+仍接受舊的 `PORT`，未設定時維持 8787；Portal 未設定時維持 5173。
+
 ## 命名慣例與 Coding Style
 
 照現代 TypeScript / ESM 標準，沒有額外的 linter（見「禁止事項」）。
@@ -184,6 +220,7 @@ CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`）�
 ```bash
 pnpm install
 pnpm dev          # portal（Vite）5173 + API 8787，同時起
+# Codex worktree：$env:API_PORT="8788"; $env:PORTAL_PORT="5174"; pnpm dev
 pnpm build        # portal 產 dist；api 只做型別檢查
 pnpm typecheck    # Worker 與測試兩份 tsconfig 都跑，兩份都要過
 pnpm test
@@ -204,4 +241,4 @@ pnpm --filter @rueisiang/api exec vitest run src/crm.test.ts -t "封鎖"
 cd packages/db && pnpm generate
 ```
 
-本機開發：打開 <http://localhost:5173/dev> 選身分直接登入（六種帳號涵蓋管理者到已停用），跳過 Google OAuth。資料在 `apps/api/local.sqlite`，想重來就刪檔。需要金鑰的功能（CYBERBIZ）從 `apps/api/.dev.vars` 讀，格式同 wrangler。
+本機開發：打開 <http://localhost:5173/dev> 選身分直接登入（六種帳號涵蓋管理者到已停用），跳過 Google OAuth。Codex worktree 使用 <http://localhost:5174/dev>。資料在各自 worktree 的 `apps/api/local.sqlite`，想重來就刪檔。需要金鑰的功能（CYBERBIZ、Gemini Sandbox）從 `apps/api/.dev.vars` 讀，格式同 wrangler。
