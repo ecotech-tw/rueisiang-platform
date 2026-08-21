@@ -339,6 +339,28 @@ describe("安全庫存以官網為準", () => {
   });
 
   /*
+   * Code review 抓到的：表單一定會送安全庫存，而它送的是**開啟表單那一刻**的值。
+   *
+   * 表單開著的時候官網同步把值改掉了的話，送回來的舊值就會被判成「要改成不同
+   * 的值」，於是連改個名字都會 409——這項商品完全編輯不動，而錯誤訊息完全沒提
+   * 到這件事。前端已經改成連結時不送這個欄位，這裡釘住後端的那一半：不送就是
+   * 不要動。
+   */
+  it("已連結時不送 minStock，其他欄位就改得動——即使官網那邊剛改過", async () => {
+    await link();
+    // 官網同步把安全庫存改成 99，這時表單手上還是 5。
+    await db.update(inventoryItems).set({ minStock: 99 }).where(eq(inventoryItems.id, "i1"));
+
+    const response = await edit({ name: "大紙箱" });
+
+    expect(response.status).toBe(200);
+    const [item] = await db.select().from(inventoryItems);
+    expect(item?.name).toBe("大紙箱");
+    // 沒送就是不要動，官網那個值留著。
+    expect(item?.minStock).toBe(99);
+  });
+
+  /*
    * 反方向仍然要通：官網同步回來時就是要改這個值，那條路不受這個限制。
    */
   it("從官網同步回來時照樣寫得進去", async () => {

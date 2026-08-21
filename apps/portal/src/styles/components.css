@@ -991,7 +991,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.map-zone-more { background: --alpha(var(--color-ink) / 8%); opacity: .75; }
+/* 要連著 em 一起寫：單獨的 .map-zone-more 特異性輸給上面的 .map-zone-items em，
+   底色會被壓回紙色，這個提示就跟商品名稱長得一模一樣了。 */
+.map-zone-items em.map-zone-more { background: --alpha(var(--color-ink) / 8%); opacity: .75; }
 
 /* 標籤是牆、走道這種東西：文字置中、虛線框，視覺上退到倉位後面。 */
 .map-element {

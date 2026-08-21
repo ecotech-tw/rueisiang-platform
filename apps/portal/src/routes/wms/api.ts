@@ -152,12 +152,21 @@ export function useCreateItem() {
   );
 }
 
+/**
+ * 更新時可以省略安全庫存。
+ *
+ * 已連結 CYBERBIZ 的商品以官網為準，後端收不到這個欄位就是「不要動」；送一個
+ * 過期的值反而會被判成「要改成不同的值」而擋下來。新增時沒有這個問題，所以只有
+ * 更新這條路放寬。
+ */
+export type ItemUpdate = Omit<ItemForm, "minStock"> & { minStock?: number };
+
 export function useUpdateItem() {
   /*
    * 送出時不帶 quantity——後端的 updateItem 本來就不理它，這裡也不送，
    * 免得日後有人看到 payload 裡有數量就以為改得動。要改數量走盤點。
    */
-  return useWarehouseMutation(({ id, quantity: _quantity, ...input }: ItemForm & { id: string }) =>
+  return useWarehouseMutation(({ id, quantity: _quantity, ...input }: ItemUpdate & { id: string }) =>
     write<{ ok: true }>(`/api/wms/items/${id}`, "PATCH", input),
   );
 }

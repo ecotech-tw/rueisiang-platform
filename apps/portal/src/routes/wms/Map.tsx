@@ -299,7 +299,13 @@ export function WarehouseMap() {
                     * 那裡才排得下也篩得動。方塊太小就整塊不畫——硬擠只會變成一團
                     * 看不懂的字。
                     */}
-                  {canReadItems && slots > 0 && visibleItems.length > 0 ? (
+                  {/*
+                    * hidden > 0 也要畫：只放得下一列而裡面有兩項以上時，
+                    * visibleItems 會是空的、hidden 是全部——只看 visibleItems
+                    * 的話這一格會整個空白，看起來像沒放東西。匯出那邊畫得出來，
+                    * 兩邊不能不一致。
+                    */}
+                  {canReadItems && slots > 0 && (visibleItems.length > 0 || hidden > 0) ? (
                     <span className="map-zone-items">
                       {visibleItems.map((item) => (
                         <em key={item.id} title={item.name}>{item.name}</em>

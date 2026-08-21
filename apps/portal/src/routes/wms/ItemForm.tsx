@@ -85,8 +85,25 @@ export function ItemForm({
       shelfLevel: fields.shelfLevel || null,
       notes: fields.notes.trim(),
     };
-    if (item) update.mutate({ ...payload, id: item.id }, { onSuccess: onClose });
-    else create.mutate(payload, { onSuccess: onClose });
+    if (!item) {
+      create.mutate(payload, { onSuccess: onClose });
+      return;
+    }
+
+    /*
+     * 已連結就不送安全庫存——後端收不到這個欄位時是「不要動」。
+     *
+     * 送的話會壞在一個很難查的地方：fields 是**開啟表單那一刻**的快照，而這張
+     * 表單開著的時候 item 會被重新讀進來（Inventory 會從刷新後的清單找回那一筆）。
+     * 所以官網同步把安全庫存從 5 改成 99 之後，表單手上還是 5，接下來連改個名字
+     * 都會送出 5，被後端判成「要改成不同的值」而回 409——這項商品就完全編輯不動
+     * 了，而錯誤訊息完全沒提到這件事。
+     */
+    const { minStock, ...rest } = payload;
+    update.mutate(
+      { ...rest, ...(linkedToCyberbiz ? {} : { minStock }), id: item.id },
+      { onSuccess: onClose },
+    );
   }
 
   return (
@@ -196,7 +213,8 @@ export function ItemForm({
                 type="number"
                 min={0}
                 inputMode="numeric"
-                value={fields.minStock}
+                // 已連結時顯示這一刻的值，不是開表單那一刻的——同步隨時會改它。
+                value={linkedToCyberbiz ? String(item?.minStock ?? "") : fields.minStock}
                 disabled={linkedToCyberbiz}
                 onChange={(event) => set({ minStock: event.target.value })}
               />
