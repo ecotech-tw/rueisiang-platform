@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { userRoles, users } from "@rueisiang/db/schema";
+import { inventoryItems, layoutElements, userRoles, users } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -72,7 +72,20 @@ describe("AI 助理 Sandbox", () => {
     expect(result.configured).toBe(true);
     expect(result.activeModel).toBe("gemini-3.6-flash");
     expect(result.models.some((model) => model.id === "gemini-3.6-flash")).toBe(true);
-    expect(result.tools).toEqual([{ key: "weather_open_meteo", label: "Open-Meteo 天氣查詢", description: expect.any(String), status: "development" }]);
+    expect(result.tools.map((tool) => tool.key)).toEqual([
+      "weather_open_meteo",
+      "wms_list_inventory",
+      "wms_search_warehouse",
+      "wms_get_inventory_item",
+      "wms_list_low_stock_items",
+      "wms_get_activity",
+    ]);
+    expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
+      label: "WMS 搜尋倉庫位置",
+      status: "development",
+      surfaces: ["sandbox", "line", "mcp"],
+      requiredPermissions: ["wms:inventory:read", "wms:map:read"],
+    });
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
   });
 
@@ -121,7 +134,121 @@ describe("AI 助理 Sandbox", () => {
 
     const config = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config");
     const result = (await config.json()) as { tools: Array<{ key: string; status: string }> };
-    expect(result.tools).toEqual([{ key: "weather_open_meteo", label: "Open-Meteo 天氣查詢", description: expect.any(String), status: "enabled" }]);
+    expect(result.tools.find((tool) => tool.key === "weather_open_meteo")).toMatchObject({
+      key: "weather_open_meteo",
+      label: "Open-Meteo 天氣查詢",
+      status: "enabled",
+    });
+  });
+
+  it("Sandbox 可以透過共用 registry 搜尋 WMS 商品與位置", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(inventoryItems).values({
+      id: "wms-item-1",
+      sku: "BOX-001",
+      name: "紙箱",
+      category: "一般備品",
+      quantity: 3,
+      minStock: 5,
+    });
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      const hasToolResult = JSON.stringify(body.contents).includes("wms-item-1");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: hasToolResult
+          ? [{ text: "紙箱目前有 3 件，低於安全庫存 5 件。" }]
+          : [{ functionCall: { name: "wms_search_warehouse", args: { query: "紙箱", scope: "inventory", limit: "10" } } }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_search_warehouse"], input: "查詢紙箱庫存" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "紙箱目前有 3 件，低於安全庫存 5 件。",
+      toolCalls: [{ toolKey: "wms_search_warehouse", status: "success" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("Sandbox 可以透過 WMS list tool 取得商品清單做 mapping", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(inventoryItems).values([
+      { id: "mapping-1", sku: "BOX-001", name: "紙箱", category: "一般備品", quantity: 3, minStock: 5 },
+      { id: "mapping-2", sku: "TAPE-001", name: "封箱膠帶", category: "一般備品", quantity: 8, minStock: 5 },
+    ]);
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      const hasToolResult = JSON.stringify(body.contents).includes("mapping-1")
+        && JSON.stringify(body.contents).includes("mapping-2");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: hasToolResult
+          ? [{ text: "已取得 2 筆商品，可繼續做 SKU mapping。" }]
+          : [{ functionCall: { name: "wms_list_inventory", args: { page: "1", pageSize: "100" } } }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_list_inventory"], input: "列出所有商品" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "已取得 2 筆商品，可繼續做 SKU mapping。",
+      toolCalls: [{ toolKey: "wms_list_inventory", status: "success" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("Sandbox 可以查詢 WMS 地圖標籤與相對位置", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(layoutElements).values([
+      {
+        id: "map-label-1",
+        label: "冷藏區",
+        color: "sky",
+        x: 12,
+        y: 18,
+        width: 20,
+        height: 10,
+      },
+      {
+        id: "map-label-2",
+        label: "大門入口",
+        color: "rose",
+        x: 40,
+        y: 18,
+        width: 12,
+        height: 10,
+      },
+    ]);
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      const hasToolResult = JSON.stringify(body.contents).includes("map-label-1")
+        && JSON.stringify(body.contents).includes("右側");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: hasToolResult
+          ? [{ text: "冷藏區在大門入口的左側。" }]
+          : [{ functionCall: { name: "wms_search_warehouse", args: { query: "冷藏", scope: "map" } } }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_search_warehouse"], input: "冷藏區入口在哪裡？" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "冷藏區在大門入口的左側。",
+      toolCalls: [{ toolKey: "wms_search_warehouse", status: "success" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("使用選定 prompt 與模型執行 Gemini，並記錄可用量資訊", async () => {

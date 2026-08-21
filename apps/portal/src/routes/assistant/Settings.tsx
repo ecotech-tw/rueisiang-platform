@@ -46,11 +46,12 @@ export function AssistantSettings() {
           {data.tools.map((tool) => (
             <div className="assistant-tool" key={tool.key}>
               <Icon name="widgets" />
-              <span>
-                <strong>{tool.label}</strong>
-                <small>{tool.description}</small>
-                <small>{tool.key}</small>
-              </span>
+                <span>
+                  <strong>{tool.label}</strong>
+                  <small>{tool.description}</small>
+                  <small>{tool.key}</small>
+                  <small>可用於：{tool.surfaces.join("、")}{tool.requiredPermissions.length ? ` · 需要：${tool.requiredPermissions.join("、")}` : ""}</small>
+                </span>
               <label className="assistant-status-field">
                 <span className="sr-only">{tool.label} 狀態</span>
                 <select

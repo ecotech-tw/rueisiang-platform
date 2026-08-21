@@ -16,6 +16,7 @@
     "@rueisiang/auth": "workspace:*",
     "@rueisiang/cyberbiz": "workspace:*",
     "@rueisiang/db": "workspace:*",
+    "@rueisiang/tools": "workspace:*",
     "hono": "^4.9.10"
   },
   "devDependencies": {

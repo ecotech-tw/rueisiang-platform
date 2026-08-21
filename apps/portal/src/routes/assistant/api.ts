@@ -23,6 +23,8 @@ export interface AssistantTool {
   key: string;
   label: string;
   description: string;
+  surfaces: Array<"sandbox" | "line" | "mcp">;
+  requiredPermissions: string[];
   status: "enabled" | "development" | "disabled";
 }
 

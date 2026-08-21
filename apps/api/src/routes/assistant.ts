@@ -3,15 +3,18 @@ import {
   ASSISTANT_MODELS,
   DEFAULT_ASSISTANT_MODEL,
   DEFAULT_ASSISTANT_PROMPT,
-  OPEN_METEO_TOOL_KEY,
-  openMeteoTool,
   runGemini,
   summarizeAssistantConversation,
   type AssistantConversationMessage,
   type AssistantToolCall,
-  type AssistantToolDefinition,
   type AssistantToolStatus,
 } from "@rueisiang/assistant";
+import {
+  PLATFORM_TOOL_DEFINITIONS,
+  PLATFORM_TOOL_KEYS,
+  PLATFORM_TOOL_MAP,
+  type PlatformToolDefinition,
+} from "@rueisiang/tools";
 import {
   createAssistantPromptRevision,
   appendAssistantSandboxMessage,
@@ -40,6 +43,7 @@ import {
   updateAssistantSandboxSessionModel,
   upsertAssistantLineGroup,
 } from "@rueisiang/db";
+import { can, type Permission } from "@rueisiang/auth";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -47,8 +51,8 @@ import { decryptLineSecret, encryptLineSecret } from "../line-secrets.js";
 import { requireAnyPermission, requireAuth, requirePermission } from "../middleware/auth.js";
 import { body, requireString } from "../request.js";
 
-const TOOL_DEFINITIONS: AssistantToolDefinition[] = [openMeteoTool];
-const TOOL_MAP = new Map(TOOL_DEFINITIONS.map((tool) => [tool.key, tool]));
+const TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("sandbox"));
+const TOOL_MAP = PLATFORM_TOOL_MAP;
 const MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
 const SANDBOX_CONTEXT_CHAR_LIMIT = 24_000;
 const SANDBOX_RECENT_MESSAGE_COUNT = 8;
@@ -165,7 +169,7 @@ async function ensureDefaults(db: AppEnv["Variables"]["db"]): Promise<void> {
     assistantKey: ASSISTANT_KEY,
     defaultModel: DEFAULT_ASSISTANT_MODEL,
     defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
-    toolKeys: [OPEN_METEO_TOOL_KEY],
+    toolKeys: PLATFORM_TOOL_KEYS,
   });
 }
 
@@ -191,6 +195,8 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
         key: tool.key,
         label: tool.label,
         description: tool.description,
+        surfaces: tool.surfaces,
+        requiredPermissions: tool.requiredPermissions ?? [],
         status: configuredStatus && validToolStatus(configuredStatus) ? configuredStatus : tool.defaultStatus,
       };
     }),
@@ -546,7 +552,14 @@ export const assistant = new Hono<AppEnv>()
     const selectedTools = toolKeys.map((key) => {
       const status = statusByKey.get(key) ?? "disabled";
       if (status === "disabled") throw new HTTPException(400, { message: `工具「${key}」目前已停用。` });
-      return TOOL_MAP.get(key)!;
+      const tool = TOOL_MAP.get(key);
+      if (!tool || !tool.surfaces.includes("sandbox")) {
+        throw new HTTPException(400, { message: `Sandbox 不支援工具：${key}` });
+      }
+      if (tool.requiredPermissions?.some((permission) => !can(c.get("user"), permission as Permission))) {
+        throw new HTTPException(403, { message: `沒有使用工具「${tool.label}」的權限。` });
+      }
+      return tool;
     });
 
     const runId = crypto.randomUUID();
@@ -584,6 +597,7 @@ export const assistant = new Hono<AppEnv>()
         userText,
         conversation,
         tools: selectedTools,
+        toolContext: { surface: "sandbox", db: c.get("db"), user: c.get("user") },
       });
       await recordAssistantRun(c.get("db"), {
         id: runId,

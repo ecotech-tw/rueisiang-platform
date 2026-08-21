@@ -1,8 +1,26 @@
 export type AssistantToolStatus = "enabled" | "development" | "disabled";
 
+export type AssistantToolSurface = "sandbox" | "line" | "mcp";
+
+export interface AssistantToolContext {
+  surface: AssistantToolSurface;
+  /** Runtime services are injected by the host application, not the model. */
+  db?: unknown;
+  env?: unknown;
+  user?: unknown;
+  services?: Record<string, unknown>;
+}
+
+export interface JsonSchemaProperty {
+  type: "string" | "number" | "integer" | "boolean";
+  description: string;
+  enum?: string[];
+}
+
+/** Model-neutral JSON Schema. Provider adapters translate this when needed. */
 export interface JsonSchema {
-  type: "OBJECT";
-  properties: Record<string, { type: "STRING"; description: string }>;
+  type: "object";
+  properties: Record<string, JsonSchemaProperty>;
   required?: string[];
 }
 
@@ -12,7 +30,7 @@ export interface AssistantToolDefinition {
   description: string;
   defaultStatus: AssistantToolStatus;
   parameters: JsonSchema;
-  execute(input: unknown): Promise<string>;
+  execute(input: unknown, context?: AssistantToolContext): Promise<string>;
 }
 
 export interface AssistantToolCall {

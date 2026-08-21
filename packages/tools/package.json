@@ -1,0 +1,22 @@
+{
+  "name": "@rueisiang/tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./contract": "./src/contract.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rueisiang/assistant": "workspace:*",
+    "@rueisiang/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "@rueisiang/config": "workspace:*",
+    "typescript": "5.9.3"
+  }
+}
