@@ -45,7 +45,8 @@ const DEV_SECRET = "local-development-only";
  * 讀 apps/api/.dev.vars——沿用 wrangler 的慣例，格式就是一行一個 KEY=value。
  *
  * 這個檔在 .gitignore 裡，用來放不能進版控又只有本機需要的東西，
- * 目前是 CYBERBIZ_API_TOKEN。沒有這個檔也能跑，只是碰到 CYBERBIZ 的功能會失敗。
+ * 目前是 CYBERBIZ_API_TOKEN、GEMINI_API_KEY 與可選的 LINE_CHANNEL_ACCESS_TOKEN。
+ * 沒有這個檔也能跑，只是碰到 CYBERBIZ、AI Sandbox 或 LINE 回覆的功能會失敗。
  */
 function loadDevVars(): Record<string, string> {
   const file = path.resolve(here, "../../.dev.vars");
@@ -83,6 +84,7 @@ const env = {
   AUTH_SESSION_SECRET: DEV_SECRET,
   GOOGLE_OAUTH_CLIENT_ID: "local-client-id",
   GOOGLE_OAUTH_CLIENT_SECRET: "local-client-secret",
+  PUBLIC_APP_URL: `http://localhost:${PORTAL_PORT}`,
   // .dev.vars 放最後，這樣要蓋掉上面任何一個預設值都可以。
   ...loadDevVars(),
 };

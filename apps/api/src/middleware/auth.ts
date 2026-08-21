@@ -41,3 +41,13 @@ export function requirePermission(permission: Permission) {
     await next();
   });
 }
+
+/** 某些共用讀取路由由多個功能頁使用，只要具備其中一項讀取權限即可。 */
+export function requireAnyPermission(...permissions: Permission[]) {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    if (!permissions.some((permission) => can(c.get("user"), permission))) {
+      throw new HTTPException(403, { message: "沒有這項操作的權限。" });
+    }
+    await next();
+  });
+}

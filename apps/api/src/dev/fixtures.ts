@@ -1,4 +1,5 @@
-import { createDatabase, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, ensureAssistantDefaults, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
+import { ASSISTANT_KEY, DEFAULT_ASSISTANT_MODEL, DEFAULT_ASSISTANT_PROMPT, OPEN_METEO_TOOL_KEY } from "@rueisiang/assistant";
 import {
   customers,
   inventoryItems,
@@ -41,6 +42,12 @@ const DEV_CUSTOMERS = [
 export async function seedDevData(d1: LocalD1): Promise<void> {
   const db = createDatabase(d1 as never);
   await syncSystemRoles(db);
+  await ensureAssistantDefaults(db, {
+    assistantKey: ASSISTANT_KEY,
+    defaultModel: DEFAULT_ASSISTANT_MODEL,
+    defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
+    toolKeys: [OPEN_METEO_TOOL_KEY],
+  });
   await seedPayoutStores(db);
   await seedDevCustomers(db);
   await seedDevWarehouse(db);
