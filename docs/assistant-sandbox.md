@@ -39,7 +39,19 @@ pnpm dev
 - LINE webhook 只接受 LINE 的 `x-line-signature`，只記錄群組／聊天室中真正 mention 小香的文字訊息；新發現的群組預設未授權。
 - 已授權且開通的群組會收到收件確認訊息，接著由 active model、active prompt 與狀態為「已啟用」的 tools 產生回答；「開發中」tool 仍只允許 Sandbox 使用。
 
-Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calling，不是公司的知識來源，也不應被視為正式內部問答能力。後續 WMS、CRM 與公司文件搜尋會以同一個 `AssistantToolDefinition` 介面接入，MCP adapter 會放在這層之下。
+## 共用 Tool Contract：CRM 唯讀工具
+
+CRM 工具與 WMS 使用同一個 provider-neutral `ToolContract`，目前註冊在 Sandbox、LINE 與未來 MCP 三個 surface。新增工具預設為「開發中」，可先在 Sandbox 驗證；切換為「已啟用」後，才會被 LINE webhook 選用。Sandbox 另外會依使用者的 CRM permission 檢查工具權限。
+
+- `crm_search_customers`：依關鍵字、來源、狀態、標籤搜尋客戶。
+- `crm_get_customer_context`：依客戶 ID 取得客戶資料、標籤、同步狀態與最近操作紀錄。
+- `crm_list_customer_events`：查詢 CRM、CYBERBIZ webhook 與同步操作紀錄。
+- `crm_list_customer_tags`：列出標籤字典與使用次數。
+- `crm_get_sync_status`：查詢客戶同步統計與最近同步錯誤；不會把原始 webhook payload 傳給模型。
+
+目前 `mcp` 是共用 registry 的 surface 標記，實際 MCP transport adapter 尚未在本 repo 建立；未來 GPT、Gemini 或遠端 MCP host 都可沿用同一批 tool definition、執行函式與權限宣告。
+
+Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calling，不是公司的知識來源，也不應被視為正式內部問答能力。後續 WMS、CRM 與公司文件搜尋會以同一個 `ToolContract` 介面接入，MCP adapter 會放在這層之下。
 
 ## API
 
