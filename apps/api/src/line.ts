@@ -110,8 +110,8 @@ function lineText(value: string): string {
   return value.slice(0, LINE_TEXT_LIMIT);
 }
 
-async function sendLineMessage(path: "reply" | "push", accessToken: string, payload: unknown): Promise<void> {
-  const response = await fetch(`${LINE_API_BASE}/${path}`, {
+async function sendLineMessage(accessToken: string, payload: unknown): Promise<void> {
+  const response = await fetch(`${LINE_API_BASE}/push`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -120,15 +120,11 @@ async function sendLineMessage(path: "reply" | "push", accessToken: string, payl
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    console.error("LINE Messaging API 回覆失敗", { path, status: response.status });
-    throw new Error("LINE Messaging API 暫時無法回覆。");
+    console.error("LINE Messaging API 推送失敗", { status: response.status });
+    throw new Error("LINE Messaging API 暫時無法推送。");
   }
 }
 
-export async function replyLineMessage(accessToken: string, replyToken: string, text: string): Promise<void> {
-  await sendLineMessage("reply", accessToken, { replyToken, messages: [{ type: "text", text: lineText(text) }] });
-}
-
 export async function pushLineMessage(accessToken: string, lineGroupId: string, text: string): Promise<void> {
-  await sendLineMessage("push", accessToken, { to: lineGroupId, messages: [{ type: "text", text: lineText(text) }] });
+  await sendLineMessage(accessToken, { to: lineGroupId, messages: [{ type: "text", text: lineText(text) }] });
 }
