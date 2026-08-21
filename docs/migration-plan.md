@@ -165,6 +165,9 @@ user_roles        user ↔ role
 
 每個 Phase 結束都是檢查點，確認後才進下一個。
 
+**目前進度：Phase 0–4 完成，跑在 <https://platform.rueisiang.com>。** 只剩 Phase 5
+（舊系統下線），而那件事刻意不急。
+
 **Phase 0 — 骨架與 spike（合併進行）**
 - monorepo 初始化：pnpm workspaces、Turborepo、`packages/config`
 - 最小的 Hono Worker + Vite SPA + D1 綁定，確認靜態檔與 `/api/*` 能在同一個 Worker 上共存
@@ -188,14 +191,29 @@ user_roles        user ↔ role
 - 出金表工具的 React+Vite UI 併進 portal；「Worker → GitHub Actions」執行模式不變，只換入口
 - `cyberbiz-webhook-relay` 收編為 Hono route
 
-**Phase 4 — WMS 搬入**（最後，最重）
-- 表：`zones`、`warehouse_settings`、`layout_elements`、`product_categories`、`inventory_items`、`cyberbiz_product_links`、`zone_images`
-- **主要工作量：拆掉 `warehouse-inventory/app/warehouse-app.tsx` 這 1816 行的單一元件**
-- GCS → R2
-- 命名衝突：`product_categories`、`audit_logs`、`inventory_items` 都是通用名，需前綴或併入統一設計
+**Phase 4 — WMS 搬入**（最後，最重）✅
+- 表：搬了 8 張（原本 12 張）。`app_users` 被平台的 `users` 取代、`audit_logs`
+  併進共用的 `activity_events`、`line_bot_destinations` 與 `inventory_alert_states`
+  只服務 LINE bot 所以不搬
+- 命名衝突的處理：只有 `cyberbiz_webhook_events` 真的撞到（平台已有
+  `cyberbiz_customer_webhooks`），改名 `cyberbiz_product_webhooks` 讓兩者對稱。
+  `product_categories`、`inventory_items` 沒有實際衝突，維持原名
+- GCS → R2，另附一個檔案系統版的 R2 給本機開發用（這台機器沒有 workerd）
+
+**實際做出來跟計畫不一樣的地方**（記下來是因為理由比結論有用）：
+
+- **`warehouse-app.tsx` 不是被「拆」，是被重寫。** 1816 行裡互動地圖與 PNG 匯出
+  的邏輯糾纏在一起，照著拆只會把同樣的糾纏原封搬過來。重寫之後互動用 DOM
+  （文字換行、hover、鍵盤焦點、螢幕閱讀器都是免費的）、匯出用 canvas，兩件事
+  各自獨立。舊系統那份 canvas 本來就只是為了匯出而存在
+- **Redis 快取不是「拿掉」，是原封不動搬過來。** 見下面待決事項 4
+- **地圖改成滿版**：控制項浮在地圖上，不是「標題列 ＋ 面板 ＋ 面板裡的地圖」。
+  地圖是那一頁唯一的內容，其他東西都是為了操作它而存在的
 
 **Phase 5 — 舊系統下線**
 - 兩個 Cloud Run 服務停掉、Cloud SQL instance 關掉（月費歸零）
+- **先別急著關**：平台這邊要實際用一段時間，確認沒有漏掉的功能。舊系統還在
+  跑的成本，遠低於「關掉之後才發現少了什麼」
 
 ---
 
@@ -228,12 +246,25 @@ user_roles        user ↔ role
 
 ---
 
-## 待決事項（Phase 0/1 檢查點處理）
+## 待決事項（Phase 0/1 提出，已陸續回答）
 
 1. **資料遷移範圍** — 使用者暫緩決定。兩套資料量都不大、系統都只有一個月大，傾向全量搬。
-2. **email + 密碼登入是否保留** — CRM 有（PBKDF2 + 邀請連結），WMS 沒有。建議保留，因為不是每位同仁都有 Google 帳號。
-3. **`inventory_items` 與 CRM 商品概念的主從關係** — WMS 的是 CYBERBIZ 目錄的本地鏡像，不是商品主檔；合庫前要先確定誰是 source of truth。
-4. **Upstash Redis 是否換成 Cloudflare KV** — Phase 4 看實際延遲再決定。
+2. **email + 密碼登入是否保留** ✅ **保留**。不是每位同仁都有 Google 帳號。
+   PBKDF2 的迭代次數要注意：Workers 上限 100,000，照抄 CRM 的 120,000 會在正式站
+   丟 `NotSupportedError`，而測試（跑在 Node 上）跟 CI 都不會發現
+3. **`inventory_items` 與 CRM 商品概念的主從關係** ✅ **CYBERBIZ 是庫存數量的
+   source of truth**，`inventory_items` 是本地鏡像，不是商品主檔。兩個方向都有：
+   - 官網 → WMS：手動同步與 webhook，覆寫本地數量
+   - WMS → 官網：**盤點**。人在現場數完之後推上去
+   兩邊的寫入順序刻意相反。客戶那邊是「先寫官網、成功了才寫本地」；庫存這邊是
+   「先寫本地」——人已經數完了，不能因為官網連不上就叫他重數，更不能把結果丟掉。
+   推不上去時盤點仍然成立，只把連結標成失敗，等下次同步補
+4. **Upstash Redis 是否換成 Cloudflare KV** ✅ **維持 Upstash，用同一個實例。**
+   一度以為要換，理由是「Workers 開不了 Redis 連線」——那句話只對了一半：
+   Workers 確實開不了原生 TCP，但舊 WMS 的 `redis-cache.ts` 走的是 Upstash 的
+   **REST API**，純 fetch over HTTPS，Worker 原封不動就打得到。不必換、不必新增
+   任何服務。快取層另外做到「壞掉就退回直接問官網」，所以它是加速用的，
+   不是功能的一部分
 5. **SPA 無 SSR 的取捨** — 內部系統不需要 SEO；首屏會有短暫載入。若某頁面在門市平板上明顯偏慢，再單獨處理。
 
 ---
@@ -247,5 +278,14 @@ user_roles        user ↔ role
 **額外必測**：直接對 API 發請求（繞過前端）確認權限確實由 API 擋下——這是 SPA 架構最關鍵的一條驗證。
 
 **每個模組搬入後**：對照舊系統跑同一組操作逐項比對。CRM 用客戶列表的篩選/排序/分頁；WMS 用倉位地圖與庫存盤點。
+
+**Phase 2–4 學到的一件事，寫在這裡免得下次重犯**：好幾個 bug 是「測試全過、CI
+全綠，但正式站壞掉」——PBKDF2 的迭代次數（Node 允許、Workers 不允許）、
+CYBERBIZ 的 `per_page`（超過 50 直接回 500，不是截短）、送給官網的欄位包錯層
+（測試斷言的正是那個錯的格式）。共同點是**測試把我們自己的假設抄了一份**，
+所以只驗證了「程式照著假設跑」。
+
+真正抓到這些的是**拿真的東西跑一次**：真的瀏覽器、真的滑鼠事件、真的檔案、
+真的 API。搬完一個模組之後，那一步不能省。
 
 **部署**：GitHub Actions 跑型別檢查、lint、Vitest、Playwright、build，通過才部署到 Cloudflare。
