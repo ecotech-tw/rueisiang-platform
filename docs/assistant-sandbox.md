@@ -41,17 +41,19 @@ pnpm dev
 
 ## 共用 Tool Contract：CRM 唯讀工具
 
-CRM 工具與 WMS 使用同一個 provider-neutral `ToolContract`，目前註冊在 Sandbox、LINE 與未來 MCP 三個 surface。新增工具預設為「開發中」，可先在 Sandbox 驗證；切換為「已啟用」後，才會被 LINE webhook 選用。Sandbox 另外會依使用者的 CRM permission 檢查工具權限。
+CRM 工具與 WMS 使用同一個 provider-neutral `ToolContract`；一般 CRM 查詢註冊在 Sandbox、LINE 與未來 MCP，訂單／消費工具目前只註冊在 Sandbox 與 MCP。新增工具預設為「開發中」，可先在 Sandbox 驗證；只有支援 LINE 的工具切換為「已啟用」後，才會被 LINE webhook 選用。Sandbox 另外會依使用者的 CRM permission 檢查工具權限。
 
 - `crm_search_customers`：依關鍵字、來源、狀態、標籤與 `YYYY-MM-DD` 日期搜尋客戶；`dateField=createdAt` 代表當天新增，`dateField=updatedAt` 代表當天更新。
 - `crm_get_customer_context`：依客戶 ID 取得客戶資料、標籤、同步狀態與最近操作紀錄。
+- `crm_get_customer_orders`：即時查詢 CYBERBIZ 訂單，依 CRM customerId、CYBERBIZ customerId、電話或 email 比對客戶；可用 Asia/Taipei 日期與付款／配送狀態篩選。需要 `crm:order:read`，目前只開放 Sandbox 與 MCP。
+- `crm_get_customer_spending_summary`：以即時 CYBERBIZ 訂單彙整訂單數、消費金額、平均客單價、最近消費與常購商品；需要 `crm:order:read`，目前只開放 Sandbox 與 MCP。
 - `crm_list_customer_events`：查詢 CRM、CYBERBIZ webhook 與同步操作紀錄。
 - `crm_list_customer_tags`：列出標籤字典與使用次數。
 - `crm_get_sync_status`：查詢客戶同步統計與最近同步錯誤；不會把原始 webhook payload 傳給模型。
 
-目前 `mcp` 是共用 registry 的 surface 標記，實際 MCP transport adapter 尚未在本 repo 建立；未來 GPT、Gemini 或遠端 MCP host 都可沿用同一批 tool definition、執行函式與權限宣告。
+目前 `mcp` 是共用 registry 的 surface 標記，實際 MCP transport adapter 尚未在本 repo 建立；未來 GPT、Gemini 或遠端 MCP host 都可沿用同一批 tool definition、執行函式與權限宣告。CYBERBIZ 訂單工具使用即時 API，不會把訂單快照寫入 CRM。
 
-每次 Sandbox 與 LINE 執行都會注入可信的 `Asia/Taipei` 日期與時間，模型可以用它把「今天」轉成 CRM tool 的 `date`。目前 CRM 只有客戶建立／更新時間，沒有訂單或消費資料；若要查「今天消費的消費者」，還需要另外接訂單資料來源。
+每次 Sandbox 與 LINE 執行都會注入可信的 `Asia/Taipei` 日期與時間，模型可以用它把「今天」轉成 CRM tool 的 `date`、`fromDate` 與 `toDate`。消費工具查不到連結資料時會明確回報，不會用姓名猜測客戶或捏造訂單。
 
 Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calling，不是公司的知識來源，也不應被視為正式內部問答能力。後續 WMS、CRM 與公司文件搜尋會以同一個 `ToolContract` 介面接入，MCP adapter 會放在這層之下。
 

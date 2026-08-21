@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@rueisiang/assistant": "workspace:*",
+    "@rueisiang/cyberbiz": "workspace:*",
     "@rueisiang/db": "workspace:*"
   },
   "devDependencies": {

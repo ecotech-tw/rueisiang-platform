@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CyberbizApiError, cyberbizRequest, readErrorMessage } from "./http.js";
 import { createCustomerClient, parseCyberbizCustomer } from "./customers.js";
 import { createInventoryClient, flattenProducts, isCompanyProduct } from "./inventory.js";
+import { createOrderClient, parseCyberbizOrder } from "./orders.js";
 import { classifyPayload, parseProductEvent } from "./webhook.js";
 
 const config = { apiToken: "test-token", baseUrl: "https://api.example.test" };
@@ -437,6 +438,75 @@ describe("商品庫存", () => {
       { id: 2, title: "門市", pos_shop: { id: 7, name: "中山店" }, product_variants: [{ id: 22, sku: "A" }] },
     ]);
     expect(items.filter(isCompanyProduct).map((item) => item.variantId)).toEqual(["11"]);
+  });
+});
+
+describe("訂單與消費紀錄", () => {
+  it("解析訂單的客戶、狀態、金額與商品明細", () => {
+    const order = parseCyberbizOrder({
+      id: 99,
+      order_number: "R-00099",
+      created_at: "2026-08-21 10:20:30",
+      updated_at: "2026-08-21 10:21:30",
+      customer: { id: 7, name: "王小明", email: "ming@example.com", mobile: "0912345678" },
+      buyer: { email: "ming@example.com", mobile: "0912345678" },
+      receiver: { phone: "0912345678" },
+      prices: { total_price: 1_280, shipping_rate_price: 80 },
+      statuses: { order_status: "closed", financial_status: "paid", fulfillment_status: "fulfilled" },
+      line_items: [{
+        id: 1,
+        product_id: 2,
+        product_variant_id: 3,
+        title: "測試商品",
+        variant_title: "黑色",
+        sku: "SKU-1",
+        quantity: 2,
+        price: 600,
+        total_price_after_discounts: 1_200,
+      }],
+    });
+
+    expect(order).toMatchObject({
+      id: "99",
+      orderNumber: "R-00099",
+      createdAt: "2026-08-21T02:20:30.000Z",
+      customer: { id: "7", phone: "0912345678" },
+      buyerPhone: "0912345678",
+      receiverPhone: "0912345678",
+      totalPrice: 1_280,
+      statuses: { financialStatus: "paid", fulfillmentStatus: "fulfilled" },
+    });
+    expect(order.lineItems[0]).toMatchObject({ productId: "2", productVariantId: "3", quantity: 2 });
+  });
+
+  it("以官方 query 名稱分頁查詢訂單，並計算是否還有下一頁", async () => {
+    const calls = stubFetch({
+      body: [{
+        id: 99,
+        order_number: "R-00099",
+        customer: { id: 7 },
+      }],
+      headers: { "x-total-pages": "3", "x-total-count": "101" },
+    });
+    const page = await createOrderClient(config, { sleep: noSleep }).fetchPage({
+      page: 2,
+      perPage: 100,
+      offset: 50,
+      startTime: "2026-08-21 00:00:00",
+      endTime: "2026-08-21 23:59:59",
+      financialStatuses: ["paid", "cod"],
+      fulfillmentStatuses: ["fulfilled"],
+    });
+
+    const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe("/v1/orders");
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(url.searchParams.get("per_page")).toBe("50");
+    expect(url.searchParams.get("offset")).toBe("50");
+    expect(url.searchParams.get("start_time")).toBe("2026-08-21 00:00:00");
+    expect(url.searchParams.get("financial_statuses")).toBe("paid,cod");
+    expect(page).toMatchObject({ page: 2, perPage: 50, offset: 50, totalPages: 3, totalOrders: 101, hasMore: true });
+    expect(page.orders[0]?.id).toBe("99");
   });
 });
 

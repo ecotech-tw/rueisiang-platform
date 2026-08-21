@@ -129,7 +129,7 @@ async function runLineAssistant(input: {
       runtimeContext: currentAssistantRuntimeContext(),
       userText: promptText,
       tools,
-      toolContext: { surface: "line", db: input.db },
+      toolContext: { surface: "line", db: input.db, env: input.env },
     });
     if (result.thoughts) {
       console.info("LINE 小香 thought summary", {

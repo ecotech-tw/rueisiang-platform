@@ -599,7 +599,7 @@ export const assistant = new Hono<AppEnv>()
         userText,
         conversation,
         tools: selectedTools,
-        toolContext: { surface: "sandbox", db: c.get("db"), user: c.get("user") },
+        toolContext: { surface: "sandbox", db: c.get("db"), env: c.env, user: c.get("user") },
       });
       await recordAssistantRun(c.get("db"), {
         id: runId,

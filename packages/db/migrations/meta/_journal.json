@@ -141,6 +141,13 @@
       "when": 1787333052989,
       "tag": "0019_restore_admin_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1787334000000,
+      "tag": "0020_add_crm_order_permission",
+      "breakpoints": true
     }
   ]
 }
