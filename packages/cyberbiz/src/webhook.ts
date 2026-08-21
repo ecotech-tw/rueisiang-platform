@@ -160,13 +160,26 @@ export type PayloadKind = "customer" | "product" | "unknown";
  * CYBERBIZ 不一定送 topic 標頭，所以不能只靠 topic。商品事件的辨識特別重要——
  * 它同樣有 id 與 name，光看那兩個欄位跟會員長得一模一樣。
  */
+/**
+ * 事件的內容可能被包在哪一層。
+ *
+ * CYBERBIZ 依觸發來源不同會把同一組欄位放在不同位置，所以每一層都要看過。
+ * **這份清單要跟 parseProductEvent 挖的位置一致**——分類看得比解析淺的話，
+ * 就會出現「解析得出來、但分類說認不出來」的事件：它會被送去會員那條路、
+ * 記成 ignored、然後永遠不同步，而且過程中不會有任何錯誤。
+ */
+const CONTAINERS = ["customer", "member", "data", "variant", "product_variant", "product"];
+
 export function classifyPayload(payload: unknown): PayloadKind {
   const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
-  const nested =
-    (record.customer as Record<string, unknown> | undefined) ??
-    (record.member as Record<string, unknown> | undefined) ??
-    record;
-  const keys = new Set([...Object.keys(record), ...Object.keys(nested ?? {})]);
+
+  const keys = new Set(Object.keys(record));
+  for (const container of CONTAINERS) {
+    const value = record[container];
+    if (value && typeof value === "object") {
+      for (const key of Object.keys(value as Record<string, unknown>)) keys.add(key);
+    }
+  }
 
   if (PRODUCT_MARKERS.some((marker) => keys.has(marker))) return "product";
   if (CUSTOMER_MARKERS.some((marker) => keys.has(marker))) return "customer";

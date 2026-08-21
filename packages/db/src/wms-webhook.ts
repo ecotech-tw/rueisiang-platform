@@ -131,6 +131,20 @@ export async function processProductWebhook(
         return { eventId, topic, status: "ignored", reason, variantId: event.variantId };
       }
       productId = link.productId;
+
+      /*
+       * 反查到就立刻寫回去。
+       *
+       * 這一列是在解析完就插進去的，那時候只有 variant_id——如果接下來重讀官網
+       * 失敗，這一列會以 product_id = null 留在 failed。補跑是靠 product_id 重新
+       * 同步的，讀到 null 就直接放棄，於是這種事件**永遠救不回來**，而且沒有任何
+       * 跡象。（補跑那邊另外也加了用 variant_id 反查的退路，處理這次修正之前就
+       * 已經卡在那裡的舊資料。）
+       */
+      await db
+        .update(cyberbizProductWebhooks)
+        .set({ productId, updatedAt: sql`CURRENT_TIMESTAMP` })
+        .where(eq(cyberbizProductWebhooks.id, eventId));
     }
 
     const links = await listCompanyLinks(db, productId);
@@ -206,10 +220,24 @@ export async function retryFailedProductWebhooks(
      * 補跑不重放原本的 payload——那份已經舊了，而且我們本來就不採信它的數量。
      * 直接拿 product_id 重新同步一次，結果一樣而且用的是當下的數字。
      */
-    const productId = row.productId;
     try {
-      if (!productId) throw new Error("這筆事件沒有 product_id，補跑不了");
       if (!input.client) throw new Error("尚未設定 CYBERBIZ_API_TOKEN");
+
+      /*
+       * product_id 可能是空的：只帶款式 id 的事件在反查之前就先落地了。正常情況
+       * 反查完會寫回去，但在那之前失敗的舊資料還留著 null——用 variant_id 再查
+       * 一次就救得回來。
+       */
+      let productId = row.productId;
+      if (!productId && row.variantId) {
+        const [link] = await db
+          .select({ productId: cyberbizProductLinks.cyberbizProductId })
+          .from(cyberbizProductLinks)
+          .where(eq(cyberbizProductLinks.cyberbizVariantId, row.variantId))
+          .limit(1);
+        productId = link?.productId ?? null;
+      }
+      if (!productId) throw new Error("這筆事件沒有 product_id，補跑不了");
 
       const links = await listCompanyLinks(db, productId);
       if (links.length) {
@@ -220,6 +248,7 @@ export async function retryFailedProductWebhooks(
         .update(cyberbizProductWebhooks)
         .set({
           status: "processed",
+          productId,
           attempts: sql`${cyberbizProductWebhooks.attempts} + 1`,
           lastError: "",
           processedAt: sql`CURRENT_TIMESTAMP`,

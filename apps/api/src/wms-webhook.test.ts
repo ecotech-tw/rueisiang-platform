@@ -481,3 +481,154 @@ describe("一個網址的分派", () => {
     }
   });
 });
+
+/*
+ * Codex review 抓到的三件事，各自釘一條。
+ *
+ * 三件的共通點是「安靜地壞掉」：事件收到了、回 200、看起來一切正常，但資料
+ * 沒同步或畫面上的數字是舊的。沒有測試的話下次改到附近不會有人發現。
+ */
+describe("review 抓到的回歸", () => {
+  it("包在 data 裡的商品事件不會被誤送到會員那條路", async () => {
+    stubCyberbiz({ body: product({ quantity: 200 }) });
+    // 沒有 topic 標頭，欄位全部包在 data 裡——修正前這會被判成認不出來。
+    const { json } = await post({ data: { product_id: "56750193", inventory_quantity: 200 } });
+
+    expect(json).toMatchObject({ kind: "product", status: "processed" });
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.quantity).toBe(200);
+  });
+
+  it("包在 product_variant 裡的也一樣", async () => {
+    stubCyberbiz({ body: product({ quantity: 200 }) });
+    const { json } = await post({
+      product_variant: { id: 68463869, sku: "BPK24004", inventory_quantity: 200 },
+    });
+
+    expect(json).toMatchObject({ kind: "product", status: "processed" });
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.quantity).toBe(200);
+  });
+
+  /*
+   * 只帶款式 id 的事件在反查 product_id 之前就先落地了。重讀失敗的話那一列會
+   * 以 product_id = null 留在 failed，而補跑是靠 product_id 跑的——讀到 null
+   * 就直接放棄，於是這種事件永遠救不回來。
+   */
+  it("只帶款式 id 又重讀失敗時，反查到的 product_id 有存下來", async () => {
+    stubCyberbiz({ status: 401, body: { error: "token 過期" } });
+    const { json } = await post({ id: 68463869, sku: "BPK24004", inventory_quantity: 200 });
+
+    expect(json).toMatchObject({ status: "failed" });
+    const [row] = await db().select().from(cyberbizProductWebhooks);
+    // 修正前這裡是 null，補跑會立刻放棄。
+    expect(row?.productId).toBe("56750193");
+  });
+
+  it("所以補跑救得回來", async () => {
+    stubCyberbiz({ status: 401, body: { error: "token 過期" } });
+    await post({ id: 68463869, sku: "BPK24004", inventory_quantity: 200 });
+
+    vi.unstubAllGlobals();
+    stubCyberbiz({ body: product({ quantity: 200 }) });
+    const result = await retryFailedProductWebhooks(db(), {
+      client: (await import("@rueisiang/cyberbiz")).createInventoryClient({
+        apiToken: TOKEN,
+        baseUrl: BASE,
+      }),
+    });
+
+    expect(result).toMatchObject({ attempted: 1, processed: 1, failed: 0 });
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.quantity).toBe(200);
+  });
+
+  /*
+   * 「CYBERBIZ 庫存」那一頁列的是官網公司倉的**全部**商品，不是只有連到 WMS 的
+   * 那些。所以只在 processed 時清快取不夠——沒連結所以 ignored 的事件同樣代表
+   * 畫面上某個數字過期了，而快取的 TTL 是一整天。
+   */
+  describe("目錄快取要清掉", () => {
+    const REDIS = "https://redis.example.test";
+
+    /** 攔下所有請求，把送去 Upstash 的指令記下來。 */
+    function stubAll(productBody: unknown) {
+      const redis: unknown[] = [];
+      vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+        if (String(url).startsWith(REDIS)) {
+          redis.push(JSON.parse(String(init?.body)));
+          return new Response(JSON.stringify({ result: 1 }), { status: 200 });
+        }
+        return new Response(JSON.stringify(productBody), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+      return redis;
+    }
+
+    beforeEach(() => {
+      env.UPSTASH_REDIS_REST_URL = REDIS;
+      env.UPSTASH_REDIS_REST_TOKEN = "redis-token";
+    });
+
+    it("有寫進庫存時會清", async () => {
+      const redis = stubAll(product({ quantity: 200 }));
+      await post({ product_id: "56750193" }, { topic: "variants/update" });
+      expect(redis).toContainEqual(["DEL", "cyberbiz:catalog:company"]);
+    });
+
+    it("**沒連結所以 ignored 也要清**——那一頁列的是官網全部的商品", async () => {
+      const redis = stubAll(product());
+      const { json } = await post({ product_id: "99999999" }, { topic: "variants/update" });
+
+      expect(json).toMatchObject({ status: "ignored" });
+      expect(redis).toContainEqual(["DEL", "cyberbiz:catalog:company"]);
+    });
+
+    it("同一筆送第二次不用再清一次", async () => {
+      stubAll(product({ quantity: 200 }));
+      await post({ product_id: "56750193" }, { topic: "variants/update" });
+
+      const redis = stubAll(product({ quantity: 200 }));
+      const { json } = await post({ product_id: "56750193" }, { topic: "variants/update" });
+
+      expect(json).toMatchObject({ status: "duplicate" });
+      expect(redis).toHaveLength(0);
+    });
+
+    it("會員事件不會去動商品的快取", async () => {
+      const redis = stubAll({});
+      await post({ id: 7, mobile: "0912345678", name: "王小明" });
+      expect(redis).toHaveLength(0);
+    });
+  });
+
+  it("product_id 是 null 的舊資料，補跑會用 variant_id 反查回來", async () => {
+    // 直接塞一筆修正之前留下來的形狀。
+    await db().insert(cyberbizProductWebhooks).values({
+      id: "old-event",
+      topic: "variants/update",
+      productId: null,
+      variantId: "68463869",
+      sku: "BPK24004",
+      payloadHash: "old-event",
+      status: "failed",
+    });
+    stubCyberbiz({ body: product({ quantity: 200 }) });
+
+    const result = await retryFailedProductWebhooks(db(), {
+      client: (await import("@rueisiang/cyberbiz")).createInventoryClient({
+        apiToken: TOKEN,
+        baseUrl: BASE,
+      }),
+    });
+
+    expect(result).toMatchObject({ processed: 1, failed: 0 });
+    const [item] = await db().select().from(inventoryItems);
+    expect(item?.quantity).toBe(200);
+    // 順便把反查到的寫回去，下次不必再查。
+    const [row] = await db().select().from(cyberbizProductWebhooks);
+    expect(row?.productId).toBe("56750193");
+  });
+});

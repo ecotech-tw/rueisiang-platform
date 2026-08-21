@@ -75,8 +75,15 @@ async function receive(c: Context<AppEnv>) {
   /*
    * 官網那邊的庫存動了，快取的目錄就過期了——「CYBERBIZ 庫存」那一頁最多會有
    * 一整天顯示舊數量。跟盤點推上去之後同一個道理。
+   *
+   * **只看 processed 不夠。** 那一頁列的是官網公司倉的**全部**商品，不是只有
+   * 連到 WMS 的那些——所以「沒連結所以 ignored」的事件同樣代表畫面上某個數字
+   * 過期了。failed 也一樣：我們沒讀到，但官網那邊確實動過。
+   *
+   * 所以只排除 duplicate（第一次收到時已經清過了）。清錯的代價只是下次多讀一次
+   * 官網，漏清的代價是一整天的錯數字。
    */
-  if (outcome.kind === "product" && outcome.status === "processed") {
+  if (outcome.kind === "product" && outcome.status !== "duplicate") {
     await forgetCatalog(cacheClient(c.env));
   }
 
