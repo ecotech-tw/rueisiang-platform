@@ -73,6 +73,18 @@
 @layer base {
   html, body, #root { min-height: 100%; }
 
+  /*
+   * 登入後的 AppShell 由自己的 content 區域負責捲動。若 document 仍允許被
+   * 子頁面的實際高度撐開，瀏覽器會多出一層外部 scrollbar，滑到底就只剩空白。
+   * 登入頁與邀請頁沒有 .shell，不會被這條規則鎖住。
+   */
+  html:has(.shell),
+  body:has(.shell),
+  #root:has(.shell) {
+    height: 100%;
+    overflow: hidden;
+  }
+
   /* 字型不用寫，preflight 會拿 --font-sans 套到 html。 */
   body {
     background: var(--color-canvas);
