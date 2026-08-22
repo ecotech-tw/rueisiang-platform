@@ -115,17 +115,19 @@ Manager 關閉或調整。
 GMT+9 使用每月 fixed window；免費方案硬上限為 200 位收件者，群組訊息按群組成員數計算。
 額度、成員數任一查不到就不 Push，回答改存 D1 備用紀錄。
 
-### 2.1.3 設定 LINE Pi Agent 與 ChatGPT OAuth
+### 2.1.3 設定小香 Pi Agent 與模型 provider
 
-LINE Queue consumer 不再直接呼叫 Gemini；它會把每個對話 dispatch 到 SQLite Durable Object，
-由 Pi Agent 透過 Codex 的 ChatGPT OAuth provider 執行模型與 tools。`wrangler deploy` 會依
-`apps/api/wrangler.toml` 的 migration 建立 `AssistantChatAgent` 與
-`AssistantCredentialVault`，不需要在 Cloudflare Dashboard 手動建立 DO instance。
+LINE Queue consumer 與 Sandbox API 都會把對話 dispatch 到 SQLite Durable Object，由 Pi Agent
+執行模型、tools、session transcript 與 compact。GPT 模型使用 Codex ChatGPT OAuth；Gemini 模型
+使用 API key。`wrangler deploy` 會依 `apps/api/wrangler.toml` 的 migration 建立
+`AssistantChatAgent` 與 `AssistantCredentialVault`，不需要在 Cloudflare Dashboard 手動建立
+DO instance。
 
 部署後還要設定 `PI_OPENAI_CODEX_CREDENTIAL` 與 `PI_CREDENTIAL_ENCRYPTION_KEY`。如何從
 Codex CLI 取得最小 credential JSON、vault 如何加密／refresh，以及 session／compact／reset
-行為，完整說明見 [`line-pi-agent.md`](./line-pi-agent.md)。這條路徑不使用 `OPENAI_API_KEY`；
-`GEMINI_API_KEY` 目前只供 Sandbox 使用。
+行為，完整說明見 [`line-pi-agent.md`](./line-pi-agent.md)。Codex 路徑不使用
+`OPENAI_API_KEY`；要開 Gemini 模型才需要 `GEMINI_API_KEY`。兩個 provider 可只設定其中一個，
+但目前 active model 對應的 credential 必須存在。
 
 ### 2.2 套用 migration — 不用手動做
 
@@ -146,7 +148,7 @@ Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
 | `AUTH_SESSION_SECRET` | 一串夠長的亂數，見下方 |
 | `GOOGLE_OAUTH_CLIENT_ID` | 1.2 拿到的用戶端 ID |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | 1.2 拿到的用戶端密鑰 |
-| `GEMINI_API_KEY` | Gemini API key；目前供 Sandbox 使用 |
+| `GEMINI_API_KEY` | Pi Google provider 的 Gemini API key；Sandbox 與 LINE 選 Gemini 模型時使用 |
 | `PI_OPENAI_CODEX_CREDENTIAL` | Codex CLI 或 Pi 的 ChatGPT OAuth credential JSON；不是 OpenAI API key |
 | `PI_CREDENTIAL_ENCRYPTION_KEY` | 至少 32 字元；加密 credential-vault 內的 access／refresh token |
 | `LINE_CHANNEL_SECRET` | 選用 fallback；LINE Developers 的 Channel secret |
@@ -409,7 +411,7 @@ Worker 還不存在（沒地方放 secret），而且它的網址也還不知道
 | 1 | 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` | GitHub（4.1） | 部署的前提 |
 | 2 | 跑 Deploy workflow | GitHub Actions（2.4） | 建出 Worker，**輸出會印出 workers.dev 網址** |
 | 3 | 用第 2 步的網址建 Google OAuth client | Google Cloud（1） | 重新導向 URI 需要那個網址 |
-| 4 | 設五個 secret | Cloudflare 儀表板（2.3） | Worker 存在之後才有地方設 |
+| 4 | 設定必要 secret 與要啟用的模型 provider credential | Cloudflare 儀表板（2.3） | Worker 存在之後才有地方設 |
 | 5 | 跑四行 SQL 生出第一位管理者 | D1 主控台（2.5） | 空資料庫沒有人能登入，只能從外面打破 |
 | 6 | 登入，邀請其他同仁 | 瀏覽器 | 這時候才算真的上線 |
 | 7 | 網域委派 | DNS（3） | 隨時可做，不擋前面任何一步 |

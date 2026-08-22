@@ -110,6 +110,9 @@ export function Sandbox() {
   if (!data) return null;
   const activeRevision = data.revisions.find((revision) => revision.id === promptId);
   const selectedModel = data.models.find((item) => item.id === model);
+  const codexModels = data.models.filter((item) => item.provider === "openai-codex");
+  const geminiModels = data.models.filter((item) => item.provider === "google");
+  const modelReady = Boolean(selectedModel?.supported && selectedModel.configured);
   const currentSession = session.data?.session;
   const sessionOpen = currentSession?.status === "open";
 
@@ -137,7 +140,7 @@ export function Sandbox() {
 
   function submitRun() {
     const submittedInput = input.trim();
-    if (!promptId || !model || !submittedInput || !sessionId || !sessionOpen) return;
+    if (!promptId || !modelReady || !submittedInput || !sessionId || !sessionOpen) return;
     setInput("");
     setFailedRun(null);
     run.mutate(
@@ -154,7 +157,7 @@ export function Sandbox() {
   }
 
   function createFreshSession() {
-    if (!model || !promptId) return;
+    if (!modelReady || !promptId) return;
     createSession.mutate({ model, promptRevisionId: promptId }, {
       onSuccess: ({ session: created }) => {
         setSessionId(created.id);
@@ -177,8 +180,11 @@ export function Sandbox() {
         <p className="muted">在接上 LINE 前，先用同一套 prompt、模型與工具執行流程測試回答品質。</p>
       </header>
 
-      {!data.configured ? (
-        <p className="form-error" role="alert">平台還沒設定 GEMINI_API_KEY，目前只能查看設定，無法執行測試。</p>
+      {!data.providers.codex ? (
+        <p className="form-error" role="alert">尚未完成 ChatGPT／Codex OAuth credential 設定，GPT 模型目前不可執行。</p>
+      ) : null}
+      {!data.providers.gemini ? (
+        <p className="form-error" role="alert">尚未設定 GEMINI_API_KEY，Gemini 模型目前不可執行。</p>
       ) : null}
 
       <div className="assistant-sandbox-layout">
@@ -187,15 +193,25 @@ export function Sandbox() {
             <h2 className="panel-title">執行設定</h2>
             <div className="field-grid">
               <label className="field">
-                <span>Gemini 模型</span>
+                <span>Pi 模型</span>
                 <select value={model} onChange={(event) => setModel(event.target.value)}>
-                  {data.models.map((item) => (
-                    <option key={item.id} value={item.id} disabled={!item.supported}>
-                      {item.label}{item.supported ? "" : "（目前不可用）"}
-                    </option>
-                  ))}
+                  <optgroup label="GPT / Codex（ChatGPT OAuth）">
+                    {codexModels.map((item) => (
+                      <option key={item.id} value={item.id} disabled={!item.supported || !item.configured}>
+                        {item.label}{item.supported && item.configured ? "" : "（目前不可用）"}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Gemini（API key）">
+                    {geminiModels.map((item) => (
+                      <option key={item.id} value={item.id} disabled={!item.supported || !item.configured}>
+                        {item.label}{item.supported && item.configured ? "" : "（目前不可用）"}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
-                <small>{selectedModel?.note ?? "模型與配額清單沿用 warehouse-inventory 的 snapshot。"}</small>
+                <small>{selectedModel?.note ?? "GPT 使用 ChatGPT OAuth；Gemini 使用 Cloudflare secret 裡的 API key。"}</small>
+                {selectedModel?.supportsVision ? <small>此模型支援圖片輸入；上傳介面會在 vision PR 加入。</small> : null}
                 <small>目前小香正式使用：{data.models.find((item) => item.id === data.activeModel)?.label ?? data.activeModel}</small>
                 {!sessionId ? <small>尚未選擇 session，建立新 session 時會使用目前小香的 active model 與 active revision。</small> : null}
                 {sessionOpen ? <small>目前 session 可直接切換模型；下一次送出時會套用選取的模型。</small> : null}
@@ -203,7 +219,7 @@ export function Sandbox() {
                   <button
                     type="button"
                     className="primary-button"
-                    disabled={!model || model === data.activeModel || saveModel.isPending}
+                    disabled={!modelReady || model === data.activeModel || saveModel.isPending}
                     onClick={submitModel}
                   >
                     {saveModel.isPending ? "套用中…" : "儲存並套用到小香"}
@@ -289,7 +305,7 @@ export function Sandbox() {
                 </option>
               ))}
             </select>
-            <button type="button" className="ghost-button" disabled={!model || !promptId || createSession.isPending || closeSession.isPending} onClick={clearConversation}>
+            <button type="button" className="ghost-button" disabled={!modelReady || !promptId || createSession.isPending || closeSession.isPending} onClick={clearConversation}>
               {createSession.isPending || closeSession.isPending ? "清除中…" : "清除對話"}
             </button>
           </div>
@@ -356,7 +372,7 @@ export function Sandbox() {
           </div>
         </label>
         <div className="assistant-actions">
-          <button type="button" className="primary-button" disabled={!data.configured || run.isPending || !input.trim() || !sessionOpen} onClick={submitRun}>
+          <button type="button" className="primary-button" disabled={!modelReady || run.isPending || !input.trim() || !sessionOpen} onClick={submitRun}>
             {run.isPending ? "小香思考中…" : "送出"}
           </button>
           <span className="form-hint">

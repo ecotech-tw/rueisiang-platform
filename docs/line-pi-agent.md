@@ -1,19 +1,22 @@
-# LINE Pi Agent 與 Codex session
+# 小香 Pi Agent、provider 與 session
 
-LINE 的模型執行已先遷移到 Pi Agent。為了讓每支 PR 可以獨立 review，Sandbox 在這一階段仍
-直接使用 Gemini；下一支 stacked PR 會讓 Sandbox 也統一走 Pi Agent，選 GPT 時使用 Codex
-ChatGPT OAuth、選 Gemini 時使用既有 `GEMINI_API_KEY`。vision upload 會再拆成後續 PR。
-目前 LINE Queue consumer 會把每個已授權對話 dispatch 到 chat 專屬的 Durable Object，由
-Pi Agent 使用 OpenAI Codex provider 完成多輪對話與 tool loop。
+Sandbox 與 LINE 的模型執行都使用 Pi Agent。選 GPT 時使用 Codex ChatGPT OAuth，選 Gemini
+時使用 `GEMINI_API_KEY`；兩個 provider 共用 Pi transcript、tool loop、usage 與 compact。
+vision upload 會再拆成後續 PR。LINE Queue consumer 會把每個已授權對話 dispatch 到 chat
+專屬的 Durable Object；Sandbox session 也有自己的 Pi Durable Object。
+
+`ASSISTANT_KEY` 不是 API key 或 secret，也不需要在 Cloudflare 設成環境變數。它是小香在 D1、
+Queue 與 Durable Object instance name 共用的穩定內部識別碼；目前值是
+`rueisiang-xiaoxiang`，用來避免未來新增其他 assistant 時混到設定與 session。
 
 ```text
-LINE webhook → Cloudflare Queue → chat Durable Object → Pi Agent
-  → OpenAI Codex（ChatGPT OAuth）→ platform tools／D1
+LINE webhook／Sandbox API → chat Durable Object → Pi Agent
+  → GPT／Codex（ChatGPT OAuth）或 Gemini（API key）→ platform tools／D1
   → Pi Agent 最終回答 → LINE Reply API
   → 接近 reply token 期限時才使用受限 Push fallback
 ```
 
-這條路徑不使用 `OPENAI_API_KEY`，因此不走 OpenAI API 的 usage-based billing。實際可用量
+GPT／Codex 路徑不使用 `OPENAI_API_KEY`，因此不走 OpenAI API 的 usage-based billing。實際可用量
 仍受登入的 ChatGPT 方案與 Codex 使用限制約束；目前只應開放給內部、已在 LINE 前台授權的
 對話，不應把個人 ChatGPT credential 當成公開或多租戶服務憑證。登入與方案差異見
 [OpenAI Codex authentication](https://developers.openai.com/codex/auth)。
@@ -23,10 +26,10 @@ LINE webhook → Cloudflare Queue → chat Durable Object → Pi Agent
 這裡不是只把 Pi 當 HTTP proxy：
 
 - Pi `Agent` 負責 transcript message 格式、模型迴圈、tool calling、usage 與 compaction summary。
-- 每個 LINE 對話有一個 SQLite Durable Object，負責依序執行、保存 Pi transcript、run
-  idempotency、alarm compaction 與 session generation。
-- D1 保留 LINE 原始訊息、平台設定、工具授權、執行用量與逾時備用回答；它不再於每一輪把
-  最近訊息重新拼成模型 prompt。
+- 每個 LINE 對話與每個 Sandbox session 都有自己的 SQLite Durable Object，負責依序執行、
+  保存 Pi transcript、run idempotency、alarm compaction 與 session generation。
+- D1 保留 LINE 原始訊息、Sandbox UI／稽核投影、平台設定、工具授權、執行用量與逾時備用
+  回答；第一輪可由 D1 bootstrap 舊 Sandbox session，之後不再於每一輪重拼模型 prompt。
 - 全平台共用一個 credential-vault Durable Object，集中旋轉 refresh token，避免多個對話
   同時 refresh 後互相覆蓋。credential 在 vault SQLite 內以 AES-GCM 加密。
 
@@ -43,8 +46,8 @@ CPU time、subrequest、DO storage 與 Queue retry，不能把「可部署」視
 
 ## Session、compact 與 reset
 
-- session identity 由 assistant、LINE channel、來源類型與 LINE chat ID 組成；群組和一對一不會
-  共用上下文。
+- LINE session identity 由 assistant、LINE channel、來源類型與 LINE chat ID 組成；Sandbox
+  identity 由 assistant、登入使用者與 Sandbox session ID 組成。不同人、群組與 session 不會共用上下文。
 - 同一 chat DO 內的 run 會序列化，避免兩則訊息交錯改寫 transcript。
 - 約 48,000 tokens 後以 DO alarm 執行 Pi compaction，摘要舊內容並保留約 12,000 tokens 的最近
   對話；超過 80,000 tokens 時，下一輪推論前會先強制 compact。
@@ -55,8 +58,10 @@ CPU time、subrequest、DO storage 與 Queue retry，不能把「可部署」視
 
 ## 模型與延遲設定
 
-LINE 預設模型是 `gpt-5.4-mini`，可用 Worker var `PI_AGENT_MODEL` 改成 Pi `openai-codex`
-catalog 內的模型。為優先守住 LINE reply token，LINE 執行固定採用：
+小香初始模型是 `gpt-5.4-mini`。管理者在 Sandbox 儲存的 active model 同時套用到 Sandbox 與
+LINE；只有資料庫還沒有 assistant 設定時才讀 Worker var `PI_AGENT_MODEL`。Sandbox 模型選單
+列出目前 Pi catalog 支援的 Codex 與 Gemini 模型，並分別檢查 OAuth credential 與 API key。
+為優先守住 LINE reply token，LINE 執行固定採用：
 
 - minimal reasoning、low verbosity；
 - 單次模型請求 25 秒 timeout、不做模型層 retry；
@@ -82,7 +87,7 @@ $codexAuth = Get-Content "$env:USERPROFILE\.codex\auth.json" -Raw | ConvertFrom-
 } | ConvertTo-Json -Compress | Set-Clipboard
 ```
 
-到 Cloudflare Worker 的 **Settings → Variables and Secrets** 新增兩個 Secret：
+到 Cloudflare Worker 的 **Settings → Variables and Secrets** 新增兩個 Codex Secret：
 
 | 名稱 | 值 |
 |---|---|
@@ -100,6 +105,11 @@ fingerprint；重新登入後更新 `PI_OPENAI_CODEX_CREDENTIAL`，下一次請�
 更換 encryption key，否則既有 vault 資料無法解密；若必須輪替，請同時重新登入並更新兩個值。
 Worker 永遠只從 vault RPC 取得短效 access token，不會把 refresh token 複製到每個 chat DO。
 
-目前本機 `tsx` API server 沒有 Durable Object runtime，所以只能跑單元／整合測試與過渡期的
-Gemini Sandbox；真實 LINE Pi session 要部署到 Cloudflare 後測試。本機不可執行 Wrangler 的限制仍以
-[`deployment-setup.md`](./deployment-setup.md) 為準。
+若要使用 Gemini 模型，再新增 `GEMINI_API_KEY`。兩種 provider 可以只設一種；Sandbox 會停用
+缺少 credential 的那組模型。若 active model 所屬 provider 未設定，API 會明確回傳 503，不會
+偷偷改用另一個 provider。
+
+本機 `tsx` API server 會以 Node SQLite adapter 模擬 chat DO 與 credential vault，所以可在
+Sandbox 測 Gemini API key 或 Codex OAuth；正式 LINE Queue、Cloudflare alarm 與真實 DO migration
+仍要部署後驗證。本機不可執行 Wrangler 的限制仍以 [`deployment-setup.md`](./deployment-setup.md)
+為準。

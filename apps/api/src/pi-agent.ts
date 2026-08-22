@@ -1,9 +1,12 @@
 import type { AppEnv } from "./env.js";
+import type { AssistantToolCall } from "@rueisiang/assistant";
 import type {
   PiLineAgentContext,
   PiLineAgentResetResponse,
   PiLineAgentRunRequest,
   PiLineAgentRunResponse,
+  PiSandboxAgentRunRequest,
+  PiSandboxAgentRunResponse,
 } from "./pi-agent-contract.js";
 
 export const DEFAULT_PI_CODEX_MODEL = "gpt-5.4-mini";
@@ -15,32 +18,49 @@ export class PiAgentStaleSessionError extends Error {
   }
 }
 
-function agentName(input: PiLineAgentContext): string {
+export class PiAgentRunError extends Error {
+  constructor(message: string, readonly toolCalls: AssistantToolCall[] = []) {
+    super(message);
+    this.name = "PiAgentRunError";
+  }
+}
+
+function lineAgentName(input: PiLineAgentContext): string {
   return [input.assistantKey, input.channelKey, input.sourceType, input.lineGroupId].join(":");
 }
 
-function agentStub(env: AppEnv["Bindings"], input: PiLineAgentContext): DurableObjectStub {
+function sandboxAgentName(input: PiSandboxAgentRunRequest): string {
+  return [input.assistantKey, "sandbox", input.actorUserId, input.conversationId].join(":");
+}
+
+function agentStub(env: AppEnv["Bindings"], name: string): DurableObjectStub {
   const namespace = env.ASSISTANT_CHAT_AGENT;
   if (!namespace) throw new Error("平台尚未綁定 ASSISTANT_CHAT_AGENT Durable Object。");
-  return namespace.getByName(agentName(input));
+  return namespace.getByName(name);
 }
 
 async function requestAgent<TResponse>(
   env: AppEnv["Bindings"],
-  input: PiLineAgentContext,
+  name: string,
   path: string,
   body: unknown,
 ): Promise<TResponse> {
-  const response = await agentStub(env, input).fetch(new Request(`https://assistant-agent.internal${path}`, {
+  const response = await agentStub(env, name).fetch(new Request(`https://assistant-agent.internal${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   }));
-  const payload = await response.json().catch(() => null) as { error?: unknown } | null;
+  const payload = await response.json().catch(() => null) as { error?: unknown; toolCalls?: unknown } | null;
   if (!response.ok) {
     const message = typeof payload?.error === "string" ? payload.error : "Pi agent 暫時無法回應。";
     if (response.status === 409) throw new PiAgentStaleSessionError(message);
-    throw new Error(message);
+    const toolCalls = Array.isArray(payload?.toolCalls)
+      ? payload.toolCalls.filter((item): item is AssistantToolCall => Boolean(item
+        && typeof item === "object"
+        && typeof (item as AssistantToolCall).toolKey === "string"
+        && ((item as AssistantToolCall).status === "success" || (item as AssistantToolCall).status === "failed")))
+      : [];
+    throw new PiAgentRunError(message, toolCalls);
   }
   return payload as TResponse;
 }
@@ -49,12 +69,34 @@ export async function runPiLineAgent(
   env: AppEnv["Bindings"],
   input: PiLineAgentRunRequest,
 ): Promise<PiLineAgentRunResponse> {
-  return requestAgent<PiLineAgentRunResponse>(env, input, "/run", input);
+  return requestAgent<PiLineAgentRunResponse>(env, lineAgentName(input), "/run", input);
+}
+
+export async function runPiSandboxAgent(
+  env: AppEnv["Bindings"],
+  input: PiSandboxAgentRunRequest,
+): Promise<PiSandboxAgentRunResponse> {
+  return requestAgent<PiSandboxAgentRunResponse>(env, sandboxAgentName(input), "/run", input);
 }
 
 export async function resetPiLineAgent(
   env: AppEnv["Bindings"],
   input: PiLineAgentContext,
 ): Promise<PiLineAgentResetResponse> {
-  return requestAgent<PiLineAgentResetResponse>(env, input, "/reset", input);
+  return requestAgent<PiLineAgentResetResponse>(env, lineAgentName(input), "/reset", input);
+}
+
+/** 不旋轉 access token；設定頁只確認 vault 能解密目前的 credential。 */
+export async function piCodexCredentialConfigured(env: AppEnv["Bindings"]): Promise<boolean> {
+  const namespace = env.ASSISTANT_CREDENTIAL_VAULT;
+  if (!namespace) return false;
+  try {
+    const response = await namespace.getByName("openai-codex").fetch(new Request(
+      "https://assistant-credential.internal/status",
+      { method: "POST" },
+    ));
+    return response.ok;
+  } catch {
+    return false;
+  }
 }

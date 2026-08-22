@@ -229,14 +229,23 @@ export class AssistantCredentialVault {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method !== "POST" || url.pathname !== "/access-token") {
+    if (request.method !== "POST") {
       return Response.json({ error: "Not found" }, { status: 404 });
     }
     try {
+      if (url.pathname === "/status") {
+        await this.serialized(() => this.loadCredential().then(() => undefined));
+        return Response.json({ configured: true });
+      }
+      if (url.pathname !== "/access-token") {
+        return Response.json({ error: "Not found" }, { status: 404 });
+      }
       const accessToken = await this.serialized(() => this.accessToken());
       return Response.json({ accessToken });
     } catch (error) {
-      console.error("Pi credential vault 無法提供 access token", error);
+      if (url.pathname !== "/status") {
+        console.error("Pi credential vault 無法提供 access token", error);
+      }
       const message = error instanceof Error ? error.message : "OpenAI Codex credential 無法使用。";
       return Response.json({ error: message }, { status: 503 });
     }
