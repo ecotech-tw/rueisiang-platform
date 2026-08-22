@@ -219,6 +219,47 @@ describe("群組名稱與大頭貼的自動同步", () => {
     expect(await groupRow()).toMatchObject({ displayName: "倉庫群", pictureUrl: "https://line.example/b.jpg" });
   });
 
+  /*
+   * 這條是 review 抓到的：只看「名字是不是空的」的話，第一次同步之後名字就有值了，
+   * LINE 那邊之後改名永遠跟不上。改成看 display_name_manual。
+   */
+  it("自動補上的名稱，之後會跟著 LINE 改名一起更新", async () => {
+    await configureChannel();
+    mockSummary({ groupId: "group-1", groupName: "舊名字", pictureUrl: "https://line.example/a.jpg" });
+    await postLine(JSON.stringify({ events: [mentionEvent()] }));
+    expect(await groupRow()).toMatchObject({ displayName: "舊名字" });
+
+    await db().update(assistantLineGroups)
+      .set({ profileSyncedAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(assistantLineGroups.lineGroupId, "group-1"));
+
+    mockSummary({ groupId: "group-1", groupName: "新名字", pictureUrl: "https://line.example/a.jpg" });
+    await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-rename" })] }));
+
+    expect(await groupRow()).toMatchObject({ displayName: "新名字" });
+  });
+
+  /** 切開關送的是 { enabled }，不該被當成「人工命名」而把名字鎖住。 */
+  it("只切開關不會讓名稱從此不再同步", async () => {
+    await configureChannel();
+    mockSummary({ groupId: "group-1", groupName: "舊名字", pictureUrl: "" });
+    await postLine(JSON.stringify({ events: [mentionEvent()] }));
+
+    const config = await (await call("/api/assistant/line/config")).json() as { groups: Array<{ id: string }> };
+    await call(`/api/assistant/line/groups/${config.groups[0]!.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    await db().update(assistantLineGroups)
+      .set({ profileSyncedAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(assistantLineGroups.lineGroupId, "group-1"));
+    mockSummary({ groupId: "group-1", groupName: "新名字", pictureUrl: "" });
+    await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-after-toggle" })] }));
+
+    expect(await groupRow()).toMatchObject({ displayName: "新名字" });
+  });
+
   /** room 在 Messaging API 裡查不到名稱，打了也只是白打。 */
   it("多人聊天室不會去打那支 API", async () => {
     await configureChannel();

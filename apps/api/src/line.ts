@@ -145,9 +145,14 @@ export interface LineGroupSummary {
  * 一次同步失敗連帶把整個 webhook 弄壞——收訊息比補名稱重要得多。
  */
 export async function fetchLineGroupSummary(accessToken: string, groupId: string): Promise<LineGroupSummary | null> {
+  // 就算跑在 waitUntil 裡也要有界線：Worker 的執行時間是有上限的，一個掛住的請求會
+  // 把同一次執行裡其他該做完的事一起拖垮。
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
   try {
     const response = await fetch(`${LINE_BOT_API_BASE}/group/${encodeURIComponent(groupId)}/summary`, {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
     });
     if (!response.ok) {
       console.warn("LINE 群組資料取得失敗", { groupId, status: response.status });
@@ -161,5 +166,7 @@ export async function fetchLineGroupSummary(accessToken: string, groupId: string
   } catch (error) {
     console.warn("LINE 群組資料取得失敗", { groupId, error });
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }

@@ -149,6 +149,14 @@ export const assistantLineGroups = sqliteTable("assistant_line_groups", {
    * 沒有設定大頭貼的群組會是空字串。
    */
   pictureUrl: text("picture_url").notNull().default(""),
+  /**
+   * 名稱是不是人手動設定的。
+   *
+   * 需要分開記，不能靠「名字是不是空的」判斷：第一次同步之後 displayName 就有值了，
+   * 再用空值當條件的話，LINE 那邊之後改名永遠跟不上；反過來若一律覆蓋，管理員把
+   * 「專案討論」改成「倉庫群」的決定又會被洗掉。
+   */
+  displayNameManual: integer("display_name_manual", { mode: "boolean" }).notNull().default(false),
   /** 上次跟 LINE 同步名稱與大頭貼的時間。沒同步過是 null。 */
   profileSyncedAt: text("profile_synced_at"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),

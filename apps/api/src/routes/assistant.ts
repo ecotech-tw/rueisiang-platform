@@ -469,6 +469,7 @@ export const assistant = new Hono<AppEnv>()
     if (typeof input.enabled === "boolean" || displayName !== group.displayName) {
       const updated = await updateAssistantLineGroup(c.get("db"), {
         channelKey: channel.channelKey,
+        displayNameManual: Boolean(displayName),
         id: group.id,
         displayName: displayName || group.displayName,
         enabled: typeof input.enabled === "boolean" ? input.enabled : group.enabled,
@@ -488,7 +489,14 @@ export const assistant = new Hono<AppEnv>()
     if (displayName.length > 120) throw new HTTPException(400, { message: "群組顯示名稱不能超過 120 字元。" });
     const enabled = input.enabled === undefined ? existing.enabled : input.enabled;
     if (typeof enabled !== "boolean") throw new HTTPException(400, { message: "群組是否啟用必須是布林值。" });
-    const group = await updateAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, id, displayName, enabled });
+    // 只有真的送了名稱才算人工命名——切開關送的是 { enabled } 而已，不該把名字鎖住。
+    const group = await updateAssistantLineGroup(c.get("db"), {
+      channelKey: channel.channelKey,
+      id,
+      displayName,
+      enabled,
+      displayNameManual: input.displayName !== undefined,
+    });
     return c.json({ group });
   })
 

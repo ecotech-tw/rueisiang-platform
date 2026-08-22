@@ -212,7 +212,13 @@ async function runLineAssistant(input: {
   }
 }
 
-function scheduleLineAssistant(c: { executionCtx: { waitUntil(promise: Promise<unknown>): void } }, job: Promise<void>): Promise<void> {
+/**
+ * 把工作挪出 webhook 的回應路徑。
+ *
+ * 這條路上不能有任何沒有界線的對外請求：LINE 等不到回應就會重送，而訊息已經寫進去了，
+ * 重送時 `result.inserted` 是 false，那一則就永遠不會被回覆——掉的是回覆，不是這件工作。
+ */
+function deferLineJob(c: { executionCtx: { waitUntil(promise: Promise<unknown>): void } }, job: Promise<void>): Promise<void> {
   try {
     c.executionCtx.waitUntil(job);
     return Promise.resolve();
@@ -381,25 +387,30 @@ async function receiveLine(c: Context<AppEnv>) {
      * 整段包在自己的 try 裡：補名稱失敗不該讓收訊息一起失敗。
      */
     if (result.inserted && accessToken && group.sourceType === "group" && shouldSyncLineGroupProfile(lineGroup)) {
-      try {
-        const summary = await fetchLineGroupSummary(accessToken, lineGroup.lineGroupId);
-        if (summary) {
-          await updateAssistantLineGroupProfile(c.get("db"), {
-            channelKey: lineChannel.channelKey,
-            id: lineGroup.id,
-            groupName: summary.groupName,
-            pictureUrl: summary.pictureUrl,
-          });
+      const token = accessToken;
+      const channelKey = lineChannel.channelKey;
+      const row = lineGroup;
+      await deferLineJob(c, (async () => {
+        try {
+          const summary = await fetchLineGroupSummary(token, row.lineGroupId);
+          if (summary) {
+            await updateAssistantLineGroupProfile(c.get("db"), {
+              channelKey,
+              id: row.id,
+              groupName: summary.groupName,
+              pictureUrl: summary.pictureUrl,
+            });
+          }
+        } catch (error) {
+          console.warn("LINE 群組資料同步失敗", { groupId: row.lineGroupId, error });
         }
-      } catch (error) {
-        console.warn("LINE 群組資料同步失敗", { groupId: lineGroup.lineGroupId, error });
-      }
+      })());
     }
 
     if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
       const questionText = lineQuestionText(rawText ?? text, selfMention);
-      await scheduleLineAssistant(c, runLineAssistant({
+      await deferLineJob(c, runLineAssistant({
         db: c.get("db"),
         env: c.env,
         accessToken,

@@ -344,15 +344,14 @@ function LineGroupRow({
   saving: boolean;
 }) {
   const [name, setName] = useState(group.displayName);
+  // 大頭貼網址會過期，載入失敗一定會發生。要換成首字圓標，不是留一個空格。
+  const [avatarFailed, setAvatarFailed] = useState(false);
   return (
     <tr>
       <td>
         <div className="line-group-cell">
-          {/*
-            * 大頭貼的網址會過期，抓不到就退回首字圓標——不要顯示破圖，那比沒有圖更難認。
-            */}
-          {group.pictureUrl
-            ? <img className="line-group-avatar" src={group.pictureUrl} alt="" loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+          {group.pictureUrl && !avatarFailed
+            ? <img className="line-group-avatar" src={group.pictureUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
             : <span className="line-group-avatar is-fallback" aria-hidden="true">{(group.displayName || group.lineGroupId).slice(0, 1)}</span>}
           <input className="line-group-name" value={name} placeholder="未命名群組" onChange={(event) => setName(event.target.value)} />
         </div>

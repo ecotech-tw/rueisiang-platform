@@ -176,10 +176,16 @@ export async function upsertAssistantLineGroup(
 
 export async function updateAssistantLineGroup(
   db: Database,
-  input: { channelKey: string; id: string; displayName: string; enabled: boolean },
+  /** `displayNameManual` 只有在使用者真的送了名稱時才給 true——切開關不算命名。 */
+  input: { channelKey: string; id: string; displayName: string; enabled: boolean; displayNameManual?: boolean },
 ): Promise<AssistantLineGroup | null> {
   await db.update(assistantLineGroups)
-    .set({ displayName: input.displayName, enabled: input.enabled, updatedAt: new Date().toISOString() })
+    .set({
+      displayName: input.displayName,
+      enabled: input.enabled,
+      ...(input.displayNameManual ? { displayNameManual: true } : {}),
+      updatedAt: new Date().toISOString(),
+    })
     .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)));
   return findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.id });
 }
@@ -187,9 +193,10 @@ export async function updateAssistantLineGroup(
 /**
  * 從 LINE 取回的名稱與大頭貼寫回群組。
  *
- * 名稱只在「還沒有名字」時才覆蓋：管理員手動改過的名字比 LINE 上的原名更有意義
- * （例如把「專案討論」改成「倉庫群」），同步不該把那個決定洗掉。大頭貼沒有這個
- * 問題，一律以 LINE 為準。
+ * 名稱只在「不是人手動設定的」時候覆蓋，看的是 displayNameManual 而不是「名字是不是
+ * 空的」：第一次同步之後名字就有值了，再用空值當條件的話，LINE 那邊之後改名永遠跟不上。
+ * 管理員改過的名字比 LINE 的原名更有意義（例如把「專案討論」改成「倉庫群」），那個決定
+ * 要留著。大頭貼沒有這個問題，一律以 LINE 為準。
  */
 export async function updateAssistantLineGroupProfile(
   db: Database,
@@ -198,7 +205,7 @@ export async function updateAssistantLineGroupProfile(
   const now = new Date().toISOString();
   await db.update(assistantLineGroups)
     .set({
-      displayName: sql`CASE WHEN ${assistantLineGroups.displayName} = '' THEN ${input.groupName} ELSE ${assistantLineGroups.displayName} END`,
+      displayName: sql`CASE WHEN ${assistantLineGroups.displayNameManual} = 0 AND ${input.groupName} != '' THEN ${input.groupName} ELSE ${assistantLineGroups.displayName} END`,
       pictureUrl: input.pictureUrl,
       profileSyncedAt: now,
       updatedAt: now,
