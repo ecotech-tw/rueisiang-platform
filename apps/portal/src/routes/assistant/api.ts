@@ -150,12 +150,14 @@ export function useCloseSandboxSession() {
 }
 
 export type AssistantGroupToolMode = "inherit" | "custom";
+export type AssistantLineSourceType = "group" | "room" | "user";
 
 export interface AssistantLineGroup {
   id: string;
   lineGroupId: string;
+  sourceType: AssistantLineSourceType;
   displayName: string;
-  /** LINE 的群組大頭貼。網址會過期，只當顯示用。沒設定大頭貼的群組是空字串。 */
+  /** LINE 對話對方的大頭貼。網址會過期，只當顯示用；沒有大頭貼時是空字串。 */
   pictureUrl: string;
   enabled: boolean;
   /** inherit：用 channel 給的全部；custom：只用 tools 這一份。 */
@@ -235,7 +237,7 @@ export function useSaveAssistantLineConfig() {
 export function useAddAssistantLineGroup() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { lineGroupId: string; displayName: string }) =>
+    mutationFn: (input: { lineGroupId: string; sourceType: AssistantLineSourceType; displayName: string }) =>
       request<{ group: AssistantLineGroup }>("/api/assistant/line/groups", {
         method: "POST",
         body: JSON.stringify(input),
@@ -245,10 +247,10 @@ export function useAddAssistantLineGroup() {
 }
 
 /**
- * 更新群組。`displayName` 省略時後端維持原值。
+ * 更新對話。`displayName` 省略時後端維持原值。
  *
- * 開關要用省略的形式：新發現的群組名稱預設是空字串，把它一起送出去會被後端的
- * 「請填寫群組顯示名稱」擋下來——切個開關卻被要求先命名，是沒有道理的。
+ * 開關要用省略的形式：新發現的對話名稱預設是空字串，把它一起送出去會被後端的
+ * 「請填寫對話顯示名稱」擋下來——切個開關卻被要求先命名，是沒有道理的。
  */
 export function useSaveAssistantLineGroup() {
   const client = useQueryClient();
@@ -279,7 +281,7 @@ export function useSaveAssistantChannelTools() {
   });
 }
 
-/** 設定單一群組的模式與工具。inherit 時不必送 toolKeys。 */
+/** 設定單一對話的模式與工具。inherit 時不必送 toolKeys。 */
 export function useSaveAssistantGroupTools() {
   const client = useQueryClient();
   return useMutation({

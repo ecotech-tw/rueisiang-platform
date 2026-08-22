@@ -8,7 +8,7 @@
 
 ```dotenv
 GEMINI_API_KEY=你的_Gemini_API_Key
-# 要讓已授權的 LINE 群組收到小香回答，還需要設定 Messaging API access token。
+# 要讓已授權的 LINE 對話收到小香回答，還需要設定 Messaging API access token。
 LINE_CHANNEL_ACCESS_TOKEN=你的_LINE_Channel_Access_Token
 ```
 
@@ -33,13 +33,14 @@ pnpm dev
 - Revision history 與 Sandbox tools 選擇都在 Modal 中操作；左側設定欄可獨立捲動，頁面外層不會跟著捲動。
 - 選擇要傳給模型的 tool。現在只有 `Open-Meteo 天氣查詢`，狀態預設為「開發中」。
 - 輸入測試內容、看到模型回答、tool 呼叫結果、延遲與 Gemini usage metadata。
-- Gemini thought summary 會在 Sandbox 以收合區塊顯示；正式回答不會重複渲染。LINE webhook 只傳送正式回答，thought summary 只寫入 Worker log，不會送給群組。
+- Gemini thought summary 會在 Sandbox 以收合區塊顯示；正式回答不會重複渲染。LINE webhook 只傳送正式回答，thought summary 只寫入 Worker log，不會送給對話。
 - 每次 Sandbox run 與 tool call 都會寫入 D1，欄位已預留給後續 LINE channel 與分析頁使用。
 - 長對話超過上下文門檻時，送出前會以模型建立 rolling summary，並只把摘要與最近對話送給 Gemini；完整訊息仍保留在 D1 與 session history。摘要失敗時會退回最近對話，不會阻擋本次測試。
-- `小香助理 → LINE 前台` 可以設定 Channel ID、Channel Secret、Channel Access Token、channel 開關、Webhook URL 與群組授權。
+- `小香助理 → LINE 前台` 可以設定 Channel ID、Channel Secret、Channel Access Token、channel 開關、Webhook URL 與對話授權。
 - Channel Secret 與 Channel Access Token 透過後台輸入後會使用 `AUTH_SESSION_SECRET` 以 AES-GCM 加密保存，不會把原值回傳到瀏覽器。`LINE_CHANNEL_SECRET` 與 `LINE_CHANNEL_ACCESS_TOKEN` 仍可作為既有部署的環境變數 fallback。
-- LINE webhook 只接受 LINE 的 `x-line-signature`，只記錄群組／聊天室中真正 mention 小香的文字訊息；新發現的群組預設未授權。
-- 已授權且開通的群組會收到收件確認訊息，接著由 active model、active prompt 與狀態為「已啟用」的 tools 產生回答；「開發中」tool 仍只允許 Sandbox 使用。
+- LINE webhook 只接受 LINE 的 `x-line-signature`；群組／多人聊天室只記錄真正 mention 小香的文字訊息，一對一不需要 mention；新發現的對話預設未授權。
+- 已授權且開通的對話會由 active model、active prompt 與狀態為「已啟用」的 tools 產生回答；一對一會同步使用者名稱與頭貼，「開發中」tool 仍只允許 Sandbox 使用。
+- 一對一傳送 `/reset` 或 `/重設` 可清除目前模型上下文但保留歷史紀錄，不會觸發回答。
 
 ## 共用 Tool Contract：CRM 唯讀工具
 
@@ -72,9 +73,9 @@ Sandbox runs support multi-turn sessions. A session keeps the current model, pro
 - `PATCH /api/assistant/tools/:key`：更新 tool 的啟用、開發中或停用狀態。
 - `POST /api/assistant/prompts`：建立並啟用新的 prompt revision。
 - `POST /api/assistant/sandbox/run`：依指定模型、prompt revision 與 tool 執行一次測試。
-- `GET /api/assistant/line/config`：LINE channel 狀態、Webhook URL、憑證是否已設定與群組清單；不回傳 credential 原值。
+- `GET /api/assistant/line/config`：LINE channel 狀態、Webhook URL、憑證是否已設定與對話清單；不回傳 credential 原值。
 - `PATCH /api/assistant/line/config`：儲存 Channel ID、Channel Secret、Channel Access Token、顯示名稱與 channel 開關。
-- `POST /api/assistant/line/groups`、`PATCH /api/assistant/line/groups/:id`：新增或授權群組。
+- `POST /api/assistant/line/groups`、`PATCH /api/assistant/line/groups/:id`：新增或授權對話。
 - `POST /api/webhooks/line`：LINE 官方 webhook 入口。
 
 上述後台路由需要已登入且具備對應的 `assistant:*` 權限；目前只有系統管理者預設擁有這些權限。LINE webhook 是 LINE 官方呼叫的公開入口，使用簽章驗證，不使用登入 cookie。
@@ -82,7 +83,7 @@ Sandbox runs support multi-turn sessions. A session keeps the current model, pro
 ## 目前進度與後續階段
 
 1. ✅ 已完成小香設定頁：active model 與 tool catalog 狀態可在後台調整。
-2. ✅ 已完成 LINE channel 設定、webhook URL、群組授權與每群組提及訊息表。
+2. ✅ 已完成 LINE channel 設定、webhook URL、對話授權與每對話訊息表；群組／聊天室須 mention，一對一不須 mention。
 3. ✅ 已將 active model、active prompt 與 tool policy 套用到 LINE 執行，僅允許「已啟用」工具在線上回覆。
 4. ✅ Sandbox 已支援 session、多輪對話、歷史查看、關閉 session、每輪切換模型與長對話自動摘要。
 5. 建立日／週／月與自訂 duration 的群組、模型、tool 用量分析頁。
