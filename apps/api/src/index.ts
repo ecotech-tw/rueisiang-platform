@@ -1,4 +1,5 @@
 import { CyberbizApiError } from "@rueisiang/cyberbiz";
+import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import { WmsError, createDatabase, retryFailedProductWebhooks, retryFailedWebhooks } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -11,7 +12,7 @@ import { admin } from "./routes/admin.js";
 import { assistant } from "./routes/assistant.js";
 import { auth } from "./routes/auth.js";
 import { crm } from "./routes/crm.js";
-import { processLineAssistantQueueMessage, webhooks } from "./routes/webhooks.js";
+import { drainLineAssistantQueueOutbox, processLineAssistantQueueMessage, webhooks } from "./routes/webhooks.js";
 import { health } from "./routes/health.js";
 import { PayoutGithubError } from "./payout/github.js";
 import { tools } from "./routes/tools.js";
@@ -57,13 +58,21 @@ app.onError((error, c) => {
   if (error instanceof CyberbizApiError) {
     if (error.status === 401 || error.status === 403) {
       // 這是我們的 token 有問題，不是使用者送錯東西。
-      console.error("CYBERBIZ 憑證被拒絕", error.message);
+      assistantLog("error", "cyberbiz.auth_failed", {
+        method: c.req.method,
+        path: new URL(c.req.url).pathname,
+        error: assistantErrorDetails(error),
+      });
       return c.json({ error: "平台與 CYBERBIZ 的憑證有問題，請聯絡管理者確認 API token。" }, 502);
     }
     if (error.status >= 400 && error.status < 500) {
       return c.json({ error: `CYBERBIZ：${error.message.replace(/^CYBERBIZ API \d+: /, "")}` }, error.status as 400);
     }
-    console.error(error);
+    assistantLog("error", "cyberbiz.request_failed", {
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      error: assistantErrorDetails(error),
+    });
     return c.json({ error: "CYBERBIZ 暫時無法回應，請稍後再試。" }, 502);
   }
 
@@ -78,11 +87,19 @@ app.onError((error, c) => {
 
   // 同理，GitHub 拒絕觸發時要說得出是憑證問題還是別的，不然沒人查得下去。
   if (error instanceof PayoutGithubError) {
-    console.error("GitHub Actions 觸發失敗", error.message);
+    assistantLog("error", "payout.github_trigger_failed", {
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      error: assistantErrorDetails(error),
+    });
     return c.json({ error: error.message }, 502);
   }
 
-  console.error(error);
+  assistantLog("error", "http.error", {
+    method: c.req.method,
+    path: new URL(c.req.url).pathname,
+    error: assistantErrorDetails(error),
+  });
   return c.json({ error: "伺服器發生錯誤。" }, 500);
 });
 
@@ -105,23 +122,34 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
   ctx.waitUntil(
     retryFailedWebhooks(db, { client: cyberbizClient(env) })
       .then((result) => {
-        if (result.attempted) console.log("補跑失敗的會員 webhook", result);
+        if (result.attempted) assistantLog("info", "scheduled.crm_webhook_retry", result);
       })
-      .catch((error) => console.error("補跑失敗的會員 webhook 時出錯", error)),
+      .catch((error) => assistantLog("error", "scheduled.crm_webhook_retry_failed", {
+        error: assistantErrorDetails(error),
+      })),
   );
 
   // 商品那條分開跑：兩者互不相干，一邊掛掉不該連累另一邊。
   ctx.waitUntil(
     retryFailedProductWebhooks(db, { client: cyberbizInventoryClient(env) })
       .then(async (result) => {
-        if (result.attempted) console.log("補跑失敗的商品 webhook", result);
+        if (result.attempted) assistantLog("info", "scheduled.product_webhook_retry", result);
         /*
          * 補跑改到庫存的話，快取的目錄一樣過期了。這條路不經過 webhook 路由，
          * 所以要自己清一次——不清的話畫面上的數字會一直舊到 TTL 到期。
          */
         if (result.processed) await forgetCatalog(cacheClient(env));
       })
-      .catch((error) => console.error("補跑失敗的商品 webhook 時出錯", error)),
+      .catch((error) => assistantLog("error", "scheduled.product_webhook_retry_failed", {
+        error: assistantErrorDetails(error),
+      })),
+  );
+
+  ctx.waitUntil(
+    drainLineAssistantQueueOutbox(db, env)
+      .catch((error) => assistantLog("error", "line.queue.outbox_drain_failed", {
+        error: assistantErrorDetails(error),
+      })),
   );
 }
 
@@ -131,10 +159,15 @@ async function queue(batch: MessageBatch<LineAssistantQueueMessage>, env: Env): 
       await processLineAssistantQueueMessage(message.body, env);
       message.ack();
     } catch (error) {
-      console.error("LINE Queue 工作失敗，將依設定重試", {
+      assistantLog("warn", "line.queue.consumer_retry", {
         messageId: message.id,
         attempts: message.attempts,
-        error,
+        kind: message.body.kind,
+        runId: message.body.kind === "assistant" ? message.body.runId : null,
+        webhookEventId: message.body.webhookEventId,
+        channelKey: message.body.channelKey,
+        groupId: message.body.lineGroupId,
+        error: assistantErrorDetails(error),
       });
       message.retry();
     }

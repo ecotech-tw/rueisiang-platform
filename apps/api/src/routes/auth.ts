@@ -26,6 +26,7 @@ import {
   recordLogin,
   updateProfile,
 } from "@rueisiang/db";
+import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -146,7 +147,9 @@ export const auth = new Hono<AppEnv>()
         identity = { ...identity, pictureUrl: await fetchGoogleAvatar(accessToken) };
       }
     } catch (error) {
-      console.error("Google 登入失敗", error);
+      assistantLog("warn", "auth.google_login_failed", {
+        error: assistantErrorDetails(error),
+      });
       return failure("Google 登入失敗，請再試一次。");
     }
 
