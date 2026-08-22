@@ -281,7 +281,7 @@ describe("AI 助理 Sandbox", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       text: "紙箱目前有 3 件，低於安全庫存 5 件。",
-      toolCalls: [{ toolKey: "wms_search_warehouse", status: "success" }],
+      toolCalls: [{ toolKey: "wms_search_warehouse", status: "success", args: { query: "紙箱", scope: "inventory", limit: "10" } }],
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -760,11 +760,11 @@ describe("AI 助理 Sandbox", () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
-  it("工具失敗時不會再讓 Gemini 重複呼叫而觸發第二輪格式錯誤", async () => {
+  it("工具失敗時會把錯誤回傳給 Gemini 產生可理解的回覆", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 
     let geminiCalls = 0;
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/v1/orders/301")) {
         return new Response(JSON.stringify({ error: "權限不足" }), {
@@ -772,6 +772,7 @@ describe("AI 助理 Sandbox", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
       geminiCalls += 1;
       if (geminiCalls === 1) {
         return new Response(JSON.stringify({
@@ -781,8 +782,11 @@ describe("AI 助理 Sandbox", () => {
           } }] } }],
         }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
+      const contents = JSON.stringify(body.contents);
+      expect(contents).toContain("CYBERBIZ API 401");
+      expect(contents).toContain("權限不足");
       return new Response(JSON.stringify({
-        candidates: [{ content: { parts: [{ text: "不應該進入第二輪。" }] } }],
+        candidates: [{ content: { parts: [{ text: "訂單查詢工具目前沒有權限，我先不猜測訂單狀態。" }] } }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
 
@@ -797,11 +801,49 @@ describe("AI 助理 Sandbox", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      text: "我目前無法完成這次資料查詢，請稍後再試或確認查詢條件。",
+      text: "訂單查詢工具目前沒有權限，我先不猜測訂單狀態。",
       toolCalls: [{ toolKey: "crm_get_orders", status: "failed", errorMessage: "CYBERBIZ API 401: 權限不足" }],
     });
-    expect(geminiCalls).toBe(1);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(geminiCalls).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("Gemini 第二輪請求失敗時仍回傳前一輪的 tool 參數供 Sandbox debug", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+
+    let geminiCalls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      geminiCalls += 1;
+      if (geminiCalls === 1) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ functionCall: {
+            name: "wms_list_inventory",
+            args: { page: "1", pageSize: "5" },
+          } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ error: { message: "invalid function response" } }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "gemini-3.6-flash",
+        toolKeys: ["wms_list_inventory"],
+        input: "列出商品",
+      }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining("診斷編號"),
+      runId: expect.any(String),
+      toolCalls: [{ toolKey: "wms_list_inventory", status: "success", args: { page: "1", pageSize: "5" } }],
+    });
+    expect(geminiCalls).toBe(2);
   });
 
   it("使用選定 prompt 與模型執行 Gemini，並記錄可用量資訊", async () => {

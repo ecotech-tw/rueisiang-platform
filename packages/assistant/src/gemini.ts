@@ -10,6 +10,7 @@ import {
   ThinkingLevel,
   Type,
 } from "@google/genai/web";
+import { assistantErrorDetails, assistantLog } from "./logging.js";
 import { AssistantError, type AssistantConversationMessage, type AssistantRunResult, type AssistantToolCall, type AssistantToolContext, type AssistantToolDefinition, type AssistantUsage, type JsonSchema } from "./types.js";
 import { runtimeContextInstruction, type AssistantRuntimeContext } from "./runtime.js";
 
@@ -49,12 +50,25 @@ function errorStatus(error: unknown): number | undefined {
   return typeof status === "number" ? status : undefined;
 }
 
-async function generateContent(apiKey: string, model: string, request: GeminiRequest): Promise<GenerateContentResponse> {
+async function generateContent(
+  apiKey: string,
+  model: string,
+  request: GeminiRequest,
+  trace: { runId: string; round: number },
+): Promise<GenerateContentResponse> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
+  const started = Date.now();
+  assistantLog("info", "gemini.request", {
+    runId: trace.runId,
+    round: trace.round,
+    model,
+    contentCount: request.contents.length,
+    hasTools: Boolean(request.config.tools?.length),
+  });
   try {
     const ai = new GoogleGenAI({ apiKey });
-    return await ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model,
       contents: request.contents,
       config: {
@@ -67,10 +81,28 @@ async function generateContent(apiKey: string, model: string, request: GeminiReq
         },
       },
     });
+    assistantLog("info", "gemini.response", {
+      runId: trace.runId,
+      round: trace.round,
+      model,
+      durationMs: Date.now() - started,
+      candidateCount: response.candidates?.length ?? 0,
+      partCount: response.candidates?.[0]?.content?.parts?.length ?? 0,
+      finishReason: response.candidates?.[0]?.finishReason ?? null,
+      usage: response.usageMetadata ?? null,
+    });
+    return response;
   } catch (error) {
     const status = errorStatus(error);
+    assistantLog("error", "gemini.error", {
+      runId: trace.runId,
+      round: trace.round,
+      model,
+      durationMs: Date.now() - started,
+      httpStatus: status ?? null,
+      error: assistantErrorDetails(error),
+    });
     if (status !== undefined) {
-      console.error("Gemini API 錯誤", status, error instanceof Error ? error.message : error);
       throw new AssistantError(safeApiError(status), { cause: error });
     }
     throw new AssistantError("Gemini 連線逾時或暫時無法連線。", { cause: error });
@@ -129,10 +161,6 @@ function safeToolError(error: unknown): string {
   return "工具執行失敗。";
 }
 
-function toolFailureText(): string {
-  return "我目前無法完成這次資料查詢，請稍後再試或確認查詢條件。";
-}
-
 function modelId(value: string): string {
   return value.replace(/^models\//, "");
 }
@@ -158,6 +186,7 @@ function systemInstructionFor(input: { systemPrompt: string; runtimeContext?: As
 export async function runGemini(input: {
   apiKey: string;
   model: string;
+  runId?: string;
   systemPrompt: string;
   runtimeContext?: AssistantRuntimeContext;
   userText: string;
@@ -166,6 +195,30 @@ export async function runGemini(input: {
   toolContext?: AssistantToolContext;
   maxToolRounds?: number;
 }): Promise<AssistantRunResult> {
+  const runId = input.runId ?? crypto.randomUUID();
+  const normalizedModel = modelId(input.model);
+  const surface = input.toolContext?.surface ?? "unknown";
+  const runStarted = Date.now();
+  assistantLog("info", "run.started", {
+    runId,
+    surface,
+    model: normalizedModel,
+    conversationMessageCount: input.conversation?.length ?? 0,
+    userTextChars: input.userText.length,
+    toolKeys: input.tools.map((tool) => tool.key),
+  });
+  const finish = (result: AssistantRunResult, status: "success" | "partial_failure"): AssistantRunResult => {
+    assistantLog(status === "success" ? "info" : "warn", "run.completed", {
+      runId,
+      surface,
+      model: normalizedModel,
+      status,
+      durationMs: Date.now() - runStarted,
+      toolCallCount: result.toolCalls.length,
+      usage: result.usage,
+    });
+    return result;
+  };
   const toolsByName = new Map(input.tools.map((tool) => [tool.key, tool]));
   const contents: Content[] = [
     ...(input.conversation ?? []).map((message) => ({ role: message.role, parts: [{ text: message.text }] })),
@@ -182,65 +235,101 @@ export async function runGemini(input: {
   const requestBase: Omit<GeminiRequest, "contents"> = {
     config: {
       systemInstruction: systemInstructionFor(input),
-      thinkingConfig: thinkingConfigFor(modelId(input.model)),
+      thinkingConfig: thinkingConfigFor(normalizedModel),
       tools: declarations.length ? [{ functionDeclarations: declarations }] : undefined,
     },
   };
   const maxToolRounds = input.maxToolRounds ?? 3;
 
-  for (let round = 0; round <= maxToolRounds; round += 1) {
-    const response = await generateContent(input.apiKey, modelId(input.model), {
-      ...requestBase,
-      contents,
-    });
-    addUsage(usage, response.usageMetadata);
-    const parts = response.candidates?.[0]?.content?.parts ?? [];
-    const thoughtText = readThoughts(parts);
-    if (thoughtText) thoughts.push(thoughtText);
-    const calls = readToolCalls(parts);
-    if (!calls.length) {
-      const text = readText(parts);
-      if (text) return { text, thoughts: thoughts.join("\n\n"), toolCalls, usage };
-      throw new AssistantError("模型沒有產生可顯示的文字回答。");
-    }
-    if (round === maxToolRounds) throw new AssistantError("工具呼叫次數已達上限，請縮小問題範圍後再試。");
+  try {
+    for (let round = 0; round <= maxToolRounds; round += 1) {
+      const response = await generateContent(input.apiKey, normalizedModel, {
+        ...requestBase,
+        contents,
+      }, { runId, round });
+      addUsage(usage, response.usageMetadata);
+      const parts = response.candidates?.[0]?.content?.parts ?? [];
+      const thoughtText = readThoughts(parts);
+      if (thoughtText) thoughts.push(thoughtText);
+      const calls = readToolCalls(parts);
+      if (!calls.length) {
+        const text = readText(parts);
+        if (text) {
+          const status = toolCalls.some((toolCall) => toolCall.status === "failed") ? "partial_failure" : "success";
+          return finish({ text, thoughts: thoughts.join("\n\n"), toolCalls, usage }, status);
+        }
+        throw new AssistantError("模型沒有產生可顯示的文字回答。");
+      }
+      if (round === maxToolRounds) throw new AssistantError("工具呼叫次數已達上限，請縮小問題範圍後再試。");
 
-    // 將模型原始 part（包含 thinking model 可能需要的 thought signature）原樣放回歷史。
-    contents.push({ role: "model", parts });
-    const functionResponses: Part[] = [];
-    let toolExecutionFailed = false;
-    for (const call of calls) {
-      const tool = toolsByName.get(call.name);
-      const started = Date.now();
-      if (!tool) {
-        const errorMessage = `模型要求未授權的工具：${call.name}`;
-        toolExecutionFailed = true;
-        toolCalls.push({ toolKey: call.name, status: "failed", durationMs: Date.now() - started, errorMessage });
-        continue;
+      // 將模型原始 part（包含 thinking model 可能需要的 thought signature）原樣放回歷史。
+      contents.push({ role: "model", parts });
+      const functionResponses: Part[] = [];
+      for (const call of calls) {
+        const tool = toolsByName.get(call.name);
+        const started = Date.now();
+        if (!tool) {
+          const errorMessage = `模型要求未授權的工具：${call.name}`;
+          assistantLog("error", "tool.unknown", { runId, round, toolKey: call.name });
+          toolCalls.push({ toolKey: call.name, status: "failed", args: call.args, durationMs: Date.now() - started, errorMessage });
+          functionResponses.push({
+            functionResponse: {
+              ...(call.id ? { id: call.id } : {}),
+              name: call.name,
+              response: { error: errorMessage },
+            },
+          });
+          continue;
+        }
+        assistantLog("info", "tool.started", { runId, round, toolKey: tool.key });
+        try {
+          const result = await tool.execute(call.args, input.toolContext);
+          const durationMs = Date.now() - started;
+          assistantLog("info", "tool.completed", { runId, round, toolKey: tool.key, status: "success", durationMs });
+          toolCalls.push({ toolKey: tool.key, status: "success", args: call.args, durationMs });
+          functionResponses.push({
+            functionResponse: {
+              ...(call.id ? { id: call.id } : {}),
+              name: tool.key,
+              response: { result: responseObject(result) },
+            },
+          });
+        } catch (error) {
+          const errorMessage = safeToolError(error);
+          const durationMs = Date.now() - started;
+          assistantLog("error", "tool.failed", {
+            runId,
+            round,
+            toolKey: tool.key,
+            durationMs,
+            error: assistantErrorDetails(error),
+          });
+          toolCalls.push({ toolKey: tool.key, status: "failed", args: call.args, durationMs, errorMessage });
+          functionResponses.push({
+            functionResponse: {
+              ...(call.id ? { id: call.id } : {}),
+              name: tool.key,
+              response: { error: errorMessage },
+            },
+          });
+        }
       }
-      try {
-        const result = await tool.execute(call.args, input.toolContext);
-        toolCalls.push({ toolKey: tool.key, status: "success", durationMs: Date.now() - started });
-        functionResponses.push({
-          functionResponse: {
-            ...(call.id ? { id: call.id } : {}),
-            name: tool.key,
-            response: { result: responseObject(result) },
-          },
-        });
-      } catch (error) {
-        const errorMessage = safeToolError(error);
-        console.error("AI tool 執行失敗", tool.key, error);
-        toolExecutionFailed = true;
-        toolCalls.push({ toolKey: tool.key, status: "failed", durationMs: Date.now() - started, errorMessage });
-      }
+      // 成功與失敗都要把 function response 餵回模型，讓模型決定如何向使用者說明。
+      // 失敗資訊只放在這一輪的 model context，不直接把內部錯誤當成最終回答噴給使用者。
+      contents.push({ role: "user", parts: functionResponses });
     }
-    // 工具已經失敗時不再把 response 餵回模型重試，避免不同模型對失敗工具的續接格式不一致。
-    // SDK 會保留成功 function response 的 id，讓 thinking model 的 function call history 能正確配對。
-    if (toolExecutionFailed) {
-      return { text: toolFailureText(), thoughts: thoughts.join("\n\n"), toolCalls, usage };
-    }
-    contents.push({ role: "user", parts: functionResponses });
+  } catch (error) {
+    if (error instanceof AssistantError) error.toolCalls = [...toolCalls];
+    assistantLog("error", "run.failed", {
+      runId,
+      surface,
+      model: normalizedModel,
+      durationMs: Date.now() - runStarted,
+      toolCallCount: toolCalls.length,
+      usage,
+      error: assistantErrorDetails(error),
+    });
+    throw error;
   }
 
   throw new AssistantError("AI assistant did not complete the response.");

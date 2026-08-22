@@ -59,6 +59,33 @@ CRM 工具與 WMS 使用同一個 provider-neutral `ToolContract`；一般 CRM �
 
 Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calling，不是公司的知識來源，也不應被視為正式內部問答能力。後續 WMS、CRM 與公司文件搜尋會以同一個 `ToolContract` 介面接入，MCP adapter 會放在這層之下。
 
+## 錯誤診斷與 Cloudflare logs
+
+每次 Sandbox 執行都會產生一個診斷編號；Gemini 每一輪請求、回應、tool 執行、耗時與錯誤都會以 structured log 寫到 Worker Logs。Sandbox 只顯示 tool 的實際參數，參數不會寫入 Worker log；API key、完整 prompt 與完整對話也不會寫入 log。
+
+每一則模型回覆的「工具調用」都可以展開查看參數；如果 Gemini 在工具執行後的下一輪請求失敗，Sandbox 也會在錯誤下方保留該次失敗前的工具調用，方便比對模型送出的參數。
+
+正式環境可在 Cloudflare Dashboard 的 Workers & Pages → `rueisiang-platform` → Observability 查詢 `assistant.gemini.error`，再用畫面上的診斷編號篩選同一輪執行。也可以在有 Wrangler 的環境即時查看：
+
+```bash
+npx wrangler tail rueisiang-platform --format json --search assistant.gemini.error
+```
+
+目前 `apps/api/wrangler.toml` 已啟用 `[observability]`；修改程式後需部署一次，新的 structured logs 才會出現在 Cloudflare。Windows on ARM 本機因 Wrangler 的 `workerd` 不支援，建議使用 Cloudflare Dashboard 或 Linux/CI 執行 `wrangler tail`。
+
+## LINE 回覆的執行方式與延遲診斷
+
+LINE webhook 收到訊息後會先回傳 `accepted`，再透過 Worker 的 `waitUntil` 在背景執行 Gemini、tool 與 LINE Reply API。回覆一定使用該 webhook event 的 `replyToken`，不使用 Push API；因此 reply token 必須在背景工作完成後仍然有效。
+
+每次 LINE 執行會使用同一個 `runId` 寫入 `assistant.run.*` 與 `assistant.line.reply.*` structured logs。請用 runId 比對以下事件：
+
+- 沒有 `assistant.run.started`：工作沒有成功排入背景，或 webhook 在授權／設定階段就結束。
+- 有 `assistant.run.failed`、沒有 `assistant.line.reply.started`：模型、tool 或設定失敗。
+- 有 `assistant.line.reply.failed`：LINE Reply API 回傳錯誤；常見原因是 reply token 過期、重複使用或 message 格式錯誤，log 會保留 HTTP status 與受限長度的 API response。
+- 有 `assistant.line.reply.completed` 但群組仍無訊息：檢查 LINE webhook event 是否真的帶入對應的 reply token，以及該 token 是否已被其他執行消耗。
+
+tool 失敗不會立即產生固定錯誤文字；失敗結果會以 function response 回傳 Gemini，讓模型自行產生可理解的說明。Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到模型的最終回答。若未來單次查詢可能超過 `waitUntil` 的背景執行窗口，應改用 Cloudflare Queues，讓 webhook 與 AI 工作完全解耦。
+
 ## API
 
 Sandbox runs support multi-turn sessions. A session keeps the current model, prompt revision, rolling context summary, and full user/model messages together. The model in `POST /api/assistant/sandbox/run` takes precedence for an open session, so each turn can switch models; close a session to keep its history while preventing further runs. Long sessions summarize older messages before the request while keeping the full history in D1.

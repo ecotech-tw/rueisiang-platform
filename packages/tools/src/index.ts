@@ -703,7 +703,14 @@ function sortCustomerOrders(
   const multiplier = sortDirection === "asc" ? 1 : -1;
   return orders.slice().sort((left, right) => {
     if (sortBy === "totalPrice") {
-      return ((left.totalPrice ?? Number.NEGATIVE_INFINITY) - (right.totalPrice ?? Number.NEGATIVE_INFINITY)) * multiplier;
+      // 沒有金額的訂單一律墊底，不隨 sortDirection 翻面：舊寫法把 null 當 -Infinity，
+      // 兩筆都是 null 時相減會得到 NaN，Array.sort 拿到 NaN 的排序結果是未定義的。
+      const leftPrice = left.totalPrice;
+      const rightPrice = right.totalPrice;
+      if (leftPrice === null && rightPrice === null) return 0;
+      if (leftPrice === null) return 1;
+      if (rightPrice === null) return -1;
+      return (leftPrice - rightPrice) * multiplier;
     }
     const leftValue = sortBy === "updatedAt"
       ? left.updatedAt

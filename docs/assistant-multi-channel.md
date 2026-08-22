@@ -300,9 +300,8 @@ MCP **server** 是相反方向、不同風險）：
 - 客服的**真人接手**沒有設計。客人問到一半同事要能進去接，這時 bot 必須閉嘴，否則會跟
   同事搶著回話。需要「這個對話目前是 bot 還是真人」的狀態、手動切換、以及「N 分鐘沒人
   理就交還」之類的規則。這是獨立的一塊。
-- 客服回訊息應該用 **reply**（`/v2/bot/message/reply`，帶 `replyToken`，免費、一則事件
-  一次、有時效），不是現在的 `pushLineMessage`（`/v2/bot/message/push`，**計費**）。
-  內部群量小無所謂，客服量大時是真的錢。
+- 客服回訊息應該用 **reply**（`/v2/bot/message/reply`，帶 `replyToken`，一則事件
+  一次、有時效）；平台所有由 webhook 觸發的回答都遵守這個規則，不使用計費的 Push API。
 - 群組名稱與頭貼可以用 `GET /v2/bot/group/{groupId}/summary` 自動帶入（現在的
   `displayName` 是管理員手打的）。但**只有 `group` 有這支 API，`room` 沒有**，而且小香
   必須還在群裡；`pictureUrl` 會過期，不能當永久網址存。動工前要先對一次 LINE 官方文件。
