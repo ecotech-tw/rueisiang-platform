@@ -38,7 +38,7 @@ import {
   lineEventRawText,
   lineEventText,
   lineQuestionText,
-  pushLineMessage,
+  replyLineMessage,
   verifyLineWebhookSignature,
   type LineWebhookPayload,
 } from "../line.js";
@@ -85,6 +85,7 @@ async function runLineAssistant(input: {
   db: AppEnv["Variables"]["db"];
   env: AppEnv["Bindings"];
   accessToken: string;
+  replyToken: string;
   assistantKey: string;
   channelKey: string;
   /** 群組那一列的 id，不是 LINE 的群組 id——對話層的工具授權掛在這個 id 上。 */
@@ -164,24 +165,24 @@ async function runLineAssistant(input: {
       });
     }
     const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
-    const pushStarted = Date.now();
-    assistantLog("info", "line.push.started", {
+    const replyStarted = Date.now();
+    assistantLog("info", "line.reply.started", {
       runId,
       groupId: input.lineGroupId,
       textChars: result.text.length,
     });
     try {
-      await pushLineMessage(input.accessToken, input.lineGroupId, result.text);
-      assistantLog("info", "line.push.completed", {
+      await replyLineMessage(input.accessToken, input.replyToken, result.text);
+      assistantLog("info", "line.reply.completed", {
         runId,
         groupId: input.lineGroupId,
-        durationMs: Date.now() - pushStarted,
+        durationMs: Date.now() - replyStarted,
       });
     } catch (error) {
-      assistantLog("error", "line.push.failed", {
+      assistantLog("error", "line.reply.failed", {
         runId,
         groupId: input.lineGroupId,
-        durationMs: Date.now() - pushStarted,
+        durationMs: Date.now() - replyStarted,
         error: assistantErrorDetails(error),
       });
       throw error;
@@ -226,9 +227,9 @@ async function runLineAssistant(input: {
       console.error("LINE 小香失敗用量記錄失敗", { runId, groupId: input.lineGroupId, error: recordError });
     }
     try {
-      await pushLineMessage(input.accessToken, input.lineGroupId, "小香目前無法完成回答，請稍後再試。");
-    } catch (pushError) {
-      console.error("LINE 錯誤提示也無法送出", { runId, groupId: input.lineGroupId, error: pushError });
+      await replyLineMessage(input.accessToken, input.replyToken, "小香目前無法完成回答，請稍後再試。");
+    } catch (replyError) {
+      console.error("LINE reply 錯誤提示也無法送出", { runId, groupId: input.lineGroupId, error: replyError });
     }
   }
 }
@@ -392,13 +393,15 @@ async function receiveLine(c: Context<AppEnv>) {
     if (result.inserted) recorded += 1;
     else duplicates += 1;
 
-    if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken) {
+    const replyToken = event.replyToken?.trim();
+    if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
       const questionText = lineQuestionText(rawText ?? text, selfMention);
       await scheduleLineAssistant(c, runLineAssistant({
         db: c.get("db"),
         env: c.env,
         accessToken,
+        replyToken,
         assistantKey: lineChannel.assistantKey,
         channelKey: lineChannel.channelKey,
         groupRowId: lineGroup.id,
@@ -406,6 +409,12 @@ async function receiveLine(c: Context<AppEnv>) {
         userText: text,
         questionText,
       }));
+    } else if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && !replyToken) {
+      assistantLog("warn", "line.reply.skipped", {
+        webhookEventId: event.webhookEventId ?? null,
+        groupId: lineGroup.lineGroupId,
+        reason: "missing_reply_token",
+      });
     }
   }
 

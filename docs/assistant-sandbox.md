@@ -75,14 +75,14 @@ npx wrangler tail rueisiang-platform --format json --search assistant.gemini.err
 
 ## LINE 回覆的執行方式與延遲診斷
 
-LINE webhook 收到訊息後會先回傳 `accepted`，再透過 Worker 的 `waitUntil` 在背景執行 Gemini、tool 與 LINE Push API。這條路徑目前不是使用 LINE reply token，因此 Sandbox 顯示的 11 秒不會直接代表 reply token 已過期；但整個背景工作若超過 Cloudflare 的可等待時間，或 Push API 拒絕請求，群組仍然不會看到回覆。
+LINE webhook 收到訊息後會先回傳 `accepted`，再透過 Worker 的 `waitUntil` 在背景執行 Gemini、tool 與 LINE Reply API。回覆一定使用該 webhook event 的 `replyToken`，不使用 Push API；因此 reply token 必須在背景工作完成後仍然有效。
 
-每次 LINE 執行會使用同一個 `runId` 寫入 `assistant.run.*` 與 `assistant.line.push.*` structured logs。請用 runId 比對以下事件：
+每次 LINE 執行會使用同一個 `runId` 寫入 `assistant.run.*` 與 `assistant.line.reply.*` structured logs。請用 runId 比對以下事件：
 
 - 沒有 `assistant.run.started`：工作沒有成功排入背景，或 webhook 在授權／設定階段就結束。
-- 有 `assistant.run.failed`、沒有 `assistant.line.push.started`：模型、tool 或設定失敗。
-- 有 `assistant.line.push.failed`：LINE Push API 回傳錯誤；log 會保留 HTTP status 與受限長度的 API response。
-- 有 `assistant.line.push.completed` 但群組仍無訊息：應檢查 channel access token、目標群組 ID 與 LINE 官方帳號是否仍在該群組。
+- 有 `assistant.run.failed`、沒有 `assistant.line.reply.started`：模型、tool 或設定失敗。
+- 有 `assistant.line.reply.failed`：LINE Reply API 回傳錯誤；常見原因是 reply token 過期、重複使用或 message 格式錯誤，log 會保留 HTTP status 與受限長度的 API response。
+- 有 `assistant.line.reply.completed` 但群組仍無訊息：檢查 LINE webhook event 是否真的帶入對應的 reply token，以及該 token 是否已被其他執行消耗。
 
 tool 失敗不會立即產生固定錯誤文字；失敗結果會以 function response 回傳 Gemini，讓模型自行產生可理解的說明。Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到模型的最終回答。若未來單次查詢可能超過 `waitUntil` 的背景執行窗口，應改用 Cloudflare Queues，讓 webhook 與 AI 工作完全解耦。
 

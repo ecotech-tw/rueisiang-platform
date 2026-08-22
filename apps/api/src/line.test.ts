@@ -261,11 +261,12 @@ describe("LINE channel 後台設定", () => {
     expect(response.status).toBe(200);
     expect(requests.map((request) => request.url)).toEqual([
       expect.stringContaining("generativelanguage.googleapis.com"),
-      "https://api.line.me/v2/bot/message/push",
+      "https://api.line.me/v2/bot/message/reply",
     ]);
     const geminiRequest = requests.find((request) => request.url.includes("generativelanguage.googleapis.com"));
     expect(geminiRequest?.body).toContain("請幫我查一下");
     expect(requests[1]?.authorization).toBe("Bearer access-token-from-portal");
+    expect(requests[1]?.body).toContain('"replyToken":"reply-token-2"');
     expect(requests[1]?.body).toContain("已收到，我會依照群組內容協助處理。");
     expect(requests[1]?.body).not.toContain("LINE 不應收到的 thought summary");
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
@@ -294,7 +295,7 @@ describe("LINE channel 後台設定", () => {
     const response = await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-invalid-config", replyToken: "reply-invalid" })] }));
     expect(response.status).toBe(200);
     expect(requests).toEqual([
-      "https://api.line.me/v2/bot/message/push",
+      "https://api.line.me/v2/bot/message/reply",
     ]);
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);

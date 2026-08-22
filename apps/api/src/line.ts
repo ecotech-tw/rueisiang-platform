@@ -105,13 +105,31 @@ export function isLineWebhookEvent(value: unknown): value is LineWebhookEvent {
 
 const LINE_API_BASE = "https://api.line.me/v2/bot/message";
 const LINE_TEXT_LIMIT = 5_000;
+const LINE_ERROR_BODY_LIMIT = 1_000;
 
 function lineText(value: string): string {
   return value.slice(0, LINE_TEXT_LIMIT);
 }
 
-async function sendLineMessage(accessToken: string, payload: unknown): Promise<void> {
-  const response = await fetch(`${LINE_API_BASE}/push`, {
+async function responsePreview(response: Response): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let preview = "";
+  try {
+    while (preview.length < LINE_ERROR_BODY_LIMIT) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      preview += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally {
+    await reader.cancel();
+  }
+  return preview.slice(0, LINE_ERROR_BODY_LIMIT);
+}
+
+async function sendLineReply(accessToken: string, payload: unknown): Promise<void> {
+  const response = await fetch(`${LINE_API_BASE}/reply`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -119,16 +137,16 @@ async function sendLineMessage(accessToken: string, payload: unknown): Promise<v
     },
     body: JSON.stringify(payload),
   });
-  const responseBody = await response.text();
   if (!response.ok) {
-    console.error("LINE Messaging API 推送失敗", {
+    const responseBody = await responsePreview(response);
+    console.error("LINE Messaging API reply 失敗", {
       status: response.status,
       response: responseBody.slice(0, 1_000),
     });
-    throw new Error(`LINE Messaging API 推送失敗（HTTP ${response.status}）。`);
+    throw new Error(`LINE Messaging API reply 失敗（HTTP ${response.status}）。`);
   }
 }
 
-export async function pushLineMessage(accessToken: string, lineGroupId: string, text: string): Promise<void> {
-  await sendLineMessage(accessToken, { to: lineGroupId, messages: [{ type: "text", text: lineText(text) }] });
+export async function replyLineMessage(accessToken: string, replyToken: string, text: string): Promise<void> {
+  await sendLineReply(accessToken, { replyToken, messages: [{ type: "text", text: lineText(text) }] });
 }
