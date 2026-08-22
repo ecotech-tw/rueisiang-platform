@@ -1,10 +1,11 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles, updateAssistantSandboxContext } from "@rueisiang/db";
 import {
   activityEvents,
   assistantLineChannels,
   assistantLineGroups,
   assistantLineMessages,
+  assistantSandboxMessages,
   customerTagCatalog,
   customers,
   inventoryItems,
@@ -442,6 +443,72 @@ describe("AI 助理 Sandbox", () => {
     const contents = JSON.stringify(requestBody?.contents);
     expect(contents).toContain("之前的問題");
     expect(contents.match(/這次問題/g)).toHaveLength(1);
+  });
+
+  it("Sandbox bootstrap 會略過既有摘要涵蓋的訊息，並在建立 prompt 前 compact", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    const messages = Array.from({ length: 40 }, (_, index) => [
+      {
+        id: `sandbox-bootstrap-user-${index}`,
+        sessionId: created.session.id,
+        role: "user" as const,
+        text: index < 10 ? `covered-history-${index}` : `imported-history-${index} ${"歷史".repeat(3_000)}`,
+        createdAt: new Date(Date.UTC(2026, 7, 22, 10, index, 0)).toISOString(),
+      },
+      {
+        id: `sandbox-bootstrap-model-${index}`,
+        sessionId: created.session.id,
+        role: "model" as const,
+        text: index < 10 ? `covered-answer-${index}` : `imported-answer-${index} ${"回答".repeat(3_000)}`,
+        model: "gemini-3.6-flash",
+        createdAt: new Date(Date.UTC(2026, 7, 22, 10, index, 30)).toISOString(),
+      },
+    ]).flat();
+    await db().insert(assistantSandboxMessages).values(messages);
+    await updateAssistantSandboxContext(db(), {
+      assistantKey: "rueisiang-xiaoxiang",
+      createdBy: "admin",
+      id: created.session.id,
+      contextSummary: "legacy summary",
+      contextSummaryMessageCount: 20,
+    });
+
+    const requests: Array<{ body: Record<string, unknown>; summary: boolean }> = [];
+    let mainCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const summary = JSON.stringify(body.systemInstruction).includes("context summarization assistant");
+      requests.push({ body, summary });
+      const text = summary ? "imported history compacted" : "Sandbox bootstrap 回答 " + ++mainCount;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text }] } }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, totalTokens: 15 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId: created.session.id,
+        model: "gemini-3.6-flash",
+        promptRevisionId: config.activePrompt.id,
+        toolKeys: [],
+        input: "目前問題",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(requests.some((request) => request.summary)).toBe(true);
+    const mainRequest = requests.filter((request) => !request.summary).at(-1);
+    const contents = JSON.stringify(mainRequest?.body.contents);
+    expect(contents).toContain("imported history compacted");
+    expect(contents).toContain("imported-history-39");
+    expect(contents).not.toContain("covered-history-0");
+    expect(contents).not.toContain("covered-answer-0");
   });
 
   it("儲存 prompt 時建立 revision 並立即啟用", async () => {

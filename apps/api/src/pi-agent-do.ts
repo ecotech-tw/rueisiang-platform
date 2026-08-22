@@ -21,6 +21,7 @@ import {
   getAssistantSandboxSession,
   getAssistantLineChannel,
   listAssistantLineMessages,
+  listAllAssistantSandboxMessages,
   listAssistantSandboxMessages,
   listAssistantToolConfigs,
   loadAuthUser,
@@ -577,7 +578,13 @@ export class AssistantChatAgent {
       || session.createdAt !== input.contextGeneration) {
       throw new Error("Sandbox session 已關閉、已更換，或不屬於這位使用者。");
     }
-    const history = await listAssistantSandboxMessages(db, session.id, 100);
+    // 摘要筆數是對完整升冪 D1 transcript 計算；先取完整序列再切掉摘要涵蓋的 prefix，
+    // 才不會因為最新視窗只有 100 筆而把已摘要的舊訊息重新送進 Pi context。
+    const history = session.contextSummary.trim()
+      ? (await listAllAssistantSandboxMessages(db, session.id))
+        .slice(Math.max(session.contextSummaryMessageCount, 0))
+        .slice(-100)
+      : await listAssistantSandboxMessages(db, session.id, 100);
     const bootstrapMessages: SandboxBootstrapMessage[] = [
       ...(session.contextSummary.trim()
         ? [
@@ -662,7 +669,7 @@ export class AssistantChatAgent {
 
   private async compactIfNeeded(force = false, preferredModel?: string): Promise<void> {
     const state = this.currentState();
-    if (!state?.model) return;
+    if (!state || (!state.model && !preferredModel)) return;
     const rows = this.loadMessageRows(state);
     const totalTokens = rows.reduce((total, row) => total + estimateTokens(row.message), state.summary_tokens);
     if (totalTokens <= (force ? FORCE_COMPACT_AFTER_TOKENS : COMPACT_AFTER_TOKENS)) return;
@@ -746,7 +753,11 @@ export class AssistantChatAgent {
        Date.now(),
      );
 
-    if (isSandboxRunRequest(input)) await this.bootstrapSandboxTranscript(state, input, model);
+    if (isSandboxRunRequest(input)) {
+      await this.bootstrapSandboxTranscript(state, input, model);
+      await this.compactIfNeeded(false, model.id);
+      state = this.currentState()!;
+    }
     if (isLineRunRequest(input)) await this.bootstrapLineTranscript(state, input, model);
     const toolContext: ToolExecutionContext = { request: input, toolCalls: [] };
     const initialMessages = this.contextMessages(state);
