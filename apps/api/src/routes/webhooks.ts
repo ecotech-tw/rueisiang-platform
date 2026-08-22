@@ -99,6 +99,7 @@ async function runLineAssistant(input: {
   let modelId = DEFAULT_ASSISTANT_MODEL;
   let promptRevisionId = "unavailable";
   let promptText = input.questionText;
+  let hasReplied = false;
   try {
     if (!input.env.GEMINI_API_KEY) throw new Error("平台還沒設定 GEMINI_API_KEY。");
     await ensureAssistantDefaults(input.db, {
@@ -173,6 +174,7 @@ async function runLineAssistant(input: {
     });
     try {
       await replyLineMessage(input.accessToken, input.replyToken, result.text);
+      hasReplied = true;
       assistantLog("info", "line.reply.completed", {
         runId,
         groupId: input.lineGroupId,
@@ -226,10 +228,12 @@ async function runLineAssistant(input: {
     } catch (recordError) {
       console.error("LINE 小香失敗用量記錄失敗", { runId, groupId: input.lineGroupId, error: recordError });
     }
-    try {
-      await replyLineMessage(input.accessToken, input.replyToken, "小香目前無法完成回答，請稍後再試。");
-    } catch (replyError) {
-      console.error("LINE reply 錯誤提示也無法送出", { runId, groupId: input.lineGroupId, error: replyError });
+    if (!hasReplied) {
+      try {
+        await replyLineMessage(input.accessToken, input.replyToken, "小香目前無法完成回答，請稍後再試。");
+      } catch (replyError) {
+        console.error("LINE reply 錯誤提示也無法送出", { runId, groupId: input.lineGroupId, error: replyError });
+      }
     }
   }
 }

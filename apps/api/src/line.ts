@@ -141,7 +141,7 @@ async function sendLineReply(accessToken: string, payload: unknown): Promise<voi
     const responseBody = await responsePreview(response);
     console.error("LINE Messaging API reply 失敗", {
       status: response.status,
-      response: responseBody.slice(0, 1_000),
+      response: responseBody,
     });
     throw new Error(`LINE Messaging API reply 失敗（HTTP ${response.status}）。`);
   }

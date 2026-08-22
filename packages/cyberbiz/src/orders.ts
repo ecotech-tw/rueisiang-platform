@@ -238,14 +238,19 @@ function setListParam(params: URLSearchParams, key: string, value: string[] | un
   if (value?.length) params.set(key, value.join(","));
 }
 
-function paginationQuery(filters: CyberbizCustomerOrderPageFilters): string {
+function paginationQuery(filters: CyberbizCustomerOrderPageFilters) {
   const page = Math.max(1, Math.floor(filters.page ?? 1));
   const perPage = Math.min(MAX_ORDER_PAGE_SIZE, Math.max(1, Math.floor(filters.perPage ?? MAX_ORDER_PAGE_SIZE)));
   const offset = Math.max(0, Math.floor(filters.offset ?? (page - 1) * perPage));
-  return new URLSearchParams({ page: String(page), per_page: String(perPage), offset: String(offset) }).toString();
+  return {
+    query: new URLSearchParams({ page: String(page), per_page: String(perPage), offset: String(offset) }).toString(),
+    page,
+    perPage,
+    offset,
+  };
 }
 
-function orderQuery(filters: CyberbizOrderListFilters): string {
+function orderQuery(filters: CyberbizOrderListFilters) {
   const page = Math.max(1, Math.floor(filters.page ?? 1));
   const perPage = Math.min(MAX_ORDER_PAGE_SIZE, Math.max(1, Math.floor(filters.perPage ?? MAX_ORDER_PAGE_SIZE)));
   const offset = Math.max(0, Math.floor(filters.offset ?? (page - 1) * perPage));
@@ -271,7 +276,7 @@ function orderQuery(filters: CyberbizOrderListFilters): string {
   setListParam(params, "return_statuses", filters.returnStatuses);
   setListParam(params, "tags", filters.tags);
   setListParam(params, "excluded_tags", filters.excludedTags);
-  return params.toString();
+  return { query: params.toString(), page, perPage, offset };
 }
 
 function readOrderPage(
@@ -334,22 +339,18 @@ export function createOrderClient(
 
   return {
     async fetchPage(filters = {}) {
-      const page = Math.max(1, Math.floor(filters.page ?? 1));
-      const perPage = Math.min(MAX_ORDER_PAGE_SIZE, Math.max(1, Math.floor(filters.perPage ?? MAX_ORDER_PAGE_SIZE)));
-      const offset = Math.max(0, Math.floor(filters.offset ?? (page - 1) * perPage));
-      const { payload, headers } = await request(`/v1/orders?${orderQuery({ ...filters, page, perPage, offset })}`);
-      return readOrderPage(payload, headers, page, perPage, offset);
+      const query = orderQuery(filters);
+      const { payload, headers } = await request(`/v1/orders?${query.query}`);
+      return readOrderPage(payload, headers, query.page, query.perPage, query.offset);
     },
 
     async fetchCustomerOrders(customerId, filters = {}) {
       const encodedCustomerId = encodeURIComponent(customerId);
-      const page = Math.max(1, Math.floor(filters.page ?? 1));
-      const perPage = Math.min(MAX_ORDER_PAGE_SIZE, Math.max(1, Math.floor(filters.perPage ?? MAX_ORDER_PAGE_SIZE)));
-      const offset = Math.max(0, Math.floor(filters.offset ?? (page - 1) * perPage));
+      const query = paginationQuery(filters);
       const { payload, headers } = await request(
-        `/v1/customers/${encodedCustomerId}/orders?${paginationQuery({ page, perPage, offset })}`,
+        `/v1/customers/${encodedCustomerId}/orders?${query.query}`,
       );
-      return readOrderPage(payload, headers, page, perPage, offset);
+      return readOrderPage(payload, headers, query.page, query.perPage, query.offset);
     },
 
     async fetchOne(orderId) {
