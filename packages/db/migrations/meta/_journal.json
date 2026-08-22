@@ -253,6 +253,13 @@
       "when": 1787403139831,
       "tag": "0035_parallel_machine_man",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1787407701916,
+      "tag": "0036_mushy_viper",
+      "breakpoints": true
     }
   ]
 }

@@ -15,6 +15,16 @@ export class PiAgentStaleSessionError extends Error {
   }
 }
 
+export class PiAgentRequestError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PiAgentRequestError";
+    this.status = status;
+  }
+}
+
 function agentName(input: PiLineAgentContext): string {
   return [input.assistantKey, input.channelKey, input.sourceType, input.lineGroupId].join(":");
 }
@@ -40,7 +50,7 @@ async function requestAgent<TResponse>(
   if (!response.ok) {
     const message = typeof payload?.error === "string" ? payload.error : "Pi agent 暫時無法回應。";
     if (response.status === 409) throw new PiAgentStaleSessionError(message);
-    throw new Error(message);
+    throw new PiAgentRequestError(message, response.status);
   }
   return payload as TResponse;
 }

@@ -246,6 +246,31 @@ export const assistantLinePushDeliveries = sqliteTable("assistant_line_push_deli
 ]);
 
 /**
+ * LINE Queue 的 outbox。
+ *
+ * D1 寫入與 Queue.send() 不是同一個 transaction；先記下要送的工作，才能在
+ * Queue 暫時不可用時由 LINE redelivery / cron 補送，而不是留下只有對話紀錄、
+ * 卻永遠沒有回答的孤兒事件。payload 已由 API 層加密後才存入這裡，避免把
+ * reply token 直接寫成明文。
+ */
+export const assistantLineQueueJobs = sqliteTable("assistant_line_queue_jobs", {
+  id: text("id").primaryKey(),
+  channelKey: text("channel_key").notNull(),
+  webhookEventId: text("webhook_event_id").notNull(),
+  payloadEncrypted: text("payload_encrypted").notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  claimToken: text("claim_token"),
+  lockedUntil: text("locked_until"),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+}, (table) => [
+  uniqueIndex("idx_assistant_line_queue_jobs_channel_event").on(table.channelKey, table.webhookEventId),
+  index("idx_assistant_line_queue_jobs_status_updated_at").on(table.status, table.updatedAt),
+]);
+
+/**
  * 這個 channel 能用哪些工具。**這是 LINE 這條路真正的授權來源。**
  *
  * 工具契約上的 `requiredPermissions` 在 LINE 用不上——那條路沒有平台使用者可以查權限，
@@ -293,5 +318,6 @@ export type AssistantLineGroup = typeof assistantLineGroups.$inferSelect;
 export type AssistantLineMessage = typeof assistantLineMessages.$inferSelect;
 export type AssistantLineReplyBackup = typeof assistantLineReplyBackups.$inferSelect;
 export type AssistantLinePushDelivery = typeof assistantLinePushDeliveries.$inferSelect;
+export type AssistantLineQueueJob = typeof assistantLineQueueJobs.$inferSelect;
 export type AssistantChannelTool = typeof assistantChannelTools.$inferSelect;
 export type AssistantChatTool = typeof assistantChatTools.$inferSelect;

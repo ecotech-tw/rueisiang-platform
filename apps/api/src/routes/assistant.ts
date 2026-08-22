@@ -6,6 +6,8 @@ import {
   currentAssistantRuntimeContext,
   runGemini,
   summarizeAssistantConversation,
+  assistantErrorDetails,
+  assistantLog,
   AssistantError,
   type AssistantConversationMessage,
   type AssistantToolCall,
@@ -169,11 +171,17 @@ async function maybeSummarizeSandboxContext(input: {
         toolCalls: [],
       });
     } catch (error) {
-      console.warn("AI Sandbox 摘要用量記錄失敗", { sessionId: session.id, error });
+      assistantLog("warn", "sandbox.summary_usage_record_failed", {
+        sessionId: session.id,
+        error: assistantErrorDetails(error),
+      });
     }
   } catch (error) {
     // A failed compression must not block the user's actual Sandbox request.
-    console.warn("AI Sandbox 自動摘要失敗，改用最近對話", { sessionId: session.id, error });
+    assistantLog("warn", "sandbox.summary_failed", {
+      sessionId: session.id,
+      error: assistantErrorDetails(error),
+    });
   }
 }
 

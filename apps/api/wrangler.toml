@@ -37,9 +37,11 @@ queue = "rueisiang-line-assistant"
 queue = "rueisiang-line-assistant"
 max_batch_size = 1
 max_batch_timeout = 0
-# Push fixed-window ledger 依賴單一 consumer 順序預約；調高前必須先改成跨 consumer 的原子 quota gate。
+# LINE 對同一群組／聊天室的訊息必須依序完成，避免較慢的工具回覆反而先送出。
+# quota 正確性另外由 D1 的 atomic reservation 保證；這裡採保守的全域串行化。
 max_concurrency = 1
 max_retries = 3
+dead_letter_queue = "rueisiang-line-assistant-dlq"
 
 # 每個 LINE chat 對應一個 Pi session DO；OAuth credential 則集中在唯一的 vault DO。
 # 兩者都使用 Free plan 可用的 SQLite storage backend。
