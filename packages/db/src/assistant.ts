@@ -389,6 +389,7 @@ export async function appendAssistantSandboxMessage(
     model?: string;
     thoughts?: string;
     toolCalls?: RecordedToolCall[];
+    durationMs?: number;
   },
 ): Promise<AssistantSandboxMessage> {
   const id = crypto.randomUUID();
@@ -414,6 +415,7 @@ export async function appendAssistantSandboxMessage(
       model: input.model ?? "",
       thoughts: input.thoughts ?? "",
       toolCalls: JSON.stringify(input.toolCalls ?? []),
+      durationMs: Math.max(0, Math.round(input.durationMs ?? 0)),
       createdAt,
     }),
     db.update(assistantSandboxSessions).set({ updatedAt: new Date().toISOString() }).where(eq(assistantSandboxSessions.id, input.sessionId)),

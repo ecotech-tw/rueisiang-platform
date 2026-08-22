@@ -290,6 +290,9 @@ export function Sandbox() {
                     </div>
                   </details>
                 ) : null}
+                {message.role === "model" ? (
+                  <small className="assistant-message-duration">本次總耗時 · {message.durationMs.toLocaleString()} ms</small>
+                ) : null}
               </div>
             )) : <p className="empty-state">這個 session 還沒有訊息。</p>
           ) : <p className="empty-state">請按「清除對話」建立一個新的 session。</p>}

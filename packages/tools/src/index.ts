@@ -5,6 +5,7 @@ import {
   openMeteoTool,
 } from "@rueisiang/assistant";
 import {
+  CyberbizApiError,
   createOrderClient,
   type CyberbizOrder,
   type CyberbizOrderListFilters,
@@ -35,7 +36,8 @@ function objectInput(input: unknown): Record<string, unknown> {
 
 function textInput(input: unknown, key: string): string {
   const value = objectInput(input)[key];
-  return typeof value === "string" ? value.trim() : "";
+  if (typeof value === "string") return value.trim();
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
 }
 
 function boundedNumber(input: unknown, key: string, fallback: number, max: number): number {
@@ -509,7 +511,13 @@ type CustomerOrderIdentity = {
 type CustomerOrderLookup =
   | { kind: "not_found"; customerIds: string[] }
   | { kind: "unlinked"; subjects: CustomerOrderSubject[] }
-  | { kind: "detail"; orders: CyberbizOrder[] }
+  | {
+    kind: "detail";
+    orders: CyberbizOrder[];
+    requestedOrderNumbers?: string[];
+    notFoundOrderNumbers?: string[];
+    notFoundOrderIds?: string[];
+  }
   | {
     kind: "matched";
     subjects: CustomerOrderSubject[];
@@ -529,6 +537,14 @@ const MAX_CUSTOMER_IDS_PER_REQUEST = 10;
 
 type CustomerOrderSortField = "createdAt" | "updatedAt" | "totalPrice" | "orderNumber";
 type CustomerOrderSortDirection = "asc" | "desc";
+
+function normalizeOrderNumber(value: string): string {
+  return value.trim().replace(/^#\s*/u, "");
+}
+
+function isNotFoundOrderError(error: unknown): boolean {
+  return error instanceof CyberbizApiError && error.status === 404;
+}
 
 function cyberbizToolEnv(context: ToolContext | undefined): CyberbizToolEnv {
   const env = (context?.env ?? {}) as CyberbizToolEnv;
@@ -713,7 +729,14 @@ async function lookupCustomerOrders(
   const client = createOrderClient({ apiToken: env.CYBERBIZ_API_TOKEN!, baseUrl: env.CYBERBIZ_API_BASE_URL });
   const requestedLimit = Math.min(maxLimit, boundedNumber(input, "limit", defaultLimit, maxLimit));
   const { sortBy, sortDirection } = customerOrderSort(input);
-  const orderIds = inputStringList(input, "orderIds", "orderId").slice(0, MAX_ORDER_IDS_PER_REQUEST);
+  const rawOrderIds = inputStringList(input, "orderIds", "orderId");
+  const orderNumbers = [
+    ...inputStringList(input, "orderNumbers", "orderNumber"),
+    ...rawOrderIds.filter((value) => /^#\s*/u.test(value)).map(normalizeOrderNumber),
+  ].map(normalizeOrderNumber).filter(Boolean).slice(0, MAX_ORDER_IDS_PER_REQUEST);
+  const orderIds = rawOrderIds
+    .filter((value) => !/^#\s*/u.test(value))
+    .slice(0, MAX_ORDER_IDS_PER_REQUEST);
   const suppliedCustomerIds = inputStringList(input, "customerIds", "customerId");
   const suppliedCyberbizCustomerIds = inputStringList(input, "cyberbizCustomerIds", "cyberbizCustomerId");
   const hasCustomerFilter = suppliedCustomerIds.length > 0 || suppliedCyberbizCustomerIds.length > 0;
@@ -731,13 +754,43 @@ async function lookupCustomerOrders(
     return { kind: "unlinked", subjects: resolved.identities.map((identity) => identity.subject) };
   }
 
-  if (orderIds.length) {
+  if (orderIds.length || orderNumbers.length) {
+    const mappings = orderNumbers.length ? await client.fetchIdsByOrderNumbers(orderNumbers) : [];
+    const mappingByNumber = new Map(mappings.map((mapping) => [normalizeOrderNumber(mapping.orderNumber), mapping]));
+    const resolvedOrderNumbers = orderNumbers.flatMap((orderNumber) => {
+      const mapping = mappingByNumber.get(orderNumber);
+      return mapping ? [mapping.orderId] : [];
+    });
+    const missingOrderNumbers = orderNumbers.filter((orderNumber) => !mappingByNumber.has(orderNumber));
     const details: CyberbizOrder[] = [];
-    for (const orderId of orderIds) details.push(await client.fetchOne(orderId));
+    const notFoundOrderIds: string[] = [];
+    const idsToFetch = [...new Set([...orderIds, ...resolvedOrderNumbers])].slice(0, MAX_ORDER_IDS_PER_REQUEST);
+    for (const orderId of idsToFetch) {
+      try {
+        details.push(await client.fetchOne(orderId));
+      } catch (error) {
+        // The model may mistake a human-facing order number for the internal ID.  A
+        // 404 is safe to resolve through the official mapping endpoint; other API
+        // failures must remain visible to the caller.
+        if (!isNotFoundOrderError(error)) throw error;
+        const fallback = await client.fetchIdsByOrderNumbers([orderId]);
+        const fallbackId = fallback[0]?.orderId;
+        if (!fallbackId) {
+          notFoundOrderIds.push(orderId);
+          continue;
+        }
+        details.push(await client.fetchOne(fallbackId));
+      }
+    }
     const filtered = hasCustomerFilter
       ? details.filter((order) => linkedCustomerIds.has(order.customer.id))
       : details;
-    return { kind: "detail", orders: sortCustomerOrders(filtered, sortBy, sortDirection).slice(0, requestedLimit) };
+    return {
+      kind: "detail",
+      orders: sortCustomerOrders(filtered, sortBy, sortDirection).slice(0, requestedLimit),
+      ...(orderNumbers.length ? { requestedOrderNumbers: orderNumbers, notFoundOrderNumbers: missingOrderNumbers } : {}),
+      ...(notFoundOrderIds.length ? { notFoundOrderIds } : {}),
+    };
   }
 
   const { filters, dateRange } = orderQueryFilters(input);
@@ -810,6 +863,9 @@ function orderToolResult(lookup: CustomerOrderLookup): string {
       mode: "detail",
       retrievedAt: new Date().toISOString(),
       totalReturned: lookup.orders.length,
+      ...(lookup.requestedOrderNumbers ? { requestedOrderNumbers: lookup.requestedOrderNumbers } : {}),
+      ...(lookup.notFoundOrderNumbers?.length ? { notFoundOrderNumbers: lookup.notFoundOrderNumbers } : {}),
+      ...(lookup.notFoundOrderIds?.length ? { notFoundOrderIds: lookup.notFoundOrderIds } : {}),
       orders: lookup.orders,
     });
   }
@@ -974,7 +1030,7 @@ const crmGetCustomerTool: PlatformToolDefinition = {
 const crmGetOrdersTool: PlatformToolDefinition = {
   key: CRM_GET_ORDERS_TOOL_KEY,
   label: "CRM 查詢訂單",
-  description: "查詢 CYBERBIZ 即時訂單。可用 customerId(s) 或 cyberbizCustomerId(s) 查客戶訂單，也可用 orderId(s) 取得單筆明細；沒有客戶 ID 時可直接使用日期、狀態、標籤、排序與 limit 搜尋訂單。只讀。",
+  description: "查詢 CYBERBIZ 即時訂單。可用 customerId(s) 或 cyberbizCustomerId(s) 查客戶訂單；使用 orderNumber(s) 查使用者看得到的訂單編號（例如 #56714），系統會先轉成 CYBERBIZ order ID 再取得明細；只有已知 CYBERBIZ 內部 ID 時才使用 orderId(s)。沒有客戶 ID 時也可用日期、狀態、標籤、排序與 limit 搜尋訂單。只讀。",
   defaultStatus: "development",
   surfaces: ["sandbox", "mcp"],
   requiredPermissions: ["crm:order:read"],
@@ -985,8 +1041,10 @@ const crmGetOrdersTool: PlatformToolDefinition = {
       customerIds: { type: "string", description: "多個 CRM 客戶 ID，以逗號分隔；最多 10 個。" },
       cyberbizCustomerId: { type: "string", description: "單一 CYBERBIZ customer ID，可直接查詢。" },
       cyberbizCustomerIds: { type: "string", description: "多個 CYBERBIZ customer ID，以逗號分隔；最多 10 個。" },
-      orderId: { type: "string", description: "單一 CYBERBIZ order ID，提供後直接取得訂單明細。" },
-      orderIds: { type: "string", description: "多個 CYBERBIZ order ID，以逗號分隔；最多 10 個。" },
+      orderNumber: { type: "string", description: "使用者看得到的單一訂單編號，例如 #56714；不要把它當成 orderId。" },
+      orderNumbers: { type: "string", description: "多個使用者看得到的訂單編號，以逗號分隔，例如 #56714,#56715；最多 10 個。" },
+      orderId: { type: "string", description: "單一 CYBERBIZ 內部 order ID；只有已知 API ID 時使用，不是使用者看到的訂單編號。" },
+      orderIds: { type: "string", description: "多個 CYBERBIZ 內部 order ID，以逗號分隔；最多 10 個。" },
       fromDate: { type: "string", description: "訂單建立起始日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
       toDate: { type: "string", description: "訂單建立結束日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
       updatedFromDate: { type: "string", description: "訂單更新起始日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },

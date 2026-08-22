@@ -132,6 +132,18 @@ function readThoughts(parts: GeminiPart[]): string {
     .trim();
 }
 
+function safeToolError(error: unknown): string {
+  if (error instanceof AssistantError) return error.message;
+  if (error instanceof Error && error.message.startsWith("CYBERBIZ API ")) {
+    return error.message.slice(0, 300);
+  }
+  return "工具執行失敗。";
+}
+
+function toolFailureText(): string {
+  return "我目前無法完成這次資料查詢，請稍後再試或確認查詢條件。";
+}
+
 function modelId(value: string): string {
   return value.replace(/^models\//, "");
 }
@@ -201,13 +213,14 @@ export async function runGemini(input: {
     // 把模型原始 part（包含 thinking model 可能需要的簽章欄位）原樣放回歷史。
     contents.push({ role: "model", parts });
     const functionResponses: GeminiPart[] = [];
+    let toolExecutionFailed = false;
     for (const call of calls) {
       const tool = toolsByName.get(call.name);
       const started = Date.now();
       if (!tool) {
         const errorMessage = `模型要求未授權的工具：${call.name}`;
+        toolExecutionFailed = true;
         toolCalls.push({ toolKey: call.name, status: "failed", durationMs: Date.now() - started, errorMessage });
-        functionResponses.push({ functionResponse: { name: call.name, response: { error: errorMessage } } });
         continue;
       }
       try {
@@ -215,11 +228,17 @@ export async function runGemini(input: {
         toolCalls.push({ toolKey: tool.key, status: "success", durationMs: Date.now() - started });
         functionResponses.push({ functionResponse: { name: tool.key, response: { result: responseObject(result) } } });
       } catch (error) {
-        const errorMessage = error instanceof AssistantError ? error.message : "工具執行失敗。";
+        const errorMessage = safeToolError(error);
         console.error("AI tool 執行失敗", tool.key, error);
+        toolExecutionFailed = true;
         toolCalls.push({ toolKey: tool.key, status: "failed", durationMs: Date.now() - started, errorMessage });
-        functionResponses.push({ functionResponse: { name: tool.key, response: { error: errorMessage } } });
       }
+    }
+    // 工具已經失敗時不再把錯誤 response 餵回模型重試。Gemini 的 function
+    // response 雖然支援 error 欄位，但不同模型對失敗工具的續接格式不一致；
+    // 直接結束可避免重複呼叫外部 API，也避免第二輪 request 變成 400。
+    if (toolExecutionFailed) {
+      return { text: toolFailureText(), thoughts: thoughts.join("\n\n"), toolCalls, usage };
     }
     contents.push({ role: "user", parts: functionResponses });
   }

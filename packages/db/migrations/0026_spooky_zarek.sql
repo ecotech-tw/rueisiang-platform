@@ -1,0 +1,1 @@
+ALTER TABLE `assistant_sandbox_messages` ADD `duration_ms` integer DEFAULT 0 NOT NULL;

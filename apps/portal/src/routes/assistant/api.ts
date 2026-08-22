@@ -59,6 +59,7 @@ export interface SandboxSessionMessage {
   model: string;
   thoughts: string;
   toolCalls: Array<{ toolKey: string; status: "success" | "failed"; durationMs: number; errorMessage?: string }>;
+  durationMs: number;
   createdAt: string;
 }
 
@@ -268,6 +269,7 @@ export function useRunSandbox() {
             model: "",
             thoughts: "",
             toolCalls: [],
+            durationMs: 0,
             createdAt,
           }],
         },

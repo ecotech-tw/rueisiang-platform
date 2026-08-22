@@ -101,6 +101,7 @@ export const assistantSandboxMessages = sqliteTable("assistant_sandbox_messages"
   model: text("model").notNull().default(""),
   thoughts: text("thoughts").notNull().default(""),
   toolCalls: text("tool_calls").notNull().default("[]"),
+  durationMs: integer("duration_ms").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
 }, (table) => [
   index("idx_assistant_sandbox_messages_session_created_at").on(table.sessionId, table.createdAt),

@@ -160,6 +160,7 @@ async function runLineAssistant(input: {
         thoughts: result.thoughts.slice(0, 12_000),
       });
     }
+    const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
     await pushLineMessage(input.accessToken, input.lineGroupId, result.text);
     await recordAssistantRun(input.db, {
       id: runId,
@@ -172,8 +173,9 @@ async function runLineAssistant(input: {
       inputChars: promptText.length,
       outputChars: result.text.length,
       usage: result.usage,
-      status: "success",
+      status: toolFailure ? "failed" : "success",
       durationMs: Date.now() - started,
+      ...(toolFailure?.errorMessage ? { errorMessage: toolFailure.errorMessage } : {}),
       toolCalls: result.toolCalls,
     });
   } catch (error) {

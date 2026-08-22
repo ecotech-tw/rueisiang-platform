@@ -532,6 +532,117 @@ describe("AI 助理 Sandbox", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("可以用使用者看到的訂單編號先 mapping 再取得訂單明細", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+
+    let geminiCalls = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/v1/orders/get_order_id")) {
+        const parsed = new URL(url);
+        expect(parsed.searchParams.get("order_numbers")).toBe("56714");
+        return new Response(JSON.stringify([{ order_number: 56714, order_id: 301 }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/v1/orders/56714")) {
+        return new Response(JSON.stringify({ error: "找不到訂單 ID" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/v1/orders/301")) {
+        return new Response(JSON.stringify({ order: {
+          id: 301,
+          order_number: 56714,
+          order_name: "56714",
+          created_at: "2026-08-21 10:00:00",
+          customer: { id: 7, name: "許櫻齡", email: "ying@example.com" },
+          prices: { total_price: 1_680 },
+          line_items: [{ title: "測試商品", quantity: 1, price: 1_680 }],
+        } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      geminiCalls += 1;
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      if (geminiCalls === 1) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ functionCall: {
+            name: "crm_get_orders",
+            args: { orderId: "56714" },
+          } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      expect(JSON.stringify(body.contents)).toContain("許櫻齡");
+      expect(JSON.stringify(body.contents)).toContain("56714");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "訂單 #56714 由許櫻齡購買，金額為 1,680 元。" }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "gemini-3.6-flash",
+        toolKeys: ["crm_get_orders"],
+        input: "#56714 這筆訂單內容是什麼？誰購買的？",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "訂單 #56714 由許櫻齡購買，金額為 1,680 元。",
+      toolCalls: [{ toolKey: "crm_get_orders", status: "success" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it("工具失敗時不會再讓 Gemini 重複呼叫而觸發第二輪格式錯誤", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+
+    let geminiCalls = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/v1/orders/301")) {
+        return new Response(JSON.stringify({ error: "權限不足" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      geminiCalls += 1;
+      if (geminiCalls === 1) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ functionCall: {
+            name: "crm_get_orders",
+            args: { orderId: "301" },
+          } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "不應該進入第二輪。" }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "gemini-3.6-flash",
+        toolKeys: ["crm_get_orders"],
+        input: "查詢訂單 301",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "我目前無法完成這次資料查詢，請稍後再試或確認查詢條件。",
+      toolCalls: [{ toolKey: "crm_get_orders", status: "failed", errorMessage: "CYBERBIZ API 401: 權限不足" }],
+    });
+    expect(geminiCalls).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("使用選定 prompt 與模型執行 Gemini，並記錄可用量資訊", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
@@ -622,10 +733,10 @@ describe("AI 助理 Sandbox", () => {
     const detail = await as("admin", "admin@ecotech.tw", `/api/assistant/sandbox/sessions/${created.session.id}`);
     const detailResult = await detail.json() as { session: { messages: Array<{ role: string; text: string; thoughts: string }> } };
     expect(detailResult.session.messages).toEqual([
-      { role: "user", text: "第一輪問題", model: "", thoughts: "", toolCalls: [], id: expect.any(String), createdAt: expect.any(String) },
-      { role: "model", text: "第一輪回答", model: "gemini-3.6-flash", thoughts: "第一輪 thinking", toolCalls: [], id: expect.any(String), createdAt: expect.any(String) },
-      { role: "user", text: "第二輪問題", model: "", thoughts: "", toolCalls: [], id: expect.any(String), createdAt: expect.any(String) },
-      { role: "model", text: "第二輪回答", model: "gemini-3.6-flash", thoughts: "", toolCalls: [], id: expect.any(String), createdAt: expect.any(String) },
+      { role: "user", text: "第一輪問題", model: "", thoughts: "", toolCalls: [], durationMs: 0, id: expect.any(String), createdAt: expect.any(String) },
+      { role: "model", text: "第一輪回答", model: "gemini-3.6-flash", thoughts: "第一輪 thinking", toolCalls: [], durationMs: expect.any(Number), id: expect.any(String), createdAt: expect.any(String) },
+      { role: "user", text: "第二輪問題", model: "", thoughts: "", toolCalls: [], durationMs: 0, id: expect.any(String), createdAt: expect.any(String) },
+      { role: "model", text: "第二輪回答", model: "gemini-3.6-flash", thoughts: "", toolCalls: [], durationMs: expect.any(Number), id: expect.any(String), createdAt: expect.any(String) },
     ]);
 
     const closed = await as("admin", "admin@ecotech.tw", `/api/assistant/sandbox/sessions/${created.session.id}/close`, { method: "POST" });
