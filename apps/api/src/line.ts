@@ -1,3 +1,5 @@
+import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
+
 /** LINE webhook 的最小資料邊界。未知欄位不進資料庫，也不進 log。 */
 export interface LineWebhookEvent {
   type?: string;
@@ -125,6 +127,18 @@ const LINE_API_BASE = "https://api.line.me/v2/bot/message";
 const LINE_BOT_API_BASE = "https://api.line.me/v2/bot";
 const LINE_TEXT_LIMIT = 5_000;
 const LINE_ERROR_BODY_LIMIT = 1_000;
+const LINE_MESSAGE_TIMEOUT_MS = 5_000;
+
+/** LINE API 診斷用的 correlation fields；刻意不包含 reply token、訊息文字或 access token。 */
+export interface LineLogContext {
+  runId?: string;
+  webhookEventId?: string;
+  channelKey?: string;
+  groupId?: string;
+  groupRowId?: string;
+  messageId?: string;
+  sequence?: number;
+}
 
 function lineText(value: string): string {
   return value.slice(0, LINE_TEXT_LIMIT);
@@ -147,27 +161,201 @@ async function responsePreview(response: Response): Promise<string> {
   return preview.slice(0, LINE_ERROR_BODY_LIMIT);
 }
 
-async function sendLineReply(accessToken: string, payload: unknown): Promise<void> {
-  const response = await fetch(`${LINE_API_BASE}/reply`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const responseBody = await responsePreview(response);
-    console.error("LINE Messaging API reply 失敗", {
-      status: response.status,
-      response: responseBody,
+/**
+ * LINE 寫入 API 的結果不能只用一個 boolean 表示。
+ *
+ * reply 沒有 retry key：timeout / 5xx 可能發生在 LINE 已經收件之後，
+ * 這種結果不能再自動改用 Push，否則會把同一則回答送兩次。Push 則可以
+ * 用相同的 X-Line-Retry-Key 安全重試；409 代表該 retry key 已被 LINE 接受。
+ */
+export class LineMessageError extends Error {
+  readonly endpoint: "reply" | "push";
+  readonly status: number | undefined;
+  readonly ambiguous: boolean;
+  readonly retryable: boolean;
+  readonly accepted: boolean;
+
+  constructor(input: {
+    endpoint: "reply" | "push";
+    status?: number;
+    ambiguous: boolean;
+    retryable: boolean;
+    accepted?: boolean;
+    cause?: unknown;
+  }) {
+    super(`LINE Messaging API ${input.endpoint} 失敗${input.status ? `（HTTP ${input.status}）` : ""}。`, {
+      cause: input.cause,
     });
-    throw new Error(`LINE Messaging API reply 失敗（HTTP ${response.status}）。`);
+    this.name = "LineMessageError";
+    this.endpoint = input.endpoint;
+    this.status = input.status;
+    this.ambiguous = input.ambiguous;
+    this.retryable = input.retryable;
+    this.accepted = input.accepted ?? false;
   }
 }
 
-export async function replyLineMessage(accessToken: string, replyToken: string, text: string): Promise<void> {
-  await sendLineReply(accessToken, { replyToken, messages: [{ type: "text", text: lineText(text) }] });
+async function sendLineMessage(
+  accessToken: string,
+  endpoint: "reply" | "push",
+  payload: unknown,
+  retryKey?: string,
+  context: LineLogContext = {},
+): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LINE_MESSAGE_TIMEOUT_MS);
+  const started = Date.now();
+  let response: Response;
+  assistantLog("info", "line.message.request", { ...context, endpoint, hasRetryKey: Boolean(retryKey) });
+  try {
+    response = await fetch(`${LINE_API_BASE}/${endpoint}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        ...(retryKey ? { "X-Line-Retry-Key": retryKey } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    assistantLog("error", "line.message.transport_error", {
+      ...context,
+      endpoint,
+      timeoutMs: LINE_MESSAGE_TIMEOUT_MS,
+      durationMs: Date.now() - started,
+      error: assistantErrorDetails(error),
+    });
+    throw new LineMessageError({
+      endpoint,
+      ambiguous: true,
+      retryable: endpoint === "push",
+      cause: error,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!response.ok) {
+    const responseBody = await responsePreview(response);
+    assistantLog("error", "line.message.error", {
+      ...context,
+      status: response.status,
+      endpoint,
+      durationMs: Date.now() - started,
+      response: responseBody,
+    });
+    const accepted = endpoint === "push" && response.status === 409;
+    // Reply 的 400/401/403/404 通常是明確的 token/channel 問題，可以安全改走受限 Push；
+    // 只有 timeout、429、5xx 或非預期的 reply 409 仍可能代表 LINE 已經收件。
+    const ambiguous = !accepted && (
+      response.status >= 500 ||
+      response.status === 408 ||
+      response.status === 429 ||
+      (endpoint === "reply" && response.status === 409)
+    );
+    throw new LineMessageError({
+      endpoint,
+      status: response.status,
+      ambiguous,
+      retryable: endpoint === "push" && !accepted && (response.status >= 500 || response.status === 408 || response.status === 429),
+      accepted,
+    });
+  }
+  assistantLog("info", "line.message.accepted", {
+    ...context,
+    endpoint,
+    status: response.status,
+    durationMs: Date.now() - started,
+  });
+}
+
+export async function replyLineMessage(
+  accessToken: string,
+  replyToken: string,
+  text: string,
+  context: LineLogContext = {},
+): Promise<void> {
+  await sendLineMessage(accessToken, "reply", { replyToken, messages: [{ type: "text", text: lineText(text) }] }, undefined, context);
+}
+
+export async function pushLineMessage(
+  accessToken: string,
+  to: string,
+  text: string,
+  retryKey: string,
+  context: LineLogContext = {},
+): Promise<void> {
+  await sendLineMessage(accessToken, "push", { to, messages: [{ type: "text", text: lineText(text) }] }, retryKey, context);
+}
+
+/** LINE 台灣方案的訊息用量依 GMT+9 月份結算；固定月窗不可用伺服器本地時區計算。 */
+export function linePushWindowKey(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  if (!year || !month) throw new Error("無法計算 LINE Push 計費月份。");
+  return `${year}-${month}`;
+}
+
+async function fetchLineJson(
+  accessToken: string,
+  url: string,
+  label: string,
+  context: LineLogContext = {},
+): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      assistantLog("warn", "line.lookup.failed", { ...context, label, status: response.status });
+      throw new Error(`LINE ${label} 取得失敗（HTTP ${response.status}）。`);
+    }
+    const body = await response.json() as unknown;
+    if (typeof body !== "object" || body === null) throw new Error(`LINE ${label} 回傳格式不正確。`);
+    return body as Record<string, unknown>;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** 回傳 Messaging API 本月已用 recipient 數；取不到時由呼叫端保守停用 Push。 */
+export async function fetchLinePushUsage(accessToken: string, context: LineLogContext = {}): Promise<number> {
+  const body = await fetchLineJson(accessToken, `${LINE_API_BASE}/quota/consumption`, "Push 用量", context);
+  const totalUsage = body.totalUsage;
+  if (typeof totalUsage !== "number" || !Number.isFinite(totalUsage) || totalUsage < 0) {
+    throw new Error("LINE Push 用量回傳格式不正確。");
+  }
+  return Math.floor(totalUsage);
+}
+
+/** Push 用量以收件人數計算；群組與多人聊天室不能只當成一則。 */
+export async function fetchLineChatMemberCount(
+  accessToken: string,
+  sourceType: LineSourceType,
+  chatId: string,
+  context: LineLogContext = {},
+): Promise<number> {
+  if (sourceType === "user") return 1;
+  const prefix = sourceType === "group" ? "group" : "room";
+  const body = await fetchLineJson(
+    accessToken,
+    `${LINE_BOT_API_BASE}/${prefix}/${encodeURIComponent(chatId)}/members/count`,
+    "聊天室人數",
+    context,
+  );
+  const count = body.count;
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 1) {
+    throw new Error("LINE 聊天室人數回傳格式不正確。");
+  }
+  return count;
 }
 
 export interface LineGroupSummary {
@@ -189,8 +377,12 @@ export interface LineUserProfile {
  * 拿不到就回 null，不丟例外：小香被踢出群組會得到 404，那是正常會發生的事，不該讓
  * 一次同步失敗連帶把整個 webhook 弄壞——收訊息比補名稱重要得多。
  */
-export async function fetchLineGroupSummary(accessToken: string, groupId: string): Promise<LineGroupSummary | null> {
-  // 就算跑在 waitUntil 裡也要有界線：Worker 的執行時間是有上限的，一個掛住的請求會
+export async function fetchLineGroupSummary(
+  accessToken: string,
+  groupId: string,
+  context: LineLogContext = {},
+): Promise<LineGroupSummary | null> {
+  // 就算跑在 Queue consumer 裡也要有界線：Worker 的執行時間是有上限的，一個掛住的請求會
   // 把同一次執行裡其他該做完的事一起拖垮。
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5_000);
@@ -200,7 +392,7 @@ export async function fetchLineGroupSummary(accessToken: string, groupId: string
       signal: controller.signal,
     });
     if (!response.ok) {
-      console.warn("LINE 群組資料取得失敗", { groupId, status: response.status });
+      assistantLog("warn", "line.lookup.failed", { ...context, label: "群組資料", groupId, status: response.status });
       return null;
     }
     const body = await response.json() as { groupName?: unknown; pictureUrl?: unknown };
@@ -209,7 +401,7 @@ export async function fetchLineGroupSummary(accessToken: string, groupId: string
     const pictureUrl = typeof body.pictureUrl === "string" ? body.pictureUrl.trim() : "";
     return groupName || pictureUrl ? { groupName, pictureUrl } : null;
   } catch (error) {
-    console.warn("LINE 群組資料取得失敗", { groupId, error });
+    assistantLog("warn", "line.lookup.failed", { ...context, label: "群組資料", groupId, error: assistantErrorDetails(error) });
     return null;
   } finally {
     clearTimeout(timeout);
@@ -223,7 +415,11 @@ export async function fetchLineGroupSummary(accessToken: string, groupId: string
  * 尚未同意提供 profile，或已封鎖官方帳號時，LINE 可能回 404；這些情況都只能退回
  * 對話 ID，不能讓補頭貼失敗連帶影響收訊息。
  */
-export async function fetchLineUserProfile(accessToken: string, userId: string): Promise<LineUserProfile | null> {
+export async function fetchLineUserProfile(
+  accessToken: string,
+  userId: string,
+  context: LineLogContext = {},
+): Promise<LineUserProfile | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5_000);
   try {
@@ -232,7 +428,7 @@ export async function fetchLineUserProfile(accessToken: string, userId: string):
       signal: controller.signal,
     });
     if (!response.ok) {
-      console.warn("LINE 使用者資料取得失敗", { userId, status: response.status });
+      assistantLog("warn", "line.lookup.failed", { ...context, label: "使用者資料", userId, status: response.status });
       return null;
     }
     const body = await response.json() as { displayName?: unknown; pictureUrl?: unknown };
@@ -240,7 +436,7 @@ export async function fetchLineUserProfile(accessToken: string, userId: string):
     const pictureUrl = typeof body.pictureUrl === "string" ? body.pictureUrl.trim() : "";
     return displayName || pictureUrl ? { displayName, pictureUrl } : null;
   } catch (error) {
-    console.warn("LINE 使用者資料取得失敗", { userId, error });
+    assistantLog("warn", "line.lookup.failed", { ...context, label: "使用者資料", userId, error: assistantErrorDetails(error) });
     return null;
   } finally {
     clearTimeout(timeout);

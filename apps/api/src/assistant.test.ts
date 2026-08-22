@@ -1,13 +1,120 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, customerTagCatalog, customers, inventoryItems, layoutElements, rolePermissions, roles, userRoles, users } from "@rueisiang/db/schema";
+import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles, updateAssistantSandboxContext } from "@rueisiang/db";
+import {
+  activityEvents,
+  assistantLineChannels,
+  assistantLineGroups,
+  assistantLineMessages,
+  assistantSandboxMessages,
+  customerTagCatalog,
+  customers,
+  inventoryItems,
+  layoutElements,
+  rolePermissions,
+  roles,
+  userRoles,
+  users,
+} from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DatabaseSync } from "node:sqlite";
 import app from "./index.js";
+import { AssistantChatAgent } from "./pi-agent-do.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 const SECRET = "assistant-test-secret";
 let d1: LocalD1;
 let env: Record<string, unknown>;
+let assistantAgents: TestAssistantAgentNamespace | undefined;
+
+function asGeminiStream(body: Record<string, unknown>): Response {
+  const candidates = Array.isArray(body.candidates)
+    ? body.candidates.map((candidate) => {
+      if (!candidate || typeof candidate !== "object" || "finishReason" in candidate) return candidate;
+      return { ...candidate, finishReason: "STOP" };
+    })
+    : body.candidates;
+  return new Response(`data: ${JSON.stringify({ ...body, candidates })}\n\n`, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
+/** 讓 Node route test 跑真正的 Pi Agent DO；每個 instance 各有自己的 SQLite transcript。 */
+class TestAssistantAgentNamespace {
+  private readonly agents = new Map<string, {
+    agent: AssistantChatAgent;
+    sqlite: DatabaseSync;
+    alarm: { scheduled: boolean };
+  }>();
+
+  constructor(private readonly currentEnv: () => Record<string, unknown>) {}
+
+  getByName(name: string) {
+    let entry = this.agents.get(name);
+    if (!entry) {
+      const sqlite = new DatabaseSync(":memory:");
+      const alarm = { scheduled: false };
+      const sql = {
+        exec: (query: string, ...bindings: unknown[]) => {
+          if (!bindings.length && query.includes(";")) {
+            sqlite.exec(query);
+            return [];
+          }
+          return sqlite.prepare(query).all(...bindings as never[]);
+        },
+      };
+      const storage = {
+        sql,
+        setAlarm: async () => {
+          alarm.scheduled = true;
+        },
+        deleteAlarm: async () => {
+          alarm.scheduled = false;
+        },
+      };
+      const state = {
+        storage,
+        blockConcurrencyWhile: (initialize: () => Promise<void>) => {
+          void initialize();
+        },
+      };
+      entry = {
+        agent: new AssistantChatAgent(state as never, this.currentEnv() as never),
+        sqlite,
+        alarm,
+      };
+      this.agents.set(name, entry);
+    }
+    return {
+      fetch: async (request: Request) => {
+        const mockedFetch = globalThis.fetch;
+        globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+          const response = await mockedFetch(input, init);
+          if (!response.ok || !String(input).includes("streamGenerateContent")) return response;
+          const payload = await response.clone().json().catch(() => null);
+          return payload && typeof payload === "object"
+            ? asGeminiStream(payload as Record<string, unknown>)
+            : response;
+        }) as typeof fetch;
+        try {
+          const response = await entry.agent.fetch(request);
+          if (entry.alarm.scheduled) {
+            entry.alarm.scheduled = false;
+            await entry.agent.alarm();
+          }
+          return response;
+        } finally {
+          globalThis.fetch = mockedFetch;
+        }
+      },
+    };
+  }
+
+  close(): void {
+    for (const entry of this.agents.values()) entry.sqlite.close();
+    this.agents.clear();
+  }
+}
 
 function db() {
   return createDatabase(d1 as never);
@@ -38,6 +145,7 @@ async function as(id: string, email: string, path: string, init: RequestInit = {
 }
 
 beforeEach(async () => {
+  assistantAgents?.close();
   d1 = createLocalD1();
   env = {
     DB: d1,
@@ -47,6 +155,8 @@ beforeEach(async () => {
     GEMINI_API_KEY: "test-key",
     CYBERBIZ_API_TOKEN: "cyberbiz-test-token",
   };
+  assistantAgents = new TestAssistantAgentNamespace(() => env);
+  env.ASSISTANT_CHAT_AGENT = assistantAgents;
   await syncSystemRoles(db());
   vi.restoreAllMocks();
 });
@@ -171,13 +281,16 @@ describe("AI 助理 Sandbox", () => {
     const result = (await response.json()) as {
       configured: boolean;
       activeModel: string;
-      models: Array<{ id: string }>;
+      models: Array<{ id: string; provider: string; configured: boolean }>;
       tools: Array<{ key: string; status: string }>;
       activePrompt: { revision: number; isActive: boolean };
     };
     expect(result.configured).toBe(true);
-    expect(result.activeModel).toBe("gemini-3.6-flash");
-    expect(result.models.some((model) => model.id === "gemini-3.6-flash")).toBe(true);
+    expect(result.activeModel).toBe("gpt-5.4-mini");
+    expect(result.models).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "gpt-5.4-mini", provider: "openai-codex", configured: false }),
+      expect.objectContaining({ id: "gemini-3.6-flash", provider: "google", configured: true }),
+    ]));
     expect(result.tools.map((tool) => tool.key)).toEqual([
       "weather_open_meteo",
       "wms_list_inventory",
@@ -207,6 +320,195 @@ describe("AI 助理 Sandbox", () => {
       requiredPermissions: ["crm:order:read"],
     });
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
+  });
+
+  it("GPT Sandbox 需要 Codex OAuth，設定後會 dispatch 到同一個 Pi Agent", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+
+    const unavailable = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gpt-5.4-mini", toolKeys: [], input: "測試 Codex" }),
+    });
+    expect(unavailable.status).toBe(503);
+
+    let dispatchedName = "";
+    let dispatchedBody: Record<string, unknown> | undefined;
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({
+        fetch: async () => Response.json({ configured: true }),
+      }),
+    };
+    env.ASSISTANT_CHAT_AGENT = {
+      getByName: (name: string) => ({
+        fetch: async (request: Request) => {
+          dispatchedName = name;
+          dispatchedBody = await request.json() as Record<string, unknown>;
+          return Response.json({
+            sessionId: "pi-sandbox-session",
+            model: "gpt-5.4-mini",
+            result: {
+              text: "Codex 已透過 Pi 回覆。",
+              thoughts: "",
+              usage: { promptTokens: 3, candidateTokens: 2, totalTokens: 5 },
+              toolCalls: [],
+            },
+          });
+        },
+      }),
+    };
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gpt-5.4-mini", toolKeys: [], input: "測試 Codex" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      model: "gpt-5.4-mini",
+      text: "Codex 已透過 Pi 回覆。",
+    });
+    expect(dispatchedName).toMatch(/^rueisiang-xiaoxiang:sandbox:admin:/u);
+    expect(dispatchedBody).toMatchObject({
+      assistantKey: "rueisiang-xiaoxiang",
+      actorUserId: "admin",
+      model: "gpt-5.4-mini",
+      userText: "測試 Codex",
+    });
+  });
+
+  it("LINE Pi Agent 首次使用會回填既有 D1 訊息，且排除目前 webhook", async () => {
+    await db().insert(assistantLineChannels).values({
+      channelKey: "rueisiang-xiaoxiang",
+      assistantKey: "rueisiang-xiaoxiang",
+      updatedBy: "test",
+      enabled: true,
+    });
+    await db().insert(assistantLineGroups).values({
+      id: "line-group-1",
+      channelKey: "rueisiang-xiaoxiang",
+      lineGroupId: "line-user-1",
+      sourceType: "user",
+      enabled: true,
+    });
+    await db().insert(assistantLineMessages).values([
+      {
+        id: "line-history-1",
+        channelKey: "rueisiang-xiaoxiang",
+        lineGroupId: "line-user-1",
+        sourceType: "user",
+        webhookEventId: "old-event",
+        text: "之前的問題",
+        createdAt: "2026-08-22T10:00:00.000Z",
+      },
+      {
+        id: "line-current-1",
+        channelKey: "rueisiang-xiaoxiang",
+        lineGroupId: "line-user-1",
+        sourceType: "user",
+        webhookEventId: "current-event",
+        text: "這次問題",
+        createdAt: "2026-08-22T10:01:00.000Z",
+      },
+    ]);
+
+    let requestBody: Record<string, unknown> | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "LINE 回答" }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const agent = assistantAgents!.getByName("rueisiang-xiaoxiang:rueisiang-xiaoxiang:user:line-user-1");
+    const response = await agent.fetch(new Request("https://assistant-agent.internal/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        assistantKey: "rueisiang-xiaoxiang",
+        channelKey: "rueisiang-xiaoxiang",
+        groupRowId: "line-group-1",
+        lineGroupId: "line-user-1",
+        sourceType: "user",
+        contextGeneration: "",
+        webhookEventId: "current-event",
+        runId: "line-bootstrap-run",
+        model: "gemini-3.6-flash",
+        systemPrompt: "你是 LINE 助理。",
+        userText: "這次問題",
+        toolKeys: [],
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    const contents = JSON.stringify(requestBody?.contents);
+    expect(contents).toContain("之前的問題");
+    expect(contents.match(/這次問題/g)).toHaveLength(1);
+  });
+
+  it("Sandbox bootstrap 會略過既有摘要涵蓋的訊息，並在建立 prompt 前 compact", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    const messages = Array.from({ length: 40 }, (_, index) => [
+      {
+        id: `sandbox-bootstrap-user-${index}`,
+        sessionId: created.session.id,
+        role: "user" as const,
+        text: index < 10 ? `covered-history-${index}` : `imported-history-${index} ${"歷史".repeat(3_000)}`,
+        createdAt: new Date(Date.UTC(2026, 7, 22, 10, index, 0)).toISOString(),
+      },
+      {
+        id: `sandbox-bootstrap-model-${index}`,
+        sessionId: created.session.id,
+        role: "model" as const,
+        text: index < 10 ? `covered-answer-${index}` : `imported-answer-${index} ${"回答".repeat(3_000)}`,
+        model: "gemini-3.6-flash",
+        createdAt: new Date(Date.UTC(2026, 7, 22, 10, index, 30)).toISOString(),
+      },
+    ]).flat();
+    await db().insert(assistantSandboxMessages).values(messages);
+    await updateAssistantSandboxContext(db(), {
+      assistantKey: "rueisiang-xiaoxiang",
+      createdBy: "admin",
+      id: created.session.id,
+      contextSummary: "legacy summary",
+      contextSummaryMessageCount: 20,
+    });
+
+    const requests: Array<{ body: Record<string, unknown>; summary: boolean }> = [];
+    let mainCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const summary = JSON.stringify(body.systemInstruction).includes("context summarization assistant");
+      requests.push({ body, summary });
+      const text = summary ? "imported history compacted" : "Sandbox bootstrap 回答 " + ++mainCount;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text }] } }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, totalTokens: 15 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId: created.session.id,
+        model: "gemini-3.6-flash",
+        promptRevisionId: config.activePrompt.id,
+        toolKeys: [],
+        input: "目前問題",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(requests.some((request) => request.summary)).toBe(true);
+    const mainRequest = requests.filter((request) => !request.summary).at(-1);
+    const contents = JSON.stringify(mainRequest?.body.contents);
+    expect(contents).toContain("imported history compacted");
+    expect(contents).toContain("imported-history-39");
+    expect(contents).not.toContain("covered-history-0");
+    expect(contents).not.toContain("covered-answer-0");
   });
 
   it("儲存 prompt 時建立 revision 並立即啟用", async () => {
@@ -899,7 +1201,10 @@ describe("AI 助理 Sandbox", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
       generationConfig?: { thinkingConfig?: { thinkingLevel?: string; includeThoughts?: boolean } };
     };
-    expect(body.generationConfig).toEqual({ thinkingConfig: { thinkingLevel: "HIGH", includeThoughts: true } });
+    expect(body.generationConfig).toEqual({
+      maxOutputTokens: 1_200,
+      thinkingConfig: { thinkingLevel: "MINIMAL", includeThoughts: true },
+    });
   });
 
   it("Sandbox session 會保留多輪對話，關閉後不能繼續執行", async () => {
@@ -1058,7 +1363,7 @@ describe("AI 助理 Sandbox", () => {
     expect(JSON.stringify(requestBody?.contents)).toContain("歷史問題 50");
   });
 
-  it("長對話會保留完整歷史，並在送出前自動建立 rolling summary", async () => {
+  it("長對話由 Pi compact，D1 仍保留完整稽核歷史", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
     const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
@@ -1070,7 +1375,7 @@ describe("AI 助理 Sandbox", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       const systemPrompt = JSON.stringify(body.systemInstruction);
-      const summary = systemPrompt.includes("Summarize the supplied conversation");
+      const summary = systemPrompt.includes("context summarization assistant");
       requests.push({ body, summary });
       const text = summary ? "已更新摘要" : "長對話回答 " + ++mainCount;
       return new Response(JSON.stringify({
@@ -1080,7 +1385,7 @@ describe("AI 助理 Sandbox", () => {
     });
 
     const longQuestion = "問題".repeat(3_500);
-    for (let index = 0; index < 6; index += 1) {
+    for (let index = 0; index < 30; index += 1) {
       const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
         method: "POST",
         body: JSON.stringify({
@@ -1103,7 +1408,7 @@ describe("AI 助理 Sandbox", () => {
     const result = await detail.json() as {
       session: { contextSummaryMessageCount: number; messages: unknown[] };
     };
-    expect(result.session.contextSummaryMessageCount).toBeGreaterThan(0);
-    expect(result.session.messages).toHaveLength(12);
+    expect(result.session.contextSummaryMessageCount).toBe(0);
+    expect(result.session.messages).toHaveLength(60);
   });
 });

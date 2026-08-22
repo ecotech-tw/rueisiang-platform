@@ -1,13 +1,19 @@
 # 小香助理 Sandbox
 
-這是 AI 內部問答系統的開發說明。目前已完成 Sandbox 與 LINE 前台的第一個可驗證切片；用量分析頁仍在後續階段。
+這是 AI 內部問答系統的開發說明。Sandbox 與 LINE 前台現在共用 Pi Agent、SQLite Durable
+Object session、tool loop 與 compact；在模型選單選 GPT 時使用 Codex ChatGPT OAuth，選
+Gemini 時使用 `GEMINI_API_KEY`。架構、session 與 credential setup 見
+[`line-pi-agent.md`](./line-pi-agent.md)；用量分析頁仍在後續階段。
 
 ## 本機操作
 
-在 `apps/api/.dev.vars` 放入 Gemini key（這個檔案不進版控）：
+在 `apps/api/.dev.vars` 放入要測試的 provider credential（這個檔案不進版控）。只測 Gemini
+時不需要 Codex credential；要測 GPT 時則需另外設定下列兩個 Pi secret：
 
 ```dotenv
 GEMINI_API_KEY=你的_Gemini_API_Key
+PI_OPENAI_CODEX_CREDENTIAL={"access":"...","refresh":"..."}
+PI_CREDENTIAL_ENCRYPTION_KEY=至少_32_字元的獨立高熵字串
 # 要讓已授權的 LINE 對話收到小香回答，還需要設定 Messaging API access token。
 LINE_CHANNEL_ACCESS_TOKEN=你的_LINE_Channel_Access_Token
 ```
@@ -26,20 +32,21 @@ pnpm dev
 
 ## 第一階段提供的功能
 
-- 使用 `warehouse-inventory` 的 Gemini 模型清單，支援模型切換；清單中的 quota 是 snapshot，不是即時配額。
+- 模型選單依 provider 分成 GPT／Codex（ChatGPT OAuth）與 Gemini（API key），並顯示各 provider 是否已設定；模型 catalog 由目前安裝的 Pi 版本提供。
 - 同一個 Sandbox session 可以在每一輪送出前切換模型；切換會在該輪送出時套用，session 與每則模型回覆都會記錄實際使用的 model。
-- Sandbox 選定模型後按「儲存並套用到小香」，會寫入 assistant 設定；之後沒有明確指定模型的執行會使用這個 active model。
+- Sandbox 選定模型後按「儲存並套用到小香」，會寫入 assistant 設定；Sandbox 與 LINE 後續沒有明確指定模型的執行都使用這個 active model。
 - 編輯 system prompt；每次儲存會建立新 revision，並立即設為 active。
 - Revision history 與 Sandbox tools 選擇都在 Modal 中操作；左側設定欄可獨立捲動，頁面外層不會跟著捲動。
 - 選擇要傳給模型的 tool。目前內建唯讀工具預設為「已啟用」；管理者仍可切換成「開發中」或「已停用」。
-- 輸入測試內容、看到模型回答、tool 呼叫結果、延遲與 Gemini usage metadata。
-- Gemini thought summary 會在 Sandbox 以收合區塊顯示；正式回答不會重複渲染。LINE webhook 只傳送正式回答，thought summary 只寫入 Worker log，不會送給對話。
+- 輸入測試內容、看到模型回答、tool 呼叫結果、延遲與 provider usage metadata。
+- 模型提供的 thought summary 會在 Sandbox 以收合區塊顯示；正式回答不會重複渲染，LINE 也只傳送正式回答。
 - 每次 Sandbox run 與 tool call 都會寫入 D1，欄位已預留給後續 LINE channel 與分析頁使用。
-- 長對話超過上下文門檻時，送出前會以模型建立 rolling summary，並只把摘要與最近對話送給 Gemini；完整訊息仍保留在 D1 與 session history。摘要失敗時會退回最近對話，不會阻擋本次測試。
+- 長對話由 Pi transcript 計算上下文；約 48,000 tokens 後透過 DO alarm compact，超過 80,000 tokens 時會在下一輪前強制 compact。D1 仍保留完整 user/model 訊息作 UI 與稽核投影，不是模型 context 的 source of truth。
 - `小香助理 → LINE 前台` 可以設定 Channel ID、Channel Secret、Channel Access Token、channel 開關、Webhook URL 與對話授權。
 - Channel Secret 與 Channel Access Token 透過後台輸入後會使用 `AUTH_SESSION_SECRET` 以 AES-GCM 加密保存，不會把原值回傳到瀏覽器。`LINE_CHANNEL_SECRET` 與 `LINE_CHANNEL_ACCESS_TOKEN` 仍可作為既有部署的環境變數 fallback。
 - LINE webhook 只接受 LINE 的 `x-line-signature`；群組／多人聊天室只記錄真正 mention 小香的文字訊息，一對一不需要 mention；新發現的對話預設未授權。
-- 已授權且開通的對話會由 active model、active prompt 與狀態為「已啟用」的 tools 產生回答；一對一會同步使用者名稱與頭貼，「開發中」tool 仍只允許 Sandbox 使用。
+- 已授權且開通的 LINE 對話會由 active model、active prompt 與狀態為「已啟用」的 tools
+  產生回答；只有尚未建立 assistant 設定時才以 `PI_AGENT_MODEL` 作 fallback。一對一會同步使用者名稱與頭貼，「開發中」tool 仍只允許 Sandbox 使用。
 - 一對一傳送 `/reset` 或 `/重設` 可清除目前模型上下文但保留歷史紀錄，不會觸發回答。
 
 ## 共用 Tool Contract：CRM 唯讀工具
@@ -58,38 +65,59 @@ Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calli
 
 ## 錯誤診斷與 Cloudflare logs
 
-每次 Sandbox 執行都會產生一個診斷編號；Gemini 每一輪請求、回應、tool 執行、耗時與錯誤都會以 structured log 寫到 Worker Logs。Sandbox 只顯示 tool 的實際參數，參數不會寫入 Worker log；API key、完整 prompt 與完整對話也不會寫入 log。
+每次 Sandbox 執行都會產生一個診斷編號；run、tool 執行、耗時與錯誤會寫入 D1，Pi Agent 與 tool 的執行錯誤也會寫到 Worker Logs。Sandbox 只顯示 tool 的實際參數；credential、完整 prompt 與完整對話不會寫入 Worker log。
 
-每一則模型回覆的「工具調用」都可以展開查看參數；如果 Gemini 在工具執行後的下一輪請求失敗，Sandbox 也會在錯誤下方保留該次失敗前的工具調用，方便比對模型送出的參數。
+每一則模型回覆的「工具調用」都可以展開查看參數；如果 provider 在工具執行後的下一輪請求失敗，Sandbox 也會在錯誤下方保留該次失敗前的工具調用，方便比對模型送出的參數。
 
-正式環境可在 Cloudflare Dashboard 的 Workers & Pages → `rueisiang-platform` → Observability 查詢 `assistant.gemini.error`，再用畫面上的診斷編號篩選同一輪執行。也可以在有 Wrangler 的環境即時查看：
+正式環境可在 Cloudflare Dashboard 的 Workers & Pages → `rueisiang-platform` → Observability 查詢 `Pi chat agent 執行失敗`，並以 D1 的 run 診斷編號對照。也可以在有 Wrangler 的環境即時查看：
 
 ```bash
-npx wrangler tail rueisiang-platform --format json --search assistant.gemini.error
+npx wrangler tail rueisiang-platform --format json
 ```
 
 目前 `apps/api/wrangler.toml` 已啟用 `[observability]`；修改程式後需部署一次，新的 structured logs 才會出現在 Cloudflare。Windows on ARM 本機因 Wrangler 的 `workerd` 不支援，建議使用 Cloudflare Dashboard 或 Linux/CI 執行 `wrangler tail`。
 
 ## LINE 回覆的執行方式與延遲診斷
 
-LINE webhook 收到訊息後會先回傳 `accepted`，再透過 Worker 的 `waitUntil` 在背景執行 Gemini、tool 與 LINE Reply API。回覆一定使用該 webhook event 的 `replyToken`，不使用 Push API；因此 reply token 必須在背景工作完成後仍然有效。
+LINE webhook 收到訊息後會先把工作寫入 Cloudflare Queue，再回傳 `accepted`；Queue consumer
+負責 dispatch 到 chat 專屬 Durable Object，由 Pi Agent 依 active model 執行 Codex 或 Gemini、tool 與 session context，
+完成後再呼叫 LINE Messaging API。正常路徑永遠優先使用 webhook event 的
+`replyToken`；Queue 不設定 delivery delay。距離程式採用的 60 秒期限只剩 10 秒時，若推論仍未
+完成，會先用 Reply API 回覆「系統繁忙，請稍後再試。」。完整結果完成後才嘗試受限 Push；
+若 Push 不可用或額度已滿，完整結果仍會保存到 D1 的對話 relation，供系統備查。
 
-每次 LINE 執行會使用同一個 `runId` 寫入 `assistant.run.*` 與 `assistant.line.reply.*` structured logs。請用 runId 比對以下事件：
+Push 是 fallback，不是一般回覆 transport。台灣免費方案上限固定為每月 200 位收件者；本服務因 LINE usage 回報是 approximate，實際預約上限保守設為 195，預留 5 位緩衝；月份
+依 LINE 官方計費時區 GMT+9 的 `YYYY-MM` fixed window 計算。每次 Push 嘗試都寫入
+`assistant_line_push_deliveries`，群組／room 依成員數而不是 API 呼叫次數扣額度。本地 ledger
+會和 LINE quota consumption API 的回報取較高用量，失敗預約不釋放；Queue consumer 因此固定
+`INSERT ... SELECT` 預約收件人數；Queue consumer 設定 `max_concurrency = 1`，讓 LINE 工作依序完成，
+避免同一群組／聊天室因為較慢的 CYBERBIZ tool 而交錯回覆。額度正確性不依賴 consumer 的串行化。
+Push 另帶與 Queue run 相同的 `X-Line-Retry-Key`，避免 consumer 重試造成
+重複訊息。
+
+每次 LINE 執行會使用同一個 `runId` 寫入 `assistant.run.*`、`assistant.line.reply.*`、`assistant.line.message.*` 與 Queue structured logs。請用 `runId` 搭配 `webhookEventId`、`channelKey`、`groupId` 比對以下事件：
 
 - 沒有 `assistant.run.started`：工作沒有成功排入背景，或 webhook 在授權／設定階段就結束。
 - 有 `assistant.run.failed`、沒有 `assistant.line.reply.started`：模型、tool 或設定失敗。
 - 有 `assistant.line.reply.failed`：LINE Reply API 回傳錯誤；常見原因是 reply token 過期、重複使用或 message 格式錯誤，log 會保留 HTTP status 與受限長度的 API response。
+- 有 `assistant.line.message.error` 或 `assistant.line.message.transport_error`：可查看 endpoint、HTTP status／timeout、duration 與受限長度的 response；transport timeout 不能判定 LINE 是否已收件，因此不會自動再送一份 Push。
 - 有 `assistant.line.reply.completed` 但群組仍無訊息：檢查 LINE webhook event 是否真的帶入對應的 reply token，以及該 token 是否已被其他執行消耗。
+- 有 `assistant.line.push.completed`：Reply 已進入逾時 fallback，完整回答已在保守的 195 人 fixed window 內用 Push 送出。
+- 有 `assistant.line.push.skipped`：成員數／遠端用量取不到，或本月保守額度已滿；完整回答查 `assistant_line_reply_backups`。
+- 有 `assistant.line.push.failed`：已預約的收件人數仍保留，不因重試競態釋放；完整回答同樣留在備用表。
+- 有 `assistant.line.queue.consumer_retry`、`assistant.line.queue.retry_exhausted`、`assistant.line.queue.outbox_replay_failed` 或 Cloudflare DLQ 訊息：表示 Queue／D1／AI／LINE transport 重試後仍未完成，可用同一組 correlation fields 追完整鏈路。`failed` 工作不會再被 outbox 重送；Push retry key 超過 24 小時則記為 `ambiguous`，等待 reconciliation。
 
-tool 失敗不會立即產生固定錯誤文字；失敗結果會以 function response 回傳 Gemini，讓模型自行產生可理解的說明。Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到模型的最終回答。若未來單次查詢可能超過 `waitUntil` 的背景執行窗口，應改用 Cloudflare Queues，讓 webhook 與 AI 工作完全解耦。
+tool 失敗不會立即產生固定錯誤文字；失敗結果會回傳目前執行中的模型，讓它產生可理解的說明。
+Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到 Pi Agent 的最終回答。LINE 的 AI
+工作已經透過 Cloudflare Queues 與 webhook 解耦。
 
 ## API
 
-Sandbox runs support multi-turn sessions. A session keeps the current model, prompt revision, rolling context summary, and full user/model messages together. The model in `POST /api/assistant/sandbox/run` takes precedence for an open session, so each turn can switch models; close a session to keep its history while preventing further runs. Long sessions summarize older messages before the request while keeping the full history in D1.
+Sandbox runs support multi-turn Pi sessions. D1 keeps the selected model, prompt revision, and full user/model history as metadata and an audit/UI projection; the chat Durable Object keeps the Pi transcript and compact summary used for inference. The model in `POST /api/assistant/sandbox/run` takes precedence for an open session, so each turn can switch providers or models; close a session to keep its D1 history while preventing further runs.
 
 - `GET /api/assistant/sandbox/sessions`、`POST /api/assistant/sandbox/sessions`：列出或建立 Sandbox session。
 - `GET /api/assistant/sandbox/sessions/:id`、`POST /api/assistant/sandbox/sessions/:id/close`：查看或關閉 session。
-- `POST /api/assistant/sandbox/run`：帶入 `sessionId` 時，會依 session 的 rolling summary 與最近對話組裝上下文；若指定 `model`，會套用到本輪並更新開啟中的 session。
+- `POST /api/assistant/sandbox/run`：帶入 `sessionId` 時，會 dispatch 到該 session 專屬 Pi DO；第一次使用既有 session 時會從 D1 匯入最近 100 則訊息，之後由 Pi transcript 接續。若指定 `model`，會套用到本輪並更新開啟中的 session。
 
 - `GET /api/assistant/sandbox/config`：模型、tool、active prompt 與 revision history。
 - `PATCH /api/assistant/config`：儲存小香目前使用的模型。
@@ -107,8 +135,8 @@ Sandbox runs support multi-turn sessions. A session keeps the current model, pro
 
 1. ✅ 已完成小香設定頁：active model 與 tool catalog 狀態可在後台調整。
 2. ✅ 已完成 LINE channel 設定、webhook URL、對話授權與每對話訊息表；群組／聊天室須 mention，一對一不須 mention。
-3. ✅ 已將 active model、active prompt 與 tool policy 套用到 LINE 執行，僅允許「已啟用」工具在線上回覆。
-4. ✅ Sandbox 已支援 session、多輪對話、歷史查看、關閉 session、每輪切換模型與長對話自動摘要。
+3. ✅ LINE 已改由 Pi Agent、active model、active prompt 與 tool policy 執行；GPT 使用 Codex ChatGPT OAuth，Gemini 使用 API key，僅允許「已啟用」工具在線上回覆。
+4. ✅ Sandbox 已統一使用 Pi Agent，支援雙 provider、session、多輪對話、歷史查看、關閉 session、每輪切換模型與 Pi compact。
 5. 建立日／週／月與自訂 duration 的群組、模型、tool 用量分析頁。
 6. 多帳號（官網客服自己的 LINE 官方帳號）、channel／對話兩層工具權限、每個對話的
    system prompt 補充，以及客服的身分驗證——設計見

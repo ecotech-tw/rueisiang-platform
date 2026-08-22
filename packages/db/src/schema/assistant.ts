@@ -163,6 +163,8 @@ export const assistantLineGroups = sqliteTable("assistant_line_groups", {
   profileSyncedAt: text("profile_synced_at"),
   /** 只切換模型上下文的起點，歷史訊息仍保留供稽核與監控使用。 */
   contextResetAt: text("context_reset_at"),
+  /** 每個 LINE 對話分配單調遞增序號，讓 Queue retry 不會越過較早的訊息。 */
+  nextMessageSequence: integer("next_message_sequence").notNull().default(0),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
   /**
    * `inherit` 就是 channel 給的全部，`custom` 才去讀 `assistant_chat_tools`。
@@ -188,10 +190,90 @@ export const assistantLineMessages = sqliteTable("assistant_line_messages", {
   lineMessageId: text("line_message_id"),
   lineUserId: text("line_user_id"),
   text: text("text").notNull(),
+  /** 同一個 channel／LINE 對話內的到達順序；0 僅供 migration 前的舊資料相容。 */
+  sequence: integer("sequence").notNull().default(0),
+  /** 沒有這個旗標就代表當時沒有建立 assistant Queue 工作，不應阻塞後續訊息。 */
+  queueRequired: integer("queue_required", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
 }, (table) => [
   uniqueIndex("idx_assistant_line_messages_event").on(table.channelKey, table.webhookEventId),
   index("idx_assistant_line_messages_group_created_at").on(table.channelKey, table.lineGroupId, table.createdAt),
+]);
+
+/**
+ * LINE reply token 過期前若只能先送忙碌提示，模型完成後的內容放在這裡。
+ * groupId 是資料庫內的 chat relation；lineGroupId 保留 LINE 外部 ID 供稽核與查詢。
+ */
+export const assistantLineReplyBackups = sqliteTable("assistant_line_reply_backups", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  channelKey: text("channel_key").notNull(),
+  groupId: text("group_id").notNull().references(() => assistantLineGroups.id, { onDelete: "cascade" }),
+  lineGroupId: text("line_group_id").notNull(),
+  sourceType: text("source_type").notNull(),
+  webhookEventId: text("webhook_event_id").notNull(),
+  questionText: text("question_text").notNull(),
+  responseText: text("response_text").notNull().default(""),
+  model: text("model").notNull().default(""),
+  status: text("status").notNull().default("ready"),
+  reason: text("reason").notNull().default("reply_token_deadline"),
+  errorMessage: text("error_message"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+}, (table) => [
+  uniqueIndex("idx_assistant_line_reply_backups_run").on(table.runId),
+  index("idx_assistant_line_reply_backups_group_created_at").on(table.groupId, table.createdAt),
+  index("idx_assistant_line_reply_backups_external_chat_created_at").on(table.channelKey, table.lineGroupId, table.createdAt),
+]);
+
+/**
+ * Push API 的 fixed-window ledger。每次 Push 嘗試都留一列，才能同時做到 run 去重、額度稽核與失敗保守預約。
+ * windowKey 使用 LINE 計費時區（GMT+9）的 `YYYY-MM`；`reserved`、`sent`、`failed` 都會占用本地額度。
+ */
+export const assistantLinePushDeliveries = sqliteTable("assistant_line_push_deliveries", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  channelKey: text("channel_key").notNull(),
+  groupId: text("group_id").notNull().references(() => assistantLineGroups.id, { onDelete: "cascade" }),
+  lineGroupId: text("line_group_id").notNull(),
+  sourceType: text("source_type").notNull(),
+  windowKey: text("window_key").notNull(),
+  recipientCount: integer("recipient_count").notNull(),
+  remoteUsage: integer("remote_usage").notNull(),
+  /** 預約後的本地用量高水位；用來吸收 LINE usage API 的回報延遲。 */
+  reservedThrough: integer("reserved_through").notNull(),
+  status: text("status").notNull(),
+  reason: text("reason").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+}, (table) => [
+  uniqueIndex("idx_assistant_line_push_deliveries_run").on(table.runId),
+  index("idx_assistant_line_push_deliveries_window_status").on(table.channelKey, table.windowKey, table.status),
+  index("idx_assistant_line_push_deliveries_group_created_at").on(table.groupId, table.createdAt),
+]);
+
+/**
+ * LINE Queue 的 outbox。
+ *
+ * D1 寫入與 Queue.send() 不是同一個 transaction；先記下要送的工作，才能在
+ * Queue 暫時不可用時由 LINE redelivery / cron 補送，而不是留下只有對話紀錄、
+ * 卻永遠沒有回答的孤兒事件。payload 已由 API 層加密後才存入這裡，避免把
+ * reply token 直接寫成明文。
+ */
+export const assistantLineQueueJobs = sqliteTable("assistant_line_queue_jobs", {
+  id: text("id").primaryKey(),
+  channelKey: text("channel_key").notNull(),
+  webhookEventId: text("webhook_event_id").notNull(),
+  payloadEncrypted: text("payload_encrypted").notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  claimToken: text("claim_token"),
+  lockedUntil: text("locked_until"),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+}, (table) => [
+  uniqueIndex("idx_assistant_line_queue_jobs_channel_event").on(table.channelKey, table.webhookEventId),
+  index("idx_assistant_line_queue_jobs_status_updated_at").on(table.status, table.updatedAt),
 ]);
 
 /**
@@ -240,5 +322,8 @@ export type AssistantSandboxMessage = typeof assistantSandboxMessages.$inferSele
 export type AssistantLineChannel = typeof assistantLineChannels.$inferSelect;
 export type AssistantLineGroup = typeof assistantLineGroups.$inferSelect;
 export type AssistantLineMessage = typeof assistantLineMessages.$inferSelect;
+export type AssistantLineReplyBackup = typeof assistantLineReplyBackups.$inferSelect;
+export type AssistantLinePushDelivery = typeof assistantLinePushDeliveries.$inferSelect;
+export type AssistantLineQueueJob = typeof assistantLineQueueJobs.$inferSelect;
 export type AssistantChannelTool = typeof assistantChannelTools.$inferSelect;
 export type AssistantChatTool = typeof assistantChatTools.$inferSelect;

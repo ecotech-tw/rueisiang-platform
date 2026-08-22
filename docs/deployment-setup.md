@@ -82,6 +82,58 @@ D1 資料庫 `rueisiang-platform` 已經建好，`database_id` 也填進
 
 （等價指令：`npx wrangler d1 create rueisiang-platform`）
 
+### 2.1.1 建立 LINE Queue
+
+LINE webhook 的 AI 工作會寫入 `rueisiang-line-assistant`，由同一個 Worker 的 Queue
+consumer 執行；正式回覆優先走 LINE Reply API，逾時結果才使用受限 Push。這個 Queue 只需要建立一次，名稱要跟
+`apps/api/wrangler.toml` 的 `[[queues.producers]]` 與 `[[queues.consumers]]` 一致。
+
+consumer 設定了 `rueisiang-line-assistant-dlq` 作為 dead-letter queue；達到重試次數仍失敗的工作會保留在那裡，
+方便到 Cloudflare Queues 儀表板依 `webhookEventId` / `runId` 追查，不會直接消失。D1 outbox 同步把耗盡重試的工作標為
+`failed`，避免 scheduled drain 再次建立獨立投遞；LINE Push retry key 超過 24 小時則標為 `ambiguous`，不自動重送。
+
+Cloudflare 儀表板：**Storage & Databases → Queues → Create queue**，建立
+`rueisiang-line-assistant`。
+
+（等價指令：`npx wrangler queues create rueisiang-line-assistant`；本機 Windows on ARM
+不能執行，請用儀表板、WSL 或 Linux/CI。）
+
+Queue consumer 設定 `max_concurrency = 1`，讓 LINE 工作依序完成，避免同一群組／聊天室的訊息
+因為慢 tool 而交錯回覆；D1 的 Push fixed-window ledger 仍以單一原子 `INSERT ... SELECT`
+預約收件人數，額度正確性不依賴 consumer 的串行化。
+
+### 2.1.2 設定 LINE Messaging API
+
+在 LINE Developers Console 準備一個 Messaging API channel，並取得：
+
+- Channel ID
+- Channel secret
+- Channel access token
+
+Webhook URL 設為 `https://platform.rueisiang.com/api/webhooks/line`，開啟 **Use webhook**。
+部署後可在平台的「小香助理 → LINE 前台」輸入三個值；secret 與 access token 會加密存入
+D1，也可用同名 Worker secret 當 fallback。Push API 不需另開一個 channel 或 token，沿用同一個
+Messaging API access token；LINE 官方帳號的自動回覆若會干擾測試，請在 Official Account
+Manager 關閉或調整。
+
+系統仍以 Reply token 為主。只有推論接近期限或 Reply 失敗時才嘗試 Push，並依 LINE 計費時區
+GMT+9 使用每月 fixed window；免費方案硬上限為 200 位收件者，群組訊息按群組成員數計算。
+額度、成員數任一查不到就不 Push，回答改存 D1 備用紀錄。
+
+### 2.1.3 設定小香 Pi Agent 與模型 provider
+
+LINE Queue consumer 與 Sandbox API 都會把對話 dispatch 到 SQLite Durable Object，由 Pi Agent
+執行模型、tools、session transcript 與 compact。GPT 模型使用 Codex ChatGPT OAuth；Gemini 模型
+使用 API key。`wrangler deploy` 會依 `apps/api/wrangler.toml` 的 migration 建立
+`AssistantChatAgent` 與 `AssistantCredentialVault`，不需要在 Cloudflare Dashboard 手動建立
+DO instance。
+
+部署後還要設定 `PI_OPENAI_CODEX_CREDENTIAL` 與 `PI_CREDENTIAL_ENCRYPTION_KEY`。如何從
+Codex CLI 取得最小 credential JSON、vault 如何加密／refresh，以及 session／compact／reset
+行為，完整說明見 [`line-pi-agent.md`](./line-pi-agent.md)。Codex 路徑不使用
+`OPENAI_API_KEY`；要開 Gemini 模型才需要 `GEMINI_API_KEY`。兩個 provider 可只設定其中一個，
+但目前 active model 對應的 credential 必須存在。
+
 ### 2.2 套用 migration — 不用手動做
 
 `deploy.yml` 每次部署都會執行 `wrangler d1 migrations apply --remote`，
@@ -101,6 +153,11 @@ Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
 | `AUTH_SESSION_SECRET` | 一串夠長的亂數，見下方 |
 | `GOOGLE_OAUTH_CLIENT_ID` | 1.2 拿到的用戶端 ID |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | 1.2 拿到的用戶端密鑰 |
+| `GEMINI_API_KEY` | Pi Google provider 的 Gemini API key；Sandbox 與 LINE 選 Gemini 模型時使用 |
+| `PI_OPENAI_CODEX_CREDENTIAL` | Codex CLI 或 Pi 的 ChatGPT OAuth credential JSON；不是 OpenAI API key |
+| `PI_CREDENTIAL_ENCRYPTION_KEY` | 至少 32 字元；加密 credential-vault 內的 access／refresh token |
+| `LINE_CHANNEL_SECRET` | 選用 fallback；LINE Developers 的 Channel secret |
+| `LINE_CHANNEL_ACCESS_TOKEN` | 選用 fallback；同一個 token 同時供 Reply 與受限 Push 使用 |
 
 > **儀表板的變更是「暫存」的，要按 Deploy 才會生效。** 分批新增時很容易漏按，
 > 症狀是 Worker 讀到空值——這件事實際發生過一次，查了三輪才找到。
@@ -359,7 +416,7 @@ Worker 還不存在（沒地方放 secret），而且它的網址也還不知道
 | 1 | 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` | GitHub（4.1） | 部署的前提 |
 | 2 | 跑 Deploy workflow | GitHub Actions（2.4） | 建出 Worker，**輸出會印出 workers.dev 網址** |
 | 3 | 用第 2 步的網址建 Google OAuth client | Google Cloud（1） | 重新導向 URI 需要那個網址 |
-| 4 | 設五個 secret | Cloudflare 儀表板（2.3） | Worker 存在之後才有地方設 |
+| 4 | 設定必要 secret 與要啟用的模型 provider credential | Cloudflare 儀表板（2.3） | Worker 存在之後才有地方設 |
 | 5 | 跑四行 SQL 生出第一位管理者 | D1 主控台（2.5） | 空資料庫沒有人能登入，只能從外面打破 |
 | 6 | 登入，邀請其他同仁 | 瀏覽器 | 這時候才算真的上線 |
 | 7 | 網域委派 | DNS（3） | 隨時可做，不擋前面任何一步 |

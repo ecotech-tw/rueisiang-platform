@@ -19,6 +19,16 @@ function errorDetails(error: unknown, depth = 0): Record<string, unknown> {
     };
     const status = (error as Error & { status?: unknown }).status;
     if (typeof status === "number") details.status = status;
+    const errorFields = error as Error & {
+      endpoint?: unknown;
+      ambiguous?: unknown;
+      retryable?: unknown;
+      accepted?: unknown;
+    };
+    for (const key of ["endpoint", "ambiguous", "retryable", "accepted"] as const) {
+      const value = errorFields[key];
+      if (typeof value === "string" || typeof value === "boolean" || typeof value === "number") details[key] = value;
+    }
     const cause = (error as Error & { cause?: unknown }).cause;
     if (cause && cause !== error) details.cause = errorDetails(cause, depth + 1);
     return details;

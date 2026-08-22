@@ -1,15 +1,69 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, listAssistantLineMessages, syncSystemRoles } from "@rueisiang/db";
-import { assistantConfigs, assistantLineChannels, assistantLineGroups, assistantLineMessages, assistantRuns, userRoles, users } from "@rueisiang/db/schema";
+import {
+  ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS,
+  claimAssistantLineQueueJob,
+  createDatabase,
+  listPendingAssistantLineQueueJobs,
+  recordAssistantRun,
+  requeueStaleAssistantLineQueueJobs,
+  listAssistantLineMessages,
+  reserveAssistantLinePushDelivery,
+  syncSystemRoles,
+  upsertAssistantLineQueueJob,
+  type AssistantLineQueueJobStatus,
+} from "@rueisiang/db";
+import {
+  assistantLineChannels,
+  assistantLineGroups,
+  assistantLineMessages,
+  assistantLinePushDeliveries,
+  assistantLineQueueJobs,
+  assistantLineReplyBackups,
+  assistantRuns,
+  assistantToolCalls,
+  userRoles,
+  users,
+} from "@rueisiang/db/schema";
+import type { AssistantToolCall } from "@rueisiang/assistant";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 import { lineQuestionText } from "./line.js";
+import type { PiLineAgentRunRequest, PiLineAgentRunResponse } from "./pi-agent-contract.js";
+import { processLineAssistantQueueMessage } from "./routes/webhooks.js";
 
 const AUTH_SECRET = "line-test-auth-secret";
 let d1: LocalD1;
 let env: Record<string, unknown>;
+let piAgentRequests: Array<{ agentName: string; path: string; payload: Record<string, unknown> }>;
+let piAgentResponse: PiLineAgentRunResponse;
+let piAgentError: string | undefined;
+let piAgentErrorToolCalls: AssistantToolCall[] = [];
+let piAgentStatus = 503;
+
+function setPiAgentResponse(text: string, usage = { promptTokens: 1, candidateTokens: 2, totalTokens: 3 }): void {
+  piAgentResponse = {
+    sessionId: "test-session",
+    model: "gpt-5.4-mini",
+    result: { text, thoughts: "", toolCalls: [], usage },
+  };
+}
+
+function piAgentNamespace() {
+  return {
+    getByName: (agentName: string) => ({
+      fetch: async (request: Request) => {
+        const payload = await request.json() as Record<string, unknown>;
+        const path = new URL(request.url).pathname;
+        piAgentRequests.push({ agentName, path, payload });
+        if (piAgentError) return Response.json({ error: piAgentError, toolCalls: piAgentErrorToolCalls }, { status: piAgentStatus });
+        if (path === "/reset") return Response.json({ sessionId: "reset-session", reset: true });
+        return Response.json(piAgentResponse);
+      },
+    }),
+  };
+}
 
 function db() {
   return createDatabase(d1 as never);
@@ -61,7 +115,7 @@ function mentionEvent(overrides: Record<string, unknown> = {}) {
   return {
     type: "message",
     webhookEventId: "evt-1",
-    timestamp: 1787294000000,
+    timestamp: Date.now(),
     replyToken: "reply-token-1",
     source: { type: "group", groupId: "group-1", userId: "user-1" },
     message: {
@@ -85,8 +139,20 @@ function userEvent(overrides: Record<string, unknown> = {}) {
 
 beforeEach(async () => {
   d1 = createLocalD1();
+  piAgentRequests = [];
+  piAgentError = undefined;
+  piAgentErrorToolCalls = [];
+  piAgentStatus = 503;
+  setPiAgentResponse("Pi 測試回答");
+  const lineQueue = {
+    send: async (message: unknown) => {
+      await processLineAssistantQueueMessage(message, env as never);
+    },
+  };
   env = {
     DB: d1,
+    LINE_ASSISTANT_QUEUE: lineQueue,
+    ASSISTANT_CHAT_AGENT: piAgentNamespace(),
     AUTH_SESSION_SECRET: AUTH_SECRET,
     GOOGLE_OAUTH_CLIENT_ID: "client-id",
     GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
@@ -95,6 +161,17 @@ beforeEach(async () => {
   await syncSystemRoles(db());
   await seedAdmin();
 });
+
+async function enableLineConversation(event: Record<string, unknown>) {
+  await postLine(JSON.stringify({ events: [event] }));
+  await db().update(assistantLineChannels).set({ enabled: true }).where(eq(assistantLineChannels.assistantKey, "rueisiang-xiaoxiang"));
+  const source = event.source as { groupId?: string; roomId?: string; userId?: string };
+  const lineGroupId = source.groupId ?? source.roomId ?? source.userId;
+  const [group] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, lineGroupId!));
+  await db().update(assistantLineGroups).set({ enabled: true }).where(eq(assistantLineGroups.id, group!.id));
+  env = { ...env, LINE_CHANNEL_ACCESS_TOKEN: "access-token" };
+  return group!;
+}
 
 describe("LINE webhook", () => {
   it("用原始文字搭配 mention offset，避免 trim 造成切字位移", () => {
@@ -164,6 +241,307 @@ describe("LINE webhook", () => {
     expect(first.status).toBe(200);
     expect(await second.json()).toMatchObject({ recorded: 0, duplicates: 1 });
     expect(await db().select().from(assistantLineMessages)).toHaveLength(1);
+  });
+});
+
+describe("LINE Queue outbox", () => {
+  it("Queue 暫時不可用時保留 pending，下一次 LINE redelivery 會補送且不重複建立工作", async () => {
+    await enableLineConversation(userEvent({ webhookEventId: "outbox-seed" }));
+    const event = userEvent({ webhookEventId: "outbox-retry-event" });
+    env = {
+      ...env,
+      LINE_ASSISTANT_QUEUE: {
+        send: async () => { throw new Error("queue unavailable"); },
+      },
+    };
+
+    const failed = await postLine(JSON.stringify({ events: [event] }));
+    expect(failed.status).toBe(500);
+    const [pending] = await db()
+      .select()
+      .from(assistantLineQueueJobs)
+      .where(eq(assistantLineQueueJobs.webhookEventId, "outbox-retry-event"));
+    expect(pending?.status as AssistantLineQueueJobStatus).toBe("pending");
+
+    env = { ...env, LINE_ASSISTANT_QUEUE: { send: async () => undefined } };
+    const retried = await postLine(JSON.stringify({ events: [event] }));
+    expect(retried.status).toBe(200);
+    const jobs = await db()
+      .select()
+      .from(assistantLineQueueJobs)
+      .where(eq(assistantLineQueueJobs.webhookEventId, "outbox-retry-event"));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.status).toBe("enqueued");
+  });
+});
+
+describe("LINE Queue lease、retry budget 與 run audit", () => {
+  it("stale requeue 不會回收仍在 lockedUntil 內的 processing job", async () => {
+    const { job } = await upsertAssistantLineQueueJob(db(), {
+      channelKey: "rueisiang-xiaoxiang",
+      webhookEventId: "lease-event",
+      payloadEncrypted: "payload",
+    });
+    const claim = await claimAssistantLineQueueJob(db(), {
+      channelKey: job.channelKey,
+      webhookEventId: job.webhookEventId,
+    });
+    expect(claim && "job" in claim).toBe(true);
+    if (!claim || !("job" in claim)) return;
+
+    await db().update(assistantLineQueueJobs).set({
+      updatedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+      lockedUntil: new Date(Date.now() + 60_000).toISOString(),
+    }).where(eq(assistantLineQueueJobs.id, claim.job.id));
+    const activeCount = await requeueStaleAssistantLineQueueJobs(db(), {
+      olderThan: new Date(Date.now() - 2 * 60_000).toISOString(),
+    });
+    const [active] = await db().select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.id, claim.job.id));
+    expect(activeCount).toBe(0);
+    expect(active?.status).toBe("processing");
+
+    await db().update(assistantLineQueueJobs).set({ lockedUntil: new Date(Date.now() - 1_000).toISOString() })
+      .where(eq(assistantLineQueueJobs.id, claim.job.id));
+    const expiredCount = await requeueStaleAssistantLineQueueJobs(db(), {
+      olderThan: new Date(Date.now() - 2 * 60_000).toISOString(),
+    });
+    const [expired] = await db().select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.id, claim.job.id));
+    expect(expiredCount).toBe(1);
+    expect(expired?.status).toBe("pending");
+  });
+
+  it("同一個 LINE 對話會用 sequence gate 阻止後來的 Queue 工作越過前一筆", async () => {
+    await enableLineConversation(userEvent({ webhookEventId: "order-seed" }));
+    const queued: unknown[] = [];
+    env = {
+      ...env,
+      LINE_ASSISTANT_QUEUE: { send: async (message: unknown) => { queued.push(message); } },
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    await postLine(JSON.stringify({ events: [userEvent({
+      webhookEventId: "order-event-1",
+      message: { id: "order-message-1", type: "text", text: "第一筆問題" },
+    })] }));
+    await postLine(JSON.stringify({ events: [userEvent({
+      webhookEventId: "order-event-2",
+      message: { id: "order-message-2", type: "text", text: "第二筆問題" },
+    })] }));
+    expect(queued).toHaveLength(2);
+
+    const first = queued[0];
+    const second = queued[1];
+    await expect(processLineAssistantQueueMessage(second, env as never))
+      .rejects.toMatchObject({ name: "LineQueueConversationOrderError" });
+    await processLineAssistantQueueMessage(first, env as never);
+    await processLineAssistantQueueMessage(second, env as never);
+
+    expect(piAgentRequests.filter((request) => request.path === "/run").map((request) => request.payload.userText))
+      .toEqual(["第一筆問題", "第二筆問題"]);
+    const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
+    expect(runs).toHaveLength(2);
+    expect(runs.every((run) => run.status === "success")).toBe(true);
+  });
+
+  it("同一 run retry 會更新最後狀態、保留 usage 並避免重複 tool audit", async () => {
+    const runId = "run-audit-retry";
+    const common = {
+      id: runId,
+      channel: "line" as const,
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupId: "user-1",
+      model: "gemini-3.6-flash",
+      promptRevisionId: "prompt-1",
+      inputChars: 20,
+      durationMs: 100,
+    };
+    await recordAssistantRun(db(), {
+      ...common,
+      outputChars: 12,
+      usage: { promptTokens: 4, candidateTokens: 5, totalTokens: 9 },
+      status: "failed",
+      errorMessage: "Push 逾時",
+      toolCalls: [{ toolKey: "crm_get_orders", status: "success", durationMs: 40 }],
+    });
+    await recordAssistantRun(db(), {
+      ...common,
+      outputChars: 0,
+      usage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
+      status: "success",
+      toolCalls: [],
+    });
+
+    const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.id, runId));
+    const calls = await db().select().from(assistantToolCalls).where(eq(assistantToolCalls.runId, runId));
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ status: "success", outputChars: 12, promptTokens: 4, candidateTokens: 5, totalTokens: 9, errorMessage: null });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ toolKey: "crm_get_orders", status: "success" });
+  });
+
+  it("永久 Gemini 400 會在 reply window 內回覆設定錯誤，不消耗 Queue retry", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "gemini-400-seed" }));
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({ error: { code: 400, message: "invalid request" } }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    await processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId: crypto.randomUUID(),
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      webhookEventId: "gemini-400-event",
+      replyToken: "gemini-400-reply",
+      questionText: "測試永久錯誤",
+      replyDeadlineAt: Date.now() + 60_000,
+    }, env as never);
+
+    expect(requests.some((url) => url.endsWith("/message/reply"))).toBe(true);
+    expect(requests.some((url) => url.endsWith("/message/push"))).toBe(false);
+  });
+
+  it("Pi provider 失敗時仍會把已完成的 tool calls 寫入 failed audit", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "tool-diagnostics-seed" }));
+    piAgentError = "Pi provider 暫時失敗";
+    piAgentErrorToolCalls = [{
+      toolKey: "crm_get_orders",
+      status: "success",
+      args: { customerId: "customer-1" },
+      durationMs: 125,
+    }];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const runId = crypto.randomUUID();
+    await expect(processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId,
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      contextGeneration: group.contextResetAt ?? "",
+      webhookEventId: "tool-diagnostics-event",
+      replyToken: "tool-diagnostics-reply",
+      questionText: "測試 tool diagnostics",
+      replyDeadlineAt: Date.now() + 60_000,
+    }, env as never)).rejects.toMatchObject({ name: "PiAgentRequestError" });
+
+    const calls = await db().select().from(assistantToolCalls).where(eq(assistantToolCalls.runId, runId));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ toolKey: "crm_get_orders", status: "success", durationMs: 125 });
+    const [run] = await db().select().from(assistantRuns).where(eq(assistantRuns.id, runId));
+    expect(run).toMatchObject({ status: "failed", errorMessage: "Pi provider 暫時失敗" });
+  });
+
+  it("Queue 失敗達到上限後標記 failed，outbox 不會再把它送回 Queue", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "retry-budget-seed" }));
+    piAgentError = "Pi Agent 暫時故障";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("generativelanguage.googleapis.com")) return new Response("temporary", { status: 500 });
+      return new Response(null, { status: 200 });
+    });
+    const message = {
+      kind: "assistant" as const,
+      runId: crypto.randomUUID(),
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user" as const,
+      webhookEventId: "retry-budget-event",
+      replyToken: "retry-budget-reply",
+      questionText: "測試 retry budget",
+      replyDeadlineAt: Date.now() - 1,
+    };
+    await upsertAssistantLineQueueJob(db(), {
+      channelKey: message.channelKey,
+      webhookEventId: message.webhookEventId,
+      payloadEncrypted: "payload",
+    });
+
+    for (let attempt = 0; attempt < ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS; attempt += 1) {
+      await expect(processLineAssistantQueueMessage(message, env as never)).rejects.toBeTruthy();
+    }
+    await expect(processLineAssistantQueueMessage(message, env as never))
+      .rejects.toMatchObject({ name: "LineQueueRetryExhaustedError" });
+    const [job] = await db().select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.webhookEventId, message.webhookEventId));
+    expect(job).toMatchObject({ status: "failed", attempts: ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS });
+    expect(await listPendingAssistantLineQueueJobs(db())).toHaveLength(0);
+  });
+
+  it("超過 24 小時的 Push retry key 會留下 ambiguous job，不會自動重送", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "expired-key-seed" }));
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "需要人工 reconciliation 的回答" }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(null, { status: 200 });
+    });
+    const message = {
+      kind: "assistant" as const,
+      runId: crypto.randomUUID(),
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user" as const,
+      webhookEventId: "expired-key-event",
+      replyToken: "expired-key-reply",
+      questionText: "測試過期 retry key",
+      replyDeadlineAt: Date.now() - 1,
+    };
+    const { job } = await upsertAssistantLineQueueJob(db(), {
+      channelKey: message.channelKey,
+      webhookEventId: message.webhookEventId,
+      payloadEncrypted: "payload",
+    });
+    await db().update(assistantLineQueueJobs).set({
+      createdAt: new Date(Date.now() - 25 * 60 * 60_000).toISOString(),
+    }).where(eq(assistantLineQueueJobs.id, job.id));
+
+    await processLineAssistantQueueMessage(message, env as never);
+    const [ambiguous] = await db().select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.id, job.id));
+    expect(ambiguous?.status).toBe("ambiguous");
+    expect(requests.some((url) => url.endsWith("/message/push"))).toBe(false);
   });
 });
 
@@ -408,7 +786,7 @@ describe("LINE channel 後台設定", () => {
     expect(await db().select().from(assistantLineMessages)).toHaveLength(1);
   });
 
-  it("已開通的群組會使用 active model 與 prompt 回覆，並記錄 LINE 用量", async () => {
+  it("已開通的群組會把 prompt、工具與訊息交給 Pi Agent，並記錄 LINE 用量", async () => {
     const firstBody = JSON.stringify({ events: [mentionEvent()] });
     await postLine(firstBody);
     await db().update(assistantLineChannels).set({ enabled: true }).where(eq(assistantLineChannels.assistantKey, "rueisiang-xiaoxiang"));
@@ -419,7 +797,11 @@ describe("LINE channel 後台設定", () => {
       method: "PATCH",
       body: JSON.stringify({ channelId: "2001234567", channelSecret: "line-secret", accessToken: "access-token-from-portal", displayName: "Rueisiang 小香", enabled: true }),
     });
-    env = { ...env, GEMINI_API_KEY: "gemini-test-key", LINE_CHANNEL_ACCESS_TOKEN: "wrong-env-token" };
+    env = { ...env, LINE_CHANNEL_ACCESS_TOKEN: "wrong-env-token" };
+    setPiAgentResponse(
+      "已收到，我會依照群組內容協助處理。",
+      { promptTokens: 10, candidateTokens: 8, totalTokens: 18 },
+    );
     const requests: Array<{ url: string; body: string; authorization: string }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
@@ -428,15 +810,6 @@ describe("LINE channel 後台設定", () => {
         body: typeof init?.body === "string" ? init.body : "",
         authorization: new Headers(init?.headers).get("authorization") ?? "",
       });
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [
-            { text: "這是 LINE 不應收到的 thought summary", thought: true },
-            { text: "已收到，我會依照群組內容協助處理。" },
-          ] } }],
-          usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 8, totalTokenCount: 18 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
       return new Response(null, { status: 200 });
     });
 
@@ -445,19 +818,25 @@ describe("LINE channel 後台設定", () => {
     // 群組還沒有名字，所以收到訊息時會先去補一次名稱與大頭貼，再跑回覆流程。
     expect(requests.map((request) => request.url)).toEqual([
       "https://api.line.me/v2/bot/group/group-1/summary",
-      expect.stringContaining("generativelanguage.googleapis.com"),
       "https://api.line.me/v2/bot/message/reply",
     ]);
-    const geminiRequest = requests.find((request) => request.url.includes("generativelanguage.googleapis.com"));
-    expect(geminiRequest?.body).toContain("請幫我查一下");
+    const agentRequest = piAgentRequests.find((request) => request.path === "/run");
+    expect(agentRequest?.agentName).toBe("rueisiang-xiaoxiang:rueisiang-xiaoxiang:group:group-1");
+    expect(agentRequest?.payload).toMatchObject({
+      model: "gpt-5.4-mini",
+      sourceType: "group",
+      lineGroupId: "group-1",
+    } satisfies Partial<PiLineAgentRunRequest>);
+    expect(agentRequest?.payload.userText).toContain("請幫我查一下");
+    expect(agentRequest?.payload.systemPrompt).toContain("LINE 內部助理");
+    expect(agentRequest?.payload.toolKeys).toEqual(expect.any(Array));
     const replyRequest = requests.find((request) => request.url.endsWith("/message/reply"));
     expect(replyRequest?.authorization).toBe("Bearer access-token-from-portal");
     expect(replyRequest?.body).toContain('"replyToken":"reply-token-2"');
     expect(replyRequest?.body).toContain("已收到，我會依照群組內容協助處理。");
-    expect(replyRequest?.body).not.toContain("LINE 不應收到的 thought summary");
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ channel: "line", groupId: "group-1", model: "gemini-3.6-flash", status: "success", totalTokens: 18 });
+    expect(runs[0]).toMatchObject({ channel: "line", groupId: "group-1", model: "gpt-5.4-mini", status: "success", totalTokens: 18 });
   });
 
   it("LINE 設定失效時仍會記錄失敗並通知群組", async () => {
@@ -469,9 +848,8 @@ describe("LINE channel 後台設定", () => {
       method: "PATCH",
       body: JSON.stringify({ channelId: "2001234567", channelSecret: "line-secret", accessToken: "access-token", displayName: "Rueisiang 小香", enabled: true }),
     });
-    await call("/api/assistant/sandbox/config");
-    await db().update(assistantConfigs).set({ activeModel: "gemini-2.5-flash" }).where(eq(assistantConfigs.assistantKey, "rueisiang-xiaoxiang"));
-    env = { ...env, GEMINI_API_KEY: "gemini-test-key" };
+    piAgentError = "Pi Agent 測試故障";
+    piAgentStatus = 400;
 
     const requests: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -486,10 +864,11 @@ describe("LINE channel 後台設定", () => {
     ]);
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ status: "failed", model: "gemini-2.5-flash" });
+    expect(runs[0]).toMatchObject({ status: "failed", model: "gpt-5.4-mini" });
   });
 
   it("已開通的一對一對話會使用 user ID 回覆", async () => {
+    env = { ...env, PI_AGENT_MODEL: "gemini-3.6-flash" };
     await postLine(JSON.stringify({ events: [userEvent()] }));
     const [userGroup] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, "user-1"));
     expect(userGroup?.sourceType).toBe("user");
@@ -502,7 +881,7 @@ describe("LINE channel 後台設定", () => {
       method: "PATCH",
       body: JSON.stringify({ channelId: "2001234567", channelSecret: "line-secret", accessToken: "access-token", displayName: "Rueisiang 小香", enabled: true }),
     });
-    env = { ...env, GEMINI_API_KEY: "gemini-test-key" };
+    setPiAgentResponse("一對一回答");
 
     const requests: Array<{ url: string; body: string }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -515,12 +894,6 @@ describe("LINE channel 後台設定", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: "一對一回答" }] } }],
-          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
       return new Response(null, { status: 200 });
     });
 
@@ -531,16 +904,19 @@ describe("LINE channel 後台設定", () => {
     expect(response.status).toBe(200);
     expect(requests.map((request) => request.url)).toEqual([
       "https://api.line.me/v2/bot/profile/user-1",
-      expect.stringContaining("generativelanguage.googleapis.com"),
       "https://api.line.me/v2/bot/message/reply",
     ]);
-    expect(requests[2]?.body).toContain('"replyToken":"reply-token-1"');
-    expect(requests[2]?.body).toContain("一對一回答");
+    const replyRequest = requests.find((request) => request.url.endsWith("/message/reply"));
+    expect(replyRequest?.body).toContain('"replyToken":"reply-token-1"');
+    expect(replyRequest?.body).toContain("一對一回答");
+    expect(piAgentRequests.find((request) => request.path === "/run")?.payload).toMatchObject({
+      model: "gemini-3.6-flash",
+      webhookEventId: "user-evt-run",
+    });
   });
 
   it("一對一的 reset backdoor 只切斷上下文，不刪除歷史訊息", async () => {
-    await postLine(JSON.stringify({ events: [userEvent()] }));
-    const [userGroup] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, "user-1"));
+    const userGroup = await enableLineConversation(userEvent());
     expect(userGroup).toBeTruthy();
 
     const resetResponse = await postLine(JSON.stringify({ events: [userEvent({
@@ -559,5 +935,233 @@ describe("LINE channel 後台設定", () => {
     expect(updated?.contextResetAt).toBeTruthy();
     expect(allMessages).toHaveLength(2);
     expect(currentMessages).toHaveLength(0);
+    expect(piAgentRequests.find((request) => request.path === "/reset")?.payload).toMatchObject({
+      contextGeneration: updated?.contextResetAt,
+      lineGroupId: "user-1",
+    });
+  });
+});
+
+describe("LINE Reply deadline 與 fixed-window Push", () => {
+  it("進入十秒安全緩衝區時先回覆系統繁忙，再用受限 Push 傳完整結果", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "deadline-seed" }));
+    setPiAgentResponse("安全緩衝區完成的回答");
+    const requests: Array<{ url: string; body: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      requests.push({ url, body: typeof init?.body === "string" ? init.body : "" });
+      if (url.endsWith("/message/quota/consumption")) {
+        return new Response(JSON.stringify({ totalUsage: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    await processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId: crypto.randomUUID(),
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      webhookEventId: "deadline-event",
+      replyToken: "deadline-reply-token",
+      questionText: "已接近期限",
+      replyDeadlineAt: Date.now() + 5_000,
+    }, env as never);
+
+    const reply = requests.find((request) => request.url.endsWith("/message/reply"));
+    const push = requests.find((request) => request.url.endsWith("/message/push"));
+    expect(reply?.body).toContain("系統繁忙，請稍後再試。");
+    expect(reply?.body).not.toContain("安全緩衝區完成的回答");
+    expect(push?.body).toContain("安全緩衝區完成的回答");
+  });
+
+  it("reply token 已過期時才改用 Push，並同時保存對話關聯與逐筆 ledger", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "push-seed" }));
+    setPiAgentResponse("逾時後的完整回答");
+    const requests: Array<{ url: string; body: string; retryKey: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      requests.push({
+        url,
+        body: typeof init?.body === "string" ? init.body : "",
+        retryKey: new Headers(init?.headers).get("x-line-retry-key") ?? "",
+      });
+      if (url.endsWith("/message/quota/consumption")) {
+        return new Response(JSON.stringify({ totalUsage: 190 }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const runId = crypto.randomUUID();
+    await processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId,
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      contextGeneration: group.contextResetAt ?? "",
+      webhookEventId: "push-expired-event",
+      replyToken: "expired-reply-token",
+      questionText: "請回答逾時問題",
+      replyDeadlineAt: Date.now() - 1,
+    }, env as never);
+
+    expect(requests.some((request) => request.url.endsWith("/message/reply"))).toBe(false);
+    const push = requests.find((request) => request.url.endsWith("/message/push"));
+    expect(push).toMatchObject({ retryKey: runId });
+    expect(push?.body).toContain("逾時後的完整回答");
+    const [delivery] = await db().select().from(assistantLinePushDeliveries).where(eq(assistantLinePushDeliveries.runId, runId));
+    expect(delivery).toMatchObject({ groupId: group.id, lineGroupId: "user-1", recipientCount: 1, remoteUsage: 190, status: "sent" });
+    const [backup] = await db().select().from(assistantLineReplyBackups).where(eq(assistantLineReplyBackups.runId, runId));
+    expect(backup).toMatchObject({ groupId: group.id, lineGroupId: "user-1", responseText: "逾時後的完整回答" });
+  });
+
+  it("LINE 回報已達 200 位收件者時不送 Push，只保留 skipped ledger 與完整回答", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "quota-seed" }));
+    setPiAgentResponse("額度滿時保留的回答");
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith("/message/quota/consumption")) {
+        return new Response(JSON.stringify({ totalUsage: 200 }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const runId = crypto.randomUUID();
+    await processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId,
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      contextGeneration: group.contextResetAt ?? "",
+      webhookEventId: "quota-full-event",
+      replyToken: "expired-reply-token",
+      questionText: "額度滿了嗎",
+      replyDeadlineAt: Date.now() - 1,
+    }, env as never);
+
+    expect(requests.some((url) => url.endsWith("/message/push"))).toBe(false);
+    const [delivery] = await db().select().from(assistantLinePushDeliveries).where(eq(assistantLinePushDeliveries.runId, runId));
+    expect(delivery).toMatchObject({ status: "skipped", reason: "monthly_fixed_window_limit", remoteUsage: 200 });
+    const [backup] = await db().select().from(assistantLineReplyBackups).where(eq(assistantLineReplyBackups.runId, runId));
+    expect(backup?.responseText).toBe("額度滿時保留的回答");
+  });
+
+  it("不同計費月份使用不同 fixed window，同一 run 重試不重複預約", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "window-seed" }));
+    const common = {
+      channelKey: "rueisiang-xiaoxiang",
+      groupId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user" as const,
+      remoteUsage: 199,
+      recipients: 1,
+      limit: 200,
+    };
+    const runId = crypto.randomUUID();
+    const first = await reserveAssistantLinePushDelivery(db(), { ...common, runId, windowKey: "2026-08" });
+    const retry = await reserveAssistantLinePushDelivery(db(), { ...common, runId, windowKey: "2026-08" });
+    const staleRemoteUsage = await reserveAssistantLinePushDelivery(db(), {
+      ...common,
+      runId: crypto.randomUUID(),
+      windowKey: "2026-08",
+    });
+    const nextMonth = await reserveAssistantLinePushDelivery(db(), {
+      ...common,
+      runId: crypto.randomUUID(),
+      windowKey: "2026-09",
+      remoteUsage: 0,
+    });
+
+    expect(first.allowed).toBe(true);
+    expect(retry.delivery.id).toBe(first.delivery.id);
+    expect(staleRemoteUsage.allowed).toBe(false);
+    expect(nextMonth.allowed).toBe(true);
+    expect(await db().select().from(assistantLinePushDeliveries)).toHaveLength(3);
+  });
+
+  it("Push 遇到 5xx 時保留 reserved ledger 並交給 Queue retry", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "push-retry-seed" }));
+    let pushAttempts = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "應該重試的完整回答" }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.endsWith("/message/quota/consumption")) {
+        return new Response(JSON.stringify({ totalUsage: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.endsWith("/message/push")) {
+        pushAttempts += 1;
+        return pushAttempts === 1
+          ? new Response("temporarily unavailable", { status: 503 })
+          : new Response(null, { status: 200 });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const runId = crypto.randomUUID();
+    await expect(processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId,
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      webhookEventId: "push-retry-event",
+      replyToken: "expired-reply-token",
+      questionText: "請重試 Push",
+      replyDeadlineAt: Date.now() - 1,
+    }, env as never)).rejects.toMatchObject({ endpoint: "push", retryable: true });
+
+    const [delivery] = await db().select().from(assistantLinePushDeliveries).where(eq(assistantLinePushDeliveries.runId, runId));
+    expect(delivery).toMatchObject({ status: "reserved", remoteUsage: 0 });
+
+    // 第二次 Queue delivery 使用同一份 backup；成功後 run audit 必須從 failed 更新為 success，
+    // 並保留第一次 Gemini 寫入的 usage，而不是被 backup 的空 usage 蓋成 0。
+    await processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId,
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      webhookEventId: "push-retry-event",
+      replyToken: "expired-reply-token",
+      questionText: "請重試 Push",
+      replyDeadlineAt: Date.now() - 1,
+    }, env as never);
+
+    const [sentDelivery] = await db().select().from(assistantLinePushDeliveries).where(eq(assistantLinePushDeliveries.runId, runId));
+    const [run] = await db().select().from(assistantRuns).where(eq(assistantRuns.id, runId));
+    expect(sentDelivery?.status).toBe("sent");
+    expect(run).toMatchObject({ status: "success", promptTokens: 1, candidateTokens: 2, totalTokens: 3 });
+    expect(pushAttempts).toBe(2);
   });
 });

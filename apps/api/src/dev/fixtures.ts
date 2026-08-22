@@ -1,5 +1,6 @@
 import { createDatabase, ensureAssistantDefaults, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
-import { ASSISTANT_KEY, DEFAULT_ASSISTANT_MODEL, DEFAULT_ASSISTANT_PROMPT, OPEN_METEO_TOOL_KEY } from "@rueisiang/assistant";
+import { ASSISTANT_KEY, DEFAULT_ASSISTANT_PROMPT, OPEN_METEO_TOOL_KEY } from "@rueisiang/assistant";
+import { DEFAULT_PI_CODEX_MODEL } from "../pi-agent.js";
 import {
   customers,
   inventoryItems,
@@ -44,7 +45,7 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
   await syncSystemRoles(db);
   await ensureAssistantDefaults(db, {
     assistantKey: ASSISTANT_KEY,
-    defaultModel: DEFAULT_ASSISTANT_MODEL,
+    defaultModel: DEFAULT_PI_CODEX_MODEL,
     defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
     toolKeys: [OPEN_METEO_TOOL_KEY],
   });

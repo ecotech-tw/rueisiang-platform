@@ -1,10 +1,17 @@
 import type { AuthUser } from "@rueisiang/auth";
 import type { Database } from "@rueisiang/db";
+import type { LineAssistantQueueMessage } from "./line-queue.js";
 
 /** Worker 的綁定與 secret。wrangler.toml 與 `wrangler secret put` 決定實際內容。 */
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  /** LINE webhook 只負責落地與入列，Pi agent 與 Reply API 在 queue consumer 執行。 */
+  LINE_ASSISTANT_QUEUE: Queue<LineAssistantQueueMessage>;
+  /** 正式環境一定會綁定；本機 Node server 與不碰 LINE 的測試可以省略。 */
+  ASSISTANT_CHAT_AGENT?: DurableObjectNamespace;
+  /** 全平台共用一個 credential vault，避免多個 chat 同時旋轉同一支 refresh token。 */
+  ASSISTANT_CREDENTIAL_VAULT?: DurableObjectNamespace;
   /**
    * 倉位現場照片。只存檔案，索引在 zone_images。
    *
@@ -17,9 +24,14 @@ export interface Env {
   GOOGLE_OAUTH_CLIENT_ID: string;
   GOOGLE_OAUTH_CLIENT_SECRET: string;
 
-  /** Gemini generateContent 使用的 API key。Sandbox 沒有設定時會清楚提示管理者。 */
+  /** Pi Google provider 使用的 API key；Sandbox 與選用 Gemini 的正式 channel 共用。 */
   GEMINI_API_KEY?: string;
-
+  /** 尚未建立 assistant config 時的 LINE fallback；正常情況由後台 active model 決定。 */
+  PI_AGENT_MODEL?: string;
+  /** Pi 或 Codex CLI 的 ChatGPT OAuth credential JSON；seed fingerprint 改變時會重新灌入 vault。 */
+  PI_OPENAI_CODEX_CREDENTIAL?: string;
+  /** vault 內 credential 的應用層 AES-GCM encryption key，至少 32 字元。 */
+  PI_CREDENTIAL_ENCRYPTION_KEY?: string;
   /** LINE Messaging API 憑證；只由 webhook 與回覆 transport 使用。 */
   LINE_CHANNEL_SECRET?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;

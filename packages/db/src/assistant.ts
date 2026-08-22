@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   AssistantToolCall as RecordedToolCall,
   AssistantToolStatus,
@@ -16,6 +16,9 @@ import {
   assistantLineChannels,
   assistantLineGroups,
   assistantLineMessages,
+  assistantLineReplyBackups,
+  assistantLinePushDeliveries,
+  assistantLineQueueJobs,
   assistantSandboxMessages,
   assistantSandboxSessions,
   type AssistantChannelTool,
@@ -23,6 +26,9 @@ import {
   type AssistantLineChannel,
   type AssistantLineGroup,
   type AssistantLineMessage,
+  type AssistantLineReplyBackup,
+  type AssistantLinePushDelivery,
+  type AssistantLineQueueJob,
   type AssistantPromptRevision,
   type AssistantSandboxMessage,
   type AssistantSandboxSession,
@@ -280,16 +286,473 @@ export async function recordAssistantLineMessage(
     lineMessageId?: string;
     lineUserId?: string;
     text: string;
+    queueRequired?: boolean;
   },
 ): Promise<{ message: AssistantLineMessage; inserted: boolean }> {
+  const [existing] = await db.select().from(assistantLineMessages).where(and(
+    eq(assistantLineMessages.channelKey, input.channelKey),
+    eq(assistantLineMessages.webhookEventId, input.webhookEventId),
+  )).limit(1);
+  if (existing) return { message: existing, inserted: false };
+
   const id = crypto.randomUUID();
-  await db.insert(assistantLineMessages).values({ id, ...input, createdAt: new Date().toISOString() }).onConflictDoNothing();
+  const now = new Date().toISOString();
+  await db.batch([
+    db.update(assistantLineGroups)
+      .set({
+        nextMessageSequence: sql`${assistantLineGroups.nextMessageSequence} + 1`,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(assistantLineGroups.channelKey, input.channelKey),
+        eq(assistantLineGroups.lineGroupId, input.lineGroupId),
+      )),
+    db.insert(assistantLineMessages).values({
+      id,
+      channelKey: input.channelKey,
+      lineGroupId: input.lineGroupId,
+      sourceType: input.sourceType,
+      webhookEventId: input.webhookEventId,
+      lineMessageId: input.lineMessageId,
+      lineUserId: input.lineUserId,
+      text: input.text,
+      sequence: sql<number>`(
+        SELECT ${assistantLineGroups.nextMessageSequence}
+        FROM ${assistantLineGroups}
+        WHERE ${assistantLineGroups.channelKey} = ${input.channelKey}
+          AND ${assistantLineGroups.lineGroupId} = ${input.lineGroupId}
+      )`,
+      queueRequired: input.queueRequired ?? false,
+      createdAt: now,
+    }).onConflictDoNothing(),
+  ]);
   const [created] = await db.select().from(assistantLineMessages).where(and(
     eq(assistantLineMessages.channelKey, input.channelKey),
     eq(assistantLineMessages.webhookEventId, input.webhookEventId),
   )).limit(1);
   if (!created) throw new Error("記錄 LINE 訊息後找不到資料。");
   return { message: created, inserted: created.id === id };
+}
+
+export async function recordAssistantLineReplyBackup(
+  db: Database,
+  input: {
+    runId: string;
+    channelKey: string;
+    groupId: string;
+    lineGroupId: string;
+    sourceType: string;
+    webhookEventId: string;
+    questionText: string;
+    responseText?: string;
+    model?: string;
+    status?: "ready" | "failed";
+    reason?: string;
+    errorMessage?: string;
+  },
+): Promise<AssistantLineReplyBackup> {
+  const id = crypto.randomUUID();
+  await db.insert(assistantLineReplyBackups).values({
+    id,
+    runId: input.runId,
+    channelKey: input.channelKey,
+    groupId: input.groupId,
+    lineGroupId: input.lineGroupId,
+    sourceType: input.sourceType,
+    webhookEventId: input.webhookEventId,
+    questionText: input.questionText,
+    responseText: input.responseText ?? "",
+    model: input.model ?? "",
+    status: input.status ?? "ready",
+    reason: input.reason ?? "reply_token_deadline",
+    ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
+    createdAt: new Date().toISOString(),
+  }).onConflictDoNothing();
+  const [backup] = await db
+    .select()
+    .from(assistantLineReplyBackups)
+    .where(eq(assistantLineReplyBackups.runId, input.runId))
+    .limit(1);
+  if (!backup) throw new Error("儲存 LINE 備用回覆後找不到資料。");
+  return backup;
+}
+
+export async function getAssistantLineReplyBackup(
+  db: Database,
+  runId: string,
+): Promise<AssistantLineReplyBackup | null> {
+  const [backup] = await db
+    .select()
+    .from(assistantLineReplyBackups)
+    .where(eq(assistantLineReplyBackups.runId, runId))
+    .limit(1);
+  return backup ?? null;
+}
+
+/**
+ * Queue lock 要覆蓋最慢的一輪 Gemini + tools 執行時間；stale requeue 仍會另外
+ * 檢查 lockedUntil，避免排程在活工作尚未結束時啟動第二個 consumer。
+ */
+export const ASSISTANT_LINE_QUEUE_LOCK_MS = 10 * 60_000;
+/** wrangler max_retries = 3，包含第一次投遞後最多四次 consumer attempt。 */
+export const ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS = 4;
+
+export type AssistantLineQueueJobStatus =
+  | "pending"
+  | "enqueued"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "ambiguous";
+
+export async function upsertAssistantLineQueueJob(
+  db: Database,
+  input: { channelKey: string; webhookEventId: string; payloadEncrypted: string },
+): Promise<{ job: AssistantLineQueueJob; shouldEnqueue: boolean }> {
+  const [existing] = await db
+    .select()
+    .from(assistantLineQueueJobs)
+    .where(and(
+      eq(assistantLineQueueJobs.channelKey, input.channelKey),
+      eq(assistantLineQueueJobs.webhookEventId, input.webhookEventId),
+    ))
+    .limit(1);
+
+  if (existing) {
+    if (existing.status !== "pending") return { job: existing, shouldEnqueue: false };
+    await db
+      .update(assistantLineQueueJobs)
+      .set({ payloadEncrypted: input.payloadEncrypted, updatedAt: new Date().toISOString(), lastError: null })
+      .where(eq(assistantLineQueueJobs.id, existing.id));
+    const [updated] = await db.select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.id, existing.id)).limit(1);
+    if (!updated) throw new Error("更新 LINE Queue outbox 後找不到資料。");
+    return { job: updated, shouldEnqueue: true };
+  }
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await db.insert(assistantLineQueueJobs).values({
+    id,
+    channelKey: input.channelKey,
+    webhookEventId: input.webhookEventId,
+    payloadEncrypted: input.payloadEncrypted,
+    status: "pending",
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  }).onConflictDoNothing();
+  const [created] = await db.select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.id, id)).limit(1);
+  if (created) return { job: created, shouldEnqueue: true };
+
+  // Two webhook retries can race on the unique event key; return the winner's row.
+  const [raced] = await db
+    .select()
+    .from(assistantLineQueueJobs)
+    .where(and(
+      eq(assistantLineQueueJobs.channelKey, input.channelKey),
+      eq(assistantLineQueueJobs.webhookEventId, input.webhookEventId),
+    ))
+    .limit(1);
+  if (!raced) throw new Error("建立 LINE Queue outbox 後找不到資料。");
+  return { job: raced, shouldEnqueue: raced.status === "pending" };
+}
+
+export async function markAssistantLineQueueJobEnqueued(db: Database, id: string): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({ status: "enqueued", updatedAt: new Date().toISOString(), lastError: null })
+    .where(and(eq(assistantLineQueueJobs.id, id), eq(assistantLineQueueJobs.status, "pending")));
+}
+
+export async function claimAssistantLineQueueJob(
+  db: Database,
+  input: { channelKey: string; webhookEventId: string },
+): Promise<
+  | { job: AssistantLineQueueJob; claimToken: string }
+  | { done: true; terminal?: "failed" | "ambiguous" }
+  | null
+> {
+  const [current] = await db
+    .select()
+    .from(assistantLineQueueJobs)
+    .where(and(
+      eq(assistantLineQueueJobs.channelKey, input.channelKey),
+      eq(assistantLineQueueJobs.webhookEventId, input.webhookEventId),
+    ))
+    .limit(1);
+  if (!current) return null;
+  if (current.status === "completed") return { done: true };
+  if (current.status === "failed") return { done: true, terminal: "failed" };
+  if (current.status === "ambiguous") return { done: true, terminal: "ambiguous" };
+
+  const now = new Date();
+  const nowText = now.toISOString();
+  const lockedUntil = new Date(now.getTime() + ASSISTANT_LINE_QUEUE_LOCK_MS).toISOString();
+  const claimToken = crypto.randomUUID();
+  const result = await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "processing",
+      attempts: sql`${assistantLineQueueJobs.attempts} + 1`,
+      claimToken,
+      lockedUntil,
+      updatedAt: nowText,
+    })
+    .where(and(
+      eq(assistantLineQueueJobs.id, current.id),
+      or(
+        eq(assistantLineQueueJobs.status, "pending"),
+        eq(assistantLineQueueJobs.status, "enqueued"),
+        and(
+          eq(assistantLineQueueJobs.status, "processing"),
+          or(isNull(assistantLineQueueJobs.lockedUntil), lt(assistantLineQueueJobs.lockedUntil, nowText)),
+        ),
+      ),
+    ));
+  if ((result.meta?.changes ?? 0) === 0) return { done: true };
+
+  const [claimed] = await db.select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.id, current.id)).limit(1);
+  if (!claimed || claimed.claimToken !== claimToken) return { done: true };
+  return { job: claimed, claimToken };
+}
+
+export async function completeAssistantLineQueueJob(db: Database, input: { id: string; claimToken: string }): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({ status: "completed", claimToken: null, lockedUntil: null, updatedAt: new Date().toISOString(), lastError: null })
+    .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
+}
+
+export async function releaseAssistantLineQueueJob(
+  db: Database,
+  input: { id: string; claimToken: string; error?: string },
+): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({
+      // Queue retry 已由 consumer 的 message.retry() 負責；保留 enqueued，讓 cron outbox
+      // 不會把同一個失敗工作再開一條獨立投遞，進而繞過 Queue 的 retry budget。
+      status: "enqueued",
+      claimToken: null,
+      lockedUntil: null,
+      updatedAt: new Date().toISOString(),
+      lastError: input.error?.slice(0, 1_000) ?? "line_queue_processing_failed",
+    })
+    .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
+}
+
+/** Queue 已耗盡重試次數；保留資料供稽核，但不再讓排程 outbox 反覆送出。 */
+export async function failAssistantLineQueueJob(
+  db: Database,
+  input: { id: string; claimToken: string; error?: string },
+): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "failed",
+      claimToken: null,
+      lockedUntil: null,
+      updatedAt: new Date().toISOString(),
+      lastError: input.error?.slice(0, 1_000) ?? "line_queue_retry_limit_exhausted",
+    })
+    .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
+}
+
+/** LINE retry key 已超過可安全重送的期間；保留工作等待人工／專用 reconciliation。 */
+export async function markAssistantLineQueueJobAmbiguous(
+  db: Database,
+  input: { id: string; claimToken: string; error?: string },
+): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "ambiguous",
+      claimToken: null,
+      lockedUntil: null,
+      updatedAt: new Date().toISOString(),
+      lastError: input.error?.slice(0, 1_000) ?? "line_push_retry_key_expired_ambiguous",
+    })
+    .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
+}
+
+/** 把 consumer 在 Worker crash 時留下的鎖放回 pending，並交給排程重新送入 Queue。 */
+export async function requeueStaleAssistantLineQueueJobs(
+  db: Database,
+  input: { olderThan: string },
+): Promise<number> {
+  const nowText = new Date().toISOString();
+  const staleProcessing = and(
+    eq(assistantLineQueueJobs.status, "processing"),
+    or(isNull(assistantLineQueueJobs.lockedUntil), lt(assistantLineQueueJobs.lockedUntil, nowText)),
+  );
+  const staleJob = and(
+    lt(assistantLineQueueJobs.updatedAt, input.olderThan),
+    or(
+      // attempts = 0 代表只寫入 D1、Queue.send 尚未被 consumer claim，才需要 outbox 補送。
+      and(eq(assistantLineQueueJobs.status, "enqueued"), eq(assistantLineQueueJobs.attempts, 0)),
+      staleProcessing,
+    ),
+  );
+
+  // Worker crash 後若已經耗盡 consumer attempts，直接標 terminal，不能再被 cron 撿回來。
+  const exhausted = await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "failed",
+      claimToken: null,
+      lockedUntil: null,
+      updatedAt: nowText,
+      lastError: "line_queue_retry_limit_exhausted",
+    })
+    .where(and(staleJob, gt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS - 1)));
+
+  const result = await db
+    .update(assistantLineQueueJobs)
+    .set({ status: "pending", claimToken: null, lockedUntil: null, updatedAt: nowText })
+    .where(and(
+      staleJob,
+      lt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS),
+    ));
+  return Number(exhausted.meta?.changes ?? 0) + Number(result.meta?.changes ?? 0);
+}
+
+export async function listPendingAssistantLineQueueJobs(
+  db: Database,
+  limit = 20,
+): Promise<AssistantLineQueueJob[]> {
+  return db
+    .select()
+    .from(assistantLineQueueJobs)
+    .where(and(
+      eq(assistantLineQueueJobs.status, "pending"),
+      lt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS),
+    ))
+    .orderBy(asc(assistantLineQueueJobs.updatedAt))
+    .limit(Math.min(Math.max(limit, 1), 100));
+}
+
+/**
+ * 以 D1 的條件 upsert 預約本月 Push recipient 數。
+ * remoteUsage 是 LINE API 回報的本月用量；本地 reserved 只會取較大的基準，避免漏算其他來源。
+ */
+export type AssistantLinePushReservation = {
+  allowed: boolean;
+  delivery: AssistantLinePushDelivery;
+  localUsage: number;
+  effectiveUsage: number;
+};
+
+/**
+ * 在 LINE 計費月份的 fixed window 內保守預約收件人數，並為每次 Push 嘗試留下 ledger。
+ *
+ * reservation 使用單一 `INSERT ... SELECT`，讓 D1 在 statement 層級檢查並增加 fixed-window
+ * 用量；Queue 仍由設定檔以 `max_concurrency = 1` 保護同一 conversation 的訊息順序，
+ * quota 正確性則由這個 atomic reservation 另外保證。
+ * remoteUsage 可能已包含本服務送出的 Push，所以只取本地與遠端較大值，不能相加。
+ */
+export async function reserveAssistantLinePushDelivery(
+  db: Database,
+  input: {
+    runId: string;
+    channelKey: string;
+    groupId: string;
+    lineGroupId: string;
+    sourceType: AssistantLineSourceType;
+    windowKey: string;
+    remoteUsage: number;
+    recipients: number;
+    limit: number;
+    /** 前置 API 取值失敗時仍留 skipped ledger，不允許實際 Push。 */
+    denyReason?: string;
+  },
+): Promise<AssistantLinePushReservation> {
+  const remoteUsage = Math.max(0, Math.floor(input.remoteUsage));
+  const recipients = Math.max(1, Math.floor(input.recipients));
+  const limit = Math.max(0, Math.floor(input.limit));
+  const [existing] = await db
+    .select()
+    .from(assistantLinePushDeliveries)
+    .where(eq(assistantLinePushDeliveries.runId, input.runId))
+    .limit(1);
+  if (existing) {
+    const localUsage = await linePushLocalUsage(db, existing.channelKey, existing.windowKey);
+    return {
+      allowed: existing.status === "reserved",
+      delivery: existing,
+      localUsage,
+      effectiveUsage: Math.max(localUsage, existing.remoteUsage),
+    };
+  }
+
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const canReserve = input.denyReason ? 0 : 1;
+  const denyReason = input.denyReason ?? "monthly_fixed_window_limit";
+  await db.run(sql`
+    WITH current_usage AS (
+      SELECT coalesce(max(reserved_through), 0) AS local_usage
+      FROM assistant_line_push_deliveries
+      WHERE channel_key = ${input.channelKey}
+        AND window_key = ${input.windowKey}
+        AND status IN ('reserved', 'sent', 'failed')
+    ), effective_usage AS (
+      SELECT max(local_usage, ${remoteUsage}) AS usage
+      FROM current_usage
+    )
+    INSERT INTO assistant_line_push_deliveries (
+      id, run_id, channel_key, group_id, line_group_id, source_type, window_key,
+      recipient_count, remote_usage, reserved_through, status, reason, created_at, updated_at
+    )
+    SELECT
+      ${id}, ${input.runId}, ${input.channelKey}, ${input.groupId}, ${input.lineGroupId}, ${input.sourceType}, ${input.windowKey},
+      ${recipients}, ${remoteUsage},
+      CASE WHEN ${canReserve} = 1 AND usage + ${recipients} <= ${limit} THEN usage + ${recipients} ELSE usage END,
+      CASE WHEN ${canReserve} = 1 AND usage + ${recipients} <= ${limit} THEN 'reserved' ELSE 'skipped' END,
+      CASE WHEN ${canReserve} = 1 AND usage + ${recipients} <= ${limit} THEN '' ELSE ${denyReason} END,
+      ${now}, ${now}
+    FROM effective_usage
+    WHERE NOT EXISTS (
+      SELECT 1 FROM assistant_line_push_deliveries WHERE run_id = ${input.runId}
+    )
+  `);
+  const [delivery] = await db
+    .select()
+    .from(assistantLinePushDeliveries)
+    .where(eq(assistantLinePushDeliveries.runId, input.runId))
+    .limit(1);
+  if (!delivery) throw new Error("建立 LINE Push fixed-window 紀錄後找不到資料。");
+  const localUsage = await linePushLocalUsage(db, input.channelKey, input.windowKey);
+  return {
+    allowed: delivery.status === "reserved",
+    delivery,
+    localUsage,
+    effectiveUsage: Math.max(localUsage, remoteUsage),
+  };
+}
+
+async function linePushLocalUsage(db: Database, channelKey: string, windowKey: string): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`coalesce(max(${assistantLinePushDeliveries.reservedThrough}), 0)` })
+    .from(assistantLinePushDeliveries)
+    .where(and(
+      eq(assistantLinePushDeliveries.channelKey, channelKey),
+      eq(assistantLinePushDeliveries.windowKey, windowKey),
+      inArray(assistantLinePushDeliveries.status, ["reserved", "sent", "failed"]),
+    ));
+  return Math.max(0, Number(row?.total ?? 0));
+}
+
+export async function markAssistantLinePushDelivery(
+  db: Database,
+  input: { runId: string; status: "sent" | "failed"; reason?: string },
+): Promise<void> {
+  await db
+    .update(assistantLinePushDeliveries)
+    .set({ status: input.status, reason: input.reason ?? "", updatedAt: new Date().toISOString() })
+    .where(and(
+      eq(assistantLinePushDeliveries.runId, input.runId),
+      eq(assistantLinePushDeliveries.status, "reserved"),
+    ));
 }
 
 export async function listAssistantLineMessages(
@@ -307,11 +770,51 @@ export async function listAssistantLineMessages(
     .from(assistantLineMessages)
     .where(and(...conditions))
     .orderBy(
+      desc(assistantLineMessages.sequence),
       sql`CASE WHEN instr(${assistantLineMessages.createdAt}, 'T') > 0 THEN ${assistantLineMessages.createdAt} ELSE replace(${assistantLineMessages.createdAt}, ' ', 'T') || '.000Z' END DESC`,
       desc(assistantLineMessages.id),
     )
     .limit(limit);
   return rows.reverse();
+}
+
+/** 找出同一個 LINE 對話中，仍可能尚未完成的較早 Queue 工作，避免 retry 越過前一則訊息。 */
+export async function findEarlierAssistantLineQueueJob(
+  db: Database,
+  input: { channelKey: string; lineGroupId: string; sequence: number },
+): Promise<{ sequence: number; webhookEventId: string; status: AssistantLineQueueJobStatus } | null> {
+  const [row] = await db
+    .select({
+      sequence: assistantLineMessages.sequence,
+      webhookEventId: assistantLineMessages.webhookEventId,
+      status: assistantLineQueueJobs.status,
+    })
+    .from(assistantLineMessages)
+    .leftJoin(assistantLineQueueJobs, and(
+      eq(assistantLineQueueJobs.channelKey, assistantLineMessages.channelKey),
+      eq(assistantLineQueueJobs.webhookEventId, assistantLineMessages.webhookEventId),
+    ))
+    .where(and(
+      eq(assistantLineMessages.channelKey, input.channelKey),
+      eq(assistantLineMessages.lineGroupId, input.lineGroupId),
+      eq(assistantLineMessages.queueRequired, true),
+      lt(assistantLineMessages.sequence, input.sequence),
+      or(
+        isNull(assistantLineQueueJobs.status),
+        inArray(assistantLineQueueJobs.status, ["pending", "enqueued", "processing"]),
+      ),
+    ))
+    .orderBy(asc(assistantLineMessages.sequence), asc(assistantLineMessages.createdAt), asc(assistantLineMessages.id))
+    .limit(1);
+  if (!row) return null;
+  const status = row.status;
+  return {
+    sequence: row.sequence,
+    webhookEventId: row.webhookEventId,
+    status: status === "pending" || status === "enqueued" || status === "processing"
+      ? status
+      : "pending",
+  };
 }
 
 export async function createAssistantSandboxSession(
@@ -675,7 +1178,37 @@ export async function recordAssistantRun(
     toolCalls: RecordedToolCall[];
   },
 ): Promise<void> {
-  const run = db.insert(assistantRuns).values({
+  const [existingRun] = await db
+    .select()
+    .from(assistantRuns)
+    .where(eq(assistantRuns.id, input.id))
+    .limit(1);
+  const existingToolRows = existingRun
+    ? await db.select().from(assistantToolCalls).where(eq(assistantToolCalls.runId, input.id))
+    : [];
+  const incomingUsageIsEmpty = input.usage.promptTokens === 0
+    && input.usage.candidateTokens === 0
+    && input.usage.totalTokens === 0;
+  const usage = incomingUsageIsEmpty && existingRun
+    ? {
+        promptTokens: existingRun.promptTokens ?? 0,
+        candidateTokens: existingRun.candidateTokens ?? 0,
+        totalTokens: existingRun.totalTokens ?? 0,
+      }
+    : input.usage;
+  const outputChars = input.outputChars === 0 && existingRun?.outputChars
+    ? existingRun.outputChars
+    : input.outputChars;
+  const toolCalls = input.toolCalls.length > 0
+    ? input.toolCalls
+    : existingToolRows.map((call) => ({
+        toolKey: call.toolKey,
+        status: call.status === "failed" ? "failed" as const : "success" as const,
+        durationMs: call.durationMs,
+        ...(call.errorMessage ? { errorMessage: call.errorMessage } : {}),
+      }));
+
+  await db.insert(assistantRuns).values({
     id: input.id,
     channel: input.channel,
     assistantKey: input.assistantKey,
@@ -685,24 +1218,48 @@ export async function recordAssistantRun(
     model: input.model,
     promptRevisionId: input.promptRevisionId,
     inputChars: input.inputChars,
-    outputChars: input.outputChars,
-    promptTokens: input.usage.promptTokens,
-    candidateTokens: input.usage.candidateTokens,
-    totalTokens: input.usage.totalTokens,
+    outputChars,
+    promptTokens: usage.promptTokens,
+    candidateTokens: usage.candidateTokens,
+    totalTokens: usage.totalTokens,
     status: input.status,
     durationMs: input.durationMs,
     actorId: input.actorId,
     errorMessage: input.errorMessage,
-  });
-  const calls = input.toolCalls.map((call) => db.insert(assistantToolCalls).values({
-    id: crypto.randomUUID(),
-    runId: input.id,
-    toolKey: call.toolKey,
-    status: call.status,
-    durationMs: call.durationMs,
-    errorMessage: call.errorMessage,
-  }));
-  await db.batch([run, ...calls]);
+  }).onConflictDoNothing();
+
+  // Retry 同一 runId 時要把第一次 failed 的 audit 更新成最後結果；tool rows 先清掉再重建，
+  // 避免每次 Queue retry 都多一份相同的 tool call。
+  await db.update(assistantRuns).set({
+    channel: input.channel,
+    assistantKey: input.assistantKey ?? null,
+    channelKey: input.channelKey ?? null,
+    sessionId: input.sessionId ?? null,
+    groupId: input.groupId ?? null,
+    model: input.model,
+    promptRevisionId: input.promptRevisionId,
+    inputChars: input.inputChars,
+    outputChars,
+    promptTokens: usage.promptTokens,
+    candidateTokens: usage.candidateTokens,
+    totalTokens: usage.totalTokens,
+    status: input.status,
+    durationMs: input.durationMs,
+    actorId: input.actorId ?? null,
+    errorMessage: input.errorMessage ?? null,
+  }).where(eq(assistantRuns.id, input.id));
+
+  await db.delete(assistantToolCalls).where(eq(assistantToolCalls.runId, input.id));
+  if (toolCalls.length > 0) {
+    await Promise.all(toolCalls.map((call) => db.insert(assistantToolCalls).values({
+      id: crypto.randomUUID(),
+      runId: input.id,
+      toolKey: call.toolKey,
+      status: call.status,
+      durationMs: call.durationMs,
+      errorMessage: call.errorMessage,
+    })));
+  }
 }
 
 

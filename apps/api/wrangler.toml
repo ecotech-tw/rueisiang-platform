@@ -27,6 +27,36 @@ migrations_dir = "../../packages/db/migrations"
 binding = "UPLOADS"
 bucket_name = "rueisiang-platform-uploads"
 
+# LINE webhook 只把工作寫入 Queue；consumer 優先使用 Reply token，逾時才走每月 200 人的受限 Push。
+# 第一次部署前先建立一次：npx wrangler queues create rueisiang-line-assistant
+[[queues.producers]]
+binding = "LINE_ASSISTANT_QUEUE"
+queue = "rueisiang-line-assistant"
+
+[[queues.consumers]]
+queue = "rueisiang-line-assistant"
+max_batch_size = 1
+max_batch_timeout = 0
+# max_concurrency 只是降低外部服務壓力；同一個對話的正確順序由 D1 sequence gate 保證，
+# 因為 Queue retry 可能讓較早的訊息晚於後續訊息重新投遞。quota 正確性另外由 D1 atomic reservation 保證。
+max_concurrency = 1
+max_retries = 3
+dead_letter_queue = "rueisiang-line-assistant-dlq"
+
+# 每個 LINE chat 與 Sandbox session 對應一個 Pi session DO；OAuth credential 集中在唯一的 vault DO。
+# 兩者都使用 Free plan 可用的 SQLite storage backend。
+[[durable_objects.bindings]]
+name = "ASSISTANT_CHAT_AGENT"
+class_name = "AssistantChatAgent"
+
+[[durable_objects.bindings]]
+name = "ASSISTANT_CREDENTIAL_VAULT"
+class_name = "AssistantCredentialVault"
+
+[[migrations]]
+tag = "v1_pi_agent_sqlite"
+new_sqlite_classes = ["AssistantChatAgent", "AssistantCredentialVault"]
+
 # 正式網域。custom_domain 會由 Cloudflare 自己建立對應的 DNS 記錄——
 # 所以不要先手動加一筆，已經有同名記錄的話這裡會掛。
 [[routes]]
@@ -40,14 +70,17 @@ PUBLIC_APP_URL = "https://platform.rueisiang.com"
 PAYOUT_GITHUB_REPO = "ecotech-tw/rueisiang-platform"
 PAYOUT_WORKFLOW_FILE = "payout.yml"
 PAYOUT_GITHUB_REF = "main"
+PI_AGENT_MODEL = "gpt-5.4-mini"
 
 # 需要的 secret（值不進版控，在 Cloudflare 儀表板或用指令設）：
 #   AUTH_SESSION_SECRET        簽 session cookie 用，換掉等於所有人登出
 #   GOOGLE_OAUTH_CLIENT_ID
 #   GOOGLE_OAUTH_CLIENT_SECRET
-#   GEMINI_API_KEY              AI 助理 Sandbox 與後續 LINE 回覆
+#   GEMINI_API_KEY              Pi Google provider；Sandbox／LINE 選 Gemini 模型時使用
+#   PI_OPENAI_CODEX_CREDENTIAL  Pi／Codex CLI 的 ChatGPT OAuth credential JSON；不是 OPENAI_API_KEY
+#   PI_CREDENTIAL_ENCRYPTION_KEY  至少 32 字元，vault 以 AES-GCM 加密 credential
 #   LINE_CHANNEL_SECRET         LINE webhook 簽章驗證
-#   LINE_CHANNEL_ACCESS_TOKEN   LINE Messaging API 回覆用 token
+#   LINE_CHANNEL_ACCESS_TOKEN   LINE Messaging API Reply／Push 用 token
 #   CYBERBIZ_API_TOKEN         客戶同步
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
 #   PAYOUT_GITHUB_TOKEN        fine-grained PAT，只給本 repo 的 Actions 與 Contents 讀寫

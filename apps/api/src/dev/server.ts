@@ -6,7 +6,11 @@ import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import app from "../index.js";
 import { createLocalD1 } from "../local-d1/d1.js";
 import { createLocalR2 } from "../local-d1/r2.js";
+import { AssistantCredentialVault } from "../pi-agent-credentials.js";
+import { AssistantChatAgent } from "../pi-agent-do.js";
+import { processLineAssistantQueueMessage } from "../routes/webhooks.js";
 import { DEV_ACCOUNTS, seedDevData } from "./fixtures.js";
+import { LocalDurableObjectNamespace } from "./local-durable-objects.js";
 
 /**
  * 本機開發用的 API 伺服器。
@@ -45,7 +49,7 @@ const DEV_SECRET = "local-development-only";
  * 讀 apps/api/.dev.vars——沿用 wrangler 的慣例，格式就是一行一個 KEY=value。
  *
  * 這個檔在 .gitignore 裡，用來放不能進版控又只有本機需要的東西，
- * 目前是 CYBERBIZ_API_TOKEN、GEMINI_API_KEY 與可選的 LINE_CHANNEL_ACCESS_TOKEN。
+ * 目前是 CYBERBIZ_API_TOKEN、Gemini／Codex credential 與可選的 LINE_CHANNEL_ACCESS_TOKEN。
  * 沒有這個檔也能跑，只是碰到 CYBERBIZ、AI Sandbox 或 LINE 回覆的功能會失敗。
  */
 function loadDevVars(): Record<string, string> {
@@ -87,6 +91,20 @@ const env = {
   PUBLIC_APP_URL: `http://localhost:${PORTAL_PORT}`,
   // .dev.vars 放最後，這樣要蓋掉上面任何一個預設值都可以。
   ...loadDevVars(),
+};
+
+const localAgentObjects = new LocalDurableObjectNamespace(
+  (state) => new AssistantChatAgent(state, env as never),
+);
+const localCredentialObjects = new LocalDurableObjectNamespace(
+  (state) => new AssistantCredentialVault(state, env as never),
+);
+(env as Record<string, unknown>).ASSISTANT_CHAT_AGENT = localAgentObjects;
+(env as Record<string, unknown>).ASSISTANT_CREDENTIAL_VAULT = localCredentialObjects;
+
+// node:http 沒有 Cloudflare Queue runtime；本機 adapter 仍走正式 consumer 的同一個入口。
+(env as Record<string, unknown>).LINE_ASSISTANT_QUEUE = {
+  send: async (message: unknown) => processLineAssistantQueueMessage(message, env as never),
 };
 
 function devIndex(): string {
@@ -177,6 +195,11 @@ server.on("error", (error) => {
     console.error("API dev server 啟動失敗", error);
   }
   process.exitCode = 1;
+});
+
+server.on("close", () => {
+  localAgentObjects.close();
+  localCredentialObjects.close();
 });
 
 server.listen(PORT, () => {
