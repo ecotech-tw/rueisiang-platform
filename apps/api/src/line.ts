@@ -137,6 +137,7 @@ export interface LineLogContext {
   groupId?: string;
   groupRowId?: string;
   messageId?: string;
+  sequence?: number;
 }
 
 function lineText(value: string): string {

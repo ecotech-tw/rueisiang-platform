@@ -37,8 +37,8 @@ queue = "rueisiang-line-assistant"
 queue = "rueisiang-line-assistant"
 max_batch_size = 1
 max_batch_timeout = 0
-# LINE 對同一群組／聊天室的訊息必須依序完成，避免較慢的工具回覆反而先送出。
-# quota 正確性另外由 D1 的 atomic reservation 保證；這裡採保守的全域串行化。
+# max_concurrency 只是降低外部服務壓力；同一個對話的正確順序由 D1 sequence gate 保證，
+# 因為 Queue retry 可能讓較早的訊息晚於後續訊息重新投遞。quota 正確性另外由 D1 atomic reservation 保證。
 max_concurrency = 1
 max_retries = 3
 dead_letter_queue = "rueisiang-line-assistant-dlq"

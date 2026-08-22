@@ -15,6 +15,7 @@ import {
   claimAssistantLineQueueJob,
   completeAssistantLineQueueJob,
   failAssistantLineQueueJob,
+  findEarlierAssistantLineQueueJob,
   markAssistantLineQueueJobAmbiguous,
   releaseAssistantLineQueueJob,
   requeueStaleAssistantLineQueueJobs,
@@ -51,6 +52,7 @@ import { cacheClient } from "../upstash.js";
 import type { Context } from "hono";
 import {
   DEFAULT_PI_CODEX_MODEL,
+  PiAgentRequestError,
   PiAgentStaleSessionError,
   resetPiLineAgent,
   runPiLineAgent,
@@ -112,6 +114,14 @@ class LineQueueRetryExhaustedError extends Error {
   constructor() {
     super("LINE Queue 工作已達到重試上限，交由 dead-letter queue 追蹤。");
     this.name = "LineQueueRetryExhaustedError";
+  }
+}
+
+class LineQueueConversationOrderError extends Error {
+  constructor(sequence: number, previousSequence: number, previousEventId: string) {
+    super(`LINE 對話正在等待較早的訊息完成（sequence ${sequence} 等待 ${previousSequence}）。`);
+    this.name = "LineQueueConversationOrderError";
+    this.cause = { previousEventId };
   }
 }
 
@@ -599,7 +609,8 @@ async function runLineAssistant(input: {
         status: "failed",
         durationMs: Date.now() - started,
         errorMessage: message,
-        toolCalls: resultForBackup?.toolCalls ?? [],
+        toolCalls: resultForBackup?.toolCalls
+          ?? (error instanceof PiAgentRequestError ? error.toolCalls : []),
       });
     } catch (recordError) {
       assistantLog("error", "line.run.record_failed", { ...trace, error: assistantErrorDetails(recordError) });
@@ -688,6 +699,7 @@ function lineQueueTrace(message: LineAssistantQueueMessage): LineLogContext {
     groupId: message.lineGroupId,
     groupRowId: message.groupRowId,
     ...(message.messageId ? { messageId: message.messageId } : {}),
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
   };
 }
 
@@ -796,6 +808,23 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
 
   const db = createDatabase(env.DB);
   const trace = lineQueueTrace(message);
+  if (message.sequence !== undefined) {
+    const previous = await findEarlierAssistantLineQueueJob(db, {
+      channelKey: message.channelKey,
+      lineGroupId: message.lineGroupId,
+      sequence: message.sequence,
+    });
+    if (previous) {
+      assistantLog("info", "line.queue.waiting_for_previous", {
+        ...trace,
+        sequence: message.sequence,
+        previousSequence: previous.sequence,
+        previousWebhookEventId: previous.webhookEventId,
+        previousStatus: previous.status,
+      });
+      throw new LineQueueConversationOrderError(message.sequence, previous.sequence, previous.webhookEventId);
+    }
+  }
   const claim = await claimAssistantLineQueueJob(db, {
     channelKey: message.channelKey,
     webhookEventId: message.webhookEventId,
@@ -1163,6 +1192,8 @@ async function receiveLine(c: Context<AppEnv>) {
       userId: event.source?.userId,
       text,
     });
+    const replyToken = event.replyToken?.trim();
+    const queueRequired = Boolean(lineChannel.enabled && lineGroup.enabled && accessToken && replyToken);
     const result = await recordAssistantLineMessage(c.get("db"), {
       channelKey: lineChannel.channelKey,
       lineGroupId: lineGroup.lineGroupId,
@@ -1171,6 +1202,7 @@ async function receiveLine(c: Context<AppEnv>) {
       lineMessageId: event.message?.id,
       lineUserId: event.source?.userId,
       text,
+      queueRequired,
     });
     if (result.inserted) recorded += 1;
     else duplicates += 1;
@@ -1183,7 +1215,6 @@ async function receiveLine(c: Context<AppEnv>) {
       inserted: result.inserted,
     });
 
-    const replyToken = event.replyToken?.trim();
     const queueBase = {
       assistantKey: lineChannel.assistantKey,
       channelKey: lineChannel.channelKey,
@@ -1194,6 +1225,7 @@ async function receiveLine(c: Context<AppEnv>) {
       contextGeneration: lineGroup.contextResetAt ?? "",
       messageId: event.message?.id,
       replyDeadlineAt: lineReplyDeadlineAt(),
+      ...(result.message.sequence > 0 ? { sequence: result.message.sequence } : {}),
     } as const;
     const profileSyncNeeded = Boolean(
       result.inserted &&

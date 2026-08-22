@@ -18,12 +18,42 @@ export class PiAgentStaleSessionError extends Error {
   }
 }
 
-export class PiAgentRunError extends Error {
-  constructor(message: string, readonly toolCalls: AssistantToolCall[] = [], readonly status = 500) {
+export class PiAgentRequestError extends Error {
+  readonly status: number;
+  readonly toolCalls: AssistantToolCall[];
+
+  constructor(message: string, status: number, toolCalls: AssistantToolCall[] = []) {
     super(message);
-    this.name = "PiAgentRunError";
+    this.name = "PiAgentRequestError";
+    this.status = status;
+    this.toolCalls = toolCalls;
   }
 }
+
+function parseToolCalls(value: unknown): AssistantToolCall[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const call = item as Record<string, unknown>;
+    if (
+      typeof call.toolKey !== "string"
+      || (call.status !== "success" && call.status !== "failed")
+      || typeof call.durationMs !== "number"
+      || !Number.isFinite(call.durationMs)
+    ) return [];
+    return [{
+      toolKey: call.toolKey,
+      status: call.status,
+      durationMs: call.durationMs,
+      ...(typeof call.args === "object" && call.args !== null ? { args: call.args as Record<string, unknown> } : {}),
+      ...(typeof call.errorMessage === "string" ? { errorMessage: call.errorMessage } : {}),
+    } satisfies AssistantToolCall];
+  });
+}
+
+// Sandbox routes historically imported this name; keep it as an alias so the
+// stacked LINE reliability changes and Sandbox error handling share one type.
+export { PiAgentRequestError as PiAgentRunError };
 
 function lineAgentName(input: PiLineAgentContext): string {
   return [input.assistantKey, input.channelKey, input.sourceType, input.lineGroupId].join(":");
@@ -54,13 +84,7 @@ async function requestAgent<TResponse>(
   if (!response.ok) {
     const message = typeof payload?.error === "string" ? payload.error : "Pi agent 暫時無法回應。";
     if (response.status === 409) throw new PiAgentStaleSessionError(message);
-    const toolCalls = Array.isArray(payload?.toolCalls)
-      ? payload.toolCalls.filter((item): item is AssistantToolCall => Boolean(item
-        && typeof item === "object"
-        && typeof (item as AssistantToolCall).toolKey === "string"
-        && ((item as AssistantToolCall).status === "success" || (item as AssistantToolCall).status === "failed")))
-      : [];
-    throw new PiAgentRunError(message, toolCalls, response.status);
+    throw new PiAgentRequestError(message, response.status, parseToolCalls(payload?.toolCalls));
   }
   return payload as TResponse;
 }
