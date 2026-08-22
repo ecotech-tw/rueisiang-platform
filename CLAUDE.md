@@ -189,6 +189,16 @@ CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`）�
   作法是**額外加一個檔案**（不改 drizzle 產的那幾個），順序切成三步：先讓兩張表
   並存產出「建表」、手寫搬移、最後才移除舊表定義產出「刪表」。例子見
   `0007`→`0008_move_customer_events`→`0009`，測試在 `activity-migration.test.ts`。
+- **不要在 migration 裡靠 `PRAGMA foreign_keys=OFF` 保護重建。** 正式環境走
+  `wrangler d1 migrations apply`，**整支 migration 包在一個 transaction 裡**，而
+  `PRAGMA foreign_keys` 在 transaction 裡是 no-op（SQLite 的規格），`defer_foreign_keys`
+  也擋不住 `DROP TABLE` 的連坐刪除。drizzle 產的重建 SQL 預設就長這樣，**照抄會刪資料**。
+  所以：**不要 DROP 任何被別的表用 `ON DELETE CASCADE` 指著的表**；要改父表的主鍵就先
+  把子表的外鍵挪開，或改用「新增欄位＋回填」而不是重建。
+  這個坑真的踩過：`0023` 在 D1 上把 `assistant_line_groups` 全部連坐刪光，本機看不出來
+  （本機 runner 一句一句跑，PRAGMA 有效），復原見 `0028_restore_line_groups.sql`。
+- **migration 的測試要用 D1 的方式跑**——每一支包一個 transaction，而不是一句一句 exec。
+  不然測試會給出假的信心，就像上面那次。範例見 `line-group-recovery.test.ts`。
 
 ## 常用指令
 
