@@ -19,7 +19,7 @@ export class PiAgentStaleSessionError extends Error {
 }
 
 export class PiAgentRunError extends Error {
-  constructor(message: string, readonly toolCalls: AssistantToolCall[] = []) {
+  constructor(message: string, readonly toolCalls: AssistantToolCall[] = [], readonly status = 500) {
     super(message);
     this.name = "PiAgentRunError";
   }
@@ -60,7 +60,7 @@ async function requestAgent<TResponse>(
         && typeof (item as AssistantToolCall).toolKey === "string"
         && ((item as AssistantToolCall).status === "success" || (item as AssistantToolCall).status === "failed")))
       : [];
-    throw new PiAgentRunError(message, toolCalls);
+    throw new PiAgentRunError(message, toolCalls, response.status);
   }
   return payload as TResponse;
 }

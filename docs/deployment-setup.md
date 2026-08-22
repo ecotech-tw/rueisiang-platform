@@ -88,14 +88,19 @@ LINE webhook 的 AI 工作會寫入 `rueisiang-line-assistant`，由同一個 Wo
 consumer 執行；正式回覆優先走 LINE Reply API，逾時結果才使用受限 Push。這個 Queue 只需要建立一次，名稱要跟
 `apps/api/wrangler.toml` 的 `[[queues.producers]]` 與 `[[queues.consumers]]` 一致。
 
+consumer 設定了 `rueisiang-line-assistant-dlq` 作為 dead-letter queue；達到重試次數仍失敗的工作會保留在那裡，
+方便到 Cloudflare Queues 儀表板依 `webhookEventId` / `runId` 追查，不會直接消失。D1 outbox 同步把耗盡重試的工作標為
+`failed`，避免 scheduled drain 再次建立獨立投遞；LINE Push retry key 超過 24 小時則標為 `ambiguous`，不自動重送。
+
 Cloudflare 儀表板：**Storage & Databases → Queues → Create queue**，建立
 `rueisiang-line-assistant`。
 
 （等價指令：`npx wrangler queues create rueisiang-line-assistant`；本機 Windows on ARM
 不能執行，請用儀表板、WSL 或 Linux/CI。）
 
-`max_concurrency = 1` 不是效能調整值：D1 的 Push fixed-window ledger 依靠單一 consumer
-順序預約收件人數。要提高併發前，必須先把 quota gate 改成跨 consumer 的原子操作。
+Queue consumer 設定 `max_concurrency = 1`，讓 LINE 工作依序完成，避免同一群組／聊天室的訊息
+因為慢 tool 而交錯回覆；D1 的 Push fixed-window ledger 仍以單一原子 `INSERT ... SELECT`
+預約收件人數，額度正確性不依賴 consumer 的串行化。
 
 ### 2.1.2 設定 LINE Messaging API
 

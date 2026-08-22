@@ -5,15 +5,26 @@ import {
   ensureAssistantDefaults,
   getAssistantConfig,
   getActiveAssistantPrompt,
+  getAssistantLineReplyBackup,
+  ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS,
   ensureAssistantLineChannel,
   getAssistantLineChannel,
   findAssistantLineGroup,
   markAssistantLinePushDelivery,
+  markAssistantLineQueueJobEnqueued,
+  claimAssistantLineQueueJob,
+  completeAssistantLineQueueJob,
+  failAssistantLineQueueJob,
+  markAssistantLineQueueJobAmbiguous,
+  releaseAssistantLineQueueJob,
+  requeueStaleAssistantLineQueueJobs,
+  listPendingAssistantLineQueueJobs,
   recordAssistantLineReplyBackup,
   reserveAssistantLinePushDelivery,
   resolveLineToolKeys,
   recordAssistantRun,
   recordAssistantLineMessage,
+  upsertAssistantLineQueueJob,
   resetAssistantLineContext,
   shouldSyncLineGroupProfile,
   updateAssistantLineGroupProfile,
@@ -34,7 +45,7 @@ import { HTTPException } from "hono/http-exception";
 import { forgetCatalog } from "../cyberbiz-catalog.js";
 import { cyberbizClient, cyberbizInventoryClient } from "../cyberbiz.js";
 import type { AppEnv, Env } from "../env.js";
-import { decryptLineSecret } from "../line-secrets.js";
+import { decryptLineSecret, encryptLineSecret } from "../line-secrets.js";
 import { isLineAssistantQueueMessage, type LineAssistantQueueMessage } from "../line-queue.js";
 import { cacheClient } from "../upstash.js";
 import type { Context } from "hono";
@@ -57,9 +68,11 @@ import {
   fetchLineUserProfile,
   linePushWindowKey,
   lineQuestionText,
+  LineMessageError,
   pushLineMessage,
   replyLineMessage,
   verifyLineWebhookSignature,
+  type LineLogContext,
   type LineWebhookPayload,
 } from "../line.js";
 
@@ -83,11 +96,60 @@ const LINE_REPLY_TOKEN_TTL_MS = 60_000;
 const LINE_REPLY_SAFETY_MARGIN_MS = 10_000;
 const LINE_BUSY_REPLY = "系統繁忙，請稍後再試。";
 const LINE_FREE_PUSH_RECIPIENT_LIMIT = 200;
+/** LINE usage endpoint 的數字是 approximate，保留少量緩衝優先避免超過免費額度。 */
+const LINE_PUSH_QUOTA_SAFETY_BUFFER = 5;
+const LINE_SAFE_PUSH_LIMIT = Math.max(0, LINE_FREE_PUSH_RECIPIENT_LIMIT - LINE_PUSH_QUOTA_SAFETY_BUFFER);
+const LINE_PUSH_RETRY_KEY_TTL_MS = 24 * 60 * 60_000;
 
-function lineReplyDeadlineAt(timestamp: unknown): number {
-  return typeof timestamp === "number" && Number.isFinite(timestamp) && timestamp > 0
-    ? timestamp + LINE_REPLY_TOKEN_TTL_MS
-    : Date.now() + LINE_REPLY_TOKEN_TTL_MS;
+class LinePushRetryKeyExpiredError extends Error {
+  constructor() {
+    super("LINE retry key 已超過 24 小時安全重送期限，等待 reconciliation。");
+    this.name = "LinePushRetryKeyExpiredError";
+  }
+}
+
+class LineQueueRetryExhaustedError extends Error {
+  constructor() {
+    super("LINE Queue 工作已達到重試上限，交由 dead-letter queue 追蹤。");
+    this.name = "LineQueueRetryExhaustedError";
+  }
+}
+
+function lineReplyDeadlineAt(): number {
+  // LINE 的 reply token 有效期是從 webhook 收到開始算，不是 event.timestamp。
+  // redelivery 也應該用這次收到的時間重新給 consumer 一個 reply window。
+  return Date.now() + LINE_REPLY_TOKEN_TTL_MS;
+}
+
+async function stableLineRunId(webhookEventId: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(webhookEventId)));
+  digest[6] = ((digest[6] ?? 0) & 0x0f) | 0x50;
+  digest[8] = ((digest[8] ?? 0) & 0x3f) | 0x80;
+  const hex = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+function isPermanentLineAssistantError(error: unknown): boolean {
+  const messages: string[] = [];
+  const statuses: number[] = [];
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (typeof current === "string") {
+      messages.push(current);
+      break;
+    }
+    if (typeof current !== "object" || seen.has(current)) break;
+    seen.add(current);
+    const record = current as { message?: unknown; cause?: unknown };
+    if (typeof record.message === "string") messages.push(record.message);
+    if (typeof (record as { status?: unknown }).status === "number") {
+      statuses.push((record as { status: number }).status);
+    }
+    current = record.cause;
+  }
+  return statuses.some((status) => [400, 401, 403, 404].includes(status))
+    || messages.some((message) => /gemini[\s_-]*api[\s_-]*key|Gemini 請求格式錯誤|模型設定|模型無法使用|prompt.*設定|對話設定|授權|HTTP\s+(400|401|403|404)/i.test(message));
 }
 
 async function stableLineWebhookEventId(input: {
@@ -117,16 +179,40 @@ async function deliverLinePush(input: {
   db: AppEnv["Variables"]["db"];
   accessToken: string;
   runId: string;
+  webhookEventId: string;
   channelKey: string;
   groupRowId: string;
   lineGroupId: string;
+  messageId?: string;
   sourceType: "group" | "room" | "user";
   text: string;
+  /** Queue outbox 建立時間；超過 LINE retry-key 的 24 小時 dedupe 保證後不可自動 Push。 */
+  queueCreatedAt?: string;
 }): Promise<LinePushOutcome> {
+  const lineLogContext: LineLogContext = {
+    runId: input.runId,
+    webhookEventId: input.webhookEventId,
+    channelKey: input.channelKey,
+    groupId: input.lineGroupId,
+    groupRowId: input.groupRowId,
+    ...(input.messageId ? { messageId: input.messageId } : {}),
+  };
+  const queueCreatedAtMs = input.queueCreatedAt ? Date.parse(input.queueCreatedAt) : Number.NaN;
+  if (Number.isFinite(queueCreatedAtMs)) {
+    const retryKeyAgeMs = Date.now() - queueCreatedAtMs;
+    if (retryKeyAgeMs >= LINE_PUSH_RETRY_KEY_TTL_MS) {
+      assistantLog("warn", "line.push.skipped", {
+        ...lineLogContext,
+        reason: "retry_key_expired_ambiguous",
+        retryKeyAgeMs,
+      });
+      throw new LinePushRetryKeyExpiredError();
+    }
+  }
   const windowKey = linePushWindowKey();
   let recipientCount = input.sourceType === "user" ? 1 : 0;
   try {
-    recipientCount = await fetchLineChatMemberCount(input.accessToken, input.sourceType, input.lineGroupId);
+    recipientCount = await fetchLineChatMemberCount(input.accessToken, input.sourceType, input.lineGroupId, lineLogContext);
   } catch (error) {
     await reserveAssistantLinePushDelivery(input.db, {
       runId: input.runId,
@@ -137,11 +223,13 @@ async function deliverLinePush(input: {
       windowKey,
       remoteUsage: 0,
       recipients: recipientCount,
-      limit: LINE_FREE_PUSH_RECIPIENT_LIMIT,
+      limit: LINE_SAFE_PUSH_LIMIT,
       denyReason: "member_count_unavailable",
     });
     assistantLog("warn", "line.push.skipped", {
       runId: input.runId,
+      webhookEventId: input.webhookEventId,
+      channelKey: input.channelKey,
       groupId: input.lineGroupId,
       reason: "member_count_unavailable",
       error: assistantErrorDetails(error),
@@ -151,7 +239,7 @@ async function deliverLinePush(input: {
 
   let remoteUsage: number;
   try {
-    remoteUsage = await fetchLinePushUsage(input.accessToken);
+    remoteUsage = await fetchLinePushUsage(input.accessToken, lineLogContext);
   } catch (error) {
     await reserveAssistantLinePushDelivery(input.db, {
       runId: input.runId,
@@ -162,11 +250,13 @@ async function deliverLinePush(input: {
       windowKey,
       remoteUsage: 0,
       recipients: recipientCount,
-      limit: LINE_FREE_PUSH_RECIPIENT_LIMIT,
+      limit: LINE_SAFE_PUSH_LIMIT,
       denyReason: "usage_unavailable",
     });
     assistantLog("warn", "line.push.skipped", {
       runId: input.runId,
+      webhookEventId: input.webhookEventId,
+      channelKey: input.channelKey,
       groupId: input.lineGroupId,
       reason: "usage_unavailable",
       error: assistantErrorDetails(error),
@@ -183,11 +273,13 @@ async function deliverLinePush(input: {
     windowKey,
     remoteUsage,
     recipients: recipientCount,
-    limit: LINE_FREE_PUSH_RECIPIENT_LIMIT,
+    limit: LINE_SAFE_PUSH_LIMIT,
   });
   if (!reservation.allowed) {
     assistantLog("warn", "line.push.skipped", {
       runId: input.runId,
+      webhookEventId: input.webhookEventId,
+      channelKey: input.channelKey,
       groupId: input.lineGroupId,
       reason: reservation.delivery.reason || "monthly_fixed_window_limit",
       recipientCount,
@@ -200,16 +292,42 @@ async function deliverLinePush(input: {
 
   try {
     // retry key 與 Queue message 的 runId 相同；consumer 在 LINE 已收件、D1 尚未標 sent 時重試也不會重複計費。
-    await pushLineMessage(input.accessToken, input.lineGroupId, input.text, input.runId);
+    await pushLineMessage(input.accessToken, input.lineGroupId, input.text, input.runId, lineLogContext);
     await markAssistantLinePushDelivery(input.db, { runId: input.runId, status: "sent" });
     assistantLog("info", "line.push.completed", {
       runId: input.runId,
+      webhookEventId: input.webhookEventId,
+      channelKey: input.channelKey,
       groupId: input.lineGroupId,
       recipientCount,
       windowKey,
     });
     return "sent";
   } catch (error) {
+    if (error instanceof LineMessageError && error.accepted) {
+      await markAssistantLinePushDelivery(input.db, { runId: input.runId, status: "sent", reason: "line_retry_key_already_accepted" });
+      assistantLog("info", "line.push.completed", {
+        runId: input.runId,
+        webhookEventId: input.webhookEventId,
+        channelKey: input.channelKey,
+        groupId: input.lineGroupId,
+        recipientCount,
+        windowKey,
+        status: 409,
+      });
+      return "sent";
+    }
+    if (error instanceof LineMessageError && error.retryable) {
+      // 保留 reserved ledger；Queue retry 會以同一個 runId / retry key 重送。
+      assistantLog("warn", "line.push.retry", {
+        runId: input.runId,
+        webhookEventId: input.webhookEventId,
+        channelKey: input.channelKey,
+        groupId: input.lineGroupId,
+        error: assistantErrorDetails(error),
+      });
+      throw error;
+    }
     await markAssistantLinePushDelivery(input.db, {
       runId: input.runId,
       status: "failed",
@@ -217,6 +335,8 @@ async function deliverLinePush(input: {
     });
     assistantLog("warn", "line.push.failed", {
       runId: input.runId,
+      webhookEventId: input.webhookEventId,
+      channelKey: input.channelKey,
       groupId: input.lineGroupId,
       error: assistantErrorDetails(error),
     });
@@ -235,19 +355,30 @@ async function runLineAssistant(input: {
   groupRowId: string;
   lineGroupId: string;
   sourceType: "group" | "room" | "user";
+  messageId?: string;
   questionText: string;
   webhookEventId: string;
   runId: string;
   contextGeneration: string;
   replyDeadlineAt?: number;
+  queueCreatedAt?: string;
 }): Promise<void> {
   const runId = input.runId;
+  const trace = {
+    runId,
+    webhookEventId: input.webhookEventId,
+    channelKey: input.channelKey,
+    groupId: input.lineGroupId,
+    groupRowId: input.groupRowId,
+    ...(input.messageId ? { messageId: input.messageId } : {}),
+  };
   const started = Date.now();
   let modelId = DEFAULT_PI_CODEX_MODEL;
   let promptRevisionId = "unavailable";
   let promptText = input.questionText;
   let replyKind: "final" | "deadline-fallback" | "error" | undefined;
   let replyFailed = false;
+  let replyFailureKind: "permanent" | "ambiguous" | undefined;
   let replyAttempt: Promise<boolean> | undefined;
   let resultForBackup: AssistantRunResult | undefined;
 
@@ -259,19 +390,18 @@ async function runLineAssistant(input: {
     }
     replyAttempt = (async () => {
       try {
-        await replyLineMessage(input.accessToken, input.replyToken, text);
+        await replyLineMessage(input.accessToken, input.replyToken, text, trace);
         replyKind = reason;
         assistantLog("info", "line.reply.completed", {
-          runId,
-          groupId: input.lineGroupId,
+          ...trace,
           reason,
         });
         return true;
       } catch (error) {
         replyFailed = true;
+        replyFailureKind = error instanceof LineMessageError && !error.ambiguous ? "permanent" : "ambiguous";
         assistantLog("warn", "line.reply.failed", {
-          runId,
-          groupId: input.lineGroupId,
+          ...trace,
           reason,
           error: assistantErrorDetails(error),
         });
@@ -291,6 +421,8 @@ async function runLineAssistant(input: {
       }, Math.max(0, fallbackAt - Date.now()))
     : undefined;
   try {
+    // Push retry 若已有完整 backup，不需要重新執行 agent；這也避免外部服務暫時異常時重複產生答案。
+    const savedBackup = await getAssistantLineReplyBackup(input.db, runId);
     await ensureAssistantDefaults(input.db, {
       assistantKey: input.assistantKey,
       defaultModel: input.env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL,
@@ -334,34 +466,45 @@ async function runLineAssistant(input: {
       runtimeContextInstruction(currentAssistantRuntimeContext()),
       "這是 LINE 內部助理。除非使用者要求詳細說明，請用繁體中文在六句內直接回答；不要輸出思考過程。",
     ].join("\n\n");
-    const piResponse = await runPiLineAgent(input.env, {
-      assistantKey: input.assistantKey,
-      channelKey: input.channelKey,
-      groupRowId: input.groupRowId,
-      lineGroupId: input.lineGroupId,
-      sourceType: input.sourceType,
-      contextGeneration: input.contextGeneration,
-      webhookEventId: input.webhookEventId,
-      runId,
-      model: configuredModel,
-      systemPrompt,
-      userText: promptText,
-      toolKeys: allowedToolKeys,
-    });
-    modelId = piResponse.model;
-    const result: AssistantRunResult = piResponse.result;
+    let result: AssistantRunResult;
+    if (savedBackup?.responseText) {
+      result = {
+        text: savedBackup.responseText,
+        thoughts: "",
+        toolCalls: [],
+        usage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
+      };
+      modelId = savedBackup.model || modelId;
+      promptRevisionId = "reused-line-reply-backup";
+      assistantLog("info", "line.reply.backup_reused", trace);
+    } else {
+      const piResponse = await runPiLineAgent(input.env, {
+        assistantKey: input.assistantKey,
+        channelKey: input.channelKey,
+        groupRowId: input.groupRowId,
+        lineGroupId: input.lineGroupId,
+        sourceType: input.sourceType,
+        contextGeneration: input.contextGeneration,
+        webhookEventId: input.webhookEventId,
+        runId,
+        model: configuredModel,
+        systemPrompt,
+        userText: promptText,
+        toolKeys: allowedToolKeys,
+      });
+      modelId = piResponse.model;
+      result = piResponse.result;
+    }
     resultForBackup = result;
     if (result.thoughts) {
-      console.info("LINE 小香 thought summary", {
-        runId,
-        groupId: input.lineGroupId,
+      assistantLog("info", "line.thoughts.recorded", {
+        ...trace,
         thoughts: result.thoughts.slice(0, 12_000),
       });
     }
     const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
     assistantLog("info", "line.reply.started", {
-      runId,
-      groupId: input.lineGroupId,
+      ...trace,
       textChars: result.text.length,
     });
     if (fallbackTimer) clearTimeout(fallbackTimer);
@@ -390,19 +533,29 @@ async function runLineAssistant(input: {
           reason: replyFailed ? "reply_failed" : "reply_token_deadline",
         });
       } catch (backupError) {
-        console.error("LINE 備用回覆儲存失敗", { runId, groupId: input.lineGroupId, error: backupError });
+        assistantLog("error", "line.reply.backup_failed", { ...trace, error: assistantErrorDetails(backupError) });
       }
 
-      await deliverLinePush({
-        db: input.db,
-        accessToken: input.accessToken,
-        runId,
-        channelKey: input.channelKey,
-        groupRowId: input.groupRowId,
-        lineGroupId: input.lineGroupId,
-        sourceType: input.sourceType,
-        text: result.text,
-      });
+      if (replyFailureKind !== "ambiguous") {
+        await deliverLinePush({
+          db: input.db,
+          accessToken: input.accessToken,
+          runId,
+          webhookEventId: input.webhookEventId,
+          channelKey: input.channelKey,
+          groupRowId: input.groupRowId,
+          lineGroupId: input.lineGroupId,
+          messageId: input.messageId,
+          sourceType: input.sourceType,
+          text: result.text,
+          queueCreatedAt: input.queueCreatedAt,
+        });
+      } else {
+        assistantLog("warn", "line.push.skipped", {
+          ...trace,
+          reason: "reply_delivery_ambiguous",
+        });
+      }
     }
     await recordAssistantRun(input.db, {
       id: runId,
@@ -430,7 +583,7 @@ async function runLineAssistant(input: {
       return;
     }
     const message = error instanceof Error ? error.message : "小香目前無法完成回答。";
-    console.error("LINE 小香回覆失敗", { runId, groupId: input.lineGroupId, error });
+    assistantLog("error", "line.run.failed", { ...trace, error: assistantErrorDetails(error) });
     try {
       await recordAssistantRun(input.db, {
         id: runId,
@@ -441,18 +594,15 @@ async function runLineAssistant(input: {
         model: modelId,
         promptRevisionId,
         inputChars: promptText.length,
-        outputChars: 0,
-        usage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
+        outputChars: resultForBackup?.text.length ?? 0,
+        usage: resultForBackup?.usage ?? { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
         status: "failed",
         durationMs: Date.now() - started,
         errorMessage: message,
-        toolCalls: [],
+        toolCalls: resultForBackup?.toolCalls ?? [],
       });
     } catch (recordError) {
-      console.error("LINE 小香失敗用量記錄失敗", { runId, groupId: input.lineGroupId, error: recordError });
-    }
-    if (!replyKind && !replyFailed && Date.now() < replyDeadlineAt) {
-      await sendReplyOnce("小香目前無法完成回答，請稍後再試。", "error");
+      assistantLog("error", "line.run.record_failed", { ...trace, error: assistantErrorDetails(recordError) });
     }
     if (resultForBackup && replyKind !== "final") {
       try {
@@ -470,9 +620,18 @@ async function runLineAssistant(input: {
           reason: "reply_token_expired_or_failed",
         });
       } catch (backupError) {
-        console.error("LINE 備用回覆儲存失敗", { runId, groupId: input.lineGroupId, error: backupError });
+        assistantLog("error", "line.reply.backup_failed", { ...trace, error: assistantErrorDetails(backupError) });
       }
     }
+    // Push 有 retry key，可以安全交給 Queue 重試；Reply 沒有 idempotency，
+    // timeout / 5xx 則寧可只留下 backup，也不要冒險再 Push 造成重複回答。
+    if (error instanceof LineMessageError && error.endpoint === "push" && error.retryable) throw error;
+    if (replyKind || replyFailureKind === "ambiguous") return;
+    if (isPermanentLineAssistantError(error) && !replyFailed && Date.now() < replyDeadlineAt) {
+      const errorReplySent = await sendReplyOnce("小香目前無法完成回答，請稍後再試。", "error");
+      if (errorReplySent) return;
+    }
+    throw error;
   } finally {
     if (fallbackTimer) clearTimeout(fallbackTimer);
   }
@@ -483,14 +642,25 @@ async function syncLineGroupProfile(input: {
   accessToken: string;
   channelKey: string;
   group: NonNullable<Awaited<ReturnType<typeof findAssistantLineGroup>>>;
+  trace?: LineLogContext;
 }): Promise<void> {
   const group = input.group;
   if (group.sourceType === "room" || !shouldSyncLineGroupProfile(group)) return;
 
   try {
     const profile = group.sourceType === "group"
-      ? await fetchLineGroupSummary(input.accessToken, group.lineGroupId)
-      : await fetchLineUserProfile(input.accessToken, group.lineGroupId);
+      ? await fetchLineGroupSummary(input.accessToken, group.lineGroupId, {
+          ...input.trace,
+          channelKey: input.channelKey,
+          groupId: group.lineGroupId,
+          groupRowId: group.id,
+        })
+      : await fetchLineUserProfile(input.accessToken, group.lineGroupId, {
+          ...input.trace,
+          channelKey: input.channelKey,
+          groupId: group.lineGroupId,
+          groupRowId: group.id,
+        });
     if (profile) {
       await updateAssistantLineGroupProfile(input.db, {
         channelKey: input.channelKey,
@@ -500,108 +670,355 @@ async function syncLineGroupProfile(input: {
       });
     }
   } catch (error) {
-    console.warn("LINE 對話資料同步失敗", { groupId: group.lineGroupId, error });
+    assistantLog("warn", "line.profile_sync.failed", {
+      ...input.trace,
+      channelKey: input.channelKey,
+      groupId: group.lineGroupId,
+      groupRowId: group.id,
+      error: assistantErrorDetails(error),
+    });
   }
 }
 
+function lineQueueTrace(message: LineAssistantQueueMessage): LineLogContext {
+  return {
+    ...(message.kind === "assistant" ? { runId: message.runId } : {}),
+    webhookEventId: message.webhookEventId,
+    channelKey: message.channelKey,
+    groupId: message.lineGroupId,
+    groupRowId: message.groupRowId,
+    ...(message.messageId ? { messageId: message.messageId } : {}),
+  };
+}
+
 async function enqueueLineAssistantJob(
+  db: AppEnv["Variables"]["db"],
   env: AppEnv["Bindings"],
   message: LineAssistantQueueMessage,
 ): Promise<void> {
-  // send() resolve 時才代表訊息已寫入 Queue；Webhook 會等這個短暫寫入完成，不再把 Gemini 放進 waitUntil。
-  await env.LINE_ASSISTANT_QUEUE.send(message, { contentType: "json", delaySeconds: 0 });
+  const payloadEncrypted = await encryptLineSecret(JSON.stringify(message), env.AUTH_SESSION_SECRET);
+  const { job, shouldEnqueue } = await upsertAssistantLineQueueJob(db, {
+    channelKey: message.channelKey,
+    webhookEventId: message.webhookEventId,
+    payloadEncrypted,
+  });
+  if (!shouldEnqueue) {
+    assistantLog("info", "line.queue.deduplicated", {
+      ...lineQueueTrace(message),
+      jobId: job.id,
+      kind: message.kind,
+      webhookEventId: message.webhookEventId,
+      channelKey: message.channelKey,
+      groupId: message.lineGroupId,
+      status: job.status,
+    });
+    return;
+  }
+
+  // D1 outbox 先落地；Queue.send 失敗時保留 pending，LINE redelivery 或 cron 會補送。
+  try {
+    await env.LINE_ASSISTANT_QUEUE.send(message, { contentType: "json", delaySeconds: 0 });
+    await markAssistantLineQueueJobEnqueued(db, job.id);
+  } catch (error) {
+    assistantLog("error", "line.queue.enqueue_failed", {
+      ...lineQueueTrace(message),
+      jobId: job.id,
+      kind: message.kind,
+      webhookEventId: message.webhookEventId,
+      channelKey: message.channelKey,
+      groupId: message.lineGroupId,
+      error: assistantErrorDetails(error),
+    });
+    throw error;
+  }
   assistantLog("info", "line.queue.enqueued", {
+    ...lineQueueTrace(message),
+    jobId: job.id,
     kind: message.kind,
     webhookEventId: message.webhookEventId,
+    channelKey: message.channelKey,
     groupId: message.lineGroupId,
   });
+}
+
+/** Cron 用來補送「D1 已記錄但 Queue.send 沒完成」的工作。 */
+export async function drainLineAssistantQueueOutbox(
+  db: AppEnv["Variables"]["db"],
+  env: AppEnv["Bindings"],
+): Promise<void> {
+  const staleBefore = new Date(Date.now() - 2 * 60_000).toISOString();
+  const requeuedCount = await requeueStaleAssistantLineQueueJobs(db, { olderThan: staleBefore });
+  if (requeuedCount > 0) {
+    assistantLog("warn", "line.queue.outbox_stale_requeued", {
+      count: requeuedCount,
+      olderThan: staleBefore,
+    });
+  }
+  const jobs = await listPendingAssistantLineQueueJobs(db, 20);
+  for (const job of jobs) {
+    try {
+      const decrypted = await decryptLineSecret(job.payloadEncrypted, env.AUTH_SESSION_SECRET);
+      if (!decrypted) throw new Error("LINE Queue outbox payload 解密失敗。");
+      const payload = JSON.parse(decrypted) as unknown;
+      if (!isLineAssistantQueueMessage(payload)) throw new Error("LINE Queue outbox payload 格式不正確。");
+      const trace = lineQueueTrace(payload);
+      await env.LINE_ASSISTANT_QUEUE.send(payload, { contentType: "json", delaySeconds: 0 });
+      await markAssistantLineQueueJobEnqueued(db, job.id);
+      assistantLog("info", "line.queue.outbox_replayed", {
+        ...trace,
+        jobId: job.id,
+        kind: payload.kind,
+        webhookEventId: payload.webhookEventId,
+        channelKey: payload.channelKey,
+        groupId: payload.lineGroupId,
+      });
+    } catch (error) {
+      assistantLog("error", "line.queue.outbox_replay_failed", {
+        jobId: job.id,
+        channelKey: job.channelKey,
+        webhookEventId: job.webhookEventId,
+        error: assistantErrorDetails(error),
+      });
+    }
+  }
 }
 
 /** Queue consumer 與本機測試共用的 LINE 工作入口。 */
 export async function processLineAssistantQueueMessage(message: unknown, env: AppEnv["Bindings"]): Promise<void> {
   if (!isLineAssistantQueueMessage(message)) {
-    console.error("LINE Queue 收到無效的工作內容", { message });
+    assistantLog("error", "line.queue.invalid_message", {
+      messageType: typeof message,
+      hasObject: Boolean(message && typeof message === "object"),
+    });
     return;
   }
   const contextGeneration = message.contextGeneration ?? "";
 
   const db = createDatabase(env.DB);
-  const channel = await getAssistantLineChannel(db, message.assistantKey);
-  if (!channel) {
-    console.error("LINE Queue 找不到 channel", { assistantKey: message.assistantKey, channelKey: message.channelKey });
+  const trace = lineQueueTrace(message);
+  const claim = await claimAssistantLineQueueJob(db, {
+    channelKey: message.channelKey,
+    webhookEventId: message.webhookEventId,
+  });
+  if (claim && "done" in claim) {
+    if (claim.terminal === "failed") throw new LineQueueRetryExhaustedError();
     return;
   }
-
-  const storedAccessToken = channel.accessTokenEncrypted
-    ? await decryptLineSecret(channel.accessTokenEncrypted, env.AUTH_SESSION_SECRET)
-    : null;
-  const accessToken = storedAccessToken || env.LINE_CHANNEL_ACCESS_TOKEN;
-  if (!accessToken) {
-    assistantLog("warn", "line.queue.skipped", {
+  if (claim && "job" in claim) {
+    assistantLog("info", "line.queue.claimed", {
+      ...trace,
+      jobId: claim.job.id,
       kind: message.kind,
+      attempts: claim.job.attempts,
+      webhookEventId: message.webhookEventId,
+      channelKey: message.channelKey,
       groupId: message.lineGroupId,
-      reason: "missing_access_token",
     });
-    return;
   }
 
-  const group = await findAssistantLineGroup(db, { channelKey: message.channelKey, id: message.groupRowId });
-  if (!group) {
-    console.error("LINE Queue 找不到對話設定", { channelKey: message.channelKey, groupRowId: message.groupRowId });
-    return;
-  }
+  let processed = false;
+  try {
+    const channel = await getAssistantLineChannel(db, message.assistantKey);
+    if (!channel) {
+      assistantLog("error", "line.queue.channel_not_found", {
+        ...trace,
+        assistantKey: message.assistantKey,
+        channelKey: message.channelKey,
+        webhookEventId: message.webhookEventId,
+        groupId: message.lineGroupId,
+      });
+      processed = true;
+      return;
+    }
 
-  await syncLineGroupProfile({ db, accessToken, channelKey: message.channelKey, group });
-  if (message.kind === "profile") return;
+    const storedAccessToken = channel.accessTokenEncrypted
+      ? await decryptLineSecret(channel.accessTokenEncrypted, env.AUTH_SESSION_SECRET)
+      : null;
+    const accessToken = storedAccessToken || env.LINE_CHANNEL_ACCESS_TOKEN;
+    if (!accessToken) {
+      assistantLog("warn", "line.queue.skipped", {
+        ...trace,
+        kind: message.kind,
+        webhookEventId: message.webhookEventId,
+        channelKey: message.channelKey,
+        groupId: message.lineGroupId,
+        reason: "missing_access_token",
+      });
+      processed = true;
+      return;
+    }
 
-  if ((group.contextResetAt ?? "") !== contextGeneration) {
-    assistantLog("info", "line.queue.skipped", {
-      kind: message.kind,
-      groupId: message.lineGroupId,
-      reason: "stale_session_generation",
+    const group = await findAssistantLineGroup(db, { channelKey: message.channelKey, id: message.groupRowId });
+    if (!group) {
+      assistantLog("error", "line.queue.group_not_found", {
+        ...trace,
+        channelKey: message.channelKey,
+        groupRowId: message.groupRowId,
+        webhookEventId: message.webhookEventId,
+        groupId: message.lineGroupId,
+      });
+      processed = true;
+      return;
+    }
+
+    await syncLineGroupProfile({
+      db,
+      accessToken,
+      channelKey: message.channelKey,
+      group,
+      trace: {
+        ...(message.kind === "assistant" ? { runId: message.runId } : {}),
+        webhookEventId: message.webhookEventId,
+        channelKey: message.channelKey,
+        groupId: message.lineGroupId,
+        groupRowId: message.groupRowId,
+        ...(message.messageId ? { messageId: message.messageId } : {}),
+      },
     });
-    return;
-  }
+    if (message.kind === "profile") {
+      processed = true;
+      return;
+    }
 
-  // Queue 送出後管理員可能已經關閉 channel 或這個對話；此時不要再回覆一則錯誤訊息。
-  if (!channel.enabled || !group.enabled) {
-    assistantLog("info", "line.queue.skipped", {
-      kind: message.kind,
-      groupId: message.lineGroupId,
-      reason: "disabled_before_consume",
-    });
-    return;
-  }
+    if ((group.contextResetAt ?? "") !== contextGeneration) {
+      assistantLog("info", "line.queue.skipped", {
+        ...trace,
+        kind: message.kind,
+        reason: "stale_session_generation",
+      });
+      processed = true;
+      return;
+    }
 
-  if (message.kind === "reset") {
-    await resetPiLineAgent(env, {
+    // Queue 送出後管理員可能已經關閉 channel 或這個對話；此時不要再回覆一則錯誤訊息。
+    if (!channel.enabled || !group.enabled) {
+      assistantLog("info", "line.queue.skipped", {
+        ...trace,
+        kind: message.kind,
+        webhookEventId: message.webhookEventId,
+        channelKey: message.channelKey,
+        groupId: message.lineGroupId,
+        reason: "disabled_before_consume",
+      });
+      processed = true;
+      return;
+    }
+
+    if (message.kind === "reset") {
+      await resetPiLineAgent(env, {
+        assistantKey: channel.assistantKey,
+        channelKey: message.channelKey,
+        groupRowId: message.groupRowId,
+        lineGroupId: message.lineGroupId,
+        sourceType: message.sourceType,
+        contextGeneration,
+      });
+      await replyLineMessage(accessToken, message.replyToken, "已重設這段對話的上下文。", {
+        webhookEventId: message.webhookEventId,
+        channelKey: message.channelKey,
+        groupId: message.lineGroupId,
+        groupRowId: message.groupRowId,
+        ...(message.messageId ? { messageId: message.messageId } : {}),
+      });
+      processed = true;
+      return;
+    }
+
+    await runLineAssistant({
+      db,
+      env,
+      accessToken,
+      replyToken: message.replyToken,
       assistantKey: channel.assistantKey,
       channelKey: message.channelKey,
       groupRowId: message.groupRowId,
       lineGroupId: message.lineGroupId,
+      messageId: message.messageId,
       sourceType: message.sourceType,
+      questionText: message.questionText,
+      webhookEventId: message.webhookEventId,
+      runId: message.runId,
       contextGeneration,
+      replyDeadlineAt: message.replyDeadlineAt,
+      queueCreatedAt: claim && "job" in claim ? claim.job.createdAt : undefined,
     });
-    await replyLineMessage(accessToken, message.replyToken, "已重設這段對話的上下文。");
-    return;
-  }
+    processed = true;
+  } catch (error) {
+    if (claim && "job" in claim) {
+      const errorMessage = error instanceof Error ? error.message : "line_queue_processing_failed";
+      if (error instanceof LinePushRetryKeyExpiredError) {
+        await markAssistantLineQueueJobAmbiguous(db, {
+          id: claim.job.id,
+          claimToken: claim.claimToken,
+          error: errorMessage,
+        });
+        assistantLog("warn", "line.queue.ambiguous", {
+          ...trace,
+          jobId: claim.job.id,
+          kind: message.kind,
+          webhookEventId: message.webhookEventId,
+          channelKey: message.channelKey,
+          groupId: message.lineGroupId,
+          reason: "retry_key_expired_ambiguous",
+          error: assistantErrorDetails(error),
+        });
+        return;
+      }
 
-  await runLineAssistant({
-    db,
-    env,
-    accessToken,
-    replyToken: message.replyToken,
-    assistantKey: channel.assistantKey,
-    channelKey: message.channelKey,
-    groupRowId: message.groupRowId,
-    lineGroupId: message.lineGroupId,
-    sourceType: message.sourceType,
-    questionText: message.questionText,
-    webhookEventId: message.webhookEventId,
-    runId: message.runId,
-    contextGeneration,
-    replyDeadlineAt: message.replyDeadlineAt,
-  });
+      const exhausted = claim.job.attempts >= ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS;
+      if (exhausted) {
+        await failAssistantLineQueueJob(db, {
+          id: claim.job.id,
+          claimToken: claim.claimToken,
+          error: errorMessage,
+        });
+      } else {
+        await releaseAssistantLineQueueJob(db, {
+          id: claim.job.id,
+          claimToken: claim.claimToken,
+          error: errorMessage,
+        });
+      }
+      assistantLog(exhausted ? "error" : "warn", exhausted ? "line.queue.retry_exhausted" : "line.queue.retry_scheduled", {
+        ...trace,
+        jobId: claim.job.id,
+        kind: message.kind,
+        webhookEventId: message.webhookEventId,
+        channelKey: message.channelKey,
+        groupId: message.lineGroupId,
+        attempts: claim.job.attempts,
+        maxAttempts: ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS,
+        terminal: exhausted,
+        error: assistantErrorDetails(error),
+      });
+    }
+    throw error;
+  } finally {
+    if (processed && claim && "job" in claim) {
+      try {
+        await completeAssistantLineQueueJob(db, { id: claim.job.id, claimToken: claim.claimToken });
+      } catch (error) {
+        assistantLog("error", "line.queue.complete_failed", {
+          ...trace,
+          jobId: claim.job.id,
+          kind: message.kind,
+          webhookEventId: message.webhookEventId,
+          channelKey: message.channelKey,
+          groupId: message.lineGroupId,
+          error: assistantErrorDetails(error),
+        });
+        throw error;
+      }
+      assistantLog("info", "line.queue.completed", {
+        ...trace,
+        jobId: claim.job.id,
+        kind: message.kind,
+        webhookEventId: message.webhookEventId,
+        channelKey: message.channelKey,
+        groupId: message.lineGroupId,
+      });
+    }
+  }
 }
 
 /** parse 不出來時回這個。用 Symbol 才不會跟「payload 本身就是 null」混淆。 */
@@ -714,6 +1131,7 @@ async function receiveLine(c: Context<AppEnv>) {
     throw new HTTPException(400, { message: "Invalid JSON payload" });
   }
   if (!Array.isArray(payload.events)) throw new HTTPException(400, { message: "LINE webhook events 格式不正確。" });
+  assistantLog("info", "line.webhook.received", { eventCount: payload.events.length });
 
   let recorded = 0;
   let duplicates = 0;
@@ -756,6 +1174,14 @@ async function receiveLine(c: Context<AppEnv>) {
     });
     if (result.inserted) recorded += 1;
     else duplicates += 1;
+    assistantLog("info", "line.event.recorded", {
+      webhookEventId,
+      channelKey: lineChannel.channelKey,
+      groupId: lineGroup.lineGroupId,
+      sourceType: group.sourceType,
+      messageId: event.message?.id ?? null,
+      inserted: result.inserted,
+    });
 
     const replyToken = event.replyToken?.trim();
     const queueBase = {
@@ -766,7 +1192,8 @@ async function receiveLine(c: Context<AppEnv>) {
       sourceType: group.sourceType,
       webhookEventId,
       contextGeneration: lineGroup.contextResetAt ?? "",
-      replyDeadlineAt: lineReplyDeadlineAt(event.timestamp),
+      messageId: event.message?.id,
+      replyDeadlineAt: lineReplyDeadlineAt(),
     } as const;
     const profileSyncNeeded = Boolean(
       result.inserted &&
@@ -775,38 +1202,46 @@ async function receiveLine(c: Context<AppEnv>) {
       shouldSyncLineGroupProfile(lineGroup),
     );
 
-    if (result.inserted && lineEventIsSessionReset(event)) {
+    const sessionReset = lineEventIsSessionReset(event);
+    let resetGeneration = queueBase.contextGeneration;
+    if (result.inserted && sessionReset) {
       const resetGroup = await resetAssistantLineContext(c.get("db"), {
         channelKey: lineChannel.channelKey,
         id: lineGroup.id,
       });
-      const resetGeneration = resetGroup?.contextResetAt ?? queueBase.contextGeneration;
+      resetGeneration = resetGroup?.contextResetAt ?? resetGeneration;
+    }
+    if (sessionReset) {
       if (lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
-        await enqueueLineAssistantJob(c.env, {
+        await enqueueLineAssistantJob(c.get("db"), c.env, {
           ...queueBase,
           contextGeneration: resetGeneration,
           kind: "reset",
           replyToken,
         });
       } else if (profileSyncNeeded) {
-        await enqueueLineAssistantJob(c.env, { ...queueBase, contextGeneration: resetGeneration, kind: "profile" });
+        await enqueueLineAssistantJob(c.get("db"), c.env, {
+          ...queueBase,
+          contextGeneration: resetGeneration,
+          kind: "profile",
+        });
       }
       continue;
     }
 
-    if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
+    if (lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
       const questionText = lineQuestionText(rawText ?? text, selfMention).slice(0, 5_000);
-      await enqueueLineAssistantJob(c.env, {
+      await enqueueLineAssistantJob(c.get("db"), c.env, {
         ...queueBase,
         kind: "assistant",
-        runId: crypto.randomUUID(),
+        runId: await stableLineRunId(webhookEventId),
         replyToken,
         questionText,
       });
     } else {
       if (profileSyncNeeded) {
-        await enqueueLineAssistantJob(c.env, { ...queueBase, kind: "profile" });
+        await enqueueLineAssistantJob(c.get("db"), c.env, { ...queueBase, kind: "profile" });
       }
       if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && !replyToken) {
         assistantLog("warn", "line.reply.skipped", {

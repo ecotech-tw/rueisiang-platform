@@ -86,22 +86,26 @@ LINE webhook 收到訊息後會先把工作寫入 Cloudflare Queue，再回傳 `
 完成，會先用 Reply API 回覆「系統繁忙，請稍後再試。」。完整結果完成後才嘗試受限 Push；
 若 Push 不可用或額度已滿，完整結果仍會保存到 D1 的對話 relation，供系統備查。
 
-Push 是 fallback，不是一般回覆 transport。台灣免費方案上限固定為每月 200 位收件者；月份
+Push 是 fallback，不是一般回覆 transport。台灣免費方案上限固定為每月 200 位收件者；本服務因 LINE usage 回報是 approximate，實際預約上限保守設為 195，預留 5 位緩衝；月份
 依 LINE 官方計費時區 GMT+9 的 `YYYY-MM` fixed window 計算。每次 Push 嘗試都寫入
 `assistant_line_push_deliveries`，群組／room 依成員數而不是 API 呼叫次數扣額度。本地 ledger
 會和 LINE quota consumption API 的回報取較高用量，失敗預約不釋放；Queue consumer 因此固定
-`max_concurrency = 1`。Push 另帶與 Queue run 相同的 `X-Line-Retry-Key`，避免 consumer 重試造成
+`INSERT ... SELECT` 預約收件人數；Queue consumer 設定 `max_concurrency = 1`，讓 LINE 工作依序完成，
+避免同一群組／聊天室因為較慢的 CYBERBIZ tool 而交錯回覆。額度正確性不依賴 consumer 的串行化。
+Push 另帶與 Queue run 相同的 `X-Line-Retry-Key`，避免 consumer 重試造成
 重複訊息。
 
-每次 LINE 執行會使用同一個 `runId` 寫入 `assistant.run.*` 與 `assistant.line.reply.*` structured logs。請用 runId 比對以下事件：
+每次 LINE 執行會使用同一個 `runId` 寫入 `assistant.run.*`、`assistant.line.reply.*`、`assistant.line.message.*` 與 Queue structured logs。請用 `runId` 搭配 `webhookEventId`、`channelKey`、`groupId` 比對以下事件：
 
 - 沒有 `assistant.run.started`：工作沒有成功排入背景，或 webhook 在授權／設定階段就結束。
 - 有 `assistant.run.failed`、沒有 `assistant.line.reply.started`：模型、tool 或設定失敗。
 - 有 `assistant.line.reply.failed`：LINE Reply API 回傳錯誤；常見原因是 reply token 過期、重複使用或 message 格式錯誤，log 會保留 HTTP status 與受限長度的 API response。
+- 有 `assistant.line.message.error` 或 `assistant.line.message.transport_error`：可查看 endpoint、HTTP status／timeout、duration 與受限長度的 response；transport timeout 不能判定 LINE 是否已收件，因此不會自動再送一份 Push。
 - 有 `assistant.line.reply.completed` 但群組仍無訊息：檢查 LINE webhook event 是否真的帶入對應的 reply token，以及該 token 是否已被其他執行消耗。
-- 有 `assistant.line.push.completed`：Reply 已進入逾時 fallback，完整回答已在 200 人 fixed window 內用 Push 送出。
-- 有 `assistant.line.push.skipped`：成員數／遠端用量取不到，或本月 200 人額度已滿；完整回答查 `assistant_line_reply_backups`。
+- 有 `assistant.line.push.completed`：Reply 已進入逾時 fallback，完整回答已在保守的 195 人 fixed window 內用 Push 送出。
+- 有 `assistant.line.push.skipped`：成員數／遠端用量取不到，或本月保守額度已滿；完整回答查 `assistant_line_reply_backups`。
 - 有 `assistant.line.push.failed`：已預約的收件人數仍保留，不因重試競態釋放；完整回答同樣留在備用表。
+- 有 `assistant.line.queue.consumer_retry`、`assistant.line.queue.retry_exhausted`、`assistant.line.queue.outbox_replay_failed` 或 Cloudflare DLQ 訊息：表示 Queue／D1／AI／LINE transport 重試後仍未完成，可用同一組 correlation fields 追完整鏈路。`failed` 工作不會再被 outbox 重送；Push retry key 超過 24 小時則記為 `ambiguous`，等待 reconciliation。
 
 tool 失敗不會立即產生固定錯誤文字；失敗結果會回傳目前執行中的模型，讓它產生可理解的說明。
 Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到 Pi Agent 的最終回答。LINE 的 AI
