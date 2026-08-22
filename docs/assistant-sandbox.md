@@ -73,6 +73,19 @@ npx wrangler tail rueisiang-platform --format json --search assistant.gemini.err
 
 目前 `apps/api/wrangler.toml` 已啟用 `[observability]`；修改程式後需部署一次，新的 structured logs 才會出現在 Cloudflare。Windows on ARM 本機因 Wrangler 的 `workerd` 不支援，建議使用 Cloudflare Dashboard 或 Linux/CI 執行 `wrangler tail`。
 
+## LINE 回覆的執行方式與延遲診斷
+
+LINE webhook 收到訊息後會先回傳 `accepted`，再透過 Worker 的 `waitUntil` 在背景執行 Gemini、tool 與 LINE Push API。這條路徑目前不是使用 LINE reply token，因此 Sandbox 顯示的 11 秒不會直接代表 reply token 已過期；但整個背景工作若超過 Cloudflare 的可等待時間，或 Push API 拒絕請求，群組仍然不會看到回覆。
+
+每次 LINE 執行會使用同一個 `runId` 寫入 `assistant.run.*` 與 `assistant.line.push.*` structured logs。請用 runId 比對以下事件：
+
+- 沒有 `assistant.run.started`：工作沒有成功排入背景，或 webhook 在授權／設定階段就結束。
+- 有 `assistant.run.failed`、沒有 `assistant.line.push.started`：模型、tool 或設定失敗。
+- 有 `assistant.line.push.failed`：LINE Push API 回傳錯誤；log 會保留 HTTP status 與受限長度的 API response。
+- 有 `assistant.line.push.completed` 但群組仍無訊息：應檢查 channel access token、目標群組 ID 與 LINE 官方帳號是否仍在該群組。
+
+tool 失敗不會立即產生固定錯誤文字；失敗結果會以 function response 回傳 Gemini，讓模型自行產生可理解的說明。Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到模型的最終回答。若未來單次查詢可能超過 `waitUntil` 的背景執行窗口，應改用 Cloudflare Queues，讓 webhook 與 AI 工作完全解耦。
+
 ## API
 
 Sandbox runs support multi-turn sessions. A session keeps the current model, prompt revision, rolling context summary, and full user/model messages together. The model in `POST /api/assistant/sandbox/run` takes precedence for an open session, so each turn can switch models; close a session to keep its history while preventing further runs. Long sessions summarize older messages before the request while keeping the full history in D1.

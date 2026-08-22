@@ -17,6 +17,8 @@ import {
   ASSISTANT_MODELS,
   DEFAULT_ASSISTANT_MODEL,
   DEFAULT_ASSISTANT_PROMPT,
+  assistantErrorDetails,
+  assistantLog,
   currentAssistantRuntimeContext,
   runGemini,
 } from "@rueisiang/assistant";
@@ -162,7 +164,28 @@ async function runLineAssistant(input: {
       });
     }
     const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
-    await pushLineMessage(input.accessToken, input.lineGroupId, result.text);
+    const pushStarted = Date.now();
+    assistantLog("info", "line.push.started", {
+      runId,
+      groupId: input.lineGroupId,
+      textChars: result.text.length,
+    });
+    try {
+      await pushLineMessage(input.accessToken, input.lineGroupId, result.text);
+      assistantLog("info", "line.push.completed", {
+        runId,
+        groupId: input.lineGroupId,
+        durationMs: Date.now() - pushStarted,
+      });
+    } catch (error) {
+      assistantLog("error", "line.push.failed", {
+        runId,
+        groupId: input.lineGroupId,
+        durationMs: Date.now() - pushStarted,
+        error: assistantErrorDetails(error),
+      });
+      throw error;
+    }
     await recordAssistantRun(input.db, {
       id: runId,
       channel: "line",

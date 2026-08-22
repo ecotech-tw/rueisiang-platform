@@ -665,11 +665,11 @@ describe("AI 助理 Sandbox", () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
-  it("工具失敗時不會再讓 Gemini 重複呼叫而觸發第二輪格式錯誤", async () => {
+  it("工具失敗時會把錯誤回傳給 Gemini 產生可理解的回覆", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 
     let geminiCalls = 0;
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/v1/orders/301")) {
         return new Response(JSON.stringify({ error: "權限不足" }), {
@@ -677,6 +677,7 @@ describe("AI 助理 Sandbox", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
       geminiCalls += 1;
       if (geminiCalls === 1) {
         return new Response(JSON.stringify({
@@ -686,8 +687,11 @@ describe("AI 助理 Sandbox", () => {
           } }] } }],
         }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
+      const contents = JSON.stringify(body.contents);
+      expect(contents).toContain("CYBERBIZ API 401");
+      expect(contents).toContain("權限不足");
       return new Response(JSON.stringify({
-        candidates: [{ content: { parts: [{ text: "不應該進入第二輪。" }] } }],
+        candidates: [{ content: { parts: [{ text: "訂單查詢工具目前沒有權限，我先不猜測訂單狀態。" }] } }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
 
@@ -702,11 +706,11 @@ describe("AI 助理 Sandbox", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      text: "我目前無法完成這次資料查詢，請稍後再試或確認查詢條件。",
+      text: "訂單查詢工具目前沒有權限，我先不猜測訂單狀態。",
       toolCalls: [{ toolKey: "crm_get_orders", status: "failed", errorMessage: "CYBERBIZ API 401: 權限不足" }],
     });
-    expect(geminiCalls).toBe(1);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(geminiCalls).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("Gemini 第二輪請求失敗時仍回傳前一輪的 tool 參數供 Sandbox debug", async () => {

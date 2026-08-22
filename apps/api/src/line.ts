@@ -119,9 +119,13 @@ async function sendLineMessage(accessToken: string, payload: unknown): Promise<v
     },
     body: JSON.stringify(payload),
   });
+  const responseBody = await response.text();
   if (!response.ok) {
-    console.error("LINE Messaging API 推送失敗", { status: response.status });
-    throw new Error("LINE Messaging API 暫時無法推送。");
+    console.error("LINE Messaging API 推送失敗", {
+      status: response.status,
+      response: responseBody.slice(0, 1_000),
+    });
+    throw new Error(`LINE Messaging API 推送失敗（HTTP ${response.status}）。`);
   }
 }
 

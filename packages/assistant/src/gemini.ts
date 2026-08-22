@@ -161,10 +161,6 @@ function safeToolError(error: unknown): string {
   return "工具執行失敗。";
 }
 
-function toolFailureText(): string {
-  return "我目前無法完成這次資料查詢，請稍後再試或確認查詢條件。";
-}
-
 function modelId(value: string): string {
   return value.replace(/^models\//, "");
 }
@@ -258,7 +254,10 @@ export async function runGemini(input: {
       const calls = readToolCalls(parts);
       if (!calls.length) {
         const text = readText(parts);
-        if (text) return finish({ text, thoughts: thoughts.join("\n\n"), toolCalls, usage }, "success");
+        if (text) {
+          const status = toolCalls.some((toolCall) => toolCall.status === "failed") ? "partial_failure" : "success";
+          return finish({ text, thoughts: thoughts.join("\n\n"), toolCalls, usage }, status);
+        }
         throw new AssistantError("模型沒有產生可顯示的文字回答。");
       }
       if (round === maxToolRounds) throw new AssistantError("工具呼叫次數已達上限，請縮小問題範圍後再試。");
@@ -266,15 +265,20 @@ export async function runGemini(input: {
       // 將模型原始 part（包含 thinking model 可能需要的 thought signature）原樣放回歷史。
       contents.push({ role: "model", parts });
       const functionResponses: Part[] = [];
-      let toolExecutionFailed = false;
       for (const call of calls) {
         const tool = toolsByName.get(call.name);
         const started = Date.now();
         if (!tool) {
           const errorMessage = `模型要求未授權的工具：${call.name}`;
           assistantLog("error", "tool.unknown", { runId, round, toolKey: call.name });
-          toolExecutionFailed = true;
           toolCalls.push({ toolKey: call.name, status: "failed", args: call.args, durationMs: Date.now() - started, errorMessage });
+          functionResponses.push({
+            functionResponse: {
+              ...(call.id ? { id: call.id } : {}),
+              name: call.name,
+              response: { error: errorMessage },
+            },
+          });
           continue;
         }
         assistantLog("info", "tool.started", { runId, round, toolKey: tool.key });
@@ -300,15 +304,18 @@ export async function runGemini(input: {
             durationMs,
             error: assistantErrorDetails(error),
           });
-          toolExecutionFailed = true;
           toolCalls.push({ toolKey: tool.key, status: "failed", args: call.args, durationMs, errorMessage });
+          functionResponses.push({
+            functionResponse: {
+              ...(call.id ? { id: call.id } : {}),
+              name: tool.key,
+              response: { error: errorMessage },
+            },
+          });
         }
       }
-      // 工具已經失敗時不再把 response 餵回模型重試，避免不同模型對失敗工具的續接格式不一致。
-      // SDK 會保留成功 function response 的 id，讓 thinking model 的 function call history 能正確配對。
-      if (toolExecutionFailed) {
-        return finish({ text: toolFailureText(), thoughts: thoughts.join("\n\n"), toolCalls, usage }, "partial_failure");
-      }
+      // 成功與失敗都要把 function response 餵回模型，讓模型決定如何向使用者說明。
+      // 失敗資訊只放在這一輪的 model context，不直接把內部錯誤當成最終回答噴給使用者。
       contents.push({ role: "user", parts: functionResponses });
     }
   } catch (error) {
