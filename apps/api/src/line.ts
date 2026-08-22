@@ -147,27 +147,104 @@ async function responsePreview(response: Response): Promise<string> {
   return preview.slice(0, LINE_ERROR_BODY_LIMIT);
 }
 
-async function sendLineReply(accessToken: string, payload: unknown): Promise<void> {
-  const response = await fetch(`${LINE_API_BASE}/reply`, {
+async function sendLineMessage(
+  accessToken: string,
+  endpoint: "reply" | "push",
+  payload: unknown,
+  retryKey?: string,
+): Promise<void> {
+  const response = await fetch(`${LINE_API_BASE}/${endpoint}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
+      ...(retryKey ? { "X-Line-Retry-Key": retryKey } : {}),
     },
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
     const responseBody = await responsePreview(response);
-    console.error("LINE Messaging API reply 失敗", {
+    console.error(`LINE Messaging API ${endpoint} 失敗`, {
       status: response.status,
       response: responseBody,
     });
-    throw new Error(`LINE Messaging API reply 失敗（HTTP ${response.status}）。`);
+    throw new Error(`LINE Messaging API ${endpoint} 失敗（HTTP ${response.status}）。`);
   }
 }
 
 export async function replyLineMessage(accessToken: string, replyToken: string, text: string): Promise<void> {
-  await sendLineReply(accessToken, { replyToken, messages: [{ type: "text", text: lineText(text) }] });
+  await sendLineMessage(accessToken, "reply", { replyToken, messages: [{ type: "text", text: lineText(text) }] });
+}
+
+export async function pushLineMessage(accessToken: string, to: string, text: string, retryKey: string): Promise<void> {
+  await sendLineMessage(accessToken, "push", { to, messages: [{ type: "text", text: lineText(text) }] }, retryKey);
+}
+
+/** LINE 台灣方案的訊息用量依 GMT+9 月份結算；固定月窗不可用伺服器本地時區計算。 */
+export function linePushWindowKey(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  if (!year || !month) throw new Error("無法計算 LINE Push 計費月份。");
+  return `${year}-${month}`;
+}
+
+async function fetchLineJson(
+  accessToken: string,
+  url: string,
+  label: string,
+): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      console.warn(`LINE ${label} 取得失敗`, { status: response.status });
+      throw new Error(`LINE ${label} 取得失敗（HTTP ${response.status}）。`);
+    }
+    const body = await response.json() as unknown;
+    if (typeof body !== "object" || body === null) throw new Error(`LINE ${label} 回傳格式不正確。`);
+    return body as Record<string, unknown>;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** 回傳 Messaging API 本月已用 recipient 數；取不到時由呼叫端保守停用 Push。 */
+export async function fetchLinePushUsage(accessToken: string): Promise<number> {
+  const body = await fetchLineJson(accessToken, `${LINE_API_BASE}/quota/consumption`, "Push 用量");
+  const totalUsage = body.totalUsage;
+  if (typeof totalUsage !== "number" || !Number.isFinite(totalUsage) || totalUsage < 0) {
+    throw new Error("LINE Push 用量回傳格式不正確。");
+  }
+  return Math.floor(totalUsage);
+}
+
+/** Push 用量以收件人數計算；群組與多人聊天室不能只當成一則。 */
+export async function fetchLineChatMemberCount(
+  accessToken: string,
+  sourceType: LineSourceType,
+  chatId: string,
+): Promise<number> {
+  if (sourceType === "user") return 1;
+  const prefix = sourceType === "group" ? "group" : "room";
+  const body = await fetchLineJson(
+    accessToken,
+    `${LINE_BOT_API_BASE}/${prefix}/${encodeURIComponent(chatId)}/members/count`,
+    "聊天室人數",
+  );
+  const count = body.count;
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 1) {
+    throw new Error("LINE 聊天室人數回傳格式不正確。");
+  }
+  return count;
 }
 
 export interface LineGroupSummary {
@@ -190,7 +267,7 @@ export interface LineUserProfile {
  * 一次同步失敗連帶把整個 webhook 弄壞——收訊息比補名稱重要得多。
  */
 export async function fetchLineGroupSummary(accessToken: string, groupId: string): Promise<LineGroupSummary | null> {
-  // 就算跑在 waitUntil 裡也要有界線：Worker 的執行時間是有上限的，一個掛住的請求會
+  // 就算跑在 Queue consumer 裡也要有界線：Worker 的執行時間是有上限的，一個掛住的請求會
   // 把同一次執行裡其他該做完的事一起拖垮。
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5_000);

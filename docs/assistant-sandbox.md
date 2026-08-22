@@ -72,7 +72,18 @@ npx wrangler tail rueisiang-platform --format json --search assistant.gemini.err
 
 ## LINE 回覆的執行方式與延遲診斷
 
-LINE webhook 收到訊息後會先回傳 `accepted`，再透過 Worker 的 `waitUntil` 在背景執行 Gemini、tool 與 LINE Reply API。回覆一定使用該 webhook event 的 `replyToken`，不使用 Push API；因此 reply token 必須在背景工作完成後仍然有效。
+LINE webhook 收到訊息後會先把工作寫入 Cloudflare Queue，再回傳 `accepted`；Queue consumer
+負責執行 Gemini、tool 與 LINE Messaging API。正常路徑永遠優先使用 webhook event 的
+`replyToken`；Queue 不設定 delivery delay。距離程式採用的 60 秒期限只剩 10 秒時，若推論仍未
+完成，會先用 Reply API 回覆「系統繁忙，請稍後再試。」。完整結果完成後才嘗試受限 Push；
+若 Push 不可用或額度已滿，完整結果仍會保存到 D1 的對話 relation，供系統備查。
+
+Push 是 fallback，不是一般回覆 transport。台灣免費方案上限固定為每月 200 位收件者；月份
+依 LINE 官方計費時區 GMT+9 的 `YYYY-MM` fixed window 計算。每次 Push 嘗試都寫入
+`assistant_line_push_deliveries`，群組／room 依成員數而不是 API 呼叫次數扣額度。本地 ledger
+會和 LINE quota consumption API 的回報取較高用量，失敗預約不釋放；Queue consumer 因此固定
+`max_concurrency = 1`。Push 另帶與 Queue run 相同的 `X-Line-Retry-Key`，避免 consumer 重試造成
+重複訊息。
 
 每次 LINE 執行會使用同一個 `runId` 寫入 `assistant.run.*` 與 `assistant.line.reply.*` structured logs。請用 runId 比對以下事件：
 
@@ -80,8 +91,11 @@ LINE webhook 收到訊息後會先回傳 `accepted`，再透過 Worker 的 `wait
 - 有 `assistant.run.failed`、沒有 `assistant.line.reply.started`：模型、tool 或設定失敗。
 - 有 `assistant.line.reply.failed`：LINE Reply API 回傳錯誤；常見原因是 reply token 過期、重複使用或 message 格式錯誤，log 會保留 HTTP status 與受限長度的 API response。
 - 有 `assistant.line.reply.completed` 但群組仍無訊息：檢查 LINE webhook event 是否真的帶入對應的 reply token，以及該 token 是否已被其他執行消耗。
+- 有 `assistant.line.push.completed`：Reply 已進入逾時 fallback，完整回答已在 200 人 fixed window 內用 Push 送出。
+- 有 `assistant.line.push.skipped`：成員數／遠端用量取不到，或本月 200 人額度已滿；完整回答查 `assistant_line_reply_backups`。
+- 有 `assistant.line.push.failed`：已預約的收件人數仍保留，不因重試競態釋放；完整回答同樣留在備用表。
 
-tool 失敗不會立即產生固定錯誤文字；失敗結果會以 function response 回傳 Gemini，讓模型自行產生可理解的說明。Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到模型的最終回答。若未來單次查詢可能超過 `waitUntil` 的背景執行窗口，應改用 Cloudflare Queues，讓 webhook 與 AI 工作完全解耦。
+tool 失敗不會立即產生固定錯誤文字；失敗結果會以 function response 回傳 Gemini，讓模型自行產生可理解的說明。Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到模型的最終回答。LINE 的 AI 工作已經透過 Cloudflare Queues 與 webhook 解耦。
 
 ## API
 

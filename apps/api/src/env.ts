@@ -1,10 +1,13 @@
 import type { AuthUser } from "@rueisiang/auth";
 import type { Database } from "@rueisiang/db";
+import type { LineAssistantQueueMessage } from "./line-queue.js";
 
 /** Worker 的綁定與 secret。wrangler.toml 與 `wrangler secret put` 決定實際內容。 */
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  /** LINE webhook 只負責落地與入列，Gemini 與 Reply API 在 queue consumer 執行。 */
+  LINE_ASSISTANT_QUEUE: Queue<LineAssistantQueueMessage>;
   /**
    * 倉位現場照片。只存檔案，索引在 zone_images。
    *

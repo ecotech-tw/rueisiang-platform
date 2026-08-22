@@ -239,6 +239,20 @@
       "when": 1787400000000,
       "tag": "0033_enable_all_assistant_tools",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1787402082409,
+      "tag": "0034_chief_zaladane",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1787403139831,
+      "tag": "0035_parallel_machine_man",
+      "breakpoints": true
     }
   ]
 }

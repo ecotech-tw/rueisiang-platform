@@ -1,12 +1,17 @@
 import { readCyberbizTopic, verifyCyberbizWebhook } from "@rueisiang/cyberbiz";
 import {
+  createDatabase,
   dispatchCyberbizWebhook,
   ensureAssistantDefaults,
   getActiveAssistantPrompt,
   getAssistantConfig,
   ensureAssistantLineChannel,
+  getAssistantLineChannel,
   findAssistantLineGroup,
   listAssistantLineMessages,
+  markAssistantLinePushDelivery,
+  recordAssistantLineReplyBackup,
+  reserveAssistantLinePushDelivery,
   resolveLineToolKeys,
   recordAssistantRun,
   recordAssistantLineMessage,
@@ -24,6 +29,7 @@ import {
   assistantLog,
   currentAssistantRuntimeContext,
   runGemini,
+  type AssistantRunResult,
 } from "@rueisiang/assistant";
 import { PLATFORM_TOOL_KEYS, toolsForSurface } from "@rueisiang/tools";
 import { Hono } from "hono";
@@ -32,6 +38,7 @@ import { forgetCatalog } from "../cyberbiz-catalog.js";
 import { cyberbizClient, cyberbizInventoryClient } from "../cyberbiz.js";
 import type { AppEnv, Env } from "../env.js";
 import { decryptLineSecret } from "../line-secrets.js";
+import { isLineAssistantQueueMessage, type LineAssistantQueueMessage } from "../line-queue.js";
 import { cacheClient } from "../upstash.js";
 import type { Context } from "hono";
 import {
@@ -41,9 +48,13 @@ import {
   lineEventIsSessionReset,
   lineEventRawText,
   lineEventText,
+  fetchLineChatMemberCount,
   fetchLineGroupSummary,
+  fetchLinePushUsage,
   fetchLineUserProfile,
+  linePushWindowKey,
   lineQuestionText,
+  pushLineMessage,
   replyLineMessage,
   verifyLineWebhookSignature,
   type LineWebhookPayload,
@@ -67,6 +78,16 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const LINE_TOOL_DEFINITIONS = toolsForSurface("line");
 const LINE_TOOL_KEYS = LINE_TOOL_DEFINITIONS.map((tool) => tool.key);
 const LINE_MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
+const LINE_REPLY_TOKEN_TTL_MS = 60_000;
+const LINE_REPLY_SAFETY_MARGIN_MS = 10_000;
+const LINE_BUSY_REPLY = "系統繁忙，請稍後再試。";
+const LINE_FREE_PUSH_RECIPIENT_LIMIT = 200;
+
+function lineReplyDeadlineAt(timestamp: unknown): number {
+  return typeof timestamp === "number" && Number.isFinite(timestamp) && timestamp > 0
+    ? timestamp + LINE_REPLY_TOKEN_TTL_MS
+    : Date.now() + LINE_REPLY_TOKEN_TTL_MS;
+}
 
 async function stableLineWebhookEventId(input: {
   groupId: string;
@@ -88,6 +109,120 @@ async function stableLineWebhookEventId(input: {
   return `fallback:${Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
+type LinePushOutcome = "sent" | "quota_exhausted" | "usage_unavailable" | "member_count_unavailable" | "failed";
+
+/** Push 是 Reply token 失效後的最後手段；任何前置資訊取不到都保守停用，不能冒險超過免費額度。 */
+async function deliverLinePush(input: {
+  db: AppEnv["Variables"]["db"];
+  accessToken: string;
+  runId: string;
+  channelKey: string;
+  groupRowId: string;
+  lineGroupId: string;
+  sourceType: "group" | "room" | "user";
+  text: string;
+}): Promise<LinePushOutcome> {
+  const windowKey = linePushWindowKey();
+  let recipientCount = input.sourceType === "user" ? 1 : 0;
+  try {
+    recipientCount = await fetchLineChatMemberCount(input.accessToken, input.sourceType, input.lineGroupId);
+  } catch (error) {
+    await reserveAssistantLinePushDelivery(input.db, {
+      runId: input.runId,
+      channelKey: input.channelKey,
+      groupId: input.groupRowId,
+      lineGroupId: input.lineGroupId,
+      sourceType: input.sourceType,
+      windowKey,
+      remoteUsage: 0,
+      recipients: recipientCount,
+      limit: LINE_FREE_PUSH_RECIPIENT_LIMIT,
+      denyReason: "member_count_unavailable",
+    });
+    assistantLog("warn", "line.push.skipped", {
+      runId: input.runId,
+      groupId: input.lineGroupId,
+      reason: "member_count_unavailable",
+      error: assistantErrorDetails(error),
+    });
+    return "member_count_unavailable";
+  }
+
+  let remoteUsage: number;
+  try {
+    remoteUsage = await fetchLinePushUsage(input.accessToken);
+  } catch (error) {
+    await reserveAssistantLinePushDelivery(input.db, {
+      runId: input.runId,
+      channelKey: input.channelKey,
+      groupId: input.groupRowId,
+      lineGroupId: input.lineGroupId,
+      sourceType: input.sourceType,
+      windowKey,
+      remoteUsage: 0,
+      recipients: recipientCount,
+      limit: LINE_FREE_PUSH_RECIPIENT_LIMIT,
+      denyReason: "usage_unavailable",
+    });
+    assistantLog("warn", "line.push.skipped", {
+      runId: input.runId,
+      groupId: input.lineGroupId,
+      reason: "usage_unavailable",
+      error: assistantErrorDetails(error),
+    });
+    return "usage_unavailable";
+  }
+
+  const reservation = await reserveAssistantLinePushDelivery(input.db, {
+    runId: input.runId,
+    channelKey: input.channelKey,
+    groupId: input.groupRowId,
+    lineGroupId: input.lineGroupId,
+    sourceType: input.sourceType,
+    windowKey,
+    remoteUsage,
+    recipients: recipientCount,
+    limit: LINE_FREE_PUSH_RECIPIENT_LIMIT,
+  });
+  if (!reservation.allowed) {
+    assistantLog("warn", "line.push.skipped", {
+      runId: input.runId,
+      groupId: input.lineGroupId,
+      reason: reservation.delivery.reason || "monthly_fixed_window_limit",
+      recipientCount,
+      remoteUsage,
+      localUsage: reservation.localUsage,
+      windowKey,
+    });
+    return "quota_exhausted";
+  }
+
+  try {
+    // retry key 與 Queue message 的 runId 相同；consumer 在 LINE 已收件、D1 尚未標 sent 時重試也不會重複計費。
+    await pushLineMessage(input.accessToken, input.lineGroupId, input.text, input.runId);
+    await markAssistantLinePushDelivery(input.db, { runId: input.runId, status: "sent" });
+    assistantLog("info", "line.push.completed", {
+      runId: input.runId,
+      groupId: input.lineGroupId,
+      recipientCount,
+      windowKey,
+    });
+    return "sent";
+  } catch (error) {
+    await markAssistantLinePushDelivery(input.db, {
+      runId: input.runId,
+      status: "failed",
+      reason: error instanceof Error ? error.message : "line_push_failed",
+    });
+    assistantLog("warn", "line.push.failed", {
+      runId: input.runId,
+      groupId: input.lineGroupId,
+      error: assistantErrorDetails(error),
+    });
+    return "failed";
+  }
+}
+
 async function runLineAssistant(input: {
   db: AppEnv["Variables"]["db"];
   env: AppEnv["Bindings"];
@@ -100,13 +235,59 @@ async function runLineAssistant(input: {
   lineGroupId: string;
   sourceType: "group" | "room" | "user";
   questionText: string;
+  webhookEventId: string;
+  runId: string;
+  replyDeadlineAt?: number;
 }): Promise<void> {
-  const runId = crypto.randomUUID();
+  const runId = input.runId;
   const started = Date.now();
   let modelId = DEFAULT_ASSISTANT_MODEL;
   let promptRevisionId = "unavailable";
   let promptText = input.questionText;
-  let hasReplied = false;
+  let replyKind: "final" | "deadline-fallback" | "error" | undefined;
+  let replyFailed = false;
+  let replyAttempt: Promise<boolean> | undefined;
+  let resultForBackup: AssistantRunResult | undefined;
+
+  const sendReplyOnce = async (text: string, reason: "final" | "deadline-fallback" | "error"): Promise<boolean> => {
+    if (replyKind) return false;
+    if (replyAttempt) {
+      await replyAttempt;
+      return false;
+    }
+    replyAttempt = (async () => {
+      try {
+        await replyLineMessage(input.accessToken, input.replyToken, text);
+        replyKind = reason;
+        assistantLog("info", "line.reply.completed", {
+          runId,
+          groupId: input.lineGroupId,
+          reason,
+        });
+        return true;
+      } catch (error) {
+        replyFailed = true;
+        assistantLog("warn", "line.reply.failed", {
+          runId,
+          groupId: input.lineGroupId,
+          reason,
+          error: assistantErrorDetails(error),
+        });
+        return false;
+      } finally {
+        replyAttempt = undefined;
+      }
+    })();
+    return await replyAttempt;
+  };
+
+  const replyDeadlineAt = input.replyDeadlineAt ?? Date.now() + LINE_REPLY_TOKEN_TTL_MS;
+  const fallbackAt = replyDeadlineAt - LINE_REPLY_SAFETY_MARGIN_MS;
+  const fallbackTimer = replyDeadlineAt > Date.now()
+    ? setTimeout(() => {
+        void sendReplyOnce(LINE_BUSY_REPLY, "deadline-fallback");
+      }, Math.max(0, fallbackAt - Date.now()))
+    : undefined;
   try {
     if (!input.env.GEMINI_API_KEY) throw new Error("平台還沒設定 GEMINI_API_KEY。");
     await ensureAssistantDefaults(input.db, {
@@ -141,9 +322,11 @@ async function runLineAssistant(input: {
         limit: 12,
       }),
     ]);
-    modelId = config?.activeModel ?? DEFAULT_ASSISTANT_MODEL;
-    const model = LINE_MODEL_MAP.get(modelId);
-    if (!model?.supported || !prompt) throw new Error("小香的模型或 prompt 設定目前無法使用。");
+    const configuredModel = config?.activeModel ?? DEFAULT_ASSISTANT_MODEL;
+    modelId = configuredModel;
+    const model = LINE_MODEL_MAP.get(configuredModel);
+    if (!model?.supported) throw new Error("小香的模型設定目前無法使用。");
+    if (!prompt) throw new Error("小香的 prompt 設定目前無法使用。");
     promptRevisionId = prompt.id;
 
     // resolveLineToolKeys 已經把「全域狀態 ∩ channel 白名單 ∩ 對話白名單」收斂完了，
@@ -164,9 +347,9 @@ async function runLineAssistant(input: {
     const boundedContext = context.length > contextBudget ? context.slice(-contextBudget) : context;
     promptText = [contextPreamble, boundedContext, questionPreamble, input.questionText].join("\n");
 
-    const result = await runGemini({
+    const result: AssistantRunResult = await runGemini({
       apiKey: input.env.GEMINI_API_KEY,
-      model: modelId,
+      model: configuredModel,
       runId,
       systemPrompt: prompt.systemPrompt,
       runtimeContext: currentAssistantRuntimeContext(),
@@ -174,6 +357,7 @@ async function runLineAssistant(input: {
       tools,
       toolContext: { surface: "line", db: input.db, env: input.env },
     });
+    resultForBackup = result;
     if (result.thoughts) {
       console.info("LINE 小香 thought summary", {
         runId,
@@ -182,28 +366,50 @@ async function runLineAssistant(input: {
       });
     }
     const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
-    const replyStarted = Date.now();
     assistantLog("info", "line.reply.started", {
       runId,
       groupId: input.lineGroupId,
       textChars: result.text.length,
     });
-    try {
-      await replyLineMessage(input.accessToken, input.replyToken, result.text);
-      hasReplied = true;
-      assistantLog("info", "line.reply.completed", {
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    if (replyAttempt) await replyAttempt;
+
+    let finalReplySent = false;
+    if (!replyKind && !replyFailed && Date.now() < fallbackAt) {
+      finalReplySent = await sendReplyOnce(result.text, "final");
+    } else if (!replyKind && !replyFailed && Date.now() < replyDeadlineAt) {
+      // 已進入安全緩衝區就不再拿完整回答冒險；先用 Reply token 明確告知繁忙，完成內容再走受限 Push。
+      await sendReplyOnce(LINE_BUSY_REPLY, "deadline-fallback");
+    }
+
+    if (!finalReplySent) {
+      try {
+        await recordAssistantLineReplyBackup(input.db, {
+          runId,
+          channelKey: input.channelKey,
+          groupId: input.groupRowId,
+          lineGroupId: input.lineGroupId,
+          sourceType: input.sourceType,
+          webhookEventId: input.webhookEventId,
+          questionText: input.questionText,
+          responseText: result.text,
+          model: modelId,
+          reason: replyFailed ? "reply_failed" : "reply_token_deadline",
+        });
+      } catch (backupError) {
+        console.error("LINE 備用回覆儲存失敗", { runId, groupId: input.lineGroupId, error: backupError });
+      }
+
+      await deliverLinePush({
+        db: input.db,
+        accessToken: input.accessToken,
         runId,
-        groupId: input.lineGroupId,
-        durationMs: Date.now() - replyStarted,
+        channelKey: input.channelKey,
+        groupRowId: input.groupRowId,
+        lineGroupId: input.lineGroupId,
+        sourceType: input.sourceType,
+        text: result.text,
       });
-    } catch (error) {
-      assistantLog("error", "line.reply.failed", {
-        runId,
-        groupId: input.lineGroupId,
-        durationMs: Date.now() - replyStarted,
-        error: assistantErrorDetails(error),
-      });
-      throw error;
     }
     await recordAssistantRun(input.db, {
       id: runId,
@@ -244,30 +450,138 @@ async function runLineAssistant(input: {
     } catch (recordError) {
       console.error("LINE 小香失敗用量記錄失敗", { runId, groupId: input.lineGroupId, error: recordError });
     }
-    if (!hasReplied) {
+    if (!replyKind && !replyFailed && Date.now() < replyDeadlineAt) {
+      await sendReplyOnce("小香目前無法完成回答，請稍後再試。", "error");
+    }
+    if (resultForBackup && replyKind !== "final") {
       try {
-        await replyLineMessage(input.accessToken, input.replyToken, "小香目前無法完成回答，請稍後再試。");
-      } catch (replyError) {
-        console.error("LINE reply 錯誤提示也無法送出", { runId, groupId: input.lineGroupId, error: replyError });
+        await recordAssistantLineReplyBackup(input.db, {
+          runId,
+          channelKey: input.channelKey,
+          groupId: input.groupRowId,
+          lineGroupId: input.lineGroupId,
+          sourceType: input.sourceType,
+          webhookEventId: input.webhookEventId,
+          questionText: input.questionText,
+          responseText: resultForBackup.text,
+          model: modelId,
+          status: "ready",
+          reason: "reply_token_expired_or_failed",
+        });
+      } catch (backupError) {
+        console.error("LINE 備用回覆儲存失敗", { runId, groupId: input.lineGroupId, error: backupError });
       }
     }
+  } finally {
+    if (fallbackTimer) clearTimeout(fallbackTimer);
   }
 }
 
-/**
- * 把工作挪出 webhook 的回應路徑。
- *
- * 這條路上不能有任何沒有界線的對外請求：LINE 等不到回應就會重送，而訊息已經寫進去了，
- * 重送時 `result.inserted` 是 false，那一則就永遠不會被回覆——掉的是回覆，不是這件工作。
- */
-function deferLineJob(c: { executionCtx: { waitUntil(promise: Promise<unknown>): void } }, job: Promise<void>): Promise<void> {
+async function syncLineGroupProfile(input: {
+  db: AppEnv["Variables"]["db"];
+  accessToken: string;
+  channelKey: string;
+  group: NonNullable<Awaited<ReturnType<typeof findAssistantLineGroup>>>;
+}): Promise<void> {
+  const group = input.group;
+  if (group.sourceType === "room" || !shouldSyncLineGroupProfile(group)) return;
+
   try {
-    c.executionCtx.waitUntil(job);
-    return Promise.resolve();
-  } catch {
-    // 本機 node:http 與單元測試沒有 ExecutionContext，改成等待完成讓行為可驗證。
-    return job;
+    const profile = group.sourceType === "group"
+      ? await fetchLineGroupSummary(input.accessToken, group.lineGroupId)
+      : await fetchLineUserProfile(input.accessToken, group.lineGroupId);
+    if (profile) {
+      await updateAssistantLineGroupProfile(input.db, {
+        channelKey: input.channelKey,
+        id: group.id,
+        groupName: "groupName" in profile ? profile.groupName : profile.displayName,
+        pictureUrl: profile.pictureUrl,
+      });
+    }
+  } catch (error) {
+    console.warn("LINE 對話資料同步失敗", { groupId: group.lineGroupId, error });
   }
+}
+
+async function enqueueLineAssistantJob(
+  env: AppEnv["Bindings"],
+  message: LineAssistantQueueMessage,
+): Promise<void> {
+  // send() resolve 時才代表訊息已寫入 Queue；Webhook 會等這個短暫寫入完成，不再把 Gemini 放進 waitUntil。
+  await env.LINE_ASSISTANT_QUEUE.send(message, { contentType: "json", delaySeconds: 0 });
+  assistantLog("info", "line.queue.enqueued", {
+    kind: message.kind,
+    webhookEventId: message.webhookEventId,
+    groupId: message.lineGroupId,
+  });
+}
+
+/** Queue consumer 與本機測試共用的 LINE 工作入口。 */
+export async function processLineAssistantQueueMessage(message: unknown, env: AppEnv["Bindings"]): Promise<void> {
+  if (!isLineAssistantQueueMessage(message)) {
+    console.error("LINE Queue 收到無效的工作內容", { message });
+    return;
+  }
+
+  const db = createDatabase(env.DB);
+  const channel = await getAssistantLineChannel(db, message.assistantKey);
+  if (!channel) {
+    console.error("LINE Queue 找不到 channel", { assistantKey: message.assistantKey, channelKey: message.channelKey });
+    return;
+  }
+
+  const storedAccessToken = channel.accessTokenEncrypted
+    ? await decryptLineSecret(channel.accessTokenEncrypted, env.AUTH_SESSION_SECRET)
+    : null;
+  const accessToken = storedAccessToken || env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!accessToken) {
+    assistantLog("warn", "line.queue.skipped", {
+      kind: message.kind,
+      groupId: message.lineGroupId,
+      reason: "missing_access_token",
+    });
+    return;
+  }
+
+  const group = await findAssistantLineGroup(db, { channelKey: message.channelKey, id: message.groupRowId });
+  if (!group) {
+    console.error("LINE Queue 找不到對話設定", { channelKey: message.channelKey, groupRowId: message.groupRowId });
+    return;
+  }
+
+  await syncLineGroupProfile({ db, accessToken, channelKey: message.channelKey, group });
+  if (message.kind === "profile") return;
+
+  // Queue 送出後管理員可能已經關閉 channel 或這個對話；此時不要再回覆一則錯誤訊息。
+  if (!channel.enabled || !group.enabled) {
+    assistantLog("info", "line.queue.skipped", {
+      kind: message.kind,
+      groupId: message.lineGroupId,
+      reason: "disabled_before_consume",
+    });
+    return;
+  }
+
+  if (message.kind === "reset") {
+    await replyLineMessage(accessToken, message.replyToken, "已重設這段對話的上下文。");
+    return;
+  }
+
+  await runLineAssistant({
+    db,
+    env,
+    accessToken,
+    replyToken: message.replyToken,
+    assistantKey: channel.assistantKey,
+    channelKey: message.channelKey,
+    groupRowId: message.groupRowId,
+    lineGroupId: message.lineGroupId,
+    sourceType: message.sourceType,
+    questionText: message.questionText,
+    webhookEventId: message.webhookEventId,
+    runId: message.runId,
+    replyDeadlineAt: message.replyDeadlineAt,
+  });
 }
 
 /** parse 不出來時回這個。用 Symbol 才不會跟「payload 本身就是 null」混淆。 */
@@ -423,71 +737,61 @@ async function receiveLine(c: Context<AppEnv>) {
     if (result.inserted) recorded += 1;
     else duplicates += 1;
 
-    /*
-     * 順手把對話名稱與大頭貼同步回來。
-     *
-     * group 用群組 summary，user 用 user profile；room 沒有可用的對話名稱 API。刻意不是
-     * 每則訊息都打——名稱很少改，每則都打只是在燒速率限制。還沒有名字的例外，那種要
-     * 立刻補上：後台只看到一串 ID 根本認不出是哪一個對話。
-     *
-     * 整段包在自己的 try 裡：補名稱失敗不該讓收訊息一起失敗。
-     */
-    if (result.inserted && accessToken && group.sourceType !== "room" && shouldSyncLineGroupProfile(lineGroup)) {
-      const token = accessToken;
-      const channelKey = lineChannel.channelKey;
-      const row = lineGroup;
-      await deferLineJob(c, (async () => {
-        try {
-          const profile = row.sourceType === "group"
-            ? await fetchLineGroupSummary(token, row.lineGroupId)
-            : await fetchLineUserProfile(token, row.lineGroupId);
-          if (profile) {
-            await updateAssistantLineGroupProfile(c.get("db"), {
-              channelKey,
-              id: row.id,
-              groupName: "groupName" in profile ? profile.groupName : profile.displayName,
-              pictureUrl: profile.pictureUrl,
-            });
-          }
-        } catch (error) {
-          console.warn("LINE 對話資料同步失敗", { groupId: row.lineGroupId, error });
-        }
-      })());
-    }
-
     const replyToken = event.replyToken?.trim();
+    const queueBase = {
+      assistantKey: lineChannel.assistantKey,
+      channelKey: lineChannel.channelKey,
+      groupRowId: lineGroup.id,
+      lineGroupId: lineGroup.lineGroupId,
+      sourceType: group.sourceType,
+      webhookEventId,
+      replyDeadlineAt: lineReplyDeadlineAt(event.timestamp),
+    } as const;
+    const profileSyncNeeded = Boolean(
+      result.inserted &&
+      accessToken &&
+      group.sourceType !== "room" &&
+      shouldSyncLineGroupProfile(lineGroup),
+    );
+
     if (result.inserted && lineEventIsSessionReset(event)) {
       await resetAssistantLineContext(c.get("db"), {
         channelKey: lineChannel.channelKey,
         id: lineGroup.id,
       });
       if (lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
-        await deferLineJob(c, replyLineMessage(accessToken, replyToken, "已重設這段對話的上下文。"));
+        await enqueueLineAssistantJob(c.env, {
+          ...queueBase,
+          kind: "reset",
+          replyToken,
+        });
+      } else if (profileSyncNeeded) {
+        await enqueueLineAssistantJob(c.env, { ...queueBase, kind: "profile" });
       }
       continue;
     }
 
     if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
-      const questionText = lineQuestionText(rawText ?? text, selfMention);
-      await deferLineJob(c, runLineAssistant({
-        db: c.get("db"),
-        env: c.env,
-        accessToken,
+      const questionText = lineQuestionText(rawText ?? text, selfMention).slice(0, 5_000);
+      await enqueueLineAssistantJob(c.env, {
+        ...queueBase,
+        kind: "assistant",
+        runId: crypto.randomUUID(),
         replyToken,
-        assistantKey: lineChannel.assistantKey,
-        channelKey: lineChannel.channelKey,
-        groupRowId: lineGroup.id,
-        lineGroupId: lineGroup.lineGroupId,
-        sourceType: group.sourceType,
         questionText,
-      }));
-    } else if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && !replyToken) {
-      assistantLog("warn", "line.reply.skipped", {
-        webhookEventId: event.webhookEventId ?? null,
-        groupId: lineGroup.lineGroupId,
-        reason: "missing_reply_token",
       });
+    } else {
+      if (profileSyncNeeded) {
+        await enqueueLineAssistantJob(c.env, { ...queueBase, kind: "profile" });
+      }
+      if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && !replyToken) {
+        assistantLog("warn", "line.reply.skipped", {
+          webhookEventId,
+          groupId: lineGroup.lineGroupId,
+          reason: "missing_reply_token",
+        });
+      }
     }
   }
 

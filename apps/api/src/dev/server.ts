@@ -6,6 +6,7 @@ import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import app from "../index.js";
 import { createLocalD1 } from "../local-d1/d1.js";
 import { createLocalR2 } from "../local-d1/r2.js";
+import { processLineAssistantQueueMessage } from "../routes/webhooks.js";
 import { DEV_ACCOUNTS, seedDevData } from "./fixtures.js";
 
 /**
@@ -87,6 +88,11 @@ const env = {
   PUBLIC_APP_URL: `http://localhost:${PORTAL_PORT}`,
   // .dev.vars 放最後，這樣要蓋掉上面任何一個預設值都可以。
   ...loadDevVars(),
+};
+
+// node:http 沒有 Cloudflare Queue runtime；本機 adapter 仍走正式 consumer 的同一個入口。
+(env as Record<string, unknown>).LINE_ASSISTANT_QUEUE = {
+  send: async (message: unknown) => processLineAssistantQueueMessage(message, env as never),
 };
 
 function devIndex(): string {

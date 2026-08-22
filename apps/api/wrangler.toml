@@ -27,6 +27,20 @@ migrations_dir = "../../packages/db/migrations"
 binding = "UPLOADS"
 bucket_name = "rueisiang-platform-uploads"
 
+# LINE webhook 只把工作寫入 Queue；consumer 優先使用 Reply token，逾時才走每月 200 人的受限 Push。
+# 第一次部署前先建立一次：npx wrangler queues create rueisiang-line-assistant
+[[queues.producers]]
+binding = "LINE_ASSISTANT_QUEUE"
+queue = "rueisiang-line-assistant"
+
+[[queues.consumers]]
+queue = "rueisiang-line-assistant"
+max_batch_size = 1
+max_batch_timeout = 0
+# Push fixed-window ledger 依賴單一 consumer 順序預約；調高前必須先改成跨 consumer 的原子 quota gate。
+max_concurrency = 1
+max_retries = 3
+
 # 正式網域。custom_domain 會由 Cloudflare 自己建立對應的 DNS 記錄——
 # 所以不要先手動加一筆，已經有同名記錄的話這裡會掛。
 [[routes]]
@@ -47,7 +61,7 @@ PAYOUT_GITHUB_REF = "main"
 #   GOOGLE_OAUTH_CLIENT_SECRET
 #   GEMINI_API_KEY              AI 助理 Sandbox 與後續 LINE 回覆
 #   LINE_CHANNEL_SECRET         LINE webhook 簽章驗證
-#   LINE_CHANNEL_ACCESS_TOKEN   LINE Messaging API 回覆用 token
+#   LINE_CHANNEL_ACCESS_TOKEN   LINE Messaging API Reply／Push 用 token
 #   CYBERBIZ_API_TOKEN         客戶同步
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
 #   PAYOUT_GITHUB_TOKEN        fine-grained PAT，只給本 repo 的 Actions 與 Contents 讀寫

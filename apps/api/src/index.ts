@@ -11,11 +11,12 @@ import { admin } from "./routes/admin.js";
 import { assistant } from "./routes/assistant.js";
 import { auth } from "./routes/auth.js";
 import { crm } from "./routes/crm.js";
-import { webhooks } from "./routes/webhooks.js";
+import { processLineAssistantQueueMessage, webhooks } from "./routes/webhooks.js";
 import { health } from "./routes/health.js";
 import { PayoutGithubError } from "./payout/github.js";
 import { tools } from "./routes/tools.js";
 import { wms } from "./routes/wms.js";
+import type { LineAssistantQueueMessage } from "./line-queue.js";
 
 /**
  * 平台唯一的 Worker：/api/* 由這裡處理，其餘交給 Static Assets（portal 的 SPA）。
@@ -124,4 +125,20 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
   );
 }
 
-export default { fetch: app.fetch, scheduled };
+async function queue(batch: MessageBatch<LineAssistantQueueMessage>, env: Env): Promise<void> {
+  for (const message of batch.messages) {
+    try {
+      await processLineAssistantQueueMessage(message.body, env);
+      message.ack();
+    } catch (error) {
+      console.error("LINE Queue 工作失敗，將依設定重試", {
+        messageId: message.id,
+        attempts: message.attempts,
+        error,
+      });
+      message.retry();
+    }
+  }
+}
+
+export default { fetch: app.fetch, scheduled, queue } satisfies ExportedHandler<Env, LineAssistantQueueMessage>;

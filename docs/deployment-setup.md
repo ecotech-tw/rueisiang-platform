@@ -82,6 +82,39 @@ D1 資料庫 `rueisiang-platform` 已經建好，`database_id` 也填進
 
 （等價指令：`npx wrangler d1 create rueisiang-platform`）
 
+### 2.1.1 建立 LINE Queue
+
+LINE webhook 的 AI 工作會寫入 `rueisiang-line-assistant`，由同一個 Worker 的 Queue
+consumer 執行；正式回覆優先走 LINE Reply API，逾時結果才使用受限 Push。這個 Queue 只需要建立一次，名稱要跟
+`apps/api/wrangler.toml` 的 `[[queues.producers]]` 與 `[[queues.consumers]]` 一致。
+
+Cloudflare 儀表板：**Storage & Databases → Queues → Create queue**，建立
+`rueisiang-line-assistant`。
+
+（等價指令：`npx wrangler queues create rueisiang-line-assistant`；本機 Windows on ARM
+不能執行，請用儀表板、WSL 或 Linux/CI。）
+
+`max_concurrency = 1` 不是效能調整值：D1 的 Push fixed-window ledger 依靠單一 consumer
+順序預約收件人數。要提高併發前，必須先把 quota gate 改成跨 consumer 的原子操作。
+
+### 2.1.2 設定 LINE Messaging API
+
+在 LINE Developers Console 準備一個 Messaging API channel，並取得：
+
+- Channel ID
+- Channel secret
+- Channel access token
+
+Webhook URL 設為 `https://platform.rueisiang.com/api/webhooks/line`，開啟 **Use webhook**。
+部署後可在平台的「小香助理 → LINE 前台」輸入三個值；secret 與 access token 會加密存入
+D1，也可用同名 Worker secret 當 fallback。Push API 不需另開一個 channel 或 token，沿用同一個
+Messaging API access token；LINE 官方帳號的自動回覆若會干擾測試，請在 Official Account
+Manager 關閉或調整。
+
+系統仍以 Reply token 為主。只有推論接近期限或 Reply 失敗時才嘗試 Push，並依 LINE 計費時區
+GMT+9 使用每月 fixed window；免費方案硬上限為 200 位收件者，群組訊息按群組成員數計算。
+額度、成員數任一查不到就不 Push，回答改存 D1 備用紀錄。
+
 ### 2.2 套用 migration — 不用手動做
 
 `deploy.yml` 每次部署都會執行 `wrangler d1 migrations apply --remote`，
@@ -101,6 +134,9 @@ Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
 | `AUTH_SESSION_SECRET` | 一串夠長的亂數，見下方 |
 | `GOOGLE_OAUTH_CLIENT_ID` | 1.2 拿到的用戶端 ID |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | 1.2 拿到的用戶端密鑰 |
+| `GEMINI_API_KEY` | Gemini API key；目前 LINE consumer 與 Sandbox 使用 |
+| `LINE_CHANNEL_SECRET` | 選用 fallback；LINE Developers 的 Channel secret |
+| `LINE_CHANNEL_ACCESS_TOKEN` | 選用 fallback；同一個 token 同時供 Reply 與受限 Push 使用 |
 
 > **儀表板的變更是「暫存」的，要按 Deploy 才會生效。** 分批新增時很容易漏按，
 > 症狀是 Worker 讀到空值——這件事實際發生過一次，查了三輪才找到。

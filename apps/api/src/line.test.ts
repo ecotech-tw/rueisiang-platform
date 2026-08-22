@@ -1,11 +1,22 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, listAssistantLineMessages, syncSystemRoles } from "@rueisiang/db";
-import { assistantConfigs, assistantLineChannels, assistantLineGroups, assistantLineMessages, assistantRuns, userRoles, users } from "@rueisiang/db/schema";
+import { createDatabase, listAssistantLineMessages, reserveAssistantLinePushDelivery, syncSystemRoles } from "@rueisiang/db";
+import {
+  assistantConfigs,
+  assistantLineChannels,
+  assistantLineGroups,
+  assistantLineMessages,
+  assistantLinePushDeliveries,
+  assistantLineReplyBackups,
+  assistantRuns,
+  userRoles,
+  users,
+} from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 import { lineQuestionText } from "./line.js";
+import { processLineAssistantQueueMessage } from "./routes/webhooks.js";
 
 const AUTH_SECRET = "line-test-auth-secret";
 let d1: LocalD1;
@@ -61,7 +72,7 @@ function mentionEvent(overrides: Record<string, unknown> = {}) {
   return {
     type: "message",
     webhookEventId: "evt-1",
-    timestamp: 1787294000000,
+    timestamp: Date.now(),
     replyToken: "reply-token-1",
     source: { type: "group", groupId: "group-1", userId: "user-1" },
     message: {
@@ -85,8 +96,14 @@ function userEvent(overrides: Record<string, unknown> = {}) {
 
 beforeEach(async () => {
   d1 = createLocalD1();
+  const lineQueue = {
+    send: async (message: unknown) => {
+      await processLineAssistantQueueMessage(message, env as never);
+    },
+  };
   env = {
     DB: d1,
+    LINE_ASSISTANT_QUEUE: lineQueue,
     AUTH_SESSION_SECRET: AUTH_SECRET,
     GOOGLE_OAUTH_CLIENT_ID: "client-id",
     GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
@@ -95,6 +112,17 @@ beforeEach(async () => {
   await syncSystemRoles(db());
   await seedAdmin();
 });
+
+async function enableLineConversation(event: Record<string, unknown>) {
+  await postLine(JSON.stringify({ events: [event] }));
+  await db().update(assistantLineChannels).set({ enabled: true }).where(eq(assistantLineChannels.assistantKey, "rueisiang-xiaoxiang"));
+  const source = event.source as { groupId?: string; roomId?: string; userId?: string };
+  const lineGroupId = source.groupId ?? source.roomId ?? source.userId;
+  const [group] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, lineGroupId!));
+  await db().update(assistantLineGroups).set({ enabled: true }).where(eq(assistantLineGroups.id, group!.id));
+  env = { ...env, GEMINI_API_KEY: "gemini-test-key", LINE_CHANNEL_ACCESS_TOKEN: "access-token" };
+  return group!;
+}
 
 describe("LINE webhook", () => {
   it("用原始文字搭配 mention offset，避免 trim 造成切字位移", () => {
@@ -559,5 +587,175 @@ describe("LINE channel 後台設定", () => {
     expect(updated?.contextResetAt).toBeTruthy();
     expect(allMessages).toHaveLength(2);
     expect(currentMessages).toHaveLength(0);
+  });
+});
+
+describe("LINE Reply deadline 與 fixed-window Push", () => {
+  it("進入十秒安全緩衝區時先回覆系統繁忙，再用受限 Push 傳完整結果", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "deadline-seed" }));
+    const requests: Array<{ url: string; body: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      requests.push({ url, body: typeof init?.body === "string" ? init.body : "" });
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "安全緩衝區完成的回答" }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.endsWith("/message/quota/consumption")) {
+        return new Response(JSON.stringify({ totalUsage: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    await processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId: crypto.randomUUID(),
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      webhookEventId: "deadline-event",
+      replyToken: "deadline-reply-token",
+      questionText: "已接近期限",
+      replyDeadlineAt: Date.now() + 5_000,
+    }, env as never);
+
+    const reply = requests.find((request) => request.url.endsWith("/message/reply"));
+    const push = requests.find((request) => request.url.endsWith("/message/push"));
+    expect(reply?.body).toContain("系統繁忙，請稍後再試。");
+    expect(reply?.body).not.toContain("安全緩衝區完成的回答");
+    expect(push?.body).toContain("安全緩衝區完成的回答");
+  });
+
+  it("reply token 已過期時才改用 Push，並同時保存對話關聯與逐筆 ledger", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "push-seed" }));
+    const requests: Array<{ url: string; body: string; retryKey: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      requests.push({
+        url,
+        body: typeof init?.body === "string" ? init.body : "",
+        retryKey: new Headers(init?.headers).get("x-line-retry-key") ?? "",
+      });
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "逾時後的完整回答" }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.endsWith("/message/quota/consumption")) {
+        return new Response(JSON.stringify({ totalUsage: 199 }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const runId = crypto.randomUUID();
+    await processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId,
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      webhookEventId: "push-expired-event",
+      replyToken: "expired-reply-token",
+      questionText: "請回答逾時問題",
+      replyDeadlineAt: Date.now() - 1,
+    }, env as never);
+
+    expect(requests.some((request) => request.url.endsWith("/message/reply"))).toBe(false);
+    const push = requests.find((request) => request.url.endsWith("/message/push"));
+    expect(push).toMatchObject({ retryKey: runId });
+    expect(push?.body).toContain("逾時後的完整回答");
+    const [delivery] = await db().select().from(assistantLinePushDeliveries).where(eq(assistantLinePushDeliveries.runId, runId));
+    expect(delivery).toMatchObject({ groupId: group.id, lineGroupId: "user-1", recipientCount: 1, remoteUsage: 199, status: "sent" });
+    const [backup] = await db().select().from(assistantLineReplyBackups).where(eq(assistantLineReplyBackups.runId, runId));
+    expect(backup).toMatchObject({ groupId: group.id, lineGroupId: "user-1", responseText: "逾時後的完整回答" });
+  });
+
+  it("LINE 回報已達 200 位收件者時不送 Push，只保留 skipped ledger 與完整回答", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "quota-seed" }));
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "額度滿時保留的回答" }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.endsWith("/message/quota/consumption")) {
+        return new Response(JSON.stringify({ totalUsage: 200 }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const runId = crypto.randomUUID();
+    await processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId,
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      webhookEventId: "quota-full-event",
+      replyToken: "expired-reply-token",
+      questionText: "額度滿了嗎",
+      replyDeadlineAt: Date.now() - 1,
+    }, env as never);
+
+    expect(requests.some((url) => url.endsWith("/message/push"))).toBe(false);
+    const [delivery] = await db().select().from(assistantLinePushDeliveries).where(eq(assistantLinePushDeliveries.runId, runId));
+    expect(delivery).toMatchObject({ status: "skipped", reason: "monthly_fixed_window_limit", remoteUsage: 200 });
+    const [backup] = await db().select().from(assistantLineReplyBackups).where(eq(assistantLineReplyBackups.runId, runId));
+    expect(backup?.responseText).toBe("額度滿時保留的回答");
+  });
+
+  it("不同計費月份使用不同 fixed window，同一 run 重試不重複預約", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "window-seed" }));
+    const common = {
+      channelKey: "rueisiang-xiaoxiang",
+      groupId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user" as const,
+      remoteUsage: 199,
+      recipients: 1,
+      limit: 200,
+    };
+    const runId = crypto.randomUUID();
+    const first = await reserveAssistantLinePushDelivery(db(), { ...common, runId, windowKey: "2026-08" });
+    const retry = await reserveAssistantLinePushDelivery(db(), { ...common, runId, windowKey: "2026-08" });
+    const staleRemoteUsage = await reserveAssistantLinePushDelivery(db(), {
+      ...common,
+      runId: crypto.randomUUID(),
+      windowKey: "2026-08",
+    });
+    const nextMonth = await reserveAssistantLinePushDelivery(db(), {
+      ...common,
+      runId: crypto.randomUUID(),
+      windowKey: "2026-09",
+      remoteUsage: 0,
+    });
+
+    expect(first.allowed).toBe(true);
+    expect(retry.delivery.id).toBe(first.delivery.id);
+    expect(staleRemoteUsage.allowed).toBe(false);
+    expect(nextMonth.allowed).toBe(true);
+    expect(await db().select().from(assistantLinePushDeliveries)).toHaveLength(3);
   });
 });

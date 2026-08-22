@@ -16,6 +16,8 @@ import {
   assistantLineChannels,
   assistantLineGroups,
   assistantLineMessages,
+  assistantLineReplyBackups,
+  assistantLinePushDeliveries,
   assistantSandboxMessages,
   assistantSandboxSessions,
   type AssistantChannelTool,
@@ -23,6 +25,8 @@ import {
   type AssistantLineChannel,
   type AssistantLineGroup,
   type AssistantLineMessage,
+  type AssistantLineReplyBackup,
+  type AssistantLinePushDelivery,
   type AssistantPromptRevision,
   type AssistantSandboxMessage,
   type AssistantSandboxSession,
@@ -290,6 +294,156 @@ export async function recordAssistantLineMessage(
   )).limit(1);
   if (!created) throw new Error("記錄 LINE 訊息後找不到資料。");
   return { message: created, inserted: created.id === id };
+}
+
+export async function recordAssistantLineReplyBackup(
+  db: Database,
+  input: {
+    runId: string;
+    channelKey: string;
+    groupId: string;
+    lineGroupId: string;
+    sourceType: string;
+    webhookEventId: string;
+    questionText: string;
+    responseText?: string;
+    model?: string;
+    status?: "ready" | "failed";
+    reason?: string;
+    errorMessage?: string;
+  },
+): Promise<AssistantLineReplyBackup> {
+  const id = crypto.randomUUID();
+  await db.insert(assistantLineReplyBackups).values({
+    id,
+    runId: input.runId,
+    channelKey: input.channelKey,
+    groupId: input.groupId,
+    lineGroupId: input.lineGroupId,
+    sourceType: input.sourceType,
+    webhookEventId: input.webhookEventId,
+    questionText: input.questionText,
+    responseText: input.responseText ?? "",
+    model: input.model ?? "",
+    status: input.status ?? "ready",
+    reason: input.reason ?? "reply_token_deadline",
+    ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
+    createdAt: new Date().toISOString(),
+  }).onConflictDoNothing();
+  const [backup] = await db
+    .select()
+    .from(assistantLineReplyBackups)
+    .where(eq(assistantLineReplyBackups.runId, input.runId))
+    .limit(1);
+  if (!backup) throw new Error("儲存 LINE 備用回覆後找不到資料。");
+  return backup;
+}
+
+/**
+ * 以 D1 的條件 upsert 預約本月 Push recipient 數。
+ * remoteUsage 是 LINE API 回報的本月用量；本地 reserved 只會取較大的基準，避免漏算其他來源。
+ */
+export type AssistantLinePushReservation = {
+  allowed: boolean;
+  delivery: AssistantLinePushDelivery;
+  localUsage: number;
+  effectiveUsage: number;
+};
+
+/**
+ * 在 LINE 計費月份的 fixed window 內保守預約收件人數，並為每次 Push 嘗試留下 ledger。
+ *
+ * Queue consumer 固定 `max_concurrency = 1`，因此同一個 channel 的讀取與寫入不會互相穿插；runId unique
+ * 則處理 Queue 重試。remoteUsage 可能已包含本服務送出的 Push，所以只取本地與遠端較大值，不能相加。
+ */
+export async function reserveAssistantLinePushDelivery(
+  db: Database,
+  input: {
+    runId: string;
+    channelKey: string;
+    groupId: string;
+    lineGroupId: string;
+    sourceType: AssistantLineSourceType;
+    windowKey: string;
+    remoteUsage: number;
+    recipients: number;
+    limit: number;
+    /** 前置 API 取值失敗時仍留 skipped ledger，不允許實際 Push。 */
+    denyReason?: string;
+  },
+): Promise<AssistantLinePushReservation> {
+  const remoteUsage = Math.max(0, Math.floor(input.remoteUsage));
+  const recipients = Math.max(1, Math.floor(input.recipients));
+  const limit = Math.max(0, Math.floor(input.limit));
+  const [existing] = await db
+    .select()
+    .from(assistantLinePushDeliveries)
+    .where(eq(assistantLinePushDeliveries.runId, input.runId))
+    .limit(1);
+  if (existing) {
+    const localUsage = await linePushLocalUsage(db, existing.channelKey, existing.windowKey);
+    return {
+      allowed: existing.status === "reserved",
+      delivery: existing,
+      localUsage,
+      effectiveUsage: Math.max(localUsage, existing.remoteUsage),
+    };
+  }
+
+  const localUsage = await linePushLocalUsage(db, input.channelKey, input.windowKey);
+  const effectiveUsage = Math.max(localUsage, remoteUsage);
+  const allowed = !input.denyReason && effectiveUsage + recipients <= limit;
+
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  await db.insert(assistantLinePushDeliveries).values({
+    id,
+    runId: input.runId,
+    channelKey: input.channelKey,
+    groupId: input.groupId,
+    lineGroupId: input.lineGroupId,
+    sourceType: input.sourceType,
+    windowKey: input.windowKey,
+    recipientCount: recipients,
+    remoteUsage,
+    reservedThrough: allowed ? effectiveUsage + recipients : effectiveUsage,
+    status: allowed ? "reserved" : "skipped",
+    reason: allowed ? "" : input.denyReason ?? "monthly_fixed_window_limit",
+    createdAt: now,
+    updatedAt: now,
+  }).onConflictDoNothing();
+  const [delivery] = await db
+    .select()
+    .from(assistantLinePushDeliveries)
+    .where(eq(assistantLinePushDeliveries.runId, input.runId))
+    .limit(1);
+  if (!delivery) throw new Error("建立 LINE Push fixed-window 紀錄後找不到資料。");
+  return { allowed: delivery.status !== "skipped", delivery, localUsage, effectiveUsage };
+}
+
+async function linePushLocalUsage(db: Database, channelKey: string, windowKey: string): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`coalesce(max(${assistantLinePushDeliveries.reservedThrough}), 0)` })
+    .from(assistantLinePushDeliveries)
+    .where(and(
+      eq(assistantLinePushDeliveries.channelKey, channelKey),
+      eq(assistantLinePushDeliveries.windowKey, windowKey),
+      inArray(assistantLinePushDeliveries.status, ["reserved", "sent", "failed"]),
+    ));
+  return Math.max(0, Number(row?.total ?? 0));
+}
+
+export async function markAssistantLinePushDelivery(
+  db: Database,
+  input: { runId: string; status: "sent" | "failed"; reason?: string },
+): Promise<void> {
+  await db
+    .update(assistantLinePushDeliveries)
+    .set({ status: input.status, reason: input.reason ?? "", updatedAt: new Date().toISOString() })
+    .where(and(
+      eq(assistantLinePushDeliveries.runId, input.runId),
+      eq(assistantLinePushDeliveries.status, "reserved"),
+    ));
 }
 
 export async function listAssistantLineMessages(

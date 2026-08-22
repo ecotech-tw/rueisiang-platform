@@ -195,6 +195,57 @@ export const assistantLineMessages = sqliteTable("assistant_line_messages", {
 ]);
 
 /**
+ * LINE reply token 過期前若只能先送忙碌提示，模型完成後的內容放在這裡。
+ * groupId 是資料庫內的 chat relation；lineGroupId 保留 LINE 外部 ID 供稽核與查詢。
+ */
+export const assistantLineReplyBackups = sqliteTable("assistant_line_reply_backups", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  channelKey: text("channel_key").notNull(),
+  groupId: text("group_id").notNull().references(() => assistantLineGroups.id, { onDelete: "cascade" }),
+  lineGroupId: text("line_group_id").notNull(),
+  sourceType: text("source_type").notNull(),
+  webhookEventId: text("webhook_event_id").notNull(),
+  questionText: text("question_text").notNull(),
+  responseText: text("response_text").notNull().default(""),
+  model: text("model").notNull().default(""),
+  status: text("status").notNull().default("ready"),
+  reason: text("reason").notNull().default("reply_token_deadline"),
+  errorMessage: text("error_message"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+}, (table) => [
+  uniqueIndex("idx_assistant_line_reply_backups_run").on(table.runId),
+  index("idx_assistant_line_reply_backups_group_created_at").on(table.groupId, table.createdAt),
+  index("idx_assistant_line_reply_backups_external_chat_created_at").on(table.channelKey, table.lineGroupId, table.createdAt),
+]);
+
+/**
+ * Push API 的 fixed-window ledger。每次 Push 嘗試都留一列，才能同時做到 run 去重、額度稽核與失敗保守預約。
+ * windowKey 使用 LINE 計費時區（GMT+9）的 `YYYY-MM`；`reserved`、`sent`、`failed` 都會占用本地額度。
+ */
+export const assistantLinePushDeliveries = sqliteTable("assistant_line_push_deliveries", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  channelKey: text("channel_key").notNull(),
+  groupId: text("group_id").notNull().references(() => assistantLineGroups.id, { onDelete: "cascade" }),
+  lineGroupId: text("line_group_id").notNull(),
+  sourceType: text("source_type").notNull(),
+  windowKey: text("window_key").notNull(),
+  recipientCount: integer("recipient_count").notNull(),
+  remoteUsage: integer("remote_usage").notNull(),
+  /** 預約後的本地用量高水位；用來吸收 LINE usage API 的回報延遲。 */
+  reservedThrough: integer("reserved_through").notNull(),
+  status: text("status").notNull(),
+  reason: text("reason").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+}, (table) => [
+  uniqueIndex("idx_assistant_line_push_deliveries_run").on(table.runId),
+  index("idx_assistant_line_push_deliveries_window_status").on(table.channelKey, table.windowKey, table.status),
+  index("idx_assistant_line_push_deliveries_group_created_at").on(table.groupId, table.createdAt),
+]);
+
+/**
  * 這個 channel 能用哪些工具。**這是 LINE 這條路真正的授權來源。**
  *
  * 工具契約上的 `requiredPermissions` 在 LINE 用不上——那條路沒有平台使用者可以查權限，
@@ -240,5 +291,7 @@ export type AssistantSandboxMessage = typeof assistantSandboxMessages.$inferSele
 export type AssistantLineChannel = typeof assistantLineChannels.$inferSelect;
 export type AssistantLineGroup = typeof assistantLineGroups.$inferSelect;
 export type AssistantLineMessage = typeof assistantLineMessages.$inferSelect;
+export type AssistantLineReplyBackup = typeof assistantLineReplyBackups.$inferSelect;
+export type AssistantLinePushDelivery = typeof assistantLinePushDeliveries.$inferSelect;
 export type AssistantChannelTool = typeof assistantChannelTools.$inferSelect;
 export type AssistantChatTool = typeof assistantChatTools.$inferSelect;
