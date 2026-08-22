@@ -446,14 +446,15 @@ describe("LINE channel 後台設定", () => {
     expect(requests.map((request) => request.url)).toEqual([
       "https://api.line.me/v2/bot/group/group-1/summary",
       expect.stringContaining("generativelanguage.googleapis.com"),
-      "https://api.line.me/v2/bot/message/push",
+      "https://api.line.me/v2/bot/message/reply",
     ]);
     const geminiRequest = requests.find((request) => request.url.includes("generativelanguage.googleapis.com"));
     expect(geminiRequest?.body).toContain("請幫我查一下");
-    const pushRequest = requests.find((request) => request.url.endsWith("/message/push"));
-    expect(pushRequest?.authorization).toBe("Bearer access-token-from-portal");
-    expect(pushRequest?.body).toContain("已收到，我會依照群組內容協助處理。");
-    expect(pushRequest?.body).not.toContain("LINE 不應收到的 thought summary");
+    const replyRequest = requests.find((request) => request.url.endsWith("/message/reply"));
+    expect(replyRequest?.authorization).toBe("Bearer access-token-from-portal");
+    expect(replyRequest?.body).toContain('"replyToken":"reply-token-2"');
+    expect(replyRequest?.body).toContain("已收到，我會依照群組內容協助處理。");
+    expect(replyRequest?.body).not.toContain("LINE 不應收到的 thought summary");
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({ channel: "line", groupId: "group-1", model: "gemini-3.6-flash", status: "success", totalTokens: 18 });
@@ -481,7 +482,7 @@ describe("LINE channel 後台設定", () => {
     expect(response.status).toBe(200);
     expect(requests).toEqual([
       "https://api.line.me/v2/bot/group/group-1/summary",
-      "https://api.line.me/v2/bot/message/push",
+      "https://api.line.me/v2/bot/message/reply",
     ]);
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
@@ -531,9 +532,9 @@ describe("LINE channel 後台設定", () => {
     expect(requests.map((request) => request.url)).toEqual([
       "https://api.line.me/v2/bot/profile/user-1",
       expect.stringContaining("generativelanguage.googleapis.com"),
-      "https://api.line.me/v2/bot/message/push",
+      "https://api.line.me/v2/bot/message/reply",
     ]);
-    expect(requests[2]?.body).toContain('"to":"user-1"');
+    expect(requests[2]?.body).toContain('"replyToken":"reply-token-1"');
     expect(requests[2]?.body).toContain("一對一回答");
   });
 

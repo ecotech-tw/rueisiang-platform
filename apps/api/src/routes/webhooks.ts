@@ -20,6 +20,8 @@ import {
   ASSISTANT_MODELS,
   DEFAULT_ASSISTANT_MODEL,
   DEFAULT_ASSISTANT_PROMPT,
+  assistantErrorDetails,
+  assistantLog,
   currentAssistantRuntimeContext,
   runGemini,
 } from "@rueisiang/assistant";
@@ -42,7 +44,7 @@ import {
   fetchLineGroupSummary,
   fetchLineUserProfile,
   lineQuestionText,
-  pushLineMessage,
+  replyLineMessage,
   verifyLineWebhookSignature,
   type LineWebhookPayload,
 } from "../line.js";
@@ -89,6 +91,7 @@ async function runLineAssistant(input: {
   db: AppEnv["Variables"]["db"];
   env: AppEnv["Bindings"];
   accessToken: string;
+  replyToken: string;
   assistantKey: string;
   channelKey: string;
   /** 對話那一列的 id，不是 LINE 的對話 id——對話層的工具授權掛在這個 id 上。 */
@@ -102,6 +105,7 @@ async function runLineAssistant(input: {
   let modelId = DEFAULT_ASSISTANT_MODEL;
   let promptRevisionId = "unavailable";
   let promptText = input.questionText;
+  let hasReplied = false;
   try {
     if (!input.env.GEMINI_API_KEY) throw new Error("平台還沒設定 GEMINI_API_KEY。");
     await ensureAssistantDefaults(input.db, {
@@ -162,6 +166,7 @@ async function runLineAssistant(input: {
     const result = await runGemini({
       apiKey: input.env.GEMINI_API_KEY,
       model: modelId,
+      runId,
       systemPrompt: prompt.systemPrompt,
       runtimeContext: currentAssistantRuntimeContext(),
       userText: promptText,
@@ -176,7 +181,29 @@ async function runLineAssistant(input: {
       });
     }
     const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
-    await pushLineMessage(input.accessToken, input.lineGroupId, result.text);
+    const replyStarted = Date.now();
+    assistantLog("info", "line.reply.started", {
+      runId,
+      groupId: input.lineGroupId,
+      textChars: result.text.length,
+    });
+    try {
+      await replyLineMessage(input.accessToken, input.replyToken, result.text);
+      hasReplied = true;
+      assistantLog("info", "line.reply.completed", {
+        runId,
+        groupId: input.lineGroupId,
+        durationMs: Date.now() - replyStarted,
+      });
+    } catch (error) {
+      assistantLog("error", "line.reply.failed", {
+        runId,
+        groupId: input.lineGroupId,
+        durationMs: Date.now() - replyStarted,
+        error: assistantErrorDetails(error),
+      });
+      throw error;
+    }
     await recordAssistantRun(input.db, {
       id: runId,
       channel: "line",
@@ -216,10 +243,12 @@ async function runLineAssistant(input: {
     } catch (recordError) {
       console.error("LINE 小香失敗用量記錄失敗", { runId, groupId: input.lineGroupId, error: recordError });
     }
-    try {
-      await pushLineMessage(input.accessToken, input.lineGroupId, "小香目前無法完成回答，請稍後再試。");
-    } catch (pushError) {
-      console.error("LINE 錯誤提示也無法送出", { runId, groupId: input.lineGroupId, error: pushError });
+    if (!hasReplied) {
+      try {
+        await replyLineMessage(input.accessToken, input.replyToken, "小香目前無法完成回答，請稍後再試。");
+      } catch (replyError) {
+        console.error("LINE reply 錯誤提示也無法送出", { runId, groupId: input.lineGroupId, error: replyError });
+      }
     }
   }
 }
@@ -422,24 +451,26 @@ async function receiveLine(c: Context<AppEnv>) {
       })());
     }
 
+    const replyToken = event.replyToken?.trim();
     if (result.inserted && lineEventIsSessionReset(event)) {
       await resetAssistantLineContext(c.get("db"), {
         channelKey: lineChannel.channelKey,
         id: lineGroup.id,
       });
-      if (lineChannel.enabled && lineGroup.enabled && accessToken) {
-        await deferLineJob(c, pushLineMessage(accessToken, lineGroup.lineGroupId, "已重設這段對話的上下文。"));
+      if (lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
+        await deferLineJob(c, replyLineMessage(accessToken, replyToken, "已重設這段對話的上下文。"));
       }
       continue;
     }
 
-    if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken) {
+    if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
       const questionText = lineQuestionText(rawText ?? text, selfMention);
       await deferLineJob(c, runLineAssistant({
         db: c.get("db"),
         env: c.env,
         accessToken,
+        replyToken,
         assistantKey: lineChannel.assistantKey,
         channelKey: lineChannel.channelKey,
         groupRowId: lineGroup.id,
@@ -447,6 +478,12 @@ async function receiveLine(c: Context<AppEnv>) {
         sourceType: group.sourceType,
         questionText,
       }));
+    } else if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && !replyToken) {
+      assistantLog("warn", "line.reply.skipped", {
+        webhookEventId: event.webhookEventId ?? null,
+        groupId: lineGroup.lineGroupId,
+        reason: "missing_reply_token",
+      });
     }
   }
 

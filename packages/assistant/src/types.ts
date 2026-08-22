@@ -37,6 +37,8 @@ export interface AssistantToolCall {
   toolKey: string;
   status: "success" | "failed";
   durationMs: number;
+  /** Sandbox debug 用；不會寫入用量統計表或 Worker structured log。 */
+  args?: Record<string, unknown>;
   errorMessage?: string;
 }
 
@@ -59,6 +61,8 @@ export interface AssistantRunResult {
 }
 
 export class AssistantError extends Error {
+  toolCalls: AssistantToolCall[] = [];
+
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = "AssistantError";
