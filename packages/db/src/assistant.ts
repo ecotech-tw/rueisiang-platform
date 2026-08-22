@@ -353,7 +353,21 @@ export async function getAssistantLineReplyBackup(
   return backup ?? null;
 }
 
-export type AssistantLineQueueJobStatus = "pending" | "enqueued" | "processing" | "completed";
+/**
+ * Queue lock 要覆蓋最慢的一輪 Gemini + tools 執行時間；stale requeue 仍會另外
+ * 檢查 lockedUntil，避免排程在活工作尚未結束時啟動第二個 consumer。
+ */
+export const ASSISTANT_LINE_QUEUE_LOCK_MS = 10 * 60_000;
+/** wrangler max_retries = 3，包含第一次投遞後最多四次 consumer attempt。 */
+export const ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS = 4;
+
+export type AssistantLineQueueJobStatus =
+  | "pending"
+  | "enqueued"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "ambiguous";
 
 export async function upsertAssistantLineQueueJob(
   db: Database,
@@ -417,7 +431,11 @@ export async function markAssistantLineQueueJobEnqueued(db: Database, id: string
 export async function claimAssistantLineQueueJob(
   db: Database,
   input: { channelKey: string; webhookEventId: string },
-): Promise<{ job: AssistantLineQueueJob; claimToken: string } | { done: true } | null> {
+): Promise<
+  | { job: AssistantLineQueueJob; claimToken: string }
+  | { done: true; terminal?: "failed" | "ambiguous" }
+  | null
+> {
   const [current] = await db
     .select()
     .from(assistantLineQueueJobs)
@@ -428,10 +446,12 @@ export async function claimAssistantLineQueueJob(
     .limit(1);
   if (!current) return null;
   if (current.status === "completed") return { done: true };
+  if (current.status === "failed") return { done: true, terminal: "failed" };
+  if (current.status === "ambiguous") return { done: true, terminal: "ambiguous" };
 
   const now = new Date();
   const nowText = now.toISOString();
-  const lockedUntil = new Date(now.getTime() + 5 * 60_000).toISOString();
+  const lockedUntil = new Date(now.getTime() + ASSISTANT_LINE_QUEUE_LOCK_MS).toISOString();
   const claimToken = crypto.randomUUID();
   const result = await db
     .update(assistantLineQueueJobs)
@@ -474,11 +494,47 @@ export async function releaseAssistantLineQueueJob(
   await db
     .update(assistantLineQueueJobs)
     .set({
-      status: "pending",
+      // Queue retry 已由 consumer 的 message.retry() 負責；保留 enqueued，讓 cron outbox
+      // 不會把同一個失敗工作再開一條獨立投遞，進而繞過 Queue 的 retry budget。
+      status: "enqueued",
       claimToken: null,
       lockedUntil: null,
       updatedAt: new Date().toISOString(),
       lastError: input.error?.slice(0, 1_000) ?? "line_queue_processing_failed",
+    })
+    .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
+}
+
+/** Queue 已耗盡重試次數；保留資料供稽核，但不再讓排程 outbox 反覆送出。 */
+export async function failAssistantLineQueueJob(
+  db: Database,
+  input: { id: string; claimToken: string; error?: string },
+): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "failed",
+      claimToken: null,
+      lockedUntil: null,
+      updatedAt: new Date().toISOString(),
+      lastError: input.error?.slice(0, 1_000) ?? "line_queue_retry_limit_exhausted",
+    })
+    .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
+}
+
+/** LINE retry key 已超過可安全重送的期間；保留工作等待人工／專用 reconciliation。 */
+export async function markAssistantLineQueueJobAmbiguous(
+  db: Database,
+  input: { id: string; claimToken: string; error?: string },
+): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "ambiguous",
+      claimToken: null,
+      lockedUntil: null,
+      updatedAt: new Date().toISOString(),
+      lastError: input.error?.slice(0, 1_000) ?? "line_push_retry_key_expired_ambiguous",
     })
     .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
 }
@@ -488,17 +544,40 @@ export async function requeueStaleAssistantLineQueueJobs(
   db: Database,
   input: { olderThan: string },
 ): Promise<number> {
+  const nowText = new Date().toISOString();
+  const staleProcessing = and(
+    eq(assistantLineQueueJobs.status, "processing"),
+    or(isNull(assistantLineQueueJobs.lockedUntil), lt(assistantLineQueueJobs.lockedUntil, nowText)),
+  );
+  const staleJob = and(
+    lt(assistantLineQueueJobs.updatedAt, input.olderThan),
+    or(
+      // attempts = 0 代表只寫入 D1、Queue.send 尚未被 consumer claim，才需要 outbox 補送。
+      and(eq(assistantLineQueueJobs.status, "enqueued"), eq(assistantLineQueueJobs.attempts, 0)),
+      staleProcessing,
+    ),
+  );
+
+  // Worker crash 後若已經耗盡 consumer attempts，直接標 terminal，不能再被 cron 撿回來。
+  const exhausted = await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "failed",
+      claimToken: null,
+      lockedUntil: null,
+      updatedAt: nowText,
+      lastError: "line_queue_retry_limit_exhausted",
+    })
+    .where(and(staleJob, gt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS - 1)));
+
   const result = await db
     .update(assistantLineQueueJobs)
-    .set({ status: "pending", claimToken: null, lockedUntil: null, updatedAt: new Date().toISOString() })
+    .set({ status: "pending", claimToken: null, lockedUntil: null, updatedAt: nowText })
     .where(and(
-      lt(assistantLineQueueJobs.updatedAt, input.olderThan),
-      or(
-        eq(assistantLineQueueJobs.status, "enqueued"),
-        eq(assistantLineQueueJobs.status, "processing"),
-      ),
+      staleJob,
+      lt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS),
     ));
-  return Number(result.meta?.changes ?? 0);
+  return Number(exhausted.meta?.changes ?? 0) + Number(result.meta?.changes ?? 0);
 }
 
 export async function listPendingAssistantLineQueueJobs(
@@ -508,7 +587,10 @@ export async function listPendingAssistantLineQueueJobs(
   return db
     .select()
     .from(assistantLineQueueJobs)
-    .where(eq(assistantLineQueueJobs.status, "pending"))
+    .where(and(
+      eq(assistantLineQueueJobs.status, "pending"),
+      lt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS),
+    ))
     .orderBy(asc(assistantLineQueueJobs.updatedAt))
     .limit(Math.min(Math.max(limit, 1), 100));
 }
@@ -528,7 +610,8 @@ export type AssistantLinePushReservation = {
  * 在 LINE 計費月份的 fixed window 內保守預約收件人數，並為每次 Push 嘗試留下 ledger。
  *
  * reservation 使用單一 `INSERT ... SELECT`，讓 D1 在 statement 層級檢查並增加 fixed-window
- * 用量；因此 Queue consumer 可以平行處理不同對話，不需要用全域 `max_concurrency = 1` 保護 quota。
+ * 用量；Queue 仍由設定檔以 `max_concurrency = 1` 保護同一 conversation 的訊息順序，
+ * quota 正確性則由這個 atomic reservation 另外保證。
  * remoteUsage 可能已包含本服務送出的 Push，所以只取本地與遠端較大值，不能相加。
  */
 export async function reserveAssistantLinePushDelivery(
@@ -1019,7 +1102,37 @@ export async function recordAssistantRun(
     toolCalls: RecordedToolCall[];
   },
 ): Promise<void> {
-  const run = db.insert(assistantRuns).values({
+  const [existingRun] = await db
+    .select()
+    .from(assistantRuns)
+    .where(eq(assistantRuns.id, input.id))
+    .limit(1);
+  const existingToolRows = existingRun
+    ? await db.select().from(assistantToolCalls).where(eq(assistantToolCalls.runId, input.id))
+    : [];
+  const incomingUsageIsEmpty = input.usage.promptTokens === 0
+    && input.usage.candidateTokens === 0
+    && input.usage.totalTokens === 0;
+  const usage = incomingUsageIsEmpty && existingRun
+    ? {
+        promptTokens: existingRun.promptTokens ?? 0,
+        candidateTokens: existingRun.candidateTokens ?? 0,
+        totalTokens: existingRun.totalTokens ?? 0,
+      }
+    : input.usage;
+  const outputChars = input.outputChars === 0 && existingRun?.outputChars
+    ? existingRun.outputChars
+    : input.outputChars;
+  const toolCalls = input.toolCalls.length > 0
+    ? input.toolCalls
+    : existingToolRows.map((call) => ({
+        toolKey: call.toolKey,
+        status: call.status === "failed" ? "failed" as const : "success" as const,
+        durationMs: call.durationMs,
+        ...(call.errorMessage ? { errorMessage: call.errorMessage } : {}),
+      }));
+
+  await db.insert(assistantRuns).values({
     id: input.id,
     channel: input.channel,
     assistantKey: input.assistantKey,
@@ -1029,24 +1142,48 @@ export async function recordAssistantRun(
     model: input.model,
     promptRevisionId: input.promptRevisionId,
     inputChars: input.inputChars,
-    outputChars: input.outputChars,
-    promptTokens: input.usage.promptTokens,
-    candidateTokens: input.usage.candidateTokens,
-    totalTokens: input.usage.totalTokens,
+    outputChars,
+    promptTokens: usage.promptTokens,
+    candidateTokens: usage.candidateTokens,
+    totalTokens: usage.totalTokens,
     status: input.status,
     durationMs: input.durationMs,
     actorId: input.actorId,
     errorMessage: input.errorMessage,
   }).onConflictDoNothing();
-  const calls = input.toolCalls.map((call) => db.insert(assistantToolCalls).values({
-    id: crypto.randomUUID(),
-    runId: input.id,
-    toolKey: call.toolKey,
-    status: call.status,
-    durationMs: call.durationMs,
-    errorMessage: call.errorMessage,
-  }));
-  await db.batch([run, ...calls]);
+
+  // Retry 同一 runId 時要把第一次 failed 的 audit 更新成最後結果；tool rows 先清掉再重建，
+  // 避免每次 Queue retry 都多一份相同的 tool call。
+  await db.update(assistantRuns).set({
+    channel: input.channel,
+    assistantKey: input.assistantKey ?? null,
+    channelKey: input.channelKey ?? null,
+    sessionId: input.sessionId ?? null,
+    groupId: input.groupId ?? null,
+    model: input.model,
+    promptRevisionId: input.promptRevisionId,
+    inputChars: input.inputChars,
+    outputChars,
+    promptTokens: usage.promptTokens,
+    candidateTokens: usage.candidateTokens,
+    totalTokens: usage.totalTokens,
+    status: input.status,
+    durationMs: input.durationMs,
+    actorId: input.actorId ?? null,
+    errorMessage: input.errorMessage ?? null,
+  }).where(eq(assistantRuns.id, input.id));
+
+  await db.delete(assistantToolCalls).where(eq(assistantToolCalls.runId, input.id));
+  if (toolCalls.length > 0) {
+    await Promise.all(toolCalls.map((call) => db.insert(assistantToolCalls).values({
+      id: crypto.randomUUID(),
+      runId: input.id,
+      toolKey: call.toolKey,
+      status: call.status,
+      durationMs: call.durationMs,
+      errorMessage: call.errorMessage,
+    })));
+  }
 }
 
 

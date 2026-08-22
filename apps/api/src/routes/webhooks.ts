@@ -6,6 +6,7 @@ import {
   getActiveAssistantPrompt,
   getAssistantConfig,
   getAssistantLineReplyBackup,
+  ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS,
   ensureAssistantLineChannel,
   getAssistantLineChannel,
   findAssistantLineGroup,
@@ -14,6 +15,8 @@ import {
   markAssistantLineQueueJobEnqueued,
   claimAssistantLineQueueJob,
   completeAssistantLineQueueJob,
+  failAssistantLineQueueJob,
+  markAssistantLineQueueJobAmbiguous,
   releaseAssistantLineQueueJob,
   requeueStaleAssistantLineQueueJobs,
   listPendingAssistantLineQueueJobs,
@@ -95,6 +98,21 @@ const LINE_FREE_PUSH_RECIPIENT_LIMIT = 200;
 /** LINE usage endpoint 的數字是 approximate，保留少量緩衝優先避免超過免費額度。 */
 const LINE_PUSH_QUOTA_SAFETY_BUFFER = 5;
 const LINE_SAFE_PUSH_LIMIT = Math.max(0, LINE_FREE_PUSH_RECIPIENT_LIMIT - LINE_PUSH_QUOTA_SAFETY_BUFFER);
+const LINE_PUSH_RETRY_KEY_TTL_MS = 24 * 60 * 60_000;
+
+class LinePushRetryKeyExpiredError extends Error {
+  constructor() {
+    super("LINE retry key 已超過 24 小時安全重送期限，等待 reconciliation。");
+    this.name = "LinePushRetryKeyExpiredError";
+  }
+}
+
+class LineQueueRetryExhaustedError extends Error {
+  constructor() {
+    super("LINE Queue 工作已達到重試上限，交由 dead-letter queue 追蹤。");
+    this.name = "LineQueueRetryExhaustedError";
+  }
+}
 
 function lineReplyDeadlineAt(): number {
   // LINE 的 reply token 有效期是從 webhook 收到開始算，不是 event.timestamp。
@@ -110,8 +128,22 @@ async function stableLineRunId(webhookEventId: string): Promise<string> {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
-function isPermanentLineAssistantError(message: string): boolean {
-  return /GEMINI_API_KEY|模型設定|prompt.*設定|對話設定|授權/.test(message);
+function isPermanentLineAssistantError(error: unknown): boolean {
+  const messages: string[] = [];
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (typeof current === "string") {
+      messages.push(current);
+      break;
+    }
+    if (typeof current !== "object" || seen.has(current)) break;
+    seen.add(current);
+    const record = current as { message?: unknown; cause?: unknown };
+    if (typeof record.message === "string") messages.push(record.message);
+    current = record.cause;
+  }
+  return messages.some((message) => /gemini[\s_-]*api[\s_-]*key|Gemini 請求格式錯誤|模型設定|模型無法使用|prompt.*設定|對話設定|授權|HTTP\s+(400|401|403|404)/i.test(message));
 }
 
 async function stableLineWebhookEventId(input: {
@@ -148,6 +180,8 @@ async function deliverLinePush(input: {
   messageId?: string;
   sourceType: "group" | "room" | "user";
   text: string;
+  /** Queue outbox 建立時間；超過 LINE retry-key 的 24 小時 dedupe 保證後不可自動 Push。 */
+  queueCreatedAt?: string;
 }): Promise<LinePushOutcome> {
   const lineLogContext: LineLogContext = {
     runId: input.runId,
@@ -157,6 +191,18 @@ async function deliverLinePush(input: {
     groupRowId: input.groupRowId,
     ...(input.messageId ? { messageId: input.messageId } : {}),
   };
+  const queueCreatedAtMs = input.queueCreatedAt ? Date.parse(input.queueCreatedAt) : Number.NaN;
+  if (Number.isFinite(queueCreatedAtMs)) {
+    const retryKeyAgeMs = Date.now() - queueCreatedAtMs;
+    if (retryKeyAgeMs >= LINE_PUSH_RETRY_KEY_TTL_MS) {
+      assistantLog("warn", "line.push.skipped", {
+        ...lineLogContext,
+        reason: "retry_key_expired_ambiguous",
+        retryKeyAgeMs,
+      });
+      throw new LinePushRetryKeyExpiredError();
+    }
+  }
   const windowKey = linePushWindowKey();
   let recipientCount = input.sourceType === "user" ? 1 : 0;
   try {
@@ -308,6 +354,7 @@ async function runLineAssistant(input: {
   webhookEventId: string;
   runId: string;
   replyDeadlineAt?: number;
+  queueCreatedAt?: string;
 }): Promise<void> {
   const runId = input.runId;
   const trace = {
@@ -505,6 +552,7 @@ async function runLineAssistant(input: {
           messageId: input.messageId,
           sourceType: input.sourceType,
           text: result.text,
+          queueCreatedAt: input.queueCreatedAt,
         });
       } else {
         assistantLog("warn", "line.push.skipped", {
@@ -542,12 +590,12 @@ async function runLineAssistant(input: {
         model: modelId,
         promptRevisionId,
         inputChars: promptText.length,
-        outputChars: 0,
-        usage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
+        outputChars: resultForBackup?.text.length ?? 0,
+        usage: resultForBackup?.usage ?? { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
         status: "failed",
         durationMs: Date.now() - started,
         errorMessage: message,
-        toolCalls: [],
+        toolCalls: resultForBackup?.toolCalls ?? [],
       });
     } catch (recordError) {
       assistantLog("error", "line.run.record_failed", { ...trace, error: assistantErrorDetails(recordError) });
@@ -575,7 +623,7 @@ async function runLineAssistant(input: {
     // timeout / 5xx 則寧可只留下 backup，也不要冒險再 Push 造成重複回答。
     if (error instanceof LineMessageError && error.endpoint === "push" && error.retryable) throw error;
     if (replyKind || replyFailureKind === "ambiguous") return;
-    if (isPermanentLineAssistantError(message) && !replyFailed && Date.now() < replyDeadlineAt) {
+    if (isPermanentLineAssistantError(error) && !replyFailed && Date.now() < replyDeadlineAt) {
       const errorReplySent = await sendReplyOnce("小香目前無法完成回答，請稍後再試。", "error");
       if (errorReplySent) return;
     }
@@ -747,7 +795,10 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
     channelKey: message.channelKey,
     webhookEventId: message.webhookEventId,
   });
-  if (claim && "done" in claim) return;
+  if (claim && "done" in claim) {
+    if (claim.terminal === "failed") throw new LineQueueRetryExhaustedError();
+    return;
+  }
   if (claim && "job" in claim) {
     assistantLog("info", "line.queue.claimed", {
       ...trace,
@@ -865,22 +916,55 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
       webhookEventId: message.webhookEventId,
       runId: message.runId,
       replyDeadlineAt: message.replyDeadlineAt,
+      queueCreatedAt: claim && "job" in claim ? claim.job.createdAt : undefined,
     });
     processed = true;
   } catch (error) {
     if (claim && "job" in claim) {
-      await releaseAssistantLineQueueJob(db, {
-        id: claim.job.id,
-        claimToken: claim.claimToken,
-        error: error instanceof Error ? error.message : "line_queue_processing_failed",
-      });
-      assistantLog("warn", "line.queue.retry_scheduled", {
+      const errorMessage = error instanceof Error ? error.message : "line_queue_processing_failed";
+      if (error instanceof LinePushRetryKeyExpiredError) {
+        await markAssistantLineQueueJobAmbiguous(db, {
+          id: claim.job.id,
+          claimToken: claim.claimToken,
+          error: errorMessage,
+        });
+        assistantLog("warn", "line.queue.ambiguous", {
+          ...trace,
+          jobId: claim.job.id,
+          kind: message.kind,
+          webhookEventId: message.webhookEventId,
+          channelKey: message.channelKey,
+          groupId: message.lineGroupId,
+          reason: "retry_key_expired_ambiguous",
+          error: assistantErrorDetails(error),
+        });
+        return;
+      }
+
+      const exhausted = claim.job.attempts >= ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS;
+      if (exhausted) {
+        await failAssistantLineQueueJob(db, {
+          id: claim.job.id,
+          claimToken: claim.claimToken,
+          error: errorMessage,
+        });
+      } else {
+        await releaseAssistantLineQueueJob(db, {
+          id: claim.job.id,
+          claimToken: claim.claimToken,
+          error: errorMessage,
+        });
+      }
+      assistantLog(exhausted ? "error" : "warn", exhausted ? "line.queue.retry_exhausted" : "line.queue.retry_scheduled", {
         ...trace,
         jobId: claim.job.id,
         kind: message.kind,
         webhookEventId: message.webhookEventId,
         channelKey: message.channelKey,
         groupId: message.lineGroupId,
+        attempts: claim.job.attempts,
+        maxAttempts: ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS,
+        terminal: exhausted,
         error: assistantErrorDetails(error),
       });
     }

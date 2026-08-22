@@ -82,8 +82,9 @@ Push 是 fallback，不是一般回覆 transport。台灣免費方案上限固�
 依 LINE 官方計費時區 GMT+9 的 `YYYY-MM` fixed window 計算。每次 Push 嘗試都寫入
 `assistant_line_push_deliveries`，群組／room 依成員數而不是 API 呼叫次數扣額度。本地 ledger
 會和 LINE quota consumption API 的回報取較高用量，失敗預約不釋放；Queue consumer 因此固定
-`INSERT ... SELECT` 預約收件人數，因此 Queue consumer 不需要用全域 `max_concurrency = 1` 串行化，
-不同對話可以平行處理，不會被較慢的 CYBERBIZ tool 全域阻塞。Push 另帶與 Queue run 相同的 `X-Line-Retry-Key`，避免 consumer 重試造成
+`INSERT ... SELECT` 預約收件人數；Queue consumer 設定 `max_concurrency = 1`，讓 LINE 工作依序完成，
+避免同一群組／聊天室因為較慢的 CYBERBIZ tool 而交錯回覆。額度正確性不依賴 consumer 的串行化。
+Push 另帶與 Queue run 相同的 `X-Line-Retry-Key`，避免 consumer 重試造成
 重複訊息。
 
 每次 LINE 執行會使用同一個 `runId` 寫入 `assistant.run.*`、`assistant.line.reply.*`、`assistant.line.message.*` 與 Queue structured logs。請用 `runId` 搭配 `webhookEventId`、`channelKey`、`groupId` 比對以下事件：
@@ -96,7 +97,7 @@ Push 是 fallback，不是一般回覆 transport。台灣免費方案上限固�
 - 有 `assistant.line.push.completed`：Reply 已進入逾時 fallback，完整回答已在保守的 195 人 fixed window 內用 Push 送出。
 - 有 `assistant.line.push.skipped`：成員數／遠端用量取不到，或本月保守額度已滿；完整回答查 `assistant_line_reply_backups`。
 - 有 `assistant.line.push.failed`：已預約的收件人數仍保留，不因重試競態釋放；完整回答同樣留在備用表。
-- 有 `assistant.line.queue.consumer_retry`、`assistant.line.queue.outbox_replay_failed` 或 Cloudflare DLQ 訊息：表示 Queue／D1／AI／LINE transport 重試後仍未完成，可用同一組 correlation fields 追完整鏈路。
+- 有 `assistant.line.queue.consumer_retry`、`assistant.line.queue.retry_exhausted`、`assistant.line.queue.outbox_replay_failed` 或 Cloudflare DLQ 訊息：表示 Queue／D1／AI／LINE transport 重試後仍未完成，可用同一組 correlation fields 追完整鏈路。`failed` 工作不會再被 outbox 重送；Push retry key 超過 24 小時則記為 `ambiguous`，等待 reconciliation。
 
 tool 失敗不會立即產生固定錯誤文字；失敗結果會以 function response 回傳 Gemini，讓模型自行產生可理解的說明。Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到模型的最終回答。LINE 的 AI 工作已經透過 Cloudflare Queues 與 webhook 解耦。
 

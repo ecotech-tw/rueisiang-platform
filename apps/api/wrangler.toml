@@ -37,7 +37,9 @@ queue = "rueisiang-line-assistant"
 queue = "rueisiang-line-assistant"
 max_batch_size = 1
 max_batch_timeout = 0
-# Push fixed-window ledger 在 D1 以單一 INSERT ... SELECT 原子預約，consumer 可以平行處理不同對話。
+# LINE 對同一群組／聊天室的訊息必須依序完成，避免較慢的工具回覆反而先送出。
+# quota 正確性另外由 D1 的 atomic reservation 保證；這裡採保守的全域串行化。
+max_concurrency = 1
 max_retries = 3
 dead_letter_queue = "rueisiang-line-assistant-dlq"
 
