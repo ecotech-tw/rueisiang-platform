@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * 0023 在 D1 上把 LINE 群組全部連坐刪光，0028 負責救回來。
+ * LINE 相關 migration 的行為，一律用 D1 的方式驗證。
+ *
+ * 主題一：0023 在 D1 上把 LINE 群組全部連坐刪光，0028 負責救回來。
  *
  * 為什麼本機測不出來：本機的 migration runner 一句一句跑，`PRAGMA foreign_keys=OFF`
  * 有生效；但正式環境走 `wrangler d1 migrations apply`，**整支 migration 包在 transaction
@@ -53,6 +55,61 @@ function seedPreMigrationState(sqlite: DatabaseSync): void {
     `);
   }
 }
+
+/** 從 0025 之前的狀態開始，讓測試可以自己決定要塞什麼再往下跑。 */
+function freshAt(tag: string): DatabaseSync {
+  const sqlite = new DatabaseSync(":memory:");
+  sqlite.exec("PRAGMA foreign_keys = ON;");
+  applyLikeD1(sqlite, null, tag);
+  return sqlite;
+}
+
+describe("0025 只把支援 LINE 的工具寫進 channel 白名單", () => {
+  it("sandbox-only 的工具不會被補進去", () => {
+    const sqlite = freshAt("0024_amazing_ghost_rider.sql");
+    sqlite.exec(`
+      INSERT INTO assistant_line_channels
+        (channel_key, assistant_key, channel_id, display_name, enabled, updated_by)
+      VALUES ('rueisiang-xiaoxiang', 'rueisiang-xiaoxiang', 'ch', '小香', 1, 'eli');
+    `);
+    // crm_get_customer 的 surfaces 是 ["sandbox", "mcp"]，啟用了也不該進 LINE 白名單；
+    // wms_get_activity 是「開發中」，那是只能在 Sandbox 驗證的狀態，補進來等於偷偷放行。
+    for (const [key, status] of [
+      ["weather_open_meteo", "enabled"],
+      ["wms_search_warehouse", "enabled"],
+      ["crm_get_customer", "enabled"],
+      ["wms_get_activity", "development"],
+    ]) {
+      sqlite.exec(`INSERT INTO assistant_tool_configs (key, status, updated_by) VALUES ('${key}', '${status}', 'eli');`);
+    }
+
+    applyLikeD1(sqlite, "0024_amazing_ghost_rider.sql", "0025_seed_channel_tools.sql");
+
+    const granted = (sqlite.prepare("SELECT tool_key FROM assistant_channel_tools ORDER BY tool_key").all() as { tool_key: string }[])
+      .map((row) => row.tool_key);
+    expect(granted).toEqual(["weather_open_meteo", "wms_search_warehouse"]);
+  });
+});
+
+describe("換成 channel_key 之後的結構約束", () => {
+  it("同一個 channel 底下不能有重複的群組", () => {
+    const sqlite = freshAt("0028_restore_line_groups.sql");
+    sqlite.exec(`
+      INSERT INTO assistant_line_channels
+        (channel_key, assistant_key, channel_id, display_name, enabled, updated_by)
+      VALUES ('ck', 'ak', 'ch', '小香', 1, 'eli');
+    `);
+    sqlite.exec(`
+      INSERT INTO assistant_line_groups (id, channel_key, line_group_id, display_name, enabled)
+      VALUES ('g1', 'ck', 'C1', '倉庫群', 1);
+    `);
+    // webhook 每次收到標註都會 upsert 一次，靠這個唯一索引擋掉重複發現。
+    expect(() => sqlite.exec(`
+      INSERT INTO assistant_line_groups (id, channel_key, line_group_id, display_name, enabled)
+      VALUES ('g2', 'ck', 'C1', '重複的群', 1);
+    `)).toThrow();
+  });
+});
 
 describe("被 0023 誤刪的 LINE 群組", () => {
   function migrated(to: string): DatabaseSync {
