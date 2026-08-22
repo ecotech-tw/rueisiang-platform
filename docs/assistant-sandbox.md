@@ -16,7 +16,9 @@ The LINE Channel Secret and Channel Access Token can also be entered in the LINE
 
 啟動本機環境（Codex worktree）：
 
-```bash
+```powershell
+$env:API_PORT = "8788"
+$env:PORTAL_PORT = "5174"
 pnpm dev
 ```
 
