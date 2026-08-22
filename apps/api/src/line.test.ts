@@ -1,11 +1,18 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, listAssistantLineMessages, reserveAssistantLinePushDelivery, syncSystemRoles } from "@rueisiang/db";
+import {
+  createDatabase,
+  listAssistantLineMessages,
+  reserveAssistantLinePushDelivery,
+  syncSystemRoles,
+  type AssistantLineQueueJobStatus,
+} from "@rueisiang/db";
 import {
   assistantConfigs,
   assistantLineChannels,
   assistantLineGroups,
   assistantLineMessages,
   assistantLinePushDeliveries,
+  assistantLineQueueJobs,
   assistantLineReplyBackups,
   assistantRuns,
   userRoles,
@@ -192,6 +199,37 @@ describe("LINE webhook", () => {
     expect(first.status).toBe(200);
     expect(await second.json()).toMatchObject({ recorded: 0, duplicates: 1 });
     expect(await db().select().from(assistantLineMessages)).toHaveLength(1);
+  });
+});
+
+describe("LINE Queue outbox", () => {
+  it("Queue 暫時不可用時保留 pending，下一次 LINE redelivery 會補送且不重複建立工作", async () => {
+    await enableLineConversation(userEvent({ webhookEventId: "outbox-seed" }));
+    const event = userEvent({ webhookEventId: "outbox-retry-event" });
+    env = {
+      ...env,
+      LINE_ASSISTANT_QUEUE: {
+        send: async () => { throw new Error("queue unavailable"); },
+      },
+    };
+
+    const failed = await postLine(JSON.stringify({ events: [event] }));
+    expect(failed.status).toBe(500);
+    const [pending] = await db()
+      .select()
+      .from(assistantLineQueueJobs)
+      .where(eq(assistantLineQueueJobs.webhookEventId, "outbox-retry-event"));
+    expect(pending?.status as AssistantLineQueueJobStatus).toBe("pending");
+
+    env = { ...env, LINE_ASSISTANT_QUEUE: { send: async () => undefined } };
+    const retried = await postLine(JSON.stringify({ events: [event] }));
+    expect(retried.status).toBe(200);
+    const jobs = await db()
+      .select()
+      .from(assistantLineQueueJobs)
+      .where(eq(assistantLineQueueJobs.webhookEventId, "outbox-retry-event"));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.status).toBe("enqueued");
   });
 });
 
@@ -650,7 +688,7 @@ describe("LINE Reply deadline 與 fixed-window Push", () => {
         }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (url.endsWith("/message/quota/consumption")) {
-        return new Response(JSON.stringify({ totalUsage: 199 }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ totalUsage: 190 }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (url.includes("/profile/user-1")) {
         return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -678,7 +716,7 @@ describe("LINE Reply deadline 與 fixed-window Push", () => {
     expect(push).toMatchObject({ retryKey: runId });
     expect(push?.body).toContain("逾時後的完整回答");
     const [delivery] = await db().select().from(assistantLinePushDeliveries).where(eq(assistantLinePushDeliveries.runId, runId));
-    expect(delivery).toMatchObject({ groupId: group.id, lineGroupId: "user-1", recipientCount: 1, remoteUsage: 199, status: "sent" });
+    expect(delivery).toMatchObject({ groupId: group.id, lineGroupId: "user-1", recipientCount: 1, remoteUsage: 190, status: "sent" });
     const [backup] = await db().select().from(assistantLineReplyBackups).where(eq(assistantLineReplyBackups.runId, runId));
     expect(backup).toMatchObject({ groupId: group.id, lineGroupId: "user-1", responseText: "逾時後的完整回答" });
   });
@@ -757,5 +795,44 @@ describe("LINE Reply deadline 與 fixed-window Push", () => {
     expect(staleRemoteUsage.allowed).toBe(false);
     expect(nextMonth.allowed).toBe(true);
     expect(await db().select().from(assistantLinePushDeliveries)).toHaveLength(3);
+  });
+
+  it("Push 遇到 5xx 時保留 reserved ledger 並交給 Queue retry", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "push-retry-seed" }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "應該重試的完整回答" }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.endsWith("/message/quota/consumption")) {
+        return new Response(JSON.stringify({ totalUsage: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.endsWith("/message/push")) return new Response("temporarily unavailable", { status: 503 });
+      return new Response(null, { status: 200 });
+    });
+
+    const runId = crypto.randomUUID();
+    await expect(processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId,
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      webhookEventId: "push-retry-event",
+      replyToken: "expired-reply-token",
+      questionText: "請重試 Push",
+      replyDeadlineAt: Date.now() - 1,
+    }, env as never)).rejects.toMatchObject({ endpoint: "push", retryable: true });
+
+    const [delivery] = await db().select().from(assistantLinePushDeliveries).where(eq(assistantLinePushDeliveries.runId, runId));
+    expect(delivery).toMatchObject({ status: "reserved", remoteUsage: 0 });
   });
 });

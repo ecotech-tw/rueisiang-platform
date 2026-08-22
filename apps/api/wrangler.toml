@@ -37,9 +37,9 @@ queue = "rueisiang-line-assistant"
 queue = "rueisiang-line-assistant"
 max_batch_size = 1
 max_batch_timeout = 0
-# Push fixed-window ledger 依賴單一 consumer 順序預約；調高前必須先改成跨 consumer 的原子 quota gate。
-max_concurrency = 1
+# Push fixed-window ledger 在 D1 以單一 INSERT ... SELECT 原子預約，consumer 可以平行處理不同對話。
 max_retries = 3
+dead_letter_queue = "rueisiang-line-assistant-dlq"
 
 # 正式網域。custom_domain 會由 Cloudflare 自己建立對應的 DNS 記錄——
 # 所以不要先手動加一筆，已經有同名記錄的話這裡會掛。

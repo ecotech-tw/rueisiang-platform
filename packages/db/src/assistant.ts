@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   AssistantToolCall as RecordedToolCall,
   AssistantToolStatus,
@@ -18,6 +18,7 @@ import {
   assistantLineMessages,
   assistantLineReplyBackups,
   assistantLinePushDeliveries,
+  assistantLineQueueJobs,
   assistantSandboxMessages,
   assistantSandboxSessions,
   type AssistantChannelTool,
@@ -27,6 +28,7 @@ import {
   type AssistantLineMessage,
   type AssistantLineReplyBackup,
   type AssistantLinePushDelivery,
+  type AssistantLineQueueJob,
   type AssistantPromptRevision,
   type AssistantSandboxMessage,
   type AssistantSandboxSession,
@@ -339,6 +341,178 @@ export async function recordAssistantLineReplyBackup(
   return backup;
 }
 
+export async function getAssistantLineReplyBackup(
+  db: Database,
+  runId: string,
+): Promise<AssistantLineReplyBackup | null> {
+  const [backup] = await db
+    .select()
+    .from(assistantLineReplyBackups)
+    .where(eq(assistantLineReplyBackups.runId, runId))
+    .limit(1);
+  return backup ?? null;
+}
+
+export type AssistantLineQueueJobStatus = "pending" | "enqueued" | "processing" | "completed";
+
+export async function upsertAssistantLineQueueJob(
+  db: Database,
+  input: { channelKey: string; webhookEventId: string; payloadEncrypted: string },
+): Promise<{ job: AssistantLineQueueJob; shouldEnqueue: boolean }> {
+  const [existing] = await db
+    .select()
+    .from(assistantLineQueueJobs)
+    .where(and(
+      eq(assistantLineQueueJobs.channelKey, input.channelKey),
+      eq(assistantLineQueueJobs.webhookEventId, input.webhookEventId),
+    ))
+    .limit(1);
+
+  if (existing) {
+    if (existing.status !== "pending") return { job: existing, shouldEnqueue: false };
+    await db
+      .update(assistantLineQueueJobs)
+      .set({ payloadEncrypted: input.payloadEncrypted, updatedAt: new Date().toISOString(), lastError: null })
+      .where(eq(assistantLineQueueJobs.id, existing.id));
+    const [updated] = await db.select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.id, existing.id)).limit(1);
+    if (!updated) throw new Error("更新 LINE Queue outbox 後找不到資料。");
+    return { job: updated, shouldEnqueue: true };
+  }
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await db.insert(assistantLineQueueJobs).values({
+    id,
+    channelKey: input.channelKey,
+    webhookEventId: input.webhookEventId,
+    payloadEncrypted: input.payloadEncrypted,
+    status: "pending",
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  }).onConflictDoNothing();
+  const [created] = await db.select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.id, id)).limit(1);
+  if (created) return { job: created, shouldEnqueue: true };
+
+  // Two webhook retries can race on the unique event key; return the winner's row.
+  const [raced] = await db
+    .select()
+    .from(assistantLineQueueJobs)
+    .where(and(
+      eq(assistantLineQueueJobs.channelKey, input.channelKey),
+      eq(assistantLineQueueJobs.webhookEventId, input.webhookEventId),
+    ))
+    .limit(1);
+  if (!raced) throw new Error("建立 LINE Queue outbox 後找不到資料。");
+  return { job: raced, shouldEnqueue: raced.status === "pending" };
+}
+
+export async function markAssistantLineQueueJobEnqueued(db: Database, id: string): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({ status: "enqueued", updatedAt: new Date().toISOString(), lastError: null })
+    .where(and(eq(assistantLineQueueJobs.id, id), eq(assistantLineQueueJobs.status, "pending")));
+}
+
+export async function claimAssistantLineQueueJob(
+  db: Database,
+  input: { channelKey: string; webhookEventId: string },
+): Promise<{ job: AssistantLineQueueJob; claimToken: string } | { done: true } | null> {
+  const [current] = await db
+    .select()
+    .from(assistantLineQueueJobs)
+    .where(and(
+      eq(assistantLineQueueJobs.channelKey, input.channelKey),
+      eq(assistantLineQueueJobs.webhookEventId, input.webhookEventId),
+    ))
+    .limit(1);
+  if (!current) return null;
+  if (current.status === "completed") return { done: true };
+
+  const now = new Date();
+  const nowText = now.toISOString();
+  const lockedUntil = new Date(now.getTime() + 5 * 60_000).toISOString();
+  const claimToken = crypto.randomUUID();
+  const result = await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "processing",
+      attempts: sql`${assistantLineQueueJobs.attempts} + 1`,
+      claimToken,
+      lockedUntil,
+      updatedAt: nowText,
+    })
+    .where(and(
+      eq(assistantLineQueueJobs.id, current.id),
+      or(
+        eq(assistantLineQueueJobs.status, "pending"),
+        eq(assistantLineQueueJobs.status, "enqueued"),
+        and(
+          eq(assistantLineQueueJobs.status, "processing"),
+          or(isNull(assistantLineQueueJobs.lockedUntil), lt(assistantLineQueueJobs.lockedUntil, nowText)),
+        ),
+      ),
+    ));
+  if ((result.meta?.changes ?? 0) === 0) return { done: true };
+
+  const [claimed] = await db.select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.id, current.id)).limit(1);
+  if (!claimed || claimed.claimToken !== claimToken) return { done: true };
+  return { job: claimed, claimToken };
+}
+
+export async function completeAssistantLineQueueJob(db: Database, input: { id: string; claimToken: string }): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({ status: "completed", claimToken: null, lockedUntil: null, updatedAt: new Date().toISOString(), lastError: null })
+    .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
+}
+
+export async function releaseAssistantLineQueueJob(
+  db: Database,
+  input: { id: string; claimToken: string; error?: string },
+): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "pending",
+      claimToken: null,
+      lockedUntil: null,
+      updatedAt: new Date().toISOString(),
+      lastError: input.error?.slice(0, 1_000) ?? "line_queue_processing_failed",
+    })
+    .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
+}
+
+/** 把 consumer 在 Worker crash 時留下的鎖放回 pending，並交給排程重新送入 Queue。 */
+export async function requeueStaleAssistantLineQueueJobs(
+  db: Database,
+  input: { olderThan: string },
+): Promise<number> {
+  const result = await db
+    .update(assistantLineQueueJobs)
+    .set({ status: "pending", claimToken: null, lockedUntil: null, updatedAt: new Date().toISOString() })
+    .where(and(
+      lt(assistantLineQueueJobs.updatedAt, input.olderThan),
+      or(
+        eq(assistantLineQueueJobs.status, "enqueued"),
+        eq(assistantLineQueueJobs.status, "processing"),
+      ),
+    ));
+  return Number(result.meta?.changes ?? 0);
+}
+
+export async function listPendingAssistantLineQueueJobs(
+  db: Database,
+  limit = 20,
+): Promise<AssistantLineQueueJob[]> {
+  return db
+    .select()
+    .from(assistantLineQueueJobs)
+    .where(eq(assistantLineQueueJobs.status, "pending"))
+    .orderBy(asc(assistantLineQueueJobs.updatedAt))
+    .limit(Math.min(Math.max(limit, 1), 100));
+}
+
 /**
  * 以 D1 的條件 upsert 預約本月 Push recipient 數。
  * remoteUsage 是 LINE API 回報的本月用量；本地 reserved 只會取較大的基準，避免漏算其他來源。
@@ -353,8 +527,9 @@ export type AssistantLinePushReservation = {
 /**
  * 在 LINE 計費月份的 fixed window 內保守預約收件人數，並為每次 Push 嘗試留下 ledger。
  *
- * Queue consumer 固定 `max_concurrency = 1`，因此同一個 channel 的讀取與寫入不會互相穿插；runId unique
- * 則處理 Queue 重試。remoteUsage 可能已包含本服務送出的 Push，所以只取本地與遠端較大值，不能相加。
+ * reservation 使用單一 `INSERT ... SELECT`，讓 D1 在 statement 層級檢查並增加 fixed-window
+ * 用量；因此 Queue consumer 可以平行處理不同對話，不需要用全域 `max_concurrency = 1` 保護 quota。
+ * remoteUsage 可能已包含本服務送出的 Push，所以只取本地與遠端較大值，不能相加。
  */
 export async function reserveAssistantLinePushDelivery(
   db: Database,
@@ -390,35 +565,50 @@ export async function reserveAssistantLinePushDelivery(
     };
   }
 
-  const localUsage = await linePushLocalUsage(db, input.channelKey, input.windowKey);
-  const effectiveUsage = Math.max(localUsage, remoteUsage);
-  const allowed = !input.denyReason && effectiveUsage + recipients <= limit;
-
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
-  await db.insert(assistantLinePushDeliveries).values({
-    id,
-    runId: input.runId,
-    channelKey: input.channelKey,
-    groupId: input.groupId,
-    lineGroupId: input.lineGroupId,
-    sourceType: input.sourceType,
-    windowKey: input.windowKey,
-    recipientCount: recipients,
-    remoteUsage,
-    reservedThrough: allowed ? effectiveUsage + recipients : effectiveUsage,
-    status: allowed ? "reserved" : "skipped",
-    reason: allowed ? "" : input.denyReason ?? "monthly_fixed_window_limit",
-    createdAt: now,
-    updatedAt: now,
-  }).onConflictDoNothing();
+  const canReserve = input.denyReason ? 0 : 1;
+  const denyReason = input.denyReason ?? "monthly_fixed_window_limit";
+  await db.run(sql`
+    WITH current_usage AS (
+      SELECT coalesce(max(reserved_through), 0) AS local_usage
+      FROM assistant_line_push_deliveries
+      WHERE channel_key = ${input.channelKey}
+        AND window_key = ${input.windowKey}
+        AND status IN ('reserved', 'sent', 'failed')
+    ), effective_usage AS (
+      SELECT max(local_usage, ${remoteUsage}) AS usage
+      FROM current_usage
+    )
+    INSERT INTO assistant_line_push_deliveries (
+      id, run_id, channel_key, group_id, line_group_id, source_type, window_key,
+      recipient_count, remote_usage, reserved_through, status, reason, created_at, updated_at
+    )
+    SELECT
+      ${id}, ${input.runId}, ${input.channelKey}, ${input.groupId}, ${input.lineGroupId}, ${input.sourceType}, ${input.windowKey},
+      ${recipients}, ${remoteUsage},
+      CASE WHEN ${canReserve} = 1 AND usage + ${recipients} <= ${limit} THEN usage + ${recipients} ELSE usage END,
+      CASE WHEN ${canReserve} = 1 AND usage + ${recipients} <= ${limit} THEN 'reserved' ELSE 'skipped' END,
+      CASE WHEN ${canReserve} = 1 AND usage + ${recipients} <= ${limit} THEN '' ELSE ${denyReason} END,
+      ${now}, ${now}
+    FROM effective_usage
+    WHERE NOT EXISTS (
+      SELECT 1 FROM assistant_line_push_deliveries WHERE run_id = ${input.runId}
+    )
+  `);
   const [delivery] = await db
     .select()
     .from(assistantLinePushDeliveries)
     .where(eq(assistantLinePushDeliveries.runId, input.runId))
     .limit(1);
   if (!delivery) throw new Error("建立 LINE Push fixed-window 紀錄後找不到資料。");
-  return { allowed: delivery.status !== "skipped", delivery, localUsage, effectiveUsage };
+  const localUsage = await linePushLocalUsage(db, input.channelKey, input.windowKey);
+  return {
+    allowed: delivery.status === "reserved",
+    delivery,
+    localUsage,
+    effectiveUsage: Math.max(localUsage, remoteUsage),
+  };
 }
 
 async function linePushLocalUsage(db: Database, channelKey: string, windowKey: string): Promise<number> {
@@ -847,7 +1037,7 @@ export async function recordAssistantRun(
     durationMs: input.durationMs,
     actorId: input.actorId,
     errorMessage: input.errorMessage,
-  });
+  }).onConflictDoNothing();
   const calls = input.toolCalls.map((call) => db.insert(assistantToolCalls).values({
     id: crypto.randomUUID(),
     runId: input.id,
