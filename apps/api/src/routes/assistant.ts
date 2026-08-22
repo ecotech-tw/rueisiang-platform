@@ -1,15 +1,9 @@
 import {
   ASSISTANT_KEY,
   ASSISTANT_MODELS,
-  DEFAULT_ASSISTANT_MODEL,
   DEFAULT_ASSISTANT_PROMPT,
   currentAssistantRuntimeContext,
-  runGemini,
-  summarizeAssistantConversation,
-  assistantErrorDetails,
-  assistantLog,
-  AssistantError,
-  type AssistantConversationMessage,
+  runtimeContextInstruction,
   type AssistantToolCall,
   type AssistantToolStatus,
 } from "@rueisiang/assistant";
@@ -36,7 +30,6 @@ import {
   listAssistantChatToolKeys,
   listAssistantPromptRevisions,
   listAssistantLineGroups,
-  listAllAssistantSandboxMessages,
   listAssistantSandboxMessages,
   listAssistantSandboxSessions,
   listAssistantToolConfigs,
@@ -48,7 +41,6 @@ import {
   setAssistantToolStatus,
   updateAssistantLineChannel,
   updateAssistantLineGroup,
-  updateAssistantSandboxContext,
   updateAssistantSandboxSessionPromptRevision,
   updateAssistantSandboxSessionModel,
   upsertAssistantLineGroup,
@@ -60,6 +52,13 @@ import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { decryptLineSecret, encryptLineSecret } from "../line-secrets.js";
 import { requireAnyPermission, requireAuth, requirePermission } from "../middleware/auth.js";
+import {
+  DEFAULT_PI_CODEX_MODEL,
+  PiAgentRunError,
+  piCodexCredentialConfigured,
+  runPiSandboxAgent,
+} from "../pi-agent.js";
+import { hasPiGeminiModel, piAssistantModel, piCodexModels } from "../pi-agent-models.js";
 import { body, requireString } from "../request.js";
 
 const TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("sandbox"));
@@ -67,153 +66,110 @@ const LINE_TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITION
 const LINE_TOOL_KEYS_LIST = LINE_TOOL_DEFINITIONS.map((tool) => tool.key);
 const LINE_TOOL_KEYS = new Set(LINE_TOOL_KEYS_LIST);
 const TOOL_MAP = PLATFORM_TOOL_MAP;
-const MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
-const SANDBOX_CONTEXT_CHAR_LIMIT = 24_000;
-const SANDBOX_RECENT_MESSAGE_COUNT = 8;
-const SANDBOX_SUMMARY_MAX_CHARS = 8_000;
 
 function isAssistantLineSourceType(value: unknown): value is AssistantLineSourceType {
   return value === "group" || value === "room" || value === "user";
-}
-
-type SandboxContextMessage = { role: "user" | "model"; text: string };
-
-function contextChars(messages: SandboxContextMessage[]): number {
-  return messages.reduce((total, message) => total + message.text.length, 0);
-}
-
-function asConversation(messages: SandboxContextMessage[]): AssistantConversationMessage[] {
-  return messages.map((message) => ({ role: message.role, text: message.text }));
-}
-
-function buildSandboxConversation(
-  session: { contextSummary: string; contextSummaryMessageCount: number },
-  messages: SandboxContextMessage[],
-  userText: string,
-): AssistantConversationMessage[] {
-  const summary = session.contextSummary.trim().slice(0, SANDBOX_SUMMARY_MAX_CHARS);
-  const summaryCount = summary
-    ? Math.min(Math.max(session.contextSummaryMessageCount, 0), messages.length)
-    : 0;
-  const summaryMessages: SandboxContextMessage[] = summary
-    ? [
-      { role: "user", text: `[Earlier conversation summary]\n${summary}` },
-      { role: "model", text: "I will use this summary as background for the current conversation." },
-    ]
-    : [];
-  let retained = messages.slice(summaryCount);
-  let context = [...summaryMessages, ...retained];
-  while (context.length > 1 && contextChars(context) + userText.length > SANDBOX_CONTEXT_CHAR_LIMIT) {
-    if (!retained.length) break;
-    retained = retained.slice(1);
-    context = [...summaryMessages, ...retained];
-  }
-  if (contextChars(context) + userText.length > SANDBOX_CONTEXT_CHAR_LIMIT && context.length) {
-    const available = Math.max(SANDBOX_CONTEXT_CHAR_LIMIT - userText.length, 1);
-    context = context.map((message) => ({ ...message, text: message.text.slice(-available) }));
-  }
-  return asConversation(context);
-}
-
-async function maybeSummarizeSandboxContext(input: {
-  db: AppEnv["Variables"]["db"];
-  apiKey: string;
-  userId: string;
-  session: Awaited<ReturnType<typeof getAssistantSandboxSession>>;
-  model: string;
-  promptRevisionId: string;
-  messages: SandboxContextMessage[];
-  userText: string;
-}): Promise<void> {
-  const session = input.session;
-  if (!session) return;
-  const existingSummary = session.contextSummary.trim();
-  const summaryCount = Math.min(Math.max(session.contextSummaryMessageCount, 0), input.messages.length);
-  const currentContextChars = existingSummary.length + contextChars(input.messages.slice(summaryCount)) + input.userText.length;
-  if (currentContextChars <= SANDBOX_CONTEXT_CHAR_LIMIT) return;
-
-  let cutoff = Math.max(0, input.messages.length - SANDBOX_RECENT_MESSAGE_COUNT);
-  if (cutoff <= summaryCount && input.messages.length > 2) cutoff = input.messages.length - 2;
-  if (cutoff <= summaryCount) return;
-
-  const messagesToSummarize = input.messages.slice(summaryCount, cutoff);
-  const summaryStarted = Date.now();
-  try {
-    const result = await summarizeAssistantConversation({
-      apiKey: input.apiKey,
-      model: input.model,
-      existingSummary,
-      messages: asConversation(messagesToSummarize),
-    });
-    const summary = result.text.trim().slice(0, SANDBOX_SUMMARY_MAX_CHARS);
-    if (!summary) return;
-    await updateAssistantSandboxContext(input.db, {
-      assistantKey: ASSISTANT_KEY,
-      createdBy: input.userId,
-      id: session.id,
-      contextSummary: summary,
-      contextSummaryMessageCount: cutoff,
-    });
-    try {
-      await recordAssistantRun(input.db, {
-        id: crypto.randomUUID(),
-        channel: "sandbox",
-        assistantKey: ASSISTANT_KEY,
-        sessionId: session.id,
-        model: input.model,
-        promptRevisionId: input.promptRevisionId,
-        inputChars: existingSummary.length + contextChars(messagesToSummarize),
-        outputChars: summary.length,
-        usage: result.usage,
-        status: "success",
-        durationMs: Date.now() - summaryStarted,
-        actorId: input.userId,
-        toolCalls: [],
-      });
-    } catch (error) {
-      assistantLog("warn", "sandbox.summary_usage_record_failed", {
-        sessionId: session.id,
-        error: assistantErrorDetails(error),
-      });
-    }
-  } catch (error) {
-    // A failed compression must not block the user's actual Sandbox request.
-    assistantLog("warn", "sandbox.summary_failed", {
-      sessionId: session.id,
-      error: assistantErrorDetails(error),
-    });
-  }
 }
 
 function validToolStatus(value: string): value is AssistantToolStatus {
   return value === "enabled" || value === "development" || value === "disabled";
 }
 
-async function ensureDefaults(db: AppEnv["Variables"]["db"]): Promise<void> {
+type SandboxModelProvider = "openai-codex" | "google";
+
+interface SandboxModelOption {
+  id: string;
+  label: string;
+  category: string;
+  quota: { rpm: number; tpm: number; rpd: number; usedRpm?: number; usedTpm?: number; usedRpd?: number };
+  provider: SandboxModelProvider;
+  supported: boolean;
+  configured: boolean;
+  supportsVision: boolean;
+  note?: string;
+}
+
+async function sandboxModelOptions(
+  env: AppEnv["Bindings"],
+  probeCodexCredential = true,
+): Promise<SandboxModelOption[]> {
+  const codexConfigured = probeCodexCredential
+    ? await piCodexCredentialConfigured(env)
+    : false;
+  const geminiConfigured = Boolean(env.GEMINI_API_KEY?.trim());
+  const codex = piCodexModels().map((model): SandboxModelOption => ({
+    id: model.id,
+    label: model.name,
+    category: "GPT / Codex（ChatGPT OAuth）",
+    quota: { rpm: 0, tpm: 0, rpd: 0 },
+    provider: "openai-codex",
+    supported: true,
+    configured: codexConfigured,
+    supportsVision: model.input.includes("image"),
+    note: "由 Pi Agent 透過 ChatGPT OAuth 使用 Codex credit；實際可用模型依 ChatGPT 帳號方案為準。",
+  }));
+  const gemini = ASSISTANT_MODELS.map((model): SandboxModelOption => {
+    const supportedByPi = hasPiGeminiModel(model.id);
+    return {
+      ...model,
+      provider: "google",
+      supported: model.supported && supportedByPi,
+      configured: geminiConfigured,
+      supportsVision: supportedByPi ? piAssistantModel(model.id).input.includes("image") : false,
+      ...(!supportedByPi && model.supported
+        ? { note: "目前安裝的 Pi Google model catalog 尚未提供這個模型。" }
+        : {}),
+    };
+  });
+  return [...codex, ...gemini];
+}
+
+async function usableSandboxModel(env: AppEnv["Bindings"], modelId: string): Promise<SandboxModelOption> {
+  // Gemini 執行不必為了組完整設定頁，多做一次 credential-vault DO subrequest。
+  const codexModel = piCodexModels().some((candidate) => candidate.id === modelId);
+  const model = (await sandboxModelOptions(env, codexModel)).find((candidate) => candidate.id === modelId);
+  if (!model?.supported) {
+    throw new HTTPException(400, { message: "請選擇清單中標示為可用的 Pi 模型。" });
+  }
+  if (!model.configured) {
+    const credential = model.provider === "openai-codex"
+      ? "ChatGPT／Codex OAuth credential"
+      : "GEMINI_API_KEY";
+    throw new HTTPException(503, { message: `平台尚未設定 ${credential}。` });
+  }
+  return model;
+}
+
+async function ensureDefaults(env: AppEnv["Bindings"], db: AppEnv["Variables"]["db"]): Promise<void> {
   await ensureAssistantDefaults(db, {
     assistantKey: ASSISTANT_KEY,
-    defaultModel: DEFAULT_ASSISTANT_MODEL,
+    defaultModel: env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL,
     defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
     toolKeys: PLATFORM_TOOL_KEYS,
   });
 }
 
 async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["db"]) {
-  await ensureDefaults(db);
-  const [assistantConfig, prompts, activePrompt, configuredTools] = await Promise.all([
+  await ensureDefaults(env, db);
+  const [assistantConfig, prompts, activePrompt, configuredTools, models] = await Promise.all([
     getAssistantConfig(db, ASSISTANT_KEY),
     listAssistantPromptRevisions(db, ASSISTANT_KEY),
     getActiveAssistantPrompt(db, ASSISTANT_KEY),
     listAssistantToolConfigs(db),
+    sandboxModelOptions(env),
   ]);
   const statuses = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
   return {
     assistantKey: ASSISTANT_KEY,
-    configured: Boolean(env.GEMINI_API_KEY),
-    defaultModel: DEFAULT_ASSISTANT_MODEL,
-    activeModel: assistantConfig?.activeModel ?? DEFAULT_ASSISTANT_MODEL,
+    configured: models.some((model) => model.supported && model.configured),
+    providers: {
+      codex: models.some((model) => model.provider === "openai-codex" && model.configured),
+      gemini: models.some((model) => model.provider === "google" && model.configured),
+    },
+    defaultModel: env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL,
+    activeModel: assistantConfig?.activeModel ?? DEFAULT_PI_CODEX_MODEL,
     activeModelUpdatedAt: assistantConfig?.updatedAt ?? null,
-    models: ASSISTANT_MODELS,
+    models,
     tools: TOOL_DEFINITIONS.map((tool) => {
       const configuredStatus = statuses.get(tool.key);
       return {
@@ -394,13 +350,12 @@ export const assistant = new Hono<AppEnv>()
 
   .post("/sandbox/sessions", requirePermission("assistant:sandbox:write"), async (c) => {
     const input = await body(c);
-    await ensureDefaults(c.get("db"));
+    await ensureDefaults(c.env, c.get("db"));
     const assistantConfig = await getAssistantConfig(c.get("db"), ASSISTANT_KEY);
     const modelId = typeof input.model === "string" && input.model.trim()
       ? input.model.trim()
-      : assistantConfig?.activeModel ?? DEFAULT_ASSISTANT_MODEL;
-    const model = MODEL_MAP.get(modelId);
-    if (!model || !model.supported) throw new HTTPException(400, { message: "請選擇清單中標示為可用的 Gemini 模型。" });
+      : assistantConfig?.activeModel ?? DEFAULT_PI_CODEX_MODEL;
+    const model = await usableSandboxModel(c.env, modelId);
     const promptId = typeof input.promptRevisionId === "string" && input.promptRevisionId.trim()
       ? input.promptRevisionId.trim()
       : undefined;
@@ -597,12 +552,9 @@ export const assistant = new Hono<AppEnv>()
   .patch("/config", requirePermission("assistant:settings:write"), async (c) => {
     const input = await body(c);
     const modelId = requireString(input, "model", "模型");
-    const model = MODEL_MAP.get(modelId);
-    if (!model || !model.supported) {
-      throw new HTTPException(400, { message: "只能套用目前清單中標示為可用的模型。" });
-    }
+    const model = await usableSandboxModel(c.env, modelId);
 
-    await ensureDefaults(c.get("db"));
+    await ensureDefaults(c.env, c.get("db"));
     const config = await setActiveAssistantModel(c.get("db"), {
       assistantKey: ASSISTANT_KEY,
       activeModel: model.id,
@@ -621,7 +573,7 @@ export const assistant = new Hono<AppEnv>()
       throw new HTTPException(400, { message: "tool 狀態必須是 enabled、development 或 disabled。" });
     }
 
-    await ensureDefaults(c.get("db"));
+    await ensureDefaults(c.env, c.get("db"));
     const config = await setAssistantToolStatus(c.get("db"), {
       key,
       status,
@@ -635,7 +587,7 @@ export const assistant = new Hono<AppEnv>()
     const prompt = requireString(input, "systemPrompt", "system prompt");
     if (prompt.length > 12_000) throw new HTTPException(400, { message: "system prompt 不能超過 12,000 字元。" });
 
-    await ensureDefaults(c.get("db"));
+    await ensureDefaults(c.env, c.get("db"));
     const revision = await createAssistantPromptRevision(c.get("db"), {
       assistantKey: ASSISTANT_KEY,
       systemPrompt: prompt,
@@ -645,14 +597,11 @@ export const assistant = new Hono<AppEnv>()
   })
 
   .post("/sandbox/run", requirePermission("assistant:sandbox:write"), async (c) => {
-    if (!c.env.GEMINI_API_KEY) {
-      throw new HTTPException(503, { message: "平台還沒設定 GEMINI_API_KEY，無法執行 Sandbox。" });
-    }
     const input = await body(c);
     const userText = requireString(input, "input", "測試內容");
     if (userText.length > 8_000) throw new HTTPException(400, { message: "測試內容不能超過 8,000 字元。" });
 
-    await ensureDefaults(c.get("db"));
+    await ensureDefaults(c.env, c.get("db"));
     const sessionId = typeof input.sessionId === "string" && input.sessionId.trim() ? input.sessionId.trim() : undefined;
     const session = sessionId
       ? await getAssistantSandboxSession(c.get("db"), { assistantKey: ASSISTANT_KEY, createdBy: c.get("user").id, id: sessionId })
@@ -665,11 +614,8 @@ export const assistant = new Hono<AppEnv>()
     const requestedModel = typeof input.model === "string" && input.model.trim()
       ? input.model.trim()
       : undefined;
-    const modelId = requestedModel ?? session?.model ?? assistantConfig?.activeModel ?? DEFAULT_ASSISTANT_MODEL;
-    const model = MODEL_MAP.get(modelId);
-    if (!model || !model.supported) {
-      throw new HTTPException(400, { message: "請選擇清單中標示為可用的 Gemini 模型。" });
-    }
+    const modelId = requestedModel ?? session?.model ?? assistantConfig?.activeModel ?? DEFAULT_PI_CODEX_MODEL;
+    const model = await usableSandboxModel(c.env, modelId);
     if (session && session.model !== model.id) {
       await updateAssistantSandboxSessionModel(c.get("db"), {
         assistantKey: ASSISTANT_KEY,
@@ -701,7 +647,7 @@ export const assistant = new Hono<AppEnv>()
     const configuredTools = await listAssistantToolConfigs(c.get("db"));
     const statusByKey = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
     const toolKeys = readToolKeys(input);
-    const selectedTools = toolKeys.map((key) => {
+    for (const key of toolKeys) {
       const status = statusByKey.get(key) ?? "disabled";
       if (status === "disabled") throw new HTTPException(400, { message: `工具「${key}」目前已停用。` });
       const tool = TOOL_MAP.get(key);
@@ -711,48 +657,29 @@ export const assistant = new Hono<AppEnv>()
       if (tool.requiredPermissions?.some((permission) => !can(c.get("user"), permission as Permission))) {
         throw new HTTPException(403, { message: `沒有使用工具「${tool.label}」的權限。` });
       }
-      return tool;
-    });
+    }
 
     const runId = crypto.randomUUID();
     const started = Date.now();
-    const sandboxMessages = session
-      ? await listAllAssistantSandboxMessages(c.get("db"), session.id)
-      : [];
-    if (session) {
-      await maybeSummarizeSandboxContext({
-        db: c.get("db"),
-        apiKey: c.env.GEMINI_API_KEY,
-        userId: c.get("user").id,
-        session,
-        model: model.id,
-        promptRevisionId: prompt.id,
-        messages: sandboxMessages.map((message) => ({ role: message.role as "user" | "model", text: message.text })),
-        userText,
-      });
-    }
-    const refreshedSession = session
-      ? await getAssistantSandboxSession(c.get("db"), { assistantKey: ASSISTANT_KEY, createdBy: c.get("user").id, id: session.id })
-      : null;
-    const conversation = refreshedSession
-      ? buildSandboxConversation(
-        refreshedSession,
-        sandboxMessages.map((message) => ({ role: message.role as "user" | "model", text: message.text })),
-        userText,
-      )
-      : undefined;
+    const systemPrompt = [
+      prompt.systemPrompt,
+      runtimeContextInstruction(currentAssistantRuntimeContext()),
+      "這是內部 Sandbox。請用繁體中文直接回答；需要資料時使用已提供的工具，不要虛構工具結果。",
+    ].join("\n\n");
     try {
-      const result = await runGemini({
-        apiKey: c.env.GEMINI_API_KEY,
-        model: model.id,
+      const piResponse = await runPiSandboxAgent(c.env, {
+        assistantKey: ASSISTANT_KEY,
+        conversationId: session?.id ?? runId,
+        sandboxSessionId: session?.id ?? null,
+        actorUserId: c.get("user").id,
+        contextGeneration: session?.createdAt ?? runId,
         runId,
-        systemPrompt: prompt.systemPrompt,
-        runtimeContext: currentAssistantRuntimeContext(),
+        model: model.id,
+        systemPrompt,
         userText,
-        conversation,
-        tools: selectedTools,
-        toolContext: { surface: "sandbox", db: c.get("db"), env: c.env, user: c.get("user") },
+        toolKeys,
       });
+      const result = piResponse.result;
       const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
       await recordAssistantRun(c.get("db"), {
         id: runId,
@@ -795,7 +722,7 @@ export const assistant = new Hono<AppEnv>()
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Sandbox 執行失敗。";
-      const failedToolCalls = error instanceof AssistantError ? error.toolCalls : [];
+      const failedToolCalls = error instanceof PiAgentRunError ? error.toolCalls : [];
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",

@@ -24,9 +24,9 @@ export interface Env {
   GOOGLE_OAUTH_CLIENT_ID: string;
   GOOGLE_OAUTH_CLIENT_SECRET: string;
 
-  /** Gemini generateContent 使用的 API key。Sandbox 沒有設定時會清楚提示管理者。 */
+  /** Pi Google provider 使用的 API key；Sandbox 與選用 Gemini 的正式 channel 共用。 */
   GEMINI_API_KEY?: string;
-  /** LINE 的 Pi openai-codex model；Sandbox 的 GPT model picker 留到後續 PR。 */
+  /** 尚未建立 assistant config 時的 LINE fallback；正常情況由後台 active model 決定。 */
   PI_AGENT_MODEL?: string;
   /** Pi 或 Codex CLI 的 ChatGPT OAuth credential JSON；seed fingerprint 改變時會重新灌入 vault。 */
   PI_OPENAI_CODEX_CREDENTIAL?: string;

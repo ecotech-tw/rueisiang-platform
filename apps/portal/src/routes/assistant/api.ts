@@ -5,7 +5,10 @@ export interface AssistantModel {
   label: string;
   category: string;
   quota: { rpm: number; tpm: number; rpd: number; usedRpm?: number; usedTpm?: number; usedRpd?: number };
+  provider: "openai-codex" | "google";
   supported: boolean;
+  configured: boolean;
+  supportsVision: boolean;
   note?: string;
 }
 
@@ -31,6 +34,7 @@ export interface AssistantTool {
 export interface SandboxConfig {
   assistantKey: string;
   configured: boolean;
+  providers: { codex: boolean; gemini: boolean };
   defaultModel: string;
   activeModel: string;
   activeModelUpdatedAt: string | null;

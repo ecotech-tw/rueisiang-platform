@@ -868,6 +868,7 @@ describe("LINE channel 後台設定", () => {
   });
 
   it("已開通的一對一對話會使用 user ID 回覆", async () => {
+    env = { ...env, PI_AGENT_MODEL: "gemini-3.6-flash" };
     await postLine(JSON.stringify({ events: [userEvent()] }));
     const [userGroup] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, "user-1"));
     expect(userGroup?.sourceType).toBe("user");
@@ -908,6 +909,10 @@ describe("LINE channel 後台設定", () => {
     const replyRequest = requests.find((request) => request.url.endsWith("/message/reply"));
     expect(replyRequest?.body).toContain('"replyToken":"reply-token-1"');
     expect(replyRequest?.body).toContain("一對一回答");
+    expect(piAgentRequests.find((request) => request.path === "/run")?.payload).toMatchObject({
+      model: "gemini-3.6-flash",
+      webhookEventId: "user-evt-run",
+    });
   });
 
   it("一對一的 reset backdoor 只切斷上下文，不刪除歷史訊息", async () => {

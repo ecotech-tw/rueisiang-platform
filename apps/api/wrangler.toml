@@ -43,7 +43,7 @@ max_concurrency = 1
 max_retries = 3
 dead_letter_queue = "rueisiang-line-assistant-dlq"
 
-# 每個 LINE chat 對應一個 Pi session DO；OAuth credential 則集中在唯一的 vault DO。
+# 每個 LINE chat 與 Sandbox session 對應一個 Pi session DO；OAuth credential 集中在唯一的 vault DO。
 # 兩者都使用 Free plan 可用的 SQLite storage backend。
 [[durable_objects.bindings]]
 name = "ASSISTANT_CHAT_AGENT"
@@ -76,7 +76,7 @@ PI_AGENT_MODEL = "gpt-5.4-mini"
 #   AUTH_SESSION_SECRET        簽 session cookie 用，換掉等於所有人登出
 #   GOOGLE_OAUTH_CLIENT_ID
 #   GOOGLE_OAUTH_CLIENT_SECRET
-#   GEMINI_API_KEY              AI 助理 Sandbox
+#   GEMINI_API_KEY              Pi Google provider；Sandbox／LINE 選 Gemini 模型時使用
 #   PI_OPENAI_CODEX_CREDENTIAL  Pi／Codex CLI 的 ChatGPT OAuth credential JSON；不是 OPENAI_API_KEY
 #   PI_CREDENTIAL_ENCRYPTION_KEY  至少 32 字元，vault 以 AES-GCM 加密 credential
 #   LINE_CHANNEL_SECRET         LINE webhook 簽章驗證

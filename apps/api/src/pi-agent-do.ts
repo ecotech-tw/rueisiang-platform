@@ -12,16 +12,23 @@ import type {
   AssistantMessage,
   Context,
   Model,
+  Models,
   ModelsSimpleStreamOptions,
   Usage,
 } from "@earendil-works/pi-ai";
 import {
   findAssistantLineGroup,
+  getAssistantSandboxSession,
   getAssistantLineChannel,
   listAssistantLineMessages,
+  listAllAssistantSandboxMessages,
+  listAssistantSandboxMessages,
+  listAssistantToolConfigs,
+  loadAuthUser,
   resolveLineToolKeys,
   createDatabase,
 } from "@rueisiang/db";
+import { can, type Permission } from "@rueisiang/auth";
 import { PLATFORM_TOOL_MAP } from "@rueisiang/tools";
 import { Type, type TSchema } from "typebox";
 import type { AssistantRunResult, AssistantToolCall, JsonSchemaProperty } from "@rueisiang/assistant";
@@ -30,20 +37,21 @@ import type {
   PiLineAgentResetRequest,
   PiLineAgentResetResponse,
   PiLineAgentRunRequest,
-  PiLineAgentRunResponse,
+  PiAgentRunRequest,
+  PiAgentRunResponse,
+  PiSandboxAgentRunRequest,
 } from "./pi-agent-contract.js";
 import {
   PI_CODEX_PROVIDER_ID,
-  piCodexModel,
-  piCodexModelsFacade,
-  streamPiCodex,
+  piAssistantModel,
+  streamPiAssistantModel,
 } from "./pi-agent-models.js";
 
 const COMPACT_AFTER_TOKENS = 48_000;
 const COMPACT_KEEP_RECENT_TOKENS = 12_000;
 const FORCE_COMPACT_AFTER_TOKENS = 80_000;
-const CODEX_REQUEST_TIMEOUT_MS = 25_000;
-const CODEX_MAX_OUTPUT_TOKENS = 1_200;
+const MODEL_REQUEST_TIMEOUT_MS = 25_000;
+const MODEL_MAX_OUTPUT_TOKENS = 1_200;
 const LINE_MAX_REPLY_CHARS = 4_500;
 
 interface AgentStateRow extends Record<string, SqlStorageValue> {
@@ -66,15 +74,25 @@ interface AgentRunRow extends Record<string, SqlStorageValue> {
   response_json: string;
 }
 
+interface CountRow extends Record<string, SqlStorageValue> {
+  count: number;
+}
+
+interface SandboxBootstrapMessage {
+  role: "user" | "model";
+  text: string;
+  model?: string;
+}
+
 interface ToolExecutionContext {
-  request: PiLineAgentRunRequest;
+  request: PiAgentRunRequest;
   toolCalls: AssistantToolCall[];
 }
 
-class PiAgentExecutionError extends Error {
+class AgentExecutionError extends Error {
   constructor(message: string, readonly toolCalls: AssistantToolCall[]) {
     super(message);
-    this.name = "PiAgentExecutionError";
+    this.name = "AgentExecutionError";
   }
 }
 
@@ -95,22 +113,41 @@ function isLineContext(value: Record<string, unknown>): boolean {
     && typeof value.contextGeneration === "string";
 }
 
-function isRunRequest(value: unknown): value is PiLineAgentRunRequest {
-  const input = object(value);
-  return Boolean(input
-    && isLineContext(input)
-    && nonEmptyString(input.webhookEventId)
-    && nonEmptyString(input.runId)
+function isSandboxContext(value: Record<string, unknown>): boolean {
+  return nonEmptyString(value.assistantKey)
+    && nonEmptyString(value.conversationId)
+    && (value.sandboxSessionId === null || nonEmptyString(value.sandboxSessionId))
+    && nonEmptyString(value.actorUserId)
+    && nonEmptyString(value.contextGeneration);
+}
+
+function isRunFields(input: Record<string, unknown>): boolean {
+  return nonEmptyString(input.runId)
     && nonEmptyString(input.model)
     && nonEmptyString(input.systemPrompt)
     && typeof input.userText === "string"
     && Array.isArray(input.toolKeys)
-    && input.toolKeys.every(nonEmptyString));
+    && input.toolKeys.every(nonEmptyString);
+}
+
+function isRunRequest(value: unknown): value is PiAgentRunRequest {
+  const input = object(value);
+  if (!input || !isRunFields(input)) return false;
+  if (isLineContext(input)) return nonEmptyString(input.webhookEventId);
+  return isSandboxContext(input);
 }
 
 function isResetRequest(value: unknown): value is PiLineAgentResetRequest {
   const input = object(value);
   return Boolean(input && isLineContext(input));
+}
+
+function isLineRunRequest(input: PiAgentRunRequest): input is PiLineAgentRunRequest {
+  return "channelKey" in input;
+}
+
+function isSandboxRunRequest(input: PiAgentRunRequest): input is PiSandboxAgentRunRequest {
+  return "conversationId" in input;
 }
 
 function parseMessage(payload: string): AgentMessage | undefined {
@@ -184,6 +221,32 @@ function emptyUsage(): Usage {
   };
 }
 
+function bootstrapAgentMessage(
+  message: SandboxBootstrapMessage,
+  fallbackModel: Model<Api>,
+  timestamp: number,
+): AgentMessage {
+  if (message.role === "user") return { role: "user", content: message.text, timestamp };
+  let model = fallbackModel;
+  if (message.model) {
+    try {
+      model = piAssistantModel(message.model);
+    } catch {
+      // 舊 session 可能留著已下架的 model id；文字歷史仍可匯入，provider metadata 用本輪模型即可。
+    }
+  }
+  return {
+    role: "assistant",
+    content: [{ type: "text", text: message.text }],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: emptyUsage(),
+    stopReason: "stop",
+    timestamp,
+  };
+}
+
 function assistantUsage(messages: AgentMessage[]): AssistantRunResult["usage"] {
   const usage = emptyUsage();
   for (const message of messages) {
@@ -205,7 +268,7 @@ function payloadWithOutputLimit(payload: unknown): unknown {
   if (!body) return payload;
   return {
     ...body,
-    max_output_tokens: CODEX_MAX_OUTPUT_TOKENS,
+    max_output_tokens: MODEL_MAX_OUTPUT_TOKENS,
     text: { ...object(body.text), verbosity: "low" },
   };
 }
@@ -328,45 +391,6 @@ export class AssistantChatAgent {
     ];
   }
 
-  /** 新 DO 沒有舊 transcript 時，先把 D1 保留的 LINE 使用者訊息帶進來；目前事件由本次 prompt 另外加入。 */
-  private async bootstrapD1History(state: AgentStateRow, input: PiLineAgentRunRequest): Promise<void> {
-    if (state.summary || this.loadMessageRows(state).length > 0) return;
-
-    const history = await listAssistantLineMessages(createDatabase(this.env.DB), {
-      channelKey: input.channelKey,
-      lineGroupId: input.lineGroupId,
-      contextResetAt: input.contextGeneration || undefined,
-      limit: 12,
-    });
-    const previousMessages = history.filter((message) => message.webhookEventId !== input.webhookEventId);
-    if (previousMessages.length === 0) return;
-
-    const bootstrapRunId = `d1-history:${state.generation}`;
-    this.sql.exec(
-      `INSERT INTO assistant_agent_runs (run_id, generation, status, response_json, updated_at)
-       VALUES (?, ?, 'completed', '', ?)
-       ON CONFLICT(run_id) DO NOTHING`,
-      bootstrapRunId,
-      state.generation,
-      Date.now(),
-    );
-    const [existing] = [...this.sql.exec<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM assistant_agent_messages WHERE generation = ? AND run_id = ?",
-      state.generation,
-      bootstrapRunId,
-    )];
-    if ((existing?.count ?? 0) > 0) return;
-
-    for (const message of previousMessages) {
-      const parsedTimestamp = Date.parse(message.createdAt);
-      this.storeMessage(state.generation, bootstrapRunId, {
-        role: "user",
-        content: message.text,
-        timestamp: Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now(),
-      });
-    }
-  }
-
   private async accessToken(): Promise<string> {
     const namespace = this.env.ASSISTANT_CREDENTIAL_VAULT;
     if (!namespace) throw new Error("平台尚未綁定 ASSISTANT_CREDENTIAL_VAULT Durable Object。");
@@ -382,35 +406,41 @@ export class AssistantChatAgent {
   }
 
   private model(modelId: string): Model<Api> {
-    return piCodexModel(modelId);
+    return piAssistantModel(modelId);
   }
 
-  private streamCodex(
+  private streamModel(
     model: Model<Api>,
     context: Context,
     options: ModelsSimpleStreamOptions = {},
   ) {
-    return streamPiCodex(model, context, {
+    const shared = {
       ...options,
-      timeoutMs: options.timeoutMs ?? CODEX_REQUEST_TIMEOUT_MS,
+      timeoutMs: options.timeoutMs ?? MODEL_REQUEST_TIMEOUT_MS,
       maxRetries: options.maxRetries ?? 0,
-      maxTokens: options.maxTokens ?? CODEX_MAX_OUTPUT_TOKENS,
-      transport: "sse",
-      onPayload: payloadWithOutputLimit,
-    }, async () => this.accessToken());
-  }
-
-  /** Pi compaction 只需要 Models.completeSimple；避免載入含 Node-only 本機登入器的完整 Models auth layer。 */
-  private summaryModels() {
-    return piCodexModelsFacade(async () => this.accessToken(), {
-      timeoutMs: CODEX_REQUEST_TIMEOUT_MS,
-      maxRetries: 0,
-      transport: "sse",
-      onPayload: payloadWithOutputLimit,
+      maxTokens: options.maxTokens ?? MODEL_MAX_OUTPUT_TOKENS,
+    };
+    const providerOptions = model.provider === PI_CODEX_PROVIDER_ID
+      ? { ...shared, transport: "sse" as const, onPayload: payloadWithOutputLimit }
+      : { ...shared, onPayload: undefined };
+    return streamPiAssistantModel(model, context, providerOptions, {
+      resolveCodexAccessToken: async () => this.accessToken(),
+      geminiApiKey: this.env.GEMINI_API_KEY,
     });
   }
 
-  private async authorizedTool(input: PiLineAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
+  /** Pi compaction 只需要 Models.completeSimple；同一段 session 換 provider 後也由當下 model 建摘要。 */
+  private summaryModels(): Models {
+    return {
+      completeSimple: async (model, context, options) => this.streamModel(model, context, {
+        ...options,
+        timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
+        maxRetries: 0,
+      }).result(),
+    } as Models;
+  }
+
+  private async authorizedLineTool(input: PiLineAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
     const db = createDatabase(this.env.DB);
     const [channel, group] = await Promise.all([
       getAssistantLineChannel(db, input.assistantKey),
@@ -437,10 +467,46 @@ export class AssistantChatAgent {
     return tool.execute(args, { surface: "line", db, env: this.env });
   }
 
+  private async authorizedSandboxTool(input: PiSandboxAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
+    const db = createDatabase(this.env.DB);
+    const [user, configuredTools, session] = await Promise.all([
+      loadAuthUser(db, { id: input.actorUserId }),
+      listAssistantToolConfigs(db),
+      input.sandboxSessionId
+        ? getAssistantSandboxSession(db, {
+          assistantKey: input.assistantKey,
+          createdBy: input.actorUserId,
+          id: input.sandboxSessionId,
+        })
+        : Promise.resolve(null),
+    ]);
+    if (!user || user.status !== "active") throw new Error("Sandbox 使用者已停權或不存在。");
+    if (input.sandboxSessionId && (!session
+      || session.status !== "open"
+      || session.createdAt !== input.contextGeneration)) {
+      throw new Error("Sandbox session 已關閉、已更換，或不屬於這位使用者。");
+    }
+    const status = configuredTools.find((configured) => configured.key === toolKey)?.status ?? "disabled";
+    if (status === "disabled") throw new Error("這個 Sandbox 工具目前已停用。");
+    const tool = PLATFORM_TOOL_MAP.get(toolKey);
+    if (!tool || !tool.surfaces.includes("sandbox")) throw new Error("找不到這個 Sandbox 工具。");
+    if (tool.requiredPermissions?.some((permission) => !can(user, permission as Permission))) {
+      throw new Error("使用者目前沒有執行這個 Sandbox 工具的權限。");
+    }
+    return tool.execute(args, { surface: "sandbox", db, env: this.env, user });
+  }
+
+  private authorizedTool(input: PiAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
+    return isLineRunRequest(input)
+      ? this.authorizedLineTool(input, toolKey, args)
+      : this.authorizedSandboxTool(input, toolKey, args);
+  }
+
   private tools(context: ToolExecutionContext): AgentTool[] {
+    const surface = isLineRunRequest(context.request) ? "line" : "sandbox";
     return [...new Set(context.request.toolKeys)].flatMap((toolKey) => {
       const tool = PLATFORM_TOOL_MAP.get(toolKey);
-      if (!tool || !tool.surfaces.includes("line")) return [];
+      if (!tool || !tool.surfaces.includes(surface)) return [];
       const agentTool: AgentTool = {
         name: tool.key,
         label: tool.label,
@@ -489,13 +555,121 @@ export class AssistantChatAgent {
     );
   }
 
+  private async bootstrapSandboxTranscript(
+    state: AgentStateRow,
+    input: PiSandboxAgentRunRequest,
+    model: Model<Api>,
+  ): Promise<void> {
+    if (!input.sandboxSessionId) return;
+    const count = [...this.sql.exec<CountRow>(
+      "SELECT COUNT(*) AS count FROM assistant_agent_messages WHERE generation = ?",
+      state.generation,
+    )][0]?.count ?? 0;
+    if (count > 0) return;
+
+    const db = createDatabase(this.env.DB);
+    const session = await getAssistantSandboxSession(db, {
+      assistantKey: input.assistantKey,
+      createdBy: input.actorUserId,
+      id: input.sandboxSessionId,
+    });
+    if (!session
+      || session.status !== "open"
+      || session.createdAt !== input.contextGeneration) {
+      throw new Error("Sandbox session 已關閉、已更換，或不屬於這位使用者。");
+    }
+    // 摘要筆數是對完整升冪 D1 transcript 計算；先取完整序列再切掉摘要涵蓋的 prefix，
+    // 才不會因為最新視窗只有 100 筆而把已摘要的舊訊息重新送進 Pi context。
+    const history = session.contextSummary.trim()
+      ? (await listAllAssistantSandboxMessages(db, session.id))
+        .slice(Math.max(session.contextSummaryMessageCount, 0))
+        .slice(-100)
+      : await listAssistantSandboxMessages(db, session.id, 100);
+    const bootstrapMessages: SandboxBootstrapMessage[] = [
+      ...(session.contextSummary.trim()
+        ? [
+          { role: "user" as const, text: `[Earlier conversation summary]\n${session.contextSummary.trim()}` },
+          { role: "model" as const, text: "我會把這份摘要當成目前對話的既有背景。", model: session.model },
+        ]
+        : []),
+      ...history.map((message) => ({
+        role: message.role as "user" | "model",
+        text: message.text,
+        ...(message.model ? { model: message.model } : {}),
+      })),
+    ];
+    if (!bootstrapMessages.length) return;
+
+    const bootstrapRunId = `bootstrap:${state.generation}`;
+    this.sql.exec(
+      `INSERT OR IGNORE INTO assistant_agent_runs
+         (run_id, generation, status, response_json, updated_at)
+       VALUES (?, ?, 'completed', '', ?)`,
+      bootstrapRunId,
+      state.generation,
+      Date.now(),
+    );
+    const started = Date.now() - bootstrapMessages.length;
+    for (const [index, message] of bootstrapMessages.entries()) {
+      if (!message.text) continue;
+      this.storeMessage(
+        state.generation,
+        bootstrapRunId,
+        bootstrapAgentMessage(message, model, started + index),
+      );
+    }
+  }
+
+  private async bootstrapLineTranscript(
+    state: AgentStateRow,
+    input: PiLineAgentRunRequest,
+    model: Model<Api>,
+  ): Promise<void> {
+    const count = [...this.sql.exec<CountRow>(
+      "SELECT COUNT(*) AS count FROM assistant_agent_messages WHERE generation = ?",
+      state.generation,
+    )][0]?.count ?? 0;
+    if (count > 0) return;
+
+    const db = createDatabase(this.env.DB);
+    const history = await listAssistantLineMessages(db, {
+      channelKey: input.channelKey,
+      lineGroupId: input.lineGroupId,
+      contextResetAt: input.contextGeneration,
+      limit: 50,
+    });
+    const bootstrapMessages: SandboxBootstrapMessage[] = history
+      .filter((message) => message.webhookEventId !== input.webhookEventId)
+      .map((message) => ({ role: "user" as const, text: message.text }));
+    if (!bootstrapMessages.length) return;
+
+    const bootstrapRunId = `bootstrap:${state.generation}`;
+    this.sql.exec(
+      `INSERT OR IGNORE INTO assistant_agent_runs
+         (run_id, generation, status, response_json, updated_at)
+       VALUES (?, ?, 'completed', '', ?)`,
+      bootstrapRunId,
+      state.generation,
+      Date.now(),
+    );
+    const started = Date.now() - bootstrapMessages.length;
+    for (const [index, message] of bootstrapMessages.entries()) {
+      if (!message.text) continue;
+      this.storeMessage(
+        state.generation,
+        bootstrapRunId,
+        bootstrapAgentMessage(message, model, started + index),
+      );
+    }
+  }
+
   private totalContextTokens(state: AgentStateRow): number {
     return this.contextMessages(state).reduce((total, message) => total + estimateTokens(message), 0);
   }
 
-  private async compactIfNeeded(force = false): Promise<void> {
+  private async compactIfNeeded(force = false, preferredModel?: string): Promise<void> {
     const state = this.currentState();
-    if (!state?.model) return;
+    if (!state || (!state.model && !preferredModel)) return;
     const rows = this.loadMessageRows(state);
     const totalTokens = rows.reduce((total, row) => total + estimateTokens(row.message), state.summary_tokens);
     if (totalTokens <= (force ? FORCE_COMPACT_AFTER_TOKENS : COMPACT_AFTER_TOKENS)) return;
@@ -510,7 +684,7 @@ export class AssistantChatAgent {
     if (cutIndex <= 0 || cutIndex >= rows.length) return;
 
     const toSummarize = rows.slice(0, cutIndex);
-    const model = this.model(state.model);
+    const model = this.model(preferredModel ?? state.model);
     const summary = await generateSummaryWithUsage(
       toSummarize.map((row) => row.message),
       this.summaryModels(),
@@ -536,7 +710,7 @@ export class AssistantChatAgent {
     );
   }
 
-  private completedRun(runId: string, generation: string): PiLineAgentRunResponse | undefined {
+  private completedRun(runId: string, generation: string): PiAgentRunResponse | undefined {
     const row = [...this.sql.exec<AgentRunRow>(
       `SELECT status, response_json FROM assistant_agent_runs
        WHERE run_id = ? AND generation = ? LIMIT 1`,
@@ -545,14 +719,15 @@ export class AssistantChatAgent {
     )][0];
     if (row?.status !== "completed" || !row.response_json) return undefined;
     try {
-      return JSON.parse(row.response_json) as PiLineAgentRunResponse;
+      return JSON.parse(row.response_json) as PiAgentRunResponse;
     } catch {
       return undefined;
     }
   }
 
-  private async run(input: PiLineAgentRunRequest): Promise<PiLineAgentRunResponse> {
+  private async run(input: PiAgentRunRequest): Promise<PiAgentRunResponse> {
     let { state } = this.requireGeneration(input.contextGeneration);
+    const model = this.model(input.model);
     const completed = this.completedRun(input.runId, state.generation);
     if (completed) return completed;
     // Queue 重送未完成的 run 時先移除殘留 transcript；tool 的外部冪等仍由各 provider 自己保證。
@@ -562,7 +737,7 @@ export class AssistantChatAgent {
       input.runId,
     );
     if (this.totalContextTokens(state) > FORCE_COMPACT_AFTER_TOKENS) {
-      await this.compactIfNeeded(true);
+      await this.compactIfNeeded(true, model.id);
       state = this.currentState()!;
     }
     this.sql.exec(
@@ -574,13 +749,17 @@ export class AssistantChatAgent {
          response_json = '',
          updated_at = excluded.updated_at`,
       input.runId,
-      state.generation,
-      Date.now(),
-    );
+       state.generation,
+       Date.now(),
+     );
 
-    const model = this.model(input.model);
+    if (isSandboxRunRequest(input)) {
+      await this.bootstrapSandboxTranscript(state, input, model);
+      await this.compactIfNeeded(false, model.id);
+      state = this.currentState()!;
+    }
+    if (isLineRunRequest(input)) await this.bootstrapLineTranscript(state, input, model);
     const toolContext: ToolExecutionContext = { request: input, toolCalls: [] };
-    await this.bootstrapD1History(state, input);
     const initialMessages = this.contextMessages(state);
     const agent = new Agent({
       initialState: {
@@ -591,11 +770,11 @@ export class AssistantChatAgent {
         tools: this.tools(toolContext),
       },
       convertToLlm,
-      streamFn: (requestModel, context, options) => this.streamCodex(requestModel, context, {
+      streamFn: (requestModel, context, options) => this.streamModel(requestModel, context, {
         ...options,
-        timeoutMs: CODEX_REQUEST_TIMEOUT_MS,
+        timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
-        maxTokens: CODEX_MAX_OUTPUT_TOKENS,
+        maxTokens: MODEL_MAX_OUTPUT_TOKENS,
       }),
       sessionId: state.session_id,
       transport: "sse",
@@ -609,8 +788,10 @@ export class AssistantChatAgent {
     try {
       await agent.prompt(input.userText);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Pi agent 執行失敗。";
-      throw new PiAgentExecutionError(message, toolContext.toolCalls);
+      throw new AgentExecutionError(
+        error instanceof Error ? error.message : "Pi agent 執行失敗。",
+        toolContext.toolCalls,
+      );
     }
     const newMessages = agent.state.messages.slice(initialMessages.length);
     if (agent.state.errorMessage) {
@@ -619,18 +800,18 @@ export class AssistantChatAgent {
         Date.now(),
         input.runId,
       );
-      throw new PiAgentExecutionError(agent.state.errorMessage, toolContext.toolCalls);
+      throw new AgentExecutionError(agent.state.errorMessage, toolContext.toolCalls);
     }
     const finalMessage = [...newMessages].reverse().find((message): message is AssistantMessage =>
       message.role === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted");
     const finalText = finalMessage ? textContent(finalMessage) : "";
-    if (!finalText) throw new PiAgentExecutionError("Pi agent 沒有產生可顯示的文字回答。", toolContext.toolCalls);
+    if (!finalText) throw new AgentExecutionError("Pi agent 沒有產生可顯示的文字回答。", toolContext.toolCalls);
 
-    const response: PiLineAgentRunResponse = {
+    const response: PiAgentRunResponse = {
       sessionId: state.session_id,
       model: model.id,
       result: {
-        text: boundedReply(finalText),
+        text: isLineRunRequest(input) ? boundedReply(finalText) : finalText,
         thoughts: thoughtContent(newMessages),
         toolCalls: toolContext.toolCalls,
         usage: assistantUsage(newMessages),
@@ -684,10 +865,15 @@ export class AssistantChatAgent {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Pi agent 暫時無法回應。";
       const stale = message.includes("已重設的舊 session");
-      if (!stale) console.error("Pi chat agent 執行失敗", error);
+      if (!stale) {
+        console.error("Pi chat agent 執行失敗", {
+          runId: isRunRequest(payload) ? payload.runId : undefined,
+          error,
+        });
+      }
       return Response.json({
         error: message,
-        ...(error instanceof PiAgentExecutionError ? { toolCalls: error.toolCalls } : {}),
+        toolCalls: error instanceof AgentExecutionError ? error.toolCalls : [],
       }, { status: stale ? 409 : 503 });
     }
   }

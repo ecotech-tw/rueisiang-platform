@@ -3,6 +3,7 @@ import {
   createDatabase,
   dispatchCyberbizWebhook,
   ensureAssistantDefaults,
+  getAssistantConfig,
   getActiveAssistantPrompt,
   getAssistantLineReplyBackup,
   ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS,
@@ -32,7 +33,6 @@ import {
 } from "@rueisiang/db";
 import {
   ASSISTANT_KEY,
-  DEFAULT_ASSISTANT_MODEL,
   DEFAULT_ASSISTANT_PROMPT,
   assistantErrorDetails,
   assistantLog,
@@ -383,7 +383,7 @@ async function runLineAssistant(input: {
     ...(input.messageId ? { messageId: input.messageId } : {}),
   };
   const started = Date.now();
-  let modelId = DEFAULT_ASSISTANT_MODEL;
+  let modelId = DEFAULT_PI_CODEX_MODEL;
   let promptRevisionId = "unavailable";
   let promptText = input.questionText;
   let replyKind: "final" | "deadline-fallback" | "error" | undefined;
@@ -435,7 +435,7 @@ async function runLineAssistant(input: {
     const savedBackup = await getAssistantLineReplyBackup(input.db, runId);
     await ensureAssistantDefaults(input.db, {
       assistantKey: input.assistantKey,
-      defaultModel: DEFAULT_ASSISTANT_MODEL,
+      defaultModel: input.env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL,
       defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
       toolKeys: PLATFORM_TOOL_KEYS,
     });
@@ -453,7 +453,8 @@ async function runLineAssistant(input: {
       throw new PiAgentStaleSessionError("這則工作屬於已重設的舊 session，已略過。");
     }
 
-    const [prompt, allowedToolKeys] = await Promise.all([
+    const [assistantConfig, prompt, allowedToolKeys] = await Promise.all([
+      getAssistantConfig(input.db, input.assistantKey),
       getActiveAssistantPrompt(input.db, input.assistantKey),
       resolveLineToolKeys(input.db, {
         channelKey: input.channelKey,
@@ -461,7 +462,9 @@ async function runLineAssistant(input: {
         toolMode: group.toolMode,
       }),
     ]);
-    const configuredModel = input.env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL;
+    const configuredModel = assistantConfig?.activeModel
+      || input.env.PI_AGENT_MODEL?.trim()
+      || DEFAULT_PI_CODEX_MODEL;
     modelId = configuredModel;
     if (!prompt) throw new Error("小香的 prompt 設定目前無法使用。");
     promptRevisionId = prompt.id;
