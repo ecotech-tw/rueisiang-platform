@@ -59,6 +59,8 @@ import { requireAnyPermission, requireAuth, requirePermission } from "../middlew
 import { body, requireString } from "../request.js";
 
 const TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("sandbox"));
+const LINE_TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("line"));
+const LINE_TOOL_KEYS = new Set(LINE_TOOL_DEFINITIONS.map((tool) => tool.key));
 const TOOL_MAP = PLATFORM_TOOL_MAP;
 const MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
 const SANDBOX_CONTEXT_CHAR_LIMIT = 24_000;
@@ -217,7 +219,17 @@ async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; ge
   const db = c.get("db");
   const channel = await ensureAssistantLineChannel(db, { assistantKey: ASSISTANT_KEY });
   const groups = await listAssistantLineGroups(db, channel.channelKey);
-  const channelTools = await listAssistantChannelTools(db, channel.channelKey);
+  const [channelToolRows, configuredTools] = await Promise.all([
+    listAssistantChannelTools(db, channel.channelKey),
+    listAssistantToolConfigs(db),
+  ]);
+  /*
+   * 只回支援 LINE 的授權。舊版的 0025 seed 會把 sandbox-only 的工具也寫進白名單，
+   * 那些鍵值存在 DB 裡但這條路永遠用不到；照實回傳的話，畫面會顯示成「已授權」，
+   * 而使用者按儲存時又會被 PUT /line/tools 的 surface 檢查退回，變成怎麼存都失敗。
+   */
+  const channelTools = channelToolRows.filter((tool) => LINE_TOOL_KEYS.has(tool.toolKey));
+  const statuses = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
   const chatToolKeys = new Map(await Promise.all(groups.map(async (group) => [
     group.id,
     group.toolMode === "custom" ? await listAssistantChatToolKeys(db, group.id) : [],
@@ -247,6 +259,22 @@ async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; ge
       accessTokenDecryptionFailed: Boolean(channel.accessTokenEncrypted) && !storedAccessToken,
     },
     webhookUrl: new URL("/api/webhooks/line", `${baseUrl.replace(/\/$/u, "")}/`).toString(),
+    /*
+     * 工具目錄由這支端點自己供應，不要讓畫面去打 /sandbox/config——那支要的是
+     * assistant:sandbox:read，只有 LINE 權限的人拿不到，結果會是「一個工具都沒有」
+     * 這種看起來像設定錯誤、其實是權限擋住的假象。
+     */
+    tools: LINE_TOOL_DEFINITIONS.map((tool) => {
+      const configuredStatus = statuses.get(tool.key);
+      return {
+        key: tool.key,
+        label: tool.label,
+        description: tool.description,
+        surfaces: tool.surfaces,
+        requiredPermissions: tool.requiredPermissions ?? [],
+        status: configuredStatus && validToolStatus(configuredStatus) ? configuredStatus : tool.defaultStatus,
+      };
+    }),
     /** channel 白名單是 LINE 這條路的授權上限；對話層只能在這個集合裡再縮小。 */
     channelTools: channelTools.map((tool) => tool.toolKey),
     groups: groups.map((group) => ({

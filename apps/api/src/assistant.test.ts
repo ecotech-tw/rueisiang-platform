@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, customerTagCatalog, customers, inventoryItems, layoutElements, userRoles, users } from "@rueisiang/db/schema";
+import { activityEvents, customerTagCatalog, customers, inventoryItems, layoutElements, rolePermissions, roles, userRoles, users } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -49,6 +49,60 @@ beforeEach(async () => {
   };
   await syncSystemRoles(db());
   vi.restoreAllMocks();
+});
+
+/**
+ * LINE 前台的權限是獨立的一組：只有 assistant:line:* 的人也要能把這一頁用完整。
+ *
+ * 這一段釘的是「工具目錄從哪裡來」。目錄一度是跟 /sandbox/config 借的，那支要
+ * assistant:sandbox:read——只有 LINE 權限的人打不到，畫面會變成「一個工具都沒有」，
+ * 看起來像設定錯誤，其實是權限擋住的假象。
+ */
+describe("只有 LINE 權限的人", () => {
+  async function seedLineOnlyUser() {
+    await db().insert(roles).values({ id: "role-line", key: "line-only", name: "LINE 管理", isSystem: false });
+    await db().insert(rolePermissions).values([
+      { roleId: "role-line", permission: "assistant:line:read" },
+      { roleId: "role-line", permission: "assistant:line:write" },
+    ]);
+    await seedUser("line-user", "line@ecotech.tw", "role-line");
+  }
+
+  it("打不到 sandbox 設定，但拿得到 LINE 設定與工具目錄", async () => {
+    await seedLineOnlyUser();
+
+    expect((await as("line-user", "line@ecotech.tw", "/api/assistant/sandbox/config")).status).toBe(403);
+
+    const response = await as("line-user", "line@ecotech.tw", "/api/assistant/line/config");
+    expect(response.status).toBe(200);
+    const body = await response.json() as { tools: Array<{ key: string; surfaces: string[] }>; channelTools: string[] };
+    expect(body.tools.length).toBeGreaterThan(0);
+    expect(body.tools.every((tool) => tool.surfaces.includes("line"))).toBe(true);
+  });
+
+  it("資料庫裡殘留的非 LINE 授權不會被回報成已授權", async () => {
+    await seedLineOnlyUser();
+    // 先讓 channel 存在，才能掛授權上去。
+    await as("line-user", "line@ecotech.tw", "/api/assistant/line/config");
+
+    /*
+     * 模擬舊版 0025 seed 留下的殘骸：crm_get_customer 的 surfaces 是 ["sandbox", "mcp"]，
+     * 這條路永遠用不到。照實回傳的話，設定頁會顯示成「已授權」，而使用者原封不動按儲存
+     * 又會被 PUT /line/tools 的 surface 檢查退回，變成怎麼存都失敗且看不出原因。
+     */
+    const channelKey = "rueisiang-xiaoxiang";
+    d1.sqlite.exec(`
+      INSERT INTO assistant_channel_tools (id, channel_key, tool_key, created_by)
+      VALUES ('stale-1', '${channelKey}', 'crm_get_customer', 'test'),
+             ('stale-2', '${channelKey}', 'wms_search_warehouse', 'test');
+    `);
+
+    const response = await as("line-user", "line@ecotech.tw", "/api/assistant/line/config");
+    const body = await response.json() as { tools: Array<{ key: string }>; channelTools: string[] };
+
+    expect(body.tools.map((tool) => tool.key)).not.toContain("crm_get_customer");
+    expect(body.channelTools).toEqual(["wms_search_warehouse"]);
+  });
 });
 
 describe("AI 助理 Sandbox", () => {

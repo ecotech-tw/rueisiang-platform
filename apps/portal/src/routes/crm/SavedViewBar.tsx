@@ -111,7 +111,7 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
 
         {canManage && name !== null ? (
           <form
-            className="admin-form inline"
+            className="admin-form row"
             onSubmit={(event) => {
               event.preventDefault();
               const { page: _page, ...rest } = filters;

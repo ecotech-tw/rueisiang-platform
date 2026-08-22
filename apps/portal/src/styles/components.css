@@ -404,13 +404,23 @@
 
 .panel + .panel { margin-top: 20px; }
 .panel-title { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: 15px; }
+/*
+ * 面板的標題列。
+ *
+ * margin-bottom 是必要的，不是裝飾：panel-head 內的 .panel-title 被歸零了，所以少了這一段
+ * 的話標題與說明會直接黏在下面第一個欄位上，整個面板讀起來像沒斷句。
+ */
 .panel-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
+  margin-bottom: 22px;
 }
 .panel-head .panel-title { margin-bottom: 0; }
+.panel-head > div > .muted { margin: 6px 0 0; }
+/* 面板裡最後一個元素不需要再撐出下緣，padding 已經處理了。 */
+.panel > :last-child { margin-bottom: 0; }
 
 /* AI 助理 Sandbox */
 .assistant-grid { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 20px; }
@@ -492,6 +502,138 @@
 .assistant-modal-body { max-height: calc(100vh - 190px); }
 .assistant-modal-body .assistant-tool { cursor: pointer; }
 .line-channel-form { display: grid; gap: 14px; }
+/* channel 已授權工具的一覽；被別層擋住的會帶一個狀態標籤。 */
+.assistant-granted-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.assistant-granted-tools li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--color-brand-soft);
+  color: var(--color-brand-dark);
+  font-size: 13px;
+}
+.assistant-granted-tools strong { font-weight: 500; }
+
+/*
+ * 群組列的工具欄位。原本只有一顆寫著「自訂 1」的按鈕，看不出 1 是什麼，也看不出
+ * 「自訂」跟「繼承」差在哪。改成「狀態膠囊 ＋ 幾個工具」兩段，狀態用 Material 的
+ * 色調容器表示，數量用一般文字。
+ */
+.line-tool-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 5px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.line-tool-cell:hover { background: --alpha(var(--color-brand) / 7%); }
+.line-tool-cell:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.line-tool-mode {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--color-soft-line);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.line-tool-cell.is-custom .line-tool-mode { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.line-tool-count { color: var(--color-muted); font-size: 12px; white-space: nowrap; }
+
+.assistant-tool-mode { display: grid; gap: 12px; margin-bottom: 18px; }
+.assistant-tool-mode small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 12px; }
+.assistant-tool-mode strong { display: block; }
+
+/*
+ * Material 3 Switch。用在「切了就生效」的設定。
+ *
+ * 規格：軌道 52×32、滑塊關閉 16px／開啟 24px。滑塊變大是 M3 用來表達「已開啟」的
+ * 主要訊號，不是裝飾——只換顏色的話色弱使用者分不出兩個狀態。
+ */
+.m3-switch { position: relative; display: inline-flex; flex: none; }
+.m3-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.m3-switch input:disabled { cursor: not-allowed; }
+
+.m3-switch-track {
+  /*
+   * box-sizing 要寫死：外框的 2px 若被算在 52×32 之外，軌道會比滑塊矮，
+   * 滑塊就會凸出來變成一顆撐破膠囊的球。
+   */
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  width: 52px;
+  height: 32px;
+  padding: 0 2px;
+  border: 2px solid var(--color-muted);
+  border-radius: 999px;
+  background: var(--color-canvas);
+  transition: background-color .18s ease, border-color .18s ease;
+}
+.m3-switch-thumb {
+  box-sizing: border-box;
+  flex: none;               /* 不讓 flex 把它拉扁或撐大 */
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: var(--color-muted);
+  color: transparent;
+  transition: width .18s ease, height .18s ease, margin .18s ease, background-color .18s ease, color .18s ease;
+}
+.m3-switch-thumb svg { width: 14px; height: 14px; opacity: 0; transition: opacity .18s ease; }
+
+.m3-switch input:checked + .m3-switch-track {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+}
+.m3-switch input:checked + .m3-switch-track .m3-switch-thumb {
+  width: 24px;
+  height: 24px;
+  margin-left: 20px;
+  margin-right: 0;
+  background: var(--color-paper);
+  color: var(--color-brand-dark);
+}
+.m3-switch input:checked + .m3-switch-track .m3-switch-thumb svg { opacity: 1; }
+
+/* hover 是 state layer：在原本的底色上疊一層品牌色，不是換一個顏色。 */
+.m3-switch input:not(:disabled):hover + .m3-switch-track { background: --alpha(var(--color-brand) / 7%); }
+.m3-switch input:checked:not(:disabled):hover + .m3-switch-track { background: var(--color-brand-dark); }
+
+.m3-switch input:focus-visible + .m3-switch-track {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.m3-switch input:disabled + .m3-switch-track { opacity: .38; }
+.m3-switch.is-busy { opacity: .6; }
+
 .assistant-toggle,
 .assistant-inline-toggle { display: inline-flex; align-items: flex-start; gap: 9px; color: var(--color-ink); }
 .assistant-toggle input,
@@ -503,7 +645,7 @@
 .copy-field input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-canvas); color: var(--color-ink); font: inherit; }
 .copy-field .ghost-button { display: inline-flex; align-items: center; gap: 6px; }
 .copy-field svg { width: 17px; height: 17px; }
-.line-groups-table { margin-top: 16px; }
+.line-groups-table { margin-top: 22px; }
 .line-group-name { width: 150px; min-width: 0; padding: 7px 9px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-paper); color: var(--color-ink); font: inherit; }
 .line-groups-table code { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
 .empty-state { margin: 18px 0 0; padding: 18px; border: 1px dashed var(--color-line); border-radius: 10px; color: var(--color-muted); text-align: center; }
@@ -513,9 +655,19 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
-.admin-form.inline { margin-top: 8px; }
+/* 跟在 .panel-head 後面時，距離由 panel-head 的 margin-bottom 決定，這裡不再疊加。 */
+/*
+ * 修飾詞叫 row 不叫 inline。
+ *
+ * `inline` 是 Tailwind 的 utility（display: inline），而 utility 的 layer 永遠贏
+ * component——寫成 `.admin-form.inline` 的話，`.admin-form` 的 display: flex 會被蓋掉，
+ * 整排欄位退回 inline 排版，gap 也跟著失效（gap 只對 flex/grid 有作用）。
+ * 命名修飾詞之前先確認它不是 Tailwind 已經有的 utility。
+ */
+.admin-form.row { margin-top: 16px; }
+.panel-head + .admin-form.row { margin-top: 0; }
 /*
  * 表格上方的工具列。先前它跟表頭之間沒有任何界線，看起來像黏在一起的兩排東西。
  * 給它自己的下緣分隔線與內距，讓「篩選」與「資料」是兩個區塊。
@@ -818,7 +970,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 .form-error {
   width: 100%;
-  margin: 6px 0 0;
+  margin: 10px 0 0;
   padding: 8px 11px;
   border-radius: 9px;
   background: var(--color-brand-soft);
@@ -1984,7 +2136,13 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .field.checkbox input { width: 18px; height: 18px; margin-top: 2px; }
 .field.checkbox small { display: block; margin-top: 2px; color: var(--color-muted); font-size: 12px; font-weight: 400; }
 
-.form-hint { color: var(--color-ok); font-size: 13px; font-weight: 700; }
+/*
+ * 欄位底下的說明文字。
+ *
+ * margin 要自己寫回來：preflight 把 <p> 的邊距清成 0，少了這一行的話說明會直接貼在
+ * 輸入框或按鈕的下緣，看起來像同一個元件的一部分而不是註解。
+ */
+.form-hint { margin: 10px 0 0; color: var(--color-ok); font-size: 13px; font-weight: 700; }
 .form-foot { margin-top: 12px; font-size: 12px; }
 .detail-list { display: grid; gap: 12px; margin: 0; }
 .detail-list > div { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 12px; }
