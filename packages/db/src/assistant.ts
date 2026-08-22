@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type {
   AssistantToolCall as RecordedToolCall,
   AssistantToolStatus,
@@ -11,11 +11,14 @@ import {
   assistantRuns,
   assistantToolCalls,
   assistantToolConfigs,
+  assistantChannelTools,
+  assistantChatTools,
   assistantLineChannels,
   assistantLineGroups,
   assistantLineMessages,
   assistantSandboxMessages,
   assistantSandboxSessions,
+  type AssistantChannelTool,
   type AssistantConfig,
   type AssistantLineChannel,
   type AssistantLineGroup,
@@ -32,6 +35,13 @@ export type AssistantSandboxSessionStatus = "open" | "closed";
 export type AssistantSandboxMessageRole = "user" | "model";
 export const DEFAULT_ASSISTANT_LINE_DISPLAY_NAME = "Rueisiang 小香";
 
+/**
+ * 取得（必要時建立）某個 assistant 的 LINE channel。
+ *
+ * 現階段一個 assistant 只有一個 channel，所以新建時 `channelKey` 直接沿用 `assistantKey`。
+ * 值相同不代表概念相同——關聯一律走 `channelKey`，官網客服當第二個 channel 進來時，
+ * 這裡改成產新的鍵值即可，既有資料不必再搬。
+ */
 export async function ensureAssistantLineChannel(
   db: Database,
   input: { assistantKey: string; updatedBy?: string },
@@ -45,6 +55,7 @@ export async function ensureAssistantLineChannel(
 
   const now = new Date().toISOString();
   await db.insert(assistantLineChannels).values({
+    channelKey: input.assistantKey,
     assistantKey: input.assistantKey,
     channelId: "",
     channelSecretEncrypted: "",
@@ -75,6 +86,7 @@ export async function getAssistantLineChannel(db: Database, assistantKey: string
 export async function updateAssistantLineChannel(
   db: Database,
   input: {
+    channelKey: string;
     assistantKey: string;
     channelId: string;
     channelSecretEncrypted?: string;
@@ -104,41 +116,41 @@ export async function updateAssistantLineChannel(
   await db
     .update(assistantLineChannels)
     .set(values)
-    .where(eq(assistantLineChannels.assistantKey, input.assistantKey));
+    .where(eq(assistantLineChannels.channelKey, input.channelKey));
   const channel = await getAssistantLineChannel(db, input.assistantKey);
   if (!channel) throw new Error("更新 LINE channel 設定後找不到資料。");
   return channel;
 }
 
-export async function listAssistantLineGroups(db: Database, assistantKey: string): Promise<AssistantLineGroup[]> {
+export async function listAssistantLineGroups(db: Database, channelKey: string): Promise<AssistantLineGroup[]> {
   return db
     .select()
     .from(assistantLineGroups)
-    .where(eq(assistantLineGroups.assistantKey, assistantKey))
+    .where(eq(assistantLineGroups.channelKey, channelKey))
     .orderBy(
       sql`CASE WHEN instr(${assistantLineGroups.discoveredAt}, 'T') > 0 THEN ${assistantLineGroups.discoveredAt} ELSE replace(${assistantLineGroups.discoveredAt}, ' ', 'T') || '.000Z' END DESC`,
       desc(assistantLineGroups.id),
     );
 }
 
-export async function findAssistantLineGroup(db: Database, input: { assistantKey: string; id: string }): Promise<AssistantLineGroup | null> {
+export async function findAssistantLineGroup(db: Database, input: { channelKey: string; id: string }): Promise<AssistantLineGroup | null> {
   const [row] = await db
     .select()
     .from(assistantLineGroups)
-    .where(and(eq(assistantLineGroups.assistantKey, input.assistantKey), eq(assistantLineGroups.id, input.id)))
+    .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)))
     .limit(1);
   return row ?? null;
 }
 
 export async function upsertAssistantLineGroup(
   db: Database,
-  input: { assistantKey: string; lineGroupId: string; displayName?: string },
+  input: { channelKey: string; lineGroupId: string; displayName?: string },
 ): Promise<AssistantLineGroup> {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   await db.insert(assistantLineGroups).values({
     id,
-    assistantKey: input.assistantKey,
+    channelKey: input.channelKey,
     lineGroupId: input.lineGroupId,
     displayName: input.displayName ?? "",
     discoveredAt: now,
@@ -148,7 +160,7 @@ export async function upsertAssistantLineGroup(
     .select()
     .from(assistantLineGroups)
     .where(and(
-      eq(assistantLineGroups.assistantKey, input.assistantKey),
+      eq(assistantLineGroups.channelKey, input.channelKey),
       eq(assistantLineGroups.lineGroupId, input.lineGroupId),
     ))
     .limit(1);
@@ -157,25 +169,25 @@ export async function upsertAssistantLineGroup(
     await db.update(assistantLineGroups)
       .set({ displayName: input.displayName, updatedAt: new Date().toISOString() })
       .where(eq(assistantLineGroups.id, created.id));
-    return (await findAssistantLineGroup(db, { assistantKey: input.assistantKey, id: created.id })) ?? created;
+    return (await findAssistantLineGroup(db, { channelKey: input.channelKey, id: created.id })) ?? created;
   }
   return created;
 }
 
 export async function updateAssistantLineGroup(
   db: Database,
-  input: { assistantKey: string; id: string; displayName: string; enabled: boolean },
+  input: { channelKey: string; id: string; displayName: string; enabled: boolean },
 ): Promise<AssistantLineGroup | null> {
   await db.update(assistantLineGroups)
     .set({ displayName: input.displayName, enabled: input.enabled, updatedAt: new Date().toISOString() })
-    .where(and(eq(assistantLineGroups.assistantKey, input.assistantKey), eq(assistantLineGroups.id, input.id)));
-  return findAssistantLineGroup(db, { assistantKey: input.assistantKey, id: input.id });
+    .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)));
+  return findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.id });
 }
 
 export async function recordAssistantLineMessage(
   db: Database,
   input: {
-    assistantKey: string;
+    channelKey: string;
     lineGroupId: string;
     sourceType: string;
     webhookEventId: string;
@@ -187,7 +199,7 @@ export async function recordAssistantLineMessage(
   const id = crypto.randomUUID();
   await db.insert(assistantLineMessages).values({ id, ...input, createdAt: new Date().toISOString() }).onConflictDoNothing();
   const [created] = await db.select().from(assistantLineMessages).where(and(
-    eq(assistantLineMessages.assistantKey, input.assistantKey),
+    eq(assistantLineMessages.channelKey, input.channelKey),
     eq(assistantLineMessages.webhookEventId, input.webhookEventId),
   )).limit(1);
   if (!created) throw new Error("記錄 LINE 訊息後找不到資料。");
@@ -196,14 +208,14 @@ export async function recordAssistantLineMessage(
 
 export async function listAssistantLineMessages(
   db: Database,
-  input: { assistantKey: string; lineGroupId: string; limit?: number },
+  input: { channelKey: string; lineGroupId: string; limit?: number },
 ): Promise<AssistantLineMessage[]> {
   const limit = Math.min(Math.max(input.limit ?? 12, 1), 50);
   const rows = await db
     .select()
     .from(assistantLineMessages)
     .where(and(
-      eq(assistantLineMessages.assistantKey, input.assistantKey),
+      eq(assistantLineMessages.channelKey, input.channelKey),
       eq(assistantLineMessages.lineGroupId, input.lineGroupId),
     ))
     .orderBy(
@@ -555,6 +567,9 @@ export async function recordAssistantRun(
   input: {
     id: string;
     channel: AssistantChannel;
+    /** 哪個 bot 跑的。`channel` 只說得出 surface，多帳號之後稽核要靠這兩個。 */
+    assistantKey?: string;
+    channelKey?: string;
     sessionId?: string;
     groupId?: string;
     model: string;
@@ -572,6 +587,8 @@ export async function recordAssistantRun(
   const run = db.insert(assistantRuns).values({
     id: input.id,
     channel: input.channel,
+    assistantKey: input.assistantKey,
+    channelKey: input.channelKey,
     sessionId: input.sessionId,
     groupId: input.groupId,
     model: input.model,
@@ -595,4 +612,127 @@ export async function recordAssistantRun(
     errorMessage: call.errorMessage,
   }));
   await db.batch([run, ...calls]);
+}
+
+
+export type AssistantGroupToolMode = "inherit" | "custom";
+
+export function isAssistantGroupToolMode(value: unknown): value is AssistantGroupToolMode {
+  return value === "inherit" || value === "custom";
+}
+
+/** 這個 channel 被授權的工具。沒有列就是什麼都不給。 */
+export async function listAssistantChannelTools(db: Database, channelKey: string): Promise<AssistantChannelTool[]> {
+  return db
+    .select()
+    .from(assistantChannelTools)
+    .where(eq(assistantChannelTools.channelKey, channelKey))
+    .orderBy(asc(assistantChannelTools.toolKey));
+}
+
+/**
+ * 整批覆寫某個 channel 的白名單。
+ *
+ * 收回一個工具時靠 `assistant_chat_tools` 的 ON DELETE CASCADE 把底下所有對話的授權一起
+ * 帶走——這裡刻意不自己清對話層，那是外鍵的工作，手寫容易漏。
+ */
+export async function setAssistantChannelTools(
+  db: Database,
+  input: { channelKey: string; toolKeys: string[]; updatedBy: string },
+): Promise<AssistantChannelTool[]> {
+  const wanted = [...new Set(input.toolKeys)];
+  const existing = await listAssistantChannelTools(db, input.channelKey);
+  const removed = existing.filter((row) => !wanted.includes(row.toolKey));
+  const added = wanted.filter((key) => !existing.some((row) => row.toolKey === key));
+
+  if (removed.length) {
+    await db.delete(assistantChannelTools).where(inArray(assistantChannelTools.id, removed.map((row) => row.id)));
+  }
+  if (added.length) {
+    const now = new Date().toISOString();
+    await db.insert(assistantChannelTools).values(added.map((toolKey) => ({
+      id: crypto.randomUUID(),
+      channelKey: input.channelKey,
+      toolKey,
+      createdBy: input.updatedBy,
+      createdAt: now,
+    }))).onConflictDoNothing();
+  }
+  return listAssistantChannelTools(db, input.channelKey);
+}
+
+/** 某個對話被授權的工具鍵值。只有 `toolMode = "custom"` 的群組會用到。 */
+export async function listAssistantChatToolKeys(db: Database, groupId: string): Promise<string[]> {
+  const rows = await db
+    .select({ toolKey: assistantChannelTools.toolKey })
+    .from(assistantChatTools)
+    .innerJoin(assistantChannelTools, eq(assistantChatTools.channelToolId, assistantChannelTools.id))
+    .where(eq(assistantChatTools.groupId, groupId))
+    .orderBy(asc(assistantChannelTools.toolKey));
+  return rows.map((row) => row.toolKey);
+}
+
+/**
+ * 整批覆寫某個對話的白名單。
+ *
+ * 只認得 channel 已經授權的工具：對話層存的是 `assistant_channel_tools` 的列 id，超出
+ * channel 的鍵值在這裡就找不到對應，會被安靜地忽略——這是刻意的，因為「對話不可能超過
+ * channel」是這套設計的核心保證，不該讓呼叫端有辦法繞過。
+ */
+export async function setAssistantChatTools(
+  db: Database,
+  input: { channelKey: string; groupId: string; toolKeys: string[]; updatedBy: string },
+): Promise<string[]> {
+  const grants = await listAssistantChannelTools(db, input.channelKey);
+  const wanted = grants.filter((grant) => input.toolKeys.includes(grant.toolKey));
+
+  await db.delete(assistantChatTools).where(eq(assistantChatTools.groupId, input.groupId));
+  if (wanted.length) {
+    const now = new Date().toISOString();
+    await db.insert(assistantChatTools).values(wanted.map((grant) => ({
+      id: crypto.randomUUID(),
+      groupId: input.groupId,
+      channelToolId: grant.id,
+      createdBy: input.updatedBy,
+      createdAt: now,
+    }))).onConflictDoNothing();
+  }
+  return listAssistantChatToolKeys(db, input.groupId);
+}
+
+export async function setAssistantGroupToolMode(
+  db: Database,
+  input: { channelKey: string; id: string; toolMode: AssistantGroupToolMode },
+): Promise<AssistantLineGroup | null> {
+  await db.update(assistantLineGroups)
+    .set({ toolMode: input.toolMode, updatedAt: new Date().toISOString() })
+    .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)));
+  return findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.id });
+}
+
+/**
+ * 一個 LINE 對話實際拿得到的工具鍵值。**三層的交集，缺一不可。**
+ *
+ * 1. `assistant_tool_configs.status = 'enabled'`——這個工具在平台上活著嗎。
+ *    `development` 代表「只能在 Sandbox 驗證」，不該出現在線上。
+ * 2. `assistant_channel_tools`——這個 bot 能用嗎。LINE 這條路真正的授權來源。
+ * 3. `assistant_chat_tools`——這個對話能用嗎。只有 `toolMode = "custom"` 才看。
+ *
+ * 三層都在這裡收斂成一個答案，呼叫端不要自己再拼一次；漏掉任何一層都是安靜地放行。
+ */
+export async function resolveLineToolKeys(
+  db: Database,
+  input: { channelKey: string; groupId: string; toolMode: string },
+): Promise<string[]> {
+  const grants = await listAssistantChannelTools(db, input.channelKey);
+  if (!grants.length) return [];
+
+  const configs = await listAssistantToolConfigs(db);
+  const enabled = new Set(configs.filter((config) => config.status === "enabled").map((config) => config.key));
+
+  const channelKeys = grants.map((grant) => grant.toolKey).filter((key) => enabled.has(key));
+  if (input.toolMode !== "custom") return channelKeys;
+
+  const chatKeys = new Set(await listAssistantChatToolKeys(db, input.groupId));
+  return channelKeys.filter((key) => chatKeys.has(key));
 }

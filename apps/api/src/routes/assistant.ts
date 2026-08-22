@@ -28,6 +28,9 @@ import {
   getAssistantSandboxSession,
   findAssistantPromptRevision,
   getActiveAssistantPrompt,
+  isAssistantGroupToolMode,
+  listAssistantChannelTools,
+  listAssistantChatToolKeys,
   listAssistantPromptRevisions,
   listAssistantLineGroups,
   listAllAssistantSandboxMessages,
@@ -36,6 +39,9 @@ import {
   listAssistantToolConfigs,
   recordAssistantRun,
   setActiveAssistantModel,
+  setAssistantChannelTools,
+  setAssistantChatTools,
+  setAssistantGroupToolMode,
   setAssistantToolStatus,
   updateAssistantLineChannel,
   updateAssistantLineGroup,
@@ -141,6 +147,7 @@ async function maybeSummarizeSandboxContext(input: {
       await recordAssistantRun(input.db, {
         id: crypto.randomUUID(),
         channel: "sandbox",
+        assistantKey: ASSISTANT_KEY,
         sessionId: session.id,
         model: input.model,
         promptRevisionId: input.promptRevisionId,
@@ -209,7 +216,12 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
 async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; get: (key: "db") => AppEnv["Variables"]["db"] }) {
   const db = c.get("db");
   const channel = await ensureAssistantLineChannel(db, { assistantKey: ASSISTANT_KEY });
-  const groups = await listAssistantLineGroups(db, ASSISTANT_KEY);
+  const groups = await listAssistantLineGroups(db, channel.channelKey);
+  const channelTools = await listAssistantChannelTools(db, channel.channelKey);
+  const chatToolKeys = new Map(await Promise.all(groups.map(async (group) => [
+    group.id,
+    group.toolMode === "custom" ? await listAssistantChatToolKeys(db, group.id) : [],
+  ] as const)));
   const [storedSecret, storedAccessToken] = await Promise.all([
     channel.channelSecretEncrypted
       ? decryptLineSecret(channel.channelSecretEncrypted, c.env.AUTH_SESSION_SECRET)
@@ -221,6 +233,7 @@ async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; ge
   const baseUrl = c.env.PUBLIC_APP_URL?.trim() || new URL(c.req.url).origin;
   return {
     channel: {
+      channelKey: channel.channelKey,
       assistantKey: channel.assistantKey,
       channelId: channel.channelId,
       displayName: channel.displayName,
@@ -234,11 +247,15 @@ async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; ge
       accessTokenDecryptionFailed: Boolean(channel.accessTokenEncrypted) && !storedAccessToken,
     },
     webhookUrl: new URL("/api/webhooks/line", `${baseUrl.replace(/\/$/u, "")}/`).toString(),
+    /** channel 白名單是 LINE 這條路的授權上限；對話層只能在這個集合裡再縮小。 */
+    channelTools: channelTools.map((tool) => tool.toolKey),
     groups: groups.map((group) => ({
       id: group.id,
       lineGroupId: group.lineGroupId,
       displayName: group.displayName,
       enabled: group.enabled,
+      toolMode: group.toolMode,
+      tools: chatToolKeys.get(group.id) ?? [],
       discoveredAt: group.discoveredAt,
       updatedAt: group.updatedAt,
     })),
@@ -397,8 +414,9 @@ export const assistant = new Hono<AppEnv>()
         ? input.accessToken.trim()
         : requireString(input, "accessToken", "LINE Channel Access Token");
     if (accessToken.length > 2_000) throw new HTTPException(400, { message: "LINE Channel Access Token 格式不正確。" });
-    await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
     await updateAssistantLineChannel(c.get("db"), {
+      channelKey: channel.channelKey,
       assistantKey: ASSISTANT_KEY,
       channelId,
       ...(channelSecret ? { channelSecretEncrypted: await encryptLineSecret(channelSecret, c.env.AUTH_SESSION_SECRET) } : {}),
@@ -416,11 +434,11 @@ export const assistant = new Hono<AppEnv>()
     if (lineGroupId.length > 255) throw new HTTPException(400, { message: "LINE 群組 ID 不能超過 255 字元。" });
     const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
     if (displayName.length > 120) throw new HTTPException(400, { message: "群組顯示名稱不能超過 120 字元。" });
-    await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
-    const group = await upsertAssistantLineGroup(c.get("db"), { assistantKey: ASSISTANT_KEY, lineGroupId, displayName });
+    const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    const group = await upsertAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, lineGroupId, displayName });
     if (typeof input.enabled === "boolean" || displayName !== group.displayName) {
       const updated = await updateAssistantLineGroup(c.get("db"), {
-        assistantKey: ASSISTANT_KEY,
+        channelKey: channel.channelKey,
         id: group.id,
         displayName: displayName || group.displayName,
         enabled: typeof input.enabled === "boolean" ? input.enabled : group.enabled,
@@ -432,15 +450,74 @@ export const assistant = new Hono<AppEnv>()
 
   .patch("/line/groups/:id", requirePermission("assistant:line:write"), async (c) => {
     const id = c.req.param("id");
-    const existing = await findAssistantLineGroup(c.get("db"), { assistantKey: ASSISTANT_KEY, id });
+    const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    const existing = await findAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, id });
     if (!existing) throw new HTTPException(404, { message: "找不到這個 LINE 群組。" });
     const input = await body(c);
     const displayName = input.displayName === undefined ? existing.displayName : requireString(input, "displayName", "群組顯示名稱");
     if (displayName.length > 120) throw new HTTPException(400, { message: "群組顯示名稱不能超過 120 字元。" });
     const enabled = input.enabled === undefined ? existing.enabled : input.enabled;
     if (typeof enabled !== "boolean") throw new HTTPException(400, { message: "群組是否啟用必須是布林值。" });
-    const group = await updateAssistantLineGroup(c.get("db"), { assistantKey: ASSISTANT_KEY, id, displayName, enabled });
+    const group = await updateAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, id, displayName, enabled });
     return c.json({ group });
+  })
+
+  /**
+   * 設定這個 channel 能用哪些工具——LINE 這條路真正的授權來源。
+   *
+   * 收回一個工具時不必自己清對話層：`assistant_chat_tools` 的外鍵指向這裡的列，
+   * ON DELETE CASCADE 會把底下所有對話的授權一起帶走。
+   */
+  .put("/line/tools", requirePermission("assistant:line:write"), async (c) => {
+    const input = await body(c);
+    if (!Array.isArray(input.toolKeys)) throw new HTTPException(400, { message: "toolKeys 必須是陣列。" });
+    const toolKeys = input.toolKeys.filter((key): key is string => typeof key === "string");
+    const unknown = toolKeys.filter((key) => !TOOL_MAP.has(key));
+    if (unknown.length) throw new HTTPException(400, { message: `未知的工具：${unknown.join("、")}` });
+    const notOnLine = toolKeys.filter((key) => !TOOL_MAP.get(key)?.surfaces.includes("line"));
+    if (notOnLine.length) throw new HTTPException(400, { message: `這些工具不支援 LINE：${notOnLine.join("、")}` });
+
+    const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    await setAssistantChannelTools(c.get("db"), {
+      channelKey: channel.channelKey,
+      toolKeys,
+      updatedBy: c.get("user").id,
+    });
+    return c.json(await lineConfig(c));
+  })
+
+  /**
+   * 設定單一群組的工具與模式。
+   *
+   * `inherit` 就是 channel 給的全部；`custom` 才讀這裡設定的清單，而且只認得 channel
+   * 已經授權的鍵值——超出的部分在 `setAssistantChatTools` 會被安靜忽略，因為「對話不可能
+   * 超過 channel」是這套設計的核心保證，不該讓 API 有辦法繞過。
+   */
+  .put("/line/groups/:id/tools", requirePermission("assistant:line:write"), async (c) => {
+    const id = c.req.param("id");
+    const input = await body(c);
+    if (!isAssistantGroupToolMode(input.toolMode)) {
+      throw new HTTPException(400, { message: "toolMode 必須是 inherit 或 custom。" });
+    }
+    if (input.toolMode === "custom" && !Array.isArray(input.toolKeys)) {
+      throw new HTTPException(400, { message: "custom 模式必須提供 toolKeys 陣列。" });
+    }
+
+    const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    const existing = await findAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, id });
+    if (!existing) throw new HTTPException(404, { message: "找不到這個 LINE 群組。" });
+
+    await setAssistantGroupToolMode(c.get("db"), { channelKey: channel.channelKey, id, toolMode: input.toolMode });
+    if (input.toolMode === "custom") {
+      const toolKeys = (input.toolKeys as unknown[]).filter((key): key is string => typeof key === "string");
+      await setAssistantChatTools(c.get("db"), {
+        channelKey: channel.channelKey,
+        groupId: id,
+        toolKeys,
+        updatedBy: c.get("user").id,
+      });
+    }
+    return c.json(await lineConfig(c));
   })
 
   .patch("/config", requirePermission("assistant:settings:write"), async (c) => {
@@ -604,6 +681,7 @@ export const assistant = new Hono<AppEnv>()
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",
+        assistantKey: ASSISTANT_KEY,
         sessionId: session?.id,
         model: model.id,
         promptRevisionId: prompt.id,
@@ -643,6 +721,7 @@ export const assistant = new Hono<AppEnv>()
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",
+        assistantKey: ASSISTANT_KEY,
         sessionId: session?.id,
         model: model.id,
         promptRevisionId: prompt.id,

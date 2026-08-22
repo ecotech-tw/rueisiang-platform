@@ -5,8 +5,9 @@ import {
   getActiveAssistantPrompt,
   getAssistantConfig,
   ensureAssistantLineChannel,
+  findAssistantLineGroup,
   listAssistantLineMessages,
-  listAssistantToolConfigs,
+  resolveLineToolKeys,
   recordAssistantRun,
   recordAssistantLineMessage,
   upsertAssistantLineGroup,
@@ -82,6 +83,10 @@ async function runLineAssistant(input: {
   db: AppEnv["Variables"]["db"];
   env: AppEnv["Bindings"];
   accessToken: string;
+  assistantKey: string;
+  channelKey: string;
+  /** 群組那一列的 id，不是 LINE 的群組 id——對話層的工具授權掛在這個 id 上。 */
+  groupRowId: string;
   lineGroupId: string;
   userText: string;
   questionText: string;
@@ -94,24 +99,41 @@ async function runLineAssistant(input: {
   try {
     if (!input.env.GEMINI_API_KEY) throw new Error("平台還沒設定 GEMINI_API_KEY。");
     await ensureAssistantDefaults(input.db, {
-      assistantKey: ASSISTANT_KEY,
+      assistantKey: input.assistantKey,
       defaultModel: DEFAULT_ASSISTANT_MODEL,
       defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
       toolKeys: PLATFORM_TOOL_KEYS,
     });
-    const [config, prompt, configuredTools, messages] = await Promise.all([
-      getAssistantConfig(input.db, ASSISTANT_KEY),
-      getActiveAssistantPrompt(input.db, ASSISTANT_KEY),
-      listAssistantToolConfigs(input.db),
-      listAssistantLineMessages(input.db, { assistantKey: ASSISTANT_KEY, lineGroupId: input.lineGroupId, limit: 12 }),
+    /*
+     * toolMode 在這裡重讀，不採信收 webhook 當下那一份。
+     *
+     * 這條路是排程執行的，收件與回答之間隔著一段時間；管理員在那之間把群組從 inherit
+     * 改成 custom 的話，用舊值等於讓這一輪照舊拿到 channel 的全部工具。授權每次執行都
+     * 回 DB 重讀是這個 codebase 的既定原則（CLAUDE.md），LINE 這條也不例外。
+     */
+    const group = await findAssistantLineGroup(input.db, { channelKey: input.channelKey, id: input.groupRowId });
+    if (!group) throw new Error("找不到這個 LINE 群組的設定。");
+    if (!group.enabled) throw new Error("這個 LINE 群組已經被取消授權。");
+
+    const [config, prompt, allowedToolKeys, messages] = await Promise.all([
+      getAssistantConfig(input.db, input.assistantKey),
+      getActiveAssistantPrompt(input.db, input.assistantKey),
+      resolveLineToolKeys(input.db, {
+        channelKey: input.channelKey,
+        groupId: input.groupRowId,
+        toolMode: group.toolMode,
+      }),
+      listAssistantLineMessages(input.db, { channelKey: input.channelKey, lineGroupId: input.lineGroupId, limit: 12 }),
     ]);
     modelId = config?.activeModel ?? DEFAULT_ASSISTANT_MODEL;
     const model = LINE_MODEL_MAP.get(modelId);
     if (!model?.supported || !prompt) throw new Error("小香的模型或 prompt 設定目前無法使用。");
     promptRevisionId = prompt.id;
 
-    const enabledTools = new Set(configuredTools.filter((tool) => tool.status === "enabled").map((tool) => tool.key));
-    const tools = LINE_TOOL_DEFINITIONS.filter((tool) => enabledTools.has(tool.key));
+    // resolveLineToolKeys 已經把「全域狀態 ∩ channel 白名單 ∩ 對話白名單」收斂完了，
+    // 這裡只負責把鍵值換成實際的工具定義，不要在這條路上長出第二套判斷。
+    const allowed = new Set(allowedToolKeys);
+    const tools = LINE_TOOL_DEFINITIONS.filter((tool) => allowed.has(tool.key));
     const context = messages
       .map((message) => message.text.length > 1_000 ? `${message.text.slice(0, 1_000)}…` : message.text)
       .join("\n");
@@ -142,6 +164,8 @@ async function runLineAssistant(input: {
     await recordAssistantRun(input.db, {
       id: runId,
       channel: "line",
+      assistantKey: input.assistantKey,
+      channelKey: input.channelKey,
       groupId: input.lineGroupId,
       model: modelId,
       promptRevisionId,
@@ -159,6 +183,8 @@ async function runLineAssistant(input: {
       await recordAssistantRun(input.db, {
         id: runId,
         channel: "line",
+        assistantKey: input.assistantKey,
+        channelKey: input.channelKey,
         groupId: input.lineGroupId,
         model: modelId,
         promptRevisionId,
@@ -317,7 +343,7 @@ async function receiveLine(c: Context<AppEnv>) {
     }
 
     const lineGroup = await upsertAssistantLineGroup(c.get("db"), {
-      assistantKey: ASSISTANT_KEY,
+      channelKey: lineChannel.channelKey,
       lineGroupId: group.id,
     });
     const webhookEventId = event.webhookEventId || await stableLineWebhookEventId({
@@ -329,7 +355,7 @@ async function receiveLine(c: Context<AppEnv>) {
       text,
     });
     const result = await recordAssistantLineMessage(c.get("db"), {
-      assistantKey: ASSISTANT_KEY,
+      channelKey: lineChannel.channelKey,
       lineGroupId: lineGroup.lineGroupId,
       sourceType: group.sourceType,
       webhookEventId,
@@ -347,6 +373,9 @@ async function receiveLine(c: Context<AppEnv>) {
         db: c.get("db"),
         env: c.env,
         accessToken,
+        assistantKey: lineChannel.assistantKey,
+        channelKey: lineChannel.channelKey,
+        groupRowId: lineGroup.id,
         lineGroupId: lineGroup.lineGroupId,
         userText: text,
         questionText,
