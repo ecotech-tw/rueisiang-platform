@@ -156,7 +156,7 @@ export function Tags() {
                   <td>
                     {editing?.name === tag.name ? (
                       <form
-                        className="admin-form inline"
+                        className="admin-form row"
                         onSubmit={(event) => {
                           event.preventDefault();
                           if (editing.next.trim()) void applyChange(tag.name, editing.next.trim());
