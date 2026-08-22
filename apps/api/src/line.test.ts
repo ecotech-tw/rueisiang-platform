@@ -1,7 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, listAssistantLineMessages, reserveAssistantLinePushDelivery, syncSystemRoles } from "@rueisiang/db";
 import {
-  assistantConfigs,
   assistantLineChannels,
   assistantLineGroups,
   assistantLineMessages,
@@ -16,11 +15,38 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 import { lineQuestionText } from "./line.js";
+import type { PiLineAgentRunRequest, PiLineAgentRunResponse } from "./pi-agent-contract.js";
 import { processLineAssistantQueueMessage } from "./routes/webhooks.js";
 
 const AUTH_SECRET = "line-test-auth-secret";
 let d1: LocalD1;
 let env: Record<string, unknown>;
+let piAgentRequests: Array<{ agentName: string; path: string; payload: Record<string, unknown> }>;
+let piAgentResponse: PiLineAgentRunResponse;
+let piAgentError: string | undefined;
+
+function setPiAgentResponse(text: string, usage = { promptTokens: 1, candidateTokens: 2, totalTokens: 3 }): void {
+  piAgentResponse = {
+    sessionId: "test-session",
+    model: "gpt-5.4-mini",
+    result: { text, thoughts: "", toolCalls: [], usage },
+  };
+}
+
+function piAgentNamespace() {
+  return {
+    getByName: (agentName: string) => ({
+      fetch: async (request: Request) => {
+        const payload = await request.json() as Record<string, unknown>;
+        const path = new URL(request.url).pathname;
+        piAgentRequests.push({ agentName, path, payload });
+        if (piAgentError) return Response.json({ error: piAgentError }, { status: 503 });
+        if (path === "/reset") return Response.json({ sessionId: "reset-session", reset: true });
+        return Response.json(piAgentResponse);
+      },
+    }),
+  };
+}
 
 function db() {
   return createDatabase(d1 as never);
@@ -96,6 +122,9 @@ function userEvent(overrides: Record<string, unknown> = {}) {
 
 beforeEach(async () => {
   d1 = createLocalD1();
+  piAgentRequests = [];
+  piAgentError = undefined;
+  setPiAgentResponse("Pi 測試回答");
   const lineQueue = {
     send: async (message: unknown) => {
       await processLineAssistantQueueMessage(message, env as never);
@@ -104,6 +133,7 @@ beforeEach(async () => {
   env = {
     DB: d1,
     LINE_ASSISTANT_QUEUE: lineQueue,
+    ASSISTANT_CHAT_AGENT: piAgentNamespace(),
     AUTH_SESSION_SECRET: AUTH_SECRET,
     GOOGLE_OAUTH_CLIENT_ID: "client-id",
     GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
@@ -120,7 +150,7 @@ async function enableLineConversation(event: Record<string, unknown>) {
   const lineGroupId = source.groupId ?? source.roomId ?? source.userId;
   const [group] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, lineGroupId!));
   await db().update(assistantLineGroups).set({ enabled: true }).where(eq(assistantLineGroups.id, group!.id));
-  env = { ...env, GEMINI_API_KEY: "gemini-test-key", LINE_CHANNEL_ACCESS_TOKEN: "access-token" };
+  env = { ...env, LINE_CHANNEL_ACCESS_TOKEN: "access-token" };
   return group!;
 }
 
@@ -436,7 +466,7 @@ describe("LINE channel 後台設定", () => {
     expect(await db().select().from(assistantLineMessages)).toHaveLength(1);
   });
 
-  it("已開通的群組會使用 active model 與 prompt 回覆，並記錄 LINE 用量", async () => {
+  it("已開通的群組會把 prompt、工具與訊息交給 Pi Agent，並記錄 LINE 用量", async () => {
     const firstBody = JSON.stringify({ events: [mentionEvent()] });
     await postLine(firstBody);
     await db().update(assistantLineChannels).set({ enabled: true }).where(eq(assistantLineChannels.assistantKey, "rueisiang-xiaoxiang"));
@@ -447,7 +477,11 @@ describe("LINE channel 後台設定", () => {
       method: "PATCH",
       body: JSON.stringify({ channelId: "2001234567", channelSecret: "line-secret", accessToken: "access-token-from-portal", displayName: "Rueisiang 小香", enabled: true }),
     });
-    env = { ...env, GEMINI_API_KEY: "gemini-test-key", LINE_CHANNEL_ACCESS_TOKEN: "wrong-env-token" };
+    env = { ...env, LINE_CHANNEL_ACCESS_TOKEN: "wrong-env-token" };
+    setPiAgentResponse(
+      "已收到，我會依照群組內容協助處理。",
+      { promptTokens: 10, candidateTokens: 8, totalTokens: 18 },
+    );
     const requests: Array<{ url: string; body: string; authorization: string }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
@@ -456,15 +490,6 @@ describe("LINE channel 後台設定", () => {
         body: typeof init?.body === "string" ? init.body : "",
         authorization: new Headers(init?.headers).get("authorization") ?? "",
       });
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [
-            { text: "這是 LINE 不應收到的 thought summary", thought: true },
-            { text: "已收到，我會依照群組內容協助處理。" },
-          ] } }],
-          usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 8, totalTokenCount: 18 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
       return new Response(null, { status: 200 });
     });
 
@@ -473,19 +498,25 @@ describe("LINE channel 後台設定", () => {
     // 群組還沒有名字，所以收到訊息時會先去補一次名稱與大頭貼，再跑回覆流程。
     expect(requests.map((request) => request.url)).toEqual([
       "https://api.line.me/v2/bot/group/group-1/summary",
-      expect.stringContaining("generativelanguage.googleapis.com"),
       "https://api.line.me/v2/bot/message/reply",
     ]);
-    const geminiRequest = requests.find((request) => request.url.includes("generativelanguage.googleapis.com"));
-    expect(geminiRequest?.body).toContain("請幫我查一下");
+    const agentRequest = piAgentRequests.find((request) => request.path === "/run");
+    expect(agentRequest?.agentName).toBe("rueisiang-xiaoxiang:rueisiang-xiaoxiang:group:group-1");
+    expect(agentRequest?.payload).toMatchObject({
+      model: "gpt-5.4-mini",
+      sourceType: "group",
+      lineGroupId: "group-1",
+    } satisfies Partial<PiLineAgentRunRequest>);
+    expect(agentRequest?.payload.userText).toContain("請幫我查一下");
+    expect(agentRequest?.payload.systemPrompt).toContain("LINE 內部助理");
+    expect(agentRequest?.payload.toolKeys).toEqual(expect.any(Array));
     const replyRequest = requests.find((request) => request.url.endsWith("/message/reply"));
     expect(replyRequest?.authorization).toBe("Bearer access-token-from-portal");
     expect(replyRequest?.body).toContain('"replyToken":"reply-token-2"');
     expect(replyRequest?.body).toContain("已收到，我會依照群組內容協助處理。");
-    expect(replyRequest?.body).not.toContain("LINE 不應收到的 thought summary");
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ channel: "line", groupId: "group-1", model: "gemini-3.6-flash", status: "success", totalTokens: 18 });
+    expect(runs[0]).toMatchObject({ channel: "line", groupId: "group-1", model: "gpt-5.4-mini", status: "success", totalTokens: 18 });
   });
 
   it("LINE 設定失效時仍會記錄失敗並通知群組", async () => {
@@ -497,9 +528,7 @@ describe("LINE channel 後台設定", () => {
       method: "PATCH",
       body: JSON.stringify({ channelId: "2001234567", channelSecret: "line-secret", accessToken: "access-token", displayName: "Rueisiang 小香", enabled: true }),
     });
-    await call("/api/assistant/sandbox/config");
-    await db().update(assistantConfigs).set({ activeModel: "gemini-2.5-flash" }).where(eq(assistantConfigs.assistantKey, "rueisiang-xiaoxiang"));
-    env = { ...env, GEMINI_API_KEY: "gemini-test-key" };
+    piAgentError = "Pi Agent 測試故障";
 
     const requests: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -514,7 +543,7 @@ describe("LINE channel 後台設定", () => {
     ]);
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ status: "failed", model: "gemini-2.5-flash" });
+    expect(runs[0]).toMatchObject({ status: "failed", model: "gpt-5.4-mini" });
   });
 
   it("已開通的一對一對話會使用 user ID 回覆", async () => {
@@ -530,7 +559,7 @@ describe("LINE channel 後台設定", () => {
       method: "PATCH",
       body: JSON.stringify({ channelId: "2001234567", channelSecret: "line-secret", accessToken: "access-token", displayName: "Rueisiang 小香", enabled: true }),
     });
-    env = { ...env, GEMINI_API_KEY: "gemini-test-key" };
+    setPiAgentResponse("一對一回答");
 
     const requests: Array<{ url: string; body: string }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -543,12 +572,6 @@ describe("LINE channel 後台設定", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: "一對一回答" }] } }],
-          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
       return new Response(null, { status: 200 });
     });
 
@@ -559,16 +582,15 @@ describe("LINE channel 後台設定", () => {
     expect(response.status).toBe(200);
     expect(requests.map((request) => request.url)).toEqual([
       "https://api.line.me/v2/bot/profile/user-1",
-      expect.stringContaining("generativelanguage.googleapis.com"),
       "https://api.line.me/v2/bot/message/reply",
     ]);
-    expect(requests[2]?.body).toContain('"replyToken":"reply-token-1"');
-    expect(requests[2]?.body).toContain("一對一回答");
+    const replyRequest = requests.find((request) => request.url.endsWith("/message/reply"));
+    expect(replyRequest?.body).toContain('"replyToken":"reply-token-1"');
+    expect(replyRequest?.body).toContain("一對一回答");
   });
 
   it("一對一的 reset backdoor 只切斷上下文，不刪除歷史訊息", async () => {
-    await postLine(JSON.stringify({ events: [userEvent()] }));
-    const [userGroup] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, "user-1"));
+    const userGroup = await enableLineConversation(userEvent());
     expect(userGroup).toBeTruthy();
 
     const resetResponse = await postLine(JSON.stringify({ events: [userEvent({
@@ -587,22 +609,21 @@ describe("LINE channel 後台設定", () => {
     expect(updated?.contextResetAt).toBeTruthy();
     expect(allMessages).toHaveLength(2);
     expect(currentMessages).toHaveLength(0);
+    expect(piAgentRequests.find((request) => request.path === "/reset")?.payload).toMatchObject({
+      contextGeneration: updated?.contextResetAt,
+      lineGroupId: "user-1",
+    });
   });
 });
 
 describe("LINE Reply deadline 與 fixed-window Push", () => {
   it("進入十秒安全緩衝區時先回覆系統繁忙，再用受限 Push 傳完整結果", async () => {
     const group = await enableLineConversation(userEvent({ webhookEventId: "deadline-seed" }));
+    setPiAgentResponse("安全緩衝區完成的回答");
     const requests: Array<{ url: string; body: string }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       requests.push({ url, body: typeof init?.body === "string" ? init.body : "" });
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: "安全緩衝區完成的回答" }] } }],
-          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
       if (url.endsWith("/message/quota/consumption")) {
         return new Response(JSON.stringify({ totalUsage: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -635,6 +656,7 @@ describe("LINE Reply deadline 與 fixed-window Push", () => {
 
   it("reply token 已過期時才改用 Push，並同時保存對話關聯與逐筆 ledger", async () => {
     const group = await enableLineConversation(userEvent({ webhookEventId: "push-seed" }));
+    setPiAgentResponse("逾時後的完整回答");
     const requests: Array<{ url: string; body: string; retryKey: string }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
@@ -643,12 +665,6 @@ describe("LINE Reply deadline 與 fixed-window Push", () => {
         body: typeof init?.body === "string" ? init.body : "",
         retryKey: new Headers(init?.headers).get("x-line-retry-key") ?? "",
       });
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: "逾時後的完整回答" }] } }],
-          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
       if (url.endsWith("/message/quota/consumption")) {
         return new Response(JSON.stringify({ totalUsage: 199 }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -667,6 +683,7 @@ describe("LINE Reply deadline 與 fixed-window Push", () => {
       groupRowId: group.id,
       lineGroupId: "user-1",
       sourceType: "user",
+      contextGeneration: group.contextResetAt ?? "",
       webhookEventId: "push-expired-event",
       replyToken: "expired-reply-token",
       questionText: "請回答逾時問題",
@@ -685,16 +702,11 @@ describe("LINE Reply deadline 與 fixed-window Push", () => {
 
   it("LINE 回報已達 200 位收件者時不送 Push，只保留 skipped ledger 與完整回答", async () => {
     const group = await enableLineConversation(userEvent({ webhookEventId: "quota-seed" }));
+    setPiAgentResponse("額度滿時保留的回答");
     const requests: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       requests.push(url);
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: "額度滿時保留的回答" }] } }],
-          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
       if (url.endsWith("/message/quota/consumption")) {
         return new Response(JSON.stringify({ totalUsage: 200 }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -713,6 +725,7 @@ describe("LINE Reply deadline 與 fixed-window Push", () => {
       groupRowId: group.id,
       lineGroupId: "user-1",
       sourceType: "user",
+      contextGeneration: group.contextResetAt ?? "",
       webhookEventId: "quota-full-event",
       replyToken: "expired-reply-token",
       questionText: "額度滿了嗎",
