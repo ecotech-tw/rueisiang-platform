@@ -293,7 +293,7 @@ async function runLineAssistant(input: {
   try {
     await ensureAssistantDefaults(input.db, {
       assistantKey: input.assistantKey,
-      defaultModel: DEFAULT_PI_CODEX_MODEL,
+      defaultModel: input.env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL,
       defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
       toolKeys: PLATFORM_TOOL_KEYS,
     });
@@ -341,6 +341,7 @@ async function runLineAssistant(input: {
       lineGroupId: input.lineGroupId,
       sourceType: input.sourceType,
       contextGeneration: input.contextGeneration,
+      webhookEventId: input.webhookEventId,
       runId,
       model: configuredModel,
       systemPrompt,

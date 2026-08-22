@@ -1,6 +1,19 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, customerTagCatalog, customers, inventoryItems, layoutElements, rolePermissions, roles, userRoles, users } from "@rueisiang/db/schema";
+import {
+  activityEvents,
+  assistantLineChannels,
+  assistantLineGroups,
+  assistantLineMessages,
+  customerTagCatalog,
+  customers,
+  inventoryItems,
+  layoutElements,
+  rolePermissions,
+  roles,
+  userRoles,
+  users,
+} from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import app from "./index.js";
@@ -359,6 +372,76 @@ describe("AI 助理 Sandbox", () => {
       model: "gpt-5.4-mini",
       userText: "測試 Codex",
     });
+  });
+
+  it("LINE Pi Agent 首次使用會回填既有 D1 訊息，且排除目前 webhook", async () => {
+    await db().insert(assistantLineChannels).values({
+      channelKey: "rueisiang-xiaoxiang",
+      assistantKey: "rueisiang-xiaoxiang",
+      updatedBy: "test",
+      enabled: true,
+    });
+    await db().insert(assistantLineGroups).values({
+      id: "line-group-1",
+      channelKey: "rueisiang-xiaoxiang",
+      lineGroupId: "line-user-1",
+      sourceType: "user",
+      enabled: true,
+    });
+    await db().insert(assistantLineMessages).values([
+      {
+        id: "line-history-1",
+        channelKey: "rueisiang-xiaoxiang",
+        lineGroupId: "line-user-1",
+        sourceType: "user",
+        webhookEventId: "old-event",
+        text: "之前的問題",
+        createdAt: "2026-08-22T10:00:00.000Z",
+      },
+      {
+        id: "line-current-1",
+        channelKey: "rueisiang-xiaoxiang",
+        lineGroupId: "line-user-1",
+        sourceType: "user",
+        webhookEventId: "current-event",
+        text: "這次問題",
+        createdAt: "2026-08-22T10:01:00.000Z",
+      },
+    ]);
+
+    let requestBody: Record<string, unknown> | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "LINE 回答" }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const agent = assistantAgents!.getByName("rueisiang-xiaoxiang:rueisiang-xiaoxiang:user:line-user-1");
+    const response = await agent.fetch(new Request("https://assistant-agent.internal/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        assistantKey: "rueisiang-xiaoxiang",
+        channelKey: "rueisiang-xiaoxiang",
+        groupRowId: "line-group-1",
+        lineGroupId: "line-user-1",
+        sourceType: "user",
+        contextGeneration: "",
+        webhookEventId: "current-event",
+        runId: "line-bootstrap-run",
+        model: "gemini-3.6-flash",
+        systemPrompt: "你是 LINE 助理。",
+        userText: "這次問題",
+        toolKeys: [],
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    const contents = JSON.stringify(requestBody?.contents);
+    expect(contents).toContain("之前的問題");
+    expect(contents.match(/這次問題/g)).toHaveLength(1);
   });
 
   it("儲存 prompt 時建立 revision 並立即啟用", async () => {

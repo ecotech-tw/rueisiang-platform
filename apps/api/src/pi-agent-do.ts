@@ -20,6 +20,7 @@ import {
   findAssistantLineGroup,
   getAssistantSandboxSession,
   getAssistantLineChannel,
+  listAssistantLineMessages,
   listAssistantSandboxMessages,
   listAssistantToolConfigs,
   loadAuthUser,
@@ -131,7 +132,7 @@ function isRunFields(input: Record<string, unknown>): boolean {
 function isRunRequest(value: unknown): value is PiAgentRunRequest {
   const input = object(value);
   if (!input || !isRunFields(input)) return false;
-  if (isLineContext(input)) return true;
+  if (isLineContext(input)) return nonEmptyString(input.webhookEventId);
   return isSandboxContext(input);
 }
 
@@ -612,6 +613,49 @@ export class AssistantChatAgent {
     }
   }
 
+  private async bootstrapLineTranscript(
+    state: AgentStateRow,
+    input: PiLineAgentRunRequest,
+    model: Model<Api>,
+  ): Promise<void> {
+    const count = [...this.sql.exec<CountRow>(
+      "SELECT COUNT(*) AS count FROM assistant_agent_messages WHERE generation = ?",
+      state.generation,
+    )][0]?.count ?? 0;
+    if (count > 0) return;
+
+    const db = createDatabase(this.env.DB);
+    const history = await listAssistantLineMessages(db, {
+      channelKey: input.channelKey,
+      lineGroupId: input.lineGroupId,
+      contextResetAt: input.contextGeneration,
+      limit: 50,
+    });
+    const bootstrapMessages: SandboxBootstrapMessage[] = history
+      .filter((message) => message.webhookEventId !== input.webhookEventId)
+      .map((message) => ({ role: "user" as const, text: message.text }));
+    if (!bootstrapMessages.length) return;
+
+    const bootstrapRunId = `bootstrap:${state.generation}`;
+    this.sql.exec(
+      `INSERT OR IGNORE INTO assistant_agent_runs
+         (run_id, generation, status, response_json, updated_at)
+       VALUES (?, ?, 'completed', '', ?)`,
+      bootstrapRunId,
+      state.generation,
+      Date.now(),
+    );
+    const started = Date.now() - bootstrapMessages.length;
+    for (const [index, message] of bootstrapMessages.entries()) {
+      if (!message.text) continue;
+      this.storeMessage(
+        state.generation,
+        bootstrapRunId,
+        bootstrapAgentMessage(message, model, started + index),
+      );
+    }
+  }
+
   private totalContextTokens(state: AgentStateRow): number {
     return this.contextMessages(state).reduce((total, message) => total + estimateTokens(message), 0);
   }
@@ -698,11 +742,12 @@ export class AssistantChatAgent {
          response_json = '',
          updated_at = excluded.updated_at`,
       input.runId,
-      state.generation,
-      Date.now(),
-    );
+       state.generation,
+       Date.now(),
+     );
 
     if (isSandboxRunRequest(input)) await this.bootstrapSandboxTranscript(state, input, model);
+    if (isLineRunRequest(input)) await this.bootstrapLineTranscript(state, input, model);
     const toolContext: ToolExecutionContext = { request: input, toolCalls: [] };
     const initialMessages = this.contextMessages(state);
     const agent = new Agent({

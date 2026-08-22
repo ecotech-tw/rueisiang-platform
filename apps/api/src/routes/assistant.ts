@@ -140,17 +140,17 @@ async function usableSandboxModel(env: AppEnv["Bindings"], modelId: string): Pro
   return model;
 }
 
-async function ensureDefaults(db: AppEnv["Variables"]["db"]): Promise<void> {
+async function ensureDefaults(env: AppEnv["Bindings"], db: AppEnv["Variables"]["db"]): Promise<void> {
   await ensureAssistantDefaults(db, {
     assistantKey: ASSISTANT_KEY,
-    defaultModel: DEFAULT_PI_CODEX_MODEL,
+    defaultModel: env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL,
     defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
     toolKeys: PLATFORM_TOOL_KEYS,
   });
 }
 
 async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["db"]) {
-  await ensureDefaults(db);
+  await ensureDefaults(env, db);
   const [assistantConfig, prompts, activePrompt, configuredTools, models] = await Promise.all([
     getAssistantConfig(db, ASSISTANT_KEY),
     listAssistantPromptRevisions(db, ASSISTANT_KEY),
@@ -166,7 +166,7 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
       codex: models.some((model) => model.provider === "openai-codex" && model.configured),
       gemini: models.some((model) => model.provider === "google" && model.configured),
     },
-    defaultModel: DEFAULT_PI_CODEX_MODEL,
+    defaultModel: env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL,
     activeModel: assistantConfig?.activeModel ?? DEFAULT_PI_CODEX_MODEL,
     activeModelUpdatedAt: assistantConfig?.updatedAt ?? null,
     models,
@@ -350,7 +350,7 @@ export const assistant = new Hono<AppEnv>()
 
   .post("/sandbox/sessions", requirePermission("assistant:sandbox:write"), async (c) => {
     const input = await body(c);
-    await ensureDefaults(c.get("db"));
+    await ensureDefaults(c.env, c.get("db"));
     const assistantConfig = await getAssistantConfig(c.get("db"), ASSISTANT_KEY);
     const modelId = typeof input.model === "string" && input.model.trim()
       ? input.model.trim()
@@ -554,7 +554,7 @@ export const assistant = new Hono<AppEnv>()
     const modelId = requireString(input, "model", "模型");
     const model = await usableSandboxModel(c.env, modelId);
 
-    await ensureDefaults(c.get("db"));
+    await ensureDefaults(c.env, c.get("db"));
     const config = await setActiveAssistantModel(c.get("db"), {
       assistantKey: ASSISTANT_KEY,
       activeModel: model.id,
@@ -573,7 +573,7 @@ export const assistant = new Hono<AppEnv>()
       throw new HTTPException(400, { message: "tool 狀態必須是 enabled、development 或 disabled。" });
     }
 
-    await ensureDefaults(c.get("db"));
+    await ensureDefaults(c.env, c.get("db"));
     const config = await setAssistantToolStatus(c.get("db"), {
       key,
       status,
@@ -587,7 +587,7 @@ export const assistant = new Hono<AppEnv>()
     const prompt = requireString(input, "systemPrompt", "system prompt");
     if (prompt.length > 12_000) throw new HTTPException(400, { message: "system prompt 不能超過 12,000 字元。" });
 
-    await ensureDefaults(c.get("db"));
+    await ensureDefaults(c.env, c.get("db"));
     const revision = await createAssistantPromptRevision(c.get("db"), {
       assistantKey: ASSISTANT_KEY,
       systemPrompt: prompt,
@@ -601,7 +601,7 @@ export const assistant = new Hono<AppEnv>()
     const userText = requireString(input, "input", "測試內容");
     if (userText.length > 8_000) throw new HTTPException(400, { message: "測試內容不能超過 8,000 字元。" });
 
-    await ensureDefaults(c.get("db"));
+    await ensureDefaults(c.env, c.get("db"));
     const sessionId = typeof input.sessionId === "string" && input.sessionId.trim() ? input.sessionId.trim() : undefined;
     const session = sessionId
       ? await getAssistantSandboxSession(c.get("db"), { assistantKey: ASSISTANT_KEY, createdBy: c.get("user").id, id: sessionId })

@@ -12,6 +12,8 @@ export interface PiLineAgentContext {
 }
 
 export interface PiLineAgentRunRequest extends PiLineAgentContext {
+  /** 用來從既有 D1 訊息回填 transcript 時排除這次已寫入的 webhook 事件。 */
+  webhookEventId: string;
   runId: string;
   model: string;
   systemPrompt: string;
