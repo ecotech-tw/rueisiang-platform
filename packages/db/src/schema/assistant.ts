@@ -38,7 +38,10 @@ export const assistantToolConfigs = sqliteTable("assistant_tool_configs", {
  */
 export const assistantRuns = sqliteTable("assistant_runs", {
   id: text("id").primaryKey(),
+  /** surface（sandbox / line），不是哪個 bot——那是 assistantKey 與 channelKey 的工作。 */
   channel: text("channel").notNull(),
+  assistantKey: text("assistant_key"),
+  channelKey: text("channel_key"),
   sessionId: text("session_id"),
   groupId: text("group_id"),
   model: text("model").notNull(),
@@ -105,7 +108,17 @@ export const assistantSandboxMessages = sqliteTable("assistant_sandbox_messages"
 
 /** LINE 前台的 channel 設定；兩個 credential 都只在 D1 保存加密值。 */
 export const assistantLineChannels = sqliteTable("assistant_line_channels", {
-  assistantKey: text("assistant_key").primaryKey(),
+  /**
+   * 這個 channel 自己的鍵值，也是所有 channel 相關紀錄的關聯對象。
+   *
+   * 不用 `assistantKey` 當主鍵：官網客服會是第二個 LINE 官方帳號，一個 assistant 之後
+   * 可能掛多個 channel。用 `assistantKey` 的話，那一天所有指過來的外鍵都會失去指向性——
+   * 兩個帳號的同名群組會撞在一起，或套到別的 channel 的工具政策。
+   *
+   * `channelId` 是 LINE 自己發的 Channel ID，跟這個是兩回事，不要混用。
+   */
+  channelKey: text("channel_key").primaryKey(),
+  assistantKey: text("assistant_key").notNull(),
   channelId: text("channel_id").notNull().default(""),
   channelSecretEncrypted: text("channel_secret_encrypted").notNull().default(""),
   accessTokenEncrypted: text("access_token_encrypted").notNull().default(""),
@@ -114,26 +127,39 @@ export const assistantLineChannels = sqliteTable("assistant_line_channels", {
   updatedBy: text("updated_by").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
-});
+}, (table) => [
+  /**
+   * 後台目前只管小香一個 assistant，所以先把「一個 assistant 一個 channel」寫死在這裡。
+   * 開放官網客服當第二個 channel 時，移除這個索引就好，不必再動資料。
+   */
+  uniqueIndex("idx_assistant_line_channels_assistant").on(table.assistantKey),
+]);
 
 /** LINE 曾經發現過的群組。只有 enabled 的群組可以讓小香在線上回覆。 */
 export const assistantLineGroups = sqliteTable("assistant_line_groups", {
   id: text("id").primaryKey(),
-  assistantKey: text("assistant_key").notNull().references(() => assistantLineChannels.assistantKey, { onDelete: "cascade" }),
+  channelKey: text("channel_key").notNull().references(() => assistantLineChannels.channelKey, { onDelete: "cascade" }),
   lineGroupId: text("line_group_id").notNull(),
   displayName: text("display_name").notNull().default(""),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  /**
+   * `inherit` 就是 channel 給的全部，`custom` 才去讀 `assistant_chat_tools`。
+   *
+   * 預設 `inherit` 是因為客服帳號的對話會自動長出來，不可能每一個手動設定；內部群組本來
+   * 就有 `enabled` 那道閘擋著，真正的上限永遠在 channel 層。
+   */
+  toolMode: text("tool_mode").notNull().default("inherit"),
   discoveredAt: text("discovered_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
 }, (table) => [
-  uniqueIndex("idx_assistant_line_groups_key_group").on(table.assistantKey, table.lineGroupId),
-  index("idx_assistant_line_groups_enabled").on(table.assistantKey, table.enabled),
+  uniqueIndex("idx_assistant_line_groups_key_group").on(table.channelKey, table.lineGroupId),
+  index("idx_assistant_line_groups_enabled").on(table.channelKey, table.enabled),
 ]);
 
 /** 只有標註小香的文字訊息會進來，供後續 LINE 對話組裝 context。 */
 export const assistantLineMessages = sqliteTable("assistant_line_messages", {
   id: text("id").primaryKey(),
-  assistantKey: text("assistant_key").notNull(),
+  channelKey: text("channel_key").notNull(),
   lineGroupId: text("line_group_id").notNull(),
   sourceType: text("source_type").notNull(),
   webhookEventId: text("webhook_event_id").notNull(),
@@ -142,8 +168,44 @@ export const assistantLineMessages = sqliteTable("assistant_line_messages", {
   text: text("text").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
 }, (table) => [
-  uniqueIndex("idx_assistant_line_messages_event").on(table.assistantKey, table.webhookEventId),
-  index("idx_assistant_line_messages_group_created_at").on(table.assistantKey, table.lineGroupId, table.createdAt),
+  uniqueIndex("idx_assistant_line_messages_event").on(table.channelKey, table.webhookEventId),
+  index("idx_assistant_line_messages_group_created_at").on(table.channelKey, table.lineGroupId, table.createdAt),
+]);
+
+/**
+ * 這個 channel 能用哪些工具。**這是 LINE 這條路真正的授權來源。**
+ *
+ * 工具契約上的 `requiredPermissions` 在 LINE 用不上——那條路沒有平台使用者可以查權限，
+ * 對面是一個 LINE 群組。與其讓它宣告在那裡卻沒人讀，不如明講：LINE 看 channel 白名單。
+ *
+ * 沒有列 = 不給。忘記設定的後果是「不能用」，不是「全都能用」。
+ */
+export const assistantChannelTools = sqliteTable("assistant_channel_tools", {
+  id: text("id").primaryKey(),
+  channelKey: text("channel_key").notNull().references(() => assistantLineChannels.channelKey, { onDelete: "cascade" }),
+  toolKey: text("tool_key").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+}, (table) => [
+  uniqueIndex("idx_assistant_channel_tools_channel_tool").on(table.channelKey, table.toolKey),
+]);
+
+/**
+ * 某個對話能用哪些工具。只有 `toolMode = "custom"` 的群組會讀這張表。
+ *
+ * **外鍵指向 `assistant_channel_tools` 那一列，不是直接指向工具鍵值。** 這讓「對話拿到的
+ * 權限不可能超過 channel」變成資料庫層級的保證：channel 收回一個工具時 CASCADE 會把底下
+ * 所有對話的授權一起帶走，不可能留下孤兒。指向工具鍵值的話，這件事就要靠每一段程式自己
+ * 記得檢查——程式會忘記，外鍵不會。
+ */
+export const assistantChatTools = sqliteTable("assistant_chat_tools", {
+  id: text("id").primaryKey(),
+  groupId: text("group_id").notNull().references(() => assistantLineGroups.id, { onDelete: "cascade" }),
+  channelToolId: text("channel_tool_id").notNull().references(() => assistantChannelTools.id, { onDelete: "cascade" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+}, (table) => [
+  uniqueIndex("idx_assistant_chat_tools_group_tool").on(table.groupId, table.channelToolId),
 ]);
 
 export type AssistantPromptRevision = typeof assistantPromptRevisions.$inferSelect;
@@ -156,3 +218,5 @@ export type AssistantSandboxMessage = typeof assistantSandboxMessages.$inferSele
 export type AssistantLineChannel = typeof assistantLineChannels.$inferSelect;
 export type AssistantLineGroup = typeof assistantLineGroups.$inferSelect;
 export type AssistantLineMessage = typeof assistantLineMessages.$inferSelect;
+export type AssistantChannelTool = typeof assistantChannelTools.$inferSelect;
+export type AssistantChatTool = typeof assistantChatTools.$inferSelect;

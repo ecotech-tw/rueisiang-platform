@@ -1,7 +1,21 @@
 # 小香：多帳號、對話層權限與客服身分（設計）
 
-**這份是設計文件，還沒有實作。** 目前線上跑的東西見
-[`assistant-sandbox.md`](./assistant-sandbox.md)。
+**部分已實作。** 第一、二節的資料模型與後端已經進去了（migration `0021`–`0025`）；
+後台畫面、一對一對話的收件路徑，以及第三節之後的客服相關設計仍未動工。
+目前線上跑的東西見 [`assistant-sandbox.md`](./assistant-sandbox.md)。
+
+已完成：
+
+- `assistant_line_channels` 改用獨立的 `channelKey` 當主鍵，群組、訊息與執行紀錄跟著改帶。
+- `assistant_channel_tools`、`assistant_chat_tools` 兩張表，以及群組的 `toolMode`。
+- LINE 執行時的三層交集判定（`resolveLineToolKeys`）與對應的後端 API。
+
+尚未完成：
+
+- 後台畫面。**目前的 API 只服務小香一個 assistant**，`ASSISTANT_KEY` 仍是路由層解析
+  「後台在管哪個 bot」的入口；官網客服要開第二個 channel 時再把它變成參數。
+- 一對一對話的收件路徑（第一節最後一小節），以及 webhook 一個帳號一個網址。
+- 第三節之後的客服身分驗證與輸出裁切。
 
 寫這份的原因是兩個需求撞在一起，而它們其實是同一個結構：
 
@@ -42,7 +56,7 @@ assistant（小香 / 官網客服）      prompt、模型、工具母清單
   `recordAssistantRun`（`packages/db/src/assistant.ts:553`）也沒有寫入 assistant 或 channel。
   多帳號之後用量分析與稽核分不出是誰跑的。
 
-要動的有六處：
+要動的有六處（1～3、6 已完成，4、5 未動）：
 
 1. `assistant_line_channels` 給每個 channel 一個獨立主鍵（`channelKey`），`assistantKey` 降成
    一般欄位——一個 assistant 可以有多個 channel。
@@ -54,9 +68,18 @@ assistant（小香 / 官網客服）      prompt、模型、工具母清單
 5. 一對一對話的收件路徑（見下一小節）。
 6. `ASSISTANT_KEY` 這個常數改成參數（`routes/assistant.ts` 33 處、`routes/webhooks.ts` 8 處）。
 
-第 1～3 點會動到既有的表，也就是 `CLAUDE.md` 裡那種要**手寫資料搬移 SQL** 的 migration：
-先讓新舊欄位並存、把現有那一列的 `assistantKey` 補寫成 `channelKey`，最後才移除舊定義。
-這也是為什麼下面那條「新表一律先帶好 key」現在就要遵守——晚一點做，要搬的資料只會更多。
+第 1～3 點會動到既有的表，也就是 `CLAUDE.md` 裡那種要**手寫資料搬移 SQL** 的 migration。
+實際切成四支：`0021` 加欄位、`0022` 手寫回填、`0023` 換 channel 主鍵、`0024` 換群組與訊息
+的關聯並建立兩張新表。
+
+**`0023` 與 `0024` 一定要分開兩個檔案。** drizzle 只會在一支 migration 的第一次重建外面
+包 `PRAGMA foreign_keys=OFF/ON`；同一支裡的第二次重建就沒有保護，而 `DROP TABLE` 父表配上
+`ON DELETE CASCADE` 會把剛搬好的子表資料整個帶走。這件事在空資料庫測不出來（沒有列可以被
+連坐），所以 `assistant-channel-migration.test.ts` 刻意「升級一個已經有資料的庫」。
+
+另外 `0025` 把「目前已啟用的工具」寫成既有 channel 的白名單。沒有它的話，部署完的那一刻
+小香會突然一個工具都不能用——換權限模型不該讓線上的 bot 安靜地變笨。之後新開的 channel
+一律從空白開始。
 
 ### webhook 怎麼分辨兩個帳號
 
