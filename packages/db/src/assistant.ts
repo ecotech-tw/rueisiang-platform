@@ -176,12 +176,61 @@ export async function upsertAssistantLineGroup(
 
 export async function updateAssistantLineGroup(
   db: Database,
-  input: { channelKey: string; id: string; displayName: string; enabled: boolean },
+  /** `displayNameManual` 只有在使用者真的送了名稱時才給 true——切開關不算命名。 */
+  input: { channelKey: string; id: string; displayName: string; enabled: boolean; displayNameManual?: boolean },
 ): Promise<AssistantLineGroup | null> {
   await db.update(assistantLineGroups)
-    .set({ displayName: input.displayName, enabled: input.enabled, updatedAt: new Date().toISOString() })
+    .set({
+      displayName: input.displayName,
+      enabled: input.enabled,
+      ...(input.displayNameManual ? { displayNameManual: true } : {}),
+      updatedAt: new Date().toISOString(),
+    })
     .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)));
   return findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.id });
+}
+
+/**
+ * 從 LINE 取回的名稱與大頭貼寫回群組。
+ *
+ * 名稱只在「不是人手動設定的」時候覆蓋，看的是 displayNameManual 而不是「名字是不是
+ * 空的」：第一次同步之後名字就有值了，再用空值當條件的話，LINE 那邊之後改名永遠跟不上。
+ * 管理員改過的名字比 LINE 的原名更有意義（例如把「專案討論」改成「倉庫群」），那個決定
+ * 要留著。大頭貼沒有這個問題，一律以 LINE 為準。
+ */
+export async function updateAssistantLineGroupProfile(
+  db: Database,
+  input: { channelKey: string; id: string; groupName: string; pictureUrl: string },
+): Promise<void> {
+  const now = new Date().toISOString();
+  await db.update(assistantLineGroups)
+    .set({
+      displayName: sql`CASE WHEN ${assistantLineGroups.displayNameManual} = 0 AND ${input.groupName} != '' THEN ${input.groupName} ELSE ${assistantLineGroups.displayName} END`,
+      pictureUrl: input.pictureUrl,
+      profileSyncedAt: now,
+      updatedAt: now,
+    })
+    .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)));
+}
+
+/**
+ * 這個群組現在該不該去跟 LINE 要一次名稱與大頭貼。
+ *
+ * 不是每則訊息都打：群組改名很少見，而大頭貼網址雖然會過期，重抓一次也只是為了顯示。
+ * 每則訊息都打一次只是在燒 LINE 的速率限制，換不到任何東西。
+ *
+ * 還沒有名字的（剛被發現、或被 0028 救回來的）例外，那種要立刻補上——只有一串 ID
+ * 的群組在後台根本認不出是哪一個。
+ */
+export function shouldSyncLineGroupProfile(
+  group: { displayName: string; profileSyncedAt: string | null },
+  now = Date.now(),
+  maxAgeMs = 6 * 60 * 60 * 1_000,
+): boolean {
+  if (!group.displayName) return true;
+  if (!group.profileSyncedAt) return true;
+  const synced = new Date(group.profileSyncedAt).getTime();
+  return !Number.isFinite(synced) || now - synced > maxAgeMs;
 }
 
 export async function recordAssistantLineMessage(

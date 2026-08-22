@@ -111,6 +111,44 @@ describe("換成 channel_key 之後的結構約束", () => {
   });
 });
 
+describe("0031 回填「名稱是人工設定的」", () => {
+  /*
+   * 0030 新增的 display_name_manual 預設是 false。不回填的話，同步機制上線前管理員
+   * 自己打過名字的群組，會在下一次同步時被 LINE 的原名蓋掉。
+   */
+  it("同步機制上線前就有名字的群組會被標記為人工命名", () => {
+    const sqlite = freshAt("0029_steep_meltdown.sql");
+    sqlite.exec(`
+      INSERT INTO assistant_line_channels
+        (channel_key, assistant_key, channel_id, display_name, enabled, updated_by)
+      VALUES ('ck', 'ak', 'ch', '小香', 1, 'eli');
+    `);
+    sqlite.exec(`
+      INSERT INTO assistant_line_groups (id, channel_key, line_group_id, display_name, enabled)
+      VALUES
+        ('g1', 'ck', 'C1', '倉庫群', 1),
+        ('g2', 'ck', 'C2', '', 0);
+    `);
+    // 已經同步過的不算人工命名——那個名字是 LINE 給的。
+    sqlite.exec(`
+      INSERT INTO assistant_line_groups
+        (id, channel_key, line_group_id, display_name, enabled, profile_synced_at)
+      VALUES ('g3', 'ck', 'C3', 'LINE 給的名字', 1, '2026-08-22T00:00:00.000Z');
+    `);
+
+    applyLikeD1(sqlite, "0029_steep_meltdown.sql", "0031_backfill_manual_group_names.sql");
+
+    const rows = sqlite.prepare(
+      "SELECT id, display_name_manual FROM assistant_line_groups ORDER BY id",
+    ).all();
+    expect(rows).toEqual([
+      { id: "g1", display_name_manual: 1 },
+      { id: "g2", display_name_manual: 0 },
+      { id: "g3", display_name_manual: 0 },
+    ]);
+  });
+});
+
 describe("被 0023 誤刪的 LINE 群組", () => {
   function migrated(to: string): DatabaseSync {
     const sqlite = new DatabaseSync(":memory:");

@@ -1,0 +1,1 @@
+ALTER TABLE `assistant_line_groups` ADD `display_name_manual` integer DEFAULT false NOT NULL;

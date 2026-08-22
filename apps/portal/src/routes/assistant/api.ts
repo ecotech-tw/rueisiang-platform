@@ -155,6 +155,8 @@ export interface AssistantLineGroup {
   id: string;
   lineGroupId: string;
   displayName: string;
+  /** LINE 的群組大頭貼。網址會過期，只當顯示用。沒設定大頭貼的群組是空字串。 */
+  pictureUrl: string;
   enabled: boolean;
   /** inherit：用 channel 給的全部；custom：只用 tools 這一份。 */
   toolMode: AssistantGroupToolMode;

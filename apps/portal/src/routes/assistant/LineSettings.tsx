@@ -344,9 +344,18 @@ function LineGroupRow({
   saving: boolean;
 }) {
   const [name, setName] = useState(group.displayName);
+  // 大頭貼網址會過期，載入失敗一定會發生。要換成首字圓標，不是留一個空格。
+  const [avatarFailed, setAvatarFailed] = useState(false);
   return (
     <tr>
-      <td><input className="line-group-name" value={name} placeholder="未命名群組" onChange={(event) => setName(event.target.value)} /></td>
+      <td>
+        <div className="line-group-cell">
+          {group.pictureUrl && !avatarFailed
+            ? <img className="line-group-avatar" src={group.pictureUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
+            : <span className="line-group-avatar is-fallback" aria-hidden="true">{(group.displayName || group.lineGroupId).slice(0, 1)}</span>}
+          <input className="line-group-name" value={name} placeholder="未命名群組" onChange={(event) => setName(event.target.value)} />
+        </div>
+      </td>
       <td><code>{group.lineGroupId}</code></td>
       <td>{formatDate(group.discoveredAt)}</td>
       <td>
