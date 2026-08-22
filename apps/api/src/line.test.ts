@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, listAssistantLineMessages, syncSystemRoles } from "@rueisiang/db";
 import { assistantConfigs, assistantLineChannels, assistantLineGroups, assistantLineMessages, assistantRuns, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -74,6 +74,15 @@ function mentionEvent(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function userEvent(overrides: Record<string, unknown> = {}) {
+  return mentionEvent({
+    webhookEventId: "user-evt-1",
+    source: { type: "user", userId: "user-1" },
+    message: { id: "user-message-1", type: "text", text: "你好" },
+    ...overrides,
+  });
+}
+
 beforeEach(async () => {
   d1 = createLocalD1();
   env = {
@@ -106,20 +115,31 @@ describe("LINE webhook", () => {
     expect(await db().select().from(assistantLineMessages)).toHaveLength(0);
   });
 
-  it("只記錄群組中真正 mention 小香的文字事件", async () => {
+  it("群組與多人聊天室要 mention，一對一不需要 mention", async () => {
     const body = JSON.stringify({ events: [
       mentionEvent(),
       { ...mentionEvent({ webhookEventId: "evt-2" }), message: { type: "text", text: "一般聊天" } },
-      { ...mentionEvent({ webhookEventId: "evt-3" }), source: { type: "user", userId: "user-1" } },
+      userEvent(),
+      {
+        ...mentionEvent({ webhookEventId: "room-evt-1", source: { type: "room", roomId: "room-1", userId: "user-1" } }),
+        message: { id: "room-message-1", type: "text", text: "多人聊天室的一般聊天" },
+      },
     ] });
     const response = await postLine(body);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ status: "accepted", recorded: 1, ignored: 2 });
+    expect(await response.json()).toMatchObject({ status: "accepted", recorded: 2, ignored: 2 });
 
-    const [group] = await db().select().from(assistantLineGroups);
-    const [message] = await db().select().from(assistantLineMessages);
+    const groups = await db().select().from(assistantLineGroups);
+    const messages = await db().select().from(assistantLineMessages);
+    const group = groups.find((row) => row.lineGroupId === "group-1");
+    const user = groups.find((row) => row.lineGroupId === "user-1");
+    const message = messages.find((row) => row.lineGroupId === "group-1");
+    const userMessage = messages.find((row) => row.lineGroupId === "user-1");
     expect(group).toMatchObject({ lineGroupId: "group-1", enabled: false });
     expect(message).toMatchObject({ lineGroupId: "group-1", text: "@Rueisiang 小香 請幫我查一下", sourceType: "group" });
+    expect(user).toMatchObject({ lineGroupId: "user-1", sourceType: "user", enabled: false });
+    expect(userMessage).toMatchObject({ lineGroupId: "user-1", text: "你好", sourceType: "user", lineUserId: "user-1" });
+    expect(groups.some((row) => row.lineGroupId === "room-1")).toBe(false);
   });
 
   it("LINE 重送同一 webhook event 不會重複記錄", async () => {
@@ -283,6 +303,31 @@ describe("群組名稱與大頭貼的自動同步", () => {
     expect(await response.json()).toMatchObject({ recorded: 1 });
     expect(await groupRow()).toMatchObject({ displayName: "", pictureUrl: "" });
   });
+
+  it("一對一對話會同步使用者名稱與大頭貼", async () => {
+    await configureChannel();
+    const calls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "https://line.example/user-1.jpg" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    await postLine(JSON.stringify({ events: [userEvent()] }));
+
+    expect(calls).toContain("https://api.line.me/v2/bot/profile/user-1");
+    expect(await groupRow()).toMatchObject({
+      sourceType: "user",
+      displayName: "測試員",
+      pictureUrl: "https://line.example/user-1.jpg",
+    });
+  });
 });
 
 describe("LINE channel 後台設定", () => {
@@ -442,5 +487,77 @@ describe("LINE channel 後台設定", () => {
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({ status: "failed", model: "gemini-2.5-flash" });
+  });
+
+  it("已開通的一對一對話會使用 user ID 回覆", async () => {
+    await postLine(JSON.stringify({ events: [userEvent()] }));
+    const [userGroup] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, "user-1"));
+    expect(userGroup?.sourceType).toBe("user");
+
+    await call(`/api/assistant/line/groups/${userGroup!.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: true }),
+    });
+    await call("/api/assistant/line/config", {
+      method: "PATCH",
+      body: JSON.stringify({ channelId: "2001234567", channelSecret: "line-secret", accessToken: "access-token", displayName: "Rueisiang 小香", enabled: true }),
+    });
+    env = { ...env, GEMINI_API_KEY: "gemini-test-key" };
+
+    const requests: Array<{ url: string; body: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      const body = typeof init?.body === "string" ? init.body : "";
+      requests.push({ url, body });
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("generativelanguage.googleapis.com")) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "一對一回答" }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const response = await postLine(JSON.stringify({ events: [userEvent({
+      webhookEventId: "user-evt-run",
+      message: { id: "user-message-run", type: "text", text: "請回答我" },
+    })] }));
+    expect(response.status).toBe(200);
+    expect(requests.map((request) => request.url)).toEqual([
+      "https://api.line.me/v2/bot/profile/user-1",
+      expect.stringContaining("generativelanguage.googleapis.com"),
+      "https://api.line.me/v2/bot/message/reply",
+    ]);
+    expect(requests[2]?.body).toContain('"replyToken":"reply-token-1"');
+    expect(requests[2]?.body).toContain("一對一回答");
+  });
+
+  it("一對一的 reset backdoor 只切斷上下文，不刪除歷史訊息", async () => {
+    await postLine(JSON.stringify({ events: [userEvent()] }));
+    const [userGroup] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, "user-1"));
+    expect(userGroup).toBeTruthy();
+
+    const resetResponse = await postLine(JSON.stringify({ events: [userEvent({
+      webhookEventId: "user-evt-reset",
+      message: { id: "user-message-reset", type: "text", text: "/reset" },
+    })] }));
+    expect(resetResponse.status).toBe(200);
+
+    const [updated] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.id, userGroup!.id));
+    const allMessages = await db().select().from(assistantLineMessages).where(eq(assistantLineMessages.lineGroupId, "user-1"));
+    const currentMessages = await listAssistantLineMessages(db(), {
+      channelKey: "rueisiang-xiaoxiang",
+      lineGroupId: "user-1",
+      contextResetAt: updated?.contextResetAt,
+    });
+    expect(updated?.contextResetAt).toBeTruthy();
+    expect(allMessages).toHaveLength(2);
+    expect(currentMessages).toHaveLength(0);
   });
 });

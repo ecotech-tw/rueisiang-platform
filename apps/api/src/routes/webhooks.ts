@@ -10,6 +10,7 @@ import {
   resolveLineToolKeys,
   recordAssistantRun,
   recordAssistantLineMessage,
+  resetAssistantLineContext,
   shouldSyncLineGroupProfile,
   updateAssistantLineGroupProfile,
   upsertAssistantLineGroup,
@@ -37,9 +38,11 @@ import {
   isLineWebhookEvent,
   lineEventGroup,
   lineEventIsMentioned,
+  lineEventIsSessionReset,
   lineEventRawText,
   lineEventText,
   fetchLineGroupSummary,
+  fetchLineUserProfile,
   lineQuestionText,
   replyLineMessage,
   verifyLineWebhookSignature,
@@ -92,10 +95,10 @@ async function runLineAssistant(input: {
   replyToken: string;
   assistantKey: string;
   channelKey: string;
-  /** 群組那一列的 id，不是 LINE 的群組 id——對話層的工具授權掛在這個 id 上。 */
+  /** 對話那一列的 id，不是 LINE 的對話 id——對話層的工具授權掛在這個 id 上。 */
   groupRowId: string;
   lineGroupId: string;
-  userText: string;
+  sourceType: "group" | "room" | "user";
   questionText: string;
 }): Promise<void> {
   const runId = crypto.randomUUID();
@@ -115,13 +118,13 @@ async function runLineAssistant(input: {
     /*
      * toolMode 在這裡重讀，不採信收 webhook 當下那一份。
      *
-     * 這條路是排程執行的，收件與回答之間隔著一段時間；管理員在那之間把群組從 inherit
+     * 這條路是排程執行的，收件與回答之間隔著一段時間；管理員在那之間把對話從 inherit
      * 改成 custom 的話，用舊值等於讓這一輪照舊拿到 channel 的全部工具。授權每次執行都
      * 回 DB 重讀是這個 codebase 的既定原則（CLAUDE.md），LINE 這條也不例外。
      */
     const group = await findAssistantLineGroup(input.db, { channelKey: input.channelKey, id: input.groupRowId });
-    if (!group) throw new Error("找不到這個 LINE 群組的設定。");
-    if (!group.enabled) throw new Error("這個 LINE 群組已經被取消授權。");
+    if (!group) throw new Error("找不到這個 LINE 對話的設定。");
+    if (!group.enabled) throw new Error("這個 LINE 對話已經被取消授權。");
 
     const [config, prompt, allowedToolKeys, messages] = await Promise.all([
       getAssistantConfig(input.db, input.assistantKey),
@@ -131,7 +134,12 @@ async function runLineAssistant(input: {
         groupId: input.groupRowId,
         toolMode: group.toolMode,
       }),
-      listAssistantLineMessages(input.db, { channelKey: input.channelKey, lineGroupId: input.lineGroupId, limit: 12 }),
+      listAssistantLineMessages(input.db, {
+        channelKey: input.channelKey,
+        lineGroupId: input.lineGroupId,
+        contextResetAt: group.contextResetAt,
+        limit: 12,
+      }),
     ]);
     modelId = config?.activeModel ?? DEFAULT_ASSISTANT_MODEL;
     const model = LINE_MODEL_MAP.get(modelId);
@@ -145,7 +153,11 @@ async function runLineAssistant(input: {
     const context = messages
       .map((message) => message.text.length > 1_000 ? `${message.text.slice(0, 1_000)}…` : message.text)
       .join("\n");
-    const contextPreamble = "以下是同一個 LINE 群組中最近的提及訊息，請把它們視為使用者提供的對話內容：";
+    const contextPreamble = input.sourceType === "user"
+      ? "以下是同一個 LINE 一對一對話中最近的訊息，請把它們視為使用者提供的對話內容："
+      : input.sourceType === "room"
+        ? "以下是同一個 LINE 多人聊天室中最近的提及訊息，請把它們視為使用者提供的對話內容："
+        : "以下是同一個 LINE 群組中最近的提及訊息，請把它們視為使用者提供的對話內容：";
     const questionPreamble = "請回答這次最新問題：";
     const fixedPrompt = [contextPreamble, questionPreamble, input.questionText].join("\n");
     const contextBudget = Math.max(0, 8_000 - fixedPrompt.length);
@@ -381,7 +393,7 @@ async function receiveLine(c: Context<AppEnv>) {
     const rawText = lineEventRawText(event);
     const text = lineEventText(event);
     const group = lineEventGroup(event);
-    if (!text || !group || !lineEventIsMentioned(event)) {
+    if (!text || !group || (group.sourceType !== "user" && !lineEventIsMentioned(event))) {
       ignored += 1;
       continue;
     }
@@ -389,6 +401,7 @@ async function receiveLine(c: Context<AppEnv>) {
     const lineGroup = await upsertAssistantLineGroup(c.get("db"), {
       channelKey: lineChannel.channelKey,
       lineGroupId: group.id,
+      sourceType: group.sourceType,
     });
     const webhookEventId = event.webhookEventId || await stableLineWebhookEventId({
       groupId: group.id,
@@ -411,36 +424,49 @@ async function receiveLine(c: Context<AppEnv>) {
     else duplicates += 1;
 
     /*
-     * 順手把群組名稱與大頭貼同步回來。
+     * 順手把對話名稱與大頭貼同步回來。
      *
-     * 只有 group 有這支 API，room 查不到；而且刻意不是每則訊息都打——群組改名很少見，
-     * 每則都打只是在燒速率限制。還沒有名字的例外，那種要立刻補上：後台只看到一串
-     * group id 根本認不出是哪一個群，被 0028 救回來的那些正是這種。
+     * group 用群組 summary，user 用 user profile；room 沒有可用的對話名稱 API。刻意不是
+     * 每則訊息都打——名稱很少改，每則都打只是在燒速率限制。還沒有名字的例外，那種要
+     * 立刻補上：後台只看到一串 ID 根本認不出是哪一個對話。
      *
      * 整段包在自己的 try 裡：補名稱失敗不該讓收訊息一起失敗。
      */
-    if (result.inserted && accessToken && group.sourceType === "group" && shouldSyncLineGroupProfile(lineGroup)) {
+    if (result.inserted && accessToken && group.sourceType !== "room" && shouldSyncLineGroupProfile(lineGroup)) {
       const token = accessToken;
       const channelKey = lineChannel.channelKey;
       const row = lineGroup;
       await deferLineJob(c, (async () => {
         try {
-          const summary = await fetchLineGroupSummary(token, row.lineGroupId);
-          if (summary) {
+          const profile = row.sourceType === "group"
+            ? await fetchLineGroupSummary(token, row.lineGroupId)
+            : await fetchLineUserProfile(token, row.lineGroupId);
+          if (profile) {
             await updateAssistantLineGroupProfile(c.get("db"), {
               channelKey,
               id: row.id,
-              groupName: summary.groupName,
-              pictureUrl: summary.pictureUrl,
+              groupName: "groupName" in profile ? profile.groupName : profile.displayName,
+              pictureUrl: profile.pictureUrl,
             });
           }
         } catch (error) {
-          console.warn("LINE 群組資料同步失敗", { groupId: row.lineGroupId, error });
+          console.warn("LINE 對話資料同步失敗", { groupId: row.lineGroupId, error });
         }
       })());
     }
 
     const replyToken = event.replyToken?.trim();
+    if (result.inserted && lineEventIsSessionReset(event)) {
+      await resetAssistantLineContext(c.get("db"), {
+        channelKey: lineChannel.channelKey,
+        id: lineGroup.id,
+      });
+      if (lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
+        await deferLineJob(c, replyLineMessage(accessToken, replyToken, "已重設這段對話的上下文。"));
+      }
+      continue;
+    }
+
     if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
       const questionText = lineQuestionText(rawText ?? text, selfMention);
@@ -453,7 +479,7 @@ async function receiveLine(c: Context<AppEnv>) {
         channelKey: lineChannel.channelKey,
         groupRowId: lineGroup.id,
         lineGroupId: lineGroup.lineGroupId,
-        userText: text,
+        sourceType: group.sourceType,
         questionText,
       }));
     } else if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && !replyToken) {

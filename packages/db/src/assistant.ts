@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type {
   AssistantToolCall as RecordedToolCall,
   AssistantToolStatus,
@@ -33,6 +33,7 @@ export type AssistantChannel = "sandbox" | "line";
 export type AssistantRunStatus = "success" | "failed";
 export type AssistantSandboxSessionStatus = "open" | "closed";
 export type AssistantSandboxMessageRole = "user" | "model";
+export type AssistantLineSourceType = "group" | "room" | "user";
 export const DEFAULT_ASSISTANT_LINE_DISPLAY_NAME = "Rueisiang 小香";
 
 /**
@@ -157,7 +158,7 @@ export async function findAssistantLineGroup(db: Database, input: { channelKey: 
 
 export async function upsertAssistantLineGroup(
   db: Database,
-  input: { channelKey: string; lineGroupId: string; displayName?: string },
+  input: { channelKey: string; lineGroupId: string; sourceType?: AssistantLineSourceType; displayName?: string },
 ): Promise<AssistantLineGroup> {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -165,6 +166,7 @@ export async function upsertAssistantLineGroup(
     id,
     channelKey: input.channelKey,
     lineGroupId: input.lineGroupId,
+    sourceType: input.sourceType ?? "group",
     displayName: input.displayName ?? "",
     discoveredAt: now,
     updatedAt: now,
@@ -177,14 +179,36 @@ export async function upsertAssistantLineGroup(
       eq(assistantLineGroups.lineGroupId, input.lineGroupId),
     ))
     .limit(1);
-  if (!created) throw new Error("建立 LINE 群組後找不到資料。");
-  if (input.displayName && input.displayName !== created.displayName) {
+  if (!created) throw new Error("建立 LINE 對話後找不到資料。");
+  const sourceTypeChanged = input.sourceType !== undefined && input.sourceType !== created.sourceType;
+  if ((input.displayName && input.displayName !== created.displayName) || sourceTypeChanged) {
     await db.update(assistantLineGroups)
-      .set({ displayName: input.displayName, updatedAt: new Date().toISOString() })
+      .set({
+        ...(input.displayName && input.displayName !== created.displayName ? { displayName: input.displayName } : {}),
+        ...(sourceTypeChanged ? { sourceType: input.sourceType } : {}),
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(assistantLineGroups.id, created.id));
     return (await findAssistantLineGroup(db, { channelKey: input.channelKey, id: created.id })) ?? created;
   }
   return created;
+}
+
+/**
+ * 重設 LINE 對話的模型上下文，但不刪掉監控歷史。
+ *
+ * LINE 沒有像 Sandbox 那樣的 session row；用時間邊界切開上下文即可，這樣管理員仍能
+ * 追查重設前發生過什麼，也不會讓「重設」變成不可逆的刪除操作。
+ */
+export async function resetAssistantLineContext(
+  db: Database,
+  input: { channelKey: string; id: string },
+): Promise<AssistantLineGroup | null> {
+  const now = new Date().toISOString();
+  await db.update(assistantLineGroups)
+    .set({ contextResetAt: now, updatedAt: now })
+    .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)));
+  return findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.id });
 }
 
 export async function updateAssistantLineGroup(
@@ -204,7 +228,7 @@ export async function updateAssistantLineGroup(
 }
 
 /**
- * 從 LINE 取回的名稱與大頭貼寫回群組。
+ * 從 LINE 取回的名稱與大頭貼寫回對話。
  *
  * 名稱只在「不是人手動設定的」時候覆蓋，看的是 displayNameManual 而不是「名字是不是
  * 空的」：第一次同步之後名字就有值了，再用空值當條件的話，LINE 那邊之後改名永遠跟不上。
@@ -227,13 +251,13 @@ export async function updateAssistantLineGroupProfile(
 }
 
 /**
- * 這個群組現在該不該去跟 LINE 要一次名稱與大頭貼。
+ * 這個對話現在該不該去跟 LINE 要一次名稱與大頭貼。
  *
- * 不是每則訊息都打：群組改名很少見，而大頭貼網址雖然會過期，重抓一次也只是為了顯示。
+ * 不是每則訊息都打：名稱很少改，而大頭貼網址雖然會過期，重抓一次也只是為了顯示。
  * 每則訊息都打一次只是在燒 LINE 的速率限制，換不到任何東西。
  *
  * 還沒有名字的（剛被發現、或被 0028 救回來的）例外，那種要立刻補上——只有一串 ID
- * 的群組在後台根本認不出是哪一個。
+ * 的對話在後台根本認不出是哪一個。
  */
 export function shouldSyncLineGroupProfile(
   group: { displayName: string; profileSyncedAt: string | null },
@@ -270,16 +294,18 @@ export async function recordAssistantLineMessage(
 
 export async function listAssistantLineMessages(
   db: Database,
-  input: { channelKey: string; lineGroupId: string; limit?: number },
+  input: { channelKey: string; lineGroupId: string; contextResetAt?: string | null; limit?: number },
 ): Promise<AssistantLineMessage[]> {
   const limit = Math.min(Math.max(input.limit ?? 12, 1), 50);
+  const conditions = [
+    eq(assistantLineMessages.channelKey, input.channelKey),
+    eq(assistantLineMessages.lineGroupId, input.lineGroupId),
+  ];
+  if (input.contextResetAt) conditions.push(gt(assistantLineMessages.createdAt, input.contextResetAt));
   const rows = await db
     .select()
     .from(assistantLineMessages)
-    .where(and(
-      eq(assistantLineMessages.channelKey, input.channelKey),
-      eq(assistantLineMessages.lineGroupId, input.lineGroupId),
-    ))
+    .where(and(...conditions))
     .orderBy(
       sql`CASE WHEN instr(${assistantLineMessages.createdAt}, 'T') > 0 THEN ${assistantLineMessages.createdAt} ELSE replace(${assistantLineMessages.createdAt}, ' ', 'T') || '.000Z' END DESC`,
       desc(assistantLineMessages.id),
@@ -726,7 +752,7 @@ export async function setAssistantChannelTools(
   return listAssistantChannelTools(db, input.channelKey);
 }
 
-/** 某個對話被授權的工具鍵值。只有 `toolMode = "custom"` 的群組會用到。 */
+/** 某個對話被授權的工具鍵值。只有 `toolMode = "custom"` 的對話會用到。 */
 export async function listAssistantChatToolKeys(db: Database, groupId: string): Promise<string[]> {
   const rows = await db
     .select({ toolKey: assistantChannelTools.toolKey })

@@ -136,17 +136,19 @@ export const assistantLineChannels = sqliteTable("assistant_line_channels", {
   uniqueIndex("idx_assistant_line_channels_assistant").on(table.assistantKey),
 ]);
 
-/** LINE 曾經發現過的群組。只有 enabled 的群組可以讓小香在線上回覆。 */
+/** LINE 曾經發現過的對話。只有 enabled 的對話可以讓小香在線上回覆。 */
 export const assistantLineGroups = sqliteTable("assistant_line_groups", {
   id: text("id").primaryKey(),
   channelKey: text("channel_key").notNull().references(() => assistantLineChannels.channelKey, { onDelete: "cascade" }),
   lineGroupId: text("line_group_id").notNull(),
+  /** `group`、`room` 或 `user`；舊資料沒有這欄時以 group 相容。 */
+  sourceType: text("source_type").notNull().default("group"),
   displayName: text("display_name").notNull().default(""),
   /**
    * 從 LINE 取回的大頭貼網址。
    *
    * **會過期**，所以只當快取用，不要當成永久網址存到別的地方；每次同步都重新取。
-   * 沒有設定大頭貼的群組會是空字串。
+   * 沒有設定大頭貼的對話會是空字串。
    */
   pictureUrl: text("picture_url").notNull().default(""),
   /**
@@ -159,11 +161,13 @@ export const assistantLineGroups = sqliteTable("assistant_line_groups", {
   displayNameManual: integer("display_name_manual", { mode: "boolean" }).notNull().default(false),
   /** 上次跟 LINE 同步名稱與大頭貼的時間。沒同步過是 null。 */
   profileSyncedAt: text("profile_synced_at"),
+  /** 只切換模型上下文的起點，歷史訊息仍保留供稽核與監控使用。 */
+  contextResetAt: text("context_reset_at"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
   /**
    * `inherit` 就是 channel 給的全部，`custom` 才去讀 `assistant_chat_tools`。
    *
-   * 預設 `inherit` 是因為客服帳號的對話會自動長出來，不可能每一個手動設定；內部群組本來
+   * 預設 `inherit` 是因為客服帳號的對話會自動長出來，不可能每一個手動設定；內部對話本來
    * 就有 `enabled` 那道閘擋著，真正的上限永遠在 channel 層。
    */
   toolMode: text("tool_mode").notNull().default("inherit"),
@@ -174,7 +178,7 @@ export const assistantLineGroups = sqliteTable("assistant_line_groups", {
   index("idx_assistant_line_groups_enabled").on(table.channelKey, table.enabled),
 ]);
 
-/** 只有標註小香的文字訊息會進來，供後續 LINE 對話組裝 context。 */
+/** 群組／聊天室只收標註小香的文字；一對一訊息也會進來，供後續 LINE 對話組裝 context。 */
 export const assistantLineMessages = sqliteTable("assistant_line_messages", {
   id: text("id").primaryKey(),
   channelKey: text("channel_key").notNull(),
@@ -194,7 +198,7 @@ export const assistantLineMessages = sqliteTable("assistant_line_messages", {
  * 這個 channel 能用哪些工具。**這是 LINE 這條路真正的授權來源。**
  *
  * 工具契約上的 `requiredPermissions` 在 LINE 用不上——那條路沒有平台使用者可以查權限，
- * 對面是一個 LINE 群組。與其讓它宣告在那裡卻沒人讀，不如明講：LINE 看 channel 白名單。
+ * 對面是一個 LINE 對話。與其讓它宣告在那裡卻沒人讀，不如明講：LINE 看 channel 白名單。
  *
  * 沒有列 = 不給。忘記設定的後果是「不能用」，不是「全都能用」。
  */
@@ -209,7 +213,7 @@ export const assistantChannelTools = sqliteTable("assistant_channel_tools", {
 ]);
 
 /**
- * 某個對話能用哪些工具。只有 `toolMode = "custom"` 的群組會讀這張表。
+ * 某個對話能用哪些工具。只有 `toolMode = "custom"` 的對話會讀這張表。
  *
  * **外鍵指向 `assistant_channel_tools` 那一列，不是直接指向工具鍵值。** 這讓「對話拿到的
  * 權限不可能超過 channel」變成資料庫層級的保證：channel 收回一個工具時 CASCADE 會把底下

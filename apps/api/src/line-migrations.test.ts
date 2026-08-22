@@ -149,8 +149,8 @@ describe("0031 回填「名稱是人工設定的」", () => {
   });
 });
 
-describe("0032 預設開放全部小香工具", () => {
-  it("會啟用系統預設工具、保留人工停用狀態，並補齊既有 channel 白名單", () => {
+describe("0033 預設開放全部小香工具", () => {
+  it("會啟用系統預設工具、保留人工停用狀態，且不擴大既有 channel 白名單", () => {
     const sqlite = freshAt("0031_backfill_manual_group_names.sql");
     sqlite.exec(`
       INSERT INTO assistant_line_channels
@@ -167,7 +167,7 @@ describe("0032 預設開放全部小香工具", () => {
       VALUES ('existing-weather', 'ck', 'weather_open_meteo', 'migration:0025');
     `);
 
-    applyLikeD1(sqlite, "0031_backfill_manual_group_names.sql", "0032_enable_all_assistant_tools.sql");
+    applyLikeD1(sqlite, "0031_backfill_manual_group_names.sql", "0033_enable_all_assistant_tools.sql");
 
     expect((sqlite.prepare("SELECT status FROM assistant_tool_configs WHERE key = ?").get("weather_open_meteo") as { status: string }).status)
       .toBe("enabled");
@@ -180,17 +180,7 @@ describe("0032 預設開放全部小香工具", () => {
 
     const granted = (sqlite.prepare("SELECT tool_key FROM assistant_channel_tools WHERE channel_key = ? ORDER BY tool_key").all("ck") as { tool_key: string }[])
       .map((row) => row.tool_key);
-    expect(granted).toEqual([
-      "crm_get_customer",
-      "crm_get_orders",
-      "crm_search_customers",
-      "weather_open_meteo",
-      "wms_get_activity",
-      "wms_get_inventory_item",
-      "wms_list_inventory",
-      "wms_list_low_stock_items",
-      "wms_search_warehouse",
-    ]);
+    expect(granted).toEqual(["weather_open_meteo"]);
   });
 });
 
