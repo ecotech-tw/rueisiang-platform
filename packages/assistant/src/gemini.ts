@@ -1,56 +1,35 @@
+import {
+  GoogleGenAI,
+  type Content,
+  type FunctionCall,
+  type GenerateContentConfig,
+  type GenerateContentResponse,
+  type Part,
+  type Schema,
+  type ThinkingConfig,
+  ThinkingLevel,
+  Type,
+} from "@google/genai/web";
 import { AssistantError, type AssistantConversationMessage, type AssistantRunResult, type AssistantToolCall, type AssistantToolContext, type AssistantToolDefinition, type AssistantUsage, type JsonSchema } from "./types.js";
 import { runtimeContextInstruction, type AssistantRuntimeContext } from "./runtime.js";
 
-interface GeminiPart {
-  text?: string;
-  thought?: boolean;
-  functionCall?: { name?: string; args?: unknown };
-  functionResponse?: { name?: string; response?: unknown };
-  [key: string]: unknown;
-}
-
-interface GeminiContent {
-  role: "user" | "model";
-  parts: GeminiPart[];
-}
-
-interface GeminiResponse {
-  candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
-  usageMetadata?: {
-    promptTokenCount?: number;
-    candidatesTokenCount?: number;
-    totalTokenCount?: number;
-  };
-}
-
 interface GeminiRequest {
-  system_instruction: { parts: Array<{ text: string }> };
-  contents: GeminiContent[];
-  generationConfig?: {
-    thinkingConfig?: {
-      includeThoughts?: boolean;
-      thinkingLevel?: "minimal" | "low" | "medium" | "high";
-    };
-  };
-  tools?: Array<{ functionDeclarations: Array<{
-    name: string;
-    description: string;
-    parameters: GeminiSchema;
-  }> }>;
+  contents: Content[];
+  config: GenerateContentConfig;
 }
 
-interface GeminiSchema {
-  type: "OBJECT";
-  properties: Record<string, { type: "STRING" | "NUMBER" | "INTEGER" | "BOOLEAN"; description: string; enum?: string[] }>;
-  required?: string[];
+interface GeminiToolCall {
+  id?: string;
+  name: string;
+  args: Record<string, unknown>;
 }
 
-function toGeminiSchema(schema: JsonSchema): GeminiSchema {
+function toGeminiSchema(schema: JsonSchema): Schema {
   return {
-    type: "OBJECT",
+    type: Type.OBJECT,
     properties: Object.fromEntries(Object.entries(schema.properties).map(([key, property]) => [key, {
       ...property,
-      type: property.type.toUpperCase() as "STRING" | "NUMBER" | "INTEGER" | "BOOLEAN",
+      type: property.type.toUpperCase() as Type,
     }])),
     ...(schema.required ? { required: schema.required } : {}),
   };
@@ -64,27 +43,36 @@ function safeApiError(status: number): string {
   return `Gemini 暫時無法回應（HTTP ${status}）。`;
 }
 
-async function generateContent(apiKey: string, model: string, request: GeminiRequest): Promise<GeminiResponse> {
+function errorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" ? status : undefined;
+}
+
+async function generateContent(apiKey: string, model: string, request: GeminiRequest): Promise<GenerateContentResponse> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-        signal: controller.signal,
+    const ai = new GoogleGenAI({ apiKey });
+    return await ai.models.generateContent({
+      model,
+      contents: request.contents,
+      config: {
+        ...request.config,
+        abortSignal: controller.signal,
+        httpOptions: {
+          timeout: 60_000,
+          // Tool call 的每一輪由本身的 assistant loop 控制，不讓 SDK 在背景重試放大延遲。
+          retryOptions: { attempts: 1 },
+        },
       },
-    );
-    if (!response.ok) {
-      const details = await response.text().catch(() => "");
-      console.error("Gemini API 錯誤", response.status, details.slice(0, 500));
-      throw new AssistantError(safeApiError(response.status));
-    }
-    return (await response.json()) as GeminiResponse;
+    });
   } catch (error) {
-    if (error instanceof AssistantError) throw error;
+    const status = errorStatus(error);
+    if (status !== undefined) {
+      console.error("Gemini API 錯誤", status, error instanceof Error ? error.message : error);
+      throw new AssistantError(safeApiError(status), { cause: error });
+    }
     throw new AssistantError("Gemini 連線逾時或暫時無法連線。", { cause: error });
   } finally {
     clearTimeout(timeout);
@@ -95,7 +83,7 @@ function emptyUsage(): AssistantUsage {
   return { promptTokens: 0, candidateTokens: 0, totalTokens: 0 };
 }
 
-function addUsage(total: AssistantUsage, current: GeminiResponse["usageMetadata"]): void {
+function addUsage(total: AssistantUsage, current: GenerateContentResponse["usageMetadata"]): void {
   total.promptTokens += current?.promptTokenCount ?? 0;
   total.candidateTokens += current?.candidatesTokenCount ?? 0;
   total.totalTokens += current?.totalTokenCount ?? 0;
@@ -109,14 +97,15 @@ function responseObject(value: string): unknown {
   }
 }
 
-function readToolCalls(parts: GeminiPart[]): Array<{ name: string; args: unknown }> {
+function readToolCalls(parts: Part[]): GeminiToolCall[] {
   return parts.flatMap((part) => {
-    const name = part.functionCall?.name?.trim();
-    return name ? [{ name, args: part.functionCall?.args ?? {} }] : [];
+    const call: FunctionCall | undefined = part.functionCall;
+    const name = call?.name?.trim();
+    return name ? [{ id: call?.id, name, args: call?.args ?? {} }] : [];
   });
 }
 
-function readText(parts: GeminiPart[]): string {
+function readText(parts: Part[]): string {
   return parts
     .filter((part) => part.thought !== true)
     .map((part) => part.text ?? "")
@@ -124,7 +113,7 @@ function readText(parts: GeminiPart[]): string {
     .trim();
 }
 
-function readThoughts(parts: GeminiPart[]): string {
+function readThoughts(parts: Part[]): string {
   return parts
     .filter((part) => part.thought === true)
     .map((part) => part.text ?? "")
@@ -148,13 +137,22 @@ function modelId(value: string): string {
   return value.replace(/^models\//, "");
 }
 
-function generationConfigFor(model: string): GeminiRequest["generationConfig"] {
+function thinkingConfigFor(model: string): ThinkingConfig {
   // Keep thought summaries available to the caller. Sandbox collapses them;
   // LINE writes them to the Worker log but only sends the final answer.
   if (model.startsWith("gemma-4-")) {
-    return { thinkingConfig: { thinkingLevel: "high", includeThoughts: true } };
+    return { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: true };
   }
-  return { thinkingConfig: { includeThoughts: true } };
+  return { includeThoughts: true };
+}
+
+function systemInstructionFor(input: { systemPrompt: string; runtimeContext?: AssistantRuntimeContext }): Content {
+  return {
+    parts: [
+      { text: input.systemPrompt },
+      ...(input.runtimeContext ? [{ text: runtimeContextInstruction(input.runtimeContext) }] : []),
+    ],
+  };
 }
 
 export async function runGemini(input: {
@@ -169,7 +167,7 @@ export async function runGemini(input: {
   maxToolRounds?: number;
 }): Promise<AssistantRunResult> {
   const toolsByName = new Map(input.tools.map((tool) => [tool.key, tool]));
-  const contents: GeminiContent[] = [
+  const contents: Content[] = [
     ...(input.conversation ?? []).map((message) => ({ role: message.role, parts: [{ text: message.text }] })),
     { role: "user", parts: [{ text: input.userText }] },
   ];
@@ -181,15 +179,12 @@ export async function runGemini(input: {
     description: tool.description,
     parameters: toGeminiSchema(tool.parameters),
   }));
-  const requestBase = {
-    system_instruction: {
-      parts: [
-        { text: input.systemPrompt },
-        ...(input.runtimeContext ? [{ text: runtimeContextInstruction(input.runtimeContext) }] : []),
-      ],
+  const requestBase: Omit<GeminiRequest, "contents"> = {
+    config: {
+      systemInstruction: systemInstructionFor(input),
+      thinkingConfig: thinkingConfigFor(modelId(input.model)),
+      tools: declarations.length ? [{ functionDeclarations: declarations }] : undefined,
     },
-    generationConfig: generationConfigFor(modelId(input.model)),
-    tools: declarations.length ? [{ functionDeclarations: declarations }] : undefined,
   };
   const maxToolRounds = input.maxToolRounds ?? 3;
 
@@ -208,11 +203,11 @@ export async function runGemini(input: {
       if (text) return { text, thoughts: thoughts.join("\n\n"), toolCalls, usage };
       throw new AssistantError("模型沒有產生可顯示的文字回答。");
     }
-    if (round === maxToolRounds) throw new AssistantError("工具呼叫次數已達上限，請縮小問題範圍後再試。" );
+    if (round === maxToolRounds) throw new AssistantError("工具呼叫次數已達上限，請縮小問題範圍後再試。");
 
-    // 把模型原始 part（包含 thinking model 可能需要的簽章欄位）原樣放回歷史。
+    // 將模型原始 part（包含 thinking model 可能需要的 thought signature）原樣放回歷史。
     contents.push({ role: "model", parts });
-    const functionResponses: GeminiPart[] = [];
+    const functionResponses: Part[] = [];
     let toolExecutionFailed = false;
     for (const call of calls) {
       const tool = toolsByName.get(call.name);
@@ -226,7 +221,13 @@ export async function runGemini(input: {
       try {
         const result = await tool.execute(call.args, input.toolContext);
         toolCalls.push({ toolKey: tool.key, status: "success", durationMs: Date.now() - started });
-        functionResponses.push({ functionResponse: { name: tool.key, response: { result: responseObject(result) } } });
+        functionResponses.push({
+          functionResponse: {
+            ...(call.id ? { id: call.id } : {}),
+            name: tool.key,
+            response: { result: responseObject(result) },
+          },
+        });
       } catch (error) {
         const errorMessage = safeToolError(error);
         console.error("AI tool 執行失敗", tool.key, error);
@@ -234,11 +235,8 @@ export async function runGemini(input: {
         toolCalls.push({ toolKey: tool.key, status: "failed", durationMs: Date.now() - started, errorMessage });
       }
     }
-    // 工具已經失敗時不再把 response 餵回模型重試。Gemini 的 function response
-    // 雖然支援 error 欄位，但不同模型對失敗工具的續接格式不一致；如果只送成功
-    // 的 functionResponse，失敗的 function call 會沒有對應回覆，也可能讓第二輪 request
-    // 變成 400。因此同一輪即使其他工具成功，也會一起捨棄並直接結束，避免重複呼叫
-    // 外部 API；若未來要保留部分成功結果，需另設明確的 Gemini response contract。
+    // 工具已經失敗時不再把 response 餵回模型重試，避免不同模型對失敗工具的續接格式不一致。
+    // SDK 會保留成功 function response 的 id，讓 thinking model 的 function call history 能正確配對。
     if (toolExecutionFailed) {
       return { text: toolFailureText(), thoughts: thoughts.join("\n\n"), toolCalls, usage };
     }

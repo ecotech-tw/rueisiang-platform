@@ -170,10 +170,11 @@ describe("AI 助理 Sandbox", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
       const hasToolResult = JSON.stringify(body.contents).includes("wms-item-1");
+      if (hasToolResult) expect(JSON.stringify(body.contents)).toContain("call-wms-1");
       return new Response(JSON.stringify({
         candidates: [{ content: { parts: hasToolResult
           ? [{ text: "紙箱目前有 3 件，低於安全庫存 5 件。" }]
-          : [{ functionCall: { name: "wms_search_warehouse", args: { query: "紙箱", scope: "inventory", limit: "10" } } }] } }],
+          : [{ functionCall: { id: "call-wms-1", name: "wms_search_warehouse", args: { query: "紙箱", scope: "inventory", limit: "10" } } }] } }],
         usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
@@ -305,11 +306,11 @@ describe("AI 助理 Sandbox", () => {
 
     const requestBodies: string[] = [];
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { contents?: unknown[]; system_instruction?: unknown };
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[]; systemInstruction?: unknown };
       const contents = JSON.stringify(body.contents);
       requestBodies.push(contents);
       if (requestBodies.length === 1) {
-        expect(JSON.stringify(body.system_instruction)).toContain("Asia/Taipei");
+        expect(JSON.stringify(body.systemInstruction)).toContain("Asia/Taipei");
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_search_customers",
@@ -751,7 +752,7 @@ describe("AI 助理 Sandbox", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
       generationConfig?: { thinkingConfig?: { thinkingLevel?: string; includeThoughts?: boolean } };
     };
-    expect(body.generationConfig).toEqual({ thinkingConfig: { thinkingLevel: "high", includeThoughts: true } });
+    expect(body.generationConfig).toEqual({ thinkingConfig: { thinkingLevel: "HIGH", includeThoughts: true } });
   });
 
   it("Sandbox session 會保留多輪對話，關閉後不能繼續執行", async () => {
@@ -876,7 +877,7 @@ describe("AI 助理 Sandbox", () => {
       body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: revision.revision.id, toolKeys: [], input: "套用新 prompt" }),
     });
     expect(response.status).toBe(200);
-    expect(JSON.stringify(requests[0]?.system_instruction)).toContain("這是新的 session prompt。");
+    expect(JSON.stringify(requests[0]?.systemInstruction)).toContain("這是新的 session prompt。");
 
     const detail = await as("admin", "admin@ecotech.tw", `/api/assistant/sandbox/sessions/${created.session.id}`);
     expect(await detail.json()).toMatchObject({ session: { promptRevisionId: revision.revision.id } });
@@ -921,7 +922,7 @@ describe("AI 助理 Sandbox", () => {
     let mainCount = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      const systemPrompt = JSON.stringify(body.system_instruction);
+      const systemPrompt = JSON.stringify(body.systemInstruction);
       const summary = systemPrompt.includes("Summarize the supplied conversation");
       requests.push({ body, summary });
       const text = summary ? "已更新摘要" : "長對話回答 " + ++mainCount;
