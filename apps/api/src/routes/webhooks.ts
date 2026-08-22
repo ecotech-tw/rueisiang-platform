@@ -65,6 +65,7 @@ import {
 /** 2 MB。正常的事件遠小於這個，超過的多半是打錯地方。 */
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const LINE_TOOL_DEFINITIONS = toolsForSurface("line");
+const LINE_TOOL_KEYS = LINE_TOOL_DEFINITIONS.map((tool) => tool.key);
 const LINE_MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
 
 async function stableLineWebhookEventId(input: {
@@ -350,7 +351,10 @@ async function receiveLine(c: Context<AppEnv>) {
     throw new HTTPException(413, { message: "Payload too large" });
   }
 
-  const lineChannel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+  const lineChannel = await ensureAssistantLineChannel(c.get("db"), {
+    assistantKey: ASSISTANT_KEY,
+    defaultToolKeys: LINE_TOOL_KEYS,
+  });
   const storedSecret = lineChannel.channelSecretEncrypted
     ? await decryptLineSecret(lineChannel.channelSecretEncrypted, c.env.AUTH_SESSION_SECRET)
     : null;

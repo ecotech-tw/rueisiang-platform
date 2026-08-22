@@ -31,7 +31,7 @@ pnpm dev
 - Sandbox 選定模型後按「儲存並套用到小香」，會寫入 assistant 設定；之後沒有明確指定模型的執行會使用這個 active model。
 - 編輯 system prompt；每次儲存會建立新 revision，並立即設為 active。
 - Revision history 與 Sandbox tools 選擇都在 Modal 中操作；左側設定欄可獨立捲動，頁面外層不會跟著捲動。
-- 選擇要傳給模型的 tool。現在只有 `Open-Meteo 天氣查詢`，狀態預設為「開發中」。
+- 選擇要傳給模型的 tool。目前內建唯讀工具預設為「已啟用」；管理者仍可切換成「開發中」或「已停用」。
 - 輸入測試內容、看到模型回答、tool 呼叫結果、延遲與 Gemini usage metadata。
 - Gemini thought summary 會在 Sandbox 以收合區塊顯示；正式回答不會重複渲染。LINE webhook 只傳送正式回答，thought summary 只寫入 Worker log，不會送給對話。
 - 每次 Sandbox run 與 tool call 都會寫入 D1，欄位已預留給後續 LINE channel 與分析頁使用。
@@ -44,15 +44,11 @@ pnpm dev
 
 ## 共用 Tool Contract：CRM 唯讀工具
 
-CRM 工具與 WMS 使用同一個 provider-neutral `ToolContract`；一般 CRM 查詢註冊在 Sandbox、LINE 與未來 MCP，訂單／消費工具目前只註冊在 Sandbox 與 MCP。新增工具預設為「開發中」，可先在 Sandbox 驗證；只有支援 LINE 的工具切換為「已啟用」後，才會被 LINE webhook 選用。Sandbox 另外會依使用者的 CRM permission 檢查工具權限。
+CRM 工具與 WMS 使用同一個 provider-neutral `ToolContract`；目前三個 CRM 工具都註冊在 Sandbox、LINE 與未來 MCP。內建唯讀工具預設為「已啟用」，因此小香建立 channel 後即可使用完整工具集合；管理者仍可在後台把個別工具切換成「開發中」或「已停用」，LINE webhook 會尊重這個狀態。Sandbox 另外會依使用者的 CRM permission 檢查工具權限。
 
 - `crm_search_customers`：依關鍵字、來源、狀態、標籤與 `YYYY-MM-DD` 日期搜尋客戶；`dateField=createdAt` 代表當天新增，`dateField=updatedAt` 代表當天更新。
-- `crm_get_customer_context`：依客戶 ID 取得客戶資料、標籤、同步狀態與最近操作紀錄。
-- `crm_get_customer_orders`：即時查詢 CYBERBIZ 訂單，依 CRM customerId、CYBERBIZ customerId、電話或 email 比對客戶；可用 Asia/Taipei 日期與付款／配送狀態篩選。需要 `crm:order:read`，目前只開放 Sandbox 與 MCP。
-- `crm_get_customer_spending_summary`：以即時 CYBERBIZ 訂單彙整訂單數、消費金額、平均客單價、最近消費與常購商品；需要 `crm:order:read`，目前只開放 Sandbox 與 MCP。
-- `crm_list_customer_events`：查詢 CRM、CYBERBIZ webhook 與同步操作紀錄。
-- `crm_list_customer_tags`：列出標籤字典與使用次數。
-- `crm_get_sync_status`：查詢客戶同步統計與最近同步錯誤；不會把原始 webhook payload 傳給模型。
+- `crm_get_customer`：依客戶 ID 取得客戶資料、標籤、同步狀態、最近操作紀錄與可選的消費摘要。
+- `crm_get_orders`：即時查詢 CYBERBIZ 訂單，支援 customer ID、order ID、訂單編號、日期、狀態、排序與 limit；需要 `crm:order:read`。
 
 目前 `mcp` 是共用 registry 的 surface 標記，實際 MCP transport adapter 尚未在本 repo 建立（要接**外部** MCP 工具的話有額外的限制與風險，見 [`assistant-multi-channel.md`](./assistant-multi-channel.md) 第五節）；未來 GPT、Gemini 或遠端 MCP host 都可沿用同一批 tool definition、執行函式與權限宣告。CYBERBIZ 訂單工具使用即時 API，不會把訂單快照寫入 CRM。
 

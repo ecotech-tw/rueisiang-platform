@@ -149,6 +149,41 @@ describe("0031 回填「名稱是人工設定的」", () => {
   });
 });
 
+describe("0033 預設開放全部小香工具", () => {
+  it("會啟用系統預設工具、保留人工停用狀態，且不擴大既有 channel 白名單", () => {
+    const sqlite = freshAt("0031_backfill_manual_group_names.sql");
+    sqlite.exec(`
+      INSERT INTO assistant_line_channels
+        (channel_key, assistant_key, channel_id, display_name, enabled, updated_by)
+      VALUES ('ck', 'ak', 'ch', '小香', 1, 'eli');
+
+      INSERT INTO assistant_tool_configs (key, status, updated_by)
+      VALUES
+        ('weather_open_meteo', 'development', 'system'),
+        ('wms_get_activity', 'development', 'eli'),
+        ('crm_get_orders', 'development', 'migration:0025');
+
+      INSERT INTO assistant_channel_tools (id, channel_key, tool_key, created_by)
+      VALUES ('existing-weather', 'ck', 'weather_open_meteo', 'migration:0025');
+    `);
+
+    applyLikeD1(sqlite, "0031_backfill_manual_group_names.sql", "0033_enable_all_assistant_tools.sql");
+
+    expect((sqlite.prepare("SELECT status FROM assistant_tool_configs WHERE key = ?").get("weather_open_meteo") as { status: string }).status)
+      .toBe("enabled");
+    expect((sqlite.prepare("SELECT status FROM assistant_tool_configs WHERE key = ?").get("crm_get_orders") as { status: string }).status)
+      .toBe("enabled");
+    expect((sqlite.prepare("SELECT status FROM assistant_tool_configs WHERE key = ?").get("wms_get_activity") as { status: string }).status)
+      .toBe("development");
+    expect((sqlite.prepare("SELECT status FROM assistant_tool_configs WHERE key = ?").get("crm_get_customer") as { status: string }).status)
+      .toBe("enabled");
+
+    const granted = (sqlite.prepare("SELECT tool_key FROM assistant_channel_tools WHERE channel_key = ? ORDER BY tool_key").all("ck") as { tool_key: string }[])
+      .map((row) => row.tool_key);
+    expect(granted).toEqual(["weather_open_meteo"]);
+  });
+});
+
 describe("被 0023 誤刪的 LINE 群組", () => {
   function migrated(to: string): DatabaseSync {
     const sqlite = new DatabaseSync(":memory:");

@@ -58,7 +58,7 @@ export const openMeteoTool: AssistantToolDefinition = {
   key: OPEN_METEO_TOOL_KEY,
   label: "Open-Meteo 天氣查詢",
   description: "使用免費 Open-Meteo API，依地點查詢目前天氣、體感溫度、濕度與風速。",
-  defaultStatus: "development",
+  defaultStatus: "enabled",
   parameters: {
     type: "object",
     properties: {

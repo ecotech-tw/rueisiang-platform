@@ -42,10 +42,11 @@ export const DEFAULT_ASSISTANT_LINE_DISPLAY_NAME = "Rueisiang 小香";
  * 現階段一個 assistant 只有一個 channel，所以新建時 `channelKey` 直接沿用 `assistantKey`。
  * 值相同不代表概念相同——關聯一律走 `channelKey`，官網客服當第二個 channel 進來時，
  * 這裡改成產新的鍵值即可，既有資料不必再搬。
+ * `defaultToolKeys` 只在首次建立 channel 時套用；後續管理者收回的工具不會在每次 request 被補回。
  */
 export async function ensureAssistantLineChannel(
   db: Database,
-  input: { assistantKey: string; updatedBy?: string },
+  input: { assistantKey: string; updatedBy?: string; defaultToolKeys?: readonly string[] },
 ): Promise<AssistantLineChannel> {
   const [existing] = await db
     .select()
@@ -72,6 +73,18 @@ export async function ensureAssistantLineChannel(
     .where(eq(assistantLineChannels.assistantKey, input.assistantKey))
     .limit(1);
   if (!created) throw new Error("建立 LINE channel 設定後找不到資料。");
+
+  const defaultToolKeys = [...new Set(input.defaultToolKeys ?? [])];
+  if (defaultToolKeys.length) {
+    const now = new Date().toISOString();
+    await db.insert(assistantChannelTools).values(defaultToolKeys.map((toolKey) => ({
+      id: crypto.randomUUID(),
+      channelKey: created.channelKey,
+      toolKey,
+      createdBy: input.updatedBy ?? "system",
+      createdAt: now,
+    }))).onConflictDoNothing();
+  }
   return created;
 }
 
@@ -540,7 +553,8 @@ export async function ensureAssistantDefaults(
   const existing = new Set(existingTools.map((tool) => tool.key));
   for (const key of input.toolKeys) {
     if (existing.has(key)) continue;
-    await db.insert(assistantToolConfigs).values({ key, status: "development", updatedBy: "system", updatedAt: now }).onConflictDoNothing();
+    // 內建唯讀工具預設直接可用；管理者仍可在後台改成開發中或已停用。
+    await db.insert(assistantToolConfigs).values({ key, status: "enabled", updatedBy: "system", updatedAt: now }).onConflictDoNothing();
   }
 }
 

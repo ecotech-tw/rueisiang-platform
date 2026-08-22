@@ -95,8 +95,10 @@ assistant（小香 / 官網客服）      prompt、模型、工具母清單
 > 群組 ID 從它撈得回來；`display_name` 與 `enabled` 救不回來。
 
 另外 `0025` 把「目前已啟用的工具」寫成既有 channel 的白名單。沒有它的話，部署完的那一刻
-小香會突然一個工具都不能用——換權限模型不該讓線上的 bot 安靜地變笨。之後新開的 channel
-一律從空白開始。
+小香會突然一個工具都不能用——換權限模型不該讓線上的 bot 安靜地變笨。現在的預設政策是內建
+唯讀工具全部可用：`0033` 會把系統預設工具設為 `enabled`，新建立的 channel 也會由 API 自動
+授權全部 LINE surface 工具。既有 channel 的白名單不會由 migration 自動擴大，避免把管理者已
+收回的工具重新開放；要增加工具時，請由管理者在後台明確儲存設定。
 
 ### webhook 怎麼分辨兩個帳號
 
@@ -150,7 +152,7 @@ assistant_chat_tools        這個對話能用哪些（外鍵指向上一列，�
 
 | 層 | 問的問題 | 誰在管 |
 |---|---|---|
-| `assistant_tool_configs.status` | 這個工具在平台上活著嗎（`development` 只能 Sandbox） | 工程／全域 |
+| `assistant_tool_configs.status` | 這個工具在平台上活著嗎（內建工具預設 `enabled`；`development` 只能 Sandbox） | 工程／全域 |
 | `assistant_channel_tools` | 這個 bot 能用嗎 | 每個 bot |
 | `assistant_chat_tools` | 這個對話能用嗎 | 每個群／每個客人 |
 
