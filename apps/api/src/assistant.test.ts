@@ -105,6 +105,47 @@ describe("只有 LINE 權限的人", () => {
   });
 });
 
+describe("LINE 群組的開通開關", () => {
+  async function seedAdminAndGroup() {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    // 建立 channel，然後模擬 webhook 發現一個新群組——名稱預設是空字串。
+    await as("admin", "admin@ecotech.tw", "/api/assistant/line/config");
+    const created = await as("admin", "admin@ecotech.tw", "/api/assistant/line/groups", {
+      method: "POST",
+      body: JSON.stringify({ lineGroupId: "Cabc123" }),
+    });
+    const body = await created.json() as { group: { id: string; displayName: string } };
+    expect(body.group.displayName).toBe("");
+    return body.group.id;
+  }
+
+  /*
+   * 切開關卻被要求先命名，是沒有道理的。畫面上的開關只送 enabled，這裡釘住後端在
+   * displayName 省略時要維持原值，而不是把空字串當成「沒填」退回。
+   */
+  it("沒有名稱的群組也能直接開通", async () => {
+    const id = await seedAdminAndGroup();
+
+    const response = await as("admin", "admin@ecotech.tw", `/api/assistant/line/groups/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { group: { enabled: boolean; displayName: string } };
+    expect(body.group.enabled).toBe(true);
+    expect(body.group.displayName).toBe("");
+  });
+
+  it("真的要改名時，空字串仍然擋下來", async () => {
+    const id = await seedAdminAndGroup();
+    const response = await as("admin", "admin@ecotech.tw", `/api/assistant/line/groups/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ displayName: "", enabled: true }),
+    });
+    expect(response.status).toBe(400);
+  });
+});
+
 describe("AI 助理 Sandbox", () => {
   it("需要登入與 Sandbox 權限", async () => {
     expect((await call("/api/assistant/sandbox/config")).status).toBe(401);

@@ -242,13 +242,23 @@ export function useAddAssistantLineGroup() {
   });
 }
 
+/**
+ * 更新群組。`displayName` 省略時後端維持原值。
+ *
+ * 開關要用省略的形式：新發現的群組名稱預設是空字串，把它一起送出去會被後端的
+ * 「請填寫群組顯示名稱」擋下來——切個開關卻被要求先命名，是沒有道理的。
+ */
 export function useSaveAssistantLineGroup() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { id: string; displayName: string; enabled: boolean }) =>
+    mutationFn: (input: { id: string; displayName?: string; enabled: boolean }) =>
       request<{ group: AssistantLineGroup }>(`/api/assistant/line/groups/${input.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ displayName: input.displayName, enabled: input.enabled }),
+        body: JSON.stringify(
+          input.displayName === undefined
+            ? { enabled: input.enabled }
+            : { displayName: input.displayName, enabled: input.enabled },
+        ),
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["assistant", "line", "config"] }),
   });
