@@ -9,6 +9,8 @@ interface LineAssistantQueueMessageBase {
   webhookEventId: string;
   /** D1 contextResetAt；空字串／舊 Queue 訊息缺欄位代表從未 reset。 */
   contextGeneration?: string;
+  /** 同一個 LINE 對話內的到達順序；舊 Queue 訊息沒有此欄位時維持相容。 */
+  sequence?: number;
   messageId?: string;
   /** LINE reply token 的實際截止時間；舊 Queue 訊息沒有這欄時由 consumer 使用保守預設值。 */
   replyDeadlineAt?: number;
@@ -41,6 +43,10 @@ export function isLineAssistantQueueMessage(value: unknown): value is LineAssist
   ) {
     return false;
   }
+  if (
+    message.sequence !== undefined
+    && (typeof message.sequence !== "number" || !Number.isInteger(message.sequence) || message.sequence < 1)
+  ) return false;
   if (message.messageId !== undefined && !nonEmptyString(message.messageId)) return false;
   if (message.kind !== "profile" && !nonEmptyString(message.replyToken)) return false;
   if (message.kind === "assistant" && !nonEmptyString(message.runId)) return false;

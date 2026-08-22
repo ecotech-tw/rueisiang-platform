@@ -286,10 +286,46 @@ export async function recordAssistantLineMessage(
     lineMessageId?: string;
     lineUserId?: string;
     text: string;
+    queueRequired?: boolean;
   },
 ): Promise<{ message: AssistantLineMessage; inserted: boolean }> {
+  const [existing] = await db.select().from(assistantLineMessages).where(and(
+    eq(assistantLineMessages.channelKey, input.channelKey),
+    eq(assistantLineMessages.webhookEventId, input.webhookEventId),
+  )).limit(1);
+  if (existing) return { message: existing, inserted: false };
+
   const id = crypto.randomUUID();
-  await db.insert(assistantLineMessages).values({ id, ...input, createdAt: new Date().toISOString() }).onConflictDoNothing();
+  const now = new Date().toISOString();
+  await db.batch([
+    db.update(assistantLineGroups)
+      .set({
+        nextMessageSequence: sql`${assistantLineGroups.nextMessageSequence} + 1`,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(assistantLineGroups.channelKey, input.channelKey),
+        eq(assistantLineGroups.lineGroupId, input.lineGroupId),
+      )),
+    db.insert(assistantLineMessages).values({
+      id,
+      channelKey: input.channelKey,
+      lineGroupId: input.lineGroupId,
+      sourceType: input.sourceType,
+      webhookEventId: input.webhookEventId,
+      lineMessageId: input.lineMessageId,
+      lineUserId: input.lineUserId,
+      text: input.text,
+      sequence: sql<number>`(
+        SELECT ${assistantLineGroups.nextMessageSequence}
+        FROM ${assistantLineGroups}
+        WHERE ${assistantLineGroups.channelKey} = ${input.channelKey}
+          AND ${assistantLineGroups.lineGroupId} = ${input.lineGroupId}
+      )`,
+      queueRequired: input.queueRequired ?? false,
+      createdAt: now,
+    }).onConflictDoNothing(),
+  ]);
   const [created] = await db.select().from(assistantLineMessages).where(and(
     eq(assistantLineMessages.channelKey, input.channelKey),
     eq(assistantLineMessages.webhookEventId, input.webhookEventId),
@@ -734,11 +770,51 @@ export async function listAssistantLineMessages(
     .from(assistantLineMessages)
     .where(and(...conditions))
     .orderBy(
+      desc(assistantLineMessages.sequence),
       sql`CASE WHEN instr(${assistantLineMessages.createdAt}, 'T') > 0 THEN ${assistantLineMessages.createdAt} ELSE replace(${assistantLineMessages.createdAt}, ' ', 'T') || '.000Z' END DESC`,
       desc(assistantLineMessages.id),
     )
     .limit(limit);
   return rows.reverse();
+}
+
+/** 找出同一個 LINE 對話中，仍可能尚未完成的較早 Queue 工作，避免 retry 越過前一則訊息。 */
+export async function findEarlierAssistantLineQueueJob(
+  db: Database,
+  input: { channelKey: string; lineGroupId: string; sequence: number },
+): Promise<{ sequence: number; webhookEventId: string; status: AssistantLineQueueJobStatus } | null> {
+  const [row] = await db
+    .select({
+      sequence: assistantLineMessages.sequence,
+      webhookEventId: assistantLineMessages.webhookEventId,
+      status: assistantLineQueueJobs.status,
+    })
+    .from(assistantLineMessages)
+    .leftJoin(assistantLineQueueJobs, and(
+      eq(assistantLineQueueJobs.channelKey, assistantLineMessages.channelKey),
+      eq(assistantLineQueueJobs.webhookEventId, assistantLineMessages.webhookEventId),
+    ))
+    .where(and(
+      eq(assistantLineMessages.channelKey, input.channelKey),
+      eq(assistantLineMessages.lineGroupId, input.lineGroupId),
+      eq(assistantLineMessages.queueRequired, true),
+      lt(assistantLineMessages.sequence, input.sequence),
+      or(
+        isNull(assistantLineQueueJobs.status),
+        inArray(assistantLineQueueJobs.status, ["pending", "enqueued", "processing"]),
+      ),
+    ))
+    .orderBy(asc(assistantLineMessages.sequence), asc(assistantLineMessages.createdAt), asc(assistantLineMessages.id))
+    .limit(1);
+  if (!row) return null;
+  const status = row.status;
+  return {
+    sequence: row.sequence,
+    webhookEventId: row.webhookEventId,
+    status: status === "pending" || status === "enqueued" || status === "processing"
+      ? status
+      : "pending",
+  };
 }
 
 export async function createAssistantSandboxSession(

@@ -26,6 +26,7 @@ export {
   recordAssistantLineReplyBackup,
   getAssistantLineReplyBackup,
   recordAssistantLineMessage,
+  findEarlierAssistantLineQueueJob,
   upsertAssistantLineQueueJob,
   markAssistantLineQueueJobEnqueued,
   claimAssistantLineQueueJob,

@@ -18,6 +18,7 @@ import type {
 import {
   findAssistantLineGroup,
   getAssistantLineChannel,
+  listAssistantLineMessages,
   resolveLineToolKeys,
   createDatabase,
 } from "@rueisiang/db";
@@ -70,6 +71,13 @@ interface ToolExecutionContext {
   toolCalls: AssistantToolCall[];
 }
 
+class PiAgentExecutionError extends Error {
+  constructor(message: string, readonly toolCalls: AssistantToolCall[]) {
+    super(message);
+    this.name = "PiAgentExecutionError";
+  }
+}
+
 function object(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }
@@ -91,6 +99,7 @@ function isRunRequest(value: unknown): value is PiLineAgentRunRequest {
   const input = object(value);
   return Boolean(input
     && isLineContext(input)
+    && nonEmptyString(input.webhookEventId)
     && nonEmptyString(input.runId)
     && nonEmptyString(input.model)
     && nonEmptyString(input.systemPrompt)
@@ -319,6 +328,45 @@ export class AssistantChatAgent {
     ];
   }
 
+  /** 新 DO 沒有舊 transcript 時，先把 D1 保留的 LINE 使用者訊息帶進來；目前事件由本次 prompt 另外加入。 */
+  private async bootstrapD1History(state: AgentStateRow, input: PiLineAgentRunRequest): Promise<void> {
+    if (state.summary || this.loadMessageRows(state).length > 0) return;
+
+    const history = await listAssistantLineMessages(createDatabase(this.env.DB), {
+      channelKey: input.channelKey,
+      lineGroupId: input.lineGroupId,
+      contextResetAt: input.contextGeneration || undefined,
+      limit: 12,
+    });
+    const previousMessages = history.filter((message) => message.webhookEventId !== input.webhookEventId);
+    if (previousMessages.length === 0) return;
+
+    const bootstrapRunId = `d1-history:${state.generation}`;
+    this.sql.exec(
+      `INSERT INTO assistant_agent_runs (run_id, generation, status, response_json, updated_at)
+       VALUES (?, ?, 'completed', '', ?)
+       ON CONFLICT(run_id) DO NOTHING`,
+      bootstrapRunId,
+      state.generation,
+      Date.now(),
+    );
+    const [existing] = [...this.sql.exec<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM assistant_agent_messages WHERE generation = ? AND run_id = ?",
+      state.generation,
+      bootstrapRunId,
+    )];
+    if ((existing?.count ?? 0) > 0) return;
+
+    for (const message of previousMessages) {
+      const parsedTimestamp = Date.parse(message.createdAt);
+      this.storeMessage(state.generation, bootstrapRunId, {
+        role: "user",
+        content: message.text,
+        timestamp: Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now(),
+      });
+    }
+  }
+
   private async accessToken(): Promise<string> {
     const namespace = this.env.ASSISTANT_CREDENTIAL_VAULT;
     if (!namespace) throw new Error("平台尚未綁定 ASSISTANT_CREDENTIAL_VAULT Durable Object。");
@@ -532,6 +580,7 @@ export class AssistantChatAgent {
 
     const model = this.model(input.model);
     const toolContext: ToolExecutionContext = { request: input, toolCalls: [] };
+    await this.bootstrapD1History(state, input);
     const initialMessages = this.contextMessages(state);
     const agent = new Agent({
       initialState: {
@@ -557,7 +606,12 @@ export class AssistantChatAgent {
       if (event.type === "message_end") this.storeMessage(state.generation, input.runId, event.message);
     });
 
-    await agent.prompt(input.userText);
+    try {
+      await agent.prompt(input.userText);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Pi agent 執行失敗。";
+      throw new PiAgentExecutionError(message, toolContext.toolCalls);
+    }
     const newMessages = agent.state.messages.slice(initialMessages.length);
     if (agent.state.errorMessage) {
       this.sql.exec(
@@ -565,12 +619,12 @@ export class AssistantChatAgent {
         Date.now(),
         input.runId,
       );
-      throw new Error(agent.state.errorMessage);
+      throw new PiAgentExecutionError(agent.state.errorMessage, toolContext.toolCalls);
     }
     const finalMessage = [...newMessages].reverse().find((message): message is AssistantMessage =>
       message.role === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted");
     const finalText = finalMessage ? textContent(finalMessage) : "";
-    if (!finalText) throw new Error("Pi agent 沒有產生可顯示的文字回答。");
+    if (!finalText) throw new PiAgentExecutionError("Pi agent 沒有產生可顯示的文字回答。", toolContext.toolCalls);
 
     const response: PiLineAgentRunResponse = {
       sessionId: state.session_id,
@@ -631,7 +685,10 @@ export class AssistantChatAgent {
       const message = error instanceof Error ? error.message : "Pi agent 暫時無法回應。";
       const stale = message.includes("已重設的舊 session");
       if (!stale) console.error("Pi chat agent 執行失敗", error);
-      return Response.json({ error: message }, { status: stale ? 409 : 503 });
+      return Response.json({
+        error: message,
+        ...(error instanceof PiAgentExecutionError ? { toolCalls: error.toolCalls } : {}),
+      }, { status: stale ? 409 : 503 });
     }
   }
 

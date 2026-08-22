@@ -163,6 +163,8 @@ export const assistantLineGroups = sqliteTable("assistant_line_groups", {
   profileSyncedAt: text("profile_synced_at"),
   /** 只切換模型上下文的起點，歷史訊息仍保留供稽核與監控使用。 */
   contextResetAt: text("context_reset_at"),
+  /** 每個 LINE 對話分配單調遞增序號，讓 Queue retry 不會越過較早的訊息。 */
+  nextMessageSequence: integer("next_message_sequence").notNull().default(0),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
   /**
    * `inherit` 就是 channel 給的全部，`custom` 才去讀 `assistant_chat_tools`。
@@ -188,6 +190,10 @@ export const assistantLineMessages = sqliteTable("assistant_line_messages", {
   lineMessageId: text("line_message_id"),
   lineUserId: text("line_user_id"),
   text: text("text").notNull(),
+  /** 同一個 channel／LINE 對話內的到達順序；0 僅供 migration 前的舊資料相容。 */
+  sequence: integer("sequence").notNull().default(0),
+  /** 沒有這個旗標就代表當時沒有建立 assistant Queue 工作，不應阻塞後續訊息。 */
+  queueRequired: integer("queue_required", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
 }, (table) => [
   uniqueIndex("idx_assistant_line_messages_event").on(table.channelKey, table.webhookEventId),

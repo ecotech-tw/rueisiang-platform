@@ -24,6 +24,7 @@ import {
   userRoles,
   users,
 } from "@rueisiang/db/schema";
+import type { AssistantToolCall } from "@rueisiang/assistant";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -38,6 +39,7 @@ let env: Record<string, unknown>;
 let piAgentRequests: Array<{ agentName: string; path: string; payload: Record<string, unknown> }>;
 let piAgentResponse: PiLineAgentRunResponse;
 let piAgentError: string | undefined;
+let piAgentErrorToolCalls: AssistantToolCall[] = [];
 let piAgentStatus = 503;
 
 function setPiAgentResponse(text: string, usage = { promptTokens: 1, candidateTokens: 2, totalTokens: 3 }): void {
@@ -55,7 +57,7 @@ function piAgentNamespace() {
         const payload = await request.json() as Record<string, unknown>;
         const path = new URL(request.url).pathname;
         piAgentRequests.push({ agentName, path, payload });
-        if (piAgentError) return Response.json({ error: piAgentError }, { status: piAgentStatus });
+        if (piAgentError) return Response.json({ error: piAgentError, toolCalls: piAgentErrorToolCalls }, { status: piAgentStatus });
         if (path === "/reset") return Response.json({ sessionId: "reset-session", reset: true });
         return Response.json(piAgentResponse);
       },
@@ -139,6 +141,7 @@ beforeEach(async () => {
   d1 = createLocalD1();
   piAgentRequests = [];
   piAgentError = undefined;
+  piAgentErrorToolCalls = [];
   piAgentStatus = 503;
   setPiAgentResponse("Pi 測試回答");
   const lineQueue = {
@@ -307,6 +310,48 @@ describe("LINE Queue lease、retry budget 與 run audit", () => {
     expect(expired?.status).toBe("pending");
   });
 
+  it("同一個 LINE 對話會用 sequence gate 阻止後來的 Queue 工作越過前一筆", async () => {
+    await enableLineConversation(userEvent({ webhookEventId: "order-seed" }));
+    const queued: unknown[] = [];
+    env = {
+      ...env,
+      LINE_ASSISTANT_QUEUE: { send: async (message: unknown) => { queued.push(message); } },
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    await postLine(JSON.stringify({ events: [userEvent({
+      webhookEventId: "order-event-1",
+      message: { id: "order-message-1", type: "text", text: "第一筆問題" },
+    })] }));
+    await postLine(JSON.stringify({ events: [userEvent({
+      webhookEventId: "order-event-2",
+      message: { id: "order-message-2", type: "text", text: "第二筆問題" },
+    })] }));
+    expect(queued).toHaveLength(2);
+
+    const first = queued[0];
+    const second = queued[1];
+    await expect(processLineAssistantQueueMessage(second, env as never))
+      .rejects.toMatchObject({ name: "LineQueueConversationOrderError" });
+    await processLineAssistantQueueMessage(first, env as never);
+    await processLineAssistantQueueMessage(second, env as never);
+
+    expect(piAgentRequests.filter((request) => request.path === "/run").map((request) => request.payload.userText))
+      .toEqual(["第一筆問題", "第二筆問題"]);
+    const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
+    expect(runs).toHaveLength(2);
+    expect(runs.every((run) => run.status === "success")).toBe(true);
+  });
+
   it("同一 run retry 會更新最後狀態、保留 usage 並避免重複 tool audit", async () => {
     const runId = "run-audit-retry";
     const common = {
@@ -375,6 +420,49 @@ describe("LINE Queue lease、retry budget 與 run audit", () => {
 
     expect(requests.some((url) => url.endsWith("/message/reply"))).toBe(true);
     expect(requests.some((url) => url.endsWith("/message/push"))).toBe(false);
+  });
+
+  it("Pi provider 失敗時仍會把已完成的 tool calls 寫入 failed audit", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "tool-diagnostics-seed" }));
+    piAgentError = "Pi provider 暫時失敗";
+    piAgentErrorToolCalls = [{
+      toolKey: "crm_get_orders",
+      status: "success",
+      args: { customerId: "customer-1" },
+      durationMs: 125,
+    }];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/profile/user-1")) {
+        return new Response(JSON.stringify({ displayName: "測試員", pictureUrl: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const runId = crypto.randomUUID();
+    await expect(processLineAssistantQueueMessage({
+      kind: "assistant",
+      runId,
+      assistantKey: "rueisiang-xiaoxiang",
+      channelKey: "rueisiang-xiaoxiang",
+      groupRowId: group.id,
+      lineGroupId: "user-1",
+      sourceType: "user",
+      contextGeneration: group.contextResetAt ?? "",
+      webhookEventId: "tool-diagnostics-event",
+      replyToken: "tool-diagnostics-reply",
+      questionText: "測試 tool diagnostics",
+      replyDeadlineAt: Date.now() + 60_000,
+    }, env as never)).rejects.toMatchObject({ name: "PiAgentRequestError" });
+
+    const calls = await db().select().from(assistantToolCalls).where(eq(assistantToolCalls.runId, runId));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ toolKey: "crm_get_orders", status: "success", durationMs: 125 });
+    const [run] = await db().select().from(assistantRuns).where(eq(assistantRuns.id, runId));
+    expect(run).toMatchObject({ status: "failed", errorMessage: "Pi provider 暫時失敗" });
   });
 
   it("Queue 失敗達到上限後標記 failed，outbox 不會再把它送回 Queue", async () => {

@@ -12,6 +12,7 @@ export interface PiLineAgentContext {
 }
 
 export interface PiLineAgentRunRequest extends PiLineAgentContext {
+  webhookEventId: string;
   runId: string;
   model: string;
   systemPrompt: string;
