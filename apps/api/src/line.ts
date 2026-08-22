@@ -104,6 +104,7 @@ export function isLineWebhookEvent(value: unknown): value is LineWebhookEvent {
 }
 
 const LINE_API_BASE = "https://api.line.me/v2/bot/message";
+const LINE_BOT_API_BASE = "https://api.line.me/v2/bot";
 const LINE_TEXT_LIMIT = 5_000;
 const LINE_ERROR_BODY_LIMIT = 1_000;
 
@@ -149,4 +150,45 @@ async function sendLineReply(accessToken: string, payload: unknown): Promise<voi
 
 export async function replyLineMessage(accessToken: string, replyToken: string, text: string): Promise<void> {
   await sendLineReply(accessToken, { replyToken, messages: [{ type: "text", text: lineText(text) }] });
+}
+
+export interface LineGroupSummary {
+  groupName: string;
+  pictureUrl: string;
+}
+
+/**
+ * 取回群組的名稱與大頭貼。
+ *
+ * 只有 `group` 有這支 API——多人聊天室（`room`）在 Messaging API 裡只查得到人數，
+ * 沒有名稱也沒有圖，那種只能繼續手動命名。
+ *
+ * 拿不到就回 null，不丟例外：小香被踢出群組會得到 404，那是正常會發生的事，不該讓
+ * 一次同步失敗連帶把整個 webhook 弄壞——收訊息比補名稱重要得多。
+ */
+export async function fetchLineGroupSummary(accessToken: string, groupId: string): Promise<LineGroupSummary | null> {
+  // 就算跑在 waitUntil 裡也要有界線：Worker 的執行時間是有上限的，一個掛住的請求會
+  // 把同一次執行裡其他該做完的事一起拖垮。
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(`${LINE_BOT_API_BASE}/group/${encodeURIComponent(groupId)}/summary`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      console.warn("LINE 群組資料取得失敗", { groupId, status: response.status });
+      return null;
+    }
+    const body = await response.json() as { groupName?: unknown; pictureUrl?: unknown };
+    const groupName = typeof body.groupName === "string" ? body.groupName.trim() : "";
+    // pictureUrl 在規格上是必填，但沒有設定大頭貼的群組實際上不會回傳。
+    const pictureUrl = typeof body.pictureUrl === "string" ? body.pictureUrl.trim() : "";
+    return groupName || pictureUrl ? { groupName, pictureUrl } : null;
+  } catch (error) {
+    console.warn("LINE 群組資料取得失敗", { groupId, error });
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }

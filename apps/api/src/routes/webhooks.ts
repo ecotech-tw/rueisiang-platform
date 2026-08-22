@@ -10,6 +10,8 @@ import {
   resolveLineToolKeys,
   recordAssistantRun,
   recordAssistantLineMessage,
+  shouldSyncLineGroupProfile,
+  updateAssistantLineGroupProfile,
   upsertAssistantLineGroup,
 } from "@rueisiang/db";
 import {
@@ -37,6 +39,7 @@ import {
   lineEventIsMentioned,
   lineEventRawText,
   lineEventText,
+  fetchLineGroupSummary,
   lineQuestionText,
   replyLineMessage,
   verifyLineWebhookSignature,
@@ -238,7 +241,13 @@ async function runLineAssistant(input: {
   }
 }
 
-function scheduleLineAssistant(c: { executionCtx: { waitUntil(promise: Promise<unknown>): void } }, job: Promise<void>): Promise<void> {
+/**
+ * 把工作挪出 webhook 的回應路徑。
+ *
+ * 這條路上不能有任何沒有界線的對外請求：LINE 等不到回應就會重送，而訊息已經寫進去了，
+ * 重送時 `result.inserted` 是 false，那一則就永遠不會被回覆——掉的是回覆，不是這件工作。
+ */
+function deferLineJob(c: { executionCtx: { waitUntil(promise: Promise<unknown>): void } }, job: Promise<void>): Promise<void> {
   try {
     c.executionCtx.waitUntil(job);
     return Promise.resolve();
@@ -397,11 +406,41 @@ async function receiveLine(c: Context<AppEnv>) {
     if (result.inserted) recorded += 1;
     else duplicates += 1;
 
+    /*
+     * 順手把群組名稱與大頭貼同步回來。
+     *
+     * 只有 group 有這支 API，room 查不到；而且刻意不是每則訊息都打——群組改名很少見，
+     * 每則都打只是在燒速率限制。還沒有名字的例外，那種要立刻補上：後台只看到一串
+     * group id 根本認不出是哪一個群，被 0028 救回來的那些正是這種。
+     *
+     * 整段包在自己的 try 裡：補名稱失敗不該讓收訊息一起失敗。
+     */
+    if (result.inserted && accessToken && group.sourceType === "group" && shouldSyncLineGroupProfile(lineGroup)) {
+      const token = accessToken;
+      const channelKey = lineChannel.channelKey;
+      const row = lineGroup;
+      await deferLineJob(c, (async () => {
+        try {
+          const summary = await fetchLineGroupSummary(token, row.lineGroupId);
+          if (summary) {
+            await updateAssistantLineGroupProfile(c.get("db"), {
+              channelKey,
+              id: row.id,
+              groupName: summary.groupName,
+              pictureUrl: summary.pictureUrl,
+            });
+          }
+        } catch (error) {
+          console.warn("LINE 群組資料同步失敗", { groupId: row.lineGroupId, error });
+        }
+      })());
+    }
+
     const replyToken = event.replyToken?.trim();
     if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
       const questionText = lineQuestionText(rawText ?? text, selfMention);
-      await scheduleLineAssistant(c, runLineAssistant({
+      await deferLineJob(c, runLineAssistant({
         db: c.get("db"),
         env: c.env,
         accessToken,

@@ -147,6 +147,144 @@ describe("LINE webhook", () => {
   });
 });
 
+describe("群組名稱與大頭貼的自動同步", () => {
+  /** 讓 webhook 有 access token 可用；沒有 token 就叫不動 LINE 的 API。 */
+  async function configureChannel() {
+    await call("/api/assistant/line/config", {
+      method: "PATCH",
+      body: JSON.stringify({
+        channelId: "2001234567",
+        channelSecret: "line-secret",
+        accessToken: "access-token",
+        displayName: "Rueisiang 小香",
+        enabled: true,
+      }),
+    });
+  }
+
+  function mockSummary(summary: unknown, status = 200) {
+    const calls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes("/summary")) {
+        return new Response(summary === null ? null : JSON.stringify(summary), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 200 });
+    });
+    return calls;
+  }
+
+  async function groupRow() {
+    const response = await call("/api/assistant/line/config");
+    const body = await response.json() as { groups: Array<{ displayName: string; pictureUrl: string }> };
+    return body.groups[0];
+  }
+
+  it("新發現的群組會自動補上名稱與大頭貼", async () => {
+    await configureChannel();
+    mockSummary({ groupId: "group-1", groupName: "倉庫群", pictureUrl: "https://line.example/g1.jpg" });
+
+    await postLine(JSON.stringify({ events: [mentionEvent()] }));
+
+    expect(await groupRow()).toMatchObject({ displayName: "倉庫群", pictureUrl: "https://line.example/g1.jpg" });
+  });
+
+  /*
+   * 管理員把「專案討論」改成「倉庫群」是有意義的決定，同步不該把它洗掉。
+   * 大頭貼沒有這個問題，一律以 LINE 為準。
+   */
+  it("已經手動命名過的群組，名稱不會被 LINE 蓋掉", async () => {
+    await configureChannel();
+    mockSummary({ groupId: "group-1", groupName: "LINE 上的原名", pictureUrl: "https://line.example/a.jpg" });
+    await postLine(JSON.stringify({ events: [mentionEvent()] }));
+
+    const config = await (await call("/api/assistant/line/config")).json() as { groups: Array<{ id: string }> };
+    await call(`/api/assistant/line/groups/${config.groups[0]!.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ displayName: "倉庫群", enabled: true }),
+    });
+
+    // 節流：6 小時內不會再同步一次。把上次同步時間往前推，模擬隔天又有人講話。
+    await db().update(assistantLineGroups)
+      .set({ profileSyncedAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(assistantLineGroups.lineGroupId, "group-1"));
+
+    mockSummary({ groupId: "group-1", groupName: "LINE 上的原名", pictureUrl: "https://line.example/b.jpg" });
+    await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-2" })] }));
+
+    expect(await groupRow()).toMatchObject({ displayName: "倉庫群", pictureUrl: "https://line.example/b.jpg" });
+  });
+
+  /*
+   * 這條是 review 抓到的：只看「名字是不是空的」的話，第一次同步之後名字就有值了，
+   * LINE 那邊之後改名永遠跟不上。改成看 display_name_manual。
+   */
+  it("自動補上的名稱，之後會跟著 LINE 改名一起更新", async () => {
+    await configureChannel();
+    mockSummary({ groupId: "group-1", groupName: "舊名字", pictureUrl: "https://line.example/a.jpg" });
+    await postLine(JSON.stringify({ events: [mentionEvent()] }));
+    expect(await groupRow()).toMatchObject({ displayName: "舊名字" });
+
+    await db().update(assistantLineGroups)
+      .set({ profileSyncedAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(assistantLineGroups.lineGroupId, "group-1"));
+
+    mockSummary({ groupId: "group-1", groupName: "新名字", pictureUrl: "https://line.example/a.jpg" });
+    await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-rename" })] }));
+
+    expect(await groupRow()).toMatchObject({ displayName: "新名字" });
+  });
+
+  /** 切開關送的是 { enabled }，不該被當成「人工命名」而把名字鎖住。 */
+  it("只切開關不會讓名稱從此不再同步", async () => {
+    await configureChannel();
+    mockSummary({ groupId: "group-1", groupName: "舊名字", pictureUrl: "" });
+    await postLine(JSON.stringify({ events: [mentionEvent()] }));
+
+    const config = await (await call("/api/assistant/line/config")).json() as { groups: Array<{ id: string }> };
+    await call(`/api/assistant/line/groups/${config.groups[0]!.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    await db().update(assistantLineGroups)
+      .set({ profileSyncedAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(assistantLineGroups.lineGroupId, "group-1"));
+    mockSummary({ groupId: "group-1", groupName: "新名字", pictureUrl: "" });
+    await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-after-toggle" })] }));
+
+    expect(await groupRow()).toMatchObject({ displayName: "新名字" });
+  });
+
+  /** room 在 Messaging API 裡查不到名稱，打了也只是白打。 */
+  it("多人聊天室不會去打那支 API", async () => {
+    await configureChannel();
+    const calls = mockSummary({ groupName: "不該被讀到" });
+
+    await postLine(JSON.stringify({ events: [mentionEvent({
+      webhookEventId: "evt-room",
+      source: { type: "room", roomId: "room-1", userId: "user-1" },
+    })] }));
+
+    expect(calls.some((url) => url.includes("/summary"))).toBe(false);
+  });
+
+  /** 小香被踢出群組會拿到 404。補名稱失敗不該讓收訊息一起失敗。 */
+  it("取不到群組資料時，訊息照樣收得下來", async () => {
+    await configureChannel();
+    mockSummary(null, 404);
+
+    const response = await postLine(JSON.stringify({ events: [mentionEvent()] }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ recorded: 1 });
+    expect(await groupRow()).toMatchObject({ displayName: "", pictureUrl: "" });
+  });
+});
+
 describe("LINE channel 後台設定", () => {
   it("可以從後台保存 Channel ID、Secret 與 Access Token，回傳不包含 credential 原值", async () => {
     const response = await call("/api/assistant/line/config", {
@@ -259,16 +397,19 @@ describe("LINE channel 後台設定", () => {
 
     const response = await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-2", replyToken: "reply-token-2" })] }));
     expect(response.status).toBe(200);
+    // 群組還沒有名字，所以收到訊息時會先去補一次名稱與大頭貼，再跑回覆流程。
     expect(requests.map((request) => request.url)).toEqual([
+      "https://api.line.me/v2/bot/group/group-1/summary",
       expect.stringContaining("generativelanguage.googleapis.com"),
       "https://api.line.me/v2/bot/message/reply",
     ]);
     const geminiRequest = requests.find((request) => request.url.includes("generativelanguage.googleapis.com"));
     expect(geminiRequest?.body).toContain("請幫我查一下");
-    expect(requests[1]?.authorization).toBe("Bearer access-token-from-portal");
-    expect(requests[1]?.body).toContain('"replyToken":"reply-token-2"');
-    expect(requests[1]?.body).toContain("已收到，我會依照群組內容協助處理。");
-    expect(requests[1]?.body).not.toContain("LINE 不應收到的 thought summary");
+    const replyRequest = requests.find((request) => request.url.endsWith("/message/reply"));
+    expect(replyRequest?.authorization).toBe("Bearer access-token-from-portal");
+    expect(replyRequest?.body).toContain('"replyToken":"reply-token-2"');
+    expect(replyRequest?.body).toContain("已收到，我會依照群組內容協助處理。");
+    expect(replyRequest?.body).not.toContain("LINE 不應收到的 thought summary");
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({ channel: "line", groupId: "group-1", model: "gemini-3.6-flash", status: "success", totalTokens: 18 });
@@ -295,6 +436,7 @@ describe("LINE channel 後台設定", () => {
     const response = await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-invalid-config", replyToken: "reply-invalid" })] }));
     expect(response.status).toBe(200);
     expect(requests).toEqual([
+      "https://api.line.me/v2/bot/group/group-1/summary",
       "https://api.line.me/v2/bot/message/reply",
     ]);
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));

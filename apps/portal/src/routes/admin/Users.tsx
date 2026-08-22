@@ -232,7 +232,7 @@ function UserEditor({
 
           <div className="field">
             <span>狀態</span>
-            <div className="admin-form inline">
+            <div className="admin-form row">
               <span className={`status status-${user.status}`}>{STATUS_LABEL[user.status]}</span>
               {user.status === "disabled" ? (
                 <button

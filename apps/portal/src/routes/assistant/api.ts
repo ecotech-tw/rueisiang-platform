@@ -185,17 +185,26 @@ export function useCloseSandboxSession() {
   });
 }
 
+export type AssistantGroupToolMode = "inherit" | "custom";
+
 export interface AssistantLineGroup {
   id: string;
   lineGroupId: string;
   displayName: string;
+  /** LINE 的群組大頭貼。網址會過期，只當顯示用。沒設定大頭貼的群組是空字串。 */
+  pictureUrl: string;
   enabled: boolean;
+  /** inherit：用 channel 給的全部；custom：只用 tools 這一份。 */
+  toolMode: AssistantGroupToolMode;
+  /** 只有 custom 模式有值；inherit 的時候後端回空陣列。 */
+  tools: string[];
   discoveredAt: string;
   updatedAt: string;
 }
 
 export interface AssistantLineConfig {
   channel: {
+    channelKey: string;
     assistantKey: string;
     channelId: string;
     displayName: string;
@@ -209,6 +218,10 @@ export interface AssistantLineConfig {
     accessTokenDecryptionFailed: boolean;
   };
   webhookUrl: string;
+  /** 支援 LINE 的工具目錄。由這支端點自己供應，畫面不必再去打 /sandbox/config。 */
+  tools: AssistantTool[];
+  /** 這個 channel 被授權的工具鍵值——LINE 這條路的授權上限。 */
+  channelTools: string[];
   groups: AssistantLineGroup[];
 }
 
@@ -267,15 +280,55 @@ export function useAddAssistantLineGroup() {
   });
 }
 
+/**
+ * 更新群組。`displayName` 省略時後端維持原值。
+ *
+ * 開關要用省略的形式：新發現的群組名稱預設是空字串，把它一起送出去會被後端的
+ * 「請填寫群組顯示名稱」擋下來——切個開關卻被要求先命名，是沒有道理的。
+ */
 export function useSaveAssistantLineGroup() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { id: string; displayName: string; enabled: boolean }) =>
+    mutationFn: (input: { id: string; displayName?: string; enabled: boolean }) =>
       request<{ group: AssistantLineGroup }>(`/api/assistant/line/groups/${input.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ displayName: input.displayName, enabled: input.enabled }),
+        body: JSON.stringify(
+          input.displayName === undefined
+            ? { enabled: input.enabled }
+            : { displayName: input.displayName, enabled: input.enabled },
+        ),
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["assistant", "line", "config"] }),
+  });
+}
+
+/** 設定 channel 的工具白名單。回傳整份設定，直接換掉快取免得多打一次。 */
+export function useSaveAssistantChannelTools() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (toolKeys: string[]) =>
+      request<AssistantLineConfig>("/api/assistant/line/tools", {
+        method: "PUT",
+        body: JSON.stringify({ toolKeys }),
+      }),
+    onSuccess: (data) => client.setQueryData(["assistant", "line", "config"], data),
+  });
+}
+
+/** 設定單一群組的模式與工具。inherit 時不必送 toolKeys。 */
+export function useSaveAssistantGroupTools() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; toolMode: AssistantGroupToolMode; toolKeys?: string[] }) =>
+      request<AssistantLineConfig>(`/api/assistant/line/groups/${input.id}/tools`, {
+        method: "PUT",
+        body: JSON.stringify(
+          input.toolMode === "custom"
+            ? { toolMode: input.toolMode, toolKeys: input.toolKeys ?? [] }
+            : { toolMode: input.toolMode },
+        ),
+      }),
+    onSuccess: (data) => client.setQueryData(["assistant", "line", "config"], data),
   });
 }
 
