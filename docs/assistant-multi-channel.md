@@ -1,7 +1,7 @@
 # 小香：多帳號、對話層權限與客服身分（設計）
 
-**部分已實作。** 第一、二節的資料模型與後端已經進去了（migration `0021`–`0025`）；
-後台畫面、一對一對話的收件路徑，以及第三節之後的客服相關設計仍未動工。
+**部分已實作。** 第一、二節的資料模型、後台畫面，以及 LINE 群組／多人聊天室／一對一對話的收件路徑
+都已經進去了（migration `0021`–`0025` 與後續 migration）；第三節之後的客服相關設計仍未動工。
 目前線上跑的東西見 [`assistant-sandbox.md`](./assistant-sandbox.md)。
 
 已完成：
@@ -9,12 +9,14 @@
 - `assistant_line_channels` 改用獨立的 `channelKey` 當主鍵，群組、訊息與執行紀錄跟著改帶。
 - `assistant_channel_tools`、`assistant_chat_tools` 兩張表，以及群組的 `toolMode`。
 - LINE 執行時的三層交集判定（`resolveLineToolKeys`）與對應的後端 API。
+- LINE webhook 的對話來源判斷：群組與多人聊天室仍須 mention 小香，一對一不需要 mention；新發現的對話預設關閉。
+- 一對一對話使用 user profile 同步名稱與頭貼；`/reset` 與 `/重設` 只在一對一中切斷上下文、保留歷史訊息。
 
 尚未完成：
 
-- 後台畫面。**目前的 API 只服務小香一個 assistant**，`ASSISTANT_KEY` 仍是路由層解析
+- **目前的 API 只服務小香一個 assistant**，`ASSISTANT_KEY` 仍是路由層解析
   「後台在管哪個 bot」的入口；官網客服要開第二個 channel 時再把它變成參數。
-- 一對一對話的收件路徑（第一節最後一小節），以及 webhook 一個帳號一個網址。
+- webhook 一個帳號一個網址。
 - 第三節之後的客服身分驗證與輸出裁切。
 
 寫這份的原因是兩個需求撞在一起，而它們其實是同一個結構：
@@ -56,7 +58,7 @@ assistant（小香 / 官網客服）      prompt、模型、工具母清單
   `recordAssistantRun`（`packages/db/src/assistant.ts:553`）也沒有寫入 assistant 或 channel。
   多帳號之後用量分析與稽核分不出是誰跑的。
 
-要動的有六處（1～3、6 已完成，4、5 未動）：
+要動的有六處（1～3、5、6 已完成，4 未動）：
 
 1. `assistant_line_channels` 給每個 channel 一個獨立主鍵（`channelKey`），`assistantKey` 降成
    一般欄位——一個 assistant 可以有多個 channel。
@@ -65,7 +67,7 @@ assistant（小香 / 官網客服）      prompt、模型、工具母清單
 3. `assistant_runs` 加上 assistant 與 channel 的身分，索引跟著加；`channel` 那個欄位維持
    surface 的語意不要動，避免舊資料改寫。
 4. webhook 要能分辨是哪個帳號。
-5. 一對一對話的收件路徑（見下一小節）。
+5. 一對一對話的收件路徑（已完成，見下一小節）。
 6. `ASSISTANT_KEY` 這個常數改成參數（`routes/assistant.ts` 33 處、`routes/webhooks.ts` 8 處）。
 
 第 1～3 點會動到既有的表，也就是 `CLAUDE.md` 裡那種要**手寫資料搬移 SQL** 的 migration。
@@ -109,28 +111,18 @@ secret 驗簽。第二個官方帳號打進來會用錯密鑰驗簽，**直接 4
 安靜地不同步。兩個 LINE 官方帳號是**兩個不同的後台**，本來就要各設定一次，各給一個
 網址不多花力氣，而且設錯會立刻 401——看得見的錯誤比看不見的好。
 
-### 一對一對話現在根本進不來
+### 一對一對話收件路徑（已接入）
 
-層次圖裡的 conversation 寫了「群組 / 1對1」，但**一對一是現在完全不存在的東西**，不是
-少一個欄位而已：
+`source.type === "user"` 現在會用 `source.userId` 當對話 id，寫入既有的 `lineGroupId` 欄位，並以
+`sourceType` 區分群組、多人聊天室與一對一。收件規則是：
 
-- `lineEventGroup`（`apps/api/src/line.ts:52`）只認得 `group` 與 `room` 兩種來源，
-  `source.type === "user"` 直接回 `null`。
-- `receiveLine`（`apps/api/src/routes/webhooks.ts:313`）再要求 `lineEventIsMentioned()`
-  才收——但客人私訊你不會 @ 你。
+- 群組與多人聊天室仍須有 LINE 真正標出的 self mention 才會記錄與觸發回答。
+- 一對一不需要 mention；訊息會自動建立對話列，但 `enabled` 預設仍是 `false`，由後台開關決定是否讓小香回答，方便內部先確認。
+- 一對一會用 `GET /v2/bot/profile/{userId}` 同步使用者名稱與頭貼；拿不到 profile 時仍保留 user ID，不影響收件。
+- 一對一傳送精確的 `/reset` 或 `/重設` 會切斷模型上下文但保留歷史訊息，並不會觸發 Gemini；這是給內部測試使用的 backdoor。
 
-兩道加起來，**客人的訊息連 `assistant_line_messages` 都進不去**，更不用說觸發小香。
-所以客服的每一項（工具權限、身分驗證、真人接手）在收件這一關就卡死了。
-
-要補的：
-
-- `lineEventGroup` 要能回傳 `user` 來源，用 `source.userId` 當對話 id。
-- 「必須被提及」這條規則改成**只套用在群組**。一對一收全部訊息。
-- 對話這一層需要一個不分型別的 key（群是 groupId、房是 roomId、一對一是 userId），
-  現在的欄位名叫 `lineGroupId`，語意上要能容納這三種；`sourceType` 已經在了，沿用它區分。
-- 一對一的對話紀錄要能自動建立並預設可用（客人不可能事先核准），真正的上限交給
-  第二節的 channel 層工具權限。這跟內部群「預設 `enabled: false`」是相反的預設值，
-  **必須按 channel 分開設定**，不能共用一條規則。
+對話這一層使用不分型別的 key（群是 `groupId`、房是 `roomId`、一對一是 `userId`）。欄位名雖然仍是
+`lineGroupId`，但語意上已能容納這三種來源；真正的回覆上限仍由第二節的 channel 與對話工具權限共同決定。
 
 ## 二、三層工具權限
 
@@ -302,13 +294,13 @@ MCP **server** 是相反方向、不同風險）：
   理就交還」之類的規則。這是獨立的一塊。
 - 客服回訊息應該用 **reply**（`/v2/bot/message/reply`，帶 `replyToken`，一則事件
   一次、有時效）；平台所有由 webhook 觸發的回答都遵守這個規則，不使用計費的 Push API。
-- 群組名稱與頭貼可以用 `GET /v2/bot/group/{groupId}/summary` 自動帶入（現在的
-  `displayName` 是管理員手打的）。但**只有 `group` 有這支 API，`room` 沒有**，而且小香
-  必須還在群裡；`pictureUrl` 會過期，不能當永久網址存。動工前要先對一次 LINE 官方文件。
+- 群組名稱與頭貼已由 `GET /v2/bot/group/{groupId}/summary` 自動同步；一對一則使用
+  `GET /v2/bot/profile/{userId}` 同步使用者名稱與頭貼。**只有 `group` 與 `user` 有對應 API，
+  `room` 沒有名稱與頭貼 API**；`pictureUrl` 會過期，只能當顯示快取。
 
 ## 現在就該遵守的一件事
 
-下一個 PR（chatId 工具白名單、prompt 補充、群組名稱）開始：
+下一個 PR（chatId 工具白名單、prompt 補充）開始：
 
 > **新加的表與欄位一律同時帶 `assistantKey` 與 `channelKey`；關聯要指向 channel 的獨立
 > 主鍵，不要指向 `assistantKey`。程式裡不要再新增任何一處寫死 `ASSISTANT_KEY`，改成從

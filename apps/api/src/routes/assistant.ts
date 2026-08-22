@@ -50,6 +50,7 @@ import {
   updateAssistantSandboxSessionPromptRevision,
   updateAssistantSandboxSessionModel,
   upsertAssistantLineGroup,
+  type AssistantLineSourceType,
 } from "@rueisiang/db";
 import { can, type Permission } from "@rueisiang/auth";
 import { Hono } from "hono";
@@ -67,6 +68,10 @@ const MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
 const SANDBOX_CONTEXT_CHAR_LIMIT = 24_000;
 const SANDBOX_RECENT_MESSAGE_COUNT = 8;
 const SANDBOX_SUMMARY_MAX_CHARS = 8_000;
+
+function isAssistantLineSourceType(value: unknown): value is AssistantLineSourceType {
+  return value === "group" || value === "room" || value === "user";
+}
 
 type SandboxContextMessage = { role: "user" | "model"; text: string };
 
@@ -281,6 +286,7 @@ async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; ge
     groups: groups.map((group) => ({
       id: group.id,
       lineGroupId: group.lineGroupId,
+      sourceType: isAssistantLineSourceType(group.sourceType) ? group.sourceType : "group",
       displayName: group.displayName,
       pictureUrl: group.pictureUrl,
       enabled: group.enabled,
@@ -461,12 +467,14 @@ export const assistant = new Hono<AppEnv>()
 
   .post("/line/groups", requirePermission("assistant:line:write"), async (c) => {
     const input = await body(c);
-    const lineGroupId = requireString(input, "lineGroupId", "LINE 群組 ID");
-    if (lineGroupId.length > 255) throw new HTTPException(400, { message: "LINE 群組 ID 不能超過 255 字元。" });
+    const lineGroupId = requireString(input, "lineGroupId", "LINE 對話 ID");
+    if (lineGroupId.length > 255) throw new HTTPException(400, { message: "LINE 對話 ID 不能超過 255 字元。" });
+    const sourceType = input.sourceType === undefined ? "group" : input.sourceType;
+    if (!isAssistantLineSourceType(sourceType)) throw new HTTPException(400, { message: "LINE 對話類型不正確。" });
     const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
-    if (displayName.length > 120) throw new HTTPException(400, { message: "群組顯示名稱不能超過 120 字元。" });
+    if (displayName.length > 120) throw new HTTPException(400, { message: "對話顯示名稱不能超過 120 字元。" });
     const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
-    const group = await upsertAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, lineGroupId, displayName });
+    const group = await upsertAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, lineGroupId, sourceType, displayName });
     if (typeof input.enabled === "boolean" || displayName !== group.displayName) {
       const updated = await updateAssistantLineGroup(c.get("db"), {
         channelKey: channel.channelKey,
@@ -484,12 +492,12 @@ export const assistant = new Hono<AppEnv>()
     const id = c.req.param("id");
     const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
     const existing = await findAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, id });
-    if (!existing) throw new HTTPException(404, { message: "找不到這個 LINE 群組。" });
+    if (!existing) throw new HTTPException(404, { message: "找不到這個 LINE 對話。" });
     const input = await body(c);
-    const displayName = input.displayName === undefined ? existing.displayName : requireString(input, "displayName", "群組顯示名稱");
-    if (displayName.length > 120) throw new HTTPException(400, { message: "群組顯示名稱不能超過 120 字元。" });
+    const displayName = input.displayName === undefined ? existing.displayName : requireString(input, "displayName", "對話顯示名稱");
+    if (displayName.length > 120) throw new HTTPException(400, { message: "對話顯示名稱不能超過 120 字元。" });
     const enabled = input.enabled === undefined ? existing.enabled : input.enabled;
-    if (typeof enabled !== "boolean") throw new HTTPException(400, { message: "群組是否啟用必須是布林值。" });
+    if (typeof enabled !== "boolean") throw new HTTPException(400, { message: "對話是否啟用必須是布林值。" });
     // 只有真的送了名稱才算人工命名——切開關送的是 { enabled } 而已，不該把名字鎖住。
     const group = await updateAssistantLineGroup(c.get("db"), {
       channelKey: channel.channelKey,
@@ -526,7 +534,7 @@ export const assistant = new Hono<AppEnv>()
   })
 
   /**
-   * 設定單一群組的工具與模式。
+   * 設定單一對話的工具與模式。
    *
    * `inherit` 就是 channel 給的全部；`custom` 才讀這裡設定的清單，而且只認得 channel
    * 已經授權的鍵值——超出的部分在 `setAssistantChatTools` 會被安靜忽略，因為「對話不可能
@@ -544,7 +552,7 @@ export const assistant = new Hono<AppEnv>()
 
     const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
     const existing = await findAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, id });
-    if (!existing) throw new HTTPException(404, { message: "找不到這個 LINE 群組。" });
+    if (!existing) throw new HTTPException(404, { message: "找不到這個 LINE 對話。" });
 
     await setAssistantGroupToolMode(c.get("db"), { channelKey: channel.channelKey, id, toolMode: input.toolMode });
     if (input.toolMode === "custom") {

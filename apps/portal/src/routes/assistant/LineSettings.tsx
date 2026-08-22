@@ -11,6 +11,7 @@ import {
   useSaveAssistantLineGroup,
   type AssistantGroupToolMode,
   type AssistantLineGroup,
+  type AssistantLineSourceType,
   type AssistantTool,
 } from "./api.js";
 
@@ -30,6 +31,12 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-TW", { hour12: false });
 }
 
+function sourceTypeLabel(sourceType: AssistantLineSourceType): string {
+  if (sourceType === "user") return "一對一";
+  if (sourceType === "room") return "多人聊天室";
+  return "群組";
+}
+
 export function LineSettings() {
   usePageTitle("小香 LINE 前台");
   const config = useAssistantLineConfig();
@@ -47,6 +54,7 @@ export function LineSettings() {
   const [enabled, setEnabled] = useState(false);
   const [groupId, setGroupId] = useState("");
   const [groupName, setGroupName] = useState("");
+  const [groupSourceType, setGroupSourceType] = useState<AssistantLineSourceType>("group");
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -92,10 +100,11 @@ export function LineSettings() {
   function submitGroup(event: React.FormEvent) {
     event.preventDefault();
     if (!groupId.trim()) return;
-    addGroup.mutate({ lineGroupId: groupId.trim(), displayName: groupName.trim() }, {
+    addGroup.mutate({ lineGroupId: groupId.trim(), sourceType: groupSourceType, displayName: groupName.trim() }, {
       onSuccess: () => {
         setGroupId("");
         setGroupName("");
+        setGroupSourceType("group");
       },
     });
   }
@@ -104,7 +113,7 @@ export function LineSettings() {
     <div className="page">
       <header className="page-head">
         <h1>小香 LINE 前台</h1>
-        <p className="muted">把 Rueisiang 小香加入群組後，先在這裡授權群組；只有已啟用的群組會進入後續線上回覆流程。</p>
+        <p className="muted">群組、多人聊天室與一對一對話都會在這裡管理；只有已啟用的對話會進入線上回覆流程。</p>
       </header>
 
       <section className="panel">
@@ -132,7 +141,7 @@ export function LineSettings() {
           <label className="field">
             <span>LINE Channel Access Token</span>
             <input type="password" value={accessToken} maxLength={2_000} onChange={(event) => setAccessToken(event.target.value)} placeholder={data.credentials.accessTokenConfigured ? "已設定；輸入新值可覆寫" : "請輸入 Channel Access Token"} autoComplete="new-password" />
-            <small>用來透過 Messaging API 回覆群組；儲存後只保留加密內容，不會回傳原值。</small>
+            <small>用來透過 Messaging API 回覆 LINE 對話；儲存後只保留加密內容，不會回傳原值。</small>
           </label>
           <label className="field">
             <span>後台顯示名稱</span>
@@ -184,7 +193,7 @@ export function LineSettings() {
         ) : null}
         <p className={`form-hint ${data.credentials.accessTokenConfigured ? "" : "form-error"}`}>
           {data.credentials.accessTokenConfigured
-            ? "LINE access token 已設定，已授權群組可以進入 AI 回覆流程。"
+            ? "LINE access token 已設定，已授權對話可以進入 AI 回覆流程。"
             : "尚未設定 LINE Channel Access Token；目前仍可驗證 webhook 並記錄提及訊息，但不會送出 LINE 回覆。"}
         </p>
       </section>
@@ -194,7 +203,7 @@ export function LineSettings() {
           <div>
             <h2 className="panel-title">小香在 LINE 能用的工具</h2>
             <p className="muted">
-              這是 LINE 這條路的授權上限。群組只能在這個範圍內再縮小，設定得再寬也不會超過這裡。
+              這是 LINE 這條路的授權上限。對話只能在這個範圍內再縮小，設定得再寬也不會超過這裡。
             </p>
           </div>
           <button type="button" className="ghost-button with-icon" onClick={() => setToolsOpen(true)}>
@@ -228,22 +237,28 @@ export function LineSettings() {
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2 className="panel-title">已授權 LINE 群組</h2>
-            <p className="muted">Webhook 收到標註後會自動發現群組；新發現的群組預設關閉，避免未確認的群組直接收到回答。</p>
+            <h2 className="panel-title">已監控 LINE 對話</h2>
+            <p className="muted">Webhook 會自動發現群組與一對一對話；新發現的對話預設關閉，先確認後再讓小香回答。</p>
+            <p className="form-hint">一對一不需要 @ 小香。內部測試時可傳送 <code>/reset</code> 或 <code>/重設</code>，清除目前上下文但保留歷史紀錄。</p>
           </div>
         </div>
 
         <form className="admin-form row" onSubmit={submitGroup}>
-          <input value={groupId} onChange={(event) => setGroupId(event.target.value)} placeholder="LINE group ID" aria-label="LINE group ID" />
-          <input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="群組名稱（選填）" aria-label="群組名稱" />
-          <button type="submit" className="primary-button" disabled={!groupId.trim() || addGroup.isPending}>新增群組</button>
+          <input value={groupId} onChange={(event) => setGroupId(event.target.value)} placeholder="LINE 對話 ID" aria-label="LINE 對話 ID" />
+          <select value={groupSourceType} onChange={(event) => setGroupSourceType(event.target.value as AssistantLineSourceType)} aria-label="LINE 對話類型">
+            <option value="group">群組</option>
+            <option value="room">多人聊天室</option>
+            <option value="user">一對一（user ID）</option>
+          </select>
+          <input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="顯示名稱（選填）" aria-label="顯示名稱" />
+          <button type="submit" className="primary-button" disabled={!groupId.trim() || addGroup.isPending}>新增對話</button>
         </form>
         {addGroup.error ? <p className="form-error" role="alert">{addGroup.error.message}</p> : null}
 
         {data.groups.length ? (
           <div className="table-scroll line-groups-table">
             <table className="data-table">
-              <thead><tr><th>群組</th><th>LINE ID</th><th>發現時間</th><th>工具</th><th>回覆</th><th>操作</th></tr></thead>
+              <thead><tr><th>對話</th><th>LINE ID</th><th>發現時間</th><th>工具</th><th>回覆</th><th>操作</th></tr></thead>
               <tbody>
                 {data.groups.map((group) => (
                   <LineGroupRow
@@ -258,7 +273,7 @@ export function LineSettings() {
               </tbody>
             </table>
           </div>
-        ) : <p className="empty-state">尚未有群組。可以先貼上 LINE webhook 收到的 group ID，或把小香加入群組後標註一次。</p>}
+        ) : <p className="empty-state">尚未有對話。可以先貼上 LINE webhook 收到的對話 ID，或讓使用者先傳一則訊息給小香。</p>}
         {saveGroup.error ? <p className="form-error" role="alert">{saveGroup.error.message}</p> : null}
       </section>
 
@@ -278,7 +293,7 @@ export function LineSettings() {
               </button>
             </div>
             <div className="modal-body assistant-modal-body">
-              <p className="muted">只列出支援 LINE 的工具。這裡沒開的，任何群組都拿不到。</p>
+              <p className="muted">只列出支援 LINE 的工具。這裡沒開的，任何對話都拿不到。</p>
               <div className="assistant-tool-list">
                 {lineTools.map((tool) => {
                   const blocked = blockedReason(tool);
@@ -353,7 +368,12 @@ function LineGroupRow({
           {group.pictureUrl && !avatarFailed
             ? <img className="line-group-avatar" src={group.pictureUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
             : <span className="line-group-avatar is-fallback" aria-hidden="true">{(group.displayName || group.lineGroupId).slice(0, 1)}</span>}
-          <input className="line-group-name" value={name} placeholder="未命名群組" onChange={(event) => setName(event.target.value)} />
+          <div>
+            <div className="line-group-label">
+              <span className="status status-disabled">{sourceTypeLabel(group.sourceType)}</span>
+            </div>
+            <input className="line-group-name" value={name} placeholder="未命名對話" onChange={(event) => setName(event.target.value)} />
+          </div>
         </div>
       </td>
       <td><code>{group.lineGroupId}</code></td>
@@ -364,7 +384,7 @@ function LineGroupRow({
           className={`line-tool-cell${group.toolMode === "custom" ? " is-custom" : ""}`}
           onClick={onOpenTools}
           title={group.toolMode === "custom"
-            ? "只給這個群組指定的工具。點開可修改。"
+            ? "只給這個對話指定的工具。點開可修改。"
             : "跟著 channel 的設定走；channel 增減工具時這裡會一起變。點開可改成自訂。"}
         >
           <span className="line-tool-mode">{group.toolMode === "custom" ? "自訂" : "繼承"}</span>
@@ -376,8 +396,8 @@ function LineGroupRow({
           * 切了就生效，不用再按儲存——這是 M3 switch 的語意。
           *
           * 只送 enabled，完全不帶 displayName：一來使用者可能正在改名字還沒決定，開關不該
-          * 順手把沒確認的值寫進去；二來新發現的群組名稱預設是空的，帶著送會被後端的
-          * 「請填寫群組顯示名稱」擋下來，變成要先命名才能開通。
+          * 順手把沒確認的值寫進去；二來新發現的對話名稱預設是空的，帶著送會被後端的
+          * 「請填寫對話顯示名稱」擋下來，變成要先命名才能開通。
           */}
         <Switch
           checked={group.enabled}
@@ -400,7 +420,7 @@ function LineGroupRow({
   );
 }
 
-/** 單一群組的工具設定。選項只有 channel 已經授權的那些——後端也會擋，但畫面不該先騙人。 */
+/** 單一對話的工具設定。選項只有 channel 已經授權的那些——後端也會擋，但畫面不該先騙人。 */
 function GroupToolsDialog({
   group,
   tools,
@@ -435,7 +455,7 @@ function GroupToolsDialog({
               <input type="radio" name="toolMode" checked={mode === "inherit"} onChange={() => setMode("inherit")} />
               <span>
                 <strong>繼承</strong>
-                <small>用 channel 給的全部（目前 {tools.length} 個）。channel 之後增減，這個群組會跟著變。</small>
+                <small>用 channel 給的全部（目前 {tools.length} 個）。channel 之後增減，這個對話會跟著變。</small>
               </span>
             </label>
             <label className="assistant-inline-toggle">

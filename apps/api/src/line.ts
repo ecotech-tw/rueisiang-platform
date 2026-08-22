@@ -24,6 +24,8 @@ export interface LineWebhookPayload {
   events?: unknown;
 }
 
+export type LineSourceType = "group" | "room" | "user";
+
 function decodeBase64(value: string): Uint8Array | null {
   try {
     const binary = atob(value);
@@ -49,12 +51,21 @@ export async function verifyLineWebhookSignature(rawBody: string, signature: str
   return crypto.subtle.verify("HMAC", key, expected, new TextEncoder().encode(rawBody));
 }
 
-export function lineEventGroup(event: LineWebhookEvent): { id: string; sourceType: "group" | "room" } | null {
+/**
+ * 取出這則事件所屬的 LINE 對話。
+ *
+ * 舊名稱先保留，因為資料表與後台 API 已經使用 `lineGroupId`；實際上這個 id 也可以是
+ * roomId 或 userId。`sourceType` 是不能省略的，否則一對一會跟多人聊天室混在一起。
+ */
+export function lineEventGroup(event: LineWebhookEvent): { id: string; sourceType: LineSourceType } | null {
   if (event.source?.type === "group" && event.source.groupId) {
     return { id: event.source.groupId, sourceType: "group" };
   }
   if (event.source?.type === "room" && event.source.roomId) {
     return { id: event.source.roomId, sourceType: "room" };
+  }
+  if (event.source?.type === "user" && event.source.userId) {
+    return { id: event.source.userId, sourceType: "user" };
   }
   return null;
 }
@@ -67,6 +78,13 @@ export function lineEventIsMentioned(event: LineWebhookEvent): boolean {
 export function lineEventText(event: LineWebhookEvent): string | null {
   const text = lineEventRawText(event);
   return text === null ? null : text.trim();
+}
+
+/** 內部測試用的隱藏指令，只能重設發送者自己的 1 對 1 對話。 */
+export function lineEventIsSessionReset(event: LineWebhookEvent): boolean {
+  if (event.source?.type !== "user") return false;
+  const text = lineEventText(event);
+  return text === "/reset" || text === "/重設";
 }
 
 /** 保留 LINE 原始文字，因為 mention offset 是以這個字串為基準。 */
@@ -157,6 +175,11 @@ export interface LineGroupSummary {
   pictureUrl: string;
 }
 
+export interface LineUserProfile {
+  displayName: string;
+  pictureUrl: string;
+}
+
 /**
  * 取回群組的名稱與大頭貼。
  *
@@ -187,6 +210,37 @@ export async function fetchLineGroupSummary(accessToken: string, groupId: string
     return groupName || pictureUrl ? { groupName, pictureUrl } : null;
   } catch (error) {
     console.warn("LINE 群組資料取得失敗", { groupId, error });
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * 取回一對一對話對方的名稱與大頭貼。
+ *
+ * userId 必須來自 webhook，不是使用者在 LINE 上設定的可搜尋 ID。使用者沒有頭貼、
+ * 尚未同意提供 profile，或已封鎖官方帳號時，LINE 可能回 404；這些情況都只能退回
+ * 對話 ID，不能讓補頭貼失敗連帶影響收訊息。
+ */
+export async function fetchLineUserProfile(accessToken: string, userId: string): Promise<LineUserProfile | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(`${LINE_BOT_API_BASE}/profile/${encodeURIComponent(userId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      console.warn("LINE 使用者資料取得失敗", { userId, status: response.status });
+      return null;
+    }
+    const body = await response.json() as { displayName?: unknown; pictureUrl?: unknown };
+    const displayName = typeof body.displayName === "string" ? body.displayName.trim() : "";
+    const pictureUrl = typeof body.pictureUrl === "string" ? body.pictureUrl.trim() : "";
+    return displayName || pictureUrl ? { displayName, pictureUrl } : null;
+  } catch (error) {
+    console.warn("LINE 使用者資料取得失敗", { userId, error });
     return null;
   } finally {
     clearTimeout(timeout);
