@@ -184,6 +184,48 @@ export async function updateAssistantLineGroup(
   return findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.id });
 }
 
+/**
+ * 從 LINE 取回的名稱與大頭貼寫回群組。
+ *
+ * 名稱只在「還沒有名字」時才覆蓋：管理員手動改過的名字比 LINE 上的原名更有意義
+ * （例如把「專案討論」改成「倉庫群」），同步不該把那個決定洗掉。大頭貼沒有這個
+ * 問題，一律以 LINE 為準。
+ */
+export async function updateAssistantLineGroupProfile(
+  db: Database,
+  input: { channelKey: string; id: string; groupName: string; pictureUrl: string },
+): Promise<void> {
+  const now = new Date().toISOString();
+  await db.update(assistantLineGroups)
+    .set({
+      displayName: sql`CASE WHEN ${assistantLineGroups.displayName} = '' THEN ${input.groupName} ELSE ${assistantLineGroups.displayName} END`,
+      pictureUrl: input.pictureUrl,
+      profileSyncedAt: now,
+      updatedAt: now,
+    })
+    .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)));
+}
+
+/**
+ * 這個群組現在該不該去跟 LINE 要一次名稱與大頭貼。
+ *
+ * 不是每則訊息都打：群組改名很少見，而大頭貼網址雖然會過期，重抓一次也只是為了顯示。
+ * 每則訊息都打一次只是在燒 LINE 的速率限制，換不到任何東西。
+ *
+ * 還沒有名字的（剛被發現、或被 0028 救回來的）例外，那種要立刻補上——只有一串 ID
+ * 的群組在後台根本認不出是哪一個。
+ */
+export function shouldSyncLineGroupProfile(
+  group: { displayName: string; profileSyncedAt: string | null },
+  now = Date.now(),
+  maxAgeMs = 6 * 60 * 60 * 1_000,
+): boolean {
+  if (!group.displayName) return true;
+  if (!group.profileSyncedAt) return true;
+  const synced = new Date(group.profileSyncedAt).getTime();
+  return !Number.isFinite(synced) || now - synced > maxAgeMs;
+}
+
 export async function recordAssistantLineMessage(
   db: Database,
   input: {

@@ -142,6 +142,15 @@ export const assistantLineGroups = sqliteTable("assistant_line_groups", {
   channelKey: text("channel_key").notNull().references(() => assistantLineChannels.channelKey, { onDelete: "cascade" }),
   lineGroupId: text("line_group_id").notNull(),
   displayName: text("display_name").notNull().default(""),
+  /**
+   * 從 LINE 取回的大頭貼網址。
+   *
+   * **會過期**，所以只當快取用，不要當成永久網址存到別的地方；每次同步都重新取。
+   * 沒有設定大頭貼的群組會是空字串。
+   */
+  pictureUrl: text("picture_url").notNull().default(""),
+  /** 上次跟 LINE 同步名稱與大頭貼的時間。沒同步過是 null。 */
+  profileSyncedAt: text("profile_synced_at"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
   /**
    * `inherit` 就是 channel 給的全部，`custom` 才去讀 `assistant_chat_tools`。

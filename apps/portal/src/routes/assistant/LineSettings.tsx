@@ -346,7 +346,17 @@ function LineGroupRow({
   const [name, setName] = useState(group.displayName);
   return (
     <tr>
-      <td><input className="line-group-name" value={name} placeholder="未命名群組" onChange={(event) => setName(event.target.value)} /></td>
+      <td>
+        <div className="line-group-cell">
+          {/*
+            * 大頭貼的網址會過期，抓不到就退回首字圓標——不要顯示破圖，那比沒有圖更難認。
+            */}
+          {group.pictureUrl
+            ? <img className="line-group-avatar" src={group.pictureUrl} alt="" loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+            : <span className="line-group-avatar is-fallback" aria-hidden="true">{(group.displayName || group.lineGroupId).slice(0, 1)}</span>}
+          <input className="line-group-name" value={name} placeholder="未命名群組" onChange={(event) => setName(event.target.value)} />
+        </div>
+      </td>
       <td><code>{group.lineGroupId}</code></td>
       <td>{formatDate(group.discoveredAt)}</td>
       <td>

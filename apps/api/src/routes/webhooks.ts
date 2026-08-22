@@ -10,6 +10,8 @@ import {
   resolveLineToolKeys,
   recordAssistantRun,
   recordAssistantLineMessage,
+  shouldSyncLineGroupProfile,
+  updateAssistantLineGroupProfile,
   upsertAssistantLineGroup,
 } from "@rueisiang/db";
 import {
@@ -35,6 +37,7 @@ import {
   lineEventIsMentioned,
   lineEventRawText,
   lineEventText,
+  fetchLineGroupSummary,
   lineQuestionText,
   pushLineMessage,
   verifyLineWebhookSignature,
@@ -367,6 +370,31 @@ async function receiveLine(c: Context<AppEnv>) {
     });
     if (result.inserted) recorded += 1;
     else duplicates += 1;
+
+    /*
+     * 順手把群組名稱與大頭貼同步回來。
+     *
+     * 只有 group 有這支 API，room 查不到；而且刻意不是每則訊息都打——群組改名很少見，
+     * 每則都打只是在燒速率限制。還沒有名字的例外，那種要立刻補上：後台只看到一串
+     * group id 根本認不出是哪一個群，被 0028 救回來的那些正是這種。
+     *
+     * 整段包在自己的 try 裡：補名稱失敗不該讓收訊息一起失敗。
+     */
+    if (result.inserted && accessToken && group.sourceType === "group" && shouldSyncLineGroupProfile(lineGroup)) {
+      try {
+        const summary = await fetchLineGroupSummary(accessToken, lineGroup.lineGroupId);
+        if (summary) {
+          await updateAssistantLineGroupProfile(c.get("db"), {
+            channelKey: lineChannel.channelKey,
+            id: lineGroup.id,
+            groupName: summary.groupName,
+            pictureUrl: summary.pictureUrl,
+          });
+        }
+      } catch (error) {
+        console.warn("LINE 群組資料同步失敗", { groupId: lineGroup.lineGroupId, error });
+      }
+    }
 
     if (result.inserted && lineChannel.enabled && lineGroup.enabled && accessToken) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);

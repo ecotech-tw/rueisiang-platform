@@ -281,6 +281,7 @@ async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; ge
       id: group.id,
       lineGroupId: group.lineGroupId,
       displayName: group.displayName,
+      pictureUrl: group.pictureUrl,
       enabled: group.enabled,
       toolMode: group.toolMode,
       tools: chatToolKeys.get(group.id) ?? [],
