@@ -186,7 +186,7 @@ describe("AI 助理 Sandbox", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       text: "紙箱目前有 3 件，低於安全庫存 5 件。",
-      toolCalls: [{ toolKey: "wms_search_warehouse", status: "success" }],
+      toolCalls: [{ toolKey: "wms_search_warehouse", status: "success", args: { query: "紙箱", scope: "inventory", limit: "10" } }],
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -707,6 +707,44 @@ describe("AI 助理 Sandbox", () => {
     });
     expect(geminiCalls).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("Gemini 第二輪請求失敗時仍回傳前一輪的 tool 參數供 Sandbox debug", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+
+    let geminiCalls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      geminiCalls += 1;
+      if (geminiCalls === 1) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ functionCall: {
+            name: "wms_list_inventory",
+            args: { page: "1", pageSize: "5" },
+          } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ error: { message: "invalid function response" } }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "gemini-3.6-flash",
+        toolKeys: ["wms_list_inventory"],
+        input: "列出商品",
+      }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining("診斷編號"),
+      runId: expect.any(String),
+      toolCalls: [{ toolKey: "wms_list_inventory", status: "success", args: { page: "1", pageSize: "5" } }],
+    });
+    expect(geminiCalls).toBe(2);
   });
 
   it("使用選定 prompt 與模型執行 Gemini，並記錄可用量資訊", async () => {

@@ -6,6 +6,7 @@ import {
   currentAssistantRuntimeContext,
   runGemini,
   summarizeAssistantConversation,
+  AssistantError,
   type AssistantConversationMessage,
   type AssistantToolCall,
   type AssistantToolStatus,
@@ -672,6 +673,7 @@ export const assistant = new Hono<AppEnv>()
       const result = await runGemini({
         apiKey: c.env.GEMINI_API_KEY,
         model: model.id,
+        runId,
         systemPrompt: prompt.systemPrompt,
         runtimeContext: currentAssistantRuntimeContext(),
         userText,
@@ -721,7 +723,7 @@ export const assistant = new Hono<AppEnv>()
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Sandbox 執行失敗。";
-      console.error("AI Sandbox 執行失敗", { runId, model: model.id, error });
+      const failedToolCalls = error instanceof AssistantError ? error.toolCalls : [];
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",
@@ -736,8 +738,12 @@ export const assistant = new Hono<AppEnv>()
         durationMs: Date.now() - started,
         actorId: c.get("user").id,
         errorMessage: message,
-        toolCalls: [],
+        toolCalls: failedToolCalls,
       });
-      throw new HTTPException(502, { message });
+      return c.json({
+        error: `${message}（診斷編號：${runId}）`,
+        runId,
+        toolCalls: failedToolCalls,
+      }, 502);
     }
   });

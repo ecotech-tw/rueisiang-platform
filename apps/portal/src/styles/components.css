@@ -482,6 +482,10 @@
 .assistant-tool-call-success { color: var(--color-success, #287d55); }
 .assistant-tool-call-failure, .assistant-tool-call-error { color: var(--color-brand-dark); }
 .assistant-tool-call-error { display: block; margin-top: 3px; font-size: 11px; }
+.assistant-tool-call-args { margin-top: 6px; }
+.assistant-tool-call-args summary { cursor: pointer; color: var(--color-muted); font-size: 11px; }
+.assistant-tool-call-args pre { max-height: 180px; margin: 5px 0 0; padding: 7px; overflow: auto; border-radius: 6px; background: var(--color-paper); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.assistant-failed-run { margin: 0 10px 10px; padding: 0 8px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-canvas); }
 .assistant-message-duration { display: block; margin-top: 8px; color: var(--color-muted); font-size: 11px; text-align: right; }
 .assistant-chat-panel .assistant-input { min-height: 72px; max-height: 120px; }
 .assistant-chat-panel > .field { flex: none; gap: 4px; }

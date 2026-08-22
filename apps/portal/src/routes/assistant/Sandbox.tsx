@@ -10,12 +10,46 @@ import {
   useSandboxSessions,
   useSaveAssistantModel,
   useSavePrompt,
+  AssistantApiError,
+  type SandboxToolCall,
   type PromptRevision,
 } from "./api.js";
 
 function formatDate(value: string): string {
   const date = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-TW", { hour12: false });
+}
+
+function formatToolArgs(args: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(args, null, 2) ?? "{}";
+  } catch {
+    return "無法顯示參數。";
+  }
+}
+
+function ToolCallList({ calls }: { calls: SandboxToolCall[] }) {
+  return (
+    <div className="assistant-tool-call-list">
+      {calls.map((call, index) => (
+        <div className="assistant-tool-call" key={`${call.toolKey}-${index}`}>
+          <div className="assistant-tool-call-meta">
+            <strong>{call.toolKey}</strong>
+            <small className={call.status === "success" ? "assistant-tool-call-success" : "assistant-tool-call-failure"}>
+              {call.status === "success" ? "成功" : "失敗"} · {call.durationMs} ms
+            </small>
+          </div>
+          {call.args ? (
+            <details className="assistant-tool-call-args">
+              <summary>調用參數</summary>
+              <pre>{formatToolArgs(call.args)}</pre>
+            </details>
+          ) : null}
+          {call.errorMessage ? <small className="assistant-tool-call-error">{call.errorMessage}</small> : null}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function statusLabel(status: "enabled" | "development" | "disabled"): string {
@@ -41,6 +75,7 @@ export function Sandbox() {
   const [sessionId, setSessionId] = useState("");
   const [toolsOpen, setToolsOpen] = useState(false);
   const [revisionsOpen, setRevisionsOpen] = useState(false);
+  const [failedRun, setFailedRun] = useState<{ runId?: string; toolCalls: SandboxToolCall[] } | null>(null);
   const session = useSandboxSession(sessionId);
 
   useEffect(() => {
@@ -104,9 +139,17 @@ export function Sandbox() {
     const submittedInput = input.trim();
     if (!promptId || !model || !submittedInput || !sessionId || !sessionOpen) return;
     setInput("");
+    setFailedRun(null);
     run.mutate(
       { sessionId, model, promptRevisionId: promptId, toolKeys, input: submittedInput },
-      { onError: () => setInput(submittedInput) },
+      {
+        onError: (error) => {
+          setInput(submittedInput);
+          if (error instanceof AssistantApiError && error.toolCalls.length) {
+            setFailedRun({ runId: error.runId, toolCalls: error.toolCalls });
+          }
+        },
+      },
     );
   }
 
@@ -275,19 +318,7 @@ export function Sandbox() {
                 {message.role === "model" && message.toolCalls.length ? (
                   <details className="assistant-message-tools">
                     <summary>工具調用（{message.toolCalls.length}）</summary>
-                    <div className="assistant-tool-call-list">
-                      {message.toolCalls.map((call, index) => (
-                        <div className="assistant-tool-call" key={`${call.toolKey}-${index}`}>
-                          <div className="assistant-tool-call-meta">
-                            <strong>{call.toolKey}</strong>
-                            <small className={call.status === "success" ? "assistant-tool-call-success" : "assistant-tool-call-failure"}>
-                              {call.status === "success" ? "成功" : "失敗"} · {call.durationMs} ms
-                            </small>
-                          </div>
-                          {call.errorMessage ? <small className="assistant-tool-call-error">{call.errorMessage}</small> : null}
-                        </div>
-                      ))}
-                    </div>
+                    <ToolCallList calls={message.toolCalls} />
                   </details>
                 ) : null}
                 {message.role === "model" ? (
@@ -297,6 +328,14 @@ export function Sandbox() {
             )) : <p className="empty-state">這個 session 還沒有訊息。</p>
           ) : <p className="empty-state">請按「清除對話」建立一個新的 session。</p>}
         </div>
+        {failedRun?.toolCalls.length ? (
+          <div className="assistant-failed-run">
+            <details className="assistant-message-tools">
+              <summary>本次失敗前的工具調用（{failedRun.toolCalls.length}）</summary>
+              <ToolCallList calls={failedRun.toolCalls} />
+            </details>
+          </div>
+        ) : null}
         <label className="field">
           <span>輸入內容</span>
           <div className="assistant-input-wrap">

@@ -147,6 +147,7 @@ async function runLineAssistant(input: {
     const result = await runGemini({
       apiKey: input.env.GEMINI_API_KEY,
       model: modelId,
+      runId,
       systemPrompt: prompt.systemPrompt,
       runtimeContext: currentAssistantRuntimeContext(),
       userText: promptText,

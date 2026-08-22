@@ -59,6 +59,20 @@ CRM 工具與 WMS 使用同一個 provider-neutral `ToolContract`；一般 CRM �
 
 Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calling，不是公司的知識來源，也不應被視為正式內部問答能力。後續 WMS、CRM 與公司文件搜尋會以同一個 `ToolContract` 介面接入，MCP adapter 會放在這層之下。
 
+## 錯誤診斷與 Cloudflare logs
+
+每次 Sandbox 執行都會產生一個診斷編號；Gemini 每一輪請求、回應、tool 執行、耗時與錯誤都會以 structured log 寫到 Worker Logs。Sandbox 只顯示 tool 的實際參數，參數不會寫入 Worker log；API key、完整 prompt 與完整對話也不會寫入 log。
+
+每一則模型回覆的「工具調用」都可以展開查看參數；如果 Gemini 在工具執行後的下一輪請求失敗，Sandbox 也會在錯誤下方保留該次失敗前的工具調用，方便比對模型送出的參數。
+
+正式環境可在 Cloudflare Dashboard 的 Workers & Pages → `rueisiang-platform` → Observability 查詢 `assistant.gemini.error`，再用畫面上的診斷編號篩選同一輪執行。也可以在有 Wrangler 的環境即時查看：
+
+```bash
+npx wrangler tail rueisiang-platform --format json --search assistant.gemini.error
+```
+
+目前 `apps/api/wrangler.toml` 已啟用 `[observability]`；修改程式後需部署一次，新的 structured logs 才會出現在 Cloudflare。Windows on ARM 本機因 Wrangler 的 `workerd` 不支援，建議使用 Cloudflare Dashboard 或 Linux/CI 執行 `wrangler tail`。
+
 ## API
 
 Sandbox runs support multi-turn sessions. A session keeps the current model, prompt revision, rolling context summary, and full user/model messages together. The model in `POST /api/assistant/sandbox/run` takes precedence for an open session, so each turn can switch models; close a session to keep its history while preventing further runs. Long sessions summarize older messages before the request while keeping the full history in D1.

@@ -40,6 +40,14 @@ export interface SandboxConfig {
   revisions: PromptRevision[];
 }
 
+export interface SandboxToolCall {
+  toolKey: string;
+  status: "success" | "failed";
+  args?: Record<string, unknown>;
+  durationMs: number;
+  errorMessage?: string;
+}
+
 export interface SandboxResult {
   runId: string;
   sessionId: string | null;
@@ -48,7 +56,7 @@ export interface SandboxResult {
   model: string;
   promptRevision: number;
   usage: { promptTokens: number; candidateTokens: number; totalTokens: number };
-  toolCalls: Array<{ toolKey: string; status: "success" | "failed"; durationMs: number; errorMessage?: string }>;
+  toolCalls: SandboxToolCall[];
   durationMs: number;
 }
 
@@ -58,7 +66,7 @@ export interface SandboxSessionMessage {
   text: string;
   model: string;
   thoughts: string;
-  toolCalls: Array<{ toolKey: string; status: "success" | "failed"; durationMs: number; errorMessage?: string }>;
+  toolCalls: SandboxToolCall[];
   durationMs: number;
   createdAt: string;
 }
@@ -85,10 +93,38 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `操作失敗（${response.status}）`);
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+      runId?: unknown;
+      toolCalls?: unknown;
+    } | null;
+    const toolCalls = Array.isArray(body?.toolCalls)
+      ? body.toolCalls.filter((value): value is SandboxToolCall => {
+        if (!value || typeof value !== "object") return false;
+        const call = value as Record<string, unknown>;
+        return typeof call.toolKey === "string"
+          && (call.status === "success" || call.status === "failed")
+          && typeof call.durationMs === "number";
+      })
+      : [];
+    throw new AssistantApiError(body?.error ?? `操作失敗（${response.status}）`, {
+      runId: typeof body?.runId === "string" ? body.runId : undefined,
+      toolCalls,
+    });
   }
   return (await response.json()) as T;
+}
+
+export class AssistantApiError extends Error {
+  readonly runId?: string;
+  readonly toolCalls: SandboxToolCall[];
+
+  constructor(message: string, details: { runId?: string; toolCalls?: SandboxToolCall[] } = {}) {
+    super(message);
+    this.name = "AssistantApiError";
+    this.runId = details.runId;
+    this.toolCalls = details.toolCalls ?? [];
+  }
 }
 
 export function useSandboxConfig() {
