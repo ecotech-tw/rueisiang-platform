@@ -61,7 +61,8 @@ import { body, requireString } from "../request.js";
 
 const TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("sandbox"));
 const LINE_TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("line"));
-const LINE_TOOL_KEYS = new Set(LINE_TOOL_DEFINITIONS.map((tool) => tool.key));
+const LINE_TOOL_KEYS_LIST = LINE_TOOL_DEFINITIONS.map((tool) => tool.key);
+const LINE_TOOL_KEYS = new Set(LINE_TOOL_KEYS_LIST);
 const TOOL_MAP = PLATFORM_TOOL_MAP;
 const MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
 const SANDBOX_CONTEXT_CHAR_LIMIT = 24_000;
@@ -218,7 +219,10 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
 
 async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; get: (key: "db") => AppEnv["Variables"]["db"] }) {
   const db = c.get("db");
-  const channel = await ensureAssistantLineChannel(db, { assistantKey: ASSISTANT_KEY });
+  const channel = await ensureAssistantLineChannel(db, {
+    assistantKey: ASSISTANT_KEY,
+    defaultToolKeys: LINE_TOOL_KEYS_LIST,
+  });
   const groups = await listAssistantLineGroups(db, channel.channelKey);
   const [channelToolRows, configuredTools] = await Promise.all([
     listAssistantChannelTools(db, channel.channelKey),
@@ -445,7 +449,10 @@ export const assistant = new Hono<AppEnv>()
         ? input.accessToken.trim()
         : requireString(input, "accessToken", "LINE Channel Access Token");
     if (accessToken.length > 2_000) throw new HTTPException(400, { message: "LINE Channel Access Token 格式不正確。" });
-    const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    const channel = await ensureAssistantLineChannel(c.get("db"), {
+      assistantKey: ASSISTANT_KEY,
+      defaultToolKeys: LINE_TOOL_KEYS_LIST,
+    });
     await updateAssistantLineChannel(c.get("db"), {
       channelKey: channel.channelKey,
       assistantKey: ASSISTANT_KEY,
@@ -465,7 +472,10 @@ export const assistant = new Hono<AppEnv>()
     if (lineGroupId.length > 255) throw new HTTPException(400, { message: "LINE 群組 ID 不能超過 255 字元。" });
     const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
     if (displayName.length > 120) throw new HTTPException(400, { message: "群組顯示名稱不能超過 120 字元。" });
-    const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    const channel = await ensureAssistantLineChannel(c.get("db"), {
+      assistantKey: ASSISTANT_KEY,
+      defaultToolKeys: LINE_TOOL_KEYS_LIST,
+    });
     const group = await upsertAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, lineGroupId, displayName });
     if (typeof input.enabled === "boolean" || displayName !== group.displayName) {
       const updated = await updateAssistantLineGroup(c.get("db"), {
@@ -482,7 +492,10 @@ export const assistant = new Hono<AppEnv>()
 
   .patch("/line/groups/:id", requirePermission("assistant:line:write"), async (c) => {
     const id = c.req.param("id");
-    const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    const channel = await ensureAssistantLineChannel(c.get("db"), {
+      assistantKey: ASSISTANT_KEY,
+      defaultToolKeys: LINE_TOOL_KEYS_LIST,
+    });
     const existing = await findAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, id });
     if (!existing) throw new HTTPException(404, { message: "找不到這個 LINE 群組。" });
     const input = await body(c);
@@ -516,7 +529,10 @@ export const assistant = new Hono<AppEnv>()
     const notOnLine = toolKeys.filter((key) => !TOOL_MAP.get(key)?.surfaces.includes("line"));
     if (notOnLine.length) throw new HTTPException(400, { message: `這些工具不支援 LINE：${notOnLine.join("、")}` });
 
-    const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    const channel = await ensureAssistantLineChannel(c.get("db"), {
+      assistantKey: ASSISTANT_KEY,
+      defaultToolKeys: LINE_TOOL_KEYS_LIST,
+    });
     await setAssistantChannelTools(c.get("db"), {
       channelKey: channel.channelKey,
       toolKeys,
@@ -542,7 +558,10 @@ export const assistant = new Hono<AppEnv>()
       throw new HTTPException(400, { message: "custom 模式必須提供 toolKeys 陣列。" });
     }
 
-    const channel = await ensureAssistantLineChannel(c.get("db"), { assistantKey: ASSISTANT_KEY });
+    const channel = await ensureAssistantLineChannel(c.get("db"), {
+      assistantKey: ASSISTANT_KEY,
+      defaultToolKeys: LINE_TOOL_KEYS_LIST,
+    });
     const existing = await findAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, id });
     if (!existing) throw new HTTPException(404, { message: "找不到這個 LINE 群組。" });
 

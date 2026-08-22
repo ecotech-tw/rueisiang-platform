@@ -78,30 +78,40 @@ describe("只有 LINE 權限的人", () => {
     const body = await response.json() as { tools: Array<{ key: string; surfaces: string[] }>; channelTools: string[] };
     expect(body.tools.length).toBeGreaterThan(0);
     expect(body.tools.every((tool) => tool.surfaces.includes("line"))).toBe(true);
+    expect(body.channelTools.sort()).toEqual([
+      "crm_get_customer",
+      "crm_get_orders",
+      "crm_search_customers",
+      "weather_open_meteo",
+      "wms_get_activity",
+      "wms_get_inventory_item",
+      "wms_list_inventory",
+      "wms_list_low_stock_items",
+      "wms_search_warehouse",
+    ]);
   });
 
-  it("資料庫裡殘留的非 LINE 授權不會被回報成已授權", async () => {
+  it("資料庫裡殘留的未知 channel tool 不會被回報成已授權", async () => {
     await seedLineOnlyUser();
-    // 先讓 channel 存在，才能掛授權上去。
+    // 先讓 channel 存在，才能掛殘留資料上去；新 channel 預設會取得全部 LINE 工具。
     await as("line-user", "line@ecotech.tw", "/api/assistant/line/config");
 
     /*
-     * 模擬舊版 0025 seed 留下的殘骸：crm_get_customer 的 surfaces 是 ["sandbox", "mcp"]，
-     * 這條路永遠用不到。照實回傳的話，設定頁會顯示成「已授權」，而使用者原封不動按儲存
-     * 又會被 PUT /line/tools 的 surface 檢查退回，變成怎麼存都失敗且看不出原因。
+     * 模擬資料庫裡殘留一個已不在 registry 的舊工具。設定頁仍只回報目前支援 LINE 的工具，
+     * 但新加入的 CRM 工具應該正常出現在 channel 白名單裡。
      */
     const channelKey = "rueisiang-xiaoxiang";
     d1.sqlite.exec(`
       INSERT INTO assistant_channel_tools (id, channel_key, tool_key, created_by)
-      VALUES ('stale-1', '${channelKey}', 'crm_get_customer', 'test'),
-             ('stale-2', '${channelKey}', 'wms_search_warehouse', 'test');
+      VALUES ('stale-1', '${channelKey}', 'legacy_sandbox_tool', 'test');
     `);
 
     const response = await as("line-user", "line@ecotech.tw", "/api/assistant/line/config");
     const body = await response.json() as { tools: Array<{ key: string }>; channelTools: string[] };
 
-    expect(body.tools.map((tool) => tool.key)).not.toContain("crm_get_customer");
-    expect(body.channelTools).toEqual(["wms_search_warehouse"]);
+    expect(body.tools.map((tool) => tool.key)).not.toContain("legacy_sandbox_tool");
+    expect(body.channelTools).not.toContain("legacy_sandbox_tool");
+    expect(body.channelTools).toContain("crm_get_customer");
   });
 });
 
@@ -181,19 +191,19 @@ describe("AI 助理 Sandbox", () => {
     ]);
     expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
       label: "WMS 搜尋倉庫位置",
-      status: "development",
+      status: "enabled",
       surfaces: ["sandbox", "line", "mcp"],
       requiredPermissions: ["wms:inventory:read", "wms:map:read"],
     });
     expect(result.tools.find((tool) => tool.key === "crm_search_customers")).toMatchObject({
       label: "CRM 搜尋客戶",
-      status: "development",
+      status: "enabled",
       surfaces: ["sandbox", "line", "mcp"],
       requiredPermissions: ["crm:customer:read"],
     });
     expect(result.tools.find((tool) => tool.key === "crm_get_orders")).toMatchObject({
-      status: "development",
-      surfaces: ["sandbox", "mcp"],
+      status: "enabled",
+      surfaces: ["sandbox", "line", "mcp"],
       requiredPermissions: ["crm:order:read"],
     });
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });

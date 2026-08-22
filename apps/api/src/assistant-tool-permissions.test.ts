@@ -34,7 +34,7 @@ async function setup() {
   });
   const channel = await ensureAssistantLineChannel(db, { assistantKey: ASSISTANT_KEY });
   const group = await upsertAssistantLineGroup(db, { channelKey: channel.channelKey, lineGroupId: "C1" });
-  // 預設是「開發中」，只能在 Sandbox 驗證；線上要看得到得先啟用。
+  // 測試這裡仍明確寫入 enabled，模擬管理者已確認這些工具可在線上使用。
   for (const key of [WEATHER, WMS_SEARCH, CRM_SEARCH]) {
     await setAssistantToolStatus(db, { key, status: "enabled", updatedBy: "eli" });
   }
@@ -44,6 +44,28 @@ async function setup() {
 describe("LINE 工具權限的三層交集", () => {
   let ctx: Awaited<ReturnType<typeof setup>>;
   beforeEach(async () => { ctx = await setup(); });
+
+  it("新建 channel 預設授權傳入的全部工具，且內建工具預設已啟用", async () => {
+    const db = createDatabase(createLocalD1() as never);
+    await ensureAssistantDefaults(db, {
+      assistantKey: ASSISTANT_KEY,
+      defaultModel: "gemini-3.6-flash",
+      defaultPrompt: "測試用 prompt",
+      toolKeys: [WEATHER, WMS_SEARCH],
+    });
+    const channel = await ensureAssistantLineChannel(db, {
+      assistantKey: ASSISTANT_KEY,
+      defaultToolKeys: [WEATHER, WMS_SEARCH],
+    });
+    const group = await upsertAssistantLineGroup(db, { channelKey: channel.channelKey, lineGroupId: "C-default" });
+
+    const keys = await resolveLineToolKeys(db, {
+      channelKey: channel.channelKey,
+      groupId: group.id,
+      toolMode: "inherit",
+    });
+    expect(keys).toEqual([WEATHER, WMS_SEARCH]);
+  });
 
   it("channel 沒授權時一個工具都不給", async () => {
     const keys = await resolveLineToolKeys(ctx.db, {

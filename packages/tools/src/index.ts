@@ -157,7 +157,7 @@ const wmsListInventoryTool: PlatformToolDefinition = {
   key: WMS_LIST_INVENTORY_TOOL_KEY,
   label: "WMS 列出商品庫存",
   description: "分頁列出 WMS 商品庫存，適合先取得商品清單，再依 SKU 或商品名稱做 mapping。只讀。",
-  defaultStatus: "development",
+  defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: wmsPermission,
   parameters: {
@@ -296,7 +296,7 @@ const wmsSearchWarehouseTool: PlatformToolDefinition = {
   key: WMS_SEARCH_WAREHOUSE_TOOL_KEY,
   label: "WMS 搜尋倉庫位置",
   description: "用一個查詢同時搜尋商品、倉位與地圖標籤；商品結果會附所在倉位，地圖結果會附附近物件的上下左右相對位置。只讀。",
-  defaultStatus: "development",
+  defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: [...wmsPermission, ...wmsMapPermission],
   parameters: {
@@ -351,7 +351,7 @@ const wmsGetInventoryItemTool: PlatformToolDefinition = {
   key: WMS_GET_INVENTORY_ITEM_TOOL_KEY,
   label: "WMS 讀取庫存明細",
   description: "依 WMS 商品 ID 讀取單一庫存明細。只讀。",
-  defaultStatus: "development",
+  defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: wmsPermission,
   parameters: {
@@ -374,7 +374,7 @@ const wmsListLowStockTool: PlatformToolDefinition = {
   key: WMS_LIST_LOW_STOCK_TOOL_KEY,
   label: "WMS 查詢低庫存",
   description: "列出低於安全庫存或已無庫存的 WMS 商品。只讀。",
-  defaultStatus: "development",
+  defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: wmsPermission,
   parameters: {
@@ -404,7 +404,7 @@ const wmsGetActivityTool: PlatformToolDefinition = {
   key: WMS_GET_ACTIVITY_TOOL_KEY,
   label: "WMS 查詢操作紀錄",
   description: "查詢 WMS 儲位、庫存、分類、地圖標示與倉庫設定的操作紀錄。只讀。",
-  defaultStatus: "development",
+  defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["wms:activity:read"],
   parameters: {
@@ -436,7 +436,7 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
   key: CRM_SEARCH_CUSTOMERS_TOOL_KEY,
   label: "CRM 搜尋客戶",
   description: "用關鍵字、條件篩選、排序與 limit 搜尋 CRM 客戶，適合先取得 customerId 或 cyberbizCustomerId，再交給 crm_get_customer 或 crm_get_orders。只讀。",
-  defaultStatus: "development",
+  defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["crm:customer:read"],
   parameters: {
@@ -983,8 +983,8 @@ const crmGetCustomerTool: PlatformToolDefinition = {
   key: CRM_GET_CUSTOMER_TOOL_KEY,
   label: "CRM 取得客戶",
   description: "依 customerId 取得單一客戶完整資料，包含客戶標籤、可選的最近操作紀錄；需要消費金額或購買摘要時可在 include 填 spending。只讀。",
-  defaultStatus: "development",
-  surfaces: ["sandbox", "mcp"],
+  defaultStatus: "enabled",
+  surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["crm:customer:read", "crm:activity:read", "crm:tag:read", "crm:order:read"],
   parameters: {
     type: "object",
@@ -1049,8 +1049,8 @@ const crmGetOrdersTool: PlatformToolDefinition = {
   key: CRM_GET_ORDERS_TOOL_KEY,
   label: "CRM 查詢訂單",
   description: "查詢 CYBERBIZ 即時訂單。可用 customerId(s) 或 cyberbizCustomerId(s) 查客戶訂單；使用 orderNumber(s) 查使用者看得到的訂單編號（例如 #56714），系統會先轉成 CYBERBIZ order ID 再取得明細；只有已知 CYBERBIZ 內部 ID 時才使用 orderId(s)。沒有客戶 ID 時也可用日期、狀態、標籤、排序與 limit 搜尋訂單。只讀。",
-  defaultStatus: "development",
-  surfaces: ["sandbox", "mcp"],
+  defaultStatus: "enabled",
+  surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["crm:order:read"],
   parameters: {
     type: "object",
