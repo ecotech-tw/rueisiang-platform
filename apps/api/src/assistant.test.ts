@@ -599,6 +599,71 @@ describe("AI 助理 Sandbox", () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
+  it("訂單編號 mapping 後仍找不到時不暴露 CYBERBIZ internal order ID", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+
+    let geminiCalls = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/v1/orders/get_order_id")) {
+        const parsed = new URL(url);
+        if (parsed.searchParams.get("order_numbers") === "56714") {
+          return new Response(JSON.stringify([{ order_number: 56714, order_id: 301 }]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/v1/orders/301")) {
+        return new Response(JSON.stringify({ error: "找不到訂單" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      geminiCalls += 1;
+      if (geminiCalls === 1) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ functionCall: {
+            name: "crm_get_orders",
+            args: { orderNumber: "#56714" },
+          } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      const contents = JSON.stringify(body.contents);
+      expect(contents).toContain("notFoundOrderNumbers");
+      expect(contents).toContain("56714");
+      expect(contents).not.toContain("notFoundOrderIds");
+      expect(contents).not.toContain("301");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "找不到訂單 #56714。" }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "gemini-3.6-flash",
+        toolKeys: ["crm_get_orders"],
+        input: "查詢訂單 #56714",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "找不到訂單 #56714。",
+      toolCalls: [{ toolKey: "crm_get_orders", status: "success" }],
+    });
+    expect(geminiCalls).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
   it("工具失敗時不會再讓 Gemini 重複呼叫而觸發第二輪格式錯誤", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 

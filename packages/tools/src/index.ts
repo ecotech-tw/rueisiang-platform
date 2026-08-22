@@ -757,13 +757,16 @@ async function lookupCustomerOrders(
   if (orderIds.length || orderNumbers.length) {
     const mappings = orderNumbers.length ? await client.fetchIdsByOrderNumbers(orderNumbers) : [];
     const mappingByNumber = new Map(mappings.map((mapping) => [normalizeOrderNumber(mapping.orderNumber), mapping]));
+    const resolvedOrderNumberById = new Map<string, string>();
     const resolvedOrderNumbers = orderNumbers.flatMap((orderNumber) => {
       const mapping = mappingByNumber.get(orderNumber);
+      if (mapping) resolvedOrderNumberById.set(mapping.orderId, orderNumber);
       return mapping ? [mapping.orderId] : [];
     });
     const missingOrderNumbers = orderNumbers.filter((orderNumber) => !mappingByNumber.has(orderNumber));
     const details: CyberbizOrder[] = [];
     const notFoundOrderIds: string[] = [];
+    const notFoundOrderNumbers = [...missingOrderNumbers];
     const idsToFetch = [...new Set([...orderIds, ...resolvedOrderNumbers])].slice(0, MAX_ORDER_IDS_PER_REQUEST);
     for (const orderId of idsToFetch) {
       try {
@@ -776,7 +779,12 @@ async function lookupCustomerOrders(
         const fallback = await client.fetchIdsByOrderNumbers([orderId]);
         const fallbackId = fallback[0]?.orderId;
         if (!fallbackId) {
-          notFoundOrderIds.push(orderId);
+          const originalOrderNumber = resolvedOrderNumberById.get(orderId);
+          if (originalOrderNumber) {
+            notFoundOrderNumbers.push(originalOrderNumber);
+          } else {
+            notFoundOrderIds.push(orderId);
+          }
           continue;
         }
         details.push(await client.fetchOne(fallbackId));
@@ -788,7 +796,10 @@ async function lookupCustomerOrders(
     return {
       kind: "detail",
       orders: sortCustomerOrders(filtered, sortBy, sortDirection).slice(0, requestedLimit),
-      ...(orderNumbers.length ? { requestedOrderNumbers: orderNumbers, notFoundOrderNumbers: missingOrderNumbers } : {}),
+      ...(orderNumbers.length ? {
+        requestedOrderNumbers: orderNumbers,
+        ...(notFoundOrderNumbers.length ? { notFoundOrderNumbers: [...new Set(notFoundOrderNumbers)] } : {}),
+      } : {}),
       ...(notFoundOrderIds.length ? { notFoundOrderIds } : {}),
     };
   }
