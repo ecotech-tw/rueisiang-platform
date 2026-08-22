@@ -339,7 +339,7 @@ function LineGroupRow({
 }: {
   group: AssistantLineGroup;
   grantedCount: number;
-  onSave: (input: { id: string; displayName: string; enabled: boolean }) => void;
+  onSave: (input: { id: string; displayName?: string; enabled: boolean }) => void;
   onOpenTools: () => void;
   saving: boolean;
 }) {
@@ -365,14 +365,16 @@ function LineGroupRow({
       <td>
         {/*
           * 切了就生效，不用再按儲存——這是 M3 switch 的語意。
-          * 送出的是已存檔的 displayName 而不是編輯中的 name：使用者可能正在改名字還沒決定，
-          * 開關不該順手把那個沒確認的值一起寫進去。
+          *
+          * 只送 enabled，完全不帶 displayName：一來使用者可能正在改名字還沒決定，開關不該
+          * 順手把沒確認的值寫進去；二來新發現的群組名稱預設是空的，帶著送會被後端的
+          * 「請填寫群組顯示名稱」擋下來，變成要先命名才能開通。
           */}
         <Switch
           checked={group.enabled}
           busy={saving}
           label={`${group.displayName || group.lineGroupId} 的回覆開關`}
-          onChange={(next) => onSave({ id: group.id, displayName: group.displayName, enabled: next })}
+          onChange={(next) => onSave({ id: group.id, enabled: next })}
         />
       </td>
       <td>
