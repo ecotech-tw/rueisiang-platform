@@ -72,10 +72,25 @@ assistant（小香 / 官網客服）      prompt、模型、工具母清單
 實際切成四支：`0021` 加欄位、`0022` 手寫回填、`0023` 換 channel 主鍵、`0024` 換群組與訊息
 的關聯並建立兩張新表。
 
-**`0023` 與 `0024` 一定要分開兩個檔案。** drizzle 只會在一支 migration 的第一次重建外面
-包 `PRAGMA foreign_keys=OFF/ON`；同一支裡的第二次重建就沒有保護，而 `DROP TABLE` 父表配上
-`ON DELETE CASCADE` 會把剛搬好的子表資料整個帶走。這件事在空資料庫測不出來（沒有列可以被
-連坐），所以 `assistant-channel-migration.test.ts` 刻意「升級一個已經有資料的庫」。
+> **這一段當初的判斷是錯的，而且在正式環境刪掉了資料。留著記錄，不要照著做。**
+>
+> 當時以為「把 `0023` 與 `0024` 拆成兩個檔案，讓 drizzle 各自加上 `PRAGMA foreign_keys=OFF/ON`」
+> 就安全了。本機看起來確實是安全的——但**那個保護在 D1 上完全無效**。
+>
+> 正式環境走 `wrangler d1 migrations apply`，**整支 migration 包在一個 transaction 裡**，
+> 而 `PRAGMA foreign_keys` 在 transaction 裡是 no-op（SQLite 的規格）；`defer_foreign_keys`
+> 也擋不住 `DROP TABLE` 的連坐刪除，兩個都實測過。所以 `0023` 重建 channel 表時，
+> `assistant_line_groups` 被 `ON DELETE CASCADE` 整個帶走。
+>
+> 本機的 migration runner 一句一句跑、沒有 transaction，PRAGMA 有生效，所以本機與當時的
+> 測試都看不出來——那支測試給的是假的信心。
+>
+> **正確的規則**：不要 DROP 任何被別的表用 `ON DELETE CASCADE` 指著的表；要改父表的主鍵
+> 就先把子表的外鍵挪開，或改用「新增欄位＋回填」而不是重建。migration 的測試也要用 D1 的
+> 方式跑（一支一個 transaction），見 `line-migrations.test.ts`。
+>
+> 復原見 `0028_restore_line_groups.sql`：`assistant_line_messages` 沒有外鍵、沒被連坐，
+> 群組 ID 從它撈得回來；`display_name` 與 `enabled` 救不回來。
 
 另外 `0025` 把「目前已啟用的工具」寫成既有 channel 的白名單。沒有它的話，部署完的那一刻
 小香會突然一個工具都不能用——換權限模型不該讓線上的 bot 安靜地變笨。之後新開的 channel
