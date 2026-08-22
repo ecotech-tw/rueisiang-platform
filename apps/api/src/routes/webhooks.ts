@@ -5,6 +5,7 @@ import {
   getActiveAssistantPrompt,
   getAssistantConfig,
   ensureAssistantLineChannel,
+  findAssistantLineGroup,
   listAssistantLineMessages,
   resolveLineToolKeys,
   recordAssistantRun,
@@ -86,7 +87,6 @@ async function runLineAssistant(input: {
   channelKey: string;
   /** 群組那一列的 id，不是 LINE 的群組 id——對話層的工具授權掛在這個 id 上。 */
   groupRowId: string;
-  toolMode: string;
   lineGroupId: string;
   userText: string;
   questionText: string;
@@ -104,13 +104,24 @@ async function runLineAssistant(input: {
       defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
       toolKeys: PLATFORM_TOOL_KEYS,
     });
+    /*
+     * toolMode 在這裡重讀，不採信收 webhook 當下那一份。
+     *
+     * 這條路是排程執行的，收件與回答之間隔著一段時間；管理員在那之間把群組從 inherit
+     * 改成 custom 的話，用舊值等於讓這一輪照舊拿到 channel 的全部工具。授權每次執行都
+     * 回 DB 重讀是這個 codebase 的既定原則（CLAUDE.md），LINE 這條也不例外。
+     */
+    const group = await findAssistantLineGroup(input.db, { channelKey: input.channelKey, id: input.groupRowId });
+    if (!group) throw new Error("找不到這個 LINE 群組的設定。");
+    if (!group.enabled) throw new Error("這個 LINE 群組已經被取消授權。");
+
     const [config, prompt, allowedToolKeys, messages] = await Promise.all([
       getAssistantConfig(input.db, input.assistantKey),
       getActiveAssistantPrompt(input.db, input.assistantKey),
       resolveLineToolKeys(input.db, {
         channelKey: input.channelKey,
         groupId: input.groupRowId,
-        toolMode: input.toolMode,
+        toolMode: group.toolMode,
       }),
       listAssistantLineMessages(input.db, { channelKey: input.channelKey, lineGroupId: input.lineGroupId, limit: 12 }),
     ]);
@@ -172,6 +183,8 @@ async function runLineAssistant(input: {
       await recordAssistantRun(input.db, {
         id: runId,
         channel: "line",
+        assistantKey: input.assistantKey,
+        channelKey: input.channelKey,
         groupId: input.lineGroupId,
         model: modelId,
         promptRevisionId,
@@ -363,7 +376,6 @@ async function receiveLine(c: Context<AppEnv>) {
         assistantKey: lineChannel.assistantKey,
         channelKey: lineChannel.channelKey,
         groupRowId: lineGroup.id,
-        toolMode: lineGroup.toolMode,
         lineGroupId: lineGroup.lineGroupId,
         userText: text,
         questionText,

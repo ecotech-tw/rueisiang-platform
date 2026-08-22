@@ -102,6 +102,30 @@ describe("LINE channel 換成 channel_key", () => {
     expect(sqlite.prepare("SELECT id FROM assistant_line_groups").all()).toEqual([]);
   });
 
+  it("seed 只把支援 LINE 的工具寫進白名單", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    apply(sqlite, null, "0020");
+    seedLegacyData(sqlite);
+    apply(sqlite, "0020", "0024");
+
+    // crm_get_customer 的 surfaces 是 ["sandbox", "mcp"]——啟用了也不該進 LINE 白名單，
+    // 否則設定頁會顯示成「已授權」，跟實際能用的工具對不上。
+    for (const [key, status] of [
+      ["weather_open_meteo", "enabled"],
+      ["wms_search_warehouse", "enabled"],
+      ["crm_get_customer", "enabled"],
+      ["wms_get_activity", "development"],
+    ]) {
+      sqlite.exec(`INSERT INTO assistant_tool_configs (key, status, updated_by) VALUES ('${key}', '${status}', 'eli');`);
+    }
+    apply(sqlite, "0024", "0025");
+
+    const granted = (sqlite.prepare("SELECT tool_key FROM assistant_channel_tools ORDER BY tool_key").all() as { tool_key: string }[])
+      .map((row) => row.tool_key);
+    expect(granted).toEqual(["weather_open_meteo", "wms_search_warehouse"]);
+  });
+
   it("換鍵值之後仍然擋得住同一個 channel 的重複群組", () => {
     const sqlite = upgraded();
     expect(() => sqlite.exec(`

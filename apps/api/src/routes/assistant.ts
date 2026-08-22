@@ -147,6 +147,7 @@ async function maybeSummarizeSandboxContext(input: {
       await recordAssistantRun(input.db, {
         id: crypto.randomUUID(),
         channel: "sandbox",
+        assistantKey: ASSISTANT_KEY,
         sessionId: session.id,
         model: input.model,
         promptRevisionId: input.promptRevisionId,
@@ -680,6 +681,7 @@ export const assistant = new Hono<AppEnv>()
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",
+        assistantKey: ASSISTANT_KEY,
         sessionId: session?.id,
         model: model.id,
         promptRevisionId: prompt.id,
@@ -719,6 +721,7 @@ export const assistant = new Hono<AppEnv>()
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",
+        assistantKey: ASSISTANT_KEY,
         sessionId: session?.id,
         model: model.id,
         promptRevisionId: prompt.id,
