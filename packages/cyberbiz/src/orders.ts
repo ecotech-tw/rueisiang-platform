@@ -92,8 +92,19 @@ export interface CyberbizOrderPage {
   hasMore: boolean;
 }
 
+export interface CyberbizCustomerOrderPageFilters {
+  page?: number;
+  perPage?: number;
+  offset?: number;
+}
+
 export interface CyberbizOrderClient {
   fetchPage(filters?: CyberbizOrderListFilters): Promise<CyberbizOrderPage>;
+  fetchCustomerOrders(
+    customerId: string,
+    filters?: CyberbizCustomerOrderPageFilters,
+  ): Promise<CyberbizOrderPage>;
+  fetchOne(orderId: string): Promise<CyberbizOrder>;
 }
 
 export const MAX_ORDER_PAGE_SIZE = 50;
@@ -221,6 +232,13 @@ function setListParam(params: URLSearchParams, key: string, value: string[] | un
   if (value?.length) params.set(key, value.join(","));
 }
 
+function paginationQuery(filters: CyberbizCustomerOrderPageFilters): string {
+  const page = Math.max(1, Math.floor(filters.page ?? 1));
+  const perPage = Math.min(MAX_ORDER_PAGE_SIZE, Math.max(1, Math.floor(filters.perPage ?? MAX_ORDER_PAGE_SIZE)));
+  const offset = Math.max(0, Math.floor(filters.offset ?? (page - 1) * perPage));
+  return new URLSearchParams({ page: String(page), per_page: String(perPage), offset: String(offset) }).toString();
+}
+
 function orderQuery(filters: CyberbizOrderListFilters): string {
   const page = Math.max(1, Math.floor(filters.page ?? 1));
   const perPage = Math.min(MAX_ORDER_PAGE_SIZE, Math.max(1, Math.floor(filters.perPage ?? MAX_ORDER_PAGE_SIZE)));
@@ -250,6 +268,37 @@ function orderQuery(filters: CyberbizOrderListFilters): string {
   return params.toString();
 }
 
+function readOrderPage(
+  payload: unknown,
+  headers: Headers,
+  page: number,
+  perPage: number,
+  offset: number,
+): CyberbizOrderPage {
+  const root = asRecord(payload) ?? {};
+  const orders = readOrders(payload).map(parseCyberbizOrder);
+  const totalPagesValue = Number(headers.get("x-total-pages") || root.total_pages || 0);
+  const totalOrdersValue = Number(headers.get("x-total-count") || root.total_count || root.total || 0);
+  const totalPages = Number.isFinite(totalPagesValue) && totalPagesValue > 0 ? totalPagesValue : null;
+  const totalOrders = Number.isFinite(totalOrdersValue) && totalOrdersValue > 0 ? totalOrdersValue : null;
+
+  return {
+    orders,
+    page,
+    perPage,
+    offset,
+    totalPages,
+    totalOrders,
+    hasMore: totalPages !== null ? page < totalPages : orders.length >= perPage,
+  };
+}
+
+function readSingleOrder(payload: unknown): unknown {
+  const root = asRecord(payload);
+  if (!root) return payload;
+  return root.order ?? root.data ?? payload;
+}
+
 export function createOrderClient(
   config: CyberbizConfig,
   options: RequestOptions = {},
@@ -263,22 +312,23 @@ export function createOrderClient(
       const perPage = Math.min(MAX_ORDER_PAGE_SIZE, Math.max(1, Math.floor(filters.perPage ?? MAX_ORDER_PAGE_SIZE)));
       const offset = Math.max(0, Math.floor(filters.offset ?? (page - 1) * perPage));
       const { payload, headers } = await request(`/v1/orders?${orderQuery({ ...filters, page, perPage, offset })}`);
-      const root = asRecord(payload) ?? {};
-      const orders = readOrders(payload).map(parseCyberbizOrder);
-      const totalPagesValue = Number(headers.get("x-total-pages") || root.total_pages || 0);
-      const totalOrdersValue = Number(headers.get("x-total-count") || root.total_count || root.total || 0);
-      const totalPages = Number.isFinite(totalPagesValue) && totalPagesValue > 0 ? totalPagesValue : null;
-      const totalOrders = Number.isFinite(totalOrdersValue) && totalOrdersValue > 0 ? totalOrdersValue : null;
+      return readOrderPage(payload, headers, page, perPage, offset);
+    },
 
-      return {
-        orders,
-        page,
-        perPage,
-        offset,
-        totalPages,
-        totalOrders,
-        hasMore: totalPages !== null ? page < totalPages : orders.length >= perPage,
-      };
+    async fetchCustomerOrders(customerId, filters = {}) {
+      const encodedCustomerId = encodeURIComponent(customerId);
+      const page = Math.max(1, Math.floor(filters.page ?? 1));
+      const perPage = Math.min(MAX_ORDER_PAGE_SIZE, Math.max(1, Math.floor(filters.perPage ?? MAX_ORDER_PAGE_SIZE)));
+      const offset = Math.max(0, Math.floor(filters.offset ?? (page - 1) * perPage));
+      const { payload, headers } = await request(
+        `/v1/customers/${encodedCustomerId}/orders?${paginationQuery({ page, perPage, offset })}`,
+      );
+      return readOrderPage(payload, headers, page, perPage, offset);
+    },
+
+    async fetchOne(orderId) {
+      const { payload } = await request(`/v1/orders/${encodeURIComponent(orderId)}`);
+      return parseCyberbizOrder(readSingleOrder(payload));
     },
   };
 }

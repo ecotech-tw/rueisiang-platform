@@ -81,12 +81,8 @@ describe("AI 助理 Sandbox", () => {
       "wms_list_low_stock_items",
       "wms_get_activity",
       "crm_search_customers",
-      "crm_get_customer_context",
-      "crm_get_customer_orders",
-      "crm_get_customer_spending_summary",
-      "crm_list_customer_events",
-      "crm_list_customer_tags",
-      "crm_get_sync_status",
+      "crm_get_customer",
+      "crm_get_orders",
     ]);
     expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
       label: "WMS 搜尋倉庫位置",
@@ -100,7 +96,7 @@ describe("AI 助理 Sandbox", () => {
       surfaces: ["sandbox", "line", "mcp"],
       requiredPermissions: ["crm:customer:read"],
     });
-    expect(result.tools.find((tool) => tool.key === "crm_get_customer_orders")).toMatchObject({
+    expect(result.tools.find((tool) => tool.key === "crm_get_orders")).toMatchObject({
       status: "development",
       surfaces: ["sandbox", "mcp"],
       requiredPermissions: ["crm:order:read"],
@@ -317,7 +313,7 @@ describe("AI 助理 Sandbox", () => {
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_search_customers",
-            args: { search: "", date: "2026-08-21", dateField: "createdAt", pageSize: "10" },
+            args: { search: "", date: "2026-08-21", dateField: "createdAt", limit: "10" },
           } }] } }],
         }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -327,8 +323,8 @@ describe("AI 助理 Sandbox", () => {
         expect(contents).not.toContain("should-not-leak");
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
-            name: "crm_get_customer_context",
-            args: { customerId: "crm-customer-1", eventLimit: "5" },
+            name: "crm_get_customer",
+            args: { customerId: "crm-customer-1", include: "events,tags", eventLimit: "5" },
           } }] } }],
         }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -343,7 +339,7 @@ describe("AI 助理 Sandbox", () => {
       method: "POST",
       body: JSON.stringify({
         model: "gemini-3.6-flash",
-        toolKeys: ["crm_search_customers", "crm_get_customer_context"],
+        toolKeys: ["crm_search_customers", "crm_get_customer"],
         input: "請查詢王小明最近的 CRM 狀態",
       }),
     });
@@ -352,7 +348,7 @@ describe("AI 助理 Sandbox", () => {
       text: "找到王小明，CRM 顯示他是 VIP 客戶，最近有更新資料紀錄。",
       toolCalls: [
         { toolKey: "crm_search_customers", status: "success" },
-        { toolKey: "crm_get_customer_context", status: "success" },
+        { toolKey: "crm_get_customer", status: "success" },
       ],
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -393,7 +389,7 @@ describe("AI 助理 Sandbox", () => {
       if (geminiCalls === 1) {
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
-            name: "crm_get_customer_orders",
+            name: "crm_get_orders",
             args: { customerId: "crm-customer-order-1", fromDate: "2026-08-21", toDate: "2026-08-21" },
           } }] } }],
         }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -410,16 +406,130 @@ describe("AI 助理 Sandbox", () => {
       method: "POST",
       body: JSON.stringify({
         model: "gemini-3.6-flash",
-        toolKeys: ["crm_get_customer_orders"],
+        toolKeys: ["crm_get_orders"],
         input: "請查詢王小明今天的消費紀錄",
       }),
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       text: "王小明今天有 1 筆已付款訂單，金額為 1,280 元。",
-      toolCalls: [{ toolKey: "crm_get_customer_orders", status: "success" }],
+      toolCalls: [{ toolKey: "crm_get_orders", status: "success" }],
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("沒有搜尋條件時使用 CYBERBIZ customer orders endpoint 並套用 limit", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(customers).values({
+      id: "crm-customer-order-direct-1",
+      phone: "0912-345-678",
+      normalizedPhone: "0912345678",
+      name: "王小明",
+      email: "ming@example.com",
+      cyberbizCustomerId: "cyberbiz-direct-7",
+      createdAt: "2026-08-20 16:30:00",
+      updatedAt: "2026-08-20 16:30:00",
+    });
+
+    let geminiCalls = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/v1/customers/cyberbiz-direct-7/orders")) {
+        const parsed = new URL(url);
+        expect(parsed.searchParams.get("per_page")).toBe("5");
+        expect(parsed.searchParams.get("offset")).toBe("0");
+        return new Response(JSON.stringify([{
+          id: 100,
+          order_number: "R-00100",
+          created_at: "2026-08-21 10:20:30",
+          customer: { id: "cyberbiz-direct-7", name: "王小明" },
+          prices: { total_price: 1_280 },
+        }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      geminiCalls += 1;
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      if (geminiCalls === 1) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ functionCall: {
+            name: "crm_get_orders",
+            args: { customerId: "crm-customer-order-direct-1", limit: "5" },
+          } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      expect(JSON.stringify(body.contents)).toContain("R-00100");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "王小明最近有 1 筆訂單。" }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "gemini-3.6-flash",
+        toolKeys: ["crm_get_orders"],
+        input: "請查詢王小明最近五筆訂單",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "王小明最近有 1 筆訂單。",
+      toolCalls: [{ toolKey: "crm_get_orders", status: "success" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("可以用 orderIds 直接取得多筆 CYBERBIZ 訂單明細", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+
+    let geminiCalls = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/v1/orders/")) {
+        const orderId = url.endsWith("/201") ? "201" : "202";
+        return new Response(JSON.stringify({ order: {
+          id: orderId,
+          order_number: `R-${orderId}`,
+          created_at: orderId === "201" ? "2026-08-20 10:00:00" : "2026-08-21 10:00:00",
+          prices: { total_price: orderId === "201" ? 100 : 200 },
+        } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      geminiCalls += 1;
+      const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
+      if (geminiCalls === 1) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ functionCall: {
+            name: "crm_get_orders",
+            args: { orderIds: "201,202", sortBy: "orderNumber", sortDirection: "asc" },
+          } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      expect(JSON.stringify(body.contents)).toContain("R-201");
+      expect(JSON.stringify(body.contents)).toContain("R-202");
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "已取得兩筆訂單明細。" }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "gemini-3.6-flash",
+        toolKeys: ["crm_get_orders"],
+        input: "查詢訂單 201 與 202",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      text: "已取得兩筆訂單明細。",
+      toolCalls: [{ toolKey: "crm_get_orders", status: "success" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("使用選定 prompt 與模型執行 Gemini，並記錄可用量資訊", async () => {

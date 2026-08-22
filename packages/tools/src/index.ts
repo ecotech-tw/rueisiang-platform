@@ -18,7 +18,6 @@ import {
   listActivity,
   loadWarehouse,
   normalizeCustomerQuery,
-  readSyncStatus,
   type Database,
 } from "@rueisiang/db";
 import type { ToolContract, ToolContext, ToolSurface } from "./contract.js";
@@ -60,6 +59,14 @@ function parseStringArray(value: string): string[] {
   } catch {
     return [];
   }
+}
+
+function inputStringList(input: unknown, pluralKey: string, singularKey: string): string[] {
+  const rawValues = [textInput(input, singularKey), textInput(input, pluralKey)].filter(Boolean);
+  return [...new Set(rawValues.flatMap((value) => {
+    const parsed = parseStringArray(value);
+    return parsed.length ? parsed : value.split(",").map((item) => item.trim()).filter(Boolean);
+  }))];
 }
 
 type CustomerToolRecord = {
@@ -138,12 +145,8 @@ export const WMS_LIST_LOW_STOCK_TOOL_KEY = "wms_list_low_stock_items";
 export const WMS_GET_ACTIVITY_TOOL_KEY = "wms_get_activity";
 
 export const CRM_SEARCH_CUSTOMERS_TOOL_KEY = "crm_search_customers";
-export const CRM_GET_CUSTOMER_CONTEXT_TOOL_KEY = "crm_get_customer_context";
-export const CRM_LIST_CUSTOMER_EVENTS_TOOL_KEY = "crm_list_customer_events";
-export const CRM_LIST_CUSTOMER_TAGS_TOOL_KEY = "crm_list_customer_tags";
-export const CRM_GET_SYNC_STATUS_TOOL_KEY = "crm_get_sync_status";
-export const CRM_GET_CUSTOMER_ORDERS_TOOL_KEY = "crm_get_customer_orders";
-export const CRM_GET_CUSTOMER_SPENDING_SUMMARY_TOOL_KEY = "crm_get_customer_spending_summary";
+export const CRM_GET_CUSTOMER_TOOL_KEY = "crm_get_customer";
+export const CRM_GET_ORDERS_TOOL_KEY = "crm_get_orders";
 
 const wmsPermission = ["wms:inventory:read"] as const;
 const wmsMapPermission = ["wms:map:read"] as const;
@@ -430,7 +433,7 @@ const wmsGetActivityTool: PlatformToolDefinition = {
 const crmSearchCustomersTool: PlatformToolDefinition = {
   key: CRM_SEARCH_CUSTOMERS_TOOL_KEY,
   label: "CRM 搜尋客戶",
-  description: "搜尋與篩選 CRM 客戶資料，適合先找出客戶 ID，再取得單一客戶的完整背景；可依 Asia/Taipei 某天新增或更新的客戶篩選。若要查訂單或消費紀錄，請再使用 CRM 客戶消費工具。只讀。",
+  description: "用關鍵字、條件篩選、排序與 limit 搜尋 CRM 客戶，適合先取得 customerId 或 cyberbizCustomerId，再交給 crm_get_customer 或 crm_get_orders。只讀。",
   defaultStatus: "development",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["crm:customer:read"],
@@ -444,7 +447,7 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
       date: { type: "string", description: "指定日期，使用 YYYY-MM-DD；例如今天要填入系統提供的 currentDate。可留空。" },
       dateField: { type: "string", description: "日期欄位：createdAt 查詢當天新增客戶，updatedAt 查詢當天更新客戶。預設 createdAt。", enum: ["createdAt", "updatedAt"] },
       page: { type: "string", description: "頁碼，預設 1。" },
-      pageSize: { type: "string", description: "每頁筆數，可用 10、25、50 或 100，預設 25。" },
+      limit: { type: "string", description: "最多回傳幾位客戶，1 到 100，預設 25。" },
       sortField: { type: "string", description: "排序欄位：name、phone、sourceChannel、status、createdAt 或 updatedAt。預設 updatedAt。" },
       sortDirection: { type: "string", description: "排序方向：asc 或 desc。預設 desc。", enum: ["asc", "desc"] },
     },
@@ -455,6 +458,10 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
     const date = textInput(input, "date");
     const dateField = textInput(input, "dateField") === "updatedAt" ? "updatedAt" : "createdAt";
     const dateRange = date ? taipeiDayRange(date) : null;
+    const rawLimit = textInput(input, "limit") || textInput(input, "pageSize");
+    const parsedLimit = rawLimit ? Number(rawLimit) : 25;
+    const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, Math.floor(parsedLimit))) : 25;
+    const pageSize = limit <= 10 ? 10 : limit <= 25 ? 25 : limit <= 50 ? 50 : 100;
 
     const query = normalizeCustomerQuery({
       search,
@@ -462,7 +469,7 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
       status: textInput(input, "status"),
       tag: textInput(input, "tag"),
       page: textInput(input, "page") || "1",
-      pageSize: textInput(input, "pageSize") || "25",
+      pageSize: String(pageSize),
       sortField: textInput(input, "sortField"),
       sortDirection: textInput(input, "sortDirection"),
     });
@@ -474,47 +481,9 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
     return json({
       ...result,
       query,
+      limit,
       dateFilter: dateRange ? { date, field: dateField, timeZone: ASSISTANT_TIME_ZONE } : null,
-      customers: result.customers.map((customer) => customerToolView(customer)),
-    });
-  },
-};
-
-const crmGetCustomerContextTool: PlatformToolDefinition = {
-  key: CRM_GET_CUSTOMER_CONTEXT_TOOL_KEY,
-  label: "CRM 取得客戶背景",
-  description: "依客戶 ID 取得客戶資料、標籤、同步狀態與最近操作紀錄。只讀。",
-  defaultStatus: "development",
-  surfaces: ["sandbox", "line", "mcp"],
-  requiredPermissions: ["crm:customer:read", "crm:activity:read"],
-  parameters: {
-    type: "object",
-    properties: {
-      customerId: { type: "string", description: "CRM 客戶 ID，通常先由 crm_search_customers 取得。" },
-      eventLimit: { type: "string", description: "最多回傳幾筆最近操作紀錄，預設 10，最多 25。" },
-    },
-    required: ["customerId"],
-  },
-  async execute(input, context) {
-    const customerId = textInput(input, "customerId");
-    if (!customerId) throw new AssistantError("CRM 取得客戶背景需要 customerId。");
-
-    const db = database(context);
-    const customer = await findCustomer(db, customerId);
-    if (!customer) return json({ found: false, customerId });
-
-    const events = await listCustomerEvents(db, {
-      search: "",
-      source: "all",
-      customerId,
-      page: 1,
-      pageSize: boundedNumber(input, "eventLimit", 10, 25),
-    });
-    return json({
-      found: true,
-      customer: customerToolView(customer),
-      events: events.events,
-      eventsHasMore: events.hasMore,
+      customers: result.customers.slice(0, limit).map((customer) => customerToolView(customer)),
     });
   },
 };
@@ -538,20 +507,28 @@ type CustomerOrderIdentity = {
 };
 
 type CustomerOrderLookup =
-  | { kind: "not_found"; customerId: string }
-  | { kind: "unlinked"; subject: CustomerOrderSubject }
+  | { kind: "not_found"; customerIds: string[] }
+  | { kind: "unlinked"; subjects: CustomerOrderSubject[] }
+  | { kind: "detail"; orders: CyberbizOrder[] }
   | {
     kind: "matched";
-    subject: CustomerOrderSubject;
+    subjects: CustomerOrderSubject[];
     orders: CyberbizOrder[];
     filters: CyberbizOrderListFilters;
     dateRange: { fromDate: string | null; toDate: string | null; timeZone: string };
+    sortBy: CustomerOrderSortField;
+    sortDirection: CustomerOrderSortDirection;
     hasMore: boolean;
     truncated: boolean;
     scannedPages: number;
   };
 
-const MAX_ORDER_SCAN_PAGES = 20;
+const MAX_CUSTOMER_ORDER_SCAN_PAGES = 20;
+const MAX_ORDER_IDS_PER_REQUEST = 10;
+const MAX_CUSTOMER_IDS_PER_REQUEST = 10;
+
+type CustomerOrderSortField = "createdAt" | "updatedAt" | "totalPrice" | "orderNumber";
+type CustomerOrderSortDirection = "asc" | "desc";
 
 function cyberbizToolEnv(context: ToolContext | undefined): CyberbizToolEnv {
   const env = (context?.env ?? {}) as CyberbizToolEnv;
@@ -559,24 +536,6 @@ function cyberbizToolEnv(context: ToolContext | undefined): CyberbizToolEnv {
     throw new AssistantError("尚未設定 CYBERBIZ_API_TOKEN，無法即時查詢 CYBERBIZ 消費紀錄。");
   }
   return env;
-}
-
-function normalizePhoneCandidates(value: string): string[] {
-  const digits = value.replace(/\D/gu, "");
-  if (!digits) return [];
-  const candidates = new Set([digits]);
-  if (digits.startsWith("886") && digits.length > 3) candidates.add(`0${digits.slice(3)}`);
-  if (digits.startsWith("0") && digits.length > 1) candidates.add(`886${digits.slice(1)}`);
-  return [...candidates];
-}
-
-function samePhone(left: string, right: string): boolean {
-  const rightCandidates = new Set(normalizePhoneCandidates(right));
-  return normalizePhoneCandidates(left).some((candidate) => rightCandidates.has(candidate));
-}
-
-function sameEmail(left: string, right: string): boolean {
-  return Boolean(left.trim() && right.trim() && left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase());
 }
 
 function cyberbizDateTime(date: string, endOfDay: boolean): string {
@@ -594,37 +553,84 @@ function customerOrderSubject(customer: CustomerToolRecord | null, input: unknow
   };
 }
 
-async function resolveCustomerOrderIdentity(input: unknown, context: ToolContext | undefined): Promise<CustomerOrderIdentity> {
-  const customerId = textInput(input, "customerId");
-  const customer = customerId ? await findCustomer(database(context), customerId) : null;
-  if (customerId && !customer) {
-    return {
-      customer: null,
-      subject: {
-        crmCustomerId: customerId,
-        cyberbizCustomerId: null,
-        name: "",
-        phone: "",
-        email: "",
-      },
-    };
+async function resolveCustomerOrderIdentities(
+  input: unknown,
+  context: ToolContext | undefined,
+): Promise<{ identities: CustomerOrderIdentity[]; missingCustomerIds: string[] }> {
+  const customerIds = inputStringList(input, "customerIds", "customerId").slice(0, MAX_CUSTOMER_IDS_PER_REQUEST);
+  const cyberbizCustomerIds = inputStringList(input, "cyberbizCustomerIds", "cyberbizCustomerId").slice(0, MAX_CUSTOMER_IDS_PER_REQUEST);
+  if (!customerIds.length && !cyberbizCustomerIds.length) {
+    return { identities: [], missingCustomerIds: [] };
   }
 
-  const subject = customerOrderSubject(customer, input);
-  if (!subject.cyberbizCustomerId && !subject.phone && !subject.email) {
-    throw new AssistantError("CRM 查詢消費紀錄需要 customerId、cyberbizCustomerId、phone 或 email 其中一項。");
+  const identities: CustomerOrderIdentity[] = [];
+  const missingCustomerIds: string[] = [];
+  for (const customerId of customerIds) {
+    const customer = await findCustomer(database(context), customerId);
+    if (!customer) {
+      missingCustomerIds.push(customerId);
+      continue;
+    }
+    identities.push({ customer, subject: customerOrderSubject(customer, { customerId }) });
   }
-  return { customer, subject };
+  for (const cyberbizCustomerId of cyberbizCustomerIds) {
+    if (identities.some((identity) => identity.subject.cyberbizCustomerId === cyberbizCustomerId)) continue;
+    identities.push({
+      customer: null,
+      subject: customerOrderSubject(null, { cyberbizCustomerId }),
+    });
+  }
+  return { identities, missingCustomerIds };
 }
 
-function orderMatchesCustomer(order: CyberbizOrder, subject: CustomerOrderSubject): boolean {
-  const cyberbizIdMatches = Boolean(
-    subject.cyberbizCustomerId && order.customer.id && subject.cyberbizCustomerId === order.customer.id,
+function parseCyberbizFilterDate(value: string): number | null {
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(value)
+    ? `${value.replace(" ", "T")}+08:00`
+    : value;
+  const timestamp = Date.parse(normalized);
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function hasOrderFilters(filters: CyberbizOrderListFilters): boolean {
+  return Boolean(
+    filters.startTime ||
+    filters.endTime ||
+    filters.updatedAtStartTime ||
+    filters.updatedAtEndTime ||
+    filters.financialStatuses?.length ||
+    filters.fulfillmentStatuses?.length ||
+    filters.statuses?.length ||
+    filters.returnStatuses?.length ||
+    filters.tags?.length ||
+    filters.excludedTags?.length ||
+    filters.dataSource ||
+    filters.vendor,
   );
-  const emailMatches = [order.customer.email, order.buyerEmail].some((email) => sameEmail(subject.email, email));
-  const phoneMatches = [order.customer.phone, order.buyerPhone, order.receiverPhone]
-    .some((phone) => samePhone(subject.phone, phone));
-  return cyberbizIdMatches || emailMatches || phoneMatches;
+}
+
+function includesStatus(status: string, accepted: string[] | undefined): boolean {
+  if (!accepted?.length) return true;
+  const normalized = status.toLowerCase();
+  return accepted.some((value) => value.toLowerCase() === normalized);
+}
+
+function orderMatchesFilters(order: CyberbizOrder, filters: CyberbizOrderListFilters): boolean {
+  const matchesTimeRange = (value: string, start: string | undefined, end: string | undefined): boolean => {
+    const timestamp = value ? Date.parse(value) : null;
+    const startTime = start ? parseCyberbizFilterDate(start) : null;
+    const endTime = end ? parseCyberbizFilterDate(end) : null;
+    if (startTime !== null && (timestamp === null || timestamp < startTime)) return false;
+    if (endTime !== null && (timestamp === null || timestamp > endTime)) return false;
+    return true;
+  };
+
+  if (!matchesTimeRange(order.createdAt, filters.startTime, filters.endTime)) return false;
+  if (!matchesTimeRange(order.updatedAt, filters.updatedAtStartTime, filters.updatedAtEndTime)) return false;
+  if (!includesStatus(order.statuses.financialStatus, filters.financialStatuses)) return false;
+  if (!includesStatus(order.statuses.fulfillmentStatus, filters.fulfillmentStatuses)) return false;
+  if (!includesStatus(order.statuses.orderStatus, filters.statuses)) return false;
+  if (!includesStatus(order.statuses.returnStatus, filters.returnStatuses)) return false;
+  return true;
 }
 
 function orderQueryFilters(input: unknown): {
@@ -633,82 +639,194 @@ function orderQueryFilters(input: unknown): {
 } {
   const fromDate = textInput(input, "fromDate") || null;
   const toDate = textInput(input, "toDate") || null;
-  if (fromDate && toDate && fromDate > toDate) {
-    throw new AssistantError("CRM 消費紀錄的 fromDate 不能晚於 toDate。");
+  const updatedFromDate = textInput(input, "updatedFromDate") || null;
+  const updatedToDate = textInput(input, "updatedToDate") || null;
+  if ((fromDate && toDate && fromDate > toDate) || (updatedFromDate && updatedToDate && updatedFromDate > updatedToDate)) {
+    throw new AssistantError("CRM 訂單日期範圍的起始日不能晚於結束日。");
   }
 
-  const financialStatus = textInput(input, "financialStatus");
-  const fulfillmentStatus = textInput(input, "fulfillmentStatus");
+  const orderStatuses = inputStringList(input, "orderStatuses", "orderStatus");
+  const financialStatuses = inputStringList(input, "financialStatuses", "financialStatus");
+  const fulfillmentStatuses = inputStringList(input, "fulfillmentStatuses", "fulfillmentStatus");
+  const returnStatuses = inputStringList(input, "returnStatuses", "returnStatus");
+  const tags = inputStringList(input, "tags", "tag");
+  const excludedTags = inputStringList(input, "excludedTags", "excludedTag");
   return {
     filters: {
       ...(fromDate ? { startTime: cyberbizDateTime(fromDate, false) } : {}),
       ...(toDate ? { endTime: cyberbizDateTime(toDate, true) } : {}),
-      ...(financialStatus ? { financialStatuses: [financialStatus] } : {}),
-      ...(fulfillmentStatus ? { fulfillmentStatuses: [fulfillmentStatus] } : {}),
+      ...(updatedFromDate ? { updatedAtStartTime: cyberbizDateTime(updatedFromDate, false) } : {}),
+      ...(updatedToDate ? { updatedAtEndTime: cyberbizDateTime(updatedToDate, true) } : {}),
+      ...(orderStatuses.length ? { statuses: orderStatuses } : {}),
+      ...(financialStatuses.length ? { financialStatuses } : {}),
+      ...(fulfillmentStatuses.length ? { fulfillmentStatuses } : {}),
+      ...(returnStatuses.length ? { returnStatuses } : {}),
+      ...(tags.length ? { tags } : {}),
+      ...(excludedTags.length ? { excludedTags } : {}),
     },
-    dateRange: { fromDate, toDate, timeZone: ASSISTANT_TIME_ZONE },
+    dateRange: { fromDate: fromDate ?? updatedFromDate, toDate: toDate ?? updatedToDate, timeZone: ASSISTANT_TIME_ZONE },
   };
+}
+
+function customerOrderSort(input: unknown): { sortBy: CustomerOrderSortField; sortDirection: CustomerOrderSortDirection } {
+  const sortByInput = textInput(input, "sortBy");
+  const sortBy: CustomerOrderSortField = ["updatedAt", "totalPrice", "orderNumber"].includes(sortByInput)
+    ? sortByInput as CustomerOrderSortField
+    : "createdAt";
+  return {
+    sortBy,
+    sortDirection: textInput(input, "sortDirection") === "asc" ? "asc" : "desc",
+  };
+}
+
+function sortCustomerOrders(
+  orders: CyberbizOrder[],
+  sortBy: CustomerOrderSortField,
+  sortDirection: CustomerOrderSortDirection,
+): CyberbizOrder[] {
+  const multiplier = sortDirection === "asc" ? 1 : -1;
+  return orders.slice().sort((left, right) => {
+    if (sortBy === "totalPrice") {
+      return ((left.totalPrice ?? Number.NEGATIVE_INFINITY) - (right.totalPrice ?? Number.NEGATIVE_INFINITY)) * multiplier;
+    }
+    const leftValue = sortBy === "updatedAt"
+      ? left.updatedAt
+      : sortBy === "orderNumber"
+        ? left.orderNumber
+        : left.createdAt;
+    const rightValue = sortBy === "updatedAt"
+      ? right.updatedAt
+      : sortBy === "orderNumber"
+        ? right.orderNumber
+        : right.createdAt;
+    return leftValue.localeCompare(rightValue) * multiplier;
+  });
 }
 
 async function lookupCustomerOrders(
   input: unknown,
   context: ToolContext | undefined,
-  defaultLimit: number,
-  maxLimit: number,
+  defaultLimit = 10,
+  maxLimit = 50,
 ): Promise<CustomerOrderLookup> {
-  const identity = await resolveCustomerOrderIdentity(input, context);
-  if (textInput(input, "customerId") && !identity.customer) {
-    return { kind: "not_found", customerId: textInput(input, "customerId") };
+  const env = cyberbizToolEnv(context);
+  const client = createOrderClient({ apiToken: env.CYBERBIZ_API_TOKEN!, baseUrl: env.CYBERBIZ_API_BASE_URL });
+  const requestedLimit = Math.min(maxLimit, boundedNumber(input, "limit", defaultLimit, maxLimit));
+  const { sortBy, sortDirection } = customerOrderSort(input);
+  const orderIds = inputStringList(input, "orderIds", "orderId").slice(0, MAX_ORDER_IDS_PER_REQUEST);
+  const suppliedCustomerIds = inputStringList(input, "customerIds", "customerId");
+  const suppliedCyberbizCustomerIds = inputStringList(input, "cyberbizCustomerIds", "cyberbizCustomerId");
+  const hasCustomerFilter = suppliedCustomerIds.length > 0 || suppliedCyberbizCustomerIds.length > 0;
+  const resolved = await resolveCustomerOrderIdentities(input, context);
+  const linkedCustomerIds = new Set(
+    resolved.identities
+      .map((identity) => identity.subject.cyberbizCustomerId)
+      .filter((id): id is string => Boolean(id)),
+  );
+
+  if (hasCustomerFilter && !resolved.identities.length) {
+    return { kind: "not_found", customerIds: resolved.missingCustomerIds.length ? resolved.missingCustomerIds : suppliedCustomerIds };
   }
-  if (!identity.subject.cyberbizCustomerId && !identity.subject.phone && !identity.subject.email) {
-    return { kind: "unlinked", subject: identity.subject };
+  if (hasCustomerFilter && !linkedCustomerIds.size) {
+    return { kind: "unlinked", subjects: resolved.identities.map((identity) => identity.subject) };
+  }
+
+  if (orderIds.length) {
+    const details: CyberbizOrder[] = [];
+    for (const orderId of orderIds) details.push(await client.fetchOne(orderId));
+    const filtered = hasCustomerFilter
+      ? details.filter((order) => linkedCustomerIds.has(order.customer.id))
+      : details;
+    return { kind: "detail", orders: sortCustomerOrders(filtered, sortBy, sortDirection).slice(0, requestedLimit) };
   }
 
   const { filters, dateRange } = orderQueryFilters(input);
-  const requestedLimit = Math.min(maxLimit, boundedNumber(input, "limit", defaultLimit, maxLimit));
-  const env = cyberbizToolEnv(context);
-  const client = createOrderClient({ apiToken: env.CYBERBIZ_API_TOKEN!, baseUrl: env.CYBERBIZ_API_BASE_URL });
   const orders: CyberbizOrder[] = [];
   let scannedPages = 0;
   let hasMore = false;
+  const needsFullScan = sortBy !== "createdAt" || sortDirection !== "desc";
+  const useGlobalSearch = hasOrderFilters(filters) || !linkedCustomerIds.size;
+  const globalPerPage = hasOrderFilters(filters) || needsFullScan ? 50 : requestedLimit;
 
-  for (let page = 1; page <= MAX_ORDER_SCAN_PAGES; page += 1) {
-    const result = await client.fetchPage({ ...filters, page, perPage: 50, offset: (page - 1) * 50 });
-    scannedPages += 1;
-    for (const order of result.orders) {
-      if (orderMatchesCustomer(order, identity.subject)) orders.push(order);
+  if (useGlobalSearch) {
+    for (let page = 1; page <= MAX_CUSTOMER_ORDER_SCAN_PAGES; page += 1) {
+      const result = await client.fetchPage({
+        ...filters,
+        page,
+        perPage: globalPerPage,
+        offset: (page - 1) * globalPerPage,
+      });
+      scannedPages += 1;
+      for (const order of result.orders) {
+        const belongsToCustomer = !linkedCustomerIds.size || linkedCustomerIds.has(order.customer.id);
+        if (belongsToCustomer && orderMatchesFilters(order, filters)) orders.push(order);
+      }
+      hasMore = result.hasMore;
+      if ((!needsFullScan && orders.length >= requestedLimit) || !result.hasMore || result.orders.length === 0) break;
     }
-    hasMore = result.hasMore;
-    if (orders.length >= requestedLimit || !result.hasMore || result.orders.length === 0) break;
+  } else {
+    for (const cyberbizCustomerId of linkedCustomerIds) {
+      if (scannedPages >= MAX_CUSTOMER_ORDER_SCAN_PAGES) break;
+      const perPage = Math.min(50, requestedLimit);
+      let customerPage = 1;
+      let customerOrderCount = 0;
+      while (customerPage <= MAX_CUSTOMER_ORDER_SCAN_PAGES
+        && scannedPages < MAX_CUSTOMER_ORDER_SCAN_PAGES
+        && (needsFullScan || customerOrderCount < requestedLimit)) {
+        const result = await client.fetchCustomerOrders(cyberbizCustomerId, {
+          page: customerPage,
+          perPage,
+          offset: (customerPage - 1) * perPage,
+        });
+        scannedPages += 1;
+        customerOrderCount += result.orders.length;
+        orders.push(...result.orders.filter((order) => orderMatchesFilters(order, filters)));
+        hasMore = hasMore || result.hasMore;
+        if (!result.hasMore || result.orders.length === 0) break;
+        customerPage += 1;
+      }
+    }
   }
 
   return {
     kind: "matched",
-    subject: identity.subject,
-    orders: orders.slice(0, requestedLimit),
+    subjects: resolved.identities.map((identity) => identity.subject),
+    orders: sortCustomerOrders(orders, sortBy, sortDirection).slice(0, requestedLimit),
     filters,
     dateRange,
+    sortBy,
+    sortDirection,
     hasMore,
-    truncated: hasMore && scannedPages >= MAX_ORDER_SCAN_PAGES,
+    truncated: hasMore && scannedPages >= MAX_CUSTOMER_ORDER_SCAN_PAGES,
     scannedPages,
   };
 }
 
 function orderToolResult(lookup: CustomerOrderLookup): string {
-  if (lookup.kind === "not_found") return json({ found: false, customerId: lookup.customerId });
+  if (lookup.kind === "not_found") return json({ found: false, customerIds: lookup.customerIds });
+  if (lookup.kind === "detail") {
+    return json({
+      source: "cyberbiz_live",
+      mode: "detail",
+      retrievedAt: new Date().toISOString(),
+      totalReturned: lookup.orders.length,
+      orders: lookup.orders,
+    });
+  }
   if (lookup.kind === "unlinked") {
     return json({
       found: true,
       linked: false,
-      customer: lookup.subject,
-      message: "CRM 客戶尚未有可用的 CYBERBIZ customer id、phone 或 email，無法比對即時訂單。",
+      customers: lookup.subjects,
+      message: "CRM 客戶尚未有可用的 CYBERBIZ customer id，無法查詢即時訂單。",
     });
   }
   return json({
     source: "cyberbiz_live",
-    customer: lookup.subject,
+    customers: lookup.subjects,
     dateRange: lookup.dateRange,
     filters: lookup.filters,
+    sort: { by: lookup.sortBy, direction: lookup.sortDirection },
     totalReturned: lookup.orders.length,
     hasMore: lookup.hasMore,
     truncated: lookup.truncated,
@@ -718,176 +836,180 @@ function orderToolResult(lookup: CustomerOrderLookup): string {
   });
 }
 
-const crmGetCustomerOrdersTool: PlatformToolDefinition = {
-  key: CRM_GET_CUSTOMER_ORDERS_TOOL_KEY,
-  label: "CRM 查詢客戶消費紀錄",
-  description: "即時查詢 CYBERBIZ 訂單並依 CRM customerId、CYBERBIZ customerId、電話或 email 比對客戶；可依 Asia/Taipei 日期與付款／配送狀態篩選。這是即時訂單資料，不是 CRM 操作紀錄。只讀。",
-  defaultStatus: "development",
-  surfaces: ["sandbox", "mcp"],
-  requiredPermissions: ["crm:order:read"],
-  parameters: {
-    type: "object",
-    properties: {
-      customerId: { type: "string", description: "CRM 客戶 ID，通常先由 crm_search_customers 取得。" },
-      cyberbizCustomerId: { type: "string", description: "CYBERBIZ customer ID；若已有此 ID 可直接查詢。" },
-      phone: { type: "string", description: "客戶電話，可用來比對 CYBERBIZ 訂單。" },
-      email: { type: "string", description: "客戶 email，可用來比對 CYBERBIZ 訂單。" },
-      fromDate: { type: "string", description: "訂單建立起始日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
-      toDate: { type: "string", description: "訂單建立結束日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
-      financialStatus: { type: "string", description: "付款狀態，例如 paid、cod、refunded；可留空。" },
-      fulfillmentStatus: { type: "string", description: "配送狀態，例如 unshipped、fulfilled、received；可留空。" },
-      limit: { type: "string", description: "最多回傳幾筆訂單，預設 10，最多 25。" },
-    },
-  },
-  async execute(input, context) {
-    return orderToolResult(await lookupCustomerOrders(input, context, 10, 25));
-  },
-};
+function customerDetailsInclude(input: unknown): { events: boolean; tags: boolean; spending: boolean } {
+  const raw = textInput(input, "include").toLocaleLowerCase();
+  if (!raw) return { events: true, tags: true, spending: false };
+  const values = new Set(raw.split(",").map((value) => value.trim()).filter(Boolean));
+  if (values.has("all")) return { events: true, tags: true, spending: true };
+  return {
+    events: values.has("events") || values.has("activity") || values.has("context"),
+    tags: values.has("tags"),
+    spending: values.has("spending") || values.has("summary"),
+  };
+}
 
-const crmGetCustomerSpendingSummaryTool: PlatformToolDefinition = {
-  key: CRM_GET_CUSTOMER_SPENDING_SUMMARY_TOOL_KEY,
-  label: "CRM 客戶消費摘要",
-  description: "即時查詢 CYBERBIZ 訂單，彙整客戶訂單數、消費金額、平均客單價、最近消費與熱銷商品；可依 Asia/Taipei 日期與付款／配送狀態篩選。結果可能受掃描上限影響。只讀。",
-  defaultStatus: "development",
-  surfaces: ["sandbox", "mcp"],
-  requiredPermissions: ["crm:order:read"],
-  parameters: {
-    type: "object",
-    properties: {
-      customerId: { type: "string", description: "CRM 客戶 ID，通常先由 crm_search_customers 取得。" },
-      cyberbizCustomerId: { type: "string", description: "CYBERBIZ customer ID；若已有此 ID 可直接查詢。" },
-      phone: { type: "string", description: "客戶電話，可用來比對 CYBERBIZ 訂單。" },
-      email: { type: "string", description: "客戶 email，可用來比對 CYBERBIZ 訂單。" },
-      fromDate: { type: "string", description: "訂單建立起始日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
-      toDate: { type: "string", description: "訂單建立結束日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
-      financialStatus: { type: "string", description: "付款狀態，例如 paid、cod、refunded；可留空。" },
-      fulfillmentStatus: { type: "string", description: "配送狀態，例如 unshipped、fulfilled、received；可留空。" },
-    },
-  },
-  async execute(input, context) {
-    const lookup = await lookupCustomerOrders(input, context, 100, 100);
-    if (lookup.kind !== "matched") return orderToolResult(lookup);
+type MatchedCustomerOrders = Extract<CustomerOrderLookup, { kind: "matched" }>;
 
-    const amounts = lookup.orders
-      .map((order) => order.totalPrice)
-      .filter((value): value is number => value !== null);
-    const totalSpent = Math.round(amounts.reduce((total, amount) => total + amount, 0) * 100) / 100;
-    const productMap = new Map<string, { name: string; sku: string; quantity: number; spent: number }>();
-    for (const order of lookup.orders) {
-      for (const item of order.lineItems) {
-        const key = `${item.sku}|${item.title}|${item.variantTitle}`;
-        const current = productMap.get(key) ?? {
-          name: [item.title, item.variantTitle].filter(Boolean).join(" / "),
-          sku: item.sku,
-          quantity: 0,
-          spent: 0,
-        };
-        current.quantity += item.quantity;
-        current.spent += item.totalPriceAfterDiscounts ?? (item.price === null ? 0 : item.price * item.quantity);
-        productMap.set(key, current);
-      }
+function customerSpendingSummary(lookup: MatchedCustomerOrders) {
+  const amounts = lookup.orders
+    .map((order) => order.totalPrice)
+    .filter((value): value is number => value !== null);
+  const totalSpent = Math.round(amounts.reduce((total, amount) => total + amount, 0) * 100) / 100;
+  const productMap = new Map<string, { name: string; sku: string; quantity: number; spent: number }>();
+  for (const order of lookup.orders) {
+    for (const item of order.lineItems) {
+      const key = item.sku + "|" + item.title + "|" + item.variantTitle;
+      const current = productMap.get(key) ?? {
+        name: [item.title, item.variantTitle].filter(Boolean).join(" / "),
+        sku: item.sku,
+        quantity: 0,
+        spent: 0,
+      };
+      current.quantity += item.quantity;
+      current.spent += item.totalPriceAfterDiscounts ?? (item.price === null ? 0 : item.price * item.quantity);
+      productMap.set(key, current);
     }
-    const topProducts = [...productMap.values()]
-      .sort((left, right) => right.quantity - left.quantity || right.spent - left.spent)
-      .slice(0, 10)
-      .map((product) => ({ ...product, spent: Math.round(product.spent * 100) / 100 }));
-    const lastOrderAt = lookup.orders
-      .map((order) => order.createdAt)
-      .filter(Boolean)
-      .sort()
-      .at(-1) ?? null;
-    const refundedOrderCount = lookup.orders.filter((order) =>
-      ["refunded", "partial_refunded", "pending_refund"].includes(order.statuses.financialStatus) ||
-      ["returned", "partial_return"].includes(order.statuses.returnStatus),
-    ).length;
+  }
+  const topProducts = [...productMap.values()]
+    .sort((left, right) => right.quantity - left.quantity || right.spent - left.spent)
+    .slice(0, 10)
+    .map((product) => ({ ...product, spent: Math.round(product.spent * 100) / 100 }));
+  const lastOrderAt = lookup.orders
+    .map((order) => order.createdAt)
+    .filter(Boolean)
+    .sort()
+    .at(-1) ?? null;
+  const refundedOrderCount = lookup.orders.filter((order) =>
+    ["refunded", "partial_refunded", "pending_refund"].includes(order.statuses.financialStatus) ||
+    ["returned", "partial_return"].includes(order.statuses.returnStatus),
+  ).length;
 
-    return json({
-      source: "cyberbiz_live",
-      customer: lookup.subject,
-      dateRange: lookup.dateRange,
-      filters: lookup.filters,
-      orderCount: lookup.orders.length,
-      totalSpent,
-      currency: "TWD",
-      averageOrderValue: lookup.orders.length ? Math.round((totalSpent / lookup.orders.length) * 100) / 100 : 0,
-      lastOrderAt,
-      refundedOrderCount,
-      topProducts,
-      complete: !lookup.hasMore && !lookup.truncated,
-      hasMore: lookup.hasMore,
-      truncated: lookup.truncated,
-      scannedPages: lookup.scannedPages,
-      retrievedAt: new Date().toISOString(),
-    });
-  },
-};
+  return {
+    source: "cyberbiz_live",
+    customers: lookup.subjects,
+    dateRange: lookup.dateRange,
+    filters: lookup.filters,
+    sort: { by: lookup.sortBy, direction: lookup.sortDirection },
+    orderCount: lookup.orders.length,
+    totalSpent,
+    currency: "TWD",
+    averageOrderValue: lookup.orders.length ? Math.round((totalSpent / lookup.orders.length) * 100) / 100 : 0,
+    lastOrderAt,
+    refundedOrderCount,
+    topProducts,
+    complete: !lookup.hasMore && !lookup.truncated,
+    hasMore: lookup.hasMore,
+    truncated: lookup.truncated,
+    scannedPages: lookup.scannedPages,
+    retrievedAt: new Date().toISOString(),
+  };
+}
 
-const crmListCustomerEventsTool: PlatformToolDefinition = {
-  key: CRM_LIST_CUSTOMER_EVENTS_TOOL_KEY,
-  label: "CRM 查詢客戶操作紀錄",
-  description: "查詢客戶新增、修改、同步與 webhook 等操作紀錄，可指定客戶或搜尋整體 CRM 紀錄。只讀。",
+const crmGetCustomerTool: PlatformToolDefinition = {
+  key: CRM_GET_CUSTOMER_TOOL_KEY,
+  label: "CRM 取得客戶",
+  description: "依 customerId 取得單一客戶完整資料，包含客戶標籤、可選的最近操作紀錄；需要消費金額或購買摘要時可在 include 填 spending。只讀。",
   defaultStatus: "development",
-  surfaces: ["sandbox", "line", "mcp"],
-  requiredPermissions: ["crm:activity:read"],
+  surfaces: ["sandbox", "mcp"],
+  requiredPermissions: ["crm:customer:read", "crm:activity:read", "crm:tag:read", "crm:order:read"],
   parameters: {
     type: "object",
     properties: {
-      customerId: { type: "string", description: "指定客戶 ID，可留空查詢所有客戶。" },
-      search: { type: "string", description: "事件摘要、事件類型、操作者或電話關鍵字，可留空。" },
-      source: { type: "string", description: "紀錄來源：all、crm、cyberbiz_webhook 或 cyberbiz_sync。預設 all。", enum: ["all", "crm", "cyberbiz_webhook", "cyberbiz_sync"] },
-      page: { type: "string", description: "頁碼，預設 1。" },
-      pageSize: { type: "string", description: "每頁筆數，預設 25，最多 50。" },
+      customerId: { type: "string", description: "CRM 客戶 ID，通常先由 crm_search_customers 取得。" },
+      include: { type: "string", description: "可選資料區塊，以逗號分隔：events、tags、spending 或 all。預設 events,tags；spending 會即時查詢 CYBERBIZ，可能較慢。" },
+      eventLimit: { type: "string", description: "最多回傳幾筆最近操作紀錄，預設 10，最多 25。" },
+      spendingLimit: { type: "string", description: "計算消費摘要時最多查幾筆訂單，預設 100，最多 100。" },
+      fromDate: { type: "string", description: "消費摘要的訂單建立起始日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
+      toDate: { type: "string", description: "消費摘要的訂單建立結束日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
+      financialStatus: { type: "string", description: "消費摘要的付款狀態，例如 paid、cod、refunded；可留空。" },
+      fulfillmentStatus: { type: "string", description: "消費摘要的配送狀態，例如 unshipped、fulfilled、received；可留空。" },
+    },
+    required: ["customerId"],
+  },
+  async execute(input, context) {
+    const customerId = textInput(input, "customerId");
+    if (!customerId) throw new AssistantError("CRM 取得客戶需要 customerId。");
+
+    const db = database(context);
+    const customer = await findCustomer(db, customerId);
+    if (!customer) return json({ found: false, customerId });
+
+    const include = customerDetailsInclude(input);
+    const view = customerToolView(customer);
+    const result: Record<string, unknown> = {
+      found: true,
+      customer: view,
+      tags: view.tags,
+    };
+
+    if (include.tags) {
+      result.tagCatalog = await listTags(db);
+    }
+    if (include.events) {
+      const events = await listCustomerEvents(db, {
+        search: "",
+        source: "all",
+        customerId,
+        page: 1,
+        pageSize: boundedNumber(input, "eventLimit", 10, 25),
+      });
+      result.events = events.events;
+      result.eventsHasMore = events.hasMore;
+    }
+    if (include.spending) {
+      const lookup = await lookupCustomerOrders({
+        ...objectInput(input),
+        customerId,
+        limit: textInput(input, "spendingLimit") || "100",
+      }, context, 100, 100);
+      result.spendingSummary = lookup.kind === "matched"
+        ? customerSpendingSummary(lookup)
+        : { available: false, details: JSON.parse(orderToolResult(lookup)) };
+    }
+
+    return json(result);
+  },
+};
+
+const crmGetOrdersTool: PlatformToolDefinition = {
+  key: CRM_GET_ORDERS_TOOL_KEY,
+  label: "CRM 查詢訂單",
+  description: "查詢 CYBERBIZ 即時訂單。可用 customerId(s) 或 cyberbizCustomerId(s) 查客戶訂單，也可用 orderId(s) 取得單筆明細；沒有客戶 ID 時可直接使用日期、狀態、標籤、排序與 limit 搜尋訂單。只讀。",
+  defaultStatus: "development",
+  surfaces: ["sandbox", "mcp"],
+  requiredPermissions: ["crm:order:read"],
+  parameters: {
+    type: "object",
+    properties: {
+      customerId: { type: "string", description: "單一 CRM 客戶 ID，通常先由 crm_search_customers 取得。" },
+      customerIds: { type: "string", description: "多個 CRM 客戶 ID，以逗號分隔；最多 10 個。" },
+      cyberbizCustomerId: { type: "string", description: "單一 CYBERBIZ customer ID，可直接查詢。" },
+      cyberbizCustomerIds: { type: "string", description: "多個 CYBERBIZ customer ID，以逗號分隔；最多 10 個。" },
+      orderId: { type: "string", description: "單一 CYBERBIZ order ID，提供後直接取得訂單明細。" },
+      orderIds: { type: "string", description: "多個 CYBERBIZ order ID，以逗號分隔；最多 10 個。" },
+      fromDate: { type: "string", description: "訂單建立起始日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
+      toDate: { type: "string", description: "訂單建立結束日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
+      updatedFromDate: { type: "string", description: "訂單更新起始日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
+      updatedToDate: { type: "string", description: "訂單更新結束日，YYYY-MM-DD，使用 Asia/Taipei；可留空。" },
+      orderStatus: { type: "string", description: "訂單狀態，例如 open、closed、cancelled；可留空。" },
+      orderStatuses: { type: "string", description: "多個訂單狀態，以逗號分隔；可留空。" },
+      financialStatus: { type: "string", description: "付款狀態，例如 paid、cod、refunded；可留空。" },
+      financialStatuses: { type: "string", description: "多個付款狀態，以逗號分隔；可留空。" },
+      fulfillmentStatus: { type: "string", description: "配送狀態，例如 unshipped、fulfilled、received；可留空。" },
+      fulfillmentStatuses: { type: "string", description: "多個配送狀態，以逗號分隔；可留空。" },
+      returnStatus: { type: "string", description: "退貨狀態；可留空。" },
+      returnStatuses: { type: "string", description: "多個退貨狀態，以逗號分隔；可留空。" },
+      tag: { type: "string", description: "CYBERBIZ 訂單標籤；可留空。" },
+      tags: { type: "string", description: "多個 CYBERBIZ 訂單標籤，以逗號分隔；可留空。" },
+      excludedTag: { type: "string", description: "要排除的 CYBERBIZ 訂單標籤；可留空。" },
+      excludedTags: { type: "string", description: "多個要排除的 CYBERBIZ 訂單標籤，以逗號分隔；可留空。" },
+      sortBy: { type: "string", description: "排序欄位：createdAt、updatedAt、totalPrice 或 orderNumber。預設 createdAt。", enum: ["createdAt", "updatedAt", "totalPrice", "orderNumber"] },
+      sortDirection: { type: "string", description: "排序方向：asc 或 desc。預設 desc。", enum: ["asc", "desc"] },
+      limit: { type: "string", description: "最多回傳幾筆訂單，預設 10，最多 50。" },
     },
   },
   async execute(input, context) {
-    const search = textInput(input, "search");
-    if (search.length > 120) throw new AssistantError("CRM 操作紀錄搜尋關鍵字不能超過 120 字。");
-    const sourceInput = textInput(input, "source");
-    const source = ["crm", "cyberbiz_webhook", "cyberbiz_sync"].includes(sourceInput) ? sourceInput : "all";
-    return json(await listCustomerEvents(database(context), {
-      search,
-      source,
-      customerId: textInput(input, "customerId"),
-      page: boundedNumber(input, "page", 1, 10_000),
-      pageSize: boundedNumber(input, "pageSize", 25, 50),
-    }));
-  },
-};
-
-const crmListCustomerTagsTool: PlatformToolDefinition = {
-  key: CRM_LIST_CUSTOMER_TAGS_TOOL_KEY,
-  label: "CRM 列出客戶標籤",
-  description: "列出 CRM 標籤字典與實際使用次數，協助模型理解可用的客戶分類。只讀。",
-  defaultStatus: "development",
-  surfaces: ["sandbox", "line", "mcp"],
-  requiredPermissions: ["crm:tag:read"],
-  parameters: { type: "object", properties: {} },
-  async execute(_input, context) {
-    return json({ tags: await listTags(database(context)) });
-  },
-};
-
-const crmGetSyncStatusTool: PlatformToolDefinition = {
-  key: CRM_GET_SYNC_STATUS_TOOL_KEY,
-  label: "CRM 查詢同步狀態",
-  description: "查詢 CRM 客戶與 CYBERBIZ webhook 的同步統計及最近錯誤，不回傳原始 webhook payload。只讀。",
-  defaultStatus: "development",
-  surfaces: ["sandbox", "line", "mcp"],
-  requiredPermissions: ["crm:sync:read"],
-  parameters: { type: "object", properties: {} },
-  async execute(_input, context) {
-    const status = await readSyncStatus(database(context));
-    return json({
-      ...status,
-      recent: status.recent.map((event) => ({
-        id: event.id,
-        topic: event.topic,
-        status: event.status,
-        cyberbizCustomerId: event.cyberbizCustomerId,
-        lastError: event.lastError,
-        receivedAt: event.receivedAt,
-      })),
-    });
+    return orderToolResult(await lookupCustomerOrders(input, context, 10, 50));
   },
 };
 
@@ -899,12 +1021,8 @@ export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   wmsListLowStockTool,
   wmsGetActivityTool,
   crmSearchCustomersTool,
-  crmGetCustomerContextTool,
-  crmGetCustomerOrdersTool,
-  crmGetCustomerSpendingSummaryTool,
-  crmListCustomerEventsTool,
-  crmListCustomerTagsTool,
-  crmGetSyncStatusTool,
+  crmGetCustomerTool,
+  crmGetOrdersTool,
 ];
 
 export const PLATFORM_TOOL_KEYS = PLATFORM_TOOL_DEFINITIONS.map((tool) => tool.key);
