@@ -234,9 +234,11 @@ export async function runGemini(input: {
         toolCalls.push({ toolKey: tool.key, status: "failed", durationMs: Date.now() - started, errorMessage });
       }
     }
-    // 工具已經失敗時不再把錯誤 response 餵回模型重試。Gemini 的 function
-    // response 雖然支援 error 欄位，但不同模型對失敗工具的續接格式不一致；
-    // 直接結束可避免重複呼叫外部 API，也避免第二輪 request 變成 400。
+    // 工具已經失敗時不再把 response 餵回模型重試。Gemini 的 function response
+    // 雖然支援 error 欄位，但不同模型對失敗工具的續接格式不一致；如果只送成功
+    // 的 functionResponse，失敗的 function call 會沒有對應回覆，也可能讓第二輪 request
+    // 變成 400。因此同一輪即使其他工具成功，也會一起捨棄並直接結束，避免重複呼叫
+    // 外部 API；若未來要保留部分成功結果，需另設明確的 Gemini response contract。
     if (toolExecutionFailed) {
       return { text: toolFailureText(), thoughts: thoughts.join("\n\n"), toolCalls, usage };
     }
