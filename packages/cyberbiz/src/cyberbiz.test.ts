@@ -508,6 +508,39 @@ describe("訂單與消費紀錄", () => {
     expect(page).toMatchObject({ page: 2, perPage: 50, offset: 50, totalPages: 3, totalOrders: 101, hasMore: true });
     expect(page.orders[0]?.id).toBe("99");
   });
+
+  it("透過 customer ID 查詢訂單時只送分頁參數", async () => {
+    const calls = stubFetch({
+      body: [{ id: 99, order_number: "R-00099", customer: { id: 7 } }],
+      headers: { "x-total-pages": "3", "x-total-count": "12" },
+    });
+
+    const page = await createOrderClient(config, { sleep: noSleep }).fetchCustomerOrders("customer/7", {
+      page: 2,
+      perPage: 5,
+      offset: 5,
+    });
+
+    const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe("/v1/customers/customer%2F7/orders");
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(url.searchParams.get("per_page")).toBe("5");
+    expect(url.searchParams.get("offset")).toBe("5");
+    expect(url.searchParams.has("start_time")).toBe(false);
+    expect(page).toMatchObject({ page: 2, perPage: 5, offset: 5, totalPages: 3, totalOrders: 12, hasMore: true });
+    expect(page.orders[0]?.id).toBe("99");
+  });
+
+  it("透過 order ID 取得單筆訂單明細", async () => {
+    const calls = stubFetch({
+      body: { order: { id: 99, order_number: "R-00099", customer: { id: 7 } } },
+    });
+
+    const order = await createOrderClient(config, { sleep: noSleep }).fetchOne("99/abc");
+
+    expect(calls[0]?.url).toBe("https://api.example.test/v1/orders/99%2Fabc");
+    expect(order).toMatchObject({ id: "99", orderNumber: "R-00099", customer: { id: "7" } });
+  });
 });
 
 /*
