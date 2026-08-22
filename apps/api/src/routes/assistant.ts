@@ -286,6 +286,7 @@ async function sandboxSessionResponse(db: AppEnv["Variables"]["db"], input: { id
       model: message.model,
       thoughts: message.thoughts,
       toolCalls: readSandboxToolCalls(message.toolCalls),
+      durationMs: message.durationMs,
       createdAt: message.createdAt,
     })),
   };
@@ -678,6 +679,7 @@ export const assistant = new Hono<AppEnv>()
         tools: selectedTools,
         toolContext: { surface: "sandbox", db: c.get("db"), env: c.env, user: c.get("user") },
       });
+      const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",
@@ -688,9 +690,10 @@ export const assistant = new Hono<AppEnv>()
         inputChars: userText.length,
         outputChars: result.text.length,
         usage: result.usage,
-        status: "success",
+        status: toolFailure ? "failed" : "success",
         durationMs: Date.now() - started,
         actorId: c.get("user").id,
+        ...(toolFailure?.errorMessage ? { errorMessage: toolFailure.errorMessage } : {}),
         toolCalls: result.toolCalls,
       });
       if (session) {
@@ -702,6 +705,7 @@ export const assistant = new Hono<AppEnv>()
           model: model.id,
           thoughts: result.thoughts,
           toolCalls: result.toolCalls,
+          durationMs: Date.now() - started,
         });
       }
       return c.json({

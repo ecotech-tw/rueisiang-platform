@@ -46,6 +46,7 @@ export {
   type CyberbizOrderCustomer,
   type CyberbizOrderLineItem,
   type CyberbizOrderListFilters,
+  type CyberbizOrderNumberMapping,
   type CyberbizOrderPage,
   type CyberbizOrderStatuses,
   type CyberbizOrderTimings,

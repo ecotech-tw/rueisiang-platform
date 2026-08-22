@@ -92,6 +92,11 @@ export interface CyberbizOrderPage {
   hasMore: boolean;
 }
 
+export interface CyberbizOrderNumberMapping {
+  orderNumber: string;
+  orderId: string;
+}
+
 export interface CyberbizCustomerOrderPageFilters {
   page?: number;
   perPage?: number;
@@ -105,6 +110,7 @@ export interface CyberbizOrderClient {
     filters?: CyberbizCustomerOrderPageFilters,
   ): Promise<CyberbizOrderPage>;
   fetchOne(orderId: string): Promise<CyberbizOrder>;
+  fetchIdsByOrderNumbers(orderNumbers: string[]): Promise<CyberbizOrderNumberMapping[]>;
 }
 
 export const MAX_ORDER_PAGE_SIZE = 50;
@@ -299,6 +305,26 @@ function readSingleOrder(payload: unknown): unknown {
   return root.order ?? root.data ?? payload;
 }
 
+function readOrderNumberMappings(payload: unknown): CyberbizOrderNumberMapping[] {
+  const raw = Array.isArray(payload)
+    ? payload
+    : (() => {
+      const root = asRecord(payload);
+      for (const key of ["data", "orders", "items"]) {
+        if (root && Array.isArray(root[key])) return root[key] as unknown[];
+      }
+      return [];
+    })();
+
+  return raw.flatMap((value) => {
+    const record = asRecord(value);
+    if (!record) return [];
+    const orderNumber = firstString(record, ["order_number", "orderNumber"]);
+    const orderId = firstString(record, ["order_id", "orderId", "id"]);
+    return orderNumber && orderId ? [{ orderNumber, orderId }] : [];
+  });
+}
+
 export function createOrderClient(
   config: CyberbizConfig,
   options: RequestOptions = {},
@@ -329,6 +355,14 @@ export function createOrderClient(
     async fetchOne(orderId) {
       const { payload } = await request(`/v1/orders/${encodeURIComponent(orderId)}`);
       return parseCyberbizOrder(readSingleOrder(payload));
+    },
+
+    async fetchIdsByOrderNumbers(orderNumbers) {
+      const normalized = [...new Set(orderNumbers.map((value) => value.trim().replace(/^#\s*/u, "")).filter(Boolean))];
+      if (!normalized.length) return [];
+      const params = new URLSearchParams({ order_numbers: normalized.join(",") });
+      const { payload } = await request(`/v1/orders/get_order_id?${params.toString()}`);
+      return readOrderNumberMappings(payload);
     },
   };
 }

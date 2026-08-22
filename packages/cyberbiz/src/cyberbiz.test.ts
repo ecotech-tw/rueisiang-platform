@@ -541,6 +541,15 @@ describe("訂單與消費紀錄", () => {
     expect(calls[0]?.url).toBe("https://api.example.test/v1/orders/99%2Fabc");
     expect(order).toMatchObject({ id: "99", orderNumber: "R-00099", customer: { id: "7" } });
   });
+
+  it("用使用者看到的訂單編號 mapping 成 CYBERBIZ order ID", async () => {
+    const calls = stubFetch({ body: [{ order_number: 56714, order_id: 301 }] });
+
+    const mappings = await createOrderClient(config, { sleep: noSleep }).fetchIdsByOrderNumbers(["#56714", "56715"]);
+
+    expect(calls[0]?.url).toBe("https://api.example.test/v1/orders/get_order_id?order_numbers=56714%2C56715");
+    expect(mappings).toEqual([{ orderNumber: "56714", orderId: "301" }]);
+  });
 });
 
 /*

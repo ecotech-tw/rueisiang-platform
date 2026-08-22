@@ -482,6 +482,7 @@
 .assistant-tool-call-success { color: var(--color-success, #287d55); }
 .assistant-tool-call-failure, .assistant-tool-call-error { color: var(--color-brand-dark); }
 .assistant-tool-call-error { display: block; margin-top: 3px; font-size: 11px; }
+.assistant-message-duration { display: block; margin-top: 8px; color: var(--color-muted); font-size: 11px; text-align: right; }
 .assistant-chat-panel .assistant-input { min-height: 72px; max-height: 120px; }
 .assistant-chat-panel > .field { flex: none; gap: 4px; }
 .assistant-input-wrap { position: relative; }
