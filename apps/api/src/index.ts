@@ -18,6 +18,8 @@ import { PayoutGithubError } from "./payout/github.js";
 import { tools } from "./routes/tools.js";
 import { wms } from "./routes/wms.js";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
+export { AssistantChatAgent } from "./pi-agent-do.js";
+export { AssistantCredentialVault } from "./pi-agent-credentials.js";
 
 /**
  * 平台唯一的 Worker：/api/* 由這裡處理，其餘交給 Static Assets（portal 的 SPA）。

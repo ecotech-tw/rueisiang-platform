@@ -4,13 +4,11 @@ import {
   dispatchCyberbizWebhook,
   ensureAssistantDefaults,
   getActiveAssistantPrompt,
-  getAssistantConfig,
   getAssistantLineReplyBackup,
   ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS,
   ensureAssistantLineChannel,
   getAssistantLineChannel,
   findAssistantLineGroup,
-  listAssistantLineMessages,
   markAssistantLinePushDelivery,
   markAssistantLineQueueJobEnqueued,
   claimAssistantLineQueueJob,
@@ -33,13 +31,12 @@ import {
 } from "@rueisiang/db";
 import {
   ASSISTANT_KEY,
-  ASSISTANT_MODELS,
   DEFAULT_ASSISTANT_MODEL,
   DEFAULT_ASSISTANT_PROMPT,
   assistantErrorDetails,
   assistantLog,
   currentAssistantRuntimeContext,
-  runGemini,
+  runtimeContextInstruction,
   type AssistantRunResult,
 } from "@rueisiang/assistant";
 import { PLATFORM_TOOL_KEYS, toolsForSurface } from "@rueisiang/tools";
@@ -52,6 +49,12 @@ import { decryptLineSecret, encryptLineSecret } from "../line-secrets.js";
 import { isLineAssistantQueueMessage, type LineAssistantQueueMessage } from "../line-queue.js";
 import { cacheClient } from "../upstash.js";
 import type { Context } from "hono";
+import {
+  DEFAULT_PI_CODEX_MODEL,
+  PiAgentStaleSessionError,
+  resetPiLineAgent,
+  runPiLineAgent,
+} from "../pi-agent.js";
 import {
   isLineWebhookEvent,
   lineEventGroup,
@@ -88,9 +91,7 @@ import {
 
 /** 2 MB。正常的事件遠小於這個，超過的多半是打錯地方。 */
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
-const LINE_TOOL_DEFINITIONS = toolsForSurface("line");
-const LINE_TOOL_KEYS = LINE_TOOL_DEFINITIONS.map((tool) => tool.key);
-const LINE_MODEL_MAP = new Map(ASSISTANT_MODELS.map((model) => [model.id, model]));
+const LINE_TOOL_KEYS = toolsForSurface("line").map((tool) => tool.key);
 const LINE_REPLY_TOKEN_TTL_MS = 60_000;
 const LINE_REPLY_SAFETY_MARGIN_MS = 10_000;
 const LINE_BUSY_REPLY = "系統繁忙，請稍後再試。";
@@ -130,6 +131,7 @@ async function stableLineRunId(webhookEventId: string): Promise<string> {
 
 function isPermanentLineAssistantError(error: unknown): boolean {
   const messages: string[] = [];
+  const statuses: number[] = [];
   let current: unknown = error;
   const seen = new Set<unknown>();
   for (let depth = 0; depth < 4 && current; depth += 1) {
@@ -141,9 +143,13 @@ function isPermanentLineAssistantError(error: unknown): boolean {
     seen.add(current);
     const record = current as { message?: unknown; cause?: unknown };
     if (typeof record.message === "string") messages.push(record.message);
+    if (typeof (record as { status?: unknown }).status === "number") {
+      statuses.push((record as { status: number }).status);
+    }
     current = record.cause;
   }
-  return messages.some((message) => /gemini[\s_-]*api[\s_-]*key|Gemini 請求格式錯誤|模型設定|模型無法使用|prompt.*設定|對話設定|授權|HTTP\s+(400|401|403|404)/i.test(message));
+  return statuses.some((status) => [400, 401, 403, 404].includes(status))
+    || messages.some((message) => /gemini[\s_-]*api[\s_-]*key|Gemini 請求格式錯誤|模型設定|模型無法使用|prompt.*設定|對話設定|授權|HTTP\s+(400|401|403|404)/i.test(message));
 }
 
 async function stableLineWebhookEventId(input: {
@@ -353,6 +359,7 @@ async function runLineAssistant(input: {
   questionText: string;
   webhookEventId: string;
   runId: string;
+  contextGeneration: string;
   replyDeadlineAt?: number;
   queueCreatedAt?: string;
 }): Promise<void> {
@@ -414,12 +421,8 @@ async function runLineAssistant(input: {
       }, Math.max(0, fallbackAt - Date.now()))
     : undefined;
   try {
-    // Push retry 若已有完整 backup，不需要因為 Gemini secret 暫時輪替而重新生成答案。
+    // Push retry 若已有完整 backup，不需要重新執行 agent；這也避免外部服務暫時異常時重複產生答案。
     const savedBackup = await getAssistantLineReplyBackup(input.db, runId);
-    const geminiApiKey = input.env.GEMINI_API_KEY;
-    if (!geminiApiKey && !savedBackup?.responseText) {
-      throw new Error("平台還沒設定 GEMINI_API_KEY。");
-    }
     await ensureAssistantDefaults(input.db, {
       assistantKey: input.assistantKey,
       defaultModel: DEFAULT_ASSISTANT_MODEL,
@@ -436,68 +439,57 @@ async function runLineAssistant(input: {
     const group = await findAssistantLineGroup(input.db, { channelKey: input.channelKey, id: input.groupRowId });
     if (!group) throw new Error("找不到這個 LINE 對話的設定。");
     if (!group.enabled) throw new Error("這個 LINE 對話已經被取消授權。");
+    if ((group.contextResetAt ?? "") !== input.contextGeneration) {
+      throw new PiAgentStaleSessionError("這則工作屬於已重設的舊 session，已略過。");
+    }
 
-    const [config, prompt, allowedToolKeys, messages] = await Promise.all([
-      getAssistantConfig(input.db, input.assistantKey),
+    const [prompt, allowedToolKeys] = await Promise.all([
       getActiveAssistantPrompt(input.db, input.assistantKey),
       resolveLineToolKeys(input.db, {
         channelKey: input.channelKey,
         groupId: input.groupRowId,
         toolMode: group.toolMode,
       }),
-      listAssistantLineMessages(input.db, {
-        channelKey: input.channelKey,
-        lineGroupId: input.lineGroupId,
-        contextResetAt: group.contextResetAt,
-        limit: 12,
-      }),
     ]);
-    const configuredModel = config?.activeModel ?? DEFAULT_ASSISTANT_MODEL;
+    const configuredModel = input.env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL;
     modelId = configuredModel;
-    const model = LINE_MODEL_MAP.get(configuredModel);
-    if (!model?.supported) throw new Error("小香的模型設定目前無法使用。");
     if (!prompt) throw new Error("小香的 prompt 設定目前無法使用。");
     promptRevisionId = prompt.id;
 
-    // resolveLineToolKeys 已經把「全域狀態 ∩ channel 白名單 ∩ 對話白名單」收斂完了，
-    // 這裡只負責把鍵值換成實際的工具定義，不要在這條路上長出第二套判斷。
-    const allowed = new Set(allowedToolKeys);
-    const tools = LINE_TOOL_DEFINITIONS.filter((tool) => allowed.has(tool.key));
-    const context = messages
-      .map((message) => message.text.length > 1_000 ? `${message.text.slice(0, 1_000)}…` : message.text)
-      .join("\n");
-    const contextPreamble = input.sourceType === "user"
-      ? "以下是同一個 LINE 一對一對話中最近的訊息，請把它們視為使用者提供的對話內容："
-      : input.sourceType === "room"
-        ? "以下是同一個 LINE 多人聊天室中最近的提及訊息，請把它們視為使用者提供的對話內容："
-        : "以下是同一個 LINE 群組中最近的提及訊息，請把它們視為使用者提供的對話內容：";
-    const questionPreamble = "請回答這次最新問題：";
-    const fixedPrompt = [contextPreamble, questionPreamble, input.questionText].join("\n");
-    const contextBudget = Math.max(0, 8_000 - fixedPrompt.length);
-    const boundedContext = context.length > contextBudget ? context.slice(-contextBudget) : context;
-    promptText = [contextPreamble, boundedContext, questionPreamble, input.questionText].join("\n");
-
-    const result: AssistantRunResult = savedBackup?.responseText
-      ? {
-          text: savedBackup.responseText,
-          thoughts: "",
-          toolCalls: [],
-          usage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
-        }
-      : await runGemini({
-          apiKey: geminiApiKey ?? "",
-          model: configuredModel,
-          runId,
-          systemPrompt: prompt.systemPrompt,
-          runtimeContext: currentAssistantRuntimeContext(),
-          userText: promptText,
-          tools,
-          toolContext: { surface: "line", db: input.db, env: input.env },
-        });
+    // 最近對話不再由 D1 每輪拼成 prompt；chat 專屬 DO 會還原 Pi transcript 與 compact summary。
+    promptText = input.questionText;
+    const systemPrompt = [
+      prompt.systemPrompt,
+      runtimeContextInstruction(currentAssistantRuntimeContext()),
+      "這是 LINE 內部助理。除非使用者要求詳細說明，請用繁體中文在六句內直接回答；不要輸出思考過程。",
+    ].join("\n\n");
+    let result: AssistantRunResult;
     if (savedBackup?.responseText) {
+      result = {
+        text: savedBackup.responseText,
+        thoughts: "",
+        toolCalls: [],
+        usage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0 },
+      };
       modelId = savedBackup.model || modelId;
       promptRevisionId = "reused-line-reply-backup";
       assistantLog("info", "line.reply.backup_reused", trace);
+    } else {
+      const piResponse = await runPiLineAgent(input.env, {
+        assistantKey: input.assistantKey,
+        channelKey: input.channelKey,
+        groupRowId: input.groupRowId,
+        lineGroupId: input.lineGroupId,
+        sourceType: input.sourceType,
+        contextGeneration: input.contextGeneration,
+        runId,
+        model: configuredModel,
+        systemPrompt,
+        userText: promptText,
+        toolKeys: allowedToolKeys,
+      });
+      modelId = piResponse.model;
+      result = piResponse.result;
     }
     resultForBackup = result;
     if (result.thoughts) {
@@ -578,6 +570,14 @@ async function runLineAssistant(input: {
       toolCalls: result.toolCalls,
     });
   } catch (error) {
+    if (error instanceof PiAgentStaleSessionError) {
+      assistantLog("info", "line.queue.skipped", {
+        runId,
+        groupId: input.lineGroupId,
+        reason: "stale_session_generation",
+      });
+      return;
+    }
     const message = error instanceof Error ? error.message : "小香目前無法完成回答。";
     assistantLog("error", "line.run.failed", { ...trace, error: assistantErrorDetails(error) });
     try {
@@ -788,6 +788,7 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
     });
     return;
   }
+  const contextGeneration = message.contextGeneration ?? "";
 
   const db = createDatabase(env.DB);
   const trace = lineQueueTrace(message);
@@ -875,6 +876,16 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
       return;
     }
 
+    if ((group.contextResetAt ?? "") !== contextGeneration) {
+      assistantLog("info", "line.queue.skipped", {
+        ...trace,
+        kind: message.kind,
+        reason: "stale_session_generation",
+      });
+      processed = true;
+      return;
+    }
+
     // Queue 送出後管理員可能已經關閉 channel 或這個對話；此時不要再回覆一則錯誤訊息。
     if (!channel.enabled || !group.enabled) {
       assistantLog("info", "line.queue.skipped", {
@@ -890,12 +901,20 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
     }
 
     if (message.kind === "reset") {
+      await resetPiLineAgent(env, {
+        assistantKey: channel.assistantKey,
+        channelKey: message.channelKey,
+        groupRowId: message.groupRowId,
+        lineGroupId: message.lineGroupId,
+        sourceType: message.sourceType,
+        contextGeneration,
+      });
       await replyLineMessage(accessToken, message.replyToken, "已重設這段對話的上下文。", {
         webhookEventId: message.webhookEventId,
-    channelKey: message.channelKey,
-    groupId: message.lineGroupId,
-    groupRowId: message.groupRowId,
-    ...(message.messageId ? { messageId: message.messageId } : {}),
+        channelKey: message.channelKey,
+        groupId: message.lineGroupId,
+        groupRowId: message.groupRowId,
+        ...(message.messageId ? { messageId: message.messageId } : {}),
       });
       processed = true;
       return;
@@ -915,6 +934,7 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
       questionText: message.questionText,
       webhookEventId: message.webhookEventId,
       runId: message.runId,
+      contextGeneration,
       replyDeadlineAt: message.replyDeadlineAt,
       queueCreatedAt: claim && "job" in claim ? claim.job.createdAt : undefined,
     });
@@ -1167,6 +1187,7 @@ async function receiveLine(c: Context<AppEnv>) {
       lineGroupId: lineGroup.lineGroupId,
       sourceType: group.sourceType,
       webhookEventId,
+      contextGeneration: lineGroup.contextResetAt ?? "",
       messageId: event.message?.id,
       replyDeadlineAt: lineReplyDeadlineAt(),
     } as const;
@@ -1178,21 +1199,28 @@ async function receiveLine(c: Context<AppEnv>) {
     );
 
     const sessionReset = lineEventIsSessionReset(event);
+    let resetGeneration = queueBase.contextGeneration;
     if (result.inserted && sessionReset) {
-      await resetAssistantLineContext(c.get("db"), {
+      const resetGroup = await resetAssistantLineContext(c.get("db"), {
         channelKey: lineChannel.channelKey,
         id: lineGroup.id,
       });
+      resetGeneration = resetGroup?.contextResetAt ?? resetGeneration;
     }
     if (sessionReset) {
       if (lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
         await enqueueLineAssistantJob(c.get("db"), c.env, {
           ...queueBase,
+          contextGeneration: resetGeneration,
           kind: "reset",
           replyToken,
         });
       } else if (profileSyncNeeded) {
-        await enqueueLineAssistantJob(c.get("db"), c.env, { ...queueBase, kind: "profile" });
+        await enqueueLineAssistantJob(c.get("db"), c.env, {
+          ...queueBase,
+          contextGeneration: resetGeneration,
+          kind: "profile",
+        });
       }
       continue;
     }

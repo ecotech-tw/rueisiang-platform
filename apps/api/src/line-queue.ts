@@ -7,6 +7,8 @@ interface LineAssistantQueueMessageBase {
   lineGroupId: string;
   sourceType: LineSourceType;
   webhookEventId: string;
+  /** D1 contextResetAt；空字串／舊 Queue 訊息缺欄位代表從未 reset。 */
+  contextGeneration?: string;
   messageId?: string;
   /** LINE reply token 的實際截止時間；舊 Queue 訊息沒有這欄時由 consumer 使用保守預設值。 */
   replyDeadlineAt?: number;
@@ -34,7 +36,8 @@ export function isLineAssistantQueueMessage(value: unknown): value is LineAssist
     !nonEmptyString(message.groupRowId) ||
     !nonEmptyString(message.lineGroupId) ||
     !["group", "room", "user"].includes(message.sourceType as string) ||
-    !nonEmptyString(message.webhookEventId)
+    !nonEmptyString(message.webhookEventId) ||
+    (message.contextGeneration !== undefined && typeof message.contextGeneration !== "string")
   ) {
     return false;
   }

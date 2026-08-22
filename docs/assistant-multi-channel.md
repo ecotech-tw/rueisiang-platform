@@ -121,7 +121,7 @@ secret 驗簽。第二個官方帳號打進來會用錯密鑰驗簽，**直接 4
 - 群組與多人聊天室仍須有 LINE 真正標出的 self mention 才會記錄與觸發回答。
 - 一對一不需要 mention；訊息會自動建立對話列，但 `enabled` 預設仍是 `false`，由後台開關決定是否讓小香回答，方便內部先確認。
 - 一對一會用 `GET /v2/bot/profile/{userId}` 同步使用者名稱與頭貼；拿不到 profile 時仍保留 user ID，不影響收件。
-- 一對一傳送精確的 `/reset` 或 `/重設` 會切斷模型上下文但保留歷史訊息，並不會觸發 Gemini；這是給內部測試使用的 backdoor。
+- 一對一傳送精確的 `/reset` 或 `/重設` 會切斷 Pi session context 但保留歷史訊息，並不會觸發模型回答；這是給內部測試使用的 backdoor。
 
 對話這一層使用不分型別的 key（群是 `groupId`、房是 `roomId`、一對一是 `userId`）。欄位名雖然仍是
 `lineGroupId`，但語意上已能容納這三種來源；真正的回覆上限仍由第二節的 channel 與對話工具權限共同決定。

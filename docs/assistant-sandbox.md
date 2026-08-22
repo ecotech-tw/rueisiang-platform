@@ -1,6 +1,8 @@
 # 小香助理 Sandbox
 
-這是 AI 內部問答系統的開發說明。目前已完成 Sandbox 與 LINE 前台的第一個可驗證切片；用量分析頁仍在後續階段。
+這是 AI 內部問答系統的開發說明。目前 Sandbox 使用 Gemini；LINE 前台的正式回答則由
+Pi Agent 與 Codex ChatGPT OAuth 執行。LINE 的架構、session 與 credential setup 見
+[`line-pi-agent.md`](./line-pi-agent.md)；用量分析頁仍在後續階段。
 
 ## 本機操作
 
@@ -39,7 +41,8 @@ pnpm dev
 - `小香助理 → LINE 前台` 可以設定 Channel ID、Channel Secret、Channel Access Token、channel 開關、Webhook URL 與對話授權。
 - Channel Secret 與 Channel Access Token 透過後台輸入後會使用 `AUTH_SESSION_SECRET` 以 AES-GCM 加密保存，不會把原值回傳到瀏覽器。`LINE_CHANNEL_SECRET` 與 `LINE_CHANNEL_ACCESS_TOKEN` 仍可作為既有部署的環境變數 fallback。
 - LINE webhook 只接受 LINE 的 `x-line-signature`；群組／多人聊天室只記錄真正 mention 小香的文字訊息，一對一不需要 mention；新發現的對話預設未授權。
-- 已授權且開通的對話會由 active model、active prompt 與狀態為「已啟用」的 tools 產生回答；一對一會同步使用者名稱與頭貼，「開發中」tool 仍只允許 Sandbox 使用。
+- 已授權且開通的 LINE 對話會由 `PI_AGENT_MODEL`、active prompt 與狀態為「已啟用」的 tools
+  產生回答；一對一會同步使用者名稱與頭貼，「開發中」tool 仍只允許 Sandbox 使用。
 - 一對一傳送 `/reset` 或 `/重設` 可清除目前模型上下文但保留歷史紀錄，不會觸發回答。
 
 ## 共用 Tool Contract：CRM 唯讀工具
@@ -73,7 +76,8 @@ npx wrangler tail rueisiang-platform --format json --search assistant.gemini.err
 ## LINE 回覆的執行方式與延遲診斷
 
 LINE webhook 收到訊息後會先把工作寫入 Cloudflare Queue，再回傳 `accepted`；Queue consumer
-負責執行 Gemini、tool 與 LINE Messaging API。正常路徑永遠優先使用 webhook event 的
+負責 dispatch 到 chat 專屬 Durable Object，由 Pi Agent 執行 Codex、tool 與 session context，
+完成後再呼叫 LINE Messaging API。正常路徑永遠優先使用 webhook event 的
 `replyToken`；Queue 不設定 delivery delay。距離程式採用的 60 秒期限只剩 10 秒時，若推論仍未
 完成，會先用 Reply API 回覆「系統繁忙，請稍後再試。」。完整結果完成後才嘗試受限 Push；
 若 Push 不可用或額度已滿，完整結果仍會保存到 D1 的對話 relation，供系統備查。
@@ -99,7 +103,9 @@ Push 另帶與 Queue run 相同的 `X-Line-Retry-Key`，避免 consumer 重試�
 - 有 `assistant.line.push.failed`：已預約的收件人數仍保留，不因重試競態釋放；完整回答同樣留在備用表。
 - 有 `assistant.line.queue.consumer_retry`、`assistant.line.queue.retry_exhausted`、`assistant.line.queue.outbox_replay_failed` 或 Cloudflare DLQ 訊息：表示 Queue／D1／AI／LINE transport 重試後仍未完成，可用同一組 correlation fields 追完整鏈路。`failed` 工作不會再被 outbox 重送；Push retry key 超過 24 小時則記為 `ambiguous`，等待 reconciliation。
 
-tool 失敗不會立即產生固定錯誤文字；失敗結果會以 function response 回傳 Gemini，讓模型自行產生可理解的說明。Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到模型的最終回答。LINE 的 AI 工作已經透過 Cloudflare Queues 與 webhook 解耦。
+tool 失敗不會立即產生固定錯誤文字；失敗結果會回傳目前執行中的模型，讓它產生可理解的說明。
+Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到 Pi Agent 的最終回答。LINE 的 AI
+工作已經透過 Cloudflare Queues 與 webhook 解耦。
 
 ## API
 
@@ -125,7 +131,8 @@ Sandbox runs support multi-turn sessions. A session keeps the current model, pro
 
 1. ✅ 已完成小香設定頁：active model 與 tool catalog 狀態可在後台調整。
 2. ✅ 已完成 LINE channel 設定、webhook URL、對話授權與每對話訊息表；群組／聊天室須 mention，一對一不須 mention。
-3. ✅ 已將 active model、active prompt 與 tool policy 套用到 LINE 執行，僅允許「已啟用」工具在線上回覆。
+3. ✅ LINE 已改由 Pi Agent、Codex ChatGPT OAuth、active prompt 與 tool policy 執行；模型由
+   `PI_AGENT_MODEL` 控制，僅允許「已啟用」工具在線上回覆。
 4. ✅ Sandbox 已支援 session、多輪對話、歷史查看、關閉 session、每輪切換模型與長對話自動摘要。
 5. 建立日／週／月與自訂 duration 的群組、模型、tool 用量分析頁。
 6. 多帳號（官網客服自己的 LINE 官方帳號）、channel／對話兩層工具權限、每個對話的
