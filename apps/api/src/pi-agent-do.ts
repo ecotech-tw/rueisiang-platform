@@ -286,8 +286,6 @@ function payloadWithOutputLimit(payload: unknown): unknown {
   if (!body) return payload;
   return {
     ...body,
-    // ChatGPT Codex Responses rejects max_output_tokens; keep only the
-    // supported text presentation hint here.
     text: { ...object(body.text), verbosity: "low" },
   };
 }
