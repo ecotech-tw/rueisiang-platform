@@ -730,7 +730,15 @@ export class AssistantChatAgent {
       state.summary || undefined,
       "minimal",
     );
-    if (!summary.ok) throw new Error(summary.error.message);
+    if (!summary.ok) {
+      const error = new Error(summary.error.message);
+      throw new AgentExecutionError(
+        summary.error.message,
+        [],
+        diagnostics?.lastResponse,
+        serializePiError(error),
+      );
+    }
     const throughSeq = toSummarize.at(-1)!.seq;
     this.sql.exec(
       `UPDATE assistant_agent_state SET

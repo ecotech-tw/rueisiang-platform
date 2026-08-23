@@ -1411,4 +1411,63 @@ describe("AI 助理 Sandbox", () => {
     expect(result.session.contextSummaryMessageCount).toBe(0);
     expect(result.session.messages).toHaveLength(60);
   });
+
+  it("Sandbox compact 遇到 HTML provider error 時不把整頁回傳給 UI", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    const messages = Array.from({ length: 40 }, (_, index) => [
+      {
+        id: `compact-error-user-${index}`,
+        sessionId: created.session.id,
+        role: "user" as const,
+        text: `歷史問題-${index} ${"歷史".repeat(3_000)}`,
+        createdAt: new Date(Date.UTC(2026, 7, 22, 10, index, 0)).toISOString(),
+      },
+      {
+        id: `compact-error-model-${index}`,
+        sessionId: created.session.id,
+        role: "model" as const,
+        text: `歷史回答-${index} ${"回答".repeat(3_000)}`,
+        model: "gemini-3.6-flash",
+        createdAt: new Date(Date.UTC(2026, 7, 22, 10, index, 30)).toISOString(),
+      },
+    ]).flat();
+    await db().insert(assistantSandboxMessages).values(messages);
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (JSON.stringify(body.systemInstruction).includes("context summarization assistant")) {
+        return new Response("<!doctype html><html><body>Unable to load site</body></html>", {
+          status: 403,
+          headers: { "Content-Type": "text/html", "CF-Ray": "compact-ray" },
+        });
+      }
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "不應該執行到主回答" }] } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId: created.session.id,
+        model: "gemini-3.6-flash",
+        promptRevisionId: config.activePrompt.id,
+        toolKeys: [],
+        input: "觸發摘要錯誤",
+      }),
+    });
+    const result = await response.json() as { error: string; runId: string; toolCalls: unknown[] };
+    expect(response.status).toBe(502);
+    expect(result.error).toContain("AI provider 回傳非預期的 HTML 錯誤頁");
+    expect(result.error).not.toContain("<!doctype html>");
+    expect(result.error).not.toContain("Unable to load site");
+    expect(result.runId).toEqual(expect.any(String));
+    expect(result.toolCalls).toEqual([]);
+  });
 });
