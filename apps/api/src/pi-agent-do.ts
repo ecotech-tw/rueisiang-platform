@@ -14,6 +14,7 @@ import type {
   Model,
   Models,
   ModelsSimpleStreamOptions,
+  ProviderResponse,
   Usage,
 } from "@earendil-works/pi-ai";
 import {
@@ -46,6 +47,14 @@ import {
   piAssistantModel,
   streamPiAssistantModel,
 } from "./pi-agent-models.js";
+import {
+  type PiErrorDiagnostic,
+  type PiProviderExecutionDiagnostics,
+  type PiProviderResponseDiagnostic,
+  providerResponseDiagnostic,
+  publicPiErrorMessage,
+  serializePiError,
+} from "./pi-agent-diagnostics.js";
 
 const COMPACT_AFTER_TOKENS = 48_000;
 const COMPACT_KEEP_RECENT_TOKENS = 12_000;
@@ -90,9 +99,17 @@ interface ToolExecutionContext {
 }
 
 class AgentExecutionError extends Error {
-  constructor(message: string, readonly toolCalls: AssistantToolCall[]) {
-    super(message);
+  readonly errorDiagnostic: PiErrorDiagnostic;
+
+  constructor(
+    message: string,
+    readonly toolCalls: AssistantToolCall[],
+    readonly providerResponse?: PiProviderResponseDiagnostic,
+    errorDiagnostic?: PiErrorDiagnostic,
+  ) {
+    super(publicPiErrorMessage(new Error(message), providerResponse));
     this.name = "AgentExecutionError";
+    this.errorDiagnostic = errorDiagnostic ?? serializePiError(new Error(message));
   }
 }
 
@@ -413,6 +430,7 @@ export class AssistantChatAgent {
     model: Model<Api>,
     context: Context,
     options: ModelsSimpleStreamOptions = {},
+    diagnostics?: PiProviderExecutionDiagnostics,
   ) {
     const shared = {
       ...options,
@@ -420,9 +438,18 @@ export class AssistantChatAgent {
       maxRetries: options.maxRetries ?? 0,
       maxTokens: options.maxTokens ?? MODEL_MAX_OUTPUT_TOKENS,
     };
+    const onResponse = async (response: ProviderResponse, responseModel: Model<Api>) => {
+      const observed = providerResponseDiagnostic(responseModel, response);
+      if (diagnostics) diagnostics.lastResponse = observed;
+      console.info("Pi provider response", {
+        ...(diagnostics?.runId ? { runId: diagnostics.runId } : {}),
+        ...observed,
+      });
+      await options.onResponse?.(response, responseModel);
+    };
     const providerOptions = model.provider === PI_CODEX_PROVIDER_ID
-      ? { ...shared, transport: "sse" as const, onPayload: payloadWithOutputLimit }
-      : { ...shared, onPayload: undefined };
+      ? { ...shared, transport: "sse" as const, onPayload: payloadWithOutputLimit, onResponse }
+      : { ...shared, onPayload: undefined, onResponse };
     return streamPiAssistantModel(model, context, providerOptions, {
       resolveCodexAccessToken: async () => this.accessToken(),
       geminiApiKey: this.env.GEMINI_API_KEY,
@@ -430,13 +457,13 @@ export class AssistantChatAgent {
   }
 
   /** Pi compaction 只需要 Models.completeSimple；同一段 session 換 provider 後也由當下 model 建摘要。 */
-  private summaryModels(): Models {
+  private summaryModels(diagnostics?: PiProviderExecutionDiagnostics): Models {
     return {
       completeSimple: async (model, context, options) => this.streamModel(model, context, {
         ...options,
         timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
-      }).result(),
+      }, diagnostics).result(),
     } as Models;
   }
 
@@ -527,7 +554,11 @@ export class AssistantChatAgent {
             return { content: [{ type: "text", text: result }], details: { toolKey: tool.key } };
           } catch (error) {
             const errorMessage = toolErrorMessage(error);
-            console.error("Pi agent 工具執行失敗", { runId: context.request.runId, toolKey: tool.key, error });
+            console.error("Pi agent 工具執行失敗", {
+              runId: context.request.runId,
+              toolKey: tool.key,
+              error: serializePiError(error),
+            });
             context.toolCalls.push({
               toolKey: tool.key,
               status: "failed",
@@ -667,7 +698,11 @@ export class AssistantChatAgent {
     return this.contextMessages(state).reduce((total, message) => total + estimateTokens(message), 0);
   }
 
-  private async compactIfNeeded(force = false, preferredModel?: string): Promise<void> {
+  private async compactIfNeeded(
+    force = false,
+    preferredModel?: string,
+    diagnostics?: PiProviderExecutionDiagnostics,
+  ): Promise<void> {
     const state = this.currentState();
     if (!state || (!state.model && !preferredModel)) return;
     const rows = this.loadMessageRows(state);
@@ -687,7 +722,7 @@ export class AssistantChatAgent {
     const model = this.model(preferredModel ?? state.model);
     const summary = await generateSummaryWithUsage(
       toSummarize.map((row) => row.message),
-      this.summaryModels(),
+      this.summaryModels(diagnostics),
       model,
       4_096,
       undefined,
@@ -726,6 +761,7 @@ export class AssistantChatAgent {
   }
 
   private async run(input: PiAgentRunRequest): Promise<PiAgentRunResponse> {
+    const providerDiagnostics: PiProviderExecutionDiagnostics = { runId: input.runId };
     let { state } = this.requireGeneration(input.contextGeneration);
     const model = this.model(input.model);
     const completed = this.completedRun(input.runId, state.generation);
@@ -737,7 +773,7 @@ export class AssistantChatAgent {
       input.runId,
     );
     if (this.totalContextTokens(state) > FORCE_COMPACT_AFTER_TOKENS) {
-      await this.compactIfNeeded(true, model.id);
+      await this.compactIfNeeded(true, model.id, providerDiagnostics);
       state = this.currentState()!;
     }
     this.sql.exec(
@@ -755,7 +791,7 @@ export class AssistantChatAgent {
 
     if (isSandboxRunRequest(input)) {
       await this.bootstrapSandboxTranscript(state, input, model);
-      await this.compactIfNeeded(false, model.id);
+      await this.compactIfNeeded(false, model.id, providerDiagnostics);
       state = this.currentState()!;
     }
     if (isLineRunRequest(input)) await this.bootstrapLineTranscript(state, input, model);
@@ -775,7 +811,7 @@ export class AssistantChatAgent {
         timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
         maxTokens: MODEL_MAX_OUTPUT_TOKENS,
-      }),
+      }, providerDiagnostics),
       sessionId: state.session_id,
       transport: "sse",
       maxRetryDelayMs: 1_000,
@@ -791,6 +827,8 @@ export class AssistantChatAgent {
       throw new AgentExecutionError(
         error instanceof Error ? error.message : "Pi agent 執行失敗。",
         toolContext.toolCalls,
+        providerDiagnostics.lastResponse,
+        serializePiError(error),
       );
     }
     const newMessages = agent.state.messages.slice(initialMessages.length);
@@ -800,7 +838,13 @@ export class AssistantChatAgent {
         Date.now(),
         input.runId,
       );
-      throw new AgentExecutionError(agent.state.errorMessage, toolContext.toolCalls);
+      const error = new Error(agent.state.errorMessage);
+      throw new AgentExecutionError(
+        agent.state.errorMessage,
+        toolContext.toolCalls,
+        providerDiagnostics.lastResponse,
+        serializePiError(error),
+      );
     }
     const finalMessage = [...newMessages].reverse().find((message): message is AssistantMessage =>
       message.role === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted");
@@ -868,7 +912,15 @@ export class AssistantChatAgent {
       if (!stale) {
         console.error("Pi chat agent 執行失敗", {
           runId: isRunRequest(payload) ? payload.runId : undefined,
-          error,
+          error: error instanceof AgentExecutionError
+            ? error.errorDiagnostic
+            : serializePiError(error),
+          ...(error instanceof AgentExecutionError && error.providerResponse
+            ? { providerResponse: error.providerResponse }
+            : {}),
+          ...(error instanceof AgentExecutionError
+            ? { toolCalls: error.toolCalls.map(({ toolKey, status, durationMs }) => ({ toolKey, status, durationMs })) }
+            : {}),
         });
       }
       return Response.json({
@@ -883,7 +935,7 @@ export class AssistantChatAgent {
       try {
         await this.compactIfNeeded();
       } catch (error) {
-        console.error("Pi chat agent 背景 compact 失敗", error);
+        console.error("Pi chat agent 背景 compact 失敗", { error: serializePiError(error) });
         throw error;
       }
     });

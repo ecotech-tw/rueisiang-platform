@@ -1,4 +1,5 @@
 import type { Env } from "./env.js";
+import { serializePiError } from "./pi-agent-diagnostics.js";
 
 const OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token";
@@ -244,7 +245,7 @@ export class AssistantCredentialVault {
       return Response.json({ accessToken });
     } catch (error) {
       if (url.pathname !== "/status") {
-        console.error("Pi credential vault 無法提供 access token", error);
+        console.error("Pi credential vault 無法提供 access token", { error: serializePiError(error) });
       }
       const message = error instanceof Error ? error.message : "OpenAI Codex credential 無法使用。";
       return Response.json({ error: message }, { status: 503 });
