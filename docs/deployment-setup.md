@@ -156,6 +156,7 @@ Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
 | `GEMINI_API_KEY` | Pi Google provider 的 Gemini API key；Sandbox 與 LINE 選 Gemini 模型時使用 |
 | `PI_OPENAI_CODEX_CREDENTIAL` | Codex CLI 或 Pi 的 ChatGPT OAuth credential JSON；不是 OpenAI API key |
 | `PI_CREDENTIAL_ENCRYPTION_KEY` | 至少 32 字元；加密 credential-vault 內的 access／refresh token |
+| `PI_OPENAI_CODEX_RELAY_TOKEN` | 可選；NAS Codex relay 的 shared token，搭配 `PI_OPENAI_CODEX_RELAY_URL` variable 使用 |
 | `LINE_CHANNEL_SECRET` | 選用 fallback；LINE Developers 的 Channel secret |
 | `LINE_CHANNEL_ACCESS_TOKEN` | 選用 fallback；同一個 token 同時供 Reply 與受限 Push 使用 |
 

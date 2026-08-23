@@ -1,0 +1,14 @@
+{
+  "name": "@rueisiang/codex-relay",
+  "private": true,
+  "type": "module",
+  "description": "將 Pi Codex SSE 請求從受信任的 NAS 轉送到 ChatGPT backend",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "check": "node --check src/server.mjs",
+    "test": "node --test test/server.test.mjs",
+    "start": "node src/server.mjs"
+  }
+}

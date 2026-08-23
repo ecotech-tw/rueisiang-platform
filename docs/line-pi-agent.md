@@ -72,6 +72,30 @@ Queue retry、LINE reply deadline 與每月 200 位收件者的 Push fixed windo
 處理。Pi 推論若進入 reply token 的十秒安全緩衝區，使用者先收到「系統繁忙，請稍後再試。」；
 完整結果完成後才嘗試受限 Push，否則保存在 D1 並關聯原 chat ID。
 
+## Optional NAS Codex relay
+
+若 production 的 Worker 直接連線 `chatgpt.com/backend-api` 持續收到 Cloudflare HTML 403，
+可以先依 [`tools/codex-relay/README.md`](../tools/codex-relay/README.md) 在 NAS 啟動固定目的地的 relay。
+它不使用 `OPENAI_API_KEY`，只轉送既有的 ChatGPT OAuth access token；relay 本身不會增加 OpenAI API
+usage-based 費用，但仍受 ChatGPT／Codex 方案的使用限制約束。
+
+Worker 端只有在兩個設定都存在時才會啟用 relay：
+
+| 設定 | 類型 | 說明 |
+|---|---|---|
+| `PI_OPENAI_CODEX_RELAY_URL` | variable | Cloudflare Tunnel 對外的 HTTPS origin，例如 `https://codex-relay.example.com` |
+| `PI_OPENAI_CODEX_RELAY_TOKEN` | secret | 與 NAS `CODEX_RELAY_TOKEN` 相同的高熵字串 |
+
+本機 Sandbox 可在 `apps/api/.dev.vars` 使用：
+
+```text
+PI_OPENAI_CODEX_RELAY_URL=http://127.0.0.1:8787
+PI_OPENAI_CODEX_RELAY_TOKEN=<與本機 relay 相同的 token>
+```
+
+兩者都未設定時維持 Worker 直連；只設定一個時 Codex request 會 fail closed。第一階段只在 Sandbox
+驗收，NAS relay 仍回傳 HTML 403 時就停止修改 header，改回頭確認 credential 與上游服務的允許條件。
+
 ## Credential setup
 
 先在可信任的本機用 Codex CLI 登入 ChatGPT。Windows 預設 credential 位於
