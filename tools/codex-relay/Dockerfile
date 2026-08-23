@@ -2,8 +2,8 @@ FROM node:22-bookworm-slim
 
 WORKDIR /app
 
-COPY package.json ./
-COPY src ./src
+COPY --chown=node:node package.json ./
+COPY --chown=node:node src ./src
 
 ENV NODE_ENV=production
 ENV LISTEN_HOST=0.0.0.0
