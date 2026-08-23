@@ -79,6 +79,7 @@ PI_AGENT_MODEL = "gpt-5.4-mini"
 #   GEMINI_API_KEY              Pi Google provider；Sandbox／LINE 選 Gemini 模型時使用
 #   PI_OPENAI_CODEX_CREDENTIAL  Pi／Codex CLI 的 ChatGPT OAuth credential JSON；不是 OPENAI_API_KEY
 #   PI_CREDENTIAL_ENCRYPTION_KEY  至少 32 字元，vault 以 AES-GCM 加密 credential
+#   PI_OPENAI_CODEX_RELAY_TOKEN  可選；NAS Codex relay 的共享 secret，必須搭配 PI_OPENAI_CODEX_RELAY_URL
 #   LINE_CHANNEL_SECRET         LINE webhook 簽章驗證
 #   LINE_CHANNEL_ACCESS_TOKEN   LINE Messaging API Reply／Push 用 token
 #   CYBERBIZ_API_TOKEN         客戶同步

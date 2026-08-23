@@ -1,0 +1,13 @@
+services:
+  codex-relay:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      CODEX_RELAY_TOKEN: ${CODEX_RELAY_TOKEN:?請設定 CODEX_RELAY_TOKEN}
+      CODEX_UPSTREAM_BASE_URL: https://chatgpt.com/backend-api
+      LISTEN_HOST: 0.0.0.0
+      LISTEN_PORT: 8787
+      RELAY_TIMEOUT_MS: 900000
+    ports:
+      - "8787:8787"

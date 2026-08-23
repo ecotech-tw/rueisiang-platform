@@ -45,6 +45,7 @@ import type {
 import {
   PI_CODEX_PROVIDER_ID,
   piAssistantModel,
+  type PiCodexRelayConfig,
   streamPiAssistantModel,
 } from "./pi-agent-models.js";
 import {
@@ -426,6 +427,16 @@ export class AssistantChatAgent {
     return piAssistantModel(modelId);
   }
 
+  private codexRelay(): PiCodexRelayConfig | undefined {
+    const baseUrl = this.env.PI_OPENAI_CODEX_RELAY_URL?.trim();
+    const token = this.env.PI_OPENAI_CODEX_RELAY_TOKEN?.trim();
+    if (!baseUrl && !token) return undefined;
+    if (!baseUrl || !token) {
+      throw new Error("Codex NAS relay 必須同時設定 PI_OPENAI_CODEX_RELAY_URL 與 PI_OPENAI_CODEX_RELAY_TOKEN。 ");
+    }
+    return { baseUrl, token };
+  }
+
   private streamModel(
     model: Model<Api>,
     context: Context,
@@ -452,6 +463,7 @@ export class AssistantChatAgent {
       : { ...shared, onPayload: undefined, onResponse };
     return streamPiAssistantModel(model, context, providerOptions, {
       resolveCodexAccessToken: async () => this.accessToken(),
+      codexRelay: model.provider === PI_CODEX_PROVIDER_ID ? this.codexRelay() : undefined,
       geminiApiKey: this.env.GEMINI_API_KEY,
     });
   }

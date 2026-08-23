@@ -32,6 +32,10 @@ export interface Env {
   PI_OPENAI_CODEX_CREDENTIAL?: string;
   /** vault 內 credential 的應用層 AES-GCM encryption key，至少 32 字元。 */
   PI_CREDENTIAL_ENCRYPTION_KEY?: string;
+  /** 可選的 NAS Codex relay origin；未設定時維持直接連線 ChatGPT backend。 */
+  PI_OPENAI_CODEX_RELAY_URL?: string;
+  /** NAS Codex relay 的共享 secret；必須與 relay 同時設定。 */
+  PI_OPENAI_CODEX_RELAY_TOKEN?: string;
   /** LINE Messaging API 憑證；只由 webhook 與回覆 transport 使用。 */
   LINE_CHANNEL_SECRET?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
