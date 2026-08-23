@@ -123,16 +123,15 @@ GMT+9 使用每月 fixed window；免費方案硬上限為 200 位收件者，�
 ### 2.1.3 設定小香 Pi Agent 與模型 provider
 
 LINE Queue consumer 與 Sandbox API 都會把對話 dispatch 到 SQLite Durable Object，由 Pi Agent
-執行模型、tools、session transcript 與 compact。GPT 模型使用 Codex ChatGPT OAuth；Gemini 模型
-使用 API key。`wrangler deploy` 會依 `apps/api/wrangler.toml` 的 migration 建立
+執行模型、tools、session transcript 與 compact。Codex 模型使用 Codex ChatGPT OAuth。
+`wrangler deploy` 會依 `apps/api/wrangler.toml` 的 migration 建立
 `AssistantChatAgent` 與 `AssistantCredentialVault`，不需要在 Cloudflare Dashboard 手動建立
 DO instance。
 
 部署後還要設定 `PI_OPENAI_CODEX_CREDENTIAL` 與 `PI_CREDENTIAL_ENCRYPTION_KEY`。如何從
 Codex CLI 取得最小 credential JSON、vault 如何加密／refresh，以及 session／compact／reset
 行為，完整說明見 [`line-pi-agent.md`](./line-pi-agent.md)。Codex 路徑不使用
-`OPENAI_API_KEY`；要開 Gemini 模型才需要 `GEMINI_API_KEY`。兩個 provider 可只設定其中一個，
-但目前 active model 對應的 credential 必須存在。
+`OPENAI_API_KEY`；目前 active model 對應的 Codex credential 必須存在。
 
 ### 2.2 套用 migration — 不用手動做
 
@@ -153,7 +152,6 @@ Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
 | `AUTH_SESSION_SECRET` | 一串夠長的亂數，見下方 |
 | `GOOGLE_OAUTH_CLIENT_ID` | 1.2 拿到的用戶端 ID |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | 1.2 拿到的用戶端密鑰 |
-| `GEMINI_API_KEY` | Pi Google provider 的 Gemini API key；Sandbox 與 LINE 選 Gemini 模型時使用 |
 | `PI_OPENAI_CODEX_CREDENTIAL` | Codex CLI 或 Pi 的 ChatGPT OAuth credential JSON；不是 OpenAI API key |
 | `PI_CREDENTIAL_ENCRYPTION_KEY` | 至少 32 字元；加密 credential-vault 內的 access／refresh token |
 | `PI_OPENAI_CODEX_RELAY_TOKEN` | 可選；NAS Codex relay 的 shared token，搭配 `wrangler.toml` 裡的 `PI_OPENAI_CODEX_RELAY_URL` 使用 |

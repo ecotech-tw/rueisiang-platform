@@ -17,23 +17,101 @@ import {
 } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
+import { zstdDecompressSync } from "node:zlib";
 import app from "./index.js";
 import { AssistantChatAgent } from "./pi-agent-do.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 const SECRET = "assistant-test-secret";
+const CODEX_ACCESS_TOKEN = `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify({
+  "https://api.openai.com/auth": { chatgpt_account_id: "test-account" },
+})).toString("base64url")}.test-signature`;
 let d1: LocalD1;
 let env: Record<string, unknown>;
 let assistantAgents: TestAssistantAgentNamespace | undefined;
 
-function asGeminiStream(body: Record<string, unknown>): Response {
-  const candidates = Array.isArray(body.candidates)
-    ? body.candidates.map((candidate) => {
-      if (!candidate || typeof candidate !== "object" || "finishReason" in candidate) return candidate;
-      return { ...candidate, finishReason: "STOP" };
-    })
-    : body.candidates;
-  return new Response(`data: ${JSON.stringify({ ...body, candidates })}\n\n`, {
+function asCodexStream(body: Record<string, unknown>): Response {
+  const candidate = Array.isArray(body.candidates) && body.candidates[0] && typeof body.candidates[0] === "object"
+    ? body.candidates[0] as Record<string, unknown>
+    : undefined;
+  const content = candidate?.content && typeof candidate.content === "object"
+    ? candidate.content as Record<string, unknown>
+    : undefined;
+  const parts = Array.isArray(content?.parts) ? content.parts : [];
+  const events: Record<string, unknown>[] = [
+    { type: "response.created", response: { id: "resp-test", status: "in_progress" } },
+  ];
+  const output: Record<string, unknown>[] = [];
+  let outputIndex = 0;
+  for (const rawPart of parts) {
+    if (!rawPart || typeof rawPart !== "object") continue;
+    const part = rawPart as Record<string, unknown>;
+    const index = outputIndex++;
+    if (part.thought === true && typeof part.text === "string") {
+      const id = `rs-test-${index}`;
+      events.push({
+        type: "response.output_item.added",
+        output_index: index,
+        item: { type: "reasoning", id, summary: [], content: [] },
+      });
+      events.push({ type: "response.reasoning_summary_text.delta", output_index: index, delta: part.text });
+      const item = { type: "reasoning", id, summary: [{ type: "summary_text", text: part.text }], content: [] };
+      events.push({ type: "response.output_item.done", output_index: index, item });
+      output.push(item);
+      continue;
+    }
+    if (part.functionCall && typeof part.functionCall === "object") {
+      const functionCall = part.functionCall as Record<string, unknown>;
+      const id = typeof functionCall.id === "string" ? functionCall.id : `fc-test-${index}`;
+      const callId = typeof functionCall.callId === "string" ? functionCall.callId : id;
+      const name = typeof functionCall.name === "string" ? functionCall.name : "unknown_tool";
+      const args = functionCall.args && typeof functionCall.args === "object" ? JSON.stringify(functionCall.args) : "{}";
+      const added = { type: "function_call", id, call_id: callId, name, arguments: "" };
+      events.push({ type: "response.output_item.added", output_index: index, item: added });
+      events.push({ type: "response.function_call_arguments.delta", output_index: index, delta: args });
+      events.push({ type: "response.function_call_arguments.done", output_index: index, arguments: args });
+      const item = { ...added, arguments: args };
+      events.push({ type: "response.output_item.done", output_index: index, item });
+      output.push(item);
+      continue;
+    }
+    if (typeof part.text === "string") {
+      const id = `msg-test-${index}`;
+      events.push({
+        type: "response.output_item.added",
+        output_index: index,
+        item: { type: "message", id, role: "assistant", content: [], phase: "final_answer" },
+      });
+      events.push({ type: "response.output_text.delta", output_index: index, delta: part.text });
+      const item = {
+        type: "message",
+        id,
+        role: "assistant",
+        content: [{ type: "output_text", text: part.text, annotations: [] }],
+        phase: "final_answer",
+      };
+      events.push({ type: "response.output_item.done", output_index: index, item });
+      output.push(item);
+    }
+  }
+  const usageMetadata = body.usageMetadata && typeof body.usageMetadata === "object"
+    ? body.usageMetadata as Record<string, unknown>
+    : {};
+  events.push({
+    type: "response.completed",
+    response: {
+      id: "resp-test",
+      status: "completed",
+      output,
+      usage: {
+        input_tokens: usageMetadata.promptTokenCount ?? 0,
+        output_tokens: usageMetadata.candidatesTokenCount ?? 0,
+        total_tokens: usageMetadata.totalTokenCount ?? 0,
+        input_tokens_details: { cached_tokens: 0 },
+      },
+    },
+  });
+  return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
     status: 200,
     headers: { "Content-Type": "text/event-stream" },
   });
@@ -89,11 +167,29 @@ class TestAssistantAgentNamespace {
       fetch: async (request: Request) => {
         const mockedFetch = globalThis.fetch;
         globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-          const response = await mockedFetch(input, init);
-          if (!response.ok || !String(input).includes("streamGenerateContent")) return response;
+          const isCodexRequest = String(input).includes("/codex/responses");
+          let forwardedInit = init;
+          if (isCodexRequest) {
+            const requestBodyText = typeof init?.body === "string"
+              ? init.body
+              : init?.body instanceof Uint8Array
+                ? zstdDecompressSync(init.body).toString("utf8")
+                : "";
+            const requestBody = JSON.parse(requestBodyText) as Record<string, unknown>;
+            forwardedInit = {
+              ...init,
+              body: JSON.stringify({
+                ...requestBody,
+                contents: requestBody.input,
+                systemInstruction: requestBody.instructions,
+              }),
+            };
+          }
+          const response = await mockedFetch(input, forwardedInit);
+          if (!response.ok || !isCodexRequest) return response;
           const payload = await response.clone().json().catch(() => null);
           return payload && typeof payload === "object"
-            ? asGeminiStream(payload as Record<string, unknown>)
+            ? asCodexStream(payload as Record<string, unknown>)
             : response;
         }) as typeof fetch;
         try {
@@ -152,8 +248,14 @@ beforeEach(async () => {
     AUTH_SESSION_SECRET: SECRET,
     GOOGLE_OAUTH_CLIENT_ID: "client-id",
     GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
-    GEMINI_API_KEY: "test-key",
     CYBERBIZ_API_TOKEN: "cyberbiz-test-token",
+  };
+  env.ASSISTANT_CREDENTIAL_VAULT = {
+    getByName: () => ({
+      fetch: async (request: Request) => request.url.endsWith("/status")
+        ? Response.json({ configured: true })
+        : Response.json({ accessToken: CODEX_ACCESS_TOKEN, configured: true }),
+    }),
   };
   assistantAgents = new TestAssistantAgentNamespace(() => env);
   env.ASSISTANT_CHAT_AGENT = assistantAgents;
@@ -288,8 +390,7 @@ describe("AI 助理 Sandbox", () => {
     expect(result.configured).toBe(true);
     expect(result.activeModel).toBe("gpt-5.4-mini");
     expect(result.models).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "gpt-5.4-mini", provider: "openai-codex", configured: false }),
-      expect.objectContaining({ id: "gemini-3.6-flash", provider: "google", configured: true }),
+      expect.objectContaining({ id: "gpt-5.4-mini", provider: "openai-codex", configured: true }),
     ]));
     expect(result.tools.map((tool) => tool.key)).toEqual([
       "weather_open_meteo",
@@ -325,11 +426,14 @@ describe("AI 助理 Sandbox", () => {
   it("GPT Sandbox 需要 Codex OAuth，設定後會 dispatch 到同一個 Pi Agent", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 
+    const credentialVault = env.ASSISTANT_CREDENTIAL_VAULT;
+    env.ASSISTANT_CREDENTIAL_VAULT = undefined;
     const unavailable = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
       body: JSON.stringify({ model: "gpt-5.4-mini", toolKeys: [], input: "測試 Codex" }),
     });
     expect(unavailable.status).toBe(503);
+    env.ASSISTANT_CREDENTIAL_VAULT = credentialVault;
 
     let dispatchedName = "";
     let dispatchedBody: Record<string, unknown> | undefined;
@@ -432,7 +536,7 @@ describe("AI 助理 Sandbox", () => {
         contextGeneration: "",
         webhookEventId: "current-event",
         runId: "line-bootstrap-run",
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         systemPrompt: "你是 LINE 助理。",
         userText: "這次問題",
         toolKeys: [],
@@ -450,7 +554,7 @@ describe("AI 助理 Sandbox", () => {
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
     const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id }),
     })).json() as { session: { id: string } };
     const messages = Array.from({ length: 40 }, (_, index) => [
       {
@@ -465,7 +569,7 @@ describe("AI 助理 Sandbox", () => {
         sessionId: created.session.id,
         role: "model" as const,
         text: index < 10 ? `covered-answer-${index}` : `imported-answer-${index} ${"回答".repeat(3_000)}`,
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         createdAt: new Date(Date.UTC(2026, 7, 22, 10, index, 30)).toISOString(),
       },
     ]).flat();
@@ -495,7 +599,7 @@ describe("AI 助理 Sandbox", () => {
       method: "POST",
       body: JSON.stringify({
         sessionId: created.session.id,
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         promptRevisionId: config.activePrompt.id,
         toolKeys: [],
         input: "目前問題",
@@ -528,10 +632,10 @@ describe("AI 助理 Sandbox", () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
     const saved = await as("admin", "admin@ecotech.tw", "/api/assistant/config", {
       method: "PATCH",
-      body: JSON.stringify({ model: "gemini-3.1-flash-lite" }),
+      body: JSON.stringify({ model: "gpt-5.4" }),
     });
     expect(saved.status).toBe(200);
-    expect(await saved.json()).toMatchObject({ activeModel: "gemini-3.1-flash-lite" });
+    expect(await saved.json()).toMatchObject({ activeModel: "gpt-5.4" });
 
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: "已使用新模型。" }] } }],
@@ -543,7 +647,7 @@ describe("AI 助理 Sandbox", () => {
       body: JSON.stringify({ toolKeys: [], input: "測試 active model" }),
     });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ model: "gemini-3.1-flash-lite", text: "已使用新模型。" });
+    expect(await response.json()).toMatchObject({ model: "gpt-5.4", text: "已使用新模型。" });
   });
 
   it("可以從小香設定更新 tool 狀態", async () => {
@@ -588,7 +692,7 @@ describe("AI 助理 Sandbox", () => {
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_search_warehouse"], input: "查詢紙箱庫存" }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", toolKeys: ["wms_search_warehouse"], input: "查詢紙箱庫存" }),
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -618,7 +722,7 @@ describe("AI 助理 Sandbox", () => {
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_list_inventory"], input: "列出所有商品" }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", toolKeys: ["wms_list_inventory"], input: "列出所有商品" }),
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -664,7 +768,7 @@ describe("AI 助理 Sandbox", () => {
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: ["wms_search_warehouse"], input: "冷藏區入口在哪裡？" }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", toolKeys: ["wms_search_warehouse"], input: "冷藏區入口在哪裡？" }),
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -746,7 +850,7 @@ describe("AI 助理 Sandbox", () => {
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
       body: JSON.stringify({
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         toolKeys: ["crm_search_customers", "crm_get_customer"],
         input: "請查詢王小明最近的 CRM 狀態",
       }),
@@ -776,7 +880,7 @@ describe("AI 助理 Sandbox", () => {
       updatedAt: "2026-08-20 16:30:00",
     });
 
-    let geminiCalls = 0;
+    let providerCalls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/v1/orders")) {
@@ -792,9 +896,9 @@ describe("AI 助理 Sandbox", () => {
         }]), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
-      geminiCalls += 1;
+      providerCalls += 1;
       const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
-      if (geminiCalls === 1) {
+      if (providerCalls === 1) {
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_get_orders",
@@ -813,7 +917,7 @@ describe("AI 助理 Sandbox", () => {
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
       body: JSON.stringify({
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         toolKeys: ["crm_get_orders"],
         input: "請查詢王小明今天的消費紀錄",
       }),
@@ -839,7 +943,7 @@ describe("AI 助理 Sandbox", () => {
       updatedAt: "2026-08-20 16:30:00",
     });
 
-    let geminiCalls = 0;
+    let providerCalls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/v1/customers/cyberbiz-direct-7/orders")) {
@@ -855,9 +959,9 @@ describe("AI 助理 Sandbox", () => {
         }]), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
-      geminiCalls += 1;
+      providerCalls += 1;
       const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
-      if (geminiCalls === 1) {
+      if (providerCalls === 1) {
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_get_orders",
@@ -875,7 +979,7 @@ describe("AI 助理 Sandbox", () => {
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
       body: JSON.stringify({
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         toolKeys: ["crm_get_orders"],
         input: "請查詢王小明最近五筆訂單",
       }),
@@ -892,7 +996,7 @@ describe("AI 助理 Sandbox", () => {
   it("可以用 orderIds 直接取得多筆 CYBERBIZ 訂單明細", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 
-    let geminiCalls = 0;
+    let providerCalls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/v1/orders/")) {
@@ -905,9 +1009,9 @@ describe("AI 助理 Sandbox", () => {
         } }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
-      geminiCalls += 1;
+      providerCalls += 1;
       const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
-      if (geminiCalls === 1) {
+      if (providerCalls === 1) {
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_get_orders",
@@ -926,7 +1030,7 @@ describe("AI 助理 Sandbox", () => {
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
       body: JSON.stringify({
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         toolKeys: ["crm_get_orders"],
         input: "查詢訂單 201 與 202",
       }),
@@ -943,7 +1047,7 @@ describe("AI 助理 Sandbox", () => {
   it("可以用使用者看到的訂單編號先 mapping 再取得訂單明細", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 
-    let geminiCalls = 0;
+    let providerCalls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/v1/orders/get_order_id")) {
@@ -972,9 +1076,9 @@ describe("AI 助理 Sandbox", () => {
         } }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
-      geminiCalls += 1;
+      providerCalls += 1;
       const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
-      if (geminiCalls === 1) {
+      if (providerCalls === 1) {
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_get_orders",
@@ -993,7 +1097,7 @@ describe("AI 助理 Sandbox", () => {
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
       body: JSON.stringify({
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         toolKeys: ["crm_get_orders"],
         input: "#56714 這筆訂單內容是什麼？誰購買的？",
       }),
@@ -1010,7 +1114,7 @@ describe("AI 助理 Sandbox", () => {
   it("訂單編號 mapping 後仍找不到時不暴露 CYBERBIZ internal order ID", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 
-    let geminiCalls = 0;
+    let providerCalls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/v1/orders/get_order_id")) {
@@ -1034,8 +1138,8 @@ describe("AI 助理 Sandbox", () => {
       }
 
       const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
-      geminiCalls += 1;
-      if (geminiCalls === 1) {
+      providerCalls += 1;
+      if (providerCalls === 1) {
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_get_orders",
@@ -1057,7 +1161,7 @@ describe("AI 助理 Sandbox", () => {
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
       body: JSON.stringify({
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         toolKeys: ["crm_get_orders"],
         input: "查詢訂單 #56714",
       }),
@@ -1068,14 +1172,14 @@ describe("AI 助理 Sandbox", () => {
       text: "找不到訂單 #56714。",
       toolCalls: [{ toolKey: "crm_get_orders", status: "success" }],
     });
-    expect(geminiCalls).toBe(2);
+    expect(providerCalls).toBe(2);
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
-  it("工具失敗時會把錯誤回傳給 Gemini 產生可理解的回覆", async () => {
+  it("工具失敗時會把錯誤回傳給 Codex 產生可理解的回覆", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 
-    let geminiCalls = 0;
+    let providerCalls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/v1/orders/301")) {
@@ -1085,8 +1189,8 @@ describe("AI 助理 Sandbox", () => {
         });
       }
       const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
-      geminiCalls += 1;
-      if (geminiCalls === 1) {
+      providerCalls += 1;
+      if (providerCalls === 1) {
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_get_orders",
@@ -1105,7 +1209,7 @@ describe("AI 助理 Sandbox", () => {
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
       body: JSON.stringify({
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         toolKeys: ["crm_get_orders"],
         input: "查詢訂單 301",
       }),
@@ -1116,17 +1220,17 @@ describe("AI 助理 Sandbox", () => {
       text: "訂單查詢工具目前沒有權限，我先不猜測訂單狀態。",
       toolCalls: [{ toolKey: "crm_get_orders", status: "failed", errorMessage: "CYBERBIZ API 401: 權限不足" }],
     });
-    expect(geminiCalls).toBe(2);
+    expect(providerCalls).toBe(2);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("Gemini 第二輪請求失敗時仍回傳前一輪的 tool 參數供 Sandbox debug", async () => {
+  it("Codex 第二輪請求失敗時仍回傳前一輪的 tool 參數供 Sandbox debug", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 
-    let geminiCalls = 0;
+    let providerCalls = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-      geminiCalls += 1;
-      if (geminiCalls === 1) {
+      providerCalls += 1;
+      if (providerCalls === 1) {
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "wms_list_inventory",
@@ -1143,7 +1247,7 @@ describe("AI 助理 Sandbox", () => {
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
       body: JSON.stringify({
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         toolKeys: ["wms_list_inventory"],
         input: "列出商品",
       }),
@@ -1155,33 +1259,33 @@ describe("AI 助理 Sandbox", () => {
       runId: expect.any(String),
       toolCalls: [{ toolKey: "wms_list_inventory", status: "success", args: { page: "1", pageSize: "5" } }],
     });
-    expect(geminiCalls).toBe(2);
+    expect(providerCalls).toBe(2);
   });
 
-  it("使用選定 prompt 與模型執行 Gemini，並記錄可用量資訊", async () => {
+  it("使用選定 prompt 與模型執行 Codex，並記錄可用量資訊", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      candidates: [{ content: { parts: [{ text: "這是 Gemini 的測試回覆。" }] } }],
+      candidates: [{ content: { parts: [{ text: "這是 Codex 的測試回覆。" }] } }],
       usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 8, totalTokenCount: 20 },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: [], input: "請回覆測試內容" }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", toolKeys: [], input: "請回覆測試內容" }),
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      text: "這是 Gemini 的測試回覆。",
-      model: "gemini-3.6-flash",
+      text: "這是 Codex 的測試回覆。",
+      model: "gpt-5.4-mini",
       usage: { promptTokens: 12, candidateTokens: 8, totalTokens: 20 },
       toolCalls: [],
     });
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("Gemma 4 Sandbox 將 thought channel 與正式回答分開", async () => {
+  it("Codex Sandbox 將 thought channel 與正式回答分開", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       candidates: [{ content: { parts: [
         { text: "這是模型的內部思考", thought: true },
         { text: "這是給使用者的正式回答" },
@@ -1191,19 +1295,12 @@ describe("AI 助理 Sandbox", () => {
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ model: "gemma-4-31b-it", toolKeys: [], input: "請回答測試問題" }),
+      body: JSON.stringify({ model: "gpt-5.4", toolKeys: [], input: "請回答測試問題" }),
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       text: "這是給使用者的正式回答",
       thoughts: "這是模型的內部思考",
-    });
-    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
-      generationConfig?: { thinkingConfig?: { thinkingLevel?: string; includeThoughts?: boolean } };
-    };
-    expect(body.generationConfig).toEqual({
-      maxOutputTokens: 1_200,
-      thinkingConfig: { thinkingLevel: "MINIMAL", includeThoughts: true },
     });
   });
 
@@ -1213,17 +1310,17 @@ describe("AI 助理 Sandbox", () => {
     const config = await configResponse.json() as { activePrompt: { id: string } };
     const createdResponse = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id }),
     });
     expect(createdResponse.status).toBe(201);
     const created = await createdResponse.json() as { session: { id: string; status: string; messages: unknown[] } };
     expect(created.session).toMatchObject({ status: "open", messages: [] });
 
-    const geminiBodies: string[] = [];
+    const requestBodies: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-      geminiBodies.push(typeof init?.body === "string" ? init.body : "");
-      const text = geminiBodies.length === 1 ? "第一輪回答" : "第二輪回答";
-      const parts = geminiBodies.length === 1
+      requestBodies.push(typeof init?.body === "string" ? init.body : "");
+      const text = requestBodies.length === 1 ? "第一輪回答" : "第二輪回答";
+      const parts = requestBodies.length === 1
         ? [{ text: "第一輪 thinking", thought: true }, { text }]
         : [{ text }];
       return new Response(JSON.stringify({
@@ -1234,27 +1331,27 @@ describe("AI 助理 Sandbox", () => {
 
     const firstRun = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "第一輪問題" }),
+      body: JSON.stringify({ sessionId: created.session.id, model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "第一輪問題" }),
     });
     expect(firstRun.status).toBe(200);
     expect(await firstRun.json()).toMatchObject({ sessionId: created.session.id, text: "第一輪回答", thoughts: "第一輪 thinking" });
 
     const secondRun = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "第二輪問題" }),
+      body: JSON.stringify({ sessionId: created.session.id, model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "第二輪問題" }),
     });
     expect(secondRun.status).toBe(200);
     expect(await secondRun.json()).toMatchObject({ sessionId: created.session.id, text: "第二輪回答" });
-    expect(geminiBodies[1]).toContain("第一輪問題");
-    expect(geminiBodies[1]).toContain("第一輪回答");
+    expect(requestBodies[1]).toContain("第一輪問題");
+    expect(requestBodies[1]).toContain("第一輪回答");
 
     const detail = await as("admin", "admin@ecotech.tw", `/api/assistant/sandbox/sessions/${created.session.id}`);
     const detailResult = await detail.json() as { session: { messages: Array<{ role: string; text: string; thoughts: string }> } };
     expect(detailResult.session.messages).toEqual([
       { role: "user", text: "第一輪問題", model: "", thoughts: "", toolCalls: [], durationMs: 0, id: expect.any(String), createdAt: expect.any(String) },
-      { role: "model", text: "第一輪回答", model: "gemini-3.6-flash", thoughts: "第一輪 thinking", toolCalls: [], durationMs: expect.any(Number), id: expect.any(String), createdAt: expect.any(String) },
+      { role: "model", text: "第一輪回答", model: "gpt-5.4-mini", thoughts: "第一輪 thinking", toolCalls: [], durationMs: expect.any(Number), id: expect.any(String), createdAt: expect.any(String) },
       { role: "user", text: "第二輪問題", model: "", thoughts: "", toolCalls: [], durationMs: 0, id: expect.any(String), createdAt: expect.any(String) },
-      { role: "model", text: "第二輪回答", model: "gemini-3.6-flash", thoughts: "", toolCalls: [], durationMs: expect.any(Number), id: expect.any(String), createdAt: expect.any(String) },
+      { role: "model", text: "第二輪回答", model: "gpt-5.4-mini", thoughts: "", toolCalls: [], durationMs: expect.any(Number), id: expect.any(String), createdAt: expect.any(String) },
     ]);
 
     const closed = await as("admin", "admin@ecotech.tw", `/api/assistant/sandbox/sessions/${created.session.id}/close`, { method: "POST" });
@@ -1263,7 +1360,7 @@ describe("AI 助理 Sandbox", () => {
 
     const rejected = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "不應該送出" }),
+      body: JSON.stringify({ sessionId: created.session.id, model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "不應該送出" }),
     });
     expect(rejected.status).toBe(409);
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
@@ -1274,34 +1371,34 @@ describe("AI 助理 Sandbox", () => {
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
     const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id }),
     })).json() as { session: { id: string } };
-    const urls: string[] = [];
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      urls.push(String(input));
+    const requestModels: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const requestBody = JSON.parse(String(init?.body)) as { model: string };
+      requestModels.push(requestBody.model);
       return new Response(JSON.stringify({
-        candidates: [{ content: { parts: [{ text: "回答 " + urls.length }] } }],
+        candidates: [{ content: { parts: [{ text: "回答 " + requestModels.length }] } }],
         usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
 
     const first = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "先用 Flash" }),
+      body: JSON.stringify({ sessionId: created.session.id, model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "先用 Flash" }),
     });
     const second = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ sessionId: created.session.id, model: "gemma-4-31b-it", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "改用 Gemma" }),
+      body: JSON.stringify({ sessionId: created.session.id, model: "gpt-5.4", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "改用 GPT" }),
     });
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(urls[0]).toContain("/gemini-3.6-flash:");
-    expect(urls[1]).toContain("/gemma-4-31b-it:");
+    expect(requestModels).toEqual(["gpt-5.4-mini", "gpt-5.4"]);
 
     const detail = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions/" + created.session.id);
     const result = await detail.json() as { session: { model: string; messages: Array<{ model: string }> } };
-    expect(result.session.model).toBe("gemma-4-31b-it");
-    expect(result.session.messages.map((message) => message.model)).toEqual(["", "gemini-3.6-flash", "", "gemma-4-31b-it"]);
+    expect(result.session.model).toBe("gpt-5.4");
+    expect(result.session.messages.map((message) => message.model)).toEqual(["", "gpt-5.4-mini", "", "gpt-5.4"]);
   });
 
   it("同一個 Sandbox session 可以套用新 prompt revision", async () => {
@@ -1309,7 +1406,7 @@ describe("AI 助理 Sandbox", () => {
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
     const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id }),
     })).json() as { session: { id: string } };
     const revision = await (await as("admin", "admin@ecotech.tw", "/api/assistant/prompts", {
       method: "POST",
@@ -1326,7 +1423,7 @@ describe("AI 助理 Sandbox", () => {
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: revision.revision.id, toolKeys: [], input: "套用新 prompt" }),
+      body: JSON.stringify({ sessionId: created.session.id, model: "gpt-5.4-mini", promptRevisionId: revision.revision.id, toolKeys: [], input: "套用新 prompt" }),
     });
     expect(response.status).toBe(200);
     expect(JSON.stringify(requests[0]?.systemInstruction)).toContain("這是新的 session prompt。");
@@ -1340,11 +1437,11 @@ describe("AI 助理 Sandbox", () => {
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
     const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id }),
     })).json() as { session: { id: string } };
     for (let index = 0; index < 51; index += 1) {
       await appendAssistantSandboxMessage(db(), { sessionId: created.session.id, role: "user", text: `歷史問題 ${index}` });
-      await appendAssistantSandboxMessage(db(), { sessionId: created.session.id, role: "model", text: `歷史回答 ${index}`, model: "gemini-3.6-flash" });
+      await appendAssistantSandboxMessage(db(), { sessionId: created.session.id, role: "model", text: `歷史回答 ${index}`, model: "gpt-5.4-mini" });
     }
     let requestBody: Record<string, unknown> | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
@@ -1357,7 +1454,7 @@ describe("AI 助理 Sandbox", () => {
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "最新問題" }),
+      body: JSON.stringify({ sessionId: created.session.id, model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "最新問題" }),
     });
     expect(response.status).toBe(200);
     expect(JSON.stringify(requestBody?.contents)).toContain("歷史問題 50");
@@ -1368,7 +1465,7 @@ describe("AI 助理 Sandbox", () => {
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
     const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id }),
     })).json() as { session: { id: string } };
     const requests: Array<{ body: Record<string, unknown>; summary: boolean }> = [];
     let mainCount = 0;
@@ -1390,7 +1487,7 @@ describe("AI 助理 Sandbox", () => {
         method: "POST",
         body: JSON.stringify({
           sessionId: created.session.id,
-          model: "gemini-3.6-flash",
+          model: "gpt-5.4-mini",
           promptRevisionId: config.activePrompt.id,
           toolKeys: [],
           input: longQuestion + index,
@@ -1417,7 +1514,7 @@ describe("AI 助理 Sandbox", () => {
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
     const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
       method: "POST",
-      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+      body: JSON.stringify({ model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id }),
     })).json() as { session: { id: string } };
     const messages = Array.from({ length: 40 }, (_, index) => [
       {
@@ -1432,7 +1529,7 @@ describe("AI 助理 Sandbox", () => {
         sessionId: created.session.id,
         role: "model" as const,
         text: `歷史回答-${index} ${"回答".repeat(3_000)}`,
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         createdAt: new Date(Date.UTC(2026, 7, 22, 10, index, 30)).toISOString(),
       },
     ]).flat();
@@ -1456,7 +1553,7 @@ describe("AI 助理 Sandbox", () => {
       method: "POST",
       body: JSON.stringify({
         sessionId: created.session.id,
-        model: "gemini-3.6-flash",
+        model: "gpt-5.4-mini",
         promptRevisionId: config.activePrompt.id,
         toolKeys: [],
         input: "觸發摘要錯誤",

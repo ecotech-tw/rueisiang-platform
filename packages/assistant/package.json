@@ -13,8 +13,5 @@
     "@cloudflare/workers-types": "^4.20260702.1",
     "@rueisiang/config": "workspace:*",
     "typescript": "5.9.3"
-  },
-  "dependencies": {
-    "@google/genai": "2.18.0"
   }
 }

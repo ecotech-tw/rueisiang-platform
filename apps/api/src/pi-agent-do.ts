@@ -457,13 +457,10 @@ export class AssistantChatAgent {
       });
       await options.onResponse?.(response, responseModel);
     };
-    const providerOptions = model.provider === PI_CODEX_PROVIDER_ID
-      ? { ...shared, transport: "sse" as const, onPayload: payloadWithOutputLimit, onResponse }
-      : { ...shared, onPayload: undefined, onResponse };
+    const providerOptions = { ...shared, transport: "sse" as const, onPayload: payloadWithOutputLimit, onResponse };
     return streamPiAssistantModel(model, context, providerOptions, {
       resolveCodexAccessToken: async () => this.accessToken(),
-      codexRelay: model.provider === PI_CODEX_PROVIDER_ID ? this.codexRelay() : undefined,
-      geminiApiKey: this.env.GEMINI_API_KEY,
+      codexRelay: this.codexRelay(),
     });
   }
 

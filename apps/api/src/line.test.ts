@@ -360,7 +360,7 @@ describe("LINE Queue lease、retry budget 與 run audit", () => {
       assistantKey: "rueisiang-xiaoxiang",
       channelKey: "rueisiang-xiaoxiang",
       groupId: "user-1",
-      model: "gemini-3.6-flash",
+      model: "gpt-5.4-mini",
       promptRevisionId: "prompt-1",
       inputChars: 20,
       durationMs: 100,
@@ -387,39 +387,6 @@ describe("LINE Queue lease、retry budget 與 run audit", () => {
     expect(runs[0]).toMatchObject({ status: "success", outputChars: 12, promptTokens: 4, candidateTokens: 5, totalTokens: 9, errorMessage: null });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ toolKey: "crm_get_orders", status: "success" });
-  });
-
-  it("永久 Gemini 400 會在 reply window 內回覆設定錯誤，不消耗 Queue retry", async () => {
-    const group = await enableLineConversation(userEvent({ webhookEventId: "gemini-400-seed" }));
-    const requests: string[] = [];
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      requests.push(url);
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({ error: { code: 400, message: "invalid request" } }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      return new Response(null, { status: 200 });
-    });
-
-    await processLineAssistantQueueMessage({
-      kind: "assistant",
-      runId: crypto.randomUUID(),
-      assistantKey: "rueisiang-xiaoxiang",
-      channelKey: "rueisiang-xiaoxiang",
-      groupRowId: group.id,
-      lineGroupId: "user-1",
-      sourceType: "user",
-      webhookEventId: "gemini-400-event",
-      replyToken: "gemini-400-reply",
-      questionText: "測試永久錯誤",
-      replyDeadlineAt: Date.now() + 60_000,
-    }, env as never);
-
-    expect(requests.some((url) => url.endsWith("/message/reply"))).toBe(true);
-    expect(requests.some((url) => url.endsWith("/message/push"))).toBe(false);
   });
 
   it("Pi provider 失敗時仍會把已完成的 tool calls 寫入 failed audit", async () => {
@@ -468,9 +435,7 @@ describe("LINE Queue lease、retry budget 與 run audit", () => {
   it("Queue 失敗達到上限後標記 failed，outbox 不會再把它送回 Queue", async () => {
     const group = await enableLineConversation(userEvent({ webhookEventId: "retry-budget-seed" }));
     piAgentError = "Pi Agent 暫時故障";
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (url.includes("generativelanguage.googleapis.com")) return new Response("temporary", { status: 500 });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
       return new Response(null, { status: 200 });
     });
     const message = {
@@ -508,12 +473,6 @@ describe("LINE Queue lease、retry budget 與 run audit", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       requests.push(url);
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: "需要人工 reconciliation 的回答" }] } }],
-          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
       return new Response(null, { status: 200 });
     });
     const message = {
@@ -868,7 +827,7 @@ describe("LINE channel 後台設定", () => {
   });
 
   it("已開通的一對一對話會使用 user ID 回覆", async () => {
-    env = { ...env, PI_AGENT_MODEL: "gemini-3.6-flash" };
+    env = { ...env, PI_AGENT_MODEL: "gpt-5.4-mini" };
     await postLine(JSON.stringify({ events: [userEvent()] }));
     const [userGroup] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, "user-1"));
     expect(userGroup?.sourceType).toBe("user");
@@ -910,7 +869,7 @@ describe("LINE channel 後台設定", () => {
     expect(replyRequest?.body).toContain('"replyToken":"reply-token-1"');
     expect(replyRequest?.body).toContain("一對一回答");
     expect(piAgentRequests.find((request) => request.path === "/run")?.payload).toMatchObject({
-      model: "gemini-3.6-flash",
+      model: "gpt-5.4-mini",
       webhookEventId: "user-evt-run",
     });
   });
@@ -1103,12 +1062,6 @@ describe("LINE Reply deadline 與 fixed-window Push", () => {
     let pushAttempts = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      if (url.includes("generativelanguage.googleapis.com")) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: "應該重試的完整回答" }] } }],
-          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
       if (url.endsWith("/message/quota/consumption")) {
         return new Response(JSON.stringify({ totalUsage: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -1143,7 +1096,7 @@ describe("LINE Reply deadline 與 fixed-window Push", () => {
     expect(delivery).toMatchObject({ status: "reserved", remoteUsage: 0 });
 
     // 第二次 Queue delivery 使用同一份 backup；成功後 run audit 必須從 failed 更新為 success，
-    // 並保留第一次 Gemini 寫入的 usage，而不是被 backup 的空 usage 蓋成 0。
+    // 並保留第一次 Codex 寫入的 usage，而不是被 backup 的空 usage 蓋成 0。
     await processLineAssistantQueueMessage({
       kind: "assistant",
       runId,

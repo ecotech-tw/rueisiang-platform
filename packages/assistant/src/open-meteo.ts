@@ -1,6 +1,6 @@
 import { AssistantError, type AssistantToolDefinition } from "./types.js";
 
-// Gemini function name 只使用英數與底線；分類資訊未來另存於 tool registry。
+// Tool function name 只使用英數與底線；分類資訊未來另存於 tool registry。
 export const OPEN_METEO_TOOL_KEY = "weather_open_meteo";
 
 interface GeocodingResult {

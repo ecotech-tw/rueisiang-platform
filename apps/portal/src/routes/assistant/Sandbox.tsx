@@ -111,7 +111,6 @@ export function Sandbox() {
   const activeRevision = data.revisions.find((revision) => revision.id === promptId);
   const selectedModel = data.models.find((item) => item.id === model);
   const codexModels = data.models.filter((item) => item.provider === "openai-codex");
-  const geminiModels = data.models.filter((item) => item.provider === "google");
   const modelReady = Boolean(selectedModel?.supported && selectedModel.configured);
   const currentSession = session.data?.session;
   const sessionOpen = currentSession?.status === "open";
@@ -183,9 +182,6 @@ export function Sandbox() {
       {!data.providers.codex ? (
         <p className="form-error" role="alert">尚未完成 ChatGPT／Codex OAuth credential 設定，GPT 模型目前不可執行。</p>
       ) : null}
-      {!data.providers.gemini ? (
-        <p className="form-error" role="alert">尚未設定 GEMINI_API_KEY，Gemini 模型目前不可執行。</p>
-      ) : null}
 
       <div className="assistant-sandbox-layout">
         <div className="assistant-settings-column">
@@ -202,15 +198,8 @@ export function Sandbox() {
                       </option>
                     ))}
                   </optgroup>
-                  <optgroup label="Gemini（API key）">
-                    {geminiModels.map((item) => (
-                      <option key={item.id} value={item.id} disabled={!item.supported || !item.configured}>
-                        {item.label}{item.supported && item.configured ? "" : "（目前不可用）"}
-                      </option>
-                    ))}
-                  </optgroup>
                 </select>
-                <small>{selectedModel?.note ?? "GPT 使用 ChatGPT OAuth；Gemini 使用 Cloudflare secret 裡的 API key。"}</small>
+                <small>{selectedModel?.note ?? "由 Pi Agent 透過 ChatGPT OAuth 使用 Codex。"}</small>
                 {selectedModel?.supportsVision ? <small>此模型支援圖片輸入；上傳介面會在 vision PR 加入。</small> : null}
                 <small>目前小香正式使用：{data.models.find((item) => item.id === data.activeModel)?.label ?? data.activeModel}</small>
                 {!sessionId ? <small>尚未選擇 session，建立新 session 時會使用目前小香的 active model 與 active revision。</small> : null}

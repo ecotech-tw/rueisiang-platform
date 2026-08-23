@@ -390,7 +390,7 @@ export async function getAssistantLineReplyBackup(
 }
 
 /**
- * Queue lock 要覆蓋最慢的一輪 Gemini + tools 執行時間；stale requeue 仍會另外
+ * Queue lock 要覆蓋最慢的一輪 model + tools 執行時間；stale requeue 仍會另外
  * 檢查 lockedUntil，避免排程在活工作尚未結束時啟動第二個 consumer。
  */
 export const ASSISTANT_LINE_QUEUE_LOCK_MS = 10 * 60_000;

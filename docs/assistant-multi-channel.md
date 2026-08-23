@@ -268,7 +268,7 @@ MCP **server** 是相反方向、不同風險）：
   防的是回傳值，防不到說明。
 - **名字會撞，但前綴不能亂加。** 外部 server 可以註冊一個叫 `wms_list_inventory` 的工具；
   Pi Agent 目前把 `tool.key` 直接當 provider tool name，因此一定要先在 registry 擋重名。
-  **跨 Codex／Gemini 的 function name 應只使用英數與底線**，
+  **跨 model provider 的 function name 應只使用英數與底線**，
   `mcp:notion:search` 這種帶冒號的會被拒絕或叫不動。
   所以要分成兩個東西：**registry key**（`mcp:notion:search`，內部用、給人看）與
   **provider alias**（`mcp_notion_search`，送給模型用），呼叫回來時再把 alias 對回

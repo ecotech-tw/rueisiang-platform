@@ -1,7 +1,7 @@
 # 小香 Pi Agent、provider 與 session
 
-Sandbox 與 LINE 的模型執行都使用 Pi Agent。選 GPT 時使用 Codex ChatGPT OAuth，選 Gemini
-時使用 `GEMINI_API_KEY`；兩個 provider 共用 Pi transcript、tool loop、usage 與 compact。
+Sandbox 與 LINE 的模型執行都使用 Pi Agent，目前使用 Codex ChatGPT OAuth。
+Pi transcript、tool loop、usage 與 compact 由兩個介面共用。
 vision upload 會再拆成後續 PR。LINE Queue consumer 會把每個已授權對話 dispatch 到 chat
 專屬的 Durable Object；Sandbox session 也有自己的 Pi Durable Object。
 
@@ -11,7 +11,7 @@ Queue 與 Durable Object instance name 共用的穩定內部識別碼；目前�
 
 ```text
 LINE webhook／Sandbox API → chat Durable Object → Pi Agent
-  → GPT／Codex（ChatGPT OAuth）或 Gemini（API key）→ platform tools／D1
+  → GPT／Codex（ChatGPT OAuth）→ platform tools／D1
   → Pi Agent 最終回答 → LINE Reply API
   → 接近 reply token 期限時才使用受限 Push fallback
 ```
@@ -60,7 +60,7 @@ CPU time、subrequest、DO storage 與 Queue retry，不能把「可部署」視
 
 小香初始模型是 `gpt-5.4-mini`。管理者在 Sandbox 儲存的 active model 同時套用到 Sandbox 與
 LINE；只有資料庫還沒有 assistant 設定時才讀 Worker var `PI_AGENT_MODEL`。Sandbox 模型選單
-列出目前 Pi catalog 支援的 Codex 與 Gemini 模型，並分別檢查 OAuth credential 與 API key。
+列出目前 Pi catalog 支援的 Codex 模型，並檢查 OAuth credential。
 為優先守住 LINE reply token，LINE 執行固定採用：
 
 - minimal reasoning、low verbosity；
@@ -129,11 +129,10 @@ fingerprint；重新登入後更新 `PI_OPENAI_CODEX_CREDENTIAL`，下一次請�
 更換 encryption key，否則既有 vault 資料無法解密；若必須輪替，請同時重新登入並更新兩個值。
 Worker 永遠只從 vault RPC 取得短效 access token，不會把 refresh token 複製到每個 chat DO。
 
-若要使用 Gemini 模型，再新增 `GEMINI_API_KEY`。兩種 provider 可以只設一種；Sandbox 會停用
-缺少 credential 的那組模型。若 active model 所屬 provider 未設定，API 會明確回傳 503，不會
-偷偷改用另一個 provider。
+Codex credential 必須設定；若 credential 未設定，Sandbox 與 LINE API 會明確回傳 503，
+不會偷偷改用其他模型。
 
 本機 `tsx` API server 會以 Node SQLite adapter 模擬 chat DO 與 credential vault，所以可在
-Sandbox 測 Gemini API key 或 Codex OAuth；正式 LINE Queue、Cloudflare alarm 與真實 DO migration
+Sandbox 測 Codex OAuth；正式 LINE Queue、Cloudflare alarm 與真實 DO migration
 仍要部署後驗證。本機不可執行 Wrangler 的限制仍以 [`deployment-setup.md`](./deployment-setup.md)
 為準。

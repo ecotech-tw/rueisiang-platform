@@ -51,10 +51,6 @@ function parseToolCalls(value: unknown): AssistantToolCall[] {
   });
 }
 
-// Sandbox routes historically imported this name; keep it as an alias so the
-// stacked LINE reliability changes and Sandbox error handling share one type.
-export { PiAgentRequestError as PiAgentRunError };
-
 function lineAgentName(input: PiLineAgentContext): string {
   return [input.assistantKey, input.channelKey, input.sourceType, input.lineGroupId].join(":");
 }

@@ -1,17 +1,15 @@
 # 小香助理 Sandbox
 
 這是 AI 內部問答系統的開發說明。Sandbox 與 LINE 前台現在共用 Pi Agent、SQLite Durable
-Object session、tool loop 與 compact；在模型選單選 GPT 時使用 Codex ChatGPT OAuth，選
-Gemini 時使用 `GEMINI_API_KEY`。架構、session 與 credential setup 見
+Object session、tool loop 與 compact；目前模型選單使用 Codex ChatGPT OAuth。架構、session
+與 credential setup 見
 [`line-pi-agent.md`](./line-pi-agent.md)；用量分析頁仍在後續階段。
 
 ## 本機操作
 
-在 `apps/api/.dev.vars` 放入要測試的 provider credential（這個檔案不進版控）。只測 Gemini
-時不需要 Codex credential；要測 GPT 時則需另外設定下列兩個 Pi secret：
+在 `apps/api/.dev.vars` 放入 Codex credential（這個檔案不進版控），本機 Sandbox 與 LINE 測試共用：
 
 ```dotenv
-GEMINI_API_KEY=你的_Gemini_API_Key
 PI_OPENAI_CODEX_CREDENTIAL={"access":"...","refresh":"..."}
 PI_CREDENTIAL_ENCRYPTION_KEY=至少_32_字元的獨立高熵字串
 # 要讓已授權的 LINE 對話收到小香回答，還需要設定 Messaging API access token。
@@ -32,7 +30,7 @@ pnpm dev
 
 ## 第一階段提供的功能
 
-- 模型選單依 provider 分成 GPT／Codex（ChatGPT OAuth）與 Gemini（API key），並顯示各 provider 是否已設定；模型 catalog 由目前安裝的 Pi 版本提供。
+- 模型選單目前提供 GPT／Codex（ChatGPT OAuth），模型 catalog 由目前安裝的 Pi 版本提供。
 - 同一個 Sandbox session 可以在每一輪送出前切換模型；切換會在該輪送出時套用，session 與每則模型回覆都會記錄實際使用的 model。
 - Sandbox 選定模型後按「儲存並套用到小香」，會寫入 assistant 設定；Sandbox 與 LINE 後續沒有明確指定模型的執行都使用這個 active model。
 - 編輯 system prompt；每次儲存會建立新 revision，並立即設為 active。
@@ -57,7 +55,7 @@ CRM 工具與 WMS 使用同一個 provider-neutral `ToolContract`；目前三個
 - `crm_get_customer`：依客戶 ID 取得客戶資料、標籤、同步狀態、最近操作紀錄與可選的消費摘要。
 - `crm_get_orders`：即時查詢 CYBERBIZ 訂單，支援 customer ID、order ID、訂單編號、日期、狀態、排序與 limit；需要 `crm:order:read`。
 
-目前 `mcp` 是共用 registry 的 surface 標記，實際 MCP transport adapter 尚未在本 repo 建立（要接**外部** MCP 工具的話有額外的限制與風險，見 [`assistant-multi-channel.md`](./assistant-multi-channel.md) 第五節）；未來 GPT、Gemini 或遠端 MCP host 都可沿用同一批 tool definition、執行函式與權限宣告。CYBERBIZ 訂單工具使用即時 API，不會把訂單快照寫入 CRM。
+目前 `mcp` 是共用 registry 的 surface 標記，實際 MCP transport adapter 尚未在本 repo 建立（要接**外部** MCP 工具的話有額外的限制與風險，見 [`assistant-multi-channel.md`](./assistant-multi-channel.md) 第五節）；未來其他 model provider 或遠端 MCP host 都可沿用同一批 tool definition、執行函式與權限宣告。CYBERBIZ 訂單工具使用即時 API，不會把訂單快照寫入 CRM。
 
 每次 Sandbox 與 LINE 執行都會注入可信的 `Asia/Taipei` 日期與時間，模型可以用它把「今天」轉成 CRM tool 的 `date`、`fromDate` 與 `toDate`。消費工具查不到連結資料時會明確回報，不會用姓名猜測客戶或捏造訂單。
 
@@ -80,7 +78,7 @@ npx wrangler tail rueisiang-platform --format json
 ## LINE 回覆的執行方式與延遲診斷
 
 LINE webhook 收到訊息後會先把工作寫入 Cloudflare Queue，再回傳 `accepted`；Queue consumer
-負責 dispatch 到 chat 專屬 Durable Object，由 Pi Agent 依 active model 執行 Codex 或 Gemini、tool 與 session context，
+負責 dispatch 到 chat 專屬 Durable Object，由 Pi Agent 依 active model 執行 Codex、tool 與 session context，
 完成後再呼叫 LINE Messaging API。正常路徑永遠優先使用 webhook event 的
 `replyToken`；Queue 不設定 delivery delay。距離程式採用的 60 秒期限只剩 10 秒時，若推論仍未
 完成，會先用 Reply API 回覆「系統繁忙，請稍後再試。」。完整結果完成後才嘗試受限 Push；
@@ -113,7 +111,7 @@ Sandbox 會保留該次 tool 的 args 與失敗訊息，LINE 只會收到 Pi Age
 
 ## API
 
-Sandbox runs support multi-turn Pi sessions. D1 keeps the selected model, prompt revision, and full user/model history as metadata and an audit/UI projection; the chat Durable Object keeps the Pi transcript and compact summary used for inference. The model in `POST /api/assistant/sandbox/run` takes precedence for an open session, so each turn can switch providers or models; close a session to keep its D1 history while preventing further runs.
+Sandbox runs support multi-turn Pi sessions. D1 keeps the selected model, prompt revision, and full user/model history as metadata and an audit/UI projection; the chat Durable Object keeps the Pi transcript and compact summary used for inference. The model in `POST /api/assistant/sandbox/run` takes precedence for an open session, so each turn can switch models; close a session to keep its D1 history while preventing further runs.
 
 - `GET /api/assistant/sandbox/sessions`、`POST /api/assistant/sandbox/sessions`：列出或建立 Sandbox session。
 - `GET /api/assistant/sandbox/sessions/:id`、`POST /api/assistant/sandbox/sessions/:id/close`：查看或關閉 session。
@@ -135,8 +133,8 @@ Sandbox runs support multi-turn Pi sessions. D1 keeps the selected model, prompt
 
 1. ✅ 已完成小香設定頁：active model 與 tool catalog 狀態可在後台調整。
 2. ✅ 已完成 LINE channel 設定、webhook URL、對話授權與每對話訊息表；群組／聊天室須 mention，一對一不須 mention。
-3. ✅ LINE 已改由 Pi Agent、active model、active prompt 與 tool policy 執行；GPT 使用 Codex ChatGPT OAuth，Gemini 使用 API key，僅允許「已啟用」工具在線上回覆。
-4. ✅ Sandbox 已統一使用 Pi Agent，支援雙 provider、session、多輪對話、歷史查看、關閉 session、每輪切換模型與 Pi compact。
+3. ✅ LINE 已改由 Pi Agent、active model、active prompt 與 tool policy 執行；GPT 使用 Codex ChatGPT OAuth，僅允許「已啟用」工具在線上回覆。
+4. ✅ Sandbox 已統一使用 Pi Agent，支援 Codex、session、多輪對話、歷史查看、關閉 session、每輪切換模型與 Pi compact。
 5. 建立日／週／月與自訂 duration 的群組、模型、tool 用量分析頁。
 6. 多帳號（官網客服自己的 LINE 官方帳號）、channel／對話兩層工具權限、每個對話的
    system prompt 補充，以及客服的身分驗證——設計見

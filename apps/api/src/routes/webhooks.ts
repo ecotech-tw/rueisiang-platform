@@ -57,6 +57,7 @@ import {
   resetPiLineAgent,
   runPiLineAgent,
 } from "../pi-agent.js";
+import { isPiCodexModel } from "../pi-agent-models.js";
 import {
   isLineWebhookEvent,
   lineEventGroup,
@@ -159,7 +160,7 @@ function isPermanentLineAssistantError(error: unknown): boolean {
     current = record.cause;
   }
   return statuses.some((status) => [400, 401, 403, 404].includes(status))
-    || messages.some((message) => /gemini[\s_-]*api[\s_-]*key|Gemini 請求格式錯誤|模型設定|模型無法使用|prompt.*設定|對話設定|授權|HTTP\s+(400|401|403|404)/i.test(message));
+    || messages.some((message) => /模型設定|模型無法使用|prompt.*設定|對話設定|授權|HTTP\s+(400|401|403|404)/i.test(message));
 }
 
 async function stableLineWebhookEventId(input: {
@@ -433,9 +434,10 @@ async function runLineAssistant(input: {
   try {
     // Push retry 若已有完整 backup，不需要重新執行 agent；這也避免外部服務暫時異常時重複產生答案。
     const savedBackup = await getAssistantLineReplyBackup(input.db, runId);
+    const configuredEnvModel = input.env.PI_AGENT_MODEL?.trim();
     await ensureAssistantDefaults(input.db, {
       assistantKey: input.assistantKey,
-      defaultModel: input.env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL,
+      defaultModel: isPiCodexModel(configuredEnvModel) ? configuredEnvModel : DEFAULT_PI_CODEX_MODEL,
       defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
       toolKeys: PLATFORM_TOOL_KEYS,
     });
@@ -462,9 +464,11 @@ async function runLineAssistant(input: {
         toolMode: group.toolMode,
       }),
     ]);
-    const configuredModel = assistantConfig?.activeModel
-      || input.env.PI_AGENT_MODEL?.trim()
-      || DEFAULT_PI_CODEX_MODEL;
+    const configuredModel = isPiCodexModel(assistantConfig?.activeModel)
+      ? assistantConfig.activeModel
+      : isPiCodexModel(configuredEnvModel)
+        ? configuredEnvModel
+        : DEFAULT_PI_CODEX_MODEL;
     modelId = configuredModel;
     if (!prompt) throw new Error("小香的 prompt 設定目前無法使用。");
     promptRevisionId = prompt.id;
