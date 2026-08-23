@@ -156,7 +156,7 @@ Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
 | `GEMINI_API_KEY` | Pi Google provider 的 Gemini API key；Sandbox 與 LINE 選 Gemini 模型時使用 |
 | `PI_OPENAI_CODEX_CREDENTIAL` | Codex CLI 或 Pi 的 ChatGPT OAuth credential JSON；不是 OpenAI API key |
 | `PI_CREDENTIAL_ENCRYPTION_KEY` | 至少 32 字元；加密 credential-vault 內的 access／refresh token |
-| `PI_OPENAI_CODEX_RELAY_TOKEN` | 可選；NAS Codex relay 的 shared token，搭配 `PI_OPENAI_CODEX_RELAY_URL` variable 使用 |
+| `PI_OPENAI_CODEX_RELAY_TOKEN` | 可選；NAS Codex relay 的 shared token，搭配 `wrangler.toml` 裡的 `PI_OPENAI_CODEX_RELAY_URL` 使用 |
 | `LINE_CHANNEL_SECRET` | 選用 fallback；LINE Developers 的 Channel secret |
 | `LINE_CHANNEL_ACCESS_TOKEN` | 選用 fallback；同一個 token 同時供 Reply 與受限 Push 使用 |
 
@@ -171,7 +171,8 @@ node -e "console.log(crypto.randomUUID() + crypto.randomUUID())"
 
 這把金鑰換掉會讓所有人的登入狀態失效（cookie 驗不過），所以之後不要隨手換。
 
-secret 存進去就立即生效，不必重新部署；之後的部署也不會把它們洗掉。
+secret 存進去就立即生效，不必重新部署；之後的部署也不會把它們洗掉。非機密的 relay URL 則寫在
+`apps/api/wrangler.toml` 的 `[vars]`，避免只存在 Dashboard 而被下一次 Wrangler 部署覆蓋。
 
 （等價指令：`cd apps/api && npx wrangler secret put <名稱>`）
 

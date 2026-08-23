@@ -2,6 +2,7 @@ name = "rueisiang-platform"
 main = "src/index.ts"
 compatibility_date = "2026-08-01"
 workers_dev = true
+keep_vars = true
 
 # 靜態檔與 API 同一個 Worker、同一個網域。
 # 這組設定沿用出金表工具 worker/wrangler.toml 已驗證可行的做法：
@@ -71,6 +72,7 @@ PAYOUT_GITHUB_REPO = "ecotech-tw/rueisiang-platform"
 PAYOUT_WORKFLOW_FILE = "payout.yml"
 PAYOUT_GITHUB_REF = "main"
 PI_AGENT_MODEL = "gpt-5.4-mini"
+PI_OPENAI_CODEX_RELAY_URL = "https://codex-relay.rueisiang.com"
 
 # 需要的 secret（值不進版控，在 Cloudflare 儀表板或用指令設）：
 #   AUTH_SESSION_SECRET        簽 session cookie 用，換掉等於所有人登出
