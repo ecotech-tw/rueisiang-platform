@@ -1,23 +1,31 @@
 # 小香下一階段任務
 
-這份文件記錄 #81～#84 上線後的工作。它本身不改變目前的 LINE、Queue、Pi Agent、Sandbox 或 provider 行為；vision 與 MCP 都等核心 PR 上線並完成 smoke test 後再另外開 PR。
-
 ## 優先順序
 
-### 0. #81～#84 上線驗收
+### 1. Vision 圖片輸入與 NAS 媒體儲存
 
-- [ ] 套用所有 D1 migration，確認 Queue、Dead Letter Queue 與 Durable Object bindings 已建立。
-- [ ] 設定並確認 LINE channel、`PI_OPENAI_CODEX_CREDENTIAL`、`PI_CREDENTIAL_ENCRYPTION_KEY`、`GEMINI_API_KEY` 等 secret。
-- [ ] 實機驗證 LINE 一對一、群組 @ 小香、群組未 @、session reset backdoor、reply deadline 與 Push fixed-window quota。
-- [ ] 實機驗證 Sandbox 的 Codex OAuth、Gemini API key、模型切換、既有 session bootstrap、compact 與失敗後重試。
-- [ ] 檢查 Queue retry/DLQ、D1 outbox、reply backup 與 structured logs，確認可用 `runId`／correlation id 追查一次請求。
+第一階段先建立 NAS 的私有媒體儲存，再把 Sandbox、LINE 與 WMS 接上同一個 storage gateway。Cloudflare Worker
+不能直接 mount NAS 的檔案系統；Worker 只傳 namespace、由服務端產生的 object key 與短期授權，不能把 NAS
+絕對路徑或公開檔案網址交給瀏覽器、LINE 或模型。
 
-### 1. Vision 圖片輸入
+預定的 NAS 目錄（實際部署以 NAS 的 volume 大小寫為準）如下：
+
+```text
+/Volume1/rueisiang-platform/
+├─ assistant/
+│  └─ vision/<yyyy>/<mm>/<object-id>.<ext>
+└─ wms/
+   └─ zones/<zone-id>/<yyyy>/<mm>/<object-id>.<ext>
+```
+
+- [ ] 在 NAS 建立 `assistant` 與 `wms` namespace，並建立只允許服務帳號讀寫的 storage gateway；不要讓這兩個資料夾變成匿名公開分享。
+- [ ] 讓 gateway 只經由 Cloudflare Tunnel 提供受驗證的 upload、download、delete、health endpoint；storage credential 與 Codex relay token 分開管理，並限制 namespace、content type、大小、檔名與 path traversal。
+- [ ] D1 只保存 namespace、object key、原始檔名、MIME type、大小、checksum、建立者、建立時間與 expiry；圖片 bytes 留在 NAS，DO 只保留推論期間需要的短期 metadata。
+- [ ] 先讓 WMS 倉位照片寫入 `wms/zones/<zone-id>/...`，規劃既有 `zone_images.object_key` 的 dual-read／migration，驗證完成前不要刪除現有 R2/GCS 來源。
+- [ ] Sandbox 與 LINE 的圖片輸入寫入 `assistant/vision/...`；LINE image event 以 `messageId` 從 LINE Content API 取回 bytes 後再保存，未 tag 的群組圖片依 conversation scope 與 expiry 管理。
+- [ ] 補上 NAS 備份、保留期限、quota、重試與 orphan object reconciliation；storage gateway 不可因為單一圖片失敗拖垮一般文字對話。
 
 - [ ] Sandbox 新增圖片選擇、預覽、格式與大小驗證，API request 增加可選的 `attachments`；純文字請求維持向後相容。
-- [ ] LINE webhook 處理 image event，使用 `messageId` 透過 LINE Content API 取得圖片。
-- [ ] 圖片只在 Worker／Pi Agent 執行期間暫存於記憶體，不使用 R2 長期保存；DO 只保存必要的短期 metadata 與 expiry。
-- [ ] 群組未 tag 的圖片要與對話關聯，保留到明確提問或到期；到期後要清楚告知圖片已不可用。
 - [ ] 將圖片轉成 Pi Agent、Codex 與 Gemini 各自支援的 image content，並對不支援 vision 的模型拒絕或提示切換模型。
 - [ ] 補上 Sandbox、LINE 一對一、LINE 群組、圖片過期、大小／格式錯誤與兩個 provider 的 API tests，並更新操作文件。
 

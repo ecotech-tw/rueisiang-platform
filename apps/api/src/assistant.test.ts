@@ -2,6 +2,7 @@ import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles, updateAssistantSandboxContext } from "@rueisiang/db";
 import {
   activityEvents,
+  assistantConfigs,
   assistantLineChannels,
   assistantLineGroups,
   assistantLineMessages,
@@ -498,6 +499,28 @@ describe("AI 助理 Sandbox", () => {
       requiredPermissions: ["crm:order:read"],
     });
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
+  });
+
+  it("Pi catalog 有但 Sandbox 清單沒有的模型會回落到可執行的 Codex 預設值", async () => {
+    env.PI_AGENT_MODEL = "gemini-flash-latest";
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(assistantConfigs).values({
+      assistantKey: "rueisiang-xiaoxiang",
+      activeModel: "gemini-flash-latest",
+      updatedBy: "test",
+      updatedAt: new Date().toISOString(),
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config");
+    expect(response.status).toBe(200);
+    const result = await response.json() as {
+      defaultModel: string;
+      activeModel: string;
+      models: Array<{ id: string }>;
+    };
+    expect(result.defaultModel).toBe("gpt-5.4-mini");
+    expect(result.activeModel).toBe("gpt-5.4-mini");
+    expect(result.models.some((model) => model.id === "gemini-flash-latest")).toBe(false);
   });
 
   it("GPT Sandbox 需要 Codex OAuth，設定後會 dispatch 到同一個 Pi Agent", async () => {

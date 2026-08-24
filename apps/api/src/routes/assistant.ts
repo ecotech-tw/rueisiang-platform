@@ -63,7 +63,6 @@ import {
   isPiGeminiModel,
   piAssistantModel,
   piCodexModels,
-  resolvePiAssistantModelId,
 } from "../pi-agent-models.js";
 import { body, requireString } from "../request.js";
 
@@ -82,14 +81,28 @@ function validToolStatus(value: string): value is AssistantToolStatus {
 }
 
 function configuredAssistantModel(env: AppEnv["Bindings"]): string {
-  return resolvePiAssistantModelId(env.PI_AGENT_MODEL, DEFAULT_PI_CODEX_MODEL);
+  return resolveSandboxAssistantModelId(env.PI_AGENT_MODEL, DEFAULT_PI_CODEX_MODEL);
 }
 
 function activeAssistantModel(
   env: AppEnv["Bindings"],
   activeModel: string | undefined | null,
 ): string {
-  return resolvePiAssistantModelId(activeModel, configuredAssistantModel(env));
+  return resolveSandboxAssistantModelId(activeModel, configuredAssistantModel(env));
+}
+
+function isExecutableSandboxModel(modelId: string | undefined | null): modelId is string {
+  return isPiCodexModel(modelId)
+    || (isPiGeminiModel(modelId)
+      && ASSISTANT_MODELS.some((model) => model.id === modelId && model.supported));
+}
+
+function resolveSandboxAssistantModelId(
+  modelId: string | undefined | null,
+  fallbackModelId: string,
+): string {
+  const normalizedModelId = typeof modelId === "string" ? modelId.trim() : modelId;
+  return isExecutableSandboxModel(normalizedModelId) ? normalizedModelId : fallbackModelId;
 }
 
 type SandboxModelProvider = "openai-codex" | "google";
