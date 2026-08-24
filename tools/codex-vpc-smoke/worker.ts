@@ -11,15 +11,17 @@ export default {
     }
 
     try {
-      const response = await env.EGRESS.fetch(
-        "https://chatgpt.com/backend-api/wham/usage",
-        {
+      const response = await Promise.race([
+        env.EGRESS.fetch("https://chatgpt.com/backend-api/wham/usage", {
           headers: {
             accept: "application/json",
             "user-agent": "rueisiang-vpc-smoke/1.0",
           },
-        },
-      );
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("VPC egress probe timed out after 10 seconds")), 10_000),
+        ),
+      ]);
       const body = await response.text();
       return Response.json({
         ok: true,

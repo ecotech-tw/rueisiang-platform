@@ -81,7 +81,7 @@ jobs:
           trap cleanup EXIT
 
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:8790/probe > probe.json; then
+            if curl --max-time 20 --fail --silent --show-error http://127.0.0.1:8790/probe > probe.json; then
               break
             fi
             sleep 2
