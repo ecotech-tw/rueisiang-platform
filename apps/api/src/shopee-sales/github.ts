@@ -1,4 +1,4 @@
-import { resolveGithubToken, type Env } from "../env.js";
+import type { Env } from "../env.js";
 
 const GITHUB_API = "https://api.github.com";
 
@@ -30,7 +30,7 @@ export class ShopeeSalesGithubError extends Error {
 }
 
 export function shopeeSalesGithub(env: Env): ShopeeSalesGithub | undefined {
-  const token = resolveGithubToken(env);
+  const token = env.GITHUB_TOKEN;
   const repo = env.SHOPEE_GITHUB_REPO;
   const workflow = env.SHOPEE_WORKFLOW_FILE;
   if (!token || !repo || !workflow) return undefined;

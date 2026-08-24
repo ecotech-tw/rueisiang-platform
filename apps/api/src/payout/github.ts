@@ -1,4 +1,4 @@
-import { resolveGithubToken, type Env } from "../env.js";
+import type { Env } from "../env.js";
 
 /**
  * 觸發並查詢出金表的 GitHub Actions 工作。
@@ -68,7 +68,7 @@ function fromBase64(value: string): string {
 
 /** 沒設定 token 就回 undefined，讓呼叫端決定要不要報錯——設定頁不需要它也該打得開。 */
 export function payoutGithub(env: Env): PayoutGithub | undefined {
-  const token = resolveGithubToken(env);
+  const token = env.GITHUB_TOKEN;
   const repo = env.PAYOUT_GITHUB_REPO;
   const workflow = env.PAYOUT_WORKFLOW_FILE;
   if (!token || !repo || !workflow) return undefined;

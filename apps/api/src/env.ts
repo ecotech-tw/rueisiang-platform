@@ -65,9 +65,6 @@ export interface Env {
    * 以及出金表設定頁寫回 stores.json 所需的 Contents 寫入。
    */
   GITHUB_TOKEN?: string;
-  /** 遷移期間相容舊設定；新部署請只設定 GITHUB_TOKEN。 */
-  PAYOUT_GITHUB_TOKEN?: string;
-  SHOPEE_GITHUB_TOKEN?: string;
   PAYOUT_GITHUB_REPO?: string;
   PAYOUT_WORKFLOW_FILE?: string;
   PAYOUT_GITHUB_REF?: string;
@@ -87,12 +84,4 @@ export interface AppEnv {
     /** 由 requireAuth 中介層放入，已確認是 active 的帳號。 */
     user: AuthUser;
   };
-}
-
-/**
- * 出金表與蝦皮報表共用同一顆 GitHub PAT。
- * 舊名稱只保留作為遷移期間的 fallback，避免更新 Worker 前暫時中斷既有工具。
- */
-export function resolveGithubToken(env: Env): string | undefined {
-  return env.GITHUB_TOKEN ?? env.SHOPEE_GITHUB_TOKEN ?? env.PAYOUT_GITHUB_TOKEN;
 }
