@@ -159,7 +159,10 @@ function isPermanentLineAssistantError(error: unknown): boolean {
     }
     current = record.cause;
   }
+  const hasPermanentCodexCredentialMessage = messages.some((message) =>
+    /PI_(?:OPENAI_CODEX_CREDENTIAL|CREDENTIAL_ENCRYPTION_KEY)|(?:尚未設定|不是合法|缺少|至少需要).*(?:credential|PI_)|無法解密.*(?:Codex|credential)|(?:Codex|ChatGPT).*credential.*(?:無法使用|失效|缺少|錯誤)|credential.*(?:Codex|ChatGPT).*(?:無法使用|失效|缺少|錯誤)/i.test(message));
   return statuses.some((status) => [400, 401, 403, 404].includes(status))
+    || hasPermanentCodexCredentialMessage
     || messages.some((message) => /模型設定|模型無法使用|prompt.*設定|對話設定|授權|HTTP\s+(400|401|403|404)/i.test(message));
 }
 

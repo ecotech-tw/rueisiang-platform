@@ -34,6 +34,7 @@ import { PLATFORM_TOOL_MAP } from "@rueisiang/tools";
 import { Type, type TSchema } from "typebox";
 import type { AssistantRunResult, AssistantToolCall, JsonSchemaProperty } from "@rueisiang/assistant";
 import type { Env } from "./env.js";
+import { DEFAULT_PI_CODEX_MODEL } from "./pi-agent.js";
 import type {
   PiLineAgentResetRequest,
   PiLineAgentResetResponse,
@@ -44,6 +45,7 @@ import type {
 } from "./pi-agent-contract.js";
 import {
   PI_CODEX_PROVIDER_ID,
+  isPiCodexModel,
   piAssistantModel,
   type PiCodexRelayConfig,
   streamPiAssistantModel,
@@ -713,6 +715,11 @@ export class AssistantChatAgent {
   ): Promise<void> {
     const state = this.currentState();
     if (!state || (!state.model && !preferredModel)) return;
+    const modelId = isPiCodexModel(preferredModel)
+      ? preferredModel
+      : isPiCodexModel(state.model)
+        ? state.model
+        : DEFAULT_PI_CODEX_MODEL;
     const rows = this.loadMessageRows(state);
     const totalTokens = rows.reduce((total, row) => total + estimateTokens(row.message), state.summary_tokens);
     if (totalTokens <= (force ? FORCE_COMPACT_AFTER_TOKENS : COMPACT_AFTER_TOKENS)) return;
@@ -727,7 +734,7 @@ export class AssistantChatAgent {
     if (cutIndex <= 0 || cutIndex >= rows.length) return;
 
     const toSummarize = rows.slice(0, cutIndex);
-    const model = this.model(preferredModel ?? state.model);
+    const model = this.model(modelId);
     const summary = await generateSummaryWithUsage(
       toSummarize.map((row) => row.message),
       this.summaryModels(diagnostics),
@@ -750,12 +757,13 @@ export class AssistantChatAgent {
     const throughSeq = toSummarize.at(-1)!.seq;
     this.sql.exec(
       `UPDATE assistant_agent_state SET
-         summary = ?, summary_through_seq = ?, summary_tokens = ?, tokens_before = ?, updated_at = ?
+         summary = ?, summary_through_seq = ?, summary_tokens = ?, tokens_before = ?, model = ?, updated_at = ?
        WHERE singleton = 1 AND generation = ?`,
       summary.value.text,
       throughSeq,
       Math.max(1, Math.ceil(summary.value.text.length / 4)),
       totalTokens,
+      modelId,
       Date.now(),
       state.generation,
     );

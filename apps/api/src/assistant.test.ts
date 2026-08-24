@@ -206,6 +206,74 @@ class TestAssistantAgentNamespace {
     };
   }
 
+  seedLegacyCompactionState(name: string, model: string): void {
+    const entry = this.agents.get(name);
+    if (!entry) throw new Error(`找不到測試中的 assistant agent：${name}`);
+    const state = entry.sqlite.prepare(
+      "SELECT generation FROM assistant_agent_state WHERE singleton = 1 LIMIT 1",
+    ).get() as { generation: string } | undefined;
+    if (!state) throw new Error("測試 assistant agent 尚未建立 state。");
+    entry.sqlite.prepare(
+      "UPDATE assistant_agent_state SET model = ? WHERE singleton = 1",
+    ).run(model);
+    const runId = `legacy-compaction:${state.generation}`;
+    entry.sqlite.prepare(
+      `INSERT OR IGNORE INTO assistant_agent_runs (run_id, generation, status, response_json, updated_at)
+       VALUES (?, ?, 'completed', '', ?)`,
+    ).run(runId, state.generation, Date.now());
+    const insert = entry.sqlite.prepare(
+      `INSERT INTO assistant_agent_messages (generation, run_id, role, payload, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (let index = 0; index < 24; index += 1) {
+      const timestamp = Date.now() + index;
+      insert.run(
+        state.generation,
+        runId,
+        "user",
+        JSON.stringify({ role: "user", content: `legacy user ${index} ${"歷史".repeat(2_500)}`, timestamp }),
+        timestamp,
+      );
+      insert.run(
+        state.generation,
+        runId,
+        "assistant",
+        JSON.stringify({
+          role: "assistant",
+          content: [{ type: "text", text: `legacy assistant ${index} ${"回答".repeat(2_500)}` }],
+          api: "openai-codex-responses",
+          provider: "openai-codex",
+          model,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop",
+          timestamp: timestamp + 1,
+        }),
+        timestamp + 1,
+      );
+    }
+  }
+
+  async alarm(name: string): Promise<void> {
+    const entry = this.agents.get(name);
+    if (!entry) throw new Error(`找不到測試中的 assistant agent：${name}`);
+    await entry.agent.alarm();
+  }
+
+  model(name: string): string | undefined {
+    const entry = this.agents.get(name);
+    if (!entry) return undefined;
+    return (entry.sqlite.prepare(
+      "SELECT model FROM assistant_agent_state WHERE singleton = 1 LIMIT 1",
+    ).get() as { model?: string } | undefined)?.model;
+  }
+
   close(): void {
     for (const entry of this.agents.values()) entry.sqlite.close();
     this.agents.clear();
@@ -1507,6 +1575,44 @@ describe("AI 助理 Sandbox", () => {
     };
     expect(result.session.contextSummaryMessageCount).toBe(0);
     expect(result.session.messages).toHaveLength(60);
+  });
+
+  it("既有 DO state 留著舊模型時，背景 compact 會改用預設 Codex 模型", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "初始化回答" }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        ...requestBody,
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId: created.session.id,
+        model: "gpt-5.4-mini",
+        promptRevisionId: config.activePrompt.id,
+        toolKeys: [],
+        input: "建立舊 session",
+      }),
+    });
+    expect(response.status).toBe(200);
+
+    const agentName = `rueisiang-xiaoxiang:sandbox:admin:${created.session.id}`;
+    assistantAgents!.seedLegacyCompactionState(agentName, "gemini-1.5-pro");
+    fetchMock.mockResolvedValue(asCodexStream({
+      candidates: [{ content: { parts: [{ text: "legacy history summary" }] } }],
+    }));
+
+    await expect(assistantAgents!.alarm(agentName)).resolves.toBeUndefined();
+    expect(assistantAgents!.model(agentName)).toBe("gpt-5.4-mini");
   });
 
   it("Sandbox compact 遇到 HTML provider error 時不把整頁回傳給 UI", async () => {
