@@ -60,6 +60,10 @@ docs/        deployment-setup.md（首次開通）、migration-plan.md（各 Pha
 
 `apps/api/wrangler.toml` 的 `[assets]` 指向 `../portal/dist`，`run_worker_first = ["/api/*"]`：`/api/*` 進 Worker，其餘走 Static Assets。所以 portal 必須先 build，api 才部署得起來。
 
+### TODO 與規劃文件
+
+文件只保留對目前決策或下一步有用的內容；不要在 TODO、設計文件或程式註解重述 Git 已經保存的歷史、完成項目或移除原因。沒有實質內容變更時，不要只為補充說明製造 commit 或 PR 更新。
+
 ## 技術決策
 
 **單一 Worker + D1，不用 Next.js、不用 Postgres。** 四套舊系統是同一個模板的四份拷貝，共用檔案已經各自漂移。合併成一個 monorepo，一份 schema、一套權限、一次登入。

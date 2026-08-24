@@ -1,4 +1,3 @@
-export { runGemini, summarizeAssistantConversation } from "./gemini.js";
 export { assistantErrorDetails, assistantLog } from "./logging.js";
 export {
   ASSISTANT_TIME_ZONE,

@@ -54,11 +54,16 @@ import { decryptLineSecret, encryptLineSecret } from "../line-secrets.js";
 import { requireAnyPermission, requireAuth, requirePermission } from "../middleware/auth.js";
 import {
   DEFAULT_PI_CODEX_MODEL,
-  PiAgentRunError,
+  PiAgentRequestError,
   piCodexCredentialConfigured,
   runPiSandboxAgent,
 } from "../pi-agent.js";
-import { hasPiGeminiModel, piAssistantModel, piCodexModels } from "../pi-agent-models.js";
+import {
+  isPiCodexModel,
+  isPiGeminiModel,
+  piAssistantModel,
+  piCodexModels,
+} from "../pi-agent-models.js";
 import { body, requireString } from "../request.js";
 
 const TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("sandbox"));
@@ -73,6 +78,31 @@ function isAssistantLineSourceType(value: unknown): value is AssistantLineSource
 
 function validToolStatus(value: string): value is AssistantToolStatus {
   return value === "enabled" || value === "development" || value === "disabled";
+}
+
+function configuredAssistantModel(env: AppEnv["Bindings"]): string {
+  return resolveSandboxAssistantModelId(env.PI_AGENT_MODEL, DEFAULT_PI_CODEX_MODEL);
+}
+
+function activeAssistantModel(
+  env: AppEnv["Bindings"],
+  activeModel: string | undefined | null,
+): string {
+  return resolveSandboxAssistantModelId(activeModel, configuredAssistantModel(env));
+}
+
+function isExecutableSandboxModel(modelId: string | undefined | null): modelId is string {
+  return isPiCodexModel(modelId)
+    || (isPiGeminiModel(modelId)
+      && ASSISTANT_MODELS.some((model) => model.id === modelId && model.supported));
+}
+
+function resolveSandboxAssistantModelId(
+  modelId: string | undefined | null,
+  fallbackModelId: string,
+): string {
+  const normalizedModelId = typeof modelId === "string" ? modelId.trim() : modelId;
+  return isExecutableSandboxModel(normalizedModelId) ? normalizedModelId : fallbackModelId;
 }
 
 type SandboxModelProvider = "openai-codex" | "google";
@@ -109,7 +139,7 @@ async function sandboxModelOptions(
     note: "由 Pi Agent 透過 ChatGPT OAuth 使用 Codex credit；實際可用模型依 ChatGPT 帳號方案為準。",
   }));
   const gemini = ASSISTANT_MODELS.map((model): SandboxModelOption => {
-    const supportedByPi = hasPiGeminiModel(model.id);
+    const supportedByPi = isPiGeminiModel(model.id);
     return {
       ...model,
       provider: "google",
@@ -126,7 +156,7 @@ async function sandboxModelOptions(
 
 async function usableSandboxModel(env: AppEnv["Bindings"], modelId: string): Promise<SandboxModelOption> {
   // Gemini 執行不必為了組完整設定頁，多做一次 credential-vault DO subrequest。
-  const codexModel = piCodexModels().some((candidate) => candidate.id === modelId);
+  const codexModel = isPiCodexModel(modelId);
   const model = (await sandboxModelOptions(env, codexModel)).find((candidate) => candidate.id === modelId);
   if (!model?.supported) {
     throw new HTTPException(400, { message: "請選擇清單中標示為可用的 Pi 模型。" });
@@ -143,7 +173,7 @@ async function usableSandboxModel(env: AppEnv["Bindings"], modelId: string): Pro
 async function ensureDefaults(env: AppEnv["Bindings"], db: AppEnv["Variables"]["db"]): Promise<void> {
   await ensureAssistantDefaults(db, {
     assistantKey: ASSISTANT_KEY,
-    defaultModel: env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL,
+    defaultModel: configuredAssistantModel(env),
     defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
     toolKeys: PLATFORM_TOOL_KEYS,
   });
@@ -166,8 +196,8 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
       codex: models.some((model) => model.provider === "openai-codex" && model.configured),
       gemini: models.some((model) => model.provider === "google" && model.configured),
     },
-    defaultModel: env.PI_AGENT_MODEL?.trim() || DEFAULT_PI_CODEX_MODEL,
-    activeModel: assistantConfig?.activeModel ?? DEFAULT_PI_CODEX_MODEL,
+    defaultModel: configuredAssistantModel(env),
+    activeModel: activeAssistantModel(env, assistantConfig?.activeModel),
     activeModelUpdatedAt: assistantConfig?.updatedAt ?? null,
     models,
     tools: TOOL_DEFINITIONS.map((tool) => {
@@ -354,7 +384,7 @@ export const assistant = new Hono<AppEnv>()
     const assistantConfig = await getAssistantConfig(c.get("db"), ASSISTANT_KEY);
     const modelId = typeof input.model === "string" && input.model.trim()
       ? input.model.trim()
-      : assistantConfig?.activeModel ?? DEFAULT_PI_CODEX_MODEL;
+      : activeAssistantModel(c.env, assistantConfig?.activeModel);
     const model = await usableSandboxModel(c.env, modelId);
     const promptId = typeof input.promptRevisionId === "string" && input.promptRevisionId.trim()
       ? input.promptRevisionId.trim()
@@ -614,7 +644,9 @@ export const assistant = new Hono<AppEnv>()
     const requestedModel = typeof input.model === "string" && input.model.trim()
       ? input.model.trim()
       : undefined;
-    const modelId = requestedModel ?? session?.model ?? assistantConfig?.activeModel ?? DEFAULT_PI_CODEX_MODEL;
+    const modelId = requestedModel
+      ?? session?.model
+      ?? activeAssistantModel(c.env, assistantConfig?.activeModel);
     const model = await usableSandboxModel(c.env, modelId);
     if (session && session.model !== model.id) {
       await updateAssistantSandboxSessionModel(c.get("db"), {
@@ -722,7 +754,7 @@ export const assistant = new Hono<AppEnv>()
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Sandbox 執行失敗。";
-      const failedToolCalls = error instanceof PiAgentRunError ? error.toolCalls : [];
+      const failedToolCalls = error instanceof PiAgentRequestError ? error.toolCalls : [];
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",

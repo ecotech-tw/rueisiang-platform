@@ -8,7 +8,6 @@ import type {
   Context,
   FetchFunction,
   Model,
-  Models,
   ModelsSimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 
@@ -97,8 +96,26 @@ export function piCodexModels(): Model<Api>[] {
   return Object.values(OPENAI_CODEX_MODELS);
 }
 
-export function hasPiGeminiModel(modelId: string): boolean {
-  return Object.values(GOOGLE_MODELS).some((candidate) => candidate.id === modelId);
+export function isPiCodexModel(modelId: string | undefined | null): modelId is string {
+  return typeof modelId === "string"
+    && Object.values(OPENAI_CODEX_MODELS).some((model) => model.id === modelId);
+}
+
+export function isPiGeminiModel(modelId: string | undefined | null): modelId is string {
+  return typeof modelId === "string"
+    && Object.values(GOOGLE_MODELS).some((model) => model.id === modelId);
+}
+
+export function isPiAssistantModel(modelId: string | undefined | null): modelId is string {
+  return isPiCodexModel(modelId) || isPiGeminiModel(modelId);
+}
+
+export function resolvePiAssistantModelId(
+  modelId: string | undefined | null,
+  fallbackModelId: string,
+): string {
+  const normalizedModelId = typeof modelId === "string" ? modelId.trim() : modelId;
+  return isPiAssistantModel(normalizedModelId) ? normalizedModelId : fallbackModelId;
 }
 
 export function piCodexModel(modelId: string): Model<Api> {
@@ -114,8 +131,7 @@ export function piGeminiModel(modelId: string): Model<Api> {
 }
 
 export function piAssistantModel(modelId: string): Model<Api> {
-  const codex = Object.values(OPENAI_CODEX_MODELS).find((candidate) => candidate.id === modelId);
-  if (codex) return codex;
+  if (isPiCodexModel(modelId)) return piCodexModel(modelId);
   return piGeminiModel(modelId);
 }
 
@@ -175,21 +191,4 @@ export function streamPiAssistantModel(
     return streamPiGemini(model, context, options, credentials.geminiApiKey ?? "");
   }
   throw new Error(`不支援的 Pi provider：${model.provider}`);
-}
-
-/** Pi compaction 只需要 completeSimple；這個 facade 也能讓後續 Sandbox 沿用相同 provider。 */
-export function piCodexModelsFacade(
-  resolveAccessToken: PiCodexAccessTokenResolver,
-  defaults: ModelsSimpleStreamOptions,
-  relay?: PiCodexRelayConfig,
-): Models {
-  return {
-    completeSimple: async (model, context, options) => streamPiCodex(
-      model,
-      context,
-      { ...defaults, ...options },
-      resolveAccessToken,
-      relay,
-    ).result(),
-  } as Models;
 }

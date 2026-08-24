@@ -2,6 +2,7 @@ import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles, updateAssistantSandboxContext } from "@rueisiang/db";
 import {
   activityEvents,
+  assistantConfigs,
   assistantLineChannels,
   assistantLineGroups,
   assistantLineMessages,
@@ -17,11 +18,15 @@ import {
 } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
+import { zstdDecompressSync } from "node:zlib";
 import app from "./index.js";
 import { AssistantChatAgent } from "./pi-agent-do.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 const SECRET = "assistant-test-secret";
+const CODEX_ACCESS_TOKEN = `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify({
+  "https://api.openai.com/auth": { chatgpt_account_id: "test-account" },
+})).toString("base64url")}.test-signature`;
 let d1: LocalD1;
 let env: Record<string, unknown>;
 let assistantAgents: TestAssistantAgentNamespace | undefined;
@@ -34,6 +39,93 @@ function asGeminiStream(body: Record<string, unknown>): Response {
     })
     : body.candidates;
   return new Response(`data: ${JSON.stringify({ ...body, candidates })}\n\n`, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
+function asCodexStream(body: Record<string, unknown>): Response {
+  const candidate = Array.isArray(body.candidates) && body.candidates[0] && typeof body.candidates[0] === "object"
+    ? body.candidates[0] as Record<string, unknown>
+    : undefined;
+  const content = candidate?.content && typeof candidate.content === "object"
+    ? candidate.content as Record<string, unknown>
+    : undefined;
+  const parts = Array.isArray(content?.parts) ? content.parts : [];
+  const events: Record<string, unknown>[] = [
+    { type: "response.created", response: { id: "resp-test", status: "in_progress" } },
+  ];
+  const output: Record<string, unknown>[] = [];
+  let outputIndex = 0;
+  for (const rawPart of parts) {
+    if (!rawPart || typeof rawPart !== "object") continue;
+    const part = rawPart as Record<string, unknown>;
+    const index = outputIndex++;
+    if (part.thought === true && typeof part.text === "string") {
+      const id = `rs-test-${index}`;
+      events.push({
+        type: "response.output_item.added",
+        output_index: index,
+        item: { type: "reasoning", id, summary: [], content: [] },
+      });
+      events.push({ type: "response.reasoning_summary_text.delta", output_index: index, delta: part.text });
+      const item = { type: "reasoning", id, summary: [{ type: "summary_text", text: part.text }], content: [] };
+      events.push({ type: "response.output_item.done", output_index: index, item });
+      output.push(item);
+      continue;
+    }
+    if (part.functionCall && typeof part.functionCall === "object") {
+      const functionCall = part.functionCall as Record<string, unknown>;
+      const id = typeof functionCall.id === "string" ? functionCall.id : `fc-test-${index}`;
+      const callId = typeof functionCall.callId === "string" ? functionCall.callId : id;
+      const name = typeof functionCall.name === "string" ? functionCall.name : "unknown_tool";
+      const args = functionCall.args && typeof functionCall.args === "object" ? JSON.stringify(functionCall.args) : "{}";
+      const added = { type: "function_call", id, call_id: callId, name, arguments: "" };
+      events.push({ type: "response.output_item.added", output_index: index, item: added });
+      events.push({ type: "response.function_call_arguments.delta", output_index: index, delta: args });
+      events.push({ type: "response.function_call_arguments.done", output_index: index, arguments: args });
+      const item = { ...added, arguments: args };
+      events.push({ type: "response.output_item.done", output_index: index, item });
+      output.push(item);
+      continue;
+    }
+    if (typeof part.text === "string") {
+      const id = `msg-test-${index}`;
+      events.push({
+        type: "response.output_item.added",
+        output_index: index,
+        item: { type: "message", id, role: "assistant", content: [], phase: "final_answer" },
+      });
+      events.push({ type: "response.output_text.delta", output_index: index, delta: part.text });
+      const item = {
+        type: "message",
+        id,
+        role: "assistant",
+        content: [{ type: "output_text", text: part.text, annotations: [] }],
+        phase: "final_answer",
+      };
+      events.push({ type: "response.output_item.done", output_index: index, item });
+      output.push(item);
+    }
+  }
+  const usageMetadata = body.usageMetadata && typeof body.usageMetadata === "object"
+    ? body.usageMetadata as Record<string, unknown>
+    : {};
+  events.push({
+    type: "response.completed",
+    response: {
+      id: "resp-test",
+      status: "completed",
+      output,
+      usage: {
+        input_tokens: usageMetadata.promptTokenCount ?? 0,
+        output_tokens: usageMetadata.candidatesTokenCount ?? 0,
+        total_tokens: usageMetadata.totalTokenCount ?? 0,
+        input_tokens_details: { cached_tokens: 0 },
+      },
+    },
+  });
+  return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
     status: 200,
     headers: { "Content-Type": "text/event-stream" },
   });
@@ -89,12 +181,31 @@ class TestAssistantAgentNamespace {
       fetch: async (request: Request) => {
         const mockedFetch = globalThis.fetch;
         globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-          const response = await mockedFetch(input, init);
-          if (!response.ok || !String(input).includes("streamGenerateContent")) return response;
+          const isCodexRequest = String(input).includes("/codex/responses");
+          let forwardedInit = init;
+          if (isCodexRequest) {
+            const requestBodyText = typeof init?.body === "string"
+              ? init.body
+              : init?.body instanceof Uint8Array
+                ? zstdDecompressSync(init.body).toString("utf8")
+                : "";
+            const requestBody = JSON.parse(requestBodyText) as Record<string, unknown>;
+            forwardedInit = {
+              ...init,
+              body: JSON.stringify({
+                ...requestBody,
+                contents: requestBody.input,
+                systemInstruction: requestBody.instructions,
+              }),
+            };
+          }
+          const response = await mockedFetch(input, forwardedInit);
+          if (!response.ok || (!isCodexRequest && !String(input).includes("streamGenerateContent"))) return response;
           const payload = await response.clone().json().catch(() => null);
-          return payload && typeof payload === "object"
-            ? asGeminiStream(payload as Record<string, unknown>)
-            : response;
+          if (!payload || typeof payload !== "object") return response;
+          return isCodexRequest
+            ? asCodexStream(payload as Record<string, unknown>)
+            : asGeminiStream(payload as Record<string, unknown>);
         }) as typeof fetch;
         try {
           const response = await entry.agent.fetch(request);
@@ -108,6 +219,74 @@ class TestAssistantAgentNamespace {
         }
       },
     };
+  }
+
+  seedLegacyCompactionState(name: string, model: string): void {
+    const entry = this.agents.get(name);
+    if (!entry) throw new Error(`找不到測試中的 assistant agent：${name}`);
+    const state = entry.sqlite.prepare(
+      "SELECT generation FROM assistant_agent_state WHERE singleton = 1 LIMIT 1",
+    ).get() as { generation: string } | undefined;
+    if (!state) throw new Error("測試 assistant agent 尚未建立 state。");
+    entry.sqlite.prepare(
+      "UPDATE assistant_agent_state SET model = ? WHERE singleton = 1",
+    ).run(model);
+    const runId = `legacy-compaction:${state.generation}`;
+    entry.sqlite.prepare(
+      `INSERT OR IGNORE INTO assistant_agent_runs (run_id, generation, status, response_json, updated_at)
+       VALUES (?, ?, 'completed', '', ?)`,
+    ).run(runId, state.generation, Date.now());
+    const insert = entry.sqlite.prepare(
+      `INSERT INTO assistant_agent_messages (generation, run_id, role, payload, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (let index = 0; index < 24; index += 1) {
+      const timestamp = Date.now() + index;
+      insert.run(
+        state.generation,
+        runId,
+        "user",
+        JSON.stringify({ role: "user", content: `legacy user ${index} ${"歷史".repeat(2_500)}`, timestamp }),
+        timestamp,
+      );
+      insert.run(
+        state.generation,
+        runId,
+        "assistant",
+        JSON.stringify({
+          role: "assistant",
+          content: [{ type: "text", text: `legacy assistant ${index} ${"回答".repeat(2_500)}` }],
+          api: "openai-codex-responses",
+          provider: "openai-codex",
+          model,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop",
+          timestamp: timestamp + 1,
+        }),
+        timestamp + 1,
+      );
+    }
+  }
+
+  async alarm(name: string): Promise<void> {
+    const entry = this.agents.get(name);
+    if (!entry) throw new Error(`找不到測試中的 assistant agent：${name}`);
+    await entry.agent.alarm();
+  }
+
+  model(name: string): string | undefined {
+    const entry = this.agents.get(name);
+    if (!entry) return undefined;
+    return (entry.sqlite.prepare(
+      "SELECT model FROM assistant_agent_state WHERE singleton = 1 LIMIT 1",
+    ).get() as { model?: string } | undefined)?.model;
   }
 
   close(): void {
@@ -322,14 +501,39 @@ describe("AI 助理 Sandbox", () => {
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
   });
 
+  it("Pi catalog 有但 Sandbox 清單沒有的模型會回落到可執行的 Codex 預設值", async () => {
+    env.PI_AGENT_MODEL = "gemini-flash-latest";
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(assistantConfigs).values({
+      assistantKey: "rueisiang-xiaoxiang",
+      activeModel: "gemini-flash-latest",
+      updatedBy: "test",
+      updatedAt: new Date().toISOString(),
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config");
+    expect(response.status).toBe(200);
+    const result = await response.json() as {
+      defaultModel: string;
+      activeModel: string;
+      models: Array<{ id: string }>;
+    };
+    expect(result.defaultModel).toBe("gpt-5.4-mini");
+    expect(result.activeModel).toBe("gpt-5.4-mini");
+    expect(result.models.some((model) => model.id === "gemini-flash-latest")).toBe(false);
+  });
+
   it("GPT Sandbox 需要 Codex OAuth，設定後會 dispatch 到同一個 Pi Agent", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 
+    const credentialVault = env.ASSISTANT_CREDENTIAL_VAULT;
+    env.ASSISTANT_CREDENTIAL_VAULT = undefined;
     const unavailable = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
       body: JSON.stringify({ model: "gpt-5.4-mini", toolKeys: [], input: "測試 Codex" }),
     });
     expect(unavailable.status).toBe(503);
+    env.ASSISTANT_CREDENTIAL_VAULT = credentialVault;
 
     let dispatchedName = "";
     let dispatchedBody: Record<string, unknown> | undefined;
@@ -1410,6 +1614,51 @@ describe("AI 助理 Sandbox", () => {
     };
     expect(result.session.contextSummaryMessageCount).toBe(0);
     expect(result.session.messages).toHaveLength(60);
+  });
+
+  it("既有 DO state 留著舊模型時，背景 compact 會改用預設 Codex 模型", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({
+        fetch: async (request: Request) => request.url.endsWith("/status")
+          ? Response.json({ configured: true })
+          : Response.json({ accessToken: CODEX_ACCESS_TOKEN, configured: true }),
+      }),
+    };
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "初始化回答" }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        ...requestBody,
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId: created.session.id,
+        model: "gpt-5.4-mini",
+        promptRevisionId: config.activePrompt.id,
+        toolKeys: [],
+        input: "建立舊 session",
+      }),
+    });
+    expect(response.status).toBe(200);
+
+    const agentName = `rueisiang-xiaoxiang:sandbox:admin:${created.session.id}`;
+    assistantAgents!.seedLegacyCompactionState(agentName, "gemini-1.5-pro");
+    fetchMock.mockResolvedValue(asCodexStream({
+      candidates: [{ content: { parts: [{ text: "legacy history summary" }] } }],
+    }));
+
+    await expect(assistantAgents!.alarm(agentName)).resolves.toBeUndefined();
+    expect(assistantAgents!.model(agentName)).toBe("gpt-5.4-mini");
   });
 
   it("Sandbox compact 遇到 HTML provider error 時不把整頁回傳給 UI", async () => {

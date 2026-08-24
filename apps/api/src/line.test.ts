@@ -867,6 +867,36 @@ describe("LINE channel 後台設定", () => {
     expect(runs[0]).toMatchObject({ status: "failed", model: "gpt-5.4-mini" });
   });
 
+  it("Codex credential 設定錯誤時不消耗 Queue retry，直接通知群組", async () => {
+    await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-credential-seed" })] }));
+    await db().update(assistantLineChannels).set({ enabled: true }).where(eq(assistantLineChannels.assistantKey, "rueisiang-xiaoxiang"));
+    const [group] = await db().select().from(assistantLineGroups).where(eq(assistantLineGroups.lineGroupId, "group-1"));
+    await db().update(assistantLineGroups).set({ enabled: true }).where(eq(assistantLineGroups.id, group!.id));
+    await call("/api/assistant/line/config", {
+      method: "PATCH",
+      body: JSON.stringify({ channelId: "2001234567", channelSecret: "line-secret", accessToken: "access-token", displayName: "Rueisiang 小香", enabled: true }),
+    });
+    piAgentError = "平台尚未設定 PI_CREDENTIAL_ENCRYPTION_KEY。";
+    piAgentStatus = 503;
+
+    const requests: Array<{ url: string; body: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      requests.push({ url: String(input), body: typeof init?.body === "string" ? init.body : "" });
+      return new Response(null, { status: 200 });
+    });
+
+    const response = await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "evt-credential-error", replyToken: "reply-credential-error" })] }));
+    expect(response.status).toBe(200);
+    expect(requests).toEqual([
+      { url: "https://api.line.me/v2/bot/group/group-1/summary", body: "" },
+      expect.objectContaining({ url: "https://api.line.me/v2/bot/message/reply" }),
+    ]);
+    expect(requests[1]?.body).toContain("小香目前無法完成回答，請稍後再試。");
+    const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ status: "failed", errorMessage: "平台尚未設定 PI_CREDENTIAL_ENCRYPTION_KEY。" });
+  });
+
   it("已開通的一對一對話會使用 user ID 回覆", async () => {
     env = { ...env, PI_AGENT_MODEL: "gemini-3.6-flash" };
     await postLine(JSON.stringify({ events: [userEvent()] }));

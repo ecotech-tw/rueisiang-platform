@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   createPiCodexRelayFetch,
+  isPiAssistantModel,
   piAssistantModel,
   piCodexModel,
   piGeminiModel,
+  resolvePiAssistantModelId,
 } from "./pi-agent-models.js";
 
 describe("Pi Codex model catalog", () => {
@@ -26,6 +28,14 @@ describe("Pi Codex model catalog", () => {
       provider: "google",
     });
     expect(piAssistantModel("gemini-3.6-flash").provider).toBe("google");
+  });
+
+  it("provider-neutral resolver 只接受目前 catalog 內的模型", () => {
+    expect(isPiAssistantModel("gpt-5.4-mini")).toBe(true);
+    expect(isPiAssistantModel("gemini-3.6-flash")).toBe(true);
+    expect(isPiAssistantModel("removed-model")).toBe(false);
+    expect(resolvePiAssistantModelId(" gemini-3.6-flash ", "gpt-5.4-mini")).toBe("gemini-3.6-flash");
+    expect(resolvePiAssistantModelId("removed-model", "gpt-5.4-mini")).toBe("gpt-5.4-mini");
   });
 
   it("只把 Codex SSE 請求改送到固定 relay path 並加入 relay token", async () => {
