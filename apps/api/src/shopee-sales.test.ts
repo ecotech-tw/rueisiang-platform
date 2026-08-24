@@ -51,7 +51,7 @@ beforeEach(async () => {
     AUTH_SESSION_SECRET: SECRET,
     GOOGLE_OAUTH_CLIENT_ID: "client-id",
     GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
-    SHOPEE_GITHUB_TOKEN: "gh-token",
+    GITHUB_TOKEN: "gh-token",
     SHOPEE_GITHUB_REPO: "ecotech-tw/rueisiang-platform",
     SHOPEE_WORKFLOW_FILE: "shopee-sales-report.yml",
     SHOPEE_GITHUB_REF: "main",

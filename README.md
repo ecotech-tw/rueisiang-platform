@@ -99,8 +99,8 @@ CYBERBIZ、等 2FA 驗證信、下載 xlsx、寫欄位、上傳 Drive——一�
 | `GOOGLE_REFRESH_TOKEN` | Drive ＋ Sheets 讀寫 |
 | `GMAIL_REFRESH_TOKEN` | Gmail 唯讀（收 2FA 驗證信與報表附件） |
 
-另外 Worker 端需要 `PAYOUT_GITHUB_TOKEN`：fine-grained PAT，給本 repo 的
-**Actions 讀寫**（觸發與查狀態）與 **Contents 讀寫**（設定頁寫回 `stores.json`）。
+另外 Worker 端需要共用的 `GITHUB_TOKEN`：fine-grained PAT，需給出金與蝦皮所使用 repo 的
+**Actions 讀寫**（觸發與查狀態）；若出金設定頁要寫回 `stores.json`，還需要 **Contents 讀寫**。
 
 ### 這些憑證掛在哪個 Google 帳號
 
@@ -134,7 +134,7 @@ node setup.mjs mail  eli-lin@ecotech.tw         # → GMAIL_REFRESH_TOKEN
 
 蝦皮報表工具位在營運工具底下的「蝦皮銷售報表」。使用者直接上傳從蝦皮下載的加密
 xlsx，平台會暫存後交給 GitHub Actions 解密、整理並上傳到設定好的 Google Drive；目前不會自動登入蝦皮，
-需要 `SHOPEE_GITHUB_TOKEN`，只用來觸發 GitHub Actions workflow。
+需要共用的 `GITHUB_TOKEN`，只用來觸發 GitHub Actions workflow。
 報表工具也可以獨立使用：`node tools/shopee-sales-report-export/driver.mjs --input
 <檔案> --password <密碼> --drive-folder-url <Drive資料夾連結>`。
 

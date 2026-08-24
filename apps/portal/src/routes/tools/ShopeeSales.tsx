@@ -38,7 +38,7 @@ export function ShopeeSales() {
         <p className="muted">直接上傳從蝦皮下載的加密 Excel，系統會依原始檔名處理報表，再上傳到設定好的 Google Drive。</p>
       </header>
 
-      {!state.data?.configured ? <p className="form-error" role="alert">平台還沒設定 SHOPEE_GITHUB_TOKEN，現在無法處理報表。</p> : null}
+      {!state.data?.configured ? <p className="form-error" role="alert">平台還沒設定 GITHUB_TOKEN，現在無法處理報表。</p> : null}
       {!state.data?.settings.driveFolderUrl ? <p className="form-error" role="alert">尚未設定 Google Drive 資料夾，請由有權限的人前往「蝦皮報表設定」。</p> : null}
 
       <section className="panel">

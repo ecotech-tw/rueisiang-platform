@@ -56,7 +56,7 @@ export const shopeeSales = new Hono<AppEnv>()
   })
   .post("/upload", requirePermission("tools:shopee-sales:run"), async (c) => {
     const github = shopeeSalesGithub(c.env);
-    if (!github) throw new HTTPException(503, { message: "平台還沒設定 SHOPEE_GITHUB_TOKEN，無法觸發執行。" });
+    if (!github) throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN，無法觸發執行。" });
     if (!c.env.UPLOADS) throw new HTTPException(503, { message: "平台還沒設定報表暫存空間。" });
 
     const settings = await getShopeeSalesSettings(c.get("db"));
@@ -93,7 +93,7 @@ export const shopeeSales = new Hono<AppEnv>()
   })
   .get("/status", requirePermission("tools:shopee-sales:run"), async (c) => {
     const github = shopeeSalesGithub(c.env);
-    if (!github) throw new HTTPException(503, { message: "平台還沒設定 SHOPEE_GITHUB_TOKEN。" });
+    if (!github) throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN。" });
     return c.json(await github.listRuns(c.req.query("requestId") ?? undefined));
   })
   .get("/settings", requirePermission("tools:shopee-sales:config"), async (c) => c.json({ settings: await getShopeeSalesSettings(c.get("db")) }))

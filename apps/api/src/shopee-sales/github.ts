@@ -1,4 +1,4 @@
-import type { Env } from "../env.js";
+import { resolveGithubToken, type Env } from "../env.js";
 
 const GITHUB_API = "https://api.github.com";
 
@@ -30,7 +30,7 @@ export class ShopeeSalesGithubError extends Error {
 }
 
 export function shopeeSalesGithub(env: Env): ShopeeSalesGithub | undefined {
-  const token = env.SHOPEE_GITHUB_TOKEN;
+  const token = resolveGithubToken(env);
   const repo = env.SHOPEE_GITHUB_REPO;
   const workflow = env.SHOPEE_WORKFLOW_FILE;
   if (!token || !repo || !workflow) return undefined;
@@ -51,7 +51,7 @@ export function shopeeSalesGithub(env: Env): ShopeeSalesGithub | undefined {
       const detail = await response.text().catch(() => "");
       throw new ShopeeSalesGithubError(
         response.status === 401 || response.status === 403
-          ? "平台的蝦皮 GitHub 憑證有問題，請確認 SHOPEE_GITHUB_TOKEN 還有效。"
+          ? "平台的 GitHub 憑證有問題，請確認 GITHUB_TOKEN 還有效。"
           : `GitHub 回應 ${response.status}${detail ? `：${detail.slice(0, 200)}` : ""}`,
         response.status,
       );

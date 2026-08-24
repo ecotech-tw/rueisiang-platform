@@ -67,7 +67,7 @@ export function PayoutSettings() {
           {save.isSuccess && !save.isPending ? (
             <span className="form-hint">
               {!save.data.syncedToRepo
-                ? "已存在平台，但沒有寫回帳務 repo（未設定 PAYOUT_GITHUB_TOKEN）。"
+                ? "已存在平台，但沒有寫回帳務 repo（未設定 GITHUB_TOKEN）。"
                 : save.data.committed
                   ? "已儲存，並更新帳務 repo 的 stores.json。"
                   : "已儲存。內容與帳務 repo 相同，沒有產生新的 commit。"}

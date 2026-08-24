@@ -61,15 +61,18 @@ export interface Env {
   /*
    * 出金表。真正的執行在帳務 repo 的 GitHub Actions 上——CYBERBIZ 帳密、Gmail 與
    * Drive 的授權都只存在那邊的 Actions secrets，平台一個都不碰。這裡的 token 是
-   * fine-grained PAT，權限僅限那個 repo 的 Actions 讀寫。
+   * fine-grained PAT，供出金表與蝦皮報表共用；需涵蓋各自 repo 的 Actions 讀寫，
+   * 以及出金表設定頁寫回 stores.json 所需的 Contents 寫入。
    */
+  GITHUB_TOKEN?: string;
+  /** 遷移期間相容舊設定；新部署請只設定 GITHUB_TOKEN。 */
   PAYOUT_GITHUB_TOKEN?: string;
+  SHOPEE_GITHUB_TOKEN?: string;
   PAYOUT_GITHUB_REPO?: string;
   PAYOUT_WORKFLOW_FILE?: string;
   PAYOUT_GITHUB_REF?: string;
 
   /** 蝦皮報表 workflow；平台只暫存檔案並觸發 GitHub Actions。 */
-  SHOPEE_GITHUB_TOKEN?: string;
   SHOPEE_GITHUB_REPO?: string;
   SHOPEE_WORKFLOW_FILE?: string;
   SHOPEE_GITHUB_REF?: string;
@@ -84,4 +87,12 @@ export interface AppEnv {
     /** 由 requireAuth 中介層放入，已確認是 active 的帳號。 */
     user: AuthUser;
   };
+}
+
+/**
+ * 出金表與蝦皮報表共用同一顆 GitHub PAT。
+ * 舊名稱只保留作為遷移期間的 fallback，避免更新 Worker 前暫時中斷既有工具。
+ */
+export function resolveGithubToken(env: Env): string | undefined {
+  return env.GITHUB_TOKEN ?? env.SHOPEE_GITHUB_TOKEN ?? env.PAYOUT_GITHUB_TOKEN;
 }

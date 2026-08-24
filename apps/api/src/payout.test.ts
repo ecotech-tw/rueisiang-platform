@@ -75,7 +75,7 @@ beforeEach(async () => {
     AUTH_SESSION_SECRET: SECRET,
     GOOGLE_OAUTH_CLIENT_ID: "client-id",
     GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
-    PAYOUT_GITHUB_TOKEN: "gh-token",
+    GITHUB_TOKEN: "gh-token",
     PAYOUT_GITHUB_REPO: "ecotech-tw/rueisiang-tool-billing",
     PAYOUT_WORKFLOW_FILE: "payout.yml",
     PAYOUT_GITHUB_REF: "main",
@@ -195,7 +195,7 @@ describe("執行", () => {
 
   it("沒設 token 時說得出原因，不是 500", async () => {
     stubGithub();
-    env = { ...env, PAYOUT_GITHUB_TOKEN: undefined };
+    env = { ...env, GITHUB_TOKEN: undefined };
     const id = await seedUser("manager@ecotech.tw", "role-manager");
 
     const response = await as(id, "manager@ecotech.tw", "/api/tools/payout/run", {
@@ -204,7 +204,7 @@ describe("執行", () => {
     });
     expect(response.status).toBe(503);
     expect((await response.json()) as { error: string }).toMatchObject({
-      error: expect.stringContaining("PAYOUT_GITHUB_TOKEN"),
+      error: expect.stringContaining("GITHUB_TOKEN"),
     });
   });
 
@@ -369,7 +369,7 @@ describe("店別設定", () => {
 
   it("沒接 GitHub 時仍然存本地，但要說得出 repo 沒更新", async () => {
     stubGithub();
-    env = { ...env, PAYOUT_GITHUB_TOKEN: undefined };
+    env = { ...env, GITHUB_TOKEN: undefined };
     const id = await seedUser("eli@ecotech.tw", "role-admin");
 
     const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {

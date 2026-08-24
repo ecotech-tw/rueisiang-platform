@@ -90,9 +90,9 @@ SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 #   LINE_CHANNEL_ACCESS_TOKEN   LINE Messaging API Reply／Push 用 token
 #   CYBERBIZ_API_TOKEN         客戶同步
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
-#   PAYOUT_GITHUB_TOKEN        fine-grained PAT，只給本 repo 的 Actions 與 Contents 讀寫
-#   UPSTASH_REDIS_REST_URL     CYBERBIZ 商品目錄的選用快取
-#   SHOPEE_GITHUB_TOKEN        fine-grained PAT，只給本 repo 的 Actions 讀寫
+#   GITHUB_TOKEN               出金表與蝦皮報表共用的 fine-grained PAT；需涵蓋各自 repo 的 Actions 讀寫，
+#                              以及出金表 stores.json 所需的 Contents 寫入
+#   UPSTASH_REDIS_REST_URL     CYBERBIZ 商品目錄的快取，沿用舊 WMS 的同一個實例
 #   UPSTASH_REDIS_REST_TOKEN   （沒設定時那一頁改成直接問官網，只是比較慢）
 #
 # 改過 permissions.ts 之後，用權限管理頁的「重新同步」按鈕寫進資料庫，

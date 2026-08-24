@@ -111,7 +111,7 @@ export const tools = new Hono<AppEnv>()
     const input = await body(c);
     const github = payoutGithub(c.env);
     if (!github) {
-      throw new HTTPException(503, { message: "平台還沒設定 PAYOUT_GITHUB_TOKEN，無法觸發執行。" });
+      throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN，無法觸發執行。" });
     }
 
     const requested = Array.isArray(input.stores) ? input.stores.map(String) : [];
@@ -159,7 +159,7 @@ export const tools = new Hono<AppEnv>()
 
   .get("/payout/status", requirePermission("tools:payout:run"), async (c) => {
     const github = payoutGithub(c.env);
-    if (!github) throw new HTTPException(503, { message: "平台還沒設定 PAYOUT_GITHUB_TOKEN。" });
+    if (!github) throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN。" });
 
     const requestId = c.req.query("requestId") ?? undefined;
     return c.json(await github.listRuns(requestId));
