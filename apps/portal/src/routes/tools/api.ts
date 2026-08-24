@@ -129,3 +129,79 @@ export function parseStores(value: string): string[] {
     return [];
   }
 }
+
+export interface ShopeeSalesSettings {
+  id: string;
+  driveFolderUrl: string;
+  driveFolderName: string;
+  updatedAt: string;
+}
+
+export interface ShopeeSalesRunRecord {
+  id: string;
+  requestId: string;
+  startDate: string;
+  endDate: string;
+  driveFolderUrl: string;
+  actorEmail: string;
+  createdAt: string;
+}
+
+export interface ShopeeSalesState {
+  settings: ShopeeSalesSettings;
+  start: string;
+  end: string;
+  configured: boolean;
+  latestRequestId: string | null;
+  runs: ShopeeSalesRunRecord[];
+}
+
+export function useShopeeSalesState() {
+  return useQuery({
+    queryKey: ["tools", "shopee-sales", "state"],
+    queryFn: () => call<ShopeeSalesState>("/api/tools/shopee-sales/state"),
+  });
+}
+
+export function useRunShopeeSales() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { file: File; password: string }) => {
+      const form = new FormData();
+      form.append("file", input.file);
+      form.append("password", input.password);
+      const response = await fetch("/api/tools/shopee-sales/upload", { method: "POST", credentials: "same-origin", body: form });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `操作失敗（${response.status}）`);
+      }
+      return (await response.json()) as { requestId: string };
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "shopee-sales"] }),
+  });
+}
+
+export function useShopeeSalesStatus(requestId: string | null) {
+  return useQuery({
+    enabled: Boolean(requestId),
+    queryKey: ["tools", "shopee-sales", "status", requestId],
+    queryFn: () => call<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>(`/api/tools/shopee-sales/status?requestId=${encodeURIComponent(requestId!)}`),
+    refetchInterval: (query) => query.state.data?.runs[0]?.status === "completed" ? false : 5000,
+  });
+}
+
+export function useShopeeSalesSettings() {
+  return useQuery({
+    queryKey: ["tools", "shopee-sales", "settings"],
+    queryFn: () => call<{ settings: ShopeeSalesSettings }>("/api/tools/shopee-sales/settings"),
+  });
+}
+
+export function useSaveShopeeSalesSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { driveFolderUrl: string; driveFolderName: string }) =>
+      call<{ settings: ShopeeSalesSettings }>("/api/tools/shopee-sales/settings", { method: "PUT", body: JSON.stringify(input) }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "shopee-sales"] }),
+  });
+}

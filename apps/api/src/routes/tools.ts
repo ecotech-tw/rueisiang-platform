@@ -11,6 +11,7 @@ import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { payoutGithub } from "../payout/github.js";
 import { body } from "../request.js";
+import { shopeeSales } from "./shopee-sales.js";
 
 /**
  * 營運工具。目前只有出金表。
@@ -79,6 +80,7 @@ function readStores(input: Record<string, unknown>): PayoutStoreInput[] {
 
 export const tools = new Hono<AppEnv>()
   .use("*", requireAuth)
+  .route("/shopee-sales", shopeeSales)
 
   /** 執行頁一開始要的東西：店別、預設區間、以及後端到底有沒有接上 GitHub。 */
   .get("/payout/state", requirePermission("tools:payout:run"), async (c) => {
@@ -109,7 +111,7 @@ export const tools = new Hono<AppEnv>()
     const input = await body(c);
     const github = payoutGithub(c.env);
     if (!github) {
-      throw new HTTPException(503, { message: "平台還沒設定 PAYOUT_GITHUB_TOKEN，無法觸發執行。" });
+      throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN，無法觸發執行。" });
     }
 
     const requested = Array.isArray(input.stores) ? input.stores.map(String) : [];
@@ -157,7 +159,7 @@ export const tools = new Hono<AppEnv>()
 
   .get("/payout/status", requirePermission("tools:payout:run"), async (c) => {
     const github = payoutGithub(c.env);
-    if (!github) throw new HTTPException(503, { message: "平台還沒設定 PAYOUT_GITHUB_TOKEN。" });
+    if (!github) throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN。" });
 
     const requestId = c.req.query("requestId") ?? undefined;
     return c.json(await github.listRuns(requestId));

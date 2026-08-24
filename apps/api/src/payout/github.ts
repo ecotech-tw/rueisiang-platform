@@ -68,7 +68,7 @@ function fromBase64(value: string): string {
 
 /** 沒設定 token 就回 undefined，讓呼叫端決定要不要報錯——設定頁不需要它也該打得開。 */
 export function payoutGithub(env: Env): PayoutGithub | undefined {
-  const token = env.PAYOUT_GITHUB_TOKEN;
+  const token = env.GITHUB_TOKEN;
   const repo = env.PAYOUT_GITHUB_REPO;
   const workflow = env.PAYOUT_WORKFLOW_FILE;
   if (!token || !repo || !workflow) return undefined;
@@ -90,7 +90,7 @@ export function payoutGithub(env: Env): PayoutGithub | undefined {
       const detail = await response.text().catch(() => "");
       throw new PayoutGithubError(
         response.status === 401 || response.status === 403
-          ? "平台的 GitHub 憑證有問題，請確認 PAYOUT_GITHUB_TOKEN 還有效。"
+          ? "平台的 GitHub 憑證有問題，請確認 GITHUB_TOKEN 還有效。"
           : `GitHub 回應 ${response.status}${detail ? `：${detail.slice(0, 200)}` : ""}`,
         response.status,
       );

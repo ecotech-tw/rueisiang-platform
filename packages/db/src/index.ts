@@ -176,6 +176,13 @@ export {
   type PayoutStoreInput,
 } from "./payout.js";
 export {
+  getShopeeSalesSettings,
+  listShopeeSalesRuns,
+  recordShopeeSalesRun,
+  saveShopeeSalesSettings,
+  type ShopeeSalesSettingsInput,
+} from "./shopee-sales.js";
+export {
   CATEGORY_COLORS,
   WmsError,
   countItem,

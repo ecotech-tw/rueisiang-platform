@@ -44,6 +44,12 @@ jobs:
           npm ci
           node selftest.mjs
 
+      - name: 蝦皮銷售報表工具的自我檢查
+        working-directory: tools/shopee-sales-report-export
+        run: |
+          npm ci
+          node selftest.mjs
+
       # 開發機是 Windows on ARM，起不了 workerd，所以「設定檔到底能不能部署」
       # 這件事只有在 Linux 上才驗得到。放在最後：前面都過了才有意義。
       - name: 驗證 Worker 設定與打包

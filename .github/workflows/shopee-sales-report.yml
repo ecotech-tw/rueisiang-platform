@@ -1,0 +1,127 @@
+name: shopee-sales-report
+run-name: shopee-sales-report-${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: "平台提供的一次性報表下載網址"
+        required: true
+        type: string
+      drive_folder_url:
+        description: "Google Drive 資料夾連結"
+        required: true
+        type: string
+      request_id:
+        description: "平台執行識別碼"
+        required: true
+        type: string
+      start:
+        description: "報表開始日期（YYYY-MM-DD）"
+        required: true
+        type: string
+      end:
+        description: "報表結束日期（YYYY-MM-DD）"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shopee-sales-report
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_URL: ${{ inputs.source_url }}
+      DRIVE_FOLDER_URL: ${{ inputs.drive_folder_url }}
+      REQUEST_ID: ${{ inputs.request_id }}
+      REPORT_START: ${{ inputs.start }}
+      REPORT_END: ${{ inputs.end }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install report tools
+        working-directory: tools/shopee-sales-report-export
+        run: |
+          npm ci
+          python -m pip install --user msoffcrypto-tool
+
+      - name: Download source report
+        run: |
+          echo "::add-mask::$SOURCE_URL"
+          curl --fail --silent --show-error --location --dump-header source.headers --output source.xlsx "$SOURCE_URL"
+          PASSWORD_B64=$(awk -F': ' 'tolower($1) == "x-shopee-report-password" { gsub("\r", "", $2); print $2 }' source.headers)
+          if [ -z "$PASSWORD_B64" ]; then
+            echo "找不到報表密碼標頭" >&2
+            exit 1
+          fi
+          FILENAME_B64=$(awk -F': ' 'tolower($1) == "x-shopee-report-filename" { gsub("\r", "", $2); print $2 }' source.headers)
+          if [ -z "$FILENAME_B64" ]; then
+            echo "找不到原始檔名標頭" >&2
+            exit 1
+          fi
+          REPORT_FILENAME=$(printf '%s' "$FILENAME_B64" | base64 --decode)
+          REPORT_FILENAME=$(basename -- "$REPORT_FILENAME")
+          case "${REPORT_FILENAME,,}" in
+            *.xlsx) ;;
+            *) echo "原始檔名不是 xlsx" >&2; exit 1 ;;
+          esac
+          echo "REPORT_FILENAME=$REPORT_FILENAME" >> "$GITHUB_ENV"
+          REPORT_PASSWORD=$(printf '%s' "$PASSWORD_B64" | base64 --decode)
+          echo "::add-mask::$REPORT_PASSWORD"
+          {
+            echo "SHOPEE_REPORT_PASSWORD<<EOF"
+            printf '%s\n' "$REPORT_PASSWORD"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Process and upload report
+        run: |
+          cat > tools/shopee-sales-report-export/.env <<EOF
+          GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
+          GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
+          GOOGLE_REFRESH_TOKEN=$GOOGLE_REFRESH_TOKEN
+          EOF
+          node tools/shopee-sales-report-export/driver.mjs \
+            --input "$GITHUB_WORKSPACE/source.xlsx" \
+            --password "$SHOPEE_REPORT_PASSWORD" \
+            --drive-folder-url "$DRIVE_FOLDER_URL" \
+            --start "$REPORT_START" \
+            --end "$REPORT_END" \
+            --output "$GITHUB_WORKSPACE/tools/shopee-sales-report-export/staging/uploaded/$REPORT_FILENAME"
+
+      - name: Remove platform temporary upload
+        if: always()
+        run: |
+          CLEANUP_URL="${SOURCE_URL/\/source\//\/cleanup\/}"
+          curl --fail --silent --show-error --request POST "$CLEANUP_URL" || true
+
+      - name: Upload processing artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shopee-sales-report-${{ env.REQUEST_ID }}
+          path: |
+            tools/shopee-sales-report-export/staging/**/*.xlsx
+            tools/shopee-sales-report-export/reports/**/*.md
+          if-no-files-found: ignore
+          retention-days: 1

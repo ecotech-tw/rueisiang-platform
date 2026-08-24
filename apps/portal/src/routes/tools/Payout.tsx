@@ -85,7 +85,7 @@ export function Payout() {
 
       {!state.data?.configured ? (
         <p className="form-error" role="alert">
-          平台還沒設定 PAYOUT_GITHUB_TOKEN，目前無法觸發執行。
+          平台還沒設定 GITHUB_TOKEN，目前無法觸發執行。
         </p>
       ) : null}
 
