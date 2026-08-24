@@ -13,6 +13,6 @@ allowBuilds:
   workerd: false
   # wrangler 拉進來的選用影像處理套件，本專案沒有用到。
   sharp: false
-  # Pi AI 上游套件的非 Codex provider 相依套件；本專案不載入其 provider，也不執行安裝腳本。
-  '@google/genai': false
-  protobufjs: false
+  # Google GenAI SDK 與其 protobuf 相依套件需要在安裝時完成準備步驟。
+  '@google/genai': true
+  protobufjs: true

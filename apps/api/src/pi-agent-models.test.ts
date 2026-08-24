@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   createPiCodexRelayFetch,
+  isPiAssistantModel,
   piAssistantModel,
   piCodexModel,
+  piGeminiModel,
+  resolvePiAssistantModelId,
 } from "./pi-agent-models.js";
 
 describe("Pi Codex model catalog", () => {
@@ -18,9 +21,21 @@ describe("Pi Codex model catalog", () => {
     expect(() => piCodexModel("not-a-model")).toThrow("不支援模型 not-a-model");
   });
 
-  it("Pi runtime 只解析 Codex catalog 內的模型", () => {
+  it("同一個 Pi runtime 可解析 Codex 與 Gemini provider", () => {
     expect(piAssistantModel("gpt-5.4-mini").provider).toBe("openai-codex");
-    expect(() => piAssistantModel("not-a-model")).toThrow();
+    expect(piGeminiModel("gemini-3.6-flash")).toMatchObject({
+      id: "gemini-3.6-flash",
+      provider: "google",
+    });
+    expect(piAssistantModel("gemini-3.6-flash").provider).toBe("google");
+  });
+
+  it("provider-neutral resolver 只接受目前 catalog 內的模型", () => {
+    expect(isPiAssistantModel("gpt-5.4-mini")).toBe(true);
+    expect(isPiAssistantModel("gemini-3.6-flash")).toBe(true);
+    expect(isPiAssistantModel("removed-model")).toBe(false);
+    expect(resolvePiAssistantModelId(" gemini-3.6-flash ", "gpt-5.4-mini")).toBe("gemini-3.6-flash");
+    expect(resolvePiAssistantModelId("removed-model", "gpt-5.4-mini")).toBe("gpt-5.4-mini");
   });
 
   it("只把 Codex SSE 請求改送到固定 relay path 並加入 relay token", async () => {

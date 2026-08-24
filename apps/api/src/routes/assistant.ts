@@ -1,5 +1,6 @@
 import {
   ASSISTANT_KEY,
+  ASSISTANT_MODELS,
   DEFAULT_ASSISTANT_PROMPT,
   currentAssistantRuntimeContext,
   runtimeContextInstruction,
@@ -57,7 +58,13 @@ import {
   piCodexCredentialConfigured,
   runPiSandboxAgent,
 } from "../pi-agent.js";
-import { isPiCodexModel, piCodexModels } from "../pi-agent-models.js";
+import {
+  isPiCodexModel,
+  isPiGeminiModel,
+  piAssistantModel,
+  piCodexModels,
+  resolvePiAssistantModelId,
+} from "../pi-agent-models.js";
 import { body, requireString } from "../request.js";
 
 const TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("sandbox"));
@@ -74,7 +81,18 @@ function validToolStatus(value: string): value is AssistantToolStatus {
   return value === "enabled" || value === "development" || value === "disabled";
 }
 
-type SandboxModelProvider = "openai-codex";
+function configuredAssistantModel(env: AppEnv["Bindings"]): string {
+  return resolvePiAssistantModelId(env.PI_AGENT_MODEL, DEFAULT_PI_CODEX_MODEL);
+}
+
+function activeAssistantModel(
+  env: AppEnv["Bindings"],
+  activeModel: string | undefined | null,
+): string {
+  return resolvePiAssistantModelId(activeModel, configuredAssistantModel(env));
+}
+
+type SandboxModelProvider = "openai-codex" | "google";
 
 interface SandboxModelOption {
   id: string;
@@ -95,6 +113,7 @@ async function sandboxModelOptions(
   const codexConfigured = probeCodexCredential
     ? await piCodexCredentialConfigured(env)
     : false;
+  const geminiConfigured = Boolean(env.GEMINI_API_KEY?.trim());
   const codex = piCodexModels().map((model): SandboxModelOption => ({
     id: model.id,
     label: model.name,
@@ -106,25 +125,42 @@ async function sandboxModelOptions(
     supportsVision: model.input.includes("image"),
     note: "由 Pi Agent 透過 ChatGPT OAuth 使用 Codex credit；實際可用模型依 ChatGPT 帳號方案為準。",
   }));
-  return codex;
+  const gemini = ASSISTANT_MODELS.map((model): SandboxModelOption => {
+    const supportedByPi = isPiGeminiModel(model.id);
+    return {
+      ...model,
+      provider: "google",
+      supported: model.supported && supportedByPi,
+      configured: geminiConfigured,
+      supportsVision: supportedByPi ? piAssistantModel(model.id).input.includes("image") : false,
+      ...(!supportedByPi && model.supported
+        ? { note: "目前安裝的 Pi Google model catalog 尚未提供這個模型。" }
+        : {}),
+    };
+  });
+  return [...codex, ...gemini];
 }
 
 async function usableSandboxModel(env: AppEnv["Bindings"], modelId: string): Promise<SandboxModelOption> {
-  const model = (await sandboxModelOptions(env)).find((candidate) => candidate.id === modelId);
+  // Gemini 執行不必為了組完整設定頁，多做一次 credential-vault DO subrequest。
+  const codexModel = isPiCodexModel(modelId);
+  const model = (await sandboxModelOptions(env, codexModel)).find((candidate) => candidate.id === modelId);
   if (!model?.supported) {
     throw new HTTPException(400, { message: "請選擇清單中標示為可用的 Pi 模型。" });
   }
   if (!model.configured) {
-    throw new HTTPException(503, { message: "平台尚未設定 ChatGPT／Codex OAuth credential。" });
+    const credential = model.provider === "openai-codex"
+      ? "ChatGPT／Codex OAuth credential"
+      : "GEMINI_API_KEY";
+    throw new HTTPException(503, { message: `平台尚未設定 ${credential}。` });
   }
   return model;
 }
 
 async function ensureDefaults(env: AppEnv["Bindings"], db: AppEnv["Variables"]["db"]): Promise<void> {
-  const configuredModel = env.PI_AGENT_MODEL?.trim();
   await ensureAssistantDefaults(db, {
     assistantKey: ASSISTANT_KEY,
-    defaultModel: isPiCodexModel(configuredModel) ? configuredModel : DEFAULT_PI_CODEX_MODEL,
+    defaultModel: configuredAssistantModel(env),
     defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
     toolKeys: PLATFORM_TOOL_KEYS,
   });
@@ -140,17 +176,15 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
     sandboxModelOptions(env),
   ]);
   const statuses = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
-  const configuredModel = env.PI_AGENT_MODEL?.trim();
-  const defaultModel = isPiCodexModel(configuredModel) ? configuredModel : DEFAULT_PI_CODEX_MODEL;
-  const activeModel = isPiCodexModel(assistantConfig?.activeModel) ? assistantConfig.activeModel : defaultModel;
   return {
     assistantKey: ASSISTANT_KEY,
     configured: models.some((model) => model.supported && model.configured),
     providers: {
       codex: models.some((model) => model.provider === "openai-codex" && model.configured),
+      gemini: models.some((model) => model.provider === "google" && model.configured),
     },
-    defaultModel,
-    activeModel,
+    defaultModel: configuredAssistantModel(env),
+    activeModel: activeAssistantModel(env, assistantConfig?.activeModel),
     activeModelUpdatedAt: assistantConfig?.updatedAt ?? null,
     models,
     tools: TOOL_DEFINITIONS.map((tool) => {
@@ -335,12 +369,9 @@ export const assistant = new Hono<AppEnv>()
     const input = await body(c);
     await ensureDefaults(c.env, c.get("db"));
     const assistantConfig = await getAssistantConfig(c.get("db"), ASSISTANT_KEY);
-    const configuredModel = c.env.PI_AGENT_MODEL?.trim();
-    const defaultModel = isPiCodexModel(configuredModel) ? configuredModel : DEFAULT_PI_CODEX_MODEL;
-    const activeModel = isPiCodexModel(assistantConfig?.activeModel) ? assistantConfig.activeModel : defaultModel;
     const modelId = typeof input.model === "string" && input.model.trim()
       ? input.model.trim()
-      : activeModel;
+      : activeAssistantModel(c.env, assistantConfig?.activeModel);
     const model = await usableSandboxModel(c.env, modelId);
     const promptId = typeof input.promptRevisionId === "string" && input.promptRevisionId.trim()
       ? input.promptRevisionId.trim()
@@ -600,11 +631,9 @@ export const assistant = new Hono<AppEnv>()
     const requestedModel = typeof input.model === "string" && input.model.trim()
       ? input.model.trim()
       : undefined;
-    const configuredModel = c.env.PI_AGENT_MODEL?.trim();
-    const defaultModel = isPiCodexModel(configuredModel) ? configuredModel : DEFAULT_PI_CODEX_MODEL;
-    const activeModel = isPiCodexModel(assistantConfig?.activeModel) ? assistantConfig.activeModel : defaultModel;
-    const sessionModel = isPiCodexModel(session?.model) ? session.model : undefined;
-    const modelId = requestedModel ?? sessionModel ?? activeModel;
+    const modelId = requestedModel
+      ?? session?.model
+      ?? activeAssistantModel(c.env, assistantConfig?.activeModel);
     const model = await usableSandboxModel(c.env, modelId);
     if (session && session.model !== model.id) {
       await updateAssistantSandboxSessionModel(c.get("db"), {

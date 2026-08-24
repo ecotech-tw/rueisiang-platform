@@ -28,7 +28,7 @@ async function setup() {
   const db = createDatabase(createLocalD1() as never);
   await ensureAssistantDefaults(db, {
     assistantKey: ASSISTANT_KEY,
-    defaultModel: "gpt-5.4-mini",
+    defaultModel: "gemini-3.6-flash",
     defaultPrompt: "測試用 prompt",
     toolKeys: [WEATHER, WMS_SEARCH, CRM_SEARCH],
   });
@@ -49,7 +49,7 @@ describe("LINE 工具權限的三層交集", () => {
     const db = createDatabase(createLocalD1() as never);
     await ensureAssistantDefaults(db, {
       assistantKey: ASSISTANT_KEY,
-      defaultModel: "gpt-5.4-mini",
+      defaultModel: "gemini-3.6-flash",
       defaultPrompt: "測試用 prompt",
       toolKeys: [WEATHER, WMS_SEARCH],
     });

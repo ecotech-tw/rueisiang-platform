@@ -45,7 +45,7 @@ import type {
 } from "./pi-agent-contract.js";
 import {
   PI_CODEX_PROVIDER_ID,
-  isPiCodexModel,
+  isPiAssistantModel,
   piAssistantModel,
   type PiCodexRelayConfig,
   streamPiAssistantModel,
@@ -459,10 +459,17 @@ export class AssistantChatAgent {
       });
       await options.onResponse?.(response, responseModel);
     };
-    const providerOptions = { ...shared, transport: "sse" as const, onPayload: payloadWithOutputLimit, onResponse };
+    const providerOptions: ModelsSimpleStreamOptions = {
+      ...shared,
+      onResponse,
+      ...(model.provider === PI_CODEX_PROVIDER_ID
+        ? { transport: "sse" as const, onPayload: payloadWithOutputLimit }
+        : {}),
+    };
     return streamPiAssistantModel(model, context, providerOptions, {
       resolveCodexAccessToken: async () => this.accessToken(),
-      codexRelay: this.codexRelay(),
+      codexRelay: model.provider === PI_CODEX_PROVIDER_ID ? this.codexRelay() : undefined,
+      geminiApiKey: this.env.GEMINI_API_KEY,
     });
   }
 
@@ -715,9 +722,9 @@ export class AssistantChatAgent {
   ): Promise<void> {
     const state = this.currentState();
     if (!state || (!state.model && !preferredModel)) return;
-    const modelId = isPiCodexModel(preferredModel)
+    const modelId = isPiAssistantModel(preferredModel)
       ? preferredModel
-      : isPiCodexModel(state.model)
+      : isPiAssistantModel(state.model)
         ? state.model
         : DEFAULT_PI_CODEX_MODEL;
     const rows = this.loadMessageRows(state);

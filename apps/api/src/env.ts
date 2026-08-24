@@ -23,6 +23,9 @@ export interface Env {
   AUTH_SESSION_SECRET: string;
   GOOGLE_OAUTH_CLIENT_ID: string;
   GOOGLE_OAUTH_CLIENT_SECRET: string;
+
+  /** Pi Google provider 使用的 API key；Sandbox 與選用 Gemini 的正式 channel 共用。 */
+  GEMINI_API_KEY?: string;
   /** 尚未建立 assistant config 時的 LINE fallback；正常情況由後台 active model 決定。 */
   PI_AGENT_MODEL?: string;
   /** Pi 或 Codex CLI 的 ChatGPT OAuth credential JSON；seed fingerprint 改變時會重新灌入 vault。 */

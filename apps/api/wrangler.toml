@@ -78,6 +78,7 @@ PI_OPENAI_CODEX_RELAY_URL = "https://codex-relay.rueisiang.com"
 #   AUTH_SESSION_SECRET        簽 session cookie 用，換掉等於所有人登出
 #   GOOGLE_OAUTH_CLIENT_ID
 #   GOOGLE_OAUTH_CLIENT_SECRET
+#   GEMINI_API_KEY              Pi Google provider；Sandbox／LINE 選 Gemini 模型時使用
 #   PI_OPENAI_CODEX_CREDENTIAL  Pi／Codex CLI 的 ChatGPT OAuth credential JSON；不是 OPENAI_API_KEY
 #   PI_CREDENTIAL_ENCRYPTION_KEY  至少 32 字元，vault 以 AES-GCM 加密 credential
 #   PI_OPENAI_CODEX_RELAY_TOKEN  可選；NAS Codex relay 的共享 secret，必須搭配 PI_OPENAI_CODEX_RELAY_URL
