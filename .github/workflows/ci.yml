@@ -74,7 +74,7 @@ jobs:
           set -euo pipefail
           pnpm --filter @rueisiang/api exec wrangler dev \
             --remote \
-            --config tools/codex-tcp-smoke/wrangler.toml \
+            --config ../../tools/codex-tcp-smoke/wrangler.toml \
             --port 8789 > smoke.log 2>&1 &
           server_pid=$!
           cleanup() { kill "$server_pid" 2>/dev/null || true; }
