@@ -73,6 +73,10 @@ PAYOUT_WORKFLOW_FILE = "payout.yml"
 PAYOUT_GITHUB_REF = "main"
 PI_AGENT_MODEL = "gpt-5.4-mini"
 PI_OPENAI_CODEX_RELAY_URL = "https://codex-relay.rueisiang.com"
+SHOPEE_GITHUB_REPO = "ecotech-tw/rueisiang-platform"
+SHOPEE_WORKFLOW_FILE = "shopee-sales-report.yml"
+SHOPEE_GITHUB_REF = "main"
+SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 
 # 需要的 secret（值不進版控，在 Cloudflare 儀表板或用指令設）：
 #   AUTH_SESSION_SECRET        簽 session cookie 用，換掉等於所有人登出
@@ -88,6 +92,7 @@ PI_OPENAI_CODEX_RELAY_URL = "https://codex-relay.rueisiang.com"
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
 #   PAYOUT_GITHUB_TOKEN        fine-grained PAT，只給本 repo 的 Actions 與 Contents 讀寫
 #   UPSTASH_REDIS_REST_URL     CYBERBIZ 商品目錄的選用快取
+#   SHOPEE_GITHUB_TOKEN        fine-grained PAT，只給本 repo 的 Actions 讀寫
 #   UPSTASH_REDIS_REST_TOKEN   （沒設定時那一頁改成直接問官網，只是比較慢）
 #
 # 改過 permissions.ts 之後，用權限管理頁的「重新同步」按鈕寫進資料庫，

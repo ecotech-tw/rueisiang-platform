@@ -68,11 +68,13 @@ export interface Env {
   PAYOUT_WORKFLOW_FILE?: string;
   PAYOUT_GITHUB_REF?: string;
 
-  /** 蝦皮銷售報表的 Actions workflow；同樣只放 GitHub token，不放蝦皮或 Drive 憑證。 */
+  /** 蝦皮報表 workflow；平台只暫存檔案並觸發 GitHub Actions。 */
   SHOPEE_GITHUB_TOKEN?: string;
   SHOPEE_GITHUB_REPO?: string;
   SHOPEE_WORKFLOW_FILE?: string;
   SHOPEE_GITHUB_REF?: string;
+  /** GitHub runner 下載平台暫存檔案時使用的公開基底網址。 */
+  SHOPEE_SOURCE_BASE_URL?: string;
 }
 
 export interface AppEnv {

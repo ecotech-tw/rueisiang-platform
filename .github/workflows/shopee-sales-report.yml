@@ -1,122 +1,111 @@
-name: 蝦皮銷售報表
-run-name: 蝦皮銷售報表｜${{ inputs.start }} ~ ${{ inputs.end }}｜${{ inputs.request_id }}
+name: shopee-sales-report
+run-name: shopee-sales-report-${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
     inputs:
-      start:
-        description: 報表起日 YYYY-MM-DD
-        type: string
+      source_url:
+        description: "平台提供的一次性報表下載網址"
         required: true
-      end:
-        description: 報表迄日 YYYY-MM-DD
         type: string
-        required: true
       drive_folder_url:
-        description: Google Drive 資料夾連結
-        type: string
+        description: "Google Drive 資料夾連結"
         required: true
-      input_path:
-        description: 已下載報表的 runner 路徑（留空＝由瀏覽器從蝦皮匯出）
         type: string
-        default: ""
       request_id:
-        description: 網頁執行識別碼
+        description: "平台執行識別碼"
+        required: true
         type: string
-        default: ""
 
-concurrency:
-  group: shopee-sales-report
-  cancel-in-progress: false
+permissions:
+  contents: read
 
 jobs:
-  run:
+  process:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    defaults:
-      run:
-        working-directory: tools/shopee-sales-report-export
+    timeout-minutes: 15
     env:
-      TZ: Asia/Taipei
-      CI: "true"
-      SHOPEE_BROWSER_CHANNEL: chrome
-
+      SOURCE_URL: ${{ inputs.source_url }}
+      DRIVE_FOLDER_URL: ${{ inputs.drive_folder_url }}
+      REQUEST_ID: ${{ inputs.request_id }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: tools/shopee-sales-report-export/package-lock.json
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: 安裝相依套件
-        run: npm ci
-
-      - name: 安裝加密 xlsx 解密工具
-        run: python -m pip install --disable-pip-version-check --user msoffcrypto-tool
-
-      - name: 產生 .env
-        env:
-          SHOPEE_USERNAME: ${{ secrets.SHOPEE_USERNAME }}
-          SHOPEE_PASSWORD: ${{ secrets.SHOPEE_PASSWORD }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+      - name: Install report tools
+        working-directory: tools/shopee-sales-report-export
         run: |
-          umask 077
-          {
-            echo "SHOPEE_USERNAME=$SHOPEE_USERNAME"
-            echo "SHOPEE_PASSWORD=$SHOPEE_PASSWORD"
-            echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"
-            echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"
-            echo "GOOGLE_REFRESH_TOKEN=$GOOGLE_REFRESH_TOKEN"
-          } > .env
+          npm ci
+          python -m pip install --user msoffcrypto-tool
 
-      - name: 執行蝦皮銷售報表
-        id: report
-        env:
-          START: ${{ inputs.start }}
-          END: ${{ inputs.end }}
-          DRIVE_FOLDER_URL: ${{ inputs.drive_folder_url }}
-          INPUT_PATH: ${{ inputs.input_path }}
-          SHOPEE_REPORT_PASSWORD: ${{ secrets.SHOPEE_REPORT_PASSWORD }}
+      - name: Download source report
         run: |
-          set +e
-          if [ -n "$INPUT_PATH" ]; then
-            node driver.mjs --input "$INPUT_PATH" --password "$SHOPEE_REPORT_PASSWORD" --start "$START" --end "$END" --drive-folder-url "$DRIVE_FOLDER_URL"
-          else
-            node driver.mjs --export --headless --start "$START" --end "$END" --drive-folder-url "$DRIVE_FOLDER_URL"
+          echo "::add-mask::$SOURCE_URL"
+          curl --fail --silent --show-error --location --dump-header source.headers --output source.xlsx "$SOURCE_URL"
+          PASSWORD_B64=$(awk -F': ' 'tolower($1) == "x-shopee-report-password" { gsub("\r", "", $2); print $2 }' source.headers)
+          if [ -z "$PASSWORD_B64" ]; then
+            echo "找不到報表密碼標頭" >&2
+            exit 1
           fi
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          FILENAME_B64=$(awk -F': ' 'tolower($1) == "x-shopee-report-filename" { gsub("\r", "", $2); print $2 }' source.headers)
+          if [ -z "$FILENAME_B64" ]; then
+            echo "找不到原始檔名標頭" >&2
+            exit 1
+          fi
+          REPORT_FILENAME=$(printf '%s' "$FILENAME_B64" | base64 --decode)
+          REPORT_FILENAME=$(basename -- "$REPORT_FILENAME")
+          case "$REPORT_FILENAME" in
+            *.xlsx) ;;
+            *) echo "原始檔名不是 xlsx" >&2; exit 1 ;;
+          esac
+          echo "REPORT_FILENAME=$REPORT_FILENAME" >> "$GITHUB_ENV"
+          REPORT_PASSWORD=$(printf '%s' "$PASSWORD_B64" | base64 --decode)
+          echo "::add-mask::$REPORT_PASSWORD"
+          {
+            echo "SHOPEE_REPORT_PASSWORD<<EOF"
+            printf '%s\n' "$REPORT_PASSWORD"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
-      - name: 把報告貼到執行摘要
+      - name: Process and upload report
+        run: |
+          cat > tools/shopee-sales-report-export/.env <<EOF
+          GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
+          GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
+          GOOGLE_REFRESH_TOKEN=$GOOGLE_REFRESH_TOKEN
+          EOF
+          node tools/shopee-sales-report-export/driver.mjs \
+            --input "$GITHUB_WORKSPACE/source.xlsx" \
+            --password "$SHOPEE_REPORT_PASSWORD" \
+            --drive-folder-url "$DRIVE_FOLDER_URL" \
+            --output "$GITHUB_WORKSPACE/tools/shopee-sales-report-export/staging/uploaded/$REPORT_FILENAME"
+
+      - name: Remove platform temporary upload
         if: always()
         run: |
-          for file in reports/*.md; do
-            [ -e "$file" ] || continue
-            cat "$file" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-          done
+          CLEANUP_URL="${SOURCE_URL/\/source\//\/cleanup\/}"
+          curl --fail --silent --show-error --request POST "$CLEANUP_URL" || true
 
-      - name: 保留產出的檔案
+      - name: Upload processing artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shopee-sales-report-${{ inputs.start }}-${{ inputs.end }}-${{ github.run_number }}
-          retention-days: 30
-          if-no-files-found: ignore
+          name: shopee-sales-report-${{ env.REQUEST_ID }}
           path: |
             tools/shopee-sales-report-export/staging/**/*.xlsx
-            tools/shopee-sales-report-export/reports/*.md
-            tools/shopee-sales-report-export/screenshots/*.png
-
-      - name: 失敗時讓 workflow 標記失敗
-        if: always() && steps.report.outputs.exit_code != '0'
-        run: |
-          echo "::error::蝦皮報表未完成，詳見上方摘要與 artifact"
-          exit 1
+            tools/shopee-sales-report-export/reports/**/*.md
+          if-no-files-found: ignore
+          retention-days: 1

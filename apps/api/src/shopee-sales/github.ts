@@ -3,7 +3,7 @@ import type { Env } from "../env.js";
 const GITHUB_API = "https://api.github.com";
 
 export interface ShopeeSalesGithub {
-  dispatch(input: { start: string; end: string; driveFolderUrl: string; requestId: string }): Promise<void>;
+  dispatch(input: { sourceUrl: string; driveFolderUrl: string; requestId: string }): Promise<void>;
   listRuns(requestId?: string): Promise<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>;
 }
 
@@ -41,6 +41,7 @@ export function shopeeSalesGithub(env: Env): ShopeeSalesGithub | undefined {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "rueisiang-platform",
         ...(init?.headers ?? {}),
@@ -66,8 +67,7 @@ export function shopeeSalesGithub(env: Env): ShopeeSalesGithub | undefined {
         body: JSON.stringify({
           ref: env.SHOPEE_GITHUB_REF ?? "main",
           inputs: {
-            start: input.start,
-            end: input.end,
+            source_url: input.sourceUrl,
             drive_folder_url: input.driveFolderUrl,
             request_id: input.requestId,
           },

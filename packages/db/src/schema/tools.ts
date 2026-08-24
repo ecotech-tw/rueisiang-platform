@@ -67,8 +67,8 @@ export type PayoutRun = typeof payoutRuns.$inferSelect;
  * 蝦皮報表的全域設定。
  *
  * 蝦皮報表不是依 POS 店別分開上傳；一個月份產出一份檔案，所以只需要一個
- * Drive 資料夾目標。密碼與簡訊驗證碼絕不落資料庫，前者由 Actions secret 提供，
- * 後者由蝦皮登入流程本身處理。
+ * Drive 資料夾目標。報表密碼不落資料庫，只會隨著 R2 暫存檔案短暫保存，交給 Actions
+ * 取檔時使用，工作完成後清理暫存檔案。
  */
 export const shopeeSalesSettings = sqliteTable("shopee_sales_settings", {
   id: text("id").primaryKey(),

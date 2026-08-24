@@ -16,6 +16,7 @@ import { drainLineAssistantQueueOutbox, processLineAssistantQueueMessage, webhoo
 import { health } from "./routes/health.js";
 import { PayoutGithubError } from "./payout/github.js";
 import { tools } from "./routes/tools.js";
+import { shopeeSalesInternal } from "./routes/shopee-sales-internal.js";
 import { wms } from "./routes/wms.js";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
 export { AssistantChatAgent } from "./pi-agent-do.js";
@@ -40,6 +41,7 @@ const routes = app
   .route("/admin", admin)
   .route("/assistant", assistant)
   .route("/crm", crm)
+  .route("/internal/shopee-sales", shopeeSalesInternal)
   .route("/tools", tools)
   .route("/wms", wms)
   .route("/webhooks", webhooks);

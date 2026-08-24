@@ -1,28 +1,21 @@
-# 蝦皮銷售報表工具
+# 蝦皮銷售報表整理工具
 
-這個工具把蝦皮訂單報表整理成一份新的 xlsx：
+這個工具只處理使用者已從蝦皮下載的 `.xlsx` 報表，不會登入蝦皮。Portal 接收檔案後會將它暫存到平台 R2，再由 GitHub Actions runner 下載、解密、整理並上傳 Google Drive。
 
-- `業績計算`：同一個 A 欄訂單編號只採來源第一筆，業績為 `G - S - U`。
-- `商品銷售統計`：以 `Z 商品 ID + AA 商品選項` 為商品鍵，加總 AH 商品數量；AI 退貨數量另列參考。
-- 可用 Google Drive 資料夾連結指定上傳位置；同名檔案已存在時不重複上傳。
+## CLI
 
-## 直接整理既有檔案
-
-```powershell
-npm ci
-node driver.mjs `
-  --input "C:\path\Order.completed.20250201_20250228.xlsx" `
-  --password "042213" `
-  --output "C:\path\Order.completed.20250201_20250228.cleaned.xlsx" `
-  --skip-upload
+```bash
+node driver.mjs --input "Order.completed.20250201_20250228.xlsx" --password 042213 --drive-folder-url "https://drive.google.com/drive/folders/..."
 ```
 
-加上 `--drive-folder-url "https://drive.google.com/drive/folders/<folder-id>"` 就會上傳；Google OAuth 需要先把 `.env.example` 的欄位填好。Linux/GCP 解密加密 xlsx 時需安裝 `msoffcrypto-tool`；Windows 會先嘗試 Python，失敗時退回已安裝的 Microsoft Excel。
+只產出整理後的新檔、不上傳 Drive：
 
-## 從蝦皮匯出
-
-```powershell
-node driver.mjs --export --start 2026-07-01 --end 2026-07-31
+```bash
+node driver.mjs --input "Order.completed.20250201_20250228.xlsx" --password 042213 --skip-upload
 ```
 
-`--export` 會使用 `chrome-profile/` 的持久化 Chrome profile，開啟蝦皮賣家中心並等待下載。第一次登入或蝦皮要求兩步驟驗證時，需在開啟的瀏覽器視窗中由操作者完成；工具不會繞過簡訊驗證。若蝦皮改版，請在 `config.json` 更新 `reportUrl` 或 `selectors`。
+工具會解密報表、依 A 欄訂單去重後計算 `G - S - U`，並將 `Z + AA` 商品組合依 AH 數量彙總成新的工作表。
+
+加密報表在 Linux/GitHub Actions 上需要安裝 `msoffcrypto-tool`；Windows 本機若有 Microsoft Excel，也可以由工具使用 Excel COM 解密。
+
+蝦皮登入與 OTP 不在目前流程中。若未來能以 Email OTP 搭配 Gmail API 穩定完成驗證，再另行增加自動匯出流程。

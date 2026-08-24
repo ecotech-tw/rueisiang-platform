@@ -6,8 +6,5 @@
   "scripts": {
     "run": "node driver.mjs",
     "test": "node selftest.mjs"
-  },
-  "dependencies": {
-    "playwright": "^1.49.0"
   }
 }

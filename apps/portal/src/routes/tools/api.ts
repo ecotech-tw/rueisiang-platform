@@ -152,7 +152,6 @@ export interface ShopeeSalesState {
   start: string;
   end: string;
   configured: boolean;
-  latestRequestId: string | null;
   runs: ShopeeSalesRunRecord[];
 }
 
@@ -166,11 +165,17 @@ export function useShopeeSalesState() {
 export function useRunShopeeSales() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { start: string; end: string }) =>
-      call<{ requestId: string }>("/api/tools/shopee-sales/run", {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
+    mutationFn: async (input: { file: File; password: string }) => {
+      const form = new FormData();
+      form.append("file", input.file);
+      form.append("password", input.password);
+      const response = await fetch("/api/tools/shopee-sales/upload", { method: "POST", credentials: "same-origin", body: form });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `操作失敗（${response.status}）`);
+      }
+      return (await response.json()) as { requestId: string };
+    },
     onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "shopee-sales"] }),
   });
 }

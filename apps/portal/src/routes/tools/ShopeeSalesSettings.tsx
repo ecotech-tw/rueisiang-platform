@@ -23,7 +23,7 @@ export function ShopeeSalesSettings() {
     <div className="page">
       <header className="page-head">
         <h1>蝦皮報表設定</h1>
-        <p className="muted">設定蝦皮銷售報表的 Google Drive 資料夾。執行時會把這個連結傳給報表工具；Google refresh token 仍只放在 Actions secrets。</p>
+        <p className="muted">設定蝦皮銷售報表整理後要上傳的 Google Drive 資料夾。使用者上傳 Excel 後，GitHub Actions 會把新檔放到這裡。</p>
       </header>
       <section className="panel">
         <form className="admin-form" onSubmit={(event) => { event.preventDefault(); save.mutate({ driveFolderUrl: url, driveFolderName: name }); }}>
