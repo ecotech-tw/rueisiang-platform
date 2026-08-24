@@ -97,6 +97,15 @@ app.onError((error, c) => {
     return c.json({ error: error.message }, 502);
   }
 
+  if (error instanceof ShopeeSalesGithubError) {
+    assistantLog("error", "shopee.github_trigger_failed", {
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      error: assistantErrorDetails(error),
+    });
+    return c.json({ error: error.message }, 502);
+  }
+
   assistantLog("error", "http.error", {
     method: c.req.method,
     path: new URL(c.req.url).pathname,

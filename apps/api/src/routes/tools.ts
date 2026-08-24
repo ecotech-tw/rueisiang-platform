@@ -11,6 +11,7 @@ import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { payoutGithub } from "../payout/github.js";
 import { body } from "../request.js";
+import { shopeeSales } from "./shopee-sales.js";
 
 /**
  * 營運工具。目前只有出金表。
@@ -79,6 +80,7 @@ function readStores(input: Record<string, unknown>): PayoutStoreInput[] {
 
 export const tools = new Hono<AppEnv>()
   .use("*", requireAuth)
+  .route("/shopee-sales", shopeeSales)
 
   /** 執行頁一開始要的東西：店別、預設區間、以及後端到底有沒有接上 GitHub。 */
   .get("/payout/state", requirePermission("tools:payout:run"), async (c) => {

@@ -1,0 +1,13 @@
+{
+  "name": "shopee-sales-report-export",
+  "private": true,
+  "type": "module",
+  "description": "整理蝦皮訂單報表、計算業績與商品銷售數，並上傳到 Google Drive",
+  "scripts": {
+    "run": "node driver.mjs",
+    "test": "node selftest.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

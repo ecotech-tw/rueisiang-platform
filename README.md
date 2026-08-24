@@ -18,6 +18,7 @@ packages/
   config/     共用 tsconfig
 tools/        跑在 GitHub Actions runner 上的東西，刻意不在 pnpm workspace 裡
   cyberbiz-monthly-payout/   出金表 driver（純 JS ＋ npm lockfile）
+  shopee-sales-report-export/ 蝦皮銷售報表整理與 Drive 上傳 driver（純 JS ＋ npm lockfile）
 ```
 
 **部署成一個 Worker**：`apps/api/wrangler.toml` 的 `[assets]` 指向 `../portal/dist`，`run_worker_first = ["/api/*"]` 讓 API 進 Worker、其餘走 Static Assets，同一個網域。
@@ -128,6 +129,18 @@ node setup.mjs mail  eli-lin@ecotech.tw         # → GMAIL_REFRESH_TOKEN
 「桌面應用程式」**，選 Web 會失敗），把四個值一起寫進 `.env`，你再貼進 GitHub Secrets。
 
 `.env` 已被 gitignore。`mail` 跑完會印出實際授權到的信箱讓你對照。
+
+## 蝦皮銷售報表
+
+蝦皮報表工具位在營運工具底下的「蝦皮銷售報表」。平台只保存 Drive 資料夾連結與
+執行紀錄；實際匯出、解密、整理 xlsx 與上傳 Drive 都跑在 GitHub Actions runner。
+報表工具也可以獨立使用：`node tools/shopee-sales-report-export/driver.mjs --input
+<檔案> --password <密碼> --drive-folder-url <Drive資料夾連結>`。
+
+工具輸出的 `業績計算` 以 A 欄訂單編號去重，單筆為 `G-S-U`；`商品銷售統計` 以
+`Z＋AA` 合併商品鍵，加總 AH 數量。加密 xlsx 在 Windows 會使用 Microsoft Excel
+解密，Linux/GCP 需要安裝 `msoffcrypto-tool`。蝦皮要求簡訊或其他兩步驟驗證時，
+流程會停下來由操作者完成，不會把驗證碼寫入平台或嘗試繞過。
 
 **OAuth 同意畫面還在「測試中」**，所以：
 

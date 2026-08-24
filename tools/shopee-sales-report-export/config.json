@@ -1,0 +1,14 @@
+{
+  "sellerCenterOrigin": "https://seller.shopee.tw",
+  "reportUrl": "https://seller.shopee.tw/portal/finance/my-income",
+  "sourceSheet": "orders",
+  "stagingDir": "staging",
+  "reportsDir": "reports",
+  "driveFolderUrl": "",
+  "driveFolderName": "蝦皮銷售報表",
+  "selectors": {
+    "startDate": "input[type=date]:nth-of-type(1)",
+    "endDate": "input[type=date]:nth-of-type(2)",
+    "exportButton": "button:has-text('匯出')"
+  }
+}

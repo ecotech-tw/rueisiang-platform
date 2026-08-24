@@ -28,6 +28,10 @@ tools/cyberbiz-monthly-payout/chrome-profile/
 tools/cyberbiz-monthly-payout/staging/
 tools/cyberbiz-monthly-payout/reports/
 tools/cyberbiz-monthly-payout/screenshots/
+tools/shopee-sales-report-export/chrome-profile/
+tools/shopee-sales-report-export/staging/
+tools/shopee-sales-report-export/reports/
+tools/shopee-sales-report-export/screenshots/
 
 # 編輯器與作業系統
 .DS_Store
