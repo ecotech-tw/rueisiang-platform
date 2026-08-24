@@ -15,6 +15,7 @@ import { crm } from "./routes/crm.js";
 import { drainLineAssistantQueueOutbox, processLineAssistantQueueMessage, webhooks } from "./routes/webhooks.js";
 import { health } from "./routes/health.js";
 import { PayoutGithubError } from "./payout/github.js";
+import { ShopeeSalesGithubError } from "./shopee-sales/github.js";
 import { tools } from "./routes/tools.js";
 import { shopeeSalesInternal } from "./routes/shopee-sales-internal.js";
 import { wms } from "./routes/wms.js";
