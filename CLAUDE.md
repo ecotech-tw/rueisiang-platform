@@ -52,7 +52,7 @@ packages/
   db/        drizzle schema、migrations，以及所有查詢與同步邏輯
   cyberbiz/  CYBERBIZ API client 與 webhook 驗證
   config/    共用 tsconfig
-docs/        deployment-setup.md（首次開通）、migration-plan.md（各 Phase 範圍）
+docs/        deployment-setup.md（首次開通）
 .claude/skills/  跟著程式一起搬進來的操作知識。目前只有 cyberbiz-monthly-payout
 ```
 
