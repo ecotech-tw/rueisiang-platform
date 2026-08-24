@@ -79,6 +79,11 @@ Queue retry、LINE reply deadline 與每月 200 位收件者的 Push fixed windo
 它不使用 `OPENAI_API_KEY`，只轉送既有的 ChatGPT OAuth access token；relay 本身不會增加 OpenAI API
 usage-based 費用，但仍受 ChatGPT／Codex 方案的使用限制約束。
 
+Workers TCP Sockets 不是這個 relay 的替代方案。我們在 Cloudflare remote runtime 實際以
+`connect({ hostname: "chatgpt.com", port: 443, secureTransport: "on" })` 探測，收到
+`cannot connect to the specified address`；Cloudflare 也明確限制 outbound TCP 連到 Cloudflare IP
+range。因此目前仍須保留 NAS relay，不能只因 TCP socket API 存在就移除 NAS 上的服務。
+
 Worker 端只有在兩個設定都存在時才會啟用 relay：
 
 | 設定 | 類型 | 說明 |
