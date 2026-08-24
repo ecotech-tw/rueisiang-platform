@@ -2,17 +2,8 @@
 
 把 CRM、WMS 與營運工具整合成一個入口：一次登入、一個 sidebar、一套權限，部署在 Cloudflare。
 
-目前狀態：**四套系統都搬完了**（Phase 0–4），跑在 <https://platform.rueisiang.com>。
-CRM、倉儲、營運工具三大項底下已經沒有佔位頁。
-
-剩下 Phase 5：舊系統下線、Cloud SQL 關掉。那要等實際用一段時間、確認沒有漏掉的
-功能之後再做——不急著關。
-
-## 為什麼要做這件事
-
-原本四套系統（CRM、WMS、CYBERBIZ webhook relay、出金表工具）是同一個模板的四份拷貝，會各自演化。同名的共用檔案已經分歧：`auth-session.ts` 差 263 行、`cyberbiz-webhook.ts` 差 238 行、`google-oauth.ts` 差 169 行。CRM 與 WMS 各有一份獨立的 `app_users`，各自實作了一次 `admin|viewer`；CYBERBIZ API client 有三份。
-
-同一個 bug 要修三次，這個數字只會單向成長。
+目前平台包含 CRM、倉儲、營運工具與小香助理，正式站在
+<https://platform.rueisiang.com>。
 
 ## 架構
 
@@ -23,7 +14,7 @@ apps/
 packages/
   auth/       權限目錄、OAuth、session、RBAC
   db/         drizzle schema（D1）＋ migrations
-  cyberbiz/   CYBERBIZ API client（合併原本的三份）
+  cyberbiz/   CYBERBIZ API client 與 webhook 驗證
   config/     共用 tsconfig
 tools/        跑在 GitHub Actions runner 上的東西，刻意不在 pnpm workspace 裡
   cyberbiz-monthly-payout/   出金表 driver（純 JS ＋ npm lockfile）
@@ -155,8 +146,8 @@ node setup.mjs mail  eli-lin@ecotech.tw         # → GMAIL_REFRESH_TOKEN
 | **R2** bucket `rueisiang-platform-uploads` | 倉位的現場照片 | 上傳回「尚未設定照片儲存空間」，地圖與庫存完全正常 | ❌ 還沒開 |
 | **Upstash Redis**（`UPSTASH_REDIS_REST_URL` / `_TOKEN`） | 快取 CYBERBIZ 商品目錄一天 | 「CYBERBIZ 庫存」每次開頁直接翻官網，慢幾秒但功能正常 | ✅ |
 
-Upstash 沿用舊 WMS 的**同一個實例**，不必另外開。Workers 開不了原生的 Redis
-連線，但 Upstash 的 REST 端點只是一個 HTTPS 請求——那正好是 Worker 做得到的形式。
+Upstash Redis 是平台的選用快取服務。Workers 開不了原生的 Redis 連線，但 Upstash
+的 REST 端點只是一個 HTTPS 請求——那正好是 Worker 做得到的形式。
 
 R2 要先建 bucket：
 
@@ -176,21 +167,3 @@ npx wrangler r2 bucket create rueisiang-platform-uploads
 因此 `pnpm-workspace.yaml` 裡把 `workerd` 的安裝腳本關掉——開著會讓整個 `pnpm install` 直接失敗。CI 若需要那支執行檔，在部署 workflow 裡單獨處理。
 
 **2. migration 的本機驗證用 `node:sqlite`。** D1 就是 SQLite，所以產生的 migration 可以直接用 Node 24 內建的 `node:sqlite` 套用驗證，不需要 workerd，也不必額外裝套件。
-
-## 待辦（依 Phase）
-
-| Phase | 內容 |
-|---|---|
-| 0 ✅ | monorepo 骨架、portal 外殼與 sidebar、Hono worker、D1 schema 與 migration |
-| 1 ✅ | Google OAuth ＋ 帳密登入、邀請連結、RBAC、自訂角色與直接授予、權限管理頁、部署到 `platform.rueisiang.com` |
-| 2 ✅ | CRM 搬入：客戶列表與編輯、標籤、儲存的視圖、操作紀錄、CYBERBIZ 同步與 webhook |
-| 3 ✅ | 營運工具搬入：出金表執行頁與店別設定，driver 與 workflow 一起進 `tools/` |
-| 4 ✅ | 倉儲搬入：倉位地圖、商品庫存與盤點、分類管理、操作紀錄、CYBERBIZ 庫存同步 |
-| 5 | 舊系統下線、Cloud SQL 關掉 |
-
-Phase 1 的權限比原訂計畫多做了兩層：**自訂角色**（管理者自己組合權限，不必改
-程式碼）與**直接授予**（繞過角色，給單一個人的例外）。原本只有四個寫死的系統角色。
-
-Phase 4 的地圖沒有照原訂計畫「拆掉 1816 行的 `warehouse-app.tsx`」——那份檔案
-沒有被拆，是被**重寫**的。舊的互動地圖與匯出邏輯混在同一個元件裡，照著拆只會把
-同樣的糾纏搬過來；重寫之後互動用 DOM、匯出用 canvas，兩件事各自獨立。

@@ -38,7 +38,8 @@
 
 ### 3. Relay 與用量
 
-- [ ] 評估是否能以 [Cloudflare Workers TCP Sockets](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/) 的 outbound `connect()`／TLS stream 取代 NAS relay；先確認目標位址可達性、HTTP/SSE framing、Cloudflare IP／private network restrictions 與 Durable Object connection cost，再決定是否移除 relay。
+- [x] 已驗證（2026-08-24）：Cloudflare remote Workers smoke test 以 outbound `connect()`／TLS stream 連線 `chatgpt.com:443`，runtime 回傳 `cannot connect to the specified address`，因此 TCP Sockets 不能繞過 ChatGPT backend 的連線拒絕。即使補上 raw HTTP／SSE 的 header parsing、chunked decoding 與 abort handling，仍會在建立 socket 前失敗。依 [Cloudflare TCP Sockets 限制](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/) 與目標使用 Cloudflare IP range 的現況，保留 NAS relay；未來只有改用允許的上游 endpoint 並完成真實 SSE 驗收後，才可重新評估移除。
+- [ ] 評估 [Workers VPC `cf1:network`](https://developers.cloudflare.com/workers-vpc/configuration/vpc-networks/) 經 Cloudflare Gateway 的 public egress，確認是否能避開 Workers direct egress restriction 與 `CF-Worker` header；目前 smoke test 因 CI token 沒有 Connectivity Directory 權限而回傳 code `10196`，尚未驗證 ChatGPT HTTP／SSE。完成權限、VPC／Gateway policy 與真實 Codex SSE 驗收前，不得移除 NAS relay。
 - [ ] 在平台新增 LINE Push API 用量分析，至少顯示 fixed-window 用量、剩餘額度、查詢時間區間與群組／事件明細。
 
 ## 完成條件

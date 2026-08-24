@@ -53,7 +53,7 @@ packages/
   cyberbiz/  CYBERBIZ API client 與 webhook 驗證
   config/    共用 tsconfig
 docs/        deployment-setup.md（首次開通）
-.claude/skills/  跟著程式一起搬進來的操作知識。目前只有 cyberbiz-monthly-payout
+.claude/skills/  跟著程式維護的操作知識。目前只有 cyberbiz-monthly-payout
 ```
 
 **業務邏輯放在 `packages/db`**，不放路由。路由只做參數解析、權限檢查、回應格式；查詢與同步寫在 `packages/db/src/*.ts` 再從 `src/index.ts` 具名 export。要改行為先找那裡。
@@ -66,7 +66,7 @@ docs/        deployment-setup.md（首次開通）
 
 ## 技術決策
 
-**單一 Worker + D1，不用 Next.js、不用 Postgres。** 四套舊系統是同一個模板的四份拷貝，共用檔案已經各自漂移。合併成一個 monorepo，一份 schema、一套權限、一次登入。
+**單一 Worker + D1，不用 Next.js、不用 Postgres。** 平台共用一份 schema、一套權限、一次登入。
 
 **權限鍵值寫在程式碼，不寫在資料表。** `packages/auth/src/permissions.ts` 的 `PERMISSIONS` 是唯一來源，DB 只存「哪個角色有哪些鍵值」。放進 DB 只會讓「系統有哪些權限」跟「程式實際檢查哪些權限」兩邊漂移。改完 `permissions.ts` 之後在權限管理頁按「重新同步」（`syncSystemRoles`）寫進 DB。
 
