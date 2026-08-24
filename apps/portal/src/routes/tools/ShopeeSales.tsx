@@ -24,10 +24,11 @@ export function ShopeeSales() {
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState("");
   const [tracking, setTracking] = useState<string | null>(null);
-  const status = useShopeeSalesStatus(tracking);
+  const status = useShopeeSalesStatus(tracking ?? state.data?.latestRequestId ?? null);
 
   if (state.isPending) return <div className="boot">載入中…</div>;
   const latest = status.data?.runs[0];
+  const followed = tracking ?? state.data?.latestRequestId ?? null;
   const running = latest ? latest.status !== "completed" : false;
   const blocked = running || run.isPending || !file || !password || !state.data?.settings.driveFolderUrl || !state.data.configured;
 
@@ -58,8 +59,8 @@ export function ShopeeSales() {
         {state.data?.settings.driveFolderUrl ? <p className="muted table-note">上傳位置：<a className="link-external" href={state.data.settings.driveFolderUrl} target="_blank" rel="noopener noreferrer">{state.data.settings.driveFolderName || "Google Drive 資料夾"}<Icon name="external" /></a></p> : null}
       </section>
 
-      {tracking ? <section className="panel">
-        <h2 className="panel-title">這次執行 {latest ? <span className={`status ${latest.status === "completed" ? (latest.conclusion === "success" ? "status-sync-synced" : "status-sync-failed") : "status-webhook-processing"}`}>{latest.status !== "completed" ? "執行中" : latest.conclusion === "success" ? "完成" : "未完成"}</span> : <span className="status status-webhook-processing">等待 GitHub 建立工作…</span>}</h2>
+      {followed ? <section className="panel">
+        <h2 className="panel-title">{tracking ? "這次執行" : "上一次執行"} {latest ? <span className={`status ${latest.status === "completed" ? (latest.conclusion === "success" ? "status-sync-synced" : "status-sync-failed") : "status-webhook-processing"}`}>{latest.status !== "completed" ? "執行中" : latest.conclusion === "success" ? "完成" : "未完成"}</span> : <span className="status status-webhook-processing">等待 GitHub 建立工作…</span>}</h2>
         {status.data?.steps.length ? <ol className="step-list">{status.data.steps.map((step, index) => <li className={stepClass(step)} key={`${step.name}-${index}`}><span className="step-mark">{STEP_MARK[step.status] ?? "·"}</span>{step.name}</li>)}</ol> : null}
         {latest?.url ? <p className="muted table-note"><a href={latest.url} target="_blank" rel="noopener noreferrer">在 GitHub 看完整紀錄</a></p> : null}
       </section> : null}

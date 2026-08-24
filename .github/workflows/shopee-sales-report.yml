@@ -16,9 +16,21 @@ on:
         description: "平台執行識別碼"
         required: true
         type: string
+      start:
+        description: "報表開始日期（YYYY-MM-DD）"
+        required: true
+        type: string
+      end:
+        description: "報表結束日期（YYYY-MM-DD）"
+        required: true
+        type: string
 
 permissions:
   contents: read
+
+concurrency:
+  group: shopee-sales-report
+  cancel-in-progress: false
 
 jobs:
   process:
@@ -28,6 +40,8 @@ jobs:
       SOURCE_URL: ${{ inputs.source_url }}
       DRIVE_FOLDER_URL: ${{ inputs.drive_folder_url }}
       REQUEST_ID: ${{ inputs.request_id }}
+      REPORT_START: ${{ inputs.start }}
+      REPORT_END: ${{ inputs.end }}
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
@@ -67,7 +81,7 @@ jobs:
           fi
           REPORT_FILENAME=$(printf '%s' "$FILENAME_B64" | base64 --decode)
           REPORT_FILENAME=$(basename -- "$REPORT_FILENAME")
-          case "$REPORT_FILENAME" in
+          case "${REPORT_FILENAME,,}" in
             *.xlsx) ;;
             *) echo "原始檔名不是 xlsx" >&2; exit 1 ;;
           esac
@@ -91,6 +105,8 @@ jobs:
             --input "$GITHUB_WORKSPACE/source.xlsx" \
             --password "$SHOPEE_REPORT_PASSWORD" \
             --drive-folder-url "$DRIVE_FOLDER_URL" \
+            --start "$REPORT_START" \
+            --end "$REPORT_END" \
             --output "$GITHUB_WORKSPACE/tools/shopee-sales-report-export/staging/uploaded/$REPORT_FILENAME"
 
       - name: Remove platform temporary upload

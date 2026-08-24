@@ -52,7 +52,7 @@ export const shopeeSales = new Hono<AppEnv>()
   .get("/state", requirePermission("tools:shopee-sales:run"), async (c) => {
     const settings = await getShopeeSalesSettings(c.get("db"));
     const runs = await listShopeeSalesRuns(c.get("db"), 10);
-    return c.json({ settings, ...previousMonthRange(), configured: Boolean(shopeeSalesGithub(c.env) && c.env.UPLOADS), runs });
+    return c.json({ settings, ...previousMonthRange(), configured: Boolean(shopeeSalesGithub(c.env) && c.env.UPLOADS), latestRequestId: runs[0]?.requestId ?? null, runs });
   })
   .post("/upload", requirePermission("tools:shopee-sales:run"), async (c) => {
     const github = shopeeSalesGithub(c.env);
@@ -70,6 +70,7 @@ export const shopeeSales = new Hono<AppEnv>()
     if (typeof password !== "string" || !password) throw new HTTPException(400, { message: "請輸入報表密碼。" });
 
     const requestId = crypto.randomUUID();
+    const range = rangeFromFilename(file.name);
     const sourceToken = crypto.randomUUID();
     const objectKey = `shopee-sales/${requestId}/${sourceToken}.xlsx`;
     await c.env.UPLOADS.put(objectKey, await file.arrayBuffer(), {
@@ -80,13 +81,12 @@ export const shopeeSales = new Hono<AppEnv>()
     const baseUrl = c.env.SHOPEE_SOURCE_BASE_URL?.replace(/\/+$/, "") || new URL(c.req.url).origin;
     const sourceUrl = `${baseUrl}/api/internal/shopee-sales/source/${requestId}?token=${sourceToken}`;
     try {
-      await github.dispatch({ sourceUrl, driveFolderUrl, requestId });
+      await github.dispatch({ sourceUrl, driveFolderUrl, requestId, start: range.start, end: range.end });
     } catch (error) {
       await c.env.UPLOADS.delete(objectKey);
       throw error;
     }
 
-    const range = rangeFromFilename(file.name);
     const user = c.get("user");
     await recordShopeeSalesRun(c.get("db"), { requestId, startDate: range.start, endDate: range.end, driveFolderUrl, actor: { id: user.id, email: user.email } });
     return c.json({ requestId, start: range.start, end: range.end }, 202);

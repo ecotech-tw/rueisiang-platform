@@ -152,6 +152,7 @@ export interface ShopeeSalesState {
   start: string;
   end: string;
   configured: boolean;
+  latestRequestId: string | null;
   runs: ShopeeSalesRunRecord[];
 }
 

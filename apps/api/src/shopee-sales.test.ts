@@ -67,7 +67,7 @@ describe("蝦皮銷售報表", () => {
     const id = await seedUser("manager@ecotech.tw", "role-manager");
     const response = await as(id, "manager@ecotech.tw", "/api/tools/shopee-sales/state");
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ start: "2026-07-01", end: "2026-07-31", settings: { driveFolderUrl: "" }, configured: true });
+    expect(await response.json()).toMatchObject({ start: "2026-07-01", end: "2026-07-31", settings: { driveFolderUrl: "" }, configured: true, latestRequestId: null });
   });
 
   it("沒有 Drive 連結時不會觸發 GitHub", async () => {
@@ -99,9 +99,13 @@ describe("蝦皮銷售報表", () => {
     expect(calls[0]?.url).toContain("actions/workflows/shopee-sales-report.yml/dispatches");
     const inputs = (calls[0]?.body.inputs ?? {}) as Record<string, string>;
     expect(inputs.drive_folder_url).toBe("https://drive.google.com/drive/folders/folder123");
+    expect(inputs.start).toBe("2025-02-01");
+    expect(inputs.end).toBe("2025-02-28");
     const sourceUrl = inputs.source_url!;
     expect(sourceUrl).toContain("/api/internal/shopee-sales/source/");
     expect(await listShopeeSalesRuns(db())).toHaveLength(1);
+    const state = await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/state");
+    expect((await state.json()) as { latestRequestId: string }).toMatchObject({ latestRequestId: expect.any(String) });
     expect((await getShopeeSalesSettings(db())).driveFolderName).toBe("蝦皮");
 
     const source = await app.fetch(new Request(sourceUrl), env as never);
