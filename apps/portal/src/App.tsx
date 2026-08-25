@@ -22,6 +22,7 @@ import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
 import { ShopeeSalesSettings } from "./routes/tools/ShopeeSalesSettings.js";
 import { Placeholder } from "./routes/Placeholder.js";
+import { StyleGuide } from "./routes/StyleGuide.js";
 import { AppShell } from "./shell/AppShell.js";
 
 /** 未登入就導去登入頁。這只是體驗上的導引，資料的把關在 API。 */
@@ -119,6 +120,7 @@ export function App() {
         </Route>
 
         <Route path="me" element={<Profile />} />
+        <Route path="style-guide" element={<StyleGuide />} />
 
         <Route path="*" element={<Placeholder title="找不到頁面" phase="—" from="—" />} />
       </Route>

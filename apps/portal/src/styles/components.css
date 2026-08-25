@@ -2182,6 +2182,64 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .detail-list > div { grid-template-columns: 1fr; gap: 2px; }
 }
 
+/* 共用 UI layer：page 只傳入語意 props，視覺狀態集中在這裡。 */
+.ui-field-error { color: var(--color-brand-dark) !important; }
+.ui-status-success { background: var(--color-ok-soft); color: var(--color-ok); }
+.ui-status-info { background: var(--color-info-soft); color: var(--color-info); }
+.ui-status-warning { background: var(--color-warn-soft); color: var(--color-warn); }
+.ui-status-danger { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.ui-status-neutral { background: var(--color-soft-line); color: var(--color-muted); }
+
+.ui-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.ui-alert > svg { width: 19px; height: 19px; flex: none; margin-top: 1px; }
+.ui-alert > div { min-width: 0; }
+.ui-alert-success { background: var(--color-ok-soft); color: var(--color-ok); }
+.ui-alert-info { background: var(--color-info-soft); color: var(--color-info); }
+.ui-alert-warning { background: var(--color-warn-soft); color: var(--color-warn); }
+.ui-alert-danger { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.ui-alert-neutral { background: var(--color-soft-line); color: var(--color-muted); }
+
+.style-guide > .ui-alert { margin-bottom: 20px; }
+.style-guide-stack { display: grid; gap: 12px; }
+.style-guide-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.style-guide-principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.style-guide-principles > div { display: grid; gap: 4px; padding: 14px; border: 1px solid var(--color-soft-line); border-radius: 10px; background: var(--color-canvas); }
+.style-guide-principles span { color: var(--color-muted); font-size: 12px; }
+.style-guide-token-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.style-guide-token { display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--color-soft-line); border-radius: 10px; }
+.style-guide-token > span:last-child { display: grid; gap: 2px; min-width: 0; }
+.style-guide-token code { color: var(--color-muted); font-size: 10px; overflow-wrap: anywhere; }
+.style-guide-swatch { width: 32px; height: 32px; border: 1px solid var(--color-line); border-radius: 50%; }
+.style-guide-type-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(220px, .6fr); gap: 24px; align-items: center; }
+.style-guide-eyebrow { margin: 0 0 5px; color: var(--color-brand); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.style-guide-display { margin: 0 0 6px; font-size: 28px; }
+.style-guide-surface-stack { display: grid; gap: 10px; }
+.style-guide-surface-sample { display: grid; gap: 3px; padding: 14px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-paper); box-shadow: var(--shadow-panel); }
+.style-guide-surface-sample + .style-guide-surface-sample { background: var(--color-canvas); box-shadow: none; }
+.style-guide-surface-sample span { font-size: 12px; }
+.style-guide-control-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--color-soft-line); }
+.style-guide-switch-copy { display: flex; align-items: center; gap: 10px; }
+.style-guide-switch-copy > span { display: grid; gap: 2px; }
+.style-guide-switch-copy small { color: var(--color-muted); font-size: 12px; }
+.style-guide-icon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 10px; }
+.style-guide-icon { display: grid; justify-items: center; gap: 5px; padding: 12px 8px; border: 1px solid var(--color-soft-line); border-radius: 10px; color: var(--color-brand); }
+.style-guide-icon svg { width: 24px; height: 24px; }
+.style-guide-icon code { color: var(--color-muted); font-size: 10px; }
+
+@media (max-width: 720px) {
+  .style-guide-principles,
+  .style-guide-type-grid { grid-template-columns: 1fr; }
+  .style-guide-control-row { align-items: stretch; flex-direction: column; gap: 16px; }
+}
+
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .login-card {
   width: min(400px, 100%);
