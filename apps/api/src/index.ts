@@ -117,6 +117,30 @@ app.onError((error, c) => {
     return c.json({ error: error.message }, 502);
   }
 
+  if (error instanceof NasStorageConfigError) {
+    assistantLog("error", "nas_storage.configuration_failed", {
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      error: assistantErrorDetails(error),
+    });
+    return c.json({ error: error.message }, 503);
+  }
+
+  if (error instanceof NasStorageError) {
+    assistantLog("error", "nas_storage.request_failed", {
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      status: error.status,
+      code: error.code,
+      retryable: error.retryable,
+      error: assistantErrorDetails(error),
+    });
+    return c.json(
+      { error: error.retryable ? "照片儲存服務暫時無法使用，請稍後再試。" : "照片儲存服務拒絕了這次請求。" },
+      error.retryable ? 503 : 502,
+    );
+  }
+
   assistantLog("error", "http.error", {
     method: c.req.method,
     path: new URL(c.req.url).pathname,

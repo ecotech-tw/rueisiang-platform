@@ -281,6 +281,13 @@
       "when": 1787559735490,
       "tag": "0039_medical_stone_men",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1787668890099,
+      "tag": "0040_salty_lionheart",
+      "breakpoints": true
     }
   ]
 }
