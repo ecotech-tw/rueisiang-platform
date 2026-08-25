@@ -19,6 +19,10 @@ NAS 目錄：
 - [x] Sandbox vision 圖片與 WMS 倉位照片已透過 NAS storage gateway 儲存，D1 保存 metadata；讀取、刪除、expiry 與 production smoke test 已接通。
 - [ ] 建立 NAS 備份、保留期限、quota、重試與 orphan object reconciliation；storage gateway 不可因為單一圖片失敗拖垮一般文字對話。
 - [ ] 接收 LINE image event：以 `messageId` 從 LINE Content API 取回 bytes，依 LINE chat id 保存到 `assistant/vision/<chat-id>/...`，並套用標註、群組授權與 expiry 規則。
+  - webhook handler 只驗證、記錄事件並 enqueue；bytes 在 queue consumer 以 channel access token 呼叫 `https://api-data.line.me/v2/bot/message/{messageId}/content`，不可在 webhook request 內等待下載。
+  - LINE 圖片事件沒有 self mention；群組／多人聊天室先保存受控的 pending attachment，只有後續文字 self mention 引用該圖片的 `quotedMessageId` 時才送入 AI context。無法可靠引用時，不用「最近幾秒的圖片」猜測，避免把別人的圖片帶進問題。
+  - 一對一圖片可直接成為一個 user turn；群組與 room 仍遵守「self mention 才觸發回覆」。`webhookEventId`、`messageId` 與 redelivery 狀態要做冪等，並以事件 timestamp 處理重送亂序。
+  - D1 需保存 LINE message 與 media object 的關聯、content type、size、checksum、expiresAt 和下載狀態；圖片 bytes 只進 NAS，第一個 phase 先支援 image，video／audio 另行評估。
 
 ### 2. MCP tools
 
