@@ -17,9 +17,9 @@ import {
   type Catalog,
 } from "./api.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 
 const STATUS_LABEL: Record<AdminUser["status"], string> = {
   invited: "已邀請",
@@ -67,9 +67,8 @@ function InviteLink({ email, url, onDismiss }: { email: string; url: string; onD
       </div>
       <div className="invite-link-row">
         <input readOnly value={url} onFocus={(event) => event.target.select()} />
-        <button
-          type="button"
-          className="ghost-button"
+        <Button
+          variant="secondary"
           onClick={async () => {
             /*
              * clipboard API 在非 HTTPS 或使用者拒絕權限時會丟。連結本來就顯示在
@@ -84,8 +83,8 @@ function InviteLink({ email, url, onDismiss }: { email: string; url: string; onD
           }}
         >
           {copied ? "已複製" : "複製"}
-        </button>
-        <button type="button" className="ghost-button" onClick={onDismiss}>知道了</button>
+        </Button>
+        <Button variant="secondary" onClick={onDismiss}>知道了</Button>
       </div>
     </div>
   );
@@ -135,11 +134,11 @@ function InviteForm({
         ))}
       </select>
 
-      <button type="submit" className="primary-button" disabled={invite.isPending}>
+      <Button type="submit" disabled={invite.isPending}>
         {invite.isPending ? "邀請中…" : "邀請"}
-      </button>
+      </Button>
 
-      {invite.error ? <p className="form-error" role="alert">{invite.error.message}</p> : null}
+      {invite.error ? <Alert tone="danger">{invite.error.message}</Alert> : null}
     </form>
   );
 }
@@ -216,13 +215,11 @@ function UserEditor({
             <h2 id="user-editor-title">{displayNameOf(user)}</h2>
             <p className="muted">{user.email}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} disabled={pending} title="關閉" aria-label="關閉">
-            <Icon name="close" />
-          </button>
+          <Button variant="icon" icon="close" onClick={onClose} disabled={pending} title="關閉" aria-label="關閉" />
         </div>
 
         <div className="modal-body">
-          {error ? <p className="form-error" role="alert">{error.message}</p> : null}
+          {error ? <Alert tone="danger">{error.message}</Alert> : null}
           {isSelf ? (
             <p className="muted perm-hint">
               這是你自己的帳號。角色與權限不能自己調整——否則「能改權限」就等於「是管理者」，
@@ -235,9 +232,8 @@ function UserEditor({
             <div className="admin-form row">
               <span className={`status status-${user.status}`}>{STATUS_LABEL[user.status]}</span>
               {user.status === "disabled" ? (
-                <button
-                  type="button"
-                  className="ghost-button"
+                <Button
+                  variant="secondary"
                   disabled={pending}
                   onClick={() =>
                     setStatus.mutate(
@@ -247,11 +243,11 @@ function UserEditor({
                   }
                 >
                   重新啟用
-                </button>
+                </Button>
               ) : (
-                <button
-                  type="button"
-                  className="ghost-button danger"
+                <Button
+                  variant="secondary"
+                  className="danger"
                   disabled={pending || user.status === "invited"}
                   title={user.status === "invited" ? "還沒登入過的帳號不需要停用" : undefined}
                   onClick={() =>
@@ -262,7 +258,7 @@ function UserEditor({
                   }
                 >
                   停用
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -378,16 +374,16 @@ function UserEditor({
             */}
           {/* 啟用中的要先停用才能刪；已停用與還沒登入過的都可以直接清掉。 */}
           {user.status !== "active" ? (
-            <button
-              type="button"
-              className="ghost-button danger delete-action"
+            <Button
+              variant="secondary"
+              className="danger delete-action"
               disabled={pending}
               onClick={() => setConfirmingDelete(true)}
             >
               刪除帳號
-            </button>
+            </Button>
           ) : null}
-          <button type="button" className="ghost-button" onClick={onClose} disabled={pending}>關閉</button>
+          <Button variant="secondary" onClick={onClose} disabled={pending}>關閉</Button>
         </div>
       </div>
 
@@ -466,23 +462,20 @@ function UserRow({
 
         <td>
           <div className="row-actions">
-          <button
-            type="button"
-            className="icon-button"
+          <Button
+            variant="icon"
+            icon="edit"
             onClick={() => setEditing(true)}
             title="編輯角色與狀態"
             aria-label={`編輯 ${user.email}`}
-          >
-            <Icon name="edit" />
-          </button>
+          />
           {/*
             * 還沒啟用的帳號才給重發。已啟用的人按這個會拿到一條能設新密碼的連結，
             * 那等於一個不必驗證就能改密碼的後門——後端也擋了，這裡不畫出來而已。
             */}
           {user.status === "invited" ? (
-            <button
-              type="button"
-              className="ghost-button"
+            <Button
+              variant="secondary"
               disabled={resend.isPending}
               onClick={() =>
                 resend.mutate(user.id, {
@@ -491,7 +484,7 @@ function UserRow({
               }
             >
               {resend.isPending ? "產生中…" : "重發連結"}
-            </button>
+            </Button>
           ) : null}
           </div>
         </td>
@@ -500,7 +493,7 @@ function UserRow({
       {error ? (
         <tr>
           <td colSpan={5}>
-            <p className="form-error" role="alert">{error.message}</p>
+            <Alert tone="danger">{error.message}</Alert>
           </td>
         </tr>
       ) : null}
@@ -533,10 +526,8 @@ export function AdminUsers() {
   if (users.error || catalog.error) {
     return (
       <div className="page">
-        <header className="page-head">
-          <h1>權限管理</h1>
-        </header>
-        <p className="form-error" role="alert">{(users.error ?? catalog.error)?.message}</p>
+        <PageHeader title="權限管理" />
+        <Alert tone="danger">{(users.error ?? catalog.error)?.message}</Alert>
       </div>
     );
   }
@@ -547,15 +538,16 @@ export function AdminUsers() {
 
   return (
     <div className="page">
-      <header className="page-head">
-        <h1>權限管理</h1>
-        <p className="muted">
+      <PageHeader
+        title="權限管理"
+        description={
+          <>
           邀請制：帳號要先出現在這份名單，對方才能用 Google 登入。停用或調整角色會在對方的下一個請求立即生效。
-        </p>
-      </header>
+          </>
+        }
+      />
 
-      <section className="panel">
-        <h2 className="panel-title">邀請新帳號</h2>
+      <Panel title="邀請新帳號">
         <InviteForm catalog={catalogData} onInviteUrl={(email, url) => setInviteLink({ email, url })} />
         {/*
           * 連結放在表單下面而不是跳一個對話框：管理者常常要連續邀好幾個人，
@@ -568,10 +560,9 @@ export function AdminUsers() {
             onDismiss={() => setInviteLink(null)}
           />
         ) : null}
-      </section>
+      </Panel>
 
-      <section className="panel">
-        <h2 className="panel-title">帳號（{list.length}）</h2>
+      <Panel title={`帳號（${list.length}）`}>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -597,25 +588,25 @@ export function AdminUsers() {
             </tbody>
           </table>
         </div>
-      </section>
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <h2 className="panel-title">角色各自能做什麼</h2>
-          <button
-            type="button"
-            className="ghost-button"
+      <Panel
+        title="角色各自能做什麼"
+        actions={
+          <Button
+            variant="secondary"
             disabled={syncRoles.isPending}
             onClick={() => syncRoles.mutate()}
           >
             {syncRoles.isPending ? "同步中…" : "重新同步"}
-          </button>
-        </div>
+          </Button>
+        }
+      >
         <p className="muted">
           權限清單定義在程式碼（<code>packages/auth/src/permissions.ts</code>），改過並部署之後按一次
           「重新同步」就會寫進資料庫。這一頁改不了角色的內容，只能決定誰拿到哪個角色。
         </p>
-        {syncRoles.error ? <p className="form-error" role="alert">{syncRoles.error.message}</p> : null}
+        {syncRoles.error ? <Alert tone="danger">{syncRoles.error.message}</Alert> : null}
         <div className="role-grid">
           {catalogData.roles.map((role) => (
             <div className="role-card" key={role.key}>
@@ -628,7 +619,7 @@ export function AdminUsers() {
             </div>
           ))}
         </div>
-      </section>
+      </Panel>
     </div>
   );
 }

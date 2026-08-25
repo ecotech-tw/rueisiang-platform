@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Icon } from "../../shell/icons.js";
+import { Alert, Button } from "../../ui/index.js";
 import {
   CATEGORY_COLORS,
   useCreateZone,
@@ -72,9 +72,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
       <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="zone-title">
         <div className="modal-head">
           <h2 id="zone-title">{zone ? "編輯倉位" : "新增倉位"}</h2>
-          <button type="button" className="icon-button" onClick={onClose} disabled={pending} aria-label="關閉">
-            <Icon name="close" />
-          </button>
+          <Button variant="icon" icon="close" type="button" onClick={onClose} disabled={pending} aria-label="關閉" />
         </div>
 
         <form
@@ -162,31 +160,29 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
                       )
                     }
                   />
-                  <button
-                    type="button"
-                    className="icon-button danger"
+                  <Button
+                    variant="icon"
+                    className="danger"
+                    icon="trash"
                     // 至少要有一層：一個沒有層的倉位，商品就沒地方放。
                     disabled={levels.length <= 1}
                     onClick={() => setLevels((current) => current.filter((item) => item.id !== level.id))}
                     title={levels.length <= 1 ? "至少要留一層" : "移除這一層"}
                     aria-label={`移除第 ${index + 1} 層`}
-                  >
-                    <Icon name="trash" />
-                  </button>
+                  />
                 </div>
               ))}
             </div>
-            <button
-              type="button"
-              className="ghost-button with-icon"
+            <Button
+              variant="secondary"
+              icon="plus"
               disabled={levels.length >= 12}
               onClick={() =>
                 setLevels((current) => [...current, { id: newLevelId(), name: `第 ${current.length + 1} 層` }])
               }
             >
-              <Icon name="plus" />
               加一層
-            </button>
+            </Button>
           </div>
 
           <label className="field">
@@ -194,15 +190,15 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
             <input value={fields.notes} onChange={(event) => set({ notes: event.target.value })} />
           </label>
 
-          {error ? <p className="form-error" role="alert">{error.message}</p> : null}
+          {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
           <div className="modal-actions">
-            <button type="button" className="ghost-button" onClick={onClose} disabled={pending}>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
               取消
-            </button>
-            <button type="submit" className="primary-button" disabled={!valid || pending}>
+            </Button>
+            <Button type="submit" disabled={!valid || pending}>
               {pending ? "儲存中…" : zone ? "儲存" : "新增倉位"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

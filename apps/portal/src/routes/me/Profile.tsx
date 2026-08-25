@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel, TextField } from "../../ui/index.js";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "管理者",
@@ -49,13 +50,9 @@ export function Profile() {
 
   return (
     <div className="page">
-      <header className="page-head">
-        <h1>個人資料</h1>
-        <p className="muted">這裡只有顯示名稱可以改，其餘欄位由登入方式與權限決定。</p>
-      </header>
+      <PageHeader title="個人資料" description="這裡只有顯示名稱可以改，其餘欄位由登入方式與權限決定。" />
 
-      <section className="panel">
-        <h2 className="panel-title">顯示名稱</h2>
+      <Panel title="顯示名稱">
         <form
           className="admin-form"
           onSubmit={(event) => {
@@ -64,8 +61,8 @@ export function Profile() {
             save.mutate(displayName);
           }}
         >
-          <input
-            aria-label="顯示名稱"
+          <TextField
+            label="顯示名稱"
             placeholder={user.email}
             maxLength={40}
             value={displayName}
@@ -74,19 +71,18 @@ export function Profile() {
               setSaved(false);
             }}
           />
-          <button type="submit" className="primary-button" disabled={save.isPending}>
+          <Button type="submit" disabled={save.isPending}>
             {save.isPending ? "儲存中…" : "儲存"}
-          </button>
+          </Button>
           {saved ? <span className="form-hint">已儲存</span> : null}
-          {save.error ? <p className="form-error" role="alert">{save.error.message}</p> : null}
+          {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
         </form>
         <p className="muted form-foot">
           留白就會用回 Google 帳號上的姓名。這個名字只影響畫面顯示，操作紀錄一律以電子信箱為準。
         </p>
-      </section>
+      </Panel>
 
-      <section className="panel">
-        <h2 className="panel-title">帳號</h2>
+      <Panel title="帳號">
         <dl className="detail-list">
           <div>
             <dt>電子信箱</dt>
@@ -108,7 +104,7 @@ export function Profile() {
         <p className="muted form-foot">
           要調整角色請找管理者，這一頁改不了——不然權限就形同虛設。
         </p>
-      </section>
+      </Panel>
     </div>
   );
 }

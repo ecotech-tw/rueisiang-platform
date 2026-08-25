@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Icon } from "../../shell/icons.js";
 import { usePayoutStores, useSavePayoutStores, type PayoutStore } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 
 type Draft = Omit<PayoutStore, "id">;
 
@@ -36,34 +36,33 @@ export function PayoutSettings() {
 
   return (
     <div className="page">
-      <header className="page-head">
-        <h1>出金表店別設定</h1>
-        <p className="muted">
+      <PageHeader
+        title="出金表店別設定"
+        description={
+          <>
           這裡決定執行頁看得到哪幾家店，以及檔案要上傳到哪個 Drive 資料夾。
           <b>店名必須與 CYBERBIZ 後台的 POS 商店完全一致</b>，driver 靠它找店。
           儲存時會一併 commit 回帳務 repo 的 <code>stores.json</code>。
-        </p>
-      </header>
+          </>
+        }
+      />
 
-      <section className="panel">
+      <Panel>
         <div className="admin-form toolbar">
-          <button
-            type="button"
-            className="primary-button"
+          <Button
             disabled={save.isPending || !drafts.length}
             onClick={() => save.mutate(drafts)}
           >
             {save.isPending ? "儲存中…" : "儲存設定"}
-          </button>
-          <button
-            type="button"
-            className="ghost-button"
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() =>
               setDrafts((current) => [...current, { name: "", driveFolderUrl: "", driveFolderName: "" }])
             }
           >
             ＋ 新增一家
-          </button>
+          </Button>
           {save.isSuccess && !save.isPending ? (
             <span className="form-hint">
               {!save.data.syncedToRepo
@@ -75,7 +74,7 @@ export function PayoutSettings() {
           ) : null}
         </div>
 
-        {save.error ? <p className="form-error" role="alert">{save.error.message}</p> : null}
+        {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -117,15 +116,14 @@ export function PayoutSettings() {
                   </td>
                   <td>
                     <div className="row-actions">
-                      <button
-                        type="button"
-                        className="icon-button danger"
+                      <Button
+                        variant="icon"
+                        className="danger"
+                        icon="trash"
                         onClick={() => setDrafts((current) => current.filter((_, i) => i !== index))}
                         title={`移除 ${store.name || "這一列"}，儲存後執行頁就看不到`}
                         aria-label={`移除 ${store.name || `第 ${index + 1} 列`}`}
-                      >
-                        <Icon name="trash" />
-                      </button>
+                      />
                     </div>
                   </td>
                 </tr>
@@ -137,7 +135,7 @@ export function PayoutSettings() {
         {drafts.length === 0 ? (
           <p className="muted table-note">目前一家店都沒有，執行頁會是空的。</p>
         ) : null}
-      </section>
+      </Panel>
     </div>
   );
 }

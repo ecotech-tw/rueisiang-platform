@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Icon, type IconName } from "../shell/icons.js";
 
-export type ButtonVariant = "primary" | "secondary" | "danger" | "icon";
+export type ButtonVariant = "primary" | "secondary" | "danger" | "icon" | "link";
 
 export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> {
   variant?: ButtonVariant;
@@ -27,7 +27,7 @@ export function Button({
   children,
   ...props
 }: ButtonProps) {
-  const baseClass = variant === "icon" ? "icon-button" : variant === "primary" || variant === "danger" ? "primary-button" : "ghost-button";
+  const baseClass = variant === "icon" ? "icon-button" : variant === "link" ? "link-button" : variant === "primary" || variant === "danger" ? "primary-button" : "ghost-button";
   const classes = [
     baseClass,
     variant === "danger" ? "danger" : "",

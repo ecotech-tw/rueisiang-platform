@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Icon } from "../../shell/icons.js";
+import { Alert, Button } from "../../ui/index.js";
 import { useUpdateSettings } from "./api.js";
 
 /**
@@ -39,9 +39,7 @@ export function CanvasDialog({
       <div className="modal-card confirm-card" role="dialog" aria-modal="true" aria-labelledby="canvas-title">
         <div className="modal-head">
           <h2 id="canvas-title">畫布大小</h2>
-          <button type="button" className="icon-button" onClick={onClose} disabled={update.isPending} aria-label="關閉">
-            <Icon name="close" />
-          </button>
+          <Button variant="icon" icon="close" type="button" onClick={onClose} disabled={update.isPending} aria-label="關閉" />
         </div>
 
         <form
@@ -61,12 +59,13 @@ export function CanvasDialog({
 
           <div className="preset-row">
             {PRESETS.map((preset) => (
-              <button
+              <Button
                 key={preset.label}
                 type="button"
-                className={`ghost-button${
+                variant="secondary"
+                className={
                   Number(width) === preset.width && Number(height) === preset.height ? " active" : ""
-                }`}
+                }
                 onClick={() => {
                   setWidth(String(preset.width));
                   setHeight(String(preset.height));
@@ -74,7 +73,7 @@ export function CanvasDialog({
               >
                 {preset.label}
                 <small>{preset.width} × {preset.height}</small>
-              </button>
+              </Button>
             ))}
           </div>
 
@@ -105,15 +104,15 @@ export function CanvasDialog({
             </label>
           </div>
 
-          {update.error ? <p className="form-error" role="alert">{update.error.message}</p> : null}
+          {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
 
           <div className="modal-actions">
-            <button type="button" className="ghost-button" onClick={onClose} disabled={update.isPending}>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>
               取消
-            </button>
-            <button type="submit" className="primary-button" disabled={!valid || update.isPending}>
+            </Button>
+            <Button type="submit" disabled={!valid || update.isPending}>
               {update.isPending ? "儲存中…" : "套用畫布大小"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Icon } from "../../shell/icons.js";
+import { Alert, Button } from "../../ui/index.js";
 import {
   DEFAULT_FILTERS,
   matchesView,
@@ -129,18 +130,18 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
-            <button type="submit" className="primary-button" disabled={!name.trim() || create.isPending}>
+            <Button type="submit" disabled={!name.trim() || create.isPending}>
               {create.isPending ? "儲存中…" : "儲存"}
-            </button>
-            <button type="button" className="link-button" onClick={() => setName(null)}>
+            </Button>
+            <Button variant="link" type="button" onClick={() => setName(null)}>
               取消
-            </button>
+            </Button>
           </form>
         ) : null}
       </div>
 
-      {create.error ? <p className="form-error" role="alert">{create.error.message}</p> : null}
-      {remove.error ? <p className="form-error" role="alert">{remove.error.message}</p> : null}
+      {create.error ? <Alert tone="danger">{create.error.message}</Alert> : null}
+      {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
     </>
   );
 }

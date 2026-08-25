@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import {
   parseStores,
   usePayoutState,
@@ -75,21 +76,21 @@ export function Payout() {
 
   return (
     <div className="page">
-      <header className="page-head">
-        <h1>出金表執行</h1>
-        <p className="muted">
+      <PageHeader
+        title="出金表執行"
+        description={
+          <>
           送到 GitHub Actions 執行：登入 CYBERBIZ 後台匯出每日出金報表、從 Gmail 取回檔案、
           補上 H/I/J/K 欄之後上傳到該通路的 Drive 資料夾。送出後可以直接關掉這一頁。
-        </p>
-      </header>
+          </>
+        }
+      />
 
       {!state.data?.configured ? (
-        <p className="form-error" role="alert">
-          平台還沒設定 GITHUB_TOKEN，目前無法觸發執行。
-        </p>
+        <Alert tone="danger">平台還沒設定 GITHUB_TOKEN，目前無法觸發執行。</Alert>
       ) : null}
 
-      <section className="panel">
+      <Panel>
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <span className="inline-label">對帳區間</span>
           <DateRangePicker
@@ -101,22 +102,20 @@ export function Payout() {
               setEnd(range.end);
             }}
           />
-          <button
-            type="button"
-            className="primary-button with-icon"
+          <Button
+            icon="payments"
             disabled={blocked || !stores.length}
             onClick={() => start_(stores.map((store) => store.name))}
             title="所有店別跑同一段區間"
           >
-            <Icon name="payments" />
             全部執行
-          </button>
+          </Button>
           {running ? <span className="form-hint">執行中…可以關掉這一頁</span> : null}
         </form>
 
-        {rangeError ? <p className="form-error" role="alert">{rangeError}</p> : null}
-        {run.error ? <p className="form-error" role="alert">{run.error.message}</p> : null}
-        {status.error ? <p className="form-error" role="alert">{status.error.message}</p> : null}
+        {rangeError ? <Alert tone="danger">{rangeError}</Alert> : null}
+        {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
+        {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -149,15 +148,14 @@ export function Payout() {
                   </td>
                   <td>
                     <div className="row-actions">
-                      <button
-                        type="button"
-                        className="ghost-button"
+                      <Button
+                        variant="secondary"
                         disabled={blocked}
                         onClick={() => start_([store.name])}
                         title={`只跑 ${store.name}`}
                       >
                         執行
-                      </button>
+                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -169,22 +167,21 @@ export function Payout() {
         {stores.length === 0 ? (
           <p className="muted table-note">還沒有任何店別，先到「店別設定」加一家。</p>
         ) : null}
-      </section>
+      </Panel>
 
       {followed ? (
-        <section className="panel">
-          <h2 className="panel-title">
-            {tracking ? "這次執行" : "上一次執行"}
-            {latest ? (
-              <span className={`status ${latest.status === "completed" ? (latest.conclusion === "success" ? "status-sync-synced" : "status-sync-failed") : "status-webhook-processing"}`}>
+        <Panel
+          title={tracking ? "這次執行" : "上一次執行"}
+          actions={
+            latest ? (
+              <StatusBadge tone={latest.status !== "completed" ? "info" : latest.conclusion === "success" ? "success" : "danger"}>
                 {latest.status !== "completed"
                   ? latest.status === "queued" ? "排隊中" : "執行中"
                   : latest.conclusion === "success" ? "完成" : "有項目未完成"}
-              </span>
-            ) : (
-              <span className="status status-webhook-processing">等 GitHub 建立工作…</span>
-            )}
-          </h2>
+              </StatusBadge>
+            ) : <StatusBadge tone="info">等 GitHub 建立工作…</StatusBadge>
+          }
+        >
 
           {status.data?.steps.length ? (
             <ol className="step-list">
@@ -203,11 +200,10 @@ export function Payout() {
               　執行完的 xlsx 與報告放在該次工作的 Artifacts（保留 30 天）。
             </p>
           ) : null}
-        </section>
+        </Panel>
       ) : null}
 
-      <section className="panel">
-        <h2 className="panel-title">最近執行</h2>
+      <Panel title="最近執行">
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -236,7 +232,7 @@ export function Payout() {
         {(state.data?.runs.length ?? 0) === 0 ? (
           <p className="muted table-note">還沒有人從這裡執行過。</p>
         ) : null}
-      </section>
+      </Panel>
     </div>
   );
 }

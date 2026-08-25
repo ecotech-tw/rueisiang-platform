@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -108,7 +109,7 @@ export function Sandbox() {
   }, [sessionId, session.data?.session?.id]);
 
   if (config.isPending) return <div className="boot">載入中…</div>;
-  if (config.error) return <div className="page"><p className="form-error" role="alert">{config.error.message}</p></div>;
+  if (config.error) return <div className="page"><Alert tone="danger">{config.error.message}</Alert></div>;
 
   const data = config.data;
   if (!data) return null;
@@ -197,22 +198,21 @@ export function Sandbox() {
 
   return (
     <div className="page assistant-sandbox-page">
-      <header className="page-head">
-        <h1>小香助理 Sandbox</h1>
-        <p className="muted">在接上 LINE 前，先用同一套 prompt、模型與工具執行流程測試回答品質。</p>
-      </header>
+      <PageHeader
+        title="小香助理 Sandbox"
+        description="在接上 LINE 前，先用同一套 prompt、模型與工具執行流程測試回答品質。"
+      />
 
       {!data.providers.codex ? (
-        <p className="form-error" role="alert">尚未完成 ChatGPT／Codex OAuth credential 設定，GPT 模型目前不可執行。</p>
+        <Alert tone="danger">尚未完成 ChatGPT／Codex OAuth credential 設定，GPT 模型目前不可執行。</Alert>
       ) : null}
       {!data.providers.gemini ? (
-        <p className="form-error" role="alert">尚未設定 GEMINI_API_KEY，Gemini 模型目前不可執行。</p>
+        <Alert tone="danger">尚未設定 GEMINI_API_KEY，Gemini 模型目前不可執行。</Alert>
       ) : null}
 
       <div className="assistant-sandbox-layout">
         <div className="assistant-settings-column">
-          <section className="panel assistant-settings-panel">
-            <h2 className="panel-title">執行設定</h2>
+          <Panel title="執行設定" className="assistant-settings-panel">
             <div className="field-grid">
               <label className="field">
                 <span>Pi 模型</span>
@@ -238,16 +238,14 @@ export function Sandbox() {
                 {!sessionId ? <small>尚未選擇 session，建立新 session 時會使用目前小香的 active model 與 active revision。</small> : null}
                 {sessionOpen ? <small>目前 session 可直接切換模型；下一次送出時會套用選取的模型。</small> : null}
                 <div className="assistant-actions">
-                  <button
-                    type="button"
-                    className="primary-button"
+                  <Button
                     disabled={!modelReady || model === data.activeModel || saveModel.isPending}
                     onClick={submitModel}
                   >
                     {saveModel.isPending ? "套用中…" : "儲存並套用到小香"}
-                  </button>
+                  </Button>
                   {saveModel.isSuccess ? <span className="form-hint">已更新，小香之後會使用這個模型。</span> : null}
-                  {saveModel.error ? <span className="form-error">{saveModel.error.message}</span> : null}
+                  {saveModel.error ? <Alert tone="danger">{saveModel.error.message}</Alert> : null}
                 </div>
               </label>
             </div>
@@ -258,11 +256,10 @@ export function Sandbox() {
                   <h3>可調用的 tools</h3>
                   <p className="muted">Sandbox 可測試「開發中」與「已啟用」；停用工具不會送給模型。</p>
                 </div>
-                <button type="button" className="assistant-tool-config-button" onClick={() => setToolsOpen(true)}>
-                  <Icon name="widgets" />
+                <Button variant="secondary" icon="widgets" className="assistant-tool-config-button" onClick={() => setToolsOpen(true)}>
                   設定 tools
                   <span className="assistant-tool-count">{toolKeys.length}</span>
-                </button>
+                </Button>
               </div>
               <div className="assistant-selection-summary">
                 {toolKeys.length
@@ -287,21 +284,20 @@ export function Sandbox() {
                 <small>儲存後會建立新的 revision，並立即成為之後執行與未來 LINE channel 的 active prompt。</small>
               </label>
               <div className="assistant-actions">
-                <button type="button" className="primary-button" disabled={!prompt.trim() || savePrompt.isPending} onClick={submitPrompt}>
+                <Button disabled={!prompt.trim() || savePrompt.isPending} onClick={submitPrompt}>
                   {savePrompt.isPending ? "儲存中…" : "儲存新 revision"}
-                </button>
-                <button type="button" className="ghost-button" onClick={() => setRevisionsOpen(true)}>
+                </Button>
+                <Button variant="secondary" onClick={() => setRevisionsOpen(true)}>
                   Revision history
-                </button>
-                {savePrompt.error ? <span className="form-error">{savePrompt.error.message}</span> : null}
+                </Button>
+                {savePrompt.error ? <Alert tone="danger">{savePrompt.error.message}</Alert> : null}
                 {savePrompt.isSuccess ? <span className="form-hint">已儲存並套用。</span> : null}
               </div>
             </div>
-          </section>
+          </Panel>
         </div>
 
-      <section className="panel assistant-chat-panel">
-        <h2 className="panel-title">測試對話</h2>
+      <Panel title="測試對話" className="assistant-chat-panel">
         <div className="assistant-session-bar">
           <div className="assistant-session-copy">
             <strong>Sandbox session</strong>
@@ -327,14 +323,14 @@ export function Sandbox() {
                 </option>
               ))}
             </select>
-            <button type="button" className="ghost-button" disabled={!modelReady || !promptId || createSession.isPending || closeSession.isPending} onClick={clearConversation}>
+            <Button variant="secondary" disabled={!modelReady || !promptId || createSession.isPending || closeSession.isPending} onClick={clearConversation}>
               {createSession.isPending || closeSession.isPending ? "清除中…" : "清除對話"}
-            </button>
+            </Button>
           </div>
         </div>
-        {createSession.error ? <p className="form-error" role="alert">{createSession.error.message}</p> : null}
-        {closeSession.error ? <p className="form-error" role="alert">{closeSession.error.message}</p> : null}
-        {session.error ? <p className="form-error" role="alert">{session.error.message}</p> : null}
+        {createSession.error ? <Alert tone="danger">{createSession.error.message}</Alert> : null}
+        {closeSession.error ? <Alert tone="danger">{closeSession.error.message}</Alert> : null}
+        {session.error ? <Alert tone="danger">{session.error.message}</Alert> : null}
         <div className="assistant-conversation" aria-live="polite">
           {currentSession ? (
             currentSession.messages.length ? currentSession.messages.map((message) => (
@@ -429,17 +425,17 @@ export function Sandbox() {
           </div>
         </label>
         <div className="assistant-actions">
-          <button type="button" className="primary-button" disabled={!modelReady || run.isPending || (!input.trim() && !attachments.length) || !sessionOpen} onClick={submitRun}>
+          <Button disabled={!modelReady || run.isPending || (!input.trim() && !attachments.length) || !sessionOpen} onClick={submitRun}>
             {run.isPending ? "小香思考中…" : "送出"}
-          </button>
+          </Button>
           <span className="form-hint">
             {sessionOpen
               ? `目前使用 Revision ${activeRevision?.revision ?? "—"}、${selectedModel?.label ?? model}。`
               : "請先建立一個新的 session；關閉的 session 只能查看歷史，不能繼續對話。"}
           </span>
         </div>
-        {run.error ? <p className="form-error" role="alert">{run.error.message}</p> : null}
-      </section>
+        {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
+      </Panel>
     </div>
 
       {revisionsOpen ? (
@@ -453,9 +449,7 @@ export function Sandbox() {
           <div className="modal-card wide assistant-modal-card" role="dialog" aria-modal="true" aria-labelledby="assistant-revision-title">
             <div className="modal-head">
               <h2 id="assistant-revision-title">Revision history</h2>
-              <button type="button" className="icon-button" onClick={() => setRevisionsOpen(false)} title="關閉" aria-label="關閉">
-                <Icon name="close" />
-              </button>
+              <Button variant="icon" icon="close" onClick={() => setRevisionsOpen(false)} title="關閉" aria-label="關閉" />
             </div>
             <div className="modal-body assistant-modal-body">
               <p className="muted">選擇一個 revision 載入到目前的 System prompt 編輯器。</p>
@@ -477,7 +471,7 @@ export function Sandbox() {
               </div>
             </div>
             <div className="modal-actions">
-              <button type="button" className="ghost-button" onClick={() => setRevisionsOpen(false)}>關閉</button>
+              <Button variant="secondary" onClick={() => setRevisionsOpen(false)}>關閉</Button>
             </div>
           </div>
         </div>
@@ -494,9 +488,7 @@ export function Sandbox() {
           <div className="modal-card wide assistant-modal-card" role="dialog" aria-modal="true" aria-labelledby="assistant-tools-title">
             <div className="modal-head">
               <h2 id="assistant-tools-title">設定可調用的 tools</h2>
-              <button type="button" className="icon-button" onClick={() => setToolsOpen(false)} title="關閉" aria-label="關閉">
-                <Icon name="close" />
-              </button>
+              <Button variant="icon" icon="close" onClick={() => setToolsOpen(false)} title="關閉" aria-label="關閉" />
             </div>
             <div className="modal-body assistant-modal-body">
               <p className="muted">勾選後會在下一次 Sandbox 執行時送給模型；「開發中」工具只可在 Sandbox 使用。</p>
@@ -523,7 +515,7 @@ export function Sandbox() {
               </div>
             </div>
             <div className="modal-actions">
-              <button type="button" className="primary-button" onClick={() => setToolsOpen(false)}>完成</button>
+              <Button onClick={() => setToolsOpen(false)}>完成</Button>
             </div>
           </div>
         </div>
