@@ -37,7 +37,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SOURCE_URL: ${{ inputs.source_url }}
       DRIVE_FOLDER_URL: ${{ inputs.drive_folder_url }}
       REQUEST_ID: ${{ inputs.request_id }}
       REPORT_START: ${{ inputs.start }}
@@ -66,6 +65,8 @@ jobs:
           python -m pip install --user msoffcrypto-tool
 
       - name: Download source report
+        env:
+          SOURCE_URL: ${{ inputs.source_url }}
         run: |
           echo "::add-mask::$SOURCE_URL"
           curl --fail --silent --show-error --location --dump-header source.headers --output source.xlsx "$SOURCE_URL"
@@ -111,6 +112,8 @@ jobs:
 
       - name: Remove platform temporary upload
         if: always()
+        env:
+          SOURCE_URL: ${{ inputs.source_url }}
         run: |
           CLEANUP_URL="${SOURCE_URL/\/source\//\/cleanup\/}"
           curl --fail --silent --show-error --request POST "$CLEANUP_URL" || true

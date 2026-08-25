@@ -142,11 +142,11 @@ export async function readWorkbook(filePath) {
   const workbookXml = entries.get("xl/workbook.xml")?.toString("utf8");
   const relsXml = entries.get("xl/_rels/workbook.xml.rels")?.toString("utf8");
   if (!workbookXml || !relsXml) throw new Error("xlsx 裡缺少 workbook.xml 或工作表關聯資訊。");
-  const rels = new Map([...relsXml.matchAll(/<Relationship\b([^>]*)\/>/g)].map((match) => [
+  const rels = new Map([...relsXml.matchAll(/<Relationship\b([^>]*?)(?:\/>|>[\s\S]*?<\/Relationship>)/g)].map((match) => [
     /Id="([^"]+)"/.exec(match[1])?.[1], relationshipTarget(/Target="([^"]+)"/.exec(match[1])?.[1] ?? ""),
   ]));
   const shared = parseSharedStrings(entries.get("xl/sharedStrings.xml")?.toString("utf8"));
-  const sheets = [...workbookXml.matchAll(/<(?:[A-Za-z_][\w.-]*:)?sheet\b([^>]*)\/>/g)].map((match) => {
+  const sheets = [...workbookXml.matchAll(/<(?:[A-Za-z_][\w.-]*:)?sheet\b([^>]*?)(?:\/>|>[\s\S]*?<\/(?:[A-Za-z_][\w.-]*:)?sheet>)/g)].map((match) => {
     const attrs = match[1];
     const name = decodeXmlText(/name="([^"]+)"/.exec(attrs)?.[1] ?? "");
     const relationshipId = /r:id="([^"]+)"/.exec(attrs)?.[1] ?? "";
@@ -204,7 +204,7 @@ export async function appendAnalysisSheets(inputPath, outputPath, sheets) {
 
   const namesToReplace = new Set(sheets.map((sheet) => sheet.name));
   const removedRelationshipIds = [];
-  workbookXml = workbookXml.replace(/<(?:[A-Za-z_][\w.-]*:)?sheet\b([^>]*)\/>/g, (full, attrs) => {
+  workbookXml = workbookXml.replace(/<(?:[A-Za-z_][\w.-]*:)?sheet\b([^>]*?)(?:\/>|>[\s\S]*?<\/(?:[A-Za-z_][\w.-]*:)?sheet>)/g, (full, attrs) => {
     const name = decodeXmlText(/name="([^"]+)"/.exec(attrs)?.[1] ?? "");
     const relationshipId = /r:id="([^"]+)"/.exec(attrs)?.[1];
     if (!namesToReplace.has(name)) return full;
@@ -212,7 +212,7 @@ export async function appendAnalysisSheets(inputPath, outputPath, sheets) {
     return "";
   });
   for (const relationshipId of removedRelationshipIds) {
-    relsXml = relsXml.replace(new RegExp(`<Relationship\\b[^>]*\\bId="${relationshipId}"[^>]*/>`), "");
+    relsXml = relsXml.replace(new RegExp(`<Relationship\\b[^>]*\\bId="${relationshipId}"[^>]*(?:\\/>|>[\\s\\S]*?<\\/Relationship>)`), "");
   }
   const workbookPrefix = /<([A-Za-z_][\w.-]*):workbook\b/.exec(workbookXml)?.[1] ?? "";
   const sheetPrefix = workbookPrefix ? `${workbookPrefix}:` : "";
