@@ -348,7 +348,7 @@ bucket 名稱要跟 `apps/api/wrangler.toml` 的 `[[r2_buckets]]` 一致，bindi
 
 ### 5.2 Upstash Redis — CYBERBIZ 商品目錄的快取 ✅ 已設定
 
-**沿用舊 WMS 的同一個實例**，不必另外開。兩個值已經設成 Worker secret：
+平台使用一個 Upstash Redis 實例作為選用快取。兩個值已經設成 Worker secret：
 
 ```
 UPSTASH_REDIS_REST_URL
@@ -359,11 +359,11 @@ UPSTASH_REDIS_REST_TOKEN
 要翻 3 頁），慢幾秒但功能正常。
 
 > Workers 開不了原生的 Redis 連線，但 Upstash 的 REST 端點只是一個 HTTPS 請求
-> ——那正好是 Worker 唯一做得到的形式，所以舊系統那份程式碼直接就能用。
+> ——那正好是 Worker 唯一做得到的形式，所以平台可以直接使用這個快取服務。
 
 ---
 
-## 6. CYBERBIZ — webhook ⚠️ 要改成新網址
+## 6. CYBERBIZ — webhook
 
 **一個網址收全部的事件。**
 
@@ -379,18 +379,10 @@ CYBERBIZ 後台把**所有**要送到平台的事件都設到這一個位址就�
 | 會員註冊、會員修改、會員 UID 資料新增／更新、更新會員標籤 | 寫客戶資料 |
 | 商品款式更新（`variants/update`） | 回官網重讀庫存，寫進 WMS 已連結的品項 |
 
-### 要做什麼
+### 設定
 
-| # | 動作 | 為什麼 |
-|---|---|---|
-| 1 | 把現有的會員事件改設到 `/api/webhooks/cyberbiz` | 舊網址是 `/cyberbiz/customers`，名字看起來只收客戶，實際上收全部 |
-| 2 | **新增訂閱 `variants/update`** 到同一個網址 | ⚠️ 這個之前根本沒訂，官網改庫存平台不會知道 |
-
-密鑰不用動——沿用 Worker secret `CYBERBIZ_WEBHOOK_SECRET`。
-
-> **舊網址 `/api/webhooks/cyberbiz/customers` 不會被移除。** 後台改設定跟程式
-> 部署不可能同一秒發生，中間那段時間事件還是會從舊網址進來。它跟新網址走的是
-> 同一段程式，包括分派——所以就算忘了改，商品事件一樣處理得到。
+CYBERBIZ 後台的會員與商品事件都送到上面的網址，平台會依事件內容分派到對應的
+處理函式。密鑰使用 Worker secret `CYBERBIZ_WEBHOOK_SECRET`。
 
 ### 為什麼是一個網址而不是每種事件一個
 
@@ -444,7 +436,7 @@ Worker 還不存在（沒地方放 secret），而且它的網址也還不知道
 | Google OAuth client | 你（Workspace 管理者） | 同意畫面選內部還是外部，取決於同仁信箱網域 |
 | Cloudflare 帳號與 D1 | 你 | 已完成 |
 | R2 bucket（選用） | 你 | **還沒開通**。要走一次訂閱流程；用量在免費額度內是 $0 |
-| Upstash secret（選用） | 你 | 已完成，用的是舊 WMS 的同一組值 |
+| Upstash secret（選用） | 你 | 已完成，供平台的 CYBERBIZ 商品目錄快取使用 |
 | GitHub secret 與變數 | 你 | API token 的 D1 權限要手動加，範本沒有 |
 | 部署 | GitHub Actions | 這台開發機連 `wrangler whoami` 都跑不了 |
 | 網域委派 | 管 `rueisiang.com` DNS 的人 | 要確認現有記錄不會被弄斷 |

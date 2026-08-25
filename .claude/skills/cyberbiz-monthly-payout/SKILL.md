@@ -173,7 +173,7 @@ xlsx 解析（含自閉合空儲存格）、月份守門、機密遮蔽、欄位
 | `FORMULA_NOT_EVALUATED` | 上傳後轉檔驗算不出值，多半是欄位注入寫壞了 |
 | `GOOGLE_API_ERROR` 401/403、`invalid_grant` | token 失效。先確認 OAuth 應用程式是「正式版」而非「測試中」，再重跑 `node setup.mjs auth` 與 `mail` |
 | 平台上按了執行沒動靜 | 已有工作在跑（`concurrency: payout`，一次只跑一個），等前一個結束；或到 Actions 看那次 run 的 log |
-| 平台回「平台的 GitHub 憑證有問題」 | `PAYOUT_GITHUB_TOKEN` 過期或權限不足。要給本 repo 的 Actions 讀寫 ＋ Contents 讀寫 |
+| 平台回「平台的 GitHub 憑證有問題」 | `GITHUB_TOKEN` 過期或權限不足。要給相關 repo 的 Actions 讀寫；若要同步 `stores.json`，還要 Contents 讀寫 |
 | 在平台改了店別但執行時沒生效 | 設定頁存檔會把 `stores.json` 寫回 repo，確認那個 commit 真的進去了；workflow 讀的是 `PAYOUT_GITHUB_REF`（預設 main）那一版 |
 
 ## 已知但還沒處理

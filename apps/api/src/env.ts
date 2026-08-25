@@ -65,12 +65,20 @@ export interface Env {
   /*
    * 出金表。真正的執行在帳務 repo 的 GitHub Actions 上——CYBERBIZ 帳密、Gmail 與
    * Drive 的授權都只存在那邊的 Actions secrets，平台一個都不碰。這裡的 token 是
-   * fine-grained PAT，權限僅限那個 repo 的 Actions 讀寫。
+   * fine-grained PAT，供出金表與蝦皮報表共用；需涵蓋各自 repo 的 Actions 讀寫，
+   * 以及出金表設定頁寫回 stores.json 所需的 Contents 寫入。
    */
-  PAYOUT_GITHUB_TOKEN?: string;
+  GITHUB_TOKEN?: string;
   PAYOUT_GITHUB_REPO?: string;
   PAYOUT_WORKFLOW_FILE?: string;
   PAYOUT_GITHUB_REF?: string;
+
+  /** 蝦皮報表 workflow；平台只暫存檔案並觸發 GitHub Actions。 */
+  SHOPEE_GITHUB_REPO?: string;
+  SHOPEE_WORKFLOW_FILE?: string;
+  SHOPEE_GITHUB_REF?: string;
+  /** GitHub runner 下載平台暫存檔案時使用的公開基底網址。 */
+  SHOPEE_SOURCE_BASE_URL?: string;
 }
 
 export interface AppEnv {

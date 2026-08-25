@@ -23,7 +23,9 @@ import { crm } from "./routes/crm.js";
 import { drainLineAssistantQueueOutbox, processLineAssistantQueueMessage, webhooks } from "./routes/webhooks.js";
 import { health } from "./routes/health.js";
 import { PayoutGithubError } from "./payout/github.js";
+import { ShopeeSalesGithubError } from "./shopee-sales/github.js";
 import { tools } from "./routes/tools.js";
+import { shopeeSalesInternal } from "./routes/shopee-sales-internal.js";
 import { wms } from "./routes/wms.js";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
 export { AssistantChatAgent } from "./pi-agent-do.js";
@@ -48,6 +50,7 @@ const routes = app
   .route("/admin", admin)
   .route("/assistant", assistant)
   .route("/crm", crm)
+  .route("/internal/shopee-sales", shopeeSalesInternal)
   .route("/tools", tools)
   .route("/wms", wms)
   .route("/webhooks", webhooks);
@@ -105,28 +108,13 @@ app.onError((error, c) => {
     return c.json({ error: error.message }, 502);
   }
 
-  if (error instanceof NasStorageConfigError) {
-    assistantLog("error", "nas_storage.configuration_failed", {
+  if (error instanceof ShopeeSalesGithubError) {
+    assistantLog("error", "shopee.github_trigger_failed", {
       method: c.req.method,
       path: new URL(c.req.url).pathname,
       error: assistantErrorDetails(error),
     });
-    return c.json({ error: error.message }, 503);
-  }
-
-  if (error instanceof NasStorageError) {
-    assistantLog("error", "nas_storage.request_failed", {
-      method: c.req.method,
-      path: new URL(c.req.url).pathname,
-      status: error.status,
-      code: error.code,
-      retryable: error.retryable,
-      error: assistantErrorDetails(error),
-    });
-    return c.json(
-      { error: error.retryable ? "照片儲存服務暫時無法使用，請稍後再試。" : "照片儲存服務拒絕了這次請求。" },
-      error.retryable ? 503 : 502,
-    );
+    return c.json({ error: error.message }, 502);
   }
 
   assistantLog("error", "http.error", {
