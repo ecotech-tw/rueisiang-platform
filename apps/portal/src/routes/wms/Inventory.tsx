@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Icon } from "../../shell/icons.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 import {
   useDeleteItem,
   useWarehouse,
@@ -126,39 +126,36 @@ function ItemRow({
         <td data-label="操作">
           <div className="row-actions">
             {canCount ? (
-              <button
-                type="button"
-                className="ghost-button count-action"
+              <Button
+                variant="secondary"
+                className="count-action"
                 onClick={onCount}
                 disabled={busy}
                 title="盤點這項商品"
                 aria-label={`盤點 ${item.name}`}
               >
                 盤點
-              </button>
+              </Button>
             ) : null}
             {canWrite ? (
               <>
-                <button
-                  type="button"
-                  className="icon-button"
+                <Button
+                  variant="icon"
+                  icon="edit"
                   onClick={onEdit}
                   disabled={busy}
                   title="編輯商品資料"
                   aria-label={`編輯 ${item.name}`}
-                >
-                  <Icon name="edit" />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button danger"
+                />
+                <Button
+                  variant="icon"
+                  className="danger"
+                  icon="trash"
                   onClick={onDelete}
                   disabled={busy}
                   title="刪除這項商品"
                   aria-label={`刪除 ${item.name}`}
-                >
-                  <Icon name="trash" />
-                </button>
+                />
               </>
             ) : null}
           </div>
@@ -238,30 +235,27 @@ export function Inventory() {
 
   return (
     <div className="page fills">
-      <header className="page-head">
-        <div className="page-head-row">
-          <div>
-            <h1>商品庫存</h1>
-            <p className="muted">
+      <PageHeader
+        title="商品庫存"
+        description={
+          <>
               倉庫裡有什麼、放在哪、還剩多少。
               {lowCount ? `目前有 ${lowCount} 項需要補貨。` : null}
-            </p>
-          </div>
-          {canWrite ? (
-            <button
-              type="button"
-              className="primary-button with-icon add-action"
+          </>
+        }
+        actions={canWrite ? (
+            <Button
+              icon="plus"
+              className="add-action"
               onClick={() => setEditing("new")}
               aria-label="新增商品"
             >
-              <Icon name="plus" />
               <span>新增商品</span>
-            </button>
+            </Button>
           ) : null}
-        </div>
-      </header>
+      />
 
-      <section className="panel grows">
+      <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <input
             className="search-input"
@@ -271,24 +265,23 @@ export function Inventory() {
             value={filters.search}
             onChange={(event) => update({ search: event.target.value })}
           />
-          <button
-            type="button"
-            className={`ghost-button with-icon filter-toggle${showFilters ? " active" : ""}`}
+          <Button
+            variant="secondary"
+            icon="filter"
+            className={`filter-toggle${showFilters ? " active" : ""}`}
             aria-expanded={showFilters}
             onClick={() => setShowFilters((open) => !open)}
           >
-            <Icon name="filter" />
             篩選
             {activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}
-          </button>
+          </Button>
           {activeFilterCount ? (
-            <button
-              type="button"
-              className="link-button"
+            <Button
+              variant="link"
               onClick={() => update({ category: "all", zone: "all", stock: "all" })}
             >
               清除篩選
-            </button>
+            </Button>
           ) : null}
 
           <div className={`filter-fields${showFilters ? " open" : ""}`}>
@@ -324,8 +317,8 @@ export function Inventory() {
           </div>
         </form>
 
-        {query.error ? <p className="form-error" role="alert">{query.error.message}</p> : null}
-        {remove.error ? <p className="form-error" role="alert">{remove.error.message}</p> : null}
+        {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
+        {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -380,7 +373,7 @@ export function Inventory() {
             onPageSize={(pageSize) => update({ pageSize })}
           />
         ) : null}
-      </section>
+      </Panel>
 
       {editing ? (
         <ItemForm

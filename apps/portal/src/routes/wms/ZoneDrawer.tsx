@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
+import { Alert, Button } from "../../ui/index.js";
 import {
   useCountItem,
   useDeleteZoneImage,
@@ -164,9 +165,9 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
         * 上傳與刪除的錯誤都要顯示。先前只顯示上傳的——刪除失敗時畫面上一點反應
         * 都沒有，看起來就是「按了沒用」，但實際上是伺服器回了一句話沒人轉達。
         */}
-      {upload.error ? <p className="form-error" role="alert">{upload.error.message}</p> : null}
-      {remove.error ? <p className="form-error" role="alert">{remove.error.message}</p> : null}
-      {rejected ? <p className="form-error" role="alert">{rejected}</p> : null}
+      {upload.error ? <Alert tone="danger">{upload.error.message}</Alert> : null}
+      {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
+      {rejected ? <Alert tone="danger">{rejected}</Alert> : null}
 
       {canWrite ? (
         <div
@@ -223,15 +224,14 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
                 */}
               <img src={`/api/wms/images/${image.id}`} alt={image.filename} loading="lazy" />
               {canWrite ? (
-                <button
-                  type="button"
-                  className="icon-button danger"
+                <Button
+                  variant="icon"
+                  className="danger"
+                  icon="trash"
                   aria-label={`刪除 ${image.filename}`}
                   disabled={remove.isPending}
                   onClick={() => remove.mutate(image.id, { onSuccess: () => toast.show("照片已刪除") })}
-                >
-                  <Icon name="trash" />
-                </button>
+                />
               ) : null}
             </figure>
           ))}
@@ -308,9 +308,7 @@ export function ZoneDrawer({
     >
       <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="zone-drawer-title">
         <header className={`drawer-head tone-${zone.color}`}>
-          <button type="button" className="icon-button drawer-close" onClick={requestClose} aria-label="關閉">
-            <Icon name="close" />
-          </button>
+          <Button variant="icon" className="drawer-close" icon="close" type="button" onClick={requestClose} aria-label="關閉" />
           <p className="drawer-eyebrow">STORAGE ZONE</p>
           <div className="drawer-title">
             <span className="drawer-code">{zone.code}</span>
@@ -324,7 +322,7 @@ export function ZoneDrawer({
         <div className="drawer-body">
           {canWrite ? (
             <div className="drawer-actions">
-              <button type="button" className="ghost-button" onClick={onEdit}>修改區塊</button>
+              <Button variant="secondary" type="button" onClick={onEdit}>修改區塊</Button>
             </div>
           ) : null}
 

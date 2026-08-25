@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
+import { Alert, Button } from "../../ui/index.js";
 import {
   CATEGORY_COLORS,
   useCreateElement,
@@ -42,9 +42,7 @@ export function ElementDialog({
       <div className="modal-card confirm-card" role="dialog" aria-modal="true" aria-labelledby="element-title">
         <div className="modal-head">
           <h2 id="element-title">{element ? "編輯標籤" : "新增標籤"}</h2>
-          <button type="button" className="icon-button" onClick={onClose} disabled={pending} aria-label="關閉">
-            <Icon name="close" />
-          </button>
+          <Button variant="icon" icon="close" type="button" onClick={onClose} disabled={pending} aria-label="關閉" />
         </div>
 
         <form
@@ -94,13 +92,13 @@ export function ElementDialog({
             </div>
           </div>
 
-          {error ? <p className="form-error" role="alert">{error.message}</p> : null}
+          {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
           <div className="modal-actions">
             {element ? (
-              <button
-                type="button"
-                className="ghost-button danger"
+              <Button
+                variant="secondary"
+                className="danger"
                 disabled={pending}
                 onClick={() =>
                   remove.mutate(element.id, {
@@ -112,14 +110,14 @@ export function ElementDialog({
                 }
               >
                 刪除
-              </button>
+              </Button>
             ) : null}
-            <button type="button" className="ghost-button" onClick={onClose} disabled={pending}>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
               取消
-            </button>
-            <button type="submit" className="primary-button" disabled={!trimmed || pending}>
+            </Button>
+            <Button type="submit" disabled={!trimmed || pending}>
               {pending ? "儲存中…" : element ? "儲存" : "新增標籤"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

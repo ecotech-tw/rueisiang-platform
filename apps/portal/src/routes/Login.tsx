@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { usePageTitle } from "../shell/usePageTitle.js";
+import { Button, TextField } from "../ui/index.js";
 
 /**
  * 登入頁。兩條路：Google 帳號，或邀請時設好的 email / 密碼。
@@ -67,29 +68,11 @@ export function Login() {
         <div className="login-divider"><span>或使用帳號密碼登入</span></div>
 
         <form className="login-form" onSubmit={submit}>
-          <label className="field">
-            <span>Email</span>
-            <input
-              required
-              type="email"
-              autoComplete="username"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
-          <label className="field">
-            <span>密碼</span>
-            <input
-              required
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </label>
-          <button type="submit" className="primary-button" disabled={pending}>
+          <TextField label="Email" required type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
+          <TextField label="密碼" required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <Button type="submit" className="login-submit" disabled={pending}>
             {pending ? "登入中…" : "登入"}
-          </button>
+          </Button>
         </form>
 
         <p className="muted login-note">

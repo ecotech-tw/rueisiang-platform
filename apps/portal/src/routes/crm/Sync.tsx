@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 
 interface SyncStatus {
   configured: boolean;
@@ -145,8 +145,8 @@ export function Sync() {
   if (status.error) {
     return (
       <div className="page">
-        <header className="page-head"><h1>CYBERBIZ 同步</h1></header>
-        <p className="form-error" role="alert">{status.error.message}</p>
+        <PageHeader title="CYBERBIZ 同步" />
+        <Alert tone="danger">{status.error.message}</Alert>
       </div>
     );
   }
@@ -155,22 +155,13 @@ export function Sync() {
 
   return (
     <div className="page fills">
-      <header className="page-head">
-        <h1>CYBERBIZ 同步</h1>
-        <p className="muted">
-          官網的會員異動會透過 webhook 即時進來；這一頁可以看狀態，也可以手動補拉。
-        </p>
-      </header>
+      <PageHeader title="CYBERBIZ 同步" description="官網的會員異動會透過 webhook 即時進來；這一頁可以看狀態，也可以手動補拉。" />
 
       {!data.configured ? (
-        <p className="form-error" role="alert">
-          尚未設定 CYBERBIZ_API_TOKEN，手動同步無法執行。請在 Cloudflare 的 Worker 設定裡加入。
-        </p>
+        <Alert tone="danger">尚未設定 CYBERBIZ_API_TOKEN，手動同步無法執行。請在 Cloudflare 的 Worker 設定裡加入。</Alert>
       ) : null}
       {!data.webhookConfigured ? (
-        <p className="form-error" role="alert">
-          尚未設定 CYBERBIZ_WEBHOOK_SECRET，webhook 會一律被擋下。
-        </p>
+        <Alert tone="danger">尚未設定 CYBERBIZ_WEBHOOK_SECRET，webhook 會一律被擋下。</Alert>
       ) : null}
 
       <div className="stat-row">
@@ -180,36 +171,32 @@ export function Sync() {
         <div className="stat"><span>同步失敗</span><strong>{data.customers.failed}</strong></div>
       </div>
 
-      <section className="panel">
-        <div className="panel-head">
-          <h2 className="panel-title">手動同步</h2>
-          <div className="pager-buttons">
+      <Panel
+        title="手動同步"
+        actions={<div className="pager-buttons">
             {running ? (
-              <button type="button" className="ghost-button" onClick={() => { stopRequested.current = true; }}>
+              <Button variant="secondary" onClick={() => { stopRequested.current = true; }}>
                 跑完這一輪就停
-              </button>
+              </Button>
             ) : null}
-            <button
-              type="button"
-              className="primary-button with-icon"
+            <Button
+              icon="sync"
               disabled={!data.configured || running}
               onClick={() => runFullSync(1)}
               title="從第 1 頁開始，一路拉到官網的最後一頁"
             >
-              <Icon name="sync" />
               {running ? "同步中…" : "全部重新同步"}
-            </button>
+            </Button>
             {!running && progress && !progress.done ? (
-              <button
-                type="button"
-                className="ghost-button"
+              <Button
+                variant="secondary"
                 onClick={() => runFullSync(progress.page + 1)}
               >
                 從第 {progress.page + 1} 頁接著跑
-              </button>
+              </Button>
             ) : null}
-          </div>
-        </div>
+          </div>}
+      >
 
         <p className="muted">
           會一路拉到最後一頁為止。每一輪送一個獨立的請求（10 頁、500 筆），
@@ -217,7 +204,7 @@ export function Sync() {
           最後一次同步：{formatTime(data.lastSyncedAt)}
         </p>
 
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        {error ? <Alert tone="danger">{error}</Alert> : null}
 
         {progress ? (
           <>
@@ -232,36 +219,34 @@ export function Sync() {
             </p>
           </>
         ) : null}
-      </section>
+      </Panel>
 
-      <section className="panel grows">
-        <div className="panel-head">
-          <h2 className="panel-title">Webhook</h2>
-          <div className="pager-buttons">
-            <button
-              type="button"
-              className="ghost-button with-icon"
+      <Panel
+        className="grows"
+        title="Webhook"
+        actions={<div className="pager-buttons">
+            <Button
+              variant="secondary"
+              icon="trash"
               disabled={cleanup.isPending}
               onClick={() => cleanup.mutate()}
               title="刪掉只有 CYBERBIZ ID、姓名電話地址全空的客戶，以及被誤寫成客戶的商品"
             >
-              <Icon name="trash" />
               {cleanup.isPending
                 ? "清理中…"
                 : cleanup.data
                   ? `已清掉 ${cleanup.data.deleted} 筆空白客戶`
                   : "清理空白客戶"}
-            </button>
-            <button
-              type="button"
-              className="ghost-button"
+            </Button>
+            <Button
+              variant="secondary"
               disabled={retry.isPending || data.webhooks.failed === 0}
               onClick={() => retry.mutate()}
             >
               {retry.isPending ? "補跑中…" : `補跑失敗的（${data.webhooks.failed}）`}
-            </button>
-          </div>
-        </div>
+            </Button>
+          </div>}
+      >
 
         <p className="muted">
           已處理 {data.webhooks.processed}、略過 {data.webhooks.ignored}、
@@ -269,8 +254,8 @@ export function Sync() {
           失敗的每 15 分鐘會自動補跑一次，這顆按鈕是催它立刻跑。
         </p>
 
-        {retry.error ? <p className="form-error" role="alert">{retry.error.message}</p> : null}
-        {cleanup.error ? <p className="form-error" role="alert">{cleanup.error.message}</p> : null}
+        {retry.error ? <Alert tone="danger">{retry.error.message}</Alert> : null}
+        {cleanup.error ? <Alert tone="danger">{cleanup.error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -313,7 +298,7 @@ export function Sync() {
             還沒有收到任何 webhook。CYBERBIZ 後台的 webhook 網址設好之後，會員異動就會出現在這裡。
           </p>
         ) : null}
-      </section>
+      </Panel>
     </div>
   );
 }

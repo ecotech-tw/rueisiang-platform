@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
-import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 
 interface TagRow {
   name: string;
@@ -105,15 +105,17 @@ export function Tags() {
 
   return (
     <div className="page fills">
-      <header className="page-head">
-        <h1>標籤管理</h1>
-        <p className="muted">
+      <PageHeader
+        title="標籤管理"
+        description={
+          <>
           標籤有兩個來源：這裡建立的，以及從 CYBERBIZ 同步進來、掛在客戶身上的。
           改名或移除會一併更新客戶，並推回官網。
-        </p>
-      </header>
+          </>
+        }
+      />
 
-      <section className="panel grows">
+      <Panel className="grows">
         {canWrite ? (
           <form
             className="admin-form toolbar"
@@ -129,15 +131,15 @@ export function Tags() {
               value={newTag}
               onChange={(event) => setNewTag(event.target.value)}
             />
-            <button type="submit" className="primary-button" disabled={!newTag.trim() || create.isPending}>
+            <Button type="submit" disabled={!newTag.trim() || create.isPending}>
               {create.isPending ? "新增中…" : "新增標籤"}
-            </button>
+            </Button>
             {busy ? <span className="form-hint">{busy}</span> : null}
           </form>
         ) : null}
 
-        {create.error ? <p className="form-error" role="alert">{create.error.message}</p> : null}
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        {create.error ? <Alert tone="danger">{create.error.message}</Alert> : null}
+        {error ? <Alert tone="danger">{error}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -169,12 +171,12 @@ export function Tags() {
                           value={editing.next}
                           onChange={(event) => setEditing({ name: tag.name, next: event.target.value })}
                         />
-                        <button type="submit" className="primary-button" disabled={Boolean(busy)}>
+                        <Button type="submit" disabled={Boolean(busy)}>
                           儲存
-                        </button>
-                        <button type="button" className="link-button" onClick={() => setEditing(null)}>
+                        </Button>
+                        <Button variant="link" type="button" onClick={() => setEditing(null)}>
                           取消
-                        </button>
+                        </Button>
                       </form>
                     ) : (
                       <span className="chip">{tag.name}</span>
@@ -190,9 +192,9 @@ export function Tags() {
                   {canWrite ? (
                     <td>
                       <div className="row-actions">
-                        <button
-                          type="button"
-                          className="icon-button"
+                        <Button
+                          variant="icon"
+                          icon="edit"
                           disabled={Boolean(busy)}
                           onClick={() => setEditing({ name: tag.name, next: tag.name })}
                           title={
@@ -201,12 +203,11 @@ export function Tags() {
                               : "改名（目前沒有客戶在用）"
                           }
                           aria-label={`改名標籤 ${tag.name}`}
-                        >
-                          <Icon name="edit" />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-button danger"
+                        />
+                        <Button
+                          variant="icon"
+                          className="danger"
+                          icon="trash"
                           disabled={Boolean(busy)}
                           onClick={() => void applyChange(tag.name, null)}
                           title={
@@ -215,9 +216,7 @@ export function Tags() {
                               : "移除（目前沒有客戶在用）"
                           }
                           aria-label={`移除標籤 ${tag.name}`}
-                        >
-                          <Icon name="trash" />
-                        </button>
+                        />
                       </div>
                     </td>
                   ) : null}
@@ -232,7 +231,7 @@ export function Tags() {
             還沒有任何標籤。可以在這裡先建立，或等 CYBERBIZ 同步把官網的標籤帶進來。
           </p>
         ) : null}
-      </section>
+      </Panel>
     </div>
   );
 }

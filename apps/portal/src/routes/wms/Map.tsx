@@ -4,6 +4,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Button } from "../../ui/index.js";
 import {
   useDeleteElement,
   useDeleteZone,
@@ -392,31 +393,29 @@ export function WarehouseMap() {
       <div className="map-float end">
         {canWrite ? (
           <>
-            <button
-              type="button"
-              className={`ghost-button${editing ? " active" : ""}`}
+            <Button
+              variant="secondary"
+              className={editing ? "active" : ""}
               aria-pressed={editing}
               onClick={() => setEditing((on) => !on)}
             >
               {editing ? "✓ 完成配置" : "調整配置"}
-            </button>
-            <button type="button" className="primary-button with-icon" onClick={() => setZoneForm("new")}>
-              <Icon name="plus" />
+            </Button>
+            <Button icon="plus" type="button" onClick={() => setZoneForm("new")}>
               <span>新增區塊</span>
-            </button>
-            <button type="button" className="ghost-button with-icon" onClick={() => setElementForm("new")}>
-              <Icon name="plus" />
+            </Button>
+            <Button variant="secondary" icon="plus" type="button" onClick={() => setElementForm("new")}>
               <span>新增標籤</span>
-            </button>
-            <button type="button" className="ghost-button" onClick={() => setCanvasForm(true)}>
+            </Button>
+            <Button variant="secondary" type="button" onClick={() => setCanvasForm(true)}>
               ▭ 畫布 {settings.canvasWidth} × {settings.canvasHeight}
-            </button>
+            </Button>
           </>
         ) : null}
 
-        <button type="button" className="ghost-button" disabled={exporting} onClick={() => void exportImage()}>
+        <Button variant="secondary" type="button" disabled={exporting} onClick={() => void exportImage()}>
           {exporting ? "匯出中…" : "⇩ 下載整張圖"}
-        </button>
+        </Button>
       </div>
 
       {/* 右下：縮放。離內容最遠的角落，最不會擋到東西。 */}
@@ -426,16 +425,15 @@ export function WarehouseMap() {
           <span>{Math.round(view.zoom * 100)}%</span>
           <button type="button" aria-label="放大" disabled={!view.canZoomIn} onClick={() => view.zoomTo(view.zoom + 0.1)}>＋</button>
         </div>
-        <button
-          type="button"
-          className="icon-button"
+        <Button
+          variant="icon"
           aria-pressed={view.fullscreen}
           title={view.fullscreen ? "退出全螢幕（Esc）" : "全螢幕"}
           aria-label={view.fullscreen ? "退出全螢幕" : "全螢幕"}
           onClick={() => void view.toggleFullscreen()}
         >
           <span aria-hidden="true">{view.fullscreen ? "↙" : "⛶"}</span>
-        </button>
+        </Button>
       </div>
 
       {selectedZone && !editing ? (

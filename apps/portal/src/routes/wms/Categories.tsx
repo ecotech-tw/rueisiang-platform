@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 import {
   CATEGORY_COLORS,
   useCreateCategory,
@@ -52,15 +52,17 @@ export function Categories() {
 
   return (
     <div className="page fills">
-      <header className="page-head">
-        <h1>分類管理</h1>
-        <p className="muted">
+      <PageHeader
+        title="分類管理"
+        description={
+          <>
           商品分類與它們的顏色。分類的名字會直接存在商品身上，所以改名時所有用到的
           商品會一起更新；還有商品在用的分類不能刪。
-        </p>
-      </header>
+          </>
+        }
+      />
 
-      <section className="panel grows">
+      <Panel className="grows">
         {canWrite ? (
           <form
             className="admin-form toolbar category-form"
@@ -85,13 +87,13 @@ export function Categories() {
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
             />
-            <button type="submit" className="primary-button" disabled={!newName.trim() || create.isPending}>
+            <Button type="submit" disabled={!newName.trim() || create.isPending}>
               {create.isPending ? "新增中…" : "新增分類"}
-            </button>
+            </Button>
           </form>
         ) : null}
 
-        {error ? <p className="form-error" role="alert">{error.message}</p> : null}
+        {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table category-table">
@@ -115,19 +117,18 @@ export function Categories() {
                     {canWrite ? (
                       <td data-label="操作">
                         <div className="row-actions">
-                          <button
-                            type="button"
-                            className="icon-button"
+                          <Button
+                            variant="icon"
+                            icon="edit"
                             disabled={remove.isPending}
                             onClick={() => setEditing(category)}
                             title={count ? `編輯，改名會一起更新 ${count} 項商品` : "編輯名稱與顏色"}
                             aria-label={`編輯分類 ${category.name}`}
-                          >
-                            <Icon name="edit" />
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-button danger"
+                          />
+                          <Button
+                            variant="icon"
+                            className="danger"
+                            icon="trash"
                             /*
                               * 還有商品在用就直接停用，不要等按下去再吐一句 409。
                               * 旁邊的「使用中的商品」已經寫著幾項，為什麼不能刪
@@ -141,9 +142,7 @@ export function Categories() {
                                 : "刪除這個分類"
                             }
                             aria-label={`刪除分類 ${category.name}`}
-                          >
-                            <Icon name="trash" />
-                          </button>
+                          />
                         </div>
                       </td>
                     ) : null}
@@ -161,7 +160,7 @@ export function Categories() {
             還沒有任何分類。先在上面建一個，才能開始新增商品——商品一定要屬於某個分類。
           </p>
         ) : null}
-      </section>
+      </Panel>
 
       {editing ? (
         <CategoryDialog

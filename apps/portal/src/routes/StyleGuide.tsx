@@ -76,6 +76,7 @@ export function StyleGuide() {
             <Button icon="plus" onClick={() => setMessage("已觸發主要按鈕")}>主要動作</Button>
             <Button variant="secondary" icon="edit">次要動作</Button>
             <Button variant="danger" icon="trash">危險動作</Button>
+            <Button variant="link">文字操作</Button>
             <Button variant="icon" icon="search" aria-label="搜尋" />
             <Button disabled>停用</Button>
             <Button loading>處理中</Button>

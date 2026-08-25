@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
-import { Icon } from "../../shell/icons.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import {
@@ -16,6 +15,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 
 const CHANNEL_LABEL: Record<string, string> = { manual: "人工建立", cyberbiz: "CYBERBIZ" };
 const SYNC_LABEL: Record<string, string> = {
@@ -96,28 +96,25 @@ function CustomerRow({
         <td data-label="操作">
           <div className="row-actions">
             {canWrite ? (
-              <button
-                type="button"
-                className="icon-button"
+              <Button
+                variant="icon"
+                icon="edit"
                 onClick={onEdit}
                 disabled={busy}
                 title="編輯客戶資料"
                 aria-label={`編輯 ${customer.name || customer.phone}`}
-              >
-                <Icon name="edit" />
-              </button>
+              />
             ) : null}
             {canBlock ? (
-              <button
-                type="button"
-                className={`icon-button${customer.status === "blocked" ? "" : " danger"}`}
+              <Button
+                variant="icon"
+                className={customer.status === "blocked" ? "" : "danger"}
+                icon={customer.status === "blocked" ? "unblock" : "block"}
                 onClick={onBlock}
                 disabled={busy}
                 title={customer.status === "blocked" ? "解除封鎖這位客戶" : "封鎖這位客戶"}
                 aria-label={`${customer.status === "blocked" ? "解除封鎖" : "封鎖"} ${customer.name || customer.phone}`}
-              >
-                <Icon name={customer.status === "blocked" ? "unblock" : "block"} />
-              </button>
+              />
             ) : null}
           </div>
         </td>
@@ -168,29 +165,24 @@ export function Customers() {
 
   return (
     <div className="page fills">
-      <header className="page-head">
-        <div className="page-head-row">
-          <div>
-            <h1>客戶列表</h1>
-            <p className="muted">查看、搜尋 CYBERBIZ 與人工建立的客戶資料。</p>
-          </div>
-          {canWrite ? (
-            <button
-              type="button"
-              className="primary-button with-icon add-action"
+      <PageHeader
+        title="客戶列表"
+        description="查看、搜尋 CYBERBIZ 與人工建立的客戶資料。"
+        actions={canWrite ? (
+            <Button
+              icon="plus"
+              className="add-action"
               onClick={() => setEditing("new")}
               aria-label="新增客人"
             >
               {/* 手機上文字會被 CSS 藏起來，只剩一顆圓形的 ＋。aria-label 補回名稱。 */}
-              <Icon name="plus" />
               <span>新增客人</span>
-            </button>
+            </Button>
           ) : null}
-        </div>
-      </header>
+      />
 
 
-      <section className="panel grows">
+      <Panel className="grows">
         <SavedViewBar filters={filters} onApply={applyView} canManage={permissions.has("crm:view:write")} />
 
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
@@ -207,24 +199,23 @@ export function Customers() {
             * 數字標出「現在有幾個條件生效中」——那才是收合狀態下最重要的資訊，
             * 不是每個篩選的當前值。桌機直接把下拉攤開，不需要這一步。
             */}
-          <button
-            type="button"
-            className={`ghost-button with-icon filter-toggle${showFilters ? " active" : ""}`}
+          <Button
+            variant="secondary"
+            icon="filter"
+            className={`filter-toggle${showFilters ? " active" : ""}`}
             aria-expanded={showFilters}
             onClick={() => setShowFilters((open) => !open)}
           >
-            <Icon name="filter" />
             篩選
             {activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}
-          </button>
+          </Button>
           {activeFilterCount ? (
-            <button
-              type="button"
-              className="link-button"
+            <Button
+              variant="link"
               onClick={() => update({ channel: "all", status: "all", tag: "all" })}
             >
               清除篩選
-            </button>
+            </Button>
           ) : null}
 
           {/*
@@ -268,8 +259,8 @@ export function Customers() {
           </div>
         </form>
 
-        {query.error ? <p className="form-error" role="alert">{query.error.message}</p> : null}
-        {block.error ? <p className="form-error" role="alert">{block.error.message}</p> : null}
+        {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
+        {block.error ? <Alert tone="danger">{block.error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -327,7 +318,7 @@ export function Customers() {
             onPageSize={(pageSize) => update({ pageSize })}
           />
         ) : null}
-      </section>
+      </Panel>
 
       {editing ? (
         <CustomerForm

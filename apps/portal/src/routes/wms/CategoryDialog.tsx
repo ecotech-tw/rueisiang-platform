@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Icon } from "../../shell/icons.js";
+import { Alert, Button } from "../../ui/index.js";
 import { CATEGORY_COLORS, useUpdateCategory, type ProductCategory } from "./api.js";
 
 /**
@@ -63,9 +63,7 @@ export function CategoryDialog({
       <div className="modal-card confirm-card" role="dialog" aria-modal="true" aria-labelledby="category-title">
         <div className="modal-head">
           <h2 id="category-title">編輯分類</h2>
-          <button type="button" className="icon-button" onClick={onClose} disabled={update.isPending} aria-label="關閉">
-            <Icon name="close" />
-          </button>
+          <Button variant="icon" icon="close" type="button" onClick={onClose} disabled={update.isPending} aria-label="關閉" />
         </div>
 
         <form
@@ -99,15 +97,15 @@ export function CategoryDialog({
             <ColorPicker value={color} onChange={setColor} />
           </div>
 
-          {update.error ? <p className="form-error" role="alert">{update.error.message}</p> : null}
+          {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
 
           <div className="modal-actions">
-            <button type="button" className="ghost-button" onClick={onClose} disabled={update.isPending}>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>
               取消
-            </button>
-            <button type="submit" className="primary-button" disabled={!trimmed || update.isPending}>
+            </Button>
+            <Button type="submit" disabled={!trimmed || update.isPending}>
               {update.isPending ? "儲存中…" : "儲存"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

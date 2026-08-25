@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Icon } from "../../shell/icons.js";
+import { Alert, Button } from "../../ui/index.js";
 import { useCountItem, type InventoryItem } from "./api.js";
 
 /**
@@ -40,15 +40,13 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
       <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="count-title">
         <div className="modal-head">
           <h2 id="count-title">盤點</h2>
-          <button
-            type="button"
-            className="icon-button"
+          <Button
+            variant="icon"
+            icon="close"
             onClick={onClose}
             disabled={count.isPending}
             aria-label="關閉"
-          >
-            <Icon name="close" />
-          </button>
+          />
         </div>
 
         <form
@@ -107,15 +105,15 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
             <small>會寫進操作紀錄。數量對不上時，這裡是唯一說得清原因的地方。</small>
           </label>
 
-          {count.error ? <p className="form-error" role="alert">{count.error.message}</p> : null}
+          {count.error ? <Alert tone="danger">{count.error.message}</Alert> : null}
 
           <div className="modal-actions">
-            <button type="button" className="ghost-button" onClick={onClose} disabled={count.isPending}>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={count.isPending}>
               取消
-            </button>
-            <button type="submit" className="primary-button" disabled={!valid || count.isPending}>
+            </Button>
+            <Button type="submit" disabled={!valid || count.isPending}>
               {count.isPending ? "儲存中…" : "儲存盤點"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

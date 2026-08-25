@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel, TextField } from "../../ui/index.js";
 import { useSaveShopeeSalesSettings, useShopeeSalesSettings } from "./api.js";
 
 export function ShopeeSalesSettings() {
@@ -21,18 +22,18 @@ export function ShopeeSalesSettings() {
 
   return (
     <div className="page">
-      <header className="page-head">
-        <h1>蝦皮報表設定</h1>
-        <p className="muted">設定蝦皮銷售報表整理後要上傳的 Google Drive 資料夾。使用者上傳 Excel 後，GitHub Actions 會把新檔放到這裡。</p>
-      </header>
-      <section className="panel">
+      <PageHeader
+        title="蝦皮報表設定"
+        description="設定蝦皮銷售報表整理後要上傳的 Google Drive 資料夾。使用者上傳 Excel 後，GitHub Actions 會把新檔放到這裡。"
+      />
+      <Panel>
         <form className="admin-form" onSubmit={(event) => { event.preventDefault(); save.mutate({ driveFolderUrl: url, driveFolderName: name }); }}>
-          <label>Google Drive 資料夾連結<input className="cell-input wide" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://drive.google.com/drive/folders/..." /></label>
-          <label>顯示名稱<input className="cell-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="蝦皮銷售報表" /></label>
-          <div className="form-actions"><button type="submit" className="primary-button" disabled={save.isPending}>{save.isPending ? "儲存中…" : "儲存設定"}</button>{save.isSuccess ? <span className="form-hint">已儲存。</span> : null}</div>
-          {save.error ? <p className="form-error" role="alert">{save.error.message}</p> : null}
+          <TextField label="Google Drive 資料夾連結" inputClassName="cell-input wide" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://drive.google.com/drive/folders/..." />
+          <TextField label="顯示名稱" inputClassName="cell-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="蝦皮銷售報表" />
+          <div className="form-actions"><Button type="submit" disabled={save.isPending}>{save.isPending ? "儲存中…" : "儲存設定"}</Button>{save.isSuccess ? <span className="form-hint">已儲存。</span> : null}</div>
+          {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
         </form>
-      </section>
+      </Panel>
     </div>
   );
 }

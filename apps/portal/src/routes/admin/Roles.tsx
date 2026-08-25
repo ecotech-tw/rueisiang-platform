@@ -1,7 +1,7 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useMemo, useState } from "react";
-import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel, TextField } from "../../ui/index.js";
 import {
   useCatalog,
   useCreateRole,
@@ -116,21 +116,21 @@ export function Roles() {
 
   return (
     <div className="page">
-      <header className="page-head page-head-row">
-        <div>
-          <h1>角色管理</h1>
-          <p className="muted">
+      <PageHeader
+        title="角色管理"
+        description={
+          <>
             自己組合權限，做出「只能跑出金表」「只看得到客戶資料」這種角色，再指派給同仁。
-          </p>
-        </div>
-        <button type="button" className="primary-button" onClick={() => setEditor(blankEditor())}>
+          </>
+        }
+        actions={<Button onClick={() => setEditor(blankEditor())}>
           ＋ 新增角色
-        </button>
-      </header>
+        </Button>}
+      />
 
-      {error ? <p className="form-error" role="alert">{error.message}</p> : null}
+      {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
-      <section className="panel">
+      <Panel>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -158,35 +158,30 @@ export function Roles() {
                   <td className="numeric">{catalog.data?.holders[role.key] ?? 0}</td>
                   <td>
                     <div className="row-actions">
-                      <button
-                        type="button"
-                        className="icon-button"
+                      <Button
+                        variant="icon"
+                        icon={role.isSystem ? "eye" : "edit"}
                         onClick={() => setEditor(editorFor(role))}
                         title={role.isSystem ? "檢視權限" : "編輯"}
                         aria-label={role.isSystem ? "檢視權限" : "編輯"}
-                      >
-                        <Icon name={role.isSystem ? "eye" : "edit"} />
-                      </button>
+                      />
                       {/* 系統角色不能改，但可以當成起點複製一份出來調整。 */}
-                      <button
-                        type="button"
-                        className="icon-button"
+                      <Button
+                        variant="icon"
+                        icon="copy"
                         onClick={() => setEditor(editorFor(role, { copy: true }))}
                         title="複製成自訂角色"
                         aria-label="複製成自訂角色"
-                      >
-                        <Icon name="copy" />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-button danger"
+                      />
+                      <Button
+                        variant="icon"
+                        className="danger"
+                        icon="trash"
                         onClick={() => confirmDelete(role)}
                         disabled={role.isSystem || pending}
                         title={role.isSystem ? "系統角色不能刪除" : "刪除"}
                         aria-label="刪除"
-                      >
-                        <Icon name="trash" />
-                      </button>
+                      />
                     </div>
                   </td>
                 </tr>
@@ -195,7 +190,7 @@ export function Roles() {
           </table>
         </div>
         {catalog.isPending ? <p className="muted table-note">載入中…</p> : null}
-      </section>
+      </Panel>
 
       {editor ? (
         <div
@@ -210,16 +205,14 @@ export function Roles() {
               <h2 id="role-form-title">
                 {editor.readOnly ? editor.name : editor.key ? "編輯角色" : "新增角色"}
               </h2>
-              <button
-                type="button"
-                className="icon-button"
+              <Button
+                variant="icon"
+                icon="close"
                 onClick={() => setEditor(null)}
                 disabled={pending}
                 title="關閉"
                 aria-label="關閉"
-              >
-                <Icon name="close" />
-              </button>
+              />
             </div>
 
             <form
@@ -236,24 +229,20 @@ export function Roles() {
                 </p>
               ) : (
                 <div className="field-grid">
-                  <label className="field">
-                    <span>角色名稱<b>必填</b></span>
-                    <input
-                      autoFocus
-                      required
-                      value={editor.name}
-                      onChange={(event) => setEditor({ ...editor, name: event.target.value })}
-                      placeholder="例如：出金表操作員"
-                    />
-                  </label>
-                  <label className="field">
-                    <span>說明</span>
-                    <input
-                      value={editor.description}
-                      onChange={(event) => setEditor({ ...editor, description: event.target.value })}
-                      placeholder="這個角色是給誰用的"
-                    />
-                  </label>
+                  <TextField
+                    label="角色名稱"
+                    required
+                    autoFocus
+                    value={editor.name}
+                    onChange={(event) => setEditor({ ...editor, name: event.target.value })}
+                    placeholder="例如：出金表操作員"
+                  />
+                  <TextField
+                    label="說明"
+                    value={editor.description}
+                    onChange={(event) => setEditor({ ...editor, description: event.target.value })}
+                    placeholder="這個角色是給誰用的"
+                  />
                 </div>
               )}
 
@@ -267,9 +256,8 @@ export function Roles() {
                       {group.label}
                       <span className="perm-count">{checkedCount}/{all.length}</span>
                       {!editor.readOnly ? (
-                        <button
-                          type="button"
-                          className="link-button"
+                        <Button
+                          variant="link"
                           onClick={() => {
                             const next = new Set(editor.permissions);
                             // 已經全勾就整組取消，否則整組勾起來。
@@ -279,7 +267,7 @@ export function Roles() {
                           }}
                         >
                           {checkedCount === all.length ? "全部取消" : "全選"}
-                        </button>
+                        </Button>
                       ) : null}
                     </legend>
 
@@ -312,18 +300,16 @@ export function Roles() {
             </form>
 
             <div className="modal-actions">
-              <button type="button" className="ghost-button" onClick={() => setEditor(null)} disabled={pending}>
+              <Button variant="secondary" onClick={() => setEditor(null)} disabled={pending}>
                 {editor.readOnly ? "關閉" : "取消"}
-              </button>
+              </Button>
               {!editor.readOnly ? (
-                <button
-                  type="button"
-                  className="primary-button"
+                <Button
                   onClick={submit}
                   disabled={pending || !editor.name.trim()}
                 >
                   {editor.key ? "儲存" : "建立角色"}
-                </button>
+                </Button>
               ) : null}
             </div>
           </div>

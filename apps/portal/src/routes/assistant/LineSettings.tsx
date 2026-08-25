@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
 import { Switch } from "../../shell/Switch.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 import {
   useAddAssistantLineGroup,
   useAssistantLineConfig,
@@ -69,7 +70,7 @@ export function LineSettings() {
   }, [config.data]);
 
   if (config.isPending) return <div className="boot">載入中…</div>;
-  if (config.error) return <div className="page"><p className="form-error" role="alert">{config.error.message}</p></div>;
+  if (config.error) return <div className="page"><Alert tone="danger">{config.error.message}</Alert></div>;
   const data = config.data;
   if (!data) return null;
 
@@ -111,21 +112,20 @@ export function LineSettings() {
 
   return (
     <div className="page">
-      <header className="page-head">
-        <h1>小香 LINE 前台</h1>
-        <p className="muted">群組、多人聊天室與一對一對話都會在這裡管理；只有已啟用的對話會進入線上回覆流程。</p>
-      </header>
+      <PageHeader
+        title="小香 LINE 前台"
+        description="群組、多人聊天室與一對一對話都會在這裡管理；只有已啟用的對話會進入線上回覆流程。"
+      />
 
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2 className="panel-title">LINE channel 設定</h2>
-            <p className="muted">官方帳號名稱：Rueisiang 小香</p>
-          </div>
+      <Panel
+        title="LINE channel 設定"
+        description="官方帳號名稱：Rueisiang 小香"
+        actions={
           <span className={`status ${data.channel.enabled ? "status-active" : "status-disabled"}`}>
             {data.channel.enabled ? "channel 已開通" : "channel 未開通"}
           </span>
-        </div>
+        }
+      >
 
         <form className="line-channel-form" onSubmit={submitChannel}>
           <label className="field">
@@ -155,21 +155,19 @@ export function LineSettings() {
             </span>
           </label>
           <div className="assistant-actions">
-            <button type="submit" className="primary-button" disabled={!channelId.trim() || !displayName.trim() || saveChannel.isPending}>
+            <Button type="submit" disabled={!channelId.trim() || !displayName.trim() || saveChannel.isPending}>
               {saveChannel.isPending ? "儲存中…" : "儲存 channel 設定"}
-            </button>
+            </Button>
             {saveChannel.isSuccess ? <span className="form-hint">channel 設定已更新。</span> : null}
-            {saveChannel.error ? <span className="form-error">{saveChannel.error.message}</span> : null}
+            {saveChannel.error ? <Alert tone="danger">{saveChannel.error.message}</Alert> : null}
           </div>
         </form>
-      </section>
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2 className="panel-title">Webhook URL</h2>
-            <p className="muted">請複製這個網址，貼到 LINE Developers 的 Messaging API webhook 設定。</p>
-          </div>
+      <Panel
+        title="Webhook URL"
+        description="請複製這個網址，貼到 LINE Developers 的 Messaging API webhook 設定。"
+        actions={
           <span className={`status ${data.credentials.channelSecretConfigured ? "status-active" : "status-disabled"}`}>
             {data.credentials.channelSecretDecryptionFailed
               ? "Channel Secret 無法解密"
@@ -177,47 +175,43 @@ export function LineSettings() {
                 ? "Channel Secret 已設定"
                 : "尚未設定 Channel Secret"}
           </span>
-        </div>
+        }
+      >
         <div className="copy-field">
           <input readOnly value={data.webhookUrl} aria-label="LINE webhook URL" />
-          <button type="button" className="ghost-button" onClick={() => void copyWebhookUrl()}>
-            <Icon name="copy" />
+          <Button variant="secondary" icon="copy" onClick={() => void copyWebhookUrl()}>
             {copied ? "已複製" : "複製"}
-          </button>
+          </Button>
         </div>
         <p className="form-hint">Channel ID 可直接核對；Channel Secret 只顯示設定狀態，原值不會回傳。</p>
         {data.credentials.channelSecretDecryptionFailed || data.credentials.accessTokenDecryptionFailed ? (
-          <p className="form-error" role="alert">
+          <Alert tone="danger">
             儲存的 LINE 憑證無法解密，可能是 AUTH_SESSION_SECRET 已輪替；請重新輸入並儲存對應憑證。
-          </p>
+          </Alert>
         ) : null}
-        <p className={`form-hint ${data.credentials.accessTokenConfigured ? "" : "form-error"}`}>
-          {data.credentials.accessTokenConfigured
-            ? "LINE access token 已設定，已授權對話可以進入 AI 回覆流程。"
-            : "尚未設定 LINE Channel Access Token；目前仍可驗證 webhook 並記錄提及訊息，但不會送出 LINE 回覆。"}
-        </p>
-      </section>
+        {data.credentials.accessTokenConfigured ? (
+          <p className="form-hint">LINE access token 已設定，已授權對話可以進入 AI 回覆流程。</p>
+        ) : (
+          <Alert tone="warning">尚未設定 LINE Channel Access Token；目前仍可驗證 webhook 並記錄提及訊息，但不會送出 LINE 回覆。</Alert>
+        )}
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2 className="panel-title">小香在 LINE 能用的工具</h2>
-            <p className="muted">
-              這是 LINE 這條路的授權上限。對話只能在這個範圍內再縮小，設定得再寬也不會超過這裡。
-            </p>
-          </div>
-          <button type="button" className="ghost-button with-icon" onClick={() => setToolsOpen(true)}>
-            <Icon name="widgets" />
+      <Panel
+        title="小香在 LINE 能用的工具"
+        description="這是 LINE 這條路的授權上限。對話只能在這個範圍內再縮小，設定得再寬也不會超過這裡。"
+        actions={
+          <Button variant="secondary" icon="widgets" onClick={() => setToolsOpen(true)}>
             設定工具
-          </button>
-        </div>
+          </Button>
+        }
+      >
 
         {lineTools.length === 0 ? (
           <p className="empty-state">目前沒有支援 LINE 的工具。</p>
         ) : grantedTools.length === 0 ? (
-          <p className="form-error" role="alert">
+          <Alert tone="warning">
             一個工具都沒開，小香在 LINE 只能靠對話本身回答，查不了倉庫或客戶資料。
-          </p>
+          </Alert>
         ) : (
           <ul className="assistant-granted-tools">
             {grantedTools.map((tool) => {
@@ -231,17 +225,18 @@ export function LineSettings() {
             })}
           </ul>
         )}
-        {saveChannelTools.error ? <p className="form-error" role="alert">{saveChannelTools.error.message}</p> : null}
-      </section>
+        {saveChannelTools.error ? <Alert tone="danger">{saveChannelTools.error.message}</Alert> : null}
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2 className="panel-title">已監控 LINE 對話</h2>
-            <p className="muted">Webhook 會自動發現群組與一對一對話；新發現的對話預設關閉，先確認後再讓小香回答。</p>
-            <p className="form-hint">一對一不需要 @ 小香。內部測試時可傳送 <code>/reset</code> 或 <code>/重設</code>，清除目前上下文但保留歷史紀錄。</p>
-          </div>
-        </div>
+      <Panel
+        title="已監控 LINE 對話"
+        description={
+          <>
+            Webhook 會自動發現群組與一對一對話；新發現的對話預設關閉，先確認後再讓小香回答。
+            <span className="form-hint">一對一不需要 @ 小香。內部測試時可傳送 <code>/reset</code> 或 <code>/重設</code>，清除目前上下文但保留歷史紀錄。</span>
+          </>
+        }
+      >
 
         <form className="admin-form row" onSubmit={submitGroup}>
           <input value={groupId} onChange={(event) => setGroupId(event.target.value)} placeholder="LINE 對話 ID" aria-label="LINE 對話 ID" />
@@ -251,9 +246,9 @@ export function LineSettings() {
             <option value="user">一對一（user ID）</option>
           </select>
           <input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="顯示名稱（選填）" aria-label="顯示名稱" />
-          <button type="submit" className="primary-button" disabled={!groupId.trim() || addGroup.isPending}>新增對話</button>
+          <Button type="submit" disabled={!groupId.trim() || addGroup.isPending}>新增對話</Button>
         </form>
-        {addGroup.error ? <p className="form-error" role="alert">{addGroup.error.message}</p> : null}
+        {addGroup.error ? <Alert tone="danger">{addGroup.error.message}</Alert> : null}
 
         {data.groups.length ? (
           <div className="table-scroll line-groups-table">
@@ -274,8 +269,8 @@ export function LineSettings() {
             </table>
           </div>
         ) : <p className="empty-state">尚未有對話。可以先貼上 LINE webhook 收到的對話 ID，或讓使用者先傳一則訊息給小香。</p>}
-        {saveGroup.error ? <p className="form-error" role="alert">{saveGroup.error.message}</p> : null}
-      </section>
+        {saveGroup.error ? <Alert tone="danger">{saveGroup.error.message}</Alert> : null}
+      </Panel>
 
       {toolsOpen ? (
         <div
@@ -288,9 +283,7 @@ export function LineSettings() {
           <div className="modal-card wide assistant-modal-card" role="dialog" aria-modal="true" aria-labelledby="line-channel-tools-title">
             <div className="modal-head">
               <h2 id="line-channel-tools-title">設定小香在 LINE 能用的工具</h2>
-              <button type="button" className="icon-button" onClick={() => setToolsOpen(false)} title="關閉" aria-label="關閉">
-                <Icon name="close" />
-              </button>
+              <Button variant="icon" icon="close" onClick={() => setToolsOpen(false)} title="關閉" aria-label="關閉" />
             </div>
             <div className="modal-body assistant-modal-body">
               <p className="muted">只列出支援 LINE 的工具。這裡沒開的，任何對話都拿不到。</p>
@@ -320,15 +313,13 @@ export function LineSettings() {
               </div>
             </div>
             <div className="modal-actions">
-              <button type="button" className="ghost-button" onClick={() => { setChannelToolKeys(data.channelTools.filter((key) => lineTools.some((tool) => tool.key === key))); setToolsOpen(false); }}>取消</button>
-              <button
-                type="button"
-                className="primary-button"
+              <Button variant="secondary" onClick={() => { setChannelToolKeys(data.channelTools.filter((key) => lineTools.some((tool) => tool.key === key))); setToolsOpen(false); }}>取消</Button>
+              <Button
                 disabled={saveChannelTools.isPending}
                 onClick={() => saveChannelTools.mutate(channelToolKeys, { onSuccess: () => setToolsOpen(false) })}
               >
                 {saveChannelTools.isPending ? "儲存中…" : "儲存"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -407,14 +398,13 @@ function LineGroupRow({
         />
       </td>
       <td>
-        <button
-          type="button"
-          className="ghost-button"
+        <Button
+          variant="secondary"
           disabled={saving || name.trim() === group.displayName}
           onClick={() => onSave({ id: group.id, displayName: name.trim(), enabled: group.enabled })}
         >
           儲存名稱
-        </button>
+        </Button>
       </td>
     </tr>
   );
@@ -445,9 +435,7 @@ function GroupToolsDialog({
       <div className="modal-card wide assistant-modal-card" role="dialog" aria-modal="true" aria-labelledby="line-group-tools-title">
         <div className="modal-head">
           <h2 id="line-group-tools-title">{group.displayName || group.lineGroupId} 的工具</h2>
-          <button type="button" className="icon-button" onClick={onClose} title="關閉" aria-label="關閉">
-            <Icon name="close" />
-          </button>
+          <Button variant="icon" icon="close" onClick={onClose} title="關閉" aria-label="關閉" />
         </div>
         <div className="modal-body assistant-modal-body">
           <div className="assistant-tool-mode">
@@ -491,13 +479,11 @@ function GroupToolsDialog({
               </div>
             ) : <p className="empty-state">channel 還沒授權任何工具，這裡沒有東西可以挑。</p>
           ) : null}
-          {save.error ? <p className="form-error" role="alert">{save.error.message}</p> : null}
+          {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
         </div>
         <div className="modal-actions">
-          <button type="button" className="ghost-button" onClick={onClose}>取消</button>
-          <button
-            type="button"
-            className="primary-button"
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button
             disabled={save.isPending}
             onClick={() => save.mutate(
               { id: group.id, toolMode: mode, toolKeys: keys },
@@ -505,7 +491,7 @@ function GroupToolsDialog({
             )}
           >
             {save.isPending ? "儲存中…" : "儲存"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

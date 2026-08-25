@@ -2192,8 +2192,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 .ui-alert {
   display: flex;
+  flex: 0 0 100%;
   align-items: flex-start;
   gap: 10px;
+  width: 100%;
   padding: 10px 12px;
   border: 1px solid currentColor;
   border-radius: 10px;

@@ -1,10 +1,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
-import { Icon } from "../../shell/icons.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 
 /**
  * CYBERBIZ 的公司倉商品，以及它們跟 WMS 品項的連結狀態。
@@ -130,39 +130,30 @@ export function Cyberbiz() {
 
   return (
     <div className="page fills">
-      <header className="page-head">
-        <div className="page-head-row">
-          <div>
-            <h1>CYBERBIZ 庫存</h1>
-            <p className="muted">
-              官網公司倉的商品與數量。門市的庫存不在這裡——那不歸倉儲管。
-            </p>
-          </div>
-          {canSync ? (
+      <PageHeader
+        title="CYBERBIZ 庫存"
+        description="官網公司倉的商品與數量。門市的庫存不在這裡——那不歸倉儲管。"
+        actions={canSync ? (
             <div className="head-actions">
-              <button
-                type="button"
-                className="ghost-button"
+              <Button
+                variant="secondary"
                 disabled={refresh.isPending}
                 onClick={() => refresh.mutate()}
               >
                 {refresh.isPending ? "讀取中…" : "重新讀取官網"}
-              </button>
-              <button
-                type="button"
-                className="primary-button with-icon"
+              </Button>
+              <Button
+                icon="sync"
                 disabled={sync.isPending}
                 onClick={() => sync.mutate()}
               >
-                <Icon name="sync" />
                 <span>{sync.isPending ? "同步中…" : "同步到庫存"}</span>
-              </button>
+              </Button>
             </div>
           ) : null}
-        </div>
-      </header>
+      />
 
-      <section className="panel grows">
+      <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <input
             className="search-input"
@@ -193,7 +184,7 @@ export function Cyberbiz() {
           </select>
         </form>
 
-        {error ? <p className="form-error" role="alert">{error.message}</p> : null}
+        {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
         {/*
           * 這份資料是什麼時候拉的要講出來——快取一天，看的人有權知道自己看的是
@@ -271,7 +262,7 @@ export function Cyberbiz() {
             onPageSize={(pageSize) => update({ pageSize })}
           />
         ) : null}
-      </section>
+      </Panel>
     </div>
   );
 }

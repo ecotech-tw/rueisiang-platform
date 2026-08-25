@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 
 /**
  * 倉儲的操作紀錄。
@@ -150,15 +151,17 @@ export function Activity() {
 
   return (
     <div className="page fills">
-      <header className="page-head">
-        <h1>操作紀錄</h1>
-        <p className="muted">
+      <PageHeader
+        title="操作紀錄"
+        description={
+          <>
           誰在什麼時候動了倉位、商品或分類。盤點即使數量沒變也會留一筆——
           「今天數過、結果沒變」跟「今天沒數」是兩件事。
-        </p>
-      </header>
+          </>
+        }
+      />
 
-      <section className="panel grows">
+      <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <input
             className="search-input"
@@ -189,7 +192,7 @@ export function Activity() {
           </select>
         </form>
 
-        {query.error ? <p className="form-error" role="alert">{query.error.message}</p> : null}
+        {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table activity-table">
@@ -249,26 +252,24 @@ export function Activity() {
           <footer className="pager">
             <span className="cell-sub">第 {data.page} 頁</span>
             <div className="pager-buttons">
-              <button
-                type="button"
-                className="ghost-button"
+              <Button
+                variant="secondary"
                 disabled={data.page <= 1}
                 onClick={() => update({ page: data.page - 1 })}
               >
                 上一頁
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
+              </Button>
+              <Button
+                variant="secondary"
                 disabled={!data.hasMore}
                 onClick={() => update({ page: data.page + 1 })}
               >
                 下一頁
-              </button>
+              </Button>
             </div>
           </footer>
         ) : null}
-      </section>
+      </Panel>
     </div>
   );
 }

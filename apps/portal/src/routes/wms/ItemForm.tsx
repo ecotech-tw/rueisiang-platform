@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
+import { Alert, Button } from "../../ui/index.js";
 import {
   useCreateItem,
   useLinkCyberbiz,
@@ -117,9 +117,7 @@ export function ItemForm({
       <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="item-form-title">
         <div className="modal-head">
           <h2 id="item-form-title">{item ? "編輯商品" : "新增商品"}</h2>
-          <button type="button" className="icon-button" onClick={onClose} disabled={pending} aria-label="關閉">
-            <Icon name="close" />
-          </button>
+          <Button variant="icon" icon="close" type="button" onClick={onClose} disabled={pending} aria-label="關閉" />
         </div>
 
         <form
@@ -288,16 +286,16 @@ export function ItemForm({
                       <div className="cell-error">{item.cyberbiz.lastError}</div>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    className="ghost-button danger"
+                  <Button
+                    variant="secondary"
+                    className="danger"
                     disabled={unlink.isPending}
                     onClick={() =>
                       unlink.mutate(item.id, { onSuccess: () => toast.show("已解除連結，庫存數量保留") })
                     }
                   >
                     {unlink.isPending ? "解除中…" : "解除連結"}
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 <div className="link-panel">
@@ -309,9 +307,8 @@ export function ItemForm({
                       <div className="cell-sub">要先填 SKU——連結是用 SKU 去官網找的。</div>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    className="ghost-button"
+                  <Button
+                    variant="secondary"
                     disabled={!fields.sku.trim() || link.isPending}
                     onClick={() =>
                       link.mutate(
@@ -324,23 +321,23 @@ export function ItemForm({
                     }
                   >
                     {link.isPending ? "查詢官網中…" : "用 SKU 連結"}
-                  </button>
+                  </Button>
                 </div>
               )}
-              {link.error ? <small className="form-error">{link.error.message}</small> : null}
-              {unlink.error ? <small className="form-error">{unlink.error.message}</small> : null}
+              {link.error ? <small className="ui-field-error">{link.error.message}</small> : null}
+              {unlink.error ? <small className="ui-field-error">{unlink.error.message}</small> : null}
             </div>
           ) : null}
 
-          {error ? <p className="form-error" role="alert">{error.message}</p> : null}
+          {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
           <div className="modal-actions">
-            <button type="button" className="ghost-button" onClick={onClose} disabled={pending}>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
               取消
-            </button>
-            <button type="submit" className="primary-button" disabled={!valid || pending}>
+            </Button>
+            <Button type="submit" disabled={!valid || pending}>
               {pending ? "儲存中…" : item ? "儲存" : "新增商品"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

@@ -27,7 +27,7 @@ export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElemen
 export function TextField({ label, required, hint, error, inputClassName = "", ...inputProps }: TextFieldProps) {
   return (
     <Field label={label} required={required} hint={hint} error={error}>
-      <input {...inputProps} className={inputClassName} />
+      <input {...inputProps} required={required} className={inputClassName} />
     </Field>
   );
 }
@@ -40,7 +40,7 @@ export interface SelectFieldProps extends Omit<SelectHTMLAttributes<HTMLSelectEl
 export function SelectField({ label, required, hint, error, options, selectClassName = "", ...selectProps }: SelectFieldProps) {
   return (
     <Field label={label} required={required} hint={hint} error={error}>
-      <select {...selectProps} className={selectClassName}>
+      <select {...selectProps} required={required} className={selectClassName}>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </Field>

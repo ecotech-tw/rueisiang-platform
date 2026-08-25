@@ -5,7 +5,7 @@ import {
   taiwanDistricts,
   type TaiwanCity,
 } from "../../lib/taiwan-address.js";
-import { Icon } from "../../shell/icons.js";
+import { Alert, Button } from "../../ui/index.js";
 import {
   parseTags,
   useCreateCustomer,
@@ -85,16 +85,14 @@ export function CustomerForm({ customer, onClose }: Props) {
       <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="customer-form-title">
         <div className="modal-head">
           <h2 id="customer-form-title">{customer ? "編輯客戶" : "新增客人"}</h2>
-          <button
-            type="button"
-            className="icon-button"
+          <Button
+            variant="icon"
+            icon="close"
             onClick={onClose}
             disabled={pending}
             title="關閉"
             aria-label="關閉"
-          >
-            <Icon name="close" />
-          </button>
+          />
         </div>
 
         <form
@@ -194,15 +192,15 @@ export function CustomerForm({ customer, onClose }: Props) {
             </p>
           ) : null}
 
-          {error ? <p className="form-error" role="alert">{error.message}</p> : null}
+          {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
           <div className="modal-actions">
-            <button type="button" className="ghost-button" onClick={onClose} disabled={pending}>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
               取消
-            </button>
-            <button type="submit" className="primary-button" disabled={pending || !fields.phone.trim()}>
+            </Button>
+            <Button type="submit" disabled={pending || !fields.phone.trim()}>
               {pending ? "儲存中…" : customer ? "儲存" : "新增客人"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>
