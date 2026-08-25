@@ -1,0 +1,14 @@
+{
+  "name": "@rueisiang/nas-storage",
+  "private": true,
+  "type": "module",
+  "description": "Rueisiang Platform 的 NAS 私有媒體儲存 gateway",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "check": "node --check src/server.mjs",
+    "test": "node --test test/server.test.mjs",
+    "start": "node src/server.mjs"
+  }
+}

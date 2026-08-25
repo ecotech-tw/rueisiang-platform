@@ -52,11 +52,21 @@ export interface SandboxToolCall {
   errorMessage?: string;
 }
 
+export interface SandboxAttachment {
+  key: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  checksum: string;
+  expiresAt?: string | null;
+}
+
 export interface SandboxResult {
   runId: string;
   sessionId: string | null;
   text: string;
   thoughts: string;
+  attachments: SandboxAttachment[];
   model: string;
   promptRevision: number;
   usage: { promptTokens: number; candidateTokens: number; totalTokens: number };
@@ -71,6 +81,7 @@ export interface SandboxSessionMessage {
   model: string;
   thoughts: string;
   toolCalls: SandboxToolCall[];
+  attachments: SandboxAttachment[];
   durationMs: number;
   createdAt: string;
 }
@@ -88,6 +99,11 @@ export interface SandboxSessionSummary {
 export interface SandboxSession extends SandboxSessionSummary {
   contextSummaryMessageCount: number;
   messages: SandboxSessionMessage[];
+}
+
+async function readError(response: Response): Promise<never> {
+  const body = (await response.json().catch(() => null)) as { error?: string } | null;
+  throw new AssistantApiError(body?.error ?? `操作失敗（${response.status}）`);
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -341,7 +357,7 @@ export function useSaveAssistantGroupTools() {
 export function useRunSandbox() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { model: string; promptRevisionId: string; toolKeys: string[]; input: string; sessionId?: string }) =>
+    mutationFn: (input: { model: string; promptRevisionId: string; toolKeys: string[]; input: string; attachments: SandboxAttachment[]; sessionId?: string }) =>
       request<SandboxResult>("/api/assistant/sandbox/run", {
         method: "POST",
         body: JSON.stringify(input),
@@ -364,6 +380,7 @@ export function useRunSandbox() {
             model: "",
             thoughts: "",
             toolCalls: [],
+            attachments: input.attachments,
             durationMs: 0,
             createdAt,
           }],
@@ -377,6 +394,27 @@ export function useRunSandbox() {
     onSuccess: (data) => {
       if (data.sessionId) void client.invalidateQueries({ queryKey: ["assistant", "sandbox", "session", data.sessionId] });
       void client.invalidateQueries({ queryKey: ["assistant", "sandbox", "sessions"] });
+    },
+  });
+}
+
+export function useUploadSandboxAttachment() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { file: File; chatId: string }) => {
+      const form = new FormData();
+      form.append("file", input.file);
+      form.append("chatId", input.chatId);
+      const response = await fetch("/api/assistant/sandbox/attachments", {
+        method: "POST",
+        credentials: "same-origin",
+        body: form,
+      });
+      if (!response.ok) await readError(response);
+      return (await response.json()) as { attachment: SandboxAttachment };
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["assistant", "sandbox"] });
     },
   });
 }

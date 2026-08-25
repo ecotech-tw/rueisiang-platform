@@ -1,4 +1,5 @@
 import { can } from "@rueisiang/auth";
+import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import {
   WMS_ENTITY_TYPES,
   applySyncPlan,
@@ -17,12 +18,14 @@ import {
   deleteItem,
   deleteLayoutElement,
   deleteZone,
+  deleteMediaObject,
   linkItemToCyberbiz,
   listActivity,
   listCompanyLinks,
   loadWarehouse,
   markLinkFailed,
   markLinkSynced,
+  recordMediaObject,
   unlinkItemFromCyberbiz,
   updateCategory,
   updateItem,
@@ -37,6 +40,7 @@ import { cyberbizInventoryClient } from "../cyberbiz.js";
 import { forgetCatalog, loadCatalog, selectPage } from "../cyberbiz-catalog.js";
 import { cacheClient } from "../upstash.js";
 import { HTTPException } from "hono/http-exception";
+import { isNasStorageKey, nasStorageClient } from "../nas-storage.js";
 import { body, requireString } from "../request.js";
 
 /** formData 送上來的檔案。只列出真的會用到的那幾個屬性，見上傳那條路由的說明。 */
@@ -49,6 +53,32 @@ interface UploadedFile {
 
 /** 現場照片的大小上限。手機拍的照片大多在 3–4 MB，5 MB 夠用又不會塞爆 R2。 */
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+async function deleteStoredObject(env: AppEnv["Bindings"], objectKey: string): Promise<void> {
+  try {
+    if (isNasStorageKey(objectKey)) {
+      const nas = nasStorageClient(env);
+      if (!nas) throw new HTTPException(503, { message: "尚未設定照片儲存空間。" });
+      await nas.delete(objectKey);
+      return;
+    }
+    if (!env.UPLOADS) throw new HTTPException(503, { message: "尚未設定照片儲存空間。" });
+    await env.UPLOADS.delete(objectKey);
+  } catch (error) {
+    assistantLog("error", "wms.media_delete_failed", {
+      objectKey,
+      error: assistantErrorDetails(error),
+    });
+    if (error instanceof HTTPException) throw error;
+    throw new HTTPException(502, { message: "照片儲存空間刪除失敗，資料尚未移除，請稍後重試。" });
+  }
+}
+
+async function sha256Hex(body: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", body);
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
 
 /**
  * 倉儲管理。
@@ -136,16 +166,11 @@ export const wms = new Hono<AppEnv>()
     const id = c.req.param("id");
     const user = c.get("user");
 
-    /*
-     * 先把 R2 上的照片抓出來再刪倉位。zone_images 是 cascade，倉位一刪索引就沒了，
-     * 那時候就再也不知道該去 R2 刪哪些檔案——只能留下一堆沒人參照的檔案。
-     */
-    const keys = await zoneImageKeys(c.get("db"), id);
+    const keys = [...new Set(await zoneImageKeys(c.get("db"), id))];
+    // 先清外部 bytes；任一項失敗就保留 zone、zone_images 與 media metadata，讓請求可重試。
+    await Promise.all(keys.map((key) => deleteStoredObject(c.env, key)));
     await deleteZone(c.get("db"), id, { id: user.id, email: user.email });
-    if (keys.length && c.env.UPLOADS) {
-      // 倉位已經刪掉了，這裡失敗只是多留幾個檔案，不該讓整個請求變成錯誤。
-      await Promise.all(keys.map((key) => c.env.UPLOADS!.delete(key).catch(() => {})));
-    }
+    await Promise.all(keys.map((key) => deleteMediaObject(c.get("db"), key)));
     return c.json({ ok: true });
   })
 
@@ -313,7 +338,8 @@ export const wms = new Hono<AppEnv>()
    */
   .post("/zones/:id/images", requirePermission("wms:map:write"), async (c) => {
     const bucket = c.env.UPLOADS;
-    if (!bucket) throw new HTTPException(503, { message: "尚未設定照片儲存空間，請聯絡管理者。" });
+    const nas = nasStorageClient(c.env);
+    if (!bucket && !nas) throw new HTTPException(503, { message: "尚未設定照片儲存空間，請聯絡管理者。" });
 
     const zoneId = c.req.param("id");
     const form = await c.req.formData();
@@ -324,28 +350,74 @@ export const wms = new Hono<AppEnv>()
      */
     const file = form.get("file") as unknown as UploadedFile | string | null;
     if (!file || typeof file === "string") throw new HTTPException(400, { message: "請選擇一張照片。" });
-    if (!file.type.startsWith("image/")) throw new HTTPException(400, { message: "只能上傳圖片檔。" });
+    if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
+      throw new HTTPException(400, { message: "只能上傳 JPEG、PNG、WebP 或 GIF 圖片。" });
+    }
     if (file.size > MAX_IMAGE_BYTES) {
       throw new HTTPException(400, { message: `照片不能超過 ${MAX_IMAGE_BYTES / 1024 / 1024} MB。` });
     }
 
-    // 副檔名只留英數，key 會被拿去接路徑。
-    const extension = file.name.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "img";
-    const objectKey = `zones/${zoneId}/${crypto.randomUUID()}.${extension}`;
-    await bucket.put(objectKey, await file.arrayBuffer(), {
-      httpMetadata: { contentType: file.type },
-      customMetadata: { zoneId, filename: file.name },
-    });
+    const bytes = await file.arrayBuffer();
+    let objectKey: string;
+    let size = file.size;
+    let checksum: string;
+    if (nas) {
+      const object = await nas.put({
+        namespace: "wms",
+        scope: "zones",
+        scopeId: zoneId,
+        contentType: file.type,
+        body: bytes,
+      });
+      objectKey = object.key;
+      size = object.size;
+      checksum = object.checksum;
+    } else {
+      // 副檔名只留英數，key 會被拿去接路徑。
+      const extension = file.name.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "img";
+      objectKey = `zones/${zoneId}/${crypto.randomUUID()}.${extension}`;
+      await bucket!.put(objectKey, bytes, {
+        httpMetadata: { contentType: file.type },
+        customMetadata: { zoneId, filename: file.name },
+      });
+      checksum = await sha256Hex(bytes);
+    }
 
     const user = c.get("user");
-    const result = await recordZoneImage(c.get("db"), {
-      zoneId,
-      objectKey,
-      filename: file.name,
-      contentType: file.type,
-      size: file.size,
-      actor: { id: user.id, email: user.email },
-    });
+    let result: Awaited<ReturnType<typeof recordZoneImage>>;
+    let mediaRecorded = false;
+    try {
+      await recordMediaObject(c.get("db"), {
+        objectKey,
+        namespace: "wms",
+        scopeKey: zoneId,
+        filename: file.name,
+        contentType: file.type,
+        size,
+        checksum,
+        createdBy: user.id,
+      });
+      mediaRecorded = true;
+      result = await recordZoneImage(c.get("db"), {
+        zoneId,
+        objectKey,
+        filename: file.name,
+        contentType: file.type,
+        size,
+        actor: { id: user.id, email: user.email },
+      });
+    } catch (error) {
+      try {
+        await deleteStoredObject(c.env, objectKey);
+        if (mediaRecorded) await deleteMediaObject(c.get("db"), objectKey);
+      } catch (cleanupError) {
+        assistantLog("error", "wms.media_upload_rollback_failed", {
+          objectKey,
+          error: assistantErrorDetails(cleanupError),
+        });
+      }
+      throw error;
+    }
     return c.json(result, 201);
   })
 
@@ -356,12 +428,23 @@ export const wms = new Hono<AppEnv>()
    * 拿到連結的人都看得到。這裡每次都會經過 requireAuth 與權限檢查。
    */
   .get("/images/:id", requirePermission("wms:map:read"), async (c) => {
-    const bucket = c.env.UPLOADS;
-    if (!bucket) throw new HTTPException(503, { message: "尚未設定照片儲存空間。" });
-
     const image = await findZoneImage(c.get("db"), c.req.param("id"));
     if (!image) throw new HTTPException(404, { message: "找不到這張照片。" });
 
+    if (isNasStorageKey(image.objectKey)) {
+      const nas = nasStorageClient(c.env);
+      if (!nas) throw new HTTPException(503, { message: "尚未設定照片儲存空間。" });
+      const object = await nas.get(image.objectKey);
+      if (!object) throw new HTTPException(404, { message: "照片的檔案已經不在了。" });
+
+      const headers = new Headers(object.headers);
+      headers.set("Content-Type", image.contentType || "application/octet-stream");
+      headers.set("Cache-Control", "private, max-age=31536000, immutable");
+      return new Response(object.body, { headers });
+    }
+
+    const bucket = c.env.UPLOADS;
+    if (!bucket) throw new HTTPException(503, { message: "尚未設定照片儲存空間。" });
     const object = await bucket.get(image.objectKey);
     if (!object) throw new HTTPException(404, { message: "照片的檔案已經不在了。" });
 
@@ -376,12 +459,14 @@ export const wms = new Hono<AppEnv>()
 
   .delete("/images/:id", requirePermission("wms:map:write"), async (c) => {
     const user = c.get("user");
+    const image = await findZoneImage(c.get("db"), c.req.param("id"));
+    if (!image) throw new HTTPException(404, { message: "找不到這張照片。" });
+    await deleteStoredObject(c.env, image.objectKey);
     const { objectKey } = await deleteZoneImage(c.get("db"), c.req.param("id"), {
       id: user.id,
       email: user.email,
     });
-    // D1 先刪：這裡失敗只是 R2 多一個沒人參照的檔案，反過來會留下破圖。
-    if (c.env.UPLOADS) await c.env.UPLOADS.delete(objectKey).catch(() => {});
+    await deleteMediaObject(c.get("db"), objectKey);
     return c.json({ ok: true });
   })
 

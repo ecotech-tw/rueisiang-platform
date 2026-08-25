@@ -134,6 +134,17 @@ Codex CLI 取得最小 credential JSON、vault 如何加密／refresh，以及 s
 `OPENAI_API_KEY`；要開 Gemini 模型才需要 `GEMINI_API_KEY`。兩個 provider 可只設定其中一個，
 但目前 active model 對應的 credential 必須存在。
 
+### 2.1.4 設定 NAS 媒體儲存（可選）
+
+`tools/nas-storage` 是獨立的 Node gateway，NAS 只透過 Cloudflare Tunnel 提供受驗證的 HTTPS
+物件操作，不把 NAS 絕對路徑或共用資料夾公開給 Worker。WMS 同時支援兩種來源：設定 NAS 後，
+新照片寫入 `wms/zones/...`；既有 `zones/...` 的 R2 object key 仍然可以讀取與刪除，因此可以
+先做小範圍 smoke test，再安排舊檔案 migration。
+
+Worker 端必須同時設定 `NAS_STORAGE_URL` 與 `NAS_STORAGE_TOKEN`；只設定其中一個會以設定錯誤
+拒絕圖片操作。token 要和 Codex relay 使用不同的值。gateway 的 NAS 建置、權限、Tunnel
+hostname 與回滾步驟見 [`tools/nas-storage/README.md`](../tools/nas-storage/README.md)。
+
 ### 2.2 套用 migration — 不用手動做
 
 `deploy.yml` 每次部署都會執行 `wrangler d1 migrations apply --remote`，
@@ -157,6 +168,7 @@ Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
 | `PI_OPENAI_CODEX_CREDENTIAL` | Codex CLI 或 Pi 的 ChatGPT OAuth credential JSON；不是 OpenAI API key |
 | `PI_CREDENTIAL_ENCRYPTION_KEY` | 至少 32 字元；加密 credential-vault 內的 access／refresh token |
 | `PI_OPENAI_CODEX_RELAY_TOKEN` | 可選；NAS Codex relay 的 shared token，搭配 `wrangler.toml` 裡的 `PI_OPENAI_CODEX_RELAY_URL` 使用 |
+| `NAS_STORAGE_TOKEN` | NAS storage gateway 的獨立 shared token；搭配 `NAS_STORAGE_URL` 使用 |
 | `LINE_CHANNEL_SECRET` | 選用 fallback；LINE Developers 的 Channel secret |
 | `LINE_CHANNEL_ACCESS_TOKEN` | 選用 fallback；同一個 token 同時供 Reply 與受限 Push 使用 |
 
@@ -171,8 +183,9 @@ node -e "console.log(crypto.randomUUID() + crypto.randomUUID())"
 
 這把金鑰換掉會讓所有人的登入狀態失效（cookie 驗不過），所以之後不要隨手換。
 
-secret 存進去就立即生效，不必重新部署；之後的部署也不會把它們洗掉。非機密的 relay URL 則寫在
-`apps/api/wrangler.toml` 的 `[vars]`，避免只存在 Dashboard 而被下一次 Wrangler 部署覆蓋。
+secret 存進去就立即生效，不必重新部署；之後的部署也不會把它們洗掉。非機密的 relay URL 與
+`NAS_STORAGE_URL` 則寫在 `apps/api/wrangler.toml` 的 `[vars]`，避免只存在 Dashboard 而被
+下一次 Wrangler 部署覆蓋；目前正式 hostname 為 `https://storage.rueisiang.com`。
 
 （等價指令：`cd apps/api && npx wrangler secret put <名稱>`）
 

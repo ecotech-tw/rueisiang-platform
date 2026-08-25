@@ -367,7 +367,7 @@ export async function deleteZone(db: Database, id: string, actor: Actor) {
   }
 
   await db.batch([
-    // zone_images 是 cascade，照片會跟著刪掉。R2 上的檔案要另外清，見下一階段。
+    // zone_images 是 cascade；物件與 media metadata 由 route 在外部刪除成功後另外清理。
     db.delete(zones).where(eq(zones.id, id)),
     writeEvent(db, {
       entityType: "zone",
@@ -914,12 +914,7 @@ export async function findZoneImage(db: Database, id: string) {
   return row ?? null;
 }
 
-/**
- * 刪照片。回傳 objectKey 讓呼叫端去把 R2 上的檔案也刪掉。
- *
- * 順序跟上傳相反：先刪 D1 再刪 R2。反過來的話，R2 刪掉但 D1 沒刪就會留下破圖；
- * 這樣最壞的情況只是 R2 上多一個沒人參照的檔案。
- */
+/** 刪照片的 D1 索引；外部物件必須由呼叫端先刪成功，media metadata 才能再清掉。 */
 export async function deleteZoneImage(db: Database, id: string, actor: Actor) {
   const [image] = await db.select().from(zoneImages).where(eq(zoneImages.id, id));
   if (!image) throw new WmsError("not_found", "找不到這張照片。");

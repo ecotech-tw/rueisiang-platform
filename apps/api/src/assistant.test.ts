@@ -11,6 +11,7 @@ import {
   customers,
   inventoryItems,
   layoutElements,
+  mediaObjects,
   rolePermissions,
   roles,
   userRoles,
@@ -499,6 +500,78 @@ describe("AI 助理 Sandbox", () => {
       requiredPermissions: ["crm:order:read"],
     });
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
+  });
+
+  it("Sandbox 圖片會把 bytes 放在 NAS、metadata 留在 D1，並受使用者權限保護", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    env.NAS_STORAGE_URL = "https://storage.test";
+    env.NAS_STORAGE_TOKEN = "nas-secret";
+    const objects = new Map<string, Uint8Array>();
+    let uploadNumber = 0;
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(String(input));
+      expect(new Headers(init?.headers).get("x-storage-token")).toBe("nas-secret");
+      const method = init?.method ?? "GET";
+      if (method === "POST") {
+        expect(url.searchParams.get("namespace")).toBe("assistant");
+        expect(url.searchParams.get("scope")).toBe("vision");
+        expect(url.searchParams.get("scopeId")).toBe(created.session.id);
+        const bytes = new Uint8Array(await new Response(init?.body as BodyInit).arrayBuffer());
+        const key = `assistant/vision/${created.session.id}/2026/08/00000000-0000-0000-0000-${String(++uploadNumber).padStart(12, "0")}.png`;
+        objects.set(key, bytes);
+        return new Response(JSON.stringify({
+          object: { key, size: bytes.byteLength, checksum: "0".repeat(64), contentType: "image/png" },
+        }), { status: 201, headers: { "content-type": "application/json" } });
+      }
+      const key = url.searchParams.get("key") ?? "";
+      if (method === "GET") {
+        const bytes = objects.get(key);
+        return bytes
+          ? new Response(bytes, { status: 200, headers: { "content-type": "image/png" } })
+          : new Response(null, { status: 404 });
+      }
+      return new Response(null, { status: 405 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    try {
+      const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+      const form = new FormData();
+      form.append("file", new File([bytes as never], "label.png", { type: "image/png" }));
+      form.append("chatId", created.session.id);
+      const uploaded = await call("/api/assistant/sandbox/attachments", {
+        method: "POST",
+        headers: { Cookie: await cookieFor("admin", "admin@ecotech.tw") },
+        body: form,
+      });
+      expect(uploaded.status).toBe(201);
+      const body = await uploaded.json() as { attachment: { key: string; expiresAt: string } };
+      expect(body.attachment.key).toMatch(new RegExp(`^assistant/vision/${created.session.id}/2026/08/`));
+      expect(body.attachment.expiresAt).toBeTruthy();
+      expect(objects.get(body.attachment.key)).toEqual(bytes);
+
+      const [media] = await db().select().from(mediaObjects);
+      expect(media).toMatchObject({
+        objectKey: body.attachment.key,
+        namespace: "assistant",
+        scopeKey: `sandbox:${created.session.id}`,
+        contentType: "image/png",
+        size: bytes.byteLength,
+      });
+
+      const downloaded = await call(`/api/assistant/sandbox/attachments?key=${encodeURIComponent(body.attachment.key)}`, {
+        headers: { Cookie: await cookieFor("admin", "admin@ecotech.tw") },
+      });
+      expect(downloaded.status).toBe(200);
+      expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(bytes);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("Pi catalog 有但 Sandbox 清單沒有的模型會回落到可執行的 Codex 預設值", async () => {
@@ -1455,10 +1528,10 @@ describe("AI 助理 Sandbox", () => {
     const detail = await as("admin", "admin@ecotech.tw", `/api/assistant/sandbox/sessions/${created.session.id}`);
     const detailResult = await detail.json() as { session: { messages: Array<{ role: string; text: string; thoughts: string }> } };
     expect(detailResult.session.messages).toEqual([
-      { role: "user", text: "第一輪問題", model: "", thoughts: "", toolCalls: [], durationMs: 0, id: expect.any(String), createdAt: expect.any(String) },
-      { role: "model", text: "第一輪回答", model: "gemini-3.6-flash", thoughts: "第一輪 thinking", toolCalls: [], durationMs: expect.any(Number), id: expect.any(String), createdAt: expect.any(String) },
-      { role: "user", text: "第二輪問題", model: "", thoughts: "", toolCalls: [], durationMs: 0, id: expect.any(String), createdAt: expect.any(String) },
-      { role: "model", text: "第二輪回答", model: "gemini-3.6-flash", thoughts: "", toolCalls: [], durationMs: expect.any(Number), id: expect.any(String), createdAt: expect.any(String) },
+      { role: "user", text: "第一輪問題", model: "", thoughts: "", toolCalls: [], attachments: [], durationMs: 0, id: expect.any(String), createdAt: expect.any(String) },
+      { role: "model", text: "第一輪回答", model: "gemini-3.6-flash", thoughts: "第一輪 thinking", toolCalls: [], attachments: [], durationMs: expect.any(Number), id: expect.any(String), createdAt: expect.any(String) },
+      { role: "user", text: "第二輪問題", model: "", thoughts: "", toolCalls: [], attachments: [], durationMs: 0, id: expect.any(String), createdAt: expect.any(String) },
+      { role: "model", text: "第二輪回答", model: "gemini-3.6-flash", thoughts: "", toolCalls: [], attachments: [], durationMs: expect.any(Number), id: expect.any(String), createdAt: expect.any(String) },
     ]);
 
     const closed = await as("admin", "admin@ecotech.tw", `/api/assistant/sandbox/sessions/${created.session.id}/close`, { method: "POST" });

@@ -1,12 +1,20 @@
 import { CyberbizApiError } from "@rueisiang/cyberbiz";
 import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
-import { WmsError, createDatabase, retryFailedProductWebhooks, retryFailedWebhooks } from "@rueisiang/db";
+import {
+  WmsError,
+  createDatabase,
+  deleteMediaObject,
+  listExpiredMediaObjects,
+  retryFailedProductWebhooks,
+  retryFailedWebhooks,
+} from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { createMiddleware } from "hono/factory";
 import { forgetCatalog } from "./cyberbiz-catalog.js";
 import { cyberbizClient, cyberbizInventoryClient } from "./cyberbiz.js";
 import { cacheClient } from "./upstash.js";
+import { NasStorageConfigError, NasStorageError, nasStorageClient } from "./nas-storage.js";
 import type { AppEnv, Env } from "./env.js";
 import { admin } from "./routes/admin.js";
 import { assistant } from "./routes/assistant.js";
@@ -109,6 +117,30 @@ app.onError((error, c) => {
     return c.json({ error: error.message }, 502);
   }
 
+  if (error instanceof NasStorageConfigError) {
+    assistantLog("error", "nas_storage.configuration_failed", {
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      error: assistantErrorDetails(error),
+    });
+    return c.json({ error: error.message }, 503);
+  }
+
+  if (error instanceof NasStorageError) {
+    assistantLog("error", "nas_storage.request_failed", {
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      status: error.status,
+      code: error.code,
+      retryable: error.retryable,
+      error: assistantErrorDetails(error),
+    });
+    return c.json(
+      { error: error.retryable ? "照片儲存服務暫時無法使用，請稍後再試。" : "照片儲存服務拒絕了這次請求。" },
+      error.retryable ? 503 : 502,
+    );
+  }
+
   assistantLog("error", "http.error", {
     method: c.req.method,
     path: new URL(c.req.url).pathname,
@@ -131,6 +163,13 @@ export type AppType = typeof routes;
  */
 async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
   const db = createDatabase(env.DB);
+
+  ctx.waitUntil(
+    cleanupExpiredMedia(env, db)
+      .catch((error) => assistantLog("error", "media.expiry_cleanup_failed", {
+        error: assistantErrorDetails(error),
+      })),
+  );
 
   // waitUntil：讓 Cron 的回應先結束，補跑在背景完成。
   ctx.waitUntil(
@@ -165,6 +204,28 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
         error: assistantErrorDetails(error),
       })),
   );
+}
+
+async function cleanupExpiredMedia(env: Env, db: ReturnType<typeof createDatabase>): Promise<void> {
+  const nas = nasStorageClient(env);
+  if (!nas) return;
+  const expired = await listExpiredMediaObjects(db);
+  let removed = 0;
+  let failed = 0;
+  for (const media of expired) {
+    try {
+      await nas.delete(media.objectKey);
+      await deleteMediaObject(db, media.objectKey);
+      removed += 1;
+    } catch (error) {
+      failed += 1;
+      assistantLog("warn", "media.expiry_cleanup_item_failed", {
+        objectKey: media.objectKey,
+        error: assistantErrorDetails(error),
+      });
+    }
+  }
+  if (removed || failed) assistantLog("info", "media.expiry_cleanup", { removed, failed });
 }
 
 async function queue(batch: MessageBatch<LineAssistantQueueMessage>, env: Env): Promise<void> {

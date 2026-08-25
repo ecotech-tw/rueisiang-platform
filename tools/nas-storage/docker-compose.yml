@@ -1,0 +1,21 @@
+services:
+  nas-storage:
+    build:
+      context: .
+    container_name: rueisiang-platform-storage
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      STORAGE_ACCESS_TOKEN: ${STORAGE_ACCESS_TOKEN:?請設定 STORAGE_ACCESS_TOKEN}
+      STORAGE_ROOT: /storage
+      STORAGE_MAX_OBJECT_BYTES: 10485760
+      LISTEN_HOST: 0.0.0.0
+      LISTEN_PORT: 8787
+    volumes:
+      - /volume1/rueisiang-platform:/storage:rw
+    ports:
+      - "8790:8787"

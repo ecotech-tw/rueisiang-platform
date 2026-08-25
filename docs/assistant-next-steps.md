@@ -4,30 +4,20 @@
 
 ### 1. Vision 圖片輸入與 NAS 媒體儲存
 
-第一階段先建立 NAS 的私有媒體儲存，再把 Sandbox、LINE 與 WMS 接上同一個 storage gateway。Cloudflare Worker
-不能直接 mount NAS 的檔案系統；Worker 只傳 namespace、由服務端產生的 object key 與短期授權，不能把 NAS
-絕對路徑或公開檔案網址交給瀏覽器、LINE 或模型。
+圖片 bytes 統一放在 NAS，D1 只保存查詢、授權與清理所需的 metadata；Worker 不直接 mount NAS，也不把 NAS 絕對路徑或公開檔案網址交給瀏覽器、LINE 或模型。
 
-預定的 NAS 目錄（實際部署以 NAS 的 volume 大小寫為準）如下：
+NAS 目錄：
 
 ```text
-/Volume1/rueisiang-platform/
-├─ assistant/
-│  └─ vision/<yyyy>/<mm>/<object-id>.<ext>
-└─ wms/
-   └─ zones/<zone-id>/<yyyy>/<mm>/<object-id>.<ext>
+/volume1/rueisiang-platform/
+├── assistant/
+│   └── vision/<chat-id>/<yyyy>/<mm>/<object-id>.<ext>
+└── wms/
+    └── zones/<zone-id>/<yyyy>/<mm>/<object-id>.<ext>
 ```
 
-- [ ] 在 NAS 建立 `assistant` 與 `wms` namespace，並建立只允許服務帳號讀寫的 storage gateway；不要讓這兩個資料夾變成匿名公開分享。
-- [ ] 讓 gateway 只經由 Cloudflare Tunnel 提供受驗證的 upload、download、delete、health endpoint；storage credential 與 Codex relay token 分開管理，並限制 namespace、content type、大小、檔名與 path traversal。
-- [ ] D1 只保存 namespace、object key、原始檔名、MIME type、大小、checksum、建立者、建立時間與 expiry；圖片 bytes 留在 NAS，DO 只保留推論期間需要的短期 metadata。
-- [ ] 先讓 WMS 倉位照片寫入 `wms/zones/<zone-id>/...`，規劃既有 `zone_images.object_key` 的 dual-read／migration，驗證完成前不要刪除現有 R2/GCS 來源。
-- [ ] Sandbox 與 LINE 的圖片輸入寫入 `assistant/vision/...`；LINE image event 以 `messageId` 從 LINE Content API 取回 bytes 後再保存，未 tag 的群組圖片依 conversation scope 與 expiry 管理。
-- [ ] 補上 NAS 備份、保留期限、quota、重試與 orphan object reconciliation；storage gateway 不可因為單一圖片失敗拖垮一般文字對話。
-
-- [ ] Sandbox 新增圖片選擇、預覽、格式與大小驗證，API request 增加可選的 `attachments`；純文字請求維持向後相容。
-- [ ] 將圖片轉成 Pi Agent、Codex 與 Gemini 各自支援的 image content，並對不支援 vision 的模型拒絕或提示切換模型。
-- [ ] 補上 Sandbox、LINE 一對一、LINE 群組、圖片過期、大小／格式錯誤與兩個 provider 的 API tests，並更新操作文件。
+- [ ] 建立 NAS 備份、保留期限、quota、重試與 orphan object reconciliation；storage gateway 不可因為單一圖片失敗拖垮一般文字對話。
+- [ ] 接收 LINE image event：以 `messageId` 從 LINE Content API 取回 bytes，依 LINE chat id 保存到 `assistant/vision/<chat-id>/...`，並套用標註、群組授權與 expiry 規則。
 
 ### 2. MCP tools
 
