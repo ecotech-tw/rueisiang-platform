@@ -2,8 +2,10 @@
 
 Sandbox 與 LINE 的模型執行都使用 Pi Agent。選 GPT 時使用 Codex ChatGPT OAuth，選 Gemini
 時使用 `GEMINI_API_KEY`；兩個 provider 共用 Pi transcript、tool loop、usage 與 compact。
-vision upload 會再拆成後續 PR。LINE Queue consumer 會把每個已授權對話 dispatch 到 chat
-專屬的 Durable Object；Sandbox session 也有自己的 Pi Durable Object。
+Sandbox vision 圖片與 WMS 倉位照片透過 NAS storage gateway 儲存；LINE image event 的下載、
+授權與對話上下文整合仍列在 [`assistant-next-steps.md`](./assistant-next-steps.md)。LINE Queue
+consumer 會把每個已授權對話 dispatch 到 chat 專屬的 Durable Object；Sandbox session 也有自己的
+Pi Durable Object。
 
 `ASSISTANT_KEY` 不是 API key 或 secret，也不需要在 Cloudflare 設成環境變數。它是小香在 D1、
 Queue 與 Durable Object instance name 共用的穩定內部識別碼；目前值是

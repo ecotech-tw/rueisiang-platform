@@ -120,6 +120,8 @@ Sandbox runs support multi-turn Pi sessions. D1 keeps the selected model, prompt
 - `POST /api/assistant/sandbox/run`：帶入 `sessionId` 時，會 dispatch 到該 session 專屬 Pi DO；第一次使用既有 session 時會從 D1 匯入最近 100 則訊息，之後由 Pi transcript 接續。若指定 `model`，會套用到本輪並更新開啟中的 session。
 
 - `GET /api/assistant/sandbox/config`：模型、tool、active prompt 與 revision history。
+- `POST /api/assistant/sandbox/attachments`、`GET /api/assistant/sandbox/attachments?key=...`：
+  上傳或讀取 Sandbox session 的圖片附件；bytes 存 NAS，D1 保存授權與 expiry metadata。
 - `PATCH /api/assistant/config`：儲存小香目前使用的模型。
 - `PATCH /api/assistant/tools/:key`：更新 tool 的啟用、開發中或停用狀態。
 - `POST /api/assistant/prompts`：建立並啟用新的 prompt revision。

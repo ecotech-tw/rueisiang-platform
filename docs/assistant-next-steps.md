@@ -2,7 +2,7 @@
 
 ## 優先順序
 
-### 1. Vision 圖片輸入與 NAS 媒體儲存
+### 1. Vision 圖片輸入與 NAS 媒體儲存 ✅
 
 圖片 bytes 統一放在 NAS，D1 只保存查詢、授權與清理所需的 metadata；Worker 不直接 mount NAS，也不把 NAS 絕對路徑或公開檔案網址交給瀏覽器、LINE 或模型。
 
@@ -16,6 +16,7 @@ NAS 目錄：
     └── zones/<zone-id>/<yyyy>/<mm>/<object-id>.<ext>
 ```
 
+- [x] Sandbox vision 圖片與 WMS 倉位照片已透過 NAS storage gateway 儲存，D1 保存 metadata；讀取、刪除、expiry 與 production smoke test 已接通。
 - [ ] 建立 NAS 備份、保留期限、quota、重試與 orphan object reconciliation；storage gateway 不可因為單一圖片失敗拖垮一般文字對話。
 - [ ] 接收 LINE image event：以 `messageId` 從 LINE Content API 取回 bytes，依 LINE chat id 保存到 `assistant/vision/<chat-id>/...`，並套用標註、群組授權與 expiry 規則。
 

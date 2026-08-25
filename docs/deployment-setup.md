@@ -360,10 +360,11 @@ repo（`ecotech-tw/rueisiang-platform`）已經存在，不必新開。要加的
 
 兩個都是「沒有也能跑，只是少一塊」——不會讓系統起不來，而且有測試釘著這件事。
 
-### 5.1 R2 — 倉位的現場照片 ❌ 還沒開通
+### 5.1 R2 — 倉位照片的 fallback（可選）
 
-沒開通的話，上傳照片會回「尚未設定照片儲存空間，請聯絡管理者」，地圖與庫存
-其他功能完全正常。
+設定 NAS storage 後，新上傳的倉位照片會優先寫入 NAS；沒有 NAS 時才使用 R2。
+兩種來源都由同一組 API 讀取，既有 R2 object key 仍可正常讀取與刪除。
+如果兩種儲存都沒有設定，上傳照片才會回「尚未設定照片儲存空間，請聯絡管理者」。
 
 ```bash
 npx wrangler r2 bucket create rueisiang-platform-uploads
@@ -373,9 +374,9 @@ bucket 名稱要跟 `apps/api/wrangler.toml` 的 `[[r2_buckets]]` 一致，bindi
 `UPLOADS`。**開通 R2 要在 Cloudflare 完成一次訂閱流程**（會要求留付款方式），
 但用量在免費額度內是 $0：10 GB 儲存、流量不計費，而倉位照片撐死幾百 MB。
 
-照片本身放 R2，D1 的 `zone_images` 只存索引（object key、檔名、大小）。讀取走
-`/api/wms/images/:id` 而不是 R2 的公開網址——倉庫內部的照片，拿到連結的人不該
-就看得到。
+使用 R2 fallback 時，照片本身放 R2；D1 的 `zone_images` 只存索引（object key、檔名、大小）。
+讀取走 `/api/wms/images/:id` 而不是 R2 的公開網址——倉庫內部的照片，拿到連結的人不該
+就看得到。R2 bucket 仍可依需求建立，不是 NAS storage 的必要條件。
 
 ### 5.2 Upstash Redis — CYBERBIZ 商品目錄的快取 ✅ 已設定
 
