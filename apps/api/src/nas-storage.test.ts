@@ -6,7 +6,8 @@ import {
   nasStorageClient,
 } from "./nas-storage.js";
 
-const KEY = "assistant/vision/2026/08/00000000-0000-0000-0000-000000000001.png";
+const KEY = "assistant/vision/sandbox-chat/2026/08/00000000-0000-0000-0000-000000000001.png";
+const LEGACY_KEY = "assistant/vision/2026/08/00000000-0000-0000-0000-000000000003.png";
 const WMS_KEY = "wms/zones/zone-a/2026/08/00000000-0000-0000-0000-000000000002.png";
 
 afterEach(() => vi.restoreAllMocks());
@@ -70,11 +71,12 @@ describe("NAS storage client", () => {
     await expect(response?.text()).resolves.toBe("image-bytes");
     await expect(client.delete(KEY)).resolves.toBeUndefined();
     expect(fetcher).toHaveBeenCalledTimes(3);
-    expect(String(fetcher.mock.calls[1]?.[0])).toContain("key=assistant%2Fvision%2F2026%2F08%2F00000000-0000-0000-0000-000000000001.png");
+    expect(String(fetcher.mock.calls[1]?.[0])).toContain("key=assistant%2Fvision%2Fsandbox-chat%2F2026%2F08%2F00000000-0000-0000-0000-000000000001.png");
   });
 
   it("不接受任意路徑，gateway 的 HTML 錯誤也不會原樣流入平台", async () => {
     expect(isNasStorageKey(KEY)).toBe(true);
+    expect(isNasStorageKey(LEGACY_KEY)).toBe(true);
     expect(isNasStorageKey("../secret")).toBe(false);
 
     const fetcher = vi.fn<typeof fetch>(async () => new Response("<html>blocked</html>", { status: 403 }));

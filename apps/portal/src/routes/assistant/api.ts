@@ -401,9 +401,10 @@ export function useRunSandbox() {
 export function useUploadSandboxAttachment() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (input: { file: File; chatId: string }) => {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", input.file);
+      form.append("chatId", input.chatId);
       const response = await fetch("/api/assistant/sandbox/attachments", {
         method: "POST",
         credentials: "same-origin",

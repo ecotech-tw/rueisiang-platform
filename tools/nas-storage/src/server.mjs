@@ -142,15 +142,16 @@ function dateParts(now) {
 export function buildObjectKey({ namespace, scope, scopeId, contentType, now = new Date(), objectId = randomUUID() }) {
   const normalizedNamespace = namespace?.trim().toLowerCase();
   const normalizedScope = scope?.trim().toLowerCase();
+  const normalizedScopeId = typeof scopeId === "string" ? scopeId.trim() : undefined;
   const extension = MIME_TO_EXTENSION.get(contentType);
   if (!extension) throw new StorageHttpError(415, "unsupported_content_type", "不支援的圖片格式。 ");
 
   const { year, month } = dateParts(now);
-  if (normalizedNamespace === "assistant" && normalizedScope === "vision" && !scopeId) {
-    return `assistant/vision/${year}/${month}/${objectId}.${extension}`;
+  if (normalizedNamespace === "assistant" && normalizedScope === "vision" && safeScopeId(normalizedScopeId)) {
+    return `assistant/vision/${normalizedScopeId}/${year}/${month}/${objectId}.${extension}`;
   }
-  if (normalizedNamespace === "wms" && normalizedScope === "zones" && safeScopeId(scopeId)) {
-    return `wms/zones/${scopeId}/${year}/${month}/${objectId}.${extension}`;
+  if (normalizedNamespace === "wms" && normalizedScope === "zones" && safeScopeId(normalizedScopeId)) {
+    return `wms/zones/${normalizedScopeId}/${year}/${month}/${objectId}.${extension}`;
   }
   throw new StorageHttpError(400, "invalid_storage_scope", "不支援的儲存 namespace 或 scope。 ");
 }
@@ -164,14 +165,18 @@ function validateObjectKey(key) {
     throw new StorageHttpError(400, "invalid_object_key", "物件 key 無效。 ");
   }
 
-  const isAssistantKey = parts.length === 5
+  const isLegacyAssistantKey = parts.length === 5
     && parts[0] === "assistant"
     && parts[1] === "vision";
+  const isAssistantKey = parts.length === 6
+    && parts[0] === "assistant"
+    && parts[1] === "vision"
+    && safeScopeId(parts[2]);
   const isWmsKey = parts.length === 6
     && parts[0] === "wms"
     && parts[1] === "zones"
     && safeScopeId(parts[2]);
-  const dateIndex = isAssistantKey ? 2 : isWmsKey ? 3 : -1;
+  const dateIndex = isAssistantKey ? 3 : isLegacyAssistantKey ? 2 : isWmsKey ? 3 : -1;
   if (dateIndex < 0 || !/^\d{4}$/.test(parts[dateIndex]) || !/^(0[1-9]|1[0-2])$/.test(parts[dateIndex + 1])) {
     throw new StorageHttpError(400, "invalid_object_key", "物件 key 無效。 ");
   }

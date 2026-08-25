@@ -504,6 +504,11 @@ describe("AI 助理 Sandbox", () => {
 
   it("Sandbox 圖片會把 bytes 放在 NAS、metadata 留在 D1，並受使用者權限保護", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
     env.NAS_STORAGE_URL = "https://storage.test";
     env.NAS_STORAGE_TOKEN = "nas-secret";
     const objects = new Map<string, Uint8Array>();
@@ -513,8 +518,11 @@ describe("AI 助理 Sandbox", () => {
       expect(new Headers(init?.headers).get("x-storage-token")).toBe("nas-secret");
       const method = init?.method ?? "GET";
       if (method === "POST") {
+        expect(url.searchParams.get("namespace")).toBe("assistant");
+        expect(url.searchParams.get("scope")).toBe("vision");
+        expect(url.searchParams.get("scopeId")).toBe(created.session.id);
         const bytes = new Uint8Array(await new Response(init?.body as BodyInit).arrayBuffer());
-        const key = `assistant/vision/2026/08/00000000-0000-0000-0000-${String(++uploadNumber).padStart(12, "0")}.png`;
+        const key = `assistant/vision/${created.session.id}/2026/08/00000000-0000-0000-0000-${String(++uploadNumber).padStart(12, "0")}.png`;
         objects.set(key, bytes);
         return new Response(JSON.stringify({
           object: { key, size: bytes.byteLength, checksum: "0".repeat(64), contentType: "image/png" },
@@ -535,6 +543,7 @@ describe("AI 助理 Sandbox", () => {
       const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
       const form = new FormData();
       form.append("file", new File([bytes as never], "label.png", { type: "image/png" }));
+      form.append("chatId", created.session.id);
       const uploaded = await call("/api/assistant/sandbox/attachments", {
         method: "POST",
         headers: { Cookie: await cookieFor("admin", "admin@ecotech.tw") },
@@ -542,7 +551,7 @@ describe("AI 助理 Sandbox", () => {
       });
       expect(uploaded.status).toBe(201);
       const body = await uploaded.json() as { attachment: { key: string; expiresAt: string } };
-      expect(body.attachment.key).toMatch(/^assistant\/vision\/2026\/08\//);
+      expect(body.attachment.key).toMatch(new RegExp(`^assistant/vision/${created.session.id}/2026/08/`));
       expect(body.attachment.expiresAt).toBeTruthy();
       expect(objects.get(body.attachment.key)).toEqual(bytes);
 
@@ -550,7 +559,7 @@ describe("AI 助理 Sandbox", () => {
       expect(media).toMatchObject({
         objectKey: body.attachment.key,
         namespace: "assistant",
-        scopeKey: "sandbox:admin",
+        scopeKey: `sandbox:${created.session.id}`,
         contentType: "image/png",
         size: bytes.byteLength,
       });

@@ -474,6 +474,17 @@ export const assistant = new Hono<AppEnv>()
     const nas = nasStorageClient(c.env);
     if (!nas) throw new HTTPException(503, { message: "尚未設定 NAS 圖片儲存空間。" });
     const form = await c.req.formData();
+    const chatId = form.get("chatId");
+    if (typeof chatId !== "string" || !chatId.trim()) {
+      throw new HTTPException(400, { message: "圖片附件需要指定 Sandbox chat id。" });
+    }
+    const session = await getAssistantSandboxSession(c.get("db"), {
+      assistantKey: ASSISTANT_KEY,
+      createdBy: c.get("user").id,
+      id: chatId.trim(),
+    });
+    if (!session) throw new HTTPException(404, { message: "找不到這個 Sandbox session。" });
+    if (session.status !== "open") throw new HTTPException(409, { message: "已關閉的 Sandbox session 不能再上傳圖片。" });
     const file = form.get("file") as unknown as UploadedImageFile | string | null;
     if (!file || typeof file === "string") throw new HTTPException(400, { message: "請選擇一張圖片。" });
     if (!SANDBOX_IMAGE_TYPES.has(file.type)) {
@@ -486,6 +497,7 @@ export const assistant = new Hono<AppEnv>()
     const object = await nas.put({
       namespace: "assistant",
       scope: "vision",
+      scopeId: session.id,
       contentType: file.type,
       body: bytes,
     });
@@ -496,7 +508,7 @@ export const assistant = new Hono<AppEnv>()
       media = await recordMediaObject(c.get("db"), {
         objectKey: object.key,
         namespace: "assistant",
-        scopeKey: `sandbox:${c.get("user").id}`,
+        scopeKey: `sandbox:${session.id}`,
         filename,
         contentType: object.contentType,
         size: object.size,

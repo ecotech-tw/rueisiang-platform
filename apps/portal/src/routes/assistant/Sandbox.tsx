@@ -173,7 +173,7 @@ export function Sandbox() {
       uploadAttachment.reset();
       return;
     }
-    uploadAttachment.mutate(file, {
+    uploadAttachment.mutate({ file, chatId: sessionId }, {
       onSuccess: ({ attachment }) => setAttachments((current) => [...current, attachment].slice(0, 4)),
     });
   }

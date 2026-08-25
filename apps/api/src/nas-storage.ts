@@ -3,7 +3,7 @@ import type { Env } from "./env.js";
 const OBJECTS_PATH = "/v1/objects";
 const STORAGE_TOKEN_HEADER = "x-storage-token";
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
-const GENERATED_KEY = /^(assistant\/vision\/\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.[A-Za-z0-9]+|wms\/zones\/[A-Za-z0-9._-]{1,100}\/\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.[A-Za-z0-9]+)$/;
+const GENERATED_KEY = /^(assistant\/vision\/(?:[A-Za-z0-9._-]{1,100}\/)?\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.[A-Za-z0-9]+|wms\/zones\/[A-Za-z0-9._-]{1,100}\/\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.[A-Za-z0-9]+)$/;
 
 export type NasStorageNamespace = "assistant" | "wms";
 
@@ -17,6 +17,7 @@ export interface NasStorageObject {
 export interface NasStoragePutInput {
   namespace: NasStorageNamespace;
   scope: "vision" | "zones";
+  /** assistant vision uses the chat/session id; WMS zones use the zone id. */
   scopeId?: string;
   contentType: string;
   body: ArrayBuffer;
@@ -158,6 +159,9 @@ function requestHeaders(token: string, contentType?: string): HeadersInit {
 function validatePutInput(input: NasStoragePutInput): void {
   if (input.namespace === "assistant" && input.scope !== "vision") {
     throw new NasStorageError(400, "invalid_scope", "assistant namespace 只支援 vision scope。");
+  }
+  if (input.namespace === "assistant" && !input.scopeId) {
+    throw new NasStorageError(400, "invalid_scope_id", "assistant vision upload 需要 chat id。");
   }
   if (input.namespace === "wms" && input.scope !== "zones") {
     throw new NasStorageError(400, "invalid_scope", "wms namespace 只支援 zones scope。");

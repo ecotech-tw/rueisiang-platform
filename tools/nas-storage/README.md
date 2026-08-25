@@ -10,7 +10,7 @@
 ```text
 /volume1/rueisiang-platform/
 ├── assistant/
-│   └── vision/
+│   └── vision/<chat-id>/
 └── wms/
     └── zones/
 ```
@@ -18,7 +18,7 @@
 gateway 會依 namespace 與 scope 自動產生物件 key：
 
 ```text
-assistant/vision/<yyyy>/<mm>/<uuid>.<ext>
+assistant/vision/<chat-id>/<yyyy>/<mm>/<uuid>.<ext>
 wms/zones/<zone-id>/<yyyy>/<mm>/<uuid>.<ext>
 ```
 
@@ -31,7 +31,7 @@ wms/zones/<zone-id>/<yyyy>/<mm>/<uuid>.<ext>
 ### Upload
 
 ```http
-POST /v1/objects?namespace=assistant&scope=vision
+POST /v1/objects?namespace=assistant&scope=vision&scopeId=<chat-id>
 x-storage-token: <storage-token>
 Content-Type: image/jpeg
 

@@ -35,15 +35,19 @@ test("storage token uses a timing-safe comparison", () => {
 test("object keys are generated inside the allowed namespace layouts", () => {
   const now = new Date("2026-08-24T08:00:00.000Z");
   assert.match(
-    buildObjectKey({ namespace: "assistant", scope: "vision", contentType: "image/jpeg", now }),
-    /^assistant\/vision\/2026\/08\/[0-9a-f-]+\.jpg$/,
+    buildObjectKey({ namespace: "assistant", scope: "vision", scopeId: "sandbox-chat", contentType: "image/jpeg", now }),
+    /^assistant\/vision\/sandbox-chat\/2026\/08\/[0-9a-f-]+\.jpg$/,
   );
   assert.match(
     buildObjectKey({ namespace: "wms", scope: "zones", scopeId: "zone-a", contentType: "image/png", now }),
     /^wms\/zones\/zone-a\/2026\/08\/[0-9a-f-]+\.png$/,
   );
   assert.throws(
-    () => buildObjectKey({ namespace: "assistant", scope: "vision", scopeId: "unexpected", contentType: "image/jpeg", now }),
+    () => buildObjectKey({ namespace: "assistant", scope: "vision", contentType: "image/jpeg", now }),
+    /儲存 namespace 或 scope/,
+  );
+  assert.throws(
+    () => buildObjectKey({ namespace: "assistant", scope: "vision", scopeId: "../secret", contentType: "image/jpeg", now }),
     /儲存 namespace 或 scope/,
   );
 });
@@ -55,7 +59,7 @@ test("health is public but object writes require the separate storage token", as
     assert.equal(health.status, 200);
     assert.deepEqual(await health.json(), { ok: true });
 
-    const response = await fetch(`${context.baseUrl}/v1/objects?namespace=assistant&scope=vision`, {
+    const response = await fetch(`${context.baseUrl}/v1/objects?namespace=assistant&scope=vision&scopeId=chat-a`, {
       method: "POST",
       headers: { "content-type": "image/jpeg" },
       body: Buffer.from("private image"),
@@ -74,7 +78,7 @@ test("upload, head, download and delete use the generated key", async () => {
   const context = await startServer({ now: () => new Date("2026-08-24T08:00:00.000Z") });
   try {
     const payload = Buffer.from("private jpeg bytes");
-    const upload = await fetch(`${context.baseUrl}/v1/objects?namespace=assistant&scope=vision`, {
+    const upload = await fetch(`${context.baseUrl}/v1/objects?namespace=assistant&scope=vision&scopeId=chat-a`, {
       method: "POST",
       headers: {
         "content-type": "image/jpeg",
@@ -85,7 +89,7 @@ test("upload, head, download and delete use the generated key", async () => {
     assert.equal(upload.status, 201);
     const uploaded = await upload.json();
     const object = uploaded.object;
-    assert.match(object.key, /^assistant\/vision\/2026\/08\/[0-9a-f-]+\.jpg$/);
+    assert.match(object.key, /^assistant\/vision\/chat-a\/2026\/08\/[0-9a-f-]+\.jpg$/);
     assert.equal(object.contentType, "image/jpeg");
     assert.equal(object.size, payload.length);
     assert.equal(object.checksum.length, 64);
@@ -157,7 +161,7 @@ test("WMS uploads require a safe zone id and path traversal never reaches the fi
 test("unsupported formats and oversized bodies are rejected before they become objects", async () => {
   const context = await startServer({ maxObjectBytes: 4 });
   try {
-    const typeError = await fetch(`${context.baseUrl}/v1/objects?namespace=assistant&scope=vision`, {
+    const typeError = await fetch(`${context.baseUrl}/v1/objects?namespace=assistant&scope=vision&scopeId=chat-a`, {
       method: "POST",
       headers: {
         "content-type": "text/plain",
@@ -167,7 +171,7 @@ test("unsupported formats and oversized bodies are rejected before they become o
     });
     assert.equal(typeError.status, 415);
 
-    const tooLarge = await fetch(`${context.baseUrl}/v1/objects?namespace=assistant&scope=vision`, {
+    const tooLarge = await fetch(`${context.baseUrl}/v1/objects?namespace=assistant&scope=vision&scopeId=chat-a`, {
       method: "POST",
       headers: {
         "content-type": "image/jpeg",

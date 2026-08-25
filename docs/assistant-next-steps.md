@@ -11,13 +11,13 @@ NAS 目錄：
 ```text
 /volume1/rueisiang-platform/
 ├── assistant/
-│   └── vision/<yyyy>/<mm>/<object-id>.<ext>
+│   └── vision/<chat-id>/<yyyy>/<mm>/<object-id>.<ext>
 └── wms/
     └── zones/<zone-id>/<yyyy>/<mm>/<object-id>.<ext>
 ```
 
 - [ ] 建立 NAS 備份、保留期限、quota、重試與 orphan object reconciliation；storage gateway 不可因為單一圖片失敗拖垮一般文字對話。
-- [ ] 接收 LINE image event：以 `messageId` 從 LINE Content API 取回 bytes，依 conversation scope 保存到 `assistant/vision/...`，並套用標註、群組授權與 expiry 規則。
+- [ ] 接收 LINE image event：以 `messageId` 從 LINE Content API 取回 bytes，依 LINE chat id 保存到 `assistant/vision/<chat-id>/...`，並套用標註、群組授權與 expiry 規則。
 
 ### 2. MCP tools
 
