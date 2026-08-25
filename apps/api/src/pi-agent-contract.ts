@@ -11,6 +11,15 @@ export interface PiLineAgentContext {
   contextGeneration: string;
 }
 
+export interface PiAgentAttachment {
+  key: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  checksum: string;
+  expiresAt?: string | null;
+}
+
 export interface PiLineAgentRunRequest extends PiLineAgentContext {
   /** 用來從既有 D1 訊息回填 transcript 時排除這次已寫入的 webhook 事件。 */
   webhookEventId: string;
@@ -19,6 +28,7 @@ export interface PiLineAgentRunRequest extends PiLineAgentContext {
   systemPrompt: string;
   userText: string;
   toolKeys: string[];
+  attachments?: PiAgentAttachment[];
 }
 
 export interface PiLineAgentRunResponse {
@@ -43,6 +53,7 @@ export interface PiSandboxAgentRunRequest extends PiSandboxAgentContext {
   systemPrompt: string;
   userText: string;
   toolKeys: string[];
+  attachments?: PiAgentAttachment[];
 }
 
 export type PiSandboxAgentRunResponse = PiLineAgentRunResponse;

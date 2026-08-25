@@ -64,8 +64,16 @@ export {
   type AssistantRunStatus,
   type AssistantSandboxMessageRole,
   type AssistantSandboxSessionStatus,
+  type StoredMediaAttachment,
 } from "./assistant.js";
 export * as schema from "./schema/index.js";
+export {
+  deleteMediaObject,
+  findMediaObject,
+  listExpiredMediaObjects,
+  recordMediaObject,
+  type MediaObjectInput,
+} from "./media.js";
 export { GLOBAL_SCOPE, type Role, type User, type UserRole } from "./schema/auth.js";
 export { countOtherActiveAdmins, loadAuthUser, recordLogin, updateProfile } from "./users.js";
 export { syncSystemRoles } from "./seed.js";

@@ -497,8 +497,16 @@
 .assistant-tool-call-args pre { max-height: 180px; margin: 5px 0 0; padding: 7px; overflow: auto; border-radius: 6px; background: var(--color-paper); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .assistant-failed-run { margin: 0 10px 10px; padding: 0 8px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-canvas); }
 .assistant-message-duration { display: block; margin-top: 8px; color: var(--color-muted); font-size: 11px; text-align: right; }
+.assistant-message-attachments { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+.assistant-message-attachments img { width: 132px; height: 96px; object-fit: cover; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-canvas); }
 .assistant-chat-panel .assistant-input { min-height: 72px; max-height: 120px; }
 .assistant-chat-panel > .field { flex: none; gap: 4px; }
+.assistant-attachment-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; color: var(--color-secondary); font-size: 12px; }
+.assistant-attachment-picker input { max-width: 230px; color: var(--color-muted); font: inherit; }
+.assistant-attachment-picker small { color: var(--color-muted); }
+.assistant-pending-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 5px 0 7px; }
+.assistant-pending-attachments button { padding: 5px 8px; border: 1px solid var(--color-line); border-radius: 999px; background: var(--color-canvas); color: var(--color-ink); font: inherit; font-size: 12px; cursor: pointer; }
+.assistant-pending-attachments button:hover { border-color: var(--color-secondary); background: var(--color-brand-soft); }
 .assistant-input-wrap { position: relative; }
 .assistant-input-wrap .assistant-input { padding-bottom: 27px; }
 .assistant-input-shortcut { position: absolute; right: 10px; bottom: 7px; pointer-events: none; color: var(--color-muted); opacity: .65; font-size: 11px; }

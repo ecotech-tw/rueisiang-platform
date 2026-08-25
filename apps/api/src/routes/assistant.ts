@@ -21,6 +21,7 @@ import {
   ensureAssistantLineChannel,
   ensureAssistantDefaults,
   findAssistantLineGroup,
+  findMediaObject,
   getAssistantConfig,
   getAssistantSandboxSession,
   findAssistantPromptRevision,
@@ -34,6 +35,7 @@ import {
   listAssistantSandboxSessions,
   listAssistantToolConfigs,
   recordAssistantRun,
+  recordMediaObject,
   setActiveAssistantModel,
   setAssistantChannelTools,
   setAssistantChatTools,
@@ -45,6 +47,7 @@ import {
   updateAssistantSandboxSessionModel,
   upsertAssistantLineGroup,
   type AssistantLineSourceType,
+  type StoredMediaAttachment,
 } from "@rueisiang/db";
 import { can, type Permission } from "@rueisiang/auth";
 import { Hono } from "hono";
@@ -65,12 +68,23 @@ import {
   piCodexModels,
 } from "../pi-agent-models.js";
 import { body, requireString } from "../request.js";
+import { isNasStorageKey, nasStorageClient } from "../nas-storage.js";
 
 const TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("sandbox"));
 const LINE_TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("line"));
 const LINE_TOOL_KEYS_LIST = LINE_TOOL_DEFINITIONS.map((tool) => tool.key);
 const LINE_TOOL_KEYS = new Set(LINE_TOOL_KEYS_LIST);
 const TOOL_MAP = PLATFORM_TOOL_MAP;
+const SANDBOX_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const SANDBOX_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const SANDBOX_ATTACHMENT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+
+interface UploadedImageFile {
+  name: string;
+  type: string;
+  size: number;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
 
 function isAssistantLineSourceType(value: unknown): value is AssistantLineSourceType {
   return value === "group" || value === "room" || value === "user";
@@ -320,6 +334,7 @@ async function sandboxSessionResponse(db: AppEnv["Variables"]["db"], input: { id
       model: message.model,
       thoughts: message.thoughts,
       toolCalls: readSandboxToolCalls(message.toolCalls),
+      attachments: readSandboxAttachments(message.attachments),
       durationMs: message.durationMs,
       createdAt: message.createdAt,
     })),
@@ -355,11 +370,154 @@ function readSandboxToolCalls(value: string): AssistantToolCall[] {
   }
 }
 
+function readSandboxAttachments(value: string): StoredMediaAttachment[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const attachment = item as Record<string, unknown>;
+      const key = typeof attachment.key === "string" ? attachment.key : attachment.objectKey;
+      if (
+        typeof key !== "string"
+        || !isNasStorageKey(key)
+        || typeof attachment.filename !== "string"
+        || typeof attachment.contentType !== "string"
+        || typeof attachment.size !== "number"
+        || typeof attachment.checksum !== "string"
+      ) return [];
+      return [{
+        key,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        size: attachment.size,
+        checksum: attachment.checksum,
+        expiresAt: typeof attachment.expiresAt === "string" ? attachment.expiresAt : null,
+      } satisfies StoredMediaAttachment];
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function sandboxAttachments(
+  db: AppEnv["Variables"]["db"],
+  value: unknown,
+  userId: string,
+): Promise<StoredMediaAttachment[]> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 4) {
+    throw new HTTPException(400, { message: "圖片附件最多只能有 4 張。" });
+  }
+  const attachments: StoredMediaAttachment[] = [];
+  let totalSize = 0;
+  for (const item of value) {
+    if (!item || typeof item !== "object") throw new HTTPException(400, { message: "圖片附件格式不正確。" });
+    const key = (item as Record<string, unknown>).key;
+    if (typeof key !== "string" || !isNasStorageKey(key)) {
+      throw new HTTPException(400, { message: "圖片附件 key 不正確。" });
+    }
+    const media = await findMediaObject(db, key);
+    if (!media || media.namespace !== "assistant" || media.createdBy !== userId) {
+      throw new HTTPException(403, { message: "沒有使用這張圖片附件的權限。" });
+    }
+    if (media.expiresAt && Date.parse(media.expiresAt) <= Date.now()) {
+      throw new HTTPException(400, { message: `圖片附件「${media.filename}」已過期，請重新上傳。` });
+    }
+    if (!SANDBOX_IMAGE_TYPES.has(media.contentType)) {
+      throw new HTTPException(400, { message: "目前只支援 JPEG、PNG、WebP 或 GIF 圖片。" });
+    }
+    totalSize += media.size;
+    if (totalSize > 10 * 1024 * 1024) {
+      throw new HTTPException(400, { message: "單次對話圖片總大小不能超過 10 MB。" });
+    }
+    attachments.push({
+      key: media.objectKey,
+      filename: media.filename,
+      contentType: media.contentType,
+      size: media.size,
+      checksum: media.checksum,
+      expiresAt: media.expiresAt,
+    });
+  }
+  return attachments;
+}
+
 export const assistant = new Hono<AppEnv>()
   .use("*", requireAuth)
 
   .get("/sandbox/config", requireAnyPermission("assistant:sandbox:read", "assistant:settings:read"), async (c) => {
     return c.json(await sandboxConfig(c.env, c.get("db")));
+  })
+
+  .get("/sandbox/attachments", requirePermission("assistant:sandbox:read"), async (c) => {
+    const key = c.req.query("key")?.trim();
+    if (!key || !isNasStorageKey(key)) throw new HTTPException(400, { message: "圖片附件 key 不正確。" });
+    const media = await findMediaObject(c.get("db"), key);
+    if (!media || media.namespace !== "assistant" || media.createdBy !== c.get("user").id) {
+      throw new HTTPException(404, { message: "找不到這張圖片附件。" });
+    }
+    if (media.expiresAt && Date.parse(media.expiresAt) <= Date.now()) {
+      throw new HTTPException(404, { message: "這張圖片附件已過期。" });
+    }
+    const nas = nasStorageClient(c.env);
+    if (!nas) throw new HTTPException(503, { message: "尚未設定 NAS 圖片儲存空間。" });
+    const object = await nas.get(media.objectKey);
+    if (!object) throw new HTTPException(404, { message: "圖片檔案已經不在了。" });
+    const headers = new Headers(object.headers);
+    headers.set("Content-Type", media.contentType);
+    headers.set("Cache-Control", "private, max-age=3600");
+    return new Response(object.body, { headers });
+  })
+
+  .post("/sandbox/attachments", requirePermission("assistant:sandbox:write"), async (c) => {
+    const nas = nasStorageClient(c.env);
+    if (!nas) throw new HTTPException(503, { message: "尚未設定 NAS 圖片儲存空間。" });
+    const form = await c.req.formData();
+    const file = form.get("file") as unknown as UploadedImageFile | string | null;
+    if (!file || typeof file === "string") throw new HTTPException(400, { message: "請選擇一張圖片。" });
+    if (!SANDBOX_IMAGE_TYPES.has(file.type)) {
+      throw new HTTPException(400, { message: "只支援 JPEG、PNG、WebP 或 GIF 圖片。" });
+    }
+    if (file.size <= 0 || file.size > SANDBOX_IMAGE_MAX_BYTES) {
+      throw new HTTPException(400, { message: "圖片大小必須大於 0 且不能超過 5 MB。" });
+    }
+    const bytes = await file.arrayBuffer();
+    const object = await nas.put({
+      namespace: "assistant",
+      scope: "vision",
+      contentType: file.type,
+      body: bytes,
+    });
+    const filename = file.name.trim().slice(0, 200) || "image";
+    const expiresAt = new Date(Date.now() + SANDBOX_ATTACHMENT_TTL_MS).toISOString();
+    let media;
+    try {
+      media = await recordMediaObject(c.get("db"), {
+        objectKey: object.key,
+        namespace: "assistant",
+        scopeKey: `sandbox:${c.get("user").id}`,
+        filename,
+        contentType: object.contentType,
+        size: object.size,
+        checksum: object.checksum,
+        createdBy: c.get("user").id,
+        expiresAt,
+      });
+    } catch (error) {
+      await nas.delete(object.key).catch(() => {});
+      throw error;
+    }
+    return c.json({
+      attachment: {
+        key: media.objectKey,
+        filename: media.filename,
+        contentType: media.contentType,
+        size: media.size,
+        checksum: media.checksum,
+        expiresAt: media.expiresAt,
+      },
+    }, 201);
   })
 
   .get("/sandbox/sessions", requirePermission("assistant:sandbox:read"), async (c) => {
@@ -628,7 +786,7 @@ export const assistant = new Hono<AppEnv>()
 
   .post("/sandbox/run", requirePermission("assistant:sandbox:write"), async (c) => {
     const input = await body(c);
-    const userText = requireString(input, "input", "測試內容");
+    const userText = typeof input.input === "string" ? input.input.trim() : "";
     if (userText.length > 8_000) throw new HTTPException(400, { message: "測試內容不能超過 8,000 字元。" });
 
     await ensureDefaults(c.env, c.get("db"));
@@ -648,6 +806,13 @@ export const assistant = new Hono<AppEnv>()
       ?? session?.model
       ?? activeAssistantModel(c.env, assistantConfig?.activeModel);
     const model = await usableSandboxModel(c.env, modelId);
+    const attachments = await sandboxAttachments(c.get("db"), input.attachments, c.get("user").id);
+    if (!userText && !attachments.length) {
+      throw new HTTPException(400, { message: "請輸入測試內容或附加至少一張圖片。" });
+    }
+    if (attachments.length && !model.supportsVision) {
+      throw new HTTPException(400, { message: "目前選擇的模型不支援圖片輸入，請切換到支援 vision 的模型。" });
+    }
     if (session && session.model !== model.id) {
       await updateAssistantSandboxSessionModel(c.get("db"), {
         assistantKey: ASSISTANT_KEY,
@@ -710,6 +875,14 @@ export const assistant = new Hono<AppEnv>()
         systemPrompt,
         userText,
         toolKeys,
+        attachments: attachments.map((attachment) => ({
+          key: attachment.key,
+          filename: attachment.filename,
+          contentType: attachment.contentType,
+          size: attachment.size,
+          checksum: attachment.checksum,
+          expiresAt: attachment.expiresAt,
+        })),
       });
       const result = piResponse.result;
       const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
@@ -730,7 +903,12 @@ export const assistant = new Hono<AppEnv>()
         toolCalls: result.toolCalls,
       });
       if (session) {
-        await appendAssistantSandboxMessage(c.get("db"), { sessionId: session.id, role: "user", text: userText });
+        await appendAssistantSandboxMessage(c.get("db"), {
+          sessionId: session.id,
+          role: "user",
+          text: userText,
+          attachments,
+        });
         await appendAssistantSandboxMessage(c.get("db"), {
           sessionId: session.id,
           role: "model",
@@ -746,6 +924,14 @@ export const assistant = new Hono<AppEnv>()
         sessionId: session?.id ?? null,
         text: result.text,
         thoughts: result.thoughts,
+        attachments: attachments.map((attachment) => ({
+          key: attachment.key,
+          filename: attachment.filename,
+          contentType: attachment.contentType,
+          size: attachment.size,
+          checksum: attachment.checksum,
+          expiresAt: attachment.expiresAt,
+        })),
         model: model.id,
         promptRevision: prompt.revision,
         usage: result.usage,

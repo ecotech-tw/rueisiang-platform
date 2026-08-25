@@ -32,7 +32,17 @@ let d1: ReturnType<typeof createLocalD1>;
 let uploads: ReturnType<typeof createLocalR2>;
 let db: ReturnType<typeof createDatabase>;
 
-const env = () => ({
+type TestEnv = {
+  DB: ReturnType<typeof createLocalD1>;
+  UPLOADS?: ReturnType<typeof createLocalR2>;
+  AUTH_SESSION_SECRET: string;
+  GOOGLE_OAUTH_CLIENT_ID: string;
+  GOOGLE_OAUTH_CLIENT_SECRET: string;
+  NAS_STORAGE_URL?: string;
+  NAS_STORAGE_TOKEN?: string;
+};
+
+const env = (): TestEnv => ({
   DB: d1,
   UPLOADS: uploads,
   AUTH_SESSION_SECRET: SECRET,
@@ -56,7 +66,7 @@ async function seedUser(email: string, roleId: string | null) {
   return id;
 }
 
-async function as(userId: string, email: string, path: string, init: RequestInit = {}) {
+async function as(userId: string, email: string, path: string, init: RequestInit = {}, runtimeEnv = env()) {
   const token = await signSession(
     newSessionClaims({ id: userId, email, name: "測試", pictureUrl: "" }),
     SECRET,
@@ -75,7 +85,7 @@ async function as(userId: string, email: string, path: string, init: RequestInit
         ...(init.headers ?? {}),
       },
     }),
-    env() as never,
+    runtimeEnv as never,
   );
 }
 
@@ -552,11 +562,54 @@ describe("畫布設定", () => {
 describe("倉位現場照片", () => {
   const PIXEL = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
+  afterEach(() => vi.unstubAllGlobals());
+
   function upload(bytes: Uint8Array = PIXEL, name = "shelf.png", type = "image/png") {
     const form = new FormData();
     // Workers 的型別裡沒有 BlobPart，測試跑在 Node 上所以實際型別是對的。
     form.append("file", new File([bytes as never], name, { type }));
     return form;
+  }
+
+  function nasEnv() {
+    return {
+      ...env(),
+      UPLOADS: undefined,
+      NAS_STORAGE_URL: "https://storage.test",
+      NAS_STORAGE_TOKEN: "nas-secret",
+    };
+  }
+
+  function stubNasStorage() {
+    const objects = new Map<string, Uint8Array>();
+    let uploadNumber = 0;
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(String(input));
+      expect(new Headers(init?.headers).get("x-storage-token")).toBe("nas-secret");
+      const method = init?.method ?? "GET";
+
+      if (method === "POST") {
+        const bytes = new Uint8Array(await new Response(init?.body as BodyInit).arrayBuffer());
+        const key = `wms/zones/z1/2026/08/00000000-0000-0000-0000-${String(++uploadNumber).padStart(12, "0")}.png`;
+        objects.set(key, bytes);
+        return new Response(JSON.stringify({
+          object: { key, size: bytes.byteLength, checksum: "0".repeat(64), contentType: "image/png" },
+        }), { status: 201, headers: { "content-type": "application/json" } });
+      }
+
+      const key = url.searchParams.get("key") ?? "";
+      if (method === "GET") {
+        const bytes = objects.get(key);
+        return bytes ? new Response(bytes, { status: 200, headers: { "content-type": "image/png" } }) : new Response(null, { status: 404 });
+      }
+      if (method === "DELETE") {
+        objects.delete(key);
+        return new Response(null, { status: 200 });
+      }
+      return new Response(null, { status: 405 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    return objects;
   }
 
   beforeEach(async () => {
@@ -576,6 +629,28 @@ describe("倉位現場照片", () => {
     expect(read.status).toBe(200);
     expect(read.headers.get("content-type")).toBe("image/png");
     expect(new Uint8Array(await read.arrayBuffer())).toEqual(PIXEL);
+  });
+
+  it("設定 NAS 時新照片寫入 NAS，舊 R2 路徑仍由既有測試覆蓋", async () => {
+    const objects = stubNasStorage();
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    const created = await as(id, "admin@ecotech.tw", "/api/wms/zones/z1/images", {
+      method: "POST",
+      body: upload(),
+    }, nasEnv());
+    expect(created.status).toBe(201);
+    const { id: imageId } = await created.json() as { id: string };
+    const [row] = await db.select().from(zoneImages);
+    expect(row!.objectKey).toMatch(/^wms\/zones\/z1\/2026\/08\//);
+    expect(objects.size).toBe(1);
+
+    const read = await as(id, "admin@ecotech.tw", `/api/wms/images/${imageId}`, {}, nasEnv());
+    expect(read.status).toBe(200);
+    expect(new Uint8Array(await read.arrayBuffer())).toEqual(PIXEL);
+
+    const deleted = await as(id, "admin@ecotech.tw", `/api/wms/images/${imageId}`, { method: "DELETE" }, nasEnv());
+    expect(deleted.status).toBe(200);
+    expect(objects.size).toBe(0);
   });
 
   it("不是圖片就擋下來，而且不會留下索引", async () => {

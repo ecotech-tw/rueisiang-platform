@@ -42,6 +42,15 @@ export type AssistantSandboxMessageRole = "user" | "model";
 export type AssistantLineSourceType = "group" | "room" | "user";
 export const DEFAULT_ASSISTANT_LINE_DISPLAY_NAME = "Rueisiang 小香";
 
+export interface StoredMediaAttachment {
+  key: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  checksum: string;
+  expiresAt?: string | null;
+}
+
 /**
  * 取得（必要時建立）某個 assistant 的 LINE channel。
  *
@@ -980,6 +989,7 @@ export async function appendAssistantSandboxMessage(
     model?: string;
     thoughts?: string;
     toolCalls?: RecordedToolCall[];
+    attachments?: StoredMediaAttachment[];
     durationMs?: number;
   },
 ): Promise<AssistantSandboxMessage> {
@@ -1006,6 +1016,7 @@ export async function appendAssistantSandboxMessage(
       model: input.model ?? "",
       thoughts: input.thoughts ?? "",
       toolCalls: JSON.stringify(input.toolCalls ?? []),
+      attachments: JSON.stringify(input.attachments ?? []),
       durationMs: Math.max(0, Math.round(input.durationMs ?? 0)),
       createdAt,
     }),

@@ -10,9 +10,11 @@ import {
   useSandboxSessions,
   useSaveAssistantModel,
   useSavePrompt,
+  useUploadSandboxAttachment,
   AssistantApiError,
   type SandboxToolCall,
   type PromptRevision,
+  type SandboxAttachment,
 } from "./api.js";
 
 function formatDate(value: string): string {
@@ -67,11 +69,13 @@ export function Sandbox() {
   const sessions = useSandboxSessions();
   const createSession = useCreateSandboxSession();
   const closeSession = useCloseSandboxSession();
+  const uploadAttachment = useUploadSandboxAttachment();
   const [model, setModel] = useState("");
   const [promptId, setPromptId] = useState("");
   const [prompt, setPrompt] = useState("");
   const [input, setInput] = useState("台北現在的天氣如何？");
   const [toolKeys, setToolKeys] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<SandboxAttachment[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [toolsOpen, setToolsOpen] = useState(false);
   const [revisionsOpen, setRevisionsOpen] = useState(false);
@@ -140,20 +144,38 @@ export function Sandbox() {
 
   function submitRun() {
     const submittedInput = input.trim();
-    if (!promptId || !modelReady || !submittedInput || !sessionId || !sessionOpen) return;
+    const submittedAttachments = attachments;
+    if (!promptId || !modelReady || (!submittedInput && !submittedAttachments.length) || !sessionId || !sessionOpen) return;
     setInput("");
+    setAttachments([]);
     setFailedRun(null);
     run.mutate(
-      { sessionId, model, promptRevisionId: promptId, toolKeys, input: submittedInput },
+      { sessionId, model, promptRevisionId: promptId, toolKeys, input: submittedInput, attachments: submittedAttachments },
       {
         onError: (error) => {
           setInput(submittedInput);
+          setAttachments(submittedAttachments);
           if (error instanceof AssistantApiError && error.toolCalls.length) {
             setFailedRun({ runId: error.runId, toolCalls: error.toolCalls });
           }
         },
       },
     );
+  }
+
+  function selectAttachment(file: File | undefined) {
+    if (!file) return;
+    if (!selectedModel?.supportsVision) {
+      uploadAttachment.reset();
+      return;
+    }
+    if (!/^image\/(jpeg|png|webp|gif)$/i.test(file.type) || file.size <= 0 || file.size > 5 * 1024 * 1024) {
+      uploadAttachment.reset();
+      return;
+    }
+    uploadAttachment.mutate(file, {
+      onSuccess: ({ attachment }) => setAttachments((current) => [...current, attachment].slice(0, 4)),
+    });
   }
 
   function createFreshSession() {
@@ -211,7 +233,7 @@ export function Sandbox() {
                   </optgroup>
                 </select>
                 <small>{selectedModel?.note ?? "GPT 使用 ChatGPT OAuth；Gemini 使用 Cloudflare secret 裡的 API key。"}</small>
-                {selectedModel?.supportsVision ? <small>此模型支援圖片輸入；上傳介面會在 vision PR 加入。</small> : null}
+                {selectedModel?.supportsVision ? <small>此模型支援圖片輸入，可在下方附加 JPEG、PNG、WebP 或 GIF。</small> : null}
                 <small>目前小香正式使用：{data.models.find((item) => item.id === data.activeModel)?.label ?? data.activeModel}</small>
                 {!sessionId ? <small>尚未選擇 session，建立新 session 時會使用目前小香的 active model 與 active revision。</small> : null}
                 {sessionOpen ? <small>目前 session 可直接切換模型；下一次送出時會套用選取的模型。</small> : null}
@@ -337,6 +359,18 @@ export function Sandbox() {
                     <ToolCallList calls={message.toolCalls} />
                   </details>
                 ) : null}
+                {message.attachments?.length ? (
+                  <div className="assistant-message-attachments">
+                    {message.attachments.map((attachment) => (
+                      <img
+                        key={attachment.key}
+                        src={`/api/assistant/sandbox/attachments?key=${encodeURIComponent(attachment.key)}`}
+                        alt={attachment.filename}
+                        loading="lazy"
+                      />
+                    ))}
+                  </div>
+                ) : null}
                 {message.role === "model" ? (
                   <small className="assistant-message-duration">本次總耗時 · {message.durationMs.toLocaleString()} ms</small>
                 ) : null}
@@ -354,6 +388,29 @@ export function Sandbox() {
         ) : null}
         <label className="field">
           <span>輸入內容</span>
+          <div className="assistant-attachment-picker">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              disabled={!sessionOpen || run.isPending || uploadAttachment.isPending || !selectedModel?.supportsVision}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                selectAttachment(file);
+              }}
+            />
+            <span>{uploadAttachment.isPending ? "圖片上傳中…" : "附加圖片"}</span>
+            {!selectedModel?.supportsVision ? <small>目前模型不支援圖片輸入</small> : null}
+          </div>
+          {attachments.length ? (
+            <div className="assistant-pending-attachments">
+              {attachments.map((attachment) => (
+                <button type="button" key={attachment.key} onClick={() => setAttachments((current) => current.filter((item) => item.key !== attachment.key))}>
+                  {attachment.filename} ×
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="assistant-input-wrap">
             <textarea
               className="assistant-input"
@@ -372,7 +429,7 @@ export function Sandbox() {
           </div>
         </label>
         <div className="assistant-actions">
-          <button type="button" className="primary-button" disabled={!modelReady || run.isPending || !input.trim() || !sessionOpen} onClick={submitRun}>
+          <button type="button" className="primary-button" disabled={!modelReady || run.isPending || (!input.trim() && !attachments.length) || !sessionOpen} onClick={submitRun}>
             {run.isPending ? "小香思考中…" : "送出"}
           </button>
           <span className="form-hint">

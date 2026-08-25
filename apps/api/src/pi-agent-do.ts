@@ -11,6 +11,7 @@ import type {
   Api,
   AssistantMessage,
   Context,
+  ImageContent,
   Model,
   Models,
   ModelsSimpleStreamOptions,
@@ -19,6 +20,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import {
   findAssistantLineGroup,
+  findMediaObject,
   getAssistantSandboxSession,
   getAssistantLineChannel,
   listAssistantLineMessages,
@@ -36,6 +38,7 @@ import type { AssistantRunResult, AssistantToolCall, JsonSchemaProperty } from "
 import type { Env } from "./env.js";
 import { DEFAULT_PI_CODEX_MODEL } from "./pi-agent.js";
 import type {
+  PiAgentAttachment,
   PiLineAgentResetRequest,
   PiLineAgentResetResponse,
   PiLineAgentRunRequest,
@@ -43,6 +46,7 @@ import type {
   PiAgentRunResponse,
   PiSandboxAgentRunRequest,
 } from "./pi-agent-contract.js";
+import { isNasStorageKey, nasStorageClient } from "./nas-storage.js";
 import {
   PI_CODEX_PROVIDER_ID,
   isPiAssistantModel,
@@ -65,6 +69,17 @@ const FORCE_COMPACT_AFTER_TOKENS = 80_000;
 const MODEL_REQUEST_TIMEOUT_MS = 25_000;
 const MODEL_MAX_OUTPUT_TOKENS = 1_200;
 const LINE_MAX_REPLY_CHARS = 4_500;
+const MAX_HYDRATED_IMAGE_BYTES = 8 * 1024 * 1024;
+const IMAGE_MARKER_PREFIX = "[[nas-image:";
+const IMAGE_MARKER_SUFFIX = "]]";
+const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+interface ImageMarker {
+  key: string;
+  contentType: string;
+  size?: number;
+  expiresAt?: string | null;
+}
 
 interface AgentStateRow extends Record<string, SqlStorageValue> {
   generation: string;
@@ -94,6 +109,7 @@ interface SandboxBootstrapMessage {
   role: "user" | "model";
   text: string;
   model?: string;
+  attachments?: PiAgentAttachment[];
 }
 
 interface ToolExecutionContext {
@@ -147,7 +163,26 @@ function isRunFields(input: Record<string, unknown>): boolean {
     && nonEmptyString(input.systemPrompt)
     && typeof input.userText === "string"
     && Array.isArray(input.toolKeys)
-    && input.toolKeys.every(nonEmptyString);
+    && input.toolKeys.every(nonEmptyString)
+    && (input.attachments === undefined || isAttachments(input.attachments));
+}
+
+function isAttachments(value: unknown): value is PiAgentAttachment[] {
+  return Array.isArray(value)
+    && value.length <= 4
+    && value.every((item) => {
+      if (!item || typeof item !== "object") return false;
+      const attachment = item as Record<string, unknown>;
+      return nonEmptyString(attachment.key)
+        && isNasStorageKey(attachment.key)
+        && nonEmptyString(attachment.filename)
+        && SUPPORTED_IMAGE_TYPES.has(String(attachment.contentType))
+        && typeof attachment.size === "number"
+        && Number.isSafeInteger(attachment.size)
+        && attachment.size > 0
+        && typeof attachment.checksum === "string"
+        && /^[0-9a-f]{64}$/u.test(attachment.checksum);
+    });
 }
 
 function isRunRequest(value: unknown): value is PiAgentRunRequest {
@@ -222,6 +257,76 @@ function thoughtContent(messages: AgentMessage[]): string {
     : []).join("\n\n").trim();
 }
 
+function base64(bytes: Uint8Array): string {
+  let result = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    result += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(result);
+}
+
+function imageMarker(attachment: PiAgentAttachment): string {
+  return `${IMAGE_MARKER_PREFIX}${encodeURIComponent(JSON.stringify({
+    key: attachment.key,
+    contentType: attachment.contentType,
+    size: attachment.size,
+    expiresAt: attachment.expiresAt ?? null,
+  }))}${IMAGE_MARKER_SUFFIX}`;
+}
+
+function parseImageMarker(value: string): ImageMarker | null {
+  if (!value.startsWith(IMAGE_MARKER_PREFIX) || !value.endsWith(IMAGE_MARKER_SUFFIX)) return null;
+  const encoded = value.slice(IMAGE_MARKER_PREFIX.length, -IMAGE_MARKER_SUFFIX.length);
+  try {
+    const parsed = JSON.parse(decodeURIComponent(encoded)) as Record<string, unknown>;
+    const key = parsed.key;
+    const contentType = parsed.contentType;
+    const size = parsed.size;
+    const expiresAt = parsed.expiresAt;
+    if (
+      typeof key === "string"
+      && isNasStorageKey(key)
+      && typeof contentType === "string"
+      && SUPPORTED_IMAGE_TYPES.has(contentType)
+      && (size === undefined || (typeof size === "number" && Number.isSafeInteger(size) && size > 0))
+      && (expiresAt === undefined || expiresAt === null || typeof expiresAt === "string")
+    ) return { key, contentType, ...(size === undefined ? {} : { size }), ...(expiresAt === undefined ? {} : { expiresAt }) };
+  } catch {
+    // 舊 session 的 marker 仍使用 key:contentType 格式，保留讀取相容性。
+  }
+  const separator = encoded.lastIndexOf(":");
+  if (separator <= 0) return null;
+  try {
+    const key = decodeURIComponent(encoded.slice(0, separator));
+    const contentType = decodeURIComponent(encoded.slice(separator + 1));
+    return isNasStorageKey(key) && SUPPORTED_IMAGE_TYPES.has(contentType) ? { key, contentType } : null;
+  } catch {
+    return null;
+  }
+}
+
+function isExpiredImageMarker(marker: ImageMarker, now = Date.now()): boolean {
+  if (!marker.expiresAt) return false;
+  const expiresAt = Date.parse(marker.expiresAt);
+  return !Number.isFinite(expiresAt) || expiresAt <= now;
+}
+
+function sanitizedMessage(message: AgentMessage, attachments: PiAgentAttachment[] = []): AgentMessage {
+  const raw = message as AgentMessage & { content?: unknown };
+  if (message.role !== "user" || !Array.isArray(raw.content)) return message;
+  let attachmentIndex = 0;
+  const content = raw.content.map((item) => {
+    if (!item || typeof item !== "object" || (item as { type?: unknown }).type !== "image") return item;
+    const attachment = attachments[attachmentIndex++];
+    return {
+      type: "text" as const,
+      text: attachment ? imageMarker(attachment) : "（圖片附件已保存，但找不到 metadata。）",
+    };
+  });
+  return { ...raw, content } as AgentMessage;
+}
+
 function addUsage(total: Usage, usage: Usage): void {
   total.input += usage.input;
   total.output += usage.output;
@@ -246,7 +351,17 @@ function bootstrapAgentMessage(
   fallbackModel: Model<Api>,
   timestamp: number,
 ): AgentMessage {
-  if (message.role === "user") return { role: "user", content: message.text, timestamp };
+  if (message.role === "user") {
+    const content = [
+      ...(message.text ? [{ type: "text" as const, text: message.text }] : []),
+      ...(message.attachments ?? []).map((attachment) => ({
+        type: "image" as const,
+        data: "",
+        mimeType: attachment.contentType,
+      })),
+    ];
+    return { role: "user", content: content.length ? content : message.text, timestamp };
+  }
   let model = fallbackModel;
   if (message.model) {
     try {
@@ -277,6 +392,44 @@ function assistantUsage(messages: AgentMessage[]): AssistantRunResult["usage"] {
     candidateTokens: usage.output,
     totalTokens: usage.totalTokens,
   };
+}
+
+function storedAttachments(value: string | undefined): PiAgentAttachment[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed) || parsed.length > 4) return [];
+    const normalized = parsed.flatMap((value) => {
+      if (!value || typeof value !== "object") return [];
+      const item = value as Record<string, unknown>;
+      const key = typeof item.key === "string" ? item.key : item.objectKey;
+      if (
+        typeof key !== "string"
+        || !isNasStorageKey(key)
+        || typeof item.filename !== "string"
+        || !item.filename
+        || typeof item.contentType !== "string"
+        || !SUPPORTED_IMAGE_TYPES.has(item.contentType)
+        || typeof item.size !== "number"
+        || !Number.isSafeInteger(item.size)
+        || item.size <= 0
+        || typeof item.checksum !== "string"
+        || !/^[0-9a-f]{64}$/u.test(item.checksum)
+        || (item.expiresAt !== undefined && item.expiresAt !== null && typeof item.expiresAt !== "string")
+      ) return [];
+      return [{
+        key,
+        filename: item.filename,
+        contentType: item.contentType,
+        size: item.size,
+        checksum: item.checksum,
+        ...(item.expiresAt === undefined ? {} : { expiresAt: item.expiresAt as string | null }),
+      } satisfies PiAgentAttachment];
+    });
+    return normalized.length === parsed.length && isAttachments(normalized) ? normalized : [];
+  } catch {
+    return [];
+  }
 }
 
 function boundedReply(text: string): string {
@@ -403,11 +556,132 @@ export class AssistantChatAgent {
     });
   }
 
-  private contextMessages(state: AgentStateRow): AgentMessage[] {
-    return [
+  private async hydrateMessage(
+    message: AgentMessage,
+    selectedMarkers: Set<string>,
+    messageIndex: number,
+    budget: { remaining: number },
+  ): Promise<AgentMessage> {
+    const raw = message as AgentMessage & { content?: unknown };
+    if (message.role !== "user" || !Array.isArray(raw.content)) return message;
+    const nas = nasStorageClient(this.env);
+    if (!nas) return message;
+    const content: unknown[] = [];
+    for (const [contentIndex, item] of raw.content.entries()) {
+      if (!item || typeof item !== "object" || (item as { type?: unknown }).type !== "text") {
+        content.push(item);
+        continue;
+      }
+      const text = (item as { text?: unknown }).text;
+      if (typeof text !== "string") {
+        content.push(item);
+        continue;
+      }
+      const marker = parseImageMarker(text);
+      if (!marker) {
+        content.push(item);
+        continue;
+      }
+      if (!selectedMarkers.has(`${messageIndex}:${contentIndex}`)) {
+        content.push({ type: "text" as const, text: "（歷史圖片過多，暫不載入這張圖片。）" });
+        continue;
+      }
+      if (await this.isExpiredStoredImage(marker)) {
+        content.push({ type: "text" as const, text: "（圖片已過期或不存在。）" });
+        continue;
+      }
+      try {
+        const response = await nas.get(marker.key);
+        if (!response) {
+          content.push({ type: "text" as const, text: "（圖片已過期或不存在。）" });
+          continue;
+        }
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.byteLength > budget.remaining || bytes.byteLength > MAX_HYDRATED_IMAGE_BYTES) {
+          content.push({ type: "text" as const, text: "（歷史圖片過多，暫不載入這張圖片。）" });
+          continue;
+        }
+        budget.remaining -= bytes.byteLength;
+        content.push({
+          type: "image" as const,
+          data: base64(bytes),
+          mimeType: response.headers.get("content-type") || marker.contentType,
+        } satisfies ImageContent);
+      } catch (error) {
+        console.warn("Pi agent 圖片 context 載入失敗", {
+          key: marker.key,
+          error: serializePiError(error),
+        });
+        content.push({ type: "text" as const, text: "（圖片目前無法載入。）" });
+      }
+    }
+    return { ...raw, content } as AgentMessage;
+  }
+
+  private async isExpiredStoredImage(marker: ImageMarker): Promise<boolean> {
+    if (isExpiredImageMarker(marker) || marker.expiresAt !== undefined) return isExpiredImageMarker(marker);
+    try {
+      const media = await findMediaObject(createDatabase(this.env.DB), marker.key);
+      return Boolean(media?.expiresAt && isExpiredImageMarker({ ...marker, expiresAt: media.expiresAt }));
+    } catch (error) {
+      console.warn("Pi agent 圖片 expiry metadata 查詢失敗", {
+        key: marker.key,
+        error: serializePiError(error),
+      });
+      return false;
+    }
+  }
+
+  private async hydrateMessages(messages: AgentMessage[]): Promise<AgentMessage[]> {
+    const selectedMarkers = new Set<string>();
+    let remaining = MAX_HYDRATED_IMAGE_BYTES;
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const message = messages[messageIndex]!;
+      const raw = message as AgentMessage & { content?: unknown };
+      if (message.role !== "user" || !Array.isArray(raw.content)) continue;
+      for (let contentIndex = raw.content.length - 1; contentIndex >= 0; contentIndex -= 1) {
+        const item = raw.content[contentIndex];
+        if (!item || typeof item !== "object" || (item as { type?: unknown }).type !== "text") continue;
+        const text = (item as { text?: unknown }).text;
+        if (typeof text !== "string") continue;
+        const marker = parseImageMarker(text);
+        if (!marker || isExpiredImageMarker(marker)) continue;
+        const size = marker.size ?? MAX_HYDRATED_IMAGE_BYTES;
+        if (size > remaining) continue;
+        selectedMarkers.add(`${messageIndex}:${contentIndex}`);
+        remaining -= size;
+      }
+    }
+
+    const budget = { remaining: MAX_HYDRATED_IMAGE_BYTES };
+    const hydrated: AgentMessage[] = [];
+    for (const [messageIndex, message] of messages.entries()) {
+      hydrated.push(await this.hydrateMessage(message, selectedMarkers, messageIndex, budget));
+    }
+    return hydrated;
+  }
+
+  private async contextMessages(state: AgentStateRow): Promise<AgentMessage[]> {
+    const messages = [
       ...(state.summary ? [createCompactionSummaryMessage(state.summary, state.tokens_before, Date.now())] : []),
       ...this.loadMessageRows(state).map((row) => row.message),
     ];
+    return this.hydrateMessages(messages);
+  }
+
+  private async inputImages(attachments: PiAgentAttachment[] = []): Promise<ImageContent[]> {
+    if (!attachments.length) return [];
+    const nas = nasStorageClient(this.env);
+    if (!nas) throw new Error("平台尚未設定 NAS storage，無法讀取圖片附件。");
+    return Promise.all(attachments.map(async (attachment) => {
+      const response = await nas.get(attachment.key);
+      if (!response) throw new Error(`圖片附件 ${attachment.filename} 已不存在或已過期。`);
+      return {
+        type: "image" as const,
+        data: base64(new Uint8Array(await response.arrayBuffer())),
+        mimeType: response.headers.get("content-type") || attachment.contentType,
+      } satisfies ImageContent;
+    }));
   }
 
   private async accessToken(): Promise<string> {
@@ -591,14 +865,19 @@ export class AssistantChatAgent {
     });
   }
 
-  private storeMessage(generation: string, runId: string, message: AgentMessage): void {
+  private storeMessage(
+    generation: string,
+    runId: string,
+    message: AgentMessage,
+    attachments: PiAgentAttachment[] = [],
+  ): void {
     this.sql.exec(
       `INSERT INTO assistant_agent_messages (generation, run_id, role, payload, created_at)
        VALUES (?, ?, ?, ?, ?)`,
       generation,
       runId,
       message.role,
-      JSON.stringify(message),
+      JSON.stringify(sanitizedMessage(message, attachments)),
       Date.now(),
     );
   }
@@ -644,6 +923,7 @@ export class AssistantChatAgent {
         role: message.role as "user" | "model",
         text: message.text,
         ...(message.model ? { model: message.model } : {}),
+        ...(message.role === "user" ? { attachments: storedAttachments(message.attachments) } : {}),
       })),
     ];
     if (!bootstrapMessages.length) return;
@@ -659,11 +939,12 @@ export class AssistantChatAgent {
     );
     const started = Date.now() - bootstrapMessages.length;
     for (const [index, message] of bootstrapMessages.entries()) {
-      if (!message.text) continue;
+      if (!message.text && !message.attachments?.length) continue;
       this.storeMessage(
         state.generation,
         bootstrapRunId,
         bootstrapAgentMessage(message, model, started + index),
+        message.attachments,
       );
     }
   }
@@ -711,8 +992,9 @@ export class AssistantChatAgent {
     }
   }
 
-  private totalContextTokens(state: AgentStateRow): number {
-    return this.contextMessages(state).reduce((total, message) => total + estimateTokens(message), 0);
+  private async totalContextTokens(state: AgentStateRow): Promise<number> {
+    const messages = await this.contextMessages(state);
+    return messages.reduce((total, message) => total + estimateTokens(message), 0);
   }
 
   private async compactIfNeeded(
@@ -727,7 +1009,9 @@ export class AssistantChatAgent {
       : isPiAssistantModel(state.model)
         ? state.model
         : DEFAULT_PI_CODEX_MODEL;
-    const rows = this.loadMessageRows(state);
+    const sourceRows = this.loadMessageRows(state);
+    const hydratedMessages = await this.hydrateMessages(sourceRows.map((row) => row.message));
+    const rows = sourceRows.map((row, index) => ({ ...row, message: hydratedMessages[index]! }));
     const totalTokens = rows.reduce((total, row) => total + estimateTokens(row.message), state.summary_tokens);
     if (totalTokens <= (force ? FORCE_COMPACT_AFTER_TOKENS : COMPACT_AFTER_TOKENS)) return;
 
@@ -803,7 +1087,7 @@ export class AssistantChatAgent {
       state.generation,
       input.runId,
     );
-    if (this.totalContextTokens(state) > FORCE_COMPACT_AFTER_TOKENS) {
+    if (await this.totalContextTokens(state) > FORCE_COMPACT_AFTER_TOKENS) {
       await this.compactIfNeeded(true, model.id, providerDiagnostics);
       state = this.currentState()!;
     }
@@ -827,7 +1111,8 @@ export class AssistantChatAgent {
     }
     if (isLineRunRequest(input)) await this.bootstrapLineTranscript(state, input, model);
     const toolContext: ToolExecutionContext = { request: input, toolCalls: [] };
-    const initialMessages = this.contextMessages(state);
+    const initialMessages = await this.contextMessages(state);
+    const images = await this.inputImages(input.attachments);
     const agent = new Agent({
       initialState: {
         systemPrompt: input.systemPrompt,
@@ -849,11 +1134,11 @@ export class AssistantChatAgent {
       toolExecution: "sequential",
     });
     agent.subscribe((event) => {
-      if (event.type === "message_end") this.storeMessage(state.generation, input.runId, event.message);
+      if (event.type === "message_end") this.storeMessage(state.generation, input.runId, event.message, input.attachments);
     });
 
     try {
-      await agent.prompt(input.userText);
+      await agent.prompt(input.userText, images);
     } catch (error) {
       throw new AgentExecutionError(
         error instanceof Error ? error.message : "Pi agent 執行失敗。",
@@ -904,7 +1189,7 @@ export class AssistantChatAgent {
       Date.now(),
       input.runId,
     );
-    if (this.totalContextTokens(this.currentState()!) > COMPACT_AFTER_TOKENS) {
+    if (await this.totalContextTokens(this.currentState()!) > COMPACT_AFTER_TOKENS) {
       await this.ctx.storage.setAlarm(Date.now() + 1_000);
     }
     return response;
