@@ -145,6 +145,16 @@ Worker 端必須同時設定 `NAS_STORAGE_URL` 與 `NAS_STORAGE_TOKEN`；只設�
 拒絕圖片操作。token 要和 Codex relay 使用不同的值。gateway 的 NAS 建置、權限、Tunnel
 hostname 與回滾步驟見 [`tools/nas-storage/README.md`](../tools/nas-storage/README.md)。
 
+`NAS_STORAGE_URL` 只填 gateway 的 HTTPS origin，不要加 API path：
+
+```text
+正確： https://storage.rueisiang.com
+錯誤： https://storage.rueisiang.com/v1/objects
+```
+
+Worker 會自行把 `/v1/objects` 加到 URL；gateway 的健康檢查是
+`GET /healthz`，物件上傳、讀取與刪除則使用帶 `x-storage-token` 的 `/v1/objects`。
+
 ### 2.2 套用 migration — 不用手動做
 
 `deploy.yml` 每次部署都會執行 `wrangler d1 migrations apply --remote`，
@@ -192,7 +202,11 @@ secret 存進去就立即生效，不必重新部署；之後的部署也不會�
 ### 2.4 部署
 
 **這一步不能在這台開發機做**——Windows on ARM 沒有 `workerd` 執行檔。用 GitHub Actions：
-到 repo 的 **Actions 分頁 → Deploy → Run workflow**。先決條件是第 4 節的兩個 secret。
+到 repo 的 **Actions 分頁 → Deploy → Run workflow**，並選擇 `main`。先決條件是第 4 節的兩個 secret。
+
+正式環境的 Worker 與 Portal assets 必須由同一次 `main` Deploy workflow 發佈。不要從
+未同步的 worktree、Cloudflare Dashboard 的舊版編輯器或其他分支直接執行 `wrangler deploy`；
+這會讓 API Worker 與 Portal assets 不在同一個版本。
 
 workflow 的順序是：安裝 → 型別檢查 → 測試 → build → 套用 D1 migration → 部署 → 健康檢查。
 migration 排在部署之前，因為新欄位要在讀它的程式上線之前就存在。
@@ -209,8 +223,13 @@ Deployed rueisiang-platform triggers (0.52 sec)
 每個帳號一組。1.2 的重新導向 URI 和 4.2 的 `WORKER_URL` 都要用到它，
 先部署一次就一次拿到，不必去別的地方翻。
 
-（若之後在 WSL 或別台 Linux 上要手動部署，指令是 `pnpm build` 之後
-`cd apps/api && npx wrangler deploy`。）
+部署輸出中的 `Current Version ID` 是這次 Worker 版本的核對值。Cloudflare Workers
+Observability log 裡的 `$workers.scriptVersion.id` 應該與它一致；若不一致，先確認流量是否
+仍在 rollout，再從 `main` 重新執行 Deploy workflow 或使用同一個版本 rollback。
+
+若之後在 WSL 或別台 Linux 上要手動部署，必須先切到與 production 相同的 `main` commit，
+再依序執行 `pnpm build`、`cd apps/api && npx wrangler d1 migrations apply rueisiang-platform --remote`
+與 `npx wrangler deploy`。正式環境仍以 GitHub Actions Deploy 為準。
 
 ### 2.5 生出第一位管理者（只有全新環境需要）
 
@@ -250,6 +269,18 @@ curl https://<你的 worker 網址>/api/health
 ```
 
 看到 `{"status":"ok","database":"ok",...}` 代表 Worker 活著而且 D1 綁定接上了。
+
+登入正式平台後，再用 Sandbox 做一輪圖片 smoke test：
+
+1. 開啟一個 Sandbox session，選擇一張 JPEG、PNG、WebP 或 GIF。
+2. 在瀏覽器 Network 確認 `POST /api/assistant/sandbox/attachments` 回 `201`，回應的
+   `attachment.key` 以 `assistant/vision/<chat-id>/` 開頭。
+3. 在 NAS gateway log 確認對應的 `POST /v1/objects` 成功，接著圖片預覽的
+   `GET /api/assistant/sandbox/attachments?key=...` 也應成功。
+
+如果 `/api/health` 正常，但上述已存在的 API route 回 `{"error":"Not found"}`，先比對
+該 request 的 `$workers.scriptVersion.id` 與 Deploy 輸出的 `Current Version ID`，不要先調整
+NAS token、volume 或圖片格式。
 
 接著用瀏覽器開首頁 → 用 2.5 那個信箱的 Google 帳號登入 →
 進「系統管理 / 權限管理」邀請其他同仁。第一次登入會把你的狀態從「已邀請」轉成「啟用中」。
