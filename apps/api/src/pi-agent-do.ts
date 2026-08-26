@@ -65,11 +65,17 @@ import {
 
 const COMPACT_AFTER_TOKENS = 48_000;
 const COMPACT_KEEP_RECENT_TOKENS = 12_000;
-const FORCE_COMPACT_AFTER_TOKENS = 80_000;
+const COMPACT_BATCH_TOKENS = 12_000;
+const INTERACTIVE_CONTEXT_TOKENS = 64_000;
 const MODEL_REQUEST_TIMEOUT_MS = 25_000;
+const COMPACTION_REQUEST_TIMEOUT_MS = 90_000;
+const COMPACTION_CONTINUATION_DELAY_MS = 1_000;
+const COMPACTION_RETRY_DELAY_MS = 60_000;
 const MODEL_MAX_OUTPUT_TOKENS = 1_200;
 const LINE_MAX_REPLY_CHARS = 4_500;
 const MAX_HYDRATED_IMAGE_BYTES = 8 * 1024 * 1024;
+const IMAGE_CONTEXT_BYTES_PER_TOKEN = 128;
+const MIN_IMAGE_CONTEXT_TOKENS = 256;
 const IMAGE_MARKER_PREFIX = "[[nas-image:";
 const IMAGE_MARKER_SUFFIX = "]]";
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -310,6 +316,25 @@ function isExpiredImageMarker(marker: ImageMarker, now = Date.now()): boolean {
   if (!marker.expiresAt) return false;
   const expiresAt = Date.parse(marker.expiresAt);
   return !Number.isFinite(expiresAt) || expiresAt <= now;
+}
+
+function estimatedImageContextTokens(marker: ImageMarker): number {
+  const size = marker.size ?? MAX_HYDRATED_IMAGE_BYTES;
+  return Math.max(MIN_IMAGE_CONTEXT_TOKENS, Math.ceil(size / IMAGE_CONTEXT_BYTES_PER_TOKEN));
+}
+
+function estimatedContextTokens(message: AgentMessage): number {
+  const raw = message as AgentMessage & { content?: unknown };
+  if (message.role !== "user" || !Array.isArray(raw.content)) return estimateTokens(message);
+
+  const imageTokens = raw.content.reduce((total, item) => {
+    if (!item || typeof item !== "object" || (item as { type?: unknown }).type !== "text") return total;
+    const text = (item as { text?: unknown }).text;
+    if (typeof text !== "string") return total;
+    const marker = parseImageMarker(text);
+    return marker ? total + estimatedImageContextTokens(marker) : total;
+  }, 0);
+  return estimateTokens(message) + imageTokens;
 }
 
 function sanitizedMessage(message: AgentMessage, attachments: PiAgentAttachment[] = []): AgentMessage {
@@ -661,10 +686,39 @@ export class AssistantChatAgent {
     return hydrated;
   }
 
-  private async contextMessages(state: AgentStateRow): Promise<AgentMessage[]> {
+  private contextRows(state: AgentStateRow, maxTokens = Number.POSITIVE_INFINITY): Array<{ seq: number; message: AgentMessage }> {
+    const rows = this.loadMessageRows(state);
+    if (!Number.isFinite(maxTokens)) return rows;
+
+    let retainedTokens = state.summary ? state.summary_tokens : 0;
+    let start = rows.length;
+    while (start > 0) {
+      const next = rows[start - 1]!;
+      const nextTokens = estimatedContextTokens(next.message);
+      if (start < rows.length && retainedTokens + nextTokens > maxTokens) break;
+      start -= 1;
+      retainedTokens += nextTokens;
+    }
+    while (start < rows.length && rows[start]?.message.role !== "user") start += 1;
+    return rows.slice(start);
+  }
+
+  private async contextMessages(
+    state: AgentStateRow,
+    maxTokens = Number.POSITIVE_INFINITY,
+  ): Promise<AgentMessage[]> {
+    const allRows = this.loadMessageRows(state);
+    const rows = this.contextRows(state, maxTokens);
+    if (rows.length < allRows.length) {
+      console.info("Pi agent 互動 context 已限制大小", {
+        generation: state.generation,
+        maxTokens,
+        omittedMessages: allRows.length - rows.length,
+      });
+    }
     const messages = [
       ...(state.summary ? [createCompactionSummaryMessage(state.summary, state.tokens_before, Date.now())] : []),
-      ...this.loadMessageRows(state).map((row) => row.message),
+      ...rows.map((row) => row.message),
     ];
     return this.hydrateMessages(messages);
   }
@@ -752,7 +806,7 @@ export class AssistantChatAgent {
     return {
       completeSimple: async (model, context, options) => this.streamModel(model, context, {
         ...options,
-        timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
+        timeoutMs: COMPACTION_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
       }, diagnostics).result(),
     } as Models;
@@ -907,18 +961,13 @@ export class AssistantChatAgent {
     }
     // 摘要筆數是對完整升冪 D1 transcript 計算；先取完整序列再切掉摘要涵蓋的 prefix，
     // 才不會因為最新視窗只有 100 筆而把已摘要的舊訊息重新送進 Pi context。
-    const history = session.contextSummary.trim()
+    const summary = session.contextSummary.trim();
+    const history = summary
       ? (await listAllAssistantSandboxMessages(db, session.id))
         .slice(Math.max(session.contextSummaryMessageCount, 0))
         .slice(-100)
       : await listAssistantSandboxMessages(db, session.id, 100);
     const bootstrapMessages: SandboxBootstrapMessage[] = [
-      ...(session.contextSummary.trim()
-        ? [
-          { role: "user" as const, text: `[Earlier conversation summary]\n${session.contextSummary.trim()}` },
-          { role: "model" as const, text: "我會把這份摘要當成目前對話的既有背景。", model: session.model },
-        ]
-        : []),
       ...history.map((message) => ({
         role: message.role as "user" | "model",
         text: message.text,
@@ -926,6 +975,22 @@ export class AssistantChatAgent {
         ...(message.role === "user" ? { attachments: storedAttachments(message.attachments) } : {}),
       })),
     ];
+    if (!summary && !bootstrapMessages.length) return;
+
+    if (summary) {
+      const summaryTokens = Math.max(1, Math.ceil(summary.length / 4));
+      this.sql.exec(
+        `UPDATE assistant_agent_state SET
+           summary = ?, summary_through_seq = 0, summary_tokens = ?, tokens_before = ?, updated_at = ?
+         WHERE singleton = 1 AND generation = ?`,
+        summary,
+        summaryTokens,
+        summaryTokens,
+        Date.now(),
+        state.generation,
+      );
+    }
+
     if (!bootstrapMessages.length) return;
 
     const bootstrapRunId = `bootstrap:${state.generation}`;
@@ -992,39 +1057,61 @@ export class AssistantChatAgent {
     }
   }
 
-  private async totalContextTokens(state: AgentStateRow): Promise<number> {
-    const messages = await this.contextMessages(state);
-    return messages.reduce((total, message) => total + estimateTokens(message), 0);
+  private estimatedStoredContextTokens(state: AgentStateRow): number {
+    return this.loadMessageRows(state).reduce(
+      (total, row) => total + estimatedContextTokens(row.message),
+      state.summary ? state.summary_tokens : 0,
+    );
   }
 
   private async compactIfNeeded(
-    force = false,
     preferredModel?: string,
     diagnostics?: PiProviderExecutionDiagnostics,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const state = this.currentState();
-    if (!state || (!state.model && !preferredModel)) return;
+    if (!state || (!state.model && !preferredModel)) return false;
     const modelId = isPiAssistantModel(preferredModel)
       ? preferredModel
       : isPiAssistantModel(state.model)
         ? state.model
         : DEFAULT_PI_CODEX_MODEL;
     const sourceRows = this.loadMessageRows(state);
+    const storedTokens = sourceRows.reduce(
+      (total, row) => total + estimatedContextTokens(row.message),
+      state.summary_tokens,
+    );
+    if (storedTokens <= COMPACT_AFTER_TOKENS) return false;
+
     const hydratedMessages = await this.hydrateMessages(sourceRows.map((row) => row.message));
-    const rows = sourceRows.map((row, index) => ({ ...row, message: hydratedMessages[index]! }));
-    const totalTokens = rows.reduce((total, row) => total + estimateTokens(row.message), state.summary_tokens);
-    if (totalTokens <= (force ? FORCE_COMPACT_AFTER_TOKENS : COMPACT_AFTER_TOKENS)) return;
+    const rows = sourceRows.map((row, index) => ({
+      ...row,
+      message: hydratedMessages[index]!,
+      estimatedTokens: estimatedContextTokens(row.message),
+    }));
+    const totalTokens = rows.reduce((total, row) => total + row.estimatedTokens, state.summary_tokens);
 
     let retainedTokens = 0;
-    let cutIndex = rows.length;
-    while (cutIndex > 0 && retainedTokens < COMPACT_KEEP_RECENT_TOKENS) {
-      cutIndex -= 1;
-      retainedTokens += estimateTokens(rows[cutIndex]!.message);
+    let retainedStart = rows.length;
+    while (retainedStart > 0 && retainedTokens < COMPACT_KEEP_RECENT_TOKENS) {
+      retainedStart -= 1;
+      retainedTokens += rows[retainedStart]!.estimatedTokens;
     }
-    while (cutIndex < rows.length && rows[cutIndex]?.message.role !== "user") cutIndex += 1;
-    if (cutIndex <= 0 || cutIndex >= rows.length) return;
+    while (retainedStart < rows.length && rows[retainedStart]?.message.role !== "user") retainedStart += 1;
+    if (retainedStart <= 0 || retainedStart >= rows.length) return false;
 
-    const toSummarize = rows.slice(0, cutIndex);
+    let summarizeEnd = 0;
+    let summarizedTokens = 0;
+    while (
+      summarizeEnd < retainedStart
+      && (summarizedTokens < COMPACT_BATCH_TOKENS || summarizeEnd === 0)
+    ) {
+      summarizedTokens += rows[summarizeEnd]!.estimatedTokens;
+      summarizeEnd += 1;
+    }
+    while (summarizeEnd < retainedStart && rows[summarizeEnd]?.message.role !== "user") summarizeEnd += 1;
+    if (summarizeEnd <= 0) return false;
+
+    const toSummarize = rows.slice(0, summarizeEnd);
     const model = this.model(modelId);
     const summary = await generateSummaryWithUsage(
       toSummarize.map((row) => row.message),
@@ -1058,6 +1145,11 @@ export class AssistantChatAgent {
       Date.now(),
       state.generation,
     );
+    const summaryTokens = Math.max(1, Math.ceil(summary.value.text.length / 4));
+    const remainingTokens = rows
+      .slice(summarizeEnd)
+      .reduce((total, row) => total + row.estimatedTokens, summaryTokens);
+    return remainingTokens > COMPACT_AFTER_TOKENS;
   }
 
   private completedRun(runId: string, generation: string): PiAgentRunResponse | undefined {
@@ -1087,10 +1179,6 @@ export class AssistantChatAgent {
       state.generation,
       input.runId,
     );
-    if (await this.totalContextTokens(state) > FORCE_COMPACT_AFTER_TOKENS) {
-      await this.compactIfNeeded(true, model.id, providerDiagnostics);
-      state = this.currentState()!;
-    }
     this.sql.exec(
       `INSERT INTO assistant_agent_runs (run_id, generation, status, response_json, updated_at)
        VALUES (?, ?, 'running', '', ?)
@@ -1106,12 +1194,15 @@ export class AssistantChatAgent {
 
     if (isSandboxRunRequest(input)) {
       await this.bootstrapSandboxTranscript(state, input, model);
-      await this.compactIfNeeded(false, model.id, providerDiagnostics);
       state = this.currentState()!;
     }
     if (isLineRunRequest(input)) await this.bootstrapLineTranscript(state, input, model);
+    state = this.currentState()!;
+    if (this.estimatedStoredContextTokens(state) > COMPACT_AFTER_TOKENS) {
+      await this.ctx.storage.setAlarm(Date.now() + COMPACTION_CONTINUATION_DELAY_MS);
+    }
     const toolContext: ToolExecutionContext = { request: input, toolCalls: [] };
-    const initialMessages = await this.contextMessages(state);
+    const initialMessages = await this.contextMessages(state, INTERACTIVE_CONTEXT_TOKENS);
     const images = await this.inputImages(input.attachments);
     const agent = new Agent({
       initialState: {
@@ -1189,8 +1280,8 @@ export class AssistantChatAgent {
       Date.now(),
       input.runId,
     );
-    if (await this.totalContextTokens(this.currentState()!) > COMPACT_AFTER_TOKENS) {
-      await this.ctx.storage.setAlarm(Date.now() + 1_000);
+    if (this.estimatedStoredContextTokens(this.currentState()!) > COMPACT_AFTER_TOKENS) {
+      await this.ctx.storage.setAlarm(Date.now() + COMPACTION_CONTINUATION_DELAY_MS);
     }
     return response;
   }
@@ -1248,11 +1339,30 @@ export class AssistantChatAgent {
 
   async alarm(): Promise<void> {
     await this.serialized(async () => {
+      const runId = `compaction:${crypto.randomUUID()}`;
+      const diagnostics: PiProviderExecutionDiagnostics = { runId };
+      const startedAt = Date.now();
       try {
-        await this.compactIfNeeded();
+        const needsContinuation = await this.compactIfNeeded(undefined, diagnostics);
+        if (needsContinuation) {
+          await this.ctx.storage.setAlarm(Date.now() + COMPACTION_CONTINUATION_DELAY_MS);
+        }
+        console.info("Pi chat agent 背景 compact 完成", {
+          runId,
+          durationMs: Date.now() - startedAt,
+          needsContinuation,
+          ...(diagnostics.lastResponse ? { providerResponse: diagnostics.lastResponse } : {}),
+        });
       } catch (error) {
-        console.error("Pi chat agent 背景 compact 失敗", { error: serializePiError(error) });
-        throw error;
+        const nextRetryAt = Date.now() + COMPACTION_RETRY_DELAY_MS;
+        console.error("Pi chat agent 背景 compact 失敗", {
+          runId,
+          durationMs: Date.now() - startedAt,
+          nextRetryAt,
+          error: serializePiError(error),
+          ...(diagnostics.lastResponse ? { providerResponse: diagnostics.lastResponse } : {}),
+        });
+        await this.ctx.storage.setAlarm(nextRetryAt);
       }
     });
   }

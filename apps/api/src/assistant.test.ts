@@ -722,7 +722,7 @@ describe("AI 助理 Sandbox", () => {
     expect(contents.match(/這次問題/g)).toHaveLength(1);
   });
 
-  it("Sandbox bootstrap 會略過既有摘要涵蓋的訊息，並在建立 prompt 前 compact", async () => {
+  it("Sandbox bootstrap 會略過既有摘要涵蓋的訊息，並由背景 compact 不阻塞主回答", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
     const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
@@ -779,11 +779,15 @@ describe("AI 助理 Sandbox", () => {
       }),
     });
     expect(response.status).toBe(200);
-    expect(requests.some((request) => request.summary)).toBe(true);
-    const mainRequest = requests.filter((request) => !request.summary).at(-1);
+    const mainIndex = requests.findIndex((request) => !request.summary);
+    const summaryIndex = requests.findIndex((request) => request.summary);
+    expect(mainIndex).toBeGreaterThanOrEqual(0);
+    expect(summaryIndex).toBeGreaterThan(mainIndex);
+    const mainRequest = requests[mainIndex];
     const contents = JSON.stringify(mainRequest?.body.contents);
-    expect(contents).toContain("imported history compacted");
+    expect(contents).toContain("legacy summary");
     expect(contents).toContain("imported-history-39");
+    expect(contents).not.toContain("imported history compacted");
     expect(contents).not.toContain("covered-history-0");
     expect(contents).not.toContain("covered-answer-0");
   });
@@ -1784,12 +1788,8 @@ describe("AI 助理 Sandbox", () => {
         input: "觸發摘要錯誤",
       }),
     });
-    const result = await response.json() as { error: string; runId: string; toolCalls: unknown[] };
-    expect(response.status).toBe(502);
-    expect(result.error).toContain("AI provider 回傳非預期的 HTML 錯誤頁");
-    expect(result.error).not.toContain("<!doctype html>");
-    expect(result.error).not.toContain("Unable to load site");
-    expect(result.runId).toEqual(expect.any(String));
-    expect(result.toolCalls).toEqual([]);
+    const result = await response.json() as { text: string };
+    expect(response.status).toBe(200);
+    expect(result.text).toBe("不應該執行到主回答");
   });
 });

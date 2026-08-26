@@ -164,10 +164,21 @@ export function createRelayServer({
     const requestId = randomUUID();
     const startedAt = Date.now();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
-    const abortFromClient = () => controller.abort();
+    let abortReason;
+    const abort = (reason) => {
+      if (controller.signal.aborted) return;
+      abortReason = reason;
+      controller.abort(new Error(reason));
+    };
+    const timeout = setTimeout(() => abort("relay-timeout"), requestTimeoutMs);
+    const abortFromClient = () => {
+      if (request.aborted || (!request.complete && request.destroyed)) {
+        abort("client-disconnected");
+      }
+    };
+    let upstreamStatus;
     request.once("aborted", abortFromClient);
-    response.once("close", abortFromClient);
+    request.once("close", abortFromClient);
 
     try {
       const targetUrl = new URL(upstreamUrl.toString());
@@ -178,6 +189,7 @@ export function createRelayServer({
         signal: controller.signal,
         duplex: "half",
       });
+      upstreamStatus = upstreamResponse.status;
 
       response.setHeader("x-codex-relay-request-id", requestId);
       response.writeHead(upstreamResponse.status, responseHeaders(upstreamResponse));
@@ -194,9 +206,18 @@ export function createRelayServer({
         durationMs: Date.now() - startedAt,
       });
     } catch (error) {
+      const status = abortReason === "relay-timeout"
+        ? 504
+        : abortReason === "client-disconnected"
+          ? 499
+          : 502;
       if (!response.headersSent) {
-        writeJson(response, controller.signal.aborted ? 504 : 502, {
-          error: controller.signal.aborted ? "Upstream request timed out" : "Upstream request failed",
+        writeJson(response, status, {
+          error: abortReason === "relay-timeout"
+            ? "Upstream request timed out"
+            : abortReason === "client-disconnected"
+              ? "Client disconnected"
+              : "Upstream request failed",
           requestId,
         });
       } else {
@@ -206,14 +227,16 @@ export function createRelayServer({
         requestId,
         method: "POST",
         path: RELAY_PATH,
-        status: controller.signal.aborted ? 504 : 502,
+        status,
         durationMs: Date.now() - startedAt,
         errorName: error instanceof Error ? error.name : "UnknownError",
+        ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
+        ...(abortReason ? { abortReason } : {}),
       });
     } finally {
       clearTimeout(timeout);
       request.off("aborted", abortFromClient);
-      response.off("close", abortFromClient);
+      request.off("close", abortFromClient);
     }
   };
 
