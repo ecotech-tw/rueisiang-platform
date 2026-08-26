@@ -2,13 +2,12 @@ import { useEffect, useState } from "react";
 import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
   parseStores,
   usePayoutState,
   usePayoutStatus,
   useRunPayout,
-  type WorkflowStep,
 } from "./api.js";
 
 /**
@@ -18,15 +17,6 @@ import {
  * 取回報表、寫欄位、上傳 Drive。這一頁只做兩件事——送出，然後把狀態問回來。
  * 送出之後可以直接關掉分頁，工作在 GitHub 那邊照樣跑完。
  */
-
-const STEP_MARK: Record<string, string> = { completed: "✓", in_progress: "▶" };
-
-function stepClass(step: WorkflowStep): string {
-  if (step.conclusion === "failure") return "step fail";
-  if (step.status === "completed") return "step done";
-  if (step.status === "in_progress") return "step doing";
-  return "step";
-}
 
 function formatDate(value: string): string {
   if (!value) return "—";
@@ -170,37 +160,13 @@ export function Payout() {
       </Panel>
 
       {followed ? (
-        <Panel
-          title={tracking ? "這次執行" : "上一次執行"}
-          actions={
-            latest ? (
-              <StatusBadge tone={latest.status !== "completed" ? "info" : latest.conclusion === "success" ? "success" : "danger"}>
-                {latest.status !== "completed"
-                  ? latest.status === "queued" ? "排隊中" : "執行中"
-                  : latest.conclusion === "success" ? "完成" : "有項目未完成"}
-              </StatusBadge>
-            ) : <StatusBadge tone="info">等 GitHub 建立工作…</StatusBadge>
-          }
-        >
-
-          {status.data?.steps.length ? (
-            <ol className="step-list">
-              {status.data.steps.map((step, index) => (
-                <li className={stepClass(step)} key={`${step.name}-${index}`}>
-                  <span className="step-mark">{STEP_MARK[step.status] ?? "·"}</span>
-                  {step.name}
-                </li>
-              ))}
-            </ol>
-          ) : null}
-
-          {latest?.url ? (
-            <p className="muted table-note">
-              <a href={latest.url} target="_blank" rel="noopener noreferrer">在 GitHub 看完整紀錄</a>
-              　執行完的 xlsx 與報告放在該次工作的 Artifacts（保留 30 天）。
-            </p>
-          ) : null}
-        </Panel>
+        <WorkflowRunPanel
+          tracking={Boolean(tracking)}
+          latest={latest}
+          steps={status.data?.steps ?? []}
+          failureLabel="有項目未完成"
+          artifactNote="執行完的 xlsx 與報告放在該次工作的 Artifacts（保留 30 天）。"
+        />
       ) : null}
 
       <Panel title="最近執行">
