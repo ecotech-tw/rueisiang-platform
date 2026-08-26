@@ -122,8 +122,8 @@ export function ItemForm({
           <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
             取消
           </Button>
-          <Button type="submit" disabled={!valid || pending}>
-            {pending ? "儲存中…" : item ? "儲存" : "新增商品"}
+          <Button type="submit" loading={pending} loadingLabel="儲存中…" disabled={!valid}>
+            {item ? "儲存" : "新增商品"}
           </Button>
         </>
       }
@@ -265,12 +265,13 @@ export function ItemForm({
                   <Button
                     variant="secondary"
                     className="danger"
-                    disabled={unlink.isPending}
+                    loading={unlink.isPending}
+                    loadingLabel="解除中…"
                     onClick={() =>
                       unlink.mutate(item.id, { onSuccess: () => toast.show("已解除連結，庫存數量保留") })
                     }
                   >
-                    {unlink.isPending ? "解除中…" : "解除連結"}
+                    解除連結
                   </Button>
                 </div>
               ) : (
@@ -285,7 +286,9 @@ export function ItemForm({
                   </div>
                   <Button
                     variant="secondary"
-                    disabled={!fields.sku.trim() || link.isPending}
+                    loading={link.isPending}
+                    loadingLabel="查詢官網中…"
+                    disabled={!fields.sku.trim()}
                     onClick={() =>
                       link.mutate(
                         { id: item.id, sku: fields.sku.trim() },
@@ -296,7 +299,7 @@ export function ItemForm({
                       )
                     }
                   >
-                    {link.isPending ? "查詢官網中…" : "用 SKU 連結"}
+                    用 SKU 連結
                   </Button>
                 </div>
               )}

@@ -130,8 +130,8 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
-            <Button type="submit" disabled={!name.trim() || create.isPending}>
-              {create.isPending ? "儲存中…" : "儲存"}
+            <Button type="submit" loading={create.isPending} loadingLabel="儲存中…" disabled={!name.trim()}>
+              儲存
             </Button>
             <Button variant="link" type="button" onClick={() => setName(null)}>
               取消

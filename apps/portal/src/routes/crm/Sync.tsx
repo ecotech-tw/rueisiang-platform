@@ -228,22 +228,21 @@ export function Sync() {
             <Button
               variant="secondary"
               icon="trash"
-              disabled={cleanup.isPending}
+              loading={cleanup.isPending}
+              loadingLabel="清理中…"
               onClick={() => cleanup.mutate()}
               title="刪掉只有 CYBERBIZ ID、姓名電話地址全空的客戶，以及被誤寫成客戶的商品"
             >
-              {cleanup.isPending
-                ? "清理中…"
-                : cleanup.data
-                  ? `已清掉 ${cleanup.data.deleted} 筆空白客戶`
-                  : "清理空白客戶"}
+              {cleanup.data ? `已清掉 ${cleanup.data.deleted} 筆空白客戶` : "清理空白客戶"}
             </Button>
             <Button
               variant="secondary"
-              disabled={retry.isPending || data.webhooks.failed === 0}
+              loading={retry.isPending}
+              loadingLabel="補跑中…"
+              disabled={data.webhooks.failed === 0}
               onClick={() => retry.mutate()}
             >
-              {retry.isPending ? "補跑中…" : `補跑失敗的（${data.webhooks.failed}）`}
+              補跑失敗的（{data.webhooks.failed}）
             </Button>
           </div>}
       >
