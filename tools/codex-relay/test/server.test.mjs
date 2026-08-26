@@ -102,6 +102,38 @@ test("health check and authenticated SSE proxy work without buffering the respon
   }
 });
 
+test("relay timeout is distinguishable from a disconnected client", async () => {
+  const logs = [];
+  const server = createRelayServer({
+    token: "relay-secret",
+    timeoutMs: 10,
+    logger: (event) => logs.push(event),
+    fetchImpl: async (_input, init) => new Promise((resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+    }),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/codex/responses`, {
+      method: "POST",
+      headers: { "x-codex-relay-token": "relay-secret" },
+      body: "{}",
+    });
+    assert.equal(response.status, 504);
+    assert.deepEqual(await response.json(), {
+      error: "Upstream request timed out",
+      requestId: logs.at(-1).requestId,
+    });
+    assert.equal(logs.at(-1).status, 504);
+    assert.equal(logs.at(-1).abortReason, "relay-timeout");
+  } finally {
+    await closeServer(server);
+  }
+});
+
 test("unauthenticated requests never reach the upstream", async () => {
   let called = false;
   const server = createRelayServer({
