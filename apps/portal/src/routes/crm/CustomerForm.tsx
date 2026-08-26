@@ -5,7 +5,7 @@ import {
   taiwanDistricts,
   type TaiwanCity,
 } from "../../lib/taiwan-address.js";
-import { Alert, Button, Dialog } from "../../ui/index.js";
+import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
 import {
   parseTags,
   useCreateCustomer,
@@ -100,32 +100,25 @@ export function CustomerForm({ customer, onClose }: Props) {
         </>
       }
     >
-          <label className="field">
-            <span>電話<b>必填</b></span>
-            <input
-              autoFocus
-              required
-              inputMode="tel"
-              placeholder="例如 0912 345 678"
-              value={fields.phone}
-              onChange={(event) => set({ phone: event.target.value })}
-            />
-            <small>電話是辨識客戶的主要欄位，同一支不會重複建立。</small>
-          </label>
+          <TextField
+            label="電話"
+            required
+            autoFocus
+            inputMode="tel"
+            placeholder="例如 0912 345 678"
+            value={fields.phone}
+            onChange={(event) => set({ phone: event.target.value })}
+            hint="電話是辨識客戶的主要欄位，同一支不會重複建立。"
+          />
 
           <div className="field-grid">
-            <label className="field">
-              <span>姓名</span>
-              <input value={fields.name} onChange={(event) => set({ name: event.target.value })} />
-            </label>
-            <label className="field">
-              <span>Email</span>
-              <input
-                type="email"
-                value={fields.email}
-                onChange={(event) => set({ email: event.target.value })}
-              />
-            </label>
+            <TextField label="姓名" value={fields.name} onChange={(event) => set({ name: event.target.value })} />
+            <TextField
+              label="Email"
+              type="email"
+              value={fields.email}
+              onChange={(event) => set({ email: event.target.value })}
+            />
           </div>
 
           {/*
@@ -136,46 +129,38 @@ export function CustomerForm({ customer, onClose }: Props) {
             * 三格外面不再包一個「地址」標題：縣市、區域、地址三個標籤已經講完了
             * 這是什麼，多一層標題只是讓「地址」在同一塊裡出現兩次。改成靠間距
             * 把這一組跟上面分開。
-            */}
+          */}
           <div className="address-fields">
             <div className="field-grid">
-              <label className="field">
-                <span>縣市</span>
-                <select
-                  value={address.city}
-                  onChange={(event) => {
-                    // 換縣市時清掉區域——舊的區域幾乎不會屬於新的縣市。
-                    setAddress({ ...address, city: event.target.value, district: "" });
-                  }}
-                >
-                  <option value="">請選擇縣市</option>
-                  {cities.map((city) => (
-                    <option key={city} value={city}>{city}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>區域</span>
-                <select
-                  value={address.district}
-                  disabled={!address.city}
-                  onChange={(event) => setAddress({ ...address, district: event.target.value })}
-                >
-                  <option value="">{address.city ? "請選擇區域" : "請先選擇縣市"}</option>
-                  {districtsOf(address.city).map((district) => (
-                    <option key={district} value={district}>{district}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <label className="field">
-              <span>地址</span>
-              <input
-                placeholder="例如：中山東路 138 號 2 樓"
-                value={address.addressLine}
-                onChange={(event) => setAddress({ ...address, addressLine: event.target.value })}
+              <SelectField
+                label="縣市"
+                value={address.city}
+                onChange={(event) => {
+                  // 換縣市時清掉區域——舊的區域幾乎不會屬於新的縣市。
+                  setAddress({ ...address, city: event.target.value, district: "" });
+                }}
+                options={[
+                  { label: "請選擇縣市", value: "" },
+                  ...cities.map((city) => ({ label: city, value: city })),
+                ]}
               />
-            </label>
+              <SelectField
+                label="區域"
+                value={address.district}
+                disabled={!address.city}
+                onChange={(event) => setAddress({ ...address, district: event.target.value })}
+                options={[
+                  { label: address.city ? "請選擇區域" : "請先選擇縣市", value: "" },
+                  ...districtsOf(address.city).map((district) => ({ label: district, value: district })),
+                ]}
+              />
+            </div>
+            <TextField
+              label="地址"
+              placeholder="例如：中山東路 138 號 2 樓"
+              value={address.addressLine}
+              onChange={(event) => setAddress({ ...address, addressLine: event.target.value })}
+            />
           </div>
 
           <TagPicker
