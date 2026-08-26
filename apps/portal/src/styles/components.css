@@ -2467,6 +2467,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 就看得到的東西前面。
  */
 .filter-fields { display: contents; }
+/* compact filter 控制項要保留在 toolbar 的 flex layout，不沿用一般 Field 的欄位高度。 */
+.filter-control { display: contents; }
 /*
  * 兩個 class 是為了壓過 .ghost-button.with-icon 的 display: inline-flex——
  * 單一個 .filter-toggle 特異性較低，會輸給它。
