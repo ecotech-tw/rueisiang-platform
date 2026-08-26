@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog } from "../../ui/index.js";
+import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
 import { useUpdateSettings } from "./api.js";
 
 /**
@@ -84,30 +84,26 @@ export function CanvasDialog({
           </div>
 
           <div className="field-grid">
-            <label className="field">
-              <span>寬度</span>
-              <input
-                type="number"
-                min={900}
-                max={3200}
-                step={50}
-                value={width}
-                onChange={(event) => setWidth(event.target.value)}
-              />
-              <small>900–3200</small>
-            </label>
-            <label className="field">
-              <span>高度</span>
-              <input
-                type="number"
-                min={550}
-                max={2000}
-                step={50}
-                value={height}
-                onChange={(event) => setHeight(event.target.value)}
-              />
-              <small>550–2000</small>
-            </label>
+            <TextField
+              label="寬度"
+              type="number"
+              min={900}
+              max={3200}
+              step={50}
+              value={width}
+              onChange={(event) => setWidth(event.target.value)}
+              hint="900–3200"
+            />
+            <TextField
+              label="高度"
+              type="number"
+              min={550}
+              max={2000}
+              step={50}
+              value={height}
+              onChange={(event) => setHeight(event.target.value)}
+              hint="550–2000"
+            />
           </div>
 
           {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}

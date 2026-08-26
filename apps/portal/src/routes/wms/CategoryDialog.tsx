@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog } from "../../ui/index.js";
+import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
 import { CATEGORY_COLORS, useUpdateCategory, type ProductCategory } from "./api.js";
 
 /**
@@ -76,23 +76,17 @@ export function CategoryDialog({
         </>
       }
     >
-          <label className="field">
-            <span>名稱<b>必填</b></span>
-            <input
-              autoFocus
-              required
-              maxLength={40}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-            {/*
-              * 分類的名字直接存在商品身上（不是外鍵），改名時後端會一起更新。
-              * 只在真的改了名字時才提醒——單純換顏色不會動到商品。
-              */}
-            {renaming && usageCount > 0 ? (
-              <small>{usageCount} 項商品的分類會一起改成「{trimmed || "…"}」。</small>
-            ) : null}
-          </label>
+          <TextField
+            label="名稱"
+            required
+            autoFocus
+            maxLength={40}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            hint={renaming && usageCount > 0
+              ? `${usageCount} 項商品的分類會一起改成「${trimmed || "…"}」。`
+              : undefined}
+          />
 
           <div className="field">
             <span>顏色</span>
