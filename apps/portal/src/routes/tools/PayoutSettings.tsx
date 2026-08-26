@@ -166,7 +166,7 @@ export function PayoutSettings() {
           設定蝦皮銷售報表整理後要上傳的 Google Drive 資料夾。使用者上傳 Excel 後，GitHub Actions 會把新檔放到這裡。
         </p>
         <form
-          className="admin-form"
+          className="admin-form shopee-settings-form"
           onSubmit={(event) => {
             event.preventDefault();
             saveShopee.mutate({ driveFolderUrl: shopeeUrl, driveFolderName: shopeeName });
@@ -186,7 +186,7 @@ export function PayoutSettings() {
             onChange={(event) => setShopeeName(event.target.value)}
             placeholder="蝦皮銷售報表"
           />
-          <div className="form-actions">
+          <div className="form-actions shopee-settings-actions">
             <Button type="submit" loading={saveShopee.isPending} loadingLabel="儲存中…">儲存蝦皮設定</Button>
             {saveShopee.isSuccess ? <span className="form-hint">已儲存。</span> : null}
           </div>

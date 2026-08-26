@@ -115,7 +115,7 @@ export function Roles() {
   }
 
   return (
-    <div className="page">
+    <div className="page fills">
       <PageHeader
         title="角色管理"
         description={
@@ -130,7 +130,7 @@ export function Roles() {
 
       {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
-      <Panel>
+      <Panel className="grows">
         <div className="table-scroll">
           <table className="data-table">
             <thead>

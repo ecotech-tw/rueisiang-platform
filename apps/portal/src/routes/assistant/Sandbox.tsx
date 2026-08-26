@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
 import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
@@ -78,9 +78,12 @@ export function Sandbox() {
   const [toolKeys, setToolKeys] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<SandboxAttachment[]>([]);
   const [sessionId, setSessionId] = useState("");
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [revisionsOpen, setRevisionsOpen] = useState(false);
   const [failedRun, setFailedRun] = useState<{ runId?: string; toolCalls: SandboxToolCall[] } | null>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const session = useSandboxSession(sessionId);
 
   useEffect(() => {
@@ -107,6 +110,13 @@ export function Sandbox() {
     // saving a prompt/tool/model must not overwrite the user's current editor.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, session.data?.session?.id]);
+
+  // 送出會先寫入 optimistic user message，回覆完成後再重抓 session；兩個時機都要貼到底。
+  useEffect(() => {
+    const conversation = conversationRef.current;
+    if (!conversation) return;
+    conversation.scrollTo({ top: conversation.scrollHeight, behavior: "smooth" });
+  }, [sessionId, session.data?.session?.messages.length, run.isPending, pendingSessionId, failedRun?.runId]);
 
   if (config.isPending) return <div className="boot">載入中…</div>;
   if (config.error) return <div className="page"><Alert tone="danger">{config.error.message}</Alert></div>;
@@ -146,16 +156,19 @@ export function Sandbox() {
   function submitRun() {
     const submittedInput = input.trim();
     const submittedAttachments = attachments;
-    if (!promptId || !modelReady || (!submittedInput && !submittedAttachments.length) || !sessionId || !sessionOpen) return;
-    setInput("");
-    setAttachments([]);
+    if (!promptId || !modelReady || (!submittedInput && !submittedAttachments.length) || !sessionId || !sessionOpen || uploadAttachment.isPending) return;
+    setPendingSessionId(sessionId);
     setFailedRun(null);
     run.mutate(
       { sessionId, model, promptRevisionId: promptId, toolKeys, input: submittedInput, attachments: submittedAttachments },
       {
+        onSuccess: () => {
+          setPendingSessionId(null);
+          setInput("");
+          setAttachments([]);
+        },
         onError: (error) => {
-          setInput(submittedInput);
-          setAttachments(submittedAttachments);
+          setPendingSessionId(null);
           if (error instanceof AssistantApiError && error.toolCalls.length) {
             setFailedRun({ runId: error.runId, toolCalls: error.toolCalls });
           }
@@ -339,7 +352,7 @@ export function Sandbox() {
         {createSession.error ? <Alert tone="danger">{createSession.error.message}</Alert> : null}
         {closeSession.error ? <Alert tone="danger">{closeSession.error.message}</Alert> : null}
         {session.error ? <Alert tone="danger">{session.error.message}</Alert> : null}
-        <div className="assistant-conversation" aria-live="polite">
+        <div ref={conversationRef} className="assistant-conversation" aria-live="polite">
           {currentSession ? (
             currentSession.messages.length ? currentSession.messages.map((message) => (
               <div className={`assistant-message ${message.role === "user" ? "assistant-message-user" : "assistant-message-model"}`} key={message.id}>
@@ -381,6 +394,19 @@ export function Sandbox() {
               </div>
             )) : <p className="empty-state">這個 session 還沒有訊息。</p>
           ) : <p className="empty-state">請按「清除對話」建立一個新的 session。</p>}
+          {run.isPending && pendingSessionId === sessionId ? (
+            <div className="assistant-message assistant-message-model assistant-message-pending" role="status" aria-label="小香正在回覆">
+              <div className="assistant-message-meta">
+                <strong>小香</strong>
+                <small>回覆中…</small>
+              </div>
+              <span className="assistant-typing" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
+            </div>
+          ) : null}
         </div>
         {failedRun?.toolCalls.length ? (
           <div className="assistant-failed-run">
@@ -390,33 +416,40 @@ export function Sandbox() {
             </details>
           </div>
         ) : null}
-        <label className="field">
+        <div className="field assistant-composer-field">
           <span>輸入內容</span>
-          <div className="assistant-attachment-picker">
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              disabled={!sessionOpen || run.isPending || uploadAttachment.isPending || !selectedModel?.supportsVision}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                selectAttachment(file);
-              }}
-            />
-            <span>{uploadAttachment.isPending ? "圖片上傳中…" : "附加圖片"}</span>
-            {!selectedModel?.supportsVision ? <small>目前模型不支援圖片輸入</small> : null}
-          </div>
           {attachments.length ? (
             <div className="assistant-pending-attachments">
               {attachments.map((attachment) => (
-                <button type="button" key={attachment.key} onClick={() => setAttachments((current) => current.filter((item) => item.key !== attachment.key))}>
+                <button
+                  type="button"
+                  key={attachment.key}
+                  disabled={run.isPending}
+                  onClick={() => setAttachments((current) => current.filter((item) => item.key !== attachment.key))}
+                >
                   {attachment.filename} ×
                 </button>
               ))}
             </div>
           ) : null}
           <div className="assistant-input-wrap">
+            <input
+              ref={attachmentInputRef}
+              className="assistant-attachment-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              disabled={!sessionOpen || run.isPending || uploadAttachment.isPending || !selectedModel?.supportsVision}
+              aria-label="附加圖片"
+              aria-hidden="true"
+              tabIndex={-1}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                selectAttachment(file);
+              }}
+            />
             <textarea
+              aria-label="輸入內容"
               className="assistant-input"
               value={input}
               disabled={!sessionOpen || run.isPending}
@@ -429,18 +462,31 @@ export function Sandbox() {
               }}
               placeholder="輸入要交給小香的問題…"
             />
-            <span className="assistant-input-shortcut">Shift + Enter 送出</span>
+            <div className="assistant-composer-actions">
+              <Button
+                variant="icon"
+                icon="attachment"
+                className="assistant-attachment-button"
+                disabled={!sessionOpen || run.isPending || uploadAttachment.isPending || !selectedModel?.supportsVision}
+                title={uploadAttachment.isPending ? "圖片上傳中…" : "附加圖片"}
+                aria-label={uploadAttachment.isPending ? "圖片上傳中" : "附加圖片"}
+                onClick={() => attachmentInputRef.current?.click()}
+              />
+              <span className="assistant-input-shortcut">Shift + Enter 送出</span>
+              <Button
+                loading={run.isPending}
+                loadingLabel="小香思考中…"
+                disabled={!modelReady || (!input.trim() && !attachments.length) || !sessionOpen || uploadAttachment.isPending}
+                onClick={submitRun}
+              >
+                送出
+              </Button>
+            </div>
           </div>
-        </label>
-        <div className="assistant-actions">
-          <Button
-            loading={run.isPending}
-            loadingLabel="小香思考中…"
-            disabled={!modelReady || (!input.trim() && !attachments.length) || !sessionOpen}
-            onClick={submitRun}
-          >
-            送出
-          </Button>
+          {!selectedModel?.supportsVision ? <small>目前模型不支援圖片輸入</small> : null}
+          {uploadAttachment.isPending ? <small>圖片上傳中…</small> : null}
+        </div>
+        <div className="assistant-actions assistant-composer-note">
           <span className="form-hint">
             {sessionOpen
               ? `目前使用 Revision ${activeRevision?.revision ?? "—"}、${selectedModel?.label ?? model}。`
