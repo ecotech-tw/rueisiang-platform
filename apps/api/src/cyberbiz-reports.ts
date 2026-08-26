@@ -102,6 +102,7 @@ export function createCyberbizReportService(db: Database, nas: NasStorageClient 
         reportMonth,
         scopeType: input.scopeType,
         scopeId,
+        requiredArtifact: "sales",
       });
       if (!manifest?.salesObjectKey) return noData(reportMonth);
 
@@ -125,6 +126,7 @@ export function createCyberbizReportService(db: Database, nas: NasStorageClient 
         reportMonth,
         scopeType: input.scopeType,
         scopeId,
+        requiredArtifact: "payout",
       });
       if (!manifest?.payoutObjectKey) {
         return aggregateCyberbizPayout([], { ...input, reportMonth, startDate, endDate });

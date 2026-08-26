@@ -1,4 +1,5 @@
 import {
+  recordCyberbizReportRun,
   listPayoutRuns,
   listPayoutStores,
   recordPayoutRun,
@@ -11,10 +12,12 @@ import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { payoutGithub } from "../payout/github.js";
 import { body } from "../request.js";
+import { cyberbizScopeIdFromStoreName } from "../cyberbiz-scope.js";
+import { cyberbizSales } from "./cyberbiz-sales.js";
 import { shopeeSales } from "./shopee-sales.js";
 
 /**
- * 營運工具。目前只有出金表。
+ * 營運工具。出金表與 CYBERBIZ 商品銷售報表都由這裡統一掛載。
  *
  * 執行模式跟舊的 Worker 一模一樣：按下去就 workflow_dispatch 一個 GitHub Actions
  * 工作，再輪詢狀態。平台不開瀏覽器、不碰 CYBERBIZ 或 Google 的憑證。
@@ -50,6 +53,13 @@ function isValidDate(value: string): boolean {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+function isCompleteMonth(start: string, end: string): boolean {
+  const [year = 0, month = 0] = start.split("-").map(Number);
+  const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+  const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}`;
+  return start === monthStart && end === monthEnd;
+}
+
 function readStores(input: Record<string, unknown>): PayoutStoreInput[] {
   if (!Array.isArray(input.stores)) {
     throw new HTTPException(400, { message: "請提供店別清單。" });
@@ -81,6 +91,7 @@ function readStores(input: Record<string, unknown>): PayoutStoreInput[] {
 export const tools = new Hono<AppEnv>()
   .use("*", requireAuth)
   .route("/shopee-sales", shopeeSales)
+  .route("/cyberbiz-sales", cyberbizSales)
 
   /** 執行頁一開始要的東西：店別、預設區間、以及後端到底有沒有接上 GitHub。 */
   .get("/payout/state", requirePermission("tools:payout:run"), async (c) => {
@@ -90,6 +101,7 @@ export const tools = new Hono<AppEnv>()
     return c.json({
       stores: stores.map((store) => ({
         name: store.name,
+        scopeId: cyberbizScopeIdFromStoreName(store.name),
         folder: store.driveFolderName,
         // 連結帶出去，執行頁就能直接點進 Drive 看跑出來的檔案。
         folderUrl: store.driveFolderUrl,
@@ -148,6 +160,15 @@ export const tools = new Hono<AppEnv>()
     const user = c.get("user");
     await recordPayoutRun(c.get("db"), {
       requestId,
+      stores: requested,
+      startDate: start,
+      endDate: end,
+      actor: { id: user.id, email: user.email },
+    });
+    await recordCyberbizReportRun(c.get("db"), {
+      requestId,
+      reportKind: "payout",
+      periodKind: isCompleteMonth(start, end) ? "month" : "custom",
       stores: requested,
       startDate: start,
       endDate: end,

@@ -102,6 +102,7 @@ export async function publishCyberbizReport({
   apiUrl,
   ingestToken,
   reportMonth,
+  reportKind,
   scopeType = "store",
   scopeId,
   scopeName = "",
@@ -126,6 +127,7 @@ export async function publishCyberbizReport({
     ["combined-workbook", combinedWorkbookPath],
   ];
   const checksum = sourceChecksum ?? await checksumReportSources(sources);
+  const kind = reportKind ?? (salesJsonPath && payoutJsonPath ? "bundle" : salesJsonPath ? "sales" : "payout");
   const uploads = {};
   for (const [role, filePath, contentType] of [
     ["salesSourceObjectKey", salesSourcePath, XLSX_CONTENT_TYPE],
@@ -151,6 +153,7 @@ export async function publishCyberbizReport({
 
   const baseManifest = {
     reportMonth,
+    reportKind: kind,
     scopeType,
     scopeId,
     scopeName,
@@ -171,7 +174,18 @@ export async function publishCyberbizReport({
     status: "staged",
   };
   const staged = await publishCyberbizManifest({ apiUrl, ingestToken, manifest: baseManifest, fetcher });
-  if (!afterStaged) return staged;
+  if (!afterStaged) {
+    // 公司 aggregate 沒有對應的人工 Drive 檔，但仍然必須成為可查詢的 published manifest。
+    if (scopeType === "company") {
+      return publishCyberbizManifest({
+        apiUrl,
+        ingestToken,
+        manifest: { ...baseManifest, status: "published" },
+        fetcher,
+      });
+    }
+    return staged;
+  }
 
   const drive = await afterStaged({ staged, sourceChecksum: checksum });
   if (!drive?.driveFileId || !drive.driveUrl) return staged;

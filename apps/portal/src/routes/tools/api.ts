@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export interface PayoutStoreSummary {
   name: string;
+  scopeId?: string;
   folder: string;
   folderUrl: string;
 }
@@ -77,6 +78,56 @@ export function useRunPayout() {
         body: JSON.stringify(input),
       }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "payout", "state"] }),
+  });
+}
+
+export interface CyberbizReportRunRecord {
+  id: string;
+  requestId: string;
+  reportKind: "sales" | "payout";
+  periodKind: "month" | "custom";
+  storesJson: string;
+  startDate: string;
+  endDate: string;
+  manifestEligible: number;
+  actorEmail: string;
+  createdAt: string;
+}
+
+export interface CyberbizSalesState {
+  stores: PayoutStoreSummary[];
+  defaultStart: string;
+  defaultEnd: string;
+  configured: boolean;
+  latestRequestId: string | null;
+  runs: CyberbizReportRunRecord[];
+}
+
+export function useCyberbizSalesState() {
+  return useQuery({
+    queryKey: ["tools", "cyberbiz-sales", "state"],
+    queryFn: () => call<CyberbizSalesState>("/api/tools/cyberbiz-sales/state"),
+  });
+}
+
+export function useRunCyberbizSales() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { stores: string[]; start: string; end: string }) =>
+      call<{ requestId: string }>("/api/tools/cyberbiz-sales/run", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "cyberbiz-sales"] }),
+  });
+}
+
+export function useCyberbizSalesStatus(requestId: string | null) {
+  return useQuery({
+    enabled: Boolean(requestId),
+    queryKey: ["tools", "cyberbiz-sales", "status", requestId],
+    queryFn: () => call<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>(`/api/tools/cyberbiz-sales/status?requestId=${encodeURIComponent(requestId!)}`),
+    refetchInterval: (query) => query.state.data?.runs[0]?.status === "completed" ? false : 5000,
   });
 }
 

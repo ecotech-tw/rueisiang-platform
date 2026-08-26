@@ -23,6 +23,7 @@ const REQUIRED_STRING_FIELDS = [
   "status",
 ] as const;
 const OPTIONAL_STRING_FIELDS = [
+  "reportKind",
   "salesSourceObjectKey",
   "payoutSourceObjectKey",
   "salesObjectKey",
@@ -66,6 +67,7 @@ function readPublishInput(value: unknown): CyberbizReportPublishInput {
   }
   return {
     reportMonth: value.reportMonth as string,
+    reportKind: (value.reportKind as CyberbizReportPublishInput["reportKind"] | null | undefined) ?? undefined,
     scopeType: value.scopeType as CyberbizReportPublishInput["scopeType"],
     scopeId: value.scopeId as string,
     scopeName: value.scopeName as string,

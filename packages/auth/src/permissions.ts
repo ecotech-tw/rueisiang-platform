@@ -31,6 +31,7 @@ export const PERMISSIONS = {
   // 營運工具
   "tools:payout:run": "執行出金表",
   "tools:payout:config": "修改出金表店別設定",
+  "tools:cyberbiz-sales:run": "執行 CYBERBIZ 商品銷售報表",
   "tools:shopee-sales:run": "執行蝦皮銷售報表",
   "tools:shopee-sales:config": "修改蝦皮銷售報表設定",
   "reports:cyberbiz:read": "檢視 CYBERBIZ 銷售與出金報表",
@@ -67,6 +68,7 @@ export const SYSTEM_ROLES = {
       "wms:inventory:read", "wms:inventory:write", "wms:inventory:count",
       "wms:category:write", "wms:activity:read", "wms:sync:trigger",
       "tools:payout:run",
+      "tools:cyberbiz-sales:run",
       "tools:shopee-sales:run",
       "reports:cyberbiz:read",
     ],

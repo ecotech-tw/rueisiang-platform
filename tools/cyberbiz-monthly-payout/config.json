@@ -1,5 +1,6 @@
 {
   "cyberbizOrigin": "https://rueisiang.cyberbiz.co",
+  "salesReportPath": "/stock_reports/product_sales",
   "recipientEmail": "eli-lin@ecotech.tw",
   "driveRootFolderUrl": "https://drive.google.com/drive/folders/1RtcLDLs8SrXZ5yFLW0wV6J0nqDexNHMX",
   "driveRootFolderName": "通路銷售紀錄",

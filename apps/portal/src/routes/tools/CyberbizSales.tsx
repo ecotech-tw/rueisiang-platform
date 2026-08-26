@@ -1,0 +1,141 @@
+import { useEffect, useState } from "react";
+import { DateRangePicker } from "../../shell/DateRangePicker.js";
+import { Icon } from "../../shell/icons.js";
+import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Alert, Button, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import {
+  parseStores,
+  useCyberbizSalesState,
+  useCyberbizSalesStatus,
+  useRunCyberbizSales,
+} from "./api.js";
+
+function formatDate(value: string): string {
+  const parsed = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
+}
+
+export function CyberbizSales() {
+  usePageTitle("CYBERBIZ 商品銷售報表執行");
+  const state = useCyberbizSalesState();
+  const run = useRunCyberbizSales();
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [tracking, setTracking] = useState<string | null>(null);
+  const status = useCyberbizSalesStatus(tracking ?? state.data?.latestRequestId ?? null);
+
+  useEffect(() => {
+    if (!state.data) return;
+    setStart((current) => current || state.data.defaultStart);
+    setEnd((current) => current || state.data.defaultEnd);
+  }, [state.data]);
+
+  if (state.isPending) return <div className="boot">載入中…</div>;
+
+  const stores = state.data?.stores ?? [];
+  const latest = status.data?.runs[0];
+  const followed = tracking ?? state.data?.latestRequestId ?? null;
+  const running = Boolean(latest) && latest!.status !== "completed";
+  const rangeError = start && end && start > end ? "起日不能晚於迄日。" : "";
+  const blocked = running || run.isPending || !start || !end || Boolean(rangeError) || !state.data?.configured;
+
+  function start_(names: string[]) {
+    run.mutate({ stores: names, start, end }, { onSuccess: (result) => setTracking(result.requestId) });
+  }
+
+  return (
+    <div className="page">
+      <PageHeader
+        title="CYBERBIZ 商品銷售報表執行"
+        description="從 CYBERBIZ POS 匯出商品銷售總表，依店別上傳到既有 Google Drive 通路資料夾；完整月份成功後，runner 會另外寫入 NAS 與 AI 查詢 manifest。"
+      />
+
+      {!state.data?.configured ? (
+        <Alert tone="danger">平台還沒設定商品銷售報表的 GitHub workflow，現在無法執行。</Alert>
+      ) : null}
+
+      <Panel>
+        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+          <span className="inline-label">報表區間</span>
+          <DateRangePicker
+            start={start}
+            end={end}
+            disabled={run.isPending}
+            onChange={(range) => { setStart(range.start); setEnd(range.end); }}
+          />
+          <Button
+            icon="analytics"
+            disabled={blocked || !stores.length}
+            onClick={() => start_(stores.map((store) => store.name))}
+            title="所有店別執行同一段區間"
+          >
+            全部執行
+          </Button>
+          {running ? <span className="form-hint">執行中…可以關閉這一頁</span> : null}
+        </form>
+
+        <p className="muted table-note">
+          選完整月份才會建立 AI 可查詢的 manifest；例如 2026-07-14 ~ 2026-07-18 只整理到 Drive，方便人工查帳，不會讓小香誤當成完整月報。
+        </p>
+        {rangeError ? <Alert tone="danger">{rangeError}</Alert> : null}
+        {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
+        {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
+
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead><tr><th>通路</th><th>Drive 資料夾</th><th /></tr></thead>
+            <tbody>
+              {stores.map((store) => (
+                <tr key={store.name}>
+                  <td className="cell-strong">{store.name}</td>
+                  <td className="cell-sub">
+                    {store.folderUrl ? (
+                      <a className="link-external" href={store.folderUrl} target="_blank" rel="noopener noreferrer">
+                        {store.folder || store.name}<Icon name="external" />
+                      </a>
+                    ) : "未設定資料夾"}
+                  </td>
+                  <td><Button variant="secondary" disabled={blocked} onClick={() => start_([store.name])}>執行</Button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!stores.length ? <p className="muted table-note">還沒有任何店別，請先到「店別設定」新增一家。</p> : null}
+      </Panel>
+
+      {followed ? (
+        <WorkflowRunPanel
+          tracking={Boolean(tracking)}
+          latest={latest}
+          steps={status.data?.steps ?? []}
+          failureLabel="未完成"
+          artifactNote="執行完成的 xlsx 與報告會保留在這次 GitHub Actions 的 Artifacts。"
+        />
+      ) : null}
+
+      <Panel title="最近執行">
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead><tr><th>時間</th><th>通路</th><th>區間</th><th>AI manifest</th><th>執行的人</th></tr></thead>
+            <tbody>
+              {(state.data?.runs ?? []).map((record) => {
+                const names = parseStores(record.storesJson);
+                return (
+                  <tr key={record.id}>
+                    <td className="cell-sub whitespace-nowrap">{formatDate(record.createdAt)}</td>
+                    <td>{names.length > 1 ? `全部 ${names.length} 家` : names[0] ?? "—"}</td>
+                    <td className="cell-sub whitespace-nowrap">{record.startDate} ~ {record.endDate}</td>
+                    <td>{record.periodKind === "month" ? "月份完成後建立" : "不建立（Drive only）"}</td>
+                    <td className="cell-sub">{record.actorEmail}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {(state.data?.runs.length ?? 0) === 0 ? <p className="muted table-note">還沒有人從這裡執行過。</p> : null}
+      </Panel>
+    </div>
+  );
+}

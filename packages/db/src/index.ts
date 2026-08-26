@@ -83,9 +83,15 @@ export {
 export * as schema from "./schema/index.js";
 export {
   findCyberbizReportManifest,
+  findCyberbizReportRun,
   listCyberbizReportManifests,
+  listCyberbizReportRuns,
+  recordCyberbizReportRun,
   recordCyberbizReportManifest,
   type CyberbizManifestLookup,
+  type CyberbizReportRun,
+  type CyberbizReportRunKind,
+  type CyberbizReportKind,
   type CyberbizSalesDocument,
   type CyberbizSalesQuery,
   type CyberbizSalesQueryResult,

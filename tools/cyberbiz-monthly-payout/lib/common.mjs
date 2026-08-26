@@ -180,6 +180,11 @@ export function payoutFilename(storeName, startDate, endDate) {
   return `[${storeName}]每日出金報表${startDate}~${endDate}.xlsx`;
 }
 
+/** 商品銷售總表的檔名；與 CYBERBIZ 寄到 Gmail 的附件命名一致。 */
+export function salesFilename(storeName, startDate, endDate) {
+  return `[${storeName}]商品銷售總表${startDate}~${endDate}.xlsx`;
+}
+
 const SECRET_KEYS = [
   "CYBERBIZ_PASSWORD",
   "GOOGLE_CLIENT_SECRET",

@@ -293,3 +293,49 @@ export async function exportPayoutReport(page, {
   }
   fail("EXPORT_NOT_ACCEPTED", "送出匯出後沒有回到報表列表。");
 }
+
+/**
+ * 觸發「商品銷售報表」匯出。商品銷售總表與出金表共用收件人與日期選擇器，
+ * 但保留獨立 path 參數，若 CYBERBIZ 版本調整路徑，只需改 config.json。
+ */
+export async function exportSalesReport(page, {
+  storeBase,
+  recipientEmail,
+  startDate,
+  endDate,
+  reportPath = "/stock_reports/product_sales",
+}) {
+  await page.goto(`${storeBase}${reportPath}`, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1000);
+
+  const text = await page.locator("body").innerText();
+  if (!text.includes("商品銷售報表") && !text.includes("商品銷售總表")) {
+    fail("REPORT_PAGE_MISSING", "找不到「商品銷售報表」頁面，請確認 CYBERBIZ 版本與 salesReportPath。", { reportPath });
+  }
+
+  const email = page.getByRole("textbox", {
+    name: "收件者Email (若留空，則為當前使用者Email)",
+    exact: true,
+  });
+  const startField = page.getByRole("textbox", { name: "開始時間", exact: true });
+  const endField = page.getByRole("textbox", { name: "結束時間", exact: true });
+  for (const [locator, label] of [[email, "收件者"], [startField, "開始時間"], [endField, "結束時間"]]) {
+    if ((await locator.count()) !== 1) fail("UNEXPECTED_PAGE_STATE", `${label}欄位數量不是 1。`);
+  }
+
+  await email.fill(recipientEmail);
+  await chooseDate(page, startField, email, startDate, "開始");
+  await chooseDate(page, endField, email, endDate, "結束");
+  const actual = { email: await email.inputValue(), start: await startField.inputValue(), end: await endField.inputValue() };
+  if (actual.email !== recipientEmail || actual.start !== toPickerInput(startDate) || actual.end !== toPickerInput(endDate)) {
+    fail("FILTER_MISMATCH", "商品銷售報表匯出條件與預期不符。", actual);
+  }
+
+  const submittedAt = Date.now();
+  await page.getByRole("button", { name: "匯出", exact: true }).click();
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    await page.waitForTimeout(250);
+    if ((await page.locator("body").innerText()).includes("報表列表")) return { submittedAt };
+  }
+  fail("EXPORT_NOT_ACCEPTED", "商品銷售報表送出匯出後沒有回到報表列表。");
+}

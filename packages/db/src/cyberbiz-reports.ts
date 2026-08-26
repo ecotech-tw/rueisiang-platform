@@ -1,17 +1,25 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
   cyberbizReportManifests,
+  cyberbizReportRuns,
   type CyberbizReportManifest,
+  type CyberbizReportKind,
+  type CyberbizReportRun,
   type CyberbizReportScopeType,
+  type CyberbizReportRunKind,
   type CyberbizReportStatus,
 } from "./schema/cyberbiz-reports.js";
+
+export type { CyberbizReportKind, CyberbizReportRun, CyberbizReportRunKind } from "./schema/cyberbiz-reports.js";
 
 export interface CyberbizManifestLookup {
   reportMonth: string;
   scopeType: CyberbizReportScopeType;
   scopeId?: string;
   status?: CyberbizReportStatus;
+  /** 只取帶有該 normalized JSON 的最新版本，讓 sales／payout 可分開 publish。 */
+  requiredArtifact?: Exclude<CyberbizReportKind, "bundle">;
 }
 
 export interface CyberbizSalesRow {
@@ -133,6 +141,8 @@ export async function listCyberbizReportManifests(
     eq(cyberbizReportManifests.scopeType, lookup.scopeType),
     ...(lookup.scopeId ? [eq(cyberbizReportManifests.scopeId, lookup.scopeId)] : []),
     ...(lookup.status ? [eq(cyberbizReportManifests.status, lookup.status)] : []),
+    ...(lookup.requiredArtifact === "sales" ? [isNotNull(cyberbizReportManifests.salesObjectKey)] : []),
+    ...(lookup.requiredArtifact === "payout" ? [isNotNull(cyberbizReportManifests.payoutObjectKey)] : []),
   ];
   return db
     .select()
@@ -154,14 +164,16 @@ export async function findCyberbizReportManifest(
 
 export async function recordCyberbizReportManifest(
   db: Database,
-  input: Omit<CyberbizReportManifest, "id" | "createdAt" | "updatedAt" | "salesSourceObjectKey" | "payoutSourceObjectKey"> & {
+  input: Omit<CyberbizReportManifest, "id" | "createdAt" | "updatedAt" | "salesSourceObjectKey" | "payoutSourceObjectKey" | "reportKind"> & {
     id?: string;
+    reportKind?: CyberbizReportKind;
     salesSourceObjectKey?: string | null;
     payoutSourceObjectKey?: string | null;
   },
 ): Promise<CyberbizReportManifest> {
   const values = {
     ...input,
+    reportKind: input.reportKind ?? "bundle",
     salesSourceObjectKey: input.salesSourceObjectKey ?? null,
     payoutSourceObjectKey: input.payoutSourceObjectKey ?? null,
     salesObjectKey: input.salesObjectKey ?? null,
@@ -177,6 +189,7 @@ export async function recordCyberbizReportManifest(
       cyberbizReportManifests.reportMonth,
       cyberbizReportManifests.scopeType,
       cyberbizReportManifests.scopeId,
+      cyberbizReportManifests.reportKind,
       cyberbizReportManifests.sourceChecksum,
     ],
     set: {
@@ -202,9 +215,55 @@ export async function recordCyberbizReportManifest(
     reportMonth: input.reportMonth,
     scopeType: input.scopeType,
     scopeId: input.scopeId,
-  })).find((manifest) => manifest.sourceChecksum === input.sourceChecksum);
+  })).find((manifest) => manifest.sourceChecksum === input.sourceChecksum && manifest.reportKind === (input.reportKind ?? "bundle"));
   if (!found) throw new Error("寫入 CYBERBIZ report manifest 後找不到資料。");
   return found;
+}
+
+export async function recordCyberbizReportRun(
+  db: Database,
+  input: {
+    requestId: string;
+    reportKind: CyberbizReportRunKind;
+    periodKind: "month" | "custom";
+    stores: string[];
+    startDate: string;
+    endDate: string;
+    actor: { id: string; email: string };
+  },
+): Promise<CyberbizReportRun> {
+  const [run] = await db.insert(cyberbizReportRuns).values({
+    id: crypto.randomUUID(),
+    requestId: input.requestId,
+    reportKind: input.reportKind,
+    periodKind: input.periodKind,
+    storesJson: JSON.stringify(input.stores),
+    startDate: input.startDate,
+    endDate: input.endDate,
+    manifestEligible: input.periodKind === "month" ? 1 : 0,
+    actorId: input.actor.id,
+    actorEmail: input.actor.email,
+  }).returning();
+  if (!run) throw new Error("寫入 CYBERBIZ report job 後找不到資料。");
+  return run;
+}
+
+export async function listCyberbizReportRuns(
+  db: Database,
+  reportKind?: CyberbizReportRunKind,
+  limit = 20,
+): Promise<CyberbizReportRun[]> {
+  return db.select().from(cyberbizReportRuns)
+    .where(reportKind ? eq(cyberbizReportRuns.reportKind, reportKind) : undefined)
+    .orderBy(desc(cyberbizReportRuns.createdAt))
+    .limit(Math.max(1, Math.min(limit, 100)));
+}
+
+export async function findCyberbizReportRun(db: Database, requestId: string): Promise<CyberbizReportRun | null> {
+  const [run] = await db.select().from(cyberbizReportRuns)
+    .where(eq(cyberbizReportRuns.requestId, requestId))
+    .limit(1);
+  return run ?? null;
 }
 
 function matches(row: CyberbizSalesRow, query: CyberbizSalesQuery): boolean {
