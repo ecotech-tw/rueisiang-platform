@@ -16,7 +16,7 @@ function formatDate(value: string): string {
 }
 
 export function CyberbizSales() {
-  usePageTitle("CYBERBIZ 商品銷售報表執行");
+  usePageTitle("商品銷售報表執行");
   const state = useCyberbizSalesState();
   const run = useRunCyberbizSales();
   const [start, setStart] = useState("");
@@ -48,7 +48,7 @@ export function CyberbizSales() {
   return (
     <div className="page">
       <PageHeader
-        title="CYBERBIZ 商品銷售報表執行"
+        title="商品銷售報表執行"
         description="從 CYBERBIZ POS 匯出商品銷售總表，依店別上傳到既有 Google Drive 通路資料夾；完整月份若後端設定已就緒，runner 會另外寫入 NAS 與 AI 查詢 manifest。"
       />
 
