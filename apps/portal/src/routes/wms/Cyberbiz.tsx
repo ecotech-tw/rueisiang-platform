@@ -137,17 +137,19 @@ export function Cyberbiz() {
             <div className="head-actions">
               <Button
                 variant="secondary"
-                disabled={refresh.isPending}
+                loading={refresh.isPending}
+                loadingLabel="讀取中…"
                 onClick={() => refresh.mutate()}
               >
-                {refresh.isPending ? "讀取中…" : "重新讀取官網"}
+                重新讀取官網
               </Button>
               <Button
                 icon="sync"
-                disabled={sync.isPending}
+                loading={sync.isPending}
+                loadingLabel="同步中…"
                 onClick={() => sync.mutate()}
               >
-                <span>{sync.isPending ? "同步中…" : "同步到庫存"}</span>
+                同步到庫存
               </Button>
             </div>
           ) : null}

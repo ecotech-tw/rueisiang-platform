@@ -50,10 +50,12 @@ export function PayoutSettings() {
       <Panel>
         <div className="admin-form toolbar">
           <Button
-            disabled={save.isPending || !drafts.length}
+            loading={save.isPending}
+            disabled={!drafts.length}
             onClick={() => save.mutate(drafts)}
+            loadingLabel="儲存中…"
           >
-            {save.isPending ? "儲存中…" : "儲存設定"}
+            儲存設定
           </Button>
           <Button
             variant="secondary"

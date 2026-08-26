@@ -94,6 +94,7 @@ export function Payout() {
           />
           <Button
             icon="payments"
+            loading={run.isPending}
             disabled={blocked || !stores.length}
             onClick={() => start_(stores.map((store) => store.name))}
             title="所有店別跑同一段區間"

@@ -87,8 +87,8 @@ export function Categories() {
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
             />
-            <Button type="submit" disabled={!newName.trim() || create.isPending}>
-              {create.isPending ? "新增中…" : "新增分類"}
+            <Button type="submit" loading={create.isPending} loadingLabel="新增中…" disabled={!newName.trim()}>
+              新增分類
             </Button>
           </form>
         ) : null}
