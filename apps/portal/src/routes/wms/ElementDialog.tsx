@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog } from "../../ui/index.js";
+import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
 import {
   CATEGORY_COLORS,
   useCreateElement,
@@ -86,18 +86,16 @@ export function ElementDialog({
         </>
       }
     >
-          <label className="field">
-            <span>標籤文字<b>必填</b></span>
-            <input
-              autoFocus
-              required
-              maxLength={40}
-              placeholder="例如 走道、出貨口"
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-            />
-            {!element ? <small>新標籤會出現在畫布左上角，拖到定位即可。</small> : null}
-          </label>
+          <TextField
+            label="標籤文字"
+            required
+            autoFocus
+            maxLength={40}
+            placeholder="例如 走道、出貨口"
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+            hint={!element ? "新標籤會出現在畫布左上角，拖到定位即可。" : undefined}
+          />
 
           <div className="field">
             <span>顏色</span>

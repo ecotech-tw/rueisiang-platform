@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog } from "../../ui/index.js";
+import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
 import { useCountItem, type InventoryItem } from "./api.js";
 
 /**
@@ -59,19 +59,18 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
             </div>
           </div>
 
-          <label className="field">
-            <span>實際數量<b>必填</b></span>
-            <input
-              autoFocus
-              type="number"
-              min={0}
-              inputMode="numeric"
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              onFocus={(event) => event.target.select()}
-            />
-            <small>直接填架上數出來的數量，不用自己算差額。</small>
-          </label>
+          <TextField
+            label="實際數量"
+            required
+            autoFocus
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            onFocus={(event) => event.target.select()}
+            hint="直接填架上數出來的數量，不用自己算差額。"
+          />
 
           {/*
             * 差額即時算給人看。現場的人數完之後最想確認的是「跟系統差多少」——
@@ -90,15 +89,13 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
             </p>
           ) : null}
 
-          <label className="field">
-            <span>備註</span>
-            <input
-              placeholder="例如：破損 2 件已丟棄"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-            />
-            <small>會寫進操作紀錄。數量對不上時，這裡是唯一說得清原因的地方。</small>
-          </label>
+          <TextField
+            label="備註"
+            placeholder="例如：破損 2 件已丟棄"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            hint="會寫進操作紀錄。數量對不上時，這裡是唯一說得清原因的地方。"
+          />
 
           {count.error ? <Alert tone="danger">{count.error.message}</Alert> : null}
     </Dialog>

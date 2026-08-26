@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
 import { Switch } from "../../shell/Switch.js";
-import { Alert, Button, Dialog, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, TextField } from "../../ui/index.js";
 import {
   useAddAssistantLineGroup,
   useAssistantLineConfig,
@@ -128,25 +128,40 @@ export function LineSettings() {
       >
 
         <form className="line-channel-form" onSubmit={submitChannel}>
-          <label className="field">
-            <span>LINE Channel ID</span>
-            <input value={channelId} maxLength={120} onChange={(event) => setChannelId(event.target.value)} placeholder="例如：2001234567" />
-            <small>Channel ID 會保存到 channel 設定，方便確認目前連接的是哪個 LINE 官方帳號。</small>
-          </label>
-          <label className="field">
-            <span>LINE Channel Secret</span>
-            <input type="password" value={channelSecret} maxLength={500} onChange={(event) => setChannelSecret(event.target.value)} placeholder={data.credentials.channelSecretConfigured ? "已設定；輸入新值可覆寫" : "請輸入 Channel Secret"} autoComplete="new-password" />
-            <small>儲存後只保留加密內容，不會再次把 Secret 原值回傳到瀏覽器。</small>
-          </label>
-          <label className="field">
-            <span>LINE Channel Access Token</span>
-            <input type="password" value={accessToken} maxLength={2_000} onChange={(event) => setAccessToken(event.target.value)} placeholder={data.credentials.accessTokenConfigured ? "已設定；輸入新值可覆寫" : "請輸入 Channel Access Token"} autoComplete="new-password" />
-            <small>用來透過 Messaging API 回覆 LINE 對話；儲存後只保留加密內容，不會回傳原值。</small>
-          </label>
-          <label className="field">
-            <span>後台顯示名稱</span>
-            <input value={displayName} maxLength={120} onChange={(event) => setDisplayName(event.target.value)} />
-          </label>
+          <TextField
+            label="LINE Channel ID"
+            maxLength={120}
+            value={channelId}
+            onChange={(event) => setChannelId(event.target.value)}
+            placeholder="例如：2001234567"
+            hint="Channel ID 會保存到 channel 設定，方便確認目前連接的是哪個 LINE 官方帳號。"
+          />
+          <TextField
+            label="LINE Channel Secret"
+            type="password"
+            maxLength={500}
+            value={channelSecret}
+            onChange={(event) => setChannelSecret(event.target.value)}
+            placeholder={data.credentials.channelSecretConfigured ? "已設定；輸入新值可覆寫" : "請輸入 Channel Secret"}
+            autoComplete="new-password"
+            hint="儲存後只保留加密內容，不會再次把 Secret 原值回傳到瀏覽器。"
+          />
+          <TextField
+            label="LINE Channel Access Token"
+            type="password"
+            maxLength={2_000}
+            value={accessToken}
+            onChange={(event) => setAccessToken(event.target.value)}
+            placeholder={data.credentials.accessTokenConfigured ? "已設定；輸入新值可覆寫" : "請輸入 Channel Access Token"}
+            autoComplete="new-password"
+            hint="用來透過 Messaging API 回覆 LINE 對話；儲存後只保留加密內容，不會回傳原值。"
+          />
+          <TextField
+            label="後台顯示名稱"
+            maxLength={120}
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+          />
           <label className="assistant-toggle">
             <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
             <span>
@@ -244,13 +259,28 @@ export function LineSettings() {
       >
 
         <form className="admin-form row" onSubmit={submitGroup}>
-          <input value={groupId} onChange={(event) => setGroupId(event.target.value)} placeholder="LINE 對話 ID" aria-label="LINE 對話 ID" />
-          <select value={groupSourceType} onChange={(event) => setGroupSourceType(event.target.value as AssistantLineSourceType)} aria-label="LINE 對話類型">
-            <option value="group">群組</option>
-            <option value="room">多人聊天室</option>
-            <option value="user">一對一（user ID）</option>
-          </select>
-          <input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="顯示名稱（選填）" aria-label="顯示名稱" />
+          <FilterInput
+            label="LINE 對話 ID"
+            value={groupId}
+            onChange={(event) => setGroupId(event.target.value)}
+            placeholder="LINE 對話 ID"
+          />
+          <FilterSelect
+            label="LINE 對話類型"
+            value={groupSourceType}
+            onChange={(event) => setGroupSourceType(event.target.value as AssistantLineSourceType)}
+            options={[
+              { value: "group", label: "群組" },
+              { value: "room", label: "多人聊天室" },
+              { value: "user", label: "一對一（user ID）" },
+            ]}
+          />
+          <FilterInput
+            label="顯示名稱"
+            value={groupName}
+            onChange={(event) => setGroupName(event.target.value)}
+            placeholder="顯示名稱（選填）"
+          />
           <Button type="submit" loading={addGroup.isPending} loadingLabel="新增中…" disabled={!groupId.trim()}>新增對話</Button>
         </form>
         {addGroup.error ? <Alert tone="danger">{addGroup.error.message}</Alert> : null}

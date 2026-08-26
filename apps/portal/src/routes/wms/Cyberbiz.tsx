@@ -4,7 +4,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 
 /**
  * CYBERBIZ 的公司倉商品，以及它們跟 WMS 品項的連結狀態。
@@ -157,33 +157,35 @@ export function Cyberbiz() {
 
       <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
-          <input
+          <FilterInput
             className="search-input"
-            aria-label="搜尋"
+            label="搜尋"
             type="search"
             placeholder="搜尋商品名稱、款式或 SKU"
             value={filters.search}
             onChange={(event) => update({ search: event.target.value })}
           />
-          <select
-            aria-label="連結狀態"
+          <FilterSelect
+            label="連結狀態"
             value={filters.link}
             onChange={(event) => update({ link: event.target.value })}
-          >
-            <option value="all">全部商品</option>
-            <option value="linked">已連結倉儲</option>
-            <option value="unlinked">尚未連結</option>
-          </select>
-          <select
-            aria-label="庫存狀態"
+            options={[
+              { value: "all", label: "全部商品" },
+              { value: "linked", label: "已連結倉儲" },
+              { value: "unlinked", label: "尚未連結" },
+            ]}
+          />
+          <FilterSelect
+            label="庫存狀態"
             value={filters.stock}
             onChange={(event) => update({ stock: event.target.value })}
-          >
-            <option value="all">全部庫存</option>
-            <option value="available">有庫存</option>
-            <option value="low">低於安全庫存</option>
-            <option value="zero">零庫存</option>
-          </select>
+            options={[
+              { value: "all", label: "全部庫存" },
+              { value: "available", label: "有庫存" },
+              { value: "low", label: "低於安全庫存" },
+              { value: "zero", label: "零庫存" },
+            ]}
+          />
         </form>
 
         {error ? <Alert tone="danger">{error.message}</Alert> : null}

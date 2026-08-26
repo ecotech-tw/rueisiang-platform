@@ -19,7 +19,7 @@ import {
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 
 const STATUS_LABEL: Record<AdminUser["status"], string> = {
   invited: "已邀請",
@@ -118,8 +118,8 @@ function InviteForm({
         );
       }}
     >
-      <input
-        aria-label="電子信箱"
+      <TextField
+        label="電子信箱"
         type="email"
         required
         placeholder="要邀請的信箱"
@@ -127,12 +127,15 @@ function InviteForm({
         onChange={(event) => setEmail(event.target.value)}
       />
 
-      <select aria-label="角色" value={roleKey} onChange={(event) => setRoleKey(event.target.value)}>
-        <option value="">先不指定角色</option>
-        {catalog.roles.map((role) => (
-          <option key={role.key} value={role.key}>{role.name}</option>
-        ))}
-      </select>
+      <SelectField
+        label="角色"
+        value={roleKey}
+        onChange={(event) => setRoleKey(event.target.value)}
+        options={[
+          { label: "先不指定角色", value: "" },
+          ...catalog.roles.map((role) => ({ label: role.name, value: role.key })),
+        ]}
+      />
 
       <Button type="submit" loading={invite.isPending} loadingLabel="邀請中…">
         邀請
