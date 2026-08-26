@@ -134,8 +134,8 @@ function InviteForm({
         ))}
       </select>
 
-      <Button type="submit" disabled={invite.isPending}>
-        {invite.isPending ? "邀請中…" : "邀請"}
+      <Button type="submit" loading={invite.isPending} loadingLabel="邀請中…">
+        邀請
       </Button>
 
       {invite.error ? <Alert tone="danger">{invite.error.message}</Alert> : null}
@@ -467,14 +467,15 @@ function UserRow({
           {user.status === "invited" ? (
             <Button
               variant="secondary"
-              disabled={resend.isPending}
+              loading={resend.isPending}
+              loadingLabel="產生中…"
               onClick={() =>
                 resend.mutate(user.id, {
                   onSuccess: (result) => onInviteUrl(user.email, result.inviteUrl),
                 })
               }
             >
-              {resend.isPending ? "產生中…" : "重發連結"}
+              重發連結
             </Button>
           ) : null}
           </div>
@@ -586,10 +587,11 @@ export function AdminUsers() {
         actions={
           <Button
             variant="secondary"
-            disabled={syncRoles.isPending}
+            loading={syncRoles.isPending}
+            loadingLabel="同步中…"
             onClick={() => syncRoles.mutate()}
           >
-            {syncRoles.isPending ? "同步中…" : "重新同步"}
+            重新同步
           </Button>
         }
       >

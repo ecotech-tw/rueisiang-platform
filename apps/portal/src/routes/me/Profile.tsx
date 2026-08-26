@@ -71,8 +71,8 @@ export function Profile() {
               setSaved(false);
             }}
           />
-          <Button type="submit" disabled={save.isPending}>
-            {save.isPending ? "儲存中…" : "儲存"}
+          <Button type="submit" loading={save.isPending} loadingLabel="儲存中…">
+            儲存
           </Button>
           {saved ? <span className="form-hint">已儲存</span> : null}
           {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}

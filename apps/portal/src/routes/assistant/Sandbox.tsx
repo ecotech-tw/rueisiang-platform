@@ -239,10 +239,12 @@ export function Sandbox() {
                 {sessionOpen ? <small>目前 session 可直接切換模型；下一次送出時會套用選取的模型。</small> : null}
                 <div className="assistant-actions">
                   <Button
-                    disabled={!modelReady || model === data.activeModel || saveModel.isPending}
+                    loading={saveModel.isPending}
+                    loadingLabel="套用中…"
+                    disabled={!modelReady || model === data.activeModel}
                     onClick={submitModel}
                   >
-                    {saveModel.isPending ? "套用中…" : "儲存並套用到小香"}
+                    儲存並套用到小香
                   </Button>
                   {saveModel.isSuccess ? <span className="form-hint">已更新，小香之後會使用這個模型。</span> : null}
                   {saveModel.error ? <Alert tone="danger">{saveModel.error.message}</Alert> : null}
@@ -284,8 +286,8 @@ export function Sandbox() {
                 <small>儲存後會建立新的 revision，並立即成為之後執行與未來 LINE channel 的 active prompt。</small>
               </label>
               <div className="assistant-actions">
-                <Button disabled={!prompt.trim() || savePrompt.isPending} onClick={submitPrompt}>
-                  {savePrompt.isPending ? "儲存中…" : "儲存新 revision"}
+                <Button loading={savePrompt.isPending} loadingLabel="儲存中…" disabled={!prompt.trim()} onClick={submitPrompt}>
+                  儲存新 revision
                 </Button>
                 <Button variant="secondary" onClick={() => setRevisionsOpen(true)}>
                   Revision history
@@ -323,8 +325,14 @@ export function Sandbox() {
                 </option>
               ))}
             </select>
-            <Button variant="secondary" disabled={!modelReady || !promptId || createSession.isPending || closeSession.isPending} onClick={clearConversation}>
-              {createSession.isPending || closeSession.isPending ? "清除中…" : "清除對話"}
+            <Button
+              variant="secondary"
+              loading={createSession.isPending || closeSession.isPending}
+              loadingLabel="清除中…"
+              disabled={!modelReady || !promptId}
+              onClick={clearConversation}
+            >
+              清除對話
             </Button>
           </div>
         </div>
@@ -425,8 +433,13 @@ export function Sandbox() {
           </div>
         </label>
         <div className="assistant-actions">
-          <Button disabled={!modelReady || run.isPending || (!input.trim() && !attachments.length) || !sessionOpen} onClick={submitRun}>
-            {run.isPending ? "小香思考中…" : "送出"}
+          <Button
+            loading={run.isPending}
+            loadingLabel="小香思考中…"
+            disabled={!modelReady || (!input.trim() && !attachments.length) || !sessionOpen}
+            onClick={submitRun}
+          >
+            送出
           </Button>
           <span className="form-hint">
             {sessionOpen
