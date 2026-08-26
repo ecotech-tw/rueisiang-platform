@@ -3,6 +3,7 @@ import {
   deleteMediaObject,
   recordMediaObject,
   updateAssistantLineMessageAttachments,
+  updateAssistantLineMessageImageDownloadStatus,
   type Database,
   type StoredMediaAttachment,
 } from "@rueisiang/db";
@@ -103,6 +104,14 @@ export async function storeLineImage(input: {
   if (existingAttachment) {
     if (isExpiredLineImageAttachment(existingAttachment)) {
       throw new LineImageStorageError("LINE 圖片附件已過期，無法重新讀取。", false);
+    }
+    if (existing?.imageDownloadStatus !== "stored") {
+      await updateAssistantLineMessageImageDownloadStatus(input.db, {
+        channelKey: input.channelKey,
+        webhookEventId: input.webhookEventId,
+        status: "stored",
+        error: null,
+      });
     }
     return existingAttachment;
   }

@@ -9,7 +9,7 @@ export interface PiLineAgentContext {
   sourceType: LineSourceType;
   /** D1 的 contextResetAt；舊工作若帶著較早的 generation，DO 會拒絕寫回新 session。 */
   contextGeneration: string;
-  /** 群組／多人聊天室只有被目前訊息引用的圖片才會進入模型 context。 */
+  /** 群組／多人聊天室的圖片只屬於目前這一輪，不寫入 DO transcript。 */
   quotedMessageId?: string;
 }
 
@@ -31,6 +31,8 @@ export interface PiLineAgentRunRequest extends PiLineAgentContext {
   userText: string;
   toolKeys: string[];
   attachments?: PiAgentAttachment[];
+  /** false 時只把圖片送給目前這輪模型，不讓它出現在後續對話。 */
+  persistAttachments?: boolean;
 }
 
 export interface PiLineAgentRunResponse {

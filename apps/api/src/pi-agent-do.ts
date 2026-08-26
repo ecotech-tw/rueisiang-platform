@@ -47,7 +47,7 @@ import type {
   PiAgentRunResponse,
   PiSandboxAgentRunRequest,
 } from "./pi-agent-contract.js";
-import { isNasStorageKey, nasStorageClient } from "./nas-storage.js";
+import { isNasStorageKey, NasStorageConfigError, NasStorageError, nasStorageClient } from "./nas-storage.js";
 import { createCyberbizReportService } from "./cyberbiz-reports.js";
 import {
   PI_CODEX_PROVIDER_ID,
@@ -80,6 +80,7 @@ const IMAGE_CONTEXT_BYTES_PER_TOKEN = 128;
 const MIN_IMAGE_CONTEXT_TOKENS = 256;
 const IMAGE_MARKER_PREFIX = "[[nas-image:";
 const IMAGE_MARKER_SUFFIX = "]]";
+const HISTORICAL_IMAGE_OMITTED_TEXT = "（歷史圖片只在收到新的圖片相關訊息時載入。）";
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 type CyberbizReportService = ReturnType<typeof createCyberbizReportService>;
@@ -108,6 +109,7 @@ interface ImageMarker {
 interface AgentStateRow extends Record<string, SqlStorageValue> {
   generation: string;
   session_id: string;
+  source_type: string;
   summary: string;
   summary_through_seq: number;
   summary_tokens: number;
@@ -156,6 +158,13 @@ class AgentExecutionError extends Error {
   }
 }
 
+class PermanentImageAttachmentError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message, { cause });
+    this.name = "PermanentImageAttachmentError";
+  }
+}
+
 function object(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }
@@ -188,7 +197,8 @@ function isRunFields(input: Record<string, unknown>): boolean {
     && typeof input.userText === "string"
     && Array.isArray(input.toolKeys)
     && input.toolKeys.every(nonEmptyString)
-    && (input.attachments === undefined || isAttachments(input.attachments));
+    && (input.attachments === undefined || isAttachments(input.attachments))
+    && (input.persistAttachments === undefined || typeof input.persistAttachments === "boolean");
 }
 
 function isAttachments(value: unknown): value is PiAgentAttachment[] {
@@ -504,6 +514,7 @@ export class AssistantChatAgent {
           singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
           generation TEXT NOT NULL,
           session_id TEXT NOT NULL,
+          source_type TEXT NOT NULL DEFAULT '',
           summary TEXT NOT NULL DEFAULT '',
           summary_through_seq INTEGER NOT NULL DEFAULT 0,
           summary_tokens INTEGER NOT NULL DEFAULT 0,
@@ -529,6 +540,10 @@ export class AssistantChatAgent {
           updated_at INTEGER NOT NULL
         )
       `);
+      const columns = [...this.sql.exec<{ name: string }>("PRAGMA table_info(assistant_agent_state)")];
+      if (!columns.some((column) => column.name === "source_type")) {
+        this.sql.exec("ALTER TABLE assistant_agent_state ADD COLUMN source_type TEXT NOT NULL DEFAULT ''");
+      }
     });
   }
 
@@ -540,20 +555,21 @@ export class AssistantChatAgent {
 
   private currentState(): AgentStateRow | undefined {
     return [...this.sql.exec<AgentStateRow>(
-      `SELECT generation, session_id, summary, summary_through_seq, summary_tokens, tokens_before, model
+      `SELECT generation, session_id, source_type, summary, summary_through_seq, summary_tokens, tokens_before, model
        FROM assistant_agent_state WHERE singleton = 1 LIMIT 1`,
     )][0];
   }
 
-  private rotateGeneration(generation: string): AgentStateRow {
+  private rotateGeneration(generation: string, sourceType = ""): AgentStateRow {
     const sessionId = crypto.randomUUID();
     this.sql.exec(
       `INSERT INTO assistant_agent_state
-         (singleton, generation, session_id, summary, summary_through_seq, summary_tokens, tokens_before, model, updated_at)
-       VALUES (1, ?, ?, '', 0, 0, 0, '', ?)
+         (singleton, generation, session_id, source_type, summary, summary_through_seq, summary_tokens, tokens_before, model, updated_at)
+       VALUES (1, ?, ?, ?, '', 0, 0, 0, '', ?)
        ON CONFLICT(singleton) DO UPDATE SET
          generation = excluded.generation,
          session_id = excluded.session_id,
+         source_type = excluded.source_type,
          summary = '',
          summary_through_seq = 0,
          summary_tokens = 0,
@@ -562,11 +578,13 @@ export class AssistantChatAgent {
          updated_at = excluded.updated_at`,
       generation,
       sessionId,
+      sourceType,
       Date.now(),
     );
     return {
       generation,
       session_id: sessionId,
+      source_type: sourceType,
       summary: "",
       summary_through_seq: 0,
       summary_tokens: 0,
@@ -604,11 +622,12 @@ export class AssistantChatAgent {
     selectedMarkers: Set<string>,
     messageIndex: number,
     budget: { remaining: number },
+    allowHistoricalImages: boolean,
   ): Promise<AgentMessage> {
     const raw = message as AgentMessage & { content?: unknown };
     if (message.role !== "user" || !Array.isArray(raw.content)) return message;
-    const nas = nasStorageClient(this.env);
-    if (!nas) return message;
+    const nas = allowHistoricalImages ? nasStorageClient(this.env) : undefined;
+    if (allowHistoricalImages && !nas) return message;
     const content: unknown[] = [];
     for (const [contentIndex, item] of raw.content.entries()) {
       if (!item || typeof item !== "object" || (item as { type?: unknown }).type !== "text") {
@@ -625,8 +644,16 @@ export class AssistantChatAgent {
         content.push(item);
         continue;
       }
+      if (!allowHistoricalImages) {
+        content.push({ type: "text" as const, text: HISTORICAL_IMAGE_OMITTED_TEXT });
+        continue;
+      }
       if (!selectedMarkers.has(`${messageIndex}:${contentIndex}`)) {
         content.push({ type: "text" as const, text: "（歷史圖片過多，暫不載入這張圖片。）" });
+        continue;
+      }
+      if (!nas) {
+        content.push({ type: "text" as const, text: HISTORICAL_IMAGE_OMITTED_TEXT });
         continue;
       }
       if (await this.isExpiredStoredImage(marker)) {
@@ -675,7 +702,7 @@ export class AssistantChatAgent {
     }
   }
 
-  private async hydrateMessages(messages: AgentMessage[]): Promise<AgentMessage[]> {
+  private async hydrateMessages(messages: AgentMessage[], allowHistoricalImages = true): Promise<AgentMessage[]> {
     const selectedMarkers = new Set<string>();
     let remaining = MAX_HYDRATED_IMAGE_BYTES;
     for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
@@ -699,7 +726,7 @@ export class AssistantChatAgent {
     const budget = { remaining: MAX_HYDRATED_IMAGE_BYTES };
     const hydrated: AgentMessage[] = [];
     for (const [messageIndex, message] of messages.entries()) {
-      hydrated.push(await this.hydrateMessage(message, selectedMarkers, messageIndex, budget));
+      hydrated.push(await this.hydrateMessage(message, selectedMarkers, messageIndex, budget, allowHistoricalImages));
     }
     return hydrated;
   }
@@ -738,22 +765,37 @@ export class AssistantChatAgent {
       ...(state.summary ? [createCompactionSummaryMessage(state.summary, state.tokens_before, Date.now())] : []),
       ...rows.map((row) => row.message),
     ];
-    return this.hydrateMessages(messages);
+    const allowHistoricalImages = state.source_type !== "group" && state.source_type !== "room";
+    return this.hydrateMessages(messages, allowHistoricalImages);
   }
 
   private async inputImages(attachments: PiAgentAttachment[] = []): Promise<ImageContent[]> {
     if (!attachments.length) return [];
-    const nas = nasStorageClient(this.env);
-    if (!nas) throw new Error("平台尚未設定 NAS storage，無法讀取圖片附件。");
+    let nas: ReturnType<typeof nasStorageClient>;
+    try {
+      nas = nasStorageClient(this.env);
+    } catch (error) {
+      if (error instanceof NasStorageConfigError) throw new PermanentImageAttachmentError(error.message, error);
+      throw error;
+    }
+    if (!nas) throw new PermanentImageAttachmentError("平台尚未設定 NAS storage，無法讀取圖片附件。");
     return Promise.all(attachments.map(async (attachment) => {
       if (attachment.expiresAt) {
         const expiresAt = Date.parse(attachment.expiresAt);
         if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-          throw new Error(`圖片附件 ${attachment.filename} 已不存在或已過期。`);
+          throw new PermanentImageAttachmentError(`圖片附件 ${attachment.filename} 已不存在或已過期。`);
         }
       }
-      const response = await nas.get(attachment.key);
-      if (!response) throw new Error(`圖片附件 ${attachment.filename} 已不存在或已過期。`);
+      let response: Response | null;
+      try {
+        response = await nas.get(attachment.key);
+      } catch (error) {
+        if (error instanceof NasStorageError && !error.retryable) {
+          throw new PermanentImageAttachmentError(error.message, error);
+        }
+        throw error;
+      }
+      if (!response) throw new PermanentImageAttachmentError(`圖片附件 ${attachment.filename} 已不存在或已過期。`);
       return {
         type: "image" as const,
         data: base64(new Uint8Array(await response.arrayBuffer())),
@@ -950,6 +992,7 @@ export class AssistantChatAgent {
     runId: string,
     message: AgentMessage,
     attachments: PiAgentAttachment[] = [],
+    persistAttachments = true,
   ): void {
     this.sql.exec(
       `INSERT INTO assistant_agent_messages (generation, run_id, role, payload, created_at)
@@ -957,7 +1000,7 @@ export class AssistantChatAgent {
       generation,
       runId,
       message.role,
-      JSON.stringify(sanitizedMessage(message, attachments)),
+      JSON.stringify(sanitizedMessage(message, persistAttachments ? attachments : [])),
       Date.now(),
     );
   }
@@ -1063,10 +1106,7 @@ export class AssistantChatAgent {
       .map((message) => ({
         role: "user" as const,
         text: message.text,
-        attachments: (
-          message.sourceType === "user"
-          || (input.quotedMessageId && message.lineMessageId === input.quotedMessageId)
-        ) ? storedAttachments(message.attachments) : [],
+        attachments: message.sourceType === "user" ? storedAttachments(message.attachments) : [],
       }));
     if (!bootstrapMessages.length) return;
 
@@ -1116,7 +1156,8 @@ export class AssistantChatAgent {
     );
     if (storedTokens <= COMPACT_AFTER_TOKENS) return false;
 
-    const hydratedMessages = await this.hydrateMessages(sourceRows.map((row) => row.message));
+    const allowHistoricalImages = state.source_type !== "group" && state.source_type !== "room";
+    const hydratedMessages = await this.hydrateMessages(sourceRows.map((row) => row.message), allowHistoricalImages);
     const rows = sourceRows.map((row, index) => ({
       ...row,
       message: hydratedMessages[index]!,
@@ -1204,6 +1245,16 @@ export class AssistantChatAgent {
   private async run(input: PiAgentRunRequest): Promise<PiAgentRunResponse> {
     const providerDiagnostics: PiProviderExecutionDiagnostics = { runId: input.runId };
     let { state } = this.requireGeneration(input.contextGeneration);
+    const sourceType = isLineRunRequest(input) ? input.sourceType : "sandbox";
+    if (state.source_type !== sourceType) {
+      this.sql.exec(
+        "UPDATE assistant_agent_state SET source_type = ?, updated_at = ? WHERE singleton = 1 AND generation = ?",
+        sourceType,
+        Date.now(),
+        state.generation,
+      );
+      state = this.currentState()!;
+    }
     const model = this.model(input.model);
     const completed = this.completedRun(input.runId, state.generation);
     if (completed) return completed;
@@ -1258,8 +1309,17 @@ export class AssistantChatAgent {
       maxRetryDelayMs: 1_000,
       toolExecution: "sequential",
     });
+    const persistAttachments = isLineRunRequest(input) ? input.persistAttachments !== false : true;
     agent.subscribe((event) => {
-      if (event.type === "message_end") this.storeMessage(state.generation, input.runId, event.message, input.attachments);
+      if (event.type === "message_end") {
+        this.storeMessage(
+          state.generation,
+          input.runId,
+          event.message,
+          input.attachments,
+          persistAttachments,
+        );
+      }
     });
 
     try {
@@ -1367,7 +1427,8 @@ export class AssistantChatAgent {
       return Response.json({
         error: message,
         toolCalls: error instanceof AgentExecutionError ? error.toolCalls : [],
-      }, { status: stale ? 409 : 503 });
+        ...(error instanceof PermanentImageAttachmentError ? { permanent: true, code: "permanent_attachment" } : {}),
+      }, { status: stale ? 409 : error instanceof PermanentImageAttachmentError ? 422 : 503 });
     }
   }
 
