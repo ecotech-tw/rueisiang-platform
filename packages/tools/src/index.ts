@@ -54,6 +54,40 @@ function json(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function cyberbizReportToolResult(value: unknown, reportKind: "sales" | "payout", input: unknown): string {
+  if (!value || typeof value !== "object") return json(value);
+  const result = value as { status?: string };
+  if (!["NO_DATA_FOR_RANGE", "INCOMPLETE_COVERAGE", "UNSUPPORTED_GRANULARITY"].includes(result.status ?? "")) {
+    return json(value);
+  }
+  const period = textInput(input, "period");
+  const scopeType = textInput(input, "scopeType") || "company";
+  const scopeId = textInput(input, "scopeId");
+  return json({
+    ...value,
+    nextStep: {
+      type: "open_backend_report_runner",
+      path: reportKind === "sales" ? "/tools/cyberbiz-sales" : "/tools/payout",
+      reportKind,
+      period,
+      scopeType,
+      ...(scopeId ? { scopeId } : {}),
+      ...(textInput(input, "startDate") ? { startDate: textInput(input, "startDate") } : {}),
+      ...(textInput(input, "endDate") ? { endDate: textInput(input, "endDate") } : {}),
+      message: "請到後台執行對應的 CYBERBIZ 報表；完整月份才會進入 AI manifest，自訂日期只會整理到 Google Drive。",
+    },
+  });
+}
+
+function cyberbizReportToolError(error: unknown, reportKind: "sales" | "payout", input: unknown): string | null {
+  const candidate = error as { code?: unknown };
+  if (candidate?.code !== "nas_not_configured") return null;
+  return cyberbizReportToolResult({
+    status: "NO_DATA_FOR_RANGE",
+    message: "NAS storage 尚未設定，現在沒有可查詢的 CYBERBIZ manifest。",
+  }, reportKind, input);
+}
+
 interface CyberbizReportToolService {
   querySales(input: CyberbizSalesQuery): Promise<unknown>;
   queryPayout(input: CyberbizPayoutQuery): Promise<unknown>;
@@ -1133,16 +1167,22 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
     }
     const scopeId = textInput(input, "scopeId");
     if (scopeType === "store" && !scopeId) throw new AssistantError("查詢單一櫃位時需要 scopeId。");
-    return json(await cyberbizReportService(context).querySales({
-      reportMonth: period,
-      scopeType: scopeType as CyberbizSalesQuery["scopeType"],
-      ...(scopeId ? { scopeId } : {}),
-      ...(textInput(input, "startDate") ? { startDate: textInput(input, "startDate") } : {}),
-      ...(textInput(input, "endDate") ? { endDate: textInput(input, "endDate") } : {}),
-      ...(textInput(input, "sku") ? { sku: textInput(input, "sku") } : {}),
-      ...(textInput(input, "category") ? { category: textInput(input, "category") } : {}),
-      ...(textInput(input, "productName") ? { productName: textInput(input, "productName") } : {}),
-    }));
+    try {
+      return cyberbizReportToolResult(await cyberbizReportService(context).querySales({
+        reportMonth: period,
+        scopeType: scopeType as CyberbizSalesQuery["scopeType"],
+        ...(scopeId ? { scopeId } : {}),
+        ...(textInput(input, "startDate") ? { startDate: textInput(input, "startDate") } : {}),
+        ...(textInput(input, "endDate") ? { endDate: textInput(input, "endDate") } : {}),
+        ...(textInput(input, "sku") ? { sku: textInput(input, "sku") } : {}),
+        ...(textInput(input, "category") ? { category: textInput(input, "category") } : {}),
+        ...(textInput(input, "productName") ? { productName: textInput(input, "productName") } : {}),
+      }), "sales", input);
+    } catch (error) {
+      const fallback = cyberbizReportToolError(error, "sales", input);
+      if (fallback) return fallback;
+      throw error;
+    }
   },
 };
 
@@ -1175,16 +1215,22 @@ const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
     }
     const scopeId = textInput(input, "scopeId");
     if (scopeType === "store" && !scopeId) throw new AssistantError("查詢單一櫃位時需要 scopeId。");
-    return json(await cyberbizReportService(context).queryPayout({
-      reportMonth: period,
-      scopeType: scopeType as CyberbizPayoutQuery["scopeType"],
-      startDate: textInput(input, "startDate"),
-      endDate: textInput(input, "endDate"),
-      ...(scopeId ? { scopeId } : {}),
-      ...(textInput(input, "incomeType") ? { incomeType: textInput(input, "incomeType") } : {}),
-      ...(textInput(input, "pos") ? { pos: textInput(input, "pos") } : {}),
-      ...(textInput(input, "operator") ? { operator: textInput(input, "operator") } : {}),
-    }));
+    try {
+      return cyberbizReportToolResult(await cyberbizReportService(context).queryPayout({
+        reportMonth: period,
+        scopeType: scopeType as CyberbizPayoutQuery["scopeType"],
+        startDate: textInput(input, "startDate"),
+        endDate: textInput(input, "endDate"),
+        ...(scopeId ? { scopeId } : {}),
+        ...(textInput(input, "incomeType") ? { incomeType: textInput(input, "incomeType") } : {}),
+        ...(textInput(input, "pos") ? { pos: textInput(input, "pos") } : {}),
+        ...(textInput(input, "operator") ? { operator: textInput(input, "operator") } : {}),
+      }), "payout", input);
+    } catch (error) {
+      const fallback = cyberbizReportToolError(error, "payout", input);
+      if (fallback) return fallback;
+      throw error;
+    }
   },
 };
 

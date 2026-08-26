@@ -201,6 +201,24 @@ secret 存進去就立即生效，不必重新部署；之後的部署也不會�
 
 （等價指令：`cd apps/api && npx wrangler secret put <名稱>`）
 
+### 2.3.1 CYBERBIZ 報表 runner
+
+後台的「CYBERBIZ 商品銷售報表」會 dispatch GitHub Actions 的
+`.github/workflows/cyberbiz-sales-report.yml`。它預設沿用 `PAYOUT_GITHUB_REPO`；只有要放到不同
+repository 時，才在 `apps/api/wrangler.toml` 的 `[vars]` 設定 `CYBERBIZ_SALES_GITHUB_REPO`。
+workflow 檔名與 branch 可用 `CYBERBIZ_SALES_WORKFLOW_FILE`、`CYBERBIZ_SALES_GITHUB_REF` 覆寫。
+
+出金與商品銷售兩個 workflow 都需要在 GitHub Actions secrets 設定：
+
+- `CYBERBIZ_USERNAME`、`CYBERBIZ_PASSWORD`
+- `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN`
+- `GMAIL_REFRESH_TOKEN`
+
+完整月份要建立 AI manifest，還需要 `NAS_STORAGE_URL`、`NAS_STORAGE_TOKEN`、
+`PLATFORM_API_URL` 與 `CYBERBIZ_REPORT_INGEST_TOKEN`。自訂日期區間只上傳原始 XLSX 到 Google Drive，
+不需要 NAS 或 ingest token，也不會被 AI 查詢使用。Google Drive 的 root 與各店別資料夾設定方式，
+沿用 [`tools/cyberbiz-monthly-payout/README.md`](../tools/cyberbiz-monthly-payout/README.md)。
+
 ### 2.4 部署
 
 **這一步不能在這台開發機做**——Windows on ARM 沒有 `workerd` 執行檔。用 GitHub Actions：

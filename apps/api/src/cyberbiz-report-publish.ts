@@ -18,6 +18,8 @@ const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreads
 
 export interface CyberbizReportPublishInput {
   reportMonth: string;
+  /** sales／payout 可分開 publish；未提供時維持 #102 的 bundle 行為。 */
+  reportKind?: "sales" | "payout" | "bundle";
   scopeType: CyberbizReportScopeType;
   scopeId: string;
   scopeName: string;
@@ -69,6 +71,13 @@ function objectKeyKind(
   return match[5]?.toLowerCase() === "json" ? "json" : "xlsx";
 }
 
+function reportKindOf(input: CyberbizReportPublishInput): "sales" | "payout" | "bundle" {
+  if (input.reportKind) return input.reportKind;
+  if (input.salesObjectKey && input.payoutObjectKey) return "bundle";
+  if (input.salesObjectKey) return "sales";
+  return "payout";
+}
+
 function validateInput(input: CyberbizReportPublishInput): void {
   let reportMonth: string;
   try {
@@ -78,6 +87,9 @@ function validateInput(input: CyberbizReportPublishInput): void {
   }
   if (input.scopeType !== "store" && input.scopeType !== "company") {
     throw new CyberbizReportPublishError(422, "invalid_manifest", "scopeType 必須是 store 或 company。");
+  }
+  if (input.reportKind && !["sales", "payout", "bundle"].includes(input.reportKind)) {
+    throw new CyberbizReportPublishError(422, "invalid_manifest", "reportKind 必須是 sales、payout 或 bundle。");
   }
   if (input.status !== "staged" && input.status !== "published") {
     throw new CyberbizReportPublishError(422, "invalid_manifest", "publish endpoint 只接受 staged 或 published。");
@@ -123,11 +135,33 @@ function validateInput(input: CyberbizReportPublishInput): void {
       throw new CyberbizReportPublishError(422, "invalid_manifest", `${name} 的副檔名不正確。`);
     }
   }
-  if (!input.salesObjectKey && !input.payoutObjectKey) {
-    throw new CyberbizReportPublishError(422, "invalid_manifest", "至少要有一份 normalized sales 或 payout JSON。");
+  const reportKind = reportKindOf(input);
+  if (reportKind === "sales" && !input.salesObjectKey) {
+    throw new CyberbizReportPublishError(422, "invalid_manifest", "sales report 至少要有 normalized sales JSON。");
   }
-  if (input.status === "published" && (!input.salesObjectKey || !input.payoutObjectKey || !input.combinedWorkbookObjectKey || !input.driveFileId || !input.driveUrl)) {
-    throw new CyberbizReportPublishError(422, "invalid_manifest", "published manifest 必須同時具備 sales、payout、combined XLSX 與 Drive 資訊。");
+  if (reportKind === "payout" && !input.payoutObjectKey) {
+    throw new CyberbizReportPublishError(422, "invalid_manifest", "payout report 至少要有 normalized payout JSON。");
+  }
+  if (reportKind === "bundle" && (!input.salesObjectKey || !input.payoutObjectKey)) {
+    throw new CyberbizReportPublishError(422, "invalid_manifest", "bundle 至少要有 sales 與 payout normalized JSON。");
+  }
+  if (input.status === "published") {
+    const needsDrive = input.scopeType === "store";
+    const hasDrive = Boolean(input.driveFileId && input.driveUrl);
+    const complete = reportKind === "bundle"
+      ? Boolean(input.salesObjectKey && input.payoutObjectKey && input.combinedWorkbookObjectKey && (!needsDrive || hasDrive))
+      : reportKind === "sales"
+        ? Boolean(input.salesObjectKey && (!needsDrive || hasDrive))
+        : Boolean(input.payoutObjectKey && (!needsDrive || hasDrive));
+    if (!complete) {
+      throw new CyberbizReportPublishError(
+        422,
+        "invalid_manifest",
+        reportKind === "bundle"
+          ? "published bundle 必須同時具備 sales、payout、combined XLSX 與 Drive 資訊。"
+          : `published ${reportKind} manifest 缺少 normalized JSON${needsDrive ? " 或 Drive 資訊" : ""}。`,
+      );
+    }
   }
 }
 
@@ -162,6 +196,7 @@ export function createCyberbizReportPublisher(
 
       return recordCyberbizReportManifest(db, {
         ...input,
+        reportKind: reportKindOf(input),
         salesSourceObjectKey: input.salesSourceObjectKey ?? null,
         payoutSourceObjectKey: input.payoutSourceObjectKey ?? null,
         salesObjectKey: input.salesObjectKey ?? null,

@@ -5,7 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { parseSalesReport } from "../cyberbiz-monthly-sales/lib/sales.mjs";
 import { combineCyberbizWorkbook } from "./lib/combined-xlsx.mjs";
-import { accessToken } from "./lib/drive.mjs";
+import { accessToken, uploadXlsx } from "./lib/drive.mjs";
 import { loadConfig, loadEnv, monthRange, skillPath, ensureDir } from "./lib/common.mjs";
 import { parsePayoutReport } from "./lib/xlsx.mjs";
 import { publishCyberbizReport } from "./lib/report-publish.mjs";
@@ -16,6 +16,7 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--month") args.month = argv[++index];
+    else if (arg === "--kind") args.kind = argv[++index];
     else if (arg === "--scope-id") args.scopeId = argv[++index];
     else if (arg === "--scope-name") args.scopeName = argv[++index];
     else if (arg === "--sales-xlsx") args.salesXlsx = argv[++index];
@@ -38,10 +39,10 @@ function required(args, name) {
 function help() {
   console.log([
     "用法：node publish-report.mjs --month YYYY-MM --scope-id <id> --scope-name <name>",
-    "  --sales-xlsx <path> --payout-xlsx <path>",
+    "  --kind sales|payout|bundle --sales-xlsx <path> --payout-xlsx <path>",
     "  [--store-id <id>]... [--drive-folder-id <id>] [--skip-drive]",
     "",
-    "兩份 XLSX 已由 CYBERBIZ/Gmail 下載後，這個指令會 parse normalized JSON、產生 combined XLSX、",
+    "XLSX 已由 CYBERBIZ/Gmail 下載後，這個指令會 parse normalized JSON；bundle 才會產生 combined XLSX、",
     "上傳原始與 normalized 檔到 NAS，先寫 staged；未指定 --skip-drive 時再上傳 Drive 並切 published。",
   ].join("\n"));
 }
@@ -53,33 +54,37 @@ async function main() {
   const month = required(args, "month");
   const scopeId = required(args, "scopeId");
   const scopeName = required(args, "scopeName");
-  const salesXlsx = path.resolve(required(args, "salesXlsx"));
-  const payoutXlsx = path.resolve(required(args, "payoutXlsx"));
+  const kind = args.kind ?? (args.salesXlsx && args.payoutXlsx ? "bundle" : args.salesXlsx ? "sales" : "payout");
+  if (!["sales", "payout", "bundle"].includes(kind)) throw new Error("--kind 必須是 sales、payout 或 bundle。");
+  const salesXlsx = args.salesXlsx ? path.resolve(args.salesXlsx) : null;
+  const payoutXlsx = args.payoutXlsx ? path.resolve(args.payoutXlsx) : null;
+  if ((kind === "sales" || kind === "bundle") && !salesXlsx) throw new Error("sales report 需要 --sales-xlsx。");
+  if ((kind === "payout" || kind === "bundle") && !payoutXlsx) throw new Error("payout report 需要 --payout-xlsx。");
   const range = monthRange(month);
   const env = await loadEnv();
   const config = await loadConfig();
   const outputDir = await ensureDir(path.join(skillPath("staging"), month, scopeId));
 
-  const salesDocument = await parseSalesReport(salesXlsx, {
+  const salesDocument = salesXlsx ? await parseSalesReport(salesXlsx, {
     scopeType: scopeId === "company" ? "company" : "store",
     scopeId,
     scopeName,
     reportMonth: month,
-  });
-  const payoutDocument = await parsePayoutReport(payoutXlsx, {
+  }) : null;
+  const payoutDocument = payoutXlsx ? await parsePayoutReport(payoutXlsx, {
     scopeType: scopeId === "company" ? "company" : "store",
     scopeId,
     scopeName,
     start: range.start,
     end: range.end,
     firstDataRow: config.firstDataRow,
-  });
-  const salesJsonPath = path.join(outputDir, "sales.normalized.json");
-  const payoutJsonPath = path.join(outputDir, "payout.normalized.json");
-  const combinedPath = path.join(outputDir, "combined.xlsx");
-  await fs.writeFile(salesJsonPath, `${JSON.stringify(salesDocument, null, 2)}\n`, "utf8");
-  await fs.writeFile(payoutJsonPath, `${JSON.stringify(payoutDocument, null, 2)}\n`, "utf8");
-  await combineCyberbizWorkbook({ payoutPath: payoutXlsx, outputPath: combinedPath, salesDocument });
+  }) : null;
+  const salesJsonPath = salesDocument ? path.join(outputDir, "sales.normalized.json") : null;
+  const payoutJsonPath = payoutDocument ? path.join(outputDir, "payout.normalized.json") : null;
+  const combinedPath = salesDocument && payoutXlsx ? path.join(outputDir, "combined.xlsx") : null;
+  if (salesDocument && salesJsonPath) await fs.writeFile(salesJsonPath, `${JSON.stringify(salesDocument, null, 2)}\n`, "utf8");
+  if (payoutDocument && payoutJsonPath) await fs.writeFile(payoutJsonPath, `${JSON.stringify(payoutDocument, null, 2)}\n`, "utf8");
+  if (combinedPath && payoutXlsx && salesDocument) await combineCyberbizWorkbook({ payoutPath: payoutXlsx, outputPath: combinedPath, salesDocument });
 
   if (!args.skipDrive && !args.driveFolderId) throw new Error("未使用 --skip-drive 時需要 --drive-folder-id。 ");
   const result = await publishCyberbizReport({
@@ -88,6 +93,7 @@ async function main() {
     apiUrl: required(env, "PLATFORM_API_URL"),
     ingestToken: required(env, "CYBERBIZ_REPORT_INGEST_TOKEN"),
     reportMonth: month,
+    reportKind: kind,
     scopeType: scopeId === "company" ? "company" : "store",
     scopeId,
     scopeName,
@@ -102,14 +108,12 @@ async function main() {
     combinedWorkbookPath: combinedPath,
     afterStaged: args.skipDrive ? undefined : async () => {
       const token = await accessToken(env);
-      const name = path.basename(combinedPath);
-      const uploaded = await uploadAndVerifyReportWorkbook({
-        token,
-        filePath: combinedPath,
-        name,
-        folderId: args.driveFolderId,
-        firstDataRow: config.firstDataRow,
-      });
+      const drivePath = combinedPath ?? salesXlsx ?? payoutXlsx;
+      if (!drivePath) throw new Error("沒有可上傳的 report XLSX。");
+      const name = path.basename(drivePath);
+      const uploaded = combinedPath
+        ? await uploadAndVerifyReportWorkbook({ token, filePath: drivePath, name, folderId: args.driveFolderId, firstDataRow: config.firstDataRow })
+        : await uploadXlsx(token, { filePath: drivePath, name, folderId: args.driveFolderId });
       return { driveFileId: uploaded.id, driveUrl: uploaded.webViewLink };
     },
   });

@@ -11,6 +11,7 @@
  *   node driver.mjs --headless           # 不開視窗（2FA 或登入卡住時會看不到畫面）
  */
 import path from "node:path";
+import fs from "node:fs/promises";
 import {
   dateRange,
   ensureDir,
@@ -28,7 +29,7 @@ import {
 import { newPage, openBrowser, screenshot } from "./lib/browser.mjs";
 import { exportPayoutReport, listStores, login, resolveStore } from "./lib/cyberbiz.mjs";
 import { downloadAttachment, whoAmI } from "./lib/gmail-api.mjs";
-import { verifyPayoutFile } from "./lib/xlsx.mjs";
+import { parsePayoutReport, verifyPayoutFile } from "./lib/xlsx.mjs";
 import { addPayoutColumns } from "./lib/xlsx-columns.mjs";
 import {
   accessToken,
@@ -38,6 +39,71 @@ import {
   verifyFormulaByTempCopy,
 } from "./lib/drive.mjs";
 import { terminalSummary, writeMarkdown } from "./lib/report.mjs";
+import { publishCyberbizReport } from "./lib/report-publish.mjs";
+import { aggregatePayoutDocuments } from "../cyberbiz-monthly-sales/lib/aggregate.mjs";
+
+function scopeIdFromStoreName(name) {
+  return `store-${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
+}
+
+async function publishPayoutStore({ env, range, store, localPath, drive, firstDataRow }) {
+  const scopeId = scopeIdFromStoreName(store.name);
+  const outputDir = await ensureDir(path.join(skillPath("staging"), range.label, scopeId));
+  const document = await parsePayoutReport(localPath, {
+    scopeType: "store",
+    scopeId,
+    scopeName: store.name,
+    start: range.start,
+    end: range.end,
+    firstDataRow,
+  });
+  const jsonPath = path.join(outputDir, "payout.normalized.json");
+  await fs.writeFile(jsonPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+  return { document, manifest: await publishCyberbizReport({
+    nasUrl: env.NAS_STORAGE_URL,
+    nasToken: env.NAS_STORAGE_TOKEN,
+    apiUrl: env.PLATFORM_API_URL,
+    ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
+    reportMonth: range.label,
+    reportKind: "payout",
+    scopeType: "store",
+    scopeId,
+    scopeName: store.name,
+    coverageStart: range.start,
+    coverageEnd: range.end,
+    storeIdsJson: JSON.stringify([scopeId]),
+    parserVersion: "cyberbiz-payout-v1",
+    payoutSourcePath: localPath,
+    payoutJsonPath: jsonPath,
+    afterStaged: async () => drive,
+  }) };
+}
+
+async function publishPayoutCompany({ env, range, documents }) {
+  const document = aggregatePayoutDocuments(documents, {
+    scopeName: "公司整體",
+    parserVersion: "cyberbiz-payout-company-v1",
+  });
+  const outputDir = await ensureDir(path.join(skillPath("staging"), range.label, "company"));
+  const jsonPath = path.join(outputDir, "payout.normalized.json");
+  await fs.writeFile(jsonPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+  return publishCyberbizReport({
+    nasUrl: env.NAS_STORAGE_URL,
+    nasToken: env.NAS_STORAGE_TOKEN,
+    apiUrl: env.PLATFORM_API_URL,
+    ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
+    reportMonth: range.label,
+    reportKind: "payout",
+    scopeType: "company",
+    scopeId: "company",
+    scopeName: "公司整體",
+    coverageStart: range.start,
+    coverageEnd: range.end,
+    storeIdsJson: JSON.stringify(documents.map((item) => item.scopeId)),
+    parserVersion: "cyberbiz-payout-company-v1",
+    payoutJsonPath: jsonPath,
+  });
+}
 
 function parseArgs(argv) {
   const args = { stores: [] };
@@ -84,6 +150,10 @@ async function main() {
     : args.month
       ? monthRange(args.month)
       : previousMonth();
+  const monthly = range.label === range.start.slice(0, 7) && range.end === monthRange(range.label).end;
+  if (monthly && !args.skipUpload) {
+    requireEnv(env, ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"]);
+  }
   const recipientEmail = config.recipientEmail || env.CYBERBIZ_2FA_MAILBOX;
   if (!recipientEmail) {
     throw new Error("config.json 的 recipientEmail 或 .env 的 CYBERBIZ_2FA_MAILBOX 至少要有一個。");
@@ -122,6 +192,7 @@ async function main() {
     stores: [],
     finishedAt: "",
   };
+  const payoutDocuments = [];
 
   try {
     const page = await newPage(context);
@@ -230,7 +301,9 @@ async function main() {
           parentId: store.driveFolderId,
           name: fileName,
         });
-        if (existing) {
+        // 自訂區間沿用原本的保守行為，避免洗掉同仁已填的人工欄位；完整月份若重跑，
+        // 必須上傳新版本，否則後續 manifest 可能連到舊的同名檔案。
+        if (existing && !monthly) {
           result.steps.upload = "skip";
           result.sheetUrl = existing.webViewLink;
           result.note = "Drive 已有同名檔案，未覆寫";
@@ -239,14 +312,18 @@ async function main() {
           continue;
         }
 
+        const uploadName = existing && monthly
+          ? `${fileName.replace(/\.xlsx$/i, "")}-v${Date.now()}.xlsx`
+          : fileName;
         const uploaded = await uploadXlsx(token, {
           filePath: localPath,
-          name: fileName,
+          name: uploadName,
           folderId: store.driveFolderId,
         });
         result.steps.upload = "ok";
         result.sheetUrl = uploaded.webViewLink;
-        log(`  已上傳到「${store.driveFolderName ?? store.name}」：${fileName}`);
+        result.drive = { driveFileId: uploaded.id, driveUrl: uploaded.webViewLink };
+        log(`  已上傳到「${store.driveFolderName ?? store.name}」：${uploadName}`);
 
         const check = await verifyFormulaByTempCopy(token, uploaded.id, {
           firstDataRow: config.firstDataRow,
@@ -257,10 +334,23 @@ async function main() {
           });
         }
         result.formulaValues = check.count;
+        if (monthly) {
+          requireEnv(env, ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"]);
+          const published = await publishPayoutStore({
+            env,
+            range,
+            store,
+            localPath,
+            drive: result.drive,
+            firstDataRow: config.firstDataRow,
+          });
+          result.steps.manifest = "ok";
+          payoutDocuments.push(published.document);
+        }
         result.done = true;
         log(`  公式驗證通過：H 欄算出 ${check.count} 個值（前幾筆 ${check.sample.join("、")}）。`);
       } catch (error) {
-        const step = ["export", "fetch", "verify", "columns", "upload"].find(
+        const step = ["export", "fetch", "verify", "columns", "upload", "manifest"].find(
           (key) => !result.steps[key],
         );
         if (step) result.steps[step] = "fail";
@@ -274,6 +364,11 @@ async function main() {
         } catch {}
       }
     }
+    const allSelected = wanted.length === config.stores.length;
+    if (monthly && allSelected && run.stores.every((store) => store.done) && payoutDocuments.length === wanted.length) {
+      await publishPayoutCompany({ env, range, documents: payoutDocuments });
+      run.companyManifest = "ok";
+    }
   } finally {
     run.finishedAt = new Date().toISOString();
     if (run.stores.length) {
@@ -286,7 +381,8 @@ async function main() {
     await context.close();
   }
 
-  if (run.stores.some((store) => !store.done)) process.exitCode = 1;
+  const companyManifestRequired = monthly && !args.skipUpload && wanted.length === config.stores.length;
+  if (run.stores.some((store) => !store.done) || (companyManifestRequired && run.companyManifest !== "ok")) process.exitCode = 1;
 }
 
 main().catch((error) => {

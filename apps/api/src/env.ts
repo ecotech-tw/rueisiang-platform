@@ -77,6 +77,11 @@ export interface Env {
   PAYOUT_WORKFLOW_FILE?: string;
   PAYOUT_GITHUB_REF?: string;
 
+  /** CYBERBIZ 商品銷售報表 workflow；通常與出金表共用同一個帳務 repo。 */
+  CYBERBIZ_SALES_GITHUB_REPO?: string;
+  CYBERBIZ_SALES_WORKFLOW_FILE?: string;
+  CYBERBIZ_SALES_GITHUB_REF?: string;
+
   /** 蝦皮報表 workflow；平台只暫存檔案並觸發 GitHub Actions。 */
   SHOPEE_GITHUB_REPO?: string;
   SHOPEE_WORKFLOW_FILE?: string;

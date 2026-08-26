@@ -2,12 +2,27 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ensureDir } from "./common.mjs";
 
-const STEP_LABELS = {
-  export: "匯出",
-  fetch: "取檔",
-  verify: "驗證",
-  columns: "加欄位",
-  upload: "上傳",
+const REPORT_CONFIG = {
+  payout: {
+    title: "CYBERBIZ 出金表",
+    fileSuffix: "出金表",
+    totalHeader: "出金合計",
+    steps: { export: "匯出", fetch: "取檔", verify: "驗證", columns: "加欄位", upload: "上傳" },
+    nextSteps: [
+      "各通路試算表的 I 欄「櫃位POS」需對照專櫃 POS 金額填入",
+      "有差異時在 J 欄「備註」寫原因",
+    ],
+  },
+  sales: {
+    title: "CYBERBIZ 商品銷售報表",
+    fileSuffix: "商品銷售報表",
+    totalHeader: "銷售總計",
+    steps: { export: "匯出", fetch: "取檔", verify: "驗證", upload: "上傳", manifest: "索引" },
+    nextSteps: [
+      "完整月份才會建立 AI 查詢 manifest；自訂日期區間只上傳原始 XLSX 到 Google Drive",
+      "商品銷售總表是月彙總，不能從月報精確拆成每日或任意日期資料",
+    ],
+  },
 };
 
 const MARK = { ok: "✓", fail: "✗", skip: "—", pending: "…" };
@@ -22,23 +37,41 @@ function markdownCell(value) {
     .trim();
 }
 
-function stepLine(result) {
-  return Object.keys(STEP_LABELS)
-    .map((key) => `${STEP_LABELS[key]}${MARK[result.steps[key] ?? "pending"]}`)
+function reportConfig(kind) {
+  return REPORT_CONFIG[kind] ?? REPORT_CONFIG.payout;
+}
+
+function stepLine(result, steps) {
+  return Object.keys(steps)
+    .map((key) => `${steps[key]}${MARK[result.steps[key] ?? "pending"]}`)
     .join(" ");
 }
 
-export function terminalSummary(run) {
+function formatTotal(value, kind) {
+  if (kind === "sales") {
+    if (!value || typeof value !== "object") return "—";
+    return [
+      `毛 ${Number(value.grossQuantity ?? 0).toLocaleString("zh-TW")}`,
+      `退 ${Number(value.returnQuantity ?? 0).toLocaleString("zh-TW")}`,
+      `淨 ${Number(value.netQuantity ?? 0).toLocaleString("zh-TW")}`,
+      `售額 ${Number(value.salesAmount ?? 0).toLocaleString("zh-TW")}`,
+    ].join("／");
+  }
+  return value == null ? "—" : Number(value).toLocaleString("zh-TW");
+}
+
+export function terminalSummary(run, { kind = "payout" } = {}) {
+  const config = reportConfig(kind);
   const lines = [
     "",
-    `CYBERBIZ 出金表 ${run.label}（${run.start} ~ ${run.end}）`,
+    `${config.title} ${run.label}（${run.start} ~ ${run.end}）`,
     "─".repeat(60),
   ];
   for (const result of run.stores) {
     lines.push(`${result.done ? "✓" : "✗"} ${result.store}`);
-    lines.push(`    ${stepLine(result)}`);
+    lines.push(`    ${stepLine(result, config.steps)}`);
     if (result.total != null) {
-      lines.push(`    出金合計：${result.total.toLocaleString("zh-TW")}`);
+      lines.push(`    ${config.totalHeader}：${formatTotal(result.total, kind)}`);
     }
     if (result.sheetUrl) lines.push(`    ${result.sheetUrl}`);
     if (result.error) lines.push(`    卡住：[${result.error.code}] ${result.error.message}`);
@@ -51,30 +84,31 @@ export function terminalSummary(run) {
   return lines.join("\n");
 }
 
-export async function writeMarkdown(run, reportsDir) {
+export async function writeMarkdown(run, reportsDir, { kind = "payout" } = {}) {
+  const config = reportConfig(kind);
   await ensureDir(reportsDir);
-  const file = path.join(reportsDir, `${run.label}-出金表.md`);
+  const file = path.join(reportsDir, `${run.label}-${config.fileSuffix}.md`);
   const rows = run.stores.map((result) => {
-    const status = Object.keys(STEP_LABELS)
-      .map((key) => `${STEP_LABELS[key]}${MARK[result.steps[key] ?? "pending"]}`)
+    const status = Object.keys(config.steps)
+      .map((key) => `${config.steps[key]}${MARK[result.steps[key] ?? "pending"]}`)
       .join(" ");
     const link = result.sheetUrl ? `[試算表](${result.sheetUrl})` : "—";
     const note = result.error
       ? `\`${result.error.code}\` ${result.error.message}`
       : (result.note ?? "");
-    const total = result.total != null ? result.total.toLocaleString("zh-TW") : "—";
+    const total = formatTotal(result.total, kind);
     return `| ${markdownCell(result.store)} | ${result.done ? "完成" : "未完成"} | ${markdownCell(status)} | ${markdownCell(total)} | ${markdownCell(link)} | ${markdownCell(note)} |`;
   });
 
   const content = [
-    `# CYBERBIZ 出金表 ${run.label}`,
+    `# ${config.title} ${run.label}`,
     "",
     `- 對帳區間：${run.start} ~ ${run.end}`,
     `- 執行時間：${run.finishedAt}`,
     `- 完成：${run.stores.filter((item) => item.done).length}/${run.stores.length} 家`,
     run.driveFolderUrl ? `- Drive 資料夾：${run.driveFolderUrl}` : null,
     "",
-    "| 通路 | 結果 | 步驟 | 出金合計 | 連結 | 備註 |",
+    `| 通路 | 結果 | 步驟 | ${config.totalHeader} | 連結 | 備註 |`,
     "| --- | --- | --- | --- | --- | --- |",
     ...rows,
     "",
@@ -91,8 +125,7 @@ export async function writeMarkdown(run, reportsDir) {
     "",
     "## 下一步（人工）",
     "",
-    "- 各通路試算表的 I 欄「櫃位POS」需對照專櫃 POS 金額填入",
-    "- 有差異時在 J 欄「備註」寫原因",
+    ...config.nextSteps.map((step) => `- ${step}`),
     "",
   ]
     .filter((line) => line !== null)

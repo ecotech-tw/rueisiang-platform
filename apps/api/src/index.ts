@@ -25,6 +25,7 @@ import { health } from "./routes/health.js";
 import { PayoutGithubError } from "./payout/github.js";
 import { ShopeeSalesGithubError } from "./shopee-sales/github.js";
 import { tools } from "./routes/tools.js";
+import { CyberbizSalesGithubError } from "./cyberbiz-sales/github.js";
 import { cyberbizReports } from "./routes/cyberbiz-reports.js";
 import { shopeeSalesInternal } from "./routes/shopee-sales-internal.js";
 import { cyberbizReportsInternal } from "./routes/cyberbiz-reports-internal.js";
@@ -116,6 +117,15 @@ app.onError((error, c) => {
 
   if (error instanceof ShopeeSalesGithubError) {
     assistantLog("error", "shopee.github_trigger_failed", {
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      error: assistantErrorDetails(error),
+    });
+    return c.json({ error: error.message }, 502);
+  }
+
+  if (error instanceof CyberbizSalesGithubError) {
+    assistantLog("error", "cyberbiz.sales.github_trigger_failed", {
       method: c.req.method,
       path: new URL(c.req.url).pathname,
       error: assistantErrorDetails(error),
