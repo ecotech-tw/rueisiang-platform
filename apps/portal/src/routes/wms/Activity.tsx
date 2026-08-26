@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 
 /**
  * 倉儲的操作紀錄。
@@ -163,33 +163,29 @@ export function Activity() {
 
       <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
-          <input
+          <FilterInput
+            label="搜尋"
             className="search-input"
-            aria-label="搜尋"
             type="search"
             placeholder="搜尋倉位、商品、摘要或操作者"
             value={filters.search}
             onChange={(event) => update({ search: event.target.value })}
           />
-          <select
-            aria-label="資料類型"
+          <FilterSelect
+            label="資料類型"
             value={filters.entityType}
             onChange={(event) => update({ entityType: event.target.value })}
-          >
-            <option value="all">全部類型</option>
-            {Object.entries(ENTITY_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-          <select
-            aria-label="每頁筆數"
+            options={[
+              { value: "all", label: "全部類型" },
+              ...Object.entries(ENTITY_LABEL).map(([value, label]) => ({ value, label })),
+            ]}
+          />
+          <FilterSelect
+            label="每頁筆數"
             value={String(filters.pageSize)}
             onChange={(event) => update({ pageSize: Number(event.target.value) })}
-          >
-            {[25, 50, 100].map((size) => (
-              <option key={size} value={size}>每頁 {size} 筆</option>
-            ))}
-          </select>
+            options={[25, 50, 100].map((size) => ({ value: String(size), label: `每頁 ${size} 筆` }))}
+          />
         </form>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}

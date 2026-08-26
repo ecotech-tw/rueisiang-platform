@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useDeleteItem,
   useWarehouse,
@@ -257,9 +257,9 @@ export function Inventory() {
 
       <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
-          <input
+          <FilterInput
+            label="搜尋"
             className="search-input"
-            aria-label="搜尋"
             type="search"
             placeholder="搜尋名稱、SKU、分類或備註"
             value={filters.search}
@@ -285,35 +285,34 @@ export function Inventory() {
           ) : null}
 
           <div className={`filter-fields${showFilters ? " open" : ""}`}>
-            <select
-              aria-label="分類"
+            <FilterSelect
+              label="分類"
               value={filters.category}
               onChange={(event) => update({ category: event.target.value })}
-            >
-              <option value="all">全部分類</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.name}>{category.name}</option>
-              ))}
-            </select>
-            <select
-              aria-label="倉位"
+              options={[
+                { value: "all", label: "全部分類" },
+                ...categories.map((category) => ({ value: category.name, label: category.name })),
+              ]}
+            />
+            <FilterSelect
+              label="倉位"
               value={filters.zone}
               onChange={(event) => update({ zone: event.target.value })}
-            >
-              <option value="all">全部倉位</option>
-              {zones.map((zone) => (
-                <option key={zone.id} value={zone.id}>{zone.code} {zone.name}</option>
-              ))}
-              <option value={NO_ZONE}>未指定倉位</option>
-            </select>
-            <select
-              aria-label="庫存狀態"
+              options={[
+                { value: "all", label: "全部倉位" },
+                ...zones.map((zone) => ({ value: zone.id, label: `${zone.code} ${zone.name}` })),
+                { value: NO_ZONE, label: "未指定倉位" },
+              ]}
+            />
+            <FilterSelect
+              label="庫存狀態"
               value={filters.stock}
               onChange={(event) => update({ stock: event.target.value })}
-            >
-              <option value="all">全部狀態</option>
-              <option value="low">需要補貨</option>
-            </select>
+              options={[
+                { value: "all", label: "全部狀態" },
+                { value: "low", label: "需要補貨" },
+              ]}
+            />
           </div>
         </form>
 

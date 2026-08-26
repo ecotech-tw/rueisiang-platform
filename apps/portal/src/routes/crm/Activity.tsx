@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 
 interface EventRow {
   id: string;
@@ -92,32 +92,30 @@ export function Activity() {
 
       <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
-          <input
-            aria-label="搜尋"
+          <FilterInput
+            label="搜尋"
             type="search"
             placeholder="搜尋客戶、摘要或操作者"
             value={filters.search}
             onChange={(event) => update({ search: event.target.value })}
           />
-          <select
-            aria-label="來源"
+          <FilterSelect
+            label="來源"
             value={filters.source}
             onChange={(event) => update({ source: event.target.value })}
-          >
-            <option value="all">全部來源</option>
-            <option value="crm">本系統</option>
-            <option value="cyberbiz_webhook">CYBERBIZ 事件</option>
-            <option value="cyberbiz_sync">CYBERBIZ 同步</option>
-          </select>
-          <select
-            aria-label="每頁筆數"
+            options={[
+              { value: "all", label: "全部來源" },
+              { value: "crm", label: "本系統" },
+              { value: "cyberbiz_webhook", label: "CYBERBIZ 事件" },
+              { value: "cyberbiz_sync", label: "CYBERBIZ 同步" },
+            ]}
+          />
+          <FilterSelect
+            label="每頁筆數"
             value={String(filters.pageSize)}
             onChange={(event) => update({ pageSize: Number(event.target.value) })}
-          >
-            {[25, 50, 100].map((size) => (
-              <option key={size} value={size}>每頁 {size} 筆</option>
-            ))}
-          </select>
+            options={[25, 50, 100].map((size) => ({ value: String(size), label: `每頁 ${size} 筆` }))}
+          />
         </form>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}

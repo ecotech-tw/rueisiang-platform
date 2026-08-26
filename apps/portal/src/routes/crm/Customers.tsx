@@ -15,7 +15,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 
 const CHANNEL_LABEL: Record<string, string> = { manual: "人工建立", cyberbiz: "CYBERBIZ" };
 const SYNC_LABEL: Record<string, string> = {
@@ -186,9 +186,9 @@ export function Customers() {
         <SavedViewBar filters={filters} onApply={applyView} canManage={permissions.has("crm:view:write")} />
 
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
-          <input
+          <FilterInput
+            label="搜尋"
             className="search-input"
-            aria-label="搜尋"
             type="search"
             placeholder="搜尋姓名、電話、Email、地址或標籤"
             value={filters.search}
@@ -224,37 +224,39 @@ export function Customers() {
             * 手機空間不夠才收起來——那顆按鈕與這裡的 open 狀態都只在窄螢幕生效。
             */}
           <div className={`filter-fields${showFilters ? " open" : ""}`}>
-          <select
-            aria-label="通路"
+          <FilterSelect
+            label="通路"
             value={filters.channel}
             onChange={(event) => update({ channel: event.target.value })}
-          >
-            <option value="all">全部通路</option>
-            <option value="cyberbiz">CYBERBIZ</option>
-            <option value="manual">人工建立</option>
-          </select>
-          <select
-            aria-label="狀態"
+            options={[
+              { value: "all", label: "全部通路" },
+              { value: "cyberbiz", label: "CYBERBIZ" },
+              { value: "manual", label: "人工建立" },
+            ]}
+          />
+          <FilterSelect
+            label="狀態"
             value={filters.status}
             onChange={(event) => update({ status: event.target.value })}
-          >
-            <option value="all">全部狀態</option>
-            <option value="active">正常</option>
-            <option value="blocked">已封鎖</option>
-          </select>
+            options={[
+              { value: "all", label: "全部狀態" },
+              { value: "active", label: "正常" },
+              { value: "blocked", label: "已封鎖" },
+            ]}
+          />
           {tagOptions.data?.length ? (
-            <select
-              aria-label="標籤"
+            <FilterSelect
+              label="標籤"
               value={filters.tag}
               onChange={(event) => update({ tag: event.target.value })}
-            >
-              <option value="all">全部標籤</option>
-              {tagOptions.data.map((tag) => (
-                <option key={tag.name} value={tag.name}>
-                  {tag.name}（{tag.customerCount}）
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: "all", label: "全部標籤" },
+                ...tagOptions.data.map((tag) => ({
+                  value: tag.name,
+                  label: `${tag.name}（${tag.customerCount}）`,
+                })),
+              ]}
+            />
           ) : null}
           </div>
         </form>
