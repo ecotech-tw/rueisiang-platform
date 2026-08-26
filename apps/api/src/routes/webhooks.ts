@@ -10,6 +10,7 @@ import {
   ensureAssistantLineChannel,
   getAssistantLineChannel,
   findAssistantLineGroup,
+  getAssistantLineMessageByLineMessageId,
   markAssistantLinePushDelivery,
   markAssistantLineQueueJobEnqueued,
   claimAssistantLineQueueJob,
@@ -30,6 +31,7 @@ import {
   shouldSyncLineGroupProfile,
   updateAssistantLineGroupProfile,
   upsertAssistantLineGroup,
+  type StoredMediaAttachment,
 } from "@rueisiang/db";
 import {
   ASSISTANT_KEY,
@@ -58,6 +60,12 @@ import {
   runPiLineAgent,
 } from "../pi-agent.js";
 import { resolvePiAssistantModelId } from "../pi-agent-models.js";
+import {
+  isExpiredLineImageAttachment,
+  isPermanentLineImageError,
+  parseStoredLineImageAttachments,
+  storeLineImage,
+} from "../line-media.js";
 import {
   isLineWebhookEvent,
   lineEventGroup,
@@ -103,6 +111,8 @@ const LINE_FREE_PUSH_RECIPIENT_LIMIT = 200;
 const LINE_PUSH_QUOTA_SAFETY_BUFFER = 5;
 const LINE_SAFE_PUSH_LIMIT = Math.max(0, LINE_FREE_PUSH_RECIPIENT_LIMIT - LINE_PUSH_QUOTA_SAFETY_BUFFER);
 const LINE_PUSH_RETRY_KEY_TTL_MS = 24 * 60 * 60_000;
+const LINE_IMAGE_MESSAGE_TEXT = "（使用者傳送了一張圖片）";
+const LINE_IMAGE_QUESTION_TEXT = "使用者傳送了一張圖片，請根據圖片內容回答。";
 
 class LinePushRetryKeyExpiredError extends Error {
   constructor() {
@@ -173,6 +183,8 @@ async function stableLineWebhookEventId(input: {
   messageId?: string;
   userId?: string;
   text: string;
+  messageType?: string;
+  quotedMessageId?: string;
 }): Promise<string> {
   const source = [
     input.groupId,
@@ -180,6 +192,8 @@ async function stableLineWebhookEventId(input: {
     input.timestamp ?? "",
     input.messageId ?? "",
     input.userId ?? "",
+    input.messageType ?? "",
+    input.quotedMessageId ?? "",
     input.text,
   ].join("\u001f");
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source)));
@@ -370,6 +384,8 @@ async function runLineAssistant(input: {
   lineGroupId: string;
   sourceType: "group" | "room" | "user";
   messageId?: string;
+  quotedMessageId?: string;
+  attachments?: StoredMediaAttachment[];
   questionText: string;
   webhookEventId: string;
   runId: string;
@@ -498,12 +514,14 @@ async function runLineAssistant(input: {
         lineGroupId: input.lineGroupId,
         sourceType: input.sourceType,
         contextGeneration: input.contextGeneration,
+        ...(input.quotedMessageId ? { quotedMessageId: input.quotedMessageId } : {}),
         webhookEventId: input.webhookEventId,
         runId,
         model: configuredModel,
         systemPrompt,
         userText: promptText,
         toolKeys: allowedToolKeys,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       });
       modelId = piResponse.model;
       result = piResponse.result;
@@ -702,6 +720,7 @@ function lineQueueTrace(message: LineAssistantQueueMessage): LineLogContext {
     groupId: message.lineGroupId,
     groupRowId: message.groupRowId,
     ...(message.messageId ? { messageId: message.messageId } : {}),
+    ...(message.quotedMessageId ? { quotedMessageId: message.quotedMessageId } : {}),
     ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
   };
 }
@@ -956,6 +975,74 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
       return;
     }
 
+    if (message.kind === "media") {
+      if (!message.messageId) throw new Error("LINE 圖片 Queue 缺少 message id。");
+      try {
+        await storeLineImage({
+          db,
+          env,
+          accessToken,
+          channelKey: message.channelKey,
+          lineGroupId: message.lineGroupId,
+          webhookEventId: message.webhookEventId,
+          messageId: message.messageId,
+          trace,
+        });
+      } catch (error) {
+        if (!isPermanentLineImageError(error)) throw error;
+        assistantLog("error", "line.image.skipped", {
+          ...trace,
+          reason: "permanent_content_or_storage_error",
+          error: assistantErrorDetails(error),
+        });
+      }
+      processed = true;
+      return;
+    }
+
+    const attachments: StoredMediaAttachment[] = [];
+    let questionText = message.questionText;
+    if (message.quotedMessageId) {
+      const quotedMessage = await getAssistantLineMessageByLineMessageId(db, {
+        channelKey: message.channelKey,
+        lineGroupId: message.lineGroupId,
+        lineMessageId: message.quotedMessageId,
+      });
+      const quotedAttachments = parseStoredLineImageAttachments(quotedMessage?.attachments);
+      attachments.push(...quotedAttachments.filter((attachment) => !isExpiredLineImageAttachment(attachment)));
+      if (quotedMessage?.text === LINE_IMAGE_MESSAGE_TEXT && !attachments.length) {
+        questionText = `${questionText} 引用的圖片目前已過期或無法讀取，請直接告知使用者。`;
+        assistantLog("warn", "line.image.quote_unavailable", {
+          ...trace,
+          quotedMessageId: message.quotedMessageId,
+          reason: quotedAttachments.length ? "expired" : "metadata_missing",
+        });
+      }
+    }
+    if (message.messageType === "image" && message.messageId) {
+      try {
+        attachments.push(await storeLineImage({
+          db,
+          env,
+          accessToken,
+          channelKey: message.channelKey,
+          lineGroupId: message.lineGroupId,
+          webhookEventId: message.webhookEventId,
+          messageId: message.messageId,
+          trace,
+        }));
+      } catch (error) {
+        if (!isPermanentLineImageError(error)) throw error;
+        questionText = `${questionText} 圖片目前無法讀取，請直接告知使用者。`;
+        assistantLog("error", "line.image.unavailable", {
+          ...trace,
+          reason: "permanent_content_or_storage_error",
+          error: assistantErrorDetails(error),
+        });
+      }
+    }
+    const inputAttachments = attachments.slice(0, 4);
+
     await runLineAssistant({
       db,
       env,
@@ -966,8 +1053,10 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
       groupRowId: message.groupRowId,
       lineGroupId: message.lineGroupId,
       messageId: message.messageId,
+      ...(message.quotedMessageId ? { quotedMessageId: message.quotedMessageId } : {}),
+      ...(inputAttachments.length ? { attachments: inputAttachments } : {}),
       sourceType: message.sourceType,
-      questionText: message.questionText,
+      questionText,
       webhookEventId: message.webhookEventId,
       runId: message.runId,
       contextGeneration,
@@ -1177,7 +1266,15 @@ async function receiveLine(c: Context<AppEnv>) {
     const rawText = lineEventRawText(event);
     const text = lineEventText(event);
     const group = lineEventGroup(event);
-    if (!text || !group || (group.sourceType !== "user" && !lineEventIsMentioned(event))) {
+    const messageId = typeof event.message?.id === "string" ? event.message.id.trim() : undefined;
+    const quotedMessageId = typeof event.message?.quotedMessageId === "string"
+      ? event.message.quotedMessageId.trim()
+      : undefined;
+    const isImage = event.type === "message"
+      && event.message?.type === "image"
+      && event.message.contentProvider?.type !== "external"
+      && Boolean(messageId);
+    if (!group || (!text && !isImage) || (group.sourceType !== "user" && !lineEventIsMentioned(event) && !isImage)) {
       ignored += 1;
       continue;
     }
@@ -1191,20 +1288,25 @@ async function receiveLine(c: Context<AppEnv>) {
       groupId: group.id,
       sourceType: group.sourceType,
       timestamp: event.timestamp,
-      messageId: event.message?.id,
+      messageId,
       userId: event.source?.userId,
-      text,
+      text: text ?? LINE_IMAGE_MESSAGE_TEXT,
+      messageType: event.message?.type,
+      quotedMessageId,
     });
-    const replyToken = event.replyToken?.trim();
-    const queueRequired = Boolean(lineChannel.enabled && lineGroup.enabled && accessToken && replyToken);
+    const replyToken = typeof event.replyToken === "string" ? event.replyToken.trim() : undefined;
+    const conversationEnabled = Boolean(lineChannel.enabled && lineGroup.enabled && accessToken);
+    const assistantRequired = conversationEnabled && Boolean(replyToken) && (group.sourceType === "user" || lineEventIsMentioned(event));
+    const queueRequired = conversationEnabled && (assistantRequired || isImage);
     const result = await recordAssistantLineMessage(c.get("db"), {
       channelKey: lineChannel.channelKey,
       lineGroupId: lineGroup.lineGroupId,
       sourceType: group.sourceType,
       webhookEventId,
-      lineMessageId: event.message?.id,
+      lineMessageId: messageId,
       lineUserId: event.source?.userId,
-      text,
+      quotedMessageId,
+      text: text ?? LINE_IMAGE_MESSAGE_TEXT,
       queueRequired,
     });
     if (result.inserted) recorded += 1;
@@ -1226,7 +1328,9 @@ async function receiveLine(c: Context<AppEnv>) {
       sourceType: group.sourceType,
       webhookEventId,
       contextGeneration: lineGroup.contextResetAt ?? "",
-      messageId: event.message?.id,
+      ...(messageId ? { messageId } : {}),
+      ...(quotedMessageId ? { quotedMessageId } : {}),
+      messageType: isImage ? "image" : "text",
       replyDeadlineAt: lineReplyDeadlineAt(),
       ...(result.message.sequence > 0 ? { sequence: result.message.sequence } : {}),
     } as const;
@@ -1264,15 +1368,24 @@ async function receiveLine(c: Context<AppEnv>) {
       continue;
     }
 
-    if (lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
+    if (conversationEnabled && replyToken && assistantRequired) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
-      const questionText = lineQuestionText(rawText ?? text, selfMention).slice(0, 5_000);
+      const questionText = isImage
+        ? LINE_IMAGE_QUESTION_TEXT
+        : lineQuestionText(rawText ?? text ?? "", selfMention).slice(0, 5_000);
       await enqueueLineAssistantJob(c.get("db"), c.env, {
         ...queueBase,
         kind: "assistant",
         runId: await stableLineRunId(webhookEventId),
         replyToken,
         questionText,
+      });
+    } else if (isImage && conversationEnabled && messageId) {
+      await enqueueLineAssistantJob(c.get("db"), c.env, {
+        ...queueBase,
+        kind: "media",
+        messageId,
+        messageType: "image",
       });
     } else {
       if (profileSyncNeeded) {

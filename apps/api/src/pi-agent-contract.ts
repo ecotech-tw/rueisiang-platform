@@ -9,6 +9,8 @@ export interface PiLineAgentContext {
   sourceType: LineSourceType;
   /** D1 的 contextResetAt；舊工作若帶著較早的 generation，DO 會拒絕寫回新 session。 */
   contextGeneration: string;
+  /** 群組／多人聊天室只有被目前訊息引用的圖片才會進入模型 context。 */
+  quotedMessageId?: string;
 }
 
 export interface PiAgentAttachment {

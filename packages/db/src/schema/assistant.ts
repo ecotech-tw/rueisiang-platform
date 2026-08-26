@@ -190,7 +190,10 @@ export const assistantLineMessages = sqliteTable("assistant_line_messages", {
   webhookEventId: text("webhook_event_id").notNull(),
   lineMessageId: text("line_message_id"),
   lineUserId: text("line_user_id"),
+  quotedMessageId: text("quoted_message_id"),
   text: text("text").notNull(),
+  /** 圖片 bytes 留在 NAS；這裡只保存可供 DO 還原 context 的短 metadata。 */
+  attachments: text("attachments").notNull().default("[]"),
   /** 同一個 channel／LINE 對話內的到達順序；0 僅供 migration 前的舊資料相容。 */
   sequence: integer("sequence").notNull().default(0),
   /** 沒有這個旗標就代表當時沒有建立 assistant Queue 工作，不應阻塞後續訊息。 */
@@ -199,6 +202,7 @@ export const assistantLineMessages = sqliteTable("assistant_line_messages", {
 }, (table) => [
   uniqueIndex("idx_assistant_line_messages_event").on(table.channelKey, table.webhookEventId),
   index("idx_assistant_line_messages_group_created_at").on(table.channelKey, table.lineGroupId, table.createdAt),
+  index("idx_assistant_line_messages_group_message").on(table.channelKey, table.lineGroupId, table.lineMessageId),
 ]);
 
 /**

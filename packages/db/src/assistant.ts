@@ -294,7 +294,9 @@ export async function recordAssistantLineMessage(
     webhookEventId: string;
     lineMessageId?: string;
     lineUserId?: string;
+    quotedMessageId?: string;
     text: string;
+    attachments?: StoredMediaAttachment[];
     queueRequired?: boolean;
   },
 ): Promise<{ message: AssistantLineMessage; inserted: boolean }> {
@@ -324,7 +326,9 @@ export async function recordAssistantLineMessage(
       webhookEventId: input.webhookEventId,
       lineMessageId: input.lineMessageId,
       lineUserId: input.lineUserId,
+      quotedMessageId: input.quotedMessageId,
       text: input.text,
+      attachments: JSON.stringify(input.attachments ?? []),
       sequence: sql<number>`(
         SELECT ${assistantLineGroups.nextMessageSequence}
         FROM ${assistantLineGroups}
@@ -341,6 +345,44 @@ export async function recordAssistantLineMessage(
   )).limit(1);
   if (!created) throw new Error("記錄 LINE 訊息後找不到資料。");
   return { message: created, inserted: created.id === id };
+}
+
+export async function getAssistantLineMessage(
+  db: Database,
+  input: { channelKey: string; webhookEventId: string },
+): Promise<AssistantLineMessage | null> {
+  const [message] = await db.select().from(assistantLineMessages).where(and(
+    eq(assistantLineMessages.channelKey, input.channelKey),
+    eq(assistantLineMessages.webhookEventId, input.webhookEventId),
+  )).limit(1);
+  return message ?? null;
+}
+
+export async function getAssistantLineMessageByLineMessageId(
+  db: Database,
+  input: { channelKey: string; lineGroupId: string; lineMessageId: string },
+): Promise<AssistantLineMessage | null> {
+  const [message] = await db.select().from(assistantLineMessages).where(and(
+    eq(assistantLineMessages.channelKey, input.channelKey),
+    eq(assistantLineMessages.lineGroupId, input.lineGroupId),
+    eq(assistantLineMessages.lineMessageId, input.lineMessageId),
+  )).limit(1);
+  return message ?? null;
+}
+
+export async function updateAssistantLineMessageAttachments(
+  db: Database,
+  input: { channelKey: string; webhookEventId: string; attachments: StoredMediaAttachment[] },
+): Promise<AssistantLineMessage> {
+  await db.update(assistantLineMessages)
+    .set({ attachments: JSON.stringify(input.attachments) })
+    .where(and(
+      eq(assistantLineMessages.channelKey, input.channelKey),
+      eq(assistantLineMessages.webhookEventId, input.webhookEventId),
+    ));
+  const message = await getAssistantLineMessage(db, input);
+  if (!message) throw new Error("更新 LINE 圖片 metadata 後找不到訊息。");
+  return message;
 }
 
 export async function recordAssistantLineReplyBackup(

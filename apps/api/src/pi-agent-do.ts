@@ -746,6 +746,12 @@ export class AssistantChatAgent {
     const nas = nasStorageClient(this.env);
     if (!nas) throw new Error("平台尚未設定 NAS storage，無法讀取圖片附件。");
     return Promise.all(attachments.map(async (attachment) => {
+      if (attachment.expiresAt) {
+        const expiresAt = Date.parse(attachment.expiresAt);
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+          throw new Error(`圖片附件 ${attachment.filename} 已不存在或已過期。`);
+        }
+      }
       const response = await nas.get(attachment.key);
       if (!response) throw new Error(`圖片附件 ${attachment.filename} 已不存在或已過期。`);
       return {
@@ -1054,7 +1060,14 @@ export class AssistantChatAgent {
     });
     const bootstrapMessages: SandboxBootstrapMessage[] = history
       .filter((message) => message.webhookEventId !== input.webhookEventId)
-      .map((message) => ({ role: "user" as const, text: message.text }));
+      .map((message) => ({
+        role: "user" as const,
+        text: message.text,
+        attachments: (
+          message.sourceType === "user"
+          || (input.quotedMessageId && message.lineMessageId === input.quotedMessageId)
+        ) ? storedAttachments(message.attachments) : [],
+      }));
     if (!bootstrapMessages.length) return;
 
     const bootstrapRunId = `bootstrap:${state.generation}`;
@@ -1068,11 +1081,12 @@ export class AssistantChatAgent {
     );
     const started = Date.now() - bootstrapMessages.length;
     for (const [index, message] of bootstrapMessages.entries()) {
-      if (!message.text) continue;
+      if (!message.text && !message.attachments?.length) continue;
       this.storeMessage(
         state.generation,
         bootstrapRunId,
         bootstrapAgentMessage(message, model, started + index),
+        message.attachments,
       );
     }
   }
