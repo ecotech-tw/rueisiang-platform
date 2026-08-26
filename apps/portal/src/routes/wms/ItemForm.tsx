@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog } from "../../ui/index.js";
+import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateItem,
   useLinkCyberbiz,
@@ -128,42 +128,33 @@ export function ItemForm({
         </>
       }
     >
-          <label className="field">
-            <span>商品名稱<b>必填</b></span>
-            <input
-              autoFocus
-              required
-              value={fields.name}
-              onChange={(event) => set({ name: event.target.value })}
-            />
-          </label>
+          <TextField
+            label="商品名稱"
+            required
+            autoFocus
+            value={fields.name}
+            onChange={(event) => set({ name: event.target.value })}
+          />
 
           <div className="field-grid">
-            <label className="field">
-              <span>SKU</span>
-              <input
-                placeholder="例如 BOX-M"
-                value={fields.sku}
-                onChange={(event) => set({ sku: event.target.value })}
-              />
-              <small>會自動轉成大寫。要連結 CYBERBIZ 時才是必填。</small>
-            </label>
-            <label className="field">
-              <span>分類<b>必填</b></span>
-              <select
-                required
-                value={fields.category}
-                onChange={(event) => set({ category: event.target.value })}
-              >
-                <option value="">請選擇分類</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.name}>{category.name}</option>
-                ))}
-              </select>
-              {categories.length === 0 ? (
-                <small>還沒有任何分類，請先去分類管理建立一個。</small>
-              ) : null}
-            </label>
+            <TextField
+              label="SKU"
+              placeholder="例如 BOX-M"
+              value={fields.sku}
+              onChange={(event) => set({ sku: event.target.value })}
+              hint="會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"
+            />
+            <SelectField
+              label="分類"
+              required
+              value={fields.category}
+              onChange={(event) => set({ category: event.target.value })}
+              hint={categories.length === 0 ? "還沒有任何分類，請先去分類管理建立一個。" : undefined}
+              options={[
+                { label: "請選擇分類", value: "" },
+                ...categories.map((category) => ({ label: category.name, value: category.name })),
+              ]}
+            />
           </div>
 
           <div className="field-grid trio">
@@ -180,25 +171,21 @@ export function ItemForm({
                 </p>
               </div>
             ) : (
-              <label className="field">
-                <span>初始數量</span>
-                <input
-                  type="number"
-                  min={0}
-                  inputMode="numeric"
-                  value={fields.quantity}
-                  onChange={(event) => set({ quantity: event.target.value })}
-                />
-              </label>
-            )}
-            <label className="field">
-              <span>單位</span>
-              <input
-                placeholder="件"
-                value={fields.unit}
-                onChange={(event) => set({ unit: event.target.value })}
+              <TextField
+                label="初始數量"
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={fields.quantity}
+                onChange={(event) => set({ quantity: event.target.value })}
               />
-            </label>
+            )}
+            <TextField
+              label="單位"
+              placeholder="件"
+              value={fields.unit}
+              onChange={(event) => set({ unit: event.target.value })}
+            />
             {/*
               * 已連結的商品，安全庫存以官網為準，這裡鎖起來。
               *
@@ -206,64 +193,52 @@ export function ItemForm({
               * 回去——使用者看到的是自己的修改安靜地消失。與其之後才發現，不如
               * 一開始就說清楚要去哪裡改。
               */}
-            <label className="field">
-              <span>安全庫存</span>
-              <input
-                type="number"
-                min={0}
-                inputMode="numeric"
-                // 已連結時顯示這一刻的值，不是開表單那一刻的——同步隨時會改它。
-                value={linkedToCyberbiz ? String(item?.minStock ?? "") : fields.minStock}
-                disabled={linkedToCyberbiz}
-                onChange={(event) => set({ minStock: event.target.value })}
-              />
-              <small>
-                {linkedToCyberbiz
-                  ? "已連結 CYBERBIZ，安全庫存以官網為準，請到官網修改。"
-                  : "低於這個數量會被標成需要補貨。"}
-              </small>
-            </label>
+            <TextField
+              label="安全庫存"
+              type="number"
+              min={0}
+              inputMode="numeric"
+              // 已連結時顯示這一刻的值，不是開表單那一刻的——同步隨時會改它。
+              value={linkedToCyberbiz ? String(item?.minStock ?? "") : fields.minStock}
+              disabled={linkedToCyberbiz}
+              onChange={(event) => set({ minStock: event.target.value })}
+              hint={linkedToCyberbiz
+                ? "已連結 CYBERBIZ，安全庫存以官網為準，請到官網修改。"
+                : "低於這個數量會被標成需要補貨。"}
+            />
           </div>
 
           <div className="address-fields">
             <div className="field-grid">
-              <label className="field">
-                <span>倉位</span>
-                <select
-                  value={fields.zoneId}
-                  onChange={(event) => {
-                    // 換倉位時清掉層——舊的層不屬於新的倉位。
-                    set({ zoneId: event.target.value, shelfLevel: "" });
-                  }}
-                >
-                  <option value="">未指定倉位</option>
-                  {zones.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.code} {candidate.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>層架</span>
-                <select
-                  value={fields.shelfLevel}
-                  disabled={!zone}
-                  onChange={(event) => set({ shelfLevel: event.target.value })}
-                >
-                  <option value="">{zone ? "不指定層架" : "請先選擇倉位"}</option>
-                  {(zone?.shelfLevels ?? []).map((level) => (
-                    <option key={level.id} value={level.id}>{level.name}</option>
-                  ))}
-                </select>
-              </label>
+              <SelectField
+                label="倉位"
+                value={fields.zoneId}
+                onChange={(event) => {
+                  // 換倉位時清掉層——舊的層不屬於新的倉位。
+                  set({ zoneId: event.target.value, shelfLevel: "" });
+                }}
+                options={[
+                  { label: "未指定倉位", value: "" },
+                  ...zones.map((candidate) => ({
+                    label: `${candidate.code} ${candidate.name}`,
+                    value: candidate.id,
+                  })),
+                ]}
+              />
+              <SelectField
+                label="層架"
+                value={fields.shelfLevel}
+                disabled={!zone}
+                onChange={(event) => set({ shelfLevel: event.target.value })}
+                options={[
+                  { label: zone ? "不指定層架" : "請先選擇倉位", value: "" },
+                  ...(zone?.shelfLevels ?? []).map((level) => ({ label: level.name, value: level.id })),
+                ]}
+              />
             </div>
           </div>
 
-          <label className="field">
-            <span>備註</span>
-            <input value={fields.notes} onChange={(event) => set({ notes: event.target.value })} />
-          </label>
+          <TextField label="備註" value={fields.notes} onChange={(event) => set({ notes: event.target.value })} />
 
           {/*
             * CYBERBIZ 連結只在編輯既有商品時出現。

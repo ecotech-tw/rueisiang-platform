@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog } from "../../ui/index.js";
+import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
 import {
   CATEGORY_COLORS,
   useCreateZone,
@@ -84,37 +84,31 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
       }
     >
           <div className="field-grid">
-            <label className="field">
-              <span>倉位代碼<b>必填</b></span>
-              <input
-                autoFocus
-                required
-                placeholder="例如 A-01"
-                value={fields.code}
-                onChange={(event) => set({ code: event.target.value })}
-              />
-              <small>會自動轉成大寫，不能跟其他倉位重複。</small>
-            </label>
-            <label className="field">
-              <span>名稱<b>必填</b></span>
-              <input
-                required
-                placeholder="例如 備品區"
-                value={fields.name}
-                onChange={(event) => set({ name: event.target.value })}
-              />
-            </label>
+            <TextField
+              label="倉位代碼"
+              required
+              autoFocus
+              placeholder="例如 A-01"
+              value={fields.code}
+              onChange={(event) => set({ code: event.target.value })}
+              hint="會自動轉成大寫，不能跟其他倉位重複。"
+            />
+            <TextField
+              label="名稱"
+              required
+              placeholder="例如 備品區"
+              value={fields.name}
+              onChange={(event) => set({ name: event.target.value })}
+            />
           </div>
 
-          <label className="field">
-            <span>用途</span>
-            <input
-              placeholder="一般備品"
-              value={fields.category}
-              onChange={(event) => set({ category: event.target.value })}
-            />
-            <small>只是給人看的說明，跟商品分類是兩回事。</small>
-          </label>
+          <TextField
+            label="用途"
+            placeholder="一般備品"
+            value={fields.category}
+            onChange={(event) => set({ category: event.target.value })}
+            hint="只是給人看的說明，跟商品分類是兩回事。"
+          />
 
           <div className="field">
             <span>顏色</span>
@@ -186,10 +180,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
             </Button>
           </div>
 
-          <label className="field">
-            <span>備註</span>
-            <input value={fields.notes} onChange={(event) => set({ notes: event.target.value })} />
-          </label>
+          <TextField label="備註" value={fields.notes} onChange={(event) => set({ notes: event.target.value })} />
 
           {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
