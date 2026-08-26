@@ -16,6 +16,8 @@ export interface LineWebhookEvent {
     id?: string;
     type?: string;
     text?: string;
+    quotedMessageId?: string;
+    contentProvider?: { type?: string };
     mention?: {
       mentionees?: Array<{ isSelf?: boolean; index?: number; length?: number }>;
     };
@@ -124,10 +126,14 @@ export function isLineWebhookEvent(value: unknown): value is LineWebhookEvent {
 }
 
 const LINE_API_BASE = "https://api.line.me/v2/bot/message";
+const LINE_CONTENT_API_BASE = "https://api-data.line.me/v2/bot/message";
 const LINE_BOT_API_BASE = "https://api.line.me/v2/bot";
 const LINE_TEXT_LIMIT = 5_000;
 const LINE_ERROR_BODY_LIMIT = 1_000;
 const LINE_MESSAGE_TIMEOUT_MS = 5_000;
+export const LINE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const LINE_CONTENT_TIMEOUT_MS = 15_000;
+const LINE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 /** LINE API 診斷用的 correlation fields；刻意不包含 reply token、訊息文字或 access token。 */
 export interface LineLogContext {
@@ -137,6 +143,7 @@ export interface LineLogContext {
   groupId?: string;
   groupRowId?: string;
   messageId?: string;
+  quotedMessageId?: string;
   sequence?: number;
 }
 
@@ -286,6 +293,132 @@ export async function pushLineMessage(
   context: LineLogContext = {},
 ): Promise<void> {
   await sendLineMessage(accessToken, "push", { to, messages: [{ type: "text", text: lineText(text) }] }, retryKey, context);
+}
+
+export interface LineMessageContent {
+  body: ArrayBuffer;
+  contentType: string;
+}
+
+export class LineContentError extends Error {
+  readonly status: number | undefined;
+  readonly retryable: boolean;
+
+  constructor(input: { message: string; status?: number; retryable: boolean; cause?: unknown }) {
+    super(input.message, { cause: input.cause });
+    this.name = "LineContentError";
+    this.status = input.status;
+    this.retryable = input.retryable;
+  }
+}
+
+async function readLimitedBody(response: Response, maxBytes: number): Promise<ArrayBuffer> {
+  if (!response.body) return new ArrayBuffer(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      if (!result.value) continue;
+      total += result.value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new LineContentError({
+          message: `LINE 圖片大小不能超過 ${Math.floor(maxBytes / 1024 / 1024)} MB。`,
+          retryable: false,
+        });
+      }
+      chunks.push(result.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes.buffer;
+}
+
+/** 以 LINE message id 取回圖片 bytes；只在 Queue consumer 執行，webhook 不等待外部內容 API。 */
+export async function fetchLineMessageContent(
+  accessToken: string,
+  messageId: string,
+  context: LineLogContext = {},
+): Promise<LineMessageContent> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LINE_CONTENT_TIMEOUT_MS);
+  const started = Date.now();
+  assistantLog("info", "line.content.request", { ...context, messageId });
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${LINE_CONTENT_API_BASE}/${encodeURIComponent(messageId)}/content`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      assistantLog("error", "line.content.transport_error", {
+        ...context,
+        messageId,
+        durationMs: Date.now() - started,
+        timeoutMs: LINE_CONTENT_TIMEOUT_MS,
+        error: assistantErrorDetails(error),
+      });
+      throw new LineContentError({ message: "LINE 圖片內容暫時無法取得。", retryable: true, cause: error });
+    }
+
+    if (!response.ok) {
+      const responseBody = await responsePreview(response);
+      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      assistantLog(retryable ? "warn" : "error", "line.content.failed", {
+        ...context,
+        messageId,
+        status: response.status,
+        durationMs: Date.now() - started,
+        retryable,
+        response: responseBody,
+      });
+      throw new LineContentError({
+        message: response.status === 404 || response.status === 410
+          ? "LINE 圖片內容已過期或不存在。"
+          : "LINE 圖片內容取得失敗。",
+        status: response.status,
+        retryable,
+      });
+    }
+
+    const contentType = (response.headers.get("content-type") || "").split(";", 1)[0]!.trim().toLowerCase();
+    if (!LINE_IMAGE_TYPES.has(contentType)) {
+      await response.body?.cancel();
+      throw new LineContentError({ message: "LINE 回傳的內容不是支援的圖片格式。", retryable: false });
+    }
+    const declaredSize = Number(response.headers.get("content-length") || 0);
+    if (Number.isFinite(declaredSize) && declaredSize > LINE_IMAGE_MAX_BYTES) {
+      await response.body?.cancel();
+      throw new LineContentError({
+        message: `LINE 圖片大小不能超過 ${Math.floor(LINE_IMAGE_MAX_BYTES / 1024 / 1024)} MB。`,
+        retryable: false,
+      });
+    }
+    const body = await readLimitedBody(response, LINE_IMAGE_MAX_BYTES);
+    if (body.byteLength === 0) throw new LineContentError({ message: "LINE 回傳空白圖片內容。", retryable: false });
+    assistantLog("info", "line.content.completed", {
+      ...context,
+      messageId,
+      contentType,
+      bytes: body.byteLength,
+      durationMs: Date.now() - started,
+    });
+    return { body, contentType };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /** LINE 台灣方案的訊息用量依 GMT+9 月份結算；固定月窗不可用伺服器本地時區計算。 */

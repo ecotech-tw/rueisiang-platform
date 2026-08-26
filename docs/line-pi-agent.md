@@ -2,8 +2,8 @@
 
 Sandbox 與 LINE 的模型執行都使用 Pi Agent。選 GPT 時使用 Codex ChatGPT OAuth，選 Gemini
 時使用 `GEMINI_API_KEY`；兩個 provider 共用 Pi transcript、tool loop、usage 與 compact。
-Sandbox vision 圖片與 WMS 倉位照片透過 NAS storage gateway 儲存；LINE image event 的下載、
-授權與對話上下文整合仍列在 [`assistant-next-steps.md`](./assistant-next-steps.md)。LINE Queue
+Sandbox vision 圖片、LINE image event 與 WMS 倉位照片透過 NAS storage gateway 儲存；LINE image event
+的 production smoke test 與後續清理工作列在 [`assistant-next-steps.md`](./assistant-next-steps.md)。LINE Queue
 consumer 會把每個已授權對話 dispatch 到 chat 專屬的 Durable Object；Sandbox session 也有自己的
 Pi Durable Object。
 
@@ -12,7 +12,8 @@ Queue 與 Durable Object instance name 共用的穩定內部識別碼；目前�
 `rueisiang-xiaoxiang`，用來避免未來新增其他 assistant 時混到設定與 session。
 
 ```text
-LINE webhook／Sandbox API → chat Durable Object → Pi Agent
+LINE webhook → Queue → LINE Content API／NAS（image event）→ chat Durable Object → Pi Agent
+Sandbox API → chat Durable Object → Pi Agent
   → GPT／Codex（ChatGPT OAuth）或 Gemini（API key）→ platform tools／D1
   → Pi Agent 最終回答 → LINE Reply API
   → 接近 reply token 期限時才使用受限 Push fallback

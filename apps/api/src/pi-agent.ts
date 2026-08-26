@@ -21,12 +21,14 @@ export class PiAgentStaleSessionError extends Error {
 export class PiAgentRequestError extends Error {
   readonly status: number;
   readonly toolCalls: AssistantToolCall[];
+  readonly permanent: boolean;
 
-  constructor(message: string, status: number, toolCalls: AssistantToolCall[] = []) {
+  constructor(message: string, status: number, toolCalls: AssistantToolCall[] = [], permanent = false) {
     super(message);
     this.name = "PiAgentRequestError";
     this.status = status;
     this.toolCalls = toolCalls;
+    this.permanent = permanent;
   }
 }
 
@@ -76,11 +78,11 @@ async function requestAgent<TResponse>(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   }));
-  const payload = await response.json().catch(() => null) as { error?: unknown; toolCalls?: unknown } | null;
+  const payload = await response.json().catch(() => null) as { error?: unknown; toolCalls?: unknown; permanent?: unknown } | null;
   if (!response.ok) {
     const message = typeof payload?.error === "string" ? payload.error : "Pi agent 暫時無法回應。";
     if (response.status === 409) throw new PiAgentStaleSessionError(message);
-    throw new PiAgentRequestError(message, response.status, parseToolCalls(payload?.toolCalls));
+    throw new PiAgentRequestError(message, response.status, parseToolCalls(payload?.toolCalls), payload?.permanent === true);
   }
   return payload as TResponse;
 }

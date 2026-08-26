@@ -21,6 +21,7 @@ import {
   assistantLineReplyBackups,
   assistantRuns,
   assistantToolCalls,
+  mediaObjects,
   userRoles,
   users,
 } from "@rueisiang/db/schema";
@@ -241,6 +242,243 @@ describe("LINE webhook", () => {
     expect(first.status).toBe(200);
     expect(await second.json()).toMatchObject({ recorded: 0, duplicates: 1 });
     expect(await db().select().from(assistantLineMessages)).toHaveLength(1);
+  });
+
+  it("一對一圖片只先保存，下一則文字才會把圖片 metadata 傳給 Pi", async () => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "image-seed" }));
+    const imageBytes = new TextEncoder().encode("image");
+    const checksumBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", imageBytes));
+    const checksum = Array.from(checksumBytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const objectKey = "assistant/vision/user-1/2026/08/00000000-0000-0000-0000-000000000101.jpg";
+    env = {
+      ...env,
+      NAS_STORAGE_URL: "https://storage.example.test",
+      NAS_STORAGE_TOKEN: "storage-token",
+    };
+    const requests: Array<{ url: string; method: string; body: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      requests.push({ url, method, body: typeof init?.body === "string" ? init.body : "" });
+      if (url.endsWith("/content")) {
+        return new Response(imageBytes, {
+          status: 200,
+          headers: { "Content-Type": "image/jpeg", "Content-Length": String(imageBytes.byteLength) },
+        });
+      }
+      if (url.startsWith("https://storage.example.test/v1/objects") && method === "POST") {
+        return Response.json({ object: { key: objectKey, size: imageBytes.byteLength, checksum, contentType: "image/jpeg" } }, { status: 201 });
+      }
+      if (url.includes("/profile/user-1")) {
+        return Response.json({ displayName: "測試員", pictureUrl: "" });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const response = await postLine(JSON.stringify({ events: [userEvent({
+      webhookEventId: "image-event",
+      replyToken: "image-reply",
+      message: {
+        id: "image-message",
+        type: "image",
+        contentProvider: { type: "line" },
+      },
+    })] }));
+
+    expect(response.status).toBe(200);
+    expect(requests.map((request) => request.url)).toEqual([
+      "https://api.line.me/v2/bot/profile/user-1",
+      "https://api-data.line.me/v2/bot/message/image-message/content",
+      "https://storage.example.test/v1/objects?namespace=assistant&scope=vision&scopeId=user-1",
+    ]);
+    const [message] = await db().select().from(assistantLineMessages).where(eq(assistantLineMessages.webhookEventId, "image-event"));
+    const attachments = JSON.parse(message?.attachments ?? "[]") as Array<{ key: string; contentType: string }>;
+    expect(message).toMatchObject({
+      lineGroupId: "user-1",
+      text: "（使用者傳送了一張圖片）",
+      messageType: "image",
+      imageDownloadStatus: "stored",
+      queueRequired: true,
+    });
+    expect(attachments).toMatchObject([{ key: objectKey, contentType: "image/jpeg" }]);
+    expect(await db().select().from(mediaObjects)).toMatchObject([{
+      objectKey,
+      namespace: "assistant",
+      scopeKey: "line:rueisiang-xiaoxiang:user-1",
+    }]);
+    expect(piAgentRequests.find((request) => request.path === "/run")).toBeUndefined();
+
+    const followUp = await postLine(JSON.stringify({ events: [userEvent({
+      webhookEventId: "image-follow-up",
+      replyToken: "image-follow-up-reply",
+      message: { id: "image-follow-up-message", type: "text", text: "這張圖片是什麼？" },
+    })] }));
+    expect(followUp.status).toBe(200);
+    expect(piAgentRequests.find((request) => request.path === "/run")?.payload).toMatchObject({
+      userText: "這張圖片是什麼？",
+      attachments: [{ key: objectKey, contentType: "image/jpeg" }],
+    });
+    expect(group.lineGroupId).toBe("user-1");
+  });
+
+  it("群組圖片先保存，下一則標註小香的文字可以沿用同一個 chat 的圖片 metadata", async () => {
+    await enableLineConversation(mentionEvent({ webhookEventId: "group-image-seed" }));
+    const imageBytes = new Uint8Array([1, 2, 3]);
+    const objectKey = "assistant/vision/group-1/2026/08/00000000-0000-0000-0000-000000000102.png";
+    const checksumBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", imageBytes));
+    const checksum = Array.from(checksumBytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    env = {
+      ...env,
+      NAS_STORAGE_URL: "https://storage.example.test",
+      NAS_STORAGE_TOKEN: "storage-token",
+    };
+    const queued: unknown[] = [];
+    env = { ...env, LINE_ASSISTANT_QUEUE: { send: async (message: unknown) => { queued.push(message); } } };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/content")) return new Response(imageBytes, { status: 200, headers: { "Content-Type": "image/png" } });
+      if (url.startsWith("https://storage.example.test/v1/objects")) {
+        return Response.json({ object: { key: objectKey, size: imageBytes.byteLength, checksum, contentType: "image/png" } }, { status: 201 });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const imageEvent = mentionEvent({
+      webhookEventId: "group-image-event",
+      replyToken: "group-image-reply",
+      message: { id: "group-image-message", type: "image", contentProvider: { type: "line" } },
+    });
+    expect((await postLine(JSON.stringify({ events: [imageEvent] }))).status).toBe(200);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({ kind: "media", messageType: "image", messageId: "group-image-message" });
+    await processLineAssistantQueueMessage(queued.shift(), env as never);
+
+    const chatter = mentionEvent({
+      webhookEventId: "group-image-chatter",
+      replyToken: "group-image-chatter-reply",
+      message: { id: "group-image-chatter-message", type: "text", text: "group chatter" },
+    });
+    expect((await postLine(JSON.stringify({ events: [chatter] }))).status).toBe(200);
+    expect(queued).toHaveLength(0);
+
+    const mention = mentionEvent({
+      webhookEventId: "group-image-follow-up",
+      replyToken: "group-image-follow-up-reply",
+      message: {
+      id: "group-image-follow-up-message",
+      type: "text",
+      text: "@Rueisiang 小香 請看剛才的照片",
+      mention: { mentionees: [{ isSelf: true, index: 0, length: "@Rueisiang 小香".length }] },
+      },
+    });
+    expect((await postLine(JSON.stringify({ events: [mention] }))).status).toBe(200);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({
+      kind: "assistant",
+      questionText: "請看剛才的照片",
+    });
+    const [storedImage] = await db().select().from(assistantLineMessages).where(eq(assistantLineMessages.webhookEventId, "group-image-event"));
+    expect(JSON.parse(storedImage?.attachments ?? "[]")).toMatchObject([{ key: objectKey }]);
+    expect(storedImage?.quotedMessageId).toBeNull();
+    const [followUp] = await db().select().from(assistantLineMessages).where(eq(assistantLineMessages.webhookEventId, "group-image-follow-up"));
+    expect(followUp?.quotedMessageId).toBeNull();
+    await processLineAssistantQueueMessage(queued.shift(), env as never);
+    expect(piAgentRequests.find((request) => request.path === "/run")?.payload).toMatchObject({
+      userText: "請看剛才的照片",
+      attachments: [{ key: objectKey, contentType: "image/png" }],
+    });
+  });
+
+  it("引用圖片的文字先到時會等待圖片落地，圖片完成後再恢復回答", async () => {
+    await enableLineConversation(mentionEvent({ webhookEventId: "quote-race-seed" }));
+    const imageBytes = new Uint8Array([4, 5, 6]);
+    const objectKey = "assistant/vision/group-1/2026/08/00000000-0000-0000-0000-000000000103.png";
+    const checksumBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", imageBytes));
+    const checksum = Array.from(checksumBytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    env = {
+      ...env,
+      NAS_STORAGE_URL: "https://storage.example.test",
+      NAS_STORAGE_TOKEN: "storage-token",
+    };
+    const queued: unknown[] = [];
+    env = { ...env, LINE_ASSISTANT_QUEUE: { send: async (message: unknown) => { queued.push(message); } } };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/content")) return new Response(imageBytes, { status: 200, headers: { "Content-Type": "image/png" } });
+      if (url.startsWith("https://storage.example.test/v1/objects")) {
+        return Response.json({ object: { key: objectKey, size: imageBytes.byteLength, checksum, contentType: "image/png" } }, { status: 201 });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const quote = mentionEvent({
+      webhookEventId: "quote-before-image",
+      replyToken: "quote-before-image-reply",
+      message: {
+        id: "quote-before-image-message",
+        type: "text",
+        text: "@Rueisiang 小香 請看這張圖",
+        quotedMessageId: "late-image-message",
+        mention: { mentionees: [{ isSelf: true, index: 0, length: "@Rueisiang 小香".length }] },
+      },
+    });
+    expect((await postLine(JSON.stringify({ events: [quote] }))).status).toBe(200);
+    expect(queued).toHaveLength(1);
+    await processLineAssistantQueueMessage(queued.shift(), env as never);
+    const [waiting] = await db().select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.webhookEventId, "quote-before-image"));
+    expect(waiting?.status).toBe("waiting");
+    expect(piAgentRequests.find((request) => request.path === "/run")).toBeUndefined();
+
+    const image = mentionEvent({
+      webhookEventId: "late-image-event",
+      replyToken: "late-image-reply",
+      message: { id: "late-image-message", type: "image", contentProvider: { type: "line" } },
+    });
+    expect((await postLine(JSON.stringify({ events: [image] }))).status).toBe(200);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({ kind: "media", messageId: "late-image-message" });
+    await processLineAssistantQueueMessage(queued.shift(), env as never);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({
+      kind: "assistant",
+      webhookEventId: "quote-before-image",
+      quotedMessageId: "late-image-message",
+    });
+    await processLineAssistantQueueMessage(queued.shift(), env as never);
+    expect(piAgentRequests.find((request) => request.path === "/run")?.payload).toMatchObject({
+      userText: "請看這張圖",
+      quotedMessageId: "late-image-message",
+      attachments: [{ key: objectKey, contentType: "image/png" }],
+    });
+  });
+
+  it("LINE 圖片無法下載時只記錄 failed，不會因圖片事件直接回覆或無限重試", async () => {
+    await enableLineConversation(userEvent({ webhookEventId: "expired-image-seed" }));
+    env = {
+      ...env,
+      NAS_STORAGE_URL: "https://storage.example.test",
+      NAS_STORAGE_TOKEN: "storage-token",
+    };
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith("/content")) return new Response("gone", { status: 410 });
+      return new Response(null, { status: 200 });
+    });
+
+    const response = await postLine(JSON.stringify({ events: [userEvent({
+      webhookEventId: "expired-image-event",
+      replyToken: "expired-image-reply",
+      message: { id: "expired-image-message", type: "image", contentProvider: { type: "line" } },
+    })] }));
+
+    expect(response.status).toBe(200);
+    expect(requests).toContain("https://api-data.line.me/v2/bot/message/expired-image-message/content");
+    expect(requests.some((url) => url.endsWith("/message/reply"))).toBe(false);
+    expect(piAgentRequests.find((request) => request.path === "/run")).toBeUndefined();
+    const [message] = await db().select().from(assistantLineMessages).where(eq(assistantLineMessages.webhookEventId, "expired-image-event"));
+    expect(message?.imageDownloadStatus).toBe("failed");
   });
 });
 

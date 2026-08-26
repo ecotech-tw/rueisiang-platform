@@ -181,7 +181,7 @@ export const assistantLineGroups = sqliteTable("assistant_line_groups", {
   index("idx_assistant_line_groups_enabled").on(table.channelKey, table.enabled),
 ]);
 
-/** 群組／聊天室只收標註小香的文字；一對一訊息也會進來，供後續 LINE 對話組裝 context。 */
+/** 群組／聊天室會記錄圖片與標註小香的文字；一對一訊息也會進來，供後續 LINE 對話組裝 context。 */
 export const assistantLineMessages = sqliteTable("assistant_line_messages", {
   id: text("id").primaryKey(),
   channelKey: text("channel_key").notNull(),
@@ -190,7 +190,14 @@ export const assistantLineMessages = sqliteTable("assistant_line_messages", {
   webhookEventId: text("webhook_event_id").notNull(),
   lineMessageId: text("line_message_id"),
   lineUserId: text("line_user_id"),
+  quotedMessageId: text("quoted_message_id"),
+  messageType: text("message_type").notNull().default("text"),
   text: text("text").notNull(),
+  /** 圖片 bytes 留在 NAS；這裡只保存可供 DO 還原 context 的短 metadata。 */
+  attachments: text("attachments").notNull().default("[]"),
+  /** 圖片下載要能被排程與後台辨識，空 attachments 不再同時代表 pending 與 failed。 */
+  imageDownloadStatus: text("image_download_status").notNull().default("none"),
+  imageDownloadError: text("image_download_error"),
   /** 同一個 channel／LINE 對話內的到達順序；0 僅供 migration 前的舊資料相容。 */
   sequence: integer("sequence").notNull().default(0),
   /** 沒有這個旗標就代表當時沒有建立 assistant Queue 工作，不應阻塞後續訊息。 */
@@ -199,6 +206,7 @@ export const assistantLineMessages = sqliteTable("assistant_line_messages", {
 }, (table) => [
   uniqueIndex("idx_assistant_line_messages_event").on(table.channelKey, table.webhookEventId),
   index("idx_assistant_line_messages_group_created_at").on(table.channelKey, table.lineGroupId, table.createdAt),
+  index("idx_assistant_line_messages_group_message").on(table.channelKey, table.lineGroupId, table.lineMessageId),
 ]);
 
 /**

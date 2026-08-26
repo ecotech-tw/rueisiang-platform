@@ -44,7 +44,8 @@ pnpm dev
 - 長對話由 Pi transcript 計算上下文；約 48,000 tokens 後透過 DO alarm compact，超過 80,000 tokens 時會在下一輪前強制 compact。D1 仍保留完整 user/model 訊息作 UI 與稽核投影，不是模型 context 的 source of truth。
 - `小香助理 → LINE 前台` 可以設定 Channel ID、Channel Secret、Channel Access Token、channel 開關、Webhook URL 與對話授權。
 - Channel Secret 與 Channel Access Token 透過後台輸入後會使用 `AUTH_SESSION_SECRET` 以 AES-GCM 加密保存，不會把原值回傳到瀏覽器。`LINE_CHANNEL_SECRET` 與 `LINE_CHANNEL_ACCESS_TOKEN` 仍可作為既有部署的環境變數 fallback。
-- LINE webhook 只接受 LINE 的 `x-line-signature`；群組／多人聊天室只記錄真正 mention 小香的文字訊息，一對一不需要 mention；新發現的對話預設未授權。
+- LINE webhook 只接受 LINE 的 `x-line-signature`；群組／多人聊天室的文字訊息只記錄真正 mention 小香的內容，圖片事件會先記錄並排入附件保存；一對一文字與圖片不需要 mention；新發現的對話預設未授權。
+- LINE 一對一圖片會由 Queue 透過 LINE Content API 取回後保存到 NAS `assistant/vision/<chat-id>/...`；群組／多人聊天室圖片先保存 metadata，只有後續引用該圖片的 `quotedMessageId` 且標註小香時才送入模型 context。圖片 metadata 預設保留 7 天，bytes 不進 D1。
 - 已授權且開通的 LINE 對話會由 active model、active prompt 與狀態為「已啟用」的 tools
   產生回答；只有尚未建立 assistant 設定時才以 `PI_AGENT_MODEL` 作 fallback。一對一會同步使用者名稱與頭貼，「開發中」tool 仍只允許 Sandbox 使用。
 - 一對一傳送 `/reset` 或 `/重設` 可清除目前模型上下文但保留歷史紀錄，不會觸發回答。

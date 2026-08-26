@@ -6,10 +6,14 @@ import {
   getAssistantConfig,
   getActiveAssistantPrompt,
   getAssistantLineReplyBackup,
+  getAssistantLineQueueJob,
   ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS,
+  ASSISTANT_LINE_QUEUE_WAITING_ERROR,
+  ASSISTANT_LINE_QUEUE_WAITING_TIMEOUT_ERROR,
   ensureAssistantLineChannel,
   getAssistantLineChannel,
   findAssistantLineGroup,
+  getAssistantLineMessageByLineMessageId,
   markAssistantLinePushDelivery,
   markAssistantLineQueueJobEnqueued,
   claimAssistantLineQueueJob,
@@ -20,6 +24,10 @@ import {
   releaseAssistantLineQueueJob,
   requeueStaleAssistantLineQueueJobs,
   listPendingAssistantLineQueueJobs,
+  listAssistantLineImageContext,
+  listAssistantLineImageFollowUpMessages,
+  listAssistantLineMessagesByQuotedMessageId,
+  requeueExpiredAssistantLineQuoteJobs,
   recordAssistantLineReplyBackup,
   reserveAssistantLinePushDelivery,
   resolveLineToolKeys,
@@ -30,6 +38,10 @@ import {
   shouldSyncLineGroupProfile,
   updateAssistantLineGroupProfile,
   upsertAssistantLineGroup,
+  resumeAssistantLineQueueJob,
+  updateAssistantLineMessageImageDownloadStatus,
+  waitAssistantLineQueueJob,
+  type StoredMediaAttachment,
 } from "@rueisiang/db";
 import {
   ASSISTANT_KEY,
@@ -58,6 +70,12 @@ import {
   runPiLineAgent,
 } from "../pi-agent.js";
 import { resolvePiAssistantModelId } from "../pi-agent-models.js";
+import {
+  isExpiredLineImageAttachment,
+  isPermanentLineImageError,
+  parseStoredLineImageAttachments,
+  storeLineImage,
+} from "../line-media.js";
 import {
   isLineWebhookEvent,
   lineEventGroup,
@@ -103,6 +121,9 @@ const LINE_FREE_PUSH_RECIPIENT_LIMIT = 200;
 const LINE_PUSH_QUOTA_SAFETY_BUFFER = 5;
 const LINE_SAFE_PUSH_LIMIT = Math.max(0, LINE_FREE_PUSH_RECIPIENT_LIMIT - LINE_PUSH_QUOTA_SAFETY_BUFFER);
 const LINE_PUSH_RETRY_KEY_TTL_MS = 24 * 60 * 60_000;
+const LINE_IMAGE_MESSAGE_TEXT = "（使用者傳送了一張圖片）";
+const LINE_QUOTE_WAIT_TIMEOUT_MS = 30_000;
+const LINE_IMAGE_UNAVAILABLE_NOTE = "圖片目前無法讀取，請直接告知使用者。";
 
 class LinePushRetryKeyExpiredError extends Error {
   constructor() {
@@ -126,6 +147,13 @@ class LineQueueConversationOrderError extends Error {
   }
 }
 
+class LineImageContextPendingError extends Error {
+  constructor(imageMessageId: string) {
+    super(`LINE 圖片尚未完成保存（${imageMessageId}）。`);
+    this.name = "LineImageContextPendingError";
+  }
+}
+
 function lineReplyDeadlineAt(): number {
   // LINE 的 reply token 有效期是從 webhook 收到開始算，不是 event.timestamp。
   // redelivery 也應該用這次收到的時間重新給 consumer 一個 reply window。
@@ -143,6 +171,7 @@ async function stableLineRunId(webhookEventId: string): Promise<string> {
 function isPermanentLineAssistantError(error: unknown): boolean {
   const messages: string[] = [];
   const statuses: number[] = [];
+  const permanentFlags: boolean[] = [];
   let current: unknown = error;
   const seen = new Set<unknown>();
   for (let depth = 0; depth < 4 && current; depth += 1) {
@@ -157,13 +186,43 @@ function isPermanentLineAssistantError(error: unknown): boolean {
     if (typeof (record as { status?: unknown }).status === "number") {
       statuses.push((record as { status: number }).status);
     }
+    if (typeof (record as { permanent?: unknown }).permanent === "boolean") {
+      permanentFlags.push((record as { permanent: boolean }).permanent);
+    }
     current = record.cause;
   }
   const hasPermanentCodexCredentialMessage = messages.some((message) =>
     /PI_(?:OPENAI_CODEX_CREDENTIAL|CREDENTIAL_ENCRYPTION_KEY)|(?:尚未設定|不是合法|缺少|至少需要).*(?:credential|PI_)|無法解密.*(?:Codex|credential)|(?:Codex|ChatGPT).*credential.*(?:無法使用|失效|缺少|錯誤)|credential.*(?:Codex|ChatGPT).*(?:無法使用|失效|缺少|錯誤)/i.test(message));
-  return statuses.some((status) => [400, 401, 403, 404].includes(status))
+  return permanentFlags.some(Boolean)
+    || statuses.some((status) => [400, 401, 403, 404, 422].includes(status))
     || hasPermanentCodexCredentialMessage
     || messages.some((message) => /gemini[\s_-]*api[\s_-]*key|Gemini 請求格式錯誤|模型設定|模型無法使用|prompt.*設定|對話設定|授權|HTTP\s+(400|401|403|404)/i.test(message));
+}
+
+type LineImageMessageRow = {
+  messageType: string;
+  imageDownloadStatus: string;
+  attachments: string;
+  text: string;
+};
+
+function lineImageErrorMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : "line_image_processing_failed").slice(0, 1_000);
+}
+
+function resolveLineImageRow(row: LineImageMessageRow | null): {
+  attachments: StoredMediaAttachment[];
+  pending: boolean;
+  unavailable: boolean;
+} {
+  if (!row || (row.messageType !== "image" && row.text !== LINE_IMAGE_MESSAGE_TEXT)) {
+    return { attachments: [], pending: false, unavailable: false };
+  }
+  if (row.imageDownloadStatus === "pending") return { attachments: [], pending: true, unavailable: false };
+  const attachments = parseStoredLineImageAttachments(row.attachments)
+    .filter((attachment) => !isExpiredLineImageAttachment(attachment));
+  if (attachments.length) return { attachments, pending: false, unavailable: false };
+  return { attachments: [], pending: false, unavailable: true };
 }
 
 async function stableLineWebhookEventId(input: {
@@ -173,6 +232,8 @@ async function stableLineWebhookEventId(input: {
   messageId?: string;
   userId?: string;
   text: string;
+  messageType?: string;
+  quotedMessageId?: string;
 }): Promise<string> {
   const source = [
     input.groupId,
@@ -180,6 +241,8 @@ async function stableLineWebhookEventId(input: {
     input.timestamp ?? "",
     input.messageId ?? "",
     input.userId ?? "",
+    input.messageType ?? "",
+    input.quotedMessageId ?? "",
     input.text,
   ].join("\u001f");
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source)));
@@ -370,6 +433,9 @@ async function runLineAssistant(input: {
   lineGroupId: string;
   sourceType: "group" | "room" | "user";
   messageId?: string;
+  quotedMessageId?: string;
+  attachments?: StoredMediaAttachment[];
+  persistAttachments?: boolean;
   questionText: string;
   webhookEventId: string;
   runId: string;
@@ -498,12 +564,15 @@ async function runLineAssistant(input: {
         lineGroupId: input.lineGroupId,
         sourceType: input.sourceType,
         contextGeneration: input.contextGeneration,
+        ...(input.quotedMessageId ? { quotedMessageId: input.quotedMessageId } : {}),
         webhookEventId: input.webhookEventId,
         runId,
         model: configuredModel,
         systemPrompt,
         userText: promptText,
         toolKeys: allowedToolKeys,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+        ...(input.persistAttachments !== undefined ? { persistAttachments: input.persistAttachments } : {}),
       });
       modelId = piResponse.model;
       result = piResponse.result;
@@ -702,6 +771,7 @@ function lineQueueTrace(message: LineAssistantQueueMessage): LineLogContext {
     groupId: message.lineGroupId,
     groupRowId: message.groupRowId,
     ...(message.messageId ? { messageId: message.messageId } : {}),
+    ...(message.quotedMessageId ? { quotedMessageId: message.quotedMessageId } : {}),
     ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
   };
 }
@@ -756,11 +826,80 @@ async function enqueueLineAssistantJob(
   });
 }
 
+/** 圖片落地後喚醒等待它的工作；工作本身仍會再次 claim，避免重複投遞造成重複回答。 */
+async function resumeWaitingLineImageJobs(
+  db: AppEnv["Variables"]["db"],
+  env: AppEnv["Bindings"],
+  input: { channelKey: string; lineGroupId: string; messageId: string; contextResetAt?: string | null },
+): Promise<void> {
+  const quotedMessages = await listAssistantLineMessagesByQuotedMessageId(db, {
+    channelKey: input.channelKey,
+    lineGroupId: input.lineGroupId,
+    quotedMessageId: input.messageId,
+  });
+  const imageMessage = await getAssistantLineMessageByLineMessageId(db, {
+    channelKey: input.channelKey,
+    lineGroupId: input.lineGroupId,
+    lineMessageId: input.messageId,
+  });
+  const followUpMessages = imageMessage
+    && (!input.contextResetAt || imageMessage.createdAt > input.contextResetAt)
+    ? await listAssistantLineImageFollowUpMessages(db, {
+      channelKey: input.channelKey,
+      lineGroupId: input.lineGroupId,
+      imageSequence: imageMessage.sequence,
+      contextResetAt: input.contextResetAt,
+    })
+    : [];
+  // 只喚醒圖片後第一個未引用圖片的文字；後續文字會由 sequence gate 排在它後面。
+  const messages = [...quotedMessages, ...(followUpMessages[0] ? [followUpMessages[0]] : [])]
+    .sort((left, right) => left.sequence - right.sequence);
+  for (const quotedMessage of messages) {
+    const job = await getAssistantLineQueueJob(db, {
+      channelKey: input.channelKey,
+      webhookEventId: quotedMessage.webhookEventId,
+    });
+    if (!job || job.status !== "waiting") continue;
+    await resumeAssistantLineQueueJob(db, job.id);
+    try {
+      const decrypted = await decryptLineSecret(job.payloadEncrypted, env.AUTH_SESSION_SECRET);
+      if (!decrypted) throw new Error("LINE 圖片引用工作 payload 解密失敗。");
+      const payload = JSON.parse(decrypted) as unknown;
+      if (!isLineAssistantQueueMessage(payload) || payload.kind !== "assistant") {
+        throw new Error("LINE 圖片引用工作 payload 格式不正確。");
+      }
+      await env.LINE_ASSISTANT_QUEUE.send(payload, { contentType: "json", delaySeconds: 0 });
+      await markAssistantLineQueueJobEnqueued(db, job.id);
+      assistantLog("info", "line.queue.image_context_resumed", {
+        ...lineQueueTrace(payload),
+        jobId: job.id,
+        imageMessageId: input.messageId,
+      });
+    } catch (error) {
+      assistantLog("error", "line.queue.quote_resume_failed", {
+        channelKey: input.channelKey,
+        groupId: input.lineGroupId,
+        jobId: job.id,
+        imageMessageId: input.messageId,
+        error: assistantErrorDetails(error),
+      });
+    }
+  }
+}
+
 /** Cron 用來補送「D1 已記錄但 Queue.send 沒完成」的工作。 */
 export async function drainLineAssistantQueueOutbox(
   db: AppEnv["Variables"]["db"],
   env: AppEnv["Bindings"],
 ): Promise<void> {
+  const waitingBefore = new Date(Date.now() - LINE_QUOTE_WAIT_TIMEOUT_MS).toISOString();
+  const quoteWaitReleased = await requeueExpiredAssistantLineQuoteJobs(db, { olderThan: waitingBefore });
+  if (quoteWaitReleased > 0) {
+    assistantLog("warn", "line.queue.quote_wait_expired", {
+      count: quoteWaitReleased,
+      olderThan: waitingBefore,
+    });
+  }
   const staleBefore = new Date(Date.now() - 2 * 60_000).toISOString();
   const requeuedCount = await requeueStaleAssistantLineQueueJobs(db, { olderThan: staleBefore });
   if (requeuedCount > 0) {
@@ -956,6 +1095,139 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
       return;
     }
 
+    if (message.kind === "media") {
+      if (!message.messageId) throw new Error("LINE 圖片 Queue 缺少 message id。");
+      try {
+        await storeLineImage({
+          db,
+          env,
+          accessToken,
+          channelKey: message.channelKey,
+          lineGroupId: message.lineGroupId,
+          webhookEventId: message.webhookEventId,
+          messageId: message.messageId,
+          trace,
+        });
+      } catch (error) {
+        const permanent = isPermanentLineImageError(error);
+        await updateAssistantLineMessageImageDownloadStatus(db, {
+          channelKey: message.channelKey,
+          webhookEventId: message.webhookEventId,
+          status: permanent ? "failed" : "pending",
+          error: lineImageErrorMessage(error),
+        });
+        if (!permanent) throw error;
+        assistantLog("error", "line.image.skipped", {
+          ...trace,
+          reason: "permanent_content_or_storage_error",
+          error: assistantErrorDetails(error),
+        });
+      }
+      await resumeWaitingLineImageJobs(db, env, {
+        channelKey: message.channelKey,
+        lineGroupId: message.lineGroupId,
+        messageId: message.messageId,
+        contextResetAt: contextGeneration,
+      });
+      processed = true;
+      return;
+    }
+
+    // 舊版可能已經把圖片排成 assistant 工作；相容處理仍只落地，不因圖片事件直接回覆。
+    if (message.messageType === "image") {
+      if (!message.messageId) throw new Error("LINE 圖片 Queue 缺少 message id。");
+      try {
+        await storeLineImage({
+          db,
+          env,
+          accessToken,
+          channelKey: message.channelKey,
+          lineGroupId: message.lineGroupId,
+          webhookEventId: message.webhookEventId,
+          messageId: message.messageId,
+          trace,
+        });
+      } catch (error) {
+        const permanent = isPermanentLineImageError(error);
+        await updateAssistantLineMessageImageDownloadStatus(db, {
+          channelKey: message.channelKey,
+          webhookEventId: message.webhookEventId,
+          status: permanent ? "failed" : "pending",
+          error: lineImageErrorMessage(error),
+        });
+        if (!permanent) throw error;
+        assistantLog("error", "line.image.skipped", {
+          ...trace,
+          reason: "permanent_content_or_storage_error",
+          error: assistantErrorDetails(error),
+        });
+      }
+      await resumeWaitingLineImageJobs(db, env, {
+        channelKey: message.channelKey,
+        lineGroupId: message.lineGroupId,
+        messageId: message.messageId,
+        contextResetAt: contextGeneration,
+      });
+      processed = true;
+      return;
+    }
+
+    const attachments: StoredMediaAttachment[] = [];
+    let questionText = message.questionText;
+    let imageUnavailable = false;
+    let imagePending = false;
+    if (message.quotedMessageId) {
+      const quotedMessage = await getAssistantLineMessageByLineMessageId(db, {
+        channelKey: message.channelKey,
+        lineGroupId: message.lineGroupId,
+        lineMessageId: message.quotedMessageId,
+      });
+      if (!quotedMessage) {
+        imagePending = true;
+      } else {
+        const resolved = resolveLineImageRow(quotedMessage);
+        attachments.push(...resolved.attachments);
+        imagePending = resolved.pending;
+        imageUnavailable = resolved.unavailable;
+      }
+      if (imageUnavailable) {
+        questionText = `${questionText} ${LINE_IMAGE_UNAVAILABLE_NOTE}`;
+        assistantLog("warn", "line.image.quote_unavailable", {
+          ...trace,
+          quotedMessageId: message.quotedMessageId,
+          reason: "expired_or_failed",
+        });
+      }
+    } else {
+      const recentImages = await listAssistantLineImageContext(db, {
+        channelKey: message.channelKey,
+        lineGroupId: message.lineGroupId,
+        beforeSequence: message.sequence ?? Number.MAX_SAFE_INTEGER,
+        contextResetAt: contextGeneration,
+        limit: 4,
+      });
+      for (const image of recentImages) {
+        const resolved = resolveLineImageRow(image);
+        attachments.push(...resolved.attachments);
+        imagePending ||= resolved.pending;
+        imageUnavailable ||= resolved.unavailable;
+      }
+      if (imageUnavailable) questionText = `${questionText} ${LINE_IMAGE_UNAVAILABLE_NOTE}`;
+    }
+    const quoteWaitTimedOut = claim && "job" in claim
+      && claim.job.lastError === ASSISTANT_LINE_QUEUE_WAITING_TIMEOUT_ERROR;
+    if (imagePending && !quoteWaitTimedOut) {
+      throw new LineImageContextPendingError(message.quotedMessageId ?? "recent-line-image");
+    }
+    if (imagePending && quoteWaitTimedOut) {
+      questionText = `${questionText} ${LINE_IMAGE_UNAVAILABLE_NOTE}`;
+      assistantLog("warn", "line.image.wait_timeout", {
+        ...trace,
+        ...(message.quotedMessageId ? { quotedMessageId: message.quotedMessageId } : {}),
+      });
+    }
+    const inputAttachments = attachments.slice(0, 4);
+
     await runLineAssistant({
       db,
       env,
@@ -966,8 +1238,11 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
       groupRowId: message.groupRowId,
       lineGroupId: message.lineGroupId,
       messageId: message.messageId,
+      ...(message.quotedMessageId ? { quotedMessageId: message.quotedMessageId } : {}),
+      ...(inputAttachments.length ? { attachments: inputAttachments } : {}),
+      persistAttachments: message.sourceType === "user",
       sourceType: message.sourceType,
-      questionText: message.questionText,
+      questionText,
       webhookEventId: message.webhookEventId,
       runId: message.runId,
       contextGeneration,
@@ -978,6 +1253,24 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
   } catch (error) {
     if (claim && "job" in claim) {
       const errorMessage = error instanceof Error ? error.message : "line_queue_processing_failed";
+      if (error instanceof LineImageContextPendingError) {
+        await waitAssistantLineQueueJob(db, {
+          id: claim.job.id,
+          claimToken: claim.claimToken,
+          error: ASSISTANT_LINE_QUEUE_WAITING_ERROR,
+        });
+        assistantLog("info", "line.queue.waiting_for_image", {
+          ...trace,
+          jobId: claim.job.id,
+          kind: message.kind,
+          webhookEventId: message.webhookEventId,
+          channelKey: message.channelKey,
+          groupId: message.lineGroupId,
+          attempts: claim.job.attempts,
+          error: assistantErrorDetails(error),
+        });
+        return;
+      }
       if (error instanceof LinePushRetryKeyExpiredError) {
         await markAssistantLineQueueJobAmbiguous(db, {
           id: claim.job.id,
@@ -998,6 +1291,20 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
       }
 
       const exhausted = claim.job.attempts >= ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS;
+      if (exhausted && (message.kind === "media" || message.messageType === "image")) {
+        await updateAssistantLineMessageImageDownloadStatus(db, {
+          channelKey: message.channelKey,
+          webhookEventId: message.webhookEventId,
+          status: "failed",
+          error: errorMessage,
+        }).catch((statusError) => {
+          assistantLog("error", "line.image.status_update_failed", {
+            ...trace,
+            reason: "retry_exhausted",
+            error: assistantErrorDetails(statusError),
+          });
+        });
+      }
       if (exhausted) {
         await failAssistantLineQueueJob(db, {
           id: claim.job.id,
@@ -1177,7 +1484,15 @@ async function receiveLine(c: Context<AppEnv>) {
     const rawText = lineEventRawText(event);
     const text = lineEventText(event);
     const group = lineEventGroup(event);
-    if (!text || !group || (group.sourceType !== "user" && !lineEventIsMentioned(event))) {
+    const messageId = typeof event.message?.id === "string" ? event.message.id.trim() : undefined;
+    const quotedMessageId = typeof event.message?.quotedMessageId === "string"
+      ? event.message.quotedMessageId.trim()
+      : undefined;
+    const isImage = event.type === "message"
+      && event.message?.type === "image"
+      && event.message.contentProvider?.type !== "external"
+      && Boolean(messageId);
+    if (!group || (!text && !isImage) || (group.sourceType !== "user" && !lineEventIsMentioned(event) && !isImage)) {
       ignored += 1;
       continue;
     }
@@ -1191,20 +1506,30 @@ async function receiveLine(c: Context<AppEnv>) {
       groupId: group.id,
       sourceType: group.sourceType,
       timestamp: event.timestamp,
-      messageId: event.message?.id,
+      messageId,
       userId: event.source?.userId,
-      text,
+      text: text ?? LINE_IMAGE_MESSAGE_TEXT,
+      messageType: event.message?.type,
+      quotedMessageId,
     });
-    const replyToken = event.replyToken?.trim();
-    const queueRequired = Boolean(lineChannel.enabled && lineGroup.enabled && accessToken && replyToken);
+    const replyToken = typeof event.replyToken === "string" ? event.replyToken.trim() : undefined;
+    const conversationEnabled = Boolean(lineChannel.enabled && lineGroup.enabled && accessToken);
+    const assistantRequired = conversationEnabled
+      && Boolean(replyToken)
+      && !isImage
+      && (group.sourceType === "user" || lineEventIsMentioned(event));
+    const queueRequired = conversationEnabled && (assistantRequired || isImage);
     const result = await recordAssistantLineMessage(c.get("db"), {
       channelKey: lineChannel.channelKey,
       lineGroupId: lineGroup.lineGroupId,
       sourceType: group.sourceType,
       webhookEventId,
-      lineMessageId: event.message?.id,
+      lineMessageId: messageId,
       lineUserId: event.source?.userId,
-      text,
+      quotedMessageId,
+      messageType: isImage ? "image" : "text",
+      text: text ?? LINE_IMAGE_MESSAGE_TEXT,
+      imageDownloadStatus: isImage && conversationEnabled ? "pending" : "none",
       queueRequired,
     });
     if (result.inserted) recorded += 1;
@@ -1226,7 +1551,9 @@ async function receiveLine(c: Context<AppEnv>) {
       sourceType: group.sourceType,
       webhookEventId,
       contextGeneration: lineGroup.contextResetAt ?? "",
-      messageId: event.message?.id,
+      ...(messageId ? { messageId } : {}),
+      ...(quotedMessageId ? { quotedMessageId } : {}),
+      messageType: isImage ? "image" : "text",
       replyDeadlineAt: lineReplyDeadlineAt(),
       ...(result.message.sequence > 0 ? { sequence: result.message.sequence } : {}),
     } as const;
@@ -1264,15 +1591,22 @@ async function receiveLine(c: Context<AppEnv>) {
       continue;
     }
 
-    if (lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {
+    if (conversationEnabled && replyToken && assistantRequired) {
       const selfMention = event.message?.mention?.mentionees?.find((mentionee) => mentionee.isSelf);
-      const questionText = lineQuestionText(rawText ?? text, selfMention).slice(0, 5_000);
+      const questionText = lineQuestionText(rawText ?? text ?? "", selfMention).slice(0, 5_000);
       await enqueueLineAssistantJob(c.get("db"), c.env, {
         ...queueBase,
         kind: "assistant",
         runId: await stableLineRunId(webhookEventId),
         replyToken,
         questionText,
+      });
+    } else if (isImage && conversationEnabled && messageId) {
+      await enqueueLineAssistantJob(c.get("db"), c.env, {
+        ...queueBase,
+        kind: "media",
+        messageId,
+        messageType: "image",
       });
     } else {
       if (profileSyncNeeded) {

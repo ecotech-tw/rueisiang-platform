@@ -40,6 +40,7 @@ export type AssistantRunStatus = "success" | "failed";
 export type AssistantSandboxSessionStatus = "open" | "closed";
 export type AssistantSandboxMessageRole = "user" | "model";
 export type AssistantLineSourceType = "group" | "room" | "user";
+export type AssistantLineImageDownloadStatus = "none" | "pending" | "stored" | "failed";
 export const DEFAULT_ASSISTANT_LINE_DISPLAY_NAME = "Rueisiang 小香";
 
 export interface StoredMediaAttachment {
@@ -294,7 +295,12 @@ export async function recordAssistantLineMessage(
     webhookEventId: string;
     lineMessageId?: string;
     lineUserId?: string;
+    quotedMessageId?: string;
+    messageType?: "text" | "image";
     text: string;
+    attachments?: StoredMediaAttachment[];
+    imageDownloadStatus?: AssistantLineImageDownloadStatus;
+    imageDownloadError?: string | null;
     queueRequired?: boolean;
   },
 ): Promise<{ message: AssistantLineMessage; inserted: boolean }> {
@@ -324,7 +330,12 @@ export async function recordAssistantLineMessage(
       webhookEventId: input.webhookEventId,
       lineMessageId: input.lineMessageId,
       lineUserId: input.lineUserId,
+      quotedMessageId: input.quotedMessageId,
+      messageType: input.messageType ?? "text",
       text: input.text,
+      attachments: JSON.stringify(input.attachments ?? []),
+      imageDownloadStatus: input.imageDownloadStatus ?? "none",
+      ...(input.imageDownloadError !== undefined ? { imageDownloadError: input.imageDownloadError } : {}),
       sequence: sql<number>`(
         SELECT ${assistantLineGroups.nextMessageSequence}
         FROM ${assistantLineGroups}
@@ -341,6 +352,159 @@ export async function recordAssistantLineMessage(
   )).limit(1);
   if (!created) throw new Error("記錄 LINE 訊息後找不到資料。");
   return { message: created, inserted: created.id === id };
+}
+
+export async function getAssistantLineMessage(
+  db: Database,
+  input: { channelKey: string; webhookEventId: string },
+): Promise<AssistantLineMessage | null> {
+  const [message] = await db.select().from(assistantLineMessages).where(and(
+    eq(assistantLineMessages.channelKey, input.channelKey),
+    eq(assistantLineMessages.webhookEventId, input.webhookEventId),
+  )).limit(1);
+  return message ?? null;
+}
+
+export async function getAssistantLineMessageByLineMessageId(
+  db: Database,
+  input: { channelKey: string; lineGroupId: string; lineMessageId: string },
+): Promise<AssistantLineMessage | null> {
+  const [message] = await db.select().from(assistantLineMessages).where(and(
+    eq(assistantLineMessages.channelKey, input.channelKey),
+    eq(assistantLineMessages.lineGroupId, input.lineGroupId),
+    eq(assistantLineMessages.lineMessageId, input.lineMessageId),
+  )).limit(1);
+  return message ?? null;
+}
+
+export async function updateAssistantLineMessageAttachments(
+  db: Database,
+  input: { channelKey: string; webhookEventId: string; attachments: StoredMediaAttachment[] },
+): Promise<AssistantLineMessage> {
+  await db.update(assistantLineMessages)
+    .set({
+      attachments: JSON.stringify(input.attachments),
+      imageDownloadStatus: "stored",
+      imageDownloadError: null,
+    })
+    .where(and(
+      eq(assistantLineMessages.channelKey, input.channelKey),
+      eq(assistantLineMessages.webhookEventId, input.webhookEventId),
+    ));
+  const message = await getAssistantLineMessage(db, input);
+  if (!message) throw new Error("更新 LINE 圖片 metadata 後找不到訊息。");
+  return message;
+}
+
+export async function updateAssistantLineMessageImageDownloadStatus(
+  db: Database,
+  input: {
+    channelKey: string;
+    webhookEventId: string;
+    status: AssistantLineImageDownloadStatus;
+    error?: string | null;
+  },
+): Promise<AssistantLineMessage> {
+  await db.update(assistantLineMessages)
+    .set({
+      imageDownloadStatus: input.status,
+      ...(input.error !== undefined ? { imageDownloadError: input.error?.slice(0, 1_000) ?? null } : {}),
+    })
+    .where(and(
+      eq(assistantLineMessages.channelKey, input.channelKey),
+      eq(assistantLineMessages.webhookEventId, input.webhookEventId),
+    ));
+  const message = await getAssistantLineMessage(db, input);
+  if (!message) throw new Error("更新 LINE 圖片下載狀態後找不到訊息。");
+  return message;
+}
+
+/** 取出目前文字前、上一次可回答文字之後的圖片，讓圖片只被下一輪對話消費。 */
+export async function listAssistantLineImageContext(
+  db: Database,
+  input: {
+    channelKey: string;
+    lineGroupId: string;
+    beforeSequence: number;
+    contextResetAt?: string | null;
+    limit?: number;
+  },
+): Promise<AssistantLineMessage[]> {
+  const limit = Math.min(Math.max(input.limit ?? 4, 1), 4);
+  const baseConditions = [
+    eq(assistantLineMessages.channelKey, input.channelKey),
+    eq(assistantLineMessages.lineGroupId, input.lineGroupId),
+    lt(assistantLineMessages.sequence, input.beforeSequence),
+  ];
+  if (input.contextResetAt) baseConditions.push(gt(assistantLineMessages.createdAt, input.contextResetAt));
+
+  const [lastText] = await db
+    .select({ sequence: assistantLineMessages.sequence })
+    .from(assistantLineMessages)
+    .where(and(
+      ...baseConditions,
+      eq(assistantLineMessages.messageType, "text"),
+      eq(assistantLineMessages.queueRequired, true),
+    ))
+    .orderBy(desc(assistantLineMessages.sequence))
+    .limit(1);
+
+  const imageConditions = [
+    ...baseConditions,
+    eq(assistantLineMessages.messageType, "image"),
+    eq(assistantLineMessages.queueRequired, true),
+    ...(lastText ? [gt(assistantLineMessages.sequence, lastText.sequence)] : []),
+  ];
+  const rows = await db
+    .select()
+    .from(assistantLineMessages)
+    .where(and(...imageConditions))
+    .orderBy(desc(assistantLineMessages.sequence), desc(assistantLineMessages.createdAt), desc(assistantLineMessages.id))
+    .limit(limit);
+  return rows.reverse();
+}
+
+/** 取出圖片之後第一個沒有引用圖片的文字工作，讓圖片落地後可以喚醒它。 */
+export async function listAssistantLineImageFollowUpMessages(
+  db: Database,
+  input: {
+    channelKey: string;
+    lineGroupId: string;
+    imageSequence: number;
+    contextResetAt?: string | null;
+  },
+): Promise<AssistantLineMessage[]> {
+  const conditions = [
+    eq(assistantLineMessages.channelKey, input.channelKey),
+    eq(assistantLineMessages.lineGroupId, input.lineGroupId),
+    eq(assistantLineMessages.messageType, "text"),
+    eq(assistantLineMessages.queueRequired, true),
+    isNull(assistantLineMessages.quotedMessageId),
+    gt(assistantLineMessages.sequence, input.imageSequence),
+  ];
+  if (input.contextResetAt) conditions.push(gt(assistantLineMessages.createdAt, input.contextResetAt));
+  return db
+    .select()
+    .from(assistantLineMessages)
+    .where(and(...conditions))
+    .orderBy(asc(assistantLineMessages.sequence), asc(assistantLineMessages.createdAt), asc(assistantLineMessages.id))
+    .limit(50);
+}
+
+export async function listAssistantLineMessagesByQuotedMessageId(
+  db: Database,
+  input: { channelKey: string; lineGroupId: string; quotedMessageId: string },
+): Promise<AssistantLineMessage[]> {
+  return db
+    .select()
+    .from(assistantLineMessages)
+    .where(and(
+      eq(assistantLineMessages.channelKey, input.channelKey),
+      eq(assistantLineMessages.lineGroupId, input.lineGroupId),
+      eq(assistantLineMessages.quotedMessageId, input.quotedMessageId),
+      eq(assistantLineMessages.queueRequired, true),
+    ))
+    .orderBy(asc(assistantLineMessages.sequence));
 }
 
 export async function recordAssistantLineReplyBackup(
@@ -410,9 +574,13 @@ export type AssistantLineQueueJobStatus =
   | "pending"
   | "enqueued"
   | "processing"
+  | "waiting"
   | "completed"
   | "failed"
   | "ambiguous";
+
+export const ASSISTANT_LINE_QUEUE_WAITING_ERROR = "line_quote_waiting_for_image";
+export const ASSISTANT_LINE_QUEUE_WAITING_TIMEOUT_ERROR = "line_quote_image_wait_timeout";
 
 export async function upsertAssistantLineQueueJob(
   db: Database,
@@ -471,6 +639,21 @@ export async function markAssistantLineQueueJobEnqueued(db: Database, id: string
     .update(assistantLineQueueJobs)
     .set({ status: "enqueued", updatedAt: new Date().toISOString(), lastError: null })
     .where(and(eq(assistantLineQueueJobs.id, id), eq(assistantLineQueueJobs.status, "pending")));
+}
+
+export async function getAssistantLineQueueJob(
+  db: Database,
+  input: { channelKey: string; webhookEventId: string },
+): Promise<AssistantLineQueueJob | null> {
+  const [job] = await db
+    .select()
+    .from(assistantLineQueueJobs)
+    .where(and(
+      eq(assistantLineQueueJobs.channelKey, input.channelKey),
+      eq(assistantLineQueueJobs.webhookEventId, input.webhookEventId),
+    ))
+    .limit(1);
+  return job ?? null;
 }
 
 export async function claimAssistantLineQueueJob(
@@ -548,6 +731,68 @@ export async function releaseAssistantLineQueueJob(
       lastError: input.error?.slice(0, 1_000) ?? "line_queue_processing_failed",
     })
     .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
+}
+
+/** 引用的圖片尚未落地時暫停工作；不消耗 Queue 的 retry budget。 */
+export async function waitAssistantLineQueueJob(
+  db: Database,
+  input: { id: string; claimToken: string; error?: string },
+): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "waiting",
+      claimToken: null,
+      lockedUntil: null,
+      updatedAt: new Date().toISOString(),
+      lastError: input.error?.slice(0, 1_000) ?? ASSISTANT_LINE_QUEUE_WAITING_ERROR,
+    })
+    .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
+}
+
+export async function resumeAssistantLineQueueJob(db: Database, id: string): Promise<void> {
+  await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "pending",
+      updatedAt: new Date().toISOString(),
+      lastError: null,
+    })
+    .where(and(eq(assistantLineQueueJobs.id, id), eq(assistantLineQueueJobs.status, "waiting")));
+}
+
+/** 引用的圖片若長時間沒有事件，放行一次，讓 consumer 回覆「圖片無法取得」而不是永久掛住。 */
+export async function requeueExpiredAssistantLineQuoteJobs(
+  db: Database,
+  input: { olderThan: string },
+): Promise<number> {
+  const expired = await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "failed",
+      claimToken: null,
+      lockedUntil: null,
+      updatedAt: new Date().toISOString(),
+      lastError: "line_quote_wait_timeout_retry_exhausted",
+    })
+    .where(and(
+      eq(assistantLineQueueJobs.status, "waiting"),
+      lt(assistantLineQueueJobs.updatedAt, input.olderThan),
+      gt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS - 1),
+    ));
+  const released = await db
+    .update(assistantLineQueueJobs)
+    .set({
+      status: "pending",
+      updatedAt: new Date().toISOString(),
+      lastError: ASSISTANT_LINE_QUEUE_WAITING_TIMEOUT_ERROR,
+    })
+    .where(and(
+      eq(assistantLineQueueJobs.status, "waiting"),
+      lt(assistantLineQueueJobs.updatedAt, input.olderThan),
+      lt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS),
+    ));
+  return Number(expired.meta?.changes ?? 0) + Number(released.meta?.changes ?? 0);
 }
 
 /** Queue 已耗盡重試次數；保留資料供稽核，但不再讓排程 outbox 反覆送出。 */
