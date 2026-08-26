@@ -295,22 +295,71 @@ export async function exportPayoutReport(page, {
 }
 
 /**
+ * 從 POS 店別的報表入口頁找出商品銷售報表連結。
+ *
+ * CYBERBIZ 的報表路徑不是穩定的公開 API，不能只依賴手動抄出的 URL。
+ * 出金表目前可以用固定路徑，但商品銷售報表在不同後台版本可能改路由，
+ * 所以先讀取登入後 `/stock_reports` 頁面上的實際選單連結，再以設定的 path
+ * 作為不同後台版本的報表入口頁路徑。
+ */
+async function resolveSalesReportUrl(page, { storeBase, reportPath }) {
+  const reportIndexUrl = `${storeBase}${reportPath}`;
+  await page.goto(reportIndexUrl, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(800);
+
+  const menuUrl = await page.locator("a[href]").evaluateAll((anchors) => {
+    const compact = (value) => (value ?? "").replace(/\s+/g, "").trim();
+    const candidates = anchors
+      .map((anchor, order) => {
+        const href = anchor.href;
+        const text = compact([
+          anchor.textContent,
+          anchor.getAttribute("aria-label"),
+          anchor.getAttribute("title"),
+        ].join(" "));
+        const path = compact(new URL(href, window.location.href).pathname).toLowerCase();
+        const textScore = /商品銷售(?:總表|報表)/.test(text)
+          ? 100
+          : text.includes("商品銷售")
+            ? 80
+            : 0;
+        const pathScore = /product[_-]?sales/.test(path) ? 50 : 0;
+        return { href, order, score: textScore + pathScore };
+      })
+      .filter((candidate) => candidate.href && candidate.score > 0)
+      .sort((left, right) => right.score - left.score || left.order - right.order);
+
+    return candidates[0]?.href ?? null;
+  });
+
+  if (menuUrl) return menuUrl;
+  fail("REPORT_LINK_MISSING", "在 POS 店別報表頁找不到「商品銷售報表」連結。", {
+    reportIndexUrl,
+  });
+}
+
+/**
  * 觸發「商品銷售報表」匯出。商品銷售總表與出金表共用收件人與日期選擇器，
- * 但保留獨立 path 參數，若 CYBERBIZ 版本調整路徑，只需改 config.json。
+ * 但先從登入後的 POS 店別報表入口頁解析實際報表連結，避免後台改路徑後導向 404。
  */
 export async function exportSalesReport(page, {
   storeBase,
   recipientEmail,
   startDate,
   endDate,
-  reportPath = "/stock_reports/product_sales",
+  reportPath = "/stock_reports",
 }) {
-  await page.goto(`${storeBase}${reportPath}`, { waitUntil: "domcontentloaded" });
+  const reportUrl = await resolveSalesReportUrl(page, { storeBase, reportPath });
+  const response = await page.goto(reportUrl, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1000);
 
   const text = await page.locator("body").innerText();
   if (!text.includes("商品銷售報表") && !text.includes("商品銷售總表")) {
-    fail("REPORT_PAGE_MISSING", "找不到「商品銷售報表」頁面，請確認 CYBERBIZ 版本與 salesReportPath。", { reportPath });
+    fail("REPORT_PAGE_MISSING", "找不到「商品銷售報表」頁面，請確認 POS 店別報表頁的連結。", {
+      reportPath,
+      reportUrl,
+      status: response?.status() ?? null,
+    });
   }
 
   const email = page.getByRole("textbox", {
