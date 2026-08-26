@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, PageHeader, Panel } from "../../ui/index.js";
 import {
   CATEGORY_COLORS,
   useCreateCategory,
@@ -80,8 +80,8 @@ export function Categories() {
               );
             }}
           >
-            <input
-              aria-label="新分類名稱"
+            <FilterInput
+              label="新分類名稱"
               placeholder="新增一個分類"
               maxLength={40}
               value={newName}

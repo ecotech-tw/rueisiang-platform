@@ -1,6 +1,6 @@
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import { useSaveAssistantToolStatus, useSandboxConfig, type AssistantTool } from "./api.js";
 
 function statusLabel(status: AssistantTool["status"]): string {
@@ -43,19 +43,17 @@ export function AssistantSettings() {
                   <small>{tool.key}</small>
                   <small>可用於：{tool.surfaces.join("、")}{tool.requiredPermissions.length ? ` · 需要：${tool.requiredPermissions.join("、")}` : ""}</small>
                 </span>
-              <label className="assistant-status-field">
-                <span className="sr-only">{tool.label} 狀態</span>
-                <select
-                  className="assistant-status-select"
-                  value={tool.status}
-                  disabled={saveTool.isPending}
-                  onChange={(event) => saveTool.mutate({ key: tool.key, status: event.target.value as AssistantTool["status"] })}
-                >
-                  {(["enabled", "development", "disabled"] as const).map((status) => (
-                    <option key={status} value={status}>{statusLabel(status)}</option>
-                  ))}
-                </select>
-              </label>
+              <FilterSelect
+                label={`${tool.label} 狀態`}
+                className="assistant-status-select"
+                value={tool.status}
+                disabled={saveTool.isPending}
+                onChange={(event) => saveTool.mutate({ key: tool.key, status: event.target.value as AssistantTool["status"] })}
+                options={(["enabled", "development", "disabled"] as const).map((status) => ({
+                  value: status,
+                  label: statusLabel(status),
+                }))}
+              />
             </div>
           ))}
         </div>

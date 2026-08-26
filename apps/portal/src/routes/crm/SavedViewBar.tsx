@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button } from "../../ui/index.js";
+import { Alert, Button, FilterInput } from "../../ui/index.js";
 import {
   DEFAULT_FILTERS,
   matchesView,
@@ -120,9 +120,9 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
               );
             }}
           >
-            <input
+            <FilterInput
+              label="視圖名稱"
               autoFocus
-              aria-label="視圖名稱"
               placeholder="例如：待補地址的客人"
               maxLength={40}
               value={name}
