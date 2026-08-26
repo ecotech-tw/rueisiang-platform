@@ -59,7 +59,7 @@ jobs:
           GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
           NAS_STORAGE_URL: ${{ secrets.NAS_STORAGE_URL }}
           NAS_STORAGE_TOKEN: ${{ secrets.NAS_STORAGE_TOKEN }}
-          PLATFORM_API_URL: ${{ secrets.PLATFORM_API_URL }}
+          PLATFORM_API_URL: ${{ vars.WORKER_URL || 'https://platform.rueisiang.com' }}
           CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
         run: |
           umask 077
@@ -82,13 +82,12 @@ jobs:
             fi
           done
 
-      - name: 預檢完整月份 manifest secrets
+      - name: 檢查完整月份 manifest 設定
         env:
           START: ${{ inputs.start }}
           END: ${{ inputs.end }}
           NAS_STORAGE_URL: ${{ secrets.NAS_STORAGE_URL }}
           NAS_STORAGE_TOKEN: ${{ secrets.NAS_STORAGE_TOKEN }}
-          PLATFORM_API_URL: ${{ secrets.PLATFORM_API_URL }}
           CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
         run: |
           node --input-type=module -e '
@@ -97,11 +96,10 @@ jobs:
             const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
             const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
             if (process.env.START !== monthStart || process.env.END !== monthEnd) process.exit(0);
-            const required = ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"];
+            const required = ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "CYBERBIZ_REPORT_INGEST_TOKEN"];
             const missing = required.filter((key) => !process.env[key]);
             if (missing.length) {
-              console.error(`完整月份需要的 secret 未設定：${missing.join(", ")}`);
-              process.exit(1);
+              console.warn(`::warning::完整月份將照常上傳 Drive，但不建立 AI manifest；缺少設定：${missing.join(", ")}`);
             }
           '
 

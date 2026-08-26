@@ -220,3 +220,23 @@ export function requireEnv(env, keys) {
     );
   }
 }
+
+/**
+ * 完整月份的 manifest 是可選的後處理：Drive 匯出不應該因為 NAS 尚未就緒而被擋住。
+ * Worker URL 不是 secret，CI 可由 repository variable 提供；本機沒有設定時使用正式網域。
+ */
+export const DEFAULT_PLATFORM_API_URL = "https://platform.rueisiang.com";
+
+export function reportPublishConfig(env = {}) {
+  const required = [
+    "NAS_STORAGE_URL",
+    "NAS_STORAGE_TOKEN",
+    "CYBERBIZ_REPORT_INGEST_TOKEN",
+  ];
+  const missing = required.filter((key) => !String(env[key] ?? "").trim());
+  return {
+    enabled: missing.length === 0,
+    missing,
+    apiUrl: String(env.PLATFORM_API_URL ?? "").trim() || DEFAULT_PLATFORM_API_URL,
+  };
+}

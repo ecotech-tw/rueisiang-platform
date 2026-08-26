@@ -49,7 +49,7 @@ export function CyberbizSales() {
     <div className="page">
       <PageHeader
         title="CYBERBIZ 商品銷售報表執行"
-        description="從 CYBERBIZ POS 匯出商品銷售總表，依店別上傳到既有 Google Drive 通路資料夾；完整月份成功後，runner 會另外寫入 NAS 與 AI 查詢 manifest。"
+        description="從 CYBERBIZ POS 匯出商品銷售總表，依店別上傳到既有 Google Drive 通路資料夾；完整月份若後端設定已就緒，runner 會另外寫入 NAS 與 AI 查詢 manifest。"
       />
 
       {!state.data?.configured ? (
@@ -79,7 +79,7 @@ export function CyberbizSales() {
         </form>
 
         <p className="muted table-note">
-          選完整月份才會建立 AI 可查詢的 manifest；例如 2026-07-14 ~ 2026-07-18 只整理到 Drive，方便人工查帳，不會讓小香誤當成完整月報。
+          選完整月份才會建立 AI 可查詢的 manifest；例如 2026-07-14 ~ 2026-07-18 只整理到 Drive，方便人工查帳，不會讓小香誤當成完整月報。若 NAS 尚未架設或 manifest 設定尚未補齊，完整月份仍會上傳 Drive，執行摘要會標示未建立 manifest。
         </p>
         {rangeError ? <Alert tone="danger">{rangeError}</Alert> : null}
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
@@ -105,7 +105,7 @@ export function CyberbizSales() {
             </tbody>
           </table>
         </div>
-        {!stores.length ? <p className="muted table-note">還沒有任何店別，請先到「店別設定」新增一家。</p> : null}
+        {!stores.length ? <p className="muted table-note">還沒有任何店別，請先到「店別與報表設定」新增一家。</p> : null}
       </Panel>
 
       {followed ? (

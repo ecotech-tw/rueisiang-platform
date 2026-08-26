@@ -21,7 +21,6 @@ import { Inventory } from "./routes/wms/Inventory.js";
 import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
 import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
-import { ShopeeSalesSettings } from "./routes/tools/ShopeeSalesSettings.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { StyleGuide } from "./routes/StyleGuide.js";
 import { AppShell } from "./shell/AppShell.js";
@@ -107,7 +106,7 @@ export function App() {
           <Route path="payout/settings" element={<PayoutSettings />} />
           <Route path="cyberbiz-sales" element={<CyberbizSales />} />
           <Route path="shopee-sales" element={<ShopeeSales />} />
-          <Route path="shopee-sales/settings" element={<ShopeeSalesSettings />} />
+          <Route path="shopee-sales/settings" element={<Navigate to="/tools/payout/settings" replace />} />
         </Route>
 
         <Route path="assistant">

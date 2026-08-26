@@ -73,7 +73,7 @@ jobs:
           GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
           NAS_STORAGE_URL: ${{ secrets.NAS_STORAGE_URL }}
           NAS_STORAGE_TOKEN: ${{ secrets.NAS_STORAGE_TOKEN }}
-          PLATFORM_API_URL: ${{ secrets.PLATFORM_API_URL }}
+          PLATFORM_API_URL: ${{ vars.WORKER_URL || 'https://platform.rueisiang.com' }}
           CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
         run: |
           umask 077
@@ -96,22 +96,24 @@ jobs:
             fi
           done
 
-      - name: 預檢完整月份 manifest secrets
+      - name: 檢查完整月份 manifest 設定
         env:
           START: ${{ inputs.start }}
           END: ${{ inputs.end }}
           SKIP_UPLOAD: ${{ inputs.skip_upload }}
           NAS_STORAGE_URL: ${{ secrets.NAS_STORAGE_URL }}
           NAS_STORAGE_TOKEN: ${{ secrets.NAS_STORAGE_TOKEN }}
-          PLATFORM_API_URL: ${{ secrets.PLATFORM_API_URL }}
           CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
         run: |
           if [ "$SKIP_UPLOAD" = "true" ]; then
             exit 0
           elif [ -z "$START" ] || [ -z "$END" ]; then
-            if [ -z "$NAS_STORAGE_URL" ] || [ -z "$NAS_STORAGE_TOKEN" ] || [ -z "$PLATFORM_API_URL" ] || [ -z "$CYBERBIZ_REPORT_INGEST_TOKEN" ]; then
-              echo "::error::完整月份需要 NAS_STORAGE_URL、NAS_STORAGE_TOKEN、PLATFORM_API_URL 與 CYBERBIZ_REPORT_INGEST_TOKEN"
-              exit 1
+            missing=()
+            [ -n "$NAS_STORAGE_URL" ] || missing+=(NAS_STORAGE_URL)
+            [ -n "$NAS_STORAGE_TOKEN" ] || missing+=(NAS_STORAGE_TOKEN)
+            [ -n "$CYBERBIZ_REPORT_INGEST_TOKEN" ] || missing+=(CYBERBIZ_REPORT_INGEST_TOKEN)
+            if [ "${#missing[@]}" -gt 0 ]; then
+              echo "::warning::完整月份將照常上傳 Drive，但不建立 AI manifest；缺少設定：${missing[*]}"
             fi
           else
             node --input-type=module -e '
@@ -120,11 +122,10 @@ jobs:
               const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
               const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
               if (process.env.START !== monthStart || process.env.END !== monthEnd) process.exit(0);
-              const required = ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"];
+              const required = ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "CYBERBIZ_REPORT_INGEST_TOKEN"];
               const missing = required.filter((key) => !process.env[key]);
               if (missing.length) {
-                console.error(`完整月份需要的 secret 未設定：${missing.join(", ")}`);
-                process.exit(1);
+                console.warn(`::warning::完整月份將照常上傳 Drive，但不建立 AI manifest；缺少設定：${missing.join(", ")}`);
               }
             '
           fi

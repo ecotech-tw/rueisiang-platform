@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
-import { usePayoutStores, useSavePayoutStores, type PayoutStore } from "./api.js";
+import {
+  usePayoutStores,
+  useSavePayoutStores,
+  useSaveShopeeSalesSettings,
+  useShopeeSalesSettings,
+  type PayoutStore,
+} from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, PageHeader, Panel, TextField } from "../../ui/index.js";
 
 type Draft = Omit<PayoutStore, "id">;
 
 /**
- * 出金表的店別設定。
+ * 營運工具的店別與報表設定。
  *
  * 舊版把 stores.json 打包進 Worker，改完要下載檔案、commit 回 repo、重新部署，
  * 執行頁才會看到——實務上沒有人會這樣改。現在按儲存就做完整件事：先 commit 回
@@ -16,11 +22,16 @@ type Draft = Omit<PayoutStore, "id">;
  * 本地」並提醒 repo 沒更新——那種狀態下兩邊是不一致的，必須講出來。
  */
 export function PayoutSettings() {
-  usePageTitle("出金表店別設定");
+  usePageTitle("店別與報表設定");
   const query = usePayoutStores();
   const save = useSavePayoutStores();
+  const shopeeQuery = useShopeeSalesSettings();
+  const saveShopee = useSaveShopeeSalesSettings();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [shopeeUrl, setShopeeUrl] = useState("");
+  const [shopeeName, setShopeeName] = useState("");
+  const [shopeeLoaded, setShopeeLoaded] = useState(false);
 
   useEffect(() => {
     if (!query.data || loaded) return;
@@ -28,19 +39,29 @@ export function PayoutSettings() {
     setLoaded(true);
   }, [query.data, loaded]);
 
+  useEffect(() => {
+    if (!shopeeQuery.data || shopeeLoaded) return;
+    setShopeeUrl(shopeeQuery.data.settings.driveFolderUrl);
+    setShopeeName(shopeeQuery.data.settings.driveFolderName);
+    setShopeeLoaded(true);
+  }, [shopeeQuery.data, shopeeLoaded]);
+
   function update(index: number, patch: Partial<Draft>) {
     setDrafts((current) => current.map((store, i) => (i === index ? { ...store, ...patch } : store)));
   }
 
-  if (query.isPending) return <div className="boot">載入中…</div>;
+  if (query.isPending || shopeeQuery.isPending) return <div className="boot">載入中…</div>;
+  if (query.error || shopeeQuery.error) {
+    return <div className="page"><Alert tone="danger">{query.error?.message ?? shopeeQuery.error?.message}</Alert></div>;
+  }
 
   return (
     <div className="page">
       <PageHeader
-        title="出金表店別設定"
+        title="店別與報表設定"
         description={
           <>
-          這裡決定執行頁看得到哪幾家店，以及檔案要上傳到哪個 Drive 資料夾。
+          這裡決定出金表與 CYBERBIZ 商品銷售報表執行頁看得到哪幾家店，以及檔案要上傳到哪個 Drive 資料夾。
           <b>店名必須與 CYBERBIZ 後台的 POS 商店完全一致</b>，driver 靠它找店。
           儲存時會一併 commit 回帳務 repo 的 <code>stores.json</code>。
           </>
@@ -137,6 +158,40 @@ export function PayoutSettings() {
         {drafts.length === 0 ? (
           <p className="muted table-note">目前一家店都沒有，執行頁會是空的。</p>
         ) : null}
+      </Panel>
+
+      <Panel>
+        <h2>蝦皮報表設定</h2>
+        <p className="muted">
+          設定蝦皮銷售報表整理後要上傳的 Google Drive 資料夾。使用者上傳 Excel 後，GitHub Actions 會把新檔放到這裡。
+        </p>
+        <form
+          className="admin-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveShopee.mutate({ driveFolderUrl: shopeeUrl, driveFolderName: shopeeName });
+          }}
+        >
+          <TextField
+            label="Google Drive 資料夾連結"
+            inputClassName="cell-input wide"
+            value={shopeeUrl}
+            onChange={(event) => setShopeeUrl(event.target.value)}
+            placeholder="https://drive.google.com/drive/folders/..."
+          />
+          <TextField
+            label="顯示名稱"
+            inputClassName="cell-input"
+            value={shopeeName}
+            onChange={(event) => setShopeeName(event.target.value)}
+            placeholder="蝦皮銷售報表"
+          />
+          <div className="form-actions">
+            <Button type="submit" loading={saveShopee.isPending} loadingLabel="儲存中…">儲存蝦皮設定</Button>
+            {saveShopee.isSuccess ? <span className="form-hint">已儲存。</span> : null}
+          </div>
+          {saveShopee.error ? <Alert tone="danger">{saveShopee.error.message}</Alert> : null}
+        </form>
       </Panel>
     </div>
   );

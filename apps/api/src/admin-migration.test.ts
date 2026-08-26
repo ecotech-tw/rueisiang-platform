@@ -21,6 +21,9 @@ const CYBERBIZ_REPORT_MIGRATION = fileURLToPath(
 const CYBERBIZ_SALES_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0046_cyberbiz_sales_permission.sql", import.meta.url),
 );
+const REMOVE_SHOPEE_SETTINGS_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0047_remove_shopee_settings_permission.sql", import.meta.url),
+);
 
 describe("bootstrap 管理員權限 migration", () => {
   it("把只有三個 admin 權限的既有管理員補齊，而且可以安全重跑", async () => {
@@ -60,6 +63,9 @@ describe("bootstrap 管理員權限 migration", () => {
     const cyberbizSalesPermissionSql = readFileSync(CYBERBIZ_SALES_PERMISSION_MIGRATION, "utf8");
     d1.sqlite.exec(cyberbizSalesPermissionSql);
     d1.sqlite.exec(cyberbizSalesPermissionSql);
+    const removeShopeeSettingsPermissionSql = readFileSync(REMOVE_SHOPEE_SETTINGS_PERMISSION_MIGRATION, "utf8");
+    d1.sqlite.exec(removeShopeeSettingsPermissionSql);
+    d1.sqlite.exec(removeShopeeSettingsPermissionSql);
 
     const permissions = await db.select().from(rolePermissions);
     expect(permissions).toHaveLength(ALL_PERMISSIONS.length);

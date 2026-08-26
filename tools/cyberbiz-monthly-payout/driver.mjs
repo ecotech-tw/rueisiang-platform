@@ -22,6 +22,7 @@ import {
   monthRange,
   payoutFilename,
   previousMonth,
+  reportPublishConfig,
   redact,
   requireEnv,
   skillPath,
@@ -46,7 +47,7 @@ function scopeIdFromStoreName(name) {
   return `store-${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
 }
 
-async function publishPayoutStore({ env, range, store, localPath, drive, firstDataRow }) {
+async function publishPayoutStore({ env, apiUrl, range, store, localPath, drive, firstDataRow }) {
   const scopeId = scopeIdFromStoreName(store.name);
   const outputDir = await ensureDir(path.join(skillPath("staging"), range.label, scopeId));
   const document = await parsePayoutReport(localPath, {
@@ -62,7 +63,7 @@ async function publishPayoutStore({ env, range, store, localPath, drive, firstDa
   return { document, manifest: await publishCyberbizReport({
     nasUrl: env.NAS_STORAGE_URL,
     nasToken: env.NAS_STORAGE_TOKEN,
-    apiUrl: env.PLATFORM_API_URL,
+    apiUrl,
     ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
     reportMonth: range.label,
     reportKind: "payout",
@@ -79,7 +80,7 @@ async function publishPayoutStore({ env, range, store, localPath, drive, firstDa
   }) };
 }
 
-async function publishPayoutCompany({ env, range, documents }) {
+async function publishPayoutCompany({ env, apiUrl, range, documents }) {
   const document = aggregatePayoutDocuments(documents, {
     scopeName: "公司整體",
     parserVersion: "cyberbiz-payout-company-v1",
@@ -90,7 +91,7 @@ async function publishPayoutCompany({ env, range, documents }) {
   return publishCyberbizReport({
     nasUrl: env.NAS_STORAGE_URL,
     nasToken: env.NAS_STORAGE_TOKEN,
-    apiUrl: env.PLATFORM_API_URL,
+    apiUrl,
     ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
     reportMonth: range.label,
     reportKind: "payout",
@@ -151,8 +152,11 @@ async function main() {
       ? monthRange(args.month)
       : previousMonth();
   const monthly = range.label === range.start.slice(0, 7) && range.end === monthRange(range.label).end;
-  if (monthly && !args.skipUpload) {
-    requireEnv(env, ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"]);
+  const manifestConfig = monthly && !args.skipUpload
+    ? reportPublishConfig(env)
+    : { enabled: false, missing: [], apiUrl: reportPublishConfig(env).apiUrl };
+  if (monthly && !args.skipUpload && !manifestConfig.enabled) {
+    log(`完整月份將照常匯出並上傳 Drive，但暫不建立 AI manifest；缺少：${manifestConfig.missing.join("、")}`);
   }
   const recipientEmail = config.recipientEmail || env.CYBERBIZ_2FA_MAILBOX;
   if (!recipientEmail) {
@@ -334,10 +338,10 @@ async function main() {
           });
         }
         result.formulaValues = check.count;
-        if (monthly) {
-          requireEnv(env, ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"]);
+        if (monthly && manifestConfig.enabled) {
           const published = await publishPayoutStore({
             env,
+            apiUrl: manifestConfig.apiUrl,
             range,
             store,
             localPath,
@@ -346,6 +350,11 @@ async function main() {
           });
           result.steps.manifest = "ok";
           payoutDocuments.push(published.document);
+        } else if (monthly) {
+          result.steps.manifest = "skip";
+          result.note = args.skipUpload
+            ? "--skip-upload，未建立 AI manifest"
+            : `未建立 AI manifest（缺少：${manifestConfig.missing.join("、")}）`;
         }
         result.done = true;
         log(`  公式驗證通過：H 欄算出 ${check.count} 個值（前幾筆 ${check.sample.join("、")}）。`);
@@ -365,8 +374,8 @@ async function main() {
       }
     }
     const allSelected = wanted.length === config.stores.length;
-    if (monthly && allSelected && run.stores.every((store) => store.done) && payoutDocuments.length === wanted.length) {
-      await publishPayoutCompany({ env, range, documents: payoutDocuments });
+    if (monthly && manifestConfig.enabled && allSelected && run.stores.every((store) => store.done) && payoutDocuments.length === wanted.length) {
+      await publishPayoutCompany({ env, apiUrl: manifestConfig.apiUrl, range, documents: payoutDocuments });
       run.companyManifest = "ok";
     }
   } finally {
@@ -381,7 +390,7 @@ async function main() {
     await context.close();
   }
 
-  const companyManifestRequired = monthly && !args.skipUpload && wanted.length === config.stores.length;
+  const companyManifestRequired = monthly && manifestConfig.enabled && wanted.length === config.stores.length;
   if (run.stores.some((store) => !store.done) || (companyManifestRequired && run.companyManifest !== "ok")) process.exitCode = 1;
 }
 

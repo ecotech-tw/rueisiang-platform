@@ -156,7 +156,7 @@ export function Payout() {
         </div>
 
         {stores.length === 0 ? (
-          <p className="muted table-note">還沒有任何店別，先到「店別設定」加一家。</p>
+          <p className="muted table-note">還沒有任何店別，先到「店別與報表設定」加一家。</p>
         ) : null}
       </Panel>
 

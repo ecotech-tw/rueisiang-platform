@@ -74,6 +74,7 @@ export function terminalSummary(run, { kind = "payout" } = {}) {
       lines.push(`    ${config.totalHeader}：${formatTotal(result.total, kind)}`);
     }
     if (result.sheetUrl) lines.push(`    ${result.sheetUrl}`);
+    if (result.note) lines.push(`    備註：${result.note}`);
     if (result.error) lines.push(`    卡住：[${result.error.code}] ${result.error.message}`);
   }
   lines.push("─".repeat(60));

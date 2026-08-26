@@ -96,8 +96,8 @@ export const shopeeSales = new Hono<AppEnv>()
     if (!github) throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN。" });
     return c.json(await github.listRuns(c.req.query("requestId") ?? undefined));
   })
-  .get("/settings", requirePermission("tools:shopee-sales:config"), async (c) => c.json({ settings: await getShopeeSalesSettings(c.get("db")) }))
-  .put("/settings", requirePermission("tools:shopee-sales:config"), async (c) => {
+  .get("/settings", requirePermission("tools:payout:config"), async (c) => c.json({ settings: await getShopeeSalesSettings(c.get("db")) }))
+  .put("/settings", requirePermission("tools:payout:config"), async (c) => {
     const input = await body(c);
     const driveFolderUrl = readDriveUrl(input.driveFolderUrl, false);
     const driveFolderName = typeof input.driveFolderName === "string" ? input.driveFolderName.trim() : "";
