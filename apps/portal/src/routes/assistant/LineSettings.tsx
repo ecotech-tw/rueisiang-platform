@@ -155,8 +155,13 @@ export function LineSettings() {
             </span>
           </label>
           <div className="assistant-actions">
-            <Button type="submit" disabled={!channelId.trim() || !displayName.trim() || saveChannel.isPending}>
-              {saveChannel.isPending ? "儲存中…" : "儲存 channel 設定"}
+            <Button
+              type="submit"
+              loading={saveChannel.isPending}
+              loadingLabel="儲存中…"
+              disabled={!channelId.trim() || !displayName.trim()}
+            >
+              儲存 channel 設定
             </Button>
             {saveChannel.isSuccess ? <span className="form-hint">channel 設定已更新。</span> : null}
             {saveChannel.error ? <Alert tone="danger">{saveChannel.error.message}</Alert> : null}
@@ -246,7 +251,7 @@ export function LineSettings() {
             <option value="user">一對一（user ID）</option>
           </select>
           <input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="顯示名稱（選填）" aria-label="顯示名稱" />
-          <Button type="submit" disabled={!groupId.trim() || addGroup.isPending}>新增對話</Button>
+          <Button type="submit" loading={addGroup.isPending} loadingLabel="新增中…" disabled={!groupId.trim()}>新增對話</Button>
         </form>
         {addGroup.error ? <Alert tone="danger">{addGroup.error.message}</Alert> : null}
 
@@ -291,10 +296,11 @@ export function LineSettings() {
                 取消
               </Button>
               <Button
-                disabled={saveChannelTools.isPending}
+                loading={saveChannelTools.isPending}
+                loadingLabel="儲存中…"
                 onClick={() => saveChannelTools.mutate(channelToolKeys, { onSuccess: () => setToolsOpen(false) })}
               >
-                {saveChannelTools.isPending ? "儲存中…" : "儲存"}
+                儲存
               </Button>
             </>
           }
@@ -402,7 +408,9 @@ function LineGroupRow({
       <td>
         <Button
           variant="secondary"
-          disabled={saving || name.trim() === group.displayName}
+          loading={saving}
+          loadingLabel="儲存中…"
+          disabled={name.trim() === group.displayName}
           onClick={() => onSave({ id: group.id, displayName: name.trim(), enabled: group.enabled })}
         >
           儲存名稱
@@ -436,13 +444,14 @@ function GroupToolsDialog({
         <>
           <Button variant="secondary" type="button" onClick={onClose}>取消</Button>
           <Button
-            disabled={save.isPending}
+            loading={save.isPending}
+            loadingLabel="儲存中…"
             onClick={() => save.mutate(
               { id: group.id, toolMode: mode, toolKeys: keys },
               { onSuccess: onClose },
             )}
           >
-            {save.isPending ? "儲存中…" : "儲存"}
+            儲存
           </Button>
         </>
       }

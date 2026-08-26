@@ -210,7 +210,7 @@ export function Roles() {
                 {editor.readOnly ? "關閉" : "取消"}
               </Button>
               {!editor.readOnly ? (
-                <Button type="submit" disabled={pending || !editor.name.trim()}>
+                <Button type="submit" loading={pending} disabled={!editor.name.trim()}>
                   {editor.key ? "儲存" : "建立角色"}
                 </Button>
               ) : null}
