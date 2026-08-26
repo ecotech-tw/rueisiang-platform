@@ -70,8 +70,8 @@ export function CategoryDialog({
           <Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>
             取消
           </Button>
-          <Button type="submit" disabled={!trimmed || update.isPending}>
-            {update.isPending ? "儲存中…" : "儲存"}
+          <Button type="submit" loading={update.isPending} loadingLabel="儲存中…" disabled={!trimmed}>
+            儲存
           </Button>
         </>
       }

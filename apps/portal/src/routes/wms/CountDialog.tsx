@@ -45,8 +45,8 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
           <Button variant="secondary" type="button" onClick={onClose} disabled={count.isPending}>
             取消
           </Button>
-          <Button type="submit" disabled={!valid || count.isPending}>
-            {count.isPending ? "儲存中…" : "儲存盤點"}
+          <Button type="submit" loading={count.isPending} loadingLabel="儲存中…" disabled={!valid}>
+            儲存盤點
           </Button>
         </>
       }

@@ -77,8 +77,8 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
           <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
             取消
           </Button>
-          <Button type="submit" disabled={!valid || pending}>
-            {pending ? "儲存中…" : zone ? "儲存" : "新增倉位"}
+          <Button type="submit" loading={pending} loadingLabel="儲存中…" disabled={!valid}>
+            {zone ? "儲存" : "新增倉位"}
           </Button>
         </>
       }

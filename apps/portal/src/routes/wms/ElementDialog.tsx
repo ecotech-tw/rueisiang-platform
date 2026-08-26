@@ -62,6 +62,8 @@ export function ElementDialog({
             <Button
               variant="secondary"
               className="danger"
+              loading={remove.isPending}
+              loadingLabel="刪除中…"
               disabled={pending}
               onClick={() =>
                 remove.mutate(element.id, {
@@ -78,8 +80,8 @@ export function ElementDialog({
           <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
             取消
           </Button>
-          <Button type="submit" disabled={!trimmed || pending}>
-            {pending ? "儲存中…" : element ? "儲存" : "新增標籤"}
+          <Button type="submit" loading={create.isPending || update.isPending} loadingLabel="儲存中…" disabled={!trimmed}>
+            {element ? "儲存" : "新增標籤"}
           </Button>
         </>
       }

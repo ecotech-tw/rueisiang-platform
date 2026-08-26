@@ -94,8 +94,8 @@ export function CustomerForm({ customer, onClose }: Props) {
           <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
             取消
           </Button>
-          <Button type="submit" disabled={pending || !fields.phone.trim()}>
-            {pending ? "儲存中…" : customer ? "儲存" : "新增客人"}
+          <Button type="submit" loading={pending} loadingLabel="儲存中…" disabled={!fields.phone.trim()}>
+            {customer ? "儲存" : "新增客人"}
           </Button>
         </>
       }

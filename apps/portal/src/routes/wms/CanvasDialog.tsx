@@ -53,8 +53,8 @@ export function CanvasDialog({
           <Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>
             取消
           </Button>
-          <Button type="submit" disabled={!valid || update.isPending}>
-            {update.isPending ? "儲存中…" : "套用畫布大小"}
+          <Button type="submit" loading={update.isPending} loadingLabel="儲存中…" disabled={!valid}>
+            套用畫布大小
           </Button>
         </>
       }
