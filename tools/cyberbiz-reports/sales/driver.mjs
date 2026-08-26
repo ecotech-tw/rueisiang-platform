@@ -13,7 +13,7 @@ import {
   accessToken,
   getFile,
   uploadXlsx,
-} from "./lib/drive.mjs";
+} from "../lib/drive.mjs";
 import {
   dateRange,
   driveFolderIdFromUrl,
@@ -28,14 +28,14 @@ import {
   requireEnv,
   salesFilename,
   skillPath,
-} from "./lib/common.mjs";
-import { newPage, openBrowser, screenshot } from "./lib/browser.mjs";
-import { exportSalesReport, listStores, login, resolveStore } from "./lib/cyberbiz.mjs";
-import { downloadAttachment, whoAmI } from "./lib/gmail-api.mjs";
-import { parseSalesReport } from "../cyberbiz-monthly-sales/lib/sales.mjs";
-import { aggregateSalesDocuments } from "../cyberbiz-monthly-sales/lib/aggregate.mjs";
-import { publishCyberbizReport } from "./lib/report-publish.mjs";
-import { writeMarkdown, terminalSummary } from "./lib/report.mjs";
+} from "../lib/common.mjs";
+import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
+import { exportSalesReport, listStores, login, resolveStore } from "../lib/cyberbiz.mjs";
+import { downloadAttachment, whoAmI } from "../lib/gmail-api.mjs";
+import { parseSalesReport } from "./parser.mjs";
+import { aggregateSalesDocuments } from "./aggregate.mjs";
+import { publishCyberbizReport } from "../lib/report-publish.mjs";
+import { writeMarkdown, terminalSummary } from "../lib/report.mjs";
 
 function parseArgs(argv) {
   const args = { stores: [] };
@@ -61,7 +61,7 @@ function scopeIdFromStoreName(name) {
 
 function help() {
   log([
-    "用法：node sales-driver.mjs [--month YYYY-MM | --start YYYY-MM-DD --end YYYY-MM-DD]",
+    "用法：node sales/driver.mjs [--month YYYY-MM | --start YYYY-MM-DD --end YYYY-MM-DD]",
     "                         [--store 店名]... [--skip-upload] [--list-stores] [--headless]",
     "完整月份才會建立 AI manifest；自訂日期只上傳 Google Drive。",
   ].join("\n"));
@@ -69,7 +69,7 @@ function help() {
 
 async function publishStore({ env, apiUrl, range, store, localPath, document, drive }) {
   const scopeId = scopeIdFromStoreName(store.name);
-  const outputDir = await ensureDir(path.join(skillPath("staging"), range.label, scopeId));
+  const outputDir = await ensureDir(path.join(skillPath("staging"), "sales", range.label, scopeId));
   const jsonPath = path.join(outputDir, "sales.normalized.json");
   await fs.writeFile(jsonPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
   return publishCyberbizReport({
@@ -97,7 +97,7 @@ async function publishCompany({ env, apiUrl, range, documents }) {
     scopeName: "公司整體",
     parserVersion: "cyberbiz-sales-company-v1",
   });
-  const outputDir = await ensureDir(path.join(skillPath("staging"), range.label, "company"));
+  const outputDir = await ensureDir(path.join(skillPath("staging"), "sales", range.label, "company"));
   const jsonPath = path.join(outputDir, "sales.normalized.json");
   await fs.writeFile(jsonPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
   return publishCyberbizReport({
@@ -146,7 +146,7 @@ async function main() {
     if (!wanted.length) throw new Error("config.json 的 stores 是空的，請先設定店別。");
   }
 
-  const stagingDir = await ensureDir(path.isAbsolute(config.stagingDir) ? path.join(config.stagingDir, range.label) : skillPath(config.stagingDir, range.label));
+  const stagingDir = await ensureDir(path.isAbsolute(config.stagingDir) ? path.join(config.stagingDir, "sales", range.label) : skillPath(config.stagingDir, "sales", range.label));
   const context = await openBrowser({ headless: Boolean(args.headless), downloadDir: stagingDir });
   const run = { label: range.label, start: range.start, end: range.end, stores: [], finishedAt: "" };
   const documents = [];
@@ -237,7 +237,7 @@ async function main() {
         if (step) result.steps[step] = "fail";
         result.error = { code: error.code ?? "UNEXPECTED_ERROR", message: redact(error.message, env) };
         log(`${store.name}：${result.error.message}`);
-        try { result.screenshot = await screenshot(page, `${range.label}-${store.name}-sales-error`); } catch {}
+        try { result.screenshot = await screenshot(page, `${range.label}-${store.name}-sales-error`, { kind: "sales" }); } catch {}
       }
     }
 
@@ -249,7 +249,7 @@ async function main() {
   } finally {
     run.finishedAt = new Date().toISOString();
     if (run.stores.length) {
-      const reportsDir = path.isAbsolute(config.reportsDir) ? config.reportsDir : skillPath(config.reportsDir);
+      const reportsDir = path.isAbsolute(config.reportsDir) ? path.join(config.reportsDir, "sales") : skillPath(config.reportsDir, "sales");
       run.reportPath = await writeMarkdown(run, reportsDir, { kind: "sales" });
       log(terminalSummary(run, { kind: "sales" }));
     }

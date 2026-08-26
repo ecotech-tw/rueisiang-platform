@@ -1,5 +1,5 @@
 import process from "node:process";
-import { parseSalesReport } from "./lib/sales.mjs";
+import { parseSalesReport } from "./parser.mjs";
 
 const [filePath, scopeId = "store", scopeName = ""] = process.argv.slice(2);
 if (!filePath) {

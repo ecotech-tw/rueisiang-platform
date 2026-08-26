@@ -220,7 +220,7 @@ workflow 檔名與 branch 可用 `CYBERBIZ_SALES_WORKFLOW_FILE`、`CYBERBIZ_SALE
 不是 secret，workflow 會使用 repository variable `WORKER_URL`，未設定時 fallback 到
 `https://platform.rueisiang.com`。自訂日期區間只上傳原始 XLSX 到 Google Drive，不會被 AI 查詢使用。
 Google Drive 的 root 與各店別資料夾設定方式，沿用
-[`tools/cyberbiz-monthly-payout/README.md`](../tools/cyberbiz-monthly-payout/README.md)。
+[`tools/cyberbiz-reports/`](../tools/cyberbiz-reports/)。
 
 ### 2.4 部署
 

@@ -1,4 +1,4 @@
-import { readSheet, readZipEntries, writeZipEntries } from "./xlsx.mjs";
+import { readSheet, readZipEntries, writeZipEntries } from "./parser.mjs";
 
 /**
  * 把對帳欄位寫進 CYBERBIZ 匯出的 xlsx。

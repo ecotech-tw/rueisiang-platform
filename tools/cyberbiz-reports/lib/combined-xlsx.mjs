@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { readZipEntries, writeZipEntries } from "./xlsx.mjs";
+import { readZipEntries, writeZipEntries } from "../payout/parser.mjs";
 
 const WORKSHEET_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
 

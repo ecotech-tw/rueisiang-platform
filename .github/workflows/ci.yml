@@ -34,12 +34,12 @@ jobs:
 
       - run: pnpm build
 
-      # 出金表工具刻意留在 pnpm workspace 之外（pnpm-workspace.yaml 只 glob
+      # CYBERBIZ 報表工具刻意留在 pnpm workspace 之外（pnpm-workspace.yaml 只 glob
       # apps/* 與 packages/*）：它是純 JS、用 npm 自己的 lockfile，而且相依
       # Playwright。拉進 workspace 會讓每個開發者的 pnpm install 都扛一份
       # 只有 GitHub Actions 用得到的瀏覽器函式庫。
-      - name: 出金表工具的自我檢查
-        working-directory: tools/cyberbiz-monthly-payout
+      - name: CYBERBIZ 報表工具的自我檢查
+        working-directory: tools/cyberbiz-reports
         run: |
           npm ci
           node selftest.mjs

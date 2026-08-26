@@ -132,7 +132,7 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     });
 
     expect(response.status).toBe(200);
-    const writes = calls.filter((call) => call.url.includes("/contents/tools/cyberbiz-monthly-payout/stores.json"));
+    const writes = calls.filter((call) => call.url.includes("/contents/tools/cyberbiz-reports/stores.json"));
     expect(writes).toEqual(expect.arrayContaining([
       expect.objectContaining({ url: expect.stringContaining("/repos/ecotech-tw/rueisiang-platform/"), body: expect.objectContaining({ branch: "main" }) }),
       expect.objectContaining({ url: expect.stringContaining("/repos/ecotech-tw/report-runner/"), body: expect.objectContaining({ branch: "release" }) }),

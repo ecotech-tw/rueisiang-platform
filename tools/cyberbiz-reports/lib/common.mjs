@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const LIB_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-// 所有工具執行期路徑都以 tools/cyberbiz-monthly-payout 為基準，
+// 所有工具執行期路徑都以 tools/cyberbiz-reports 為基準，
 // 不依賴啟動 Node 時所在的工作目錄。
 export const SKILL_DIR = path.resolve(LIB_DIR, "..");
 

@@ -19,8 +19,8 @@ import {
   previousMonth,
   redact,
 } from "./lib/common.mjs";
-import { parsePayoutReport, readSheet, readZipEntries, verifyPayoutFile, writeZipEntries } from "./lib/xlsx.mjs";
-import { addPayoutColumns } from "./lib/xlsx-columns.mjs";
+import { parsePayoutReport, readSheet, readZipEntries, verifyPayoutFile, writeZipEntries } from "./payout/parser.mjs";
+import { addPayoutColumns } from "./payout/columns.mjs";
 import { terminalSummary, writeMarkdown } from "./lib/report.mjs";
 
 let failures = 0;

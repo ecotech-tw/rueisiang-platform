@@ -57,7 +57,7 @@ MCP endpoint 是 `POST /api/mcp/cyberbiz-reports`，使用獨立 `CYBERBIZ_REPOR
 
 ## 月批次 publish contract
 
-`tools/cyberbiz-monthly-payout/lib/report-publish.mjs` 提供 runner-side publish helper。它會把相關的原始 XLSX、normalized JSON，
+`tools/cyberbiz-reports/lib/report-publish.mjs` 提供 runner-side publish helper。它會把相關的原始 XLSX、normalized JSON，
 以及需要時的 combined XLSX 上傳到 NAS 的 `reports/cyberbiz/...`，再呼叫：
 
 ```text
