@@ -45,7 +45,7 @@ pnpm dev
 - `小香助理 → LINE 前台` 可以設定 Channel ID、Channel Secret、Channel Access Token、channel 開關、Webhook URL 與對話授權。
 - Channel Secret 與 Channel Access Token 透過後台輸入後會使用 `AUTH_SESSION_SECRET` 以 AES-GCM 加密保存，不會把原值回傳到瀏覽器。`LINE_CHANNEL_SECRET` 與 `LINE_CHANNEL_ACCESS_TOKEN` 仍可作為既有部署的環境變數 fallback。
 - LINE webhook 只接受 LINE 的 `x-line-signature`；群組／多人聊天室的文字訊息只記錄真正 mention 小香的內容，圖片事件會先記錄並排入附件保存；一對一文字與圖片不需要 mention；新發現的對話預設未授權。
-- LINE 圖片事件會由 Queue 透過 LINE Content API 取回後保存到 NAS `assistant/vision/<chat-id>/...`；一對一圖片只先保存，下一則文字才會觸發回答並帶入最近尚未消費的圖片。群組／多人聊天室圖片先保存 metadata，標註小香的文字可以讀取最近圖片而不必引用，也可以用 `quotedMessageId` 指定引用圖片；引用文字早於圖片落地時會先等待。圖片 metadata 預設保留 7 天，bytes 不進 D1。
+- LINE 圖片事件會由 Queue 透過 LINE Content API 取回，經由唯一的 storage connect layer 保存；目前 production adapter 使用 NAS gateway，assistant 圖片 key 為 `assistant/vision/<chat-id>/...`。一對一圖片只先保存，下一則文字才會觸發回答並帶入最近尚未消費的圖片。群組／多人聊天室圖片先保存 metadata，標註小香的文字可以讀取最近圖片而不必引用，也可以用 `quotedMessageId` 指定引用圖片；引用文字早於圖片落地時會先等待。圖片 metadata 預設保留 7 天，bytes 不進 D1。業務模組不直接依賴 NAS endpoint、token 或實體路徑；更換 S3 或自有 server 時只替換 connect layer 的 adapter 與設定。
 - 已授權且開通的 LINE 對話會由 active model、active prompt 與狀態為「已啟用」的 tools
   產生回答；只有尚未建立 assistant 設定時才以 `PI_AGENT_MODEL` 作 fallback。一對一會同步使用者名稱與頭貼，「開發中」tool 仍只允許 Sandbox 使用。
 - 一對一傳送 `/reset` 或 `/重設` 可清除目前模型上下文但保留歷史紀錄，不會觸發回答。

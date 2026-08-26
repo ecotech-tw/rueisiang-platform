@@ -2,10 +2,14 @@
 
 Sandbox 與 LINE 的模型執行都使用 Pi Agent。選 GPT 時使用 Codex ChatGPT OAuth，選 Gemini
 時使用 `GEMINI_API_KEY`；兩個 provider 共用 Pi transcript、tool loop、usage 與 compact。
-Sandbox vision 圖片、LINE image event 與 WMS 倉位照片透過 NAS storage gateway 儲存；LINE image event
-的 production smoke test 與後續清理工作列在 [`assistant-next-steps.md`](./assistant-next-steps.md)。LINE Queue
+Sandbox vision 圖片、LINE image event 與 WMS 倉位照片透過唯一的 storage connect layer 儲存；目前 production
+adapter 使用 NAS storage gateway。LINE Queue
 consumer 會把每個已授權對話 dispatch 到 chat 專屬的 Durable Object；Sandbox session 也有自己的
 Pi Durable Object。
+
+媒體 bytes 的 provider、endpoint、credential 與實體路徑都由 storage connect layer 管理。assistant、WMS
+與報表功能只使用共用的 `put`、`get`、`head`、`delete` contract，不直接連 NAS；未來切換到 S3 或自有
+server 時，替換 adapter 與設定即可。
 
 `ASSISTANT_KEY` 不是 API key 或 secret，也不需要在 Cloudflare 設成環境變數。它是小香在 D1、
 Queue 與 Durable Object instance name 共用的穩定內部識別碼；目前值是
