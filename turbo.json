@@ -19,7 +19,7 @@
     "dev": {
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["API_PORT", "PORT", "PORTAL_PORT"]
+      "passThroughEnv": ["API_PORT", "PORT", "PORTAL_PORT", "DEV_DB_FILE"]
     }
   }
 }
