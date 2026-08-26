@@ -4,6 +4,7 @@ name: CI
 # 所以在 Cloudflare 還沒開通之前就能用。
 on:
   push:
+    branches: [main]
   pull_request:
     branches: [main]
 
