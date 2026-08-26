@@ -42,7 +42,7 @@ export function ShopeeSales() {
         }}>
           <Field label="蝦皮報表（.xlsx）"><input className="cell-input wide" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></Field>
           <TextField label="報表密碼" type="password" inputClassName="cell-input" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="請輸入報表密碼" autoComplete="off" />
-          <Button type="submit" icon="analytics" disabled={blocked}>{run.isPending ? "送出中…" : "上傳並整理"}</Button>
+          <Button type="submit" icon="analytics" loading={run.isPending} loadingLabel="送出中…" disabled={blocked}>上傳並整理</Button>
           {running ? <span className="form-hint">GitHub Actions 處理中…可以關閉這一頁</span> : null}
         </form>
         {file ? <p className="muted table-note">已選擇：{file.name}</p> : null}

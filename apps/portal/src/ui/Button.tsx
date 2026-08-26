@@ -7,6 +7,8 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   variant?: ButtonVariant;
   icon?: IconName;
   loading?: boolean;
+  /** loading 時的動作文案；未提供時使用共用的「處理中…」。 */
+  loadingLabel?: ReactNode;
   className?: string;
   ref?: Ref<HTMLButtonElement>;
   children?: ReactNode;
@@ -22,6 +24,7 @@ export function Button({
   variant = "primary",
   icon,
   loading = false,
+  loadingLabel,
   className = "",
   disabled = false,
   type = "button",
@@ -47,7 +50,7 @@ export function Button({
       aria-busy={loading || undefined}
     >
       {icon ? <Icon name={icon} /> : null}
-      {loading ? "處理中…" : children}
+      {loading ? loadingLabel ?? "處理中…" : children}
     </button>
   );
 }

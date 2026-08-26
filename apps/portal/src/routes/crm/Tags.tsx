@@ -131,8 +131,8 @@ export function Tags() {
               value={newTag}
               onChange={(event) => setNewTag(event.target.value)}
             />
-            <Button type="submit" disabled={!newTag.trim() || create.isPending}>
-              {create.isPending ? "新增中…" : "新增標籤"}
+            <Button type="submit" loading={create.isPending} loadingLabel="新增中…" disabled={!newTag.trim()}>
+              新增標籤
             </Button>
             {busy ? <span className="form-hint">{busy}</span> : null}
           </form>

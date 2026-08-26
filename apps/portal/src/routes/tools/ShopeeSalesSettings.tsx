@@ -30,7 +30,7 @@ export function ShopeeSalesSettings() {
         <form className="admin-form" onSubmit={(event) => { event.preventDefault(); save.mutate({ driveFolderUrl: url, driveFolderName: name }); }}>
           <TextField label="Google Drive 資料夾連結" inputClassName="cell-input wide" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://drive.google.com/drive/folders/..." />
           <TextField label="顯示名稱" inputClassName="cell-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="蝦皮銷售報表" />
-          <div className="form-actions"><Button type="submit" disabled={save.isPending}>{save.isPending ? "儲存中…" : "儲存設定"}</Button>{save.isSuccess ? <span className="form-hint">已儲存。</span> : null}</div>
+          <div className="form-actions"><Button type="submit" loading={save.isPending} loadingLabel="儲存中…">儲存設定</Button>{save.isSuccess ? <span className="form-hint">已儲存。</span> : null}</div>
           {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
         </form>
       </Panel>

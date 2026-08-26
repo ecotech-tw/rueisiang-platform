@@ -93,7 +93,7 @@ export function StyleGuide() {
             <Button variant="link">文字操作</Button>
             <Button variant="icon" icon="search" aria-label="搜尋" />
             <Button disabled>停用</Button>
-            <Button loading>處理中</Button>
+            <Button loading loadingLabel="同步中…">同步資料</Button>
             <Button variant="secondary" onClick={() => setDialogOpen(true)}>預覽 Dialog</Button>
           </div>
           <div className="style-guide-row">
