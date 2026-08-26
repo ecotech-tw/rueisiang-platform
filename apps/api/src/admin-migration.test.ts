@@ -19,7 +19,7 @@ const CYBERBIZ_REPORT_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0041_sturdy_colossus.sql", import.meta.url),
 );
 const CYBERBIZ_SALES_PERMISSION_MIGRATION = fileURLToPath(
-  new URL("../../../packages/db/migrations/0044_cyberbiz_sales_permission.sql", import.meta.url),
+  new URL("../../../packages/db/migrations/0046_cyberbiz_sales_permission.sql", import.meta.url),
 );
 
 describe("bootstrap 管理員權限 migration", () => {
