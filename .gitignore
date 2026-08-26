@@ -28,6 +28,11 @@ tools/cyberbiz-reports/chrome-profile/
 tools/cyberbiz-reports/staging/
 tools/cyberbiz-reports/reports/
 tools/cyberbiz-reports/screenshots/
+# 舊版工具改名期間仍可能留在既有 checkout；這些目錄同樣含有登入狀態與報表資料。
+tools/cyberbiz-monthly-payout/chrome-profile/
+tools/cyberbiz-monthly-payout/staging/
+tools/cyberbiz-monthly-payout/reports/
+tools/cyberbiz-monthly-payout/screenshots/
 tools/shopee-sales-report-export/chrome-profile/
 tools/shopee-sales-report-export/staging/
 tools/shopee-sales-report-export/reports/

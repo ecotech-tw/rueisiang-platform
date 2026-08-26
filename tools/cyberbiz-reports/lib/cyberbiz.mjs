@@ -14,6 +14,8 @@ export function fail(code, message, details = {}) {
   throw error;
 }
 
+export const PRODUCT_SALES_REPORT_LINK_NAME = /\u5546\s*\u54c1\s*\u92b7\s*\u552e\s*(?:\u7e3d\s*\u8868|\u5831\s*\u8868)/;
+
 function toPickerInput(iso) {
   return iso.replace(/-/g, "/");
 }
@@ -313,7 +315,7 @@ export async function exportSalesReport(page, {
   await page.waitForTimeout(1000);
 
   const reportLink = page.getByRole("link", {
-    name: /\u5546\u54c1\u92b7\u552e(?:\u7e3d\u8868|\u5831\u8868)/,
+    name: PRODUCT_SALES_REPORT_LINK_NAME,
   }).first();
   if ((await reportLink.count()) < 1) {
     fail("REPORT_LINK_MISSING", "POS report page does not contain the product sales report link.", {
