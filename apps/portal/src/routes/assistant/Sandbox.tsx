@@ -78,6 +78,7 @@ export function Sandbox() {
   const [toolKeys, setToolKeys] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<SandboxAttachment[]>([]);
   const [sessionId, setSessionId] = useState("");
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [revisionsOpen, setRevisionsOpen] = useState(false);
   const [failedRun, setFailedRun] = useState<{ runId?: string; toolCalls: SandboxToolCall[] } | null>(null);
@@ -115,7 +116,7 @@ export function Sandbox() {
     const conversation = conversationRef.current;
     if (!conversation) return;
     conversation.scrollTo({ top: conversation.scrollHeight, behavior: "smooth" });
-  }, [session.data?.session?.messages.length, run.isPending, failedRun?.runId]);
+  }, [sessionId, session.data?.session?.messages.length, run.isPending, pendingSessionId, failedRun?.runId]);
 
   if (config.isPending) return <div className="boot">載入中…</div>;
   if (config.error) return <div className="page"><Alert tone="danger">{config.error.message}</Alert></div>;
@@ -155,16 +156,19 @@ export function Sandbox() {
   function submitRun() {
     const submittedInput = input.trim();
     const submittedAttachments = attachments;
-    if (!promptId || !modelReady || (!submittedInput && !submittedAttachments.length) || !sessionId || !sessionOpen) return;
+    if (!promptId || !modelReady || (!submittedInput && !submittedAttachments.length) || !sessionId || !sessionOpen || uploadAttachment.isPending) return;
+    setPendingSessionId(sessionId);
     setFailedRun(null);
     run.mutate(
       { sessionId, model, promptRevisionId: promptId, toolKeys, input: submittedInput, attachments: submittedAttachments },
       {
         onSuccess: () => {
+          setPendingSessionId(null);
           setInput("");
           setAttachments([]);
         },
         onError: (error) => {
+          setPendingSessionId(null);
           if (error instanceof AssistantApiError && error.toolCalls.length) {
             setFailedRun({ runId: error.runId, toolCalls: error.toolCalls });
           }
@@ -390,7 +394,7 @@ export function Sandbox() {
               </div>
             )) : <p className="empty-state">這個 session 還沒有訊息。</p>
           ) : <p className="empty-state">請按「清除對話」建立一個新的 session。</p>}
-          {run.isPending ? (
+          {run.isPending && pendingSessionId === sessionId ? (
             <div className="assistant-message assistant-message-model assistant-message-pending" role="status" aria-label="小香正在回覆">
               <div className="assistant-message-meta">
                 <strong>小香</strong>
@@ -472,7 +476,7 @@ export function Sandbox() {
               <Button
                 loading={run.isPending}
                 loadingLabel="小香思考中…"
-                disabled={!modelReady || (!input.trim() && !attachments.length) || !sessionOpen}
+                disabled={!modelReady || (!input.trim() && !attachments.length) || !sessionOpen || uploadAttachment.isPending}
                 onClick={submitRun}
               >
                 送出
