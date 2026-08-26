@@ -94,6 +94,8 @@ export function StyleGuide() {
             <Button variant="icon" icon="search" aria-label="搜尋" />
             <Button disabled>停用</Button>
             <Button loading loadingLabel="同步中…">同步資料</Button>
+            <Button variant="chip" selected icon="check">已選取</Button>
+            <Button variant="chip-action" icon="bookmark">新增視圖</Button>
             <Button variant="secondary" onClick={() => setDialogOpen(true)}>預覽 Dialog</Button>
           </div>
           <div className="style-guide-row">
