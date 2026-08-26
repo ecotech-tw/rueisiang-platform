@@ -19,7 +19,7 @@ import {
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel } from "../../ui/index.js";
 
 const STATUS_LABEL: Record<AdminUser["status"], string> = {
   invited: "已邀請",
@@ -202,23 +202,35 @@ function UserEditor({
   const effective = new Set([...fromRoles, ...direct]);
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !pending) onClose();
-      }}
+    <>
+      <Dialog
+      title={displayNameOf(user)}
+      titleMeta={user.email}
+      className="wide"
+      onClose={onClose}
+      closeDisabled={pending}
+      actions={
+        <>
+          {/*
+            * 刪除只在已停用時出現。「先停用再刪」是刻意的兩步：停用可逆、
+            * 刪除不可逆，中間那一步就是確認。靠左放，跟右邊的「關閉」拉開距離，
+            * 免得想關掉的人手滑按到。
+            */}
+          {/* 啟用中的要先停用才能刪；已停用與還沒登入過的都可以直接清掉。 */}
+          {user.status !== "active" ? (
+            <Button
+              variant="secondary"
+              className="danger delete-action"
+              disabled={pending}
+              onClick={() => setConfirmingDelete(true)}
+            >
+              刪除帳號
+            </Button>
+          ) : null}
+          <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>關閉</Button>
+        </>
+      }
     >
-      <div className="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="user-editor-title">
-        <div className="modal-head">
-          <div>
-            <h2 id="user-editor-title">{displayNameOf(user)}</h2>
-            <p className="muted">{user.email}</p>
-          </div>
-          <Button variant="icon" icon="close" onClick={onClose} disabled={pending} title="關閉" aria-label="關閉" />
-        </div>
-
-        <div className="modal-body">
           {error ? <Alert tone="danger">{error.message}</Alert> : null}
           {isSelf ? (
             <p className="muted perm-hint">
@@ -364,28 +376,7 @@ function UserEditor({
               </div>
             )}
           </div>
-        </div>
-
-        <div className="modal-actions">
-          {/*
-            * 刪除只在已停用時出現。「先停用再刪」是刻意的兩步：停用可逆、
-            * 刪除不可逆，中間那一步就是確認。靠左放，跟右邊的「關閉」拉開距離，
-            * 免得想關掉的人手滑按到。
-            */}
-          {/* 啟用中的要先停用才能刪；已停用與還沒登入過的都可以直接清掉。 */}
-          {user.status !== "active" ? (
-            <Button
-              variant="secondary"
-              className="danger delete-action"
-              disabled={pending}
-              onClick={() => setConfirmingDelete(true)}
-            >
-              刪除帳號
-            </Button>
-          ) : null}
-          <Button variant="secondary" onClick={onClose} disabled={pending}>關閉</Button>
-        </div>
-      </div>
+      </Dialog>
 
       {confirmingDelete ? (
         <ConfirmDialog
@@ -409,7 +400,7 @@ function UserEditor({
           </p>
         </ConfirmDialog>
       ) : null}
-    </div>
+    </>
   );
 }
 

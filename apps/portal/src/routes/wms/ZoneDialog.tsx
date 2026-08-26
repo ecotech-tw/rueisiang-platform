@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button } from "../../ui/index.js";
+import { Alert, Button, Dialog } from "../../ui/index.js";
 import {
   CATEGORY_COLORS,
   useCreateZone,
@@ -62,26 +62,27 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
   }
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !pending) onClose();
+    <Dialog
+      title={zone ? "編輯倉位" : "新增倉位"}
+      onClose={onClose}
+      closeDisabled={pending}
+      formProps={{
+        onSubmit: (event) => {
+          event.preventDefault();
+          submit();
+        },
       }}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
+            取消
+          </Button>
+          <Button type="submit" disabled={!valid || pending}>
+            {pending ? "儲存中…" : zone ? "儲存" : "新增倉位"}
+          </Button>
+        </>
+      }
     >
-      <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="zone-title">
-        <div className="modal-head">
-          <h2 id="zone-title">{zone ? "編輯倉位" : "新增倉位"}</h2>
-          <Button variant="icon" icon="close" type="button" onClick={onClose} disabled={pending} aria-label="關閉" />
-        </div>
-
-        <form
-          className="modal-body"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submit();
-          }}
-        >
           <div className="field-grid">
             <label className="field">
               <span>倉位代碼<b>必填</b></span>
@@ -192,16 +193,6 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
 
           {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
-          <div className="modal-actions">
-            <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={!valid || pending}>
-              {pending ? "儲存中…" : zone ? "儲存" : "新增倉位"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

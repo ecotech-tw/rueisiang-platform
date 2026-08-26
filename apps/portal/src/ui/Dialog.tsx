@@ -1,0 +1,90 @@
+import { useId, type FormHTMLAttributes, type ReactNode } from "react";
+import { Button } from "./Button.js";
+
+export interface DialogProps {
+  title: ReactNode;
+  titleMeta?: ReactNode;
+  children: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+  bodyClassName?: string;
+  onClose?: () => void;
+  closeDisabled?: boolean;
+  showClose?: boolean;
+  closeLabel?: string;
+  role?: "dialog" | "alertdialog";
+  formProps?: Omit<FormHTMLAttributes<HTMLFormElement>, "children" | "className">;
+}
+
+/**
+ * 共用對話框外框。
+ *
+ * page 只提供標題、內容與 actions；遮罩、標題列、關閉按鈕、ARIA 語意與
+ * form body 的結構集中在這裡，避免每個 dialog 各自複製一套容易漏改的 markup。
+ */
+export function Dialog({
+  title,
+  titleMeta,
+  children,
+  actions,
+  className = "",
+  bodyClassName = "",
+  onClose,
+  closeDisabled = false,
+  showClose = true,
+  closeLabel = "關閉",
+  role = "dialog",
+  formProps,
+}: DialogProps) {
+  const titleId = `dialog-title-${useId().replace(/:/g, "")}`;
+  const cardClassName = ["modal-card", className].filter(Boolean).join(" ");
+  const bodyClassNameValue = ["modal-body", bodyClassName].filter(Boolean).join(" ");
+  const content = (
+    <>
+      {children}
+      {actions ? <div className="modal-actions">{actions}</div> : null}
+    </>
+  );
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && onClose && !closeDisabled) onClose();
+      }}
+    >
+      <div className={cardClassName} role={role} aria-modal="true" aria-labelledby={titleId}>
+        <div className="modal-head">
+          {titleMeta ? (
+            <div>
+              <h2 id={titleId}>{title}</h2>
+              <p className="muted">{titleMeta}</p>
+            </div>
+          ) : (
+            <h2 id={titleId}>{title}</h2>
+          )}
+          {showClose && onClose ? (
+            <Button
+              variant="icon"
+              icon="close"
+              onClick={onClose}
+              disabled={closeDisabled}
+              title={closeLabel}
+              aria-label={closeLabel}
+            />
+          ) : null}
+        </div>
+
+        {formProps ? (
+          <form {...formProps} className={bodyClassNameValue}>
+            {content}
+          </form>
+        ) : (
+          <div className={bodyClassNameValue}>{children}</div>
+        )}
+        {!formProps && actions ? <div className="modal-actions">{actions}</div> : null}
+      </div>
+    </div>
+  );
+}

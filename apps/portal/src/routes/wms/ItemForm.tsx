@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button } from "../../ui/index.js";
+import { Alert, Button, Dialog } from "../../ui/index.js";
 import {
   useCreateItem,
   useLinkCyberbiz,
@@ -107,26 +107,27 @@ export function ItemForm({
   }
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !pending) onClose();
+    <Dialog
+      title={item ? "編輯商品" : "新增商品"}
+      onClose={onClose}
+      closeDisabled={pending}
+      formProps={{
+        onSubmit: (event) => {
+          event.preventDefault();
+          submit();
+        },
       }}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
+            取消
+          </Button>
+          <Button type="submit" disabled={!valid || pending}>
+            {pending ? "儲存中…" : item ? "儲存" : "新增商品"}
+          </Button>
+        </>
+      }
     >
-      <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="item-form-title">
-        <div className="modal-head">
-          <h2 id="item-form-title">{item ? "編輯商品" : "新增商品"}</h2>
-          <Button variant="icon" icon="close" type="button" onClick={onClose} disabled={pending} aria-label="關閉" />
-        </div>
-
-        <form
-          className="modal-body"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submit();
-          }}
-        >
           <label className="field">
             <span>商品名稱<b>必填</b></span>
             <input
@@ -331,16 +332,6 @@ export function ItemForm({
 
           {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
-          <div className="modal-actions">
-            <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={!valid || pending}>
-              {pending ? "儲存中…" : item ? "儲存" : "新增商品"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

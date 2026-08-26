@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { Icon, type IconName } from "../shell/icons.js";
 
 export type ButtonVariant = "primary" | "secondary" | "danger" | "icon" | "link";
@@ -8,6 +8,7 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   icon?: IconName;
   loading?: boolean;
   className?: string;
+  ref?: Ref<HTMLButtonElement>;
   children?: ReactNode;
 }
 
@@ -24,6 +25,7 @@ export function Button({
   className = "",
   disabled = false,
   type = "button",
+  ref,
   children,
   ...props
 }: ButtonProps) {
@@ -38,6 +40,7 @@ export function Button({
   return (
     <button
       {...props}
+      ref={ref}
       type={type}
       className={classes}
       disabled={disabled || loading}
