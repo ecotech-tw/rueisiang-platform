@@ -1,6 +1,6 @@
 import { ALL_PERMISSIONS } from "@rueisiang/auth";
 import { createDatabase } from "@rueisiang/db";
-import { rolePermissions, roles } from "@rueisiang/db/schema";
+import { rolePermissions, roles, userPermissions, users } from "@rueisiang/db/schema";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -70,5 +70,31 @@ describe("bootstrap 管理員權限 migration", () => {
     const permissions = await db.select().from(rolePermissions);
     expect(permissions).toHaveLength(ALL_PERMISSIONS.length);
     expect(new Set(permissions.map((row) => row.permission))).toEqual(new Set(ALL_PERMISSIONS));
+  });
+
+  it("移除蝦皮設定權限時保留既有角色與直接授權", async () => {
+    const d1 = createLocalD1();
+    const db = createDatabase(d1 as never);
+
+    await db.insert(roles).values({ id: "role-legacy", key: "legacy", name: "舊設定角色", isSystem: false });
+    await db.insert(rolePermissions).values({ roleId: "role-legacy", permission: "tools:shopee-sales:config" });
+    await db.insert(users).values({ id: "user-legacy", email: "legacy@ecotech.tw", status: "active" });
+    await db.insert(userPermissions).values({
+      userId: "user-legacy",
+      permission: "tools:shopee-sales:config",
+      grantedBy: "bootstrap",
+    });
+
+    const sql = readFileSync(REMOVE_SHOPEE_SETTINGS_PERMISSION_MIGRATION, "utf8");
+    d1.sqlite.exec(sql);
+    d1.sqlite.exec(sql);
+
+    const roleRows = await db.select().from(rolePermissions);
+    expect(roleRows).toContainEqual({ roleId: "role-legacy", permission: "tools:payout:config" });
+    expect(roleRows).not.toContainEqual({ roleId: "role-legacy", permission: "tools:shopee-sales:config" });
+
+    const userRows = await db.select().from(userPermissions);
+    expect(userRows).toContainEqual({ userId: "user-legacy", permission: "tools:payout:config", grantedBy: "bootstrap", createdAt: expect.any(String) });
+    expect(userRows).not.toContainEqual(expect.objectContaining({ permission: "tools:shopee-sales:config" }));
   });
 });
