@@ -401,7 +401,13 @@ function LineGroupRow({
             <div className="line-group-label">
               <span className="status status-disabled">{sourceTypeLabel(group.sourceType)}</span>
             </div>
-            <input className="line-group-name" value={name} placeholder="未命名對話" onChange={(event) => setName(event.target.value)} />
+            <FilterInput
+              label={`${group.displayName || group.lineGroupId} 對話名稱`}
+              className="line-group-name"
+              value={name}
+              placeholder="未命名對話"
+              onChange={(event) => setName(event.target.value)}
+            />
           </div>
         </div>
       </td>

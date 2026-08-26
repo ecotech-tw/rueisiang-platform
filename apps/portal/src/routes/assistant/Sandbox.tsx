@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, Dialog, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -310,21 +310,21 @@ export function Sandbox() {
             </span>
           </div>
           <div className="assistant-session-actions">
-            <select
+            <FilterSelect
               className="assistant-session-select"
-              aria-label="選擇 Sandbox session"
+              label="選擇 Sandbox session"
               value={sessionId}
               onChange={(event) => {
                 setSessionId(event.target.value);
               }}
-            >
-              <option value="">選擇 session</option>
-              {(sessions.data?.sessions ?? []).map((item) => (
-                <option value={item.id} key={item.id}>
-                  {item.status === "open" ? "進行中" : "已關閉"} · {formatDate(item.createdAt)}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: "", label: "選擇 session" },
+                ...(sessions.data?.sessions ?? []).map((item) => ({
+                  value: item.id,
+                  label: `${item.status === "open" ? "進行中" : "已關閉"} · ${formatDate(item.createdAt)}`,
+                })),
+              ]}
+            />
             <Button
               variant="secondary"
               loading={createSession.isPending || closeSession.isPending}

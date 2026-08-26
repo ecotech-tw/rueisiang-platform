@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, PageHeader, Panel } from "../../ui/index.js";
 
 interface TagRow {
   name: string;
@@ -124,8 +124,8 @@ export function Tags() {
               create.mutate(newTag);
             }}
           >
-            <input
-              aria-label="新標籤名稱"
+            <FilterInput
+              label="新標籤名稱"
               placeholder="新增一個標籤"
               maxLength={40}
               value={newTag}
@@ -164,8 +164,8 @@ export function Tags() {
                           if (editing.next.trim()) void applyChange(tag.name, editing.next.trim());
                         }}
                       >
-                        <input
-                          aria-label="新的標籤名稱"
+                        <FilterInput
+                          label="新的標籤名稱"
                           autoFocus
                           maxLength={40}
                           value={editing.next}
