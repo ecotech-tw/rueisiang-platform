@@ -15,6 +15,9 @@ const ORDER_PERMISSION_MIGRATION = fileURLToPath(
 const SHOPEE_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0039_medical_stone_men.sql", import.meta.url),
 );
+const CYBERBIZ_REPORT_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0041_sturdy_colossus.sql", import.meta.url),
+);
 
 describe("bootstrap 管理員權限 migration", () => {
   it("把只有三個 admin 權限的既有管理員補齊，而且可以安全重跑", async () => {
@@ -45,6 +48,12 @@ describe("bootstrap 管理員權限 migration", () => {
     );
     d1.sqlite.exec(shopeePermissionSql);
     d1.sqlite.exec(shopeePermissionSql);
+    const cyberbizReportMigrationSql = readFileSync(CYBERBIZ_REPORT_MIGRATION, "utf8");
+    const cyberbizReportPermissionSql = cyberbizReportMigrationSql.slice(
+      cyberbizReportMigrationSql.indexOf("INSERT OR IGNORE INTO role_permissions"),
+    );
+    d1.sqlite.exec(cyberbizReportPermissionSql);
+    d1.sqlite.exec(cyberbizReportPermissionSql);
 
     const permissions = await db.select().from(rolePermissions);
     expect(permissions).toHaveLength(ALL_PERMISSIONS.length);

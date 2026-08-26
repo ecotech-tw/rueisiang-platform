@@ -19,6 +19,8 @@ import {
   listActivity,
   loadWarehouse,
   normalizeCustomerQuery,
+  type CyberbizPayoutQuery,
+  type CyberbizSalesQuery,
   type Database,
 } from "@rueisiang/db";
 import type { ToolContract, ToolContext, ToolSurface } from "./contract.js";
@@ -50,6 +52,19 @@ function boundedNumber(input: unknown, key: string, fallback: number, max: numbe
 
 function json(value: unknown): string {
   return JSON.stringify(value);
+}
+
+interface CyberbizReportToolService {
+  querySales(input: CyberbizSalesQuery): Promise<unknown>;
+  queryPayout(input: CyberbizPayoutQuery): Promise<unknown>;
+}
+
+function cyberbizReportService(context: ToolContext | undefined): CyberbizReportToolService {
+  const service = context?.services?.cyberbizReports;
+  if (!service || typeof service !== "object" || typeof (service as CyberbizReportToolService).querySales !== "function") {
+    throw new AssistantError("CYBERBIZ 報表查詢服務目前不可用，請確認 NAS 與報表索引已設定。");
+  }
+  return service as CyberbizReportToolService;
 }
 
 function parseStringArray(value: string): string[] {
@@ -1089,6 +1104,90 @@ const crmGetOrdersTool: PlatformToolDefinition = {
   },
 };
 
+const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
+  key: "cyberbiz_query_sales_report",
+  label: "查詢 CYBERBIZ 銷售報表",
+  description: "從已解析的 CYBERBIZ 月報查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額。銷售總表只有月彙總；若要求日或未完整涵蓋的區間，工具會明確回傳不可精確回答的狀態。一次查詢會由服務端完成必要的公司彙總，不需要逐店呼叫工具。",
+  defaultStatus: "enabled",
+  surfaces: ["sandbox", "line", "mcp"],
+  requiredPermissions: ["reports:cyberbiz:read"],
+  parameters: {
+    type: "object",
+    properties: {
+      period: { type: "string", description: "報表月份，YYYY-MM，例如 2026-07。" },
+      scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位。", enum: ["company", "store"] },
+      scopeId: { type: "string", description: "scopeType=store 時的櫃位固定 ID；company 不需要填。" },
+      startDate: { type: "string", description: "可選的起始日 YYYY-MM-DD；銷售月報若不是完整月份會回傳 UNSUPPORTED_GRANULARITY。" },
+      endDate: { type: "string", description: "可選的結束日 YYYY-MM-DD；銷售月報若不是完整月份會回傳 UNSUPPORTED_GRANULARITY。" },
+      sku: { type: "string", description: "可選 SKU，精確查詢單一商品。" },
+      category: { type: "string", description: "可選商品分類／標籤，回傳該分類商品合計。" },
+      productName: { type: "string", description: "可選商品名稱關鍵字。" },
+    },
+    required: ["period", "scopeType"],
+  },
+  async execute(input, context) {
+    const period = textInput(input, "period");
+    const scopeType = textInput(input, "scopeType");
+    if (!period || !["company", "store"].includes(scopeType)) {
+      throw new AssistantError("CYBERBIZ 銷售報表查詢需要正確的 period 與 scopeType。");
+    }
+    const scopeId = textInput(input, "scopeId");
+    if (scopeType === "store" && !scopeId) throw new AssistantError("查詢單一櫃位時需要 scopeId。");
+    return json(await cyberbizReportService(context).querySales({
+      reportMonth: period,
+      scopeType: scopeType as CyberbizSalesQuery["scopeType"],
+      ...(scopeId ? { scopeId } : {}),
+      ...(textInput(input, "startDate") ? { startDate: textInput(input, "startDate") } : {}),
+      ...(textInput(input, "endDate") ? { endDate: textInput(input, "endDate") } : {}),
+      ...(textInput(input, "sku") ? { sku: textInput(input, "sku") } : {}),
+      ...(textInput(input, "category") ? { category: textInput(input, "category") } : {}),
+      ...(textInput(input, "productName") ? { productName: textInput(input, "productName") } : {}),
+    }));
+  },
+};
+
+const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
+  key: "cyberbiz_query_payout_report",
+  label: "查詢 CYBERBIZ 出金報表",
+  description: "從已解析的 CYBERBIZ 每日出金報表查詢單一櫃位或公司整體的出金合計與明細。服務端會先檢查指定區間是否完整涵蓋，再一次完成查詢。",
+  defaultStatus: "enabled",
+  surfaces: ["sandbox", "line", "mcp"],
+  requiredPermissions: ["reports:cyberbiz:read"],
+  parameters: {
+    type: "object",
+    properties: {
+      period: { type: "string", description: "報表月份，YYYY-MM，例如 2026-07。" },
+      scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位。", enum: ["company", "store"] },
+      scopeId: { type: "string", description: "scopeType=store 時的櫃位固定 ID；company 不需要填。" },
+      startDate: { type: "string", description: "可選起始日 YYYY-MM-DD；未填時使用整個月份。" },
+      endDate: { type: "string", description: "可選結束日 YYYY-MM-DD；未填時使用整個月份。" },
+      incomeType: { type: "string", description: "可選收入類型精確篩選。" },
+      pos: { type: "string", description: "可選 POS 機精確篩選。" },
+      operator: { type: "string", description: "可選操作人員精確篩選。" },
+    },
+    required: ["period", "scopeType"],
+  },
+  async execute(input, context) {
+    const period = textInput(input, "period");
+    const scopeType = textInput(input, "scopeType");
+    if (!period || !["company", "store"].includes(scopeType)) {
+      throw new AssistantError("CYBERBIZ 出金報表查詢需要正確的 period 與 scopeType。");
+    }
+    const scopeId = textInput(input, "scopeId");
+    if (scopeType === "store" && !scopeId) throw new AssistantError("查詢單一櫃位時需要 scopeId。");
+    return json(await cyberbizReportService(context).queryPayout({
+      reportMonth: period,
+      scopeType: scopeType as CyberbizPayoutQuery["scopeType"],
+      startDate: textInput(input, "startDate"),
+      endDate: textInput(input, "endDate"),
+      ...(scopeId ? { scopeId } : {}),
+      ...(textInput(input, "incomeType") ? { incomeType: textInput(input, "incomeType") } : {}),
+      ...(textInput(input, "pos") ? { pos: textInput(input, "pos") } : {}),
+      ...(textInput(input, "operator") ? { operator: textInput(input, "operator") } : {}),
+    }));
+  },
+};
+
 export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   platformOpenMeteoTool,
   wmsListInventoryTool,
@@ -1099,6 +1198,8 @@ export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   crmSearchCustomersTool,
   crmGetCustomerTool,
   crmGetOrdersTool,
+  cyberbizQuerySalesReportTool,
+  cyberbizQueryPayoutReportTool,
 ];
 
 export const PLATFORM_TOOL_KEYS = PLATFORM_TOOL_DEFINITIONS.map((tool) => tool.key);

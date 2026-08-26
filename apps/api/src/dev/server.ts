@@ -40,7 +40,8 @@ const apiPortOverride = process.env.API_PORT?.trim();
 const PORT = readPort(apiPortOverride || process.env.PORT?.trim(), 8787, apiPortOverride ? "API_PORT" : "PORT");
 const PORTAL_PORT = readPort(process.env.PORTAL_PORT, 5173, "PORTAL_PORT");
 const here = path.dirname(fileURLToPath(import.meta.url));
-const DB_FILE = path.resolve(here, "../../local.sqlite");
+// 可用 DEV_DB_FILE 隔離不同 worktree 的 preview 資料庫，避免沿用舊 schema 的 local.sqlite。
+const DB_FILE = path.resolve(process.env.DEV_DB_FILE?.trim() || path.resolve(here, "../../local.sqlite"));
 
 // 本機專用的假密鑰。正式環境是 wrangler secret，兩邊不會共用。
 const DEV_SECRET = "local-development-only";

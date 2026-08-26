@@ -372,6 +372,8 @@ describe("只有 LINE 權限的人", () => {
       "crm_get_customer",
       "crm_get_orders",
       "crm_search_customers",
+      "cyberbiz_query_payout_report",
+      "cyberbiz_query_sales_report",
       "weather_open_meteo",
       "wms_get_activity",
       "wms_get_inventory_item",
@@ -481,6 +483,8 @@ describe("AI 助理 Sandbox", () => {
       "crm_search_customers",
       "crm_get_customer",
       "crm_get_orders",
+      "cyberbiz_query_sales_report",
+      "cyberbiz_query_payout_report",
     ]);
     expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
       label: "WMS 搜尋倉庫位置",

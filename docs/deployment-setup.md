@@ -179,6 +179,8 @@ Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
 | `PI_CREDENTIAL_ENCRYPTION_KEY` | 至少 32 字元；加密 credential-vault 內的 access／refresh token |
 | `PI_OPENAI_CODEX_RELAY_TOKEN` | 可選；NAS Codex relay 的 shared token，搭配 `wrangler.toml` 裡的 `PI_OPENAI_CODEX_RELAY_URL` 使用 |
 | `NAS_STORAGE_TOKEN` | NAS storage gateway 的獨立 shared token；搭配 `NAS_STORAGE_URL` 使用 |
+| `CYBERBIZ_REPORT_INGEST_TOKEN` | GitHub Actions monthly runner 寫入 CYBERBIZ report manifest 的獨立 shared token |
+| `CYBERBIZ_REPORT_MCP_TOKEN` | 只讀 CYBERBIZ reports MCP endpoint 的獨立 bearer token；不要與 NAS 或 ingest token 共用 |
 | `LINE_CHANNEL_SECRET` | 選用 fallback；LINE Developers 的 Channel secret |
 | `LINE_CHANNEL_ACCESS_TOKEN` | 選用 fallback；同一個 token 同時供 Reply 與受限 Push 使用 |
 
