@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Icon } from "../../shell/icons.js";
 import { Alert, Button } from "../../ui/index.js";
 import {
   DEFAULT_FILTERS,
@@ -57,46 +56,48 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
   return (
     <>
       <div className="view-bar">
-        <button
+        <Button
           type="button"
-          className={`filter-chip${!active && isDefault ? " selected" : ""}`}
+          variant="chip"
+          selected={!active && isDefault}
+          icon={!active && isDefault ? "check" : undefined}
           onClick={() => onApply(DEFAULT_FILTERS)}
           title="回到預設條件"
         >
-          {!active && isDefault ? <Icon name="check" /> : null}
           全部客戶
-        </button>
+        </Button>
 
         {rows.map((view) => (
           <span className={`filter-chip${active?.id === view.id ? " selected" : ""}`} key={view.id}>
-            <button
+            <Button
               type="button"
-              className="filter-chip-label"
+              variant="chip-label"
+              selected={active?.id === view.id}
+              icon={active?.id === view.id ? "check" : undefined}
               onClick={() => onApply(view)}
               title={`${describe(view)}${view.createdByEmail ? `　—　${view.createdByEmail} 建立` : ""}`}
             >
-              {active?.id === view.id ? <Icon name="check" /> : null}
               {view.name}
-            </button>
+            </Button>
             {canManage ? (
-              <button
+              <Button
                 type="button"
-                className="filter-chip-remove"
+                variant="chip-remove"
+                icon="close"
                 onClick={() => remove.mutate(view.id)}
                 disabled={remove.isPending}
                 title={`刪除視圖「${view.name}」，所有人都會看不到`}
                 aria-label={`刪除視圖 ${view.name}`}
-              >
-                <Icon name="close" />
-              </button>
+              />
             ) : null}
           </span>
         ))}
 
         {canManage && name === null ? (
-          <button
+          <Button
             type="button"
-            className="chip-action"
+            variant="chip-action"
+            icon="bookmark"
             onClick={() => setName("")}
             disabled={saved}
             title={
@@ -104,10 +105,7 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
                 ? "目前的條件已經是一個視圖了"
                 : "把現在的搜尋、篩選與排序存成一個視圖，所有人都看得到"
             }
-          >
-            <Icon name="bookmark" />
-            儲存為視圖
-          </button>
+          >儲存為視圖</Button>
         ) : null}
 
         {canManage && name !== null ? (
