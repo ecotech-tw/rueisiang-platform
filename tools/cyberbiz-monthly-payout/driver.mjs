@@ -46,7 +46,7 @@ function scopeIdFromStoreName(name) {
   return `store-${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
 }
 
-async function publishPayoutStore({ env, range, store, localPath, drive }) {
+async function publishPayoutStore({ env, range, store, localPath, drive, firstDataRow }) {
   const scopeId = scopeIdFromStoreName(store.name);
   const outputDir = await ensureDir(path.join(skillPath("staging"), range.label, scopeId));
   const document = await parsePayoutReport(localPath, {
@@ -55,6 +55,7 @@ async function publishPayoutStore({ env, range, store, localPath, drive }) {
     scopeName: store.name,
     start: range.start,
     end: range.end,
+    firstDataRow,
   });
   const jsonPath = path.join(outputDir, "payout.normalized.json");
   await fs.writeFile(jsonPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
@@ -150,6 +151,9 @@ async function main() {
       ? monthRange(args.month)
       : previousMonth();
   const monthly = range.label === range.start.slice(0, 7) && range.end === monthRange(range.label).end;
+  if (monthly && !args.skipUpload) {
+    requireEnv(env, ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"]);
+  }
   const recipientEmail = config.recipientEmail || env.CYBERBIZ_2FA_MAILBOX;
   if (!recipientEmail) {
     throw new Error("config.json 的 recipientEmail 或 .env 的 CYBERBIZ_2FA_MAILBOX 至少要有一個。");
@@ -338,6 +342,7 @@ async function main() {
             store,
             localPath,
             drive: result.drive,
+            firstDataRow: config.firstDataRow,
           });
           result.steps.manifest = "ok";
           payoutDocuments.push(published.document);
@@ -376,7 +381,8 @@ async function main() {
     await context.close();
   }
 
-  if (run.stores.some((store) => !store.done) || (monthly && wanted.length === config.stores.length && run.companyManifest !== "ok")) process.exitCode = 1;
+  const companyManifestRequired = monthly && !args.skipUpload && wanted.length === config.stores.length;
+  if (run.stores.some((store) => !store.done) || (companyManifestRequired && run.companyManifest !== "ok")) process.exitCode = 1;
 }
 
 main().catch((error) => {

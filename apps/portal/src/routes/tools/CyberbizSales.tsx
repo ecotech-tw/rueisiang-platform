@@ -35,7 +35,9 @@ export function CyberbizSales() {
   const stores = state.data?.stores ?? [];
   const latest = status.data?.runs[0];
   const followed = tracking ?? state.data?.latestRequestId ?? null;
-  const running = Boolean(latest) && latest!.status !== "completed";
+  // workflow_dispatch 回 204 後，GitHub 建立 run 會有幾秒延遲；這段時間不能再送第二次。
+  const awaitingRegistration = Boolean(tracking && !status.data?.runs.length);
+  const running = awaitingRegistration || (Boolean(latest) && latest!.status !== "completed");
   const rangeError = start && end && start > end ? "起日不能晚於迄日。" : "";
   const blocked = running || run.isPending || !start || !end || Boolean(rangeError) || !state.data?.configured;
 
@@ -60,11 +62,13 @@ export function CyberbizSales() {
           <DateRangePicker
             start={start}
             end={end}
-            disabled={run.isPending}
+            disabled={blocked}
             onChange={(range) => { setStart(range.start); setEnd(range.end); }}
           />
           <Button
             icon="analytics"
+            loading={run.isPending}
+            loadingLabel="執行中…"
             disabled={blocked || !stores.length}
             onClick={() => start_(stores.map((store) => store.name))}
             title="所有店別執行同一段區間"
@@ -95,7 +99,7 @@ export function CyberbizSales() {
                       </a>
                     ) : "未設定資料夾"}
                   </td>
-                  <td><Button variant="secondary" disabled={blocked} onClick={() => start_([store.name])}>執行</Button></td>
+                  <td><Button variant="secondary" loading={run.isPending} loadingLabel="執行中…" disabled={blocked} onClick={() => start_([store.name])}>執行</Button></td>
                 </tr>
               ))}
             </tbody>

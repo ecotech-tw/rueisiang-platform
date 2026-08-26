@@ -128,6 +128,9 @@ async function main() {
   requireEnv(env, ["CYBERBIZ_USERNAME", "CYBERBIZ_PASSWORD"]);
   const range = args.start ? dateRange(args.start, args.end) : args.month ? monthRange(args.month) : previousMonth();
   const monthly = range.label === range.start.slice(0, 7) && range.end === monthRange(range.label).end;
+  if (monthly) {
+    requireEnv(env, ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"]);
+  }
   const recipientEmail = config.recipientEmail || env.CYBERBIZ_2FA_MAILBOX;
   if (!recipientEmail) throw new Error("config.json 的 recipientEmail 或 .env 的 CYBERBIZ_2FA_MAILBOX 至少要有一個。");
 
@@ -212,11 +215,12 @@ async function main() {
         }
 
         if (monthly) {
-          requireEnv(env, ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"]);
           if (!drive) throw new Error("完整月份要建立 manifest，必須先上傳 Drive。");
           await publishStore({ env, range, store, localPath, document, drive });
           result.steps.manifest = "ok";
           documents.push(document);
+        } else {
+          result.steps.manifest = "skip";
         }
         result.done = true;
       } catch (error) {
@@ -237,8 +241,8 @@ async function main() {
     run.finishedAt = new Date().toISOString();
     if (run.stores.length) {
       const reportsDir = path.isAbsolute(config.reportsDir) ? config.reportsDir : skillPath(config.reportsDir);
-      run.reportPath = await writeMarkdown(run, reportsDir);
-      log(terminalSummary(run));
+      run.reportPath = await writeMarkdown(run, reportsDir, { kind: "sales" });
+      log(terminalSummary(run, { kind: "sales" }));
     }
     await context.close();
   }

@@ -5,6 +5,8 @@ const GITHUB_API = "https://api.github.com";
 export interface CyberbizSalesGithub {
   dispatch(input: { store: string; start: string; end: string; requestId: string }): Promise<void>;
   listRuns(requestId?: string): Promise<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>;
+  /** 把平台店別清單同步到 sales workflow 所在的 repository。 */
+  pushStores(input: { stores: unknown; message: string }): Promise<boolean>;
 }
 
 export interface WorkflowRun {
@@ -27,6 +29,22 @@ export class CyberbizSalesGithubError extends Error {
     super(message);
     this.name = "CyberbizSalesGithubError";
   }
+}
+
+const STORES_PATH = "tools/cyberbiz-monthly-payout/stores.json";
+
+/** GitHub Contents API 的 content 欄位是 base64；中文店名要先轉 UTF-8 bytes。 */
+function toBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function fromBase64(value: string): string {
+  const binary = atob(value.replace(/\s/g, ""));
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 /**
@@ -103,6 +121,30 @@ export function cyberbizSalesGithub(env: Env): CyberbizSalesGithub | undefined {
           conclusion: step.conclusion ?? null,
         })),
       };
+    },
+
+    async pushStores({ stores, message }) {
+      const ref = env.CYBERBIZ_SALES_GITHUB_REF ?? env.PAYOUT_GITHUB_REF ?? "main";
+      const next = `${JSON.stringify({ stores }, null, 2)}\n`;
+      const current = (await call(
+        `/repos/${repo}/contents/${STORES_PATH}?ref=${encodeURIComponent(ref)}`,
+      ).catch((error: unknown) => {
+        if (error instanceof CyberbizSalesGithubError && error.status === 404) return null;
+        throw error;
+      })) as { sha?: string; content?: string } | null;
+
+      if (current?.content && fromBase64(current.content) === next) return false;
+
+      await call(`/repos/${repo}/contents/${STORES_PATH}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          branch: ref,
+          message,
+          content: toBase64(next),
+          ...(current?.sha ? { sha: current.sha } : {}),
+        }),
+      });
+      return true;
     },
   };
 }

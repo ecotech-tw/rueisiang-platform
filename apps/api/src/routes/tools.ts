@@ -13,6 +13,7 @@ import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { payoutGithub } from "../payout/github.js";
 import { body } from "../request.js";
 import { cyberbizScopeIdFromStoreName } from "../cyberbiz-scope.js";
+import { cyberbizSalesGithub } from "../cyberbiz-sales/github.js";
 import { cyberbizSales } from "./cyberbiz-sales.js";
 import { shopeeSales } from "./shopee-sales.js";
 
@@ -213,12 +214,20 @@ export const tools = new Hono<AppEnv>()
         message: `chore(payout): 從平台更新店別清單（${c.get("user").email}）`,
       });
     }
+    const salesGithub = cyberbizSalesGithub(c.env);
+    let salesPushed = false;
+    if (salesGithub) {
+      salesPushed = await salesGithub.pushStores({
+        stores,
+        message: `chore(cyberbiz-sales): 從平台更新店別清單（${c.get("user").email}）`,
+      });
+    }
 
     await replacePayoutStores(c.get("db"), stores);
     return c.json({
       stores: await listPayoutStores(c.get("db")),
       // pushed=false 有兩種可能：沒接 GitHub，或內容根本沒變。前端要分得出來。
-      syncedToRepo: Boolean(github),
-      committed: pushed,
+      syncedToRepo: Boolean(github || salesGithub),
+      committed: pushed || salesPushed,
     });
   });

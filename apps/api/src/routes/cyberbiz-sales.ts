@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { requirePermission } from "../middleware/auth.js";
+import { body } from "../request.js";
 import { cyberbizSalesGithub } from "../cyberbiz-sales/github.js";
 import { cyberbizScopeIdFromStoreName } from "../cyberbiz-scope.js";
 
@@ -64,12 +65,7 @@ export const cyberbizSales = new Hono<AppEnv>()
   .post("/run", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
     const github = cyberbizSalesGithub(c.env);
     if (!github) throw new HTTPException(503, { message: "平台還沒設定商品銷售報表的 GitHub workflow，無法觸發執行。" });
-    let input: Record<string, unknown>;
-    try {
-      input = await c.req.json<Record<string, unknown>>();
-    } catch {
-      input = {};
-    }
+    const input = await body(c);
     const known = (await listPayoutStores(c.get("db"))).map((store) => store.name);
     const stores = selectedStores(input, known);
     const start = typeof input.start === "string" ? input.start : "";

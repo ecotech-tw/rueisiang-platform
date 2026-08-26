@@ -96,6 +96,39 @@ jobs:
             fi
           done
 
+      - name: 預檢完整月份 manifest secrets
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          SKIP_UPLOAD: ${{ inputs.skip_upload }}
+          NAS_STORAGE_URL: ${{ secrets.NAS_STORAGE_URL }}
+          NAS_STORAGE_TOKEN: ${{ secrets.NAS_STORAGE_TOKEN }}
+          PLATFORM_API_URL: ${{ secrets.PLATFORM_API_URL }}
+          CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
+        run: |
+          if [ "$SKIP_UPLOAD" = "true" ]; then
+            exit 0
+          elif [ -z "$START" ] || [ -z "$END" ]; then
+            if [ -z "$NAS_STORAGE_URL" ] || [ -z "$NAS_STORAGE_TOKEN" ] || [ -z "$PLATFORM_API_URL" ] || [ -z "$CYBERBIZ_REPORT_INGEST_TOKEN" ]; then
+              echo "::error::完整月份需要 NAS_STORAGE_URL、NAS_STORAGE_TOKEN、PLATFORM_API_URL 與 CYBERBIZ_REPORT_INGEST_TOKEN"
+              exit 1
+            fi
+          else
+            node --input-type=module -e '
+              const [year, month] = process.env.START.split("-").map(Number);
+              const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+              const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+              const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+              if (process.env.START !== monthStart || process.env.END !== monthEnd) process.exit(0);
+              const required = ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"];
+              const missing = required.filter((key) => !process.env[key]);
+              if (missing.length) {
+                console.error(`完整月份需要的 secret 未設定：${missing.join(", ")}`);
+                process.exit(1);
+              }
+            '
+          fi
+
       - name: 執行出金表
         id: payout
         env:

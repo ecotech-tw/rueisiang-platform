@@ -290,6 +290,23 @@ const customReportPath = await writeMarkdown(
 );
 check("自訂區間的報告檔名帶起訖日", path.basename(customReportPath), "2026-07-05~2026-07-20-出金表.md");
 
+const salesReport = {
+  ...run,
+  stores: [{
+    store: "甲店",
+    done: true,
+    total: { grossQuantity: 12, returnQuantity: 2, netQuantity: 10, salesAmount: 3456 },
+    sheetUrl: "https://drive.google.com/file/d/EXAMPLE",
+    steps: { export: "ok", fetch: "ok", verify: "ok", upload: "ok", manifest: "ok" },
+  }],
+};
+const salesReportPath = await writeMarkdown(salesReport, path.join(temp, "reports"), { kind: "sales" });
+const salesMarkdown = await fs.readFile(salesReportPath, "utf8");
+check("商品銷售報告標題正確", salesMarkdown.includes("# CYBERBIZ 商品銷售報表 2026-07"), true);
+check("商品銷售報告顯示淨銷售數與售額", salesMarkdown.includes("淨 10／售額 3,456"), true);
+check("商品銷售報告不會覆蓋出金報告", path.basename(salesReportPath), "2026-07-商品銷售報表.md");
+check("商品銷售終端摘要不會印出 object", terminalSummary(salesReport, { kind: "sales" }).includes("[object Object]"), false);
+
 // 6. config.json 完整性
 const config = await loadConfig();
 

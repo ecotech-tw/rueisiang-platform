@@ -58,6 +58,7 @@ beforeEach(async () => {
     GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
     GITHUB_TOKEN: "gh-token",
     PAYOUT_GITHUB_REPO: "ecotech-tw/rueisiang-platform",
+    PAYOUT_WORKFLOW_FILE: "payout.yml",
     CYBERBIZ_SALES_WORKFLOW_FILE: "cyberbiz-sales-report.yml",
     CYBERBIZ_SALES_GITHUB_REF: "main",
   };
@@ -119,5 +120,33 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     const response = await as(id, "manager@ecotech.tw", "/api/tools/cyberbiz-sales/state");
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ configured: false });
+  });
+
+  it("sales repository 分開設定時，店別設定仍同步到兩個 repository", async () => {
+    const calls = stubGithub();
+    env = { ...env, CYBERBIZ_SALES_GITHUB_REPO: "ecotech-tw/report-runner", CYBERBIZ_SALES_GITHUB_REF: "release" };
+    const id = await seedUser("admin@ecotech.tw", "role-admin");
+    const response = await as(id, "admin@ecotech.tw", "/api/tools/payout/stores", {
+      method: "PUT",
+      body: JSON.stringify({ stores: [{ name: "新店", driveFolderUrl: "https://drive.google.com/drive/folders/folder-id", driveFolderName: "新店" }] }),
+    });
+
+    expect(response.status).toBe(200);
+    const writes = calls.filter((call) => call.url.includes("/contents/tools/cyberbiz-monthly-payout/stores.json"));
+    expect(writes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ url: expect.stringContaining("/repos/ecotech-tw/rueisiang-platform/"), body: expect.objectContaining({ branch: "main" }) }),
+      expect.objectContaining({ url: expect.stringContaining("/repos/ecotech-tw/report-runner/"), body: expect.objectContaining({ branch: "release" }) }),
+    ]));
+  });
+
+  it("商品銷售執行收到 null body 時回傳 400", async () => {
+    stubGithub();
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+    const response = await as(id, "manager@ecotech.tw", "/api/tools/cyberbiz-sales/run", {
+      method: "POST",
+      body: "null",
+    });
+
+    expect(response.status).toBe(400);
   });
 });
