@@ -397,7 +397,7 @@ function LineGroupRow({
           {group.pictureUrl && !avatarFailed
             ? <img className="line-group-avatar" src={group.pictureUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
             : <span className="line-group-avatar is-fallback" aria-hidden="true">{(group.displayName || group.lineGroupId).slice(0, 1)}</span>}
-          <div>
+          <div className="line-group-main">
             <div className="line-group-label">
               <span className="status status-disabled">{sourceTypeLabel(group.sourceType)}</span>
             </div>

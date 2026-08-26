@@ -54,7 +54,8 @@ export type IconName =
   | "pageLast"
   | "chevronLeft"
   | "chevronRight"
-  | "external";
+  | "external"
+  | "attachment";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5.5v13M5.5 12h13" />,
@@ -293,6 +294,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   close: <path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6" />,
+  attachment: <path d="m8.5 12.9 6.1-6.1a3.2 3.2 0 0 1 4.5 4.5l-7.5 7.5a5 5 0 0 1-7.1-7.1l7.8-7.8a2.9 2.9 0 0 1 4.1 4.1l-7.2 7.2a1.5 1.5 0 0 1-2.1-2.1l6.5-6.5" />,
   bookmark: <path d="M7 4.2h10a.8.8 0 0 1 .8.8v14.4L12 16.1l-5.8 3.3V5a.8.8 0 0 1 .8-.8z" />,
   check: <path d="M5.2 12.6 9.8 17.2 18.8 7.4" />,
   calendar: (

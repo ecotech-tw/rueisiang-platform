@@ -364,7 +364,8 @@
 /* 撐滿剩餘高度、內部捲動的頁面。 */
 .page.fills { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .page.fills > .page-head,
-.page.fills > .stat-row { flex: none; }
+.page.fills > .stat-row,
+.page.fills > .ui-alert { flex: none; }
 .page.fills > .panel.grows {
   flex: 1;
   min-height: 0;
@@ -427,6 +428,7 @@
 .assistant-grid .panel { min-width: 0; }
 .assistant-sandbox-page { display: flex; height: 100%; min-height: 0; flex-direction: column; }
 .assistant-sandbox-page > .page-head { flex: none; margin-bottom: 12px; }
+.assistant-sandbox-page > .ui-alert { flex: none; }
 .assistant-sandbox-page > .assistant-sandbox-layout { flex: 1; min-height: 0; }
 .assistant-sandbox-page .panel { padding: 16px 18px; }
 .assistant-sandbox-page .panel-title { margin-bottom: 10px; }
@@ -476,6 +478,18 @@
 .assistant-message { align-self: start; max-width: 88%; padding: 9px 11px; border: 1px solid var(--color-line); border-radius: 11px; background: var(--color-paper); }
 .assistant-message-user { justify-self: end; border-color: color-mix(in srgb, var(--color-secondary) 35%, var(--color-line)); background: var(--color-brand-soft); }
 .assistant-message-model { justify-self: start; }
+.assistant-message-pending { min-width: 120px; }
+.assistant-typing { display: inline-flex; align-items: center; gap: 4px; min-height: 14px; }
+.assistant-typing > span { width: 6px; height: 6px; border-radius: 50%; background: var(--color-muted); animation: assistant-typing 1.2s ease-in-out infinite; }
+.assistant-typing > span:nth-child(2) { animation-delay: .15s; }
+.assistant-typing > span:nth-child(3) { animation-delay: .3s; }
+@keyframes assistant-typing {
+  0%, 60%, 100% { opacity: .35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-typing > span { animation: none; opacity: .8; }
+}
 .assistant-message-meta { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 6px; font-size: 12px; }
 .assistant-message-meta small { color: var(--color-muted); font-weight: 400; }
 .assistant-message pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.55; }
@@ -500,15 +514,19 @@
 .assistant-message-attachments img { width: 132px; height: 96px; object-fit: cover; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-canvas); }
 .assistant-chat-panel .assistant-input { min-height: 72px; max-height: 120px; }
 .assistant-chat-panel > .field { flex: none; gap: 4px; }
-.assistant-attachment-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; color: var(--color-secondary); font-size: 12px; }
-.assistant-attachment-picker input { max-width: 230px; color: var(--color-muted); font: inherit; }
-.assistant-attachment-picker small { color: var(--color-muted); }
+.assistant-composer-field > small { margin-top: 2px; }
+.assistant-attachment-input { display: none; }
 .assistant-pending-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 5px 0 7px; }
 .assistant-pending-attachments button { padding: 5px 8px; border: 1px solid var(--color-line); border-radius: 999px; background: var(--color-canvas); color: var(--color-ink); font: inherit; font-size: 12px; cursor: pointer; }
 .assistant-pending-attachments button:hover { border-color: var(--color-secondary); background: var(--color-brand-soft); }
+.assistant-pending-attachments button:disabled { opacity: .55; cursor: not-allowed; }
 .assistant-input-wrap { position: relative; }
-.assistant-input-wrap .assistant-input { padding-bottom: 27px; }
-.assistant-input-shortcut { position: absolute; right: 10px; bottom: 7px; pointer-events: none; color: var(--color-muted); opacity: .65; font-size: 11px; }
+.assistant-input-wrap .assistant-input { padding-bottom: 52px; }
+.assistant-composer-actions { position: absolute; right: 8px; bottom: 8px; left: 8px; display: flex; align-items: center; gap: 8px; }
+.assistant-composer-actions .assistant-attachment-button { flex: none; }
+.assistant-input-shortcut { margin: 0 auto; pointer-events: none; color: var(--color-muted); opacity: .65; font-size: 11px; }
+.assistant-composer-actions .primary-button { flex: none; }
+.assistant-composer-note { margin-top: 6px; }
 .assistant-modal-card { width: min(680px, 100%); }
 .assistant-modal-body { max-height: calc(100vh - 190px); }
 .assistant-modal-body .assistant-tool { cursor: pointer; }
@@ -657,7 +675,7 @@
 .copy-field .ghost-button { display: inline-flex; align-items: center; gap: 6px; }
 .copy-field svg { width: 17px; height: 17px; }
 .line-groups-table { margin-top: 22px; }
-.line-group-cell { display: flex; align-items: center; gap: 10px; }
+.line-group-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
 /* 32px 的圓形縮圖，跟 Material 的 list avatar 一致。 */
 .line-group-avatar {
   width: 32px;
@@ -675,6 +693,8 @@
   font-size: 13px;
   font-weight: 500;
 }
+.line-group-main { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.line-group-label { display: flex; align-items: center; flex: none; }
 .line-group-name { width: 150px; min-width: 0; padding: 7px 9px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-paper); color: var(--color-ink); font: inherit; }
 .line-groups-table code { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
 .empty-state { margin: 18px 0 0; padding: 18px; border: 1px dashed var(--color-line); border-radius: 10px; color: var(--color-muted); text-align: center; }
@@ -685,6 +705,19 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+.shopee-settings-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(180px, .8fr);
+  align-items: end;
+}
+.shopee-settings-form > .field { min-width: 0; }
+.shopee-settings-form > .ui-alert { grid-column: 1 / -1; }
+.shopee-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  grid-column: 1 / -1;
 }
 /* 跟在 .panel-head 後面時，距離由 panel-head 的 margin-bottom 決定，這裡不再疊加。 */
 /*
@@ -2029,20 +2062,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .chip button:hover { background: var(--color-brand); color: #fff; }
 
-.role-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 14px;
-  margin-top: 14px;
-}
-.role-card {
-  padding: 12px 14px;
-  border: 1px solid var(--color-soft-line);
-  border-radius: 11px;
-}
-/* list-style 要自己寫回來：Tailwind 的 preflight 把所有 ul 的項目符號拔掉了。 */
-.role-card ul { margin: 6px 0 0; padding-left: 18px; list-style: disc; color: var(--color-muted); font-size: 12px; }
-
 .link-button {
   padding: 0;
   border: 0;
@@ -3003,6 +3022,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .tag-create svg { width: 16px; height: 16px; flex: none; }
 
 @media (max-width: 760px) {
+  .shopee-settings-form { grid-template-columns: minmax(0, 1fr); }
+  .shopee-settings-actions { grid-column: auto; }
   .assistant-sandbox-layout { grid-template-columns: 1fr; }
   .assistant-chat-panel { min-height: 620px; }
   .assistant-session-bar { align-items: stretch; flex-direction: column; }

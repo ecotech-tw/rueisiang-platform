@@ -532,7 +532,7 @@ export function AdminUsers() {
   const directByUser = users.data?.directPermissions ?? {};
 
   return (
-    <div className="page">
+    <div className="page fills">
       <PageHeader
         title="權限管理"
         description={
@@ -540,7 +540,19 @@ export function AdminUsers() {
           邀請制：帳號要先出現在這份名單，對方才能用 Google 登入。停用或調整角色會在對方的下一個請求立即生效。
           </>
         }
+        actions={
+          <Button
+            variant="secondary"
+            loading={syncRoles.isPending}
+            loadingLabel="同步中…"
+            onClick={() => syncRoles.mutate()}
+          >
+            重新同步角色
+          </Button>
+        }
       />
+
+      {syncRoles.error ? <Alert tone="danger">{syncRoles.error.message}</Alert> : null}
 
       <Panel title="邀請新帳號">
         <InviteForm catalog={catalogData} onInviteUrl={(email, url) => setInviteLink({ email, url })} />
@@ -557,7 +569,7 @@ export function AdminUsers() {
         ) : null}
       </Panel>
 
-      <Panel title={`帳號（${list.length}）`}>
+      <Panel title={`帳號（${list.length}）`} className="grows">
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -585,37 +597,6 @@ export function AdminUsers() {
         </div>
       </Panel>
 
-      <Panel
-        title="角色各自能做什麼"
-        actions={
-          <Button
-            variant="secondary"
-            loading={syncRoles.isPending}
-            loadingLabel="同步中…"
-            onClick={() => syncRoles.mutate()}
-          >
-            重新同步
-          </Button>
-        }
-      >
-        <p className="muted">
-          權限清單定義在程式碼（<code>packages/auth/src/permissions.ts</code>），改過並部署之後按一次
-          「重新同步」就會寫進資料庫。這一頁改不了角色的內容，只能決定誰拿到哪個角色。
-        </p>
-        {syncRoles.error ? <Alert tone="danger">{syncRoles.error.message}</Alert> : null}
-        <div className="role-grid">
-          {catalogData.roles.map((role) => (
-            <div className="role-card" key={role.key}>
-              <div className="cell-strong">{role.name}</div>
-              <ul>
-                {role.permissions.map((permission) => (
-                  <li key={permission}>{catalogData.permissions[permission] ?? permission}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </Panel>
     </div>
   );
 }
