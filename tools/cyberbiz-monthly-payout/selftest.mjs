@@ -19,7 +19,7 @@ import {
   previousMonth,
   redact,
 } from "./lib/common.mjs";
-import { readSheet, readZipEntries, verifyPayoutFile, writeZipEntries } from "./lib/xlsx.mjs";
+import { parsePayoutReport, readSheet, readZipEntries, verifyPayoutFile, writeZipEntries } from "./lib/xlsx.mjs";
 import { addPayoutColumns } from "./lib/xlsx-columns.mjs";
 import { terminalSummary, writeMarkdown } from "./lib/report.mjs";
 
@@ -206,6 +206,14 @@ await makeFixture(fixture, {
 const verified = await verifyPayoutFile(fixture, { start: "2026-07-01", end: "2026-07-31" });
 check("出金合計", verified.total, 31161);
 check("資料列數", verified.rows, 4);
+const normalizedPayout = await parsePayoutReport(fixture, {
+  scopeId: "store-a",
+  scopeName: "測試店",
+  start: "2026-07-01",
+  end: "2026-07-31",
+});
+check("normalized 出金粒度", normalizedPayout.granularity, "day");
+check("normalized 出金合計", normalizedPayout.totals.incomeAmount, 31161);
 
 const wrongMonth = path.join(temp, "wrong.xlsx");
 await makeFixture(wrongMonth, {

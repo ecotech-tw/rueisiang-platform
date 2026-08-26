@@ -1,6 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
+import { link, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -17,14 +17,19 @@ const MIME_TO_EXTENSION = new Map([
   ["image/png", "png"],
   ["image/webp", "webp"],
   ["image/gif", "gif"],
+  ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"],
+  ["application/json", "json"],
 ]);
 
 const EXTENSION_TO_MIME = new Map(
   [...MIME_TO_EXTENSION].map(([mime, extension]) => [extension, mime]),
 );
+const IMAGE_EXTENSIONS = new Set(["jpg", "png", "webp", "gif"]);
+const REPORT_EXTENSIONS = new Set(["xlsx", "json"]);
 
 const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const GENERATED_FILENAME_PATTERN = new RegExp(`^${UUID_PATTERN}\\.(jpg|png|webp|gif)$`);
+const GENERATED_FILENAME_PATTERN = new RegExp(`^${UUID_PATTERN}\\.(jpg|png|webp|gif|xlsx|json)$`);
+const UUID_VALUE_PATTERN = new RegExp(`^${UUID_PATTERN}$`);
 
 class StorageHttpError extends Error {
   constructor(status, code, message) {
@@ -127,7 +132,7 @@ function safeScopeId(value) {
 function contentTypeFromRequest(request) {
   const contentType = headerValue(request.headers, "content-type")?.split(";", 1)[0].trim().toLowerCase();
   if (!contentType || !MIME_TO_EXTENSION.has(contentType)) {
-    throw new StorageHttpError(415, "unsupported_content_type", "只接受 JPEG、PNG、WebP 或 GIF 圖片。 ");
+    throw new StorageHttpError(415, "unsupported_content_type", "只接受圖片、XLSX 或 JSON。 ");
   }
   return contentType;
 }
@@ -139,19 +144,36 @@ function dateParts(now) {
   };
 }
 
-export function buildObjectKey({ namespace, scope, scopeId, contentType, now = new Date(), objectId = randomUUID() }) {
+export function buildObjectKey({ namespace, scope, scopeId, period, contentType, now = new Date(), objectId = randomUUID() }) {
   const normalizedNamespace = namespace?.trim().toLowerCase();
   const normalizedScope = scope?.trim().toLowerCase();
   const normalizedScopeId = typeof scopeId === "string" ? scopeId.trim() : undefined;
+  if (typeof objectId !== "string" || !UUID_VALUE_PATTERN.test(objectId.toLowerCase())) {
+    throw new StorageHttpError(400, "invalid_object_id", "objectId 必須是 UUID。 ");
+  }
+  const normalizedObjectId = objectId.toLowerCase();
   const extension = MIME_TO_EXTENSION.get(contentType);
   if (!extension) throw new StorageHttpError(415, "unsupported_content_type", "不支援的圖片格式。 ");
+  if ((normalizedNamespace === "assistant" || normalizedNamespace === "wms") && !IMAGE_EXTENSIONS.has(extension)) {
+    throw new StorageHttpError(415, "unsupported_content_type", "assistant 與 wms namespace 只接受圖片。 ");
+  }
+  if (normalizedNamespace === "reports" && !REPORT_EXTENSIONS.has(extension)) {
+    throw new StorageHttpError(415, "unsupported_content_type", "reports namespace 只接受 XLSX 或 JSON。 ");
+  }
 
   const { year, month } = dateParts(now);
   if (normalizedNamespace === "assistant" && normalizedScope === "vision" && safeScopeId(normalizedScopeId)) {
-    return `assistant/vision/${normalizedScopeId}/${year}/${month}/${objectId}.${extension}`;
+    return `assistant/vision/${normalizedScopeId}/${year}/${month}/${normalizedObjectId}.${extension}`;
   }
   if (normalizedNamespace === "wms" && normalizedScope === "zones" && safeScopeId(normalizedScopeId)) {
-    return `wms/zones/${normalizedScopeId}/${year}/${month}/${objectId}.${extension}`;
+    return `wms/zones/${normalizedScopeId}/${year}/${month}/${normalizedObjectId}.${extension}`;
+  }
+  if (normalizedNamespace === "reports" && normalizedScope === "cyberbiz" && safeScopeId(normalizedScopeId)) {
+    const normalizedPeriod = typeof period === "string" ? period.trim() : "";
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(normalizedPeriod)) {
+      throw new StorageHttpError(400, "invalid_report_period", "報表物件需要 YYYY-MM 的 period。 ");
+    }
+    return `reports/cyberbiz/${normalizedScopeId}/${normalizedPeriod.slice(0, 4)}/${normalizedPeriod.slice(5)}/${normalizedObjectId}.${extension}`;
   }
   throw new StorageHttpError(400, "invalid_storage_scope", "不支援的儲存 namespace 或 scope。 ");
 }
@@ -176,7 +198,11 @@ function validateObjectKey(key) {
     && parts[0] === "wms"
     && parts[1] === "zones"
     && safeScopeId(parts[2]);
-  const dateIndex = isAssistantKey ? 3 : isLegacyAssistantKey ? 2 : isWmsKey ? 3 : -1;
+  const isCyberbizReportKey = parts.length === 6
+    && parts[0] === "reports"
+    && parts[1] === "cyberbiz"
+    && safeScopeId(parts[2]);
+  const dateIndex = isAssistantKey ? 3 : isLegacyAssistantKey ? 2 : isWmsKey ? 3 : isCyberbizReportKey ? 3 : -1;
   if (dateIndex < 0 || !/^\d{4}$/.test(parts[dateIndex]) || !/^(0[1-9]|1[0-2])$/.test(parts[dateIndex + 1])) {
     throw new StorageHttpError(400, "invalid_object_key", "物件 key 無效。 ");
   }
@@ -226,12 +252,28 @@ async function storeRequestBody(request, objectPath, maxBytes) {
   try {
     await pipeline(request, limiter, writer);
     if (limiter.size === 0) throw new StorageHttpError(400, "empty_object", "不能儲存空的物件。 ");
-    await rename(temporaryPath, objectPath);
+
+    const incomingChecksum = limiter.hash.copy().digest("hex");
+    try {
+      // The temporary file is complete before this link. A hard link gives us
+      // an exclusive, same-filesystem create without exposing a partial file.
+      await link(temporaryPath, objectPath);
+      await rm(temporaryPath, { force: true });
+      return { size: limiter.size, checksum: incomingChecksum, reused: false };
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      const existing = await readFile(objectPath);
+      const existingChecksum = createHash("sha256").update(existing).digest("hex");
+      await rm(temporaryPath, { force: true });
+      if (existing.length !== limiter.size || existingChecksum !== incomingChecksum) {
+        throw new StorageHttpError(409, "object_key_conflict", "指定的 objectId 已經對應到不同內容。 ");
+      }
+      return { size: limiter.size, checksum: incomingChecksum, reused: true };
+    }
   } catch (error) {
     await rm(temporaryPath, { force: true });
     throw error;
   }
-  return { size: limiter.size, checksum: limiter.checksum() };
 }
 
 function rejectDeclaredLength(request, maxBytes) {
@@ -291,15 +333,17 @@ export function createStorageServer({
         const namespace = url.searchParams.get("namespace");
         const scope = url.searchParams.get("scope");
         const scopeId = url.searchParams.get("scopeId") || undefined;
+        const period = url.searchParams.get("period") || undefined;
+        const objectId = url.searchParams.get("objectId") || undefined;
         const contentType = contentTypeFromRequest(request);
-        key = buildObjectKey({ namespace, scope, scopeId, contentType, now: now() });
+        key = buildObjectKey({ namespace, scope, scopeId, period, contentType, objectId, now: now() });
         const resolved = resolveObjectPath(storageRoot, key);
         rejectDeclaredLength(request, maxBytes);
         await mkdir(path.dirname(resolved.path), { recursive: true, mode: 0o750 });
         const result = await storeRequestBody(request, resolved.path, maxBytes);
         bytes = result.size;
-        status = 201;
-        writeJson(response, 201, {
+        status = result.reused ? 200 : 201;
+        writeJson(response, status, {
           object: {
             checksum: result.checksum,
             contentType,

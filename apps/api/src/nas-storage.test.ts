@@ -9,6 +9,7 @@ import {
 const KEY = "assistant/vision/sandbox-chat/2026/08/00000000-0000-0000-0000-000000000001.png";
 const LEGACY_KEY = "assistant/vision/2026/08/00000000-0000-0000-0000-000000000003.png";
 const WMS_KEY = "wms/zones/zone-a/2026/08/00000000-0000-0000-0000-000000000002.png";
+const REPORT_KEY = "reports/cyberbiz/store-a/2026/07/00000000-0000-0000-0000-000000000004.json";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -72,6 +73,52 @@ describe("NAS storage client", () => {
     await expect(client.delete(KEY)).resolves.toBeUndefined();
     expect(fetcher).toHaveBeenCalledTimes(3);
     expect(String(fetcher.mock.calls[1]?.[0])).toContain("key=assistant%2Fvision%2Fsandbox-chat%2F2026%2F08%2F00000000-0000-0000-0000-000000000001.png");
+  });
+
+  it("報表上傳會帶 period 並接受 reports/cyberbiz object key", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("namespace")).toBe("reports");
+      expect(url.searchParams.get("scope")).toBe("cyberbiz");
+      expect(url.searchParams.get("scopeId")).toBe("store-a");
+      expect(url.searchParams.get("period")).toBe("2026-07");
+      expect(new Headers(init?.headers).get("content-type")).toBe("application/json");
+      return new Response(JSON.stringify({
+        object: { key: REPORT_KEY, size: 2, checksum: "0".repeat(64), contentType: "application/json" },
+      }), { status: 201 });
+    });
+    const client = nasStorageClient(
+      { NAS_STORAGE_URL: "https://storage.example.test", NAS_STORAGE_TOKEN: "storage-secret" },
+      { fetch: fetcher },
+    )!;
+
+    expect(isNasStorageKey(REPORT_KEY)).toBe(true);
+    await expect(client.put({
+      namespace: "reports",
+      scope: "cyberbiz",
+      scopeId: "store-a",
+      period: "2026-07",
+      objectId: "00000000-0000-0000-0000-000000000005",
+      contentType: "application/json",
+      body: new TextEncoder().encode("{}").buffer as ArrayBuffer,
+    })).resolves.toMatchObject({ key: REPORT_KEY });
+  });
+
+  it("head 只回傳 NAS object metadata，找不到時回傳 null", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      expect(new URL(String(input)).searchParams.get("key")).toBe(REPORT_KEY);
+      expect(init?.method).toBe("HEAD");
+      return new Response(null, {
+        status: 200,
+        headers: { "content-length": "42", "content-type": "application/json" },
+      });
+    });
+    const client = nasStorageClient(
+      { NAS_STORAGE_URL: "https://storage.example.test", NAS_STORAGE_TOKEN: "storage-secret" },
+      { fetch: fetcher },
+    )!;
+
+    await expect(client.head(REPORT_KEY)).resolves.toEqual({ key: REPORT_KEY, size: 42, contentType: "application/json" });
   });
 
   it("不接受任意路徑，gateway 的 HTML 錯誤也不會原樣流入平台", async () => {

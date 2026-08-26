@@ -194,3 +194,74 @@ export async function verifyPayoutFile(filePath, { start, end, firstDataRow = 3 
   }
   return { header, rows, total, maxRow };
 }
+
+/**
+ * 把每日出金表轉成查詢用的 normalized JSON。原始 XLSX 仍由 driver 上傳到 Drive；
+ * 這份結果只放 NAS，讓查詢不必重新解壓整本試算表。
+ */
+export async function parsePayoutReport(filePath, {
+  scopeType = "store",
+  scopeId,
+  scopeName = "",
+  start,
+  end,
+  parserVersion = "cyberbiz-payout-v1",
+  firstDataRow = 3,
+} = {}) {
+  const { cells, maxRow } = await readSheet(filePath);
+  const header = String(cells.get("A1") ?? "");
+  if (!header.includes(start) || !header.includes(end)) {
+    const error = new Error(`出金表的日期區間對不上（A1：${header || "空白"}）。`);
+    error.code = "RANGE_MISMATCH";
+    throw error;
+  }
+  if (String(cells.get("A2") ?? "") !== "關帳時間") {
+    const error = new Error(`出金表第一欄不是關帳時間（A2：${cells.get("A2") ?? "空白"}）。`);
+    error.code = "HEADER_MISMATCH";
+    throw error;
+  }
+  if (!scopeId) throw new Error("出金表 normalized JSON 需要 scopeId。");
+  if (!start || !end || start > end) throw new Error("出金表需要有效的 start 與 end。");
+
+  const rows = [];
+  for (let row = firstDataRow; row <= maxRow; row += 1) {
+    const closeAt = String(cells.get(`A${row}`) ?? "").trim();
+    if (!closeAt) continue;
+    const date = closeAt.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < start || date > end) {
+      const error = new Error(`出金表第 ${row} 列日期不在指定區間：${closeAt}`);
+      error.code = "RANGE_MISMATCH";
+      throw error;
+    }
+    const rawAmount = cells.get(`E${row}`);
+    const amount = typeof rawAmount === "number" ? rawAmount : Number(String(rawAmount ?? "").replace(/,/g, ""));
+    if (!Number.isFinite(amount)) throw new Error(`出金表第 ${row} 列收入金額不是數字。`);
+    rows.push({
+      date,
+      closeAt,
+      incomeAmount: amount,
+      incomeType: String(cells.get(`D${row}`) ?? "").trim(),
+      pos: String(cells.get(`F${row}`) ?? "").trim(),
+      operator: String(cells.get(`G${row}`) ?? "").trim(),
+    });
+  }
+  if (!rows.length) throw new Error("出金表沒有任何資料列。");
+
+  return {
+    schemaVersion: 1,
+    kind: "cyberbiz_payout_daily",
+    scopeType,
+    scopeId,
+    scopeName,
+    reportMonth: start.slice(0, 7),
+    coverageStart: start,
+    coverageEnd: end,
+    granularity: "day",
+    rows,
+    totals: {
+      incomeAmount: rows.reduce((total, item) => total + item.incomeAmount, 0),
+      rowCount: rows.length,
+    },
+    source: { filename: filePath.split(/[\\/]/).at(-1), parserVersion },
+  };
+}

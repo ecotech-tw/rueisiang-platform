@@ -3,9 +3,10 @@ import type { Env } from "./env.js";
 const OBJECTS_PATH = "/v1/objects";
 const STORAGE_TOKEN_HEADER = "x-storage-token";
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
-const GENERATED_KEY = /^(assistant\/vision\/(?:[A-Za-z0-9._-]{1,100}\/)?\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.[A-Za-z0-9]+|wms\/zones\/[A-Za-z0-9._-]{1,100}\/\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.[A-Za-z0-9]+)$/;
+const OBJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const GENERATED_KEY = /^(assistant\/vision\/(?:[A-Za-z0-9._-]{1,100}\/)?\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.[A-Za-z0-9]+|wms\/zones\/[A-Za-z0-9._-]{1,100}\/\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.[A-Za-z0-9]+|reports\/cyberbiz\/[A-Za-z0-9._-]{1,100}\/\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.(xlsx|json))$/;
 
-export type NasStorageNamespace = "assistant" | "wms";
+export type NasStorageNamespace = "assistant" | "wms" | "reports";
 
 export interface NasStorageObject {
   key: string;
@@ -14,17 +15,28 @@ export interface NasStorageObject {
   contentType: string;
 }
 
+export interface NasStorageHead {
+  key: string;
+  size: number;
+  contentType: string;
+}
+
 export interface NasStoragePutInput {
   namespace: NasStorageNamespace;
-  scope: "vision" | "zones";
+  scope: "vision" | "zones" | "cyberbiz";
   /** assistant vision uses the chat/session id; WMS zones use the zone id. */
   scopeId?: string;
+  /** CYBERBIZ reports are partitioned by the inclusive report month. */
+  period?: string;
+  /** Reports may provide a checksum-derived UUID so a retry reuses the same object. */
+  objectId?: string;
   contentType: string;
   body: ArrayBuffer;
 }
 
 export interface NasStorageClient {
   put(input: NasStoragePutInput): Promise<NasStorageObject>;
+  head(key: string): Promise<NasStorageHead | null>;
   get(key: string): Promise<Response | null>;
   delete(key: string): Promise<void>;
 }
@@ -157,6 +169,21 @@ function requestHeaders(token: string, contentType?: string): HeadersInit {
 }
 
 function validatePutInput(input: NasStoragePutInput): void {
+  if (input.namespace === "reports") {
+    if (input.scope !== "cyberbiz") {
+      throw new NasStorageError(400, "invalid_scope", "reports namespace 只支援 cyberbiz scope。 ");
+    }
+    if (!input.scopeId) {
+      throw new NasStorageError(400, "invalid_scope_id", "CYBERBIZ report upload 需要 scopeId。 ");
+    }
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.period ?? "")) {
+      throw new NasStorageError(400, "invalid_report_period", "CYBERBIZ report upload 需要 YYYY-MM 的 period。 ");
+    }
+    if (input.objectId && !OBJECT_ID.test(input.objectId)) {
+      throw new NasStorageError(400, "invalid_object_id", "CYBERBIZ report objectId 必須是 UUID。 ");
+    }
+    return;
+  }
   if (input.namespace === "assistant" && input.scope !== "vision") {
     throw new NasStorageError(400, "invalid_scope", "assistant namespace 只支援 vision scope。");
   }
@@ -192,6 +219,8 @@ export function nasStorageClient(
       url.searchParams.set("namespace", input.namespace);
       url.searchParams.set("scope", input.scope);
       if (input.scopeId) url.searchParams.set("scopeId", input.scopeId);
+      if (input.period) url.searchParams.set("period", input.period);
+      if (input.objectId) url.searchParams.set("objectId", input.objectId);
 
       const response = await fetcher(url, {
         method: "POST",
@@ -212,6 +241,27 @@ export function nasStorageClient(
         throw new NasStorageError(502, "invalid_response", "NAS storage gateway 沒有回傳有效的 object。");
       }
       return object;
+    },
+
+    async head(key) {
+      if (!isNasStorageKey(key)) {
+        throw new NasStorageError(400, "invalid_object_key", "NAS object key æ ¼å¼ä¸æ­£ç¢ºã€‚");
+      }
+      const response = await fetcher(objectUrl(baseUrl, key), {
+        method: "HEAD",
+        headers: requestHeaders(token),
+      });
+      if (response.status === 404) {
+        await response.body?.cancel();
+        return null;
+      }
+      if (!response.ok) throw await responseError(response);
+      const size = Number(response.headers.get("content-length"));
+      const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "";
+      if (!Number.isSafeInteger(size) || size <= 0 || !contentType) {
+        throw new NasStorageError(502, "invalid_response", "NAS storage gateway æ²’æœ‰å›žå‚³æœ‰æ•ˆçš„ object metadataã€‚");
+      }
+      return { key, size, contentType };
     },
 
     async get(key) {

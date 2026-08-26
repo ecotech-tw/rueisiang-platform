@@ -42,6 +42,10 @@ test("object keys are generated inside the allowed namespace layouts", () => {
     buildObjectKey({ namespace: "wms", scope: "zones", scopeId: "zone-a", contentType: "image/png", now }),
     /^wms\/zones\/zone-a\/2026\/08\/[0-9a-f-]+\.png$/,
   );
+  assert.match(
+    buildObjectKey({ namespace: "reports", scope: "cyberbiz", scopeId: "store-a", period: "2026-07", contentType: "application/json", now }),
+    /^reports\/cyberbiz\/store-a\/2026\/07\/[0-9a-f-]+\.json$/,
+  );
   assert.throws(
     () => buildObjectKey({ namespace: "assistant", scope: "vision", contentType: "image/jpeg", now }),
     /儲存 namespace 或 scope/,
@@ -153,6 +157,96 @@ test("WMS uploads require a safe zone id and path traversal never reaches the fi
       body: Buffer.from("zone image"),
     });
     assert.equal(invalidZone.status, 400);
+  } finally {
+    await stopServer(context);
+  }
+});
+
+test("CYBERBIZ report objects require a month and use the reports namespace", async () => {
+  const context = await startServer({ now: () => new Date("2026-08-24T08:00:00.000Z") });
+  try {
+    const upload = await fetch(`${context.baseUrl}/v1/objects?namespace=reports&scope=cyberbiz&scopeId=store-a&period=2026-07`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-storage-token": "storage-secret",
+      },
+      body: JSON.stringify({ kind: "cyberbiz_sales_monthly", period: "2026-07" }),
+    });
+    assert.equal(upload.status, 201);
+    const { object } = await upload.json();
+    assert.match(object.key, /^reports\/cyberbiz\/store-a\/2026\/07\/[0-9a-f-]+\.json$/);
+    assert.equal(object.contentType, "application/json");
+
+    const missingPeriod = await fetch(`${context.baseUrl}/v1/objects?namespace=reports&scope=cyberbiz&scopeId=store-a`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-storage-token": "storage-secret",
+      },
+      body: "{}",
+    });
+    assert.equal(missingPeriod.status, 400);
+    assert.equal((await missingPeriod.json()).error, "invalid_report_period");
+  } finally {
+    await stopServer(context);
+  }
+});
+
+test("report objectId makes retries idempotent and rejects different content", async () => {
+  const context = await startServer({ now: () => new Date("2026-08-24T08:00:00.000Z") });
+  try {
+    const query = "namespace=reports&scope=cyberbiz&scopeId=store-a&period=2026-07&objectId=00000000-0000-0000-0000-000000000010";
+    const first = await fetch(`${context.baseUrl}/v1/objects?${query}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-storage-token": "storage-secret" },
+      body: Buffer.from('{"same":true}'),
+    });
+    assert.equal(first.status, 201);
+    const firstObject = (await first.json()).object;
+
+    const retry = await fetch(`${context.baseUrl}/v1/objects?${query}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-storage-token": "storage-secret" },
+      body: Buffer.from('{"same":true}'),
+    });
+    assert.equal(retry.status, 200);
+    assert.deepEqual((await retry.json()).object, firstObject);
+
+    const conflict = await fetch(`${context.baseUrl}/v1/objects?${query}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-storage-token": "storage-secret" },
+      body: Buffer.from('{"same":false}'),
+    });
+    assert.equal(conflict.status, 409);
+    assert.equal((await conflict.json()).error, "object_key_conflict");
+  } finally {
+    await stopServer(context);
+  }
+});
+
+test("concurrent uploads with one report objectId keep one body and return idempotent results", async () => {
+  const context = await startServer({ now: () => new Date("2026-08-24T08:00:00.000Z") });
+  try {
+    const query = "namespace=reports&scope=cyberbiz&scopeId=store-a&period=2026-07&objectId=00000000-0000-0000-0000-000000000011";
+    const payload = Buffer.alloc(256 * 1024, 7);
+    const responses = await Promise.all([
+      fetch(`${context.baseUrl}/v1/objects?${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-storage-token": "storage-secret" },
+        body: payload,
+      }),
+      fetch(`${context.baseUrl}/v1/objects?${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-storage-token": "storage-secret" },
+        body: payload,
+      }),
+    ]);
+    assert.deepEqual(responses.map((response) => response.status).sort((a, b) => a - b), [200, 201]);
+    const objects = await Promise.all(responses.map((response) => response.json()));
+    assert.equal(objects[0].object.key, objects[1].object.key);
+    const stored = await readFile(path.join(context.root, ...objects[0].object.key.split("/")));
+    assert.deepEqual(stored, payload);
   } finally {
     await stopServer(context);
   }

@@ -30,6 +30,7 @@ import {
   loadAuthUser,
   resolveLineToolKeys,
   createDatabase,
+  type Database,
 } from "@rueisiang/db";
 import { can, type Permission } from "@rueisiang/auth";
 import { PLATFORM_TOOL_MAP } from "@rueisiang/tools";
@@ -47,6 +48,7 @@ import type {
   PiSandboxAgentRunRequest,
 } from "./pi-agent-contract.js";
 import { isNasStorageKey, nasStorageClient } from "./nas-storage.js";
+import { createCyberbizReportService } from "./cyberbiz-reports.js";
 import {
   PI_CODEX_PROVIDER_ID,
   isPiAssistantModel,
@@ -73,6 +75,22 @@ const MAX_HYDRATED_IMAGE_BYTES = 8 * 1024 * 1024;
 const IMAGE_MARKER_PREFIX = "[[nas-image:";
 const IMAGE_MARKER_SUFFIX = "]]";
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+type CyberbizReportService = ReturnType<typeof createCyberbizReportService>;
+
+/**
+ * 建立 assistant tool context 時不要立刻初始化 NAS client。
+ * NAS 目前是選用設定；若只缺其中一個值，只有真的執行 CYBERBIZ report tool 時才應該失敗，
+ * 不可以讓天氣、CRM 或 WMS tool 也一起被設定錯誤攔下來。
+ */
+export function lazyCyberbizReportService(db: Database, env: Env): CyberbizReportService {
+  let service: CyberbizReportService | undefined;
+  const get = () => service ??= createCyberbizReportService(db, nasStorageClient(env));
+  return {
+    querySales: (input) => get().querySales(input),
+    queryPayout: (input) => get().queryPayout(input),
+  };
+}
 
 interface ImageMarker {
   key: string;
@@ -760,6 +778,7 @@ export class AssistantChatAgent {
 
   private async authorizedLineTool(input: PiLineAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
     const db = createDatabase(this.env.DB);
+    const services = { cyberbizReports: lazyCyberbizReportService(db, this.env) };
     const [channel, group] = await Promise.all([
       getAssistantLineChannel(db, input.assistantKey),
       findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.groupRowId }),
@@ -782,11 +801,12 @@ export class AssistantChatAgent {
     if (!allowed.includes(toolKey)) throw new Error("這個工具目前沒有授權給這個 LINE 對話。");
     const tool = PLATFORM_TOOL_MAP.get(toolKey);
     if (!tool || !tool.surfaces.includes("line")) throw new Error("找不到這個 LINE 工具。");
-    return tool.execute(args, { surface: "line", db, env: this.env });
+    return tool.execute(args, { surface: "line", db, env: this.env, services });
   }
 
   private async authorizedSandboxTool(input: PiSandboxAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
     const db = createDatabase(this.env.DB);
+    const services = { cyberbizReports: lazyCyberbizReportService(db, this.env) };
     const [user, configuredTools, session] = await Promise.all([
       loadAuthUser(db, { id: input.actorUserId }),
       listAssistantToolConfigs(db),
@@ -811,7 +831,7 @@ export class AssistantChatAgent {
     if (tool.requiredPermissions?.some((permission) => !can(user, permission as Permission))) {
       throw new Error("使用者目前沒有執行這個 Sandbox 工具的權限。");
     }
-    return tool.execute(args, { surface: "sandbox", db, env: this.env, user });
+    return tool.execute(args, { surface: "sandbox", db, env: this.env, user, services });
   }
 
   private authorizedTool(input: PiAgentRunRequest, toolKey: string, args: unknown): Promise<string> {

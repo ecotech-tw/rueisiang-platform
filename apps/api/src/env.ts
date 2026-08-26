@@ -40,6 +40,10 @@ export interface Env {
   NAS_STORAGE_URL?: string;
   /** 私有 NAS storage gateway 的獨立 shared secret。 */
   NAS_STORAGE_TOKEN?: string;
+  /** Shared secret used by the monthly runner to publish CYBERBIZ manifests. */
+  CYBERBIZ_REPORT_INGEST_TOKEN?: string;
+  /** Shared secret used by the read-only CYBERBIZ reports MCP endpoint. */
+  CYBERBIZ_REPORT_MCP_TOKEN?: string;
   /** LINE Messaging API 憑證；只由 webhook 與回覆 transport 使用。 */
   LINE_CHANNEL_SECRET?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;

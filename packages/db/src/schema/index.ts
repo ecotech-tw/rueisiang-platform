@@ -3,6 +3,7 @@ export * from "./activity.js";
 export * from "./assistant.js";
 export * from "./auth.js";
 export * from "./crm.js";
+export * from "./cyberbiz-reports.js";
 export * from "./media.js";
 export * from "./tools.js";
 export * from "./wms.js";

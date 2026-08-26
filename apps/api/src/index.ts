@@ -25,7 +25,10 @@ import { health } from "./routes/health.js";
 import { PayoutGithubError } from "./payout/github.js";
 import { ShopeeSalesGithubError } from "./shopee-sales/github.js";
 import { tools } from "./routes/tools.js";
+import { cyberbizReports } from "./routes/cyberbiz-reports.js";
 import { shopeeSalesInternal } from "./routes/shopee-sales-internal.js";
+import { cyberbizReportsInternal } from "./routes/cyberbiz-reports-internal.js";
+import { cyberbizReportsMcp } from "./routes/cyberbiz-reports-mcp.js";
 import { wms } from "./routes/wms.js";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
 export { AssistantChatAgent } from "./pi-agent-do.js";
@@ -51,7 +54,10 @@ const routes = app
   .route("/assistant", assistant)
   .route("/crm", crm)
   .route("/internal/shopee-sales", shopeeSalesInternal)
+  .route("/internal/cyberbiz-reports", cyberbizReportsInternal)
+  .route("/mcp/cyberbiz-reports", cyberbizReportsMcp)
   .route("/tools", tools)
+  .route("/reports/cyberbiz", cyberbizReports)
   .route("/wms", wms)
   .route("/webhooks", webhooks);
 
@@ -136,7 +142,7 @@ app.onError((error, c) => {
       error: assistantErrorDetails(error),
     });
     return c.json(
-      { error: error.retryable ? "照片儲存服務暫時無法使用，請稍後再試。" : "照片儲存服務拒絕了這次請求。" },
+      { error: error.retryable ? "NAS 儲存服務暫時無法使用，請稍後再試。" : "NAS 儲存服務拒絕了這次請求。" },
       error.retryable ? 503 : 502,
     );
   }
