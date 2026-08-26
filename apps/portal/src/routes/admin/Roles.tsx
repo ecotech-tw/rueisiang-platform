@@ -1,7 +1,7 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useMemo, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel, TextField } from "../../ui/index.js";
 import {
   useCatalog,
   useCreateRole,
@@ -193,35 +193,30 @@ export function Roles() {
       </Panel>
 
       {editor ? (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !pending) setEditor(null);
+        <Dialog
+          title={editor.readOnly ? editor.name : editor.key ? "編輯角色" : "新增角色"}
+          className="wide"
+          onClose={() => setEditor(null)}
+          closeDisabled={pending}
+          formProps={{
+            onSubmit: (event) => {
+              event.preventDefault();
+              submit();
+            },
           }}
+          actions={
+            <>
+              <Button variant="secondary" type="button" onClick={() => setEditor(null)} disabled={pending}>
+                {editor.readOnly ? "關閉" : "取消"}
+              </Button>
+              {!editor.readOnly ? (
+                <Button type="submit" disabled={pending || !editor.name.trim()}>
+                  {editor.key ? "儲存" : "建立角色"}
+                </Button>
+              ) : null}
+            </>
+          }
         >
-          <div className="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="role-form-title">
-            <div className="modal-head">
-              <h2 id="role-form-title">
-                {editor.readOnly ? editor.name : editor.key ? "編輯角色" : "新增角色"}
-              </h2>
-              <Button
-                variant="icon"
-                icon="close"
-                onClick={() => setEditor(null)}
-                disabled={pending}
-                title="關閉"
-                aria-label="關閉"
-              />
-            </div>
-
-            <form
-              className="modal-body"
-              onSubmit={(event) => {
-                event.preventDefault();
-                submit();
-              }}
-            >
               {editor.readOnly ? (
                 <p className="muted">
                   這是系統內建角色，權限寫在程式碼裡，每次「重新同步」都會照著重寫，
@@ -297,23 +292,7 @@ export function Roles() {
                   </fieldset>
                 );
               })}
-            </form>
-
-            <div className="modal-actions">
-              <Button variant="secondary" onClick={() => setEditor(null)} disabled={pending}>
-                {editor.readOnly ? "關閉" : "取消"}
-              </Button>
-              {!editor.readOnly ? (
-                <Button
-                  onClick={submit}
-                  disabled={pending || !editor.name.trim()}
-                >
-                  {editor.key ? "儲存" : "建立角色"}
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        </div>
+        </Dialog>
       ) : null}
     </div>
   );

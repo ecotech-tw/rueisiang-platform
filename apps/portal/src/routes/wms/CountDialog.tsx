@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button } from "../../ui/index.js";
+import { Alert, Button, Dialog } from "../../ui/index.js";
 import { useCountItem, type InventoryItem } from "./api.js";
 
 /**
@@ -30,32 +30,27 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
   }
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !count.isPending) onClose();
+    <Dialog
+      title="盤點"
+      onClose={onClose}
+      closeDisabled={count.isPending}
+      formProps={{
+        onSubmit: (event) => {
+          event.preventDefault();
+          submit();
+        },
       }}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={count.isPending}>
+            取消
+          </Button>
+          <Button type="submit" disabled={!valid || count.isPending}>
+            {count.isPending ? "儲存中…" : "儲存盤點"}
+          </Button>
+        </>
+      }
     >
-      <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="count-title">
-        <div className="modal-head">
-          <h2 id="count-title">盤點</h2>
-          <Button
-            variant="icon"
-            icon="close"
-            onClick={onClose}
-            disabled={count.isPending}
-            aria-label="關閉"
-          />
-        </div>
-
-        <form
-          className="modal-body"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submit();
-          }}
-        >
           <div className="count-subject">
             <div className="cell-strong">{item.name}</div>
             <div className="cell-sub">
@@ -106,17 +101,6 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
           </label>
 
           {count.error ? <Alert tone="danger">{count.error.message}</Alert> : null}
-
-          <div className="modal-actions">
-            <Button variant="secondary" type="button" onClick={onClose} disabled={count.isPending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={!valid || count.isPending}>
-              {count.isPending ? "儲存中…" : "儲存盤點"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

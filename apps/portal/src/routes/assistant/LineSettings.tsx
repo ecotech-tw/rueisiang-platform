@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
 import { Switch } from "../../shell/Switch.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel } from "../../ui/index.js";
 import {
   useAddAssistantLineGroup,
   useAssistantLineConfig,
@@ -273,19 +273,32 @@ export function LineSettings() {
       </Panel>
 
       {toolsOpen ? (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setToolsOpen(false);
-          }}
+        <Dialog
+          title="設定小香在 LINE 能用的工具"
+          className="wide assistant-modal-card"
+          bodyClassName="assistant-modal-body"
+          onClose={() => setToolsOpen(false)}
+          actions={
+            <>
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => {
+                  setChannelToolKeys(data.channelTools.filter((key) => lineTools.some((tool) => tool.key === key)));
+                  setToolsOpen(false);
+                }}
+              >
+                取消
+              </Button>
+              <Button
+                disabled={saveChannelTools.isPending}
+                onClick={() => saveChannelTools.mutate(channelToolKeys, { onSuccess: () => setToolsOpen(false) })}
+              >
+                {saveChannelTools.isPending ? "儲存中…" : "儲存"}
+              </Button>
+            </>
+          }
         >
-          <div className="modal-card wide assistant-modal-card" role="dialog" aria-modal="true" aria-labelledby="line-channel-tools-title">
-            <div className="modal-head">
-              <h2 id="line-channel-tools-title">設定小香在 LINE 能用的工具</h2>
-              <Button variant="icon" icon="close" onClick={() => setToolsOpen(false)} title="關閉" aria-label="關閉" />
-            </div>
-            <div className="modal-body assistant-modal-body">
               <p className="muted">只列出支援 LINE 的工具。這裡沒開的，任何對話都拿不到。</p>
               <div className="assistant-tool-list">
                 {lineTools.map((tool) => {
@@ -311,18 +324,7 @@ export function LineSettings() {
                   );
                 })}
               </div>
-            </div>
-            <div className="modal-actions">
-              <Button variant="secondary" onClick={() => { setChannelToolKeys(data.channelTools.filter((key) => lineTools.some((tool) => tool.key === key))); setToolsOpen(false); }}>取消</Button>
-              <Button
-                disabled={saveChannelTools.isPending}
-                onClick={() => saveChannelTools.mutate(channelToolKeys, { onSuccess: () => setToolsOpen(false) })}
-              >
-                {saveChannelTools.isPending ? "儲存中…" : "儲存"}
-              </Button>
-            </div>
-          </div>
-        </div>
+        </Dialog>
       ) : null}
 
       {groupToolsFor ? (
@@ -425,19 +427,26 @@ function GroupToolsDialog({
   const [keys, setKeys] = useState<string[]>(group.tools);
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <Dialog
+      title={`${group.displayName || group.lineGroupId} 的工具`}
+      className="wide assistant-modal-card"
+      bodyClassName="assistant-modal-body"
+      onClose={onClose}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose}>取消</Button>
+          <Button
+            disabled={save.isPending}
+            onClick={() => save.mutate(
+              { id: group.id, toolMode: mode, toolKeys: keys },
+              { onSuccess: onClose },
+            )}
+          >
+            {save.isPending ? "儲存中…" : "儲存"}
+          </Button>
+        </>
+      }
     >
-      <div className="modal-card wide assistant-modal-card" role="dialog" aria-modal="true" aria-labelledby="line-group-tools-title">
-        <div className="modal-head">
-          <h2 id="line-group-tools-title">{group.displayName || group.lineGroupId} 的工具</h2>
-          <Button variant="icon" icon="close" onClick={onClose} title="關閉" aria-label="關閉" />
-        </div>
-        <div className="modal-body assistant-modal-body">
           <div className="assistant-tool-mode">
             <label className="assistant-inline-toggle">
               <input type="radio" name="toolMode" checked={mode === "inherit"} onChange={() => setMode("inherit")} />
@@ -480,20 +489,6 @@ function GroupToolsDialog({
             ) : <p className="empty-state">channel 還沒授權任何工具，這裡沒有東西可以挑。</p>
           ) : null}
           {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
-        </div>
-        <div className="modal-actions">
-          <Button variant="secondary" onClick={onClose}>取消</Button>
-          <Button
-            disabled={save.isPending}
-            onClick={() => save.mutate(
-              { id: group.id, toolMode: mode, toolKeys: keys },
-              { onSuccess: onClose },
-            )}
-          >
-            {save.isPending ? "儲存中…" : "儲存"}
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -439,19 +439,13 @@ export function Sandbox() {
     </div>
 
       {revisionsOpen ? (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setRevisionsOpen(false);
-          }}
+        <Dialog
+          title="Revision history"
+          className="wide assistant-modal-card"
+          bodyClassName="assistant-modal-body"
+          onClose={() => setRevisionsOpen(false)}
+          actions={<Button variant="secondary" type="button" onClick={() => setRevisionsOpen(false)}>關閉</Button>}
         >
-          <div className="modal-card wide assistant-modal-card" role="dialog" aria-modal="true" aria-labelledby="assistant-revision-title">
-            <div className="modal-head">
-              <h2 id="assistant-revision-title">Revision history</h2>
-              <Button variant="icon" icon="close" onClick={() => setRevisionsOpen(false)} title="關閉" aria-label="關閉" />
-            </div>
-            <div className="modal-body assistant-modal-body">
               <p className="muted">選擇一個 revision 載入到目前的 System prompt 編輯器。</p>
               <div className="assistant-revisions">
                 {data.revisions.map((revision) => (
@@ -469,28 +463,17 @@ export function Sandbox() {
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="modal-actions">
-              <Button variant="secondary" onClick={() => setRevisionsOpen(false)}>關閉</Button>
-            </div>
-          </div>
-        </div>
+        </Dialog>
       ) : null}
 
       {toolsOpen ? (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setToolsOpen(false);
-          }}
+        <Dialog
+          title="設定可調用的 tools"
+          className="wide assistant-modal-card"
+          bodyClassName="assistant-modal-body"
+          onClose={() => setToolsOpen(false)}
+          actions={<Button type="button" onClick={() => setToolsOpen(false)}>完成</Button>}
         >
-          <div className="modal-card wide assistant-modal-card" role="dialog" aria-modal="true" aria-labelledby="assistant-tools-title">
-            <div className="modal-head">
-              <h2 id="assistant-tools-title">設定可調用的 tools</h2>
-              <Button variant="icon" icon="close" onClick={() => setToolsOpen(false)} title="關閉" aria-label="關閉" />
-            </div>
-            <div className="modal-body assistant-modal-body">
               <p className="muted">勾選後會在下一次 Sandbox 執行時送給模型；「開發中」工具只可在 Sandbox 使用。</p>
               <div className="assistant-tool-list">
                 {data.tools.map((tool) => (
@@ -513,12 +496,7 @@ export function Sandbox() {
                   </label>
                 ))}
               </div>
-            </div>
-            <div className="modal-actions">
-              <Button onClick={() => setToolsOpen(false)}>完成</Button>
-            </div>
-          </div>
-        </div>
+        </Dialog>
       ) : null}
 
     </div>

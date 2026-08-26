@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button } from "../../ui/index.js";
+import { Alert, Button, Dialog } from "../../ui/index.js";
 import { useUpdateSettings } from "./api.js";
 
 /**
@@ -33,26 +33,32 @@ export function CanvasDialog({
     Number.isFinite(parsedHeight) && parsedHeight >= 550 && parsedHeight <= 2000;
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !update.isPending) onClose();
-    }}>
-      <div className="modal-card confirm-card" role="dialog" aria-modal="true" aria-labelledby="canvas-title">
-        <div className="modal-head">
-          <h2 id="canvas-title">畫布大小</h2>
-          <Button variant="icon" icon="close" type="button" onClick={onClose} disabled={update.isPending} aria-label="關閉" />
-        </div>
-
-        <form
-          className="modal-body"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!valid) return;
-            update.mutate(
-              { canvasWidth: Math.round(parsedWidth), canvasHeight: Math.round(parsedHeight) },
-              { onSuccess: onClose },
-            );
-          }}
-        >
+    <Dialog
+      title="畫布大小"
+      className="confirm-card"
+      onClose={onClose}
+      closeDisabled={update.isPending}
+      formProps={{
+        onSubmit: (event) => {
+          event.preventDefault();
+          if (!valid) return;
+          update.mutate(
+            { canvasWidth: Math.round(parsedWidth), canvasHeight: Math.round(parsedHeight) },
+            { onSuccess: onClose },
+          );
+        },
+      }}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>
+            取消
+          </Button>
+          <Button type="submit" disabled={!valid || update.isPending}>
+            {update.isPending ? "儲存中…" : "套用畫布大小"}
+          </Button>
+        </>
+      }
+    >
           <p className="muted">
             放大畫布可以容納更多倉位。既有的區塊會維持相對位置與比例，不會跑掉。
           </p>
@@ -106,16 +112,6 @@ export function CanvasDialog({
 
           {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
 
-          <div className="modal-actions">
-            <Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={!valid || update.isPending}>
-              {update.isPending ? "儲存中…" : "套用畫布大小"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

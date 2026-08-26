@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button } from "../../ui/index.js";
+import { Alert, Button, Dialog } from "../../ui/index.js";
 import { CATEGORY_COLORS, useUpdateCategory, type ProductCategory } from "./api.js";
 
 /**
@@ -53,27 +53,29 @@ export function CategoryDialog({
   const renaming = trimmed !== category.name;
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !update.isPending) onClose();
+    <Dialog
+      title="編輯分類"
+      className="confirm-card"
+      onClose={onClose}
+      closeDisabled={update.isPending}
+      formProps={{
+        onSubmit: (event) => {
+          event.preventDefault();
+          if (!trimmed) return;
+          update.mutate({ id: category.id, name: trimmed, color }, { onSuccess: onClose });
+        },
       }}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>
+            取消
+          </Button>
+          <Button type="submit" disabled={!trimmed || update.isPending}>
+            {update.isPending ? "儲存中…" : "儲存"}
+          </Button>
+        </>
+      }
     >
-      <div className="modal-card confirm-card" role="dialog" aria-modal="true" aria-labelledby="category-title">
-        <div className="modal-head">
-          <h2 id="category-title">編輯分類</h2>
-          <Button variant="icon" icon="close" type="button" onClick={onClose} disabled={update.isPending} aria-label="關閉" />
-        </div>
-
-        <form
-          className="modal-body"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!trimmed) return;
-            update.mutate({ id: category.id, name: trimmed, color }, { onSuccess: onClose });
-          }}
-        >
           <label className="field">
             <span>名稱<b>必填</b></span>
             <input
@@ -98,17 +100,6 @@ export function CategoryDialog({
           </div>
 
           {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
-
-          <div className="modal-actions">
-            <Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={!trimmed || update.isPending}>
-              {update.isPending ? "儲存中…" : "儲存"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

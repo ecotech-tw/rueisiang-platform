@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button } from "../../ui/index.js";
+import { Alert, Button, Dialog } from "../../ui/index.js";
 import {
   CATEGORY_COLORS,
   useCreateElement,
@@ -36,31 +36,54 @@ export function ElementDialog({
   const trimmed = label.trim();
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !pending) onClose();
-    }}>
-      <div className="modal-card confirm-card" role="dialog" aria-modal="true" aria-labelledby="element-title">
-        <div className="modal-head">
-          <h2 id="element-title">{element ? "編輯標籤" : "新增標籤"}</h2>
-          <Button variant="icon" icon="close" type="button" onClick={onClose} disabled={pending} aria-label="關閉" />
-        </div>
-
-        <form
-          className="modal-body"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!trimmed) return;
-            if (element) update.mutate({ id: element.id, label: trimmed, color }, { onSuccess: onClose });
-            else {
-              create.mutate({ label: trimmed, color }, {
-                onSuccess: () => {
-                  toast.show("標籤已新增，拖到定位即可");
-                  onClose();
-                },
-              });
-            }
-          }}
-        >
+    <Dialog
+      title={element ? "編輯標籤" : "新增標籤"}
+      className="confirm-card"
+      onClose={onClose}
+      closeDisabled={pending}
+      formProps={{
+        onSubmit: (event) => {
+          event.preventDefault();
+          if (!trimmed) return;
+          if (element) update.mutate({ id: element.id, label: trimmed, color }, { onSuccess: onClose });
+          else {
+            create.mutate({ label: trimmed, color }, {
+              onSuccess: () => {
+                toast.show("標籤已新增，拖到定位即可");
+                onClose();
+              },
+            });
+          }
+        },
+      }}
+      actions={
+        <>
+          {element ? (
+            <Button
+              variant="secondary"
+              className="danger"
+              disabled={pending}
+              onClick={() =>
+                remove.mutate(element.id, {
+                  onSuccess: () => {
+                    toast.show(`已刪除「${element.label}」`);
+                    onDeleted();
+                  },
+                })
+              }
+            >
+              刪除
+            </Button>
+          ) : null}
+          <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
+            取消
+          </Button>
+          <Button type="submit" disabled={!trimmed || pending}>
+            {pending ? "儲存中…" : element ? "儲存" : "新增標籤"}
+          </Button>
+        </>
+      }
+    >
           <label className="field">
             <span>標籤文字<b>必填</b></span>
             <input
@@ -93,34 +116,6 @@ export function ElementDialog({
           </div>
 
           {error ? <Alert tone="danger">{error.message}</Alert> : null}
-
-          <div className="modal-actions">
-            {element ? (
-              <Button
-                variant="secondary"
-                className="danger"
-                disabled={pending}
-                onClick={() =>
-                  remove.mutate(element.id, {
-                    onSuccess: () => {
-                      toast.show(`已刪除「${element.label}」`);
-                      onDeleted();
-                    },
-                  })
-                }
-              >
-                刪除
-              </Button>
-            ) : null}
-            <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={!trimmed || pending}>
-              {pending ? "儲存中…" : element ? "儲存" : "新增標籤"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

@@ -5,7 +5,7 @@ import {
   taiwanDistricts,
   type TaiwanCity,
 } from "../../lib/taiwan-address.js";
-import { Alert, Button } from "../../ui/index.js";
+import { Alert, Button, Dialog } from "../../ui/index.js";
 import {
   parseTags,
   useCreateCustomer,
@@ -79,29 +79,27 @@ export function CustomerForm({ customer, onClose }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !pending) onClose();
-    }}>
-      <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="customer-form-title">
-        <div className="modal-head">
-          <h2 id="customer-form-title">{customer ? "編輯客戶" : "新增客人"}</h2>
-          <Button
-            variant="icon"
-            icon="close"
-            onClick={onClose}
-            disabled={pending}
-            title="關閉"
-            aria-label="關閉"
-          />
-        </div>
-
-        <form
-          className="modal-body"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submit();
-          }}
-        >
+    <Dialog
+      title={customer ? "編輯客戶" : "新增客人"}
+      onClose={onClose}
+      closeDisabled={pending}
+      formProps={{
+        onSubmit: (event) => {
+          event.preventDefault();
+          submit();
+        },
+      }}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
+            取消
+          </Button>
+          <Button type="submit" disabled={pending || !fields.phone.trim()}>
+            {pending ? "儲存中…" : customer ? "儲存" : "新增客人"}
+          </Button>
+        </>
+      }
+    >
           <label className="field">
             <span>電話<b>必填</b></span>
             <input
@@ -194,16 +192,6 @@ export function CustomerForm({ customer, onClose }: Props) {
 
           {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
-          <div className="modal-actions">
-            <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={pending || !fields.phone.trim()}>
-              {pending ? "儲存中…" : customer ? "儲存" : "新增客人"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Button, Dialog } from "../ui/index.js";
 
 /**
  * 確認對話框。取代 `window.confirm`。
@@ -48,45 +49,35 @@ export function ConfirmDialog({
   }, [onCancel, pending]);
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !pending) onCancel();
-      }}
-    >
-      <div
-        className="modal-card confirm-card"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="confirm-title"
-      >
-        <div className="modal-head">
-          <h2 id="confirm-title">{title}</h2>
-        </div>
-
-        <div className="modal-body confirm-body">{children}</div>
-
-        <div className="modal-actions">
-          <button
-            type="button"
-            className="ghost-button"
+    <Dialog
+      title={title}
+      className="confirm-card"
+      bodyClassName="confirm-body"
+      role="alertdialog"
+      showClose={false}
+      closeDisabled={pending}
+      onClose={onCancel}
+      actions={
+        <>
+          <Button
+            variant="secondary"
             ref={cancelRef}
             onClick={onCancel}
             disabled={pending}
           >
             {cancelLabel}
-          </button>
-          <button
-            type="button"
-            className={tone === "danger" ? "primary-button danger" : "primary-button"}
+          </Button>
+          <Button
+            variant={tone === "danger" ? "danger" : "primary"}
             onClick={onConfirm}
             disabled={pending}
           >
             {pending ? "處理中…" : confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </>
+      }
+    >
+      {children}
+    </Dialog>
   );
 }
