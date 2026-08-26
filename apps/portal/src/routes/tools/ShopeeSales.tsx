@@ -1,17 +1,8 @@
 import { useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Field, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, Field, PageHeader, Panel, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import { useRunShopeeSales, useShopeeSalesState, useShopeeSalesStatus } from "./api.js";
-
-const STEP_MARK: Record<string, string> = { completed: "✓", in_progress: "▶" };
-
-function stepClass(step: { status: string; conclusion: string | null }): string {
-  if (step.conclusion === "failure") return "step fail";
-  if (step.status === "completed") return "step done";
-  if (step.status === "in_progress") return "step doing";
-  return "step";
-}
 
 function formatDate(value: string): string {
   const parsed = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
@@ -60,13 +51,13 @@ export function ShopeeSales() {
         {state.data?.settings.driveFolderUrl ? <p className="muted table-note">上傳位置：<a className="link-external" href={state.data.settings.driveFolderUrl} target="_blank" rel="noopener noreferrer">{state.data.settings.driveFolderName || "Google Drive 資料夾"}<Icon name="external" /></a></p> : null}
       </Panel>
 
-      {followed ? <Panel
-        title={tracking ? "這次執行" : "上一次執行"}
-        actions={latest ? <StatusBadge tone={latest.status !== "completed" ? "info" : latest.conclusion === "success" ? "success" : "danger"}>{latest.status !== "completed" ? "執行中" : latest.conclusion === "success" ? "完成" : "未完成"}</StatusBadge> : <StatusBadge tone="info">等待 GitHub 建立工作…</StatusBadge>}
-      >
-        {status.data?.steps.length ? <ol className="step-list">{status.data.steps.map((step, index) => <li className={stepClass(step)} key={`${step.name}-${index}`}><span className="step-mark">{STEP_MARK[step.status] ?? "·"}</span>{step.name}</li>)}</ol> : null}
-        {latest?.url ? <p className="muted table-note"><a href={latest.url} target="_blank" rel="noopener noreferrer">在 GitHub 看完整紀錄</a></p> : null}
-      </Panel> : null}
+      {followed ? (
+        <WorkflowRunPanel
+          tracking={Boolean(tracking)}
+          latest={latest}
+          steps={status.data?.steps ?? []}
+        />
+      ) : null}
 
       <Panel title="最近上傳">
         <div className="table-scroll"><table className="data-table"><thead><tr><th>時間</th><th>區間</th><th>Drive 資料夾</th><th>執行的人</th></tr></thead><tbody>

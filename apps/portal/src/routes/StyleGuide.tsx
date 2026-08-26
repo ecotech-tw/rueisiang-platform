@@ -4,7 +4,18 @@ import { Icon, type IconName } from "../shell/icons.js";
 import { Pager } from "../shell/Pager.js";
 import { Switch } from "../shell/Switch.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { Alert, Button, Field, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../ui/index.js";
+import {
+  Alert,
+  Button,
+  Dialog,
+  Field,
+  PageHeader,
+  Panel,
+  SelectField,
+  StatusBadge,
+  TextField,
+  WorkflowRunPanel,
+} from "../ui/index.js";
 
 const TOKENS = [
   { label: "主要色彩", variable: "--color-brand" },
@@ -26,6 +37,7 @@ export function StyleGuide() {
   const [range, setRange] = useState({ start: "2026-07-01", end: "2026-07-31" });
   const [page, setPage] = useState(3);
   const [message, setMessage] = useState("按下按鈕測試共用元件的互動狀態。");
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   return (
     <div className="page style-guide">
@@ -80,6 +92,7 @@ export function StyleGuide() {
             <Button variant="icon" icon="search" aria-label="搜尋" />
             <Button disabled>停用</Button>
             <Button loading>處理中</Button>
+            <Button variant="secondary" onClick={() => setDialogOpen(true)}>預覽 Dialog</Button>
           </div>
           <div className="style-guide-row">
             <StatusBadge tone="success">已完成</StatusBadge>
@@ -90,6 +103,18 @@ export function StyleGuide() {
           </div>
           <p className="form-hint">互動回饋：{message}</p>
         </div>
+      </Panel>
+
+      <Panel title="對話框與工作狀態" description="Dialog 統一遮罩、標題列、關閉行為與 actions；WorkflowRunPanel 統一 GitHub Actions 的狀態與步驟。">
+        <WorkflowRunPanel
+          tracking
+          latest={{ status: "in_progress", conclusion: null }}
+          steps={[
+            { name: "取得報表", status: "completed", conclusion: "success" },
+            { name: "整理並上傳", status: "in_progress", conclusion: null },
+            { name: "完成", status: "queued", conclusion: null },
+          ]}
+        />
       </Panel>
 
       <Panel title="表單與控制項" description="Field、TextField、SelectField 與既有 DateRangePicker / Switch 都可用 props 組合。">
@@ -137,6 +162,16 @@ export function StyleGuide() {
           {ICONS.map((name) => <div className="style-guide-icon" key={name}><Icon name={name} /><code>{name}</code></div>)}
         </div>
       </Panel>
+
+      {dialogOpen ? (
+        <Dialog
+          title="共用 Dialog 預覽"
+          onClose={() => setDialogOpen(false)}
+          actions={<Button type="button" onClick={() => setDialogOpen(false)}>完成</Button>}
+        >
+          <p>頁面只提供內容與 actions，遮罩、標題列、ARIA 與關閉按鈕由 Dialog 統一處理。</p>
+        </Dialog>
+      ) : null}
     </div>
   );
 }
