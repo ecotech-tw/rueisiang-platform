@@ -172,11 +172,13 @@ export function createRelayServer({
     };
     const timeout = setTimeout(() => abort("relay-timeout"), requestTimeoutMs);
     const abortFromClient = () => {
-      if (!response.writableFinished) abort("client-disconnected");
+      if (request.aborted || (!request.complete && request.destroyed)) {
+        abort("client-disconnected");
+      }
     };
     let upstreamStatus;
     request.once("aborted", abortFromClient);
-    response.once("close", abortFromClient);
+    request.once("close", abortFromClient);
 
     try {
       const targetUrl = new URL(upstreamUrl.toString());
@@ -234,7 +236,7 @@ export function createRelayServer({
     } finally {
       clearTimeout(timeout);
       request.off("aborted", abortFromClient);
-      response.off("close", abortFromClient);
+      request.off("close", abortFromClient);
     }
   };
 

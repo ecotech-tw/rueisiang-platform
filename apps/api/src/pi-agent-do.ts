@@ -74,6 +74,8 @@ const COMPACTION_RETRY_DELAY_MS = 60_000;
 const MODEL_MAX_OUTPUT_TOKENS = 1_200;
 const LINE_MAX_REPLY_CHARS = 4_500;
 const MAX_HYDRATED_IMAGE_BYTES = 8 * 1024 * 1024;
+const IMAGE_CONTEXT_BYTES_PER_TOKEN = 128;
+const MIN_IMAGE_CONTEXT_TOKENS = 256;
 const IMAGE_MARKER_PREFIX = "[[nas-image:";
 const IMAGE_MARKER_SUFFIX = "]]";
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -314,6 +316,25 @@ function isExpiredImageMarker(marker: ImageMarker, now = Date.now()): boolean {
   if (!marker.expiresAt) return false;
   const expiresAt = Date.parse(marker.expiresAt);
   return !Number.isFinite(expiresAt) || expiresAt <= now;
+}
+
+function estimatedImageContextTokens(marker: ImageMarker): number {
+  const size = marker.size ?? MAX_HYDRATED_IMAGE_BYTES;
+  return Math.max(MIN_IMAGE_CONTEXT_TOKENS, Math.ceil(size / IMAGE_CONTEXT_BYTES_PER_TOKEN));
+}
+
+function estimatedContextTokens(message: AgentMessage): number {
+  const raw = message as AgentMessage & { content?: unknown };
+  if (message.role !== "user" || !Array.isArray(raw.content)) return estimateTokens(message);
+
+  const imageTokens = raw.content.reduce((total, item) => {
+    if (!item || typeof item !== "object" || (item as { type?: unknown }).type !== "text") return total;
+    const text = (item as { text?: unknown }).text;
+    if (typeof text !== "string") return total;
+    const marker = parseImageMarker(text);
+    return marker ? total + estimatedImageContextTokens(marker) : total;
+  }, 0);
+  return estimateTokens(message) + imageTokens;
 }
 
 function sanitizedMessage(message: AgentMessage, attachments: PiAgentAttachment[] = []): AgentMessage {
@@ -673,7 +694,7 @@ export class AssistantChatAgent {
     let start = rows.length;
     while (start > 0) {
       const next = rows[start - 1]!;
-      const nextTokens = estimateTokens(next.message);
+      const nextTokens = estimatedContextTokens(next.message);
       if (start < rows.length && retainedTokens + nextTokens > maxTokens) break;
       start -= 1;
       retainedTokens += nextTokens;
@@ -940,18 +961,13 @@ export class AssistantChatAgent {
     }
     // 摘要筆數是對完整升冪 D1 transcript 計算；先取完整序列再切掉摘要涵蓋的 prefix，
     // 才不會因為最新視窗只有 100 筆而把已摘要的舊訊息重新送進 Pi context。
-    const history = session.contextSummary.trim()
+    const summary = session.contextSummary.trim();
+    const history = summary
       ? (await listAllAssistantSandboxMessages(db, session.id))
         .slice(Math.max(session.contextSummaryMessageCount, 0))
         .slice(-100)
       : await listAssistantSandboxMessages(db, session.id, 100);
     const bootstrapMessages: SandboxBootstrapMessage[] = [
-      ...(session.contextSummary.trim()
-        ? [
-          { role: "user" as const, text: `[Earlier conversation summary]\n${session.contextSummary.trim()}` },
-          { role: "model" as const, text: "我會把這份摘要當成目前對話的既有背景。", model: session.model },
-        ]
-        : []),
       ...history.map((message) => ({
         role: message.role as "user" | "model",
         text: message.text,
@@ -959,6 +975,22 @@ export class AssistantChatAgent {
         ...(message.role === "user" ? { attachments: storedAttachments(message.attachments) } : {}),
       })),
     ];
+    if (!summary && !bootstrapMessages.length) return;
+
+    if (summary) {
+      const summaryTokens = Math.max(1, Math.ceil(summary.length / 4));
+      this.sql.exec(
+        `UPDATE assistant_agent_state SET
+           summary = ?, summary_through_seq = 0, summary_tokens = ?, tokens_before = ?, updated_at = ?
+         WHERE singleton = 1 AND generation = ?`,
+        summary,
+        summaryTokens,
+        summaryTokens,
+        Date.now(),
+        state.generation,
+      );
+    }
+
     if (!bootstrapMessages.length) return;
 
     const bootstrapRunId = `bootstrap:${state.generation}`;
@@ -1027,7 +1059,7 @@ export class AssistantChatAgent {
 
   private estimatedStoredContextTokens(state: AgentStateRow): number {
     return this.loadMessageRows(state).reduce(
-      (total, row) => total + estimateTokens(row.message),
+      (total, row) => total + estimatedContextTokens(row.message),
       state.summary ? state.summary_tokens : 0,
     );
   }
@@ -1044,16 +1076,25 @@ export class AssistantChatAgent {
         ? state.model
         : DEFAULT_PI_CODEX_MODEL;
     const sourceRows = this.loadMessageRows(state);
+    const storedTokens = sourceRows.reduce(
+      (total, row) => total + estimatedContextTokens(row.message),
+      state.summary_tokens,
+    );
+    if (storedTokens <= COMPACT_AFTER_TOKENS) return false;
+
     const hydratedMessages = await this.hydrateMessages(sourceRows.map((row) => row.message));
-    const rows = sourceRows.map((row, index) => ({ ...row, message: hydratedMessages[index]! }));
-    const totalTokens = rows.reduce((total, row) => total + estimateTokens(row.message), state.summary_tokens);
-    if (totalTokens <= COMPACT_AFTER_TOKENS) return false;
+    const rows = sourceRows.map((row, index) => ({
+      ...row,
+      message: hydratedMessages[index]!,
+      estimatedTokens: estimatedContextTokens(row.message),
+    }));
+    const totalTokens = rows.reduce((total, row) => total + row.estimatedTokens, state.summary_tokens);
 
     let retainedTokens = 0;
     let retainedStart = rows.length;
     while (retainedStart > 0 && retainedTokens < COMPACT_KEEP_RECENT_TOKENS) {
       retainedStart -= 1;
-      retainedTokens += estimateTokens(rows[retainedStart]!.message);
+      retainedTokens += rows[retainedStart]!.estimatedTokens;
     }
     while (retainedStart < rows.length && rows[retainedStart]?.message.role !== "user") retainedStart += 1;
     if (retainedStart <= 0 || retainedStart >= rows.length) return false;
@@ -1064,7 +1105,7 @@ export class AssistantChatAgent {
       summarizeEnd < retainedStart
       && (summarizedTokens < COMPACT_BATCH_TOKENS || summarizeEnd === 0)
     ) {
-      summarizedTokens += estimateTokens(rows[summarizeEnd]!.message);
+      summarizedTokens += rows[summarizeEnd]!.estimatedTokens;
       summarizeEnd += 1;
     }
     while (summarizeEnd < retainedStart && rows[summarizeEnd]?.message.role !== "user") summarizeEnd += 1;
@@ -1107,7 +1148,7 @@ export class AssistantChatAgent {
     const summaryTokens = Math.max(1, Math.ceil(summary.value.text.length / 4));
     const remainingTokens = rows
       .slice(summarizeEnd)
-      .reduce((total, row) => total + estimateTokens(row.message), summaryTokens);
+      .reduce((total, row) => total + row.estimatedTokens, summaryTokens);
     return remainingTokens > COMPACT_AFTER_TOKENS;
   }
 

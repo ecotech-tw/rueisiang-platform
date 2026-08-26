@@ -785,6 +785,7 @@ describe("AI 助理 Sandbox", () => {
     expect(summaryIndex).toBeGreaterThan(mainIndex);
     const mainRequest = requests[mainIndex];
     const contents = JSON.stringify(mainRequest?.body.contents);
+    expect(contents).toContain("legacy summary");
     expect(contents).toContain("imported-history-39");
     expect(contents).not.toContain("imported history compacted");
     expect(contents).not.toContain("covered-history-0");

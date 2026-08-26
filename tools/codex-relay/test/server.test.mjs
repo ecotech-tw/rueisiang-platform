@@ -134,6 +134,51 @@ test("relay timeout is distinguishable from a disconnected client", async () => 
   }
 });
 
+test("upstream stream failures are not classified as client disconnects", async () => {
+  const logs = [];
+  const server = createRelayServer({
+    token: "relay-secret",
+    logger: (event) => logs.push(event),
+    fetchImpl: async (_input, init) => {
+      if (init?.body && typeof init.body.resume === "function") {
+        init.body.resume();
+        if (!init.body.readableEnded && !init.body.complete) await once(init.body, "end");
+      }
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("data: partial\n\n"));
+          queueMicrotask(() => controller.error(new Error("upstream stream failed")));
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+
+  try {
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/codex/responses`, {
+        method: "POST",
+        headers: { "x-codex-relay-token": "relay-secret" },
+        body: "{}",
+      });
+      await response.text();
+    } catch {
+      // The client can observe the connection closing after headers are sent.
+    }
+    assert.equal(logs.at(-1).status, 502);
+    assert.equal(logs.at(-1).upstreamStatus, 200);
+    assert.equal(logs.at(-1).abortReason, undefined);
+  } finally {
+    await closeServer(server);
+  }
+});
+
 test("unauthenticated requests never reach the upstream", async () => {
   let called = false;
   const server = createRelayServer({
