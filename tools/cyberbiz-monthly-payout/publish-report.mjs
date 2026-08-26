@@ -6,7 +6,7 @@ import process from "node:process";
 import { parseSalesReport } from "../cyberbiz-monthly-sales/lib/sales.mjs";
 import { combineCyberbizWorkbook } from "./lib/combined-xlsx.mjs";
 import { accessToken, uploadXlsx } from "./lib/drive.mjs";
-import { loadConfig, loadEnv, monthRange, skillPath, ensureDir } from "./lib/common.mjs";
+import { loadConfig, loadEnv, monthRange, skillPath, ensureDir, reportPublishConfig } from "./lib/common.mjs";
 import { parsePayoutReport } from "./lib/xlsx.mjs";
 import { publishCyberbizReport } from "./lib/report-publish.mjs";
 import { uploadAndVerifyReportWorkbook } from "./lib/report-drive.mjs";
@@ -90,7 +90,7 @@ async function main() {
   const result = await publishCyberbizReport({
     nasUrl: required(env, "NAS_STORAGE_URL"),
     nasToken: required(env, "NAS_STORAGE_TOKEN"),
-    apiUrl: required(env, "PLATFORM_API_URL"),
+    apiUrl: reportPublishConfig(env).apiUrl,
     ingestToken: required(env, "CYBERBIZ_REPORT_INGEST_TOKEN"),
     reportMonth: month,
     reportKind: kind,

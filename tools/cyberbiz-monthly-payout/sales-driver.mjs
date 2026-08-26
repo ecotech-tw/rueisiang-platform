@@ -23,6 +23,7 @@ import {
   log,
   monthRange,
   previousMonth,
+  reportPublishConfig,
   redact,
   requireEnv,
   salesFilename,
@@ -66,7 +67,7 @@ function help() {
   ].join("\n"));
 }
 
-async function publishStore({ env, range, store, localPath, document, drive }) {
+async function publishStore({ env, apiUrl, range, store, localPath, document, drive }) {
   const scopeId = scopeIdFromStoreName(store.name);
   const outputDir = await ensureDir(path.join(skillPath("staging"), range.label, scopeId));
   const jsonPath = path.join(outputDir, "sales.normalized.json");
@@ -74,7 +75,7 @@ async function publishStore({ env, range, store, localPath, document, drive }) {
   return publishCyberbizReport({
     nasUrl: env.NAS_STORAGE_URL,
     nasToken: env.NAS_STORAGE_TOKEN,
-    apiUrl: env.PLATFORM_API_URL,
+    apiUrl,
     ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
     reportMonth: range.label,
     reportKind: "sales",
@@ -91,7 +92,7 @@ async function publishStore({ env, range, store, localPath, document, drive }) {
   });
 }
 
-async function publishCompany({ env, range, documents }) {
+async function publishCompany({ env, apiUrl, range, documents }) {
   const document = aggregateSalesDocuments(documents, {
     scopeName: "公司整體",
     parserVersion: "cyberbiz-sales-company-v1",
@@ -102,7 +103,7 @@ async function publishCompany({ env, range, documents }) {
   return publishCyberbizReport({
     nasUrl: env.NAS_STORAGE_URL,
     nasToken: env.NAS_STORAGE_TOKEN,
-    apiUrl: env.PLATFORM_API_URL,
+    apiUrl,
     ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
     reportMonth: range.label,
     reportKind: "sales",
@@ -128,8 +129,11 @@ async function main() {
   requireEnv(env, ["CYBERBIZ_USERNAME", "CYBERBIZ_PASSWORD"]);
   const range = args.start ? dateRange(args.start, args.end) : args.month ? monthRange(args.month) : previousMonth();
   const monthly = range.label === range.start.slice(0, 7) && range.end === monthRange(range.label).end;
-  if (monthly) {
-    requireEnv(env, ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "PLATFORM_API_URL", "CYBERBIZ_REPORT_INGEST_TOKEN"]);
+  const manifestConfig = monthly && !args.skipUpload
+    ? reportPublishConfig(env)
+    : { enabled: false, missing: [], apiUrl: reportPublishConfig(env).apiUrl };
+  if (monthly && !args.skipUpload && !manifestConfig.enabled) {
+    log(`完整月份將照常匯出並上傳 Drive，但暫不建立 AI manifest；缺少：${manifestConfig.missing.join("、")}`);
   }
   const recipientEmail = config.recipientEmail || env.CYBERBIZ_2FA_MAILBOX;
   if (!recipientEmail) throw new Error("config.json 的 recipientEmail 或 .env 的 CYBERBIZ_2FA_MAILBOX 至少要有一個。");
@@ -214,13 +218,18 @@ async function main() {
           result.steps.upload = "skip";
         }
 
-        if (monthly) {
+        if (monthly && manifestConfig.enabled) {
           if (!drive) throw new Error("完整月份要建立 manifest，必須先上傳 Drive。");
-          await publishStore({ env, range, store, localPath, document, drive });
+          await publishStore({ env, apiUrl: manifestConfig.apiUrl, range, store, localPath, document, drive });
           result.steps.manifest = "ok";
           documents.push(document);
         } else {
           result.steps.manifest = "skip";
+          if (monthly) {
+            result.note = args.skipUpload
+              ? "--skip-upload，未建立 AI manifest"
+              : `未建立 AI manifest（缺少：${manifestConfig.missing.join("、")}）`;
+          }
         }
         result.done = true;
       } catch (error) {
@@ -233,8 +242,8 @@ async function main() {
     }
 
     const allSelected = wanted.length === config.stores.length;
-    if (monthly && allSelected && run.stores.every((store) => store.done) && documents.length === wanted.length) {
-      await publishCompany({ env, range, documents });
+    if (monthly && manifestConfig.enabled && allSelected && run.stores.every((store) => store.done) && documents.length === wanted.length) {
+      await publishCompany({ env, apiUrl: manifestConfig.apiUrl, range, documents });
       run.companyManifest = "ok";
     }
   } finally {
@@ -247,7 +256,7 @@ async function main() {
     await context.close();
   }
 
-  if (run.stores.some((store) => !store.done) || (monthly && wanted.length === config.stores.length && run.companyManifest !== "ok")) process.exitCode = 1;
+  if (run.stores.some((store) => !store.done) || (monthly && manifestConfig.enabled && wanted.length === config.stores.length && run.companyManifest !== "ok")) process.exitCode = 1;
 }
 
 main().catch((error) => {

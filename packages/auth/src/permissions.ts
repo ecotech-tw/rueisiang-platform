@@ -30,10 +30,9 @@ export const PERMISSIONS = {
 
   // 營運工具
   "tools:payout:run": "執行出金表",
-  "tools:payout:config": "修改出金表店別設定",
+  "tools:payout:config": "修改店別與報表設定",
   "tools:cyberbiz-sales:run": "執行 CYBERBIZ 商品銷售報表",
   "tools:shopee-sales:run": "執行蝦皮銷售報表",
-  "tools:shopee-sales:config": "修改蝦皮銷售報表設定",
   "reports:cyberbiz:read": "檢視 CYBERBIZ 銷售與出金報表",
 
   // 小香助理

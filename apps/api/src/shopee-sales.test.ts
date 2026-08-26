@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, getShopeeSalesSettings, listShopeeSalesRuns, syncSystemRoles } from "@rueisiang/db";
-import { userRoles, users } from "@rueisiang/db/schema";
+import { rolePermissions, roles, userRoles, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
@@ -114,6 +114,19 @@ describe("蝦皮銷售報表", () => {
     const cleanupUrl = sourceUrl.replace("/source/", "/cleanup/");
     expect((await app.fetch(new Request(cleanupUrl, { method: "POST" }), env as never)).status).toBe(200);
     expect((await app.fetch(new Request(sourceUrl), env as never)).status).toBe(404);
+  });
+
+  it("店別設定權限也可以讀寫蝦皮報表設定", async () => {
+    await db().insert(roles).values({ id: "role-tools-config", key: "tools-config", name: "店別與報表設定", isSystem: false });
+    await db().insert(rolePermissions).values({ roleId: "role-tools-config", permission: "tools:payout:config" });
+    const id = await seedUser("tools-config@ecotech.tw", "role-tools-config");
+
+    const response = await as(id, "tools-config@ecotech.tw", "/api/tools/shopee-sales/settings", {
+      method: "PUT",
+      body: JSON.stringify({ driveFolderUrl: "https://drive.google.com/drive/folders/folder123", driveFolderName: "蝦皮" }),
+    });
+
+    expect(response.status).toBe(200);
   });
 
   it("檢視者不能執行", async () => {

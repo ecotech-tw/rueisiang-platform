@@ -32,7 +32,7 @@ export function ShopeeSales() {
       />
 
       {!state.data?.configured ? <Alert tone="danger">平台還沒設定 GITHUB_TOKEN，現在無法處理報表。</Alert> : null}
-      {!state.data?.settings.driveFolderUrl ? <Alert tone="danger">尚未設定 Google Drive 資料夾，請由有權限的人前往「蝦皮報表設定」。</Alert> : null}
+      {!state.data?.settings.driveFolderUrl ? <Alert tone="danger">尚未設定 Google Drive 資料夾，請由有權限的人前往「店別與報表設定」。</Alert> : null}
 
       <Panel>
         <form className="admin-form" onSubmit={(event) => {

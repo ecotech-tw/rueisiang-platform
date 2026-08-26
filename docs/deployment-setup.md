@@ -214,10 +214,13 @@ workflow 檔名與 branch 可用 `CYBERBIZ_SALES_WORKFLOW_FILE`、`CYBERBIZ_SALE
 - `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REFRESH_TOKEN`
 - `GMAIL_REFRESH_TOKEN`
 
-完整月份要建立 AI manifest，還需要 `NAS_STORAGE_URL`、`NAS_STORAGE_TOKEN`、
-`PLATFORM_API_URL` 與 `CYBERBIZ_REPORT_INGEST_TOKEN`。自訂日期區間只上傳原始 XLSX 到 Google Drive，
-不需要 NAS 或 ingest token，也不會被 AI 查詢使用。Google Drive 的 root 與各店別資料夾設定方式，
-沿用 [`tools/cyberbiz-monthly-payout/README.md`](../tools/cyberbiz-monthly-payout/README.md)。
+完整月份若要建立 AI manifest，還需要 `NAS_STORAGE_URL`、`NAS_STORAGE_TOKEN` 與
+`CYBERBIZ_REPORT_INGEST_TOKEN`。這三項未設定時，完整月份仍會照常匯出、驗證並上傳原始 XLSX
+到 Google Drive，只是不建立 AI manifest；等 NAS 與 ingest token 就緒後重新執行即可。`PLATFORM_API_URL`
+不是 secret，workflow 會使用 repository variable `WORKER_URL`，未設定時 fallback 到
+`https://platform.rueisiang.com`。自訂日期區間只上傳原始 XLSX 到 Google Drive，不會被 AI 查詢使用。
+Google Drive 的 root 與各店別資料夾設定方式，沿用
+[`tools/cyberbiz-monthly-payout/README.md`](../tools/cyberbiz-monthly-payout/README.md)。
 
 ### 2.4 部署
 

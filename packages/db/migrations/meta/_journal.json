@@ -330,6 +330,13 @@
       "when": 1787733000000,
       "tag": "0046_cyberbiz_sales_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1787750000000,
+      "tag": "0047_remove_shopee_settings_permission",
+      "breakpoints": true
     }
   ]
 }
