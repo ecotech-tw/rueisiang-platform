@@ -1189,8 +1189,8 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
 
 const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
   key: "query_payout_report",
-  label: "查詢出金報表",
-  description: "從已解析的每日出金報表查詢單一櫃位或公司整體的出金合計與明細。這不是 CRM 訂單查詢；單一櫃位請傳 scopeName（例如誠品西門店3F），不需要使用者知道 scopeId。服務端會先檢查指定區間是否完整涵蓋，再一次完成查詢。",
+  label: "查詢業績／出金報表",
+  description: "從已解析的每日出金報表查詢單一櫃位或公司整體的出金合計與明細；公司內部使用者說「業績」時，以這裡的 payoutAmount 回答。這不是商品銷售報表，也不是 CRM 訂單查詢；商品數量、SKU、分類或商品銷售額請使用 query_sales_report。單一櫃位請傳 scopeName（例如誠品西門店3F），不需要使用者知道 scopeId。服務端會先檢查指定區間是否完整涵蓋，再一次完成查詢。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],

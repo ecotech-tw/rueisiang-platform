@@ -1,4 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
+import { ASSISTANT_REPORT_TOOL_ROUTING } from "@rueisiang/assistant";
 import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles, updateAssistantSandboxContext } from "@rueisiang/db";
 import {
   activityEvents,
@@ -20,6 +21,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { zstdDecompressSync } from "node:zlib";
+import { PLATFORM_TOOL_DEFINITIONS } from "@rueisiang/tools";
 import app from "./index.js";
 import { AssistantChatAgent } from "./pi-agent-do.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -845,6 +847,16 @@ describe("AI 助理 Sandbox", () => {
       key: "weather_open_meteo",
       label: "Open-Meteo 天氣查詢",
       status: "enabled",
+    });
+  });
+
+  it("報表語意會把業績導向 payout、商品銷售導向 sales", () => {
+    expect(ASSISTANT_REPORT_TOOL_ROUTING).toContain("業績、總業績、當日業績、櫃位業績、公司業績、營收、出金、入金、每日結帳金額：使用 query_payout_report");
+    expect(ASSISTANT_REPORT_TOOL_ROUTING).toContain("商品銷售數量、商品銷售額、SKU、商品分類、櫃位 POS 商品銷售：使用 query_sales_report");
+
+    expect(PLATFORM_TOOL_DEFINITIONS.find((tool) => tool.key === "query_payout_report")).toMatchObject({
+      label: "查詢業績／出金報表",
+      description: expect.stringContaining("使用者說「業績」時，以這裡的 payoutAmount 回答"),
     });
   });
 
