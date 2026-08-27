@@ -91,6 +91,55 @@ describe("報表日資料匯入", () => {
     expect(result.totals).toEqual({ grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 90 });
   });
 
+  it("整月重匯但中間缺幾天時，缺日的既有資料保持不變", async () => {
+    const salesRow = (businessDate: string, salesAmount: number) => ({
+      businessDate,
+      sku: `SKU-${businessDate}`,
+      productName: "商品",
+      category: "沐浴",
+      grossQuantity: 1,
+      returnQuantity: 0,
+      netQuantity: 1,
+      salesAmount,
+    });
+    const firstRows = Array.from({ length: 31 }, (_, index) => {
+      const businessDate = `2026-07-${String(index + 1).padStart(2, "0")}`;
+      return salesRow(businessDate, index === 14 ? 1500 : index === 15 ? 1600 : 100 + index);
+    });
+
+    const first = await request({
+      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
+      rows: firstRows,
+    });
+    expect(first.status).toBe(200);
+
+    const second = await request({
+      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
+      rows: firstRows
+        .filter((row) => row.businessDate !== "2026-07-15" && row.businessDate !== "2026-07-16")
+        .map((row) => row.businessDate === "2026-07-01"
+          ? { ...row, salesAmount: 200 }
+          : row.businessDate === "2026-07-31"
+            ? { ...row, salesAmount: 3200 }
+            : row),
+    });
+    expect(second.status).toBe(200);
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07",
+      scopeType: "store",
+      scopeName: "測試店",
+      groupBy: ["day"],
+    });
+    expect(result.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ businessDate: "2026-07-01", salesAmount: 200 }),
+      expect.objectContaining({ businessDate: "2026-07-15", salesAmount: 1500 }),
+      expect.objectContaining({ businessDate: "2026-07-16", salesAmount: 1600 }),
+      expect.objectContaining({ businessDate: "2026-07-31", salesAmount: 3200 }),
+    ]));
+    expect(result.rows).toHaveLength(31);
+  });
+
   it("沿用既有同名 scope 的 ID，避免設定路徑改名後產生重複據點", async () => {
     await upsertReportScope(db(), { id: "legacy-store-id", scopeKind: "store", name: "測試店" });
     const response = await request({

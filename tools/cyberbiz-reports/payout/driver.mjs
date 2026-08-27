@@ -24,6 +24,7 @@ import {
   reportIngestConfig,
   redact,
   requireEnv,
+  scopeIdFromStoreName,
   skillPath,
 } from "../lib/common.mjs";
 import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
@@ -40,10 +41,6 @@ import {
 } from "../lib/drive.mjs";
 import { terminalSummary, writeMarkdown } from "../lib/report.mjs";
 import { ingestCyberbizReport, payoutIngestRows } from "../lib/report-ingest.mjs";
-
-function scopeIdFromStoreName(name) {
-  return `cyberbiz:store:${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
-}
 
 function parseArgs(argv) {
   const args = { stores: [] };

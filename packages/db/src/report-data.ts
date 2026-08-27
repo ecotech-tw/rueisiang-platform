@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
   reportPayoutDaily,
@@ -170,22 +170,19 @@ export async function findReportScope(
 export async function insertReportSalesDaily(db: Database, rows: readonly NewReportSalesDaily[]): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
   const statements: Statement[] = [];
-  const dateRanges = new Map<string, { start: string; end: string }>();
+  const datesByScope = new Map<string, Set<string>>();
   for (const row of rows) {
-    const current = dateRanges.get(row.scopeId);
-    if (!current) {
-      dateRanges.set(row.scopeId, { start: row.businessDate, end: row.businessDate });
-    } else {
-      current.start = current.start < row.businessDate ? current.start : row.businessDate;
-      current.end = current.end > row.businessDate ? current.end : row.businessDate;
-    }
+    const dates = datesByScope.get(row.scopeId) ?? new Set<string>();
+    dates.add(row.businessDate);
+    datesByScope.set(row.scopeId, dates);
   }
-  for (const [scopeId, range] of dateRanges) {
-    statements.push(db.delete(reportSalesDaily).where(and(
-      eq(reportSalesDaily.scopeId, scopeId),
-      gte(reportSalesDaily.businessDate, range.start),
-      lte(reportSalesDaily.businessDate, range.end),
-    )));
+  for (const [scopeId, dates] of datesByScope) {
+    for (const businessDate of dates) {
+      statements.push(db.delete(reportSalesDaily).where(and(
+        eq(reportSalesDaily.scopeId, scopeId),
+        eq(reportSalesDaily.businessDate, businessDate),
+      )));
+    }
   }
   for (const chunk of chunks(rows, 8)) {
     if (!chunk.length) continue;
