@@ -1,109 +1,124 @@
 # CYBERBIZ 報表查詢
 
-這份是 `cyberbiz-reports` skill 的參考資料：出金表與商品銷售總表**跑完之後**，
-資料怎麼被小香查到。要跑報表看 `../SKILL.md`。
+報表查詢採「Google Drive 留原始檔、D1 留每日查詢資料」：
 
-
-這個功能把「原始檔案」與「查詢資料」分開：
-
-- NAS 保存原始 XLSX 與 normalized JSON。報表物件使用 `reports/cyberbiz/<scopeId>/<YYYY>/<MM>/`，目前接受 `.xlsx` 與 `.json`。
-- D1 只保存 `cyberbiz_report_manifests`，記錄月份、scope、涵蓋日期、parser 版本、checksum、NAS key 與 Drive 連結。
-- 公司整體使用 `scopeId=company` 的預先彙總 JSON；查詢時不需要逐櫃位呼叫工具。
+- Google Drive：保留每個據點的原始 XLSX，出金表仍可包含人工對帳欄位。
+- D1：只保存三張查詢表：`report_scopes`、`report_sales_daily`、`report_payout_daily`。
+- NAS：不是報表查詢的必要條件；NAS 只供平台其他媒體功能使用。
 
 ## 查詢入口
 
-HTTP API：
+登入後的 HTTP API：
 
 ```text
-GET /api/reports/cyberbiz/sales
-  ?period=2026-07
-  &scopeType=company
-  &category=沐浴
+GET /api/reports/cyberbiz/sales?period=2026-07&scopeType=store&scopeName=誠品西門店3F
+GET /api/reports/cyberbiz/sales?period=2026&scopeType=company&category=沐浴
+GET /api/reports/cyberbiz/payout?startDate=2026-07-01&endDate=2026-07-31&scopeType=company
 ```
 
-每日出金使用同一個 scope 與 manifest：`GET /api/reports/cyberbiz/payout?period=2026-07&scopeType=company&startDate=2026-07-01&endDate=2026-07-31`。小香對應的 tool 是 `query_payout_report`。
+`period` 支援 `YYYY` 與 `YYYY-MM`。自訂區間改用同時存在的
+`startDate=YYYY-MM-DD`、`endDate=YYYY-MM-DD`。查詢單一據點時，使用者只要提供
+`scopeName`；服務端會用 `report_scopes.normalized_name` 對應固定 `scopeId`，因此名稱中
+是否有空白不影響查詢。
 
-單一櫃位可提供 `scopeType=store&scopeName=<櫃位名稱>`，由 Worker 內部解析固定
-`scopeId`；`scopeId` 仍保留給既有整合使用，但不需要使用者提供。也可以提供 `sku`
-或 `productName`。小香使用同一個 `query_sales_report` tool；一次 tool call
-由 Worker 內部完成 manifest lookup、NAS JSON 讀取與彙總。
+商品銷售可再傳：
 
-商品銷售總表的粒度是月，不是假裝成逐日資料。因此：
+- `sku`：精確查詢 SKU。
+- `category`：查詢分類／標籤。
+- `productName`：商品名稱關鍵字。
+- `groupBy=day,month,scope,sku,category`：指定回傳列的分組方式。
 
-- 完整月份有 manifest 且 coverage 完整時，回傳 `status=ok`。
-- 沒有對應資料時，回傳 `NO_DATA_FOR_RANGE`。
-- 只要求月份中一段日期時，回傳 `UNSUPPORTED_GRANULARITY`。
-- manifest 宣告的涵蓋日不足時，回傳 `INCOMPLETE_COVERAGE`。
+出金可用 `groupBy=day,month,scope`。出金不保存也不接受支付方式、POS、操作人員篩選。
 
-查詢金額採用報表的「售額總計」欄，不用售價乘以數量重算，避免折扣、組合商品與贈品造成誤差。
+## D1 三張表
 
-## 執行與 manifest 規則
+### `report_scopes`
 
-後台目前分成兩個執行入口：`/tools/payout` 執行每日出金表，
-`/tools/cyberbiz-sales` 執行商品銷售總表。兩者使用相同的 Google Drive 店別資料夾，
-但 workflow 與 D1 run 記錄分開，避免其中一種報表失敗時阻塞另一種報表。
+保存 AI 與 API 用來辨識據點的名稱：
 
-日期區間會先由後台判斷：
+| id | scope_kind | name | normalized_name | active |
+| --- | --- | --- | --- | --- |
+| `cyberbiz:store:...` | `store` | 誠品西門店 3F | 誠品西門店3f | 1 |
+| `company` | `company` | 公司整體 | 公司整體 | 1 |
 
-- **完整月份**：runner 解析報表、把原始 XLSX 與 normalized JSON 保存到 NAS，並在 D1 建立該報表種類的 store manifest。
-  所有店別都成功時，再以 `scopeId=company` 寫入預先彙總的公司 manifest；小香查詢公司資料只需一次 tool call。
-- **自訂區間**：runner 只把原始 XLSX 上傳到該店別的 Google Drive，方便同仁自行對帳；不解析成 NAS JSON，也不建立 AI manifest。
-  這是因為商品銷售總表是月彙總，不能從月報精確拆成每日或任意日期資料。
+查詢以 `id` 作為事實表的 scope key；目前 CYBERBIZ 的 ID 由穩定的店名產生，未來
+蝦皮也直接使用自己的通路前綴。名稱不唯一時不猜測，查詢會視為找不到，避免把資料算到錯的據點。
 
-出金表與商品銷售表在 D1 保留各自的 artifact version，但查詢時會以同一個
-`scopeType + scopeId + reportMonth` 組成 unified scope view。`reportKind` 只表示
-這一版包含哪一種來源資料，不再代表不同的 scope；兩種資料仍各自使用自己的
-normalized document 與 parser。未來蝦皮可沿用同一個 scope view，再接蝦皮專用的
-Excel parser，不把蝦皮欄位套用到 CYBERBIZ。
-Google Drive 的原始檔目前維持兩份獨立 XLSX；既有 `publish-report.mjs --kind bundle` 仍可在需要人工交付時，
-以出金表為 base 增加商品銷售分頁，但不影響兩個後台入口獨立執行。
+### `report_sales_daily`
 
-當 AI tool 找不到完整月份資料、資料仍在 staged，或使用者要求商品銷售的非月粒度時，
-會回傳結構化 `nextStep.type=open_backend_report_runner`，並指向對應的後台執行頁，
-提醒有權限的公司人員補跑報表。執行頁與狀態 API 都要求 `tools:cyberbiz-payout:run` 或
-`tools:cyberbiz-sales:run`，一般查詢權限不會因此取得報表執行權限。
+主鍵是 `(scope_id, business_date, sku)`：
 
-MCP endpoint 是 `POST /api/mcp/cyberbiz-reports`，使用獨立 `CYBERBIZ_REPORT_MCP_TOKEN` bearer token；它只暴露兩個報表 tool，並重用既有 tool executor 與查詢服務。瀏覽器 Origin、Content-Type、Accept 與 MCP protocol header 都會先驗證，工具執行結果會保留結構化狀態，不會把 NAS key 或 credential 傳給模型；GET/DELETE 會回 405，因為此 adapter 不開啟 server-side SSE stream。
+| scope_id | business_date | sku | product_name | category | gross_quantity | return_quantity | net_quantity | sales_amount |
+| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
+| `cyberbiz:store:...` | 2026-07-01 | `SKU-001` | 商品一 | 沐浴 | 3 | 1 | 2 | 180 |
 
-## 月批次 publish contract
+金額直接採商品銷售報表的「售額總計」，不以售價乘數量重算，以保留折扣、組合商品、
+紅利與贈品的原始口徑。
 
-`tools/cyberbiz-reports/lib/report-publish.mjs` 提供 runner-side publish helper。它會把相關的原始 XLSX、normalized JSON，
-以及需要時的 combined XLSX 上傳到 NAS 的 `reports/cyberbiz/...`，再呼叫：
+### `report_payout_daily`
 
-```text
-POST /api/internal/cyberbiz-reports/publish
-Header: x-cyberbiz-report-token: <CYBERBIZ_REPORT_INGEST_TOKEN>
+主鍵是 `(scope_id, business_date)`：
+
+| scope_id | business_date | payout_amount |
+| --- | --- | ---: |
+| `cyberbiz:store:...` | 2026-07-01 | 2040 |
+
+同一天出金表中的多筆資料在匯入時加總，故不保存 `income_type`、POS 或操作人員。
+
+## 匯入流程
+
+後台有兩個執行入口，但共用登入、Gmail 2FA、店別解析與 Drive 設定：
+
+1. `出金表執行`：匯出指定區間、驗證 XLSX、補上人工對帳欄位、上傳 Drive；再把各列按日
+   加總後寫入 `report_payout_daily`。
+2. `商品銷售報表執行`：先上傳指定區間的原始 XLSX 到 Drive；完整月份為取得每日粒度，
+   會再對每一天各匯出一次並解析，再寫入 `report_sales_daily`。
+
+只有完整月份才匯入 D1。自訂區間仍可供同仁在 Google Drive 查帳，但不會把區間報表
+誤當成完整的每日資料。runner 呼叫內部匯入 API 時使用獨立的
+`CYBERBIZ_REPORT_INGEST_TOKEN`；token 不會進入 AI tool 結果。
+
+## 聚合規則
+
+不建立月、年或公司 aggregate 檔案，也不建立月／年 manifest。公司查詢會在 D1 直接把
+所有 `active=1` 的 store scope 聚合；月份與年份只是日期條件：
+
+```sql
+SELECT substr(business_date, 1, 7) AS report_month,
+       SUM(net_quantity) AS net_quantity,
+       SUM(sales_amount) AS sales_amount
+FROM report_sales_daily
+WHERE business_date BETWEEN '2026-01-01' AND '2026-12-31'
+GROUP BY substr(business_date, 1, 7);
 ```
 
-流程固定是：
+因此一次 `query_sales_report` 或 `query_payout_report` 就能完成單據點、分類、商品、
+月份、年份與公司整體查詢，不需要模型逐店呼叫工具。
 
-1. NAS 物件全部存在後寫入 `staged` manifest。
-2. 需要人工對帳的原始 XLSX 上傳 Google Drive；bundle 才會額外完成出金表公式驗證。
-3. 再寫入同一個 `sourceChecksum` 的 `published` manifest。
+## AI tools
 
-NAS upload 可帶 checksum/角色衍生的 `objectId`。同一批次重跑會得到同一個 object key；相同內容回 HTTP 200，不同內容則回 HTTP 409，不會靜默覆寫。API publish 只用 HEAD 檢查物件存在與 MIME，不把 XLSX 內容讀進 Worker。
+小香使用兩個 read-only tool：
 
-`sales` manifest 需要 sales JSON，`payout` manifest 需要 payout JSON；store manifest 另外需要對應的 Drive file id/url，
-company aggregate 不需要 Drive 檔案。`bundle` 才同時需要兩種 JSON、combined XLSX 與 Drive metadata。
-只有 `staged` 時，查詢 API 不會選用該版本。
+- `query_sales_report`：商品數量、銷售額、SKU、分類、據點與公司聚合。
+- `query_payout_report`：據點與公司每日／月份／年份出金聚合。
 
-公司 scope 的 sales JSON 由 runner 以 SKU 合併各櫃位 sales document；同 SKU 的商品名稱或分類不一致時會中止 publish。
-公司 scope 的 payout JSON 則保留各店別的每日出金 rows。combined XLSX 以既有出金 XLSX 為 base 新增商品銷售分頁，
-原有出金欄位與公式不重新產生。
+兩個 tool 都要求 `reports:cyberbiz:read`。沒有資料時回傳
+`status=NO_DATA_FOR_RANGE` 與 `nextStep.type=open_backend_report_runner`，指向有權限的
+後台執行頁；小香應提示同仁補跑，不應改用 `crm_get_orders` 猜測報表結果。
+
+MCP endpoint 是 `POST /api/mcp/cyberbiz-reports`，使用獨立的
+`CYBERBIZ_REPORT_MCP_TOKEN` bearer token，並重用相同的兩個 tool 與 D1 查詢服務。
 
 ## 設計邊界（不要做的事）
 
-這幾條是動工前定下來的，實作完了仍然成立——改之前先想清楚為什麼當初不做：
+這幾條是動工前定下來的，實作完了仍然成立：
 
-- **不做即時 CYBERBIZ API 查詢。** 每個問題都打官網會慢、會被限流，而且拿到的是
-  未對帳的數字。查詢只讀已 publish 的 manifest。
-- **Worker 的 request 路徑不解析 XLSX。** 解析在 runner 上做，Worker 只讀 normalized JSON。
+- **不做即時 CYBERBIZ API 查詢。** 查詢只讀已匯入 D1 的資料，避免每個問題都打官網而變慢、被限流，或取得尚未對帳的數字。
+- **Worker 的 request 路徑不解析 XLSX。** XLSX 在 runner 上解析，Worker 只接收已整理的每日資料。
 - **不接外部 MCP client。** 這個 adapter 只服務平台自己的助理 surface。
 - **MCP surface 裡不做儀表板或試算表編輯器。** 它只回結構化查詢結果。
-- **商品銷售報表的粒度就是月，不假裝成逐日。** 月報拆不出精確的日資料，所以寧可回
-  `UNSUPPORTED_GRANULARITY`，也不要給一個看起來合理但錯的數字。
+- **商品銷售資料以每日粒度保存。** 只有完整月份逐日匯入後，才能安全回答任意日期區間；自訂區間本身不會被誤當成完整資料。
 
 模型負責的只有「把自然語句轉成固定查詢參數」與「把 `NO_DATA_FOR_RANGE`、
-`INCOMPLETE_COVERAGE`、`UNSUPPORTED_GRANULARITY` 翻成人話」。精確加總一律由 D1 manifest、
-NAS normalized JSON 與 DB aggregation 提供；模型不直接讀 NAS、Google Drive 或任何外部 MCP。
-NAS token 與 ingest token 永遠不會進到模型的 context。
+`INCOMPLETE_COVERAGE` 翻成人話」。精確加總由 D1 與 DB aggregation 提供；模型不直接讀
+Google Drive 或任何外部 MCP。NAS token 與 ingest token 永遠不會進入模型 context。

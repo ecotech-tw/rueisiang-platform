@@ -4,7 +4,6 @@ import { PLATFORM_TOOL_MAP, type PlatformToolDefinition } from "@rueisiang/tools
 import { Hono } from "hono";
 import type { AppEnv } from "../env.js";
 import { createCyberbizReportService } from "../cyberbiz-reports.js";
-import { nasStorageClient } from "../nas-storage.js";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const LEGACY_PROTOCOL_VERSION = "2025-03-26";
@@ -85,7 +84,7 @@ async function runTool(c: AppEnv["Bindings"], request: JsonRpcRequest, tool: Pla
     });
   }
   const db = createDatabase(c.DB);
-  const service = createCyberbizReportService(db, nasStorageClient(c));
+  const service = createCyberbizReportService(db);
   const startedAt = Date.now();
   try {
     const text = await Promise.race([
@@ -136,7 +135,7 @@ function initializeResult(protocolVersion: string) {
     protocolVersion,
     capabilities: { tools: { listChanged: false } },
     serverInfo: { name: "rueisiang-cyberbiz-reports", version: "1.0.0" },
-    instructions: "只能查詢已 published 的報表；商品銷售總表只有月粒度，不能把月報拆成日資料。",
+    instructions: "查詢已匯入 D1 的商品銷售與出金日資料；支援月份、年份與自訂日期區間，若資料尚未匯入會提示後台執行報表作業。",
   };
 }
 

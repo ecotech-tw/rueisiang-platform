@@ -3,11 +3,9 @@
 /**
  * CYBERBIZ 商品銷售報表流程。
  *
- * 完整月份：每家店上傳 Drive，另外把 normalized JSON 寫入 NAS 並 publish sales manifest；
- * 全部店別成功時，再產生一份 company aggregate，讓 AI 查公司營收只需一次查詢。
- * 自訂區間：只上傳原始 XLSX 到 Drive，不建立 AI manifest。
+ * 每家店將原始 XLSX 上傳 Drive，並把每日商品明細匯入 D1；公司統計由查詢時 aggregate。
+ * 商品銷售總表本身是區間彙總，因此查詢日資料時會逐日匯出並解析。
  */
-import fs from "node:fs/promises";
 import path from "node:path";
 import {
   accessToken,
@@ -16,14 +14,14 @@ import {
 } from "../lib/drive.mjs";
 import {
   dateRange,
-  driveFolderIdFromUrl,
   ensureDir,
+  driveFolderIdFromUrl,
   loadConfig,
   loadEnv,
   log,
   monthRange,
   previousMonth,
-  reportPublishConfig,
+  reportIngestConfig,
   redact,
   requireEnv,
   salesFilename,
@@ -33,9 +31,8 @@ import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
 import { exportSalesReport, listStores, login, resolveStore } from "../lib/cyberbiz.mjs";
 import { downloadAttachment, whoAmI } from "../lib/gmail-api.mjs";
 import { parseSalesReport } from "./parser.mjs";
-import { aggregateSalesDocuments } from "./aggregate.mjs";
-import { publishCyberbizReport } from "../lib/report-publish.mjs";
 import { writeMarkdown, terminalSummary } from "../lib/report.mjs";
+import { ingestCyberbizReport } from "../lib/report-ingest.mjs";
 
 function parseArgs(argv) {
   const args = { stores: [] };
@@ -55,67 +52,25 @@ function parseArgs(argv) {
 }
 
 function scopeIdFromStoreName(name) {
-  // 用 UTF-8 base64url 保留中文店名的穩定性，同一店名在 API 與 runner 會得到同一個 NAS-safe ID。
-  return `store-${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
+  // 用 UTF-8 base64url 保留中文店名的穩定性，同一店名在 API 與 runner 會得到同一個 D1 scope ID。
+  return `cyberbiz:store:${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
+}
+
+function eachDay(start, end) {
+  const days = [];
+  for (let cursor = new Date(`${start}T00:00:00Z`); cursor <= new Date(`${end}T00:00:00Z`); cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const day = cursor.toISOString().slice(0, 10);
+    days.push({ label: day, start: day, end: day });
+  }
+  return days;
 }
 
 function help() {
   log([
     "用法：node sales/driver.mjs [--month YYYY-MM | --start YYYY-MM-DD --end YYYY-MM-DD]",
     "                         [--store 店名]... [--skip-upload] [--list-stores] [--headless]",
-    "完整月份才會建立 AI manifest；自訂日期只上傳 Google Drive。",
+    "原始 XLSX 上傳 Google Drive，每日商品資料匯入 D1；未設定 ingest token 時只上傳 Drive。",
   ].join("\n"));
-}
-
-async function publishStore({ env, apiUrl, range, store, localPath, document, drive }) {
-  const scopeId = scopeIdFromStoreName(store.name);
-  const outputDir = await ensureDir(path.join(skillPath("staging"), "sales", range.label, scopeId));
-  const jsonPath = path.join(outputDir, "sales.normalized.json");
-  await fs.writeFile(jsonPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
-  return publishCyberbizReport({
-    nasUrl: env.NAS_STORAGE_URL,
-    nasToken: env.NAS_STORAGE_TOKEN,
-    apiUrl,
-    ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
-    reportMonth: range.label,
-    reportKind: "sales",
-    scopeType: "store",
-    scopeId,
-    scopeName: store.name,
-    coverageStart: range.start,
-    coverageEnd: range.end,
-    storeIdsJson: JSON.stringify([scopeId]),
-    parserVersion: "cyberbiz-sales-v1",
-    salesSourcePath: localPath,
-    salesJsonPath: jsonPath,
-    afterStaged: async () => drive,
-  });
-}
-
-async function publishCompany({ env, apiUrl, range, documents }) {
-  const document = aggregateSalesDocuments(documents, {
-    scopeName: "公司整體",
-    parserVersion: "cyberbiz-sales-company-v1",
-  });
-  const outputDir = await ensureDir(path.join(skillPath("staging"), "sales", range.label, "company"));
-  const jsonPath = path.join(outputDir, "sales.normalized.json");
-  await fs.writeFile(jsonPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
-  return publishCyberbizReport({
-    nasUrl: env.NAS_STORAGE_URL,
-    nasToken: env.NAS_STORAGE_TOKEN,
-    apiUrl,
-    ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
-    reportMonth: range.label,
-    reportKind: "sales",
-    scopeType: "company",
-    scopeId: "company",
-    scopeName: "公司整體",
-    coverageStart: range.start,
-    coverageEnd: range.end,
-    storeIdsJson: JSON.stringify(documents.map((item) => item.scopeId)),
-    parserVersion: "cyberbiz-sales-company-v1",
-    salesJsonPath: jsonPath,
-  });
 }
 
 async function main() {
@@ -129,11 +84,11 @@ async function main() {
   requireEnv(env, ["CYBERBIZ_USERNAME", "CYBERBIZ_PASSWORD"]);
   const range = args.start ? dateRange(args.start, args.end) : args.month ? monthRange(args.month) : previousMonth();
   const monthly = range.label === range.start.slice(0, 7) && range.end === monthRange(range.label).end;
-  const manifestConfig = monthly && !args.skipUpload
-    ? reportPublishConfig(env)
-    : { enabled: false, missing: [], apiUrl: reportPublishConfig(env).apiUrl };
-  if (monthly && !args.skipUpload && !manifestConfig.enabled) {
-    log(`完整月份將照常匯出並上傳 Drive，但暫不建立 AI manifest；缺少：${manifestConfig.missing.join("、")}`);
+  const ingestConfig = !args.skipUpload
+    ? reportIngestConfig(env)
+    : { enabled: false, missing: [], apiUrl: reportIngestConfig(env).apiUrl };
+  if (!args.skipUpload && !ingestConfig.enabled) {
+    log(`照常匯出並上傳 Drive，但暫不匯入 D1；缺少：${ingestConfig.missing.join("、")}`);
   }
   const recipientEmail = config.recipientEmail || env.CYBERBIZ_2FA_MAILBOX;
   if (!recipientEmail) throw new Error("config.json 的 recipientEmail 或 .env 的 CYBERBIZ_2FA_MAILBOX 至少要有一個。");
@@ -149,7 +104,6 @@ async function main() {
   const stagingDir = await ensureDir(path.isAbsolute(config.stagingDir) ? path.join(config.stagingDir, "sales", range.label) : skillPath(config.stagingDir, "sales", range.label));
   const context = await openBrowser({ headless: Boolean(args.headless), downloadDir: stagingDir });
   const run = { label: range.label, start: range.start, end: range.end, stores: [], finishedAt: "" };
-  const documents = [];
 
   try {
     const page = await newPage(context);
@@ -199,41 +153,87 @@ async function main() {
           notBefore: submittedAt,
         });
         result.steps.fetch = "ok";
-        const document = monthly ? await parseSalesReport(localPath, {
-          scopeType: "store",
-          scopeId: scopeIdFromStoreName(store.name),
-          scopeName: store.name,
-          reportMonth: range.start.slice(0, 7),
-        }) : null;
+        const document = range.start.slice(0, 7) === range.end.slice(0, 7)
+          ? await parseSalesReport(localPath, {
+            scopeType: "store",
+            scopeId: scopeIdFromStoreName(store.name),
+            scopeName: store.name,
+            reportMonth: range.start.slice(0, 7),
+            start: range.start,
+            end: range.end,
+            allowEmpty: true,
+          })
+          : null;
         result.steps.verify = "ok";
         if (document) result.total = document.totals;
 
-        let drive = null;
         if (token) {
           const uploaded = await uploadXlsx(token, { filePath: localPath, name: path.basename(localPath), folderId: store.driveFolderId });
-          drive = { driveFileId: uploaded.id, driveUrl: uploaded.webViewLink };
           result.steps.upload = "ok";
           result.sheetUrl = uploaded.webViewLink;
         } else {
           result.steps.upload = "skip";
         }
 
-        if (monthly && manifestConfig.enabled) {
-          if (!drive) throw new Error("完整月份要建立 manifest，必須先上傳 Drive。");
-          await publishStore({ env, apiUrl: manifestConfig.apiUrl, range, store, localPath, document, drive });
-          result.steps.manifest = "ok";
-          documents.push(document);
-        } else {
-          result.steps.manifest = "skip";
-          if (monthly) {
-            result.note = args.skipUpload
-              ? "--skip-upload，未建立 AI manifest"
-              : `未建立 AI manifest（缺少：${manifestConfig.missing.join("、")}）`;
+        if (monthly && ingestConfig.enabled) {
+          const dailyRows = [];
+          for (const day of eachDay(range.start, range.end)) {
+            let dailyPath = localPath;
+            if (day.start !== range.start || day.end !== range.end) {
+              const dailyExport = await exportSalesReport(page, {
+                storeBase,
+                recipientEmail,
+                startDate: day.start,
+                endDate: day.end,
+                reportPath: config.salesReportPath,
+              });
+              dailyPath = await downloadAttachment(gmailToken, {
+                expectedName: salesFilename(store.name, day.start, day.end),
+                sender: config.attachmentSender,
+                downloadDir: stagingDir,
+                notBefore: dailyExport.submittedAt,
+              });
+            }
+            const daily = await parseSalesReport(dailyPath, {
+              scopeType: "store",
+              scopeId: scopeIdFromStoreName(store.name),
+              scopeName: store.name,
+              reportMonth: day.start.slice(0, 7),
+              start: day.start,
+              end: day.end,
+              allowEmpty: true,
+            });
+            for (const row of daily.rows) dailyRows.push({
+              businessDate: day.start,
+              sku: row.sku,
+              productName: row.productName,
+              category: row.category,
+              grossQuantity: Math.round(row.grossQuantity),
+              returnQuantity: Math.round(row.returnQuantity),
+              netQuantity: Math.round(row.netQuantity),
+              salesAmount: Math.round(row.salesAmount),
+            });
           }
+          await ingestCyberbizReport({
+            apiUrl: ingestConfig.apiUrl,
+            ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
+            kind: "sales",
+            scopeId: scopeIdFromStoreName(store.name),
+            scopeName: store.name,
+            rows: dailyRows,
+          });
+          result.steps.ingest = "ok";
+        } else {
+          result.steps.ingest = "skip";
+          result.note = !monthly
+            ? "自訂區間只上傳 Drive，未匯入 D1"
+            : args.skipUpload
+              ? "--skip-upload，未匯入 D1"
+              : `未匯入 D1（缺少：${ingestConfig.missing.join("、")}）`;
         }
         result.done = true;
       } catch (error) {
-        const step = ["export", "fetch", "verify", "upload", "manifest"].find((key) => !result.steps[key]);
+        const step = ["export", "fetch", "verify", "upload", "ingest"].find((key) => !result.steps[key]);
         if (step) result.steps[step] = "fail";
         result.error = { code: error.code ?? "UNEXPECTED_ERROR", message: redact(error.message, env) };
         log(`${store.name}：${result.error.message}`);
@@ -241,11 +241,6 @@ async function main() {
       }
     }
 
-    const allSelected = wanted.length === config.stores.length;
-    if (monthly && manifestConfig.enabled && allSelected && run.stores.every((store) => store.done) && documents.length === wanted.length) {
-      await publishCompany({ env, apiUrl: manifestConfig.apiUrl, range, documents });
-      run.companyManifest = "ok";
-    }
   } finally {
     run.finishedAt = new Date().toISOString();
     if (run.stores.length) {
@@ -256,7 +251,7 @@ async function main() {
     await context.close();
   }
 
-  if (run.stores.some((store) => !store.done) || (monthly && manifestConfig.enabled && wanted.length === config.stores.length && run.companyManifest !== "ok")) process.exitCode = 1;
+  if (run.stores.some((store) => !store.done)) process.exitCode = 1;
 }
 
 main().catch((error) => {

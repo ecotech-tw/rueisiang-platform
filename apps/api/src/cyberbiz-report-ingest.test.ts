@@ -1,0 +1,84 @@
+import { createDatabase, upsertReportScope } from "@rueisiang/db";
+import { beforeEach, describe, expect, it } from "vitest";
+import app from "./index.js";
+import { createCyberbizReportService } from "./cyberbiz-reports.js";
+import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
+
+const TOKEN = "report-ingest-secret";
+let d1: LocalD1;
+
+function db() {
+  return createDatabase(d1 as never);
+}
+
+function request(body: unknown, token = TOKEN) {
+  return app.fetch(new Request("https://platform.example.test/api/internal/cyberbiz-reports/ingest", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-cyberbiz-report-token": token },
+    body: JSON.stringify(body),
+  }), { DB: d1, CYBERBIZ_REPORT_INGEST_TOKEN: TOKEN } as never);
+}
+
+beforeEach(() => {
+  d1 = createLocalD1();
+});
+
+describe("報表日資料匯入", () => {
+  it("只需要 ingest token，寫入 scope 與商品銷售日資料", async () => {
+    const unauthorized = await request({ kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店", rows: [] }, "wrong");
+    expect(unauthorized.status).toBe(401);
+
+    const response = await request({
+      kind: "sales",
+      scopeType: "store",
+      scopeId: "cyberbiz:store:a",
+      scopeName: "測試店",
+      rows: [
+        { businessDate: "2026-07-01", sku: "SKU-1", productName: "商品一", category: "沐浴", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 180 },
+        { businessDate: "2026-07-01", sku: "SKU-1", productName: "", category: "", grossQuantity: 2, returnQuantity: 0, netQuantity: 2, salesAmount: 90 },
+      ],
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { kind: "sales", rowCount: 1 } });
+
+    const result = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "store", scopeName: "測試店" });
+    expect(result).toMatchObject({ status: "ok", totals: { netQuantity: 4, salesAmount: 270 } });
+  });
+
+  it("同一天的 payout rows 在匯入時加總，重跑時以新日資料取代", async () => {
+    const first = await request({
+      kind: "payout", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
+      rows: [
+        { businessDate: "2026-07-01", payoutAmount: 100 },
+        { businessDate: "2026-07-01", payoutAmount: 25 },
+      ],
+    });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ result: { rowCount: 1 } });
+    await request({
+      kind: "payout", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
+      rows: [{ businessDate: "2026-07-01", payoutAmount: 80 }],
+    });
+    const result = await createCyberbizReportService(db()).queryPayout({ period: "2026-07", scopeType: "store", scopeName: "測試店" });
+    expect(result).toMatchObject({ status: "ok", totals: { payoutAmount: 80 } });
+  });
+
+  it("沿用既有同名 scope 的 ID，避免設定路徑改名後產生重複據點", async () => {
+    await upsertReportScope(db(), { id: "legacy-store-id", scopeKind: "store", name: "測試店" });
+    const response = await request({
+      kind: "sales",
+      scopeType: "store",
+      scopeId: "cyberbiz:store:new-id",
+      scopeName: "測試店",
+      rows: [{ businessDate: "2026-07-01", sku: "SKU-1", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100 }],
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { scopeId: "legacy-store-id" } });
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07",
+      scopeType: "store",
+      scopeId: "legacy-store-id",
+    });
+    expect(result).toMatchObject({ status: "ok", scopeId: "legacy-store-id", totals: { netQuantity: 1, salesAmount: 100 } });
+  });
+});

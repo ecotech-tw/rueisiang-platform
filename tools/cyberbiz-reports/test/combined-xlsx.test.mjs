@@ -13,15 +13,15 @@ test("combined workbook appends a sales sheet without dropping the payout workbo
   try {
     const salesDocument = {
       schemaVersion: 1,
-      kind: "cyberbiz_sales_monthly",
+      kind: "cyberbiz_sales_interval",
       scopeType: "store",
       scopeId: "store-a",
       scopeName: "測試櫃位",
       reportMonth: "2026-07",
       coverageStart: "2026-07-01",
       coverageEnd: "2026-07-31",
-      granularity: "month",
-      rows: [{ sku: "SKU-1", productName: "商品一", category: "沐浴", unitPrice: 100, grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 180 }],
+      granularity: "interval",
+      rows: [{ sku: "SKU-1", productName: "商品一", category: "沐浴", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 180 }],
       totals: { grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 180 },
     };
     await writeZipEntries(base, new Map([

@@ -1,8 +1,12 @@
-import { createDatabase, recordCyberbizReportManifest, syncSystemRoles } from "@rueisiang/db";
+import {
+  createDatabase,
+  insertReportPayoutDaily,
+  insertReportSalesDaily,
+  upsertReportScope,
+} from "@rueisiang/db";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createCyberbizReportService } from "./cyberbiz-reports.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
-import type { NasStorageClient } from "./nas-storage.js";
 
 let d1: LocalD1;
 
@@ -10,278 +14,108 @@ function db() {
   return createDatabase(d1 as never);
 }
 
+const WEST = "cyberbiz:store:西門3F";
+const EAST = "cyberbiz:store:信義2F";
+
 beforeEach(async () => {
   d1 = createLocalD1();
-  await syncSystemRoles(db());
+  await upsertReportScope(db(), { id: WEST, scopeKind: "store", name: "誠品西門店 3F" });
+  await upsertReportScope(db(), { id: EAST, scopeKind: "store", name: "誠品信義店 2F" });
+  await insertReportSalesDaily(db(), [
+    { scopeId: WEST, businessDate: "2026-07-01", sku: "SKU-1", productName: "商品一", category: "沐浴", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 180 },
+    { scopeId: WEST, businessDate: "2026-07-02", sku: "SKU-1", productName: "商品一", category: "沐浴", grossQuantity: 2, returnQuantity: 0, netQuantity: 2, salesAmount: 200 },
+    { scopeId: EAST, businessDate: "2026-07-01", sku: "SKU-2", productName: "商品二", category: "食品", grossQuantity: 4, returnQuantity: 0, netQuantity: 4, salesAmount: 300 },
+  ]);
+  await insertReportPayoutDaily(db(), [
+    { scopeId: WEST, businessDate: "2026-07-01", payoutAmount: 1000 },
+    { scopeId: WEST, businessDate: "2026-07-02", payoutAmount: 2000 },
+    { scopeId: EAST, businessDate: "2026-07-01", payoutAmount: 3000 },
+  ]);
 });
 
-function document() {
-  return {
-    schemaVersion: 1 as const,
-    kind: "cyberbiz_sales_monthly" as const,
-    scopeType: "company" as const,
-    scopeId: "company",
-    scopeName: "公司整體",
-    reportMonth: "2026-07",
-    coverageStart: "2026-07-01",
-    coverageEnd: "2026-07-31",
-    granularity: "month" as const,
-    rows: [
-      { sku: "SKU-1", productName: "商品一", category: "沐浴", unitPrice: 100, grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 180 },
-      { sku: "SKU-2", productName: "商品二", category: "食品", unitPrice: 50, grossQuantity: 2, returnQuantity: 0, netQuantity: 2, salesAmount: 90 },
-    ],
-    totals: { grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 270 },
-  };
-}
-
-function storeSalesDocument() {
-  return {
-    ...document(),
-    scopeType: "store" as const,
-    scopeId: "store-a",
-    scopeName: "誠品西門店3F",
-  };
-}
-
-async function publishCompanyReport() {
-  await recordCyberbizReportManifest(db(), {
-    reportMonth: "2026-07",
-    scopeType: "company",
-    scopeId: "company",
-    scopeName: "公司整體",
-    coverageStart: "2026-07-01",
-    coverageEnd: "2026-07-31",
-    salesGranularity: "month",
-    payoutGranularity: "day",
-    salesObjectKey: "reports/cyberbiz/company/2026/07/00000000-0000-0000-0000-000000000001.json",
-    payoutObjectKey: null,
-    combinedWorkbookObjectKey: null,
-    driveFileId: null,
-    driveUrl: null,
-    storeIdsJson: "[]",
-    sourceChecksum: "checksum-company-2026-07",
-    parserVersion: "cyberbiz-sales-v1",
-    status: "published",
-  });
-}
-
-async function publishCompanyPayout() {
-  await recordCyberbizReportManifest(db(), {
-    reportMonth: "2026-07",
-    scopeType: "company",
-    scopeId: "company",
-    scopeName: "公司整體",
-    coverageStart: "2026-07-01",
-    coverageEnd: "2026-07-31",
-    salesGranularity: "month",
-    payoutGranularity: "day",
-    salesObjectKey: null,
-    payoutObjectKey: "reports/cyberbiz/company/2026/07/00000000-0000-0000-0000-000000000002.json",
-    combinedWorkbookObjectKey: null,
-    driveFileId: null,
-    driveUrl: null,
-    storeIdsJson: "[]",
-    sourceChecksum: "checksum-payout-company-2026-07",
-    parserVersion: "cyberbiz-payout-v1",
-    status: "published",
-  });
-}
-
-async function publishStoreSalesAndPayoutManifests() {
-  await recordCyberbizReportManifest(db(), {
-    reportMonth: "2026-07",
-    reportKind: "sales",
-    scopeType: "store",
-    scopeId: "store-a",
-    scopeName: "誠品西門店3F",
-    coverageStart: "2026-07-01",
-    coverageEnd: "2026-07-31",
-    salesGranularity: "month",
-    payoutGranularity: "day",
-    salesObjectKey: "reports/cyberbiz/store-a/2026/07/00000000-0000-0000-0000-000000000011.json",
-    payoutObjectKey: null,
-    combinedWorkbookObjectKey: null,
-    driveFileId: "drive-sales",
-    driveUrl: "https://drive.example.test/file/drive-sales",
-    storeIdsJson: '["store-a"]',
-    sourceChecksum: "checksum-store-sales-2026-07",
-    parserVersion: "cyberbiz-sales-v1",
-    status: "published",
-  });
-  await recordCyberbizReportManifest(db(), {
-    reportMonth: "2026-07",
-    reportKind: "payout",
-    scopeType: "store",
-    scopeId: "store-a",
-    scopeName: "誠品西門店3F",
-    coverageStart: "2026-07-01",
-    coverageEnd: "2026-07-31",
-    salesGranularity: "month",
-    payoutGranularity: "day",
-    salesObjectKey: null,
-    payoutObjectKey: "reports/cyberbiz/store-a/2026/07/00000000-0000-0000-0000-000000000012.json",
-    combinedWorkbookObjectKey: null,
-    driveFileId: "drive-payout",
-    driveUrl: "https://drive.example.test/file/drive-payout",
-    storeIdsJson: '["store-a"]',
-    sourceChecksum: "checksum-store-payout-2026-07",
-    parserVersion: "cyberbiz-payout-v1",
-    status: "published",
-  });
-}
-
-describe("CYBERBIZ 報表查詢服務", () => {
-  it("可用店面名稱查詢，並把 sales／payout manifest 合併成同一個 scope view", async () => {
-    await publishStoreSalesAndPayoutManifests();
-    await recordCyberbizReportManifest(db(), {
-      reportMonth: "2026-07",
-      reportKind: "sales",
+describe("報表日資料查詢", () => {
+  it("可以用店名查商品銷售，且忽略名稱中的空白", async () => {
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07",
       scopeType: "store",
-      scopeId: "store-a",
       scopeName: "誠品西門店3F",
-      coverageStart: "2026-07-01",
-      coverageEnd: "2026-07-31",
-      salesGranularity: "month",
-      payoutGranularity: "day",
-      salesObjectKey: "reports/cyberbiz/store-a/2026/07/00000000-0000-0000-0000-000000000013.json",
-      payoutObjectKey: null,
-      combinedWorkbookObjectKey: null,
-      driveFileId: null,
-      driveUrl: null,
-      storeIdsJson: '["store-a"]',
-      sourceChecksum: "checksum-store-sales-staged-2026-07",
-      parserVersion: "cyberbiz-sales-v1",
-      status: "staged",
     });
-    const get = async () => new Response(JSON.stringify(storeSalesDocument()), { headers: { "content-type": "application/json" } });
-    const nas = { get, put: async () => { throw new Error("not used"); }, delete: async () => {} } as unknown as NasStorageClient;
-    const result = await createCyberbizReportService(db(), nas).querySales({
-      reportMonth: "2026-07",
-      scopeType: "store",
-      scopeName: "誠品西門店 3F",
-    });
-
-    expect(result).toMatchObject({ status: "ok", scopeId: "store-a", scopeName: "誠品西門店3F" });
-    if (result.status === "ok") {
-      expect(result.manifest).toMatchObject({ scopeName: "誠品西門店3F", reportKind: "bundle" });
-      expect(result.manifest.sourceChecksum).toBe("checksum-store-sales-2026-07");
-    }
+    expect(result).toMatchObject({ status: "ok", scopeId: WEST, scopeName: "誠品西門店 3F" });
+    expect(result.totals).toEqual({ grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 380 });
   });
 
-  it("公司整體查詢只讀一個預先彙總的 normalized JSON，分類也在同一個結果完成", async () => {
-    await publishCompanyReport();
-    const get = async () => new Response(JSON.stringify(document()), { headers: { "content-type": "application/json" } });
-    const nas = { get, put: async () => { throw new Error("not used"); }, delete: async () => {} } as unknown as NasStorageClient;
-    const result = await createCyberbizReportService(db(), nas).querySales({
-      reportMonth: "2026-07",
-      scopeType: "company",
-      category: "沐浴",
-    });
+  it("公司查詢不會把其他通路的 scope 一起加總", async () => {
+    const shopeeScope = "shopee:store:mall";
+    await upsertReportScope(db(), { id: shopeeScope, scopeKind: "store", name: "蝦皮商城" });
+    await insertReportSalesDaily(db(), [{
+      scopeId: shopeeScope,
+      businessDate: "2026-07-01",
+      sku: "SKU-SHOPEE",
+      productName: "蝦皮商品",
+      category: "其他",
+      grossQuantity: 100,
+      returnQuantity: 0,
+      netQuantity: 100,
+      salesAmount: 10000,
+    }]);
+    await insertReportPayoutDaily(db(), [{ scopeId: shopeeScope, businessDate: "2026-07-01", payoutAmount: 20000 }]);
 
-    expect(result).toMatchObject({ status: "ok", reportMonth: "2026-07" });
-    if (result.status === "ok") {
-      expect(result.rows).toHaveLength(1);
-      expect(result.totals).toMatchObject({ netQuantity: 2, salesAmount: 180 });
-    }
+    const sales = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "company" });
+    expect(sales.totals).toEqual({ grossQuantity: 9, returnQuantity: 1, netQuantity: 8, salesAmount: 680 });
+
+    const payout = await createCyberbizReportService(db()).queryPayout({ period: "2026-07", scopeType: "company" });
+    expect(payout.totals).toEqual({ payoutAmount: 6000 });
   });
 
-  it("normalized JSON 的 scopeId 不符合 manifest 時拒絕回傳資料", async () => {
-    await publishCompanyReport();
-    const mismatched = { ...document(), scopeId: "store-b" };
-    const nas = {
-      get: async () => new Response(JSON.stringify(mismatched)),
-      put: async () => { throw new Error("not used"); },
-      delete: async () => {},
-    } as unknown as NasStorageClient;
-
-    await expect(createCyberbizReportService(db(), nas).querySales({
-      reportMonth: "2026-07",
-      scopeType: "company",
-    })).rejects.toMatchObject({ code: "report_manifest_mismatch" });
-  });
-
-  it("非完整月份會先回傳 granularity 狀態，不會讀 NAS", async () => {
-    let reads = 0;
-    const nas = {
-      get: async () => { reads += 1; return null; },
-      put: async () => { throw new Error("not used"); },
-      delete: async () => {},
-    } as unknown as NasStorageClient;
-    const result = await createCyberbizReportService(db(), nas).querySales({
-      reportMonth: "2026-07",
-      scopeType: "company",
-      startDate: "2026-07-01",
-      endDate: "2026-07-15",
-    });
-
-    expect(result.status).toBe("UNSUPPORTED_GRANULARITY");
-    expect(reads).toBe(0);
-  });
-
-  it("沒有 manifest 時回傳 NO_DATA_FOR_RANGE", async () => {
-    const nas = { get: async () => { throw new Error("should not read"); } } as unknown as NasStorageClient;
-    const result = await createCyberbizReportService(db(), nas).querySales({ reportMonth: "2026-07", scopeType: "company" });
-    expect(result.status).toBe("NO_DATA_FOR_RANGE");
-  });
-
-  it("出金查詢可對完整日區間做精確合計", async () => {
-    await publishCompanyPayout();
-    const payout = {
-      schemaVersion: 1,
-      kind: "cyberbiz_payout_daily",
-      scopeType: "company",
-      scopeId: "company",
-      scopeName: "公司整體",
-      reportMonth: "2026-07",
-      coverageStart: "2026-07-01",
-      coverageEnd: "2026-07-31",
-      granularity: "day",
-      rows: [
-        { date: "2026-07-01", closeAt: "2026-07-01 21:00:00", incomeAmount: 100, incomeType: "現金", pos: "POS 1", operator: "甲" },
-        { date: "2026-07-02", closeAt: "2026-07-02 21:00:00", incomeAmount: 200, incomeType: "信用卡", pos: "POS 1", operator: "乙" },
-      ],
-      totals: { incomeAmount: 300, rowCount: 2 },
-    };
-    const nas = {
-      get: async () => new Response(JSON.stringify(payout)),
-      put: async () => { throw new Error("not used"); },
-      delete: async () => {},
-    } as unknown as NasStorageClient;
-    const result = await createCyberbizReportService(db(), nas).queryPayout({
-      reportMonth: "2026-07",
-      scopeType: "company",
+  it("公司查詢直接 aggregate 所有據點，不需要公司 aggregate row", async () => {
+    const result = await createCyberbizReportService(db()).querySales({
       startDate: "2026-07-01",
       endDate: "2026-07-02",
+      scopeType: "company",
+      groupBy: ["scope", "day", "day"],
     });
-    expect(result).toMatchObject({ status: "ok", totals: { incomeAmount: 300, rowCount: 2 } });
+    expect(result).toMatchObject({ status: "ok", requestedStart: "2026-07-01", requestedEnd: "2026-07-02" });
+    expect(result.totals).toEqual({ grossQuantity: 9, returnQuantity: 1, netQuantity: 8, salesAmount: 680 });
+    expect(result.rows).toHaveLength(3);
+    expect(result.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scopeId: WEST, businessDate: "2026-07-01" }),
+    ]));
   });
 
-  it("payout normalized JSON 的 scopeId 不符合 manifest 時拒絕回傳資料", async () => {
-    await publishCompanyPayout();
-    const payout = {
-      schemaVersion: 1,
-      kind: "cyberbiz_payout_daily",
+  it("年度查詢可以再依分類與月份 aggregate", async () => {
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026",
       scopeType: "company",
-      scopeId: "store-b",
-      scopeName: "公司整體",
-      reportMonth: "2026-07",
-      coverageStart: "2026-07-01",
-      coverageEnd: "2026-07-31",
-      granularity: "day",
-      rows: [{ date: "2026-07-01", closeAt: "2026-07-01 21:00:00", incomeAmount: 100, incomeType: "現金", pos: "POS 1", operator: "甲" }],
-      totals: { incomeAmount: 100, rowCount: 1 },
-    };
-    const nas = {
-      get: async () => new Response(JSON.stringify(payout)),
-      put: async () => { throw new Error("not used"); },
-      delete: async () => {},
-    } as unknown as NasStorageClient;
+      category: "沐浴",
+      groupBy: ["month"],
+    });
+    expect(result).toMatchObject({ status: "ok", period: "2026" });
+    expect(result.totals).toEqual({ grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 380 });
+    expect(result.rows).toEqual([{ reportMonth: "2026-07", grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 380 }]);
+  });
 
-    await expect(createCyberbizReportService(db(), nas).queryPayout({
-      reportMonth: "2026-07",
+  it("出金以據點與日期做 aggregate，沒有 income type 或 POS 維度", async () => {
+    const result = await createCyberbizReportService(db()).queryPayout({
+      period: "2026-07",
       scopeType: "company",
-      startDate: "2026-07-01",
-      endDate: "2026-07-31",
-    })).rejects.toMatchObject({ code: "report_manifest_mismatch" });
+      groupBy: ["month"],
+    });
+    expect(result).toMatchObject({ status: "ok", totals: { payoutAmount: 6000 } });
+    expect(result.rows).toEqual([{ reportMonth: "2026-07", payoutAmount: 6000 }]);
+  });
+
+  it("沒有指定區間資料時回傳後台作業所需的狀態", async () => {
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2025-12",
+      scopeType: "company",
+    });
+    expect(result).toMatchObject({ status: "NO_DATA_FOR_RANGE", period: "2025-12" });
+  });
+
+  it("拒絕不完整的自訂日期區間", async () => {
+    await expect(createCyberbizReportService(db()).queryPayout({
+      startDate: "2026-07-02",
+      scopeType: "company",
+    })).rejects.toMatchObject({ code: "invalid_report_range", status: 400 });
   });
 });

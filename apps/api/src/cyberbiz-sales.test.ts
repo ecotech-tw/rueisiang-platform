@@ -69,7 +69,7 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("CYBERBIZ 商品銷售報表執行", () => {
-  it("完整月份可由主管執行，並留下可進 manifest 的 audit record", async () => {
+  it("完整月份可由主管執行，並留下可匯入 D1 的 audit record", async () => {
     const calls = stubGithub();
     const id = await seedUser("manager@ecotech.tw", "role-manager");
     const stores = await listPayoutStores(db());
@@ -89,10 +89,10 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
       },
     });
     const [run] = await listCyberbizReportRuns(db(), "sales");
-    expect(run).toMatchObject({ periodKind: "month", manifestEligible: 1, storesJson: JSON.stringify(names) });
+    expect(run).toMatchObject({ periodKind: "month", d1ImportEligible: 1, storesJson: JSON.stringify(names) });
   });
 
-  it("自訂區間只記錄 Drive-only，不能讓它變成 AI manifest", async () => {
+  it("自訂區間只記錄 Drive-only，不匯入 D1", async () => {
     const calls = stubGithub();
     const id = await seedUser("manager@ecotech.tw", "role-manager");
     const store = (await listPayoutStores(db()))[0]!;
@@ -104,7 +104,7 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     expect(response.status).toBe(202);
     expect(calls[0]?.body).toMatchObject({ inputs: { store: store.name, start: "2026-07-14", end: "2026-07-18" } });
     const [run] = await listCyberbizReportRuns(db(), "sales");
-    expect(run).toMatchObject({ periodKind: "custom", manifestEligible: 0 });
+    expect(run).toMatchObject({ periodKind: "custom", d1ImportEligible: 0 });
   });
 
   it("沒有商品銷售執行權限的人不能看到狀態或觸發 workflow", async () => {

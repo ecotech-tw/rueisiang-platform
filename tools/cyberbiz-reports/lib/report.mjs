@@ -7,7 +7,7 @@ const REPORT_CONFIG = {
     title: "CYBERBIZ 出金表",
     fileSuffix: "出金表",
     totalHeader: "出金合計",
-    steps: { export: "匯出", fetch: "取檔", verify: "驗證", columns: "加欄位", upload: "上傳" },
+    steps: { export: "匯出", fetch: "取檔", verify: "驗證", columns: "加欄位", upload: "上傳", ingest: "匯入 D1" },
     nextSteps: [
       "各通路試算表的 I 欄「櫃位POS」需對照專櫃 POS 金額填入",
       "有差異時在 J 欄「備註」寫原因",
@@ -17,10 +17,10 @@ const REPORT_CONFIG = {
     title: "CYBERBIZ 商品銷售報表",
     fileSuffix: "商品銷售報表",
     totalHeader: "銷售總計",
-    steps: { export: "匯出", fetch: "取檔", verify: "驗證", upload: "上傳", manifest: "索引" },
+    steps: { export: "匯出", fetch: "取檔", verify: "驗證", upload: "上傳", ingest: "匯入 D1" },
     nextSteps: [
-      "完整月份才會建立 AI 查詢 manifest；自訂日期區間只上傳原始 XLSX 到 Google Drive",
-      "商品銷售總表是月彙總，不能從月報精確拆成每日或任意日期資料",
+      "商品銷售日資料匯入 D1，月份、年份與自訂日期都可供 AI 查詢",
+      "Google Drive 保留原始 XLSX，供同仁人工查帳",
     ],
   },
 };

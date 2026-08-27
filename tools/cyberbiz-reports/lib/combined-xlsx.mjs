@@ -44,7 +44,7 @@ function nextWorksheet(entries) {
 }
 
 function salesWorksheet(document, sheetName) {
-  const headers = ["櫃位", "分類", "SKU", "商品名稱", "售價", "銷售數量", "退回數量", "淨銷售數量", "售額總計", "成本總計", "毛利總計", "毛利率"];
+  const headers = ["櫃位", "分類", "SKU", "商品名稱", "銷售數量", "退回數量", "淨銷售數量", "售額總計"];
   const headerCells = headers.map((value, index) => cell(`${String.fromCharCode(65 + index)}2`, value));
   const dataRows = document.rows.map((item, index) => {
     const rowNumber = index + 3;
@@ -53,14 +53,10 @@ function salesWorksheet(document, sheetName) {
       item.category,
       item.sku,
       item.productName,
-      item.unitPrice,
       item.grossQuantity,
       item.returnQuantity,
       item.netQuantity,
       item.salesAmount,
-      item.costAmount,
-      item.grossProfit,
-      item.grossMargin,
     ];
     return row(rowNumber, values.map((value, column) => cell(`${String.fromCharCode(65 + column)}${rowNumber}`, value, {
       numeric: column >= 4,
@@ -69,17 +65,16 @@ function salesWorksheet(document, sheetName) {
   const totalRow = document.rows.length + 3;
   const totals = [
     "總計", "", "", "",
-    "",
     document.totals.grossQuantity,
     document.totals.returnQuantity,
     document.totals.netQuantity,
     document.totals.salesAmount,
   ];
   const totalCells = totals.map((value, column) => cell(`${String.fromCharCode(65 + column)}${totalRow}`, value, {
-    numeric: column >= 5,
+    numeric: column >= 4,
   }));
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:L${totalRow}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetData>` +
+    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:H${totalRow}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetData>` +
     row(1, [cell("A1", `CYBERBIZ 商品銷售總表｜${document.reportMonth}｜${sheetName}`)]) +
     row(2, headerCells) + dataRows.join("") + row(totalRow, totalCells) +
     `</sheetData></worksheet>`;
@@ -90,8 +85,8 @@ function salesWorksheet(document, sheetName) {
  * 所以 base workbook 原有的工作表、公式、欄位與人工填寫欄位都不會被重新產生。
  */
 export async function combineCyberbizWorkbook({ payoutPath, outputPath, salesDocument, sheetName = "商品銷售總表" }) {
-  if (!salesDocument || salesDocument.kind !== "cyberbiz_sales_monthly" || !Array.isArray(salesDocument.rows) || !salesDocument.rows.length) {
-    throw new Error("combined XLSX 需要有效的 cyberbiz_sales_monthly document。 ");
+  if (!salesDocument || salesDocument.kind !== "cyberbiz_sales_interval" || !Array.isArray(salesDocument.rows) || !salesDocument.rows.length) {
+    throw new Error("combined XLSX 需要有效的 cyberbiz_sales_interval document。 ");
   }
   const entries = await readZipEntries(payoutPath);
   const { workbook, relationships, sheetNumber, sheetId, relationshipId } = nextWorksheet(entries);

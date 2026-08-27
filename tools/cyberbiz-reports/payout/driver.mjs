@@ -11,7 +11,6 @@
  *   node payout/driver.mjs --headless           # 不開視窗（2FA 或登入卡住時會看不到畫面）
  */
 import path from "node:path";
-import fs from "node:fs/promises";
 import {
   dateRange,
   ensureDir,
@@ -22,7 +21,7 @@ import {
   monthRange,
   payoutFilename,
   previousMonth,
-  reportPublishConfig,
+  reportIngestConfig,
   redact,
   requireEnv,
   skillPath,
@@ -40,70 +39,10 @@ import {
   verifyFormulaByTempCopy,
 } from "../lib/drive.mjs";
 import { terminalSummary, writeMarkdown } from "../lib/report.mjs";
-import { publishCyberbizReport } from "../lib/report-publish.mjs";
-import { aggregatePayoutDocuments } from "./aggregate.mjs";
+import { ingestCyberbizReport } from "../lib/report-ingest.mjs";
 
 function scopeIdFromStoreName(name) {
-  return `store-${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
-}
-
-async function publishPayoutStore({ env, apiUrl, range, store, localPath, drive, firstDataRow }) {
-  const scopeId = scopeIdFromStoreName(store.name);
-  const outputDir = await ensureDir(path.join(skillPath("staging"), "payout", range.label, scopeId));
-  const document = await parsePayoutReport(localPath, {
-    scopeType: "store",
-    scopeId,
-    scopeName: store.name,
-    start: range.start,
-    end: range.end,
-    firstDataRow,
-  });
-  const jsonPath = path.join(outputDir, "payout.normalized.json");
-  await fs.writeFile(jsonPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
-  return { document, manifest: await publishCyberbizReport({
-    nasUrl: env.NAS_STORAGE_URL,
-    nasToken: env.NAS_STORAGE_TOKEN,
-    apiUrl,
-    ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
-    reportMonth: range.label,
-    reportKind: "payout",
-    scopeType: "store",
-    scopeId,
-    scopeName: store.name,
-    coverageStart: range.start,
-    coverageEnd: range.end,
-    storeIdsJson: JSON.stringify([scopeId]),
-    parserVersion: "cyberbiz-payout-v1",
-    payoutSourcePath: localPath,
-    payoutJsonPath: jsonPath,
-    afterStaged: async () => drive,
-  }) };
-}
-
-async function publishPayoutCompany({ env, apiUrl, range, documents }) {
-  const document = aggregatePayoutDocuments(documents, {
-    scopeName: "公司整體",
-    parserVersion: "cyberbiz-payout-company-v1",
-  });
-  const outputDir = await ensureDir(path.join(skillPath("staging"), "payout", range.label, "company"));
-  const jsonPath = path.join(outputDir, "payout.normalized.json");
-  await fs.writeFile(jsonPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
-  return publishCyberbizReport({
-    nasUrl: env.NAS_STORAGE_URL,
-    nasToken: env.NAS_STORAGE_TOKEN,
-    apiUrl,
-    ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
-    reportMonth: range.label,
-    reportKind: "payout",
-    scopeType: "company",
-    scopeId: "company",
-    scopeName: "公司整體",
-    coverageStart: range.start,
-    coverageEnd: range.end,
-    storeIdsJson: JSON.stringify(documents.map((item) => item.scopeId)),
-    parserVersion: "cyberbiz-payout-company-v1",
-    payoutJsonPath: jsonPath,
-  });
+  return `cyberbiz:store:${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
 }
 
 function parseArgs(argv) {
@@ -152,11 +91,11 @@ async function main() {
       ? monthRange(args.month)
       : previousMonth();
   const monthly = range.label === range.start.slice(0, 7) && range.end === monthRange(range.label).end;
-  const manifestConfig = monthly && !args.skipUpload
-    ? reportPublishConfig(env)
-    : { enabled: false, missing: [], apiUrl: reportPublishConfig(env).apiUrl };
-  if (monthly && !args.skipUpload && !manifestConfig.enabled) {
-    log(`完整月份將照常匯出並上傳 Drive，但暫不建立 AI manifest；缺少：${manifestConfig.missing.join("、")}`);
+  const ingestConfig = !args.skipUpload
+    ? reportIngestConfig(env)
+    : { enabled: false, missing: [], apiUrl: reportIngestConfig(env).apiUrl };
+  if (!args.skipUpload && !ingestConfig.enabled) {
+    log(`照常匯出並上傳 Drive，但暫不匯入 D1；缺少：${ingestConfig.missing.join("、")}`);
   }
   const recipientEmail = config.recipientEmail || env.CYBERBIZ_2FA_MAILBOX;
   if (!recipientEmail) {
@@ -196,7 +135,6 @@ async function main() {
     stores: [],
     finishedAt: "",
   };
-  const payoutDocuments = [];
 
   try {
     const page = await newPage(context);
@@ -305,8 +243,7 @@ async function main() {
           parentId: store.driveFolderId,
           name: fileName,
         });
-        // 自訂區間沿用原本的保守行為，避免洗掉同仁已填的人工欄位；完整月份若重跑，
-        // 必須上傳新版本，否則後續 manifest 可能連到舊的同名檔案。
+        // 自訂區間沿用原本的保守行為，避免洗掉同仁已填的人工欄位；整月重跑則上傳新版本。
         if (existing && !monthly) {
           result.steps.upload = "skip";
           result.sheetUrl = existing.webViewLink;
@@ -338,28 +275,36 @@ async function main() {
           });
         }
         result.formulaValues = check.count;
-        if (monthly && manifestConfig.enabled) {
-          const published = await publishPayoutStore({
-            env,
-            apiUrl: manifestConfig.apiUrl,
-            range,
-            store,
-            localPath,
-            drive: result.drive,
+        if (monthly && ingestConfig.enabled) {
+          const parsed = await parsePayoutReport(localPath, {
+            scopeType: "store",
+            scopeId: scopeIdFromStoreName(store.name),
+            scopeName: store.name,
+            start: range.start,
+            end: range.end,
             firstDataRow: config.firstDataRow,
           });
-          result.steps.manifest = "ok";
-          payoutDocuments.push(published.document);
-        } else if (monthly) {
-          result.steps.manifest = "skip";
-          result.note = args.skipUpload
-            ? "--skip-upload，未建立 AI manifest"
-            : `未建立 AI manifest（缺少：${manifestConfig.missing.join("、")}）`;
+          await ingestCyberbizReport({
+            apiUrl: ingestConfig.apiUrl,
+            ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
+            kind: "payout",
+            scopeId: scopeIdFromStoreName(store.name),
+            scopeName: store.name,
+            rows: parsed.rows.map((row) => ({ businessDate: row.date, payoutAmount: row.incomeAmount })),
+          });
+          result.steps.ingest = "ok";
+        } else {
+          result.steps.ingest = "skip";
+          result.note = !monthly
+            ? "自訂區間只上傳 Drive，未匯入 D1"
+            : args.skipUpload
+              ? "--skip-upload，未匯入 D1"
+              : `未匯入 D1（缺少：${ingestConfig.missing.join("、")}）`;
         }
         result.done = true;
         log(`  公式驗證通過：H 欄算出 ${check.count} 個值（前幾筆 ${check.sample.join("、")}）。`);
       } catch (error) {
-        const step = ["export", "fetch", "verify", "columns", "upload", "manifest"].find(
+        const step = ["export", "fetch", "verify", "columns", "upload", "ingest"].find(
           (key) => !result.steps[key],
         );
         if (step) result.steps[step] = "fail";
@@ -373,11 +318,6 @@ async function main() {
         } catch {}
       }
     }
-    const allSelected = wanted.length === config.stores.length;
-    if (monthly && manifestConfig.enabled && allSelected && run.stores.every((store) => store.done) && payoutDocuments.length === wanted.length) {
-      await publishPayoutCompany({ env, apiUrl: manifestConfig.apiUrl, range, documents: payoutDocuments });
-      run.companyManifest = "ok";
-    }
   } finally {
     run.finishedAt = new Date().toISOString();
     if (run.stores.length) {
@@ -390,8 +330,7 @@ async function main() {
     await context.close();
   }
 
-  const companyManifestRequired = monthly && manifestConfig.enabled && wanted.length === config.stores.length;
-  if (run.stores.some((store) => !store.done) || (companyManifestRequired && run.companyManifest !== "ok")) process.exitCode = 1;
+  if (run.stores.some((store) => !store.done)) process.exitCode = 1;
 }
 
 main().catch((error) => {

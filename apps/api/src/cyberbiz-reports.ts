@@ -1,19 +1,15 @@
 import {
-  aggregateCyberbizPayout,
-  aggregateCyberbizSales,
-  findCyberbizReportScopeManifest,
-  isCyberbizPayoutDocument,
-  isCyberbizSalesDocument,
-  normalizeCyberbizMonth,
-  type CyberbizPayoutDocument,
+  parseReportRange,
+  queryReportPayout,
+  queryReportSales,
   type CyberbizPayoutQuery,
-  type CyberbizPayoutQueryResult,
-  type CyberbizSalesDocument,
   type CyberbizSalesQuery,
-  type CyberbizSalesQueryResult,
   type Database,
+  type ReportGroupBy,
+  type ReportPayoutQueryResult,
+  type ReportRange,
+  type ReportSalesQueryResult,
 } from "@rueisiang/db";
-import type { NasStorageClient } from "./nas-storage.js";
 
 export class CyberbizReportQueryError extends Error {
   readonly status: number;
@@ -27,140 +23,81 @@ export class CyberbizReportQueryError extends Error {
   }
 }
 
-function monthRange(reportMonth: string): { start: string; end: string } {
-  const [year = 0, month = 0] = reportMonth.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return { start: `${reportMonth}-01`, end: `${reportMonth}-${String(lastDay).padStart(2, "0")}` };
+function rangeOf(input: { period?: string; reportMonth?: string; startDate?: string; endDate?: string }): ReportRange {
+  try {
+    return parseReportRange(input.period ?? input.reportMonth, input.startDate, input.endDate);
+  } catch (error) {
+    throw new CyberbizReportQueryError(400, "invalid_report_range", error instanceof Error ? error.message : "報表日期區間不正確。");
+  }
 }
 
-function noData(reportMonth: string): CyberbizSalesQueryResult {
-  const range = monthRange(reportMonth);
+function groupByOf(value: readonly ReportGroupBy[] | undefined): ReportGroupBy[] | undefined {
+  if (!value) return undefined;
+  const allowed = new Set<ReportGroupBy>(["day", "month", "scope", "sku", "category"]);
+  if (value.some((item) => !allowed.has(item))) throw new CyberbizReportQueryError(400, "invalid_group_by", "groupBy 只能使用 day、month、scope、sku 或 category。");
+  return [...new Set(value)];
+}
+
+function noSalesData(range: ReportRange, scopeType: "store" | "company"): ReportSalesQueryResult {
   return {
     status: "NO_DATA_FOR_RANGE",
-    reportMonth,
-    requestedStart: range.start,
-    requestedEnd: range.end,
-    message: "指定月份沒有已發布的 CYBERBIZ 銷售資料。",
+    period: range.period,
+    requestedStart: range.startDate,
+    requestedEnd: range.endDate,
+    scopeType,
+    rows: [],
+    totals: { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 },
+    message: "指定區間沒有已匯入的商品銷售資料。請到後台執行商品銷售報表下載作業。",
   };
 }
 
-function unsupportedRange(reportMonth: string, startDate: string, endDate: string): CyberbizSalesQueryResult {
+function noPayoutData(range: ReportRange, scopeType: "store" | "company"): ReportPayoutQueryResult {
   return {
-    status: "UNSUPPORTED_GRANULARITY",
-    reportMonth,
-    requestedStart: startDate,
-    requestedEnd: endDate,
-    message: "商品銷售總表只有月彙總；目前不能從月報精確拆出日或任意日期區間。",
+    status: "NO_DATA_FOR_RANGE",
+    period: range.period,
+    requestedStart: range.startDate,
+    requestedEnd: range.endDate,
+    scopeType,
+    rows: [],
+    totals: { payoutAmount: 0 },
+    message: "指定區間沒有已匯入的出金資料。請到後台執行出金表下載作業。",
   };
 }
 
-function normalizedScopeName(value: string): string {
-  return value.trim().replace(/\s+/gu, "").toLocaleLowerCase();
-}
-
-async function readSalesDocument(nas: NasStorageClient, key: string): Promise<CyberbizSalesDocument | null> {
-  const response = await nas.get(key);
-  if (!response) return null;
-  let payload: unknown;
-  try {
-    payload = JSON.parse(await response.text());
-  } catch {
-    throw new CyberbizReportQueryError(502, "invalid_report_json", "NAS 上的 CYBERBIZ normalized JSON 無法解析。");
-  }
-  if (!isCyberbizSalesDocument(payload)) {
-    throw new CyberbizReportQueryError(502, "invalid_report_document", "NAS 上的 CYBERBIZ normalized JSON 格式不符合目前版本。");
-  }
-  return payload;
-}
-
-async function readPayoutDocument(nas: NasStorageClient, key: string): Promise<CyberbizPayoutDocument | null> {
-  const response = await nas.get(key);
-  if (!response) return null;
-  let payload: unknown;
-  try {
-    payload = JSON.parse(await response.text());
-  } catch {
-    throw new CyberbizReportQueryError(502, "invalid_report_json", "NAS 上的 CYBERBIZ payout normalized JSON 無法解析。");
-  }
-  if (!isCyberbizPayoutDocument(payload)) {
-    throw new CyberbizReportQueryError(502, "invalid_payout_document", "NAS 上的 CYBERBIZ payout normalized JSON 格式不符合目前版本。");
-  }
-  return payload;
-}
-
-export function createCyberbizReportService(db: Database, nas: NasStorageClient | undefined) {
+export function createCyberbizReportService(db: Database) {
   return {
-    async querySales(input: CyberbizSalesQuery): Promise<CyberbizSalesQueryResult> {
-      const reportMonth = normalizeCyberbizMonth(input.reportMonth);
-      const fullRange = monthRange(reportMonth);
-      const startDate = input.startDate ?? fullRange.start;
-      const endDate = input.endDate ?? fullRange.end;
-      if (startDate !== fullRange.start || endDate !== fullRange.end) {
-        return unsupportedRange(reportMonth, startDate, endDate);
-      }
-      if (!nas) throw new CyberbizReportQueryError(503, "nas_not_configured", "NAS storage 尚未設定，暫時無法查詢 CYBERBIZ 報表。");
-
+    async querySales(input: CyberbizSalesQuery): Promise<ReportSalesQueryResult> {
       if (input.scopeType === "store" && !input.scopeId && !input.scopeName) {
         throw new CyberbizReportQueryError(400, "missing_scope_name", "查詢單一櫃位時需要店面名稱。");
       }
-      const scopeId = input.scopeType === "company" ? "company" : input.scopeId;
-      const manifest = await findCyberbizReportScopeManifest(db, {
-        reportMonth,
+      const range = rangeOf(input);
+      const groups = groupByOf(input.groupBy);
+      const result = await queryReportSales(db, {
+        range,
         scopeType: input.scopeType,
-        ...(scopeId ? { scopeId } : {}),
+        ...(input.scopeId ? { scopeId: input.scopeId } : {}),
         ...(input.scopeName ? { scopeName: input.scopeName } : {}),
-        requiredArtifact: "sales",
+        ...(groups ? { groupBy: groups } : {}),
+        ...(input.sku ? { sku: input.sku } : {}),
+        ...(input.category ? { category: input.category } : {}),
+        ...(input.productName ? { productName: input.productName } : {}),
       });
-      if (!manifest?.salesObjectKey) return noData(reportMonth);
-
-      const document = await readSalesDocument(nas, manifest.salesObjectKey);
-      if (!document) return noData(reportMonth);
-      if (document.reportMonth !== reportMonth || document.scopeType !== input.scopeType || document.scopeId !== manifest.scopeId
-        || (input.scopeName && normalizedScopeName(document.scopeName) !== normalizedScopeName(manifest.scopeName))) {
-        throw new CyberbizReportQueryError(502, "report_manifest_mismatch", "CYBERBIZ manifest 與 normalized JSON 的月份或 scope 不一致。");
-      }
-      return aggregateCyberbizSales([document], {
-        ...input,
-        reportMonth,
-        scopeId: manifest.scopeId,
-        ...(manifest.scopeName ? { scopeName: manifest.scopeName } : {}),
-      }, manifest);
+      return result ?? noSalesData(range, input.scopeType);
     },
-    async queryPayout(input: CyberbizPayoutQuery): Promise<CyberbizPayoutQueryResult> {
-      const reportMonth = normalizeCyberbizMonth(input.reportMonth);
-      const fullRange = monthRange(reportMonth);
-      const startDate = input.startDate || fullRange.start;
-      const endDate = input.endDate || fullRange.end;
-      if (!nas) throw new CyberbizReportQueryError(503, "nas_not_configured", "NAS storage 尚未設定，暫時無法查詢 CYBERBIZ 報表。");
-
+    async queryPayout(input: CyberbizPayoutQuery): Promise<ReportPayoutQueryResult> {
       if (input.scopeType === "store" && !input.scopeId && !input.scopeName) {
         throw new CyberbizReportQueryError(400, "missing_scope_name", "查詢單一櫃位時需要店面名稱。");
       }
-      const scopeId = input.scopeType === "company" ? "company" : input.scopeId;
-      const manifest = await findCyberbizReportScopeManifest(db, {
-        reportMonth,
+      const range = rangeOf(input);
+      const groups = groupByOf(input.groupBy);
+      const result = await queryReportPayout(db, {
+        range,
         scopeType: input.scopeType,
-        ...(scopeId ? { scopeId } : {}),
+        ...(input.scopeId ? { scopeId: input.scopeId } : {}),
         ...(input.scopeName ? { scopeName: input.scopeName } : {}),
-        requiredArtifact: "payout",
+        ...(groups ? { groupBy: groups } : {}),
       });
-      if (!manifest?.payoutObjectKey) {
-        return aggregateCyberbizPayout([], { ...input, reportMonth, startDate, endDate });
-      }
-      const document = await readPayoutDocument(nas, manifest.payoutObjectKey);
-      if (!document) return aggregateCyberbizPayout([], { ...input, reportMonth, startDate, endDate });
-      if (document.reportMonth !== reportMonth || document.scopeType !== input.scopeType || document.scopeId !== manifest.scopeId
-        || (input.scopeName && normalizedScopeName(document.scopeName) !== normalizedScopeName(manifest.scopeName))) {
-        throw new CyberbizReportQueryError(502, "report_manifest_mismatch", "CYBERBIZ manifest 與 payout normalized JSON 的月份或 scope 不一致。");
-      }
-      return aggregateCyberbizPayout([document], {
-        ...input,
-        reportMonth,
-        startDate,
-        endDate,
-        scopeId: manifest.scopeId,
-        ...(manifest.scopeName ? { scopeName: manifest.scopeName } : {}),
-      }, manifest);
+      return result ?? noPayoutData(range, input.scopeType);
     },
   };
 }

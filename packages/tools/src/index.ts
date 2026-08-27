@@ -21,6 +21,7 @@ import {
   normalizeCustomerQuery,
   type CyberbizPayoutQuery,
   type CyberbizSalesQuery,
+  type ReportGroupBy,
   type Database,
 } from "@rueisiang/db";
 import type { ToolContract, ToolContext, ToolSurface } from "./contract.js";
@@ -76,18 +77,24 @@ function cyberbizReportToolResult(value: unknown, reportKind: "sales" | "payout"
       ...(scopeName ? { scopeName } : {}),
       ...(textInput(input, "startDate") ? { startDate: textInput(input, "startDate") } : {}),
       ...(textInput(input, "endDate") ? { endDate: textInput(input, "endDate") } : {}),
-      message: "請到後台執行對應的 CYBERBIZ 報表；完整月份才會進入 AI manifest，自訂日期只會整理到 Google Drive。",
+      message: "請到後台執行對應的 CYBERBIZ 報表；原始 XLSX 會保留在 Google Drive，完成 D1 匯入後即可查詢。",
     },
   });
 }
 
 function cyberbizReportToolError(error: unknown, reportKind: "sales" | "payout", input: unknown): string | null {
   const candidate = error as { code?: unknown };
-  if (candidate?.code !== "nas_not_configured") return null;
+  if (candidate?.code !== "report_service_unavailable") return null;
   return cyberbizReportToolResult({
     status: "NO_DATA_FOR_RANGE",
-    message: "NAS storage 尚未設定，現在沒有可查詢的 CYBERBIZ manifest。",
+    message: "報表查詢服務目前無法使用。",
   }, reportKind, input);
+}
+
+function reportGroupByInput(input: unknown): ReportGroupBy[] | undefined {
+  const value = textInput(input, "groupBy");
+  if (!value) return undefined;
+  return value.split(",").map((item) => item.trim()).filter(Boolean) as ReportGroupBy[];
 }
 
 interface CyberbizReportToolService {
@@ -98,7 +105,7 @@ interface CyberbizReportToolService {
 function cyberbizReportService(context: ToolContext | undefined): CyberbizReportToolService {
   const service = context?.services?.cyberbizReports;
   if (!service || typeof service !== "object" || typeof (service as CyberbizReportToolService).querySales !== "function") {
-    throw new AssistantError("CYBERBIZ 報表查詢服務目前不可用，請確認 NAS 與報表索引已設定。");
+    throw new AssistantError("報表查詢服務目前不可用，請稍後再試。");
   }
   return service as CyberbizReportToolService;
 }
@@ -1143,42 +1150,46 @@ const crmGetOrdersTool: PlatformToolDefinition = {
 const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
   key: "query_sales_report",
   label: "查詢商品銷售報表",
-  description: "從已解析的商品銷售總表查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額。這不是 CRM 訂單查詢；銷售總表只有月彙總。單一櫃位請傳 scopeName（例如誠品西門店3F），不需要使用者知道 scopeId。若要求日或未完整涵蓋的區間，工具會明確回傳不可精確回答的狀態。一次查詢會由服務端完成必要的公司彙總，不需要逐店呼叫工具。",
+  description: "從已匯入 D1 的商品銷售日資料查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額。這不是 CRM 訂單查詢；單一櫃位請傳 scopeName（例如誠品西門店3F），不需要使用者知道 scopeId。支援月份、年份與自訂日期區間；公司查詢由服務端完成所有據點的彙總，不需要逐店呼叫工具。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],
   parameters: {
     type: "object",
     properties: {
-      period: { type: "string", description: "報表月份，YYYY-MM，例如 2026-07。" },
+      period: { type: "string", description: "報表期間，YYYY 代表全年、YYYY-MM 代表整月；也可改用 startDate 與 endDate。" },
       scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位。", enum: ["company", "store"] },
       scopeName: { type: "string", description: "scopeType=store 時的櫃位名稱，例如 誠品西門店3F；由服務端解析固定 scopeId。" },
       scopeId: { type: "string", description: "相容既有呼叫的櫃位固定 ID；通常不需要填，優先使用 scopeName。" },
-      startDate: { type: "string", description: "可選的起始日 YYYY-MM-DD；銷售月報若不是完整月份會回傳 UNSUPPORTED_GRANULARITY。" },
-      endDate: { type: "string", description: "可選的結束日 YYYY-MM-DD；銷售月報若不是完整月份會回傳 UNSUPPORTED_GRANULARITY。" },
+      startDate: { type: "string", description: "自訂區間起始日 YYYY-MM-DD，需與 endDate 一起提供。" },
+      endDate: { type: "string", description: "自訂區間結束日 YYYY-MM-DD，需與 startDate 一起提供。" },
+      groupBy: { type: "string", description: "可選分組，使用逗號分隔：day、month、scope、sku、category；例如 scope,month。" },
       sku: { type: "string", description: "可選 SKU，精確查詢單一商品。" },
       category: { type: "string", description: "可選商品分類／標籤，回傳該分類商品合計。" },
       productName: { type: "string", description: "可選商品名稱關鍵字。" },
     },
-    required: ["period", "scopeType"],
+    required: ["scopeType"],
   },
   async execute(input, context) {
     const period = textInput(input, "period");
     const scopeType = textInput(input, "scopeType");
-    if (!period || !["company", "store"].includes(scopeType)) {
-      throw new AssistantError("商品銷售報表查詢需要正確的 period 與 scopeType。");
+    const startDate = textInput(input, "startDate");
+    const endDate = textInput(input, "endDate");
+    if ((!period && (!startDate || !endDate)) || (startDate && !endDate) || (!startDate && endDate) || !["company", "store"].includes(scopeType)) {
+      throw new AssistantError("商品銷售報表查詢需要正確的 period 或完整日期區間，以及 scopeType。");
     }
     const scopeId = textInput(input, "scopeId");
     const scopeName = textInput(input, "scopeName");
     if (scopeType === "store" && !scopeId && !scopeName) throw new AssistantError("查詢單一櫃位時需要店面名稱。");
     try {
       return cyberbizReportToolResult(await cyberbizReportService(context).querySales({
-        reportMonth: period,
+        ...(period ? { period } : {}),
         scopeType: scopeType as CyberbizSalesQuery["scopeType"],
         ...(scopeId ? { scopeId } : {}),
         ...(scopeName ? { scopeName } : {}),
-        ...(textInput(input, "startDate") ? { startDate: textInput(input, "startDate") } : {}),
-        ...(textInput(input, "endDate") ? { endDate: textInput(input, "endDate") } : {}),
+        ...(startDate ? { startDate } : {}),
+        ...(endDate ? { endDate } : {}),
+        ...(reportGroupByInput(input) ? { groupBy: reportGroupByInput(input) } : {}),
         ...(textInput(input, "sku") ? { sku: textInput(input, "sku") } : {}),
         ...(textInput(input, "category") ? { category: textInput(input, "category") } : {}),
         ...(textInput(input, "productName") ? { productName: textInput(input, "productName") } : {}),
@@ -1201,38 +1212,36 @@ const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
   parameters: {
     type: "object",
     properties: {
-      period: { type: "string", description: "報表月份，YYYY-MM，例如 2026-07。" },
+      period: { type: "string", description: "報表期間，YYYY 代表全年、YYYY-MM 代表整月；也可改用 startDate 與 endDate。" },
       scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位。", enum: ["company", "store"] },
       scopeName: { type: "string", description: "scopeType=store 時的櫃位名稱，例如 誠品西門店3F；由服務端解析固定 scopeId。" },
       scopeId: { type: "string", description: "相容既有呼叫的櫃位固定 ID；通常不需要填，優先使用 scopeName。" },
-      startDate: { type: "string", description: "可選起始日 YYYY-MM-DD；未填時使用整個月份。" },
-      endDate: { type: "string", description: "可選結束日 YYYY-MM-DD；未填時使用整個月份。" },
-      incomeType: { type: "string", description: "可選收入類型精確篩選。" },
-      pos: { type: "string", description: "可選 POS 機精確篩選。" },
-      operator: { type: "string", description: "可選操作人員精確篩選。" },
+      startDate: { type: "string", description: "自訂區間起始日 YYYY-MM-DD，需與 endDate 一起提供。" },
+      endDate: { type: "string", description: "自訂區間結束日 YYYY-MM-DD，需與 startDate 一起提供。" },
+      groupBy: { type: "string", description: "可選分組，使用逗號分隔：day、month、scope；例如 scope,month。" },
     },
-    required: ["period", "scopeType"],
+    required: ["scopeType"],
   },
   async execute(input, context) {
     const period = textInput(input, "period");
     const scopeType = textInput(input, "scopeType");
-    if (!period || !["company", "store"].includes(scopeType)) {
-      throw new AssistantError("出金報表查詢需要正確的 period 與 scopeType。");
+    const startDate = textInput(input, "startDate");
+    const endDate = textInput(input, "endDate");
+    if ((!period && (!startDate || !endDate)) || (startDate && !endDate) || (!startDate && endDate) || !["company", "store"].includes(scopeType)) {
+      throw new AssistantError("出金報表查詢需要正確的 period 或完整日期區間，以及 scopeType。");
     }
     const scopeId = textInput(input, "scopeId");
     const scopeName = textInput(input, "scopeName");
     if (scopeType === "store" && !scopeId && !scopeName) throw new AssistantError("查詢單一櫃位時需要店面名稱。");
     try {
       return cyberbizReportToolResult(await cyberbizReportService(context).queryPayout({
-        reportMonth: period,
+        ...(period ? { period } : {}),
         scopeType: scopeType as CyberbizPayoutQuery["scopeType"],
-        startDate: textInput(input, "startDate"),
-        endDate: textInput(input, "endDate"),
+        ...(startDate ? { startDate } : {}),
+        ...(endDate ? { endDate } : {}),
         ...(scopeId ? { scopeId } : {}),
         ...(scopeName ? { scopeName } : {}),
-        ...(textInput(input, "incomeType") ? { incomeType: textInput(input, "incomeType") } : {}),
-        ...(textInput(input, "pos") ? { pos: textInput(input, "pos") } : {}),
-        ...(textInput(input, "operator") ? { operator: textInput(input, "operator") } : {}),
+        ...(reportGroupByInput(input) ? { groupBy: reportGroupByInput(input) } : {}),
       }), "payout", input);
     } catch (error) {
       const fallback = cyberbizReportToolError(error, "payout", input);
