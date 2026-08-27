@@ -28,7 +28,8 @@ export const cyberbizReports = new Hono<AppEnv>()
       throw new HTTPException(400, { message: "scopeType 必須是 company 或 store。" });
     }
     const scopeId = queryValue(c, "scopeId");
-    if (scopeType === "store" && !scopeId) throw new HTTPException(400, { message: "查詢單一櫃位時需要 scopeId。" });
+    const scopeName = queryValue(c, "scopeName");
+    if (scopeType === "store" && !scopeId && !scopeName) throw new HTTPException(400, { message: "查詢單一櫃位時需要店面名稱。" });
 
     try {
       const service = createCyberbizReportService(c.get("db"), nasStorageClient(c.env));
@@ -36,6 +37,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         reportMonth,
         scopeType,
         ...(scopeId ? { scopeId } : {}),
+        ...(scopeName ? { scopeName } : {}),
         ...(queryValue(c, "startDate") ? { startDate: queryValue(c, "startDate") } : {}),
         ...(queryValue(c, "endDate") ? { endDate: queryValue(c, "endDate") } : {}),
         ...(queryValue(c, "sku") ? { sku: queryValue(c, "sku") } : {}),
@@ -64,7 +66,8 @@ export const cyberbizReports = new Hono<AppEnv>()
       throw new HTTPException(400, { message: "scopeType 必須是 company 或 store。" });
     }
     const scopeId = queryValue(c, "scopeId");
-    if (scopeType === "store" && !scopeId) throw new HTTPException(400, { message: "查詢單一櫃位時需要 scopeId。" });
+    const scopeName = queryValue(c, "scopeName");
+    if (scopeType === "store" && !scopeId && !scopeName) throw new HTTPException(400, { message: "查詢單一櫃位時需要店面名稱。" });
 
     try {
       const service = createCyberbizReportService(c.get("db"), nasStorageClient(c.env));
@@ -74,6 +77,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         startDate: queryValue(c, "startDate") ?? "",
         endDate: queryValue(c, "endDate") ?? "",
         ...(scopeId ? { scopeId } : {}),
+        ...(scopeName ? { scopeName } : {}),
         ...(queryValue(c, "incomeType") ? { incomeType: queryValue(c, "incomeType") } : {}),
         ...(queryValue(c, "pos") ? { pos: queryValue(c, "pos") } : {}),
         ...(queryValue(c, "operator") ? { operator: queryValue(c, "operator") } : {}),

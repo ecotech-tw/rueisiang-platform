@@ -1003,6 +1003,8 @@ describe("AI 助理 Sandbox", () => {
       requestBodies.push(contents);
       if (requestBodies.length === 1) {
         expect(JSON.stringify(body.systemInstruction)).toContain("Asia/Taipei");
+        expect(JSON.stringify(body.systemInstruction)).toContain("cyberbiz_query_sales_report");
+        expect(JSON.stringify(body.systemInstruction)).toContain("不要使用 crm_get_orders");
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_search_customers",

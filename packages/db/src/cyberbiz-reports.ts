@@ -17,10 +17,17 @@ export interface CyberbizManifestLookup {
   reportMonth: string;
   scopeType: CyberbizReportScopeType;
   scopeId?: string;
+  scopeName?: string;
   status?: CyberbizReportStatus;
   /** 只取帶有該 normalized JSON 的最新版本，讓 sales／payout 可分開 publish。 */
   requiredArtifact?: Exclude<CyberbizReportKind, "bundle">;
 }
+
+/** 查詢回應使用的索引摘要，不把 NAS object key 暴露給 AI。 */
+export type CyberbizReportManifestSummary = Pick<
+  CyberbizReportManifest,
+  "id" | "reportMonth" | "reportKind" | "scopeType" | "scopeId" | "scopeName" | "coverageStart" | "coverageEnd" | "sourceChecksum"
+>;
 
 export interface CyberbizSalesRow {
   sku: string;
@@ -89,6 +96,7 @@ export interface CyberbizSalesQuery {
   reportMonth: string;
   scopeType: CyberbizReportScopeType;
   scopeId?: string;
+  scopeName?: string;
   startDate?: string;
   endDate?: string;
   sku?: string;
@@ -97,13 +105,14 @@ export interface CyberbizSalesQuery {
 }
 
 export type CyberbizSalesQueryResult =
-  | { status: "ok"; reportMonth: string; scopeType: CyberbizReportScopeType; scopeId?: string; rows: CyberbizSalesRow[]; totals: CyberbizSalesDocument["totals"]; manifest: Pick<CyberbizReportManifest, "id" | "coverageStart" | "coverageEnd" | "sourceChecksum"> }
+  | { status: "ok"; reportMonth: string; scopeType: CyberbizReportScopeType; scopeId?: string; scopeName?: string; rows: CyberbizSalesRow[]; totals: CyberbizSalesDocument["totals"]; manifest: CyberbizReportManifestSummary }
   | { status: "NO_DATA_FOR_RANGE" | "INCOMPLETE_COVERAGE" | "UNSUPPORTED_GRANULARITY"; reportMonth: string; requestedStart: string; requestedEnd: string; message: string };
 
 export interface CyberbizPayoutQuery {
   reportMonth: string;
   scopeType: CyberbizReportScopeType;
   scopeId?: string;
+  scopeName?: string;
   startDate: string;
   endDate: string;
   incomeType?: string;
@@ -112,7 +121,7 @@ export interface CyberbizPayoutQuery {
 }
 
 export type CyberbizPayoutQueryResult =
-  | { status: "ok"; reportMonth: string; scopeType: CyberbizReportScopeType; scopeId?: string; rows: CyberbizPayoutRow[]; totals: CyberbizPayoutDocument["totals"]; manifest: Pick<CyberbizReportManifest, "id" | "coverageStart" | "coverageEnd" | "sourceChecksum"> }
+  | { status: "ok"; reportMonth: string; scopeType: CyberbizReportScopeType; scopeId?: string; scopeName?: string; rows: CyberbizPayoutRow[]; totals: CyberbizPayoutDocument["totals"]; manifest: CyberbizReportManifestSummary }
   | { status: "NO_DATA_FOR_RANGE" | "INCOMPLETE_COVERAGE" | "UNSUPPORTED_GRANULARITY"; reportMonth: string; requestedStart: string; requestedEnd: string; message: string };
 
 export function normalizeCyberbizMonth(value: string): string {
@@ -160,6 +169,56 @@ export async function findCyberbizReportManifest(
     status: lookup.status ?? "published",
   });
   return manifest ?? null;
+}
+
+function normalizedScopeName(value: string): string {
+  return value.trim().replace(/\s+/gu, "").toLocaleLowerCase();
+}
+
+/**
+ * 將同一個 report month／scope 下分開 publish 的 artifact 組成一個查詢視圖。
+ *
+ * reportKind 保留在資料表中是為了相容既有版本與各自重跑；scope 本身不應因為
+ * artifact 是 sales 或 payout 而分裂。這個視圖也讓未來其他通路可以沿用同一個
+ * scope 索引，而由各通路自行決定 normalized document 的解讀方式。
+ */
+export async function findCyberbizReportScopeManifest(
+  db: Database,
+  lookup: CyberbizManifestLookup,
+): Promise<CyberbizReportManifest | null> {
+  const manifests = await listCyberbizReportManifests(db, {
+    ...lookup,
+    requiredArtifact: undefined,
+  });
+  const named = lookup.scopeName
+    ? manifests.filter((manifest) => normalizedScopeName(manifest.scopeName) === normalizedScopeName(lookup.scopeName!))
+    : manifests;
+  const scopeIds = [...new Set(named.map((manifest) => manifest.scopeId))];
+  if (scopeIds.length !== 1) return null;
+
+  // 先用 scopeName 找到 canonical scope，再把同一 scope 的舊 artifact 一起帶入；
+  // 舊版資料可能只有其中一筆填過 scopeName。
+  const scopeManifests = manifests.filter((manifest) => manifest.scopeId === scopeIds[0]);
+  const artifactManifest = lookup.requiredArtifact === "sales"
+    ? scopeManifests.find((manifest) => Boolean(manifest.salesObjectKey))
+    : lookup.requiredArtifact === "payout"
+      ? scopeManifests.find((manifest) => Boolean(manifest.payoutObjectKey))
+      : scopeManifests[0];
+  if (!artifactManifest) return null;
+
+  const salesManifest = scopeManifests.find((manifest) => Boolean(manifest.salesObjectKey));
+  const payoutManifest = scopeManifests.find((manifest) => Boolean(manifest.payoutObjectKey));
+  const combinedManifest = scopeManifests.find((manifest) => Boolean(manifest.combinedWorkbookObjectKey));
+  return {
+    ...artifactManifest,
+    reportKind: salesManifest && payoutManifest ? "bundle" : artifactManifest.reportKind,
+    scopeName: artifactManifest.scopeName || salesManifest?.scopeName || payoutManifest?.scopeName || "",
+    salesSourceObjectKey: salesManifest?.salesSourceObjectKey ?? artifactManifest.salesSourceObjectKey,
+    salesObjectKey: salesManifest?.salesObjectKey ?? artifactManifest.salesObjectKey,
+    payoutSourceObjectKey: payoutManifest?.payoutSourceObjectKey ?? artifactManifest.payoutSourceObjectKey,
+    payoutObjectKey: payoutManifest?.payoutObjectKey ?? artifactManifest.payoutObjectKey,
+    combinedWorkbookObjectKey: combinedManifest?.combinedWorkbookObjectKey ?? artifactManifest.combinedWorkbookObjectKey,
+  };
 }
 
 export async function recordCyberbizReportManifest(
@@ -355,6 +414,7 @@ export function aggregateCyberbizSales(
     reportMonth,
     scopeType: query.scopeType,
     ...(query.scopeId ? { scopeId: query.scopeId } : {}),
+    ...(query.scopeName ? { scopeName: query.scopeName } : {}),
     rows,
     totals: rows.reduce((totals, row) => ({
       grossQuantity: totals.grossQuantity + row.grossQuantity,
@@ -364,10 +424,25 @@ export function aggregateCyberbizSales(
     }), { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 }),
     ...(manifest ? { manifest: {
       id: manifest.id,
+      reportMonth: manifest.reportMonth,
+      reportKind: manifest.reportKind,
+      scopeType: manifest.scopeType,
+      scopeId: manifest.scopeId,
+      scopeName: manifest.scopeName,
       coverageStart: manifest.coverageStart,
       coverageEnd: manifest.coverageEnd,
       sourceChecksum: manifest.sourceChecksum,
-    } } : { manifest: { id: "untracked", coverageStart: range.start, coverageEnd: range.end, sourceChecksum: "" } }),
+    } } : { manifest: {
+      id: "untracked",
+      reportMonth,
+      reportKind: "sales",
+      scopeType: query.scopeType,
+      scopeId: query.scopeId ?? (query.scopeType === "company" ? "company" : ""),
+      scopeName: query.scopeName ?? "",
+      coverageStart: range.start,
+      coverageEnd: range.end,
+      sourceChecksum: "",
+    } }),
   };
 }
 
@@ -427,13 +502,29 @@ export function aggregateCyberbizPayout(
     reportMonth,
     scopeType: query.scopeType,
     ...(query.scopeId ? { scopeId: query.scopeId } : {}),
+    ...(query.scopeName ? { scopeName: query.scopeName } : {}),
     rows,
     totals: { incomeAmount: rows.reduce((total, row) => total + row.incomeAmount, 0), rowCount: rows.length },
     ...(manifest ? { manifest: {
       id: manifest.id,
+      reportMonth: manifest.reportMonth,
+      reportKind: manifest.reportKind,
+      scopeType: manifest.scopeType,
+      scopeId: manifest.scopeId,
+      scopeName: manifest.scopeName,
       coverageStart: manifest.coverageStart,
       coverageEnd: manifest.coverageEnd,
       sourceChecksum: manifest.sourceChecksum,
-    } } : { manifest: { id: "untracked", coverageStart: query.startDate, coverageEnd: query.endDate, sourceChecksum: "" } }),
+    } } : { manifest: {
+      id: "untracked",
+      reportMonth,
+      reportKind: "payout",
+      scopeType: query.scopeType,
+      scopeId: query.scopeId ?? (query.scopeType === "company" ? "company" : ""),
+      scopeName: query.scopeName ?? "",
+      coverageStart: query.startDate,
+      coverageEnd: query.endDate,
+      sourceChecksum: "",
+    } }),
   };
 }
