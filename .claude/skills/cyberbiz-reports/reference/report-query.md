@@ -78,6 +78,11 @@ GET /api/reports/cyberbiz/payout?startDate=2026-07-01&endDate=2026-07-31&scopeTy
 誤當成完整的每日資料。runner 呼叫內部匯入 API 時使用獨立的
 `CYBERBIZ_REPORT_INGEST_TOKEN`；token 不會進入 AI tool 結果。
 
+重匯只清掉這一批確實讀到報表的日期（payload 的 `coveredDates`，含當天零筆），
+匯出失敗的日子保留既有資料，不會被整段區間清空。所以整月重跑時「某幾天失敗」
+不再是資料遺失，只是那幾天沿用上一次的結果；要更新它們就再跑一次。每一天的
+刪除與寫入綁在同一個 `db.batch()` 交易裡，中途失敗不會留下「刪掉但沒寫回」的空洞。
+
 ## 聚合規則
 
 不建立月、年或公司 aggregate 檔案，也不建立月／年 manifest。公司查詢會在 D1 直接把

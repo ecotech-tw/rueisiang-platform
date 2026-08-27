@@ -205,3 +205,55 @@ describe("報表日資料查詢", () => {
     })).rejects.toMatchObject({ status: 409, code: "ambiguous_scope" });
   });
 });
+
+describe("報表日資料匯入", () => {
+  it("同一天的刪除與寫入不會被拆進不同的 db.batch()", async () => {
+    // batch 是一個 transaction。一天的 delete 跟它的 insert 落在不同批時，後一批失敗
+    // 就會留下「刪掉但沒寫回」的空洞——這正是逐日刪除要防的資料遺失。
+    const rowsPerDay = 200;
+    const dates = ["2026-08-01", "2026-08-02", "2026-08-03"];
+    const rows = dates.flatMap((businessDate) =>
+      Array.from({ length: rowsPerDay }, (_unused, index) => ({
+        scopeId: WEST,
+        businessDate,
+        sku: `SKU-${index}`,
+        productName: `商品 ${index}`,
+        category: "沐浴",
+        grossQuantity: 1,
+        returnQuantity: 0,
+        netQuantity: 1,
+        salesAmount: 10,
+      })),
+    );
+
+    const real = db();
+    const batches: { sql: string; params: unknown[] }[][] = [];
+    const spy = new Proxy(real, {
+      get(target, prop, receiver) {
+        if (prop !== "batch") return Reflect.get(target, prop, receiver);
+        return async (statements: { toSQL(): { sql: string; params: unknown[] } }[]) => {
+          batches.push(statements.map((statement) => statement.toSQL()));
+          return (target as { batch: (s: unknown) => unknown }).batch(statements);
+        };
+      },
+    });
+    await insertReportSalesDaily(spy, rows);
+
+    expect(batches.length).toBeGreaterThan(1);
+    for (const batch of batches) {
+      const deleted = new Set(
+        batch.filter((q) => /^delete/i.test(q.sql)).map((q) => String(q.params[1])),
+      );
+      const inserts = batch.filter((q) => /^insert/i.test(q.sql));
+      for (const date of dates) {
+        const written = inserts.reduce(
+          (sum, q) => sum + q.params.filter((param) => param === date).length,
+          0,
+        );
+        if (written === 0) continue;
+        expect(deleted).toContain(date);
+        expect(written).toBe(rowsPerDay);
+      }
+    }
+  });
+});

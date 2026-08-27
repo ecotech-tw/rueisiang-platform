@@ -180,44 +180,55 @@ export async function insertReportSalesDaily(
   covered?: { scopeId: string; dates: readonly string[] },
 ): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
-  const statements: Statement[] = [];
-  const datesByScope = new Map<string, Set<string>>();
-  for (const row of rows) {
-    const dates = datesByScope.get(row.scopeId) ?? new Set<string>();
-    dates.add(row.businessDate);
-    datesByScope.set(row.scopeId, dates);
-  }
-  if (covered?.dates.length) {
-    const dates = datesByScope.get(covered.scopeId) ?? new Set<string>();
-    for (const businessDate of covered.dates) dates.add(businessDate);
-    datesByScope.set(covered.scopeId, dates);
-  }
-  for (const [scopeId, dates] of datesByScope) {
-    for (const businessDate of dates) {
-      statements.push(db.delete(reportSalesDaily).where(and(
-        eq(reportSalesDaily.scopeId, scopeId),
-        eq(reportSalesDaily.businessDate, businessDate),
-      )));
+  const days = new Map<string, { scopeId: string; businessDate: string; rows: NewReportSalesDaily[] }>();
+  const dayKey = (scopeId: string, businessDate: string) => `${businessDate}${scopeId}`;
+  const day = (scopeId: string, businessDate: string) => {
+    const key = dayKey(scopeId, businessDate);
+    const existing = days.get(key);
+    if (existing) return existing;
+    const created = { scopeId, businessDate, rows: [] as NewReportSalesDaily[] };
+    days.set(key, created);
+    return created;
+  };
+  for (const row of rows) day(row.scopeId, row.businessDate).rows.push(row);
+  if (covered) for (const businessDate of covered.dates) day(covered.scopeId, businessDate);
+
+  // 每天一組：那天的 delete 與它自己的 insert 綁在一起，一組不跨 db.batch()。batch 是
+  // 一個 transaction，把組切開的話中途失敗會留下「刪掉了但沒寫回去」的空洞，正是這支
+  // 函式要防的那種資料遺失。一組本身就超過上限時讓它獨佔一批，不再往下切。
+  const groups: Statement[][] = [];
+  for (const entry of days.values()) {
+    const group: Statement[] = [db.delete(reportSalesDaily).where(and(
+      eq(reportSalesDaily.scopeId, entry.scopeId),
+      eq(reportSalesDaily.businessDate, entry.businessDate),
+    ))];
+    for (const chunk of chunks(entry.rows, 8)) {
+      if (!chunk.length) continue;
+      group.push(db.insert(reportSalesDaily).values(chunk).onConflictDoUpdate({
+        target: [reportSalesDaily.scopeId, reportSalesDaily.businessDate, reportSalesDaily.sku],
+        set: {
+          productName: sql`excluded.product_name`,
+          category: sql`excluded.category`,
+          grossQuantity: sql`excluded.gross_quantity`,
+          returnQuantity: sql`excluded.return_quantity`,
+          netQuantity: sql`excluded.net_quantity`,
+          salesAmount: sql`excluded.sales_amount`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      }));
     }
+    groups.push(group);
   }
-  for (const chunk of chunks(rows, 8)) {
-    if (!chunk.length) continue;
-    statements.push(db.insert(reportSalesDaily).values(chunk).onConflictDoUpdate({
-      target: [reportSalesDaily.scopeId, reportSalesDaily.businessDate, reportSalesDaily.sku],
-      set: {
-        productName: sql`excluded.product_name`,
-        category: sql`excluded.category`,
-        grossQuantity: sql`excluded.gross_quantity`,
-        returnQuantity: sql`excluded.return_quantity`,
-        netQuantity: sql`excluded.net_quantity`,
-        salesAmount: sql`excluded.sales_amount`,
-        updatedAt: sql`excluded.updated_at`,
-      },
-    }));
+
+  let batch: Statement[] = [];
+  for (const group of groups) {
+    if (batch.length && batch.length + group.length > 50) {
+      await db.batch(batch as [Statement, ...Statement[]]);
+      batch = [];
+    }
+    batch.push(...group);
   }
-  for (const chunk of chunks(statements, 50)) {
-    if (chunk.length) await db.batch(chunk as [Statement, ...Statement[]]);
-  }
+  if (batch.length) await db.batch(batch as [Statement, ...Statement[]]);
 }
 
 export async function insertReportPayoutDaily(db: Database, rows: readonly NewReportPayoutDaily[]): Promise<void> {
