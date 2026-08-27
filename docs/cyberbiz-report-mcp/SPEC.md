@@ -30,21 +30,21 @@ Target user 是需要快速回答「某商品／分類／櫃位／公司整體�
 
 ## Tool Contract
 
-- `cyberbiz_query_sales_report`: one call accepts period, company/store scope, SKU, category, product name, and optional date range.
-- `cyberbiz_query_payout_report`: one call accepts period, company/store scope, date range, income type, POS, and operator.
+- `query_sales_report`: one call accepts period, company/store scope, SKU, category, product name, and optional date range.
+- `query_payout_report`: one call accepts period, company/store scope, date range, income type, POS, and operator.
 - The MCP adapter reuses the same tool definitions and service bridge as Sandbox/LINE; it must not duplicate aggregation logic.
 
 ## UX Flows
 
 Sales query:
 
-1. The assistant calls `cyberbiz_query_sales_report` with one month and one scope.
+1. The assistant calls `query_sales_report` with one month and one scope.
 2. The server returns filtered rows, totals, manifest coverage, or an explicit non-answer status.
 3. The assistant summarizes quantity and sales amount without inventing daily detail.
 
 Payout query:
 
-1. The assistant calls `cyberbiz_query_payout_report` with one month, one scope, and an inclusive date range.
+1. The assistant calls `query_payout_report` with one month, one scope, and an inclusive date range.
 2. The server returns the daily rows and aggregate amount after coverage validation.
 3. The assistant summarizes the amount and can mention the selected payment/POS/operator filters.
 

@@ -10,7 +10,7 @@ const PROTOCOL_VERSION = "2025-06-18";
 const LEGACY_PROTOCOL_VERSION = "2025-03-26";
 const MAX_REQUEST_BYTES = 128 * 1024;
 const TOOL_TIMEOUT_MS = 15_000;
-const TOOL_KEYS = ["cyberbiz_query_sales_report", "cyberbiz_query_payout_report"] as const;
+const TOOL_KEYS = ["query_sales_report", "query_payout_report"] as const;
 
 type JsonRpcId = string | number;
 type JsonRpcRequest = { jsonrpc: "2.0"; id?: JsonRpcId; method: string; params?: unknown };
@@ -136,7 +136,7 @@ function initializeResult(protocolVersion: string) {
     protocolVersion,
     capabilities: { tools: { listChanged: false } },
     serverInfo: { name: "rueisiang-cyberbiz-reports", version: "1.0.0" },
-    instructions: "只能查詢已 published 的 CYBERBIZ 月報；銷售總表只有月粒度，不能把月報拆成日資料。",
+    instructions: "只能查詢已 published 的報表；商品銷售總表只有月粒度，不能把月報拆成日資料。",
   };
 }
 

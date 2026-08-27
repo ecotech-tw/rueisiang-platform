@@ -63,6 +63,7 @@ function cyberbizReportToolResult(value: unknown, reportKind: "sales" | "payout"
   const period = textInput(input, "period");
   const scopeType = textInput(input, "scopeType") || "company";
   const scopeId = textInput(input, "scopeId");
+  const scopeName = textInput(input, "scopeName");
   return json({
     ...value,
     nextStep: {
@@ -72,6 +73,7 @@ function cyberbizReportToolResult(value: unknown, reportKind: "sales" | "payout"
       period,
       scopeType,
       ...(scopeId ? { scopeId } : {}),
+      ...(scopeName ? { scopeName } : {}),
       ...(textInput(input, "startDate") ? { startDate: textInput(input, "startDate") } : {}),
       ...(textInput(input, "endDate") ? { endDate: textInput(input, "endDate") } : {}),
       message: "請到後台執行對應的 CYBERBIZ 報表；完整月份才會進入 AI manifest，自訂日期只會整理到 Google Drive。",
@@ -1139,9 +1141,9 @@ const crmGetOrdersTool: PlatformToolDefinition = {
 };
 
 const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
-  key: "cyberbiz_query_sales_report",
-  label: "查詢 CYBERBIZ 銷售報表",
-  description: "從已解析的 CYBERBIZ 月報查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額。銷售總表只有月彙總；若要求日或未完整涵蓋的區間，工具會明確回傳不可精確回答的狀態。一次查詢會由服務端完成必要的公司彙總，不需要逐店呼叫工具。",
+  key: "query_sales_report",
+  label: "查詢商品銷售報表",
+  description: "從已解析的商品銷售總表查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額。這不是 CRM 訂單查詢；銷售總表只有月彙總。單一櫃位請傳 scopeName（例如誠品西門店3F），不需要使用者知道 scopeId。若要求日或未完整涵蓋的區間，工具會明確回傳不可精確回答的狀態。一次查詢會由服務端完成必要的公司彙總，不需要逐店呼叫工具。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],
@@ -1150,7 +1152,8 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
     properties: {
       period: { type: "string", description: "報表月份，YYYY-MM，例如 2026-07。" },
       scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位。", enum: ["company", "store"] },
-      scopeId: { type: "string", description: "scopeType=store 時的櫃位固定 ID；company 不需要填。" },
+      scopeName: { type: "string", description: "scopeType=store 時的櫃位名稱，例如 誠品西門店3F；由服務端解析固定 scopeId。" },
+      scopeId: { type: "string", description: "相容既有呼叫的櫃位固定 ID；通常不需要填，優先使用 scopeName。" },
       startDate: { type: "string", description: "可選的起始日 YYYY-MM-DD；銷售月報若不是完整月份會回傳 UNSUPPORTED_GRANULARITY。" },
       endDate: { type: "string", description: "可選的結束日 YYYY-MM-DD；銷售月報若不是完整月份會回傳 UNSUPPORTED_GRANULARITY。" },
       sku: { type: "string", description: "可選 SKU，精確查詢單一商品。" },
@@ -1163,15 +1166,17 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
     const period = textInput(input, "period");
     const scopeType = textInput(input, "scopeType");
     if (!period || !["company", "store"].includes(scopeType)) {
-      throw new AssistantError("CYBERBIZ 銷售報表查詢需要正確的 period 與 scopeType。");
+      throw new AssistantError("商品銷售報表查詢需要正確的 period 與 scopeType。");
     }
     const scopeId = textInput(input, "scopeId");
-    if (scopeType === "store" && !scopeId) throw new AssistantError("查詢單一櫃位時需要 scopeId。");
+    const scopeName = textInput(input, "scopeName");
+    if (scopeType === "store" && !scopeId && !scopeName) throw new AssistantError("查詢單一櫃位時需要店面名稱。");
     try {
       return cyberbizReportToolResult(await cyberbizReportService(context).querySales({
         reportMonth: period,
         scopeType: scopeType as CyberbizSalesQuery["scopeType"],
         ...(scopeId ? { scopeId } : {}),
+        ...(scopeName ? { scopeName } : {}),
         ...(textInput(input, "startDate") ? { startDate: textInput(input, "startDate") } : {}),
         ...(textInput(input, "endDate") ? { endDate: textInput(input, "endDate") } : {}),
         ...(textInput(input, "sku") ? { sku: textInput(input, "sku") } : {}),
@@ -1187,9 +1192,9 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
 };
 
 const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
-  key: "cyberbiz_query_payout_report",
-  label: "查詢 CYBERBIZ 出金報表",
-  description: "從已解析的 CYBERBIZ 每日出金報表查詢單一櫃位或公司整體的出金合計與明細。服務端會先檢查指定區間是否完整涵蓋，再一次完成查詢。",
+  key: "query_payout_report",
+  label: "查詢出金報表",
+  description: "從已解析的每日出金報表查詢單一櫃位或公司整體的出金合計與明細。這不是 CRM 訂單查詢；單一櫃位請傳 scopeName（例如誠品西門店3F），不需要使用者知道 scopeId。服務端會先檢查指定區間是否完整涵蓋，再一次完成查詢。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],
@@ -1198,7 +1203,8 @@ const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
     properties: {
       period: { type: "string", description: "報表月份，YYYY-MM，例如 2026-07。" },
       scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位。", enum: ["company", "store"] },
-      scopeId: { type: "string", description: "scopeType=store 時的櫃位固定 ID；company 不需要填。" },
+      scopeName: { type: "string", description: "scopeType=store 時的櫃位名稱，例如 誠品西門店3F；由服務端解析固定 scopeId。" },
+      scopeId: { type: "string", description: "相容既有呼叫的櫃位固定 ID；通常不需要填，優先使用 scopeName。" },
       startDate: { type: "string", description: "可選起始日 YYYY-MM-DD；未填時使用整個月份。" },
       endDate: { type: "string", description: "可選結束日 YYYY-MM-DD；未填時使用整個月份。" },
       incomeType: { type: "string", description: "可選收入類型精確篩選。" },
@@ -1211,10 +1217,11 @@ const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
     const period = textInput(input, "period");
     const scopeType = textInput(input, "scopeType");
     if (!period || !["company", "store"].includes(scopeType)) {
-      throw new AssistantError("CYBERBIZ 出金報表查詢需要正確的 period 與 scopeType。");
+      throw new AssistantError("出金報表查詢需要正確的 period 與 scopeType。");
     }
     const scopeId = textInput(input, "scopeId");
-    if (scopeType === "store" && !scopeId) throw new AssistantError("查詢單一櫃位時需要 scopeId。");
+    const scopeName = textInput(input, "scopeName");
+    if (scopeType === "store" && !scopeId && !scopeName) throw new AssistantError("查詢單一櫃位時需要店面名稱。");
     try {
       return cyberbizReportToolResult(await cyberbizReportService(context).queryPayout({
         reportMonth: period,
@@ -1222,6 +1229,7 @@ const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
         startDate: textInput(input, "startDate"),
         endDate: textInput(input, "endDate"),
         ...(scopeId ? { scopeId } : {}),
+        ...(scopeName ? { scopeName } : {}),
         ...(textInput(input, "incomeType") ? { incomeType: textInput(input, "incomeType") } : {}),
         ...(textInput(input, "pos") ? { pos: textInput(input, "pos") } : {}),
         ...(textInput(input, "operator") ? { operator: textInput(input, "operator") } : {}),
