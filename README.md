@@ -43,6 +43,11 @@ Codex 與 Claude 同時開發時，請使用各自的 worktree 與 port：Codex 
 API `8788`；Claude 是 Portal `5175`、API `8789`。完整規則見
 [`docs/development-workflow.md`](./docs/development-workflow.md)。
 
+**文件寫在哪**：要照著做的步驟在 [`.claude/skills/`](./.claude/skills/)（開通與部署看
+`platform-deploy`，出金表與商品銷售報表看 `cyberbiz-reports`）；系統現況與設計在
+[`docs/`](./docs/)；還沒做的事在下面的「下一步」。分類規則見
+[`docs/development-workflow.md`](./docs/development-workflow.md)。
+
 開 <http://localhost:5173/dev> 選一個身分直接進去，跳過 Google OAuth。種子帳號
 涵蓋管理者、主管、一般同仁、檢視者、沒有角色、已停用六種，方便直接比對
 不同權限看到的畫面。
@@ -67,6 +72,55 @@ Upstash 只影響「CYBERBIZ 庫存」那一頁的速度：沒設定的話每次
 ```bash
 cd packages/db && pnpm generate    # 產生 migration SQL
 ```
+
+## 下一步
+
+**這一節是這個 repo 唯一的 TODO 清單。** 做掉一項就從這裡刪掉；過程中發現新的就加進來。
+不要在別的文件裡另外開一份待辦（規則見
+[`docs/development-workflow.md`](./docs/development-workflow.md)）。
+
+每一項的完成條件都一樣：程式碼、測試、文件與部署／回滾說明四樣齊備。**沒有實機
+smoke test 的功能只能標記為「可合併」，不能標記為「已上線」。**
+
+### 小香：MCP tools
+
+`mcp` 目前只是 tool registry 上的 surface 標記，除了唯讀的
+`POST /api/mcp/cyberbiz-reports` 之外，還沒有通用的 MCP transport adapter。
+
+- [ ] 先決定範圍：把平台內建 tools 暴露成 MCP server，或另外支援外部 MCP server；
+      兩者的 authentication、權限與風險不同。
+- [ ] 以現有 `ToolContract`、permission 與 surface registry 為基礎，建立 MCP transport、
+      tool listing、tool call、timeout、錯誤格式與 audit log。
+- [ ] 為 MCP client／server 設定 allowlist、credential 隔離、request size／rate limit 與
+      取消機制，不能繞過目前 Sandbox／LINE 的 tool permission。
+- [ ] 補上 protocol、權限、錯誤、重試與並行請求 tests，並提供本機與 Cloudflare
+      deployment 的設定說明。
+
+接外部 MCP 工具的限制與風險見
+[`docs/assistant-multi-account-design.md`](./docs/assistant-multi-account-design.md)。
+
+### 小香：Relay 與用量
+
+- [ ] 評估 [Workers VPC `cf1:network`](https://developers.cloudflare.com/workers-vpc/configuration/vpc-networks/)
+      經 Cloudflare Gateway 的 public egress，確認是否能避開 Workers direct egress restriction
+      與 `CF-Worker` header；目前 smoke test 因 CI token 沒有 Connectivity Directory 權限而
+      回傳 code `10196`，尚未驗證 ChatGPT HTTP／SSE。**完成權限、VPC／Gateway policy 與
+      真實 Codex SSE 驗收前，不得移除 NAS relay。**
+- [ ] 新增 LINE Push API 用量分析，至少顯示 fixed-window 用量、剩餘額度、查詢時間區間
+      與群組／事件明細。
+- [ ] 建立日／週／月與自訂 duration 的群組、模型、tool 用量分析頁。
+
+### 小香：多帳號與客服
+
+官網客服自己的 LINE 官方帳號、channel／對話兩層工具權限的後續、每個對話的 system prompt
+補充，以及客服的身分驗證。設計已經寫好但一行都還沒做，見
+[`docs/assistant-multi-account-design.md`](./docs/assistant-multi-account-design.md)。
+
+### 倉儲：R2 bucket
+
+R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要在 Cloudflare 走一次訂閱流程）。
+兩種儲存都沒設定時，上傳照片會回「尚未設定照片儲存空間」，地圖與庫存不受影響。
+開通步驟見 `platform-deploy` skill 的 5.1。
 
 ## 出金表：它跑在哪、憑證從哪來
 

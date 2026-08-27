@@ -3,7 +3,7 @@
 這是 AI 內部問答系統的開發說明。Sandbox 與 LINE 前台現在共用 Pi Agent、SQLite Durable
 Object session、tool loop 與 compact；在模型選單選 GPT 時使用 Codex ChatGPT OAuth，選
 Gemini 時使用 `GEMINI_API_KEY`。架構、session 與 credential setup 見
-[`line-pi-agent.md`](./line-pi-agent.md)；用量分析頁仍在後續階段。
+[`line-pi-agent.md`](./line-pi-agent.md)；還沒做的部分見 README 的「下一步」。
 
 ## 本機操作
 
@@ -58,7 +58,7 @@ CRM 工具與 WMS 使用同一個 provider-neutral `ToolContract`；目前三個
 - `crm_get_customer`：依客戶 ID 取得客戶資料、標籤、同步狀態、最近操作紀錄與可選的消費摘要。
 - `crm_get_orders`：即時查詢 CYBERBIZ 訂單，支援 customer ID、order ID、訂單編號、日期、狀態、排序與 limit；需要 `crm:order:read`。
 
-目前 `mcp` 是共用 registry 的 surface 標記，實際 MCP transport adapter 尚未在本 repo 建立（要接**外部** MCP 工具的話有額外的限制與風險，見 [`assistant-multi-channel.md`](./assistant-multi-channel.md) 第五節）；未來 GPT、Gemini 或遠端 MCP host 都可沿用同一批 tool definition、執行函式與權限宣告。CYBERBIZ 訂單工具使用即時 API，不會把訂單快照寫入 CRM。
+目前 `mcp` 是共用 registry 的 surface 標記，實際 MCP transport adapter 尚未在本 repo 建立（要接**外部** MCP 工具的話有額外的限制與風險，見 [`assistant-multi-account-design.md`](./assistant-multi-account-design.md) 第五節）；未來 GPT、Gemini 或遠端 MCP host 都可沿用同一批 tool definition、執行函式與權限宣告。CYBERBIZ 訂單工具使用即時 API，不會把訂單快照寫入 CRM。
 
 每次 Sandbox 與 LINE 執行都會注入可信的 `Asia/Taipei` 日期與時間，模型可以用它把「今天」轉成 CRM tool 的 `date`、`fromDate` 與 `toDate`。消費工具查不到連結資料時會明確回報，不會用姓名猜測客戶或捏造訂單。
 
@@ -133,14 +133,3 @@ Sandbox runs support multi-turn Pi sessions. D1 keeps the selected model, prompt
 - `POST /api/webhooks/line`：LINE 官方 webhook 入口。
 
 上述後台路由需要已登入且具備對應的 `assistant:*` 權限；目前只有系統管理者預設擁有這些權限。LINE webhook 是 LINE 官方呼叫的公開入口，使用簽章驗證，不使用登入 cookie。
-
-## 目前進度與後續階段
-
-1. ✅ 已完成小香設定頁：active model 與 tool catalog 狀態可在後台調整。
-2. ✅ 已完成 LINE channel 設定、webhook URL、對話授權與每對話訊息表；群組／聊天室須 mention，一對一不須 mention。
-3. ✅ LINE 已改由 Pi Agent、active model、active prompt 與 tool policy 執行；GPT 使用 Codex ChatGPT OAuth，Gemini 使用 API key，僅允許「已啟用」工具在線上回覆。
-4. ✅ Sandbox 已統一使用 Pi Agent，支援雙 provider、session、多輪對話、歷史查看、關閉 session、每輪切換模型與 Pi compact。
-5. 建立日／週／月與自訂 duration 的群組、模型、tool 用量分析頁。
-6. 多帳號（官網客服自己的 LINE 官方帳號）、channel／對話兩層工具權限、每個對話的
-   system prompt 補充，以及客服的身分驗證——設計見
-   [`assistant-multi-channel.md`](./assistant-multi-channel.md)，尚未實作。

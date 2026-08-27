@@ -71,17 +71,23 @@ packages/
   db/        drizzle schema、migrations，以及所有查詢與同步邏輯
   cyberbiz/  CYBERBIZ API client 與 webhook 驗證
   config/    共用 tsconfig
-docs/        deployment-setup.md（首次開通）
-.claude/skills/  跟著程式維護的操作知識。目前只有 cyberbiz-reports
+docs/        系統現況與還沒做的設計。**不放操作步驟，也不放 TODO**
+.claude/skills/  要照著做的操作步驟。platform-deploy（開通與部署）、
+                 cyberbiz-reports（出金表、商品銷售報表與報表查詢）
 ```
 
 **業務邏輯放在 `packages/db`**，不放路由。路由只做參數解析、權限檢查、回應格式；查詢與同步寫在 `packages/db/src/*.ts` 再從 `src/index.ts` 具名 export。要改行為先找那裡。
 
 `apps/api/wrangler.toml` 的 `[assets]` 指向 `../portal/dist`，`run_worker_first = ["/api/*"]`：`/api/*` 進 Worker，其餘走 Static Assets。所以 portal 必須先 build，api 才部署得起來。
 
-### TODO 與規劃文件
+### 文件寫在哪
 
-文件只保留對目前決策或下一步有用的內容；不要在 TODO、設計文件或程式註解重述 Git 已經保存的歷史、完成項目或移除原因。沒有實質內容變更時，不要只為補充說明製造 commit 或 PR 更新。
+**一份檔案只能是一種東西。** 操作步驟寫成 `.claude/skills/<名字>/SKILL.md`；系統現況與
+還沒做的設計放 `docs/`；TODO 只寫在 `README.md` 的「下一步」，不要在別處另開一份。
+完整的分類表、共同規格檔的改法與功能做完要收的尾，見
+[`docs/development-workflow.md`](./docs/development-workflow.md) 第三、四節。
+
+文件只保留對目前決策或下一步有用的內容；不要在 TODO、設計文件或程式註解重述 Git 已經保存的歷史、完成項目或移除原因。**也不要在文件裡寫狀態**（「✅ 已完成」「已經設好了」）——那種句子會過期而且沒有人會回來改。沒有實質內容變更時，不要只為補充說明製造 commit 或 PR 更新。
 
 ## 技術決策
 
@@ -113,6 +119,10 @@ worktree 的建立指令、目錄配置、port 對照、branch 生命週期與 r
 
 Codex、Claude 與人類不能共用同一個 working directory。具體的目錄配置與 agent 規則請以
 上面的 workflow 文件為準。
+
+`CLAUDE.md`、`AGENTS.md`、`docs/development-workflow.md` 與 `.claude/skills/` 是三方共用的
+規格：**要改就開一個只做這件事的 PR，不可以夾在功能 PR 裡順手改。** 夾在大 diff 裡的一句
+規則變更沒有人會看到，但下一個 agent 會照著新的做。
 
 本機 worktree 的啟動方式與 `PORT` 相容規則見 workflow 文件；這些設定只影響 dev server，
 不會進 Worker production 設定。
@@ -220,6 +230,12 @@ CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`）�
   把子表的外鍵挪開，或改用「新增欄位＋回填」而不是重建。
   這個坑真的踩過：`0023` 在 D1 上把 `assistant_line_groups` 全部連坐刪光，本機看不出來
   （本機 runner 一句一句跑，PRAGMA 有效），復原見 `0028_restore_line_groups.sql`。
+- **小香相關的新表與欄位一律同時帶 `assistantKey` 與 `channelKey`。** 關聯要指向 channel
+  的獨立主鍵，不要指向 `assistantKey`；程式裡不要再新增任何一處寫死 `ASSISTANT_KEY`，
+  改成從上層傳進來。現階段只有一個 assistant、一個 channel，兩個 key 的值會一樣——重點是
+  **關聯的形狀**現在就對。既有的表當初拿 `assistantKey` 當 channel 用，補救花了五支
+  migration，其中一支還在正式環境刪掉資料（上一條）。理由見
+  [`docs/assistant-multi-account-design.md`](./docs/assistant-multi-account-design.md)。
 - **migration 的測試要用 D1 的方式跑**——每一支包一個 transaction，而不是一句一句 exec。
   不然測試會給出假的信心，就像上面那次。範例見 `line-group-recovery.test.ts`。
 

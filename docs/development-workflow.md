@@ -2,9 +2,16 @@
 
 ## 目的
 
-Codex 與 Claude 不共用同一個 working directory。兩個 agent 即使同時開發，也不會因為其中一方切 branch 而讓另一方的檔案突然改變。
+人類、Codex 與 Claude 三方同時開發同一個 repo。這份文件定的是**邊界**：誰能改什麼、
+東西寫在哪、做完要收哪些尾。程式本身的規格（架構、命名、coding style、禁止事項）
+以 [`CLAUDE.md`](../CLAUDE.md) 為準，不在這裡重複。
 
-## Worktree 配置
+---
+
+## 一、Worktree：三方不共用工作目錄
+
+Codex、Claude 與人類不共用同一個 working directory。兩個 agent 即使同時開發，
+也不會因為其中一方切 branch 而讓另一方的檔案突然改變。
 
 ```text
 Rueisiang/
@@ -27,9 +34,10 @@ git worktree list
 
 `<需求名稱>` 由當次需求決定；不要讓兩個 worktree 使用同一個 branch。
 
-常駐 worktree 建立後，每個 agent 只在自己的路徑切換到下一個需求 branch；review 別人的 branch 時使用 detached review worktree，不要把同一個 branch 同時掛到兩個 worktree。
+常駐 worktree 建立後，每個 agent 只在自己的路徑切換到下一個需求 branch；review 別人的
+branch 時使用 detached review worktree，不要把同一個 branch 同時掛到兩個 worktree。
 
-## 每個需求開始前
+### 每個需求開始前
 
 在自己的 worktree 執行：
 
@@ -53,23 +61,13 @@ git rebase origin/main
 
 不要在有未提交修改時 rebase，也不要替另一個 agent 的 branch 做切換、rebase 或清理。
 
-## Agent 規則
+### 本機 port
 
-1. 啟動後先確認目前路徑與 branch。
-2. 只修改自己擁有的 worktree。
-3. 不替另一個 agent 切 branch、rebase 或清除未提交修改。
-4. 完成後在自己的 branch commit，push 後建立或更新 PR。
-5. Review 透過 PR 留言與 review；不要直接改 reviewer 的工作檔。
-6. Merge 永遠由人類確認後執行。
-7. 專案 coding 規格以 `CLAUDE.md` 為準；本文件只維護 worktree、port 與 review 的操作規則。
-
-## 本機 port
-
-預設 worktree：Portal `5173`、API `8787`。
-
-Codex worktree：Portal `5174`、API `8788`。
-
-Claude worktree：Portal `5175`、API `8789`。
+| worktree | Portal | API |
+|---|---|---|
+| 預設（人類） | `5173` | `8787` |
+| Codex | `5174` | `8788` |
+| Claude | `5175` | `8789` |
 
 ```powershell
 $env:API_PORT = "8788"
@@ -79,11 +77,92 @@ pnpm dev
 
 Portal 的 Vite proxy 會使用同一個 `API_PORT`，所以不會把 Codex 的請求送到另一個 worktree。
 
-Claude worktree 使用 `API_PORT=8789` 與 `PORTAL_PORT=5175`。
-
-## 本機資料與 secrets
+### 本機資料與 secrets
 
 - 每個 worktree 有自己的 `apps/api/local.sqlite`。
 - 每個 worktree 的 `apps/api/.dev.vars` 都要自行準備，不提交到 Git。
 - 外部服務若要共用，先確認測試資料與憑證不會互相污染；app server 必須使用不同 port。
 - 看到別的 worktree 有未提交修改時，不要替對方整理、reset 或刪除。
+
+### Git stash 是共用的
+
+worktree 之間共用同一個 stash stack。不要用裸的 `git stash` / `git stash pop`——會 pop 到
+別人的東西。要暫時放下工作就開一個 WIP commit；真的要 stash 就用
+`git stash push -u -m "<獨特標籤>"`，用標籤找回自己那筆再 `apply`。
+
+---
+
+## 二、誰能改什麼
+
+1. 啟動後先確認目前路徑與 branch。
+2. 只修改自己擁有的 worktree。
+3. 不替另一個 agent 切 branch、rebase 或清除未提交修改。
+4. Review 透過 PR 留言與 review；不要直接改 reviewer 的工作檔。
+5. Merge 永遠由人類確認後執行。
+
+### 共同規格檔要單獨開 PR
+
+`CLAUDE.md`、`AGENTS.md`、`docs/development-workflow.md` 與 `.claude/skills/` 是三方共用的
+規格。**任何 agent 要改這幾個，都必須開一個只做這件事的 PR**，不可以夾在功能 PR 裡順手改。
+
+理由是這幾份是「其他 agent 下一輪會照著做」的東西。夾在 300 行功能 diff 裡的一句規則變更
+沒有人會看到，但下一個 agent 會照著新的做——等於一方單方面改了三方的規則，而另外兩方
+不知道。單獨開 PR 的成本是多一次 review，代價很小。
+
+功能 PR 裡發現規格該改，作法是：功能照原規格做完，另外開一個 PR 提規格變更，在功能 PR
+裡留言指過去。
+
+---
+
+## 三、東西寫在哪
+
+`docs/` 曾經同時放操作步驟、現況架構、設計草稿與待辦清單，結果是三方讀同一份檔案得出
+不同結論——因為「這段是已完成的事實」還是「這段是還沒做的計畫」看不出來。
+
+**一份檔案只能是一種東西，而且要在開頭寫清楚是哪一種。**
+
+| 種類 | 放哪 | 誰是唯一來源 | 例子 |
+|---|---|---|---|
+| **要照著做的步驟** | `.claude/skills/<名字>/SKILL.md` | skill 本身 | `platform-deploy`、`cyberbiz-reports` |
+| **現在系統長什麼樣** | `docs/*.md` | **程式碼**；文件只解釋「為什麼」 | `line-pi-agent.md`、`assistant-sandbox.md` |
+| **還沒做的事** | `README.md` 的「下一步」 | README | — |
+| **還沒做的設計** | `docs/*-design.md`，開頭標明「還沒做」 | 該文件 | `assistant-multi-account-design.md` |
+| **已完成或交接用的草稿** | 刪掉 | Git | — |
+
+分 skill 與 docs 的理由：**skill 是「要做某件事時才載入」，docs 是「想理解系統時才讀」。**
+混在一起，agent 會在不該讀的時候讀進五百行的開通手冊，把 context 燒在無關的東西上。
+
+還有兩條：
+
+- **不要在文件裡寫狀態。** 「✅ 已完成」「已經設好了」這種句子會過期，而且沒有人會回來改。
+  要知道什麼開通了就去看 Cloudflare 儀表板、GitHub Secrets 或程式碼——那才是真的。
+- **不確定放哪就先問人類，不要自己開新檔。** 多開一份檔案的成本不是那一份，是之後
+  每一次「這件事到底寫在哪」的搜尋。
+
+---
+
+## 四、功能做完要收的尾
+
+程式會動不等於做完。開 PR 之前，這三件事跟寫測試一樣是必要條件：
+
+1. **設計文件裡已經實作的段落當場刪掉。** 留著會讓下一個 agent 以為還沒做，然後再做一次。
+   要保留的只有「為什麼是這個形狀」，那部分寫進程式註解或濃縮成幾行留在設計文件的
+   「已成立」段落。
+2. **這次做掉的 TODO 從 `README.md` 的「下一步」移除；做的過程中發現的新 TODO 加進去。**
+3. **交叉引用要跟著改。** 改檔名、搬檔案時 `grep` 一次舊名字，把所有連結修好。
+
+反過來也有一條：**沒有實質內容變更時，不要只為了補說明製造 commit 或 PR 更新。**
+Git 已經記著的東西（完成項目、移除的理由、過去怎麼修的）不要在文件裡重述一遍。
+
+### 完成的定義
+
+每個階段都要同時具備程式碼、測試、文件與部署／回滾說明。**沒有實機 smoke test 的功能
+只能標記為「可合併」，不能標記為「已上線」。**
+
+---
+
+## 五、PR
+
+- **不要直接推 main。** 開分支 + `gh pr create`，一行修正也一樣。
+- PR 開著的時候可以繼續推，推完要重新 review；合併之後就不要再推那個分支。
+- Merge 永遠由人類確認後執行。
