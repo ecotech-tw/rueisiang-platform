@@ -133,6 +133,26 @@ async function publishStoreSalesAndPayoutManifests() {
 describe("CYBERBIZ 報表查詢服務", () => {
   it("可用店面名稱查詢，並把 sales／payout manifest 合併成同一個 scope view", async () => {
     await publishStoreSalesAndPayoutManifests();
+    await recordCyberbizReportManifest(db(), {
+      reportMonth: "2026-07",
+      reportKind: "sales",
+      scopeType: "store",
+      scopeId: "store-a",
+      scopeName: "誠品西門店3F",
+      coverageStart: "2026-07-01",
+      coverageEnd: "2026-07-31",
+      salesGranularity: "month",
+      payoutGranularity: "day",
+      salesObjectKey: "reports/cyberbiz/store-a/2026/07/00000000-0000-0000-0000-000000000013.json",
+      payoutObjectKey: null,
+      combinedWorkbookObjectKey: null,
+      driveFileId: null,
+      driveUrl: null,
+      storeIdsJson: '["store-a"]',
+      sourceChecksum: "checksum-store-sales-staged-2026-07",
+      parserVersion: "cyberbiz-sales-v1",
+      status: "staged",
+    });
     const get = async () => new Response(JSON.stringify(storeSalesDocument()), { headers: { "content-type": "application/json" } });
     const nas = { get, put: async () => { throw new Error("not used"); }, delete: async () => {} } as unknown as NasStorageClient;
     const result = await createCyberbizReportService(db(), nas).querySales({
@@ -144,6 +164,7 @@ describe("CYBERBIZ 報表查詢服務", () => {
     expect(result).toMatchObject({ status: "ok", scopeId: "store-a", scopeName: "誠品西門店3F" });
     if (result.status === "ok") {
       expect(result.manifest).toMatchObject({ scopeName: "誠品西門店3F", reportKind: "bundle" });
+      expect(result.manifest.sourceChecksum).toBe("checksum-store-sales-2026-07");
     }
   });
 

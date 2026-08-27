@@ -110,12 +110,12 @@ describe("CYBERBIZ reports MCP endpoint", () => {
     expect(listed.status).toBe(200);
     const listBody = await listed.json() as { result: { tools: Array<{ name: string }> } };
     expect(listBody.result.tools.map((tool) => tool.name)).toEqual([
-      "cyberbiz_query_sales_report",
-      "cyberbiz_query_payout_report",
+      "query_sales_report",
+      "query_payout_report",
     ]);
 
     const queried = await call("tools/call", 3, {
-      name: "cyberbiz_query_sales_report",
+      name: "query_sales_report",
       arguments: { period: "2026-07", scopeType: "company", category: "Bath" },
     }, { "MCP-Protocol-Version": "2025-06-18" });
     expect(queried.status).toBe(200);

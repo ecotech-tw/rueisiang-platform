@@ -1,6 +1,16 @@
 import { ALL_PERMISSIONS } from "@rueisiang/auth";
 import { createDatabase } from "@rueisiang/db";
-import { rolePermissions, roles, userPermissions, users } from "@rueisiang/db/schema";
+import {
+  assistantChannelTools,
+  assistantChatTools,
+  assistantLineChannels,
+  assistantLineGroups,
+  assistantToolConfigs,
+  rolePermissions,
+  roles,
+  userPermissions,
+  users,
+} from "@rueisiang/db/schema";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -23,6 +33,9 @@ const CYBERBIZ_SALES_PERMISSION_MIGRATION = fileURLToPath(
 );
 const REMOVE_SHOPEE_SETTINGS_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0047_remove_shopee_settings_permission.sql", import.meta.url),
+);
+const RENAME_REPORT_TOOL_KEYS_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0048_rename_report_tool_keys.sql", import.meta.url),
 );
 
 describe("bootstrap 管理員權限 migration", () => {
@@ -96,5 +109,57 @@ describe("bootstrap 管理員權限 migration", () => {
     const userRows = await db.select().from(userPermissions);
     expect(userRows).toContainEqual({ userId: "user-legacy", permission: "tools:payout:config", grantedBy: "bootstrap", createdAt: expect.any(String) });
     expect(userRows).not.toContainEqual(expect.objectContaining({ permission: "tools:shopee-sales:config" }));
+  });
+
+  it("報表工具改名時保留既有設定、LINE 白名單與對話工具綁定", async () => {
+    const d1 = createLocalD1();
+    const db = createDatabase(d1 as never);
+
+    await db.insert(assistantToolConfigs).values([
+      { key: "cyberbiz_query_sales_report", status: "disabled", updatedBy: "legacy" },
+      { key: "cyberbiz_query_payout_report", status: "enabled", updatedBy: "legacy" },
+    ]);
+    await db.insert(assistantLineChannels).values({
+      channelKey: "legacy-channel",
+      assistantKey: "rueisiang-xiaoxiang",
+      channelId: "channel-id",
+      enabled: true,
+      updatedBy: "legacy",
+    });
+    await db.insert(assistantLineGroups).values({
+      id: "legacy-group",
+      channelKey: "legacy-channel",
+      lineGroupId: "line-group",
+      enabled: true,
+    });
+    await db.insert(assistantChannelTools).values([
+      { id: "legacy-sales-tool", channelKey: "legacy-channel", toolKey: "cyberbiz_query_sales_report", createdBy: "legacy" },
+      { id: "legacy-payout-tool", channelKey: "legacy-channel", toolKey: "cyberbiz_query_payout_report", createdBy: "legacy" },
+    ]);
+    await db.insert(assistantChatTools).values([
+      { id: "legacy-sales-chat-tool", groupId: "legacy-group", channelToolId: "legacy-sales-tool", createdBy: "legacy" },
+      { id: "legacy-payout-chat-tool", groupId: "legacy-group", channelToolId: "legacy-payout-tool", createdBy: "legacy" },
+    ]);
+
+    const sql = readFileSync(RENAME_REPORT_TOOL_KEYS_MIGRATION, "utf8");
+    d1.sqlite.exec(sql);
+    d1.sqlite.exec(sql);
+
+    expect(await db.select().from(assistantToolConfigs)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "query_sales_report", status: "disabled", updatedBy: "legacy" }),
+      expect.objectContaining({ key: "query_payout_report", status: "enabled", updatedBy: "legacy" }),
+    ]));
+    expect((await db.select().from(assistantToolConfigs)).map((row) => row.key)).not.toEqual(expect.arrayContaining([
+      "cyberbiz_query_sales_report",
+      "cyberbiz_query_payout_report",
+    ]));
+    expect(await db.select().from(assistantChannelTools)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "legacy-sales-tool", toolKey: "query_sales_report" }),
+      expect.objectContaining({ id: "legacy-payout-tool", toolKey: "query_payout_report" }),
+    ]));
+    expect(await db.select().from(assistantChatTools)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "legacy-sales-chat-tool", channelToolId: "legacy-sales-tool" }),
+      expect.objectContaining({ id: "legacy-payout-chat-tool", channelToolId: "legacy-payout-tool" }),
+    ]));
   });
 });

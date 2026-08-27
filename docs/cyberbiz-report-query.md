@@ -17,11 +17,11 @@ GET /api/reports/cyberbiz/sales
   &category=沐浴
 ```
 
-每日出金使用同一個 scope 與 manifest：`GET /api/reports/cyberbiz/payout?period=2026-07&scopeType=company&startDate=2026-07-01&endDate=2026-07-31`。小香對應的 tool 是 `cyberbiz_query_payout_report`。
+每日出金使用同一個 scope 與 manifest：`GET /api/reports/cyberbiz/payout?period=2026-07&scopeType=company&startDate=2026-07-01&endDate=2026-07-31`。小香對應的 tool 是 `query_payout_report`。
 
 單一櫃位可提供 `scopeType=store&scopeName=<櫃位名稱>`，由 Worker 內部解析固定
 `scopeId`；`scopeId` 仍保留給既有整合使用，但不需要使用者提供。也可以提供 `sku`
-或 `productName`。小香使用同一個 `cyberbiz_query_sales_report` tool；一次 tool call
+或 `productName`。小香使用同一個 `query_sales_report` tool；一次 tool call
 由 Worker 內部完成 manifest lookup、NAS JSON 讀取與彙總。
 
 商品銷售總表的粒度是月，不是假裝成逐日資料。因此：

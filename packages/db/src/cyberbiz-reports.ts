@@ -188,6 +188,7 @@ export async function findCyberbizReportScopeManifest(
 ): Promise<CyberbizReportManifest | null> {
   const manifests = await listCyberbizReportManifests(db, {
     ...lookup,
+    status: lookup.status ?? "published",
     requiredArtifact: undefined,
   });
   const named = lookup.scopeName
