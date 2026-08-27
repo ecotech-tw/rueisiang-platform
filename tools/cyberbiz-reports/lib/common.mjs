@@ -80,7 +80,7 @@ export async function saveEnv(updates, file = skillPath(".env")) {
 export async function loadConfig(file = skillPath("config.json")) {
   const config = JSON.parse(await fs.readFile(file, "utf8"));
 
-  // 先讀新路徑；改名期間若舊 checkout 只存有舊 manifest，仍要沿用它，不能默默退回 config.json。
+  // 先讀新路徑；改名期間仍接受舊 runner checkout 的店別設定，避免默默退回 config.json。
   const storesFiles = [path.join(path.dirname(file), "stores.json")];
   if (path.resolve(file) === path.resolve(skillPath("config.json"))) {
     storesFiles.push(path.join(LEGACY_SKILL_DIR, "stores.json"));
@@ -231,17 +231,13 @@ export function requireEnv(env, keys) {
 }
 
 /**
- * 完整月份的 manifest 是可選的後處理：Drive 匯出不應該因為 NAS 尚未就緒而被擋住。
+ * D1 匯入是可選的後處理：Drive 匯出不應該因為平台暫時不可用而被擋住。
  * Worker URL 不是 secret，CI 可由 repository variable 提供；本機沒有設定時使用正式網域。
  */
 export const DEFAULT_PLATFORM_API_URL = "https://platform.rueisiang.com";
 
-export function reportPublishConfig(env = {}) {
-  const required = [
-    "NAS_STORAGE_URL",
-    "NAS_STORAGE_TOKEN",
-    "CYBERBIZ_REPORT_INGEST_TOKEN",
-  ];
+export function reportIngestConfig(env = {}) {
+  const required = ["CYBERBIZ_REPORT_INGEST_TOKEN"];
   const missing = required.filter((key) => !String(env[key] ?? "").trim());
   return {
     enabled: missing.length === 0,

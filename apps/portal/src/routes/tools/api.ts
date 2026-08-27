@@ -89,7 +89,7 @@ export interface CyberbizReportRunRecord {
   storesJson: string;
   startDate: string;
   endDate: string;
-  manifestEligible: number;
+  d1ImportEligible: number;
   actorEmail: string;
   createdAt: string;
 }

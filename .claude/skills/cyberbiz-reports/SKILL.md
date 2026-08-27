@@ -1,12 +1,16 @@
 ---
 name: cyberbiz-reports
-description: CYBERBIZ 報表工具的操作知識：依指定 POS 店別與日期匯出每日出金報表或商品銷售報表，從 Gmail 取回 xlsx，驗證並上傳 Google Drive；完整月份另產生 NAS 與 D1 manifest。用於出金表、商品銷售報表、POS 紀錄下載、通路對帳、上傳雲端硬碟，以及維護 tools/cyberbiz-reports 底下的 payout 與 sales driver。也涵蓋報表跑完之後小香怎麼查（商品銷售查詢、出金區間查詢、report manifest、NAS normalized JSON、cyberbiz-reports MCP endpoint）。
+description: CYBERBIZ 報表工具的操作知識：依指定 POS 店別與日期匯出每日出金報表或商品銷售報表，從 Gmail 取回 xlsx，驗證並上傳 Google Drive；完整月份的每日資料另匯入 D1。用於出金表、商品銷售報表、POS 紀錄下載、通路對帳、上傳雲端硬碟，以及維護 tools/cyberbiz-reports 底下的 payout 與 sales driver。
 ---
 
-# CYBERBIZ 每月出金表
+# CYBERBIZ 報表工具
 
 對應 SOP：`工作說明書/營運部門_行政助理_帳務_每月做帳流程作業.docx`「每月 1 號至 cyberbiz
 後台下載 pos 紀錄 / 出金表上傳 google drive」，以及 `各通路對帳作業.docx` 3.1 的出金合計公式。
+
+報表跑完之後，資料怎麼被小香查到寫在
+[`reference/report-query.md`](./reference/report-query.md)；查詢與產表是同一條資料流的兩半，
+要改其中一邊先看另一邊。
 
 報表跑完之後，資料怎麼被小香查到（manifest、NAS JSON、兩個查詢 tool、MCP endpoint）
 寫在 [`reference/report-query.md`](./reference/report-query.md)——查詢跟產表是同一條資料流
@@ -98,9 +102,20 @@ node sales/driver.mjs --start 2026-07-01 --end 2026-07-31 --store 宏匯廣場1F
 node sales/driver.mjs --month 2026-07
 ```
 
-完整月份才會解析商品明細、產生各店與公司 aggregate，並發布 NAS/D1 manifest；自訂區間只把
-原始 xlsx 上傳到 `reports` 設定的 Google Drive 店別資料夾。sales 的結果放在
+完整月份會逐日匯出並解析商品明細，再把每日資料匯入 D1；自訂區間只把原始 xlsx 上傳到
+`reports` 設定的 Google Drive 店別資料夾，不匯入 D1。sales 的結果放在
 `staging/sales/`、`reports/sales/`、`screenshots/sales/`，不會和出金表的執行產物混在一起。
+
+## D1 查詢資料
+
+報表查詢只使用三張表：`report_scopes`、`report_sales_daily`、`report_payout_daily`。
+完整月份的 payout 會將出金表按日加總後匯入；sales 會為月份中的每一天各下載一份報表，
+把 SKU、商品名稱、分類、數量與售額匯入。公司、月份、年份與任意日期區間由平台查詢時
+直接 aggregate，不產生另一份公司或月份檔案。原始 XLSX 仍保留在 Google Drive，報表
+查詢不依賴 NAS。
+
+匯入需要 `CYBERBIZ_REPORT_INGEST_TOKEN`。缺少 token 時仍可完成 Drive 匯出，但執行摘要會
+標示未匯入 D1；補上 token 後重新執行完整月份即可。
 
 ## 欄位規則
 

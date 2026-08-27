@@ -5,5 +5,6 @@ export * from "./auth.js";
 export * from "./crm.js";
 export * from "./cyberbiz-reports.js";
 export * from "./media.js";
+export * from "./reports.js";
 export * from "./tools.js";
 export * from "./wms.js";

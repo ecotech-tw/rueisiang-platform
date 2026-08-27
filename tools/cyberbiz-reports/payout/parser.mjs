@@ -196,8 +196,8 @@ export async function verifyPayoutFile(filePath, { start, end, firstDataRow = 3 
 }
 
 /**
- * 把每日出金表轉成查詢用的 normalized JSON。原始 XLSX 仍由 driver 上傳到 Drive；
- * 這份結果只放 NAS，讓查詢不必重新解壓整本試算表。
+ * 把每日出金表轉成查詢用的日資料。原始 XLSX 仍由 driver 上傳到 Drive；
+ * D1 只接收日期與出金金額，不保留支付方式、POS 或操作人員維度。
  */
 export async function parsePayoutReport(filePath, {
   scopeType = "store",
@@ -240,9 +240,6 @@ export async function parsePayoutReport(filePath, {
       date,
       closeAt,
       incomeAmount: amount,
-      incomeType: String(cells.get(`D${row}`) ?? "").trim(),
-      pos: String(cells.get(`F${row}`) ?? "").trim(),
-      operator: String(cells.get(`G${row}`) ?? "").trim(),
     });
   }
   if (!rows.length) throw new Error("出金表沒有任何資料列。");

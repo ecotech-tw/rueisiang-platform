@@ -11,10 +11,12 @@ import {
   userPermissions,
   users,
 } from "@rueisiang/db/schema";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createLocalD1 } from "./local-d1/d1.js";
+import { createLocalD1, LocalD1 } from "./local-d1/d1.js";
 
 const REPAIR_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0019_restore_admin_permissions.sql", import.meta.url),
@@ -34,9 +36,29 @@ const CYBERBIZ_SALES_PERMISSION_MIGRATION = fileURLToPath(
 const REMOVE_SHOPEE_SETTINGS_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0047_remove_shopee_settings_permission.sql", import.meta.url),
 );
-const RENAME_REPORT_TOOL_KEYS_MIGRATION = fileURLToPath(
-  new URL("../../../packages/db/migrations/0048_rename_report_tool_keys.sql", import.meta.url),
-);
+const MIGRATIONS_DIR = fileURLToPath(new URL("../../../packages/db/migrations/", import.meta.url));
+const MIGRATION_FILES = readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(".sql")).sort();
+
+/** 照 D1 的方式套用：每一支 migration 都在自己的 transaction 內完成。 */
+function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): void {
+  for (const file of MIGRATION_FILES) {
+    if (from && file <= from) continue;
+    if (file > to) break;
+    sqlite.exec("BEGIN;");
+    for (const statement of readFileSync(path.join(MIGRATIONS_DIR, file), "utf8").split("--> statement-breakpoint")) {
+      const trimmed = statement.trim();
+      if (trimmed) sqlite.exec(trimmed);
+    }
+    sqlite.exec("COMMIT;");
+  }
+}
+
+function freshAt(tag: string): DatabaseSync {
+  const sqlite = new DatabaseSync(":memory:");
+  sqlite.exec("PRAGMA foreign_keys = ON;");
+  applyLikeD1(sqlite, null, tag);
+  return sqlite;
+}
 
 describe("bootstrap 管理員權限 migration", () => {
   it("把只有三個 admin 權限的既有管理員補齊，而且可以安全重跑", async () => {
@@ -112,7 +134,8 @@ describe("bootstrap 管理員權限 migration", () => {
   });
 
   it("報表工具改名時保留既有設定、LINE 白名單與對話工具綁定", async () => {
-    const d1 = createLocalD1();
+    const sqlite = freshAt("0047_remove_shopee_settings_permission.sql");
+    const d1 = new LocalD1(sqlite);
     const db = createDatabase(d1 as never);
 
     await db.insert(assistantToolConfigs).values([
@@ -141,9 +164,22 @@ describe("bootstrap 管理員權限 migration", () => {
       { id: "legacy-payout-chat-tool", groupId: "legacy-group", channelToolId: "legacy-payout-tool", createdBy: "legacy" },
     ]);
 
-    const sql = readFileSync(RENAME_REPORT_TOOL_KEYS_MIGRATION, "utf8");
-    d1.sqlite.exec(sql);
-    d1.sqlite.exec(sql);
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_report_runs
+        (id, request_id, report_kind, period_kind, stores_json, start_date, end_date, manifest_eligible, actor_id, actor_email)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("legacy-run", "legacy-request", "sales", "month", "[\"舊版門市\"]", "2026-07-01", "2026-07-31", 1, "legacy", "legacy@example.com");
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_report_manifests
+        (id, report_month, scope_type, scope_id, scope_name, coverage_start, coverage_end, source_checksum, parser_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("legacy-manifest", "2026-07", "store", "store-legacy", "舊版門市", "2026-07-01", "2026-07-31", "checksum", "legacy");
+
+    applyLikeD1(sqlite, "0047_remove_shopee_settings_permission.sql", "0048_rename_report_tool_keys.sql");
+    applyLikeD1(sqlite, "0047_remove_shopee_settings_permission.sql", "0048_rename_report_tool_keys.sql");
+
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM assistant_line_groups").get()).toEqual({ count: 1 });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM assistant_chat_tools").get()).toEqual({ count: 2 });
 
     expect(await db.select().from(assistantToolConfigs)).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: "query_sales_report", status: "disabled", updatedBy: "legacy" }),
@@ -161,5 +197,13 @@ describe("bootstrap 管理員權限 migration", () => {
       expect.objectContaining({ id: "legacy-sales-chat-tool", channelToolId: "legacy-sales-tool" }),
       expect.objectContaining({ id: "legacy-payout-chat-tool", channelToolId: "legacy-payout-tool" }),
     ]));
+
+    applyLikeD1(sqlite, "0048_rename_report_tool_keys.sql", "0049_unify_report_manifests.sql");
+
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM assistant_chat_tools").get()).toEqual({ count: 2 });
+    expect(sqlite.prepare("SELECT d1_import_eligible FROM cyberbiz_report_runs WHERE id = ?").get("legacy-run"))
+      .toEqual({ d1_import_eligible: 1 });
+    expect(sqlite.prepare("SELECT id, scope_kind, normalized_name FROM report_scopes WHERE id = ?").get("store-legacy"))
+      .toEqual({ id: "store-legacy", scope_kind: "store", normalized_name: "舊版門市" });
   });
 });

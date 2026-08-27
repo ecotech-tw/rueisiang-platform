@@ -344,6 +344,20 @@
       "when": 1787850000000,
       "tag": "0048_rename_report_tool_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1787936400000,
+      "tag": "0049_unify_report_manifests",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1787936400001,
+      "tag": "0050_recompute_report_scope_names",
+      "breakpoints": true
     }
   ]
 }

@@ -57,8 +57,6 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
-          NAS_STORAGE_URL: ${{ secrets.NAS_STORAGE_URL }}
-          NAS_STORAGE_TOKEN: ${{ secrets.NAS_STORAGE_TOKEN }}
           PLATFORM_API_URL: ${{ vars.WORKER_URL || 'https://platform.rueisiang.com' }}
           CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
         run: |
@@ -70,8 +68,6 @@ jobs:
             echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"
             echo "GOOGLE_REFRESH_TOKEN=$GOOGLE_REFRESH_TOKEN"
             echo "GMAIL_REFRESH_TOKEN=$GMAIL_REFRESH_TOKEN"
-            echo "NAS_STORAGE_URL=$NAS_STORAGE_URL"
-            echo "NAS_STORAGE_TOKEN=$NAS_STORAGE_TOKEN"
             echo "PLATFORM_API_URL=$PLATFORM_API_URL"
             echo "CYBERBIZ_REPORT_INGEST_TOKEN=$CYBERBIZ_REPORT_INGEST_TOKEN"
           } > .env
@@ -82,26 +78,13 @@ jobs:
             fi
           done
 
-      - name: 檢查完整月份 manifest 設定
+      - name: 檢查 D1 匯入設定
         env:
-          START: ${{ inputs.start }}
-          END: ${{ inputs.end }}
-          NAS_STORAGE_URL: ${{ secrets.NAS_STORAGE_URL }}
-          NAS_STORAGE_TOKEN: ${{ secrets.NAS_STORAGE_TOKEN }}
           CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
         run: |
-          node --input-type=module -e '
-            const [year, month] = process.env.START.split("-").map(Number);
-            const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-            const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
-            const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-            if (process.env.START !== monthStart || process.env.END !== monthEnd) process.exit(0);
-            const required = ["NAS_STORAGE_URL", "NAS_STORAGE_TOKEN", "CYBERBIZ_REPORT_INGEST_TOKEN"];
-            const missing = required.filter((key) => !process.env[key]);
-            if (missing.length) {
-              console.warn(`::warning::完整月份將照常上傳 Drive，但不建立 AI manifest；缺少設定：${missing.join(", ")}`);
-            }
-          '
+          if [ -z "$CYBERBIZ_REPORT_INGEST_TOKEN" ]; then
+            echo "::warning::報表會照常上傳 Drive，但不會匯入 D1；缺少 CYBERBIZ_REPORT_INGEST_TOKEN"
+          fi
 
       - name: 執行商品銷售報表
         id: sales

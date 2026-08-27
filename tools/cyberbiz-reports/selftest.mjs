@@ -297,7 +297,7 @@ const salesReport = {
     done: true,
     total: { grossQuantity: 12, returnQuantity: 2, netQuantity: 10, salesAmount: 3456 },
     sheetUrl: "https://drive.google.com/file/d/EXAMPLE",
-    steps: { export: "ok", fetch: "ok", verify: "ok", upload: "ok", manifest: "ok" },
+    steps: { export: "ok", fetch: "ok", verify: "ok", upload: "ok", ingest: "ok" },
   }],
 };
 const salesReportPath = await writeMarkdown(salesReport, path.join(temp, "reports"), { kind: "sales" });

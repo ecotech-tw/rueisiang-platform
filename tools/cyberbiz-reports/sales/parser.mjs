@@ -50,7 +50,8 @@ function assertRowTotals(rows, totals, field, label) {
 }
 
 /**
- * 解析「商品銷售總表」。這份報表是月彙總，因此輸出明確標記 granularity=month。
+ * 解析「商品銷售總表」的指定區間。CYBERBIZ 報表是區間彙總；driver 以每日區間
+ * 執行時，這些列即可作為 D1 的每日事實資料。
  * 售額一律採用 J 欄的售額總計，不用售價乘數量重算，以保留折扣、組合商品與贈品的語意。
  */
 export async function parseSalesReport(filePath, {
@@ -58,14 +59,22 @@ export async function parseSalesReport(filePath, {
   scopeId,
   scopeName = "",
   reportMonth,
+  start,
+  end,
+  allowEmpty = false,
   parserVersion = "cyberbiz-sales-v1",
 } = {}) {
-  if (!scopeId || !/^[A-Za-z0-9._-]{1,100}$/.test(scopeId)) throw new Error("scopeId 必須是安全的識別碼。");
+  if (!scopeId || !/^[A-Za-z0-9._:-]{1,100}$/.test(scopeId)) throw new Error("scopeId 必須是安全的識別碼。");
   if (scopeType !== "store" && scopeType !== "company") throw new Error("scopeType 必須是 store 或 company。");
 
   const { cells, maxRow } = await readSheet(filePath);
   const range = dateRange(cells.get("A1"));
   const detectedMonth = range.start.slice(0, 7);
+  if (start && end && (range.start !== start || range.end !== end)) {
+    const error = new Error(`商品銷售總表日期區間 ${range.start} ~ ${range.end} 與指定區間 ${start} ~ ${end} 不一致。`);
+    error.code = "RANGE_MISMATCH";
+    throw error;
+  }
   if (range.end.slice(0, 7) !== detectedMonth) throw new Error("銷售總表不能跨月份。");
   if (reportMonth && reportMonth !== detectedMonth) {
     const error = new Error(`檔案月份 ${detectedMonth} 與指定月份 ${reportMonth} 不一致。`);
@@ -80,15 +89,10 @@ export async function parseSalesReport(filePath, {
   const skuColumn = findColumn(columns, "SKU");
   const productColumn = findColumn(columns, "商品名稱");
   const categoryColumn = findColumn(columns, "類別", false);
-  const barcodeColumn = findColumn(columns, "產品廠商編號", false);
-  const unitPriceColumn = findColumn(columns, "售價", false);
   const grossQuantityColumn = findColumn(columns, "銷售數量");
   const returnQuantityColumn = findColumn(columns, "退回數量");
   const netQuantityColumn = findColumn(columns, "淨銷售數量");
   const salesAmountColumn = findColumn(columns, "售額總計");
-  const costAmountColumn = findColumn(columns, "成本總計", false);
-  const grossProfitColumn = findColumn(columns, "毛利總計", false);
-  const grossMarginColumn = findColumn(columns, "毛利率", false);
 
   let totalRow = -1;
   for (let row = 3; row <= maxRow; row += 1) {
@@ -107,18 +111,17 @@ export async function parseSalesReport(filePath, {
       sku,
       productName: text(cell(cells, productColumn, row)),
       category: text(cell(cells, categoryColumn, row)) || "未分類",
-      ...(text(cell(cells, barcodeColumn, row)) ? { barcode: text(cell(cells, barcodeColumn, row)) } : {}),
-      unitPrice: number(cell(cells, unitPriceColumn, row), `第 ${row} 列售價`),
       grossQuantity: number(cell(cells, grossQuantityColumn, row), `第 ${row} 列銷售數量`),
       returnQuantity: number(cell(cells, returnQuantityColumn, row), `第 ${row} 列退回數量`),
       netQuantity: number(cell(cells, netQuantityColumn, row), `第 ${row} 列淨銷售數量`),
       salesAmount: number(cell(cells, salesAmountColumn, row), `第 ${row} 列售額總計`),
-      ...(costAmountColumn >= 0 ? { costAmount: number(cell(cells, costAmountColumn, row), `第 ${row} 列成本總計`) } : {}),
-      ...(grossProfitColumn >= 0 ? { grossProfit: number(cell(cells, grossProfitColumn, row), `第 ${row} 列毛利總計`) } : {}),
-      ...(grossMarginColumn >= 0 ? { grossMargin: number(cell(cells, grossMarginColumn, row), `第 ${row} 列毛利率`) } : {}),
     });
   }
-  if (!rows.length) throw new Error("銷售總表沒有商品明細。");
+  if (!rows.length && !allowEmpty) {
+    const error = new Error("銷售總表沒有商品明細。");
+    error.code = "EMPTY_REPORT";
+    throw error;
+  }
 
   const totals = {
     grossQuantity: number(cell(cells, grossQuantityColumn, totalRow), "總計銷售數量"),
@@ -133,14 +136,14 @@ export async function parseSalesReport(filePath, {
 
   return {
     schemaVersion: 1,
-    kind: "cyberbiz_sales_monthly",
+    kind: "cyberbiz_sales_interval",
     scopeType,
     scopeId,
     scopeName: scopeName || path.basename(filePath),
     reportMonth: detectedMonth,
     coverageStart: range.start,
     coverageEnd: range.end,
-    granularity: "month",
+    granularity: range.start === range.end ? "day" : "interval",
     rows,
     totals,
     source: { filename: path.basename(filePath), parserVersion },

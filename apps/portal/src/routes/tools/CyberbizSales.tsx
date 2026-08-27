@@ -49,7 +49,7 @@ export function CyberbizSales() {
     <div className="page">
       <PageHeader
         title="商品銷售報表執行"
-        description="從 CYBERBIZ POS 匯出商品銷售總表，依店別上傳到既有 Google Drive 通路資料夾；完整月份若後端設定已就緒，runner 會另外寫入 NAS 與 AI 查詢 manifest。"
+        description="從 CYBERBIZ POS 匯出商品銷售總表，依店別上傳到既有 Google Drive 通路資料夾；完整月份會另外把每日商品資料匯入 D1，供小香查詢。"
       />
 
       {!state.data?.configured ? (
@@ -79,7 +79,7 @@ export function CyberbizSales() {
         </form>
 
         <p className="muted table-note">
-          選完整月份才會建立 AI 可查詢的 manifest；例如 2026-07-14 ~ 2026-07-18 只整理到 Drive，方便人工查帳，不會讓小香誤當成完整月報。若 NAS 尚未架設或 manifest 設定尚未補齊，完整月份仍會上傳 Drive，執行摘要會標示未建立 manifest。
+          完整月份會逐日匯出並把商品銷售日資料匯入 D1；例如 2026-07-14 ~ 2026-07-18 仍會上傳區間原始 XLSX 到 Drive，但不會匯入 D1。原始檔與 D1 查詢資料彼此獨立。
         </p>
         {rangeError ? <Alert tone="danger">{rangeError}</Alert> : null}
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
@@ -121,7 +121,7 @@ export function CyberbizSales() {
       <Panel title="最近執行">
         <div className="table-scroll">
           <table className="data-table">
-            <thead><tr><th>時間</th><th>通路</th><th>區間</th><th>AI manifest</th><th>執行的人</th></tr></thead>
+            <thead><tr><th>時間</th><th>通路</th><th>區間</th><th>D1 匯入</th><th>執行的人</th></tr></thead>
             <tbody>
               {(state.data?.runs ?? []).map((record) => {
                 const names = parseStores(record.storesJson);
@@ -130,7 +130,7 @@ export function CyberbizSales() {
                     <td className="cell-sub whitespace-nowrap">{formatDate(record.createdAt)}</td>
                     <td>{names.length > 1 ? `全部 ${names.length} 家` : names[0] ?? "—"}</td>
                     <td className="cell-sub whitespace-nowrap">{record.startDate} ~ {record.endDate}</td>
-                    <td>{record.periodKind === "month" ? "月份完成後建立" : "不建立（Drive only）"}</td>
+                    <td>{record.periodKind === "month" ? "完整月份可匯入" : "不匯入（Drive only）"}</td>
                     <td className="cell-sub">{record.actorEmail}</td>
                   </tr>
                 );

@@ -86,13 +86,13 @@ const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", 
 type CyberbizReportService = ReturnType<typeof createCyberbizReportService>;
 
 /**
- * 建立 assistant tool context 時不要立刻初始化 NAS client。
- * NAS 目前是選用設定；若只缺其中一個值，只有真的執行 CYBERBIZ report tool 時才應該失敗，
- * 不可以讓天氣、CRM 或 WMS tool 也一起被設定錯誤攔下來。
+ * 報表查詢只需要 D1；延遲建立 service 讓 assistant context 維持輕量，
+ * 也不會因為其他功能的 NAS 設定狀態影響天氣、CRM 或 WMS tool。
  */
 export function lazyCyberbizReportService(db: Database, env: Env): CyberbizReportService {
   let service: CyberbizReportService | undefined;
-  const get = () => service ??= createCyberbizReportService(db, nasStorageClient(env));
+  void env;
+  const get = () => service ??= createCyberbizReportService(db);
   return {
     querySales: (input) => get().querySales(input),
     queryPayout: (input) => get().queryPayout(input),
