@@ -700,18 +700,10 @@
 .empty-state { margin: 18px 0 0; padding: 18px; border: 1px dashed var(--color-line); border-radius: 10px; color: var(--color-muted); text-align: center; }
 
 /* 權限管理頁 */
-/*
- * 底部對齊，不是置中。表單裡的 .field 是「標籤在上、輸入框在下」的兩層，按鈕
- * 只有一層；置中的話按鈕會對到整塊 .field 的中線，也就是浮在輸入框上方。
- * 底部對齊才讓按鈕跟輸入框坐在同一條線上。
- *
- * 沒有可見標籤的那些排（工具列用的 FilterInput／FilterSelect 是 sr-only 標籤）
- * 每個元素等高，兩種對齊看起來一樣，所以這一行不會動到它們。
- */
 .admin-form {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
 }
 .shopee-settings-form {
@@ -737,13 +729,19 @@
  * 命名修飾詞之前先確認它不是 Tailwind 已經有的 utility。
  */
 /*
- * 有標籤欄位的那種表單列，按鈕要跟輸入框一樣高。只有 padding 撐出來的按鈕是
- * 33.5px，輸入框是 44px——`align-items: flex-end` 讓它們底部對齊了，但一高一矮
- * 還是看得出來。
+ * 有 .field 的那種排要另外處理。.field 是「標籤在上、輸入框在下」的兩層，
+ * 旁邊的按鈕只有一層，兩件事都會歪：
  *
- * 用 :has(> .field) 挑出「真的有標籤欄位」的表單：工具列那些排是另一個較密的
- * 尺寸（約 34px），一起拉高會讓篩選列變得笨重。
+ * 1. 置中的話按鈕對到的是整塊 .field 的中線，也就是浮在輸入框上方 → 底部對齊。
+ * 2. 只靠 padding 撐出來的按鈕是 33.5px、輸入框是 44px，光是底部對齊仍然
+ *    看得出一高一矮 → 拉成同一個高度。
+ *
+ * 條件寫成 :has(> .field) 而不是套在整個 .admin-form 上，因為沒有 .field 的排
+ * 兩種修正都會幫倒忙：工具列的「對帳區間」這類純文字標籤只有 19.5px 高，底部
+ * 對齊會讓它比旁邊的膠囊低 7px；而工具列的控制項是另一個較密的尺寸（約 34px），
+ * 一起拉高會讓篩選列變笨重。
  */
+.admin-form:has(> .field) { align-items: flex-end; }
 .admin-form:has(> .field) > .primary-button,
 .admin-form:has(> .field) > .ghost-button { min-height: var(--size-field); }
 
