@@ -65,6 +65,15 @@
   --radius-card: 14px;
   --radius-field: 9px;
 
+  /*
+   * 表單列的控制項高度。輸入框、下拉與同一列的按鈕共用這個值。
+   *
+   * 沒有它的時候，輸入框由 padding 撐成 43–44px、按鈕撐成 33.5px，兩者只有
+   * 底部對齊——差 10px 的高度看起來還是一高一矮。工具列是另一個較密的尺寸
+   * （約 34px），不共用這個 token。
+   */
+  --size-field: 44px;
+
   --shadow-panel: 0 18px 45px rgba(96, 55, 48, .09);
 
   --font-sans: Inter, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;

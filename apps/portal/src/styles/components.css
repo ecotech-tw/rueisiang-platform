@@ -736,6 +736,17 @@
  * 整排欄位退回 inline 排版，gap 也跟著失效（gap 只對 flex/grid 有作用）。
  * 命名修飾詞之前先確認它不是 Tailwind 已經有的 utility。
  */
+/*
+ * 有標籤欄位的那種表單列，按鈕要跟輸入框一樣高。只有 padding 撐出來的按鈕是
+ * 33.5px，輸入框是 44px——`align-items: flex-end` 讓它們底部對齊了，但一高一矮
+ * 還是看得出來。
+ *
+ * 用 :has(> .field) 挑出「真的有標籤欄位」的表單：工具列那些排是另一個較密的
+ * 尺寸（約 34px），一起拉高會讓篩選列變得笨重。
+ */
+.admin-form:has(> .field) > .primary-button,
+.admin-form:has(> .field) > .ghost-button { min-height: var(--size-field); }
+
 .admin-form.row { margin-top: 16px; }
 .panel-head + .admin-form.row { margin-top: 0; }
 /*
@@ -2141,6 +2152,12 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 會被往下推——兩個並排的輸入框差了 20px，看起來就是沒對齊。
  */
 .field { display: grid; align-content: start; gap: 6px; }
+/*
+ * input 與 select 只靠 padding 撐高時會差 1px（43 vs 44），並排就看得出來。
+ * 釘同一個高度。checkbox 與 radio 不算控制項，排除掉。
+ */
+.field input:not([type="checkbox"]):not([type="radio"]),
+.field select { min-height: var(--size-field); }
 .field > span { font-size: 13px; font-weight: 700; }
 .field > span b { margin-left: 6px; color: var(--color-brand); font-size: 11px; }
 .field > small { color: var(--color-muted); font-size: 12px; }
