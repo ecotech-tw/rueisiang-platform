@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import type { ReportGroupBy, ReportScopeKind } from "@rueisiang/db";
+import { listReportScopes, type ReportGroupBy, type ReportScopeKind } from "@rueisiang/db";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { createCyberbizReportService, CyberbizReportQueryError } from "../cyberbiz-reports.js";
@@ -45,6 +45,12 @@ function handleError(error: unknown): never {
 
 export const cyberbizReports = new Hono<AppEnv>()
   .use("*", requireAuth)
+  // 報表頁的店別下拉需要這份清單。既有的 /tools/payout/stores 是設定用的，權限不同，
+  // 而且只有出金那邊的店，看不到蝦皮這種其他通路的據點。
+  .get("/scopes", requirePermission("reports:cyberbiz:read"), async (c) => {
+    const scopes = await listReportScopes(c.get("db"), "store");
+    return c.json({ scopes: scopes.map((scope) => ({ id: scope.id, name: scope.name })) });
+  })
   .get("/sales", requirePermission("reports:cyberbiz:read"), async (c) => {
     try {
       return c.json(await createCyberbizReportService(c.get("db")).querySales({

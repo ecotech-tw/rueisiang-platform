@@ -1177,7 +1177,7 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
       scopeId: { type: "string", description: "相容既有呼叫的櫃位固定 ID；通常不需要填，優先使用 scopeName。" },
       startDate: { type: "string", description: "自訂完整月份起始日 YYYY-MM-01，需與 endDate 一起提供。" },
       endDate: { type: "string", description: "自訂完整月份結束日 YYYY-MM-DD，需與 startDate 一起提供。" },
-      groupBy: { type: "string", description: "可選分組，使用逗號分隔：month、scope、sku、category；例如 scope,month。" },
+      groupBy: { type: "string", description: "可選分組，使用逗號分隔：month、scope、sku、product、category；例如 scope,month。" },
       sku: { type: "string", description: "可選 SKU，精確查詢單一商品。" },
       category: { type: "string", description: "可選商品分類／標籤，回傳該分類商品合計。" },
       productName: { type: "string", description: "可選商品名稱關鍵字。" },

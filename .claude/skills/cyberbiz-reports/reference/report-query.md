@@ -26,7 +26,8 @@ GET /api/reports/cyberbiz/payout?startDate=2026-07-01&endDate=2026-07-31&scopeTy
 - `sku`：精確查詢 SKU。
 - `category`：查詢分類／標籤。
 - `productName`：商品名稱關鍵字。
-- `groupBy=month,scope,sku,category`：指定回傳列的分組方式；不提供時預設依 SKU。
+- `groupBy=month,scope,sku,product,category`：指定回傳列的分組方式；不提供時預設依 SKU。
+  `product` 是商品名稱；同一個 SKU 換過品名時會分成兩列，這是刻意的。
 
 出金可用 `groupBy=day,month,scope`。出金不保存也不接受付款方式、POS 或操作人員篩選。
 
@@ -75,7 +76,8 @@ GET /api/reports/cyberbiz/payout?startDate=2026-07-01&endDate=2026-07-31&scopeTy
 
 ## 聚合規則
 
-不建立月、年或公司 aggregate 檔案。公司查詢會在 D1 直接聚合所有 `active=1` 且屬於 CYBERBIZ 的 store scope；
+不建立月、年或公司 aggregate 檔案。公司查詢會在 D1 直接聚合所有 `active=1` 的 store scope，**不分通路**——
+蝦皮也算公司的營收，照 scope ID 前綴篩掉它只會讓「全公司」名不副實。要單看某個通路就指定該據點查詢。
 月份與年份只是 `report_month` 的範圍條件：
 
 ```sql

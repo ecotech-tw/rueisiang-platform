@@ -12,7 +12,7 @@ import {
 
 export type { ReportScopeKind } from "./schema/reports.js";
 
-export type ReportGroupBy = "day" | "month" | "scope" | "sku" | "category";
+export type ReportGroupBy = "day" | "month" | "scope" | "sku" | "product" | "category";
 
 export interface ReportRange {
   period: string;
@@ -253,13 +253,12 @@ const SALES_GROUPS: Record<SalesGroupBy, { alias: string; expression: ReturnType
   month: { alias: "reportMonth", expression: sql`${reportSalesMonthly.reportMonth}` },
   scope: { alias: "scopeId", expression: sql`${reportSalesMonthly.scopeId}` },
   sku: { alias: "sku", expression: sql`${reportSalesMonthly.sku}` },
+  // 同一個 SKU 換過品名時會多出一列，這是刻意的：報表要看得出名稱換過。
+  product: { alias: "productName", expression: sql`${reportSalesMonthly.productName}` },
   category: { alias: "category", expression: sql`${reportSalesMonthly.category}` },
 };
 
 type PayoutGroupBy = "day" | "month" | "scope";
-
-const CYBERBIZ_STORE_SCOPE_PREFIX = "cyberbiz:store:";
-const LEGACY_CYBERBIZ_STORE_SCOPE_PREFIX = "store-";
 
 const PAYOUT_GROUPS: Record<PayoutGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
   day: { alias: "businessDate", expression: sql`${reportPayoutDaily.businessDate}` },
@@ -286,11 +285,9 @@ async function scopeIdsForQuery(db: Database, query: { scopeType: ReportScopeKin
     const scope = await findReportScope(db, { scopeKind: "store", id: query.scopeId, name: query.scopeName });
     return scope ? { ids: [scope.id], scope } : { ids: [] };
   }
-  return {
-    ids: (await listReportScopes(db, "store"))
-      .filter((scope) => scope.id.startsWith(CYBERBIZ_STORE_SCOPE_PREFIX) || scope.id.startsWith(LEGACY_CYBERBIZ_STORE_SCOPE_PREFIX))
-      .map((scope) => scope.id),
-  };
+  // 「全公司」是所有啟用中的據點，不分通路——蝦皮也算公司的營收，照通路前綴篩掉它
+  // 只會讓這個名字名不副實。要單看某個通路就指定該據點查詢。
+  return { ids: (await listReportScopes(db, "store")).map((scope) => scope.id) };
 }
 
 function queryConditions(

@@ -20,6 +20,7 @@ import { Cyberbiz } from "./routes/wms/Cyberbiz.js";
 import { Inventory } from "./routes/wms/Inventory.js";
 import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
+import { Reports } from "./routes/tools/Reports.js";
 import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { StyleGuide } from "./routes/StyleGuide.js";
@@ -105,6 +106,7 @@ export function App() {
           <Route path="payout" element={<Payout />} />
           <Route path="payout/settings" element={<PayoutSettings />} />
           <Route path="cyberbiz-sales" element={<CyberbizSales />} />
+          <Route path="reports" element={<Reports />} />
           <Route path="shopee-sales" element={<ShopeeSales />} />
           <Route path="shopee-sales/settings" element={<Navigate to="/tools/payout/settings" replace />} />
         </Route>

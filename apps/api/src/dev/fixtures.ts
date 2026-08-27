@@ -1,4 +1,13 @@
-import { createDatabase, ensureAssistantDefaults, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
+import {
+  createDatabase,
+  ensureAssistantDefaults,
+  insertReportPayoutDaily,
+  insertReportSalesMonthly,
+  listReportScopes,
+  seedPayoutStores,
+  syncSystemRoles,
+  upsertReportScope,
+} from "@rueisiang/db";
 import { ASSISTANT_KEY, DEFAULT_ASSISTANT_PROMPT, OPEN_METEO_TOOL_KEY } from "@rueisiang/assistant";
 import { DEFAULT_PI_CODEX_MODEL } from "../pi-agent.js";
 import {
@@ -11,6 +20,7 @@ import {
   warehouseSettings,
   zones,
 } from "@rueisiang/db/schema";
+import { cyberbizScopeIdFromStoreName } from "../cyberbiz-scope.js";
 import type { LocalD1 } from "../local-d1/d1.js";
 
 /**
@@ -52,6 +62,7 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
   await seedPayoutStores(db);
   await seedDevCustomers(db);
   await seedDevWarehouse(db);
+  await seedDevReports(db);
 
   const existing = await db.select({ id: users.id }).from(users).limit(1);
   if (existing.length) return;
@@ -133,4 +144,72 @@ async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<
     { id: "dev-el-2", label: "走道", color: "slate", x: 8, y: 34, width: 52, height: 8 },
   ]);
   await db.insert(inventoryItems).values([...DEV_ITEMS]);
+}
+
+/**
+ * 假報表資料。銷售只有月粒度、出金有日粒度，兩個通路（CYBERBIZ 與蝦皮）都給，
+ * 這樣報表檢視頁的「全公司 vs 單店」與「月表 vs 逐日出金」都有東西可看。
+ */
+const DEV_REPORT_STORES = ["台南新光西門", "東山服務區"] as const;
+const SHOPEE_SCOPE_ID = "shopee:store:default";
+
+const DEV_REPORT_PRODUCTS = [
+  { sku: "RS-SHAMPOO-500", productName: "瑞香洗髮精 500ml", category: "沐浴" },
+  { sku: "RS-SOAP-3P", productName: "瑞香手工皂三入", category: "沐浴" },
+  { sku: "RS-TEA-100", productName: "東方美人茶 100g", category: "食品" },
+  { sku: "RS-GIFT-A", productName: "節慶禮盒 A", category: "禮盒" },
+] as const;
+
+function devMonths(count: number): string[] {
+  const now = new Date();
+  return Array.from({ length: count }, (_unused, index) => {
+    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - index, 1));
+    return `${month.getUTCFullYear()}-${String(month.getUTCMonth() + 1).padStart(2, "0")}`;
+  });
+}
+
+function daysInMonth(month: string): string[] {
+  const [year, index] = month.split("-").map(Number);
+  const total = new Date(Date.UTC(year ?? 0, index ?? 0, 0)).getUTCDate();
+  return Array.from({ length: total }, (_unused, day) => `${month}-${String(day + 1).padStart(2, "0")}`);
+}
+
+async function seedDevReports(db: ReturnType<typeof createDatabase>): Promise<void> {
+  if ((await listReportScopes(db, "store")).length) return;
+
+  const scopes = [
+    ...DEV_REPORT_STORES.map((name) => ({ id: cyberbizScopeIdFromStoreName(name), name })),
+    { id: SHOPEE_SCOPE_ID, name: "蝦皮商城" },
+  ];
+  for (const scope of scopes) {
+    await upsertReportScope(db, { id: scope.id, scopeKind: "store", name: scope.name });
+  }
+
+  // 數字用 index 推出來就好，只是要讓每一列不一樣、看得出排序有沒有壞掉。
+  const months = devMonths(4);
+  for (const [scopeIndex, scope] of scopes.entries()) {
+    for (const [monthIndex, reportMonth] of months.entries()) {
+      await insertReportSalesMonthly(db, DEV_REPORT_PRODUCTS.map((product, productIndex) => {
+        const grossQuantity = 30 + scopeIndex * 11 + monthIndex * 7 + productIndex * 5;
+        const returnQuantity = productIndex;
+        return {
+          scopeId: scope.id,
+          reportMonth,
+          ...product,
+          grossQuantity,
+          returnQuantity,
+          netQuantity: grossQuantity - returnQuantity,
+          salesAmount: (grossQuantity - returnQuantity) * (180 + productIndex * 60),
+        };
+      }));
+      await insertReportPayoutDaily(db, daysInMonth(reportMonth)
+        // 每月只有部分日子有入帳，逐日表才看得出來不是每天都有。
+        .filter((_unused, day) => day % 3 === scopeIndex % 3)
+        .map((businessDate, day) => ({
+          scopeId: scope.id,
+          businessDate,
+          payoutAmount: 4000 + scopeIndex * 900 + monthIndex * 300 + day * 120,
+        })));
+    }
+  }
 }

@@ -256,3 +256,68 @@ export function useSaveShopeeSalesSettings() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "shopee-sales"] }),
   });
 }
+
+export interface ReportScopeOption {
+  id: string;
+  name: string;
+}
+
+export type ReportRow = Record<string, string | number | null>;
+
+export interface ReportSalesResult {
+  status: "ok" | "NO_DATA_FOR_RANGE" | "UNSUPPORTED_GRANULARITY";
+  rows: ReportRow[];
+  totals: { grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number };
+  message?: string;
+}
+
+export interface ReportPayoutResult {
+  status: "ok" | "NO_DATA_FOR_RANGE";
+  rows: ReportRow[];
+  totals: { payoutAmount: number };
+  message?: string;
+}
+
+export interface ReportQueryInput {
+  startDate: string;
+  endDate: string;
+  /** 空字串代表全公司；有值就是單一據點。 */
+  scopeId: string;
+  groupBy: string[];
+}
+
+function reportQueryString(input: ReportQueryInput): string {
+  const params = new URLSearchParams({
+    startDate: input.startDate,
+    endDate: input.endDate,
+    scopeType: input.scopeId ? "store" : "company",
+    groupBy: input.groupBy.join(","),
+  });
+  if (input.scopeId) params.set("scopeId", input.scopeId);
+  return params.toString();
+}
+
+export function useReportScopes() {
+  return useQuery({
+    queryKey: ["reports", "cyberbiz", "scopes"],
+    queryFn: () => call<{ scopes: ReportScopeOption[] }>("/api/reports/cyberbiz/scopes"),
+  });
+}
+
+export function useReportSales(input: ReportQueryInput, enabled = true) {
+  const query = reportQueryString(input);
+  return useQuery({
+    enabled,
+    queryKey: ["reports", "cyberbiz", "sales", query],
+    queryFn: () => call<ReportSalesResult>(`/api/reports/cyberbiz/sales?${query}`),
+  });
+}
+
+export function useReportPayout(input: ReportQueryInput, enabled = true) {
+  const query = reportQueryString(input);
+  return useQuery({
+    enabled,
+    queryKey: ["reports", "cyberbiz", "payout", query],
+    queryFn: () => call<ReportPayoutResult>(`/api/reports/cyberbiz/payout?${query}`),
+  });
+}
