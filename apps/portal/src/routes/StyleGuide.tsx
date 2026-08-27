@@ -137,6 +137,16 @@ export function StyleGuide() {
           <div className="style-guide-switch-copy"><Switch checked={enabled} onChange={setEnabled} label="即時同步" /><span><strong>即時同步</strong><small>{enabled ? "目前開啟" : "目前關閉"}</small></span></div>
           <div className="field"><span>對帳區間</span><DateRangePicker start={range.start} end={range.end} onChange={setRange} /></div>
         </div>
+      </Panel>
+
+      <Panel
+        title="表格工具列"
+        description="搜尋與篩選緊貼在面板標題下方，用自己的下緣分隔線跟資料分成兩個區塊。"
+      >
+        {/*
+          * 工具列要單獨放一個 Panel，因為它靠 margin-top: -4px 貼住 panel-head、
+          * 靠左右的負 margin 撐到面板邊緣。放在別的內容後面會往上疊 4px。
+          */}
         <div className="admin-form toolbar">
           <FilterInput label="搜尋" type="search" defaultValue="客戶" placeholder="搜尋關鍵字" />
           <FilterSelect
