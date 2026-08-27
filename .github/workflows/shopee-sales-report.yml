@@ -44,6 +44,8 @@ jobs:
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+      PLATFORM_API_URL: ${{ vars.WORKER_URL || 'https://platform.rueisiang.com' }}
+      CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,6 +54,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: 檢查完整月份的 D1 匯入設定
+        env:
+          REPORT_START: ${{ inputs.start }}
+          REPORT_END: ${{ inputs.end }}
+        run: |
+          if node --input-type=module -e '
+            const start = process.env.REPORT_START ?? "";
+            const end = process.env.REPORT_END ?? "";
+            const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
+            const lastDay = match ? new Date(Date.UTC(Number(match[1]), Number(match[2]), 0)).getUTCDate() : 0;
+            process.exitCode = match && start.endsWith("-01") && end === `${match[1]}-${match[2]}-${String(lastDay).padStart(2, "0")}` ? 0 : 1;
+          '; then
+            if [ -z "$CYBERBIZ_REPORT_INGEST_TOKEN" ]; then
+              echo "::error::完整月份需要設定 CYBERBIZ_REPORT_INGEST_TOKEN，否則不會更新 sales 與 payout D1 資料"
+              exit 1
+            fi
+          fi
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -101,6 +121,8 @@ jobs:
           GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
           GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
           GOOGLE_REFRESH_TOKEN=$GOOGLE_REFRESH_TOKEN
+          PLATFORM_API_URL=$PLATFORM_API_URL
+          CYBERBIZ_REPORT_INGEST_TOKEN=$CYBERBIZ_REPORT_INGEST_TOKEN
           EOF
           node tools/shopee-sales-report-export/driver.mjs \
             --input "$GITHUB_WORKSPACE/source.xlsx" \

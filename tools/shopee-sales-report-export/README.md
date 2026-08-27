@@ -4,6 +4,10 @@
 
 ## CLI
 
+完整月份執行時，同一份報表也會依 F 欄日期產生 daily 資料：業績寫入 payout、Product ID 數量寫入 sales，scope 固定為 `shopee:store:default`（蝦皮）。
+
+蝦皮報表的 `G` 是訂單金額欄，可能因同一訂單有多個商品而重複出現；因此目前不將它分攤到商品 sales，蝦皮 sales 的 `salesAmount` 保留為 0，商品數量以 AH、退貨數量以 AI 為準。業績則只對 A 欄訂單編號去重後計算 `G - S - U`。
+
 ```bash
 node driver.mjs --input "Order.completed.20250201_20250228.xlsx" --password 042213 --drive-folder-url "https://drive.google.com/drive/folders/..."
 ```

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { payoutIngestRows } from "../lib/report-ingest.mjs";
+import { ingestReport, payoutIngestRows } from "../lib/report-ingest.mjs";
 import { collectSalesDailyRows } from "../lib/sales-daily.mjs";
 
 test("出金匯入資料會把小數金額四捨五入成整數", () => {
@@ -11,6 +11,34 @@ test("出金匯入資料會把小數金額四捨五入成整數", () => {
     { businessDate: "2026-07-01", payoutAmount: 100 },
     { businessDate: "2026-07-02", payoutAmount: 101 },
   ]);
+});
+
+test("bundle ingest 會傳成功涵蓋日期，讓空報表日期也能清除舊資料", async () => {
+  let payload;
+  const result = await ingestReport({
+    apiUrl: "https://platform.example.test/",
+    ingestToken: "token",
+    scopeId: "shopee:store:default",
+    scopeName: "蝦皮",
+    salesRows: [],
+    payoutRows: [],
+    coveredDates: ["2026-07-01"],
+    fetcher: async (_url, init) => {
+      payload = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ result: { scopeId: "shopee:store:default" } }), { status: 200 });
+    },
+  });
+
+  assert.deepEqual(payload, {
+    kind: "sales_and_payout",
+    scopeType: "store",
+    scopeId: "shopee:store:default",
+    scopeName: "蝦皮",
+    salesRows: [],
+    payoutRows: [],
+    coveredDates: ["2026-07-01"],
+  });
+  assert.equal(result.scopeId, "shopee:store:default");
 });
 
 test("商品銷售單日失敗時仍保留其他日期的匯入資料", async () => {

@@ -251,14 +251,38 @@ function index(letter) {
   return columnNumber(letter) - 1;
 }
 
-export async function transformShopeeWorkbook(inputPath, outputPath, { sourceSheet = "" } = {}) {
+function dateFromExcelSerial(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1 || value > 100000) return "";
+  const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000);
+  return date.toISOString().slice(0, 10);
+}
+
+function reportDate(value) {
+  const serialDate = dateFromExcelSerial(value);
+  if (serialDate) return serialDate;
+  const match = /(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(text(value));
+  if (!match) return "";
+  const result = `${match[1]}-${String(match[2]).padStart(2, "0")}-${String(match[3]).padStart(2, "0")}`;
+  const parsed = new Date(`${result}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === result ? result : "";
+}
+
+function inRange(value, start, end) {
+  return !start || Boolean(value && value >= start && value <= end);
+}
+
+export async function transformShopeeWorkbook(inputPath, outputPath, { sourceSheet = "", start = "", end = "" } = {}) {
   const workbook = await readWorkbook(inputPath);
   const source = workbook.sourceSheet(sourceSheet);
   const required = Math.max(index("U"), index("AA"), index("AH"));
   if (source.maxColumn <= required) throw new Error(`來源工作表「${source.name}」欄位不足，至少需要 AH 欄。`);
-  const rows = source.matrix.slice(1).map((row, offset) => ({ row, sourceRow: offset + 2 })).filter(({ row }) => row.some((value) => value != null && text(value) !== ""));
   const iA = index("A"); const iF = index("F"); const iG = index("G"); const iS = index("S"); const iU = index("U");
   const iZ = index("Z"); const iAA = index("AA"); const iAH = index("AH"); const iAI = index("AI");
+  if (Boolean(start) !== Boolean(end) || (start && start > end)) throw new Error("蝦皮報表日期區間必須同時提供有效的起訖日。 ");
+
+  const rows = source.matrix.slice(1)
+    .map((row, offset) => ({ row, sourceRow: offset + 2 }))
+    .filter(({ row }) => row.some((value) => value != null && text(value) !== ""));
 
   const orderGroups = new Map();
   for (const item of rows) {
@@ -267,10 +291,29 @@ export async function transformShopeeWorkbook(inputPath, outputPath, { sourceShe
     if (!orderGroups.has(orderId)) orderGroups.set(orderId, []);
     orderGroups.get(orderId).push(item);
   }
+  const itemDates = new Map();
+  for (const item of rows) {
+    const orderId = text(item.row[iA]);
+    if (orderId) continue;
+    itemDates.set(item, reportDate(item.row[iF]));
+  }
+  for (const items of orderGroups.values()) {
+    const businessDate = items.map((item) => reportDate(item.row[iF])).find(Boolean) ?? "";
+    for (const item of items) itemDates.set(item, businessDate);
+  }
+  const selectedRows = rows.filter((item) => inRange(itemDates.get(item), start, end));
+  const selectedOrders = new Map();
+  for (const item of selectedRows) {
+    const orderId = text(item.row[iA]);
+    if (!orderId) continue;
+    if (!selectedOrders.has(orderId)) selectedOrders.set(orderId, []);
+    selectedOrders.get(orderId).push(item);
+  }
   let duplicateRowCount = 0;
   let inconsistentDuplicateCount = 0;
   const performanceRows = [];
-  for (const [orderId, items] of orderGroups) {
+  const performanceRecords = [];
+  for (const [orderId, items] of selectedOrders) {
     const first = items[0];
     duplicateRowCount += Math.max(0, items.length - 1);
     const signatures = new Set(items.map(({ row }) => `${number(row[iG])}|${number(row[iS])}|${number(row[iU])}`));
@@ -278,10 +321,13 @@ export async function transformShopeeWorkbook(inputPath, outputPath, { sourceShe
     const productTotal = number(first.row[iG]);
     const fee = number(first.row[iS]);
     const processingFee = number(first.row[iU]);
-    performanceRows.push([orderId, text(first.row[iF]), text(first.row[1]), productTotal, fee, processingFee, productTotal - fee - processingFee, items.length, first.sourceRow]);
+    const businessDate = itemDates.get(first) || reportDate(first.row[iF]);
+    const values = [orderId, businessDate || text(first.row[iF]), text(first.row[1]), productTotal, fee, processingFee, productTotal - fee - processingFee, items.length, first.sourceRow];
+    performanceRows.push(values);
+    performanceRecords.push({ businessDate, performance: productTotal - fee - processingFee });
   }
   const productGroups = new Map();
-  for (const item of rows) {
+  for (const item of selectedRows) {
     const productId = text(item.row[iZ]);
     const option = text(item.row[iAA]);
     if (!productId && !option) continue;
@@ -295,6 +341,34 @@ export async function transformShopeeWorkbook(inputPath, outputPath, { sourceShe
   const products = [...productGroups.values()].sort((a, b) => b.quantity - a.quantity || a.productId.localeCompare(b.productId) || a.option.localeCompare(b.option));
   const totalPerformance = performanceRows.reduce((sum, row) => sum + number(row[6]), 0);
   const totalQuantity = products.reduce((sum, row) => sum + row.quantity, 0);
+  const payoutDaily = new Map();
+  for (const row of performanceRecords) {
+    if (!row.businessDate) continue;
+    payoutDaily.set(row.businessDate, (payoutDaily.get(row.businessDate) ?? 0) + row.performance);
+  }
+  const salesDaily = new Map();
+  for (const item of selectedRows) {
+    const businessDate = itemDates.get(item);
+    const productId = text(item.row[iZ]);
+    if (!businessDate || !productId) continue;
+    const key = `${businessDate}\u0000${productId}`;
+    const previous = salesDaily.get(key) ?? {
+      businessDate,
+      sku: productId,
+      productName: new Set(),
+      category: "未分類",
+      grossQuantity: 0,
+      returnQuantity: 0,
+      netQuantity: 0,
+      salesAmount: 0,
+    };
+    const option = text(item.row[iAA]);
+    if (option) previous.productName.add(option);
+    previous.grossQuantity += number(item.row[iAH]);
+    previous.returnQuantity += number(item.row[iAI]);
+    previous.netQuantity = previous.grossQuantity - previous.returnQuantity;
+    salesDaily.set(key, previous);
+  }
   const performanceSheet = [
     ["業績計算（依訂單編號去重）"],
     ["計算規則：同一個 A 欄訂單編號只採來源第一筆；單筆業績 = G 欄商品總價 − S 欄成交手續費 − U 欄金流與系統處理費。"],
@@ -326,5 +400,25 @@ export async function transformShopeeWorkbook(inputPath, outputPath, { sourceShe
     { name: "業績計算", rows: performanceSheet },
     { name: "商品銷售統計", rows: productSheet },
   ]);
-  return { sourceSheet: source.name, sourceRows: rows.length, uniqueOrders: performanceRows.length, duplicateRowsExcluded: duplicateRowCount, uniqueProducts: products.length, totalPerformance, totalQuantity };
+  return {
+    sourceSheet: source.name,
+    sourceRows: selectedRows.length,
+    uniqueOrders: performanceRows.length,
+    duplicateRowsExcluded: duplicateRowCount,
+    uniqueProducts: products.length,
+    totalPerformance,
+    totalQuantity,
+    dailySalesRows: [...salesDaily.values()].map((row) => ({
+      ...row,
+      productName: [...row.productName].join(" / "),
+      grossQuantity: Math.round(row.grossQuantity),
+      returnQuantity: Math.round(row.returnQuantity),
+      netQuantity: Math.round(row.netQuantity),
+      salesAmount: 0,
+    })),
+    dailyPayoutRows: [...payoutDaily.entries()].map(([businessDate, payoutAmount]) => ({
+      businessDate,
+      payoutAmount: Math.round(payoutAmount),
+    })),
+  };
 }
