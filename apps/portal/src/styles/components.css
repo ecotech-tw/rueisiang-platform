@@ -700,10 +700,18 @@
 .empty-state { margin: 18px 0 0; padding: 18px; border: 1px dashed var(--color-line); border-radius: 10px; color: var(--color-muted); text-align: center; }
 
 /* 權限管理頁 */
+/*
+ * 底部對齊，不是置中。表單裡的 .field 是「標籤在上、輸入框在下」的兩層，按鈕
+ * 只有一層；置中的話按鈕會對到整塊 .field 的中線，也就是浮在輸入框上方。
+ * 底部對齊才讓按鈕跟輸入框坐在同一條線上。
+ *
+ * 沒有可見標籤的那些排（工具列用的 FilterInput／FilterSelect 是 sr-only 標籤）
+ * 每個元素等高，兩種對齊看起來一樣，所以這一行不會動到它們。
+ */
 .admin-form {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
 }
 .shopee-settings-form {
