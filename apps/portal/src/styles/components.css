@@ -728,6 +728,23 @@
  * 整排欄位退回 inline 排版，gap 也跟著失效（gap 只對 flex/grid 有作用）。
  * 命名修飾詞之前先確認它不是 Tailwind 已經有的 utility。
  */
+/*
+ * 有 .field 的那種排要另外處理。.field 是「標籤在上、輸入框在下」的兩層，
+ * 旁邊的按鈕只有一層，兩件事都會歪：
+ *
+ * 1. 置中的話按鈕對到的是整塊 .field 的中線，也就是浮在輸入框上方 → 底部對齊。
+ * 2. 只靠 padding 撐出來的按鈕是 33.5px、輸入框是 44px，光是底部對齊仍然
+ *    看得出一高一矮 → 拉成同一個高度。
+ *
+ * 條件寫成 :has(> .field) 而不是套在整個 .admin-form 上，因為沒有 .field 的排
+ * 兩種修正都會幫倒忙：工具列的「對帳區間」這類純文字標籤只有 19.5px 高，底部
+ * 對齊會讓它比旁邊的膠囊低 7px；而工具列的控制項是另一個較密的尺寸（約 34px），
+ * 一起拉高會讓篩選列變笨重。
+ */
+.admin-form:has(> .field) { align-items: flex-end; }
+.admin-form:has(> .field) > .primary-button,
+.admin-form:has(> .field) > .ghost-button { min-height: var(--size-field); }
+
 .admin-form.row { margin-top: 16px; }
 .panel-head + .admin-form.row { margin-top: 0; }
 /*
@@ -2133,6 +2150,12 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 會被往下推——兩個並排的輸入框差了 20px，看起來就是沒對齊。
  */
 .field { display: grid; align-content: start; gap: 6px; }
+/*
+ * input 與 select 只靠 padding 撐高時會差 1px（43 vs 44），並排就看得出來。
+ * 釘同一個高度。checkbox 與 radio 不算控制項，排除掉。
+ */
+.field input:not([type="checkbox"]):not([type="radio"]),
+.field select { min-height: var(--size-field); }
 .field > span { font-size: 13px; font-weight: 700; }
 .field > span b { margin-left: 6px; color: var(--color-brand); font-size: 11px; }
 .field > small { color: var(--color-muted); font-size: 12px; }
