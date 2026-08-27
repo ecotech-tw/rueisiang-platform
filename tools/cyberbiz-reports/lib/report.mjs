@@ -19,7 +19,7 @@ const REPORT_CONFIG = {
     totalHeader: "銷售總計",
     steps: { export: "匯出", fetch: "取檔", verify: "驗證", upload: "上傳", ingest: "匯入 D1" },
     nextSteps: [
-      "商品銷售日資料匯入 D1，月份、年份與自訂日期都可供 AI 查詢",
+      "商品銷售月資料匯入 D1，月份與年份可供 AI 查詢",
       "Google Drive 保留原始 XLSX，供同仁人工查帳",
     ],
   },

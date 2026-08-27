@@ -1,6 +1,6 @@
 import {
   insertReportPayoutDaily,
-  insertReportSalesDaily,
+  insertReportSalesMonthly,
   findReportScope,
   upsertReportScope,
   type Database,
@@ -15,12 +15,8 @@ export interface CyberbizReportIngestInput {
   scopeId: string;
   scopeName: string;
   rows?: unknown[];
-  /**
-   * 這批確實讀到報表的日期，包含當天零筆的情況。零筆的日子不會出現在 rows 裡，
-   * 少了這份清單就無法與「當天匯出失敗」區分——後者的既有資料必須保留。
-   * 舊版 runner 不會送，此時退回只清 rows 涵蓋的日期。
-   */
-  coveredDates?: string[];
+  /** 商品銷售以整月快照匯入；出金仍由 rows 內的 businessDate 決定。 */
+  reportMonth?: string;
   salesRows?: unknown[];
   payoutRows?: unknown[];
 }
@@ -50,6 +46,12 @@ function date(value: unknown): string {
   return result;
 }
 
+function month(value: unknown): string {
+  const result = text(value);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(result)) throw new CyberbizReportIngestError(422, "invalid_ingest");
+  return result;
+}
+
 function integer(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new CyberbizReportIngestError(422, "invalid_ingest");
   return value;
@@ -67,24 +69,32 @@ function readInput(value: unknown): CyberbizReportIngestInput {
   if (!record(value) || (!isSingle && !isBundle) || value.scopeType !== "store") {
     throw new CyberbizReportIngestError(422, "invalid_ingest");
   }
-  if (value.coveredDates !== undefined && !Array.isArray(value.coveredDates)) {
+  if ((value.kind === "sales" || value.kind === "sales_and_payout") && value.reportMonth !== undefined) {
+    month(value.reportMonth);
+  }
+  if ((value.kind === "sales" || value.kind === "sales_and_payout")
+    && value.reportMonth === undefined
+    && (value.kind === "sales_and_payout" || (value.rows as unknown[]).length === 0)) {
     throw new CyberbizReportIngestError(422, "invalid_ingest");
   }
+  if (value.coveredDates !== undefined) throw new CyberbizReportIngestError(422, "invalid_ingest");
   return {
     kind: value.kind as CyberbizReportIngestKind,
     scopeType: "store",
     scopeId: text(value.scopeId),
     scopeName: text(value.scopeName),
-    ...(value.coveredDates ? { coveredDates: value.coveredDates.map(date) } : {}),
     ...(isSingle ? { rows: value.rows as unknown[] } : {}),
     ...(isBundle ? { salesRows: value.salesRows as unknown[], payoutRows: value.payoutRows as unknown[] } : {}),
+    ...((value.kind === "sales" || value.kind === "sales_and_payout") && value.reportMonth !== undefined
+      ? { reportMonth: month(value.reportMonth) }
+      : {}),
   };
 }
 
 function salesRows(input: CyberbizReportIngestInput) {
   const rows = new Map<string, {
     scopeId: string;
-    businessDate: string;
+    reportMonth: string;
     sku: string;
     productName: string;
     category: string;
@@ -96,13 +106,17 @@ function salesRows(input: CyberbizReportIngestInput) {
   }>();
   for (const value of input.rows ?? []) {
     if (!record(value)) throw new CyberbizReportIngestError(422, "invalid_ingest");
-    const businessDate = date(value.businessDate);
+    if (value.businessDate !== undefined) throw new CyberbizReportIngestError(422, "invalid_ingest");
+    const reportMonth = month(value.reportMonth ?? input.reportMonth);
+    if (input.reportMonth && reportMonth !== input.reportMonth) {
+      throw new CyberbizReportIngestError(422, "invalid_ingest");
+    }
     const sku = text(value.sku);
-    const key = `${businessDate}\u0000${sku}`;
+    const key = `${reportMonth}\u0000${sku}`;
     const previous = rows.get(key);
     rows.set(key, {
       scopeId: input.scopeId,
-      businessDate,
+      reportMonth,
       sku,
       productName: optionalText(value.productName, previous?.productName ?? ""),
       category: optionalText(value.category, previous?.category ?? "未分類"),
@@ -159,8 +173,8 @@ export function createCyberbizReportIngestor(db: Database) {
       if (input.kind === "sales_and_payout") {
         const sales = salesRows({ ...scopedInput, rows: input.salesRows ?? [] });
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
-        await insertReportSalesDaily(db, sales, scopedInput.coveredDates
-          ? { scopeId: scope.id, dates: scopedInput.coveredDates }
+        await insertReportSalesMonthly(db, sales, input.reportMonth
+          ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);
         await insertReportPayoutDaily(db, payout);
         return {
@@ -173,8 +187,8 @@ export function createCyberbizReportIngestor(db: Database) {
       }
       if (input.kind === "sales") {
         const rows = salesRows(scopedInput);
-        await insertReportSalesDaily(db, rows, scopedInput.coveredDates
-          ? { scopeId: scope.id, dates: scopedInput.coveredDates }
+        await insertReportSalesMonthly(db, rows, input.reportMonth
+          ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);
         return { kind: input.kind, scopeId: scope.id, rowCount: rows.length };
       }

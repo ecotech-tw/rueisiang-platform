@@ -36,12 +36,12 @@ function groupByOf(value: readonly ReportGroupBy[] | undefined, kind: "sales" | 
   if (!value) return undefined;
   const allowed = kind === "payout"
     ? new Set<ReportGroupBy>(["day", "month", "scope"])
-    : new Set<ReportGroupBy>(["day", "month", "scope", "sku", "category"]);
+    : new Set<ReportGroupBy>(["month", "scope", "sku", "category"]);
   if (value.some((item) => !allowed.has(item))) {
     throw new CyberbizReportQueryError(
       400,
       "invalid_group_by",
-      kind === "payout" ? "出金報表的 groupBy 只能使用 day、month 或 scope。" : "groupBy 只能使用 day、month、scope、sku 或 category。",
+      kind === "payout" ? "出金報表的 groupBy 只能使用 day、month 或 scope。" : "商品銷售報表的 groupBy 只能使用 month、scope、sku 或 category。",
     );
   }
   return [...new Set(value)];

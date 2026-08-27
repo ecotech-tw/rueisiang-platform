@@ -19,25 +19,55 @@ function request(body: unknown, token = TOKEN) {
   }), { DB: d1, CYBERBIZ_REPORT_INGEST_TOKEN: TOKEN } as never);
 }
 
+function salesBody(rows: unknown[], reportMonth = "2026-07") {
+  return {
+    kind: "sales",
+    scopeType: "store",
+    scopeId: "cyberbiz:store:a",
+    scopeName: "測試店",
+    reportMonth,
+    rows,
+  };
+}
+
+function salesRow(sku: string, salesAmount: number, extra: Record<string, unknown> = {}) {
+  return {
+    sku,
+    productName: "商品",
+    category: "沐浴",
+    grossQuantity: 1,
+    returnQuantity: 0,
+    netQuantity: 1,
+    salesAmount,
+    ...extra,
+  };
+}
+
+function shopeeBundle(salesRows: unknown[], payoutRows: unknown[] = [], reportMonth = "2026-07") {
+  return {
+    kind: "sales_and_payout",
+    scopeType: "store",
+    scopeId: "shopee:store:default",
+    scopeName: "蝦皮",
+    reportMonth,
+    salesRows,
+    payoutRows,
+  };
+}
+
 beforeEach(() => {
   d1 = createLocalD1();
 });
 
-describe("報表日資料匯入", () => {
-  it("只需要 ingest token，寫入 scope 與商品銷售日資料", async () => {
-    const unauthorized = await request({ kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店", rows: [] }, "wrong");
+describe("報表月資料匯入", () => {
+  it("只需要 ingest token，寫入 scope 與商品銷售月資料", async () => {
+    const unauthorized = await request(salesBody([]), "wrong");
     expect(unauthorized.status).toBe(401);
 
-    const response = await request({
-      kind: "sales",
-      scopeType: "store",
-      scopeId: "cyberbiz:store:a",
-      scopeName: "測試店",
-      rows: [
-        { businessDate: "2026-07-01", sku: "SKU-1", productName: "商品一", category: "沐浴", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 180 },
-        { businessDate: "2026-07-01", sku: "SKU-1", productName: "", category: "", grossQuantity: 2, returnQuantity: 0, netQuantity: 2, salesAmount: 90 },
-      ],
-    });
+    const response = await request(salesBody([
+      salesRow("SKU-1", 180, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
+      salesRow("SKU-1", 90, { productName: "", category: "", grossQuantity: 2, netQuantity: 2 }),
+    ]));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ result: { kind: "sales", rowCount: 1 } });
 
@@ -45,16 +75,39 @@ describe("報表日資料匯入", () => {
     expect(result).toMatchObject({ status: "ok", totals: { netQuantity: 4, salesAmount: 270 } });
   });
 
+  it("同一月重匯會清掉已移除的 SKU", async () => {
+    expect((await request(salesBody([salesRow("SKU-OLD", 300), salesRow("SKU-KEEP", 200)]))).status).toBe(200);
+    expect((await request(salesBody([salesRow("SKU-KEEP", 90)]))).status).toBe(200);
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "store", scopeName: "測試店", groupBy: ["sku"],
+    });
+    expect(result.rows).toEqual([expect.objectContaining({ sku: "SKU-KEEP", netQuantity: 1, salesAmount: 90 })]);
+    expect(result.totals).toEqual({ grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 90 });
+  });
+
+  it("整月零筆也會清掉該月份的舊資料", async () => {
+    expect((await request(salesBody([salesRow("SKU-1", 100)]))).status).toBe(200);
+    expect((await request(salesBody([]))).status).toBe(200);
+
+    const result = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "store", scopeName: "測試店" });
+    expect(result.status).toBe("NO_DATA_FOR_RANGE");
+  });
+
+  it("移除 businessDate 與 coveredDates，改要求 sales 的 reportMonth", async () => {
+    expect((await request({ ...salesBody([]), reportMonth: undefined })).status).toBe(422);
+    expect((await request({ ...salesBody([salesRow("SKU-1", 100)]), coveredDates: ["2026-07-01"] })).status).toBe(422);
+    expect((await request({ ...salesBody([{ ...salesRow("SKU-1", 100), businessDate: "2026-07-01" }]), reportMonth: "2026-07" })).status).toBe(422);
+    expect((await request({ ...salesBody([{ ...salesRow("SKU-1", 100), reportMonth: "2026-07" }]), reportMonth: undefined })).status).toBe(200);
+    expect((await request({ ...salesBody([{ ...salesRow("SKU-1", 100), reportMonth: "2026-08" }]), reportMonth: "2026-07" })).status).toBe(422);
+  });
+
   it("同一天的 payout rows 在匯入時加總，重跑時以新日資料取代", async () => {
     const first = await request({
       kind: "payout", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
-      rows: [
-        { businessDate: "2026-07-01", payoutAmount: 100 },
-        { businessDate: "2026-07-01", payoutAmount: 25 },
-      ],
+      rows: [{ businessDate: "2026-07-01", payoutAmount: 100 }, { businessDate: "2026-07-01", payoutAmount: 25 }],
     });
     expect(first.status).toBe(200);
-    expect(await first.json()).toMatchObject({ result: { rowCount: 1 } });
     await request({
       kind: "payout", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
       rows: [{ businessDate: "2026-07-01", payoutAmount: 80 }],
@@ -63,16 +116,11 @@ describe("報表日資料匯入", () => {
     expect(result).toMatchObject({ status: "ok", totals: { payoutAmount: 80 } });
   });
 
-  it("同一份蝦皮報表可以一次寫入 sales 與 payout，並以 shopee scope ID 隔離", async () => {
+  it("同一份蝦皮報表可以一次寫入月 sales 與日 payout，並以 shopee scope ID 隔離", async () => {
     await upsertReportScope(db(), { id: "cyberbiz:store:legacy", scopeKind: "store", name: "舊有 CYBERBIZ 同名" });
-    const response = await request({
-      kind: "sales_and_payout",
-      scopeType: "store",
-      scopeId: "shopee:store:default",
-      scopeName: "蝦皮",
-      salesRows: [{ businessDate: "2026-07-01", sku: "P-001", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 0 }],
-      payoutRows: [{ businessDate: "2026-07-01", payoutAmount: 250 }],
-    });
+    const response = await request(shopeeBundle([
+      salesRow("P-001", 0, { reportMonth: "2026-07", grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
+    ], [{ businessDate: "2026-07-01", payoutAmount: 250 }]));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ result: {
       kind: "sales_and_payout",
@@ -87,209 +135,34 @@ describe("報表日資料匯入", () => {
     expect(payout).toMatchObject({ status: "ok", scopeId: "shopee:store:default", totals: { payoutAmount: 250 } });
   });
 
-  it("蝦皮 bundle 成功但零筆的日期會清掉既有商品資料", async () => {
-    const first = await request({
-      kind: "sales_and_payout",
-      scopeType: "store",
-      scopeId: "shopee:store:default",
-      scopeName: "蝦皮",
-      salesRows: [{ businessDate: "2026-07-01", sku: "P-001", grossQuantity: 3, returnQuantity: 0, netQuantity: 3, salesAmount: 0 }],
-      payoutRows: [{ businessDate: "2026-07-01", payoutAmount: 250 }],
-      coveredDates: ["2026-07-01"],
-    });
-    expect(first.status).toBe(200);
+  it("蝦皮 bundle 重新匯入零筆月份會清掉既有商品資料", async () => {
+    expect((await request(shopeeBundle([salesRow("P-001", 0)]))).status).toBe(200);
+    expect((await request(shopeeBundle([]))).status).toBe(200);
 
-    const second = await request({
-      kind: "sales_and_payout",
-      scopeType: "store",
-      scopeId: "shopee:store:default",
-      scopeName: "蝦皮",
-      salesRows: [],
-      payoutRows: [],
-      coveredDates: ["2026-07-01"],
-    });
-    expect(second.status).toBe(200);
-
-    const result = await createCyberbizReportService(db()).querySales({
-      period: "2026-07", scopeType: "store", scopeName: "蝦皮",
-    });
+    const result = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "store", scopeName: "蝦皮" });
     expect(result?.status).toBe("NO_DATA_FOR_RANGE");
-  });
-
-  it("重新匯入 sales 的同一天會清掉已移除的 SKU", async () => {
-    const first = await request({
-      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
-      rows: [
-        { businessDate: "2026-07-02", sku: "SKU-OLD", productName: "舊商品", category: "沐浴", grossQuantity: 3, returnQuantity: 0, netQuantity: 3, salesAmount: 300 },
-        { businessDate: "2026-07-02", sku: "SKU-KEEP", productName: "保留商品", category: "沐浴", grossQuantity: 2, returnQuantity: 0, netQuantity: 2, salesAmount: 200 },
-      ],
-    });
-    expect(first.status).toBe(200);
-
-    const second = await request({
-      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
-      rows: [{ businessDate: "2026-07-02", sku: "SKU-KEEP", productName: "保留商品", category: "沐浴", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 90 }],
-    });
-    expect(second.status).toBe(200);
-
-    const result = await createCyberbizReportService(db()).querySales({
-      period: "2026-07",
-      scopeType: "store",
-      scopeName: "測試店",
-      groupBy: ["sku"],
-    });
-    expect(result.rows).toEqual([
-      expect.objectContaining({ sku: "SKU-KEEP", netQuantity: 1, salesAmount: 90 }),
-    ]);
-    expect(result.totals).toEqual({ grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 90 });
-  });
-
-  it("整月重匯但中間缺幾天時，缺日的既有資料保持不變", async () => {
-    const salesRow = (businessDate: string, salesAmount: number) => ({
-      businessDate,
-      sku: `SKU-${businessDate}`,
-      productName: "商品",
-      category: "沐浴",
-      grossQuantity: 1,
-      returnQuantity: 0,
-      netQuantity: 1,
-      salesAmount,
-    });
-    const firstRows = Array.from({ length: 31 }, (_, index) => {
-      const businessDate = `2026-07-${String(index + 1).padStart(2, "0")}`;
-      return salesRow(businessDate, index === 14 ? 1500 : index === 15 ? 1600 : 100 + index);
-    });
-
-    const first = await request({
-      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
-      rows: firstRows,
-    });
-    expect(first.status).toBe(200);
-
-    const second = await request({
-      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
-      rows: firstRows
-        .filter((row) => row.businessDate !== "2026-07-15" && row.businessDate !== "2026-07-16")
-        .map((row) => row.businessDate === "2026-07-01"
-          ? { ...row, salesAmount: 200 }
-          : row.businessDate === "2026-07-31"
-            ? { ...row, salesAmount: 3200 }
-            : row),
-    });
-    expect(second.status).toBe(200);
-
-    const result = await createCyberbizReportService(db()).querySales({
-      period: "2026-07",
-      scopeType: "store",
-      scopeName: "測試店",
-      groupBy: ["day"],
-    });
-    expect(result.rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ businessDate: "2026-07-01", salesAmount: 200 }),
-      expect.objectContaining({ businessDate: "2026-07-15", salesAmount: 1500 }),
-      expect.objectContaining({ businessDate: "2026-07-16", salesAmount: 1600 }),
-      expect.objectContaining({ businessDate: "2026-07-31", salesAmount: 3200 }),
-    ]));
-    expect(result.rows).toHaveLength(31);
-  });
-
-  it("成功但零筆的日子會清掉舊資料，匯出失敗的日子才保留", async () => {
-    const row = (businessDate: string) => ({
-      businessDate,
-      sku: `SKU-${businessDate}`,
-      productName: "商品",
-      category: "沐浴",
-      grossQuantity: 1,
-      returnQuantity: 0,
-      netQuantity: 1,
-      salesAmount: 100,
-    });
-    const first = await request({
-      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
-      rows: [row("2026-07-01"), row("2026-07-02"), row("2026-07-03")],
-      coveredDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
-    });
-    expect(first.status).toBe(200);
-
-    // 07-02 的訂單全部作廢（讀得到報表但零筆）、07-03 匯出失敗（完全沒讀到）。
-    const second = await request({
-      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
-      rows: [row("2026-07-01")],
-      coveredDates: ["2026-07-01", "2026-07-02"],
-    });
-    expect(second.status).toBe(200);
-
-    const result = await createCyberbizReportService(db()).querySales({
-      period: "2026-07", scopeType: "store", scopeName: "測試店", groupBy: ["day"],
-    });
-    expect(result.rows).toEqual([
-      expect.objectContaining({ businessDate: "2026-07-01", salesAmount: 100 }),
-      expect.objectContaining({ businessDate: "2026-07-03", salesAmount: 100 }),
-    ]);
-  });
-
-  it("整批都是零筆時仍清得掉舊資料", async () => {
-    const first = await request({
-      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
-      rows: [{
-        businessDate: "2026-07-01", sku: "SKU-1", productName: "商品", category: "沐浴",
-        grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100,
-      }],
-      coveredDates: ["2026-07-01"],
-    });
-    expect(first.status).toBe(200);
-
-    const second = await request({
-      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
-      rows: [],
-      coveredDates: ["2026-07-01"],
-    });
-    expect(second.status).toBe(200);
-
-    const result = await createCyberbizReportService(db()).querySales({
-      period: "2026-07", scopeType: "store", scopeName: "測試店", groupBy: ["day"],
-    });
-    expect(result.status).toBe("NO_DATA_FOR_RANGE");
   });
 
   it("沿用既有同名 scope 的 ID，避免設定路徑改名後產生重複據點", async () => {
     await upsertReportScope(db(), { id: "legacy-store-id", scopeKind: "store", name: "測試店" });
     const response = await request({
-      kind: "sales",
-      scopeType: "store",
-      scopeId: "cyberbiz:store:new-id",
-      scopeName: "測試店",
-      rows: [{ businessDate: "2026-07-01", sku: "SKU-1", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100 }],
+      ...salesBody([salesRow("SKU-1", 100)]), scopeId: "cyberbiz:store:new-id",
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ result: { scopeId: "legacy-store-id" } });
-    const result = await createCyberbizReportService(db()).querySales({
-      period: "2026-07",
-      scopeType: "store",
-      scopeId: "legacy-store-id",
-    });
+    const result = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "store", scopeId: "legacy-store-id" });
     expect(result).toMatchObject({ status: "ok", scopeId: "legacy-store-id", totals: { netQuantity: 1, salesAmount: 100 } });
   });
 
   it("空白商品欄位沿用同批前值，首次空白分類回退為未分類", async () => {
-    const response = await request({
-      kind: "sales",
-      scopeType: "store",
-      scopeId: "cyberbiz:store:a",
-      scopeName: "測試店",
-      rows: [
-        { businessDate: "2026-07-03", sku: "SKU-1", productName: "商品一", category: "沐浴", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100 },
-        { businessDate: "2026-07-03", sku: "SKU-1", productName: "", category: "", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 80 },
-        { businessDate: "2026-07-03", sku: "SKU-2", productName: "", category: "", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 50 },
-      ],
-    });
+    const response = await request(salesBody([
+      salesRow("SKU-1", 100),
+      salesRow("SKU-1", 80, { productName: "", category: "" }),
+      salesRow("SKU-2", 50, { productName: "", category: "" }),
+    ]));
     expect(response.status).toBe(200);
-
     const result = await createCyberbizReportService(db()).querySales({
-      period: "2026-07",
-      scopeType: "store",
-      scopeName: "測試店",
-      groupBy: ["sku", "category"],
+      period: "2026-07", scopeType: "store", scopeName: "測試店", groupBy: ["sku", "category"],
     });
     expect(result.rows).toEqual(expect.arrayContaining([
       expect.objectContaining({ sku: "SKU-1", category: "沐浴", netQuantity: 2, salesAmount: 180 }),

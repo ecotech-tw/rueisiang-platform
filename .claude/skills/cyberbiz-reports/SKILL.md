@@ -1,6 +1,6 @@
 ---
 name: cyberbiz-reports
-description: CYBERBIZ 報表工具的操作知識：依指定 POS 店別與日期匯出每日出金報表或商品銷售報表，從 Gmail 取回 xlsx，驗證並上傳 Google Drive；完整月份的每日資料另匯入 D1。用於出金表、商品銷售報表、POS 紀錄下載、通路對帳、上傳雲端硬碟，以及維護 tools/cyberbiz-reports 底下的 payout 與 sales driver。
+description: CYBERBIZ 報表工具的操作知識：依指定 POS 店別與日期匯出每日出金報表或商品銷售報表，從 Gmail 取回 xlsx，驗證並上傳 Google Drive；完整月份的商品銷售月資料另匯入 D1。用於出金表、商品銷售報表、POS 紀錄下載、通路對帳、上傳雲端硬碟，以及維護 tools/cyberbiz-reports 底下的 payout 與 sales driver。
 ---
 
 # CYBERBIZ 報表工具
@@ -98,15 +98,15 @@ node sales/driver.mjs --start 2026-07-01 --end 2026-07-31 --store 宏匯廣場1F
 node sales/driver.mjs --month 2026-07
 ```
 
-完整月份會逐日匯出並解析商品明細，再把每日資料匯入 D1；自訂區間只把原始 xlsx 上傳到
+完整月份只匯出並解析一份商品明細，再把月資料匯入 D1；自訂區間只把原始 xlsx 上傳到
 `reports` 設定的 Google Drive 店別資料夾，不匯入 D1。sales 的結果放在
 `staging/sales/`、`reports/sales/`、`screenshots/sales/`，不會和出金表的執行產物混在一起。
 
 ## D1 查詢資料
 
-報表查詢只使用三張表：`report_scopes`、`report_sales_daily`、`report_payout_daily`。
-完整月份的 payout 會將出金表按日加總後匯入；sales 會為月份中的每一天各下載一份報表，
-把 SKU、商品名稱、分類、數量與售額匯入。公司、月份、年份與任意日期區間由平台查詢時
+報表查詢只使用三張表：`report_scopes`、`report_sales_monthly`、`report_payout_daily`。
+完整月份的 payout 會將出金表按日加總後匯入；sales 每個據點每月只匯入一份報表，
+把 SKU、商品名稱、分類、數量與售額匯入 `report_sales_monthly`。公司、月份與年份由平台查詢時
 直接 aggregate，不產生另一份公司或月份檔案。原始 XLSX 仍保留在 Google Drive，報表
 查詢不依賴 NAS。
 

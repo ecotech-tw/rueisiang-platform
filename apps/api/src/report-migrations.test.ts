@@ -35,4 +35,33 @@ describe("報表 scope migration", () => {
     expect(sqlite.prepare("SELECT normalized_name FROM report_scopes WHERE id = ?").get("cyberbiz:store:full-width"))
       .toEqual({ normalized_name: "誠品西門店abc" });
   });
+
+  it("0051 建月表、0052 彙總日資料、0053 才刪除舊表，且歷史資料保留", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0049_unify_report_manifests.sql");
+    sqlite.prepare(`
+      INSERT INTO report_sales_daily (
+        scope_id, business_date, sku, product_name, category,
+        gross_quantity, return_quantity, net_quantity, sales_amount
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("cyberbiz:store:test", "2026-07-01", "SKU-1", "商品一", "沐浴", 3, 1, 2, 180);
+    sqlite.prepare(`
+      INSERT INTO report_sales_daily (
+        scope_id, business_date, sku, product_name, category,
+        gross_quantity, return_quantity, net_quantity, sales_amount
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("cyberbiz:store:test", "2026-07-31", "SKU-1", "商品一", "沐浴", 2, 0, 2, 200);
+
+    applyLikeD1(sqlite, "0049_unify_report_manifests.sql", "0051_add_report_sales_monthly.sql");
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'report_sales_monthly'").get())
+      .toEqual({ name: "report_sales_monthly" });
+    applyLikeD1(sqlite, "0051_add_report_sales_monthly.sql", "0052_move_report_sales_daily_to_monthly.sql");
+    expect(sqlite.prepare("SELECT scope_id, report_month, sku, gross_quantity, net_quantity, sales_amount FROM report_sales_monthly").get())
+      .toEqual({ scope_id: "cyberbiz:store:test", report_month: "2026-07", sku: "SKU-1", gross_quantity: 5, net_quantity: 4, sales_amount: 380 });
+
+    applyLikeD1(sqlite, "0052_move_report_sales_daily_to_monthly.sql", "0053_drop_report_sales_daily.sql");
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM report_sales_monthly").get()).toEqual({ count: 1 });
+    expect(() => sqlite.prepare("SELECT COUNT(*) FROM report_sales_daily").get()).toThrow();
+  });
 });

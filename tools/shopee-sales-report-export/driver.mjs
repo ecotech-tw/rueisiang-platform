@@ -7,8 +7,7 @@ import { dateRange, driveFolderIdFromUrl, ensureDir, loadConfig, loadEnv, log, p
 import { prepareWorkbook } from "./lib/decrypt.mjs";
 import { accessToken, findByName, uploadXlsx } from "./lib/drive.mjs";
 import { transformShopeeWorkbook } from "./lib/xlsx.mjs";
-import { ingestReport } from "../cyberbiz-reports/lib/report-ingest.mjs";
-import { eachDay } from "../cyberbiz-reports/lib/sales-daily.mjs";
+import { ingestReport, monthlySalesIngestRows } from "../cyberbiz-reports/lib/report-ingest.mjs";
 
 const SHOPEE_SCOPE_ID = "shopee:store:default";
 const SHOPEE_SCOPE_NAME = "蝦皮";
@@ -78,16 +77,16 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
         ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
         scopeId: SHOPEE_SCOPE_ID,
         scopeName: SHOPEE_SCOPE_NAME,
-        salesRows: summary.dailySalesRows,
+        salesRows: monthlySalesIngestRows(summary.dailySalesRows, range.label),
         payoutRows: summary.dailyPayoutRows,
-        coveredDates: eachDay(range.start, range.end).map((day) => day.start),
+        reportMonth: range.label,
       });
-      log(`已匯入 D1：蝦皮 sales ${ingested.salesRowCount ?? summary.dailySalesRows.length} 筆、payout ${ingested.payoutRowCount ?? summary.dailyPayoutRows.length} 筆`);
+      log(`已匯入 D1：蝦皮 sales 月資料 ${ingested.salesRowCount ?? 0} 筆、payout ${ingested.payoutRowCount ?? summary.dailyPayoutRows.length} 筆`);
     }
 
     await ensureDir(path.resolve(toolPath(config.reportsDir)));
     await fs.writeFile(path.resolve(toolPath(config.reportsDir), `${range.label}-蝦皮銷售報表.md`), [
-      `# 蝦皮銷售報表 ${range.label}`, "", `- 對帳區間：${range.start} ~ ${range.end}`, `- 業績合計：${summary.totalPerformance.toLocaleString("zh-TW")}`, `- 商品銷售數量合計：${summary.totalQuantity.toLocaleString("zh-TW")}`, `- 不重複訂單：${summary.uniqueOrders}`, `- 商品組合：${summary.uniqueProducts}`, `- D1：${ingested ? `已更新 sales ${ingested.salesRowCount ?? summary.dailySalesRows.length} 筆、payout ${ingested.payoutRowCount ?? summary.dailyPayoutRows.length} 筆` : isCompleteMonth ? "未更新（缺少 ingest token 或使用 --skip-upload）" : "自訂區間不寫入 D1"}`, uploaded?.webViewLink ? `- Drive：${uploaded.webViewLink}` : "- Drive：未上傳", "",
+      `# 蝦皮銷售報表 ${range.label}`, "", `- 對帳區間：${range.start} ~ ${range.end}`, `- 業績合計：${summary.totalPerformance.toLocaleString("zh-TW")}`, `- 商品銷售數量合計：${summary.totalQuantity.toLocaleString("zh-TW")}`, `- 不重複訂單：${summary.uniqueOrders}`, `- 商品組合：${summary.uniqueProducts}`, `- D1：${ingested ? `已更新 sales 月資料 ${ingested.salesRowCount ?? 0} 筆、payout ${ingested.payoutRowCount ?? summary.dailyPayoutRows.length} 筆` : isCompleteMonth ? "未更新（缺少 ingest token 或使用 --skip-upload）" : "自訂區間不寫入 D1"}`, uploaded?.webViewLink ? `- Drive：${uploaded.webViewLink}` : "- Drive：未上傳", "",
     ].join("\n"), "utf8");
 
     return { outputPath: resolvedOutput, summary, uploaded, ingested, range };

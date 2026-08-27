@@ -40,7 +40,7 @@ export interface Env {
   NAS_STORAGE_URL?: string;
   /** 私有 NAS storage gateway 的獨立 shared secret。 */
   NAS_STORAGE_TOKEN?: string;
-  /** Shared secret used by the CYBERBIZ runners to import daily facts into D1. */
+  /** Shared secret used by the CYBERBIZ runners to import monthly sales and daily payout facts into D1. */
   CYBERBIZ_REPORT_INGEST_TOKEN?: string;
   /** Shared secret used by the read-only CYBERBIZ reports MCP endpoint. */
   CYBERBIZ_REPORT_MCP_TOKEN?: string;
