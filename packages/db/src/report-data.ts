@@ -167,7 +167,18 @@ export async function findReportScope(
   return scopes[0] ?? null;
 }
 
-export async function insertReportSalesDaily(db: Database, rows: readonly NewReportSalesDaily[]): Promise<void> {
+/**
+ * covered 是這批「確實讀到報表」的日期，包含當天零筆的情況。當天零筆時 rows 裡不會有
+ * 任何列，只看 rows 的話那天會被誤認成匯出失敗而保留過期的 SKU；反過來，真正失敗的
+ * 日子不在 covered 裡，既有資料才得以保留。scopeId 要另外帶，因為整批都是零筆時
+ * rows 是空的，光靠 rows 找不到要清哪個據點。沒有帶 covered 的舊 runner 退回只清
+ * rows 涵蓋的日期。
+ */
+export async function insertReportSalesDaily(
+  db: Database,
+  rows: readonly NewReportSalesDaily[],
+  covered?: { scopeId: string; dates: readonly string[] },
+): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
   const statements: Statement[] = [];
   const datesByScope = new Map<string, Set<string>>();
@@ -175,6 +186,11 @@ export async function insertReportSalesDaily(db: Database, rows: readonly NewRep
     const dates = datesByScope.get(row.scopeId) ?? new Set<string>();
     dates.add(row.businessDate);
     datesByScope.set(row.scopeId, dates);
+  }
+  if (covered?.dates.length) {
+    const dates = datesByScope.get(covered.scopeId) ?? new Set<string>();
+    for (const businessDate of covered.dates) dates.add(businessDate);
+    datesByScope.set(covered.scopeId, dates);
   }
   for (const [scopeId, dates] of datesByScope) {
     for (const businessDate of dates) {

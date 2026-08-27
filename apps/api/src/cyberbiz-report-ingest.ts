@@ -15,6 +15,12 @@ export interface CyberbizReportIngestInput {
   scopeId: string;
   scopeName: string;
   rows: unknown[];
+  /**
+   * 這批確實讀到報表的日期，包含當天零筆的情況。零筆的日子不會出現在 rows 裡，
+   * 少了這份清單就無法與「當天匯出失敗」區分——後者的既有資料必須保留。
+   * 舊版 runner 不會送，此時退回只清 rows 涵蓋的日期。
+   */
+  coveredDates?: string[];
 }
 
 export class CyberbizReportIngestError extends Error {
@@ -57,12 +63,16 @@ function readInput(value: unknown): CyberbizReportIngestInput {
     || !Array.isArray(value.rows)) {
     throw new CyberbizReportIngestError(422, "invalid_ingest");
   }
+  if (value.coveredDates !== undefined && !Array.isArray(value.coveredDates)) {
+    throw new CyberbizReportIngestError(422, "invalid_ingest");
+  }
   return {
     kind: value.kind,
     scopeType: "store",
     scopeId: text(value.scopeId),
     scopeName: text(value.scopeName),
     rows: value.rows,
+    ...(value.coveredDates ? { coveredDates: value.coveredDates.map(date) } : {}),
   };
 }
 
@@ -131,7 +141,9 @@ export function createCyberbizReportIngestor(db: Database) {
       const scopedInput = { ...input, scopeId: scope.id };
       if (input.kind === "sales") {
         const rows = salesRows(scopedInput);
-        await insertReportSalesDaily(db, rows);
+        await insertReportSalesDaily(db, rows, scopedInput.coveredDates
+          ? { scopeId: scope.id, dates: scopedInput.coveredDates }
+          : undefined);
         return { kind: input.kind, scopeId: scope.id, rowCount: rows.length };
       }
       const rows = payoutRows(scopedInput);

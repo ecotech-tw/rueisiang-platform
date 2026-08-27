@@ -140,6 +140,65 @@ describe("報表日資料匯入", () => {
     expect(result.rows).toHaveLength(31);
   });
 
+  it("成功但零筆的日子會清掉舊資料，匯出失敗的日子才保留", async () => {
+    const row = (businessDate: string) => ({
+      businessDate,
+      sku: `SKU-${businessDate}`,
+      productName: "商品",
+      category: "沐浴",
+      grossQuantity: 1,
+      returnQuantity: 0,
+      netQuantity: 1,
+      salesAmount: 100,
+    });
+    const first = await request({
+      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
+      rows: [row("2026-07-01"), row("2026-07-02"), row("2026-07-03")],
+      coveredDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
+    });
+    expect(first.status).toBe(200);
+
+    // 07-02 的訂單全部作廢（讀得到報表但零筆）、07-03 匯出失敗（完全沒讀到）。
+    const second = await request({
+      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
+      rows: [row("2026-07-01")],
+      coveredDates: ["2026-07-01", "2026-07-02"],
+    });
+    expect(second.status).toBe(200);
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "store", scopeName: "測試店", groupBy: ["day"],
+    });
+    expect(result.rows).toEqual([
+      expect.objectContaining({ businessDate: "2026-07-01", salesAmount: 100 }),
+      expect.objectContaining({ businessDate: "2026-07-03", salesAmount: 100 }),
+    ]);
+  });
+
+  it("整批都是零筆時仍清得掉舊資料", async () => {
+    const first = await request({
+      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
+      rows: [{
+        businessDate: "2026-07-01", sku: "SKU-1", productName: "商品", category: "沐浴",
+        grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100,
+      }],
+      coveredDates: ["2026-07-01"],
+    });
+    expect(first.status).toBe(200);
+
+    const second = await request({
+      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
+      rows: [],
+      coveredDates: ["2026-07-01"],
+    });
+    expect(second.status).toBe(200);
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "store", scopeName: "測試店", groupBy: ["day"],
+    });
+    expect(result.status).toBe("NO_DATA_FOR_RANGE");
+  });
+
   it("沿用既有同名 scope 的 ID，避免設定路徑改名後產生重複據點", async () => {
     await upsertReportScope(db(), { id: "legacy-store-id", scopeKind: "store", name: "測試店" });
     const response = await request({

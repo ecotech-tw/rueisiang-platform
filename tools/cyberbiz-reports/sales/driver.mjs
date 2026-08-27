@@ -211,6 +211,7 @@ async function main() {
             scopeId: scopeIdFromStoreName(store.name),
             scopeName: store.name,
             rows: dailyResult.rows,
+            coveredDates: dailyResult.coveredDates,
           });
           result.steps.ingest = "ok";
           result.done = dailyResult.failures.length === 0;
