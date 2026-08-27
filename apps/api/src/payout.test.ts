@@ -326,7 +326,7 @@ describe("店別設定", () => {
 
     const put = calls[1]!;
     expect(put.method).toBe("PUT");
-    expect(put.url).toContain("/contents/tools/cyberbiz-monthly-payout/stores.json");
+    expect(put.url).toContain("/contents/tools/cyberbiz-reports/stores.json");
 
     const sent = put.body as { message: string; content: string; sha: string; branch: string };
     // 沒帶 sha 的話 GitHub 會當成「建立新檔案」而拒絕。

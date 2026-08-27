@@ -3,8 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { writeZipEntries } from "../../cyberbiz-monthly-payout/lib/xlsx.mjs";
-import { parseSalesReport } from "../lib/sales.mjs";
+import { writeZipEntries } from "../payout/parser.mjs";
+import { parseSalesReport } from "../sales/parser.mjs";
 
 function inlineCell(ref, value) {
   return `<c r="${ref}" t="inlineStr"><is><t>${String(value)}</t></is></c>`;

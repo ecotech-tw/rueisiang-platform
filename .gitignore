@@ -24,6 +24,11 @@ local.db
 # 出金表工具在本機跑的時候會產出這些：登入用的 Chrome profile（含 session）、
 # 從 Gmail 抓下來的 xlsx、報告與失敗截圖。全都是每次執行的產物，而且 profile
 # 裡有登入憑證，一個都不該進版控。
+tools/cyberbiz-reports/chrome-profile/
+tools/cyberbiz-reports/staging/
+tools/cyberbiz-reports/reports/
+tools/cyberbiz-reports/screenshots/
+# 舊版工具改名期間仍可能留在既有 checkout；這些目錄同樣含有登入狀態與報表資料。
 tools/cyberbiz-monthly-payout/chrome-profile/
 tools/cyberbiz-monthly-payout/staging/
 tools/cyberbiz-monthly-payout/reports/

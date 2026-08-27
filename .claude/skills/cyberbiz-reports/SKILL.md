@@ -1,6 +1,6 @@
 ---
-name: cyberbiz-monthly-payout
-description: 每月把 CYBERBIZ 各 POS 商店（百貨專櫃、服務區）的「每日出金報表」匯出、從 Gmail 取回 xlsx、寫入對帳欄位（H 公司POS / I 櫃位POS / J 備註 / K 人員業績）後上傳到 Google Drive 通路銷售紀錄，並產出月結報告。用於出金表、每日出金報表、POS 紀錄下載、通路月結對帳、上傳雲端硬碟、月初帳務作業，以及維護 tools/cyberbiz-monthly-payout 底下的 driver。
+name: cyberbiz-reports
+description: CYBERBIZ 報表工具的操作知識：依指定 POS 店別與日期匯出每日出金報表或商品銷售報表，從 Gmail 取回 xlsx，驗證並上傳 Google Drive；完整月份另產生 NAS 與 D1 manifest。用於出金表、商品銷售報表、POS 紀錄下載、通路對帳、上傳雲端硬碟，以及維護 tools/cyberbiz-reports 底下的 payout 與 sales driver。
 ---
 
 # CYBERBIZ 每月出金表
@@ -8,7 +8,7 @@ description: 每月把 CYBERBIZ 各 POS 商店（百貨專櫃、服務區）的�
 對應 SOP：`工作說明書/營運部門_行政助理_帳務_每月做帳流程作業.docx`「每月 1 號至 cyberbiz
 後台下載 pos 紀錄 / 出金表上傳 google drive」，以及 `各通路對帳作業.docx` 3.1 的出金合計公式。
 
-程式在 `tools/cyberbiz-monthly-payout/`。**它刻意不在 pnpm workspace 裡**——相依
+程式在 `tools/cyberbiz-reports/`。**它刻意不在 pnpm workspace 裡**——相依
 Playwright，拉進 workspace 會讓每個人的 `pnpm install` 都扛一份只有 runner 用得到的
 瀏覽器函式庫。它用自己的 `npm ci`。
 
@@ -49,39 +49,54 @@ Playwright，拉進 workspace 會讓每個人的 `pnpm install` 都扛一份只�
 `loadConfig` 讀到 `stores.json` 就以它為準；沒有那個檔案、或裡面是空清單時照
 `config.json` 走；JSON 壞掉會直接報錯，不默默跑舊的。
 
-**店名必須與 CYBERBIZ 後台完全一致**，driver 靠它找店。用 `node driver.mjs --list-stores`
+**店名必須與 CYBERBIZ 後台完全一致**，driver 靠它找店。用 `node payout/driver.mjs --list-stores`
 對。在平台上新增一家後台沒有的店，執行時會 `STORE_NOT_FOUND`。
 
 ## 本機怎麼跑
 
 ```bash
-cd tools/cyberbiz-monthly-payout
+cd tools/cyberbiz-reports
 npm ci
-node driver.mjs
+node payout/driver.mjs
 ```
 
 不給參數＝上個月（Asia/Taipei）＋設定裡所有店。以下都在工具目錄執行：
 
 ```bash
-node driver.mjs --month 2026-07                        # 指定月份（整個月）
-node driver.mjs --start 2026-07-05 --end 2026-07-20    # 指定起訖日，兩個要一起給
-node driver.mjs --store 宏匯廣場1F                       # 只跑一家，可重複給
-node driver.mjs --skip-upload                          # 只到「加欄位」為止，不碰 Drive
-node driver.mjs --list-stores                          # 印出後台所有 POS 商店後結束
-node driver.mjs --headless                             # 不開視窗（CI 用這個）
-node driver.mjs --help
+node payout/driver.mjs --month 2026-07                        # 指定月份（整個月）
+node payout/driver.mjs --start 2026-07-05 --end 2026-07-20    # 指定起訖日，兩個要一起給
+node payout/driver.mjs --store 宏匯廣場1F                       # 只跑一家，可重複給
+node payout/driver.mjs --skip-upload                          # 只到「加欄位」為止，不碰 Drive
+node payout/driver.mjs --list-stores                          # 印出後台所有 POS 商店後結束
+node payout/driver.mjs --headless                             # 不開視窗（CI 用這個）
+node payout/driver.mjs --help
 ```
 
 `--month` 與 `--start/--end` 只能擇一。產出：
 
 - 終端摘要：每家一行「匯出 / 取檔 / 驗證 / 加欄位 / 上傳」＋出金合計＋試算表連結
-- `reports/YYYY-MM-出金表.md`：同內容 ＋ 未完成清單 ＋ 待人工處理事項
-- `staging/YYYY-MM/`：已寫入欄位的 xlsx（就是上傳的那份）
-- 失敗時 `screenshots/YYYY-MM-<店名>-error.png`
+- `reports/payout/YYYY-MM-出金表.md`：同內容 ＋ 未完成清單 ＋ 待人工處理事項
+- `staging/payout/YYYY-MM/`：已寫入欄位的 xlsx（就是上傳的那份）
+- 失敗時 `screenshots/payout/YYYY-MM-<店名>-error.png`
 
 `YYYY-MM` 是區間標籤：剛好整月就是月份，否則變成 `YYYY-MM-DD~YYYY-MM-DD`。
 
 **單店失敗不中斷其他店**；有任何一家沒完成，exit code 為 1。
+
+## 商品銷售報表
+
+商品銷售報表共用同一個登入、Gmail 2FA、店別解析與 Google Drive 流程，執行入口改成
+`node sales/driver.mjs`。它會先開啟每家 POS 的 `/stock_reports`，點選後台上的「商品銷售總表」
+或「商品銷售報表」，再填入收件人與日期並等待 Gmail 附件。
+
+```bash
+node sales/driver.mjs --start 2026-07-01 --end 2026-07-31 --store 宏匯廣場1F
+node sales/driver.mjs --month 2026-07
+```
+
+完整月份才會解析商品明細、產生各店與公司 aggregate，並發布 NAS/D1 manifest；自訂區間只把
+原始 xlsx 上傳到 `reports` 設定的 Google Drive 店別資料夾。sales 的結果放在
+`staging/sales/`、`reports/sales/`、`screenshots/sales/`，不會和出金表的執行產物混在一起。
 
 ## 欄位規則
 
@@ -103,7 +118,7 @@ K 欄公式會排除空值、「代班」與標題列「操作人員」。因為
 ## 改程式之前先跑自我檢查
 
 ```bash
-cd tools/cyberbiz-monthly-payout
+cd tools/cyberbiz-reports
 node selftest.mjs
 ```
 
@@ -129,7 +144,7 @@ xlsx 解析（含自閉合空儲存格）、月份守門、機密遮蔽、欄位
   對不上就丟 `STORE_LIST_TRUNCATED`。
 - **CYBERBIZ 匯出的 xlsx 有自閉合空儲存格** `<c r="B1" s="0" />`。用「屬性＋選擇性內容」
   的正規式解析會讓空格吃掉下一格的值，整列錯位（症狀：A2 變空、標題跑到 E1）。
-  `tools/cyberbiz-monthly-payout/lib/xlsx.mjs` 的 cell 正規式必須把自閉合情況分開處理，selftest 有回歸測試。
+  `tools/cyberbiz-reports/payout/parser.mjs` 的 cell 正規式必須把自閉合情況分開處理，selftest 有回歸測試。
 - **樣式索引是每個檔案自己的，不能寫死**。這份匯出的 `styles.xml` 裡 `s="3"` 是
   粗體＋灰底 `FFE5E5E8` 的標題樣式、`s="4"` 是一般資料樣式。早期版本把公式格寫成 `s="3"`，
   結果算出來的數字整欄看起來像標題列。現在標題格的樣式是從檔案現有標題列抄的，
@@ -155,7 +170,7 @@ xlsx 解析（含自閉合空儲存格）、月份守門、機密遮蔽、欄位
 - **匯出是非同步寄信**，不是即時下載。取檔最多等 3 分鐘，附件只認匯出送出時間之後的信，
   不會抓到上個月同名的舊報表。
 - **機密不落地**。密碼與 6 碼驗證碼寫進 log 或報告前都會過 `redact()`；
-  `tools/cyberbiz-monthly-payout/` 下的 `.env`、`chrome-profile/`、`staging/`、`reports/`、`screenshots/`
+  `tools/cyberbiz-reports/` 下的 `.env`、`chrome-profile/`、`staging/`、`reports/`、`screenshots/`
   都在 `.gitignore` 裡。
 
 ## Troubleshooting
@@ -163,13 +178,13 @@ xlsx 解析（含自閉合空儲存格）、月份守門、機密遮蔽、欄位
 | 症狀 | 處理 |
 | --- | --- |
 | `信箱或密碼錯誤`（LOGIN_FAILED） | `.env` 的帳密不對。注意後台帳號未必等於收信信箱 |
-| `OTP_TIMEOUT` | 驗證信搜不到。目前條件是 `from:noreply@cyberbiz.co subject:驗證碼 newer_than:1h`，寄件者或主旨改了就要調 `tools/cyberbiz-monthly-payout/config.json` |
+| `OTP_TIMEOUT` | 驗證信搜不到。目前條件是 `from:noreply@cyberbiz.co subject:驗證碼 newer_than:1h`，寄件者或主旨改了就要調 `tools/cyberbiz-reports/config.json` |
 | `GMAIL_FORBIDDEN` / 403 | Gmail API 沒啟用，或授權帳號不在測試使用者名單 |
 | `STORE_LIST_TRUNCATED` | 商店列表分頁沒展開，看 `expandTable()` |
-| `STORE_NOT_FOUND` | `tools/cyberbiz-monthly-payout/config.json` 店名要與後台**完全一致**，用 `--list-stores` 對 |
-| `DATE_REVERTED` | datepicker 行為變了，看 `tools/cyberbiz-monthly-payout/lib/cyberbiz.mjs` 的 `chooseDate` |
+| `STORE_NOT_FOUND` | `tools/cyberbiz-reports/config.json` 店名要與後台**完全一致**，用 `--list-stores` 對 |
+| `DATE_REVERTED` | datepicker 行為變了，看 `tools/cyberbiz-reports/lib/cyberbiz.mjs` 的 `chooseDate` |
 | `EMAIL_TIMEOUT` | 信還沒到，稍後用 `--store <該店>` 單獨補跑 |
-| `RANGE_MISMATCH` / `HEADER_MISMATCH` | 下載到的檔結構或月份不對，先看 `tools/cyberbiz-monthly-payout/staging/` 那份檔 |
+| `RANGE_MISMATCH` / `HEADER_MISMATCH` | 下載到的檔結構或月份不對，先看 `tools/cyberbiz-reports/staging/` 那份檔 |
 | `FORMULA_NOT_EVALUATED` | 上傳後轉檔驗算不出值，多半是欄位注入寫壞了 |
 | `GOOGLE_API_ERROR` 401/403、`invalid_grant` | token 失效。先確認 OAuth 應用程式是「正式版」而非「測試中」，再重跑 `node setup.mjs auth` 與 `mail` |
 | 平台上按了執行沒動靜 | 已有工作在跑（`concurrency: payout`，一次只跑一個），等前一個結束；或到 Actions 看那次 run 的 log |

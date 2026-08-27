@@ -31,7 +31,7 @@ export class CyberbizSalesGithubError extends Error {
   }
 }
 
-const STORES_PATH = "tools/cyberbiz-monthly-payout/stores.json";
+const STORES_PATH = "tools/cyberbiz-reports/stores.json";
 
 /** GitHub Contents API 的 content 欄位是 base64；中文店名要先轉 UTF-8 bytes。 */
 function toBase64(text: string): string {

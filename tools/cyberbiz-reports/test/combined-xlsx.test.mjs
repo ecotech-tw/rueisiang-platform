@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { combineCyberbizWorkbook } from "../lib/combined-xlsx.mjs";
-import { readZipEntries, writeZipEntries } from "../lib/xlsx.mjs";
+import { readZipEntries, writeZipEntries } from "../payout/parser.mjs";
 
 test("combined workbook appends a sales sheet without dropping the payout workbook", async () => {
   const temporaryDir = await fs.mkdtemp(path.join(os.tmpdir(), "cyberbiz-combined-"));

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * 每月 CYBERBIZ 出金表主流程。
+ * CYBERBIZ 出金表流程。
  *
- *   node driver.mjs                      # 上個月、config.json 裡所有店
- *   node driver.mjs --month 2026-07      # 指定月份
- *   node driver.mjs --start 2026-07-05 --end 2026-07-20   # 指定起訖日
- *   node driver.mjs --store 台南新光西門   # 只跑一家（可重複）
- *   node driver.mjs --skip-upload        # 只做匯出與取檔，不碰 Drive
- *   node driver.mjs --list-stores        # 印出後台所有 POS 商店後結束
- *   node driver.mjs --headless           # 不開視窗（2FA 或登入卡住時會看不到畫面）
+ *   node payout/driver.mjs                      # 上個月、config.json 裡所有店
+ *   node payout/driver.mjs --month 2026-07      # 指定月份
+ *   node payout/driver.mjs --start 2026-07-05 --end 2026-07-20   # 指定起訖日
+ *   node payout/driver.mjs --store 台南新光西門   # 只跑一家（可重複）
+ *   node payout/driver.mjs --skip-upload        # 只做匯出與取檔，不碰 Drive
+ *   node payout/driver.mjs --list-stores        # 印出後台所有 POS 商店後結束
+ *   node payout/driver.mjs --headless           # 不開視窗（2FA 或登入卡住時會看不到畫面）
  */
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -26,22 +26,22 @@ import {
   redact,
   requireEnv,
   skillPath,
-} from "./lib/common.mjs";
-import { newPage, openBrowser, screenshot } from "./lib/browser.mjs";
-import { exportPayoutReport, listStores, login, resolveStore } from "./lib/cyberbiz.mjs";
-import { downloadAttachment, whoAmI } from "./lib/gmail-api.mjs";
-import { parsePayoutReport, verifyPayoutFile } from "./lib/xlsx.mjs";
-import { addPayoutColumns } from "./lib/xlsx-columns.mjs";
+} from "../lib/common.mjs";
+import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
+import { exportPayoutReport, listStores, login, resolveStore } from "../lib/cyberbiz.mjs";
+import { downloadAttachment, whoAmI } from "../lib/gmail-api.mjs";
+import { parsePayoutReport, verifyPayoutFile } from "./parser.mjs";
+import { addPayoutColumns } from "./columns.mjs";
 import {
   accessToken,
   findByName,
   getFile,
   uploadXlsx,
   verifyFormulaByTempCopy,
-} from "./lib/drive.mjs";
-import { terminalSummary, writeMarkdown } from "./lib/report.mjs";
-import { publishCyberbizReport } from "./lib/report-publish.mjs";
-import { aggregatePayoutDocuments } from "../cyberbiz-monthly-sales/lib/aggregate.mjs";
+} from "../lib/drive.mjs";
+import { terminalSummary, writeMarkdown } from "../lib/report.mjs";
+import { publishCyberbizReport } from "../lib/report-publish.mjs";
+import { aggregatePayoutDocuments } from "./aggregate.mjs";
 
 function scopeIdFromStoreName(name) {
   return `store-${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
@@ -49,7 +49,7 @@ function scopeIdFromStoreName(name) {
 
 async function publishPayoutStore({ env, apiUrl, range, store, localPath, drive, firstDataRow }) {
   const scopeId = scopeIdFromStoreName(store.name);
-  const outputDir = await ensureDir(path.join(skillPath("staging"), range.label, scopeId));
+  const outputDir = await ensureDir(path.join(skillPath("staging"), "payout", range.label, scopeId));
   const document = await parsePayoutReport(localPath, {
     scopeType: "store",
     scopeId,
@@ -85,7 +85,7 @@ async function publishPayoutCompany({ env, apiUrl, range, documents }) {
     scopeName: "公司整體",
     parserVersion: "cyberbiz-payout-company-v1",
   });
-  const outputDir = await ensureDir(path.join(skillPath("staging"), range.label, "company"));
+  const outputDir = await ensureDir(path.join(skillPath("staging"), "payout", range.label, "company"));
   const jsonPath = path.join(outputDir, "payout.normalized.json");
   await fs.writeFile(jsonPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
   return publishCyberbizReport({
@@ -128,7 +128,7 @@ async function main() {
   if (args.help) {
     log(
       [
-        "用法：node driver.mjs [--month YYYY-MM | --start YYYY-MM-DD --end YYYY-MM-DD]",
+        "用法：node payout/driver.mjs [--month YYYY-MM | --start YYYY-MM-DD --end YYYY-MM-DD]",
         "                     [--store 店名]... [--skip-upload] [--list-stores] [--headless]",
         "月份與起訖日都不給就是上個月。先跑過 setup.mjs 完成 Google 授權、店別清單與 Drive 資料夾設定。",
       ].join("\n"),
@@ -181,8 +181,8 @@ async function main() {
 
   const stagingDir = await ensureDir(
     path.isAbsolute(config.stagingDir)
-      ? path.join(config.stagingDir, range.label)
-      : skillPath(config.stagingDir, range.label),
+      ? path.join(config.stagingDir, "payout", range.label)
+      : skillPath(config.stagingDir, "payout", range.label),
   );
 
   const context = await openBrowser({
@@ -369,7 +369,7 @@ async function main() {
         };
         log(`  卡住：[${result.error.code}] ${result.error.message}`);
         try {
-          result.screenshot = await screenshot(page, `${range.label}-${store.name}-error`);
+          result.screenshot = await screenshot(page, `${range.label}-${store.name}-error`, { kind: "payout" });
         } catch {}
       }
     }
@@ -382,8 +382,8 @@ async function main() {
     run.finishedAt = new Date().toISOString();
     if (run.stores.length) {
       const reportsDir = path.isAbsolute(config.reportsDir)
-        ? config.reportsDir
-        : skillPath(config.reportsDir);
+        ? path.join(config.reportsDir, "payout")
+        : skillPath(config.reportsDir, "payout");
       run.reportPath = await writeMarkdown(run, reportsDir);
       log(terminalSummary(run));
     }

@@ -43,8 +43,8 @@ export async function newPage(context, url) {
   return page;
 }
 
-export async function screenshot(page, name) {
-  const dir = await ensureDir(skillPath("screenshots"));
+export async function screenshot(page, name, { kind = "shared" } = {}) {
+  const dir = await ensureDir(skillPath("screenshots", kind));
   const file = `${dir}/${name}.png`;
   await page.screenshot({ path: file, fullPage: false });
   return file;

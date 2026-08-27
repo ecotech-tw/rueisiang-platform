@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 60
     defaults:
       run:
-        working-directory: tools/cyberbiz-monthly-payout
+        working-directory: tools/cyberbiz-reports
     env:
       TZ: Asia/Taipei
       CI: "true"
@@ -58,7 +58,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: tools/cyberbiz-monthly-payout/package-lock.json
+          cache-dependency-path: tools/cyberbiz-reports/package-lock.json
 
       - name: 安裝相依套件
         run: npm ci
@@ -152,15 +152,15 @@ jobs:
           if [ "$SKIP_UPLOAD" = "true" ]; then
             args+=(--skip-upload)
           fi
-          echo "執行：node driver.mjs ${args[*]}"
+          echo "執行：node payout/driver.mjs ${args[*]}"
           set +e
-          node driver.mjs "${args[@]}"
+          node payout/driver.mjs "${args[@]}"
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
 
       - name: 把報告貼到執行摘要
         if: always()
         run: |
-          for file in reports/*.md; do
+          for file in reports/payout/*.md; do
             [ -e "$file" ] || continue
             cat "$file" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -174,9 +174,9 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
           path: |
-            tools/cyberbiz-monthly-payout/staging/**/*.xlsx
-            tools/cyberbiz-monthly-payout/reports/*.md
-            tools/cyberbiz-monthly-payout/screenshots/*.png
+            tools/cyberbiz-reports/staging/payout/**/*.xlsx
+            tools/cyberbiz-reports/reports/payout/*.md
+            tools/cyberbiz-reports/screenshots/payout/*.png
 
       - name: 有店沒完成就讓這次執行標記失敗
         if: always() && steps.payout.outputs.exit_code != '0'

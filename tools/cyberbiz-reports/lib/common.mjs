@@ -4,9 +4,10 @@ import { fileURLToPath } from "node:url";
 
 const LIB_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-// 所有工具執行期路徑都以 tools/cyberbiz-monthly-payout 為基準，
+// 所有工具執行期路徑都以 tools/cyberbiz-reports 為基準，
 // 不依賴啟動 Node 時所在的工作目錄。
 export const SKILL_DIR = path.resolve(LIB_DIR, "..");
+const LEGACY_SKILL_DIR = path.resolve(SKILL_DIR, "..", "cyberbiz-monthly-payout");
 
 export function skillPath(...parts) {
   return path.join(SKILL_DIR, ...parts);
@@ -79,15 +80,23 @@ export async function saveEnv(updates, file = skillPath(".env")) {
 export async function loadConfig(file = skillPath("config.json")) {
   const config = JSON.parse(await fs.readFile(file, "utf8"));
 
-  // 跟 config 檔同一個目錄找，而不是寫死 skillPath——測試才有辦法給一份假的。
-  const storesFile = path.join(path.dirname(file), "stores.json");
-  try {
-    const raw = await fs.readFile(storesFile, "utf8");
-    const stores = JSON.parse(raw).stores;
-    if (Array.isArray(stores) && stores.length) config.stores = stores;
-  } catch (error) {
-    // 檔案不存在是正常狀態；其他錯誤（例如 JSON 壞掉）要讓人知道，不能默默跑舊的。
-    if (error.code !== "ENOENT") throw error;
+  // 先讀新路徑；改名期間若舊 checkout 只存有舊 manifest，仍要沿用它，不能默默退回 config.json。
+  const storesFiles = [path.join(path.dirname(file), "stores.json")];
+  if (path.resolve(file) === path.resolve(skillPath("config.json"))) {
+    storesFiles.push(path.join(LEGACY_SKILL_DIR, "stores.json"));
+  }
+  for (const storesFile of storesFiles) {
+    try {
+      const raw = await fs.readFile(storesFile, "utf8");
+      const stores = JSON.parse(raw).stores;
+      if (Array.isArray(stores) && stores.length) {
+        config.stores = stores;
+        break;
+      }
+    } catch (error) {
+      // 檔案不存在是正常狀態；其他錯誤（例如 JSON 壞掉）要讓人知道，不能默默跑舊的。
+      if (error.code !== "ENOENT") throw error;
+    }
   }
 
   return config;

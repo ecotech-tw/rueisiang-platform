@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readSheet } from "../../cyberbiz-monthly-payout/lib/xlsx.mjs";
+import { readSheet } from "../payout/parser.mjs";
 
 const REQUIRED_HEADERS = [
   "SKU",
