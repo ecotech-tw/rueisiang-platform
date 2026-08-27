@@ -7,6 +7,12 @@ import { dateRange, driveFolderIdFromUrl, ensureDir, loadConfig, loadEnv, log, p
 import { prepareWorkbook } from "./lib/decrypt.mjs";
 import { accessToken, findByName, uploadXlsx } from "./lib/drive.mjs";
 import { transformShopeeWorkbook } from "./lib/xlsx.mjs";
+import { ingestReport } from "../cyberbiz-reports/lib/report-ingest.mjs";
+import { eachDay } from "../cyberbiz-reports/lib/sales-daily.mjs";
+
+const SHOPEE_SCOPE_ID = "shopee:store:default";
+const SHOPEE_SCOPE_NAME = "蝦皮";
+const DEFAULT_PLATFORM_API_URL = "https://platform.rueisiang.com";
 
 function parseArgs(argv) {
   const args = {};
@@ -46,7 +52,11 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
   try {
     const unlockedPath = path.join(tempDir, "unlocked.xlsx");
     await prepareWorkbook(resolvedInput, unlockedPath, password);
-    const summary = await transformShopeeWorkbook(unlockedPath, resolvedOutput, { sourceSheet: sourceSheet || config.sourceSheet });
+    const summary = await transformShopeeWorkbook(unlockedPath, resolvedOutput, {
+      sourceSheet: sourceSheet || config.sourceSheet,
+      start: range.start,
+      end: range.end,
+    });
 
     let uploaded = null;
     if (!skipUpload) {
@@ -60,12 +70,27 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
       log(existing ? `Drive 已有同名檔案，未重複上傳：${existing.webViewLink ?? name}` : `已上傳到 Drive：${uploaded.webViewLink ?? name}`);
     }
 
+    let ingested = null;
+    const isCompleteMonth = /^\d{4}-\d{2}$/.test(range.label);
+    if (isCompleteMonth && !skipUpload && env.CYBERBIZ_REPORT_INGEST_TOKEN) {
+      ingested = await ingestReport({
+        apiUrl: String(env.PLATFORM_API_URL ?? "").trim() || DEFAULT_PLATFORM_API_URL,
+        ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
+        scopeId: SHOPEE_SCOPE_ID,
+        scopeName: SHOPEE_SCOPE_NAME,
+        salesRows: summary.dailySalesRows,
+        payoutRows: summary.dailyPayoutRows,
+        coveredDates: eachDay(range.start, range.end).map((day) => day.start),
+      });
+      log(`已匯入 D1：蝦皮 sales ${ingested.salesRowCount ?? summary.dailySalesRows.length} 筆、payout ${ingested.payoutRowCount ?? summary.dailyPayoutRows.length} 筆`);
+    }
+
     await ensureDir(path.resolve(toolPath(config.reportsDir)));
     await fs.writeFile(path.resolve(toolPath(config.reportsDir), `${range.label}-蝦皮銷售報表.md`), [
-      `# 蝦皮銷售報表 ${range.label}`, "", `- 對帳區間：${range.start} ~ ${range.end}`, `- 業績合計：${summary.totalPerformance.toLocaleString("zh-TW")}`, `- 商品銷售數量合計：${summary.totalQuantity.toLocaleString("zh-TW")}`, `- 不重複訂單：${summary.uniqueOrders}`, `- 商品組合：${summary.uniqueProducts}`, uploaded?.webViewLink ? `- Drive：${uploaded.webViewLink}` : "- Drive：未上傳", "",
+      `# 蝦皮銷售報表 ${range.label}`, "", `- 對帳區間：${range.start} ~ ${range.end}`, `- 業績合計：${summary.totalPerformance.toLocaleString("zh-TW")}`, `- 商品銷售數量合計：${summary.totalQuantity.toLocaleString("zh-TW")}`, `- 不重複訂單：${summary.uniqueOrders}`, `- 商品組合：${summary.uniqueProducts}`, `- D1：${ingested ? `已更新 sales ${ingested.salesRowCount ?? summary.dailySalesRows.length} 筆、payout ${ingested.payoutRowCount ?? summary.dailyPayoutRows.length} 筆` : isCompleteMonth ? "未更新（缺少 ingest token 或使用 --skip-upload）" : "自訂區間不寫入 D1"}`, uploaded?.webViewLink ? `- Drive：${uploaded.webViewLink}` : "- Drive：未上傳", "",
     ].join("\n"), "utf8");
 
-    return { outputPath: resolvedOutput, summary, uploaded, range };
+    return { outputPath: resolvedOutput, summary, uploaded, ingested, range };
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

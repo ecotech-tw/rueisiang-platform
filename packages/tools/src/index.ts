@@ -65,19 +65,20 @@ function cyberbizReportToolResult(value: unknown, reportKind: "sales" | "payout"
   const scopeType = textInput(input, "scopeType") || "company";
   const scopeId = textInput(input, "scopeId");
   const scopeName = textInput(input, "scopeName");
+  const isShopee = scopeId.startsWith("shopee:") || /^(蝦皮|shopee)/iu.test(scopeName);
   return json({
     ...value,
     nextStep: {
       type: "open_backend_report_runner",
-      path: reportKind === "sales" ? "/tools/cyberbiz-sales" : "/tools/payout",
-      reportKind,
+      path: isShopee ? "/tools/shopee-sales" : reportKind === "sales" ? "/tools/cyberbiz-sales" : "/tools/payout",
+      reportKind: isShopee ? "sales_and_payout" : reportKind,
       period,
       scopeType,
       ...(scopeId ? { scopeId } : {}),
       ...(scopeName ? { scopeName } : {}),
       ...(textInput(input, "startDate") ? { startDate: textInput(input, "startDate") } : {}),
       ...(textInput(input, "endDate") ? { endDate: textInput(input, "endDate") } : {}),
-      message: "請到後台執行對應的 CYBERBIZ 報表；原始 XLSX 會保留在 Google Drive，完成 D1 匯入後即可查詢。",
+      message: `請到後台執行對應的${isShopee ? "蝦皮" : "CYBERBIZ"}報表；原始 XLSX 會保留在 Google Drive，完成 D1 匯入後即可查詢。`,
     },
   });
 }
@@ -1141,7 +1142,7 @@ const crmGetOrdersTool: PlatformToolDefinition = {
 const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
   key: "query_sales_report",
   label: "查詢商品銷售報表",
-  description: "從已匯入 D1 的商品銷售日資料查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額。這不是 CRM 訂單查詢；單一櫃位請傳 scopeName（例如誠品西門店3F），不需要使用者知道 scopeId。支援月份、年份與自訂日期區間；公司查詢由服務端完成所有據點的彙總，不需要逐店呼叫工具。",
+  description: "從已匯入 D1 的通路商品銷售日資料查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額；CYBERBIZ 使用 SKU，蝦皮使用 Product ID。這不是 CRM 訂單查詢；單一 scope 請傳 scopeName（例如誠品西門店3F或蝦皮），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store。支援月份、年份與自訂日期區間；company 只彙總 CYBERBIZ 據點，不需要逐店呼叫工具。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],
@@ -1150,7 +1151,7 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
     properties: {
       period: { type: "string", description: "報表期間，YYYY 代表全年、YYYY-MM 代表整月；也可改用 startDate 與 endDate。" },
       scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位。", enum: ["company", "store"] },
-      scopeName: { type: "string", description: "scopeType=store 時的櫃位名稱，例如 誠品西門店3F；由服務端解析固定 scopeId。" },
+      scopeName: { type: "string", description: "scopeType=store 時的 scope 名稱，例如 誠品西門店3F 或 蝦皮；由服務端解析固定 scopeId。" },
       scopeId: { type: "string", description: "相容既有呼叫的櫃位固定 ID；通常不需要填，優先使用 scopeName。" },
       startDate: { type: "string", description: "自訂區間起始日 YYYY-MM-DD，需與 endDate 一起提供。" },
       endDate: { type: "string", description: "自訂區間結束日 YYYY-MM-DD，需與 startDate 一起提供。" },
@@ -1190,7 +1191,7 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
 const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
   key: "query_payout_report",
   label: "查詢業績／出金報表",
-  description: "從已解析的每日出金報表查詢單一櫃位或公司整體的出金合計與明細；公司內部使用者說「業績」時，以這裡的 payoutAmount 回答。這不是商品銷售報表，也不是 CRM 訂單查詢；商品數量、SKU、分類或商品銷售額請使用 query_sales_report。單一櫃位請傳 scopeName（例如誠品西門店3F），不需要使用者知道 scopeId。服務端會先檢查指定區間是否完整涵蓋，再一次完成查詢。",
+  description: "從已解析的通路每日 payout／出金資料查詢單一 scope 或公司整體的業績合計與明細；公司內部使用者說「業績」時，以這裡的 payoutAmount 回答。這不是商品銷售報表，也不是 CRM 訂單查詢；商品數量、SKU、分類或商品銷售額請使用 query_sales_report。單一 scope 請傳 scopeName（例如誠品西門店3F或蝦皮），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store。服務端會先檢查指定區間是否完整涵蓋，再一次完成查詢。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],
@@ -1199,7 +1200,7 @@ const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
     properties: {
       period: { type: "string", description: "報表期間，YYYY 代表全年、YYYY-MM 代表整月；也可改用 startDate 與 endDate。" },
       scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位。", enum: ["company", "store"] },
-      scopeName: { type: "string", description: "scopeType=store 時的櫃位名稱，例如 誠品西門店3F；由服務端解析固定 scopeId。" },
+      scopeName: { type: "string", description: "scopeType=store 時的 scope 名稱，例如 誠品西門店3F 或 蝦皮；由服務端解析固定 scopeId。" },
       scopeId: { type: "string", description: "相容既有呼叫的櫃位固定 ID；通常不需要填，優先使用 scopeName。" },
       startDate: { type: "string", description: "自訂區間起始日 YYYY-MM-DD，需與 endDate 一起提供。" },
       endDate: { type: "string", description: "自訂區間結束日 YYYY-MM-DD，需與 startDate 一起提供。" },

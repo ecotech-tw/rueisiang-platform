@@ -63,6 +63,59 @@ describe("報表日資料匯入", () => {
     expect(result).toMatchObject({ status: "ok", totals: { payoutAmount: 80 } });
   });
 
+  it("同一份蝦皮報表可以一次寫入 sales 與 payout，並以 shopee scope ID 隔離", async () => {
+    await upsertReportScope(db(), { id: "cyberbiz:store:legacy", scopeKind: "store", name: "舊有 CYBERBIZ 同名" });
+    const response = await request({
+      kind: "sales_and_payout",
+      scopeType: "store",
+      scopeId: "shopee:store:default",
+      scopeName: "蝦皮",
+      salesRows: [{ businessDate: "2026-07-01", sku: "P-001", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 0 }],
+      payoutRows: [{ businessDate: "2026-07-01", payoutAmount: 250 }],
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: {
+      kind: "sales_and_payout",
+      scopeId: "shopee:store:default",
+      salesRowCount: 1,
+      payoutRowCount: 1,
+    } });
+
+    const sales = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "store", scopeName: "蝦皮" });
+    const payout = await createCyberbizReportService(db()).queryPayout({ period: "2026-07", scopeType: "store", scopeName: "蝦皮" });
+    expect(sales).toMatchObject({ status: "ok", scopeId: "shopee:store:default", totals: { grossQuantity: 3, netQuantity: 2 } });
+    expect(payout).toMatchObject({ status: "ok", scopeId: "shopee:store:default", totals: { payoutAmount: 250 } });
+  });
+
+  it("蝦皮 bundle 成功但零筆的日期會清掉既有商品資料", async () => {
+    const first = await request({
+      kind: "sales_and_payout",
+      scopeType: "store",
+      scopeId: "shopee:store:default",
+      scopeName: "蝦皮",
+      salesRows: [{ businessDate: "2026-07-01", sku: "P-001", grossQuantity: 3, returnQuantity: 0, netQuantity: 3, salesAmount: 0 }],
+      payoutRows: [{ businessDate: "2026-07-01", payoutAmount: 250 }],
+      coveredDates: ["2026-07-01"],
+    });
+    expect(first.status).toBe(200);
+
+    const second = await request({
+      kind: "sales_and_payout",
+      scopeType: "store",
+      scopeId: "shopee:store:default",
+      scopeName: "蝦皮",
+      salesRows: [],
+      payoutRows: [],
+      coveredDates: ["2026-07-01"],
+    });
+    expect(second.status).toBe(200);
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "store", scopeName: "蝦皮",
+    });
+    expect(result?.status).toBe("NO_DATA_FOR_RANGE");
+  });
+
   it("重新匯入 sales 的同一天會清掉已移除的 SKU", async () => {
     const first = await request({
       kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",

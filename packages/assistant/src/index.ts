@@ -31,7 +31,7 @@ export const ASSISTANT_REPORT_TOOL_ROUTING = `報表工具選擇規則：
 - 業績、總業績、當日業績、櫃位業績、公司業績、營收、出金、入金、每日結帳金額：使用 query_payout_report；公司內部所稱「業績」以出金報表的 payoutAmount 為準，不要使用 query_sales_report 或 crm_get_orders。
 - 商品銷售數量、商品銷售額、SKU、商品分類、櫃位 POS 商品銷售：使用 query_sales_report；不要把「商品銷售額」和「業績」混用，也不要使用 crm_get_orders。單一櫃位傳 scopeName（店面名稱），不要要求使用者提供 scopeId。
 - CRM 的 crm_get_orders 只用於訂單明細、訂單狀態、訂單編號或客戶的訂單，不用於商品銷售報表統計。
-- 問題明確提到蝦皮、Shopee 或蝦皮 Product ID 時，使用蝦皮報表工具與蝦皮的 normalized 資料；蝦皮 Excel 的欄位解析規則不可套用 CYBERBIZ。若蝦皮查詢工具尚未提供，請明確說明目前尚未支援，不要改用 CRM 或 CYBERBIZ 代替。
+- 問題明確提到蝦皮、Shopee 或蝦皮 Product ID 時，仍使用 query_payout_report 或 query_sales_report；業績使用 query_payout_report，商品數量／Product ID 使用 query_sales_report，並傳 scopeType=store、scopeName「蝦皮」。蝦皮目前以單一 scope 代表整個蝦皮賣場，不要把它改成 scopeType=company。蝦皮 Excel 的欄位解析規則不可套用 CYBERBIZ；不要改用 CRM 或 CYBERBIZ 代替，也不要把蝦皮與 CYBERBIZ 的金額直接相加。
 - 問題沒有指定通路而可能同時包含 CYBERBIZ 與蝦皮時，先確認通路，不要把不同通路的金額直接相加。
 - 報表查詢工具支援已匯入 D1 的月份、年份與自訂日期區間；找不到資料時，照工具回傳的狀態說明，必要時提示到後台執行對應報表作業。`;
 
