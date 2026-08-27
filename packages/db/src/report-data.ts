@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
   reportPayoutDaily,
@@ -75,6 +75,15 @@ export interface ReportPayoutQueryResult {
   rows: Array<Record<string, string | number | null>>;
   totals: { payoutAmount: number };
   message?: string;
+}
+
+export class ReportScopeAmbiguousError extends Error {
+  readonly code = "ambiguous_report_scope";
+
+  constructor(scopeKind: ReportScopeKind, name: string) {
+    super(`報表 ${scopeKind} scope 名稱「${name}」對應到多個啟用中的據點，請改用 scopeId。`);
+    this.name = "ReportScopeAmbiguousError";
+  }
 }
 
 export function normalizeReportScopeName(value: string): string {
@@ -154,12 +163,30 @@ export async function findReportScope(
     eq(reportScopes.normalizedName, normalizeReportScopeName(input.name)),
     eq(reportScopes.active, 1),
   )).limit(2);
-  return scopes.length === 1 ? scopes[0] ?? null : null;
+  if (scopes.length > 1) throw new ReportScopeAmbiguousError(input.scopeKind, input.name);
+  return scopes[0] ?? null;
 }
 
 export async function insertReportSalesDaily(db: Database, rows: readonly NewReportSalesDaily[]): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
   const statements: Statement[] = [];
+  const dateRanges = new Map<string, { start: string; end: string }>();
+  for (const row of rows) {
+    const current = dateRanges.get(row.scopeId);
+    if (!current) {
+      dateRanges.set(row.scopeId, { start: row.businessDate, end: row.businessDate });
+    } else {
+      current.start = current.start < row.businessDate ? current.start : row.businessDate;
+      current.end = current.end > row.businessDate ? current.end : row.businessDate;
+    }
+  }
+  for (const [scopeId, range] of dateRanges) {
+    statements.push(db.delete(reportSalesDaily).where(and(
+      eq(reportSalesDaily.scopeId, scopeId),
+      gte(reportSalesDaily.businessDate, range.start),
+      lte(reportSalesDaily.businessDate, range.end),
+    )));
+  }
   for (const chunk of chunks(rows, 8)) {
     if (!chunk.length) continue;
     statements.push(db.insert(reportSalesDaily).values(chunk).onConflictDoUpdate({
@@ -214,6 +241,9 @@ const SALES_GROUPS: Record<ReportGroupBy, { alias: string; expression: ReturnTyp
 
 type PayoutGroupBy = "day" | "month" | "scope";
 
+const CYBERBIZ_STORE_SCOPE_PREFIX = "cyberbiz:store:";
+const LEGACY_CYBERBIZ_STORE_SCOPE_PREFIX = "store-";
+
 const PAYOUT_GROUPS: Record<PayoutGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
   day: { alias: "businessDate", expression: sql`${reportPayoutDaily.businessDate}` },
   month: { alias: "reportMonth", expression: sql`substr(${reportPayoutDaily.businessDate}, 1, 7)` },
@@ -241,7 +271,7 @@ async function scopeIdsForQuery(db: Database, query: { scopeType: ReportScopeKin
   }
   return {
     ids: (await listReportScopes(db, "store"))
-      .filter((scope) => scope.id.startsWith("cyberbiz:store:") || scope.id.startsWith("store-"))
+      .filter((scope) => scope.id.startsWith(CYBERBIZ_STORE_SCOPE_PREFIX) || scope.id.startsWith(LEGACY_CYBERBIZ_STORE_SCOPE_PREFIX))
       .map((scope) => scope.id),
   };
 }
@@ -284,7 +314,29 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
   const grouped = dimensions.length ? sql` GROUP BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const order = dimensions.length ? sql` ORDER BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${reportSalesDaily} WHERE ${sql.join(filters, sql` AND `)}${grouped}${order}`);
-  if (!rows.length) return null;
+  const emptyAggregate = rows.length > 0 && rows.every((row) => (
+    row.grossQuantity == null && row.returnQuantity == null && row.netQuantity == null && row.salesAmount == null
+  ));
+  if (!rows.length || emptyAggregate) {
+    const coverage = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count FROM ${reportSalesDaily} WHERE ${queryConditions(
+      sql`${reportSalesDaily.businessDate}`,
+      sql`${reportSalesDaily.scopeId}`,
+      query.range,
+      ids,
+    )}`);
+    if (asNumber(coverage[0]?.count) === 0) return null;
+    return {
+      status: "ok",
+      period: query.range.period,
+      requestedStart: query.range.startDate,
+      requestedEnd: query.range.endDate,
+      scopeType: query.scopeType,
+      ...(scope ? { scopeId: scope.id, scopeName: scope.name } : {}),
+      rows: [],
+      totals: { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 },
+      message: "指定區間已有匯入的商品銷售資料，但沒有符合目前篩選條件的資料；請調整 SKU、分類或商品名稱。",
+    };
+  }
 
   const scopeNames = new Map((await listReportScopes(db, "store")).map((item) => [item.id, item.name]));
   const resultRows = rows.map((row) => ({
@@ -325,7 +377,7 @@ export async function queryReportPayout(db: Database, query: ReportPayoutQuery):
   const grouped = dimensions.length ? sql` GROUP BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const order = dimensions.length ? sql` ORDER BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${reportPayoutDaily} WHERE ${conditions}${grouped}${order}`);
-  if (!rows.length) return null;
+  if (!rows.length || (dimensions.length === 0 && rows.every((row) => row.payoutAmount == null))) return null;
   const scopeNames = new Map((await listReportScopes(db, "store")).map((item) => [item.id, item.name]));
   const resultRows = rows.map((row) => ({
     ...row,

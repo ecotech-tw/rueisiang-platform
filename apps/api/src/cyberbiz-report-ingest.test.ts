@@ -63,6 +63,34 @@ describe("報表日資料匯入", () => {
     expect(result).toMatchObject({ status: "ok", totals: { payoutAmount: 80 } });
   });
 
+  it("重新匯入 sales 的同一天會清掉已移除的 SKU", async () => {
+    const first = await request({
+      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
+      rows: [
+        { businessDate: "2026-07-02", sku: "SKU-OLD", productName: "舊商品", category: "沐浴", grossQuantity: 3, returnQuantity: 0, netQuantity: 3, salesAmount: 300 },
+        { businessDate: "2026-07-02", sku: "SKU-KEEP", productName: "保留商品", category: "沐浴", grossQuantity: 2, returnQuantity: 0, netQuantity: 2, salesAmount: 200 },
+      ],
+    });
+    expect(first.status).toBe(200);
+
+    const second = await request({
+      kind: "sales", scopeType: "store", scopeId: "cyberbiz:store:a", scopeName: "測試店",
+      rows: [{ businessDate: "2026-07-02", sku: "SKU-KEEP", productName: "保留商品", category: "沐浴", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 90 }],
+    });
+    expect(second.status).toBe(200);
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07",
+      scopeType: "store",
+      scopeName: "測試店",
+      groupBy: ["sku"],
+    });
+    expect(result.rows).toEqual([
+      expect.objectContaining({ sku: "SKU-KEEP", netQuantity: 1, salesAmount: 90 }),
+    ]);
+    expect(result.totals).toEqual({ grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 90 });
+  });
+
   it("沿用既有同名 scope 的 ID，避免設定路徑改名後產生重複據點", async () => {
     await upsertReportScope(db(), { id: "legacy-store-id", scopeKind: "store", name: "測試店" });
     const response = await request({
@@ -80,5 +108,31 @@ describe("報表日資料匯入", () => {
       scopeId: "legacy-store-id",
     });
     expect(result).toMatchObject({ status: "ok", scopeId: "legacy-store-id", totals: { netQuantity: 1, salesAmount: 100 } });
+  });
+
+  it("空白商品欄位沿用同批前值，首次空白分類回退為未分類", async () => {
+    const response = await request({
+      kind: "sales",
+      scopeType: "store",
+      scopeId: "cyberbiz:store:a",
+      scopeName: "測試店",
+      rows: [
+        { businessDate: "2026-07-03", sku: "SKU-1", productName: "商品一", category: "沐浴", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100 },
+        { businessDate: "2026-07-03", sku: "SKU-1", productName: "", category: "", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 80 },
+        { businessDate: "2026-07-03", sku: "SKU-2", productName: "", category: "", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 50 },
+      ],
+    });
+    expect(response.status).toBe(200);
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07",
+      scopeType: "store",
+      scopeName: "測試店",
+      groupBy: ["sku", "category"],
+    });
+    expect(result.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sku: "SKU-1", category: "沐浴", netQuantity: 2, salesAmount: 180 }),
+      expect.objectContaining({ sku: "SKU-2", category: "未分類", netQuantity: 1, salesAmount: 50 }),
+    ]));
   });
 });

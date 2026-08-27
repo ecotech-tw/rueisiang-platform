@@ -33,6 +33,7 @@ import { downloadAttachment, whoAmI } from "../lib/gmail-api.mjs";
 import { parseSalesReport } from "./parser.mjs";
 import { writeMarkdown, terminalSummary } from "../lib/report.mjs";
 import { ingestCyberbizReport } from "../lib/report-ingest.mjs";
+import { collectSalesDailyRows } from "../lib/sales-daily.mjs";
 
 function parseArgs(argv) {
   const args = { stores: [] };
@@ -54,15 +55,6 @@ function parseArgs(argv) {
 function scopeIdFromStoreName(name) {
   // 用 UTF-8 base64url 保留中文店名的穩定性，同一店名在 API 與 runner 會得到同一個 D1 scope ID。
   return `cyberbiz:store:${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
-}
-
-function eachDay(start, end) {
-  const days = [];
-  for (let cursor = new Date(`${start}T00:00:00Z`); cursor <= new Date(`${end}T00:00:00Z`); cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-    const day = cursor.toISOString().slice(0, 10);
-    days.push({ label: day, start: day, end: day });
-  }
-  return days;
 }
 
 function help() {
@@ -176,43 +168,45 @@ async function main() {
         }
 
         if (monthly && ingestConfig.enabled) {
-          const dailyRows = [];
-          for (const day of eachDay(range.start, range.end)) {
-            let dailyPath = localPath;
-            if (day.start !== range.start || day.end !== range.end) {
-              const dailyExport = await exportSalesReport(page, {
-                storeBase,
-                recipientEmail,
-                startDate: day.start,
-                endDate: day.end,
-                reportPath: config.salesReportPath,
+          const dailyResult = await collectSalesDailyRows({
+            range,
+            localPath,
+            loadDay: async (day, reusedPath) => {
+              let dailyPath = reusedPath;
+              if (!dailyPath) {
+                const dailyExport = await exportSalesReport(page, {
+                  storeBase,
+                  recipientEmail,
+                  startDate: day.start,
+                  endDate: day.end,
+                  reportPath: config.salesReportPath,
+                });
+                dailyPath = await downloadAttachment(gmailToken, {
+                  expectedName: salesFilename(store.name, day.start, day.end),
+                  sender: config.attachmentSender,
+                  downloadDir: stagingDir,
+                  notBefore: dailyExport.submittedAt,
+                });
+              }
+              return parseSalesReport(dailyPath, {
+                scopeType: "store",
+                scopeId: scopeIdFromStoreName(store.name),
+                scopeName: store.name,
+                reportMonth: day.start.slice(0, 7),
+                start: day.start,
+                end: day.end,
+                allowEmpty: true,
               });
-              dailyPath = await downloadAttachment(gmailToken, {
-                expectedName: salesFilename(store.name, day.start, day.end),
-                sender: config.attachmentSender,
-                downloadDir: stagingDir,
-                notBefore: dailyExport.submittedAt,
-              });
-            }
-            const daily = await parseSalesReport(dailyPath, {
-              scopeType: "store",
-              scopeId: scopeIdFromStoreName(store.name),
-              scopeName: store.name,
-              reportMonth: day.start.slice(0, 7),
-              start: day.start,
-              end: day.end,
-              allowEmpty: true,
-            });
-            for (const row of daily.rows) dailyRows.push({
-              businessDate: day.start,
-              sku: row.sku,
-              productName: row.productName,
-              category: row.category,
-              grossQuantity: Math.round(row.grossQuantity),
-              returnQuantity: Math.round(row.returnQuantity),
-              netQuantity: Math.round(row.netQuantity),
-              salesAmount: Math.round(row.salesAmount),
-            });
+            },
+          });
+          if (dailyResult.failures.length) {
+            const details = dailyResult.failures
+              .map(({ day, error }) => `${day.start}：${redact(error?.message ?? "日報處理失敗", env)}`)
+              .join("；");
+            result.error = {
+              code: "DAILY_EXPORT_PARTIAL",
+              message: `有 ${dailyResult.failures.length} 天商品銷售報表失敗，已保留其餘日期資料：${details}`,
+            };
           }
           await ingestCyberbizReport({
             apiUrl: ingestConfig.apiUrl,
@@ -220,9 +214,10 @@ async function main() {
             kind: "sales",
             scopeId: scopeIdFromStoreName(store.name),
             scopeName: store.name,
-            rows: dailyRows,
+            rows: dailyResult.rows,
           });
           result.steps.ingest = "ok";
+          result.done = dailyResult.failures.length === 0;
         } else {
           result.steps.ingest = "skip";
           result.note = !monthly
@@ -231,7 +226,7 @@ async function main() {
               ? "--skip-upload，未匯入 D1"
               : `未匯入 D1（缺少：${ingestConfig.missing.join("、")}）`;
         }
-        result.done = true;
+        if (!result.error) result.done = true;
       } catch (error) {
         const step = ["export", "fetch", "verify", "upload", "ingest"].find((key) => !result.steps[key]);
         if (step) result.steps[step] = "fail";

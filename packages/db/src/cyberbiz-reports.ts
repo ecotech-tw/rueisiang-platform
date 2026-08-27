@@ -19,12 +19,6 @@ export type CyberbizPayoutQuery = Omit<ReportPayoutQuery, "range"> & {
   groupBy?: ReportGroupBy[];
 };
 
-export function normalizeCyberbizMonth(value: string): string {
-  const month = value.trim();
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("CYBERBIZ 報表月份必須使用 YYYY-MM 格式。");
-  return month;
-}
-
 export async function recordCyberbizReportRun(
   db: Database,
   input: {

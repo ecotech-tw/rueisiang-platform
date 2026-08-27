@@ -3,6 +3,7 @@ import {
   insertReportPayoutDaily,
   insertReportSalesDaily,
   upsertReportScope,
+  type ReportGroupBy,
 } from "@rueisiang/db";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createCyberbizReportService } from "./cyberbiz-reports.js";
@@ -67,6 +68,29 @@ describe("報表日資料查詢", () => {
     expect(payout.totals).toEqual({ payoutAmount: 6000 });
   });
 
+  it("公司查詢包含舊版 store- scope ID", async () => {
+    const legacyScope = "store-legacy";
+    await upsertReportScope(db(), { id: legacyScope, scopeKind: "store", name: "舊版門市" });
+    await insertReportSalesDaily(db(), [{
+      scopeId: legacyScope,
+      businessDate: "2026-07-01",
+      sku: "SKU-LEGACY",
+      productName: "舊版商品",
+      category: "其他",
+      grossQuantity: 7,
+      returnQuantity: 1,
+      netQuantity: 6,
+      salesAmount: 600,
+    }]);
+    await insertReportPayoutDaily(db(), [{ scopeId: legacyScope, businessDate: "2026-07-01", payoutAmount: 700 }]);
+
+    const sales = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "company" });
+    expect(sales.totals).toEqual({ grossQuantity: 16, returnQuantity: 2, netQuantity: 14, salesAmount: 1280 });
+
+    const payout = await createCyberbizReportService(db()).queryPayout({ period: "2026-07", scopeType: "company" });
+    expect(payout.totals).toEqual({ payoutAmount: 6700 });
+  });
+
   it("公司查詢直接 aggregate 所有據點，不需要公司 aggregate row", async () => {
     const result = await createCyberbizReportService(db()).querySales({
       startDate: "2026-07-01",
@@ -82,6 +106,22 @@ describe("報表日資料查詢", () => {
     ]));
   });
 
+  it("groupBy 重複值會去重，未知值才拒絕", async () => {
+    const duplicate = await createCyberbizReportService(db()).querySales({
+      period: "2026-07",
+      scopeType: "company",
+      groupBy: ["day", "day"],
+    });
+    expect(duplicate.status).toBe("ok");
+    expect(duplicate.rows).toHaveLength(2);
+
+    await expect(createCyberbizReportService(db()).querySales({
+      period: "2026-07",
+      scopeType: "company",
+      groupBy: ["day", "unknown"] as unknown as ReportGroupBy[],
+    })).rejects.toMatchObject({ status: 400, code: "invalid_group_by" });
+  });
+
   it("年度查詢可以再依分類與月份 aggregate", async () => {
     const result = await createCyberbizReportService(db()).querySales({
       period: "2026",
@@ -94,6 +134,20 @@ describe("報表日資料查詢", () => {
     expect(result.rows).toEqual([{ reportMonth: "2026-07", grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 380 }]);
   });
 
+  it("範圍內有資料但篩選條件無結果時不會誤報尚未匯入", async () => {
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07",
+      scopeType: "company",
+      sku: "SKU-NOT-FOUND",
+    });
+    expect(result).toMatchObject({
+      status: "ok",
+      rows: [],
+      totals: { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 },
+    });
+    expect(result.message).toContain("篩選條件");
+  });
+
   it("出金以據點與日期做 aggregate，沒有 income type 或 POS 維度", async () => {
     const result = await createCyberbizReportService(db()).queryPayout({
       period: "2026-07",
@@ -102,6 +156,27 @@ describe("報表日資料查詢", () => {
     });
     expect(result).toMatchObject({ status: "ok", totals: { payoutAmount: 6000 } });
     expect(result.rows).toEqual([{ reportMonth: "2026-07", payoutAmount: 6000 }]);
+  });
+
+  it("出金分組只回傳日期、月份或據點維度", async () => {
+    const result = await createCyberbizReportService(db()).queryPayout({
+      period: "2026-07",
+      scopeType: "company",
+      groupBy: ["scope", "day"],
+    });
+    expect(result.rows).toEqual([
+      { scopeId: EAST, businessDate: "2026-07-01", payoutAmount: 3000, scopeName: "誠品信義店 2F" },
+      { scopeId: WEST, businessDate: "2026-07-01", payoutAmount: 1000, scopeName: "誠品西門店 3F" },
+      { scopeId: WEST, businessDate: "2026-07-02", payoutAmount: 2000, scopeName: "誠品西門店 3F" },
+    ]);
+  });
+
+  it("拒絕出金報表不支援的 SKU 或分類分組", async () => {
+    await expect(createCyberbizReportService(db()).queryPayout({
+      period: "2026-07",
+      scopeType: "company",
+      groupBy: ["sku"],
+    })).rejects.toMatchObject({ status: 400, code: "invalid_group_by" });
   });
 
   it("沒有指定區間資料時回傳後台作業所需的狀態", async () => {
@@ -117,5 +192,16 @@ describe("報表日資料查詢", () => {
       startDate: "2026-07-02",
       scopeType: "company",
     })).rejects.toMatchObject({ code: "invalid_report_range", status: 400 });
+  });
+
+  it("同 scope kind 的重複名稱會回傳明確的 ambiguous scope 錯誤", async () => {
+    await upsertReportScope(db(), { id: "cyberbiz:store:duplicate-a", scopeKind: "store", name: "重複門市" });
+    await upsertReportScope(db(), { id: "cyberbiz:store:duplicate-b", scopeKind: "store", name: "重複 門市" });
+
+    await expect(createCyberbizReportService(db()).querySales({
+      period: "2026-07",
+      scopeType: "store",
+      scopeName: "重複門市",
+    })).rejects.toMatchObject({ status: 409, code: "ambiguous_scope" });
   });
 });

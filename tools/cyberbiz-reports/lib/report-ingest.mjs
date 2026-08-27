@@ -6,6 +6,10 @@ function baseUrl(value) {
   return url.toString().replace(/\/$/, "");
 }
 
+export function payoutIngestRows(rows) {
+  return rows.map((row) => ({ businessDate: row.date, payoutAmount: Math.round(row.incomeAmount) }));
+}
+
 async function responseJson(response, label) {
   const text = await response.text();
   if (!response.ok) throw new Error(`${label} 失敗（HTTP ${response.status}）：${text.slice(0, 300)}`);

@@ -82,15 +82,6 @@ function cyberbizReportToolResult(value: unknown, reportKind: "sales" | "payout"
   });
 }
 
-function cyberbizReportToolError(error: unknown, reportKind: "sales" | "payout", input: unknown): string | null {
-  const candidate = error as { code?: unknown };
-  if (candidate?.code !== "report_service_unavailable") return null;
-  return cyberbizReportToolResult({
-    status: "NO_DATA_FOR_RANGE",
-    message: "報表查詢服務目前無法使用。",
-  }, reportKind, input);
-}
-
 function reportGroupByInput(input: unknown): ReportGroupBy[] | undefined {
   const value = textInput(input, "groupBy");
   if (!value) return undefined;
@@ -1181,24 +1172,18 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
     const scopeId = textInput(input, "scopeId");
     const scopeName = textInput(input, "scopeName");
     if (scopeType === "store" && !scopeId && !scopeName) throw new AssistantError("查詢單一櫃位時需要店面名稱。");
-    try {
-      return cyberbizReportToolResult(await cyberbizReportService(context).querySales({
-        ...(period ? { period } : {}),
-        scopeType: scopeType as CyberbizSalesQuery["scopeType"],
-        ...(scopeId ? { scopeId } : {}),
-        ...(scopeName ? { scopeName } : {}),
-        ...(startDate ? { startDate } : {}),
-        ...(endDate ? { endDate } : {}),
-        ...(reportGroupByInput(input) ? { groupBy: reportGroupByInput(input) } : {}),
-        ...(textInput(input, "sku") ? { sku: textInput(input, "sku") } : {}),
-        ...(textInput(input, "category") ? { category: textInput(input, "category") } : {}),
-        ...(textInput(input, "productName") ? { productName: textInput(input, "productName") } : {}),
-      }), "sales", input);
-    } catch (error) {
-      const fallback = cyberbizReportToolError(error, "sales", input);
-      if (fallback) return fallback;
-      throw error;
-    }
+    return cyberbizReportToolResult(await cyberbizReportService(context).querySales({
+      ...(period ? { period } : {}),
+      scopeType: scopeType as CyberbizSalesQuery["scopeType"],
+      ...(scopeId ? { scopeId } : {}),
+      ...(scopeName ? { scopeName } : {}),
+      ...(startDate ? { startDate } : {}),
+      ...(endDate ? { endDate } : {}),
+      ...(reportGroupByInput(input) ? { groupBy: reportGroupByInput(input) } : {}),
+      ...(textInput(input, "sku") ? { sku: textInput(input, "sku") } : {}),
+      ...(textInput(input, "category") ? { category: textInput(input, "category") } : {}),
+      ...(textInput(input, "productName") ? { productName: textInput(input, "productName") } : {}),
+    }), "sales", input);
   },
 };
 
@@ -1233,21 +1218,15 @@ const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
     const scopeId = textInput(input, "scopeId");
     const scopeName = textInput(input, "scopeName");
     if (scopeType === "store" && !scopeId && !scopeName) throw new AssistantError("查詢單一櫃位時需要店面名稱。");
-    try {
-      return cyberbizReportToolResult(await cyberbizReportService(context).queryPayout({
-        ...(period ? { period } : {}),
-        scopeType: scopeType as CyberbizPayoutQuery["scopeType"],
-        ...(startDate ? { startDate } : {}),
-        ...(endDate ? { endDate } : {}),
-        ...(scopeId ? { scopeId } : {}),
-        ...(scopeName ? { scopeName } : {}),
-        ...(reportGroupByInput(input) ? { groupBy: reportGroupByInput(input) } : {}),
-      }), "payout", input);
-    } catch (error) {
-      const fallback = cyberbizReportToolError(error, "payout", input);
-      if (fallback) return fallback;
-      throw error;
-    }
+    return cyberbizReportToolResult(await cyberbizReportService(context).queryPayout({
+      ...(period ? { period } : {}),
+      scopeType: scopeType as CyberbizPayoutQuery["scopeType"],
+      ...(startDate ? { startDate } : {}),
+      ...(endDate ? { endDate } : {}),
+      ...(scopeId ? { scopeId } : {}),
+      ...(scopeName ? { scopeName } : {}),
+      ...(reportGroupByInput(input) ? { groupBy: reportGroupByInput(input) } : {}),
+    }), "payout", input);
   },
 };
 

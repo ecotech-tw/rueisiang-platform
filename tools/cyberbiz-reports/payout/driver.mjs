@@ -39,7 +39,7 @@ import {
   verifyFormulaByTempCopy,
 } from "../lib/drive.mjs";
 import { terminalSummary, writeMarkdown } from "../lib/report.mjs";
-import { ingestCyberbizReport } from "../lib/report-ingest.mjs";
+import { ingestCyberbizReport, payoutIngestRows } from "../lib/report-ingest.mjs";
 
 function scopeIdFromStoreName(name) {
   return `cyberbiz:store:${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
@@ -290,7 +290,7 @@ async function main() {
             kind: "payout",
             scopeId: scopeIdFromStoreName(store.name),
             scopeName: store.name,
-            rows: parsed.rows.map((row) => ({ businessDate: row.date, payoutAmount: row.incomeAmount })),
+            rows: payoutIngestRows(parsed.rows),
           });
           result.steps.ingest = "ok";
         } else {

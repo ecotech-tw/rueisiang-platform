@@ -89,7 +89,6 @@ export {
   type CyberbizReportRunKind,
   type CyberbizSalesQuery,
   type CyberbizPayoutQuery,
-  normalizeCyberbizMonth,
 } from "./cyberbiz-reports.js";
 export {
   findReportScope,
@@ -100,6 +99,7 @@ export {
   parseReportRange,
   queryReportPayout,
   queryReportSales,
+  ReportScopeAmbiguousError,
   upsertReportScope,
   type ReportGroupBy,
   type ReportPayoutQuery,

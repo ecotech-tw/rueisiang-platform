@@ -38,7 +38,7 @@ function commonQuery(c: { req: { query(name: string): string | undefined } }) {
 
 function handleError(error: unknown): never {
   if (error instanceof CyberbizReportQueryError) {
-    throw new HTTPException(error.status as 400 | 404 | 422 | 502 | 503, { message: error.message });
+    throw new HTTPException(error.status as 400 | 404 | 409 | 422 | 502 | 503, { message: error.message });
   }
   throw error;
 }
