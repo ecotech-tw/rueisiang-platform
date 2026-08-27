@@ -2,10 +2,10 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
   reportPayoutDaily,
-  reportSalesDaily,
+  reportSalesMonthly,
   reportScopes,
   type NewReportPayoutDaily,
-  type NewReportSalesDaily,
+  type NewReportSalesMonthly,
   type ReportScope,
   type ReportScopeKind,
 } from "./schema/reports.js";
@@ -47,7 +47,7 @@ export interface ReportPayoutQuery {
 }
 
 export interface ReportSalesQueryResult {
-  status: "ok" | "NO_DATA_FOR_RANGE";
+  status: "ok" | "NO_DATA_FOR_RANGE" | "UNSUPPORTED_GRANULARITY";
   period: string;
   requestedStart: string;
   requestedEnd: string;
@@ -167,45 +167,37 @@ export async function findReportScope(
   return scopes[0] ?? null;
 }
 
-/**
- * covered 是這批「確實讀到報表」的日期，包含當天零筆的情況。當天零筆時 rows 裡不會有
- * 任何列，只看 rows 的話那天會被誤認成匯出失敗而保留過期的 SKU；反過來，真正失敗的
- * 日子不在 covered 裡，既有資料才得以保留。scopeId 要另外帶，因為整批都是零筆時
- * rows 是空的，光靠 rows 找不到要清哪個據點。沒有帶 covered 的舊 runner 退回只清
- * rows 涵蓋的日期。
- */
-export async function insertReportSalesDaily(
+/** 月份匯入是一次性快照；即使當月零筆，也要清掉該據點該月份的舊 SKU。 */
+export async function insertReportSalesMonthly(
   db: Database,
-  rows: readonly NewReportSalesDaily[],
-  covered?: { scopeId: string; dates: readonly string[] },
+  rows: readonly NewReportSalesMonthly[],
+  target?: { scopeId: string; reportMonth: string },
 ): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
-  const days = new Map<string, { scopeId: string; businessDate: string; rows: NewReportSalesDaily[] }>();
-  const dayKey = (scopeId: string, businessDate: string) => `${businessDate}${scopeId}`;
-  const day = (scopeId: string, businessDate: string) => {
-    const key = dayKey(scopeId, businessDate);
-    const existing = days.get(key);
+  const months = new Map<string, { scopeId: string; reportMonth: string; rows: NewReportSalesMonthly[] }>();
+  const month = (scopeId: string, reportMonth: string) => {
+    const key = `${reportMonth}\u0000${scopeId}`;
+    const existing = months.get(key);
     if (existing) return existing;
-    const created = { scopeId, businessDate, rows: [] as NewReportSalesDaily[] };
-    days.set(key, created);
+    const created = { scopeId, reportMonth, rows: [] as NewReportSalesMonthly[] };
+    months.set(key, created);
     return created;
   };
-  for (const row of rows) day(row.scopeId, row.businessDate).rows.push(row);
-  if (covered) for (const businessDate of covered.dates) day(covered.scopeId, businessDate);
+  for (const row of rows) month(row.scopeId, row.reportMonth).rows.push(row);
+  if (target) month(target.scopeId, target.reportMonth);
 
-  // 每天一組：那天的 delete 與它自己的 insert 綁在一起，一組不跨 db.batch()。batch 是
-  // 一個 transaction，把組切開的話中途失敗會留下「刪掉了但沒寫回去」的空洞，正是這支
-  // 函式要防的那種資料遺失。一組本身就超過上限時讓它獨佔一批，不再往下切。
+  // 每月一組：該月的 delete 與它自己的 insert 綁在一起，一組不跨 db.batch()。batch 是
+  // 一個 transaction，把組切開的話中途失敗會留下「刪掉了但沒寫回去」的空洞。一組本身就超過上限時讓它獨佔一批。
   const groups: Statement[][] = [];
-  for (const entry of days.values()) {
-    const group: Statement[] = [db.delete(reportSalesDaily).where(and(
-      eq(reportSalesDaily.scopeId, entry.scopeId),
-      eq(reportSalesDaily.businessDate, entry.businessDate),
+  for (const entry of months.values()) {
+    const group: Statement[] = [db.delete(reportSalesMonthly).where(and(
+      eq(reportSalesMonthly.scopeId, entry.scopeId),
+      eq(reportSalesMonthly.reportMonth, entry.reportMonth),
     ))];
     for (const chunk of chunks(entry.rows, 8)) {
       if (!chunk.length) continue;
-      group.push(db.insert(reportSalesDaily).values(chunk).onConflictDoUpdate({
-        target: [reportSalesDaily.scopeId, reportSalesDaily.businessDate, reportSalesDaily.sku],
+      group.push(db.insert(reportSalesMonthly).values(chunk).onConflictDoUpdate({
+        target: [reportSalesMonthly.scopeId, reportSalesMonthly.reportMonth, reportSalesMonthly.sku],
         set: {
           productName: sql`excluded.product_name`,
           category: sql`excluded.category`,
@@ -255,12 +247,13 @@ function chunks<T>(values: readonly T[], size: number): T[][] {
   return result;
 }
 
-const SALES_GROUPS: Record<ReportGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
-  day: { alias: "businessDate", expression: sql`${reportSalesDaily.businessDate}` },
-  month: { alias: "reportMonth", expression: sql`substr(${reportSalesDaily.businessDate}, 1, 7)` },
-  scope: { alias: "scopeId", expression: sql`${reportSalesDaily.scopeId}` },
-  sku: { alias: "sku", expression: sql`${reportSalesDaily.sku}` },
-  category: { alias: "category", expression: sql`${reportSalesDaily.category}` },
+type SalesGroupBy = Exclude<ReportGroupBy, "day">;
+
+const SALES_GROUPS: Record<SalesGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
+  month: { alias: "reportMonth", expression: sql`${reportSalesMonthly.reportMonth}` },
+  scope: { alias: "scopeId", expression: sql`${reportSalesMonthly.scopeId}` },
+  sku: { alias: "sku", expression: sql`${reportSalesMonthly.sku}` },
+  category: { alias: "category", expression: sql`${reportSalesMonthly.category}` },
 };
 
 type PayoutGroupBy = "day" | "month" | "scope";
@@ -274,8 +267,8 @@ const PAYOUT_GROUPS: Record<PayoutGroupBy, { alias: string; expression: ReturnTy
   scope: { alias: "scopeId", expression: sql`${reportPayoutDaily.scopeId}` },
 };
 
-function selectedGroups(groups: readonly ReportGroupBy[] | undefined): ReportGroupBy[] {
-  return [...new Set(groups?.filter((group): group is ReportGroupBy => group in SALES_GROUPS) ?? [])];
+function selectedGroups(groups: readonly ReportGroupBy[] | undefined): SalesGroupBy[] {
+  return [...new Set(groups?.filter((group): group is SalesGroupBy => group !== "day" && group in SALES_GROUPS) ?? [])];
 }
 
 function selectedPayoutGroups(groups: readonly ReportGroupBy[] | undefined): PayoutGroupBy[] {
@@ -313,38 +306,70 @@ function queryConditions(
   ], sql` AND `);
 }
 
+function monthConditions(
+  monthColumn: ReturnType<typeof sql>,
+  scopeColumn: ReturnType<typeof sql>,
+  range: ReportRange,
+  scopeIds: readonly string[],
+) {
+  return sql.join([
+    sql`${monthColumn} >= ${range.startDate.slice(0, 7)}`,
+    sql`${monthColumn} <= ${range.endDate.slice(0, 7)}`,
+    scopeCondition(scopeColumn, scopeIds),
+  ], sql` AND `);
+}
+
+function isWholeMonthRange(range: ReportRange): boolean {
+  if (!range.startDate.endsWith("-01")) return false;
+  const [year, month] = range.endDate.slice(0, 7).split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year ?? 0, month ?? 0, 0)).getUTCDate();
+  return range.endDate === `${range.endDate.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`;
+}
+
 function asNumber(value: unknown): number {
   return typeof value === "number" ? value : Number(value ?? 0);
 }
 
 export async function queryReportSales(db: Database, query: ReportSalesQuery): Promise<ReportSalesQueryResult | null> {
+  if (!isWholeMonthRange(query.range)) {
+    return {
+      status: "UNSUPPORTED_GRANULARITY",
+      period: query.range.period,
+      requestedStart: query.range.startDate,
+      requestedEnd: query.range.endDate,
+      scopeType: query.scopeType,
+      rows: [],
+      totals: { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 },
+      message: "商品銷售資料目前只支援完整月份查詢，請改用 YYYY-MM 或完整月份的起訖日期。",
+    };
+  }
   const { ids, scope } = await scopeIdsForQuery(db, query);
   if (!ids.length) return null;
   const groups = selectedGroups(query.groupBy?.length ? query.groupBy : ["sku"]);
   const dimensions = groups.map((group) => SALES_GROUPS[group]);
   const filters = [
-    queryConditions(sql`${reportSalesDaily.businessDate}`, sql`${reportSalesDaily.scopeId}`, query.range, ids),
-    ...(query.sku ? [sql`lower(${reportSalesDaily.sku}) = lower(${query.sku})`] : []),
-    ...(query.category ? [sql`lower(${reportSalesDaily.category}) = lower(${query.category})`] : []),
-    ...(query.productName ? [sql`lower(${reportSalesDaily.productName}) LIKE lower(${`%${query.productName}%`})`] : []),
+    monthConditions(sql`${reportSalesMonthly.reportMonth}`, sql`${reportSalesMonthly.scopeId}`, query.range, ids),
+    ...(query.sku ? [sql`lower(${reportSalesMonthly.sku}) = lower(${query.sku})`] : []),
+    ...(query.category ? [sql`lower(${reportSalesMonthly.category}) = lower(${query.category})`] : []),
+    ...(query.productName ? [sql`lower(${reportSalesMonthly.productName}) LIKE lower(${`%${query.productName}%`})`] : []),
   ];
   const selected = [
     ...dimensions.map((item) => sql`${item.expression} AS ${sql.raw(item.alias)}`),
-    sql`SUM(${reportSalesDaily.grossQuantity}) AS grossQuantity`,
-    sql`SUM(${reportSalesDaily.returnQuantity}) AS returnQuantity`,
-    sql`SUM(${reportSalesDaily.netQuantity}) AS netQuantity`,
-    sql`SUM(${reportSalesDaily.salesAmount}) AS salesAmount`,
+    sql`SUM(${reportSalesMonthly.grossQuantity}) AS grossQuantity`,
+    sql`SUM(${reportSalesMonthly.returnQuantity}) AS returnQuantity`,
+    sql`SUM(${reportSalesMonthly.netQuantity}) AS netQuantity`,
+    sql`SUM(${reportSalesMonthly.salesAmount}) AS salesAmount`,
   ];
   const grouped = dimensions.length ? sql` GROUP BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const order = dimensions.length ? sql` ORDER BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
-  const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${reportSalesDaily} WHERE ${sql.join(filters, sql` AND `)}${grouped}${order}`);
+  const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${reportSalesMonthly} WHERE ${sql.join(filters, sql` AND `)}${grouped}${order}`);
   const emptyAggregate = rows.length > 0 && rows.every((row) => (
     row.grossQuantity == null && row.returnQuantity == null && row.netQuantity == null && row.salesAmount == null
   ));
   if (!rows.length || emptyAggregate) {
-    const coverage = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count FROM ${reportSalesDaily} WHERE ${queryConditions(
-      sql`${reportSalesDaily.businessDate}`,
-      sql`${reportSalesDaily.scopeId}`,
+    const coverage = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count FROM ${reportSalesMonthly} WHERE ${monthConditions(
+      sql`${reportSalesMonthly.reportMonth}`,
+      sql`${reportSalesMonthly.scopeId}`,
       query.range,
       ids,
     )}`);

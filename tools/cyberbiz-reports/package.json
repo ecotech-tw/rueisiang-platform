@@ -2,7 +2,7 @@
   "name": "cyberbiz-reports",
   "private": true,
   "type": "module",
-  "description": "CYBERBIZ POS 出金表與商品銷售報表：匯出、取檔、解析、上傳 Google Drive 與 D1 日資料",
+  "description": "CYBERBIZ POS 出金表與商品銷售報表：匯出、取檔、解析、上傳 Google Drive 與 D1 月資料",
   "scripts": {
     "run": "node payout/driver.mjs",
     "payout": "node payout/driver.mjs",

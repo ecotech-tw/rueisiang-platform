@@ -93,7 +93,7 @@ export {
 export {
   findReportScope,
   insertReportPayoutDaily,
-  insertReportSalesDaily,
+  insertReportSalesMonthly,
   listReportScopes,
   normalizeReportScopeName,
   parseReportRange,

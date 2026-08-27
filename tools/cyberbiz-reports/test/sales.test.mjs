@@ -27,12 +27,13 @@ async function fixture() {
   return { root, filePath };
 }
 
-test("parses interval sales rows and preserves the report total", async () => {
+test("parses monthly sales rows and preserves the report total", async () => {
   const context = await fixture();
   try {
     const document = await parseSalesReport(context.filePath, { scopeId: "store-a", scopeName: "測試店" });
     assert.equal(document.reportMonth, "2026-07");
-    assert.equal(document.granularity, "interval");
+    assert.equal(document.kind, "cyberbiz_sales_monthly");
+    assert.equal(document.granularity, "month");
     assert.deepEqual(document.totals, { grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 270 });
     assert.equal(document.rows[0].salesAmount, 180);
     assert.equal(document.rows[0].category, "食品");

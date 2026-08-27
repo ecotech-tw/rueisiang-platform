@@ -3,13 +3,12 @@
 /**
  * CYBERBIZ 商品銷售報表流程。
  *
- * 每家店將原始 XLSX 上傳 Drive，並把每日商品明細匯入 D1；公司統計由查詢時 aggregate。
- * 商品銷售總表本身是區間彙總，因此查詢日資料時會逐日匯出並解析。
+ * 每家店將原始 XLSX 上傳 Drive，並把整月商品明細匯入 D1；公司統計由查詢時 aggregate。
+ * 商品銷售以月份為最小粒度，因此每家店每月只匯出並解析一份 XLSX。
  */
 import path from "node:path";
 import {
   accessToken,
-  getFile,
   uploadXlsx,
 } from "../lib/drive.mjs";
 import {
@@ -34,7 +33,6 @@ import { downloadAttachment, whoAmI } from "../lib/gmail-api.mjs";
 import { parseSalesReport } from "./parser.mjs";
 import { writeMarkdown, terminalSummary } from "../lib/report.mjs";
 import { ingestCyberbizReport } from "../lib/report-ingest.mjs";
-import { collectSalesDailyRows } from "../lib/sales-daily.mjs";
 
 function parseArgs(argv) {
   const args = { stores: [] };
@@ -57,8 +55,21 @@ function help() {
   log([
     "用法：node sales/driver.mjs [--month YYYY-MM | --start YYYY-MM-DD --end YYYY-MM-DD]",
     "                         [--store 店名]... [--skip-upload] [--list-stores] [--headless]",
-    "原始 XLSX 上傳 Google Drive，每日商品資料匯入 D1；未設定 ingest token 時只上傳 Drive。",
+    "原始 XLSX 上傳 Google Drive，整月商品資料匯入 D1；未設定 ingest token 時只上傳 Drive。",
   ].join("\n"));
+}
+
+function monthlyRows(document) {
+  return document.rows.map((row) => ({
+    reportMonth: document.reportMonth,
+    sku: row.sku,
+    productName: row.productName,
+    category: row.category,
+    grossQuantity: Math.round(row.grossQuantity),
+    returnQuantity: Math.round(row.returnQuantity),
+    netQuantity: Math.round(row.netQuantity),
+    salesAmount: Math.round(row.salesAmount),
+  }));
 }
 
 async function main() {
@@ -164,57 +175,17 @@ async function main() {
         }
 
         if (monthly && ingestConfig.enabled) {
-          const dailyResult = await collectSalesDailyRows({
-            range,
-            localPath,
-            loadDay: async (day, reusedPath) => {
-              let dailyPath = reusedPath;
-              if (!dailyPath) {
-                const dailyExport = await exportSalesReport(page, {
-                  storeBase,
-                  recipientEmail,
-                  startDate: day.start,
-                  endDate: day.end,
-                  reportPath: config.salesReportPath,
-                });
-                dailyPath = await downloadAttachment(gmailToken, {
-                  expectedName: salesFilename(store.name, day.start, day.end),
-                  sender: config.attachmentSender,
-                  downloadDir: stagingDir,
-                  notBefore: dailyExport.submittedAt,
-                });
-              }
-              return parseSalesReport(dailyPath, {
-                scopeType: "store",
-                scopeId: scopeIdFromStoreName(store.name),
-                scopeName: store.name,
-                reportMonth: day.start.slice(0, 7),
-                start: day.start,
-                end: day.end,
-                allowEmpty: true,
-              });
-            },
-          });
-          if (dailyResult.failures.length) {
-            const details = dailyResult.failures
-              .map(({ day, error }) => `${day.start}：${redact(error?.message ?? "日報處理失敗", env)}`)
-              .join("；");
-            result.error = {
-              code: "DAILY_EXPORT_PARTIAL",
-              message: `有 ${dailyResult.failures.length} 天商品銷售報表失敗，已保留其餘日期資料：${details}`,
-            };
-          }
+          if (!document) throw new Error("完整月份沒有取得可匯入的商品銷售報表。");
           await ingestCyberbizReport({
             apiUrl: ingestConfig.apiUrl,
             ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
             kind: "sales",
             scopeId: scopeIdFromStoreName(store.name),
             scopeName: store.name,
-            rows: dailyResult.rows,
-            coveredDates: dailyResult.coveredDates,
+            reportMonth: document.reportMonth,
+            rows: monthlyRows(document),
           });
           result.steps.ingest = "ok";
-          result.done = dailyResult.failures.length === 0;
         } else {
           result.steps.ingest = "skip";
           result.note = !monthly
@@ -223,7 +194,7 @@ async function main() {
               ? "--skip-upload，未匯入 D1"
               : `未匯入 D1（缺少：${ingestConfig.missing.join("、")}）`;
         }
-        if (!result.error) result.done = true;
+        result.done = true;
       } catch (error) {
         const step = ["export", "fetch", "verify", "upload", "ingest"].find((key) => !result.steps[key]);
         if (step) result.steps[step] = "fail";
@@ -232,7 +203,6 @@ async function main() {
         try { result.screenshot = await screenshot(page, `${range.label}-${store.name}-sales-error`, { kind: "sales" }); } catch {}
       }
     }
-
   } finally {
     run.finishedAt = new Date().toISOString();
     if (run.stores.length) {

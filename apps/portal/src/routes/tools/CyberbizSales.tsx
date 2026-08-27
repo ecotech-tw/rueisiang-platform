@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
@@ -15,19 +14,24 @@ function formatDate(value: string): string {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
 }
 
+function monthRange(value: string): { start: string; end: string } | null {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return null;
+  const [year, month] = value.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year ?? 0, month ?? 0, 0)).getUTCDate();
+  return { start: `${value}-01`, end: `${value}-${String(lastDay).padStart(2, "0")}` };
+}
+
 export function CyberbizSales() {
   usePageTitle("商品銷售報表執行");
   const state = useCyberbizSalesState();
   const run = useRunCyberbizSales();
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
+  const [month, setMonth] = useState("");
   const [tracking, setTracking] = useState<string | null>(null);
   const status = useCyberbizSalesStatus(tracking ?? state.data?.latestRequestId ?? null);
 
   useEffect(() => {
     if (!state.data) return;
-    setStart((current) => current || state.data.defaultStart);
-    setEnd((current) => current || state.data.defaultEnd);
+    setMonth((current) => current || state.data.defaultStart.slice(0, 7));
   }, [state.data]);
 
   if (state.isPending) return <div className="boot">載入中…</div>;
@@ -38,18 +42,19 @@ export function CyberbizSales() {
   // workflow_dispatch 回 204 後，GitHub 建立 run 會有幾秒延遲；這段時間不能再送第二次。
   const awaitingRegistration = Boolean(tracking && !status.data?.runs.length);
   const running = awaitingRegistration || (Boolean(latest) && latest!.status !== "completed");
-  const rangeError = start && end && start > end ? "起日不能晚於迄日。" : "";
-  const blocked = running || run.isPending || !start || !end || Boolean(rangeError) || !state.data?.configured;
+  const range = monthRange(month);
+  const blocked = running || run.isPending || !range || !state.data?.configured;
 
   function start_(names: string[]) {
-    run.mutate({ stores: names, start, end }, { onSuccess: (result) => setTracking(result.requestId) });
+    if (!range) return;
+    run.mutate({ stores: names, ...range }, { onSuccess: (result) => setTracking(result.requestId) });
   }
 
   return (
     <div className="page">
       <PageHeader
         title="商品銷售報表執行"
-        description="從 CYBERBIZ POS 匯出商品銷售總表，依店別上傳到既有 Google Drive 通路資料夾；完整月份會另外把每日商品資料匯入 D1，供小香查詢。"
+        description="從 CYBERBIZ POS 匯出商品銷售總表，依店別上傳到既有 Google Drive 通路資料夾；每次執行只匯出一份完整月份，並把月資料匯入 D1 供小香查詢。"
       />
 
       {!state.data?.configured ? (
@@ -58,12 +63,14 @@ export function CyberbizSales() {
 
       <Panel>
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
-          <span className="inline-label">報表區間</span>
-          <DateRangePicker
-            start={start}
-            end={end}
+          <span className="inline-label">報表月份</span>
+          <input
+            className="text-input"
+            type="month"
+            value={month}
             disabled={blocked}
-            onChange={(range) => { setStart(range.start); setEnd(range.end); }}
+            onChange={(event) => setMonth(event.target.value)}
+            aria-label="報表月份"
           />
           <Button
             icon="analytics"
@@ -79,9 +86,8 @@ export function CyberbizSales() {
         </form>
 
         <p className="muted table-note">
-          完整月份會逐日匯出並把商品銷售日資料匯入 D1；例如 2026-07-14 ~ 2026-07-18 仍會上傳區間原始 XLSX 到 Drive，但不會匯入 D1。原始檔與 D1 查詢資料彼此獨立。
+          每次執行只匯出一份完整月份 XLSX；原始檔上傳 Drive，並把該月份的商品銷售資料匯入 D1。原始檔與 D1 查詢資料彼此獨立。
         </p>
-        {rangeError ? <Alert tone="danger">{rangeError}</Alert> : null}
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
         {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
 

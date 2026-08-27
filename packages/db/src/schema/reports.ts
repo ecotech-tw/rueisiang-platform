@@ -17,10 +17,10 @@ export const reportScopes = sqliteTable("report_scopes", {
   index("idx_report_scopes_active").on(table.scopeKind, table.active),
 ]);
 
-/** 每個據點每天每個 SKU 一筆；金額是商品銷售報表的原始口徑。 */
-export const reportSalesDaily = sqliteTable("report_sales_daily", {
+/** 每個據點每月每個 SKU 一筆；商品銷售總表本身只有月彙總粒度。 */
+export const reportSalesMonthly = sqliteTable("report_sales_monthly", {
   scopeId: text("scope_id").notNull(),
-  businessDate: text("business_date").notNull(),
+  reportMonth: text("report_month").notNull(),
   sku: text("sku").notNull(),
   productName: text("product_name").notNull().default(""),
   category: text("category").notNull().default("未分類"),
@@ -30,10 +30,10 @@ export const reportSalesDaily = sqliteTable("report_sales_daily", {
   salesAmount: integer("sales_amount").notNull().default(0),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
-  primaryKey({ columns: [table.scopeId, table.businessDate, table.sku] }),
-  index("idx_report_sales_daily_date").on(table.scopeId, table.businessDate),
-  index("idx_report_sales_daily_sku").on(table.scopeId, table.sku, table.businessDate),
-  index("idx_report_sales_daily_category").on(table.scopeId, table.category, table.businessDate),
+  primaryKey({ columns: [table.scopeId, table.reportMonth, table.sku] }),
+  index("idx_report_sales_monthly_month").on(table.scopeId, table.reportMonth),
+  index("idx_report_sales_monthly_sku").on(table.scopeId, table.sku, table.reportMonth),
+  index("idx_report_sales_monthly_category").on(table.scopeId, table.category, table.reportMonth),
 ]);
 
 /** 同一據點同一天的出金已在匯入前加總，不再保留支付方式或 POS 維度。 */
@@ -49,7 +49,7 @@ export const reportPayoutDaily = sqliteTable("report_payout_daily", {
 
 export type ReportScope = typeof reportScopes.$inferSelect;
 export type NewReportScope = typeof reportScopes.$inferInsert;
-export type ReportSalesDaily = typeof reportSalesDaily.$inferSelect;
-export type NewReportSalesDaily = typeof reportSalesDaily.$inferInsert;
+export type ReportSalesMonthly = typeof reportSalesMonthly.$inferSelect;
+export type NewReportSalesMonthly = typeof reportSalesMonthly.$inferInsert;
 export type ReportPayoutDaily = typeof reportPayoutDaily.$inferSelect;
 export type NewReportPayoutDaily = typeof reportPayoutDaily.$inferInsert;

@@ -135,7 +135,7 @@ function initializeResult(protocolVersion: string) {
     protocolVersion,
     capabilities: { tools: { listChanged: false } },
     serverInfo: { name: "rueisiang-cyberbiz-reports", version: "1.0.0" },
-    instructions: "查詢已匯入 D1 的商品銷售與出金日資料；支援月份、年份與自訂日期區間，若資料尚未匯入會提示後台執行報表作業。",
+    instructions: "查詢已匯入 D1 的商品銷售月資料與出金日資料；商品銷售支援月份、年份與完整月份區間，若資料尚未匯入會提示後台執行報表作業。",
   };
 }
 

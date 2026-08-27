@@ -32,6 +32,13 @@ function dateRange(value) {
   return { start: match[1], end: match[2] };
 }
 
+function isWholeMonth(range) {
+  if (range.start !== `${range.start.slice(0, 7)}-01`) return false;
+  const [year, month] = range.end.slice(0, 7).split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year ?? 0, month ?? 0, 0)).getUTCDate();
+  return range.end === `${range.end.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`;
+}
+
 function findColumn(columns, name, required = true) {
   const index = columns.indexOf(name);
   if (index < 0 && required) throw new Error(`銷售總表缺少欄位：${name}`);
@@ -50,8 +57,8 @@ function assertRowTotals(rows, totals, field, label) {
 }
 
 /**
- * 解析「商品銷售總表」的指定區間。CYBERBIZ 報表是區間彙總；driver 以每日區間
- * 執行時，這些列即可作為 D1 的每日事實資料。
+ * 解析「商品銷售總表」的指定區間。CYBERBIZ 報表是區間彙總；完整月份會直接
+ * 作為月資料匯入，部分月份則只保留為 Drive 原始檔。
  * 售額一律採用 J 欄的售額總計，不用售價乘數量重算，以保留折扣、組合商品與贈品的語意。
  */
 export async function parseSalesReport(filePath, {
@@ -136,14 +143,14 @@ export async function parseSalesReport(filePath, {
 
   return {
     schemaVersion: 1,
-    kind: "cyberbiz_sales_interval",
+    kind: isWholeMonth(range) ? "cyberbiz_sales_monthly" : "cyberbiz_sales_interval",
     scopeType,
     scopeId,
     scopeName: scopeName || path.basename(filePath),
     reportMonth: detectedMonth,
     coverageStart: range.start,
     coverageEnd: range.end,
-    granularity: range.start === range.end ? "day" : "interval",
+    granularity: isWholeMonth(range) ? "month" : "interval",
     rows,
     totals,
     source: { filename: path.basename(filePath), parserVersion },

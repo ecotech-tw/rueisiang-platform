@@ -1,4 +1,4 @@
-import { createDatabase, insertReportSalesDaily, upsertReportScope } from "@rueisiang/db";
+import { createDatabase, insertReportSalesMonthly, upsertReportScope } from "@rueisiang/db";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -31,8 +31,8 @@ beforeEach(async () => {
   d1 = createLocalD1();
   const db = createDatabase(d1 as never);
   await upsertReportScope(db, { id: "cyberbiz:store:test", scopeKind: "store", name: "測試店" });
-  await insertReportSalesDaily(db, [{
-    scopeId: "cyberbiz:store:test", businessDate: "2026-07-01", sku: "SKU-1", productName: "商品一", category: "沐浴",
+  await insertReportSalesMonthly(db, [{
+    scopeId: "cyberbiz:store:test", reportMonth: "2026-07", sku: "SKU-1", productName: "商品一", category: "沐浴",
     grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 180,
   }]);
 });
@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 describe("報表 MCP endpoint", () => {
-  it("協商、列出兩個工具，並直接查詢 D1 日資料", async () => {
+  it("協商、列出兩個工具，並直接查詢 D1 月資料", async () => {
     const initialized = await call("initialize", 1, { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test-client", version: "1.0.0" } });
     expect(initialized.status).toBe(200);
     expect((await initialized.json() as { result: { protocolVersion: string } }).result.protocolVersion).toBe("2025-06-18");
