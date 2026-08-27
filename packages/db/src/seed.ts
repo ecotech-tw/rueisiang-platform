@@ -10,7 +10,7 @@ import { rolePermissions, roles } from "./schema/auth.js";
  * 所以在 permissions.ts 增減權限之後跑一次就會生效，不必手動改資料。
  *
  * 由 POST /api/admin/roles/sync 呼叫，需要 admin:role:write。全新的環境要怎麼
- * 生出第一位管理者見 docs/deployment-setup.md——那是一次性的、資料庫層的動作，
+ * 生出第一位管理者見 .claude/skills/platform-deploy/SKILL.md——那是一次性的、資料庫層的動作，
  * 不該在程式裡留一條平常沒人走的路。
  */
 export async function syncSystemRoles(db: Database): Promise<void> {

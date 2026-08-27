@@ -6,8 +6,12 @@
 Material 3 的設計語彙，以及一份「禁止事項」——那幾條是踩過才學到的，
 不是偏好問題。
 
-技能（skill）在 [`.claude/skills/`](./.claude/skills/)，目前只有出金表的操作知識。
-資料夾名字沿用 `.claude`，同樣不另外開一份。
+技能（skill）在 [`.claude/skills/`](./.claude/skills/)：`platform-deploy` 是開通與部署，
+`cyberbiz-monthly-payout` 是月結出金表與報表查詢。資料夾名字沿用 `.claude`，
+同樣不另外開一份。
+
+多 agent 的協作邊界——worktree、port、誰能改什麼、文件寫在哪、功能做完要收的尾——在
+[`docs/development-workflow.md`](./docs/development-workflow.md)。
 
 ## 為什麼是一行指標，不是複製一份
 

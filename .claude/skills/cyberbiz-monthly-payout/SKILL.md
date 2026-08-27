@@ -1,12 +1,16 @@
 ---
 name: cyberbiz-monthly-payout
-description: 每月把 CYBERBIZ 各 POS 商店（百貨專櫃、服務區）的「每日出金報表」匯出、從 Gmail 取回 xlsx、寫入對帳欄位（H 公司POS / I 櫃位POS / J 備註 / K 人員業績）後上傳到 Google Drive 通路銷售紀錄，並產出月結報告。用於出金表、每日出金報表、POS 紀錄下載、通路月結對帳、上傳雲端硬碟、月初帳務作業，以及維護 tools/cyberbiz-monthly-payout 底下的 driver。
+description: 每月把 CYBERBIZ 各 POS 商店（百貨專櫃、服務區）的「每日出金報表」匯出、從 Gmail 取回 xlsx、寫入對帳欄位（H 公司POS / I 櫃位POS / J 備註 / K 人員業績）後上傳到 Google Drive 通路銷售紀錄，並產出月結報告。用於出金表、每日出金報表、POS 紀錄下載、通路月結對帳、上傳雲端硬碟、月初帳務作業，以及維護 tools/cyberbiz-monthly-payout 底下的 driver。也涵蓋報表跑完之後小香怎麼查（商品銷售總表查詢、出金區間查詢、report manifest、NAS normalized JSON、cyberbiz-reports MCP endpoint）。
 ---
 
 # CYBERBIZ 每月出金表
 
 對應 SOP：`工作說明書/營運部門_行政助理_帳務_每月做帳流程作業.docx`「每月 1 號至 cyberbiz
 後台下載 pos 紀錄 / 出金表上傳 google drive」，以及 `各通路對帳作業.docx` 3.1 的出金合計公式。
+
+報表跑完之後，資料怎麼被小香查到（manifest、NAS JSON、兩個查詢 tool、MCP endpoint）
+寫在 [`reference/report-query.md`](./reference/report-query.md)——查詢跟產表是同一條資料流
+的兩半，要改其中一邊先看另一邊。
 
 程式在 `tools/cyberbiz-monthly-payout/`。**它刻意不在 pnpm workspace 裡**——相依
 Playwright，拉進 workspace 會讓每個人的 `pnpm install` 都扛一份只有 runner 用得到的

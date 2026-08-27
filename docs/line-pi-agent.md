@@ -155,5 +155,5 @@ Worker 永遠只從 vault RPC 取得短效 access token，不會把 refresh toke
 
 本機 `tsx` API server 會以 Node SQLite adapter 模擬 chat DO 與 credential vault，所以可在
 Sandbox 測 Gemini API key 或 Codex OAuth；正式 LINE Queue、Cloudflare alarm 與真實 DO migration
-仍要部署後驗證。本機不可執行 Wrangler 的限制仍以 [`deployment-setup.md`](./deployment-setup.md)
+仍要部署後驗證。本機不可執行 Wrangler 的限制仍以 [`platform-deploy` skill](../.claude/skills/platform-deploy/SKILL.md)
 為準。

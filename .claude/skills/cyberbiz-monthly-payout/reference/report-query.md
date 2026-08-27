@@ -1,5 +1,9 @@
 # CYBERBIZ 報表查詢
 
+這份是 `cyberbiz-monthly-payout` skill 的參考資料：出金表與商品銷售總表**跑完之後**，
+資料怎麼被小香查到。要跑報表看 `../SKILL.md`。
+
+
 這個功能把「原始檔案」與「查詢資料」分開：
 
 - NAS 保存原始 XLSX 與 normalized JSON。報表物件使用 `reports/cyberbiz/<scopeId>/<YYYY>/<MM>/`，目前接受 `.xlsx` 與 `.json`。
@@ -80,3 +84,20 @@ company aggregate 不需要 Drive 檔案。`bundle` 才同時需要兩種 JSON�
 公司 scope 的 sales JSON 由 runner 以 SKU 合併各櫃位 sales document；同 SKU 的商品名稱或分類不一致時會中止 publish。
 公司 scope 的 payout JSON 則保留各店別的每日出金 rows。combined XLSX 以既有出金 XLSX 為 base 新增商品銷售分頁，
 原有出金欄位與公式不重新產生。
+
+## 設計邊界（不要做的事）
+
+這幾條是動工前定下來的，實作完了仍然成立——改之前先想清楚為什麼當初不做：
+
+- **不做即時 CYBERBIZ API 查詢。** 每個問題都打官網會慢、會被限流，而且拿到的是
+  未對帳的數字。查詢只讀已 publish 的 manifest。
+- **Worker 的 request 路徑不解析 XLSX。** 解析在 runner 上做，Worker 只讀 normalized JSON。
+- **不接外部 MCP client。** 這個 adapter 只服務平台自己的助理 surface。
+- **MCP surface 裡不做儀表板或試算表編輯器。** 它只回結構化查詢結果。
+- **商品銷售報表的粒度就是月，不假裝成逐日。** 月報拆不出精確的日資料，所以寧可回
+  `UNSUPPORTED_GRANULARITY`，也不要給一個看起來合理但錯的數字。
+
+模型負責的只有「把自然語句轉成固定查詢參數」與「把 `NO_DATA_FOR_RANGE`、
+`INCOMPLETE_COVERAGE`、`UNSUPPORTED_GRANULARITY` 翻成人話」。精確加總一律由 D1 manifest、
+NAS normalized JSON 與 DB aggregation 提供；模型不直接讀 NAS、Google Drive 或任何外部 MCP。
+NAS token 與 ingest token 永遠不會進到模型的 context。

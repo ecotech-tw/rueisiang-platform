@@ -1,11 +1,18 @@
-# 第一次上線要開通什麼
+---
+name: platform-deploy
+description: 開通與維運瑞香平台在 Cloudflare 上的資源：建立 Worker 與 D1、設定 Queue、Worker secret 與模型 provider credential、跑 Deploy workflow、綁定 platform.rueisiang.com、產生第一位管理者、設定 GitHub Actions 部署憑證、開通 R2 與 Upstash，以及 CYBERBIZ webhook。用於首次上線、另開環境（staging）、換人接手、憑證過期要重設、部署失敗或回滾、確認某個 secret 該填什麼值。
+---
 
-這份文件講的是**帳號與資源的開通**——那些需要你本人的 Google 與 Cloudflare 帳號，
-沒辦法由程式自己生出來。
+# 開通與部署瑞香平台
 
-平台已經在 <https://platform.rueisiang.com> 上跑，1–4 節與 5.2 都做完了。留著這份
-文件是為了兩件事：換人接手時知道每個東西在哪、以及 5.1（R2）——**唯一還沒開通的
-東西**。
+**這是操作手冊，不是架構說明。** 講的是那些需要人本人的 Google 與 Cloudflare 帳號、
+沒辦法由程式自己生出來的東西。系統長什麼樣看 `README.md` 與 `docs/`。
+
+正式站在 <https://platform.rueisiang.com>。**要動手之前先看最後一節「執行順序」**——
+本文的章節照主題分，實際操作順序不一樣（要先部署一次，Worker 才存在）。
+
+> **狀態不寫在這份文件裡。** 哪些資源已經開通、哪些還沒，去 Cloudflare 儀表板與
+> GitHub Secrets 看，那才是真的。文件只講「怎麼開」與「為什麼是這樣開」。
 
 ---
 
@@ -75,10 +82,10 @@ Google 會逐字比對（`apps/api/src/routes/auth.ts` 的 `CALLBACK_PATH`）。
 > 所以底下用**儀表板**操作。如果你手上有 WSL 或別台 Linux/macOS，
 > 括號裡的 wrangler 指令是等價的做法。
 
-### 2.1 建立資料庫 ✅ 已完成
+### 2.1 建立資料庫
 
-D1 資料庫 `rueisiang-platform` 已經建好，`database_id` 也填進
-`apps/api/wrangler.toml` 了。這個值不是機密，可以進版控。
+建一個叫 `rueisiang-platform` 的 D1，把拿到的 `database_id` 填進
+`apps/api/wrangler.toml`。這個值不是機密，可以進版控。
 
 （等價指令：`npx wrangler d1 create rueisiang-platform`）
 
@@ -130,7 +137,7 @@ DO instance。
 
 部署後還要設定 `PI_OPENAI_CODEX_CREDENTIAL` 與 `PI_CREDENTIAL_ENCRYPTION_KEY`。如何從
 Codex CLI 取得最小 credential JSON、vault 如何加密／refresh，以及 session／compact／reset
-行為，完整說明見 [`line-pi-agent.md`](./line-pi-agent.md)。Codex 路徑不使用
+行為，完整說明見 [`docs/line-pi-agent.md`](../../../docs/line-pi-agent.md)。Codex 路徑不使用
 `OPENAI_API_KEY`；要開 Gemini 模型才需要 `GEMINI_API_KEY`。兩個 provider 可只設定其中一個，
 但目前 active model 對應的 credential 必須存在。
 
@@ -143,7 +150,7 @@ Codex CLI 取得最小 credential JSON、vault 如何加密／refresh，以及 s
 
 Worker 端必須同時設定 `NAS_STORAGE_URL` 與 `NAS_STORAGE_TOKEN`；只設定其中一個會以設定錯誤
 拒絕圖片操作。token 要和 Codex relay 使用不同的值。gateway 的 NAS 建置、權限、Tunnel
-hostname 與回滾步驟見 [`tools/nas-storage/README.md`](../tools/nas-storage/README.md)。
+hostname 與回滾步驟見 [`tools/nas-storage/README.md`](../../../tools/nas-storage/README.md)。
 
 `NAS_STORAGE_URL` 只填 gateway 的 HTTPS origin，不要加 API path：
 
@@ -220,7 +227,7 @@ workflow 檔名與 branch 可用 `CYBERBIZ_SALES_WORKFLOW_FILE`、`CYBERBIZ_SALE
 不是 secret，workflow 會使用 repository variable `WORKER_URL`，未設定時 fallback 到
 `https://platform.rueisiang.com`。自訂日期區間只上傳原始 XLSX 到 Google Drive，不會被 AI 查詢使用。
 Google Drive 的 root 與各店別資料夾設定方式，沿用
-[`tools/cyberbiz-monthly-payout/README.md`](../tools/cyberbiz-monthly-payout/README.md)。
+[`cyberbiz-monthly-payout` skill](../cyberbiz-monthly-payout/SKILL.md)。
 
 ### 2.4 部署
 
@@ -256,7 +263,8 @@ Observability log 裡的 `$workers.scriptVersion.id` 應該與它一致；若不
 
 ### 2.5 生出第一位管理者（只有全新環境需要）
 
-正式環境已經做過這一步了，這節是給日後另開環境（例如 staging）時看的。
+**只有全新的資料庫要做這一步。** 既有環境重跑會被 `ON CONFLICT DO NOTHING` 擋掉，
+不會壞，但也沒有意義。
 
 全新的 D1 只有 migration 建出來的空表：`roles` 是空的（沒有人拿得到權限）、
 `users` 也是空的（邀請制，沒有人能登入）。這是個死結，只能從資料庫外面打破。
@@ -401,9 +409,9 @@ bucket 名稱要跟 `apps/api/wrangler.toml` 的 `[[r2_buckets]]` 一致，bindi
 讀取走 `/api/wms/images/:id` 而不是 R2 的公開網址——倉庫內部的照片，拿到連結的人不該
 就看得到。R2 bucket 仍可依需求建立，不是 NAS storage 的必要條件。
 
-### 5.2 Upstash Redis — CYBERBIZ 商品目錄的快取 ✅ 已設定
+### 5.2 Upstash Redis — CYBERBIZ 商品目錄的快取（可選）
 
-平台使用一個 Upstash Redis 實例作為選用快取。兩個值已經設成 Worker secret：
+平台使用一個 Upstash Redis 實例作為選用快取。開一個實例，把兩個值設成 Worker secret：
 
 ```
 UPSTASH_REDIS_REST_URL
@@ -486,12 +494,12 @@ Worker 還不存在（沒地方放 secret），而且它的網址也還不知道
 第 2 步的部署會成功但還不能登入——secret 是執行時才讀的，缺了不影響部署，
 只有 `/api/auth/google/start` 會壞。`/api/health` 那時就該回 `"database":"ok"`。
 
-| 步驟 | 需要誰 | 卡點 |
+| 步驟 | 需要誰 | 會卡在哪 |
 |---|---|---|
-| Google OAuth client | 你（Workspace 管理者） | 同意畫面選內部還是外部，取決於同仁信箱網域 |
-| Cloudflare 帳號與 D1 | 你 | 已完成 |
-| R2 bucket（選用） | 你 | **還沒開通**。要走一次訂閱流程；用量在免費額度內是 $0 |
-| Upstash secret（選用） | 你 | 已完成，供平台的 CYBERBIZ 商品目錄快取使用 |
-| GitHub secret 與變數 | 你 | API token 的 D1 權限要手動加，範本沒有 |
+| Google OAuth client | Workspace 管理者 | 同意畫面選內部還是外部，取決於同仁信箱網域 |
+| Cloudflare 帳號與 D1 | Cloudflare 帳號持有者 | 免費方案就夠 |
+| R2 bucket（選用） | Cloudflare 帳號持有者 | 要走一次訂閱流程（留付款方式）；用量在免費額度內是 $0 |
+| Upstash secret（選用） | Cloudflare 帳號持有者 | 沒有也能跑，只是 CYBERBIZ 庫存頁慢幾秒 |
+| GitHub secret 與變數 | repo 管理者 | API token 的 D1 權限要手動加，範本沒有 |
 | 部署 | GitHub Actions | 這台開發機連 `wrangler whoami` 都跑不了 |
 | 網域委派 | 管 `rueisiang.com` DNS 的人 | 要確認現有記錄不會被弄斷 |
