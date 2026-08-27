@@ -1,10 +1,27 @@
-# CLAUDE.md
+# CLAUDE.md — Rueisiang Platform 開發規範
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+這份文件是本 repo 的開發規範，也是 Codex、Claude 與人類共同遵守的單一來源。
 
 專案語言是繁體中文（zh-TW）。README、程式碼註解、UI 文案、commit message 都用中文，新寫的也照做。
 
-## 開發原則：先盤點 scope 與 impact，再動手
+## 開發流程
+
+每個新需求都依序經過「同步基準、盤點、最小實作、驗證、PR review」。不要跳過前面的盤點直接寫程式。
+
+### 開工前
+
+1. 確認目前路徑、worktree、branch 與未提交修改；不要碰另一個 agent 的 worktree。
+2. 依照 [`docs/development-workflow.md`](./docs/development-workflow.md) 的開工步驟執行 `git fetch origin main --prune`，確認本地使用的是最新的 `origin/main`。
+3. 新需求一律從最新的 `origin/main` 建立 feature branch。既有 feature branch 只有在它屬於自己、工作區乾淨時才可 rebase；不要替另一個 agent 切 branch、rebase 或清除修改。
+4. 先研究既有實作、設計文件、測試與下游 consumers，再決定要新增、修改或移除什麼。
+
+### 實作與交付
+
+1. 先選擇現有的 module、service 或 abstraction；只有既有結構無法合理承載時才新增層次。
+2. 完成與需求相稱的測試，並執行相關 typecheck、test、build。設定檔與部署行為要交給 CI 驗證。
+3. 在自己的 feature branch commit、push 並建立或更新 PR；review 意見要回覆在 PR。merge 永遠由人類確認。
+
+## 需求盤點：先確認 scope 與 impact
 
 **每個功能開工之前先 research 一輪，把範圍與影響盤出來。** 這是做產品跟寫程式的差別：
 沒盤點就開工，寫出來的東西會漫無目的、雜亂無章——漏掉相依的部分，或做出跟系統其他
@@ -21,14 +38,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 使用者卡在哪。只想著「畫一張表單送 email 跟密碼」的話，上面每一項都會變成之後才被
 發現的洞。
 
-盤點的產出常常會改變作法。實際遇過的兩種：
+研究結果要在寫第一行程式前能說清楚：要改哪些模組、會影響哪些 consumers、哪些狀態與失敗路徑必須測試，以及為什麼不沿用既有作法。
 
-- **自訂角色**：以為要改 schema，盤完發現 `roles.isSystem` 與 `role_permissions`
-  早就撐得住，只缺 CRUD 與畫面——不用 migration。
-- **帳密登入**：以為只是多一張表單，盤完發現它是唯一不經過 Google 就能拿到 session
-  的入口，牽動整條授權路徑，每個「應該擋下來」都要釘測試。
+## 程式品質：簡潔、相依與 DRY
 
-這個差別要在寫第一行程式之前就知道，不是寫完才補。
+- **先重用、後抽象**：先找現有的 module、service、schema 與 UI 元件；只有既有結構無法合理承載時才新增 abstraction。
+- **保持最小變更**：只加入需求需要的 code、dependency、設定與測試。沒有明確價值不要引入 framework、package 或額外層次。
+- **遵守 DRY**：同一份業務規則、資料格式、權限定義與設定只能有一個來源。修正行為時要確認所有 consumers 都使用同一份來源。
+- **不要過早抽象**：只有語意與變更方向穩定一致時才合併共用邏輯；不要為了消除表面相似就建立難以理解的通用層。
+- **控制 software entropy**：完成變更後移除同一範圍內已失效的 dead code、過時註解與不再使用的設定，避免新舊兩套路徑並存。
+- **保留有價值的測試**：測試應保護實際行為與失敗路徑，不可為了讓 CI 通過而刪除測試；不必要的測試才應一併清理。
 
 ## 專案架構
 
@@ -46,7 +65,7 @@ apps/
     src/dev/          本機 dev server 與假資料，永遠不會進 Worker 打包
     src/local-d1/     用 node:sqlite 實作 D1 介面，測試與 dev 共用
 tools/       **刻意不在 pnpm workspace 裡**（pnpm-workspace.yaml 只 glob apps/* 與 packages/*）
-  cyberbiz-monthly-payout/   出金表的 driver，純 JS ＋ npm 自己的 lockfile
+  cyberbiz-reports/          CYBERBIZ 出金表與商品銷售報表 driver，純 JS ＋ npm 自己的 lockfile
 packages/
   auth/      權限目錄、RBAC 判定、session 簽章、Google OAuth
   db/        drizzle schema、migrations，以及所有查詢與同步邏輯
@@ -54,7 +73,7 @@ packages/
   config/    共用 tsconfig
 docs/        系統現況與還沒做的設計。**不放操作步驟，也不放 TODO**
 .claude/skills/  要照著做的操作步驟。platform-deploy（開通與部署）、
-                 cyberbiz-monthly-payout（月結出金表與報表查詢）
+                 cyberbiz-reports（出金表、商品銷售報表與報表查詢）
 ```
 
 **業務邏輯放在 `packages/db`**，不放路由。路由只做參數解析、權限檢查、回應格式；查詢與同步寫在 `packages/db/src/*.ts` 再從 `src/index.ts` 具名 export。要改行為先找那裡。
@@ -88,7 +107,7 @@ workspace 會讓每個開發者的 `pnpm install` 都扛一份只有 GitHub Acti
 用 `npm ci` 自己安裝，CI 另外跑一步 `node selftest.mjs`。
 
 平台這一端只負責「有哪些店」「誰按了執行」，憑證一個都不碰——那些是本 repo 的
-Actions secrets。設定頁存檔時會把店別寫回 `tools/cyberbiz-monthly-payout/stores.json`，
+Actions secrets。設定頁存檔時會把店別寫回 `tools/cyberbiz-reports/stores.json`，
 driver 的 `loadConfig` 讀到它就以它為準（沒有這個檔案時照 `config.json` 走）。
 
 **CYBERBIZ 同步分批做。** Worker 有執行時間上限，全量拉一次可能拉不完，所以每次最多 `MAX_PAGES_PER_RUN` 頁，回報還有沒有下一頁。cron（每 15 分）只補跑失敗的 webhook，不做全量同步。

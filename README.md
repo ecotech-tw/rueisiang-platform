@@ -17,7 +17,7 @@ packages/
   cyberbiz/   CYBERBIZ API client 與 webhook 驗證
   config/     共用 tsconfig
 tools/        跑在 GitHub Actions runner 上的東西，刻意不在 pnpm workspace 裡
-  cyberbiz-monthly-payout/   出金表 driver（純 JS ＋ npm lockfile）
+  cyberbiz-reports/          CYBERBIZ 出金表與商品銷售報表 driver（純 JS ＋ npm lockfile）
   shopee-sales-report-export/ 蝦皮銷售報表直接上傳、整理與 Drive 上傳服務（純 JS）
 ```
 
@@ -44,7 +44,7 @@ API `8788`；Claude 是 Portal `5175`、API `8789`。完整規則見
 [`docs/development-workflow.md`](./docs/development-workflow.md)。
 
 **文件寫在哪**：要照著做的步驟在 [`.claude/skills/`](./.claude/skills/)（開通與部署看
-`platform-deploy`，月結出金表看 `cyberbiz-monthly-payout`）；系統現況與設計在
+`platform-deploy`，出金表與商品銷售報表看 `cyberbiz-reports`）；系統現況與設計在
 [`docs/`](./docs/)；還沒做的事在下面的「下一步」。分類規則見
 [`docs/development-workflow.md`](./docs/development-workflow.md)。
 
@@ -132,7 +132,7 @@ CYBERBIZ、等 2FA 驗證信、下載 xlsx、寫欄位、上傳 Drive——一�
 | 誰 | 做什麼 | 碰得到憑證嗎 |
 |---|---|---|
 | 平台（Worker） | 記「有哪些店」「誰按了執行」，`workflow_dispatch` 觸發 | ❌ 只有一顆 GitHub PAT |
-| GitHub Actions runner | 真正跑 `tools/cyberbiz-monthly-payout/driver.mjs` | ✅ 全部 |
+| GitHub Actions runner | 真正跑 `tools/cyberbiz-reports/payout/driver.mjs` 或 `sales/driver.mjs` | ✅ 全部 |
 
 `tools/` 刻意留在 pnpm workspace 之外（`pnpm-workspace.yaml` 只 glob `apps/*`
 與 `packages/*`）：它相依 Playwright，拉進來會讓每個人的 `pnpm install` 都扛一份
@@ -172,7 +172,7 @@ CYBERBIZ、等 2FA 驗證信、下載 xlsx、寫欄位、上傳 Drive——一�
 ### 重新產生 refresh token
 
 ```bash
-cd tools/cyberbiz-monthly-payout
+cd tools/cyberbiz-reports
 npm ci
 node setup.mjs auth  rueisiang.soap@gmail.com   # → GOOGLE_REFRESH_TOKEN
 node setup.mjs mail  eli-lin@ecotech.tw         # → GMAIL_REFRESH_TOKEN

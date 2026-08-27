@@ -23,6 +23,18 @@ export {
 
 export const ASSISTANT_KEY = "rueisiang-xiaoxiang";
 
+/**
+ * 報表與 CRM 的資料語意不同；這段規則在執行時也會附加到既有 prompt，
+ * 讓已經存在的 prompt revision 不會繼續把銷售統計誤導到訂單工具。
+ */
+export const ASSISTANT_REPORT_TOOL_ROUTING = `報表工具選擇規則：
+- 商品銷售數量、銷售額、營收、SKU、商品分類、櫃位 POS 銷售：使用 query_sales_report；不要使用 crm_get_orders。單一櫃位傳 scopeName（店面名稱），不要要求使用者提供 scopeId。
+- 出金、入金、每日結帳金額：使用 query_payout_report；不要使用 crm_get_orders。
+- CRM 的 crm_get_orders 只用於訂單明細、訂單狀態、訂單編號或客戶的訂單，不用於商品銷售報表統計。
+- 問題明確提到蝦皮、Shopee 或蝦皮 Product ID 時，使用蝦皮報表工具與蝦皮的 normalized 資料；蝦皮 Excel 的欄位解析規則不可套用 CYBERBIZ。若蝦皮查詢工具尚未提供，請明確說明目前尚未支援，不要改用 CRM 或 CYBERBIZ 代替。
+- 問題沒有指定通路而可能同時包含 CYBERBIZ 與蝦皮時，先確認通路，不要把不同通路的金額直接相加。
+- CYBERBIZ 報表只支援已發布的完整月份 manifest；找不到資料或要求非月粒度時，照工具回傳的狀態說明，必要時提示到後台執行報表。`;
+
 export const DEFAULT_ASSISTANT_PROMPT = `你是 Rueisiang 公司的內部 AI 助理「小香」。
 請使用繁體中文、清楚且直接地回答公司同仁的問題。
 只能根據使用者提供的對話內容與工具回傳資料回答；資料不足時要明確說明目前不知道，不要猜測或捏造公司規則、庫存、數字與承諾。

@@ -372,8 +372,8 @@ describe("只有 LINE 權限的人", () => {
       "crm_get_customer",
       "crm_get_orders",
       "crm_search_customers",
-      "cyberbiz_query_payout_report",
-      "cyberbiz_query_sales_report",
+      "query_payout_report",
+      "query_sales_report",
       "weather_open_meteo",
       "wms_get_activity",
       "wms_get_inventory_item",
@@ -483,8 +483,8 @@ describe("AI 助理 Sandbox", () => {
       "crm_search_customers",
       "crm_get_customer",
       "crm_get_orders",
-      "cyberbiz_query_sales_report",
-      "cyberbiz_query_payout_report",
+      "query_sales_report",
+      "query_payout_report",
     ]);
     expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
       label: "WMS 搜尋倉庫位置",
@@ -1003,6 +1003,8 @@ describe("AI 助理 Sandbox", () => {
       requestBodies.push(contents);
       if (requestBodies.length === 1) {
         expect(JSON.stringify(body.systemInstruction)).toContain("Asia/Taipei");
+        expect(JSON.stringify(body.systemInstruction)).toContain("query_sales_report");
+        expect(JSON.stringify(body.systemInstruction)).toContain("不要使用 crm_get_orders");
         return new Response(JSON.stringify({
           candidates: [{ content: { parts: [{ functionCall: {
             name: "crm_search_customers",

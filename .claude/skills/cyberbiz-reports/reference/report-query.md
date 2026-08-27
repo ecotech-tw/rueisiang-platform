@@ -1,6 +1,6 @@
 # CYBERBIZ 報表查詢
 
-這份是 `cyberbiz-monthly-payout` skill 的參考資料：出金表與商品銷售總表**跑完之後**，
+這份是 `cyberbiz-reports` skill 的參考資料：出金表與商品銷售總表**跑完之後**，
 資料怎麼被小香查到。要跑報表看 `../SKILL.md`。
 
 
@@ -21,9 +21,12 @@ GET /api/reports/cyberbiz/sales
   &category=沐浴
 ```
 
-每日出金使用同一個 scope 與 manifest：`GET /api/reports/cyberbiz/payout?period=2026-07&scopeType=company&startDate=2026-07-01&endDate=2026-07-31`。小香對應的 tool 是 `cyberbiz_query_payout_report`。
+每日出金使用同一個 scope 與 manifest：`GET /api/reports/cyberbiz/payout?period=2026-07&scopeType=company&startDate=2026-07-01&endDate=2026-07-31`。小香對應的 tool 是 `query_payout_report`。
 
-單一櫃位將 `scopeType=store&scopeId=<固定櫃位 ID>`。也可以提供 `sku` 或 `productName`。小香使用同一個 `cyberbiz_query_sales_report` tool；一次 tool call 由 Worker 內部完成 manifest lookup、NAS JSON 讀取與彙總。
+單一櫃位可提供 `scopeType=store&scopeName=<櫃位名稱>`，由 Worker 內部解析固定
+`scopeId`；`scopeId` 仍保留給既有整合使用，但不需要使用者提供。也可以提供 `sku`
+或 `productName`。小香使用同一個 `query_sales_report` tool；一次 tool call
+由 Worker 內部完成 manifest lookup、NAS JSON 讀取與彙總。
 
 商品銷售總表的粒度是月，不是假裝成逐日資料。因此：
 
@@ -47,8 +50,11 @@ GET /api/reports/cyberbiz/sales
 - **自訂區間**：runner 只把原始 XLSX 上傳到該店別的 Google Drive，方便同仁自行對帳；不解析成 NAS JSON，也不建立 AI manifest。
   這是因為商品銷售總表是月彙總，不能從月報精確拆成每日或任意日期資料。
 
-出金表與商品銷售表在 D1 以 `reportKind` 分開索引（`payout`、`sales`），
-共用月份、店別／公司 scope 與 source version，不需要把兩種查詢資料硬塞進同一份 JSON。
+出金表與商品銷售表在 D1 保留各自的 artifact version，但查詢時會以同一個
+`scopeType + scopeId + reportMonth` 組成 unified scope view。`reportKind` 只表示
+這一版包含哪一種來源資料，不再代表不同的 scope；兩種資料仍各自使用自己的
+normalized document 與 parser。未來蝦皮可沿用同一個 scope view，再接蝦皮專用的
+Excel parser，不把蝦皮欄位套用到 CYBERBIZ。
 Google Drive 的原始檔目前維持兩份獨立 XLSX；既有 `publish-report.mjs --kind bundle` 仍可在需要人工交付時，
 以出金表為 base 增加商品銷售分頁，但不影響兩個後台入口獨立執行。
 
@@ -61,7 +67,7 @@ MCP endpoint 是 `POST /api/mcp/cyberbiz-reports`，使用獨立 `CYBERBIZ_REPOR
 
 ## 月批次 publish contract
 
-`tools/cyberbiz-monthly-payout/lib/report-publish.mjs` 提供 runner-side publish helper。它會把相關的原始 XLSX、normalized JSON，
+`tools/cyberbiz-reports/lib/report-publish.mjs` 提供 runner-side publish helper。它會把相關的原始 XLSX、normalized JSON，
 以及需要時的 combined XLSX 上傳到 NAS 的 `reports/cyberbiz/...`，再呼叫：
 
 ```text

@@ -7,7 +7,7 @@ Material 3 的設計語彙，以及一份「禁止事項」——那幾條是踩
 不是偏好問題。
 
 技能（skill）在 [`.claude/skills/`](./.claude/skills/)：`platform-deploy` 是開通與部署，
-`cyberbiz-monthly-payout` 是月結出金表與報表查詢。資料夾名字沿用 `.claude`，
+`cyberbiz-reports` 是出金表、商品銷售報表與報表查詢。資料夾名字沿用 `.claude`，
 同樣不另外開一份。
 
 多 agent 的協作邊界——worktree、port、誰能改什麼、文件寫在哪、功能做完要收的尾——在

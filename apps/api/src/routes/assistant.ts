@@ -1,6 +1,7 @@
 import {
   ASSISTANT_KEY,
   ASSISTANT_MODELS,
+  ASSISTANT_REPORT_TOOL_ROUTING,
   DEFAULT_ASSISTANT_PROMPT,
   currentAssistantRuntimeContext,
   runtimeContextInstruction,
@@ -872,6 +873,7 @@ export const assistant = new Hono<AppEnv>()
     const started = Date.now();
     const systemPrompt = [
       prompt.systemPrompt,
+      ASSISTANT_REPORT_TOOL_ROUTING,
       runtimeContextInstruction(currentAssistantRuntimeContext()),
       "這是內部 Sandbox。請用繁體中文直接回答；需要資料時使用已提供的工具，不要虛構工具結果。",
     ].join("\n\n");

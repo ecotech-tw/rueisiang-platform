@@ -34,6 +34,15 @@ function document() {
   };
 }
 
+function storeSalesDocument() {
+  return {
+    ...document(),
+    scopeType: "store" as const,
+    scopeId: "store-a",
+    scopeName: "誠品西門店3F",
+  };
+}
+
 async function publishCompanyReport() {
   await recordCyberbizReportManifest(db(), {
     reportMonth: "2026-07",
@@ -78,7 +87,87 @@ async function publishCompanyPayout() {
   });
 }
 
+async function publishStoreSalesAndPayoutManifests() {
+  await recordCyberbizReportManifest(db(), {
+    reportMonth: "2026-07",
+    reportKind: "sales",
+    scopeType: "store",
+    scopeId: "store-a",
+    scopeName: "誠品西門店3F",
+    coverageStart: "2026-07-01",
+    coverageEnd: "2026-07-31",
+    salesGranularity: "month",
+    payoutGranularity: "day",
+    salesObjectKey: "reports/cyberbiz/store-a/2026/07/00000000-0000-0000-0000-000000000011.json",
+    payoutObjectKey: null,
+    combinedWorkbookObjectKey: null,
+    driveFileId: "drive-sales",
+    driveUrl: "https://drive.example.test/file/drive-sales",
+    storeIdsJson: '["store-a"]',
+    sourceChecksum: "checksum-store-sales-2026-07",
+    parserVersion: "cyberbiz-sales-v1",
+    status: "published",
+  });
+  await recordCyberbizReportManifest(db(), {
+    reportMonth: "2026-07",
+    reportKind: "payout",
+    scopeType: "store",
+    scopeId: "store-a",
+    scopeName: "誠品西門店3F",
+    coverageStart: "2026-07-01",
+    coverageEnd: "2026-07-31",
+    salesGranularity: "month",
+    payoutGranularity: "day",
+    salesObjectKey: null,
+    payoutObjectKey: "reports/cyberbiz/store-a/2026/07/00000000-0000-0000-0000-000000000012.json",
+    combinedWorkbookObjectKey: null,
+    driveFileId: "drive-payout",
+    driveUrl: "https://drive.example.test/file/drive-payout",
+    storeIdsJson: '["store-a"]',
+    sourceChecksum: "checksum-store-payout-2026-07",
+    parserVersion: "cyberbiz-payout-v1",
+    status: "published",
+  });
+}
+
 describe("CYBERBIZ 報表查詢服務", () => {
+  it("可用店面名稱查詢，並把 sales／payout manifest 合併成同一個 scope view", async () => {
+    await publishStoreSalesAndPayoutManifests();
+    await recordCyberbizReportManifest(db(), {
+      reportMonth: "2026-07",
+      reportKind: "sales",
+      scopeType: "store",
+      scopeId: "store-a",
+      scopeName: "誠品西門店3F",
+      coverageStart: "2026-07-01",
+      coverageEnd: "2026-07-31",
+      salesGranularity: "month",
+      payoutGranularity: "day",
+      salesObjectKey: "reports/cyberbiz/store-a/2026/07/00000000-0000-0000-0000-000000000013.json",
+      payoutObjectKey: null,
+      combinedWorkbookObjectKey: null,
+      driveFileId: null,
+      driveUrl: null,
+      storeIdsJson: '["store-a"]',
+      sourceChecksum: "checksum-store-sales-staged-2026-07",
+      parserVersion: "cyberbiz-sales-v1",
+      status: "staged",
+    });
+    const get = async () => new Response(JSON.stringify(storeSalesDocument()), { headers: { "content-type": "application/json" } });
+    const nas = { get, put: async () => { throw new Error("not used"); }, delete: async () => {} } as unknown as NasStorageClient;
+    const result = await createCyberbizReportService(db(), nas).querySales({
+      reportMonth: "2026-07",
+      scopeType: "store",
+      scopeName: "誠品西門店 3F",
+    });
+
+    expect(result).toMatchObject({ status: "ok", scopeId: "store-a", scopeName: "誠品西門店3F" });
+    if (result.status === "ok") {
+      expect(result.manifest).toMatchObject({ scopeName: "誠品西門店3F", reportKind: "bundle" });
+      expect(result.manifest.sourceChecksum).toBe("checksum-store-sales-2026-07");
+    }
+  });
+
   it("公司整體查詢只讀一個預先彙總的 normalized JSON，分類也在同一個結果完成", async () => {
     await publishCompanyReport();
     const get = async () => new Response(JSON.stringify(document()), { headers: { "content-type": "application/json" } });

@@ -1,7 +1,7 @@
 import {
   aggregateCyberbizPayout,
   aggregateCyberbizSales,
-  findCyberbizReportManifest,
+  findCyberbizReportScopeManifest,
   isCyberbizPayoutDocument,
   isCyberbizSalesDocument,
   normalizeCyberbizMonth,
@@ -54,6 +54,10 @@ function unsupportedRange(reportMonth: string, startDate: string, endDate: strin
   };
 }
 
+function normalizedScopeName(value: string): string {
+  return value.trim().replace(/\s+/gu, "").toLocaleLowerCase();
+}
+
 async function readSalesDocument(nas: NasStorageClient, key: string): Promise<CyberbizSalesDocument | null> {
   const response = await nas.get(key);
   if (!response) return null;
@@ -96,22 +100,31 @@ export function createCyberbizReportService(db: Database, nas: NasStorageClient 
       }
       if (!nas) throw new CyberbizReportQueryError(503, "nas_not_configured", "NAS storage 尚未設定，暫時無法查詢 CYBERBIZ 報表。");
 
+      if (input.scopeType === "store" && !input.scopeId && !input.scopeName) {
+        throw new CyberbizReportQueryError(400, "missing_scope_name", "查詢單一櫃位時需要店面名稱。");
+      }
       const scopeId = input.scopeType === "company" ? "company" : input.scopeId;
-      if (!scopeId) throw new CyberbizReportQueryError(400, "missing_scope_id", "查詢單一櫃位時需要 scopeId。");
-      const manifest = await findCyberbizReportManifest(db, {
+      const manifest = await findCyberbizReportScopeManifest(db, {
         reportMonth,
         scopeType: input.scopeType,
-        scopeId,
+        ...(scopeId ? { scopeId } : {}),
+        ...(input.scopeName ? { scopeName: input.scopeName } : {}),
         requiredArtifact: "sales",
       });
       if (!manifest?.salesObjectKey) return noData(reportMonth);
 
       const document = await readSalesDocument(nas, manifest.salesObjectKey);
       if (!document) return noData(reportMonth);
-      if (document.reportMonth !== reportMonth || document.scopeType !== input.scopeType || document.scopeId !== scopeId) {
+      if (document.reportMonth !== reportMonth || document.scopeType !== input.scopeType || document.scopeId !== manifest.scopeId
+        || (input.scopeName && normalizedScopeName(document.scopeName) !== normalizedScopeName(manifest.scopeName))) {
         throw new CyberbizReportQueryError(502, "report_manifest_mismatch", "CYBERBIZ manifest 與 normalized JSON 的月份或 scope 不一致。");
       }
-      return aggregateCyberbizSales([document], { ...input, reportMonth, scopeId }, manifest);
+      return aggregateCyberbizSales([document], {
+        ...input,
+        reportMonth,
+        scopeId: manifest.scopeId,
+        ...(manifest.scopeName ? { scopeName: manifest.scopeName } : {}),
+      }, manifest);
     },
     async queryPayout(input: CyberbizPayoutQuery): Promise<CyberbizPayoutQueryResult> {
       const reportMonth = normalizeCyberbizMonth(input.reportMonth);
@@ -120,12 +133,15 @@ export function createCyberbizReportService(db: Database, nas: NasStorageClient 
       const endDate = input.endDate || fullRange.end;
       if (!nas) throw new CyberbizReportQueryError(503, "nas_not_configured", "NAS storage 尚未設定，暫時無法查詢 CYBERBIZ 報表。");
 
+      if (input.scopeType === "store" && !input.scopeId && !input.scopeName) {
+        throw new CyberbizReportQueryError(400, "missing_scope_name", "查詢單一櫃位時需要店面名稱。");
+      }
       const scopeId = input.scopeType === "company" ? "company" : input.scopeId;
-      if (!scopeId) throw new CyberbizReportQueryError(400, "missing_scope_id", "查詢單一櫃位時需要 scopeId。");
-      const manifest = await findCyberbizReportManifest(db, {
+      const manifest = await findCyberbizReportScopeManifest(db, {
         reportMonth,
         scopeType: input.scopeType,
-        scopeId,
+        ...(scopeId ? { scopeId } : {}),
+        ...(input.scopeName ? { scopeName: input.scopeName } : {}),
         requiredArtifact: "payout",
       });
       if (!manifest?.payoutObjectKey) {
@@ -133,10 +149,18 @@ export function createCyberbizReportService(db: Database, nas: NasStorageClient 
       }
       const document = await readPayoutDocument(nas, manifest.payoutObjectKey);
       if (!document) return aggregateCyberbizPayout([], { ...input, reportMonth, startDate, endDate });
-      if (document.reportMonth !== reportMonth || document.scopeType !== input.scopeType || document.scopeId !== scopeId) {
+      if (document.reportMonth !== reportMonth || document.scopeType !== input.scopeType || document.scopeId !== manifest.scopeId
+        || (input.scopeName && normalizedScopeName(document.scopeName) !== normalizedScopeName(manifest.scopeName))) {
         throw new CyberbizReportQueryError(502, "report_manifest_mismatch", "CYBERBIZ manifest 與 payout normalized JSON 的月份或 scope 不一致。");
       }
-      return aggregateCyberbizPayout([document], { ...input, reportMonth, startDate, endDate, scopeId }, manifest);
+      return aggregateCyberbizPayout([document], {
+        ...input,
+        reportMonth,
+        startDate,
+        endDate,
+        scopeId: manifest.scopeId,
+        ...(manifest.scopeName ? { scopeName: manifest.scopeName } : {}),
+      }, manifest);
     },
   };
 }

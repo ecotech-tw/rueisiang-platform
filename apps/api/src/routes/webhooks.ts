@@ -45,6 +45,7 @@ import {
 } from "@rueisiang/db";
 import {
   ASSISTANT_KEY,
+  ASSISTANT_REPORT_TOOL_ROUTING,
   DEFAULT_ASSISTANT_PROMPT,
   assistantErrorDetails,
   assistantLog,
@@ -542,6 +543,7 @@ async function runLineAssistant(input: {
     promptText = input.questionText;
     const systemPrompt = [
       prompt.systemPrompt,
+      ASSISTANT_REPORT_TOOL_ROUTING,
       runtimeContextInstruction(currentAssistantRuntimeContext()),
       "這是 LINE 內部助理。除非使用者要求詳細說明，請用繁體中文在六句內直接回答；不要輸出思考過程。",
     ].join("\n\n");

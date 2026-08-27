@@ -8,6 +8,14 @@ name: Deploy
 on:
   push:
     branches: [main]
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 # 同時只跑一個部署。兩個部署交錯執行會讓 migration 的順序變得沒辦法推理。

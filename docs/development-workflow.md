@@ -37,6 +37,30 @@ git worktree list
 常駐 worktree 建立後，每個 agent 只在自己的路徑切換到下一個需求 branch；review 別人的
 branch 時使用 detached review worktree，不要把同一個 branch 同時掛到兩個 worktree。
 
+### 每個需求開始前
+
+在自己的 worktree 執行：
+
+```powershell
+git status --short --branch
+git fetch origin main --prune
+git log --oneline --decorate HEAD..origin/main
+```
+
+新需求必須從最新的 `origin/main` 建立 branch：
+
+```powershell
+git switch -c feat/<需求名稱>-<agent> origin/main
+```
+
+若要繼續自己的既有 feature branch，確認工作區乾淨後才可更新：
+
+```powershell
+git rebase origin/main
+```
+
+不要在有未提交修改時 rebase，也不要替另一個 agent 的 branch 做切換、rebase 或清理。
+
 ### 本機 port
 
 | worktree | Portal | API |
@@ -99,7 +123,7 @@ worktree 之間共用同一個 stash stack。不要用裸的 `git stash` / `git 
 
 | 種類 | 放哪 | 誰是唯一來源 | 例子 |
 |---|---|---|---|
-| **要照著做的步驟** | `.claude/skills/<名字>/SKILL.md` | skill 本身 | `platform-deploy`、`cyberbiz-monthly-payout` |
+| **要照著做的步驟** | `.claude/skills/<名字>/SKILL.md` | skill 本身 | `platform-deploy`、`cyberbiz-reports` |
 | **現在系統長什麼樣** | `docs/*.md` | **程式碼**；文件只解釋「為什麼」 | `line-pi-agent.md`、`assistant-sandbox.md` |
 | **還沒做的事** | `README.md` 的「下一步」 | README | — |
 | **還沒做的設計** | `docs/*-design.md`，開頭標明「還沒做」 | 該文件 | `assistant-multi-account-design.md` |

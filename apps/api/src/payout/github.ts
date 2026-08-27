@@ -18,7 +18,7 @@ const GITHUB_API = "https://api.github.com";
  * 資料夾。平台的 D1 只決定「網頁上看得到哪幾家店」，兩邊不同步的話，執行時會
  * 找不到資料夾而失敗，所以設定頁存檔時要一起把它寫回去。
  */
-const STORES_PATH = "tools/cyberbiz-monthly-payout/stores.json";
+const STORES_PATH = "tools/cyberbiz-reports/stores.json";
 
 export interface PayoutGithub {
   dispatch(input: { store: string; start: string; end: string; requestId: string }): Promise<void>;
