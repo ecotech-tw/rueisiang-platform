@@ -28,6 +28,7 @@ export async function ingestCyberbizReport({
   scopeId,
   scopeName,
   rows,
+  coveredDates,
   fetcher = fetch,
 }) {
   if (!ingestToken) throw new Error("缺少 CYBERBIZ_REPORT_INGEST_TOKEN。 ");
@@ -37,7 +38,7 @@ export async function ingestCyberbizReport({
       "content-type": "application/json",
       "x-cyberbiz-report-token": ingestToken,
     },
-    body: JSON.stringify({ kind, scopeType: "store", scopeId, scopeName, rows }),
+    body: JSON.stringify({ kind, scopeType: "store", scopeId, scopeName, rows, ...(coveredDates ? { coveredDates } : {}) }),
   });
   const payload = await responseJson(response, `匯入 CYBERBIZ ${kind} 日資料`);
   if (!payload.result?.scopeId) throw new Error("平台沒有回傳有效的報表匯入結果。 ");

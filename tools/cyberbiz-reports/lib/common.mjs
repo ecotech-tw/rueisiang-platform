@@ -194,6 +194,11 @@ export function salesFilename(storeName, startDate, endDate) {
   return `[${storeName}]商品銷售總表${startDate}~${endDate}.xlsx`;
 }
 
+/** 用 UTF-8 base64url 保留中文店名的穩定性，讓 API 與 runner 得到同一個 D1 scope ID。 */
+export function scopeIdFromStoreName(name) {
+  return `cyberbiz:store:${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
+}
+
 const SECRET_KEYS = [
   "CYBERBIZ_PASSWORD",
   "GOOGLE_CLIENT_SECRET",

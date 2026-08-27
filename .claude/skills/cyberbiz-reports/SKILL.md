@@ -12,10 +12,6 @@ description: CYBERBIZ 報表工具的操作知識：依指定 POS 店別與日�
 [`reference/report-query.md`](./reference/report-query.md)；查詢與產表是同一條資料流的兩半，
 要改其中一邊先看另一邊。
 
-報表跑完之後，資料怎麼被小香查到（manifest、NAS JSON、兩個查詢 tool、MCP endpoint）
-寫在 [`reference/report-query.md`](./reference/report-query.md)——查詢跟產表是同一條資料流
-的兩半，要改其中一邊先看另一邊。
-
 程式在 `tools/cyberbiz-reports/`。**它刻意不在 pnpm workspace 裡**——相依
 Playwright，拉進 workspace 會讓每個人的 `pnpm install` 都扛一份只有 runner 用得到的
 瀏覽器函式庫。它用自己的 `npm ci`。

@@ -89,9 +89,8 @@ type CyberbizReportService = ReturnType<typeof createCyberbizReportService>;
  * 報表查詢只需要 D1；延遲建立 service 讓 assistant context 維持輕量，
  * 也不會因為其他功能的 NAS 設定狀態影響天氣、CRM 或 WMS tool。
  */
-export function lazyCyberbizReportService(db: Database, env: Env): CyberbizReportService {
+export function lazyCyberbizReportService(db: Database): CyberbizReportService {
   let service: CyberbizReportService | undefined;
-  void env;
   const get = () => service ??= createCyberbizReportService(db);
   return {
     querySales: (input) => get().querySales(input),
@@ -880,7 +879,7 @@ export class AssistantChatAgent {
 
   private async authorizedLineTool(input: PiLineAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
     const db = createDatabase(this.env.DB);
-    const services = { cyberbizReports: lazyCyberbizReportService(db, this.env) };
+    const services = { cyberbizReports: lazyCyberbizReportService(db) };
     const [channel, group] = await Promise.all([
       getAssistantLineChannel(db, input.assistantKey),
       findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.groupRowId }),
@@ -908,7 +907,7 @@ export class AssistantChatAgent {
 
   private async authorizedSandboxTool(input: PiSandboxAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
     const db = createDatabase(this.env.DB);
-    const services = { cyberbizReports: lazyCyberbizReportService(db, this.env) };
+    const services = { cyberbizReports: lazyCyberbizReportService(db) };
     const [user, configuredTools, session] = await Promise.all([
       loadAuthUser(db, { id: input.actorUserId }),
       listAssistantToolConfigs(db),

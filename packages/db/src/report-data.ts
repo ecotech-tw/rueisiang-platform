@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
   reportPayoutDaily,
@@ -167,44 +167,68 @@ export async function findReportScope(
   return scopes[0] ?? null;
 }
 
-export async function insertReportSalesDaily(db: Database, rows: readonly NewReportSalesDaily[]): Promise<void> {
+/**
+ * covered 是這批「確實讀到報表」的日期，包含當天零筆的情況。當天零筆時 rows 裡不會有
+ * 任何列，只看 rows 的話那天會被誤認成匯出失敗而保留過期的 SKU；反過來，真正失敗的
+ * 日子不在 covered 裡，既有資料才得以保留。scopeId 要另外帶，因為整批都是零筆時
+ * rows 是空的，光靠 rows 找不到要清哪個據點。沒有帶 covered 的舊 runner 退回只清
+ * rows 涵蓋的日期。
+ */
+export async function insertReportSalesDaily(
+  db: Database,
+  rows: readonly NewReportSalesDaily[],
+  covered?: { scopeId: string; dates: readonly string[] },
+): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
-  const statements: Statement[] = [];
-  const dateRanges = new Map<string, { start: string; end: string }>();
-  for (const row of rows) {
-    const current = dateRanges.get(row.scopeId);
-    if (!current) {
-      dateRanges.set(row.scopeId, { start: row.businessDate, end: row.businessDate });
-    } else {
-      current.start = current.start < row.businessDate ? current.start : row.businessDate;
-      current.end = current.end > row.businessDate ? current.end : row.businessDate;
+  const days = new Map<string, { scopeId: string; businessDate: string; rows: NewReportSalesDaily[] }>();
+  const dayKey = (scopeId: string, businessDate: string) => `${businessDate}${scopeId}`;
+  const day = (scopeId: string, businessDate: string) => {
+    const key = dayKey(scopeId, businessDate);
+    const existing = days.get(key);
+    if (existing) return existing;
+    const created = { scopeId, businessDate, rows: [] as NewReportSalesDaily[] };
+    days.set(key, created);
+    return created;
+  };
+  for (const row of rows) day(row.scopeId, row.businessDate).rows.push(row);
+  if (covered) for (const businessDate of covered.dates) day(covered.scopeId, businessDate);
+
+  // 每天一組：那天的 delete 與它自己的 insert 綁在一起，一組不跨 db.batch()。batch 是
+  // 一個 transaction，把組切開的話中途失敗會留下「刪掉了但沒寫回去」的空洞，正是這支
+  // 函式要防的那種資料遺失。一組本身就超過上限時讓它獨佔一批，不再往下切。
+  const groups: Statement[][] = [];
+  for (const entry of days.values()) {
+    const group: Statement[] = [db.delete(reportSalesDaily).where(and(
+      eq(reportSalesDaily.scopeId, entry.scopeId),
+      eq(reportSalesDaily.businessDate, entry.businessDate),
+    ))];
+    for (const chunk of chunks(entry.rows, 8)) {
+      if (!chunk.length) continue;
+      group.push(db.insert(reportSalesDaily).values(chunk).onConflictDoUpdate({
+        target: [reportSalesDaily.scopeId, reportSalesDaily.businessDate, reportSalesDaily.sku],
+        set: {
+          productName: sql`excluded.product_name`,
+          category: sql`excluded.category`,
+          grossQuantity: sql`excluded.gross_quantity`,
+          returnQuantity: sql`excluded.return_quantity`,
+          netQuantity: sql`excluded.net_quantity`,
+          salesAmount: sql`excluded.sales_amount`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      }));
     }
+    groups.push(group);
   }
-  for (const [scopeId, range] of dateRanges) {
-    statements.push(db.delete(reportSalesDaily).where(and(
-      eq(reportSalesDaily.scopeId, scopeId),
-      gte(reportSalesDaily.businessDate, range.start),
-      lte(reportSalesDaily.businessDate, range.end),
-    )));
+
+  let batch: Statement[] = [];
+  for (const group of groups) {
+    if (batch.length && batch.length + group.length > 50) {
+      await db.batch(batch as [Statement, ...Statement[]]);
+      batch = [];
+    }
+    batch.push(...group);
   }
-  for (const chunk of chunks(rows, 8)) {
-    if (!chunk.length) continue;
-    statements.push(db.insert(reportSalesDaily).values(chunk).onConflictDoUpdate({
-      target: [reportSalesDaily.scopeId, reportSalesDaily.businessDate, reportSalesDaily.sku],
-      set: {
-        productName: sql`excluded.product_name`,
-        category: sql`excluded.category`,
-        grossQuantity: sql`excluded.gross_quantity`,
-        returnQuantity: sql`excluded.return_quantity`,
-        netQuantity: sql`excluded.net_quantity`,
-        salesAmount: sql`excluded.sales_amount`,
-        updatedAt: sql`excluded.updated_at`,
-      },
-    }));
-  }
-  for (const chunk of chunks(statements, 50)) {
-    if (chunk.length) await db.batch(chunk as [Statement, ...Statement[]]);
-  }
+  if (batch.length) await db.batch(batch as [Statement, ...Statement[]]);
 }
 
 export async function insertReportPayoutDaily(db: Database, rows: readonly NewReportPayoutDaily[]): Promise<void> {

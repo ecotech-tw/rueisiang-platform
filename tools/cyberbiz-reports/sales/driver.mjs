@@ -25,6 +25,7 @@ import {
   redact,
   requireEnv,
   salesFilename,
+  scopeIdFromStoreName,
   skillPath,
 } from "../lib/common.mjs";
 import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
@@ -50,11 +51,6 @@ function parseArgs(argv) {
     else throw new Error(`不認得的參數：${arg}`);
   }
   return args;
-}
-
-function scopeIdFromStoreName(name) {
-  // 用 UTF-8 base64url 保留中文店名的穩定性，同一店名在 API 與 runner 會得到同一個 D1 scope ID。
-  return `cyberbiz:store:${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
 }
 
 function help() {
@@ -215,6 +211,7 @@ async function main() {
             scopeId: scopeIdFromStoreName(store.name),
             scopeName: store.name,
             rows: dailyResult.rows,
+            coveredDates: dailyResult.coveredDates,
           });
           result.steps.ingest = "ok";
           result.done = dailyResult.failures.length === 0;
