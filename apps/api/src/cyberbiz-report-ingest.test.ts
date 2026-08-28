@@ -192,6 +192,19 @@ describe("報表月資料匯入", () => {
     ]);
   });
 
+  it("大量 SKU 會分批查詢 mapping，不受單支 SQL 參數上限影響", async () => {
+    const items = Array.from({ length: 120 }, (_unused, index) => {
+      const sku = `BULK-${String(index).padStart(3, "0")}`;
+      return { id: `item-${sku.toLowerCase()}`, sku, name: `WMS ${sku}`, category: "沐浴" };
+    });
+    await db().insert(schema.inventoryItems).values(items);
+
+    const response = await request(salesBody(items.map((item) => salesRow(item.sku, 10))));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { rowCount: 120 } });
+    expect(await db().select().from(schema.reportSalesMonthly)).toHaveLength(120);
+  });
+
   it("不同外部 SKU 對應同一 WMS 商品時會先 mapping 再加總", async () => {
     await db().insert(schema.productSkuMappings).values([
       { id: "mapping-cyberbiz-001", inventoryItemId: "item-wms-001", externalSku: "CB-001" },
@@ -223,6 +236,18 @@ describe("報表月資料匯入", () => {
     const response = await request(salesBody([salesRow("NOT-MAPPED", 100)]));
     expect(response.status).toBe(422);
     expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
+  });
+
+  it("bundle 的 sales mapping 失敗時仍會先保存 payout", async () => {
+    const response = await request(shopeeBundle(
+      [salesRow("NOT-MAPPED", 100)],
+      [{ businessDate: "2026-07-01", payoutAmount: 250 }],
+    ));
+    expect(response.status).toBe(422);
+    expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
+    expect(await db().select().from(schema.reportPayoutDaily)).toMatchObject([
+      { scopeId: "shopee:store:default", businessDate: "2026-07-01", payoutAmount: 250 },
+    ]);
   });
 
   it("公司查詢會把 CYBERBIZ 與蝦皮的相同 WMS SKU 一起加總", async () => {

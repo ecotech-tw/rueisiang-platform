@@ -321,6 +321,35 @@ describe("外部 SKU 對應", () => {
 
     expect(response.status).toBe(409);
   });
+
+  it("外部 SKU 不可遮蔽另一個商品的正式 WMS SKU", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "WMS-001", name: "商品一", category: "一般備品" },
+      { id: "i2", sku: "SHOPEE-001", name: "商品二", category: "一般備品" },
+    ]);
+
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/items/i1/product-sku-mappings", {
+      method: "POST", body: JSON.stringify({ externalSku: "shopee-001" }),
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it("有外部 SKU 對應時不可清空 WMS SKU", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values({
+      id: "i1", sku: "WMS-001", name: "商品一", category: "一般備品",
+    });
+    await db.insert(productSkuMappings).values({
+      id: "mapping-1", inventoryItemId: "i1", externalSku: "SHOPEE-001",
+    });
+
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/items/i1", {
+      method: "PATCH", body: JSON.stringify({ sku: "" }),
+    });
+    expect(response.status).toBe(409);
+    expect((await db.select().from(inventoryItems))[0]?.sku).toBe("WMS-001");
+  });
 });
 
 /*

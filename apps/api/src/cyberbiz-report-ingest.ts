@@ -150,16 +150,7 @@ async function normalizeSalesRows(
   const parsed = parseSalesRows(input);
   if (!parsed.length) return [];
 
-  let resolved: Awaited<ReturnType<typeof resolveProductSkus>>;
-  try {
-    resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku));
-  } catch (error) {
-    throw new CyberbizReportIngestError(
-      422,
-      "unmapped_product",
-      error instanceof Error ? error.message : "外部 SKU 對應 WMS 商品時發生錯誤。",
-    );
-  }
+  const resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku));
 
   const missing = parsed
     .map((row) => row.externalSku)
@@ -246,12 +237,13 @@ export function createCyberbizReportIngestor(db: Database) {
       });
       const scopedInput = { ...input, scopeId: scope.id };
       if (input.kind === "sales_and_payout") {
-        const sales = await normalizeSalesRows(db, { ...scopedInput, rows: input.salesRows ?? [] });
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
+        // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
+        await insertReportPayoutDaily(db, payout);
+        const sales = await normalizeSalesRows(db, { ...scopedInput, rows: input.salesRows ?? [] });
         await insertReportSalesMonthly(db, sales, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);
-        await insertReportPayoutDaily(db, payout);
         return {
           kind: input.kind,
           scopeId: scope.id,

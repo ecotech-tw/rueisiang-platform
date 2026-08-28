@@ -78,6 +78,20 @@ export function ItemForm({
 
   const valid = fields.name.trim() !== "" && fields.category !== "";
 
+  function addExternalSku() {
+    const value = externalSku.trim();
+    if (!item || !value || addProductSkuMapping.isPending) return;
+    addProductSkuMapping.mutate(
+      { id: item.id, externalSku: value },
+      {
+        onSuccess: (result) => {
+          setExternalSku("");
+          toast.show(`已新增外部 SKU「${result.externalSku}」`);
+        },
+      },
+    );
+  }
+
   function submit() {
     if (!valid) return;
     const payload = {
@@ -255,6 +269,12 @@ export function ItemForm({
                   placeholder="例如蝦皮 Product ID 或其他通路 SKU"
                   value={externalSku}
                   onChange={(event) => setExternalSku(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addExternalSku();
+                    }
+                  }}
                   hint="報表匯入時會用這些值找到正式 WMS SKU。"
                 />
                 <Button
@@ -263,15 +283,7 @@ export function ItemForm({
                   disabled={!externalSku.trim() || addProductSkuMapping.isPending}
                   loading={addProductSkuMapping.isPending}
                   loadingLabel="新增中…"
-                  onClick={() => addProductSkuMapping.mutate(
-                    { id: item.id, externalSku: externalSku.trim() },
-                    {
-                      onSuccess: (result) => {
-                        setExternalSku("");
-                        toast.show(`已新增外部 SKU「${result.externalSku}」`);
-                      },
-                    },
-                  )}
+                  onClick={addExternalSku}
                 >
                   新增對應
                 </Button>

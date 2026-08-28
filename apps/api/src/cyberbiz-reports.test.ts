@@ -47,6 +47,12 @@ describe("報表月資料查詢", () => {
       grossQuantity: 100, returnQuantity: 0, netQuantity: 100, salesAmount: 10000,
     }]);
     await insertReportPayoutDaily(db(), [{ scopeId: shopeeScope, businessDate: "2026-07-01", payoutAmount: 20000 }]);
+    await upsertReportScope(db(), { id: "invalid-scope-id", scopeKind: "store", name: "不應計入公司總額" });
+    await insertReportSalesMonthly(db(), [{
+      scopeId: "invalid-scope-id", reportMonth: "2026-07", sku: "SKU-INVALID", productName: "錯誤 scope", category: "其他",
+      grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 1,
+    }]);
+    await insertReportPayoutDaily(db(), [{ scopeId: "invalid-scope-id", businessDate: "2026-07-01", payoutAmount: 1 }]);
 
     const service = createCyberbizReportService(db());
     expect((await service.querySales({ period: "2026-07", scopeType: "company" })).totals)

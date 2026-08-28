@@ -25,6 +25,8 @@ export interface ResolvedProductSku {
   category: string;
 }
 
+const SKU_LOOKUP_BATCH_SIZE = 50;
+
 export async function listProductSkuMappings(
   db: Database,
   inventoryItemId?: string,
@@ -49,6 +51,15 @@ export async function addProductSkuMapping(
     .where(eq(inventoryItems.id, input.inventoryItemId));
   if (!item) throw new WmsError("not_found", "找不到這項商品。 ");
   if (!item.sku) throw new WmsError("invalid", "請先設定 WMS SKU，才能建立外部 SKU 對應。 ");
+
+  const [skuOwner] = await db
+    .select({ id: inventoryItems.id })
+    .from(inventoryItems)
+    .where(sql`UPPER(${inventoryItems.sku}) = ${externalSku}`)
+    .limit(1);
+  if (skuOwner && skuOwner.id !== input.inventoryItemId) {
+    throw new WmsError("conflict", `外部 SKU「${externalSku}」與其他商品的 WMS SKU 衝突。 `);
+  }
 
   const [existing] = await db
     .select({ id: productSkuMappings.id, inventoryItemId: productSkuMappings.inventoryItemId })
@@ -127,27 +138,52 @@ export async function resolveProductSkus(
   const wanted = [...new Set(externalSkus.map(normalizeExternalSku).filter(Boolean))];
   if (!wanted.length) return new Map();
 
-  const [mappings, directItems] = await Promise.all([
-    db
-      .select({
-        externalSku: productSkuMappings.externalSku,
-        inventoryItemId: productSkuMappings.inventoryItemId,
-        sku: inventoryItems.sku,
-        name: inventoryItems.name,
-        category: inventoryItems.category,
-      })
-      .from(productSkuMappings)
-      .innerJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
-      .where(inArray(productSkuMappings.externalSku, wanted)),
-    db
-      .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name, category: inventoryItems.category })
-      .from(inventoryItems)
-      .where(sql`UPPER(${inventoryItems.sku}) IN (${sql.join(wanted.map((sku) => sql`${sku}`), sql`, `)})`),
-  ]);
+  type MappingLookup = {
+    externalSku: string;
+    inventoryItemId: string;
+    sku: string | null;
+    name: string;
+    category: string;
+  };
+  type DirectItemLookup = {
+    id: string;
+    sku: string | null;
+    name: string;
+    category: string;
+  };
+  const mappings: MappingLookup[] = [];
+  const directItems: DirectItemLookup[] = [];
+
+  // D1 單支 SQL 的 bound parameter 有上限；報表可能有數百個 SKU，不能一次塞完整份 IN。
+  for (let offset = 0; offset < wanted.length; offset += SKU_LOOKUP_BATCH_SIZE) {
+    const batch = wanted.slice(offset, offset + SKU_LOOKUP_BATCH_SIZE);
+    const [batchMappings, batchDirectItems] = await Promise.all([
+      db
+        .select({
+          externalSku: productSkuMappings.externalSku,
+          inventoryItemId: productSkuMappings.inventoryItemId,
+          sku: inventoryItems.sku,
+          name: inventoryItems.name,
+          category: inventoryItems.category,
+        })
+        .from(productSkuMappings)
+        .innerJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
+        .where(inArray(productSkuMappings.externalSku, batch)),
+      db
+        .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name, category: inventoryItems.category })
+        .from(inventoryItems)
+        .where(sql`UPPER(${inventoryItems.sku}) IN (${sql.join(batch.map((sku) => sql`${sku}`), sql`, `)})`),
+    ]);
+    mappings.push(...batchMappings);
+    directItems.push(...batchDirectItems);
+  }
 
   const resolved = new Map<string, ResolvedProductSku>();
+  const mappedKeys = new Set(mappings.map((mapping) => normalizeExternalSku(mapping.externalSku)));
   for (const item of directItems) {
-    if (item.sku) resolved.set(normalizeExternalSku(item.sku), {
+    const key = item.sku ? normalizeExternalSku(item.sku) : "";
+    // 明確 mapping 優先於「外部 SKU 剛好等於 WMS SKU」的 implicit match。
+    if (item.sku && !mappedKeys.has(key)) resolved.set(key, {
       inventoryItemId: item.id,
       sku: item.sku,
       name: item.name,
@@ -157,10 +193,6 @@ export async function resolveProductSkus(
   for (const mapping of mappings) {
     if (!mapping.sku) continue;
     const key = normalizeExternalSku(mapping.externalSku);
-    const direct = resolved.get(key);
-    if (direct && direct.inventoryItemId !== mapping.inventoryItemId) {
-      throw new WmsError("conflict", `外部 SKU「${mapping.externalSku}」同時對應到不同商品。 `);
-    }
     resolved.set(key, {
       inventoryItemId: mapping.inventoryItemId,
       sku: mapping.sku,
