@@ -72,6 +72,16 @@ function monthlyRows(document) {
   }));
 }
 
+function partialReportError(document) {
+  const details = document.skippedRows.map((row) => (
+    `第 ${row.row} 列（銷售 ${row.grossQuantity.toLocaleString("zh-TW")}、退回 ${row.returnQuantity.toLocaleString("zh-TW")}、淨 ${row.netQuantity.toLocaleString("zh-TW")}、售額 ${row.salesAmount.toLocaleString("zh-TW")}）`
+  )).join("、");
+  return {
+    code: "PARTIAL_REPORT",
+    message: `已略過 ${document.skippedRows.length} 筆缺少 SKU 的資料列：${details}；其餘 ${document.rows.length} 筆可識別商品仍已處理，請人工補正原始報表。`,
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) return help();
@@ -194,7 +204,12 @@ async function main() {
               ? "--skip-upload，未匯入 D1"
               : `未匯入 D1（缺少：${ingestConfig.missing.join("、")}）`;
         }
-        result.done = true;
+        if (document?.skippedRows?.length) {
+          result.error = partialReportError(document);
+          result.done = false;
+        } else {
+          result.done = true;
+        }
       } catch (error) {
         const step = ["export", "fetch", "verify", "upload", "ingest"].find((key) => !result.steps[key]);
         if (step) result.steps[step] = "fail";

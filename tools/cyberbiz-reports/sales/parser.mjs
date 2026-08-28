@@ -49,9 +49,10 @@ function cell(cells, column, row) {
   return column < 0 ? undefined : cells.get(`${String.fromCharCode(65 + column)}${row}`);
 }
 
-function assertRowTotals(rows, totals, field, label) {
+function assertRowTotals(rows, skippedRows, totals, field, label) {
   const actual = rows.reduce((sum, row) => sum + row[field], 0);
-  if (cents(actual) !== cents(totals[field])) {
+  const skipped = skippedRows.reduce((sum, row) => sum + row[field], 0);
+  if (cents(actual + skipped) !== cents(totals[field])) {
     throw new Error(`銷售總表 ${label} 合計不一致：明細 ${actual}、總計 ${totals[field]}`);
   }
 }
@@ -111,17 +112,27 @@ export async function parseSalesReport(filePath, {
   if (totalRow < 0) throw new Error("銷售總表缺少總計列。");
 
   const rows = [];
+  const skippedRows = [];
   for (let row = 3; row < totalRow; row += 1) {
     const sku = text(cell(cells, skuColumn, row));
-    if (!sku) continue;
-    rows.push({
-      sku,
-      productName: text(cell(cells, productColumn, row)),
-      category: text(cell(cells, categoryColumn, row)) || "未分類",
+    // CYBERBIZ 偶爾會輸出只有數量欄的未識別列；不能寫進以 SKU 為鍵的 D1，先記錄給 driver 報告。
+    const quantities = {
       grossQuantity: number(cell(cells, grossQuantityColumn, row), `第 ${row} 列銷售數量`),
       returnQuantity: number(cell(cells, returnQuantityColumn, row), `第 ${row} 列退回數量`),
       netQuantity: number(cell(cells, netQuantityColumn, row), `第 ${row} 列淨銷售數量`),
       salesAmount: number(cell(cells, salesAmountColumn, row), `第 ${row} 列售額總計`),
+    };
+    if (!sku) {
+      if (Object.values(quantities).some((value) => value !== 0)) {
+        skippedRows.push({ row, reason: "missing_sku", ...quantities });
+      }
+      continue;
+    }
+    rows.push({
+      sku,
+      productName: text(cell(cells, productColumn, row)),
+      category: text(cell(cells, categoryColumn, row)) || "未分類",
+      ...quantities,
     });
   }
   if (!rows.length && !allowEmpty) {
@@ -136,10 +147,10 @@ export async function parseSalesReport(filePath, {
     netQuantity: number(cell(cells, netQuantityColumn, totalRow), "總計淨銷售數量"),
     salesAmount: number(cell(cells, salesAmountColumn, totalRow), "總計售額"),
   };
-  assertRowTotals(rows, totals, "grossQuantity", "銷售數量");
-  assertRowTotals(rows, totals, "returnQuantity", "退回數量");
-  assertRowTotals(rows, totals, "netQuantity", "淨銷售數量");
-  assertRowTotals(rows, totals, "salesAmount", "售額");
+  assertRowTotals(rows, skippedRows, totals, "grossQuantity", "銷售數量");
+  assertRowTotals(rows, skippedRows, totals, "returnQuantity", "退回數量");
+  assertRowTotals(rows, skippedRows, totals, "netQuantity", "淨銷售數量");
+  assertRowTotals(rows, skippedRows, totals, "salesAmount", "售額");
 
   return {
     schemaVersion: 1,
@@ -152,6 +163,7 @@ export async function parseSalesReport(filePath, {
     coverageEnd: range.end,
     granularity: isWholeMonth(range) ? "month" : "interval",
     rows,
+    skippedRows,
     totals,
     source: { filename: path.basename(filePath), parserVersion },
   };
