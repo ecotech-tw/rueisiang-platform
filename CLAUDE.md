@@ -10,7 +10,8 @@
 
 ### 開工前
 
-1. 確認目前路徑、worktree、branch 與未提交修改；不要碰另一個 agent 的 worktree。
+1. 先跑 `git rev-parse --show-toplevel` 確認自己在哪個 worktree，再確認 branch 與未提交修改。
+   跑錯目錄不會有錯誤訊息，通常要到 push 才發現整輪做在別人的分支上。不要碰另一個 agent 的 worktree。
 2. 依照 [`docs/development-workflow.md`](./docs/development-workflow.md) 的開工步驟執行 `git fetch origin main --prune`，確認本地使用的是最新的 `origin/main`。
 3. 新需求一律從最新的 `origin/main` 建立 feature branch。既有 feature branch 只有在它屬於自己、工作區乾淨時才可 rebase；不要替另一個 agent 切 branch、rebase 或清除修改。
 4. 先研究既有實作、設計文件、測試與下游 consumers，再決定要新增、修改或移除什麼。
@@ -117,8 +118,9 @@ driver 的 `loadConfig` 讀到它就以它為準（沒有這個檔案時照 `con
 worktree 的建立指令、目錄配置、port 對照、branch 生命週期與 review 規則集中放在
 [`docs/development-workflow.md`](./docs/development-workflow.md)；本節只保留不可違反的邊界。
 
-Codex、Claude 與人類不能共用同一個 working directory。具體的目錄配置與 agent 規則請以
-上面的 workflow 文件為準。
+同一個 working directory 同時只能有一個主人。主資料夾 `rueisiang-platform` 預設是人類的，
+人類當次明講之後 agent 也可以借用。交叉 review 唯讀，在自己的 worktree 做，不要進對方的
+目錄。具體的目錄配置與 agent 規則請以上面的 workflow 文件為準。
 
 `CLAUDE.md`、`AGENTS.md`、`docs/development-workflow.md` 與 `.claude/skills/` 是三方共用的
 規格：**要改就開一個只做這件事的 PR，不可以夾在功能 PR 裡順手改。** 夾在大 diff 裡的一句

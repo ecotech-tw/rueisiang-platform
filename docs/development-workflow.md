@@ -8,9 +8,9 @@
 
 ---
 
-## 一、Worktree：三方不共用工作目錄
+## 一、Worktree：一個工作目錄同時只有一個主人
 
-Codex、Claude 與人類不共用同一個 working directory。兩個 agent 即使同時開發，
+Codex、Claude 與人類不同時共用一個 working directory。兩個 agent 即使同時開發，
 也不會因為其中一方切 branch 而讓另一方的檔案突然改變。
 
 ```text
@@ -34,18 +34,41 @@ git worktree list
 
 `<需求名稱>` 由當次需求決定；不要讓兩個 worktree 使用同一個 branch。
 
-常駐 worktree 建立後，每個 agent 只在自己的路徑切換到下一個需求 branch；review 別人的
-branch 時使用 detached review worktree，不要把同一個 branch 同時掛到兩個 worktree。
+`rueisiang-platform` 預設是人類的整合目錄，但不是保留區：**人類在當次對話明講之後，
+Codex 或 Claude 也可以在上面作業。** 要守住的不是「這個目錄屬於誰」，而是「一個工作
+目錄同時只有一個主人」——真正會出事的是兩個人同時在同一個目錄切 branch，不是誰的名字
+掛在資料夾上。所以借用時：說一聲、結束時回報自己把它留在哪個 branch、人類要拿回去就
+先切回 `main` 再交還。
+
+常駐 worktree 建立後，每個 agent 只在自己的路徑切換到下一個需求 branch。
+
+**交叉 review 要做**（Codex review Claude 的分支，反之亦然），但**唯讀，而且在自己的
+worktree 或 detached review worktree 做，不要進對方的目錄**。看一個分支不需要站到對方
+的資料夾裡：
+
+```powershell
+git fetch origin --prune
+git diff origin/main...origin/feat/<對方的分支>
+```
+
+進對方目錄的三個實際代價：切 branch 會動到對方可能還沒提交的工作區；同一個 branch 本來
+就不能同時掛在兩個 worktree，想 checkout 也 checkout 不了；stash stack 是共用的，很容易
+互相 pop 掉（見下面「Git stash 是共用的」）。
 
 ### 每個需求開始前
 
-在自己的 worktree 執行：
+**第 0 步永遠是確認自己站在哪個 worktree**，然後才看 branch 狀態：
 
 ```powershell
+git rev-parse --show-toplevel   # 先確認目錄，再做任何事
 git status --short --branch
 git fetch origin main --prune
 git log --oneline --decorate HEAD..origin/main
 ```
+
+第一行不能省。agent 的 shell 起始路徑不一定等於它以為的 worktree，而跑錯目錄不會有任何
+錯誤訊息——整個需求會做在別人的分支上，通常要到 push 或 review 才發現。這一行的成本是
+零，擋掉的是整輪重做。
 
 新需求必須從最新的 `origin/main` 建立 branch：
 
@@ -94,10 +117,11 @@ worktree 之間共用同一個 stash stack。不要用裸的 `git stash` / `git 
 
 ## 二、誰能改什麼
 
-1. 啟動後先確認目前路徑與 branch。
-2. 只修改自己擁有的 worktree。
+1. 啟動後先跑 `git rev-parse --show-toplevel` 確認路徑，再確認 branch。
+2. 只修改自己擁有的 worktree；主資料夾要人類當次明講才能借用。
 3. 不替另一個 agent 切 branch、rebase 或清除未提交修改。
-4. Review 透過 PR 留言與 review；不要直接改 reviewer 的工作檔。
+4. 交叉 review 唯讀，在自己的 worktree 或 detached review worktree 做；意見寫在 PR 上，
+   不要進對方的目錄，也不要直接改對方的工作檔。
 5. Merge 永遠由人類確認後執行。
 
 ### 共同規格檔要單獨開 PR
