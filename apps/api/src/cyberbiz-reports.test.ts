@@ -39,7 +39,7 @@ describe("報表月資料查詢", () => {
     expect(result.totals).toEqual({ grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 380 });
   });
 
-  it("公司查詢不會把其他通路的 scope 一起加總", async () => {
+  it("公司查詢會把蝦皮 scope 一起加總", async () => {
     const shopeeScope = "shopee:store:mall";
     await upsertReportScope(db(), { id: shopeeScope, scopeKind: "store", name: "蝦皮商城" });
     await insertReportSalesMonthly(db(), [{
@@ -50,9 +50,9 @@ describe("報表月資料查詢", () => {
 
     const service = createCyberbizReportService(db());
     expect((await service.querySales({ period: "2026-07", scopeType: "company" })).totals)
-      .toEqual({ grossQuantity: 9, returnQuantity: 1, netQuantity: 8, salesAmount: 680 });
+      .toEqual({ grossQuantity: 109, returnQuantity: 1, netQuantity: 108, salesAmount: 10680 });
     expect((await service.queryPayout({ period: "2026-07", scopeType: "company" })).totals)
-      .toEqual({ payoutAmount: 6000 });
+      .toEqual({ payoutAmount: 26000 });
   });
 
   it("公司查詢包含舊版 store- scope ID", async () => {

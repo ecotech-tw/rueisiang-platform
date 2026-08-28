@@ -56,6 +56,7 @@ export interface InventoryItem {
   shelfLevel: string | null;
   notes: string;
   updatedAt: string;
+  externalSkus: Array<{ id: string; externalSku: string }>;
   /** 連到 CYBERBIZ 的哪一個款式。地圖與庫存頁都要看得出來。 */
   cyberbiz: CyberbizLink | null;
 }
@@ -88,8 +89,8 @@ export interface Warehouse {
 const WAREHOUSE_KEY = ["wms", "warehouse"] as const;
 
 async function readError(response: Response): Promise<never> {
-  const body = (await response.json().catch(() => null)) as { error?: string } | null;
-  throw new Error(body?.error ?? `操作失敗（${response.status}）`);
+  const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+  throw new Error(body?.message ?? body?.error ?? `操作失敗（${response.status}）`);
 }
 
 export function useWarehouse() {
@@ -173,6 +174,18 @@ export function useUpdateItem() {
 
 export function useDeleteItem() {
   return useWarehouseMutation((id: string) => write<{ ok: true }>(`/api/wms/items/${id}`, "DELETE"));
+}
+
+export function useAddProductSkuMapping() {
+  return useWarehouseMutation(({ id, externalSku }: { id: string; externalSku: string }) =>
+    write<{ id: string; externalSku: string }>(`/api/wms/items/${id}/product-sku-mappings`, "POST", { externalSku }),
+  );
+}
+
+export function useDeleteProductSkuMapping() {
+  return useWarehouseMutation(({ itemId, mappingId }: { itemId: string; mappingId: string }) =>
+    write<{ ok: true }>(`/api/wms/items/${itemId}/product-sku-mappings/${mappingId}`, "DELETE"),
+  );
 }
 
 export interface CountResult {

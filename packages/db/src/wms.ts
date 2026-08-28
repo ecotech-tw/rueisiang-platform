@@ -7,6 +7,7 @@ import {
   inventoryItems,
   layoutElements,
   productCategories,
+  productSkuMappings,
   warehouseSettings,
   zoneImages,
   zones,
@@ -172,7 +173,7 @@ export async function loadWarehouse(db: Database) {
     .from(warehouseSettings)
     .where(eq(warehouseSettings.id, SETTINGS_ID));
 
-  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, mappingRows] = await Promise.all([
     db.select().from(zones).orderBy(asc(zones.code)),
     db.select().from(layoutElements).orderBy(asc(layoutElements.label)),
     db.select().from(productCategories).orderBy(asc(productCategories.name)),
@@ -186,10 +187,17 @@ export async function loadWarehouse(db: Database) {
      * 踩過一次（quantity 拿到 minStock 的值）。分開查再自己配對，沒有那個問題。
      */
     db.select().from(cyberbizProductLinks),
+    db.select().from(productSkuMappings).orderBy(asc(productSkuMappings.externalSku)),
   ]);
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
   const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
+  const mappingsByItem = new Map<string, Array<{ id: string; externalSku: string }>>();
+  for (const mapping of mappingRows) {
+    const values = mappingsByItem.get(mapping.inventoryItemId) ?? [];
+    values.push({ id: mapping.id, externalSku: mapping.externalSku });
+    mappingsByItem.set(mapping.inventoryItemId, values);
+  }
 
   return {
     // 設定那一列可能還沒建（全新的資料庫），給預設值而不是回 null。
@@ -208,6 +216,7 @@ export async function loadWarehouse(db: Database) {
       const link = linksByItem.get(item.id);
       return {
         ...item,
+        externalSkus: mappingsByItem.get(item.id) ?? [],
         cyberbiz: link
           ? {
               cyberbizProductId: link.cyberbizProductId,

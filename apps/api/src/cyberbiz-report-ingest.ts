@@ -3,6 +3,8 @@ import {
   insertReportSalesMonthly,
   findReportScope,
   upsertReportScope,
+  normalizeExternalSku,
+  resolveProductSkus,
   type Database,
   type ReportScopeKind,
 } from "@rueisiang/db";
@@ -22,8 +24,12 @@ export interface CyberbizReportIngestInput {
 }
 
 export class CyberbizReportIngestError extends Error {
-  constructor(readonly status: 422, readonly code: "invalid_ingest") {
-    super("CYBERBIZ 報表匯入資料格式不正確。");
+  constructor(
+    readonly status: 422,
+    readonly code: "invalid_ingest" | "unmapped_product",
+    message = code === "unmapped_product" ? "報表包含尚未對應的 WMS 商品。" : "CYBERBIZ 報表匯入資料格式不正確。",
+  ) {
+    super(message);
     this.name = "CyberbizReportIngestError";
   }
 }
@@ -57,11 +63,6 @@ function integer(value: unknown): number {
   return value;
 }
 
-function optionalText(value: unknown, fallback: string): string {
-  if (value === undefined || value === null || (typeof value === "string" && !value.trim())) return fallback;
-  return text(value);
-}
-
 function readInput(value: unknown): CyberbizReportIngestInput {
   const isSingle = record(value) && (value.kind === "sales" || value.kind === "payout") && Array.isArray(value.rows);
   const isBundle = record(value) && value.kind === "sales_and_payout"
@@ -91,7 +92,87 @@ function readInput(value: unknown): CyberbizReportIngestInput {
   };
 }
 
-function salesRows(input: CyberbizReportIngestInput) {
+interface ParsedSalesRow {
+  reportMonth: string;
+  externalSku: string;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+  salesAmount: number;
+}
+
+function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
+  const rows = new Map<string, {
+    reportMonth: string;
+    externalSku: string;
+    grossQuantity: number;
+    returnQuantity: number;
+    netQuantity: number;
+    salesAmount: number;
+  }>();
+  for (const value of input.rows ?? []) {
+    if (!record(value)) throw new CyberbizReportIngestError(422, "invalid_ingest");
+    if (value.businessDate !== undefined) throw new CyberbizReportIngestError(422, "invalid_ingest");
+    const reportMonth = month(value.reportMonth ?? input.reportMonth);
+    if (input.reportMonth && reportMonth !== input.reportMonth) {
+      throw new CyberbizReportIngestError(422, "invalid_ingest");
+    }
+    const externalSku = normalizeExternalSku(text(value.sku));
+    const key = `${reportMonth}\u0000${externalSku}`;
+    const previous = rows.get(key);
+    rows.set(key, {
+      reportMonth,
+      externalSku,
+      grossQuantity: (previous?.grossQuantity ?? 0) + integer(value.grossQuantity ?? 0),
+      returnQuantity: (previous?.returnQuantity ?? 0) + integer(value.returnQuantity ?? 0),
+      netQuantity: (previous?.netQuantity ?? 0) + integer(value.netQuantity ?? 0),
+      salesAmount: (previous?.salesAmount ?? 0) + integer(value.salesAmount ?? 0),
+    });
+  }
+  return [...rows.values()];
+}
+
+async function normalizeSalesRows(
+  db: Database,
+  input: CyberbizReportIngestInput,
+): Promise<Array<{
+  scopeId: string;
+  reportMonth: string;
+  sku: string;
+  productName: string;
+  category: string;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+  salesAmount: number;
+  updatedAt: string;
+}>> {
+  const parsed = parseSalesRows(input);
+  if (!parsed.length) return [];
+
+  let resolved: Awaited<ReturnType<typeof resolveProductSkus>>;
+  try {
+    resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku));
+  } catch (error) {
+    throw new CyberbizReportIngestError(
+      422,
+      "unmapped_product",
+      error instanceof Error ? error.message : "外部 SKU 對應 WMS 商品時發生錯誤。",
+    );
+  }
+
+  const missing = parsed
+    .map((row) => row.externalSku)
+    .filter((sku, index, values) => !resolved.has(sku) && values.indexOf(sku) === index);
+  if (missing.length) {
+    throw new CyberbizReportIngestError(
+      422,
+      "unmapped_product",
+      `以下外部 SKU 尚未對應 WMS 商品：${missing.slice(0, 50).join("、")}${missing.length > 50 ? "…" : ""}`,
+    );
+  }
+
+  // 先 mapping 再加總：多個通路 SKU 可能對應同一個 WMS SKU，不能在外部 SKU 階段結束加總。
   const rows = new Map<string, {
     scopeId: string;
     reportMonth: string;
@@ -104,26 +185,20 @@ function salesRows(input: CyberbizReportIngestInput) {
     salesAmount: number;
     updatedAt: string;
   }>();
-  for (const value of input.rows ?? []) {
-    if (!record(value)) throw new CyberbizReportIngestError(422, "invalid_ingest");
-    if (value.businessDate !== undefined) throw new CyberbizReportIngestError(422, "invalid_ingest");
-    const reportMonth = month(value.reportMonth ?? input.reportMonth);
-    if (input.reportMonth && reportMonth !== input.reportMonth) {
-      throw new CyberbizReportIngestError(422, "invalid_ingest");
-    }
-    const sku = text(value.sku);
-    const key = `${reportMonth}\u0000${sku}`;
+  for (const row of parsed) {
+    const item = resolved.get(row.externalSku)!;
+    const key = `${row.reportMonth}\u0000${item.sku}`;
     const previous = rows.get(key);
     rows.set(key, {
       scopeId: input.scopeId,
-      reportMonth,
-      sku,
-      productName: optionalText(value.productName, previous?.productName ?? ""),
-      category: optionalText(value.category, previous?.category ?? "未分類"),
-      grossQuantity: (previous?.grossQuantity ?? 0) + integer(value.grossQuantity ?? 0),
-      returnQuantity: (previous?.returnQuantity ?? 0) + integer(value.returnQuantity ?? 0),
-      netQuantity: (previous?.netQuantity ?? 0) + integer(value.netQuantity ?? 0),
-      salesAmount: (previous?.salesAmount ?? 0) + integer(value.salesAmount ?? 0),
+      reportMonth: row.reportMonth,
+      sku: item.sku,
+      productName: item.name,
+      category: item.category,
+      grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity,
+      returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity,
+      netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity,
+      salesAmount: (previous?.salesAmount ?? 0) + row.salesAmount,
       updatedAt: new Date().toISOString(),
     });
   }
@@ -171,7 +246,7 @@ export function createCyberbizReportIngestor(db: Database) {
       });
       const scopedInput = { ...input, scopeId: scope.id };
       if (input.kind === "sales_and_payout") {
-        const sales = salesRows({ ...scopedInput, rows: input.salesRows ?? [] });
+        const sales = await normalizeSalesRows(db, { ...scopedInput, rows: input.salesRows ?? [] });
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
         await insertReportSalesMonthly(db, sales, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
@@ -186,7 +261,7 @@ export function createCyberbizReportIngestor(db: Database) {
         };
       }
       if (input.kind === "sales") {
-        const rows = salesRows(scopedInput);
+        const rows = await normalizeSalesRows(db, scopedInput);
         await insertReportSalesMonthly(db, rows, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);

@@ -110,6 +110,24 @@ export const inventoryItems = sqliteTable("inventory_items", {
 ]);
 
 /**
+ * 外部通路 SKU 與 WMS 商品的對應。
+ *
+ * external_sku 不分通路儲存；同一個外部 SKU 必須只對應一個 WMS 品項。
+ * 商品的正式 SKU、名稱與分類都從 inventory_items 取得，不在這裡複製。
+ */
+export const productSkuMappings = sqliteTable("product_sku_mappings", {
+  id: text("id").primaryKey(),
+  inventoryItemId: text("inventory_item_id")
+    .notNull()
+    .references(() => inventoryItems.id, { onDelete: "cascade" }),
+  externalSku: text("external_sku").notNull().unique(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_product_sku_mappings_inventory_item").on(table.inventoryItemId),
+]);
+
+/**
  * 庫存品項與 CYBERBIZ 商品款式的對應。
  *
  * 一個品項最多對一個款式（兩邊都是 unique）：多對多會讓「這裡少了 3 件，官網
@@ -186,5 +204,6 @@ export type Zone = typeof zones.$inferSelect;
 export type LayoutElement = typeof layoutElements.$inferSelect;
 export type ProductCategory = typeof productCategories.$inferSelect;
 export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type ProductSkuMapping = typeof productSkuMappings.$inferSelect;
 export type CyberbizProductLink = typeof cyberbizProductLinks.$inferSelect;
 export type ZoneImage = typeof zoneImages.$inferSelect;

@@ -5,6 +5,7 @@ import {
   inventoryItems,
   cyberbizProductLinks,
   productCategories,
+  productSkuMappings,
   zoneImages,
   users,
   userRoles,
@@ -280,6 +281,48 @@ describe("庫存品項", () => {
   });
 });
 
+describe("外部 SKU 對應", () => {
+  it("可以把外部 SKU 對應到 WMS 商品並自動統一大小寫", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values({
+      id: "i1", sku: "WMS-001", name: "黑色肩背包", category: "一般備品",
+    });
+
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/items/i1/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({ externalSku: "shopee-001" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await db.select().from(productSkuMappings)).toMatchObject([{
+      inventoryItemId: "i1",
+      externalSku: "SHOPEE-001",
+    }]);
+    const warehouse = await as(id, "admin@ecotech.tw", "/api/wms/warehouse");
+    const warehousePayload = await warehouse.json() as { items: Array<{ externalSkus: unknown }> };
+    expect(warehousePayload.items[0]?.externalSkus).toEqual([
+      expect.objectContaining({ externalSku: "SHOPEE-001" }),
+    ]);
+  });
+
+  it("同一個外部 SKU 不可對應到不同 WMS 商品", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "WMS-001", name: "商品一", category: "一般備品" },
+      { id: "i2", sku: "WMS-002", name: "商品二", category: "一般備品" },
+    ]);
+
+    expect((await as(id, "admin@ecotech.tw", "/api/wms/items/i1/product-sku-mappings", {
+      method: "POST", body: JSON.stringify({ externalSku: "shopee-001" }),
+    })).status).toBe(201);
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/items/i2/product-sku-mappings", {
+      method: "POST", body: JSON.stringify({ externalSku: "SHOPEE-001" }),
+    });
+
+    expect(response.status).toBe(409);
+  });
+});
+
 /*
  * 安全庫存的真相來源。
  *
@@ -519,6 +562,7 @@ describe("讀取與權限", () => {
       ["/api/wms/warehouse", {}],
       ["/api/wms/zones", { method: "POST", body: "{}" }],
       ["/api/wms/items", { method: "POST", body: "{}" }],
+      ["/api/wms/items/i1/product-sku-mappings", { method: "POST", body: "{}" }],
       ["/api/wms/items/i1/count", { method: "PATCH", body: "{}" }],
       ["/api/wms/categories", { method: "POST", body: "{}" }],
       ["/api/wms/settings", { method: "PATCH", body: "{}" }],

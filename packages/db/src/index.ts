@@ -82,6 +82,15 @@ export {
 } from "./assistant.js";
 export * as schema from "./schema/index.js";
 export {
+  addProductSkuMapping,
+  deleteProductSkuMapping,
+  listProductSkuMappings,
+  normalizeExternalSku,
+  resolveProductSkus,
+  type ProductSkuMappingRow,
+  type ResolvedProductSku,
+} from "./product-sku-mappings.js";
+export {
   findCyberbizReportRun,
   listCyberbizReportRuns,
   recordCyberbizReportRun,

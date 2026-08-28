@@ -19,6 +19,7 @@ export type ActivityEntityType =
   | "zone"
   | "inventory_item"
   | "product_category"
+  | "product_sku_mapping"
   | "layout_element"
   /** 倉庫本身的設定（畫布尺寸）。只有一筆，entityId 固定是 main。 */
   | "warehouse";
@@ -93,11 +94,12 @@ export interface ActivityQuery {
   pageSize: number;
 }
 
-/** 倉儲會寫到的五種東西。倉儲的操作紀錄頁用它一次篩完。 */
+/** 倉儲會寫到的六種東西。倉儲的操作紀錄頁用它一次篩完。 */
 export const WMS_ENTITY_TYPES = [
   "zone",
   "inventory_item",
   "product_category",
+  "product_sku_mapping",
   "layout_element",
   "warehouse",
 ] as const satisfies readonly ActivityEntityType[];

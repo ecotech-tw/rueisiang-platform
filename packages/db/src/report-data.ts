@@ -258,9 +258,6 @@ const SALES_GROUPS: Record<SalesGroupBy, { alias: string; expression: ReturnType
 
 type PayoutGroupBy = "day" | "month" | "scope";
 
-const CYBERBIZ_STORE_SCOPE_PREFIX = "cyberbiz:store:";
-const LEGACY_CYBERBIZ_STORE_SCOPE_PREFIX = "store-";
-
 const PAYOUT_GROUPS: Record<PayoutGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
   day: { alias: "businessDate", expression: sql`${reportPayoutDaily.businessDate}` },
   month: { alias: "reportMonth", expression: sql`substr(${reportPayoutDaily.businessDate}, 1, 7)` },
@@ -287,9 +284,7 @@ async function scopeIdsForQuery(db: Database, query: { scopeType: ReportScopeKin
     return scope ? { ids: [scope.id], scope } : { ids: [] };
   }
   return {
-    ids: (await listReportScopes(db, "store"))
-      .filter((scope) => scope.id.startsWith(CYBERBIZ_STORE_SCOPE_PREFIX) || scope.id.startsWith(LEGACY_CYBERBIZ_STORE_SCOPE_PREFIX))
-      .map((scope) => scope.id),
+    ids: (await listReportScopes(db, "store")).map((scope) => scope.id),
   };
 }
 
