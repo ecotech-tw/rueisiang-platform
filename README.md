@@ -92,6 +92,20 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 - [ ] 決定 T 欄「其他服務費」要不要計入業績——這題會改動驗收基準，沒答案不要開工。
 - [ ] 實作「API JSON → orders 列」轉換與 token 續期，用 2026-07 跟既有結果對數字。
 
+### 蝦皮：訂單自動扣 WMS 庫存
+
+同一批貨兩個通路在賣，但只有官網會自動扣帳，倉庫補扣時會扣到重複的部分。根因是蝦皮的
+銷售沒進系統，不是兩邊庫存數字對不上。設計見
+[`docs/shopee-inventory-sync-design.md`](./docs/shopee-inventory-sync-design.md)，
+它依賴上面那項的授權與 token 續期先做完。
+
+- [ ] 把蝦皮的外部 SKU 統一成「商品ID_規格ID」：改 `xlsx.mjs` 的 `salesDaily` 鍵、換掉
+      既有的 `product_sku_mappings` 對應、重匯受影響的月份。報表與扣庫存不能兩種粒度並存。
+- [ ] 新增組合包用料表：13 個組合包一組要扣多個不同品項，`product_sku_mappings` 不改成
+      一對多（改了報表會壞）。含 WMS 的編輯 UI。
+- [ ] 決定在哪個訂單狀態扣帳，以及上線前的既有訂單要不要回補。
+- [ ] 訂閱 push code 3、驗簽、對應到 `product_sku_mappings` 後扣帳，含冪等與退貨加回。
+
 ### 小香：MCP tools
 
 `mcp` 目前只是 tool registry 上的 surface 標記，除了唯讀的
