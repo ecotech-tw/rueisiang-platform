@@ -6,6 +6,7 @@ import {
   cyberbizProductLinks,
   inventoryItems,
   layoutElements,
+  productBundleComponents,
   productCategories,
   productSkuMappings,
   warehouseSettings,
@@ -581,6 +582,14 @@ export async function updateItem(
 export async function deleteItem(db: Database, id: string, actor: Actor) {
   const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
   if (!item) throw new WmsError("not_found", "找不到這項商品。");
+  const [componentUse] = await db
+    .select({ mappingId: productBundleComponents.mappingId })
+    .from(productBundleComponents)
+    .where(eq(productBundleComponents.inventoryItemId, id))
+    .limit(1);
+  if (componentUse) {
+    throw new WmsError("conflict", "這項商品仍是組合商品用料，請先移除組合對應再刪除。");
+  }
 
   await db.batch([
     db.delete(inventoryItems).where(eq(inventoryItems.id, id)),
