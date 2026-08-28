@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { appendAnalysisSheets, readWorkbook, transformShopeeWorkbook, writeZipEntries } from "./lib/xlsx.mjs";
+import { appendAnalysisSheets, readWorkbook, transformShopeeWorkbook, writeOrdersWorkbook, writeZipEntries } from "./lib/xlsx.mjs";
+import { ordersRowsFromOpenApi } from "./lib/open-api.mjs";
 
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "shopee-sales-selftest-"));
 try {
@@ -41,6 +42,40 @@ try {
   if (outsideRange.uniqueOrders !== 0 || outsideRange.totalQuantity !== 0 || outsideRange.dailyPayoutRows.length !== 0) throw new Error(`日期篩選結果不正確：${JSON.stringify(outsideRange)}`);
   const checked = await readWorkbook(output);
   if (checked.sheets.map((item) => item.name).join(",") !== "orders,業績計算,商品銷售統計") throw new Error("selftest 分頁不正確");
+
+  const fixture = JSON.parse(await fs.readFile(new URL("./test/fixtures/shopee-open-api.json", import.meta.url), "utf8"));
+  const apiRows = ordersRowsFromOpenApi(fixture);
+  if (apiRows.length !== 4 || apiRows[1]?.[0] !== "260701TEST001" || apiRows[1]?.[5] !== "2026-07-01 08:00" || apiRows[1]?.[19] !== 5) {
+    throw new Error(`Open API orders 列不正確：${JSON.stringify(apiRows)}`);
+  }
+  if (apiRows[3]?.[34] !== 1) throw new Error(`Open API 退貨數量不正確：${JSON.stringify(apiRows[3])}`);
+  const apiSource = path.join(temp, "open-api-source.xlsx");
+  const apiOutput = path.join(temp, "open-api-output.xlsx");
+  await writeOrdersWorkbook(apiSource, apiRows);
+  const apiResult = await transformShopeeWorkbook(apiSource, apiOutput, { sourceSheet: "orders", start: "2026-07-01", end: "2026-07-31" });
+  if (apiResult.totalPerformance !== 665 || apiResult.totalQuantity !== 4 || apiResult.uniqueOrders !== 2 || apiResult.uniqueProducts !== 3) {
+    throw new Error(`Open API report 結果不正確：${JSON.stringify(apiResult)}`);
+  }
+  const apiChecked = await readWorkbook(apiOutput);
+  if (apiChecked.sheets.map((item) => item.name).join(",") !== "orders,業績計算,商品銷售統計") throw new Error("Open API report 分頁不正確");
+
+  const wrappedRows = ordersRowsFromOpenApi({
+    order_list: { response: { order_list: fixture.order_list } },
+    order_details: { response: { order_list: fixture.order_details } },
+    escrow_details: { response: { escrow_list: fixture.escrow_details } },
+    return_details: { response: { return_list: fixture.return_details } },
+  });
+  if (JSON.stringify(wrappedRows) !== JSON.stringify(apiRows)) throw new Error("Open API response wrapper 整理結果不一致");
+
+  const missingProductAmount = structuredClone(fixture);
+  delete missingProductAmount.escrow_details[0].order_income.product_amount;
+  let missingProductAmountError;
+  try {
+    ordersRowsFromOpenApi(missingProductAmount);
+  } catch (error) {
+    missingProductAmountError = error;
+  }
+  if (!missingProductAmountError || !String(missingProductAmountError.message).includes("商品總價")) throw new Error("缺少商品總價時沒有失敗");
   console.log("蝦皮報表工具 selftest 全部通過");
 } finally {
   await fs.rm(temp, { recursive: true, force: true });

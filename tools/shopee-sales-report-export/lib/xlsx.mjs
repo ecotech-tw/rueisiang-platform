@@ -183,6 +183,21 @@ function sheetXml(rows) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><dimension ref="A1:${columnLetter(maxColumn)}${maxRow}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><cols>${widths}</cols><sheetData>${body}</sheetData></worksheet>`;
 }
 
+export async function writeOrdersWorkbook(filePath, rows) {
+  if (!Array.isArray(rows) || rows.length === 0 || rows.some((row) => !Array.isArray(row))) {
+    throw new Error("orders 工作表必須是至少包含一列的二維陣列。");
+  }
+  const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="orders" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`;
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`;
+  await writeZipEntries(filePath, new Map([
+    ["[Content_Types].xml", contentTypes],
+    ["xl/workbook.xml", workbookXml],
+    ["xl/_rels/workbook.xml.rels", relsXml],
+    ["xl/worksheets/sheet1.xml", sheetXml(rows)],
+  ]));
+}
+
 function appendBefore(xml, closingTag, content) {
   const index = typeof closingTag === "string" ? xml.lastIndexOf(closingTag) : xml.search(closingTag);
   if (index < 0) throw new Error(`xlsx XML 缺少 ${closingTag}。`);

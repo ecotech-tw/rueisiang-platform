@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url";
 import { dateRange, driveFolderIdFromUrl, ensureDir, loadConfig, loadEnv, log, previousMonth, redact, requireEnv, toolPath } from "./lib/common.mjs";
 import { prepareWorkbook } from "./lib/decrypt.mjs";
 import { accessToken, findByName, uploadXlsx } from "./lib/drive.mjs";
-import { transformShopeeWorkbook } from "./lib/xlsx.mjs";
+import { ordersRowsFromOpenApi } from "./lib/open-api.mjs";
+import { transformShopeeWorkbook, writeOrdersWorkbook } from "./lib/xlsx.mjs";
 import { ingestReport, monthlySalesIngestRows } from "../cyberbiz-reports/lib/report-ingest.mjs";
 
 const SHOPEE_SCOPE_ID = "shopee:store:default";
@@ -29,8 +30,32 @@ function parseArgs(argv) {
 function usage() {
   return [
     "用法：node driver.mjs --input <蝦皮xlsx> --password <密碼> [--output <新xlsx>] [--drive-folder-url <Drive資料夾連結>]",
+    "或：node driver.mjs --api-fixture <Open API JSON> [--output <新xlsx>] [--start <起日> --end <迄日>] --skip-upload",
     "不帶 --start/--end 時預設上個月；--skip-upload 只產出新檔，不連 Drive。",
   ].join("\n");
+}
+
+export async function processShopeeRows({ rows, ...options } = {}) {
+  if (!Array.isArray(rows)) throw new Error("請提供 orders rows。");
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shopee-open-api-report-"));
+  try {
+    const sourcePath = path.join(tempDir, "orders.xlsx");
+    await writeOrdersWorkbook(sourcePath, rows);
+    return await processShopeeWorkbook({ ...options, inputPath: sourcePath, password: "" });
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+export async function processShopeeOpenApiFixture({ fixturePath, ...options } = {}) {
+  if (!fixturePath) throw new Error("請提供 fixturePath。");
+  let payload;
+  try {
+    payload = JSON.parse(await fs.readFile(path.resolve(fixturePath), "utf8"));
+  } catch (error) {
+    throw new Error(`Open API fixture 讀取失敗：${error.message}`);
+  }
+  return processShopeeRows({ ...options, rows: ordersRowsFromOpenApi(payload) });
 }
 
 /**
@@ -98,17 +123,18 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) { log(usage()); return; }
-  if (!args.input) throw new Error(`請提供 --input。\n${usage()}`);
-  const result = await processShopeeWorkbook({
-    inputPath: args.input,
-    password: args.password ?? "",
+  if (!args.input && !args.apiFixture) throw new Error(`請提供 --input 或 --api-fixture。\n${usage()}`);
+  const common = {
     outputPath: args.output,
     driveFolderUrl: args.driveFolderUrl,
     sourceSheet: args.sourceSheet,
     start: args.start,
     end: args.end,
     skipUpload: Boolean(args.skipUpload),
-  });
+  };
+  const result = args.apiFixture
+    ? await processShopeeOpenApiFixture({ ...common, fixturePath: args.apiFixture })
+    : await processShopeeWorkbook({ ...common, inputPath: args.input, password: args.password ?? "" });
   log(`已產出：${result.outputPath}`);
   log(`業績合計：${result.summary.totalPerformance.toLocaleString("zh-TW")}`);
   log(`商品數量合計：${result.summary.totalQuantity.toLocaleString("zh-TW")}`);

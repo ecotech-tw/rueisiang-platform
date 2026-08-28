@@ -20,6 +20,19 @@ node driver.mjs --input "Order.completed.20250201_20250228.xlsx" --password 0422
 
 工具會解密報表、依 A 欄訂單去重後計算 `G - S - U`，並將 `Z + AA` 商品組合依 AH 數量彙總成新的工作表。
 
+## Open API 報表 fixture
+
+Open API 的報表輸入會先整理成既有 `orders` 工作表，再沿用同一套業績、商品統計、Drive
+與 D1 流程。POC 階段可用 fixture 驗證 JSON 到三張工作表的完整流程，不需要蝦皮憑證：
+
+```bash
+node driver.mjs --api-fixture test/fixtures/shopee-open-api.json --start 2026-07-01 --end 2026-07-31 --skip-upload
+```
+
+這條路徑目前只接受已明確整理的 `product_amount`，避免把含運費或已扣費用的金額誤當成商品總價；
+實際 Open API 的授權、token 續期與欄位反推另依 POC 的階段二處理。既有業績規則仍是 `G - S - U`，
+T 欄其他服務費先保留在 `orders`，不改動現行計算基準。
+
 加密報表在 Linux/GitHub Actions 上需要安裝 `msoffcrypto-tool`；Windows 本機若有 Microsoft Excel，也可以由工具使用 Excel COM 解密。
 
 蝦皮登入與 OTP 不在目前流程中。若未來能以 Email OTP 搭配 Gmail API 穩定完成驗證，再另行增加自動匯出流程。
