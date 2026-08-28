@@ -64,7 +64,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "報表檢視", to: "/tools/reports", permission: "reports:cyberbiz:read", icon: "analytics" },
       { label: "出金表執行", to: "/tools/payout", permission: "tools:payout:run", icon: "payments" },
       { label: "商品銷售報表執行", to: "/tools/cyberbiz-sales", permission: "tools:cyberbiz-sales:run", icon: "report" },
-      { label: "蝦皮銷售報表", to: "/tools/shopee-sales", permission: "tools:shopee-sales:run", icon: "analytics" },
+      { label: "蝦皮銷售報表", to: "/tools/shopee-sales", permission: "tools:shopee-sales:run", icon: "bag" },
       { label: "店別與報表設定", to: "/tools/payout/settings", permission: "tools:payout:config", icon: "storefront" },
     ],
   },

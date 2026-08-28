@@ -24,6 +24,7 @@ export type IconName =
   | "widgets"
   | "payments"
   | "storefront"
+  | "bag"
   | "assistant"
   | "science"
   | "line"
@@ -206,6 +207,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <rect x="2.9" y="5.9" width="18.2" height="12.2" rx="2.2" />
       <circle cx="12" cy="12" r="2.7" />
       <path d="M6.4 9.4v5.2M17.6 9.4v5.2" />
+    </>
+  ),
+  // 蝦皮的識別就是一只提袋；用線性提袋而不是他們的商標，才跟這一套圖示同一個調性。
+  bag: (
+    <>
+      <path d="M5.4 8.2h13.2l1 11.1a1.5 1.5 0 0 1-1.5 1.6H5.9a1.5 1.5 0 0 1-1.5-1.6z" />
+      <path d="M9 10.2V7.4a3 3 0 0 1 6 0v2.8" />
     </>
   ),
   storefront: (

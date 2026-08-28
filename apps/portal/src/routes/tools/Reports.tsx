@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useReportPayout,
   useReportSales,
@@ -45,6 +45,13 @@ function money(value: number): string {
   return value.toLocaleString("zh-TW");
 }
 
+/** 主表點開的那一格。reportMonth 是空字串代表「整段區間的這個據點」。 */
+interface Drill {
+  reportMonth: string;
+  scopeId: string;
+  label: string;
+}
+
 export function Reports() {
   usePageTitle("報表檢視");
   const scopes = useReportScopes();
@@ -52,9 +59,11 @@ export function Reports() {
   const [startMonth, setStartMonth] = useState(() => shiftMonth(currentMonth(), -2));
   const [endMonth, setEndMonth] = useState(currentMonth);
   const [scopeId, setScopeId] = useState("");
+  const [overviewBy, setOverviewBy] = useState<"month" | "scope">("month");
   const [detailBy, setDetailBy] = useState<"product" | "category">("product");
   const [keyword, setKeyword] = useState("");
   const [category, setCategory] = useState("");
+  const [drill, setDrill] = useState<Drill | null>(null);
 
   const rangeError = !MONTH.test(startMonth) || !MONTH.test(endMonth)
     ? "請選擇起訖月份。"
@@ -62,18 +71,36 @@ export function Reports() {
   const enabled = !rangeError;
   const range = { startDate: monthStart(startMonth), endDate: monthEnd(endMonth), scopeId };
 
-  const overviewSales = useReportSales({ ...range, groupBy: ["month", "scope"] }, enabled);
-  const overviewPayout = useReportPayout({ ...range, groupBy: ["month", "scope"] }, enabled);
+  const overviewGroups = overviewBy === "month" ? ["month", "scope"] : ["scope"];
+  const overviewSales = useReportSales({ ...range, groupBy: overviewGroups }, enabled);
+  const overviewPayout = useReportPayout({ ...range, groupBy: overviewGroups }, enabled);
+
+  // 點開某一格之後，商品明細只看那一格；沒點就是工具列選的整段區間。
+  const detailRange = drill
+    ? {
+      startDate: drill.reportMonth ? monthStart(drill.reportMonth) : range.startDate,
+      endDate: drill.reportMonth ? monthEnd(drill.reportMonth) : range.endDate,
+      scopeId: drill.scopeId,
+    }
+    : range;
   const detail = useReportSales(
-    { ...range, groupBy: detailBy === "product" ? ["sku", "product", "category"] : ["category"] },
+    { ...detailRange, groupBy: detailBy === "product" ? ["sku", "product", "category"] : ["category"] },
     enabled,
   );
+
   // 出金才有日粒度，但整間公司逐日看沒有意義（各通路入帳日不同），所以只在單店時提供。
   const daily = useReportPayout({ ...range, groupBy: ["day"] }, enabled && Boolean(scopeId));
 
   /** 銷售只有月粒度，所以兩份資料只能在「月 × 據點」這個軸上併起來看。 */
   const overview = useMemo(() => {
-    const merged = new Map<string, { reportMonth: string; scopeName: string; netQuantity: number; salesAmount: number; payoutAmount: number }>();
+    const merged = new Map<string, {
+      reportMonth: string;
+      scopeId: string;
+      scopeName: string;
+      netQuantity: number;
+      salesAmount: number;
+      payoutAmount: number;
+    }>();
     const entry = (row: ReportRow) => {
       const reportMonth = text(row, "reportMonth");
       const rowScopeId = text(row, "scopeId");
@@ -82,6 +109,7 @@ export function Reports() {
       if (existing) return existing;
       const created = {
         reportMonth,
+        scopeId: rowScopeId,
         scopeName: text(row, "scopeName") || rowScopeId,
         netQuantity: 0,
         salesAmount: 0,
@@ -98,9 +126,14 @@ export function Reports() {
     for (const row of overviewPayout.data?.rows ?? []) {
       entry(row).payoutAmount += amount(row, "payoutAmount");
     }
-    return [...merged.values()].sort((a, b) =>
-      a.reportMonth === b.reportMonth ? a.scopeName.localeCompare(b.scopeName, "zh-TW") : b.reportMonth.localeCompare(a.reportMonth));
-  }, [overviewSales.data, overviewPayout.data]);
+    const rows = [...merged.values()];
+    // 依據點時售額由高到低，排行一目了然；依月份時先照月份新到舊，同月再照店名。
+    return overviewBy === "scope"
+      ? rows.sort((a, b) => b.salesAmount - a.salesAmount)
+      : rows.sort((a, b) => (a.reportMonth === b.reportMonth
+        ? a.scopeName.localeCompare(b.scopeName, "zh-TW")
+        : b.reportMonth.localeCompare(a.reportMonth)));
+  }, [overviewSales.data, overviewPayout.data, overviewBy]);
 
   const detailRows = detail.data?.rows ?? [];
   const categories = useMemo(
@@ -120,6 +153,14 @@ export function Reports() {
   const failure = overviewSales.error ?? overviewPayout.error ?? detail.error ?? daily.error;
   const notice = overviewSales.data?.status !== "ok" ? overviewSales.data?.message : undefined;
 
+  /** 改了區間或據點之後，舊的下鑽可能已經不在範圍裡，留著只會顯示對不上的數字。 */
+  function reset<T>(apply: (value: T) => void) {
+    return (value: T) => {
+      setDrill(null);
+      apply(value);
+    };
+  }
+
   return (
     <div className="page fills">
       <PageHeader
@@ -134,7 +175,7 @@ export function Reports() {
             className="text-input"
             type="month"
             value={startMonth}
-            onChange={(event) => setStartMonth(event.target.value)}
+            onChange={(event) => reset(setStartMonth)(event.target.value)}
             aria-label="起始月份"
           />
           <span className="inline-label">～</span>
@@ -142,13 +183,13 @@ export function Reports() {
             className="text-input"
             type="month"
             value={endMonth}
-            onChange={(event) => setEndMonth(event.target.value)}
+            onChange={(event) => reset(setEndMonth)(event.target.value)}
             aria-label="結束月份"
           />
           <FilterSelect
             label="據點"
             value={scopeId}
-            onChange={(event) => setScopeId(event.target.value)}
+            onChange={(event) => reset(setScopeId)(event.target.value)}
             options={[
               { label: "全公司", value: "" },
               ...(scopes.data?.scopes ?? []).map((scope) => ({ label: scope.name, value: scope.id })),
@@ -167,28 +208,53 @@ export function Reports() {
         <div className="stat"><span>出金總額</span><strong>{money(overviewPayout.data?.totals.payoutAmount ?? 0)}</strong></div>
       </div>
 
-      <Panel title="各月各據點">
+      <Panel
+        title={overviewBy === "month" ? "各月各據點" : "各據點小計"}
+        actions={
+          <FilterSelect
+            label="彙總方式"
+            value={overviewBy}
+            onChange={(event) => reset(setOverviewBy)(event.target.value as "month" | "scope")}
+            options={[{ label: "依月份", value: "month" }, { label: "依據點", value: "scope" }]}
+          />
+        }
+      >
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>月份</th>
+                {overviewBy === "month" ? <th>月份</th> : null}
                 <th>據點</th>
                 <th className="numeric">淨銷售數量</th>
                 <th className="numeric">售額總計</th>
                 <th className="numeric">出金金額</th>
+                <th />
               </tr>
             </thead>
             <tbody>
-              {overview.map((row) => (
-                <tr key={`${row.reportMonth}|${row.scopeName}`}>
-                  <td className="whitespace-nowrap">{row.reportMonth}</td>
-                  <td>{row.scopeName}</td>
-                  <td className="numeric">{money(row.netQuantity)}</td>
-                  <td className="numeric">{money(row.salesAmount)}</td>
-                  <td className="numeric">{money(row.payoutAmount)}</td>
-                </tr>
-              ))}
+              {overview.map((row) => {
+                const label = row.reportMonth ? `${row.reportMonth} · ${row.scopeName}` : row.scopeName;
+                const open = drill?.reportMonth === row.reportMonth && drill?.scopeId === row.scopeId;
+                return (
+                  <tr key={`${row.reportMonth}|${row.scopeId}`}>
+                    {overviewBy === "month" ? <td className="whitespace-nowrap">{row.reportMonth}</td> : null}
+                    <td>{row.scopeName}</td>
+                    <td className="numeric">{money(row.netQuantity)}</td>
+                    <td className="numeric">{money(row.salesAmount)}</td>
+                    <td className="numeric">{money(row.payoutAmount)}</td>
+                    <td>
+                      <Button
+                        variant="secondary"
+                        onClick={() => setDrill(open
+                          ? null
+                          : { reportMonth: row.reportMonth, scopeId: row.scopeId, label })}
+                      >
+                        {open ? "取消" : "明細"}
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -197,8 +263,10 @@ export function Reports() {
 
       <Panel
         title="商品明細"
+        description={drill ? `只顯示 ${drill.label}` : undefined}
         actions={
           <div className="toolbar">
+            {drill ? <Button variant="secondary" onClick={() => setDrill(null)}>看全部</Button> : null}
             <FilterSelect
               label="檢視方式"
               value={detailBy}
