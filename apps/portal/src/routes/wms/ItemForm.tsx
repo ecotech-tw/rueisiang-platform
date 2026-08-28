@@ -9,6 +9,7 @@ import {
   useUnlinkCyberbiz,
   useUpdateItem,
   productSkuChannelLabel,
+  PRODUCT_SKU_CHANNEL_OPTIONS,
   type InventoryItem,
   type ProductCategory,
   type Zone,
@@ -266,11 +267,11 @@ export function ItemForm({
             <div className="field">
               <span>外部通路 SKU</span>
               <div className="field-grid">
-                <TextField
+                <SelectField
                   label="通路"
-                  placeholder="例如 cyberbiz、shopee、momo"
                   value={externalChannel}
                   onChange={(event) => setExternalChannel(event.target.value)}
+                  options={PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
                 />
                 <TextField
                   label="新增外部 SKU"
@@ -302,15 +303,20 @@ export function ItemForm({
                     {item.externalSkus.map((mapping) => (
                       <span className="status status-sync-synced" key={mapping.id}>
                         {productSkuChannelLabel(mapping.channel)} · {mapping.externalSku}
-                        <button
-                          type="button"
-                          className="link-button"
-                          aria-label={`移除${productSkuChannelLabel(mapping.channel)} SKU ${mapping.externalSku}`}
-                          onClick={() => deleteProductSkuMapping.mutate({ itemId: item.id, mappingId: mapping.id })}
-                          disabled={deleteProductSkuMapping.isPending}
-                        >
-                          移除
-                        </button>
+                        {mapping.owned ? (
+                          <button
+                            type="button"
+                            className="link-button"
+                            aria-label={`移除${productSkuChannelLabel(mapping.channel)} SKU ${mapping.externalSku}`}
+                            onClick={() => deleteProductSkuMapping.mutate({ itemId: item.id, mappingId: mapping.id })}
+                            disabled={deleteProductSkuMapping.isPending}
+                          >
+                            移除
+                          </button>
+                        ) : (
+                          // 本商品只是這筆組合的用料：刪掉的是整筆對應與其他用料，要到 SKU 對應頁做。
+                          <small className="cell-sub">組合用料</small>
+                        )}
                       </span>
                     ))}
                   </div>

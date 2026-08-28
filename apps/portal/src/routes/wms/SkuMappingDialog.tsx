@@ -5,6 +5,7 @@ import {
   useCreateProductSkuMapping,
   useUpdateProductSkuMapping,
   productSkuChannelLabel,
+  PRODUCT_SKU_CHANNEL_OPTIONS,
   type ProductSkuMapping,
   type ProductSkuMappingItemOption,
 } from "./api.js";
@@ -27,6 +28,19 @@ export function SkuMappingDialog({
   const update = useUpdateProductSkuMapping();
   const toast = useToast();
   const [channel, setChannel] = useState(mapping?.channel ?? "cyberbiz");
+  /*
+   * 通路只能從清單挑，不能自由輸入。
+   *
+   * resolveProductSkus 只會查 [報表通路, "legacy"]，所以打成「蝦皮」或「shoppe」會存檔成功、
+   * 表格也看得到，卻對匯入完全隱形——使用者以為對應好了，報表照樣 unmapped_product。
+   * 舊資料的通路（legacy 或已淘汰的值）不在清單裡，編輯時補進去才不會被迫改掉。
+   */
+  const channelOptions = PRODUCT_SKU_CHANNEL_OPTIONS.some((option) => option.value === channel)
+    ? PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value }))
+    : [
+      { label: productSkuChannelLabel(channel), value: channel },
+      ...PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value })),
+    ];
   const [externalName, setExternalName] = useState(mapping?.externalName ?? "");
   const [externalSku, setExternalSku] = useState(mapping?.externalSku ?? "");
   const [components, setComponents] = useState<ComponentDraft[]>(
@@ -133,12 +147,12 @@ export function SkuMappingDialog({
             onChange={(event) => setExternalName(event.target.value)}
             placeholder="例如 買五送二再送一"
           />
-          <TextField
+          <SelectField
             label="通路"
             required
             value={channel}
             onChange={(event) => setChannel(event.target.value)}
-            placeholder="例如 cyberbiz、shopee、momo"
+            options={channelOptions}
           />
         </div>
         <TextField

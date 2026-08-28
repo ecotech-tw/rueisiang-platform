@@ -363,6 +363,29 @@ describe("報表月資料匯入", () => {
     }]);
   });
 
+  it("組合用料缺 WMS SKU 時整筆視為未對應，不會靜默少算", async () => {
+    // 0057 的回填會替每一筆舊 mapping 補一列用料，不管該商品有沒有 SKU。
+    await db().insert(schema.inventoryItems).values({
+      id: "item-no-sku", sku: null, name: "沒有 SKU 的商品", category: "沐浴",
+    });
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-shopee-broken",
+      inventoryItemId: "item-sku-1",
+      channel: "shopee",
+      externalSku: "P-002_M-001",
+    });
+    await db().insert(schema.productBundleComponents).values([
+      { mappingId: "mapping-shopee-broken", inventoryItemId: "item-sku-1", quantity: 2 },
+      { mappingId: "mapping-shopee-broken", inventoryItemId: "item-no-sku", quantity: 1 },
+    ]);
+
+    const response = await request(shopeeBundle([
+      salesRow("P-002_M-001", 0, { grossQuantity: 3, returnQuantity: 0, netQuantity: 3 }),
+    ]));
+    expect(response.status).toBe(422);
+    expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
+  });
+
   it("未對應外部 SKU 不會把原始值寫進報表", async () => {
     const response = await request(salesBody([salesRow("NOT-MAPPED", 100)]));
     expect(response.status).toBe(422);

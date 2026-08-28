@@ -56,7 +56,8 @@ export interface InventoryItem {
   shelfLevel: string | null;
   notes: string;
   updatedAt: string;
-  externalSkus: Array<{ id: string; channel: string; externalSku: string }>;
+  // owned=false 代表本商品只是這筆組合對應的用料，不是它的主商品：可以看，不能從這裡移除。
+  externalSkus: Array<{ id: string; channel: string; externalSku: string; owned: boolean }>;
   /** 連到 CYBERBIZ 的哪一個款式。地圖與庫存頁都要看得出來。 */
   cyberbiz: CyberbizLink | null;
 }
@@ -88,6 +89,7 @@ export interface Warehouse {
 /** 所有倉儲的快取都掛在這個 key 底下，寫入之後一次失效。 */
 const WAREHOUSE_KEY = ["wms", "warehouse"] as const;
 const PRODUCT_SKU_MAPPINGS_KEY = ["wms", "product-sku-mappings"] as const;
+const ACTIVITY_KEY = ["wms", "activity"] as const;
 
 async function readError(response: Response): Promise<never> {
   const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
@@ -175,7 +177,10 @@ async function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", paylo
 }
 
 /**
- * 每一支 WMS 寫入都失效商品庫存與 SKU 對應快取。
+ * 每一支 WMS 寫入都失效商品庫存、SKU 對應與操作紀錄快取。
+ *
+ * 逐一列出 key 而不是用 ["wms"] 前綴：那個前綴也會命中 ["wms","catalog"]，
+ * 而它是代理到 CYBERBIZ API 的，不該被一次倉儲寫入連帶重打。
  *
  * 用 void 不回傳那個 promise：回傳的話 react-query 會等它跑完才呼叫 mutate 層的
  * onSuccess，而那時候該列往往已經因為重新載入而被換掉，通知就再也不會出現。
@@ -190,6 +195,7 @@ function useWarehouseMutation<TArgs, TResult>(
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
       void queryClient.invalidateQueries({ queryKey: PRODUCT_SKU_MAPPINGS_KEY });
+      void queryClient.invalidateQueries({ queryKey: ACTIVITY_KEY });
     },
   });
 }
@@ -413,6 +419,8 @@ function useZoneImageMutation<TArgs>(run: (args: TArgs) => Promise<unknown>) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
       void queryClient.invalidateQueries({ queryKey: ["wms", "zone-images"] });
+      // 上傳與刪除照片都會寫 activity；收斂前綴之後要自己補上，否則操作紀錄會停在舊資料。
+      void queryClient.invalidateQueries({ queryKey: ACTIVITY_KEY });
     },
   });
 }

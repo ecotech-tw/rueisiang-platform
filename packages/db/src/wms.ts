@@ -188,28 +188,37 @@ export async function loadWarehouse(db: Database) {
      * 踩過一次（quantity 拿到 minStock 的值）。分開查再自己配對，沒有那個問題。
      */
     db.select().from(cyberbizProductLinks),
-    db.select().from(productSkuMappings).orderBy(asc(productSkuMappings.externalSku)),
+    db.select().from(productSkuMappings).orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku)),
     db.select({ mappingId: productBundleComponents.mappingId, inventoryItemId: productBundleComponents.inventoryItemId })
       .from(productBundleComponents),
   ]);
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
   const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
-  const mappingsByItem = new Map<string, Array<{ id: string; channel: string; externalSku: string }>>();
+  /*
+   * owned 分辨「這筆 mapping 是本商品的」與「本商品只是它的用料」。
+   *
+   * 兩者都要顯示（刪除保護會擋用料，使用者得看得到是哪一筆擋住），但只有前者可以在
+   * 商品表單上移除——刪掉一筆組合 mapping 會連帶清掉其他用料，那不該由用料商品觸發。
+   */
+  const mappingsByItem = new Map<string, Array<{ id: string; channel: string; externalSku: string; owned: boolean }>>();
   const mappingsById = new Map(mappingRows.map((mapping) => [mapping.id, mapping]));
-  const addMappingToItem = (itemId: string, mapping: (typeof mappingRows)[number]) => {
+  const addMappingToItem = (itemId: string, mapping: (typeof mappingRows)[number], owned: boolean) => {
     const values = mappingsByItem.get(itemId) ?? [];
-    if (!values.some((value) => value.id === mapping.id)) {
-      values.push({ id: mapping.id, channel: mapping.channel, externalSku: mapping.externalSku });
+    const existing = values.find((value) => value.id === mapping.id);
+    if (existing) {
+      existing.owned ||= owned;
+    } else {
+      values.push({ id: mapping.id, channel: mapping.channel, externalSku: mapping.externalSku, owned });
     }
     mappingsByItem.set(itemId, values);
   };
   for (const mapping of mappingRows) {
-    addMappingToItem(mapping.inventoryItemId, mapping);
+    addMappingToItem(mapping.inventoryItemId, mapping, true);
   }
   for (const component of componentRows) {
     const mapping = mappingsById.get(component.mappingId);
-    if (mapping) addMappingToItem(component.inventoryItemId, mapping);
+    if (mapping) addMappingToItem(component.inventoryItemId, mapping, mapping.inventoryItemId === component.inventoryItemId);
   }
 
   return {
@@ -573,7 +582,16 @@ export async function updateItem(
       throw new WmsError("conflict", "這項商品還有外部 SKU 對應，不能清空 WMS SKU，請先移除對應。");
     }
   }
-  await requireSkuAvailableForExternalMappings(db, next.sku, id);
+  /*
+   * 只在 SKU 真的變動時才檢查佔用。
+   *
+   * 無條件跑的話，0054 回填（external_sku 取自 cyberbiz_product_links.sku）製造出
+   * 「別人的 mapping 外部 SKU 剛好等於本商品 WMS SKU」的舊資料時，這個商品的每一次
+   * PATCH——改備註、移倉位——都會 409，而且從商品表單沒有任何辦法修好。
+   */
+  if (next.sku !== current.sku) {
+    await requireSkuAvailableForExternalMappings(db, next.sku, id);
+  }
 
   const moved = next.zoneId !== current.zoneId || next.shelfLevel !== current.shelfLevel;
 

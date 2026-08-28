@@ -331,8 +331,21 @@ export const wms = new Hono<AppEnv>()
   .delete("/items/:id/product-sku-mappings/:mappingId", requirePermission("wms:inventory:write"), async (c) => {
     const user = c.get("user");
     const mappings = await listProductSkuMappings(c.get("db"), c.req.param("id"));
-    if (!mappings.some((mapping) => mapping.id === c.req.param("mappingId"))) {
+    const mapping = mappings.find((candidate) => candidate.id === c.req.param("mappingId"));
+    if (!mapping) {
       throw new HTTPException(404, { message: "找不到這筆商品外部 SKU 對應。" });
+    }
+    /*
+     * 只有 mapping 的主商品能從商品頁刪掉它。
+     *
+     * listProductSkuMappings 也會用 component join 比中「本商品只是某個組合的用料」的
+     * mapping，而 deleteProductSkuMapping 刪的是整筆＋所有用料。少了這道檢查，在一個
+     * 不相干的原料商品上誤點「移除」就會毀掉別人的組合對應，下一次該通路匯入整月 422。
+     */
+    if (mapping.inventoryItemId !== c.req.param("id")) {
+      throw new HTTPException(409, {
+        message: `這項商品是組合對應「${mapping.externalSku}」的用料，請到 SKU 對應頁調整該筆對應。`,
+      });
     }
     await deleteProductSkuMapping(c.get("db"), c.req.param("mappingId"), { id: user.id, email: user.email });
     return c.json({ ok: true });

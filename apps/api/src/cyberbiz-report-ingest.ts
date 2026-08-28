@@ -143,6 +143,8 @@ async function normalizeSalesRows(
   db: Database,
   input: CyberbizReportIngestInput,
   channel = reportChannel(input.scopeId),
+  // sales_and_payout 會先 parse 一次做格式驗證，把結果傳進來，省掉整份報表重複解析與彙總。
+  preparsed?: ParsedSalesRow[],
 ): Promise<Array<{
   scopeId: string;
   reportMonth: string;
@@ -155,7 +157,7 @@ async function normalizeSalesRows(
   salesAmount: number;
   updatedAt: string;
 }>> {
-  const parsed = parseSalesRows(input);
+  const parsed = preparsed ?? parseSalesRows(input);
   if (!parsed.length) return [];
 
   const resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku), channel);
@@ -188,6 +190,8 @@ async function normalizeSalesRows(
   }>();
   for (const row of parsed) {
     const item = resolved.get(row.externalSku)!;
+    // 主商品不在用料裡時才退而求其次取第一個；resolveProductSkus 已依商品名稱排序料件，
+    // 所以同一個月份重匯不會換一個料件收金額。
     const amountTargetId = item.components.some((component) => component.inventoryItemId === item.inventoryItemId)
       ? item.inventoryItemId
       : item.components[0]?.inventoryItemId;
@@ -272,11 +276,11 @@ export function createCyberbizReportIngestor(db: Database) {
       if (input.kind === "sales_and_payout") {
         const salesInput = { ...scopedInput, rows: input.salesRows ?? [] };
         // 先驗證 sales 的資料格式，再寫入 payout；只有 mapping 不存在時才保留「先存 payout」的行為。
-        parseSalesRows(salesInput);
+        const parsedSales = parseSalesRows(salesInput);
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
         // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
         await insertReportPayoutDaily(db, payout);
-        const sales = await normalizeSalesRows(db, salesInput, sourceChannel);
+        const sales = await normalizeSalesRows(db, salesInput, sourceChannel, parsedSales);
         await insertReportSalesMonthly(db, sales, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);
