@@ -192,10 +192,10 @@ export async function loadWarehouse(db: Database) {
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
   const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
-  const mappingsByItem = new Map<string, Array<{ id: string; externalSku: string }>>();
+  const mappingsByItem = new Map<string, Array<{ id: string; channel: string; externalSku: string }>>();
   for (const mapping of mappingRows) {
     const values = mappingsByItem.get(mapping.inventoryItemId) ?? [];
-    values.push({ id: mapping.id, externalSku: mapping.externalSku });
+    values.push({ id: mapping.id, channel: mapping.channel, externalSku: mapping.externalSku });
     mappingsByItem.set(mapping.inventoryItemId, values);
   }
 
@@ -439,12 +439,11 @@ async function requireCategory(db: Database, name: string) {
 /** 外部 SKU 會拿來對應商品，不能讓另一個商品的正式 WMS SKU 佔用同一個值。 */
 async function requireSkuAvailableForExternalMappings(db: Database, sku: string | null, inventoryItemId?: string) {
   if (!sku) return;
-  const [mapping] = await db
+  const mappings = await db
     .select({ inventoryItemId: productSkuMappings.inventoryItemId })
     .from(productSkuMappings)
-    .where(eq(productSkuMappings.externalSku, sku))
-    .limit(1);
-  if (mapping && mapping.inventoryItemId !== inventoryItemId) {
+    .where(eq(productSkuMappings.externalSku, sku));
+  if (mappings.some((mapping) => mapping.inventoryItemId !== inventoryItemId)) {
     throw new WmsError("conflict", `WMS SKU「${sku}」已被其他商品的外部 SKU 對應使用。`);
   }
 }

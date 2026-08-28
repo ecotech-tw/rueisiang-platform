@@ -17,6 +17,7 @@ import {
   useAddProductSkuMapping,
   useDeleteProductSkuMapping,
   useProductSkuMappings,
+  productSkuChannelLabel,
   type ProductSkuMapping,
 } from "./api.js";
 
@@ -28,7 +29,7 @@ function formatTime(value: string): string {
 
 function matches(mapping: ProductSkuMapping, search: string): boolean {
   if (!search) return true;
-  return [mapping.externalSku, mapping.itemSku ?? "", mapping.itemName, mapping.itemCategory]
+  return [mapping.channel, mapping.externalSku, mapping.itemSku ?? "", mapping.itemName, mapping.itemCategory]
     .some((value) => value.toLocaleLowerCase("zh-TW").includes(search));
 }
 
@@ -43,23 +44,31 @@ export function SkuMappings() {
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [channelFilter, setChannelFilter] = useState("all");
   const [itemId, setItemId] = useState("");
+  const [channel, setChannel] = useState("cyberbiz");
   const [externalSku, setExternalSku] = useState("");
   const [deleting, setDeleting] = useState<ProductSkuMapping | null>(null);
 
   const data = query.data;
   const mappings = data?.mappings ?? [];
   const items = data?.items ?? [];
-  const categories = useMemo(
-    () => [...new Set(mappings.map((mapping) => mapping.itemCategory))].sort((a, b) => a.localeCompare(b, "zh-TW")),
+  const channels = useMemo(
+    () => [...new Set(mappings.map((mapping) => mapping.channel))].sort((a, b) => productSkuChannelLabel(a).localeCompare(productSkuChannelLabel(b), "zh-TW")),
     [mappings],
+  );
+  const categories = useMemo(
+    () => [...new Set(items.map((item) => item.category))].sort((a, b) => a.localeCompare(b, "zh-TW")),
+    [items],
   );
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("zh-TW");
     return mappings.filter((mapping) =>
-      (category === "all" || mapping.itemCategory === category) && matches(mapping, term),
+      (channelFilter === "all" || mapping.channel === channelFilter)
+      && (category === "all" || mapping.itemCategory === category)
+      && matches(mapping, term),
     );
-  }, [category, mappings, search]);
+  }, [category, channelFilter, mappings, search]);
   const itemOptions = useMemo(
     () => items
       .filter((item) => item.sku)
@@ -73,11 +82,11 @@ export function SkuMappings() {
     if (!itemId || !value || add.isPending) return;
 
     add.mutate(
-      { id: itemId, externalSku: value },
+      { id: itemId, channel, externalSku: value },
       {
         onSuccess: (result) => {
           setExternalSku("");
-          toast.show(`已新增外部 SKU「${result.externalSku}」`);
+          toast.show(`已新增${productSkuChannelLabel(result.channel)} SKU「${result.externalSku}」`);
         },
       },
     );
@@ -91,8 +100,15 @@ export function SkuMappings() {
       />
 
       {canWrite ? (
-        <Panel title="新增對應" description="同一個外部 SKU 只能對應一個 WMS 商品。">
+        <Panel title="新增對應" description="同一個通路的外部 SKU 只能對應一個 WMS 商品。">
           <form className="admin-form row" onSubmit={submit}>
+            <TextField
+              label="通路"
+              required
+              value={channel}
+              onChange={(event) => setChannel(event.target.value)}
+              placeholder="例如 cyberbiz、shopee、momo"
+            />
             <SelectField
               label="WMS 商品"
               required
@@ -130,13 +146,19 @@ export function SkuMappings() {
             onChange={(event) => setSearch(event.target.value)}
           />
           <FilterSelect
+            label="通路"
+            value={channelFilter}
+            onChange={(event) => setChannelFilter(event.target.value)}
+            options={[{ value: "all", label: "全部通路" }, ...channels.map((value) => ({ value, label: productSkuChannelLabel(value) }))]}
+          />
+          <FilterSelect
             label="分類"
             value={category}
             onChange={(event) => setCategory(event.target.value)}
             options={[{ value: "all", label: "全部分類" }, ...categories.map((value) => ({ value, label: value }))]}
           />
-          {search || category !== "all" ? (
-            <Button variant="link" onClick={() => { setSearch(""); setCategory("all"); }}>
+          {search || channelFilter !== "all" || category !== "all" ? (
+            <Button variant="link" onClick={() => { setSearch(""); setChannelFilter("all"); setCategory("all"); }}>
               清除篩選
             </Button>
           ) : null}
@@ -149,6 +171,7 @@ export function SkuMappings() {
           <table className="data-table">
             <thead>
               <tr>
+                <th>通路</th>
                 <th>外部 SKU</th>
                 <th>WMS 商品</th>
                 <th>分類</th>
@@ -159,12 +182,13 @@ export function SkuMappings() {
             <tbody>
               {visible.map((mapping) => (
                 <tr key={mapping.id}>
+                  <td data-label="通路"><span className="status status-tone-slate">{productSkuChannelLabel(mapping.channel)}</span></td>
                   <td data-label="外部 SKU"><span className="cell-strong">{mapping.externalSku}</span></td>
                   <td data-label="WMS 商品">
                     <div className="cell-strong">{mapping.itemName}</div>
                     <div className="cell-sub">{mapping.itemSku ?? "未設定正式 SKU"}</div>
                   </td>
-                  <td data-label="分類"><span className="status">{mapping.itemCategory}</span></td>
+                  <td data-label="分類"><span className={`status status-tone-${mapping.itemCategoryColor ?? "slate"}`}>{mapping.itemCategory}</span></td>
                   <td data-label="建立時間" className="cell-sub whitespace-nowrap">{formatTime(mapping.createdAt)}</td>
                   {canWrite ? (
                     <td data-label="操作">
@@ -206,7 +230,7 @@ export function SkuMappings() {
               { itemId: deleting.inventoryItemId, mappingId: deleting.id },
               {
                 onSuccess: () => {
-                  toast.show(`已移除外部 SKU「${deleting.externalSku}」`);
+                  toast.show(`已移除${productSkuChannelLabel(deleting.channel)} SKU「${deleting.externalSku}」`);
                   setDeleting(null);
                 },
               },
@@ -214,7 +238,7 @@ export function SkuMappings() {
           }
         >
           <p>
-            外部 SKU <strong>{deleting.externalSku}</strong> 將不再對應到 WMS 商品「{deleting.itemName}」。
+            {productSkuChannelLabel(deleting.channel)} SKU <strong>{deleting.externalSku}</strong> 將不再對應到 WMS 商品「{deleting.itemName}」。
           </p>
         </ConfirmDialog>
       ) : null}

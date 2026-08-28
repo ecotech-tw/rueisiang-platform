@@ -251,7 +251,7 @@ export const wms = new Hono<AppEnv>()
   })
 
   /** SKU 對應管理頁只需要商品主檔與 mapping，不必取得倉位地圖資料。 */
-  .get("/product-sku-mappings", requirePermission("wms:inventory:read"), async (c) => {
+  .get("/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
     return c.json(await loadProductSkuMappingManagement(c.get("db")));
   })
 
@@ -261,6 +261,7 @@ export const wms = new Hono<AppEnv>()
     const user = c.get("user");
     const result = await addProductSkuMapping(c.get("db"), {
       inventoryItemId: c.req.param("id"),
+      channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalSku: requireString(input, "externalSku", "外部 SKU"),
       actor: { id: user.id, email: user.email },
     });

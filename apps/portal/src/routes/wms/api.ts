@@ -56,7 +56,7 @@ export interface InventoryItem {
   shelfLevel: string | null;
   notes: string;
   updatedAt: string;
-  externalSkus: Array<{ id: string; externalSku: string }>;
+  externalSkus: Array<{ id: string; channel: string; externalSku: string }>;
   /** 連到 CYBERBIZ 的哪一個款式。地圖與庫存頁都要看得出來。 */
   cyberbiz: CyberbizLink | null;
 }
@@ -108,12 +108,14 @@ export function useWarehouse() {
 export interface ProductSkuMapping {
   id: string;
   inventoryItemId: string;
+  channel: string;
   externalSku: string;
   createdAt: string;
   updatedAt: string;
   itemSku: string | null;
   itemName: string;
   itemCategory: string;
+  itemCategoryColor: string | null;
 }
 
 export interface ProductSkuMappingItemOption {
@@ -126,6 +128,17 @@ export interface ProductSkuMappingItemOption {
 export interface ProductSkuMappingData {
   mappings: ProductSkuMapping[];
   items: ProductSkuMappingItemOption[];
+}
+
+export const PRODUCT_SKU_CHANNEL_OPTIONS = [
+  { value: "cyberbiz", label: "CYBERBIZ（官網 / POS）" },
+  { value: "shopee", label: "蝦皮" },
+  { value: "momo", label: "momo" },
+] as const;
+
+export function productSkuChannelLabel(channel: string): string {
+  return PRODUCT_SKU_CHANNEL_OPTIONS.find((option) => option.value === channel)?.label
+    ?? (channel === "legacy" ? "未分類（舊資料）" : channel);
 }
 
 export function useProductSkuMappings() {
@@ -152,7 +165,7 @@ async function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", paylo
 }
 
 /**
- * 每一支寫入都失效同一個 key。
+ * 每一支 WMS 寫入都失效 `wms` 前綴下的快取。
  *
  * 用 void 不回傳那個 promise：回傳的話 react-query 會等它跑完才呼叫 mutate 層的
  * onSuccess，而那時候該列往往已經因為重新載入而被換掉，通知就再也不會出現。
@@ -160,16 +173,12 @@ async function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", paylo
  */
 function useWarehouseMutation<TArgs, TResult>(
   run: (args: TArgs) => Promise<TResult>,
-  additionalQueryKeys: readonly (readonly unknown[])[] = [],
 ) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: run,
     onSuccess: () => {
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY }),
-        ...additionalQueryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-      ]);
+      void queryClient.invalidateQueries({ queryKey: ["wms"] });
     },
   });
 }
@@ -217,9 +226,8 @@ export function useDeleteItem() {
 
 export function useAddProductSkuMapping() {
   return useWarehouseMutation(
-    ({ id, externalSku }: { id: string; externalSku: string }) =>
-      write<{ id: string; externalSku: string }>(`/api/wms/items/${id}/product-sku-mappings`, "POST", { externalSku }),
-    [PRODUCT_SKU_MAPPINGS_KEY],
+    ({ id, channel, externalSku }: { id: string; channel?: string; externalSku: string }) =>
+      write<{ id: string; channel: string; externalSku: string }>(`/api/wms/items/${id}/product-sku-mappings`, "POST", { channel, externalSku }),
   );
 }
 
@@ -227,7 +235,6 @@ export function useDeleteProductSkuMapping() {
   return useWarehouseMutation(
     ({ itemId, mappingId }: { itemId: string; mappingId: string }) =>
       write<{ ok: true }>(`/api/wms/items/${itemId}/product-sku-mappings/${mappingId}`, "DELETE"),
-    [PRODUCT_SKU_MAPPINGS_KEY],
   );
 }
 

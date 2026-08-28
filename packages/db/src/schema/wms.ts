@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * 倉儲管理系統。從 rueisiang-wms 搬進來。
@@ -112,7 +112,7 @@ export const inventoryItems = sqliteTable("inventory_items", {
 /**
  * 外部通路 SKU 與 WMS 商品的對應。
  *
- * external_sku 不分通路儲存；同一個外部 SKU 必須只對應一個 WMS 品項。
+ * 通路與外部 SKU 一起識別一筆 mapping；同一通路的外部 SKU 必須只對應一個 WMS 品項。
  * 商品的正式 SKU、名稱與分類都從 inventory_items 取得，不在這裡複製。
  */
 export const productSkuMappings = sqliteTable("product_sku_mappings", {
@@ -120,10 +120,13 @@ export const productSkuMappings = sqliteTable("product_sku_mappings", {
   inventoryItemId: text("inventory_item_id")
     .notNull()
     .references(() => inventoryItems.id, { onDelete: "cascade" }),
-  externalSku: text("external_sku").notNull().unique(),
+  /** legacy 代表 migration 前建立、尚未確認來源通路的 mapping。 */
+  channel: text("channel").notNull().default("legacy"),
+  externalSku: text("external_sku").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
+  uniqueIndex("idx_product_sku_mappings_channel_external_sku").on(table.channel, table.externalSku),
   index("idx_product_sku_mappings_inventory_item").on(table.inventoryItemId),
 ]);
 

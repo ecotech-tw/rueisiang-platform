@@ -306,6 +306,27 @@ describe("外部 SKU 對應", () => {
     ]);
   });
 
+  it("不同通路可以使用相同外部 SKU", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "WMS-001", name: "商品一", category: "一般備品" },
+      { id: "i2", sku: "WMS-002", name: "商品二", category: "一般備品" },
+    ]);
+
+    expect((await as(id, "admin@ecotech.tw", "/api/wms/items/i1/product-sku-mappings", {
+      method: "POST", body: JSON.stringify({ channel: "shopee", externalSku: "shared-001" }),
+    })).status).toBe(201);
+    expect((await as(id, "admin@ecotech.tw", "/api/wms/items/i2/product-sku-mappings", {
+      method: "POST", body: JSON.stringify({ channel: "momo", externalSku: "SHARED-001" }),
+    })).status).toBe(201);
+
+    expect(await db.select({ channel: productSkuMappings.channel, externalSku: productSkuMappings.externalSku })
+      .from(productSkuMappings).orderBy(productSkuMappings.channel)).toEqual([
+      { channel: "momo", externalSku: "SHARED-001" },
+      { channel: "shopee", externalSku: "SHARED-001" },
+    ]);
+  });
+
   it("SKU mapping 管理 API 回傳對應與可選的 WMS 商品", async () => {
     const id = await seedAdmin();
     await db.insert(inventoryItems).values([
@@ -323,6 +344,7 @@ describe("外部 SKU 對應", () => {
     expect(payload.mappings).toMatchObject([{
       id: "mapping-1",
       inventoryItemId: "i1",
+      channel: "legacy",
       externalSku: "SHOPEE-001",
       itemSku: "WMS-001",
       itemName: "黑色肩背包",
@@ -334,10 +356,14 @@ describe("外部 SKU 對應", () => {
     ]));
   });
 
-  it("管理頁只需要庫存檢視權限，不需要倉位地圖權限", async () => {
+  it("SKU mapping 管理頁預設只有主管與管理員可進入", async () => {
     const id = await seedUser("inventory-viewer@ecotech.tw", null);
     await db.insert(userPermissions).values({ userId: id, permission: "wms:inventory:read" });
 
+    const denied = await as(id, "inventory-viewer@ecotech.tw", "/api/wms/product-sku-mappings");
+    expect(denied.status).toBe(403);
+
+    await db.insert(userPermissions).values({ userId: id, permission: "wms:inventory:write" });
     const response = await as(id, "inventory-viewer@ecotech.tw", "/api/wms/product-sku-mappings");
 
     expect(response.status).toBe(200);
@@ -371,6 +397,24 @@ describe("外部 SKU 對應", () => {
       method: "POST", body: JSON.stringify({ externalSku: "shopee-001" }),
     });
     expect(response.status).toBe(409);
+  });
+
+  it("WMS SKU 不可與其他通路 mapping 的 owner 衝突", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "WMS-001", name: "商品一", category: "一般備品" },
+      { id: "i2", sku: "WMS-002", name: "商品二", category: "一般備品" },
+    ]);
+    await db.insert(productSkuMappings).values([
+      { id: "mapping-shopee-x", inventoryItemId: "i1", channel: "shopee", externalSku: "SHARED-X" },
+      { id: "mapping-momo-x", inventoryItemId: "i2", channel: "momo", externalSku: "SHARED-X" },
+    ]);
+
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/items/i1", {
+      method: "PATCH", body: JSON.stringify({ sku: "SHARED-X" }),
+    });
+    expect(response.status).toBe(409);
+    expect((await db.select().from(inventoryItems)).find((item) => item.id === "i1")?.sku).toBe("WMS-001");
   });
 
   it("有外部 SKU 對應時不可清空 WMS SKU", async () => {

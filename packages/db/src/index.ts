@@ -87,6 +87,7 @@ export {
   loadProductSkuMappingManagement,
   listProductSkuMappings,
   normalizeExternalSku,
+  normalizeProductSkuChannel,
   resolveProductSkus,
   type ProductSkuMappingItemOption,
   type ProductSkuMappingManagementData,

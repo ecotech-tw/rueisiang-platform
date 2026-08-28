@@ -151,6 +151,20 @@ describe("報表月資料匯入", () => {
     expect(payout).toMatchObject({ status: "ok", scopeId: "shopee:store:default", totals: { payoutAmount: 250 } });
   });
 
+  it("同一外部 SKU 有 legacy 與通路 mapping 時優先使用指定通路", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-shopee-specific",
+      inventoryItemId: "item-sku-1",
+      channel: "shopee",
+      externalSku: "P-001",
+    });
+
+    const response = await request(shopeeBundle([salesRow("P-001", 100)]));
+    expect(response.status).toBe(200);
+    expect(await db().select({ sku: schema.reportSalesMonthly.sku }).from(schema.reportSalesMonthly))
+      .toEqual([{ sku: "SKU-1" }]);
+  });
+
   it("蝦皮 bundle 重新匯入零筆月份會清掉既有商品資料", async () => {
     expect((await request(shopeeBundle([salesRow("P-001", 0)]))).status).toBe(200);
     expect((await request(shopeeBundle([]))).status).toBe(200);
@@ -161,13 +175,41 @@ describe("報表月資料匯入", () => {
 
   it("沿用既有同名 scope 的 ID，避免設定路徑改名後產生重複據點", async () => {
     await upsertReportScope(db(), { id: "legacy-store-id", scopeKind: "store", name: "測試店" });
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-cyberbiz-p-001",
+      inventoryItemId: "item-sku-1",
+      channel: "cyberbiz",
+      externalSku: "P-001",
+    });
     const response = await request({
-      ...salesBody([salesRow("SKU-1", 100)]), scopeId: "cyberbiz:store:new-id",
+      ...salesBody([salesRow("P-001", 100)]), scopeId: "cyberbiz:store:new-id",
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ result: { scopeId: "legacy-store-id" } });
-    const result = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "store", scopeId: "legacy-store-id" });
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "store", scopeId: "legacy-store-id", groupBy: ["sku"],
+    });
     expect(result).toMatchObject({ status: "ok", scopeId: "legacy-store-id", totals: { netQuantity: 1, salesAmount: 100 } });
+    expect(result.rows).toEqual([expect.objectContaining({ sku: "SKU-1", salesAmount: 100 })]);
+  });
+
+  it("以 scope ID 前綴解析自由輸入的通路 mapping", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-etsy-e-001",
+      inventoryItemId: "item-sku-1",
+      channel: "etsy",
+      externalSku: "E-001",
+    });
+    const response = await request({
+      ...salesBody([salesRow("E-001", 100)]),
+      scopeId: "etsy:store:default",
+      scopeName: "Etsy",
+    });
+    expect(response.status).toBe(200);
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "store", scopeId: "etsy:store:default", groupBy: ["sku"],
+    });
+    expect(result.rows).toEqual([expect.objectContaining({ sku: "SKU-1", salesAmount: 100 })]);
   });
 
   it("商品名稱與分類以 WMS 商品主檔為準", async () => {

@@ -1,18 +1,24 @@
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
-import { inventoryItems, productSkuMappings } from "./schema/wms.js";
+import { inventoryItems, productCategories, productSkuMappings } from "./schema/wms.js";
 import { WmsError, type Actor } from "./wms.js";
 
-/** 外部 SKU 是跨通路的查詢鍵，寫入前統一格式，避免大小寫造成兩筆 mapping。 */
+/** 外部 SKU 寫入前統一格式，避免大小寫造成兩筆 mapping。 */
 export function normalizeExternalSku(value: string): string {
   return value.trim().toUpperCase();
+}
+
+/** 通路目前用文字保存；先統一大小寫，未來新增通路不用先改資料庫 enum。 */
+export function normalizeProductSkuChannel(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 export interface ProductSkuMappingRow {
   id: string;
   inventoryItemId: string;
+  channel: string;
   externalSku: string;
   createdAt: string;
   updatedAt: string;
@@ -22,6 +28,7 @@ export interface ProductSkuMappingManagementRow extends ProductSkuMappingRow {
   itemSku: string | null;
   itemName: string;
   itemCategory: string;
+  itemCategoryColor: string | null;
 }
 
 export interface ProductSkuMappingItemOption {
@@ -53,7 +60,7 @@ export async function listProductSkuMappings(
     .select()
     .from(productSkuMappings)
     .where(inventoryItemId ? eq(productSkuMappings.inventoryItemId, inventoryItemId) : undefined)
-    .orderBy(productSkuMappings.externalSku);
+    .orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku));
 }
 
 /**
@@ -70,16 +77,19 @@ export async function loadProductSkuMappingManagement(
       .select({
         id: productSkuMappings.id,
         inventoryItemId: productSkuMappings.inventoryItemId,
+        channel: productSkuMappings.channel,
         externalSku: productSkuMappings.externalSku,
         createdAt: productSkuMappings.createdAt,
         updatedAt: productSkuMappings.updatedAt,
         itemSku: inventoryItems.sku,
         itemName: inventoryItems.name,
         itemCategory: inventoryItems.category,
+        itemCategoryColor: productCategories.color,
       })
       .from(productSkuMappings)
       .innerJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
-      .orderBy(asc(productSkuMappings.externalSku)),
+      .leftJoin(productCategories, eq(productCategories.name, inventoryItems.category))
+      .orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku)),
     db
       .select({
         id: inventoryItems.id,
@@ -96,8 +106,10 @@ export async function loadProductSkuMappingManagement(
 
 export async function addProductSkuMapping(
   db: Database,
-  input: { inventoryItemId: string; externalSku: string; actor: Actor },
-): Promise<{ id: string; externalSku: string }> {
+  input: { inventoryItemId: string; channel?: string; externalSku: string; actor: Actor },
+): Promise<{ id: string; channel: string; externalSku: string }> {
+  const channel = normalizeProductSkuChannel(input.channel ?? "legacy");
+  if (!channel) throw new WmsError("invalid", "通路不可為空。 ");
   const externalSku = normalizeExternalSku(input.externalSku);
   if (!externalSku) throw new WmsError("invalid", "外部 SKU 不可為空。 ");
 
@@ -120,24 +132,27 @@ export async function addProductSkuMapping(
   const [existing] = await db
     .select({ id: productSkuMappings.id, inventoryItemId: productSkuMappings.inventoryItemId })
     .from(productSkuMappings)
-    .where(eq(productSkuMappings.externalSku, externalSku))
+    .where(and(
+      eq(productSkuMappings.channel, channel),
+      eq(productSkuMappings.externalSku, externalSku),
+    ))
     .limit(1);
   if (existing) {
     if (existing.inventoryItemId === input.inventoryItemId) {
-      return { id: existing.id, externalSku };
+      return { id: existing.id, channel, externalSku };
     }
-    throw new WmsError("conflict", `外部 SKU「${externalSku}」已經對應到其他商品。 `);
+    throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經對應到其他商品。 `);
   }
 
   const id = crypto.randomUUID();
   await db.batch([
-    db.insert(productSkuMappings).values({ id, inventoryItemId: input.inventoryItemId, externalSku }),
+    db.insert(productSkuMappings).values({ id, inventoryItemId: input.inventoryItemId, channel, externalSku }),
     db.insert(activityEvents).values(activityRow({
       entityType: "product_sku_mapping",
       entityId: id,
       entityLabel: `${item.sku} ${item.name}`,
       eventType: "product_sku_mapping_created",
-      summary: `新增外部 SKU 對應：${externalSku}`,
+      summary: `新增${channel} 外部 SKU 對應：${externalSku}`,
       field: "externalSku",
       newValue: externalSku,
       actor: input.actor,
@@ -145,7 +160,7 @@ export async function addProductSkuMapping(
     })),
   ]);
 
-  return { id, externalSku };
+  return { id, channel, externalSku };
 }
 
 export async function deleteProductSkuMapping(
@@ -156,6 +171,7 @@ export async function deleteProductSkuMapping(
   const [mapping] = await db
     .select({
       id: productSkuMappings.id,
+      channel: productSkuMappings.channel,
       externalSku: productSkuMappings.externalSku,
       itemSku: inventoryItems.sku,
       itemName: inventoryItems.name,
@@ -172,7 +188,7 @@ export async function deleteProductSkuMapping(
       entityId: id,
       entityLabel: `${mapping.itemSku ?? ""} ${mapping.itemName}`.trim(),
       eventType: "product_sku_mapping_deleted",
-      summary: `移除外部 SKU 對應：${mapping.externalSku}`,
+      summary: `移除${mapping.channel} 外部 SKU 對應：${mapping.externalSku}`,
       field: "externalSku",
       oldValue: mapping.externalSku,
       actor,
@@ -190,12 +206,16 @@ export async function deleteProductSkuMapping(
 export async function resolveProductSkus(
   db: Database,
   externalSkus: readonly string[],
+  channel = "legacy",
 ): Promise<Map<string, ResolvedProductSku>> {
   const wanted = [...new Set(externalSkus.map(normalizeExternalSku).filter(Boolean))];
   if (!wanted.length) return new Map();
+  const normalizedChannel = normalizeProductSkuChannel(channel) || "legacy";
+  const lookupChannels = [...new Set([normalizedChannel, "legacy"])] as string[];
 
   type MappingLookup = {
     externalSku: string;
+    channel: string;
     inventoryItemId: string;
     sku: string | null;
     name: string;
@@ -217,6 +237,7 @@ export async function resolveProductSkus(
       db
         .select({
           externalSku: productSkuMappings.externalSku,
+          channel: productSkuMappings.channel,
           inventoryItemId: productSkuMappings.inventoryItemId,
           sku: inventoryItems.sku,
           name: inventoryItems.name,
@@ -224,7 +245,10 @@ export async function resolveProductSkus(
         })
         .from(productSkuMappings)
         .innerJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
-        .where(inArray(productSkuMappings.externalSku, batch)),
+        .where(and(
+          inArray(productSkuMappings.externalSku, batch),
+          inArray(productSkuMappings.channel, lookupChannels),
+        )),
       db
         .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name, category: inventoryItems.category })
         .from(inventoryItems)
@@ -235,6 +259,7 @@ export async function resolveProductSkus(
   }
 
   const resolved = new Map<string, ResolvedProductSku>();
+  const resolvedChannels = new Map<string, string>();
   const mappedKeys = new Set(mappings.map((mapping) => normalizeExternalSku(mapping.externalSku)));
   for (const item of directItems) {
     const key = item.sku ? normalizeExternalSku(item.sku) : "";
@@ -249,12 +274,15 @@ export async function resolveProductSkus(
   for (const mapping of mappings) {
     if (!mapping.sku) continue;
     const key = normalizeExternalSku(mapping.externalSku);
+    const previous = resolved.get(key);
+    if (previous && resolvedChannels.get(key) === normalizedChannel && mapping.channel !== normalizedChannel) continue;
     resolved.set(key, {
       inventoryItemId: mapping.inventoryItemId,
       sku: mapping.sku,
       name: mapping.name,
       category: mapping.category,
     });
+    resolvedChannels.set(key, mapping.channel);
   }
   return resolved;
 }

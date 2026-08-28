@@ -82,4 +82,25 @@ describe("報表 scope migration", () => {
     expect(sqlite.prepare("SELECT inventory_item_id, external_sku FROM product_sku_mappings").all())
       .toEqual([{ inventory_item_id: "item-1", external_sku: "CB-001" }]);
   });
+
+  it("0055 保留既有 mapping 並以 legacy 作為未分類通路", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0054_add_product_sku_mappings.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-1", "WMS-001", "商品一");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-2", "WMS-002", "商品二");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, external_sku) VALUES (?, ?, ?)")
+      .run("legacy-mapping", "item-1", "SHARED-001");
+
+    applyLikeD1(sqlite, "0054_add_product_sku_mappings.sql", "0055_add_product_sku_mapping_channel.sql");
+
+    expect(sqlite.prepare("SELECT inventory_item_id, channel, external_sku FROM product_sku_mappings").all())
+      .toEqual([{ inventory_item_id: "item-1", channel: "legacy", external_sku: "SHARED-001" }]);
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_sku) VALUES (?, ?, ?, ?)")
+      .run("shopee-mapping", "item-2", "shopee", "SHARED-001");
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM product_sku_mappings WHERE external_sku = ?").get("SHARED-001"))
+      .toEqual({ count: 2 });
+  });
 });

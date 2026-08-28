@@ -4,6 +4,7 @@ import {
   findReportScope,
   upsertReportScope,
   normalizeExternalSku,
+  normalizeProductSkuChannel,
   resolveProductSkus,
   type Database,
   type ReportScopeKind,
@@ -61,6 +62,12 @@ function month(value: unknown): string {
 function integer(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new CyberbizReportIngestError(422, "invalid_ingest");
   return value;
+}
+
+function reportChannel(scopeId: string): string {
+  const [prefix, scopePart] = scopeId.split(":", 2);
+  if (!scopePart) return "legacy";
+  return normalizeProductSkuChannel(prefix ?? "") || "legacy";
 }
 
 function readInput(value: unknown): CyberbizReportIngestInput {
@@ -135,6 +142,7 @@ function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
 async function normalizeSalesRows(
   db: Database,
   input: CyberbizReportIngestInput,
+  channel = reportChannel(input.scopeId),
 ): Promise<Array<{
   scopeId: string;
   reportMonth: string;
@@ -150,7 +158,7 @@ async function normalizeSalesRows(
   const parsed = parseSalesRows(input);
   if (!parsed.length) return [];
 
-  const resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku));
+  const resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku), channel);
 
   const missing = parsed
     .map((row) => row.externalSku)
@@ -217,16 +225,18 @@ export function createCyberbizReportIngestor(db: Database) {
   return {
     async ingest(value: unknown): Promise<{ kind: CyberbizReportIngestKind; scopeId: string; rowCount: number; salesRowCount?: number; payoutRowCount?: number }> {
       const input = readInput(value);
+      const sourceChannel = reportChannel(input.scopeId);
+      const canReuseScopeByName = sourceChannel === "legacy" || sourceChannel === "cyberbiz";
       const existingById = await findReportScope(db, { scopeKind: input.scopeType, id: input.scopeId });
       const nameMatch = existingById ?? (
-        input.scopeId.startsWith("shopee:")
+        !canReuseScopeByName
           ? null
           : await findReportScope(db, { scopeKind: input.scopeType, name: input.scopeName })
       );
       // 舊版 CYBERBIZ 設定可能使用任意 legacy ID，仍可依同名沿用；蝦皮則一定以自己的
       // scope ID 建立，不能因為名稱剛好相同而把資料寫進其他通路。
       const existing = existingById ?? (
-        !input.scopeId.startsWith("shopee:") && nameMatch && !nameMatch.id.startsWith("shopee:")
+        canReuseScopeByName && nameMatch && !nameMatch.id.startsWith("shopee:")
           ? nameMatch
           : null
       );
@@ -240,7 +250,7 @@ export function createCyberbizReportIngestor(db: Database) {
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
         // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
         await insertReportPayoutDaily(db, payout);
-        const sales = await normalizeSalesRows(db, { ...scopedInput, rows: input.salesRows ?? [] });
+        const sales = await normalizeSalesRows(db, { ...scopedInput, rows: input.salesRows ?? [] }, sourceChannel);
         await insertReportSalesMonthly(db, sales, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);
@@ -253,7 +263,7 @@ export function createCyberbizReportIngestor(db: Database) {
         };
       }
       if (input.kind === "sales") {
-        const rows = await normalizeSalesRows(db, scopedInput);
+        const rows = await normalizeSalesRows(db, scopedInput, sourceChannel);
         await insertReportSalesMonthly(db, rows, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);

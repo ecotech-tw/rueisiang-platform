@@ -8,6 +8,7 @@ import {
   useLinkCyberbiz,
   useUnlinkCyberbiz,
   useUpdateItem,
+  productSkuChannelLabel,
   type InventoryItem,
   type ProductCategory,
   type Zone,
@@ -65,6 +66,7 @@ export function ItemForm({
   const unlink = useUnlinkCyberbiz();
   const toast = useToast();
   const [externalSku, setExternalSku] = useState("");
+  const [externalChannel, setExternalChannel] = useState("cyberbiz");
   const pending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
   const mappingError = addProductSkuMapping.error ?? deleteProductSkuMapping.error;
@@ -82,11 +84,11 @@ export function ItemForm({
     const value = externalSku.trim();
     if (!item || !value || addProductSkuMapping.isPending) return;
     addProductSkuMapping.mutate(
-      { id: item.id, externalSku: value },
+      { id: item.id, channel: externalChannel, externalSku: value },
       {
         onSuccess: (result) => {
           setExternalSku("");
-          toast.show(`已新增外部 SKU「${result.externalSku}」`);
+          toast.show(`已新增${productSkuChannelLabel(result.channel)} SKU「${result.externalSku}」`);
         },
       },
     );
@@ -265,6 +267,12 @@ export function ItemForm({
               <span>外部通路 SKU</span>
               <div className="field-grid">
                 <TextField
+                  label="通路"
+                  placeholder="例如 cyberbiz、shopee、momo"
+                  value={externalChannel}
+                  onChange={(event) => setExternalChannel(event.target.value)}
+                />
+                <TextField
                   label="新增外部 SKU"
                   placeholder="例如蝦皮 Product ID 或其他通路 SKU"
                   value={externalSku}
@@ -293,11 +301,11 @@ export function ItemForm({
                   <div className="row-actions">
                     {item.externalSkus.map((mapping) => (
                       <span className="status status-sync-synced" key={mapping.id}>
-                        {mapping.externalSku}
+                        {productSkuChannelLabel(mapping.channel)} · {mapping.externalSku}
                         <button
                           type="button"
                           className="link-button"
-                          aria-label={`移除外部 SKU ${mapping.externalSku}`}
+                          aria-label={`移除${productSkuChannelLabel(mapping.channel)} SKU ${mapping.externalSku}`}
                           onClick={() => deleteProductSkuMapping.mutate({ itemId: item.id, mappingId: mapping.id })}
                           disabled={deleteProductSkuMapping.isPending}
                         >
