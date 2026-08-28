@@ -174,7 +174,7 @@ export async function loadWarehouse(db: Database) {
     .from(warehouseSettings)
     .where(eq(warehouseSettings.id, SETTINGS_ID));
 
-  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, mappingRows] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, mappingRows, componentRows] = await Promise.all([
     db.select().from(zones).orderBy(asc(zones.code)),
     db.select().from(layoutElements).orderBy(asc(layoutElements.label)),
     db.select().from(productCategories).orderBy(asc(productCategories.name)),
@@ -189,15 +189,27 @@ export async function loadWarehouse(db: Database) {
      */
     db.select().from(cyberbizProductLinks),
     db.select().from(productSkuMappings).orderBy(asc(productSkuMappings.externalSku)),
+    db.select({ mappingId: productBundleComponents.mappingId, inventoryItemId: productBundleComponents.inventoryItemId })
+      .from(productBundleComponents),
   ]);
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
   const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
   const mappingsByItem = new Map<string, Array<{ id: string; channel: string; externalSku: string }>>();
+  const mappingsById = new Map(mappingRows.map((mapping) => [mapping.id, mapping]));
+  const addMappingToItem = (itemId: string, mapping: (typeof mappingRows)[number]) => {
+    const values = mappingsByItem.get(itemId) ?? [];
+    if (!values.some((value) => value.id === mapping.id)) {
+      values.push({ id: mapping.id, channel: mapping.channel, externalSku: mapping.externalSku });
+    }
+    mappingsByItem.set(itemId, values);
+  };
   for (const mapping of mappingRows) {
-    const values = mappingsByItem.get(mapping.inventoryItemId) ?? [];
-    values.push({ id: mapping.id, channel: mapping.channel, externalSku: mapping.externalSku });
-    mappingsByItem.set(mapping.inventoryItemId, values);
+    addMappingToItem(mapping.inventoryItemId, mapping);
+  }
+  for (const component of componentRows) {
+    const mapping = mappingsById.get(component.mappingId);
+    if (mapping) addMappingToItem(component.inventoryItemId, mapping);
   }
 
   return {

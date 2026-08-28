@@ -393,6 +393,51 @@ describe("外部 SKU 對應", () => {
       ]));
   });
 
+  it("編輯 mapping 未帶通路時會保留原通路與主商品，且用料商品看得到對應", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "BUNDLE-001", name: "組合商品", category: "一般備品" },
+      { id: "i2", sku: "SOAP-001", name: "香皂", category: "沐浴" },
+    ]);
+
+    const created = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        channel: "shopee",
+        externalName: "組合商品",
+        externalSku: "BUNDLE-001",
+        components: [
+          { inventoryItemId: "i1", quantity: 1 },
+          { inventoryItemId: "i2", quantity: 2 },
+        ],
+      }),
+    });
+    expect(created.status).toBe(201);
+    const mapping = await created.json() as { id: string };
+
+    const warehouse = await as(id, "admin@ecotech.tw", "/api/wms/warehouse");
+    const warehousePayload = await warehouse.json() as { items: Array<{ id: string; externalSkus: Array<{ id: string }> }> };
+    expect(warehousePayload.items.find((item) => item.id === "i2")?.externalSkus).toEqual([
+      { id: mapping.id, channel: "shopee", externalSku: "BUNDLE-001" },
+    ]);
+    const updated = await as(id, "admin@ecotech.tw", `/api/wms/product-sku-mappings/${mapping.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        externalName: "組合商品",
+        externalSku: "BUNDLE-001",
+        components: [
+          { inventoryItemId: "i2", quantity: 2 },
+          { inventoryItemId: "i1", quantity: 1 },
+        ],
+      }),
+    });
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({ id: mapping.id, channel: "shopee" });
+    expect(await db.select({ inventoryItemId: productSkuMappings.inventoryItemId })
+      .from(productSkuMappings)).toEqual([{ inventoryItemId: "i1" }]);
+    expect((await as(id, "admin@ecotech.tw", "/api/wms/items/i2", { method: "DELETE" })).status).toBe(409);
+  });
+
   it("相同通路與外部 SKU 重複新增時會拒絕並保留原用料", async () => {
     const id = await seedAdmin();
     await db.insert(inventoryItems).values([

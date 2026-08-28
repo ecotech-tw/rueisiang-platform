@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
@@ -87,9 +87,23 @@ export async function listProductSkuMappings(
   inventoryItemId?: string,
 ): Promise<ProductSkuMappingRow[]> {
   return db
-    .select()
+    .selectDistinct({
+      id: productSkuMappings.id,
+      inventoryItemId: productSkuMappings.inventoryItemId,
+      channel: productSkuMappings.channel,
+      externalName: productSkuMappings.externalName,
+      externalSku: productSkuMappings.externalSku,
+      createdAt: productSkuMappings.createdAt,
+      updatedAt: productSkuMappings.updatedAt,
+    })
     .from(productSkuMappings)
-    .where(inventoryItemId ? eq(productSkuMappings.inventoryItemId, inventoryItemId) : undefined)
+    .leftJoin(productBundleComponents, eq(productBundleComponents.mappingId, productSkuMappings.id))
+    .where(inventoryItemId
+      ? or(
+        eq(productSkuMappings.inventoryItemId, inventoryItemId),
+        eq(productBundleComponents.inventoryItemId, inventoryItemId),
+      )
+      : undefined)
     .orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku));
 }
 
@@ -314,8 +328,6 @@ export async function updateProductSkuMapping(
     actor: Actor;
   },
 ): Promise<{ id: string; channel: string; externalName: string; externalSku: string; components: ProductBundleComponentInput[] }> {
-  const channel = normalizeProductSkuChannel(input.channel ?? "legacy");
-  if (!channel) throw new WmsError("invalid", "通路不可為空。 ");
   const externalSku = normalizeExternalSku(input.externalSku);
   if (!externalSku) throw new WmsError("invalid", "外部 SKU 不可為空。 ");
   const externalName = input.externalName.trim();
@@ -324,7 +336,6 @@ export async function updateProductSkuMapping(
   if (!components.length) throw new WmsError("invalid", "至少要設定一個組合用料。 ");
   const firstComponent = components[0];
   if (!firstComponent) throw new WmsError("invalid", "至少要設定一個組合用料。 ");
-  const inventoryItemId = firstComponent.inventoryItemId;
 
   const [mapping] = await db
     .select({
@@ -340,6 +351,14 @@ export async function updateProductSkuMapping(
     .innerJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
     .where(eq(productSkuMappings.id, input.id));
   if (!mapping) throw new WmsError("not_found", "找不到這筆外部 SKU 對應。 ");
+
+  const channel = normalizeProductSkuChannel(input.channel ?? mapping.channel);
+  if (!channel) throw new WmsError("invalid", "通路不可為空。 ");
+  // 編輯時保留原本的主商品，只在主商品被移出用料時才改用新的第一個用料。
+  // 這樣管理頁依名稱排序後重新儲存，不會悄悄改變刪除保護與代表商品。
+  const inventoryItemId = components.some((component) => component.inventoryItemId === mapping.inventoryItemId)
+    ? mapping.inventoryItemId
+    : firstComponent.inventoryItemId;
 
   const [item] = await db
     .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })

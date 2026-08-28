@@ -175,7 +175,7 @@ async function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", paylo
 }
 
 /**
- * 每一支 WMS 寫入都失效 `wms` 前綴下的快取。
+ * 每一支 WMS 寫入都失效商品庫存與 SKU 對應快取。
  *
  * 用 void 不回傳那個 promise：回傳的話 react-query 會等它跑完才呼叫 mutate 層的
  * onSuccess，而那時候該列往往已經因為重新載入而被換掉，通知就再也不會出現。
@@ -188,7 +188,8 @@ function useWarehouseMutation<TArgs, TResult>(
   return useMutation({
     mutationFn: run,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["wms"] });
+      void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
+      void queryClient.invalidateQueries({ queryKey: PRODUCT_SKU_MAPPINGS_KEY });
     },
   });
 }
@@ -410,7 +411,8 @@ function useZoneImageMutation<TArgs>(run: (args: TArgs) => Promise<unknown>) {
   return useMutation({
     mutationFn: run,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["wms"] });
+      void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["wms", "zone-images"] });
     },
   });
 }

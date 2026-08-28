@@ -172,8 +172,8 @@ async function normalizeSalesRows(
   }
 
   // 先 mapping 再加總：多個通路 SKU 可能對應同一個 WMS SKU，不能在外部 SKU 階段結束加總。
-  // 只要有 components 就展開到實際 WMS SKU；組合包的銷售額只放在第一個用料，避免重複
-  // 加總但仍保留整筆 CYBERBIZ 金額。蝦皮 salesAmount 本來就是 0，所以不會產生商品金額。
+  // 只要有 components 就展開到實際 WMS SKU；組合包的銷售額只放在 mapping 的主商品，避免
+  // 重複加總但仍保留整筆 CYBERBIZ 金額。蝦皮 salesAmount 本來就是 0，所以不會產生商品金額。
   const rows = new Map<string, {
     scopeId: string;
     reportMonth: string;
@@ -188,11 +188,14 @@ async function normalizeSalesRows(
   }>();
   for (const row of parsed) {
     const item = resolved.get(row.externalSku)!;
+    const amountTargetId = item.components.some((component) => component.inventoryItemId === item.inventoryItemId)
+      ? item.inventoryItemId
+      : item.components[0]?.inventoryItemId;
     const targets = item.components.length
-      ? item.components.map((component, index) => ({
+      ? item.components.map((component) => ({
         ...component,
         multiplier: component.quantity,
-        allocatedSalesAmount: index === 0 ? row.salesAmount : 0,
+        allocatedSalesAmount: component.inventoryItemId === amountTargetId ? row.salesAmount : 0,
       }))
       : [{
         sku: item.sku,
@@ -250,10 +253,13 @@ export function createCyberbizReportIngestor(db: Database) {
           ? null
           : await findReportScope(db, { scopeKind: input.scopeType, name: input.scopeName })
       );
+      const nameMatchChannel = nameMatch ? reportChannel(nameMatch.id) : null;
       // 舊版 CYBERBIZ 設定可能使用任意 legacy ID，仍可依同名沿用；蝦皮則一定以自己的
       // scope ID 建立，不能因為名稱剛好相同而把資料寫進其他通路。
       const existing = existingById ?? (
-        canReuseScopeByName && nameMatch && !nameMatch.id.startsWith("shopee:")
+        canReuseScopeByName
+        && nameMatch
+        && (nameMatchChannel === "legacy" || nameMatchChannel === sourceChannel)
           ? nameMatch
           : null
       );

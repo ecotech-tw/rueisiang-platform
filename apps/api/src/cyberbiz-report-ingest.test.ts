@@ -217,8 +217,8 @@ describe("報表月資料匯入", () => {
       externalSku: "BUNDLE-001",
     });
     await db().insert(schema.productBundleComponents).values([
-      { mappingId: "mapping-cyberbiz-bundle", inventoryItemId: "item-sku-1", quantity: 2 },
       { mappingId: "mapping-cyberbiz-bundle", inventoryItemId: "item-sku-2", quantity: 1 },
+      { mappingId: "mapping-cyberbiz-bundle", inventoryItemId: "item-sku-1", quantity: 2 },
     ]);
 
     const response = await request(salesBody([
@@ -234,6 +234,16 @@ describe("報表月資料匯入", () => {
       { sku: "SKU-1", grossQuantity: 6, netQuantity: 4, salesAmount: 100 },
       { sku: "SKU-2", grossQuantity: 3, netQuantity: 2, salesAmount: 0 },
     ]);
+  });
+
+  it("CYBERBIZ 同名 scope 不會重用其他通路的 scope", async () => {
+    await upsertReportScope(db(), { id: "momo:store:default", scopeKind: "store", name: "測試店" });
+
+    const response = await request(salesBody([salesRow("SKU-1", 100)]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { scopeId: "cyberbiz:store:a" } });
+    expect(await db().select({ id: schema.reportScopes.id }).from(schema.reportScopes))
+      .toEqual(expect.arrayContaining([{ id: "momo:store:default" }, { id: "cyberbiz:store:a" }]));
   });
 
   it("sales 格式錯誤時不會先留下 payout", async () => {
