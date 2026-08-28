@@ -165,6 +165,34 @@ describe("報表月資料匯入", () => {
       .toEqual([{ sku: "SKU-1" }]);
   });
 
+  it("蝦皮組合商品會依用料數量展開到各 WMS SKU", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-shopee-bundle",
+      inventoryItemId: "item-sku-1",
+      channel: "shopee",
+      externalSku: "P-001_M-001",
+    });
+    await db().insert(schema.productBundleComponents).values([
+      { mappingId: "mapping-shopee-bundle", inventoryItemId: "item-sku-1", quantity: 2 },
+      { mappingId: "mapping-shopee-bundle", inventoryItemId: "item-sku-2", quantity: 1 },
+    ]);
+
+    const response = await request(shopeeBundle([
+      salesRow("P-001_M-001", 0, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      grossQuantity: schema.reportSalesMonthly.grossQuantity,
+      returnQuantity: schema.reportSalesMonthly.returnQuantity,
+      netQuantity: schema.reportSalesMonthly.netQuantity,
+      salesAmount: schema.reportSalesMonthly.salesAmount,
+    }).from(schema.reportSalesMonthly).orderBy(schema.reportSalesMonthly.sku)).toEqual([
+      { sku: "SKU-1", grossQuantity: 6, returnQuantity: 2, netQuantity: 4, salesAmount: 0 },
+      { sku: "SKU-2", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 0 },
+    ]);
+  });
+
   it("蝦皮 bundle 重新匯入零筆月份會清掉既有商品資料", async () => {
     expect((await request(shopeeBundle([salesRow("P-001", 0)]))).status).toBe(200);
     expect((await request(shopeeBundle([]))).status).toBe(200);

@@ -4,6 +4,7 @@ import {
   activityEvents,
   inventoryItems,
   cyberbizProductLinks,
+  productBundleComponents,
   productCategories,
   productSkuMappings,
   zoneImages,
@@ -354,6 +355,41 @@ describe("外部 SKU 對應", () => {
       expect.objectContaining({ id: "i1", sku: "WMS-001", name: "黑色肩背包" }),
       expect.objectContaining({ id: "i2", sku: "WMS-002", name: "紙箱" }),
     ]));
+  });
+
+  it("可以用一筆 mapping 建立多個組合用料", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "BUNDLE-001", name: "三瓶組合", category: "一般備品" },
+      { id: "i2", sku: "SOAP-001", name: "香皂", category: "沐浴" },
+      { id: "i3", sku: "NET-001", name: "起泡網", category: "沐浴" },
+    ]);
+
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        inventoryItemId: "i1",
+        channel: "shopee",
+        externalSku: "26491332332_216256146329",
+        components: [
+          { inventoryItemId: "i2", quantity: 3 },
+          { inventoryItemId: "i3", quantity: 1 },
+        ],
+      }),
+    });
+    expect(response.status).toBe(201);
+    const result = await response.json() as { id: string };
+    expect(await db.select().from(productBundleComponents)).toEqual([
+      { mappingId: result.id, inventoryItemId: "i2", quantity: 3 },
+      { mappingId: result.id, inventoryItemId: "i3", quantity: 1 },
+    ]);
+
+    const listing = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings");
+    expect((await listing.json() as { mappings: Array<{ components: unknown[] }> }).mappings[0]?.components)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ inventoryItemId: "i2", sku: "SOAP-001", quantity: 3 }),
+        expect.objectContaining({ inventoryItemId: "i3", sku: "NET-001", quantity: 1 }),
+      ]));
   });
 
   it("SKU mapping 管理頁預設只有主管與管理員可進入", async () => {

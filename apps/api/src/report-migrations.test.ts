@@ -103,4 +103,26 @@ describe("報表 scope migration", () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM product_sku_mappings WHERE external_sku = ?").get("SHARED-001"))
       .toEqual({ count: 2 });
   });
+
+  it("0056 建立組合用料表，mapping 刪除會 cascade、用料商品刪除會 restrict", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0055_add_product_sku_mapping_channel.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("bundle", "BUNDLE-001", "組合商品");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("component", "ITEM-001", "組合用料");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_sku) VALUES (?, ?, ?, ?)")
+      .run("mapping-1", "bundle", "shopee", "P-001_M-001");
+
+    applyLikeD1(sqlite, "0055_add_product_sku_mapping_channel.sql", "0056_add_product_bundle_components.sql");
+    sqlite.prepare("INSERT INTO product_bundle_components (mapping_id, inventory_item_id, quantity) VALUES (?, ?, ?)")
+      .run("mapping-1", "component", 3);
+    expect(sqlite.prepare("SELECT mapping_id, inventory_item_id, quantity FROM product_bundle_components").all())
+      .toEqual([{ mapping_id: "mapping-1", inventory_item_id: "component", quantity: 3 }]);
+    expect(() => sqlite.prepare("DELETE FROM inventory_items WHERE id = ?").run("component")).toThrow();
+    sqlite.prepare("DELETE FROM product_sku_mappings WHERE id = ?").run("mapping-1");
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM product_bundle_components").get())
+      .toEqual({ count: 0 });
+  });
 });

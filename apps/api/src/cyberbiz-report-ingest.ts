@@ -172,6 +172,9 @@ async function normalizeSalesRows(
   }
 
   // 先 mapping 再加總：多個通路 SKU 可能對應同一個 WMS SKU，不能在外部 SKU 階段結束加總。
+  // 蝦皮的商品 ID 可能是一組組合包；有 components 時，報表數量要展開到實際 WMS SKU。
+  // 蝦皮 salesAmount 本來就是 0，組合包若有金額也不能複製到每個元件，因此展開列的金額固定為 0。
+  const expandBundle = normalizeProductSkuChannel(channel) === "shopee";
   const rows = new Map<string, {
     scopeId: string;
     reportMonth: string;
@@ -186,20 +189,25 @@ async function normalizeSalesRows(
   }>();
   for (const row of parsed) {
     const item = resolved.get(row.externalSku)!;
-    const key = `${row.reportMonth}\u0000${item.sku}`;
-    const previous = rows.get(key);
-    rows.set(key, {
-      scopeId: input.scopeId,
-      reportMonth: row.reportMonth,
-      sku: item.sku,
-      productName: item.name,
-      category: item.category,
-      grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity,
-      returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity,
-      netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity,
-      salesAmount: (previous?.salesAmount ?? 0) + row.salesAmount,
-      updatedAt: new Date().toISOString(),
-    });
+    const targets = expandBundle && item.components.length
+      ? item.components.map((component) => ({ ...component, multiplier: component.quantity }))
+      : [{ ...item, multiplier: 1 }];
+    for (const target of targets) {
+      const key = `${row.reportMonth}\u0000${target.sku}`;
+      const previous = rows.get(key);
+      rows.set(key, {
+        scopeId: input.scopeId,
+        reportMonth: row.reportMonth,
+        sku: target.sku,
+        productName: target.name,
+        category: target.category,
+        grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity * target.multiplier,
+        returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity * target.multiplier,
+        netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity * target.multiplier,
+        salesAmount: (previous?.salesAmount ?? 0) + (expandBundle && item.components.length ? 0 : row.salesAmount),
+        updatedAt: new Date().toISOString(),
+      });
+    }
   }
   return [...rows.values()];
 }

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * 倉儲管理系統。從 rueisiang-wms 搬進來。
@@ -131,6 +131,25 @@ export const productSkuMappings = sqliteTable("product_sku_mappings", {
 ]);
 
 /**
+ * 外部通路商品對應的組合內容。
+ *
+ * product_sku_mappings 仍然只負責「一個外部 SKU 對應哪個 WMS 商品」；有組合內容時，
+ * 扣庫存或報表展開才會讀這張表。沒有 component 的 mapping 就是一般一對一商品。
+ */
+export const productBundleComponents = sqliteTable("product_bundle_components", {
+  mappingId: text("mapping_id")
+    .notNull()
+    .references(() => productSkuMappings.id, { onDelete: "cascade" }),
+  inventoryItemId: text("inventory_item_id")
+    .notNull()
+    .references(() => inventoryItems.id, { onDelete: "restrict" }),
+  quantity: integer("quantity").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.mappingId, table.inventoryItemId] }),
+  index("idx_product_bundle_components_inventory_item").on(table.inventoryItemId),
+]);
+
+/**
  * 庫存品項與 CYBERBIZ 商品款式的對應。
  *
  * 一個品項最多對一個款式（兩邊都是 unique）：多對多會讓「這裡少了 3 件，官網
@@ -208,5 +227,6 @@ export type LayoutElement = typeof layoutElements.$inferSelect;
 export type ProductCategory = typeof productCategories.$inferSelect;
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type ProductSkuMapping = typeof productSkuMappings.$inferSelect;
+export type ProductBundleComponent = typeof productBundleComponents.$inferSelect;
 export type CyberbizProductLink = typeof cyberbizProductLinks.$inferSelect;
 export type ZoneImage = typeof zoneImages.$inferSelect;

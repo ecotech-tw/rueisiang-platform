@@ -89,11 +89,14 @@ export {
   normalizeExternalSku,
   normalizeProductSkuChannel,
   resolveProductSkus,
+  type ProductBundleComponentInput,
+  type ProductBundleComponentManagementRow,
   type ProductSkuMappingItemOption,
   type ProductSkuMappingManagementData,
   type ProductSkuMappingManagementRow,
   type ProductSkuMappingRow,
   type ResolvedProductSku,
+  type ResolvedProductSkuComponent,
 } from "./product-sku-mappings.js";
 export {
   findCyberbizReportRun,

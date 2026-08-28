@@ -116,6 +116,15 @@ export interface ProductSkuMapping {
   itemName: string;
   itemCategory: string;
   itemCategoryColor: string | null;
+  components: ProductBundleComponent[];
+}
+
+export interface ProductBundleComponent {
+  inventoryItemId: string;
+  quantity: number;
+  sku: string | null;
+  name: string;
+  category: string;
 }
 
 export interface ProductSkuMappingItemOption {
@@ -228,6 +237,21 @@ export function useAddProductSkuMapping() {
   return useWarehouseMutation(
     ({ id, channel, externalSku }: { id: string; channel?: string; externalSku: string }) =>
       write<{ id: string; channel: string; externalSku: string }>(`/api/wms/items/${id}/product-sku-mappings`, "POST", { channel, externalSku }),
+  );
+}
+
+export function useCreateProductSkuMapping() {
+  return useWarehouseMutation(
+    ({ inventoryItemId, channel, externalSku, components }: {
+      inventoryItemId: string;
+      channel?: string;
+      externalSku: string;
+      components?: Array<{ inventoryItemId: string; quantity: number }>;
+    }) => write<{ id: string; channel: string; externalSku: string }>(
+      "/api/wms/product-sku-mappings",
+      "POST",
+      { inventoryItemId, channel, externalSku, components },
+    ),
   );
 }
 

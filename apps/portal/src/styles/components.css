@@ -747,6 +747,31 @@
 
 .admin-form.row { margin-top: 16px; }
 .panel-head + .admin-form.row { margin-top: 0; }
+.sku-mapping-form { align-items: flex-end; }
+.sku-mapping-components {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+.sku-mapping-components-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sku-mapping-components-head > div { display: grid; gap: 2px; }
+.sku-mapping-component-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(120px, 180px) auto;
+  align-items: end;
+  gap: 10px;
+}
+.sku-mapping-component-row > .field { min-width: 0; }
+@media (max-width: 620px) {
+  .sku-mapping-component-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .sku-mapping-component-row > .field:first-child { grid-column: 1 / -1; }
+}
 /*
  * 表格上方的工具列。先前它跟表頭之間沒有任何界線，看起來像黏在一起的兩排東西。
  * 給它自己的下緣分隔線與內距，讓「篩選」與「資料」是兩個區塊。

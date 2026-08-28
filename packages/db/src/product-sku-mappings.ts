@@ -2,7 +2,12 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
-import { inventoryItems, productCategories, productSkuMappings } from "./schema/wms.js";
+import {
+  inventoryItems,
+  productBundleComponents,
+  productCategories,
+  productSkuMappings,
+} from "./schema/wms.js";
 import { WmsError, type Actor } from "./wms.js";
 
 /** 外部 SKU 寫入前統一格式，避免大小寫造成兩筆 mapping。 */
@@ -29,6 +34,15 @@ export interface ProductSkuMappingManagementRow extends ProductSkuMappingRow {
   itemName: string;
   itemCategory: string;
   itemCategoryColor: string | null;
+  components: ProductBundleComponentManagementRow[];
+}
+
+export interface ProductBundleComponentManagementRow {
+  inventoryItemId: string;
+  quantity: number;
+  sku: string | null;
+  name: string;
+  category: string;
 }
 
 export interface ProductSkuMappingItemOption {
@@ -48,6 +62,15 @@ export interface ResolvedProductSku {
   sku: string;
   name: string;
   category: string;
+  components: ResolvedProductSkuComponent[];
+}
+
+export interface ResolvedProductSkuComponent {
+  inventoryItemId: string;
+  sku: string;
+  name: string;
+  category: string;
+  quantity: number;
 }
 
 const SKU_LOOKUP_BATCH_SIZE = 50;
@@ -101,13 +124,87 @@ export async function loadProductSkuMappingManagement(
       .orderBy(asc(inventoryItems.name)),
   ]);
 
-  return { mappings: mappingRows, items: itemRows };
+  const componentRows: Array<{
+    mappingId: string;
+    inventoryItemId: string;
+    quantity: number;
+    sku: string | null;
+    name: string;
+    category: string;
+  }> = [];
+  const mappingIds = mappingRows.map((row) => row.id);
+  for (let offset = 0; offset < mappingIds.length; offset += SKU_LOOKUP_BATCH_SIZE) {
+    const batch = mappingIds.slice(offset, offset + SKU_LOOKUP_BATCH_SIZE);
+    componentRows.push(...await db
+      .select({
+        mappingId: productBundleComponents.mappingId,
+        inventoryItemId: productBundleComponents.inventoryItemId,
+        quantity: productBundleComponents.quantity,
+        sku: inventoryItems.sku,
+        name: inventoryItems.name,
+        category: inventoryItems.category,
+      })
+      .from(productBundleComponents)
+      .innerJoin(inventoryItems, eq(inventoryItems.id, productBundleComponents.inventoryItemId))
+      .where(inArray(productBundleComponents.mappingId, batch))
+      .orderBy(asc(productBundleComponents.mappingId), asc(inventoryItems.name)));
+  }
+  const componentsByMapping = new Map<string, ProductBundleComponentManagementRow[]>();
+  for (const component of componentRows) {
+    const list = componentsByMapping.get(component.mappingId) ?? [];
+    list.push({
+      inventoryItemId: component.inventoryItemId,
+      quantity: component.quantity,
+      sku: component.sku,
+      name: component.name,
+      category: component.category,
+    });
+    componentsByMapping.set(component.mappingId, list);
+  }
+
+  return {
+    mappings: mappingRows.map((row) => ({ ...row, components: componentsByMapping.get(row.id) ?? [] })),
+    items: itemRows,
+  };
+}
+
+export interface ProductBundleComponentInput {
+  inventoryItemId: string;
+  quantity: number;
+}
+
+function validateBundleComponents(
+  components: ProductBundleComponentInput[] | undefined,
+): ProductBundleComponentInput[] {
+  if (!components) return [];
+  const seen = new Set<string>();
+  const normalized = components.map((component) => ({
+    inventoryItemId: typeof component?.inventoryItemId === "string" ? component.inventoryItemId.trim() : "",
+    quantity: component?.quantity,
+  }));
+  for (const component of normalized) {
+    if (!component || typeof component.inventoryItemId !== "string" || !component.inventoryItemId.trim()
+      || !Number.isSafeInteger(component.quantity) || component.quantity <= 0) {
+      throw new WmsError("invalid", "組合商品的用料與數量格式不正確。 ");
+    }
+    if (seen.has(component.inventoryItemId)) {
+      throw new WmsError("invalid", "組合商品不可重複設定同一個 WMS 商品。 ");
+    }
+    seen.add(component.inventoryItemId);
+  }
+  return normalized;
 }
 
 export async function addProductSkuMapping(
   db: Database,
-  input: { inventoryItemId: string; channel?: string; externalSku: string; actor: Actor },
-): Promise<{ id: string; channel: string; externalSku: string }> {
+  input: {
+    inventoryItemId: string;
+    channel?: string;
+    externalSku: string;
+    components?: ProductBundleComponentInput[];
+    actor: Actor;
+  },
+): Promise<{ id: string; channel: string; externalSku: string; components: ProductBundleComponentInput[] }> {
   const channel = normalizeProductSkuChannel(input.channel ?? "legacy");
   if (!channel) throw new WmsError("invalid", "通路不可為空。 ");
   const externalSku = normalizeExternalSku(input.externalSku);
@@ -119,6 +216,19 @@ export async function addProductSkuMapping(
     .where(eq(inventoryItems.id, input.inventoryItemId));
   if (!item) throw new WmsError("not_found", "找不到這項商品。 ");
   if (!item.sku) throw new WmsError("invalid", "請先設定 WMS SKU，才能建立外部 SKU 對應。 ");
+  const components = validateBundleComponents(input.components);
+  const componentItems = components.length
+    ? await db
+      .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
+      .from(inventoryItems)
+      .where(inArray(inventoryItems.id, components.map((component) => component.inventoryItemId)))
+    : [];
+  if (componentItems.length !== components.length) {
+    throw new WmsError("not_found", "找不到組合商品使用的 WMS 商品。 ");
+  }
+  if (componentItems.some((component) => !component.sku)) {
+    throw new WmsError("invalid", "請先設定組合商品用料的 WMS SKU。 ");
+  }
 
   const [skuOwner] = await db
     .select({ id: inventoryItems.id })
@@ -139,7 +249,11 @@ export async function addProductSkuMapping(
     .limit(1);
   if (existing) {
     if (existing.inventoryItemId === input.inventoryItemId) {
-      return { id: existing.id, channel, externalSku };
+      const existingComponents = await db
+        .select({ inventoryItemId: productBundleComponents.inventoryItemId, quantity: productBundleComponents.quantity })
+        .from(productBundleComponents)
+        .where(eq(productBundleComponents.mappingId, existing.id));
+      return { id: existing.id, channel, externalSku, components: existingComponents };
     }
     throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經對應到其他商品。 `);
   }
@@ -147,12 +261,17 @@ export async function addProductSkuMapping(
   const id = crypto.randomUUID();
   await db.batch([
     db.insert(productSkuMappings).values({ id, inventoryItemId: input.inventoryItemId, channel, externalSku }),
+    ...components.map((component) => db.insert(productBundleComponents).values({
+      mappingId: id,
+      inventoryItemId: component.inventoryItemId,
+      quantity: component.quantity,
+    })),
     db.insert(activityEvents).values(activityRow({
       entityType: "product_sku_mapping",
       entityId: id,
       entityLabel: `${item.sku} ${item.name}`,
       eventType: "product_sku_mapping_created",
-      summary: `新增${channel} 外部 SKU 對應：${externalSku}`,
+      summary: `新增${channel} 外部 SKU 對應：${externalSku}${components.length ? `（${components.length} 個組合用料）` : ""}`,
       field: "externalSku",
       newValue: externalSku,
       actor: input.actor,
@@ -160,7 +279,7 @@ export async function addProductSkuMapping(
     })),
   ]);
 
-  return { id, channel, externalSku };
+  return { id, channel, externalSku, components };
 }
 
 export async function deleteProductSkuMapping(
@@ -214,6 +333,7 @@ export async function resolveProductSkus(
   const lookupChannels = [...new Set([normalizedChannel, "legacy"])] as string[];
 
   type MappingLookup = {
+    id: string;
     externalSku: string;
     channel: string;
     inventoryItemId: string;
@@ -236,6 +356,7 @@ export async function resolveProductSkus(
     const [batchMappings, batchDirectItems] = await Promise.all([
       db
         .select({
+          id: productSkuMappings.id,
           externalSku: productSkuMappings.externalSku,
           channel: productSkuMappings.channel,
           inventoryItemId: productSkuMappings.inventoryItemId,
@@ -258,6 +379,36 @@ export async function resolveProductSkus(
     directItems.push(...batchDirectItems);
   }
 
+  const componentsByMapping = new Map<string, ResolvedProductSkuComponent[]>();
+  const mappingIds = [...new Set(mappings.map((mapping) => mapping.id))];
+  for (let offset = 0; offset < mappingIds.length; offset += SKU_LOOKUP_BATCH_SIZE) {
+    const batch = mappingIds.slice(offset, offset + SKU_LOOKUP_BATCH_SIZE);
+    const componentRows = await db
+      .select({
+        mappingId: productBundleComponents.mappingId,
+        inventoryItemId: productBundleComponents.inventoryItemId,
+        sku: inventoryItems.sku,
+        name: inventoryItems.name,
+        category: inventoryItems.category,
+        quantity: productBundleComponents.quantity,
+      })
+      .from(productBundleComponents)
+      .innerJoin(inventoryItems, eq(inventoryItems.id, productBundleComponents.inventoryItemId))
+      .where(inArray(productBundleComponents.mappingId, batch));
+    for (const component of componentRows) {
+      if (!component.sku) continue;
+      const list = componentsByMapping.get(component.mappingId) ?? [];
+      list.push({
+        inventoryItemId: component.inventoryItemId,
+        sku: component.sku,
+        name: component.name,
+        category: component.category,
+        quantity: component.quantity,
+      });
+      componentsByMapping.set(component.mappingId, list);
+    }
+  }
+
   const resolved = new Map<string, ResolvedProductSku>();
   const resolvedChannels = new Map<string, string>();
   const mappedKeys = new Set(mappings.map((mapping) => normalizeExternalSku(mapping.externalSku)));
@@ -269,6 +420,7 @@ export async function resolveProductSkus(
       sku: item.sku,
       name: item.name,
       category: item.category,
+      components: [],
     });
   }
   for (const mapping of mappings) {
@@ -281,6 +433,7 @@ export async function resolveProductSkus(
       sku: mapping.sku,
       name: mapping.name,
       category: mapping.category,
+      components: componentsByMapping.get(mapping.id) ?? [],
     });
     resolvedChannels.set(key, mapping.channel);
   }

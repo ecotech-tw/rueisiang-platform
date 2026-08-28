@@ -98,6 +98,27 @@ function text(input: Record<string, unknown>, field: string): string | undefined
   return typeof value === "string" ? value.trim() : undefined;
 }
 
+function bundleComponents(input: Record<string, unknown>): Array<{ inventoryItemId: string; quantity: number }> | undefined {
+  if (input.components === undefined) return undefined;
+  if (!Array.isArray(input.components)) {
+    throw new HTTPException(400, { message: "組合商品用料的格式不正確。" });
+  }
+  return input.components.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new HTTPException(400, { message: "組合商品用料的格式不正確。" });
+    }
+    const component = value as Record<string, unknown>;
+    const quantity = component.quantity;
+    if (typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity <= 0) {
+      throw new HTTPException(400, { message: "組合商品用料數量必須是大於 0 的整數。" });
+    }
+    return {
+      inventoryItemId: requireString(component, "inventoryItemId", "組合商品用料"),
+      quantity,
+    };
+  });
+}
+
 /**
  * 位置欄位。zoneId 明確送 null 代表「從倉位拿出來」，沒送代表「不動」——
  * 兩者不能合併成同一個值，不然沒辦法把東西移出倉位。
@@ -253,6 +274,20 @@ export const wms = new Hono<AppEnv>()
   /** SKU 對應管理頁只需要商品主檔與 mapping，不必取得倉位地圖資料。 */
   .get("/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
     return c.json(await loadProductSkuMappingManagement(c.get("db")));
+  })
+
+  /** 建立一筆 mapping；components 可省略代表一般一對一商品。 */
+  .post("/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
+    const input = await body(c);
+    const user = c.get("user");
+    const result = await addProductSkuMapping(c.get("db"), {
+      inventoryItemId: requireString(input, "inventoryItemId", "WMS 商品"),
+      channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
+      externalSku: requireString(input, "externalSku", "外部 SKU"),
+      components: bundleComponents(input),
+      actor: { id: user.id, email: user.email },
+    });
+    return c.json(result, 201);
   })
 
   /** 新增一個外部通路 SKU 對應到 WMS 商品。 */
