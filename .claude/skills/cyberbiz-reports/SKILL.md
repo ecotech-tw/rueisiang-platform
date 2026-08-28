@@ -200,6 +200,7 @@ xlsx 解析（含自閉合空儲存格）、月份守門、機密遮蔽、欄位
 | `DATE_REVERTED` | datepicker 行為變了，看 `tools/cyberbiz-reports/lib/cyberbiz.mjs` 的 `chooseDate` |
 | `EMAIL_TIMEOUT` | 信還沒到，稍後用 `--store <該店>` 單獨補跑 |
 | `RANGE_MISMATCH` / `HEADER_MISMATCH` | 下載到的檔結構或月份不對，先看 `tools/cyberbiz-reports/staging/` 那份檔 |
+| `PARTIAL_REPORT` | 商品銷售檔有帶數字但缺 SKU 的資料列；該列會略過，其他可識別商品仍上傳 Drive／匯入 D1，但本次執行仍標記 failure，需人工補正原始報表 |
 | `FORMULA_NOT_EVALUATED` | 上傳後轉檔驗算不出值，多半是欄位注入寫壞了 |
 | `GOOGLE_API_ERROR` 401/403、`invalid_grant` | token 失效。先確認 OAuth 應用程式是「正式版」而非「測試中」，再重跑 `node setup.mjs auth` 與 `mail` |
 | 平台上按了執行沒動靜 | 已有工作在跑（`concurrency: payout`，一次只跑一個），等前一個結束；或到 Actions 看那次 run 的 log |
