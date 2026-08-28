@@ -37,8 +37,19 @@ git worktree list
 `rueisiang-platform` 預設是人類的整合目錄，但不是保留區：**人類在當次對話明講之後，
 Codex 或 Claude 也可以在上面作業。** 要守住的不是「這個目錄屬於誰」，而是「一個工作
 目錄同時只有一個主人」——真正會出事的是兩個人同時在同一個目錄切 branch，不是誰的名字
-掛在資料夾上。所以借用時：說一聲、結束時回報自己把它留在哪個 branch、人類要拿回去就
-先切回 `main` 再交還。
+掛在資料夾上。
+
+借用的流程是**借了什麼樣子就還什麼樣子**：
+
+```powershell
+git rev-parse --abbrev-ref HEAD   # 借用前先記下它原本停在哪個 branch
+# …作業…
+git switch <原本那個 branch>       # 還之前切回去，並回報自己做了什麼
+```
+
+不要一律切回 `main`。主資料夾交出來時可能正停在某個整合或 feature branch 上，切成
+`main` 會讓人類下一次進來站在錯的分支；那時若還有未提交的修改，甚至切不回去。工作區
+不乾淨就先問，不要自己 stash 或 reset（stash stack 是共用的，見下面）。
 
 常駐 worktree 建立後，每個 agent 只在自己的路徑切換到下一個需求 branch。
 
