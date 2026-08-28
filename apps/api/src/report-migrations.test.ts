@@ -64,4 +64,22 @@ describe("報表 scope migration", () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM report_sales_monthly").get()).toEqual({ count: 1 });
     expect(() => sqlite.prepare("SELECT COUNT(*) FROM report_sales_daily").get()).toThrow();
   });
+
+  it("0054 會把沒有歧義的既有 CYBERBIZ 商品連結轉成外部 SKU 對應", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0053_drop_report_sales_daily.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-1", "WMS-001", "商品一");
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_product_links (
+        id, inventory_item_id, cyberbiz_product_id, cyberbiz_variant_id, sku
+      ) VALUES (?, ?, ?, ?, ?)
+    `).run("link-1", "item-1", "product-1", "variant-1", " cb-001 ");
+
+    applyLikeD1(sqlite, "0053_drop_report_sales_daily.sql", "0054_add_product_sku_mappings.sql");
+
+    expect(sqlite.prepare("SELECT inventory_item_id, external_sku FROM product_sku_mappings").all())
+      .toEqual([{ inventory_item_id: "item-1", external_sku: "CB-001" }]);
+  });
 });

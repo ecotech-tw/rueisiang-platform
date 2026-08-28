@@ -3,6 +3,7 @@ import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import {
   WMS_ENTITY_TYPES,
   applySyncPlan,
+  addProductSkuMapping,
   buildSyncPlan,
   countItem,
   deleteZoneImage,
@@ -17,11 +18,13 @@ import {
   deleteCategory,
   deleteItem,
   deleteLayoutElement,
+  deleteProductSkuMapping,
   deleteZone,
   deleteMediaObject,
   linkItemToCyberbiz,
   listActivity,
   listCompanyLinks,
+  listProductSkuMappings,
   loadWarehouse,
   markLinkFailed,
   markLinkSynced,
@@ -244,6 +247,28 @@ export const wms = new Hono<AppEnv>()
         pageSize: [25, 50, 100].includes(size) ? size : 25,
       }),
     );
+  })
+
+  /** 新增一個外部通路 SKU 對應到 WMS 商品。 */
+  .post("/items/:id/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
+    const input = await body(c);
+    const user = c.get("user");
+    const result = await addProductSkuMapping(c.get("db"), {
+      inventoryItemId: c.req.param("id"),
+      externalSku: requireString(input, "externalSku", "外部 SKU"),
+      actor: { id: user.id, email: user.email },
+    });
+    return c.json(result, 201);
+  })
+
+  .delete("/items/:id/product-sku-mappings/:mappingId", requirePermission("wms:inventory:write"), async (c) => {
+    const user = c.get("user");
+    const mappings = await listProductSkuMappings(c.get("db"), c.req.param("id"));
+    if (!mappings.some((mapping) => mapping.id === c.req.param("mappingId"))) {
+      throw new HTTPException(404, { message: "找不到這筆商品外部 SKU 對應。" });
+    }
+    await deleteProductSkuMapping(c.get("db"), c.req.param("mappingId"), { id: user.id, email: user.email });
+    return c.json({ ok: true });
   })
 
   /** 用 SKU 在官網找到對應的款式並建立連結。 */

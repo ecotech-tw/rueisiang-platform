@@ -258,8 +258,7 @@ const SALES_GROUPS: Record<SalesGroupBy, { alias: string; expression: ReturnType
 
 type PayoutGroupBy = "day" | "month" | "scope";
 
-const CYBERBIZ_STORE_SCOPE_PREFIX = "cyberbiz:store:";
-const LEGACY_CYBERBIZ_STORE_SCOPE_PREFIX = "store-";
+const REPORT_STORE_SCOPE_ID = /^(?:[A-Za-z][A-Za-z0-9_-]*:store:|store-)/;
 
 const PAYOUT_GROUPS: Record<PayoutGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
   day: { alias: "businessDate", expression: sql`${reportPayoutDaily.businessDate}` },
@@ -287,8 +286,9 @@ async function scopeIdsForQuery(db: Database, query: { scopeType: ReportScopeKin
     return scope ? { ids: [scope.id], scope } : { ids: [] };
   }
   return {
+    // 公司總額納入所有通路，但只接受既定的 channel:store:id 格式與舊版 store- ID。
     ids: (await listReportScopes(db, "store"))
-      .filter((scope) => scope.id.startsWith(CYBERBIZ_STORE_SCOPE_PREFIX) || scope.id.startsWith(LEGACY_CYBERBIZ_STORE_SCOPE_PREFIX))
+      .filter((scope) => REPORT_STORE_SCOPE_ID.test(scope.id))
       .map((scope) => scope.id),
   };
 }

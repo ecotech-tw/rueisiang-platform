@@ -1,5 +1,6 @@
 import { createDatabase, upsertReportScope } from "@rueisiang/db";
 import { beforeEach, describe, expect, it } from "vitest";
+import { schema } from "@rueisiang/db";
 import app from "./index.js";
 import { createCyberbizReportService } from "./cyberbiz-reports.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -55,8 +56,23 @@ function shopeeBundle(salesRows: unknown[], payoutRows: unknown[] = [], reportMo
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   d1 = createLocalD1();
+  const database = db();
+  await database.insert(schema.productCategories).values({ id: "category-bath", name: "沐浴", color: "rose" });
+  for (const sku of ["SKU-1", "SKU-OLD", "SKU-KEEP", "SKU-2", "WMS-001"]) {
+    await database.insert(schema.inventoryItems).values({
+      id: `item-${sku.toLowerCase()}`,
+      sku,
+      name: `WMS ${sku}`,
+      category: "沐浴",
+    });
+  }
+  await database.insert(schema.productSkuMappings).values({
+    id: "mapping-shopee-p-001",
+    inventoryItemId: "item-wms-001",
+    externalSku: "P-001",
+  });
 });
 
 describe("報表月資料匯入", () => {
@@ -154,7 +170,7 @@ describe("報表月資料匯入", () => {
     expect(result).toMatchObject({ status: "ok", scopeId: "legacy-store-id", totals: { netQuantity: 1, salesAmount: 100 } });
   });
 
-  it("空白商品欄位沿用同批前值，首次空白分類回退為未分類", async () => {
+  it("商品名稱與分類以 WMS 商品主檔為準", async () => {
     const response = await request(salesBody([
       salesRow("SKU-1", 100),
       salesRow("SKU-1", 80, { productName: "", category: "" }),
@@ -166,7 +182,82 @@ describe("報表月資料匯入", () => {
     });
     expect(result.rows).toEqual(expect.arrayContaining([
       expect.objectContaining({ sku: "SKU-1", category: "沐浴", netQuantity: 2, salesAmount: 180 }),
-      expect.objectContaining({ sku: "SKU-2", category: "未分類", netQuantity: 1, salesAmount: 50 }),
+      expect.objectContaining({ sku: "SKU-2", category: "沐浴", netQuantity: 1, salesAmount: 50 }),
     ]));
+    expect(await db().select({ sku: schema.reportSalesMonthly.sku, productName: schema.reportSalesMonthly.productName })
+      .from(schema.reportSalesMonthly)
+      .orderBy(schema.reportSalesMonthly.sku)).toEqual([
+      { sku: "SKU-1", productName: "WMS SKU-1" },
+      { sku: "SKU-2", productName: "WMS SKU-2" },
+    ]);
+  });
+
+  it("大量 SKU 會分批查詢 mapping，不受單支 SQL 參數上限影響", async () => {
+    const items = Array.from({ length: 120 }, (_unused, index) => {
+      const sku = `BULK-${String(index).padStart(3, "0")}`;
+      return { id: `item-${sku.toLowerCase()}`, sku, name: `WMS ${sku}`, category: "沐浴" };
+    });
+    await db().insert(schema.inventoryItems).values(items);
+
+    const response = await request(salesBody(items.map((item) => salesRow(item.sku, 10))));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { rowCount: 120 } });
+    expect(await db().select().from(schema.reportSalesMonthly)).toHaveLength(120);
+  });
+
+  it("不同外部 SKU 對應同一 WMS 商品時會先 mapping 再加總", async () => {
+    await db().insert(schema.productSkuMappings).values([
+      { id: "mapping-cyberbiz-001", inventoryItemId: "item-wms-001", externalSku: "CB-001" },
+      { id: "mapping-shopee-001", inventoryItemId: "item-wms-001", externalSku: "SHOPEE-001" },
+    ]);
+    const response = await request(salesBody([
+      salesRow("CB-001", 120, { grossQuantity: 2, netQuantity: 2, productName: "CYBERBIZ 名稱", category: "錯誤分類" }),
+      salesRow("shopee-001", 80, { grossQuantity: 3, netQuantity: 3, productName: "蝦皮名稱", category: "其他分類" }),
+    ]));
+    expect(response.status).toBe(200);
+
+    const rows = await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      productName: schema.reportSalesMonthly.productName,
+      category: schema.reportSalesMonthly.category,
+      grossQuantity: schema.reportSalesMonthly.grossQuantity,
+      salesAmount: schema.reportSalesMonthly.salesAmount,
+    }).from(schema.reportSalesMonthly);
+    expect(rows).toEqual([{
+      sku: "WMS-001",
+      productName: "WMS WMS-001",
+      category: "沐浴",
+      grossQuantity: 5,
+      salesAmount: 200,
+    }]);
+  });
+
+  it("未對應外部 SKU 不會把原始值寫進報表", async () => {
+    const response = await request(salesBody([salesRow("NOT-MAPPED", 100)]));
+    expect(response.status).toBe(422);
+    expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
+  });
+
+  it("bundle 的 sales mapping 失敗時仍會先保存 payout", async () => {
+    const response = await request(shopeeBundle(
+      [salesRow("NOT-MAPPED", 100)],
+      [{ businessDate: "2026-07-01", payoutAmount: 250 }],
+    ));
+    expect(response.status).toBe(422);
+    expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
+    expect(await db().select().from(schema.reportPayoutDaily)).toMatchObject([
+      { scopeId: "shopee:store:default", businessDate: "2026-07-01", payoutAmount: 250 },
+    ]);
+  });
+
+  it("公司查詢會把 CYBERBIZ 與蝦皮的相同 WMS SKU 一起加總", async () => {
+    expect((await request(salesBody([salesRow("WMS-001", 100), salesRow("WMS-001", 50)]))).status).toBe(200);
+    expect((await request(shopeeBundle([salesRow("P-001", 0, { grossQuantity: 3, netQuantity: 3 })]))).status).toBe(200);
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "company", groupBy: ["sku"],
+    });
+    expect(result).toMatchObject({ status: "ok", totals: { grossQuantity: 5, netQuantity: 5, salesAmount: 150 } });
+    expect(result.rows).toEqual([expect.objectContaining({ sku: "WMS-001", grossQuantity: 5, salesAmount: 150 })]);
   });
 });

@@ -7,6 +7,7 @@ import {
   inventoryItems,
   layoutElements,
   productCategories,
+  productSkuMappings,
   warehouseSettings,
   zoneImages,
   zones,
@@ -172,7 +173,7 @@ export async function loadWarehouse(db: Database) {
     .from(warehouseSettings)
     .where(eq(warehouseSettings.id, SETTINGS_ID));
 
-  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, mappingRows] = await Promise.all([
     db.select().from(zones).orderBy(asc(zones.code)),
     db.select().from(layoutElements).orderBy(asc(layoutElements.label)),
     db.select().from(productCategories).orderBy(asc(productCategories.name)),
@@ -186,10 +187,17 @@ export async function loadWarehouse(db: Database) {
      * 踩過一次（quantity 拿到 minStock 的值）。分開查再自己配對，沒有那個問題。
      */
     db.select().from(cyberbizProductLinks),
+    db.select().from(productSkuMappings).orderBy(asc(productSkuMappings.externalSku)),
   ]);
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
   const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
+  const mappingsByItem = new Map<string, Array<{ id: string; externalSku: string }>>();
+  for (const mapping of mappingRows) {
+    const values = mappingsByItem.get(mapping.inventoryItemId) ?? [];
+    values.push({ id: mapping.id, externalSku: mapping.externalSku });
+    mappingsByItem.set(mapping.inventoryItemId, values);
+  }
 
   return {
     // 設定那一列可能還沒建（全新的資料庫），給預設值而不是回 null。
@@ -208,6 +216,7 @@ export async function loadWarehouse(db: Database) {
       const link = linksByItem.get(item.id);
       return {
         ...item,
+        externalSkus: mappingsByItem.get(item.id) ?? [],
         cyberbiz: link
           ? {
               cyberbizProductId: link.cyberbizProductId,
@@ -427,6 +436,19 @@ async function requireCategory(db: Database, name: string) {
   if (!row) throw new WmsError("invalid", "請選一個已經建立的商品分類。");
 }
 
+/** 外部 SKU 會拿來對應商品，不能讓另一個商品的正式 WMS SKU 佔用同一個值。 */
+async function requireSkuAvailableForExternalMappings(db: Database, sku: string | null, inventoryItemId?: string) {
+  if (!sku) return;
+  const [mapping] = await db
+    .select({ inventoryItemId: productSkuMappings.inventoryItemId })
+    .from(productSkuMappings)
+    .where(eq(productSkuMappings.externalSku, sku))
+    .limit(1);
+  if (mapping && mapping.inventoryItemId !== inventoryItemId) {
+    throw new WmsError("conflict", `WMS SKU「${sku}」已被其他商品的外部 SKU 對應使用。`);
+  }
+}
+
 export async function createItem(db: Database, input: ItemInput & { actor: Actor }) {
   const name = input.name.trim();
   const category = input.category.trim();
@@ -449,6 +471,7 @@ export async function createItem(db: Database, input: ItemInput & { actor: Actor
     shelfLevel: placement.shelfLevel,
     notes: input.notes?.trim() || "",
   };
+  await requireSkuAvailableForExternalMappings(db, sku);
 
   await db.batch([
     db.insert(inventoryItems).values(item),
@@ -523,6 +546,18 @@ export async function updateItem(
     shelfLevel: placement.shelfLevel,
     notes: input.notes === undefined ? current.notes : input.notes.trim(),
   };
+
+  if (input.sku !== undefined && !next.sku) {
+    const [mapping] = await db
+      .select({ id: productSkuMappings.id })
+      .from(productSkuMappings)
+      .where(eq(productSkuMappings.inventoryItemId, id))
+      .limit(1);
+    if (mapping) {
+      throw new WmsError("conflict", "這項商品還有外部 SKU 對應，不能清空 WMS SKU，請先移除對應。");
+    }
+  }
+  await requireSkuAvailableForExternalMappings(db, next.sku, id);
 
   const moved = next.zoneId !== current.zoneId || next.shelfLevel !== current.shelfLevel;
 
