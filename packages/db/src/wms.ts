@@ -174,7 +174,7 @@ export async function loadWarehouse(db: Database) {
     .from(warehouseSettings)
     .where(eq(warehouseSettings.id, SETTINGS_ID));
 
-  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, mappingRows, componentRows] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows] = await Promise.all([
     db.select().from(zones).orderBy(asc(zones.code)),
     db.select().from(layoutElements).orderBy(asc(layoutElements.label)),
     db.select().from(productCategories).orderBy(asc(productCategories.name)),
@@ -188,39 +188,10 @@ export async function loadWarehouse(db: Database) {
      * 踩過一次（quantity 拿到 minStock 的值）。分開查再自己配對，沒有那個問題。
      */
     db.select().from(cyberbizProductLinks),
-    db.select().from(productSkuMappings).orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku)),
-    db.select({ mappingId: productBundleComponents.mappingId, inventoryItemId: productBundleComponents.inventoryItemId })
-      .from(productBundleComponents),
   ]);
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
   const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
-  /*
-   * owned 分辨「這筆 mapping 是本商品的」與「本商品只是它的用料」。
-   *
-   * 兩者都要顯示（刪除保護會擋用料，使用者得看得到是哪一筆擋住），但只有前者可以在
-   * 商品表單上移除——刪掉一筆組合 mapping 會連帶清掉其他用料，那不該由用料商品觸發。
-   */
-  const mappingsByItem = new Map<string, Array<{ id: string; channel: string; externalSku: string; owned: boolean }>>();
-  const mappingsById = new Map(mappingRows.map((mapping) => [mapping.id, mapping]));
-  const addMappingToItem = (itemId: string, mapping: (typeof mappingRows)[number], owned: boolean) => {
-    const values = mappingsByItem.get(itemId) ?? [];
-    const existing = values.find((value) => value.id === mapping.id);
-    if (existing) {
-      existing.owned ||= owned;
-    } else {
-      values.push({ id: mapping.id, channel: mapping.channel, externalSku: mapping.externalSku, owned });
-    }
-    mappingsByItem.set(itemId, values);
-  };
-  for (const mapping of mappingRows) {
-    addMappingToItem(mapping.inventoryItemId, mapping, true);
-  }
-  for (const component of componentRows) {
-    const mapping = mappingsById.get(component.mappingId);
-    if (mapping) addMappingToItem(component.inventoryItemId, mapping, mapping.inventoryItemId === component.inventoryItemId);
-  }
-
   return {
     // 設定那一列可能還沒建（全新的資料庫），給預設值而不是回 null。
     settings: {
@@ -238,7 +209,6 @@ export async function loadWarehouse(db: Database) {
       const link = linksByItem.get(item.id);
       return {
         ...item,
-        externalSkus: mappingsByItem.get(item.id) ?? [],
         cyberbiz: link
           ? {
               cyberbizProductId: link.cyberbizProductId,

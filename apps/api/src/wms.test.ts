@@ -301,10 +301,8 @@ describe("外部 SKU 對應", () => {
       externalSku: "SHOPEE-001",
     }]);
     const warehouse = await as(id, "admin@ecotech.tw", "/api/wms/warehouse");
-    const warehousePayload = await warehouse.json() as { items: Array<{ externalSkus: unknown }> };
-    expect(warehousePayload.items[0]?.externalSkus).toEqual([
-      expect.objectContaining({ externalSku: "SHOPEE-001" }),
-    ]);
+    const warehousePayload = await warehouse.json() as { items: Array<Record<string, unknown>> };
+    expect(warehousePayload.items[0]).not.toHaveProperty("externalSkus");
   });
 
   it("不同通路可以使用相同外部 SKU", async () => {
@@ -416,14 +414,9 @@ describe("外部 SKU 對應", () => {
     const mapping = await created.json() as { id: string };
 
     const warehouse = await as(id, "admin@ecotech.tw", "/api/wms/warehouse");
-    const warehousePayload = await warehouse.json() as { items: Array<{ id: string; externalSkus: Array<{ id: string }> }> };
-    // i2 只是用料，不是這筆 mapping 的主商品：看得到，但商品表單不給移除。
-    expect(warehousePayload.items.find((item) => item.id === "i2")?.externalSkus).toEqual([
-      { id: mapping.id, channel: "shopee", externalSku: "BUNDLE-001", owned: false },
-    ]);
-    expect(warehousePayload.items.find((item) => item.id === "i1")?.externalSkus).toEqual([
-      { id: mapping.id, channel: "shopee", externalSku: "BUNDLE-001", owned: true },
-    ]);
+    const warehousePayload = await warehouse.json() as { items: Array<Record<string, unknown> & { id: string }> };
+    expect(warehousePayload.items.find((item) => item.id === "i1")).not.toHaveProperty("externalSkus");
+    expect(warehousePayload.items.find((item) => item.id === "i2")).not.toHaveProperty("externalSkus");
     const updated = await as(id, "admin@ecotech.tw", `/api/wms/product-sku-mappings/${mapping.id}`, {
       method: "PATCH",
       body: JSON.stringify({

@@ -56,8 +56,6 @@ export interface InventoryItem {
   shelfLevel: string | null;
   notes: string;
   updatedAt: string;
-  // owned=false 代表本商品只是這筆組合對應的用料，不是它的主商品：可以看，不能從這裡移除。
-  externalSkus: Array<{ id: string; channel: string; externalSku: string; owned: boolean }>;
   /** 連到 CYBERBIZ 的哪一個款式。地圖與庫存頁都要看得出來。 */
   cyberbiz: CyberbizLink | null;
 }
@@ -239,13 +237,6 @@ export function useUpdateItem() {
 
 export function useDeleteItem() {
   return useWarehouseMutation((id: string) => write<{ ok: true }>(`/api/wms/items/${id}`, "DELETE"));
-}
-
-export function useAddProductSkuMapping() {
-  return useWarehouseMutation(
-    ({ id, channel, externalSku }: { id: string; channel?: string; externalSku: string }) =>
-      write<{ id: string; channel: string; externalSku: string }>(`/api/wms/items/${id}/product-sku-mappings`, "POST", { channel, externalSku }),
-  );
 }
 
 export function useCreateProductSkuMapping() {
