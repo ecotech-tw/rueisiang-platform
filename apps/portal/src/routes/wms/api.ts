@@ -255,6 +255,22 @@ export function useCreateProductSkuMapping() {
   );
 }
 
+export function useUpdateProductSkuMapping() {
+  return useWarehouseMutation(
+    ({ mappingId, inventoryItemId, channel, externalSku, components }: {
+      mappingId: string;
+      inventoryItemId: string;
+      channel?: string;
+      externalSku: string;
+      components?: Array<{ inventoryItemId: string; quantity: number }>;
+    }) => write<{ id: string; channel: string; externalSku: string; components: Array<{ inventoryItemId: string; quantity: number }> }>(
+      `/api/wms/product-sku-mappings/${mappingId}`,
+      "PATCH",
+      { inventoryItemId, channel, externalSku, components },
+    ),
+  );
+}
+
 export function useDeleteProductSkuMapping() {
   return useWarehouseMutation(
     ({ itemId, mappingId }: { itemId: string; mappingId: string }) =>

@@ -89,6 +89,7 @@ export {
   normalizeExternalSku,
   normalizeProductSkuChannel,
   resolveProductSkus,
+  updateProductSkuMapping,
   type ProductBundleComponentInput,
   type ProductBundleComponentManagementRow,
   type ProductSkuMappingItemOption,

@@ -747,7 +747,11 @@
 
 .admin-form.row { margin-top: 16px; }
 .panel-head + .admin-form.row { margin-top: 0; }
-.sku-mapping-form { align-items: flex-end; }
+.sku-mapping-form { display: grid; gap: 16px; align-items: stretch; }
+.sku-mapping-form > .field,
+.sku-mapping-form > .field-grid,
+.sku-mapping-form > .sku-mapping-components { min-width: 0; }
+.sku-mapping-dialog { width: min(680px, 100%); }
 .sku-mapping-components {
   flex: 1 1 100%;
   display: grid;

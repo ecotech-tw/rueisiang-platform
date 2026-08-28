@@ -34,6 +34,7 @@ import {
   updateCategory,
   updateItem,
   updateLayoutElement,
+  updateProductSkuMapping,
   updateWarehouseSettings,
   updateZone,
 } from "@rueisiang/db";
@@ -288,6 +289,20 @@ export const wms = new Hono<AppEnv>()
       actor: { id: user.id, email: user.email },
     });
     return c.json(result, 201);
+  })
+
+  .patch("/product-sku-mappings/:mappingId", requirePermission("wms:inventory:write"), async (c) => {
+    const input = await body(c);
+    const user = c.get("user");
+    const result = await updateProductSkuMapping(c.get("db"), {
+      id: c.req.param("mappingId"),
+      inventoryItemId: requireString(input, "inventoryItemId", "WMS 商品"),
+      channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
+      externalSku: requireString(input, "externalSku", "外部 SKU"),
+      components: bundleComponents(input),
+      actor: { id: user.id, email: user.email },
+    });
+    return c.json(result);
   })
 
   /** 新增一個外部通路 SKU 對應到 WMS 商品。 */
