@@ -25,7 +25,7 @@ const REPORT_CONFIG = {
   },
 };
 
-const MARK = { ok: "✓", fail: "✗", skip: "—", pending: "…" };
+const MARK = { ok: "✓", fail: "✗", partial: "△", skip: "—", pending: "…" };
 
 /** Markdown 表格的儲存格不能直接帶換行、管線或終端 ANSI 控制碼。 */
 function markdownCell(value) {
@@ -45,6 +45,16 @@ function stepLine(result, steps) {
   return Object.keys(steps)
     .map((key) => `${steps[key]}${MARK[result.steps[key] ?? "pending"]}`)
     .join(" ");
+}
+
+function resultMark(result) {
+  if (result.status === "partial") return MARK.partial;
+  return result.done ? MARK.ok : MARK.fail;
+}
+
+function resultLabel(result) {
+  if (result.status === "partial") return "部分完成";
+  return result.done ? "完成" : "未完成";
 }
 
 function formatTotal(value, kind) {
@@ -68,7 +78,7 @@ export function terminalSummary(run, { kind = "payout" } = {}) {
     "─".repeat(60),
   ];
   for (const result of run.stores) {
-    lines.push(`${result.done ? "✓" : "✗"} ${result.store}`);
+    lines.push(`${resultMark(result)} ${result.store}`);
     lines.push(`    ${stepLine(result, config.steps)}`);
     if (result.total != null) {
       lines.push(`    ${config.totalHeader}：${formatTotal(result.total, kind)}`);
@@ -98,7 +108,7 @@ export async function writeMarkdown(run, reportsDir, { kind = "payout" } = {}) {
       ? `\`${result.error.code}\` ${result.error.message}`
       : (result.note ?? "");
     const total = formatTotal(result.total, kind);
-    return `| ${markdownCell(result.store)} | ${result.done ? "完成" : "未完成"} | ${markdownCell(status)} | ${markdownCell(total)} | ${markdownCell(link)} | ${markdownCell(note)} |`;
+    return `| ${markdownCell(result.store)} | ${resultLabel(result)} | ${markdownCell(status)} | ${markdownCell(total)} | ${markdownCell(link)} | ${markdownCell(note)} |`;
   });
 
   const content = [

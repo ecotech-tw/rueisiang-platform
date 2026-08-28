@@ -20,6 +20,12 @@ export function normalizeProductSkuChannel(value: string): string {
   return value.trim().toLowerCase();
 }
 
+/** 蝦皮新報表會把規格 ID 接在商品 ID 後；舊 mapping 仍可能只有商品 ID。 */
+function legacyShopeeExternalSku(value: string): string {
+  const separator = value.indexOf("_");
+  return separator > 0 ? value.slice(0, separator) : "";
+}
+
 export interface ProductSkuMappingRow {
   id: string;
   inventoryItemId: string;
@@ -256,11 +262,7 @@ export async function addProductSkuMapping(
   if (!externalName) throw new WmsError("invalid", "通路商品名稱不可為空。 ");
 
   const [existing] = await db
-    .select({
-      id: productSkuMappings.id,
-      inventoryItemId: productSkuMappings.inventoryItemId,
-      externalName: productSkuMappings.externalName,
-    })
+    .select({ id: productSkuMappings.id })
     .from(productSkuMappings)
     .where(and(
       eq(productSkuMappings.channel, channel),
@@ -268,20 +270,7 @@ export async function addProductSkuMapping(
     ))
     .limit(1);
   if (existing) {
-    if (existing.inventoryItemId === inventoryItemId) {
-      const existingComponents = await db
-        .select({ inventoryItemId: productBundleComponents.inventoryItemId, quantity: productBundleComponents.quantity })
-        .from(productBundleComponents)
-        .where(eq(productBundleComponents.mappingId, existing.id));
-      return {
-        id: existing.id,
-        channel,
-        externalName: existing.externalName || externalName,
-        externalSku,
-        components: existingComponents,
-      };
-    }
-    throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經對應到其他商品。 `);
+    throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經存在，請改用編輯功能。 `);
   }
 
   const id = crypto.randomUUID();
@@ -489,6 +478,10 @@ export async function resolveProductSkus(
   const wanted = [...new Set(externalSkus.map(normalizeExternalSku).filter(Boolean))];
   if (!wanted.length) return new Map();
   const normalizedChannel = normalizeProductSkuChannel(channel) || "legacy";
+  const lookupWanted = [...new Set([
+    ...wanted,
+    ...(normalizedChannel === "shopee" ? wanted.map(legacyShopeeExternalSku).filter(Boolean) : []),
+  ])];
   const lookupChannels = [...new Set([normalizedChannel, "legacy"])] as string[];
 
   type MappingLookup = {
@@ -510,8 +503,8 @@ export async function resolveProductSkus(
   const directItems: DirectItemLookup[] = [];
 
   // D1 單支 SQL 的 bound parameter 有上限；報表可能有數百個 SKU，不能一次塞完整份 IN。
-  for (let offset = 0; offset < wanted.length; offset += SKU_LOOKUP_BATCH_SIZE) {
-    const batch = wanted.slice(offset, offset + SKU_LOOKUP_BATCH_SIZE);
+  for (let offset = 0; offset < lookupWanted.length; offset += SKU_LOOKUP_BATCH_SIZE) {
+    const batch = lookupWanted.slice(offset, offset + SKU_LOOKUP_BATCH_SIZE);
     const [batchMappings, batchDirectItems] = await Promise.all([
       db
         .select({
@@ -595,6 +588,14 @@ export async function resolveProductSkus(
       components: componentsByMapping.get(mapping.id) ?? [],
     });
     resolvedChannels.set(key, mapping.channel);
+  }
+  if (normalizedChannel === "shopee") {
+    for (const key of wanted) {
+      if (resolved.has(key)) continue;
+      const legacyKey = legacyShopeeExternalSku(key);
+      const fallback = legacyKey ? resolved.get(legacyKey) : undefined;
+      if (fallback) resolved.set(key, fallback);
+    }
   }
   return resolved;
 }

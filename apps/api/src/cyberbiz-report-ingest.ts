@@ -172,9 +172,8 @@ async function normalizeSalesRows(
   }
 
   // 先 mapping 再加總：多個通路 SKU 可能對應同一個 WMS SKU，不能在外部 SKU 階段結束加總。
-  // 蝦皮的商品 ID 可能是一組組合包；有 components 時，報表數量要展開到實際 WMS SKU。
-  // 蝦皮 salesAmount 本來就是 0，組合包若有金額也不能複製到每個元件，因此展開列的金額固定為 0。
-  const expandBundle = normalizeProductSkuChannel(channel) === "shopee";
+  // 只要有 components 就展開到實際 WMS SKU；組合包的銷售額只放在第一個用料，避免重複
+  // 加總但仍保留整筆 CYBERBIZ 金額。蝦皮 salesAmount 本來就是 0，所以不會產生商品金額。
   const rows = new Map<string, {
     scopeId: string;
     reportMonth: string;
@@ -189,9 +188,19 @@ async function normalizeSalesRows(
   }>();
   for (const row of parsed) {
     const item = resolved.get(row.externalSku)!;
-    const targets = expandBundle && item.components.length
-      ? item.components.map((component) => ({ ...component, multiplier: component.quantity }))
-      : [{ ...item, multiplier: 1 }];
+    const targets = item.components.length
+      ? item.components.map((component, index) => ({
+        ...component,
+        multiplier: component.quantity,
+        allocatedSalesAmount: index === 0 ? row.salesAmount : 0,
+      }))
+      : [{
+        sku: item.sku,
+        name: item.name,
+        category: item.category,
+        multiplier: 1,
+        allocatedSalesAmount: row.salesAmount,
+      }];
     for (const target of targets) {
       const key = `${row.reportMonth}\u0000${target.sku}`;
       const previous = rows.get(key);
@@ -204,7 +213,7 @@ async function normalizeSalesRows(
         grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity * target.multiplier,
         returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity * target.multiplier,
         netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity * target.multiplier,
-        salesAmount: (previous?.salesAmount ?? 0) + (expandBundle && item.components.length ? 0 : row.salesAmount),
+        salesAmount: (previous?.salesAmount ?? 0) + target.allocatedSalesAmount,
         updatedAt: new Date().toISOString(),
       });
     }
@@ -255,10 +264,13 @@ export function createCyberbizReportIngestor(db: Database) {
       });
       const scopedInput = { ...input, scopeId: scope.id };
       if (input.kind === "sales_and_payout") {
+        const salesInput = { ...scopedInput, rows: input.salesRows ?? [] };
+        // 先驗證 sales 的資料格式，再寫入 payout；只有 mapping 不存在時才保留「先存 payout」的行為。
+        parseSalesRows(salesInput);
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
         // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
         await insertReportPayoutDaily(db, payout);
-        const sales = await normalizeSalesRows(db, { ...scopedInput, rows: input.salesRows ?? [] }, sourceChannel);
+        const sales = await normalizeSalesRows(db, salesInput, sourceChannel);
         await insertReportSalesMonthly(db, sales, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);

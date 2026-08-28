@@ -393,6 +393,39 @@ describe("外部 SKU 對應", () => {
       ]));
   });
 
+  it("相同通路與外部 SKU 重複新增時會拒絕並保留原用料", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "SOAP-001", name: "香皂", category: "沐浴" },
+      { id: "i2", sku: "NET-001", name: "起泡網", category: "沐浴" },
+    ]);
+
+    const first = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        channel: "shopee",
+        externalName: "第一個組合",
+        externalSku: "PRODUCT-001",
+        components: [{ inventoryItemId: "i1", quantity: 2 }],
+      }),
+    });
+    expect(first.status).toBe(201);
+
+    const duplicate = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        channel: "shopee",
+        externalName: "被忽略的組合",
+        externalSku: "product-001",
+        components: [{ inventoryItemId: "i2", quantity: 1 }],
+      }),
+    });
+    expect(duplicate.status).toBe(409);
+    expect(await db.select().from(productBundleComponents)).toEqual([
+      expect.objectContaining({ inventoryItemId: "i1", quantity: 2 }),
+    ]);
+  });
+
   it("通路商品名稱與組合用料不可留空", async () => {
     const id = await seedAdmin();
     await db.insert(inventoryItems).values({
@@ -545,6 +578,50 @@ describe("外部 SKU 對應", () => {
     });
     expect(response.status).toBe(409);
     expect((await db.select().from(inventoryItems))[0]?.sku).toBe("WMS-001");
+  });
+
+  it("組合用料也不可清空 WMS SKU", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "BUNDLE-001", name: "組合商品", category: "一般備品" },
+      { id: "i2", sku: "SOAP-001", name: "香皂", category: "一般備品" },
+    ]);
+    await db.insert(productSkuMappings).values({
+      id: "mapping-bundle", inventoryItemId: "i1", channel: "shopee", externalSku: "BUNDLE-001",
+    });
+    await db.insert(productBundleComponents).values([
+      { mappingId: "mapping-bundle", inventoryItemId: "i1", quantity: 1 },
+      { mappingId: "mapping-bundle", inventoryItemId: "i2", quantity: 1 },
+    ]);
+
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/items/i2", {
+      method: "PATCH", body: JSON.stringify({ sku: "" }),
+    });
+    expect(response.status).toBe(409);
+    expect((await db.select().from(inventoryItems)).find((item) => item.id === "i2")?.sku).toBe("SOAP-001");
+  });
+
+  it("一對一 mapping 的主商品仍可刪除，但組合用料不可直接刪除", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "BUNDLE-001", name: "組合商品", category: "一般備品" },
+      { id: "i2", sku: "SOAP-001", name: "香皂", category: "一般備品" },
+    ]);
+    await db.insert(productSkuMappings).values({
+      id: "mapping-bundle", inventoryItemId: "i1", channel: "shopee", externalSku: "BUNDLE-001",
+    });
+    await db.insert(productBundleComponents).values([
+      { mappingId: "mapping-bundle", inventoryItemId: "i1", quantity: 1 },
+      { mappingId: "mapping-bundle", inventoryItemId: "i2", quantity: 1 },
+    ]);
+
+    const componentDelete = await as(id, "admin@ecotech.tw", "/api/wms/items/i2", { method: "DELETE" });
+    expect(componentDelete.status).toBe(409);
+
+    const ownerDelete = await as(id, "admin@ecotech.tw", "/api/wms/items/i1", { method: "DELETE" });
+    expect(ownerDelete.status).toBe(200);
+    expect(await db.select().from(productSkuMappings)).toEqual([]);
+    expect(await db.select().from(productBundleComponents)).toEqual([]);
   });
 });
 

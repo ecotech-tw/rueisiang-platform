@@ -99,10 +99,10 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 [`docs/shopee-inventory-sync-design.md`](./docs/shopee-inventory-sync-design.md)，
 它依賴上面那項的授權與 token 續期先做完。
 
-- [ ] 把蝦皮的外部 SKU 統一成「商品ID_規格ID」：改 `xlsx.mjs` 的 `salesDaily` 鍵、換掉
-      既有的 `product_sku_mappings` 對應、重匯受影響的月份。報表與扣庫存不能兩種粒度並存。
-- [ ] 新增組合包用料表：13 個組合包一組要扣多個不同品項，`product_sku_mappings` 不改成
-      一對多（改了報表會壞）。含 WMS 的編輯 UI。
+- [x] 把蝦皮的外部 SKU 統一成「商品ID_規格ID」；既有只有商品 ID 的 mapping 仍會在找不到
+      精確規格 mapping 時 fallback，避免既有報表因格式更新而無法匯入。
+- [x] 新增組合包用料表：一筆通路商品 mapping 可對應多個 WMS 用料，含 WMS 的編輯 UI，
+      報表匯入時會依用料數量展開。
 - [ ] 決定在哪個訂單狀態扣帳，以及上線前的既有訂單要不要回補。
 - [ ] 訂閱 push code 3、驗簽、對應到 `product_sku_mappings` 後扣帳，含冪等與退貨加回。
 

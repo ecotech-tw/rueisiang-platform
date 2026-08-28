@@ -1,4 +1,4 @@
-import { asc, count, eq, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
@@ -548,12 +548,16 @@ export async function updateItem(
   };
 
   if (input.sku !== undefined && !next.sku) {
-    const [mapping] = await db
+    const [mappingUse] = await db
       .select({ id: productSkuMappings.id })
       .from(productSkuMappings)
-      .where(eq(productSkuMappings.inventoryItemId, id))
+      .leftJoin(productBundleComponents, eq(productBundleComponents.mappingId, productSkuMappings.id))
+      .where(or(
+        eq(productSkuMappings.inventoryItemId, id),
+        eq(productBundleComponents.inventoryItemId, id),
+      ))
       .limit(1);
-    if (mapping) {
+    if (mappingUse) {
       throw new WmsError("conflict", "這項商品還有外部 SKU 對應，不能清空 WMS SKU，請先移除對應。");
     }
   }
@@ -585,13 +589,27 @@ export async function deleteItem(db: Database, id: string, actor: Actor) {
   const [componentUse] = await db
     .select({ mappingId: productBundleComponents.mappingId })
     .from(productBundleComponents)
-    .where(eq(productBundleComponents.inventoryItemId, id))
+    .innerJoin(productSkuMappings, eq(productSkuMappings.id, productBundleComponents.mappingId))
+    .where(and(
+      eq(productBundleComponents.inventoryItemId, id),
+      ne(productSkuMappings.inventoryItemId, id),
+    ))
     .limit(1);
   if (componentUse) {
     throw new WmsError("conflict", "這項商品仍是組合商品用料，請先移除組合對應再刪除。");
   }
 
+  const ownedMappings = await db
+    .select({ id: productSkuMappings.id })
+    .from(productSkuMappings)
+    .where(eq(productSkuMappings.inventoryItemId, id));
+  const ownedMappingIds = ownedMappings.map((mapping) => mapping.id);
+
   await db.batch([
+    db.delete(productBundleComponents).where(
+      ownedMappingIds.length ? inArray(productBundleComponents.mappingId, ownedMappingIds) : sql`0`,
+    ),
+    db.delete(productSkuMappings).where(eq(productSkuMappings.inventoryItemId, id)),
     db.delete(inventoryItems).where(eq(inventoryItems.id, id)),
     writeEvent(db, {
       entityType: "inventory_item",

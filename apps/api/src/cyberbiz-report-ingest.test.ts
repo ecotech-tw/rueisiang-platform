@@ -193,6 +193,57 @@ describe("報表月資料匯入", () => {
     ]);
   });
 
+  it("蝦皮新規格 SKU 會沿用舊商品 ID mapping", async () => {
+    const response = await request(shopeeBundle([
+      salesRow("P-001_M-001", 0, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      grossQuantity: schema.reportSalesMonthly.grossQuantity,
+      netQuantity: schema.reportSalesMonthly.netQuantity,
+    }).from(schema.reportSalesMonthly)).toEqual([{
+      sku: "WMS-001",
+      grossQuantity: 3,
+      netQuantity: 2,
+    }]);
+  });
+
+  it("任一通路的組合商品都會展開，且銷售額不會重複計算", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-cyberbiz-bundle",
+      inventoryItemId: "item-sku-1",
+      channel: "cyberbiz",
+      externalSku: "BUNDLE-001",
+    });
+    await db().insert(schema.productBundleComponents).values([
+      { mappingId: "mapping-cyberbiz-bundle", inventoryItemId: "item-sku-1", quantity: 2 },
+      { mappingId: "mapping-cyberbiz-bundle", inventoryItemId: "item-sku-2", quantity: 1 },
+    ]);
+
+    const response = await request(salesBody([
+      salesRow("BUNDLE-001", 100, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      grossQuantity: schema.reportSalesMonthly.grossQuantity,
+      netQuantity: schema.reportSalesMonthly.netQuantity,
+      salesAmount: schema.reportSalesMonthly.salesAmount,
+    }).from(schema.reportSalesMonthly).orderBy(schema.reportSalesMonthly.sku)).toEqual([
+      { sku: "SKU-1", grossQuantity: 6, netQuantity: 4, salesAmount: 100 },
+      { sku: "SKU-2", grossQuantity: 3, netQuantity: 2, salesAmount: 0 },
+    ]);
+  });
+
+  it("sales 格式錯誤時不會先留下 payout", async () => {
+    const response = await request(shopeeBundle([
+      { ...salesRow("P-001", 0), businessDate: "2026-07-01" },
+    ], [{ businessDate: "2026-07-01", payoutAmount: 250 }]));
+    expect(response.status).toBe(422);
+    expect(await db().select().from(schema.reportPayoutDaily)).toEqual([]);
+  });
+
   it("蝦皮 bundle 重新匯入零筆月份會清掉既有商品資料", async () => {
     expect((await request(shopeeBundle([salesRow("P-001", 0)]))).status).toBe(200);
     expect((await request(shopeeBundle([]))).status).toBe(200);

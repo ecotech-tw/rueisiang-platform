@@ -166,7 +166,7 @@ export function SkuMappingDialog({
             </Button>
           </div>
           {components.map((component, index) => (
-            <div className="sku-mapping-component-row" key={`${index}-${component.inventoryItemId}`}>
+            <div className="sku-mapping-component-row" key={index}>
               <SelectField
                 label={`用料 ${index + 1}`}
                 value={component.inventoryItemId}
