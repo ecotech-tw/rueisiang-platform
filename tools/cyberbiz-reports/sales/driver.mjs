@@ -143,7 +143,7 @@ async function main() {
     }
 
     for (const store of wanted) {
-      const result = { store: store.name, steps: {}, done: false };
+      const result = { store: store.name, steps: {}, done: false, status: "running" };
       run.stores.push(result);
       try {
         const storeBase = await resolveStore(page, { origin: config.cyberbizOrigin, storeName: store.name });
@@ -206,11 +206,14 @@ async function main() {
         }
         if (document?.skippedRows?.length) {
           result.error = partialReportError(document);
+          result.status = "partial";
           result.done = false;
         } else {
+          result.status = "done";
           result.done = true;
         }
       } catch (error) {
+        result.status = "failed";
         const step = ["export", "fetch", "verify", "upload", "ingest"].find((key) => !result.steps[key]);
         if (step) result.steps[step] = "fail";
         result.error = { code: error.code ?? "UNEXPECTED_ERROR", message: redact(error.message, env) };

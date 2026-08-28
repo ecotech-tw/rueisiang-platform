@@ -1,4 +1,4 @@
-import { asc, count, eq, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
@@ -6,6 +6,7 @@ import {
   cyberbizProductLinks,
   inventoryItems,
   layoutElements,
+  productBundleComponents,
   productCategories,
   productSkuMappings,
   warehouseSettings,
@@ -173,7 +174,7 @@ export async function loadWarehouse(db: Database) {
     .from(warehouseSettings)
     .where(eq(warehouseSettings.id, SETTINGS_ID));
 
-  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, mappingRows] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, mappingRows, componentRows] = await Promise.all([
     db.select().from(zones).orderBy(asc(zones.code)),
     db.select().from(layoutElements).orderBy(asc(layoutElements.label)),
     db.select().from(productCategories).orderBy(asc(productCategories.name)),
@@ -187,16 +188,37 @@ export async function loadWarehouse(db: Database) {
      * 踩過一次（quantity 拿到 minStock 的值）。分開查再自己配對，沒有那個問題。
      */
     db.select().from(cyberbizProductLinks),
-    db.select().from(productSkuMappings).orderBy(asc(productSkuMappings.externalSku)),
+    db.select().from(productSkuMappings).orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku)),
+    db.select({ mappingId: productBundleComponents.mappingId, inventoryItemId: productBundleComponents.inventoryItemId })
+      .from(productBundleComponents),
   ]);
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
   const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
-  const mappingsByItem = new Map<string, Array<{ id: string; externalSku: string }>>();
+  /*
+   * owned 分辨「這筆 mapping 是本商品的」與「本商品只是它的用料」。
+   *
+   * 兩者都要顯示（刪除保護會擋用料，使用者得看得到是哪一筆擋住），但只有前者可以在
+   * 商品表單上移除——刪掉一筆組合 mapping 會連帶清掉其他用料，那不該由用料商品觸發。
+   */
+  const mappingsByItem = new Map<string, Array<{ id: string; channel: string; externalSku: string; owned: boolean }>>();
+  const mappingsById = new Map(mappingRows.map((mapping) => [mapping.id, mapping]));
+  const addMappingToItem = (itemId: string, mapping: (typeof mappingRows)[number], owned: boolean) => {
+    const values = mappingsByItem.get(itemId) ?? [];
+    const existing = values.find((value) => value.id === mapping.id);
+    if (existing) {
+      existing.owned ||= owned;
+    } else {
+      values.push({ id: mapping.id, channel: mapping.channel, externalSku: mapping.externalSku, owned });
+    }
+    mappingsByItem.set(itemId, values);
+  };
   for (const mapping of mappingRows) {
-    const values = mappingsByItem.get(mapping.inventoryItemId) ?? [];
-    values.push({ id: mapping.id, externalSku: mapping.externalSku });
-    mappingsByItem.set(mapping.inventoryItemId, values);
+    addMappingToItem(mapping.inventoryItemId, mapping, true);
+  }
+  for (const component of componentRows) {
+    const mapping = mappingsById.get(component.mappingId);
+    if (mapping) addMappingToItem(component.inventoryItemId, mapping, mapping.inventoryItemId === component.inventoryItemId);
   }
 
   return {
@@ -439,12 +461,11 @@ async function requireCategory(db: Database, name: string) {
 /** 外部 SKU 會拿來對應商品，不能讓另一個商品的正式 WMS SKU 佔用同一個值。 */
 async function requireSkuAvailableForExternalMappings(db: Database, sku: string | null, inventoryItemId?: string) {
   if (!sku) return;
-  const [mapping] = await db
+  const mappings = await db
     .select({ inventoryItemId: productSkuMappings.inventoryItemId })
     .from(productSkuMappings)
-    .where(eq(productSkuMappings.externalSku, sku))
-    .limit(1);
-  if (mapping && mapping.inventoryItemId !== inventoryItemId) {
+    .where(eq(productSkuMappings.externalSku, sku));
+  if (mappings.some((mapping) => mapping.inventoryItemId !== inventoryItemId)) {
     throw new WmsError("conflict", `WMS SKU「${sku}」已被其他商品的外部 SKU 對應使用。`);
   }
 }
@@ -548,16 +569,29 @@ export async function updateItem(
   };
 
   if (input.sku !== undefined && !next.sku) {
-    const [mapping] = await db
+    const [mappingUse] = await db
       .select({ id: productSkuMappings.id })
       .from(productSkuMappings)
-      .where(eq(productSkuMappings.inventoryItemId, id))
+      .leftJoin(productBundleComponents, eq(productBundleComponents.mappingId, productSkuMappings.id))
+      .where(or(
+        eq(productSkuMappings.inventoryItemId, id),
+        eq(productBundleComponents.inventoryItemId, id),
+      ))
       .limit(1);
-    if (mapping) {
+    if (mappingUse) {
       throw new WmsError("conflict", "這項商品還有外部 SKU 對應，不能清空 WMS SKU，請先移除對應。");
     }
   }
-  await requireSkuAvailableForExternalMappings(db, next.sku, id);
+  /*
+   * 只在 SKU 真的變動時才檢查佔用。
+   *
+   * 無條件跑的話，0054 回填（external_sku 取自 cyberbiz_product_links.sku）製造出
+   * 「別人的 mapping 外部 SKU 剛好等於本商品 WMS SKU」的舊資料時，這個商品的每一次
+   * PATCH——改備註、移倉位——都會 409，而且從商品表單沒有任何辦法修好。
+   */
+  if (next.sku !== current.sku) {
+    await requireSkuAvailableForExternalMappings(db, next.sku, id);
+  }
 
   const moved = next.zoneId !== current.zoneId || next.shelfLevel !== current.shelfLevel;
 
@@ -582,8 +616,30 @@ export async function updateItem(
 export async function deleteItem(db: Database, id: string, actor: Actor) {
   const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
   if (!item) throw new WmsError("not_found", "找不到這項商品。");
+  const [componentUse] = await db
+    .select({ mappingId: productBundleComponents.mappingId })
+    .from(productBundleComponents)
+    .innerJoin(productSkuMappings, eq(productSkuMappings.id, productBundleComponents.mappingId))
+    .where(and(
+      eq(productBundleComponents.inventoryItemId, id),
+      ne(productSkuMappings.inventoryItemId, id),
+    ))
+    .limit(1);
+  if (componentUse) {
+    throw new WmsError("conflict", "這項商品仍是組合商品用料，請先移除組合對應再刪除。");
+  }
+
+  const ownedMappings = await db
+    .select({ id: productSkuMappings.id })
+    .from(productSkuMappings)
+    .where(eq(productSkuMappings.inventoryItemId, id));
+  const ownedMappingIds = ownedMappings.map((mapping) => mapping.id);
 
   await db.batch([
+    db.delete(productBundleComponents).where(
+      ownedMappingIds.length ? inArray(productBundleComponents.mappingId, ownedMappingIds) : sql`0`,
+    ),
+    db.delete(productSkuMappings).where(eq(productSkuMappings.inventoryItemId, id)),
     db.delete(inventoryItems).where(eq(inventoryItems.id, id)),
     writeEvent(db, {
       entityType: "inventory_item",

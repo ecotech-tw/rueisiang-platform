@@ -151,6 +151,109 @@ describe("報表月資料匯入", () => {
     expect(payout).toMatchObject({ status: "ok", scopeId: "shopee:store:default", totals: { payoutAmount: 250 } });
   });
 
+  it("同一外部 SKU 有 legacy 與通路 mapping 時優先使用指定通路", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-shopee-specific",
+      inventoryItemId: "item-sku-1",
+      channel: "shopee",
+      externalSku: "P-001",
+    });
+
+    const response = await request(shopeeBundle([salesRow("P-001", 100)]));
+    expect(response.status).toBe(200);
+    expect(await db().select({ sku: schema.reportSalesMonthly.sku }).from(schema.reportSalesMonthly))
+      .toEqual([{ sku: "SKU-1" }]);
+  });
+
+  it("蝦皮組合商品會依用料數量展開到各 WMS SKU", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-shopee-bundle",
+      inventoryItemId: "item-sku-1",
+      channel: "shopee",
+      externalSku: "P-001_M-001",
+    });
+    await db().insert(schema.productBundleComponents).values([
+      { mappingId: "mapping-shopee-bundle", inventoryItemId: "item-sku-1", quantity: 2 },
+      { mappingId: "mapping-shopee-bundle", inventoryItemId: "item-sku-2", quantity: 1 },
+    ]);
+
+    const response = await request(shopeeBundle([
+      salesRow("P-001_M-001", 0, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      grossQuantity: schema.reportSalesMonthly.grossQuantity,
+      returnQuantity: schema.reportSalesMonthly.returnQuantity,
+      netQuantity: schema.reportSalesMonthly.netQuantity,
+      salesAmount: schema.reportSalesMonthly.salesAmount,
+    }).from(schema.reportSalesMonthly).orderBy(schema.reportSalesMonthly.sku)).toEqual([
+      { sku: "SKU-1", grossQuantity: 6, returnQuantity: 2, netQuantity: 4, salesAmount: 0 },
+      { sku: "SKU-2", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 0 },
+    ]);
+  });
+
+  it("蝦皮新規格 SKU 會沿用舊商品 ID mapping", async () => {
+    const response = await request(shopeeBundle([
+      salesRow("P-001_M-001", 0, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      grossQuantity: schema.reportSalesMonthly.grossQuantity,
+      netQuantity: schema.reportSalesMonthly.netQuantity,
+    }).from(schema.reportSalesMonthly)).toEqual([{
+      sku: "WMS-001",
+      grossQuantity: 3,
+      netQuantity: 2,
+    }]);
+  });
+
+  it("任一通路的組合商品都會展開，且銷售額不會重複計算", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-cyberbiz-bundle",
+      inventoryItemId: "item-sku-1",
+      channel: "cyberbiz",
+      externalSku: "BUNDLE-001",
+    });
+    await db().insert(schema.productBundleComponents).values([
+      { mappingId: "mapping-cyberbiz-bundle", inventoryItemId: "item-sku-2", quantity: 1 },
+      { mappingId: "mapping-cyberbiz-bundle", inventoryItemId: "item-sku-1", quantity: 2 },
+    ]);
+
+    const response = await request(salesBody([
+      salesRow("BUNDLE-001", 100, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      grossQuantity: schema.reportSalesMonthly.grossQuantity,
+      netQuantity: schema.reportSalesMonthly.netQuantity,
+      salesAmount: schema.reportSalesMonthly.salesAmount,
+    }).from(schema.reportSalesMonthly).orderBy(schema.reportSalesMonthly.sku)).toEqual([
+      { sku: "SKU-1", grossQuantity: 6, netQuantity: 4, salesAmount: 100 },
+      { sku: "SKU-2", grossQuantity: 3, netQuantity: 2, salesAmount: 0 },
+    ]);
+  });
+
+  it("CYBERBIZ 同名 scope 不會重用其他通路的 scope", async () => {
+    await upsertReportScope(db(), { id: "momo:store:default", scopeKind: "store", name: "測試店" });
+
+    const response = await request(salesBody([salesRow("SKU-1", 100)]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { scopeId: "cyberbiz:store:a" } });
+    expect(await db().select({ id: schema.reportScopes.id }).from(schema.reportScopes))
+      .toEqual(expect.arrayContaining([{ id: "momo:store:default" }, { id: "cyberbiz:store:a" }]));
+  });
+
+  it("sales 格式錯誤時不會先留下 payout", async () => {
+    const response = await request(shopeeBundle([
+      { ...salesRow("P-001", 0), businessDate: "2026-07-01" },
+    ], [{ businessDate: "2026-07-01", payoutAmount: 250 }]));
+    expect(response.status).toBe(422);
+    expect(await db().select().from(schema.reportPayoutDaily)).toEqual([]);
+  });
+
   it("蝦皮 bundle 重新匯入零筆月份會清掉既有商品資料", async () => {
     expect((await request(shopeeBundle([salesRow("P-001", 0)]))).status).toBe(200);
     expect((await request(shopeeBundle([]))).status).toBe(200);
@@ -161,13 +264,41 @@ describe("報表月資料匯入", () => {
 
   it("沿用既有同名 scope 的 ID，避免設定路徑改名後產生重複據點", async () => {
     await upsertReportScope(db(), { id: "legacy-store-id", scopeKind: "store", name: "測試店" });
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-cyberbiz-p-001",
+      inventoryItemId: "item-sku-1",
+      channel: "cyberbiz",
+      externalSku: "P-001",
+    });
     const response = await request({
-      ...salesBody([salesRow("SKU-1", 100)]), scopeId: "cyberbiz:store:new-id",
+      ...salesBody([salesRow("P-001", 100)]), scopeId: "cyberbiz:store:new-id",
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ result: { scopeId: "legacy-store-id" } });
-    const result = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "store", scopeId: "legacy-store-id" });
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "store", scopeId: "legacy-store-id", groupBy: ["sku"],
+    });
     expect(result).toMatchObject({ status: "ok", scopeId: "legacy-store-id", totals: { netQuantity: 1, salesAmount: 100 } });
+    expect(result.rows).toEqual([expect.objectContaining({ sku: "SKU-1", salesAmount: 100 })]);
+  });
+
+  it("以 scope ID 前綴解析自由輸入的通路 mapping", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-etsy-e-001",
+      inventoryItemId: "item-sku-1",
+      channel: "etsy",
+      externalSku: "E-001",
+    });
+    const response = await request({
+      ...salesBody([salesRow("E-001", 100)]),
+      scopeId: "etsy:store:default",
+      scopeName: "Etsy",
+    });
+    expect(response.status).toBe(200);
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "store", scopeId: "etsy:store:default", groupBy: ["sku"],
+    });
+    expect(result.rows).toEqual([expect.objectContaining({ sku: "SKU-1", salesAmount: 100 })]);
   });
 
   it("商品名稱與分類以 WMS 商品主檔為準", async () => {
@@ -230,6 +361,29 @@ describe("報表月資料匯入", () => {
       grossQuantity: 5,
       salesAmount: 200,
     }]);
+  });
+
+  it("組合用料缺 WMS SKU 時整筆視為未對應，不會靜默少算", async () => {
+    // 0057 的回填會替每一筆舊 mapping 補一列用料，不管該商品有沒有 SKU。
+    await db().insert(schema.inventoryItems).values({
+      id: "item-no-sku", sku: null, name: "沒有 SKU 的商品", category: "沐浴",
+    });
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-shopee-broken",
+      inventoryItemId: "item-sku-1",
+      channel: "shopee",
+      externalSku: "P-002_M-001",
+    });
+    await db().insert(schema.productBundleComponents).values([
+      { mappingId: "mapping-shopee-broken", inventoryItemId: "item-sku-1", quantity: 2 },
+      { mappingId: "mapping-shopee-broken", inventoryItemId: "item-no-sku", quantity: 1 },
+    ]);
+
+    const response = await request(shopeeBundle([
+      salesRow("P-002_M-001", 0, { grossQuantity: 3, returnQuantity: 0, netQuantity: 3 }),
+    ]));
+    expect(response.status).toBe(422);
+    expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
   });
 
   it("未對應外部 SKU 不會把原始值寫進報表", async () => {

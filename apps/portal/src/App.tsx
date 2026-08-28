@@ -18,6 +18,7 @@ import { WarehouseMap } from "./routes/wms/Map.js";
 import { Activity as WmsActivity } from "./routes/wms/Activity.js";
 import { Cyberbiz } from "./routes/wms/Cyberbiz.js";
 import { Inventory } from "./routes/wms/Inventory.js";
+import { SkuMappings } from "./routes/wms/SkuMappings.js";
 import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
 import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
@@ -96,6 +97,7 @@ export function App() {
         <Route path="wms">
           <Route path="map" element={<WarehouseMap />} />
           <Route path="inventory" element={<Inventory />} />
+          <Route path="sku-mappings" element={<SkuMappings />} />
           <Route path="cyberbiz" element={<Cyberbiz />} />
           <Route path="categories" element={<Categories />} />
           <Route path="activity" element={<WmsActivity />} />

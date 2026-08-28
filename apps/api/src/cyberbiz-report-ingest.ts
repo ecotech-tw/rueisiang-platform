@@ -4,6 +4,7 @@ import {
   findReportScope,
   upsertReportScope,
   normalizeExternalSku,
+  normalizeProductSkuChannel,
   resolveProductSkus,
   type Database,
   type ReportScopeKind,
@@ -61,6 +62,12 @@ function month(value: unknown): string {
 function integer(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new CyberbizReportIngestError(422, "invalid_ingest");
   return value;
+}
+
+function reportChannel(scopeId: string): string {
+  const [prefix, scopePart] = scopeId.split(":", 2);
+  if (!scopePart) return "legacy";
+  return normalizeProductSkuChannel(prefix ?? "") || "legacy";
 }
 
 function readInput(value: unknown): CyberbizReportIngestInput {
@@ -135,6 +142,9 @@ function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
 async function normalizeSalesRows(
   db: Database,
   input: CyberbizReportIngestInput,
+  channel = reportChannel(input.scopeId),
+  // sales_and_payout 會先 parse 一次做格式驗證，把結果傳進來，省掉整份報表重複解析與彙總。
+  preparsed?: ParsedSalesRow[],
 ): Promise<Array<{
   scopeId: string;
   reportMonth: string;
@@ -147,10 +157,10 @@ async function normalizeSalesRows(
   salesAmount: number;
   updatedAt: string;
 }>> {
-  const parsed = parseSalesRows(input);
+  const parsed = preparsed ?? parseSalesRows(input);
   if (!parsed.length) return [];
 
-  const resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku));
+  const resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku), channel);
 
   const missing = parsed
     .map((row) => row.externalSku)
@@ -164,6 +174,8 @@ async function normalizeSalesRows(
   }
 
   // 先 mapping 再加總：多個通路 SKU 可能對應同一個 WMS SKU，不能在外部 SKU 階段結束加總。
+  // 只要有 components 就展開到實際 WMS SKU；組合包的銷售額只放在 mapping 的主商品，避免
+  // 重複加總但仍保留整筆 CYBERBIZ 金額。蝦皮 salesAmount 本來就是 0，所以不會產生商品金額。
   const rows = new Map<string, {
     scopeId: string;
     reportMonth: string;
@@ -178,20 +190,40 @@ async function normalizeSalesRows(
   }>();
   for (const row of parsed) {
     const item = resolved.get(row.externalSku)!;
-    const key = `${row.reportMonth}\u0000${item.sku}`;
-    const previous = rows.get(key);
-    rows.set(key, {
-      scopeId: input.scopeId,
-      reportMonth: row.reportMonth,
-      sku: item.sku,
-      productName: item.name,
-      category: item.category,
-      grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity,
-      returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity,
-      netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity,
-      salesAmount: (previous?.salesAmount ?? 0) + row.salesAmount,
-      updatedAt: new Date().toISOString(),
-    });
+    // 主商品不在用料裡時才退而求其次取第一個；resolveProductSkus 已依商品名稱排序料件，
+    // 所以同一個月份重匯不會換一個料件收金額。
+    const amountTargetId = item.components.some((component) => component.inventoryItemId === item.inventoryItemId)
+      ? item.inventoryItemId
+      : item.components[0]?.inventoryItemId;
+    const targets = item.components.length
+      ? item.components.map((component) => ({
+        ...component,
+        multiplier: component.quantity,
+        allocatedSalesAmount: component.inventoryItemId === amountTargetId ? row.salesAmount : 0,
+      }))
+      : [{
+        sku: item.sku,
+        name: item.name,
+        category: item.category,
+        multiplier: 1,
+        allocatedSalesAmount: row.salesAmount,
+      }];
+    for (const target of targets) {
+      const key = `${row.reportMonth}\u0000${target.sku}`;
+      const previous = rows.get(key);
+      rows.set(key, {
+        scopeId: input.scopeId,
+        reportMonth: row.reportMonth,
+        sku: target.sku,
+        productName: target.name,
+        category: target.category,
+        grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity * target.multiplier,
+        returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity * target.multiplier,
+        netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity * target.multiplier,
+        salesAmount: (previous?.salesAmount ?? 0) + target.allocatedSalesAmount,
+        updatedAt: new Date().toISOString(),
+      });
+    }
   }
   return [...rows.values()];
 }
@@ -217,16 +249,21 @@ export function createCyberbizReportIngestor(db: Database) {
   return {
     async ingest(value: unknown): Promise<{ kind: CyberbizReportIngestKind; scopeId: string; rowCount: number; salesRowCount?: number; payoutRowCount?: number }> {
       const input = readInput(value);
+      const sourceChannel = reportChannel(input.scopeId);
+      const canReuseScopeByName = sourceChannel === "legacy" || sourceChannel === "cyberbiz";
       const existingById = await findReportScope(db, { scopeKind: input.scopeType, id: input.scopeId });
       const nameMatch = existingById ?? (
-        input.scopeId.startsWith("shopee:")
+        !canReuseScopeByName
           ? null
           : await findReportScope(db, { scopeKind: input.scopeType, name: input.scopeName })
       );
+      const nameMatchChannel = nameMatch ? reportChannel(nameMatch.id) : null;
       // 舊版 CYBERBIZ 設定可能使用任意 legacy ID，仍可依同名沿用；蝦皮則一定以自己的
       // scope ID 建立，不能因為名稱剛好相同而把資料寫進其他通路。
       const existing = existingById ?? (
-        !input.scopeId.startsWith("shopee:") && nameMatch && !nameMatch.id.startsWith("shopee:")
+        canReuseScopeByName
+        && nameMatch
+        && (nameMatchChannel === "legacy" || nameMatchChannel === sourceChannel)
           ? nameMatch
           : null
       );
@@ -237,10 +274,13 @@ export function createCyberbizReportIngestor(db: Database) {
       });
       const scopedInput = { ...input, scopeId: scope.id };
       if (input.kind === "sales_and_payout") {
+        const salesInput = { ...scopedInput, rows: input.salesRows ?? [] };
+        // 先驗證 sales 的資料格式，再寫入 payout；只有 mapping 不存在時才保留「先存 payout」的行為。
+        const parsedSales = parseSalesRows(salesInput);
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
         // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
         await insertReportPayoutDaily(db, payout);
-        const sales = await normalizeSalesRows(db, { ...scopedInput, rows: input.salesRows ?? [] });
+        const sales = await normalizeSalesRows(db, salesInput, sourceChannel, parsedSales);
         await insertReportSalesMonthly(db, sales, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);
@@ -253,7 +293,7 @@ export function createCyberbizReportIngestor(db: Database) {
         };
       }
       if (input.kind === "sales") {
-        const rows = await normalizeSalesRows(db, scopedInput);
+        const rows = await normalizeSalesRows(db, scopedInput, sourceChannel);
         await insertReportSalesMonthly(db, rows, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);

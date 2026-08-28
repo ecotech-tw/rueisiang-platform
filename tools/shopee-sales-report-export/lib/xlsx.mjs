@@ -274,10 +274,10 @@ function inRange(value, start, end) {
 export async function transformShopeeWorkbook(inputPath, outputPath, { sourceSheet = "", start = "", end = "" } = {}) {
   const workbook = await readWorkbook(inputPath);
   const source = workbook.sourceSheet(sourceSheet);
-  const required = Math.max(index("U"), index("AA"), index("AH"));
-  if (source.maxColumn <= required) throw new Error(`來源工作表「${source.name}」欄位不足，至少需要 AH 欄。`);
+  const required = Math.max(index("U"), index("AB"), index("AH"));
+  if (source.maxColumn <= required) throw new Error(`來源工作表「${source.name}」欄位不足，至少需要 AB、AH 欄。`);
   const iA = index("A"); const iF = index("F"); const iG = index("G"); const iS = index("S"); const iU = index("U");
-  const iZ = index("Z"); const iAA = index("AA"); const iAH = index("AH"); const iAI = index("AI");
+  const iZ = index("Z"); const iAA = index("AA"); const iAB = index("AB"); const iAH = index("AH"); const iAI = index("AI");
   if (Boolean(start) !== Boolean(end) || (start && start > end)) throw new Error("蝦皮報表日期區間必須同時提供有效的起訖日。 ");
 
   const rows = source.matrix.slice(1)
@@ -351,10 +351,12 @@ export async function transformShopeeWorkbook(inputPath, outputPath, { sourceShe
     const businessDate = itemDates.get(item);
     const productId = text(item.row[iZ]);
     if (!businessDate || !productId) continue;
-    const key = `${businessDate}\u0000${productId}`;
+    const modelId = text(item.row[iAB]);
+    const sku = modelId ? `${productId}_${modelId}` : productId;
+    const key = `${businessDate}\u0000${sku}`;
     const previous = salesDaily.get(key) ?? {
       businessDate,
-      sku: productId,
+      sku,
       productName: new Set(),
       category: "未分類",
       grossQuantity: 0,

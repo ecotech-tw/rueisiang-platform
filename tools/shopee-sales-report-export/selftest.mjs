@@ -14,8 +14,8 @@ try {
     const secondOrder = index === 3;
     set(`A${index + 1}`, index === 0 ? "訂單編號" : secondOrder ? "A002" : "A001");
     set(`F${index + 1}`, index === 0 ? "日期" : secondOrder ? "2026-07-02" : index === 1 ? "2026-07-01" : "");
-    if (index === 0) { set(`G${index + 1}`, "商品總價"); set(`S${index + 1}`, "手續費"); set(`U${index + 1}`, "處理費"); set(`Z${index + 1}`, "商品ID"); set(`AA${index + 1}`, "規格"); set(`AH${index + 1}`, "數量"); set(`AI${index + 1}`, "退貨"); }
-    else { numeric(`G${index + 1}`, secondOrder ? 50 : 100); numeric(`S${index + 1}`, secondOrder ? 5 : index === 1 ? 10 : 999); numeric(`U${index + 1}`, 5); set(`Z${index + 1}`, secondOrder ? "P002" : "P001"); set(`AA${index + 1}`, secondOrder ? "小" : "大"); numeric(`AH${index + 1}`, secondOrder ? 1 : index === 1 ? 2 : 3); numeric(`AI${index + 1}`, secondOrder ? 1 : 0); }
+    if (index === 0) { set(`G${index + 1}`, "商品總價"); set(`S${index + 1}`, "手續費"); set(`U${index + 1}`, "處理費"); set(`Z${index + 1}`, "商品ID"); set(`AA${index + 1}`, "規格"); set(`AB${index + 1}`, "規格ID"); set(`AH${index + 1}`, "數量"); set(`AI${index + 1}`, "退貨"); }
+    else { numeric(`G${index + 1}`, secondOrder ? 50 : 100); numeric(`S${index + 1}`, secondOrder ? 5 : index === 1 ? 10 : 999); numeric(`U${index + 1}`, 5); set(`Z${index + 1}`, secondOrder ? "P002" : "P001"); set(`AA${index + 1}`, secondOrder ? "小" : "大"); set(`AB${index + 1}`, secondOrder ? "M002" : "M001"); numeric(`AH${index + 1}`, secondOrder ? 1 : index === 1 ? 2 : 3); numeric(`AI${index + 1}`, secondOrder ? 1 : 0); }
     return `<row r="${index + 1}">${cells.join("")}</row>`;
   }).join("");
   const sheet = `<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><dimension ref="A1:AH4"/><sheetData>${rows}</sheetData></worksheet>`;
@@ -30,8 +30,8 @@ try {
     { businessDate: "2026-07-02", payoutAmount: 40 },
   ])) throw new Error(`daily payout 結果不正確：${JSON.stringify(result.dailyPayoutRows)}`);
   if (JSON.stringify(result.dailySalesRows) !== JSON.stringify([
-    { businessDate: "2026-07-01", sku: "P001", productName: "大", category: "未分類", grossQuantity: 5, returnQuantity: 0, netQuantity: 5, salesAmount: 0 },
-    { businessDate: "2026-07-02", sku: "P002", productName: "小", category: "未分類", grossQuantity: 1, returnQuantity: 1, netQuantity: 0, salesAmount: 0 },
+    { businessDate: "2026-07-01", sku: "P001_M001", productName: "大", category: "未分類", grossQuantity: 5, returnQuantity: 0, netQuantity: 5, salesAmount: 0 },
+    { businessDate: "2026-07-02", sku: "P002_M002", productName: "小", category: "未分類", grossQuantity: 1, returnQuantity: 1, netQuantity: 0, salesAmount: 0 },
   ])) throw new Error(`daily sales 結果不正確：${JSON.stringify(result.dailySalesRows)}`);
   const outsideRange = await transformShopeeWorkbook(source, path.join(temp, "outside-range.xlsx"), {
     sourceSheet: "orders",

@@ -30,6 +30,7 @@ export type IconName =
   | "webhook"
   | "analytics"
   | "report"
+  | "link"
   | "tune"
   | "chat"
   | "shieldPerson"
@@ -251,6 +252,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M6.2 3.8h8.1l3.5 3.5v12.9H6.2a1.8 1.8 0 0 1-1.8-1.8V5.6a1.8 1.8 0 0 1 1.8-1.8Z" />
       <path d="M14.3 3.8v3.7h3.5M8.2 12h7.6M8.2 15.5h5.2" />
       <path d="m8.2 9.2 1.7-1.4 1.5 1.1 2-2" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="m9.2 14.8 5.6-5.6" />
+      <path d="M8.2 17.8H6.8a4.1 4.1 0 0 1 0-8.2h3.4" />
+      <path d="M15.8 6.2h1.4a4.1 4.1 0 0 1 0 8.2h-3.4" />
     </>
   ),
   tune: (

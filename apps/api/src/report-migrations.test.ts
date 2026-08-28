@@ -82,4 +82,64 @@ describe("報表 scope migration", () => {
     expect(sqlite.prepare("SELECT inventory_item_id, external_sku FROM product_sku_mappings").all())
       .toEqual([{ inventory_item_id: "item-1", external_sku: "CB-001" }]);
   });
+
+  it("0055 保留既有 mapping 並以 legacy 作為未分類通路", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0054_add_product_sku_mappings.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-1", "WMS-001", "商品一");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-2", "WMS-002", "商品二");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, external_sku) VALUES (?, ?, ?)")
+      .run("legacy-mapping", "item-1", "SHARED-001");
+
+    applyLikeD1(sqlite, "0054_add_product_sku_mappings.sql", "0055_add_product_sku_mapping_channel.sql");
+
+    expect(sqlite.prepare("SELECT inventory_item_id, channel, external_sku FROM product_sku_mappings").all())
+      .toEqual([{ inventory_item_id: "item-1", channel: "legacy", external_sku: "SHARED-001" }]);
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_sku) VALUES (?, ?, ?, ?)")
+      .run("shopee-mapping", "item-2", "shopee", "SHARED-001");
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM product_sku_mappings WHERE external_sku = ?").get("SHARED-001"))
+      .toEqual({ count: 2 });
+  });
+
+  it("0056 建立組合用料表，mapping 刪除會 cascade、用料商品刪除會 restrict", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0055_add_product_sku_mapping_channel.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("bundle", "BUNDLE-001", "組合商品");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("component", "ITEM-001", "組合用料");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_sku) VALUES (?, ?, ?, ?)")
+      .run("mapping-1", "bundle", "shopee", "P-001_M-001");
+
+    applyLikeD1(sqlite, "0055_add_product_sku_mapping_channel.sql", "0056_add_product_bundle_components.sql");
+    sqlite.prepare("INSERT INTO product_bundle_components (mapping_id, inventory_item_id, quantity) VALUES (?, ?, ?)")
+      .run("mapping-1", "component", 3);
+    expect(sqlite.prepare("SELECT mapping_id, inventory_item_id, quantity FROM product_bundle_components").all())
+      .toEqual([{ mapping_id: "mapping-1", inventory_item_id: "component", quantity: 3 }]);
+    expect(() => sqlite.prepare("DELETE FROM inventory_items WHERE id = ?").run("component")).toThrow();
+    sqlite.prepare("DELETE FROM product_sku_mappings WHERE id = ?").run("mapping-1");
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM product_bundle_components").get())
+      .toEqual({ count: 0 });
+  });
+
+  it("0057 會補回既有 mapping 的通路商品名稱與一對一用料", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0056_add_product_bundle_components.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-1", "WMS-001", "WMS 商品一");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_sku) VALUES (?, ?, ?, ?)")
+      .run("legacy-mapping", "item-1", "shopee", "PRODUCT-001");
+
+    applyLikeD1(sqlite, "0056_add_product_bundle_components.sql", "0057_add_product_sku_mapping_name.sql");
+
+    expect(sqlite.prepare("SELECT external_name FROM product_sku_mappings WHERE id = ?").get("legacy-mapping"))
+      .toEqual({ external_name: "WMS 商品一" });
+    expect(sqlite.prepare("SELECT mapping_id, inventory_item_id, quantity FROM product_bundle_components").all())
+      .toEqual([{ mapping_id: "legacy-mapping", inventory_item_id: "item-1", quantity: 1 }]);
+  });
 });

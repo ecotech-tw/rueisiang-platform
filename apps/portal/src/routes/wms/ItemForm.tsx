@@ -8,6 +8,8 @@ import {
   useLinkCyberbiz,
   useUnlinkCyberbiz,
   useUpdateItem,
+  productSkuChannelLabel,
+  PRODUCT_SKU_CHANNEL_OPTIONS,
   type InventoryItem,
   type ProductCategory,
   type Zone,
@@ -65,6 +67,7 @@ export function ItemForm({
   const unlink = useUnlinkCyberbiz();
   const toast = useToast();
   const [externalSku, setExternalSku] = useState("");
+  const [externalChannel, setExternalChannel] = useState("cyberbiz");
   const pending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
   const mappingError = addProductSkuMapping.error ?? deleteProductSkuMapping.error;
@@ -82,11 +85,11 @@ export function ItemForm({
     const value = externalSku.trim();
     if (!item || !value || addProductSkuMapping.isPending) return;
     addProductSkuMapping.mutate(
-      { id: item.id, externalSku: value },
+      { id: item.id, channel: externalChannel, externalSku: value },
       {
         onSuccess: (result) => {
           setExternalSku("");
-          toast.show(`已新增外部 SKU「${result.externalSku}」`);
+          toast.show(`已新增${productSkuChannelLabel(result.channel)} SKU「${result.externalSku}」`);
         },
       },
     );
@@ -264,6 +267,12 @@ export function ItemForm({
             <div className="field">
               <span>外部通路 SKU</span>
               <div className="field-grid">
+                <SelectField
+                  label="通路"
+                  value={externalChannel}
+                  onChange={(event) => setExternalChannel(event.target.value)}
+                  options={PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
+                />
                 <TextField
                   label="新增外部 SKU"
                   placeholder="例如蝦皮 Product ID 或其他通路 SKU"
@@ -293,16 +302,21 @@ export function ItemForm({
                   <div className="row-actions">
                     {item.externalSkus.map((mapping) => (
                       <span className="status status-sync-synced" key={mapping.id}>
-                        {mapping.externalSku}
-                        <button
-                          type="button"
-                          className="link-button"
-                          aria-label={`移除外部 SKU ${mapping.externalSku}`}
-                          onClick={() => deleteProductSkuMapping.mutate({ itemId: item.id, mappingId: mapping.id })}
-                          disabled={deleteProductSkuMapping.isPending}
-                        >
-                          移除
-                        </button>
+                        {productSkuChannelLabel(mapping.channel)} · {mapping.externalSku}
+                        {mapping.owned ? (
+                          <button
+                            type="button"
+                            className="link-button"
+                            aria-label={`移除${productSkuChannelLabel(mapping.channel)} SKU ${mapping.externalSku}`}
+                            onClick={() => deleteProductSkuMapping.mutate({ itemId: item.id, mappingId: mapping.id })}
+                            disabled={deleteProductSkuMapping.isPending}
+                          >
+                            移除
+                          </button>
+                        ) : (
+                          // 本商品只是這筆組合的用料：刪掉的是整筆對應與其他用料，要到 SKU 對應頁做。
+                          <small className="cell-sub">組合用料</small>
+                        )}
                       </span>
                     ))}
                   </div>

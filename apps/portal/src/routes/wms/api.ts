@@ -56,7 +56,8 @@ export interface InventoryItem {
   shelfLevel: string | null;
   notes: string;
   updatedAt: string;
-  externalSkus: Array<{ id: string; externalSku: string }>;
+  // owned=false 代表本商品只是這筆組合對應的用料，不是它的主商品：可以看，不能從這裡移除。
+  externalSkus: Array<{ id: string; channel: string; externalSku: string; owned: boolean }>;
   /** 連到 CYBERBIZ 的哪一個款式。地圖與庫存頁都要看得出來。 */
   cyberbiz: CyberbizLink | null;
 }
@@ -87,6 +88,8 @@ export interface Warehouse {
 
 /** 所有倉儲的快取都掛在這個 key 底下，寫入之後一次失效。 */
 const WAREHOUSE_KEY = ["wms", "warehouse"] as const;
+const PRODUCT_SKU_MAPPINGS_KEY = ["wms", "product-sku-mappings"] as const;
+const ACTIVITY_KEY = ["wms", "activity"] as const;
 
 async function readError(response: Response): Promise<never> {
   const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
@@ -104,6 +107,63 @@ export function useWarehouse() {
   });
 }
 
+export interface ProductSkuMapping {
+  id: string;
+  inventoryItemId: string;
+  channel: string;
+  externalName: string;
+  externalSku: string;
+  createdAt: string;
+  updatedAt: string;
+  itemSku: string | null;
+  itemName: string;
+  itemCategory: string;
+  itemCategoryColor: string | null;
+  components: ProductBundleComponent[];
+}
+
+export interface ProductBundleComponent {
+  inventoryItemId: string;
+  quantity: number;
+  sku: string | null;
+  name: string;
+  category: string;
+}
+
+export interface ProductSkuMappingItemOption {
+  id: string;
+  sku: string | null;
+  name: string;
+  category: string;
+}
+
+export interface ProductSkuMappingData {
+  mappings: ProductSkuMapping[];
+  items: ProductSkuMappingItemOption[];
+}
+
+export const PRODUCT_SKU_CHANNEL_OPTIONS = [
+  { value: "cyberbiz", label: "CYBERBIZ（官網 / POS）" },
+  { value: "shopee", label: "蝦皮" },
+  { value: "momo", label: "momo" },
+] as const;
+
+export function productSkuChannelLabel(channel: string): string {
+  return PRODUCT_SKU_CHANNEL_OPTIONS.find((option) => option.value === channel)?.label
+    ?? (channel === "legacy" ? "未分類（舊資料）" : channel);
+}
+
+export function useProductSkuMappings() {
+  return useQuery({
+    queryKey: PRODUCT_SKU_MAPPINGS_KEY,
+    queryFn: async () => {
+      const response = await fetch("/api/wms/product-sku-mappings", { credentials: "same-origin" });
+      if (!response.ok) await readError(response);
+      return (await response.json()) as ProductSkuMappingData;
+    },
+  });
+}
+
 async function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", payload?: unknown): Promise<T> {
   const response = await fetch(path, {
     method,
@@ -117,7 +177,10 @@ async function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", paylo
 }
 
 /**
- * 每一支寫入都失效同一個 key。
+ * 每一支 WMS 寫入都失效商品庫存、SKU 對應與操作紀錄快取。
+ *
+ * 逐一列出 key 而不是用 ["wms"] 前綴：那個前綴也會命中 ["wms","catalog"]，
+ * 而它是代理到 CYBERBIZ API 的，不該被一次倉儲寫入連帶重打。
  *
  * 用 void 不回傳那個 promise：回傳的話 react-query 會等它跑完才呼叫 mutate 層的
  * onSuccess，而那時候該列往往已經因為重新載入而被換掉，通知就再也不會出現。
@@ -131,6 +194,8 @@ function useWarehouseMutation<TArgs, TResult>(
     mutationFn: run,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
+      void queryClient.invalidateQueries({ queryKey: PRODUCT_SKU_MAPPINGS_KEY });
+      void queryClient.invalidateQueries({ queryKey: ACTIVITY_KEY });
     },
   });
 }
@@ -177,14 +242,47 @@ export function useDeleteItem() {
 }
 
 export function useAddProductSkuMapping() {
-  return useWarehouseMutation(({ id, externalSku }: { id: string; externalSku: string }) =>
-    write<{ id: string; externalSku: string }>(`/api/wms/items/${id}/product-sku-mappings`, "POST", { externalSku }),
+  return useWarehouseMutation(
+    ({ id, channel, externalSku }: { id: string; channel?: string; externalSku: string }) =>
+      write<{ id: string; channel: string; externalSku: string }>(`/api/wms/items/${id}/product-sku-mappings`, "POST", { channel, externalSku }),
+  );
+}
+
+export function useCreateProductSkuMapping() {
+  return useWarehouseMutation(
+    ({ channel, externalName, externalSku, components }: {
+      channel?: string;
+      externalName: string;
+      externalSku: string;
+      components: Array<{ inventoryItemId: string; quantity: number }>;
+    }) => write<{ id: string; channel: string; externalName: string; externalSku: string }>(
+      "/api/wms/product-sku-mappings",
+      "POST",
+      { channel, externalName, externalSku, components },
+    ),
+  );
+}
+
+export function useUpdateProductSkuMapping() {
+  return useWarehouseMutation(
+    ({ mappingId, channel, externalName, externalSku, components }: {
+      mappingId: string;
+      channel?: string;
+      externalName: string;
+      externalSku: string;
+      components: Array<{ inventoryItemId: string; quantity: number }>;
+    }) => write<{ id: string; channel: string; externalName: string; externalSku: string; components: Array<{ inventoryItemId: string; quantity: number }> }>(
+      `/api/wms/product-sku-mappings/${mappingId}`,
+      "PATCH",
+      { channel, externalName, externalSku, components },
+    ),
   );
 }
 
 export function useDeleteProductSkuMapping() {
-  return useWarehouseMutation(({ itemId, mappingId }: { itemId: string; mappingId: string }) =>
-    write<{ ok: true }>(`/api/wms/items/${itemId}/product-sku-mappings/${mappingId}`, "DELETE"),
+  return useWarehouseMutation(
+    ({ itemId, mappingId }: { itemId: string; mappingId: string }) =>
+      write<{ ok: true }>(`/api/wms/items/${itemId}/product-sku-mappings/${mappingId}`, "DELETE"),
   );
 }
 
@@ -319,7 +417,10 @@ function useZoneImageMutation<TArgs>(run: (args: TArgs) => Promise<unknown>) {
   return useMutation({
     mutationFn: run,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["wms"] });
+      void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["wms", "zone-images"] });
+      // 上傳與刪除照片都會寫 activity；收斂前綴之後要自己補上，否則操作紀錄會停在舊資料。
+      void queryClient.invalidateQueries({ queryKey: ACTIVITY_KEY });
     },
   });
 }
