@@ -82,6 +82,16 @@ cd packages/db && pnpm generate    # 產生 migration SQL
 每一項的完成條件都一樣：程式碼、測試、文件與部署／回滾說明四樣齊備。**沒有實機
 smoke test 的功能只能標記為「可合併」，不能標記為「已上線」。**
 
+### 蝦皮：改用 Open API 取數
+
+銷售報表目前是半自動——人要登入賣家中心匯出 xlsx 再上傳。卡在登入的簡訊 OTP。
+Open Platform 是另一條路：一次性授權換 refresh token，之後程式續期。POC 的範圍、
+資料對照與驗收條件見 [`docs/shopee-open-api-poc.md`](./docs/shopee-open-api-poc.md)。
+
+- [ ] 申請 Shopee Open Platform 開發者帳號，取得 `partner_id` 與 `partner_key`（人類執行）。
+- [ ] 決定 T 欄「其他服務費」要不要計入業績——這題會改動驗收基準，沒答案不要開工。
+- [ ] 實作「API JSON → orders 列」轉換與 token 續期，用 2026-07 跟既有結果對數字。
+
 ### 小香：MCP tools
 
 `mcp` 目前只是 tool registry 上的 surface 標記，除了唯讀的
