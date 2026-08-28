@@ -110,10 +110,11 @@ export const inventoryItems = sqliteTable("inventory_items", {
 ]);
 
 /**
- * 外部通路 SKU 與 WMS 商品的對應。
+ * 外部通路商品與 WMS 用料的對應。
  *
- * 通路與外部 SKU 一起識別一筆 mapping；同一通路的外部 SKU 必須只對應一個 WMS 品項。
- * 商品的正式 SKU、名稱與分類都從 inventory_items 取得，不在這裡複製。
+ * 通路與外部 SKU 一起識別一筆 mapping；通路商品名稱保留報表裡的名稱，正式 SKU、
+ * WMS 商品名稱與分類則從 inventory_items 取得。inventoryItemId 保留為第一個用料，
+ * 供既有查詢與關聯相容；完整的一對一或組合對應以 product_bundle_components 為準。
  */
 export const productSkuMappings = sqliteTable("product_sku_mappings", {
   id: text("id").primaryKey(),
@@ -122,6 +123,7 @@ export const productSkuMappings = sqliteTable("product_sku_mappings", {
     .references(() => inventoryItems.id, { onDelete: "cascade" }),
   /** legacy 代表 migration 前建立、尚未確認來源通路的 mapping。 */
   channel: text("channel").notNull().default("legacy"),
+  externalName: text("external_name").notNull().default(""),
   externalSku: text("external_sku").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -131,10 +133,10 @@ export const productSkuMappings = sqliteTable("product_sku_mappings", {
 ]);
 
 /**
- * 外部通路商品對應的組合內容。
+ * 外部通路商品對應的組合用料。
  *
- * product_sku_mappings 仍然只負責「一個外部 SKU 對應哪個 WMS 商品」；有組合內容時，
- * 扣庫存或報表展開才會讀這張表。沒有 component 的 mapping 就是一般一對一商品。
+ * product_sku_mappings 負責外部通路商品本身；這張表列出一個以上 WMS 用料。
+ * 一般一對一商品也會存一筆 quantity=1，讓報表展開不必猜測空 components 的意思。
  */
 export const productBundleComponents = sqliteTable("product_bundle_components", {
   mappingId: text("mapping_id")

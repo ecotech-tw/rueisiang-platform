@@ -26,14 +26,20 @@ export function SkuMappingDialog({
   const add = useCreateProductSkuMapping();
   const update = useUpdateProductSkuMapping();
   const toast = useToast();
-  const [itemId, setItemId] = useState(mapping?.inventoryItemId ?? "");
   const [channel, setChannel] = useState(mapping?.channel ?? "cyberbiz");
+  const [externalName, setExternalName] = useState(mapping?.externalName ?? "");
   const [externalSku, setExternalSku] = useState(mapping?.externalSku ?? "");
   const [components, setComponents] = useState<ComponentDraft[]>(
-    () => mapping?.components.map((component) => ({
-      inventoryItemId: component.inventoryItemId,
-      quantity: String(component.quantity),
-    })) ?? [],
+    () => {
+      if (!mapping) return [];
+      const existingComponents = mapping.components.length
+        ? mapping.components
+        : [{ inventoryItemId: mapping.inventoryItemId, quantity: 1 }];
+      return existingComponents.map((component) => ({
+        inventoryItemId: component.inventoryItemId,
+        quantity: String(component.quantity),
+      }));
+    },
   );
   const [validationError, setValidationError] = useState("");
   const pending = add.isPending || update.isPending;
@@ -46,7 +52,8 @@ export function SkuMappingDialog({
     event.preventDefault();
     const value = externalSku.trim();
     const normalizedChannel = channel.trim();
-    if (!itemId || !normalizedChannel || !value || pending) return;
+    const normalizedName = externalName.trim();
+    if (!normalizedName || !normalizedChannel || !value || pending) return;
 
     const parsedComponents = components.map((component) => ({
       inventoryItemId: component.inventoryItemId,
@@ -64,13 +71,17 @@ export function SkuMappingDialog({
       setValidationError("組合用料不可重複選擇同一個 WMS 商品。 ");
       return;
     }
+    if (!parsedComponents.length) {
+      setValidationError("至少要設定一個組合用料；一般一對一商品請新增一個用料並填 1。 ");
+      return;
+    }
     setValidationError("");
 
     const input = {
-      inventoryItemId: itemId,
       channel: normalizedChannel,
+      externalName: normalizedName,
       externalSku: value,
-      components: parsedComponents.length ? parsedComponents : undefined,
+      components: parsedComponents,
     };
     if (mapping) {
       update.mutate(
@@ -95,7 +106,7 @@ export function SkuMappingDialog({
   return (
     <Dialog
       title={mapping ? "編輯 SKU 對應" : "新增 SKU 對應"}
-      titleMeta="一般商品直接選 WMS 商品；組合商品可再設定多個用料與每組數量。"
+      titleMeta="填寫通路商品資料，再設定一個以上對應的 WMS 用料；一般一對一商品的數量填 1。"
       className="sku-mapping-dialog"
       bodyClassName="sku-mapping-dialog-body"
       onClose={onClose}
@@ -106,7 +117,7 @@ export function SkuMappingDialog({
           <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
             取消
           </Button>
-          <Button type="submit" loading={pending} loadingLabel="儲存中…" disabled={!itemId || !channel.trim() || !externalSku.trim()}>
+          <Button type="submit" loading={pending} loadingLabel="儲存中…" disabled={!externalName.trim() || !channel.trim() || !externalSku.trim() || !components.length}>
             {mapping ? "儲存變更" : "新增對應"}
           </Button>
         </>
@@ -115,19 +126,19 @@ export function SkuMappingDialog({
       <div className="admin-form sku-mapping-form">
         <div className="field-grid">
           <TextField
-            label="通路"
+            label="通路商品名稱"
             required
             autoFocus={!mapping}
+            value={externalName}
+            onChange={(event) => setExternalName(event.target.value)}
+            placeholder="例如 買五送二再送一"
+          />
+          <TextField
+            label="通路"
+            required
             value={channel}
             onChange={(event) => setChannel(event.target.value)}
             placeholder="例如 cyberbiz、shopee、momo"
-          />
-          <SelectField
-            label="WMS 商品"
-            required
-            value={itemId}
-            onChange={(event) => setItemId(event.target.value)}
-            options={[{ label: "請選擇商品", value: "" }, ...itemOptions]}
           />
         </div>
         <TextField
@@ -142,7 +153,7 @@ export function SkuMappingDialog({
           <div className="sku-mapping-components-head">
             <div>
               <strong>組合用料</strong>
-              <span className="cell-sub">可留空；留空就是一對一對應</span>
+              <span className="cell-sub">至少一項；一般一對一商品請填一個用料、數量 1</span>
             </div>
             <Button
               type="button"

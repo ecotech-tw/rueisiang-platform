@@ -99,12 +99,18 @@ function text(input: Record<string, unknown>, field: string): string | undefined
   return typeof value === "string" ? value.trim() : undefined;
 }
 
-function bundleComponents(input: Record<string, unknown>): Array<{ inventoryItemId: string; quantity: number }> | undefined {
-  if (input.components === undefined) return undefined;
+function bundleComponents(
+  input: Record<string, unknown>,
+  required = false,
+): Array<{ inventoryItemId: string; quantity: number }> | undefined {
+  if (input.components === undefined) {
+    if (required) throw new HTTPException(400, { message: "至少要設定一個組合用料。" });
+    return undefined;
+  }
   if (!Array.isArray(input.components)) {
     throw new HTTPException(400, { message: "組合商品用料的格式不正確。" });
   }
-  return input.components.map((value) => {
+  const components = input.components.map((value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new HTTPException(400, { message: "組合商品用料的格式不正確。" });
     }
@@ -118,6 +124,10 @@ function bundleComponents(input: Record<string, unknown>): Array<{ inventoryItem
       quantity,
     };
   });
+  if (required && components.length === 0) {
+    throw new HTTPException(400, { message: "至少要設定一個組合用料。" });
+  }
+  return components;
 }
 
 /**
@@ -277,15 +287,15 @@ export const wms = new Hono<AppEnv>()
     return c.json(await loadProductSkuMappingManagement(c.get("db")));
   })
 
-  /** 建立一筆 mapping；components 可省略代表一般一對一商品。 */
+  /** 建立一筆通路商品 mapping；至少要有一個 WMS 用料，單品也以 quantity=1 保存。 */
   .post("/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
     const input = await body(c);
     const user = c.get("user");
     const result = await addProductSkuMapping(c.get("db"), {
-      inventoryItemId: requireString(input, "inventoryItemId", "WMS 商品"),
+      components: bundleComponents(input, true),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
+      externalName: requireString(input, "externalName", "通路商品名稱"),
       externalSku: requireString(input, "externalSku", "外部 SKU"),
-      components: bundleComponents(input),
       actor: { id: user.id, email: user.email },
     });
     return c.json(result, 201);
@@ -296,10 +306,10 @@ export const wms = new Hono<AppEnv>()
     const user = c.get("user");
     const result = await updateProductSkuMapping(c.get("db"), {
       id: c.req.param("mappingId"),
-      inventoryItemId: requireString(input, "inventoryItemId", "WMS 商品"),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
+      externalName: requireString(input, "externalName", "通路商品名稱"),
       externalSku: requireString(input, "externalSku", "外部 SKU"),
-      components: bundleComponents(input),
+      components: bundleComponents(input, true),
       actor: { id: user.id, email: user.email },
     });
     return c.json(result);

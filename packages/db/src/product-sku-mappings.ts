@@ -24,6 +24,7 @@ export interface ProductSkuMappingRow {
   id: string;
   inventoryItemId: string;
   channel: string;
+  externalName: string;
   externalSku: string;
   createdAt: string;
   updatedAt: string;
@@ -89,8 +90,9 @@ export async function listProductSkuMappings(
 /**
  * SKU 對應管理頁需要的兩份資料。
  *
- * 商品名稱、正式 SKU 與分類都從 inventory_items 讀取，避免管理頁顯示一份過期的複本；
- * items 只供新增 mapping 時選擇，不包含倉位、數量或其他不相關的倉儲資料。
+ * 通路商品名稱存於 mapping；正式 SKU、WMS 商品名稱與分類則從 inventory_items 讀取，
+ * 避免管理頁顯示一份過期的複本。items 只供新增 mapping 時選擇，不包含倉位、數量或
+ * 其他不相關的倉儲資料。
  */
 export async function loadProductSkuMappingManagement(
   db: Database,
@@ -101,6 +103,7 @@ export async function loadProductSkuMappingManagement(
         id: productSkuMappings.id,
         inventoryItemId: productSkuMappings.inventoryItemId,
         channel: productSkuMappings.channel,
+        externalName: productSkuMappings.externalName,
         externalSku: productSkuMappings.externalSku,
         createdAt: productSkuMappings.createdAt,
         updatedAt: productSkuMappings.updatedAt,
@@ -198,25 +201,36 @@ function validateBundleComponents(
 export async function addProductSkuMapping(
   db: Database,
   input: {
-    inventoryItemId: string;
+    inventoryItemId?: string;
     channel?: string;
+    externalName?: string;
     externalSku: string;
     components?: ProductBundleComponentInput[];
     actor: Actor;
   },
-): Promise<{ id: string; channel: string; externalSku: string; components: ProductBundleComponentInput[] }> {
+): Promise<{ id: string; channel: string; externalName: string; externalSku: string; components: ProductBundleComponentInput[] }> {
   const channel = normalizeProductSkuChannel(input.channel ?? "legacy");
   if (!channel) throw new WmsError("invalid", "通路不可為空。 ");
   const externalSku = normalizeExternalSku(input.externalSku);
   if (!externalSku) throw new WmsError("invalid", "外部 SKU 不可為空。 ");
 
+  const requestedComponents = validateBundleComponents(input.components);
+  const components = requestedComponents.length
+    ? requestedComponents
+    : input.inventoryItemId
+      ? [{ inventoryItemId: input.inventoryItemId, quantity: 1 }]
+      : [];
+  if (!components.length) throw new WmsError("invalid", "至少要設定一個組合用料。 ");
+  const firstComponent = components[0];
+  if (!firstComponent) throw new WmsError("invalid", "至少要設定一個組合用料。 ");
+  const inventoryItemId = firstComponent.inventoryItemId;
+
   const [item] = await db
     .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
     .from(inventoryItems)
-    .where(eq(inventoryItems.id, input.inventoryItemId));
+    .where(eq(inventoryItems.id, inventoryItemId));
   if (!item) throw new WmsError("not_found", "找不到這項商品。 ");
   if (!item.sku) throw new WmsError("invalid", "請先設定 WMS SKU，才能建立外部 SKU 對應。 ");
-  const components = validateBundleComponents(input.components);
   const componentItems = components.length
     ? await db
       .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
@@ -230,17 +244,23 @@ export async function addProductSkuMapping(
     throw new WmsError("invalid", "請先設定組合商品用料的 WMS SKU。 ");
   }
 
-  const [skuOwner] = await db
+  const skuOwners = await db
     .select({ id: inventoryItems.id })
     .from(inventoryItems)
-    .where(sql`UPPER(${inventoryItems.sku}) = ${externalSku}`)
-    .limit(1);
-  if (skuOwner && skuOwner.id !== input.inventoryItemId) {
+    .where(sql`UPPER(${inventoryItems.sku}) = ${externalSku}`);
+  if (skuOwners.some((owner) => owner.id !== inventoryItemId)) {
     throw new WmsError("conflict", `外部 SKU「${externalSku}」與其他商品的 WMS SKU 衝突。 `);
   }
 
+  const externalName = input.externalName === undefined ? item.name : input.externalName.trim();
+  if (!externalName) throw new WmsError("invalid", "通路商品名稱不可為空。 ");
+
   const [existing] = await db
-    .select({ id: productSkuMappings.id, inventoryItemId: productSkuMappings.inventoryItemId })
+    .select({
+      id: productSkuMappings.id,
+      inventoryItemId: productSkuMappings.inventoryItemId,
+      externalName: productSkuMappings.externalName,
+    })
     .from(productSkuMappings)
     .where(and(
       eq(productSkuMappings.channel, channel),
@@ -248,19 +268,31 @@ export async function addProductSkuMapping(
     ))
     .limit(1);
   if (existing) {
-    if (existing.inventoryItemId === input.inventoryItemId) {
+    if (existing.inventoryItemId === inventoryItemId) {
       const existingComponents = await db
         .select({ inventoryItemId: productBundleComponents.inventoryItemId, quantity: productBundleComponents.quantity })
         .from(productBundleComponents)
         .where(eq(productBundleComponents.mappingId, existing.id));
-      return { id: existing.id, channel, externalSku, components: existingComponents };
+      return {
+        id: existing.id,
+        channel,
+        externalName: existing.externalName || externalName,
+        externalSku,
+        components: existingComponents,
+      };
     }
     throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經對應到其他商品。 `);
   }
 
   const id = crypto.randomUUID();
   await db.batch([
-    db.insert(productSkuMappings).values({ id, inventoryItemId: input.inventoryItemId, channel, externalSku }),
+    db.insert(productSkuMappings).values({
+      id,
+      inventoryItemId,
+      channel,
+      externalName,
+      externalSku,
+    }),
     ...components.map((component) => db.insert(productBundleComponents).values({
       mappingId: id,
       inventoryItemId: component.inventoryItemId,
@@ -279,30 +311,38 @@ export async function addProductSkuMapping(
     })),
   ]);
 
-  return { id, channel, externalSku, components };
+  return { id, channel, externalName, externalSku, components };
 }
 
 export async function updateProductSkuMapping(
   db: Database,
   input: {
     id: string;
-    inventoryItemId: string;
     channel?: string;
+    externalName: string;
     externalSku: string;
     components?: ProductBundleComponentInput[];
     actor: Actor;
   },
-): Promise<{ id: string; channel: string; externalSku: string; components: ProductBundleComponentInput[] }> {
+): Promise<{ id: string; channel: string; externalName: string; externalSku: string; components: ProductBundleComponentInput[] }> {
   const channel = normalizeProductSkuChannel(input.channel ?? "legacy");
   if (!channel) throw new WmsError("invalid", "通路不可為空。 ");
   const externalSku = normalizeExternalSku(input.externalSku);
   if (!externalSku) throw new WmsError("invalid", "外部 SKU 不可為空。 ");
+  const externalName = input.externalName.trim();
+  if (!externalName) throw new WmsError("invalid", "通路商品名稱不可為空。 ");
+  const components = validateBundleComponents(input.components);
+  if (!components.length) throw new WmsError("invalid", "至少要設定一個組合用料。 ");
+  const firstComponent = components[0];
+  if (!firstComponent) throw new WmsError("invalid", "至少要設定一個組合用料。 ");
+  const inventoryItemId = firstComponent.inventoryItemId;
 
   const [mapping] = await db
     .select({
       id: productSkuMappings.id,
       inventoryItemId: productSkuMappings.inventoryItemId,
       channel: productSkuMappings.channel,
+      externalName: productSkuMappings.externalName,
       externalSku: productSkuMappings.externalSku,
       itemSku: inventoryItems.sku,
       itemName: inventoryItems.name,
@@ -315,11 +355,10 @@ export async function updateProductSkuMapping(
   const [item] = await db
     .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
     .from(inventoryItems)
-    .where(eq(inventoryItems.id, input.inventoryItemId));
+    .where(eq(inventoryItems.id, inventoryItemId));
   if (!item) throw new WmsError("not_found", "找不到這項商品。 ");
   if (!item.sku) throw new WmsError("invalid", "請先設定 WMS SKU，才能建立外部 SKU 對應。 ");
 
-  const components = validateBundleComponents(input.components);
   const componentItems = components.length
     ? await db
       .select({ id: inventoryItems.id, sku: inventoryItems.sku })
@@ -333,12 +372,11 @@ export async function updateProductSkuMapping(
     throw new WmsError("invalid", "請先設定組合商品用料的 WMS SKU。 ");
   }
 
-  const [skuOwner] = await db
+  const skuOwners = await db
     .select({ id: inventoryItems.id })
     .from(inventoryItems)
-    .where(sql`UPPER(${inventoryItems.sku}) = ${externalSku}`)
-    .limit(1);
-  if (skuOwner && skuOwner.id !== input.inventoryItemId) {
+    .where(sql`UPPER(${inventoryItems.sku}) = ${externalSku}`);
+  if (skuOwners.some((owner) => owner.id !== inventoryItemId)) {
     throw new WmsError("conflict", `外部 SKU「${externalSku}」與其他商品的 WMS SKU 衝突。 `);
   }
 
@@ -358,8 +396,9 @@ export async function updateProductSkuMapping(
   await db.batch([
     db.update(productSkuMappings)
       .set({
-        inventoryItemId: input.inventoryItemId,
+        inventoryItemId,
         channel,
+        externalName,
         externalSku,
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
@@ -383,11 +422,13 @@ export async function updateProductSkuMapping(
         before: {
           inventoryItemId: mapping.inventoryItemId,
           channel: mapping.channel,
+          externalName: mapping.externalName,
           externalSku: mapping.externalSku,
         },
         after: {
-          inventoryItemId: input.inventoryItemId,
+          inventoryItemId,
           channel,
+          externalName,
           externalSku,
           components,
         },
@@ -397,7 +438,7 @@ export async function updateProductSkuMapping(
     })),
   ]);
 
-  return { id: input.id, channel, externalSku, components };
+  return { id: input.id, channel, externalName, externalSku, components };
 }
 
 export async function deleteProductSkuMapping(

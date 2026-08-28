@@ -29,6 +29,7 @@ function matches(mapping: ProductSkuMapping, search: string): boolean {
   if (!search) return true;
   return [
     mapping.channel,
+    mapping.externalName,
     mapping.externalSku,
     mapping.itemSku ?? "",
     mapping.itemName,
@@ -67,7 +68,7 @@ export function SkuMappings() {
     const term = search.trim().toLocaleLowerCase("zh-TW");
     return mappings.filter((mapping) =>
       (channelFilter === "all" || mapping.channel === channelFilter)
-      && (category === "all" || mapping.itemCategory === category)
+      && (category === "all" || mapping.itemCategory === category || mapping.components.some((component) => component.category === category))
       && matches(mapping, term),
     );
   }, [category, channelFilter, mappings, search]);
@@ -75,11 +76,11 @@ export function SkuMappings() {
     <div className="page fills">
       <PageHeader
         title="SKU 對應"
-        description={<>把蝦皮、CYBERBIZ 或其他通路的 SKU 對應到 WMS 商品，報表匯入後就能使用同一份商品名稱、正式 SKU 與分類。</>}
+        description={<>把通路商品名稱與 SKU 對應到一個以上的 WMS 組合用料，報表匯入後就能使用同一份正式 SKU、商品名稱與分類。</>}
       />
 
       {canWrite ? (
-        <Panel title="新增對應" description="一般商品直接選 WMS 商品；組合商品可再設定多個用料與每組數量。">
+        <Panel title="新增對應" description="填寫通路商品資料，再設定至少一個 WMS 組合用料；一對一商品的用料數量填 1。">
           <Button icon="plus" onClick={() => setMappingDialog("new")}>
             新增對應
           </Button>
@@ -96,7 +97,7 @@ export function SkuMappings() {
             label="搜尋"
             className="search-input"
             type="search"
-            placeholder="搜尋外部 SKU、WMS SKU、商品或分類"
+            placeholder="搜尋通路商品、外部 SKU、WMS SKU 或分類"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -127,8 +128,9 @@ export function SkuMappings() {
             <thead>
               <tr>
                 <th>通路</th>
+                <th>通路商品</th>
                 <th>外部 SKU</th>
-                <th>WMS 商品</th>
+                <th>WMS 組合用料</th>
                 <th>分類</th>
                 <th>建立時間</th>
                 {canWrite ? <th /> : null}
@@ -138,13 +140,18 @@ export function SkuMappings() {
               {visible.map((mapping) => (
                 <tr key={mapping.id}>
                   <td data-label="通路"><span className="status status-tone-slate">{productSkuChannelLabel(mapping.channel)}</span></td>
+                  <td data-label="通路商品">
+                    <div className="cell-strong">{mapping.externalName || "未設定通路商品名稱"}</div>
+                  </td>
                   <td data-label="外部 SKU"><span className="cell-strong">{mapping.externalSku}</span></td>
-                  <td data-label="WMS 商品">
-                    <div className="cell-strong">{mapping.itemName}</div>
-                    <div className="cell-sub">{mapping.itemSku ?? "未設定正式 SKU"}</div>
-                    {mapping.components.length ? (
-                      <div className="cell-sub">組合：{mapping.components.map((component) => `${component.sku ?? component.name} × ${component.quantity}`).join("、")}</div>
-                    ) : null}
+                  <td data-label="WMS 組合用料">
+                    {mapping.components.length ? mapping.components.map((component) => (
+                      <div className="cell-sub" key={`${mapping.id}-${component.inventoryItemId}`}>
+                        {component.sku ?? component.name} × {component.quantity}
+                      </div>
+                    )) : (
+                      <div className="cell-sub">{mapping.itemSku ?? mapping.itemName} × 1</div>
+                    )}
                   </td>
                   <td data-label="分類"><span className={`status status-tone-${mapping.itemCategoryColor ?? "slate"}`}>{mapping.itemCategory}</span></td>
                   <td data-label="建立時間" className="cell-sub whitespace-nowrap">{formatTime(mapping.createdAt)}</td>
@@ -213,7 +220,7 @@ export function SkuMappings() {
           }
         >
           <p>
-            {productSkuChannelLabel(deleting.channel)} SKU <strong>{deleting.externalSku}</strong> 將不再對應到 WMS 商品「{deleting.itemName}」。
+            {productSkuChannelLabel(deleting.channel)} 商品 <strong>{deleting.externalName || deleting.externalSku}</strong> 將不再對應到 WMS 組合用料。
           </p>
         </ConfirmDialog>
       ) : null}

@@ -400,6 +400,13 @@
       "when": 1787933255116,
       "tag": "0056_add_product_bundle_components",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1787935844136,
+      "tag": "0057_add_product_sku_mapping_name",
+      "breakpoints": true
     }
   ]
 }

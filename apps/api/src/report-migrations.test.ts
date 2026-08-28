@@ -125,4 +125,21 @@ describe("報表 scope migration", () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM product_bundle_components").get())
       .toEqual({ count: 0 });
   });
+
+  it("0057 會補回既有 mapping 的通路商品名稱與一對一用料", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0056_add_product_bundle_components.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-1", "WMS-001", "WMS 商品一");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_sku) VALUES (?, ?, ?, ?)")
+      .run("legacy-mapping", "item-1", "shopee", "PRODUCT-001");
+
+    applyLikeD1(sqlite, "0056_add_product_bundle_components.sql", "0057_add_product_sku_mapping_name.sql");
+
+    expect(sqlite.prepare("SELECT external_name FROM product_sku_mappings WHERE id = ?").get("legacy-mapping"))
+      .toEqual({ external_name: "WMS 商品一" });
+    expect(sqlite.prepare("SELECT mapping_id, inventory_item_id, quantity FROM product_bundle_components").all())
+      .toEqual([{ mapping_id: "legacy-mapping", inventory_item_id: "item-1", quantity: 1 }]);
+  });
 });

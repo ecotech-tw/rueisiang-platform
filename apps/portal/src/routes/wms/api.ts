@@ -109,6 +109,7 @@ export interface ProductSkuMapping {
   id: string;
   inventoryItemId: string;
   channel: string;
+  externalName: string;
   externalSku: string;
   createdAt: string;
   updatedAt: string;
@@ -242,31 +243,31 @@ export function useAddProductSkuMapping() {
 
 export function useCreateProductSkuMapping() {
   return useWarehouseMutation(
-    ({ inventoryItemId, channel, externalSku, components }: {
-      inventoryItemId: string;
+    ({ channel, externalName, externalSku, components }: {
       channel?: string;
+      externalName: string;
       externalSku: string;
-      components?: Array<{ inventoryItemId: string; quantity: number }>;
-    }) => write<{ id: string; channel: string; externalSku: string }>(
+      components: Array<{ inventoryItemId: string; quantity: number }>;
+    }) => write<{ id: string; channel: string; externalName: string; externalSku: string }>(
       "/api/wms/product-sku-mappings",
       "POST",
-      { inventoryItemId, channel, externalSku, components },
+      { channel, externalName, externalSku, components },
     ),
   );
 }
 
 export function useUpdateProductSkuMapping() {
   return useWarehouseMutation(
-    ({ mappingId, inventoryItemId, channel, externalSku, components }: {
+    ({ mappingId, channel, externalName, externalSku, components }: {
       mappingId: string;
-      inventoryItemId: string;
       channel?: string;
+      externalName: string;
       externalSku: string;
-      components?: Array<{ inventoryItemId: string; quantity: number }>;
-    }) => write<{ id: string; channel: string; externalSku: string; components: Array<{ inventoryItemId: string; quantity: number }> }>(
+      components: Array<{ inventoryItemId: string; quantity: number }>;
+    }) => write<{ id: string; channel: string; externalName: string; externalSku: string; components: Array<{ inventoryItemId: string; quantity: number }> }>(
       `/api/wms/product-sku-mappings/${mappingId}`,
       "PATCH",
-      { inventoryItemId, channel, externalSku, components },
+      { channel, externalName, externalSku, components },
     ),
   );
 }
