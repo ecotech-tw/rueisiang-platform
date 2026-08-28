@@ -24,6 +24,7 @@ import {
   linkItemToCyberbiz,
   listActivity,
   listCompanyLinks,
+  loadProductSkuMappingManagement,
   listProductSkuMappings,
   loadWarehouse,
   markLinkFailed,
@@ -247,6 +248,11 @@ export const wms = new Hono<AppEnv>()
         pageSize: [25, 50, 100].includes(size) ? size : 25,
       }),
     );
+  })
+
+  /** SKU 對應管理頁只需要商品主檔與 mapping，不必取得倉位地圖資料。 */
+  .get("/product-sku-mappings", requirePermission("wms:inventory:read"), async (c) => {
+    return c.json(await loadProductSkuMappingManagement(c.get("db")));
   })
 
   /** 新增一個外部通路 SKU 對應到 WMS 商品。 */

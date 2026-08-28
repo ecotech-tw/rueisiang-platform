@@ -84,9 +84,13 @@ export * as schema from "./schema/index.js";
 export {
   addProductSkuMapping,
   deleteProductSkuMapping,
+  loadProductSkuMappingManagement,
   listProductSkuMappings,
   normalizeExternalSku,
   resolveProductSkus,
+  type ProductSkuMappingItemOption,
+  type ProductSkuMappingManagementData,
+  type ProductSkuMappingManagementRow,
   type ProductSkuMappingRow,
   type ResolvedProductSku,
 } from "./product-sku-mappings.js";

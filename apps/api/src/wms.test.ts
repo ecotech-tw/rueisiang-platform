@@ -8,6 +8,7 @@ import {
   productSkuMappings,
   zoneImages,
   users,
+  userPermissions,
   userRoles,
   zones,
 } from "@rueisiang/db/schema";
@@ -303,6 +304,43 @@ describe("外部 SKU 對應", () => {
     expect(warehousePayload.items[0]?.externalSkus).toEqual([
       expect.objectContaining({ externalSku: "SHOPEE-001" }),
     ]);
+  });
+
+  it("SKU mapping 管理 API 回傳對應與可選的 WMS 商品", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "WMS-001", name: "黑色肩背包", category: "一般備品" },
+      { id: "i2", sku: "WMS-002", name: "紙箱", category: "包裝材料" },
+    ]);
+    await db.insert(productSkuMappings).values({
+      id: "mapping-1", inventoryItemId: "i1", externalSku: "SHOPEE-001",
+    });
+
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { mappings: unknown[]; items: unknown[] };
+    expect(payload.mappings).toMatchObject([{
+      id: "mapping-1",
+      inventoryItemId: "i1",
+      externalSku: "SHOPEE-001",
+      itemSku: "WMS-001",
+      itemName: "黑色肩背包",
+      itemCategory: "一般備品",
+    }]);
+    expect(payload.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "i1", sku: "WMS-001", name: "黑色肩背包" }),
+      expect.objectContaining({ id: "i2", sku: "WMS-002", name: "紙箱" }),
+    ]));
+  });
+
+  it("管理頁只需要庫存檢視權限，不需要倉位地圖權限", async () => {
+    const id = await seedUser("inventory-viewer@ecotech.tw", null);
+    await db.insert(userPermissions).values({ userId: id, permission: "wms:inventory:read" });
+
+    const response = await as(id, "inventory-viewer@ecotech.tw", "/api/wms/product-sku-mappings");
+
+    expect(response.status).toBe(200);
   });
 
   it("同一個外部 SKU 不可對應到不同 WMS 商品", async () => {

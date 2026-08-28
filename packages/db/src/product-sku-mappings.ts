@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
@@ -16,6 +16,24 @@ export interface ProductSkuMappingRow {
   externalSku: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProductSkuMappingManagementRow extends ProductSkuMappingRow {
+  itemSku: string | null;
+  itemName: string;
+  itemCategory: string;
+}
+
+export interface ProductSkuMappingItemOption {
+  id: string;
+  sku: string | null;
+  name: string;
+  category: string;
+}
+
+export interface ProductSkuMappingManagementData {
+  mappings: ProductSkuMappingManagementRow[];
+  items: ProductSkuMappingItemOption[];
 }
 
 export interface ResolvedProductSku {
@@ -36,6 +54,44 @@ export async function listProductSkuMappings(
     .from(productSkuMappings)
     .where(inventoryItemId ? eq(productSkuMappings.inventoryItemId, inventoryItemId) : undefined)
     .orderBy(productSkuMappings.externalSku);
+}
+
+/**
+ * SKU 對應管理頁需要的兩份資料。
+ *
+ * 商品名稱、正式 SKU 與分類都從 inventory_items 讀取，避免管理頁顯示一份過期的複本；
+ * items 只供新增 mapping 時選擇，不包含倉位、數量或其他不相關的倉儲資料。
+ */
+export async function loadProductSkuMappingManagement(
+  db: Database,
+): Promise<ProductSkuMappingManagementData> {
+  const [mappingRows, itemRows] = await Promise.all([
+    db
+      .select({
+        id: productSkuMappings.id,
+        inventoryItemId: productSkuMappings.inventoryItemId,
+        externalSku: productSkuMappings.externalSku,
+        createdAt: productSkuMappings.createdAt,
+        updatedAt: productSkuMappings.updatedAt,
+        itemSku: inventoryItems.sku,
+        itemName: inventoryItems.name,
+        itemCategory: inventoryItems.category,
+      })
+      .from(productSkuMappings)
+      .innerJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
+      .orderBy(asc(productSkuMappings.externalSku)),
+    db
+      .select({
+        id: inventoryItems.id,
+        sku: inventoryItems.sku,
+        name: inventoryItems.name,
+        category: inventoryItems.category,
+      })
+      .from(inventoryItems)
+      .orderBy(asc(inventoryItems.name)),
+  ]);
+
+  return { mappings: mappingRows, items: itemRows };
 }
 
 export async function addProductSkuMapping(

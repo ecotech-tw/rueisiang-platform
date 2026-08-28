@@ -87,6 +87,7 @@ export interface Warehouse {
 
 /** 所有倉儲的快取都掛在這個 key 底下，寫入之後一次失效。 */
 const WAREHOUSE_KEY = ["wms", "warehouse"] as const;
+const PRODUCT_SKU_MAPPINGS_KEY = ["wms", "product-sku-mappings"] as const;
 
 async function readError(response: Response): Promise<never> {
   const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
@@ -100,6 +101,40 @@ export function useWarehouse() {
       const response = await fetch("/api/wms/warehouse", { credentials: "same-origin" });
       if (!response.ok) await readError(response);
       return (await response.json()) as Warehouse;
+    },
+  });
+}
+
+export interface ProductSkuMapping {
+  id: string;
+  inventoryItemId: string;
+  externalSku: string;
+  createdAt: string;
+  updatedAt: string;
+  itemSku: string | null;
+  itemName: string;
+  itemCategory: string;
+}
+
+export interface ProductSkuMappingItemOption {
+  id: string;
+  sku: string | null;
+  name: string;
+  category: string;
+}
+
+export interface ProductSkuMappingData {
+  mappings: ProductSkuMapping[];
+  items: ProductSkuMappingItemOption[];
+}
+
+export function useProductSkuMappings() {
+  return useQuery({
+    queryKey: PRODUCT_SKU_MAPPINGS_KEY,
+    queryFn: async () => {
+      const response = await fetch("/api/wms/product-sku-mappings", { credentials: "same-origin" });
+      if (!response.ok) await readError(response);
+      return (await response.json()) as ProductSkuMappingData;
     },
   });
 }
@@ -125,12 +160,16 @@ async function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", paylo
  */
 function useWarehouseMutation<TArgs, TResult>(
   run: (args: TArgs) => Promise<TResult>,
+  additionalQueryKeys: readonly (readonly unknown[])[] = [],
 ) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: run,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY }),
+        ...additionalQueryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+      ]);
     },
   });
 }
@@ -177,14 +216,18 @@ export function useDeleteItem() {
 }
 
 export function useAddProductSkuMapping() {
-  return useWarehouseMutation(({ id, externalSku }: { id: string; externalSku: string }) =>
-    write<{ id: string; externalSku: string }>(`/api/wms/items/${id}/product-sku-mappings`, "POST", { externalSku }),
+  return useWarehouseMutation(
+    ({ id, externalSku }: { id: string; externalSku: string }) =>
+      write<{ id: string; externalSku: string }>(`/api/wms/items/${id}/product-sku-mappings`, "POST", { externalSku }),
+    [PRODUCT_SKU_MAPPINGS_KEY],
   );
 }
 
 export function useDeleteProductSkuMapping() {
-  return useWarehouseMutation(({ itemId, mappingId }: { itemId: string; mappingId: string }) =>
-    write<{ ok: true }>(`/api/wms/items/${itemId}/product-sku-mappings/${mappingId}`, "DELETE"),
+  return useWarehouseMutation(
+    ({ itemId, mappingId }: { itemId: string; mappingId: string }) =>
+      write<{ ok: true }>(`/api/wms/items/${itemId}/product-sku-mappings/${mappingId}`, "DELETE"),
+    [PRODUCT_SKU_MAPPINGS_KEY],
   );
 }
 
