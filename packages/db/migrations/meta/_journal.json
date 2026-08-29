@@ -428,6 +428,13 @@
       "when": 1788040000000,
       "tag": "0060_component_level_custom_sku",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1788018763229,
+      "tag": "0061_repair_snapshot_chain",
+      "breakpoints": true
     }
   ]
 }
