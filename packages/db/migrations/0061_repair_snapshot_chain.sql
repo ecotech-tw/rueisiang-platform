@@ -1,0 +1,9 @@
+-- 只修 drizzle 的 meta 快照，資料庫不動，所以這支刻意是空的。
+--
+-- 0055 起的 snapshot 少了六張表（product_sku_mappings、product_bundle_components、
+-- custom_report_products 與三張 report_*），又留著 0049 已經刪掉的 cyberbiz_report_manifests。
+-- 結果是 `pnpm generate` 會跳出「這是改名還是新表？」的互動提示，非互動環境直接失敗——
+-- 任何人要改 schema 都被卡住。
+--
+-- 0061_snapshot.json 換成直接由 src/schema 產出的完整快照，之後 generate 回報
+-- 「No schema changes」。
