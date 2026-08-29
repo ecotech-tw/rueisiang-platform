@@ -1,0 +1,16 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+
+  // tools/ 刻意留在 pnpm workspace 之外（自己的 npm lockfile 與 selftest）。
+  // Knip 這一步跑在 tools 各自的 npm ci 之前，看不到它們的 node_modules 與
+  // 進入點，會把整包當成沒有入口的散檔全部判成死碼——第一次 baseline 的
+  // 88 筆裡有 33 筆是這個原因。要掃它們得在各自 npm ci 之後單獨跑。
+  "ignore": ["tools/**"],
+
+  "rules": {
+    // 匯出的型別幾乎全被判 unused：各頁 api.ts 與 ui/index.ts 的型別多半是
+    // 給 consumer 寫 inline 型別用的，報出來沒有可行動的結論。先關掉，
+    // 這一輪只看檔案、值的 export 與依賴。
+    "types": "off"
+  }
+}
