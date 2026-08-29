@@ -85,7 +85,6 @@ export {
   addProductSkuMapping,
   deleteProductSkuMapping,
   loadProductSkuMappingManagement,
-  listProductSkuMappings,
   normalizeExternalSku,
   normalizeProductSkuChannel,
   resolveProductSkus,

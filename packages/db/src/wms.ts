@@ -1,8 +1,9 @@
-import { and, asc, count, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 import {
+  customReportProducts,
   cyberbizProductLinks,
   inventoryItems,
   layoutElements,
@@ -174,7 +175,7 @@ export async function loadWarehouse(db: Database) {
     .from(warehouseSettings)
     .where(eq(warehouseSettings.id, SETTINGS_ID));
 
-  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, mappingRows, componentRows] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows] = await Promise.all([
     db.select().from(zones).orderBy(asc(zones.code)),
     db.select().from(layoutElements).orderBy(asc(layoutElements.label)),
     db.select().from(productCategories).orderBy(asc(productCategories.name)),
@@ -188,39 +189,10 @@ export async function loadWarehouse(db: Database) {
      * 踩過一次（quantity 拿到 minStock 的值）。分開查再自己配對，沒有那個問題。
      */
     db.select().from(cyberbizProductLinks),
-    db.select().from(productSkuMappings).orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku)),
-    db.select({ mappingId: productBundleComponents.mappingId, inventoryItemId: productBundleComponents.inventoryItemId })
-      .from(productBundleComponents),
   ]);
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
   const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
-  /*
-   * owned 分辨「這筆 mapping 是本商品的」與「本商品只是它的用料」。
-   *
-   * 兩者都要顯示（刪除保護會擋用料，使用者得看得到是哪一筆擋住），但只有前者可以在
-   * 商品表單上移除——刪掉一筆組合 mapping 會連帶清掉其他用料，那不該由用料商品觸發。
-   */
-  const mappingsByItem = new Map<string, Array<{ id: string; channel: string; externalSku: string; owned: boolean }>>();
-  const mappingsById = new Map(mappingRows.map((mapping) => [mapping.id, mapping]));
-  const addMappingToItem = (itemId: string, mapping: (typeof mappingRows)[number], owned: boolean) => {
-    const values = mappingsByItem.get(itemId) ?? [];
-    const existing = values.find((value) => value.id === mapping.id);
-    if (existing) {
-      existing.owned ||= owned;
-    } else {
-      values.push({ id: mapping.id, channel: mapping.channel, externalSku: mapping.externalSku, owned });
-    }
-    mappingsByItem.set(itemId, values);
-  };
-  for (const mapping of mappingRows) {
-    addMappingToItem(mapping.inventoryItemId, mapping, true);
-  }
-  for (const component of componentRows) {
-    const mapping = mappingsById.get(component.mappingId);
-    if (mapping) addMappingToItem(component.inventoryItemId, mapping, mapping.inventoryItemId === component.inventoryItemId);
-  }
-
   return {
     // 設定那一列可能還沒建（全新的資料庫），給預設值而不是回 null。
     settings: {
@@ -238,7 +210,6 @@ export async function loadWarehouse(db: Database) {
       const link = linksByItem.get(item.id);
       return {
         ...item,
-        externalSkus: mappingsByItem.get(item.id) ?? [],
         cyberbiz: link
           ? {
               cyberbizProductId: link.cyberbizProductId,
@@ -458,15 +429,42 @@ async function requireCategory(db: Database, name: string) {
   if (!row) throw new WmsError("invalid", "請選一個已經建立的商品分類。");
 }
 
-/** 外部 SKU 會拿來對應商品，不能讓另一個商品的正式 WMS SKU 佔用同一個值。 */
+/**
+ * 外部 SKU 與自訂 SKU 都不能被另一個商品的正式 WMS SKU 佔用。
+ *
+ * 兩邊撞在一起的話會寫進同一個 report_sales_monthly.sku 卻帶不同的名稱與分類，
+ * 報表就有兩個互相競爭的來源。這道檢查是商品這一側；對應那一側在
+ * product-sku-mappings.ts 的 requireExternalSkuAvailable 與 prepareComponentRows。
+ */
 async function requireSkuAvailableForExternalMappings(db: Database, sku: string | null, inventoryItemId?: string) {
   if (!sku) return;
-  const mappings = await db
-    .select({ inventoryItemId: productSkuMappings.inventoryItemId })
+  const conflicting = await db
+    .select({ channel: productSkuMappings.channel, externalSku: productSkuMappings.externalSku })
     .from(productSkuMappings)
-    .where(eq(productSkuMappings.externalSku, sku));
-  if (mappings.some((mapping) => mapping.inventoryItemId !== inventoryItemId)) {
-    throw new WmsError("conflict", `WMS SKU「${sku}」已被其他商品的外部 SKU 對應使用。`);
+    .leftJoin(productBundleComponents, and(
+      eq(productBundleComponents.mappingId, productSkuMappings.id),
+      inventoryItemId ? eq(productBundleComponents.inventoryItemId, inventoryItemId) : sql`0`,
+    ))
+    .where(and(eq(productSkuMappings.externalSku, sku), isNull(productBundleComponents.mappingId)))
+    .limit(1);
+  const owner = conflicting[0];
+  if (owner) {
+    throw new WmsError(
+      "conflict",
+      `WMS SKU「${sku}」已被外部 SKU 對應「${owner.channel} · ${owner.externalSku}」使用。`,
+    );
+  }
+
+  const [customOwner] = await db
+    .select({ sku: customReportProducts.sku, name: customReportProducts.name })
+    .from(customReportProducts)
+    .where(eq(customReportProducts.sku, sku))
+    .limit(1);
+  if (customOwner) {
+    throw new WmsError(
+      "conflict",
+      `WMS SKU「${sku}」已被自訂報表商品「${customOwner.name}」使用，請先改掉那筆自訂 SKU。`,
+    );
   }
 }
 
@@ -570,16 +568,16 @@ export async function updateItem(
 
   if (input.sku !== undefined && !next.sku) {
     const [mappingUse] = await db
-      .select({ id: productSkuMappings.id })
-      .from(productSkuMappings)
-      .leftJoin(productBundleComponents, eq(productBundleComponents.mappingId, productSkuMappings.id))
-      .where(or(
-        eq(productSkuMappings.inventoryItemId, id),
-        eq(productBundleComponents.inventoryItemId, id),
-      ))
+      .select({ channel: productSkuMappings.channel, externalSku: productSkuMappings.externalSku })
+      .from(productBundleComponents)
+      .innerJoin(productSkuMappings, eq(productSkuMappings.id, productBundleComponents.mappingId))
+      .where(eq(productBundleComponents.inventoryItemId, id))
       .limit(1);
     if (mappingUse) {
-      throw new WmsError("conflict", "這項商品還有外部 SKU 對應，不能清空 WMS SKU，請先移除對應。");
+      throw new WmsError(
+        "conflict",
+        `這項商品仍是外部 SKU 對應「${mappingUse.channel} · ${mappingUse.externalSku}」的用料，不能清空 WMS SKU。`,
+      );
     }
   }
   /*
@@ -616,30 +614,27 @@ export async function updateItem(
 export async function deleteItem(db: Database, id: string, actor: Actor) {
   const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
   if (!item) throw new WmsError("not_found", "找不到這項商品。");
+  /*
+   * 只要還被任何一筆對應當成用料就擋，並指出是哪一筆。
+   *
+   * 舊版有「主商品」的概念，刪掉主商品會連帶刪掉整筆對應——但那個「主商品」只是存檔
+   * 當下的第一列用料，同一個動作的後果會隨著排序改變。現在一律要求先去 SKU 對應頁處理，
+   * 行為固定，而且訊息說得出是哪一筆擋住（商品頁本來就看不到對應了）。
+   */
   const [componentUse] = await db
-    .select({ mappingId: productBundleComponents.mappingId })
+    .select({ channel: productSkuMappings.channel, externalSku: productSkuMappings.externalSku })
     .from(productBundleComponents)
     .innerJoin(productSkuMappings, eq(productSkuMappings.id, productBundleComponents.mappingId))
-    .where(and(
-      eq(productBundleComponents.inventoryItemId, id),
-      ne(productSkuMappings.inventoryItemId, id),
-    ))
+    .where(eq(productBundleComponents.inventoryItemId, id))
     .limit(1);
   if (componentUse) {
-    throw new WmsError("conflict", "這項商品仍是組合商品用料，請先移除組合對應再刪除。");
+    throw new WmsError(
+      "conflict",
+      `這項商品仍是外部 SKU 對應「${componentUse.channel} · ${componentUse.externalSku}」的用料，請先在 SKU 對應頁移除再刪除。`,
+    );
   }
 
-  const ownedMappings = await db
-    .select({ id: productSkuMappings.id })
-    .from(productSkuMappings)
-    .where(eq(productSkuMappings.inventoryItemId, id));
-  const ownedMappingIds = ownedMappings.map((mapping) => mapping.id);
-
   await db.batch([
-    db.delete(productBundleComponents).where(
-      ownedMappingIds.length ? inArray(productBundleComponents.mappingId, ownedMappingIds) : sql`0`,
-    ),
-    db.delete(productSkuMappings).where(eq(productSkuMappings.inventoryItemId, id)),
     db.delete(inventoryItems).where(eq(inventoryItems.id, id)),
     writeEvent(db, {
       entityType: "inventory_item",
@@ -763,6 +758,11 @@ export async function updateCategory(
       .update(inventoryItems)
       .set({ category: next.name, updatedAt: sql`CURRENT_TIMESTAMP` })
       .where(eq(inventoryItems.category, current.name)),
+    // 自訂報表商品跟 WMS 商品共用同一份分類主檔，改名要一起搬，否則報表停在舊分類。
+    db
+      .update(customReportProducts)
+      .set({ category: next.name, updatedAt: sql`CURRENT_TIMESTAMP` })
+      .where(eq(customReportProducts.category, current.name)),
     writeEvent(db, {
       entityType: "product_category",
       entityId: id,
@@ -782,13 +782,20 @@ export async function deleteCategory(db: Database, id: string, actor: Actor) {
   const [category] = await db.select().from(productCategories).where(eq(productCategories.id, id));
   if (!category) throw new WmsError("not_found", "找不到這個商品分類。");
 
-  // 沒有外鍵擋著（category 存的是名字），所以一定要自己查。
+  // 沒有外鍵擋著（category 存的是名字），所以一定要自己查。兩種商品都要算。
   const [usage] = await db
     .select({ total: count() })
     .from(inventoryItems)
     .where(eq(inventoryItems.category, category.name));
   if ((usage?.total ?? 0) > 0) {
     throw new WmsError("conflict", `還有 ${usage?.total} 項商品是這個分類，請先改成別的分類。`);
+  }
+  const [customUsage] = await db
+    .select({ total: count() })
+    .from(customReportProducts)
+    .where(eq(customReportProducts.category, category.name));
+  if ((customUsage?.total ?? 0) > 0) {
+    throw new WmsError("conflict", `還有 ${customUsage?.total} 個自訂報表商品是這個分類，請先改成別的分類。`);
   }
 
   await db.batch([

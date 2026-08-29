@@ -31,10 +31,7 @@ function matches(mapping: ProductSkuMapping, search: string): boolean {
     mapping.channel,
     mapping.externalName,
     mapping.externalSku,
-    mapping.itemSku ?? "",
-    mapping.itemName,
-    mapping.itemCategory,
-    ...mapping.components.flatMap((component) => [component.sku ?? "", component.name, component.category]),
+    ...mapping.components.flatMap((component) => [component.sku, component.name, component.category]),
   ]
     .some((value) => value.toLocaleLowerCase("zh-TW").includes(search));
 }
@@ -60,15 +57,22 @@ export function SkuMappings() {
     () => [...new Set(mappings.map((mapping) => mapping.channel))].sort((a, b) => productSkuChannelLabel(a).localeCompare(productSkuChannelLabel(b), "zh-TW")),
     [mappings],
   );
-  const categories = useMemo(
-    () => [...new Set(items.map((item) => item.category))].sort((a, b) => a.localeCompare(b, "zh-TW")),
-    [items],
-  );
+  /*
+   * 沒填分類的自訂用料存成「未分類」，但那不一定是分類主檔裡的一列（全新資料庫沒有）。
+   * 不補進來的話那些對應在分類篩選裡選不到。
+   */
+  const categories = useMemo(() => {
+    const names = new Set(data?.categories ?? []);
+    for (const mapping of data?.mappings ?? []) {
+      for (const component of mapping.components) names.add(component.category);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, "zh-TW"));
+  }, [data]);
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("zh-TW");
     return mappings.filter((mapping) =>
       (channelFilter === "all" || mapping.channel === channelFilter)
-      && (category === "all" || mapping.itemCategory === category || mapping.components.some((component) => component.category === category))
+      && (category === "all" || mapping.components.some((component) => component.category === category))
       && matches(mapping, term),
     );
   }, [category, channelFilter, mappings, search]);
@@ -76,11 +80,11 @@ export function SkuMappings() {
     <div className="page fills">
       <PageHeader
         title="SKU 對應"
-        description={<>把通路商品名稱與 SKU 對應到一個以上的 WMS 組合用料，報表匯入後就能使用同一份正式 SKU、商品名稱與分類。</>}
+        description={<>把通路商品對應到一個以上的組合用料。用料可以是 WMS 商品，也可以是不入庫的自訂 SKU——不同通路指到同一個自訂 SKU，報表就會統計成同一個商品。</>}
       />
 
       {canWrite ? (
-        <Panel title="新增對應" description="填寫通路商品資料，再設定至少一個 WMS 組合用料；一對一商品的用料數量填 1。">
+        <Panel title="新增對應" description="填寫通路商品資料，再設定至少一個組合用料；一對一商品的用料數量填 1。">
           <Button icon="plus" onClick={() => setMappingDialog("new")}>
             新增對應
           </Button>
@@ -130,7 +134,7 @@ export function SkuMappings() {
                 <th>通路</th>
                 <th>通路商品</th>
                 <th>外部 SKU</th>
-                <th>WMS 組合用料</th>
+                <th>組合用料</th>
                 <th>分類</th>
                 <th>建立時間</th>
                 {canWrite ? <th /> : null}
@@ -144,16 +148,19 @@ export function SkuMappings() {
                     <div className="cell-strong">{mapping.externalName || "未設定通路商品名稱"}</div>
                   </td>
                   <td data-label="外部 SKU"><span className="cell-strong">{mapping.externalSku}</span></td>
-                  <td data-label="WMS 組合用料">
-                    {mapping.components.length ? mapping.components.map((component) => (
-                      <div className="cell-sub" key={`${mapping.id}-${component.inventoryItemId}`}>
-                        {component.sku ?? component.name} × {component.quantity}
+                  <td data-label="組合用料">
+                    {mapping.components.map((component) => (
+                      <div className="cell-sub" key={component.customProductId ?? component.inventoryItemId ?? component.sku}>
+                        {component.sku} × {component.quantity}
+                        {component.source === "custom" ? <span className="status status-tone-slate">自訂</span> : null}
                       </div>
-                    )) : (
-                      <div className="cell-sub">{mapping.itemSku ?? mapping.itemName} × 1</div>
-                    )}
+                    ))}
                   </td>
-                  <td data-label="分類"><span className={`status status-tone-${mapping.itemCategoryColor ?? "slate"}`}>{mapping.itemCategory}</span></td>
+                  <td data-label="分類">
+                    {[...new Set(mapping.components.map((component) => component.category))].map((name) => (
+                      <span className="status status-tone-slate" key={name}>{name}</span>
+                    ))}
+                  </td>
                   <td data-label="建立時間" className="cell-sub whitespace-nowrap">{formatTime(mapping.createdAt)}</td>
                   {canWrite ? (
                     <td data-label="操作">
@@ -194,6 +201,7 @@ export function SkuMappings() {
 
       {mappingDialog ? (
         <SkuMappingDialog
+          categories={categories}
           key={mappingDialog === "new" ? "new" : mappingDialog.id}
           mapping={mappingDialog === "new" ? undefined : mappingDialog}
           items={items}
@@ -209,7 +217,7 @@ export function SkuMappings() {
           onCancel={() => setDeleting(null)}
           onConfirm={() =>
             remove.mutate(
-              { itemId: deleting.inventoryItemId, mappingId: deleting.id },
+              { mappingId: deleting.id },
               {
                 onSuccess: () => {
                   toast.show(`已移除${productSkuChannelLabel(deleting.channel)} SKU「${deleting.externalSku}」`);
@@ -220,7 +228,7 @@ export function SkuMappings() {
           }
         >
           <p>
-            {productSkuChannelLabel(deleting.channel)} 商品 <strong>{deleting.externalName || deleting.externalSku}</strong> 將不再對應到 WMS 組合用料。
+            {productSkuChannelLabel(deleting.channel)} 商品 <strong>{deleting.externalName || deleting.externalSku}</strong> 將不再對應到任何組合用料。
           </p>
         </ConfirmDialog>
       ) : null}

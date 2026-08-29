@@ -25,7 +25,6 @@ import {
   listActivity,
   listCompanyLinks,
   loadProductSkuMappingManagement,
-  listProductSkuMappings,
   loadWarehouse,
   markLinkFailed,
   markLinkSynced,
@@ -37,6 +36,7 @@ import {
   updateProductSkuMapping,
   updateWarehouseSettings,
   updateZone,
+  type ProductBundleComponentInput,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import type { AppEnv } from "../env.js";
@@ -99,35 +99,31 @@ function text(input: Record<string, unknown>, field: string): string | undefined
   return typeof value === "string" ? value.trim() : undefined;
 }
 
-function bundleComponents(
-  input: Record<string, unknown>,
-  required = false,
-): Array<{ inventoryItemId: string; quantity: number }> | undefined {
-  if (input.components === undefined) {
-    if (required) throw new HTTPException(400, { message: "至少要設定一個組合用料。" });
-    return undefined;
+/**
+ * 組合用料。每一列是 WMS 商品或自訂 SKU，恰有一種——哪一種由 packages/db 判定，
+ * 這裡只負責把 JSON 攤成型別對的形狀。
+ */
+function bundleComponents(input: Record<string, unknown>): ProductBundleComponentInput[] {
+  if (!Array.isArray(input.components) || input.components.length === 0) {
+    throw new HTTPException(400, { message: "至少要設定一個組合用料。" });
   }
-  if (!Array.isArray(input.components)) {
-    throw new HTTPException(400, { message: "組合商品用料的格式不正確。" });
-  }
-  const components = input.components.map((value) => {
+  return input.components.map((value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new HTTPException(400, { message: "組合商品用料的格式不正確。" });
+      throw new HTTPException(400, { message: "組合用料的格式不正確。" });
     }
     const component = value as Record<string, unknown>;
     const quantity = component.quantity;
     if (typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity <= 0) {
-      throw new HTTPException(400, { message: "組合商品用料數量必須是大於 0 的整數。" });
+      throw new HTTPException(400, { message: "組合用料數量必須是大於 0 的整數。" });
     }
     return {
-      inventoryItemId: requireString(component, "inventoryItemId", "組合商品用料"),
+      inventoryItemId: typeof component.inventoryItemId === "string" ? component.inventoryItemId : null,
+      customSku: typeof component.customSku === "string" ? component.customSku : null,
+      customName: typeof component.customName === "string" ? component.customName : null,
+      customCategory: typeof component.customCategory === "string" ? component.customCategory : null,
       quantity,
     };
   });
-  if (required && components.length === 0) {
-    throw new HTTPException(400, { message: "至少要設定一個組合用料。" });
-  }
-  return components;
 }
 
 /**
@@ -282,7 +278,7 @@ export const wms = new Hono<AppEnv>()
     );
   })
 
-  /** SKU 對應管理頁只需要商品主檔與 mapping，不必取得倉位地圖資料。 */
+  /** SKU 對應會改變報表匯入結果，頁面與讀取資料刻意限主管/管理員，不等同一般庫存唯讀。 */
   .get("/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
     return c.json(await loadProductSkuMappingManagement(c.get("db")));
   })
@@ -292,7 +288,7 @@ export const wms = new Hono<AppEnv>()
     const input = await body(c);
     const user = c.get("user");
     const result = await addProductSkuMapping(c.get("db"), {
-      components: bundleComponents(input, true),
+      components: bundleComponents(input),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalName: requireString(input, "externalName", "通路商品名稱"),
       externalSku: requireString(input, "externalSku", "外部 SKU"),
@@ -309,44 +305,14 @@ export const wms = new Hono<AppEnv>()
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalName: requireString(input, "externalName", "通路商品名稱"),
       externalSku: requireString(input, "externalSku", "外部 SKU"),
-      components: bundleComponents(input, true),
+      components: bundleComponents(input),
       actor: { id: user.id, email: user.email },
     });
     return c.json(result);
   })
 
-  /** 新增一個外部通路 SKU 對應到 WMS 商品。 */
-  .post("/items/:id/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
-    const input = await body(c);
+  .delete("/product-sku-mappings/:mappingId", requirePermission("wms:inventory:write"), async (c) => {
     const user = c.get("user");
-    const result = await addProductSkuMapping(c.get("db"), {
-      inventoryItemId: c.req.param("id"),
-      channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
-      externalSku: requireString(input, "externalSku", "外部 SKU"),
-      actor: { id: user.id, email: user.email },
-    });
-    return c.json(result, 201);
-  })
-
-  .delete("/items/:id/product-sku-mappings/:mappingId", requirePermission("wms:inventory:write"), async (c) => {
-    const user = c.get("user");
-    const mappings = await listProductSkuMappings(c.get("db"), c.req.param("id"));
-    const mapping = mappings.find((candidate) => candidate.id === c.req.param("mappingId"));
-    if (!mapping) {
-      throw new HTTPException(404, { message: "找不到這筆商品外部 SKU 對應。" });
-    }
-    /*
-     * 只有 mapping 的主商品能從商品頁刪掉它。
-     *
-     * listProductSkuMappings 也會用 component join 比中「本商品只是某個組合的用料」的
-     * mapping，而 deleteProductSkuMapping 刪的是整筆＋所有用料。少了這道檢查，在一個
-     * 不相干的原料商品上誤點「移除」就會毀掉別人的組合對應，下一次該通路匯入整月 422。
-     */
-    if (mapping.inventoryItemId !== c.req.param("id")) {
-      throw new HTTPException(409, {
-        message: `這項商品是組合對應「${mapping.externalSku}」的用料，請到 SKU 對應頁調整該筆對應。`,
-      });
-    }
     await deleteProductSkuMapping(c.get("db"), c.req.param("mappingId"), { id: user.id, email: user.email });
     return c.json({ ok: true });
   })

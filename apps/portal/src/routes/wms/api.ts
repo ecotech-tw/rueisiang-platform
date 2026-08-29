@@ -56,8 +56,6 @@ export interface InventoryItem {
   shelfLevel: string | null;
   notes: string;
   updatedAt: string;
-  // owned=false 代表本商品只是這筆組合對應的用料，不是它的主商品：可以看，不能從這裡移除。
-  externalSkus: Array<{ id: string; channel: string; externalSku: string; owned: boolean }>;
   /** 連到 CYBERBIZ 的哪一個款式。地圖與庫存頁都要看得出來。 */
   cyberbiz: CyberbizLink | null;
 }
@@ -109,25 +107,31 @@ export function useWarehouse() {
 
 export interface ProductSkuMapping {
   id: string;
-  inventoryItemId: string;
   channel: string;
   externalName: string;
   externalSku: string;
   createdAt: string;
   updatedAt: string;
-  itemSku: string | null;
-  itemName: string;
-  itemCategory: string;
-  itemCategoryColor: string | null;
   components: ProductBundleComponent[];
 }
 
+/** 一列用料的來源二選一：WMS 商品，或報表自訂商品。 */
 export interface ProductBundleComponent {
-  inventoryItemId: string;
-  quantity: number;
-  sku: string | null;
+  source: "item" | "custom";
+  inventoryItemId: string | null;
+  customProductId: string | null;
+  sku: string;
   name: string;
   category: string;
+  quantity: number;
+}
+
+export interface ProductBundleComponentInput {
+  inventoryItemId?: string | null;
+  customSku?: string | null;
+  customName?: string | null;
+  customCategory?: string | null;
+  quantity: number;
 }
 
 export interface ProductSkuMappingItemOption {
@@ -140,12 +144,12 @@ export interface ProductSkuMappingItemOption {
 export interface ProductSkuMappingData {
   mappings: ProductSkuMapping[];
   items: ProductSkuMappingItemOption[];
+  categories: string[];
 }
 
 export const PRODUCT_SKU_CHANNEL_OPTIONS = [
   { value: "cyberbiz", label: "CYBERBIZ（官網 / POS）" },
   { value: "shopee", label: "蝦皮" },
-  { value: "momo", label: "momo" },
 ] as const;
 
 export function productSkuChannelLabel(channel: string): string {
@@ -241,48 +245,41 @@ export function useDeleteItem() {
   return useWarehouseMutation((id: string) => write<{ ok: true }>(`/api/wms/items/${id}`, "DELETE"));
 }
 
-export function useAddProductSkuMapping() {
-  return useWarehouseMutation(
-    ({ id, channel, externalSku }: { id: string; channel?: string; externalSku: string }) =>
-      write<{ id: string; channel: string; externalSku: string }>(`/api/wms/items/${id}/product-sku-mappings`, "POST", { channel, externalSku }),
-  );
-}
-
 export function useCreateProductSkuMapping() {
   return useWarehouseMutation(
-    ({ channel, externalName, externalSku, components }: {
+    (payload: {
       channel?: string;
       externalName: string;
       externalSku: string;
-      components: Array<{ inventoryItemId: string; quantity: number }>;
+      components: ProductBundleComponentInput[];
     }) => write<{ id: string; channel: string; externalName: string; externalSku: string }>(
       "/api/wms/product-sku-mappings",
       "POST",
-      { channel, externalName, externalSku, components },
+      payload,
     ),
   );
 }
 
 export function useUpdateProductSkuMapping() {
   return useWarehouseMutation(
-    ({ mappingId, channel, externalName, externalSku, components }: {
+    ({ mappingId, ...payload }: {
       mappingId: string;
       channel?: string;
       externalName: string;
       externalSku: string;
-      components: Array<{ inventoryItemId: string; quantity: number }>;
-    }) => write<{ id: string; channel: string; externalName: string; externalSku: string; components: Array<{ inventoryItemId: string; quantity: number }> }>(
+      components: ProductBundleComponentInput[];
+    }) => write<{ id: string; channel: string; externalName: string; externalSku: string }>(
       `/api/wms/product-sku-mappings/${mappingId}`,
       "PATCH",
-      { channel, externalName, externalSku, components },
+      payload,
     ),
   );
 }
 
 export function useDeleteProductSkuMapping() {
   return useWarehouseMutation(
-    ({ itemId, mappingId }: { itemId: string; mappingId: string }) =>
-      write<{ ok: true }>(`/api/wms/items/${itemId}/product-sku-mappings/${mappingId}`, "DELETE"),
+    ({ mappingId }: { mappingId: string }) =>
+      write<{ ok: true }>(`/api/wms/product-sku-mappings/${mappingId}`, "DELETE"),
   );
 }
 

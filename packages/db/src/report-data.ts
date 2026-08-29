@@ -9,6 +9,8 @@ import {
   type ReportScope,
   type ReportScopeKind,
 } from "./schema/reports.js";
+import { customReportProducts, inventoryItems, productBundleComponents, productSkuMappings } from "./schema/wms.js";
+import { legacyShopeeExternalSku, reportScopeChannel } from "./product-sku-mappings.js";
 
 export type { ReportScopeKind } from "./schema/reports.js";
 
@@ -347,9 +349,56 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
   if (!ids.length) return null;
   const groups = selectedGroups(query.groupBy?.length ? query.groupBy : ["sku"]);
   const dimensions = groups.map((group) => SALES_GROUPS[group]);
+  const requestedSku = query.sku?.trim();
+  // 這次查詢涵蓋的通路；legacy 一律納入，那是還沒標通路的舊 mapping。
+  const aliasChannels = [...new Set([...ids.map(reportScopeChannel), "legacy"])];
+  const legacyAlias = requestedSku ? legacyShopeeExternalSku(requestedSku) : "";
+  const aliasKeys = requestedSku
+    ? [...new Set([requestedSku, ...(legacyAlias ? [legacyAlias] : [])])]
+    : [];
   const filters = [
     monthConditions(sql`${reportSalesMonthly.reportMonth}`, sql`${reportSalesMonthly.scopeId}`, query.range, ids),
-    ...(query.sku ? [sql`lower(${reportSalesMonthly.sku}) = lower(${query.sku})`] : []),
+    /*
+     * 外部 SKU 也查得到，但不能因此把別的商品算進來。
+     *
+     * 四道限制：
+     * (1) 只有查詢值本身不是任何 WMS SKU 時才走 mapping 這條路。external_sku 允許等於
+     *     另一個商品的 WMS SKU（見「外部 SKU 等於非第一順位用料的 WMS SKU 不算衝突」），
+     *     不擋的話查香皂會連整個組合的資料一起加總。
+     * (2) 只認一對一的對應。report_sales_monthly 是以 SKU 為粒度，沒有保留「這筆組合貢獻
+     *     了多少」，所以組合的用料數字裡混著該用料的直接銷售與其他組合的展開——把那個
+     *     總和當成這個組合的銷售回報出去會是錯的。
+     * (3) 只認這次查詢涵蓋的通路（外加 legacy 舊資料）。只比 external_sku 的話，
+     *     CYBERBIZ 的別名會撈出蝦皮同一個正式 SKU 的資料列，即使蝦皮根本沒有那個別名。
+     * (4) 對應寫進報表的 SKU 一律從用料即時解析（WMS 商品或報表自訂商品），不留第二份
+     *     快照——商品改名 SKU 之後快照不會跟著動，匯入寫新值、查詢查舊值就會查無資料。
+     *
+     * 蝦皮的別名另外吃 legacyShopeeExternalSku：匯入端允許「商品ID_規格ID」回退到只有
+     * 商品 ID 的舊 mapping，查詢端沒有跟上的話同一個值查得到匯入卻查不到報表。
+     */
+    ...(requestedSku ? [sql`(
+      lower(${reportSalesMonthly.sku}) = lower(${requestedSku})
+      OR (
+        NOT EXISTS (
+          SELECT 1 FROM ${inventoryItems} AS wmsItem
+          WHERE lower(wmsItem.sku) = lower(${requestedSku})
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM ${productSkuMappings} AS mapping
+          JOIN ${productBundleComponents} AS component ON component.mapping_id = mapping.id
+          LEFT JOIN ${inventoryItems} AS componentItem ON componentItem.id = component.inventory_item_id
+          LEFT JOIN ${customReportProducts} AS customProduct ON customProduct.id = component.custom_product_id
+          WHERE lower(mapping.external_sku) IN (${sql.join(aliasKeys.map((key) => sql`lower(${key})`), sql`, `)})
+            AND mapping.channel IN (${sql.join(aliasChannels.map((channel) => sql`${channel}`), sql`, `)})
+            AND lower(COALESCE(componentItem.sku, customProduct.sku)) = lower(${reportSalesMonthly.sku})
+            AND (
+              SELECT COUNT(*) FROM ${productBundleComponents} AS sibling
+              WHERE sibling.mapping_id = mapping.id
+            ) = 1
+        )
+      )
+    )`] : []),
     ...(query.category ? [sql`lower(${reportSalesMonthly.category}) = lower(${query.category})`] : []),
     ...(query.productName ? [sql`lower(${reportSalesMonthly.productName}) LIKE lower(${`%${query.productName}%`})`] : []),
   ];

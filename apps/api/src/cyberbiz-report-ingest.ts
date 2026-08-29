@@ -173,9 +173,10 @@ async function normalizeSalesRows(
     );
   }
 
-  // 先 mapping 再加總：多個通路 SKU 可能對應同一個 WMS SKU，不能在外部 SKU 階段結束加總。
-  // 只要有 components 就展開到實際 WMS SKU；組合包的銷售額只放在 mapping 的主商品，避免
-  // 重複加總但仍保留整筆 CYBERBIZ 金額。蝦皮 salesAmount 本來就是 0，所以不會產生商品金額。
+  // 先 mapping 再加總：多個通路 SKU 可能對應同一個 system SKU，不能在外部 SKU 階段結束加總。
+  // 一般 WMS mapping 維持既有組合用料展開，讓庫存商品可以統計實際用量；沒有 WMS 主商品
+  // 的自訂 mapping 則以 system SKU 保存一筆商品銷售，避免蝦皮 Product ID 與 CYBERBIZ SKU
+  // 因為被拆成不同的第一個用料而無法合併。自訂 mapping 的組合用料仍保留在設定中。
   const rows = new Map<string, {
     scopeId: string;
     reportMonth: string;
@@ -190,37 +191,27 @@ async function normalizeSalesRows(
   }>();
   for (const row of parsed) {
     const item = resolved.get(row.externalSku)!;
-    // 主商品不在用料裡時才退而求其次取第一個；resolveProductSkus 已依商品名稱排序料件，
-    // 所以同一個月份重匯不會換一個料件收金額。
-    const amountTargetId = item.components.some((component) => component.inventoryItemId === item.inventoryItemId)
-      ? item.inventoryItemId
-      : item.components[0]?.inventoryItemId;
-    const targets = item.components.length
-      ? item.components.map((component) => ({
-        ...component,
-        multiplier: component.quantity,
-        allocatedSalesAmount: component.inventoryItemId === amountTargetId ? row.salesAmount : 0,
-      }))
-      : [{
-        sku: item.sku,
-        name: item.name,
-        category: item.category,
-        multiplier: 1,
-        allocatedSalesAmount: row.salesAmount,
-      }];
-    for (const target of targets) {
-      const key = `${row.reportMonth}\u0000${target.sku}`;
+    /*
+     * 每一筆對應都展開成用料，沒有例外。
+     *
+     * 銷售額整筆放在第一列用料上：拆分沒有正確答案（報表只給整筆金額），重複計算又會
+     * 讓月營收灌水。用料的排序在 resolveProductSkus 是決定性的，所以重匯不會換一列收錢。
+     * 名稱與分類直接取用料自己的來源（WMS 商品或自訂報表商品），兩者都只有一份，
+     * 不需要再比較誰比較 canonical。
+     */
+    for (const [index, component] of item.components.entries()) {
+      const key = `${row.reportMonth}::${component.sku}`;
       const previous = rows.get(key);
       rows.set(key, {
         scopeId: input.scopeId,
         reportMonth: row.reportMonth,
-        sku: target.sku,
-        productName: target.name,
-        category: target.category,
-        grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity * target.multiplier,
-        returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity * target.multiplier,
-        netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity * target.multiplier,
-        salesAmount: (previous?.salesAmount ?? 0) + target.allocatedSalesAmount,
+        sku: component.sku,
+        productName: previous?.productName ?? component.name,
+        category: previous?.category ?? component.category,
+        grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity * component.quantity,
+        returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity * component.quantity,
+        netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity * component.quantity,
+        salesAmount: (previous?.salesAmount ?? 0) + (index === 0 ? row.salesAmount : 0),
         updatedAt: new Date().toISOString(),
       });
     }

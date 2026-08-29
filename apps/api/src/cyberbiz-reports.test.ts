@@ -2,6 +2,7 @@ import {
   createDatabase,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
+  schema,
   upsertReportScope,
   type ReportGroupBy,
 } from "@rueisiang/db";
@@ -122,6 +123,62 @@ describe("報表月資料查詢", () => {
     const result = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "company", sku: "SKU-NOT-FOUND" });
     expect(result).toMatchObject({ status: "ok", rows: [], totals: { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 } });
     expect(result.message).toContain("篩選條件");
+  });
+
+  it("查外部 SKU 會經由用料換算成系統 SKU", async () => {
+    await db().insert(schema.inventoryItems).values({
+      id: "item-1", sku: "SKU-1", name: "商品一", category: "沐浴",
+    });
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-1", channel: "cyberbiz", externalName: "商品一", externalSku: "P-001_M-001",
+    });
+    await db().insert(schema.productBundleComponents).values({
+      id: "mapping-1:0", mappingId: "mapping-1", inventoryItemId: "item-1", customProductId: null, quantity: 1,
+    });
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "company", sku: "P-001_M-001",
+    });
+    expect(result.rows).toMatchObject([{ sku: "SKU-1" }]);
+    expect(result.totals.netQuantity).toBe(4);
+  });
+
+  it("查詢值本身是 WMS SKU 時不會把別筆 mapping 的商品一起加總", async () => {
+    await db().insert(schema.inventoryItems).values([
+      { id: "item-1", sku: "SKU-1", name: "商品一", category: "沐浴" },
+      { id: "item-2", sku: "SKU-2", name: "商品二", category: "食品" },
+    ]);
+    // external_sku 允許等於另一個商品的 WMS SKU；查 SKU-1 不該把 SKU-2 的資料算進來。
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-cross", channel: "cyberbiz", externalName: "商品二", externalSku: "SKU-1",
+    });
+    await db().insert(schema.productBundleComponents).values({
+      id: "mapping-cross:0", mappingId: "mapping-cross", inventoryItemId: "item-2", customProductId: null, quantity: 1,
+    });
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "company", sku: "SKU-1",
+    });
+    expect(result.rows).toMatchObject([{ sku: "SKU-1" }]);
+    expect(result.totals.netQuantity).toBe(4);
+  });
+
+  it("別的通路的別名不會被算進來", async () => {
+    await db().insert(schema.inventoryItems).values({
+      id: "item-1", sku: "SKU-1", name: "商品一", category: "沐浴",
+    });
+    // scope 是 cyberbiz，蝦皮的別名不該讓 cyberbiz 的查詢命中。
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-shopee-only", channel: "shopee", externalName: "商品一", externalSku: "P-999_M-999",
+    });
+    await db().insert(schema.productBundleComponents).values({
+      id: "mapping-shopee-only:000", mappingId: "mapping-shopee-only", inventoryItemId: "item-1", customProductId: null, quantity: 1,
+    });
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "company", sku: "P-999_M-999",
+    });
+    expect(result.rows).toEqual([]);
   });
 
   it("出金仍以據點與日期做 aggregate", async () => {
