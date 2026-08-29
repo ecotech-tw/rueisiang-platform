@@ -21,8 +21,15 @@ export function normalizeProductSkuChannel(value: string): string {
   return value.trim().toLowerCase();
 }
 
+/** 從 scope ID 前綴推導通路；沒有前綴的舊資料一律當 legacy。 */
+export function reportScopeChannel(scopeId: string): string {
+  const [prefix, scopePart] = scopeId.split(":", 2);
+  if (!scopePart) return "legacy";
+  return normalizeProductSkuChannel(prefix ?? "") || "legacy";
+}
+
 /** 蝦皮新報表會把規格 ID 接在商品 ID 後；舊 mapping 仍可能只有商品 ID。 */
-function legacyShopeeExternalSku(value: string): string {
+export function legacyShopeeExternalSku(value: string): string {
   const separator = value.indexOf("_");
   return separator > 0 ? value.slice(0, separator) : "";
 }
@@ -92,6 +99,20 @@ export interface ResolvedProductSkuComponent {
 const SKU_LOOKUP_BATCH_SIZE = 50;
 
 /**
+ * 依 SKU_LOOKUP_BATCH_SIZE 分批送出 IN 查詢。
+ *
+ * D1 單支 SQL 的 bound parameter 有上限，而報表可能一次帶進數百個用料。本機測試抓不到：
+ * node:sqlite 允許 32766 個參數，D1 沒那麼多，所以漏掉分批只會在正式環境炸。
+ */
+async function inBatches<T, R>(values: T[], run: (batch: T[]) => Promise<R[]>): Promise<R[]> {
+  const results: R[] = [];
+  for (let offset = 0; offset < values.length; offset += SKU_LOOKUP_BATCH_SIZE) {
+    results.push(...await run(values.slice(offset, offset + SKU_LOOKUP_BATCH_SIZE)));
+  }
+  return results;
+}
+
+/**
  * SKU 對應管理頁需要的資料。
  *
  * 通路商品名稱存於 mapping；用料的 SKU、名稱與分類一律從 inventory_items 或
@@ -156,17 +177,15 @@ export async function loadProductSkuMappingManagement(
   }
   const itemById = new Map(itemRows.map((row) => [row.id, row]));
   const customIds = [...new Set(componentRows.map((row) => row.customProductId).filter((id): id is string => !!id))];
-  const customRows = customIds.length
-    ? await db
-      .select({
-        id: customReportProducts.id,
-        sku: customReportProducts.sku,
-        name: customReportProducts.name,
-        category: customReportProducts.category,
-      })
-      .from(customReportProducts)
-      .where(inArray(customReportProducts.id, customIds))
-    : [];
+  const customRows = await inBatches(customIds, (batch) => db
+    .select({
+      id: customReportProducts.id,
+      sku: customReportProducts.sku,
+      name: customReportProducts.name,
+      category: customReportProducts.category,
+    })
+    .from(customReportProducts)
+    .where(inArray(customReportProducts.id, batch)));
   const customById = new Map(customRows.map((row) => [row.id, row]));
   for (const row of componentRows) {
     const list = componentsByMapping.get(row.mappingId) ?? [];
@@ -333,10 +352,17 @@ async function prepareComponentRows(
   const customIdBySku = new Map(existingCustom.map((row) => [row.sku, row.id]));
 
   const customProducts: CustomProductWrite[] = [];
+  /*
+   * 序號補零。
+   *
+   * 兩處讀取都以 id 排序，而 id 是字典序：不補零的話 `:10` 會排在 `:2` 前面，
+   * 十個用料以上的組合在管理頁就會照被打亂的順序顯示，重存還會照那個順序重新編號。
+   */
   const rows = components.map((component, index) => {
+    const rowId = `${mappingId}:${String(index).padStart(3, "0")}`;
     if (component.inventoryItemId) {
       return {
-        id: `${mappingId}:${index}`,
+        id: rowId,
         mappingId,
         inventoryItemId: component.inventoryItemId,
         customProductId: null,
@@ -355,7 +381,7 @@ async function prepareComponentRows(
       exists: !!existingId,
     });
     return {
-      id: `${mappingId}:${index}`,
+      id: rowId,
       mappingId,
       inventoryItemId: null,
       customProductId,
@@ -388,6 +414,7 @@ async function requireExternalSkuAvailable(
   db: Database,
   externalSku: string,
   componentItemIds: string[],
+  customProductSkus: string[],
 ): Promise<void> {
   const owners = await db
     .select({ id: inventoryItems.id })
@@ -396,6 +423,24 @@ async function requireExternalSkuAvailable(
   const allowed = new Set(componentItemIds);
   if (owners.some((owner) => !allowed.has(owner.id))) {
     throw new WmsError("conflict", `外部 SKU「${externalSku}」與其他商品的 WMS SKU 衝突。`);
+  }
+
+  /*
+   * 外部 SKU 也不能撞到別筆對應在用的自訂 SKU。
+   *
+   * 撞到的話報表查那個值會同時命中「這個自訂商品自己的資料列」與「別名指向的用料」，
+   * 兩個商品的數字混在一起。自己這筆對應正在用的那個自訂 SKU 不算衝突。
+   */
+  const [customOwner] = await db
+    .select({ sku: customReportProducts.sku, name: customReportProducts.name })
+    .from(customReportProducts)
+    .where(eq(customReportProducts.sku, externalSku))
+    .limit(1);
+  if (customOwner && !customProductSkus.includes(customOwner.sku)) {
+    throw new WmsError(
+      "conflict",
+      `外部 SKU「${externalSku}」已是自訂報表商品「${customOwner.name}」的系統 SKU，請換一個外部 SKU。`,
+    );
   }
 }
 
@@ -421,6 +466,7 @@ export async function addProductSkuMapping(
     db,
     externalSku,
     components.map((component) => component.inventoryItemId).filter((id): id is string => !!id),
+    components.map((component) => component.customSku).filter((sku): sku is string => !!sku),
   );
 
   const [existing] = await db
@@ -492,6 +538,7 @@ export async function updateProductSkuMapping(
     db,
     externalSku,
     components.map((component) => component.inventoryItemId).filter((id): id is string => !!id),
+    components.map((component) => component.customSku).filter((sku): sku is string => !!sku),
   );
 
   const [existing] = await db
@@ -552,8 +599,36 @@ export async function deleteProductSkuMapping(
     .where(eq(productSkuMappings.id, id));
   if (!mapping) throw new WmsError("not_found", "找不到這筆外部 SKU 對應。");
 
+  /*
+   * 順手回收沒人再參照的自訂報表商品。
+   *
+   * 留著的話它會永久占住那個 SKU：之後把 WMS 商品改成同一個 SKU 會被擋下，而錯誤訊息
+   * 叫使用者去改一筆他在畫面上根本看不到、也刪不掉的資料。
+   */
+  const orphanCandidates = await db
+    .select({ customProductId: productBundleComponents.customProductId })
+    .from(productBundleComponents)
+    .where(eq(productBundleComponents.mappingId, id));
+  const candidateIds = [...new Set(orphanCandidates
+    .map((row) => row.customProductId)
+    .filter((value): value is string => !!value))];
+  const stillUsed = candidateIds.length
+    ? await db
+      .select({ customProductId: productBundleComponents.customProductId })
+      .from(productBundleComponents)
+      .where(and(
+        inArray(productBundleComponents.customProductId, candidateIds),
+        ne(productBundleComponents.mappingId, id),
+      ))
+    : [];
+  const usedIds = new Set(stillUsed.map((row) => row.customProductId));
+  const orphanIds = candidateIds.filter((customProductId) => !usedIds.has(customProductId));
+
   await db.batch([
     db.delete(productSkuMappings).where(eq(productSkuMappings.id, id)),
+    ...(orphanIds.length
+      ? [db.delete(customReportProducts).where(inArray(customReportProducts.id, orphanIds))]
+      : []),
     db.insert(activityEvents).values(activityRow({
       entityType: "product_sku_mapping",
       entityId: id,
@@ -658,23 +733,19 @@ export async function resolveProductSkus(
    */
   const componentItemIds = [...new Set(componentRows.map((row) => row.inventoryItemId).filter((id): id is string => !!id))];
   const componentCustomIds = [...new Set(componentRows.map((row) => row.customProductId).filter((id): id is string => !!id))];
-  const componentItems = componentItemIds.length
-    ? await db
-      .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name, category: inventoryItems.category })
-      .from(inventoryItems)
-      .where(inArray(inventoryItems.id, componentItemIds))
-    : [];
-  const componentCustoms = componentCustomIds.length
-    ? await db
-      .select({
-        id: customReportProducts.id,
-        sku: customReportProducts.sku,
-        name: customReportProducts.name,
-        category: customReportProducts.category,
-      })
-      .from(customReportProducts)
-      .where(inArray(customReportProducts.id, componentCustomIds))
-    : [];
+  const componentItems = await inBatches(componentItemIds, (batch) => db
+    .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name, category: inventoryItems.category })
+    .from(inventoryItems)
+    .where(inArray(inventoryItems.id, batch)));
+  const componentCustoms = await inBatches(componentCustomIds, (batch) => db
+    .select({
+      id: customReportProducts.id,
+      sku: customReportProducts.sku,
+      name: customReportProducts.name,
+      category: customReportProducts.category,
+    })
+    .from(customReportProducts)
+    .where(inArray(customReportProducts.id, batch)));
   const itemById = new Map(componentItems.map((row) => [row.id, row]));
   const customById = new Map(componentCustoms.map((row) => [row.id, row]));
   for (const component of componentRows) {
@@ -730,24 +801,4 @@ export async function resolveProductSkus(
     }
   }
   return resolved;
-}
-
-/** 分類改名時自訂報表商品要跟著改，否則報表會停在舊分類。 */
-export async function renameCustomReportProductCategory(
-  db: Database,
-  from: string,
-  to: string,
-): Promise<void> {
-  await db.update(customReportProducts)
-    .set({ category: to, updatedAt: sql`CURRENT_TIMESTAMP` })
-    .where(eq(customReportProducts.category, from));
-}
-
-/** 分類還被幾個自訂報表商品使用；刪分類前要問。 */
-export async function countCustomReportProductsInCategory(db: Database, category: string): Promise<number> {
-  const rows = await db
-    .select({ id: customReportProducts.id })
-    .from(customReportProducts)
-    .where(eq(customReportProducts.category, category));
-  return rows.length;
 }

@@ -57,7 +57,17 @@ export function SkuMappings() {
     () => [...new Set(mappings.map((mapping) => mapping.channel))].sort((a, b) => productSkuChannelLabel(a).localeCompare(productSkuChannelLabel(b), "zh-TW")),
     [mappings],
   );
-  const categories = data?.categories ?? [];
+  /*
+   * 沒填分類的自訂用料存成「未分類」，但那不一定是分類主檔裡的一列（全新資料庫沒有）。
+   * 不補進來的話那些對應在分類篩選裡選不到。
+   */
+  const categories = useMemo(() => {
+    const names = new Set(data?.categories ?? []);
+    for (const mapping of data?.mappings ?? []) {
+      for (const component of mapping.components) names.add(component.category);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, "zh-TW"));
+  }, [data]);
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("zh-TW");
     return mappings.filter((mapping) =>

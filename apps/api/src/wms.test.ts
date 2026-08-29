@@ -451,6 +451,82 @@ describe("外部 SKU 對應", () => {
       .toEqual([{ sku: "ABX30001", name: "日光花園三入自選禮盒（改版）" }]);
   });
 
+  it("刪除對應會回收沒人再用的自訂報表商品，還有人用的留著", async () => {
+    const id = await seedAdmin();
+    const make = (channel: string, externalSku: string) => as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        channel,
+        externalName: "日光花園三入自選禮盒",
+        externalSku,
+        components: [{ customSku: "ABX30001", customName: "日光花園三入自選禮盒", quantity: 1 }],
+      }),
+    });
+    const first = await make("cyberbiz", "ABX30001");
+    const second = await make("shopee", "2649_2162");
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    const firstId = (await first.json() as { id: string }).id;
+    const secondId = (await second.json() as { id: string }).id;
+
+    // 還有另一筆對應在用，自訂商品要留著。
+    expect((await as(id, "admin@ecotech.tw", `/api/wms/product-sku-mappings/${firstId}`, { method: "DELETE" })).status).toBe(200);
+    expect(await db.select().from(customReportProducts)).toHaveLength(1);
+
+    // 最後一筆也刪掉之後才回收；留著的話它會永久占住 ABX30001 這個 SKU。
+    expect((await as(id, "admin@ecotech.tw", `/api/wms/product-sku-mappings/${secondId}`, { method: "DELETE" })).status).toBe(200);
+    expect(await db.select().from(customReportProducts)).toEqual([]);
+  });
+
+  it("外部 SKU 不可撞到別筆對應在用的自訂 SKU", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values({ id: "i1", sku: "SOAP-001", name: "香皂", category: "一般備品" });
+    expect((await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        channel: "cyberbiz",
+        externalName: "禮盒",
+        externalSku: "ABX30001",
+        components: [{ customSku: "ABX30001", customName: "禮盒", quantity: 1 }],
+      }),
+    })).status).toBe(201);
+
+    const clashing = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        channel: "shopee",
+        externalName: "別的商品",
+        externalSku: "ABX30001",
+        components: [{ inventoryItemId: "i1", quantity: 1 }],
+      }),
+    });
+    expect(clashing.status).toBe(409);
+  });
+
+  it("分類改名與刪除都要把自訂報表商品算進去", async () => {
+    const id = await seedAdmin();
+    await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        channel: "cyberbiz",
+        externalName: "禮盒",
+        externalSku: "ABX30001",
+        components: [{ customSku: "ABX30001", customName: "禮盒", customCategory: "一般備品", quantity: 1 }],
+      }),
+    });
+    const [category] = await db.select().from(productCategories);
+
+    // 還有自訂商品在用就不准刪。
+    expect((await as(id, "admin@ecotech.tw", `/api/wms/categories/${category?.id}`, { method: "DELETE" })).status).toBe(409);
+
+    // 改名要一起搬，否則報表停在舊分類。
+    expect((await as(id, "admin@ecotech.tw", `/api/wms/categories/${category?.id}`, {
+      method: "PATCH", body: JSON.stringify({ name: "日用品" }),
+    })).status).toBe(200);
+    expect(await db.select({ category: customReportProducts.category }).from(customReportProducts))
+      .toEqual([{ category: "日用品" }]);
+  });
+
   it("自訂用料可跨通路共用，且不可與 WMS SKU 重複", async () => {
     const id = await seedAdmin();
     await db.insert(inventoryItems).values([
@@ -509,12 +585,17 @@ describe("外部 SKU 對應", () => {
       ]),
     });
 
-    // 換成純 WMS 用料只是改用料，不需要另一個「對應方式」開關。
+    /*
+     * 換成純 WMS 用料只是改用料，不需要另一個「對應方式」開關。
+     *
+     * 外部 SKU 一併換掉：另一個通路還在用 ABX30001 這個自訂商品，繼續拿它當別名的話
+     * 報表查 ABX30001 會同時命中自訂商品自己的資料列與這裡的用料，兩個商品混在一起。
+     */
     const converted = await as(id, "admin@ecotech.tw", `/api/wms/product-sku-mappings/${mapping.id}`, {
       method: "PATCH",
       body: JSON.stringify({
         externalName: "日光花園三入自選禮盒",
-        externalSku: "ABX30001",
+        externalSku: "CB-BOX-001",
         components: [{ inventoryItemId: "i1", quantity: 1 }],
       }),
     });

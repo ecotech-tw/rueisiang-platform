@@ -58,9 +58,22 @@ CREATE TABLE `product_bundle_components_new` (
 );
 --> statement-breakpoint
 -- 有 WMS 主商品的 mapping：用料原封不動搬過去。
+--
+-- id 決定用料順序，而匯入端把整筆銷售額記在第一列用料上。所以舊的「主商品」
+-- （mapping.inventory_item_id）一定要拿到 :000，其餘依商品 id 接在後面——用
+-- mapping_id||inventory_item_id 當 id 的話等於照 UUID 排序，重匯一個已經匯過的月份
+-- 會靜默地把整筆組合的營收換一個 SKU 收。
 INSERT INTO `product_bundle_components_new` (`id`, `mapping_id`, `inventory_item_id`, `custom_product_id`, `quantity`)
 SELECT
-	`component`.`mapping_id` || ':' || `component`.`inventory_item_id`,
+	`component`.`mapping_id` || ':' || SUBSTR('000' || (
+		CASE WHEN `component`.`inventory_item_id` = `mapping`.`inventory_item_id` THEN 0 ELSE (
+			SELECT COUNT(*) + 1
+			FROM `product_bundle_components` AS `earlier`
+			WHERE `earlier`.`mapping_id` = `component`.`mapping_id`
+				AND `earlier`.`inventory_item_id` <> `mapping`.`inventory_item_id`
+				AND `earlier`.`inventory_item_id` < `component`.`inventory_item_id`
+		) END
+	), -3),
 	`component`.`mapping_id`,
 	`component`.`inventory_item_id`,
 	NULL,
@@ -73,7 +86,7 @@ WHERE `mapping`.`inventory_item_id` IS NOT NULL;
 -- 所以照現在的實際輸出轉成單一自訂用料，匯入結果不變。要展開成材料消耗再自己加。
 INSERT INTO `product_bundle_components_new` (`id`, `mapping_id`, `inventory_item_id`, `custom_product_id`, `quantity`)
 SELECT
-	`mapping`.`id` || ':custom',
+	`mapping`.`id` || ':000',
 	`mapping`.`id`,
 	NULL,
 	`custom`.`id`,

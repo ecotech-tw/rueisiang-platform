@@ -77,9 +77,16 @@ export function SkuMappingDialog({
   const itemOptions = items
     .filter((item) => item.sku)
     .map((item) => ({ label: `${item.sku} · ${item.name}`, value: item.id }));
+  /*
+   * 編輯既有的自訂用料時，它的分類可能已經不在主檔裡（分類被刪掉，或就是預設的「未分類」）。
+   * 不補進選項的話下拉會顯示成空白，一存檔就把原本的分類洗掉。
+   */
+  const usedCategories = components
+    .map((component) => component.customCategory)
+    .filter((name) => name && !categories.includes(name));
   const categoryOptions = [
     { label: "未分類", value: "" },
-    ...categories.map((name) => ({ label: name, value: name })),
+    ...[...new Set([...categories, ...usedCategories])].map((name) => ({ label: name, value: name })),
   ];
 
   function patchComponent(index: number, patch: Partial<ComponentDraft>) {

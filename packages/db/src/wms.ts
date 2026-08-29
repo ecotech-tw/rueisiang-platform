@@ -758,6 +758,11 @@ export async function updateCategory(
       .update(inventoryItems)
       .set({ category: next.name, updatedAt: sql`CURRENT_TIMESTAMP` })
       .where(eq(inventoryItems.category, current.name)),
+    // 自訂報表商品跟 WMS 商品共用同一份分類主檔，改名要一起搬，否則報表停在舊分類。
+    db
+      .update(customReportProducts)
+      .set({ category: next.name, updatedAt: sql`CURRENT_TIMESTAMP` })
+      .where(eq(customReportProducts.category, current.name)),
     writeEvent(db, {
       entityType: "product_category",
       entityId: id,
@@ -777,13 +782,20 @@ export async function deleteCategory(db: Database, id: string, actor: Actor) {
   const [category] = await db.select().from(productCategories).where(eq(productCategories.id, id));
   if (!category) throw new WmsError("not_found", "找不到這個商品分類。");
 
-  // 沒有外鍵擋著（category 存的是名字），所以一定要自己查。
+  // 沒有外鍵擋著（category 存的是名字），所以一定要自己查。兩種商品都要算。
   const [usage] = await db
     .select({ total: count() })
     .from(inventoryItems)
     .where(eq(inventoryItems.category, category.name));
   if ((usage?.total ?? 0) > 0) {
     throw new WmsError("conflict", `還有 ${usage?.total} 項商品是這個分類，請先改成別的分類。`);
+  }
+  const [customUsage] = await db
+    .select({ total: count() })
+    .from(customReportProducts)
+    .where(eq(customReportProducts.category, category.name));
+  if ((customUsage?.total ?? 0) > 0) {
+    throw new WmsError("conflict", `還有 ${customUsage?.total} 個自訂報表商品是這個分類，請先改成別的分類。`);
   }
 
   await db.batch([

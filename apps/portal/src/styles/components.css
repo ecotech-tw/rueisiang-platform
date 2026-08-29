@@ -791,8 +791,11 @@
 .sku-mapping-component + .sku-mapping-component { padding-top: 6px; }
 .sku-mapping-component-row > .field { min-width: 0; }
 @media (max-width: 620px) {
-  .sku-mapping-component-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .sku-mapping-component-row { grid-template-columns: minmax(0, 1fr) 40px; }
   .sku-mapping-component-row > .field:nth-child(-n + 2) { grid-column: 1 / -1; }
+  /* 選擇器要比上面那兩條 .is-custom-detail 更明確，否則名稱會留在第 2 欄、分類跑到畫面外。 */
+  .sku-mapping-component-row.is-custom-detail > .field:first-child,
+  .sku-mapping-component-row.is-custom-detail > .field:last-child { grid-column: 1 / -1; }
 }
 /*
  * 表格上方的工具列。先前它跟表頭之間沒有任何界線，看起來像黏在一起的兩排東西。
