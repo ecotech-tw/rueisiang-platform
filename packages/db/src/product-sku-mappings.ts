@@ -411,9 +411,17 @@ export async function updateProductSkuMapping(
   if (inventoryItemId && requestedSystemSku && item && normalizeExternalSku(item.sku ?? "") !== requestedSystemSku) {
     throw new WmsError("invalid", "WMS 商品的系統 SKU 會直接使用 WMS SKU，不能另外指定。");
   }
+  /*
+   * 從 WMS 對應轉成自訂時一定要明確給 system SKU。
+   *
+   * 沿用 mapping.systemSku 當預設值的話，拿到的是舊 WMS 商品的 SKU，接著必定被
+   * requireCustomSystemSkuAvailable 以「已是 WMS 商品 SKU」擋下——使用者看到的錯誤
+   * 跟他做的事對不起來，而且欄位是系統自己填的。
+   */
+  const wasCustom = mapping.inventoryItemId === null;
   const systemSku = inventoryItemId
     ? normalizeExternalSku(item?.sku ?? "")
-    : requestedSystemSku || normalizeExternalSku(mapping.systemSku ?? mapping.externalSku);
+    : requestedSystemSku || (wasCustom ? normalizeExternalSku(mapping.systemSku ?? "") : "");
   if (!systemSku) throw new WmsError("invalid", "自訂 SKU 對應必須填寫系統 SKU。");
   if (!inventoryItemId) await requireCustomSystemSkuAvailable(db, systemSku);
 
@@ -685,6 +693,13 @@ export async function resolveProductSkus(
       ? mapping.systemSku ?? mapping.sku ?? firstComponent?.sku
       : mapping.sku ?? firstComponent?.sku;
     const name = mapping.name || mapping.externalName || firstComponent?.name;
+    /*
+     * 自訂 mapping 沒有自己的分類，只能沿用排序最前面那個用料的分類。
+     *
+     * 這會失真：一個禮盒若第一個用料是外盒，就會被歸到「包裝材料」，query_sales_report
+     * 的分類篩選跟著錯，而且用料改名（排序變了）分類還會跟著變。要修正得讓
+     * product_sku_mappings 自己帶一個分類欄位，那是一次 schema 變更，先記在這裡。
+     */
     const category = mapping.category ?? firstComponent?.category;
     const inventoryItemId = mapping.inventoryItemId ?? firstComponent?.inventoryItemId;
     if (!sku || !name || !category || !inventoryItemId) continue;

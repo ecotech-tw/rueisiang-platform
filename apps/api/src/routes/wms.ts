@@ -296,9 +296,12 @@ export const wms = new Hono<AppEnv>()
         : input.inventoryItemId === undefined
           ? undefined
           : requireString(input, "inventoryItemId", "對應方式"),
+      // 三態要跟 inventoryItemId 一致：undefined 是「不要動」，null 是「清掉」，字串才驗必填。
       systemSku: input.systemSku === undefined
         ? undefined
-        : requireString(input, "systemSku", "系統 SKU"),
+        : input.systemSku === null
+          ? null
+          : requireString(input, "systemSku", "系統 SKU"),
       components: bundleComponents(input, true),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalName: requireString(input, "externalName", "通路商品名稱"),
@@ -318,9 +321,12 @@ export const wms = new Hono<AppEnv>()
         : input.inventoryItemId === undefined
           ? undefined
           : requireString(input, "inventoryItemId", "對應方式"),
+      // 三態要跟 inventoryItemId 一致：undefined 是「不要動」，null 是「清掉」，字串才驗必填。
       systemSku: input.systemSku === undefined
         ? undefined
-        : requireString(input, "systemSku", "系統 SKU"),
+        : input.systemSku === null
+          ? null
+          : requireString(input, "systemSku", "系統 SKU"),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalName: requireString(input, "externalName", "通路商品名稱"),
       externalSku: requireString(input, "externalSku", "外部 SKU"),

@@ -391,6 +391,64 @@ describe("外部 SKU 對應", () => {
       ]));
   });
 
+  it("商品的 WMS SKU 不可與自訂 SKU 對應的系統 SKU 衝突", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values([
+      { id: "i1", sku: "BOX-001", name: "禮盒外盒", category: "一般備品" },
+      { id: "i2", sku: "WMS-002", name: "商品二", category: "一般備品" },
+    ]);
+    const created = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        inventoryItemId: null,
+        channel: "cyberbiz",
+        systemSku: "ABX30001",
+        externalName: "日光花園三入自選禮盒",
+        externalSku: "ABX30001",
+        components: [{ inventoryItemId: "i1", quantity: 1 }],
+      }),
+    });
+    expect(created.status).toBe(201);
+
+    // 反向：先有自訂 mapping，再把商品改名成同一個 SKU，也要擋。
+    const renamed = await as(id, "admin@ecotech.tw", "/api/wms/items/i2", {
+      method: "PATCH", body: JSON.stringify({ sku: "ABX30001" }),
+    });
+    expect(renamed.status).toBe(409);
+    expect((await db.select().from(inventoryItems)).find((item) => item.id === "i2")?.sku).toBe("WMS-002");
+  });
+
+  it("編輯自訂 mapping 不帶 inventoryItemId 時維持自訂，不會誤用舊的 WMS SKU", async () => {
+    const id = await seedAdmin();
+    await db.insert(inventoryItems).values({
+      id: "i1", sku: "BOX-001", name: "禮盒外盒", category: "一般備品",
+    });
+    const created = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        inventoryItemId: null,
+        channel: "cyberbiz",
+        systemSku: "ABX30001",
+        externalName: "日光花園三入自選禮盒",
+        externalSku: "ABX30001",
+        components: [{ inventoryItemId: "i1", quantity: 1 }],
+      }),
+    });
+    const mapping = await created.json() as { id: string };
+
+    // 只改名稱：對應方式沒動，前端不送 inventoryItemId，systemSku 要原封不動。
+    const updated = await as(id, "admin@ecotech.tw", `/api/wms/product-sku-mappings/${mapping.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        externalName: "日光花園三入自選禮盒（改版）",
+        externalSku: "ABX30001",
+        components: [{ inventoryItemId: "i1", quantity: 1 }],
+      }),
+    });
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({ systemSku: "ABX30001" });
+  });
+
   it("可以建立沒有 WMS 主商品的自訂 SKU mapping", async () => {
     const id = await seedAdmin();
     await db.insert(inventoryItems).values([

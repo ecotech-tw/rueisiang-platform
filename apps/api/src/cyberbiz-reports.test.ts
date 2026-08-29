@@ -2,6 +2,7 @@ import {
   createDatabase,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
+  schema,
   upsertReportScope,
   type ReportGroupBy,
 } from "@rueisiang/db";
@@ -122,6 +123,41 @@ describe("報表月資料查詢", () => {
     const result = await createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "company", sku: "SKU-NOT-FOUND" });
     expect(result).toMatchObject({ status: "ok", rows: [], totals: { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 } });
     expect(result.message).toContain("篩選條件");
+  });
+
+  it("查外部 SKU 會換算成系統 SKU，而且不採信過期的 system_sku 快照", async () => {
+    await db().insert(schema.inventoryItems).values({
+      id: "item-1", sku: "SKU-1", name: "商品一", category: "沐浴",
+    });
+    // system_sku 是建立當下的快照；商品之後改名 SKU 時不會跟著動。
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-1", inventoryItemId: "item-1", channel: "shopee",
+      externalSku: "P-001_M-001", systemSku: "SKU-OLD",
+    });
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "company", sku: "P-001_M-001",
+    });
+    expect(result.rows).toMatchObject([{ sku: "SKU-1" }]);
+    expect(result.totals.netQuantity).toBe(4);
+  });
+
+  it("查詢值本身是 WMS SKU 時不會把別筆 mapping 的商品一起加總", async () => {
+    await db().insert(schema.inventoryItems).values([
+      { id: "item-1", sku: "SKU-1", name: "商品一", category: "沐浴" },
+      { id: "item-2", sku: "SKU-2", name: "商品二", category: "食品" },
+    ]);
+    // external_sku 允許等於另一個商品的 WMS SKU；查 SKU-1 不該把 SKU-2 的資料算進來。
+    await db().insert(schema.productSkuMappings).values({
+      id: "mapping-cross", inventoryItemId: "item-2", channel: "shopee",
+      externalSku: "SKU-1", systemSku: "SKU-2",
+    });
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "company", sku: "SKU-1",
+    });
+    expect(result.rows).toMatchObject([{ sku: "SKU-1" }]);
+    expect(result.totals.netQuantity).toBe(4);
   });
 
   it("出金仍以據點與日期做 aggregate", async () => {

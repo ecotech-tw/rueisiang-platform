@@ -44,7 +44,8 @@ export function SkuMappingDialog({
     ];
   const [externalName, setExternalName] = useState(mapping?.externalName ?? "");
   const [externalSku, setExternalSku] = useState(mapping?.externalSku ?? "");
-  const [systemSku, setSystemSku] = useState(mapping?.systemSku ?? "");
+  // 只有原本就是自訂才預填：WMS 對應的 systemSku 是那個商品的 WMS SKU，帶著它切成自訂必定 409。
+  const [systemSku, setSystemSku] = useState(mapping?.inventoryItemId === null ? mapping.systemSku ?? "" : "");
   const [components, setComponents] = useState<ComponentDraft[]>(
     () => {
       if (!mapping) return [{ inventoryItemId: "", quantity: "1" }];
@@ -95,8 +96,16 @@ export function SkuMappingDialog({
     }
     setValidationError("");
 
+    /*
+     * 沒有改「對應方式」就不要送 inventoryItemId。
+     *
+     * 永遠送 parsedComponents[0] 的話，會蓋掉後端那段「編輯時保留原本的主商品」邏輯；
+     * 而用料是依商品名稱排序載入的，所以主商品不是字母序最前面的那筆組合，光是打開
+     * 對話框按儲存就會換一個主商品——銷售額落點與刪除保護都會跟著跑掉。
+     */
+    const modeChanged = !mapping || customSku !== (mapping.inventoryItemId === null);
     const input = {
-      inventoryItemId: customSku ? null : parsedComponents[0]?.inventoryItemId,
+      ...(modeChanged ? { inventoryItemId: customSku ? null : parsedComponents[0]?.inventoryItemId } : {}),
       systemSku: customSku ? normalizedSystemSku : undefined,
       channel: normalizedChannel,
       externalName: normalizedName,
@@ -188,7 +197,12 @@ export function SkuMappingDialog({
           label="對應方式"
           required
           value={customSku ? "custom" : "component"}
-          onChange={(event) => setCustomSku(event.target.value === "custom")}
+          onChange={(event) => {
+            const next = event.target.value === "custom";
+            setCustomSku(next);
+            // 切換模式就清掉系統 SKU：留著舊值會把 WMS SKU 帶進自訂，儲存時必定被擋。
+            setSystemSku(next && mapping?.inventoryItemId === null ? mapping.systemSku ?? "" : "");
+          }}
           options={[
             { label: "WMS 商品", value: "component" },
             { label: "自訂 SKU（不建立 WMS 主商品）", value: "custom" },
@@ -209,7 +223,11 @@ export function SkuMappingDialog({
           <div className="sku-mapping-components-head">
             <div>
               <strong>組合用料</strong>
-              <span className="cell-sub">至少一項；一般一對一商品請填一個用料、數量 1</span>
+              <span className="cell-sub">
+                {customSku
+                  ? "至少一項；自訂 SKU 的報表只記系統 SKU 本身，不會展開成各用料的消耗量"
+                  : "至少一項；一般一對一商品請填一個用料、數量 1"}
+              </span>
             </div>
             <Button
               type="button"

@@ -450,6 +450,26 @@ async function requireSkuAvailableForExternalMappings(db: Database, sku: string 
   if ([...usedItemIds.values()].some((itemIds) => !inventoryItemId || !itemIds.has(inventoryItemId))) {
     throw new WmsError("conflict", `WMS SKU「${sku}」已被其他商品的外部 SKU 對應使用。`);
   }
+
+  /*
+   * 自訂 mapping 的 system_sku 也要擋，否則衝突檢查只有單邊。
+   *
+   * addProductSkuMapping 會拒絕「已是某個 WMS 商品 SKU」的自訂 system_sku，但反過來
+   * 先建自訂 mapping、再把商品的 SKU 改成同一個值就沒人擋。兩邊會寫進同一個
+   * report_sales_monthly.sku 卻帶不同的商品名稱與分類，resolveProductSkus 也會有兩個
+   * 互相競爭的來源。
+   */
+  const [customOwner] = await db
+    .select({ externalSku: productSkuMappings.externalSku, channel: productSkuMappings.channel })
+    .from(productSkuMappings)
+    .where(and(isNull(productSkuMappings.inventoryItemId), eq(productSkuMappings.systemSku, sku)))
+    .limit(1);
+  if (customOwner) {
+    throw new WmsError(
+      "conflict",
+      `WMS SKU「${sku}」已被自訂 SKU 對應「${customOwner.channel} · ${customOwner.externalSku}」使用。`,
+    );
+  }
 }
 
 export async function createItem(db: Database, input: ItemInput & { actor: Actor }) {
