@@ -36,6 +36,7 @@ import {
   updateProductSkuMapping,
   updateWarehouseSettings,
   updateZone,
+  type ProductBundleComponentInput,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import type { AppEnv } from "../env.js";
@@ -98,35 +99,31 @@ function text(input: Record<string, unknown>, field: string): string | undefined
   return typeof value === "string" ? value.trim() : undefined;
 }
 
-function bundleComponents(
-  input: Record<string, unknown>,
-  required = false,
-): Array<{ inventoryItemId: string; quantity: number }> | undefined {
-  if (input.components === undefined) {
-    if (required) throw new HTTPException(400, { message: "至少要設定一個組合用料。" });
-    return undefined;
+/**
+ * 組合用料。每一列是 WMS 商品或自訂 SKU，恰有一種——哪一種由 packages/db 判定，
+ * 這裡只負責把 JSON 攤成型別對的形狀。
+ */
+function bundleComponents(input: Record<string, unknown>): ProductBundleComponentInput[] {
+  if (!Array.isArray(input.components) || input.components.length === 0) {
+    throw new HTTPException(400, { message: "至少要設定一個組合用料。" });
   }
-  if (!Array.isArray(input.components)) {
-    throw new HTTPException(400, { message: "組合商品用料的格式不正確。" });
-  }
-  const components = input.components.map((value) => {
+  return input.components.map((value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new HTTPException(400, { message: "組合商品用料的格式不正確。" });
+      throw new HTTPException(400, { message: "組合用料的格式不正確。" });
     }
     const component = value as Record<string, unknown>;
     const quantity = component.quantity;
     if (typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity <= 0) {
-      throw new HTTPException(400, { message: "組合商品用料數量必須是大於 0 的整數。" });
+      throw new HTTPException(400, { message: "組合用料數量必須是大於 0 的整數。" });
     }
     return {
-      inventoryItemId: requireString(component, "inventoryItemId", "組合商品用料"),
+      inventoryItemId: typeof component.inventoryItemId === "string" ? component.inventoryItemId : null,
+      customSku: typeof component.customSku === "string" ? component.customSku : null,
+      customName: typeof component.customName === "string" ? component.customName : null,
+      customCategory: typeof component.customCategory === "string" ? component.customCategory : null,
       quantity,
     };
   });
-  if (required && components.length === 0) {
-    throw new HTTPException(400, { message: "至少要設定一個組合用料。" });
-  }
-  return components;
 }
 
 /**
@@ -291,18 +288,7 @@ export const wms = new Hono<AppEnv>()
     const input = await body(c);
     const user = c.get("user");
     const result = await addProductSkuMapping(c.get("db"), {
-      inventoryItemId: input.inventoryItemId === null
-        ? null
-        : input.inventoryItemId === undefined
-          ? undefined
-          : requireString(input, "inventoryItemId", "對應方式"),
-      // 三態要跟 inventoryItemId 一致：undefined 是「不要動」，null 是「清掉」，字串才驗必填。
-      systemSku: input.systemSku === undefined
-        ? undefined
-        : input.systemSku === null
-          ? null
-          : requireString(input, "systemSku", "系統 SKU"),
-      components: bundleComponents(input, true),
+      components: bundleComponents(input),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalName: requireString(input, "externalName", "通路商品名稱"),
       externalSku: requireString(input, "externalSku", "外部 SKU"),
@@ -316,21 +302,10 @@ export const wms = new Hono<AppEnv>()
     const user = c.get("user");
     const result = await updateProductSkuMapping(c.get("db"), {
       id: c.req.param("mappingId"),
-      inventoryItemId: input.inventoryItemId === null
-        ? null
-        : input.inventoryItemId === undefined
-          ? undefined
-          : requireString(input, "inventoryItemId", "對應方式"),
-      // 三態要跟 inventoryItemId 一致：undefined 是「不要動」，null 是「清掉」，字串才驗必填。
-      systemSku: input.systemSku === undefined
-        ? undefined
-        : input.systemSku === null
-          ? null
-          : requireString(input, "systemSku", "系統 SKU"),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalName: requireString(input, "externalName", "通路商品名稱"),
       externalSku: requireString(input, "externalSku", "外部 SKU"),
-      components: bundleComponents(input, true),
+      components: bundleComponents(input),
       actor: { id: user.id, email: user.email },
     });
     return c.json(result);

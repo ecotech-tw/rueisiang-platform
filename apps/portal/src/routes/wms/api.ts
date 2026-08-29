@@ -107,26 +107,31 @@ export function useWarehouse() {
 
 export interface ProductSkuMapping {
   id: string;
-  inventoryItemId: string | null;
   channel: string;
-  systemSku: string | null;
   externalName: string;
   externalSku: string;
   createdAt: string;
   updatedAt: string;
-  itemSku: string | null;
-  itemName: string | null;
-  itemCategory: string | null;
-  itemCategoryColor: string | null;
   components: ProductBundleComponent[];
 }
 
+/** 一列用料的來源二選一：WMS 商品，或報表自訂商品。 */
 export interface ProductBundleComponent {
-  inventoryItemId: string;
-  quantity: number;
-  sku: string | null;
+  source: "item" | "custom";
+  inventoryItemId: string | null;
+  customProductId: string | null;
+  sku: string;
   name: string;
   category: string;
+  quantity: number;
+}
+
+export interface ProductBundleComponentInput {
+  inventoryItemId?: string | null;
+  customSku?: string | null;
+  customName?: string | null;
+  customCategory?: string | null;
+  quantity: number;
 }
 
 export interface ProductSkuMappingItemOption {
@@ -139,6 +144,7 @@ export interface ProductSkuMappingItemOption {
 export interface ProductSkuMappingData {
   mappings: ProductSkuMapping[];
   items: ProductSkuMappingItemOption[];
+  categories: string[];
 }
 
 export const PRODUCT_SKU_CHANNEL_OPTIONS = [
@@ -241,35 +247,31 @@ export function useDeleteItem() {
 
 export function useCreateProductSkuMapping() {
   return useWarehouseMutation(
-    ({ inventoryItemId, channel, systemSku, externalName, externalSku, components }: {
-      inventoryItemId?: string | null;
+    (payload: {
       channel?: string;
-      systemSku?: string | null;
       externalName: string;
       externalSku: string;
-      components: Array<{ inventoryItemId: string; quantity: number }>;
-    }) => write<{ id: string; channel: string; systemSku: string; externalName: string; externalSku: string }>(
+      components: ProductBundleComponentInput[];
+    }) => write<{ id: string; channel: string; externalName: string; externalSku: string }>(
       "/api/wms/product-sku-mappings",
       "POST",
-      { inventoryItemId, channel, systemSku, externalName, externalSku, components },
+      payload,
     ),
   );
 }
 
 export function useUpdateProductSkuMapping() {
   return useWarehouseMutation(
-    ({ mappingId, inventoryItemId, channel, systemSku, externalName, externalSku, components }: {
+    ({ mappingId, ...payload }: {
       mappingId: string;
-      inventoryItemId?: string | null;
       channel?: string;
-      systemSku?: string | null;
       externalName: string;
       externalSku: string;
-      components: Array<{ inventoryItemId: string; quantity: number }>;
-    }) => write<{ id: string; channel: string; systemSku: string; externalName: string; externalSku: string; components: Array<{ inventoryItemId: string; quantity: number }> }>(
+      components: ProductBundleComponentInput[];
+    }) => write<{ id: string; channel: string; externalName: string; externalSku: string }>(
       `/api/wms/product-sku-mappings/${mappingId}`,
       "PATCH",
-      { inventoryItemId, channel, systemSku, externalName, externalSku, components },
+      payload,
     ),
   );
 }

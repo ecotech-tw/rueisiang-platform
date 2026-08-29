@@ -1,4 +1,5 @@
 import { createDatabase, upsertReportScope } from "@rueisiang/db";
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { schema } from "@rueisiang/db";
 import app from "./index.js";
@@ -56,6 +57,66 @@ function shopeeBundle(salesRows: unknown[], payoutRows: unknown[] = [], reportMo
   };
 }
 
+/**
+ * 種一筆對應與它的用料。
+ *
+ * 用料寫成 { item } 或 { custom }，對應到新的兩種來源；custom 會順手建立報表自訂商品，
+ * 讓測試不必自己管 custom_report_products 的 id。
+ */
+type SeedComponent =
+  | { item: string; quantity?: number }
+  | { custom: string; name?: string; category?: string; quantity?: number };
+
+async function seedMapping(input: {
+  id: string;
+  channel?: string;
+  externalSku: string;
+  externalName?: string;
+  components: SeedComponent[];
+}) {
+  const database = db();
+  await database.insert(schema.productSkuMappings).values({
+    id: input.id,
+    channel: input.channel ?? "legacy",
+    externalName: input.externalName ?? input.externalSku,
+    externalSku: input.externalSku,
+  });
+  const rows = [];
+  for (const [index, component] of input.components.entries()) {
+    if ("item" in component) {
+      rows.push({
+        id: `${input.id}:${index}`,
+        mappingId: input.id,
+        inventoryItemId: component.item,
+        customProductId: null,
+        quantity: component.quantity ?? 1,
+      });
+      continue;
+    }
+    const customId = `custom-${component.custom}`;
+    const [existing] = await database
+      .select({ id: schema.customReportProducts.id })
+      .from(schema.customReportProducts)
+      .where(eq(schema.customReportProducts.id, customId));
+    if (!existing) {
+      await database.insert(schema.customReportProducts).values({
+        id: customId,
+        sku: component.custom,
+        name: component.name ?? component.custom,
+        category: component.category ?? "未分類",
+      });
+    }
+    rows.push({
+      id: `${input.id}:${index}`,
+      mappingId: input.id,
+      inventoryItemId: null,
+      customProductId: customId,
+      quantity: component.quantity ?? 1,
+    });
+  }
+  await database.insert(schema.productBundleComponents).values(rows);
+}
+
 beforeEach(async () => {
   d1 = createLocalD1();
   const database = db();
@@ -68,11 +129,7 @@ beforeEach(async () => {
       category: "沐浴",
     });
   }
-  await database.insert(schema.productSkuMappings).values({
-    id: "mapping-shopee-p-001",
-    inventoryItemId: "item-wms-001",
-    externalSku: "P-001",
-  });
+  await seedMapping({ id: "mapping-shopee-p-001", externalSku: "P-001", components: [{ item: "item-wms-001" }] });
 });
 
 describe("報表月資料匯入", () => {
@@ -152,12 +209,7 @@ describe("報表月資料匯入", () => {
   });
 
   it("同一外部 SKU 有 legacy 與通路 mapping 時優先使用指定通路", async () => {
-    await db().insert(schema.productSkuMappings).values({
-      id: "mapping-shopee-specific",
-      inventoryItemId: "item-sku-1",
-      channel: "shopee",
-      externalSku: "P-001",
-    });
+    await seedMapping({ id: "mapping-shopee-specific", channel: "shopee", externalSku: "P-001", components: [{ item: "item-sku-1" }] });
 
     const response = await request(shopeeBundle([salesRow("P-001", 100)]));
     expect(response.status).toBe(200);
@@ -166,16 +218,7 @@ describe("報表月資料匯入", () => {
   });
 
   it("蝦皮組合商品會依用料數量展開到各 WMS SKU", async () => {
-    await db().insert(schema.productSkuMappings).values({
-      id: "mapping-shopee-bundle",
-      inventoryItemId: "item-sku-1",
-      channel: "shopee",
-      externalSku: "P-001_M-001",
-    });
-    await db().insert(schema.productBundleComponents).values([
-      { mappingId: "mapping-shopee-bundle", inventoryItemId: "item-sku-1", quantity: 2 },
-      { mappingId: "mapping-shopee-bundle", inventoryItemId: "item-sku-2", quantity: 1 },
-    ]);
+    await seedMapping({ id: "mapping-shopee-bundle", channel: "shopee", externalSku: "P-001_M-001", components: [{ item: "item-sku-1", quantity: 2 }, { item: "item-sku-2", quantity: 1 }] });
 
     const response = await request(shopeeBundle([
       salesRow("P-001_M-001", 0, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
@@ -210,16 +253,7 @@ describe("報表月資料匯入", () => {
   });
 
   it("任一通路的組合商品都會展開，且銷售額不會重複計算", async () => {
-    await db().insert(schema.productSkuMappings).values({
-      id: "mapping-cyberbiz-bundle",
-      inventoryItemId: "item-sku-1",
-      channel: "cyberbiz",
-      externalSku: "BUNDLE-001",
-    });
-    await db().insert(schema.productBundleComponents).values([
-      { mappingId: "mapping-cyberbiz-bundle", inventoryItemId: "item-sku-2", quantity: 1 },
-      { mappingId: "mapping-cyberbiz-bundle", inventoryItemId: "item-sku-1", quantity: 2 },
-    ]);
+    await seedMapping({ id: "mapping-cyberbiz-bundle", channel: "cyberbiz", externalSku: "BUNDLE-001", components: [{ item: "item-sku-2", quantity: 1 }, { item: "item-sku-1", quantity: 2 }] });
 
     const response = await request(salesBody([
       salesRow("BUNDLE-001", 100, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
@@ -231,36 +265,24 @@ describe("報表月資料匯入", () => {
       netQuantity: schema.reportSalesMonthly.netQuantity,
       salesAmount: schema.reportSalesMonthly.salesAmount,
     }).from(schema.reportSalesMonthly).orderBy(schema.reportSalesMonthly.sku)).toEqual([
-      { sku: "SKU-1", grossQuantity: 6, netQuantity: 4, salesAmount: 100 },
-      { sku: "SKU-2", grossQuantity: 3, netQuantity: 2, salesAmount: 0 },
+      // 銷售額整筆放在「第一列用料」上——這裡是 item-sku-2，因為它排在用料清單第一個。
+      { sku: "SKU-1", grossQuantity: 6, netQuantity: 4, salesAmount: 0 },
+      { sku: "SKU-2", grossQuantity: 3, netQuantity: 2, salesAmount: 100 },
     ]);
   });
 
-  it("自訂 SKU mapping 可讓 CYBERBIZ 與蝦皮共用同一組 WMS 用料", async () => {
-    await db().insert(schema.productSkuMappings).values([
-      {
-        id: "mapping-custom-cyberbiz",
-        inventoryItemId: null,
-        channel: "cyberbiz",
-        systemSku: "ABX30001",
-        externalName: "日光花園三入自選禮盒",
-        externalSku: "ABX30001",
-      },
-      {
-        id: "mapping-custom-shopee",
-        inventoryItemId: null,
-        channel: "shopee",
-        systemSku: "ABX30001",
-        externalName: "日光花園三入自選禮盒",
-        externalSku: "26491332332_216256146329",
-      },
-    ]);
-    await db().insert(schema.productBundleComponents).values([
-      { mappingId: "mapping-custom-cyberbiz", inventoryItemId: "item-sku-1", quantity: 2 },
-      { mappingId: "mapping-custom-cyberbiz", inventoryItemId: "item-sku-2", quantity: 1 },
-      { mappingId: "mapping-custom-shopee", inventoryItemId: "item-sku-1", quantity: 2 },
-      { mappingId: "mapping-custom-shopee", inventoryItemId: "item-sku-2", quantity: 1 },
-    ]);
+  it("自訂用料可讓 CYBERBIZ 與蝦皮統計成同一個商品", async () => {
+    // 兩個通路各自的外部 SKU，指到同一個自訂用料——報表就會統計成同一個商品。
+    await seedMapping({
+      id: "mapping-custom-cyberbiz", channel: "cyberbiz", externalSku: "ABX30001",
+      externalName: "日光花園三入自選禮盒",
+      components: [{ custom: "ABX30001", name: "日光花園三入自選禮盒" }],
+    });
+    await seedMapping({
+      id: "mapping-custom-shopee", channel: "shopee", externalSku: "26491332332_216256146329",
+      externalName: "日光花園三入自選禮盒",
+      components: [{ custom: "ABX30001", name: "日光花園三入自選禮盒" }],
+    });
 
     expect((await request(salesBody([
       salesRow("ABX30001", 100, { grossQuantity: 2, netQuantity: 2 }),
@@ -289,26 +311,15 @@ describe("報表月資料匯入", () => {
     expect(byShopeeProductId).toMatchObject({ status: "ok", totals: { grossQuantity: 3 } });
   });
 
-  it("同一 system SKU 的商品 metadata 優先使用 WMS 商品資料", async () => {
-    await db().insert(schema.productSkuMappings).values([
-      {
-        id: "mapping-wms-alias",
-        inventoryItemId: "item-sku-1",
-        channel: "cyberbiz",
-        externalName: "WMS 商品別名",
-        externalSku: "WMS-ALIAS",
-      },
-      {
-        id: "mapping-custom-alias",
-        inventoryItemId: null,
-        channel: "cyberbiz",
-        systemSku: "SKU-1",
-        externalName: "通路自訂名稱",
-        externalSku: "CUSTOM-ALIAS",
-      },
-    ]);
-    await db().insert(schema.productBundleComponents).values({
-      mappingId: "mapping-custom-alias", inventoryItemId: "item-sku-1", quantity: 1,
+  it("兩個外部 SKU 指到同一個 WMS 用料時合併，名稱取自商品主檔", async () => {
+    // 通路商品名稱各自不同，但報表那一行的名稱來自用料本身，不會被通路名稱蓋掉。
+    await seedMapping({
+      id: "mapping-wms-alias", channel: "cyberbiz", externalSku: "WMS-ALIAS",
+      externalName: "WMS 商品別名", components: [{ item: "item-sku-1" }],
+    });
+    await seedMapping({
+      id: "mapping-custom-alias", channel: "cyberbiz", externalSku: "CUSTOM-ALIAS",
+      externalName: "通路自訂名稱", components: [{ item: "item-sku-1" }],
     });
 
     const response = await request(salesBody([
@@ -357,12 +368,7 @@ describe("報表月資料匯入", () => {
 
   it("沿用既有同名 scope 的 ID，避免設定路徑改名後產生重複據點", async () => {
     await upsertReportScope(db(), { id: "legacy-store-id", scopeKind: "store", name: "測試店" });
-    await db().insert(schema.productSkuMappings).values({
-      id: "mapping-cyberbiz-p-001",
-      inventoryItemId: "item-sku-1",
-      channel: "cyberbiz",
-      externalSku: "P-001",
-    });
+    await seedMapping({ id: "mapping-cyberbiz-p-001", channel: "cyberbiz", externalSku: "P-001", components: [{ item: "item-sku-1" }] });
     const response = await request({
       ...salesBody([salesRow("P-001", 100)]), scopeId: "cyberbiz:store:new-id",
     });
@@ -376,12 +382,7 @@ describe("報表月資料匯入", () => {
   });
 
   it("以 scope ID 前綴解析自由輸入的通路 mapping", async () => {
-    await db().insert(schema.productSkuMappings).values({
-      id: "mapping-etsy-e-001",
-      inventoryItemId: "item-sku-1",
-      channel: "etsy",
-      externalSku: "E-001",
-    });
+    await seedMapping({ id: "mapping-etsy-e-001", channel: "etsy", externalSku: "E-001", components: [{ item: "item-sku-1" }] });
     const response = await request({
       ...salesBody([salesRow("E-001", 100)]),
       scopeId: "etsy:store:default",
@@ -430,10 +431,8 @@ describe("報表月資料匯入", () => {
   });
 
   it("不同外部 SKU 對應同一 WMS 商品時會先 mapping 再加總", async () => {
-    await db().insert(schema.productSkuMappings).values([
-      { id: "mapping-cyberbiz-001", inventoryItemId: "item-wms-001", externalSku: "CB-001" },
-      { id: "mapping-shopee-001", inventoryItemId: "item-wms-001", externalSku: "SHOPEE-001" },
-    ]);
+    await seedMapping({ id: "mapping-cyberbiz-001", externalSku: "CB-001", components: [{ item: "item-wms-001" }] });
+    await seedMapping({ id: "mapping-shopee-001", externalSku: "SHOPEE-001", components: [{ item: "item-wms-001" }] });
     const response = await request(salesBody([
       salesRow("CB-001", 120, { grossQuantity: 2, netQuantity: 2, productName: "CYBERBIZ 名稱", category: "錯誤分類" }),
       salesRow("shopee-001", 80, { grossQuantity: 3, netQuantity: 3, productName: "蝦皮名稱", category: "其他分類" }),
@@ -461,16 +460,7 @@ describe("報表月資料匯入", () => {
     await db().insert(schema.inventoryItems).values({
       id: "item-no-sku", sku: null, name: "沒有 SKU 的商品", category: "沐浴",
     });
-    await db().insert(schema.productSkuMappings).values({
-      id: "mapping-shopee-broken",
-      inventoryItemId: "item-sku-1",
-      channel: "shopee",
-      externalSku: "P-002_M-001",
-    });
-    await db().insert(schema.productBundleComponents).values([
-      { mappingId: "mapping-shopee-broken", inventoryItemId: "item-sku-1", quantity: 2 },
-      { mappingId: "mapping-shopee-broken", inventoryItemId: "item-no-sku", quantity: 1 },
-    ]);
+    await seedMapping({ id: "mapping-shopee-broken", channel: "shopee", externalSku: "P-002_M-001", components: [{ item: "item-sku-1", quantity: 2 }, { item: "item-no-sku", quantity: 1 }] });
 
     const response = await request(shopeeBundle([
       salesRow("P-002_M-001", 0, { grossQuantity: 3, returnQuantity: 0, netQuantity: 3 }),

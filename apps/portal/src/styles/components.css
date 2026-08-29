@@ -751,7 +751,7 @@
 .sku-mapping-form > .field,
 .sku-mapping-form > .field-grid,
 .sku-mapping-form > .sku-mapping-components { min-width: 0; }
-.sku-mapping-dialog { width: min(680px, 100%); }
+.sku-mapping-dialog { width: min(780px, 100%); }
 .sku-mapping-components {
   flex: 1 1 100%;
   display: grid;
@@ -765,16 +765,25 @@
   gap: 12px;
 }
 .sku-mapping-components-head > div { display: grid; gap: 2px; }
+/* 一列用料是兩排：主排（來源、商品或自訂 SKU、數量、移除），自訂時多一排名稱與分類。 */
+.sku-mapping-component { display: grid; gap: 8px; }
+.sku-mapping-component + .sku-mapping-component { padding-top: 2px; }
 .sku-mapping-component-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(120px, 180px) auto;
+  grid-template-columns: minmax(120px, 150px) minmax(200px, 1fr) minmax(80px, 110px) auto;
   align-items: end;
   gap: 10px;
 }
+/*
+ * 自訂那一排只有名稱與分類：沿用同一組欄寬，但從第二欄開始擺，
+ * 讓它跟上排的「商品」欄切齊，而不是縮排到最左邊。
+ */
+.sku-mapping-component-row.is-custom-detail > .field:first-child { grid-column: 2; }
+.sku-mapping-component-row.is-custom-detail > .field:last-child { grid-column: 3 / -1; }
 .sku-mapping-component-row > .field { min-width: 0; }
 @media (max-width: 620px) {
   .sku-mapping-component-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .sku-mapping-component-row > .field:first-child { grid-column: 1 / -1; }
+  .sku-mapping-component-row > .field:nth-child(-n + 2) { grid-column: 1 / -1; }
 }
 /*
  * 表格上方的工具列。先前它跟表頭之間沒有任何界線，看起來像黏在一起的兩排東西。

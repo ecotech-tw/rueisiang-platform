@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * 倉儲管理系統。從 rueisiang-wms 搬進來。
@@ -110,48 +110,69 @@ export const inventoryItems = sqliteTable("inventory_items", {
 ]);
 
 /**
- * 外部通路商品與 WMS 用料的對應。
+ * 報表專用的自訂商品。
  *
- * 通路與外部 SKU 一起識別一筆 mapping；systemSku 是跨通路共用的系統 SKU。
- * 一般 WMS 商品的 systemSku 會跟 inventory_items.sku 相同；沒有 WMS 主商品的自訂組合
- * 則由管理者輸入。inventoryItemId 可為空，代表這是只有系統 SKU、外部 SKU 與組合用料的
- * 自訂 mapping；完整的一對一或組合對應以 product_bundle_components 為準。
+ * 通路上賣得出去、但 WMS 不入庫的商品（例如「日光花園三入自選禮盒」），在報表裡
+ * 仍然需要一個穩定的識別。做成獨立主檔而不是把 SKU 字串寫在每一列用料上，是因為
+ * 同一個商品會被多個通路的 mapping 指到——名稱與分類只有一份，報表那一行叫什麼
+ * 才不會取決於匯入順序。
+ */
+export const customReportProducts = sqliteTable("custom_report_products", {
+  id: text("id").primaryKey(),
+  /** 報表使用的系統 SKU，一律大寫。 */
+  sku: text("sku").notNull().unique(),
+  name: text("name").notNull(),
+  category: text("category").notNull().default("未分類"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+/**
+ * 外部通路商品的對應。
+ *
+ * 通路與外部 SKU 一起識別一筆 mapping，通路商品名稱保留報表裡看到的名稱。
+ * 這張表**不記錄商品本身是什麼**——報表要寫進哪些 SKU 完全由 product_bundle_components
+ * 決定，一對一商品就是一列用料、數量 1。
+ *
+ * 早期版本在這裡放過 inventory_item_id 與 system_sku（「主商品」與「自訂 SKU」兩種模式），
+ * 結果是自訂模式下使用者填的用料整包被忽略。改成用料自己決定來源之後那個矛盾就不存在了。
  */
 export const productSkuMappings = sqliteTable("product_sku_mappings", {
   id: text("id").primaryKey(),
-  inventoryItemId: text("inventory_item_id")
-    .references(() => inventoryItems.id, { onDelete: "set null" }),
   /** legacy 代表 migration 前建立、尚未確認來源通路的 mapping。 */
   channel: text("channel").notNull().default("legacy"),
-  /** 跨 CYBERBIZ、蝦皮等通路共用的商品識別；舊資料 migration 會先回填可推導值。 */
-  systemSku: text("system_sku"),
   externalName: text("external_name").notNull().default(""),
   externalSku: text("external_sku").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_product_sku_mappings_channel_external_sku").on(table.channel, table.externalSku),
-  index("idx_product_sku_mappings_inventory_item").on(table.inventoryItemId),
-  index("idx_product_sku_mappings_system_sku").on(table.systemSku),
 ]);
 
 /**
- * 外部通路商品對應的組合用料。
+ * 一筆通路對應由哪些用料組成。
  *
- * product_sku_mappings 負責外部通路商品本身；這張表列出一個以上 WMS 用料。
- * 一般一對一商品也會存一筆 quantity=1，讓報表展開不必猜測空 components 的意思。
+ * 每一列指向 WMS 商品或報表自訂商品，兩者恰有一個非空。混用是刻意允許的：
+ * 禮盒裡可能有 WMS 追蹤的香皂，也可能有不入庫的贈品。
+ *
+ * 主鍵用獨立的 id：來源有兩種，(mapping_id, inventory_item_id) 這種複合鍵沒辦法同時
+ * 涵蓋兩邊。改以兩個 unique index 分別擋掉同一筆對應內重複選到同一個來源。
  */
 export const productBundleComponents = sqliteTable("product_bundle_components", {
+  id: text("id").primaryKey(),
   mappingId: text("mapping_id")
     .notNull()
     .references(() => productSkuMappings.id, { onDelete: "cascade" }),
   inventoryItemId: text("inventory_item_id")
-    .notNull()
     .references(() => inventoryItems.id, { onDelete: "restrict" }),
+  customProductId: text("custom_product_id")
+    .references(() => customReportProducts.id, { onDelete: "restrict" }),
   quantity: integer("quantity").notNull(),
 }, (table) => [
-  primaryKey({ columns: [table.mappingId, table.inventoryItemId] }),
+  uniqueIndex("idx_product_bundle_components_item").on(table.mappingId, table.inventoryItemId),
+  uniqueIndex("idx_product_bundle_components_custom").on(table.mappingId, table.customProductId),
   index("idx_product_bundle_components_inventory_item").on(table.inventoryItemId),
+  index("idx_product_bundle_components_custom_product").on(table.customProductId),
 ]);
 
 /**
@@ -233,5 +254,6 @@ export type ProductCategory = typeof productCategories.$inferSelect;
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type ProductSkuMapping = typeof productSkuMappings.$inferSelect;
 export type ProductBundleComponent = typeof productBundleComponents.$inferSelect;
+export type CustomReportProduct = typeof customReportProducts.$inferSelect;
 export type CyberbizProductLink = typeof cyberbizProductLinks.$inferSelect;
 export type ZoneImage = typeof zoneImages.$inferSelect;

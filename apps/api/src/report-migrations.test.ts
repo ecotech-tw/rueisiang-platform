@@ -167,4 +167,59 @@ describe("報表 scope migration", () => {
         { id: "normal-mapping", system_sku: "WMS-001" },
       ]);
   });
+
+  it("0060 把自訂 mapping 轉成自訂用料，WMS 用料原封不動，兩張表的資料都不會被 cascade 刪掉", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0059_add_product_sku_system_sku.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-1", "SOAP-001", "香皂");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-2", "NET-001", "起泡網");
+    // 有 WMS 主商品的組合：用料要原樣保留。
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_name, external_sku, system_sku) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("wms-mapping", "item-1", "shopee", "香皂組", "BUNDLE-001", "SOAP-001");
+    sqlite.prepare("INSERT INTO product_bundle_components (mapping_id, inventory_item_id, quantity) VALUES (?, ?, ?)")
+      .run("wms-mapping", "item-1", 3);
+    sqlite.prepare("INSERT INTO product_bundle_components (mapping_id, inventory_item_id, quantity) VALUES (?, ?, ?)")
+      .run("wms-mapping", "item-2", 1);
+    // 兩個通路的自訂 mapping 共用同一個 system SKU：要收斂成同一筆自訂商品。
+    for (const [id, channel, externalSku] of [
+      ["custom-cyberbiz", "cyberbiz", "ABX30001"],
+      ["custom-shopee", "shopee", "2649_2162"],
+    ] as const) {
+      sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_name, external_sku, system_sku) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(id, null, channel, "日光花園三入自選禮盒", externalSku, "ABX30001");
+      sqlite.prepare("INSERT INTO product_bundle_components (mapping_id, inventory_item_id, quantity) VALUES (?, ?, ?)")
+        .run(id, "item-1", 3);
+    }
+
+    applyLikeD1(sqlite, "0059_add_product_sku_system_sku.sql", "0060_component_level_custom_sku.sql");
+
+    expect(sqlite.prepare("SELECT sku, name FROM custom_report_products").all())
+      .toEqual([{ sku: "ABX30001", name: "日光花園三入自選禮盒" }]);
+    expect(sqlite.prepare(
+      "SELECT mapping_id, inventory_item_id, quantity FROM product_bundle_components WHERE mapping_id = ? ORDER BY inventory_item_id",
+    ).all("wms-mapping")).toEqual([
+      { mapping_id: "wms-mapping", inventory_item_id: "item-1", quantity: 3 },
+      { mapping_id: "wms-mapping", inventory_item_id: "item-2", quantity: 1 },
+    ]);
+    /*
+     * 自訂 mapping 的舊 WMS 用料本來就沒有被報表用到（只寫 system_sku 一列），
+     * 所以照現在的實際輸出轉成單一自訂用料，匯入結果不變。
+     */
+    const customComponents = sqlite.prepare(
+      "SELECT component.mapping_id, custom.sku, component.quantity"
+      + " FROM product_bundle_components AS component"
+      + " JOIN custom_report_products AS custom ON custom.id = component.custom_product_id"
+      + " ORDER BY component.mapping_id",
+    ).all();
+    expect(customComponents).toEqual([
+      { mapping_id: "custom-cyberbiz", sku: "ABX30001", quantity: 1 },
+      { mapping_id: "custom-shopee", sku: "ABX30001", quantity: 1 },
+    ]);
+    // 三筆 mapping 都還在——重建父表時沒有被 ON DELETE CASCADE 連坐刪掉。
+    expect(sqlite.prepare("SELECT COUNT(*) AS total FROM product_sku_mappings").get())
+      .toEqual({ total: 3 });
+  });
 });

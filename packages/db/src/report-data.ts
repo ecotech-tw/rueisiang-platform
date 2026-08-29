@@ -9,7 +9,7 @@ import {
   type ReportScope,
   type ReportScopeKind,
 } from "./schema/reports.js";
-import { inventoryItems, productSkuMappings } from "./schema/wms.js";
+import { customReportProducts, inventoryItems, productBundleComponents, productSkuMappings } from "./schema/wms.js";
 
 export type { ReportScopeKind } from "./schema/reports.js";
 
@@ -358,8 +358,8 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
      * (1) 只有查詢值本身不是任何 WMS SKU 時才走 mapping 這條路。external_sku 允許等於
      *     另一個商品的 WMS SKU（見「外部 SKU 等於非第一順位用料的 WMS SKU 不算衝突」），
      *     不擋的話查香皂會連整個組合的資料一起加總，工具就會把別人的銷售報成這個商品的。
-     * (2) 非自訂 mapping 一律回 inventory_items 讀即時 SKU，不採信 system_sku 那份快照——
-     *     商品改名 SKU 之後快照不會跟著動，匯入寫新值、查詢查舊值，結果會是「查無資料」。
+     * (2) 對應寫進報表的 SKU 一律從用料即時解析（WMS 商品或報表自訂商品），不留第二份
+     *     快照——商品改名 SKU 之後快照不會跟著動，匯入寫新值、查詢查舊值就會查無資料。
      */
     ...(requestedSku ? [sql`(
       lower(${reportSalesMonthly.sku}) = lower(${requestedSku})
@@ -371,9 +371,11 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
         AND EXISTS (
           SELECT 1
           FROM ${productSkuMappings} AS mapping
-          LEFT JOIN ${inventoryItems} AS mappedItem ON mappedItem.id = mapping.inventory_item_id
+          JOIN ${productBundleComponents} AS component ON component.mapping_id = mapping.id
+          LEFT JOIN ${inventoryItems} AS componentItem ON componentItem.id = component.inventory_item_id
+          LEFT JOIN ${customReportProducts} AS customProduct ON customProduct.id = component.custom_product_id
           WHERE lower(mapping.external_sku) = lower(${requestedSku})
-            AND lower(COALESCE(mappedItem.sku, mapping.system_sku)) = lower(${reportSalesMonthly.sku})
+            AND lower(COALESCE(componentItem.sku, customProduct.sku)) = lower(${reportSalesMonthly.sku})
         )
       )
     )`] : []),

@@ -1,8 +1,9 @@
-import { and, asc, count, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 import {
+  customReportProducts,
   cyberbizProductLinks,
   inventoryItems,
   layoutElements,
@@ -428,46 +429,41 @@ async function requireCategory(db: Database, name: string) {
   if (!row) throw new WmsError("invalid", "請選一個已經建立的商品分類。");
 }
 
-/** 外部 SKU 會拿來對應商品，不能讓另一個商品的正式 WMS SKU 佔用同一個值。 */
+/**
+ * 外部 SKU 與自訂 SKU 都不能被另一個商品的正式 WMS SKU 佔用。
+ *
+ * 兩邊撞在一起的話會寫進同一個 report_sales_monthly.sku 卻帶不同的名稱與分類，
+ * 報表就有兩個互相競爭的來源。這道檢查是商品這一側；對應那一側在
+ * product-sku-mappings.ts 的 requireExternalSkuAvailable 與 prepareComponentRows。
+ */
 async function requireSkuAvailableForExternalMappings(db: Database, sku: string | null, inventoryItemId?: string) {
   if (!sku) return;
-  const mappings = await db
-    .select({
-      mappingId: productSkuMappings.id,
-      inventoryItemId: productSkuMappings.inventoryItemId,
-      componentItemId: productBundleComponents.inventoryItemId,
-    })
+  const conflicting = await db
+    .select({ channel: productSkuMappings.channel, externalSku: productSkuMappings.externalSku })
     .from(productSkuMappings)
-    .leftJoin(productBundleComponents, eq(productBundleComponents.mappingId, productSkuMappings.id))
-    .where(eq(productSkuMappings.externalSku, sku));
-  const usedItemIds = new Map<string, Set<string>>();
-  for (const mapping of mappings) {
-    const itemIds = usedItemIds.get(mapping.mappingId) ?? new Set<string>();
-    if (mapping.inventoryItemId) itemIds.add(mapping.inventoryItemId);
-    if (mapping.componentItemId) itemIds.add(mapping.componentItemId);
-    usedItemIds.set(mapping.mappingId, itemIds);
-  }
-  if ([...usedItemIds.values()].some((itemIds) => !inventoryItemId || !itemIds.has(inventoryItemId))) {
-    throw new WmsError("conflict", `WMS SKU「${sku}」已被其他商品的外部 SKU 對應使用。`);
+    .leftJoin(productBundleComponents, and(
+      eq(productBundleComponents.mappingId, productSkuMappings.id),
+      inventoryItemId ? eq(productBundleComponents.inventoryItemId, inventoryItemId) : sql`0`,
+    ))
+    .where(and(eq(productSkuMappings.externalSku, sku), isNull(productBundleComponents.mappingId)))
+    .limit(1);
+  const owner = conflicting[0];
+  if (owner) {
+    throw new WmsError(
+      "conflict",
+      `WMS SKU「${sku}」已被外部 SKU 對應「${owner.channel} · ${owner.externalSku}」使用。`,
+    );
   }
 
-  /*
-   * 自訂 mapping 的 system_sku 也要擋，否則衝突檢查只有單邊。
-   *
-   * addProductSkuMapping 會拒絕「已是某個 WMS 商品 SKU」的自訂 system_sku，但反過來
-   * 先建自訂 mapping、再把商品的 SKU 改成同一個值就沒人擋。兩邊會寫進同一個
-   * report_sales_monthly.sku 卻帶不同的商品名稱與分類，resolveProductSkus 也會有兩個
-   * 互相競爭的來源。
-   */
   const [customOwner] = await db
-    .select({ externalSku: productSkuMappings.externalSku, channel: productSkuMappings.channel })
-    .from(productSkuMappings)
-    .where(and(isNull(productSkuMappings.inventoryItemId), eq(productSkuMappings.systemSku, sku)))
+    .select({ sku: customReportProducts.sku, name: customReportProducts.name })
+    .from(customReportProducts)
+    .where(eq(customReportProducts.sku, sku))
     .limit(1);
   if (customOwner) {
     throw new WmsError(
       "conflict",
-      `WMS SKU「${sku}」已被自訂 SKU 對應「${customOwner.channel} · ${customOwner.externalSku}」使用。`,
+      `WMS SKU「${sku}」已被自訂報表商品「${customOwner.name}」使用，請先改掉那筆自訂 SKU。`,
     );
   }
 }
@@ -572,16 +568,16 @@ export async function updateItem(
 
   if (input.sku !== undefined && !next.sku) {
     const [mappingUse] = await db
-      .select({ id: productSkuMappings.id })
-      .from(productSkuMappings)
-      .leftJoin(productBundleComponents, eq(productBundleComponents.mappingId, productSkuMappings.id))
-      .where(or(
-        eq(productSkuMappings.inventoryItemId, id),
-        eq(productBundleComponents.inventoryItemId, id),
-      ))
+      .select({ channel: productSkuMappings.channel, externalSku: productSkuMappings.externalSku })
+      .from(productBundleComponents)
+      .innerJoin(productSkuMappings, eq(productSkuMappings.id, productBundleComponents.mappingId))
+      .where(eq(productBundleComponents.inventoryItemId, id))
       .limit(1);
     if (mappingUse) {
-      throw new WmsError("conflict", "這項商品還有外部 SKU 對應，不能清空 WMS SKU，請先移除對應。");
+      throw new WmsError(
+        "conflict",
+        `這項商品仍是外部 SKU 對應「${mappingUse.channel} · ${mappingUse.externalSku}」的用料，不能清空 WMS SKU。`,
+      );
     }
   }
   /*
@@ -618,30 +614,27 @@ export async function updateItem(
 export async function deleteItem(db: Database, id: string, actor: Actor) {
   const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
   if (!item) throw new WmsError("not_found", "找不到這項商品。");
+  /*
+   * 只要還被任何一筆對應當成用料就擋，並指出是哪一筆。
+   *
+   * 舊版有「主商品」的概念，刪掉主商品會連帶刪掉整筆對應——但那個「主商品」只是存檔
+   * 當下的第一列用料，同一個動作的後果會隨著排序改變。現在一律要求先去 SKU 對應頁處理，
+   * 行為固定，而且訊息說得出是哪一筆擋住（商品頁本來就看不到對應了）。
+   */
   const [componentUse] = await db
-    .select({ mappingId: productBundleComponents.mappingId })
+    .select({ channel: productSkuMappings.channel, externalSku: productSkuMappings.externalSku })
     .from(productBundleComponents)
     .innerJoin(productSkuMappings, eq(productSkuMappings.id, productBundleComponents.mappingId))
-    .where(and(
-      eq(productBundleComponents.inventoryItemId, id),
-      or(isNull(productSkuMappings.inventoryItemId), ne(productSkuMappings.inventoryItemId, id)),
-    ))
+    .where(eq(productBundleComponents.inventoryItemId, id))
     .limit(1);
   if (componentUse) {
-    throw new WmsError("conflict", "這項商品仍是組合商品用料，請先移除組合對應再刪除。");
+    throw new WmsError(
+      "conflict",
+      `這項商品仍是外部 SKU 對應「${componentUse.channel} · ${componentUse.externalSku}」的用料，請先在 SKU 對應頁移除再刪除。`,
+    );
   }
 
-  const ownedMappings = await db
-    .select({ id: productSkuMappings.id })
-    .from(productSkuMappings)
-    .where(eq(productSkuMappings.inventoryItemId, id));
-  const ownedMappingIds = ownedMappings.map((mapping) => mapping.id);
-
   await db.batch([
-    db.delete(productBundleComponents).where(
-      ownedMappingIds.length ? inArray(productBundleComponents.mappingId, ownedMappingIds) : sql`0`,
-    ),
-    db.delete(productSkuMappings).where(eq(productSkuMappings.inventoryItemId, id)),
     db.delete(inventoryItems).where(eq(inventoryItems.id, id)),
     writeEvent(db, {
       entityType: "inventory_item",
