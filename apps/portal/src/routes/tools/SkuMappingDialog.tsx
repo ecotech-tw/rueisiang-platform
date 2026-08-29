@@ -10,7 +10,7 @@ import {
   type ProductBundleComponentInput,
   type ProductSkuMapping,
   type ProductSkuMappingItemOption,
-} from "./api.js";
+} from "./sku-mapping-api.js";
 
 /**
  * 一列用料的編輯狀態。

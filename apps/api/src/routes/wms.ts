@@ -3,11 +3,6 @@ import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import {
   WMS_ENTITY_TYPES,
   applySyncPlan,
-  addProductSkuMapping,
-  addReportSkuIgnore,
-  deleteReportSkuIgnore,
-  listCyberbizProducts,
-  listReportSkuIgnores,
   syncCyberbizProducts,
   buildSyncPlan,
   countItem,
@@ -23,13 +18,11 @@ import {
   deleteCategory,
   deleteItem,
   deleteLayoutElement,
-  deleteProductSkuMapping,
   deleteZone,
   deleteMediaObject,
   linkItemToCyberbiz,
   listActivity,
   listCompanyLinks,
-  loadProductSkuMappingManagement,
   loadWarehouse,
   markLinkFailed,
   markLinkSynced,
@@ -38,10 +31,8 @@ import {
   updateCategory,
   updateItem,
   updateLayoutElement,
-  updateProductSkuMapping,
   updateWarehouseSettings,
   updateZone,
-  type ProductBundleComponentInput,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import type { AppEnv } from "../env.js";
@@ -102,34 +93,6 @@ async function sha256Hex(body: ArrayBuffer): Promise<string> {
 function text(input: Record<string, unknown>, field: string): string | undefined {
   const value = input[field];
   return typeof value === "string" ? value.trim() : undefined;
-}
-
-/**
- * 組合用料。每一列是 WMS 商品或自訂 SKU，恰有一種——哪一種由 packages/db 判定，
- * 這裡只負責把 JSON 攤成型別對的形狀。
- */
-function bundleComponents(input: Record<string, unknown>): ProductBundleComponentInput[] {
-  if (!Array.isArray(input.components) || input.components.length === 0) {
-    throw new HTTPException(400, { message: "至少要設定一個組合用料。" });
-  }
-  return input.components.map((value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new HTTPException(400, { message: "組合用料的格式不正確。" });
-    }
-    const component = value as Record<string, unknown>;
-    const quantity = component.quantity;
-    if (typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity <= 0) {
-      throw new HTTPException(400, { message: "組合用料數量必須是大於 0 的整數。" });
-    }
-    return {
-      inventoryItemId: typeof component.inventoryItemId === "string" ? component.inventoryItemId : null,
-      cyberbizSku: typeof component.cyberbizSku === "string" ? component.cyberbizSku : null,
-      customSku: typeof component.customSku === "string" ? component.customSku : null,
-      customName: typeof component.customName === "string" ? component.customName : null,
-      customCategory: typeof component.customCategory === "string" ? component.customCategory : null,
-      quantity,
-    };
-  });
 }
 
 /**
@@ -289,77 +252,6 @@ export const wms = new Hono<AppEnv>()
         pageSize: [25, 50, 100].includes(size) ? size : 25,
       }),
     );
-  })
-
-  /** SKU 對應會改變報表匯入結果，頁面與讀取資料刻意限主管/管理員，不等同一般庫存唯讀。 */
-  .get("/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
-    return c.json(await loadProductSkuMappingManagement(c.get("db")));
-  })
-
-  /** 建立一筆通路商品 mapping；至少要有一個 WMS 用料，單品也以 quantity=1 保存。 */
-  .post("/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
-    const input = await body(c);
-    const user = c.get("user");
-    const result = await addProductSkuMapping(c.get("db"), {
-      components: bundleComponents(input),
-      channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
-      externalName: requireString(input, "externalName", "通路商品名稱"),
-      externalSku: requireString(input, "externalSku", "外部 SKU"),
-      actor: { id: user.id, email: user.email },
-    });
-    return c.json(result, 201);
-  })
-
-  .patch("/product-sku-mappings/:mappingId", requirePermission("wms:inventory:write"), async (c) => {
-    const input = await body(c);
-    const user = c.get("user");
-    const result = await updateProductSkuMapping(c.get("db"), {
-      id: c.req.param("mappingId"),
-      channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
-      externalName: requireString(input, "externalName", "通路商品名稱"),
-      externalSku: requireString(input, "externalSku", "外部 SKU"),
-      components: bundleComponents(input),
-      actor: { id: user.id, email: user.email },
-    });
-    return c.json(result);
-  })
-
-  /** SKU 對應頁挑用料用的 CYBERBIZ 商品清單（讀 D1 鏡像，不打官網）。 */
-  .get("/cyberbiz-products", requirePermission("wms:inventory:read"), async (c) => {
-    return c.json({ products: await listCyberbizProducts(c.get("db")) });
-  })
-
-  /**
-   * 刻意不納入報表的外部 SKU。
-   *
-   * 與「還沒建對應」在匯入端行為相同（都略過），差別只在要不要提醒——標記過的不再吵。
-   */
-  .get("/report-sku-ignores", requirePermission("wms:inventory:read"), async (c) => {
-    return c.json({ ignores: await listReportSkuIgnores(c.get("db")) });
-  })
-
-  .post("/report-sku-ignores", requirePermission("wms:inventory:write"), async (c) => {
-    const input = await body(c);
-    const user = c.get("user");
-    const result = await addReportSkuIgnore(c.get("db"), {
-      channel: requireString(input, "channel", "通路"),
-      externalSku: requireString(input, "externalSku", "外部 SKU"),
-      reason: text(input, "reason"),
-      actor: { id: user.id, email: user.email },
-    });
-    return c.json(result, 201);
-  })
-
-  .delete("/report-sku-ignores/:id", requirePermission("wms:inventory:write"), async (c) => {
-    const user = c.get("user");
-    await deleteReportSkuIgnore(c.get("db"), c.req.param("id"), { id: user.id, email: user.email });
-    return c.json({ ok: true });
-  })
-
-  .delete("/product-sku-mappings/:mappingId", requirePermission("wms:inventory:write"), async (c) => {
-    const user = c.get("user");
-    await deleteProductSkuMapping(c.get("db"), c.req.param("mappingId"), { id: user.id, email: user.email });
-    return c.json({ ok: true });
   })
 
   /** 用 SKU 在官網找到對應的款式並建立連結。 */

@@ -22,7 +22,7 @@ import {
   productSkuChannelLabel,
   PRODUCT_SKU_CHANNEL_OPTIONS,
   type ProductSkuMapping,
-} from "./api.js";
+} from "./sku-mapping-api.js";
 import { SkuMappingDialog } from "./SkuMappingDialog.js";
 
 function formatTime(value: string): string {
