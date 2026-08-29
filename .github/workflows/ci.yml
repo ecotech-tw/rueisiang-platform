@@ -35,14 +35,12 @@ jobs:
 
       - run: pnpm build
 
-      # Knip 的 baseline 觀察。本機是 Windows on ARM，native binding 被
-      # Application Control 擋住跑不起來，所以只有這裡看得到真實結果。
-      # 現階段純報告：--no-exit-code 讓既有的死碼與依賴問題不擋 merge，
-      # continue-on-error 再擋一層，避免 Knip 自己爆掉時弄壞 CI。
-      # 先看數字有多少、多少是誤報，再決定要不要正式安裝設定檔並升成 gate。
-      - name: Knip baseline（只回報，不阻擋）
-        continue-on-error: true
-        run: pnpm dlx knip --no-exit-code --no-progress --reporter github-actions
+      # 死碼與依賴漂移的檢查。本機是 Windows on ARM，Knip 的 native binding 被
+      # Application Control 擋住跑不起來，所以這裡是唯一驗得到的地方。
+      # baseline 已經清到 0，所以直接當 gate：有新的沒人用的檔案、export 或
+      # 依賴進來就讓 CI 紅掉。設定與排除範圍見根目錄的 knip.jsonc。
+      - name: Knip（死碼與依賴檢查）
+        run: pnpm dlx knip --no-progress --reporter github-actions
 
       # CYBERBIZ 報表工具刻意留在 pnpm workspace 之外（pnpm-workspace.yaml 只 glob
       # apps/* 與 packages/*）：它是純 JS、用 npm 自己的 lockfile，而且相依

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 /** 全站共用的前綴。分頁標題只有前面幾個字看得到，品牌要排在前面。 */
-export const TITLE_PREFIX = "瑞香 Ruei Siang";
+const TITLE_PREFIX = "瑞香 Ruei Siang";
 
 /**
  * 設定分頁標題。
