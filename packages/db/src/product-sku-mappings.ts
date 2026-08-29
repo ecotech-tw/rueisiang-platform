@@ -8,6 +8,7 @@ import {
   productBundleComponents,
   productCategories,
   productSkuMappings,
+  reportSkuIgnores,
 } from "./schema/wms.js";
 import { WmsError, type Actor } from "./wms.js";
 
@@ -801,4 +802,108 @@ export async function resolveProductSkus(
     }
   }
   return resolved;
+}
+
+export interface ReportSkuIgnoreRow {
+  id: string;
+  channel: string;
+  externalSku: string;
+  reason: string;
+  createdAt: string;
+}
+
+/** 目前標記為「不納入報表」的外部 SKU。 */
+export async function listReportSkuIgnores(db: Database): Promise<ReportSkuIgnoreRow[]> {
+  return db
+    .select({
+      id: reportSkuIgnores.id,
+      channel: reportSkuIgnores.channel,
+      externalSku: reportSkuIgnores.externalSku,
+      reason: reportSkuIgnores.reason,
+      createdAt: reportSkuIgnores.createdAt,
+    })
+    .from(reportSkuIgnores)
+    .orderBy(asc(reportSkuIgnores.channel), asc(reportSkuIgnores.externalSku));
+}
+
+export async function addReportSkuIgnore(
+  db: Database,
+  input: { channel: string; externalSku: string; reason?: string; actor: Actor },
+): Promise<ReportSkuIgnoreRow> {
+  const channel = normalizeProductSkuChannel(input.channel);
+  if (!channel) throw new WmsError("invalid", "通路不可為空。");
+  const externalSku = normalizeExternalSku(input.externalSku);
+  if (!externalSku) throw new WmsError("invalid", "外部 SKU 不可為空。");
+  const reason = (input.reason ?? "").trim();
+
+  const [existing] = await db
+    .select({ id: reportSkuIgnores.id })
+    .from(reportSkuIgnores)
+    .where(and(eq(reportSkuIgnores.channel, channel), eq(reportSkuIgnores.externalSku, externalSku)))
+    .limit(1);
+  if (existing) throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經標記為不納入報表。`);
+
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  await db.batch([
+    db.insert(reportSkuIgnores).values({ id, channel, externalSku, reason }),
+    db.insert(activityEvents).values(activityRow({
+      entityType: "product_sku_mapping",
+      entityId: id,
+      entityLabel: `${channel} · ${externalSku}`,
+      eventType: "product_sku_mapping_updated",
+      summary: `標記${channel} 外部 SKU「${externalSku}」不納入報表${reason ? `：${reason}` : ""}`,
+      field: "externalSku",
+      newValue: externalSku,
+      actor: input.actor,
+      source: "wms",
+    })),
+  ]);
+  return { id, channel, externalSku, reason, createdAt };
+}
+
+export async function deleteReportSkuIgnore(db: Database, id: string, actor: Actor): Promise<void> {
+  const [row] = await db
+    .select({ channel: reportSkuIgnores.channel, externalSku: reportSkuIgnores.externalSku })
+    .from(reportSkuIgnores)
+    .where(eq(reportSkuIgnores.id, id));
+  if (!row) throw new WmsError("not_found", "找不到這筆忽略設定。");
+
+  await db.batch([
+    db.delete(reportSkuIgnores).where(eq(reportSkuIgnores.id, id)),
+    db.insert(activityEvents).values(activityRow({
+      entityType: "product_sku_mapping",
+      entityId: id,
+      entityLabel: `${row.channel} · ${row.externalSku}`,
+      eventType: "product_sku_mapping_updated",
+      summary: `取消忽略${row.channel} 外部 SKU「${row.externalSku}」`,
+      field: "externalSku",
+      oldValue: row.externalSku,
+      actor,
+      source: "wms",
+    })),
+  ]);
+}
+
+/**
+ * 這次匯入要略過的外部 SKU（已標記為不納入報表）。
+ *
+ * 與 resolveProductSkus 一樣查 [報表通路, "legacy"]，讓還沒標通路的舊設定也生效。
+ */
+export async function resolveIgnoredSkus(
+  db: Database,
+  externalSkus: string[],
+  channel = "legacy",
+): Promise<Set<string>> {
+  const wanted = [...new Set(externalSkus.map(normalizeExternalSku).filter(Boolean))];
+  if (!wanted.length) return new Set();
+  const channels = [...new Set([normalizeProductSkuChannel(channel), "legacy"])];
+  const rows = await inBatches(wanted, (batch) => db
+    .select({ externalSku: reportSkuIgnores.externalSku })
+    .from(reportSkuIgnores)
+    .where(and(
+      inArray(reportSkuIgnores.externalSku, batch),
+      inArray(reportSkuIgnores.channel, channels),
+    )));
+  return new Set(rows.map((row) => row.externalSku));
 }

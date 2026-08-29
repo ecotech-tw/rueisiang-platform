@@ -4,6 +4,9 @@ import {
   WMS_ENTITY_TYPES,
   applySyncPlan,
   addProductSkuMapping,
+  addReportSkuIgnore,
+  deleteReportSkuIgnore,
+  listReportSkuIgnores,
   buildSyncPlan,
   countItem,
   deleteZoneImage,
@@ -309,6 +312,33 @@ export const wms = new Hono<AppEnv>()
       actor: { id: user.id, email: user.email },
     });
     return c.json(result);
+  })
+
+  /**
+   * 刻意不納入報表的外部 SKU。
+   *
+   * 與「還沒建對應」在匯入端行為相同（都略過），差別只在要不要提醒——標記過的不再吵。
+   */
+  .get("/report-sku-ignores", requirePermission("wms:inventory:read"), async (c) => {
+    return c.json({ ignores: await listReportSkuIgnores(c.get("db")) });
+  })
+
+  .post("/report-sku-ignores", requirePermission("wms:inventory:write"), async (c) => {
+    const input = await body(c);
+    const user = c.get("user");
+    const result = await addReportSkuIgnore(c.get("db"), {
+      channel: requireString(input, "channel", "通路"),
+      externalSku: requireString(input, "externalSku", "外部 SKU"),
+      reason: text(input, "reason"),
+      actor: { id: user.id, email: user.email },
+    });
+    return c.json(result, 201);
+  })
+
+  .delete("/report-sku-ignores/:id", requirePermission("wms:inventory:write"), async (c) => {
+    const user = c.get("user");
+    await deleteReportSkuIgnore(c.get("db"), c.req.param("id"), { id: user.id, email: user.email });
+    return c.json({ ok: true });
   })
 
   .delete("/product-sku-mappings/:mappingId", requirePermission("wms:inventory:write"), async (c) => {

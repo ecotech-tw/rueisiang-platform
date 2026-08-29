@@ -435,6 +435,13 @@
       "when": 1788018763229,
       "tag": "0061_repair_snapshot_chain",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1788023824364,
+      "tag": "0062_add_report_sku_ignores",
+      "breakpoints": true
     }
   ]
 }

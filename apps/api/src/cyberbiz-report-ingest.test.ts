@@ -465,22 +465,67 @@ describe("報表月資料匯入", () => {
     const response = await request(shopeeBundle([
       salesRow("P-002_M-001", 0, { grossQuantity: 3, returnQuantity: 0, netQuantity: 3 }),
     ]));
-    expect(response.status).toBe(422);
+    // 略過而不是靜默少算：那筆完全不寫，而且會出現在提醒清單裡。
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { skippedSkus: ["P-002_M-001"] } });
     expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
   });
 
-  it("未對應外部 SKU 不會把原始值寫進報表", async () => {
-    const response = await request(salesBody([salesRow("NOT-MAPPED", 100)]));
-    expect(response.status).toBe(422);
-    expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
+  it("未對應外部 SKU 會被略過，其餘照常寫入並回報", async () => {
+    /*
+     * 以前是整份 422。實際上十幾個沒對應的 SKU 讓九家店的整個月一筆都進不去，
+     * 一個沒對應的贈品擋掉全部營收，代價完全不成比例。
+     */
+    const response = await request(salesBody([
+      salesRow("NOT-MAPPED", 100),
+      salesRow("SKU-1", 200, { grossQuantity: 5, netQuantity: 5 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { skippedSkus: ["NOT-MAPPED"] } });
+    expect(await db().select({ sku: schema.reportSalesMonthly.sku }).from(schema.reportSalesMonthly))
+      .toEqual([{ sku: "SKU-1" }]);
   });
 
-  it("bundle 的 sales mapping 失敗時仍會先保存 payout", async () => {
+  it("標記為不納入報表的 SKU 略過但不列進提醒", async () => {
+    await db().insert(schema.reportSkuIgnores).values({
+      id: "ignore-1", channel: "cyberbiz", externalSku: "RESEND-001", reason: "補寄用",
+    });
+
+    const response = await request(salesBody([
+      salesRow("RESEND-001", 100),
+      salesRow("SKU-1", 200, { grossQuantity: 5, netQuantity: 5 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { skippedSkus: [] } });
+    expect(await db().select({ sku: schema.reportSalesMonthly.sku }).from(schema.reportSalesMonthly))
+      .toEqual([{ sku: "SKU-1" }]);
+  });
+
+  it("補好對應之後重跑同一個月會把略過的補回來", async () => {
+    expect((await request(salesBody([
+      salesRow("LATE-001", 100, { grossQuantity: 3, netQuantity: 3 }),
+      salesRow("SKU-1", 200, { grossQuantity: 5, netQuantity: 5 }),
+    ]))).status).toBe(200);
+    expect(await db().select().from(schema.reportSalesMonthly)).toHaveLength(1);
+
+    await seedMapping({ id: "mapping-late", channel: "cyberbiz", externalSku: "LATE-001", components: [{ item: "item-sku-2" }] });
+
+    expect((await request(salesBody([
+      salesRow("LATE-001", 100, { grossQuantity: 3, netQuantity: 3 }),
+      salesRow("SKU-1", 200, { grossQuantity: 5, netQuantity: 5 }),
+    ]))).status).toBe(200);
+    expect(await db().select({ sku: schema.reportSalesMonthly.sku })
+      .from(schema.reportSalesMonthly).orderBy(schema.reportSalesMonthly.sku))
+      .toEqual([{ sku: "SKU-1" }, { sku: "SKU-2" }]);
+  });
+
+  it("sales 全部未對應時 payout 仍照常保存", async () => {
     const response = await request(shopeeBundle(
       [salesRow("NOT-MAPPED", 100)],
       [{ businessDate: "2026-07-01", payoutAmount: 250 }],
     ));
-    expect(response.status).toBe(422);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { skippedSkus: ["NOT-MAPPED"] } });
     expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
     expect(await db().select().from(schema.reportPayoutDaily)).toMatchObject([
       { scopeId: "shopee:store:default", businessDate: "2026-07-01", payoutAmount: 250 },

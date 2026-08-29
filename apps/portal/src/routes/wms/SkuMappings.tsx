@@ -10,11 +10,17 @@ import {
   FilterSelect,
   PageHeader,
   Panel,
+  SelectField,
+  TextField,
 } from "../../ui/index.js";
 import {
+  useAddReportSkuIgnore,
   useDeleteProductSkuMapping,
+  useDeleteReportSkuIgnore,
   useProductSkuMappings,
+  useReportSkuIgnores,
   productSkuChannelLabel,
+  PRODUCT_SKU_CHANNEL_OPTIONS,
   type ProductSkuMapping,
 } from "./api.js";
 import { SkuMappingDialog } from "./SkuMappingDialog.js";
@@ -49,6 +55,13 @@ export function SkuMappings() {
   const [channelFilter, setChannelFilter] = useState("all");
   const [mappingDialog, setMappingDialog] = useState<ProductSkuMapping | "new" | null>(null);
   const [deleting, setDeleting] = useState<ProductSkuMapping | null>(null);
+  const ignoresQuery = useReportSkuIgnores();
+  const addIgnore = useAddReportSkuIgnore();
+  const removeIgnore = useDeleteReportSkuIgnore();
+  const [ignoreChannel, setIgnoreChannel] = useState("cyberbiz");
+  const [ignoreSku, setIgnoreSku] = useState("");
+  const [ignoreReason, setIgnoreReason] = useState("");
+  const ignores = ignoresQuery.data?.ignores ?? [];
 
   const data = query.data;
   const mappings = data?.mappings ?? [];
@@ -88,6 +101,74 @@ export function SkuMappings() {
           <Button icon="plus" onClick={() => setMappingDialog("new")}>
             新增對應
           </Button>
+        </Panel>
+      ) : null}
+
+      {canWrite ? (
+        <Panel
+          title="不納入報表的外部 SKU"
+          description="補寄、已下架這類永遠不該進統計的通路 SKU。標記之後匯入會照樣略過，但不再列進「未對應」的提醒。"
+        >
+          <div className="admin-form toolbar">
+            <SelectField
+              label="通路"
+              value={ignoreChannel}
+              onChange={(event) => setIgnoreChannel(event.target.value)}
+              options={PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
+            />
+            <TextField
+              label="外部 SKU"
+              placeholder="例如 51210161926_224686824526"
+              value={ignoreSku}
+              onChange={(event) => setIgnoreSku(event.target.value)}
+            />
+            <TextField
+              label="原因"
+              placeholder="例如 補寄用"
+              value={ignoreReason}
+              onChange={(event) => setIgnoreReason(event.target.value)}
+            />
+            <Button
+              icon="plus"
+              disabled={!ignoreSku.trim() || addIgnore.isPending}
+              loading={addIgnore.isPending}
+              loadingLabel="加入中…"
+              onClick={() => addIgnore.mutate(
+                { channel: ignoreChannel, externalSku: ignoreSku.trim(), reason: ignoreReason.trim() },
+                {
+                  onSuccess: (result) => {
+                    setIgnoreSku("");
+                    setIgnoreReason("");
+                    toast.show(`已標記${productSkuChannelLabel(result.channel)} SKU「${result.externalSku}」不納入報表`);
+                  },
+                },
+              )}
+            >
+              加入
+            </Button>
+          </div>
+          {addIgnore.error ? <Alert tone="danger">{addIgnore.error.message}</Alert> : null}
+          {ignores.length ? (
+            <div className="row-actions">
+              {ignores.map((ignore) => (
+                <span className="status status-tone-slate" key={ignore.id}>
+                  {productSkuChannelLabel(ignore.channel)} · {ignore.externalSku}
+                  {ignore.reason ? `（${ignore.reason}）` : ""}
+                  <button
+                    type="button"
+                    className="link-button"
+                    aria-label={`取消忽略 ${ignore.externalSku}`}
+                    disabled={removeIgnore.isPending}
+                    onClick={() => removeIgnore.mutate(ignore.id, {
+                      onSuccess: () => toast.show(`已取消忽略「${ignore.externalSku}」`),
+                    })}
+                  >
+                    取消
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : <p className="cell-sub">目前沒有標記任何 SKU。</p>}
         </Panel>
       ) : null}
 

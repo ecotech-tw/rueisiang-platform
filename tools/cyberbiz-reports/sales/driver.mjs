@@ -186,7 +186,7 @@ async function main() {
 
         if (monthly && ingestConfig.enabled) {
           if (!document) throw new Error("完整月份沒有取得可匯入的商品銷售報表。");
-          await ingestCyberbizReport({
+          const ingested = await ingestCyberbizReport({
             apiUrl: ingestConfig.apiUrl,
             ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
             kind: "sales",
@@ -195,7 +195,18 @@ async function main() {
             reportMonth: document.reportMonth,
             rows: monthlyRows(document),
           });
-          result.steps.ingest = "ok";
+          /*
+           * 對不到對應的 SKU 是略過而不是整份失敗，所以這裡要把它們講出來。
+           * 不講的話那些營收會安靜地少掉，而且沒有人知道要回來補對應。
+           */
+          const skipped = ingested?.skippedSkus ?? [];
+          if (skipped.length) {
+            result.steps.ingest = "partial";
+            result.skippedSkus = skipped;
+            result.note = `略過 ${skipped.length} 個未對應 SKU：${skipped.join("、")}`;
+          } else {
+            result.steps.ingest = "ok";
+          }
         } else {
           result.steps.ingest = "skip";
           result.note = !monthly

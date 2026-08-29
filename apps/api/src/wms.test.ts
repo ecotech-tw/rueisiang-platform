@@ -8,6 +8,7 @@ import {
   productBundleComponents,
   productCategories,
   productSkuMappings,
+  reportSkuIgnores,
   zoneImages,
   users,
   userPermissions,
@@ -525,6 +526,30 @@ describe("外部 SKU 對應", () => {
     })).status).toBe(200);
     expect(await db.select({ category: customReportProducts.category }).from(customReportProducts))
       .toEqual([{ category: "日用品" }]);
+  });
+
+  it("可以標記與取消「不納入報表」的外部 SKU", async () => {
+    const id = await seedAdmin();
+    const created = await as(id, "admin@ecotech.tw", "/api/wms/report-sku-ignores", {
+      method: "POST",
+      body: JSON.stringify({ channel: "shopee", externalSku: "51210161926_224686824526", reason: "補寄用" }),
+    });
+    expect(created.status).toBe(201);
+    const ignore = await created.json() as { id: string };
+
+    // 大小寫統一，重複標記要擋。
+    expect((await as(id, "admin@ecotech.tw", "/api/wms/report-sku-ignores", {
+      method: "POST",
+      body: JSON.stringify({ channel: "shopee", externalSku: "51210161926_224686824526" }),
+    })).status).toBe(409);
+
+    const listing = await as(id, "admin@ecotech.tw", "/api/wms/report-sku-ignores");
+    expect(await listing.json()).toMatchObject({
+      ignores: [{ channel: "shopee", externalSku: "51210161926_224686824526", reason: "補寄用" }],
+    });
+
+    expect((await as(id, "admin@ecotech.tw", `/api/wms/report-sku-ignores/${ignore.id}`, { method: "DELETE" })).status).toBe(200);
+    expect(await db.select().from(reportSkuIgnores)).toEqual([]);
   });
 
   it("自訂用料可跨通路共用，且不可與 WMS SKU 重複", async () => {

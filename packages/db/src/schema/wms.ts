@@ -128,6 +128,27 @@ export const customReportProducts = sqliteTable("custom_report_products", {
 });
 
 /**
+ * 刻意不納入報表的外部 SKU。
+ *
+ * 有些通路 SKU 永遠不該進商品統計——補寄用的品項、已下架又偶爾補單的舊商品。它們跟
+ * 「還沒建對應」在匯入端的行為一樣（都略過），差別在提醒：沒標記的要提醒人去補，
+ * 標記過的不要再吵，否則每個月跳同一批 SKU，提醒很快就沒人看。
+ *
+ * 不做成「沒有用料的 mapping」：product_sku_mappings 的「至少一個用料」是硬性條件，
+ * 為了這件事鬆掉它，之後每一支查詢都要處理空用料。
+ */
+export const reportSkuIgnores = sqliteTable("report_sku_ignores", {
+  id: text("id").primaryKey(),
+  channel: text("channel").notNull(),
+  externalSku: text("external_sku").notNull(),
+  reason: text("reason").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_report_sku_ignores_channel_external_sku").on(table.channel, table.externalSku),
+]);
+
+/**
  * 外部通路商品的對應。
  *
  * 通路與外部 SKU 一起識別一筆 mapping，通路商品名稱保留報表裡看到的名稱。
@@ -255,5 +276,6 @@ export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type ProductSkuMapping = typeof productSkuMappings.$inferSelect;
 export type ProductBundleComponent = typeof productBundleComponents.$inferSelect;
 export type CustomReportProduct = typeof customReportProducts.$inferSelect;
+export type ReportSkuIgnore = typeof reportSkuIgnores.$inferSelect;
 export type CyberbizProductLink = typeof cyberbizProductLinks.$inferSelect;
 export type ZoneImage = typeof zoneImages.$inferSelect;

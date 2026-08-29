@@ -83,10 +83,14 @@ export {
 export * as schema from "./schema/index.js";
 export {
   addProductSkuMapping,
+  addReportSkuIgnore,
   deleteProductSkuMapping,
+  deleteReportSkuIgnore,
+  listReportSkuIgnores,
   loadProductSkuMappingManagement,
   normalizeExternalSku,
   normalizeProductSkuChannel,
+  resolveIgnoredSkus,
   resolveProductSkus,
   updateProductSkuMapping,
   type ProductBundleComponentInput,
@@ -94,6 +98,7 @@ export {
   type ProductSkuMappingItemOption,
   type ProductSkuMappingManagementData,
   type ProductSkuMappingManagementRow,
+  type ReportSkuIgnoreRow,
   type ProductSkuMappingRow,
   type ResolvedProductSku,
   type ResolvedProductSkuComponent,

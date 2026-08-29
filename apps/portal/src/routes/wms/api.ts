@@ -88,6 +88,7 @@ export interface Warehouse {
 const WAREHOUSE_KEY = ["wms", "warehouse"] as const;
 const PRODUCT_SKU_MAPPINGS_KEY = ["wms", "product-sku-mappings"] as const;
 const ACTIVITY_KEY = ["wms", "activity"] as const;
+const REPORT_SKU_IGNORES_KEY = ["wms", "report-sku-ignores"] as const;
 
 async function readError(response: Response): Promise<never> {
   const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
@@ -200,6 +201,7 @@ function useWarehouseMutation<TArgs, TResult>(
       void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
       void queryClient.invalidateQueries({ queryKey: PRODUCT_SKU_MAPPINGS_KEY });
       void queryClient.invalidateQueries({ queryKey: ACTIVITY_KEY });
+      void queryClient.invalidateQueries({ queryKey: REPORT_SKU_IGNORES_KEY });
     },
   });
 }
@@ -476,5 +478,38 @@ export function useSyncCyberbiz() {
       "POST",
       productId ? { productId } : {},
     ),
+  );
+}
+
+/** 刻意不納入報表的外部 SKU（補寄、已下架這類）。 */
+export interface ReportSkuIgnore {
+  id: string;
+  channel: string;
+  externalSku: string;
+  reason: string;
+  createdAt: string;
+}
+
+export function useReportSkuIgnores() {
+  return useQuery({
+    queryKey: REPORT_SKU_IGNORES_KEY,
+    queryFn: async () => {
+      const response = await fetch("/api/wms/report-sku-ignores", { credentials: "same-origin" });
+      if (!response.ok) await readError(response);
+      return (await response.json()) as { ignores: ReportSkuIgnore[] };
+    },
+  });
+}
+
+export function useAddReportSkuIgnore() {
+  return useWarehouseMutation(
+    (payload: { channel: string; externalSku: string; reason?: string }) =>
+      write<ReportSkuIgnore>("/api/wms/report-sku-ignores", "POST", payload),
+  );
+}
+
+export function useDeleteReportSkuIgnore() {
+  return useWarehouseMutation(
+    (id: string) => write<{ ok: true }>(`/api/wms/report-sku-ignores/${id}`, "DELETE"),
   );
 }
