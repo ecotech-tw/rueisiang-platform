@@ -6,6 +6,7 @@ import {
   useUpdateProductSkuMapping,
   productSkuChannelLabel,
   PRODUCT_SKU_CHANNEL_OPTIONS,
+  useCyberbizProducts,
   type ProductBundleComponentInput,
   type ProductSkuMapping,
   type ProductSkuMappingItemOption,
@@ -18,7 +19,7 @@ import {
  * 不會把剛填好的東西弄丟。
  */
 interface ComponentDraft {
-  source: "item" | "custom";
+  source: "item" | "cyberbiz" | "custom";
   inventoryItemId: string;
   customSku: string;
   customName: string;
@@ -59,13 +60,29 @@ export function SkuMappingDialog({
       ...PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value })),
     ];
   const [externalName, setExternalName] = useState(mapping?.externalName ?? "");
+  /*
+   * 蝦皮的外部 SKU 是「商品ID_規格ID」，拆成兩格填。
+   *
+   * 存進去的仍然是接起來的字串（那是報表的鍵，不能改）；規格留空就只有商品 ID——
+   * 剛好對上 resolveProductSkus 的舊格式回退。其他通路是單一 SKU，維持一格。
+   */
+  const isShopee = channel === "shopee";
   const [externalSku, setExternalSku] = useState(mapping?.externalSku ?? "");
+  const [shopeeProductId, setShopeeProductId] = useState(
+    () => mapping?.externalSku.split("_")[0] ?? "",
+  );
+  const [shopeeModelId, setShopeeModelId] = useState(
+    () => mapping?.externalSku.split("_").slice(1).join("_") ?? "",
+  );
+  const composedExternalSku = isShopee
+    ? [shopeeProductId.trim(), shopeeModelId.trim()].filter(Boolean).join("_")
+    : externalSku.trim();
   const [components, setComponents] = useState<ComponentDraft[]>(() => {
     if (!mapping?.components.length) return [emptyDraft()];
     return mapping.components.map((component) => ({
       source: component.source,
       inventoryItemId: component.inventoryItemId ?? "",
-      customSku: component.source === "custom" ? component.sku : "",
+      customSku: component.source === "item" ? "" : component.sku,
       customName: component.source === "custom" ? component.name : "",
       customCategory: component.source === "custom" ? component.category : "",
       quantity: String(component.quantity),
@@ -77,6 +94,17 @@ export function SkuMappingDialog({
   const itemOptions = items
     .filter((item) => item.sku)
     .map((item) => ({ label: `${item.sku} · ${item.name}`, value: item.id }));
+  /*
+   * 官網商品直接從目錄挑，不用自己打 SKU 與名稱。
+   *
+   * 「CYBERBIZ 有、WMS 沒有」是最常見的一類用料（禮盒、贈品、加購），以前每一個都要
+   * 手 key 一次。自訂仍然保留，給兩邊都查不到的東西用。
+   */
+  const cyberbizProducts = useCyberbizProducts().data?.products ?? [];
+  const cyberbizOptions = cyberbizProducts.map((product) => ({
+    label: `${product.sku} · ${product.name}${product.published ? "" : "（已下架）"}`,
+    value: product.sku,
+  }));
   /*
    * 編輯既有的自訂用料時，它的分類可能已經不在主檔裡（分類被刪掉，或就是預設的「未分類」）。
    * 不補進選項的話下拉會顯示成空白，一存檔就把原本的分類洗掉。
@@ -96,7 +124,7 @@ export function SkuMappingDialog({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const value = externalSku.trim();
+    const value = composedExternalSku;
     const normalizedChannel = channel.trim();
     const normalizedName = externalName.trim();
     if (!normalizedName || !normalizedChannel || !value || pending) return;
@@ -120,6 +148,15 @@ export function SkuMappingDialog({
         parsed.push({ inventoryItemId: component.inventoryItemId, quantity });
         continue;
       }
+      if (component.source === "cyberbiz") {
+        if (!component.customSku.trim()) {
+          setValidationError("請為每一列 CYBERBIZ 用料選擇商品。");
+          return;
+        }
+        // 名稱與分類都由目錄鏡像即時提供，這裡只送 SKU。
+        parsed.push({ cyberbizSku: component.customSku.trim(), quantity });
+        continue;
+      }
       const customSku = component.customSku.trim();
       const customName = component.customName.trim();
       if (!customSku || !customName) {
@@ -141,6 +178,11 @@ export function SkuMappingDialog({
     const customSkus = parsed.map((component) => component.customSku?.toUpperCase()).filter(Boolean);
     if (new Set(customSkus).size !== customSkus.length) {
       setValidationError("組合用料不可重複設定同一個自訂 SKU。");
+      return;
+    }
+    const catalogSkus = parsed.map((component) => component.cyberbizSku?.toUpperCase()).filter(Boolean);
+    if (new Set(catalogSkus).size !== catalogSkus.length) {
+      setValidationError("組合用料不可重複設定同一個 CYBERBIZ 商品。");
       return;
     }
     setValidationError("");
@@ -189,7 +231,7 @@ export function SkuMappingDialog({
             type="submit"
             loading={pending}
             loadingLabel="儲存中…"
-            disabled={!externalName.trim() || !channel.trim() || !externalSku.trim() || !components.length}
+            disabled={!externalName.trim() || !channel.trim() || !composedExternalSku || !components.length}
           >
             {mapping ? "儲存變更" : "新增對應"}
           </Button>
@@ -214,13 +256,33 @@ export function SkuMappingDialog({
             options={channelOptions}
           />
         </div>
-        <TextField
-          label="外部 SKU"
-          required
-          placeholder="例如蝦皮 商品ID_規格ID"
-          value={externalSku}
-          onChange={(event) => setExternalSku(event.target.value)}
-        />
+        {isShopee ? (
+          <div className="field-grid">
+            <TextField
+              label="蝦皮商品 ID"
+              required
+              placeholder="例如 20865536700"
+              hint="報表的「商品選項貨號」前半段。"
+              value={shopeeProductId}
+              onChange={(event) => setShopeeProductId(event.target.value)}
+            />
+            <TextField
+              label="蝦皮規格 ID"
+              placeholder="例如 175221693438"
+              hint="沒有規格的商品留空即可。"
+              value={shopeeModelId}
+              onChange={(event) => setShopeeModelId(event.target.value)}
+            />
+          </div>
+        ) : (
+          <TextField
+            label="外部 SKU"
+            required
+            placeholder="例如 ABX30001"
+            value={externalSku}
+            onChange={(event) => setExternalSku(event.target.value)}
+          />
+        )}
 
         <div className="sku-mapping-components">
           <div className="sku-mapping-components-head">
@@ -248,9 +310,17 @@ export function SkuMappingDialog({
                   label=""
                   aria-label={`用料 ${index + 1} 來源`}
                   value={component.source}
-                  onChange={(event) => patchComponent(index, { source: event.target.value === "custom" ? "custom" : "item" })}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    patchComponent(index, {
+                      source: next === "custom" ? "custom" : next === "cyberbiz" ? "cyberbiz" : "item",
+                      // 換來源就清掉自訂欄位，避免把上一個來源的值帶著走。
+                      ...(next === "cyberbiz" ? { customSku: "", customName: "" } : {}),
+                    });
+                  }}
                   options={[
                     { label: "WMS 商品", value: "item" },
+                    { label: "CYBERBIZ 商品", value: "cyberbiz" },
                     { label: "自訂 SKU", value: "custom" },
                   ]}
                 />
@@ -261,6 +331,19 @@ export function SkuMappingDialog({
                     value={component.inventoryItemId}
                     onChange={(event) => patchComponent(index, { inventoryItemId: event.target.value })}
                     options={[{ label: "請選擇 WMS 商品", value: "" }, ...itemOptions]}
+                  />
+                ) : component.source === "cyberbiz" ? (
+                  <SelectField
+                    label=""
+                    aria-label={`CYBERBIZ 商品 ${index + 1}`}
+                    value={component.customSku}
+                    onChange={(event) => {
+                      const sku = event.target.value;
+                      const product = cyberbizProducts.find((candidate) => candidate.sku === sku);
+                      // 名稱直接跟著官網走，使用者不必也不該自己打。
+                      patchComponent(index, { customSku: sku, customName: product?.name ?? "" });
+                    }}
+                    options={[{ label: "請選擇 CYBERBIZ 商品", value: "" }, ...cyberbizOptions]}
                   />
                 ) : (
                   <TextField

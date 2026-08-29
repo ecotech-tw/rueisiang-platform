@@ -3,6 +3,7 @@ import { createDatabase, syncSystemRoles } from "@rueisiang/db";
 import {
   activityEvents,
   customReportProducts,
+  cyberbizProducts,
   inventoryItems,
   cyberbizProductLinks,
   productBundleComponents,
@@ -550,6 +551,54 @@ describe("外部 SKU 對應", () => {
 
     expect((await as(id, "admin@ecotech.tw", `/api/wms/report-sku-ignores/${ignore.id}`, { method: "DELETE" })).status).toBe(200);
     expect(await db.select().from(reportSkuIgnores)).toEqual([]);
+  });
+
+  it("用料可以直接指向 CYBERBIZ 商品，名稱跟著官網走不留複本", async () => {
+    const id = await seedAdmin();
+    await db.insert(cyberbizProducts).values({
+      sku: "AGT0001", productId: "p-1", variantId: "v-1", productName: "提袋", variantName: "大",
+    });
+
+    const created = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        channel: "shopee",
+        externalName: "蝦皮提袋",
+        externalSku: "20865536700_175221693438",
+        components: [{ cyberbizSku: "AGT0001", quantity: 1 }],
+      }),
+    });
+    expect(created.status).toBe(201);
+    // 不建自訂商品：名稱只有官網那一份，改名不會有複本留在後面。
+    expect(await db.select().from(customReportProducts)).toEqual([]);
+
+    const listing = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings");
+    expect(await listing.json()).toMatchObject({
+      mappings: [{
+        components: [{ source: "cyberbiz", cyberbizSku: "AGT0001", sku: "AGT0001", name: "提袋（大）" }],
+      }],
+    });
+
+    // 官網改名之後，管理頁直接看到新名字。
+    await db.update(cyberbizProducts).set({ productName: "環保提袋" }).where(eq(cyberbizProducts.sku, "AGT0001"));
+    const relisted = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings");
+    expect(await relisted.json()).toMatchObject({
+      mappings: [{ components: [{ name: "環保提袋（大）" }] }],
+    });
+  });
+
+  it("目錄裡沒有的 CYBERBIZ SKU 會被擋下", async () => {
+    const id = await seedAdmin();
+    const response = await as(id, "admin@ecotech.tw", "/api/wms/product-sku-mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        channel: "shopee",
+        externalName: "不存在",
+        externalSku: "1_2",
+        components: [{ cyberbizSku: "NOT-IN-CATALOG", quantity: 1 }],
+      }),
+    });
+    expect(response.status).toBe(404);
   });
 
   it("自訂用料可跨通路共用，且不可與 WMS SKU 重複", async () => {

@@ -6,7 +6,9 @@ import {
   addProductSkuMapping,
   addReportSkuIgnore,
   deleteReportSkuIgnore,
+  listCyberbizProducts,
   listReportSkuIgnores,
+  syncCyberbizProducts,
   buildSyncPlan,
   countItem,
   deleteZoneImage,
@@ -121,6 +123,7 @@ function bundleComponents(input: Record<string, unknown>): ProductBundleComponen
     }
     return {
       inventoryItemId: typeof component.inventoryItemId === "string" ? component.inventoryItemId : null,
+      cyberbizSku: typeof component.cyberbizSku === "string" ? component.cyberbizSku : null,
       customSku: typeof component.customSku === "string" ? component.customSku : null,
       customName: typeof component.customName === "string" ? component.customName : null,
       customCategory: typeof component.customCategory === "string" ? component.customCategory : null,
@@ -265,6 +268,13 @@ export const wms = new Hono<AppEnv>()
     const page = Number(url.searchParams.get("page"));
 
     const catalog = await loadCatalog(client, cacheClient(c.env), url.searchParams.get("refresh") === "1");
+    /*
+     * 順手把目錄寫進 D1 鏡像。
+     *
+     * 報表匯入用那份鏡像當商品身分，不能依賴官網當下的可用性；而這裡本來就已經把整份
+     * 目錄拿在手上了，寫一次比另外排一條同步路徑便宜。
+     */
+    await syncCyberbizProducts(c.get("db"), catalog.items);
 
     // 哪些款式已經連到 WMS 的品項。畫面上要看得出來，也是「未連結」篩選的依據。
     const links = await listCompanyLinks(c.get("db"));
@@ -312,6 +322,11 @@ export const wms = new Hono<AppEnv>()
       actor: { id: user.id, email: user.email },
     });
     return c.json(result);
+  })
+
+  /** SKU 對應頁挑用料用的 CYBERBIZ 商品清單（讀 D1 鏡像，不打官網）。 */
+  .get("/cyberbiz-products", requirePermission("wms:inventory:read"), async (c) => {
+    return c.json({ products: await listCyberbizProducts(c.get("db")) });
   })
 
   /**

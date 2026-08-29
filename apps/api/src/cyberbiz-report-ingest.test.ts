@@ -471,6 +471,42 @@ describe("報表月資料匯入", () => {
     expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
   });
 
+  it("CYBERBIZ 目錄有的商品不必建對應也進得了報表", async () => {
+    /*
+     * 官網有、WMS 沒有的商品（禮盒、贈品、加購）以前得手動 key 一個自訂 SKU 與名稱，
+     * 十幾個這種 SKU 就擋掉九家店的整個月。
+     */
+    await db().insert(schema.cyberbizProducts).values({
+      sku: "AGT0001", productId: "p-1", variantId: "v-1", productName: "提袋", variantName: "大",
+    });
+
+    const response = await request(salesBody([
+      salesRow("AGT0001", 150, { grossQuantity: 4, netQuantity: 4 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { skippedSkus: [] } });
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      productName: schema.reportSalesMonthly.productName,
+      salesAmount: schema.reportSalesMonthly.salesAmount,
+    }).from(schema.reportSalesMonthly)).toEqual([
+      { sku: "AGT0001", productName: "提袋（大）", salesAmount: 150 },
+    ]);
+  });
+
+  it("WMS 商品與明確 mapping 都贏過 CYBERBIZ 目錄", async () => {
+    // 目錄只是「都對不到」時的退路，不該蓋掉既有的對應關係。
+    await db().insert(schema.cyberbizProducts).values({
+      sku: "SKU-1", productId: "p-9", variantId: "v-9", productName: "官網名稱", variantName: "",
+    });
+
+    expect((await request(salesBody([salesRow("SKU-1", 100, { grossQuantity: 2, netQuantity: 2 })]))).status).toBe(200);
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      productName: schema.reportSalesMonthly.productName,
+    }).from(schema.reportSalesMonthly)).toEqual([{ sku: "SKU-1", productName: "WMS SKU-1" }]);
+  });
+
   it("未對應外部 SKU 會被略過，其餘照常寫入並回報", async () => {
     /*
      * 以前是整份 422。實際上十幾個沒對應的 SKU 讓九家店的整個月一筆都進不去，

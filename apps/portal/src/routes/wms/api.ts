@@ -89,6 +89,7 @@ const WAREHOUSE_KEY = ["wms", "warehouse"] as const;
 const PRODUCT_SKU_MAPPINGS_KEY = ["wms", "product-sku-mappings"] as const;
 const ACTIVITY_KEY = ["wms", "activity"] as const;
 const REPORT_SKU_IGNORES_KEY = ["wms", "report-sku-ignores"] as const;
+const CYBERBIZ_PRODUCTS_KEY = ["wms", "cyberbiz-products"] as const;
 
 async function readError(response: Response): Promise<never> {
   const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
@@ -118,8 +119,9 @@ export interface ProductSkuMapping {
 
 /** 一列用料的來源二選一：WMS 商品，或報表自訂商品。 */
 export interface ProductBundleComponent {
-  source: "item" | "custom";
+  source: "item" | "cyberbiz" | "custom";
   inventoryItemId: string | null;
+  cyberbizSku: string | null;
   customProductId: string | null;
   sku: string;
   name: string;
@@ -129,6 +131,7 @@ export interface ProductBundleComponent {
 
 export interface ProductBundleComponentInput {
   inventoryItemId?: string | null;
+  cyberbizSku?: string | null;
   customSku?: string | null;
   customName?: string | null;
   customCategory?: string | null;
@@ -512,4 +515,22 @@ export function useDeleteReportSkuIgnore() {
   return useWarehouseMutation(
     (id: string) => write<{ ok: true }>(`/api/wms/report-sku-ignores/${id}`, "DELETE"),
   );
+}
+
+/** D1 鏡像裡的 CYBERBIZ 商品；SKU 對應頁挑用料用。 */
+export interface CyberbizProductOption {
+  sku: string;
+  name: string;
+  published: boolean;
+}
+
+export function useCyberbizProducts() {
+  return useQuery({
+    queryKey: CYBERBIZ_PRODUCTS_KEY,
+    queryFn: async () => {
+      const response = await fetch("/api/wms/cyberbiz-products", { credentials: "same-origin" });
+      if (!response.ok) await readError(response);
+      return (await response.json()) as { products: CyberbizProductOption[] };
+    },
+  });
 }
