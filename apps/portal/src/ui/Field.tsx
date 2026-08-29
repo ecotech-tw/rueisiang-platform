@@ -1,7 +1,7 @@
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 
 export interface FieldProps {
-  label: ReactNode;
+  label?: ReactNode;
   required?: boolean;
   hint?: ReactNode;
   error?: ReactNode;
@@ -13,7 +13,7 @@ export interface FieldProps {
 export function Field({ label, required, hint, error, className = "", children }: FieldProps) {
   return (
     <label className={`field ${className}`.trim()}>
-      <span>{label}{required ? <b aria-hidden="true">必填</b> : null}</span>
+      {label ? <span>{label}{required ? <b aria-hidden="true">必填</b> : null}</span> : null}
       {children}
       {error ? <small className="ui-field-error">{error}</small> : hint ? <small>{hint}</small> : null}
     </label>

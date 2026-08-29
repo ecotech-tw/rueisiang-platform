@@ -296,7 +296,10 @@ export const wms = new Hono<AppEnv>()
         ? null
         : input.inventoryItemId === undefined
           ? undefined
-          : requireString(input, "inventoryItemId", "WMS 主商品"),
+          : requireString(input, "inventoryItemId", "對應方式"),
+      systemSku: input.systemSku === undefined
+        ? undefined
+        : requireString(input, "systemSku", "系統 SKU"),
       components: bundleComponents(input, true),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalName: requireString(input, "externalName", "通路商品名稱"),
@@ -315,7 +318,10 @@ export const wms = new Hono<AppEnv>()
         ? null
         : input.inventoryItemId === undefined
           ? undefined
-          : requireString(input, "inventoryItemId", "WMS 主商品"),
+          : requireString(input, "inventoryItemId", "對應方式"),
+      systemSku: input.systemSku === undefined
+        ? undefined
+        : requireString(input, "systemSku", "系統 SKU"),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalName: requireString(input, "externalName", "通路商品名稱"),
       externalSku: requireString(input, "externalSku", "外部 SKU"),

@@ -403,6 +403,7 @@ describe("外部 SKU 對應", () => {
       body: JSON.stringify({
         inventoryItemId: null,
         channel: "cyberbiz",
+        systemSku: "ABX30001",
         externalName: "日光花園三入自選禮盒",
         externalSku: "ABX30001",
         components: [
@@ -419,8 +420,9 @@ describe("外部 SKU 對應", () => {
       body: JSON.stringify({
         inventoryItemId: null,
         channel: "shopee",
+        systemSku: "ABX30001",
         externalName: "日光花園三入自選禮盒",
-        externalSku: "ABX30001",
+        externalSku: "26491332332_216256146329",
         components: [
           { inventoryItemId: "i1", quantity: 1 },
           { inventoryItemId: "i2", quantity: 3 },

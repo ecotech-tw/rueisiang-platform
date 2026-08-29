@@ -112,10 +112,10 @@ export const inventoryItems = sqliteTable("inventory_items", {
 /**
  * 外部通路商品與 WMS 用料的對應。
  *
- * 通路與外部 SKU 一起識別一筆 mapping；通路商品名稱保留報表裡的名稱，正式 SKU、
- * WMS 商品名稱與分類則從 inventory_items 取得。inventoryItemId 可為空，代表這是只有外部
- * SKU 與組合用料的自訂 mapping；有主商品時仍保留主商品 ID 供既有查詢與關聯相容，完整的
- * 一對一或組合對應以 product_bundle_components 為準。
+ * 通路與外部 SKU 一起識別一筆 mapping；systemSku 是跨通路共用的系統 SKU。
+ * 一般 WMS 商品的 systemSku 會跟 inventory_items.sku 相同；沒有 WMS 主商品的自訂組合
+ * 則由管理者輸入。inventoryItemId 可為空，代表這是只有系統 SKU、外部 SKU 與組合用料的
+ * 自訂 mapping；完整的一對一或組合對應以 product_bundle_components 為準。
  */
 export const productSkuMappings = sqliteTable("product_sku_mappings", {
   id: text("id").primaryKey(),
@@ -123,6 +123,8 @@ export const productSkuMappings = sqliteTable("product_sku_mappings", {
     .references(() => inventoryItems.id, { onDelete: "set null" }),
   /** legacy 代表 migration 前建立、尚未確認來源通路的 mapping。 */
   channel: text("channel").notNull().default("legacy"),
+  /** 跨 CYBERBIZ、蝦皮等通路共用的商品識別；舊資料 migration 會先回填可推導值。 */
+  systemSku: text("system_sku"),
   externalName: text("external_name").notNull().default(""),
   externalSku: text("external_sku").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -130,6 +132,7 @@ export const productSkuMappings = sqliteTable("product_sku_mappings", {
 }, (table) => [
   uniqueIndex("idx_product_sku_mappings_channel_external_sku").on(table.channel, table.externalSku),
   index("idx_product_sku_mappings_inventory_item").on(table.inventoryItemId),
+  index("idx_product_sku_mappings_system_sku").on(table.systemSku),
 ]);
 
 /**

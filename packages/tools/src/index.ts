@@ -1164,7 +1164,7 @@ const crmGetOrdersTool: PlatformToolDefinition = {
 const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
   key: "query_sales_report",
   label: "查詢商品銷售報表",
-  description: "從已匯入 D1 的通路商品銷售月資料查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額；CYBERBIZ 使用 SKU，蝦皮使用 Product ID。這不是 CRM 訂單查詢；單一 scope 請傳 scopeName（例如誠品西門店3F或蝦皮），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store。支援月份與年份；自訂日期只能使用完整月份，否則會回傳 UNSUPPORTED_GRANULARITY。公司查詢由服務端完成所有據點的彙總，不需要逐店呼叫工具。",
+  description: "從已匯入 D1 的通路商品銷售月資料查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額；通路的 SKU 或蝦皮 Product ID 會先對應到系統 SKU，查詢時優先使用系統 SKU。這不是 CRM 訂單查詢；單一 scope 請傳 scopeName（例如誠品西門店3F或蝦皮），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store。支援月份與年份；自訂日期只能使用完整月份，否則會回傳 UNSUPPORTED_GRANULARITY。公司查詢由服務端完成所有據點的彙總，不需要逐店呼叫工具。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],
@@ -1178,7 +1178,7 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
       startDate: { type: "string", description: "自訂完整月份起始日 YYYY-MM-01，需與 endDate 一起提供。" },
       endDate: { type: "string", description: "自訂完整月份結束日 YYYY-MM-DD，需與 startDate 一起提供。" },
       groupBy: { type: "string", description: "可選分組，使用逗號分隔：month、scope、sku、category；例如 scope,month。" },
-      sku: { type: "string", description: "可選 SKU，精確查詢單一商品。" },
+      sku: { type: "string", description: "可選系統 SKU，精確查詢單一商品；服務端也兼容通路 SKU 或蝦皮 Product ID。" },
       category: { type: "string", description: "可選商品分類／標籤，回傳該分類商品合計。" },
       productName: { type: "string", description: "可選商品名稱關鍵字。" },
     },

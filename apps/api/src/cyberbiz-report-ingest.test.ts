@@ -242,6 +242,7 @@ describe("報表月資料匯入", () => {
         id: "mapping-custom-cyberbiz",
         inventoryItemId: null,
         channel: "cyberbiz",
+        systemSku: "ABX30001",
         externalName: "日光花園三入自選禮盒",
         externalSku: "ABX30001",
       },
@@ -249,8 +250,9 @@ describe("報表月資料匯入", () => {
         id: "mapping-custom-shopee",
         inventoryItemId: null,
         channel: "shopee",
+        systemSku: "ABX30001",
         externalName: "日光花園三入自選禮盒",
-        externalSku: "ABX30001",
+        externalSku: "26491332332_216256146329",
       },
     ]);
     await db().insert(schema.productBundleComponents).values([
@@ -264,7 +266,7 @@ describe("報表月資料匯入", () => {
       salesRow("ABX30001", 100, { grossQuantity: 2, netQuantity: 2 }),
     ]))).status).toBe(200);
     expect((await request(shopeeBundle([
-      salesRow("ABX30001", 0, { grossQuantity: 3, netQuantity: 3 }),
+      salesRow("26491332332_216256146329", 0, { grossQuantity: 3, netQuantity: 3 }),
     ]))).status).toBe(200);
 
     const rows = await db().select({
@@ -274,10 +276,8 @@ describe("報表月資料匯入", () => {
       salesAmount: schema.reportSalesMonthly.salesAmount,
     }).from(schema.reportSalesMonthly);
     expect(rows).toEqual(expect.arrayContaining([
-      { scopeId: "cyberbiz:store:a", sku: "SKU-1", grossQuantity: 4, salesAmount: 100 },
-      { scopeId: "cyberbiz:store:a", sku: "SKU-2", grossQuantity: 2, salesAmount: 0 },
-      { scopeId: "shopee:store:default", sku: "SKU-1", grossQuantity: 6, salesAmount: 0 },
-      { scopeId: "shopee:store:default", sku: "SKU-2", grossQuantity: 3, salesAmount: 0 },
+      { scopeId: "cyberbiz:store:a", sku: "ABX30001", grossQuantity: 2, salesAmount: 100 },
+      { scopeId: "shopee:store:default", sku: "ABX30001", grossQuantity: 3, salesAmount: 0 },
     ]));
   });
 

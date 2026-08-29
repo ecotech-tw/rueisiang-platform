@@ -173,9 +173,10 @@ async function normalizeSalesRows(
     );
   }
 
-  // 先 mapping 再加總：多個通路 SKU 可能對應同一個 WMS SKU，不能在外部 SKU 階段結束加總。
-  // 只要有 components 就展開到實際 WMS SKU；組合包的銷售額只放在 mapping 的主商品，避免
-  // 重複加總但仍保留整筆 CYBERBIZ 金額。蝦皮 salesAmount 本來就是 0，所以不會產生商品金額。
+  // 先 mapping 再加總：多個通路 SKU 可能對應同一個 system SKU，不能在外部 SKU 階段結束加總。
+  // 一般 WMS mapping 維持既有組合用料展開，讓庫存商品可以統計實際用量；沒有 WMS 主商品
+  // 的自訂 mapping 則以 system SKU 保存一筆商品銷售，避免蝦皮 Product ID 與 CYBERBIZ SKU
+  // 因為被拆成不同的第一個用料而無法合併。自訂 mapping 的組合用料仍保留在設定中。
   const rows = new Map<string, {
     scopeId: string;
     reportMonth: string;
@@ -190,24 +191,34 @@ async function normalizeSalesRows(
   }>();
   for (const row of parsed) {
     const item = resolved.get(row.externalSku)!;
-    // 主商品不在用料裡時才退而求其次取第一個；resolveProductSkus 已依商品名稱排序料件，
-    // 所以同一個月份重匯不會換一個料件收金額。
-    const amountTargetId = item.components.some((component) => component.inventoryItemId === item.inventoryItemId)
-      ? item.inventoryItemId
-      : item.components[0]?.inventoryItemId;
-    const targets = item.components.length
-      ? item.components.map((component) => ({
-        ...component,
-        multiplier: component.quantity,
-        allocatedSalesAmount: component.inventoryItemId === amountTargetId ? row.salesAmount : 0,
-      }))
-      : [{
+    const targets = item.isCustom
+      ? [{
         sku: item.sku,
         name: item.name,
         category: item.category,
         multiplier: 1,
         allocatedSalesAmount: row.salesAmount,
-      }];
+      }]
+      : item.components.length
+        ? (() => {
+          // 主商品不在用料裡時才退而求其次取第一個；resolveProductSkus 已依商品名稱排序料件，
+          // 所以同一個月份重匯不會換一個料件收金額。
+          const amountTargetId = item.components.some((component) => component.inventoryItemId === item.inventoryItemId)
+            ? item.inventoryItemId
+            : item.components[0]?.inventoryItemId;
+          return item.components.map((component) => ({
+            ...component,
+            multiplier: component.quantity,
+            allocatedSalesAmount: component.inventoryItemId === amountTargetId ? row.salesAmount : 0,
+          }));
+        })()
+        : [{
+          sku: item.sku,
+          name: item.name,
+          category: item.category,
+          multiplier: 1,
+          allocatedSalesAmount: row.salesAmount,
+        }];
     for (const target of targets) {
       const key = `${row.reportMonth}\u0000${target.sku}`;
       const previous = rows.get(key);

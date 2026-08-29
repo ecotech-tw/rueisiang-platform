@@ -30,6 +30,7 @@ export interface ProductSkuMappingRow {
   id: string;
   inventoryItemId: string | null;
   channel: string;
+  systemSku: string | null;
   externalName: string;
   externalSku: string;
   createdAt: string;
@@ -69,6 +70,8 @@ export interface ResolvedProductSku {
   sku: string;
   name: string;
   category: string;
+  /** 沒有 WMS 主商品的 mapping 以 system SKU 作為報表商品本身，不展開成第一個用料。 */
+  isCustom: boolean;
   components: ResolvedProductSkuComponent[];
 }
 
@@ -91,6 +94,7 @@ export async function listProductSkuMappings(
       id: productSkuMappings.id,
       inventoryItemId: productSkuMappings.inventoryItemId,
       channel: productSkuMappings.channel,
+      systemSku: productSkuMappings.systemSku,
       externalName: productSkuMappings.externalName,
       externalSku: productSkuMappings.externalSku,
       createdAt: productSkuMappings.createdAt,
@@ -123,6 +127,7 @@ export async function loadProductSkuMappingManagement(
         id: productSkuMappings.id,
         inventoryItemId: productSkuMappings.inventoryItemId,
         channel: productSkuMappings.channel,
+        systemSku: productSkuMappings.systemSku,
         externalName: productSkuMappings.externalName,
         externalSku: productSkuMappings.externalSku,
         createdAt: productSkuMappings.createdAt,
@@ -223,16 +228,23 @@ export async function addProductSkuMapping(
   input: {
     inventoryItemId?: string | null;
     channel?: string;
+    systemSku?: string | null;
     externalName?: string;
     externalSku: string;
     components?: ProductBundleComponentInput[];
     actor: Actor;
   },
-): Promise<{ id: string; channel: string; externalName: string; externalSku: string; components: ProductBundleComponentInput[] }> {
+): Promise<{ id: string; channel: string; systemSku: string; externalName: string; externalSku: string; components: ProductBundleComponentInput[] }> {
   const channel = normalizeProductSkuChannel(input.channel ?? "legacy");
   if (!channel) throw new WmsError("invalid", "通路不可為空。");
   const externalSku = normalizeExternalSku(input.externalSku);
   if (!externalSku) throw new WmsError("invalid", "外部 SKU 不可為空。");
+  const requestedSystemSku = typeof input.systemSku === "string"
+    ? normalizeExternalSku(input.systemSku)
+    : "";
+  if (input.systemSku !== undefined && input.systemSku !== null && !requestedSystemSku) {
+    throw new WmsError("invalid", "系統 SKU 不可為空。");
+  }
 
   const requestedComponents = validateBundleComponents(input.components);
   const components = requestedComponents.length
@@ -258,6 +270,13 @@ export async function addProductSkuMapping(
     : [];
   if (inventoryItemId && !item) throw new WmsError("not_found", "找不到這項商品。");
   if (item && !item.sku) throw new WmsError("invalid", "請先設定 WMS SKU，才能建立外部 SKU 對應。");
+  if (inventoryItemId && requestedSystemSku && item && normalizeExternalSku(item.sku ?? "") !== requestedSystemSku) {
+    throw new WmsError("invalid", "WMS 商品的系統 SKU 會直接使用 WMS SKU，不能另外指定。");
+  }
+  const systemSku = inventoryItemId
+    ? normalizeExternalSku(item?.sku ?? "")
+    : requestedSystemSku;
+  if (!systemSku) throw new WmsError("invalid", "自訂 SKU 對應必須填寫系統 SKU。");
   const componentItems = components.length
     ? await db
       .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
@@ -310,6 +329,7 @@ export async function addProductSkuMapping(
       id,
       inventoryItemId,
       channel,
+      systemSku,
       externalName,
       externalSku,
     }),
@@ -331,7 +351,7 @@ export async function addProductSkuMapping(
     })),
   ]);
 
-  return { id, channel, externalName, externalSku, components };
+  return { id, channel, systemSku, externalName, externalSku, components };
 }
 
 export async function updateProductSkuMapping(
@@ -340,14 +360,21 @@ export async function updateProductSkuMapping(
     id: string;
     inventoryItemId?: string | null;
     channel?: string;
+    systemSku?: string | null;
     externalName: string;
     externalSku: string;
     components?: ProductBundleComponentInput[];
     actor: Actor;
   },
-): Promise<{ id: string; channel: string; externalName: string; externalSku: string; components: ProductBundleComponentInput[] }> {
+): Promise<{ id: string; channel: string; systemSku: string; externalName: string; externalSku: string; components: ProductBundleComponentInput[] }> {
   const externalSku = normalizeExternalSku(input.externalSku);
   if (!externalSku) throw new WmsError("invalid", "外部 SKU 不可為空。");
+  const requestedSystemSku = typeof input.systemSku === "string"
+    ? normalizeExternalSku(input.systemSku)
+    : "";
+  if (input.systemSku !== undefined && input.systemSku !== null && !requestedSystemSku) {
+    throw new WmsError("invalid", "系統 SKU 不可為空。");
+  }
   const externalName = input.externalName.trim();
   if (!externalName) throw new WmsError("invalid", "通路商品名稱不可為空。");
   const components = validateBundleComponents(input.components);
@@ -360,6 +387,7 @@ export async function updateProductSkuMapping(
       id: productSkuMappings.id,
       inventoryItemId: productSkuMappings.inventoryItemId,
       channel: productSkuMappings.channel,
+      systemSku: productSkuMappings.systemSku,
       externalName: productSkuMappings.externalName,
       externalSku: productSkuMappings.externalSku,
       itemSku: inventoryItems.sku,
@@ -394,6 +422,13 @@ export async function updateProductSkuMapping(
     : [];
   if (inventoryItemId && !item) throw new WmsError("not_found", "找不到這項商品。");
   if (item && !item.sku) throw new WmsError("invalid", "請先設定 WMS SKU，才能建立外部 SKU 對應。");
+  if (inventoryItemId && requestedSystemSku && item && normalizeExternalSku(item.sku ?? "") !== requestedSystemSku) {
+    throw new WmsError("invalid", "WMS 商品的系統 SKU 會直接使用 WMS SKU，不能另外指定。");
+  }
+  const systemSku = inventoryItemId
+    ? normalizeExternalSku(item?.sku ?? "")
+    : requestedSystemSku || normalizeExternalSku(mapping.systemSku ?? mapping.externalSku);
+  if (!systemSku) throw new WmsError("invalid", "自訂 SKU 對應必須填寫系統 SKU。");
 
   const componentItems = components.length
     ? await db
@@ -444,6 +479,7 @@ export async function updateProductSkuMapping(
       .set({
         inventoryItemId,
         channel,
+        systemSku,
         externalName,
         externalSku,
         updatedAt: sql`CURRENT_TIMESTAMP`,
@@ -468,12 +504,14 @@ export async function updateProductSkuMapping(
         before: {
           inventoryItemId: mapping.inventoryItemId,
           channel: mapping.channel,
+          systemSku: mapping.systemSku,
           externalName: mapping.externalName,
           externalSku: mapping.externalSku,
         },
         after: {
           inventoryItemId,
           channel,
+          systemSku,
           externalName,
           externalSku,
           components,
@@ -484,7 +522,7 @@ export async function updateProductSkuMapping(
     })),
   ]);
 
-  return { id: input.id, channel, externalName, externalSku, components };
+  return { id: input.id, channel, systemSku, externalName, externalSku, components };
 }
 
 export async function deleteProductSkuMapping(
@@ -545,6 +583,8 @@ export async function resolveProductSkus(
     id: string;
     externalSku: string;
     channel: string;
+    systemSku: string | null;
+    externalName: string;
     inventoryItemId: string | null;
     sku: string | null;
     name: string | null;
@@ -568,6 +608,8 @@ export async function resolveProductSkus(
           id: productSkuMappings.id,
           externalSku: productSkuMappings.externalSku,
           channel: productSkuMappings.channel,
+          systemSku: productSkuMappings.systemSku,
+          externalName: productSkuMappings.externalName,
           inventoryItemId: productSkuMappings.inventoryItemId,
           sku: inventoryItems.sku,
           name: inventoryItems.name,
@@ -642,6 +684,7 @@ export async function resolveProductSkus(
       sku: item.sku,
       name: item.name,
       category: item.category,
+      isCustom: false,
       components: [],
     });
   }
@@ -649,8 +692,8 @@ export async function resolveProductSkus(
     if (incompleteMappings.has(mapping.id)) continue;
     const components = componentsByMapping.get(mapping.id) ?? [];
     const firstComponent = components[0];
-    const sku = mapping.sku ?? firstComponent?.sku;
-    const name = mapping.name ?? firstComponent?.name;
+    const sku = mapping.systemSku ?? mapping.sku ?? firstComponent?.sku;
+    const name = mapping.name || mapping.externalName || firstComponent?.name;
     const category = mapping.category ?? firstComponent?.category;
     const inventoryItemId = mapping.inventoryItemId ?? firstComponent?.inventoryItemId;
     if (!sku || !name || !category || !inventoryItemId) continue;
@@ -662,6 +705,7 @@ export async function resolveProductSkus(
       sku,
       name,
       category,
+      isCustom: mapping.inventoryItemId === null,
       components,
     });
     resolvedChannels.set(key, mapping.channel);

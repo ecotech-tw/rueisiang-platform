@@ -109,6 +109,7 @@ export interface ProductSkuMapping {
   id: string;
   inventoryItemId: string | null;
   channel: string;
+  systemSku: string | null;
   externalName: string;
   externalSku: string;
   createdAt: string;
@@ -240,33 +241,35 @@ export function useDeleteItem() {
 
 export function useCreateProductSkuMapping() {
   return useWarehouseMutation(
-    ({ inventoryItemId, channel, externalName, externalSku, components }: {
+    ({ inventoryItemId, channel, systemSku, externalName, externalSku, components }: {
       inventoryItemId?: string | null;
       channel?: string;
+      systemSku?: string | null;
       externalName: string;
       externalSku: string;
       components: Array<{ inventoryItemId: string; quantity: number }>;
-    }) => write<{ id: string; channel: string; externalName: string; externalSku: string }>(
+    }) => write<{ id: string; channel: string; systemSku: string; externalName: string; externalSku: string }>(
       "/api/wms/product-sku-mappings",
       "POST",
-      { inventoryItemId, channel, externalName, externalSku, components },
+      { inventoryItemId, channel, systemSku, externalName, externalSku, components },
     ),
   );
 }
 
 export function useUpdateProductSkuMapping() {
   return useWarehouseMutation(
-    ({ mappingId, inventoryItemId, channel, externalName, externalSku, components }: {
+    ({ mappingId, inventoryItemId, channel, systemSku, externalName, externalSku, components }: {
       mappingId: string;
       inventoryItemId?: string | null;
       channel?: string;
+      systemSku?: string | null;
       externalName: string;
       externalSku: string;
       components: Array<{ inventoryItemId: string; quantity: number }>;
-    }) => write<{ id: string; channel: string; externalName: string; externalSku: string; components: Array<{ inventoryItemId: string; quantity: number }> }>(
+    }) => write<{ id: string; channel: string; systemSku: string; externalName: string; externalSku: string; components: Array<{ inventoryItemId: string; quantity: number }> }>(
       `/api/wms/product-sku-mappings/${mappingId}`,
       "PATCH",
-      { inventoryItemId, channel, externalName, externalSku, components },
+      { inventoryItemId, channel, systemSku, externalName, externalSku, components },
     ),
   );
 }

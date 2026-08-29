@@ -29,6 +29,7 @@ function matches(mapping: ProductSkuMapping, search: string): boolean {
   if (!search) return true;
   return [
     mapping.channel,
+    mapping.systemSku ?? "",
     mapping.externalName,
     mapping.externalSku,
     mapping.itemSku ?? "",
@@ -129,6 +130,7 @@ export function SkuMappings() {
               <tr>
                 <th>通路</th>
                 <th>通路商品</th>
+                <th>系統 SKU</th>
                 <th>外部 SKU</th>
                 <th>WMS 組合用料</th>
                 <th>分類</th>
@@ -142,6 +144,11 @@ export function SkuMappings() {
                   <td data-label="通路"><span className="status status-tone-slate">{productSkuChannelLabel(mapping.channel)}</span></td>
                   <td data-label="通路商品">
                     <div className="cell-strong">{mapping.externalName || "未設定通路商品名稱"}</div>
+                  </td>
+                  <td data-label="系統 SKU">
+                    <span className={mapping.systemSku ? "cell-strong" : "cell-sub"}>
+                      {mapping.systemSku ?? "未設定"}
+                    </span>
                   </td>
                   <td data-label="外部 SKU"><span className="cell-strong">{mapping.externalSku}</span></td>
                   <td data-label="WMS 組合用料">

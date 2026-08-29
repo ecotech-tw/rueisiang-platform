@@ -44,9 +44,10 @@ export function SkuMappingDialog({
     ];
   const [externalName, setExternalName] = useState(mapping?.externalName ?? "");
   const [externalSku, setExternalSku] = useState(mapping?.externalSku ?? "");
+  const [systemSku, setSystemSku] = useState(mapping?.systemSku ?? "");
   const [components, setComponents] = useState<ComponentDraft[]>(
     () => {
-      if (!mapping) return [];
+      if (!mapping) return [{ inventoryItemId: "", quantity: "1" }];
       const existingComponents = mapping.components.length
         ? mapping.components
         : mapping.inventoryItemId
@@ -64,13 +65,13 @@ export function SkuMappingDialog({
   const itemOptions = items
     .filter((item) => item.sku)
     .map((item) => ({ label: `${item.sku} · ${item.name}`, value: item.id }));
-
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = externalSku.trim();
     const normalizedChannel = channel.trim();
     const normalizedName = externalName.trim();
-    if (!normalizedName || !normalizedChannel || !value || pending) return;
+    const normalizedSystemSku = systemSku.trim();
+    if (!normalizedName || !normalizedChannel || !value || (customSku && !normalizedSystemSku) || pending) return;
 
     const parsedComponents = components.map((component) => ({
       inventoryItemId: component.inventoryItemId,
@@ -96,6 +97,7 @@ export function SkuMappingDialog({
 
     const input = {
       inventoryItemId: customSku ? null : undefined,
+      systemSku: customSku ? normalizedSystemSku : undefined,
       channel: normalizedChannel,
       externalName: normalizedName,
       externalSku: value,
@@ -135,7 +137,23 @@ export function SkuMappingDialog({
           <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>
             取消
           </Button>
-          <Button type="submit" loading={pending} loadingLabel="儲存中…" disabled={!externalName.trim() || !channel.trim() || !externalSku.trim() || !components.length}>
+          <Button
+            type="submit"
+            loading={pending}
+            loadingLabel="儲存中…"
+            disabled={
+              !externalName.trim()
+              || !channel.trim()
+              || !externalSku.trim()
+              || (customSku && !systemSku.trim())
+              || !components.length
+              || components.some((component) =>
+                !component.inventoryItemId
+                || !Number.isSafeInteger(Number(component.quantity))
+                || Number(component.quantity) <= 0
+              )
+            }
+          >
             {mapping ? "儲存變更" : "新增對應"}
           </Button>
         </>
@@ -160,22 +178,32 @@ export function SkuMappingDialog({
           />
         </div>
         <TextField
-          label="外部 SKU"
+          label="通路 SKU / Product ID"
           required
           placeholder="例如蝦皮 商品ID_規格ID"
           value={externalSku}
           onChange={(event) => setExternalSku(event.target.value)}
         />
         <SelectField
-          label="WMS 主商品"
+          label="對應方式"
           required
           value={customSku ? "custom" : "component"}
           onChange={(event) => setCustomSku(event.target.value === "custom")}
           options={[
-            { label: "使用第一個組合用料", value: "component" },
+            { label: "WMS 商品", value: "component" },
             { label: "自訂 SKU（不建立 WMS 主商品）", value: "custom" },
           ]}
         />
+        {customSku ? (
+          <TextField
+            label="系統 SKU"
+            required
+            hint="同一個商品在 CYBERBIZ、蝦皮等通路請填相同的系統 SKU。"
+            placeholder="例如 ABX30001"
+            value={systemSku}
+            onChange={(event) => setSystemSku(event.target.value)}
+          />
+        ) : null}
 
         <div className="sku-mapping-components">
           <div className="sku-mapping-components-head">
@@ -196,7 +224,8 @@ export function SkuMappingDialog({
           {components.map((component, index) => (
             <div className="sku-mapping-component-row" key={index}>
               <SelectField
-                label={`用料 ${index + 1}`}
+                label=""
+                aria-label={`組合用料 ${index + 1}`}
                 value={component.inventoryItemId}
                 onChange={(event) => {
                   const value = event.target.value;
@@ -206,7 +235,9 @@ export function SkuMappingDialog({
                 options={[{ label: "請選擇 WMS 商品", value: "" }, ...itemOptions]}
               />
               <TextField
-                label="每組數量"
+                label=""
+                aria-label={`每組數量 ${index + 1}`}
+                placeholder="每組數量"
                 type="number"
                 min="1"
                 step="1"
