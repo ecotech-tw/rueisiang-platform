@@ -146,8 +146,8 @@ export function SkuMappings() {
                     <div className="cell-strong">{mapping.externalName || "未設定通路商品名稱"}</div>
                   </td>
                   <td data-label="系統 SKU">
-                    <span className={mapping.systemSku ? "cell-strong" : "cell-sub"}>
-                      {mapping.systemSku ?? "未設定"}
+                    <span className={(mapping.inventoryItemId === null ? mapping.systemSku : mapping.itemSku) ? "cell-strong" : "cell-sub"}>
+                      {mapping.inventoryItemId === null ? mapping.systemSku ?? "未設定" : mapping.itemSku ?? "未設定"}
                     </span>
                   </td>
                   <td data-label="外部 SKU"><span className="cell-strong">{mapping.externalSku}</span></td>

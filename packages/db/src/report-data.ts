@@ -9,6 +9,7 @@ import {
   type ReportScope,
   type ReportScopeKind,
 } from "./schema/reports.js";
+import { productSkuMappings } from "./schema/wms.js";
 
 export type { ReportScopeKind } from "./schema/reports.js";
 
@@ -347,9 +348,19 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
   if (!ids.length) return null;
   const groups = selectedGroups(query.groupBy?.length ? query.groupBy : ["sku"]);
   const dimensions = groups.map((group) => SALES_GROUPS[group]);
+  const requestedSku = query.sku?.trim();
   const filters = [
     monthConditions(sql`${reportSalesMonthly.reportMonth}`, sql`${reportSalesMonthly.scopeId}`, query.range, ids),
-    ...(query.sku ? [sql`lower(${reportSalesMonthly.sku}) = lower(${query.sku})`] : []),
+    ...(requestedSku ? [sql`(
+      lower(${reportSalesMonthly.sku}) = lower(${requestedSku})
+      OR EXISTS (
+        SELECT 1
+        FROM ${productSkuMappings} AS mapping
+        WHERE lower(mapping.external_sku) = lower(${requestedSku})
+          AND mapping.system_sku IS NOT NULL
+          AND lower(mapping.system_sku) = lower(${reportSalesMonthly.sku})
+      )
+    )`] : []),
     ...(query.category ? [sql`lower(${reportSalesMonthly.category}) = lower(${query.category})`] : []),
     ...(query.productName ? [sql`lower(${reportSalesMonthly.productName}) LIKE lower(${`%${query.productName}%`})`] : []),
   ];

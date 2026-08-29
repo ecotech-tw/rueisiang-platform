@@ -15,7 +15,8 @@ WHERE `inventory_item_id` IS NOT NULL;
 -- 管理頁可再編輯成真正跨通路共用的系統 SKU。
 UPDATE `product_sku_mappings`
 SET `system_sku` = UPPER(`external_sku`)
-WHERE `system_sku` IS NULL;
+WHERE `system_sku` IS NULL
+  AND `inventory_item_id` IS NULL;
 --> statement-breakpoint
 CREATE INDEX `idx_product_sku_mappings_system_sku`
 	ON `product_sku_mappings` (`system_sku`);

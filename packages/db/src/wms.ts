@@ -432,10 +432,22 @@ async function requireCategory(db: Database, name: string) {
 async function requireSkuAvailableForExternalMappings(db: Database, sku: string | null, inventoryItemId?: string) {
   if (!sku) return;
   const mappings = await db
-    .select({ inventoryItemId: productSkuMappings.inventoryItemId })
+    .select({
+      mappingId: productSkuMappings.id,
+      inventoryItemId: productSkuMappings.inventoryItemId,
+      componentItemId: productBundleComponents.inventoryItemId,
+    })
     .from(productSkuMappings)
+    .leftJoin(productBundleComponents, eq(productBundleComponents.mappingId, productSkuMappings.id))
     .where(eq(productSkuMappings.externalSku, sku));
-  if (mappings.some((mapping) => mapping.inventoryItemId !== inventoryItemId)) {
+  const usedItemIds = new Map<string, Set<string>>();
+  for (const mapping of mappings) {
+    const itemIds = usedItemIds.get(mapping.mappingId) ?? new Set<string>();
+    if (mapping.inventoryItemId) itemIds.add(mapping.inventoryItemId);
+    if (mapping.componentItemId) itemIds.add(mapping.componentItemId);
+    usedItemIds.set(mapping.mappingId, itemIds);
+  }
+  if ([...usedItemIds.values()].some((itemIds) => !inventoryItemId || !itemIds.has(inventoryItemId))) {
     throw new WmsError("conflict", `WMS SKU「${sku}」已被其他商品的外部 SKU 對應使用。`);
   }
 }

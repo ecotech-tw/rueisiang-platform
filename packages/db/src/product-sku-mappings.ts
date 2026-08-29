@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
@@ -85,30 +85,15 @@ export interface ResolvedProductSkuComponent {
 
 const SKU_LOOKUP_BATCH_SIZE = 50;
 
-export async function listProductSkuMappings(
-  db: Database,
-  inventoryItemId?: string,
-): Promise<ProductSkuMappingRow[]> {
-  return db
-    .selectDistinct({
-      id: productSkuMappings.id,
-      inventoryItemId: productSkuMappings.inventoryItemId,
-      channel: productSkuMappings.channel,
-      systemSku: productSkuMappings.systemSku,
-      externalName: productSkuMappings.externalName,
-      externalSku: productSkuMappings.externalSku,
-      createdAt: productSkuMappings.createdAt,
-      updatedAt: productSkuMappings.updatedAt,
-    })
-    .from(productSkuMappings)
-    .leftJoin(productBundleComponents, eq(productBundleComponents.mappingId, productSkuMappings.id))
-    .where(inventoryItemId
-      ? or(
-        eq(productSkuMappings.inventoryItemId, inventoryItemId),
-        eq(productBundleComponents.inventoryItemId, inventoryItemId),
-      )
-      : undefined)
-    .orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku));
+async function requireCustomSystemSkuAvailable(db: Database, systemSku: string) {
+  const [owner] = await db
+    .select({ id: inventoryItems.id })
+    .from(inventoryItems)
+    .where(sql`UPPER(${inventoryItems.sku}) = ${systemSku}`)
+    .limit(1);
+  if (owner) {
+    throw new WmsError("conflict", `自訂系統 SKU「${systemSku}」已是 WMS 商品 SKU，請改用 WMS 商品對應。`);
+  }
 }
 
 /**
@@ -175,7 +160,7 @@ export async function loadProductSkuMappingManagement(
       .from(productBundleComponents)
       .innerJoin(inventoryItems, eq(inventoryItems.id, productBundleComponents.inventoryItemId))
       .where(inArray(productBundleComponents.mappingId, batch))
-      .orderBy(asc(productBundleComponents.mappingId), asc(inventoryItems.name)));
+      .orderBy(asc(productBundleComponents.mappingId), asc(inventoryItems.name), asc(inventoryItems.id)));
   }
   const componentsByMapping = new Map<string, ProductBundleComponentManagementRow[]>();
   for (const component of componentRows) {
@@ -277,6 +262,7 @@ export async function addProductSkuMapping(
     ? normalizeExternalSku(item?.sku ?? "")
     : requestedSystemSku;
   if (!systemSku) throw new WmsError("invalid", "自訂 SKU 對應必須填寫系統 SKU。");
+  if (!inventoryItemId) await requireCustomSystemSkuAvailable(db, systemSku);
   const componentItems = components.length
     ? await db
       .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
@@ -429,6 +415,7 @@ export async function updateProductSkuMapping(
     ? normalizeExternalSku(item?.sku ?? "")
     : requestedSystemSku || normalizeExternalSku(mapping.systemSku ?? mapping.externalSku);
   if (!systemSku) throw new WmsError("invalid", "自訂 SKU 對應必須填寫系統 SKU。");
+  if (!inventoryItemId) await requireCustomSystemSkuAvailable(db, systemSku);
 
   const componentItems = components.length
     ? await db
@@ -692,7 +679,11 @@ export async function resolveProductSkus(
     if (incompleteMappings.has(mapping.id)) continue;
     const components = componentsByMapping.get(mapping.id) ?? [];
     const firstComponent = components[0];
-    const sku = mapping.systemSku ?? mapping.sku ?? firstComponent?.sku;
+    const isCustom = mapping.inventoryItemId === null;
+    // WMS mapping 的正式 SKU 來源是 inventory_items；system_sku 只作為自訂 mapping 的明確識別。
+    const sku = isCustom
+      ? mapping.systemSku ?? mapping.sku ?? firstComponent?.sku
+      : mapping.sku ?? firstComponent?.sku;
     const name = mapping.name || mapping.externalName || firstComponent?.name;
     const category = mapping.category ?? firstComponent?.category;
     const inventoryItemId = mapping.inventoryItemId ?? firstComponent?.inventoryItemId;
@@ -705,7 +696,7 @@ export async function resolveProductSkus(
       sku,
       name,
       category,
-      isCustom: mapping.inventoryItemId === null,
+      isCustom,
       components,
     });
     resolvedChannels.set(key, mapping.channel);

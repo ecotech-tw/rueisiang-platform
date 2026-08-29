@@ -279,6 +279,54 @@ describe("報表月資料匯入", () => {
       { scopeId: "cyberbiz:store:a", sku: "ABX30001", grossQuantity: 2, salesAmount: 100 },
       { scopeId: "shopee:store:default", sku: "ABX30001", grossQuantity: 3, salesAmount: 0 },
     ]));
+
+    const byShopeeProductId = await createCyberbizReportService(db()).querySales({
+      period: "2026-07",
+      scopeType: "store",
+      scopeName: "蝦皮",
+      sku: "26491332332_216256146329",
+    });
+    expect(byShopeeProductId).toMatchObject({ status: "ok", totals: { grossQuantity: 3 } });
+  });
+
+  it("同一 system SKU 的商品 metadata 優先使用 WMS 商品資料", async () => {
+    await db().insert(schema.productSkuMappings).values([
+      {
+        id: "mapping-wms-alias",
+        inventoryItemId: "item-sku-1",
+        channel: "cyberbiz",
+        externalName: "WMS 商品別名",
+        externalSku: "WMS-ALIAS",
+      },
+      {
+        id: "mapping-custom-alias",
+        inventoryItemId: null,
+        channel: "cyberbiz",
+        systemSku: "SKU-1",
+        externalName: "通路自訂名稱",
+        externalSku: "CUSTOM-ALIAS",
+      },
+    ]);
+    await db().insert(schema.productBundleComponents).values({
+      mappingId: "mapping-custom-alias", inventoryItemId: "item-sku-1", quantity: 1,
+    });
+
+    const response = await request(salesBody([
+      salesRow("CUSTOM-ALIAS", 20),
+      salesRow("WMS-ALIAS", 100),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      productName: schema.reportSalesMonthly.productName,
+      grossQuantity: schema.reportSalesMonthly.grossQuantity,
+      salesAmount: schema.reportSalesMonthly.salesAmount,
+    }).from(schema.reportSalesMonthly)).toEqual([{
+      sku: "SKU-1",
+      productName: "WMS SKU-1",
+      grossQuantity: 2,
+      salesAmount: 120,
+    }]);
   });
 
   it("CYBERBIZ 同名 scope 不會重用其他通路的 scope", async () => {

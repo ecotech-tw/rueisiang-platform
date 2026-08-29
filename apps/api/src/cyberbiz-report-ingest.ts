@@ -189,6 +189,7 @@ async function normalizeSalesRows(
     salesAmount: number;
     updatedAt: string;
   }>();
+  const metadataBySku = new Map<string, { priority: number; externalSku: string }>();
   for (const row of parsed) {
     const item = resolved.get(row.externalSku)!;
     const targets = item.isCustom
@@ -222,18 +223,26 @@ async function normalizeSalesRows(
     for (const target of targets) {
       const key = `${row.reportMonth}\u0000${target.sku}`;
       const previous = rows.get(key);
+      // WMS 商品名稱／分類是 canonical；自訂 mapping 只有在沒有 WMS 對應時才提供商品 metadata。
+      // 同優先級時使用外部 SKU 排序，避免同一 system SKU 的結果受報表列順序影響。
+      const metadata = metadataBySku.get(key);
+      const priority = item.isCustom ? 0 : 1;
+      const useMetadata = !metadata
+        || priority > metadata.priority
+        || (priority === metadata.priority && row.externalSku.localeCompare(metadata.externalSku) < 0);
       rows.set(key, {
         scopeId: input.scopeId,
         reportMonth: row.reportMonth,
         sku: target.sku,
-        productName: target.name,
-        category: target.category,
+        productName: useMetadata ? target.name : previous?.productName ?? target.name,
+        category: useMetadata ? target.category : previous?.category ?? target.category,
         grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity * target.multiplier,
         returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity * target.multiplier,
         netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity * target.multiplier,
         salesAmount: (previous?.salesAmount ?? 0) + target.allocatedSalesAmount,
         updatedAt: new Date().toISOString(),
       });
+      if (useMetadata) metadataBySku.set(key, { priority, externalSku: row.externalSku });
     }
   }
   return [...rows.values()];

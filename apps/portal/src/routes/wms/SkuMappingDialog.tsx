@@ -96,7 +96,7 @@ export function SkuMappingDialog({
     setValidationError("");
 
     const input = {
-      inventoryItemId: customSku ? null : undefined,
+      inventoryItemId: customSku ? null : parsedComponents[0]?.inventoryItemId,
       systemSku: customSku ? normalizedSystemSku : undefined,
       channel: normalizedChannel,
       externalName: normalizedName,

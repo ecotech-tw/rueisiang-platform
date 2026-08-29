@@ -142,4 +142,29 @@ describe("報表 scope migration", () => {
     expect(sqlite.prepare("SELECT mapping_id, inventory_item_id, quantity FROM product_bundle_components").all())
       .toEqual([{ mapping_id: "legacy-mapping", inventory_item_id: "item-1", quantity: 1 }]);
   });
+
+  it("0059 只會替有 WMS SKU 或自訂 mapping 回填 system SKU", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0058_allow_custom_sku_mapping.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-with-sku", "WMS-001", "WMS 商品");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("item-without-sku", null, "尚未設定 SKU");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_sku) VALUES (?, ?, ?, ?)")
+      .run("normal-mapping", "item-with-sku", "cyberbiz", "CB-001");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_sku) VALUES (?, ?, ?, ?)")
+      .run("broken-mapping", "item-without-sku", "shopee", "BROKEN-001");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, inventory_item_id, channel, external_sku) VALUES (?, ?, ?, ?)")
+      .run("custom-mapping", null, "shopee", "CUSTOM-001");
+
+    applyLikeD1(sqlite, "0058_allow_custom_sku_mapping.sql", "0059_add_product_sku_system_sku.sql");
+
+    expect(sqlite.prepare("SELECT id, system_sku FROM product_sku_mappings ORDER BY id").all())
+      .toEqual([
+        { id: "broken-mapping", system_sku: null },
+        { id: "custom-mapping", system_sku: "CUSTOM-001" },
+        { id: "normal-mapping", system_sku: "WMS-001" },
+      ]);
+  });
 });
