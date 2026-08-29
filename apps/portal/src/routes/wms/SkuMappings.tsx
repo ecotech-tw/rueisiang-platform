@@ -32,8 +32,8 @@ function matches(mapping: ProductSkuMapping, search: string): boolean {
     mapping.externalName,
     mapping.externalSku,
     mapping.itemSku ?? "",
-    mapping.itemName,
-    mapping.itemCategory,
+    mapping.itemName ?? "",
+    mapping.itemCategory ?? "",
     ...mapping.components.flatMap((component) => [component.sku ?? "", component.name, component.category]),
   ]
     .some((value) => value.toLocaleLowerCase("zh-TW").includes(search));
@@ -153,7 +153,11 @@ export function SkuMappings() {
                       <div className="cell-sub">{mapping.itemSku ?? mapping.itemName} × 1</div>
                     )}
                   </td>
-                  <td data-label="分類"><span className={`status status-tone-${mapping.itemCategoryColor ?? "slate"}`}>{mapping.itemCategory}</span></td>
+                  <td data-label="分類">
+                    <span className={`status status-tone-${mapping.itemCategoryColor ?? "slate"}`}>
+                      {mapping.itemCategory ?? "自訂 SKU"}
+                    </span>
+                  </td>
                   <td data-label="建立時間" className="cell-sub whitespace-nowrap">{formatTime(mapping.createdAt)}</td>
                   {canWrite ? (
                     <td data-label="操作">
@@ -209,7 +213,7 @@ export function SkuMappings() {
           onCancel={() => setDeleting(null)}
           onConfirm={() =>
             remove.mutate(
-              { itemId: deleting.inventoryItemId, mappingId: deleting.id },
+              { mappingId: deleting.id },
               {
                 onSuccess: () => {
                   toast.show(`已移除${productSkuChannelLabel(deleting.channel)} SKU「${deleting.externalSku}」`);

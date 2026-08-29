@@ -407,6 +407,13 @@
       "when": 1787935844136,
       "tag": "0057_add_product_sku_mapping_name",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1787969430012,
+      "tag": "0058_allow_custom_sku_mapping",
+      "breakpoints": true
     }
   ]
 }

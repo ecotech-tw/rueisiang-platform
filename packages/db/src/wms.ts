@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
@@ -592,7 +592,7 @@ export async function deleteItem(db: Database, id: string, actor: Actor) {
     .innerJoin(productSkuMappings, eq(productSkuMappings.id, productBundleComponents.mappingId))
     .where(and(
       eq(productBundleComponents.inventoryItemId, id),
-      ne(productSkuMappings.inventoryItemId, id),
+      or(isNull(productSkuMappings.inventoryItemId), ne(productSkuMappings.inventoryItemId, id)),
     ))
     .limit(1);
   if (componentUse) {

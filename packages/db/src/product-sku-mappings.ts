@@ -28,7 +28,7 @@ function legacyShopeeExternalSku(value: string): string {
 
 export interface ProductSkuMappingRow {
   id: string;
-  inventoryItemId: string;
+  inventoryItemId: string | null;
   channel: string;
   externalName: string;
   externalSku: string;
@@ -38,8 +38,8 @@ export interface ProductSkuMappingRow {
 
 export interface ProductSkuMappingManagementRow extends ProductSkuMappingRow {
   itemSku: string | null;
-  itemName: string;
-  itemCategory: string;
+  itemName: string | null;
+  itemCategory: string | null;
   itemCategoryColor: string | null;
   components: ProductBundleComponentManagementRow[];
 }
@@ -133,7 +133,7 @@ export async function loadProductSkuMappingManagement(
         itemCategoryColor: productCategories.color,
       })
       .from(productSkuMappings)
-      .innerJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
+      .leftJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
       .leftJoin(productCategories, eq(productCategories.name, inventoryItems.category))
       .orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku)),
     db
@@ -221,7 +221,7 @@ function validateBundleComponents(
 export async function addProductSkuMapping(
   db: Database,
   input: {
-    inventoryItemId?: string;
+    inventoryItemId?: string | null;
     channel?: string;
     externalName?: string;
     externalSku: string;
@@ -243,14 +243,21 @@ export async function addProductSkuMapping(
   if (!components.length) throw new WmsError("invalid", "至少要設定一個組合用料。");
   const firstComponent = components[0];
   if (!firstComponent) throw new WmsError("invalid", "至少要設定一個組合用料。");
-  const inventoryItemId = firstComponent.inventoryItemId;
+  const inventoryItemId = input.inventoryItemId === undefined
+    ? firstComponent.inventoryItemId
+    : input.inventoryItemId;
+  if (inventoryItemId && !components.some((component) => component.inventoryItemId === inventoryItemId)) {
+    throw new WmsError("invalid", "WMS 主商品必須同時列在組合用料中。若沒有 WMS 主商品，請選擇自訂 SKU。 ");
+  }
 
-  const [item] = await db
-    .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
-    .from(inventoryItems)
-    .where(eq(inventoryItems.id, inventoryItemId));
-  if (!item) throw new WmsError("not_found", "找不到這項商品。");
-  if (!item.sku) throw new WmsError("invalid", "請先設定 WMS SKU，才能建立外部 SKU 對應。");
+  const [item] = inventoryItemId
+    ? await db
+      .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
+      .from(inventoryItems)
+      .where(eq(inventoryItems.id, inventoryItemId))
+    : [];
+  if (inventoryItemId && !item) throw new WmsError("not_found", "找不到這項商品。");
+  if (item && !item.sku) throw new WmsError("invalid", "請先設定 WMS SKU，才能建立外部 SKU 對應。");
   const componentItems = components.length
     ? await db
       .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
@@ -270,7 +277,10 @@ export async function addProductSkuMapping(
    * 只比主商品的話，組合的外部 SKU 剛好等於某個非第一順位用料的 WMS SKU 就會被誤擋；
    * 而 resolveProductSkus 本來就讓明確 mapping 贏過 implicit 的直接商品比對，那裡沒有歧義。
    */
-  const mappedItemIds = new Set([inventoryItemId, ...components.map((component) => component.inventoryItemId)]);
+  const mappedItemIds = new Set([
+    ...(inventoryItemId ? [inventoryItemId] : []),
+    ...components.map((component) => component.inventoryItemId),
+  ]);
   const skuOwners = await db
     .select({ id: inventoryItems.id })
     .from(inventoryItems)
@@ -279,7 +289,7 @@ export async function addProductSkuMapping(
     throw new WmsError("conflict", `外部 SKU「${externalSku}」與其他商品的 WMS SKU 衝突。`);
   }
 
-  const externalName = input.externalName === undefined ? item.name : input.externalName.trim();
+  const externalName = input.externalName === undefined ? item?.name ?? "" : input.externalName.trim();
   if (!externalName) throw new WmsError("invalid", "通路商品名稱不可為空。");
 
   const [existing] = await db
@@ -311,7 +321,7 @@ export async function addProductSkuMapping(
     db.insert(activityEvents).values(activityRow({
       entityType: "product_sku_mapping",
       entityId: id,
-      entityLabel: `${item.sku} ${item.name}`,
+      entityLabel: item ? `${item.sku} ${item.name}` : externalName,
       eventType: "product_sku_mapping_created",
       summary: `新增${channel} 外部 SKU 對應：${externalSku}${components.length ? `（${components.length} 個組合用料）` : ""}`,
       field: "externalSku",
@@ -328,6 +338,7 @@ export async function updateProductSkuMapping(
   db: Database,
   input: {
     id: string;
+    inventoryItemId?: string | null;
     channel?: string;
     externalName: string;
     externalSku: string;
@@ -355,7 +366,7 @@ export async function updateProductSkuMapping(
       itemName: inventoryItems.name,
     })
     .from(productSkuMappings)
-    .innerJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
+    .leftJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
     .where(eq(productSkuMappings.id, input.id));
   if (!mapping) throw new WmsError("not_found", "找不到這筆外部 SKU 對應。");
 
@@ -363,16 +374,26 @@ export async function updateProductSkuMapping(
   if (!channel) throw new WmsError("invalid", "通路不可為空。");
   // 編輯時保留原本的主商品，只在主商品被移出用料時才改用新的第一個用料。
   // 這樣管理頁依名稱排序後重新儲存，不會悄悄改變刪除保護與代表商品。
-  const inventoryItemId = components.some((component) => component.inventoryItemId === mapping.inventoryItemId)
-    ? mapping.inventoryItemId
-    : firstComponent.inventoryItemId;
+  const inventoryItemId = input.inventoryItemId !== undefined
+    ? input.inventoryItemId
+    : mapping.inventoryItemId === null
+      ? null
+      : components.some((component) => component.inventoryItemId === mapping.inventoryItemId)
+        ? mapping.inventoryItemId
+        : firstComponent.inventoryItemId;
 
-  const [item] = await db
-    .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
-    .from(inventoryItems)
-    .where(eq(inventoryItems.id, inventoryItemId));
-  if (!item) throw new WmsError("not_found", "找不到這項商品。");
-  if (!item.sku) throw new WmsError("invalid", "請先設定 WMS SKU，才能建立外部 SKU 對應。");
+  if (inventoryItemId && !components.some((component) => component.inventoryItemId === inventoryItemId)) {
+    throw new WmsError("invalid", "WMS 主商品必須同時列在組合用料中。若沒有 WMS 主商品，請選擇自訂 SKU。 ");
+  }
+
+  const [item] = inventoryItemId
+    ? await db
+      .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name })
+      .from(inventoryItems)
+      .where(eq(inventoryItems.id, inventoryItemId))
+    : [];
+  if (inventoryItemId && !item) throw new WmsError("not_found", "找不到這項商品。");
+  if (item && !item.sku) throw new WmsError("invalid", "請先設定 WMS SKU，才能建立外部 SKU 對應。");
 
   const componentItems = components.length
     ? await db
@@ -393,7 +414,10 @@ export async function updateProductSkuMapping(
    * 只比主商品的話，組合的外部 SKU 剛好等於某個非第一順位用料的 WMS SKU 就會被誤擋；
    * 而 resolveProductSkus 本來就讓明確 mapping 贏過 implicit 的直接商品比對，那裡沒有歧義。
    */
-  const mappedItemIds = new Set([inventoryItemId, ...components.map((component) => component.inventoryItemId)]);
+  const mappedItemIds = new Set([
+    ...(inventoryItemId ? [inventoryItemId] : []),
+    ...components.map((component) => component.inventoryItemId),
+  ]);
   const skuOwners = await db
     .select({ id: inventoryItems.id })
     .from(inventoryItems)
@@ -434,7 +458,7 @@ export async function updateProductSkuMapping(
     db.insert(activityEvents).values(activityRow({
       entityType: "product_sku_mapping",
       entityId: input.id,
-      entityLabel: `${item.sku} ${item.name}`,
+      entityLabel: item ? `${item.sku} ${item.name}` : externalName,
       eventType: "product_sku_mapping_updated",
       summary: `更新${channel} 外部 SKU 對應：${externalSku}${components.length ? `（${components.length} 個組合用料）` : ""}`,
       field: mapping.externalSku === externalSku ? "mapping" : "externalSku",
@@ -477,7 +501,7 @@ export async function deleteProductSkuMapping(
       itemName: inventoryItems.name,
     })
     .from(productSkuMappings)
-    .innerJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
+    .leftJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
     .where(eq(productSkuMappings.id, id));
   if (!mapping) throw new WmsError("not_found", "找不到這筆外部 SKU 對應。");
 
@@ -486,7 +510,7 @@ export async function deleteProductSkuMapping(
     db.insert(activityEvents).values(activityRow({
       entityType: "product_sku_mapping",
       entityId: id,
-      entityLabel: `${mapping.itemSku ?? ""} ${mapping.itemName}`.trim(),
+      entityLabel: `${mapping.itemSku ?? ""} ${mapping.itemName ?? mapping.externalSku}`.trim(),
       eventType: "product_sku_mapping_deleted",
       summary: `移除${mapping.channel} 外部 SKU 對應：${mapping.externalSku}`,
       field: "externalSku",
@@ -521,10 +545,10 @@ export async function resolveProductSkus(
     id: string;
     externalSku: string;
     channel: string;
-    inventoryItemId: string;
+    inventoryItemId: string | null;
     sku: string | null;
-    name: string;
-    category: string;
+    name: string | null;
+    category: string | null;
   };
   type DirectItemLookup = {
     id: string;
@@ -550,7 +574,7 @@ export async function resolveProductSkus(
           category: inventoryItems.category,
         })
         .from(productSkuMappings)
-        .innerJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
+        .leftJoin(inventoryItems, eq(inventoryItems.id, productSkuMappings.inventoryItemId))
         .where(and(
           inArray(productSkuMappings.externalSku, batch),
           inArray(productSkuMappings.channel, lookupChannels),
@@ -582,7 +606,7 @@ export async function resolveProductSkus(
       .innerJoin(inventoryItems, eq(inventoryItems.id, productBundleComponents.inventoryItemId))
       .where(inArray(productBundleComponents.mappingId, batch))
       // 管理頁依商品名稱排序料件，這裡照做：金額要落在哪個料件上不能取決於 SQLite 的回傳順序。
-      .orderBy(asc(productBundleComponents.mappingId), asc(inventoryItems.name));
+      .orderBy(asc(productBundleComponents.mappingId), asc(inventoryItems.name), asc(inventoryItems.id));
     for (const component of componentRows) {
       /*
        * 料件沒有 WMS SKU 就整筆 mapping 視為無法解析，不是跳過那個料件。
@@ -622,16 +646,23 @@ export async function resolveProductSkus(
     });
   }
   for (const mapping of mappings) {
-    if (!mapping.sku || incompleteMappings.has(mapping.id)) continue;
+    if (incompleteMappings.has(mapping.id)) continue;
+    const components = componentsByMapping.get(mapping.id) ?? [];
+    const firstComponent = components[0];
+    const sku = mapping.sku ?? firstComponent?.sku;
+    const name = mapping.name ?? firstComponent?.name;
+    const category = mapping.category ?? firstComponent?.category;
+    const inventoryItemId = mapping.inventoryItemId ?? firstComponent?.inventoryItemId;
+    if (!sku || !name || !category || !inventoryItemId) continue;
     const key = normalizeExternalSku(mapping.externalSku);
     const previous = resolved.get(key);
     if (previous && resolvedChannels.get(key) === normalizedChannel && mapping.channel !== normalizedChannel) continue;
     resolved.set(key, {
-      inventoryItemId: mapping.inventoryItemId,
-      sku: mapping.sku,
-      name: mapping.name,
-      category: mapping.category,
-      components: componentsByMapping.get(mapping.id) ?? [],
+      inventoryItemId,
+      sku,
+      name,
+      category,
+      components,
     });
     resolvedChannels.set(key, mapping.channel);
   }

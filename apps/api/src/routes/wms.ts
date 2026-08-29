@@ -282,7 +282,7 @@ export const wms = new Hono<AppEnv>()
     );
   })
 
-  /** SKU 對應管理頁只需要商品主檔與 mapping，不必取得倉位地圖資料。 */
+  /** SKU 對應會改變報表匯入結果，頁面與讀取資料刻意限主管/管理員，不等同一般庫存唯讀。 */
   .get("/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
     return c.json(await loadProductSkuMappingManagement(c.get("db")));
   })
@@ -292,6 +292,11 @@ export const wms = new Hono<AppEnv>()
     const input = await body(c);
     const user = c.get("user");
     const result = await addProductSkuMapping(c.get("db"), {
+      inventoryItemId: input.inventoryItemId === null
+        ? null
+        : input.inventoryItemId === undefined
+          ? undefined
+          : requireString(input, "inventoryItemId", "WMS 主商品"),
       components: bundleComponents(input, true),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalName: requireString(input, "externalName", "通路商品名稱"),
@@ -306,6 +311,11 @@ export const wms = new Hono<AppEnv>()
     const user = c.get("user");
     const result = await updateProductSkuMapping(c.get("db"), {
       id: c.req.param("mappingId"),
+      inventoryItemId: input.inventoryItemId === null
+        ? null
+        : input.inventoryItemId === undefined
+          ? undefined
+          : requireString(input, "inventoryItemId", "WMS 主商品"),
       channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
       externalName: requireString(input, "externalName", "通路商品名稱"),
       externalSku: requireString(input, "externalSku", "外部 SKU"),
@@ -315,17 +325,10 @@ export const wms = new Hono<AppEnv>()
     return c.json(result);
   })
 
-  /** 新增一個外部通路 SKU 對應到 WMS 商品。 */
-  .post("/items/:id/product-sku-mappings", requirePermission("wms:inventory:write"), async (c) => {
-    const input = await body(c);
+  .delete("/product-sku-mappings/:mappingId", requirePermission("wms:inventory:write"), async (c) => {
     const user = c.get("user");
-    const result = await addProductSkuMapping(c.get("db"), {
-      inventoryItemId: c.req.param("id"),
-      channel: input.channel === undefined ? undefined : requireString(input, "channel", "通路"),
-      externalSku: requireString(input, "externalSku", "外部 SKU"),
-      actor: { id: user.id, email: user.email },
-    });
-    return c.json(result, 201);
+    await deleteProductSkuMapping(c.get("db"), c.req.param("mappingId"), { id: user.id, email: user.email });
+    return c.json({ ok: true });
   })
 
   .delete("/items/:id/product-sku-mappings/:mappingId", requirePermission("wms:inventory:write"), async (c) => {

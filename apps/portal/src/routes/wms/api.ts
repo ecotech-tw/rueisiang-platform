@@ -107,15 +107,15 @@ export function useWarehouse() {
 
 export interface ProductSkuMapping {
   id: string;
-  inventoryItemId: string;
+  inventoryItemId: string | null;
   channel: string;
   externalName: string;
   externalSku: string;
   createdAt: string;
   updatedAt: string;
   itemSku: string | null;
-  itemName: string;
-  itemCategory: string;
+  itemName: string | null;
+  itemCategory: string | null;
   itemCategoryColor: string | null;
   components: ProductBundleComponent[];
 }
@@ -143,7 +143,6 @@ export interface ProductSkuMappingData {
 export const PRODUCT_SKU_CHANNEL_OPTIONS = [
   { value: "cyberbiz", label: "CYBERBIZ（官網 / POS）" },
   { value: "shopee", label: "蝦皮" },
-  { value: "momo", label: "momo" },
 ] as const;
 
 export function productSkuChannelLabel(channel: string): string {
@@ -241,7 +240,8 @@ export function useDeleteItem() {
 
 export function useCreateProductSkuMapping() {
   return useWarehouseMutation(
-    ({ channel, externalName, externalSku, components }: {
+    ({ inventoryItemId, channel, externalName, externalSku, components }: {
+      inventoryItemId?: string | null;
       channel?: string;
       externalName: string;
       externalSku: string;
@@ -249,15 +249,16 @@ export function useCreateProductSkuMapping() {
     }) => write<{ id: string; channel: string; externalName: string; externalSku: string }>(
       "/api/wms/product-sku-mappings",
       "POST",
-      { channel, externalName, externalSku, components },
+      { inventoryItemId, channel, externalName, externalSku, components },
     ),
   );
 }
 
 export function useUpdateProductSkuMapping() {
   return useWarehouseMutation(
-    ({ mappingId, channel, externalName, externalSku, components }: {
+    ({ mappingId, inventoryItemId, channel, externalName, externalSku, components }: {
       mappingId: string;
+      inventoryItemId?: string | null;
       channel?: string;
       externalName: string;
       externalSku: string;
@@ -265,15 +266,15 @@ export function useUpdateProductSkuMapping() {
     }) => write<{ id: string; channel: string; externalName: string; externalSku: string; components: Array<{ inventoryItemId: string; quantity: number }> }>(
       `/api/wms/product-sku-mappings/${mappingId}`,
       "PATCH",
-      { channel, externalName, externalSku, components },
+      { inventoryItemId, channel, externalName, externalSku, components },
     ),
   );
 }
 
 export function useDeleteProductSkuMapping() {
   return useWarehouseMutation(
-    ({ itemId, mappingId }: { itemId: string; mappingId: string }) =>
-      write<{ ok: true }>(`/api/wms/items/${itemId}/product-sku-mappings/${mappingId}`, "DELETE"),
+    ({ mappingId }: { mappingId: string }) =>
+      write<{ ok: true }>(`/api/wms/product-sku-mappings/${mappingId}`, "DELETE"),
   );
 }
 

@@ -28,6 +28,7 @@ export function SkuMappingDialog({
   const update = useUpdateProductSkuMapping();
   const toast = useToast();
   const [channel, setChannel] = useState(mapping?.channel ?? "cyberbiz");
+  const [customSku, setCustomSku] = useState(mapping ? mapping.inventoryItemId === null : false);
   /*
    * 通路只能從清單挑，不能自由輸入。
    *
@@ -48,7 +49,9 @@ export function SkuMappingDialog({
       if (!mapping) return [];
       const existingComponents = mapping.components.length
         ? mapping.components
-        : [{ inventoryItemId: mapping.inventoryItemId, quantity: 1 }];
+        : mapping.inventoryItemId
+          ? [{ inventoryItemId: mapping.inventoryItemId, quantity: 1 }]
+          : [];
       return existingComponents.map((component) => ({
         inventoryItemId: component.inventoryItemId,
         quantity: String(component.quantity),
@@ -92,6 +95,7 @@ export function SkuMappingDialog({
     setValidationError("");
 
     const input = {
+      inventoryItemId: customSku ? null : undefined,
       channel: normalizedChannel,
       externalName: normalizedName,
       externalSku: value,
@@ -161,6 +165,16 @@ export function SkuMappingDialog({
           placeholder="例如蝦皮 商品ID_規格ID"
           value={externalSku}
           onChange={(event) => setExternalSku(event.target.value)}
+        />
+        <SelectField
+          label="WMS 主商品"
+          required
+          value={customSku ? "custom" : "component"}
+          onChange={(event) => setCustomSku(event.target.value === "custom")}
+          options={[
+            { label: "使用第一個組合用料", value: "component" },
+            { label: "自訂 SKU（不建立 WMS 主商品）", value: "custom" },
+          ]}
         />
 
         <div className="sku-mapping-components">

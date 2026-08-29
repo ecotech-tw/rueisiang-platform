@@ -236,6 +236,51 @@ describe("報表月資料匯入", () => {
     ]);
   });
 
+  it("自訂 SKU mapping 可讓 CYBERBIZ 與蝦皮共用同一組 WMS 用料", async () => {
+    await db().insert(schema.productSkuMappings).values([
+      {
+        id: "mapping-custom-cyberbiz",
+        inventoryItemId: null,
+        channel: "cyberbiz",
+        externalName: "日光花園三入自選禮盒",
+        externalSku: "ABX30001",
+      },
+      {
+        id: "mapping-custom-shopee",
+        inventoryItemId: null,
+        channel: "shopee",
+        externalName: "日光花園三入自選禮盒",
+        externalSku: "ABX30001",
+      },
+    ]);
+    await db().insert(schema.productBundleComponents).values([
+      { mappingId: "mapping-custom-cyberbiz", inventoryItemId: "item-sku-1", quantity: 2 },
+      { mappingId: "mapping-custom-cyberbiz", inventoryItemId: "item-sku-2", quantity: 1 },
+      { mappingId: "mapping-custom-shopee", inventoryItemId: "item-sku-1", quantity: 2 },
+      { mappingId: "mapping-custom-shopee", inventoryItemId: "item-sku-2", quantity: 1 },
+    ]);
+
+    expect((await request(salesBody([
+      salesRow("ABX30001", 100, { grossQuantity: 2, netQuantity: 2 }),
+    ]))).status).toBe(200);
+    expect((await request(shopeeBundle([
+      salesRow("ABX30001", 0, { grossQuantity: 3, netQuantity: 3 }),
+    ]))).status).toBe(200);
+
+    const rows = await db().select({
+      scopeId: schema.reportSalesMonthly.scopeId,
+      sku: schema.reportSalesMonthly.sku,
+      grossQuantity: schema.reportSalesMonthly.grossQuantity,
+      salesAmount: schema.reportSalesMonthly.salesAmount,
+    }).from(schema.reportSalesMonthly);
+    expect(rows).toEqual(expect.arrayContaining([
+      { scopeId: "cyberbiz:store:a", sku: "SKU-1", grossQuantity: 4, salesAmount: 100 },
+      { scopeId: "cyberbiz:store:a", sku: "SKU-2", grossQuantity: 2, salesAmount: 0 },
+      { scopeId: "shopee:store:default", sku: "SKU-1", grossQuantity: 6, salesAmount: 0 },
+      { scopeId: "shopee:store:default", sku: "SKU-2", grossQuantity: 3, salesAmount: 0 },
+    ]));
+  });
+
   it("CYBERBIZ 同名 scope 不會重用其他通路的 scope", async () => {
     await upsertReportScope(db(), { id: "momo:store:default", scopeKind: "store", name: "測試店" });
 

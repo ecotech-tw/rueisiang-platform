@@ -113,14 +113,14 @@ export const inventoryItems = sqliteTable("inventory_items", {
  * 外部通路商品與 WMS 用料的對應。
  *
  * 通路與外部 SKU 一起識別一筆 mapping；通路商品名稱保留報表裡的名稱，正式 SKU、
- * WMS 商品名稱與分類則從 inventory_items 取得。inventoryItemId 保留為第一個用料，
- * 供既有查詢與關聯相容；完整的一對一或組合對應以 product_bundle_components 為準。
+ * WMS 商品名稱與分類則從 inventory_items 取得。inventoryItemId 可為空，代表這是只有外部
+ * SKU 與組合用料的自訂 mapping；有主商品時仍保留主商品 ID 供既有查詢與關聯相容，完整的
+ * 一對一或組合對應以 product_bundle_components 為準。
  */
 export const productSkuMappings = sqliteTable("product_sku_mappings", {
   id: text("id").primaryKey(),
   inventoryItemId: text("inventory_item_id")
-    .notNull()
-    .references(() => inventoryItems.id, { onDelete: "cascade" }),
+    .references(() => inventoryItems.id, { onDelete: "set null" }),
   /** legacy 代表 migration 前建立、尚未確認來源通路的 mapping。 */
   channel: text("channel").notNull().default("legacy"),
   externalName: text("external_name").notNull().default(""),
