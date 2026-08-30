@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
@@ -69,8 +69,6 @@ export interface ProductBundleComponentManagementRow {
 export interface ProductSkuMappingManagementData {
   mappings: ProductSkuMappingManagementRow[];
   categories: string[];
-  /** 還有幾筆自訂用料在官網目錄裡找得到；為 0 時畫面不顯示轉換按鈕。 */
-  adoptableCustomComponents: number;
 }
 
 /**
@@ -242,7 +240,6 @@ export async function loadProductSkuMappingManagement(
   return {
     mappings: mappingRows.map((row) => ({ ...row, components: componentsByMapping.get(row.id) ?? [] })),
     categories: categoryRows.map((row) => row.name),
-    adoptableCustomComponents: await countAdoptableCustomComponents(db),
   };
 }
 
@@ -1127,103 +1124,4 @@ export async function listCyberbizProducts(db: Database): Promise<CyberbizProduc
     name: row.variantName ? `${row.productName}（${row.variantName}）` : row.productName,
     published: row.published === 1,
   }));
-}
-
-/**
- * 把「自訂 SKU 但官網目錄裡找得到」的用料轉成 CYBERBIZ 商品。
- *
- * 自訂只是官網還沒同步進來時的權宜；同一個 SKU 官網有了之後，繼續留在自訂會讓名稱
- * 停在當初打的那一份複本，官網改名不會跟著動。轉換不改 SKU，所以報表身分完全不變。
- *
- * 不做成 migration：目錄鏡像是執行期才由 cron 或 CYBERBIZ 庫存頁填的，migration 跑的
- * 那一刻它多半是空的，等於什麼都不會轉。
- */
-export async function adoptCyberbizComponents(
-  db: Database,
-  actor: Actor,
-): Promise<{ converted: number; skippedConflicts: number }> {
-  const candidates = await db
-    .select({
-      id: productBundleComponents.id,
-      mappingId: productBundleComponents.mappingId,
-      customProductId: productBundleComponents.customProductId,
-      sku: customReportProducts.sku,
-    })
-    .from(productBundleComponents)
-    .innerJoin(customReportProducts, eq(customReportProducts.id, productBundleComponents.customProductId))
-    .innerJoin(cyberbizProducts, eq(cyberbizProducts.sku, customReportProducts.sku));
-  if (!candidates.length) return { converted: 0, skippedConflicts: 0 };
-
-  /*
-   * 同一筆對應已經有同一個官網 SKU 的用料時要跳過。
-   *
-   * (mapping_id, cyberbiz_sku) 是 unique index，硬轉會讓整批寫入失敗；那種重複本來
-   * 就該由人決定要留哪一個。
-   */
-  const existing = await db
-    .select({ mappingId: productBundleComponents.mappingId, cyberbizSku: productBundleComponents.cyberbizSku })
-    .from(productBundleComponents)
-    .where(isNotNull(productBundleComponents.cyberbizSku));
-  const taken = new Set(existing.map((row) => `${row.mappingId} ${row.cyberbizSku}`));
-
-  const convertible: Array<{ id: string; sku: string }> = [];
-  let skippedConflicts = 0;
-  for (const candidate of candidates) {
-    const key = `${candidate.mappingId} ${candidate.sku}`;
-    if (taken.has(key)) {
-      skippedConflicts += 1;
-      continue;
-    }
-    taken.add(key);
-    convertible.push({ id: candidate.id, sku: candidate.sku });
-  }
-  if (!convertible.length) return { converted: 0, skippedConflicts };
-
-  for (const batch of chunkRows(convertible, 16)) {
-    await db.batch(batch.map((row) => db.update(productBundleComponents)
-      .set({ cyberbizSku: row.sku, customProductId: null })
-      .where(eq(productBundleComponents.id, row.id))) as never);
-  }
-
-  // 轉完之後沒有人再指著的自訂商品要收掉，否則它會繼續占住那個 SKU。
-  const stillUsed = await db
-    .select({ customProductId: productBundleComponents.customProductId })
-    .from(productBundleComponents)
-    .where(isNotNull(productBundleComponents.customProductId));
-  const usedIds = new Set(stillUsed.map((row) => row.customProductId));
-  const orphanIds = [...new Set(candidates
-    .map((candidate) => candidate.customProductId)
-    .filter((id): id is string => !!id && !usedIds.has(id)))];
-  for (const batch of chunkRows(orphanIds, 50)) {
-    await db.delete(customReportProducts).where(inArray(customReportProducts.id, batch));
-  }
-
-  await db.insert(activityEvents).values(activityRow({
-    entityType: "product_sku_mapping",
-    entityId: "bulk",
-    entityLabel: "自訂用料轉 CYBERBIZ 商品",
-    eventType: "product_sku_mapping_updated",
-    summary: `將 ${convertible.length} 筆自訂用料轉成 CYBERBIZ 商品${skippedConflicts ? `（略過 ${skippedConflicts} 筆重複）` : ""}`,
-    field: "components",
-    actor,
-    source: "wms",
-  }));
-
-  return { converted: convertible.length, skippedConflicts };
-}
-
-function chunkRows<T>(values: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let offset = 0; offset < values.length; offset += size) out.push(values.slice(offset, offset + size));
-  return out;
-}
-
-/** 還有幾筆自訂用料可以轉；為 0 時畫面上不必顯示那顆按鈕。 */
-export async function countAdoptableCustomComponents(db: Database): Promise<number> {
-  const rows = await db
-    .select({ id: productBundleComponents.id })
-    .from(productBundleComponents)
-    .innerJoin(customReportProducts, eq(customReportProducts.id, productBundleComponents.customProductId))
-    .innerJoin(cyberbizProducts, eq(cyberbizProducts.sku, customReportProducts.sku));
-  return rows.length;
 }

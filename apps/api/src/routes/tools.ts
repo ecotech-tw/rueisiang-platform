@@ -1,7 +1,6 @@
 import {
   addProductSkuMapping,
   addReportSkuIgnore,
-  adoptCyberbizComponents,
   deleteProductSkuMapping,
   deleteReportSkuIgnore,
   listCyberbizProducts,
@@ -143,12 +142,6 @@ export const tools = new Hono<AppEnv>()
   })
 
   /** 建立一筆通路商品 mapping；至少要有一個 WMS 用料，單品也以 quantity=1 保存。 */
-  /** 一次把「自訂 SKU 但官網目錄裡找得到」的用料轉成 CYBERBIZ 商品。 */
-  .post("/product-sku-mappings/adopt-cyberbiz", requirePermission("tools:sku-mapping:write"), async (c) => {
-    const user = c.get("user");
-    return c.json(await adoptCyberbizComponents(c.get("db"), { id: user.id, email: user.email }));
-  })
-
   .post("/product-sku-mappings", requirePermission("tools:sku-mapping:write"), async (c) => {
     const input = await body(c);
     const user = c.get("user");
