@@ -552,6 +552,55 @@ describe("外部 SKU 對應", () => {
     expect(await db.select().from(reportSkuIgnores)).toEqual([]);
   });
 
+  it("可以一次把官網目錄裡找得到的自訂用料轉成 CYBERBIZ 商品", async () => {
+    const id = await seedAdmin();
+    await db.insert(cyberbizProducts).values({
+      sku: "AGT0001", productId: "p-1", variantId: "v-1", productName: "提袋", variantName: "大",
+    });
+
+    // 官網有的：AGT0001。官網沒有的：ONLY-CUSTOM，不該被動到。
+    for (const [mappingId, externalSku, customSku, customName] of [
+      ["m-1", "1_1", "AGT0001", "當初自己打的提袋"],
+      ["m-2", "2_2", "ONLY-CUSTOM", "官網沒有的東西"],
+    ] as const) {
+      expect((await as(id, "admin@ecotech.tw", "/api/tools/product-sku-mappings", {
+        method: "POST",
+        body: JSON.stringify({
+          channel: "shopee", externalName: customName, externalSku,
+          components: [{ customSku, customName, quantity: 1 }],
+        }),
+      })).status).toBe(201);
+      void mappingId;
+    }
+
+    const listing = await as(id, "admin@ecotech.tw", "/api/tools/product-sku-mappings");
+    expect(await listing.json()).toMatchObject({ adoptableCustomComponents: 1 });
+
+    const adopted = await as(id, "admin@ecotech.tw", "/api/tools/product-sku-mappings/adopt-cyberbiz", {
+      method: "POST", body: JSON.stringify({}),
+    });
+    expect(adopted.status).toBe(200);
+    expect(await adopted.json()).toMatchObject({ converted: 1, skippedConflicts: 0 });
+
+    const after = await as(id, "admin@ecotech.tw", "/api/tools/product-sku-mappings");
+    const payload = await after.json() as {
+      adoptableCustomComponents: number;
+      mappings: Array<{ externalSku: string; components: Array<{ source: string; sku: string; name: string }> }>;
+    };
+    expect(payload.adoptableCustomComponents).toBe(0);
+    // 轉過去的名稱跟著官網；SKU 不變，所以報表身分沒有改變。
+    expect(payload.mappings.find((m) => m.externalSku === "1_1")?.components).toEqual([
+      expect.objectContaining({ source: "cyberbiz", sku: "AGT0001", name: "提袋（大）" }),
+    ]);
+    // 官網沒有的那一筆維持自訂。
+    expect(payload.mappings.find((m) => m.externalSku === "2_2")?.components).toEqual([
+      expect.objectContaining({ source: "custom", sku: "ONLY-CUSTOM" }),
+    ]);
+    // 沒人再指著的自訂商品要收掉，否則它會繼續占住那個 SKU。
+    expect(await db.select({ sku: customReportProducts.sku }).from(customReportProducts))
+      .toEqual([{ sku: "ONLY-CUSTOM" }]);
+  });
+
   it("用料可以直接指向 CYBERBIZ 商品，名稱跟著官網走不留複本", async () => {
     const id = await seedAdmin();
     await db.insert(cyberbizProducts).values({
