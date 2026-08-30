@@ -84,12 +84,13 @@ const HISTORICAL_IMAGE_OMITTED_TEXT = "（歷史圖片只在收到新的圖片�
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 type CyberbizReportService = ReturnType<typeof createCyberbizReportService>;
+type CyberbizReportToolService = Pick<CyberbizReportService, "querySales" | "queryPayout">;
 
 /**
  * 報表查詢只需要 D1；延遲建立 service 讓 assistant context 維持輕量，
  * 也不會因為其他功能的 NAS 設定狀態影響天氣、CRM 或 WMS tool。
  */
-export function lazyCyberbizReportService(db: Database): CyberbizReportService {
+export function lazyCyberbizReportService(db: Database): CyberbizReportToolService {
   let service: CyberbizReportService | undefined;
   const get = () => service ??= createCyberbizReportService(db);
   return {

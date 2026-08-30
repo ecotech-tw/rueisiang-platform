@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import type { ReportGroupBy, ReportScopeKind } from "@rueisiang/db";
+import { listReportScopes, type ReportGroupBy, type ReportScopeKind } from "@rueisiang/db";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { createCyberbizReportService, CyberbizReportQueryError } from "../cyberbiz-reports.js";
@@ -14,6 +14,15 @@ function groupBy(c: { req: { query(name: string): string | undefined } }): Repor
   const value = queryValue(c, "groupBy");
   if (!value) return undefined;
   return value.split(",").map((item) => item.trim()) as ReportGroupBy[];
+}
+
+function topSkuBy(c: { req: { query(name: string): string | undefined } }): "salesAmount" | "netQuantity" | undefined {
+  const value = queryValue(c, "topSkuBy");
+  if (!value) return undefined;
+  if (value !== "salesAmount" && value !== "netQuantity") {
+    throw new HTTPException(400, { message: "topSkuBy 必須是 salesAmount 或 netQuantity。" });
+  }
+  return value;
 }
 
 function commonQuery(c: { req: { query(name: string): string | undefined } }) {
@@ -45,6 +54,28 @@ function handleError(error: unknown): never {
 
 export const cyberbizReports = new Hono<AppEnv>()
   .use("*", requireAuth)
+  .get("/scopes", requirePermission("reports:cyberbiz:read"), async (c) => {
+    const scopes = await listReportScopes(c.get("db"), "store");
+    return c.json({ scopes: scopes.map((scope) => ({ id: scope.id, name: scope.name })) });
+  })
+  .get("/summary/payout", requirePermission("reports:cyberbiz:read"), async (c) => {
+    try {
+      return c.json(await createCyberbizReportService(c.get("db")).queryPayoutSummary(commonQuery(c)));
+    } catch (error) {
+      handleError(error);
+    }
+  })
+  .get("/summary/sales", requirePermission("reports:cyberbiz:read"), async (c) => {
+    try {
+      const selectedTopSkuBy = topSkuBy(c);
+      return c.json(await createCyberbizReportService(c.get("db")).querySalesSummary({
+        ...commonQuery(c),
+        ...(selectedTopSkuBy ? { topSkuBy: selectedTopSkuBy } : {}),
+      }));
+    } catch (error) {
+      handleError(error);
+    }
+  })
   .get("/sales", requirePermission("reports:cyberbiz:read"), async (c) => {
     try {
       return c.json(await createCyberbizReportService(c.get("db")).querySales({

@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { cyberbizReportRuns, type CyberbizReportRun, type CyberbizReportRunKind } from "./schema/cyberbiz-reports.js";
+import type { SalesTopSkuMetric } from "./report-analytics.js";
 import type { ReportGroupBy, ReportPayoutQuery, ReportSalesQuery } from "./report-data.js";
 
 export type { CyberbizReportRun, CyberbizReportRunKind } from "./schema/cyberbiz-reports.js";
@@ -10,6 +11,7 @@ export type CyberbizSalesQuery = Omit<ReportSalesQuery, "range"> & {
   startDate?: string;
   endDate?: string;
   groupBy?: ReportGroupBy[];
+  topSkuBy?: SalesTopSkuMetric;
 };
 export type CyberbizPayoutQuery = Omit<ReportPayoutQuery, "range"> & {
   period?: string;

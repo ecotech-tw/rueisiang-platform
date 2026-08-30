@@ -1,0 +1,199 @@
+import { useMemo } from "react";
+import { useSearchParams } from "react-router";
+import { Icon } from "../../../shell/icons.js";
+import { usePageTitle } from "../../../shell/usePageTitle.js";
+import { Alert, PageHeader } from "../../../ui/index.js";
+import { PayoutTab } from "./PayoutTab.js";
+import { useReportScopes } from "./api.js";
+
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function monthValue(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
+}
+
+function monthEnd(value: string): string {
+  const [year = 0, month = 0] = value.split("-").map(Number);
+  return `${value}-${pad(new Date(Date.UTC(year, month, 0)).getUTCDate())}`;
+}
+
+function currentMonth(): string {
+  return monthValue(new Date());
+}
+
+function periodOptions(): Array<{ value: string; label: string }> {
+  const now = new Date();
+  const month = currentMonth();
+  const year = String(now.getFullYear());
+  const options = [
+    { value: month, label: `本月（${month}）` },
+    { value: year, label: `今年（${year}）` },
+  ];
+  for (let offset = 1; offset <= 12; offset += 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const value = monthValue(date);
+    options.push({ value, label: value });
+  }
+  for (let offset = 1; offset <= 2; offset += 1) {
+    const value = String(now.getFullYear() - offset);
+    options.push({ value, label: `${value} 年` });
+  }
+  return options;
+}
+
+function updateParams(
+  current: URLSearchParams,
+  changes: Record<string, string | null>,
+): URLSearchParams {
+  const next = new URLSearchParams(current);
+  for (const [key, value] of Object.entries(changes)) {
+    if (value) next.set(key, value);
+    else next.delete(key);
+  }
+  return next;
+}
+
+export function Analytics() {
+  usePageTitle("營運統計");
+  const [params, setParams] = useSearchParams();
+  const scopes = useReportScopes();
+  const defaultMonth = currentMonth();
+  const period = params.get("period") ?? defaultMonth;
+  const startDate = params.get("startDate") ?? "";
+  const endDate = params.get("endDate") ?? "";
+  const custom = Boolean(startDate || endDate);
+  const selectedScope = params.get("scopeId") ?? "";
+  const scopeType: "company" | "store" = selectedScope ? "store" : "company";
+  const tab = params.get("tab") === "sales" ? "sales" : "payout";
+  const dateError = custom && startDate && endDate && startDate > endDate;
+  const ready = !custom || Boolean(startDate && endDate && !dateError);
+  const query = custom
+    ? {
+      scopeType,
+      ...(selectedScope ? { scopeId: selectedScope } : {}),
+      ...(startDate ? { startDate } : {}),
+      ...(endDate ? { endDate } : {}),
+    }
+    : {
+      scopeType,
+      ...(selectedScope ? { scopeId: selectedScope } : {}),
+      period,
+    };
+  const scopeLabel = selectedScope
+    ? scopes.data?.scopes.find((scope) => scope.id === selectedScope)?.name ?? "指定店別"
+    : "公司整體";
+  const options = useMemo(() => periodOptions(), []);
+
+  function setFilter(changes: Record<string, string | null>) {
+    setParams(updateParams(params, changes), { replace: true });
+  }
+
+  return (
+    <div className="page fills analytics-page">
+      <PageHeader
+        title="營運統計"
+        description="把出金資料整理成一眼能比較的趨勢，先看整體，再下鑽到單一店別。"
+      />
+
+      <section className="panel analytics-filters" aria-label="報表篩選條件">
+        <div className="analytics-filter-heading">
+          <span className="analytics-filter-icon"><Icon name="calendar" /></span>
+          <div>
+            <strong>查詢範圍</strong>
+            <p>只計入啟用中的店別；切換分頁時會保留這裡的條件。</p>
+          </div>
+        </div>
+        <div className="analytics-filter-fields">
+          <label className="analytics-filter-field">
+            <span>店別</span>
+            <select
+              value={selectedScope}
+              onChange={(event) => setFilter({ scopeId: event.target.value || null })}
+              disabled={scopes.isPending}
+            >
+              <option value="">公司整體</option>
+              {(scopes.data?.scopes ?? []).map((scope) => (
+                <option key={scope.id} value={scope.id}>{scope.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="analytics-filter-field">
+            <span>期間</span>
+            <select
+              value={custom ? "custom" : period}
+              onChange={(event) => {
+                if (event.target.value === "custom") {
+                  const fallbackStart = startDate || `${defaultMonth}-01`;
+                  setFilter({ period: null, startDate: fallbackStart, endDate: endDate || monthEnd(defaultMonth) });
+                } else {
+                  setFilter({ period: event.target.value, startDate: null, endDate: null });
+                }
+              }}
+            >
+              {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              <option value="custom">自訂日期區間</option>
+            </select>
+          </label>
+          {custom ? (
+            <>
+              <label className="analytics-filter-field analytics-filter-date">
+                <span>起日</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => setFilter({ period: null, startDate: event.target.value || null })}
+                />
+              </label>
+              <label className="analytics-filter-field analytics-filter-date">
+                <span>迄日</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(event) => setFilter({ period: null, endDate: event.target.value || null })}
+                />
+              </label>
+            </>
+          ) : null}
+        </div>
+        {dateError ? <Alert tone="danger">起日不能晚於迄日。</Alert> : null}
+        {scopes.error ? <Alert tone="danger">{scopes.error.message}</Alert> : null}
+      </section>
+
+      <div className="analytics-tabs" role="tablist" aria-label="統計類型">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "payout"}
+          className={tab === "payout" ? "analytics-tab active" : "analytics-tab"}
+          onClick={() => setFilter({ tab: "payout" })}
+        >
+          出金
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "sales"}
+          className={tab === "sales" ? "analytics-tab active" : "analytics-tab"}
+          onClick={() => setFilter({ tab: "sales" })}
+        >
+          商品銷售
+        </button>
+      </div>
+
+      <div className="analytics-body" role="tabpanel">
+        {tab === "payout" ? (
+          <PayoutTab query={query} scopeLabel={scopeLabel} enabled={ready} />
+        ) : (
+          <section className="panel analytics-coming-soon">
+            <span className="analytics-coming-soon-icon"><Icon name="analytics" /></span>
+            <h2>商品銷售統計</h2>
+            <p>商品銷售的分類、Top SKU 與通路比較會使用同一組期間篩選條件。</p>
+            <p className="muted">目前先提供出金趨勢與店別比較。</p>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
