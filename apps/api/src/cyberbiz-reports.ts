@@ -1,4 +1,6 @@
 import {
+  queryReportPayoutSummary,
+  queryReportSalesSummary,
   parseReportRange,
   queryReportPayout,
   queryReportSales,
@@ -8,7 +10,9 @@ import {
   type Database,
   type ReportGroupBy,
   type ReportPayoutQueryResult,
+  type ReportPayoutSummary,
   type ReportRange,
+  type ReportSalesSummary,
   type ReportSalesQueryResult,
 } from "@rueisiang/db";
 
@@ -119,6 +123,39 @@ export function createCyberbizReportService(db: Database) {
           ...(groups ? { groupBy: groups } : {}),
         });
         return result ?? noPayoutData(range, input.scopeType);
+      } catch (error) {
+        return translateScopeError(error);
+      }
+    },
+    async queryPayoutSummary(input: CyberbizPayoutQuery): Promise<ReportPayoutSummary> {
+      if (input.scopeType === "store" && !input.scopeId && !input.scopeName) {
+        throw new CyberbizReportQueryError(400, "missing_scope_name", "查詢單一櫃位時需要店面名稱。");
+      }
+      const range = rangeOf(input);
+      try {
+        return await queryReportPayoutSummary(db, {
+          range,
+          scopeType: input.scopeType,
+          ...(input.scopeId ? { scopeId: input.scopeId } : {}),
+          ...(input.scopeName ? { scopeName: input.scopeName } : {}),
+        });
+      } catch (error) {
+        return translateScopeError(error);
+      }
+    },
+    async querySalesSummary(input: CyberbizSalesQuery): Promise<ReportSalesSummary> {
+      if (input.scopeType === "store" && !input.scopeId && !input.scopeName) {
+        throw new CyberbizReportQueryError(400, "missing_scope_name", "查詢單一櫃位時需要店面名稱。");
+      }
+      const range = rangeOf(input);
+      try {
+        return await queryReportSalesSummary(db, {
+          range,
+          scopeType: input.scopeType,
+          ...(input.scopeId ? { scopeId: input.scopeId } : {}),
+          ...(input.scopeName ? { scopeName: input.scopeName } : {}),
+          ...(input.topSkuBy ? { topSkuBy: input.topSkuBy } : {}),
+        });
       } catch (error) {
         return translateScopeError(error);
       }

@@ -1,4 +1,13 @@
-import { createDatabase, ensureAssistantDefaults, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
+import { eq } from "drizzle-orm";
+import {
+  createDatabase,
+  ensureAssistantDefaults,
+  insertReportPayoutDaily,
+  insertReportSalesMonthly,
+  seedPayoutStores,
+  syncSystemRoles,
+  upsertReportScope,
+} from "@rueisiang/db";
 import { ASSISTANT_KEY, DEFAULT_ASSISTANT_PROMPT, OPEN_METEO_TOOL_KEY } from "@rueisiang/assistant";
 import { DEFAULT_PI_CODEX_MODEL } from "../pi-agent.js";
 import {
@@ -6,6 +15,7 @@ import {
   inventoryItems,
   layoutElements,
   productCategories,
+  reportScopes,
   userRoles,
   users,
   warehouseSettings,
@@ -50,6 +60,7 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
     toolKeys: [OPEN_METEO_TOOL_KEY],
   });
   await seedPayoutStores(db);
+  await seedDevAnalytics(db);
   await seedDevCustomers(db);
   await seedDevWarehouse(db);
 
@@ -67,6 +78,133 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
     });
     if (account.role) await db.insert(userRoles).values({ userId: id, roleId: account.role });
   }
+}
+
+const DEV_ANALYTICS_SCOPES = [
+  { id: "cyberbiz:store:demo-ximen", scopeKind: "store" as const, name: "示範西門店" },
+  { id: "cyberbiz:store:demo-xinyi", scopeKind: "store" as const, name: "示範信義店" },
+  { id: "cyberbiz:store:demo-paused", scopeKind: "store" as const, name: "示範已歇業店", active: false },
+] as const;
+
+const DEV_AUGUST_MISSING_DAYS = [4, 11, 18, 24] as const;
+const DEV_AUGUST_XIMEN = [
+  13_800, 16_400, 15_200, null, 18_100, 20_500, 22_900, 19_600, 21_800, 24_700, null,
+  27_300, 23_500, 26_400, 30_100, 28_700, 25_300, null, 31_900, 28_600, 34_100, 30_500,
+  36_600, null, 33_200, 39_500, 37_800, 35_200, 42_000, 44_600, 48_000,
+] as const;
+const DEV_AUGUST_XINYI = [
+  9_200, 11_800, 10_200, null, 13_400, 15_100, 16_800, 14_300, 15_700, 17_900, null,
+  19_600, 17_400, 18_900, 21_500, 20_500, 18_300, null, 22_600, 20_200, 24_300, 21_800,
+  25_600, null, 23_400, 27_800, 26_500, 24_900, 29_500, 31_200, 33_800,
+] as const;
+
+function trendValues(base: number, step: number, missingDays: readonly number[] = []): Array<number | null> {
+  return Array.from({ length: 31 }, (_, index) => {
+    const day = index + 1;
+    if (missingDays.includes(day)) return null;
+    const cycle = [0, 900, -400, 600, 1_200][index % 5] ?? 0;
+    return Math.round((base + step * index + cycle) / 100) * 100;
+  });
+}
+
+function payoutRowsForMonth(scopeId: string, month: string, values: readonly (number | null)[]) {
+  return values.flatMap((amount, index) => amount === null ? [] : [{
+    scopeId,
+    businessDate: `${month}-${String(index + 1).padStart(2, "0")}`,
+    payoutAmount: amount,
+  }]);
+}
+
+const DEV_ANNUAL_PAYOUTS = [
+  ["2026-01", 172_000, 118_000],
+  ["2026-02", 188_000, 131_000],
+  ["2026-03", 214_000, 146_000],
+  ["2026-04", 231_000, 155_000],
+  ["2026-05", 248_000, 169_000],
+  ["2026-06", 263_000, 181_000],
+  ["2025-01", 141_000, 98_000],
+  ["2025-02", 152_000, 104_000],
+  ["2025-03", 166_000, 112_000],
+  ["2025-04", 179_000, 121_000],
+  ["2025-05", 193_000, 129_000],
+  ["2025-06", 205_000, 138_000],
+  ["2025-07", 218_000, 147_000],
+] as const;
+
+function buildDevPayoutRows() {
+  const rows = [
+    ...payoutRowsForMonth(DEV_ANALYTICS_SCOPES[0].id, "2026-08", DEV_AUGUST_XIMEN),
+    ...payoutRowsForMonth(DEV_ANALYTICS_SCOPES[1].id, "2026-08", DEV_AUGUST_XINYI),
+    ...payoutRowsForMonth(DEV_ANALYTICS_SCOPES[0].id, "2026-07", trendValues(11_200, 320)),
+    ...payoutRowsForMonth(DEV_ANALYTICS_SCOPES[1].id, "2026-07", trendValues(7_600, 240, [7, 21])),
+    ...payoutRowsForMonth(DEV_ANALYTICS_SCOPES[0].id, "2025-08", trendValues(9_800, 240, DEV_AUGUST_MISSING_DAYS)),
+    ...payoutRowsForMonth(DEV_ANALYTICS_SCOPES[1].id, "2025-08", trendValues(6_600, 170, DEV_AUGUST_MISSING_DAYS)),
+  ];
+  for (const [month, ximen, xinyi] of DEV_ANNUAL_PAYOUTS) {
+    rows.push(
+      { scopeId: DEV_ANALYTICS_SCOPES[0].id, businessDate: `${month}-01`, payoutAmount: ximen },
+      { scopeId: DEV_ANALYTICS_SCOPES[1].id, businessDate: `${month}-01`, payoutAmount: xinyi },
+    );
+  }
+  return rows;
+}
+
+const DEV_SALES_PRODUCTS = [
+  { sku: "DEMO-THERMO", productName: "雲朵保溫杯", category: "生活用品", grossQuantity: 86, salesAmount: 51_600 },
+  { sku: "DEMO-TOTE", productName: "城市帆布袋", category: "生活用品", grossQuantity: 74, salesAmount: 37_000 },
+  { sku: "DEMO-CANDLE", productName: "暮光香氛蠟燭", category: "香氛", grossQuantity: 62, salesAmount: 43_400 },
+  { sku: "DEMO-TEA", productName: "山嵐茶包禮盒", category: "食品", grossQuantity: 58, salesAmount: 40_600 },
+  { sku: "DEMO-SOAP", productName: "植萃沐浴皂", category: "保養", grossQuantity: 53, salesAmount: 23_850 },
+  { sku: "DEMO-MUG", productName: "晨光馬克杯", category: "生活用品", grossQuantity: 48, salesAmount: 26_400 },
+  { sku: "DEMO-PEN", productName: "霧面簽字筆組", category: "文具", grossQuantity: 45, salesAmount: 13_500 },
+  { sku: "DEMO-POUCH", productName: "旅行收納包", category: "生活用品", grossQuantity: 41, salesAmount: 20_500 },
+  { sku: "DEMO-SCARF", productName: "薄霧披肩", category: "服飾", grossQuantity: 36, salesAmount: 28_800 },
+  { sku: "DEMO-TRAY", productName: "橡木托盤", category: "居家", grossQuantity: 31, salesAmount: 24_800 },
+  { sku: "DEMO-MIST", productName: "森林衣物噴霧", category: "香氛", grossQuantity: 28, salesAmount: 16_800 },
+  { sku: "DEMO-CARD", productName: "城市明信片組", category: "文具", grossQuantity: 24, salesAmount: 4_800 },
+] as const;
+
+function salesRowsForMonth(scopeId: string, reportMonth: string, factor: number) {
+  return DEV_SALES_PRODUCTS.map((product, index) => {
+    const grossQuantity = Math.max(1, Math.round(product.grossQuantity * factor + (index % 3) * factor));
+    const returnQuantity = index % 4 === 0 ? Math.max(1, Math.round(grossQuantity * 0.08)) : index % 5 === 0 ? 1 : 0;
+    return {
+      scopeId,
+      reportMonth,
+      sku: product.sku,
+      productName: product.productName,
+      category: product.category,
+      grossQuantity,
+      returnQuantity,
+      netQuantity: grossQuantity - returnQuantity,
+      salesAmount: Math.round((product.salesAmount * factor) / 100) * 100,
+    };
+  });
+}
+
+const DEV_SALES_PERIODS = [
+  ["2026-08", 1.24, 0], ["2026-07", 1.08, 1], ["2025-08", 0.92, 0],
+  ["2026-01", 0.82, 1], ["2026-02", 0.88, 1], ["2026-03", 0.94, 1],
+  ["2026-04", 1.00, 1], ["2026-05", 1.05, 1], ["2026-06", 1.10, 1],
+  ["2025-01", 0.68, 1], ["2025-02", 0.72, 1], ["2025-03", 0.77, 1],
+  ["2025-04", 0.81, 1], ["2025-05", 0.86, 1], ["2025-06", 0.89, 1], ["2025-07", 0.91, 1],
+] as const;
+
+function buildDevSalesRows() {
+  return DEV_SALES_PERIODS.flatMap(([month, ximenFactor, xinyiOffset]) => [
+    ...salesRowsForMonth(DEV_ANALYTICS_SCOPES[0].id, month, ximenFactor),
+    ...salesRowsForMonth(DEV_ANALYTICS_SCOPES[1].id, month, ximenFactor * (xinyiOffset ? 0.72 : 0.78)),
+  ]);
+}
+
+async function seedDevAnalytics(db: ReturnType<typeof createDatabase>): Promise<void> {
+  const [existing] = await db.select({ id: reportScopes.id }).from(reportScopes)
+    .where(eq(reportScopes.id, DEV_ANALYTICS_SCOPES[0].id)).limit(1);
+  if (existing) return;
+
+  for (const scope of DEV_ANALYTICS_SCOPES) await upsertReportScope(db, scope);
+  await insertReportPayoutDaily(db, buildDevPayoutRows());
+  await insertReportSalesMonthly(db, buildDevSalesRows());
 }
 
 /** 與帳號分開判斷，這樣舊的 local.sqlite 也會補上客戶資料。 */

@@ -20,6 +20,8 @@ export interface ReportRange {
   period: string;
   startDate: string;
   endDate: string;
+  /** HTTP 以 startDate/endDate 查詢時保留這個資訊，避免同月自訂區間被當成整月。 */
+  isCustom?: boolean;
 }
 
 export interface ReportScopeInput {
@@ -98,7 +100,7 @@ export function parseReportRange(period?: string, startDate?: string, endDate?: 
   if (Boolean(start) !== Boolean(end)) throw new Error("startDate 與 endDate 必須同時提供。");
   if (start && end) {
     if (!isDate(start) || !isDate(end) || start > end) throw new Error("日期區間必須是有效的 YYYY-MM-DD，且起日不可晚於迄日。");
-    return { period: start.slice(0, 7) === end.slice(0, 7) ? start.slice(0, 7) : `${start}~${end}`, startDate: start, endDate: end };
+    return { period: start.slice(0, 7) === end.slice(0, 7) ? start.slice(0, 7) : `${start}~${end}`, startDate: start, endDate: end, isCustom: true };
   }
 
   const value = period?.trim() ?? "";
@@ -282,7 +284,7 @@ function scopeCondition(column: ReturnType<typeof sql>, scopeIds: readonly strin
     : sql`${column} IN (${sql.join(scopeIds.map((id) => sql`${id}`), sql`, `)})`;
 }
 
-async function scopeIdsForQuery(db: Database, query: { scopeType: ReportScopeKind; scopeId?: string; scopeName?: string }): Promise<{ ids: string[]; scope?: ReportScope }> {
+export async function scopeIdsForQuery(db: Database, query: { scopeType: ReportScopeKind; scopeId?: string; scopeName?: string }): Promise<{ ids: string[]; scope?: ReportScope }> {
   if (query.scopeType === "store") {
     const scope = await findReportScope(db, { scopeKind: "store", id: query.scopeId, name: query.scopeName });
     return scope ? { ids: [scope.id], scope } : { ids: [] };
@@ -404,6 +406,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
   ];
   const selected = [
     ...dimensions.map((item) => sql`${item.expression} AS ${sql.raw(item.alias)}`),
+    ...(groups.includes("sku") ? [sql`MAX(${reportSalesMonthly.productName}) AS productName`] : []),
     sql`SUM(${reportSalesMonthly.grossQuantity}) AS grossQuantity`,
     sql`SUM(${reportSalesMonthly.returnQuantity}) AS returnQuantity`,
     sql`SUM(${reportSalesMonthly.netQuantity}) AS netQuantity`,

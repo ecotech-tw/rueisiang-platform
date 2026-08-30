@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation, useSearchParams } from "react-router";
 import { useSession } from "./auth/session.js";
 import { Roles } from "./routes/admin/Roles.js";
@@ -25,6 +26,8 @@ import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { StyleGuide } from "./routes/StyleGuide.js";
 import { AppShell } from "./shell/AppShell.js";
+
+const Analytics = lazy(() => import("./routes/tools/analytics/Analytics.js").then((module) => ({ default: module.Analytics })));
 
 /** 未登入就導去登入頁。這只是體驗上的導引，資料的把關在 API。 */
 function RequireSession({ children }: { children: React.ReactNode }) {
@@ -105,6 +108,7 @@ export function App() {
 
         <Route path="tools">
           <Route path="payout" element={<Payout />} />
+          <Route path="analytics" element={<Suspense fallback={<div className="boot">載入統計頁…</div>}><Analytics /></Suspense>} />
           <Route path="payout/settings" element={<PayoutSettings />} />
           <Route path="cyberbiz-sales" element={<CyberbizSales />} />
           <Route path="shopee-sales" element={<ShopeeSales />} />

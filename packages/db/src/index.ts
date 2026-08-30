@@ -123,6 +123,7 @@ export {
   parseReportRange,
   queryReportPayout,
   queryReportSales,
+  scopeIdsForQuery,
   ReportScopeAmbiguousError,
   upsertReportScope,
   type ReportGroupBy,
@@ -134,6 +135,25 @@ export {
   type ReportScopeKind,
   type ReportScopeInput,
 } from "./report-data.js";
+export {
+  buildReportComparisonRanges,
+  calculateGrowth,
+  queryReportPayoutSummary,
+  queryReportSalesSummary,
+  type AnalyticsGranularity,
+  type ReportAnalyticsPoint,
+  type ReportAnalyticsRange,
+  type ReportAnalyticsQuery,
+  type ReportComparisonRanges,
+  type ReportGrowth,
+  type ReportPayoutBreakdown,
+  type ReportPayoutSummary,
+  type ReportSalesBreakdown,
+  type ReportSalesCategoryBreakdown,
+  type ReportSalesSkuBreakdown,
+  type ReportSalesSummary,
+  type SalesTopSkuMetric,
+} from "./report-analytics.js";
 export {
   deleteMediaObject,
   findMediaObject,
