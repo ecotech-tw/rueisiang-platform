@@ -68,10 +68,14 @@ export function buildBucketKeys(start: string, end: string, granularity: "day" |
   }
   const [startYear = 0, startMonth = 1] = start.split("-").map(Number);
   const [endYear = 0, endMonth = 1] = end.split("-").map(Number);
+  if (granularity === "year") {
+    for (let year = startYear; year <= endYear; year += 1) keys.push(String(year));
+    return keys;
+  }
   let year = startYear;
   let month = startMonth;
   while (year < endYear || (year === endYear && month <= endMonth)) {
-    keys.push(granularity === "month" ? `${year}-${String(month).padStart(2, "0")}` : String(year));
+    keys.push(`${year}-${String(month).padStart(2, "0")}`);
     month += 1;
     if (month > 12) {
       month = 1;

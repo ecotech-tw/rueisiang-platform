@@ -406,6 +406,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
   ];
   const selected = [
     ...dimensions.map((item) => sql`${item.expression} AS ${sql.raw(item.alias)}`),
+    ...(groups.includes("sku") ? [sql`MAX(${reportSalesMonthly.productName}) AS productName`] : []),
     sql`SUM(${reportSalesMonthly.grossQuantity}) AS grossQuantity`,
     sql`SUM(${reportSalesMonthly.returnQuantity}) AS returnQuantity`,
     sql`SUM(${reportSalesMonthly.netQuantity}) AS netQuantity`,

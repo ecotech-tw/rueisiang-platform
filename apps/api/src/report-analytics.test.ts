@@ -203,6 +203,7 @@ describe("商品銷售統計查詢", () => {
     expect(result.byCategory).toHaveLength(2);
     expect(result.breakdown).toEqual([expect.objectContaining({ scopeId: WEST, channel: "cyberbiz", value: 10450, yoy: 208 })]);
     expect(result.byTopSku).toHaveLength(11);
+    expect(result.byTopSku[0]).toMatchObject({ sku: "SKU-00", productName: "商品 0" });
     expect(result.byTopSku.at(-1)).toMatchObject({ productName: "其他", isOther: true });
 
     const fullMonthByDate = await queryReportSalesSummary(db(), {

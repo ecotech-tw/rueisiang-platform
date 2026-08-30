@@ -10,8 +10,14 @@ function pad(value: number): string {
   return String(value).padStart(2, "0");
 }
 
+const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+function nowInTaipei(): Date {
+  return new Date(Date.now() + TAIPEI_OFFSET_MS);
+}
+
 function monthValue(date: Date): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}`;
 }
 
 function monthEnd(value: string): string {
@@ -20,24 +26,24 @@ function monthEnd(value: string): string {
 }
 
 function currentMonth(): string {
-  return monthValue(new Date());
+  return monthValue(nowInTaipei());
 }
 
 function periodOptions(): Array<{ value: string; label: string }> {
-  const now = new Date();
-  const month = currentMonth();
-  const year = String(now.getFullYear());
+  const now = nowInTaipei();
+  const month = monthValue(now);
+  const year = String(now.getUTCFullYear());
   const options = [
     { value: month, label: `本月（${month}）` },
     { value: year, label: `今年（${year}）` },
   ];
   for (let offset = 1; offset <= 12; offset += 1) {
-    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
     const value = monthValue(date);
     options.push({ value, label: value });
   }
   for (let offset = 1; offset <= 2; offset += 1) {
-    const value = String(now.getFullYear() - offset);
+    const value = String(now.getUTCFullYear() - offset);
     options.push({ value, label: `${value} 年` });
   }
   return options;
