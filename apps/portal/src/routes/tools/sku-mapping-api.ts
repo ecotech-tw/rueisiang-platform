@@ -74,8 +74,6 @@ export interface ProductBundleComponentInput {
 export interface ProductSkuMappingData {
   mappings: ProductSkuMapping[];
   categories: string[];
-  /** 還有幾筆自訂用料在官網目錄裡找得到。 */
-  adoptableCustomComponents: number;
 }
 
 export const PRODUCT_SKU_CHANNEL_OPTIONS = [
@@ -190,15 +188,4 @@ export function useCyberbizProducts() {
       return (await response.json()) as { products: CyberbizProductOption[] };
     },
   });
-}
-
-/** 一次把「自訂 SKU 但官網目錄裡找得到」的用料轉成 CYBERBIZ 商品。 */
-export function useAdoptCyberbizComponents() {
-  return useSkuMappingMutation(
-    () => write<{ converted: number; skippedConflicts: number }>(
-      "/api/tools/product-sku-mappings/adopt-cyberbiz",
-      "POST",
-      {},
-    ),
-  );
 }
