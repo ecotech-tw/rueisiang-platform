@@ -36,6 +36,7 @@ export const PERMISSIONS = {
   "tools:sku-mapping:read": "檢視通路 SKU 對應",
   "tools:sku-mapping:write": "修改通路 SKU 對應",
   "reports:cyberbiz:read": "檢視 CYBERBIZ 銷售與出金報表",
+  "reports:analytics:read": "檢視營運統計",
 
   // 小香助理
   "assistant:sandbox:read": "檢視 AI 助理 Sandbox",

@@ -39,6 +39,9 @@ const REMOVE_SHOPEE_SETTINGS_PERMISSION_MIGRATION = fileURLToPath(
 const SKU_MAPPING_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0065_sku_mapping_permission.sql", import.meta.url),
 );
+const ANALYTICS_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0066_analytics_permission.sql", import.meta.url),
+);
 const MIGRATIONS_DIR = fileURLToPath(new URL("../../../packages/db/migrations/", import.meta.url));
 const MIGRATION_FILES = readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(".sql")).sort();
 
@@ -107,6 +110,9 @@ describe("bootstrap 管理員權限 migration", () => {
     const skuMappingPermissionSql = readFileSync(SKU_MAPPING_PERMISSION_MIGRATION, "utf8")
       .split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean);
     for (const statement of [...skuMappingPermissionSql, ...skuMappingPermissionSql]) d1.sqlite.exec(statement);
+    const analyticsPermissionSql = readFileSync(ANALYTICS_PERMISSION_MIGRATION, "utf8");
+    d1.sqlite.exec(analyticsPermissionSql);
+    d1.sqlite.exec(analyticsPermissionSql);
 
     const permissions = await db.select().from(rolePermissions);
     expect(permissions).toHaveLength(ALL_PERMISSIONS.length);

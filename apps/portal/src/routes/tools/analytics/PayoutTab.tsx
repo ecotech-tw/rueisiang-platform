@@ -38,7 +38,7 @@ export function PayoutTab({ query, scopeLabel, enabled }: PayoutTabProps) {
   if (result.isPending && !result.data) return <div className="boot">載入統計中…</div>;
   if (result.error) {
     const message = result.error instanceof ReportApiError && result.error.status === 403
-      ? "你沒有檢視 CYBERBIZ 報表的權限。"
+      ? "你沒有檢視營運統計的權限。"
       : result.error.message;
     return <Alert tone="danger">{message}</Alert>;
   }

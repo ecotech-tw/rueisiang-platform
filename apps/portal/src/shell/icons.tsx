@@ -24,6 +24,7 @@ export type IconName =
   | "widgets"
   | "payments"
   | "storefront"
+  | "shoppingBag"
   | "assistant"
   | "science"
   | "line"
@@ -214,6 +215,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M4.3 9.8h15.4v9.1a1 1 0 0 1-1 1H5.3a1 1 0 0 1-1-1z" />
       <path d="M3.2 9.8 4.7 5.1a1 1 0 0 1 1-.7h12.6a1 1 0 0 1 1 .7l1.5 4.7" />
       <path d="M9.7 19.9v-4.8h4.6v4.8" />
+    </>
+  ),
+  shoppingBag: (
+    <>
+      <path d="M5.1 8.4h13.8l1.3 10.9a1.8 1.8 0 0 1-1.8 2H5.6a1.8 1.8 0 0 1-1.8-2z" />
+      <path d="M8.2 8.4V7a3.8 3.8 0 0 1 7.6 0v1.4" />
     </>
   ),
   assistant: (

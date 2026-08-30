@@ -56,14 +56,17 @@ afterEach(() => {
 });
 
 describe("報表統計 API", () => {
-  it("沒有登入或沒有報表權限都不能讀 summary", async () => {
+  it("沒有登入或沒有營運統計權限都不能讀 summary", async () => {
     expect((await call("/api/reports/cyberbiz/summary/payout?period=2026-08")).status).toBe(401);
 
     const viewer = await seedUser("viewer@ecotech.tw", "role-viewer");
     expect((await call("/api/reports/cyberbiz/summary/payout?period=2026-08", viewer, "viewer@ecotech.tw")).status).toBe(403);
+
+    const manager = await seedUser("manager@ecotech.tw", "role-manager");
+    expect((await call("/api/reports/cyberbiz/summary/payout?period=2026-08", manager, "manager@ecotech.tw")).status).toBe(403);
   });
 
-  it("summary 與 scope 清單由同一個 reports 權限保護，且不回傳停用店", async () => {
+  it("summary 與 scope 清單由營運統計權限保護，且不回傳停用店", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     await insertReportPayoutDaily(db(), [{ scopeId: "cyberbiz:store:active", businessDate: "2026-08-01", payoutAmount: 2040 }]);
 

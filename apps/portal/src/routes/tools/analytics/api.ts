@@ -88,7 +88,7 @@ function queryString(query: AnalyticsQuery): string {
 
 export function useReportScopes() {
   return useQuery({
-    queryKey: ["reports", "cyberbiz", "scopes"],
+    queryKey: ["reports", "analytics", "scopes"],
     queryFn: () => call<{ scopes: ReportScopeOption[] }>("/api/reports/cyberbiz/scopes"),
     staleTime: 5 * 60 * 1000,
   });
@@ -97,7 +97,7 @@ export function useReportScopes() {
 export function usePayoutSummary(query: AnalyticsQuery, enabled: boolean) {
   return useQuery({
     enabled,
-    queryKey: ["reports", "cyberbiz", "summary", "payout", query],
+    queryKey: ["reports", "analytics", "summary", "payout", query],
     queryFn: () => call<PayoutSummary>(`/api/reports/cyberbiz/summary/payout?${queryString(query)}`),
     placeholderData: keepPreviousData,
   });
