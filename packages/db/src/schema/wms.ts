@@ -128,6 +128,51 @@ export const customReportProducts = sqliteTable("custom_report_products", {
 });
 
 /**
+ * CYBERBIZ 商品目錄在 D1 的鏡像。
+ *
+ * 報表要用它當商品身分：CYBERBIZ 是「我們賣什麼」的真相來源，WMS 只管「我們囤什麼」。
+ * 官網有、WMS 沒有的商品（禮盒、贈品、加購）以前得靠人手動 key 一個自訂 SKU 與名稱，
+ * 有了這份鏡像就不必。
+ *
+ * 做成 D1 表而不是直接查官網：匯入不能依賴外部服務的可用性。目錄本身（SKU、品名）
+ * 很少變，由 variants/update webhook 與 cron 更新。
+ */
+export const cyberbizProducts = sqliteTable("cyberbiz_products", {
+  /** 官網的 SKU，一律大寫，報表就用這個當商品身分。 */
+  sku: text("sku").primaryKey(),
+  productId: text("product_id").notNull(),
+  variantId: text("variant_id").notNull(),
+  productName: text("product_name").notNull(),
+  variantName: text("variant_name").notNull().default(""),
+  /** 官網下架之後仍保留這一列：歷史報表還指著它。 */
+  published: integer("published").notNull().default(1),
+  syncedAt: text("synced_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_cyberbiz_products_product").on(table.productId, table.variantId),
+]);
+
+/**
+ * 刻意不納入報表的外部 SKU。
+ *
+ * 有些通路 SKU 永遠不該進商品統計——補寄用的品項、已下架又偶爾補單的舊商品。它們跟
+ * 「還沒建對應」在匯入端的行為一樣（都略過），差別在提醒：沒標記的要提醒人去補，
+ * 標記過的不要再吵，否則每個月跳同一批 SKU，提醒很快就沒人看。
+ *
+ * 不做成「沒有用料的 mapping」：product_sku_mappings 的「至少一個用料」是硬性條件，
+ * 為了這件事鬆掉它，之後每一支查詢都要處理空用料。
+ */
+export const reportSkuIgnores = sqliteTable("report_sku_ignores", {
+  id: text("id").primaryKey(),
+  channel: text("channel").notNull(),
+  externalSku: text("external_sku").notNull(),
+  reason: text("reason").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_report_sku_ignores_channel_external_sku").on(table.channel, table.externalSku),
+]);
+
+/**
  * 外部通路商品的對應。
  *
  * 通路與外部 SKU 一起識別一筆 mapping，通路商品名稱保留報表裡看到的名稱。
@@ -152,8 +197,11 @@ export const productSkuMappings = sqliteTable("product_sku_mappings", {
 /**
  * 一筆通路對應由哪些用料組成。
  *
- * 每一列指向 WMS 商品或報表自訂商品，兩者恰有一個非空。混用是刻意允許的：
- * 禮盒裡可能有 WMS 追蹤的香皂，也可能有不入庫的贈品。
+ * 每一列指向 WMS 商品、CYBERBIZ 商品或報表自訂商品，三者恰有一個非空。混用是刻意允許的：
+ * 禮盒裡可能有 WMS 追蹤的香皂，也可能有只在官網賣的贈品。
+ *
+ * CYBERBIZ 那一種指向目錄鏡像而不是複製一份名稱進 custom_report_products——官網改名時
+ * 複本不會跟著動，報表就會停在舊名字（system_sku 踩過同一個坑）。
  *
  * 主鍵用獨立的 id：來源有兩種，(mapping_id, inventory_item_id) 這種複合鍵沒辦法同時
  * 涵蓋兩邊。改以兩個 unique index 分別擋掉同一筆對應內重複選到同一個來源。
@@ -167,12 +215,17 @@ export const productBundleComponents = sqliteTable("product_bundle_components", 
     .references(() => inventoryItems.id, { onDelete: "restrict" }),
   customProductId: text("custom_product_id")
     .references(() => customReportProducts.id, { onDelete: "restrict" }),
+  /** 指向官網目錄鏡像；名稱即時從那裡讀，不複製一份進來。 */
+  cyberbizSku: text("cyberbiz_sku")
+    .references(() => cyberbizProducts.sku, { onDelete: "restrict" }),
   quantity: integer("quantity").notNull(),
 }, (table) => [
   uniqueIndex("idx_product_bundle_components_item").on(table.mappingId, table.inventoryItemId),
   uniqueIndex("idx_product_bundle_components_custom").on(table.mappingId, table.customProductId),
+  uniqueIndex("idx_product_bundle_components_cyberbiz").on(table.mappingId, table.cyberbizSku),
   index("idx_product_bundle_components_inventory_item").on(table.inventoryItemId),
   index("idx_product_bundle_components_custom_product").on(table.customProductId),
+  index("idx_product_bundle_components_cyberbiz_sku").on(table.cyberbizSku),
 ]);
 
 /**
@@ -255,5 +308,7 @@ export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type ProductSkuMapping = typeof productSkuMappings.$inferSelect;
 export type ProductBundleComponent = typeof productBundleComponents.$inferSelect;
 export type CustomReportProduct = typeof customReportProducts.$inferSelect;
+export type ReportSkuIgnore = typeof reportSkuIgnores.$inferSelect;
+export type CyberbizProduct = typeof cyberbizProducts.$inferSelect;
 export type CyberbizProductLink = typeof cyberbizProductLinks.$inferSelect;
 export type ZoneImage = typeof zoneImages.$inferSelect;

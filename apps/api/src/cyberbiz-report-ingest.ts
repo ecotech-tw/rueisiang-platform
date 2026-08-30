@@ -5,6 +5,7 @@ import {
   upsertReportScope,
   normalizeExternalSku,
   normalizeProductSkuChannel,
+  resolveIgnoredSkus,
   resolveProductSkus,
   type Database,
   type ReportScopeKind,
@@ -27,8 +28,8 @@ export interface CyberbizReportIngestInput {
 export class CyberbizReportIngestError extends Error {
   constructor(
     readonly status: 422,
-    readonly code: "invalid_ingest" | "unmapped_product",
-    message = code === "unmapped_product" ? "報表包含尚未對應的 WMS 商品。" : "CYBERBIZ 報表匯入資料格式不正確。",
+    readonly code: "invalid_ingest",
+    message = "CYBERBIZ 報表匯入資料格式不正確。",
   ) {
     super(message);
     this.name = "CyberbizReportIngestError";
@@ -145,32 +146,57 @@ async function normalizeSalesRows(
   channel = reportChannel(input.scopeId),
   // sales_and_payout 會先 parse 一次做格式驗證，把結果傳進來，省掉整份報表重複解析與彙總。
   preparsed?: ParsedSalesRow[],
-): Promise<Array<{
-  scopeId: string;
-  reportMonth: string;
-  sku: string;
-  productName: string;
-  category: string;
-  grossQuantity: number;
-  returnQuantity: number;
-  netQuantity: number;
-  salesAmount: number;
-  updatedAt: string;
-}>> {
+): Promise<{
+  rows: Array<{
+    scopeId: string;
+    reportMonth: string;
+    sku: string;
+    productName: string;
+    category: string;
+    grossQuantity: number;
+    returnQuantity: number;
+    netQuantity: number;
+    salesAmount: number;
+    updatedAt: string;
+  }>;
+  /** 對不到任何對應，也沒被標記忽略——要人去補的。 */
+  skippedSkus: string[];
+}> {
   const parsed = preparsed ?? parseSalesRows(input);
-  if (!parsed.length) return [];
+  if (!parsed.length) return { rows: [], skippedSkus: [] };
 
   const resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku), channel);
 
-  const missing = parsed
-    .map((row) => row.externalSku)
-    .filter((sku, index, values) => !resolved.has(sku) && values.indexOf(sku) === index);
-  if (missing.length) {
-    throw new CyberbizReportIngestError(
-      422,
-      "unmapped_product",
-      `以下外部 SKU 尚未對應 WMS 商品：${missing.slice(0, 50).join("、")}${missing.length > 50 ? "…" : ""}`,
-    );
+  /*
+   * 對不到的外部 SKU 略過，其餘照常寫入。
+   *
+   * 以前是整份 422。實際跑下來十幾個沒建對應的 SKU 就讓九家店的整個月一筆都進不去——
+   * 一個沒對應的贈品擋掉全部營收，代價完全不成比例。改成略過並回報，之後補好對應
+   * 重跑即可：寫入是每個（據點, 月份）先刪再插，重跑會把那個月整個重寫。
+   *
+   * ignored 是刻意排除的（補寄、已下架），不需要提醒；skipped 才是要人去補的。
+   */
+  const ignored = await resolveIgnoredSkus(db, parsed.map((row) => row.externalSku), channel);
+  const skipped: string[] = [];
+  const usable: ParsedSalesRow[] = [];
+  const seenSkipped = new Set<string>();
+  for (const row of parsed) {
+    /*
+     * 忽略要排在解析之前。
+     *
+     * 目錄 fallback 會解析出整份 CYBERBIZ 目錄（包含已下架商品，那份鏡像刻意不刪），
+     * 所以先問「解析得出來嗎」的話，補寄與已下架這兩種「標記為不納入」的 SKU 反而
+     * 每一個都解析成功、照樣寫進報表——整個忽略功能等於不存在。
+     */
+    if (ignored.has(row.externalSku)) continue;
+    if (resolved.has(row.externalSku)) {
+      usable.push(row);
+      continue;
+    }
+    if (!seenSkipped.has(row.externalSku)) {
+      seenSkipped.add(row.externalSku);
+      skipped.push(row.externalSku);
+    }
   }
 
   // 先 mapping 再加總：多個通路 SKU 可能對應同一個 system SKU，不能在外部 SKU 階段結束加總。
@@ -189,7 +215,7 @@ async function normalizeSalesRows(
     salesAmount: number;
     updatedAt: string;
   }>();
-  for (const row of parsed) {
+  for (const row of usable) {
     const item = resolved.get(row.externalSku)!;
     /*
      * 每一筆對應都展開成用料，沒有例外。
@@ -216,7 +242,7 @@ async function normalizeSalesRows(
       });
     }
   }
-  return [...rows.values()];
+  return { rows: [...rows.values()], skippedSkus: skipped };
 }
 
 function payoutRows(input: CyberbizReportIngestInput) {
@@ -238,7 +264,15 @@ function payoutRows(input: CyberbizReportIngestInput) {
 
 export function createCyberbizReportIngestor(db: Database) {
   return {
-    async ingest(value: unknown): Promise<{ kind: CyberbizReportIngestKind; scopeId: string; rowCount: number; salesRowCount?: number; payoutRowCount?: number }> {
+    async ingest(value: unknown): Promise<{
+      kind: CyberbizReportIngestKind;
+      scopeId: string;
+      rowCount: number;
+      salesRowCount?: number;
+      payoutRowCount?: number;
+      /** 對不到對應而被略過的外部 SKU；補好對應重跑同一個月就會補回來。 */
+      skippedSkus?: string[];
+    }> {
       const input = readInput(value);
       const sourceChannel = reportChannel(input.scopeId);
       const canReuseScopeByName = sourceChannel === "legacy" || sourceChannel === "cyberbiz";
@@ -272,23 +306,29 @@ export function createCyberbizReportIngestor(db: Database) {
         // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
         await insertReportPayoutDaily(db, payout);
         const sales = await normalizeSalesRows(db, salesInput, sourceChannel, parsedSales);
-        await insertReportSalesMonthly(db, sales, input.reportMonth
+        await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);
         return {
           kind: input.kind,
           scopeId: scope.id,
-          rowCount: sales.length + payout.length,
-          salesRowCount: sales.length,
+          rowCount: sales.rows.length + payout.length,
+          salesRowCount: sales.rows.length,
           payoutRowCount: payout.length,
+          skippedSkus: sales.skippedSkus,
         };
       }
       if (input.kind === "sales") {
-        const rows = await normalizeSalesRows(db, scopedInput, sourceChannel);
-        await insertReportSalesMonthly(db, rows, input.reportMonth
+        const sales = await normalizeSalesRows(db, scopedInput, sourceChannel);
+        await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);
-        return { kind: input.kind, scopeId: scope.id, rowCount: rows.length };
+        return {
+          kind: input.kind,
+          scopeId: scope.id,
+          rowCount: sales.rows.length,
+          skippedSkus: sales.skippedSkus,
+        };
       }
       const rows = payoutRows(scopedInput);
       await insertReportPayoutDaily(db, rows);

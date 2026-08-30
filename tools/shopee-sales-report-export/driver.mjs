@@ -82,6 +82,10 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
         reportMonth: range.label,
       });
       log(`已匯入 D1：蝦皮 sales 月資料 ${ingested.salesRowCount ?? 0} 筆、payout ${ingested.payoutRowCount ?? summary.dailyPayoutRows.length} 筆`);
+      // 略過的 SKU 要講出來，否則那些營收安靜地少掉，沒有人知道要回來補對應。
+      if (ingested.skippedSkus?.length) {
+        log(`略過 ${ingested.skippedSkus.length} 個未對應 SKU（補好對應後重跑同一個月即可補回）：${ingested.skippedSkus.join("、")}`);
+      }
     }
 
     await ensureDir(path.resolve(toolPath(config.reportsDir)));
