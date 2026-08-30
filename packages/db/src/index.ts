@@ -84,6 +84,8 @@ export * as schema from "./schema/index.js";
 export {
   addProductSkuMapping,
   addReportSkuIgnore,
+  adoptCyberbizComponents,
+  countAdoptableCustomComponents,
   deleteProductSkuMapping,
   deleteReportSkuIgnore,
   listCyberbizProducts,

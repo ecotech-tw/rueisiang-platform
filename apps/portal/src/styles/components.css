@@ -3104,3 +3104,42 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .assistant-session-select { flex: 1; min-width: 0; }
   .assistant-message { max-width: 96%; }
 }
+
+/*
+ * SKU 對應頁的忽略清單。設定型的東西，收合起來把版面讓給列表。
+ * preflight 會拿掉 <details> 的預設三角形，所以自己畫一個。
+ */
+.sku-ignore-details {
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: var(--color-paper);
+}
+.sku-ignore-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 14px;
+}
+.sku-ignore-details > summary::-webkit-details-marker { display: none; }
+.sku-ignore-details > summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--color-muted);
+  border-bottom: 2px solid var(--color-muted);
+  transform: rotate(-45deg);
+  transition: transform .15s ease;
+}
+.sku-ignore-details[open] > summary::before { transform: rotate(45deg); }
+.sku-ignore-details > summary:hover { background: --alpha(var(--color-brand) / 4%); }
+.sku-ignore-details > summary:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
+.sku-ignore-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+.sku-ignore-body > .toolbar { margin: 0; padding: 0; border-bottom: 0; }
