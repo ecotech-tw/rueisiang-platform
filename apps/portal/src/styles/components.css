@@ -365,6 +365,7 @@
 .page.fills { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .page.fills > .page-head,
 .page.fills > .stat-row,
+.page.fills > details,
 .page.fills > .ui-alert { flex: none; }
 .page.fills > .panel.grows {
   flex: 1;
@@ -2140,7 +2141,15 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 .boot { padding: 48px; color: var(--color-muted); }
 
+/*
+ * 標題列的動作區不能被壓扁。
+ *
+ * 描述文字長的時候，flex 會把右邊那顆按鈕擠到只剩兩個字寬，「新增對應」就被折成
+ * 「新增對／應」。給它 flex: none 與 nowrap，寬度由文字決定。
+ */
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.page-head-row > :last-child { flex: none; }
+.page-head-row .add-action { white-space: nowrap; }
 
 /* ── 對話框（Material 的 dialog）───────────────────────────────────────── */
 .modal-backdrop {
@@ -3104,3 +3113,49 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .assistant-session-select { flex: 1; min-width: 0; }
   .assistant-message { max-width: 96%; }
 }
+
+/*
+ * SKU 對應頁的忽略清單。設定型的東西，收合起來把版面讓給列表。
+ *
+ * .page.fills 是沒有 gap 的 flex column——間距是各元件自己的 margin-bottom 撐出來的，
+ * 所以這裡要自己給，不然會直接黏在下面的表格上。也要 flex: none，否則在 column 裡
+ * 會被拉扯變形。
+ * preflight 拿掉了 <details> 的預設三角形，自己畫一個。
+ */
+.sku-ignore-details {
+  flex: none;
+  margin-bottom: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: var(--color-paper);
+}
+.sku-ignore-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 14px;
+}
+.sku-ignore-details > summary::-webkit-details-marker { display: none; }
+.sku-ignore-details > summary::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--color-muted);
+  border-bottom: 2px solid var(--color-muted);
+  transform: rotate(-45deg);
+  transition: transform .15s ease;
+}
+.sku-ignore-details[open] > summary::before { transform: rotate(45deg); }
+.sku-ignore-details > summary:hover { background: --alpha(var(--color-brand) / 4%); }
+.sku-ignore-details > summary:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
+.sku-ignore-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+.sku-ignore-body > .toolbar { margin: 0; padding: 0; border-bottom: 0; }

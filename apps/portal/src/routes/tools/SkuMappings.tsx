@@ -92,83 +92,96 @@ export function SkuMappings() {
     <div className="page fills">
       <PageHeader
         title="SKU 對應"
-        description={<>把通路商品對應到一個以上的組合用料。用料可以是 WMS 商品，也可以是不入庫的自訂 SKU——不同通路指到同一個自訂 SKU，報表就會統計成同一個商品。</>}
+        description="把通路商品對應到組合用料；不同通路指到同一個用料，報表就會統計成同一個商品。"
+        actions={canWrite ? (
+          <Button
+            icon="plus"
+            className="add-action"
+            onClick={() => setMappingDialog("new")}
+            aria-label="新增對應"
+          >
+            {/* 手機上文字會被 CSS 藏起來，只剩一顆圓形的 ＋。aria-label 補回名稱。 */}
+            <span>新增對應</span>
+          </Button>
+        ) : null}
       />
 
+      {/*
+        * 忽略清單收合起來。
+        *
+        * 它是設定型的東西，一年動不到幾次，展開卻會把列表擠掉半個畫面——這一頁的主體
+        * 是那幾十筆對應，版面要留給它。
+        */}
       {canWrite ? (
-        <Panel title="新增對應" description="填寫通路商品資料，再設定至少一個組合用料；一對一商品的用料數量填 1。">
-          <Button icon="plus" onClick={() => setMappingDialog("new")}>
-            新增對應
-          </Button>
-        </Panel>
-      ) : null}
-
-      {canWrite ? (
-        <Panel
-          title="不納入報表的外部 SKU"
-          description="補寄、已下架這類永遠不該進統計的通路 SKU。標記之後匯入會照樣略過，但不再列進「未對應」的提醒。"
-        >
-          <div className="admin-form toolbar">
-            <SelectField
-              label="通路"
-              value={ignoreChannel}
-              onChange={(event) => setIgnoreChannel(event.target.value)}
-              options={PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
-            />
-            <TextField
-              label="外部 SKU"
-              placeholder="例如 51210161926_224686824526"
-              value={ignoreSku}
-              onChange={(event) => setIgnoreSku(event.target.value)}
-            />
-            <TextField
-              label="原因"
-              placeholder="例如 補寄用"
-              value={ignoreReason}
-              onChange={(event) => setIgnoreReason(event.target.value)}
-            />
-            <Button
-              icon="plus"
-              disabled={!ignoreSku.trim() || addIgnore.isPending}
-              loading={addIgnore.isPending}
-              loadingLabel="加入中…"
-              onClick={() => addIgnore.mutate(
-                { channel: ignoreChannel, externalSku: ignoreSku.trim(), reason: ignoreReason.trim() },
-                {
-                  onSuccess: (result) => {
-                    setIgnoreSku("");
-                    setIgnoreReason("");
-                    toast.show(`已標記${productSkuChannelLabel(result.channel)} SKU「${result.externalSku}」不納入報表`);
-                  },
+        <details className="sku-ignore-details">
+          <summary>
+            不納入報表的外部 SKU
+            <span className="cell-sub">{ignores.length ? `已標記 ${ignores.length} 筆` : "尚未標記"}</span>
+          </summary>
+          <div className="sku-ignore-body">
+            <p className="cell-sub">補寄、已下架這類永遠不該進統計的通路 SKU。標記之後匯入會照樣略過，但不再列進「未對應」的提醒。</p>
+        <div className="admin-form toolbar">
+          <SelectField
+            label="通路"
+            value={ignoreChannel}
+            onChange={(event) => setIgnoreChannel(event.target.value)}
+            options={PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
+          />
+          <TextField
+            label="外部 SKU"
+            placeholder="例如 51210161926_224686824526"
+            value={ignoreSku}
+            onChange={(event) => setIgnoreSku(event.target.value)}
+          />
+          <TextField
+            label="原因"
+            placeholder="例如 補寄用"
+            value={ignoreReason}
+            onChange={(event) => setIgnoreReason(event.target.value)}
+          />
+          <Button
+            icon="plus"
+            disabled={!ignoreSku.trim() || addIgnore.isPending}
+            loading={addIgnore.isPending}
+            loadingLabel="加入中…"
+            onClick={() => addIgnore.mutate(
+              { channel: ignoreChannel, externalSku: ignoreSku.trim(), reason: ignoreReason.trim() },
+              {
+                onSuccess: (result) => {
+                  setIgnoreSku("");
+                  setIgnoreReason("");
+                  toast.show(`已標記${productSkuChannelLabel(result.channel)} SKU「${result.externalSku}」不納入報表`);
                 },
-              )}
-            >
-              加入
-            </Button>
+              },
+            )}
+          >
+            加入
+          </Button>
+        </div>
+        {addIgnore.error ? <Alert tone="danger">{addIgnore.error.message}</Alert> : null}
+        {ignores.length ? (
+          <div className="row-actions">
+            {ignores.map((ignore) => (
+              <span className="status status-tone-slate" key={ignore.id}>
+                {productSkuChannelLabel(ignore.channel)} · {ignore.externalSku}
+                {ignore.reason ? `（${ignore.reason}）` : ""}
+                <button
+                  type="button"
+                  className="link-button"
+                  aria-label={`取消忽略 ${ignore.externalSku}`}
+                  disabled={removeIgnore.isPending}
+                  onClick={() => removeIgnore.mutate(ignore.id, {
+                    onSuccess: () => toast.show(`已取消忽略「${ignore.externalSku}」`),
+                  })}
+                >
+                  取消
+                </button>
+              </span>
+            ))}
           </div>
-          {addIgnore.error ? <Alert tone="danger">{addIgnore.error.message}</Alert> : null}
-          {ignores.length ? (
-            <div className="row-actions">
-              {ignores.map((ignore) => (
-                <span className="status status-tone-slate" key={ignore.id}>
-                  {productSkuChannelLabel(ignore.channel)} · {ignore.externalSku}
-                  {ignore.reason ? `（${ignore.reason}）` : ""}
-                  <button
-                    type="button"
-                    className="link-button"
-                    aria-label={`取消忽略 ${ignore.externalSku}`}
-                    disabled={removeIgnore.isPending}
-                    onClick={() => removeIgnore.mutate(ignore.id, {
-                      onSuccess: () => toast.show(`已取消忽略「${ignore.externalSku}」`),
-                    })}
-                  >
-                    取消
-                  </button>
-                </span>
-              ))}
-            </div>
-          ) : <p className="cell-sub">目前沒有標記任何 SKU。</p>}
-        </Panel>
+        ) : <p className="cell-sub">目前沒有標記任何 SKU。</p>}
+          </div>
+        </details>
       ) : null}
 
       <Panel
