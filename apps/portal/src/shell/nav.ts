@@ -51,7 +51,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "倉位地圖", to: "/wms/map", permission: "wms:map:read", icon: "grid" },
       { label: "商品庫存", to: "/wms/inventory", permission: "wms:inventory:read", icon: "box" },
-      { label: "SKU 對應", to: "/wms/sku-mappings", permission: "wms:inventory:write", icon: "link" },
       { label: "CYBERBIZ 庫存", to: "/wms/cyberbiz", permission: "wms:inventory:read", icon: "cloudSync" },
       { label: "分類管理", to: "/wms/categories", permission: "wms:category:write", icon: "category" },
       { label: "操作紀錄", to: "/wms/activity", permission: "wms:activity:read", icon: "history" },
@@ -65,6 +64,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "出金表執行", to: "/tools/payout", permission: "tools:payout:run", icon: "payments" },
       { label: "商品銷售報表執行", to: "/tools/cyberbiz-sales", permission: "tools:cyberbiz-sales:run", icon: "report" },
       { label: "蝦皮銷售報表", to: "/tools/shopee-sales", permission: "tools:shopee-sales:run", icon: "analytics" },
+      { label: "SKU 對應", to: "/tools/sku-mappings", permission: "tools:sku-mapping:read", icon: "link" },
       { label: "店別與報表設定", to: "/tools/payout/settings", permission: "tools:payout:config", icon: "storefront" },
     ],
   },

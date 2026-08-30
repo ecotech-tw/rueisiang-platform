@@ -33,6 +33,8 @@ export const PERMISSIONS = {
   "tools:payout:config": "修改店別與報表設定",
   "tools:cyberbiz-sales:run": "執行 CYBERBIZ 商品銷售報表",
   "tools:shopee-sales:run": "執行蝦皮銷售報表",
+  "tools:sku-mapping:read": "檢視通路 SKU 對應",
+  "tools:sku-mapping:write": "修改通路 SKU 對應",
   "reports:cyberbiz:read": "檢視 CYBERBIZ 銷售與出金報表",
 
   // 小香助理
@@ -69,6 +71,7 @@ export const SYSTEM_ROLES = {
       "tools:payout:run",
       "tools:cyberbiz-sales:run",
       "tools:shopee-sales:run",
+      "tools:sku-mapping:read", "tools:sku-mapping:write",
       "reports:cyberbiz:read",
     ],
   },

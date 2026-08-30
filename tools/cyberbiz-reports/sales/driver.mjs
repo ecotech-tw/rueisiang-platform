@@ -219,6 +219,13 @@ async function main() {
           result.error = partialReportError(document);
           result.status = "partial";
           result.done = false;
+        } else if (result.skippedSkus?.length) {
+          /*
+           * 略過的 SKU 代表少掉的營收，跟報表本身有跳過的列一樣要標成 partial。
+           * 標成 done 的話唯一的訊號只剩摘要裡的一行字，沒有人會回來補對應。
+           */
+          result.status = "partial";
+          result.done = false;
         } else {
           result.status = "done";
           result.done = true;
