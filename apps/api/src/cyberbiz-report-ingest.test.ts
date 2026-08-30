@@ -132,6 +132,103 @@ beforeEach(async () => {
   await seedMapping({ id: "mapping-shopee-p-001", externalSku: "P-001", components: [{ item: "item-wms-001" }] });
 });
 
+/*
+ * 端到端：兩個通路的同一個商品要在報表裡合成一筆。
+ *
+ * CYBERBIZ 的商品銷售報表用官網 SKU，不必建對應；蝦皮的訂單詳細列表用
+ * 「商品ID_規格ID」，靠 SKU 對應換算成官網 SKU 與官網名稱——蝦皮上叫什麼都不影響報表。
+ */
+describe("跨通路商品身分", () => {
+  beforeEach(async () => {
+    await db().insert(schema.cyberbizProducts).values([
+      { sku: "SOAP-001", productId: "p-1", variantId: "v-1", productName: "香皂", variantName: "" },
+      { sku: "NET-001", productId: "p-2", variantId: "v-2", productName: "起泡網", variantName: "" },
+    ]);
+  });
+
+  it("CYBERBIZ 報表直接匯入，不需要任何對應", async () => {
+    const response = await request(salesBody([
+      salesRow("SOAP-001", 300, { grossQuantity: 3, netQuantity: 3, productName: "報表上的名稱" }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { skippedSkus: [] } });
+    // 名稱以官網目錄為準，不採信報表列上的字。
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      productName: schema.reportSalesMonthly.productName,
+      netQuantity: schema.reportSalesMonthly.netQuantity,
+    }).from(schema.reportSalesMonthly)).toEqual([
+      { sku: "SOAP-001", productName: "香皂", netQuantity: 3 },
+    ]);
+  });
+
+  it("蝦皮商品經由對應換成官網 SKU 與官網名稱，蝦皮自己的名稱不進報表", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "m-shopee-soap", channel: "shopee", externalName: "皂", externalSku: "12345_67890",
+    });
+    await db().insert(schema.productBundleComponents).values({
+      id: "m-shopee-soap:000", mappingId: "m-shopee-soap",
+      inventoryItemId: null, customProductId: null, cyberbizSku: "SOAP-001", quantity: 1,
+    });
+
+    expect((await request(shopeeBundle([
+      salesRow("12345_67890", 0, { grossQuantity: 4, netQuantity: 4, productName: "皂" }),
+    ]))).status).toBe(200);
+
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      productName: schema.reportSalesMonthly.productName,
+      netQuantity: schema.reportSalesMonthly.netQuantity,
+    }).from(schema.reportSalesMonthly)).toEqual([
+      { sku: "SOAP-001", productName: "香皂", netQuantity: 4 },
+    ]);
+  });
+
+  it("一個蝦皮商品可以對應到多個 CYBERBIZ SKU，依數量展開", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "m-shopee-set", channel: "shopee", externalName: "洗沐組", externalSku: "999_888",
+    });
+    await db().insert(schema.productBundleComponents).values([
+      { id: "m-shopee-set:000", mappingId: "m-shopee-set", inventoryItemId: null, customProductId: null, cyberbizSku: "SOAP-001", quantity: 2 },
+      { id: "m-shopee-set:001", mappingId: "m-shopee-set", inventoryItemId: null, customProductId: null, cyberbizSku: "NET-001", quantity: 1 },
+    ]);
+
+    expect((await request(shopeeBundle([
+      salesRow("999_888", 500, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
+    ]))).status).toBe(200);
+
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      productName: schema.reportSalesMonthly.productName,
+      grossQuantity: schema.reportSalesMonthly.grossQuantity,
+      netQuantity: schema.reportSalesMonthly.netQuantity,
+      salesAmount: schema.reportSalesMonthly.salesAmount,
+    }).from(schema.reportSalesMonthly).orderBy(schema.reportSalesMonthly.sku)).toEqual([
+      // 數量依用料倍數展開；銷售額整筆放第一列用料，不重複計算。
+      { sku: "NET-001", productName: "起泡網", grossQuantity: 3, netQuantity: 2, salesAmount: 0 },
+      { sku: "SOAP-001", productName: "香皂", grossQuantity: 6, netQuantity: 4, salesAmount: 500 },
+    ]);
+  });
+
+  it("公司層級查詢會把 CYBERBIZ 與蝦皮的同一個商品加總", async () => {
+    await db().insert(schema.productSkuMappings).values({
+      id: "m-shopee-soap", channel: "shopee", externalName: "皂", externalSku: "12345_67890",
+    });
+    await db().insert(schema.productBundleComponents).values({
+      id: "m-shopee-soap:000", mappingId: "m-shopee-soap",
+      inventoryItemId: null, customProductId: null, cyberbizSku: "SOAP-001", quantity: 1,
+    });
+
+    expect((await request(salesBody([salesRow("SOAP-001", 300, { grossQuantity: 3, netQuantity: 3 })]))).status).toBe(200);
+    expect((await request(shopeeBundle([salesRow("12345_67890", 0, { grossQuantity: 4, netQuantity: 4 })]))).status).toBe(200);
+
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "company", sku: "SOAP-001",
+    });
+    expect(result.rows).toMatchObject([{ sku: "SOAP-001", netQuantity: 7 }]);
+  });
+});
+
 describe("報表月資料匯入", () => {
   it("只需要 ingest token，寫入 scope 與商品銷售月資料", async () => {
     const unauthorized = await request(salesBody([]), "wrong");
@@ -535,6 +632,43 @@ describe("報表月資料匯入", () => {
     expect(await response.json()).toMatchObject({ result: { skippedSkus: [] } });
     expect(await db().select({ sku: schema.reportSalesMonthly.sku }).from(schema.reportSalesMonthly))
       .toEqual([{ sku: "SKU-1" }]);
+  });
+
+  it("目錄裡有的商品被標記忽略時，一樣不會進報表", async () => {
+    /*
+     * 這是最容易漏的一種：目錄 fallback 會解析出整份 CYBERBIZ 目錄（含已下架商品），
+     * 所以「先問解析得出來嗎、再問有沒有被忽略」的順序會讓忽略完全失效——補寄與已下架
+     * 正好都是目錄裡查得到的。
+     */
+    await db().insert(schema.cyberbizProducts).values({
+      sku: "AGT0001", productId: "p-1", variantId: "v-1", productName: "提袋", variantName: "",
+    });
+    await db().insert(schema.reportSkuIgnores).values({
+      id: "ignore-agt", channel: "cyberbiz", externalSku: "AGT0001", reason: "補寄用",
+    });
+
+    const response = await request(salesBody([
+      salesRow("AGT0001", 100, { grossQuantity: 9, netQuantity: 9 }),
+      salesRow("SKU-1", 200, { grossQuantity: 5, netQuantity: 5 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { skippedSkus: [] } });
+    expect(await db().select({ sku: schema.reportSalesMonthly.sku }).from(schema.reportSalesMonthly))
+      .toEqual([{ sku: "SKU-1" }]);
+  });
+
+  it("蝦皮以裸商品 ID 記下的忽略，擋得住帶規格 ID 的報表列", async () => {
+    await db().insert(schema.reportSkuIgnores).values({
+      id: "ignore-shopee", channel: "shopee", externalSku: "51210161926", reason: "補寄用",
+    });
+    await seedMapping({ id: "m-resend", channel: "shopee", externalSku: "51210161926_224686824526", components: [{ item: "item-sku-1" }] });
+
+    const response = await request(shopeeBundle([
+      salesRow("51210161926_224686824526", 0, { grossQuantity: 2, netQuantity: 2 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { skippedSkus: [] } });
+    expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
   });
 
   it("補好對應之後重跑同一個月會把略過的補回來", async () => {

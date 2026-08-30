@@ -9,8 +9,7 @@ import {
   useCyberbizProducts,
   type ProductBundleComponentInput,
   type ProductSkuMapping,
-  type ProductSkuMappingItemOption,
-} from "./api.js";
+} from "./sku-mapping-api.js";
 
 /**
  * 一列用料的編輯狀態。
@@ -18,9 +17,18 @@ import {
  * source 決定要顯示 WMS 商品下拉還是自訂 SKU 欄位；兩邊的值各自留著，使用者切來切去
  * 不會把剛填好的東西弄丟。
  */
+/*
+ * 用料只有兩種來源：CYBERBIZ 商品與自訂 SKU。
+ *
+ * 拿掉 WMS 是因為它只會製造分裂：同一個商品在兩邊 SKU 不同時，選 WMS 或選 CYBERBIZ
+ * 會讓它在報表裡變成兩行。報表回答的是「我們賣了什麼」，那件事的真相來源是官網；
+ * WMS 只管「我們囤什麼」。官網沒有的東西仍然可以用自訂 SKU。
+ *
+ * 既有的 WMS 用料載入時轉成自訂（SKU 與名稱都沿用該商品的），報表身分完全不變，
+ * 下次存檔就自然搬過去——不必為此冒險做一次資料 migration。
+ */
 interface ComponentDraft {
-  source: "item" | "cyberbiz" | "custom";
-  inventoryItemId: string;
+  source: "cyberbiz" | "custom";
   customSku: string;
   customName: string;
   customCategory: string;
@@ -28,17 +36,15 @@ interface ComponentDraft {
 }
 
 function emptyDraft(): ComponentDraft {
-  return { source: "item", inventoryItemId: "", customSku: "", customName: "", customCategory: "", quantity: "1" };
+  return { source: "cyberbiz", customSku: "", customName: "", customCategory: "", quantity: "1" };
 }
 
 export function SkuMappingDialog({
   mapping,
-  items,
   categories,
   onClose,
 }: {
   mapping?: ProductSkuMapping;
-  items: ProductSkuMappingItemOption[];
   categories: string[];
   onClose: () => void;
 }) {
@@ -80,10 +86,10 @@ export function SkuMappingDialog({
   const [components, setComponents] = useState<ComponentDraft[]>(() => {
     if (!mapping?.components.length) return [emptyDraft()];
     return mapping.components.map((component) => ({
-      source: component.source,
-      inventoryItemId: component.inventoryItemId ?? "",
-      customSku: component.source === "item" ? "" : component.sku,
-      customName: component.source === "custom" ? component.name : "",
+      // 舊的 WMS 用料轉成自訂：SKU 與名稱沿用該商品，報表寫出來的東西一模一樣。
+      source: component.source === "cyberbiz" ? "cyberbiz" as const : "custom" as const,
+      customSku: component.sku,
+      customName: component.source === "cyberbiz" ? "" : component.name,
       customCategory: component.source === "custom" ? component.category : "",
       quantity: String(component.quantity),
     }));
@@ -91,9 +97,6 @@ export function SkuMappingDialog({
   const [validationError, setValidationError] = useState("");
   const pending = add.isPending || update.isPending;
   const error = add.error ?? update.error;
-  const itemOptions = items
-    .filter((item) => item.sku)
-    .map((item) => ({ label: `${item.sku} · ${item.name}`, value: item.id }));
   /*
    * 官網商品直接從目錄挑，不用自己打 SKU 與名稱。
    *
@@ -140,14 +143,6 @@ export function SkuMappingDialog({
         setValidationError("組合用料的數量必須是大於 0 的整數。");
         return;
       }
-      if (component.source === "item") {
-        if (!component.inventoryItemId) {
-          setValidationError("請為每一列 WMS 用料選擇商品。");
-          return;
-        }
-        parsed.push({ inventoryItemId: component.inventoryItemId, quantity });
-        continue;
-      }
       if (component.source === "cyberbiz") {
         if (!component.customSku.trim()) {
           setValidationError("請為每一列 CYBERBIZ 用料選擇商品。");
@@ -169,11 +164,6 @@ export function SkuMappingDialog({
         customCategory: component.customCategory || null,
         quantity,
       });
-    }
-    const itemIds = parsed.map((component) => component.inventoryItemId).filter(Boolean);
-    if (new Set(itemIds).size !== itemIds.length) {
-      setValidationError("組合用料不可重複選擇同一個 WMS 商品。");
-      return;
     }
     const customSkus = parsed.map((component) => component.customSku?.toUpperCase()).filter(Boolean);
     if (new Set(customSkus).size !== customSkus.length) {
@@ -311,28 +301,16 @@ export function SkuMappingDialog({
                   aria-label={`用料 ${index + 1} 來源`}
                   value={component.source}
                   onChange={(event) => {
-                    const next = event.target.value;
-                    patchComponent(index, {
-                      source: next === "custom" ? "custom" : next === "cyberbiz" ? "cyberbiz" : "item",
-                      // 換來源就清掉自訂欄位，避免把上一個來源的值帶著走。
-                      ...(next === "cyberbiz" ? { customSku: "", customName: "" } : {}),
-                    });
+                    const next = event.target.value === "custom" ? "custom" as const : "cyberbiz" as const;
+                    // 換來源就清掉值，避免把上一個來源的東西帶著走。
+                    patchComponent(index, { source: next, customSku: "", customName: "" });
                   }}
                   options={[
-                    { label: "WMS 商品", value: "item" },
                     { label: "CYBERBIZ 商品", value: "cyberbiz" },
                     { label: "自訂 SKU", value: "custom" },
                   ]}
                 />
-                {component.source === "item" ? (
-                  <SelectField
-                    label=""
-                    aria-label={`組合用料 ${index + 1}`}
-                    value={component.inventoryItemId}
-                    onChange={(event) => patchComponent(index, { inventoryItemId: event.target.value })}
-                    options={[{ label: "請選擇 WMS 商品", value: "" }, ...itemOptions]}
-                  />
-                ) : component.source === "cyberbiz" ? (
+                {component.source === "cyberbiz" ? (
                   <SelectField
                     label=""
                     aria-label={`CYBERBIZ 商品 ${index + 1}`}

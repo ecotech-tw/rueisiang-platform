@@ -28,8 +28,8 @@ export interface CyberbizReportIngestInput {
 export class CyberbizReportIngestError extends Error {
   constructor(
     readonly status: 422,
-    readonly code: "invalid_ingest" | "unmapped_product",
-    message = code === "unmapped_product" ? "報表包含尚未對應的 WMS 商品。" : "CYBERBIZ 報表匯入資料格式不正確。",
+    readonly code: "invalid_ingest",
+    message = "CYBERBIZ 報表匯入資料格式不正確。",
   ) {
     super(message);
     this.name = "CyberbizReportIngestError";
@@ -181,11 +181,18 @@ async function normalizeSalesRows(
   const usable: ParsedSalesRow[] = [];
   const seenSkipped = new Set<string>();
   for (const row of parsed) {
+    /*
+     * 忽略要排在解析之前。
+     *
+     * 目錄 fallback 會解析出整份 CYBERBIZ 目錄（包含已下架商品，那份鏡像刻意不刪），
+     * 所以先問「解析得出來嗎」的話，補寄與已下架這兩種「標記為不納入」的 SKU 反而
+     * 每一個都解析成功、照樣寫進報表——整個忽略功能等於不存在。
+     */
+    if (ignored.has(row.externalSku)) continue;
     if (resolved.has(row.externalSku)) {
       usable.push(row);
       continue;
     }
-    if (ignored.has(row.externalSku)) continue;
     if (!seenSkipped.has(row.externalSku)) {
       seenSkipped.add(row.externalSku);
       skipped.push(row.externalSku);

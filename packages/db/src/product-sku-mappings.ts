@@ -66,16 +66,8 @@ export interface ProductBundleComponentManagementRow {
   quantity: number;
 }
 
-export interface ProductSkuMappingItemOption {
-  id: string;
-  sku: string | null;
-  name: string;
-  category: string;
-}
-
 export interface ProductSkuMappingManagementData {
   mappings: ProductSkuMappingManagementRow[];
-  items: ProductSkuMappingItemOption[];
   categories: string[];
 }
 
@@ -125,7 +117,7 @@ async function inBatches<T, R>(values: T[], run: (batch: T[]) => Promise<R[]>): 
 export async function loadProductSkuMappingManagement(
   db: Database,
 ): Promise<ProductSkuMappingManagementData> {
-  const [mappingRows, itemRows, categoryRows] = await Promise.all([
+  const [mappingRows, categoryRows] = await Promise.all([
     db
       .select({
         id: productSkuMappings.id,
@@ -137,15 +129,6 @@ export async function loadProductSkuMappingManagement(
       })
       .from(productSkuMappings)
       .orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku)),
-    db
-      .select({
-        id: inventoryItems.id,
-        sku: inventoryItems.sku,
-        name: inventoryItems.name,
-        category: inventoryItems.category,
-      })
-      .from(inventoryItems)
-      .orderBy(asc(inventoryItems.name)),
     db.select({ name: productCategories.name }).from(productCategories).orderBy(asc(productCategories.name)),
   ]);
 
@@ -180,6 +163,12 @@ export async function loadProductSkuMappingManagement(
       // 排序要決定性：報表把銷售額放在第一列用料上，順序飄動金額就會在 SKU 之間跳。
       .orderBy(asc(productBundleComponents.mappingId), asc(productBundleComponents.id)));
   }
+  const componentItemIds = [...new Set(componentRows.map((row) => row.inventoryItemId).filter((id): id is string => !!id))];
+  // 既有資料還有 WMS 用料（UI 已經不提供這個來源），讀取端仍要認得它。
+  const itemRows = await inBatches(componentItemIds, (batch) => db
+    .select({ id: inventoryItems.id, sku: inventoryItems.sku, name: inventoryItems.name, category: inventoryItems.category })
+    .from(inventoryItems)
+    .where(inArray(inventoryItems.id, batch)));
   const itemById = new Map(itemRows.map((row) => [row.id, row]));
   const customIds = [...new Set(componentRows.map((row) => row.customProductId).filter((id): id is string => !!id))];
   const customRows = await inBatches(customIds, (batch) => db
@@ -250,7 +239,6 @@ export async function loadProductSkuMappingManagement(
 
   return {
     mappings: mappingRows.map((row) => ({ ...row, components: componentsByMapping.get(row.id) ?? [] })),
-    items: itemRows,
     categories: categoryRows.map((row) => row.name),
   };
 }
@@ -776,8 +764,8 @@ export async function resolveProductSkus(
   /*
    * 用料解析不出 SKU 就整筆 mapping 視為無法解析，不是跳過那一列。
    *
-   * 跳過的話數量會憑空少掉而且不會有任何訊號——匯入端對「解析不出商品」一律是大聲的
-   * 422。WMS 商品可以被清空 SKU，所以這種狀態真的會出現。
+   * 跳過的話數量會憑空少掉而且不會有任何訊號。整筆視為無法解析的話，匯入端會把它列進
+   * skippedSkus 讓人看得到。WMS 商品可以被清空 SKU，所以這種狀態真的會出現。
    */
   const incompleteMappings = new Set<string>();
   const mappingIds = [...new Set(mappings.map((mapping) => mapping.id))];
@@ -966,7 +954,6 @@ export async function addReportSkuIgnore(
   if (existing) throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經標記為不納入報表。`);
 
   const id = crypto.randomUUID();
-  const createdAt = new Date().toISOString();
   await db.batch([
     db.insert(reportSkuIgnores).values({ id, channel, externalSku, reason }),
     db.insert(activityEvents).values(activityRow({
@@ -981,7 +968,12 @@ export async function addReportSkuIgnore(
       source: "wms",
     })),
   ]);
-  return { id, channel, externalSku, reason, createdAt };
+  // createdAt 由 DB 的 CURRENT_TIMESTAMP 決定；自己組一個 ISO 字串會跟列表回傳的格式不同。
+  const [created] = await db
+    .select({ createdAt: reportSkuIgnores.createdAt })
+    .from(reportSkuIgnores)
+    .where(eq(reportSkuIgnores.id, id));
+  return { id, channel, externalSku, reason, createdAt: created?.createdAt ?? "" };
 }
 
 export async function deleteReportSkuIgnore(db: Database, id: string, actor: Actor): Promise<void> {
@@ -1017,9 +1009,20 @@ export async function resolveIgnoredSkus(
   externalSkus: string[],
   channel = "legacy",
 ): Promise<Set<string>> {
-  const wanted = [...new Set(externalSkus.map(normalizeExternalSku).filter(Boolean))];
-  if (!wanted.length) return new Set();
-  const channels = [...new Set([normalizeProductSkuChannel(channel), "legacy"])];
+  const normalized = [...new Set(externalSkus.map(normalizeExternalSku).filter(Boolean))];
+  if (!normalized.length) return new Set();
+  const normalizedChannel = normalizeProductSkuChannel(channel);
+  /*
+   * 蝦皮的舊格式也要查，與 resolveProductSkus 一致。
+   *
+   * 以裸商品 ID 記下的忽略設定，擋不住鍵為「商品ID_規格ID」的報表列的話，那個 SKU
+   * 會永遠留在提醒清單裡——正好是這個功能要消除的東西。
+   */
+  const legacyPairs = normalizedChannel === "shopee"
+    ? normalized.map((sku) => [sku, legacyShopeeExternalSku(sku)] as const).filter(([, legacy]) => legacy)
+    : [];
+  const wanted = [...new Set([...normalized, ...legacyPairs.map(([, legacy]) => legacy)])];
+  const channels = [...new Set([normalizedChannel, "legacy"])];
   const rows = await inBatches(wanted, (batch) => db
     .select({ externalSku: reportSkuIgnores.externalSku })
     .from(reportSkuIgnores)
@@ -1027,7 +1030,12 @@ export async function resolveIgnoredSkus(
       inArray(reportSkuIgnores.externalSku, batch),
       inArray(reportSkuIgnores.channel, channels),
     )));
-  return new Set(rows.map((row) => row.externalSku));
+  const matched = new Set(rows.map((row) => row.externalSku));
+  // 舊格式命中時，把新格式的鍵也標成忽略。
+  for (const [sku, legacy] of legacyPairs) {
+    if (matched.has(legacy)) matched.add(sku);
+  }
+  return matched;
 }
 
 /**
@@ -1069,9 +1077,16 @@ export async function syncCyberbizProducts(
   const values = [...rows.values()];
   if (!values.length) return { synced: 0 };
 
-  // D1 單支語句的參數有上限，分批寫。
-  for (let offset = 0; offset < values.length; offset += SKU_LOOKUP_BATCH_SIZE) {
-    const batch = values.slice(offset, offset + SKU_LOOKUP_BATCH_SIZE);
+  /*
+   * D1 單支語句的參數有上限，分批寫。
+   *
+   * 不能沿用 SKU_LOOKUP_BATCH_SIZE：那個是給「一個值一個參數」的 IN 查詢用的，這裡
+   * 每一列綁 6 個欄位，50 列就是 300 個參數，D1 會直接拒絕（本機 node:sqlite 允許
+   * 32k 個參數，測不出來）。
+   */
+  const INSERT_BATCH_SIZE = 16;
+  for (let offset = 0; offset < values.length; offset += INSERT_BATCH_SIZE) {
+    const batch = values.slice(offset, offset + INSERT_BATCH_SIZE);
     await db.insert(cyberbizProducts).values(batch).onConflictDoUpdate({
       target: cyberbizProducts.sku,
       set: {

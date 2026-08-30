@@ -101,7 +101,7 @@ xlsx 的三張工作表不動——`業績計算` 依訂單、`商品銷售統�
 所以 [`shopee-open-api-poc.md`](./shopee-open-api-poc.md) 的四個驗收數字不受影響。
 
 順帶一提，報表匯入本來就是**沒對應就整批 422 失敗**
-（`apps/api/src/cyberbiz-report-ingest.ts` 的 `unmapped_product`）。所以蝦皮的對應不是這次
+（匯入會略過它們，並把清單回報在 Actions 的執行結果裡）。所以蝦皮的對應不是這次
 才要建的東西，而是現在就存在、只是鍵要換。動手前要先看正式環境裡現有的是哪一種鍵。
 
 ### 組合包要拆成用料

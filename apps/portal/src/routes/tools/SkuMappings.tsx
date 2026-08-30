@@ -22,7 +22,7 @@ import {
   productSkuChannelLabel,
   PRODUCT_SKU_CHANNEL_OPTIONS,
   type ProductSkuMapping,
-} from "./api.js";
+} from "./sku-mapping-api.js";
 import { SkuMappingDialog } from "./SkuMappingDialog.js";
 
 function formatTime(value: string): string {
@@ -48,7 +48,7 @@ export function SkuMappings() {
   const remove = useDeleteProductSkuMapping();
   const toast = useToast();
   const { permissions } = useSession();
-  const canWrite = permissions.has("wms:inventory:write");
+  const canWrite = permissions.has("tools:sku-mapping:write");
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -65,7 +65,6 @@ export function SkuMappings() {
 
   const data = query.data;
   const mappings = data?.mappings ?? [];
-  const items = data?.items ?? [];
   const channels = useMemo(
     () => [...new Set(mappings.map((mapping) => mapping.channel))].sort((a, b) => productSkuChannelLabel(a).localeCompare(productSkuChannelLabel(b), "zh-TW")),
     [mappings],
@@ -285,7 +284,6 @@ export function SkuMappings() {
           categories={categories}
           key={mappingDialog === "new" ? "new" : mappingDialog.id}
           mapping={mappingDialog === "new" ? undefined : mappingDialog}
-          items={items}
           onClose={() => setMappingDialog(null)}
         />
       ) : null}

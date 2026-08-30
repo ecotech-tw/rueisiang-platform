@@ -86,10 +86,7 @@ export interface Warehouse {
 
 /** 所有倉儲的快取都掛在這個 key 底下，寫入之後一次失效。 */
 const WAREHOUSE_KEY = ["wms", "warehouse"] as const;
-const PRODUCT_SKU_MAPPINGS_KEY = ["wms", "product-sku-mappings"] as const;
 const ACTIVITY_KEY = ["wms", "activity"] as const;
-const REPORT_SKU_IGNORES_KEY = ["wms", "report-sku-ignores"] as const;
-const CYBERBIZ_PRODUCTS_KEY = ["wms", "cyberbiz-products"] as const;
 
 async function readError(response: Response): Promise<never> {
   const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
@@ -103,71 +100,6 @@ export function useWarehouse() {
       const response = await fetch("/api/wms/warehouse", { credentials: "same-origin" });
       if (!response.ok) await readError(response);
       return (await response.json()) as Warehouse;
-    },
-  });
-}
-
-export interface ProductSkuMapping {
-  id: string;
-  channel: string;
-  externalName: string;
-  externalSku: string;
-  createdAt: string;
-  updatedAt: string;
-  components: ProductBundleComponent[];
-}
-
-/** 一列用料的來源二選一：WMS 商品，或報表自訂商品。 */
-export interface ProductBundleComponent {
-  source: "item" | "cyberbiz" | "custom";
-  inventoryItemId: string | null;
-  cyberbizSku: string | null;
-  customProductId: string | null;
-  sku: string;
-  name: string;
-  category: string;
-  quantity: number;
-}
-
-export interface ProductBundleComponentInput {
-  inventoryItemId?: string | null;
-  cyberbizSku?: string | null;
-  customSku?: string | null;
-  customName?: string | null;
-  customCategory?: string | null;
-  quantity: number;
-}
-
-export interface ProductSkuMappingItemOption {
-  id: string;
-  sku: string | null;
-  name: string;
-  category: string;
-}
-
-export interface ProductSkuMappingData {
-  mappings: ProductSkuMapping[];
-  items: ProductSkuMappingItemOption[];
-  categories: string[];
-}
-
-export const PRODUCT_SKU_CHANNEL_OPTIONS = [
-  { value: "cyberbiz", label: "CYBERBIZ（官網 / POS）" },
-  { value: "shopee", label: "蝦皮" },
-] as const;
-
-export function productSkuChannelLabel(channel: string): string {
-  return PRODUCT_SKU_CHANNEL_OPTIONS.find((option) => option.value === channel)?.label
-    ?? (channel === "legacy" ? "未分類（舊資料）" : channel);
-}
-
-export function useProductSkuMappings() {
-  return useQuery({
-    queryKey: PRODUCT_SKU_MAPPINGS_KEY,
-    queryFn: async () => {
-      const response = await fetch("/api/wms/product-sku-mappings", { credentials: "same-origin" });
-      if (!response.ok) await readError(response);
-      return (await response.json()) as ProductSkuMappingData;
     },
   });
 }
@@ -202,9 +134,7 @@ function useWarehouseMutation<TArgs, TResult>(
     mutationFn: run,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
-      void queryClient.invalidateQueries({ queryKey: PRODUCT_SKU_MAPPINGS_KEY });
       void queryClient.invalidateQueries({ queryKey: ACTIVITY_KEY });
-      void queryClient.invalidateQueries({ queryKey: REPORT_SKU_IGNORES_KEY });
     },
   });
 }
@@ -248,44 +178,6 @@ export function useUpdateItem() {
 
 export function useDeleteItem() {
   return useWarehouseMutation((id: string) => write<{ ok: true }>(`/api/wms/items/${id}`, "DELETE"));
-}
-
-export function useCreateProductSkuMapping() {
-  return useWarehouseMutation(
-    (payload: {
-      channel?: string;
-      externalName: string;
-      externalSku: string;
-      components: ProductBundleComponentInput[];
-    }) => write<{ id: string; channel: string; externalName: string; externalSku: string }>(
-      "/api/wms/product-sku-mappings",
-      "POST",
-      payload,
-    ),
-  );
-}
-
-export function useUpdateProductSkuMapping() {
-  return useWarehouseMutation(
-    ({ mappingId, ...payload }: {
-      mappingId: string;
-      channel?: string;
-      externalName: string;
-      externalSku: string;
-      components: ProductBundleComponentInput[];
-    }) => write<{ id: string; channel: string; externalName: string; externalSku: string }>(
-      `/api/wms/product-sku-mappings/${mappingId}`,
-      "PATCH",
-      payload,
-    ),
-  );
-}
-
-export function useDeleteProductSkuMapping() {
-  return useWarehouseMutation(
-    ({ mappingId }: { mappingId: string }) =>
-      write<{ ok: true }>(`/api/wms/product-sku-mappings/${mappingId}`, "DELETE"),
-  );
 }
 
 export interface CountResult {
@@ -482,55 +374,4 @@ export function useSyncCyberbiz() {
       productId ? { productId } : {},
     ),
   );
-}
-
-/** 刻意不納入報表的外部 SKU（補寄、已下架這類）。 */
-export interface ReportSkuIgnore {
-  id: string;
-  channel: string;
-  externalSku: string;
-  reason: string;
-  createdAt: string;
-}
-
-export function useReportSkuIgnores() {
-  return useQuery({
-    queryKey: REPORT_SKU_IGNORES_KEY,
-    queryFn: async () => {
-      const response = await fetch("/api/wms/report-sku-ignores", { credentials: "same-origin" });
-      if (!response.ok) await readError(response);
-      return (await response.json()) as { ignores: ReportSkuIgnore[] };
-    },
-  });
-}
-
-export function useAddReportSkuIgnore() {
-  return useWarehouseMutation(
-    (payload: { channel: string; externalSku: string; reason?: string }) =>
-      write<ReportSkuIgnore>("/api/wms/report-sku-ignores", "POST", payload),
-  );
-}
-
-export function useDeleteReportSkuIgnore() {
-  return useWarehouseMutation(
-    (id: string) => write<{ ok: true }>(`/api/wms/report-sku-ignores/${id}`, "DELETE"),
-  );
-}
-
-/** D1 鏡像裡的 CYBERBIZ 商品；SKU 對應頁挑用料用。 */
-export interface CyberbizProductOption {
-  sku: string;
-  name: string;
-  published: boolean;
-}
-
-export function useCyberbizProducts() {
-  return useQuery({
-    queryKey: CYBERBIZ_PRODUCTS_KEY,
-    queryFn: async () => {
-      const response = await fetch("/api/wms/cyberbiz-products", { credentials: "same-origin" });
-      if (!response.ok) await readError(response);
-      return (await response.json()) as { products: CyberbizProductOption[] };
-    },
-  });
 }

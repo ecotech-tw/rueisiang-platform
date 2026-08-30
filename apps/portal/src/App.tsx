@@ -18,7 +18,7 @@ import { WarehouseMap } from "./routes/wms/Map.js";
 import { Activity as WmsActivity } from "./routes/wms/Activity.js";
 import { Cyberbiz } from "./routes/wms/Cyberbiz.js";
 import { Inventory } from "./routes/wms/Inventory.js";
-import { SkuMappings } from "./routes/wms/SkuMappings.js";
+import { SkuMappings } from "./routes/tools/SkuMappings.js";
 import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
 import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
@@ -97,7 +97,7 @@ export function App() {
         <Route path="wms">
           <Route path="map" element={<WarehouseMap />} />
           <Route path="inventory" element={<Inventory />} />
-          <Route path="sku-mappings" element={<SkuMappings />} />
+          <Route path="sku-mappings" element={<Navigate to="/tools/sku-mappings" replace />} />
           <Route path="cyberbiz" element={<Cyberbiz />} />
           <Route path="categories" element={<Categories />} />
           <Route path="activity" element={<WmsActivity />} />
@@ -109,6 +109,7 @@ export function App() {
           <Route path="cyberbiz-sales" element={<CyberbizSales />} />
           <Route path="shopee-sales" element={<ShopeeSales />} />
           <Route path="shopee-sales/settings" element={<Navigate to="/tools/payout/settings" replace />} />
+          <Route path="sku-mappings" element={<SkuMappings />} />
         </Route>
 
         <Route path="assistant">
