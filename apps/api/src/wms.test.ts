@@ -328,7 +328,7 @@ describe("外部 SKU 對應", () => {
     ]);
   });
 
-  it("SKU mapping 管理 API 回傳通路商品與 WMS 用料", async () => {
+  it("SKU mapping 管理 API 回傳通路商品與用料", async () => {
     const id = await seedAdmin();
     await db.insert(inventoryItems).values([
       { id: "i1", sku: "WMS-001", name: "黑色肩背包", category: "一般備品" },
@@ -344,7 +344,7 @@ describe("外部 SKU 對應", () => {
     const response = await as(id, "admin@ecotech.tw", "/api/tools/product-sku-mappings");
 
     expect(response.status).toBe(200);
-    const payload = await response.json() as { mappings: unknown[]; items: unknown[] };
+    const payload = await response.json() as { mappings: unknown[]; categories: unknown[] };
     expect(payload.mappings).toMatchObject([{
       id: "mapping-1",
       channel: "legacy",
@@ -352,10 +352,9 @@ describe("外部 SKU 對應", () => {
       externalSku: "SHOPEE-001",
       components: [{ source: "item", inventoryItemId: "i1", sku: "WMS-001", name: "黑色肩背包", category: "一般備品", quantity: 1 }],
     }]);
-    expect(payload.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "i1", sku: "WMS-001", name: "黑色肩背包" }),
-      expect.objectContaining({ id: "i2", sku: "WMS-002", name: "紙箱" }),
-    ]));
+    // 用料來源只剩 CYBERBIZ 商品與自訂 SKU，管理頁不再需要 WMS 商品清單。
+    expect(payload).not.toHaveProperty("items");
+    expect(payload.categories).toEqual(expect.arrayContaining(["一般備品"]));
   });
 
   it("可以用一筆 mapping 建立多個組合用料", async () => {

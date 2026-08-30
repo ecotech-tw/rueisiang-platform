@@ -97,7 +97,6 @@ export {
   updateProductSkuMapping,
   type ProductBundleComponentInput,
   type ProductBundleComponentManagementRow,
-  type ProductSkuMappingItemOption,
   type ProductSkuMappingManagementData,
   type ProductSkuMappingManagementRow,
   type CyberbizProductOption,

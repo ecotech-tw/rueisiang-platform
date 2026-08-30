@@ -230,14 +230,15 @@ export const wms = new Hono<AppEnv>()
     const size = Number(url.searchParams.get("pageSize"));
     const page = Number(url.searchParams.get("page"));
 
-    const catalog = await loadCatalog(client, cacheClient(c.env), url.searchParams.get("refresh") === "1");
+    const refresh = url.searchParams.get("refresh") === "1";
+    const catalog = await loadCatalog(client, cacheClient(c.env), refresh);
     /*
-     * 順手把目錄寫進 D1 鏡像。
+     * 只有真的重新抓過才順手更新 D1 鏡像。
      *
-     * 報表匯入用那份鏡像當商品身分，不能依賴官網當下的可用性；而這裡本來就已經把整份
-     * 目錄拿在手上了，寫一次比另外排一條同步路徑便宜。
+     * 無條件寫的話，每次翻頁與每次快取命中都會把整份目錄重新 upsert——頁面渲染前要先
+     * 等一串 D1 寫入，而且只有唯讀權限的人也會因此觸發寫入。定時同步由 cron 負責。
      */
-    await syncCyberbizProducts(c.get("db"), catalog.items);
+    if (!catalog.cached) await syncCyberbizProducts(c.get("db"), catalog.items);
 
     // 哪些款式已經連到 WMS 的品項。畫面上要看得出來，也是「未連結」篩選的依據。
     const links = await listCompanyLinks(c.get("db"));

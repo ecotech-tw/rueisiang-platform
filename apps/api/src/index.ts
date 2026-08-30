@@ -7,11 +7,12 @@ import {
   listExpiredMediaObjects,
   retryFailedProductWebhooks,
   retryFailedWebhooks,
+  syncCyberbizProducts,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { createMiddleware } from "hono/factory";
-import { forgetCatalog } from "./cyberbiz-catalog.js";
+import { forgetCatalog, loadCatalog } from "./cyberbiz-catalog.js";
 import { cyberbizClient, cyberbizInventoryClient } from "./cyberbiz.js";
 import { cacheClient } from "./upstash.js";
 import { NasStorageConfigError, NasStorageError, nasStorageClient } from "./nas-storage.js";
@@ -214,12 +215,45 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
       })),
   );
 
+  /*
+   * 報表的商品身分來自 cyberbiz_products 鏡像，所以它必須自己會更新。
+   *
+   * 原本只有「有人打開 CYBERBIZ 庫存頁」才會寫，等於新商品上架後的月匯入會不會漏掉它，
+   * 取決於剛好有沒有人去點那一頁。
+   */
+  ctx.waitUntil(
+    mirrorCyberbizCatalog(env, db)
+      .then((result) => {
+        if (result) assistantLog("info", "scheduled.cyberbiz_catalog_mirror", result);
+      })
+      .catch((error) => assistantLog("error", "scheduled.cyberbiz_catalog_mirror_failed", {
+        error: assistantErrorDetails(error),
+      })),
+  );
+
   ctx.waitUntil(
     drainLineAssistantQueueOutbox(db, env)
       .catch((error) => assistantLog("error", "line.queue.outbox_drain_failed", {
         error: assistantErrorDetails(error),
       })),
   );
+}
+
+/**
+ * 把官網目錄同步進 D1 鏡像。
+ *
+ * truncated（官網還有沒翻完的頁）時照樣寫已經拿到的部分，但記進 log：鏡像不完整會讓
+ * 匯入靜默略過商品，那不該只能靠事後對數字才發現。
+ */
+async function mirrorCyberbizCatalog(
+  env: Env,
+  db: ReturnType<typeof createDatabase>,
+): Promise<{ synced: number; truncated: boolean } | null> {
+  const client = cyberbizInventoryClient(env);
+  if (!client) return null;
+  const catalog = await loadCatalog(client, cacheClient(env));
+  const { synced } = await syncCyberbizProducts(db, catalog.items);
+  return { synced, truncated: catalog.truncated };
 }
 
 async function cleanupExpiredMedia(env: Env, db: ReturnType<typeof createDatabase>): Promise<void> {

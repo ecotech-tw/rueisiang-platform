@@ -634,6 +634,43 @@ describe("報表月資料匯入", () => {
       .toEqual([{ sku: "SKU-1" }]);
   });
 
+  it("目錄裡有的商品被標記忽略時，一樣不會進報表", async () => {
+    /*
+     * 這是最容易漏的一種：目錄 fallback 會解析出整份 CYBERBIZ 目錄（含已下架商品），
+     * 所以「先問解析得出來嗎、再問有沒有被忽略」的順序會讓忽略完全失效——補寄與已下架
+     * 正好都是目錄裡查得到的。
+     */
+    await db().insert(schema.cyberbizProducts).values({
+      sku: "AGT0001", productId: "p-1", variantId: "v-1", productName: "提袋", variantName: "",
+    });
+    await db().insert(schema.reportSkuIgnores).values({
+      id: "ignore-agt", channel: "cyberbiz", externalSku: "AGT0001", reason: "補寄用",
+    });
+
+    const response = await request(salesBody([
+      salesRow("AGT0001", 100, { grossQuantity: 9, netQuantity: 9 }),
+      salesRow("SKU-1", 200, { grossQuantity: 5, netQuantity: 5 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { skippedSkus: [] } });
+    expect(await db().select({ sku: schema.reportSalesMonthly.sku }).from(schema.reportSalesMonthly))
+      .toEqual([{ sku: "SKU-1" }]);
+  });
+
+  it("蝦皮以裸商品 ID 記下的忽略，擋得住帶規格 ID 的報表列", async () => {
+    await db().insert(schema.reportSkuIgnores).values({
+      id: "ignore-shopee", channel: "shopee", externalSku: "51210161926", reason: "補寄用",
+    });
+    await seedMapping({ id: "m-resend", channel: "shopee", externalSku: "51210161926_224686824526", components: [{ item: "item-sku-1" }] });
+
+    const response = await request(shopeeBundle([
+      salesRow("51210161926_224686824526", 0, { grossQuantity: 2, netQuantity: 2 }),
+    ]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { skippedSkus: [] } });
+    expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
+  });
+
   it("補好對應之後重跑同一個月會把略過的補回來", async () => {
     expect((await request(salesBody([
       salesRow("LATE-001", 100, { grossQuantity: 3, netQuantity: 3 }),

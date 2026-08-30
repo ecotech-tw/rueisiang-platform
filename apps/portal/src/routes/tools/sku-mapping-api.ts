@@ -40,14 +40,6 @@ function useSkuMappingMutation<TArgs, TResult>(run: (args: TArgs) => Promise<TRe
   });
 }
 
-/** 用料可以指向 WMS 商品，所以仍需要這份清單；從 SKU 對應 API 一起回傳。 */
-export interface ProductSkuMappingItemOption {
-  id: string;
-  sku: string | null;
-  name: string;
-  category: string;
-}
-
 export interface ProductSkuMapping {
   id: string;
   channel: string;
@@ -79,16 +71,8 @@ export interface ProductBundleComponentInput {
   quantity: number;
 }
 
-export interface ProductSkuMappingItemOption {
-  id: string;
-  sku: string | null;
-  name: string;
-  category: string;
-}
-
 export interface ProductSkuMappingData {
   mappings: ProductSkuMapping[];
-  items: ProductSkuMappingItemOption[];
   categories: string[];
 }
 
