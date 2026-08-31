@@ -378,6 +378,7 @@
   overflow: hidden;
 }
 .page.fills > .panel.grows > .panel-head,
+.page.fills > .panel.grows > .manual-report-toolbar,
 .page.fills > .panel.grows > .muted,
 .page.fills > .panel.grows > .admin-form,
 .page.fills > .panel.grows > .pager,
@@ -3482,11 +3483,20 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /* 報表人工修訂：一頁一個資料入口，兩種報表用同一套列編輯節奏。 */
 /* 報表管理：一頁一個資料入口，兩種報表用同一套列編輯節奏。 */
 .manual-report-panel { min-width: 0; }
+.manual-report-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -4px -22px 18px;
+  padding: 4px 22px 18px;
+  border-bottom: 1px solid var(--color-line);
+}
 .manual-report-tabs {
   display: flex;
   gap: 4px;
   width: fit-content;
-  margin: -4px -4px 18px;
+  margin: 0;
   padding: 4px;
   border: 1px solid var(--color-line);
   border-radius: 999px;
@@ -3494,6 +3504,14 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .manual-report-tabs .filter-chip { min-width: 128px; justify-content: center; }
 .manual-report-tabs .filter-chip svg { width: 18px; height: 18px; }
+.manual-report-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: none;
+}
+.manual-report-actions > button { white-space: nowrap; }
 .manual-report-empty {
   margin: 0;
   padding: 28px 16px 12px;
@@ -3576,8 +3594,19 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 @media (max-width: 620px) {
   .page-head-actions { width: 100%; justify-content: flex-start; }
   .page-head-actions > button { flex: 1 1 auto; }
+  .manual-report-toolbar { align-items: stretch; flex-direction: column; gap: 12px; }
   .manual-report-tabs { width: 100%; margin-right: 0; margin-left: 0; }
   .manual-report-tabs .filter-chip { flex: 1; min-width: 0; }
+  .manual-report-actions { width: 100%; }
+  .manual-report-actions > button { flex: 1 1 0; }
+  .manual-report-actions .add-action {
+    width: auto;
+    height: auto;
+    padding: 7px 14px;
+    border-radius: 9px;
+  }
+  .manual-report-actions .add-action span { display: inline; }
+  .manual-report-actions .add-action svg { width: 18px; height: 18px; }
   .manual-report-table th,
   .manual-report-table td { white-space: normal; }
   .manual-report-table td[data-label="SKU"] code { overflow-wrap: anywhere; }

@@ -834,6 +834,35 @@ export function ManualReports() {
         actions={
           <div className="page-head-actions">
             <Button variant="secondary" icon="storefront" disabled={busy} onClick={() => setScopeDialog(true)}>管理據點</Button>
+          </div>
+        }
+      />
+
+      <Panel className="manual-report-panel grows">
+        <div className="manual-report-toolbar">
+          <div className="manual-report-tabs" role="tablist" aria-label="報表類型">
+            <Button
+              variant="chip"
+              selected={kind === "payout"}
+              role="tab"
+              aria-selected={kind === "payout"}
+              onClick={() => setKind("payout")}
+            >
+              <Icon name="payments" />
+              出金
+            </Button>
+            <Button
+              variant="chip"
+              selected={kind === "sales"}
+              role="tab"
+              aria-selected={kind === "sales"}
+              onClick={() => setKind("sales")}
+            >
+              <Icon name="report" />
+              商品銷售
+            </Button>
+          </div>
+          <div className="manual-report-actions">
             <Button variant="secondary" icon="attachment" disabled={busy} onClick={() => setImportDialog({ kind })}>匯入報表</Button>
             <Button
               icon="plus"
@@ -845,31 +874,6 @@ export function ManualReports() {
               <span>新增一列</span>
             </Button>
           </div>
-        }
-      />
-
-      <Panel className="manual-report-panel grows">
-        <div className="manual-report-tabs" role="tablist" aria-label="報表類型">
-          <Button
-            variant="chip"
-            selected={kind === "payout"}
-            role="tab"
-            aria-selected={kind === "payout"}
-            onClick={() => setKind("payout")}
-          >
-            <Icon name="payments" />
-            出金
-          </Button>
-          <Button
-            variant="chip"
-            selected={kind === "sales"}
-            role="tab"
-            aria-selected={kind === "sales"}
-            onClick={() => setKind("sales")}
-          >
-            <Icon name="report" />
-            商品銷售
-          </Button>
         </div>
 
         {scopes.length === 0 ? <Alert tone="warning">尚未有可選的啟用據點。</Alert> : null}
