@@ -4,6 +4,7 @@ import { Icon } from "../../../shell/icons.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
 import { Alert, PageHeader } from "../../../ui/index.js";
 import { PayoutTab } from "./PayoutTab.js";
+import { SalesTab } from "./SalesTab.js";
 import { useReportScopes } from "./api.js";
 
 function pad(value: number): string {
@@ -192,12 +193,7 @@ export function Analytics() {
         {tab === "payout" ? (
           <PayoutTab query={query} scopeLabel={scopeLabel} enabled={ready} />
         ) : (
-          <section className="panel analytics-coming-soon">
-            <span className="analytics-coming-soon-icon"><Icon name="analytics" /></span>
-            <h2>商品銷售統計</h2>
-            <p>商品銷售的分類、Top SKU 與通路比較會使用同一組期間篩選條件。</p>
-            <p className="muted">目前先提供出金趨勢與店別比較。</p>
-          </section>
+          <SalesTab query={query} scopeLabel={scopeLabel} enabled={ready} />
         )}
       </div>
     </div>

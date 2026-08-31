@@ -196,6 +196,15 @@ describe("商品銷售統計查詢", () => {
       returnRate: 0.5,
       skuCount: 11,
       current: { total: 10450, points: [{ key: "2026-07", value: 10450 }] },
+      trend: {
+        start: "2025-07-01",
+        end: "2026-07-31",
+        points: expect.arrayContaining([
+          { key: "2025-07", value: 50 },
+          { key: "2026-06", value: 100 },
+          { key: "2026-07", value: 10450 },
+        ]),
+      },
       previous: { total: 100 },
       lastYear: { total: 50 },
       growth: { mom: 103.5, yoy: 208 },

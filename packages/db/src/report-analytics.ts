@@ -114,6 +114,7 @@ export interface ReportSalesSummary {
   complete: boolean;
   asOfDate?: string;
   current: ReportAnalyticsRange;
+  trend: ReportAnalyticsRange | null;
   previous: ReportAnalyticsRange | null;
   lastYear: ReportAnalyticsRange | null;
   growth: ReportGrowth;
@@ -264,6 +265,12 @@ function granularityOf(range: ReportRange): AnalyticsGranularity {
 function salesGranularityOf(range: ReportRange): AnalyticsGranularity {
   if (periodKind(range) === "custom" && !sameYear(range.startDate, range.endDate)) return "year";
   return "month";
+}
+
+function salesTrendRange(range: ReportRange): ReportRange | null {
+  const kind = periodKind(range);
+  if (kind !== "month" && !(kind === "custom" && sameMonth(range.startDate, range.endDate))) return null;
+  return calendarMonthRange(range.startDate, -12, 13);
 }
 
 function alignedEnd(start: string, days: number, maximum: string): string {
@@ -578,6 +585,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
       complete: comparison.complete,
       ...(comparison.asOfDate ? { asOfDate: comparison.asOfDate } : {}),
       current,
+      trend: null,
       previous: null,
       lastYear: null,
       growth: { mom: null, yoy: null },
@@ -677,6 +685,15 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     || numberValue(row, "netQuantity") !== 0
     || numberValue(row, "salesAmount") !== 0
   )).length;
+  const trendRange = salesTrendRange(query.range);
+  const trendResult = trendRange && currentResult
+    ? await querySalesMonths(db, query, trendRange)
+    : null;
+  const trend = currentResult
+    ? trendRange
+      ? salesRange(trendRange, trendResult, "month") ?? rangeFromPoints(trendRange, [])
+      : current
+    : null;
   return {
     status: currentResult ? "ok" : "NO_DATA_FOR_RANGE",
     period: query.range.period,
@@ -684,6 +701,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     complete: comparison.complete,
     ...(comparison.asOfDate ? { asOfDate: comparison.asOfDate } : {}),
     current,
+    trend,
     previous,
     lastYear,
     growth: {
