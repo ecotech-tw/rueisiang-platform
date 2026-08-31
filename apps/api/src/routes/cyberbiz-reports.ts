@@ -10,8 +10,8 @@ import {
   isValidReportDate,
   latestReportSalesPeriods,
   listCyberbizProducts,
-  listReportManualPayouts,
-  listReportManualSales,
+  listReportPayoutRecords,
+  listReportSalesRecords,
   listReportScopes,
   ReportManualError,
   updateReportManualPayout,
@@ -19,8 +19,11 @@ import {
   updateReportPayoutDaily,
   type Database,
   type ReportGroupBy,
+  type ReportManualRecordSource,
   type ReportManualSkuSource,
+  type ReportPayoutListQuery,
   type ReportScopeKind,
+  type ReportSalesListQuery,
 } from "@rueisiang/db";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
@@ -98,6 +101,99 @@ function manualId(c: { req: { param(name: string): string | undefined } }): stri
   const id = c.req.param("id")?.trim();
   if (!id) throw new HTTPException(400, { message: "缺少人工修訂資料 ID。" });
   return id;
+}
+
+const MANUAL_REPORT_PAGE_SIZES = [10, 25, 50, 100] as const;
+
+function listPage(c: { req: { query(name: string): string | undefined } }): number {
+  const value = Number(queryValue(c, "page"));
+  return Number.isSafeInteger(value) && value > 0 ? value : 1;
+}
+
+function listPageSize(c: { req: { query(name: string): string | undefined } }): number {
+  const value = Number(queryValue(c, "pageSize"));
+  return (MANUAL_REPORT_PAGE_SIZES as readonly number[]).includes(value) ? value : 25;
+}
+
+function listSource(c: { req: { query(name: string): string | undefined } }): ReportManualRecordSource | undefined {
+  const value = queryValue(c, "source");
+  if (!value || value === "all") return undefined;
+  if (value !== "imported" && value !== "manual") {
+    throw new HTTPException(400, { message: "資料來源必須是 imported、manual 或 all。" });
+  }
+  return value;
+}
+
+function listDirection(c: { req: { query(name: string): string | undefined } }): "asc" | "desc" {
+  return queryValue(c, "sortDirection") === "asc" ? "asc" : "desc";
+}
+
+function listDate(c: { req: { query(name: string): string | undefined } }, name: string): string | undefined {
+  const value = queryValue(c, name);
+  if (value && !isValidReportDate(value)) {
+    throw new HTTPException(400, { message: `${name} 必須是有效的 YYYY-MM-DD。` });
+  }
+  return value;
+}
+
+function listMonth(c: { req: { query(name: string): string | undefined } }, name: string): string | undefined {
+  const value = queryValue(c, name);
+  if (value && !/^\d{4}-(0[1-9]|1[0-2])$/u.test(value)) {
+    throw new HTTPException(400, { message: `${name} 必須是有效的 YYYY-MM。` });
+  }
+  return value;
+}
+
+function manualPayoutListQuery(c: { req: { query(name: string): string | undefined } }): ReportPayoutListQuery {
+  const startDate = listDate(c, "startDate");
+  const endDate = listDate(c, "endDate");
+  if (startDate && endDate && startDate > endDate) {
+    throw new HTTPException(400, { message: "出金日期起日不可晚於迄日。" });
+  }
+  const rawSortField = queryValue(c, "sortField");
+  const sortField = ["scope", "businessDate", "payoutAmount", "updatedAt"].includes(rawSortField ?? "")
+    ? rawSortField as ReportPayoutListQuery["sortField"]
+    : "businessDate";
+  const scopeId = queryValue(c, "scopeId");
+  const search = queryValue(c, "search");
+  const source = listSource(c);
+  return {
+    page: listPage(c),
+    pageSize: listPageSize(c),
+    ...(scopeId ? { scopeId } : {}),
+    ...(source ? { source } : {}),
+    ...(search ? { search } : {}),
+    ...(startDate ? { startDate } : {}),
+    ...(endDate ? { endDate } : {}),
+    sortField,
+    sortDirection: listDirection(c),
+  };
+}
+
+function manualSalesListQuery(c: { req: { query(name: string): string | undefined } }): ReportSalesListQuery {
+  const startMonth = listMonth(c, "startMonth");
+  const endMonth = listMonth(c, "endMonth");
+  if (startMonth && endMonth && startMonth > endMonth) {
+    throw new HTTPException(400, { message: "商品銷售月份起月不可晚於迄月。" });
+  }
+  const rawSortField = queryValue(c, "sortField");
+  const sortField = ["scope", "reportMonth", "sku", "productName", "netQuantity", "salesAmount", "updatedAt"].includes(rawSortField ?? "")
+    ? rawSortField as ReportSalesListQuery["sortField"]
+    : "reportMonth";
+  const scopeId = queryValue(c, "scopeId");
+  const search = queryValue(c, "search");
+  const source = listSource(c);
+  return {
+    page: listPage(c),
+    pageSize: listPageSize(c),
+    ...(scopeId ? { scopeId } : {}),
+    ...(source ? { source } : {}),
+    ...(search ? { search } : {}),
+    ...(startMonth ? { startMonth } : {}),
+    ...(endMonth ? { endMonth } : {}),
+    sortField,
+    sortDirection: listDirection(c),
+  };
 }
 
 function safeIntegerInput(input: Record<string, unknown>, field: string, label: string): number {
@@ -212,7 +308,7 @@ export const cyberbizReports = new Hono<AppEnv>()
     });
   })
   .get("/manual/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
-    return c.json({ rows: await listReportManualPayouts(c.get("db")) });
+    return c.json(await listReportPayoutRecords(c.get("db"), manualPayoutListQuery(c)));
   })
   .post("/manual/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
     try {
@@ -220,7 +316,7 @@ export const cyberbizReports = new Hono<AppEnv>()
       const user = c.get("user");
       const row = await createReportManualPayout(c.get("db"), { ...input, actor: { id: user.id, email: user.email } });
       await forgetReportAnalytics(cacheClient(c.env));
-      return c.json({ row }, 201);
+      return c.json({ row: { ...row, source: "manual" as const } }, 201);
     } catch (error) {
       handleManualError(error);
     }
@@ -231,7 +327,7 @@ export const cyberbizReports = new Hono<AppEnv>()
       const user = c.get("user");
       const row = await updateReportManualPayout(c.get("db"), { id: manualId(c), ...input, actor: { id: user.id, email: user.email } });
       await forgetReportAnalytics(cacheClient(c.env));
-      return c.json({ row });
+      return c.json({ row: { ...row, source: "manual" as const } });
     } catch (error) {
       handleManualError(error);
     }
@@ -247,7 +343,7 @@ export const cyberbizReports = new Hono<AppEnv>()
     }
   })
   .get("/manual/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
-    return c.json({ rows: await listReportManualSales(c.get("db")) });
+    return c.json(await listReportSalesRecords(c.get("db"), manualSalesListQuery(c)));
   })
   .post("/manual/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
     try {
@@ -255,7 +351,7 @@ export const cyberbizReports = new Hono<AppEnv>()
       const user = c.get("user");
       const row = await createReportManualSales(c.get("db"), { ...input, actor: { id: user.id, email: user.email } });
       await forgetReportAnalytics(cacheClient(c.env));
-      return c.json({ row }, 201);
+      return c.json({ row: { ...row, source: "manual" as const } }, 201);
     } catch (error) {
       handleManualError(error);
     }
@@ -266,7 +362,7 @@ export const cyberbizReports = new Hono<AppEnv>()
       const user = c.get("user");
       const row = await updateReportManualSales(c.get("db"), { id: manualId(c), ...input, actor: { id: user.id, email: user.email } });
       await forgetReportAnalytics(cacheClient(c.env));
-      return c.json({ row });
+      return c.json({ row: { ...row, source: "manual" as const } });
     } catch (error) {
       handleManualError(error);
     }

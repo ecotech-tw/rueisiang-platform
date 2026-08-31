@@ -1,4 +1,4 @@
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { isCompanyReportStoreScopeId, isValidReportDate } from "./report-data.js";
@@ -54,6 +54,74 @@ export interface ReportManualSalesInput {
 
 export type ReportManualPayoutRow = ReportManualPayoutDaily & { scopeName: string };
 export type ReportManualSalesRow = ReportManualSalesMonthly & { scopeName: string };
+export type ReportManualRecordSource = "imported" | "manual";
+
+export interface ReportPayoutListQuery {
+  page: number;
+  pageSize: number;
+  scopeId?: string;
+  source?: ReportManualRecordSource;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+  sortField: "scope" | "businessDate" | "payoutAmount" | "updatedAt";
+  sortDirection: "asc" | "desc";
+}
+
+export interface ReportSalesListQuery {
+  page: number;
+  pageSize: number;
+  scopeId?: string;
+  source?: ReportManualRecordSource;
+  search?: string;
+  startMonth?: string;
+  endMonth?: string;
+  sortField: "scope" | "reportMonth" | "sku" | "productName" | "netQuantity" | "salesAmount" | "updatedAt";
+  sortDirection: "asc" | "desc";
+}
+
+export interface ReportPayoutRecord {
+  id: string;
+  source: ReportManualRecordSource;
+  scopeId: string;
+  scopeName: string;
+  businessDate: string;
+  payoutAmount: number;
+  updatedByEmail: string;
+  updatedAt: string;
+}
+
+export interface ReportSalesRecord {
+  id: string;
+  source: ReportManualRecordSource;
+  scopeId: string;
+  scopeName: string;
+  reportMonth: string;
+  skuSource: ReportManualSkuSource | null;
+  sku: string;
+  productName: string;
+  category: string;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+  salesAmount: number;
+  updatedByEmail: string;
+  updatedAt: string;
+}
+
+export interface ReportPayoutListResult {
+  rows: ReportPayoutRecord[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ReportSalesListResult {
+  rows: ReportSalesRecord[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
 
 function safeInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value)) throw new ReportManualError("invalid", `${label}必須是安全整數。`);
@@ -181,6 +249,241 @@ function salesPayload(row: {
 async function scopeNames(db: Database): Promise<Map<string, string>> {
   return new Map((await db.select({ id: reportScopes.id, name: reportScopes.name }).from(reportScopes))
     .map((scope) => [scope.id, scope.name]));
+}
+
+/*
+ * 人工修訂頁讀的是「目前有效值」，不是只讀人工表：
+ * - 同一 key 有人工資料時，排除匯入資料。
+ * - 沒有人工資料時，保留匯入資料，讓它可以被編輯成人工覆寫。
+ * - source/id 讓前端知道編輯時要建立覆寫，刪除時只能刪人工覆寫。
+ */
+const PAYOUT_RECORD_SOURCE = sql`(
+  SELECT
+    'imported' AS source,
+    'imported:' || imported.scope_id || ':' || imported.business_date AS id,
+    imported.scope_id,
+    imported.business_date,
+    imported.payout_amount,
+    '系統匯入' AS updated_by_email,
+    imported.updated_at
+  FROM report_payout_daily AS imported
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM report_manual_payout_daily AS manual
+    WHERE manual.scope_id = imported.scope_id
+      AND manual.business_date = imported.business_date
+  )
+  UNION ALL
+  SELECT
+    'manual' AS source,
+    manual.id,
+    manual.scope_id,
+    manual.business_date,
+    manual.payout_amount,
+    manual.updated_by_email,
+    manual.updated_at
+  FROM report_manual_payout_daily AS manual
+) AS report_payout_records`;
+
+const SALES_RECORD_SOURCE = sql`(
+  SELECT
+    'imported' AS source,
+    'imported:' || imported.scope_id || ':' || imported.report_month || ':' || imported.sku AS id,
+    imported.scope_id,
+    imported.report_month,
+    NULL AS sku_source,
+    imported.sku,
+    imported.product_name,
+    imported.category,
+    imported.gross_quantity,
+    imported.return_quantity,
+    imported.net_quantity,
+    imported.sales_amount,
+    '系統匯入' AS updated_by_email,
+    imported.updated_at
+  FROM report_sales_monthly AS imported
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM report_manual_sales_monthly AS manual
+    WHERE manual.scope_id = imported.scope_id
+      AND manual.report_month = imported.report_month
+      AND lower(manual.sku) = lower(imported.sku)
+  )
+  UNION ALL
+  SELECT
+    'manual' AS source,
+    manual.id,
+    manual.scope_id,
+    manual.report_month,
+    manual.sku_source,
+    manual.sku,
+    manual.product_name,
+    manual.category,
+    manual.gross_quantity,
+    manual.return_quantity,
+    manual.net_quantity,
+    manual.sales_amount,
+    manual.updated_by_email,
+    manual.updated_at
+  FROM report_manual_sales_monthly AS manual
+) AS report_sales_records`;
+
+function textValue(value: unknown): string {
+  return typeof value === "string" ? value : String(value ?? "");
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" ? value : Number(value ?? 0);
+}
+
+function listLimit(query: { page: number; pageSize: number }): { limit: number; offset: number } {
+  return {
+    limit: query.pageSize,
+    offset: Math.max(0, query.page - 1) * query.pageSize,
+  };
+}
+
+export async function listReportPayoutRecords(
+  db: Database,
+  query: ReportPayoutListQuery,
+): Promise<ReportPayoutListResult> {
+  const conditions = [sql`1 = 1`];
+  if (query.scopeId) conditions.push(sql`report_payout_records.scope_id = ${query.scopeId}`);
+  if (query.source) conditions.push(sql`report_payout_records.source = ${query.source}`);
+  if (query.startDate) conditions.push(sql`report_payout_records.business_date >= ${query.startDate}`);
+  if (query.endDate) conditions.push(sql`report_payout_records.business_date <= ${query.endDate}`);
+  const search = query.search?.trim();
+  if (search) {
+    const term = `%${search}%`;
+    conditions.push(sql`(
+      lower(COALESCE(report_scopes.name, report_payout_records.scope_id)) LIKE lower(${term})
+      OR report_payout_records.business_date LIKE ${term}
+    )`);
+  }
+  const where = sql.join(conditions, sql` AND `);
+  const from = sql`FROM ${PAYOUT_RECORD_SOURCE}
+    LEFT JOIN report_scopes ON report_scopes.id = report_payout_records.scope_id`;
+  const sortColumns = {
+    scope: "COALESCE(report_scopes.name, report_payout_records.scope_id)",
+    businessDate: "report_payout_records.business_date",
+    payoutAmount: "report_payout_records.payout_amount",
+    updatedAt: "report_payout_records.updated_at",
+  } as const;
+  const sortColumn = sortColumns[query.sortField] ?? sortColumns.businessDate;
+  const direction = query.sortDirection === "asc" ? "ASC" : "DESC";
+  const { limit, offset } = listLimit(query);
+  const [countRows, rows] = await Promise.all([
+    db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count ${from} WHERE ${where}`),
+    db.all<Record<string, unknown>>(sql`SELECT
+      report_payout_records.id AS id,
+      report_payout_records.source AS source,
+      report_payout_records.scope_id AS scopeId,
+      COALESCE(report_scopes.name, report_payout_records.scope_id) AS scopeName,
+      report_payout_records.business_date AS businessDate,
+      report_payout_records.payout_amount AS payoutAmount,
+      report_payout_records.updated_by_email AS updatedByEmail,
+      report_payout_records.updated_at AS updatedAt
+      ${from}
+      WHERE ${where}
+      ORDER BY ${sql.raw(sortColumn)} ${sql.raw(direction)}, report_payout_records.id ASC
+      LIMIT ${limit} OFFSET ${offset}`),
+  ]);
+  return {
+    rows: rows.map((row) => ({
+      id: textValue(row.id),
+      source: row.source === "manual" ? "manual" : "imported",
+      scopeId: textValue(row.scopeId),
+      scopeName: textValue(row.scopeName),
+      businessDate: textValue(row.businessDate),
+      payoutAmount: numberValue(row.payoutAmount),
+      updatedByEmail: textValue(row.updatedByEmail) || "系統匯入",
+      updatedAt: textValue(row.updatedAt),
+    })),
+    page: query.page,
+    pageSize: query.pageSize,
+    total: numberValue(countRows[0]?.count),
+  };
+}
+
+export async function listReportSalesRecords(
+  db: Database,
+  query: ReportSalesListQuery,
+): Promise<ReportSalesListResult> {
+  const conditions = [sql`1 = 1`];
+  if (query.scopeId) conditions.push(sql`report_sales_records.scope_id = ${query.scopeId}`);
+  if (query.source) conditions.push(sql`report_sales_records.source = ${query.source}`);
+  if (query.startMonth) conditions.push(sql`report_sales_records.report_month >= ${query.startMonth}`);
+  if (query.endMonth) conditions.push(sql`report_sales_records.report_month <= ${query.endMonth}`);
+  const search = query.search?.trim();
+  if (search) {
+    const term = `%${search}%`;
+    conditions.push(sql`(
+      lower(COALESCE(report_scopes.name, report_sales_records.scope_id)) LIKE lower(${term})
+      OR lower(report_sales_records.sku) LIKE lower(${term})
+      OR lower(report_sales_records.product_name) LIKE lower(${term})
+      OR lower(report_sales_records.category) LIKE lower(${term})
+    )`);
+  }
+  const where = sql.join(conditions, sql` AND `);
+  const from = sql`FROM ${SALES_RECORD_SOURCE}
+    LEFT JOIN report_scopes ON report_scopes.id = report_sales_records.scope_id`;
+  const sortColumns = {
+    scope: "COALESCE(report_scopes.name, report_sales_records.scope_id)",
+    reportMonth: "report_sales_records.report_month",
+    sku: "report_sales_records.sku",
+    productName: "report_sales_records.product_name",
+    netQuantity: "report_sales_records.net_quantity",
+    salesAmount: "report_sales_records.sales_amount",
+    updatedAt: "report_sales_records.updated_at",
+  } as const;
+  const sortColumn = sortColumns[query.sortField] ?? sortColumns.reportMonth;
+  const direction = query.sortDirection === "asc" ? "ASC" : "DESC";
+  const { limit, offset } = listLimit(query);
+  const [countRows, rows] = await Promise.all([
+    db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count ${from} WHERE ${where}`),
+    db.all<Record<string, unknown>>(sql`SELECT
+      report_sales_records.id AS id,
+      report_sales_records.source AS source,
+      report_sales_records.scope_id AS scopeId,
+      COALESCE(report_scopes.name, report_sales_records.scope_id) AS scopeName,
+      report_sales_records.report_month AS reportMonth,
+      report_sales_records.sku_source AS skuSource,
+      report_sales_records.sku AS sku,
+      report_sales_records.product_name AS productName,
+      report_sales_records.category AS category,
+      report_sales_records.gross_quantity AS grossQuantity,
+      report_sales_records.return_quantity AS returnQuantity,
+      report_sales_records.net_quantity AS netQuantity,
+      report_sales_records.sales_amount AS salesAmount,
+      report_sales_records.updated_by_email AS updatedByEmail,
+      report_sales_records.updated_at AS updatedAt
+      ${from}
+      WHERE ${where}
+      ORDER BY ${sql.raw(sortColumn)} ${sql.raw(direction)}, report_sales_records.id ASC
+      LIMIT ${limit} OFFSET ${offset}`),
+  ]);
+  return {
+    rows: rows.map((row) => ({
+      id: textValue(row.id),
+      source: row.source === "manual" ? "manual" : "imported",
+      scopeId: textValue(row.scopeId),
+      scopeName: textValue(row.scopeName),
+      reportMonth: textValue(row.reportMonth),
+      skuSource: row.skuSource === "custom" || row.skuSource === "cyberbiz" ? row.skuSource : null,
+      sku: textValue(row.sku),
+      productName: textValue(row.productName),
+      category: textValue(row.category),
+      grossQuantity: numberValue(row.grossQuantity),
+      returnQuantity: numberValue(row.returnQuantity),
+      netQuantity: numberValue(row.netQuantity),
+      salesAmount: numberValue(row.salesAmount),
+      updatedByEmail: textValue(row.updatedByEmail) || "系統匯入",
+      updatedAt: textValue(row.updatedAt),
+    })),
+    page: query.page,
+    pageSize: query.pageSize,
+    total: numberValue(countRows[0]?.count),
+  };
 }
 
 export async function listReportManualPayouts(db: Database): Promise<ReportManualPayoutRow[]> {

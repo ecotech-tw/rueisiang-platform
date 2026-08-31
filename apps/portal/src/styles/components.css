@@ -3524,8 +3524,31 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .manual-source-cyberbiz { background: var(--color-info-soft); color: var(--color-info); }
 .manual-source-custom { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.manual-source-imported { background: var(--color-canvas); color: var(--color-muted); }
 .manual-report-dialog { width: min(720px, 100%); }
 .manual-report-form { display: grid; gap: 16px; }
+.manual-report-filters {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.manual-report-filters .filter-control input[type="date"],
+.manual-report-filters .filter-control input[type="month"] {
+  min-width: 150px;
+}
+.manual-record-source {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.manual-record-source-imported { background: var(--color-canvas); color: var(--color-muted); }
+.manual-record-source-manual { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.manual-report-table th[data-label="來源"],
+.manual-report-table td[data-label="來源"] { min-width: 88px; }
 
 @media (max-width: 620px) {
   .manual-report-tabs { width: 100%; margin-right: 0; margin-left: 0; }

@@ -5,6 +5,8 @@ import {
   deleteReportManualPayout,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
+  listReportPayoutRecords,
+  listReportSalesRecords,
   queryReportPayout,
   queryReportSales,
   upsertReportScope,
@@ -139,5 +141,76 @@ describe("報表人工修訂資料", () => {
       payoutAmount: 2,
       actor: ACTOR,
     })).rejects.toMatchObject({ kind: "conflict" });
+  });
+
+  it("人工修訂清單會顯示有效匯入資料，並支援來源篩選、排序與分頁", async () => {
+    await insertReportPayoutDaily(db(), [
+      { scopeId: SCOPE, businessDate: "2026-08-01", payoutAmount: 1000 },
+      { scopeId: SCOPE, businessDate: "2026-08-02", payoutAmount: 2000 },
+      { scopeId: SCOPE, businessDate: "2026-08-03", payoutAmount: 3000 },
+    ]);
+    await createReportManualPayout(db(), {
+      scopeId: SCOPE,
+      businessDate: "2026-08-02",
+      payoutAmount: 9000,
+      actor: ACTOR,
+    });
+
+    const firstPage = await listReportPayoutRecords(db(), {
+      page: 1,
+      pageSize: 1,
+      search: "",
+      scopeId: "",
+      sortField: "businessDate",
+      sortDirection: "desc",
+    });
+    expect(firstPage.total).toBe(3);
+    expect(firstPage.rows).toMatchObject([
+      { businessDate: "2026-08-03", payoutAmount: 3000, source: "imported" },
+    ]);
+
+    const manualOnly = await listReportPayoutRecords(db(), {
+      page: 1,
+      pageSize: 1,
+      source: "manual",
+      search: "",
+      scopeId: "",
+      sortField: "businessDate",
+      sortDirection: "desc",
+    });
+    expect(manualOnly.total).toBe(1);
+    expect(manualOnly.rows).toMatchObject([
+      { businessDate: "2026-08-02", payoutAmount: 9000, source: "manual" },
+    ]);
+
+    await insertReportSalesMonthly(db(), [
+      { scopeId: SCOPE, reportMonth: "2026-08", sku: "SKU-1", productName: "匯入商品一", grossQuantity: 1, netQuantity: 1, salesAmount: 100 },
+      { scopeId: SCOPE, reportMonth: "2026-08", sku: "SKU-2", productName: "匯入商品二", grossQuantity: 2, netQuantity: 2, salesAmount: 200 },
+    ]);
+    await createReportManualSales(db(), {
+      scopeId: SCOPE,
+      reportMonth: "2026-08",
+      skuSource: "custom",
+      sku: "SKU-1",
+      productName: "修訂商品一",
+      grossQuantity: 8,
+      returnQuantity: 1,
+      netQuantity: 7,
+      salesAmount: 800,
+      actor: ACTOR,
+    });
+
+    const sales = await listReportSalesRecords(db(), {
+      page: 1,
+      pageSize: 10,
+      search: "修訂商品",
+      scopeId: "",
+      sortField: "sku",
+      sortDirection: "asc",
+    });
+    expect(sales.total).toBe(1);
+    expect(sales.rows).toMatchObject([
+      { sku: "SKU-1", productName: "修訂商品一", salesAmount: 800, source: "manual", skuSource: "custom" },
+    ]);
   });
 });

@@ -1,6 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export type ManualReportKind = "payout" | "sales";
+export type ManualRecordSource = "imported" | "manual";
+export type ManualSourceFilter = "all" | ManualRecordSource;
 export type ManualSkuSource = "custom" | "cyberbiz";
 
 export interface ManualScopeOption {
@@ -21,6 +23,7 @@ export interface ManualOptionsResponse {
 
 export interface ManualPayoutRow {
   id: string;
+  source: ManualRecordSource;
   scopeId: string;
   scopeName: string;
   businessDate: string;
@@ -33,10 +36,11 @@ export interface ManualPayoutRow {
 
 export interface ManualSalesRow {
   id: string;
+  source: ManualRecordSource;
   scopeId: string;
   scopeName: string;
   reportMonth: string;
-  skuSource: ManualSkuSource;
+  skuSource: ManualSkuSource | null;
   sku: string;
   productName: string;
   category: string;
@@ -67,6 +71,44 @@ export interface ManualSalesInput {
   returnQuantity: number;
   netQuantity: number;
   salesAmount: number;
+}
+
+export interface ManualPayoutQuery {
+  page: number;
+  pageSize: number;
+  search: string;
+  scopeId: string;
+  source: ManualSourceFilter;
+  startDate: string;
+  endDate: string;
+  sortField: "scope" | "businessDate" | "payoutAmount" | "updatedAt";
+  sortDirection: "asc" | "desc";
+}
+
+export interface ManualSalesQuery {
+  page: number;
+  pageSize: number;
+  search: string;
+  scopeId: string;
+  source: ManualSourceFilter;
+  startMonth: string;
+  endMonth: string;
+  sortField: "scope" | "reportMonth" | "sku" | "productName" | "netQuantity" | "salesAmount" | "updatedAt";
+  sortDirection: "asc" | "desc";
+}
+
+export interface ManualPayoutPage {
+  rows: ManualPayoutRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ManualSalesPage {
+  rows: ManualSalesRow[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export class ManualReportApiError extends Error {
@@ -120,19 +162,51 @@ export function useManualReportOptions(enabled = true) {
   });
 }
 
-export function useManualPayouts(enabled = true) {
+function listQuery(params: URLSearchParams, query: {
+  page: number;
+  pageSize: number;
+  search: string;
+  scopeId: string;
+  source: ManualSourceFilter;
+  sortField: string;
+  sortDirection: "asc" | "desc";
+}) {
+  params.set("page", String(query.page));
+  params.set("pageSize", String(query.pageSize));
+  if (query.search) params.set("search", query.search);
+  if (query.scopeId) params.set("scopeId", query.scopeId);
+  if (query.source !== "all") params.set("source", query.source);
+  params.set("sortField", query.sortField);
+  params.set("sortDirection", query.sortDirection);
+}
+
+export function useManualPayouts(query: ManualPayoutQuery, enabled = true) {
   return useQuery({
     enabled,
-    queryKey: ["reports", "manual", "payout"],
-    queryFn: () => request<{ rows: ManualPayoutRow[] }>("/api/reports/cyberbiz/manual/payout"),
+    queryKey: ["reports", "manual", "payout", query],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      listQuery(params, query);
+      if (query.startDate) params.set("startDate", query.startDate);
+      if (query.endDate) params.set("endDate", query.endDate);
+      return request<ManualPayoutPage>(`/api/reports/cyberbiz/manual/payout?${params}`);
+    },
+    placeholderData: keepPreviousData,
   });
 }
 
-export function useManualSales(enabled = true) {
+export function useManualSales(query: ManualSalesQuery, enabled = true) {
   return useQuery({
     enabled,
-    queryKey: ["reports", "manual", "sales"],
-    queryFn: () => request<{ rows: ManualSalesRow[] }>("/api/reports/cyberbiz/manual/sales"),
+    queryKey: ["reports", "manual", "sales", query],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      listQuery(params, query);
+      if (query.startMonth) params.set("startMonth", query.startMonth);
+      if (query.endMonth) params.set("endMonth", query.endMonth);
+      return request<ManualSalesPage>(`/api/reports/cyberbiz/manual/sales?${params}`);
+    },
+    placeholderData: keepPreviousData,
   });
 }
 

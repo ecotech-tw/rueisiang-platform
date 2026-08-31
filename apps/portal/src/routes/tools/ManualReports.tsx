@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
+import { Pager } from "../../shell/Pager.js";
+import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -16,11 +18,15 @@ import {
   useUpdateManualPayout,
   useUpdateManualSales,
   type ManualPayoutInput,
+  type ManualPayoutQuery,
   type ManualPayoutRow,
   type ManualProductOption,
+  type ManualRecordSource,
   type ManualReportKind,
   type ManualSalesInput,
+  type ManualSalesQuery,
   type ManualSalesRow,
+  type ManualSourceFilter,
   type ManualScopeOption,
   type ManualSkuSource,
 } from "./manual-reports-api.js";
@@ -53,6 +59,40 @@ function sourceLabel(source: ManualSkuSource): string {
   return source === "cyberbiz" ? "CYBERBIZ" : "自訂";
 }
 
+function recordSourceLabel(source: ManualRecordSource): string {
+  return source === "manual" ? "人工修訂" : "匯入資料";
+}
+
+function skuSourceLabel(source: ManualSkuSource | null): string {
+  return source ? sourceLabel(source) : "匯入報表";
+}
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
+const DEFAULT_PAYOUT_FILTERS: ManualPayoutQuery = {
+  page: 1,
+  pageSize: 25,
+  search: "",
+  scopeId: "",
+  source: "all",
+  startDate: "",
+  endDate: "",
+  sortField: "businessDate",
+  sortDirection: "desc",
+};
+
+const DEFAULT_SALES_FILTERS: ManualSalesQuery = {
+  page: 1,
+  pageSize: 25,
+  search: "",
+  scopeId: "",
+  source: "all",
+  startMonth: "",
+  endMonth: "",
+  sortField: "reportMonth",
+  sortDirection: "desc",
+};
+
 function ErrorMessage({ error }: { error: Error | null | undefined }) {
   return error ? <Alert tone="danger">{error.message}</Alert> : null;
 }
@@ -76,7 +116,11 @@ function ManualReportDialog({
   const [businessDate, setBusinessDate] = useState(state.kind === "payout" ? state.row?.businessDate ?? "" : "");
   const [payoutAmount, setPayoutAmount] = useState(state.kind === "payout" ? String(state.row?.payoutAmount ?? "") : "");
   const [reportMonth, setReportMonth] = useState(state.kind === "sales" ? state.row?.reportMonth ?? "" : "");
-  const [skuSource, setSkuSource] = useState<ManualSkuSource>(state.kind === "sales" ? state.row?.skuSource ?? "cyberbiz" : "cyberbiz");
+  const [skuSource, setSkuSource] = useState<ManualSkuSource>(() => {
+    if (state.kind !== "sales") return "cyberbiz";
+    if (state.row?.skuSource) return state.row.skuSource;
+    return state.row && products.some((product) => product.sku === state.row?.sku) ? "cyberbiz" : "custom";
+  });
   const [sku, setSku] = useState(state.kind === "sales" ? state.row?.sku ?? "" : "");
   const [productName, setProductName] = useState(state.kind === "sales" ? state.row?.productName ?? "" : "");
   const [category, setCategory] = useState(state.kind === "sales" ? state.row?.category ?? "未分類" : "未分類");
@@ -122,7 +166,7 @@ function ManualReportDialog({
     if (state.kind === "payout" && payoutValue !== null) {
       const input: ManualPayoutInput = { scopeId, businessDate, payoutAmount: payoutValue };
       const onSuccess = () => onClose();
-      if (state.row) updatePayout.mutate({ ...input, id: state.row.id }, { onSuccess });
+      if (state.row?.source === "manual") updatePayout.mutate({ ...input, id: state.row.id }, { onSuccess });
       else createPayout.mutate(input, { onSuccess });
       return;
     }
@@ -139,7 +183,7 @@ function ManualReportDialog({
         salesAmount: salesValues.salesAmount ?? 0,
       };
       const onSuccess = () => onClose();
-      if (state.row) updateSales.mutate({ ...input, id: state.row.id }, { onSuccess });
+      if (state.row?.source === "manual") updateSales.mutate({ ...input, id: state.row.id }, { onSuccess });
       else createSales.mutate(input, { onSuccess });
     }
   }
@@ -325,8 +369,10 @@ export function ManualReports() {
   const { permissions } = useSession();
   const canWrite = permissions.has("reports:cyberbiz:write");
   const optionsQuery = useManualReportOptions(canWrite);
-  const payoutsQuery = useManualPayouts(canWrite);
-  const salesQuery = useManualSales(canWrite);
+  const [payoutFilters, setPayoutFilters] = useState<ManualPayoutQuery>(DEFAULT_PAYOUT_FILTERS);
+  const [salesFilters, setSalesFilters] = useState<ManualSalesQuery>(DEFAULT_SALES_FILTERS);
+  const payoutsQuery = useManualPayouts(payoutFilters, canWrite);
+  const salesQuery = useManualSales(salesFilters, canWrite);
   const deletePayout = useDeleteManualPayout();
   const deleteSales = useDeleteManualSales();
   const toast = useToast();
@@ -336,15 +382,38 @@ export function ManualReports() {
 
   const scopes = optionsQuery.data?.scopes ?? [];
   const products = optionsQuery.data?.products ?? [];
-  const payoutRows = payoutsQuery.data?.rows ?? [];
-  const salesRows = salesQuery.data?.rows ?? [];
+  const payoutPage = payoutsQuery.data;
+  const salesPage = salesQuery.data;
   const queryError = optionsQuery.error ?? payoutsQuery.error ?? salesQuery.error;
   const busy = deletePayout.isPending || deleteSales.isPending;
+
+  useEffect(() => {
+    const totalPages = payoutPage ? Math.max(1, Math.ceil(payoutPage.total / payoutPage.pageSize)) : 1;
+    if (payoutPage && payoutFilters.page > totalPages) {
+      setPayoutFilters((current) => ({ ...current, page: totalPages }));
+    }
+  }, [payoutFilters.page, payoutPage?.pageSize, payoutPage?.total]);
+
+  useEffect(() => {
+    const totalPages = salesPage ? Math.max(1, Math.ceil(salesPage.total / salesPage.pageSize)) : 1;
+    if (salesPage && salesFilters.page > totalPages) {
+      setSalesFilters((current) => ({ ...current, page: totalPages }));
+    }
+  }, [salesFilters.page, salesPage?.pageSize, salesPage?.total]);
+
+  function updatePayoutFilters(patch: Partial<ManualPayoutQuery>) {
+    setPayoutFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
+  }
+
+  function updateSalesFilters(patch: Partial<ManualSalesQuery>) {
+    setSalesFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
+  }
 
   if (!canWrite) {
     return <div className="page"><Alert tone="warning">你沒有編輯報表人工資料的權限。</Alert></div>;
   }
-  if (optionsQuery.isPending || payoutsQuery.isPending || salesQuery.isPending) {
+  const activeQuery = kind === "payout" ? payoutsQuery : salesQuery;
+  if (optionsQuery.isPending || activeQuery.isPending) {
     return <div className="boot">載入報表人工資料中…</div>;
   }
   if (queryError) {
@@ -394,19 +463,71 @@ export function ManualReports() {
 
         {scopes.length === 0 ? <Alert tone="warning">尚未有可選的啟用據點。</Alert> : null}
         {kind === "payout" ? (
-          <PayoutTable
-            rows={payoutRows}
-            busy={busy}
-            onEdit={(row) => setDialog({ kind: "payout", row })}
-            onDelete={(row) => setDeleting({ kind: "payout", row })}
-          />
+          <>
+            <PayoutFilters filters={payoutFilters} scopes={scopes} onChange={updatePayoutFilters} />
+            <PayoutTable
+              rows={payoutPage?.rows ?? []}
+              busy={busy}
+              sortField={payoutFilters.sortField}
+              sortDirection={payoutFilters.sortDirection}
+              onSort={(sortField, sortDirection) => updatePayoutFilters({ sortField: sortField as ManualPayoutQuery["sortField"], sortDirection })}
+              onEdit={(row) => setDialog({ kind: "payout", row })}
+              onDelete={(row) => {
+                if (row.source === "manual") setDeleting({ kind: "payout", row });
+              }}
+            />
+            <ListFooter
+              isFetching={payoutsQuery.isFetching}
+              hasRows={Boolean(payoutPage?.rows.length)}
+              total={payoutPage?.total ?? 0}
+              hasFilters={hasPayoutFilters(payoutFilters)}
+              emptyLabel="出金"
+            />
+            {payoutPage && payoutPage.total > 0 ? (
+              <Pager
+                page={payoutPage.page}
+                pageSize={payoutPage.pageSize}
+                pageSizes={PAGE_SIZES}
+                totalPages={Math.max(1, Math.ceil(payoutPage.total / payoutPage.pageSize))}
+                totalLabel={`共 ${payoutPage.total.toLocaleString("zh-TW")} 筆有效紀錄`}
+                onPage={(page) => updatePayoutFilters({ page })}
+                onPageSize={(pageSize) => updatePayoutFilters({ pageSize })}
+              />
+            ) : null}
+          </>
         ) : (
-          <SalesTable
-            rows={salesRows}
-            busy={busy}
-            onEdit={(row) => setDialog({ kind: "sales", row })}
-            onDelete={(row) => setDeleting({ kind: "sales", row })}
-          />
+          <>
+            <SalesFilters filters={salesFilters} scopes={scopes} onChange={updateSalesFilters} />
+            <SalesTable
+              rows={salesPage?.rows ?? []}
+              busy={busy}
+              sortField={salesFilters.sortField}
+              sortDirection={salesFilters.sortDirection}
+              onSort={(sortField, sortDirection) => updateSalesFilters({ sortField: sortField as ManualSalesQuery["sortField"], sortDirection })}
+              onEdit={(row) => setDialog({ kind: "sales", row })}
+              onDelete={(row) => {
+                if (row.source === "manual") setDeleting({ kind: "sales", row });
+              }}
+            />
+            <ListFooter
+              isFetching={salesQuery.isFetching}
+              hasRows={Boolean(salesPage?.rows.length)}
+              total={salesPage?.total ?? 0}
+              hasFilters={hasSalesFilters(salesFilters)}
+              emptyLabel="商品銷售"
+            />
+            {salesPage && salesPage.total > 0 ? (
+              <Pager
+                page={salesPage.page}
+                pageSize={salesPage.pageSize}
+                pageSizes={PAGE_SIZES}
+                totalPages={Math.max(1, Math.ceil(salesPage.total / salesPage.pageSize))}
+                totalLabel={`共 ${salesPage.total.toLocaleString("zh-TW")} 筆有效紀錄`}
+                onPage={(page) => updateSalesFilters({ page })}
+                onPageSize={(pageSize) => updateSalesFilters({ pageSize })}
+              />
+            ) : null}
+          </>
         )}
       </Panel>
 
@@ -457,26 +578,164 @@ export function ManualReports() {
   );
 }
 
+function hasPayoutFilters(filters: ManualPayoutQuery): boolean {
+  return Boolean(filters.search || filters.scopeId || filters.source !== "all" || filters.startDate || filters.endDate);
+}
+
+function hasSalesFilters(filters: ManualSalesQuery): boolean {
+  return Boolean(filters.search || filters.scopeId || filters.source !== "all" || filters.startMonth || filters.endMonth);
+}
+
+function sourceOptions() {
+  return [
+    { value: "all", label: "全部來源" },
+    { value: "imported", label: "匯入資料" },
+    { value: "manual", label: "人工修訂" },
+  ];
+}
+
+function PayoutFilters({
+  filters,
+  scopes,
+  onChange,
+}: {
+  filters: ManualPayoutQuery;
+  scopes: ManualScopeOption[];
+  onChange: (patch: Partial<ManualPayoutQuery>) => void;
+}) {
+  const active = hasPayoutFilters(filters);
+  return (
+    <form className="admin-form toolbar manual-report-filters" onSubmit={(event) => event.preventDefault()}>
+      <FilterInput
+        label="搜尋出金紀錄"
+        className="search-input"
+        type="search"
+        placeholder="搜尋據點或日期"
+        value={filters.search}
+        onChange={(event) => onChange({ search: event.target.value })}
+      />
+      <FilterSelect
+        label="出金據點"
+        value={filters.scopeId}
+        onChange={(event) => onChange({ scopeId: event.target.value })}
+        options={[{ value: "", label: "全部據點" }, ...scopes.map((scope) => ({ value: scope.id, label: scope.name }))]}
+      />
+      <FilterSelect
+        label="資料來源"
+        value={filters.source}
+        onChange={(event) => onChange({ source: event.target.value as ManualSourceFilter })}
+        options={sourceOptions()}
+      />
+      <FilterInput
+        label="出金開始日期"
+        type="date"
+        value={filters.startDate}
+        onChange={(event) => onChange({ startDate: event.target.value })}
+      />
+      <FilterInput
+        label="出金結束日期"
+        type="date"
+        value={filters.endDate}
+        onChange={(event) => onChange({ endDate: event.target.value })}
+      />
+      {active ? <Button variant="link" onClick={() => onChange({ ...DEFAULT_PAYOUT_FILTERS })}>清除篩選</Button> : null}
+    </form>
+  );
+}
+
+function SalesFilters({
+  filters,
+  scopes,
+  onChange,
+}: {
+  filters: ManualSalesQuery;
+  scopes: ManualScopeOption[];
+  onChange: (patch: Partial<ManualSalesQuery>) => void;
+}) {
+  const active = hasSalesFilters(filters);
+  return (
+    <form className="admin-form toolbar manual-report-filters" onSubmit={(event) => event.preventDefault()}>
+      <FilterInput
+        label="搜尋商品銷售紀錄"
+        className="search-input"
+        type="search"
+        placeholder="搜尋據點、SKU、商品或分類"
+        value={filters.search}
+        onChange={(event) => onChange({ search: event.target.value })}
+      />
+      <FilterSelect
+        label="商品銷售據點"
+        value={filters.scopeId}
+        onChange={(event) => onChange({ scopeId: event.target.value })}
+        options={[{ value: "", label: "全部據點" }, ...scopes.map((scope) => ({ value: scope.id, label: scope.name }))]}
+      />
+      <FilterSelect
+        label="資料來源"
+        value={filters.source}
+        onChange={(event) => onChange({ source: event.target.value as ManualSourceFilter })}
+        options={sourceOptions()}
+      />
+      <FilterInput
+        label="商品銷售開始月份"
+        type="month"
+        value={filters.startMonth}
+        onChange={(event) => onChange({ startMonth: event.target.value })}
+      />
+      <FilterInput
+        label="商品銷售結束月份"
+        type="month"
+        value={filters.endMonth}
+        onChange={(event) => onChange({ endMonth: event.target.value })}
+      />
+      {active ? <Button variant="link" onClick={() => onChange({ ...DEFAULT_SALES_FILTERS })}>清除篩選</Button> : null}
+    </form>
+  );
+}
+
+function ListFooter({
+  isFetching,
+  hasRows,
+  total,
+  hasFilters,
+  emptyLabel,
+}: {
+  isFetching: boolean;
+  hasRows: boolean;
+  total: number;
+  hasFilters: boolean;
+  emptyLabel: string;
+}) {
+  if (isFetching) return <p className="muted table-note">更新資料中…</p>;
+  if (hasRows || total > 0) return null;
+  return <p className="manual-report-empty">{hasFilters ? "沒有符合篩選條件的紀錄。" : `目前沒有${emptyLabel}紀錄。`}</p>;
+}
+
 function PayoutTable({
   rows,
   busy,
+  sortField,
+  sortDirection,
+  onSort,
   onEdit,
   onDelete,
 }: {
   rows: ManualPayoutRow[];
   busy: boolean;
+  sortField: ManualPayoutQuery["sortField"];
+  sortDirection: ManualPayoutQuery["sortDirection"];
+  onSort: (field: string, direction: "asc" | "desc") => void;
   onEdit: (row: ManualPayoutRow) => void;
   onDelete: (row: ManualPayoutRow) => void;
 }) {
-  if (!rows.length) return <p className="manual-report-empty">目前沒有人工出金資料。</p>;
   return (
     <div className="table-scroll">
       <table className="data-table manual-report-table">
         <thead>
           <tr>
-            <th>據點</th>
-            <th>日期</th>
-            <th className="numeric">出金金額</th>
+            <SortableHeader label="據點" field="scope" active={sortField} direction={sortDirection} onSort={onSort} />
+            <SortableHeader label="日期" field="businessDate" active={sortField} direction={sortDirection} onSort={onSort} />
+            <th>來源</th>
+            <SortableHeader label="出金金額" field="payoutAmount" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
             <th>最後更新</th>
             <th />
           </tr>
@@ -486,6 +745,7 @@ function PayoutTable({
             <tr key={row.id}>
               <td data-label="據點">{row.scopeName}</td>
               <td data-label="日期" className="whitespace-nowrap">{row.businessDate}</td>
+              <td data-label="來源"><span className={`manual-record-source manual-record-source-${row.source}`}>{recordSourceLabel(row.source)}</span></td>
               <td data-label="出金金額" className="numeric">{formatCurrency(row.payoutAmount)}</td>
               <td data-label="最後更新">
                 <span>{row.updatedByEmail}</span>
@@ -501,15 +761,17 @@ function PayoutTable({
                     title={`編輯 ${row.businessDate} 出金資料`}
                     aria-label={`編輯 ${row.businessDate} 出金資料`}
                   />
-                  <Button
-                    variant="icon"
-                    className="danger"
-                    icon="trash"
-                    disabled={busy}
-                    onClick={() => onDelete(row)}
-                    title={`刪除 ${row.businessDate} 出金資料`}
-                    aria-label={`刪除 ${row.businessDate} 出金資料`}
-                  />
+                  {row.source === "manual" ? (
+                    <Button
+                      variant="icon"
+                      className="danger"
+                      icon="trash"
+                      disabled={busy}
+                      onClick={() => onDelete(row)}
+                      title={`刪除 ${row.businessDate} 人工出金資料`}
+                      aria-label={`刪除 ${row.businessDate} 人工出金資料`}
+                    />
+                  ) : null}
                 </div>
               </td>
             </tr>
@@ -523,26 +785,32 @@ function PayoutTable({
 function SalesTable({
   rows,
   busy,
+  sortField,
+  sortDirection,
+  onSort,
   onEdit,
   onDelete,
 }: {
   rows: ManualSalesRow[];
   busy: boolean;
+  sortField: ManualSalesQuery["sortField"];
+  sortDirection: ManualSalesQuery["sortDirection"];
+  onSort: (field: string, direction: "asc" | "desc") => void;
   onEdit: (row: ManualSalesRow) => void;
   onDelete: (row: ManualSalesRow) => void;
 }) {
-  if (!rows.length) return <p className="manual-report-empty">目前沒有人工商品銷售資料。</p>;
   return (
     <div className="table-scroll">
       <table className="data-table manual-report-table manual-sales-table">
         <thead>
           <tr>
-            <th>據點</th>
-            <th>月份</th>
-            <th>SKU</th>
-            <th>商品</th>
-            <th className="numeric">數量</th>
-            <th className="numeric">銷售金額</th>
+            <SortableHeader label="據點" field="scope" active={sortField} direction={sortDirection} onSort={onSort} />
+            <SortableHeader label="月份" field="reportMonth" active={sortField} direction={sortDirection} onSort={onSort} />
+            <SortableHeader label="SKU" field="sku" active={sortField} direction={sortDirection} onSort={onSort} />
+            <SortableHeader label="商品" field="productName" active={sortField} direction={sortDirection} onSort={onSort} />
+            <SortableHeader label="數量" field="netQuantity" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
+            <SortableHeader label="銷售金額" field="salesAmount" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
+            <th>來源</th>
             <th>最後更新</th>
             <th />
           </tr>
@@ -553,7 +821,7 @@ function SalesTable({
               <td data-label="據點">{row.scopeName}</td>
               <td data-label="月份" className="whitespace-nowrap">{row.reportMonth}</td>
               <td data-label="SKU">
-                <span className={`manual-source manual-source-${row.skuSource}`}>{sourceLabel(row.skuSource)}</span>
+                <span className={`manual-source manual-source-${row.skuSource ?? "imported"}`}>{skuSourceLabel(row.skuSource)}</span>
                 <code>{row.sku}</code>
               </td>
               <td data-label="商品">
@@ -565,6 +833,7 @@ function SalesTable({
                 <small className="cell-sub">銷售 {row.grossQuantity.toLocaleString("zh-TW")} · 退貨 {row.returnQuantity.toLocaleString("zh-TW")}</small>
               </td>
               <td data-label="銷售金額" className="numeric">{formatCurrency(row.salesAmount)}</td>
+              <td data-label="來源"><span className={`manual-record-source manual-record-source-${row.source}`}>{recordSourceLabel(row.source)}</span></td>
               <td data-label="最後更新">
                 <span>{row.updatedByEmail}</span>
                 <small className="cell-sub">{formatTime(row.updatedAt)}</small>
@@ -579,15 +848,17 @@ function SalesTable({
                     title={`編輯 ${row.sku} 商品銷售資料`}
                     aria-label={`編輯 ${row.sku} 商品銷售資料`}
                   />
-                  <Button
-                    variant="icon"
-                    className="danger"
-                    icon="trash"
-                    disabled={busy}
-                    onClick={() => onDelete(row)}
-                    title={`刪除 ${row.sku} 商品銷售資料`}
-                    aria-label={`刪除 ${row.sku} 商品銷售資料`}
-                  />
+                  {row.source === "manual" ? (
+                    <Button
+                      variant="icon"
+                      className="danger"
+                      icon="trash"
+                      disabled={busy}
+                      onClick={() => onDelete(row)}
+                      title={`刪除 ${row.sku} 人工商品銷售資料`}
+                      aria-label={`刪除 ${row.sku} 人工商品銷售資料`}
+                    />
+                  ) : null}
                 </div>
               </td>
             </tr>

@@ -154,6 +154,48 @@ describe("報表統計 API", () => {
     expect((await call("/api/reports/cyberbiz/summary/payout?period=2026-08", manager, "manager@ecotech.tw")).status).toBe(403);
   });
 
+  it("人工修訂清單包含匯入資料，並支援來源與日期篩選", async () => {
+    const manager = await seedUser("manager-list@ecotech.tw", "role-manager");
+    const scopeId = "cyberbiz:store:active";
+    await insertReportPayoutDaily(db(), [
+      { scopeId, businessDate: "2026-08-01", payoutAmount: 1200 },
+      { scopeId, businessDate: "2026-08-02", payoutAmount: 2300 },
+    ]);
+    await insertReportSalesMonthly(db(), [{
+      scopeId,
+      reportMonth: "2026-08",
+      sku: "IMPORTED-1",
+      productName: "匯入商品",
+      grossQuantity: 4,
+      netQuantity: 4,
+      salesAmount: 400,
+    }]);
+
+    const payout = await call(
+      "/api/reports/cyberbiz/manual/payout?source=imported&startDate=2026-08-02&endDate=2026-08-02",
+      manager,
+      "manager-list@ecotech.tw",
+    );
+    expect(payout.status).toBe(200);
+    expect(await payout.json()).toMatchObject({
+      page: 1,
+      pageSize: 25,
+      total: 1,
+      rows: [{ scopeId, businessDate: "2026-08-02", payoutAmount: 2300, source: "imported" }],
+    });
+
+    const sales = await call(
+      "/api/reports/cyberbiz/manual/sales?search=IMPORTED-1&source=imported",
+      manager,
+      "manager-list@ecotech.tw",
+    );
+    expect(sales.status).toBe(200);
+    expect(await sales.json()).toMatchObject({
+      total: 1,
+      rows: [{ sku: "IMPORTED-1", productName: "匯入商品", source: "imported", skuSource: null }],
+    });
+  });
+
   it("summary 與 scope 清單由營運統計權限保護，且不回傳停用店", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     await insertReportPayoutDaily(db(), [{ scopeId: "cyberbiz:store:active", businessDate: "2026-08-01", payoutAmount: 2040 }]);
