@@ -7,6 +7,7 @@ export interface DialogProps {
   children: ReactNode;
   actions?: ReactNode;
   className?: string;
+  backdropClassName?: string;
   bodyClassName?: string;
   onClose?: () => void;
   closeDisabled?: boolean;
@@ -28,6 +29,7 @@ export function Dialog({
   children,
   actions,
   className = "",
+  backdropClassName = "",
   bodyClassName = "",
   onClose,
   closeDisabled = false,
@@ -38,6 +40,7 @@ export function Dialog({
 }: DialogProps) {
   const titleId = `dialog-title-${useId().replace(/:/g, "")}`;
   const cardClassName = ["modal-card", className].filter(Boolean).join(" ");
+  const backdropClassNameValue = ["modal-backdrop", backdropClassName].filter(Boolean).join(" ");
   const bodyClassNameValue = ["modal-body", bodyClassName].filter(Boolean).join(" ");
   const content = (
     <>
@@ -48,7 +51,7 @@ export function Dialog({
 
   return (
     <div
-      className="modal-backdrop"
+      className={backdropClassNameValue}
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && onClose && !closeDisabled) onClose();

@@ -83,7 +83,7 @@ export async function parseSalesReport(filePath, {
     error.code = "RANGE_MISMATCH";
     throw error;
   }
-  if (range.end.slice(0, 7) !== detectedMonth) throw new Error("銷售總表不能跨月份。");
+  if (range.start > range.end) throw new Error("銷售總表日期起日不可晚於迄日。");
   if (reportMonth && reportMonth !== detectedMonth) {
     const error = new Error(`檔案月份 ${detectedMonth} 與指定月份 ${reportMonth} 不一致。`);
     error.code = "RANGE_MISMATCH";

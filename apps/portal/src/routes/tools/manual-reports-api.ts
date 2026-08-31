@@ -1,6 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export type ManualReportKind = "payout" | "sales";
+export type ManualRecordSource = "imported" | "manual";
+export type ManualSourceFilter = "all" | ManualRecordSource;
 export type ManualSkuSource = "custom" | "cyberbiz";
 
 export interface ManualScopeOption {
@@ -8,10 +10,15 @@ export interface ManualScopeOption {
   name: string;
 }
 
+export interface ManualManagementScope extends ManualScopeOption {
+  active: boolean;
+}
+
 export interface ManualProductOption {
   sku: string;
   name: string;
   published: boolean;
+  aliases?: string[];
 }
 
 export interface ManualOptionsResponse {
@@ -21,6 +28,7 @@ export interface ManualOptionsResponse {
 
 export interface ManualPayoutRow {
   id: string;
+  source: ManualRecordSource;
   scopeId: string;
   scopeName: string;
   businessDate: string;
@@ -33,10 +41,11 @@ export interface ManualPayoutRow {
 
 export interface ManualSalesRow {
   id: string;
+  source: ManualRecordSource;
   scopeId: string;
   scopeName: string;
   reportMonth: string;
-  skuSource: ManualSkuSource;
+  skuSource: ManualSkuSource | null;
   sku: string;
   productName: string;
   category: string;
@@ -69,6 +78,90 @@ export interface ManualSalesInput {
   salesAmount: number;
 }
 
+export interface ManualPayoutQuery {
+  page: number;
+  pageSize: number;
+  search: string;
+  scopeId: string;
+  source: ManualSourceFilter;
+  startDate: string;
+  endDate: string;
+  sortField: "scope" | "businessDate" | "payoutAmount" | "updatedAt";
+  sortDirection: "asc" | "desc";
+}
+
+export interface ManualSalesQuery {
+  page: number;
+  pageSize: number;
+  search: string;
+  scopeId: string;
+  source: ManualSourceFilter;
+  startMonth: string;
+  endMonth: string;
+  sortField: "scope" | "reportMonth" | "sku" | "productName" | "netQuantity" | "salesAmount" | "updatedAt";
+  sortDirection: "asc" | "desc";
+}
+
+export interface ManualPayoutPage {
+  rows: ManualPayoutRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ManualSalesPage {
+  rows: ManualSalesRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ManualPayoutImportInput {
+  scopeId?: string;
+  scopeName: string;
+  rows: Array<{ businessDate: string; payoutAmount: number }>;
+}
+
+export interface ManualPayoutImportResult {
+  scopeId: string;
+  scopeName: string;
+  dayCount: number;
+  total: number;
+  coverageStart: string;
+  coverageEnd: string;
+}
+
+export interface ManualSalesImportRow {
+  sku: string;
+  productName: string;
+  category: string;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+  salesAmount: number;
+}
+
+export interface ManualSalesImportInput {
+  scopeId?: string;
+  scopeName: string;
+  reportMonth: string;
+  rows: ManualSalesImportRow[];
+}
+
+export interface ManualSalesImportResult {
+  scopeId: string;
+  scopeName: string;
+  reportMonth: string;
+  rowCount: number;
+  skippedSkus?: string[];
+  totals: Omit<ManualSalesImportRow, "sku" | "productName" | "category">;
+}
+
+export interface ManualScopeInput {
+  name: string;
+  active?: boolean;
+}
+
 export class ManualReportApiError extends Error {
   readonly status: number;
 
@@ -88,7 +181,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const errorBody = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
     throw new ManualReportApiError(
       response.status,
-      errorBody?.message ?? errorBody?.error ?? `報表人工修訂操作失敗（${response.status}）。`,
+      errorBody?.message ?? errorBody?.error ?? `報表管理操作失敗（${response.status}）。`,
     );
   }
   return (await response.json()) as T;
@@ -120,19 +213,90 @@ export function useManualReportOptions(enabled = true) {
   });
 }
 
-export function useManualPayouts(enabled = true) {
+function listQuery(params: URLSearchParams, query: {
+  page: number;
+  pageSize: number;
+  search: string;
+  scopeId: string;
+  source: ManualSourceFilter;
+  sortField: string;
+  sortDirection: "asc" | "desc";
+}) {
+  params.set("page", String(query.page));
+  params.set("pageSize", String(query.pageSize));
+  if (query.search) params.set("search", query.search);
+  if (query.scopeId) params.set("scopeId", query.scopeId);
+  if (query.source !== "all") params.set("source", query.source);
+  params.set("sortField", query.sortField);
+  params.set("sortDirection", query.sortDirection);
+}
+
+export function useManualReportScopes(enabled = true) {
   return useQuery({
     enabled,
-    queryKey: ["reports", "manual", "payout"],
-    queryFn: () => request<{ rows: ManualPayoutRow[] }>("/api/reports/cyberbiz/manual/payout"),
+    queryKey: ["reports", "manual", "scopes"],
+    queryFn: () => request<{ scopes: ManualManagementScope[] }>("/api/reports/cyberbiz/manual/scopes"),
   });
 }
 
-export function useManualSales(enabled = true) {
+export function useCreateManualScope() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ManualScopeInput) => write<{ scope: ManualManagementScope }>("/api/reports/cyberbiz/manual/scopes", "POST", input),
+    onSuccess: () => invalidateManualQueries(client),
+  });
+}
+
+export function useUpdateManualScope() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ManualScopeInput & { id: string }) => write<{ scope: ManualManagementScope }>(
+      `/api/reports/cyberbiz/manual/scopes/${encodeURIComponent(input.id)}`,
+      "PATCH",
+      input,
+    ),
+    onSuccess: () => invalidateManualQueries(client),
+  });
+}
+
+export function useDeleteManualScope() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => write<{ scope: ManualManagementScope }>(
+      `/api/reports/cyberbiz/manual/scopes/${encodeURIComponent(id)}`,
+      "DELETE",
+    ),
+    onSuccess: () => invalidateManualQueries(client),
+  });
+}
+
+export function useManualPayouts(query: ManualPayoutQuery, enabled = true) {
   return useQuery({
     enabled,
-    queryKey: ["reports", "manual", "sales"],
-    queryFn: () => request<{ rows: ManualSalesRow[] }>("/api/reports/cyberbiz/manual/sales"),
+    queryKey: ["reports", "manual", "payout", query],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      listQuery(params, query);
+      if (query.startDate) params.set("startDate", query.startDate);
+      if (query.endDate) params.set("endDate", query.endDate);
+      return request<ManualPayoutPage>(`/api/reports/cyberbiz/manual/payout?${params}`);
+    },
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useManualSales(query: ManualSalesQuery, enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: ["reports", "manual", "sales", query],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      listQuery(params, query);
+      if (query.startMonth) params.set("startMonth", query.startMonth);
+      if (query.endMonth) params.set("endMonth", query.endMonth);
+      return request<ManualSalesPage>(`/api/reports/cyberbiz/manual/sales?${params}`);
+    },
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -159,9 +323,10 @@ export function useUpdateManualPayout() {
 export function useDeleteManualPayout() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => write<{ ok: true }>(
-      `/api/reports/cyberbiz/manual/payout/${encodeURIComponent(id)}`,
+    mutationFn: (row: Pick<ManualPayoutRow, "id" | "source" | "scopeId" | "businessDate">) => write<{ ok: true }>(
+      "/api/reports/cyberbiz/manual/payout/record",
       "DELETE",
+      row,
     ),
     onSuccess: () => invalidateManualQueries(client),
   });
@@ -190,9 +355,34 @@ export function useUpdateManualSales() {
 export function useDeleteManualSales() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => write<{ ok: true }>(
-      `/api/reports/cyberbiz/manual/sales/${encodeURIComponent(id)}`,
+    mutationFn: (row: Pick<ManualSalesRow, "id" | "source" | "scopeId" | "reportMonth" | "sku">) => write<{ ok: true }>(
+      "/api/reports/cyberbiz/manual/sales/record",
       "DELETE",
+      row,
+    ),
+    onSuccess: () => invalidateManualQueries(client),
+  });
+}
+
+export function useImportManualPayout() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ManualPayoutImportInput) => write<ManualPayoutImportResult>(
+      "/api/reports/cyberbiz/manual/import/payout",
+      "POST",
+      input,
+    ),
+    onSuccess: () => invalidateManualQueries(client),
+  });
+}
+
+export function useImportManualSales() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ManualSalesImportInput) => write<ManualSalesImportResult>(
+      "/api/reports/cyberbiz/manual/import/sales",
+      "POST",
+      input,
     ),
     onSuccess: () => invalidateManualQueries(client),
   });

@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
-import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
-import { ManualCyberbizSalesPanel } from "./ManualCyberbizSales.js";
 import {
   parseStores,
   useCyberbizSalesState,
@@ -26,7 +24,6 @@ function monthRange(value: string): { start: string; end: string } | null {
 
 export function CyberbizSales() {
   usePageTitle("商品銷售報表執行");
-  const { permissions } = useSession();
   const state = useCyberbizSalesState();
   const run = useRunCyberbizSales();
   const [month, setMonth] = useState("");
@@ -159,8 +156,6 @@ export function CyberbizSales() {
           artifactNote="執行完成的 xlsx 與報告會保留在這次 GitHub Actions 的 Artifacts。"
         />
       ) : null}
-
-      <ManualCyberbizSalesPanel canWrite={permissions.has("tools:cyberbiz-sales:run")} />
 
       <Panel title="最近執行">
         <div className="table-scroll">

@@ -132,13 +132,6 @@ export function PayoutSettings() {
     <div className="page">
       <PageHeader
         title="店別與報表設定"
-        description={
-          <>
-          這裡決定出金表與 CYBERBIZ 商品銷售報表執行頁看得到哪幾家店，以及檔案要上傳到哪個 Drive 資料夾。
-          <b>店名必須與 CYBERBIZ 後台的 POS 商店完全一致</b>，driver 靠它找店。
-          「顯示於執行頁」切換後立即生效；店名與 Drive 設定在離開欄位時自動儲存，並一併同步帳務 repo 的 <code>stores.json</code>。
-          </>
-        }
       />
 
       <Panel>

@@ -304,29 +304,41 @@ export async function findReportScope(
 export async function insertReportSalesMonthly(
   db: Database,
   rows: readonly NewReportSalesMonthly[],
-  target?: { scopeId: string; reportMonth: string },
+  target?: { scopeId: string; reportMonth: string; replaceExisting?: boolean },
 ): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
-  const months = new Map<string, { scopeId: string; reportMonth: string; rows: NewReportSalesMonthly[] }>();
-  const month = (scopeId: string, reportMonth: string) => {
+  const months = new Map<string, {
+    scopeId: string;
+    reportMonth: string;
+    rows: NewReportSalesMonthly[];
+    replaceExisting: boolean;
+  }>();
+  const month = (scopeId: string, reportMonth: string, replaceExisting = true) => {
     const key = `${reportMonth}\u0000${scopeId}`;
     const existing = months.get(key);
-    if (existing) return existing;
-    const created = { scopeId, reportMonth, rows: [] as NewReportSalesMonthly[] };
+    if (existing) {
+      // 同一批次若由 target 補上一個空月份，target 的 merge 設定也要套用到既有 rows。
+      if (!replaceExisting) existing.replaceExisting = false;
+      return existing;
+    }
+    const created = { scopeId, reportMonth, rows: [] as NewReportSalesMonthly[], replaceExisting };
     months.set(key, created);
     return created;
   };
   for (const row of rows) month(row.scopeId, row.reportMonth).rows.push(row);
-  if (target) month(target.scopeId, target.reportMonth);
+  if (target) month(target.scopeId, target.reportMonth, target.replaceExisting ?? true);
 
-  // 每月一組：該月的 delete 與它自己的 insert 綁在一起，一組不跨 db.batch()。batch 是
+  // replace 模式每月一組：該月的 delete 與它自己的 insert 綁在一起，一組不跨 db.batch()。batch 是
   // 一個 transaction，把組切開的話中途失敗會留下「刪掉了但沒寫回去」的空洞。一組本身就超過上限時讓它獨佔一批。
   const groups: Statement[][] = [];
   for (const entry of months.values()) {
-    const group: Statement[] = [db.delete(reportSalesMonthly).where(and(
-      eq(reportSalesMonthly.scopeId, entry.scopeId),
-      eq(reportSalesMonthly.reportMonth, entry.reportMonth),
-    ))];
+    const group: Statement[] = [];
+    if (entry.replaceExisting) {
+      group.push(db.delete(reportSalesMonthly).where(and(
+        eq(reportSalesMonthly.scopeId, entry.scopeId),
+        eq(reportSalesMonthly.reportMonth, entry.reportMonth),
+      )));
+    }
     for (const chunk of chunks(entry.rows, 8)) {
       if (!chunk.length) continue;
       group.push(db.insert(reportSalesMonthly).values(chunk).onConflictDoUpdate({

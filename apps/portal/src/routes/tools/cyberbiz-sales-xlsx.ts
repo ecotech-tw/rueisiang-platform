@@ -31,6 +31,7 @@ export interface ManualSalesCatalogProduct {
   sku: string;
   name: string;
   published: boolean;
+  aliases?: string[];
 }
 
 export interface ManualSalesPreview {
@@ -71,16 +72,7 @@ function readDateRange(sheet: Sheet): { start: string; end: string } {
   if (!start || !end) {
     throw new Error(`找不到商品銷售總表的日期區間：${header || "空白"}`);
   }
-  if (start > end || start.slice(0, 7) !== end.slice(0, 7)) {
-    throw new Error("商品銷售總表不能跨月份，請上傳單一完整月份的檔案。");
-  }
-  const month = start.slice(0, 7);
-  const [year, monthNumber] = month.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year ?? 0, monthNumber ?? 0, 0)).getUTCDate();
-  const expectedEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
-  if (start !== `${month}-01` || end !== expectedEnd) {
-    throw new Error("手動匯入商品銷售必須使用完整月份的檔案（從 1 號到月底）。");
-  }
+  if (start > end) throw new Error("商品銷售總表日期起日不可晚於迄日。");
   return { start, end };
 }
 
@@ -358,6 +350,9 @@ function productNameKeys(value: string): string[] {
   if (parenthesized) {
     const [, base, variant] = parenthesized;
     if (base && variant) {
+      // 舊版報表有時只帶商品主名稱，目錄則會把唯一規格附在括號裡。
+      // 精確商品名稱會在 resolver 的 exact map 優先處理，不會被這個衍生 alias 干擾。
+      aliases.add(base);
       aliases.add(`${base} - ${variant}`);
       aliases.add(`${base}-${variant}`);
     }
@@ -372,12 +367,18 @@ export function resolveManualSalesPreview(
 ): ManualSalesPreview {
   if (preview.format !== "legacy-net-quantity") return preview;
 
-  const byName = new Map<string, ManualSalesCatalogProduct[]>();
+  const exactByName = new Map<string, ManualSalesCatalogProduct[]>();
+  const byAlias = new Map<string, ManualSalesCatalogProduct[]>();
+  const addCandidate = (map: Map<string, ManualSalesCatalogProduct[]>, key: string, product: ManualSalesCatalogProduct) => {
+    const list = map.get(key) ?? [];
+    if (!list.some((candidate) => candidate.sku === product.sku)) list.push(product);
+    map.set(key, list);
+  };
   for (const product of products) {
-    for (const key of productNameKeys(product.name)) {
-      const list = byName.get(key) ?? [];
-      if (!list.some((candidate) => candidate.sku === product.sku)) list.push(product);
-      byName.set(key, list);
+    const exactKey = productNameKey(product.name);
+    if (exactKey) addCandidate(exactByName, exactKey, product);
+    for (const name of [product.name, ...(product.aliases ?? [])]) {
+      for (const key of productNameKeys(name)) addCandidate(byAlias, key, product);
     }
   }
 
@@ -388,9 +389,15 @@ export function resolveManualSalesPreview(
     if (manualSku) {
       return manualSku === row.sku ? row : { ...row, sku: manualSku };
     }
+    const exactCandidates = exactByName.get(productNameKey(row.productName)) ?? [];
+    if (exactCandidates.length === 1) return { ...row, sku: exactCandidates[0]!.sku };
+    if (exactCandidates.length > 1) {
+      if (row.netQuantity !== 0) unresolved.add(row.productName);
+      return row;
+    }
     const candidates = [...new Map(
       productNameKeys(row.productName)
-        .flatMap((key) => byName.get(key) ?? [])
+        .flatMap((key) => byAlias.get(key) ?? [])
         .map((product) => [product.sku, product] as const),
     ).values()];
     if (candidates.length === 1) return { ...row, sku: candidates[0]!.sku };

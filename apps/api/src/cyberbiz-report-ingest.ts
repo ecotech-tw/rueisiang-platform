@@ -21,6 +21,8 @@ export interface CyberbizReportIngestInput {
   rows?: unknown[];
   /** 商品銷售以整月快照匯入；出金仍由 rows 內的 businessDate 決定。 */
   reportMonth?: string;
+  /** 人工匯入的非完整月份只更新檔案內 SKU，保留同月未列出的既有資料。 */
+  salesWriteMode?: "replace" | "merge";
   salesRows?: unknown[];
   payoutRows?: unknown[];
 }
@@ -84,6 +86,14 @@ function readInput(value: unknown): CyberbizReportIngestInput {
     && (value.kind === "sales_and_payout" || (value.rows as unknown[]).length === 0)) {
     throw new CyberbizReportIngestError(422, "invalid_ingest");
   }
+  const salesWriteMode = value.salesWriteMode === undefined ? "replace" : value.salesWriteMode;
+  if ((value.kind === "sales" || value.kind === "sales_and_payout")
+    && salesWriteMode !== "replace" && salesWriteMode !== "merge") {
+    throw new CyberbizReportIngestError(422, "invalid_ingest");
+  }
+  if (value.kind === "payout" && value.salesWriteMode !== undefined) {
+    throw new CyberbizReportIngestError(422, "invalid_ingest");
+  }
   if (value.coveredDates !== undefined) throw new CyberbizReportIngestError(422, "invalid_ingest");
   return {
     kind: value.kind as CyberbizReportIngestKind,
@@ -95,6 +105,9 @@ function readInput(value: unknown): CyberbizReportIngestInput {
     ...((value.kind === "sales" || value.kind === "sales_and_payout") && value.reportMonth !== undefined
       ? { reportMonth: month(value.reportMonth) }
       : {}),
+    ...((value.kind === "sales" || value.kind === "sales_and_payout") && salesWriteMode === "merge"
+      ? { salesWriteMode: "merge" as const }
+      : {}),
   };
 }
 
@@ -105,6 +118,20 @@ interface ParsedSalesRow {
   returnQuantity: number;
   netQuantity: number;
   salesAmount: number;
+}
+
+function salesTotals(rows: ReadonlyArray<Pick<ParsedSalesRow, "grossQuantity" | "returnQuantity" | "netQuantity" | "salesAmount">>) {
+  return rows.reduce((totals, row) => ({
+    grossQuantity: totals.grossQuantity + row.grossQuantity,
+    returnQuantity: totals.returnQuantity + row.returnQuantity,
+    netQuantity: totals.netQuantity + row.netQuantity,
+    salesAmount: totals.salesAmount + row.salesAmount,
+  }), {
+    grossQuantity: 0,
+    returnQuantity: 0,
+    netQuantity: 0,
+    salesAmount: 0,
+  });
 }
 
 function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
@@ -270,6 +297,13 @@ export function createCyberbizReportIngestor(db: Database) {
       payoutRowCount?: number;
       /** 對不到對應而被略過的外部 SKU；補好對應重跑同一個月就會補回來。 */
       skippedSkus?: string[];
+      /** 實際完成 SKU mapping 後寫入報表的銷售合計。 */
+      salesTotals?: {
+        grossQuantity: number;
+        returnQuantity: number;
+        netQuantity: number;
+        salesAmount: number;
+      };
     }> {
       const input = readInput(value);
       const sourceChannel = reportChannel(input.scopeId);
@@ -305,7 +339,11 @@ export function createCyberbizReportIngestor(db: Database) {
         await insertReportPayoutDaily(db, payout);
         const sales = await normalizeSalesRows(db, salesInput, sourceChannel, parsedSales);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
-          ? { scopeId: scope.id, reportMonth: input.reportMonth }
+          ? {
+            scopeId: scope.id,
+            reportMonth: input.reportMonth,
+            replaceExisting: input.salesWriteMode !== "merge",
+          }
           : undefined);
         return {
           kind: input.kind,
@@ -314,18 +352,24 @@ export function createCyberbizReportIngestor(db: Database) {
           salesRowCount: sales.rows.length,
           payoutRowCount: payout.length,
           skippedSkus: sales.skippedSkus,
+          salesTotals: salesTotals(sales.rows),
         };
       }
       if (input.kind === "sales") {
         const sales = await normalizeSalesRows(db, scopedInput, sourceChannel);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
-          ? { scopeId: scope.id, reportMonth: input.reportMonth }
+          ? {
+            scopeId: scope.id,
+            reportMonth: input.reportMonth,
+            replaceExisting: input.salesWriteMode !== "merge",
+          }
           : undefined);
         return {
           kind: input.kind,
           scopeId: scope.id,
           rowCount: sales.rows.length,
           skippedSkus: sales.skippedSkus,
+          salesTotals: salesTotals(sales.rows),
         };
       }
       const rows = payoutRows(scopedInput);
