@@ -9,6 +9,7 @@ import {
 } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Switch } from "../../shell/Switch.js";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Alert, Button, PageHeader, Panel, TextField } from "../../ui/index.js";
 
 type Draft = PayoutStoreDraft & { clientKey: string };
@@ -34,6 +35,7 @@ export function PayoutSettings() {
   const [shopeeUrl, setShopeeUrl] = useState("");
   const [shopeeName, setShopeeName] = useState("");
   const [shopeeLoaded, setShopeeLoaded] = useState(false);
+  const [deleting, setDeleting] = useState<{ draft: Draft; index: number } | null>(null);
 
   useEffect(() => {
     draftsRef.current = drafts;
@@ -100,9 +102,8 @@ export function PayoutSettings() {
     });
   }
 
-  function removeStore(index: number) {
-    const draft = drafts[index];
-    if (!draft) return;
+  function removeStore(target: { draft: Draft; index: number }) {
+    const { draft, index } = target;
     setDrafts((current) => current.filter((candidate) => candidate.clientKey !== draft.clientKey));
     if (!draft.id) return;
 
@@ -157,7 +158,6 @@ export function PayoutSettings() {
           >
             ＋ 新增一家
           </Button>
-          <span className="form-hint">店名與 Drive 設定離開欄位後自動儲存；顯示開關立即生效。</span>
           {storeBusy ? <span className="form-hint">自動儲存中…</span> : null}
           {!storeBusy && (saveStore.isSuccess || deleteStore.isSuccess) ? (
             <span className="form-hint">已自動儲存。</span>
@@ -227,7 +227,7 @@ export function PayoutSettings() {
                         className="danger"
                         icon="trash"
                         disabled={storeBusy}
-                        onClick={() => removeStore(index)}
+                        onClick={() => setDeleting({ draft: store, index })}
                         title={`移除 ${store.name || "這一列"}，刪除後執行頁就看不到`}
                         aria-label={`移除 ${store.name || `第 ${index + 1} 列`}`}
                       />
@@ -243,6 +243,23 @@ export function PayoutSettings() {
           <p className="muted table-note">目前一家店都沒有，執行頁會是空的。</p>
         ) : null}
       </Panel>
+
+      {deleting ? (
+        <ConfirmDialog
+          title={`刪除「${deleting.draft.name || "這家店"}」？`}
+          confirmLabel="刪除店別"
+          pending={deleteStore.isPending}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => {
+            const target = deleting;
+            setDeleting(null);
+            removeStore(target);
+          }}
+        >
+          <p><strong>{deleting.draft.name || "這家店"}</strong> 的店別設定會從平台移除，兩個報表執行頁也不再顯示。</p>
+          <p className="muted">已經匯入報表的歷史資料不會被刪除。</p>
+        </ConfirmDialog>
+      ) : null}
 
       <Panel>
         <h2>蝦皮報表設定</h2>
