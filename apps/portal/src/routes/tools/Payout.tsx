@@ -118,7 +118,6 @@ export function Payout() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>通路</th>
                 <th>
                   <label className="table-select-all">
                     <span>選取</span>
@@ -132,6 +131,7 @@ export function Payout() {
                     />
                   </label>
                 </th>
+                <th>通路</th>
                 <th>Drive 資料夾</th>
                 <th />
               </tr>
@@ -139,8 +139,7 @@ export function Payout() {
             <tbody>
               {stores.map((store) => (
                 <tr key={store.name}>
-                  <td className="cell-strong">{store.name}</td>
-                  <td data-label="選取">
+                  <td className="store-selection-cell" data-label="選取">
                     <input
                       className="table-checkbox"
                       type="checkbox"
@@ -150,6 +149,7 @@ export function Payout() {
                       aria-label={`選取 ${store.name}`}
                     />
                   </td>
+                  <td className="cell-strong store-name-cell">{store.name}</td>
                   <td className="cell-sub">
                     {store.folderUrl ? (
                       <a

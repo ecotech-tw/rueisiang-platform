@@ -172,6 +172,22 @@ export function useSavePayoutStores() {
   });
 }
 
+/** 店別顯示開關直接生效；完整店別設定仍由 useSavePayoutStores 處理。 */
+export function useTogglePayoutStore() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; enabled: boolean }) =>
+      call<{ store: PayoutStore }>(`/api/tools/payout/stores/${input.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: input.enabled }),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["tools", "payout"] });
+      void client.invalidateQueries({ queryKey: ["tools", "cyberbiz-sales"] });
+    },
+  });
+}
+
 /** 執行紀錄裡的店別是 JSON 字串；壞掉的資料不該讓整列炸掉。 */
 export function parseStores(value: string): string[] {
   try {

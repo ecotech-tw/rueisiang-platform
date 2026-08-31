@@ -4,12 +4,14 @@ import {
   useSavePayoutStores,
   useSaveShopeeSalesSettings,
   useShopeeSalesSettings,
+  useTogglePayoutStore,
   type PayoutStore,
 } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Switch } from "../../shell/Switch.js";
 import { Alert, Button, PageHeader, Panel, TextField } from "../../ui/index.js";
 
-type Draft = Omit<PayoutStore, "id">;
+type Draft = Omit<PayoutStore, "id"> & { id?: string };
 
 /**
  * 營運工具的店別與報表設定。
@@ -25,6 +27,7 @@ export function PayoutSettings() {
   usePageTitle("店別與報表設定");
   const query = usePayoutStores();
   const save = useSavePayoutStores();
+  const toggleStore = useTogglePayoutStore();
   const shopeeQuery = useShopeeSalesSettings();
   const saveShopee = useSaveShopeeSalesSettings();
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -35,7 +38,7 @@ export function PayoutSettings() {
 
   useEffect(() => {
     if (!query.data || loaded) return;
-    setDrafts(query.data.stores.map(({ id: _id, ...rest }) => rest));
+    setDrafts(query.data.stores);
     setLoaded(true);
   }, [query.data, loaded]);
 
@@ -48,6 +51,17 @@ export function PayoutSettings() {
 
   function update(index: number, patch: Partial<Draft>) {
     setDrafts((current) => current.map((store, i) => (i === index ? { ...store, ...patch } : store)));
+  }
+
+  function toggleEnabled(index: number, enabled: boolean) {
+    const store = drafts[index];
+    if (!store) return;
+    update(index, { enabled });
+    // 新增但尚未儲存的店別還沒有資料庫 id，先改草稿，按儲存時再一起建立。
+    if (!store.id) return;
+    toggleStore.mutate({ id: store.id, enabled }, {
+      onError: () => update(index, { enabled: !enabled }),
+    });
   }
 
   if (query.isPending || shopeeQuery.isPending) return <div className="boot">載入中…</div>;
@@ -63,7 +77,7 @@ export function PayoutSettings() {
           <>
           這裡決定出金表與 CYBERBIZ 商品銷售報表執行頁看得到哪幾家店，以及檔案要上傳到哪個 Drive 資料夾。
           <b>店名必須與 CYBERBIZ 後台的 POS 商店完全一致</b>，driver 靠它找店。
-          關閉「顯示於執行頁」後，該店會同時從兩個報表執行頁隱藏；切換後請按儲存設定。
+          「顯示於執行頁」切換後立即生效；店名與 Drive 設定仍請按儲存設定。
           儲存時會一併 commit 回帳務 repo 的 <code>stores.json</code>。
           </>
         }
@@ -74,7 +88,10 @@ export function PayoutSettings() {
           <Button
             loading={save.isPending}
             disabled={!drafts.length}
-            onClick={() => save.mutate(drafts)}
+            onClick={() => save.mutate(
+              drafts.map(({ id: _id, ...store }) => store),
+              { onSuccess: (data) => setDrafts(data.stores) },
+            )}
             loadingLabel="儲存中…"
           >
             儲存設定
@@ -99,6 +116,7 @@ export function PayoutSettings() {
         </div>
 
         {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
+        {toggleStore.error ? <Alert tone="danger">{toggleStore.error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -140,16 +158,15 @@ export function PayoutSettings() {
                     />
                   </td>
                   <td data-label="顯示於執行頁">
-                    <label className="report-store-toggle">
-                      <input
-                        className="table-checkbox"
-                        type="checkbox"
+                    <div className="report-store-toggle">
+                      <Switch
                         checked={store.enabled}
-                        onChange={(event) => update(index, { enabled: event.target.checked })}
-                        aria-label={`${store.name || `第 ${index + 1} 家店`}顯示於出金表與商品銷售報表執行頁`}
+                        busy={toggleStore.isPending}
+                        onChange={(enabled) => toggleEnabled(index, enabled)}
+                        label={`${store.name || `第 ${index + 1} 家店`}顯示於出金表與商品銷售報表執行頁`}
                       />
                       <span>{store.enabled ? "顯示" : "隱藏"}</span>
-                    </label>
+                    </div>
                   </td>
                   <td>
                     <div className="row-actions">

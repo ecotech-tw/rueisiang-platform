@@ -45,6 +45,18 @@ export async function listPayoutStores(
     .orderBy(payoutStores.sortOrder, payoutStores.name);
 }
 
+/** 只切換平台上的顯示狀態；runner 的 stores.json 不需要跟著改。 */
+export async function updatePayoutStoreEnabled(
+  db: Database,
+  input: { id: string; enabled: boolean },
+): Promise<PayoutStore | null> {
+  await db.update(payoutStores)
+    .set({ enabled: input.enabled, updatedAt: new Date().toISOString() })
+    .where(eq(payoutStores.id, input.id));
+  const [store] = await db.select().from(payoutStores).where(eq(payoutStores.id, input.id)).limit(1);
+  return store ?? null;
+}
+
 /**
  * 表是空的才寫入預設店別，已經有資料就完全不動。
  *

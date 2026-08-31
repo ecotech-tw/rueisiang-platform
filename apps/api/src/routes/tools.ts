@@ -16,6 +16,7 @@ import {
   recordPayoutRun,
   replacePayoutStores,
   upsertReportScope,
+  updatePayoutStoreEnabled,
   type PayoutStoreInput,
   type ProductBundleComponentInput,
 } from "@rueisiang/db";
@@ -391,6 +392,20 @@ export const tools = new Hono<AppEnv>()
   /** 設定頁。讀要 config 權限——能改的人才需要看到 Drive 連結。 */
   .get("/payout/stores", requirePermission("tools:payout:config"), async (c) => {
     return c.json({ stores: await listPayoutStores(c.get("db")) });
+  })
+
+  /** 顯示開關直接生效；不碰 runner 的 stores.json，也不要求重新儲存整份店別設定。 */
+  .patch("/payout/stores/:id", requirePermission("tools:payout:config"), async (c) => {
+    const input = await body(c);
+    if (typeof input.enabled !== "boolean") {
+      throw new HTTPException(400, { message: "店別顯示開關必須是布林值。" });
+    }
+    const store = await updatePayoutStoreEnabled(c.get("db"), {
+      id: c.req.param("id"),
+      enabled: input.enabled,
+    });
+    if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
+    return c.json({ store });
   })
 
   /**
