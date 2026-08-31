@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { Icon } from "../../../shell/icons.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
 import { Alert, PageHeader } from "../../../ui/index.js";
 import { PayoutTab } from "./PayoutTab.js";
+import { SalesTab } from "./SalesTab.js";
 import { useReportScopes } from "./api.js";
 
 function pad(value: number): string {
@@ -29,7 +30,7 @@ function currentMonth(): string {
   return monthValue(nowInTaipei());
 }
 
-function periodOptions(): Array<{ value: string; label: string }> {
+function periodOptions(latestSalesPeriod?: string | null): Array<{ value: string; label: string }> {
   const now = nowInTaipei();
   const month = monthValue(now);
   const year = String(now.getUTCFullYear());
@@ -45,6 +46,9 @@ function periodOptions(): Array<{ value: string; label: string }> {
   for (let offset = 1; offset <= 2; offset += 1) {
     const value = String(now.getUTCFullYear() - offset);
     options.push({ value, label: `${value} 年` });
+  }
+  if (latestSalesPeriod && !options.some((option) => option.value === latestSalesPeriod)) {
+    options.unshift({ value: latestSalesPeriod, label: `最新資料（${latestSalesPeriod}）` });
   }
   return options;
 }
@@ -66,15 +70,23 @@ export function Analytics() {
   const [params, setParams] = useSearchParams();
   const scopes = useReportScopes();
   const defaultMonth = currentMonth();
-  const period = params.get("period") ?? defaultMonth;
+  const periodParam = params.get("period");
   const startDate = params.get("startDate") ?? "";
   const endDate = params.get("endDate") ?? "";
   const custom = Boolean(startDate || endDate);
   const selectedScope = params.get("scopeId") ?? "";
   const scopeType: "company" | "store" = selectedScope ? "store" : "company";
   const tab = params.get("tab") === "sales" ? "sales" : "payout";
+  const selectedScopeOption = scopes.data?.scopes.find((scope) => scope.id === selectedScope);
+  const latestSalesPeriod = tab === "sales"
+    ? selectedScope
+      ? selectedScopeOption?.latestSalesPeriod ?? null
+      : scopes.data?.latestSalesPeriod ?? null
+    : null;
+  const period = periodParam ?? (tab === "sales" ? latestSalesPeriod ?? defaultMonth : defaultMonth);
   const dateError = custom && startDate && endDate && startDate > endDate;
-  const ready = !custom || Boolean(startDate && endDate && !dateError);
+  const salesPeriodPending = tab === "sales" && !custom && !periodParam && scopes.isPending;
+  const ready = (!custom || Boolean(startDate && endDate && !dateError)) && !salesPeriodPending;
   const query = custom
     ? {
       scopeType,
@@ -90,7 +102,17 @@ export function Analytics() {
   const scopeLabel = selectedScope
     ? scopes.data?.scopes.find((scope) => scope.id === selectedScope)?.name ?? "指定店別"
     : "公司整體";
-  const options = useMemo(() => periodOptions(), []);
+  const options = useMemo(
+    () => periodOptions(latestSalesPeriod),
+    [latestSalesPeriod],
+  );
+
+  useEffect(() => {
+    if (tab !== "sales" || custom || periodParam || salesPeriodPending || !scopes.data) return;
+    const nextPeriod = latestSalesPeriod ?? defaultMonth;
+    if (params.get("period") === nextPeriod) return;
+    setParams(updateParams(params, { period: nextPeriod }), { replace: true });
+  }, [custom, defaultMonth, latestSalesPeriod, params, periodParam, salesPeriodPending, scopes.data, setParams, tab]);
 
   function setFilter(changes: Record<string, string | null>) {
     setParams(updateParams(params, changes), { replace: true });
@@ -191,13 +213,10 @@ export function Analytics() {
       <div className="analytics-body" role="tabpanel">
         {tab === "payout" ? (
           <PayoutTab query={query} scopeLabel={scopeLabel} enabled={ready} />
+        ) : salesPeriodPending ? (
+          <div className="boot">尋找最近已匯入的商品銷售月份…</div>
         ) : (
-          <section className="panel analytics-coming-soon">
-            <span className="analytics-coming-soon-icon"><Icon name="analytics" /></span>
-            <h2>商品銷售統計</h2>
-            <p>商品銷售的分類、Top SKU 與通路比較會使用同一組期間篩選條件。</p>
-            <p className="muted">目前先提供出金趨勢與店別比較。</p>
-          </section>
+          <SalesTab query={query} scopeLabel={scopeLabel} enabled={ready} />
         )}
       </div>
     </div>

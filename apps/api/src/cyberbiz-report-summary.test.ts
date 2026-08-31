@@ -2,6 +2,7 @@ import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import {
   createDatabase,
   insertReportPayoutDaily,
+  insertReportSalesMonthly,
   syncSystemRoles,
   upsertReportScope,
 } from "@rueisiang/db";
@@ -69,10 +70,17 @@ describe("報表統計 API", () => {
   it("summary 與 scope 清單由營運統計權限保護，且不回傳停用店", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     await insertReportPayoutDaily(db(), [{ scopeId: "cyberbiz:store:active", businessDate: "2026-08-01", payoutAmount: 2040 }]);
+    await insertReportSalesMonthly(db(), [
+      { scopeId: "cyberbiz:store:active", reportMonth: "2026-07", sku: "SKU-1", grossQuantity: 1, netQuantity: 1, salesAmount: 100 },
+      { scopeId: "cyberbiz:store:active", reportMonth: "2026-08", sku: "SKU-1", grossQuantity: 2, netQuantity: 2, salesAmount: 200 },
+    ]);
 
     const scopes = await call("/api/reports/cyberbiz/scopes", admin, "admin@ecotech.tw");
     expect(scopes.status).toBe(200);
-    expect(await scopes.json()).toEqual({ scopes: [{ id: "cyberbiz:store:active", name: "啟用店" }] });
+    expect(await scopes.json()).toEqual({
+      latestSalesPeriod: "2026-08",
+      scopes: [{ id: "cyberbiz:store:active", name: "啟用店", latestSalesPeriod: "2026-08" }],
+    });
 
     const summary = await call("/api/reports/cyberbiz/summary/payout?period=2026-08", admin, "admin@ecotech.tw");
     expect(summary.status).toBe(200);

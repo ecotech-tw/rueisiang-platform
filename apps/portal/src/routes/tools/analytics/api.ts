@@ -3,6 +3,12 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 export interface ReportScopeOption {
   id: string;
   name: string;
+  latestSalesPeriod: string | null;
+}
+
+export interface ReportScopesResponse {
+  latestSalesPeriod: string | null;
+  scopes: ReportScopeOption[];
 }
 
 export type AnalyticsGranularity = "day" | "month" | "year";
@@ -50,12 +56,72 @@ export interface PayoutSummary {
   message?: string;
 }
 
+export type SalesTopSkuMetric = "salesAmount" | "netQuantity";
+
+export interface SalesBreakdown {
+  scopeId: string;
+  scopeName: string;
+  channel: string;
+  value: number;
+  share: number;
+  yoy: number | null;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+}
+
+export interface SalesCategoryBreakdown {
+  category: string;
+  value: number;
+  share: number;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+}
+
+export interface SalesSkuBreakdown {
+  sku: string;
+  productName: string;
+  value: number;
+  salesAmount: number;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+  share: number;
+  isOther?: boolean;
+}
+
+export interface SalesSummary {
+  status: "ok" | "NO_DATA_FOR_RANGE" | "UNSUPPORTED_GRANULARITY";
+  period: string;
+  granularity: AnalyticsGranularity;
+  complete: boolean;
+  asOfDate?: string;
+  current: AnalyticsRange;
+  trend: AnalyticsRange | null;
+  previous: AnalyticsRange | null;
+  lastYear: AnalyticsRange | null;
+  growth: ReportGrowth;
+  salesAmount: number;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+  returnRate: number | null;
+  skuCount: number;
+  breakdown: SalesBreakdown[];
+  byCategory: SalesCategoryBreakdown[];
+  byTopSku: SalesSkuBreakdown[];
+  topSkuBy: SalesTopSkuMetric;
+  message?: string;
+}
+
 export interface AnalyticsQuery {
   scopeType: "company" | "store";
   scopeId?: string;
   period?: string;
   startDate?: string;
   endDate?: string;
+  topSkuBy?: SalesTopSkuMetric;
 }
 
 export class ReportApiError extends Error {
@@ -83,13 +149,14 @@ function queryString(query: AnalyticsQuery): string {
   if (query.period) params.set("period", query.period);
   if (query.startDate) params.set("startDate", query.startDate);
   if (query.endDate) params.set("endDate", query.endDate);
+  if (query.topSkuBy) params.set("topSkuBy", query.topSkuBy);
   return params.toString();
 }
 
 export function useReportScopes() {
   return useQuery({
     queryKey: ["reports", "analytics", "scopes"],
-    queryFn: () => call<{ scopes: ReportScopeOption[] }>("/api/reports/cyberbiz/scopes"),
+    queryFn: () => call<ReportScopesResponse>("/api/reports/cyberbiz/scopes"),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -99,6 +166,16 @@ export function usePayoutSummary(query: AnalyticsQuery, enabled: boolean) {
     enabled,
     queryKey: ["reports", "analytics", "summary", "payout", query],
     queryFn: () => call<PayoutSummary>(`/api/reports/cyberbiz/summary/payout?${queryString(query)}`),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useSalesSummary(query: AnalyticsQuery, topSkuBy: SalesTopSkuMetric, enabled: boolean) {
+  const requestQuery = { ...query, topSkuBy };
+  return useQuery({
+    enabled,
+    queryKey: ["reports", "analytics", "summary", "sales", query, topSkuBy],
+    queryFn: () => call<SalesSummary>(`/api/reports/cyberbiz/summary/sales?${queryString(requestQuery)}`),
     placeholderData: keepPreviousData,
   });
 }
