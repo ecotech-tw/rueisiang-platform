@@ -41,6 +41,8 @@ export interface ReportSalesQuery {
   sku?: string;
   category?: string;
   productName?: string;
+  /** 以商品名稱模糊搜尋，或以系統 SKU 精確搜尋。 */
+  productQuery?: string;
 }
 
 export interface ReportPayoutQuery {
@@ -429,6 +431,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
   const groups = selectedGroups(query.groupBy?.length ? query.groupBy : ["sku"]);
   const dimensions = groups.map((group) => SALES_GROUPS[group]);
   const requestedSku = query.sku?.trim();
+  const productQuery = query.productQuery?.trim();
   // 這次查詢涵蓋的通路；legacy 一律納入，那是還沒標通路的舊 mapping。
   const aliasChannels = [...new Set([...ids.map(reportScopeChannel), "legacy"])];
   const legacyAlias = requestedSku ? legacyShopeeExternalSku(requestedSku) : "";
@@ -480,6 +483,10 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
     )`] : []),
     ...(query.category ? [sql`lower(${reportSalesMonthly.category}) = lower(${query.category})`] : []),
     ...(query.productName ? [sql`lower(${reportSalesMonthly.productName}) LIKE lower(${`%${query.productName}%`})`] : []),
+    ...(productQuery ? [sql`(
+      lower(${reportSalesMonthly.productName}) LIKE lower(${`%${productQuery}%`})
+      OR lower(${reportSalesMonthly.sku}) = lower(${productQuery})
+    )`] : []),
   ];
   const selected = [
     ...dimensions.map((item) => sql`${item.expression} AS ${sql.raw(item.alias)}`),

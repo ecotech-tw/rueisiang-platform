@@ -58,8 +58,8 @@ export interface Env {
   CYBERBIZ_WEBHOOK_SECRET?: string;
 
   /*
-   * Upstash Redis。快取 CYBERBIZ 的商品目錄，讓「CYBERBIZ 庫存」那一頁不必每次
-   * 都去翻幾十頁 API。沿用舊 WMS 的同一個實例——它走的是 REST，Worker 直接打得到。
+   * Upstash Redis。快取 CYBERBIZ 商品目錄與報表查詢結果，讓庫存頁不必每次翻 API，
+   * 營運統計也不必重算相同條件。沿用舊 WMS 的同一個實例——它走 REST，Worker 直接打得到。
    *
    * 沒設定時只是變慢：那一頁改成直接問官網，其他功能完全不受影響。
    */

@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { Button, Dialog } from "../../../../ui/index.js";
 
 export interface ChartTooltipEntry {
   name?: string;
@@ -12,9 +13,10 @@ export interface ChartTooltipProps {
   label?: unknown;
   payload?: readonly ChartTooltipEntry[];
   valueFormatter: (value: number) => string;
+  valueMeta?: (entry: ChartTooltipEntry) => ReactNode;
 }
 
-export function AnalyticsTooltip({ active, label, payload, valueFormatter }: ChartTooltipProps) {
+export function AnalyticsTooltip({ active, label, payload, valueFormatter, valueMeta }: ChartTooltipProps) {
   if (!active || !payload?.length) return null;
   const entries = payload.filter((entry) => entry.value !== undefined && entry.value !== null);
   if (!entries.length) return null;
@@ -27,7 +29,10 @@ export function AnalyticsTooltip({ active, label, payload, valueFormatter }: Cha
             <i style={{ background: entry.color ?? "var(--color-brand)" }} />
             {entry.name ?? "數值"}
           </span>
-          <b>{valueFormatter(Number(entry.value))}</b>
+          <b>
+            {valueFormatter(Number(entry.value))}
+            {valueMeta?.(entry) ? <span className="analytics-tooltip-meta">{valueMeta(entry)}</span> : null}
+          </b>
         </div>
       ))}
     </div>
@@ -40,17 +45,59 @@ export interface ChartLegendEntry {
   dataKey?: string;
 }
 
-export function AnalyticsLegend({ payload }: { payload?: readonly ChartLegendEntry[] }): ReactNode {
+export interface AnalyticsLegendProps {
+  payload?: readonly ChartLegendEntry[];
+  formatValue?: (value: string, entry: ChartLegendEntry) => ReactNode;
+}
+
+export function AnalyticsLegend({ payload, formatValue }: AnalyticsLegendProps): ReactNode {
   if (!payload?.length) return null;
   return (
     <div className="analytics-legend">
-      {payload.map((entry) => (
-        <span key={`${entry.dataKey ?? entry.value ?? "series"}`}>
+      {payload.map((entry, index) => (
+        <span key={`${entry.dataKey ?? entry.value ?? "series"}-${entry.value ?? ""}-${index}`}>
           <i style={{ background: entry.color ?? "var(--color-brand)" }} />
-          {entry.value ?? entry.dataKey}
+          {formatValue?.(entry.value ?? entry.dataKey ?? "", entry) ?? entry.value ?? entry.dataKey}
         </span>
       ))}
     </div>
+  );
+}
+
+export interface AnalyticsDataDialogProps {
+  title: ReactNode;
+  description?: ReactNode;
+  children: ReactNode;
+  disabled?: boolean;
+}
+
+/** 圖表的明細表統一收進 dialog，避免表格高度把瀑布流卡片撐出大片空白。 */
+export function AnalyticsDataDialog({ title, description, children, disabled = false }: AnalyticsDataDialogProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button
+        variant="secondary"
+        icon="list"
+        className="analytics-data-trigger"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+      >
+        查看資料表
+      </Button>
+      {open ? (
+        <Dialog
+          title={title}
+          titleMeta={description}
+          className="wide analytics-data-dialog"
+          bodyClassName="analytics-data-dialog-body"
+          onClose={() => setOpen(false)}
+        >
+          <div className="table-scroll analytics-data-dialog-table">{children}</div>
+        </Dialog>
+      ) : null}
+    </>
   );
 }
 

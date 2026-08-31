@@ -76,6 +76,7 @@ export interface SalesBreakdown {
   channel: string;
   value: number;
   share: number;
+  quantityShare: number;
   yoy: number | null;
   grossQuantity: number;
   returnQuantity: number;
@@ -86,6 +87,7 @@ export interface SalesCategoryBreakdown {
   category: string;
   value: number;
   share: number;
+  quantityShare: number;
   grossQuantity: number;
   returnQuantity: number;
   netQuantity: number;
@@ -100,6 +102,7 @@ export interface SalesSkuBreakdown {
   returnQuantity: number;
   netQuantity: number;
   share: number;
+  quantityShare: number;
   isOther?: boolean;
 }
 
@@ -113,7 +116,12 @@ export interface SalesSummary {
   trend: AnalyticsRange | null;
   previous: AnalyticsRange | null;
   lastYear: AnalyticsRange | null;
+  currentQuantity: AnalyticsRange;
+  trendQuantity: AnalyticsRange | null;
+  previousQuantity: AnalyticsRange | null;
+  lastYearQuantity: AnalyticsRange | null;
   growth: ReportGrowth;
+  quantityGrowth: ReportGrowth;
   salesAmount: number;
   grossQuantity: number;
   returnQuantity: number;
@@ -133,6 +141,7 @@ export interface AnalyticsQuery {
   period?: string;
   startDate?: string;
   endDate?: string;
+  productQuery?: string;
   topSkuBy?: SalesTopSkuMetric;
 }
 
@@ -176,6 +185,7 @@ function queryString(query: AnalyticsQuery, groupBy?: string): string {
   if (query.period) params.set("period", query.period);
   if (query.startDate) params.set("startDate", query.startDate);
   if (query.endDate) params.set("endDate", query.endDate);
+  if (query.productQuery) params.set("product", query.productQuery);
   if (query.topSkuBy) params.set("topSkuBy", query.topSkuBy);
   if (groupBy) params.set("groupBy", groupBy);
   return params.toString();

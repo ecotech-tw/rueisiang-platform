@@ -13,6 +13,8 @@ import {
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { createCyberbizReportService, CyberbizReportQueryError } from "../cyberbiz-reports.js";
+import { cachedReportAnalytics } from "../report-cache.js";
+import { cacheClient } from "../upstash.js";
 
 function queryValue(c: { req: { query(name: string): string | undefined } }, name: string): string | undefined {
   const value = c.req.query(name)?.trim();
@@ -23,6 +25,15 @@ function groupBy(c: { req: { query(name: string): string | undefined } }): Repor
   const value = queryValue(c, "groupBy");
   if (!value) return undefined;
   return value.split(",").map((item) => item.trim()) as ReportGroupBy[];
+}
+
+function analyticsCacheKey(c: { req: { url: string } }, resource: string): string {
+  const url = new URL(c.req.url);
+  const entries = [...url.searchParams.entries()].sort(([leftName, leftValue], [rightName, rightValue]) => (
+    leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue)
+  ));
+  const query = entries.map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join("&");
+  return query ? `${resource}?${query}` : resource;
 }
 
 function topSkuBy(c: { req: { query(name: string): string | undefined } }): "salesAmount" | "netQuantity" | undefined {
@@ -50,6 +61,7 @@ function commonQuery(c: { req: { query(name: string): string | undefined } }) {
     scopeType: scopeType as ReportScopeKind,
     ...(scopeId ? { scopeId } : {}),
     ...(scopeName ? { scopeName } : {}),
+    ...(queryValue(c, "product") ? { productQuery: queryValue(c, "product") } : {}),
     ...(groups ? { groupBy: groups } : {}),
   };
 }
@@ -100,20 +112,29 @@ async function updatePayout(
 export const cyberbizReports = new Hono<AppEnv>()
   .use("*", requireAuth)
   .get("/scopes", requirePermission("reports:analytics:read"), async (c) => {
-    const scopes = await listReportScopes(c.get("db"), "store");
-    const latest = await latestReportSalesPeriods(c.get("db"), scopes.map((scope) => scope.id));
-    return c.json({
-      latestSalesPeriod: latest.latestPeriod,
-      scopes: scopes.map((scope) => ({
-        id: scope.id,
-        name: scope.name,
-        latestSalesPeriod: latest.byScope[scope.id] ?? null,
-      })),
+    const result = await cachedReportAnalytics(cacheClient(c.env), "scopes", async () => {
+      const scopes = await listReportScopes(c.get("db"), "store");
+      const latest = await latestReportSalesPeriods(c.get("db"), scopes.map((scope) => scope.id));
+      return {
+        latestSalesPeriod: latest.latestPeriod,
+        scopes: scopes.map((scope) => ({
+          id: scope.id,
+          name: scope.name,
+          latestSalesPeriod: latest.byScope[scope.id] ?? null,
+        })),
+      };
     });
+    return c.json(result);
   })
   .get("/summary/payout", requirePermission("reports:analytics:read"), async (c) => {
     try {
-      return c.json(await createCyberbizReportService(c.get("db")).queryPayoutSummary(commonQuery(c)));
+      const query = commonQuery(c);
+      const result = await cachedReportAnalytics(
+        cacheClient(c.env),
+        analyticsCacheKey(c, "summary:payout"),
+        () => createCyberbizReportService(c.get("db")).queryPayoutSummary(query),
+      );
+      return c.json(result);
     } catch (error) {
       handleError(error);
     }
@@ -131,29 +152,47 @@ export const cyberbizReports = new Hono<AppEnv>()
   .get("/summary/sales", requirePermission("reports:analytics:read"), async (c) => {
     try {
       const selectedTopSkuBy = topSkuBy(c);
-      return c.json(await createCyberbizReportService(c.get("db")).querySalesSummary({
+      const query = {
         ...commonQuery(c),
         ...(selectedTopSkuBy ? { topSkuBy: selectedTopSkuBy } : {}),
-      }));
+      };
+      const result = await cachedReportAnalytics(
+        cacheClient(c.env),
+        analyticsCacheKey(c, "summary:sales"),
+        () => createCyberbizReportService(c.get("db")).querySalesSummary(query),
+      );
+      return c.json(result);
     } catch (error) {
       handleError(error);
     }
   })
   .get("/sales", requirePermission("reports:cyberbiz:read"), async (c) => {
     try {
-      return c.json(await createCyberbizReportService(c.get("db")).querySales({
+      const query = {
         ...commonQuery(c),
         ...(queryValue(c, "sku") ? { sku: queryValue(c, "sku") } : {}),
         ...(queryValue(c, "category") ? { category: queryValue(c, "category") } : {}),
         ...(queryValue(c, "productName") ? { productName: queryValue(c, "productName") } : {}),
-      }));
+      };
+      const result = await cachedReportAnalytics(
+        cacheClient(c.env),
+        analyticsCacheKey(c, "sales"),
+        () => createCyberbizReportService(c.get("db")).querySales(query),
+      );
+      return c.json(result);
     } catch (error) {
       handleError(error);
     }
   })
   .get("/payout", requirePermission("reports:cyberbiz:read"), async (c) => {
     try {
-      return c.json(await createCyberbizReportService(c.get("db")).queryPayout(commonQuery(c)));
+      const query = commonQuery(c);
+      const result = await cachedReportAnalytics(
+        cacheClient(c.env),
+        analyticsCacheKey(c, "payout"),
+        () => createCyberbizReportService(c.get("db")).queryPayout(query),
+      );
+      return c.json(result);
     } catch (error) {
       handleError(error);
     }

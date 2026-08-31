@@ -1,8 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Icon } from "../../../shell/icons.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
-import { Alert, PageHeader } from "../../../ui/index.js";
+import { Alert, Button, PageHeader } from "../../../ui/index.js";
 import { PayoutTab } from "./PayoutTab.js";
 import { SalesTab } from "./SalesTab.js";
 import { useReportScopes } from "./api.js";
@@ -73,6 +73,8 @@ export function Analytics() {
   const periodParam = params.get("period");
   const startDate = params.get("startDate") ?? "";
   const endDate = params.get("endDate") ?? "";
+  const productParam = params.get("product") ?? "";
+  const [productDraft, setProductDraft] = useState(productParam);
   const custom = Boolean(startDate || endDate);
   const selectedScope = params.get("scopeId") ?? "";
   const scopeType: "company" | "store" = selectedScope ? "store" : "company";
@@ -93,11 +95,13 @@ export function Analytics() {
       ...(selectedScope ? { scopeId: selectedScope } : {}),
       ...(startDate ? { startDate } : {}),
       ...(endDate ? { endDate } : {}),
+      ...(tab === "sales" && productParam ? { productQuery: productParam } : {}),
     }
     : {
       scopeType,
       ...(selectedScope ? { scopeId: selectedScope } : {}),
       period,
+      ...(tab === "sales" && productParam ? { productQuery: productParam } : {}),
     };
   const scopeLabel = selectedScope
     ? scopes.data?.scopes.find((scope) => scope.id === selectedScope)?.name ?? "指定店別"
@@ -114,23 +118,59 @@ export function Analytics() {
     setParams(updateParams(params, { period: nextPeriod }), { replace: true });
   }, [custom, defaultMonth, latestSalesPeriod, params, periodParam, salesPeriodPending, scopes.data, setParams, tab]);
 
+  useEffect(() => {
+    setProductDraft(productParam);
+  }, [productParam]);
+
+  useEffect(() => {
+    if (tab !== "sales" || productDraft.trim() === productParam.trim()) return;
+    const timeoutId = window.setTimeout(() => {
+      setParams((current) => updateParams(current, { product: productDraft.trim() || null }), { replace: true });
+    }, 500);
+    return () => window.clearTimeout(timeoutId);
+  }, [productDraft, productParam, setParams, tab]);
+
   function setFilter(changes: Record<string, string | null>) {
     setParams(updateParams(params, changes), { replace: true });
   }
 
+  function applyProductFilter() {
+    setFilter({ product: productDraft.trim() || null });
+  }
+
   return (
-    <div className="page fills analytics-page">
+    <div className="page analytics-page">
       <PageHeader
         title="營運統計"
-        description="把出金資料整理成一眼能比較的趨勢，先看整體，再下鑽到單一店別。"
+        description="比較商品銷量、通路與出金表現；先看整體，再下鑽到單一店別或商品。"
       />
 
       <section className="panel analytics-filters" aria-label="報表篩選條件">
         <div className="analytics-filter-heading">
           <span className="analytics-filter-icon"><Icon name="calendar" /></span>
           <div>
-            <strong>查詢範圍</strong>
-            <p>只計入啟用中的店別；切換分頁時會保留這裡的條件。</p>
+            <strong>分析範圍</strong>
+            <p>選擇店別與期間；切換分析類型時會保留這裡的條件。</p>
+          </div>
+          <div className="analytics-tabs" role="tablist" aria-label="統計類型">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "payout"}
+              className={tab === "payout" ? "analytics-tab active" : "analytics-tab"}
+              onClick={() => setFilter({ tab: "payout" })}
+            >
+              出金
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "sales"}
+              className={tab === "sales" ? "analytics-tab active" : "analytics-tab"}
+              onClick={() => setFilter({ tab: "sales" })}
+            >
+              商品銷售
+            </button>
           </div>
         </div>
         <div className="analytics-filter-fields">
@@ -164,6 +204,26 @@ export function Analytics() {
               <option value="custom">自訂日期區間</option>
             </select>
           </label>
+          {tab === "sales" ? (
+            <div className="analytics-filter-field analytics-product-field">
+              <span>商品分析</span>
+              <div className="analytics-product-control">
+                <input
+                  value={productDraft}
+                  placeholder="商品名稱或 SKU"
+                  aria-label="商品名稱或 SKU"
+                  onChange={(event) => setProductDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      applyProductFilter();
+                    }
+                  }}
+                />
+                <Button variant="secondary" icon="search" onClick={applyProductFilter}>查看分析</Button>
+              </div>
+            </div>
+          ) : null}
           {custom ? (
             <>
               <label className="analytics-filter-field analytics-filter-date">
@@ -189,34 +249,19 @@ export function Analytics() {
         {scopes.error ? <Alert tone="danger">{scopes.error.message}</Alert> : null}
       </section>
 
-      <div className="analytics-tabs" role="tablist" aria-label="統計類型">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "payout"}
-          className={tab === "payout" ? "analytics-tab active" : "analytics-tab"}
-          onClick={() => setFilter({ tab: "payout" })}
-        >
-          出金
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "sales"}
-          className={tab === "sales" ? "analytics-tab active" : "analytics-tab"}
-          onClick={() => setFilter({ tab: "sales" })}
-        >
-          商品銷售
-        </button>
-      </div>
-
       <div className="analytics-body" role="tabpanel">
         {tab === "payout" ? (
           <PayoutTab query={query} scopeLabel={scopeLabel} enabled={ready} />
         ) : salesPeriodPending ? (
           <div className="boot">尋找最近已匯入的商品銷售月份…</div>
         ) : (
-          <SalesTab query={query} scopeLabel={scopeLabel} enabled={ready} />
+          <SalesTab
+            query={query}
+            scopeLabel={scopeLabel}
+            enabled={ready}
+            productQuery={productParam}
+            onClearProduct={() => setFilter({ product: null })}
+          />
         )}
       </div>
     </div>

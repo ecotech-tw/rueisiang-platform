@@ -17,6 +17,7 @@ export interface ReportAnalyticsQuery {
   scopeType: ReportScopeKind;
   scopeId?: string;
   scopeName?: string;
+  productQuery?: string;
   /** 只供測試固定「今天」；HTTP consumer 不需要傳這個值。 */
   today?: string;
   topSkuBy?: SalesTopSkuMetric;
@@ -80,6 +81,7 @@ export interface ReportSalesBreakdown {
   channel: string;
   value: number;
   share: number;
+  quantityShare: number;
   yoy: number | null;
   grossQuantity: number;
   returnQuantity: number;
@@ -90,6 +92,7 @@ export interface ReportSalesCategoryBreakdown {
   category: string;
   value: number;
   share: number;
+  quantityShare: number;
   grossQuantity: number;
   returnQuantity: number;
   netQuantity: number;
@@ -104,6 +107,7 @@ export interface ReportSalesSkuBreakdown {
   returnQuantity: number;
   netQuantity: number;
   share: number;
+  quantityShare: number;
   isOther?: boolean;
 }
 
@@ -117,7 +121,12 @@ export interface ReportSalesSummary {
   trend: ReportAnalyticsRange | null;
   previous: ReportAnalyticsRange | null;
   lastYear: ReportAnalyticsRange | null;
+  currentQuantity: ReportAnalyticsRange;
+  trendQuantity: ReportAnalyticsRange | null;
+  previousQuantity: ReportAnalyticsRange | null;
+  lastYearQuantity: ReportAnalyticsRange | null;
   growth: ReportGrowth;
+  quantityGrowth: ReportGrowth;
   salesAmount: number;
   grossQuantity: number;
   returnQuantity: number;
@@ -433,13 +442,20 @@ function payoutRange(range: ReportRange, rows: readonly ReportPayoutDay[] | null
   return rangeFromPoints(range, [...values].map(([key, value]) => ({ key, value })));
 }
 
-function salesRange(range: ReportRange, result: ReportSalesQueryResult | null, granularity: AnalyticsGranularity): ReportAnalyticsRange | null {
+type SalesRangeMetric = "salesAmount" | "netQuantity";
+
+function salesRange(
+  range: ReportRange,
+  result: ReportSalesQueryResult | null,
+  granularity: AnalyticsGranularity,
+  metric: SalesRangeMetric = "salesAmount",
+): ReportAnalyticsRange | null {
   const rows = salesMonths(result);
   if (!rows) return null;
   const values = new Map<string, number>();
   for (const row of rows) {
     const key = granularity === "year" ? row.month.slice(0, 4) : row.month;
-    values.set(key, (values.get(key) ?? 0) + row.salesAmount);
+    values.set(key, (values.get(key) ?? 0) + row[metric]);
   }
   return rangeFromPoints(range, [...values].map(([key, value]) => ({ key, value })));
 }
@@ -450,6 +466,7 @@ function reportQuery(query: ReportAnalyticsQuery, range: ReportRange) {
     scopeType: query.scopeType,
     ...(query.scopeId ? { scopeId: query.scopeId } : {}),
     ...(query.scopeName ? { scopeName: query.scopeName } : {}),
+    ...(query.productQuery ? { productQuery: query.productQuery } : {}),
   };
 }
 
@@ -568,6 +585,8 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
   const currentMetrics = salesMetrics(currentResult);
   const current = salesRangeFromResult(comparison.current, currentResult, salesGranularityOf(query.range))
     ?? rangeFromPoints(comparison.current, []);
+  const currentQuantity = salesRange(comparison.current, currentResult, salesGranularityOf(query.range), "netQuantity")
+    ?? rangeFromPoints(comparison.current, []);
   const previousResult = currentResult?.status === "UNSUPPORTED_GRANULARITY"
     ? null
     : await querySalesMonths(db, query, comparison.previous);
@@ -576,6 +595,8 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     : await querySalesMonths(db, query, comparison.lastYear);
   const previous = salesRangeFromResult(comparison.previous, previousResult, salesGranularityOf(query.range));
   const lastYear = salesRangeFromResult(comparison.lastYear, lastYearResult, salesGranularityOf(query.range));
+  const previousQuantity = salesRange(comparison.previous, previousResult, salesGranularityOf(query.range), "netQuantity");
+  const lastYearQuantity = salesRange(comparison.lastYear, lastYearResult, salesGranularityOf(query.range), "netQuantity");
 
   if (currentResult?.status === "UNSUPPORTED_GRANULARITY") {
     return {
@@ -588,7 +609,12 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
       trend: null,
       previous: null,
       lastYear: null,
+      currentQuantity,
+      trendQuantity: null,
+      previousQuantity: null,
+      lastYearQuantity: null,
       growth: { mom: null, yoy: null },
+      quantityGrowth: { mom: null, yoy: null },
       salesAmount: 0,
       grossQuantity: 0,
       returnQuantity: 0,
@@ -617,12 +643,13 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
       channel: reportScopeChannel(id),
       value,
       share: currentMetrics.salesAmount === 0 ? 0 : value / currentMetrics.salesAmount,
+      quantityShare: currentMetrics.netQuantity === 0 ? 0 : numberValue(row, "netQuantity") / currentMetrics.netQuantity,
       yoy: comparisonValue === undefined || comparisonValue === 0 ? null : (value - comparisonValue) / comparisonValue,
       grossQuantity: numberValue(row, "grossQuantity"),
       returnQuantity: numberValue(row, "returnQuantity"),
       netQuantity: numberValue(row, "netQuantity"),
     }];
-  }).sort((left, right) => right.value - left.value);
+  }).sort((left, right) => right.netQuantity - left.netQuantity);
 
   const categoryResult = await queryReportSales(db, { ...reportQuery(query, comparison.current), groupBy: ["category"] });
   const byCategory = (categoryResult?.rows ?? []).flatMap((row) => {
@@ -632,11 +659,12 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
       category,
       value,
       share: currentMetrics.salesAmount === 0 ? 0 : value / currentMetrics.salesAmount,
+      quantityShare: currentMetrics.netQuantity === 0 ? 0 : numberValue(row, "netQuantity") / currentMetrics.netQuantity,
       grossQuantity: numberValue(row, "grossQuantity"),
       returnQuantity: numberValue(row, "returnQuantity"),
       netQuantity: numberValue(row, "netQuantity"),
     }];
-  }).sort((left, right) => right.value - left.value);
+  }).sort((left, right) => right.netQuantity - left.netQuantity);
 
   const skuResult = await queryReportSales(db, { ...reportQuery(query, comparison.current), groupBy: ["sku"] });
   const skuRows = skuResult?.rows ?? [];
@@ -659,6 +687,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
       returnQuantity: numberValue(row, "returnQuantity"),
       netQuantity,
       share: currentMetrics.salesAmount === 0 ? 0 : salesAmount / currentMetrics.salesAmount,
+      quantityShare: currentMetrics.netQuantity === 0 ? 0 : netQuantity / currentMetrics.netQuantity,
     };
   });
   if (remainingSkuRows.length) {
@@ -674,6 +703,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
       value: topSkuBy === "salesAmount" ? other.salesAmount : other.netQuantity,
       ...other,
       share: currentMetrics.salesAmount === 0 ? 0 : other.salesAmount / currentMetrics.salesAmount,
+      quantityShare: currentMetrics.netQuantity === 0 ? 0 : other.netQuantity / currentMetrics.netQuantity,
       isOther: true,
     });
   }
@@ -694,8 +724,14 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
       ? salesRange(trendRange, trendResult, "month") ?? rangeFromPoints(trendRange, [])
       : current
     : null;
+  const trendQuantity = currentResult
+    ? trendRange
+      ? salesRange(trendRange, trendResult, "month", "netQuantity") ?? rangeFromPoints(trendRange, [])
+      : currentQuantity
+    : null;
+  const hasCurrentData = Boolean(currentResult?.rows.length);
   return {
-    status: currentResult ? "ok" : "NO_DATA_FOR_RANGE",
+    status: hasCurrentData ? "ok" : "NO_DATA_FOR_RANGE",
     period: query.range.period,
     granularity: salesGranularityOf(query.range),
     complete: comparison.complete,
@@ -704,9 +740,17 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     trend,
     previous,
     lastYear,
+    currentQuantity,
+    trendQuantity,
+    previousQuantity,
+    lastYearQuantity,
     growth: {
-      mom: currentResult ? calculateGrowth(currentMetrics.salesAmount, previous) : null,
-      yoy: currentResult ? calculateGrowth(currentMetrics.salesAmount, lastYear) : null,
+      mom: hasCurrentData ? calculateGrowth(currentMetrics.salesAmount, previous) : null,
+      yoy: hasCurrentData ? calculateGrowth(currentMetrics.salesAmount, lastYear) : null,
+    },
+    quantityGrowth: {
+      mom: hasCurrentData ? calculateGrowth(currentMetrics.netQuantity, previousQuantity) : null,
+      yoy: hasCurrentData ? calculateGrowth(currentMetrics.netQuantity, lastYearQuantity) : null,
     },
     salesAmount: currentMetrics.salesAmount,
     grossQuantity: currentMetrics.grossQuantity,
@@ -718,6 +762,8 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     byCategory,
     byTopSku: topSku,
     topSkuBy,
-    ...(currentResult ? {} : { message: "指定區間沒有已匯入的商品銷售資料。請到後台執行商品銷售報表下載作業。" }),
+    ...(hasCurrentData
+      ? {}
+      : { message: currentResult?.message ?? "指定區間沒有已匯入的商品銷售資料。請到後台執行商品銷售報表下載作業。" }),
   };
 }

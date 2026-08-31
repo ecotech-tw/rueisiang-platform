@@ -196,6 +196,7 @@ describe("商品銷售統計查詢", () => {
       returnRate: 0.5,
       skuCount: 11,
       current: { total: 10450, points: [{ key: "2026-07", value: 10450 }] },
+      currentQuantity: { total: 55, points: [{ key: "2026-07", value: 55 }] },
       trend: {
         start: "2025-07-01",
         end: "2026-07-31",
@@ -208,6 +209,7 @@ describe("商品銷售統計查詢", () => {
       previous: { total: 100 },
       lastYear: { total: 50 },
       growth: { mom: 103.5, yoy: 208 },
+      quantityGrowth: { mom: 54, yoy: 54 },
     });
     expect(result.byCategory).toHaveLength(2);
     expect(result.breakdown).toEqual([expect.objectContaining({ scopeId: WEST, channel: "cyberbiz", value: 10450, yoy: 208 })]);
@@ -235,6 +237,46 @@ describe("商品銷售統計查詢", () => {
     });
     expect(byQuantity.topSkuBy).toBe("netQuantity");
     expect(byQuantity.byTopSku[0]).toMatchObject({ sku: "SKU-00", value: 10 });
+
+    const byProduct = await queryReportSalesSummary(db(), {
+      range: parseReportRange("2026-07"),
+      scopeType: "company",
+      productQuery: "商品 0",
+      today: "2026-08-01",
+    });
+    expect(byProduct).toMatchObject({ skuCount: 1, netQuantity: 10, salesAmount: 1000 });
+    expect(byProduct.byTopSku).toEqual([expect.objectContaining({ sku: "SKU-00", productName: "商品 0" })]);
+
+    const missingProduct = await queryReportSalesSummary(db(), {
+      range: parseReportRange("2026-07"),
+      scopeType: "company",
+      productQuery: "不存在的商品",
+      today: "2026-08-01",
+    });
+    expect(missingProduct.status).toBe("NO_DATA_FOR_RANGE");
+
+    await insertReportSalesMonthly(db(), [{
+      scopeId: WEST,
+      reportMonth: "2026-06",
+      sku: "SKU-HISTORY",
+      productName: "只有歷史資料的商品",
+      category: "沐浴",
+      grossQuantity: 4,
+      returnQuantity: 0,
+      netQuantity: 4,
+      salesAmount: 400,
+    }]);
+    const noCurrentProduct = await queryReportSalesSummary(db(), {
+      range: parseReportRange("2026-07"),
+      scopeType: "company",
+      productQuery: "只有歷史資料的商品",
+      today: "2026-08-01",
+    });
+    expect(noCurrentProduct).toMatchObject({
+      status: "NO_DATA_FOR_RANGE",
+      growth: { mom: null, yoy: null },
+      quantityGrowth: { mom: null, yoy: null },
+    });
   });
 
   it("非完整月份區間回傳明確的不支援狀態", async () => {

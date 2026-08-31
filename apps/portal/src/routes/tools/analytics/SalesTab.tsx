@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Icon } from "../../../shell/icons.js";
-import { Alert, Panel } from "../../../ui/index.js";
+import { Alert, Button, Panel } from "../../../ui/index.js";
 import { CategoryBreakdownChart } from "./charts/CategoryBreakdownChart.js";
 import { ChannelBreakdownChart } from "./charts/ChannelBreakdownChart.js";
 import { SalesTrendChart } from "./charts/SalesTrendChart.js";
@@ -16,6 +16,8 @@ interface SalesTabProps {
   query: AnalyticsQuery;
   scopeLabel: string;
   enabled: boolean;
+  productQuery: string;
+  onClearProduct: () => void;
 }
 
 function formatCurrency(value: number): string {
@@ -63,8 +65,8 @@ function importerKeys(query: AnalyticsQuery): SalesImporterKey[] {
   return ["cyberbiz", "shopee"];
 }
 
-export function SalesTab({ query, scopeLabel, enabled }: SalesTabProps) {
-  const [topSkuBy, setTopSkuBy] = useState<SalesTopSkuMetric>("salesAmount");
+export function SalesTab({ query, scopeLabel, enabled, productQuery, onClearProduct }: SalesTabProps) {
+  const [topSkuBy, setTopSkuBy] = useState<SalesTopSkuMetric>("netQuantity");
   const result = useSalesSummary(query, topSkuBy, enabled);
 
   if (!enabled) return <Alert tone="warning">請先選擇有效的完整日期區間。</Alert>;
@@ -92,18 +94,20 @@ export function SalesTab({ query, scopeLabel, enabled }: SalesTabProps) {
     return (
       <Panel className="analytics-empty-panel">
         <span className="analytics-empty-icon"><Icon name="analytics" /></span>
-        <h2>{scopeLabel}在這段期間沒有商品銷售資料</h2>
+        <h2>{productQuery ? `找不到符合「${productQuery}」的商品銷售資料` : `${scopeLabel}在這段期間沒有商品銷售資料`}</h2>
         <p>{summary.message ?? "這段期間沒有已匯入的商品銷售資料。"}</p>
         <div className="analytics-empty-actions">
-          {importerKeys(query).map((key) => {
-            const importer = SALES_IMPORTERS[key];
-            return (
-              <a className="primary-button with-icon" href={importer.href} key={key}>
-                <Icon name={importer.icon} />
-                {importer.label}
-              </a>
-            );
-          })}
+          {productQuery ? (
+            <Button variant="secondary" icon="close" onClick={onClearProduct}>清除商品篩選</Button>
+          ) : importerKeys(query).map((key) => {
+              const importer = SALES_IMPORTERS[key];
+              return (
+                <a className="primary-button with-icon" href={importer.href} key={key}>
+                  <Icon name={importer.icon} />
+                  {importer.label}
+                </a>
+              );
+            })}
         </div>
       </Panel>
     );
@@ -117,6 +121,7 @@ export function SalesTab({ query, scopeLabel, enabled }: SalesTabProps) {
         <div>
           <p className="analytics-eyebrow">商品銷售脈動</p>
           <h2>{scopeLabel}</h2>
+          {productQuery ? <span className="analytics-product-pill">商品：{productQuery}</span> : null}
         </div>
         <div className="analytics-result-meta">
           {asOf ? <span className="analytics-as-of">{asOf}</span> : null}
@@ -126,26 +131,26 @@ export function SalesTab({ query, scopeLabel, enabled }: SalesTabProps) {
 
       <div className={`analytics-kpi-grid analytics-sales-kpi-grid${isAnnual ? " annual" : ""}`}>
         <article className="analytics-kpi analytics-kpi-primary">
-          <span>本期售額</span>
-          <strong>{formatCurrency(summary.salesAmount)}</strong>
-          <small>{summary.current.start} ～ {summary.current.end}</small>
+          <span>本期淨銷量</span>
+          <strong>{formatQuantity(summary.netQuantity)}</strong>
+          <small>毛銷量 {formatQuantity(summary.grossQuantity)}，退貨 {formatQuantity(summary.returnQuantity)}</small>
         </article>
         {!isAnnual ? (
           <article className="analytics-kpi">
-            <span>MoM</span>
-            <strong>{formatPercent(summary.growth.mom)}</strong>
-            <small title={growthHint("上期", summary.growth.mom, summary.previous)}>{growthHint("上期", summary.growth.mom, summary.previous)}</small>
+            <span>銷量 MoM</span>
+            <strong>{formatPercent(summary.quantityGrowth.mom)}</strong>
+            <small title={growthHint("上期淨銷量", summary.quantityGrowth.mom, summary.previousQuantity)}>{growthHint("上期淨銷量", summary.quantityGrowth.mom, summary.previousQuantity)}</small>
           </article>
         ) : null}
         <article className="analytics-kpi">
-          <span>YoY</span>
-          <strong>{formatPercent(summary.growth.yoy)}</strong>
-          <small title={growthHint("去年同期", summary.growth.yoy, summary.lastYear)}>{growthHint("去年同期", summary.growth.yoy, summary.lastYear)}</small>
+          <span>銷量 YoY</span>
+          <strong>{formatPercent(summary.quantityGrowth.yoy)}</strong>
+          <small title={growthHint("去年同期淨銷量", summary.quantityGrowth.yoy, summary.lastYearQuantity)}>{growthHint("去年同期淨銷量", summary.quantityGrowth.yoy, summary.lastYearQuantity)}</small>
         </article>
         <article className="analytics-kpi">
-          <span>淨銷量</span>
-          <strong>{formatQuantity(summary.netQuantity)}</strong>
-          <small>毛銷量 {formatQuantity(summary.grossQuantity)}，退貨 {formatQuantity(summary.returnQuantity)}</small>
+          <span>銷售額</span>
+          <strong>{formatCurrency(summary.salesAmount)}</strong>
+          <small>{summary.current.start} ～ {summary.current.end}，僅作參考</small>
         </article>
         <article className="analytics-kpi">
           <span>退貨率</span>
@@ -163,22 +168,26 @@ export function SalesTab({ query, scopeLabel, enabled }: SalesTabProps) {
 
       <div className="analytics-chart-grid analytics-sales-chart-grid">
         <SalesTrendChart
-          current={summary.current}
-          trend={summary.trend}
-          lastYear={summary.lastYear}
+          current={summary.currentQuantity}
+          trend={summary.trendQuantity}
+          lastYear={summary.lastYearQuantity}
           granularity={summary.granularity}
-          valueFormatter={formatCurrency}
+          valueFormatter={formatQuantity}
         />
-        <CategoryBreakdownChart breakdown={summary.byCategory} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
-        <TopSkuChart
-          rows={summary.byTopSku}
-          metric={topSkuBy}
-          loading={summary.topSkuBy !== topSkuBy}
-          onMetricChange={setTopSkuBy}
-          valueFormatter={formatCurrency}
-          quantityFormatter={formatQuantity}
-        />
-        <ChannelBreakdownChart breakdown={summary.breakdown} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
+        <div className="analytics-chart-column">
+          <CategoryBreakdownChart breakdown={summary.byCategory} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
+          <ChannelBreakdownChart breakdown={summary.breakdown} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
+        </div>
+        <div className="analytics-chart-column">
+          <TopSkuChart
+            rows={summary.byTopSku}
+            metric={topSkuBy}
+            loading={summary.topSkuBy !== topSkuBy}
+            onMetricChange={setTopSkuBy}
+            valueFormatter={formatCurrency}
+            quantityFormatter={formatQuantity}
+          />
+        </div>
       </div>
     </div>
   );

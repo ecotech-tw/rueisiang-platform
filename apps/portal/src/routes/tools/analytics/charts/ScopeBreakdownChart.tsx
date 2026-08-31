@@ -8,7 +8,7 @@ import {
   YAxis,
 } from "recharts";
 import { Panel } from "../../../../ui/index.js";
-import { AnalyticsTooltip } from "./ChartPrimitives.js";
+import { AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
 import type { PayoutBreakdown } from "../api.js";
 
 interface ScopeBreakdownChartProps {
@@ -32,22 +32,8 @@ export function ScopeBreakdownChart({ breakdown, valueFormatter }: ScopeBreakdow
     <Panel
       title="店別出金"
       description="依本期出金由大到小排列，佔比以本期總額計算。"
-      className="analytics-chart-panel analytics-scope-panel"
-    >
-      <div className="analytics-chart analytics-scope-chart" role="img" aria-label="店別出金比較圖">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
-            <CartesianGrid stroke="var(--color-soft-line)" horizontal={false} />
-            <XAxis type="number" tick={{ fill: "var(--color-muted)", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(value: number) => valueFormatter(value)} />
-            <YAxis type="category" dataKey="label" width={112} tick={{ fill: "var(--color-ink)", fontSize: 11 }} tickLine={false} axisLine={false} />
-            <Tooltip content={<AnalyticsTooltip valueFormatter={valueFormatter} />} cursor={{ fill: "var(--color-brand-soft)" }} />
-            <Bar dataKey="value" name="本期出金" fill="var(--color-brand)" radius={[0, 6, 6, 0]} maxBarSize={28} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-      <details className="analytics-data-details">
-        <summary>查看店別資料表</summary>
-        <div className="table-scroll">
+      actions={data.length ? (
+        <AnalyticsDataDialog title="店別出金資料" description="依本期出金由大到小排列，YoY 為相同店別比較。">
           <table className="data-table analytics-table">
             <thead><tr><th>店別</th><th>通路</th><th className="numeric">本期出金</th><th className="numeric">佔比</th><th className="numeric">YoY</th></tr></thead>
             <tbody>
@@ -62,8 +48,21 @@ export function ScopeBreakdownChart({ breakdown, valueFormatter }: ScopeBreakdow
               ))}
             </tbody>
           </table>
-        </div>
-      </details>
+        </AnalyticsDataDialog>
+      ) : null}
+      className="analytics-chart-panel analytics-scope-panel"
+    >
+      <div className="analytics-chart analytics-scope-chart" role="img" aria-label="店別出金比較圖">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
+            <CartesianGrid stroke="var(--color-soft-line)" horizontal={false} />
+            <XAxis type="number" tick={{ fill: "var(--color-muted)", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(value: number) => valueFormatter(value)} />
+            <YAxis type="category" dataKey="label" width={112} tick={{ fill: "var(--color-ink)", fontSize: 11 }} tickLine={false} axisLine={false} />
+            <Tooltip content={<AnalyticsTooltip valueFormatter={valueFormatter} />} cursor={{ fill: "var(--color-brand-soft)" }} />
+            <Bar dataKey="value" name="本期出金" fill="var(--color-brand)" radius={[0, 6, 6, 0]} maxBarSize={28} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
     </Panel>
   );
 }

@@ -1,15 +1,13 @@
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
   Cell,
+  Legend,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
-  XAxis,
-  YAxis,
 } from "recharts";
 import { Panel } from "../../../../ui/index.js";
-import { AnalyticsTooltip } from "./ChartPrimitives.js";
+import { AnalyticsDataDialog, AnalyticsLegend, AnalyticsTooltip, type ChartLegendEntry } from "./ChartPrimitives.js";
 import type { SalesCategoryBreakdown } from "../api.js";
 
 const TONES = ["rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand"] as const;
@@ -24,47 +22,83 @@ function formatPercent(value: number): string {
   return `${(value * 100).toLocaleString("zh-TW", { maximumFractionDigits: 1 })}%`;
 }
 
+function CategoryLegend({
+  payload,
+  breakdown,
+}: {
+  payload?: readonly ChartLegendEntry[];
+  breakdown: SalesCategoryBreakdown[];
+}) {
+  return (
+    <AnalyticsLegend
+      payload={payload}
+      formatValue={(value) => {
+        const row = breakdown.find((item) => item.category === value);
+        return <>{value} <b>{formatPercent(row?.quantityShare ?? 0)}</b></>;
+      }}
+    />
+  );
+}
+
 export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityFormatter }: CategoryBreakdownChartProps) {
-  const data = breakdown.map((row) => ({ ...row, label: row.category }));
+  const data = breakdown.map((row) => ({ ...row, label: row.category, quantity: row.netQuantity }));
   return (
     <Panel
-      title="分類佔比"
-      description="依本期售額由大到小排列，配色沿用既有分類色票。"
-      className="analytics-chart-panel analytics-category-panel"
-    >
-      {data.length ? (
-        <div className="analytics-chart analytics-category-chart" role="img" aria-label="商品分類售額佔比圖">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
-              <CartesianGrid stroke="var(--color-soft-line)" horizontal={false} />
-              <XAxis type="number" tick={{ fill: "var(--color-muted)", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(value: number) => valueFormatter(value)} />
-              <YAxis type="category" dataKey="label" width={92} tick={{ fill: "var(--color-ink)", fontSize: 11 }} tickLine={false} axisLine={false} />
-              <Tooltip content={<AnalyticsTooltip valueFormatter={valueFormatter} />} cursor={{ fill: "var(--color-brand-soft)" }} />
-              <Bar dataKey="value" name="售額" radius={[0, 6, 6, 0]} maxBarSize={28}>
-                {data.map((row, index) => <Cell key={row.category} fill={`var(--color-tone-${TONES[index % TONES.length]})`} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      ) : <p className="analytics-chart-empty">本期沒有分類資料。</p>}
-      <details className="analytics-data-details">
-        <summary>查看分類資料表</summary>
-        <div className="table-scroll">
+      title="分類銷量佔比"
+      description="以淨銷量呈現各分類的占比；銷售額放在資料表中作為參考。"
+      actions={data.length ? (
+        <AnalyticsDataDialog title="分類銷量資料" description="依本期淨銷量排序，銷售額僅作參考。">
           <table className="data-table analytics-table">
-            <thead><tr><th>分類</th><th className="numeric">售額</th><th className="numeric">佔比</th><th className="numeric">淨銷量</th></tr></thead>
+            <thead><tr><th>分類</th><th className="numeric">淨銷量</th><th className="numeric">銷量佔比</th><th className="numeric">售額（參考）</th></tr></thead>
             <tbody>
               {breakdown.map((row) => (
                 <tr key={row.category}>
                   <td data-label="分類" className="cell-strong">{row.category}</td>
-                  <td data-label="售額" className="numeric">{valueFormatter(row.value)}</td>
-                  <td data-label="佔比" className="numeric">{formatPercent(row.share)}</td>
                   <td data-label="淨銷量" className="numeric">{quantityFormatter(row.netQuantity)}</td>
+                  <td data-label="銷量佔比" className="numeric">{formatPercent(row.quantityShare)}</td>
+                  <td data-label="售額（參考）" className="numeric">{valueFormatter(row.value)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </AnalyticsDataDialog>
+      ) : null}
+      className="analytics-chart-panel analytics-category-panel"
+    >
+      {data.length ? (
+        <div className="analytics-chart analytics-category-chart" role="img" aria-label="商品分類淨銷量佔比圖">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data}
+                dataKey="quantity"
+                nameKey="label"
+                cx="50%"
+                cy="45%"
+                innerRadius="38%"
+                outerRadius="70%"
+                paddingAngle={2}
+                stroke="var(--color-paper)"
+                strokeWidth={2}
+              >
+                {data.map((row, index) => <Cell key={row.category} fill={`var(--color-tone-${TONES[index % TONES.length]})`} />)}
+              </Pie>
+              <Tooltip
+                content={(
+                  <AnalyticsTooltip
+                    valueFormatter={quantityFormatter}
+                    valueMeta={(entry) => {
+                      const row = breakdown.find((item) => item.category === entry.name);
+                      return row ? `（佔比 ${formatPercent(row.quantityShare)}）` : null;
+                    }}
+                  />
+                )}
+              />
+              <Legend content={<CategoryLegend breakdown={breakdown} />} />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
-      </details>
+      ) : <p className="analytics-chart-empty">本期沒有分類資料。</p>}
     </Panel>
   );
 }

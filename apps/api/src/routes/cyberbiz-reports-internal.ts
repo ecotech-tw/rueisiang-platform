@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../env.js";
 import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cyberbiz-report-ingest.js";
+import { forgetReportAnalytics } from "../report-cache.js";
+import { cacheClient } from "../upstash.js";
 
 const INGEST_TOKEN_HEADER = "x-cyberbiz-report-token";
 
@@ -35,5 +37,8 @@ export const cyberbizReportsInternal = new Hono<AppEnv>()
     } catch (error) {
       if (error instanceof CyberbizReportIngestError) return c.json({ error: error.code, message: error.message }, error.status);
       throw error;
+    } finally {
+      // ingest 可能已先寫入 scope 或部分批次後才失敗；成功與失敗都要清掉報表快取。
+      await forgetReportAnalytics(cacheClient(c.env));
     }
   });
