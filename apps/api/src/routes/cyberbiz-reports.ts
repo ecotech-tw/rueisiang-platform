@@ -24,7 +24,6 @@ import {
   updateReportManagementScope,
   updateReportPayoutDaily,
   normalizeExternalSku,
-  upsertReportScope,
   type Database,
   type ReportGroupBy,
   type ReportManualRecordSource,
@@ -252,7 +251,11 @@ function manualSalesInput(input: Record<string, unknown>): {
   };
 }
 
-function importScope(input: Record<string, unknown>): { scopeId: string; scopeName: string } {
+function importScope(input: Record<string, unknown>): {
+  scopeId: string;
+  scopeName: string;
+  scopeIdProvided: boolean;
+} {
   const scopeName = requireString(input, "scopeName", "據點名稱");
   const requestedScopeId = typeof input.scopeId === "string" ? input.scopeId.trim() : "";
   if (requestedScopeId && !isCompanyReportStoreScopeId(requestedScopeId)) {
@@ -261,7 +264,26 @@ function importScope(input: Record<string, unknown>): { scopeId: string; scopeNa
   return {
     scopeId: requestedScopeId || manualScopeIdFromStoreName(scopeName),
     scopeName,
+    scopeIdProvided: Boolean(requestedScopeId),
   };
+}
+
+async function resolveImportScope(
+  db: Database,
+  input: { scopeId: string; scopeName: string; scopeIdProvided: boolean },
+) {
+  if (input.scopeIdProvided) {
+    const existing = (await listReportManagementScopes(db)).find((scope) => scope.id === input.scopeId);
+    if (existing) {
+      if (!existing.active) {
+        throw new ReportManualError("invalid", "停用據點不可匯入報表，請先重新啟用。");
+      }
+      // 已選取既有據點時，以資料庫中的名稱為準，不讓匯入順便改名。
+      return existing;
+    }
+  }
+  // 新增據點統一走管理頁相同的重名檢查，避免匯入路徑拆出第二個同名 scope。
+  return createReportManagementScope(db, { id: input.scopeId, name: input.scopeName });
 }
 
 function safeImportTotal(current: number, next: number, label: string): number {
@@ -275,6 +297,7 @@ function safeImportTotal(current: number, next: number, label: string): number {
 function importPayoutInput(input: Record<string, unknown>): {
   scopeId: string;
   scopeName: string;
+  scopeIdProvided: boolean;
   rows: Array<{ scopeId: string; businessDate: string; payoutAmount: number }>;
 } {
   const scope = importScope(input);
@@ -313,6 +336,7 @@ interface ImportedSalesRow {
 function importSalesInput(input: Record<string, unknown>): {
   scopeId: string;
   scopeName: string;
+  scopeIdProvided: boolean;
   reportMonth: string;
   rows: ImportedSalesRow[];
 } {
@@ -531,7 +555,7 @@ export const cyberbizReports = new Hono<AppEnv>()
   .post("/manual/import/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
     try {
       const input = importPayoutInput(await body(c));
-      const scope = await upsertReportScope(c.get("db"), { id: input.scopeId, scopeKind: "store", name: input.scopeName });
+      const scope = await resolveImportScope(c.get("db"), input);
       await insertReportPayoutDaily(c.get("db"), input.rows);
       await forgetReportAnalytics(cacheClient(c.env));
       const dates = input.rows.map((row) => row.businessDate).sort();
@@ -550,7 +574,7 @@ export const cyberbizReports = new Hono<AppEnv>()
   .post("/manual/import/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
     try {
       const input = importSalesInput(await body(c));
-      const scope = await upsertReportScope(c.get("db"), { id: input.scopeId, scopeKind: "store", name: input.scopeName });
+      const scope = await resolveImportScope(c.get("db"), input);
       let result;
       try {
         result = await createCyberbizReportIngestor(c.get("db")).ingest({
@@ -559,6 +583,7 @@ export const cyberbizReports = new Hono<AppEnv>()
           scopeId: scope.id,
           scopeName: scope.name,
           reportMonth: input.reportMonth,
+          salesWriteMode: "merge",
           rows: input.rows,
         });
       } catch (error) {

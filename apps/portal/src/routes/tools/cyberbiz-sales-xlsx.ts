@@ -351,7 +351,7 @@ function productNameKeys(value: string): string[] {
     const [, base, variant] = parenthesized;
     if (base && variant) {
       // 舊版報表有時只帶商品主名稱，目錄則會把唯一規格附在括號裡。
-      // 先建立 base alias；若同一商品有多個規格，resolver 仍會因候選不唯一而要求人工確認。
+      // 精確商品名稱會在 resolver 的 exact map 優先處理，不會被這個衍生 alias 干擾。
       aliases.add(base);
       aliases.add(`${base} - ${variant}`);
       aliases.add(`${base}-${variant}`);
@@ -367,14 +367,18 @@ export function resolveManualSalesPreview(
 ): ManualSalesPreview {
   if (preview.format !== "legacy-net-quantity") return preview;
 
-  const byName = new Map<string, ManualSalesCatalogProduct[]>();
+  const exactByName = new Map<string, ManualSalesCatalogProduct[]>();
+  const byAlias = new Map<string, ManualSalesCatalogProduct[]>();
+  const addCandidate = (map: Map<string, ManualSalesCatalogProduct[]>, key: string, product: ManualSalesCatalogProduct) => {
+    const list = map.get(key) ?? [];
+    if (!list.some((candidate) => candidate.sku === product.sku)) list.push(product);
+    map.set(key, list);
+  };
   for (const product of products) {
+    const exactKey = productNameKey(product.name);
+    if (exactKey) addCandidate(exactByName, exactKey, product);
     for (const name of [product.name, ...(product.aliases ?? [])]) {
-      for (const key of productNameKeys(name)) {
-        const list = byName.get(key) ?? [];
-        if (!list.some((candidate) => candidate.sku === product.sku)) list.push(product);
-        byName.set(key, list);
-      }
+      for (const key of productNameKeys(name)) addCandidate(byAlias, key, product);
     }
   }
 
@@ -385,9 +389,15 @@ export function resolveManualSalesPreview(
     if (manualSku) {
       return manualSku === row.sku ? row : { ...row, sku: manualSku };
     }
+    const exactCandidates = exactByName.get(productNameKey(row.productName)) ?? [];
+    if (exactCandidates.length === 1) return { ...row, sku: exactCandidates[0]!.sku };
+    if (exactCandidates.length > 1) {
+      if (row.netQuantity !== 0) unresolved.add(row.productName);
+      return row;
+    }
     const candidates = [...new Map(
       productNameKeys(row.productName)
-        .flatMap((key) => byName.get(key) ?? [])
+        .flatMap((key) => byAlias.get(key) ?? [])
         .map((product) => [product.sku, product] as const),
     ).values()];
     if (candidates.length === 1) return { ...row, sku: candidates[0]!.sku };

@@ -477,6 +477,15 @@ describe("報表統計 API", () => {
       rows: [{ sku: "SKU-1", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 250 }],
     });
 
+    const duplicateScope = await mutate(
+      "/api/reports/cyberbiz/manual/import/payout",
+      "POST",
+      manager,
+      "manager-report-import@ecotech.tw",
+      { scopeName: "匯入據點", rows: [{ businessDate: "2026-08-03", payoutAmount: 1 }] },
+    );
+    expect(duplicateScope.status).toBe(409);
+
     expect((await mutate(
       "/api/reports/cyberbiz/manual/import/payout",
       "POST",
@@ -491,6 +500,55 @@ describe("報表統計 API", () => {
       "manager-report-import@ecotech.tw",
       { scopeId: "invalid-scope-id", scopeName: "錯誤 scope", rows: [{ businessDate: "2026-08-01", payoutAmount: 1 }] },
     )).status).toBe(400);
+  });
+
+  it("manual sales import merges rows without deleting unlisted monthly data", async () => {
+    const manager = await seedUser("manager-report-import-merge@ecotech.tw", "role-manager");
+    const scopeId = "cyberbiz:store:merge";
+    await upsertReportScope(db(), { id: scopeId, scopeKind: "store", name: "部分月份據點" });
+    await insertReportSalesMonthly(db(), [{
+      scopeId,
+      reportMonth: "2026-08",
+      sku: "OLD-SKU",
+      productName: "既有商品",
+      grossQuantity: 8,
+      netQuantity: 8,
+      salesAmount: 800,
+    }]);
+    await db().insert(cyberbizProducts).values({
+      sku: "NEW-SKU",
+      productId: "merge-product",
+      variantId: "merge-variant",
+      productName: "新商品",
+      variantName: "",
+    });
+
+    const response = await mutate(
+      "/api/reports/cyberbiz/manual/import/sales",
+      "POST",
+      manager,
+      "manager-report-import-merge@ecotech.tw",
+      {
+        scopeId,
+        scopeName: "部分月份據點",
+        reportMonth: "2026-08",
+        rows: [{
+          sku: "NEW-SKU",
+          productName: "新商品",
+          category: "未分類",
+          grossQuantity: 2,
+          returnQuantity: 0,
+          netQuantity: 2,
+          salesAmount: 200,
+        }],
+      },
+    );
+    expect(response.status).toBe(201);
+    expect(await db().select({ sku: reportSalesMonthly.sku, salesAmount: reportSalesMonthly.salesAmount })
+      .from(reportSalesMonthly).orderBy(reportSalesMonthly.sku)).toEqual([
+      { sku: "NEW-SKU", salesAmount: 200 },
+      { sku: "OLD-SKU", salesAmount: 800 },
+    ]);
   });
 
   it("舊版商品名稱會沿用既有 CYBERBIZ mapping 自動補 SKU，匯入後寫入系統商品", async () => {

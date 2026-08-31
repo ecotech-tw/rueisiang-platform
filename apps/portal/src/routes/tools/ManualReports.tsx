@@ -75,6 +75,14 @@ function parseSafeInteger(value: string): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
+function isWholeMonthRange(start: string, end: string): boolean {
+  if (start.slice(0, 7) !== end.slice(0, 7)) return false;
+  const [year, month] = start.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year ?? 0, month ?? 0, 0)).getUTCDate();
+  return start === `${start.slice(0, 7)}-01`
+    && end === `${start.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`;
+}
+
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 const DEFAULT_PAYOUT_FILTERS: ManualPayoutQuery = {
@@ -409,6 +417,12 @@ function ReportImportDialog({
   );
   const salesImportRows = resolvedSalesPreview?.rows.filter((row) => row.sku.trim()) ?? [];
   const unresolvedProductNames = resolvedSalesPreview?.unresolvedProductNames ?? [];
+  const salesIsWholeMonth = resolvedSalesPreview
+    ? isWholeMonthRange(resolvedSalesPreview.coverageStart, resolvedSalesPreview.coverageEnd)
+    : true;
+  const salesIsCrossMonth = resolvedSalesPreview
+    ? resolvedSalesPreview.coverageStart.slice(0, 7) !== resolvedSalesPreview.coverageEnd.slice(0, 7)
+    : false;
   const selectedScopeName = scopeId ? scopes.find((scope) => scope.id === scopeId)?.name ?? "" : scopeName.trim();
   const pending = importPayout.isPending || importSales.isPending;
   const error = parseError || importPayout.error?.message || importSales.error?.message || "";
@@ -626,6 +640,12 @@ function ReportImportDialog({
               </div>
               <span className="form-hint">確認後才會寫入</span>
             </div>
+            {!salesIsWholeMonth ? (
+              <Alert tone="warning">
+                這份報表不是完整月份；匯入只會更新檔案內列出的 SKU，既有但未列出的資料會保留。
+                {salesIsCrossMonth ? "跨月份資料會以報表起始月份歸檔，不會拆分到不同月份。" : ""}
+              </Alert>
+            ) : null}
             {resolvedSalesPreview.skippedRows.length ? <Alert tone="warning">有 {resolvedSalesPreview.skippedRows.length} 列沒有 SKU，已略過。</Alert> : null}
             {unresolvedProductNames.length ? (
               <Alert tone="warning">
@@ -838,8 +858,11 @@ export function ManualReports() {
   const payoutPage = payoutsQuery.data;
   const salesPage = salesQuery.data;
   const managementScopes = scopesQuery.data?.scopes ?? [];
-  const queryError = optionsQuery.error ?? scopesQuery.error ?? payoutsQuery.error ?? salesQuery.error;
+  const queryError = optionsQuery.error ?? scopesQuery.error ?? (kind === "payout" ? payoutsQuery.error : salesQuery.error);
   const busy = deletePayout.isPending || deleteSales.isPending;
+  const dialogScopes = dialog?.row && !scopes.some((scope) => scope.id === dialog.row?.scopeId)
+    ? [{ id: dialog.row.scopeId, name: `${dialog.row.scopeName}（已停用）` }, ...scopes]
+    : scopes;
 
   useEffect(() => {
     const totalPages = payoutPage ? Math.max(1, Math.ceil(payoutPage.total / payoutPage.pageSize)) : 1;
@@ -926,7 +949,7 @@ export function ManualReports() {
         {scopes.length === 0 ? <Alert tone="warning">尚未有可選的啟用據點。</Alert> : null}
         {kind === "payout" ? (
           <>
-            <PayoutFilters filters={payoutFilters} scopes={scopes} onChange={updatePayoutFilters} />
+            <PayoutFilters filters={payoutFilters} scopes={managementScopes} onChange={updatePayoutFilters} />
             <PayoutTable
               rows={payoutPage?.rows ?? []}
               busy={busy}
@@ -957,7 +980,7 @@ export function ManualReports() {
           </>
         ) : (
           <>
-            <SalesFilters filters={salesFilters} scopes={scopes} onChange={updateSalesFilters} />
+            <SalesFilters filters={salesFilters} scopes={managementScopes} onChange={updateSalesFilters} />
             <SalesTable
               rows={salesPage?.rows ?? []}
               busy={busy}
@@ -993,7 +1016,7 @@ export function ManualReports() {
         <ManualReportDialog
           key={`${dialog.kind}:${dialog.row?.id ?? "new"}`}
           state={dialog}
-          scopes={scopes}
+          scopes={dialogScopes}
           products={products}
           onClose={() => setDialog(null)}
         />
@@ -1049,11 +1072,11 @@ export function ManualReports() {
 }
 
 function hasPayoutFilters(filters: ManualPayoutQuery): boolean {
-  return Boolean(filters.search || filters.scopeId || filters.startDate || filters.endDate);
+  return Boolean(filters.search || filters.scopeId || filters.source !== "all" || filters.startDate || filters.endDate);
 }
 
 function hasSalesFilters(filters: ManualSalesQuery): boolean {
-  return Boolean(filters.search || filters.scopeId || filters.startMonth || filters.endMonth);
+  return Boolean(filters.search || filters.scopeId || filters.source !== "all" || filters.startMonth || filters.endMonth);
 }
 
 function PayoutFilters({
@@ -1081,6 +1104,12 @@ function PayoutFilters({
         value={filters.scopeId}
         onChange={(event) => onChange({ scopeId: event.target.value })}
         options={[{ value: "", label: "全部據點" }, ...scopes.map((scope) => ({ value: scope.id, label: scope.name }))]}
+      />
+      <FilterSelect
+        label="資料來源"
+        value={filters.source}
+        onChange={(event) => onChange({ source: event.target.value as ManualPayoutQuery["source"] })}
+        options={[{ value: "all", label: "全部來源" }, { value: "imported", label: "系統匯入" }, { value: "manual", label: "人工修訂" }]}
       />
       <FilterInput
         label="出金開始日期"
@@ -1124,6 +1153,12 @@ function SalesFilters({
         value={filters.scopeId}
         onChange={(event) => onChange({ scopeId: event.target.value })}
         options={[{ value: "", label: "全部據點" }, ...scopes.map((scope) => ({ value: scope.id, label: scope.name }))]}
+      />
+      <FilterSelect
+        label="資料來源"
+        value={filters.source}
+        onChange={(event) => onChange({ source: event.target.value as ManualSalesQuery["source"] })}
+        options={[{ value: "all", label: "全部來源" }, { value: "imported", label: "系統匯入" }, { value: "manual", label: "人工修訂" }]}
       />
       <FilterInput
         label="商品銷售開始月份"

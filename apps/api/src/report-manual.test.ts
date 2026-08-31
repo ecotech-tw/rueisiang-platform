@@ -3,13 +3,18 @@ import {
   createReportManualPayout,
   createReportManualSales,
   deleteReportManualPayout,
+  deleteReportPayoutRecord,
+  deleteReportSalesRecord,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
   listReportPayoutRecords,
   listReportSalesRecords,
   queryReportPayout,
   queryReportSales,
+  schema,
   upsertReportScope,
+  updateReportManualPayout,
+  updateReportManualSales,
   type ReportManualActor,
 } from "@rueisiang/db";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -24,6 +29,7 @@ const ACTOR: ReportManualActor = { id: "user-manual-test", email: "manager@ecote
 beforeEach(async () => {
   d1 = createLocalD1();
   await upsertReportScope(db(), { id: SCOPE, scopeKind: "store", name: "人工測試據點" });
+  await upsertReportScope(db(), { id: "cyberbiz:store:disabled", scopeKind: "store", name: "停用據點", active: false });
 });
 
 describe("報表人工修訂資料", () => {
@@ -212,5 +218,122 @@ describe("報表人工修訂資料", () => {
     expect(sales.rows).toMatchObject([
       { sku: "SKU-1", productName: "修訂商品一", salesAmount: 800, source: "manual", skuSource: "custom" },
     ]);
+  });
+
+  it("deleting a manual override restores the imported record and matches imported SKU case-insensitively", async () => {
+    await insertReportPayoutDaily(db(), [{ scopeId: SCOPE, businessDate: "2026-08-01", payoutAmount: 1000 }]);
+    const manualPayout = await createReportManualPayout(db(), {
+      scopeId: SCOPE,
+      businessDate: "2026-08-01",
+      payoutAmount: 9000,
+      actor: ACTOR,
+    });
+    await db().insert(schema.cyberbizProducts).values({
+      sku: "SOAP-SYSTEM",
+      productId: "manual-delete-product",
+      variantId: "manual-delete-variant",
+      productName: "匯入商品",
+      variantName: "",
+    });
+    await insertReportSalesMonthly(db(), [{
+      scopeId: SCOPE,
+      reportMonth: "2026-08",
+      sku: "soap-system",
+      productName: "匯入商品",
+      grossQuantity: 1,
+      netQuantity: 1,
+      salesAmount: 100,
+    }]);
+    const manualSales = await createReportManualSales(db(), {
+      scopeId: SCOPE,
+      reportMonth: "2026-08",
+      skuSource: "cyberbiz",
+      sku: "soap-system",
+      productName: "修訂商品",
+      grossQuantity: 2,
+      returnQuantity: 0,
+      netQuantity: 2,
+      salesAmount: 200,
+      actor: ACTOR,
+    });
+
+    await deleteReportPayoutRecord(db(), {
+      source: "manual",
+      id: manualPayout.id,
+      scopeId: SCOPE,
+      businessDate: "2026-08-01",
+    }, ACTOR);
+    await deleteReportSalesRecord(db(), {
+      source: "manual",
+      id: manualSales.id,
+      scopeId: SCOPE,
+      reportMonth: "2026-08",
+      sku: "SOAP-SYSTEM",
+    }, ACTOR);
+
+    expect(await db().select({ payoutAmount: schema.reportPayoutDaily.payoutAmount })
+      .from(schema.reportPayoutDaily)).toEqual([{ payoutAmount: 1000 }]);
+    expect(await db().select({ sku: schema.reportSalesMonthly.sku, salesAmount: schema.reportSalesMonthly.salesAmount })
+      .from(schema.reportSalesMonthly)).toEqual([{ sku: "soap-system", salesAmount: 100 }]);
+    const deleteEvent = (await db().select({
+      eventType: schema.activityEvents.eventType,
+      payloadJson: schema.activityEvents.payloadJson,
+    }).from(schema.activityEvents)).find((event) => event.eventType === "report_sales_record_deleted");
+    expect(deleteEvent).toBeDefined();
+    expect(JSON.parse(deleteEvent!.payloadJson)).toMatchObject({ source: "manual", skuSource: "cyberbiz" });
+
+    await deleteReportSalesRecord(db(), {
+      source: "imported",
+      id: "imported-record",
+      scopeId: SCOPE,
+      reportMonth: "2026-08",
+      sku: "SOAP-SYSTEM",
+    }, ACTOR);
+    expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
+  });
+
+  it("allows historical manual edits for a disabled report scope", async () => {
+    const disabledScope = "cyberbiz:store:disabled";
+    const payout = await createReportManualPayout(db(), {
+      scopeId: disabledScope,
+      businessDate: "2026-08-01",
+      payoutAmount: 100,
+      actor: ACTOR,
+    });
+    const updatedPayout = await updateReportManualPayout(db(), {
+      id: payout.id,
+      scopeId: disabledScope,
+      businessDate: "2026-08-01",
+      payoutAmount: 200,
+      actor: ACTOR,
+    });
+    expect(updatedPayout.payoutAmount).toBe(200);
+
+    const sales = await createReportManualSales(db(), {
+      scopeId: disabledScope,
+      reportMonth: "2026-08",
+      skuSource: "custom",
+      sku: "disabled-sku",
+      productName: "停用據點商品",
+      grossQuantity: 1,
+      returnQuantity: 0,
+      netQuantity: 1,
+      salesAmount: 50,
+      actor: ACTOR,
+    });
+    const updatedSales = await updateReportManualSales(db(), {
+      id: sales.id,
+      scopeId: disabledScope,
+      reportMonth: "2026-08",
+      skuSource: "custom",
+      sku: "disabled-sku",
+      productName: "停用據點商品修訂",
+      grossQuantity: 2,
+      returnQuantity: 0,
+      netQuantity: 2,
+      salesAmount: 100,
+      actor: ACTOR,
+    });
+    expect(updatedSales.productName).toBe("停用據點商品修訂");
   });
 });

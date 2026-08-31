@@ -21,6 +21,8 @@ export interface CyberbizReportIngestInput {
   rows?: unknown[];
   /** 商品銷售以整月快照匯入；出金仍由 rows 內的 businessDate 決定。 */
   reportMonth?: string;
+  /** 人工匯入的非完整月份只更新檔案內 SKU，保留同月未列出的既有資料。 */
+  salesWriteMode?: "replace" | "merge";
   salesRows?: unknown[];
   payoutRows?: unknown[];
 }
@@ -84,6 +86,14 @@ function readInput(value: unknown): CyberbizReportIngestInput {
     && (value.kind === "sales_and_payout" || (value.rows as unknown[]).length === 0)) {
     throw new CyberbizReportIngestError(422, "invalid_ingest");
   }
+  const salesWriteMode = value.salesWriteMode === undefined ? "replace" : value.salesWriteMode;
+  if ((value.kind === "sales" || value.kind === "sales_and_payout")
+    && salesWriteMode !== "replace" && salesWriteMode !== "merge") {
+    throw new CyberbizReportIngestError(422, "invalid_ingest");
+  }
+  if (value.kind === "payout" && value.salesWriteMode !== undefined) {
+    throw new CyberbizReportIngestError(422, "invalid_ingest");
+  }
   if (value.coveredDates !== undefined) throw new CyberbizReportIngestError(422, "invalid_ingest");
   return {
     kind: value.kind as CyberbizReportIngestKind,
@@ -94,6 +104,9 @@ function readInput(value: unknown): CyberbizReportIngestInput {
     ...(isBundle ? { salesRows: value.salesRows as unknown[], payoutRows: value.payoutRows as unknown[] } : {}),
     ...((value.kind === "sales" || value.kind === "sales_and_payout") && value.reportMonth !== undefined
       ? { reportMonth: month(value.reportMonth) }
+      : {}),
+    ...((value.kind === "sales" || value.kind === "sales_and_payout") && salesWriteMode === "merge"
+      ? { salesWriteMode: "merge" as const }
       : {}),
   };
 }
@@ -326,7 +339,11 @@ export function createCyberbizReportIngestor(db: Database) {
         await insertReportPayoutDaily(db, payout);
         const sales = await normalizeSalesRows(db, salesInput, sourceChannel, parsedSales);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
-          ? { scopeId: scope.id, reportMonth: input.reportMonth }
+          ? {
+            scopeId: scope.id,
+            reportMonth: input.reportMonth,
+            replaceExisting: input.salesWriteMode !== "merge",
+          }
           : undefined);
         return {
           kind: input.kind,
@@ -341,7 +358,11 @@ export function createCyberbizReportIngestor(db: Database) {
       if (input.kind === "sales") {
         const sales = await normalizeSalesRows(db, scopedInput, sourceChannel);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
-          ? { scopeId: scope.id, reportMonth: input.reportMonth }
+          ? {
+            scopeId: scope.id,
+            reportMonth: input.reportMonth,
+            replaceExisting: input.salesWriteMode !== "merge",
+          }
           : undefined);
         return {
           kind: input.kind,

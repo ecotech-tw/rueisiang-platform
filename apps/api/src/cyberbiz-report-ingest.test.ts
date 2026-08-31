@@ -21,7 +21,7 @@ function request(body: unknown, token = TOKEN) {
   }), { DB: d1, CYBERBIZ_REPORT_INGEST_TOKEN: TOKEN } as never);
 }
 
-function salesBody(rows: unknown[], reportMonth = "2026-07") {
+function salesBody(rows: unknown[], reportMonth = "2026-07", salesWriteMode?: "replace" | "merge") {
   return {
     kind: "sales",
     scopeType: "store",
@@ -29,6 +29,7 @@ function salesBody(rows: unknown[], reportMonth = "2026-07") {
     scopeName: "測試店",
     reportMonth,
     rows,
+    ...(salesWriteMode ? { salesWriteMode } : {}),
   };
 }
 
@@ -254,6 +255,20 @@ describe("報表月資料匯入", () => {
     });
     expect(result.rows).toEqual([expect.objectContaining({ sku: "SKU-KEEP", netQuantity: 1, salesAmount: 90 })]);
     expect(result.totals).toEqual({ grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 90 });
+  });
+
+  it("merge 匯入只更新檔案內 SKU，保留同月未列出的既有資料", async () => {
+    expect((await request(salesBody([salesRow("SKU-OLD", 300), salesRow("SKU-KEEP", 200)]))).status).toBe(200);
+    expect((await request(salesBody([salesRow("SKU-KEEP", 90)], "2026-07", "merge"))).status).toBe(200);
+
+    const rows = await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      salesAmount: schema.reportSalesMonthly.salesAmount,
+    }).from(schema.reportSalesMonthly).orderBy(schema.reportSalesMonthly.sku);
+    expect(rows).toEqual([
+      { sku: "SKU-KEEP", salesAmount: 90 },
+      { sku: "SKU-OLD", salesAmount: 300 },
+    ]);
   });
 
   it("整月零筆也會清掉該月份的舊資料", async () => {

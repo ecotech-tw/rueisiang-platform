@@ -160,12 +160,12 @@ function safeInteger(value: number, label: string): number {
 async function requireScope(db: Database, scopeId: string) {
   const id = scopeId.trim();
   if (!id) throw new ReportManualError("invalid", "請選擇據點。");
+  // 停用據點仍有歷史報表需要修訂；新增據點的入口只會提供啟用中的選項。
   const [scope] = await db.select({ id: reportScopes.id, name: reportScopes.name })
     .from(reportScopes)
     .where(and(
       eq(reportScopes.id, id),
       eq(reportScopes.scopeKind, "store"),
-      eq(reportScopes.active, 1),
     ))
     .limit(1);
   if (!scope || !isCompanyReportStoreScopeId(scope.id)) {
@@ -325,7 +325,7 @@ function payoutPayload(row: { scopeId: string; businessDate: string; payoutAmoun
 function salesPayload(row: {
   scopeId: string;
   reportMonth: string;
-  skuSource: ReportManualSkuSource;
+  skuSource: ReportManualSkuSource | null;
   sku: string;
   productName: string;
   category: string;
@@ -729,11 +729,7 @@ export async function deleteReportManualPayout(db: Database, id: string, actor: 
   ] as never);
 }
 
-/**
- * 刪除頁面目前看到的出金紀錄。
- *
- * 匯入列直接刪除原始資料；人工覆寫列則連同同一 key 的原始資料一起刪除，避免刪除後又立刻顯示回匯入值。
- */
+/** 刪除頁面目前看到的出金紀錄；刪除人工覆寫後讓同 key 的匯入值自然恢復。 */
 export async function deleteReportPayoutRecord(
   db: Database,
   input: ReportPayoutRecordDeleteInput,
@@ -768,12 +764,6 @@ export async function deleteReportPayoutRecord(
         eq(reportPayoutDaily.scopeId, scopeId),
         eq(reportPayoutDaily.businessDate, businessDate),
       )),
-    ...(input.source === "manual"
-      ? [db.delete(reportPayoutDaily).where(and(
-        eq(reportPayoutDaily.scopeId, existing.scopeId),
-        eq(reportPayoutDaily.businessDate, existing.businessDate),
-      ))]
-      : []),
     db.insert(activityEvents).values(activityRow({
       entityType: "report_manual_entry",
       entityId,
@@ -929,7 +919,7 @@ export async function deleteReportManualSales(db: Database, id: string, actor: R
   ] as never);
 }
 
-/** 刪除頁面目前看到的商品銷售紀錄，規則與出金有效紀錄一致。 */
+/** 刪除頁面目前看到的商品銷售紀錄；刪除人工覆寫後讓同 key 的匯入值自然恢復。 */
 export async function deleteReportSalesRecord(
   db: Database,
   input: ReportSalesRecordDeleteInput,
@@ -949,7 +939,7 @@ export async function deleteReportSalesRecord(
     ? await db.select().from(reportSalesMonthly).where(and(
       eq(reportSalesMonthly.scopeId, scopeId),
       eq(reportSalesMonthly.reportMonth, reportMonth),
-      eq(reportSalesMonthly.sku, sku),
+      sql`lower(${reportSalesMonthly.sku}) = lower(${sku})`,
     )).limit(1)
     : [];
   const existing = manual ?? imported;
@@ -959,30 +949,27 @@ export async function deleteReportSalesRecord(
   const scopeName = names.get(existing.scopeId) ?? existing.scopeId;
   const entityId = input.source === "manual"
     ? input.id
-    : `imported:${scopeId}:${reportMonth}:${sku}`;
+    : `imported:${existing.scopeId}:${existing.reportMonth}:${existing.sku}`;
+  const deletedSalesPayload = salesPayload({
+    ...existing,
+    skuSource: input.source === "manual" ? manual?.skuSource ?? null : null,
+  });
   await db.batch([
     input.source === "manual"
       ? db.delete(reportManualSalesMonthly).where(eq(reportManualSalesMonthly.id, input.id))
       : db.delete(reportSalesMonthly).where(and(
         eq(reportSalesMonthly.scopeId, scopeId),
         eq(reportSalesMonthly.reportMonth, reportMonth),
-        eq(reportSalesMonthly.sku, sku),
+        sql`lower(${reportSalesMonthly.sku}) = lower(${sku})`,
       )),
-    ...(input.source === "manual"
-      ? [db.delete(reportSalesMonthly).where(and(
-        eq(reportSalesMonthly.scopeId, existing.scopeId),
-        eq(reportSalesMonthly.reportMonth, existing.reportMonth),
-        eq(reportSalesMonthly.sku, existing.sku),
-      ))]
-      : []),
     db.insert(activityEvents).values(activityRow({
       entityType: "report_manual_entry",
       entityId,
       entityLabel: salesLabel(scopeName, existing.reportMonth, existing.sku),
       eventType: "report_sales_record_deleted",
       summary: `刪除商品銷售資料：${scopeName} ${existing.reportMonth} ${existing.sku}`,
-      oldValue: JSON.stringify(salesPayload({ ...existing, skuSource: "custom" })),
-      payload: { source: input.source, ...salesPayload({ ...existing, skuSource: "custom" }) },
+      oldValue: JSON.stringify(deletedSalesPayload),
+      payload: { source: input.source, ...deletedSalesPayload },
       actor,
       source: "reports",
     })),
