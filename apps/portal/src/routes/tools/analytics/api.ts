@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export interface ReportScopeOption {
   id: string;
@@ -53,6 +53,18 @@ export interface PayoutSummary {
   dataDays: number;
   highestDay: { date: string; value: number } | null;
   breakdown: PayoutBreakdown[];
+  message?: string;
+}
+
+export interface PayoutDailyPoint {
+  businessDate: string;
+  payoutAmount: number;
+}
+
+export interface PayoutDailyResult {
+  status: "ok" | "NO_DATA_FOR_RANGE";
+  rows: PayoutDailyPoint[];
+  totals: { payoutAmount: number };
   message?: string;
 }
 
@@ -143,13 +155,29 @@ async function call<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-function queryString(query: AnalyticsQuery): string {
+async function write<T>(path: string, method: "PATCH" | "DELETE", body?: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method,
+    credentials: "same-origin",
+    ...(body === undefined
+      ? {}
+      : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  });
+  if (!response.ok) {
+    const responseBody = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new ReportApiError(response.status, responseBody?.error ?? `操作失敗（${response.status}）。`);
+  }
+  return (await response.json()) as T;
+}
+
+function queryString(query: AnalyticsQuery, groupBy?: string): string {
   const params = new URLSearchParams({ scopeType: query.scopeType });
   if (query.scopeId) params.set("scopeId", query.scopeId);
   if (query.period) params.set("period", query.period);
   if (query.startDate) params.set("startDate", query.startDate);
   if (query.endDate) params.set("endDate", query.endDate);
   if (query.topSkuBy) params.set("topSkuBy", query.topSkuBy);
+  if (groupBy) params.set("groupBy", groupBy);
   return params.toString();
 }
 
@@ -167,6 +195,45 @@ export function usePayoutSummary(query: AnalyticsQuery, enabled: boolean) {
     queryKey: ["reports", "analytics", "summary", "payout", query],
     queryFn: () => call<PayoutSummary>(`/api/reports/cyberbiz/summary/payout?${queryString(query)}`),
     placeholderData: keepPreviousData,
+  });
+}
+
+export function usePayoutDaily(query: AnalyticsQuery, enabled: boolean) {
+  const requestQuery = queryString(query, "day");
+  return useQuery({
+    enabled,
+    queryKey: ["reports", "analytics", "payout", "daily", requestQuery],
+    queryFn: () => call<PayoutDailyResult>(`/api/reports/cyberbiz/summary/payout/daily?${requestQuery}`),
+  });
+}
+
+function payoutDailyPath(scopeId: string, businessDate: string): string {
+  return `/api/reports/cyberbiz/payout/${encodeURIComponent(scopeId)}/${encodeURIComponent(businessDate)}`;
+}
+
+export function useUpdatePayoutDaily() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { scopeId: string; businessDate: string; payoutAmount: number }) =>
+      write<{ row: PayoutDailyPoint }>(payoutDailyPath(input.scopeId, input.businessDate), "PATCH", {
+        payoutAmount: input.payoutAmount,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["reports", "analytics", "summary", "payout"] });
+      void client.invalidateQueries({ queryKey: ["reports", "analytics", "payout", "daily"] });
+    },
+  });
+}
+
+export function useDeletePayoutDaily() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { scopeId: string; businessDate: string }) =>
+      write<{ ok: true }>(payoutDailyPath(input.scopeId, input.businessDate), "DELETE"),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["reports", "analytics", "summary", "payout"] });
+      void client.invalidateQueries({ queryKey: ["reports", "analytics", "payout", "daily"] });
+    },
   });
 }
 

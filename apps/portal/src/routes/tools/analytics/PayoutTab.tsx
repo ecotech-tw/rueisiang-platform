@@ -1,8 +1,20 @@
+import { useEffect, useState } from "react";
+import { useSession } from "../../../auth/session.js";
+import { ConfirmDialog } from "../../../shell/ConfirmDialog.js";
 import { Icon } from "../../../shell/icons.js";
-import { Alert, Panel } from "../../../ui/index.js";
+import { useToast } from "../../../shell/Toast.js";
+import { Alert, Button, Dialog, Panel, TextField } from "../../../ui/index.js";
 import { PayoutTrendChart } from "./charts/PayoutTrendChart.js";
 import { ScopeBreakdownChart } from "./charts/ScopeBreakdownChart.js";
-import { ReportApiError, usePayoutSummary, type AnalyticsQuery } from "./api.js";
+import {
+  ReportApiError,
+  useDeletePayoutDaily,
+  usePayoutDaily,
+  usePayoutSummary,
+  useUpdatePayoutDaily,
+  type AnalyticsQuery,
+  type PayoutDailyPoint,
+} from "./api.js";
 
 interface PayoutTabProps {
   query: AnalyticsQuery;
@@ -31,8 +43,86 @@ function growthHint(label: string, value: number | null, comparison: { total: nu
   return `與${label}相比：${formatPercent(value)}`;
 }
 
+function PayoutDailyDialog({
+  scopeId,
+  row,
+  onClose,
+}: {
+  scopeId: string;
+  row: PayoutDailyPoint;
+  onClose: () => void;
+}) {
+  const [amount, setAmount] = useState(String(row.payoutAmount));
+  const update = useUpdatePayoutDaily();
+  const toast = useToast();
+  const payoutAmount = Number(amount);
+  const valid = amount.trim() !== "" && Number.isSafeInteger(payoutAmount);
+
+  return (
+    <Dialog
+      title={`編輯 ${row.businessDate} 出金資料`}
+      className="confirm-card"
+      onClose={onClose}
+      closeDisabled={update.isPending}
+      formProps={{
+        onSubmit: (event) => {
+          event.preventDefault();
+          if (!valid) return;
+          update.mutate(
+            { scopeId, businessDate: row.businessDate, payoutAmount },
+            {
+              onSuccess: () => {
+                toast.show(`已更新 ${row.businessDate} 出金金額`);
+                onClose();
+              },
+            },
+          );
+        },
+      }}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>
+            取消
+          </Button>
+          <Button type="submit" loading={update.isPending} loadingLabel="儲存中…" disabled={!valid}>
+            儲存
+          </Button>
+        </>
+      }
+    >
+      <TextField label="日期" value={row.businessDate} readOnly inputClassName="cell-input" />
+      <TextField
+        label="出金金額"
+        required
+        autoFocus
+        type="number"
+        step="1"
+        inputMode="numeric"
+        value={amount}
+        onChange={(event) => setAmount(event.target.value)}
+        inputClassName="cell-input"
+        hint="以元為單位；下次重新匯入同一天資料時，手動修正會被匯入值覆蓋。"
+      />
+      {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
+    </Dialog>
+  );
+}
+
 export function PayoutTab({ query, scopeLabel, enabled }: PayoutTabProps) {
   const result = usePayoutSummary(query, enabled);
+  const daily = usePayoutDaily(query, enabled && Boolean(query.scopeId));
+  const remove = useDeletePayoutDaily();
+  const [editing, setEditing] = useState<PayoutDailyPoint | null>(null);
+  const [deleting, setDeleting] = useState<PayoutDailyPoint | null>(null);
+  const { permissions } = useSession();
+  const toast = useToast();
+  const canWrite = permissions.has("reports:cyberbiz:write");
+  const scopeId = query.scopeId;
+
+  useEffect(() => {
+    setEditing(null);
+    setDeleting(null);
+  }, [query.scopeId, query.period, query.startDate, query.endDate]);
 
   if (!enabled) return <Alert tone="warning">請先選擇有效的完整日期區間。</Alert>;
   if (result.isPending && !result.data) return <div className="boot">載入統計中…</div>;
@@ -60,6 +150,12 @@ export function PayoutTab({ query, scopeLabel, enabled }: PayoutTabProps) {
 
   const asOf = summary.complete || !summary.asOfDate ? null : `截至 ${formatDate(summary.asOfDate)}`;
   const isAnnual = /^\d{4}$/u.test(summary.period);
+  const dailyRows = daily.data?.rows ?? [];
+  const dailyError = daily.error
+    ? daily.error instanceof ReportApiError && daily.error.status === 403
+      ? "你沒有檢視逐日出金資料的權限。"
+      : daily.error.message
+    : null;
   return (
     <div className="analytics-results">
       <div className="analytics-result-heading">
@@ -114,6 +210,93 @@ export function PayoutTab({ query, scopeLabel, enabled }: PayoutTabProps) {
         />
         <ScopeBreakdownChart breakdown={summary.breakdown} valueFormatter={formatCurrency} />
       </div>
+
+      {scopeId ? (
+        <Panel
+          title="出金逐日預覽"
+          description={canWrite
+            ? "可修正單日金額或移除整筆日期資料；下次重新匯入可能覆蓋手動修正。"
+            : "目前選定店別已匯入的每日出金資料。"}
+        >
+          {dailyError ? <Alert tone="danger">{dailyError}</Alert> : null}
+          {daily.isPending && !daily.data ? <p className="muted table-note">載入逐日資料中…</p> : null}
+          {daily.data && dailyRows.length ? (
+            <div className="table-scroll">
+              <table className="data-table analytics-table">
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th className="numeric">出金金額</th>
+                    {canWrite ? <th /> : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyRows.map((row) => (
+                    <tr key={row.businessDate}>
+                      <td data-label="日期" className="whitespace-nowrap">{row.businessDate}</td>
+                      <td data-label="出金金額" className="numeric">{formatCurrency(row.payoutAmount)}</td>
+                      {canWrite ? (
+                        <td data-label="操作">
+                          <div className="row-actions">
+                            <Button
+                              variant="icon"
+                              icon="edit"
+                              disabled={remove.isPending}
+                              onClick={() => setEditing(row)}
+                              title={`編輯 ${row.businessDate} 出金金額`}
+                              aria-label={`編輯 ${row.businessDate} 出金金額`}
+                            />
+                            <Button
+                              variant="icon"
+                              className="danger"
+                              icon="trash"
+                              disabled={remove.isPending}
+                              onClick={() => setDeleting(row)}
+                              title={`刪除 ${row.businessDate} 出金資料`}
+                              aria-label={`刪除 ${row.businessDate} 出金資料`}
+                            />
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {daily.isFetching && daily.data ? <p className="muted table-note" role="status">正在更新逐日資料…</p> : null}
+          {!daily.isPending && !dailyError && !dailyRows.length ? (
+            <p className="muted table-note">{daily.data?.message ?? "這段期間沒有已匯入的出金日期。"}</p>
+          ) : null}
+        </Panel>
+      ) : null}
+
+      {editing && scopeId ? <PayoutDailyDialog scopeId={scopeId} row={editing} onClose={() => setEditing(null)} /> : null}
+      {deleting && scopeId ? (
+        <ConfirmDialog
+          title="刪除這筆出金資料？"
+          confirmLabel="刪除資料"
+          pending={remove.isPending}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => {
+            remove.mutate(
+              { scopeId, businessDate: deleting.businessDate },
+              {
+                onSuccess: () => {
+                  toast.show(`已刪除 ${deleting.businessDate} 出金資料`);
+                  setDeleting(null);
+                },
+              },
+            );
+          }}
+        >
+          <p>
+            <strong>{deleting.businessDate}</strong> 的出金金額 {formatCurrency(deleting.payoutAmount)} 會從這個店別的統計中移除。
+          </p>
+          <p className="muted">如果只是金額有誤，請取消後選擇編輯。</p>
+          {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
+        </ConfirmDialog>
+      ) : null}
     </div>
   );
 }

@@ -8,11 +8,12 @@ import {
   type NewReportSalesMonthly,
   type ReportScope,
   type ReportScopeKind,
+  type ReportPayoutDaily,
 } from "./schema/reports.js";
 import { customReportProducts, inventoryItems, productBundleComponents, productSkuMappings } from "./schema/wms.js";
 import { legacyShopeeExternalSku, reportScopeChannel } from "./product-sku-mappings.js";
 
-export type { ReportScopeKind } from "./schema/reports.js";
+export type { ReportPayoutDaily, ReportScopeKind } from "./schema/reports.js";
 
 export type ReportGroupBy = "day" | "month" | "scope" | "sku" | "category";
 
@@ -117,6 +118,11 @@ function isDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/** API 寫入逐日資料時也要沿用查詢的日曆驗證，避免 SQLite 收進不存在的日期。 */
+export function isValidReportDate(value: string): boolean {
+  return isDate(value);
 }
 
 export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind): Promise<ReportScope[]> {
@@ -272,6 +278,43 @@ export async function insertReportPayoutDaily(db: Database, rows: readonly NewRe
   for (const chunk of chunks(statements, 50)) {
     if (chunk.length) await db.batch(chunk as [Statement, ...Statement[]]);
   }
+}
+
+export async function updateReportPayoutDaily(
+  db: Database,
+  input: { scopeId: string; businessDate: string; payoutAmount: number },
+): Promise<ReportPayoutDaily | null> {
+  const [existing] = await db.select().from(reportPayoutDaily).where(and(
+    eq(reportPayoutDaily.scopeId, input.scopeId),
+    eq(reportPayoutDaily.businessDate, input.businessDate),
+  )).limit(1);
+  if (!existing) return null;
+
+  const updatedAt = new Date().toISOString();
+  await db.update(reportPayoutDaily)
+    .set({ payoutAmount: input.payoutAmount, updatedAt })
+    .where(and(
+      eq(reportPayoutDaily.scopeId, input.scopeId),
+      eq(reportPayoutDaily.businessDate, input.businessDate),
+    ));
+  return { ...existing, payoutAmount: input.payoutAmount, updatedAt };
+}
+
+export async function deleteReportPayoutDaily(
+  db: Database,
+  input: { scopeId: string; businessDate: string },
+): Promise<boolean> {
+  const [existing] = await db.select({ scopeId: reportPayoutDaily.scopeId }).from(reportPayoutDaily).where(and(
+    eq(reportPayoutDaily.scopeId, input.scopeId),
+    eq(reportPayoutDaily.businessDate, input.businessDate),
+  )).limit(1);
+  if (!existing) return false;
+
+  await db.delete(reportPayoutDaily).where(and(
+    eq(reportPayoutDaily.scopeId, input.scopeId),
+    eq(reportPayoutDaily.businessDate, input.businessDate),
+  ));
+  return true;
 }
 
 function chunks<T>(values: readonly T[], size: number): T[][] {
