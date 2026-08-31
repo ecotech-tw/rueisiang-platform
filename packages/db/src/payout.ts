@@ -107,8 +107,9 @@ export async function deletePayoutStore(db: Database, id: string): Promise<Payou
 /**
  * 表是空的才寫入預設店別，已經有資料就完全不動。
  *
- * 跟 syncSystemRoles 放在一起被呼叫，但語意刻意不同：角色權限是程式碼說了算、
- * 每次重寫；店別是同仁自己維護的資料，覆蓋回去會把人家的修改抹掉。
+ * 跟 syncSystemRoles 放在一起被呼叫，但語意刻意不同：系統角色只在缺少時用程式碼
+ * 建立，非管理員角色的調整會保留；店別是同仁自己維護的資料，覆蓋回去會把人家的
+ * 修改抹掉。
  */
 export async function seedPayoutStores(db: Database): Promise<void> {
   const [existing] = await db.select({ id: payoutStores.id }).from(payoutStores).limit(1);

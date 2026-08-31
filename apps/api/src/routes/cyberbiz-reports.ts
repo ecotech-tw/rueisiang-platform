@@ -1,20 +1,33 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import {
+  createReportManualPayout,
+  createReportManualSales,
   deleteReportPayoutDaily,
+  deleteReportManualPayout,
+  deleteReportManualSales,
+  isCompanyReportStoreScopeId,
   isValidReportDate,
   latestReportSalesPeriods,
+  listCyberbizProducts,
+  listReportManualPayouts,
+  listReportManualSales,
   listReportScopes,
+  ReportManualError,
+  updateReportManualPayout,
+  updateReportManualSales,
   updateReportPayoutDaily,
   type Database,
   type ReportGroupBy,
+  type ReportManualSkuSource,
   type ReportScopeKind,
 } from "@rueisiang/db";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { createCyberbizReportService, CyberbizReportQueryError } from "../cyberbiz-reports.js";
-import { cachedReportAnalytics } from "../report-cache.js";
+import { cachedReportAnalytics, forgetReportAnalytics } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
+import { body, requireString } from "../request.js";
 
 function queryValue(c: { req: { query(name: string): string | undefined } }, name: string): string | undefined {
   const value = c.req.query(name)?.trim();
@@ -73,6 +86,66 @@ function handleError(error: unknown): never {
   throw error;
 }
 
+function handleManualError(error: unknown): never {
+  if (error instanceof ReportManualError) {
+    const status = error.kind === "not_found" ? 404 : error.kind === "conflict" ? 409 : 400;
+    throw new HTTPException(status, { message: error.message });
+  }
+  throw error;
+}
+
+function manualId(c: { req: { param(name: string): string | undefined } }): string {
+  const id = c.req.param("id")?.trim();
+  if (!id) throw new HTTPException(400, { message: "缺少人工修訂資料 ID。" });
+  return id;
+}
+
+function safeIntegerInput(input: Record<string, unknown>, field: string, label: string): number {
+  const value = input[field];
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    throw new HTTPException(400, { message: `${label}必須是安全整數。` });
+  }
+  return value;
+}
+
+function manualPayoutInput(input: Record<string, unknown>) {
+  return {
+    scopeId: requireString(input, "scopeId", "據點"),
+    businessDate: requireString(input, "businessDate", "出金日期"),
+    payoutAmount: safeIntegerInput(input, "payoutAmount", "出金金額"),
+  };
+}
+
+function manualSalesInput(input: Record<string, unknown>): {
+  scopeId: string;
+  reportMonth: string;
+  skuSource: ReportManualSkuSource;
+  sku: string;
+  productName?: string;
+  category?: string;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+  salesAmount: number;
+} {
+  const skuSource = requireString(input, "skuSource", "SKU 來源");
+  if (skuSource !== "custom" && skuSource !== "cyberbiz") {
+    throw new HTTPException(400, { message: "SKU 來源必須是 custom 或 cyberbiz。" });
+  }
+  return {
+    scopeId: requireString(input, "scopeId", "據點"),
+    reportMonth: requireString(input, "reportMonth", "報表月份"),
+    skuSource,
+    sku: requireString(input, "sku", "SKU"),
+    ...(typeof input.productName === "string" ? { productName: input.productName } : {}),
+    ...(typeof input.category === "string" ? { category: input.category } : {}),
+    grossQuantity: safeIntegerInput(input, "grossQuantity", "銷售數量"),
+    returnQuantity: safeIntegerInput(input, "returnQuantity", "退貨數量"),
+    netQuantity: safeIntegerInput(input, "netQuantity", "淨銷售數量"),
+    salesAmount: safeIntegerInput(input, "salesAmount", "銷售金額"),
+  };
+}
+
 function payoutTarget(c: { req: { param(name: string): string | undefined } }): { scopeId: string; businessDate: string } {
   const scopeId = c.req.param("scopeId")?.trim();
   const businessDate = c.req.param("businessDate")?.trim();
@@ -126,6 +199,88 @@ export const cyberbizReports = new Hono<AppEnv>()
     });
     return c.json(result);
   })
+  .get("/manual/options", requirePermission("reports:cyberbiz:write"), async (c) => {
+    const [scopes, products] = await Promise.all([
+      listReportScopes(c.get("db"), "store"),
+      listCyberbizProducts(c.get("db")),
+    ]);
+    return c.json({
+      scopes: scopes
+        .filter((scope) => scope.active === 1 && isCompanyReportStoreScopeId(scope.id))
+        .map((scope) => ({ id: scope.id, name: scope.name })),
+      products,
+    });
+  })
+  .get("/manual/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
+    return c.json({ rows: await listReportManualPayouts(c.get("db")) });
+  })
+  .post("/manual/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const input = manualPayoutInput(await body(c));
+      const user = c.get("user");
+      const row = await createReportManualPayout(c.get("db"), { ...input, actor: { id: user.id, email: user.email } });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ row }, 201);
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .patch("/manual/payout/:id", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const input = manualPayoutInput(await body(c));
+      const user = c.get("user");
+      const row = await updateReportManualPayout(c.get("db"), { id: manualId(c), ...input, actor: { id: user.id, email: user.email } });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ row });
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .delete("/manual/payout/:id", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const user = c.get("user");
+      await deleteReportManualPayout(c.get("db"), manualId(c), { id: user.id, email: user.email });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ ok: true });
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .get("/manual/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
+    return c.json({ rows: await listReportManualSales(c.get("db")) });
+  })
+  .post("/manual/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const input = manualSalesInput(await body(c));
+      const user = c.get("user");
+      const row = await createReportManualSales(c.get("db"), { ...input, actor: { id: user.id, email: user.email } });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ row }, 201);
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .patch("/manual/sales/:id", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const input = manualSalesInput(await body(c));
+      const user = c.get("user");
+      const row = await updateReportManualSales(c.get("db"), { id: manualId(c), ...input, actor: { id: user.id, email: user.email } });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ row });
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .delete("/manual/sales/:id", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const user = c.get("user");
+      await deleteReportManualSales(c.get("db"), manualId(c), { id: user.id, email: user.email });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ ok: true });
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
   .get("/summary/payout", requirePermission("reports:analytics:read"), async (c) => {
     try {
       const query = commonQuery(c);
@@ -158,7 +313,7 @@ export const cyberbizReports = new Hono<AppEnv>()
       };
       const result = await cachedReportAnalytics(
         cacheClient(c.env),
-        analyticsCacheKey(c, "summary:sales"),
+        analyticsCacheKey(c, "summary:sales:v2"),
         () => createCyberbizReportService(c.get("db")).querySalesSummary(query),
       );
       return c.json(result);

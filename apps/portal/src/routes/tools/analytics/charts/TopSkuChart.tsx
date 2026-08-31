@@ -13,6 +13,7 @@ import type { SalesSkuBreakdown, SalesTopSkuMetric } from "../api.js";
 
 interface TopSkuChartProps {
   rows: SalesSkuBreakdown[];
+  allRows: SalesSkuBreakdown[];
   metric: SalesTopSkuMetric;
   loading: boolean;
   onMetricChange: (metric: SalesTopSkuMetric) => void;
@@ -24,7 +25,7 @@ function formatPercent(value: number): string {
   return `${(value * 100).toLocaleString("zh-TW", { maximumFractionDigits: 1 })}%`;
 }
 
-export function TopSkuChart({ rows, metric, loading, onMetricChange, valueFormatter, quantityFormatter }: TopSkuChartProps) {
+export function TopSkuChart({ rows, allRows, metric, loading, onMetricChange, valueFormatter, quantityFormatter }: TopSkuChartProps) {
   const data = rows.map((row) => ({
     ...row,
     label: row.isOther ? "其他" : `${row.productName} · ${row.sku}`,
@@ -34,7 +35,7 @@ export function TopSkuChart({ rows, metric, loading, onMetricChange, valueFormat
   return (
     <Panel
       title="Top 10 SKU"
-      description="第十名以後合併為其他，可切換排行指標。"
+      description="圖表顯示前十名；查看資料表可展開全部商品。"
       actions={(
         <div className="analytics-panel-actions">
           <div className="analytics-chart-actions" role="group" aria-label="Top SKU 排序方式">
@@ -42,17 +43,17 @@ export function TopSkuChart({ rows, metric, loading, onMetricChange, valueFormat
             <Button variant="chip" selected={metric === "salesAmount"} onClick={() => onMetricChange("salesAmount")}>依售額</Button>
           </div>
           <AnalyticsDataDialog
-            title={`Top 10 SKU（依${metricLabel}）`}
-            description="排行外的商品會合併為其他；切換指標時會先更新資料再開啟明細。"
-            disabled={loading || !rows.length}
+            title={`商品銷售資料（依${metricLabel}）`}
+            description="依目前選定指標排序，列出這段期間所有有銷售的商品。"
+            disabled={loading || !allRows.length}
           >
             <table className="data-table analytics-table">
               <thead><tr><th>商品</th><th>SKU</th><th className="numeric">淨銷量</th><th className="numeric">售額（參考）</th><th className="numeric">銷量佔比</th></tr></thead>
               <tbody>
-                {rows.map((row) => (
+                {allRows.map((row) => (
                   <tr key={row.sku}>
                     <td data-label="商品" className="cell-strong">{row.productName}</td>
-                    <td data-label="SKU">{row.isOther ? "—" : row.sku}</td>
+                    <td data-label="SKU">{row.sku}</td>
                     <td data-label="淨銷量" className="numeric">{quantityFormatter(row.netQuantity)}</td>
                     <td data-label="售額（參考）" className="numeric">{valueFormatter(row.salesAmount)}</td>
                     <td data-label="銷量佔比" className="numeric">{formatPercent(row.quantityShare)}</td>
