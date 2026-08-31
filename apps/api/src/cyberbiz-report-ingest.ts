@@ -66,6 +66,17 @@ function integer(value: unknown): number {
   return value;
 }
 
+/**
+ * 加總與用料展開的結果也要檢查一次。
+ *
+ * 每一列各自都是安全整數，同 SKU 相加、再乘上組合用料數量之後仍可能溢位；不檢查的話
+ * 會靜默寫入失真的數字。
+ */
+function total(value: number): number {
+  if (!Number.isSafeInteger(value)) throw new CyberbizReportIngestError(422, "invalid_ingest");
+  return value;
+}
+
 function readInput(value: unknown): CyberbizReportIngestInput {
   const isSingle = record(value) && (value.kind === "sales" || value.kind === "payout") && Array.isArray(value.rows);
   const isBundle = record(value) && value.kind === "sales_and_payout"
@@ -126,10 +137,10 @@ function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
     rows.set(key, {
       reportMonth,
       externalSku,
-      grossQuantity: (previous?.grossQuantity ?? 0) + integer(value.grossQuantity ?? 0),
-      returnQuantity: (previous?.returnQuantity ?? 0) + integer(value.returnQuantity ?? 0),
-      netQuantity: (previous?.netQuantity ?? 0) + integer(value.netQuantity ?? 0),
-      salesAmount: (previous?.salesAmount ?? 0) + integer(value.salesAmount ?? 0),
+      grossQuantity: total((previous?.grossQuantity ?? 0) + integer(value.grossQuantity ?? 0)),
+      returnQuantity: total((previous?.returnQuantity ?? 0) + integer(value.returnQuantity ?? 0)),
+      netQuantity: total((previous?.netQuantity ?? 0) + integer(value.netQuantity ?? 0)),
+      salesAmount: total((previous?.salesAmount ?? 0) + integer(value.salesAmount ?? 0)),
     });
   }
   return [...rows.values()];
@@ -229,10 +240,10 @@ async function normalizeSalesRows(
         sku: component.sku,
         productName: previous?.productName ?? component.name,
         category: previous?.category ?? component.category,
-        grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity * component.quantity,
-        returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity * component.quantity,
-        netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity * component.quantity,
-        salesAmount: (previous?.salesAmount ?? 0) + (index === 0 ? row.salesAmount : 0),
+        grossQuantity: total((previous?.grossQuantity ?? 0) + row.grossQuantity * component.quantity),
+        returnQuantity: total((previous?.returnQuantity ?? 0) + row.returnQuantity * component.quantity),
+        netQuantity: total((previous?.netQuantity ?? 0) + row.netQuantity * component.quantity),
+        salesAmount: total((previous?.salesAmount ?? 0) + (index === 0 ? row.salesAmount : 0)),
         updatedAt: new Date().toISOString(),
       });
     }
@@ -250,7 +261,7 @@ function payoutRows(input: CyberbizReportIngestInput) {
     rows.set(businessDate, {
       scopeId: input.scopeId,
       businessDate,
-      payoutAmount: (previous?.payoutAmount ?? 0) + payoutAmount,
+      payoutAmount: total((previous?.payoutAmount ?? 0) + payoutAmount),
       updatedAt: new Date().toISOString(),
     });
   }

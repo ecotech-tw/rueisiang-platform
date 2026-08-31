@@ -85,6 +85,10 @@ function readDateRange(sheet: Sheet): { start: string; end: string } {
 }
 
 function findHeaders(sheet: Sheet): { row: number; columns: Map<string, string>; format: ManualSalesFormat } {
+  // 舊版格式只認得出「商品名稱」與「淨銷售數量」，這兩欄標準檔也有；一遇到就回傳的話，
+  // 表頭前面多一列摘要的標準檔會被當成舊版解析——SKU 全部丟掉、售額與退貨填 0，而且
+  // 不會有任何錯誤。所以先把 1–5 列都掃完找標準格式，真的找不到才退回舊版。
+  let legacy: { row: number; columns: Map<string, string> } | null = null;
   for (const row of HEADER_ROWS) {
     const columns = new Map<string, string>();
     for (const column of sheet.columns) {
@@ -94,10 +98,11 @@ function findHeaders(sheet: Sheet): { row: number; columns: Map<string, string>;
     if (REQUIRED_HEADERS.every((header) => columns.has(header))) {
       return { row, columns, format: "standard" };
     }
-    if (LEGACY_REQUIRED_HEADERS.every((header) => columns.has(header))) {
-      return { row, columns, format: "legacy-net-quantity" };
+    if (!legacy && LEGACY_REQUIRED_HEADERS.every((header) => columns.has(header))) {
+      legacy = { row, columns };
     }
   }
+  if (legacy) return { ...legacy, format: "legacy-net-quantity" };
   throw new Error(
     `找不到商品銷售總表欄位；標準格式需要 ${REQUIRED_HEADERS.join("、")}，舊版合併檔需要 ${LEGACY_REQUIRED_HEADERS.join("、")}。`,
   );
@@ -179,11 +184,13 @@ function parseLegacyNetQuantitySales(
     numericCellCount += quantity.present ? 1 : 0;
     const netQuantity = integer(quantity.value, `第 ${row} 列淨銷售數量`);
     const productName = text(sheet.cells.get(`${productColumn}${row}`));
+    // 合計比對用未四捨五入的原始值，跟標準格式同一套規則；四捨五入只發生在要寫進去的
+    // 那一列。兩者混用的話，帶小數的舊檔會被判成「合計不一致」而不是正常匯入。
     const values = {
       // 舊檔只留下淨銷售數量；為了讓既有 sales schema 能保存，銷售數量沿用淨數量。
-      grossQuantity: netQuantity,
+      grossQuantity: quantity.value,
       returnQuantity: 0,
-      netQuantity,
+      netQuantity: quantity.value,
       salesAmount: 0,
     } satisfies SalesNumbers;
     if (!productName) {
@@ -199,7 +206,10 @@ function parseLegacyNetQuantitySales(
       sku: "",
       productName,
       category: "未分類",
-      ...values,
+      grossQuantity: netQuantity,
+      returnQuantity: 0,
+      netQuantity,
+      salesAmount: 0,
     });
   }
 

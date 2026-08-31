@@ -3476,7 +3476,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .manual-payout-step,
 .manual-sales-step { display: grid; gap: 10px; }
-.manual-payout-step > h3 { margin: 0; font-size: 15px; font-weight: 500; }
+.manual-payout-step > h3,
 .manual-sales-step > h3 { margin: 0; font-size: 15px; font-weight: 500; }
 
 /* 報表人工修訂：一頁一個資料入口，兩種報表用同一套列編輯節奏。 */

@@ -331,19 +331,23 @@ export const tools = new Hono<AppEnv>()
       listReportScopes(c.get("db"), "store"),
       listPayoutStores(c.get("db")),
     ]);
-    const scopes = new Map<string, { id: string; name: string }>();
+    // 以名稱去重只用來決定「哪些設定的店還沒有 scope」；既有 scope 一律全部列出，
+    // 不然正式環境已經存在的同名 scope 會有一個永遠選不到，它的歷史資料等於消失。
+    const scopes: { id: string; name: string }[] = [];
+    const named = new Set<string>();
     for (const scope of reportScopes) {
       if (!isCyberbizSalesScopeId(scope.id)) continue;
-      scopes.set(normalizeReportScopeName(scope.name), { id: scope.id, name: scope.name });
+      named.add(normalizeReportScopeName(scope.name));
+      scopes.push({ id: scope.id, name: scope.name });
     }
     for (const store of configuredStores) {
       const key = normalizeReportScopeName(store.name);
-      if (!scopes.has(key)) {
-        scopes.set(key, { id: cyberbizScopeIdFromStoreName(store.name), name: store.name });
-      }
+      if (named.has(key)) continue;
+      named.add(key);
+      scopes.push({ id: cyberbizScopeIdFromStoreName(store.name), name: store.name });
     }
     return c.json({
-      scopes: [...scopes.values()].sort((a, b) => a.name.localeCompare(b.name, "zh-TW")),
+      scopes: scopes.sort((a, b) => a.name.localeCompare(b.name, "zh-TW")),
     });
   })
 
@@ -433,8 +437,10 @@ export const tools = new Hono<AppEnv>()
         throw new HTTPException(422, { message: error.message });
       }
       throw error;
+    } finally {
+      // ingest 可能已先寫入 scope 或部分批次後才失敗；成功與失敗都要清掉報表快取。
+      await forgetReportAnalytics(cacheClient(c.env));
     }
-    await forgetReportAnalytics(cacheClient(c.env));
     return c.json({ ...result, scopeName: resolvedScopeName, reportMonth }, 201);
   })
 

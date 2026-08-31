@@ -387,4 +387,36 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
       [importedScopeId, 99999],
     ]);
   });
+  it("同名的既有據點都列得出來，不會有一個永遠選不到", async () => {
+    await upsertReportScope(db(), { id: "cyberbiz:store:duplicate-a", scopeKind: "store", name: "重複店" });
+    await upsertReportScope(db(), { id: "manual:store:duplicate-b", scopeKind: "store", name: "重複店" });
+    const id = await seedUser("manager-duplicate-scopes@ecotech.tw", "role-manager");
+
+    const response = await as(id, "manager-duplicate-scopes@ecotech.tw", "/api/tools/manual-sales/scopes");
+
+    expect(response.status).toBe(200);
+    const scopes = (await response.json() as { scopes: { id: string; name: string }[] }).scopes;
+    expect(scopes.filter((scope) => scope.name === "重複店").map((scope) => scope.id)).toEqual([
+      "cyberbiz:store:duplicate-a",
+      "manual:store:duplicate-b",
+    ]);
+  });
+
+  it("同一個 SKU 加總後超出安全整數範圍時整份擋下來", async () => {
+    const id = await seedUser("manager-manual-overflow@ecotech.tw", "role-manager");
+    const response = await as(id, "manager-manual-overflow@ecotech.tw", "/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "溢位測試店",
+        reportMonth: "2026-07",
+        rows: [
+          { sku: "OVERFLOW-001", grossQuantity: 0, returnQuantity: 0, netQuantity: Number.MAX_SAFE_INTEGER, salesAmount: 0 },
+          { sku: "OVERFLOW-001", grossQuantity: 0, returnQuantity: 0, netQuantity: 1, salesAmount: 0 },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(422);
+    expect(await db().select().from(reportSalesMonthly)).toHaveLength(0);
+  });
 });
