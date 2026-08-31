@@ -6,8 +6,8 @@ import { rolePermissions, roles } from "./schema/auth.js";
 /**
  * 把程式碼裡定義的系統角色同步進資料庫。
  *
- * 每次執行都安全（冪等）：角色照 key 對應，權限整組重寫，
- * 所以在 permissions.ts 增減權限之後跑一次就會生效，不必手動改資料。
+ * 每次執行都安全（冪等）：缺少的角色會以 SYSTEM_ROLES 建立，管理員角色會校正回
+ * 完整權限；非管理員系統角色的既有設定則保留，讓管理者可以從 UI 客製作業權限。
  *
  * 由 POST /api/admin/roles/sync 呼叫，需要 admin:role:write。全新的環境要怎麼
  * 生出第一位管理者見 .claude/skills/platform-deploy/SKILL.md——那是一次性的、資料庫層的動作，
@@ -15,21 +15,26 @@ import { rolePermissions, roles } from "./schema/auth.js";
  */
 export async function syncSystemRoles(db: Database): Promise<void> {
   for (const [key, definition] of Object.entries(SYSTEM_ROLES)) {
-    const roleId = `role-${key}`;
-    await db
-      .insert(roles)
-      .values({ id: roleId, key, name: definition.name, isSystem: true })
-      .onConflictDoUpdate({
-        target: roles.key,
-        set: { name: definition.name, isSystem: true },
-      });
+    const [existing] = await db
+      .select({ id: roles.id, isSystem: roles.isSystem })
+      .from(roles)
+      .where(eq(roles.key, key))
+      .limit(1);
+    const roleId = existing?.id ?? `role-${key}`;
 
-    // 整組重寫而不是逐一比對：權限清單是程式碼說了算，資料庫只是投影。
+    // 以 key 做原子 upsert，避免兩個同步請求同時補同一個缺少的角色時撞 unique constraint。
+    await db.insert(roles).values({ id: roleId, key, name: definition.name, isSystem: true }).onConflictDoUpdate({
+      target: roles.key,
+      set: key === "admin" ? { name: definition.name, isSystem: true } : { isSystem: true },
+    });
+
+    // admin 是唯一受保護的角色，必須永遠保有完整的系統管理權限。
+    if (key !== "admin" && existing) continue;
     await db.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
     if (definition.permissions.length) {
       await db.insert(rolePermissions).values(
         definition.permissions.map((permission) => ({ roleId, permission })),
-      );
+      ).onConflictDoNothing();
     }
   }
 }

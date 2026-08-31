@@ -176,6 +176,7 @@ describe("商品銷售統計查詢", () => {
     }));
     await insertReportSalesMonthly(db(), [
       ...rows,
+      { scopeId: WEST, reportMonth: "2026-07", sku: "SKU-ZERO", productName: "零銷量商品", category: "食品", grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 },
       { scopeId: WEST, reportMonth: "2026-06", sku: "SKU-PREV", productName: "上期商品", category: "食品", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100 },
       { scopeId: WEST, reportMonth: "2025-07", sku: "SKU-LAST", productName: "去年商品", category: "食品", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 50 },
     ]);
@@ -216,6 +217,9 @@ describe("商品銷售統計查詢", () => {
     expect(result.byTopSku).toHaveLength(11);
     expect(result.byTopSku[0]).toMatchObject({ sku: "SKU-00", productName: "商品 0" });
     expect(result.byTopSku.at(-1)).toMatchObject({ productName: "其他", isOther: true });
+    expect(result.bySku).toHaveLength(result.skuCount);
+    expect(result.bySku.every((row) => !row.isOther)).toBe(true);
+    expect(result.bySku.some((row) => row.sku === "SKU-ZERO")).toBe(false);
 
     const fullMonthByDate = await queryReportSalesSummary(db(), {
       range: parseReportRange(undefined, "2026-07-01", "2026-07-31"),

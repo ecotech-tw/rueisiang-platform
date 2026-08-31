@@ -13,10 +13,8 @@ import {
 /**
  * 角色管理。
  *
- * 這一頁只管自訂角色。系統角色（管理者、主管、一般同仁、檢視者）的權限寫在
- * packages/auth 的 SYSTEM_ROLES 裡，每次「重新同步」都會被程式碼整組重寫——
- * 開放在這裡編輯只會得到一個下次同步就消失的設定，比不給改更難查。所以系統
- * 角色在這裡是唯讀的，要客製就用「複製一份」再調整。
+ * 系統角色是新環境的初始模板；除了管理員以外，都可以在這裡直接調整權限與說明。
+ * 管理員角色維持唯讀，避免任何一位管理者把自己鎖在系統外。
  */
 
 /** 權限鍵值是 <模組>:<資源>:<動作>，第一段就是分組依據。 */
@@ -26,6 +24,7 @@ const MODULE_LABELS: Record<string, string> = {
   tools: "營運工具",
   admin: "系統管理",
 };
+const PROTECTED_ROLE_KEY = "admin";
 
 function moduleOf(permission: string): string {
   return permission.split(":")[0] ?? "";
@@ -58,11 +57,12 @@ interface EditorState {
   name: string;
   description: string;
   permissions: Set<Permission>;
+  isSystem: boolean;
   readOnly: boolean;
 }
 
 function blankEditor(): EditorState {
-  return { key: null, name: "", description: "", permissions: new Set(), readOnly: false };
+  return { key: null, name: "", description: "", permissions: new Set(), isSystem: false, readOnly: false };
 }
 
 function editorFor(role: RoleInfo, options: { copy?: boolean } = {}): EditorState {
@@ -72,7 +72,8 @@ function editorFor(role: RoleInfo, options: { copy?: boolean } = {}): EditorStat
     name: options.copy ? `${role.name}（複製）` : role.name,
     description: role.description,
     permissions: new Set(role.permissions),
-    readOnly: role.isSystem && !options.copy,
+    isSystem: role.isSystem && !options.copy,
+    readOnly: role.key === PROTECTED_ROLE_KEY && !options.copy,
   };
 }
 
@@ -120,7 +121,7 @@ export function Roles() {
         title="角色管理"
         description={
           <>
-            自己組合權限，做出「只能跑出金表」「只看得到客戶資料」這種角色，再指派給同仁。
+            可以調整內建角色，也可以自己組合權限建立新角色，再指派給同仁。
           </>
         }
         actions={<Button onClick={() => setEditor(blankEditor())}>
@@ -160,12 +161,12 @@ export function Roles() {
                     <div className="row-actions">
                       <Button
                         variant="icon"
-                        icon={role.isSystem ? "eye" : "edit"}
+                        icon={role.key === PROTECTED_ROLE_KEY ? "eye" : "edit"}
                         onClick={() => setEditor(editorFor(role))}
-                        title={role.isSystem ? "檢視權限" : "編輯"}
-                        aria-label={role.isSystem ? "檢視權限" : "編輯"}
+                        title={role.key === PROTECTED_ROLE_KEY ? "檢視權限" : "編輯"}
+                        aria-label={role.key === PROTECTED_ROLE_KEY ? "檢視權限" : "編輯"}
                       />
-                      {/* 系統角色不能改，但可以當成起點複製一份出來調整。 */}
+                      {/* 管理員仍可複製成自訂角色，其他系統角色則可直接編輯。 */}
                       <Button
                         variant="icon"
                         icon="copy"
@@ -178,8 +179,8 @@ export function Roles() {
                         className="danger"
                         icon="trash"
                         onClick={() => confirmDelete(role)}
-                        disabled={role.isSystem || pending}
-                        title={role.isSystem ? "系統角色不能刪除" : "刪除"}
+                        disabled={role.isSystem || role.key === PROTECTED_ROLE_KEY || pending}
+                        title={role.isSystem || role.key === PROTECTED_ROLE_KEY ? "系統角色不能刪除" : "刪除"}
                         aria-label="刪除"
                       />
                     </div>
@@ -219,26 +220,33 @@ export function Roles() {
         >
               {editor.readOnly ? (
                 <p className="muted">
-                  這是系統內建角色，權限寫在程式碼裡，每次「重新同步」都會照著重寫，
-                  所以不開放在這裡編輯。要客製的話按上一頁的「複製成自訂角色」。
+                  管理員角色受系統保護，不能在這裡修改或刪除；要建立其他權限組合，
+                  請按上一頁的「複製成自訂角色」。
                 </p>
               ) : (
-                <div className="field-grid">
-                  <TextField
-                    label="角色名稱"
-                    required
-                    autoFocus
-                    value={editor.name}
-                    onChange={(event) => setEditor({ ...editor, name: event.target.value })}
-                    placeholder="例如：出金表操作員"
-                  />
-                  <TextField
-                    label="說明"
-                    value={editor.description}
-                    onChange={(event) => setEditor({ ...editor, description: event.target.value })}
-                    placeholder="這個角色是給誰用的"
-                  />
-                </div>
+                <>
+                  {editor.isSystem ? (
+                    <p className="muted">
+                      這是系統內建角色，仍不能刪除；在這裡調整的設定會保留，重新同步不會覆蓋。
+                    </p>
+                  ) : null}
+                  <div className="field-grid">
+                    <TextField
+                      label="角色名稱"
+                      required
+                      autoFocus
+                      value={editor.name}
+                      onChange={(event) => setEditor({ ...editor, name: event.target.value })}
+                      placeholder="例如：出金表操作員"
+                    />
+                    <TextField
+                      label="說明"
+                      value={editor.description}
+                      onChange={(event) => setEditor({ ...editor, description: event.target.value })}
+                      placeholder="這個角色是給誰用的"
+                    />
+                  </div>
+                </>
               )}
 
               {groups.map((group) => {

@@ -347,11 +347,9 @@ export async function revokeRole(db: Database, grant: RoleGrant): Promise<boolea
 /**
  * ── 角色維護 ──────────────────────────────────────────────────────────────
  *
- * 系統角色（isSystem）的權限是程式碼說了算，見 packages/auth 的 SYSTEM_ROLES：
- * 每次按「重新同步」都會整組重寫。所以這裡的編輯與刪除**只開放自訂角色**——
- * 讓人在 UI 改系統角色只會得到一個下次同步就消失的設定，那比不給改更糟。
- *
- * 要「像主管但不能碰出金表」這種角色，作法是複製一份成自訂角色再調整。
+ * 系統角色是不可刪除的固定入口，但除了管理員以外，權限與顯示資訊都可以由
+ * 管理者在 UI 調整。SYSTEM_ROLES 只負責新環境的初始值；重新同步時也不會覆蓋
+ * 已經由管理者調整過的非管理員系統角色。
  */
 
 /** 自訂角色的 key 由系統產生。人只需要取名字，不必再發明一組英數代號。 */
@@ -362,8 +360,11 @@ function newRoleKey(): string {
 export type RoleWriteResult =
   | { kind: "ok"; key: string }
   | { kind: "not-found" }
+  | { kind: "protected-role" }
   | { kind: "system-role" }
   | { kind: "unknown-permission"; permission: string };
+
+const PROTECTED_ROLE_KEY = "admin";
 
 /** 未知的權限鍵值一律擋下來。默默存進去只會讓「設定看起來有給」但實際上不生效。 */
 function findUnknownPermission(permissions: readonly string[]): string | null {
@@ -401,12 +402,12 @@ export async function updateRole(
   }
 
   const [role] = await db
-    .select({ id: roles.id, isSystem: roles.isSystem })
+    .select({ id: roles.id })
     .from(roles)
     .where(eq(roles.key, key))
     .limit(1);
   if (!role) return { kind: "not-found" };
-  if (role.isSystem) return { kind: "system-role" };
+  if (key === PROTECTED_ROLE_KEY) return { kind: "protected-role" };
 
   const patch: Record<string, string> = {};
   if (input.name !== undefined) patch.name = input.name.trim();
@@ -434,7 +435,7 @@ async function writePermissions(
 }
 
 /**
- * 刪除自訂角色。指派給使用者的那幾列由 FK 的 onDelete cascade 一起帶走，
+ * 刪除自訂角色。系統角色一律不能刪除；指派給使用者的那幾列由 FK 的 onDelete cascade 一起帶走，
  * 所以呼叫端要先問清楚「這個角色還有幾個人在用」再送出。
  */
 export async function deleteRole(db: Database, key: string): Promise<RoleWriteResult> {
@@ -444,6 +445,7 @@ export async function deleteRole(db: Database, key: string): Promise<RoleWriteRe
     .where(eq(roles.key, key))
     .limit(1);
   if (!role) return { kind: "not-found" };
+  if (key === PROTECTED_ROLE_KEY) return { kind: "protected-role" };
   if (role.isSystem) return { kind: "system-role" };
 
   await db.delete(roles).where(eq(roles.id, role.id));

@@ -79,9 +79,11 @@ function throwOnRoleWriteFailure(result: RoleWriteResult): void {
       return;
     case "not-found":
       throw new HTTPException(404, { message: "找不到這個角色。" });
+    case "protected-role":
+      throw new HTTPException(400, { message: "管理員角色受系統保護，不能修改或刪除。" });
     case "system-role":
       throw new HTTPException(400, {
-        message: "系統角色的權限寫在程式碼裡，不能從這裡改。請複製成自訂角色再調整。",
+        message: "系統內建角色不能刪除；除了管理員角色外，都可以直接調整。",
       });
     case "unknown-permission":
       throw new HTTPException(400, { message: `沒有這個權限：${result.permission}` });
@@ -110,12 +112,13 @@ export const admin = new Hono<AppEnv>()
   })
 
   /**
-   * 把程式碼裡定義的東西重新寫進資料庫。改過 permissions.ts 並部署之後跑一次。
+   * 建立缺少的系統角色並校正管理員角色。非管理員系統角色的現有設定會保留，
+   * 讓管理者在 UI 調整的權限不會因為按同步而被覆蓋。
    *
    * 這件事本來是靠一條用共用憑證保護的 /api/setup。系統有管理者之後就不需要了——
    * 誰能調權限本來就該由 RBAC 自己回答，不必再多一組要記得刪掉的 secret。
    *
-   * 兩者的語意刻意不同：角色權限是程式碼說了算，每次整組重寫；出金表的店別是
+   * 兩者的語意刻意不同：角色同步只負責初始角色與管理員保護；出金表的店別是
    * 同仁自己維護的資料，只在完全空的時候塞一份起始清單，之後絕不覆蓋。
    */
   .post("/roles/sync", requirePermission("admin:role:write"), async (c) => {
@@ -125,11 +128,10 @@ export const admin = new Hono<AppEnv>()
   })
 
   /**
-   * ── 自訂角色 ────────────────────────────────────────────────────────────
+   * ── 角色維護 ────────────────────────────────────────────────────────────
    *
-   * 系統角色不開放從這裡改。它們的權限每次 /roles/sync 都會被程式碼整組重寫，
-   * 讓人在 UI 改只會得到一個下次同步就消失的設定——那比不給改更難查。
-   * 要「像主管但不能碰出金表」就複製一份成自訂角色再調整。
+   * 非管理員的系統角色可以直接調整；管理員角色維持不可修改、不可刪除。
+   * 所有系統角色都保留不可刪除的保護，避免指派中的固定角色被意外移除。
    */
   .post("/roles", requirePermission("admin:role:write"), async (c) => {
     const input = await body(c);

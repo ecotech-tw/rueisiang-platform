@@ -181,6 +181,7 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, onClearProd
         <div className="analytics-chart-column">
           <TopSkuChart
             rows={summary.byTopSku}
+            allRows={summary.bySku}
             metric={topSkuBy}
             loading={summary.topSkuBy !== topSkuBy}
             onMetricChange={setTopSkuBy}

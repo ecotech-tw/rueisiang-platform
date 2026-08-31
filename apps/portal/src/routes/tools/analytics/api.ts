@@ -130,6 +130,7 @@ export interface SalesSummary {
   skuCount: number;
   breakdown: SalesBreakdown[];
   byCategory: SalesCategoryBreakdown[];
+  bySku: SalesSkuBreakdown[];
   byTopSku: SalesSkuBreakdown[];
   topSkuBy: SalesTopSkuMetric;
   message?: string;

@@ -57,7 +57,7 @@ export type Permission = keyof typeof PERMISSIONS;
 
 export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
 
-/** 系統預設角色。isSystem 的角色不允許從 UI 刪除。 */
+/** 系統預設角色。它們是新環境的初始模板；建立後可由管理者調整，但不可刪除。 */
 export const SYSTEM_ROLES = {
   admin: { name: "管理者", permissions: ALL_PERMISSIONS },
   manager: {
