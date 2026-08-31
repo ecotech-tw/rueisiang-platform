@@ -293,6 +293,11 @@ type PayoutGroupBy = "day" | "month" | "scope";
 
 const REPORT_STORE_SCOPE_ID = /^(?:[A-Za-z][A-Za-z0-9_-]*:store:|store-)/;
 
+/** 公司報表會納入的店別 scope 格式；避免寫入查不到的孤兒 scope。 */
+export function isCompanyReportStoreScopeId(scopeId: string): boolean {
+  return REPORT_STORE_SCOPE_ID.test(scopeId);
+}
+
 const PAYOUT_GROUPS: Record<PayoutGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
   day: { alias: "businessDate", expression: sql`${reportPayoutDaily.businessDate}` },
   month: { alias: "reportMonth", expression: sql`substr(${reportPayoutDaily.businessDate}, 1, 7)` },
@@ -321,7 +326,7 @@ export async function scopeIdsForQuery(db: Database, query: { scopeType: ReportS
   return {
     // 公司總額納入所有通路，但只接受既定的 channel:store:id 格式與舊版 store- ID。
     ids: (await listReportScopes(db, "store"))
-      .filter((scope) => REPORT_STORE_SCOPE_ID.test(scope.id))
+      .filter((scope) => isCompanyReportStoreScopeId(scope.id))
       .map((scope) => scope.id),
   };
 }

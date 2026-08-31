@@ -1,9 +1,10 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, listPayoutStores, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
-import { payoutRuns, payoutStores, userRoles, users } from "@rueisiang/db/schema";
+import { createDatabase, listPayoutStores, seedPayoutStores, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
+import { payoutRuns, payoutStores, reportPayoutDaily, reportScopes, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
+import { manualScopeIdFromStoreName } from "./cyberbiz-scope.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 /**
@@ -329,6 +330,75 @@ describe("查狀態", () => {
 
     expect(body.steps.map((step) => step.name)).toEqual(["登入 CYBERBIZ"]);
     expect(calls[1]?.url).toContain("/actions/runs/7/jobs");
+  });
+});
+
+describe("手動上傳出金", () => {
+  it("長店名的 scope ID 保留雜湊，不會因截斷前綴而碰撞", () => {
+    const first = manualScopeIdFromStoreName(`${"長店名".repeat(40)}甲`);
+    const second = manualScopeIdFromStoreName(`${"長店名".repeat(40)}乙`);
+
+    expect(first).not.toBe(second);
+    expect(first).toHaveLength(100);
+    expect(second).toHaveLength(100);
+  });
+
+  it("同一天的輸入會先加總，再以單筆資料寫入並回傳相同合計", async () => {
+    const id = await seedUser("manual@ecotech.tw", "role-admin");
+    const response = await as(id, "manual@ecotech.tw", "/api/tools/manual-payout", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "退租店",
+        rows: [
+          { businessDate: "2026-07-01", payoutAmount: 100 },
+          { businessDate: "2026-07-01", payoutAmount: 25 },
+          { businessDate: "2026-07-02", payoutAmount: 50 },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ dayCount: 2, total: 175, coverageStart: "2026-07-01", coverageEnd: "2026-07-02" });
+    expect((await db().select().from(reportPayoutDaily)).map((row) => [row.businessDate, row.payoutAmount])).toEqual([
+      ["2026-07-01", 125],
+      ["2026-07-02", 50],
+    ]);
+  });
+
+  it.each([
+    ["日曆上不存在的日期", { businessDate: "2026-02-31", payoutAmount: 100 }],
+    ["超出安全整數範圍的金額", { businessDate: "2026-07-01", payoutAmount: Number.MAX_SAFE_INTEGER + 1 }],
+  ])("擋下不合法的資料（%s）且不建立 scope", async (_label, row) => {
+    const id = await seedUser("invalid-manual@ecotech.tw", "role-admin");
+    const response = await as(id, "invalid-manual@ecotech.tw", "/api/tools/manual-payout", {
+      method: "POST",
+      body: JSON.stringify({ scopeName: "不應建立", rows: [row] }),
+    });
+
+    expect(response.status).toBe(400);
+    expect((await db().select().from(reportScopes)).some((scope) => scope.id !== "company")).toBe(false);
+    expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
+  });
+
+  it("不認得的既有 scope 會改用可納入公司總計的 manual scope", async () => {
+    await upsertReportScope(db(), { id: "invalid-scope-id", scopeKind: "store", name: "舊店" });
+    const id = await seedUser("manual-scope@ecotech.tw", "role-admin");
+    const response = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeId: "invalid-scope-id",
+        scopeName: "退租店",
+        rows: [{ businessDate: "2026-07-01", payoutAmount: 100 }],
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    const result = await response.json() as { scopeId: string };
+    expect(result.scopeId).toMatch(/^manual:store:/);
+    expect((await db().select().from(reportPayoutDaily))[0]?.scopeId).toBe(result.scopeId);
+
+    const scopes = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout/scopes");
+    expect((await scopes.json()) as { scopes: { id: string }[] }).toEqual({ scopes: [{ id: result.scopeId, name: "退租店" }] });
   });
 });
 
