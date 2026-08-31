@@ -39,7 +39,7 @@ async function call(path: string, userId?: string, email?: string): Promise<Resp
 
 async function mutate(
   path: string,
-  method: "PATCH" | "DELETE",
+  method: "POST" | "PATCH" | "DELETE",
   userId?: string,
   email?: string,
   body?: unknown,
@@ -74,6 +74,76 @@ afterEach(() => {
 });
 
 describe("報表統計 API", () => {
+  it("可以新增、讀取與刪除兩種報表的人工資料，並驗證權限與日期", async () => {
+    const manager = await seedUser("manager-manual@ecotech.tw", "role-manager");
+    const viewer = await seedUser("viewer-manual@ecotech.tw", "role-viewer");
+    const scopeId = "cyberbiz:store:active";
+
+    const options = await call("/api/reports/cyberbiz/manual/options", manager, "manager-manual@ecotech.tw");
+    expect(options.status).toBe(200);
+    expect(await options.json()).toMatchObject({
+      scopes: [{ id: scopeId, name: "啟用店" }],
+      products: [],
+    });
+
+    const payout = await mutate(
+      "/api/reports/cyberbiz/manual/payout",
+      "POST",
+      manager,
+      "manager-manual@ecotech.tw",
+      { scopeId, businessDate: "2026-08-01", payoutAmount: 4200 },
+    );
+    expect(payout.status).toBe(201);
+    const payoutBody = await payout.json() as { row: { id: string; payoutAmount: number } };
+    expect(payoutBody.row.payoutAmount).toBe(4200);
+
+    const sales = await mutate(
+      "/api/reports/cyberbiz/manual/sales",
+      "POST",
+      manager,
+      "manager-manual@ecotech.tw",
+      {
+        scopeId,
+        reportMonth: "2026-08",
+        skuSource: "custom",
+        sku: "manual-1",
+        productName: "人工商品",
+        grossQuantity: 3,
+        returnQuantity: 0,
+        netQuantity: 3,
+        salesAmount: 180,
+      },
+    );
+    expect(sales.status).toBe(201);
+
+    const payoutList = await call("/api/reports/cyberbiz/manual/payout", manager, "manager-manual@ecotech.tw");
+    expect(await payoutList.json()).toMatchObject({ rows: [{ id: payoutBody.row.id, payoutAmount: 4200 }] });
+    const salesList = await call("/api/reports/cyberbiz/manual/sales", manager, "manager-manual@ecotech.tw");
+    expect(await salesList.json()).toMatchObject({ rows: [{ sku: "MANUAL-1", productName: "人工商品" }] });
+
+    expect((await mutate(
+      "/api/reports/cyberbiz/manual/payout",
+      "POST",
+      manager,
+      "manager-manual@ecotech.tw",
+      { scopeId, businessDate: "2026-02-30", payoutAmount: 100 },
+    )).status).toBe(400);
+    expect((await mutate(
+      "/api/reports/cyberbiz/manual/payout",
+      "POST",
+      viewer,
+      "viewer-manual@ecotech.tw",
+      { scopeId, businessDate: "2026-08-02", payoutAmount: 100 },
+    )).status).toBe(403);
+
+    expect((await mutate(
+      `/api/reports/cyberbiz/manual/payout/${payoutBody.row.id}`,
+      "DELETE",
+      manager,
+      "manager-manual@ecotech.tw",
+    )).status).toBe(200);
+  });
+
   it("沒有登入或沒有營運統計權限都不能讀 summary", async () => {
     expect((await call("/api/reports/cyberbiz/summary/payout?period=2026-08")).status).toBe(401);
 

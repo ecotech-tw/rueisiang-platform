@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
+  reportManualSalesMonthly,
   reportPayoutDaily,
   reportSalesMonthly,
   reportScopes,
@@ -13,7 +14,7 @@ import {
 import { customReportProducts, inventoryItems, productBundleComponents, productSkuMappings } from "./schema/wms.js";
 import { legacyShopeeExternalSku, reportScopeChannel } from "./product-sku-mappings.js";
 
-export type { ReportPayoutDaily, ReportScopeKind } from "./schema/reports.js";
+export type { ReportManualSkuSource, ReportPayoutDaily, ReportScopeKind } from "./schema/reports.js";
 
 export type ReportGroupBy = "day" | "month" | "scope" | "sku" | "category";
 
@@ -133,6 +134,85 @@ export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind
     .orderBy(asc(reportScopes.name));
 }
 
+/*
+ * 人工修訂是同一個報表 key 的覆蓋層：
+ * - 有人工資料時，該 key 不再採用匯入資料。
+ * - 人工資料可以補上匯入資料沒有的 key。
+ * - 刪除人工資料後，原本的匯入資料會自然恢復。
+ *
+ * 這裡使用固定 SQL table name，而不是使用者輸入，因此不會把外部值插入 identifier。
+ */
+const EFFECTIVE_SALES_SOURCE = sql`(
+  SELECT
+    imported.scope_id,
+    imported.report_month,
+    imported.sku,
+    imported.product_name,
+    imported.category,
+    imported.gross_quantity,
+    imported.return_quantity,
+    imported.net_quantity,
+    imported.sales_amount
+  FROM report_sales_monthly AS imported
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM report_manual_sales_monthly AS manual
+    WHERE manual.scope_id = imported.scope_id
+      AND manual.report_month = imported.report_month
+      AND lower(manual.sku) = lower(imported.sku)
+  )
+  UNION ALL
+  SELECT
+    manual.scope_id,
+    manual.report_month,
+    manual.sku,
+    manual.product_name,
+    manual.category,
+    manual.gross_quantity,
+    manual.return_quantity,
+    manual.net_quantity,
+    manual.sales_amount
+  FROM report_manual_sales_monthly AS manual
+) AS report_sales_effective`;
+
+const EFFECTIVE_SALES_COLUMNS = {
+  scopeId: sql.raw("report_sales_effective.scope_id"),
+  reportMonth: sql.raw("report_sales_effective.report_month"),
+  sku: sql.raw("report_sales_effective.sku"),
+  productName: sql.raw("report_sales_effective.product_name"),
+  category: sql.raw("report_sales_effective.category"),
+  grossQuantity: sql.raw("report_sales_effective.gross_quantity"),
+  returnQuantity: sql.raw("report_sales_effective.return_quantity"),
+  netQuantity: sql.raw("report_sales_effective.net_quantity"),
+  salesAmount: sql.raw("report_sales_effective.sales_amount"),
+};
+
+const EFFECTIVE_PAYOUT_SOURCE = sql`(
+  SELECT
+    imported.scope_id,
+    imported.business_date,
+    imported.payout_amount
+  FROM report_payout_daily AS imported
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM report_manual_payout_daily AS manual
+    WHERE manual.scope_id = imported.scope_id
+      AND manual.business_date = imported.business_date
+  )
+  UNION ALL
+  SELECT
+    manual.scope_id,
+    manual.business_date,
+    manual.payout_amount
+  FROM report_manual_payout_daily AS manual
+) AS report_payout_effective`;
+
+const EFFECTIVE_PAYOUT_COLUMNS = {
+  scopeId: sql.raw("report_payout_effective.scope_id"),
+  businessDate: sql.raw("report_payout_effective.business_date"),
+  payoutAmount: sql.raw("report_payout_effective.payout_amount"),
+};
+
 export interface LatestReportSalesPeriods {
   latestPeriod: string | null;
   byScope: Record<string, string>;
@@ -145,19 +225,31 @@ export async function latestReportSalesPeriods(
 ): Promise<LatestReportSalesPeriods> {
   if (!scopeIds.length) return { latestPeriod: null, byScope: {} };
 
-  const rows = await db.select({
-    scopeId: reportSalesMonthly.scopeId,
-    reportMonth: sql<string | null>`max(${reportSalesMonthly.reportMonth})`,
-  }).from(reportSalesMonthly)
-    .where(inArray(reportSalesMonthly.scopeId, [...scopeIds]))
-    .groupBy(reportSalesMonthly.scopeId);
+  const [importedRows, manualRows] = await Promise.all([
+    db.select({
+      scopeId: reportSalesMonthly.scopeId,
+      reportMonth: sql<string | null>`max(${reportSalesMonthly.reportMonth})`,
+    }).from(reportSalesMonthly)
+      .where(inArray(reportSalesMonthly.scopeId, [...scopeIds]))
+      .groupBy(reportSalesMonthly.scopeId),
+    db.select({
+      scopeId: reportManualSalesMonthly.scopeId,
+      reportMonth: sql<string | null>`max(${reportManualSalesMonthly.reportMonth})`,
+    }).from(reportManualSalesMonthly)
+      .where(inArray(reportManualSalesMonthly.scopeId, [...scopeIds]))
+      .groupBy(reportManualSalesMonthly.scopeId),
+  ]);
 
   const byScope: Record<string, string> = {};
   let latestPeriod: string | null = null;
-  for (const row of rows) {
+  for (const row of [...importedRows, ...manualRows]) {
     if (!row.reportMonth) continue;
-    byScope[row.scopeId] = row.reportMonth;
+    const existing = byScope[row.scopeId];
+    if (!existing || row.reportMonth > existing) byScope[row.scopeId] = row.reportMonth;
     if (!latestPeriod || row.reportMonth > latestPeriod) latestPeriod = row.reportMonth;
+  }
+  for (const period of Object.values(byScope)) {
+    if (!latestPeriod || period > latestPeriod) latestPeriod = period;
   }
   return { latestPeriod, byScope };
 }
@@ -328,10 +420,10 @@ function chunks<T>(values: readonly T[], size: number): T[][] {
 type SalesGroupBy = Exclude<ReportGroupBy, "day">;
 
 const SALES_GROUPS: Record<SalesGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
-  month: { alias: "reportMonth", expression: sql`${reportSalesMonthly.reportMonth}` },
-  scope: { alias: "scopeId", expression: sql`${reportSalesMonthly.scopeId}` },
-  sku: { alias: "sku", expression: sql`${reportSalesMonthly.sku}` },
-  category: { alias: "category", expression: sql`${reportSalesMonthly.category}` },
+  month: { alias: "reportMonth", expression: EFFECTIVE_SALES_COLUMNS.reportMonth },
+  scope: { alias: "scopeId", expression: EFFECTIVE_SALES_COLUMNS.scopeId },
+  sku: { alias: "sku", expression: EFFECTIVE_SALES_COLUMNS.sku },
+  category: { alias: "category", expression: EFFECTIVE_SALES_COLUMNS.category },
 };
 
 type PayoutGroupBy = "day" | "month" | "scope";
@@ -344,9 +436,9 @@ export function isCompanyReportStoreScopeId(scopeId: string): boolean {
 }
 
 const PAYOUT_GROUPS: Record<PayoutGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
-  day: { alias: "businessDate", expression: sql`${reportPayoutDaily.businessDate}` },
-  month: { alias: "reportMonth", expression: sql`substr(${reportPayoutDaily.businessDate}, 1, 7)` },
-  scope: { alias: "scopeId", expression: sql`${reportPayoutDaily.scopeId}` },
+  day: { alias: "businessDate", expression: EFFECTIVE_PAYOUT_COLUMNS.businessDate },
+  month: { alias: "reportMonth", expression: sql`substr(${EFFECTIVE_PAYOUT_COLUMNS.businessDate}, 1, 7)` },
+  scope: { alias: "scopeId", expression: EFFECTIVE_PAYOUT_COLUMNS.scopeId },
 };
 
 function selectedGroups(groups: readonly ReportGroupBy[] | undefined): SalesGroupBy[] {
@@ -439,7 +531,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
     ? [...new Set([requestedSku, ...(legacyAlias ? [legacyAlias] : [])])]
     : [];
   const filters = [
-    monthConditions(sql`${reportSalesMonthly.reportMonth}`, sql`${reportSalesMonthly.scopeId}`, query.range, ids),
+    monthConditions(EFFECTIVE_SALES_COLUMNS.reportMonth, EFFECTIVE_SALES_COLUMNS.scopeId, query.range, ids),
     /*
      * 外部 SKU 也查得到，但不能因此把別的商品算進來。
      *
@@ -459,7 +551,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
      * 商品 ID 的舊 mapping，查詢端沒有跟上的話同一個值查得到匯入卻查不到報表。
      */
     ...(requestedSku ? [sql`(
-      lower(${reportSalesMonthly.sku}) = lower(${requestedSku})
+      lower(${EFFECTIVE_SALES_COLUMNS.sku}) = lower(${requestedSku})
       OR (
         NOT EXISTS (
           SELECT 1 FROM ${inventoryItems} AS wmsItem
@@ -473,7 +565,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
           LEFT JOIN ${customReportProducts} AS customProduct ON customProduct.id = component.custom_product_id
           WHERE lower(mapping.external_sku) IN (${sql.join(aliasKeys.map((key) => sql`lower(${key})`), sql`, `)})
             AND mapping.channel IN (${sql.join(aliasChannels.map((channel) => sql`${channel}`), sql`, `)})
-            AND lower(COALESCE(componentItem.sku, customProduct.sku)) = lower(${reportSalesMonthly.sku})
+            AND lower(COALESCE(componentItem.sku, customProduct.sku)) = lower(${EFFECTIVE_SALES_COLUMNS.sku})
             AND (
               SELECT COUNT(*) FROM ${productBundleComponents} AS sibling
               WHERE sibling.mapping_id = mapping.id
@@ -481,31 +573,31 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
         )
       )
     )`] : []),
-    ...(query.category ? [sql`lower(${reportSalesMonthly.category}) = lower(${query.category})`] : []),
-    ...(query.productName ? [sql`lower(${reportSalesMonthly.productName}) LIKE lower(${`%${query.productName}%`})`] : []),
+    ...(query.category ? [sql`lower(${EFFECTIVE_SALES_COLUMNS.category}) = lower(${query.category})`] : []),
+    ...(query.productName ? [sql`lower(${EFFECTIVE_SALES_COLUMNS.productName}) LIKE lower(${`%${query.productName}%`})`] : []),
     ...(productQuery ? [sql`(
-      lower(${reportSalesMonthly.productName}) LIKE lower(${`%${productQuery}%`})
-      OR lower(${reportSalesMonthly.sku}) = lower(${productQuery})
+      lower(${EFFECTIVE_SALES_COLUMNS.productName}) LIKE lower(${`%${productQuery}%`})
+      OR lower(${EFFECTIVE_SALES_COLUMNS.sku}) = lower(${productQuery})
     )`] : []),
   ];
   const selected = [
     ...dimensions.map((item) => sql`${item.expression} AS ${sql.raw(item.alias)}`),
-    ...(groups.includes("sku") ? [sql`MAX(${reportSalesMonthly.productName}) AS productName`] : []),
-    sql`SUM(${reportSalesMonthly.grossQuantity}) AS grossQuantity`,
-    sql`SUM(${reportSalesMonthly.returnQuantity}) AS returnQuantity`,
-    sql`SUM(${reportSalesMonthly.netQuantity}) AS netQuantity`,
-    sql`SUM(${reportSalesMonthly.salesAmount}) AS salesAmount`,
+    ...(groups.includes("sku") ? [sql`MAX(${EFFECTIVE_SALES_COLUMNS.productName}) AS productName`] : []),
+    sql`SUM(${EFFECTIVE_SALES_COLUMNS.grossQuantity}) AS grossQuantity`,
+    sql`SUM(${EFFECTIVE_SALES_COLUMNS.returnQuantity}) AS returnQuantity`,
+    sql`SUM(${EFFECTIVE_SALES_COLUMNS.netQuantity}) AS netQuantity`,
+    sql`SUM(${EFFECTIVE_SALES_COLUMNS.salesAmount}) AS salesAmount`,
   ];
   const grouped = dimensions.length ? sql` GROUP BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const order = dimensions.length ? sql` ORDER BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
-  const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${reportSalesMonthly} WHERE ${sql.join(filters, sql` AND `)}${grouped}${order}`);
+  const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${EFFECTIVE_SALES_SOURCE} WHERE ${sql.join(filters, sql` AND `)}${grouped}${order}`);
   const emptyAggregate = rows.length > 0 && rows.every((row) => (
     row.grossQuantity == null && row.returnQuantity == null && row.netQuantity == null && row.salesAmount == null
   ));
   if (!rows.length || emptyAggregate) {
-    const coverage = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count FROM ${reportSalesMonthly} WHERE ${monthConditions(
-      sql`${reportSalesMonthly.reportMonth}`,
-      sql`${reportSalesMonthly.scopeId}`,
+    const coverage = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count FROM ${EFFECTIVE_SALES_SOURCE} WHERE ${monthConditions(
+      EFFECTIVE_SALES_COLUMNS.reportMonth,
+      EFFECTIVE_SALES_COLUMNS.scopeId,
       query.range,
       ids,
     )}`);
@@ -554,14 +646,14 @@ export async function queryReportPayout(db: Database, query: ReportPayoutQuery):
   if (!ids.length) return null;
   const groups = selectedPayoutGroups(query.groupBy?.length ? query.groupBy : ["day"]);
   const dimensions = groups.map((group) => PAYOUT_GROUPS[group]);
-  const conditions = queryConditions(sql`${reportPayoutDaily.businessDate}`, sql`${reportPayoutDaily.scopeId}`, query.range, ids);
+  const conditions = queryConditions(EFFECTIVE_PAYOUT_COLUMNS.businessDate, EFFECTIVE_PAYOUT_COLUMNS.scopeId, query.range, ids);
   const selected = [
     ...dimensions.map((item) => sql`${item.expression} AS ${sql.raw(item.alias)}`),
-    sql`SUM(${reportPayoutDaily.payoutAmount}) AS payoutAmount`,
+    sql`SUM(${EFFECTIVE_PAYOUT_COLUMNS.payoutAmount}) AS payoutAmount`,
   ];
   const grouped = dimensions.length ? sql` GROUP BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const order = dimensions.length ? sql` ORDER BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
-  const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${reportPayoutDaily} WHERE ${conditions}${grouped}${order}`);
+  const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${EFFECTIVE_PAYOUT_SOURCE} WHERE ${conditions}${grouped}${order}`);
   if (!rows.length || (dimensions.length === 0 && rows.every((row) => row.payoutAmount == null))) return null;
   const scopeNames = new Map((await listReportScopes(db, "store")).map((item) => [item.id, item.name]));
   const resultRows = rows.map((row) => ({

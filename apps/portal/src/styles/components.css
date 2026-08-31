@@ -3468,6 +3468,62 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .manual-payout-step { display: grid; gap: 10px; }
 .manual-payout-step > h3 { margin: 0; font-size: 15px; font-weight: 500; }
+
+/* 報表人工修訂：一頁一個資料入口，兩種報表用同一套列編輯節奏。 */
+.manual-report-panel { min-width: 0; }
+.manual-report-tabs {
+  display: flex;
+  gap: 4px;
+  width: fit-content;
+  margin: -4px -4px 18px;
+  padding: 4px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-canvas);
+}
+.manual-report-tabs .filter-chip { min-width: 128px; justify-content: center; }
+.manual-report-tabs .filter-chip svg { width: 18px; height: 18px; }
+.manual-report-empty {
+  margin: 0;
+  padding: 28px 16px 12px;
+  color: var(--color-muted);
+  text-align: center;
+}
+.manual-report-table th,
+.manual-report-table td { white-space: nowrap; }
+.manual-report-table td[data-label="最後更新"] span,
+.manual-report-table td[data-label="商品"] span,
+.manual-report-table td[data-label="數量"] span { display: block; }
+.manual-report-table td[data-label="SKU"] { min-width: 170px; }
+.manual-report-table code {
+  display: block;
+  margin-top: 3px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.manual-source {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+.manual-source-cyberbiz { background: var(--color-info-soft); color: var(--color-info); }
+.manual-source-custom { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.manual-report-dialog { width: min(720px, 100%); }
+.manual-report-form { display: grid; gap: 16px; }
+
+@media (max-width: 620px) {
+  .manual-report-tabs { width: 100%; margin-right: 0; margin-left: 0; }
+  .manual-report-tabs .filter-chip { flex: 1; min-width: 0; }
+  .manual-report-table th,
+  .manual-report-table td { white-space: normal; }
+  .manual-report-table td[data-label="SKU"] code { overflow-wrap: anywhere; }
+}
 .manual-payout-preview-heading {
   display: flex;
   align-items: center;

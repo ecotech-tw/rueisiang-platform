@@ -22,6 +22,7 @@ import { Inventory } from "./routes/wms/Inventory.js";
 import { SkuMappings } from "./routes/tools/SkuMappings.js";
 import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
+import { ManualReports } from "./routes/tools/ManualReports.js";
 import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { StyleGuide } from "./routes/StyleGuide.js";
@@ -110,6 +111,7 @@ export function App() {
           <Route path="payout" element={<Payout />} />
           <Route path="analytics" element={<Suspense fallback={<div className="boot">載入統計頁…</div>}><Analytics /></Suspense>} />
           <Route path="payout/settings" element={<PayoutSettings />} />
+          <Route path="manual-reports" element={<ManualReports />} />
           <Route path="cyberbiz-sales" element={<CyberbizSales />} />
           <Route path="shopee-sales" element={<ShopeeSales />} />
           <Route path="shopee-sales/settings" element={<Navigate to="/tools/payout/settings" replace />} />
