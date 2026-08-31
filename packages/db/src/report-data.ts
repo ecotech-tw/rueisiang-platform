@@ -12,7 +12,7 @@ import {
   type ReportPayoutDaily,
 } from "./schema/reports.js";
 import { customReportProducts, inventoryItems, productBundleComponents, productSkuMappings } from "./schema/wms.js";
-import { legacyShopeeExternalSku, reportScopeChannel } from "./product-sku-mappings.js";
+import { legacyShopeeExternalSku, reportDataChannel } from "./product-sku-mappings.js";
 
 export type { ReportManualSkuSource, ReportPayoutDaily, ReportScopeKind } from "./schema/reports.js";
 
@@ -537,7 +537,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
   const requestedSku = query.sku?.trim();
   const productQuery = query.productQuery?.trim();
   // 這次查詢涵蓋的通路；legacy 一律納入，那是還沒標通路的舊 mapping。
-  const aliasChannels = [...new Set([...ids.map(reportScopeChannel), "legacy"])];
+  const aliasChannels = [...new Set([...ids.map(reportDataChannel), "legacy"])];
   const legacyAlias = requestedSku ? legacyShopeeExternalSku(requestedSku) : "";
   const aliasKeys = requestedSku
     ? [...new Set([requestedSku, ...(legacyAlias ? [legacyAlias] : [])])]

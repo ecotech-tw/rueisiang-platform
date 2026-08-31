@@ -23,13 +23,25 @@ export function normalizeProductSkuChannel(value: string): string {
   return value.trim().toLowerCase();
 }
 
-/** 從 scope ID 前綴推導通路；沒有前綴的舊資料一律當 legacy。 */
+/** 從 scope ID 前綴推導這個 scope 自己的通路；沒有前綴的舊資料一律當 legacy。 */
 export function reportScopeChannel(scopeId: string): string {
   const [prefix, scopePart] = scopeId.split(":", 2);
   if (!scopePart) return "legacy";
-  const channel = normalizeProductSkuChannel(prefix ?? "");
-  // manual scope 只是沒有自動抓取來源，裡面的商品仍然是 CYBERBIZ 報表。
-  return channel === "manual" ? "cyberbiz" : channel || "legacy";
+  return normalizeProductSkuChannel(prefix ?? "") || "legacy";
+}
+
+/**
+ * scope 裡的資料屬於哪個通路：manual scope 只是沒有自動抓取來源，裡面的商品仍然是
+ * CYBERBIZ 報表，查 mapping 與標示通路時都當成 cyberbiz。
+ *
+ * 跟 reportScopeChannel 分成兩個函式，是因為 scope 的「身分」不能跟著改：ingest 用
+ * 同通路同名沿用既有 scope，manual 一旦回答 cyberbiz，使用者輸入既有店名新建據點時
+ * 就會寫進那家店的 cyberbiz scope，而 sales 是整月覆寫——等於把當月自動匯入的資料
+ * 清掉。
+ */
+export function reportDataChannel(scopeId: string): string {
+  const channel = reportScopeChannel(scopeId);
+  return channel === "manual" ? "cyberbiz" : channel;
 }
 
 /** 蝦皮新報表會把規格 ID 接在商品 ID 後；舊 mapping 仍可能只有商品 ID。 */

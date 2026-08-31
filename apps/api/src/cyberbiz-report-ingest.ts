@@ -4,6 +4,7 @@ import {
   findReportScope,
   upsertReportScope,
   normalizeExternalSku,
+  reportDataChannel,
   reportScopeChannel,
   resolveIgnoredSkus,
   resolveProductSkus,
@@ -67,8 +68,15 @@ function integer(value: unknown): number {
   return value;
 }
 
-function reportChannel(scopeId: string): string {
-  return reportScopeChannel(scopeId);
+/**
+ * 加總與用料展開的結果也要檢查一次。
+ *
+ * 每一列各自都是安全整數，同 SKU 相加、再乘上組合用料數量之後仍可能溢位；不檢查的話
+ * 會靜默寫入失真的數字。
+ */
+function total(value: number): number {
+  if (!Number.isSafeInteger(value)) throw new CyberbizReportIngestError(422, "invalid_ingest");
+  return value;
 }
 
 function readInput(value: unknown): CyberbizReportIngestInput {
@@ -156,10 +164,10 @@ function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
     rows.set(key, {
       reportMonth,
       externalSku,
-      grossQuantity: (previous?.grossQuantity ?? 0) + integer(value.grossQuantity ?? 0),
-      returnQuantity: (previous?.returnQuantity ?? 0) + integer(value.returnQuantity ?? 0),
-      netQuantity: (previous?.netQuantity ?? 0) + integer(value.netQuantity ?? 0),
-      salesAmount: (previous?.salesAmount ?? 0) + integer(value.salesAmount ?? 0),
+      grossQuantity: total((previous?.grossQuantity ?? 0) + integer(value.grossQuantity ?? 0)),
+      returnQuantity: total((previous?.returnQuantity ?? 0) + integer(value.returnQuantity ?? 0)),
+      netQuantity: total((previous?.netQuantity ?? 0) + integer(value.netQuantity ?? 0)),
+      salesAmount: total((previous?.salesAmount ?? 0) + integer(value.salesAmount ?? 0)),
     });
   }
   return [...rows.values()];
@@ -168,7 +176,7 @@ function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
 async function normalizeSalesRows(
   db: Database,
   input: CyberbizReportIngestInput,
-  channel = reportChannel(input.scopeId),
+  channel = reportDataChannel(input.scopeId),
   // sales_and_payout 會先 parse 一次做格式驗證，把結果傳進來，省掉整份報表重複解析與彙總。
   preparsed?: ParsedSalesRow[],
 ): Promise<{
@@ -259,10 +267,10 @@ async function normalizeSalesRows(
         sku: component.sku,
         productName: previous?.productName ?? component.name,
         category: previous?.category ?? component.category,
-        grossQuantity: (previous?.grossQuantity ?? 0) + row.grossQuantity * component.quantity,
-        returnQuantity: (previous?.returnQuantity ?? 0) + row.returnQuantity * component.quantity,
-        netQuantity: (previous?.netQuantity ?? 0) + row.netQuantity * component.quantity,
-        salesAmount: (previous?.salesAmount ?? 0) + (index === 0 ? row.salesAmount : 0),
+        grossQuantity: total((previous?.grossQuantity ?? 0) + row.grossQuantity * component.quantity),
+        returnQuantity: total((previous?.returnQuantity ?? 0) + row.returnQuantity * component.quantity),
+        netQuantity: total((previous?.netQuantity ?? 0) + row.netQuantity * component.quantity),
+        salesAmount: total((previous?.salesAmount ?? 0) + (index === 0 ? row.salesAmount : 0)),
         updatedAt: new Date().toISOString(),
       });
     }
@@ -280,7 +288,7 @@ function payoutRows(input: CyberbizReportIngestInput) {
     rows.set(businessDate, {
       scopeId: input.scopeId,
       businessDate,
-      payoutAmount: (previous?.payoutAmount ?? 0) + payoutAmount,
+      payoutAmount: total((previous?.payoutAmount ?? 0) + payoutAmount),
       updatedAt: new Date().toISOString(),
     });
   }
@@ -306,21 +314,24 @@ export function createCyberbizReportIngestor(db: Database) {
       };
     }> {
       const input = readInput(value);
-      const sourceChannel = reportChannel(input.scopeId);
-      const canReuseScopeByName = sourceChannel === "legacy" || sourceChannel === "cyberbiz";
+      // 沿用既有 scope 看的是 scope 自己的通路，不是資料通路：manual 據點也放 CYBERBIZ
+      // 商品，但它必須是自己的 scope，不能因為同名就寫進自動匯入那家店。
+      const scopeChannel = reportScopeChannel(input.scopeId);
+      const dataChannel = reportDataChannel(input.scopeId);
+      const canReuseScopeByName = scopeChannel === "legacy" || scopeChannel === "cyberbiz";
       const existingById = await findReportScope(db, { scopeKind: input.scopeType, id: input.scopeId });
       const nameMatch = existingById ?? (
         !canReuseScopeByName
           ? null
           : await findReportScope(db, { scopeKind: input.scopeType, name: input.scopeName })
       );
-      const nameMatchChannel = nameMatch ? reportChannel(nameMatch.id) : null;
+      const nameMatchChannel = nameMatch ? reportScopeChannel(nameMatch.id) : null;
       // 舊版 CYBERBIZ 設定可能使用任意 legacy ID，仍可依同名沿用；蝦皮則一定以自己的
       // scope ID 建立，不能因為名稱剛好相同而把資料寫進其他通路。
       const existing = existingById ?? (
         canReuseScopeByName
         && nameMatch
-        && (nameMatchChannel === "legacy" || nameMatchChannel === sourceChannel)
+        && (nameMatchChannel === "legacy" || nameMatchChannel === scopeChannel)
           ? nameMatch
           : null
       );
@@ -337,7 +348,7 @@ export function createCyberbizReportIngestor(db: Database) {
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
         // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
         await insertReportPayoutDaily(db, payout);
-        const sales = await normalizeSalesRows(db, salesInput, sourceChannel, parsedSales);
+        const sales = await normalizeSalesRows(db, salesInput, dataChannel, parsedSales);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? {
             scopeId: scope.id,
@@ -356,7 +367,7 @@ export function createCyberbizReportIngestor(db: Database) {
         };
       }
       if (input.kind === "sales") {
-        const sales = await normalizeSalesRows(db, scopedInput, sourceChannel);
+        const sales = await normalizeSalesRows(db, scopedInput, dataChannel);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? {
             scopeId: scope.id,

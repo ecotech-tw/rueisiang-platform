@@ -14,6 +14,7 @@ import {
   listReportScopes,
   normalizeReportScopeName,
   recordCyberbizReportRun,
+  ReportScopeAmbiguousError,
   listPayoutRuns,
   listPayoutStores,
   recordPayoutRun,
@@ -21,6 +22,7 @@ import {
   upsertReportScope,
   savePayoutStore,
   updatePayoutStoreEnabled,
+  type Database,
   type PayoutStoreInput,
   type ProductBundleComponentInput,
 } from "@rueisiang/db";
@@ -210,6 +212,30 @@ function isCyberbizSalesScopeId(scopeId: string): boolean {
   return scopeId.length <= 100 && (/^(?:cyberbiz|manual):store:/i.test(scopeId) || /^store-/i.test(scopeId));
 }
 
+/**
+ * 要新建據點時，先確認這個名字沒有被別的 scope 用掉。
+ *
+ * 同名 scope 會讓 findReportScope({ name }) 從此丟 ReportScopeAmbiguousError，而且據點
+ * 下拉選單以名稱為 key，只會留下其中一個——另一個的歷史資料使用者再也選不到。與其事後
+ * 補救，不如在建立的當下擋掉，請使用者直接從清單選既有據點。
+ */
+async function assertStoreScopeNameFree(db: Database, scopeId: string, scopeName: string): Promise<void> {
+  let sameName;
+  try {
+    sameName = await findReportScope(db, { scopeKind: "store", name: scopeName });
+  } catch (error) {
+    if (error instanceof ReportScopeAmbiguousError) {
+      throw new HTTPException(400, { message: error.message });
+    }
+    throw error;
+  }
+  if (sameName && sameName.id !== scopeId) {
+    throw new HTTPException(400, {
+      message: `已經有名為「${scopeName}」的據點，請直接從據點清單選擇，不要另外新建同名據點。`,
+    });
+  }
+}
+
 function isValidReportMonth(value: string): boolean {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }
@@ -285,6 +311,7 @@ export const tools = new Hono<AppEnv>()
       payoutAmount,
     }));
 
+    await assertStoreScopeNameFree(c.get("db"), scopeId, scopeName);
     const scope = await upsertReportScope(c.get("db"), { id: scopeId, scopeKind: "store", name: scopeName });
     await insertReportPayoutDaily(c.get("db"), dailyRows);
     const dates = dailyRows.map((row) => row.businessDate).sort();
@@ -304,19 +331,23 @@ export const tools = new Hono<AppEnv>()
       listReportScopes(c.get("db"), "store"),
       listPayoutStores(c.get("db")),
     ]);
-    const scopes = new Map<string, { id: string; name: string }>();
+    // 以名稱去重只用來決定「哪些設定的店還沒有 scope」；既有 scope 一律全部列出，
+    // 不然正式環境已經存在的同名 scope 會有一個永遠選不到，它的歷史資料等於消失。
+    const scopes: { id: string; name: string }[] = [];
+    const named = new Set<string>();
     for (const scope of reportScopes) {
       if (!isCyberbizSalesScopeId(scope.id)) continue;
-      scopes.set(normalizeReportScopeName(scope.name), { id: scope.id, name: scope.name });
+      named.add(normalizeReportScopeName(scope.name));
+      scopes.push({ id: scope.id, name: scope.name });
     }
     for (const store of configuredStores) {
       const key = normalizeReportScopeName(store.name);
-      if (!scopes.has(key)) {
-        scopes.set(key, { id: cyberbizScopeIdFromStoreName(store.name), name: store.name });
-      }
+      if (named.has(key)) continue;
+      named.add(key);
+      scopes.push({ id: cyberbizScopeIdFromStoreName(store.name), name: store.name });
     }
     return c.json({
-      scopes: [...scopes.values()].sort((a, b) => a.name.localeCompare(b.name, "zh-TW")),
+      scopes: scopes.sort((a, b) => a.name.localeCompare(b.name, "zh-TW")),
     });
   })
 
@@ -345,11 +376,13 @@ export const tools = new Hono<AppEnv>()
     const requestedScopeId = typeof input.scopeId === "string" ? input.scopeId.trim() : "";
     let scopeId = manualScopeIdFromStoreName(scopeName);
     let resolvedScopeName = scopeName;
+    let existingScope = null;
     if (requestedScopeId) {
       if (!isCyberbizSalesScopeId(requestedScopeId)) {
         throw new HTTPException(400, { message: "匯入據點 ID 格式不正確。" });
       }
       const selectedScope = await findReportScope(c.get("db"), { scopeKind: "store", id: requestedScopeId });
+      existingScope = selectedScope;
       if (selectedScope) {
         if (normalizeReportScopeName(selectedScope.name) !== normalizeReportScopeName(scopeName)) {
           throw new HTTPException(400, { message: "匯入據點 ID 與據點名稱不一致，請重新選擇據點。" });
@@ -364,6 +397,11 @@ export const tools = new Hono<AppEnv>()
       } else {
         scopeId = requestedScopeId;
       }
+    }
+    // sales 是整月覆寫，寫錯 scope 等於把那家店當月的自動匯入資料清掉，所以新建據點前
+    // 一定要確認名字沒有被別人用走。
+    if (!existingScope) {
+      await assertStoreScopeNameFree(c.get("db"), scopeId, scopeName);
     }
     const rows = rawRows.map((value, index) => {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -399,8 +437,10 @@ export const tools = new Hono<AppEnv>()
         throw new HTTPException(422, { message: error.message });
       }
       throw error;
+    } finally {
+      // ingest 可能已先寫入 scope 或部分批次後才失敗；成功與失敗都要清掉報表快取。
+      await forgetReportAnalytics(cacheClient(c.env));
     }
-    await forgetReportAnalytics(cacheClient(c.env));
     return c.json({ ...result, scopeName: resolvedScopeName, reportMonth }, 201);
   })
 

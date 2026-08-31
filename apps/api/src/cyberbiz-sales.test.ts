@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, listCyberbizReportRuns, listPayoutStores, listReportScopes, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, insertReportSalesMonthly, listCyberbizReportRuns, listPayoutStores, listReportScopes, seedPayoutStores, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
 import { cyberbizProducts, inventoryItems, payoutStores, productBundleComponents, productSkuMappings, reportSalesMonthly, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -347,5 +347,76 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
       expect.objectContaining({ id: firstBody.scopeId, name: "原本的店" }),
     ]);
     expect((await db().select().from(reportSalesMonthly)).map((row) => row.netQuantity)).toEqual([1]);
+  });
+  it("新建據點名稱撞到既有據點時擋下來，不會覆寫那家店當月的匯入資料", async () => {
+    await db().insert(cyberbizProducts).values({
+      sku: "COLLIDE-001",
+      productId: "collide-product-001",
+      variantId: "collide-variant-001",
+      productName: "撞名商品",
+      variantName: "",
+    });
+    const importedScopeId = cyberbizScopeIdFromStoreName("中友百貨");
+    await upsertReportScope(db(), { id: importedScopeId, scopeKind: "store", name: "中友百貨" });
+    await insertReportSalesMonthly(db(), [{
+      scopeId: importedScopeId,
+      reportMonth: "2026-07",
+      sku: "COLLIDE-001",
+      productName: "撞名商品",
+      category: "未分類",
+      grossQuantity: 5,
+      returnQuantity: 0,
+      netQuantity: 5,
+      salesAmount: 99999,
+    }]);
+
+    const id = await seedUser("manager-manual-collide@ecotech.tw", "role-manager");
+    const response = await as(id, "manager-manual-collide@ecotech.tw", "/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "中友百貨",
+        reportMonth: "2026-07",
+        rows: [{ sku: "COLLIDE-001", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 0 }],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("已經有名為「中友百貨」的據點") });
+    expect(await listReportScopes(db(), "store")).toEqual([expect.objectContaining({ id: importedScopeId })]);
+    expect((await db().select().from(reportSalesMonthly)).map((row) => [row.scopeId, row.salesAmount])).toEqual([
+      [importedScopeId, 99999],
+    ]);
+  });
+  it("同名的既有據點都列得出來，不會有一個永遠選不到", async () => {
+    await upsertReportScope(db(), { id: "cyberbiz:store:duplicate-a", scopeKind: "store", name: "重複店" });
+    await upsertReportScope(db(), { id: "manual:store:duplicate-b", scopeKind: "store", name: "重複店" });
+    const id = await seedUser("manager-duplicate-scopes@ecotech.tw", "role-manager");
+
+    const response = await as(id, "manager-duplicate-scopes@ecotech.tw", "/api/tools/manual-sales/scopes");
+
+    expect(response.status).toBe(200);
+    const scopes = (await response.json() as { scopes: { id: string; name: string }[] }).scopes;
+    expect(scopes.filter((scope) => scope.name === "重複店").map((scope) => scope.id)).toEqual([
+      "cyberbiz:store:duplicate-a",
+      "manual:store:duplicate-b",
+    ]);
+  });
+
+  it("同一個 SKU 加總後超出安全整數範圍時整份擋下來", async () => {
+    const id = await seedUser("manager-manual-overflow@ecotech.tw", "role-manager");
+    const response = await as(id, "manager-manual-overflow@ecotech.tw", "/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "溢位測試店",
+        reportMonth: "2026-07",
+        rows: [
+          { sku: "OVERFLOW-001", grossQuantity: 0, returnQuantity: 0, netQuantity: Number.MAX_SAFE_INTEGER, salesAmount: 0 },
+          { sku: "OVERFLOW-001", grossQuantity: 0, returnQuantity: 0, netQuantity: 1, salesAmount: 0 },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(422);
+    expect(await db().select().from(reportSalesMonthly)).toHaveLength(0);
   });
 });

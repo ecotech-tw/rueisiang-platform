@@ -400,6 +400,24 @@ describe("手動上傳出金", () => {
     const scopes = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout/scopes");
     expect((await scopes.json()) as { scopes: { id: string }[] }).toEqual({ scopes: [{ id: result.scopeId, name: "退租店" }] });
   });
+
+  it("新建據點名稱撞到既有據點時擋下來，不另外建立同名 scope", async () => {
+    const importedScopeId = "cyberbiz:store:existing";
+    await upsertReportScope(db(), { id: importedScopeId, scopeKind: "store", name: "中友百貨" });
+    const id = await seedUser("manual-duplicate@ecotech.tw", "role-admin");
+    const response = await as(id, "manual-duplicate@ecotech.tw", "/api/tools/manual-payout", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "中友百貨",
+        rows: [{ businessDate: "2026-07-01", payoutAmount: 100 }],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("已經有名為「中友百貨」的據點") });
+    expect((await db().select().from(reportScopes)).map((scope) => scope.id)).not.toContain(manualScopeIdFromStoreName("中友百貨"));
+    expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
+  });
 });
 
 describe("店別設定", () => {
