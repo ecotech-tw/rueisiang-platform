@@ -3431,13 +3431,15 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 欄位用 align-items: start：.admin-form 預設是 center，只要其中一欄有 hint（多一行字）
  * 高度就不一樣，置中之後標籤會上下錯開——實際看起來就是「跑掉了」。
  */
-.manual-payout-details {
+.manual-payout-details,
+.manual-sales-details {
   flex: none;
   border: 1px solid var(--color-line);
   border-radius: 14px;
   background: var(--color-paper);
 }
-.manual-payout-details > summary {
+.manual-payout-details > summary,
+.manual-sales-details > summary {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3447,8 +3449,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   list-style: none;
   border-radius: 14px;
 }
-.manual-payout-details > summary::-webkit-details-marker { display: none; }
-.manual-payout-details > summary::before {
+.manual-payout-details > summary::-webkit-details-marker,
+.manual-sales-details > summary::-webkit-details-marker { display: none; }
+.manual-payout-details > summary::before,
+.manual-sales-details > summary::before {
   content: "";
   flex: none;
   width: 8px;
@@ -3458,29 +3462,42 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   transform: rotate(-45deg);
   transition: transform .15s ease;
 }
-.manual-payout-details[open] > summary::before { transform: rotate(45deg); }
-.manual-payout-details > summary:hover { background: --alpha(var(--color-brand) / 4%); }
-.manual-payout-details > summary:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
-.manual-payout-body {
+.manual-payout-details[open] > summary::before,
+.manual-sales-details[open] > summary::before { transform: rotate(45deg); }
+.manual-payout-details > summary:hover,
+.manual-sales-details > summary:hover { background: --alpha(var(--color-brand) / 4%); }
+.manual-payout-details > summary:focus-visible,
+.manual-sales-details > summary:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
+.manual-payout-body,
+.manual-sales-body {
   display: grid;
   gap: 18px;
   padding: 4px 18px 18px;
 }
-.manual-payout-step { display: grid; gap: 10px; }
+.manual-payout-step,
+.manual-sales-step { display: grid; gap: 10px; }
 .manual-payout-step > h3 { margin: 0; font-size: 15px; font-weight: 500; }
-.manual-payout-preview-heading {
+.manual-sales-step > h3 { margin: 0; font-size: 15px; font-weight: 500; }
+.manual-payout-preview-heading,
+.manual-sales-preview-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-.manual-payout-preview-heading h3 { margin: 0; }
-.manual-payout-step > p { margin: 0; }
+.manual-payout-preview-heading h3,
+.manual-sales-preview-heading h3 { margin: 0; }
+.manual-payout-step > p,
+.manual-sales-step > p { margin: 0; }
 /* 標籤要切齊頂端，否則有 hint 的那一欄會把整排推歪。 */
-.manual-payout-step .admin-form { align-items: start; }
-.manual-payout-step .admin-form.toolbar {
+.manual-payout-step .admin-form,
+.manual-sales-step .admin-form { align-items: start; }
+.manual-payout-step .admin-form.toolbar,
+.manual-sales-step .admin-form.toolbar {
   margin: 0;
   padding: 0;
   border-bottom: 0;
 }
-.manual-payout-step .admin-form.toolbar select { max-width: none; }
+.manual-payout-step .admin-form.toolbar select,
+.manual-sales-step .admin-form.toolbar select { max-width: none; }
+.manual-sales-sku-input { min-width: 150px; max-width: 220px; }

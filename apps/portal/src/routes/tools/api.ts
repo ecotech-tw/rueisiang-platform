@@ -330,3 +330,67 @@ export function useUploadManualPayout() {
     },
   });
 }
+
+/** 手動上傳商品銷售：可選的既有據點。 */
+export function useManualSalesScopes() {
+  return useQuery({
+    queryKey: ["tools", "manual-sales", "scopes"],
+    queryFn: () => call<{ scopes: Array<{ id: string; name: string }> }>("/api/tools/manual-sales/scopes"),
+  });
+}
+
+export interface ManualSalesProduct {
+  sku: string;
+  name: string;
+  published: boolean;
+}
+
+/** 舊版合併出金檔只有品名，先讀 CYBERBIZ 目錄才能在預覽階段補回 SKU。 */
+export function useManualSalesProducts(enabled: boolean) {
+  return useQuery({
+    enabled,
+    queryKey: ["tools", "manual-sales", "products"],
+    queryFn: async () => {
+      const response = await fetch("/api/tools/manual-sales/products", { credentials: "same-origin" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+        throw new Error(body?.error ?? body?.message ?? `讀取商品目錄失敗（${response.status}）`);
+      }
+      return (await response.json()) as { products: ManualSalesProduct[] };
+    },
+  });
+}
+
+export interface ManualSalesResult {
+  kind: "sales";
+  scopeId: string;
+  scopeName: string;
+  reportMonth: string;
+  rowCount: number;
+  skippedSkus: string[];
+}
+
+export function useUploadManualSales() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      scopeName: string;
+      scopeId?: string;
+      reportMonth: string;
+      rows: Array<{
+        sku: string;
+        grossQuantity: number;
+        returnQuantity: number;
+        netQuantity: number;
+        salesAmount: number;
+      }>;
+    }) => call<ManualSalesResult>("/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["tools", "manual-sales"] });
+      void client.invalidateQueries({ queryKey: ["reports", "analytics"] });
+    },
+  });
+}

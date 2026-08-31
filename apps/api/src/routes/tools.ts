@@ -4,6 +4,7 @@ import {
   deletePayoutStore,
   deleteProductSkuMapping,
   deleteReportSkuIgnore,
+  findReportScope,
   listCyberbizProducts,
   listReportSkuIgnores,
   loadProductSkuMappingManagement,
@@ -11,6 +12,7 @@ import {
   insertReportPayoutDaily,
   isCompanyReportStoreScopeId,
   listReportScopes,
+  normalizeReportScopeName,
   recordCyberbizReportRun,
   listPayoutRuns,
   listPayoutStores,
@@ -30,6 +32,7 @@ import { payoutGithub } from "../payout/github.js";
 import { body, requireString } from "../request.js";
 import { forgetReportAnalytics } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
+import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cyberbiz-report-ingest.js";
 
 /** 只取字串欄位；沒帶就是 undefined（代表「這次不動它」），不是空字串。 */
 function text(input: Record<string, unknown>, field: string): string | undefined {
@@ -200,6 +203,24 @@ function assertStoreNameAvailable(
   }
 }
 
+const MAX_MANUAL_SALES_ROWS = 20_000;
+
+/** 手動 sales 仍是 CYBERBIZ 報表；manual scope 只是沒有自動抓取來源的店別。 */
+function isCyberbizSalesScopeId(scopeId: string): boolean {
+  return scopeId.length <= 100 && (/^(?:cyberbiz|manual):store:/i.test(scopeId) || /^store-/i.test(scopeId));
+}
+
+function isValidReportMonth(value: string): boolean {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+function manualSalesInteger(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    throw new HTTPException(400, { message: `${label} 必須是安全範圍內的整數。` });
+  }
+  return value;
+}
+
 export const tools = new Hono<AppEnv>()
   .use("*", requireAuth)
 
@@ -275,6 +296,112 @@ export const tools = new Hono<AppEnv>()
       coverageStart: dates[0],
       coverageEnd: dates[dates.length - 1],
     }, 201);
+  })
+
+  /** 手動補上的 CYBERBIZ 商品銷售；整月快照會取代同店同月份的既有資料。 */
+  .get("/manual-sales/scopes", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
+    const [reportScopes, configuredStores] = await Promise.all([
+      listReportScopes(c.get("db"), "store"),
+      listPayoutStores(c.get("db")),
+    ]);
+    const scopes = new Map<string, { id: string; name: string }>();
+    for (const scope of reportScopes) {
+      if (!isCyberbizSalesScopeId(scope.id)) continue;
+      scopes.set(normalizeReportScopeName(scope.name), { id: scope.id, name: scope.name });
+    }
+    for (const store of configuredStores) {
+      const key = normalizeReportScopeName(store.name);
+      if (!scopes.has(key)) {
+        scopes.set(key, { id: cyberbizScopeIdFromStoreName(store.name), name: store.name });
+      }
+    }
+    return c.json({
+      scopes: [...scopes.values()].sort((a, b) => a.name.localeCompare(b.name, "zh-TW")),
+    });
+  })
+
+  /** 手動 sales 舊檔以商品名稱對 SKU 時使用的目錄；沿用 sales 權限，不要求另開 SKU 設定頁。 */
+  .get("/manual-sales/products", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
+    return c.json({ products: await listCyberbizProducts(c.get("db")) });
+  })
+
+  .post("/manual-sales", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
+    const input = await body(c);
+    const scopeName = requireString(input, "scopeName", "據點名稱");
+    const reportMonth = requireString(input, "reportMonth", "報表月份");
+    if (!isValidReportMonth(reportMonth)) {
+      throw new HTTPException(400, { message: "報表月份格式必須是 YYYY-MM。" });
+    }
+    const rawRows = input.rows;
+    if (!Array.isArray(rawRows) || rawRows.length > MAX_MANUAL_SALES_ROWS) {
+      throw new HTTPException(400, {
+        message: Array.isArray(rawRows) && rawRows.length
+          ? `商品銷售資料不能超過 ${MAX_MANUAL_SALES_ROWS.toLocaleString("zh-TW")} 列。`
+          : "沒有可匯入的商品銷售資料。",
+      });
+    }
+    if (!rawRows.length) throw new HTTPException(400, { message: "沒有可匯入的商品銷售資料。" });
+
+    const requestedScopeId = typeof input.scopeId === "string" ? input.scopeId.trim() : "";
+    let scopeId = manualScopeIdFromStoreName(scopeName);
+    let resolvedScopeName = scopeName;
+    if (requestedScopeId) {
+      if (!isCyberbizSalesScopeId(requestedScopeId)) {
+        throw new HTTPException(400, { message: "匯入據點 ID 格式不正確。" });
+      }
+      const selectedScope = await findReportScope(c.get("db"), { scopeKind: "store", id: requestedScopeId });
+      if (selectedScope) {
+        if (normalizeReportScopeName(selectedScope.name) !== normalizeReportScopeName(scopeName)) {
+          throw new HTTPException(400, { message: "匯入據點 ID 與據點名稱不一致，請重新選擇據點。" });
+        }
+        scopeId = selectedScope.id;
+        resolvedScopeName = selectedScope.name;
+      } else if (
+        requestedScopeId !== cyberbizScopeIdFromStoreName(scopeName)
+        && requestedScopeId !== manualScopeIdFromStoreName(scopeName)
+      ) {
+        throw new HTTPException(400, { message: "找不到指定的匯入據點，請重新選擇據點。" });
+      } else {
+        scopeId = requestedScopeId;
+      }
+    }
+    const rows = rawRows.map((value, index) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new HTTPException(400, { message: `第 ${index + 1} 列商品銷售資料格式不正確。` });
+      }
+      const row = value as Record<string, unknown>;
+      if (row.reportMonth !== undefined && row.reportMonth !== reportMonth) {
+        throw new HTTPException(400, { message: `第 ${index + 1} 列的報表月份與檔案不一致。` });
+      }
+      const sku = requireString(row, "sku", `第 ${index + 1} 列 SKU`);
+      return {
+        reportMonth,
+        sku,
+        grossQuantity: manualSalesInteger(row.grossQuantity, `第 ${index + 1} 列銷售數量`),
+        returnQuantity: manualSalesInteger(row.returnQuantity, `第 ${index + 1} 列退回數量`),
+        netQuantity: manualSalesInteger(row.netQuantity, `第 ${index + 1} 列淨銷售數量`),
+        salesAmount: manualSalesInteger(row.salesAmount, `第 ${index + 1} 列售額總計`),
+      };
+    });
+
+    let result;
+    try {
+      result = await createCyberbizReportIngestor(c.get("db")).ingest({
+        kind: "sales",
+        scopeType: "store",
+        scopeId,
+        scopeName: resolvedScopeName,
+        reportMonth,
+        rows,
+      });
+    } catch (error) {
+      if (error instanceof CyberbizReportIngestError) {
+        throw new HTTPException(422, { message: error.message });
+      }
+      throw error;
+    }
+    await forgetReportAnalytics(cacheClient(c.env));
+    return c.json({ ...result, scopeName: resolvedScopeName, reportMonth }, 201);
   })
 
   /** SKU 對應只服務報表匯入，跟倉位、盤點、庫存數量無關，所以掛在營運工具而不是倉儲。 */

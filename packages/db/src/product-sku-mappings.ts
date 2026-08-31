@@ -27,7 +27,9 @@ export function normalizeProductSkuChannel(value: string): string {
 export function reportScopeChannel(scopeId: string): string {
   const [prefix, scopePart] = scopeId.split(":", 2);
   if (!scopePart) return "legacy";
-  return normalizeProductSkuChannel(prefix ?? "") || "legacy";
+  const channel = normalizeProductSkuChannel(prefix ?? "");
+  // manual scope 只是沒有自動抓取來源，裡面的商品仍然是 CYBERBIZ 報表。
+  return channel === "manual" ? "cyberbiz" : channel || "legacy";
 }
 
 /** 蝦皮新報表會把規格 ID 接在商品 ID 後；舊 mapping 仍可能只有商品 ID。 */

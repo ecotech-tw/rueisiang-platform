@@ -1,9 +1,11 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, listCyberbizReportRuns, listPayoutStores, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
-import { payoutStores, userRoles, users } from "@rueisiang/db/schema";
+import { createDatabase, listCyberbizReportRuns, listPayoutStores, listReportScopes, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
+import { cyberbizProducts, inventoryItems, payoutStores, productBundleComponents, productSkuMappings, reportSalesMonthly, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
+import { createCyberbizReportService } from "./cyberbiz-reports.js";
+import { cyberbizScopeIdFromStoreName } from "./cyberbiz-scope.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 const SECRET = "test-secret";
@@ -179,5 +181,171 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     });
 
     expect(response.status).toBe(400);
+  });
+
+  it("主管可以上傳完整月份的手動 sales，並沿用 CYBERBIZ 商品目錄", async () => {
+    await db().insert(cyberbizProducts).values({
+      sku: "MANUAL-001",
+      productId: "manual-product-001",
+      variantId: "manual-variant-001",
+      productName: "手動商品",
+      variantName: "",
+    });
+    const id = await seedUser("manager-sales@ecotech.tw", "role-manager");
+    const response = await as(id, "manager-sales@ecotech.tw", "/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "手動測試店",
+        reportMonth: "2026-07",
+        rows: [{ sku: "MANUAL-001", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 250 }],
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      kind: "sales",
+      scopeId: expect.stringMatching(/^manual:store:/),
+      scopeName: "手動測試店",
+      reportMonth: "2026-07",
+      rowCount: 1,
+      skippedSkus: [],
+    });
+    const rows = await db().select().from(reportSalesMonthly);
+    expect(rows).toEqual([expect.objectContaining({
+      scopeId: expect.stringMatching(/^manual:store:/),
+      reportMonth: "2026-07",
+      sku: "MANUAL-001",
+      productName: "手動商品",
+      netQuantity: 2,
+      salesAmount: 250,
+    })]);
+  });
+
+  it("手動 sales 的外部 SKU 可以在同一個 scope 用 CYBERBIZ mapping 查回來", async () => {
+    await db().insert(inventoryItems).values({
+      id: "manual-query-item",
+      sku: "SYSTEM-001",
+      name: "系統商品",
+      category: "未分類",
+    });
+    await db().insert(productSkuMappings).values({
+      id: "manual-query-mapping",
+      channel: "cyberbiz",
+      externalName: "外部商品",
+      externalSku: "EXTERNAL-001",
+    });
+    await db().insert(productBundleComponents).values({
+      id: "manual-query-mapping:0",
+      mappingId: "manual-query-mapping",
+      inventoryItemId: "manual-query-item",
+      customProductId: null,
+      quantity: 1,
+    });
+    const id = await seedUser("manager-sales-query@ecotech.tw", "role-manager");
+    const response = await as(id, "manager-sales-query@ecotech.tw", "/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "手動查詢店",
+        reportMonth: "2026-07",
+        rows: [{ sku: "EXTERNAL-001", grossQuantity: 2, returnQuantity: 0, netQuantity: 2, salesAmount: 200 }],
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    const result = await createCyberbizReportService(db()).querySales({
+      period: "2026-07",
+      scopeType: "store",
+      scopeName: "手動查詢店",
+      sku: "EXTERNAL-001",
+    });
+    expect(result.rows).toMatchObject([{ sku: "SYSTEM-001", netQuantity: 2 }]);
+    expect(result.totals.netQuantity).toBe(2);
+  });
+
+  it("手動 sales 商品目錄沿用 sales 權限，供舊版合併檔補回 SKU", async () => {
+    await db().insert(cyberbizProducts).values({
+      sku: "LEGACY-001",
+      productId: "legacy-product-001",
+      variantId: "legacy-variant-001",
+      productName: "舊檔商品",
+      variantName: "",
+      published: 0,
+    });
+    const manager = await seedUser("manager-manual-products@ecotech.tw", "role-manager");
+    const response = await as(manager, "manager-manual-products@ecotech.tw", "/api/tools/manual-sales/products");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      products: expect.arrayContaining([{ sku: "LEGACY-001", name: "舊檔商品", published: false }]),
+    });
+
+    const viewer = await seedUser("viewer-manual-products@ecotech.tw", "role-viewer");
+    expect((await as(viewer, "viewer-manual-products@ecotech.tw", "/api/tools/manual-sales/products")).status).toBe(403);
+  });
+
+  it("手動 sales 據點清單包含已設定店別，且檢視者不能使用匯入 API", async () => {
+    const store = (await listPayoutStores(db()))[0]!;
+    const manager = await seedUser("manager-manual-scopes@ecotech.tw", "role-manager");
+    const response = await as(manager, "manager-manual-scopes@ecotech.tw", "/api/tools/manual-sales/scopes");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      scopes: expect.arrayContaining([{ id: cyberbizScopeIdFromStoreName(store.name), name: store.name }]),
+    });
+
+    const viewer = await seedUser("viewer-manual-sales@ecotech.tw", "role-viewer");
+    expect((await as(viewer, "viewer-manual-sales@ecotech.tw", "/api/tools/manual-sales/scopes")).status).toBe(403);
+    expect((await as(viewer, "viewer-manual-sales@ecotech.tw", "/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify({ scopeName: "不能匯入", reportMonth: "2026-07", rows: [] }),
+    })).status).toBe(403);
+  });
+
+  it("手動 sales 不接受與檔案月份不一致的資料列", async () => {
+    const id = await seedUser("manager-manual-validation@ecotech.tw", "role-manager");
+    const response = await as(id, "manager-manual-validation@ecotech.tw", "/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "手動驗證店",
+        reportMonth: "2026-07",
+        rows: [{ sku: "MANUAL-001", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100, reportMonth: "2026-08" }],
+      }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("manual sales rejects scope IDs with mismatched names", async () => {
+    await db().insert(cyberbizProducts).values({
+      sku: "MISMATCH-001",
+      productId: "mismatch-product-001",
+      variantId: "mismatch-variant-001",
+      productName: "驗證商品",
+      variantName: "",
+    });
+    const id = await seedUser("manager-manual-scope-mismatch@ecotech.tw", "role-manager");
+    const first = await as(id, "manager-manual-scope-mismatch@ecotech.tw", "/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "原本的店",
+        reportMonth: "2026-07",
+        rows: [{ sku: "MISMATCH-001", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100 }],
+      }),
+    });
+    expect(first.status).toBe(201);
+    const firstBody = await first.json() as { scopeId: string };
+
+    const second = await as(id, "manager-manual-scope-mismatch@ecotech.tw", "/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeId: firstBody.scopeId,
+        scopeName: "不應被覆寫的店",
+        reportMonth: "2026-07",
+        rows: [{ sku: "MISMATCH-001", grossQuantity: 9, returnQuantity: 0, netQuantity: 9, salesAmount: 900 }],
+      }),
+    });
+    expect(second.status).toBe(400);
+    expect(await listReportScopes(db(), "store")).toEqual([
+      expect.objectContaining({ id: firstBody.scopeId, name: "原本的店" }),
+    ]);
+    expect((await db().select().from(reportSalesMonthly)).map((row) => row.netQuantity)).toEqual([1]);
   });
 });

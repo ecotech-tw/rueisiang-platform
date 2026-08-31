@@ -4,7 +4,7 @@ import {
   findReportScope,
   upsertReportScope,
   normalizeExternalSku,
-  normalizeProductSkuChannel,
+  reportScopeChannel,
   resolveIgnoredSkus,
   resolveProductSkus,
   type Database,
@@ -66,9 +66,7 @@ function integer(value: unknown): number {
 }
 
 function reportChannel(scopeId: string): string {
-  const [prefix, scopePart] = scopeId.split(":", 2);
-  if (!scopePart) return "legacy";
-  return normalizeProductSkuChannel(prefix ?? "") || "legacy";
+  return reportScopeChannel(scopeId);
 }
 
 function readInput(value: unknown): CyberbizReportIngestInput {
