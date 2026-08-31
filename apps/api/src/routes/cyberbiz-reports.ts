@@ -158,7 +158,7 @@ export const cyberbizReports = new Hono<AppEnv>()
       };
       const result = await cachedReportAnalytics(
         cacheClient(c.env),
-        analyticsCacheKey(c, "summary:sales"),
+        analyticsCacheKey(c, "summary:sales:v2"),
         () => createCyberbizReportService(c.get("db")).querySalesSummary(query),
       );
       return c.json(result);

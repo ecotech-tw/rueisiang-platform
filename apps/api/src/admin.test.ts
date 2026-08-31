@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { rolePermissions, userPermissions, userRoles, users } from "@rueisiang/db/schema";
+import { rolePermissions, roles, userPermissions, userRoles, users } from "@rueisiang/db/schema";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -51,6 +51,21 @@ beforeEach(async () => {
     GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
   };
   await syncSystemRoles(db());
+});
+
+describe("系統角色同步", () => {
+  it("缺少角色時可以安全地並行同步", async () => {
+    await db().delete(roles).where(eq(roles.key, "manager"));
+
+    await Promise.all([syncSystemRoles(db()), syncSystemRoles(db())]);
+
+    const managerRows = await db().select({ id: roles.id }).from(roles).where(eq(roles.key, "manager"));
+    expect(managerRows).toHaveLength(1);
+    const managerId = managerRows[0]?.id;
+    expect(managerId).toBeTruthy();
+    const managerPermissions = await db().select().from(rolePermissions).where(eq(rolePermissions.roleId, managerId!));
+    expect(managerPermissions.length).toBeGreaterThan(0);
+  });
 });
 
 describe("權限管理端點的把關", () => {
@@ -301,10 +316,10 @@ describe("重新同步角色權限", () => {
     expect(response.status).toBe(403);
   });
 
-  it("把資料庫裡被亂改的權限修回程式碼定義的樣子", async () => {
+  it("重新同步保留非管理員系統角色的調整", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
 
-    // 模擬有人直接動資料庫：多塞一筆不存在的權限，再刪掉一筆該有的。
+    // 模擬管理者在 UI 調整檢視者：收回讀取權限，改給客戶編輯權限。
     await db().insert(rolePermissions).values({ roleId: "role-viewer", permission: "crm:customer:write" });
     await db()
       .delete(rolePermissions)
@@ -317,11 +332,11 @@ describe("重新同步角色權限", () => {
 
     const viewer = await db().select().from(rolePermissions).where(eq(rolePermissions.roleId, "role-viewer"));
     const permissions = viewer.map((row) => row.permission);
-    expect(permissions).toContain("crm:customer:read");
-    expect(permissions).not.toContain("crm:customer:write");
+    expect(permissions).not.toContain("crm:customer:read");
+    expect(permissions).toContain("crm:customer:write");
   });
 
-  it("同步完當場就影響授權判定", async () => {
+  it("同步不會覆蓋非管理員系統角色的授權調整", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     const viewer = await seedUser("viewer@ecotech.tw", "role-viewer");
 
@@ -331,8 +346,21 @@ describe("重新同步角色權限", () => {
 
     await as(admin, "admin@ecotech.tw", "/api/admin/roles/sync", { method: "POST" });
 
-    // 同步之後那筆多出來的權限被清掉，下一個請求就擋下來。
-    expect((await as(viewer, "viewer@ecotech.tw", "/api/admin/users")).status).toBe(403);
+    // 同步之後仍然可以使用剛調整的權限。
+    expect((await as(viewer, "viewer@ecotech.tw", "/api/admin/users")).status).toBe(200);
+  });
+
+  it("同步仍會校正管理員角色", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+
+    await db()
+      .delete(rolePermissions)
+      .where(and(eq(rolePermissions.roleId, "role-admin"), eq(rolePermissions.permission, "admin:user:read")));
+
+    await as(admin, "admin@ecotech.tw", "/api/admin/roles/sync", { method: "POST" });
+
+    const permissions = await db().select().from(rolePermissions).where(eq(rolePermissions.roleId, "role-admin"));
+    expect(permissions.map((row) => row.permission)).toContain("admin:user:read");
   });
 });
 
@@ -485,18 +513,40 @@ describe("自訂角色", () => {
     expect(body.holders.admin).toBe(1);
   });
 
-  it.each([
-    ["PATCH", JSON.stringify({ name: "改名" })],
-    ["DELETE", undefined],
-  ])("系統角色擋下 %s", async (method, payload) => {
+  it("非管理員的系統角色可以調整，但仍不能刪除", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     const response = await as(admin, "admin@ecotech.tw", "/api/admin/roles/manager", {
-      method,
-      ...(payload ? { body: payload } : {}),
+      method: "PATCH",
+      body: JSON.stringify({ name: "營運主管", permissions: ["tools:payout:run"] }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      roles: { key: string; name: string; permissions: string[] }[];
+    };
+    expect(body.roles.find((role) => role.key === "manager")).toMatchObject({
+      name: "營運主管",
+      permissions: ["tools:payout:run"],
+    });
+
+    const deleted = await as(admin, "admin@ecotech.tw", "/api/admin/roles/manager", { method: "DELETE" });
+    expect(deleted.status).toBe(400);
+    expect((await deleted.json() as { error?: string }).error).toContain("系統內建角色");
+  });
+
+  it("管理員角色仍受保護", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    const response = await as(admin, "admin@ecotech.tw", "/api/admin/roles/admin", {
+      method: "PATCH",
+      body: JSON.stringify({ permissions: [] }),
     });
 
     expect(response.status).toBe(400);
-    expect((await response.json() as { error?: string }).error).toContain("系統角色");
+    expect((await response.json() as { error?: string }).error).toContain("管理員");
+
+    const deleted = await as(admin, "admin@ecotech.tw", "/api/admin/roles/admin", { method: "DELETE" });
+    expect(deleted.status).toBe(400);
+    expect((await deleted.json() as { error?: string }).error).toContain("管理員");
   });
 
   it("重新同步不會洗掉自訂角色", async () => {

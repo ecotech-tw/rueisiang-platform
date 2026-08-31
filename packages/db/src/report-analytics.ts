@@ -135,6 +135,7 @@ export interface ReportSalesSummary {
   skuCount: number;
   breakdown: ReportSalesBreakdown[];
   byCategory: ReportSalesCategoryBreakdown[];
+  bySku: ReportSalesSkuBreakdown[];
   byTopSku: ReportSalesSkuBreakdown[];
   topSkuBy: SalesTopSkuMetric;
   message?: string;
@@ -623,6 +624,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
       skuCount: 0,
       breakdown: [],
       byCategory: [],
+      bySku: [],
       byTopSku: [],
       topSkuBy,
       message: "商品銷售統計目前只支援完整月份查詢。",
@@ -668,14 +670,18 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
 
   const skuResult = await queryReportSales(db, { ...reportQuery(query, comparison.current), groupBy: ["sku"] });
   const skuRows = skuResult?.rows ?? [];
-  const sortedSkuRows = [...skuRows].sort((left, right) => {
+  const activeSkuRows = skuRows.filter((row) => (
+    numberValue(row, "grossQuantity") !== 0
+    || numberValue(row, "returnQuantity") !== 0
+    || numberValue(row, "netQuantity") !== 0
+    || numberValue(row, "salesAmount") !== 0
+  ));
+  const sortedSkuRows = [...activeSkuRows].sort((left, right) => {
     const difference = rowMetric(right, topSkuBy) - rowMetric(left, topSkuBy);
     if (difference !== 0) return difference;
     return (stringValue(left, "sku") ?? "").localeCompare(stringValue(right, "sku") ?? "");
   });
-  const topSkuRows = sortedSkuRows.slice(0, 10);
-  const remainingSkuRows = sortedSkuRows.slice(10);
-  const topSku: ReportSalesSkuBreakdown[] = topSkuRows.map((row) => {
+  const bySku: ReportSalesSkuBreakdown[] = sortedSkuRows.map((row) => {
     const salesAmount = numberValue(row, "salesAmount");
     const netQuantity = numberValue(row, "netQuantity");
     return {
@@ -690,12 +696,14 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
       quantityShare: currentMetrics.netQuantity === 0 ? 0 : netQuantity / currentMetrics.netQuantity,
     };
   });
+  const topSku = bySku.slice(0, 10);
+  const remainingSkuRows = bySku.slice(10);
   if (remainingSkuRows.length) {
     const other = remainingSkuRows.reduce<{ salesAmount: number; grossQuantity: number; returnQuantity: number; netQuantity: number }>((summary, row) => ({
-      salesAmount: summary.salesAmount + numberValue(row, "salesAmount"),
-      grossQuantity: summary.grossQuantity + numberValue(row, "grossQuantity"),
-      returnQuantity: summary.returnQuantity + numberValue(row, "returnQuantity"),
-      netQuantity: summary.netQuantity + numberValue(row, "netQuantity"),
+      salesAmount: summary.salesAmount + row.salesAmount,
+      grossQuantity: summary.grossQuantity + row.grossQuantity,
+      returnQuantity: summary.returnQuantity + row.returnQuantity,
+      netQuantity: summary.netQuantity + row.netQuantity,
     }), { salesAmount: 0, grossQuantity: 0, returnQuantity: 0, netQuantity: 0 });
     topSku.push({
       sku: "__other__",
@@ -709,12 +717,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
   }
 
   const returnRate = currentMetrics.grossQuantity === 0 ? null : currentMetrics.returnQuantity / currentMetrics.grossQuantity;
-  const skuCount = skuRows.filter((row) => (
-    numberValue(row, "grossQuantity") !== 0
-    || numberValue(row, "returnQuantity") !== 0
-    || numberValue(row, "netQuantity") !== 0
-    || numberValue(row, "salesAmount") !== 0
-  )).length;
+  const skuCount = activeSkuRows.length;
   const trendRange = salesTrendRange(query.range);
   const trendResult = trendRange && currentResult
     ? await querySalesMonths(db, query, trendRange)
@@ -760,6 +763,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     skuCount,
     breakdown,
     byCategory,
+    bySku,
     byTopSku: topSku,
     topSkuBy,
     ...(hasCurrentData
