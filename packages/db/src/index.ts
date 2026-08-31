@@ -132,6 +132,7 @@ export {
   ReportScopeAmbiguousError,
   upsertReportScope,
   type ReportGroupBy,
+  type ReportManualSkuSource,
   type ReportPayoutQuery,
   type ReportPayoutQueryResult,
   type ReportPayoutDaily,
@@ -142,6 +143,23 @@ export {
   type ReportScopeKind,
   type ReportScopeInput,
 } from "./report-data.js";
+export {
+  createReportManualPayout,
+  createReportManualSales,
+  deleteReportManualPayout,
+  deleteReportManualSales,
+  listReportManualPayouts,
+  listReportManualSales,
+  ReportManualError,
+  updateReportManualPayout,
+  updateReportManualSales,
+  type ReportManualActor,
+  type ReportManualErrorKind,
+  type ReportManualPayoutInput,
+  type ReportManualPayoutRow,
+  type ReportManualSalesInput,
+  type ReportManualSalesRow,
+} from "./report-manual.js";
 export {
   buildReportComparisonRanges,
   calculateGrowth,

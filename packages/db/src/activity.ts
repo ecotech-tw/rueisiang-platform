@@ -20,6 +20,7 @@ export type ActivityEntityType =
   | "inventory_item"
   | "product_category"
   | "product_sku_mapping"
+  | "report_manual_entry"
   | "layout_element"
   /** 倉庫本身的設定（畫布尺寸）。只有一筆，entityId 固定是 main。 */
   | "warehouse";
@@ -30,7 +31,7 @@ export type ActivityEntityType =
  * cyberbiz 拆成 webhook 與 sync 兩種：一個是官網即時推過來的，一個是我們主動
  * 去拉的。排查「這筆資料怎麼變成這樣」時，這兩者的意義完全不同。
  */
-export type ActivitySource = "crm" | "wms" | "cyberbiz_webhook" | "cyberbiz_sync";
+export type ActivitySource = "crm" | "wms" | "cyberbiz_webhook" | "cyberbiz_sync" | "reports";
 
 export interface ActivityInput {
   entityType: ActivityEntityType;

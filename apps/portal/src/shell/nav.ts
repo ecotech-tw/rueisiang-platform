@@ -66,6 +66,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "蝦皮銷售報表", to: "/tools/shopee-sales", permission: "tools:shopee-sales:run", icon: "shoppingBag" },
       { label: "SKU 對應", to: "/tools/sku-mappings", permission: "tools:sku-mapping:read", icon: "link" },
       { label: "店別與報表設定", to: "/tools/payout/settings", permission: "tools:payout:config", icon: "storefront" },
+      { label: "報表人工修訂", to: "/tools/manual-reports", permission: "reports:cyberbiz:write", icon: "edit" },
       { label: "營運統計", to: "/tools/analytics", permission: "reports:analytics:read", icon: "analytics" },
     ],
   },
