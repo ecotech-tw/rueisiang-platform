@@ -62,4 +62,3 @@ describe("營運報表快取", () => {
     await expect(cachedReportAnalytics(broken, "summary:payout", async () => "database")).resolves.toBe("database");
   });
 });
-

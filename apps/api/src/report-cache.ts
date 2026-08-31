@@ -44,7 +44,6 @@ export async function cachedReportAnalytics<T>(
   }
   return value;
 }
-
 /** 以刪除版本 key 的方式讓所有舊查詢結果立刻失效，不需要掃描 Redis key。 */
 export async function forgetReportAnalytics(cache: CacheClient | undefined): Promise<void> {
   if (!cache) return;
