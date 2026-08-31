@@ -4,6 +4,7 @@ import {
   findReportScope,
   upsertReportScope,
   normalizeExternalSku,
+  reportDataChannel,
   reportScopeChannel,
   resolveIgnoredSkus,
   resolveProductSkus,
@@ -63,10 +64,6 @@ function month(value: unknown): string {
 function integer(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new CyberbizReportIngestError(422, "invalid_ingest");
   return value;
-}
-
-function reportChannel(scopeId: string): string {
-  return reportScopeChannel(scopeId);
 }
 
 function readInput(value: unknown): CyberbizReportIngestInput {
@@ -141,7 +138,7 @@ function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
 async function normalizeSalesRows(
   db: Database,
   input: CyberbizReportIngestInput,
-  channel = reportChannel(input.scopeId),
+  channel = reportDataChannel(input.scopeId),
   // sales_and_payout 會先 parse 一次做格式驗證，把結果傳進來，省掉整份報表重複解析與彙總。
   preparsed?: ParsedSalesRow[],
 ): Promise<{
@@ -272,21 +269,24 @@ export function createCyberbizReportIngestor(db: Database) {
       skippedSkus?: string[];
     }> {
       const input = readInput(value);
-      const sourceChannel = reportChannel(input.scopeId);
-      const canReuseScopeByName = sourceChannel === "legacy" || sourceChannel === "cyberbiz";
+      // 沿用既有 scope 看的是 scope 自己的通路，不是資料通路：manual 據點也放 CYBERBIZ
+      // 商品，但它必須是自己的 scope，不能因為同名就寫進自動匯入那家店。
+      const scopeChannel = reportScopeChannel(input.scopeId);
+      const dataChannel = reportDataChannel(input.scopeId);
+      const canReuseScopeByName = scopeChannel === "legacy" || scopeChannel === "cyberbiz";
       const existingById = await findReportScope(db, { scopeKind: input.scopeType, id: input.scopeId });
       const nameMatch = existingById ?? (
         !canReuseScopeByName
           ? null
           : await findReportScope(db, { scopeKind: input.scopeType, name: input.scopeName })
       );
-      const nameMatchChannel = nameMatch ? reportChannel(nameMatch.id) : null;
+      const nameMatchChannel = nameMatch ? reportScopeChannel(nameMatch.id) : null;
       // 舊版 CYBERBIZ 設定可能使用任意 legacy ID，仍可依同名沿用；蝦皮則一定以自己的
       // scope ID 建立，不能因為名稱剛好相同而把資料寫進其他通路。
       const existing = existingById ?? (
         canReuseScopeByName
         && nameMatch
-        && (nameMatchChannel === "legacy" || nameMatchChannel === sourceChannel)
+        && (nameMatchChannel === "legacy" || nameMatchChannel === scopeChannel)
           ? nameMatch
           : null
       );
@@ -303,7 +303,7 @@ export function createCyberbizReportIngestor(db: Database) {
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
         // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
         await insertReportPayoutDaily(db, payout);
-        const sales = await normalizeSalesRows(db, salesInput, sourceChannel, parsedSales);
+        const sales = await normalizeSalesRows(db, salesInput, dataChannel, parsedSales);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);
@@ -317,7 +317,7 @@ export function createCyberbizReportIngestor(db: Database) {
         };
       }
       if (input.kind === "sales") {
-        const sales = await normalizeSalesRows(db, scopedInput, sourceChannel);
+        const sales = await normalizeSalesRows(db, scopedInput, dataChannel);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? { scopeId: scope.id, reportMonth: input.reportMonth }
           : undefined);

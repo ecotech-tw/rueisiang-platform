@@ -91,6 +91,7 @@ export {
   loadProductSkuMappingManagement,
   normalizeExternalSku,
   normalizeProductSkuChannel,
+  reportDataChannel,
   reportScopeChannel,
   resolveIgnoredSkus,
   syncCyberbizProducts,

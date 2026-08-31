@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, listCyberbizReportRuns, listPayoutStores, listReportScopes, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, insertReportSalesMonthly, listCyberbizReportRuns, listPayoutStores, listReportScopes, seedPayoutStores, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
 import { cyberbizProducts, inventoryItems, payoutStores, productBundleComponents, productSkuMappings, reportSalesMonthly, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -347,5 +347,44 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
       expect.objectContaining({ id: firstBody.scopeId, name: "原本的店" }),
     ]);
     expect((await db().select().from(reportSalesMonthly)).map((row) => row.netQuantity)).toEqual([1]);
+  });
+  it("新建據點名稱撞到既有據點時擋下來，不會覆寫那家店當月的匯入資料", async () => {
+    await db().insert(cyberbizProducts).values({
+      sku: "COLLIDE-001",
+      productId: "collide-product-001",
+      variantId: "collide-variant-001",
+      productName: "撞名商品",
+      variantName: "",
+    });
+    const importedScopeId = cyberbizScopeIdFromStoreName("中友百貨");
+    await upsertReportScope(db(), { id: importedScopeId, scopeKind: "store", name: "中友百貨" });
+    await insertReportSalesMonthly(db(), [{
+      scopeId: importedScopeId,
+      reportMonth: "2026-07",
+      sku: "COLLIDE-001",
+      productName: "撞名商品",
+      category: "未分類",
+      grossQuantity: 5,
+      returnQuantity: 0,
+      netQuantity: 5,
+      salesAmount: 99999,
+    }]);
+
+    const id = await seedUser("manager-manual-collide@ecotech.tw", "role-manager");
+    const response = await as(id, "manager-manual-collide@ecotech.tw", "/api/tools/manual-sales", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "中友百貨",
+        reportMonth: "2026-07",
+        rows: [{ sku: "COLLIDE-001", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 0 }],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("已經有名為「中友百貨」的據點") });
+    expect(await listReportScopes(db(), "store")).toEqual([expect.objectContaining({ id: importedScopeId })]);
+    expect((await db().select().from(reportSalesMonthly)).map((row) => [row.scopeId, row.salesAmount])).toEqual([
+      [importedScopeId, 99999],
+    ]);
   });
 });
