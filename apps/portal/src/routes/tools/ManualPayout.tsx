@@ -53,10 +53,16 @@ function detect(sheet: Sheet): Detected | null {
     if (headers.length < 2) continue;
     const dateColumn = headers.find((entry) => DATE_HINTS.some((hint) => entry.label.includes(hint)))?.column;
     // 有「公司POS」時優先用已整理好的每日出金欄；沒有時才使用每列的「收入金額」。
+    if (!dateColumn) continue;
     const amountColumn = AMOUNT_HINTS
       .flatMap((hint) => headers.filter((entry) => entry.label.includes(hint)))
-      .find((entry) => entry.column !== dateColumn)?.column;
-    if (dateColumn && amountColumn) return { headerRow, dateColumn, amountColumn, headers };
+      .find((entry) => {
+        if (entry.column === dateColumn) return false;
+        // 有些「公司POS」是沒有快取值的陣列公式，解析不到資料時要繼續回退到其他欄位。
+        return !entry.label.includes("公司POS")
+          || summarise(sheet, headerRow, dateColumn, entry.column).days.length > 0;
+      })?.column;
+    if (amountColumn) return { headerRow, dateColumn, amountColumn, headers };
   }
   return null;
 }
