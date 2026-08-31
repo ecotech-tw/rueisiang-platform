@@ -45,6 +45,65 @@ export async function listPayoutStores(
     .orderBy(payoutStores.sortOrder, payoutStores.name);
 }
 
+/** 只切換平台上的顯示狀態；runner 的 stores.json 不需要跟著改。 */
+export async function updatePayoutStoreEnabled(
+  db: Database,
+  input: { id: string; enabled: boolean },
+): Promise<PayoutStore | null> {
+  await db.update(payoutStores)
+    .set({ enabled: input.enabled, updatedAt: new Date().toISOString() })
+    .where(eq(payoutStores.id, input.id));
+  const [store] = await db.select().from(payoutStores).where(eq(payoutStores.id, input.id)).limit(1);
+  return store ?? null;
+}
+
+export async function savePayoutStore(
+  db: Database,
+  input: PayoutStoreInput & { id?: string },
+): Promise<PayoutStore | null> {
+  const now = new Date().toISOString();
+  const id = input.id ?? crypto.randomUUID();
+
+  if (input.id) {
+    const [existing] = await db.select({ id: payoutStores.id }).from(payoutStores)
+      .where(eq(payoutStores.id, id)).limit(1);
+    if (!existing) return null;
+
+    await db.update(payoutStores)
+      .set({
+        name: input.name,
+        driveFolderUrl: input.driveFolderUrl,
+        driveFolderName: input.driveFolderName,
+        enabled: input.enabled,
+        updatedAt: now,
+      })
+      .where(eq(payoutStores.id, id));
+  } else {
+    const [last] = await db.select({ sortOrder: payoutStores.sortOrder }).from(payoutStores)
+      .orderBy(desc(payoutStores.sortOrder)).limit(1);
+    await db.insert(payoutStores).values({
+      id,
+      name: input.name,
+      driveFolderUrl: input.driveFolderUrl,
+      driveFolderName: input.driveFolderName,
+      enabled: input.enabled,
+      sortOrder: (last?.sortOrder ?? -1) + 1,
+    });
+  }
+
+  const [store] = await db.select().from(payoutStores)
+    .where(eq(payoutStores.id, id)).limit(1);
+  return store ?? null;
+}
+
+export async function deletePayoutStore(db: Database, id: string): Promise<PayoutStore | null> {
+  const [store] = await db.select().from(payoutStores).where(eq(payoutStores.id, id)).limit(1);
+  if (!store) return null;
+
+  await db.delete(payoutStores).where(eq(payoutStores.id, id));
+  return store;
+}
+
 /**
  * 表是空的才寫入預設店別，已經有資料就完全不動。
  *

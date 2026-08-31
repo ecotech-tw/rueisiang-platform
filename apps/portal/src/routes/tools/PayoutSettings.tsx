@@ -1,41 +1,49 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  useDeletePayoutStore,
   usePayoutStores,
-  useSavePayoutStores,
+  useSavePayoutStore,
   useSaveShopeeSalesSettings,
   useShopeeSalesSettings,
-  type PayoutStore,
+  type PayoutStoreDraft,
 } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Switch } from "../../shell/Switch.js";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Alert, Button, PageHeader, Panel, TextField } from "../../ui/index.js";
 
-type Draft = Omit<PayoutStore, "id">;
+type Draft = PayoutStoreDraft & { clientKey: string };
 
 /**
  * 營運工具的店別與報表設定。
  *
- * 舊版把 stores.json 打包進 Worker，改完要下載檔案、commit 回 repo、重新部署，
- * 執行頁才會看到——實務上沒有人會這樣改。現在按儲存就做完整件事：先 commit 回
- * 帳務 repo 的 stores.json（driver 在 runner 上讀的就是那一份），成功了才寫本地。
- *
- * 所以這一頁沒有下載按鈕。只有在平台還沒設定 GitHub token 時，才會退回「只存
- * 本地」並提醒 repo 沒更新——那種狀態下兩邊是不一致的，必須講出來。
+ * 店名與 Drive 設定在欄位離開後自動同步平台與 runner；顯示開關只更新平台，
+ * 因為它決定的是兩個執行頁要不要顯示這家店。
  */
 export function PayoutSettings() {
   usePageTitle("店別與報表設定");
   const query = usePayoutStores();
-  const save = useSavePayoutStores();
+  const saveStore = useSavePayoutStore();
+  const deleteStore = useDeletePayoutStore();
   const shopeeQuery = useShopeeSalesSettings();
   const saveShopee = useSaveShopeeSalesSettings();
   const [drafts, setDrafts] = useState<Draft[]>([]);
+  const draftsRef = useRef<Draft[]>([]);
+  const writeQueue = useRef<Promise<void>>(Promise.resolve());
+  const [queuedWrites, setQueuedWrites] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [shopeeUrl, setShopeeUrl] = useState("");
   const [shopeeName, setShopeeName] = useState("");
   const [shopeeLoaded, setShopeeLoaded] = useState(false);
+  const [deleting, setDeleting] = useState<{ draft: Draft; index: number } | null>(null);
+
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
 
   useEffect(() => {
     if (!query.data || loaded) return;
-    setDrafts(query.data.stores.map(({ id: _id, ...rest }) => rest));
+    setDrafts(query.data.stores.map((store) => ({ ...store, clientKey: store.id })));
     setLoaded(true);
   }, [query.data, loaded]);
 
@@ -50,6 +58,71 @@ export function PayoutSettings() {
     setDrafts((current) => current.map((store, i) => (i === index ? { ...store, ...patch } : store)));
   }
 
+  function enqueueStoreWrite(task: () => Promise<unknown>) {
+    setQueuedWrites((current) => current + 1);
+    const next = writeQueue.current.then(task, task);
+    writeQueue.current = next.then(
+      () => setQueuedWrites((current) => current - 1),
+      () => setQueuedWrites((current) => current - 1),
+    );
+  }
+
+  function toggleEnabled(index: number, enabled: boolean) {
+    const store = drafts[index];
+    if (!store) return;
+    const previous = store.enabled;
+    update(index, { enabled });
+    // 新增但尚未自動儲存的店別還沒有資料庫 id，先改草稿，欄位儲存時再一起建立。
+    if (!store.id) return;
+    enqueueStoreWrite(async () => {
+      try {
+        await saveStore.mutateAsync({ id: store.id, enabled });
+      } catch (error) {
+        setDrafts((current) => current.map((candidate) => candidate.clientKey === store.clientKey
+          ? { ...candidate, enabled: previous }
+          : candidate));
+        throw error;
+      }
+    });
+  }
+
+  function saveDraft(index: number) {
+    const draft = drafts[index];
+    if (!draft || !draft.name.trim()) return;
+
+    enqueueStoreWrite(async () => {
+      const latest = draftsRef.current.find((candidate) => candidate.clientKey === draft.clientKey);
+      if (!latest || !latest.name.trim()) return;
+
+      const { clientKey: _clientKey, ...store } = latest;
+      const data = await saveStore.mutateAsync(store);
+      setDrafts((current) => current.map((candidate) => candidate.clientKey === latest.clientKey
+        ? { ...candidate, id: candidate.id ?? data.store.id }
+        : candidate));
+    });
+  }
+
+  function removeStore(target: { draft: Draft; index: number }) {
+    const { draft, index } = target;
+    setDrafts((current) => current.filter((candidate) => candidate.clientKey !== draft.clientKey));
+    if (!draft.id) return;
+
+    enqueueStoreWrite(async () => {
+      try {
+        await deleteStore.mutateAsync(draft.id!);
+      } catch (error) {
+        setDrafts((current) => {
+          const restored = [...current];
+          restored.splice(Math.min(index, restored.length), 0, draft);
+          return restored;
+        });
+        throw error;
+      }
+    });
+  }
+
+  const storeBusy = queuedWrites > 0 || saveStore.isPending || deleteStore.isPending;
+
   if (query.isPending || shopeeQuery.isPending) return <div className="boot">載入中…</div>;
   if (query.error || shopeeQuery.error) {
     return <div className="page"><Alert tone="danger">{query.error?.message ?? shopeeQuery.error?.message}</Alert></div>;
@@ -63,8 +136,7 @@ export function PayoutSettings() {
           <>
           這裡決定出金表與 CYBERBIZ 商品銷售報表執行頁看得到哪幾家店，以及檔案要上傳到哪個 Drive 資料夾。
           <b>店名必須與 CYBERBIZ 後台的 POS 商店完全一致</b>，driver 靠它找店。
-          關閉「顯示於執行頁」後，該店會同時從兩個報表執行頁隱藏；切換後請按儲存設定。
-          儲存時會一併 commit 回帳務 repo 的 <code>stores.json</code>。
+          「顯示於執行頁」切換後立即生效；店名與 Drive 設定在離開欄位時自動儲存，並一併同步帳務 repo 的 <code>stores.json</code>。
           </>
         }
       />
@@ -72,33 +144,28 @@ export function PayoutSettings() {
       <Panel>
         <div className="admin-form toolbar">
           <Button
-            loading={save.isPending}
-            disabled={!drafts.length}
-            onClick={() => save.mutate(drafts)}
-            loadingLabel="儲存中…"
-          >
-            儲存設定
-          </Button>
-          <Button
             variant="secondary"
+            disabled={storeBusy}
             onClick={() =>
-              setDrafts((current) => [...current, { name: "", driveFolderUrl: "", driveFolderName: "", enabled: true }])
+              setDrafts((current) => [...current, {
+                name: "",
+                driveFolderUrl: "",
+                driveFolderName: "",
+                enabled: true,
+                clientKey: crypto.randomUUID(),
+              }])
             }
           >
             ＋ 新增一家
           </Button>
-          {save.isSuccess && !save.isPending ? (
-            <span className="form-hint">
-              {!save.data.syncedToRepo
-                ? "已存在平台，但沒有寫回帳務 repo（未設定 GITHUB_TOKEN）。"
-                : save.data.committed
-                  ? "已儲存，並更新帳務 repo 的 stores.json。"
-                  : "已儲存。內容與帳務 repo 相同，沒有產生新的 commit。"}
-            </span>
+          {storeBusy ? <span className="form-hint">自動儲存中…</span> : null}
+          {!storeBusy && (saveStore.isSuccess || deleteStore.isSuccess) ? (
+            <span className="form-hint">已自動儲存。</span>
           ) : null}
         </div>
 
-        {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
+        {saveStore.error ? <Alert tone="danger">{saveStore.error.message}</Alert> : null}
+        {deleteStore.error ? <Alert tone="danger">{deleteStore.error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -113,13 +180,14 @@ export function PayoutSettings() {
             </thead>
             <tbody>
               {drafts.map((store, index) => (
-                <tr key={index}>
+                <tr key={store.clientKey}>
                   <td>
                     <input
                       aria-label={`第 ${index + 1} 家店的店名`}
                       className="cell-input"
                       value={store.name}
                       onChange={(event) => update(index, { name: event.target.value })}
+                      onBlur={() => saveDraft(index)}
                     />
                   </td>
                   <td>
@@ -129,6 +197,7 @@ export function PayoutSettings() {
                       placeholder="https://drive.google.com/drive/folders/…"
                       value={store.driveFolderUrl}
                       onChange={(event) => update(index, { driveFolderUrl: event.target.value })}
+                      onBlur={() => saveDraft(index)}
                     />
                   </td>
                   <td>
@@ -137,19 +206,19 @@ export function PayoutSettings() {
                       className="cell-input"
                       value={store.driveFolderName}
                       onChange={(event) => update(index, { driveFolderName: event.target.value })}
+                      onBlur={() => saveDraft(index)}
                     />
                   </td>
                   <td data-label="顯示於執行頁">
-                    <label className="report-store-toggle">
-                      <input
-                        className="table-checkbox"
-                        type="checkbox"
+                    <div className="report-store-toggle">
+                      <Switch
                         checked={store.enabled}
-                        onChange={(event) => update(index, { enabled: event.target.checked })}
-                        aria-label={`${store.name || `第 ${index + 1} 家店`}顯示於出金表與商品銷售報表執行頁`}
+                        busy={storeBusy}
+                        onChange={(enabled) => toggleEnabled(index, enabled)}
+                        label={`${store.name || `第 ${index + 1} 家店`}顯示於出金表與商品銷售報表執行頁`}
                       />
                       <span>{store.enabled ? "顯示" : "隱藏"}</span>
-                    </label>
+                    </div>
                   </td>
                   <td>
                     <div className="row-actions">
@@ -157,8 +226,9 @@ export function PayoutSettings() {
                         variant="icon"
                         className="danger"
                         icon="trash"
-                        onClick={() => setDrafts((current) => current.filter((_, i) => i !== index))}
-                        title={`移除 ${store.name || "這一列"}，儲存後執行頁就看不到`}
+                        disabled={storeBusy}
+                        onClick={() => setDeleting({ draft: store, index })}
+                        title={`移除 ${store.name || "這一列"}，刪除後執行頁就看不到`}
                         aria-label={`移除 ${store.name || `第 ${index + 1} 列`}`}
                       />
                     </div>
@@ -173,6 +243,23 @@ export function PayoutSettings() {
           <p className="muted table-note">目前一家店都沒有，執行頁會是空的。</p>
         ) : null}
       </Panel>
+
+      {deleting ? (
+        <ConfirmDialog
+          title={`刪除「${deleting.draft.name || "這家店"}」？`}
+          confirmLabel="刪除店別"
+          pending={deleteStore.isPending}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => {
+            const target = deleting;
+            setDeleting(null);
+            removeStore(target);
+          }}
+        >
+          <p><strong>{deleting.draft.name || "這家店"}</strong> 的店別設定會從平台移除，兩個報表執行頁也不再顯示。</p>
+          <p className="muted">已經匯入報表的歷史資料不會被刪除。</p>
+        </ConfirmDialog>
+      ) : null}
 
       <Panel>
         <h2>蝦皮報表設定</h2>
