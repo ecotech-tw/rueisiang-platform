@@ -122,6 +122,14 @@ export function Analytics() {
     setProductDraft(productParam);
   }, [productParam]);
 
+  useEffect(() => {
+    if (tab !== "sales" || productDraft.trim() === productParam.trim()) return;
+    const timeoutId = window.setTimeout(() => {
+      setParams((current) => updateParams(current, { product: productDraft.trim() || null }), { replace: true });
+    }, 500);
+    return () => window.clearTimeout(timeoutId);
+  }, [productDraft, productParam, setParams, tab]);
+
   function setFilter(changes: Record<string, string | null>) {
     setParams(updateParams(params, changes), { replace: true });
   }
