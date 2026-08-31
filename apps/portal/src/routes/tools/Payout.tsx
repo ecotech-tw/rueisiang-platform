@@ -3,6 +3,8 @@ import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { useSession } from "../../auth/session.js";
+import { ManualPayoutPanel } from "./ManualPayout.js";
 import {
   parseStores,
   usePayoutState,
@@ -27,6 +29,7 @@ function formatDate(value: string): string {
 }
 
 export function Payout() {
+  const { permissions } = useSession();
   usePageTitle("出金表執行");
   const state = usePayoutState();
   const run = useRunPayout();
@@ -195,6 +198,8 @@ export function Payout() {
           artifactNote="執行完的 xlsx 與報告放在該次工作的 Artifacts（保留 30 天）。"
         />
       ) : null}
+
+      <ManualPayoutPanel canWrite={permissions.has("tools:payout:config")} />
 
       <Panel title="最近執行">
         <div className="table-scroll">

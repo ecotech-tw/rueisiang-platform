@@ -7,11 +7,15 @@ import {
   listReportSkuIgnores,
   loadProductSkuMappingManagement,
   updateProductSkuMapping,
+  insertReportPayoutDaily,
+  isCompanyReportStoreScopeId,
+  listReportScopes,
   recordCyberbizReportRun,
   listPayoutRuns,
   listPayoutStores,
   recordPayoutRun,
   replacePayoutStores,
+  upsertReportScope,
   type PayoutStoreInput,
   type ProductBundleComponentInput,
 } from "@rueisiang/db";
@@ -56,7 +60,7 @@ function bundleComponents(input: Record<string, unknown>): ProductBundleComponen
   });
 }
 
-import { cyberbizScopeIdFromStoreName } from "../cyberbiz-scope.js";
+import { cyberbizScopeIdFromStoreName, manualScopeIdFromStoreName } from "../cyberbiz-scope.js";
 import { cyberbizSalesGithub } from "../cyberbiz-sales/github.js";
 import { cyberbizSales } from "./cyberbiz-sales.js";
 import { shopeeSales } from "./shopee-sales.js";
@@ -140,6 +144,80 @@ function readStores(input: Record<string, unknown>): PayoutStoreInput[] {
 
 export const tools = new Hono<AppEnv>()
   .use("*", requireAuth)
+
+  /**
+   * 手動上傳的出金資料。
+   *
+   * 退租 POS 的店在 CYBERBIZ 已經抓不到，但歷史出金還是要進報表。檔案在瀏覽器端解析
+   * （Worker 讀 xlsx 要自己拆 zip，不划算），這裡只收已經整理好的日資料。
+   *
+   * 逐日 upsert，所以同一份重傳、或分次傳半個月都安全——這也是為什麼 payout 不像
+   * sales 那樣要求完整月份。
+   */
+  .get("/manual-payout/scopes", requirePermission("tools:payout:config"), async (c) => {
+    const scopes = (await listReportScopes(c.get("db"), "store"))
+      .filter((scope) => isCompanyReportStoreScopeId(scope.id));
+    return c.json({ scopes: scopes.map((scope) => ({ id: scope.id, name: scope.name })) });
+  })
+
+  .post("/manual-payout", requirePermission("tools:payout:config"), async (c) => {
+    const input = await body(c);
+    const scopeName = requireString(input, "scopeName", "據點名稱");
+    // 既有據點沿用它的 ID，才不會讓同一家店的歷史被拆成兩個 scope。
+    const requestedScopeId = typeof input.scopeId === "string" ? input.scopeId.trim() : "";
+    const scopeId = requestedScopeId && isCompanyReportStoreScopeId(requestedScopeId)
+      ? requestedScopeId
+      : manualScopeIdFromStoreName(scopeName);
+
+    if (!Array.isArray(input.rows) || !input.rows.length) {
+      throw new HTTPException(400, { message: "沒有可匯入的出金資料。" });
+    }
+    const rows = input.rows.map((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new HTTPException(400, { message: "出金資料格式不正確。" });
+      }
+      const row = value as Record<string, unknown>;
+      const businessDate = requireString(row, "businessDate", "關帳日期");
+      if (!isValidDate(businessDate)) {
+        throw new HTTPException(400, { message: `關帳日期格式不正確：${businessDate}` });
+      }
+      const payoutAmount = row.payoutAmount;
+      if (typeof payoutAmount !== "number" || !Number.isFinite(payoutAmount)) {
+        throw new HTTPException(400, { message: `${businessDate} 的金額不是數字。` });
+      }
+      const roundedAmount = Math.round(payoutAmount);
+      if (!Number.isSafeInteger(roundedAmount)) {
+        throw new HTTPException(400, { message: `${businessDate} 的金額超出可安全儲存的整數範圍。` });
+      }
+      return { scopeId, businessDate, payoutAmount: roundedAmount };
+    });
+
+    const amountsByDate = new Map<string, number>();
+    for (const row of rows) {
+      const total = (amountsByDate.get(row.businessDate) ?? 0) + row.payoutAmount;
+      if (!Number.isSafeInteger(total)) {
+        throw new HTTPException(400, { message: `${row.businessDate} 的金額加總超出可安全儲存的整數範圍。` });
+      }
+      amountsByDate.set(row.businessDate, total);
+    }
+    const dailyRows = [...amountsByDate].map(([businessDate, payoutAmount]) => ({
+      scopeId,
+      businessDate,
+      payoutAmount,
+    }));
+
+    const scope = await upsertReportScope(c.get("db"), { id: scopeId, scopeKind: "store", name: scopeName });
+    await insertReportPayoutDaily(c.get("db"), dailyRows);
+    const dates = dailyRows.map((row) => row.businessDate).sort();
+    return c.json({
+      scopeId: scope.id,
+      scopeName: scope.name,
+      dayCount: dailyRows.length,
+      total: dailyRows.reduce((sum, row) => sum + row.payoutAmount, 0),
+      coverageStart: dates[0],
+      coverageEnd: dates[dates.length - 1],
+    }, 201);
+  })
 
   /** SKU 對應只服務報表匯入，跟倉位、盤點、庫存數量無關，所以掛在營運工具而不是倉儲。 */
   .get("/product-sku-mappings", requirePermission("tools:sku-mapping:read"), async (c) => {

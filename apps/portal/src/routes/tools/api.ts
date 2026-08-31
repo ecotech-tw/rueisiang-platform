@@ -257,3 +257,51 @@ export function useSaveShopeeSalesSettings() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "shopee-sales"] }),
   });
 }
+
+/** 手動上傳出金：可選的既有據點。 */
+export function useManualPayoutScopes() {
+  return useQuery({
+    queryKey: ["tools", "manual-payout", "scopes"],
+    queryFn: async () => {
+      const response = await fetch("/api/tools/manual-payout/scopes", { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`讀取據點失敗（${response.status}）`);
+      return (await response.json()) as { scopes: Array<{ id: string; name: string }> };
+    },
+  });
+}
+
+export interface ManualPayoutResult {
+  scopeId: string;
+  scopeName: string;
+  dayCount: number;
+  total: number;
+  coverageStart: string;
+  coverageEnd: string;
+}
+
+export function useUploadManualPayout() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      scopeName: string;
+      scopeId?: string;
+      rows: Array<{ businessDate: string; payoutAmount: number }>;
+    }) => {
+      const response = await fetch("/api/tools/manual-payout", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+        throw new Error(body?.error ?? body?.message ?? `匯入失敗（${response.status}）`);
+      }
+      return (await response.json()) as ManualPayoutResult;
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["tools", "manual-payout"] });
+      void client.invalidateQueries({ queryKey: ["reports", "analytics"] });
+    },
+  });
+}

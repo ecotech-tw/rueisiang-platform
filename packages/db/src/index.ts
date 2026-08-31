@@ -125,6 +125,7 @@ export {
   queryReportPayout,
   queryReportSales,
   scopeIdsForQuery,
+  isCompanyReportStoreScopeId,
   ReportScopeAmbiguousError,
   upsertReportScope,
   type ReportGroupBy,
