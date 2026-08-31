@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
 import { useManualPayoutScopes, useUploadManualPayout } from "./api.js";
 import { readFirstSheet, toAmount, toBusinessDate, type Sheet } from "./xlsx.js";
 
@@ -64,6 +65,93 @@ interface DayRow {
   businessDate: string;
   payoutAmount: number;
   rowCount: number;
+}
+
+function isValidBusinessDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function sortPreviewDays(days: DayRow[]): DayRow[] {
+  return [...days].sort((a, b) => a.businessDate.localeCompare(b.businessDate));
+}
+
+function ManualPayoutPreviewDialog({
+  day,
+  existingDates,
+  onClose,
+  onSave,
+}: {
+  day: DayRow;
+  existingDates: ReadonlySet<string>;
+  onClose: () => void;
+  onSave: (day: DayRow) => void;
+}) {
+  const [businessDate, setBusinessDate] = useState(day.businessDate);
+  const [amount, setAmount] = useState(String(day.payoutAmount));
+  const payoutAmount = Number(amount);
+  const dateError = businessDate.trim() === ""
+    ? "請輸入關帳日期。"
+    : !isValidBusinessDate(businessDate)
+      ? "日期需為有效的 YYYY-MM-DD。"
+      : existingDates.has(businessDate)
+        ? "預覽中已經有這個日期，請先修改另一筆資料。"
+        : undefined;
+  const amountError = amount.trim() === ""
+    ? "請輸入出金金額。"
+    : !Number.isSafeInteger(payoutAmount)
+      ? "金額需為整數。"
+      : undefined;
+  const valid = !dateError && !amountError;
+
+  return (
+    <Dialog
+      title={`編輯 ${day.businessDate} 預覽資料`}
+      titleMeta="只會修改這次匯入的預覽，按下匯入後才會送出。"
+      className="confirm-card"
+      onClose={onClose}
+      formProps={{
+        onSubmit: (event) => {
+          event.preventDefault();
+          if (!valid) return;
+          onSave({ ...day, businessDate, payoutAmount });
+        },
+      }}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            取消
+          </Button>
+          <Button type="submit" disabled={!valid}>
+            套用到預覽
+          </Button>
+        </>
+      }
+    >
+      <TextField
+        label="關帳日期"
+        required
+        autoFocus
+        type="date"
+        value={businessDate}
+        onChange={(event) => setBusinessDate(event.target.value)}
+        inputClassName="cell-input"
+        error={dateError}
+      />
+      <TextField
+        label="出金金額"
+        required
+        type="number"
+        step="1"
+        inputMode="numeric"
+        value={amount}
+        onChange={(event) => setAmount(event.target.value)}
+        inputClassName="cell-input"
+        error={amountError}
+      />
+    </Dialog>
+  );
 }
 
 /**
@@ -149,6 +237,9 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
   const [amountColumn, setAmountColumn] = useState("");
   const [existingScopeId, setExistingScopeId] = useState("");
   const [newScopeName, setNewScopeName] = useState("");
+  const [previewDays, setPreviewDays] = useState<DayRow[]>([]);
+  const [editingDay, setEditingDay] = useState<DayRow | null>(null);
+  const [deletingDay, setDeletingDay] = useState<DayRow | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scopes = scopesQuery.data?.scopes ?? [];
@@ -191,6 +282,14 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
     return summarise(sheet, headerRow, dateColumn, amountColumn);
   }, [sheet, headerRow, dateColumn, amountColumn]);
 
+  useEffect(() => {
+    setPreviewDays(preview?.days ?? []);
+    setEditingDay(null);
+    setDeletingDay(null);
+  }, [preview]);
+
+  const previewTotal = previewDays.reduce((sum, day) => sum + day.payoutAmount, 0);
+
   const scopeName = existingScopeId
     ? scopes.find((scope) => scope.id === existingScopeId)?.name ?? ""
     : newScopeName.trim();
@@ -199,6 +298,9 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
     if (!file) return;
     setParseError("");
     setSheet(null);
+    setPreviewDays([]);
+    setEditingDay(null);
+    setDeletingDay(null);
     setFileName(file.name);
     try {
       const parsed = await readFirstSheet(file);
@@ -219,12 +321,12 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
   }
 
   function submit() {
-    if (!preview?.days.length || !scopeName) return;
+    if (!previewDays.length || !scopeName) return;
     upload.mutate(
       {
         scopeName,
         ...(existingScopeId ? { scopeId: existingScopeId } : {}),
-        rows: preview.days.map((day) => ({ businessDate: day.businessDate, payoutAmount: day.payoutAmount })),
+        rows: previewDays.map((day) => ({ businessDate: day.businessDate, payoutAmount: day.payoutAmount })),
       },
       {
         onSuccess: (result) => {
@@ -237,10 +339,28 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
     );
   }
 
+  function savePreviewDay(updated: DayRow) {
+    if (!editingDay) return;
+    setPreviewDays((current) => sortPreviewDays(current.map((day) => (
+      day.businessDate === editingDay.businessDate ? updated : day
+    ))));
+    setEditingDay(null);
+    toast.show(`已更新 ${updated.businessDate} 預覽資料`);
+  }
+
+  function deletePreviewDay() {
+    if (!deletingDay) return;
+    const removed = deletingDay;
+    setPreviewDays((current) => current.filter((day) => day.businessDate !== removed.businessDate));
+    setDeletingDay(null);
+    toast.show(`已從預覽刪除 ${removed.businessDate}`);
+  }
+
   if (!canWrite) return null;
 
   return (
-    <details className="manual-payout-details">
+    <>
+      <details className="manual-payout-details">
       <summary>
         手動上傳出金
         <span className="cell-sub">退租 POS 的店自動流程抓不到，在這裡補檔</span>
@@ -320,9 +440,11 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
       {preview ? (
         <section className="manual-payout-step">
           <h3>4. 預覽</h3>
-          <p className="cell-sub">{preview.days.length
-            ? `${preview.days[0]?.businessDate} ~ ${preview.days[preview.days.length - 1]?.businessDate}，共 ${preview.days.length} 天，合計 ${preview.total.toLocaleString("zh-TW")}`
-            : "這份檔案解析不出任何資料列。"}</p>
+          <p className="cell-sub">{previewDays.length
+            ? `${previewDays[0]?.businessDate} ~ ${previewDays[previewDays.length - 1]?.businessDate}，共 ${previewDays.length} 天，合計 ${previewTotal.toLocaleString("zh-TW")}`
+            : preview.days.length
+              ? "預覽中的資料已全部刪除，請至少保留一筆資料。"
+              : "這份檔案解析不出任何資料列。"}</p>
           {preview.skipped.length ? (
             <Alert tone="warning">
               有 {preview.skipped.length} 列的日期或金額解析不出來，已略過（第 {preview.skipped.slice(0, 10).join("、")} 列
@@ -330,19 +452,40 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
             </Alert>
           ) : null}
           {upload.error ? <Alert tone="danger">{upload.error.message}</Alert> : null}
-          {preview.days.length ? (
+          {previewDays.length ? (
             <>
               <div className="table-scroll">
                 <table className="data-table">
                   <thead>
-                    <tr><th>關帳日期</th><th className="numeric">金額</th><th className="numeric">來源列數</th></tr>
+                    <tr><th>關帳日期</th><th className="numeric">金額</th><th className="numeric">來源列數</th><th>操作</th></tr>
                   </thead>
                   <tbody>
-                    {preview.days.map((day) => (
+                    {previewDays.map((day) => (
                       <tr key={day.businessDate}>
                         <td data-label="關帳日期">{day.businessDate}</td>
                         <td data-label="金額" className="numeric">{day.payoutAmount.toLocaleString("zh-TW")}</td>
                         <td data-label="來源列數" className="numeric cell-sub">{day.rowCount}</td>
+                        <td data-label="操作">
+                          <div className="row-actions">
+                            <Button
+                              variant="icon"
+                              icon="edit"
+                              disabled={upload.isPending}
+                              onClick={() => setEditingDay(day)}
+                              title={`編輯 ${day.businessDate} 預覽資料`}
+                              aria-label={`編輯 ${day.businessDate} 預覽資料`}
+                            />
+                            <Button
+                              variant="icon"
+                              className="danger"
+                              icon="trash"
+                              disabled={upload.isPending}
+                              onClick={() => setDeletingDay(day)}
+                              title={`刪除 ${day.businessDate} 預覽資料`}
+                              aria-label={`刪除 ${day.businessDate} 預覽資料`}
+                            />
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -361,6 +504,30 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
         </section>
       ) : null}
       </div>
-    </details>
+      </details>
+      {editingDay ? (
+        <ManualPayoutPreviewDialog
+          day={editingDay}
+          existingDates={new Set(previewDays
+            .filter((day) => day.businessDate !== editingDay.businessDate)
+            .map((day) => day.businessDate))}
+          onClose={() => setEditingDay(null)}
+          onSave={savePreviewDay}
+        />
+      ) : null}
+      {deletingDay ? (
+        <ConfirmDialog
+          title="從預覽刪除這筆資料？"
+          confirmLabel="刪除資料"
+          onCancel={() => setDeletingDay(null)}
+          onConfirm={deletePreviewDay}
+        >
+          <p>
+            <strong>{deletingDay.businessDate}</strong> 的出金金額 {deletingDay.payoutAmount.toLocaleString("zh-TW")} 會從這次匯入預覽移除。
+          </p>
+          <p className="muted">刪除只會影響這次預覽；按下「匯入」後，這一天才不會送出。</p>
+        </ConfirmDialog>
+      ) : null}
+    </>
   );
 }
