@@ -22,11 +22,11 @@ const DATE_HINTS = ["關帳時間", "關帳日期", "日期", "營業日"];
 /*
  * 金額欄的候選，依偏好排序。
  *
- * 不同時期整理出來的檔案不一樣：有的要用「收入金額」（每一列都有值），有的要用
- * 「公司POS」（每次關帳只出現一次，而且「代班外帳」那種列只有它有值，用收入金額
- * 會整天漏掉）。偵測只給建議，最後由使用者對著各欄合計挑。
+ * 不同時期整理出來的檔案不一樣：有的只有「收入金額」（每一列都有值），有的同時有
+ * 已整理好的「公司POS」（每次關帳只出現一次，而且「代班外帳」那種列只有它有值）。
+ * 有「公司POS」時優先用它，沒有時才退回「收入金額」；最後仍由使用者對著各欄合計確認。
  */
-const AMOUNT_HINTS = ["收入金額", "公司POS", "百貨POS", "營業額", "銷售金額", "金額"];
+const AMOUNT_HINTS = ["公司POS", "收入金額", "百貨POS", "營業額", "銷售金額", "金額"];
 /** 表格結尾的合計列。它沒有關帳時間，不排除的話會被併進最後一天。 */
 const TOTAL_HINTS = ["總計", "合計", "小計", "Total"];
 
@@ -52,7 +52,7 @@ function detect(sheet: Sheet): Detected | null {
       .filter((entry) => entry.label);
     if (headers.length < 2) continue;
     const dateColumn = headers.find((entry) => DATE_HINTS.some((hint) => entry.label.includes(hint)))?.column;
-    // 「收入金額」要比「入庫金額」先中：前者是每一列的營業額，與自動匯入的定義一致。
+    // 有「公司POS」時優先用已整理好的每日出金欄；沒有時才使用每列的「收入金額」。
     const amountColumn = AMOUNT_HINTS
       .flatMap((hint) => headers.filter((entry) => entry.label.includes(hint)))
       .find((entry) => entry.column !== dateColumn)?.column;
@@ -320,7 +320,7 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
       } else {
         setDateColumn("");
         setAmountColumn("");
-        setParseError("認不出關帳時間與收入金額的欄位，請自己指定。");
+        setParseError("認不出關帳時間與金額欄位，請自己指定。");
       }
     } catch (error) {
       setParseError(error instanceof Error ? error.message : "讀不開這個檔案。");
