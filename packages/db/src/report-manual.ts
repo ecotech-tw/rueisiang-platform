@@ -1,11 +1,13 @@
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
-import { isCompanyReportStoreScopeId, isValidReportDate } from "./report-data.js";
+import { isCompanyReportStoreScopeId, isValidReportDate, normalizeReportScopeName } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
 import {
   reportManualPayoutDaily,
   reportManualSalesMonthly,
+  reportPayoutDaily,
+  reportSalesMonthly,
   reportScopes,
   type ReportManualPayoutDaily,
   type ReportManualSalesMonthly,
@@ -123,6 +125,33 @@ export interface ReportSalesListResult {
   total: number;
 }
 
+export interface ReportPayoutRecordDeleteInput {
+  source: ReportManualRecordSource;
+  id: string;
+  scopeId: string;
+  businessDate: string;
+}
+
+export interface ReportSalesRecordDeleteInput {
+  source: ReportManualRecordSource;
+  id: string;
+  scopeId: string;
+  reportMonth: string;
+  sku: string;
+}
+
+export interface ReportManagementScope {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+export interface ReportManagementScopeInput {
+  id: string;
+  name: string;
+  active?: boolean;
+}
+
 function safeInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value)) throw new ReportManualError("invalid", `${label}必須是安全整數。`);
   return value;
@@ -143,6 +172,80 @@ async function requireScope(db: Database, scopeId: string) {
     throw new ReportManualError("not_found", "找不到可納入公司報表的啟用據點。");
   }
   return scope;
+}
+
+export async function listReportManagementScopes(db: Database): Promise<ReportManagementScope[]> {
+  const scopes = await db.select({
+    id: reportScopes.id,
+    name: reportScopes.name,
+    active: reportScopes.active,
+  }).from(reportScopes)
+    .where(eq(reportScopes.scopeKind, "store"))
+    .orderBy(desc(reportScopes.active), asc(reportScopes.name));
+  return scopes
+    .filter((scope) => isCompanyReportStoreScopeId(scope.id))
+    .map((scope) => ({ ...scope, active: scope.active === 1 }));
+}
+
+export async function createReportManagementScope(
+  db: Database,
+  input: ReportManagementScopeInput,
+): Promise<ReportManagementScope> {
+  const id = input.id.trim();
+  const name = input.name.trim();
+  if (!id || !isCompanyReportStoreScopeId(id) || !name) {
+    throw new ReportManualError("invalid", "據點 ID 或名稱不正確。");
+  }
+  const [existingId] = await db.select({ id: reportScopes.id }).from(reportScopes).where(eq(reportScopes.id, id)).limit(1);
+  if (existingId) throw new ReportManualError("conflict", "這個據點 ID 已經存在。");
+  const [existingName] = await db.select({ id: reportScopes.id }).from(reportScopes).where(and(
+    eq(reportScopes.scopeKind, "store"),
+    eq(reportScopes.normalizedName, normalizeReportScopeName(name)),
+  )).limit(1);
+  if (existingName) throw new ReportManualError("conflict", "這個據點名稱已經存在。");
+
+  const now = new Date().toISOString();
+  await db.insert(reportScopes).values({
+    id,
+    scopeKind: "store",
+    name,
+    normalizedName: normalizeReportScopeName(name),
+    active: input.active === false ? 0 : 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return { id, name, active: input.active !== false };
+}
+
+export async function updateReportManagementScope(
+  db: Database,
+  input: { id: string; name?: string; active?: boolean },
+): Promise<ReportManagementScope> {
+  const id = input.id.trim();
+  if (!id || !isCompanyReportStoreScopeId(id)) throw new ReportManualError("invalid", "據點 ID 不正確。");
+  const [existing] = await db.select({ id: reportScopes.id, name: reportScopes.name, active: reportScopes.active })
+    .from(reportScopes)
+    .where(and(eq(reportScopes.id, id), eq(reportScopes.scopeKind, "store")))
+    .limit(1);
+  if (!existing) throw new ReportManualError("not_found", "找不到這個據點。");
+  const name = input.name === undefined ? existing.name : input.name.trim();
+  if (!name) throw new ReportManualError("invalid", "據點名稱不可為空白。");
+  if (name !== existing.name) {
+    const [duplicate] = await db.select({ id: reportScopes.id }).from(reportScopes).where(and(
+      eq(reportScopes.scopeKind, "store"),
+      eq(reportScopes.normalizedName, normalizeReportScopeName(name)),
+      ne(reportScopes.id, id),
+    )).limit(1);
+    if (duplicate) throw new ReportManualError("conflict", "這個據點名稱已經存在。");
+  }
+  const active = input.active === undefined ? existing.active === 1 : input.active;
+  await db.update(reportScopes).set({
+    name,
+    normalizedName: normalizeReportScopeName(name),
+    active: active ? 1 : 0,
+    updatedAt: new Date().toISOString(),
+  }).where(eq(reportScopes.id, id));
+  return { id, name, active };
 }
 
 async function preparePayout(
@@ -626,6 +729,66 @@ export async function deleteReportManualPayout(db: Database, id: string, actor: 
   ] as never);
 }
 
+/**
+ * 刪除頁面目前看到的出金紀錄。
+ *
+ * 匯入列直接刪除原始資料；人工覆寫列則連同同一 key 的原始資料一起刪除，避免刪除後又立刻顯示回匯入值。
+ */
+export async function deleteReportPayoutRecord(
+  db: Database,
+  input: ReportPayoutRecordDeleteInput,
+  actor: ReportManualActor,
+): Promise<void> {
+  const scopeId = input.scopeId.trim();
+  const businessDate = input.businessDate.trim();
+  if (!scopeId || !isValidReportDate(businessDate)) {
+    throw new ReportManualError("invalid", "出金紀錄的據點或日期不正確。");
+  }
+
+  const [manual] = input.source === "manual"
+    ? await db.select().from(reportManualPayoutDaily).where(eq(reportManualPayoutDaily.id, input.id)).limit(1)
+    : [];
+  const [imported] = input.source === "imported"
+    ? await db.select().from(reportPayoutDaily).where(and(
+      eq(reportPayoutDaily.scopeId, scopeId),
+      eq(reportPayoutDaily.businessDate, businessDate),
+    )).limit(1)
+    : [];
+  const existing = manual ?? imported;
+  if (!existing) throw new ReportManualError("not_found", "找不到這筆出金紀錄。");
+
+  const names = await scopeNames(db);
+  const scopeName = names.get(existing.scopeId) ?? existing.scopeId;
+  const entityId = input.source === "manual" ? input.id : `imported:${scopeId}:${businessDate}`;
+  const payoutAmount = existing.payoutAmount;
+  await db.batch([
+    input.source === "manual"
+      ? db.delete(reportManualPayoutDaily).where(eq(reportManualPayoutDaily.id, input.id))
+      : db.delete(reportPayoutDaily).where(and(
+        eq(reportPayoutDaily.scopeId, scopeId),
+        eq(reportPayoutDaily.businessDate, businessDate),
+      )),
+    ...(input.source === "manual"
+      ? [db.delete(reportPayoutDaily).where(and(
+        eq(reportPayoutDaily.scopeId, existing.scopeId),
+        eq(reportPayoutDaily.businessDate, existing.businessDate),
+      ))]
+      : []),
+    db.insert(activityEvents).values(activityRow({
+      entityType: "report_manual_entry",
+      entityId,
+      entityLabel: payoutLabel(scopeName, existing.businessDate),
+      eventType: "report_payout_record_deleted",
+      summary: `刪除出金資料：${scopeName} ${existing.businessDate}`,
+      field: "payoutAmount",
+      oldValue: String(payoutAmount),
+      payload: { source: input.source, ...payoutPayload(existing) },
+      actor,
+      source: "reports",
+    })),
+  ] as never);
+}
+
 export async function createReportManualSales(
   db: Database,
   input: ReportManualSalesInput,
@@ -760,6 +923,66 @@ export async function deleteReportManualSales(db: Database, id: string, actor: R
       summary: `刪除人工商品銷售資料：${scopeName} ${existing.reportMonth} ${existing.sku}`,
       oldValue: JSON.stringify(salesPayload(existing)),
       payload: salesPayload(existing),
+      actor,
+      source: "reports",
+    })),
+  ] as never);
+}
+
+/** 刪除頁面目前看到的商品銷售紀錄，規則與出金有效紀錄一致。 */
+export async function deleteReportSalesRecord(
+  db: Database,
+  input: ReportSalesRecordDeleteInput,
+  actor: ReportManualActor,
+): Promise<void> {
+  const scopeId = input.scopeId.trim();
+  const reportMonth = input.reportMonth.trim();
+  const sku = normalizeExternalSku(input.sku);
+  if (!scopeId || !/^\d{4}-(0[1-9]|1[0-2])$/u.test(reportMonth) || !sku) {
+    throw new ReportManualError("invalid", "商品銷售紀錄的據點、月份或 SKU 不正確。");
+  }
+
+  const [manual] = input.source === "manual"
+    ? await db.select().from(reportManualSalesMonthly).where(eq(reportManualSalesMonthly.id, input.id)).limit(1)
+    : [];
+  const [imported] = input.source === "imported"
+    ? await db.select().from(reportSalesMonthly).where(and(
+      eq(reportSalesMonthly.scopeId, scopeId),
+      eq(reportSalesMonthly.reportMonth, reportMonth),
+      eq(reportSalesMonthly.sku, sku),
+    )).limit(1)
+    : [];
+  const existing = manual ?? imported;
+  if (!existing) throw new ReportManualError("not_found", "找不到這筆商品銷售紀錄。");
+
+  const names = await scopeNames(db);
+  const scopeName = names.get(existing.scopeId) ?? existing.scopeId;
+  const entityId = input.source === "manual"
+    ? input.id
+    : `imported:${scopeId}:${reportMonth}:${sku}`;
+  await db.batch([
+    input.source === "manual"
+      ? db.delete(reportManualSalesMonthly).where(eq(reportManualSalesMonthly.id, input.id))
+      : db.delete(reportSalesMonthly).where(and(
+        eq(reportSalesMonthly.scopeId, scopeId),
+        eq(reportSalesMonthly.reportMonth, reportMonth),
+        eq(reportSalesMonthly.sku, sku),
+      )),
+    ...(input.source === "manual"
+      ? [db.delete(reportSalesMonthly).where(and(
+        eq(reportSalesMonthly.scopeId, existing.scopeId),
+        eq(reportSalesMonthly.reportMonth, existing.reportMonth),
+        eq(reportSalesMonthly.sku, existing.sku),
+      ))]
+      : []),
+    db.insert(activityEvents).values(activityRow({
+      entityType: "report_manual_entry",
+      entityId,
+      entityLabel: salesLabel(scopeName, existing.reportMonth, existing.sku),
+      eventType: "report_sales_record_deleted",
+      summary: `刪除商品銷售資料：${scopeName} ${existing.reportMonth} ${existing.sku}`,
+      oldValue: JSON.stringify(salesPayload({ ...existing, skuSource: "custom" })),
+      payload: { source: input.source, ...salesPayload({ ...existing, skuSource: "custom" }) },
       actor,
       source: "reports",
     })),

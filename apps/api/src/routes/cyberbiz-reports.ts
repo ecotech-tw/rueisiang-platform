@@ -3,20 +3,29 @@ import { HTTPException } from "hono/http-exception";
 import {
   createReportManualPayout,
   createReportManualSales,
+  createReportManagementScope,
   deleteReportPayoutDaily,
   deleteReportManualPayout,
   deleteReportManualSales,
+  deleteReportPayoutRecord,
+  deleteReportSalesRecord,
+  insertReportPayoutDaily,
+  insertReportSalesMonthly,
   isCompanyReportStoreScopeId,
   isValidReportDate,
   latestReportSalesPeriods,
   listCyberbizProducts,
   listReportPayoutRecords,
+  listReportManagementScopes,
   listReportSalesRecords,
   listReportScopes,
   ReportManualError,
   updateReportManualPayout,
   updateReportManualSales,
+  updateReportManagementScope,
   updateReportPayoutDaily,
+  normalizeExternalSku,
+  upsertReportScope,
   type Database,
   type ReportGroupBy,
   type ReportManualRecordSource,
@@ -28,6 +37,7 @@ import {
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { createCyberbizReportService, CyberbizReportQueryError } from "../cyberbiz-reports.js";
+import { manualScopeIdFromStoreName } from "../cyberbiz-scope.js";
 import { cachedReportAnalytics, forgetReportAnalytics } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
 import { body, requireString } from "../request.js";
@@ -242,6 +252,174 @@ function manualSalesInput(input: Record<string, unknown>): {
   };
 }
 
+function importScope(input: Record<string, unknown>): { scopeId: string; scopeName: string } {
+  const scopeName = requireString(input, "scopeName", "據點名稱");
+  const requestedScopeId = typeof input.scopeId === "string" ? input.scopeId.trim() : "";
+  if (requestedScopeId && !isCompanyReportStoreScopeId(requestedScopeId)) {
+    throw new HTTPException(400, { message: "據點 ID 不是公司報表可辨識的店別。" });
+  }
+  return {
+    scopeId: requestedScopeId || manualScopeIdFromStoreName(scopeName),
+    scopeName,
+  };
+}
+
+function safeImportTotal(current: number, next: number, label: string): number {
+  const total = current + next;
+  if (!Number.isSafeInteger(total)) {
+    throw new HTTPException(400, { message: `${label}加總超出可安全儲存的整數範圍。` });
+  }
+  return total;
+}
+
+function importPayoutInput(input: Record<string, unknown>): {
+  scopeId: string;
+  scopeName: string;
+  rows: Array<{ scopeId: string; businessDate: string; payoutAmount: number }>;
+} {
+  const scope = importScope(input);
+  if (!Array.isArray(input.rows) || !input.rows.length) {
+    throw new HTTPException(400, { message: "沒有可匯入的出金資料。" });
+  }
+  const amounts = new Map<string, number>();
+  for (const value of input.rows) {
+    if (!isRecord(value)) throw new HTTPException(400, { message: "出金資料格式不正確。" });
+    const businessDate = requireString(value, "businessDate", "出金日期");
+    if (!isValidReportDate(businessDate)) {
+      throw new HTTPException(400, { message: `出金日期格式不正確：${businessDate}` });
+    }
+    const amount = safeIntegerInput(value, "payoutAmount", "出金金額");
+    amounts.set(businessDate, safeImportTotal(amounts.get(businessDate) ?? 0, amount, `${businessDate} 的金額`));
+  }
+  return {
+    ...scope,
+    rows: [...amounts].map(([businessDate, payoutAmount]) => ({ scopeId: scope.scopeId, businessDate, payoutAmount })),
+  };
+}
+
+interface ImportedSalesRow {
+  scopeId: string;
+  reportMonth: string;
+  sku: string;
+  productName: string;
+  category: string;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+  salesAmount: number;
+  updatedAt: string;
+}
+
+function importSalesInput(input: Record<string, unknown>): {
+  scopeId: string;
+  scopeName: string;
+  reportMonth: string;
+  rows: ImportedSalesRow[];
+} {
+  const scope = importScope(input);
+  const reportMonth = requireString(input, "reportMonth", "報表月份");
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/u.test(reportMonth)) {
+    throw new HTTPException(400, { message: "報表月份必須是有效的 YYYY-MM。" });
+  }
+  if (!Array.isArray(input.rows) || !input.rows.length) {
+    throw new HTTPException(400, { message: "沒有可匯入的商品銷售資料。" });
+  }
+
+  const rows = new Map<string, ImportedSalesRow>();
+  for (const value of input.rows) {
+    if (!isRecord(value)) throw new HTTPException(400, { message: "商品銷售資料格式不正確。" });
+    const sku = normalizeExternalSku(requireString(value, "sku", "SKU"));
+    const previous = rows.get(sku);
+    const productName = typeof value.productName === "string" && value.productName.trim()
+      ? value.productName.trim()
+      : previous?.productName ?? sku;
+    const category = typeof value.category === "string" && value.category.trim()
+      ? value.category.trim()
+      : previous?.category ?? "未分類";
+    const next = {
+      scopeId: scope.scopeId,
+      reportMonth,
+      sku,
+      productName,
+      category,
+      grossQuantity: safeIntegerInput(value, "grossQuantity", "銷售數量"),
+      returnQuantity: safeIntegerInput(value, "returnQuantity", "退回數量"),
+      netQuantity: safeIntegerInput(value, "netQuantity", "淨銷售數量"),
+      salesAmount: safeIntegerInput(value, "salesAmount", "銷售金額"),
+      updatedAt: new Date().toISOString(),
+    };
+    rows.set(sku, previous ? {
+      ...next,
+      productName: previous.productName || next.productName,
+      category: previous.category || next.category,
+      grossQuantity: safeImportTotal(previous.grossQuantity, next.grossQuantity, `${sku} 的銷售數量`),
+      returnQuantity: safeImportTotal(previous.returnQuantity, next.returnQuantity, `${sku} 的退回數量`),
+      netQuantity: safeImportTotal(previous.netQuantity, next.netQuantity, `${sku} 的淨銷售數量`),
+      salesAmount: safeImportTotal(previous.salesAmount, next.salesAmount, `${sku} 的銷售金額`),
+    } : next);
+  }
+  return { ...scope, reportMonth, rows: [...rows.values()] };
+}
+
+function recordDeleteSource(input: Record<string, unknown>): ReportManualRecordSource {
+  if (input.source !== "imported" && input.source !== "manual") {
+    throw new HTTPException(400, { message: "紀錄來源格式不正確。" });
+  }
+  return input.source;
+}
+
+function reportScopeId(c: { req: { param(name: string): string | undefined } }): string {
+  const id = c.req.param("id")?.trim();
+  if (!id) throw new HTTPException(400, { message: "缺少據點 ID。" });
+  return id;
+}
+
+function reportScopeName(input: Record<string, unknown>): string {
+  return requireString(input, "name", "據點名稱");
+}
+
+function reportScopeActive(input: Record<string, unknown>): boolean | undefined {
+  if (input.active === undefined) return undefined;
+  if (typeof input.active !== "boolean") throw new HTTPException(400, { message: "據點啟用狀態格式不正確。" });
+  return input.active;
+}
+
+async function payoutRecordDeleteInput(c: { req: { json(): Promise<unknown> } }): Promise<{
+  source: ReportManualRecordSource;
+  id: string;
+  scopeId: string;
+  businessDate: string;
+}> {
+  const input = await body(c);
+  const businessDate = requireString(input, "businessDate", "出金日期");
+  if (!isValidReportDate(businessDate)) throw new HTTPException(400, { message: "出金日期必須是有效的 YYYY-MM-DD。" });
+  return {
+    source: recordDeleteSource(input),
+    id: requireString(input, "id", "紀錄 ID"),
+    scopeId: requireString(input, "scopeId", "據點"),
+    businessDate,
+  };
+}
+
+async function salesRecordDeleteInput(c: { req: { json(): Promise<unknown> } }): Promise<{
+  source: ReportManualRecordSource;
+  id: string;
+  scopeId: string;
+  reportMonth: string;
+  sku: string;
+}> {
+  const input = await body(c);
+  const reportMonth = requireString(input, "reportMonth", "報表月份");
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/u.test(reportMonth)) throw new HTTPException(400, { message: "報表月份必須是有效的 YYYY-MM。" });
+  return {
+    source: recordDeleteSource(input),
+    id: requireString(input, "id", "紀錄 ID"),
+    scopeId: requireString(input, "scopeId", "據點"),
+    reportMonth,
+    sku: requireString(input, "sku", "SKU"),
+  };
+}
+
 function payoutTarget(c: { req: { param(name: string): string | undefined } }): { scopeId: string; businessDate: string } {
   const scopeId = c.req.param("scopeId")?.trim();
   const businessDate = c.req.param("businessDate")?.trim();
@@ -307,6 +485,90 @@ export const cyberbizReports = new Hono<AppEnv>()
       products,
     });
   })
+  .get("/manual/scopes", requirePermission("reports:cyberbiz:write"), async (c) => {
+    return c.json({ scopes: await listReportManagementScopes(c.get("db")) });
+  })
+  .post("/manual/scopes", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const input = await body(c);
+      const name = reportScopeName(input);
+      const scope = await createReportManagementScope(c.get("db"), {
+        id: manualScopeIdFromStoreName(name),
+        name,
+        active: reportScopeActive(input),
+      });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ scope }, 201);
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .patch("/manual/scopes/:id", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const input = await body(c);
+      const name = input.name === undefined ? undefined : reportScopeName(input);
+      const active = reportScopeActive(input);
+      const scope = await updateReportManagementScope(c.get("db"), {
+        id: reportScopeId(c),
+        ...(name === undefined ? {} : { name }),
+        ...(active === undefined ? {} : { active }),
+      });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ scope });
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .delete("/manual/scopes/:id", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const scope = await updateReportManagementScope(c.get("db"), { id: reportScopeId(c), active: false });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ scope });
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .post("/manual/import/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const input = importPayoutInput(await body(c));
+      const scope = await upsertReportScope(c.get("db"), { id: input.scopeId, scopeKind: "store", name: input.scopeName });
+      await insertReportPayoutDaily(c.get("db"), input.rows);
+      await forgetReportAnalytics(cacheClient(c.env));
+      const dates = input.rows.map((row) => row.businessDate).sort();
+      return c.json({
+        scopeId: scope.id,
+        scopeName: scope.name,
+        dayCount: input.rows.length,
+        total: input.rows.reduce((sum, row) => safeImportTotal(sum, row.payoutAmount, "出金金額"), 0),
+        coverageStart: dates[0],
+        coverageEnd: dates[dates.length - 1],
+      }, 201);
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .post("/manual/import/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const input = importSalesInput(await body(c));
+      const scope = await upsertReportScope(c.get("db"), { id: input.scopeId, scopeKind: "store", name: input.scopeName });
+      await insertReportSalesMonthly(c.get("db"), input.rows, { scopeId: input.scopeId, reportMonth: input.reportMonth });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({
+        scopeId: scope.id,
+        scopeName: scope.name,
+        reportMonth: input.reportMonth,
+        rowCount: input.rows.length,
+        totals: {
+          grossQuantity: input.rows.reduce((sum, row) => safeImportTotal(sum, row.grossQuantity, "銷售數量"), 0),
+          returnQuantity: input.rows.reduce((sum, row) => safeImportTotal(sum, row.returnQuantity, "退回數量"), 0),
+          netQuantity: input.rows.reduce((sum, row) => safeImportTotal(sum, row.netQuantity, "淨銷售數量"), 0),
+          salesAmount: input.rows.reduce((sum, row) => safeImportTotal(sum, row.salesAmount, "銷售金額"), 0),
+        },
+      }, 201);
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
   .get("/manual/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
     return c.json(await listReportPayoutRecords(c.get("db"), manualPayoutListQuery(c)));
   })
@@ -328,6 +590,16 @@ export const cyberbizReports = new Hono<AppEnv>()
       const row = await updateReportManualPayout(c.get("db"), { id: manualId(c), ...input, actor: { id: user.id, email: user.email } });
       await forgetReportAnalytics(cacheClient(c.env));
       return c.json({ row: { ...row, source: "manual" as const } });
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .delete("/manual/payout/record", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const user = c.get("user");
+      await deleteReportPayoutRecord(c.get("db"), await payoutRecordDeleteInput(c), { id: user.id, email: user.email });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ ok: true });
     } catch (error) {
       handleManualError(error);
     }
@@ -363,6 +635,16 @@ export const cyberbizReports = new Hono<AppEnv>()
       const row = await updateReportManualSales(c.get("db"), { id: manualId(c), ...input, actor: { id: user.id, email: user.email } });
       await forgetReportAnalytics(cacheClient(c.env));
       return c.json({ row: { ...row, source: "manual" as const } });
+    } catch (error) {
+      handleManualError(error);
+    }
+  })
+  .delete("/manual/sales/record", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const user = c.get("user");
+      await deleteReportSalesRecord(c.get("db"), await salesRecordDeleteInput(c), { id: user.id, email: user.email });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ ok: true });
     } catch (error) {
       handleManualError(error);
     }

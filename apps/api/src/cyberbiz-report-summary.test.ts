@@ -319,4 +319,232 @@ describe("報表統計 API", () => {
     );
     expect(invalid.status).toBe(400);
   });
+
+  it("report management can create, rename, disable, and re-enable report scopes", async () => {
+    const manager = await seedUser("manager-scope-management@ecotech.tw", "role-manager");
+
+    const initial = await call(
+      "/api/reports/cyberbiz/manual/scopes",
+      manager,
+      "manager-scope-management@ecotech.tw",
+    );
+    expect(initial.status).toBe(200);
+    expect(await initial.json()).toMatchObject({
+      scopes: [
+        { id: "cyberbiz:store:active", name: "啟用店", active: true },
+        { id: "cyberbiz:store:disabled", name: "停用店", active: false },
+      ],
+    });
+
+    const created = await mutate(
+      "/api/reports/cyberbiz/manual/scopes",
+      "POST",
+      manager,
+      "manager-scope-management@ecotech.tw",
+      { name: "歷史據點" },
+    );
+    expect(created.status).toBe(201);
+    const createdBody = await created.json() as { scope: { id: string; name: string; active: boolean } };
+    expect(createdBody.scope).toMatchObject({ name: "歷史據點", active: true });
+    expect(createdBody.scope.id).toMatch(/^manual:store:/u);
+
+    const renamed = await mutate(
+      `/api/reports/cyberbiz/manual/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+      "PATCH",
+      manager,
+      "manager-scope-management@ecotech.tw",
+      { name: "歷史據點（北區）", active: false },
+    );
+    expect(renamed.status).toBe(200);
+    expect(await renamed.json()).toMatchObject({
+      scope: { id: createdBody.scope.id, name: "歷史據點（北區）", active: false },
+    });
+
+    const disabledOptions = await call(
+      "/api/reports/cyberbiz/manual/options",
+      manager,
+      "manager-scope-management@ecotech.tw",
+    );
+    expect((await disabledOptions.json() as { scopes: Array<{ id: string }> }).scopes)
+      .not.toContainEqual({ id: createdBody.scope.id });
+
+    const reenabled = await mutate(
+      `/api/reports/cyberbiz/manual/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+      "PATCH",
+      manager,
+      "manager-scope-management@ecotech.tw",
+      { active: true },
+    );
+    expect(reenabled.status).toBe(200);
+    expect(await reenabled.json()).toMatchObject({
+      scope: { id: createdBody.scope.id, name: "歷史據點（北區）", active: true },
+    });
+
+    const disabled = await mutate(
+      `/api/reports/cyberbiz/manual/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+      "DELETE",
+      manager,
+      "manager-scope-management@ecotech.tw",
+    );
+    expect(disabled.status).toBe(200);
+    expect(await disabled.json()).toMatchObject({
+      scope: { id: createdBody.scope.id, name: "歷史據點（北區）", active: false },
+    });
+  });
+
+  it("report management imports payout and sales snapshots with duplicate rows aggregated", async () => {
+    const manager = await seedUser("manager-report-import@ecotech.tw", "role-manager");
+
+    const payout = await mutate(
+      "/api/reports/cyberbiz/manual/import/payout",
+      "POST",
+      manager,
+      "manager-report-import@ecotech.tw",
+      {
+        scopeName: "匯入據點",
+        rows: [
+          { businessDate: "2026-08-01", payoutAmount: 1200 },
+          { businessDate: "2026-08-01", payoutAmount: 300 },
+          { businessDate: "2026-08-02", payoutAmount: 500 },
+        ],
+      },
+    );
+    expect(payout.status).toBe(201);
+    const payoutBody = await payout.json() as {
+      scopeId: string;
+      dayCount: number;
+      total: number;
+      coverageStart: string;
+      coverageEnd: string;
+    };
+    expect(payoutBody).toMatchObject({
+      dayCount: 2,
+      total: 2000,
+      coverageStart: "2026-08-01",
+      coverageEnd: "2026-08-02",
+    });
+
+    const payoutList = await call(
+      `/api/reports/cyberbiz/manual/payout?scopeId=${encodeURIComponent(payoutBody.scopeId)}&source=imported`,
+      manager,
+      "manager-report-import@ecotech.tw",
+    );
+    expect(await payoutList.json()).toMatchObject({
+      total: 2,
+      rows: [
+        { businessDate: "2026-08-02", payoutAmount: 500, source: "imported" },
+        { businessDate: "2026-08-01", payoutAmount: 1500, source: "imported" },
+      ],
+    });
+
+    const sales = await mutate(
+      "/api/reports/cyberbiz/manual/import/sales",
+      "POST",
+      manager,
+      "manager-report-import@ecotech.tw",
+      {
+        scopeId: payoutBody.scopeId,
+        scopeName: "匯入據點",
+        reportMonth: "2026-08",
+        rows: [
+          { sku: "sku-1", productName: "商品一", category: "分類", grossQuantity: 2, returnQuantity: 0, netQuantity: 2, salesAmount: 200 },
+          { sku: "SKU-1", productName: "商品一", category: "分類", grossQuantity: 1, returnQuantity: 1, netQuantity: 0, salesAmount: 50 },
+        ],
+      },
+    );
+    expect(sales.status).toBe(201);
+    expect(await sales.json()).toMatchObject({
+      reportMonth: "2026-08",
+      rowCount: 1,
+      totals: { grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 250 },
+    });
+
+    const salesList = await call(
+      `/api/reports/cyberbiz/manual/sales?scopeId=${encodeURIComponent(payoutBody.scopeId)}&source=imported`,
+      manager,
+      "manager-report-import@ecotech.tw",
+    );
+    expect(await salesList.json()).toMatchObject({
+      total: 1,
+      rows: [{ sku: "SKU-1", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 250 }],
+    });
+
+    expect((await mutate(
+      "/api/reports/cyberbiz/manual/import/payout",
+      "POST",
+      manager,
+      "manager-report-import@ecotech.tw",
+      { scopeName: "錯誤日期", rows: [{ businessDate: "2026-02-31", payoutAmount: 1 }] },
+    )).status).toBe(400);
+    expect((await mutate(
+      "/api/reports/cyberbiz/manual/import/payout",
+      "POST",
+      manager,
+      "manager-report-import@ecotech.tw",
+      { scopeId: "invalid-scope-id", scopeName: "錯誤 scope", rows: [{ businessDate: "2026-08-01", payoutAmount: 1 }] },
+    )).status).toBe(400);
+  });
+
+  it("deletes the effective imported record and removes it from report summaries", async () => {
+    const admin = await seedUser("admin-effective-delete@ecotech.tw", "role-admin");
+    const scopeId = "cyberbiz:store:active";
+    await insertReportPayoutDaily(db(), [{ scopeId, businessDate: "2026-08-03", payoutAmount: 2040 }]);
+    await insertReportSalesMonthly(db(), [{
+      scopeId,
+      reportMonth: "2026-08",
+      sku: "DELETE-ME",
+      productName: "待刪除商品",
+      grossQuantity: 1,
+      netQuantity: 1,
+      salesAmount: 100,
+    }]);
+
+    const payoutList = await call(
+      "/api/reports/cyberbiz/manual/payout?source=imported",
+      admin,
+      "admin-effective-delete@ecotech.tw",
+    );
+    const payoutRow = (await payoutList.json() as { rows: Array<{ id: string; scopeId: string; businessDate: string }> }).rows[0];
+    expect(payoutRow).toMatchObject({ scopeId, businessDate: "2026-08-03" });
+
+    const salesList = await call(
+      "/api/reports/cyberbiz/manual/sales?source=imported",
+      admin,
+      "admin-effective-delete@ecotech.tw",
+    );
+    const salesRow = (await salesList.json() as { rows: Array<{ id: string; scopeId: string; reportMonth: string; sku: string }> }).rows[0];
+    expect(salesRow).toMatchObject({ scopeId, reportMonth: "2026-08", sku: "DELETE-ME" });
+
+    expect((await mutate(
+      "/api/reports/cyberbiz/manual/payout/record",
+      "DELETE",
+      admin,
+      "admin-effective-delete@ecotech.tw",
+      { source: "imported", ...payoutRow },
+    )).status).toBe(200);
+    expect((await mutate(
+      "/api/reports/cyberbiz/manual/sales/record",
+      "DELETE",
+      admin,
+      "admin-effective-delete@ecotech.tw",
+      { source: "imported", ...salesRow },
+    )).status).toBe(200);
+
+    const summary = await call(
+      "/api/reports/cyberbiz/summary/payout/daily?scopeType=store&scopeId=cyberbiz%3Astore%3Aactive&startDate=2026-08-03&endDate=2026-08-03",
+      admin,
+      "admin-effective-delete@ecotech.tw",
+    );
+    expect(await summary.json()).toMatchObject({ status: "NO_DATA_FOR_RANGE", totals: { payoutAmount: 0 }, rows: [] });
+    expect((await (await call(
+      "/api/reports/cyberbiz/manual/payout?source=imported",
+      admin,
+      "admin-effective-delete@ecotech.tw",
+    )).json() as { total: number }).total).toBe(0);
+    expect((await (await call(
+      "/api/reports/cyberbiz/manual/sales?source=imported",
+      admin,
+      "admin-effective-delete@ecotech.tw",
+    )).json() as { total: number }).total).toBe(0);
+  });
 });

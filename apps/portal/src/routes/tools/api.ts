@@ -282,7 +282,6 @@ export function useSaveShopeeSalesSettings() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "shopee-sales"] }),
   });
 }
-
 /** 手動上傳出金：可選的既有據點。 */
 export function useManualPayoutScopes() {
   return useQuery({
