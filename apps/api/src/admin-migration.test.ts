@@ -42,6 +42,9 @@ const SKU_MAPPING_PERMISSION_MIGRATION = fileURLToPath(
 const ANALYTICS_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0066_analytics_permission.sql", import.meta.url),
 );
+const CYBERBIZ_REPORT_WRITE_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0067_cyberbiz_report_write_permission.sql", import.meta.url),
+);
 const MIGRATIONS_DIR = fileURLToPath(new URL("../../../packages/db/migrations/", import.meta.url));
 const MIGRATION_FILES = readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(".sql")).sort();
 
@@ -113,6 +116,9 @@ describe("bootstrap 管理員權限 migration", () => {
     const analyticsPermissionSql = readFileSync(ANALYTICS_PERMISSION_MIGRATION, "utf8");
     d1.sqlite.exec(analyticsPermissionSql);
     d1.sqlite.exec(analyticsPermissionSql);
+    const cyberbizReportWritePermissionSql = readFileSync(CYBERBIZ_REPORT_WRITE_PERMISSION_MIGRATION, "utf8");
+    d1.sqlite.exec(cyberbizReportWritePermissionSql);
+    d1.sqlite.exec(cyberbizReportWritePermissionSql);
 
     const permissions = await db.select().from(rolePermissions);
     expect(permissions).toHaveLength(ALL_PERMISSIONS.length);

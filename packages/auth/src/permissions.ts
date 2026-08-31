@@ -36,6 +36,7 @@ export const PERMISSIONS = {
   "tools:sku-mapping:read": "檢視通路 SKU 對應",
   "tools:sku-mapping:write": "修改通路 SKU 對應",
   "reports:cyberbiz:read": "檢視 CYBERBIZ 銷售與出金報表",
+  "reports:cyberbiz:write": "修改與刪除每日出金資料",
   "reports:analytics:read": "檢視營運統計",
 
   // 小香助理
@@ -73,7 +74,7 @@ export const SYSTEM_ROLES = {
       "tools:cyberbiz-sales:run",
       "tools:shopee-sales:run",
       "tools:sku-mapping:read", "tools:sku-mapping:write",
-      "reports:cyberbiz:read",
+      "reports:cyberbiz:read", "reports:cyberbiz:write",
     ],
   },
   staff: {
