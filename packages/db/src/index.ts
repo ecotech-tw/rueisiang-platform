@@ -118,6 +118,7 @@ export {
   findReportScope,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
+  latestReportSalesPeriods,
   listReportScopes,
   normalizeReportScopeName,
   parseReportRange,
@@ -132,6 +133,7 @@ export {
   type ReportRange,
   type ReportSalesQuery,
   type ReportSalesQueryResult,
+  type LatestReportSalesPeriods,
   type ReportScopeKind,
   type ReportScopeInput,
 } from "./report-data.js";

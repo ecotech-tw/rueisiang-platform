@@ -3,6 +3,12 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 export interface ReportScopeOption {
   id: string;
   name: string;
+  latestSalesPeriod: string | null;
+}
+
+export interface ReportScopesResponse {
+  latestSalesPeriod: string | null;
+  scopes: ReportScopeOption[];
 }
 
 export type AnalyticsGranularity = "day" | "month" | "year";
@@ -150,7 +156,7 @@ function queryString(query: AnalyticsQuery): string {
 export function useReportScopes() {
   return useQuery({
     queryKey: ["reports", "analytics", "scopes"],
-    queryFn: () => call<{ scopes: ReportScopeOption[] }>("/api/reports/cyberbiz/scopes"),
+    queryFn: () => call<ReportScopesResponse>("/api/reports/cyberbiz/scopes"),
     staleTime: 5 * 60 * 1000,
   });
 }

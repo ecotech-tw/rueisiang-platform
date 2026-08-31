@@ -14,6 +14,7 @@ import type { SalesSkuBreakdown, SalesTopSkuMetric } from "../api.js";
 interface TopSkuChartProps {
   rows: SalesSkuBreakdown[];
   metric: SalesTopSkuMetric;
+  loading: boolean;
   onMetricChange: (metric: SalesTopSkuMetric) => void;
   valueFormatter: (value: number) => string;
   quantityFormatter: (value: number) => string;
@@ -23,7 +24,7 @@ function formatPercent(value: number): string {
   return `${(value * 100).toLocaleString("zh-TW", { maximumFractionDigits: 1 })}%`;
 }
 
-export function TopSkuChart({ rows, metric, onMetricChange, valueFormatter, quantityFormatter }: TopSkuChartProps) {
+export function TopSkuChart({ rows, metric, loading, onMetricChange, valueFormatter, quantityFormatter }: TopSkuChartProps) {
   const data = rows.map((row) => ({
     ...row,
     label: row.isOther ? "其他" : `${row.productName} · ${row.sku}`,
@@ -42,7 +43,9 @@ export function TopSkuChart({ rows, metric, onMetricChange, valueFormatter, quan
       )}
       className="analytics-chart-panel analytics-sku-panel"
     >
-      {data.length ? (
+      {loading ? (
+        <div className="analytics-chart analytics-chart-pending" role="status">正在更新 Top 10 SKU 排序…</div>
+      ) : data.length ? (
         <div className="analytics-chart analytics-sku-chart" role="img" aria-label={`Top 10 SKU（依${metricLabel}）`}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
@@ -55,25 +58,27 @@ export function TopSkuChart({ rows, metric, onMetricChange, valueFormatter, quan
           </ResponsiveContainer>
         </div>
       ) : <p className="analytics-chart-empty">本期沒有 SKU 資料。</p>}
-      <details className="analytics-data-details">
-        <summary>查看 SKU 資料表</summary>
-        <div className="table-scroll">
-          <table className="data-table analytics-table">
-            <thead><tr><th>商品</th><th>SKU</th><th className="numeric">{metricLabel}</th><th className="numeric">售額</th><th className="numeric">佔比</th></tr></thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.sku}>
-                  <td data-label="商品" className="cell-strong">{row.productName}</td>
-                  <td data-label="SKU">{row.isOther ? "—" : row.sku}</td>
-                  <td data-label={metricLabel} className="numeric">{metricFormatter(row.value)}</td>
-                  <td data-label="售額" className="numeric">{valueFormatter(row.salesAmount)}</td>
-                  <td data-label="佔比" className="numeric">{formatPercent(row.share)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </details>
+      {loading ? null : (
+        <details className="analytics-data-details">
+          <summary>查看 SKU 資料表</summary>
+          <div className="table-scroll">
+            <table className="data-table analytics-table">
+              <thead><tr><th>商品</th><th>SKU</th><th className="numeric">{metricLabel}</th><th className="numeric">售額</th><th className="numeric">佔比</th></tr></thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.sku}>
+                    <td data-label="商品" className="cell-strong">{row.productName}</td>
+                    <td data-label="SKU">{row.isOther ? "—" : row.sku}</td>
+                    <td data-label={metricLabel} className="numeric">{metricFormatter(row.value)}</td>
+                    <td data-label="售額" className="numeric">{valueFormatter(row.salesAmount)}</td>
+                    <td data-label="佔比" className="numeric">{formatPercent(row.share)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
     </Panel>
   );
 }

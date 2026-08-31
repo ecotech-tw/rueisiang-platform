@@ -3286,6 +3286,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .analytics-chart-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .analytics-chart-actions .filter-chip { min-height: 30px; padding-inline: 10px; font-size: 11px; }
 .analytics-chart-empty { display: grid; place-items: center; height: 260px; margin: 0; color: var(--color-muted); font-size: 13px; }
+.analytics-chart-pending { display: grid; place-items: center; height: 360px; margin: 0; color: var(--color-muted); font-size: 13px; }
+.analytics-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .analytics-table-selected { background: --alpha(var(--color-brand) / 6%); }
 .analytics-data-details { margin-top: 8px; border-top: 1px solid var(--color-soft-line); }
 .analytics-data-details > summary { padding: 11px 2px 3px; color: var(--color-muted); cursor: pointer; font-size: 12px; font-weight: 700; list-style-position: inside; }

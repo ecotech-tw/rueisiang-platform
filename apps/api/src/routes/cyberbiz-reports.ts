@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { listReportScopes, type ReportGroupBy, type ReportScopeKind } from "@rueisiang/db";
+import { latestReportSalesPeriods, listReportScopes, type ReportGroupBy, type ReportScopeKind } from "@rueisiang/db";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { createCyberbizReportService, CyberbizReportQueryError } from "../cyberbiz-reports.js";
@@ -56,7 +56,15 @@ export const cyberbizReports = new Hono<AppEnv>()
   .use("*", requireAuth)
   .get("/scopes", requirePermission("reports:analytics:read"), async (c) => {
     const scopes = await listReportScopes(c.get("db"), "store");
-    return c.json({ scopes: scopes.map((scope) => ({ id: scope.id, name: scope.name })) });
+    const latest = await latestReportSalesPeriods(c.get("db"), scopes.map((scope) => scope.id));
+    return c.json({
+      latestSalesPeriod: latest.latestPeriod,
+      scopes: scopes.map((scope) => ({
+        id: scope.id,
+        name: scope.name,
+        latestSalesPeriod: latest.byScope[scope.id] ?? null,
+      })),
+    });
   })
   .get("/summary/payout", requirePermission("reports:analytics:read"), async (c) => {
     try {

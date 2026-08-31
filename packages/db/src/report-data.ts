@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
   reportPayoutDaily,
@@ -123,6 +123,35 @@ export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind
   return db.select().from(reportScopes)
     .where(and(eq(reportScopes.active, 1), scopeKind ? eq(reportScopes.scopeKind, scopeKind) : undefined))
     .orderBy(asc(reportScopes.name));
+}
+
+export interface LatestReportSalesPeriods {
+  latestPeriod: string | null;
+  byScope: Record<string, string>;
+}
+
+/** 回傳啟用中 scope 的最新商品銷售月份，供統計首頁選擇有資料的預設期間。 */
+export async function latestReportSalesPeriods(
+  db: Database,
+  scopeIds: readonly string[],
+): Promise<LatestReportSalesPeriods> {
+  if (!scopeIds.length) return { latestPeriod: null, byScope: {} };
+
+  const rows = await db.select({
+    scopeId: reportSalesMonthly.scopeId,
+    reportMonth: sql<string | null>`max(${reportSalesMonthly.reportMonth})`,
+  }).from(reportSalesMonthly)
+    .where(inArray(reportSalesMonthly.scopeId, [...scopeIds]))
+    .groupBy(reportSalesMonthly.scopeId);
+
+  const byScope: Record<string, string> = {};
+  let latestPeriod: string | null = null;
+  for (const row of rows) {
+    if (!row.reportMonth) continue;
+    byScope[row.scopeId] = row.reportMonth;
+    if (!latestPeriod || row.reportMonth > latestPeriod) latestPeriod = row.reportMonth;
+  }
+  return { latestPeriod, byScope };
 }
 
 export async function upsertReportScope(db: Database, input: ReportScopeInput): Promise<ReportScope> {

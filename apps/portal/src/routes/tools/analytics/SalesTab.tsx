@@ -48,6 +48,21 @@ function growthHint(label: string, value: number | null, comparison: { total: nu
   return `與${label}相比：${formatPercent(value)}`;
 }
 
+type SalesImporterKey = "cyberbiz" | "shopee";
+
+const SALES_IMPORTERS: Record<SalesImporterKey, { href: string; label: string; icon: "report" | "shoppingBag" }> = {
+  cyberbiz: { href: "/tools/cyberbiz-sales", label: "前往執行商品銷售報表", icon: "report" },
+  shopee: { href: "/tools/shopee-sales", label: "前往執行蝦皮銷售報表", icon: "shoppingBag" },
+};
+
+function importerKeys(query: AnalyticsQuery): SalesImporterKey[] {
+  const scopeId = query.scopeId?.toLowerCase() ?? "";
+  if (!scopeId) return ["cyberbiz", "shopee"];
+  if (scopeId.startsWith("shopee:")) return ["shopee"];
+  if (scopeId.startsWith("cyberbiz:") || scopeId.startsWith("store-")) return ["cyberbiz"];
+  return ["cyberbiz", "shopee"];
+}
+
 export function SalesTab({ query, scopeLabel, enabled }: SalesTabProps) {
   const [topSkuBy, setTopSkuBy] = useState<SalesTopSkuMetric>("salesAmount");
   const result = useSalesSummary(query, topSkuBy, enabled);
@@ -79,10 +94,17 @@ export function SalesTab({ query, scopeLabel, enabled }: SalesTabProps) {
         <span className="analytics-empty-icon"><Icon name="analytics" /></span>
         <h2>{scopeLabel}在這段期間沒有商品銷售資料</h2>
         <p>{summary.message ?? "這段期間沒有已匯入的商品銷售資料。"}</p>
-        <a className="primary-button with-icon" href="/tools/cyberbiz-sales">
-          <Icon name="report" />
-          前往執行商品銷售報表
-        </a>
+        <div className="analytics-empty-actions">
+          {importerKeys(query).map((key) => {
+            const importer = SALES_IMPORTERS[key];
+            return (
+              <a className="primary-button with-icon" href={importer.href} key={key}>
+                <Icon name={importer.icon} />
+                {importer.label}
+              </a>
+            );
+          })}
+        </div>
       </Panel>
     );
   }
@@ -151,6 +173,7 @@ export function SalesTab({ query, scopeLabel, enabled }: SalesTabProps) {
         <TopSkuChart
           rows={summary.byTopSku}
           metric={topSkuBy}
+          loading={summary.topSkuBy !== topSkuBy}
           onMetricChange={setTopSkuBy}
           valueFormatter={formatCurrency}
           quantityFormatter={formatQuantity}
