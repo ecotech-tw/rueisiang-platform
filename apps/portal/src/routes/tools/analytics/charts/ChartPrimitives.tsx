@@ -13,9 +13,10 @@ export interface ChartTooltipProps {
   label?: unknown;
   payload?: readonly ChartTooltipEntry[];
   valueFormatter: (value: number) => string;
+  valueMeta?: (entry: ChartTooltipEntry) => ReactNode;
 }
 
-export function AnalyticsTooltip({ active, label, payload, valueFormatter }: ChartTooltipProps) {
+export function AnalyticsTooltip({ active, label, payload, valueFormatter, valueMeta }: ChartTooltipProps) {
   if (!active || !payload?.length) return null;
   const entries = payload.filter((entry) => entry.value !== undefined && entry.value !== null);
   if (!entries.length) return null;
@@ -28,7 +29,10 @@ export function AnalyticsTooltip({ active, label, payload, valueFormatter }: Cha
             <i style={{ background: entry.color ?? "var(--color-brand)" }} />
             {entry.name ?? "數值"}
           </span>
-          <b>{valueFormatter(Number(entry.value))}</b>
+          <b>
+            {valueFormatter(Number(entry.value))}
+            {valueMeta?.(entry) ? <span className="analytics-tooltip-meta">{valueMeta(entry)}</span> : null}
+          </b>
         </div>
       ))}
     </div>

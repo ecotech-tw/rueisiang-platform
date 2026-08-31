@@ -83,7 +83,17 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
               >
                 {data.map((row, index) => <Cell key={row.category} fill={`var(--color-tone-${TONES[index % TONES.length]})`} />)}
               </Pie>
-              <Tooltip content={<AnalyticsTooltip valueFormatter={quantityFormatter} />} />
+              <Tooltip
+                content={(
+                  <AnalyticsTooltip
+                    valueFormatter={quantityFormatter}
+                    valueMeta={(entry) => {
+                      const row = breakdown.find((item) => item.category === entry.name);
+                      return row ? `（佔比 ${formatPercent(row.quantityShare)}）` : null;
+                    }}
+                  />
+                )}
+              />
               <Legend content={<CategoryLegend breakdown={breakdown} />} />
             </PieChart>
           </ResponsiveContainer>

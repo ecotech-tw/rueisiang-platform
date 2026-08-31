@@ -3333,7 +3333,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .analytics-tooltip-row > span { display: inline-flex; align-items: center; gap: 6px; color: var(--color-muted); }
 .analytics-tooltip-row i,
 .analytics-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
-.analytics-tooltip-row b { font-variant-numeric: tabular-nums; }
+.analytics-tooltip-row b { display: inline-flex; align-items: baseline; gap: 6px; font-variant-numeric: tabular-nums; }
+.analytics-tooltip-meta { color: var(--color-brand-dark); font-size: 11px; font-weight: 700; }
 .analytics-legend { display: flex; justify-content: center; gap: 16px; padding-top: 5px; color: var(--color-muted); font-size: 11px; }
 .analytics-legend span { display: inline-flex; align-items: center; gap: 6px; }
 
