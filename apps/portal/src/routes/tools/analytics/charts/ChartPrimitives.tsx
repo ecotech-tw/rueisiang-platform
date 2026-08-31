@@ -41,14 +41,19 @@ export interface ChartLegendEntry {
   dataKey?: string;
 }
 
-export function AnalyticsLegend({ payload }: { payload?: readonly ChartLegendEntry[] }): ReactNode {
+export interface AnalyticsLegendProps {
+  payload?: readonly ChartLegendEntry[];
+  formatValue?: (value: string, entry: ChartLegendEntry) => ReactNode;
+}
+
+export function AnalyticsLegend({ payload, formatValue }: AnalyticsLegendProps): ReactNode {
   if (!payload?.length) return null;
   return (
     <div className="analytics-legend">
       {payload.map((entry, index) => (
         <span key={`${entry.dataKey ?? entry.value ?? "series"}-${entry.value ?? ""}-${index}`}>
           <i style={{ background: entry.color ?? "var(--color-brand)" }} />
-          {entry.value ?? entry.dataKey}
+          {formatValue?.(entry.value ?? entry.dataKey ?? "", entry) ?? entry.value ?? entry.dataKey}
         </span>
       ))}
     </div>

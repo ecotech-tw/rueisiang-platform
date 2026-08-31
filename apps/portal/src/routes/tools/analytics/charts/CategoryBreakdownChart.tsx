@@ -7,7 +7,7 @@ import {
   Tooltip,
 } from "recharts";
 import { Panel } from "../../../../ui/index.js";
-import { AnalyticsDataDialog, AnalyticsLegend, AnalyticsTooltip } from "./ChartPrimitives.js";
+import { AnalyticsDataDialog, AnalyticsLegend, AnalyticsTooltip, type ChartLegendEntry } from "./ChartPrimitives.js";
 import type { SalesCategoryBreakdown } from "../api.js";
 
 const TONES = ["rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand"] as const;
@@ -20,6 +20,24 @@ interface CategoryBreakdownChartProps {
 
 function formatPercent(value: number): string {
   return `${(value * 100).toLocaleString("zh-TW", { maximumFractionDigits: 1 })}%`;
+}
+
+function CategoryLegend({
+  payload,
+  breakdown,
+}: {
+  payload?: readonly ChartLegendEntry[];
+  breakdown: SalesCategoryBreakdown[];
+}) {
+  return (
+    <AnalyticsLegend
+      payload={payload}
+      formatValue={(value) => {
+        const row = breakdown.find((item) => item.category === value);
+        return <>{value} <b>{formatPercent(row?.quantityShare ?? 0)}</b></>;
+      }}
+    />
+  );
 }
 
 export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityFormatter }: CategoryBreakdownChartProps) {
@@ -66,7 +84,7 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
                 {data.map((row, index) => <Cell key={row.category} fill={`var(--color-tone-${TONES[index % TONES.length]})`} />)}
               </Pie>
               <Tooltip content={<AnalyticsTooltip valueFormatter={quantityFormatter} />} />
-              <Legend content={<AnalyticsLegend />} />
+              <Legend content={<CategoryLegend breakdown={breakdown} />} />
             </PieChart>
           </ResponsiveContainer>
         </div>
