@@ -64,10 +64,15 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("蝦皮銷售報表", () => {
   it("有執行權限的人可以讀到預設區間與空設定", async () => {
-    const id = await seedUser("manager@ecotech.tw", "role-manager");
-    const response = await as(id, "manager@ecotech.tw", "/api/tools/shopee-sales/state");
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ start: "2026-07-01", end: "2026-07-31", settings: { driveFolderUrl: "" }, configured: true, latestRequestId: null });
+    vi.useFakeTimers({ now: new Date("2026-08-15T12:00:00.000Z") });
+    try {
+      const id = await seedUser("manager@ecotech.tw", "role-manager");
+      const response = await as(id, "manager@ecotech.tw", "/api/tools/shopee-sales/state");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ start: "2026-07-01", end: "2026-07-31", settings: { driveFolderUrl: "" }, configured: true, latestRequestId: null });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("沒有 Drive 連結時不會觸發 GitHub", async () => {
