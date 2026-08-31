@@ -131,7 +131,8 @@ export async function readFirstSheet(file: File): Promise<Sheet> {
   const cells = new Map<string, CellValue>();
   const columns = new Set<string>();
   let maxRow = 0;
-  for (const match of xml.matchAll(/<c r="([A-Z]+)(\d+)"([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+  // Keep the attribute group lazy so a self-closing blank cell does not swallow the next cell.
+  for (const match of xml.matchAll(/<c r="([A-Z]+)(\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
     const [, column, rowText, attrs, inner] = match;
     if (!column || !rowText) continue;
     const row = Number(rowText);

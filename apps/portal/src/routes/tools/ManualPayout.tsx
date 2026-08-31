@@ -22,11 +22,11 @@ const DATE_HINTS = ["關帳時間", "關帳日期", "日期", "營業日"];
 /*
  * 金額欄的候選，依偏好排序。
  *
- * 不同時期整理出來的檔案不一樣：有的要用「收入金額」（每一列都有值），有的要用
- * 「公司POS」（每次關帳只出現一次，而且「代班外帳」那種列只有它有值，用收入金額
- * 會整天漏掉）。偵測只給建議，最後由使用者對著各欄合計挑。
+ * 不同時期整理出來的檔案不一樣：有的只有「收入金額」（每一列都有值），有的同時有
+ * 已整理好的「公司POS」（每次關帳只出現一次，而且「代班外帳」那種列只有它有值）。
+ * 有「公司POS」時優先用它，沒有時才退回「收入金額」；最後仍由使用者對著各欄合計確認。
  */
-const AMOUNT_HINTS = ["收入金額", "公司POS", "百貨POS", "營業額", "銷售金額", "金額"];
+const AMOUNT_HINTS = ["公司POS", "收入金額", "百貨POS", "營業額", "銷售金額", "金額"];
 /** 表格結尾的合計列。它沒有關帳時間，不排除的話會被併進最後一天。 */
 const TOTAL_HINTS = ["總計", "合計", "小計", "Total"];
 
@@ -52,11 +52,17 @@ function detect(sheet: Sheet): Detected | null {
       .filter((entry) => entry.label);
     if (headers.length < 2) continue;
     const dateColumn = headers.find((entry) => DATE_HINTS.some((hint) => entry.label.includes(hint)))?.column;
-    // 「收入金額」要比「入庫金額」先中：前者是每一列的營業額，與自動匯入的定義一致。
+    // 有「公司POS」時優先用已整理好的每日出金欄；沒有時才使用每列的「收入金額」。
+    if (!dateColumn) continue;
     const amountColumn = AMOUNT_HINTS
       .flatMap((hint) => headers.filter((entry) => entry.label.includes(hint)))
-      .find((entry) => entry.column !== dateColumn)?.column;
-    if (dateColumn && amountColumn) return { headerRow, dateColumn, amountColumn, headers };
+      .find((entry) => {
+        if (entry.column === dateColumn) return false;
+        // 有些「公司POS」是沒有快取值的陣列公式，解析不到資料時要繼續回退到其他欄位。
+        return !entry.label.includes("公司POS")
+          || summarise(sheet, headerRow, dateColumn, entry.column).days.length > 0;
+      })?.column;
+    if (amountColumn) return { headerRow, dateColumn, amountColumn, headers };
   }
   return null;
 }
@@ -83,13 +89,13 @@ function ManualPayoutPreviewDialog({
   onClose,
   onSave,
 }: {
-  day: DayRow;
+  day: DayRow | null;
   existingDates: ReadonlySet<string>;
   onClose: () => void;
   onSave: (day: DayRow) => void;
 }) {
-  const [businessDate, setBusinessDate] = useState(day.businessDate);
-  const [amount, setAmount] = useState(String(day.payoutAmount));
+  const [businessDate, setBusinessDate] = useState(day?.businessDate ?? "");
+  const [amount, setAmount] = useState(day ? String(day.payoutAmount) : "");
   const payoutAmount = Number(amount);
   const dateError = businessDate.trim() === ""
     ? "請輸入關帳日期。"
@@ -107,15 +113,17 @@ function ManualPayoutPreviewDialog({
 
   return (
     <Dialog
-      title={`編輯 ${day.businessDate} 預覽資料`}
-      titleMeta="只會修改這次匯入的預覽，按下匯入後才會送出。"
+      title={day ? `編輯 ${day.businessDate} 預覽資料` : "新增預覽日期"}
+      titleMeta={day
+        ? "只會修改這次匯入的預覽，按下匯入後才會送出。"
+        : "新增一筆這次匯入的預覽資料，按下匯入後才會送出。"}
       className="confirm-card"
       onClose={onClose}
       formProps={{
         onSubmit: (event) => {
           event.preventDefault();
           if (!valid) return;
-          onSave({ ...day, businessDate, payoutAmount });
+          onSave({ businessDate, payoutAmount, rowCount: day?.rowCount ?? 0 });
         },
       }}
       actions={
@@ -124,7 +132,7 @@ function ManualPayoutPreviewDialog({
             取消
           </Button>
           <Button type="submit" disabled={!valid}>
-            套用到預覽
+            {day ? "套用到預覽" : "加入預覽"}
           </Button>
         </>
       }
@@ -240,6 +248,7 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
   const [previewDays, setPreviewDays] = useState<DayRow[]>([]);
   const [editingDay, setEditingDay] = useState<DayRow | null>(null);
   const [deletingDay, setDeletingDay] = useState<DayRow | null>(null);
+  const [addingDay, setAddingDay] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scopes = scopesQuery.data?.scopes ?? [];
@@ -250,6 +259,20 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
       label: String(sheet.cells.get(`${column}${headerRow}`) ?? "").trim(),
     }));
   }, [sheet, headerRow]);
+
+  const preview = useMemo(() => {
+    if (!sheet || !dateColumn || !amountColumn) return null;
+    return summarise(sheet, headerRow, dateColumn, amountColumn);
+  }, [sheet, headerRow, dateColumn, amountColumn]);
+
+  useEffect(() => {
+    setPreviewDays(preview?.days ?? []);
+    setEditingDay(null);
+    setDeletingDay(null);
+    setAddingDay(false);
+  }, [preview]);
+
+  const previewTotal = previewDays.reduce((sum, day) => sum + day.payoutAmount, 0);
 
   /*
    * 每個欄位的合計。
@@ -269,26 +292,15 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
   }, [sheet, headerRow, dateColumn, headerLabels]);
 
   const amountOptions = useMemo(() => headerLabels.map((entry) => {
-    const total = columnTotals.get(entry.column);
+    const total = entry.column === amountColumn && preview
+      ? previewTotal
+      : columnTotals.get(entry.column);
     const name = entry.label ? `${entry.column}：${entry.label}` : entry.column;
     return {
       label: total === undefined ? name : `${name}（合計 ${total.toLocaleString("zh-TW")}）`,
       value: entry.column,
     };
-  }), [headerLabels, columnTotals]);
-
-  const preview = useMemo(() => {
-    if (!sheet || !dateColumn || !amountColumn) return null;
-    return summarise(sheet, headerRow, dateColumn, amountColumn);
-  }, [sheet, headerRow, dateColumn, amountColumn]);
-
-  useEffect(() => {
-    setPreviewDays(preview?.days ?? []);
-    setEditingDay(null);
-    setDeletingDay(null);
-  }, [preview]);
-
-  const previewTotal = previewDays.reduce((sum, day) => sum + day.payoutAmount, 0);
+  }), [headerLabels, columnTotals, amountColumn, preview, previewTotal]);
 
   const scopeName = existingScopeId
     ? scopes.find((scope) => scope.id === existingScopeId)?.name ?? ""
@@ -301,6 +313,7 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
     setPreviewDays([]);
     setEditingDay(null);
     setDeletingDay(null);
+    setAddingDay(false);
     setFileName(file.name);
     try {
       const parsed = await readFirstSheet(file);
@@ -313,7 +326,7 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
       } else {
         setDateColumn("");
         setAmountColumn("");
-        setParseError("認不出關帳時間與收入金額的欄位，請自己指定。");
+        setParseError("認不出關帳時間與金額欄位，請自己指定。");
       }
     } catch (error) {
       setParseError(error instanceof Error ? error.message : "讀不開這個檔案。");
@@ -337,6 +350,12 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
         },
       },
     );
+  }
+
+  function addPreviewDay(added: DayRow) {
+    setPreviewDays((current) => sortPreviewDays([...current, added]));
+    setAddingDay(false);
+    toast.show(`已新增 ${added.businessDate} 預覽資料`);
   }
 
   function savePreviewDay(updated: DayRow) {
@@ -439,7 +458,17 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
 
       {preview ? (
         <section className="manual-payout-step">
-          <h3>4. 預覽</h3>
+          <div className="manual-payout-preview-heading">
+            <h3>4. 預覽</h3>
+            <Button
+              variant="secondary"
+              icon="plus"
+              disabled={upload.isPending}
+              onClick={() => setAddingDay(true)}
+            >
+              新增日期
+            </Button>
+          </div>
           <p className="cell-sub">{previewDays.length
             ? `${previewDays[0]?.businessDate} ~ ${previewDays[previewDays.length - 1]?.businessDate}，共 ${previewDays.length} 天，合計 ${previewTotal.toLocaleString("zh-TW")}`
             : preview.days.length
@@ -464,7 +493,7 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
                       <tr key={day.businessDate}>
                         <td data-label="關帳日期">{day.businessDate}</td>
                         <td data-label="金額" className="numeric">{day.payoutAmount.toLocaleString("zh-TW")}</td>
-                        <td data-label="來源列數" className="numeric cell-sub">{day.rowCount}</td>
+                        <td data-label="來源列數" className="numeric cell-sub">{day.rowCount || "手動"}</td>
                         <td data-label="操作">
                           <div className="row-actions">
                             <Button
@@ -505,8 +534,18 @@ export function ManualPayoutPanel({ canWrite }: { canWrite: boolean }) {
       ) : null}
       </div>
       </details>
+      {addingDay ? (
+        <ManualPayoutPreviewDialog
+          key="new-preview-day"
+          day={null}
+          existingDates={new Set(previewDays.map((day) => day.businessDate))}
+          onClose={() => setAddingDay(false)}
+          onSave={addPreviewDay}
+        />
+      ) : null}
       {editingDay ? (
         <ManualPayoutPreviewDialog
+          key={editingDay.businessDate}
           day={editingDay}
           existingDates={new Set(previewDays
             .filter((day) => day.businessDate !== editingDay.businessDate)

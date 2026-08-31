@@ -3468,6 +3468,13 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .manual-payout-step { display: grid; gap: 10px; }
 .manual-payout-step > h3 { margin: 0; font-size: 15px; font-weight: 500; }
+.manual-payout-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.manual-payout-preview-heading h3 { margin: 0; }
 .manual-payout-step > p { margin: 0; }
 /* 標籤要切齊頂端，否則有 hint 的那一欄會把整排推歪。 */
 .manual-payout-step .admin-form { align-items: start; }
