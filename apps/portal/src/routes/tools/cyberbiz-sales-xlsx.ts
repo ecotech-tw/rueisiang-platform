@@ -72,7 +72,26 @@ function readDateRange(sheet: Sheet): { start: string; end: string } {
   if (!start || !end) {
     throw new Error(`找不到商品銷售總表的日期區間：${header || "空白"}`);
   }
-  if (start > end) throw new Error("商品銷售總表日期起日不可晚於迄日。");
+  /*
+   * 只收單一完整月份，別放寬。
+   *
+   * reportMonth 取自 start 的年月，而寫入是 insertReportSalesMonthly 的「先刪掉該據點
+   * 該月份全部、再寫入」：半個月的檔案會把該月剩下的日子清光，跨月的檔案會把起月整個
+   * 清掉、還把迄月的數字算進起月。兩種都不會有任何錯誤訊息。
+   *
+   * 這段檢查曾在解合併衝突時被整段刪掉（710f42f），對應的測試就在
+   * cyberbiz-sales-xlsx.test.ts。
+   */
+  if (start > end || start.slice(0, 7) !== end.slice(0, 7)) {
+    throw new Error("商品銷售總表不能跨月份，請上傳單一完整月份的檔案。");
+  }
+  const month = start.slice(0, 7);
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year ?? 0, monthNumber ?? 0, 0)).getUTCDate();
+  const expectedEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
+  if (start !== `${month}-01` || end !== expectedEnd) {
+    throw new Error("手動匯入商品銷售必須使用完整月份的檔案（從 1 號到月底）。");
+  }
   return { start, end };
 }
 
