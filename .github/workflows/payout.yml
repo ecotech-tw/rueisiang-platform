@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       store:
-        description: 要執行的通路（店名需與工具的 config.json 一致）
+        description: 要執行的通路（全部、單一店名，或由平台傳入 JSON 店名陣列）
         type: string
         default: 全部
       month:
@@ -117,7 +117,18 @@ jobs:
             args+=(--month "$MONTH")
           fi
           if [ "$STORE" != "全部" ]; then
-            args+=(--store "$STORE")
+            if [[ "$STORE" == \[* ]]; then
+              store_list="$(node -e 'const stores = JSON.parse(process.argv[1]); if (!Array.isArray(stores) || stores.length === 0 || stores.some((store) => typeof store !== "string" || !store.trim())) process.exit(1); process.stdout.write(stores.join("\n"));' "$STORE")" || {
+                echo "::error::店別輸入不是有效的 JSON 清單"
+                exit 1
+              }
+              while IFS= read -r store; do
+                [ -n "$store" ] || continue
+                args+=(--store "$store")
+              done <<< "$store_list"
+            else
+              args+=(--store "$STORE")
+            fi
           fi
           if [ "$SKIP_UPLOAD" = "true" ]; then
             args+=(--skip-upload)

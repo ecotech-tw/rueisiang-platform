@@ -463,6 +463,13 @@
       "when": 1788024724607,
       "tag": "0065_sku_mapping_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "6",
+      "when": 1788145775660,
+      "tag": "0066_lovely_madelyne_pryor",
+      "breakpoints": true
     }
   ]
 }

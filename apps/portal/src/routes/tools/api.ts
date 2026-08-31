@@ -47,6 +47,7 @@ export interface PayoutStore {
   name: string;
   driveFolderUrl: string;
   driveFolderName: string;
+  enabled: boolean;
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {

@@ -1,6 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, listCyberbizReportRuns, listPayoutStores, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
-import { userRoles, users } from "@rueisiang/db/schema";
+import { payoutStores, userRoles, users } from "@rueisiang/db/schema";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -105,6 +106,36 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     expect(calls[0]?.body).toMatchObject({ inputs: { store: store.name, start: "2026-07-14", end: "2026-07-18" } });
     const [run] = await listCyberbizReportRuns(db(), "sales");
     expect(run).toMatchObject({ periodKind: "custom", d1ImportEligible: 0 });
+  });
+
+  it("多家但不是全部時送出店名 JSON 陣列", async () => {
+    const calls = stubGithub();
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+    const names = (await listPayoutStores(db())).slice(0, 2).map((store) => store.name);
+
+    const response = await as(id, "manager@ecotech.tw", "/api/tools/cyberbiz-sales/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: names, ...RANGE }),
+    });
+
+    expect(response.status).toBe(202);
+    expect((calls[0]!.body as { inputs: { store: string } }).inputs.store).toBe(JSON.stringify(names));
+  });
+
+  it("關閉的店別不會出現在商品銷售執行頁，也不能被 API 繞過", async () => {
+    const [hidden] = await listPayoutStores(db());
+    await db().update(payoutStores).set({ enabled: false }).where(eq(payoutStores.id, hidden!.id));
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+
+    const state = await as(id, "manager@ecotech.tw", "/api/tools/cyberbiz-sales/state");
+    const stateBody = (await state.json()) as { stores: { name: string }[] };
+    expect(stateBody.stores.some((store) => store.name === hidden!.name)).toBe(false);
+
+    const response = await as(id, "manager@ecotech.tw", "/api/tools/cyberbiz-sales/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: [hidden!.name], ...RANGE }),
+    });
+    expect(response.status).toBe(400);
   });
 
   it("沒有商品銷售執行權限的人不能看到狀態或觸發 workflow", async () => {

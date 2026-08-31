@@ -1,0 +1,1 @@
+ALTER TABLE `payout_stores` ADD `enabled` integer DEFAULT true NOT NULL;

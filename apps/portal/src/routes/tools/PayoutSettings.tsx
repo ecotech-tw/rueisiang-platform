@@ -63,6 +63,7 @@ export function PayoutSettings() {
           <>
           這裡決定出金表與 CYBERBIZ 商品銷售報表執行頁看得到哪幾家店，以及檔案要上傳到哪個 Drive 資料夾。
           <b>店名必須與 CYBERBIZ 後台的 POS 商店完全一致</b>，driver 靠它找店。
+          關閉「顯示於執行頁」後，該店會同時從兩個報表執行頁隱藏；切換後請按儲存設定。
           儲存時會一併 commit 回帳務 repo 的 <code>stores.json</code>。
           </>
         }
@@ -81,7 +82,7 @@ export function PayoutSettings() {
           <Button
             variant="secondary"
             onClick={() =>
-              setDrafts((current) => [...current, { name: "", driveFolderUrl: "", driveFolderName: "" }])
+              setDrafts((current) => [...current, { name: "", driveFolderUrl: "", driveFolderName: "", enabled: true }])
             }
           >
             ＋ 新增一家
@@ -106,6 +107,7 @@ export function PayoutSettings() {
                 <th>店名（與後台一致）</th>
                 <th>Drive 資料夾連結</th>
                 <th>資料夾顯示名稱</th>
+                <th>顯示於執行頁</th>
                 <th />
               </tr>
             </thead>
@@ -136,6 +138,18 @@ export function PayoutSettings() {
                       value={store.driveFolderName}
                       onChange={(event) => update(index, { driveFolderName: event.target.value })}
                     />
+                  </td>
+                  <td data-label="顯示於執行頁">
+                    <label className="report-store-toggle">
+                      <input
+                        className="table-checkbox"
+                        type="checkbox"
+                        checked={store.enabled}
+                        onChange={(event) => update(index, { enabled: event.target.checked })}
+                        aria-label={`${store.name || `第 ${index + 1} 家店`}顯示於出金表與商品銷售報表執行頁`}
+                      />
+                      <span>{store.enabled ? "顯示" : "隱藏"}</span>
+                    </label>
                   </td>
                   <td>
                     <div className="row-actions">

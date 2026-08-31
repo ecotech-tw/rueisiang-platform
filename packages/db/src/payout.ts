@@ -14,6 +14,7 @@ export interface PayoutStoreInput {
   name: string;
   driveFolderUrl: string;
   driveFolderName: string;
+  enabled: boolean;
 }
 
 /**
@@ -24,19 +25,24 @@ export interface PayoutStoreInput {
  * 寫入，之後就以資料庫為準：這是起點，不是每次都覆蓋回去的來源。
  */
 export const DEFAULT_PAYOUT_STORES: PayoutStoreInput[] = [
-  { name: "誠品西門店3F", driveFolderUrl: "https://drive.google.com/drive/folders/1WErhqB6jsTc2Gle4OXu7eoK2DRIoxrFG", driveFolderName: "誠品西門" },
-  { name: "宏匯廣場1F", driveFolderUrl: "https://drive.google.com/drive/folders/1o8r9R9EFSjVE1yYAVgTsv4luUFRaJ3Ao", driveFolderName: "宏匯" },
-  { name: "夢時代-7F", driveFolderUrl: "https://drive.google.com/drive/folders/1Hagb84o2O5OeCrrLfVke8YUStUtT2rMO", driveFolderName: "夢時代" },
-  { name: "台南新光西門", driveFolderUrl: "https://drive.google.com/drive/folders/14V5miPEkfB_ASpMZZKr4s0jlbyIX0h8O", driveFolderName: "台南新光" },
-  { name: "東山服務區", driveFolderUrl: "https://drive.google.com/drive/folders/11ofcZvX4nsBd6zuhy7ZsNAuRyDap9Z1Z", driveFolderName: "東山服務區" },
-  { name: "新營南服務區", driveFolderUrl: "https://drive.google.com/drive/folders/1AtX0v5xYVvVk2mk0t0ZnEYiqvm1o4uNZ", driveFolderName: "新營南服務區" },
-  { name: "仁德南服務區", driveFolderUrl: "https://drive.google.com/drive/folders/1FGdA9IQgq0kikVVfF3nOgedeoYDWAefu", driveFolderName: "仁德服務區" },
-  { name: "仁德北服務區", driveFolderUrl: "https://drive.google.com/drive/folders/1FGdA9IQgq0kikVVfF3nOgedeoYDWAefu", driveFolderName: "仁德服務區" },
-  { name: "品皇觀光工廠", driveFolderUrl: "https://drive.google.com/drive/folders/1238ahZoJjo_w481pJZ-2EyRfJ59bIESZ", driveFolderName: "品皇觀光工廠" },
+  { name: "誠品西門店3F", driveFolderUrl: "https://drive.google.com/drive/folders/1WErhqB6jsTc2Gle4OXu7eoK2DRIoxrFG", driveFolderName: "誠品西門", enabled: true },
+  { name: "宏匯廣場1F", driveFolderUrl: "https://drive.google.com/drive/folders/1o8r9R9EFSjVE1yYAVgTsv4luUFRaJ3Ao", driveFolderName: "宏匯", enabled: true },
+  { name: "夢時代-7F", driveFolderUrl: "https://drive.google.com/drive/folders/1Hagb84o2O5OeCrrLfVke8YUStUtT2rMO", driveFolderName: "夢時代", enabled: true },
+  { name: "台南新光西門", driveFolderUrl: "https://drive.google.com/drive/folders/14V5miPEkfB_ASpMZZKr4s0jlbyIX0h8O", driveFolderName: "台南新光", enabled: true },
+  { name: "東山服務區", driveFolderUrl: "https://drive.google.com/drive/folders/11ofcZvX4nsBd6zuhy7ZsNAuRyDap9Z1Z", driveFolderName: "東山服務區", enabled: true },
+  { name: "新營南服務區", driveFolderUrl: "https://drive.google.com/drive/folders/1AtX0v5xYVvVk2mk0t0ZnEYiqvm1o4uNZ", driveFolderName: "新營南服務區", enabled: true },
+  { name: "仁德南服務區", driveFolderUrl: "https://drive.google.com/drive/folders/1FGdA9IQgq0kikVVfF3nOgedeoYDWAefu", driveFolderName: "仁德服務區", enabled: true },
+  { name: "仁德北服務區", driveFolderUrl: "https://drive.google.com/drive/folders/1FGdA9IQgq0kikVVfF3nOgedeoYDWAefu", driveFolderName: "仁德服務區", enabled: true },
+  { name: "品皇觀光工廠", driveFolderUrl: "https://drive.google.com/drive/folders/1238ahZoJjo_w481pJZ-2EyRfJ59bIESZ", driveFolderName: "品皇觀光工廠", enabled: true },
 ];
 
-export async function listPayoutStores(db: Database): Promise<PayoutStore[]> {
-  return db.select().from(payoutStores).orderBy(payoutStores.sortOrder, payoutStores.name);
+export async function listPayoutStores(
+  db: Database,
+  options: { enabledOnly?: boolean } = {},
+): Promise<PayoutStore[]> {
+  return db.select().from(payoutStores)
+    .where(options.enabledOnly ? eq(payoutStores.enabled, true) : undefined)
+    .orderBy(payoutStores.sortOrder, payoutStores.name);
 }
 
 /**
