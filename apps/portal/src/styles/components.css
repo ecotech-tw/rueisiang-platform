@@ -2789,6 +2789,24 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
     margin-bottom: 6px;
   }
   .data-table td:first-child::before { display: none; }
+  .data-table tbody tr > td.store-selection-cell {
+    display: block;
+    order: 0;
+    width: auto;
+    padding: 0;
+    border: 0;
+    margin: 0;
+  }
+  .data-table tbody tr > td.store-selection-cell::before { display: none; }
+  .data-table tbody tr > td.store-name-cell {
+    display: block;
+    order: 1;
+    width: 100%;
+    padding: 0 84px 8px 0;
+    border-bottom: 1px solid var(--color-soft-line);
+    margin-bottom: 6px;
+  }
+  .data-table tbody tr > td.store-name-cell::before { display: none; }
 
   .data-table td::before {
     content: attr(data-label);

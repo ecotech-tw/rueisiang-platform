@@ -348,6 +348,24 @@ describe("店別設定", () => {
     { name: "甲店", driveFolderUrl: "https://drive.google.com/drive/folders/abc123", driveFolderName: "甲" },
   ];
 
+  it("顯示開關直接生效，且不會改寫 runner 的 stores.json", async () => {
+    const calls = stubGithub();
+    const [store] = await listPayoutStores(db());
+    const id = await seedUser("eli@ecotech.tw", "role-admin");
+
+    const response = await as(id, "eli@ecotech.tw", `/api/tools/payout/stores/${store!.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: false }),
+    });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as { store: { id: string; enabled: boolean } }).toMatchObject({
+      store: { id: store!.id, enabled: false },
+    });
+    expect((await listPayoutStores(db()))[0]!.enabled).toBe(false);
+    expect(calls).toHaveLength(0);
+  });
+
   it("整組換掉，順序照送進來的排", async () => {
     stubGithub([{ status: 404, body: {} }, { body: {} }]);
     const id = await seedUser("eli@ecotech.tw", "role-admin");

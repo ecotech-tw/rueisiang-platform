@@ -268,6 +268,7 @@ export {
   recordPayoutRun,
   replacePayoutStores,
   seedPayoutStores,
+  updatePayoutStoreEnabled,
   type PayoutStoreInput,
 } from "./payout.js";
 export {
