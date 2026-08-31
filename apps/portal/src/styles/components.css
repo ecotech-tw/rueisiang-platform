@@ -354,6 +354,7 @@
  */
 .content { padding: 32px 36px; min-width: 0; min-height: 0; height: 100%; overflow-y: auto; }
 .content:has(.page.fills) { overflow-y: hidden; }
+.content:has(.analytics-page) { overflow-y: auto; }
 .content:has(.assistant-sandbox-page) { overflow: hidden; }
 /*
  * 滿版的頁面（目前只有倉位地圖）。內容自己貼齊邊界，所以外層的內距要收掉——
@@ -3194,7 +3195,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   margin-bottom: 12px;
   padding: 15px 18px 16px;
 }
-.analytics-filter-heading { display: flex; align-items: center; gap: 12px; }
+.analytics-filter-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.analytics-filter-heading > div:nth-child(2) { flex: 1 1 260px; min-width: 220px; }
 .analytics-filter-heading strong { display: block; font-size: 14px; }
 .analytics-filter-heading p { margin: 3px 0 0; color: var(--color-muted); font-size: 12px; }
 .analytics-filter-icon,
@@ -3229,6 +3231,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .analytics-filter-field select:focus-visible,
 .analytics-filter-field input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 .analytics-filter-date { min-width: 150px; }
+.analytics-product-field { min-width: 280px; flex: 1 1 280px; }
+.analytics-product-control { display: flex; align-items: stretch; gap: 8px; }
+.analytics-product-control input { flex: 1 1 auto; width: 0; }
+.analytics-product-control .ghost-button { flex: none; white-space: nowrap; }
 .analytics-filters > .ui-alert { margin: 0; }
 
 .analytics-tabs {
@@ -3236,7 +3242,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   display: flex;
   gap: 4px;
   width: fit-content;
-  margin: 0 0 14px;
+  margin: 0 0 0 auto;
   padding: 4px;
   border: 1px solid var(--color-line);
   border-radius: 999px;
@@ -3258,7 +3264,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .analytics-tab.active { background: var(--color-brand-soft); color: var(--color-brand-dark); }
 .analytics-tab:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 
-.analytics-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 2px 12px 0; }
+.analytics-body { flex: none; min-height: 0; overflow: visible; padding: 0 2px 12px 0; }
 .analytics-results { display: grid; gap: 14px; }
 .analytics-result-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
 .analytics-result-heading h2 { margin: 0; font-size: 18px; }
@@ -3292,26 +3298,29 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .analytics-refreshing { margin: -4px 0 0; color: var(--color-muted); font-size: 12px; }
 
 .analytics-chart-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); align-items: start; gap: 14px; }
+.analytics-chart-grid > .analytics-chart-panel,
+.analytics-chart-column > .analytics-chart-panel { min-width: 0; margin: 0; }
+.analytics-chart-column { display: grid; align-content: start; gap: 14px; min-width: 0; }
 .analytics-sales-chart-grid .analytics-sales-trend-panel { grid-column: 1 / -1; }
 .analytics-chart-panel { min-width: 0; padding: 17px 18px 14px; }
 .analytics-chart-panel .panel-head { margin-bottom: 12px; }
 .analytics-chart-panel .panel-title { font-size: 14px; }
 .analytics-chart { width: 100%; height: 300px; min-height: 240px; }
 .analytics-scope-chart { height: 300px; }
-.analytics-category-chart,
+.analytics-category-chart { height: 300px; }
 .analytics-channel-chart { height: 260px; }
 .analytics-sku-chart { height: 360px; }
+.analytics-panel-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .analytics-chart-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .analytics-chart-actions .filter-chip { min-height: 30px; padding-inline: 10px; font-size: 11px; }
 .analytics-chart-empty { display: grid; place-items: center; height: 260px; margin: 0; color: var(--color-muted); font-size: 13px; }
 .analytics-chart-pending { display: grid; place-items: center; height: 360px; margin: 0; color: var(--color-muted); font-size: 13px; }
 .analytics-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.analytics-data-trigger { white-space: nowrap; }
+.analytics-data-dialog { width: min(920px, 100%); }
+.analytics-data-dialog-body { min-height: 0; }
+.analytics-data-dialog-table { max-height: calc(100vh - 170px); overflow: auto; }
 .analytics-table-selected { background: --alpha(var(--color-brand) / 6%); }
-.analytics-data-details { margin-top: 8px; border-top: 1px solid var(--color-soft-line); }
-.analytics-data-details > summary { padding: 11px 2px 3px; color: var(--color-muted); cursor: pointer; font-size: 12px; font-weight: 700; list-style-position: inside; }
-.analytics-data-details > summary:hover { color: var(--color-brand-dark); }
-.analytics-data-details > summary:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; border-radius: 4px; }
-.analytics-data-details .table-scroll { margin: 4px -18px 0; }
 .analytics-table th,
 .analytics-table td { white-space: nowrap; }
 .analytics-table th:first-child,
@@ -3349,16 +3358,21 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 @media (max-width: 900px) {
   .analytics-chart-grid { grid-template-columns: 1fr; }
+  .analytics-sales-chart-grid .analytics-sales-trend-panel { grid-column: auto; }
   .analytics-scope-chart { height: 320px; }
 }
 
 @media (max-width: 760px) {
   .analytics-page > .page-head { margin-bottom: 12px; }
   .analytics-filters { gap: 12px; padding: 13px 14px 14px; }
+  .analytics-filter-heading > div:nth-child(2) { min-width: 0; }
+  .analytics-filter-heading .analytics-tabs { width: 100%; margin-left: 0; }
+  .analytics-tab { flex: 1; }
   .analytics-filter-fields { display: grid; grid-template-columns: 1fr 1fr; }
   .analytics-filter-field,
   .analytics-filter-date { min-width: 0; }
   .analytics-filter-date { grid-column: span 1; }
+  .analytics-product-field { grid-column: span 2; min-width: 0; }
   .analytics-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .analytics-kpi-grid.annual { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .analytics-sales-kpi-grid,
@@ -3369,8 +3383,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .analytics-result-heading { align-items: start; flex-direction: column; gap: 7px; }
   .analytics-result-meta { justify-content: flex-start; text-align: left; }
   .analytics-chart-panel { padding-inline: 13px; }
+  .analytics-panel-actions { align-items: flex-start; justify-content: flex-start; }
   .analytics-chart-actions { justify-content: flex-start; margin-top: 8px; }
-  .analytics-data-details .table-scroll { margin-inline: -13px; }
   .analytics-table th:first-child,
   .analytics-table td:first-child { padding-left: 13px; }
   .analytics-table th:last-child,

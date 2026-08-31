@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { Button, Dialog } from "../../../../ui/index.js";
 
 export interface ChartTooltipEntry {
   name?: string;
@@ -44,13 +45,50 @@ export function AnalyticsLegend({ payload }: { payload?: readonly ChartLegendEnt
   if (!payload?.length) return null;
   return (
     <div className="analytics-legend">
-      {payload.map((entry) => (
-        <span key={`${entry.dataKey ?? entry.value ?? "series"}`}>
+      {payload.map((entry, index) => (
+        <span key={`${entry.dataKey ?? entry.value ?? "series"}-${entry.value ?? ""}-${index}`}>
           <i style={{ background: entry.color ?? "var(--color-brand)" }} />
           {entry.value ?? entry.dataKey}
         </span>
       ))}
     </div>
+  );
+}
+
+export interface AnalyticsDataDialogProps {
+  title: ReactNode;
+  description?: ReactNode;
+  children: ReactNode;
+  disabled?: boolean;
+}
+
+/** 圖表的明細表統一收進 dialog，避免表格高度把瀑布流卡片撐出大片空白。 */
+export function AnalyticsDataDialog({ title, description, children, disabled = false }: AnalyticsDataDialogProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button
+        variant="secondary"
+        icon="list"
+        className="analytics-data-trigger"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+      >
+        查看資料表
+      </Button>
+      {open ? (
+        <Dialog
+          title={title}
+          titleMeta={description}
+          className="wide analytics-data-dialog"
+          bodyClassName="analytics-data-dialog-body"
+          onClose={() => setOpen(false)}
+        >
+          <div className="table-scroll analytics-data-dialog-table">{children}</div>
+        </Dialog>
+      ) : null}
+    </>
   );
 }
 

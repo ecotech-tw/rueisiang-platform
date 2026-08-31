@@ -102,6 +102,7 @@ export function createCyberbizReportService(db: Database) {
           ...(input.sku ? { sku: input.sku } : {}),
           ...(input.category ? { category: input.category } : {}),
           ...(input.productName ? { productName: input.productName } : {}),
+          ...(input.productQuery ? { productQuery: input.productQuery } : {}),
         });
         return result ?? noSalesData(range, input.scopeType);
       } catch (error) {
@@ -154,6 +155,7 @@ export function createCyberbizReportService(db: Database) {
           scopeType: input.scopeType,
           ...(input.scopeId ? { scopeId: input.scopeId } : {}),
           ...(input.scopeName ? { scopeName: input.scopeName } : {}),
+          ...(input.productQuery ? { productQuery: input.productQuery } : {}),
           ...(input.topSkuBy ? { topSkuBy: input.topSkuBy } : {}),
         });
       } catch (error) {

@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../env.js";
 import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cyberbiz-report-ingest.js";
+import { forgetReportAnalytics } from "../report-cache.js";
+import { cacheClient } from "../upstash.js";
 
 const INGEST_TOKEN_HEADER = "x-cyberbiz-report-token";
 
@@ -31,6 +33,7 @@ export const cyberbizReportsInternal = new Hono<AppEnv>()
         throw new CyberbizReportIngestError(422, "invalid_ingest");
       }
       const result = await createCyberbizReportIngestor(c.get("db")).ingest(body);
+      await forgetReportAnalytics(cacheClient(c.env));
       return c.json({ result }, 200);
     } catch (error) {
       if (error instanceof CyberbizReportIngestError) return c.json({ error: error.code, message: error.message }, error.status);

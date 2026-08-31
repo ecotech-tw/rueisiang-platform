@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { Panel } from "../../../../ui/index.js";
 import {
+  AnalyticsDataDialog,
   AnalyticsLegend,
   AnalyticsTooltip,
   buildBucketKeys,
@@ -42,6 +43,22 @@ export function PayoutTrendChart({ current, lastYear, granularity, valueFormatte
     <Panel
       title="出金趨勢"
       description={lastYear ? "長條是本期，虛線是去年同期；沒有資料的日期會保留空白。" : "沒有去年同期資料時只顯示本期，缺漏日期不補成 0。"}
+      actions={(
+        <AnalyticsDataDialog title="出金趨勢資料" description="沒有資料的期間會保留為空白。">
+          <table className="data-table analytics-table">
+            <thead><tr><th>期間</th><th className="numeric">本期</th><th className="numeric">去年同期</th></tr></thead>
+            <tbody>
+              {data.map((point) => (
+                <tr key={point.key}>
+                  <td data-label="期間">{point.label}</td>
+                  <td data-label="本期" className="numeric">{point.current === undefined ? <span className="muted">無資料</span> : valueFormatter(point.current)}</td>
+                  <td data-label="去年同期" className="numeric">{point.lastYear === undefined ? <span className="muted">無資料</span> : valueFormatter(point.lastYear)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </AnalyticsDataDialog>
+      )}
       className="analytics-chart-panel analytics-trend-panel"
     >
       <div className="analytics-chart" role="img" aria-label="出金趨勢圖">
@@ -57,23 +74,6 @@ export function PayoutTrendChart({ current, lastYear, granularity, valueFormatte
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <details className="analytics-data-details">
-        <summary>查看趨勢資料表</summary>
-        <div className="table-scroll">
-          <table className="data-table analytics-table">
-            <thead><tr><th>期間</th><th className="numeric">本期</th><th className="numeric">去年同期</th></tr></thead>
-            <tbody>
-              {data.map((point) => (
-                <tr key={point.key}>
-                  <td data-label="期間">{point.label}</td>
-                  <td data-label="本期" className="numeric">{point.current === undefined ? <span className="muted">無資料</span> : valueFormatter(point.current)}</td>
-                  <td data-label="去年同期" className="numeric">{point.lastYear === undefined ? <span className="muted">無資料</span> : valueFormatter(point.lastYear)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </details>
     </Panel>
   );
 }

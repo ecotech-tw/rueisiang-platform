@@ -85,6 +85,7 @@ const DEV_ANALYTICS_SCOPES = [
   { id: "cyberbiz:store:demo-xinyi", scopeKind: "store" as const, name: "示範信義店" },
   { id: "cyberbiz:store:demo-paused", scopeKind: "store" as const, name: "示範已歇業店", active: false },
 ] as const;
+const DEV_SHOPEE_SCOPE = { id: "shopee:store:demo-marketplace", scopeKind: "store" as const, name: "蝦皮示範賣場" };
 
 const DEV_AUGUST_MISSING_DAYS = [4, 11, 18, 24] as const;
 const DEV_AUGUST_XIMEN = [
@@ -198,13 +199,25 @@ function buildDevSalesRows() {
 }
 
 async function seedDevAnalytics(db: ReturnType<typeof createDatabase>): Promise<void> {
-  const [existing] = await db.select({ id: reportScopes.id }).from(reportScopes)
+  const [existingCyberbiz] = await db.select({ id: reportScopes.id }).from(reportScopes)
     .where(eq(reportScopes.id, DEV_ANALYTICS_SCOPES[0].id)).limit(1);
-  if (existing) return;
 
-  for (const scope of DEV_ANALYTICS_SCOPES) await upsertReportScope(db, scope);
-  await insertReportPayoutDaily(db, buildDevPayoutRows());
-  await insertReportSalesMonthly(db, buildDevSalesRows());
+  if (!existingCyberbiz) {
+    for (const scope of DEV_ANALYTICS_SCOPES) await upsertReportScope(db, scope);
+    await insertReportPayoutDaily(db, buildDevPayoutRows());
+    await insertReportSalesMonthly(db, buildDevSalesRows());
+  }
+
+  // 舊的 local.sqlite 已經有 CYBERBIZ 假資料時，也要補進蝦皮，才能在公司視角
+  // 看見跨通路比較；不重灌原有資料，保留開發者在畫面上的修改。
+  const [existingShopee] = await db.select({ id: reportScopes.id }).from(reportScopes)
+    .where(eq(reportScopes.id, DEV_SHOPEE_SCOPE.id)).limit(1);
+  if (!existingShopee) {
+    await upsertReportScope(db, DEV_SHOPEE_SCOPE);
+    await insertReportSalesMonthly(db, DEV_SALES_PERIODS.flatMap(([month, factor]) => (
+      salesRowsForMonth(DEV_SHOPEE_SCOPE.id, month, factor * 0.56)
+    )));
+  }
 }
 
 /** 與帳號分開判斷，這樣舊的 local.sqlite 也會補上客戶資料。 */
