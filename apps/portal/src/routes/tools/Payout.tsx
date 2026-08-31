@@ -9,6 +9,7 @@ import {
   usePayoutStatus,
   useRunPayout,
 } from "./api.js";
+import { useStoreSelection } from "./store-selection.js";
 
 /**
  * 出金表執行頁。
@@ -49,6 +50,7 @@ export function Payout() {
   }, [state.data]);
 
   const stores = state.data?.stores ?? [];
+  const { selectedNames, allSelected, toggle, toggleAll } = useStoreSelection(stores);
   const latest = status.data?.runs[0];
   const followed = tracking ?? state.data?.latestRequestId ?? null;
   const running = Boolean(latest) && latest!.status !== "completed";
@@ -95,12 +97,13 @@ export function Payout() {
           <Button
             icon="payments"
             loading={run.isPending}
-            disabled={blocked || !stores.length}
-            onClick={() => start_(stores.map((store) => store.name))}
-            title="所有店別跑同一段區間"
+            disabled={blocked || !selectedNames.length}
+            onClick={() => start_(selectedNames)}
+            title={allSelected ? "所有顯示中的店別跑同一段區間" : "執行勾選的店別"}
           >
-            全部執行
+            {allSelected ? "全部執行" : `執行選取的 ${selectedNames.length} 家`}
           </Button>
+          <span className="form-hint">已選 {selectedNames.length} / {stores.length} 家</span>
           {running ? <span className="form-hint">執行中…可以關掉這一頁</span> : null}
         </form>
 
@@ -113,6 +116,19 @@ export function Payout() {
             <thead>
               <tr>
                 <th>通路</th>
+                <th>
+                  <label className="table-select-all">
+                    <span>選取</span>
+                    <input
+                      className="table-checkbox"
+                      type="checkbox"
+                      checked={allSelected}
+                      disabled={blocked || !stores.length}
+                      onChange={toggleAll}
+                      aria-label="全選顯示中的店別"
+                    />
+                  </label>
+                </th>
                 <th>Drive 資料夾</th>
                 <th />
               </tr>
@@ -121,6 +137,16 @@ export function Payout() {
               {stores.map((store) => (
                 <tr key={store.name}>
                   <td className="cell-strong">{store.name}</td>
+                  <td data-label="選取">
+                    <input
+                      className="table-checkbox"
+                      type="checkbox"
+                      checked={selectedNames.includes(store.name)}
+                      disabled={blocked}
+                      onChange={(event) => toggle(store.name, event.target.checked)}
+                      aria-label={`選取 ${store.name}`}
+                    />
+                  </td>
                   <td className="cell-sub">
                     {store.folderUrl ? (
                       <a
@@ -187,7 +213,7 @@ export function Payout() {
                 return (
                   <tr key={record.id}>
                     <td className="cell-sub whitespace-nowrap">{formatDate(record.createdAt)}</td>
-                    <td>{names.length > 1 ? `全部 ${names.length} 家` : names[0] ?? "—"}</td>
+                    <td>{names.length > 1 ? `選取 ${names.length} 家` : names[0] ?? "—"}</td>
                     <td className="cell-sub whitespace-nowrap">{record.startDate} ~ {record.endDate}</td>
                     <td className="cell-sub">{record.actorEmail}</td>
                   </tr>

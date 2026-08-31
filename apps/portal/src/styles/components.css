@@ -956,6 +956,24 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /* 一列裡的圖示按鈕群組，靠右並縮成一組。 */
 .row-actions { display: flex; justify-content: flex-end; gap: 2px; }
 
+.table-select-all,
+.report-store-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.table-select-all { cursor: pointer; }
+.report-store-toggle { cursor: pointer; }
+.table-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--color-brand);
+  cursor: pointer;
+}
+.table-checkbox:disabled { cursor: not-allowed; }
+.report-store-toggle > span { color: var(--color-muted); font-size: 12px; }
+
 /* 帶圖示的實心按鈕。 */
 /* 表格內可直接編輯的欄位。邊框只在 hover 或聚焦時出現，不然整張表會滿是框線。 */
 .cell-input {

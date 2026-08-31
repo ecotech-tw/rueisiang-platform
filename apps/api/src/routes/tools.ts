@@ -124,11 +124,16 @@ function readStores(input: Record<string, unknown>): PayoutStoreInput[] {
     if (url && !/^https?:\/\/[^\s]*(\/folders\/[\w-]+|[?&]id=[\w-]+)/.test(url)) {
       throw new HTTPException(400, { message: `${name} 的 Google Drive 資料夾連結格式不正確。` });
     }
+    const enabled = store.enabled === undefined ? true : store.enabled;
+    if (typeof enabled !== "boolean") {
+      throw new HTTPException(400, { message: `${name} 的顯示開關格式不正確。` });
+    }
 
     return {
       name,
       driveFolderUrl: url,
       driveFolderName: typeof store.driveFolderName === "string" ? store.driveFolderName.trim() : "",
+      enabled,
     };
   });
 }
@@ -212,7 +217,7 @@ export const tools = new Hono<AppEnv>()
 
   /** 執行頁一開始要的東西：店別、預設區間、以及後端到底有沒有接上 GitHub。 */
   .get("/payout/state", requirePermission("tools:payout:run"), async (c) => {
-    const stores = await listPayoutStores(c.get("db"));
+    const stores = await listPayoutStores(c.get("db"), { enabledOnly: true });
     const range = previousMonthRange();
     const runs = await listPayoutRuns(c.get("db"), 10);
     return c.json({
@@ -249,7 +254,8 @@ export const tools = new Hono<AppEnv>()
       throw new HTTPException(400, { message: "店別不能重複。" });
     }
 
-    const known = (await listPayoutStores(c.get("db"))).map((store) => store.name);
+    const configuredStores = await listPayoutStores(c.get("db"));
+    const known = configuredStores.filter((store) => store.enabled).map((store) => store.name);
     const unknown = requested.filter((name) => !known.includes(name));
     if (unknown.length) throw new HTTPException(400, { message: `不認得的通路：${unknown.join("、")}` });
 
@@ -260,15 +266,16 @@ export const tools = new Hono<AppEnv>()
     }
     if (start > end) throw new HTTPException(400, { message: "起日不能晚於迄日。" });
 
-    /*
-     * workflow 的 store 輸入只吃「全部」或單一店名。這是帳務 repo 那邊的限制，
-     * 搬過來不改——真要改是改 workflow，不是在這裡拼字串矇混過去。
-     */
     const isAll = requested.length === known.length && known.every((name) => requested.includes(name));
-    if (!isAll && requested.length !== 1) {
-      throw new HTTPException(400, { message: "一次只能選一家店或全部店別。" });
-    }
-    const store = isAll ? "全部" : requested[0]!;
+    /*
+     * workflow 的輸入仍保留「全部」給完整清單；多家店則傳 JSON 陣列，由 workflow
+     * 拆成多個 --store。店別開關關掉時不能傳「全部」，不然 runner 會把被隱藏的店也跑下去。
+     */
+    const store = isAll && requested.length === configuredStores.length
+      ? "全部"
+      : requested.length === 1
+        ? requested[0]!
+        : JSON.stringify(requested);
 
     const requestId = crypto.randomUUID();
     await github.dispatch({ store, start, end, requestId });
@@ -322,11 +329,18 @@ export const tools = new Hono<AppEnv>()
     const stores = readStores(await body(c));
     if (!stores.length) throw new HTTPException(400, { message: "至少要留一家店。" });
 
+    // enabled 是平台的顯示設定，不是 runner 的設定；stores.json 維持原本的檔案格式。
+    const runnerStores = stores.map(({ name, driveFolderUrl, driveFolderName }) => ({
+      name,
+      driveFolderUrl,
+      driveFolderName,
+    }));
+
     const github = payoutGithub(c.env);
     let pushed = false;
     if (github) {
       pushed = await github.pushStores({
-        stores,
+        stores: runnerStores,
         message: `chore(payout): 從平台更新店別清單（${c.get("user").email}）`,
       });
     }
@@ -334,7 +348,7 @@ export const tools = new Hono<AppEnv>()
     let salesPushed = false;
     if (salesGithub) {
       salesPushed = await salesGithub.pushStores({
-        stores,
+        stores: runnerStores,
         message: `chore(cyberbiz-sales): 從平台更新店別清單（${c.get("user").email}）`,
       });
     }

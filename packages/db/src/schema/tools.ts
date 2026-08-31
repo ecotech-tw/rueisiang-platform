@@ -26,6 +26,8 @@ export const payoutStores = sqliteTable("payout_stores", {
   name: text("name").notNull(),
   driveFolderUrl: text("drive_folder_url").notNull().default(""),
   driveFolderName: text("drive_folder_name").notNull().default(""),
+  /** 關閉後只保留設定，不會出現在出金表與商品銷售報表的執行頁。 */
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   /** 顯示順序。同仁習慣的店序跟建立時間無關，所以另外存。 */
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),

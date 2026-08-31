@@ -1,6 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, listPayoutStores, seedPayoutStores, syncSystemRoles } from "@rueisiang/db";
 import { payoutRuns, payoutStores, userRoles, users } from "@rueisiang/db/schema";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -101,6 +102,10 @@ describe("店別種子", () => {
     const rows = await db().select().from(payoutStores);
     expect(rows.map((row) => row.name)).toEqual(["只有這一家"]);
   });
+
+  it("預設店別都是顯示中的", async () => {
+    expect((await listPayoutStores(db())).every((store) => store.enabled)).toBe(true);
+  });
 });
 
 describe("執行", () => {
@@ -138,6 +143,20 @@ describe("執行", () => {
     });
 
     expect((calls[0]!.body as { inputs: { store: string } }).inputs.store).toBe("宏匯廣場1F");
+  });
+
+  it("多家但不是全部時送出店名 JSON 陣列", async () => {
+    const calls = stubGithub();
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+    const names = (await listPayoutStores(db())).slice(0, 2).map((store) => store.name);
+
+    const response = await as(id, "manager@ecotech.tw", "/api/tools/payout/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: names, ...RANGE }),
+    });
+
+    expect(response.status).toBe(202);
+    expect((calls[0]!.body as { inputs: { store: string } }).inputs.store).toBe(JSON.stringify(names));
   });
 
   it("記下是誰按的——出問題時第一個要問的就是這個", async () => {
@@ -178,7 +197,6 @@ describe("執行", () => {
     // 日曆上不存在的日子：Date 會自己捲到 3/2，不比對回去就會放它過。
     ["不存在的日期", { stores: ["宏匯廣場1F"], start: "2026-02-30", end: "2026-02-30" }],
     ["起日晚於迄日", { stores: ["宏匯廣場1F"], start: "2026-07-31", end: "2026-07-01" }],
-    ["多選但不是全部", { stores: ["宏匯廣場1F", "夢時代-7F"], ...RANGE }],
   ])("擋下不合法的輸入（%s）", async (_label, payload) => {
     const calls = stubGithub();
     const id = await seedUser("manager@ecotech.tw", "role-manager");
@@ -221,6 +239,38 @@ describe("執行", () => {
     expect((await state.json()) as { latestRequestId: string }).toMatchObject({
       latestRequestId: requestId,
     });
+  });
+
+  it("關閉的店別不會出現在執行頁，也不能被 API 繞過", async () => {
+    const [hidden] = await listPayoutStores(db());
+    await db().update(payoutStores).set({ enabled: false }).where(eq(payoutStores.id, hidden!.id));
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+
+    const state = await as(id, "manager@ecotech.tw", "/api/tools/payout/state");
+    const stateBody = (await state.json()) as { stores: { name: string }[] };
+    expect(stateBody.stores.some((store) => store.name === hidden!.name)).toBe(false);
+
+    const response = await as(id, "manager@ecotech.tw", "/api/tools/payout/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: [hidden!.name], ...RANGE }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("全選啟用店別時不會把隱藏店送給 runner", async () => {
+    const calls = stubGithub();
+    const [hidden] = await listPayoutStores(db());
+    await db().update(payoutStores).set({ enabled: false }).where(eq(payoutStores.id, hidden!.id));
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+    const names = (await listPayoutStores(db(), { enabledOnly: true })).map((store) => store.name);
+
+    const response = await as(id, "manager@ecotech.tw", "/api/tools/payout/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: names, ...RANGE }),
+    });
+
+    expect(response.status).toBe(202);
+    expect((calls[0]!.body as { inputs: { store: string } }).inputs.store).toBe(JSON.stringify(names));
   });
 
   it("檢視者不能執行", async () => {
@@ -352,6 +402,26 @@ describe("店別設定", () => {
       committed: false,
     });
     expect(calls).toHaveLength(1);
+  });
+
+  it("儲存顯示開關，但不把平台欄位寫進 runner 的 stores.json", async () => {
+    const calls = stubGithub([{ body: storesFile([{ name: "舊的" }]) }, { body: {} }]);
+    const id = await seedUser("eli@ecotech.tw", "role-admin");
+    const stores = TWO_STORES.map((store, index) => ({ ...store, enabled: index === 0 }));
+
+    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
+      method: "PUT",
+      body: JSON.stringify({ stores }),
+    });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as { stores: { enabled: boolean }[] }).toMatchObject({
+      stores: [{ enabled: true }, { enabled: false }],
+    });
+    const put = calls[1]!;
+    const content = put.body as { content: string };
+    const decoded = new TextDecoder().decode(Uint8Array.from(atob(content.content), (ch) => ch.charCodeAt(0)));
+    expect(decoded).not.toContain("enabled");
   });
 
   it("推不上 repo 就整筆不存——不然平台顯示的跟 driver 讀的會不一樣", async () => {

@@ -8,6 +8,7 @@ import {
   useCyberbizSalesStatus,
   useRunCyberbizSales,
 } from "./api.js";
+import { useStoreSelection } from "./store-selection.js";
 
 function formatDate(value: string): string {
   const parsed = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
@@ -37,6 +38,7 @@ export function CyberbizSales() {
   if (state.isPending) return <div className="boot">載入中…</div>;
 
   const stores = state.data?.stores ?? [];
+  const { selectedNames, allSelected, toggle, toggleAll } = useStoreSelection(stores);
   const latest = status.data?.runs[0];
   const followed = tracking ?? state.data?.latestRequestId ?? null;
   // workflow_dispatch 回 204 後，GitHub 建立 run 會有幾秒延遲；這段時間不能再送第二次。
@@ -76,12 +78,13 @@ export function CyberbizSales() {
             icon="analytics"
             loading={run.isPending}
             loadingLabel="執行中…"
-            disabled={blocked || !stores.length}
-            onClick={() => start_(stores.map((store) => store.name))}
-            title="所有店別執行同一段區間"
+            disabled={blocked || !selectedNames.length}
+            onClick={() => start_(selectedNames)}
+            title={allSelected ? "所有顯示中的店別執行同一段區間" : "執行勾選的店別"}
           >
-            全部執行
+            {allSelected ? "全部執行" : `執行選取的 ${selectedNames.length} 家`}
           </Button>
+          <span className="form-hint">已選 {selectedNames.length} / {stores.length} 家</span>
           {running ? <span className="form-hint">執行中…可以關閉這一頁</span> : null}
         </form>
 
@@ -93,11 +96,40 @@ export function CyberbizSales() {
 
         <div className="table-scroll">
           <table className="data-table">
-            <thead><tr><th>通路</th><th>Drive 資料夾</th><th /></tr></thead>
+            <thead>
+              <tr>
+                <th>通路</th>
+                <th>
+                  <label className="table-select-all">
+                    <span>選取</span>
+                    <input
+                      className="table-checkbox"
+                      type="checkbox"
+                      checked={allSelected}
+                      disabled={blocked || !stores.length}
+                      onChange={toggleAll}
+                      aria-label="全選顯示中的店別"
+                    />
+                  </label>
+                </th>
+                <th>Drive 資料夾</th>
+                <th />
+              </tr>
+            </thead>
             <tbody>
               {stores.map((store) => (
                 <tr key={store.name}>
                   <td className="cell-strong">{store.name}</td>
+                  <td data-label="選取">
+                    <input
+                      className="table-checkbox"
+                      type="checkbox"
+                      checked={selectedNames.includes(store.name)}
+                      disabled={blocked}
+                      onChange={(event) => toggle(store.name, event.target.checked)}
+                      aria-label={`選取 ${store.name}`}
+                    />
+                  </td>
                   <td className="cell-sub">
                     {store.folderUrl ? (
                       <a className="link-external" href={store.folderUrl} target="_blank" rel="noopener noreferrer">
@@ -134,7 +166,7 @@ export function CyberbizSales() {
                 return (
                   <tr key={record.id}>
                     <td className="cell-sub whitespace-nowrap">{formatDate(record.createdAt)}</td>
-                    <td>{names.length > 1 ? `全部 ${names.length} 家` : names[0] ?? "—"}</td>
+                    <td>{names.length > 1 ? `選取 ${names.length} 家` : names[0] ?? "—"}</td>
                     <td className="cell-sub whitespace-nowrap">{record.startDate} ~ {record.endDate}</td>
                     <td>{record.periodKind === "month" ? "完整月份可匯入" : "不匯入（Drive only）"}</td>
                     <td className="cell-sub">{record.actorEmail}</td>

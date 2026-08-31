@@ -41,16 +41,12 @@ function selectedStores(input: Record<string, unknown>, known: string[]): string
   if (new Set(requested).size !== requested.length) throw new HTTPException(400, { message: "店別不能重複。" });
   const unknown = requested.filter((name) => !known.includes(name));
   if (unknown.length) throw new HTTPException(400, { message: `不認得的通路：${unknown.join("、")}` });
-  const all = requested.length === known.length && known.every((name) => requested.includes(name));
-  if (!all && requested.length !== 1) {
-    throw new HTTPException(400, { message: "一次只能選一家店或全部店別。" });
-  }
   return requested;
 }
 
 export const cyberbizSales = new Hono<AppEnv>()
   .get("/state", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
-    const stores = await listPayoutStores(c.get("db"));
+    const stores = await listPayoutStores(c.get("db"), { enabledOnly: true });
     const runs = await listCyberbizReportRuns(c.get("db"), "sales", 10);
     const range = previousMonthRange();
     return c.json({
@@ -66,7 +62,8 @@ export const cyberbizSales = new Hono<AppEnv>()
     const github = cyberbizSalesGithub(c.env);
     if (!github) throw new HTTPException(503, { message: "平台還沒設定商品銷售報表的 GitHub workflow，無法觸發執行。" });
     const input = await body(c);
-    const known = (await listPayoutStores(c.get("db"))).map((store) => store.name);
+    const configuredStores = await listPayoutStores(c.get("db"));
+    const known = configuredStores.filter((store) => store.enabled).map((store) => store.name);
     const stores = selectedStores(input, known);
     const start = typeof input.start === "string" ? input.start : "";
     const end = typeof input.end === "string" ? input.end : "";
@@ -76,8 +73,13 @@ export const cyberbizSales = new Hono<AppEnv>()
     if (start > end) throw new HTTPException(400, { message: "起日不能晚於迄日。" });
 
     const all = stores.length === known.length && known.every((name) => stores.includes(name));
+    const store = all && stores.length === configuredStores.length
+      ? "全部"
+      : stores.length === 1
+        ? stores[0]!
+        : JSON.stringify(stores);
     const requestId = crypto.randomUUID();
-    await github.dispatch({ store: all ? "全部" : stores[0]!, start, end, requestId });
+    await github.dispatch({ store, start, end, requestId });
     const run = await recordCyberbizReportRun(c.get("db"), {
       requestId,
       reportKind: "sales",
@@ -87,7 +89,7 @@ export const cyberbizSales = new Hono<AppEnv>()
       endDate: end,
       actor: c.get("user"),
     });
-    return c.json({ requestId, run, store: all ? "全部" : stores[0], start, end }, 202);
+    return c.json({ requestId, run, store, start, end }, 202);
   })
   .get("/status", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
     const github = cyberbizSalesGithub(c.env);
