@@ -29,6 +29,9 @@ export function CyberbizSales() {
   const [month, setMonth] = useState("");
   const [tracking, setTracking] = useState<string | null>(null);
   const status = useCyberbizSalesStatus(tracking ?? state.data?.latestRequestId ?? null);
+  const stores = state.data?.stores ?? [];
+  // 查詢尚未完成時也要執行，否則載入完成後 hook 數量會改變。
+  const { selectedNames, allSelected, toggle, toggleAll } = useStoreSelection(stores);
 
   useEffect(() => {
     if (!state.data) return;
@@ -37,8 +40,6 @@ export function CyberbizSales() {
 
   if (state.isPending) return <div className="boot">載入中…</div>;
 
-  const stores = state.data?.stores ?? [];
-  const { selectedNames, allSelected, toggle, toggleAll } = useStoreSelection(stores);
   const latest = status.data?.runs[0];
   const followed = tracking ?? state.data?.latestRequestId ?? null;
   // workflow_dispatch 回 204 後，GitHub 建立 run 會有幾秒延遲；這段時間不能再送第二次。
