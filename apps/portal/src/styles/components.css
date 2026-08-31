@@ -3548,9 +3548,38 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   justify-content: flex-end;
   gap: 8px;
 }
-.manual-report-import-dialog { width: min(980px, 100%); }
-.manual-report-import-body { max-height: calc(100vh - 140px); }
-.manual-report-import-form { display: grid; gap: 18px; }
+.manual-report-import-backdrop {
+  overflow: hidden;
+  padding: 16px;
+}
+.manual-report-import-dialog {
+  box-sizing: border-box;
+  width: min(980px, 100%);
+  max-width: 100%;
+  max-height: calc(100dvh - 32px);
+  min-width: 0;
+}
+.manual-report-import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  min-height: 0;
+  max-height: calc(100dvh - 140px);
+  overflow: hidden;
+}
+.manual-report-import-form {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.manual-report-import-body > .modal-actions {
+  flex: 0 0 auto;
+  position: static;
+}
 .manual-report-file-picker {
   display: grid;
   gap: 7px;
@@ -3575,7 +3604,13 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .manual-report-import-preview-head h3 { margin: 0; font-size: 16px; }
 .manual-report-import-preview-head p { margin: 4px 0 0; }
-.manual-report-import-table-scroll { max-height: min(42vh, 420px); }
+.manual-report-import-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  max-height: min(42vh, 420px);
+  min-width: 0;
+  overflow: auto;
+}
 .manual-report-import-table-scroll small,
 .manual-scope-table small { display: block; }
 .manual-scope-dialog { width: min(760px, 100%); }
@@ -3610,6 +3645,21 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .manual-report-table th,
   .manual-report-table td { white-space: normal; }
   .manual-report-table td[data-label="SKU"] code { overflow-wrap: anywhere; }
+  .manual-report-import-backdrop { padding: 8px; }
+  .manual-report-import-dialog { max-height: calc(100dvh - 16px); }
+  .manual-report-import-body {
+    max-height: calc(100dvh - 120px);
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .manual-report-import-form { gap: 14px; }
+  .manual-report-import-table-scroll { max-height: min(32dvh, 280px); }
+  .manual-report-import-body > .modal-actions {
+    margin-right: -16px;
+    margin-left: -16px;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
   .manual-report-import-preview-head { display: grid; gap: 4px; }
   .manual-scope-table { min-width: 0; }
 }

@@ -38,12 +38,15 @@ import {
 } from "./manual-reports-api.js";
 import {
   detectPayout,
-  parseSalesSheet,
   payoutHeaders,
   summarisePayout,
   type PayoutDayRow,
-  type SalesImportPreview,
 } from "./manual-report-import.js";
+import {
+  parseManualCyberbizSales,
+  resolveManualSalesPreview,
+  type ManualSalesPreview,
+} from "./cyberbiz-sales-xlsx.js";
 import { readFirstSheet, type Sheet } from "./xlsx.js";
 
 type DialogState =
@@ -372,10 +375,12 @@ function ManualReportDialog({
 function ReportImportDialog({
   kind,
   scopes,
+  products,
   onClose,
 }: {
   kind: ManualReportKind;
   scopes: ManualScopeOption[];
+  products: ManualProductOption[];
   onClose: () => void;
 }) {
   const importPayout = useImportManualPayout();
@@ -384,7 +389,7 @@ function ReportImportDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [sheet, setSheet] = useState<Sheet | null>(null);
-  const [salesPreview, setSalesPreview] = useState<SalesImportPreview | null>(null);
+  const [salesPreview, setSalesPreview] = useState<ManualSalesPreview | null>(null);
   const [parseError, setParseError] = useState("");
   const [scopeId, setScopeId] = useState(scopes[0]?.id ?? "");
   const [scopeName, setScopeName] = useState("");
@@ -398,12 +403,20 @@ function ReportImportDialog({
     if (kind !== "payout" || !sheet || !dateColumn || !amountColumn) return null;
     return summarisePayout(sheet, headerRow, dateColumn, amountColumn);
   }, [amountColumn, dateColumn, headerRow, kind, sheet]);
+  const resolvedSalesPreview = useMemo(
+    () => salesPreview ? resolveManualSalesPreview(salesPreview, products) : null,
+    [products, salesPreview],
+  );
+  const salesImportRows = resolvedSalesPreview?.rows.filter((row) => row.sku.trim()) ?? [];
+  const unresolvedProductNames = resolvedSalesPreview?.unresolvedProductNames ?? [];
   const selectedScopeName = scopeId ? scopes.find((scope) => scope.id === scopeId)?.name ?? "" : scopeName.trim();
   const pending = importPayout.isPending || importSales.isPending;
   const error = parseError || importPayout.error?.message || importSales.error?.message || "";
   const valid = Boolean(
     selectedScopeName
-    && (kind === "payout" ? payoutPreview?.days.length : salesPreview?.rows.length),
+    && (kind === "payout"
+      ? payoutPreview?.days.length
+      : salesImportRows.length && !unresolvedProductNames.length),
   );
 
   async function pickFile(file: File | undefined) {
@@ -428,8 +441,7 @@ function ReportImportDialog({
           setParseError("找不到出金報表的日期或金額欄位，請手動選擇欄位。");
         }
       } else {
-        setSalesPreview(parseSalesSheet(parsed));
-        setSheet(parsed);
+        setSalesPreview(parseManualCyberbizSales(parsed));
       }
     } catch (parseFailure) {
       setParseError(parseFailure instanceof Error ? parseFailure.message : "讀不開這個檔案。");
@@ -452,15 +464,24 @@ function ReportImportDialog({
       });
       return;
     }
-    if (kind === "sales" && salesPreview) {
+    if (kind === "sales" && resolvedSalesPreview) {
       importSales.mutate({
         scopeName: selectedScopeName,
         ...(scopeId ? { scopeId } : {}),
-        reportMonth: salesPreview.reportMonth,
-        rows: salesPreview.rows,
+        reportMonth: resolvedSalesPreview.reportMonth,
+        rows: salesImportRows.map(({ sku, productName, category, grossQuantity, returnQuantity, netQuantity, salesAmount }) => ({
+          sku,
+          productName,
+          category,
+          grossQuantity,
+          returnQuantity,
+          netQuantity,
+          salesAmount,
+        })),
       }, {
         onSuccess: (result) => {
-          toast.show(`已匯入${result.scopeName} ${result.reportMonth} ${result.rowCount} 筆商品銷售資料`);
+          const skipped = result.skippedSkus?.length ? `，略過 ${result.skippedSkus.length} 個未完成 mapping 的 SKU` : "";
+          toast.show(`已匯入${result.scopeName} ${result.reportMonth} ${result.rowCount} 筆商品銷售資料${skipped}`);
           if (fileInputRef.current) fileInputRef.current.value = "";
           onClose();
         },
@@ -472,6 +493,7 @@ function ReportImportDialog({
     <Dialog
       title={`匯入${kind === "payout" ? "出金" : "商品銷售"}報表`}
       className="manual-report-import-dialog"
+      backdropClassName="manual-report-import-backdrop"
       bodyClassName="manual-report-import-body"
       onClose={onClose}
       closeDisabled={pending}
@@ -595,24 +617,49 @@ function ReportImportDialog({
           </section>
         ) : null}
 
-        {kind === "sales" && salesPreview ? (
+        {kind === "sales" && resolvedSalesPreview ? (
           <section className="manual-report-import-preview">
             <div className="manual-report-import-preview-head">
               <div>
                 <h3>預覽</h3>
-                <p className="muted">{salesPreview.coverageStart} ~ {salesPreview.coverageEnd}，共 {salesPreview.rows.length} 筆 SKU</p>
+                <p className="muted">{resolvedSalesPreview.coverageStart} ~ {resolvedSalesPreview.coverageEnd}，共 {resolvedSalesPreview.rows.length} 筆商品</p>
               </div>
               <span className="form-hint">確認後才會寫入</span>
             </div>
-            {salesPreview.skippedRows.length ? <Alert tone="warning">有 {salesPreview.skippedRows.length} 列沒有 SKU，已略過。</Alert> : null}
+            {resolvedSalesPreview.skippedRows.length ? <Alert tone="warning">有 {resolvedSalesPreview.skippedRows.length} 列沒有 SKU，已略過。</Alert> : null}
+            {unresolvedProductNames.length ? (
+              <Alert tone="warning">
+                有 {unresolvedProductNames.length} 個商品名稱尚未唯一對應到 CYBERBIZ SKU，請在下方補上 SKU 後才能匯入：
+                {unresolvedProductNames.slice(0, 10).join("、")}
+                {unresolvedProductNames.length > 10 ? " 等" : ""}。
+              </Alert>
+            ) : null}
             <div className="table-scroll manual-report-import-table-scroll">
               <table className="data-table manual-sales-table">
-                <thead><tr><th>SKU</th><th>商品</th><th className="numeric">淨銷售數量</th><th className="numeric">銷售金額</th></tr></thead>
+                <thead><tr><th>來源列</th><th>SKU</th><th>商品名稱</th><th>類別</th><th className="numeric">銷售數量</th><th className="numeric">退回數量</th><th className="numeric">淨銷售數量</th><th className="numeric">售額</th></tr></thead>
                 <tbody>
-                  {salesPreview.rows.map((row) => (
-                    <tr key={row.sku}>
-                      <td><code>{row.sku}</code></td>
-                      <td>{row.productName}<small className="cell-sub">{row.category}</small></td>
+                  {resolvedSalesPreview.rows.map((row) => (
+                    <tr key={row.sourceRow}>
+                      <td>{row.sourceRow}</td>
+                      <td>
+                        <input
+                          className="cell-input manual-sales-sku-input"
+                          value={row.sku}
+                          placeholder="輸入 SKU"
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setSalesPreview((current) => current
+                              ? { ...current, rows: current.rows.map((candidate) => candidate.sourceRow === row.sourceRow ? { ...candidate, sku: value } : candidate) }
+                              : current);
+                          }}
+                          disabled={pending}
+                          aria-label={`第 ${row.sourceRow} 列 SKU`}
+                        />
+                      </td>
+                      <td>{row.productName || "—"}</td>
+                      <td>{row.category}</td>
+                      <td className="numeric">{row.grossQuantity.toLocaleString("zh-TW")}</td>
+                      <td className="numeric">{row.returnQuantity.toLocaleString("zh-TW")}</td>
                       <td className="numeric">{row.netQuantity.toLocaleString("zh-TW")}</td>
                       <td className="numeric">{formatCurrency(row.salesAmount)}</td>
                     </tr>
@@ -957,6 +1004,7 @@ export function ManualReports() {
           key={importDialog.kind}
           kind={importDialog.kind}
           scopes={scopes}
+          products={products}
           onClose={() => setImportDialog(null)}
         />
       ) : null}

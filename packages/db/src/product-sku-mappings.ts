@@ -1110,6 +1110,11 @@ export interface CyberbizProductOption {
   published: boolean;
 }
 
+export interface CyberbizReportProductOption extends CyberbizProductOption {
+  /** 既有通路 mapping 保存的歷史商品名稱，供舊版報表反查 SKU。 */
+  aliases: string[];
+}
+
 /** 供 SKU 對應頁挑用料；下架的也列出來，舊對應才編輯得動。 */
 export async function listCyberbizProducts(db: Database): Promise<CyberbizProductOption[]> {
   const rows = await db
@@ -1126,4 +1131,42 @@ export async function listCyberbizProducts(db: Database): Promise<CyberbizProduc
     name: row.variantName ? `${row.productName}（${row.variantName}）` : row.productName,
     published: row.published === 1,
   }));
+}
+
+/**
+ * 報表匯入用的 CYBERBIZ 商品清單。
+ *
+ * 舊版商品銷售檔沒有 SKU，只留下匯出當下的商品名稱；這個名稱可能和目前
+ * CYBERBIZ 目錄的名稱不同，但既有的通路 mapping 會保留那個歷史名稱，應該
+ * 一起提供給瀏覽器做反查。沒有目錄鏡像、但已有有效 mapping 的歷史 SKU 也
+ * 保留，讓舊檔不必退回逐列手動輸入。
+ */
+export async function listCyberbizReportProducts(db: Database): Promise<CyberbizReportProductOption[]> {
+  const [catalog, mappings] = await Promise.all([
+    listCyberbizProducts(db),
+    db
+      .select({ sku: productSkuMappings.externalSku, name: productSkuMappings.externalName })
+      .from(productSkuMappings)
+      .where(inArray(productSkuMappings.channel, ["cyberbiz", "legacy"])),
+  ]);
+
+  const products = new Map<string, CyberbizReportProductOption>(catalog.map((product) => [
+    normalizeExternalSku(product.sku),
+    { ...product, sku: normalizeExternalSku(product.sku), aliases: [] },
+  ]));
+  for (const mapping of mappings) {
+    const sku = normalizeExternalSku(mapping.sku);
+    const name = mapping.name.trim();
+    if (!sku || !name) continue;
+    const product = products.get(sku);
+    if (product) {
+      if (product.name !== name && !product.aliases.includes(name)) product.aliases.push(name);
+      continue;
+    }
+    products.set(sku, { sku, name, published: false, aliases: [] });
+  }
+
+  return [...products.values()].sort((left, right) => (
+    left.name.localeCompare(right.name, "zh-TW") || left.sku.localeCompare(right.sku, "en")
+  ));
 }

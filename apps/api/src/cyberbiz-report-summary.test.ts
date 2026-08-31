@@ -6,7 +6,7 @@ import {
   syncSystemRoles,
   upsertReportScope,
 } from "@rueisiang/db";
-import { users, userRoles } from "@rueisiang/db/schema";
+import { cyberbizProducts, inventoryItems, productBundleComponents, productSkuMappings, reportSalesMonthly, users, userRoles } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -437,6 +437,14 @@ describe("報表統計 API", () => {
       ],
     });
 
+    await db().insert(cyberbizProducts).values({
+      sku: "SKU-1",
+      productId: "import-product-1",
+      variantId: "import-variant-1",
+      productName: "商品一",
+      variantName: "",
+    });
+
     const sales = await mutate(
       "/api/reports/cyberbiz/manual/import/sales",
       "POST",
@@ -483,6 +491,74 @@ describe("報表統計 API", () => {
       "manager-report-import@ecotech.tw",
       { scopeId: "invalid-scope-id", scopeName: "錯誤 scope", rows: [{ businessDate: "2026-08-01", payoutAmount: 1 }] },
     )).status).toBe(400);
+  });
+
+  it("舊版商品名稱會沿用既有 CYBERBIZ mapping 自動補 SKU，匯入後寫入系統商品", async () => {
+    await db().insert(inventoryItems).values({
+      id: "legacy-sales-item",
+      sku: "SOAP-SYSTEM",
+      name: "美膚皂",
+      category: "清潔",
+    });
+    await db().insert(productSkuMappings).values({
+      id: "legacy-sales-mapping",
+      channel: "cyberbiz",
+      externalName: "醬釀美膚皂 -",
+      externalSku: "SOAP-CYBERBIZ",
+    });
+    await db().insert(cyberbizProducts).values({
+      sku: "SOAP-CYBERBIZ",
+      productId: "legacy-sales-product",
+      variantId: "legacy-sales-variant",
+      productName: "目前的美膚皂名稱",
+      variantName: "",
+    });
+    await db().insert(productBundleComponents).values({
+      id: "legacy-sales-mapping:0",
+      mappingId: "legacy-sales-mapping",
+      inventoryItemId: "legacy-sales-item",
+      customProductId: null,
+      cyberbizSku: null,
+      quantity: 1,
+    });
+    const manager = await seedUser("manager-report-import-mapping@ecotech.tw", "role-manager");
+
+    const options = await call(
+      "/api/reports/cyberbiz/manual/options",
+      manager,
+      "manager-report-import-mapping@ecotech.tw",
+    );
+    const optionsBody = await options.json() as { products: Array<{ sku: string; aliases?: string[] }> };
+    const mappedProduct = optionsBody.products.find((product) => product.sku === "SOAP-CYBERBIZ");
+    expect(mappedProduct?.aliases).toContain("醬釀美膚皂 -");
+
+    const response = await mutate(
+      "/api/reports/cyberbiz/manual/import/sales",
+      "POST",
+      manager,
+      "manager-report-import-mapping@ecotech.tw",
+      {
+        scopeName: "歷史匯入店",
+        reportMonth: "2026-08",
+        rows: [{
+          sku: "SOAP-CYBERBIZ",
+          productName: "醬釀美膚皂 -",
+          category: "未分類",
+          grossQuantity: 19,
+          returnQuantity: 0,
+          netQuantity: 19,
+          salesAmount: 0,
+        }],
+      },
+    );
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      rowCount: 1,
+      skippedSkus: [],
+      totals: { grossQuantity: 19, returnQuantity: 0, netQuantity: 19, salesAmount: 0 },
+    });
+    expect(await db().select({ sku: reportSalesMonthly.sku, productName: reportSalesMonthly.productName }).from(reportSalesMonthly))
+      .toEqual([{ sku: "SOAP-SYSTEM", productName: "美膚皂" }]);
   });
 
   it("deletes the effective imported record and removes it from report summaries", async () => {

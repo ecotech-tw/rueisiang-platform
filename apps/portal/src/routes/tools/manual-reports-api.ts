@@ -18,6 +18,7 @@ export interface ManualProductOption {
   sku: string;
   name: string;
   published: boolean;
+  aliases?: string[];
 }
 
 export interface ManualOptionsResponse {
@@ -152,6 +153,7 @@ export interface ManualSalesImportResult {
   scopeName: string;
   reportMonth: string;
   rowCount: number;
+  skippedSkus?: string[];
   totals: Omit<ManualSalesImportRow, "sku" | "productName" | "category">;
 }
 

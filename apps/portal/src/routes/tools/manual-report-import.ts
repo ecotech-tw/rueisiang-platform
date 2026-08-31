@@ -210,13 +210,6 @@ function salesDateRange(value: string | number | undefined): { start: string; en
   return { start: match[1]!, end: match[2]! };
 }
 
-function isWholeMonth(range: { start: string; end: string }): boolean {
-  if (range.start !== `${range.start.slice(0, 7)}-01`) return false;
-  const [year, month] = range.end.slice(0, 7).split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year ?? 0, month ?? 0, 0)).getUTCDate();
-  return range.end === `${range.end.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`;
-}
-
 function findSalesColumn(columns: string[], name: string, required = true): number {
   const index = columns.indexOf(name);
   if (index < 0 && required) throw new Error(`商品銷售報表缺少欄位：${name}`);
@@ -244,8 +237,7 @@ function assertSalesTotals(
 /** 解析 CYBERBIZ 商品銷售總表，保留 SKU 與報表列的原始商品資訊。 */
 export function parseSalesSheet(sheet: Sheet): SalesImportPreview {
   const range = salesDateRange(salesCell(sheet, 0, 1));
-  if (range.start.slice(0, 7) !== range.end.slice(0, 7)) throw new Error("商品銷售報表不能跨月份。");
-  if (!isWholeMonth(range)) throw new Error("商品銷售報表必須是完整月份，才能匯入報表管理。");
+  if (range.start > range.end) throw new Error("商品銷售報表日期起日不可晚於迄日。");
 
   const columns = Array.from({ length: 26 }, (_, index) => salesText(salesCell(sheet, index, 2)));
   for (const header of SALES_REQUIRED_HEADERS) findSalesColumn(columns, header);

@@ -10,11 +10,10 @@ import {
   deleteReportPayoutRecord,
   deleteReportSalesRecord,
   insertReportPayoutDaily,
-  insertReportSalesMonthly,
   isCompanyReportStoreScopeId,
   isValidReportDate,
   latestReportSalesPeriods,
-  listCyberbizProducts,
+  listCyberbizReportProducts,
   listReportPayoutRecords,
   listReportManagementScopes,
   listReportSalesRecords,
@@ -37,6 +36,7 @@ import {
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { createCyberbizReportService, CyberbizReportQueryError } from "../cyberbiz-reports.js";
+import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cyberbiz-report-ingest.js";
 import { manualScopeIdFromStoreName } from "../cyberbiz-scope.js";
 import { cachedReportAnalytics, forgetReportAnalytics } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
@@ -476,7 +476,7 @@ export const cyberbizReports = new Hono<AppEnv>()
   .get("/manual/options", requirePermission("reports:cyberbiz:write"), async (c) => {
     const [scopes, products] = await Promise.all([
       listReportScopes(c.get("db"), "store"),
-      listCyberbizProducts(c.get("db")),
+      listCyberbizReportProducts(c.get("db")),
     ]);
     return c.json({
       scopes: scopes
@@ -551,18 +551,34 @@ export const cyberbizReports = new Hono<AppEnv>()
     try {
       const input = importSalesInput(await body(c));
       const scope = await upsertReportScope(c.get("db"), { id: input.scopeId, scopeKind: "store", name: input.scopeName });
-      await insertReportSalesMonthly(c.get("db"), input.rows, { scopeId: input.scopeId, reportMonth: input.reportMonth });
+      let result;
+      try {
+        result = await createCyberbizReportIngestor(c.get("db")).ingest({
+          kind: "sales",
+          scopeType: "store",
+          scopeId: scope.id,
+          scopeName: scope.name,
+          reportMonth: input.reportMonth,
+          rows: input.rows,
+        });
+      } catch (error) {
+        if (error instanceof CyberbizReportIngestError) {
+          throw new HTTPException(error.status, { message: error.message });
+        }
+        throw error;
+      }
       await forgetReportAnalytics(cacheClient(c.env));
       return c.json({
         scopeId: scope.id,
         scopeName: scope.name,
         reportMonth: input.reportMonth,
-        rowCount: input.rows.length,
-        totals: {
-          grossQuantity: input.rows.reduce((sum, row) => safeImportTotal(sum, row.grossQuantity, "銷售數量"), 0),
-          returnQuantity: input.rows.reduce((sum, row) => safeImportTotal(sum, row.returnQuantity, "退回數量"), 0),
-          netQuantity: input.rows.reduce((sum, row) => safeImportTotal(sum, row.netQuantity, "淨銷售數量"), 0),
-          salesAmount: input.rows.reduce((sum, row) => safeImportTotal(sum, row.salesAmount, "銷售金額"), 0),
+        rowCount: result.rowCount,
+        skippedSkus: result.skippedSkus ?? [],
+        totals: result.salesTotals ?? {
+          grossQuantity: 0,
+          returnQuantity: 0,
+          netQuantity: 0,
+          salesAmount: 0,
         },
       }, 201);
     } catch (error) {

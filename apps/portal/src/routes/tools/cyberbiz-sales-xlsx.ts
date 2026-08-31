@@ -31,6 +31,7 @@ export interface ManualSalesCatalogProduct {
   sku: string;
   name: string;
   published: boolean;
+  aliases?: string[];
 }
 
 export interface ManualSalesPreview {
@@ -71,16 +72,7 @@ function readDateRange(sheet: Sheet): { start: string; end: string } {
   if (!start || !end) {
     throw new Error(`找不到商品銷售總表的日期區間：${header || "空白"}`);
   }
-  if (start > end || start.slice(0, 7) !== end.slice(0, 7)) {
-    throw new Error("商品銷售總表不能跨月份，請上傳單一完整月份的檔案。");
-  }
-  const month = start.slice(0, 7);
-  const [year, monthNumber] = month.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year ?? 0, monthNumber ?? 0, 0)).getUTCDate();
-  const expectedEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
-  if (start !== `${month}-01` || end !== expectedEnd) {
-    throw new Error("手動匯入商品銷售必須使用完整月份的檔案（從 1 號到月底）。");
-  }
+  if (start > end) throw new Error("商品銷售總表日期起日不可晚於迄日。");
   return { start, end };
 }
 
@@ -358,6 +350,9 @@ function productNameKeys(value: string): string[] {
   if (parenthesized) {
     const [, base, variant] = parenthesized;
     if (base && variant) {
+      // 舊版報表有時只帶商品主名稱，目錄則會把唯一規格附在括號裡。
+      // 先建立 base alias；若同一商品有多個規格，resolver 仍會因候選不唯一而要求人工確認。
+      aliases.add(base);
       aliases.add(`${base} - ${variant}`);
       aliases.add(`${base}-${variant}`);
     }
@@ -374,10 +369,12 @@ export function resolveManualSalesPreview(
 
   const byName = new Map<string, ManualSalesCatalogProduct[]>();
   for (const product of products) {
-    for (const key of productNameKeys(product.name)) {
-      const list = byName.get(key) ?? [];
-      if (!list.some((candidate) => candidate.sku === product.sku)) list.push(product);
-      byName.set(key, list);
+    for (const name of [product.name, ...(product.aliases ?? [])]) {
+      for (const key of productNameKeys(name)) {
+        const list = byName.get(key) ?? [];
+        if (!list.some((candidate) => candidate.sku === product.sku)) list.push(product);
+        byName.set(key, list);
+      }
     }
   }
 
