@@ -270,8 +270,10 @@ export {
   listPayoutStores,
   recordPayoutRun,
   replacePayoutStores,
+  savePayoutStore,
   seedPayoutStores,
   updatePayoutStoreEnabled,
+  deletePayoutStore,
   type PayoutStoreInput,
 } from "./payout.js";
 export {

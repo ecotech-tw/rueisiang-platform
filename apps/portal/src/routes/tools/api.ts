@@ -160,26 +160,35 @@ export function usePayoutStores() {
   });
 }
 
-export function useSavePayoutStores() {
+export type PayoutStoreDraft = Omit<PayoutStore, "id"> & { id?: string };
+export type PayoutStoreSaveInput = Partial<Omit<PayoutStore, "id">> & { id?: string };
+
+export function useSavePayoutStore() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (stores: Omit<PayoutStore, "id">[]) =>
-      call<{ stores: PayoutStore[]; syncedToRepo: boolean; committed: boolean }>(
-        "/api/tools/payout/stores",
-        { method: "PUT", body: JSON.stringify({ stores }) },
-      ),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "payout"] }),
+    mutationFn: (store: PayoutStoreSaveInput) => {
+      const { id, ...payload } = store;
+      return call<{ store: PayoutStore; syncedToRepo: boolean; committed: boolean }>(
+        id ? `/api/tools/payout/stores/${encodeURIComponent(id)}` : "/api/tools/payout/stores",
+        {
+          method: id ? "PATCH" : "POST",
+          body: JSON.stringify(payload),
+        },
+      );
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["tools", "payout"] });
+      void client.invalidateQueries({ queryKey: ["tools", "cyberbiz-sales"] });
+    },
   });
 }
 
-/** 店別顯示開關直接生效；完整店別設定仍由 useSavePayoutStores 處理。 */
-export function useTogglePayoutStore() {
+export function useDeletePayoutStore() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { id: string; enabled: boolean }) =>
-      call<{ store: PayoutStore }>(`/api/tools/payout/stores/${input.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ enabled: input.enabled }),
+    mutationFn: (id: string) =>
+      call<{ ok: true; syncedToRepo: boolean; committed: boolean }>(`/api/tools/payout/stores/${encodeURIComponent(id)}`, {
+        method: "DELETE",
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["tools", "payout"] });

@@ -1,6 +1,7 @@
 import {
   addProductSkuMapping,
   addReportSkuIgnore,
+  deletePayoutStore,
   deleteProductSkuMapping,
   deleteReportSkuIgnore,
   listCyberbizProducts,
@@ -16,6 +17,7 @@ import {
   recordPayoutRun,
   replacePayoutStores,
   upsertReportScope,
+  savePayoutStore,
   updatePayoutStoreEnabled,
   type PayoutStoreInput,
   type ProductBundleComponentInput,
@@ -141,6 +143,59 @@ function readStores(input: Record<string, unknown>): PayoutStoreInput[] {
       enabled,
     };
   });
+}
+
+function readStore(input: Record<string, unknown>): PayoutStoreInput {
+  const [store] = readStores({ stores: [input] });
+  return store!;
+}
+
+function runnerStores(stores: PayoutStoreInput[]) {
+  return stores.map(({ name, driveFolderUrl, driveFolderName }) => ({
+    name,
+    driveFolderUrl,
+    driveFolderName,
+  }));
+}
+
+async function syncPayoutStores(
+  env: AppEnv["Bindings"],
+  email: string,
+  stores: PayoutStoreInput[],
+): Promise<{ syncedToRepo: boolean; committed: boolean }> {
+  const configuredStores = runnerStores(stores);
+  const github = payoutGithub(env);
+  let pushed = false;
+  if (github) {
+    pushed = await github.pushStores({
+      stores: configuredStores,
+      message: `chore(payout): 從平台更新店別清單（${email}）`,
+    });
+  }
+
+  const salesGithub = cyberbizSalesGithub(env);
+  let salesPushed = false;
+  if (salesGithub) {
+    salesPushed = await salesGithub.pushStores({
+      stores: configuredStores,
+      message: `chore(cyberbiz-sales): 從平台更新店別清單（${email}）`,
+    });
+  }
+
+  return {
+    syncedToRepo: Boolean(github || salesGithub),
+    committed: pushed || salesPushed,
+  };
+}
+
+function assertStoreNameAvailable(
+  stores: Array<{ id: string; name: string }>,
+  candidate: PayoutStoreInput,
+  id?: string,
+): void {
+  if (stores.some((store) => store.id !== id && store.name === candidate.name)) {
+    throw new HTTPException(400, { message: `店名重複：${candidate.name}` });
+  }
 }
 
 export const tools = new Hono<AppEnv>()
@@ -394,18 +449,64 @@ export const tools = new Hono<AppEnv>()
     return c.json({ stores: await listPayoutStores(c.get("db")) });
   })
 
-  /** 顯示開關直接生效；不碰 runner 的 stores.json，也不要求重新儲存整份店別設定。 */
+  .post("/payout/stores", requirePermission("tools:payout:config"), async (c) => {
+    const input = readStore(await body(c));
+    const currentStores = await listPayoutStores(c.get("db"));
+    assertStoreNameAvailable(currentStores, input);
+
+    const sync = await syncPayoutStores(c.env, c.get("user").email, [...currentStores, input]);
+    const store = await savePayoutStore(c.get("db"), input);
+    if (!store) throw new HTTPException(500, { message: "新增店別失敗，請稍後再試。" });
+    return c.json({ store, ...sync }, 201);
+  })
+
   .patch("/payout/stores/:id", requirePermission("tools:payout:config"), async (c) => {
+    const id = c.req.param("id");
+    const currentStores = await listPayoutStores(c.get("db"));
+    const current = currentStores.find((store) => store.id === id);
+    if (!current) throw new HTTPException(404, { message: "找不到這家店。" });
+
     const input = await body(c);
-    if (typeof input.enabled !== "boolean") {
-      throw new HTTPException(400, { message: "店別顯示開關必須是布林值。" });
+    const hasStoreDetails = ["name", "driveFolderUrl", "driveFolderName"].some((field) => field in input);
+    if (!hasStoreDetails) {
+      if (typeof input.enabled !== "boolean") {
+        throw new HTTPException(400, { message: "店別顯示開關必須是布林值。" });
+      }
+      const store = await updatePayoutStoreEnabled(c.get("db"), { id, enabled: input.enabled });
+      if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
+      return c.json({ store, syncedToRepo: false, committed: false });
     }
-    const store = await updatePayoutStoreEnabled(c.get("db"), {
-      id: c.req.param("id"),
-      enabled: input.enabled,
+
+    const next = readStore({
+      name: "name" in input ? input.name : current.name,
+      driveFolderUrl: "driveFolderUrl" in input ? input.driveFolderUrl : current.driveFolderUrl,
+      driveFolderName: "driveFolderName" in input ? input.driveFolderName : current.driveFolderName,
+      enabled: "enabled" in input ? input.enabled : current.enabled,
     });
+    assertStoreNameAvailable(currentStores, next, id);
+
+    const nextStores = currentStores.map((store) => store.id === id ? next : store);
+    const sync = await syncPayoutStores(c.env, c.get("user").email, nextStores);
+    const store = await savePayoutStore(c.get("db"), { id, ...next });
     if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
-    return c.json({ store });
+    return c.json({ store, ...sync });
+  })
+
+  .delete("/payout/stores/:id", requirePermission("tools:payout:config"), async (c) => {
+    const id = c.req.param("id");
+    const currentStores = await listPayoutStores(c.get("db"));
+    if (!currentStores.some((store) => store.id === id)) {
+      throw new HTTPException(404, { message: "找不到這家店。" });
+    }
+    if (currentStores.length === 1) {
+      throw new HTTPException(400, { message: "至少要留一家店。" });
+    }
+
+    const nextStores = currentStores.filter((store) => store.id !== id);
+    const sync = await syncPayoutStores(c.env, c.get("user").email, nextStores);
+    const store = await deletePayoutStore(c.get("db"), id);
+    if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
+    return c.json({ ok: true, ...sync });
   })
 
   /**
@@ -422,35 +523,11 @@ export const tools = new Hono<AppEnv>()
     const stores = readStores(await body(c));
     if (!stores.length) throw new HTTPException(400, { message: "至少要留一家店。" });
 
-    // enabled 是平台的顯示設定，不是 runner 的設定；stores.json 維持原本的檔案格式。
-    const runnerStores = stores.map(({ name, driveFolderUrl, driveFolderName }) => ({
-      name,
-      driveFolderUrl,
-      driveFolderName,
-    }));
-
-    const github = payoutGithub(c.env);
-    let pushed = false;
-    if (github) {
-      pushed = await github.pushStores({
-        stores: runnerStores,
-        message: `chore(payout): 從平台更新店別清單（${c.get("user").email}）`,
-      });
-    }
-    const salesGithub = cyberbizSalesGithub(c.env);
-    let salesPushed = false;
-    if (salesGithub) {
-      salesPushed = await salesGithub.pushStores({
-        stores: runnerStores,
-        message: `chore(cyberbiz-sales): 從平台更新店別清單（${c.get("user").email}）`,
-      });
-    }
+    const sync = await syncPayoutStores(c.env, c.get("user").email, stores);
 
     await replacePayoutStores(c.get("db"), stores);
     return c.json({
       stores: await listPayoutStores(c.get("db")),
-      // pushed=false 有兩種可能：沒接 GitHub，或內容根本沒變。前端要分得出來。
-      syncedToRepo: Boolean(github || salesGithub),
-      committed: pushed || salesPushed,
+      ...sync,
     });
   });
