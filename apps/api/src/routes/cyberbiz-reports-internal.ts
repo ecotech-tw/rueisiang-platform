@@ -33,10 +33,12 @@ export const cyberbizReportsInternal = new Hono<AppEnv>()
         throw new CyberbizReportIngestError(422, "invalid_ingest");
       }
       const result = await createCyberbizReportIngestor(c.get("db")).ingest(body);
-      await forgetReportAnalytics(cacheClient(c.env));
       return c.json({ result }, 200);
     } catch (error) {
       if (error instanceof CyberbizReportIngestError) return c.json({ error: error.code, message: error.message }, error.status);
       throw error;
+    } finally {
+      // ingest 可能已先寫入 scope 或部分批次後才失敗；成功與失敗都要清掉報表快取。
+      await forgetReportAnalytics(cacheClient(c.env));
     }
   });

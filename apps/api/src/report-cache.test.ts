@@ -61,4 +61,24 @@ describe("營運報表快取", () => {
 
     await expect(cachedReportAnalytics(broken, "summary:payout", async () => "database")).resolves.toBe("database");
   });
+
+  it("查詢載入期間快取失效時，不會把舊結果寫進新版本", async () => {
+    const { cache, writes } = fakeCache();
+    let markLoaderStarted!: () => void;
+    const loaderStarted = new Promise<void>((resolve) => { markLoaderStarted = resolve; });
+    let finishLoader!: (value: string) => void;
+
+    const pending = cachedReportAnalytics(cache, "summary:sales?period=old", async () => {
+      markLoaderStarted();
+      return new Promise<string>((resolve) => { finishLoader = resolve; });
+    });
+
+    await loaderStarted;
+    await forgetReportAnalytics(cache);
+    await cachedReportAnalytics(cache, "summary:sales?period=new", async () => "fresh");
+    finishLoader("stale");
+
+    await expect(pending).resolves.toBe("stale");
+    expect(writes.some((entry) => entry.key.includes("summary:sales?period=old"))).toBe(false);
+  });
 });

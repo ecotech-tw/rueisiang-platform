@@ -21,6 +21,8 @@ import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { payoutGithub } from "../payout/github.js";
 import { body, requireString } from "../request.js";
+import { forgetReportAnalytics } from "../report-cache.js";
+import { cacheClient } from "../upstash.js";
 
 /** 只取字串欄位；沒帶就是 undefined（代表「這次不動它」），不是空字串。 */
 function text(input: Record<string, unknown>, field: string): string | undefined {
@@ -157,6 +159,7 @@ export const tools = new Hono<AppEnv>()
       externalSku: requireString(input, "externalSku", "外部 SKU"),
       actor: { id: user.id, email: user.email },
     });
+    await forgetReportAnalytics(cacheClient(c.env));
     return c.json(result, 201);
   })
 
@@ -171,6 +174,7 @@ export const tools = new Hono<AppEnv>()
       components: bundleComponents(input),
       actor: { id: user.id, email: user.email },
     });
+    await forgetReportAnalytics(cacheClient(c.env));
     return c.json(result);
   })
 
@@ -209,6 +213,7 @@ export const tools = new Hono<AppEnv>()
   .delete("/product-sku-mappings/:mappingId", requirePermission("tools:sku-mapping:write"), async (c) => {
     const user = c.get("user");
     await deleteProductSkuMapping(c.get("db"), c.req.param("mappingId"), { id: user.id, email: user.email });
+    await forgetReportAnalytics(cacheClient(c.env));
     return c.json({ ok: true });
   })
 

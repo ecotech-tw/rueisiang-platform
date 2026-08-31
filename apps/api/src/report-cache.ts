@@ -17,10 +17,11 @@ export async function cachedReportAnalytics<T>(
 ): Promise<T> {
   if (!cache) return loader();
 
+  let version = "";
   try {
-    let version = await cache.get(REPORT_ANALYTICS_VERSION_KEY);
-    if (!version) {
-      version = crypto.randomUUID();
+    const currentVersion = await cache.get(REPORT_ANALYTICS_VERSION_KEY);
+    version = currentVersion ?? crypto.randomUUID();
+    if (!currentVersion) {
       await cache.set(REPORT_ANALYTICS_VERSION_KEY, version, REPORT_ANALYTICS_CACHE_TTL_SECONDS);
     }
     const cached = await cache.get(`${REPORT_ANALYTICS_CACHE_PREFIX}:${version}:${key}`);
@@ -31,8 +32,10 @@ export async function cachedReportAnalytics<T>(
 
   const value = await loader();
   try {
-    const version = await cache.get(REPORT_ANALYTICS_VERSION_KEY);
-    if (version) {
+    // Loader 執行期間可能剛好有匯入失效快取；只有 miss 時捕捉到的版本仍然有效，
+    // 才能把結果寫回去，避免舊資料被寫進新的版本 namespace。
+    const currentVersion = await cache.get(REPORT_ANALYTICS_VERSION_KEY);
+    if (currentVersion === version) {
       await cache.set(
         `${REPORT_ANALYTICS_CACHE_PREFIX}:${version}:${key}`,
         JSON.stringify(value),

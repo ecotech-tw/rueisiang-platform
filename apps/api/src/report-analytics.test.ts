@@ -254,6 +254,29 @@ describe("商品銷售統計查詢", () => {
       today: "2026-08-01",
     });
     expect(missingProduct.status).toBe("NO_DATA_FOR_RANGE");
+
+    await insertReportSalesMonthly(db(), [{
+      scopeId: WEST,
+      reportMonth: "2026-06",
+      sku: "SKU-HISTORY",
+      productName: "只有歷史資料的商品",
+      category: "沐浴",
+      grossQuantity: 4,
+      returnQuantity: 0,
+      netQuantity: 4,
+      salesAmount: 400,
+    }]);
+    const noCurrentProduct = await queryReportSalesSummary(db(), {
+      range: parseReportRange("2026-07"),
+      scopeType: "company",
+      productQuery: "只有歷史資料的商品",
+      today: "2026-08-01",
+    });
+    expect(noCurrentProduct).toMatchObject({
+      status: "NO_DATA_FOR_RANGE",
+      growth: { mom: null, yoy: null },
+      quantityGrowth: { mom: null, yoy: null },
+    });
   });
 
   it("非完整月份區間回傳明確的不支援狀態", async () => {

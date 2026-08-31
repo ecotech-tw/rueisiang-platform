@@ -745,12 +745,12 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     previousQuantity,
     lastYearQuantity,
     growth: {
-      mom: currentResult ? calculateGrowth(currentMetrics.salesAmount, previous) : null,
-      yoy: currentResult ? calculateGrowth(currentMetrics.salesAmount, lastYear) : null,
+      mom: hasCurrentData ? calculateGrowth(currentMetrics.salesAmount, previous) : null,
+      yoy: hasCurrentData ? calculateGrowth(currentMetrics.salesAmount, lastYear) : null,
     },
     quantityGrowth: {
-      mom: currentResult ? calculateGrowth(currentMetrics.netQuantity, previousQuantity) : null,
-      yoy: currentResult ? calculateGrowth(currentMetrics.netQuantity, lastYearQuantity) : null,
+      mom: hasCurrentData ? calculateGrowth(currentMetrics.netQuantity, previousQuantity) : null,
+      yoy: hasCurrentData ? calculateGrowth(currentMetrics.netQuantity, lastYearQuantity) : null,
     },
     salesAmount: currentMetrics.salesAmount,
     grossQuantity: currentMetrics.grossQuantity,
