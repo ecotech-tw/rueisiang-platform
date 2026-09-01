@@ -1178,13 +1178,11 @@ function PayoutFilters({
   const active = hasPayoutFilters(filters);
   return (
     <form className="admin-form toolbar manual-report-filters" onSubmit={(event) => event.preventDefault()}>
-      <FilterInput
+      <SearchFilterInput
         label="搜尋出金紀錄"
-        className="search-input"
-        type="search"
         placeholder="搜尋據點或日期"
         value={filters.search}
-        onChange={(event) => onChange({ search: event.target.value })}
+        onSearch={(search) => onChange({ search })}
       />
       <FilterSelect
         label="出金據點"
@@ -1227,13 +1225,11 @@ function SalesFilters({
   const active = hasSalesFilters(filters);
   return (
     <form className="admin-form toolbar manual-report-filters" onSubmit={(event) => event.preventDefault()}>
-      <FilterInput
+      <SearchFilterInput
         label="搜尋商品銷售紀錄"
-        className="search-input"
-        type="search"
         placeholder="搜尋據點、SKU、商品或分類"
         value={filters.search}
-        onChange={(event) => onChange({ search: event.target.value })}
+        onSearch={(search) => onChange({ search })}
       />
       <FilterSelect
         label="商品銷售據點"
@@ -1261,6 +1257,52 @@ function SalesFilters({
       />
       {active ? <Button variant="link" onClick={() => onChange({ ...DEFAULT_SALES_FILTERS })}>清除篩選</Button> : null}
     </form>
+  );
+}
+
+/*
+ * 搜尋框要延遲送出。這兩份列表的每一次查詢都是一輪全表掃描（UNION ALL 派生表
+ * 沒辦法用索引排序，連第一頁都要整份撈出來排），逐字送等於每個字元一次全掃。
+ */
+const SEARCH_DEBOUNCE_MS = 400;
+
+function SearchFilterInput({
+  label,
+  placeholder,
+  value,
+  onSearch,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onSearch: (search: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const onSearchRef = useRef(onSearch);
+  useEffect(() => {
+    onSearchRef.current = onSearch;
+  });
+
+  // 外部把篩選清掉時（例如「清除篩選」）輸入框要跟著回到那個值。
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  useEffect(() => {
+    if (draft === value) return;
+    const timeoutId = window.setTimeout(() => onSearchRef.current(draft), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [draft, value]);
+
+  return (
+    <FilterInput
+      label={label}
+      className="search-input"
+      type="search"
+      placeholder={placeholder}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+    />
   );
 }
 
