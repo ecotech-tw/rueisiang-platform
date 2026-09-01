@@ -3327,6 +3327,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .analytics-kpi strong { overflow: hidden; color: var(--color-ink); font-size: clamp(19px, 2.1vw, 27px); line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .analytics-kpi-primary strong { color: var(--color-brand-dark); }
 .analytics-kpi small { overflow: hidden; color: var(--color-muted); font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.analytics-kpi strong[title],
 .analytics-kpi small[title] { cursor: help; }
 .analytics-refreshing { margin: -4px 0 0; color: var(--color-muted); font-size: 12px; }
 

@@ -65,6 +65,14 @@ export function AnalyticsLegend({ payload, formatValue }: AnalyticsLegendProps):
   );
 }
 
+/**
+ * KPI 卡的數字寬度固定不下來（NT$ 加七位數在窄欄一定超出），CSS 只能截斷成
+ * 「NT$3,011…」。title 讓 hover 讀得到完整值，跟卡片小字的提示同一套做法。
+ */
+export function AnalyticsKpiValue({ children }: { children: string }) {
+  return <strong title={children}>{children}</strong>;
+}
+
 export interface AnalyticsDataDialogProps {
   title: ReactNode;
   description?: ReactNode;

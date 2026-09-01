@@ -4,6 +4,7 @@ import { Alert, Button, Panel } from "../../../ui/index.js";
 import { CategoryBreakdownChart } from "./charts/CategoryBreakdownChart.js";
 import { ChannelBreakdownChart } from "./charts/ChannelBreakdownChart.js";
 import { SalesTrendChart } from "./charts/SalesTrendChart.js";
+import { AnalyticsKpiValue } from "./charts/ChartPrimitives.js";
 import { TopSkuChart } from "./charts/TopSkuChart.js";
 import {
   ReportApiError,
@@ -162,34 +163,34 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
       <div className={`analytics-kpi-grid analytics-sales-kpi-grid${isAnnual ? " annual" : ""}`}>
         <article className="analytics-kpi analytics-kpi-primary">
           <span>本期淨銷量</span>
-          <strong>{formatQuantity(summary.netQuantity)}</strong>
+          <AnalyticsKpiValue>{formatQuantity(summary.netQuantity)}</AnalyticsKpiValue>
           <small>毛銷量 {formatQuantity(summary.grossQuantity)}，退貨 {formatQuantity(summary.returnQuantity)}</small>
         </article>
         {!isAnnual ? (
           <article className="analytics-kpi">
             <span>銷量 MoM</span>
-            <strong>{formatPercent(summary.quantityGrowth.mom)}</strong>
+            <AnalyticsKpiValue>{formatPercent(summary.quantityGrowth.mom)}</AnalyticsKpiValue>
             <small title={growthHint("上期淨銷量", summary.quantityGrowth.mom, summary.previousQuantity)}>{growthHint("上期淨銷量", summary.quantityGrowth.mom, summary.previousQuantity)}</small>
           </article>
         ) : null}
         <article className="analytics-kpi">
           <span>銷量 YoY</span>
-          <strong>{formatPercent(summary.quantityGrowth.yoy)}</strong>
+          <AnalyticsKpiValue>{formatPercent(summary.quantityGrowth.yoy)}</AnalyticsKpiValue>
           <small title={growthHint("去年同期淨銷量", summary.quantityGrowth.yoy, summary.lastYearQuantity)}>{growthHint("去年同期淨銷量", summary.quantityGrowth.yoy, summary.lastYearQuantity)}</small>
         </article>
         <article className="analytics-kpi">
           <span>銷售額</span>
-          <strong>{formatCurrency(summary.salesAmount)}</strong>
+          <AnalyticsKpiValue>{formatCurrency(summary.salesAmount)}</AnalyticsKpiValue>
           <small>{summary.current.start} ～ {summary.current.end}，僅作參考</small>
         </article>
         <article className="analytics-kpi">
           <span>退貨率</span>
-          <strong>{formatRate(summary.returnRate)}</strong>
+          <AnalyticsKpiValue>{formatRate(summary.returnRate)}</AnalyticsKpiValue>
           <small>退貨量 ÷ 毛銷量</small>
         </article>
         <article className="analytics-kpi">
           <span>有銷售 SKU</span>
-          <strong>{formatQuantity(summary.skuCount)}</strong>
+          <AnalyticsKpiValue>{formatQuantity(summary.skuCount)}</AnalyticsKpiValue>
           <small>本期有交易的商品</small>
         </article>
       </div>
@@ -207,7 +208,7 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
           />
           <div className="analytics-chart-column">
             <CategoryBreakdownChart breakdown={summary.byCategory} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
-            <ChannelBreakdownChart breakdown={summary.breakdown} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
+            <ChannelBreakdownChart metric="quantity" breakdown={summary.breakdown} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
           </div>
           <div className="analytics-chart-column">
             <TopSkuChart
@@ -219,6 +220,7 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
               valueFormatter={formatCurrency}
               quantityFormatter={formatQuantity}
             />
+            <ChannelBreakdownChart metric="amount" breakdown={summary.breakdown} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
           </div>
         </div>
         {busy ? <ChartMask label={busyLabel} /> : null}
