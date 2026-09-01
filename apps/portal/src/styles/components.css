@@ -3406,7 +3406,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .tooltip {
   position: fixed;
   z-index: 90;
-  transform: translate(-50%, calc(-100% - 8px));
+  /* 垂直位置由 JS 決定（上方放不下要翻到下方），這裡只負責水平置中。 */
+  transform: translateX(-50%);
   max-width: 280px;
   padding: 6px 12px;
   border-radius: 10px;
@@ -3416,7 +3417,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-size: 12px;
   font-weight: 500;
   line-height: 1.5;
-  white-space: nowrap;
+  /* 不能 nowrap：KPI 的成長率說明是整句中文，會拉成比螢幕還寬的一條。 */
+  overflow-wrap: anywhere;
   pointer-events: none;
   font-variant-numeric: tabular-nums;
 }
