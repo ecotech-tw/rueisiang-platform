@@ -54,16 +54,17 @@ beforeEach(async () => {
 });
 
 describe("系統角色同步", () => {
-  it("缺少角色時可以安全地並行同步", async () => {
-    await db().delete(roles).where(eq(roles.key, "manager"));
+  it("全新的資料庫可以安全地並行建立初始角色", async () => {
+    const freshD1 = createLocalD1();
+    const freshDb = createDatabase(freshD1 as never);
 
-    await Promise.all([syncSystemRoles(db()), syncSystemRoles(db())]);
+    await Promise.all([syncSystemRoles(freshDb), syncSystemRoles(freshDb)]);
 
-    const managerRows = await db().select({ id: roles.id }).from(roles).where(eq(roles.key, "manager"));
+    const managerRows = await freshDb.select({ id: roles.id }).from(roles).where(eq(roles.key, "manager"));
     expect(managerRows).toHaveLength(1);
     const managerId = managerRows[0]?.id;
     expect(managerId).toBeTruthy();
-    const managerPermissions = await db().select().from(rolePermissions).where(eq(rolePermissions.roleId, managerId!));
+    const managerPermissions = await freshDb.select().from(rolePermissions).where(eq(rolePermissions.roleId, managerId!));
     expect(managerPermissions.length).toBeGreaterThan(0);
   });
 });
@@ -542,6 +543,18 @@ describe("自訂角色", () => {
       roles: { key: string }[];
     };
     expect(after.roles.find((role) => role.key === "manager")).toBeUndefined();
+  });
+
+  it("刪除初始角色後重新同步不會把它重建", async () => {
+    const admin = await seedUser("admin@ecotech.tw", "role-admin");
+
+    const deleted = await as(admin, "admin@ecotech.tw", "/api/admin/roles/manager", { method: "DELETE" });
+    expect(deleted.status).toBe(200);
+
+    const synced = await as(admin, "admin@ecotech.tw", "/api/admin/roles/sync", { method: "POST" });
+    expect(synced.status).toBe(200);
+    const body = (await synced.json()) as { roles: { key: string }[] };
+    expect(body.roles.find((role) => role.key === "manager")).toBeUndefined();
   });
 
   it("管理員角色仍受保護", async () => {
