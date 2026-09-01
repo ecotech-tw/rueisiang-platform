@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Button, Dialog } from "../../../../ui/index.js";
+import { Button, Dialog, Tooltip } from "../../../../ui/index.js";
 
 export interface ChartTooltipEntry {
   name?: string;
@@ -62,6 +62,27 @@ export function AnalyticsLegend({ payload, formatValue }: AnalyticsLegendProps):
         </span>
       ))}
     </div>
+  );
+}
+
+/**
+ * KPI 卡的數字寬度固定不下來（NT$ 加七位數在窄欄一定超出），CSS 只能截斷成
+ * 「NT$3,011…」，所以完整值放進 tooltip。
+ */
+export function AnalyticsKpiValue({ children }: { children: string }) {
+  return (
+    <Tooltip label={children} className="analytics-kpi-value">
+      <strong>{children}</strong>
+    </Tooltip>
+  );
+}
+
+/** KPI 卡下方那行成長率說明，句子比欄寬長，同樣交給 tooltip。 */
+export function AnalyticsKpiHint({ children }: { children: string }) {
+  return (
+    <Tooltip label={children} className="analytics-kpi-hint">
+      <small>{children}</small>
+    </Tooltip>
   );
 }
 

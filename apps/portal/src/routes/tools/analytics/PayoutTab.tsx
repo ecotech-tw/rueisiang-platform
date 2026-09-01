@@ -1,5 +1,6 @@
 import { Icon } from "../../../shell/icons.js";
 import { Alert, Panel } from "../../../ui/index.js";
+import { AnalyticsKpiHint, AnalyticsKpiValue } from "./charts/ChartPrimitives.js";
 import { PayoutTrendChart } from "./charts/PayoutTrendChart.js";
 import { ScopeBreakdownChart } from "./charts/ScopeBreakdownChart.js";
 import { ReportApiError, usePayoutSummary, type AnalyticsQuery } from "./api.js";
@@ -76,29 +77,29 @@ export function PayoutTab({ query, scopeLabel, enabled }: PayoutTabProps) {
       <div className={isAnnual ? "analytics-kpi-grid annual" : "analytics-kpi-grid"}>
         <article className="analytics-kpi analytics-kpi-primary">
           <span>本期出金</span>
-          <strong>{formatCurrency(summary.current.total)}</strong>
+          <AnalyticsKpiValue>{formatCurrency(summary.current.total)}</AnalyticsKpiValue>
           <small>{summary.current.start} ～ {summary.current.end}</small>
         </article>
         {!isAnnual ? (
           <article className="analytics-kpi">
             <span>MoM</span>
-            <strong>{formatPercent(summary.growth.mom)}</strong>
-            <small title={growthHint("上期", summary.growth.mom, summary.previous)}>{growthHint("上期", summary.growth.mom, summary.previous)}</small>
+            <AnalyticsKpiValue>{formatPercent(summary.growth.mom)}</AnalyticsKpiValue>
+            <AnalyticsKpiHint>{growthHint("上期", summary.growth.mom, summary.previous)}</AnalyticsKpiHint>
           </article>
         ) : null}
         <article className="analytics-kpi">
           <span>YoY</span>
-          <strong>{formatPercent(summary.growth.yoy)}</strong>
-          <small title={growthHint("去年同期", summary.growth.yoy, summary.lastYear)}>{growthHint("去年同期", summary.growth.yoy, summary.lastYear)}</small>
+          <AnalyticsKpiValue>{formatPercent(summary.growth.yoy)}</AnalyticsKpiValue>
+          <AnalyticsKpiHint>{growthHint("去年同期", summary.growth.yoy, summary.lastYear)}</AnalyticsKpiHint>
         </article>
         <article className="analytics-kpi">
           <span>日均出金</span>
-          <strong>{summary.dailyAverage === null ? "—" : formatCurrency(summary.dailyAverage)}</strong>
+          <AnalyticsKpiValue>{summary.dailyAverage === null ? "—" : formatCurrency(summary.dailyAverage)}</AnalyticsKpiValue>
           <small>{summary.dataDays ? `以 ${summary.dataDays} 天有資料日計算` : "沒有可計算的資料日"}</small>
         </article>
         <article className="analytics-kpi">
           <span>最高單日</span>
-          <strong>{summary.highestDay ? formatCurrency(summary.highestDay.value) : "—"}</strong>
+          <AnalyticsKpiValue>{summary.highestDay ? formatCurrency(summary.highestDay.value) : "—"}</AnalyticsKpiValue>
           <small>{summary.highestDay ? formatDate(summary.highestDay.date) : "沒有可顯示的日期"}</small>
         </article>
       </div>
