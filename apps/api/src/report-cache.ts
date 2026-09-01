@@ -62,11 +62,23 @@ export function createReportAnalyticsCache(cache: CacheClient | undefined): Repo
       let version: string;
       try {
         version = await (sharedVersion ??= currentVersion());
-        const cached = await cache.get(`${REPORT_ANALYTICS_CACHE_PREFIX}:${version}:${key}`);
-        if (cached !== null) return { value: JSON.parse(cached) as T, status: "hit" };
       } catch (error) {
         // 版本讀失敗會被記在共用的 promise 裡，重設才不會讓同一次請求的其他 key 全部跟著壞。
         sharedVersion = undefined;
+        console.warn("報表快取版本讀取失敗，改查資料庫", { key, error: String(error) });
+        return { value: await loader(), status: "error" };
+      }
+
+      try {
+        const cached = await cache.get(`${REPORT_ANALYTICS_CACHE_PREFIX}:${version}:${key}`);
+        if (cached !== null) return { value: JSON.parse(cached) as T, status: "hit" };
+      } catch (error) {
+        /*
+         * 單一 entry 讀不到或內容壞掉不代表版本有問題，所以不動 sharedVersion——
+         * 丟掉一個有效的版本會讓同一次請求的其他 key 重跑一趟版本讀取，正是這裡
+         * 要省的那一趟；剛好碰上版本到期的話還會鑄一個新版本，把 sibling 剛寫進去
+         * 的 entry 變成孤兒。
+         */
         console.warn("報表快取讀取失敗，改查資料庫", { key, error: String(error) });
         return { value: await loader(), status: "error" };
       }
