@@ -17,6 +17,8 @@ interface SalesTabProps {
   scopeLabel: string;
   enabled: boolean;
   productQuery: string;
+  /** 商品關鍵字還在 debounce、尚未送出查詢時也要遮住圖表，不然畫面看起來像沒反應。 */
+  searchPending: boolean;
   onClearProduct: () => void;
 }
 
@@ -65,7 +67,7 @@ function importerKeys(query: AnalyticsQuery): SalesImporterKey[] {
   return ["cyberbiz", "shopee"];
 }
 
-export function SalesTab({ query, scopeLabel, enabled, productQuery, onClearProduct }: SalesTabProps) {
+export function SalesTab({ query, scopeLabel, enabled, productQuery, searchPending, onClearProduct }: SalesTabProps) {
   const [topSkuBy, setTopSkuBy] = useState<SalesTopSkuMetric>("netQuantity");
   const result = useSalesSummary(query, topSkuBy, enabled);
 
@@ -113,6 +115,8 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, onClearProd
     );
   }
 
+  const busy = searchPending || result.isFetching;
+  const busyLabel = productQuery ? `正在搜尋「${productQuery}」…` : "正在更新圖表…";
   const isAnnual = /^\d{4}$/u.test(summary.period);
   const asOf = summary.complete || !summary.asOfDate ? null : `截至 ${formatDate(summary.asOfDate)}`;
   return (
@@ -166,29 +170,39 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, onClearProd
 
       {result.isFetching ? <p className="analytics-refreshing" role="status">正在更新統計…</p> : null}
 
-      <div className="analytics-chart-grid analytics-sales-chart-grid">
-        <SalesTrendChart
-          current={summary.currentQuantity}
-          trend={summary.trendQuantity}
-          lastYear={summary.lastYearQuantity}
-          granularity={summary.granularity}
-          valueFormatter={formatQuantity}
-        />
-        <div className="analytics-chart-column">
-          <CategoryBreakdownChart breakdown={summary.byCategory} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
-          <ChannelBreakdownChart breakdown={summary.breakdown} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
-        </div>
-        <div className="analytics-chart-column">
-          <TopSkuChart
-            rows={summary.byTopSku}
-            allRows={summary.bySku}
-            metric={topSkuBy}
-            loading={summary.topSkuBy !== topSkuBy}
-            onMetricChange={setTopSkuBy}
-            valueFormatter={formatCurrency}
+      <div className="analytics-chart-region">
+        <div className="analytics-chart-grid analytics-sales-chart-grid" aria-busy={busy}>
+          <SalesTrendChart
+            quantity={{ current: summary.currentQuantity, trend: summary.trendQuantity, lastYear: summary.lastYearQuantity }}
+            amount={{ current: summary.current, trend: summary.trend, lastYear: summary.lastYear }}
+            granularity={summary.granularity}
             quantityFormatter={formatQuantity}
+            amountFormatter={formatCurrency}
           />
+          <div className="analytics-chart-column">
+            <CategoryBreakdownChart breakdown={summary.byCategory} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
+            <ChannelBreakdownChart breakdown={summary.breakdown} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
+          </div>
+          <div className="analytics-chart-column">
+            <TopSkuChart
+              rows={summary.byTopSku}
+              allRows={summary.bySku}
+              metric={topSkuBy}
+              loading={summary.topSkuBy !== topSkuBy}
+              onMetricChange={setTopSkuBy}
+              valueFormatter={formatCurrency}
+              quantityFormatter={formatQuantity}
+            />
+          </div>
         </div>
+        {busy ? (
+          <div className="analytics-chart-mask" role="status" aria-live="polite">
+            <span className="analytics-chart-mask-card">
+              <Icon name="search" />
+              {busyLabel}
+            </span>
+          </div>
+        ) : null}
       </div>
     </div>
   );

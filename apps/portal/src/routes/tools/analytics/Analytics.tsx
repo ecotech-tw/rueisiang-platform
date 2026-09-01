@@ -260,6 +260,7 @@ export function Analytics() {
             scopeLabel={scopeLabel}
             enabled={ready}
             productQuery={productParam}
+            searchPending={productDraft.trim() !== productParam.trim()}
             onClearProduct={() => setFilter({ product: null })}
           />
         )}

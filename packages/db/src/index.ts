@@ -120,7 +120,6 @@ export {
 } from "./cyberbiz-reports.js";
 export {
   findReportScope,
-  deleteReportPayoutDaily,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
   isValidReportDate,
@@ -132,7 +131,6 @@ export {
   queryReportSales,
   scopeIdsForQuery,
   isCompanyReportStoreScopeId,
-  updateReportPayoutDaily,
   ReportScopeAmbiguousError,
   upsertReportScope,
   type ReportGroupBy,
