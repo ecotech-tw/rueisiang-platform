@@ -51,7 +51,7 @@ export const users = sqliteTable("users", {
   uniqueIndex("idx_users_invitation_token_hash").on(table.invitationTokenHash),
 ]);
 
-/** 角色。isSystem 的角色不允許從 UI 刪除。 */
+/** 角色。只有管理員角色使用 isSystem 保護，其餘角色都可由管理者維護。 */
 export const roles = sqliteTable("roles", {
   id: text("id").primaryKey(),
   key: text("key").notNull(),
