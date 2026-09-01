@@ -1,9 +1,11 @@
 import type { Database } from "./client.js";
 import { reportDataChannel } from "./product-sku-mappings.js";
 import {
+  createReportScopeDirectory,
   queryReportPayout,
   queryReportSales,
   type ReportPayoutQueryResult,
+  type ReportScopeDirectory,
   type ReportRange,
   type ReportScopeKind,
   type ReportSalesQueryResult,
@@ -471,16 +473,16 @@ function reportQuery(query: ReportAnalyticsQuery, range: ReportRange) {
   };
 }
 
-async function queryPayoutDays(db: Database, query: ReportAnalyticsQuery, range: ReportRange): Promise<ReportPayoutDay[] | null> {
-  return payoutDays(await queryReportPayout(db, reportQuery(query, range)));
+async function queryPayoutDays(db: Database, query: ReportAnalyticsQuery, range: ReportRange, directory: ReportScopeDirectory): Promise<ReportPayoutDay[] | null> {
+  return payoutDays(await queryReportPayout(db, reportQuery(query, range), directory));
 }
 
-async function queryPayoutScopes(db: Database, query: ReportAnalyticsQuery, range: ReportRange): Promise<ReportPayoutQueryResult | null> {
-  return queryReportPayout(db, { ...reportQuery(query, range), groupBy: ["scope"] });
+async function queryPayoutScopes(db: Database, query: ReportAnalyticsQuery, range: ReportRange, directory: ReportScopeDirectory): Promise<ReportPayoutQueryResult | null> {
+  return queryReportPayout(db, { ...reportQuery(query, range), groupBy: ["scope"] }, directory);
 }
 
-async function querySalesMonths(db: Database, query: ReportAnalyticsQuery, range: ReportRange): Promise<ReportSalesQueryResult | null> {
-  return queryReportSales(db, { ...reportQuery(query, range), groupBy: ["month"] });
+async function querySalesMonths(db: Database, query: ReportAnalyticsQuery, range: ReportRange, directory: ReportScopeDirectory): Promise<ReportSalesQueryResult | null> {
+  return queryReportSales(db, { ...reportQuery(query, range), groupBy: ["month"] }, directory);
 }
 
 function scopeName(row: Record<string, unknown>): string {
@@ -517,16 +519,18 @@ function growthForScope(value: number, scopeIdValue: string, lastYearValues: Map
 }
 
 export async function queryReportPayoutSummary(db: Database, query: ReportAnalyticsQuery): Promise<ReportPayoutSummary> {
+  // 一份統計要查五次，店別名冊共用一份就好，不必每次都重讀 report_scopes。
+  const directory = createReportScopeDirectory(db);
   const comparison = buildReportComparisonRanges(query.range, query.today);
-  const currentDays = await queryPayoutDays(db, query, comparison.current);
-  const previousDays = await queryPayoutDays(db, query, comparison.previous);
-  const lastYearDays = await queryPayoutDays(db, query, comparison.lastYear);
+  const currentDays = await queryPayoutDays(db, query, comparison.current, directory);
+  const previousDays = await queryPayoutDays(db, query, comparison.previous, directory);
+  const lastYearDays = await queryPayoutDays(db, query, comparison.lastYear, directory);
   const current = payoutRange(comparison.current, currentDays, comparison.granularity)
     ?? rangeFromPoints(comparison.current, []);
   const previous = payoutRange(comparison.previous, previousDays, comparison.granularity);
   const lastYear = payoutRange(comparison.lastYear, lastYearDays, comparison.granularity);
-  const currentScopeResult = await queryPayoutScopes(db, query, comparison.current);
-  const lastYearScopeResult = await queryPayoutScopes(db, query, comparison.lastYear);
+  const currentScopeResult = await queryPayoutScopes(db, query, comparison.current, directory);
+  const lastYearScopeResult = await queryPayoutScopes(db, query, comparison.lastYear, directory);
   const lastYearScopeValues = scopeValueMap(lastYearScopeResult);
   const breakdown = (currentScopeResult?.rows ?? []).flatMap((row) => {
     const id = scopeId(row);
@@ -580,9 +584,11 @@ function rowMetric(row: Record<string, unknown>, metric: SalesTopSkuMetric): num
 }
 
 export async function queryReportSalesSummary(db: Database, query: ReportAnalyticsQuery): Promise<ReportSalesSummary> {
+  // 一份統計要查八次，店別名冊共用一份就好，不必每次都重讀 report_scopes。
+  const directory = createReportScopeDirectory(db);
   const comparison = buildSalesComparisonRanges(query.range, query.today);
   const topSkuBy = query.topSkuBy ?? "salesAmount";
-  const currentResult = await querySalesMonths(db, query, comparison.current);
+  const currentResult = await querySalesMonths(db, query, comparison.current, directory);
   const currentMetrics = salesMetrics(currentResult);
   const current = salesRangeFromResult(comparison.current, currentResult, salesGranularityOf(query.range))
     ?? rangeFromPoints(comparison.current, []);
@@ -590,10 +596,10 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     ?? rangeFromPoints(comparison.current, []);
   const previousResult = currentResult?.status === "UNSUPPORTED_GRANULARITY"
     ? null
-    : await querySalesMonths(db, query, comparison.previous);
+    : await querySalesMonths(db, query, comparison.previous, directory);
   const lastYearResult = currentResult?.status === "UNSUPPORTED_GRANULARITY"
     ? null
-    : await querySalesMonths(db, query, comparison.lastYear);
+    : await querySalesMonths(db, query, comparison.lastYear, directory);
   const previous = salesRangeFromResult(comparison.previous, previousResult, salesGranularityOf(query.range));
   const lastYear = salesRangeFromResult(comparison.lastYear, lastYearResult, salesGranularityOf(query.range));
   const previousQuantity = salesRange(comparison.previous, previousResult, salesGranularityOf(query.range), "netQuantity");
@@ -631,8 +637,8 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     };
   }
 
-  const currentScopeResult = await queryReportSales(db, { ...reportQuery(query, comparison.current), groupBy: ["scope"] });
-  const lastYearScopeResult = await queryReportSales(db, { ...reportQuery(query, comparison.lastYear), groupBy: ["scope"] });
+  const currentScopeResult = await queryReportSales(db, { ...reportQuery(query, comparison.current), groupBy: ["scope"] }, directory);
+  const lastYearScopeResult = await queryReportSales(db, { ...reportQuery(query, comparison.lastYear), groupBy: ["scope"] }, directory);
   const lastYearScopeValues = salesScopeValueMap(lastYearScopeResult);
   const breakdown = (currentScopeResult?.rows ?? []).flatMap((row) => {
     const id = scopeId(row);
@@ -653,7 +659,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     }];
   }).sort((left, right) => right.netQuantity - left.netQuantity);
 
-  const categoryResult = await queryReportSales(db, { ...reportQuery(query, comparison.current), groupBy: ["category"] });
+  const categoryResult = await queryReportSales(db, { ...reportQuery(query, comparison.current), groupBy: ["category"] }, directory);
   const byCategory = (categoryResult?.rows ?? []).flatMap((row) => {
     const category = stringValue(row, "category") ?? "未分類";
     const value = numberValue(row, "salesAmount");
@@ -668,7 +674,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     }];
   }).sort((left, right) => right.netQuantity - left.netQuantity);
 
-  const skuResult = await queryReportSales(db, { ...reportQuery(query, comparison.current), groupBy: ["sku"] });
+  const skuResult = await queryReportSales(db, { ...reportQuery(query, comparison.current), groupBy: ["sku"] }, directory);
   const skuRows = skuResult?.rows ?? [];
   const activeSkuRows = skuRows.filter((row) => (
     numberValue(row, "grossQuantity") !== 0
@@ -720,7 +726,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
   const skuCount = activeSkuRows.length;
   const trendRange = salesTrendRange(query.range);
   const trendResult = trendRange && currentResult
-    ? await querySalesMonths(db, query, trendRange)
+    ? await querySalesMonths(db, query, trendRange, directory)
     : null;
   const trend = currentResult
     ? trendRange
