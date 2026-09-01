@@ -188,6 +188,33 @@ CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`）�
   不要引入圖示字型。
 - **焦點** 一律有 `:focus-visible` 外框，鍵盤操作看得到自己在哪裡。
 
+### 提示（Tooltip）
+
+**用 `ui/Tooltip.tsx`，不要用瀏覽器原生的 `title`。** 原生的要等一秒多才出現、
+字級與圓角完全不歸我們管，而且在觸控裝置上根本不會出現——等於那段文字只有
+一部分使用者讀得到。
+
+這是 Material 的 plain tooltip（純文字一行）。需要標題、段落或按鈕的是
+rich tooltip，目前沒有這種需求，真的要做再開一個元件，不要把 plain 撐大。
+
+| 項目 | 規格 |
+|---|---|
+| 出現時機 | hover 或 focus **立刻**，不延遲 |
+| 底色與文字 | `--color-ink` 底、`--color-canvas` 字（Material 的 inverse surface） |
+| 字級 | 12px、字重 500 |
+| 圓角 | 10px，屬於上面「輸入框與小元件 9–12px」那一段 |
+| 位置 | 元素正上方 8px、水平置中 |
+| 內容 | 純文字一行；`white-space: nowrap` |
+
+**位置一定要 `position: fixed` 加 `getBoundingClientRect`**，不可以用相對定位。
+KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的提示會被裁掉一半，
+而且那種 bug 只在內容夠長時才出現，平常測不到。
+
+錨點要 `tabIndex={0}` 與 `aria-describedby`，鍵盤才走得到、讀螢幕的人才讀得到。
+
+**提示只放「補充」，不放唯一的資訊。** 被截斷的數字、太長的說明句適合放這裡；
+操作說明、錯誤原因、必要的欄位規則要寫在畫面上——沒有滑鼠的人不該因此少一段。
+
 ### 資料表
 
 | 項目 | 規格 |
