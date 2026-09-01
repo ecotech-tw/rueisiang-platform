@@ -1,6 +1,6 @@
 import { Icon } from "../../../shell/icons.js";
 import { Alert, Panel } from "../../../ui/index.js";
-import { AnalyticsKpiValue } from "./charts/ChartPrimitives.js";
+import { AnalyticsKpiHint, AnalyticsKpiValue } from "./charts/ChartPrimitives.js";
 import { PayoutTrendChart } from "./charts/PayoutTrendChart.js";
 import { ScopeBreakdownChart } from "./charts/ScopeBreakdownChart.js";
 import { ReportApiError, usePayoutSummary, type AnalyticsQuery } from "./api.js";
@@ -84,13 +84,13 @@ export function PayoutTab({ query, scopeLabel, enabled }: PayoutTabProps) {
           <article className="analytics-kpi">
             <span>MoM</span>
             <AnalyticsKpiValue>{formatPercent(summary.growth.mom)}</AnalyticsKpiValue>
-            <small title={growthHint("上期", summary.growth.mom, summary.previous)}>{growthHint("上期", summary.growth.mom, summary.previous)}</small>
+            <AnalyticsKpiHint>{growthHint("上期", summary.growth.mom, summary.previous)}</AnalyticsKpiHint>
           </article>
         ) : null}
         <article className="analytics-kpi">
           <span>YoY</span>
           <AnalyticsKpiValue>{formatPercent(summary.growth.yoy)}</AnalyticsKpiValue>
-          <small title={growthHint("去年同期", summary.growth.yoy, summary.lastYear)}>{growthHint("去年同期", summary.growth.yoy, summary.lastYear)}</small>
+          <AnalyticsKpiHint>{growthHint("去年同期", summary.growth.yoy, summary.lastYear)}</AnalyticsKpiHint>
         </article>
         <article className="analytics-kpi">
           <span>日均出金</span>

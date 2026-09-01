@@ -4,7 +4,7 @@ import { Alert, Button, Panel } from "../../../ui/index.js";
 import { CategoryBreakdownChart } from "./charts/CategoryBreakdownChart.js";
 import { ChannelBreakdownChart } from "./charts/ChannelBreakdownChart.js";
 import { SalesTrendChart } from "./charts/SalesTrendChart.js";
-import { AnalyticsKpiValue } from "./charts/ChartPrimitives.js";
+import { AnalyticsKpiHint, AnalyticsKpiValue } from "./charts/ChartPrimitives.js";
 import { TopSkuChart } from "./charts/TopSkuChart.js";
 import {
   ReportApiError,
@@ -170,13 +170,13 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
           <article className="analytics-kpi">
             <span>銷量 MoM</span>
             <AnalyticsKpiValue>{formatPercent(summary.quantityGrowth.mom)}</AnalyticsKpiValue>
-            <small title={growthHint("上期淨銷量", summary.quantityGrowth.mom, summary.previousQuantity)}>{growthHint("上期淨銷量", summary.quantityGrowth.mom, summary.previousQuantity)}</small>
+            <AnalyticsKpiHint>{growthHint("上期淨銷量", summary.quantityGrowth.mom, summary.previousQuantity)}</AnalyticsKpiHint>
           </article>
         ) : null}
         <article className="analytics-kpi">
           <span>銷量 YoY</span>
           <AnalyticsKpiValue>{formatPercent(summary.quantityGrowth.yoy)}</AnalyticsKpiValue>
-          <small title={growthHint("去年同期淨銷量", summary.quantityGrowth.yoy, summary.lastYearQuantity)}>{growthHint("去年同期淨銷量", summary.quantityGrowth.yoy, summary.lastYearQuantity)}</small>
+          <AnalyticsKpiHint>{growthHint("去年同期淨銷量", summary.quantityGrowth.yoy, summary.lastYearQuantity)}</AnalyticsKpiHint>
         </article>
         <article className="analytics-kpi">
           <span>銷售額</span>

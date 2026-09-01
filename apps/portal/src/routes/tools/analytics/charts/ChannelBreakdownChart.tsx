@@ -12,14 +12,25 @@ import { Panel } from "../../../../ui/index.js";
 import { AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
 import type { SalesBreakdown } from "../api.js";
 
-const CHANNEL_COLORS: Record<string, string> = {
-  cyberbiz: "var(--color-tone-sky)",
-  shopee: "var(--color-tone-amber)",
-  other: "var(--color-tone-slate)",
-};
-
 /** 銷量與銷售額是同一份 breakdown 的兩種讀法，圖表本身完全一樣，只有取值與文案不同。 */
 export type ChannelMetric = "quantity" | "amount";
+
+/*
+ * 兩張圖各一組色。同一張圖裡還是「一個通路一個顏色」，看得出哪幾條是蝦皮；
+ * 但兩張圖並排時色系要分得開，不然只看顏色會分不出自己在看銷量還是銷售額。
+ */
+const CHANNEL_COLORS: Record<ChannelMetric, Record<string, string>> = {
+  quantity: {
+    cyberbiz: "var(--color-tone-sky)",
+    shopee: "var(--color-tone-amber)",
+    other: "var(--color-tone-slate)",
+  },
+  amount: {
+    cyberbiz: "var(--color-tone-mint)",
+    shopee: "var(--color-tone-peach)",
+    other: "var(--color-tone-violet)",
+  },
+};
 
 interface ChannelBreakdownChartProps {
   breakdown: SalesBreakdown[];
@@ -51,6 +62,7 @@ export function ChannelBreakdownChart({
   const metricLabel = isAmount ? "銷售額" : "淨銷量";
   const shareLabel = isAmount ? "銷售額佔比" : "銷量佔比";
   const referenceLabel = isAmount ? "銷量（參考）" : "售額（參考）";
+  const colors = CHANNEL_COLORS[metric];
 
   const data = breakdown
     .map((row) => ({
@@ -118,7 +130,7 @@ export function ChannelBreakdownChart({
               <YAxis type="category" dataKey="label" width={180} interval={0} tick={{ fill: "var(--color-ink)", fontSize: 11 }} tickLine={false} axisLine={false} />
               <Tooltip content={<AnalyticsTooltip valueFormatter={metricFormatter} />} cursor={{ fill: "var(--color-brand-soft)" }} />
               <Bar dataKey={isAmount ? "value" : "netQuantity"} name={metricLabel} radius={[0, 6, 6, 0]} maxBarSize={28}>
-                {data.map((row) => <Cell key={row.scopeId} fill={CHANNEL_COLORS[row.channel] ?? CHANNEL_COLORS.other} />)}
+                {data.map((row) => <Cell key={row.scopeId} fill={colors[row.channel] ?? colors.other} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
