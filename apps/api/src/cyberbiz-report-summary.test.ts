@@ -220,87 +220,6 @@ describe("報表統計 API", () => {
     });
   });
 
-  it("可以編輯或刪除預覽中的單一日期，且寫入權限獨立受保護", async () => {
-    const admin = await seedUser("admin@ecotech.tw", "role-admin");
-    const manager = await seedUser("manager@ecotech.tw", "role-manager");
-    const viewer = await seedUser("viewer@ecotech.tw", "role-viewer");
-    const scopeId = "cyberbiz:store:active";
-    const path = `/api/reports/cyberbiz/payout/${encodeURIComponent(scopeId)}/2026-08-01`;
-    await insertReportPayoutDaily(db(), [
-      { scopeId, businessDate: "2026-08-01", payoutAmount: 2040 },
-      { scopeId, businessDate: "2026-08-02", payoutAmount: 990 },
-    ]);
-
-    const managerUpdate = await mutate(path, "PATCH", manager, "manager@ecotech.tw", { payoutAmount: 3000 });
-    expect(managerUpdate.status).toBe(200);
-    expect(await managerUpdate.json()).toMatchObject({
-      row: { scopeId, businessDate: "2026-08-01", payoutAmount: 3000 },
-    });
-
-    const viewerDelete = await mutate(path, "DELETE", viewer, "viewer@ecotech.tw");
-    expect(viewerDelete.status).toBe(403);
-
-    const daily = await call(
-      `/api/reports/cyberbiz/summary/payout/daily?scopeType=store&scopeId=${encodeURIComponent(scopeId)}&startDate=2026-08-01&endDate=2026-08-02`,
-      admin,
-      "admin@ecotech.tw",
-    );
-    expect(daily.status).toBe(200);
-    expect(await daily.json()).toMatchObject({
-      status: "ok",
-      totals: { payoutAmount: 3990 },
-      rows: [
-        { businessDate: "2026-08-01", payoutAmount: 3000 },
-        { businessDate: "2026-08-02", payoutAmount: 990 },
-      ],
-    });
-
-    const deleted = await mutate(path, "DELETE", admin, "admin@ecotech.tw");
-    expect(deleted.status).toBe(200);
-    expect(await deleted.json()).toEqual({ ok: true });
-
-    const remaining = await call(
-      `/api/reports/cyberbiz/summary/payout/daily?scopeType=store&scopeId=${encodeURIComponent(scopeId)}&startDate=2026-08-01&endDate=2026-08-02`,
-      admin,
-      "admin@ecotech.tw",
-    );
-    expect(await remaining.json()).toMatchObject({
-      status: "ok",
-      totals: { payoutAmount: 990 },
-      rows: [{ businessDate: "2026-08-02", payoutAmount: 990 }],
-    });
-
-    expect((await mutate(path, "DELETE", admin, "admin@ecotech.tw")).status).toBe(404);
-  });
-
-  it("拒絕無效日期、無效金額與不存在的逐日資料", async () => {
-    const admin = await seedUser("admin@ecotech.tw", "role-admin");
-    const scopeId = "cyberbiz:store:active";
-    await insertReportPayoutDaily(db(), [{ scopeId, businessDate: "2026-08-01", payoutAmount: 2040 }]);
-
-    expect((await mutate(
-      `/api/reports/cyberbiz/payout/${encodeURIComponent(scopeId)}/2026-08-01`,
-      "PATCH",
-      admin,
-      "admin@ecotech.tw",
-      { payoutAmount: 3.5 },
-    )).status).toBe(400);
-    expect((await mutate(
-      `/api/reports/cyberbiz/payout/${encodeURIComponent(scopeId)}/2026-02-30`,
-      "PATCH",
-      admin,
-      "admin@ecotech.tw",
-      { payoutAmount: 3000 },
-    )).status).toBe(400);
-    expect((await mutate(
-      `/api/reports/cyberbiz/payout/${encodeURIComponent(scopeId)}/2026-08-03`,
-      "PATCH",
-      admin,
-      "admin@ecotech.tw",
-      { payoutAmount: 3000 },
-    )).status).toBe(404);
-  });
-
   it("商品 summary 的非整月查詢回傳明確狀態，且可拒絕未知 Top SKU 排序", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
 
@@ -719,11 +638,11 @@ describe("報表統計 API", () => {
     )).status).toBe(200);
 
     const summary = await call(
-      "/api/reports/cyberbiz/summary/payout/daily?scopeType=store&scopeId=cyberbiz%3Astore%3Aactive&startDate=2026-08-03&endDate=2026-08-03",
+      "/api/reports/cyberbiz/summary/payout?scopeType=store&scopeId=cyberbiz%3Astore%3Aactive&startDate=2026-08-03&endDate=2026-08-03",
       admin,
       "admin-effective-delete@ecotech.tw",
     );
-    expect(await summary.json()).toMatchObject({ status: "NO_DATA_FOR_RANGE", totals: { payoutAmount: 0 }, rows: [] });
+    expect(await summary.json()).toMatchObject({ status: "NO_DATA_FOR_RANGE", current: { total: 0 } });
     expect((await (await call(
       "/api/reports/cyberbiz/manual/payout?source=imported",
       admin,

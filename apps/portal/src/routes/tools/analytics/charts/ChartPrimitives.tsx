@@ -12,7 +12,8 @@ export interface ChartTooltipProps {
   active?: boolean;
   label?: unknown;
   payload?: readonly ChartTooltipEntry[];
-  valueFormatter: (value: number) => string;
+  /** 同一張圖可能混用不同單位的系列（銷量／金額），所以格式化要看得到 entry。 */
+  valueFormatter: (value: number, entry: ChartTooltipEntry) => string;
   valueMeta?: (entry: ChartTooltipEntry) => ReactNode;
 }
 
@@ -30,7 +31,7 @@ export function AnalyticsTooltip({ active, label, payload, valueFormatter, value
             {entry.name ?? "數值"}
           </span>
           <b>
-            {valueFormatter(Number(entry.value))}
+            {valueFormatter(Number(entry.value), entry)}
             {valueMeta?.(entry) ? <span className="analytics-tooltip-meta">{valueMeta(entry)}</span> : null}
           </b>
         </div>
@@ -140,4 +141,10 @@ export function formatBucketLabel(key: string, granularity: "day" | "month" | "y
 
 export function formatCompactValue(value: number): string {
   return value.toLocaleString("zh-TW", { maximumFractionDigits: 0 });
+}
+
+/** 金額軸改用「萬」，七位數的完整數字會把刻度撐得比圖還寬。 */
+export function formatCompactAmount(value: number): string {
+  if (Math.abs(value) < 10000) return formatCompactValue(value);
+  return `${(value / 10000).toLocaleString("zh-TW", { maximumFractionDigits: 1 })}萬`;
 }

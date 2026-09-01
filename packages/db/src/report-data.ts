@@ -9,7 +9,6 @@ import {
   type NewReportSalesMonthly,
   type ReportScope,
   type ReportScopeKind,
-  type ReportPayoutDaily,
 } from "./schema/reports.js";
 import { customReportProducts, inventoryItems, productBundleComponents, productSkuMappings } from "./schema/wms.js";
 import { legacyShopeeExternalSku, reportDataChannel } from "./product-sku-mappings.js";
@@ -384,43 +383,6 @@ export async function insertReportPayoutDaily(db: Database, rows: readonly NewRe
   for (const chunk of chunks(statements, 50)) {
     if (chunk.length) await db.batch(chunk as [Statement, ...Statement[]]);
   }
-}
-
-export async function updateReportPayoutDaily(
-  db: Database,
-  input: { scopeId: string; businessDate: string; payoutAmount: number },
-): Promise<ReportPayoutDaily | null> {
-  const [existing] = await db.select().from(reportPayoutDaily).where(and(
-    eq(reportPayoutDaily.scopeId, input.scopeId),
-    eq(reportPayoutDaily.businessDate, input.businessDate),
-  )).limit(1);
-  if (!existing) return null;
-
-  const updatedAt = new Date().toISOString();
-  await db.update(reportPayoutDaily)
-    .set({ payoutAmount: input.payoutAmount, updatedAt })
-    .where(and(
-      eq(reportPayoutDaily.scopeId, input.scopeId),
-      eq(reportPayoutDaily.businessDate, input.businessDate),
-    ));
-  return { ...existing, payoutAmount: input.payoutAmount, updatedAt };
-}
-
-export async function deleteReportPayoutDaily(
-  db: Database,
-  input: { scopeId: string; businessDate: string },
-): Promise<boolean> {
-  const [existing] = await db.select({ scopeId: reportPayoutDaily.scopeId }).from(reportPayoutDaily).where(and(
-    eq(reportPayoutDaily.scopeId, input.scopeId),
-    eq(reportPayoutDaily.businessDate, input.businessDate),
-  )).limit(1);
-  if (!existing) return false;
-
-  await db.delete(reportPayoutDaily).where(and(
-    eq(reportPayoutDaily.scopeId, input.scopeId),
-    eq(reportPayoutDaily.businessDate, input.businessDate),
-  ));
-  return true;
 }
 
 function chunks<T>(values: readonly T[], size: number): T[][] {

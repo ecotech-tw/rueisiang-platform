@@ -4,7 +4,6 @@ import {
   createReportManualPayout,
   createReportManualSales,
   createReportManagementScope,
-  deleteReportPayoutDaily,
   deleteReportManualPayout,
   deleteReportManualSales,
   deleteReportPayoutRecord,
@@ -25,7 +24,6 @@ import {
   updateReportManualPayout,
   updateReportManualSales,
   updateReportManagementScope,
-  updateReportPayoutDaily,
   normalizeExternalSku,
   type Database,
   type ReportGroupBy,
@@ -535,40 +533,8 @@ async function salesRecordsDeleteInput(c: { req: { json(): Promise<unknown> } })
   });
 }
 
-function payoutTarget(c: { req: { param(name: string): string | undefined } }): { scopeId: string; businessDate: string } {
-  const scopeId = c.req.param("scopeId")?.trim();
-  const businessDate = c.req.param("businessDate")?.trim();
-  if (!scopeId || !businessDate || !isValidReportDate(businessDate)) {
-    throw new HTTPException(400, { message: "日期格式必須是 YYYY-MM-DD。" });
-  }
-  return { scopeId, businessDate };
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-async function readPayoutAmount(c: { req: { json(): Promise<unknown> } }): Promise<number> {
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    throw new HTTPException(400, { message: "請提供有效的 JSON 出金金額。" });
-  }
-  if (!isRecord(body) || !Number.isSafeInteger(body.payoutAmount)) {
-    throw new HTTPException(400, { message: "出金金額必須是安全整數。" });
-  }
-  return body.payoutAmount as number;
-}
-
-async function updatePayout(
-  db: Database,
-  target: { scopeId: string; businessDate: string },
-  payoutAmount: number,
-) {
-  const row = await updateReportPayoutDaily(db, { ...target, payoutAmount });
-  if (!row) throw new HTTPException(404, { message: "找不到指定日期的出金資料。" });
-  return row;
 }
 
 export const cyberbizReports = new Hono<AppEnv>()
@@ -855,16 +821,6 @@ export const cyberbizReports = new Hono<AppEnv>()
       handleError(error);
     }
   })
-  .get("/summary/payout/daily", requirePermission("reports:analytics:read"), async (c) => {
-    try {
-      return c.json(await createCyberbizReportService(c.get("db")).queryPayout({
-        ...commonQuery(c),
-        groupBy: ["day"],
-      }));
-    } catch (error) {
-      handleError(error);
-    }
-  })
   .get("/summary/sales", requirePermission("reports:analytics:read"), async (c) => {
     try {
       const selectedTopSkuBy = topSkuBy(c);
@@ -912,16 +868,4 @@ export const cyberbizReports = new Hono<AppEnv>()
     } catch (error) {
       handleError(error);
     }
-  })
-  .patch("/payout/:scopeId/:businessDate", requirePermission("reports:cyberbiz:write"), async (c) => {
-    const target = payoutTarget(c);
-    const payoutAmount = await readPayoutAmount(c);
-    return c.json({ row: await updatePayout(c.get("db"), target, payoutAmount) });
-  })
-  .delete("/payout/:scopeId/:businessDate", requirePermission("reports:cyberbiz:write"), async (c) => {
-    const target = payoutTarget(c);
-    if (!(await deleteReportPayoutDaily(c.get("db"), target))) {
-      throw new HTTPException(404, { message: "找不到指定日期的出金資料。" });
-    }
-    return c.json({ ok: true });
   });

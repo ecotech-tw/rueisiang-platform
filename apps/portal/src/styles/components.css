@@ -3330,6 +3330,38 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .analytics-kpi small[title] { cursor: help; }
 .analytics-refreshing { margin: -4px 0 0; color: var(--color-muted); font-size: 12px; }
 
+.analytics-chart-region { position: relative; min-width: 0; }
+/*
+ * 搜尋期間舊圖表還留在畫面上（keepPreviousData），沒有遮罩的話使用者會以為
+ * 那就是新結果。提示卡靠上排，圖表區很高時不用捲動也看得到。
+ */
+.analytics-chart-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: start center;
+  padding-top: 56px;
+  border-radius: var(--radius-card);
+  background: --alpha(var(--color-canvas) / 72%);
+  backdrop-filter: blur(2px);
+}
+.analytics-chart-mask-card {
+  position: sticky;
+  top: 56px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-paper);
+  box-shadow: var(--shadow-panel);
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.analytics-chart-mask-card svg { width: 18px; height: 18px; color: var(--color-brand); }
 .analytics-chart-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); align-items: start; gap: 14px; }
 .analytics-chart-grid > .analytics-chart-panel,
 .analytics-chart-column > .analytics-chart-panel { min-width: 0; margin: 0; }

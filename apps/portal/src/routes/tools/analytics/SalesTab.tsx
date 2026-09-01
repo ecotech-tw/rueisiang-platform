@@ -17,6 +17,12 @@ interface SalesTabProps {
   scopeLabel: string;
   enabled: boolean;
   productQuery: string;
+  /**
+   * 還在 debounce、尚未送進 URL 的商品關鍵字；沒有待送出的關鍵字時是 null。
+   * 那半秒也要遮住圖表，不然畫面看起來像沒反應，而且提示要寫使用者正在打的字，
+   * 不是上一次套用的 productQuery。
+   */
+  pendingProduct: string | null;
   onClearProduct: () => void;
 }
 
@@ -65,7 +71,18 @@ function importerKeys(query: AnalyticsQuery): SalesImporterKey[] {
   return ["cyberbiz", "shopee"];
 }
 
-export function SalesTab({ query, scopeLabel, enabled, productQuery, onClearProduct }: SalesTabProps) {
+function ChartMask({ label }: { label: string }) {
+  return (
+    <div className="analytics-chart-mask" role="status" aria-live="polite">
+      <span className="analytics-chart-mask-card">
+        <Icon name="search" />
+        {label}
+      </span>
+    </div>
+  );
+}
+
+export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProduct, onClearProduct }: SalesTabProps) {
   const [topSkuBy, setTopSkuBy] = useState<SalesTopSkuMetric>("netQuantity");
   const result = useSalesSummary(query, topSkuBy, enabled);
 
@@ -80,6 +97,16 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, onClearProd
 
   const summary = result.data;
   if (!summary) return <Alert tone="danger">報表沒有回傳資料。</Alert>;
+
+  /*
+   * 只有查詢條件（店別、期間、商品）換掉時才遮罩。切換 Top SKU 排序也會 refetch，
+   * 但那顆鈕就在遮罩底下，蓋住的話使用者按完就再也按不到；那個狀態交給
+   * TopSkuChart 自己的 loading。
+   */
+  const busy = pendingProduct !== null || (result.isFetching && summary.topSkuBy === topSkuBy);
+  const busyKeyword = pendingProduct ?? productQuery;
+  const busyLabel = busyKeyword ? `正在搜尋「${busyKeyword}」…` : "正在更新圖表…";
+
   if (summary.status === "UNSUPPORTED_GRANULARITY") {
     return (
       <Panel className="analytics-empty-panel">
@@ -92,24 +119,27 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, onClearProd
   }
   if (summary.status === "NO_DATA_FOR_RANGE") {
     return (
-      <Panel className="analytics-empty-panel">
-        <span className="analytics-empty-icon"><Icon name="analytics" /></span>
-        <h2>{productQuery ? `找不到符合「${productQuery}」的商品銷售資料` : `${scopeLabel}在這段期間沒有商品銷售資料`}</h2>
-        <p>{summary.message ?? "這段期間沒有已匯入的商品銷售資料。"}</p>
-        <div className="analytics-empty-actions">
-          {productQuery ? (
-            <Button variant="secondary" icon="close" onClick={onClearProduct}>清除商品篩選</Button>
-          ) : importerKeys(query).map((key) => {
-              const importer = SALES_IMPORTERS[key];
-              return (
-                <a className="primary-button with-icon" href={importer.href} key={key}>
-                  <Icon name={importer.icon} />
-                  {importer.label}
-                </a>
-              );
-            })}
-        </div>
-      </Panel>
+      <div className="analytics-chart-region">
+        <Panel className="analytics-empty-panel" aria-busy={busy}>
+          <span className="analytics-empty-icon"><Icon name="analytics" /></span>
+          <h2>{productQuery ? `找不到符合「${productQuery}」的商品銷售資料` : `${scopeLabel}在這段期間沒有商品銷售資料`}</h2>
+          <p>{summary.message ?? "這段期間沒有已匯入的商品銷售資料。"}</p>
+          <div className="analytics-empty-actions">
+            {productQuery ? (
+              <Button variant="secondary" icon="close" onClick={onClearProduct}>清除商品篩選</Button>
+            ) : importerKeys(query).map((key) => {
+                const importer = SALES_IMPORTERS[key];
+                return (
+                  <a className="primary-button with-icon" href={importer.href} key={key}>
+                    <Icon name={importer.icon} />
+                    {importer.label}
+                  </a>
+                );
+              })}
+          </div>
+        </Panel>
+        {busy ? <ChartMask label={busyLabel} /> : null}
+      </div>
     );
   }
 
@@ -166,29 +196,32 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, onClearProd
 
       {result.isFetching ? <p className="analytics-refreshing" role="status">正在更新統計…</p> : null}
 
-      <div className="analytics-chart-grid analytics-sales-chart-grid">
-        <SalesTrendChart
-          current={summary.currentQuantity}
-          trend={summary.trendQuantity}
-          lastYear={summary.lastYearQuantity}
-          granularity={summary.granularity}
-          valueFormatter={formatQuantity}
-        />
-        <div className="analytics-chart-column">
-          <CategoryBreakdownChart breakdown={summary.byCategory} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
-          <ChannelBreakdownChart breakdown={summary.breakdown} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
-        </div>
-        <div className="analytics-chart-column">
-          <TopSkuChart
-            rows={summary.byTopSku}
-            allRows={summary.bySku}
-            metric={topSkuBy}
-            loading={summary.topSkuBy !== topSkuBy}
-            onMetricChange={setTopSkuBy}
-            valueFormatter={formatCurrency}
+      <div className="analytics-chart-region">
+        <div className="analytics-chart-grid analytics-sales-chart-grid" aria-busy={busy}>
+          <SalesTrendChart
+            quantity={{ current: summary.currentQuantity, trend: summary.trendQuantity, lastYear: summary.lastYearQuantity }}
+            amount={{ current: summary.current, trend: summary.trend, lastYear: summary.lastYear }}
+            granularity={summary.granularity}
             quantityFormatter={formatQuantity}
+            amountFormatter={formatCurrency}
           />
+          <div className="analytics-chart-column">
+            <CategoryBreakdownChart breakdown={summary.byCategory} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
+            <ChannelBreakdownChart breakdown={summary.breakdown} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
+          </div>
+          <div className="analytics-chart-column">
+            <TopSkuChart
+              rows={summary.byTopSku}
+              allRows={summary.bySku}
+              metric={topSkuBy}
+              loading={summary.topSkuBy !== topSkuBy}
+              onMetricChange={setTopSkuBy}
+              valueFormatter={formatCurrency}
+              quantityFormatter={formatQuantity}
+            />
+          </div>
         </div>
+        {busy ? <ChartMask label={busyLabel} /> : null}
       </div>
     </div>
   );
