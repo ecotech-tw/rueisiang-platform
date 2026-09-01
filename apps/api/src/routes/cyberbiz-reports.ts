@@ -16,6 +16,8 @@ import {
   isValidReportDate,
   latestReportSalesPeriods,
   listCyberbizReportProducts,
+  countReportPayoutRecords,
+  countReportSalesRecords,
   listReportPayoutRecords,
   listReportManagementScopes,
   listReportSalesRecords,
@@ -40,7 +42,12 @@ import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { createCyberbizReportService, CyberbizReportQueryError } from "../cyberbiz-reports.js";
 import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cyberbiz-report-ingest.js";
 import { manualScopeIdFromStoreName } from "../cyberbiz-scope.js";
-import { cachedReportAnalytics, forgetReportAnalytics, type CachedReportAnalytics } from "../report-cache.js";
+import {
+  cachedReportAnalytics,
+  forgetReportAnalytics,
+  type CachedReportAnalytics,
+  type ReportAnalyticsCacheStatus,
+} from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
 import { body, requireString } from "../request.js";
 
@@ -64,14 +71,34 @@ function jsonWithCache<T>(c: Context<AppEnv>, result: CachedReportAnalytics<T>) 
   return c.json(result.value);
 }
 
-function analyticsCacheKey(c: { req: { url: string } }, resource: string): string {
+/**
+ * 兩個快取狀態合成一個標頭值。任何一邊出錯就報 error，其次是沒設定 Redis，
+ * 只要有一邊要回資料庫就是 miss——標頭寧可保守，不要讓半命中看起來像全命中。
+ */
+function mergeCacheStatus(...statuses: ReportAnalyticsCacheStatus[]): ReportAnalyticsCacheStatus {
+  if (statuses.includes("error")) return "error";
+  if (statuses.includes("bypass")) return "bypass";
+  return statuses.includes("miss") ? "miss" : "hit";
+}
+
+/**
+ * `only` 給定時只取這幾個查詢參數。總筆數只跟篩選條件有關，翻頁與換排序不該
+ * 讓它重算——把 page、pageSize、sortField 留在 key 裡就等於每次翻頁都重數一遍。
+ */
+function analyticsCacheKey(c: { req: { url: string } }, resource: string, only?: readonly string[]): string {
   const url = new URL(c.req.url);
-  const entries = [...url.searchParams.entries()].sort(([leftName, leftValue], [rightName, rightValue]) => (
-    leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue)
-  ));
+  const entries = [...url.searchParams.entries()]
+    .filter(([name]) => !only || only.includes(name))
+    .sort(([leftName, leftValue], [rightName, rightValue]) => (
+      leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue)
+    ));
   const query = entries.map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join("&");
   return query ? `${resource}?${query}` : resource;
 }
+
+/** 影響總筆數的查詢參數；page、pageSize 與排序刻意不在其中。 */
+const PAYOUT_COUNT_PARAMS = ["scopeId", "source", "search", "startDate", "endDate"] as const;
+const SALES_COUNT_PARAMS = ["scopeId", "source", "search", "startMonth", "endMonth"] as const;
 
 function topSkuBy(c: { req: { query(name: string): string | undefined } }): "salesAmount" | "netQuantity" | undefined {
   const value = queryValue(c, "topSkuBy");
@@ -708,7 +735,18 @@ export const cyberbizReports = new Hono<AppEnv>()
     }
   })
   .get("/manual/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
-    return c.json(await listReportPayoutRecords(c.get("db"), manualPayoutListQuery(c)));
+    const query = manualPayoutListQuery(c);
+    const cache = cacheClient(c.env);
+    const [page, total] = await Promise.all([
+      cachedReportAnalytics(cache, analyticsCacheKey(c, "manual:payout"), () => (
+        listReportPayoutRecords(c.get("db"), query)
+      )),
+      cachedReportAnalytics(cache, analyticsCacheKey(c, "manual:payout:count", PAYOUT_COUNT_PARAMS), () => (
+        countReportPayoutRecords(c.get("db"), query)
+      )),
+    ]);
+    c.header("X-Cache", mergeCacheStatus(page.status, total.status));
+    return c.json({ ...page.value, total: total.value });
   })
   .post("/manual/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
     try {
@@ -763,7 +801,18 @@ export const cyberbizReports = new Hono<AppEnv>()
     }
   })
   .get("/manual/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
-    return c.json(await listReportSalesRecords(c.get("db"), manualSalesListQuery(c)));
+    const query = manualSalesListQuery(c);
+    const cache = cacheClient(c.env);
+    const [page, total] = await Promise.all([
+      cachedReportAnalytics(cache, analyticsCacheKey(c, "manual:sales"), () => (
+        listReportSalesRecords(c.get("db"), query)
+      )),
+      cachedReportAnalytics(cache, analyticsCacheKey(c, "manual:sales:count", SALES_COUNT_PARAMS), () => (
+        countReportSalesRecords(c.get("db"), query)
+      )),
+    ]);
+    c.header("X-Cache", mergeCacheStatus(page.status, total.status));
+    return c.json({ ...page.value, total: total.value });
   })
   .post("/manual/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
     try {
