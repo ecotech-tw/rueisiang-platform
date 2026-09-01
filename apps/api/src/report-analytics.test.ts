@@ -210,6 +210,20 @@ describe("商品銷售統計查詢", () => {
 
     // 名冊在整份統計裡共用一份，不是每個子查詢各讀一次。
     expect(reads()).toBe(1);
+
+    /*
+     * 指定店別會用到兩個不同的查詢：一次 findReportScope 解析 scope，一次名冊把
+     * id 換成店名。各一次是正確的下限——記憶化之前是八次 findReportScope 加一次名冊。
+     */
+    const store = countScopeReads(d1);
+    await queryReportSalesSummary(createDatabase(store.spy as never), {
+      range: parseReportRange("2026-07"),
+      scopeType: "store",
+      scopeId: WEST,
+      today: "2026-08-01",
+    });
+    expect(store.reads()).toBe(2);
+
     expect(result).toMatchObject({
       status: "ok",
       granularity: "month",

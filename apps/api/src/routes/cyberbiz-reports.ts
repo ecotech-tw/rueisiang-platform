@@ -31,9 +31,11 @@ import {
   type ReportGroupBy,
   type ReportManualRecordSource,
   type ReportManualSkuSource,
+  type ReportPayoutFilters,
   type ReportPayoutListQuery,
   type ReportPayoutRecordDeleteInput,
   type ReportScopeKind,
+  type ReportSalesFilters,
   type ReportSalesListQuery,
   type ReportSalesRecordDeleteInput,
 } from "@rueisiang/db";
@@ -44,7 +46,9 @@ import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cybe
 import { manualScopeIdFromStoreName } from "../cyberbiz-scope.js";
 import {
   cachedReportAnalytics,
+  createReportAnalyticsCache,
   forgetReportAnalytics,
+  REPORT_RECORD_CACHE_TTL_SECONDS,
   type CachedReportAnalytics,
   type ReportAnalyticsCacheStatus,
 } from "../report-cache.js";
@@ -81,24 +85,28 @@ function mergeCacheStatus(...statuses: ReportAnalyticsCacheStatus[]): ReportAnal
   return statuses.includes("miss") ? "miss" : "hit";
 }
 
-/**
- * `only` 給定時只取這幾個查詢參數。總筆數只跟篩選條件有關，翻頁與換排序不該
- * 讓它重算——把 page、pageSize、sortField 留在 key 裡就等於每次翻頁都重數一遍。
- */
-function analyticsCacheKey(c: { req: { url: string } }, resource: string, only?: readonly string[]): string {
+function analyticsCacheKey(c: { req: { url: string } }, resource: string): string {
   const url = new URL(c.req.url);
-  const entries = [...url.searchParams.entries()]
-    .filter(([name]) => !only || only.includes(name))
-    .sort(([leftName, leftValue], [rightName, rightValue]) => (
-      leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue)
-    ));
+  const entries = [...url.searchParams.entries()].sort(([leftName, leftValue], [rightName, rightValue]) => (
+    leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue)
+  ));
   const query = entries.map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join("&");
   return query ? `${resource}?${query}` : resource;
 }
 
-/** 影響總筆數的查詢參數；page、pageSize 與排序刻意不在其中。 */
-const PAYOUT_COUNT_PARAMS = ["scopeId", "source", "search", "startDate", "endDate"] as const;
-const SALES_COUNT_PARAMS = ["scopeId", "source", "search", "startMonth", "endMonth"] as const;
+/**
+ * 從解析後的物件產生 key，而不是從網址挑參數。
+ *
+ * 挑參數要維護第二份清單：之後新增一個篩選條件卻忘了同步加進去，總筆數會靜靜
+ * 地變成錯的——不同篩選值命中同一個忽略該參數的 key。從物件產生就不會漂移，
+ * 而且順便正規化（`pageSize=999` 會退回 25，兩者共用同一個 key）。
+ */
+function objectCacheKey(resource: string, value: object): string {
+  const entries = Object.entries(value)
+    .filter(([, item]) => item !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right));
+  return `${resource}?${JSON.stringify(entries)}`;
+}
 
 function topSkuBy(c: { req: { query(name: string): string | undefined } }): "salesAmount" | "netQuantity" | undefined {
   const value = queryValue(c, "topSkuBy");
@@ -192,7 +200,7 @@ function listMonth(c: { req: { query(name: string): string | undefined } }, name
   return value;
 }
 
-function manualPayoutListQuery(c: { req: { query(name: string): string | undefined } }): ReportPayoutListQuery {
+function manualPayoutListQuery(c: { req: { query(name: string): string | undefined } }): { filters: ReportPayoutFilters; query: ReportPayoutListQuery } {
   const startDate = listDate(c, "startDate");
   const endDate = listDate(c, "endDate");
   if (startDate && endDate && startDate > endDate) {
@@ -205,20 +213,20 @@ function manualPayoutListQuery(c: { req: { query(name: string): string | undefin
   const scopeId = queryValue(c, "scopeId");
   const search = queryValue(c, "search");
   const source = listSource(c);
-  return {
-    page: listPage(c),
-    pageSize: listPageSize(c),
+  const filters: ReportPayoutFilters = {
     ...(scopeId ? { scopeId } : {}),
     ...(source ? { source } : {}),
     ...(search ? { search } : {}),
     ...(startDate ? { startDate } : {}),
     ...(endDate ? { endDate } : {}),
-    sortField,
-    sortDirection: listDirection(c),
+  };
+  return {
+    filters,
+    query: { ...filters, page: listPage(c), pageSize: listPageSize(c), sortField, sortDirection: listDirection(c) },
   };
 }
 
-function manualSalesListQuery(c: { req: { query(name: string): string | undefined } }): ReportSalesListQuery {
+function manualSalesListQuery(c: { req: { query(name: string): string | undefined } }): { filters: ReportSalesFilters; query: ReportSalesListQuery } {
   const startMonth = listMonth(c, "startMonth");
   const endMonth = listMonth(c, "endMonth");
   if (startMonth && endMonth && startMonth > endMonth) {
@@ -231,16 +239,16 @@ function manualSalesListQuery(c: { req: { query(name: string): string | undefine
   const scopeId = queryValue(c, "scopeId");
   const search = queryValue(c, "search");
   const source = listSource(c);
-  return {
-    page: listPage(c),
-    pageSize: listPageSize(c),
+  const filters: ReportSalesFilters = {
     ...(scopeId ? { scopeId } : {}),
     ...(source ? { source } : {}),
     ...(search ? { search } : {}),
     ...(startMonth ? { startMonth } : {}),
     ...(endMonth ? { endMonth } : {}),
-    sortField,
-    sortDirection: listDirection(c),
+  };
+  return {
+    filters,
+    query: { ...filters, page: listPage(c), pageSize: listPageSize(c), sortField, sortDirection: listDirection(c) },
   };
 }
 
@@ -735,15 +743,15 @@ export const cyberbizReports = new Hono<AppEnv>()
     }
   })
   .get("/manual/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
-    const query = manualPayoutListQuery(c);
-    const cache = cacheClient(c.env);
+    const { filters, query } = manualPayoutListQuery(c);
+    const cache = createReportAnalyticsCache(cacheClient(c.env));
     const [page, total] = await Promise.all([
-      cachedReportAnalytics(cache, analyticsCacheKey(c, "manual:payout"), () => (
+      cache.read(objectCacheKey("manual:payout", query), () => (
         listReportPayoutRecords(c.get("db"), query)
-      )),
-      cachedReportAnalytics(cache, analyticsCacheKey(c, "manual:payout:count", PAYOUT_COUNT_PARAMS), () => (
-        countReportPayoutRecords(c.get("db"), query)
-      )),
+      ), REPORT_RECORD_CACHE_TTL_SECONDS),
+      cache.read(objectCacheKey("manual:payout:count", filters), () => (
+        countReportPayoutRecords(c.get("db"), filters)
+      ), REPORT_RECORD_CACHE_TTL_SECONDS),
     ]);
     c.header("X-Cache", mergeCacheStatus(page.status, total.status));
     return c.json({ ...page.value, total: total.value });
@@ -801,15 +809,15 @@ export const cyberbizReports = new Hono<AppEnv>()
     }
   })
   .get("/manual/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
-    const query = manualSalesListQuery(c);
-    const cache = cacheClient(c.env);
+    const { filters, query } = manualSalesListQuery(c);
+    const cache = createReportAnalyticsCache(cacheClient(c.env));
     const [page, total] = await Promise.all([
-      cachedReportAnalytics(cache, analyticsCacheKey(c, "manual:sales"), () => (
+      cache.read(objectCacheKey("manual:sales", query), () => (
         listReportSalesRecords(c.get("db"), query)
-      )),
-      cachedReportAnalytics(cache, analyticsCacheKey(c, "manual:sales:count", SALES_COUNT_PARAMS), () => (
-        countReportSalesRecords(c.get("db"), query)
-      )),
+      ), REPORT_RECORD_CACHE_TTL_SECONDS),
+      cache.read(objectCacheKey("manual:sales:count", filters), () => (
+        countReportSalesRecords(c.get("db"), filters)
+      ), REPORT_RECORD_CACHE_TTL_SECONDS),
     ]);
     c.header("X-Cache", mergeCacheStatus(page.status, total.status));
     return c.json({ ...page.value, total: total.value });

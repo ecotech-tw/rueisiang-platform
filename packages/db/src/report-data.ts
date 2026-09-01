@@ -145,11 +145,26 @@ export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind
  */
 export interface ReportScopeDirectory {
   stores(): Promise<ReportScope[]>;
+  /** 指定店別時走這裡；同一組條件在一次請求內只查一次。 */
+  store(lookup: { id?: string; name?: string }): Promise<ReportScope | null>;
 }
 
 export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
-  let pending: Promise<ReportScope[]> | undefined;
-  return { stores: () => (pending ??= listReportScopes(db, "store")) };
+  let all: Promise<ReportScope[]> | undefined;
+  const byLookup = new Map<string, Promise<ReportScope | null>>();
+  return {
+    stores: () => (all ??= listReportScopes(db, "store")),
+    store(lookup) {
+      // 兩個欄位都可能含符號，用 JSON 陣列當 key 才不會把兩組不同的條件併成同一組。
+      const key = JSON.stringify([lookup.id ?? null, lookup.name ?? null]);
+      let pending = byLookup.get(key);
+      if (!pending) {
+        pending = findReportScope(db, { scopeKind: "store", ...lookup });
+        byLookup.set(key, pending);
+      }
+      return pending;
+    },
+  };
 }
 
 /*
@@ -454,7 +469,7 @@ export async function scopeIdsForQuery(
   directory: ReportScopeDirectory = createReportScopeDirectory(db),
 ): Promise<{ ids: string[]; scope?: ReportScope }> {
   if (query.scopeType === "store") {
-    const scope = await findReportScope(db, { scopeKind: "store", id: query.scopeId, name: query.scopeName });
+    const scope = await directory.store({ id: query.scopeId, name: query.scopeName });
     return scope ? { ids: [scope.id], scope } : { ids: [] };
   }
   return {
