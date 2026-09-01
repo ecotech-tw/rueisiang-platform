@@ -1,0 +1,1 @@
+DROP INDEX `idx_report_manual_payout_date`;

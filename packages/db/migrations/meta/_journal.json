@@ -477,6 +477,20 @@
       "when": 1788174115374,
       "tag": "0067_conscious_puck",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1788200375275,
+      "tag": "0068_true_vindicator",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "6",
+      "when": 1788200481160,
+      "tag": "0069_pink_giant_man",
+      "breakpoints": true
     }
   ]
 }

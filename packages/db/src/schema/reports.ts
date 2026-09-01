@@ -62,7 +62,6 @@ export const reportManualPayoutDaily = sqliteTable("report_manual_payout_daily",
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_report_manual_payout_scope_date").on(table.scopeId, table.businessDate),
-  index("idx_report_manual_payout_date").on(table.scopeId, table.businessDate),
 ]);
 
 /** 人工修訂的商品銷售月資料；SKU 是報表粒度，同一據點同月同 SKU 只留一筆人工資料。 */
@@ -86,7 +85,6 @@ export const reportManualSalesMonthly = sqliteTable("report_manual_sales_monthly
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_report_manual_sales_scope_month_sku").on(table.scopeId, table.reportMonth, table.sku),
-  index("idx_report_manual_sales_month").on(table.scopeId, table.reportMonth),
   index("idx_report_manual_sales_sku").on(table.scopeId, table.sku, table.reportMonth),
 ]);
 
