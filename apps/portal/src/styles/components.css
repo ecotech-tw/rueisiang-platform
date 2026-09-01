@@ -3512,6 +3512,27 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   flex: none;
 }
 .manual-report-actions > button { white-space: nowrap; }
+.manual-report-selection-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 0 8px 24px;
+}
+.manual-report-selection-toolbar .table-select-all { margin-right: 4px; }
+.manual-report-selection-toolbar > .primary-button { margin-left: auto; }
+.manual-report-table tr.selected td { background: --alpha(var(--color-brand) / 8%); }
+.manual-report-import-format-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--color-canvas);
+}
+.manual-report-import-format-note p { margin: 0; }
+.manual-report-import-row-dialog { width: min(720px, 100%); }
 .manual-report-empty {
   margin: 0;
   padding: 28px 16px 12px;
@@ -3642,6 +3663,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   }
   .manual-report-actions .add-action span { display: inline; }
   .manual-report-actions .add-action svg { width: 18px; height: 18px; }
+  .manual-report-selection-toolbar { padding-left: 15px; }
   .manual-report-table th,
   .manual-report-table td { white-space: normal; }
   .manual-report-table td[data-label="SKU"] code { overflow-wrap: anywhere; }
