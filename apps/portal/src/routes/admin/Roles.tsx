@@ -1,5 +1,6 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useMemo, useState } from "react";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, TextField } from "../../ui/index.js";
 import {
@@ -13,8 +14,8 @@ import {
 /**
  * 角色管理。
  *
- * 系統角色是新環境的初始模板；除了管理員以外，都可以在這裡直接調整權限與說明。
- * 管理員角色維持唯讀，避免任何一位管理者把自己鎖在系統外。
+ * 管理員是唯一受系統保護的角色；其他角色都是自訂角色，可以在這裡調整權限與說明，
+ * 也可以刪除。管理員維持唯讀，避免任何一位管理者把自己鎖在系統外。
  */
 
 /** 權限鍵值是 <模組>:<資源>:<動作>，第一段就是分組依據。 */
@@ -57,12 +58,11 @@ interface EditorState {
   name: string;
   description: string;
   permissions: Set<Permission>;
-  isSystem: boolean;
   readOnly: boolean;
 }
 
 function blankEditor(): EditorState {
-  return { key: null, name: "", description: "", permissions: new Set(), isSystem: false, readOnly: false };
+  return { key: null, name: "", description: "", permissions: new Set(), readOnly: false };
 }
 
 function editorFor(role: RoleInfo, options: { copy?: boolean } = {}): EditorState {
@@ -72,7 +72,6 @@ function editorFor(role: RoleInfo, options: { copy?: boolean } = {}): EditorStat
     name: options.copy ? `${role.name}（複製）` : role.name,
     description: role.description,
     permissions: new Set(role.permissions),
-    isSystem: role.isSystem && !options.copy,
     readOnly: role.key === PROTECTED_ROLE_KEY && !options.copy,
   };
 }
@@ -84,13 +83,14 @@ export function Roles() {
   const update = useUpdateRole();
   const remove = useDeleteRole();
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ role: RoleInfo; holders: number } | null>(null);
 
   const groups = useMemo(
     () => groupByModule(catalog.data?.permissions ?? {}),
     [catalog.data?.permissions],
   );
 
-  const error = catalog.error ?? create.error ?? update.error ?? remove.error;
+  const error = catalog.error ?? create.error ?? update.error;
   const pending = create.isPending || update.isPending || remove.isPending;
 
   function submit() {
@@ -108,11 +108,8 @@ export function Roles() {
   }
 
   function confirmDelete(role: RoleInfo) {
-    const holders = catalog.data?.holders[role.key] ?? 0;
-    const warning = holders
-      ? `「${role.name}」目前有 ${holders} 個人在用，刪掉之後他們會立刻失去這個角色帶來的權限。確定要刪除嗎？`
-      : `確定要刪除「${role.name}」嗎？`;
-    if (window.confirm(warning)) remove.mutate(role.key);
+    remove.reset();
+    setDeleteTarget({ role, holders: catalog.data?.holders[role.key] ?? 0 });
   }
 
   return (
@@ -121,7 +118,7 @@ export function Roles() {
         title="角色管理"
         description={
           <>
-            可以調整內建角色，也可以自己組合權限建立新角色，再指派給同仁。
+            管理員角色受系統保護，其餘角色都能自訂、調整與刪除，再指派給同仁。
           </>
         }
         actions={<Button onClick={() => setEditor(blankEditor())}>
@@ -151,8 +148,8 @@ export function Roles() {
                     {role.description ? <div className="cell-sub">{role.description}</div> : null}
                   </td>
                   <td>
-                    <span className={`status ${role.isSystem ? "status-invited" : "status-active"}`}>
-                      {role.isSystem ? "系統內建" : "自訂"}
+                    <span className={`status ${role.key === PROTECTED_ROLE_KEY ? "status-invited" : "status-active"}`}>
+                      {role.key === PROTECTED_ROLE_KEY ? "系統內建" : "自訂"}
                     </span>
                   </td>
                   <td className="numeric">{role.permissions.length}</td>
@@ -166,7 +163,7 @@ export function Roles() {
                         title={role.key === PROTECTED_ROLE_KEY ? "檢視權限" : "編輯"}
                         aria-label={role.key === PROTECTED_ROLE_KEY ? "檢視權限" : "編輯"}
                       />
-                      {/* 管理員仍可複製成自訂角色，其他系統角色則可直接編輯。 */}
+                      {/* 管理員仍可複製成自訂角色，其他角色則可直接編輯。 */}
                       <Button
                         variant="icon"
                         icon="copy"
@@ -179,8 +176,8 @@ export function Roles() {
                         className="danger"
                         icon="trash"
                         onClick={() => confirmDelete(role)}
-                        disabled={role.isSystem || role.key === PROTECTED_ROLE_KEY || pending}
-                        title={role.isSystem || role.key === PROTECTED_ROLE_KEY ? "系統角色不能刪除" : "刪除"}
+                        disabled={role.key === PROTECTED_ROLE_KEY || pending}
+                        title={role.key === PROTECTED_ROLE_KEY ? "管理員角色不能刪除" : "刪除"}
                         aria-label="刪除"
                       />
                     </div>
@@ -225,11 +222,6 @@ export function Roles() {
                 </p>
               ) : (
                 <>
-                  {editor.isSystem ? (
-                    <p className="muted">
-                      這是系統內建角色，仍不能刪除；在這裡調整的設定會保留，重新同步不會覆蓋。
-                    </p>
-                  ) : null}
                   <div className="field-grid">
                     <TextField
                       label="角色名稱"
@@ -301,6 +293,34 @@ export function Roles() {
                 );
               })}
         </Dialog>
+      ) : null}
+
+      {deleteTarget ? (
+        <ConfirmDialog
+          title={`刪除「${deleteTarget.role.name}」？`}
+          confirmLabel="刪除角色"
+          pending={remove.isPending}
+          onCancel={() => {
+            remove.reset();
+            setDeleteTarget(null);
+          }}
+          onConfirm={() => {
+            remove.mutate(deleteTarget.role.key, {
+              onSuccess: () => setDeleteTarget(null),
+            });
+          }}
+        >
+          <p><strong>這個動作無法復原。</strong></p>
+          {deleteTarget.holders ? (
+            <p>
+              目前有 {deleteTarget.holders} 個人使用這個角色，刪除後他們會立刻失去這個角色帶來的權限。
+            </p>
+          ) : (
+            <p>目前沒有使用者被指派這個角色。</p>
+          )}
+          <p className="muted">角色刪除後，相關的角色指派與權限設定也會一起移除。</p>
+          {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
+        </ConfirmDialog>
       ) : null}
     </div>
   );

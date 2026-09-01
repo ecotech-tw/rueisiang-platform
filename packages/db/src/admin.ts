@@ -97,7 +97,7 @@ export async function listRoles(db: Database): Promise<RoleRow[]> {
       isSystem: roles.isSystem,
     })
     .from(roles)
-    // 系統角色排前面，自訂的接在後面——人找「管理者」的頻率遠高於找自己建的那幾個。
+    // 管理員角色排前面，自訂角色接在後面——人找「管理者」的頻率遠高於找自己建的那幾個。
     .orderBy(desc(roles.isSystem), asc(roles.key));
 
   const granted = await db
@@ -347,9 +347,9 @@ export async function revokeRole(db: Database, grant: RoleGrant): Promise<boolea
 /**
  * ── 角色維護 ──────────────────────────────────────────────────────────────
  *
- * 系統角色是不可刪除的固定入口，但除了管理員以外，權限與顯示資訊都可以由
- * 管理者在 UI 調整。SYSTEM_ROLES 只負責新環境的初始值；重新同步時也不會覆蓋
- * 已經由管理者調整過的非管理員系統角色。
+ * 管理員是不可刪除的固定入口；其他角色都是自訂角色，權限與顯示資訊都可以由
+ * 管理者在 UI 調整或刪除。SYSTEM_ROLES 只負責新環境的初始值；重新同步時也不會
+ * 覆蓋已經由管理者調整過的非管理員角色。
  */
 
 /** 自訂角色的 key 由系統產生。人只需要取名字，不必再發明一組英數代號。 */
@@ -361,7 +361,6 @@ export type RoleWriteResult =
   | { kind: "ok"; key: string }
   | { kind: "not-found" }
   | { kind: "protected-role" }
-  | { kind: "system-role" }
   | { kind: "unknown-permission"; permission: string };
 
 const PROTECTED_ROLE_KEY = "admin";
@@ -435,18 +434,17 @@ async function writePermissions(
 }
 
 /**
- * 刪除自訂角色。系統角色一律不能刪除；指派給使用者的那幾列由 FK 的 onDelete cascade 一起帶走，
- * 所以呼叫端要先問清楚「這個角色還有幾個人在用」再送出。
+ * 刪除自訂角色。管理員角色受保護；指派給使用者的那幾列由 FK 的 onDelete cascade
+ * 一起帶走，所以呼叫端要先問清楚「這個角色還有幾個人在用」再送出。
  */
 export async function deleteRole(db: Database, key: string): Promise<RoleWriteResult> {
   const [role] = await db
-    .select({ id: roles.id, isSystem: roles.isSystem })
+    .select({ id: roles.id })
     .from(roles)
     .where(eq(roles.key, key))
     .limit(1);
   if (!role) return { kind: "not-found" };
   if (key === PROTECTED_ROLE_KEY) return { kind: "protected-role" };
-  if (role.isSystem) return { kind: "system-role" };
 
   await db.delete(roles).where(eq(roles.id, role.id));
   return { kind: "ok", key };
