@@ -383,6 +383,7 @@
 .page.fills > .panel.grows > .admin-form,
 .page.fills > .panel.grows > .pager,
 .page.fills > .panel.grows > .form-error,
+.page.fills > .panel.grows > .manual-report-selection-actions,
 .page.fills > .panel.grows > .table-note { flex: none; }
 .page.fills > .panel.grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
 
@@ -3512,15 +3513,18 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   flex: none;
 }
 .manual-report-actions > button { white-space: nowrap; }
-.manual-report-selection-toolbar {
+.manual-report-mobile-select-all { display: none; }
+.manual-report-selection-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
-  min-height: 44px;
-  padding: 8px 0 8px 24px;
+  min-height: 52px;
+  padding: 12px 24px 0;
+  border-top: 1px solid var(--color-soft-line);
 }
-.manual-report-selection-toolbar .table-select-all { margin-right: 4px; }
-.manual-report-selection-toolbar > .primary-button { margin-left: auto; }
+.manual-report-selection-actions .manual-report-selection-count { margin-right: auto; }
+.manual-report-selection-actions > button { flex: none; }
 .manual-report-table tr.selected td { background: --alpha(var(--color-brand) / 8%); }
 .manual-report-import-format-note {
   display: flex;
@@ -3663,7 +3667,19 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   }
   .manual-report-actions .add-action span { display: inline; }
   .manual-report-actions .add-action svg { width: 18px; height: 18px; }
-  .manual-report-selection-toolbar { padding-left: 15px; }
+  .manual-report-mobile-select-all {
+    display: flex;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--color-soft-line);
+  }
+  .manual-report-selection-actions {
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding: 12px 14px 0;
+  }
+  .manual-report-selection-actions .manual-report-selection-count,
+  .manual-report-selection-actions > .muted { flex: 1 1 100%; }
+  .manual-report-selection-actions > button { width: 100%; justify-content: center; }
   .manual-report-table th,
   .manual-report-table td { white-space: normal; }
   .manual-report-table td[data-label="SKU"] code { overflow-wrap: anywhere; }

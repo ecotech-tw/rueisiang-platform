@@ -1026,21 +1026,15 @@ export function ManualReports() {
         {kind === "payout" ? (
           <>
             <PayoutFilters filters={payoutFilters} scopes={managementScopes} onChange={updatePayoutFilters} />
-            <SelectionToolbar
-              selectedCount={selectedPayoutRows.length}
-              totalCount={payoutRows.length}
-              allSelected={allPayoutsSelected}
-              busy={busy}
-              onToggleAll={toggleAllPayouts}
-              onDelete={() => setDeleting({ kind: "payout", rows: selectedPayoutRows })}
-            />
             <PayoutTable
               rows={payoutRows}
               busy={busy}
               selectedIds={selectedPayoutIds}
+              selectedCount={selectedPayoutRows.length}
               onToggle={togglePayout}
               allSelected={allPayoutsSelected}
               onToggleAll={toggleAllPayouts}
+              onDeleteSelected={() => setDeleting({ kind: "payout", rows: selectedPayoutRows })}
               sortField={payoutFilters.sortField}
               sortDirection={payoutFilters.sortDirection}
               onSort={(sortField, sortDirection) => updatePayoutFilters({ sortField: sortField as ManualPayoutQuery["sortField"], sortDirection })}
@@ -1069,21 +1063,15 @@ export function ManualReports() {
         ) : (
           <>
             <SalesFilters filters={salesFilters} scopes={managementScopes} onChange={updateSalesFilters} />
-            <SelectionToolbar
-              selectedCount={selectedSalesRows.length}
-              totalCount={salesRows.length}
-              allSelected={allSalesSelected}
-              busy={busy}
-              onToggleAll={toggleAllSales}
-              onDelete={() => setDeleting({ kind: "sales", rows: selectedSalesRows })}
-            />
             <SalesTable
               rows={salesRows}
               busy={busy}
               selectedIds={selectedSalesIds}
+              selectedCount={selectedSalesRows.length}
               onToggle={toggleSales}
               allSelected={allSalesSelected}
               onToggleAll={toggleAllSales}
+              onDeleteSelected={() => setDeleting({ kind: "sales", rows: selectedSalesRows })}
               sortField={salesFilters.sortField}
               sortDirection={salesFilters.sortDirection}
               onSort={(sortField, sortDirection) => updateSalesFilters({ sortField: sortField as ManualSalesQuery["sortField"], sortDirection })}
@@ -1294,36 +1282,73 @@ function ListFooter({
   return <p className="manual-report-empty">{hasFilters ? "沒有符合篩選條件的紀錄。" : `目前沒有${emptyLabel}紀錄。`}</p>;
 }
 
-function SelectionToolbar({
-  selectedCount,
-  totalCount,
+function TableSelectAllCheckbox({
   allSelected,
+  someSelected,
   busy,
   onToggleAll,
-  onDelete,
+  ariaLabel,
 }: {
-  selectedCount: number;
-  totalCount: number;
   allSelected: boolean;
+  someSelected: boolean;
   busy: boolean;
   onToggleAll: (checked: boolean) => void;
-  onDelete: () => void;
+  ariaLabel: string;
 }) {
-  if (!totalCount) return null;
+  const checkboxRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (checkboxRef.current) checkboxRef.current.indeterminate = someSelected;
+  }, [someSelected]);
+
   return (
-    <div className="manual-report-selection-toolbar">
+    <input
+      ref={checkboxRef}
+      className="table-checkbox"
+      type="checkbox"
+      checked={allSelected}
+      onChange={(event) => onToggleAll(event.target.checked)}
+      disabled={busy}
+      aria-label={ariaLabel}
+    />
+  );
+}
+
+function MobileTableSelectAll({
+  allSelected,
+  someSelected,
+  busy,
+  onToggleAll,
+  ariaLabel,
+}: {
+  allSelected: boolean;
+  someSelected: boolean;
+  busy: boolean;
+  onToggleAll: (checked: boolean) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="manual-report-mobile-select-all">
       <label className="table-select-all">
-        <input
-          className="table-checkbox"
-          type="checkbox"
-          checked={allSelected}
-          onChange={(event) => onToggleAll(event.target.checked)}
-          disabled={busy}
-          aria-label={allSelected ? "取消全選本頁" : "全選本頁"}
+        <TableSelectAllCheckbox
+          allSelected={allSelected}
+          someSelected={someSelected}
+          busy={busy}
+          onToggleAll={onToggleAll}
+          ariaLabel={ariaLabel}
         />
-        <span>{allSelected ? "取消全選" : "全選本頁"}</span>
+        <span>{allSelected ? "取消全選本頁" : "全選本頁"}</span>
       </label>
-      <span className="muted">已選取 {selectedCount} 筆</span>
+    </div>
+  );
+}
+
+function SelectionActions({ selectedCount, busy, onDelete }: { selectedCount: number; busy: boolean; onDelete: () => void }) {
+  return (
+    <div className="manual-report-selection-actions">
+      <span className={selectedCount > 0 ? "manual-report-selection-count" : "muted"} aria-live="polite">
+        {selectedCount > 0 ? `已選取 ${selectedCount} 筆` : "請勾選資料後批次刪除"}
+      </span>
       <Button
         variant="danger"
         icon="trash"
@@ -1340,9 +1365,11 @@ function PayoutTable({
   rows,
   busy,
   selectedIds,
+  selectedCount,
   onToggle,
   allSelected,
   onToggleAll,
+  onDeleteSelected,
   sortField,
   sortDirection,
   onSort,
@@ -1352,83 +1379,96 @@ function PayoutTable({
   rows: ManualPayoutRow[];
   busy: boolean;
   selectedIds: Set<string>;
+  selectedCount: number;
   onToggle: (row: ManualPayoutRow) => void;
   allSelected: boolean;
   onToggleAll: (checked: boolean) => void;
+  onDeleteSelected: () => void;
   sortField: ManualPayoutQuery["sortField"];
   sortDirection: ManualPayoutQuery["sortDirection"];
   onSort: (field: string, direction: "asc" | "desc") => void;
   onEdit: (row: ManualPayoutRow) => void;
   onDelete: (row: ManualPayoutRow) => void;
 }) {
+  const someSelected = selectedCount > 0 && !allSelected;
+
   return (
-    <div className="table-scroll">
-      <table className="data-table manual-report-table">
-        <thead>
-          <tr>
-            <th>
-              <input
-                className="table-checkbox"
-                type="checkbox"
-                checked={allSelected}
-                onChange={(event) => onToggleAll(event.target.checked)}
-                disabled={busy || !rows.length}
-                aria-label={allSelected ? "取消全選本頁出金紀錄" : "全選本頁出金紀錄"}
-              />
-            </th>
-            <SortableHeader label="據點" field="scope" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="日期" field="businessDate" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="出金金額" field="payoutAmount" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
-            <th>最後更新</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id} className={selectedIds.has(row.id) ? "selected" : undefined}>
-              <td data-label="選取">
-                <input
-                  className="table-checkbox"
-                  type="checkbox"
-                  checked={selectedIds.has(row.id)}
-                  onChange={() => onToggle(row)}
-                  disabled={busy}
-                  aria-label={`選取 ${row.businessDate} 出金資料`}
+    <>
+      <div className="table-scroll">
+        <MobileTableSelectAll
+          allSelected={allSelected}
+          someSelected={someSelected}
+          busy={busy || !rows.length}
+          onToggleAll={onToggleAll}
+          ariaLabel={allSelected ? "取消全選本頁出金紀錄" : "全選本頁出金紀錄"}
+        />
+        <table className="data-table manual-report-table">
+          <thead>
+            <tr>
+              <th>
+                <TableSelectAllCheckbox
+                  allSelected={allSelected}
+                  someSelected={someSelected}
+                  busy={busy || !rows.length}
+                  onToggleAll={onToggleAll}
+                  ariaLabel={allSelected ? "取消全選本頁出金紀錄" : "全選本頁出金紀錄"}
                 />
-              </td>
-              <td data-label="據點">{row.scopeName}</td>
-              <td data-label="日期" className="whitespace-nowrap">{row.businessDate}</td>
-              <td data-label="出金金額" className="numeric">{formatCurrency(row.payoutAmount)}</td>
-              <td data-label="最後更新">
-                <span>{row.updatedByEmail}</span>
-                <small className="cell-sub">{formatTime(row.updatedAt)}</small>
-              </td>
-              <td data-label="操作">
-                <div className="row-actions">
-                  <Button
-                    variant="icon"
-                    icon="edit"
-                    disabled={busy}
-                    onClick={() => onEdit(row)}
-                    title={`編輯 ${row.businessDate} 出金資料`}
-                    aria-label={`編輯 ${row.businessDate} 出金資料`}
-                  />
-                  <Button
-                    variant="icon"
-                    className="danger"
-                    icon="trash"
-                    disabled={busy}
-                    onClick={() => onDelete(row)}
-                    title={`刪除 ${row.businessDate} 出金資料`}
-                    aria-label={`刪除 ${row.businessDate} 出金資料`}
-                  />
-                </div>
-              </td>
+              </th>
+              <SortableHeader label="據點" field="scope" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="日期" field="businessDate" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="出金金額" field="payoutAmount" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
+              <th>最後更新</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className={selectedIds.has(row.id) ? "selected" : undefined}>
+                <td data-label="選取">
+                  <input
+                    className="table-checkbox"
+                    type="checkbox"
+                    checked={selectedIds.has(row.id)}
+                    onChange={() => onToggle(row)}
+                    disabled={busy}
+                    aria-label={`選取 ${row.businessDate} 出金資料`}
+                  />
+                </td>
+                <td data-label="據點">{row.scopeName}</td>
+                <td data-label="日期" className="whitespace-nowrap">{row.businessDate}</td>
+                <td data-label="出金金額" className="numeric">{formatCurrency(row.payoutAmount)}</td>
+                <td data-label="最後更新">
+                  <span>{row.updatedByEmail}</span>
+                  <small className="cell-sub">{formatTime(row.updatedAt)}</small>
+                </td>
+                <td data-label="操作">
+                  <div className="row-actions">
+                    <Button
+                      variant="icon"
+                      icon="edit"
+                      disabled={busy}
+                      onClick={() => onEdit(row)}
+                      title={`編輯 ${row.businessDate} 出金資料`}
+                      aria-label={`編輯 ${row.businessDate} 出金資料`}
+                    />
+                    <Button
+                      variant="icon"
+                      className="danger"
+                      icon="trash"
+                      disabled={busy}
+                      onClick={() => onDelete(row)}
+                      title={`刪除 ${row.businessDate} 出金資料`}
+                      aria-label={`刪除 ${row.businessDate} 出金資料`}
+                    />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > 0 ? <SelectionActions selectedCount={selectedCount} busy={busy} onDelete={onDeleteSelected} /> : null}
+    </>
   );
 }
 
@@ -1436,9 +1476,11 @@ function SalesTable({
   rows,
   busy,
   selectedIds,
+  selectedCount,
   onToggle,
   allSelected,
   onToggleAll,
+  onDeleteSelected,
   sortField,
   sortDirection,
   onSort,
@@ -1448,96 +1490,109 @@ function SalesTable({
   rows: ManualSalesRow[];
   busy: boolean;
   selectedIds: Set<string>;
+  selectedCount: number;
   onToggle: (row: ManualSalesRow) => void;
   allSelected: boolean;
   onToggleAll: (checked: boolean) => void;
+  onDeleteSelected: () => void;
   sortField: ManualSalesQuery["sortField"];
   sortDirection: ManualSalesQuery["sortDirection"];
   onSort: (field: string, direction: "asc" | "desc") => void;
   onEdit: (row: ManualSalesRow) => void;
   onDelete: (row: ManualSalesRow) => void;
 }) {
+  const someSelected = selectedCount > 0 && !allSelected;
+
   return (
-    <div className="table-scroll">
-      <table className="data-table manual-report-table manual-sales-table">
-        <thead>
-          <tr>
-            <th>
-              <input
-                className="table-checkbox"
-                type="checkbox"
-                checked={allSelected}
-                onChange={(event) => onToggleAll(event.target.checked)}
-                disabled={busy || !rows.length}
-                aria-label={allSelected ? "取消全選本頁商品銷售紀錄" : "全選本頁商品銷售紀錄"}
-              />
-            </th>
-            <SortableHeader label="據點" field="scope" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="月份" field="reportMonth" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="SKU" field="sku" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="商品" field="productName" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="數量" field="netQuantity" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
-            <SortableHeader label="銷售金額" field="salesAmount" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
-            <th>最後更新</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id} className={selectedIds.has(row.id) ? "selected" : undefined}>
-              <td data-label="選取">
-                <input
-                  className="table-checkbox"
-                  type="checkbox"
-                  checked={selectedIds.has(row.id)}
-                  onChange={() => onToggle(row)}
-                  disabled={busy}
-                  aria-label={`選取 ${row.sku} 商品銷售資料`}
+    <>
+      <div className="table-scroll">
+        <MobileTableSelectAll
+          allSelected={allSelected}
+          someSelected={someSelected}
+          busy={busy || !rows.length}
+          onToggleAll={onToggleAll}
+          ariaLabel={allSelected ? "取消全選本頁商品銷售紀錄" : "全選本頁商品銷售紀錄"}
+        />
+        <table className="data-table manual-report-table manual-sales-table">
+          <thead>
+            <tr>
+              <th>
+                <TableSelectAllCheckbox
+                  allSelected={allSelected}
+                  someSelected={someSelected}
+                  busy={busy || !rows.length}
+                  onToggleAll={onToggleAll}
+                  ariaLabel={allSelected ? "取消全選本頁商品銷售紀錄" : "全選本頁商品銷售紀錄"}
                 />
-              </td>
-              <td data-label="據點">{row.scopeName}</td>
-              <td data-label="月份" className="whitespace-nowrap">{row.reportMonth}</td>
-              <td data-label="SKU">
-                <code>{row.sku}</code>
-              </td>
-              <td data-label="商品">
-                <span>{row.productName}</span>
-                <small className="cell-sub">{row.category}</small>
-              </td>
-              <td data-label="數量" className="numeric">
-                <span>{row.netQuantity.toLocaleString("zh-TW")}</span>
-                <small className="cell-sub">銷售 {row.grossQuantity.toLocaleString("zh-TW")} · 退貨 {row.returnQuantity.toLocaleString("zh-TW")}</small>
-              </td>
-              <td data-label="銷售金額" className="numeric">{formatCurrency(row.salesAmount)}</td>
-              <td data-label="最後更新">
-                <span>{row.updatedByEmail}</span>
-                <small className="cell-sub">{formatTime(row.updatedAt)}</small>
-              </td>
-              <td data-label="操作">
-                <div className="row-actions">
-                  <Button
-                    variant="icon"
-                    icon="edit"
-                    disabled={busy}
-                    onClick={() => onEdit(row)}
-                    title={`編輯 ${row.sku} 商品銷售資料`}
-                    aria-label={`編輯 ${row.sku} 商品銷售資料`}
-                  />
-                  <Button
-                    variant="icon"
-                    className="danger"
-                    icon="trash"
-                    disabled={busy}
-                    onClick={() => onDelete(row)}
-                    title={`刪除 ${row.sku} 商品銷售資料`}
-                    aria-label={`刪除 ${row.sku} 商品銷售資料`}
-                  />
-                </div>
-              </td>
+              </th>
+              <SortableHeader label="據點" field="scope" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="月份" field="reportMonth" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="SKU" field="sku" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="商品" field="productName" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="數量" field="netQuantity" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
+              <SortableHeader label="銷售金額" field="salesAmount" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
+              <th>最後更新</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className={selectedIds.has(row.id) ? "selected" : undefined}>
+                <td data-label="選取">
+                  <input
+                    className="table-checkbox"
+                    type="checkbox"
+                    checked={selectedIds.has(row.id)}
+                    onChange={() => onToggle(row)}
+                    disabled={busy}
+                    aria-label={`選取 ${row.sku} 商品銷售資料`}
+                  />
+                </td>
+                <td data-label="據點">{row.scopeName}</td>
+                <td data-label="月份" className="whitespace-nowrap">{row.reportMonth}</td>
+                <td data-label="SKU">
+                  <code>{row.sku}</code>
+                </td>
+                <td data-label="商品">
+                  <span>{row.productName}</span>
+                  <small className="cell-sub">{row.category}</small>
+                </td>
+                <td data-label="數量" className="numeric">
+                  <span>{row.netQuantity.toLocaleString("zh-TW")}</span>
+                  <small className="cell-sub">銷售 {row.grossQuantity.toLocaleString("zh-TW")} · 退貨 {row.returnQuantity.toLocaleString("zh-TW")}</small>
+                </td>
+                <td data-label="銷售金額" className="numeric">{formatCurrency(row.salesAmount)}</td>
+                <td data-label="最後更新">
+                  <span>{row.updatedByEmail}</span>
+                  <small className="cell-sub">{formatTime(row.updatedAt)}</small>
+                </td>
+                <td data-label="操作">
+                  <div className="row-actions">
+                    <Button
+                      variant="icon"
+                      icon="edit"
+                      disabled={busy}
+                      onClick={() => onEdit(row)}
+                      title={`編輯 ${row.sku} 商品銷售資料`}
+                      aria-label={`編輯 ${row.sku} 商品銷售資料`}
+                    />
+                    <Button
+                      variant="icon"
+                      className="danger"
+                      icon="trash"
+                      disabled={busy}
+                      onClick={() => onDelete(row)}
+                      title={`刪除 ${row.sku} 商品銷售資料`}
+                      aria-label={`刪除 ${row.sku} 商品銷售資料`}
+                    />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > 0 ? <SelectionActions selectedCount={selectedCount} busy={busy} onDelete={onDeleteSelected} /> : null}
+    </>
   );
 }
