@@ -194,6 +194,29 @@ describe("報表統計 API", () => {
       total: 1,
       rows: [{ sku: "IMPORTED-1", productName: "匯入商品", source: "imported", skuSource: null }],
     });
+
+    /*
+     * 總筆數與當頁資料是分開的兩個查詢、走不同的快取 key（筆數只看篩選條件）。
+     * 翻頁與換排序都不可以改變總筆數，也不可以變成只數當頁那幾列。
+     */
+    const sortedByAmount = await call(
+      "/api/reports/cyberbiz/manual/payout?source=imported&pageSize=10&sortField=payoutAmount&sortDirection=asc",
+      manager,
+      "manager-list@ecotech.tw",
+    );
+    expect(await sortedByAmount.json()).toMatchObject({
+      page: 1,
+      total: 2,
+      rows: [{ payoutAmount: 1200 }, { payoutAmount: 2300 }],
+    });
+
+    // 越界的頁沒有資料，但總筆數仍然是 2——不可以退化成「數當頁那幾列」。
+    const emptySecondPage = await call(
+      "/api/reports/cyberbiz/manual/payout?source=imported&pageSize=10&page=2&sortField=businessDate&sortDirection=desc",
+      manager,
+      "manager-list@ecotech.tw",
+    );
+    expect(await emptySecondPage.json()).toMatchObject({ page: 2, total: 2, rows: [] });
   });
 
   it("summary 與 scope 清單由營運統計權限保護，且不回傳停用店", async () => {

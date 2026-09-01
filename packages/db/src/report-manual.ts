@@ -60,26 +60,36 @@ export type ReportManualPayoutRow = ReportManualPayoutDaily & { scopeName: strin
 export type ReportManualSalesRow = ReportManualSalesMonthly & { scopeName: string };
 export type ReportManualRecordSource = "imported" | "manual";
 
-export interface ReportPayoutListQuery {
-  page: number;
-  pageSize: number;
+/*
+ * 篩選條件與分頁排序分開定義：總筆數只跟篩選條件有關，翻頁與換排序不會改變它。
+ * 分開之後上層才能用不同的快取 key，換一次排序不必重數一遍。
+ */
+export interface ReportPayoutFilters {
   scopeId?: string;
   source?: ReportManualRecordSource;
   search?: string;
   startDate?: string;
   endDate?: string;
+}
+
+export interface ReportPayoutListQuery extends ReportPayoutFilters {
+  page: number;
+  pageSize: number;
   sortField: "scope" | "businessDate" | "payoutAmount" | "updatedAt";
   sortDirection: "asc" | "desc";
 }
 
-export interface ReportSalesListQuery {
-  page: number;
-  pageSize: number;
+export interface ReportSalesFilters {
   scopeId?: string;
   source?: ReportManualRecordSource;
   search?: string;
   startMonth?: string;
   endMonth?: string;
+}
+
+export interface ReportSalesListQuery extends ReportSalesFilters {
+  page: number;
+  pageSize: number;
   sortField: "scope" | "reportMonth" | "sku" | "productName" | "netQuantity" | "salesAmount" | "updatedAt";
   sortDirection: "asc" | "desc";
 }
@@ -113,18 +123,16 @@ export interface ReportSalesRecord {
   updatedAt: string;
 }
 
-export interface ReportPayoutListResult {
+export interface ReportPayoutListPage {
   rows: ReportPayoutRecord[];
   page: number;
   pageSize: number;
-  total: number;
 }
 
-export interface ReportSalesListResult {
+export interface ReportSalesListPage {
   rows: ReportSalesRecord[];
   page: number;
   pageSize: number;
-  total: number;
 }
 
 export interface ReportPayoutRecordDeleteInput {
@@ -448,10 +456,12 @@ function listLimit(query: { page: number; pageSize: number }): { limit: number; 
   };
 }
 
-export async function listReportPayoutRecords(
-  db: Database,
-  query: ReportPayoutListQuery,
-): Promise<ReportPayoutListResult> {
+/*
+ * 篩選條件與 FROM 子句抽出來共用：筆數與當頁資料是同一組條件的兩種問法，
+ * 兩邊各寫一次遲早會漂移。分成兩個函式是為了讓上層能各自快取——筆數只跟
+ * 篩選條件有關，翻頁與換排序都不該讓它重算。
+ */
+function payoutRecordScope(query: ReportPayoutFilters) {
   const conditions = [sql`1 = 1`];
   if (query.scopeId) conditions.push(sql`report_payout_records.scope_id = ${query.scopeId}`);
   if (query.source) conditions.push(sql`report_payout_records.source = ${query.source}`);
@@ -465,9 +475,24 @@ export async function listReportPayoutRecords(
       OR report_payout_records.business_date LIKE ${term}
     )`);
   }
-  const where = sql.join(conditions, sql` AND `);
-  const from = sql`FROM ${PAYOUT_RECORD_SOURCE}
-    LEFT JOIN report_scopes ON report_scopes.id = report_payout_records.scope_id`;
+  return {
+    where: sql.join(conditions, sql` AND `),
+    from: sql`FROM ${PAYOUT_RECORD_SOURCE}
+    LEFT JOIN report_scopes ON report_scopes.id = report_payout_records.scope_id`,
+  };
+}
+
+export async function countReportPayoutRecords(db: Database, query: ReportPayoutFilters): Promise<number> {
+  const { where, from } = payoutRecordScope(query);
+  const rows = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count ${from} WHERE ${where}`);
+  return numberValue(rows[0]?.count);
+}
+
+export async function listReportPayoutRecords(
+  db: Database,
+  query: ReportPayoutListQuery,
+): Promise<ReportPayoutListPage> {
+  const { where, from } = payoutRecordScope(query);
   const sortColumns = {
     scope: "COALESCE(report_scopes.name, report_payout_records.scope_id)",
     businessDate: "report_payout_records.business_date",
@@ -477,9 +502,7 @@ export async function listReportPayoutRecords(
   const sortColumn = sortColumns[query.sortField] ?? sortColumns.businessDate;
   const direction = query.sortDirection === "asc" ? "ASC" : "DESC";
   const { limit, offset } = listLimit(query);
-  const [countRows, rows] = await Promise.all([
-    db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count ${from} WHERE ${where}`),
-    db.all<Record<string, unknown>>(sql`SELECT
+  const rows = await db.all<Record<string, unknown>>(sql`SELECT
       report_payout_records.id AS id,
       report_payout_records.source AS source,
       report_payout_records.scope_id AS scopeId,
@@ -491,8 +514,7 @@ export async function listReportPayoutRecords(
       ${from}
       WHERE ${where}
       ORDER BY ${sql.raw(sortColumn)} ${sql.raw(direction)}, report_payout_records.id ASC
-      LIMIT ${limit} OFFSET ${offset}`),
-  ]);
+      LIMIT ${limit} OFFSET ${offset}`);
   return {
     rows: rows.map((row) => ({
       id: textValue(row.id),
@@ -506,14 +528,10 @@ export async function listReportPayoutRecords(
     })),
     page: query.page,
     pageSize: query.pageSize,
-    total: numberValue(countRows[0]?.count),
   };
 }
 
-export async function listReportSalesRecords(
-  db: Database,
-  query: ReportSalesListQuery,
-): Promise<ReportSalesListResult> {
+function salesRecordScope(query: ReportSalesFilters) {
   const conditions = [sql`1 = 1`];
   if (query.scopeId) conditions.push(sql`report_sales_records.scope_id = ${query.scopeId}`);
   if (query.source) conditions.push(sql`report_sales_records.source = ${query.source}`);
@@ -529,9 +547,24 @@ export async function listReportSalesRecords(
       OR lower(report_sales_records.category) LIKE lower(${term})
     )`);
   }
-  const where = sql.join(conditions, sql` AND `);
-  const from = sql`FROM ${SALES_RECORD_SOURCE}
-    LEFT JOIN report_scopes ON report_scopes.id = report_sales_records.scope_id`;
+  return {
+    where: sql.join(conditions, sql` AND `),
+    from: sql`FROM ${SALES_RECORD_SOURCE}
+    LEFT JOIN report_scopes ON report_scopes.id = report_sales_records.scope_id`,
+  };
+}
+
+export async function countReportSalesRecords(db: Database, query: ReportSalesFilters): Promise<number> {
+  const { where, from } = salesRecordScope(query);
+  const rows = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count ${from} WHERE ${where}`);
+  return numberValue(rows[0]?.count);
+}
+
+export async function listReportSalesRecords(
+  db: Database,
+  query: ReportSalesListQuery,
+): Promise<ReportSalesListPage> {
+  const { where, from } = salesRecordScope(query);
   const sortColumns = {
     scope: "COALESCE(report_scopes.name, report_sales_records.scope_id)",
     reportMonth: "report_sales_records.report_month",
@@ -544,9 +577,7 @@ export async function listReportSalesRecords(
   const sortColumn = sortColumns[query.sortField] ?? sortColumns.reportMonth;
   const direction = query.sortDirection === "asc" ? "ASC" : "DESC";
   const { limit, offset } = listLimit(query);
-  const [countRows, rows] = await Promise.all([
-    db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count ${from} WHERE ${where}`),
-    db.all<Record<string, unknown>>(sql`SELECT
+  const rows = await db.all<Record<string, unknown>>(sql`SELECT
       report_sales_records.id AS id,
       report_sales_records.source AS source,
       report_sales_records.scope_id AS scopeId,
@@ -565,8 +596,7 @@ export async function listReportSalesRecords(
       ${from}
       WHERE ${where}
       ORDER BY ${sql.raw(sortColumn)} ${sql.raw(direction)}, report_sales_records.id ASC
-      LIMIT ${limit} OFFSET ${offset}`),
-  ]);
+      LIMIT ${limit} OFFSET ${offset}`);
   return {
     rows: rows.map((row) => ({
       id: textValue(row.id),
@@ -587,7 +617,6 @@ export async function listReportSalesRecords(
     })),
     page: query.page,
     pageSize: query.pageSize,
-    total: numberValue(countRows[0]?.count),
   };
 }
 
