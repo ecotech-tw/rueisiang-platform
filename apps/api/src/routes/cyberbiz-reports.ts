@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import {
   createReportManualPayout,
@@ -40,7 +40,7 @@ import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { createCyberbizReportService, CyberbizReportQueryError } from "../cyberbiz-reports.js";
 import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cyberbiz-report-ingest.js";
 import { manualScopeIdFromStoreName } from "../cyberbiz-scope.js";
-import { cachedReportAnalytics, forgetReportAnalytics } from "../report-cache.js";
+import { cachedReportAnalytics, forgetReportAnalytics, type CachedReportAnalytics } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
 import { body, requireString } from "../request.js";
 
@@ -53,6 +53,15 @@ function groupBy(c: { req: { query(name: string): string | undefined } }): Repor
   const value = queryValue(c, "groupBy");
   if (!value) return undefined;
   return value.split(",").map((item) => item.trim()) as ReportGroupBy[];
+}
+
+/**
+ * 帶著快取狀態回應。`X-Cache` 讓瀏覽器 devtools 直接看得出這一次是命中、沒命中、
+ * 沒設定 Redis 還是 Redis 噴錯——不然快取有沒有在運作只能用 D1 用量反推。
+ */
+function jsonWithCache<T>(c: Context<AppEnv>, result: CachedReportAnalytics<T>) {
+  c.header("X-Cache", result.status);
+  return c.json(result.value);
 }
 
 function analyticsCacheKey(c: { req: { url: string } }, resource: string): string {
@@ -552,7 +561,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         })),
       };
     });
-    return c.json(result);
+    return jsonWithCache(c, result);
   })
   .get("/manual/options", requirePermission("reports:cyberbiz:write"), async (c) => {
     const [scopes, products] = await Promise.all([
@@ -816,7 +825,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         analyticsCacheKey(c, "summary:payout"),
         () => createCyberbizReportService(c.get("db")).queryPayoutSummary(query),
       );
-      return c.json(result);
+      return jsonWithCache(c, result);
     } catch (error) {
       handleError(error);
     }
@@ -833,7 +842,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         analyticsCacheKey(c, "summary:sales:v2"),
         () => createCyberbizReportService(c.get("db")).querySalesSummary(query),
       );
-      return c.json(result);
+      return jsonWithCache(c, result);
     } catch (error) {
       handleError(error);
     }
@@ -851,7 +860,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         analyticsCacheKey(c, "sales"),
         () => createCyberbizReportService(c.get("db")).querySales(query),
       );
-      return c.json(result);
+      return jsonWithCache(c, result);
     } catch (error) {
       handleError(error);
     }
@@ -864,7 +873,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         analyticsCacheKey(c, "payout"),
         () => createCyberbizReportService(c.get("db")).queryPayout(query),
       );
-      return c.json(result);
+      return jsonWithCache(c, result);
     } catch (error) {
       handleError(error);
     }

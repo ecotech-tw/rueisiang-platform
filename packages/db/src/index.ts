@@ -120,6 +120,7 @@ export {
 } from "./cyberbiz-reports.js";
 export {
   findReportScope,
+  createReportScopeDirectory,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
   isValidReportDate,
@@ -138,6 +139,7 @@ export {
   type ReportPayoutQuery,
   type ReportPayoutQueryResult,
   type ReportPayoutDaily,
+  type ReportScopeDirectory,
   type ReportRange,
   type ReportSalesQuery,
   type ReportSalesQueryResult,

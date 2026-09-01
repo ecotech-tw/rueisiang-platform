@@ -133,6 +133,25 @@ export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind
     .orderBy(asc(reportScopes.name));
 }
 
+/**
+ * 單次請求內共用的店別名冊。
+ *
+ * 一份統計會呼叫 queryReportSales / queryReportPayout 好幾次（本期、上期、
+ * 去年同期、趨勢、店別、分類、SKU⋯），而每一次都要讀兩遍 report_scopes——
+ * 一次解析 scope id、一次把 id 換成店名。八次查詢就是十六趟往返讀同一張表。
+ *
+ * 刻意做成傳進去的物件而不是模組層的快取：它的壽命必須剛好是一次請求，
+ * 新增店別下一個請求就要看得到。
+ */
+export interface ReportScopeDirectory {
+  stores(): Promise<ReportScope[]>;
+}
+
+export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
+  let pending: Promise<ReportScope[]> | undefined;
+  return { stores: () => (pending ??= listReportScopes(db, "store")) };
+}
+
 /*
  * 人工修訂是同一個報表 key 的覆蓋層：
  * - 有人工資料時，該 key 不再採用匯入資料。
@@ -429,14 +448,18 @@ function scopeCondition(column: ReturnType<typeof sql>, scopeIds: readonly strin
     : sql`${column} IN (${sql.join(scopeIds.map((id) => sql`${id}`), sql`, `)})`;
 }
 
-export async function scopeIdsForQuery(db: Database, query: { scopeType: ReportScopeKind; scopeId?: string; scopeName?: string }): Promise<{ ids: string[]; scope?: ReportScope }> {
+export async function scopeIdsForQuery(
+  db: Database,
+  query: { scopeType: ReportScopeKind; scopeId?: string; scopeName?: string },
+  directory: ReportScopeDirectory = createReportScopeDirectory(db),
+): Promise<{ ids: string[]; scope?: ReportScope }> {
   if (query.scopeType === "store") {
     const scope = await findReportScope(db, { scopeKind: "store", id: query.scopeId, name: query.scopeName });
     return scope ? { ids: [scope.id], scope } : { ids: [] };
   }
   return {
     // 公司總額納入所有通路，但只接受既定的 channel:store:id 格式與舊版 store- ID。
-    ids: (await listReportScopes(db, "store"))
+    ids: (await directory.stores())
       .filter((scope) => isCompanyReportStoreScopeId(scope.id))
       .map((scope) => scope.id),
   };
@@ -479,7 +502,11 @@ function asNumber(value: unknown): number {
   return typeof value === "number" ? value : Number(value ?? 0);
 }
 
-export async function queryReportSales(db: Database, query: ReportSalesQuery): Promise<ReportSalesQueryResult | null> {
+export async function queryReportSales(
+  db: Database,
+  query: ReportSalesQuery,
+  directory: ReportScopeDirectory = createReportScopeDirectory(db),
+): Promise<ReportSalesQueryResult | null> {
   if (!isWholeMonthRange(query.range)) {
     return {
       status: "UNSUPPORTED_GRANULARITY",
@@ -492,7 +519,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
       message: "商品銷售資料目前只支援完整月份查詢，請改用 YYYY-MM 或完整月份的起訖日期。",
     };
   }
-  const { ids, scope } = await scopeIdsForQuery(db, query);
+  const { ids, scope } = await scopeIdsForQuery(db, query, directory);
   if (!ids.length) return null;
   const groups = selectedGroups(query.groupBy?.length ? query.groupBy : ["sku"]);
   const dimensions = groups.map((group) => SALES_GROUPS[group]);
@@ -589,7 +616,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
     };
   }
 
-  const scopeNames = new Map((await listReportScopes(db, "store")).map((item) => [item.id, item.name]));
+  const scopeNames = new Map((await directory.stores()).map((item) => [item.id, item.name]));
   const resultRows = rows.map((row) => ({
     ...row,
     ...(row.scopeId ? { scopeName: scopeNames.get(String(row.scopeId)) ?? String(row.scopeId) } : {}),
@@ -615,8 +642,12 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
   };
 }
 
-export async function queryReportPayout(db: Database, query: ReportPayoutQuery): Promise<ReportPayoutQueryResult | null> {
-  const { ids, scope } = await scopeIdsForQuery(db, query);
+export async function queryReportPayout(
+  db: Database,
+  query: ReportPayoutQuery,
+  directory: ReportScopeDirectory = createReportScopeDirectory(db),
+): Promise<ReportPayoutQueryResult | null> {
+  const { ids, scope } = await scopeIdsForQuery(db, query, directory);
   if (!ids.length) return null;
   const groups = selectedPayoutGroups(query.groupBy?.length ? query.groupBy : ["day"]);
   const dimensions = groups.map((group) => PAYOUT_GROUPS[group]);
@@ -629,7 +660,7 @@ export async function queryReportPayout(db: Database, query: ReportPayoutQuery):
   const order = dimensions.length ? sql` ORDER BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${EFFECTIVE_PAYOUT_SOURCE} WHERE ${conditions}${grouped}${order}`);
   if (!rows.length || (dimensions.length === 0 && rows.every((row) => row.payoutAmount == null))) return null;
-  const scopeNames = new Map((await listReportScopes(db, "store")).map((item) => [item.id, item.name]));
+  const scopeNames = new Map((await directory.stores()).map((item) => [item.id, item.name]));
   const resultRows = rows.map((row) => ({
     ...row,
     ...(row.scopeId ? { scopeName: scopeNames.get(String(row.scopeId)) ?? String(row.scopeId) } : {}),

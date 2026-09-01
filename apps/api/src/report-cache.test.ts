@@ -31,8 +31,10 @@ describe("營運報表快取", () => {
     let calls = 0;
     const loader = async () => ({ value: ++calls });
 
-    await expect(cachedReportAnalytics(cache, "summary:sales?period=2026-08", loader)).resolves.toEqual({ value: 1 });
-    await expect(cachedReportAnalytics(cache, "summary:sales?period=2026-08", loader)).resolves.toEqual({ value: 1 });
+    await expect(cachedReportAnalytics(cache, "summary:sales?period=2026-08", loader))
+      .resolves.toEqual({ value: { value: 1 }, status: "miss" });
+    await expect(cachedReportAnalytics(cache, "summary:sales?period=2026-08", loader))
+      .resolves.toEqual({ value: { value: 1 }, status: "hit" });
 
     expect(calls).toBe(1);
     expect(writes.some((entry) => entry.key.includes("summary:sales") && entry.ttlSeconds === REPORT_ANALYTICS_CACHE_TTL_SECONDS)).toBe(true);
@@ -50,6 +52,11 @@ describe("營運報表快取", () => {
     expect(calls).toBe(2);
   });
 
+  it("沒有設定 Redis 時回報 bypass，與 Redis 噴錯的 error 分得開", async () => {
+    await expect(cachedReportAnalytics(undefined, "scopes", async () => "database"))
+      .resolves.toEqual({ value: "database", status: "bypass" });
+  });
+
   it("Redis 讀取失敗會退回資料庫 loader", async () => {
     const broken: CacheClient = {
       get: async () => { throw new Error("Redis 掛了"); },
@@ -59,7 +66,8 @@ describe("營運報表快取", () => {
       del: async () => {},
     };
 
-    await expect(cachedReportAnalytics(broken, "summary:payout", async () => "database")).resolves.toBe("database");
+    await expect(cachedReportAnalytics(broken, "summary:payout", async () => "database"))
+      .resolves.toEqual({ value: "database", status: "error" });
   });
 
   it("查詢載入期間快取失效時，不會把舊結果寫進新版本", async () => {
@@ -78,7 +86,7 @@ describe("營運報表快取", () => {
     await cachedReportAnalytics(cache, "summary:sales?period=new", async () => "fresh");
     finishLoader("stale");
 
-    await expect(pending).resolves.toBe("stale");
+    await expect(pending).resolves.toEqual({ value: "stale", status: "miss" });
     expect(writes.some((entry) => entry.key.includes("summary:sales?period=old"))).toBe(false);
   });
 });
