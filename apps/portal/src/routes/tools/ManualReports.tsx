@@ -1346,13 +1346,11 @@ function MobileTableSelectAll({
 function SelectionActions({ selectedCount, busy, onDelete }: { selectedCount: number; busy: boolean; onDelete: () => void }) {
   return (
     <div className="manual-report-selection-actions">
-      <span className={selectedCount > 0 ? "manual-report-selection-count" : "muted"} aria-live="polite">
-        {selectedCount > 0 ? `已選取 ${selectedCount} 筆` : "請勾選資料後批次刪除"}
-      </span>
+      <span className="manual-report-selection-count" aria-live="polite">已選取 {selectedCount} 筆</span>
       <Button
         variant="danger"
         icon="trash"
-        disabled={busy || selectedCount === 0}
+        disabled={busy}
         onClick={onDelete}
       >
         刪除選取資料
@@ -1393,7 +1391,7 @@ function PayoutTable({
   const someSelected = selectedCount > 0 && !allSelected;
 
   return (
-    <>
+    <div className="manual-report-table-region">
       <div className="table-scroll">
         <MobileTableSelectAll
           allSelected={allSelected}
@@ -1467,8 +1465,8 @@ function PayoutTable({
           </tbody>
         </table>
       </div>
-      {rows.length > 0 ? <SelectionActions selectedCount={selectedCount} busy={busy} onDelete={onDeleteSelected} /> : null}
-    </>
+      {selectedCount > 0 ? <SelectionActions selectedCount={selectedCount} busy={busy} onDelete={onDeleteSelected} /> : null}
+    </div>
   );
 }
 
@@ -1504,7 +1502,7 @@ function SalesTable({
   const someSelected = selectedCount > 0 && !allSelected;
 
   return (
-    <>
+    <div className="manual-report-table-region">
       <div className="table-scroll">
         <MobileTableSelectAll
           allSelected={allSelected}
@@ -1592,7 +1590,7 @@ function SalesTable({
           </tbody>
         </table>
       </div>
-      {rows.length > 0 ? <SelectionActions selectedCount={selectedCount} busy={busy} onDelete={onDeleteSelected} /> : null}
-    </>
+      {selectedCount > 0 ? <SelectionActions selectedCount={selectedCount} busy={busy} onDelete={onDeleteSelected} /> : null}
+    </div>
   );
 }
