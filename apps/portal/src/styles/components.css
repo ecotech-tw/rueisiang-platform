@@ -386,6 +386,7 @@
 .page.fills > .panel.grows > .table-note { flex: none; }
 .page.fills > .panel.grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
 
+
 /* 表頭在自己的捲動容器裡固定。 */
 .table-scroll .data-table thead th {
   position: sticky;
@@ -3512,6 +3513,50 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   flex: none;
 }
 .manual-report-actions > button { white-space: nowrap; }
+.manual-report-mobile-select-all { display: none; }
+.manual-report-table-region {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.page.fills > .panel.grows > .manual-report-table-region { flex: 1; min-height: 0; }
+.manual-report-table-region > .table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.manual-report-selection-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 3;
+  gap: 12px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-paper);
+  box-shadow: var(--shadow-panel);
+}
+.manual-report-selection-actions .manual-report-selection-count { margin-right: auto; }
+.manual-report-selection-actions > button { flex: none; }
+.manual-report-table tr.selected td { background: --alpha(var(--color-brand) / 8%); }
+.manual-report-import-format-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--color-canvas);
+}
+.manual-report-import-format-note p { margin: 0; }
+.manual-report-import-row-dialog { width: min(720px, 100%); }
 .manual-report-empty {
   margin: 0;
   padding: 28px 16px 12px;
@@ -3642,6 +3687,19 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   }
   .manual-report-actions .add-action span { display: inline; }
   .manual-report-actions .add-action svg { width: 18px; height: 18px; }
+  .manual-report-mobile-select-all {
+    display: flex;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--color-soft-line);
+  }
+  .manual-report-selection-actions {
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+    padding: 8px 10px 8px 14px;
+  }
+  .manual-report-selection-actions > button { width: auto; justify-content: center; }
+  .manual-report-table-region > .table-scroll { overflow-x: visible; }
   .manual-report-table th,
   .manual-report-table td { white-space: normal; }
   .manual-report-table td[data-label="SKU"] code { overflow-wrap: anywhere; }

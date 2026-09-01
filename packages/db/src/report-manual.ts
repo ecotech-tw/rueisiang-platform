@@ -12,6 +12,8 @@ import {
   type ReportManualPayoutDaily,
   type ReportManualSalesMonthly,
   type ReportManualSkuSource,
+  type ReportPayoutDaily,
+  type ReportSalesMonthly,
 } from "./schema/reports.js";
 import { cyberbizProducts } from "./schema/wms.js";
 import { normalizeExternalSku } from "./product-sku-mappings.js";
@@ -779,6 +781,78 @@ export async function deleteReportPayoutRecord(
   ] as never);
 }
 
+export async function deleteReportPayoutRecords(
+  db: Database,
+  inputs: readonly ReportPayoutRecordDeleteInput[],
+  actor: ReportManualActor,
+): Promise<number> {
+  if (!inputs.length) throw new ReportManualError("invalid", "至少要選取一筆出金紀錄。");
+
+  const unique = new Map<string, ReportPayoutRecordDeleteInput>();
+  for (const input of inputs) {
+    const scopeId = input.scopeId.trim();
+    const businessDate = input.businessDate.trim();
+    const id = input.id.trim();
+    if (!id || !scopeId || !isValidReportDate(businessDate)) {
+      throw new ReportManualError("invalid", "出金紀錄的據點、日期或 ID 不正確。");
+    }
+    const key = input.source === "manual" ? `manual:${id}` : `imported:${scopeId}:${businessDate}`;
+    if (!unique.has(key)) unique.set(key, { ...input, id, scopeId, businessDate });
+  }
+
+  const entries: Array<{
+    input: ReportPayoutRecordDeleteInput;
+    existing: ReportManualPayoutDaily | ReportPayoutDaily;
+  }> = [];
+  for (const input of unique.values()) {
+    const [manual] = input.source === "manual"
+      ? await db.select().from(reportManualPayoutDaily).where(eq(reportManualPayoutDaily.id, input.id)).limit(1)
+      : [];
+    const [imported] = input.source === "imported"
+      ? await db.select().from(reportPayoutDaily).where(and(
+        eq(reportPayoutDaily.scopeId, input.scopeId),
+        eq(reportPayoutDaily.businessDate, input.businessDate),
+      )).limit(1)
+      : [];
+    const existing = manual ?? imported;
+    if (!existing) throw new ReportManualError("not_found", "找不到選取的出金紀錄。");
+    entries.push({ input, existing });
+  }
+
+  const names = await scopeNames(db);
+  type Statement = Parameters<Database["batch"]>[0][number];
+  const statements: Statement[] = [];
+  for (const { input, existing } of entries) {
+    const scopeName = names.get(existing.scopeId) ?? existing.scopeId;
+    const entityId = input.source === "manual" ? input.id : `imported:${input.scopeId}:${input.businessDate}`;
+    statements.push(
+      input.source === "manual"
+        ? db.delete(reportManualPayoutDaily).where(eq(reportManualPayoutDaily.id, input.id))
+        : db.delete(reportPayoutDaily).where(and(
+          eq(reportPayoutDaily.scopeId, input.scopeId),
+          eq(reportPayoutDaily.businessDate, input.businessDate),
+        )),
+      db.insert(activityEvents).values(activityRow({
+        entityType: "report_manual_entry",
+        entityId,
+        entityLabel: payoutLabel(scopeName, existing.businessDate),
+        eventType: "report_payout_record_deleted",
+        summary: `刪除出金資料：${scopeName} ${existing.businessDate}`,
+        field: "payoutAmount",
+        oldValue: String(existing.payoutAmount),
+        payload: { source: input.source, ...payoutPayload(existing) },
+        actor,
+        source: "reports",
+      })),
+    );
+  }
+  for (let start = 0; start < statements.length; start += 50) {
+    const batch = statements.slice(start, start + 50);
+    await db.batch(batch as [Statement, ...Statement[]]);
+  }
+  return entries.length;
+}
+
 export async function createReportManualSales(
   db: Database,
   input: ReportManualSalesInput,
@@ -917,6 +991,88 @@ export async function deleteReportManualSales(db: Database, id: string, actor: R
       source: "reports",
     })),
   ] as never);
+}
+
+export async function deleteReportSalesRecords(
+  db: Database,
+  inputs: readonly ReportSalesRecordDeleteInput[],
+  actor: ReportManualActor,
+): Promise<number> {
+  if (!inputs.length) throw new ReportManualError("invalid", "至少要選取一筆商品銷售紀錄。");
+
+  const unique = new Map<string, ReportSalesRecordDeleteInput>();
+  for (const input of inputs) {
+    const scopeId = input.scopeId.trim();
+    const reportMonth = input.reportMonth.trim();
+    const sku = normalizeExternalSku(input.sku);
+    const id = input.id.trim();
+    if (!id || !scopeId || !/^\d{4}-(0[1-9]|1[0-2])$/u.test(reportMonth) || !sku) {
+      throw new ReportManualError("invalid", "商品銷售紀錄的據點、月份、SKU 或 ID 不正確。");
+    }
+    const key = input.source === "manual" ? `manual:${id}` : `imported:${scopeId}:${reportMonth}:${sku}`;
+    if (!unique.has(key)) unique.set(key, { ...input, id, scopeId, reportMonth, sku });
+  }
+
+  const entries: Array<{
+    input: ReportSalesRecordDeleteInput;
+    existing: ReportManualSalesMonthly | ReportSalesMonthly;
+    skuSource: ReportManualSkuSource | null;
+  }> = [];
+  for (const input of unique.values()) {
+    const [manual] = input.source === "manual"
+      ? await db.select().from(reportManualSalesMonthly).where(eq(reportManualSalesMonthly.id, input.id)).limit(1)
+      : [];
+    const [imported] = input.source === "imported"
+      ? await db.select().from(reportSalesMonthly).where(and(
+        eq(reportSalesMonthly.scopeId, input.scopeId),
+        eq(reportSalesMonthly.reportMonth, input.reportMonth),
+        sql`lower(${reportSalesMonthly.sku}) = lower(${input.sku})`,
+      )).limit(1)
+      : [];
+    const existing = manual ?? imported;
+    if (!existing) throw new ReportManualError("not_found", "找不到選取的商品銷售紀錄。");
+    entries.push({
+      input,
+      existing,
+      skuSource: input.source === "manual" ? manual?.skuSource ?? null : null,
+    });
+  }
+
+  const names = await scopeNames(db);
+  type Statement = Parameters<Database["batch"]>[0][number];
+  const statements: Statement[] = [];
+  for (const { input, existing, skuSource } of entries) {
+    const scopeName = names.get(existing.scopeId) ?? existing.scopeId;
+    const entityId = input.source === "manual"
+      ? input.id
+      : `imported:${existing.scopeId}:${existing.reportMonth}:${existing.sku}`;
+    const deletedSalesPayload = salesPayload({ ...existing, skuSource });
+    statements.push(
+      input.source === "manual"
+        ? db.delete(reportManualSalesMonthly).where(eq(reportManualSalesMonthly.id, input.id))
+        : db.delete(reportSalesMonthly).where(and(
+          eq(reportSalesMonthly.scopeId, input.scopeId),
+          eq(reportSalesMonthly.reportMonth, input.reportMonth),
+          sql`lower(${reportSalesMonthly.sku}) = lower(${input.sku})`,
+        )),
+      db.insert(activityEvents).values(activityRow({
+        entityType: "report_manual_entry",
+        entityId,
+        entityLabel: salesLabel(scopeName, existing.reportMonth, existing.sku),
+        eventType: "report_sales_record_deleted",
+        summary: `刪除商品銷售資料：${scopeName} ${existing.reportMonth} ${existing.sku}`,
+        oldValue: JSON.stringify(deletedSalesPayload),
+        payload: { source: input.source, ...deletedSalesPayload },
+        actor,
+        source: "reports",
+      })),
+    );
+  }
+  for (let start = 0; start < statements.length; start += 50) {
+    const batch = statements.slice(start, start + 50);
+    await db.batch(batch as [Statement, ...Statement[]]);
+  }
+  return entries.length;
 }
 
 /** 刪除頁面目前看到的商品銷售紀錄；刪除人工覆寫後讓同 key 的匯入值自然恢復。 */

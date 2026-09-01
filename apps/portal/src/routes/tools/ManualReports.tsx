@@ -11,8 +11,8 @@ import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, Se
 import {
   useCreateManualPayout,
   useCreateManualSales,
-  useDeleteManualPayout,
-  useDeleteManualSales,
+  useDeleteManualPayouts,
+  useDeleteManualSalesRecords,
   useCreateManualScope,
   useDeleteManualScope,
   useImportManualPayout,
@@ -37,25 +37,19 @@ import {
   type ManualSkuSource,
 } from "./manual-reports-api.js";
 import {
-  detectPayout,
-  payoutHeaders,
-  summarisePayout,
-  type PayoutDayRow,
+  parseStandardImportFile,
+  type StandardImportPreview,
+  type StandardPayoutImportRow,
+  type StandardSalesImportRow,
 } from "./manual-report-import.js";
-import {
-  parseManualCyberbizSales,
-  resolveManualSalesPreview,
-  type ManualSalesPreview,
-} from "./cyberbiz-sales-xlsx.js";
-import { readFirstSheet, type Sheet } from "./xlsx.js";
 
 type DialogState =
   | { kind: "payout"; row?: ManualPayoutRow }
   | { kind: "sales"; row?: ManualSalesRow };
 
 type DeletingState =
-  | { kind: "payout"; row: ManualPayoutRow }
-  | { kind: "sales"; row: ManualSalesRow };
+  | { kind: "payout"; rows: ManualPayoutRow[] }
+  | { kind: "sales"; rows: ManualSalesRow[] };
 
 type ImportDialogState = { kind: ManualReportKind };
 
@@ -73,14 +67,6 @@ function parseSafeInteger(value: string): number | null {
   if (!value.trim()) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-function isWholeMonthRange(start: string, end: string): boolean {
-  if (start.slice(0, 7) !== end.slice(0, 7)) return false;
-  const [year, month] = start.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year ?? 0, month ?? 0, 0)).getUTCDate();
-  return start === `${start.slice(0, 7)}-01`
-    && end === `${start.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`;
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
@@ -380,15 +366,145 @@ function ManualReportDialog({
   );
 }
 
-function ReportImportDialog({
+type ImportEditState =
+  | { kind: "payout"; row: StandardPayoutImportRow }
+  | { kind: "sales"; row: StandardSalesImportRow };
+
+function importSalesTotals(rows: StandardSalesImportRow[]) {
+  return rows.reduce((totals, row) => ({
+    grossQuantity: totals.grossQuantity + row.grossQuantity,
+    returnQuantity: totals.returnQuantity + row.returnQuantity,
+    netQuantity: totals.netQuantity + row.netQuantity,
+    salesAmount: totals.salesAmount + row.salesAmount,
+  }), { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 });
+}
+
+function isValidImportDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function ImportRecordDialog({
+  state,
+  onClose,
+  onSave,
+}: {
+  state: ImportEditState;
+  onClose: () => void;
+  onSave: (state: ImportEditState) => void;
+}) {
+  const [businessDate, setBusinessDate] = useState(state.kind === "payout" ? state.row.businessDate : "");
+  const [payoutAmount, setPayoutAmount] = useState(state.kind === "payout" ? String(state.row.payoutAmount) : "");
+  const [reportMonth, setReportMonth] = useState(state.kind === "sales" ? state.row.reportMonth : "");
+  const [sku, setSku] = useState(state.kind === "sales" ? state.row.sku : "");
+  const [productName, setProductName] = useState(state.kind === "sales" ? state.row.productName : "");
+  const [category, setCategory] = useState(state.kind === "sales" ? state.row.category : "");
+  const [grossQuantity, setGrossQuantity] = useState(state.kind === "sales" ? String(state.row.grossQuantity) : "");
+  const [returnQuantity, setReturnQuantity] = useState(state.kind === "sales" ? String(state.row.returnQuantity) : "");
+  const [netQuantity, setNetQuantity] = useState(state.kind === "sales" ? String(state.row.netQuantity) : "");
+  const [salesAmount, setSalesAmount] = useState(state.kind === "sales" ? String(state.row.salesAmount) : "");
+
+  const payoutValue = parseSafeInteger(payoutAmount);
+  const salesValues = {
+    grossQuantity: parseSafeInteger(grossQuantity),
+    returnQuantity: parseSafeInteger(returnQuantity),
+    netQuantity: parseSafeInteger(netQuantity),
+    salesAmount: parseSafeInteger(salesAmount),
+  };
+  const valid = state.kind === "payout"
+    ? isValidImportDate(businessDate) && payoutValue !== null
+    : Boolean(
+      /^\d{4}-(0[1-9]|1[0-2])$/u.test(reportMonth)
+      && sku.trim()
+      && Object.values(salesValues).every((value) => value !== null),
+    );
+
+  function submit() {
+    if (!valid) return;
+    if (state.kind === "payout" && payoutValue !== null) {
+      onSave({ kind: "payout", row: { ...state.row, businessDate, payoutAmount: payoutValue } });
+      return;
+    }
+    if (state.kind === "sales") {
+      onSave({
+        kind: "sales",
+        row: {
+          ...state.row,
+          reportMonth,
+          sku: sku.trim(),
+          productName: productName.trim() || sku.trim(),
+          category: category.trim() || "未分類",
+          grossQuantity: salesValues.grossQuantity ?? 0,
+          returnQuantity: salesValues.returnQuantity ?? 0,
+          netQuantity: salesValues.netQuantity ?? 0,
+          salesAmount: salesValues.salesAmount ?? 0,
+        },
+      });
+    }
+  }
+
+  return (
+    <Dialog
+      title={`編輯匯入資料（第 ${state.row.sourceRow} 列）`}
+      className="manual-report-dialog manual-report-import-row-dialog"
+      onClose={onClose}
+      formProps={{ onSubmit: (event) => { event.preventDefault(); submit(); } }}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose}>取消</Button>
+          <Button type="submit" disabled={!valid}>儲存這列</Button>
+        </>
+      }
+    >
+      <div className="manual-report-form">
+        {state.kind === "payout" ? (
+          <div className="field-grid">
+            <TextField
+              label="出金日期"
+              required
+              type="date"
+              value={businessDate}
+              onChange={(event) => setBusinessDate(event.target.value)}
+            />
+            <TextField
+              label="出金金額"
+              required
+              type="number"
+              step="1"
+              inputMode="numeric"
+              value={payoutAmount}
+              onChange={(event) => setPayoutAmount(event.target.value)}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="field-grid">
+              <TextField label="報表月份" required type="month" value={reportMonth} onChange={(event) => setReportMonth(event.target.value)} />
+              <TextField label="SKU" required value={sku} onChange={(event) => setSku(event.target.value)} />
+              <TextField label="商品名稱" value={productName} onChange={(event) => setProductName(event.target.value)} />
+              <TextField label="類別" value={category} onChange={(event) => setCategory(event.target.value)} />
+            </div>
+            <div className="field-grid trio">
+              <TextField label="銷售數量" required type="number" step="1" inputMode="numeric" value={grossQuantity} onChange={(event) => setGrossQuantity(event.target.value)} />
+              <TextField label="退回數量" required type="number" step="1" inputMode="numeric" value={returnQuantity} onChange={(event) => setReturnQuantity(event.target.value)} />
+              <TextField label="淨銷售數量" required type="number" step="1" inputMode="numeric" value={netQuantity} onChange={(event) => setNetQuantity(event.target.value)} />
+            </div>
+            <TextField label="售額總計" required type="number" step="1" inputMode="numeric" value={salesAmount} onChange={(event) => setSalesAmount(event.target.value)} />
+          </>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+function StandardReportImportDialog({
   kind,
   scopes,
-  products,
   onClose,
 }: {
   kind: ManualReportKind;
   scopes: ManualScopeOption[];
-  products: ManualProductOption[];
   onClose: () => void;
 }) {
   const importPayout = useImportManualPayout();
@@ -396,79 +512,67 @@ function ReportImportDialog({
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
-  const [sheet, setSheet] = useState<Sheet | null>(null);
-  const [salesPreview, setSalesPreview] = useState<ManualSalesPreview | null>(null);
+  const [preview, setPreview] = useState<StandardImportPreview | null>(null);
+  const [editing, setEditing] = useState<ImportEditState | null>(null);
   const [parseError, setParseError] = useState("");
   const [scopeId, setScopeId] = useState(scopes[0]?.id ?? "");
   const [scopeName, setScopeName] = useState("");
-  const [headerRow, setHeaderRow] = useState(2);
-  const [dateColumn, setDateColumn] = useState("");
-  const [amountColumn, setAmountColumn] = useState("");
 
-  const detected = useMemo(() => kind === "payout" && sheet ? detectPayout(sheet) : null, [kind, sheet]);
-  const headers = useMemo(() => sheet ? payoutHeaders(sheet, headerRow) : [], [headerRow, sheet]);
-  const payoutPreview = useMemo(() => {
-    if (kind !== "payout" || !sheet || !dateColumn || !amountColumn) return null;
-    return summarisePayout(sheet, headerRow, dateColumn, amountColumn);
-  }, [amountColumn, dateColumn, headerRow, kind, sheet]);
-  const resolvedSalesPreview = useMemo(
-    () => salesPreview ? resolveManualSalesPreview(salesPreview, products) : null,
-    [products, salesPreview],
-  );
-  const salesImportRows = resolvedSalesPreview?.rows.filter((row) => row.sku.trim()) ?? [];
-  const unresolvedProductNames = resolvedSalesPreview?.unresolvedProductNames ?? [];
-  const salesIsWholeMonth = resolvedSalesPreview
-    ? isWholeMonthRange(resolvedSalesPreview.coverageStart, resolvedSalesPreview.coverageEnd)
-    : true;
-  const salesIsCrossMonth = resolvedSalesPreview
-    ? resolvedSalesPreview.coverageStart.slice(0, 7) !== resolvedSalesPreview.coverageEnd.slice(0, 7)
-    : false;
   const selectedScopeName = scopeId ? scopes.find((scope) => scope.id === scopeId)?.name ?? "" : scopeName.trim();
   const pending = importPayout.isPending || importSales.isPending;
   const error = parseError || importPayout.error?.message || importSales.error?.message || "";
-  const valid = Boolean(
-    selectedScopeName
-    && (kind === "payout"
-      ? payoutPreview?.days.length
-      : salesImportRows.length && !unresolvedProductNames.length),
-  );
+  const rowCount = preview && preview.kind === kind ? preview.rows.length : 0;
+  const valid = Boolean(selectedScopeName && rowCount);
 
   async function pickFile(file: File | undefined) {
     if (!file) return;
     setFileName(file.name);
-    setSheet(null);
-    setSalesPreview(null);
+    setPreview(null);
+    setEditing(null);
     setParseError("");
-    setDateColumn("");
-    setAmountColumn("");
     try {
-      const parsed = await readFirstSheet(file);
-      if (kind === "payout") {
-        setSheet(parsed);
-        const found = detectPayout(parsed);
-        if (found) {
-          setHeaderRow(found.headerRow);
-          setDateColumn(found.dateColumn);
-          setAmountColumn(found.amountColumn);
-        } else {
-          setHeaderRow(2);
-          setParseError("找不到出金報表的日期或金額欄位，請手動選擇欄位。");
-        }
-      } else {
-        setSalesPreview(parseManualCyberbizSales(parsed));
-      }
+      setPreview(await parseStandardImportFile(file, kind));
     } catch (parseFailure) {
-      setParseError(parseFailure instanceof Error ? parseFailure.message : "讀不開這個檔案。");
+      setParseError(parseFailure instanceof Error ? parseFailure.message : "讀不開這個檔案。請下載範例檔案確認欄位格式。");
     }
   }
 
+  function saveEditedRow(next: ImportEditState) {
+    setPreview((current) => {
+      if (!current || current.kind !== next.kind) return current;
+      if (current.kind === "payout" && next.kind === "payout") {
+        const nextRows = current.rows.map((row) => row.sourceRow === next.row.sourceRow ? next.row : row);
+        const dates = nextRows.map((row) => row.businessDate).sort();
+        return {
+          ...current,
+          rows: nextRows,
+          total: nextRows.reduce((total, row) => total + row.payoutAmount, 0),
+          coverageStart: dates[0] ?? "",
+          coverageEnd: dates.at(-1) ?? "",
+        };
+      }
+      if (current.kind === "sales" && next.kind === "sales") {
+        const nextRows = current.rows.map((row) => row.sourceRow === next.row.sourceRow ? next.row : row);
+        return {
+          ...current,
+          rows: nextRows,
+          reportMonths: [...new Set(nextRows.map((row) => row.reportMonth))].sort(),
+          totals: importSalesTotals(nextRows),
+        };
+      }
+      return current;
+    });
+    setEditing(null);
+  }
+
   function submit() {
-    if (!valid || !selectedScopeName) return;
-    if (kind === "payout" && payoutPreview) {
+    if (!valid || !selectedScopeName || !preview || preview.kind !== kind) return;
+    if (kind === "payout" && preview.kind === "payout") {
       importPayout.mutate({
+        format: "standard",
         scopeName: selectedScopeName,
         ...(scopeId ? { scopeId } : {}),
-        rows: payoutPreview.days.map((day) => ({ businessDate: day.businessDate, payoutAmount: day.payoutAmount })),
+        rows: preview.rows.map(({ businessDate, payoutAmount }) => ({ businessDate, payoutAmount })),
       }, {
         onSuccess: (result) => {
           toast.show(`已匯入${result.scopeName} ${result.dayCount} 天，合計 ${result.total.toLocaleString("zh-TW")}`);
@@ -478,219 +582,154 @@ function ReportImportDialog({
       });
       return;
     }
-    if (kind === "sales" && resolvedSalesPreview) {
-      importSales.mutate({
-        scopeName: selectedScopeName,
-        ...(scopeId ? { scopeId } : {}),
-        reportMonth: resolvedSalesPreview.reportMonth,
-        rows: salesImportRows.map(({ sku, productName, category, grossQuantity, returnQuantity, netQuantity, salesAmount }) => ({
-          sku,
-          productName,
-          category,
-          grossQuantity,
-          returnQuantity,
-          netQuantity,
-          salesAmount,
-        })),
-      }, {
-        onSuccess: (result) => {
-          const skipped = result.skippedSkus?.length ? `，略過 ${result.skippedSkus.length} 個未完成 mapping 的 SKU` : "";
-          toast.show(`已匯入${result.scopeName} ${result.reportMonth} ${result.rowCount} 筆商品銷售資料${skipped}`);
-          if (fileInputRef.current) fileInputRef.current.value = "";
-          onClose();
-        },
-      });
-    }
+    if (kind !== "sales" || preview.kind !== "sales") return;
+    importSales.mutate({
+      format: "standard",
+      scopeName: selectedScopeName,
+      ...(scopeId ? { scopeId } : {}),
+      rows: preview.rows.map(({ reportMonth, sku, productName, category, grossQuantity, returnQuantity, netQuantity, salesAmount }) => ({
+        reportMonth,
+        sku,
+        productName,
+        category,
+        grossQuantity,
+        returnQuantity,
+        netQuantity,
+        salesAmount,
+      })),
+    }, {
+      onSuccess: (result) => {
+        const months = result.reportMonths?.length ? result.reportMonths.join("、") : result.reportMonth ?? "";
+        toast.show(`已匯入${result.scopeName} ${months} ${result.rowCount} 筆商品銷售資料`);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        onClose();
+      },
+    });
   }
 
   return (
-    <Dialog
-      title={`匯入${kind === "payout" ? "出金" : "商品銷售"}報表`}
-      className="manual-report-import-dialog"
-      backdropClassName="manual-report-import-backdrop"
-      bodyClassName="manual-report-import-body"
-      onClose={onClose}
-      closeDisabled={pending}
-      formProps={{
-        onSubmit: (event) => {
-          event.preventDefault();
-          submit();
-        },
-      }}
-      actions={
-        <>
-          <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button>
-          <Button type="submit" loading={pending} loadingLabel="匯入中…" disabled={!valid}>確認匯入</Button>
-        </>
-      }
-    >
-      <div className="manual-report-import-form">
-        <div className="field-grid">
-          <SelectField
-            label="據點"
-            required
-            value={scopeId}
-            onChange={(event) => {
-              setScopeId(event.target.value);
-              if (event.target.value) setScopeName("");
-            }}
-            options={[
-              { label: scopes.length ? "新增據點…" : "輸入新據點", value: "" },
-              ...scopes.map((scope) => ({ label: scope.name, value: scope.id })),
-            ]}
-            disabled={pending}
-          />
-          {!scopeId ? (
-            <TextField
-              label="新據點名稱"
+    <>
+      <Dialog
+        title={`匯入${kind === "payout" ? "出金" : "商品銷售"}報表`}
+        className="manual-report-import-dialog"
+        backdropClassName="manual-report-import-backdrop"
+        bodyClassName="manual-report-import-body"
+        onClose={onClose}
+        closeDisabled={pending}
+        formProps={{ onSubmit: (event) => { event.preventDefault(); submit(); } }}
+        actions={
+          <>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button>
+            <Button type="submit" loading={pending} loadingLabel="匯入中…" disabled={!valid}>確認匯入</Button>
+          </>
+        }
+      >
+        <div className="manual-report-import-form">
+          <div className="field-grid">
+            <SelectField
+              label="據點"
               required
-              value={scopeName}
-              onChange={(event) => setScopeName(event.target.value)}
-              disabled={pending}
-            />
-          ) : <div />}
-        </div>
-
-        <label className="manual-report-file-picker">
-          <span className="field-label">報表檔案</span>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(event) => void pickFile(event.target.files?.[0])}
-            disabled={pending}
-          />
-          {fileName ? <span className="form-hint">{fileName}</span> : null}
-        </label>
-
-        {kind === "payout" && sheet ? (
-          <div className="field-grid trio manual-report-import-fields">
-            <SelectField
-              label="標題列"
-              value={String(headerRow)}
+              value={scopeId}
               onChange={(event) => {
-                setHeaderRow(Number(event.target.value));
-                setDateColumn("");
-                setAmountColumn("");
+                setScopeId(event.target.value);
+                if (event.target.value) setScopeName("");
               }}
-              options={[1, 2, 3].map((row) => ({ label: `第 ${row} 列`, value: String(row) }))}
+              options={[{ label: scopes.length ? "新增據點…" : "輸入新據點", value: "" }, ...scopes.map((scope) => ({ label: scope.name, value: scope.id }))]}
               disabled={pending}
             />
-            <SelectField
-              label="日期欄"
-              value={dateColumn}
-              onChange={(event) => setDateColumn(event.target.value)}
-              options={[{ label: "請選擇", value: "" }, ...headers.map((entry) => ({
-                label: `${entry.column}：${entry.label}`,
-                value: entry.column,
-              }))]}
-              disabled={pending}
-            />
-            <SelectField
-              label="金額欄"
-              value={amountColumn}
-              onChange={(event) => setAmountColumn(event.target.value)}
-              options={[{ label: "請選擇", value: "" }, ...headers.map((entry) => ({
-                label: `${entry.column}：${entry.label}`,
-                value: entry.column,
-              }))]}
-              disabled={pending}
-            />
+            {!scopeId ? <TextField label="新據點名稱" required value={scopeName} onChange={(event) => setScopeName(event.target.value)} disabled={pending} /> : <div />}
           </div>
-        ) : null}
 
-        {detected && kind === "payout" && !parseError ? <p className="form-hint">已自動選擇日期與金額欄位，可在上方調整。</p> : null}
-        {error ? <Alert tone="danger">{error}</Alert> : null}
+          <div className="manual-report-import-format-note">
+            <p>請使用指定欄位順序的 CSV 或 XLSX 檔案；匯入前可逐筆編輯所有欄位。</p>
+            <Button
+              variant="link"
+              type="button"
+              onClick={() => {
+                const link = document.createElement("a");
+                link.href = kind === "payout" ? "/templates/manual-payout.csv" : "/templates/manual-sales.csv";
+                link.download = kind === "payout" ? "manual-payout.csv" : "manual-sales.csv";
+                link.click();
+              }}
+            >下載範例檔案</Button>
+          </div>
 
-        {kind === "payout" && payoutPreview ? (
-          <section className="manual-report-import-preview">
-            <div className="manual-report-import-preview-head">
-              <div>
-                <h3>預覽</h3>
-                <p className="muted">
-                  {payoutPreview.days[0]?.businessDate} ~ {payoutPreview.days.at(-1)?.businessDate}，共 {payoutPreview.days.length} 天，合計 {formatCurrency(payoutPreview.total)}
-                </p>
+          <label className="manual-report-file-picker">
+            <span className="field-label">標準格式檔案</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={(event) => void pickFile(event.target.files?.[0])}
+              disabled={pending}
+            />
+            {fileName ? <span className="form-hint">{fileName}</span> : null}
+          </label>
+
+          {error ? <Alert tone="danger">{error}</Alert> : null}
+          {preview?.kind === "payout" ? (
+            <section className="manual-report-import-preview">
+              <div className="manual-report-import-preview-head">
+                <div>
+                  <h3>預覽</h3>
+                  <p className="muted">{preview.coverageStart} ~ {preview.coverageEnd}，共 {preview.rows.length} 列，合計 {formatCurrency(preview.total)}</p>
+                </div>
+                <span className="form-hint">確認後才會寫入</span>
               </div>
-              <span className="form-hint">確認後才會寫入</span>
-            </div>
-            {payoutPreview.skipped.length ? <Alert tone="warning">有 {payoutPreview.skipped.length} 列無法解析，已略過。</Alert> : null}
-            <div className="table-scroll manual-report-import-table-scroll">
-              <table className="data-table">
-                <thead><tr><th>日期</th><th className="numeric">金額</th><th className="numeric">原始列數</th></tr></thead>
-                <tbody>
-                  {payoutPreview.days.map((day: PayoutDayRow) => (
-                    <tr key={day.businessDate}>
-                      <td>{day.businessDate}</td>
-                      <td className="numeric">{formatCurrency(day.payoutAmount)}</td>
-                      <td className="numeric">{day.rowCount}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        ) : null}
-
-        {kind === "sales" && resolvedSalesPreview ? (
-          <section className="manual-report-import-preview">
-            <div className="manual-report-import-preview-head">
-              <div>
-                <h3>預覽</h3>
-                <p className="muted">{resolvedSalesPreview.coverageStart} ~ {resolvedSalesPreview.coverageEnd}，共 {resolvedSalesPreview.rows.length} 筆商品</p>
+              <div className="table-scroll manual-report-import-table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>來源列</th><th>日期</th><th className="numeric">金額</th><th /></tr></thead>
+                  <tbody>
+                    {preview.rows.map((row) => (
+                      <tr key={row.sourceRow}>
+                        <td>{row.sourceRow}</td>
+                        <td>{row.businessDate}</td>
+                        <td className="numeric">{formatCurrency(row.payoutAmount)}</td>
+                        <td><Button variant="icon" icon="edit" disabled={pending} onClick={() => setEditing({ kind: "payout", row })} title={`編輯第 ${row.sourceRow} 列`} aria-label={`編輯第 ${row.sourceRow} 列`} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <span className="form-hint">確認後才會寫入</span>
-            </div>
-            {!salesIsWholeMonth ? (
-              <Alert tone="warning">
-                這份報表不是完整月份；匯入只會更新檔案內列出的 SKU，既有但未列出的資料會保留。
-                {salesIsCrossMonth ? "跨月份資料會以報表起始月份歸檔，不會拆分到不同月份。" : ""}
-              </Alert>
-            ) : null}
-            {resolvedSalesPreview.skippedRows.length ? <Alert tone="warning">有 {resolvedSalesPreview.skippedRows.length} 列沒有 SKU，已略過。</Alert> : null}
-            {unresolvedProductNames.length ? (
-              <Alert tone="warning">
-                有 {unresolvedProductNames.length} 個商品名稱尚未唯一對應到 CYBERBIZ SKU，請在下方補上 SKU 後才能匯入：
-                {unresolvedProductNames.slice(0, 10).join("、")}
-                {unresolvedProductNames.length > 10 ? " 等" : ""}。
-              </Alert>
-            ) : null}
-            <div className="table-scroll manual-report-import-table-scroll">
-              <table className="data-table manual-sales-table">
-                <thead><tr><th>來源列</th><th>SKU</th><th>商品名稱</th><th>類別</th><th className="numeric">銷售數量</th><th className="numeric">退回數量</th><th className="numeric">淨銷售數量</th><th className="numeric">售額</th></tr></thead>
-                <tbody>
-                  {resolvedSalesPreview.rows.map((row) => (
-                    <tr key={row.sourceRow}>
-                      <td>{row.sourceRow}</td>
-                      <td>
-                        <input
-                          className="cell-input manual-sales-sku-input"
-                          value={row.sku}
-                          placeholder="輸入 SKU"
-                          onChange={(event) => {
-                            const value = event.target.value;
-                            setSalesPreview((current) => current
-                              ? { ...current, rows: current.rows.map((candidate) => candidate.sourceRow === row.sourceRow ? { ...candidate, sku: value } : candidate) }
-                              : current);
-                          }}
-                          disabled={pending}
-                          aria-label={`第 ${row.sourceRow} 列 SKU`}
-                        />
-                      </td>
-                      <td>{row.productName || "—"}</td>
-                      <td>{row.category}</td>
-                      <td className="numeric">{row.grossQuantity.toLocaleString("zh-TW")}</td>
-                      <td className="numeric">{row.returnQuantity.toLocaleString("zh-TW")}</td>
-                      <td className="numeric">{row.netQuantity.toLocaleString("zh-TW")}</td>
-                      <td className="numeric">{formatCurrency(row.salesAmount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        ) : null}
-      </div>
-    </Dialog>
+            </section>
+          ) : null}
+
+          {preview?.kind === "sales" ? (
+            <section className="manual-report-import-preview">
+              <div className="manual-report-import-preview-head">
+                <div>
+                  <h3>預覽</h3>
+                  <p className="muted">月份：{preview.reportMonths.join("、")}，共 {preview.rows.length} 列</p>
+                </div>
+                <span className="form-hint">確認後才會寫入</span>
+              </div>
+              <div className="table-scroll manual-report-import-table-scroll">
+                <table className="data-table manual-sales-table">
+                  <thead><tr><th>來源列</th><th>月份</th><th>SKU</th><th>商品名稱</th><th>類別</th><th className="numeric">銷售數量</th><th className="numeric">退回數量</th><th className="numeric">淨銷售數量</th><th className="numeric">售額總計</th><th /></tr></thead>
+                  <tbody>
+                    {preview.rows.map((row) => (
+                      <tr key={row.sourceRow}>
+                        <td>{row.sourceRow}</td>
+                        <td>{row.reportMonth}</td>
+                        <td><code>{row.sku}</code></td>
+                        <td>{row.productName || "—"}</td>
+                        <td>{row.category}</td>
+                        <td className="numeric">{row.grossQuantity.toLocaleString("zh-TW")}</td>
+                        <td className="numeric">{row.returnQuantity.toLocaleString("zh-TW")}</td>
+                        <td className="numeric">{row.netQuantity.toLocaleString("zh-TW")}</td>
+                        <td className="numeric">{formatCurrency(row.salesAmount)}</td>
+                        <td><Button variant="icon" icon="edit" disabled={pending} onClick={() => setEditing({ kind: "sales", row })} title={`編輯第 ${row.sourceRow} 列`} aria-label={`編輯第 ${row.sourceRow} 列`} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </Dialog>
+      {editing ? <ImportRecordDialog state={editing} onClose={() => setEditing(null)} onSave={saveEditedRow} /> : null}
+    </>
   );
 }
 
@@ -844,14 +883,16 @@ export function ManualReports() {
   const [salesFilters, setSalesFilters] = useState<ManualSalesQuery>(DEFAULT_SALES_FILTERS);
   const payoutsQuery = useManualPayouts(payoutFilters, canWrite);
   const salesQuery = useManualSales(salesFilters, canWrite);
-  const deletePayout = useDeleteManualPayout();
-  const deleteSales = useDeleteManualSales();
+  const deletePayouts = useDeleteManualPayouts();
+  const deleteSalesRecords = useDeleteManualSalesRecords();
   const toast = useToast();
   const [kind, setKind] = useState<ManualReportKind>("payout");
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [importDialog, setImportDialog] = useState<ImportDialogState | null>(null);
   const [scopeDialog, setScopeDialog] = useState(false);
   const [deleting, setDeleting] = useState<DeletingState | null>(null);
+  const [selectedPayoutIds, setSelectedPayoutIds] = useState<Set<string>>(() => new Set());
+  const [selectedSalesIds, setSelectedSalesIds] = useState<Set<string>>(() => new Set());
 
   const scopes = optionsQuery.data?.scopes ?? [];
   const products = optionsQuery.data?.products ?? [];
@@ -859,7 +900,9 @@ export function ManualReports() {
   const salesPage = salesQuery.data;
   const managementScopes = scopesQuery.data?.scopes ?? [];
   const queryError = optionsQuery.error ?? scopesQuery.error ?? (kind === "payout" ? payoutsQuery.error : salesQuery.error);
-  const busy = deletePayout.isPending || deleteSales.isPending;
+  const payoutRows = payoutPage?.rows ?? [];
+  const salesRows = salesPage?.rows ?? [];
+  const busy = deletePayouts.isPending || deleteSalesRecords.isPending;
   const dialogScopes = dialog?.row && !scopes.some((scope) => scope.id === dialog.row?.scopeId)
     ? [{ id: dialog.row.scopeId, name: `${dialog.row.scopeName}（已停用）` }, ...scopes]
     : scopes;
@@ -879,12 +922,45 @@ export function ManualReports() {
   }, [salesFilters.page, salesPage?.pageSize, salesPage?.total]);
 
   function updatePayoutFilters(patch: Partial<ManualPayoutQuery>) {
+    setSelectedPayoutIds(new Set());
     setPayoutFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   }
 
   function updateSalesFilters(patch: Partial<ManualSalesQuery>) {
+    setSelectedSalesIds(new Set());
     setSalesFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   }
+
+  function togglePayout(row: ManualPayoutRow) {
+    setSelectedPayoutIds((current) => {
+      const next = new Set(current);
+      if (next.has(row.id)) next.delete(row.id);
+      else next.add(row.id);
+      return next;
+    });
+  }
+
+  function toggleSales(row: ManualSalesRow) {
+    setSelectedSalesIds((current) => {
+      const next = new Set(current);
+      if (next.has(row.id)) next.delete(row.id);
+      else next.add(row.id);
+      return next;
+    });
+  }
+
+  function toggleAllPayouts(checked: boolean) {
+    setSelectedPayoutIds(checked ? new Set(payoutRows.map((row) => row.id)) : new Set());
+  }
+
+  function toggleAllSales(checked: boolean) {
+    setSelectedSalesIds(checked ? new Set(salesRows.map((row) => row.id)) : new Set());
+  }
+
+  const selectedPayoutRows = payoutRows.filter((row) => selectedPayoutIds.has(row.id));
+  const selectedSalesRows = salesRows.filter((row) => selectedSalesIds.has(row.id));
+  const allPayoutsSelected = payoutRows.length > 0 && payoutRows.every((row) => selectedPayoutIds.has(row.id));
+  const allSalesSelected = salesRows.length > 0 && salesRows.every((row) => selectedSalesIds.has(row.id));
 
   if (!canWrite) {
     return <div className="page"><Alert tone="warning">你沒有管理報表資料的權限。</Alert></div>;
@@ -916,7 +992,7 @@ export function ManualReports() {
               selected={kind === "payout"}
               role="tab"
               aria-selected={kind === "payout"}
-              onClick={() => setKind("payout")}
+              onClick={() => { setKind("payout"); setSelectedPayoutIds(new Set()); setSelectedSalesIds(new Set()); }}
             >
               <Icon name="payments" />
               出金
@@ -926,7 +1002,7 @@ export function ManualReports() {
               selected={kind === "sales"}
               role="tab"
               aria-selected={kind === "sales"}
-              onClick={() => setKind("sales")}
+              onClick={() => { setKind("sales"); setSelectedPayoutIds(new Set()); setSelectedSalesIds(new Set()); }}
             >
               <Icon name="report" />
               商品銷售
@@ -951,13 +1027,19 @@ export function ManualReports() {
           <>
             <PayoutFilters filters={payoutFilters} scopes={managementScopes} onChange={updatePayoutFilters} />
             <PayoutTable
-              rows={payoutPage?.rows ?? []}
+              rows={payoutRows}
               busy={busy}
+              selectedIds={selectedPayoutIds}
+              selectedCount={selectedPayoutRows.length}
+              onToggle={togglePayout}
+              allSelected={allPayoutsSelected}
+              onToggleAll={toggleAllPayouts}
+              onDeleteSelected={() => setDeleting({ kind: "payout", rows: selectedPayoutRows })}
               sortField={payoutFilters.sortField}
               sortDirection={payoutFilters.sortDirection}
               onSort={(sortField, sortDirection) => updatePayoutFilters({ sortField: sortField as ManualPayoutQuery["sortField"], sortDirection })}
               onEdit={(row) => setDialog({ kind: "payout", row })}
-              onDelete={(row) => setDeleting({ kind: "payout", row })}
+              onDelete={(row) => setDeleting({ kind: "payout", rows: [row] })}
             />
             <ListFooter
               isFetching={payoutsQuery.isFetching}
@@ -982,13 +1064,19 @@ export function ManualReports() {
           <>
             <SalesFilters filters={salesFilters} scopes={managementScopes} onChange={updateSalesFilters} />
             <SalesTable
-              rows={salesPage?.rows ?? []}
+              rows={salesRows}
               busy={busy}
+              selectedIds={selectedSalesIds}
+              selectedCount={selectedSalesRows.length}
+              onToggle={toggleSales}
+              allSelected={allSalesSelected}
+              onToggleAll={toggleAllSales}
+              onDeleteSelected={() => setDeleting({ kind: "sales", rows: selectedSalesRows })}
               sortField={salesFilters.sortField}
               sortDirection={salesFilters.sortDirection}
               onSort={(sortField, sortDirection) => updateSalesFilters({ sortField: sortField as ManualSalesQuery["sortField"], sortDirection })}
               onEdit={(row) => setDialog({ kind: "sales", row })}
-              onDelete={(row) => setDeleting({ kind: "sales", row })}
+              onDelete={(row) => setDeleting({ kind: "sales", rows: [row] })}
             />
             <ListFooter
               isFetching={salesQuery.isFetching}
@@ -1023,11 +1111,10 @@ export function ManualReports() {
       ) : null}
 
       {importDialog ? (
-        <ReportImportDialog
+        <StandardReportImportDialog
           key={importDialog.kind}
           kind={importDialog.kind}
           scopes={scopes}
-          products={products}
           onClose={() => setImportDialog(null)}
         />
       ) : null}
@@ -1036,35 +1123,35 @@ export function ManualReports() {
 
       {deleting ? (
         <ConfirmDialog
-          title={`刪除這筆${deleting.kind === "payout" ? "出金" : "商品銷售"}資料？`}
+          title={`刪除選取的${deleting.kind === "payout" ? "出金" : "商品銷售"}資料？`}
           confirmLabel="刪除資料"
-          pending={deleting.kind === "payout" ? deletePayout.isPending : deleteSales.isPending}
+          pending={deleting.kind === "payout" ? deletePayouts.isPending : deleteSalesRecords.isPending}
           onCancel={() => setDeleting(null)}
           onConfirm={() => {
             if (deleting.kind === "payout") {
-              deletePayout.mutate(deleting.row, {
-                onSuccess: () => {
-                  toast.show("已刪除出金資料");
+              deletePayouts.mutate(deleting.rows, {
+                onSuccess: (result) => {
+                  toast.show(`已刪除 ${result.deletedCount} 筆出金資料`);
                   setDeleting(null);
+                  setSelectedPayoutIds(new Set());
                 },
               });
             } else {
-              deleteSales.mutate(deleting.row, {
-                onSuccess: () => {
-                  toast.show("已刪除商品銷售資料");
+              deleteSalesRecords.mutate(deleting.rows, {
+                onSuccess: (result) => {
+                  toast.show(`已刪除 ${result.deletedCount} 筆商品銷售資料`);
                   setDeleting(null);
+                  setSelectedSalesIds(new Set());
                 },
               });
             }
           }}
         >
           <p>
-            {deleting.kind === "payout"
-              ? `${deleting.row.scopeName} ${deleting.row.businessDate} 的出金資料將被刪除。`
-              : `${deleting.row.scopeName} ${deleting.row.reportMonth} ${deleting.row.sku} 的商品銷售資料將被刪除。`}
+            將刪除 {deleting.rows.length} 筆{deleting.kind === "payout" ? "出金" : "商品銷售"}資料。
           </p>
-          <p className="muted">這筆資料會從報表管理與報表統計中移除。</p>
-          <ErrorMessage error={deleting.kind === "payout" ? deletePayout.error : deleteSales.error} />
+          <p className="muted">資料會從報表管理與報表統計中移除；若刪除的是人工覆寫，原本的匯入資料會恢復顯示。</p>
+          <ErrorMessage error={deleting.kind === "payout" ? deletePayouts.error : deleteSalesRecords.error} />
         </ConfirmDialog>
       ) : null}
     </div>
@@ -1195,9 +1282,92 @@ function ListFooter({
   return <p className="manual-report-empty">{hasFilters ? "沒有符合篩選條件的紀錄。" : `目前沒有${emptyLabel}紀錄。`}</p>;
 }
 
+function TableSelectAllCheckbox({
+  allSelected,
+  someSelected,
+  busy,
+  onToggleAll,
+  ariaLabel,
+}: {
+  allSelected: boolean;
+  someSelected: boolean;
+  busy: boolean;
+  onToggleAll: (checked: boolean) => void;
+  ariaLabel: string;
+}) {
+  const checkboxRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (checkboxRef.current) checkboxRef.current.indeterminate = someSelected;
+  }, [someSelected]);
+
+  return (
+    <input
+      ref={checkboxRef}
+      className="table-checkbox"
+      type="checkbox"
+      checked={allSelected}
+      onChange={(event) => onToggleAll(event.target.checked)}
+      disabled={busy}
+      aria-label={ariaLabel}
+    />
+  );
+}
+
+function MobileTableSelectAll({
+  allSelected,
+  someSelected,
+  busy,
+  onToggleAll,
+  ariaLabel,
+}: {
+  allSelected: boolean;
+  someSelected: boolean;
+  busy: boolean;
+  onToggleAll: (checked: boolean) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="manual-report-mobile-select-all">
+      <label className="table-select-all">
+        <TableSelectAllCheckbox
+          allSelected={allSelected}
+          someSelected={someSelected}
+          busy={busy}
+          onToggleAll={onToggleAll}
+          ariaLabel={ariaLabel}
+        />
+        <span>{allSelected ? "取消全選本頁" : "全選本頁"}</span>
+      </label>
+    </div>
+  );
+}
+
+function SelectionActions({ selectedCount, busy, onDelete }: { selectedCount: number; busy: boolean; onDelete: () => void }) {
+  return (
+    <div className="manual-report-selection-actions">
+      <span className="manual-report-selection-count" aria-live="polite">已選取 {selectedCount} 筆</span>
+      <Button
+        variant="danger"
+        icon="trash"
+        disabled={busy}
+        onClick={onDelete}
+      >
+        刪除選取資料
+      </Button>
+    </div>
+  );
+}
+
 function PayoutTable({
   rows,
   busy,
+  selectedIds,
+  selectedCount,
+  onToggle,
+  allSelected,
+  onToggleAll,
+  onDeleteSelected,
   sortField,
   sortDirection,
   onSort,
@@ -1206,59 +1376,96 @@ function PayoutTable({
 }: {
   rows: ManualPayoutRow[];
   busy: boolean;
+  selectedIds: Set<string>;
+  selectedCount: number;
+  onToggle: (row: ManualPayoutRow) => void;
+  allSelected: boolean;
+  onToggleAll: (checked: boolean) => void;
+  onDeleteSelected: () => void;
   sortField: ManualPayoutQuery["sortField"];
   sortDirection: ManualPayoutQuery["sortDirection"];
   onSort: (field: string, direction: "asc" | "desc") => void;
   onEdit: (row: ManualPayoutRow) => void;
   onDelete: (row: ManualPayoutRow) => void;
 }) {
+  const someSelected = selectedCount > 0 && !allSelected;
+
   return (
-    <div className="table-scroll">
-      <table className="data-table manual-report-table">
-        <thead>
-          <tr>
-            <SortableHeader label="據點" field="scope" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="日期" field="businessDate" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="出金金額" field="payoutAmount" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
-            <th>最後更新</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id}>
-              <td data-label="據點">{row.scopeName}</td>
-              <td data-label="日期" className="whitespace-nowrap">{row.businessDate}</td>
-              <td data-label="出金金額" className="numeric">{formatCurrency(row.payoutAmount)}</td>
-              <td data-label="最後更新">
-                <span>{row.updatedByEmail}</span>
-                <small className="cell-sub">{formatTime(row.updatedAt)}</small>
-              </td>
-              <td data-label="操作">
-                <div className="row-actions">
-                  <Button
-                    variant="icon"
-                    icon="edit"
-                    disabled={busy}
-                    onClick={() => onEdit(row)}
-                    title={`編輯 ${row.businessDate} 出金資料`}
-                    aria-label={`編輯 ${row.businessDate} 出金資料`}
-                  />
-                  <Button
-                    variant="icon"
-                    className="danger"
-                    icon="trash"
-                    disabled={busy}
-                    onClick={() => onDelete(row)}
-                    title={`刪除 ${row.businessDate} 出金資料`}
-                    aria-label={`刪除 ${row.businessDate} 出金資料`}
-                  />
-                </div>
-              </td>
+    <div className="manual-report-table-region">
+      <div className="table-scroll">
+        <MobileTableSelectAll
+          allSelected={allSelected}
+          someSelected={someSelected}
+          busy={busy || !rows.length}
+          onToggleAll={onToggleAll}
+          ariaLabel={allSelected ? "取消全選本頁出金紀錄" : "全選本頁出金紀錄"}
+        />
+        <table className="data-table manual-report-table">
+          <thead>
+            <tr>
+              <th>
+                <TableSelectAllCheckbox
+                  allSelected={allSelected}
+                  someSelected={someSelected}
+                  busy={busy || !rows.length}
+                  onToggleAll={onToggleAll}
+                  ariaLabel={allSelected ? "取消全選本頁出金紀錄" : "全選本頁出金紀錄"}
+                />
+              </th>
+              <SortableHeader label="據點" field="scope" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="日期" field="businessDate" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="出金金額" field="payoutAmount" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
+              <th>最後更新</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className={selectedIds.has(row.id) ? "selected" : undefined}>
+                <td data-label="選取">
+                  <input
+                    className="table-checkbox"
+                    type="checkbox"
+                    checked={selectedIds.has(row.id)}
+                    onChange={() => onToggle(row)}
+                    disabled={busy}
+                    aria-label={`選取 ${row.businessDate} 出金資料`}
+                  />
+                </td>
+                <td data-label="據點">{row.scopeName}</td>
+                <td data-label="日期" className="whitespace-nowrap">{row.businessDate}</td>
+                <td data-label="出金金額" className="numeric">{formatCurrency(row.payoutAmount)}</td>
+                <td data-label="最後更新">
+                  <span>{row.updatedByEmail}</span>
+                  <small className="cell-sub">{formatTime(row.updatedAt)}</small>
+                </td>
+                <td data-label="操作">
+                  <div className="row-actions">
+                    <Button
+                      variant="icon"
+                      icon="edit"
+                      disabled={busy}
+                      onClick={() => onEdit(row)}
+                      title={`編輯 ${row.businessDate} 出金資料`}
+                      aria-label={`編輯 ${row.businessDate} 出金資料`}
+                    />
+                    <Button
+                      variant="icon"
+                      className="danger"
+                      icon="trash"
+                      disabled={busy}
+                      onClick={() => onDelete(row)}
+                      title={`刪除 ${row.businessDate} 出金資料`}
+                      aria-label={`刪除 ${row.businessDate} 出金資料`}
+                    />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {selectedCount > 0 ? <SelectionActions selectedCount={selectedCount} busy={busy} onDelete={onDeleteSelected} /> : null}
     </div>
   );
 }
@@ -1266,6 +1473,12 @@ function PayoutTable({
 function SalesTable({
   rows,
   busy,
+  selectedIds,
+  selectedCount,
+  onToggle,
+  allSelected,
+  onToggleAll,
+  onDeleteSelected,
   sortField,
   sortDirection,
   onSort,
@@ -1274,73 +1487,110 @@ function SalesTable({
 }: {
   rows: ManualSalesRow[];
   busy: boolean;
+  selectedIds: Set<string>;
+  selectedCount: number;
+  onToggle: (row: ManualSalesRow) => void;
+  allSelected: boolean;
+  onToggleAll: (checked: boolean) => void;
+  onDeleteSelected: () => void;
   sortField: ManualSalesQuery["sortField"];
   sortDirection: ManualSalesQuery["sortDirection"];
   onSort: (field: string, direction: "asc" | "desc") => void;
   onEdit: (row: ManualSalesRow) => void;
   onDelete: (row: ManualSalesRow) => void;
 }) {
+  const someSelected = selectedCount > 0 && !allSelected;
+
   return (
-    <div className="table-scroll">
-      <table className="data-table manual-report-table manual-sales-table">
-        <thead>
-          <tr>
-            <SortableHeader label="據點" field="scope" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="月份" field="reportMonth" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="SKU" field="sku" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="商品" field="productName" active={sortField} direction={sortDirection} onSort={onSort} />
-            <SortableHeader label="數量" field="netQuantity" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
-            <SortableHeader label="銷售金額" field="salesAmount" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
-            <th>最後更新</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id}>
-              <td data-label="據點">{row.scopeName}</td>
-              <td data-label="月份" className="whitespace-nowrap">{row.reportMonth}</td>
-              <td data-label="SKU">
-                <code>{row.sku}</code>
-              </td>
-              <td data-label="商品">
-                <span>{row.productName}</span>
-                <small className="cell-sub">{row.category}</small>
-              </td>
-              <td data-label="數量" className="numeric">
-                <span>{row.netQuantity.toLocaleString("zh-TW")}</span>
-                <small className="cell-sub">銷售 {row.grossQuantity.toLocaleString("zh-TW")} · 退貨 {row.returnQuantity.toLocaleString("zh-TW")}</small>
-              </td>
-              <td data-label="銷售金額" className="numeric">{formatCurrency(row.salesAmount)}</td>
-              <td data-label="最後更新">
-                <span>{row.updatedByEmail}</span>
-                <small className="cell-sub">{formatTime(row.updatedAt)}</small>
-              </td>
-              <td data-label="操作">
-                <div className="row-actions">
-                  <Button
-                    variant="icon"
-                    icon="edit"
-                    disabled={busy}
-                    onClick={() => onEdit(row)}
-                    title={`編輯 ${row.sku} 商品銷售資料`}
-                    aria-label={`編輯 ${row.sku} 商品銷售資料`}
-                  />
-                  <Button
-                    variant="icon"
-                    className="danger"
-                    icon="trash"
-                    disabled={busy}
-                    onClick={() => onDelete(row)}
-                    title={`刪除 ${row.sku} 商品銷售資料`}
-                    aria-label={`刪除 ${row.sku} 商品銷售資料`}
-                  />
-                </div>
-              </td>
+    <div className="manual-report-table-region">
+      <div className="table-scroll">
+        <MobileTableSelectAll
+          allSelected={allSelected}
+          someSelected={someSelected}
+          busy={busy || !rows.length}
+          onToggleAll={onToggleAll}
+          ariaLabel={allSelected ? "取消全選本頁商品銷售紀錄" : "全選本頁商品銷售紀錄"}
+        />
+        <table className="data-table manual-report-table manual-sales-table">
+          <thead>
+            <tr>
+              <th>
+                <TableSelectAllCheckbox
+                  allSelected={allSelected}
+                  someSelected={someSelected}
+                  busy={busy || !rows.length}
+                  onToggleAll={onToggleAll}
+                  ariaLabel={allSelected ? "取消全選本頁商品銷售紀錄" : "全選本頁商品銷售紀錄"}
+                />
+              </th>
+              <SortableHeader label="據點" field="scope" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="月份" field="reportMonth" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="SKU" field="sku" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="商品" field="productName" active={sortField} direction={sortDirection} onSort={onSort} />
+              <SortableHeader label="數量" field="netQuantity" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
+              <SortableHeader label="銷售金額" field="salesAmount" active={sortField} direction={sortDirection} onSort={onSort} className="numeric" />
+              <th>最後更新</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className={selectedIds.has(row.id) ? "selected" : undefined}>
+                <td data-label="選取">
+                  <input
+                    className="table-checkbox"
+                    type="checkbox"
+                    checked={selectedIds.has(row.id)}
+                    onChange={() => onToggle(row)}
+                    disabled={busy}
+                    aria-label={`選取 ${row.sku} 商品銷售資料`}
+                  />
+                </td>
+                <td data-label="據點">{row.scopeName}</td>
+                <td data-label="月份" className="whitespace-nowrap">{row.reportMonth}</td>
+                <td data-label="SKU">
+                  <code>{row.sku}</code>
+                </td>
+                <td data-label="商品">
+                  <span>{row.productName}</span>
+                  <small className="cell-sub">{row.category}</small>
+                </td>
+                <td data-label="數量" className="numeric">
+                  <span>{row.netQuantity.toLocaleString("zh-TW")}</span>
+                  <small className="cell-sub">銷售 {row.grossQuantity.toLocaleString("zh-TW")} · 退貨 {row.returnQuantity.toLocaleString("zh-TW")}</small>
+                </td>
+                <td data-label="銷售金額" className="numeric">{formatCurrency(row.salesAmount)}</td>
+                <td data-label="最後更新">
+                  <span>{row.updatedByEmail}</span>
+                  <small className="cell-sub">{formatTime(row.updatedAt)}</small>
+                </td>
+                <td data-label="操作">
+                  <div className="row-actions">
+                    <Button
+                      variant="icon"
+                      icon="edit"
+                      disabled={busy}
+                      onClick={() => onEdit(row)}
+                      title={`編輯 ${row.sku} 商品銷售資料`}
+                      aria-label={`編輯 ${row.sku} 商品銷售資料`}
+                    />
+                    <Button
+                      variant="icon"
+                      className="danger"
+                      icon="trash"
+                      disabled={busy}
+                      onClick={() => onDelete(row)}
+                      title={`刪除 ${row.sku} 商品銷售資料`}
+                      aria-label={`刪除 ${row.sku} 商品銷售資料`}
+                    />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {selectedCount > 0 ? <SelectionActions selectedCount={selectedCount} busy={busy} onDelete={onDeleteSelected} /> : null}
     </div>
   );
 }

@@ -6,7 +6,7 @@ import {
   syncSystemRoles,
   upsertReportScope,
 } from "@rueisiang/db";
-import { cyberbizProducts, inventoryItems, productBundleComponents, productSkuMappings, reportSalesMonthly, users, userRoles } from "@rueisiang/db/schema";
+import { cyberbizProducts, inventoryItems, productBundleComponents, productSkuMappings, reportPayoutDaily, reportSalesMonthly, users, userRoles } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -502,6 +502,60 @@ describe("報表統計 API", () => {
     )).status).toBe(400);
   });
 
+  it("standard sales import keeps every uploaded field and accepts multiple months", async () => {
+    const manager = await seedUser("manager-standard-report-import@ecotech.tw", "role-manager");
+    const response = await mutate(
+      "/api/reports/cyberbiz/manual/import/sales",
+      "POST",
+      manager,
+      "manager-standard-report-import@ecotech.tw",
+      {
+        format: "standard",
+        scopeId: "cyberbiz:store:active",
+        scopeName: "啟用店",
+        rows: [
+          {
+            reportMonth: "2026-08",
+            sku: "standard-001",
+            productName: "上傳商品名稱",
+            category: "上傳分類",
+            grossQuantity: 3,
+            returnQuantity: 1,
+            netQuantity: 2,
+            salesAmount: 250,
+          },
+          {
+            reportMonth: "2026-09",
+            sku: "standard-002",
+            productName: "另一個商品",
+            category: "另一個分類",
+            grossQuantity: 5,
+            returnQuantity: 0,
+            netQuantity: 5,
+            salesAmount: 900,
+          },
+        ],
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      reportMonth: null,
+      reportMonths: ["2026-08", "2026-09"],
+      rowCount: 2,
+      totals: { grossQuantity: 8, returnQuantity: 1, netQuantity: 7, salesAmount: 1150 },
+    });
+    expect(await db().select({
+      reportMonth: reportSalesMonthly.reportMonth,
+      sku: reportSalesMonthly.sku,
+      productName: reportSalesMonthly.productName,
+      category: reportSalesMonthly.category,
+    }).from(reportSalesMonthly).orderBy(reportSalesMonthly.reportMonth)).toEqual([
+      { reportMonth: "2026-08", sku: "STANDARD-001", productName: "上傳商品名稱", category: "上傳分類" },
+      { reportMonth: "2026-09", sku: "STANDARD-002", productName: "另一個商品", category: "另一個分類" },
+    ]);
+  });
+
   it("manual sales import merges rows without deleting unlisted monthly data", async () => {
     const manager = await seedUser("manager-report-import-merge@ecotech.tw", "role-manager");
     const scopeId = "cyberbiz:store:merge";
@@ -680,5 +734,89 @@ describe("報表統計 API", () => {
       admin,
       "admin-effective-delete@ecotech.tw",
     )).json() as { total: number }).total).toBe(0);
+  });
+
+  it("batch deletes selected effective records and restores underlying imports", async () => {
+    const admin = await seedUser("admin-batch-delete@ecotech.tw", "role-admin");
+    const scopeId = "cyberbiz:store:active";
+    await insertReportPayoutDaily(db(), [
+      { scopeId, businessDate: "2026-08-04", payoutAmount: 400 },
+      { scopeId, businessDate: "2026-08-05", payoutAmount: 500 },
+    ]);
+    await insertReportSalesMonthly(db(), [
+      { scopeId, reportMonth: "2026-08", sku: "BATCH-A", productName: "商品 A", category: "分類", grossQuantity: 1, netQuantity: 1, salesAmount: 100 },
+      { scopeId, reportMonth: "2026-08", sku: "BATCH-B", productName: "商品 B", category: "分類", grossQuantity: 2, netQuantity: 2, salesAmount: 200 },
+    ]);
+
+    const manualPayout = await mutate(
+      "/api/reports/cyberbiz/manual/payout",
+      "POST",
+      admin,
+      "admin-batch-delete@ecotech.tw",
+      { scopeId, businessDate: "2026-08-04", payoutAmount: 450 },
+    );
+    const manualPayoutRow = (await manualPayout.json() as { row: { id: string; source: string; scopeId: string; businessDate: string } }).row;
+    const manualSales = await mutate(
+      "/api/reports/cyberbiz/manual/sales",
+      "POST",
+      admin,
+      "admin-batch-delete@ecotech.tw",
+      {
+        scopeId,
+        reportMonth: "2026-08",
+        skuSource: "custom",
+        sku: "BATCH-A",
+        productName: "人工商品 A",
+        category: "人工分類",
+        grossQuantity: 3,
+        returnQuantity: 0,
+        netQuantity: 3,
+        salesAmount: 300,
+      },
+    );
+    const manualSalesRow = (await manualSales.json() as { row: { id: string; source: string; scopeId: string; reportMonth: string; sku: string } }).row;
+
+    const payoutList = await call(
+      "/api/reports/cyberbiz/manual/payout?source=all",
+      admin,
+      "admin-batch-delete@ecotech.tw",
+    );
+    const payoutRows = (await payoutList.json() as { rows: Array<{ id: string; source: string; scopeId: string; businessDate: string }> }).rows;
+    const importedPayoutRow = payoutRows.find((row) => row.source === "imported");
+    expect(importedPayoutRow).toMatchObject({ businessDate: "2026-08-05" });
+
+    const salesList = await call(
+      "/api/reports/cyberbiz/manual/sales?source=all",
+      admin,
+      "admin-batch-delete@ecotech.tw",
+    );
+    const salesRows = (await salesList.json() as { rows: Array<{ id: string; source: string; scopeId: string; reportMonth: string; sku: string }> }).rows;
+    const importedSalesRow = salesRows.find((row) => row.source === "imported");
+    expect(importedSalesRow).toMatchObject({ sku: "BATCH-B" });
+
+    const payoutDelete = await mutate(
+      "/api/reports/cyberbiz/manual/payout/records",
+      "DELETE",
+      admin,
+      "admin-batch-delete@ecotech.tw",
+      { records: [manualPayoutRow, importedPayoutRow] },
+    );
+    expect(payoutDelete.status).toBe(200);
+    expect(await payoutDelete.json()).toMatchObject({ ok: true, deletedCount: 2 });
+
+    const salesDelete = await mutate(
+      "/api/reports/cyberbiz/manual/sales/records",
+      "DELETE",
+      admin,
+      "admin-batch-delete@ecotech.tw",
+      { records: [manualSalesRow, importedSalesRow] },
+    );
+    expect(salesDelete.status).toBe(200);
+    expect(await salesDelete.json()).toMatchObject({ ok: true, deletedCount: 2 });
+
+    expect(await db().select({ businessDate: reportPayoutDaily.businessDate, payoutAmount: reportPayoutDaily.payoutAmount })
+      .from(reportPayoutDaily)).toEqual([{ businessDate: "2026-08-04", payoutAmount: 400 }]);
+    expect(await db().select({ sku: reportSalesMonthly.sku, salesAmount: reportSalesMonthly.salesAmount })
+      .from(reportSalesMonthly)).toEqual([{ sku: "BATCH-A", salesAmount: 100 }]);
   });
 });
