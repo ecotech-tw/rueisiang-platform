@@ -134,6 +134,11 @@ export function Analytics() {
     setParams(updateParams(params, changes), { replace: true });
   }
 
+  /** debounce 期間待送出的關鍵字，交給 SalesTab 決定遮罩與提示文案。 */
+  const pendingProduct = tab === "sales" && productDraft.trim() !== productParam.trim()
+    ? productDraft.trim()
+    : null;
+
   function applyProductFilter() {
     setFilter({ product: productDraft.trim() || null });
   }
@@ -260,7 +265,7 @@ export function Analytics() {
             scopeLabel={scopeLabel}
             enabled={ready}
             productQuery={productParam}
-            searchPending={productDraft.trim() !== productParam.trim()}
+            pendingProduct={pendingProduct}
             onClearProduct={() => setFilter({ product: null })}
           />
         )}
