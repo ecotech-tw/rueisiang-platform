@@ -145,11 +145,38 @@ export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind
  */
 export interface ReportScopeDirectory {
   stores(): Promise<ReportScope[]>;
+  /** 指定店別時走這裡；同一組條件在一次請求內只查一次。 */
+  store(lookup: { id?: string; name?: string }): Promise<ReportScope | null>;
 }
 
 export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
-  let pending: Promise<ReportScope[]> | undefined;
-  return { stores: () => (pending ??= listReportScopes(db, "store")) };
+  let all: Promise<ReportScope[]> | undefined;
+
+  function stores(): Promise<ReportScope[]> {
+    // 失敗的 promise 不能留下來，不然同一次請求後續的呼叫拿到的都是同一個錯誤，連重試都沒有。
+    return (all ??= listReportScopes(db, "store").catch((error) => {
+      all = undefined;
+      throw error;
+    }));
+  }
+
+  return {
+    stores,
+    /*
+     * 從同一份名冊推導，不另外查一次。名冊的條件（scopeKind = store 且 active）
+     * 跟 findReportScope 的 id 分支完全等價，name 分支也只是比對 normalizedName
+     * 再加上「超過一筆就是同名」，所以指定店別的下限是一次查詢而不是兩次。
+     */
+    async store(lookup) {
+      const scopes = await stores();
+      if (lookup.id) return scopes.find((scope) => scope.id === lookup.id) ?? null;
+      if (!lookup.name) return null;
+      const normalized = normalizeReportScopeName(lookup.name);
+      const matched = scopes.filter((scope) => scope.normalizedName === normalized);
+      if (matched.length > 1) throw new ReportScopeAmbiguousError("store", lookup.name);
+      return matched[0] ?? null;
+    },
+  };
 }
 
 /*
@@ -454,7 +481,7 @@ export async function scopeIdsForQuery(
   directory: ReportScopeDirectory = createReportScopeDirectory(db),
 ): Promise<{ ids: string[]; scope?: ReportScope }> {
   if (query.scopeType === "store") {
-    const scope = await findReportScope(db, { scopeKind: "store", id: query.scopeId, name: query.scopeName });
+    const scope = await directory.store({ id: query.scopeId, name: query.scopeName });
     return scope ? { ids: [scope.id], scope } : { ids: [] };
   }
   return {

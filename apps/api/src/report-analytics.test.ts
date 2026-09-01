@@ -2,6 +2,7 @@ import {
   buildReportComparisonRanges,
   calculateGrowth,
   createDatabase,
+  createReportScopeDirectory,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
   parseReportRange,
@@ -43,6 +44,41 @@ beforeEach(async () => {
   d1 = createLocalD1();
   await upsertReportScope(db(), { id: WEST, scopeKind: "store", name: "誠品西門店 3F" });
   await upsertReportScope(db(), { id: EAST, scopeKind: "store", name: "誠品信義店 2F" });
+});
+
+describe("店別名冊", () => {
+  it("以 id 或名稱解析，查不到回 null，同名回報 ambiguous", async () => {
+    const directory = createReportScopeDirectory(db());
+
+    expect(await directory.store({ id: WEST })).toMatchObject({ id: WEST });
+    expect(await directory.store({ name: "誠品西門店 3F" })).toMatchObject({ id: WEST });
+    // 名稱比對會忽略空白與大小寫，跟 findReportScope 一致。
+    expect(await directory.store({ name: "誠品西門店3f" })).toMatchObject({ id: WEST });
+    expect(await directory.store({ id: "cyberbiz:store:不存在" })).toBeNull();
+    expect(await directory.store({})).toBeNull();
+
+    await upsertReportScope(db(), { id: "cyberbiz:store:西門3F備份", scopeKind: "store", name: "誠品西門店 3F" });
+    await expect(createReportScopeDirectory(db()).store({ name: "誠品西門店 3F" })).rejects.toThrow(/對應到多個/u);
+  });
+
+  it("查詢失敗不會被記住，同一份名冊仍然可以重試", async () => {
+    let attempts = 0;
+    const flaky = {
+      prepare(query: string) {
+        if (query.includes("report_scopes")) {
+          attempts += 1;
+          if (attempts === 1) throw new Error("D1 暫時性錯誤");
+        }
+        return d1.prepare(query);
+      },
+      batch: (statements: never) => d1.batch(statements),
+      exec: (query: string) => d1.exec(query),
+    };
+    const directory = createReportScopeDirectory(createDatabase(flaky as never));
+
+    await expect(directory.store({ id: WEST })).rejects.toThrow(/暫時性/u);
+    expect(await directory.store({ id: WEST })).toMatchObject({ id: WEST });
+  });
 });
 
 describe("報表統計比較期算法", () => {
@@ -210,6 +246,17 @@ describe("商品銷售統計查詢", () => {
 
     // 名冊在整份統計裡共用一份，不是每個子查詢各讀一次。
     expect(reads()).toBe(1);
+
+    // 指定店別也是同一份名冊推導出來的，不必再查一次 report_scopes。
+    const store = countScopeReads(d1);
+    await queryReportSalesSummary(createDatabase(store.spy as never), {
+      range: parseReportRange("2026-07"),
+      scopeType: "store",
+      scopeId: WEST,
+      today: "2026-08-01",
+    });
+    expect(store.reads()).toBe(1);
+
     expect(result).toMatchObject({
       status: "ok",
       granularity: "month",
