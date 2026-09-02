@@ -36,12 +36,23 @@ export interface CustomerQuery {
   sortDirection: "asc" | "desc";
 }
 
-export interface CustomerListResult {
+export interface CustomerStats {
+  total: number;
+  active: number;
+  blocked: number;
+  incomplete: number;
+}
+
+export interface CustomerListPage {
   customers: (typeof customers.$inferSelect)[];
   total: number;
   page: number;
   pageSize: number;
-  stats: { total: number; active: number; blocked: number; incomplete: number };
+}
+
+/** 端點回傳的形狀：當頁資料加上統計，前端不必多打一次請求。 */
+export interface CustomerListResult extends CustomerListPage {
+  stats: CustomerStats;
 }
 
 export interface CustomerDateFilters {
@@ -144,24 +155,12 @@ function buildWhere(query: CustomerQuery, dates: CustomerDateFilters): SQL | und
   return conditions.length ? and(...conditions) : undefined;
 }
 
-export async function listCustomers(
-  db: Database,
-  query: CustomerQuery,
-  dates: CustomerDateFilters = {},
-): Promise<CustomerListResult> {
-  const where = buildWhere(query, dates);
-  const sortColumn = SORT_COLUMNS[query.sortField] ?? customers.updatedAt;
-
-  const [rows, [totalRow], [allRow], [activeRow], [blockedRow], [incompleteRow]] = await Promise.all([
-    db
-      .select()
-      .from(customers)
-      .where(where)
-      // 第二個排序鍵是 id：不加的話同值的列在分頁之間順序會飄，同一筆可能出現兩次。
-      .orderBy(query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn), desc(customers.id))
-      .limit(query.pageSize)
-      .offset((query.page - 1) * query.pageSize),
-    db.select({ value: count() }).from(customers).where(where),
+/**
+ * 四張統計卡。**跟篩選條件無關**，所以獨立成一個查詢讓上層自己決定要不要快取——
+ * 綁在列表裡的話，翻頁、換排序、每打一個字都會重算一次三萬多列。
+ */
+export async function customerStats(db: Database): Promise<CustomerStats> {
+  const [[allRow], [activeRow], [blockedRow], [incompleteRow]] = await Promise.all([
     db.select({ value: count() }).from(customers),
     db.select({ value: count() }).from(customers).where(eq(customers.status, "active")),
     db.select({ value: count() }).from(customers).where(eq(customers.status, "blocked")),
@@ -173,15 +172,37 @@ export async function listCustomers(
   ]);
 
   return {
+    total: allRow?.value ?? 0,
+    active: activeRow?.value ?? 0,
+    blocked: blockedRow?.value ?? 0,
+    incomplete: incompleteRow?.value ?? 0,
+  };
+}
+
+export async function listCustomers(
+  db: Database,
+  query: CustomerQuery,
+  dates: CustomerDateFilters = {},
+): Promise<CustomerListPage> {
+  const where = buildWhere(query, dates);
+  const sortColumn = SORT_COLUMNS[query.sortField] ?? customers.updatedAt;
+
+  const [rows, [totalRow]] = await Promise.all([
+    db
+      .select()
+      .from(customers)
+      .where(where)
+      // 第二個排序鍵是 id：不加的話同值的列在分頁之間順序會飄，同一筆可能出現兩次。
+      .orderBy(query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn), desc(customers.id))
+      .limit(query.pageSize)
+      .offset((query.page - 1) * query.pageSize),
+    db.select({ value: count() }).from(customers).where(where),
+  ]);
+
+  return {
     customers: rows,
     total: totalRow?.value ?? 0,
     page: query.page,
     pageSize: query.pageSize,
-    stats: {
-      total: allRow?.value ?? 0,
-      active: activeRow?.value ?? 0,
-      blocked: blockedRow?.value ?? 0,
-      incomplete: incompleteRow?.value ?? 0,
-    },
   };
 }
