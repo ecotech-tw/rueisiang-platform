@@ -505,6 +505,13 @@
       "when": 1788275519017,
       "tag": "0071_loose_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "6",
+      "when": 1788334551285,
+      "tag": "0072_secret_stryfe",
+      "breakpoints": true
     }
   ]
 }

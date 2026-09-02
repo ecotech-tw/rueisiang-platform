@@ -1,0 +1,1 @@
+CREATE INDEX `idx_customers_incomplete` ON `customers` (`id`) WHERE "customers"."name" = '' OR "customers"."address" = '';
