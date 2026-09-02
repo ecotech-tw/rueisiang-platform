@@ -14,6 +14,7 @@ import {
   WMS_ENTITY_TYPES,
   findCustomer,
   listCustomerEvents,
+  customerStats,
   listCustomers,
   listTags,
   listActivity,
@@ -547,13 +548,20 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
       sortField: textInput(input, "sortField"),
       sortDirection: textInput(input, "sortDirection"),
     });
-    const result = await listCustomers(database(context), query, dateRange
-      ? dateField === "updatedAt"
-        ? { updatedFrom: dateRange.from, updatedTo: dateRange.to }
-        : { createdFrom: dateRange.from, createdTo: dateRange.to }
-      : {});
+    const db = database(context);
+    // stats 描述整個資料庫，跟這次的篩選無關；它從列表查詢拆出去了，這裡要一起帶上，
+    // 不然模型會少掉「總共幾位客戶、幾位停權」這種它拿來判斷範圍的背景資訊。
+    const [result, stats] = await Promise.all([
+      listCustomers(db, query, dateRange
+        ? dateField === "updatedAt"
+          ? { updatedFrom: dateRange.from, updatedTo: dateRange.to }
+          : { createdFrom: dateRange.from, createdTo: dateRange.to }
+        : {}),
+      customerStats(db),
+    ]);
     return json({
       ...result,
+      stats,
       query,
       limit,
       dateFilter: dateRange ? { date, field: dateField, timeZone: ASSISTANT_TIME_ZONE } : null,

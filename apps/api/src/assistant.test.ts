@@ -1,5 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { ASSISTANT_REPORT_TOOL_ROUTING } from "@rueisiang/assistant";
+import { CRM_SEARCH_CUSTOMERS_TOOL_KEY, PLATFORM_TOOL_MAP } from "@rueisiang/tools";
 import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles, updateAssistantSandboxContext } from "@rueisiang/db";
 import {
   activityEvents,
@@ -301,6 +302,23 @@ class TestAssistantAgentNamespace {
 function db() {
   return createDatabase(d1 as never);
 }
+
+describe("小香的客戶搜尋工具", () => {
+  it("回傳整個資料庫的統計，不是這次篩選的結果", async () => {
+    await db().insert(customers).values([
+      { id: "tool-1", phone: "0911000001", normalizedPhone: "0911000001", name: "有資料的客戶", address: "台南市", status: "active" },
+      { id: "tool-2", phone: "0911000002", normalizedPhone: "0911000002", name: "", address: "", status: "active" },
+      { id: "tool-3", phone: "0911000003", normalizedPhone: "0911000003", name: "停權客戶", address: "高雄市", status: "blocked" },
+    ]);
+
+    const tool = PLATFORM_TOOL_MAP.get(CRM_SEARCH_CUSTOMERS_TOOL_KEY);
+    const output = JSON.parse(await tool!.execute({ status: "blocked" }, { db: db() } as never) as string);
+
+    // 篩選只影響 customers 與 total；stats 描述的是整個資料庫。
+    expect(output.total).toBe(1);
+    expect(output.stats).toEqual({ total: 3, active: 2, blocked: 1, incomplete: 1 });
+  });
+});
 
 async function seedUser(id: string, email: string, roleId: string) {
   await db().insert(users).values({ id, email, name: email, status: "active" });

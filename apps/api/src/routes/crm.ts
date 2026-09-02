@@ -237,6 +237,7 @@ export const crm = new Hono<AppEnv>()
 
     const result = await createTag(c.get("db"), name);
     if (result === "duplicate") throw new HTTPException(409, { message: "這個標籤已經存在。" });
+    await forgetCrmStats(cacheClient(c.env));
     return c.json({ name }, 201);
   })
 
@@ -266,6 +267,8 @@ export const crm = new Hono<AppEnv>()
       else await deleteTagFromCatalog(c.get("db"), original);
     }
 
+    // 每一輪都要清：後面幾輪改的是客戶身上的標籤，統計裡的 customerCount 會跟著動。
+    await forgetCrmStats(cacheClient(c.env));
     return c.json(result);
   })
 
