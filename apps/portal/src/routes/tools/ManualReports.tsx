@@ -7,7 +7,7 @@ import { SortableHeader } from "../../shell/SortableHeader.js";
 import { Switch } from "../../shell/Switch.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -1296,52 +1296,6 @@ function SalesFilters({
       />
       {active ? <Button variant="link" onClick={() => onChange({ ...DEFAULT_SALES_FILTERS })}>清除篩選</Button> : null}
     </form>
-  );
-}
-
-/*
- * 搜尋框要延遲送出。這兩份列表的每一次查詢都是一輪全表掃描（UNION ALL 派生表
- * 沒辦法用索引排序，連第一頁都要整份撈出來排），逐字送等於每個字元一次全掃。
- */
-const SEARCH_DEBOUNCE_MS = 400;
-
-function SearchFilterInput({
-  label,
-  placeholder,
-  value,
-  onSearch,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  onSearch: (search: string) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  const onSearchRef = useRef(onSearch);
-  useEffect(() => {
-    onSearchRef.current = onSearch;
-  });
-
-  // 外部把篩選清掉時（例如「清除篩選」）輸入框要跟著回到那個值。
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-
-  useEffect(() => {
-    if (draft === value) return;
-    const timeoutId = window.setTimeout(() => onSearchRef.current(draft), SEARCH_DEBOUNCE_MS);
-    return () => window.clearTimeout(timeoutId);
-  }, [draft, value]);
-
-  return (
-    <FilterInput
-      label={label}
-      className="search-input"
-      type="search"
-      placeholder={placeholder}
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-    />
   );
 }
 

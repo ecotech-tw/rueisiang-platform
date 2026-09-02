@@ -42,6 +42,14 @@ export const customers = sqliteTable("customers", {
   index("idx_customers_status_channel").on(table.status, table.sourceChannel),
   index("idx_customers_updated_at").on(table.updatedAt),
   index("idx_customers_cyberbiz_updated_at").on(table.cyberbizUpdatedAt),
+  /*
+   * 「資料不完整」統計卡的條件。沒有這支索引時它是全表掃描——一萬多列只為了數出
+   * 少數幾筆。partial index 只收符合條件的列，所以又小又剛好覆蓋那個查詢
+   * （實測 EXPLAIN 會走 SCAN … USING INDEX，不再碰主表）。
+   */
+  index("idx_customers_incomplete")
+    .on(table.id)
+    .where(sql`${table.name} = '' OR ${table.address} = ''`),
 ]);
 
 /**

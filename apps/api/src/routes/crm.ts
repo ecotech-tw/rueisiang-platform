@@ -17,6 +17,7 @@ import {
   listTags,
   renameTagInCatalog,
   listCustomerEvents,
+  customerStats,
   listCustomers,
   deleteEmptyCyberbizCustomers,
   readSyncStatus,
@@ -26,7 +27,9 @@ import {
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { createCrmCache, forgetCrmStats } from "../crm-cache.js";
 import { cyberbizClient } from "../cyberbiz.js";
+import { cacheClient } from "../upstash.js";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { body, requireString } from "../request.js";
@@ -87,8 +90,14 @@ export const crm = new Hono<AppEnv>()
   .use("*", requireAuth)
 
   .get("/customers", requirePermission("crm:customer:read"), async (c) => {
-    const result = await listCustomers(c.get("db"), parseQuery(new URL(c.req.url)));
-    return c.json(result);
+    const cache = createCrmCache(cacheClient(c.env));
+    const [page, stats] = await Promise.all([
+      listCustomers(c.get("db"), parseQuery(new URL(c.req.url))),
+      // 統計跟篩選無關，所以 key 不帶任何查詢參數：翻頁與搜尋都不會讓它重算。
+      cache.read("customers:stats", () => customerStats(c.get("db"))),
+    ]);
+    c.header("X-Cache", stats.status);
+    return c.json({ ...page, stats: stats.value });
   })
 
   /**
@@ -132,6 +141,7 @@ export const crm = new Hono<AppEnv>()
       remote,
       actor: { id: user.id, email: user.email },
     });
+    await forgetCrmStats(cacheClient(c.env));
     return c.json({ id: result.id, linked: Boolean(remote) }, 201);
   })
 
@@ -160,6 +170,7 @@ export const crm = new Hono<AppEnv>()
       syncedToRemote: Boolean(existing.cyberbizCustomerId),
       actor: { id: user.id, email: user.email },
     });
+    await forgetCrmStats(cacheClient(c.env));
     return c.json({ id });
   })
 
@@ -178,6 +189,7 @@ export const crm = new Hono<AppEnv>()
 
     const user = c.get("user");
     await setCustomerBlocked(c.get("db"), id, blocked, { id: user.id, email: user.email });
+    await forgetCrmStats(cacheClient(c.env));
     return c.json({ id, blocked });
   })
 
@@ -212,7 +224,10 @@ export const crm = new Hono<AppEnv>()
   })
 
   .get("/tags", requirePermission("crm:tag:read"), async (c) => {
-    return c.json({ tags: await listTags(c.get("db")) });
+    // json_each 展開之後要讀三倍於客戶數的列，而標籤清單一分鐘內不會變。
+    const tags = await createCrmCache(cacheClient(c.env)).read("tags", () => listTags(c.get("db")));
+    c.header("X-Cache", tags.status);
+    return c.json({ tags: tags.value });
   })
 
   .post("/tags", requirePermission("crm:tag:write"), async (c) => {
@@ -222,6 +237,7 @@ export const crm = new Hono<AppEnv>()
 
     const result = await createTag(c.get("db"), name);
     if (result === "duplicate") throw new HTTPException(409, { message: "這個標籤已經存在。" });
+    await forgetCrmStats(cacheClient(c.env));
     return c.json({ name }, 201);
   })
 
@@ -251,6 +267,8 @@ export const crm = new Hono<AppEnv>()
       else await deleteTagFromCatalog(c.get("db"), original);
     }
 
+    // 每一輪都要清：後面幾輪改的是客戶身上的標籤，統計裡的 customerCount 會跟著動。
+    await forgetCrmStats(cacheClient(c.env));
     return c.json(result);
   })
 
@@ -320,6 +338,7 @@ export const crm = new Hono<AppEnv>()
       if (!result.customers.length || page >= totalPages) break;
     }
 
+    await forgetCrmStats(cacheClient(c.env));
     return c.json({
       ...totals,
       fromPage: startPage,
@@ -334,11 +353,14 @@ export const crm = new Hono<AppEnv>()
 
   /** 補跑處理失敗的 webhook。Cron 也會做同一件事，這條是給人手動催的。 */
   .post("/sync/retry", requirePermission("crm:sync:trigger"), async (c) => {
-    return c.json(await retryFailedWebhooks(c.get("db"), { client: cyberbizClient(c.env) }));
+    const result = await retryFailedWebhooks(c.get("db"), { client: cyberbizClient(c.env) });
+    await forgetCrmStats(cacheClient(c.env));
+    return c.json(result);
   })
 
   /** 清掉只有 CYBERBIZ ID、其餘全空的客戶（上一版 webhook 判斷太鬆造成的）。 */
   .post("/sync/cleanup-empty", requirePermission("crm:sync:trigger"), async (c) => {
     const result = await deleteEmptyCyberbizCustomers(c.get("db"));
+    await forgetCrmStats(cacheClient(c.env));
     return c.json({ deleted: result.deleted });
   });

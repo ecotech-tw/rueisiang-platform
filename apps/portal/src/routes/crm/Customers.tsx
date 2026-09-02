@@ -15,7 +15,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterSelect, PageHeader, Panel, SearchFilterInput } from "../../ui/index.js";
 
 const CHANNEL_LABEL: Record<string, string> = { manual: "人工建立", cyberbiz: "CYBERBIZ" };
 const SYNC_LABEL: Record<string, string> = {
@@ -186,13 +186,11 @@ export function Customers() {
         <SavedViewBar filters={filters} onApply={applyView} canManage={permissions.has("crm:view:write")} />
 
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
-          <FilterInput
+          <SearchFilterInput
             label="搜尋"
-            className="search-input"
-            type="search"
             placeholder="搜尋姓名、電話、Email、地址或標籤"
             value={filters.search}
-            onChange={(event) => update({ search: event.target.value })}
+            onSearch={(search) => update({ search })}
           />
           {/*
             * 這顆按鈕只在手機出現（CSS 控制）。窄螢幕放不下三個下拉，收起來時用
