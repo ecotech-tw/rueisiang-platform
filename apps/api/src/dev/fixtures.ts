@@ -63,9 +63,9 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
     toolKeys: [OPEN_METEO_TOOL_KEY],
   });
   await seedPayoutStores(db);
+  await seedDevAnalytics(db);
   await seedDevCustomers(db);
   await seedDevWarehouse(db);
-  await seedDevAnalytics(db);
 
   const existing = await db.select({ id: users.id }).from(users).limit(1);
   if (existing.length) return;

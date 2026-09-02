@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Icon } from "../../../shell/icons.js";
 import { Alert, Button, Panel } from "../../../ui/index.js";
+import { CategoryBreakdownChart } from "./charts/CategoryBreakdownChart.js";
 import { ChannelBreakdownChart } from "./charts/ChannelBreakdownChart.js";
 import { SalesTrendChart } from "./charts/SalesTrendChart.js";
-import { CategoryBreakdownChart } from "./charts/CategoryBreakdownChart.js";
 import { AnalyticsKpiHint, AnalyticsKpiValue } from "./charts/ChartPrimitives.js";
 import { TopSkuChart } from "./charts/TopSkuChart.js";
 import {

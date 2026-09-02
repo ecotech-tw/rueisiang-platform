@@ -17,7 +17,7 @@ import {
 function ColorPicker({ value, onChange }: { value: string; onChange: (color: string) => void }) {
   return (
     <div className="color-picker" role="radiogroup" aria-label="商品分類顏色">
-      {REPORT_CATEGORY_COLORS.map((color) => (
+      {[...REPORT_CATEGORY_COLORS.values()].map((color) => (
         <label key={color} className={`color-swatch tone-${color}${value === color ? " selected" : ""}`} title={color}>
           <input
             type="radio"
@@ -35,8 +35,11 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (color: str
 
 function nextColor(categories: ProductCategoryOption[]): string {
   const used = new Set(categories.map((category) => category.color));
-  return REPORT_CATEGORY_COLORS.find((color) => !used.has(color))
-    ?? REPORT_CATEGORY_COLORS[categories.length % REPORT_CATEGORY_COLORS.length]!;
+  for (let index = 0; index < REPORT_CATEGORY_COLORS.size; index += 1) {
+    const color = REPORT_CATEGORY_COLORS.get(index);
+    if (color && !used.has(color)) return color;
+  }
+  return REPORT_CATEGORY_COLORS.get(categories.length % REPORT_CATEGORY_COLORS.size) ?? "rose";
 }
 
 function ProductCategoryDialog({

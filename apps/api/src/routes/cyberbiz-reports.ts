@@ -269,14 +269,6 @@ function manualPayoutInput(input: Record<string, unknown>) {
   };
 }
 
-function optionalCategoryId(input: Record<string, unknown>): string | null | undefined {
-  if (!Object.prototype.hasOwnProperty.call(input, "categoryId")) return undefined;
-  if (input.categoryId !== null && typeof input.categoryId !== "string") {
-    throw new HTTPException(400, { message: "categoryId 必須是文字或 null。" });
-  }
-  return input.categoryId as string | null;
-}
-
 function manualSalesInput(input: Record<string, unknown>): {
   scopeId: string;
   reportMonth: string;
@@ -294,7 +286,11 @@ function manualSalesInput(input: Record<string, unknown>): {
   if (skuSource !== "custom" && skuSource !== "cyberbiz") {
     throw new HTTPException(400, { message: "SKU 來源必須是 custom 或 cyberbiz。" });
   }
-  const categoryId = optionalCategoryId(input);
+  const rawCategoryId = input.categoryId;
+  if (rawCategoryId !== undefined && rawCategoryId !== null && typeof rawCategoryId !== "string") {
+    throw new HTTPException(400, { message: "categoryId 必須是文字或 null。" });
+  }
+  const categoryId = rawCategoryId as string | null | undefined;
   return {
     scopeId: requireString(input, "scopeId", "據點"),
     reportMonth: requireString(input, "reportMonth", "報表月份"),

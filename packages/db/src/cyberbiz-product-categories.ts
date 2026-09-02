@@ -1,6 +1,7 @@
-import { asc, count, eq } from "drizzle-orm";
+import { asc, count, eq, getTableColumns } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { activityEvents } from "./schema/activity.js";
 import {
   customReportProducts,
@@ -62,10 +63,6 @@ function requireReportCategoryName(value: unknown): string {
   return name;
 }
 
-function displayName(productName: string, variantName: string): string {
-  return variantName.trim() ? `${productName}（${variantName}）` : productName;
-}
-
 /** 商品分類選項只讀報表自己的主檔；WMS 倉儲分類不會出現在這裡。 */
 export async function listProductCategoryOptions(db: Database): Promise<ProductCategoryOption[]> {
   const [categoryRows, skuCountRows, customCountRows] = await Promise.all([
@@ -99,10 +96,7 @@ export async function listCyberbizProductCategoryManagement(
 ): Promise<CyberbizProductCategoryManagementData> {
   const [productRows, categories] = await Promise.all([
     db.select({
-      sku: cyberbizProducts.sku,
-      productName: cyberbizProducts.productName,
-      variantName: cyberbizProducts.variantName,
-      published: cyberbizProducts.published,
+      ...getTableColumns(cyberbizProducts),
       categoryId: cyberbizProductCategories.categoryId,
       categoryName: reportProductCategories.name,
       categoryColor: reportProductCategories.color,
@@ -117,7 +111,7 @@ export async function listCyberbizProductCategoryManagement(
   return {
     products: productRows.map((row) => ({
       sku: row.sku,
-      name: displayName(row.productName, row.variantName),
+      name: formatCyberbizProductName(row),
       published: row.published === 1,
       categoryId: row.categoryId ?? null,
       categoryName: row.categoryName ?? null,

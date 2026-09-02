@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { isCompanyReportStoreScopeId, isValidReportDate, normalizeReportScopeName } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
 import {
@@ -295,8 +296,7 @@ async function prepareSales(
   let category = (input.category ?? "").trim() || "未分類";
   if (input.skuSource === "cyberbiz") {
     const [product] = await db.select({
-      productName: cyberbizProducts.productName,
-      variantName: cyberbizProducts.variantName,
+      ...getTableColumns(cyberbizProducts),
       categoryName: reportProductCategories.name,
     })
       .from(cyberbizProducts)
@@ -305,7 +305,7 @@ async function prepareSales(
       .where(eq(cyberbizProducts.sku, sku))
       .limit(1);
     if (!product) throw new ReportManualError("not_found", `找不到 CYBERBIZ SKU「${sku}」。`);
-    productName = product.variantName ? `${product.productName}（${product.variantName}）` : product.productName;
+    productName = formatCyberbizProductName(product);
     category = product.categoryName ?? "未分類";
   } else {
     if (input.categoryId !== undefined) {

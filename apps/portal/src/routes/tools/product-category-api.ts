@@ -88,9 +88,19 @@ export function useSetCyberbizProductCategory() {
   });
 }
 
-const REPORT_CATEGORY_COLORS = [
-  "rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand",
-] as const;
+/** 保留配色順序，並讓依索引取色不必掃描整個陣列。 */
+const REPORT_CATEGORY_COLORS: ReadonlyMap<number, string> = new Map([
+  [0, "rose"],
+  [1, "sky"],
+  [2, "mint"],
+  [3, "amber"],
+  [4, "violet"],
+  [5, "teal"],
+  [6, "peach"],
+  [7, "slate"],
+  [8, "lime"],
+  [9, "sand"],
+]);
 
 export { REPORT_CATEGORY_COLORS };
 

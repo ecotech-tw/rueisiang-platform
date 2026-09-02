@@ -47,16 +47,6 @@ function text(input: Record<string, unknown>, field: string): string | undefined
   return typeof value === "string" ? value.trim() : undefined;
 }
 
-function categoryIdInput(input: Record<string, unknown>): string | null {
-  if (!Object.prototype.hasOwnProperty.call(input, "categoryId")) {
-    throw new HTTPException(400, { message: "categoryId 為必要欄位，請傳入分類 ID 或 null。" });
-  }
-  if (input.categoryId !== null && typeof input.categoryId !== "string") {
-    throw new HTTPException(400, { message: "categoryId 必須是文字或 null。" });
-  }
-  return input.categoryId as string | null;
-}
-
 /**
  * 組合用料。每一列是 WMS 商品或自訂 SKU，恰有一種——哪一種由 packages/db 判定，
  * 這裡只負責把 JSON 攤成型別對的形狀。
@@ -576,9 +566,16 @@ export const tools = new Hono<AppEnv>()
   .put("/product-categories/:sku", requirePermission("tools:product-category:write"), async (c) => {
     const input = await body(c);
     const user = c.get("user");
+    if (!Object.prototype.hasOwnProperty.call(input, "categoryId")) {
+      throw new HTTPException(400, { message: "categoryId 為必要欄位，請傳入分類 ID 或 null。" });
+    }
+    const categoryId = input.categoryId;
+    if (categoryId !== null && typeof categoryId !== "string") {
+      throw new HTTPException(400, { message: "categoryId 必須是文字或 null。" });
+    }
     const result = await setCyberbizProductCategory(c.get("db"), {
       sku: c.req.param("sku"),
-      categoryId: categoryIdInput(input),
+      categoryId: categoryId as string | null,
       actor: { id: user.id, email: user.email },
     });
     await forgetReportAnalytics(cacheClient(c.env));

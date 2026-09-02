@@ -109,6 +109,7 @@ export {
   type ResolvedProductSku,
   type ResolvedProductSkuComponent,
 } from "./product-sku-mappings.js";
+export { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 export {
   findCyberbizReportRun,
   listCyberbizReportRuns,

@@ -4,6 +4,7 @@ import {
   createReportManualSales,
   createReportProductCategory,
   deleteReportProductCategory,
+  formatCyberbizProductName,
   listCyberbizProductCategoryManagement,
   setCyberbizProductCategory,
   syncSystemRoles,
@@ -81,6 +82,23 @@ async function seedCyberbizProduct(sku: string, productName: string, variantName
     published: 1,
   });
 }
+
+describe("CYBERBIZ 商品顯示名稱", () => {
+  it("從完整商品資料組合規格名稱，空白規格不加括號", () => {
+    const product = {
+      sku: "SKU-NAME",
+      productId: "product-name",
+      variantId: "variant-name",
+      productName: "  城市帆布袋  ",
+      variantName: "  大款  ",
+      published: 1,
+      syncedAt: "2026-09-02T00:00:00.000Z",
+    };
+
+    expect(formatCyberbizProductName(product)).toBe("城市帆布袋（大款）");
+    expect(formatCyberbizProductName({ ...product, variantName: "   " })).toBe("城市帆布袋");
+  });
+});
 
 describe("CYBERBIZ 商品分類資料層", () => {
   it("以 CYBERBIZ 商品目錄列出全部 SKU，並可設定或清除分類", async () => {
