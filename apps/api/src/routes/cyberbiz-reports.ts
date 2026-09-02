@@ -1,10 +1,9 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import {
   createReportManualPayout,
   createReportManualSales,
   createReportManagementScope,
-  deleteReportPayoutDaily,
   deleteReportManualPayout,
   deleteReportManualSales,
   deleteReportPayoutRecord,
@@ -17,6 +16,8 @@ import {
   isValidReportDate,
   latestReportSalesPeriods,
   listCyberbizReportProducts,
+  countReportPayoutRecords,
+  countReportSalesRecords,
   listReportPayoutRecords,
   listReportManagementScopes,
   listReportSalesRecords,
@@ -26,15 +27,16 @@ import {
   updateReportManualPayout,
   updateReportManualSales,
   updateReportManagementScope,
-  updateReportPayoutDaily,
   normalizeExternalSku,
   type Database,
   type ReportGroupBy,
   type ReportManualRecordSource,
   type ReportManualSkuSource,
+  type ReportPayoutFilters,
   type ReportPayoutListQuery,
   type ReportPayoutRecordDeleteInput,
   type ReportScopeKind,
+  type ReportSalesFilters,
   type ReportSalesListQuery,
   type ReportSalesRecordDeleteInput,
 } from "@rueisiang/db";
@@ -43,7 +45,14 @@ import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { createCyberbizReportService, CyberbizReportQueryError } from "../cyberbiz-reports.js";
 import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cyberbiz-report-ingest.js";
 import { manualScopeIdFromStoreName } from "../cyberbiz-scope.js";
-import { cachedReportAnalytics, forgetReportAnalytics } from "../report-cache.js";
+import {
+  cachedReportAnalytics,
+  createReportAnalyticsCache,
+  forgetReportAnalytics,
+  REPORT_RECORD_CACHE_TTL_SECONDS,
+  type CachedReportAnalytics,
+  type ReportAnalyticsCacheStatus,
+} from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
 import { body, requireString } from "../request.js";
 
@@ -58,6 +67,25 @@ function groupBy(c: { req: { query(name: string): string | undefined } }): Repor
   return value.split(",").map((item) => item.trim()) as ReportGroupBy[];
 }
 
+/**
+ * 帶著快取狀態回應。`X-Cache` 讓瀏覽器 devtools 直接看得出這一次是命中、沒命中、
+ * 沒設定 Redis 還是 Redis 噴錯——不然快取有沒有在運作只能用 D1 用量反推。
+ */
+function jsonWithCache<T>(c: Context<AppEnv>, result: CachedReportAnalytics<T>) {
+  c.header("X-Cache", result.status);
+  return c.json(result.value);
+}
+
+/**
+ * 兩個快取狀態合成一個標頭值。任何一邊出錯就報 error，其次是沒設定 Redis，
+ * 只要有一邊要回資料庫就是 miss——標頭寧可保守，不要讓半命中看起來像全命中。
+ */
+function mergeCacheStatus(...statuses: ReportAnalyticsCacheStatus[]): ReportAnalyticsCacheStatus {
+  if (statuses.includes("error")) return "error";
+  if (statuses.includes("bypass")) return "bypass";
+  return statuses.includes("miss") ? "miss" : "hit";
+}
+
 function analyticsCacheKey(c: { req: { url: string } }, resource: string): string {
   const url = new URL(c.req.url);
   const entries = [...url.searchParams.entries()].sort(([leftName, leftValue], [rightName, rightValue]) => (
@@ -65,6 +93,20 @@ function analyticsCacheKey(c: { req: { url: string } }, resource: string): strin
   ));
   const query = entries.map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join("&");
   return query ? `${resource}?${query}` : resource;
+}
+
+/**
+ * 從解析後的物件產生 key，而不是從網址挑參數。
+ *
+ * 挑參數要維護第二份清單：之後新增一個篩選條件卻忘了同步加進去，總筆數會靜靜
+ * 地變成錯的——不同篩選值命中同一個忽略該參數的 key。從物件產生就不會漂移，
+ * 而且順便正規化（`pageSize=999` 會退回 25，兩者共用同一個 key）。
+ */
+function objectCacheKey(resource: string, value: object): string {
+  const entries = Object.entries(value)
+    .filter(([, item]) => item !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right));
+  return `${resource}?${JSON.stringify(entries)}`;
 }
 
 function topSkuBy(c: { req: { query(name: string): string | undefined } }): "salesAmount" | "netQuantity" | undefined {
@@ -159,7 +201,7 @@ function listMonth(c: { req: { query(name: string): string | undefined } }, name
   return value;
 }
 
-function manualPayoutListQuery(c: { req: { query(name: string): string | undefined } }): ReportPayoutListQuery {
+function manualPayoutListQuery(c: { req: { query(name: string): string | undefined } }): { filters: ReportPayoutFilters; query: ReportPayoutListQuery } {
   const startDate = listDate(c, "startDate");
   const endDate = listDate(c, "endDate");
   if (startDate && endDate && startDate > endDate) {
@@ -172,20 +214,20 @@ function manualPayoutListQuery(c: { req: { query(name: string): string | undefin
   const scopeId = queryValue(c, "scopeId");
   const search = queryValue(c, "search");
   const source = listSource(c);
-  return {
-    page: listPage(c),
-    pageSize: listPageSize(c),
+  const filters: ReportPayoutFilters = {
     ...(scopeId ? { scopeId } : {}),
     ...(source ? { source } : {}),
     ...(search ? { search } : {}),
     ...(startDate ? { startDate } : {}),
     ...(endDate ? { endDate } : {}),
-    sortField,
-    sortDirection: listDirection(c),
+  };
+  return {
+    filters,
+    query: { ...filters, page: listPage(c), pageSize: listPageSize(c), sortField, sortDirection: listDirection(c) },
   };
 }
 
-function manualSalesListQuery(c: { req: { query(name: string): string | undefined } }): ReportSalesListQuery {
+function manualSalesListQuery(c: { req: { query(name: string): string | undefined } }): { filters: ReportSalesFilters; query: ReportSalesListQuery } {
   const startMonth = listMonth(c, "startMonth");
   const endMonth = listMonth(c, "endMonth");
   if (startMonth && endMonth && startMonth > endMonth) {
@@ -198,16 +240,16 @@ function manualSalesListQuery(c: { req: { query(name: string): string | undefine
   const scopeId = queryValue(c, "scopeId");
   const search = queryValue(c, "search");
   const source = listSource(c);
-  return {
-    page: listPage(c),
-    pageSize: listPageSize(c),
+  const filters: ReportSalesFilters = {
     ...(scopeId ? { scopeId } : {}),
     ...(source ? { source } : {}),
     ...(search ? { search } : {}),
     ...(startMonth ? { startMonth } : {}),
     ...(endMonth ? { endMonth } : {}),
-    sortField,
-    sortDirection: listDirection(c),
+  };
+  return {
+    filters,
+    query: { ...filters, page: listPage(c), pageSize: listPageSize(c), sortField, sortDirection: listDirection(c) },
   };
 }
 
@@ -547,40 +589,8 @@ async function salesRecordsDeleteInput(c: { req: { json(): Promise<unknown> } })
   });
 }
 
-function payoutTarget(c: { req: { param(name: string): string | undefined } }): { scopeId: string; businessDate: string } {
-  const scopeId = c.req.param("scopeId")?.trim();
-  const businessDate = c.req.param("businessDate")?.trim();
-  if (!scopeId || !businessDate || !isValidReportDate(businessDate)) {
-    throw new HTTPException(400, { message: "日期格式必須是 YYYY-MM-DD。" });
-  }
-  return { scopeId, businessDate };
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-async function readPayoutAmount(c: { req: { json(): Promise<unknown> } }): Promise<number> {
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    throw new HTTPException(400, { message: "請提供有效的 JSON 出金金額。" });
-  }
-  if (!isRecord(body) || !Number.isSafeInteger(body.payoutAmount)) {
-    throw new HTTPException(400, { message: "出金金額必須是安全整數。" });
-  }
-  return body.payoutAmount as number;
-}
-
-async function updatePayout(
-  db: Database,
-  target: { scopeId: string; businessDate: string },
-  payoutAmount: number,
-) {
-  const row = await updateReportPayoutDaily(db, { ...target, payoutAmount });
-  if (!row) throw new HTTPException(404, { message: "找不到指定日期的出金資料。" });
-  return row;
 }
 
 export const cyberbizReports = new Hono<AppEnv>()
@@ -598,7 +608,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         })),
       };
     });
-    return c.json(result);
+    return jsonWithCache(c, result);
   })
   .get("/manual/options", requirePermission("reports:cyberbiz:write"), async (c) => {
     const [scopes, products, categories] = await Promise.all([
@@ -747,7 +757,18 @@ export const cyberbizReports = new Hono<AppEnv>()
     }
   })
   .get("/manual/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
-    return c.json(await listReportPayoutRecords(c.get("db"), manualPayoutListQuery(c)));
+    const { filters, query } = manualPayoutListQuery(c);
+    const cache = createReportAnalyticsCache(cacheClient(c.env));
+    const [page, total] = await Promise.all([
+      cache.read(objectCacheKey("manual:payout", query), () => (
+        listReportPayoutRecords(c.get("db"), query)
+      ), REPORT_RECORD_CACHE_TTL_SECONDS),
+      cache.read(objectCacheKey("manual:payout:count", filters), () => (
+        countReportPayoutRecords(c.get("db"), filters)
+      ), REPORT_RECORD_CACHE_TTL_SECONDS),
+    ]);
+    c.header("X-Cache", mergeCacheStatus(page.status, total.status));
+    return c.json({ ...page.value, total: total.value });
   })
   .post("/manual/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
     try {
@@ -802,7 +823,18 @@ export const cyberbizReports = new Hono<AppEnv>()
     }
   })
   .get("/manual/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
-    return c.json(await listReportSalesRecords(c.get("db"), manualSalesListQuery(c)));
+    const { filters, query } = manualSalesListQuery(c);
+    const cache = createReportAnalyticsCache(cacheClient(c.env));
+    const [page, total] = await Promise.all([
+      cache.read(objectCacheKey("manual:sales", query), () => (
+        listReportSalesRecords(c.get("db"), query)
+      ), REPORT_RECORD_CACHE_TTL_SECONDS),
+      cache.read(objectCacheKey("manual:sales:count", filters), () => (
+        countReportSalesRecords(c.get("db"), filters)
+      ), REPORT_RECORD_CACHE_TTL_SECONDS),
+    ]);
+    c.header("X-Cache", mergeCacheStatus(page.status, total.status));
+    return c.json({ ...page.value, total: total.value });
   })
   .post("/manual/sales", requirePermission("reports:cyberbiz:write"), async (c) => {
     try {
@@ -864,17 +896,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         analyticsCacheKey(c, "summary:payout"),
         () => createCyberbizReportService(c.get("db")).queryPayoutSummary(query),
       );
-      return c.json(result);
-    } catch (error) {
-      handleError(error);
-    }
-  })
-  .get("/summary/payout/daily", requirePermission("reports:analytics:read"), async (c) => {
-    try {
-      return c.json(await createCyberbizReportService(c.get("db")).queryPayout({
-        ...commonQuery(c),
-        groupBy: ["day"],
-      }));
+      return jsonWithCache(c, result);
     } catch (error) {
       handleError(error);
     }
@@ -891,7 +913,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         analyticsCacheKey(c, "summary:sales:v2"),
         () => createCyberbizReportService(c.get("db")).querySalesSummary(query),
       );
-      return c.json(result);
+      return jsonWithCache(c, result);
     } catch (error) {
       handleError(error);
     }
@@ -909,7 +931,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         analyticsCacheKey(c, "sales"),
         () => createCyberbizReportService(c.get("db")).querySales(query),
       );
-      return c.json(result);
+      return jsonWithCache(c, result);
     } catch (error) {
       handleError(error);
     }
@@ -922,20 +944,8 @@ export const cyberbizReports = new Hono<AppEnv>()
         analyticsCacheKey(c, "payout"),
         () => createCyberbizReportService(c.get("db")).queryPayout(query),
       );
-      return c.json(result);
+      return jsonWithCache(c, result);
     } catch (error) {
       handleError(error);
     }
-  })
-  .patch("/payout/:scopeId/:businessDate", requirePermission("reports:cyberbiz:write"), async (c) => {
-    const target = payoutTarget(c);
-    const payoutAmount = await readPayoutAmount(c);
-    return c.json({ row: await updatePayout(c.get("db"), target, payoutAmount) });
-  })
-  .delete("/payout/:scopeId/:businessDate", requirePermission("reports:cyberbiz:write"), async (c) => {
-    const target = payoutTarget(c);
-    if (!(await deleteReportPayoutDaily(c.get("db"), target))) {
-      throw new HTTPException(404, { message: "找不到指定日期的出金資料。" });
-    }
-    return c.json({ ok: true });
   });

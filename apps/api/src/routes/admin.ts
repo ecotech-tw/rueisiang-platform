@@ -81,10 +81,6 @@ function throwOnRoleWriteFailure(result: RoleWriteResult): void {
       throw new HTTPException(404, { message: "找不到這個角色。" });
     case "protected-role":
       throw new HTTPException(400, { message: "管理員角色受系統保護，不能修改或刪除。" });
-    case "system-role":
-      throw new HTTPException(400, {
-        message: "系統內建角色不能刪除；除了管理員角色外，都可以直接調整。",
-      });
     case "unknown-permission":
       throw new HTTPException(400, { message: `沒有這個權限：${result.permission}` });
   }
@@ -112,8 +108,8 @@ export const admin = new Hono<AppEnv>()
   })
 
   /**
-   * 建立缺少的系統角色並校正管理員角色。非管理員系統角色的現有設定會保留，
-   * 讓管理者在 UI 調整的權限不會因為按同步而被覆蓋。
+   * 全新的空資料庫會建立初始角色，既有資料庫只校正管理員角色。非管理員角色的現有
+   * 設定會保留，已被刪除的非管理員角色也不會因為按同步而復活。
    *
    * 這件事本來是靠一條用共用憑證保護的 /api/setup。系統有管理者之後就不需要了——
    * 誰能調權限本來就該由 RBAC 自己回答，不必再多一組要記得刪掉的 secret。
@@ -130,8 +126,7 @@ export const admin = new Hono<AppEnv>()
   /**
    * ── 角色維護 ────────────────────────────────────────────────────────────
    *
-   * 非管理員的系統角色可以直接調整；管理員角色維持不可修改、不可刪除。
-   * 所有系統角色都保留不可刪除的保護，避免指派中的固定角色被意外移除。
+   * 管理員角色維持不可修改、不可刪除；其他角色都是自訂角色，可以完整維護。
    */
   .post("/roles", requirePermission("admin:role:write"), async (c) => {
     const input = await body(c);

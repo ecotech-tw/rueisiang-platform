@@ -327,8 +327,14 @@ export const tools = new Hono<AppEnv>()
     }));
 
     await assertStoreScopeNameFree(c.get("db"), scopeId, scopeName);
-    const scope = await upsertReportScope(c.get("db"), { id: scopeId, scopeKind: "store", name: scopeName });
-    await insertReportPayoutDaily(c.get("db"), dailyRows);
+    let scope;
+    try {
+      scope = await upsertReportScope(c.get("db"), { id: scopeId, scopeKind: "store", name: scopeName });
+      await insertReportPayoutDaily(c.get("db"), dailyRows);
+    } finally {
+      // 寫完 scope 才在寫日資料時失敗也算改到報表；成功與失敗都要清掉報表快取。
+      await forgetReportAnalytics(cacheClient(c.env));
+    }
     const dates = dailyRows.map((row) => row.businessDate).sort();
     return c.json({
       scopeId: scope.id,

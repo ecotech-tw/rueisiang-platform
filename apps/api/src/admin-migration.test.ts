@@ -48,6 +48,9 @@ const CYBERBIZ_REPORT_WRITE_PERMISSION_MIGRATION = fileURLToPath(
 const PRODUCT_CATEGORY_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0071_product_category_permission.sql", import.meta.url),
 );
+const ROLE_CLASSIFICATION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0070_roles_except_admin_are_custom.sql", import.meta.url),
+);
 const MIGRATIONS_DIR = fileURLToPath(new URL("../../../packages/db/migrations/", import.meta.url));
 const MIGRATION_FILES = readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(".sql")).sort();
 
@@ -229,5 +232,39 @@ describe("bootstrap 管理員權限 migration", () => {
       .toEqual({ d1_import_eligible: 1 });
     expect(sqlite.prepare("SELECT id, scope_kind, normalized_name FROM report_scopes WHERE id = ?").get("store-legacy"))
       .toEqual({ id: "store-legacy", scope_kind: "store", normalized_name: "舊版門市" });
+  });
+});
+
+describe("角色分類 migration", () => {
+  it("把非管理員既有系統角色改成自訂，而且可以安全重跑", () => {
+    const sqlite = freshAt("0069_pink_giant_man.sql");
+    sqlite.prepare("INSERT INTO roles (id, key, name, is_system) VALUES (?, ?, ?, ?)").run(
+      "role-admin",
+      "admin",
+      "管理者",
+      1,
+    );
+    sqlite.prepare("INSERT INTO roles (id, key, name, is_system) VALUES (?, ?, ?, ?)").run(
+      "role-manager",
+      "manager",
+      "主管",
+      1,
+    );
+    sqlite.prepare("INSERT INTO roles (id, key, name, is_system) VALUES (?, ?, ?, ?)").run(
+      "role-custom",
+      "custom-existing",
+      "既有自訂角色",
+      0,
+    );
+
+    const sql = readFileSync(ROLE_CLASSIFICATION_MIGRATION, "utf8");
+    sqlite.exec(sql);
+    sqlite.exec(sql);
+
+    expect(sqlite.prepare("SELECT key, is_system FROM roles ORDER BY key").all()).toEqual([
+      { key: "admin", is_system: 1 },
+      { key: "custom-existing", is_system: 0 },
+      { key: "manager", is_system: 0 },
+    ]);
   });
 });

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Button, Dialog } from "../../../../ui/index.js";
+import { Button, Dialog, Tooltip } from "../../../../ui/index.js";
 
 export interface ChartTooltipEntry {
   name?: string;
@@ -12,7 +12,8 @@ export interface ChartTooltipProps {
   active?: boolean;
   label?: unknown;
   payload?: readonly ChartTooltipEntry[];
-  valueFormatter: (value: number) => string;
+  /** 同一張圖可能混用不同單位的系列（銷量／金額），所以格式化要看得到 entry。 */
+  valueFormatter: (value: number, entry: ChartTooltipEntry) => string;
   valueMeta?: (entry: ChartTooltipEntry) => ReactNode;
 }
 
@@ -30,7 +31,7 @@ export function AnalyticsTooltip({ active, label, payload, valueFormatter, value
             {entry.name ?? "數值"}
           </span>
           <b>
-            {valueFormatter(Number(entry.value))}
+            {valueFormatter(Number(entry.value), entry)}
             {valueMeta?.(entry) ? <span className="analytics-tooltip-meta">{valueMeta(entry)}</span> : null}
           </b>
         </div>
@@ -61,6 +62,27 @@ export function AnalyticsLegend({ payload, formatValue }: AnalyticsLegendProps):
         </span>
       ))}
     </div>
+  );
+}
+
+/**
+ * KPI 卡的數字寬度固定不下來（NT$ 加七位數在窄欄一定超出），CSS 只能截斷成
+ * 「NT$3,011…」，所以完整值放進 tooltip。
+ */
+export function AnalyticsKpiValue({ children }: { children: string }) {
+  return (
+    <Tooltip label={children} className="analytics-kpi-value">
+      <strong>{children}</strong>
+    </Tooltip>
+  );
+}
+
+/** KPI 卡下方那行成長率說明，句子比欄寬長，同樣交給 tooltip。 */
+export function AnalyticsKpiHint({ children }: { children: string }) {
+  return (
+    <Tooltip label={children} className="analytics-kpi-hint">
+      <small>{children}</small>
+    </Tooltip>
   );
 }
 
@@ -140,4 +162,10 @@ export function formatBucketLabel(key: string, granularity: "day" | "month" | "y
 
 export function formatCompactValue(value: number): string {
   return value.toLocaleString("zh-TW", { maximumFractionDigits: 0 });
+}
+
+/** 金額軸改用「萬」，七位數的完整數字會把刻度撐得比圖還寬。 */
+export function formatCompactAmount(value: number): string {
+  if (Math.abs(value) < 10000) return formatCompactValue(value);
+  return `${(value / 10000).toLocaleString("zh-TW", { maximumFractionDigits: 1 })}萬`;
 }

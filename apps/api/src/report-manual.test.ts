@@ -7,6 +7,8 @@ import {
   deleteReportSalesRecord,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
+  countReportPayoutRecords,
+  countReportSalesRecords,
   listReportPayoutRecords,
   listReportSalesRecords,
   queryReportPayout,
@@ -196,29 +198,29 @@ describe("報表人工修訂資料", () => {
       actor: ACTOR,
     });
 
+    const allFilters = { search: "", scopeId: "" } as const;
     const firstPage = await listReportPayoutRecords(db(), {
+      ...allFilters,
       page: 1,
       pageSize: 1,
-      search: "",
-      scopeId: "",
       sortField: "businessDate",
       sortDirection: "desc",
     });
-    expect(firstPage.total).toBe(3);
+    // 總筆數與當頁資料是分開的兩個查詢，翻頁與換排序不會讓總筆數重算。
+    expect(await countReportPayoutRecords(db(), allFilters)).toBe(3);
     expect(firstPage.rows).toMatchObject([
       { businessDate: "2026-08-03", payoutAmount: 3000, source: "imported" },
     ]);
 
+    const manualFilters = { source: "manual", search: "", scopeId: "" } as const;
     const manualOnly = await listReportPayoutRecords(db(), {
+      ...manualFilters,
       page: 1,
       pageSize: 1,
-      source: "manual",
-      search: "",
-      scopeId: "",
       sortField: "businessDate",
       sortDirection: "desc",
     });
-    expect(manualOnly.total).toBe(1);
+    expect(await countReportPayoutRecords(db(), manualFilters)).toBe(1);
     expect(manualOnly.rows).toMatchObject([
       { businessDate: "2026-08-02", payoutAmount: 9000, source: "manual" },
     ]);
@@ -240,15 +242,15 @@ describe("報表人工修訂資料", () => {
       actor: ACTOR,
     });
 
+    const salesFilters = { search: "修訂商品", scopeId: "" } as const;
     const sales = await listReportSalesRecords(db(), {
+      ...salesFilters,
       page: 1,
       pageSize: 10,
-      search: "修訂商品",
-      scopeId: "",
       sortField: "sku",
       sortDirection: "asc",
     });
-    expect(sales.total).toBe(1);
+    expect(await countReportSalesRecords(db(), salesFilters)).toBe(1);
     expect(sales.rows).toMatchObject([
       { sku: "SKU-1", productName: "修訂商品一", salesAmount: 800, source: "manual", skuSource: "custom" },
     ]);

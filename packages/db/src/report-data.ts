@@ -9,7 +9,6 @@ import {
   type NewReportSalesMonthly,
   type ReportScope,
   type ReportScopeKind,
-  type ReportPayoutDaily,
 } from "./schema/reports.js";
 import { customReportProducts, inventoryItems, productBundleComponents, productSkuMappings } from "./schema/wms.js";
 import { legacyShopeeExternalSku, reportDataChannel } from "./product-sku-mappings.js";
@@ -132,6 +131,52 @@ export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind
   return db.select().from(reportScopes)
     .where(and(eq(reportScopes.active, 1), scopeKind ? eq(reportScopes.scopeKind, scopeKind) : undefined))
     .orderBy(asc(reportScopes.name));
+}
+
+/**
+ * 單次請求內共用的店別名冊。
+ *
+ * 一份統計會呼叫 queryReportSales / queryReportPayout 好幾次（本期、上期、
+ * 去年同期、趨勢、店別、分類、SKU⋯），而每一次都要讀兩遍 report_scopes——
+ * 一次解析 scope id、一次把 id 換成店名。八次查詢就是十六趟往返讀同一張表。
+ *
+ * 刻意做成傳進去的物件而不是模組層的快取：它的壽命必須剛好是一次請求，
+ * 新增店別下一個請求就要看得到。
+ */
+export interface ReportScopeDirectory {
+  stores(): Promise<ReportScope[]>;
+  /** 指定店別時走這裡；同一組條件在一次請求內只查一次。 */
+  store(lookup: { id?: string; name?: string }): Promise<ReportScope | null>;
+}
+
+export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
+  let all: Promise<ReportScope[]> | undefined;
+
+  function stores(): Promise<ReportScope[]> {
+    // 失敗的 promise 不能留下來，不然同一次請求後續的呼叫拿到的都是同一個錯誤，連重試都沒有。
+    return (all ??= listReportScopes(db, "store").catch((error) => {
+      all = undefined;
+      throw error;
+    }));
+  }
+
+  return {
+    stores,
+    /*
+     * 從同一份名冊推導，不另外查一次。名冊的條件（scopeKind = store 且 active）
+     * 跟 findReportScope 的 id 分支完全等價，name 分支也只是比對 normalizedName
+     * 再加上「超過一筆就是同名」，所以指定店別的下限是一次查詢而不是兩次。
+     */
+    async store(lookup) {
+      const scopes = await stores();
+      if (lookup.id) return scopes.find((scope) => scope.id === lookup.id) ?? null;
+      if (!lookup.name) return null;
+      const normalized = normalizeReportScopeName(lookup.name);
+      const matched = scopes.filter((scope) => scope.normalizedName === normalized);
+      if (matched.length > 1) throw new ReportScopeAmbiguousError("store", lookup.name);
+      return matched[0] ?? null;
+    },
+  };
 }
 
 /*
@@ -386,43 +431,6 @@ export async function insertReportPayoutDaily(db: Database, rows: readonly NewRe
   }
 }
 
-export async function updateReportPayoutDaily(
-  db: Database,
-  input: { scopeId: string; businessDate: string; payoutAmount: number },
-): Promise<ReportPayoutDaily | null> {
-  const [existing] = await db.select().from(reportPayoutDaily).where(and(
-    eq(reportPayoutDaily.scopeId, input.scopeId),
-    eq(reportPayoutDaily.businessDate, input.businessDate),
-  )).limit(1);
-  if (!existing) return null;
-
-  const updatedAt = new Date().toISOString();
-  await db.update(reportPayoutDaily)
-    .set({ payoutAmount: input.payoutAmount, updatedAt })
-    .where(and(
-      eq(reportPayoutDaily.scopeId, input.scopeId),
-      eq(reportPayoutDaily.businessDate, input.businessDate),
-    ));
-  return { ...existing, payoutAmount: input.payoutAmount, updatedAt };
-}
-
-export async function deleteReportPayoutDaily(
-  db: Database,
-  input: { scopeId: string; businessDate: string },
-): Promise<boolean> {
-  const [existing] = await db.select({ scopeId: reportPayoutDaily.scopeId }).from(reportPayoutDaily).where(and(
-    eq(reportPayoutDaily.scopeId, input.scopeId),
-    eq(reportPayoutDaily.businessDate, input.businessDate),
-  )).limit(1);
-  if (!existing) return false;
-
-  await db.delete(reportPayoutDaily).where(and(
-    eq(reportPayoutDaily.scopeId, input.scopeId),
-    eq(reportPayoutDaily.businessDate, input.businessDate),
-  ));
-  return true;
-}
-
 function chunks<T>(values: readonly T[], size: number): T[][] {
   const result: T[][] = [];
   for (let index = 0; index < values.length; index += size) result.push(values.slice(index, index + size));
@@ -467,14 +475,18 @@ function scopeCondition(column: ReturnType<typeof sql>, scopeIds: readonly strin
     : sql`${column} IN (${sql.join(scopeIds.map((id) => sql`${id}`), sql`, `)})`;
 }
 
-export async function scopeIdsForQuery(db: Database, query: { scopeType: ReportScopeKind; scopeId?: string; scopeName?: string }): Promise<{ ids: string[]; scope?: ReportScope }> {
+export async function scopeIdsForQuery(
+  db: Database,
+  query: { scopeType: ReportScopeKind; scopeId?: string; scopeName?: string },
+  directory: ReportScopeDirectory = createReportScopeDirectory(db),
+): Promise<{ ids: string[]; scope?: ReportScope }> {
   if (query.scopeType === "store") {
-    const scope = await findReportScope(db, { scopeKind: "store", id: query.scopeId, name: query.scopeName });
+    const scope = await directory.store({ id: query.scopeId, name: query.scopeName });
     return scope ? { ids: [scope.id], scope } : { ids: [] };
   }
   return {
     // 公司總額納入所有通路，但只接受既定的 channel:store:id 格式與舊版 store- ID。
-    ids: (await listReportScopes(db, "store"))
+    ids: (await directory.stores())
       .filter((scope) => isCompanyReportStoreScopeId(scope.id))
       .map((scope) => scope.id),
   };
@@ -517,7 +529,11 @@ function asNumber(value: unknown): number {
   return typeof value === "number" ? value : Number(value ?? 0);
 }
 
-export async function queryReportSales(db: Database, query: ReportSalesQuery): Promise<ReportSalesQueryResult | null> {
+export async function queryReportSales(
+  db: Database,
+  query: ReportSalesQuery,
+  directory: ReportScopeDirectory = createReportScopeDirectory(db),
+): Promise<ReportSalesQueryResult | null> {
   if (!isWholeMonthRange(query.range)) {
     return {
       status: "UNSUPPORTED_GRANULARITY",
@@ -530,7 +546,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
       message: "商品銷售資料目前只支援完整月份查詢，請改用 YYYY-MM 或完整月份的起訖日期。",
     };
   }
-  const { ids, scope } = await scopeIdsForQuery(db, query);
+  const { ids, scope } = await scopeIdsForQuery(db, query, directory);
   if (!ids.length) return null;
   const groups = selectedGroups(query.groupBy?.length ? query.groupBy : ["sku"]);
   const dimensions = groups.map((group) => SALES_GROUPS[group]);
@@ -627,7 +643,7 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
     };
   }
 
-  const scopeNames = new Map((await listReportScopes(db, "store")).map((item) => [item.id, item.name]));
+  const scopeNames = new Map((await directory.stores()).map((item) => [item.id, item.name]));
   const resultRows = rows.map((row) => ({
     ...row,
     ...(row.scopeId ? { scopeName: scopeNames.get(String(row.scopeId)) ?? String(row.scopeId) } : {}),
@@ -653,8 +669,12 @@ export async function queryReportSales(db: Database, query: ReportSalesQuery): P
   };
 }
 
-export async function queryReportPayout(db: Database, query: ReportPayoutQuery): Promise<ReportPayoutQueryResult | null> {
-  const { ids, scope } = await scopeIdsForQuery(db, query);
+export async function queryReportPayout(
+  db: Database,
+  query: ReportPayoutQuery,
+  directory: ReportScopeDirectory = createReportScopeDirectory(db),
+): Promise<ReportPayoutQueryResult | null> {
+  const { ids, scope } = await scopeIdsForQuery(db, query, directory);
   if (!ids.length) return null;
   const groups = selectedPayoutGroups(query.groupBy?.length ? query.groupBy : ["day"]);
   const dimensions = groups.map((group) => PAYOUT_GROUPS[group]);
@@ -667,7 +687,7 @@ export async function queryReportPayout(db: Database, query: ReportPayoutQuery):
   const order = dimensions.length ? sql` ORDER BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${EFFECTIVE_PAYOUT_SOURCE} WHERE ${conditions}${grouped}${order}`);
   if (!rows.length || (dimensions.length === 0 && rows.every((row) => row.payoutAmount == null))) return null;
-  const scopeNames = new Map((await listReportScopes(db, "store")).map((item) => [item.id, item.name]));
+  const scopeNames = new Map((await directory.stores()).map((item) => [item.id, item.name]));
   const resultRows = rows.map((row) => ({
     ...row,
     ...(row.scopeId ? { scopeName: scopeNames.get(String(row.scopeId)) ?? String(row.scopeId) } : {}),
