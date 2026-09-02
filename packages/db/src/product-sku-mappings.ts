@@ -1,16 +1,18 @@
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { activityEvents } from "./schema/activity.js";
 import {
   customReportProducts,
+  cyberbizProductCategories,
   cyberbizProducts,
   inventoryItems,
   productBundleComponents,
-  productCategories,
   productSkuMappings,
   reportSkuIgnores,
 } from "./schema/wms.js";
+import { reportProductCategories } from "./schema/report-products.js";
 import { WmsError, type Actor } from "./wms.js";
 
 /** 外部 SKU 寫入前統一格式，避免大小寫造成兩筆 mapping。 */
@@ -143,7 +145,7 @@ export async function loadProductSkuMappingManagement(
       })
       .from(productSkuMappings)
       .orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku)),
-    db.select({ name: productCategories.name }).from(productCategories).orderBy(asc(productCategories.name)),
+    db.select({ name: reportProductCategories.name }).from(reportProductCategories).orderBy(asc(reportProductCategories.name)),
   ]);
 
   /*
@@ -198,15 +200,20 @@ export async function loadProductSkuMappingManagement(
   const catalogSkus = [...new Set(componentRows.map((row) => row.cyberbizSku).filter((sku): sku is string => !!sku))];
   const catalogRows = await inBatches(catalogSkus, (batch) => db
     .select({
-      sku: cyberbizProducts.sku,
-      productName: cyberbizProducts.productName,
-      variantName: cyberbizProducts.variantName,
+      ...getTableColumns(cyberbizProducts),
+      categoryName: reportProductCategories.name,
     })
     .from(cyberbizProducts)
+    .leftJoin(cyberbizProductCategories, eq(cyberbizProductCategories.sku, cyberbizProducts.sku))
+    .leftJoin(reportProductCategories, eq(reportProductCategories.id, cyberbizProductCategories.categoryId))
     .where(inArray(cyberbizProducts.sku, batch)));
   const catalogBySku = new Map(catalogRows.map((row) => [
     row.sku,
-    { sku: row.sku, name: row.variantName ? `${row.productName}（${row.variantName}）` : row.productName },
+    {
+      sku: row.sku,
+      name: formatCyberbizProductName(row),
+      category: row.categoryName ?? "未分類",
+    },
   ]));
   for (const row of componentRows) {
     const list = componentsByMapping.get(row.mappingId) ?? [];
@@ -221,7 +228,7 @@ export async function loadProductSkuMappingManagement(
         customProductId: null,
         sku: row.cyberbizSku,
         name: catalog?.name ?? "",
-        category: "未分類",
+        category: catalog?.category ?? "未分類",
         quantity: row.quantity,
       });
       componentsByMapping.set(row.mappingId, list);
@@ -517,7 +524,7 @@ async function requireExternalSkuAvailable(
   if (customOwner && !customProductSkus.includes(customOwner.sku)) {
     throw new WmsError(
       "conflict",
-      `外部 SKU「${externalSku}」已是自訂報表商品「${customOwner.name}」的系統 SKU，請換一個外部 SKU。`,
+      `外部 SKU「${externalSku}」已是自訂商品主檔「${customOwner.name}」的系統 SKU，請換一個外部 SKU。`,
     );
   }
 }
@@ -678,7 +685,7 @@ export async function deleteProductSkuMapping(
   if (!mapping) throw new WmsError("not_found", "找不到這筆外部 SKU 對應。");
 
   /*
-   * 順手回收沒人再參照的自訂報表商品。
+   * 順手回收沒人再參照的自訂商品主檔。
    *
    * 留著的話它會永久占住那個 SKU：之後把 WMS 商品改成同一個 SKU 會被擋下，而錯誤訊息
    * 叫使用者去改一筆他在畫面上根本看不到、也刪不掉的資料。
@@ -829,19 +836,20 @@ export async function resolveProductSkus(
   const componentCatalogSkus = [...new Set(componentRows.map((row) => row.cyberbizSku).filter((sku): sku is string => !!sku))];
   const componentCatalog = await inBatches(componentCatalogSkus, (batch) => db
     .select({
-      sku: cyberbizProducts.sku,
-      productName: cyberbizProducts.productName,
-      variantName: cyberbizProducts.variantName,
+      ...getTableColumns(cyberbizProducts),
+      categoryName: reportProductCategories.name,
     })
     .from(cyberbizProducts)
+    .leftJoin(cyberbizProductCategories, eq(cyberbizProductCategories.sku, cyberbizProducts.sku))
+    .leftJoin(reportProductCategories, eq(reportProductCategories.id, cyberbizProductCategories.categoryId))
     .where(inArray(cyberbizProducts.sku, batch)));
   const itemById = new Map(componentItems.map((row) => [row.id, row]));
   const customById = new Map(componentCustoms.map((row) => [row.id, row]));
   // 官網商品的名稱即時從鏡像讀，不採信任何複本。
   const catalogBySku = new Map(componentCatalog.map((row) => [row.sku, {
     sku: row.sku,
-    name: row.variantName ? `${row.productName}（${row.variantName}）` : row.productName,
-    category: "未分類",
+    name: formatCyberbizProductName(row),
+    category: row.categoryName ?? "未分類",
   }]));
   for (const component of componentRows) {
     const source = component.cyberbizSku
@@ -881,19 +889,20 @@ export async function resolveProductSkus(
    */
   const catalogRows = await inBatches(wanted, (batch) => db
     .select({
-      sku: cyberbizProducts.sku,
-      productName: cyberbizProducts.productName,
-      variantName: cyberbizProducts.variantName,
+      ...getTableColumns(cyberbizProducts),
+      categoryName: reportProductCategories.name,
     })
     .from(cyberbizProducts)
+    .leftJoin(cyberbizProductCategories, eq(cyberbizProductCategories.sku, cyberbizProducts.sku))
+    .leftJoin(reportProductCategories, eq(reportProductCategories.id, cyberbizProductCategories.categoryId))
     .where(inArray(cyberbizProducts.sku, batch)));
   for (const row of catalogRows) {
     if (mappedKeys.has(row.sku)) continue;
-    const name = row.variantName ? `${row.productName}（${row.variantName}）` : row.productName;
+    const name = formatCyberbizProductName(row);
     if (!name) continue;
     resolved.set(row.sku, {
       externalName: name,
-      components: [{ inventoryItemId: null, sku: row.sku, name, category: "未分類", quantity: 1 }],
+      components: [{ inventoryItemId: null, sku: row.sku, name, category: row.categoryName ?? "未分類", quantity: 1 }],
     });
   }
 
@@ -1130,17 +1139,12 @@ export interface CyberbizReportProductOption extends CyberbizProductOption {
 /** 供 SKU 對應頁挑用料；下架的也列出來，舊對應才編輯得動。 */
 export async function listCyberbizProducts(db: Database): Promise<CyberbizProductOption[]> {
   const rows = await db
-    .select({
-      sku: cyberbizProducts.sku,
-      productName: cyberbizProducts.productName,
-      variantName: cyberbizProducts.variantName,
-      published: cyberbizProducts.published,
-    })
+    .select()
     .from(cyberbizProducts)
     .orderBy(asc(cyberbizProducts.productName), asc(cyberbizProducts.sku));
   return rows.map((row) => ({
     sku: row.sku,
-    name: row.variantName ? `${row.productName}（${row.variantName}）` : row.productName,
+    name: formatCyberbizProductName(row),
     published: row.published === 1,
   }));
 }

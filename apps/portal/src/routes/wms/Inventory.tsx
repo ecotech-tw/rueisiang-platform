@@ -356,7 +356,7 @@ export function Inventory() {
         {query.data && filtered.length === 0 ? (
           <p className="muted table-note">
             {items.length === 0
-              ? "還沒有任何商品。先在分類管理建一個分類，再回來新增商品。"
+              ? "還沒有任何商品。先在倉儲分類管理建一個分類，再回來新增商品。"
               : "沒有符合條件的商品，調整一下搜尋或篩選看看。"}
           </p>
         ) : null}

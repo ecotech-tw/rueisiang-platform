@@ -7,7 +7,7 @@ import {
   inventoryItems,
   cyberbizProductLinks,
   productBundleComponents,
-  productCategories,
+  warehouseCategories,
   productSkuMappings,
   reportSkuIgnores,
   zoneImages,
@@ -98,7 +98,7 @@ async function as(userId: string, email: string, path: string, init: RequestInit
 /** 大部分測試都要一個管理者跟一個能用的分類。 */
 async function seedAdmin() {
   const id = await seedUser("admin@ecotech.tw", "role-admin");
-  await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
+  await db.insert(warehouseCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
   return id;
 }
 
@@ -354,7 +354,7 @@ describe("外部 SKU 對應", () => {
     }]);
     // 用料來源只剩 CYBERBIZ 商品與自訂 SKU，管理頁不再需要 WMS 商品清單。
     expect(payload).not.toHaveProperty("items");
-    expect(payload.categories).toEqual(expect.arrayContaining(["一般備品"]));
+    expect(payload.categories).toEqual([]);
   });
 
   it("可以用一筆 mapping 建立多個組合用料", async () => {
@@ -452,7 +452,7 @@ describe("外部 SKU 對應", () => {
       .toEqual([{ sku: "ABX30001", name: "日光花園三入自選禮盒（改版）" }]);
   });
 
-  it("刪除對應會回收沒人再用的自訂報表商品，還有人用的留著", async () => {
+  it("刪除對應會回收沒人再用的自訂商品主檔，還有人用的留著", async () => {
     const id = await seedAdmin();
     const make = (channel: string, externalSku: string) => as(id, "admin@ecotech.tw", "/api/tools/product-sku-mappings", {
       method: "POST",
@@ -504,7 +504,7 @@ describe("外部 SKU 對應", () => {
     expect(clashing.status).toBe(409);
   });
 
-  it("分類改名與刪除都要把自訂報表商品算進去", async () => {
+  it("WMS 倉儲分類與報表自訂商品分類彼此獨立", async () => {
     const id = await seedAdmin();
     await as(id, "admin@ecotech.tw", "/api/tools/product-sku-mappings", {
       method: "POST",
@@ -515,17 +515,12 @@ describe("外部 SKU 對應", () => {
         components: [{ customSku: "ABX30001", customName: "禮盒", customCategory: "一般備品", quantity: 1 }],
       }),
     });
-    const [category] = await db.select().from(productCategories);
+    const [category] = await db.select().from(warehouseCategories);
 
-    // 還有自訂商品在用就不准刪。
-    expect((await as(id, "admin@ecotech.tw", `/api/wms/categories/${category?.id}`, { method: "DELETE" })).status).toBe(409);
-
-    // 改名要一起搬，否則報表停在舊分類。
-    expect((await as(id, "admin@ecotech.tw", `/api/wms/categories/${category?.id}`, {
-      method: "PATCH", body: JSON.stringify({ name: "日用品" }),
-    })).status).toBe(200);
+    // 報表自訂商品不是 WMS 倉儲分類的使用者，WMS 分類可以獨立刪除。
+    expect((await as(id, "admin@ecotech.tw", `/api/wms/categories/${category?.id}`, { method: "DELETE" })).status).toBe(200);
     expect(await db.select({ category: customReportProducts.category }).from(customReportProducts))
-      .toEqual([{ category: "日用品" }]);
+      .toEqual([{ category: "一般備品" }]);
   });
 
   it("可以標記與取消「不納入報表」的外部 SKU", async () => {
@@ -1031,7 +1026,7 @@ describe("外部 SKU 對應", () => {
  */
 describe("安全庫存以官網為準", () => {
   beforeEach(async () => {
-    await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
+    await db.insert(warehouseCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
     await db.insert(inventoryItems).values({
       id: "i1", sku: "BOX-01", name: "紙箱", category: "一般備品", quantity: 10, minStock: 5,
     });
@@ -1134,7 +1129,7 @@ describe("安全庫存以官網為準", () => {
 
 describe("盤點", () => {
   beforeEach(async () => {
-    await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
+    await db.insert(warehouseCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
     await db.insert(inventoryItems).values({
       id: "i1", sku: "BOX-01", name: "紙箱", category: "一般備品", quantity: 10, minStock: 5,
     });
@@ -1214,14 +1209,14 @@ describe("商品分類", () => {
 
     const response = await as(id, "admin@ecotech.tw", "/api/wms/categories/cat-1", { method: "DELETE" });
     expect(response.status).toBe(409);
-    expect(await db.select().from(productCategories)).toHaveLength(1);
+    expect(await db.select().from(warehouseCategories)).toHaveLength(1);
   });
 
   it("沒人在用就刪得掉", async () => {
     const id = await seedAdmin();
     const response = await as(id, "admin@ecotech.tw", "/api/wms/categories/cat-1", { method: "DELETE" });
     expect(response.status).toBe(200);
-    expect(await db.select().from(productCategories)).toHaveLength(0);
+    expect(await db.select().from(warehouseCategories)).toHaveLength(0);
   });
 
   it("不認得的顏色退回預設值，不是報錯", async () => {
@@ -1233,8 +1228,8 @@ describe("商品分類", () => {
 
     const [category] = await db
       .select()
-      .from(productCategories)
-      .where(eq(productCategories.name, "耗材"));
+      .from(warehouseCategories)
+      .where(eq(warehouseCategories.name, "耗材"));
     expect(category?.color).toBe("rose");
   });
 });
@@ -1469,7 +1464,7 @@ describe("倉位現場照片", () => {
 describe("操作紀錄", () => {
   beforeEach(async () => {
     await db.insert(zones).values({ id: "z1", code: "A-01", name: "備品區", x: 8, y: 10, width: 20, height: 18 });
-    await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
+    await db.insert(warehouseCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
   });
 
   /**
@@ -1525,7 +1520,7 @@ describe("操作紀錄", () => {
     const [event] = await db
       .select()
       .from(activityEvents)
-      .where(eq(activityEvents.eventType, "category_updated"));
+      .where(eq(activityEvents.eventType, "warehouse_category_updated"));
     expect(event?.oldValue).toBe("一般備品");
     expect(event?.newValue).toBe("包材");
   });
@@ -1602,7 +1597,7 @@ describe("盤點與 CYBERBIZ", () => {
   }
 
   beforeEach(async () => {
-    await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
+    await db.insert(warehouseCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
     await db.insert(inventoryItems).values({
       id: "i1", sku: "BOX-01", name: "紙箱", category: "一般備品", quantity: 10, minStock: 5,
     });

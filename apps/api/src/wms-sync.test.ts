@@ -1,5 +1,5 @@
 import { applySyncPlan, buildSyncPlan, createDatabase, listCompanyLinks, type LinkedItem, type RemoteItem } from "@rueisiang/db";
-import { activityEvents, cyberbizProductLinks, inventoryItems, productCategories } from "@rueisiang/db/schema";
+import { activityEvents, cyberbizProductLinks, inventoryItems, warehouseCategories } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1 } from "./local-d1/d1.js";
@@ -80,7 +80,7 @@ describe("套用同步", () => {
 
   beforeEach(async () => {
     db = createDatabase(createLocalD1() as never);
-    await db.insert(productCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
+    await db.insert(warehouseCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
     await db.insert(inventoryItems).values({
       id: "i1", sku: "BOX-01", name: "紙箱", category: "一般備品", quantity: 10, minStock: 5,
     });

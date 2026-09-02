@@ -128,6 +128,40 @@ describe("報表人工修訂資料", () => {
     expect(result?.totals).toEqual({ grossQuantity: 10, returnQuantity: 2, netQuantity: 8, salesAmount: 720 });
   });
 
+  it("編輯已不在分類主檔的自訂商品時保留歷史分類名稱", async () => {
+    const sales = await createReportManualSales(db(), {
+      scopeId: SCOPE,
+      reportMonth: "2026-08",
+      skuSource: "custom",
+      sku: "LEGACY-CATEGORY-SKU",
+      productName: "歷史分類商品",
+      category: "已刪除分類",
+      grossQuantity: 1,
+      returnQuantity: 0,
+      netQuantity: 1,
+      salesAmount: 100,
+      actor: ACTOR,
+    });
+
+    const updated = await updateReportManualSales(db(), {
+      id: sales.id,
+      scopeId: SCOPE,
+      reportMonth: "2026-08",
+      skuSource: "custom",
+      sku: "LEGACY-CATEGORY-SKU",
+      productName: "歷史分類商品（修訂）",
+      category: "已刪除分類",
+      grossQuantity: 2,
+      returnQuantity: 0,
+      netQuantity: 2,
+      salesAmount: 200,
+      actor: ACTOR,
+    });
+
+    expect(updated.category).toBe("已刪除分類");
+    expect(updated.productName).toBe("歷史分類商品（修訂）");
+  });
+
   it("人工資料只接受公司報表可辨識的據點，且同 key 不可重複", async () => {
     await upsertReportScope(db(), { id: "invalid-scope-id", scopeKind: "store", name: "不納入據點" });
     await expect(createReportManualPayout(db(), {

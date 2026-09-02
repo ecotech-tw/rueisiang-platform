@@ -149,7 +149,7 @@ export function ItemForm({
               required
               value={fields.category}
               onChange={(event) => set({ category: event.target.value })}
-              hint={categories.length === 0 ? "還沒有任何分類，請先去分類管理建立一個。" : undefined}
+              hint={categories.length === 0 ? "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。" : undefined}
               options={[
                 { label: "請選擇分類", value: "" },
                 ...categories.map((category) => ({ label: category.name, value: category.name })),

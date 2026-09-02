@@ -5,9 +5,9 @@ import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, FilterInput, PageHeader, Panel } from "../../ui/index.js";
 import {
-  CATEGORY_COLORS,
-  useCreateCategory,
-  useDeleteCategory,
+  WAREHOUSE_CATEGORY_COLORS,
+  useCreateWarehouseCategory,
+  useDeleteWarehouseCategory,
   useWarehouse,
   type ProductCategory,
 } from "./api.js";
@@ -25,18 +25,18 @@ import { CategoryDialog } from "./CategoryDialog.js";
  */
 function nextColor(taken: ProductCategory[]): string {
   const used = new Set(taken.map((category) => category.color));
-  return CATEGORY_COLORS.find((color) => !used.has(color)) ?? CATEGORY_COLORS[taken.length % CATEGORY_COLORS.length]!;
+  return WAREHOUSE_CATEGORY_COLORS.find((color) => !used.has(color)) ?? WAREHOUSE_CATEGORY_COLORS[taken.length % WAREHOUSE_CATEGORY_COLORS.length]!;
 }
 
 export function Categories() {
-  usePageTitle("分類管理");
+  usePageTitle("倉儲分類管理");
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<ProductCategory | null>(null);
   const [deleting, setDeleting] = useState<ProductCategory | null>(null);
 
   const query = useWarehouse();
-  const create = useCreateCategory();
-  const remove = useDeleteCategory();
+  const create = useCreateWarehouseCategory();
+  const remove = useDeleteWarehouseCategory();
   const toast = useToast();
   const { permissions } = useSession();
   const canWrite = permissions.has("wms:category:write");
@@ -53,11 +53,11 @@ export function Categories() {
   return (
     <div className="page fills">
       <PageHeader
-        title="分類管理"
+        title="倉儲分類管理"
         description={
           <>
-          商品分類與它們的顏色。分類的名字會直接存在商品身上，所以改名時所有用到的
-          商品會一起更新；還有商品在用的分類不能刪。
+          WMS 倉儲與庫存作業使用的分類。分類名稱會直接存在庫存品項身上，所以改名時
+          所有用到的庫存品項會一起更新；報表商品分類請到「商品分類管理」。
           </>
         }
       />

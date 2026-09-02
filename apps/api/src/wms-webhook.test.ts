@@ -5,7 +5,7 @@ import {
   cyberbizProductWebhooks,
   customers,
   inventoryItems,
-  productCategories,
+  warehouseCategories,
 } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -114,7 +114,7 @@ beforeEach(async () => {
     CYBERBIZ_API_BASE_URL: BASE,
   };
   await syncSystemRoles(db());
-  await db().insert(productCategories).values({ id: "cat-1", name: "醬菜類", color: "sky" });
+  await db().insert(warehouseCategories).values({ id: "cat-1", name: "醬菜類", color: "sky" });
   await db().insert(inventoryItems).values({
     id: "item-1", sku: "BPK24004", name: "干貝XO醬", category: "醬菜類", quantity: 178, minStock: 24,
   });

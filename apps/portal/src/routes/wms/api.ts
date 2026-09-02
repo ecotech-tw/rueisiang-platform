@@ -194,27 +194,30 @@ export function useCountItem() {
 }
 
 /**
- * 分類的顏色。與 packages/db 的 CATEGORY_COLORS 同一份清單——那邊加一個，
+ * WMS 使用的色階。與 packages/db 的 WAREHOUSE_CATEGORY_COLORS 同一份清單——那邊加一個，
  * 這裡與 @theme 的 --color-tone-* 都要跟著補。後端會擋掉不認得的值，
  * 所以漏了不會寫進髒資料，只是選不到。
  */
-export const CATEGORY_COLORS = [
+export const WAREHOUSE_CATEGORY_COLORS = [
   "rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand",
 ] as const;
 
-export function useCreateCategory() {
+/** 地圖標示仍沿用同一組視覺色階；分類頁使用上面語意更清楚的名稱。 */
+export const CATEGORY_COLORS = WAREHOUSE_CATEGORY_COLORS;
+
+export function useCreateWarehouseCategory() {
   return useWarehouseMutation((input: { name: string; color: string }) =>
     write<{ id: string }>("/api/wms/categories", "POST", input),
   );
 }
 
-export function useUpdateCategory() {
+export function useUpdateWarehouseCategory() {
   return useWarehouseMutation(({ id, ...input }: { id: string; name?: string; color?: string }) =>
     write<{ ok: true }>(`/api/wms/categories/${id}`, "PATCH", input),
   );
 }
 
-export function useDeleteCategory() {
+export function useDeleteWarehouseCategory() {
   return useWarehouseMutation((id: string) =>
     write<{ ok: true }>(`/api/wms/categories/${id}`, "DELETE"),
   );

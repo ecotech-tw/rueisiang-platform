@@ -43,8 +43,10 @@ interface ActivityList {
 const ENTITY_LABEL: Record<string, string> = {
   zone: "倉位",
   inventory_item: "商品",
-  product_category: "商品分類",
+  product_category: "舊版分類",
+  warehouse_category: "倉儲分類",
   product_sku_mapping: "外部 SKU 對應",
+  cyberbiz_product_category: "CYBERBIZ 商品分類",
   layout_element: "地圖標示",
   warehouse: "倉庫設定",
 };

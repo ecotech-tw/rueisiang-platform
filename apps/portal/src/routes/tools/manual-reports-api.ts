@@ -21,9 +21,16 @@ export interface ManualProductOption {
   aliases?: string[];
 }
 
+export interface ManualProductCategoryOption {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface ManualOptionsResponse {
   scopes: ManualScopeOption[];
   products: ManualProductOption[];
+  categories: ManualProductCategoryOption[];
 }
 
 export interface ManualPayoutRow {
@@ -72,6 +79,7 @@ export interface ManualSalesInput {
   sku: string;
   productName?: string;
   category?: string;
+  categoryId?: string | null;
   grossQuantity: number;
   returnQuantity: number;
   netQuantity: number;

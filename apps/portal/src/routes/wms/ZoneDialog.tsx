@@ -107,7 +107,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
             placeholder="一般備品"
             value={fields.category}
             onChange={(event) => set({ category: event.target.value })}
-            hint="只是給人看的說明，跟商品分類是兩回事。"
+            hint="只是給人看的倉位用途說明，跟商品分類是兩回事。"
           />
 
           <div className="field">

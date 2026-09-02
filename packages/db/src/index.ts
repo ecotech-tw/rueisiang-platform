@@ -109,6 +109,7 @@ export {
   type ResolvedProductSku,
   type ResolvedProductSkuComponent,
 } from "./product-sku-mappings.js";
+export { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 export {
   findCyberbizReportRun,
   listCyberbizReportRuns,
@@ -214,6 +215,20 @@ export {
   recordMediaObject,
   type MediaObjectInput,
 } from "./media.js";
+export {
+  createReportProductCategory,
+  deleteReportProductCategory,
+  listCyberbizProductCategoryManagement,
+  listProductCategoryOptions,
+  setCyberbizProductCategory,
+  updateReportProductCategory,
+  REPORT_PRODUCT_CATEGORY_COLORS,
+  type CyberbizProductCategoryManagementData,
+  type CyberbizProductCategoryProduct,
+  type CyberbizProductCategoryWriteResult,
+  type ProductCategoryOption,
+  type ReportProductCategoryWriteResult,
+} from "./cyberbiz-product-categories.js";
 export { GLOBAL_SCOPE, type Role, type User, type UserRole } from "./schema/auth.js";
 export { countOtherActiveAdmins, loadAuthUser, recordLogin, updateProfile } from "./users.js";
 export { syncSystemRoles } from "./seed.js";
@@ -334,21 +349,21 @@ export {
   type ShopeeSalesSettingsInput,
 } from "./shopee-sales.js";
 export {
-  CATEGORY_COLORS,
+  WAREHOUSE_CATEGORY_COLORS,
   WmsError,
   countItem,
-  createCategory,
+  createWarehouseCategory,
   createItem,
   createLayoutElement,
   createZone,
-  deleteCategory,
+  deleteWarehouseCategory,
   deleteItem,
   deleteLayoutElement,
   deleteZone,
   loadWarehouse,
   normalizeShelfLevels,
   parseShelfLevels,
-  updateCategory,
+  updateWarehouseCategory,
   updateItem,
   updateLayoutElement,
   updateWarehouseSettings,

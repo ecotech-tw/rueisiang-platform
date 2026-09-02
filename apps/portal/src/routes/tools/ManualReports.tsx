@@ -28,6 +28,7 @@ import {
   type ManualPayoutQuery,
   type ManualPayoutRow,
   type ManualProductOption,
+  type ManualProductCategoryOption,
   type ManualReportKind,
   type ManualSalesInput,
   type ManualSalesQuery,
@@ -95,6 +96,9 @@ const DEFAULT_SALES_FILTERS: ManualSalesQuery = {
   sortDirection: "desc",
 };
 
+// 舊人工報表可能保留已刪除的分類名稱；這個值只存在表單狀態，不會送到 API。
+const LEGACY_CATEGORY_OPTION = "__legacy_category__";
+
 function ErrorMessage({ error }: { error: Error | null | undefined }) {
   return error ? <Alert tone="danger">{error.message}</Alert> : null;
 }
@@ -103,29 +107,40 @@ function ManualReportDialog({
   state,
   scopes,
   products,
+  categories,
   onClose,
 }: {
   state: DialogState;
   scopes: ManualScopeOption[];
   products: ManualProductOption[];
+  categories: ManualProductCategoryOption[];
   onClose: () => void;
 }) {
   const createPayout = useCreateManualPayout();
   const updatePayout = useUpdateManualPayout();
   const createSales = useCreateManualSales();
   const updateSales = useUpdateManualSales();
+  const initialSkuSource: ManualSkuSource = state.kind !== "sales"
+    ? "cyberbiz"
+    : state.row?.skuSource ?? (state.row && products.some((product) => product.sku === state.row?.sku) ? "cyberbiz" : "custom");
+  const initialCategoryName = state.kind === "sales" ? state.row?.category?.trim() || "未分類" : "未分類";
+  const initialCategoryOption = initialSkuSource === "custom"
+    ? categories.find((option) => option.name === initialCategoryName)
+    : undefined;
+  const legacyCategory = initialSkuSource === "custom"
+    && initialCategoryName !== "未分類"
+    && !initialCategoryOption
+    ? initialCategoryName
+    : null;
   const [scopeId, setScopeId] = useState(state.row?.scopeId ?? scopes[0]?.id ?? "");
   const [businessDate, setBusinessDate] = useState(state.kind === "payout" ? state.row?.businessDate ?? "" : "");
   const [payoutAmount, setPayoutAmount] = useState(state.kind === "payout" ? String(state.row?.payoutAmount ?? "") : "");
   const [reportMonth, setReportMonth] = useState(state.kind === "sales" ? state.row?.reportMonth ?? "" : "");
-  const [skuSource, setSkuSource] = useState<ManualSkuSource>(() => {
-    if (state.kind !== "sales") return "cyberbiz";
-    if (state.row?.skuSource) return state.row.skuSource;
-    return state.row && products.some((product) => product.sku === state.row?.sku) ? "cyberbiz" : "custom";
-  });
+  const [skuSource, setSkuSource] = useState<ManualSkuSource>(initialSkuSource);
   const [sku, setSku] = useState(state.kind === "sales" ? state.row?.sku ?? "" : "");
   const [productName, setProductName] = useState(state.kind === "sales" ? state.row?.productName ?? "" : "");
-  const [category, setCategory] = useState(state.kind === "sales" ? state.row?.category ?? "未分類" : "未分類");
+  const [category, setCategory] = useState(initialCategoryName);
+  const [categoryId, setCategoryId] = useState(legacyCategory ? LEGACY_CATEGORY_OPTION : initialCategoryOption?.id ?? "");
   const [grossQuantity, setGrossQuantity] = useState(state.kind === "sales" ? String(state.row?.grossQuantity ?? "") : "");
   const [returnQuantity, setReturnQuantity] = useState(state.kind === "sales" ? String(state.row?.returnQuantity ?? "") : "");
   const [netQuantity, setNetQuantity] = useState(state.kind === "sales" ? String(state.row?.netQuantity ?? "") : "");
@@ -173,12 +188,20 @@ function ManualReportDialog({
       return;
     }
     if (state.kind === "sales") {
+      const categoryName = category.trim() || "未分類";
       const input: ManualSalesInput = {
         scopeId,
         reportMonth,
         skuSource,
         sku,
-        ...(skuSource === "custom" ? { productName: productName.trim(), category: category.trim() || "未分類" } : {}),
+        ...(skuSource === "custom"
+          ? {
+            productName: productName.trim(),
+            ...(categoryId === LEGACY_CATEGORY_OPTION
+              ? { category: categoryName }
+              : { categoryId: categoryId || null, category: categoryName }),
+          }
+          : {}),
         grossQuantity: salesValues.grossQuantity ?? 0,
         returnQuantity: salesValues.returnQuantity ?? 0,
         netQuantity: salesValues.netQuantity ?? 0,
@@ -261,6 +284,7 @@ function ManualReportDialog({
                   setSku("");
                   setProductName("");
                   setCategory("未分類");
+                  setCategoryId("");
                 }}
                 options={[
                   { label: "CYBERBIZ 商品", value: "cyberbiz" },
@@ -308,10 +332,23 @@ function ManualReportDialog({
                   onChange={(event) => setProductName(event.target.value)}
                   disabled={pending}
                 />
-                <TextField
-                  label="分類"
-                  value={category}
-                  onChange={(event) => setCategory(event.target.value)}
+                <SelectField
+                  label="商品分類"
+                  value={categoryId}
+                  onChange={(event) => {
+                    const nextCategoryId = event.target.value;
+                    setCategoryId(nextCategoryId);
+                    setCategory(nextCategoryId === LEGACY_CATEGORY_OPTION
+                      ? legacyCategory ?? "未分類"
+                      : categories.find((option) => option.id === nextCategoryId)?.name ?? "未分類");
+                  }}
+                  options={[
+                    { label: "未分類", value: "" },
+                    ...(legacyCategory
+                      ? [{ label: `${legacyCategory}（已不在分類清單）`, value: LEGACY_CATEGORY_OPTION }]
+                      : []),
+                    ...categories.map((option) => ({ label: option.name, value: option.id })),
+                  ]}
                   disabled={pending}
                 />
               </div>
@@ -896,6 +933,7 @@ export function ManualReports() {
 
   const scopes = optionsQuery.data?.scopes ?? [];
   const products = optionsQuery.data?.products ?? [];
+  const categories = optionsQuery.data?.categories ?? [];
   const payoutPage = payoutsQuery.data;
   const salesPage = salesQuery.data;
   const managementScopes = scopesQuery.data?.scopes ?? [];
@@ -1106,6 +1144,7 @@ export function ManualReports() {
           state={dialog}
           scopes={dialogScopes}
           products={products}
+          categories={categories}
           onClose={() => setDialog(null)}
         />
       ) : null}

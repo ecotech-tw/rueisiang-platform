@@ -1179,7 +1179,7 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
       endDate: { type: "string", description: "自訂完整月份結束日 YYYY-MM-DD，需與 startDate 一起提供。" },
       groupBy: { type: "string", description: "可選分組，使用逗號分隔：month、scope、sku、category；例如 scope,month。" },
       sku: { type: "string", description: "可選系統 SKU，精確查詢單一商品；服務端也兼容通路 SKU 或蝦皮 Product ID。" },
-      category: { type: "string", description: "可選商品分類／標籤，回傳該分類商品合計。" },
+      category: { type: "string", description: "可選商品分類，回傳該分類商品合計。" },
       productName: { type: "string", description: "可選商品名稱關鍵字。" },
     },
     required: ["scopeType"],

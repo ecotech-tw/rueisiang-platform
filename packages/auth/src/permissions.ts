@@ -24,7 +24,7 @@ export const PERMISSIONS = {
   "wms:inventory:read": "檢視庫存",
   "wms:inventory:write": "編輯庫存",
   "wms:inventory:count": "執行盤點",
-  "wms:category:write": "管理商品分類",
+  "wms:category:write": "管理倉儲分類",
   "wms:activity:read": "檢視倉儲操作紀錄",
   "wms:sync:trigger": "手動觸發庫存同步",
 
@@ -35,6 +35,8 @@ export const PERMISSIONS = {
   "tools:shopee-sales:run": "執行蝦皮銷售報表",
   "tools:sku-mapping:read": "檢視通路 SKU 對應",
   "tools:sku-mapping:write": "修改通路 SKU 對應",
+  "tools:product-category:read": "檢視商品分類",
+  "tools:product-category:write": "管理商品分類",
   "reports:cyberbiz:read": "檢視 CYBERBIZ 銷售與出金報表",
   "reports:cyberbiz:write": "新增、修改與刪除報表人工資料",
   "reports:analytics:read": "檢視營運統計",

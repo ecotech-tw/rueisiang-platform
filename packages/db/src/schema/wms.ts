@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { reportProductCategories } from "./report-products.js";
 
 /**
  * 倉儲管理系統。從 rueisiang-wms 搬進來。
@@ -74,8 +75,13 @@ export const layoutElements = sqliteTable("layout_elements", {
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
-/** 商品分類字典。inventory_items.category 存的是名字，不是外鍵。 */
-export const productCategories = sqliteTable("product_categories", {
+/**
+ * WMS 的倉儲分類。inventory_items.category 與 zones.category 存的是名字，不是外鍵。
+ *
+ * 這不是報表的商品分類；報表分類在 report_product_categories，避免倉儲作業分類與
+ * 營運分析分類互相污染。
+ */
+export const warehouseCategories = sqliteTable("warehouse_categories", {
   id: text("id").primaryKey(),
   name: text("name").notNull().unique(),
   color: text("color").notNull().default("rose"),
@@ -149,6 +155,27 @@ export const cyberbizProducts = sqliteTable("cyberbiz_products", {
   syncedAt: text("synced_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   index("idx_cyberbiz_products_product").on(table.productId, table.variantId),
+]);
+
+/**
+ * CYBERBIZ SKU 的目前分類。分類設定跟商品目錄鏡像分開，避免下一次同步商品時覆蓋人工設定。
+ *
+ * 複合主鍵保留同一個 SKU／分類組合的資料完整性；報表目前是一個 SKU 對應一個大方向分類，
+ * 所以另外限制 SKU 唯一，避免查詢時同一個商品被展開成不確定的多個分類。
+ */
+export const cyberbizProductCategories = sqliteTable("cyberbiz_product_categories", {
+  sku: text("sku")
+    .notNull()
+    .references(() => cyberbizProducts.sku, { onDelete: "cascade" }),
+  categoryId: text("category_id")
+    .notNull()
+    .references(() => reportProductCategories.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.sku, table.categoryId] }),
+  uniqueIndex("idx_cyberbiz_product_categories_sku").on(table.sku),
+  index("idx_cyberbiz_product_categories_category").on(table.categoryId),
 ]);
 
 /**
@@ -303,12 +330,13 @@ export const zoneImages = sqliteTable("zone_images", {
 
 export type Zone = typeof zones.$inferSelect;
 export type LayoutElement = typeof layoutElements.$inferSelect;
-export type ProductCategory = typeof productCategories.$inferSelect;
+export type WarehouseCategory = typeof warehouseCategories.$inferSelect;
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type ProductSkuMapping = typeof productSkuMappings.$inferSelect;
 export type ProductBundleComponent = typeof productBundleComponents.$inferSelect;
 export type CustomReportProduct = typeof customReportProducts.$inferSelect;
 export type ReportSkuIgnore = typeof reportSkuIgnores.$inferSelect;
 export type CyberbizProduct = typeof cyberbizProducts.$inferSelect;
+export type CyberbizProductCategory = typeof cyberbizProductCategories.$inferSelect;
 export type CyberbizProductLink = typeof cyberbizProductLinks.$inferSelect;
 export type ZoneImage = typeof zoneImages.$inferSelect;
