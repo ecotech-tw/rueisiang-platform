@@ -11,11 +11,11 @@ import {
   listZoneImages,
   recordZoneImage,
   zoneImageKeys,
-  createCategory,
+  createWarehouseCategory,
   createItem,
   createLayoutElement,
   createZone,
-  deleteCategory,
+  deleteWarehouseCategory,
   deleteItem,
   deleteLayoutElement,
   deleteZone,
@@ -28,7 +28,7 @@ import {
   markLinkSynced,
   recordMediaObject,
   unlinkItemFromCyberbiz,
-  updateCategory,
+  updateWarehouseCategory,
   updateItem,
   updateLayoutElement,
   updateWarehouseSettings,
@@ -487,7 +487,7 @@ export const wms = new Hono<AppEnv>()
     const result = await createItem(c.get("db"), {
       sku: text(input, "sku"),
       name: requireString(input, "name", "商品名稱"),
-      category: requireString(input, "category", "商品分類"),
+      category: requireString(input, "category", "倉儲分類"),
       quantity: input.quantity,
       unit: text(input, "unit"),
       minStock: input.minStock,
@@ -572,12 +572,12 @@ export const wms = new Hono<AppEnv>()
     }
   })
 
-  // ───────────────────────────── 商品分類 ─────────────────────────────
+  // ───────────────────────────── 倉儲分類 ─────────────────────────────
 
   .post("/categories", requirePermission("wms:category:write"), async (c) => {
     const input = await body(c);
     const user = c.get("user");
-    const result = await createCategory(c.get("db"), {
+    const result = await createWarehouseCategory(c.get("db"), {
       name: requireString(input, "name", "分類名稱"),
       color: input.color,
       actor: { id: user.id, email: user.email },
@@ -588,7 +588,7 @@ export const wms = new Hono<AppEnv>()
   .patch("/categories/:id", requirePermission("wms:category:write"), async (c) => {
     const input = await body(c);
     const user = c.get("user");
-    await updateCategory(c.get("db"), c.req.param("id"), {
+    await updateWarehouseCategory(c.get("db"), c.req.param("id"), {
       name: text(input, "name"),
       color: input.color,
       actor: { id: user.id, email: user.email },
@@ -598,7 +598,7 @@ export const wms = new Hono<AppEnv>()
 
   .delete("/categories/:id", requirePermission("wms:category:write"), async (c) => {
     const user = c.get("user");
-    await deleteCategory(c.get("db"), c.req.param("id"), { id: user.id, email: user.email });
+    await deleteWarehouseCategory(c.get("db"), c.req.param("id"), { id: user.id, email: user.email });
     return c.json({ ok: true });
   })
 

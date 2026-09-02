@@ -8,7 +8,7 @@ import {
   inventoryItems,
   layoutElements,
   productBundleComponents,
-  productCategories,
+  warehouseCategories,
   productSkuMappings,
   warehouseSettings,
   zoneImages,
@@ -178,7 +178,7 @@ export async function loadWarehouse(db: Database) {
   const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows] = await Promise.all([
     db.select().from(zones).orderBy(asc(zones.code)),
     db.select().from(layoutElements).orderBy(asc(layoutElements.label)),
-    db.select().from(productCategories).orderBy(asc(productCategories.name)),
+    db.select().from(warehouseCategories).orderBy(asc(warehouseCategories.name)),
     db.select().from(inventoryItems).orderBy(asc(inventoryItems.name)),
     // 只要數量：地圖上每個倉位顯示一個相機圖示與張數，不需要圖片本身。
     db.select({ zoneId: zoneImages.zoneId, total: count() }).from(zoneImages).groupBy(zoneImages.zoneId),
@@ -423,10 +423,10 @@ async function resolvePlacement(db: Database, zoneId: string | null, shelfLevel:
 /** 分類存的是名字不是外鍵，所以要自己確認它真的在分類表裡。 */
 async function requireCategory(db: Database, name: string) {
   const [row] = await db
-    .select({ id: productCategories.id })
-    .from(productCategories)
-    .where(eq(productCategories.name, name));
-  if (!row) throw new WmsError("invalid", "請選一個已經建立的商品分類。");
+    .select({ id: warehouseCategories.id })
+    .from(warehouseCategories)
+    .where(eq(warehouseCategories.name, name));
+  if (!row) throw new WmsError("invalid", "請選一個已經建立的倉儲分類。");
 }
 
 /**
@@ -694,19 +694,19 @@ export async function countItem(
   return { quantity: next, changed, belowMinimum: next < item.minStock };
 }
 
-// ───────────────────────────── 商品分類 ─────────────────────────────
+// ───────────────────────────── 倉儲分類 ─────────────────────────────
 
 /** 分類的顏色。限制成一組固定值，不然畫面上會出現十七種深淺不一的紅色。 */
-export const CATEGORY_COLORS = [
+export const WAREHOUSE_CATEGORY_COLORS = [
   "rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand",
 ] as const;
 
 function normalizeColor(value: unknown, fallback: string): string {
   const color = String(value ?? "");
-  return (CATEGORY_COLORS as readonly string[]).includes(color) ? color : fallback;
+  return (WAREHOUSE_CATEGORY_COLORS as readonly string[]).includes(color) ? color : fallback;
 }
 
-export async function createCategory(
+export async function createWarehouseCategory(
   db: Database,
   input: { name: string; color?: unknown; actor: Actor },
 ) {
@@ -714,13 +714,13 @@ export async function createCategory(
   const category = { id: crypto.randomUUID(), name, color: normalizeColor(input.color, "rose") };
 
   await db.batch([
-    db.insert(productCategories).values(category),
+    db.insert(warehouseCategories).values(category),
     writeEvent(db, {
-      entityType: "product_category",
+      entityType: "warehouse_category",
       entityId: category.id,
       entityLabel: name,
-      eventType: "category_created",
-      summary: "新增商品分類",
+      eventType: "warehouse_category_created",
+      summary: "新增倉儲分類",
       payload: category,
       actor: input.actor,
     }),
@@ -735,13 +735,13 @@ export async function createCategory(
  * 改名時要順手把所有品項的 category 一起改掉——那個欄位存的是**名字**不是外鍵，
  * 少了這一步，舊名字的品項會從此不屬於任何分類。
  */
-export async function updateCategory(
+export async function updateWarehouseCategory(
   db: Database,
   id: string,
   input: { name?: string; color?: unknown; actor: Actor },
 ) {
-  const [current] = await db.select().from(productCategories).where(eq(productCategories.id, id));
-  if (!current) throw new WmsError("not_found", "找不到這個商品分類。");
+  const [current] = await db.select().from(warehouseCategories).where(eq(warehouseCategories.id, id));
+  if (!current) throw new WmsError("not_found", "找不到這個倉儲分類。");
 
   const next = {
     name: input.name?.trim().slice(0, 40) || current.name,
@@ -751,24 +751,19 @@ export async function updateCategory(
 
   await db.batch([
     db
-      .update(productCategories)
+      .update(warehouseCategories)
       .set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` })
-      .where(eq(productCategories.id, id)),
+      .where(eq(warehouseCategories.id, id)),
     db
       .update(inventoryItems)
       .set({ category: next.name, updatedAt: sql`CURRENT_TIMESTAMP` })
       .where(eq(inventoryItems.category, current.name)),
-    // 自訂報表商品跟 WMS 商品共用同一份分類主檔，改名要一起搬，否則報表停在舊分類。
-    db
-      .update(customReportProducts)
-      .set({ category: next.name, updatedAt: sql`CURRENT_TIMESTAMP` })
-      .where(eq(customReportProducts.category, current.name)),
     writeEvent(db, {
-      entityType: "product_category",
+      entityType: "warehouse_category",
       entityId: id,
       entityLabel: next.name,
-      eventType: "category_updated",
-      summary: renamed ? "重新命名商品分類" : "修改商品分類顏色",
+      eventType: "warehouse_category_updated",
+      summary: renamed ? "重新命名倉儲分類" : "修改倉儲分類顏色",
       field: renamed ? "name" : "color",
       oldValue: renamed ? current.name : current.color,
       newValue: renamed ? next.name : next.color,
@@ -778,9 +773,9 @@ export async function updateCategory(
   ]);
 }
 
-export async function deleteCategory(db: Database, id: string, actor: Actor) {
-  const [category] = await db.select().from(productCategories).where(eq(productCategories.id, id));
-  if (!category) throw new WmsError("not_found", "找不到這個商品分類。");
+export async function deleteWarehouseCategory(db: Database, id: string, actor: Actor) {
+  const [category] = await db.select().from(warehouseCategories).where(eq(warehouseCategories.id, id));
+  if (!category) throw new WmsError("not_found", "找不到這個倉儲分類。");
 
   // 沒有外鍵擋著（category 存的是名字），所以一定要自己查。兩種商品都要算。
   const [usage] = await db
@@ -788,24 +783,17 @@ export async function deleteCategory(db: Database, id: string, actor: Actor) {
     .from(inventoryItems)
     .where(eq(inventoryItems.category, category.name));
   if ((usage?.total ?? 0) > 0) {
-    throw new WmsError("conflict", `還有 ${usage?.total} 項商品是這個分類，請先改成別的分類。`);
-  }
-  const [customUsage] = await db
-    .select({ total: count() })
-    .from(customReportProducts)
-    .where(eq(customReportProducts.category, category.name));
-  if ((customUsage?.total ?? 0) > 0) {
-    throw new WmsError("conflict", `還有 ${customUsage?.total} 個自訂報表商品是這個分類，請先改成別的分類。`);
+    throw new WmsError("conflict", `還有 ${usage?.total} 項庫存商品是這個倉儲分類，請先改成別的分類。`);
   }
 
   await db.batch([
-    db.delete(productCategories).where(eq(productCategories.id, id)),
+    db.delete(warehouseCategories).where(eq(warehouseCategories.id, id)),
     writeEvent(db, {
-      entityType: "product_category",
+      entityType: "warehouse_category",
       entityId: id,
       entityLabel: category.name,
-      eventType: "category_deleted",
-      summary: "刪除商品分類",
+      eventType: "warehouse_category_deleted",
+      summary: "刪除倉儲分類",
       payload: category,
       actor,
     }),

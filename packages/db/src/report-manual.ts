@@ -15,7 +15,11 @@ import {
   type ReportPayoutDaily,
   type ReportSalesMonthly,
 } from "./schema/reports.js";
-import { cyberbizProducts } from "./schema/wms.js";
+import {
+  cyberbizProductCategories,
+  cyberbizProducts,
+} from "./schema/wms.js";
+import { reportProductCategories } from "./schema/report-products.js";
 import { normalizeExternalSku } from "./product-sku-mappings.js";
 
 export interface ReportManualActor {
@@ -49,6 +53,7 @@ export interface ReportManualSalesInput {
   sku: string;
   productName?: string;
   category?: string;
+  categoryId?: string | null;
   grossQuantity: number;
   returnQuantity: number;
   netQuantity: number;
@@ -284,12 +289,31 @@ async function prepareSales(
     const [product] = await db.select({
       productName: cyberbizProducts.productName,
       variantName: cyberbizProducts.variantName,
-    }).from(cyberbizProducts).where(eq(cyberbizProducts.sku, sku)).limit(1);
+      categoryName: reportProductCategories.name,
+    })
+      .from(cyberbizProducts)
+      .leftJoin(cyberbizProductCategories, eq(cyberbizProductCategories.sku, cyberbizProducts.sku))
+      .leftJoin(reportProductCategories, eq(reportProductCategories.id, cyberbizProductCategories.categoryId))
+      .where(eq(cyberbizProducts.sku, sku))
+      .limit(1);
     if (!product) throw new ReportManualError("not_found", `找不到 CYBERBIZ SKU「${sku}」。`);
     productName = product.variantName ? `${product.productName}（${product.variantName}）` : product.productName;
-    category = "未分類";
-  } else if (!productName) {
-    throw new ReportManualError("invalid", "自訂 SKU 必須填寫商品名稱。");
+    category = product.categoryName ?? "未分類";
+  } else {
+    if (input.categoryId !== undefined) {
+      const categoryId = input.categoryId?.trim() ?? "";
+      if (categoryId) {
+        const [selectedCategory] = await db.select({ name: reportProductCategories.name })
+          .from(reportProductCategories)
+          .where(eq(reportProductCategories.id, categoryId))
+          .limit(1);
+        if (!selectedCategory) throw new ReportManualError("not_found", "找不到指定商品分類。");
+        category = selectedCategory.name;
+      } else {
+        category = "未分類";
+      }
+    }
+    if (!productName) throw new ReportManualError("invalid", "自訂 SKU 必須填寫商品名稱。");
   }
 
   return {

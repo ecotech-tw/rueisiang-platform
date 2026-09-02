@@ -21,6 +21,7 @@ import {
   listReportManagementScopes,
   listReportSalesRecords,
   listReportScopes,
+  listProductCategoryOptions,
   ReportManualError,
   updateReportManualPayout,
   updateReportManualSales,
@@ -226,6 +227,14 @@ function manualPayoutInput(input: Record<string, unknown>) {
   };
 }
 
+function optionalCategoryId(input: Record<string, unknown>): string | null | undefined {
+  if (!Object.prototype.hasOwnProperty.call(input, "categoryId")) return undefined;
+  if (input.categoryId !== null && typeof input.categoryId !== "string") {
+    throw new HTTPException(400, { message: "categoryId 必須是文字或 null。" });
+  }
+  return input.categoryId as string | null;
+}
+
 function manualSalesInput(input: Record<string, unknown>): {
   scopeId: string;
   reportMonth: string;
@@ -233,6 +242,7 @@ function manualSalesInput(input: Record<string, unknown>): {
   sku: string;
   productName?: string;
   category?: string;
+  categoryId?: string | null;
   grossQuantity: number;
   returnQuantity: number;
   netQuantity: number;
@@ -242,6 +252,7 @@ function manualSalesInput(input: Record<string, unknown>): {
   if (skuSource !== "custom" && skuSource !== "cyberbiz") {
     throw new HTTPException(400, { message: "SKU 來源必須是 custom 或 cyberbiz。" });
   }
+  const categoryId = optionalCategoryId(input);
   return {
     scopeId: requireString(input, "scopeId", "據點"),
     reportMonth: requireString(input, "reportMonth", "報表月份"),
@@ -249,6 +260,7 @@ function manualSalesInput(input: Record<string, unknown>): {
     sku: requireString(input, "sku", "SKU"),
     ...(typeof input.productName === "string" ? { productName: input.productName } : {}),
     ...(typeof input.category === "string" ? { category: input.category } : {}),
+    ...(categoryId !== undefined ? { categoryId } : {}),
     grossQuantity: safeIntegerInput(input, "grossQuantity", "銷售數量"),
     returnQuantity: safeIntegerInput(input, "returnQuantity", "退貨數量"),
     netQuantity: safeIntegerInput(input, "netQuantity", "淨銷售數量"),
@@ -589,15 +601,17 @@ export const cyberbizReports = new Hono<AppEnv>()
     return c.json(result);
   })
   .get("/manual/options", requirePermission("reports:cyberbiz:write"), async (c) => {
-    const [scopes, products] = await Promise.all([
+    const [scopes, products, categories] = await Promise.all([
       listReportScopes(c.get("db"), "store"),
       listCyberbizReportProducts(c.get("db")),
+      listProductCategoryOptions(c.get("db")),
     ]);
     return c.json({
       scopes: scopes
         .filter((scope) => scope.active === 1 && isCompanyReportStoreScopeId(scope.id))
         .map((scope) => ({ id: scope.id, name: scope.name })),
       products,
+      categories: categories.map(({ id, name, color }) => ({ id, name, color })),
     });
   })
   .get("/manual/scopes", requirePermission("reports:cyberbiz:write"), async (c) => {

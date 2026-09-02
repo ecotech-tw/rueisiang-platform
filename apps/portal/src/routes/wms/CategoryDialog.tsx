@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
-import { CATEGORY_COLORS, useUpdateCategory, type ProductCategory } from "./api.js";
+import { WAREHOUSE_CATEGORY_COLORS, useUpdateWarehouseCategory, type ProductCategory } from "./api.js";
 
 /**
  * 一排色票。
@@ -11,7 +11,7 @@ import { CATEGORY_COLORS, useUpdateCategory, type ProductCategory } from "./api.
 function ColorPicker({ value, onChange }: { value: string; onChange: (color: string) => void }) {
   return (
     <div className="color-picker" role="radiogroup" aria-label="分類顏色">
-      {CATEGORY_COLORS.map((color) => (
+      {WAREHOUSE_CATEGORY_COLORS.map((color) => (
         <label key={color} className={`color-swatch tone-${color}${value === color ? " selected" : ""}`}>
           <input
             type="radio"
@@ -47,7 +47,7 @@ export function CategoryDialog({
 }) {
   const [name, setName] = useState(category.name);
   const [color, setColor] = useState(category.color);
-  const update = useUpdateCategory();
+  const update = useUpdateWarehouseCategory();
 
   const trimmed = name.trim();
   const renaming = trimmed !== category.name;

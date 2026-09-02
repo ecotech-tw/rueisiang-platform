@@ -14,7 +14,10 @@ import {
   customers,
   inventoryItems,
   layoutElements,
-  productCategories,
+  reportProductCategories,
+  warehouseCategories,
+  cyberbizProductCategories,
+  cyberbizProducts,
   reportScopes,
   userRoles,
   users,
@@ -60,9 +63,9 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
     toolKeys: [OPEN_METEO_TOOL_KEY],
   });
   await seedPayoutStores(db);
-  await seedDevAnalytics(db);
   await seedDevCustomers(db);
   await seedDevWarehouse(db);
+  await seedDevAnalytics(db);
 
   const existing = await db.select({ id: users.id }).from(users).limit(1);
   if (existing.length) return;
@@ -191,6 +194,21 @@ const DEV_SALES_PERIODS = [
   ["2025-04", 0.81, 1], ["2025-05", 0.86, 1], ["2025-06", 0.89, 1], ["2025-07", 0.91, 1],
 ] as const;
 
+const DEV_SKU_CATEGORIES: Record<string, string> = {
+  "DEMO-THERMO": "生活選物",
+  "DEMO-TOTE": "生活選物",
+  "DEMO-CANDLE": "香氛品味",
+  "DEMO-TEA": "風味嚴選",
+  "DEMO-SOAP": "沐浴清潔",
+  "DEMO-MUG": "生活選物",
+  "DEMO-PEN": "文具小物",
+  "DEMO-POUCH": "居家日用",
+  "DEMO-SCARF": "服飾配件",
+  "DEMO-TRAY": "居家日用",
+  "DEMO-MIST": "香氛品味",
+  "DEMO-CARD": "文具小物",
+};
+
 function buildDevSalesRows() {
   return DEV_SALES_PERIODS.flatMap(([month, ximenFactor, xinyiOffset]) => [
     ...salesRowsForMonth(DEV_ANALYTICS_SCOPES[0].id, month, ximenFactor),
@@ -198,7 +216,46 @@ function buildDevSalesRows() {
   ]);
 }
 
+const DEV_PRODUCT_CATEGORIES = [
+  { id: "dev-product-category-life", name: "生活選物", color: "rose" },
+  { id: "dev-product-category-fragrance", name: "香氛品味", color: "violet" },
+  { id: "dev-product-category-flavor", name: "風味嚴選", color: "amber" },
+  { id: "dev-product-category-bath", name: "沐浴清潔", color: "sky" },
+  { id: "dev-product-category-stationery", name: "文具小物", color: "teal" },
+  { id: "dev-product-category-home", name: "居家日用", color: "mint" },
+  { id: "dev-product-category-apparel", name: "服飾配件", color: "peach" },
+] as const;
+
+async function seedDevProductCatalog(db: ReturnType<typeof createDatabase>): Promise<void> {
+  await db.insert(reportProductCategories).values([...DEV_PRODUCT_CATEGORIES]).onConflictDoNothing({ target: reportProductCategories.name });
+
+  const existingProducts = new Set((await db.select({ sku: cyberbizProducts.sku }).from(cyberbizProducts)).map((row) => row.sku));
+  const missingProducts = DEV_SALES_PRODUCTS
+    .filter((product) => !existingProducts.has(product.sku))
+    .map((product) => ({
+      sku: product.sku,
+      productId: `dev-product-${product.sku}`,
+      variantId: `dev-variant-${product.sku}`,
+      productName: product.productName,
+      variantName: "",
+      published: 1,
+    }));
+  if (missingProducts.length) await db.insert(cyberbizProducts).values(missingProducts);
+
+  const categoryRows = await db.select({ id: reportProductCategories.id, name: reportProductCategories.name }).from(reportProductCategories);
+  const categoryIdByName = new Map(categoryRows.map((row) => [row.name, row.id]));
+  const existingAssignments = new Set((await db.select({ sku: cyberbizProductCategories.sku }).from(cyberbizProductCategories)).map((row) => row.sku));
+  const missingAssignments = Object.entries(DEV_SKU_CATEGORIES)
+    .filter(([sku]) => !existingAssignments.has(sku))
+    .flatMap(([sku, name]) => {
+      const categoryId = categoryIdByName.get(name);
+      return categoryId ? [{ sku, categoryId }] : [];
+    });
+  if (missingAssignments.length) await db.insert(cyberbizProductCategories).values(missingAssignments);
+}
+
 async function seedDevAnalytics(db: ReturnType<typeof createDatabase>): Promise<void> {
+  await seedDevProductCatalog(db);
   const [existingCyberbiz] = await db.select({ id: reportScopes.id }).from(reportScopes)
     .where(eq(reportScopes.id, DEV_ANALYTICS_SCOPES[0].id)).limit(1);
 
@@ -218,6 +275,7 @@ async function seedDevAnalytics(db: ReturnType<typeof createDatabase>): Promise<
       salesRowsForMonth(DEV_SHOPEE_SCOPE.id, month, factor * 0.56)
     )));
   }
+
 }
 
 /** 與帳號分開判斷，這樣舊的 local.sqlite 也會補上客戶資料。 */
@@ -277,7 +335,7 @@ async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<
   if (existing.length) return;
 
   await db.insert(warehouseSettings).values({ id: "main", canvasWidth: 1600, canvasHeight: 900 });
-  await db.insert(productCategories).values([...DEV_CATEGORIES]);
+  await db.insert(warehouseCategories).values([...DEV_CATEGORIES]);
   await db.insert(zones).values([...DEV_ZONES]);
   await db.insert(layoutElements).values([
     { id: "dev-el-1", label: "出貨口", color: "rose", x: 66, y: 10, width: 14, height: 12 },

@@ -4,13 +4,14 @@ import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 import {
   customReportProducts,
+  cyberbizProductCategories,
   cyberbizProducts,
   inventoryItems,
   productBundleComponents,
-  productCategories,
   productSkuMappings,
   reportSkuIgnores,
 } from "./schema/wms.js";
+import { reportProductCategories } from "./schema/report-products.js";
 import { WmsError, type Actor } from "./wms.js";
 
 /** 外部 SKU 寫入前統一格式，避免大小寫造成兩筆 mapping。 */
@@ -143,7 +144,7 @@ export async function loadProductSkuMappingManagement(
       })
       .from(productSkuMappings)
       .orderBy(asc(productSkuMappings.channel), asc(productSkuMappings.externalSku)),
-    db.select({ name: productCategories.name }).from(productCategories).orderBy(asc(productCategories.name)),
+    db.select({ name: reportProductCategories.name }).from(reportProductCategories).orderBy(asc(reportProductCategories.name)),
   ]);
 
   /*
@@ -201,12 +202,19 @@ export async function loadProductSkuMappingManagement(
       sku: cyberbizProducts.sku,
       productName: cyberbizProducts.productName,
       variantName: cyberbizProducts.variantName,
+      categoryName: reportProductCategories.name,
     })
     .from(cyberbizProducts)
+    .leftJoin(cyberbizProductCategories, eq(cyberbizProductCategories.sku, cyberbizProducts.sku))
+    .leftJoin(reportProductCategories, eq(reportProductCategories.id, cyberbizProductCategories.categoryId))
     .where(inArray(cyberbizProducts.sku, batch)));
   const catalogBySku = new Map(catalogRows.map((row) => [
     row.sku,
-    { sku: row.sku, name: row.variantName ? `${row.productName}（${row.variantName}）` : row.productName },
+    {
+      sku: row.sku,
+      name: row.variantName ? `${row.productName}（${row.variantName}）` : row.productName,
+      category: row.categoryName ?? "未分類",
+    },
   ]));
   for (const row of componentRows) {
     const list = componentsByMapping.get(row.mappingId) ?? [];
@@ -221,7 +229,7 @@ export async function loadProductSkuMappingManagement(
         customProductId: null,
         sku: row.cyberbizSku,
         name: catalog?.name ?? "",
-        category: "未分類",
+        category: catalog?.category ?? "未分類",
         quantity: row.quantity,
       });
       componentsByMapping.set(row.mappingId, list);
@@ -832,8 +840,11 @@ export async function resolveProductSkus(
       sku: cyberbizProducts.sku,
       productName: cyberbizProducts.productName,
       variantName: cyberbizProducts.variantName,
+      categoryName: reportProductCategories.name,
     })
     .from(cyberbizProducts)
+    .leftJoin(cyberbizProductCategories, eq(cyberbizProductCategories.sku, cyberbizProducts.sku))
+    .leftJoin(reportProductCategories, eq(reportProductCategories.id, cyberbizProductCategories.categoryId))
     .where(inArray(cyberbizProducts.sku, batch)));
   const itemById = new Map(componentItems.map((row) => [row.id, row]));
   const customById = new Map(componentCustoms.map((row) => [row.id, row]));
@@ -841,7 +852,7 @@ export async function resolveProductSkus(
   const catalogBySku = new Map(componentCatalog.map((row) => [row.sku, {
     sku: row.sku,
     name: row.variantName ? `${row.productName}（${row.variantName}）` : row.productName,
-    category: "未分類",
+    category: row.categoryName ?? "未分類",
   }]));
   for (const component of componentRows) {
     const source = component.cyberbizSku
@@ -884,8 +895,11 @@ export async function resolveProductSkus(
       sku: cyberbizProducts.sku,
       productName: cyberbizProducts.productName,
       variantName: cyberbizProducts.variantName,
+      categoryName: reportProductCategories.name,
     })
     .from(cyberbizProducts)
+    .leftJoin(cyberbizProductCategories, eq(cyberbizProductCategories.sku, cyberbizProducts.sku))
+    .leftJoin(reportProductCategories, eq(reportProductCategories.id, cyberbizProductCategories.categoryId))
     .where(inArray(cyberbizProducts.sku, batch)));
   for (const row of catalogRows) {
     if (mappedKeys.has(row.sku)) continue;
@@ -893,7 +907,7 @@ export async function resolveProductSkus(
     if (!name) continue;
     resolved.set(row.sku, {
       externalName: name,
-      components: [{ inventoryItemId: null, sku: row.sku, name, category: "未分類", quantity: 1 }],
+      components: [{ inventoryItemId: null, sku: row.sku, name, category: row.categoryName ?? "未分類", quantity: 1 }],
     });
   }
 

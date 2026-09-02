@@ -19,7 +19,10 @@ export type ActivityEntityType =
   | "zone"
   | "inventory_item"
   | "product_category"
+  | "warehouse_category"
+  | "report_product_category"
   | "product_sku_mapping"
+  | "cyberbiz_product_category"
   | "report_manual_entry"
   | "layout_element"
   /** 倉庫本身的設定（畫布尺寸）。只有一筆，entityId 固定是 main。 */
@@ -99,8 +102,11 @@ export interface ActivityQuery {
 export const WMS_ENTITY_TYPES = [
   "zone",
   "inventory_item",
+  "warehouse_category",
+  // Keep filtering legacy activity rows while new WMS events use warehouse_category.
   "product_category",
   "product_sku_mapping",
+  "cyberbiz_product_category",
   "layout_element",
   "warehouse",
 ] as const satisfies readonly ActivityEntityType[];

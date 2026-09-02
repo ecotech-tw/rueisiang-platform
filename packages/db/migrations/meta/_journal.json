@@ -491,6 +491,20 @@
       "when": 1788200481160,
       "tag": "0069_pink_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1788274001023,
+      "tag": "0070_unique_otto_octavius",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "6",
+      "when": 1788275519017,
+      "tag": "0071_loose_wolf_cub",
+      "breakpoints": true
     }
   ]
 }

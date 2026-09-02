@@ -121,7 +121,7 @@ async function seedMapping(input: {
 beforeEach(async () => {
   d1 = createLocalD1();
   const database = db();
-  await database.insert(schema.productCategories).values({ id: "category-bath", name: "沐浴", color: "rose" });
+  await database.insert(schema.reportProductCategories).values({ id: "category-bath", name: "沐浴", color: "rose" });
   for (const sku of ["SKU-1", "SKU-OLD", "SKU-KEEP", "SKU-2", "WMS-001"]) {
     await database.insert(schema.inventoryItems).values({
       id: `item-${sku.toLowerCase()}`,
@@ -145,6 +145,35 @@ describe("跨通路商品身分", () => {
       { sku: "SOAP-001", productId: "p-1", variantId: "v-1", productName: "香皂", variantName: "" },
       { sku: "NET-001", productId: "p-2", variantId: "v-2", productName: "起泡網", variantName: "" },
     ]);
+  });
+
+  it("CYBERBIZ 匯入會把 SKU 當下的分類名稱寫成 report 快照", async () => {
+    await db().insert(schema.cyberbizProducts).values({
+      sku: "CATEGORY-001",
+      productId: "category-product-1",
+      variantId: "category-variant-1",
+      productName: "分類商品",
+      variantName: "",
+    });
+    await db().insert(schema.cyberbizProductCategories).values({
+      sku: "CATEGORY-001",
+      categoryId: "category-bath",
+    });
+
+    const response = await request(salesBody([
+      salesRow("CATEGORY-001", 300, { category: "匯入檔的舊分類" }),
+    ]));
+    expect(response.status).toBe(200);
+
+    expect(await db().select({
+      sku: schema.reportSalesMonthly.sku,
+      productName: schema.reportSalesMonthly.productName,
+      category: schema.reportSalesMonthly.category,
+    }).from(schema.reportSalesMonthly)).toEqual([{
+      sku: "CATEGORY-001",
+      productName: "分類商品",
+      category: "沐浴",
+    }]);
   });
 
   it("CYBERBIZ 報表直接匯入，不需要任何對應", async () => {

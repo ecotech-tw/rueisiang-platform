@@ -1,12 +1,15 @@
 import {
   addProductSkuMapping,
   addReportSkuIgnore,
+  createReportProductCategory,
   deletePayoutStore,
+  deleteReportProductCategory,
   deleteProductSkuMapping,
   deleteReportSkuIgnore,
   findReportScope,
   listCyberbizProducts,
   listReportSkuIgnores,
+  listCyberbizProductCategoryManagement,
   loadProductSkuMappingManagement,
   updateProductSkuMapping,
   insertReportPayoutDaily,
@@ -21,6 +24,8 @@ import {
   replacePayoutStores,
   upsertReportScope,
   savePayoutStore,
+  setCyberbizProductCategory,
+  updateReportProductCategory,
   updatePayoutStoreEnabled,
   type Database,
   type PayoutStoreInput,
@@ -40,6 +45,16 @@ import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cybe
 function text(input: Record<string, unknown>, field: string): string | undefined {
   const value = input[field];
   return typeof value === "string" ? value.trim() : undefined;
+}
+
+function categoryIdInput(input: Record<string, unknown>): string | null {
+  if (!Object.prototype.hasOwnProperty.call(input, "categoryId")) {
+    throw new HTTPException(400, { message: "categoryId 為必要欄位，請傳入分類 ID 或 null。" });
+  }
+  if (input.categoryId !== null && typeof input.categoryId !== "string") {
+    throw new HTTPException(400, { message: "categoryId 必須是文字或 null。" });
+  }
+  return input.categoryId as string | null;
 }
 
 /**
@@ -516,6 +531,52 @@ export const tools = new Hono<AppEnv>()
     await deleteProductSkuMapping(c.get("db"), c.req.param("mappingId"), { id: user.id, email: user.email });
     await forgetReportAnalytics(cacheClient(c.env));
     return c.json({ ok: true });
+  })
+
+  .get("/product-categories", requirePermission("tools:product-category:read"), async (c) => {
+    return c.json(await listCyberbizProductCategoryManagement(c.get("db")));
+  })
+
+  .post("/product-categories", requirePermission("tools:product-category:write"), async (c) => {
+    const input = await body(c);
+    const user = c.get("user");
+    const result = await createReportProductCategory(c.get("db"), {
+      name: requireString(input, "name", "商品分類名稱"),
+      color: input.color,
+      actor: { id: user.id, email: user.email },
+    });
+    return c.json(result, 201);
+  })
+
+  .patch("/product-categories/:categoryId", requirePermission("tools:product-category:write"), async (c) => {
+    const input = await body(c);
+    const user = c.get("user");
+    const result = await updateReportProductCategory(c.get("db"), c.req.param("categoryId"), {
+      name: text(input, "name"),
+      color: input.color,
+      actor: { id: user.id, email: user.email },
+    });
+    await forgetReportAnalytics(cacheClient(c.env));
+    return c.json(result);
+  })
+
+  .delete("/product-categories/:categoryId", requirePermission("tools:product-category:write"), async (c) => {
+    const user = c.get("user");
+    await deleteReportProductCategory(c.get("db"), c.req.param("categoryId"), { id: user.id, email: user.email });
+    await forgetReportAnalytics(cacheClient(c.env));
+    return c.json({ ok: true });
+  })
+
+  .put("/product-categories/:sku", requirePermission("tools:product-category:write"), async (c) => {
+    const input = await body(c);
+    const user = c.get("user");
+    const result = await setCyberbizProductCategory(c.get("db"), {
+      sku: c.req.param("sku"),
+      categoryId: categoryIdInput(input),
+      actor: { id: user.id, email: user.email },
+    });
+    await forgetReportAnalytics(cacheClient(c.env));
+    return c.json(result);
   })
 
   .route("/shopee-sales", shopeeSales)

@@ -222,4 +222,29 @@ describe("報表 scope migration", () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS total FROM product_sku_mappings").get())
       .toEqual({ total: 3 });
   });
+
+  it("0071／0072 將 WMS 分類拆成倉儲分類與報表商品分類，並保留既有 CYBERBIZ 指派", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0069_pink_giant_man.sql");
+    sqlite.prepare("INSERT INTO product_categories (id, name, color) VALUES (?, ?, ?)")
+      .run("legacy-bath", "沐浴清潔", "sky");
+
+    applyLikeD1(sqlite, "0069_pink_giant_man.sql", "0070_unique_otto_octavius.sql");
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_products (sku, product_id, variant_id, product_name)
+      VALUES (?, ?, ?, ?)
+    `).run("SOAP-001", "product-1", "variant-1", "香皂");
+    sqlite.prepare("INSERT INTO cyberbiz_product_categories (sku, category_id) VALUES (?, ?)")
+      .run("SOAP-001", "legacy-bath");
+
+    applyLikeD1(sqlite, "0070_unique_otto_octavius.sql", "0072_copy_legacy_product_categories.sql");
+
+    expect(sqlite.prepare("SELECT name, color FROM warehouse_categories").all())
+      .toEqual([]);
+    expect(sqlite.prepare("SELECT id, name, color FROM report_product_categories").all())
+      .toEqual([{ id: "report-legacy-bath", name: "沐浴清潔", color: "sky" }]);
+    expect(sqlite.prepare("SELECT sku, category_id FROM cyberbiz_product_categories").all())
+      .toEqual([{ sku: "SOAP-001", category_id: "report-legacy-bath" }]);
+  });
 });
