@@ -145,7 +145,7 @@ export function ProductCategoryManagementDialog({ onClose }: { onClose: () => vo
               <tr>
                 <th>分類</th>
                 <th className="numeric">CYBERBIZ SKU</th>
-                <th className="numeric">自訂報表商品</th>
+                <th className="numeric">自訂商品主檔</th>
                 <th className="numeric">使用中</th>
                 {canWrite ? <th /> : null}
               </tr>
@@ -157,7 +157,7 @@ export function ProductCategoryManagementDialog({ onClose }: { onClose: () => vo
                     <span className={`status status-tone-${category.color}`}>{category.name}</span>
                   </td>
                   <td data-label="CYBERBIZ SKU" className="numeric">{category.skuCount}</td>
-                  <td data-label="自訂報表商品" className="numeric">{category.customProductCount}</td>
+                  <td data-label="自訂商品主檔" className="numeric">{category.customProductCount}</td>
                   <td data-label="使用中" className="numeric">{category.usageCount}</td>
                   {canWrite ? (
                     <td data-label="操作">

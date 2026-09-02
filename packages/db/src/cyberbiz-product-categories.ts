@@ -228,7 +228,7 @@ export async function createReportProductCategory(
   return category;
 }
 
-/** 修改報表商品分類主檔；自訂報表商品保存的是名稱，因此改名時一併同步主檔文字。 */
+/** 修改報表商品分類主檔；自訂商品主檔保存的是名稱，因此改名時一併同步主檔文字。 */
 export async function updateReportProductCategory(
   db: Database,
   id: string,
@@ -290,7 +290,7 @@ export async function deleteReportProductCategory(db: Database, id: string, acto
   if (skuCount || customCount) {
     const usage = [
       skuCount ? `${skuCount} 個 CYBERBIZ SKU` : "",
-      customCount ? `${customCount} 個自訂報表商品` : "",
+      customCount ? `${customCount} 個自訂商品主檔` : "",
     ].filter(Boolean).join("、");
     throw new WmsError("conflict", `商品分類「${category.name}」仍被 ${usage} 使用，請先改分其他分類。`);
   }

@@ -452,7 +452,7 @@ describe("外部 SKU 對應", () => {
       .toEqual([{ sku: "ABX30001", name: "日光花園三入自選禮盒（改版）" }]);
   });
 
-  it("刪除對應會回收沒人再用的自訂報表商品，還有人用的留著", async () => {
+  it("刪除對應會回收沒人再用的自訂商品主檔，還有人用的留著", async () => {
     const id = await seedAdmin();
     const make = (channel: string, externalSku: string) => as(id, "admin@ecotech.tw", "/api/tools/product-sku-mappings", {
       method: "POST",

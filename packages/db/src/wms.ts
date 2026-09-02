@@ -463,7 +463,7 @@ async function requireSkuAvailableForExternalMappings(db: Database, sku: string 
   if (customOwner) {
     throw new WmsError(
       "conflict",
-      `WMS SKU「${sku}」已被自訂報表商品「${customOwner.name}」使用，請先改掉那筆自訂 SKU。`,
+      `WMS SKU「${sku}」已被自訂商品主檔「${customOwner.name}」使用，請先改掉那筆自訂 SKU。`,
     );
   }
 }

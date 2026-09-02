@@ -525,7 +525,7 @@ async function requireExternalSkuAvailable(
   if (customOwner && !customProductSkus.includes(customOwner.sku)) {
     throw new WmsError(
       "conflict",
-      `外部 SKU「${externalSku}」已是自訂報表商品「${customOwner.name}」的系統 SKU，請換一個外部 SKU。`,
+      `外部 SKU「${externalSku}」已是自訂商品主檔「${customOwner.name}」的系統 SKU，請換一個外部 SKU。`,
     );
   }
 }
@@ -686,7 +686,7 @@ export async function deleteProductSkuMapping(
   if (!mapping) throw new WmsError("not_found", "找不到這筆外部 SKU 對應。");
 
   /*
-   * 順手回收沒人再參照的自訂報表商品。
+   * 順手回收沒人再參照的自訂商品主檔。
    *
    * 留著的話它會永久占住那個 SKU：之後把 WMS 商品改成同一個 SKU 會被擋下，而錯誤訊息
    * 叫使用者去改一筆他在畫面上根本看不到、也刪不掉的資料。

@@ -255,7 +255,7 @@ async function normalizeSalesRows(
      *
      * 銷售額整筆放在第一列用料上：拆分沒有正確答案（報表只給整筆金額），重複計算又會
      * 讓月營收灌水。用料的排序在 resolveProductSkus 是決定性的，所以重匯不會換一列收錢。
-     * 名稱與分類直接取用料自己的來源（WMS 商品或自訂報表商品），兩者都只有一份，
+     * 名稱與分類直接取用料自己的來源（WMS 商品或自訂商品主檔），兩者都只有一份，
      * 不需要再比較誰比較 canonical。
      */
     for (const [index, component] of item.components.entries()) {
