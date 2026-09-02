@@ -286,7 +286,7 @@ function manualSalesInput(input: Record<string, unknown>): {
   if (skuSource !== "custom" && skuSource !== "cyberbiz") {
     throw new HTTPException(400, { message: "SKU 來源必須是 custom 或 cyberbiz。" });
   }
-  const rawCategoryId = input.categoryId;
+  const rawCategoryId = input?.categoryId;
   if (rawCategoryId !== undefined && rawCategoryId !== null && typeof rawCategoryId !== "string") {
     throw new HTTPException(400, { message: "categoryId 必須是文字或 null。" });
   }
