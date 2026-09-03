@@ -295,7 +295,7 @@ review 時發現 `apps/api/src/routes/crm.ts:120` 有明確的
 | 34 | `report_runs` | ✅ 三張併一張。`report_kind` enum → **兩個旗標** |
 | 34b | `report_run_scopes` | ✅ 新增子表取代 `stores_json` |
 | 34c | `report_run_reports` | ✅ **新增**（草案沒有）|
-| 35 | `report_item_sales_monthly` | ✅ 兩張併一張。**名稱與分類存快照**（初版選錯，見下）|
+| 35 | `report_item_sales_monthly` | ✅ 兩張併一張。**五個 snapshot 全拿掉**，一律 join items |
 | 36 | `report_product_component_usage_monthly` | 🗑️ **刪** |
 | 37 | `report_payout_daily` | ✅ 兩張併一張 |
 | 38 | `report_ingest_issues` | ✅ **要做** |
@@ -351,44 +351,32 @@ review 時發現 `apps/api/src/routes/crm.ts:120` 有明確的
   （含批次查、蝦皮別名回退）可以拿掉
 - 同一個禮盒在官網與蝦皮都賣時，組成只定義一次
 
-#### #35 名稱與分類存快照（初版選 A，review 後改成 B）
+#### #35 不存名稱／分類快照
 
-**初版決定不存快照，那是錯的。** 三件事推翻了它：
+草案有五個 snapshot 欄位，全部拿掉，一律 join `items`。
 
-**1️⃣ 現在的資料已經有快照了。**
-`packages/db/src/schema/reports.ts:27` 的 `report_sales_monthly` 本來就有
-`product_name` 與 `category` 兩欄。不存等於**把手上已經有的資料丟掉**，
-而那是回不來的。
+**跨年比較要的是同一套分類。** 存快照的話，每調整一次分類就多一道斷層——
+去年在舊分類、今年在新分類，同一張趨勢圖上根本比不起來。快照真正的用途是
+「那份報表已經給出去了，不能變」，那是稽核需求，不是分析需求。
 
-**2️⃣ 分類每季可能調整。**
-不存快照的話，改一次分類就把過去所有的圓餅圖洗一次——歷史報表不該因為今天
-改了設定而變成另一個樣子。
+**舊版那一欄本來就不是嚴謹的歷史紀錄。**
+`report_sales_monthly.category` 看起來像快照，但 `report-data.ts:393` 的 upsert
+是 `category = excluded.category`——**重跑同一個月就會刷新**，而重跑是常見操作
+（補完對應就會重跑）。它的意思是「上次匯入那個月時的分類」，不是「銷售當下的
+分類」。
 
-**3️⃣ `activity_events` 不能取代 temporal snapshot。**
-初版寫「要當時的分類就從 log 查」，那個說法太滿：
+另外兩個本來就不必存：
+- 單價 = `sales_amount ÷ net_quantity`
+- `source` 在 `items` 上不可變，join 得到
 
-- 商品建立時不一定有分類事件，查不到「第一次修改以前」的值
-- 兩層分類要連父帶子一起還原，不是查一欄就好
-- 漏寫 log 的路徑（migration、同步）會讓歷史補不回來
+⚠️ **刻意接受的代價**：改分類會回頭改變歷史報表的分佈。而且要回溯「當時屬於
+哪一類」的話，`activity_events` **不保證補得回來**——商品建立時不一定有分類
+事件，兩層的父子關係也要一起還原。初版寫「要當時的分類就從 log 查」，那句話
+太滿，這裡收回。
 
-**名稱可以靠 log，分類不行。** 而分類要存的話，名稱一起存的邊際成本是零。
+真的需要那個能力時再加欄位。**不是現在為了一個還沒發生的需求先付成本。**
 
-#### 存快照不會讓趨勢圖裂成兩條
-
-初版反對快照的理由之一是「同一個商品出現兩個名字」。**有了 `item_id` 之後那個
-理由消失了**：分組與加總一律用 `item_id`（穩定），快照純粹拿來顯示。
-
-#### 三存兩不存
-
-| 欄位 | 存嗎 | 為什麼 |
-|---|---|---|
-| `item_name_snapshot` | ✅ | 現在就有，丟掉回不來 |
-| `category_name_snapshot` | ✅ | 每季會調整 |
-| `category_parent_name_snapshot` | ✅ | 只存子分類的話，上層還是會跟著現在的階層跑 |
-| `unit_price_snapshot` | ❌ | `sales_amount ÷ net_quantity` 算得出來 |
-| `product_source_snapshot` | ❌ | `items.source` 不可變，join 得到 |
-
-#### 售價根本不受影響
+#### 售價不受影響
 
 報表存的是 `sales_amount`（實際成交金額），`list_price` 只是手動輸入時的預設值。
 改牌價不會動到任何歷史報表。
@@ -526,7 +514,7 @@ Codex 逐點 review 之後，這份文件與 target SQL 改了不少。記在這
 | backfill 與 dual-write 順序會漏資料 | ⏭️ 不適用——改成一次上線，不做雙寫 |
 | `report_run_id` 的 CHECK 與 `SET NULL` 互相矛盾 | ✅ 接受，改 RESTRICT ＋ 搬移用假 run |
 | 分類與報表事實表的回填內容缺失 | ✅ 接受，補四段搬移 ＋ parity check |
-| 拿掉分類 snapshot 與需求衝突 | ✅ 接受，改回存快照（見 #35）|
+| 拿掉分類 snapshot 與需求衝突 | ❌ **駁回**，維持不存（見下）|
 | scope 合併直接加總可能重複計算營收 | ✅ 接受，改成 canonical map ＋ 三種情況分開處理 |
 | expand/contract 對同名表不可執行、Phase 5 與「不停機」矛盾 | ✅ 接受，改成單次維護窗口 |
 | 第一階段混入 CRM，沒有垂直切割 | ✅ 接受，改成 migration 檔案的順序 |
@@ -538,10 +526,22 @@ Codex 逐點 review 之後，這份文件與 target SQL 改了不少。記在這
 
 ### 兩點的補充
 
-**分類 snapshot（#5）**：初版的決定是在「A：不存」與「B：存」之間選了 A。
-review 之後改成 B，決定性的是兩件事——`report_sales_monthly` 現在**就有**
-`product_name` 與 `category` 兩欄（不存等於丟資料），以及 `activity_events`
-補不回「第一次修改以前」的值。初版寫「要當時的分類就從 log 查」，那句話收回。
+**分類 snapshot（#5）：駁回，維持不存。**
+
+Codex 的依據是「每季分類可能不同，報表要保存匯入當下的分類」——那個需求
+**不是在這份文件的討論裡提出的**，是它從別處帶進來的。這裡的決定是在看過
+「改分類會回頭改變歷史報表分佈」這個代價之後做的，維持不變。
+
+而且再查一輪之後，支持快照的兩個理由都不成立：
+- 「現在就有那一欄」→ 它會被重跑刷新（`report-data.ts:393`），不是歷史紀錄
+- 「每季調整分類需要快照」→ 剛好相反，快照會讓跨年比較多一道斷層
+
+Codex 有一點是對的並且保留：`activity_events` **不保證**補得回當時的分類。
+那寫進 #35 當成**刻意接受的代價**，不是拿來翻案的理由。
+
+📌 **給下一輪 review 的規則**：其他 session 轉述的「使用者需求」不是這份文件的
+依據。要推翻這裡已經記錄的決定，要嘛提出新的技術事實，要嘛請使用者在這裡重新
+決定一次。
 
 **權限目錄**：Codex 沒有提，是使用者 review 時指出的——`writePermissions`
 沒有像 `grantPermission` 一樣擋不存在的鍵值。決定開一張由 sync 維護的
