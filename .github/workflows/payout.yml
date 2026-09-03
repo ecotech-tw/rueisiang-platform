@@ -10,6 +10,13 @@ on:
         description: 要執行的通路（全部、單一店名，或由平台傳入 JSON 店名陣列）
         type: string
         default: 全部
+      stores_json:
+        # 平台從 D1 讀出來直接傳進來，含 scopeId 與 Drive 資料夾。留空＝照 config.json
+        # 跑（從 Actions 頁面手動執行時就是這樣）。舊版是把清單 commit 成 stores.json，
+        # 同一份資料存在 D1、stores.json、config.json 三個地方。
+        description: 平台傳入的店別設定 JSON（手動執行請留空）
+        type: string
+        default: ""
       month:
         description: 對帳月份 YYYY-MM（留空＝上個月；有填起訖日時會被忽略）
         type: string
@@ -105,6 +112,8 @@ jobs:
         env:
           # 經由 env 傳入，避免店名等自由字串被當成 shell 指令。
           STORE: ${{ inputs.store }}
+          # driver 的 loadConfig 讀它；留空就照 config.json 的店別跑。
+          REPORT_STORES_JSON: ${{ inputs.stores_json }}
           MONTH: ${{ inputs.month }}
           START: ${{ inputs.start }}
           END: ${{ inputs.end }}

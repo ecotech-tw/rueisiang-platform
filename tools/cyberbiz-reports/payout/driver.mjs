@@ -24,7 +24,8 @@ import {
   reportIngestConfig,
   redact,
   requireEnv,
-  scopeIdFromStoreName,
+  parseStoresInput,
+  storeScopeId,
   skillPath,
 } from "../lib/common.mjs";
 import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
@@ -72,7 +73,10 @@ async function main() {
     return;
   }
 
-  const config = await loadConfig();
+  const config = await loadConfig(undefined, {
+    // 平台觸發時店別從 D1 傳進來；手動執行沒有這個輸入，照 config.json 跑。
+    storesOverride: parseStoresInput(process.env.REPORT_STORES_JSON),
+  });
   const env = await loadEnv();
   requireEnv(env, ["CYBERBIZ_USERNAME", "CYBERBIZ_PASSWORD"]);
 
@@ -275,7 +279,7 @@ async function main() {
         if (monthly && ingestConfig.enabled) {
           const parsed = await parsePayoutReport(localPath, {
             scopeType: "store",
-            scopeId: scopeIdFromStoreName(store.name),
+            scopeId: storeScopeId(store),
             scopeName: store.name,
             start: range.start,
             end: range.end,
@@ -285,7 +289,7 @@ async function main() {
             apiUrl: ingestConfig.apiUrl,
             ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
             kind: "payout",
-            scopeId: scopeIdFromStoreName(store.name),
+            scopeId: storeScopeId(store),
             scopeName: store.name,
             rows: payoutIngestRows(parsed.rows),
           });

@@ -168,7 +168,7 @@ export function useSavePayoutStore() {
   return useMutation({
     mutationFn: (store: PayoutStoreSaveInput) => {
       const { id, ...payload } = store;
-      return call<{ store: PayoutStore; syncedToRepo: boolean; committed: boolean }>(
+      return call<{ store: PayoutStore }>(
         id ? `/api/tools/payout/stores/${encodeURIComponent(id)}` : "/api/tools/payout/stores",
         {
           method: id ? "PATCH" : "POST",
@@ -187,7 +187,7 @@ export function useDeletePayoutStore() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      call<{ ok: true; syncedToRepo: boolean; committed: boolean }>(`/api/tools/payout/stores/${encodeURIComponent(id)}`, {
+      call<{ ok: true }>(`/api/tools/payout/stores/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
     onSuccess: () => {

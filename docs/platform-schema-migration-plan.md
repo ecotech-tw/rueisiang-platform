@@ -113,38 +113,37 @@ drizzle 只會產「建新表」與「刪舊表」，中間那段
 
 ### 為什麼要先做
 
-現在 driver 的 scope id 是**從店名算出來的**：
+同一份店別清單存在**三個地方**：D1 的 `payout_stores`、runner repo 的
+`tools/cyberbiz-reports/stores.json`、以及工具自己的 `config.json`。改了其中一個，
+另外兩個不會跟著動——`schema/tools.ts` 的註解自己承認過這個落差。
 
-```js
-// tools/cyberbiz-reports/lib/common.mjs:198
-export function scopeIdFromStoreName(name) {
-  return `cyberbiz:store:${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
-}
-```
+而且 scope id 的推導寫在兩個地方：driver 的 `scopeIdFromStoreName`（JS）與平台的
+`cyberbizScopeIdFromStoreName`（TS）。同一條規則、兩個 repo、兩個語言。
 
-**改店名 → id 變了 → 匯入時對不到 → 建出一家新店 → 報表資料被切成兩半。**
-`scopes.normalized_name` 就是在補這個洞（`report-data.ts:341` 的 name 分支）。
-
-要拿掉 `normalized_name`，就得先讓 id 變成真正獨立的身分——也就是**由平台把
-DB 裡的 scope id 傳給 driver**。
+⚠️ **這一步不會讓改店名變安全。** scope id 仍然是 base64url(店名) 算出來的，只是
+改成由平台算一次再傳過去。**`normalized_name` 還不能拿掉**——它要等 `payout_stores`
+併進 `scopes`、scope id 變成一個真正的欄位之後才能移除（見 `0085_report_tables`）。
+Phase 0 做的是**把三份清單收成一份**，以及把推導收成一處。
 
 🎁 而且蝦皮的 workflow **已經做對了**：`shopee-sales-report.yml:10` 直接收
 `drive_folder_url` 當 dispatch input，沒有 stores.json。出金與商品銷售是舊做法。
 
 ### 步驟
 
-1. `payout.yml` / `cyberbiz-sales-report.yml` 加 `stores_json` input
-   （每家店帶 `scopeId` + `name` + `driveFolderUrl` + `driveFolderName`）
-2. `tools/cyberbiz-reports/lib/common.mjs:80` `loadConfig` 的 stores 覆蓋段刪掉
-   （`config.json` 留著——那是 CYBERBIZ 網址、欄位公式，開發者的東西）
-3. `scopeIdFromStoreName` 刪掉，scope id 改由 dispatch input 傳入
-4. 刪 `apps/api/src/payout/github.ts` 與 `cyberbiz-sales/github.ts` 的
-   `pushStores` / `STORES_PATH`、設定頁的 stores.json 下載按鈕、
-   `tools/cyberbiz-reports/stores.json`
+1. `payout.yml` / `cyberbiz-sales-report.yml` 加 `stores_json` input，
+   透過 `REPORT_STORES_JSON` 傳給 driver（每家店帶 `scopeId` + `name` +
+   `driveFolderUrl` + `driveFolderName`）
+2. `loadConfig` 改吃 `storesOverride`，`parseStoresInput` 負責解析與驗證；
+   壞掉的輸入要吵，不能默默退回 config.json
+3. `scopeIdFromStoreName` 換成 `storeScopeId(store)`——scope id 一律由上層給，
+   driver 不再自己算
+4. 刪 `pushStores` / `STORES_PATH` / base64 helper 與
+   `tools/cyberbiz-reports/stores.json`；`config.json` 的店別補上 `scopeId`，
+   給從 Actions 頁面手動執行時用
 5. `GITHUB_TOKEN` 降權：不再需要 Contents 寫入，只留 Actions 觸發
-   （`apps/api/src/env.ts:73` 的註解一併刪）
-6. ⚠️ **觸發前擋掉空的 `driveFolderUrl`**——原本「commit 成功才存檔」那道防線
-   消失了，不擋的話設定錯了要等執行十分鐘後才發現
+6. 設定頁的存檔不再回傳 `syncedToRepo` / `committed`
+
+📌 已完成，見 PR「報表店別改由 D1 傳給 runner」。
 
 ### 驗收
 

@@ -41,3 +41,23 @@ export function manualScopeIdFromStoreName(name: string): string {
   const suffix = `-${hashBytes(bytes)}`;
   return `${MANUAL_SCOPE_PREFIX}${encoded.slice(0, MAX_SCOPE_ID_LENGTH - MANUAL_SCOPE_PREFIX.length - suffix.length)}${suffix}`;
 }
+
+/**
+ * 傳給 runner 的店別設定。
+ *
+ * 舊版是把這份清單 commit 成 tools/cyberbiz-reports/stores.json，讓 runner 從
+ * checkout 出來的檔案讀——同一份資料存在 D1、stores.json、config.json 三個地方，
+ * 改了其中一個另外兩個不會跟著動。改成跟著每一次 dispatch 傳過去之後，D1 就是
+ * 唯一來源，而且 GITHUB_TOKEN 也不再需要 Contents 寫入權限。
+ *
+ * scopeId 一起帶過去：runner 舊版是自己從店名算（base64url），等於同一條規則
+ * 寫在兩個 repo 的兩個語言裡。
+ */
+export function runnerStores(stores: Array<{ name: string; driveFolderUrl: string; driveFolderName: string }>) {
+  return stores.map(({ name, driveFolderUrl, driveFolderName }) => ({
+    scopeId: cyberbizScopeIdFromStoreName(name),
+    name,
+    driveFolderUrl,
+    driveFolderName,
+  }));
+}

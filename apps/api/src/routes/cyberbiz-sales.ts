@@ -5,7 +5,7 @@ import type { AppEnv } from "../env.js";
 import { requirePermission } from "../middleware/auth.js";
 import { body } from "../request.js";
 import { cyberbizSalesGithub } from "../cyberbiz-sales/github.js";
-import { cyberbizScopeIdFromStoreName } from "../cyberbiz-scope.js";
+import { cyberbizScopeIdFromStoreName, runnerStores } from "../cyberbiz-scope.js";
 
 function isValidDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -79,7 +79,14 @@ export const cyberbizSales = new Hono<AppEnv>()
         ? stores[0]!
         : JSON.stringify(stores);
     const requestId = crypto.randomUUID();
-    await github.dispatch({ store, start, end, requestId });
+    await github.dispatch({
+      store,
+      // 店別設定跟著這一次執行傳給 runner；D1 是唯一來源，見 tools.ts 的 runnerStores。
+      stores: runnerStores(configuredStores.filter((item) => stores.includes(item.name))),
+      start,
+      end,
+      requestId,
+    });
     const run = await recordCyberbizReportRun(c.get("db"), {
       requestId,
       reportKind: "sales",

@@ -75,8 +75,7 @@ function bundleComponents(input: Record<string, unknown>): ProductBundleComponen
   });
 }
 
-import { cyberbizScopeIdFromStoreName, manualScopeIdFromStoreName } from "../cyberbiz-scope.js";
-import { cyberbizSalesGithub } from "../cyberbiz-sales/github.js";
+import { cyberbizScopeIdFromStoreName, manualScopeIdFromStoreName, runnerStores } from "../cyberbiz-scope.js";
 import { cyberbizSales } from "./cyberbiz-sales.js";
 import { shopeeSales } from "./shopee-sales.js";
 
@@ -162,43 +161,6 @@ function readStore(input: Record<string, unknown>): PayoutStoreInput {
   return store!;
 }
 
-function runnerStores(stores: PayoutStoreInput[]) {
-  return stores.map(({ name, driveFolderUrl, driveFolderName }) => ({
-    name,
-    driveFolderUrl,
-    driveFolderName,
-  }));
-}
-
-async function syncPayoutStores(
-  env: AppEnv["Bindings"],
-  email: string,
-  stores: PayoutStoreInput[],
-): Promise<{ syncedToRepo: boolean; committed: boolean }> {
-  const configuredStores = runnerStores(stores);
-  const github = payoutGithub(env);
-  let pushed = false;
-  if (github) {
-    pushed = await github.pushStores({
-      stores: configuredStores,
-      message: `chore(payout): 從平台更新店別清單（${email}）`,
-    });
-  }
-
-  const salesGithub = cyberbizSalesGithub(env);
-  let salesPushed = false;
-  if (salesGithub) {
-    salesPushed = await salesGithub.pushStores({
-      stores: configuredStores,
-      message: `chore(cyberbiz-sales): 從平台更新店別清單（${email}）`,
-    });
-  }
-
-  return {
-    syncedToRepo: Boolean(github || salesGithub),
-    committed: pushed || salesPushed,
-  };
-}
 
 function assertStoreNameAvailable(
   stores: Array<{ id: string; name: string }>,
@@ -648,7 +610,13 @@ export const tools = new Hono<AppEnv>()
         : JSON.stringify(requested);
 
     const requestId = crypto.randomUUID();
-    await github.dispatch({ store, start, end, requestId });
+    await github.dispatch({
+      store,
+      stores: runnerStores(configuredStores.filter((item) => requested.includes(item.name))),
+      start,
+      end,
+      requestId,
+    });
 
     // 先觸發再記錄：GitHub 沒收下的話，這裡不該留下一筆看起來跑過的紀錄。
     const user = c.get("user");
@@ -690,10 +658,9 @@ export const tools = new Hono<AppEnv>()
     const currentStores = await listPayoutStores(c.get("db"));
     assertStoreNameAvailable(currentStores, input);
 
-    const sync = await syncPayoutStores(c.env, c.get("user").email, [...currentStores, input]);
     const store = await savePayoutStore(c.get("db"), input);
     if (!store) throw new HTTPException(500, { message: "新增店別失敗，請稍後再試。" });
-    return c.json({ store, ...sync }, 201);
+    return c.json({ store }, 201);
   })
 
   .patch("/payout/stores/:id", requirePermission("tools:payout:config"), async (c) => {
@@ -710,7 +677,7 @@ export const tools = new Hono<AppEnv>()
       }
       const store = await updatePayoutStoreEnabled(c.get("db"), { id, enabled: input.enabled });
       if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
-      return c.json({ store, syncedToRepo: false, committed: false });
+      return c.json({ store });
     }
 
     const next = readStore({
@@ -721,11 +688,9 @@ export const tools = new Hono<AppEnv>()
     });
     assertStoreNameAvailable(currentStores, next, id);
 
-    const nextStores = currentStores.map((store) => store.id === id ? next : store);
-    const sync = await syncPayoutStores(c.env, c.get("user").email, nextStores);
     const store = await savePayoutStore(c.get("db"), { id, ...next });
     if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
-    return c.json({ store, ...sync });
+    return c.json({ store });
   })
 
   .delete("/payout/stores/:id", requirePermission("tools:payout:config"), async (c) => {
@@ -738,32 +703,20 @@ export const tools = new Hono<AppEnv>()
       throw new HTTPException(400, { message: "至少要留一家店。" });
     }
 
-    const nextStores = currentStores.filter((store) => store.id !== id);
-    const sync = await syncPayoutStores(c.env, c.get("user").email, nextStores);
     const store = await deletePayoutStore(c.get("db"), id);
     if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
-    return c.json({ ok: true, ...sync });
+    return c.json({ ok: true });
   })
 
   /**
-   * 存店別。
-   *
-   * 先寫帳務 repo 的 stores.json，成功了才寫本地——跟客戶那邊「先寫官網再寫本地」
-   * 同一個道理。反過來的話，平台上看起來改好了，driver 讀到的還是舊的，執行時
-   * 才發現找不到資料夾。
-   *
-   * 沒設定 GitHub token 時仍然存本地，但要明講 repo 沒更新，讓人知道還得自己
-   * 把檔案補上去。
+   * 存店別。D1 就是唯一來源——舊版還要先把清單 commit 成 runner repo 的
+   * stores.json，成功了才寫本地；現在店別是觸發執行時跟著 dispatch 傳過去的，
+   * 存檔不必再跟 GitHub 講話。
    */
   .put("/payout/stores", requirePermission("tools:payout:config"), async (c) => {
     const stores = readStores(await body(c));
     if (!stores.length) throw new HTTPException(400, { message: "至少要留一家店。" });
 
-    const sync = await syncPayoutStores(c.env, c.get("user").email, stores);
-
     await replacePayoutStores(c.get("db"), stores);
-    return c.json({
-      stores: await listPayoutStores(c.get("db")),
-      ...sync,
-    });
+    return c.json({ stores: await listPayoutStores(c.get("db")) });
   });
