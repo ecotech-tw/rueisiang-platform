@@ -903,6 +903,45 @@ describe("AI 助理 Sandbox", () => {
     expect(requests.some((url) => url.includes("/codex/responses"))).toBe(true);
   });
 
+  it("只有具備設定權限的人可以匯入 Codex credential，而且回應不包含原文", async () => {
+    await seedUser("staff", "staff@ecotech.tw", "role-staff");
+    const forbidden = await as("staff", "staff@ecotech.tw", "/api/assistant/codex-credential", {
+      method: "POST",
+      body: JSON.stringify({ credential: "{}" }),
+    });
+    expect(forbidden.status).toBe(403);
+
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const credential = JSON.stringify({
+      "openai-codex": {
+        access: "access-imported",
+        refresh: "refresh-imported",
+        expires: Date.now() + 3_600_000,
+      },
+    });
+    let receivedCredential = "";
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({
+        fetch: async (request: Request) => {
+          if (request.url.endsWith("/credential")) {
+            const payload = await request.json() as { credential?: unknown };
+            receivedCredential = typeof payload.credential === "string" ? payload.credential : "";
+            return Response.json({ configured: true, status: "ready", lastErrorAt: null });
+          }
+          return Response.json({ configured: true, status: "ready", lastErrorAt: null });
+        },
+      }),
+    };
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/codex-credential", {
+      method: "POST",
+      body: JSON.stringify({ credential }),
+    });
+    expect(response.status).toBe(200);
+    expect(receivedCredential).toBe(credential);
+    expect(JSON.stringify(await response.json())).not.toContain("refresh-imported");
+  });
+
   it("可以從小香設定更新 tool 狀態", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/tools/weather_open_meteo", {

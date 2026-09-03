@@ -62,6 +62,7 @@ import {
   piCodexCredentialConfigured,
   piCodexCredentialStatus,
   runPiSandboxAgent,
+  savePiCodexCredential,
 } from "../pi-agent.js";
 import {
   isPiCodexModel,
@@ -757,6 +758,24 @@ export const assistant = new Hono<AppEnv>()
       });
     }
     return c.json(await lineConfig(c));
+  })
+
+  .post("/codex-credential", requirePermission("assistant:settings:write"), async (c) => {
+    const input = await body(c);
+    const credential = requireString(input, "credential", "Pi／Codex credential JSON");
+    if (credential.length > 64 * 1024) {
+      throw new HTTPException(400, { message: "Codex credential JSON 太大，無法匯入。" });
+    }
+    try {
+      const status = await savePiCodexCredential(c.env, credential);
+      return c.json(status);
+    } catch (error) {
+      if (error instanceof PiAgentRequestError) {
+        if (error.status === 400) throw new HTTPException(400, { message: error.message });
+        throw new HTTPException(503, { message: "Codex credential vault 暫時無法使用，請稍後再試。" });
+      }
+      throw error;
+    }
   })
 
   .patch("/config", requirePermission("assistant:settings:write"), async (c) => {

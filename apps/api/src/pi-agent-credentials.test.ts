@@ -16,6 +16,10 @@ function credentialSeed(expires: number, suffix = "seed") {
 
 function credentialVault(seed: string) {
   const sqlite = new DatabaseSync(":memory:");
+  const environment: { PI_CREDENTIAL_ENCRYPTION_KEY: string; PI_OPENAI_CODEX_CREDENTIAL?: string } = {
+    PI_CREDENTIAL_ENCRYPTION_KEY: ENCRYPTION_SECRET,
+    PI_OPENAI_CODEX_CREDENTIAL: seed,
+  };
   let alarmAt: number | null = null;
   const storage = {
     sql: {
@@ -41,11 +45,13 @@ function credentialVault(seed: string) {
       void initialize();
     },
   };
-  const vault = new AssistantCredentialVault(state as never, {
-    PI_CREDENTIAL_ENCRYPTION_KEY: ENCRYPTION_SECRET,
-    PI_OPENAI_CODEX_CREDENTIAL: seed,
-  } as never);
-  return { vault, alarmAt: () => alarmAt, close: () => sqlite.close() };
+  const vault = new AssistantCredentialVault(state as never, environment as never);
+  return {
+    vault,
+    alarmAt: () => alarmAt,
+    clearLegacySeed: () => delete environment.PI_OPENAI_CODEX_CREDENTIAL,
+    close: () => sqlite.close(),
+  };
 }
 
 function jwtWithExpiry(expiresAtSeconds: number): string {
@@ -136,6 +142,34 @@ describe("OpenAI Codex OAuth credential", () => {
       const status = await fixture.vault.fetch(new Request("https://assistant-credential.internal/status", { method: "POST" }));
       expect(await status.json()).toMatchObject({ configured: true, status: "needs_reauth" });
       expect(fixture.alarmAt()).toBeGreaterThan(Date.now() + 30 * 60 * 1_000);
+    } finally {
+      vi.restoreAllMocks();
+      fixture.close();
+    }
+  });
+
+  it("匯入新 credential 後不會再被舊的 Worker secret 覆蓋", async () => {
+    const fixture = credentialVault(credentialSeed(Date.now() + 3_600_000, "old"));
+    const importedSeed = credentialSeed(Date.now() + 7_200_000, "imported");
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    try {
+      const imported = await fixture.vault.fetch(new Request("https://assistant-credential.internal/credential", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ credential: importedSeed }),
+      }));
+      expect(imported.status).toBe(200);
+      expect(await imported.json()).toMatchObject({ configured: true, status: "ready" });
+
+      const response = await fixture.vault.fetch(new Request("https://assistant-credential.internal/access-token", { method: "POST" }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ accessToken: "access-imported" });
+      fixture.clearLegacySeed();
+      const afterSecretRemoved = await fixture.vault.fetch(new Request("https://assistant-credential.internal/access-token", { method: "POST" }));
+      expect(afterSecretRemoved.status).toBe(200);
+      expect(await afterSecretRemoved.json()).toEqual({ accessToken: "access-imported" });
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.restoreAllMocks();
       fixture.close();

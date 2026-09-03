@@ -8,6 +8,7 @@ const INITIAL_ALARM_DELAY_MS = 60_000;
 const MIN_ALARM_DELAY_MS = 60_000;
 const REFRESH_RETRY_DELAY_MS = 5 * 60 * 1_000;
 const REAUTH_RETRY_DELAY_MS = 60 * 60 * 1_000;
+const MAX_CREDENTIAL_SEED_LENGTH = 64 * 1024;
 
 interface CodexCredential {
   access: string;
@@ -50,6 +51,13 @@ export class PiCredentialRefreshError extends Error {
   ) {
     super(`OpenAI Codex OAuth refresh 失敗（HTTP ${status}）。`);
     this.name = "PiCredentialRefreshError";
+  }
+}
+
+export class PiCredentialInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PiCredentialInputError";
   }
 }
 
@@ -203,7 +211,12 @@ export class AssistantCredentialVault {
           updated_at INTEGER NOT NULL
         )
       `);
-      if (this.env.PI_CREDENTIAL_ENCRYPTION_KEY?.trim() && this.env.PI_OPENAI_CODEX_CREDENTIAL?.trim()
+      const storedCredential = [...this.sql.exec<{ provider_id: string }>(
+        "SELECT provider_id FROM assistant_credentials WHERE provider_id = ? LIMIT 1",
+        "openai-codex",
+      )][0];
+      if (this.env.PI_CREDENTIAL_ENCRYPTION_KEY?.trim()
+        && (storedCredential || this.env.PI_OPENAI_CODEX_CREDENTIAL?.trim())
         && await ctx.storage.getAlarm() === null) {
         await ctx.storage.setAlarm(Date.now() + INITIAL_ALARM_DELAY_MS);
       }
@@ -224,18 +237,34 @@ export class AssistantCredentialVault {
       "openai-codex",
     )][0];
     const seed = this.env.PI_OPENAI_CODEX_CREDENTIAL?.trim();
-    if (stored && !seed) {
+    if (stored) {
       return { credential: await decryptCredential(secret, stored), seedFingerprint: stored.seed_fingerprint };
     }
     if (!seed) throw new Error("平台尚未設定 PI_OPENAI_CODEX_CREDENTIAL。");
+    if (seed.length > MAX_CREDENTIAL_SEED_LENGTH) throw new PiCredentialInputError("Codex credential JSON 太大，無法匯入。");
     const seedFingerprint = await credentialSeedFingerprint(seed);
-    if (stored && stored.seed_fingerprint === seedFingerprint) {
-      return { credential: await decryptCredential(secret, stored), seedFingerprint };
-    }
     const credential = parseOpenAICodexCredentialSeed(seed);
     await this.saveCredential(secret, credential, seedFingerprint);
     await this.markCredentialReady();
     return { credential, seedFingerprint };
+  }
+
+  private async importCredential(seed: string): Promise<PiCredentialStatusResponse> {
+    if (seed.length > MAX_CREDENTIAL_SEED_LENGTH) {
+      throw new PiCredentialInputError("Codex credential JSON 太大，無法匯入。");
+    }
+    let credential: CodexCredential;
+    try {
+      credential = parseOpenAICodexCredentialSeed(seed);
+    } catch {
+      throw new PiCredentialInputError("Codex credential JSON 缺少有效的 access、refresh 或 expires。");
+    }
+    const secret = this.env.PI_CREDENTIAL_ENCRYPTION_KEY?.trim();
+    if (!secret) throw new Error("平台尚未設定 PI_CREDENTIAL_ENCRYPTION_KEY。");
+    await this.saveCredential(secret, credential, await credentialSeedFingerprint(seed));
+    await this.markCredentialReady();
+    await this.scheduleAlarm(credential);
+    return this.credentialStatus();
   }
 
   private credentialStatus(): PiCredentialStatusResponse {
@@ -349,6 +378,13 @@ export class AssistantCredentialVault {
         });
         return Response.json(status);
       }
+      if (url.pathname === "/credential") {
+        const payload = record(await request.json().catch(() => null));
+        const seed = text(payload?.credential);
+        if (!seed) throw new PiCredentialInputError("請提供 Codex credential JSON。");
+        const status = await this.serialized(() => this.importCredential(seed));
+        return Response.json(status);
+      }
       if (url.pathname !== "/access-token") {
         return Response.json({ error: "Not found" }, { status: 404 });
       }
@@ -359,6 +395,9 @@ export class AssistantCredentialVault {
         console.error("Pi credential vault 無法提供 access token", { error: serializePiError(error) });
       }
       const message = error instanceof Error ? error.message : "OpenAI Codex credential 無法使用。";
+      if (error instanceof PiCredentialInputError) {
+        return Response.json({ error: message }, { status: 400 });
+      }
       const needsReauth = error instanceof PiCredentialRefreshError && error.status === 401;
       return Response.json({
         error: message,

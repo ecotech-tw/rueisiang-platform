@@ -156,6 +156,18 @@ export function useSandboxConfig() {
   });
 }
 
+export function useSavePiCodexCredential() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (credential: string) =>
+      request<{ configured: boolean; status: "unconfigured" | "ready" | "needs_reauth"; lastErrorAt: number | null }>("/api/assistant/codex-credential", {
+        method: "POST",
+        body: JSON.stringify({ credential }),
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["assistant", "sandbox", "config"] }),
+  });
+}
+
 export function useSavePrompt() {
   const client = useQueryClient();
   return useMutation({
