@@ -1,34 +1,48 @@
 # Platform schema 重整：執行計畫
 
 **目標**：把資料庫從現況 51 張表換成
-[`platform-schema-target.sql`](./platform-schema-target.sql) 的 31 張，**不停機**。
+[`platform-schema-target.sql`](./platform-schema-target.sql) 的 32 張（＋小香
+不動的 15 張＝47 張）。
 
 為什麼要這樣改，見
 [`platform-schema-overhaul.md`](./platform-schema-overhaul.md)。
 
 ---
 
-## 先講結論
+## 決策：一次上線，不做 expand/contract
 
-**不停機做得到，但代價是七個 PR、七次部署，不是一天做完。**
+原本規劃的是七階段 expand/contract（先加新的、雙寫、切讀、再刪舊的）。
+**改成單次上線**，理由是使用者的判斷：
 
-真正的限制不是時間，是 `.github/workflows/deploy.yml` 的形狀：
+> 有 breaking change 我們就是在 local 開 d1 測試完整一起上就對了
+
+以這個系統的規模（一個 Worker、一萬多列客戶、報表資料以萬計）這是對的取捨：
+
+| | expand/contract | 一次上線 |
+|---|---|---|
+| 部署次數 | 7 | **1** |
+| 雙寫程式碼 | 要寫、要測、之後要拆 | ❌ 不用 |
+| `_v2` 暫名 | 要 | ❌ 不用 |
+| 停機 | 每次部署 1–2 分鐘 | **一次維護窗口** |
+| 出錯怎麼辦 | 回上一階段 | **還原備份** |
+| 風險集中度 | 分散 | 集中在一次 |
+
+**代價很明確：migration 必須一次寫對。** 所以本機測試要用**正式資料的匯出檔**，
+不能用空庫或假資料。
+
+### 停機多久
+
+`.github/workflows/deploy.yml` 的形狀是：
 
 ```
-pnpm test  →  pnpm build  →  wrangler d1 migrations apply  →  wrangler deploy
-                             ↑ 第 59 行                       ↑ 第 68 行
+pnpm test → pnpm build → wrangler d1 migrations apply → wrangler deploy
+                          ↑ 第 59 行                     ↑ 第 68 行
 ```
 
-**migration 先跑，Worker 後部署。** 中間那一到兩分鐘，舊的 Worker 還在服務，
-但資料庫已經是新的。所以：
+停機 = migration 執行時間 ＋ Worker 部署時間。**migration 那一段只能在有真資料
+的地方量**（見 Phase 0.5），估計是數十秒到數分鐘。
 
-| 動作 | 那一兩分鐘會怎樣 |
-|---|---|
-| 加表、加欄位（nullable / 有 default） | ✅ 舊 Worker 看不到，照常運作 |
-| 改名、刪表、刪欄位 | ❌ 舊 Worker 打不到 → 500 |
-
-**這就是為什麼要 expand / contract**：先加新的、雙寫、切讀、再刪舊的。
-每一步之間 schema 都同時滿足新舊兩版程式。
+📌 **文件不再宣稱「不停機」。** 排在離峰時段，事前公告。
 
 ---
 
@@ -46,17 +60,37 @@ pnpm test  →  pnpm build  →  wrangler d1 migrations apply  →  wrangler dep
 本機看不出來（本機 runner 一句一句跑，PRAGMA 有效）。復原見
 `0028_restore_line_groups.sql`。
 
-**這一輪的地雷清單**（被 CASCADE 指著、不可 DROP）：
+**這一輪的地雷清單**（被 CASCADE 指著，DROP 之前必須先處理）：
 
-| 表 | 被誰用 CASCADE 指著 |
-|---|---|
-| `cyberbiz_products` | `cyberbiz_product_categories` |
-| `zones` | `zone_images` |
-| `customers` | `cyberbiz_customer_webhooks`（SET NULL，但仍會改動）|
-| `roles` / `users` | `role_permissions` / `user_roles` / `user_permissions` |
+| 表 | 被誰用 CASCADE 指著 | 處理順序 |
+|---|---|---|
+| `cyberbiz_products` | `cyberbiz_product_categories` | **先把分類搬進 `items.category_id`**，再 drop 兩張 |
+| `zones` | `zone_images` | 先搬 `wms_zone_images`，再 drop |
+| `roles` / `users` | `role_permissions` / `user_roles` / `user_permissions` | 授權表先搬到新名字 |
+| `inventory_items` | `cyberbiz_product_links` | link 是對照來源，搬完 `items` 才能 drop |
 
 `pnpm generate` 會問「這張表是不是改名了？」——**一定要回答是**。產完之後
 **打開 SQL 確認**，看到 `DROP TABLE` 就是產錯了。
+
+#### 同名不同結構的表要先讓路
+
+`cyberbiz_products` 新舊同名但結構完全不同（舊的 PK 是 `sku`，新的是 `item_id`）。
+在同一支 migration 裡：
+
+```sql
+ALTER TABLE cyberbiz_products RENAME TO cyberbiz_products_old;
+CREATE TABLE cyberbiz_products (...);        -- 新的
+-- 搬資料
+-- ⚠️ 先把 cyberbiz_product_categories 的分類搬進 items.category_id
+DROP TABLE cyberbiz_product_categories;
+DROP TABLE cyberbiz_products_old;
+```
+
+`customers` → `crm_customers`、`saved_views` → `crm_saved_views`、
+`customer_tag_catalog` → `crm_tags`、`users.name` → `google_name`、
+`role_permissions` → `role_permission_grants`、`user_roles` →
+`user_role_assignments`、`user_permissions` → `user_permission_grants`
+都走 `RENAME TO`／`RENAME COLUMN`，不重建。
 
 ### 規則二：資料搬移一定要額外開一個檔案
 
@@ -74,8 +108,8 @@ drizzle 只會產「建新表」與「刪舊表」，中間那段
 
 ## Phase 0：拆掉 stores.json（先做，獨立 PR）
 
-**這一步不動 schema、不動資料**，但它是 Phase 4 的前置條件。單獨做的好處是
-可以馬上驗證（跑一次出金表，看檔案有沒有正常上傳到 Drive）。
+**這一步不動 schema、不動資料**，但它是 `normalized_name` 移除的前置條件。
+單獨做的好處是可以馬上驗證（跑一次出金表，看檔案有沒有正常上傳到 Drive）。
 
 ### 為什麼要先做
 
@@ -132,194 +166,315 @@ npx wrangler d1 execute rueisiang-platform-verify --remote --file prod-backup.sq
 ⚠️ 這台開發機是 Windows on ARM，**跑不了 wrangler**（沒有 workerd）。這一步
 要由人在別的環境執行，或用 Cloudflare 的網頁介面。
 
+本機測試同一份匯出檔也用得上：
+`apps/api/src/local-d1/` 的 `createLocalD1()` 吃 SQLite 檔，把匯出檔灌進去就是
+一份跟正式一樣的資料。
+
 ### 要先量的數字
 
-**D1 跑 migration 時資料庫是鎖住的，那個秒數就是真正的停機時間**，而那只能在
-有真資料的地方量。
+**D1 跑 migration 時資料庫是鎖住的，那個秒數就是停機時間**，而那只能在有真資料
+的地方量。
 
 - 匯出檔大小
 - `customers` 列數
 - `report_sales_monthly` 列數
-- 每一支 migration 在 verify 上跑完要幾秒
+- **整支 migration 在 verify 上跑完要幾秒**（這是要公告的停機時間）
 
 ### 要先跑的驗證查詢
 
-這些的答案會改變後面的做法，**在寫 migration 之前就要有答案**。
+這些的答案會**改變 migration 的寫法**，在寫程式之前就要有答案。
 
 ```sql
--- 1. 有多少 scope 是同名重複的（合併會動到幾筆）
-SELECT normalized_name, scope_kind, COUNT(*) c
+-- ══ items 身分合併 ══
+
+-- 1. 有 link 但 SKU 對不上的（會被錯建成兩個 item——這正是要修的問題）
+SELECT l.id, l.sku AS link_sku, i.sku AS wms_sku, c.sku AS cb_sku
+FROM cyberbiz_product_links l
+JOIN inventory_items i ON i.id = l.inventory_item_id
+LEFT JOIN cyberbiz_products c
+  ON c.product_id = l.cyberbiz_product_id AND c.variant_id = l.cyberbiz_variant_id
+WHERE UPPER(COALESCE(i.sku,'')) <> COALESCE(c.sku,'');
+
+-- 2. inventory_items 有多少筆 sku 是 NULL 或空（items.sku 是 NOT NULL）
+SELECT COUNT(*) FROM inventory_items WHERE sku IS NULL OR sku = '';
+
+-- 3. 其中有多少筆是有 link 的（有 link 就能拿官網 SKU，不用自動編號）
+SELECT COUNT(*) FROM inventory_items i
+JOIN cyberbiz_product_links l ON l.inventory_item_id = i.id
+WHERE i.sku IS NULL OR i.sku = '';
+
+-- 4. cyberbiz_products 的 (product_id, variant_id) 有無重複（要升 UNIQUE）
+SELECT product_id, variant_id, COUNT(*) c
+FROM cyberbiz_products GROUP BY 1,2 HAVING c > 1;
+
+-- ══ 分類 ══
+
+-- 5. custom_report_products.category 有多少不在 report_product_categories 裡
+SELECT DISTINCT category FROM custom_report_products
+WHERE category <> '未分類'
+  AND category NOT IN (SELECT name FROM report_product_categories);
+
+-- 6. inventory_items.category 有多少不在 warehouse_categories 字典裡
+SELECT DISTINCT category FROM inventory_items
+WHERE category NOT IN (SELECT name FROM warehouse_categories);
+
+-- ══ scope 合併 ══
+
+-- 7. 哪些 scope 會被合併（只看同名的，不是全表比對）
+SELECT normalized_name, scope_kind, COUNT(*) c, GROUP_CONCAT(id)
 FROM report_scopes GROUP BY 1,2 HAVING c > 1;
 
--- 2. 有多少 legacy id（不是 cyberbiz:/shopee: 開頭的）
+-- 8. legacy id（不是 cyberbiz:/shopee: 開頭的）
 SELECT id, name FROM report_scopes
 WHERE id NOT LIKE 'cyberbiz:%' AND id NOT LIKE 'shopee:%';
 
--- 3. 合併 scope 會不會撞 report_sales_monthly 的主鍵
-SELECT COUNT(*) FROM report_sales_monthly a
-JOIN report_sales_monthly b
-  ON a.report_month = b.report_month AND a.sku = b.sku AND a.scope_id <> b.scope_id;
-
--- 4. payout_stores.name 與 report_scopes.name 是否完全對應（合併的前提）
+-- 9. payout_stores.name 與 report_scopes.name 是否完全對應（合併的前提）
 SELECT p.name FROM payout_stores p
 LEFT JOIN report_scopes s ON s.name = p.name
 WHERE s.id IS NULL;
 
--- 5. 真正的組合包有幾筆（決定歷史報表要不要人工修）
+-- ══ 外部 SKU 對應 ══
+
+-- 10. 真正的組合包有幾筆（決定歷史報表要不要人工修）
 SELECT mapping_id, COUNT(*) c, MAX(quantity) q
 FROM product_bundle_components GROUP BY 1 HAVING c > 1 OR q > 1;
 
--- 6. 同一個 (channel, external_sku) 同時出現在 mapping 與 ignore（合併會撞 UNIQUE）
+-- 11. 同一個 (channel, external_sku) 同時是 mapping 又是 ignore（合併會撞 UNIQUE）
 SELECT m.channel, m.external_sku FROM product_sku_mappings m
 JOIN report_sku_ignores i ON i.channel = m.channel AND i.external_sku = m.external_sku;
 
--- 7. 蝦皮 external_sku 裡底線超過一個的（拆兩欄會拆錯）
+-- 12. 蝦皮 external_sku 裡底線超過一個的（拆兩欄會拆錯）
 SELECT external_sku FROM product_sku_mappings
 WHERE channel = 'shopee'
   AND length(external_sku) - length(replace(external_sku,'_','')) > 1;
 
--- 8. report_sales_monthly.sku 對不到任何 items 來源的孤兒
+-- ══ 報表事實 ══
+
+-- 13. report_sales_monthly.sku 對不到任何 items 來源的孤兒
 SELECT COUNT(*) FROM report_sales_monthly s
 WHERE NOT EXISTS (SELECT 1 FROM inventory_items i WHERE UPPER(i.sku) = s.sku)
   AND NOT EXISTS (SELECT 1 FROM cyberbiz_products c WHERE c.sku = s.sku)
   AND NOT EXISTS (SELECT 1 FROM custom_report_products p WHERE p.sku = s.sku);
 
--- 9. inventory_items 有多少筆 sku 是 NULL（items.sku 是 NOT NULL）
-SELECT COUNT(*) FROM inventory_items WHERE sku IS NULL OR sku = '';
+-- ══ WMS ══
 
--- 10. inventory_items.shelf_level 的值分布（對不上 wms_shelves 的要有落點）
+-- 14. inventory_items.shelf_level 的值分布（對不上 wms_shelves 的要有落點）
 SELECT shelf_level, COUNT(*) FROM inventory_items GROUP BY 1;
 
--- 11. 有多少 zone_id IS NOT NULL AND shelf_level IS NULL（這些會失去區域資訊）
+-- 15. 有多少 zone_id IS NOT NULL AND shelf_level IS NULL（會失去區域資訊）
 SELECT COUNT(*) FROM inventory_items WHERE zone_id IS NOT NULL AND shelf_level IS NULL;
 
--- 12. inventory_items.category 有多少不在 warehouse_categories 字典裡
-SELECT DISTINCT category FROM inventory_items
-WHERE category NOT IN (SELECT name FROM warehouse_categories);
+-- ══ CRM／權限 ══
 
--- 13. cyberbiz_products 的 (product_id, variant_id) 有無重複（要升 UNIQUE）
-SELECT product_id, variant_id, COUNT(*) c
-FROM cyberbiz_products GROUP BY 1,2 HAVING c > 1;
-
--- 14. 有多少 manual 客戶（決定要不要補推到官網）
+-- 16. 有多少 manual 客戶（決定要不要補推到官網）
 SELECT COUNT(*) FROM customers WHERE source_channel = 'manual';
+
+-- 17. role_permissions 有沒有 PERMISSIONS 以外的鍵值（新的 FK 會擋下來）
+--     PERMISSIONS 的清單要從 packages/auth/src/permissions.ts 貼進來比對
+SELECT DISTINCT permission FROM role_permissions;
 ```
 
 ---
 
-## Phase 1：加東西（零風險）
+## 上線那一次：migration 檔案的順序
 
-**只有 CREATE TABLE 與 nullable 的 ADD COLUMN，舊 Worker 完全不受影響。**
+一次部署，但檔案按子系統垂直切。**這樣 review 跟本機測試都好切，出錯時也看得出
+是哪一段。**
 
-- `item_categories`（含 `parent_id`）
-- `items`
-- `item_components`
-- `wms_shelves`
-- `wms_layouts` / `wms_layout_elements`
-- `scopes`
-- `report_external_products`
-- `report_runs` / `report_run_scopes` / `report_run_reports`
-- `report_item_sales_monthly`
-- `report_payout_daily_v2`（暫名，Phase 5 才改回正式名）
-- `report_ingest_issues`
-- `crm_tags` 的新欄位、`crm_customer_tags`
-- `cyberbiz_webhook_events`
-- `crm_customers` 補上要攤平進來的 CYBERBIZ 欄位（全部 nullable）
-- `media_objects.storage_provider`（有 default）
+```
+0080_permissions_catalog        權限鏡像表 ＋ 兩張授權表改名、加 FK
+0081_items_foundation           item_categories / items / cyberbiz_products / item_components
+0082_backfill_items             ⚠️ 手寫：三層優先順序 ＋ _migration_item_map
+0083_wms_tables                 wms_shelves / wms_layouts / wms_layout_elements / wms_items
+0084_backfill_wms               ⚠️ 手寫：幾何、層、庫存
+0085_report_tables              scopes / report_runs / 事實表 / issues
+0086_backfill_reports           ⚠️ 手寫：scope 合併、外部對應、事實表
+0087_crm_tables                 crm_tags / crm_customer_tags ＋ customers 改名與攤平
+0088_backfill_crm               ⚠️ 手寫：標籤炸開
+0089_rewrite_activity           ⚠️ 手寫：entity_type 與 entity_id
+0090_drop_legacy                最後才刪，順序見「地雷清單」
+```
 
-這一步之後**新舊表並存，程式還在讀舊的**。可以放著跑幾天觀察。
+📌 **`0090` 之前每一支都不刪東西**。真的出事時，停在 `0089` 的資料庫是新舊並存的，
+還救得回來。
 
 ---
 
-## Phase 2：搬資料（手寫，最需要測試）
+## 搬移的細節
 
-每一段都要有對應的測試，照 `activity-migration.test.ts` 的形狀寫。
+### items：三層優先順序（⚠️ 不能只靠 SKU）
 
-### 2.1 建立 `items`（最重要的一段）
+現有真正的 WMS↔CYBERBIZ 關係在 `cyberbiz_product_links`，不是 SKU 相等。
+`wms-sync.ts` 的不變條件第 3 條就是「**SKU 對不上 → 連結失效**」——也就是說
+**SKU 對不上的連結是存在的**，只是被標記成失敗。
 
-三個來源合成一個身分空間。**順序有意義**：先建 CYBERBIZ 的（它有最完整的
-名稱），再補 WMS 只有的，最後是自訂的。
+只用 SKU 比對的話，那些會被錯建成兩個 item，**正好把這次要修的問題固化下來**。
 
-```sql
--- (a) CYBERBIZ 商品
-INSERT INTO items (id, source, kind, sku, name, active, created_at, updated_at)
-SELECT lower(hex(randomblob(16))), 'cyberbiz', 'sellable',
-       c.sku, c.product_name, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-FROM cyberbiz_products c;
-
--- (b) WMS 有、官網沒有的（自製材料、包材）
-INSERT INTO items (id, source, kind, sku, name, active, created_at, updated_at)
-SELECT lower(hex(randomblob(16))), 'custom', 'supply',
-       UPPER(i.sku), i.name, 1, i.created_at, i.updated_at
-FROM inventory_items i
-WHERE i.sku IS NOT NULL AND i.sku <> ''
-  AND NOT EXISTS (SELECT 1 FROM cyberbiz_products c WHERE c.sku = UPPER(i.sku));
-
--- (c) 報表自訂商品
-INSERT INTO items (...) SELECT ... FROM custom_report_products p
-WHERE NOT EXISTS (SELECT 1 FROM items x WHERE x.sku = p.sku);
+```
+1. cyberbiz_product_links（inventory_item_id ↔ product_id + variant_id）
+2. 精確的 source + 正規化 SKU（UPPER + TRIM）
+3. 都對不到 → 才建 custom item
 ```
 
-⚠️ **驗證查詢 9**：`inventory_items.sku` 可以是 NULL，但 `items.sku` 是
-NOT NULL。有 NULL 的話要先決定自動編號規則（建議 `WMS-` + 流水號），
-而且要寫進 migration 而不是事後手動補。
+⚠️ `inventory_items.sku` 可以是 NULL（驗證查詢 2、3）。有 link 的走第 1 層拿官網
+SKU；沒有 link 又沒有 SKU 的，用 `WMS-` + 原 id 後八碼 —— 醜但唯一，而且看得出
+是自動產生的，之後人搜得出來改。
 
-⚠️ **`kind` 的初始值**：(a) 全部給 `sellable`，(b) 全部給 `supply`。
-分錯的（例如官網有賣的紅紙袋其實是包材）留給人事後在 UI 改——**分錯看得見，
-反過來會默默消失在報表裡**。
-
-### 2.2 建立對照表（後面每一段都要用）
+#### 對照表要**持久化**，不用 TEMP
 
 ```sql
-CREATE TEMP TABLE item_map AS
-SELECT i.id AS item_id, i.sku, i.source,
-       (SELECT id FROM inventory_items w WHERE UPPER(w.sku) = i.sku) AS old_inventory_id,
-       (SELECT sku FROM cyberbiz_products c WHERE c.sku = i.sku) AS old_cyberbiz_sku,
-       (SELECT id FROM custom_report_products p WHERE p.sku = i.sku) AS old_custom_id
-FROM items i;
+CREATE TABLE _migration_item_map (
+  old_type   VARCHAR(20)  NOT NULL,   -- 'inventory' | 'cyberbiz' | 'custom'
+  old_id     VARCHAR(255) NOT NULL,
+  item_id    VARCHAR(36)  NOT NULL,
+  -- 靠哪一條規則配對到的，出事時第一個要看的東西
+  matched_by VARCHAR(20)  NOT NULL,   -- 'link' | 'sku' | 'new'
+  PRIMARY KEY (old_type, old_id)
+);
 ```
 
-### 2.3 合併 scope（⚠️ 會撞主鍵）
+兩個理由：
 
-驗證查詢 1 與 3 的答案決定這一段。
+1. **TEMP table 活不過 migration 檔案之間**（每支各自一個 transaction，
+   可能不同連線），而 `0082` 建的對照表 `0086`、`0089` 都要用
+2. **上線後要查得到**。下週有人問「為什麼這兩個商品變成同一個了」，
+   沒有對照表就只能猜
+
+📌 這張表**留著不刪**。幾千列，是這次搬移唯一的稽核紀錄。
+
+### 分類
 
 ```sql
-CREATE TEMP TABLE scope_merge AS
-SELECT s.id AS old_id,
-       (SELECT s2.id FROM report_scopes s2
-         WHERE s2.normalized_name = s.normalized_name
-           AND s2.scope_kind = s.scope_kind
-         ORDER BY s2.created_at LIMIT 1) AS keep_id
-FROM report_scopes s;
+-- report_product_categories → item_categories（全部成為大分類，現在沒有階層）
+INSERT INTO item_categories
+  (id, depth, parent_id, parent_depth, name, color, sort_order, active, created_at, updated_at)
+SELECT id, 0, NULL, NULL, name, color, 0, 1, created_at, updated_at
+FROM report_product_categories;
 ```
 
-⚠️ `report_sales_monthly` 的主鍵是 `(scope_id, report_month, sku)`。兩個 scope
-合併時**同月同 SKU 會撞**——必須**先加總再寫**，不可以直接 UPDATE。
-這一段一定要有測試。
-
-### 2.4 標籤 JSON 炸開
+✅ id 直接沿用，後面指過來的東西都不用改。
 
 ```sql
--- 字典裡沒有的標籤先補建
+-- CYBERBIZ 商品的分類在 cyberbiz_product_categories
+UPDATE items SET category_id = (
+  SELECT c.category_id FROM cyberbiz_product_categories c
+  JOIN _migration_item_map m ON m.old_type = 'cyberbiz' AND m.old_id = c.sku
+  WHERE m.item_id = items.id
+) WHERE source = 'cyberbiz';
+
+-- 自訂商品的分類是名字字串，要先對到字典
+UPDATE items SET category_id = (
+  SELECT ic.id FROM custom_report_products p
+  JOIN _migration_item_map m ON m.old_type = 'custom' AND m.old_id = p.id
+  JOIN item_categories ic ON ic.name = p.category AND ic.parent_id IS NULL
+  WHERE m.item_id = items.id
+) WHERE source = 'custom' AND category_id IS NULL;
+```
+
+⚠️ 驗證查詢 5：對不到的分類名稱**要先建進 `item_categories`**，不能默默丟掉。
+「未分類」→ NULL。
+
+⚠️ **`cyberbiz_product_categories` 用 CASCADE 指著 `cyberbiz_products`**，
+所以上面這兩段一定要在 drop 之前跑完。
+
+### scope 合併：⚠️ 不可以直接加總
+
+同月同 SKU 撞主鍵時**不能無條件加總**。如果兩個 scope 是同一家店被重複匯入的
+alias，加總會把銷量與金額**算兩次**。
+
+先建 canonical map，**只看會被合併的 scope**（驗證查詢 7），再分三種情況：
+
+```sql
+CREATE TABLE _migration_scope_map (
+  old_id  VARCHAR(36) PRIMARY KEY,
+  keep_id VARCHAR(36) NOT NULL
+);
+```
+
+| 情況 | 處理 |
+|---|---|
+| 兩邊數值**完全一致** | 去重，只留一筆 |
+| 月份／日期**互補**（各自有對方沒有的期間）| 可以合併 |
+| **同鍵但數值不同** | 🚫 **擋下 migration**，產人工確認清單 |
+
+第三種不能自動決定——那代表同一家店同一個月有兩個不同的數字，只有人知道哪個對。
+
+📌 **出金（`report_payout_daily`）要做同一套檢查**，不能只做銷售。
+
+### 報表事實表
+
+```sql
+-- 先建一筆「搬移」的 run，讓歷史列有東西可以指
+INSERT INTO report_runs
+  (id, request_id, source_type, imports_sales, imports_payout,
+   period_kind, start_date, end_date, status, actor_email, created_at, updated_at)
+VALUES
+  ('...', 'migration:cyberbiz:0086', 'cyberbiz', 1, 1, 'custom',
+   (SELECT MIN(business_date) FROM report_payout_daily),
+   (SELECT MAX(business_date) FROM report_payout_daily),
+   'succeeded', 'system@migration', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+```
+
+理由：`report_run_id` 的 CHECK 要求 imported 列一定有 run，而歷史資料沒有。
+用 NULL 的話那個 NULL 會有兩種意思（「歷史」還是「run 被刪了」），假 run 沒有
+這個問題——`request_id` 的前綴與 `actor_email` 一眼看得出來。
+
+```sql
+INSERT INTO report_item_sales_monthly
+  (scope_id, report_month, item_id, record_origin, report_run_id,
+   gross_quantity, return_quantity, net_quantity, sales_amount,
+   item_name_snapshot, category_name_snapshot, category_parent_name_snapshot,
+   updated_by_email, created_at, updated_at)
+SELECT COALESCE(sm.keep_id, s.scope_id), s.report_month, m.item_id,
+       'imported', (SELECT id FROM report_runs WHERE request_id = 'migration:cyberbiz:0086'),
+       s.gross_quantity, s.return_quantity, s.net_quantity, s.sales_amount,
+       -- 舊表本來就有這兩欄快照，直接沿用
+       s.product_name, s.category, '',
+       '', s.updated_at, s.updated_at
+FROM report_sales_monthly s
+JOIN _migration_item_map m ON m.old_id = s.sku
+LEFT JOIN _migration_scope_map sm ON sm.old_id = s.scope_id;
+```
+
+⚠️ **`JOIN _migration_item_map` 是 INNER JOIN**——對不到的列會被默默丟掉。
+驗證查詢 13 就是在數這個。**對不到的必須先有落點**，不能靠 JOIN 吃掉。
+
+⚠️ `category_parent_name_snapshot` 搬移時一律 `''`：現在沒有階層，都是大分類。
+之後建了階層，新資料才會有值。
+
+人工的那一張 `record_origin='manual'`、`report_run_id` 是 NULL、
+`updated_by_email` 從舊表帶過來。出金兩張同理，只是沒有商品與分類。
+
+### 標籤：⚠️ 要先複製字典
+
+```sql
+-- 1. 先整份複製 catalog——漏了這步的話，字典裡本來就有的標籤（VIP）
+--    不會進 crm_tags，第 3 步的 JOIN 就對不到，那些關聯會全部消失
+INSERT INTO crm_tags (id, name, created_at, updated_at)
+SELECT id, name, created_at, updated_at FROM customer_tag_catalog;
+
+-- 2. 再補客戶身上有、字典沒有的
 INSERT INTO crm_tags (id, name, created_at, updated_at)
 SELECT DISTINCT lower(hex(randomblob(16))), json_each.value,
        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 FROM customers, json_each(customers.cyberbiz_tags_json)
-WHERE json_each.value NOT IN (SELECT name FROM customer_tag_catalog);
+WHERE json_each.value NOT IN (SELECT name FROM crm_tags);
 
--- 再炸開成關聯
+-- 3. 最後炸開成關聯
 INSERT INTO crm_customer_tags (customer_id, crm_tag_id)
 SELECT c.id, t.id
 FROM customers c, json_each(c.cyberbiz_tags_json)
 JOIN crm_tags t ON t.name = json_each.value;
 ```
 
-### 2.5 外部 SKU 對應（mapping + ignore 合併、身分拆兩欄）
+📌 順序不能換。
 
-⚠️ 驗證查詢 6：同一個 `(channel, external_sku)` 同時在兩邊的話會撞 UNIQUE，
-要先決定哪一邊贏（建議 **ignore 贏**——那是刻意設定的）。
+### 外部 SKU 對應
 
-⚠️ 驗證查詢 7：蝦皮的底線拆法
+⚠️ 驗證查詢 11：同一個 `(channel, external_sku)` 同時在 mapping 與 ignore 兩邊
+會撞 UNIQUE。**ignore 贏**——那是刻意設定的，mapping 可能只是還沒清掉。
+
+⚠️ 驗證查詢 12：蝦皮的底線拆法
 
 ```sql
 external_key = CASE WHEN instr(external_sku,'_') > 0
@@ -330,13 +485,13 @@ external_variant_key = CASE WHEN instr(external_sku,'_') > 0
                     ELSE '' END
 ```
 
-⚠️ **組合包**（驗證查詢 5）：
+⚠️ **組合包**（驗證查詢 10）：
 - 一列且數量 1 → `item_id` 直接指過去，不建 `item_components`
 - 多列或數量 > 1 → 建一個 `source='custom'` 的 item ＋ N 列 `item_components`。
   名稱只能用 `external_name`——搬移程式看不出它是不是對應官網某個真的禮盒，
   **搬完要產一份人工確認清單**
 
-### 2.6 `activity_events.entity_type` 改值
+### `activity_events`
 
 ```sql
 UPDATE activity_events SET entity_type = 'item'
@@ -344,85 +499,76 @@ UPDATE activity_events SET entity_type = 'item'
 UPDATE activity_events SET entity_type = 'scope'  WHERE entity_type = 'report_scope';
 UPDATE activity_events SET entity_type = 'wms_category'
   WHERE entity_type = 'warehouse_category';
+
+-- ⚠️ entity_id 也要改：items 的 id 是重新產生的
+UPDATE activity_events SET entity_id = (
+  SELECT m.item_id FROM _migration_item_map m
+  WHERE m.old_type = 'inventory' AND m.old_id = activity_events.entity_id
+) WHERE entity_type = 'item'
+  AND EXISTS (SELECT 1 FROM _migration_item_map m
+              WHERE m.old_type = 'inventory' AND m.old_id = activity_events.entity_id);
 ```
 
-⚠️ **`entity_id` 也要改**——items 的 id 是重新產生的，舊紀錄指的是舊 id。
-用 2.2 的 `item_map` 一起改。
-
 不改的話「這個商品的歷程」只看得到搬移之後的紀錄：**頁面正常打開、沒有錯誤、
-只是空的**。而且 `report_item_sales_monthly` 不存名稱快照就是靠這條路。
-
-### 2.7 其餘
-
-- `zones` / `layout_elements` 的幾何 → `wms_layout_elements`
-- `zones.shelf_levels`（JSON）→ `wms_shelves`（驗證查詢 10、11）
-- `payout_stores` + `report_scopes` + `shopee_sales_settings` → `scopes`
-- 三張 `*_runs` → `report_runs` + `report_run_scopes`
-- 兩張 webhook 表 → `cyberbiz_webhook_events`
-- `customers` 的 CYBERBIZ 欄位就地留著（同一張表，不用搬）
+只是空的**。
 
 ---
 
-## Phase 3：雙寫
+## Parity check：搬完一定要對數字
 
-程式改成**同時寫新舊兩份**，讀還是讀舊的。
+寫成 migration 的**測試**，不是人工跑一次。
 
-這一步是為了讓 Phase 2 到 Phase 4 之間新進來的資料不會漏。跑一整天，用
-Phase 2 的搬移查詢對一次兩邊的筆數。
+```sql
+-- 銷售：三個數字都要一模一樣
+SELECT SUM(net_quantity), SUM(sales_amount), COUNT(*) FROM report_sales_monthly;
+SELECT SUM(net_quantity), SUM(sales_amount), COUNT(*)
+FROM report_item_sales_monthly WHERE record_origin = 'imported';
 
----
+-- 出金
+SELECT SUM(payout_amount), COUNT(*) FROM report_payout_daily_old;
+SELECT SUM(payout_amount), COUNT(*)
+FROM report_payout_daily WHERE record_origin = 'imported';
 
-## Phase 4：切讀
+-- 逐月對，不要只對總數（總數相同但月份錯位看不出來）
+SELECT report_month, SUM(sales_amount) FROM ... GROUP BY 1;
 
-`packages/db` 的查詢改成讀新表。**這是使用者會第一次看到差異的一步。**
+-- 客戶、標籤關聯、item 數
+SELECT COUNT(*) FROM customers;                    -- vs crm_customers
+SELECT COUNT(*) FROM crm_customer_tags;            -- vs JSON 炸開的總數
+SELECT COUNT(*) FROM _migration_item_map;          -- vs 三個來源的去重總數
+```
 
-會變的行為（要在 PR 說明裡列出來，並在畫面上準備好）：
-
-| 變化 | 影響誰 |
-|---|---|
-| 客戶列表少了「來源」篩選 | CRM |
-| 標籤字典變成唯一來源（沒有「字典外的標籤」了）| CRM、小香 |
-| 報表存禮盒不存用料 | 報表、統計圖 |
-| 改分類會改變歷史報表的分佈 | 統計圖 |
-| 小香問庫存改打 CYBERBIZ API | 小香 |
-
-⚠️ **同時要驗的三個工具回傳形狀**：`listTags`、`customerStats`、`loadWarehouse`。
-每個都要有測試釘住。
-
-⚠️ **`normalized_name` 的移除只能在 Phase 0 完成之後**。順序反了，改店名會
-靜靜地把資料切成兩半。
+⚠️ **筆數可以不同**（scope 合併會讓筆數變少），**但金額與數量的總和必須完全
+相等**。不相等就是 migration 失敗，不准繼續。
 
 ---
 
-## Phase 5：刪舊的（唯一有停機風險的一步）
+## 上線流程
 
-`DROP TABLE` 與 `ALTER TABLE ... RENAME`。這一步的那一兩分鐘，舊 Worker 會 500。
+1. **備份**：`wrangler d1 export`，並在 verify DB 上**試還原一次**
+   （沒試過的備份不算備份）
+2. 公告維護窗口（時間長度來自 Phase 0.5 的量測）
+3. merge → `deploy.yml` 自動跑 migration ＋ 部署
+4. 跑 parity check 的查詢，對數字
+5. 手動走一次：客戶列表、倉庫地圖、商品銷售報表、出金報表、小香問一次庫存
 
-**降到最低的做法**：
+### 回滾
 
-1. 排在離峰時段
-2. **一次只刪一組**，每組之間隔一次部署
-3. 刪之前再確認一次沒有任何程式引用（`grep` 舊表名，包含測試與
-   `packages/tools`）
-4. ⚠️ **絕對不要 DROP 被 CASCADE 指著的表**——見規則一的地雷清單。要刪的話
-   先把子表的外鍵挪開
+**沒有 migration 層級的回滾。** 出錯的處理是：
 
-要刪的：`inventory_items`、`cyberbiz_product_links`、`custom_report_products`、
-`product_sku_mappings`、`product_bundle_components`、`report_sku_ignores`、
-`report_sales_monthly`、`report_manual_sales_monthly`、`report_manual_payout_daily`、
-`report_scopes`、`payout_stores`、`payout_runs`、`cyberbiz_report_runs`、
-`shopee_sales_settings`、`shopee_sales_runs`、`warehouse_settings`、
-`warehouse_categories`、`zones`、`layout_elements`、`zone_images`、
-`customer_tag_catalog`、`saved_views`、`cyberbiz_customer_webhooks`、
-`cyberbiz_product_webhooks`、`report_product_categories`、
-`cyberbiz_product_categories`、`cyberbiz_products`（改名後重建）
+1. 還原備份（`wrangler d1 execute --file`）
+2. 部署上一版 Worker
+
+所以第 1 步的備份驗證**不可以跳過**。
 
 ---
 
-## Phase 6：收尾
+## 上線後的收尾
 
-- 移除 `packages/db` 裡的雙寫程式碼與過渡期註解
-- 小香的 8 個工具跟著新的函式回傳形狀更新
+- 移除 `packages/db` 裡指向舊表的死程式碼
+- 小香的 8 個工具跟著新的函式回傳形狀更新，三個變形狀的各補一個測試
+  （`listTags` / `customerStats` / `loadWarehouse`）
+- `writePermissions` 補上 PERMISSIONS 檢查（跟 `grantPermission` 同一套判斷）
 - ➕ **webhook 事件的清理排程**（cron 已經每 15 分在跑，順手加一段）：
   ```sql
   DELETE FROM cyberbiz_webhook_events
@@ -433,25 +579,10 @@ Phase 2 的搬移查詢對一次兩邊的筆數。
 
 ---
 
-## 回滾
-
-**Phase 1–3 可以直接回滾**（新表沒人讀，留著不礙事）。
-
-**Phase 4 之後不能靠 migration 回滾**——資料已經只寫新表了。回滾的方式是
-**部署上一版 Worker**，然後從備份補資料。
-
-所以：
-
-1. **Phase 4 之前一定要有一份 `wrangler d1 export` 的備份**，而且要驗證過
-   它匯得回去（在 verify DB 上試一次）
-2. Phase 5 之前再做一次
-
----
-
 ## 分工
 
 **同一時間只能有一個人改 schema。** 這是這次最大的協作風險——兩個 agent 各自
 跑 `pnpm generate` 會產生編號衝突的 migration（這件事這個 repo 已經發生過一次，
 `0070` 撞號）。
 
-建議：整個 Phase 1–5 由同一個 worktree 完成，另一邊只做 review。
+建議：`0080`–`0090` 由同一個 worktree 完成，另一邊只做 review。

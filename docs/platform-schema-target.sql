@@ -8,11 +8,14 @@
 --
 -- 每張表為什麼這樣改，見 docs/platform-schema-overhaul.md。
 --
--- 範圍：第一階段只動非小香的表。小香的 18 張表（assistant_*）第一階段完全不動，
+-- 範圍：第一階段只動非小香的表。小香的 15 張表（assistant_*）第一階段完全不動，
 -- 它們對外只有 created_by / updated_by / actor_id → users(id) 這一種相依，
 -- 而 users 這一輪維持原樣。
 --
--- 現況 51 張 → 這裡 31 張。
+-- 帳：現況 D1 有 51 張（其中小香 15 張）。這份檔案是非小香的 32 張，加上不動的
+-- 15 張，第一階段結束後實體 D1 是 47 張。
+-- （Codex 草案的 62 張裡，小香那邊有 19 張——多出來的 4 張是 Durable Object
+--   SQLite 上的，不在 D1。）
 -- =============================================================================
 
 
@@ -74,18 +77,38 @@ CREATE TABLE roles (
 
 
 /*
- * 角色擁有的權限。
+ * 權限目錄。
  *
- * permission 是字串鍵值（如 crm:customer:write），定義在 packages/auth 的
- * 程式碼裡而非資料表——放進 DB 只會讓「有哪些權限」與「程式檢查哪些權限」
- * 兩邊漂移。
+ * **唯一來源仍然是 `packages/auth/src/permissions.ts` 的 PERMISSIONS**；這張表
+ * 是它的鏡像，由權限管理頁的「重新同步」（syncSystemRoles）寫入，不由人維護。
+ *
+ * 存在的理由只有一個：讓兩張授權表有外鍵可以指。舊版兩條寫入路的檢查不一致——
+ * 給「人」的權限有擋（`admin.ts` 的 grantPermission 會查 PERMISSIONS），給
+ * 「角色」的沒有（writePermissions 原封不動寫入），所以塞得進不存在的鍵值。
+ * 那不會提權（can() 拿實際鍵值比對，打錯的字串永遠對不到任何檢查），但畫面上
+ * 會出現一個勾了卻沒有作用的權限。
+ *
+ * ⚠️ 兩張授權表的 FK 是 **RESTRICT 不是 CASCADE**。從 permissions.ts 刪掉一個
+ *    權限時，sync 必須**先明確收回所有授權**才刪得掉這一列——用 CASCADE 的話
+ *    那一步會靜靜地把所有人的授權刪光，就是 0023 刪掉 assistant_line_groups
+ *    的同一個形狀。
+ */
+CREATE TABLE permissions (
+  permission VARCHAR(255) PRIMARY KEY,
+  synced_at  TIMESTAMP    NOT NULL
+);
+
+
+/*
+ * 角色擁有的權限。permission 指向 permissions 這張鏡像表，見上面的註解。
  */
 CREATE TABLE role_permission_grants (
   role_id    VARCHAR(36)  NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-  permission VARCHAR(255) NOT NULL,
+  permission VARCHAR(255) NOT NULL REFERENCES permissions(permission) ON DELETE RESTRICT,
   created_at TIMESTAMP    NOT NULL,
   PRIMARY KEY (role_id, permission)
 );
+CREATE INDEX idx_role_permission_grants_permission ON role_permission_grants(permission);
 
 
 /*
@@ -114,11 +137,12 @@ CREATE TABLE user_role_assignments (
  */
 CREATE TABLE user_permission_grants (
   user_id    VARCHAR(36)  NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  permission VARCHAR(255) NOT NULL,
+  permission VARCHAR(255) NOT NULL REFERENCES permissions(permission) ON DELETE RESTRICT,
   granted_by VARCHAR(36),
   created_at TIMESTAMP    NOT NULL,
   PRIMARY KEY (user_id, permission)
 );
+CREATE INDEX idx_user_permission_grants_permission ON user_permission_grants(permission);
 
 
 -- =============================================================================
@@ -172,20 +196,45 @@ CREATE INDEX idx_media_objects_expires_at ON media_objects(expires_at)
  * parent_id **固定兩層**：圓餅圖先看大分類，展開才看小分類。不做無限層——
  * 遞迴查詢在 D1 上很貴，而且沒有人畫得出三層以上的圓餅圖。
  * 「未分類」用 NULL 表示，不做成一列資料（做成資料列的話它會被人改名、刪掉）。
+ *
+ * 「固定兩層」是**用 SQL 真的擋住的**，不是靠程式自律：
+ *   depth + parent_depth ＋ 複合外鍵指向 UNIQUE(id, depth)，所以子分類的父親
+ *   depth 必須是 0——depth 1 的列當不了別人的父親，第三層與自環都插不進去。
+ * 單純一個 self-FK 擋不住這兩件事（實測會成功），所以才多兩個欄位。
+ *
+ * 根分類的同名檢查也不能靠 UNIQUE(parent_id, name)：SQLite 的 UNIQUE 把每個
+ * NULL 當成不同值，兩個 parent_id IS NULL 的「沐浴清潔」會同時存在（實測成功）。
+ * 所以拆成兩支 partial unique index。
  */
 CREATE TABLE item_categories (
-  id         VARCHAR(36)  PRIMARY KEY,
+  id           VARCHAR(36)  PRIMARY KEY,
+  -- 0＝大分類、1＝小分類
+  depth        INTEGER      NOT NULL DEFAULT 0,
+  parent_id    VARCHAR(36),
+  -- 只為了讓複合外鍵能要求「父親的 depth 是 0」，永遠是 0 或 NULL
+  parent_depth INTEGER,
+  name         VARCHAR(255) NOT NULL,
+  color        VARCHAR(50)  NOT NULL DEFAULT 'rose',
+  sort_order   INTEGER      NOT NULL DEFAULT 0,
+  active       INTEGER      NOT NULL DEFAULT 1,
+  created_at   TIMESTAMP    NOT NULL,
+  updated_at   TIMESTAMP    NOT NULL,
+
+  UNIQUE (id, depth),
+  CHECK (depth IN (0, 1)),
+  -- 大分類沒有父親，小分類一定有
+  CHECK ((depth = 0) = (parent_id IS NULL)),
+  CHECK (parent_id IS NULL OR parent_depth = 0),
   -- RESTRICT：大分類底下還有小分類就不准刪。CASCADE 會連坐刪掉整棵子樹
-  parent_id  VARCHAR(36)  REFERENCES item_categories(id) ON DELETE RESTRICT,
-  name       VARCHAR(255) NOT NULL,
-  color      VARCHAR(50)  NOT NULL DEFAULT 'rose',
-  sort_order INTEGER      NOT NULL DEFAULT 0,
-  active     INTEGER      NOT NULL DEFAULT 1,
-  created_at TIMESTAMP    NOT NULL,
-  updated_at TIMESTAMP    NOT NULL,
-  -- 同一個父分類底下不可同名；不同父分類底下可以（「禮盒/大」與「補充包/大」）
-  UNIQUE (parent_id, name)
+  FOREIGN KEY (parent_id, parent_depth)
+    REFERENCES item_categories(id, depth) ON DELETE RESTRICT
 );
+-- 大分類之間不可同名
+CREATE UNIQUE INDEX idx_item_categories_root_name
+  ON item_categories(name) WHERE parent_id IS NULL;
+-- 同一個大分類底下的小分類不可同名；不同大分類底下可以（「禮盒/大」與「補充包/大」）
+CREATE UNIQUE INDEX idx_item_categories_child_name
+  ON item_categories(parent_id, name) WHERE parent_id IS NOT NULL;
 CREATE INDEX idx_item_categories_parent ON item_categories(parent_id, sort_order);
 
 
@@ -627,7 +676,12 @@ CREATE TABLE scopes (
   created_at        TIMESTAMP     NOT NULL,
   updated_at        TIMESTAMP     NOT NULL,
   UNIQUE (source_type, normalized_name),
-  CHECK (source_type IN ('cyberbiz','shopee')),
+  /*
+   * source_type 刻意**沒有 CHECK**：SQLite 改不了 CHECK，加一個來源（momo）就得
+   * 重建整張表，而重建正是這個 repo 踩過的 DROP TABLE 連坐刪除地雷。值域由
+   * TypeScript 的 ReportSourceType 把關——那本來就是唯一來源。
+   * scope_kind 相反：它是穩定的封閉值域，加值的機率遠低於加來源，所以留 CHECK。
+   */
   CHECK (scope_kind IN ('store','channel','company'))
 );
 CREATE INDEX idx_scopes_pick ON scopes(scope_kind, active, sort_order);
@@ -735,7 +789,7 @@ CREATE TABLE report_runs (
   updated_at           TIMESTAMP    NOT NULL,
 
   CHECK (imports_sales = 1 OR imports_payout = 1),
-  CHECK (source_type IN ('cyberbiz','shopee')),
+  -- source_type 沒有 CHECK，理由同 scopes
   CHECK (status IN ('queued','running','succeeded','failed')),
   CHECK (period_kind IN ('month','custom'))
 );
@@ -784,16 +838,19 @@ CREATE TABLE report_run_reports (
  * 那條規則只在一個共用函式實作，不要在各統計裡各寫一次。
  *
  * 商品身分用 item_id 不用 SKU：SKU 會被改，改了之後同一個商品在報表裡會裂成
- * 兩筆。
+ * 兩筆。**所有的分組與加總都用 item_id**，快照只拿來顯示。
  *
- * **不存名稱／分類／單價快照**，一律 join items：
- *   - 分類階層要快照的話得連父帶子抄兩欄，改階層時歷史就對不上
- *   - 同一個商品在報表裡出現兩個名字，同仁會以為是兩個商品
+ * **名稱與分類存快照**，因為報表是歷史事實：
+ *   - 分類每季可能調整，不存快照的話改一次分類就把過去的圓餅圖全部洗掉
+ *   - 兩層分類要連父帶子一起存，只存子分類的話上層還是會跟著現在的階層跑
+ *   - 舊版 report_sales_monthly 本來就有 product_name 與 category 兩欄——
+ *     不存等於把手上已經有的資料丟掉，而那是回不來的
+ *   - activity_events **不能**取代快照：商品建立時不一定有分類事件，父子關係
+ *     也要一起還原，而且查不到「第一次修改以前」的值
+ *
+ * 兩個沒有存的：
  *   - 單價 = sales_amount ÷ net_quantity，本來就算得出來
- *   - 要「當時叫什麼」時從 activity_events 查得到
- *     （idx_activity_entity_created 就是為這種查法建的）
- * ⚠️ 代價：改分類會回頭改變歷史報表的分佈。內部分析可接受；要拿去對帳的話
- *    這個決定要重新討論。
+ *   - source 在 items 上不可變，join 得到，不會因為時間而不同
  *
  * 賣出去的是什麼就存什麼：禮盒就是禮盒，不展開成用料（見 item_components）。
  */
@@ -804,13 +861,28 @@ CREATE TABLE report_item_sales_monthly (
   -- 'imported' | 'manual'
   record_origin    VARCHAR(20) NOT NULL,
 
-  -- 匯入的列才有。刪掉執行紀錄不該連坐刪掉報表資料
-  report_run_id    VARCHAR(36) REFERENCES report_runs(id) ON DELETE SET NULL,
+  /*
+   * 匯入的列一定有；人工的列一定沒有。
+   * RESTRICT 不是 SET NULL：執行紀錄是稽核資料，本來就不該隨手刪；而且
+   * SET NULL 會直接違反下面那條 CHECK，變成一個宣稱可以刪、實際刪不掉的外鍵。
+   * 真要清掉一次跑壞的執行，正確順序是先刪它寫進來的報表資料，再刪 run。
+   * 搬移進來的歷史資料指向一筆 request_id = 'migration:*' 的 run。
+   */
+  report_run_id    VARCHAR(36) REFERENCES report_runs(id) ON DELETE RESTRICT,
 
   gross_quantity   INTEGER NOT NULL DEFAULT 0,
   return_quantity  INTEGER NOT NULL DEFAULT 0,
   net_quantity     INTEGER NOT NULL DEFAULT 0,
   sales_amount     INTEGER NOT NULL DEFAULT 0,
+
+  /*
+   * 匯入／建立當下的名稱與分類。只拿來顯示，分組與加總一律用 item_id。
+   * 分類要連父帶子存：只存子分類的話，改階層時上層還是會跟著現在的走。
+   * 沒有分類時兩欄都是 ''（對應 items.category_id IS NULL）。
+   */
+  item_name_snapshot            VARCHAR(500) NOT NULL DEFAULT '',
+  category_name_snapshot        VARCHAR(255) NOT NULL DEFAULT '',
+  category_parent_name_snapshot VARCHAR(255) NOT NULL DEFAULT '',
 
   -- 人工修訂列表直接顯示這一欄（ManualReports.tsx）；改成 join activity_events
   -- 的話一頁 20 列要查 20 次
@@ -842,7 +914,8 @@ CREATE TABLE report_payout_daily (
   business_date    VARCHAR(10) NOT NULL,   -- 'YYYY-MM-DD'
   record_origin    VARCHAR(20) NOT NULL,
 
-  report_run_id    VARCHAR(36) REFERENCES report_runs(id) ON DELETE SET NULL,
+  -- RESTRICT，理由同 report_item_sales_monthly
+  report_run_id    VARCHAR(36) REFERENCES report_runs(id) ON DELETE RESTRICT,
   payout_amount    INTEGER     NOT NULL DEFAULT 0,
 
   updated_by_email VARCHAR(255) NOT NULL DEFAULT '',
@@ -873,6 +946,11 @@ CREATE INDEX idx_payout_daily_date ON report_payout_daily(business_date, scope_i
  *    清單的話，每個月跳同一批，提醒很快就沒人看。
  */
 CREATE TABLE report_ingest_issues (
+  /*
+   * 這裡是 CASCADE，兩張報表事實表是 RESTRICT——刻意不同，不是漏改。
+   * issue 是那次執行的附屬紀錄，run 沒了它就沒有意義；報表事實相反，
+   * 它要活得比 run 久。
+   */
   report_run_id        VARCHAR(36)  NOT NULL REFERENCES report_runs(id) ON DELETE CASCADE,
 
   external_key         VARCHAR(255) NOT NULL,

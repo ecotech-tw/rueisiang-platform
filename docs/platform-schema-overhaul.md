@@ -5,8 +5,11 @@
 [`platform-schema-migration-plan.md`](./platform-schema-migration-plan.md)。
 
 輸入是 `rueisiang-platform-codex/docs/platform-target-schema.sqlite.sql`
-（草案，62 張表）。逐表對照現況（51 張）之後的結論：**第一階段保留 31 張**，
-小香的 18 張（`assistant_*`）第一階段完全不動。
+（草案，62 張表）。逐表對照現況之後的結論：**第一階段保留 32 張**，
+小香的 15 張（`assistant_*`）第一階段完全不動。
+
+帳：現況 D1 有 51 張（其中小香 15 張）。第一階段結束後是 32 + 15 = **47 張**。
+（草案裡小香那邊有 19 張，多出來的 4 張在 Durable Object SQLite，不在 D1。）
 
 ---
 
@@ -60,11 +63,14 @@
 都不需要。**唯一的例外是畫面上直接顯示的**——`ManualReports.tsx:1474` 渲染
 `updated_by_email`，改成 join 的話一頁 20 列要查 20 次，所以那一欄留快照。
 
-**C. 「有哪些 X」是程式碼還是資料？**
-CLAUDE.md 已經有這條規則：權限鍵值寫在程式碼，不寫在資料表。**報表來源同理**——
-新增一個來源要寫 workflow + driver + route 並開 PR，從來就不是「插一列」。
-所以 `report_sources` 表刪掉，改成 `scopes.source_type` 一欄，唯一來源是
-TS 的 `ReportSourceType`。
+**C. 「有哪些 X」的唯一來源永遠在程式碼——但可以有一份鏡像。**
+`report_sources` 表刪掉，改成 `scopes.source_type` 一欄：新增一個來源要寫
+workflow + driver + route 並開 PR，從來就不是「插一列」。
+
+權限走的是另一條路：唯一來源仍然是 `permissions.ts`，但**多存一張 `permissions`
+鏡像表**，由 `syncSystemRoles` 寫入，純粹為了讓兩張授權表有外鍵可以指。
+理由見下面「權限目錄為什麼開表」。⚠️ 這是 CLAUDE.md 那條規則的例外，
+規則本身也一併改了。
 
 **D. 只有兩三列的表不是抽象，是儀式。**
 `report_sources`（兩列）、`wms_settings`（一列）都會讓底下每張表多一個外鍵、
@@ -85,23 +91,65 @@ TS 的 `ReportSourceType`。
 
 編號是草案檔案裡的順序。
 
-### 權限（#1–#9）：9 張 → 5 張
+### 權限（#1–#9）：9 張 → 6 張
 
 | # | 表 | 決定 |
 |---|---|---|
 | 1 | `users` | ✅ 照搬。`name` → `google_name`：跟 `display_name` 放一起時看不出哪個是使用者能改的 |
 | 2 | `roles` | ✅ `key` → `role_key`，補 `updated_at`（搬資料時用 `created_at` 回填）|
-| 3 | `access_policies` | 🗑️ **刪**。ABAC 沒有需求，而且與「權限不寫在資料表」直接衝突 |
-| 4 | `role_permission_grants` | ✅ 主鍵回 `(role_id, permission)`，補 CASCADE |
+| 3 | `access_policies` | ⏸️ **延後，不是否決**。第一階段不做，但保留在長期 target |
+| 4 | `role_permission_grants` | ✅ 主鍵回 `(role_id, permission)`，補 CASCADE ＋ FK 到 `permissions` |
 | 5 | `user_role_assignments` | ✅ 主鍵 `(user_id, role_id)`，**不留 scope_type / scope_id** |
-| 6 | `user_role_attributes` | 🗑️ 刪（#3 沒了，FK 目標不存在）|
-| 7 | `user_permission_grants` | ✅ 主鍵 `(user_id, permission)`，補 CASCADE |
+| 6 | `user_role_attributes` | 🗑️ 刪。key/value 屬性袋不是 ABAC 該有的形狀 |
+| 7 | `user_permission_grants` | ✅ 主鍵 `(user_id, permission)`，補 CASCADE ＋ FK 到 `permissions` |
 | 8 | `user_permission_grant_attributes` | 🗑️ 刪（同 #6）|
-| 9 | `user_attributes` | 🗑️ 刪。要記員工屬性應該在 `users` 加有型別的欄位，不是 key/value 袋 |
+| 9 | `user_attributes` | 🗑️ 刪。要記員工屬性應該在 `users` 加有型別的欄位 |
+| ➕ | `permissions` | ✅ **新增**（草案沒有）。見下 |
 
 **#5 為什麼敢拿掉 scope**：`packages/auth/src/rbac.ts:47` 的註解說得很清楚，
 `can()` 沒有 scope 參數——那兩欄從來沒有被檢查過。留著一個沒有人檢查的欄位
 比沒有更危險，它讓人以為權限已經按店別隔離了。
+
+#### ABAC（#3）為什麼是「延後」不是「刪除」
+
+初版寫的理由是「與『權限不寫在資料表』衝突」。**那個理由不成立**，是把兩件事
+混在一起了：
+
+| | 放哪 |
+|---|---|
+| 「系統有哪些權限」 | 程式碼（`PERMISSIONS`）|
+| 「這個授權在哪些範圍生效」 | **資料** |
+
+第二件事本來就是資料，跟第一件不重複。所以 ABAC 保留在長期 target。
+
+**第一階段不做**的理由換成兩個：
+1. `can()` 沒有 scope 參數，做了也沒有人檢查——要先改授權判定，那是另一輪
+2. 草案的形狀（`access_policies` ＋三張 key/value `*_attributes`）**是錯的**。
+   真要做應該是有型別的 policy 表，不是屬性袋
+
+scope-based 的報表／WMS 權限之後會需要它，`scopes` 這一輪已經給了它一個
+穩定的 FK 目標。
+
+#### 權限目錄為什麼開表
+
+CLAUDE.md 原本明文禁止（「權限鍵值寫在程式碼，不寫在資料表」）。這一輪把規則
+改成「**唯一來源在程式碼，DB 可以有一份由 sync 維護的鏡像**」，理由是現況有一個
+真的洞：
+
+| 寫入路 | 有檢查嗎 |
+|---|---|
+| 給「人」的權限（`admin.ts` `grantPermission`）| ✅ `if (!(input.permission in PERMISSIONS))` |
+| 給「角色」的權限（`admin.ts` `writePermissions`）| ❌ **完全沒有** |
+
+`routes/admin.ts:136` 也只是把陣列原封不動傳下去。所以有 `admin:role:write` 的人
+可以塞任何字串進去。
+
+⚠️ 它**不會提權**——`can()` 拿實際鍵值比對，打錯的字串永遠對不到任何檢查。
+但畫面上會出現一個勾了卻沒有作用的權限。
+
+外鍵一律 **RESTRICT**：從 `permissions.ts` 刪掉一個權限時，sync 必須先明確收回
+所有授權才刪得掉那一列。用 CASCADE 的話那一步會靜靜地把所有人的授權刪光——
+就是 `0023` 刪掉 `assistant_line_groups` 的同一個形狀。
 
 ### 檔案（#10）
 
@@ -128,7 +176,7 @@ TS 的 `ReportSourceType`。
 
 | # | 表 | 決定 |
 |---|---|---|
-| 11 | `item_categories` | ✅ ➕ `parent_id` **固定兩層** RESTRICT、`sort_order`、`active`。UNIQUE 改 `(parent_id, name)`。「未分類」= NULL，不做成資料列 |
+| 11 | `item_categories` | ✅ ➕ **固定兩層**（`depth` + `parent_depth` + 複合外鍵，用 SQL 真的擋住）、`sort_order`、`active`。根分類與子分類各一支 partial unique index。「未分類」= NULL，不做成資料列 |
 | 12 | `items` | ✅ **樞紐表**。代理 `id` ＋ `UNIQUE (source, sku)`。`list_price` 留（手動報表自動帶入）|
 | 13 | `cyberbiz_products` | ✅ 改成 `item_id` 當主鍵的延伸表。❌ `inventory_quantity` |
 | 14 | `custom_products` | 🗑️ **刪，攤平到 `items`**。`notes` / `created_by` 都不要（log 已有）|
@@ -247,7 +295,7 @@ review 時發現 `apps/api/src/routes/crm.ts:120` 有明確的
 | 34 | `report_runs` | ✅ 三張併一張。`report_kind` enum → **兩個旗標** |
 | 34b | `report_run_scopes` | ✅ 新增子表取代 `stores_json` |
 | 34c | `report_run_reports` | ✅ **新增**（草案沒有）|
-| 35 | `report_item_sales_monthly` | ✅ 兩張併一張。**五個 snapshot 全拿掉** |
+| 35 | `report_item_sales_monthly` | ✅ 兩張併一張。**名稱與分類存快照**（初版選錯，見下）|
 | 36 | `report_product_component_usage_monthly` | 🗑️ **刪** |
 | 37 | `report_payout_daily` | ✅ 兩張併一張 |
 | 38 | `report_ingest_issues` | ✅ **要做** |
@@ -303,38 +351,47 @@ review 時發現 `apps/api/src/routes/crm.ts:120` 有明確的
   （含批次查、蝦皮別名回退）可以拿掉
 - 同一個禮盒在官網與蝦皮都賣時，組成只定義一次
 
-#### #35 為什麼不存 snapshot（選 A）
+#### #35 名稱與分類存快照（初版選 A，review 後改成 B）
 
-草案有五個 snapshot 欄位。拿掉的理由：
+**初版決定不存快照，那是錯的。** 三件事推翻了它：
 
-1. 使用者要的是「大分類展開看小分類」。snapshot 版本要**連父帶子抄兩欄**，
-   改分類階層時歷史就對不上
-2. 同一個商品在報表裡出現兩個名字，同仁會以為是兩個商品
-3. `unit_price` = `sales_amount ÷ net_quantity`，本來就算得出來
+**1️⃣ 現在的資料已經有快照了。**
+`packages/db/src/schema/reports.ts:27` 的 `report_sales_monthly` 本來就有
+`product_name` 與 `category` 兩欄。不存等於**把手上已經有的資料丟掉**，
+而那是回不來的。
 
-⚠️ **代價**：改分類會回頭改變歷史報表的分佈。內部分析可接受；要拿去對帳的話
-這個決定要重新討論。
+**2️⃣ 分類每季可能調整。**
+不存快照的話，改一次分類就把過去所有的圓餅圖洗一次——歷史報表不該因為今天
+改了設定而變成另一個樣子。
 
-使用者接著問：「假如日後我商品改名字，但我報表希望用的是舊的資料，那該怎麼辦？
-是不是 item 也要有另外一張表去記錄更動？」
+**3️⃣ `activity_events` 不能取代 temporal snapshot。**
+初版寫「要當時的分類就從 log 查」，那個說法太滿：
 
-**不用開新表。** `activity_events` 已經有
-`entity_type / entity_id / field / old_value / new_value / created_at`
-與索引 `(entity_type, entity_id, created_at)`，使用者想的那句查詢直接可跑：
+- 商品建立時不一定有分類事件，查不到「第一次修改以前」的值
+- 兩層分類要連父帶子一起還原，不是查一欄就好
+- 漏寫 log 的路徑（migration、同步）會讓歷史補不回來
 
-```sql
-SELECT new_value FROM activity_events
-WHERE entity_type = 'item' AND entity_id = ?
-  AND field = 'name' AND created_at < '2025-08-31'
-ORDER BY created_at DESC LIMIT 1;
-```
+**名稱可以靠 log，分類不行。** 而分類要存的話，名稱一起存的邊際成本是零。
 
-**而且售價根本不受影響**——報表存的是 `sales_amount`（實際成交），`list_price`
-只是手動輸入時的預設值。
+#### 存快照不會讓趨勢圖裂成兩條
 
-**目前不做這個查詢**：改名多半是修正（用舊名會讓趨勢圖裂成兩條、永遠留著錯字），
-真的換商品應該開新 item 並把舊的 `active=0`。而且 log 一直在累積，
-**隨時可以補做**——不是現在不做就永遠沒有。
+初版反對快照的理由之一是「同一個商品出現兩個名字」。**有了 `item_id` 之後那個
+理由消失了**：分組與加總一律用 `item_id`（穩定），快照純粹拿來顯示。
+
+#### 三存兩不存
+
+| 欄位 | 存嗎 | 為什麼 |
+|---|---|---|
+| `item_name_snapshot` | ✅ | 現在就有，丟掉回不來 |
+| `category_name_snapshot` | ✅ | 每季會調整 |
+| `category_parent_name_snapshot` | ✅ | 只存子分類的話，上層還是會跟著現在的階層跑 |
+| `unit_price_snapshot` | ❌ | `sales_amount ÷ net_quantity` 算得出來 |
+| `product_source_snapshot` | ❌ | `items.source` 不可變，join 得到 |
+
+#### 售價根本不受影響
+
+報表存的是 `sales_amount`（實際成交金額），`list_price` 只是手動輸入時的預設值。
+改牌價不會動到任何歷史報表。
 
 #### #35 效能：join vs IN vs subquery
 
@@ -404,11 +461,11 @@ driver 的執行報告 `.md` 現在只存在 GitHub Actions 的 artifact 裡，
 
 ⚠️ **不可設過期清理**——它是「商品當時叫什麼」的唯一來源。
 
-### 小香（#43–#60）：第一階段不動
+### 小香（#43–#60）：第一階段不動（現況 15 張）
 
 相依檢查結果：
 
-**表本身不相依。** 18 張裡指向外面的只有 `created_by` / `updated_by` /
+**表本身不相依。** 15 張裡指向外面的只有 `created_by` / `updated_by` /
 `actor_id` → `users(id)`，而 `users` 這一輪維持原樣。
 
 **但工具層相依很深。** `packages/tools/src/index.ts` 的 10 個工具有 8 個會被
@@ -454,3 +511,38 @@ driver 的執行報告 `.md` 現在只存在 GitHub Actions 的 artifact 裡，
 - ⚠️ `cyberbiz_*_webhooks` 只進不出
 - ⚠️ `cacheClient` 不可注入，所以快取失效沒辦法寫測試（已經因此漏掉兩個
   invalidation bug）
+
+
+---
+
+## Codex review 的回應（第一輪）
+
+Codex 逐點 review 之後，這份文件與 target SQL 改了不少。記在這裡是因為其中
+好幾點是**我原本寫錯**，不是風格差異。
+
+| Codex 指出 | 結果 |
+|---|---|
+| `items` 回填只靠 SKU，忽略 `cyberbiz_product_links` | ✅ 接受，改三層優先順序 |
+| backfill 與 dual-write 順序會漏資料 | ⏭️ 不適用——改成一次上線，不做雙寫 |
+| `report_run_id` 的 CHECK 與 `SET NULL` 互相矛盾 | ✅ 接受，改 RESTRICT ＋ 搬移用假 run |
+| 分類與報表事實表的回填內容缺失 | ✅ 接受，補四段搬移 ＋ parity check |
+| 拿掉分類 snapshot 與需求衝突 | ✅ 接受，改回存快照（見 #35）|
+| scope 合併直接加總可能重複計算營收 | ✅ 接受，改成 canonical map ＋ 三種情況分開處理 |
+| expand/contract 對同名表不可執行、Phase 5 與「不停機」矛盾 | ✅ 接受，改成單次維護窗口 |
+| 第一階段混入 CRM，沒有垂直切割 | ✅ 接受，改成 migration 檔案的順序 |
+| ABAC 被移除與需求不符 | ✅ 接受，改成「延後，不是否決」|
+| `item_categories` 沒有真的限制兩層、根分類可重名 | ✅ 接受，用複合外鍵 ＋ partial unique index，已實測 |
+| tag backfill 會漏掉字典內既有標籤 | ✅ 接受，先複製 catalog |
+| source type 宣稱只在程式碼，SQL 卻硬編碼 | ✅ 接受，拿掉 `source_type` 的 CHECK |
+| 文件的 table 數量不正確 | ✅ 接受，是 15 張不是 18 張 |
+
+### 兩點的補充
+
+**分類 snapshot（#5）**：初版的決定是在「A：不存」與「B：存」之間選了 A。
+review 之後改成 B，決定性的是兩件事——`report_sales_monthly` 現在**就有**
+`product_name` 與 `category` 兩欄（不存等於丟資料），以及 `activity_events`
+補不回「第一次修改以前」的值。初版寫「要當時的分類就從 log 查」，那句話收回。
+
+**權限目錄**：Codex 沒有提，是使用者 review 時指出的——`writePermissions`
+沒有像 `grantPermission` 一樣擋不存在的鍵值。決定開一張由 sync 維護的
+`permissions` 鏡像表，並一併修改 CLAUDE.md 的規則。
