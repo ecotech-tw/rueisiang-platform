@@ -20,6 +20,7 @@ export function AssistantSettings() {
   const data = config.data;
   if (!data) return null;
   const activeModel = data.models.find((model) => model.id === data.activeModel);
+  const fallbackModel = data.fallbackModel ? data.models.find((model) => model.id === data.fallbackModel) : undefined;
 
   return (
     <div className="page">
@@ -27,8 +28,13 @@ export function AssistantSettings() {
 
       <Panel title="目前模型">
         <p className="settings-summary">
-          小香目前使用 <strong>{activeModel?.label ?? data.activeModel}</strong>。要更換模型，請到 Sandbox 選擇後按「儲存並套用到小香」。
+          小香目前使用 <strong>{activeModel?.label ?? data.activeModel}</strong>。
+          {fallbackModel ? <> 失敗時會 fallback 到 <strong>{fallbackModel.label}</strong>。</> : " 目前沒有設定 fallback。"}
+          要更換模型或 fallback，請到 Sandbox 設定。
         </p>
+        {data.credentialStatus.codex === "needs_reauth" ? (
+          <Alert tone="danger">ChatGPT／Codex OAuth 最近回傳 401，請重新執行 codex login 並更新平台 credential。</Alert>
+        ) : null}
       </Panel>
 
       <Panel title="Tools" description="已啟用才可在線上 channel 使用；開發中只能在 Sandbox 測試；已停用不會提供給模型。">

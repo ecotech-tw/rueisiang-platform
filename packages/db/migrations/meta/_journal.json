@@ -512,6 +512,13 @@
       "when": 1788334551285,
       "tag": "0072_secret_stryfe",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "6",
+      "when": 1788410619984,
+      "tag": "0073_lame_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }

@@ -37,7 +37,7 @@ import {
   listAssistantToolConfigs,
   recordAssistantRun,
   recordMediaObject,
-  setActiveAssistantModel,
+  setAssistantModelConfig,
   setAssistantChannelTools,
   setAssistantChatTools,
   setAssistantGroupToolMode,
@@ -60,11 +60,13 @@ import {
   DEFAULT_PI_CODEX_MODEL,
   PiAgentRequestError,
   piCodexCredentialConfigured,
+  piCodexCredentialStatus,
   runPiSandboxAgent,
 } from "../pi-agent.js";
 import {
   isPiCodexModel,
   isPiGeminiModel,
+  isPiAssistantModel,
   piAssistantModel,
   piCodexModels,
 } from "../pi-agent-models.js";
@@ -196,14 +198,16 @@ async function ensureDefaults(env: AppEnv["Bindings"], db: AppEnv["Variables"]["
 
 async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["db"]) {
   await ensureDefaults(env, db);
-  const [assistantConfig, prompts, activePrompt, configuredTools, models] = await Promise.all([
+  const [assistantConfig, prompts, activePrompt, configuredTools, models, codexCredential] = await Promise.all([
     getAssistantConfig(db, ASSISTANT_KEY),
     listAssistantPromptRevisions(db, ASSISTANT_KEY),
     getActiveAssistantPrompt(db, ASSISTANT_KEY),
     listAssistantToolConfigs(db),
     sandboxModelOptions(env),
+    piCodexCredentialStatus(env),
   ]);
   const statuses = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
+  const configuredFallbackModel = assistantConfig?.fallbackModel;
   return {
     assistantKey: ASSISTANT_KEY,
     configured: models.some((model) => model.supported && model.configured),
@@ -213,7 +217,12 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
     },
     defaultModel: configuredAssistantModel(env),
     activeModel: activeAssistantModel(env, assistantConfig?.activeModel),
+    fallbackModel: isPiAssistantModel(configuredFallbackModel) ? configuredFallbackModel : null,
     activeModelUpdatedAt: assistantConfig?.updatedAt ?? null,
+    credentialStatus: {
+      codex: codexCredential.status,
+      codexLastErrorAt: codexCredential.lastErrorAt,
+    },
     models,
     tools: TOOL_DEFINITIONS.map((tool) => {
       const configuredStatus = statuses.get(tool.key);
@@ -752,16 +761,47 @@ export const assistant = new Hono<AppEnv>()
 
   .patch("/config", requirePermission("assistant:settings:write"), async (c) => {
     const input = await body(c);
-    const modelId = requireString(input, "model", "模型");
-    const model = await usableSandboxModel(c.env, modelId);
-
     await ensureDefaults(c.env, c.get("db"));
-    const config = await setActiveAssistantModel(c.get("db"), {
+    const current = await getAssistantConfig(c.get("db"), ASSISTANT_KEY);
+    if (!current) throw new HTTPException(500, { message: "找不到小香模型設定。" });
+    const hasModel = input.model !== undefined;
+    const hasFallbackModel = input.fallbackModel !== undefined;
+    if (!hasModel && !hasFallbackModel) {
+      throw new HTTPException(400, { message: "至少要提供 model 或 fallbackModel。" });
+    }
+
+    const model = hasModel
+      ? await usableSandboxModel(c.env, requireString(input, "model", "模型"))
+      : undefined;
+    const activeModel = model?.id ?? activeAssistantModel(c.env, current.activeModel);
+    let fallbackModel: string | null | undefined;
+    if (hasFallbackModel) {
+      if (input.fallbackModel === null || input.fallbackModel === "") {
+        fallbackModel = null;
+      } else if (typeof input.fallbackModel !== "string" || !input.fallbackModel.trim()) {
+        throw new HTTPException(400, { message: "fallbackModel 必須是模型 id 或 null。" });
+      } else {
+        const selectedFallback = await usableSandboxModel(c.env, input.fallbackModel.trim());
+        fallbackModel = selectedFallback.id;
+      }
+    } else if (isPiAssistantModel(current.fallbackModel) && current.fallbackModel === activeModel) {
+      throw new HTTPException(400, { message: "fallbackModel 不能與 active model 相同。" });
+    }
+    if (fallbackModel && fallbackModel === activeModel) {
+      throw new HTTPException(400, { message: "fallbackModel 不能與 active model 相同。" });
+    }
+
+    const config = await setAssistantModelConfig(c.get("db"), {
       assistantKey: ASSISTANT_KEY,
-      activeModel: model.id,
+      ...(model ? { activeModel: model.id } : {}),
+      ...(fallbackModel !== undefined ? { fallbackModel } : {}),
       updatedBy: c.get("user").id,
     });
-    return c.json({ activeModel: config.activeModel, updatedAt: config.updatedAt });
+    return c.json({
+      activeModel: config.activeModel,
+      fallbackModel: config.fallbackModel ?? null,
+      updatedAt: config.updatedAt,
+    });
   })
 
   .patch("/tools/:key", requirePermission("assistant:settings:write"), async (c) => {
@@ -819,6 +859,14 @@ export const assistant = new Hono<AppEnv>()
       ?? session?.model
       ?? activeAssistantModel(c.env, assistantConfig?.activeModel);
     const model = await usableSandboxModel(c.env, modelId);
+    const configuredFallbackModel = assistantConfig?.fallbackModel;
+    const fallbackModelId = isPiAssistantModel(configuredFallbackModel)
+      && configuredFallbackModel !== model.id
+      ? configuredFallbackModel
+      : undefined;
+    const fallbackModel = fallbackModelId
+      ? await usableSandboxModel(c.env, fallbackModelId).catch(() => undefined)
+      : undefined;
     const attachments = await sandboxAttachments(c.get("db"), input.attachments, c.get("user").id);
     if (!userText && !attachments.length) {
       throw new HTTPException(400, { message: "請輸入測試內容或附加至少一張圖片。" });
@@ -886,6 +934,7 @@ export const assistant = new Hono<AppEnv>()
         contextGeneration: session?.createdAt ?? runId,
         runId,
         model: model.id,
+        ...(fallbackModel ? { fallbackModel: fallbackModel.id } : {}),
         systemPrompt,
         userText,
         toolKeys,
@@ -905,7 +954,7 @@ export const assistant = new Hono<AppEnv>()
         channel: "sandbox",
         assistantKey: ASSISTANT_KEY,
         sessionId: session?.id,
-        model: model.id,
+        model: piResponse.model,
         promptRevisionId: prompt.id,
         inputChars: userText.length,
         outputChars: result.text.length,
@@ -927,7 +976,7 @@ export const assistant = new Hono<AppEnv>()
           sessionId: session.id,
           role: "model",
           text: result.text,
-          model: model.id,
+          model: piResponse.model,
           thoughts: result.thoughts,
           toolCalls: result.toolCalls,
           durationMs: Date.now() - started,
@@ -946,7 +995,7 @@ export const assistant = new Hono<AppEnv>()
           checksum: attachment.checksum,
           expiresAt: attachment.expiresAt,
         })),
-        model: model.id,
+        model: piResponse.model,
         promptRevision: prompt.revision,
         usage: result.usage,
         toolCalls: result.toolCalls,

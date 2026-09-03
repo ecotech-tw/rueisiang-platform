@@ -54,7 +54,7 @@ import {
   isPiAssistantModel,
   piAssistantModel,
   type PiCodexRelayConfig,
-  streamPiAssistantModel,
+  streamPiAssistantModelWithFallback,
 } from "./pi-agent-models.js";
 import {
   type PiErrorDiagnostic,
@@ -197,6 +197,9 @@ function isRunFields(input: Record<string, unknown>): boolean {
     && typeof input.userText === "string"
     && Array.isArray(input.toolKeys)
     && input.toolKeys.every(nonEmptyString)
+    && (input.fallbackModel === undefined
+      || input.fallbackModel === null
+      || (typeof input.fallbackModel === "string" && isPiAssistantModel(input.fallbackModel)))
     && (input.attachments === undefined || isAttachments(input.attachments))
     && (input.persistAttachments === undefined || typeof input.persistAttachments === "boolean");
 }
@@ -837,6 +840,7 @@ export class AssistantChatAgent {
     context: Context,
     options: ModelsSimpleStreamOptions = {},
     diagnostics?: PiProviderExecutionDiagnostics,
+    fallbackModel?: Model<Api>,
   ) {
     const shared = {
       ...options,
@@ -853,18 +857,36 @@ export class AssistantChatAgent {
       });
       await options.onResponse?.(response, responseModel);
     };
-    const providerOptions: ModelsSimpleStreamOptions = {
+    const providerOptions = (candidate: Model<Api>): ModelsSimpleStreamOptions => ({
       ...shared,
       onResponse,
-      ...(model.provider === PI_CODEX_PROVIDER_ID
+      ...(candidate.provider === PI_CODEX_PROVIDER_ID
         ? { transport: "sse" as const, onPayload: payloadWithOutputLimit }
         : {}),
-    };
-    return streamPiAssistantModel(model, context, providerOptions, {
-      resolveCodexAccessToken: async () => this.accessToken(),
-      codexRelay: model.provider === PI_CODEX_PROVIDER_ID ? this.codexRelay() : undefined,
-      geminiApiKey: this.env.GEMINI_API_KEY,
     });
+    const credentials = {
+      resolveCodexAccessToken: async () => this.accessToken(),
+      codexRelay: model.provider === PI_CODEX_PROVIDER_ID || fallbackModel?.provider === PI_CODEX_PROVIDER_ID
+        ? this.codexRelay()
+        : undefined,
+      geminiApiKey: this.env.GEMINI_API_KEY,
+    };
+    return streamPiAssistantModelWithFallback(
+      model,
+      context,
+      providerOptions(model),
+      credentials,
+      fallbackModel,
+      fallbackModel ? providerOptions(fallbackModel) : undefined,
+      fallbackModel
+        ? (primary) => console.warn("Pi assistant 模型切換 fallback", {
+          ...(diagnostics?.runId ? { runId: diagnostics.runId } : {}),
+          primaryModel: model.id,
+          fallbackModel: fallbackModel.id,
+          error: primary.errorMessage ?? "provider 回傳 error。",
+        })
+        : undefined,
+    );
   }
 
   /** Pi compaction 只需要 Models.completeSimple；同一段 session 換 provider 後也由當下 model 建摘要。 */
@@ -1256,6 +1278,9 @@ export class AssistantChatAgent {
       state = this.currentState()!;
     }
     const model = this.model(input.model);
+    const fallbackModel = input.fallbackModel && input.fallbackModel !== model.id
+      ? this.model(input.fallbackModel)
+      : undefined;
     const completed = this.completedRun(input.runId, state.generation);
     if (completed) return completed;
     // Queue 重送未完成的 run 時先移除殘留 transcript；tool 的外部冪等仍由各 provider 自己保證。
@@ -1303,7 +1328,7 @@ export class AssistantChatAgent {
         timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
         maxTokens: MODEL_MAX_OUTPUT_TOKENS,
-      }, providerDiagnostics),
+      }, providerDiagnostics, fallbackModel),
       sessionId: state.session_id,
       transport: "sse",
       maxRetryDelayMs: 1_000,
@@ -1354,7 +1379,7 @@ export class AssistantChatAgent {
 
     const response: PiAgentRunResponse = {
       sessionId: state.session_id,
-      model: model.id,
+      model: finalMessage?.model ?? model.id,
       result: {
         text: isLineRunRequest(input) ? boundedReply(finalText) : finalText,
         thoughts: thoughtContent(newMessages),

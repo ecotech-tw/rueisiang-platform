@@ -27,6 +27,8 @@ export interface PiLineAgentRunRequest extends PiLineAgentContext {
   webhookEventId: string;
   runId: string;
   model: string;
+  /** 主要模型回傳 error 時使用的備援模型；未設定時不切換。 */
+  fallbackModel?: string | null;
   systemPrompt: string;
   userText: string;
   toolKeys: string[];
@@ -54,6 +56,8 @@ export interface PiSandboxAgentContext {
 export interface PiSandboxAgentRunRequest extends PiSandboxAgentContext {
   runId: string;
   model: string;
+  /** 主要模型回傳 error 時使用的備援模型；未設定時不切換。 */
+  fallbackModel?: string | null;
   systemPrompt: string;
   userText: string;
   toolKeys: string[];

@@ -7,6 +7,8 @@ const isoNow = () => new Date().toISOString();
 export const assistantConfigs = sqliteTable("assistant_configs", {
   assistantKey: text("assistant_key").primaryKey(),
   activeModel: text("active_model").notNull(),
+  /** 主要模型失敗時使用的備援模型；null 代表不啟用 fallback。 */
+  fallbackModel: text("fallback_model"),
   updatedBy: text("updated_by").notNull(),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
 });

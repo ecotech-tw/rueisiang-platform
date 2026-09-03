@@ -3,8 +3,12 @@ import { streamSimple as streamGoogle } from "@earendil-works/pi-ai/api/google-g
 import { streamSimple as streamOpenAICodex } from "@earendil-works/pi-ai/api/openai-codex-responses";
 import { GOOGLE_MODELS } from "@earendil-works/pi-ai/providers/google.models";
 import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type {
   Api,
+  AssistantMessage,
+  AssistantMessageEvent,
+  AssistantMessageEventStream,
   Context,
   FetchFunction,
   Model,
@@ -191,4 +195,51 @@ export function streamPiAssistantModel(
     return streamPiGemini(model, context, options, credentials.geminiApiKey ?? "");
   }
   throw new Error(`不支援的 Pi provider：${model.provider}`);
+}
+
+interface BufferedAssistantStream {
+  events: AssistantMessageEvent[];
+  result: AssistantMessage;
+}
+
+async function bufferAssistantStream(stream: AssistantMessageEventStream): Promise<BufferedAssistantStream> {
+  const events: AssistantMessageEvent[] = [];
+  for await (const event of stream) events.push(event);
+  return { events, result: await stream.result() };
+}
+
+function replayAssistantStream(buffered: BufferedAssistantStream): AssistantMessageEventStream {
+  const stream = createAssistantMessageEventStream();
+  void Promise.resolve().then(() => {
+    for (const event of buffered.events) stream.push(event);
+    if (!buffered.events.some((event) => event.type === "done" || event.type === "error")) {
+      stream.end(buffered.result);
+    }
+  });
+  return stream;
+}
+
+/**
+ * 以完整 provider response 判斷是否切換 fallback，避免 primary 已吐出半段訊息後又把同一輪重播一次。
+ * 有設定 fallback 時會先暫存 primary 的事件；目前 agent API 本身等完整 response 後才回傳，因此不影響外部串流契約。
+ */
+export function streamPiAssistantModelWithFallback(
+  model: Model<Api>,
+  context: Context,
+  options: ModelsSimpleStreamOptions,
+  credentials: PiAssistantModelCredentials,
+  fallbackModel?: Model<Api>,
+  fallbackOptions: ModelsSimpleStreamOptions = options,
+  onFallback?: (primary: AssistantMessage) => void,
+) {
+  if (!fallbackModel || fallbackModel.id === model.id) {
+    return streamPiAssistantModel(model, context, options, credentials);
+  }
+
+  return lazyStream(model, async () => {
+    const primary = await bufferAssistantStream(streamPiAssistantModel(model, context, options, credentials));
+    if (primary.result.stopReason !== "error") return replayAssistantStream(primary);
+    onFallback?.(primary.result);
+    return streamPiAssistantModel(fallbackModel, context, fallbackOptions, credentials);
+  });
 }

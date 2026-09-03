@@ -110,15 +110,39 @@ export async function resetPiLineAgent(
 
 /** 不旋轉 access token；設定頁只確認 vault 能解密目前的 credential。 */
 export async function piCodexCredentialConfigured(env: AppEnv["Bindings"]): Promise<boolean> {
+  return (await piCodexCredentialStatus(env)).configured;
+}
+
+export type PiCodexCredentialState = "unconfigured" | "ready" | "needs_reauth";
+
+export interface PiCodexCredentialStatus {
+  configured: boolean;
+  status: PiCodexCredentialState;
+  lastErrorAt: number | null;
+}
+
+export async function piCodexCredentialStatus(env: AppEnv["Bindings"]): Promise<PiCodexCredentialStatus> {
   const namespace = env.ASSISTANT_CREDENTIAL_VAULT;
-  if (!namespace) return false;
+  if (!namespace) return { configured: false, status: "unconfigured", lastErrorAt: null };
   try {
     const response = await namespace.getByName("openai-codex").fetch(new Request(
       "https://assistant-credential.internal/status",
       { method: "POST" },
     ));
-    return response.ok;
+    const payload = await response.json().catch(() => null) as {
+      configured?: unknown;
+      status?: unknown;
+      lastErrorAt?: unknown;
+    } | null;
+    if (!response.ok || payload?.configured !== true) {
+      return { configured: false, status: "unconfigured", lastErrorAt: null };
+    }
+    return {
+      configured: true,
+      status: payload.status === "needs_reauth" ? "needs_reauth" : "ready",
+      lastErrorAt: typeof payload.lastErrorAt === "number" ? payload.lastErrorAt : null,
+    };
   } catch {
-    return false;
+    return { configured: false, status: "unconfigured", lastErrorAt: null };
   }
 }

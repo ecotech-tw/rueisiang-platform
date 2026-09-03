@@ -57,6 +57,7 @@ export {
   recordAssistantRun,
   resolveLineToolKeys,
   setActiveAssistantModel,
+  setAssistantModelConfig,
   setAssistantChannelTools,
   setAssistantChatTools,
   setAssistantGroupToolMode,

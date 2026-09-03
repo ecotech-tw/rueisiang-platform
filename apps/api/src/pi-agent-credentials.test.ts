@@ -1,5 +1,52 @@
-import { describe, expect, it } from "vitest";
-import { parseOpenAICodexCredentialSeed } from "./pi-agent-credentials.js";
+import { DatabaseSync } from "node:sqlite";
+import { describe, expect, it, vi } from "vitest";
+import { AssistantCredentialVault, parseOpenAICodexCredentialSeed } from "./pi-agent-credentials.js";
+
+const ENCRYPTION_SECRET = "assistant-credential-test-secret-32";
+
+function credentialSeed(expires: number, suffix = "seed") {
+  return JSON.stringify({
+    "openai-codex": {
+      access: `access-${suffix}`,
+      refresh: `refresh-${suffix}`,
+      expires,
+    },
+  });
+}
+
+function credentialVault(seed: string) {
+  const sqlite = new DatabaseSync(":memory:");
+  let alarmAt: number | null = null;
+  const storage = {
+    sql: {
+      exec: (query: string, ...bindings: unknown[]) => {
+        if (!bindings.length && query.includes(";")) {
+          sqlite.exec(query);
+          return [];
+        }
+        return sqlite.prepare(query).all(...bindings as never[]);
+      },
+    },
+    getAlarm: async () => alarmAt,
+    setAlarm: async (at: number) => {
+      alarmAt = at;
+    },
+    deleteAlarm: async () => {
+      alarmAt = null;
+    },
+  };
+  const state = {
+    storage,
+    blockConcurrencyWhile: (initialize: () => Promise<void>) => {
+      void initialize();
+    },
+  };
+  const vault = new AssistantCredentialVault(state as never, {
+    PI_CREDENTIAL_ENCRYPTION_KEY: ENCRYPTION_SECRET,
+    PI_OPENAI_CODEX_CREDENTIAL: seed,
+  } as never);
+  return { vault, alarmAt: () => alarmAt, close: () => sqlite.close() };
+}
 
 function jwtWithExpiry(expiresAtSeconds: number): string {
   const encode = (value: unknown) => btoa(JSON.stringify(value))
@@ -43,5 +90,55 @@ describe("OpenAI Codex OAuth credential", () => {
       access: "access-only",
       expires: 1_900_000_000_000,
     }))).toThrow("缺少 access、refresh");
+  });
+
+  it("DO alarm 會在 access token 到期前自動旋轉 credential", async () => {
+    const fixture = credentialVault(credentialSeed(1));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      access_token: "access-refreshed",
+      refresh_token: "refresh-refreshed",
+      expires_in: 3_600,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    try {
+      await expect(fixture.vault.fetch(new Request("https://assistant-credential.internal/status", { method: "POST" })))
+        .resolves.toHaveProperty("status", 200);
+      await fixture.vault.alarm();
+
+      const response = await fixture.vault.fetch(new Request("https://assistant-credential.internal/access-token", { method: "POST" }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ accessToken: "access-refreshed" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fixture.alarmAt()).toBeGreaterThan(Date.now());
+
+      const status = await fixture.vault.fetch(new Request("https://assistant-credential.internal/status", { method: "POST" }));
+      expect(await status.json()).toMatchObject({ configured: true, status: "ready", lastErrorAt: null });
+    } finally {
+      vi.restoreAllMocks();
+      fixture.close();
+    }
+  });
+
+  it("OAuth 401 會留下需要重新授權的狀態，且不會把 token 寫進錯誤回應", async () => {
+    const fixture = credentialVault(credentialSeed(1));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      error: "invalid_grant",
+      error_description: "refresh-token-secret-must-not-leak",
+    }), { status: 401, headers: { "content-type": "application/json" } }));
+
+    try {
+      const response = await fixture.vault.fetch(new Request("https://assistant-credential.internal/access-token", { method: "POST" }));
+      const payload = await response.json() as Record<string, unknown>;
+      expect(response.status).toBe(401);
+      expect(payload).toMatchObject({ code: "reauth_required", status: "needs_reauth" });
+      expect(JSON.stringify(payload)).not.toContain("refresh-token-secret-must-not-leak");
+
+      const status = await fixture.vault.fetch(new Request("https://assistant-credential.internal/status", { method: "POST" }));
+      expect(await status.json()).toMatchObject({ configured: true, status: "needs_reauth" });
+      expect(fixture.alarmAt()).toBeGreaterThan(Date.now() + 30 * 60 * 1_000);
+    } finally {
+      vi.restoreAllMocks();
+      fixture.close();
+    }
   });
 });

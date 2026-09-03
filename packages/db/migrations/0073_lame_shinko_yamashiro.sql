@@ -1,0 +1,1 @@
+ALTER TABLE `assistant_configs` ADD `fallback_model` text;
