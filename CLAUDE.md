@@ -94,7 +94,11 @@ docs/        系統現況與還沒做的設計。**不放操作步驟，也不�
 
 **單一 Worker + D1，不用 Next.js、不用 Postgres。** 平台共用一份 schema、一套權限、一次登入。
 
-**權限鍵值寫在程式碼，不寫在資料表。** `packages/auth/src/permissions.ts` 的 `PERMISSIONS` 是唯一來源，DB 只存「哪個角色有哪些鍵值」。放進 DB 只會讓「系統有哪些權限」跟「程式實際檢查哪些權限」兩邊漂移。改完 `permissions.ts` 之後在權限管理頁按「重新同步」（`syncSystemRoles`）寫進 DB。
+**權限鍵值的唯一來源是程式碼。** `packages/auth/src/permissions.ts` 的 `PERMISSIONS` 說了算，DB 不是。改完 `permissions.ts` 之後在權限管理頁按「重新同步」（`syncSystemRoles`）寫進 DB。
+
+DB 裡可以有一份**由 sync 維護的鏡像**（`permissions` 表），但它只是鏡像：人不維護它，它也不決定系統有哪些權限。存在的理由只有一個——讓授權表有外鍵可以指，擋掉打錯字的鍵值。**不要反過來從 DB 讀「系統有哪些權限」**，那才是兩邊漂移的來源。
+
+鏡像表的外鍵一律 `ON DELETE RESTRICT`。用 CASCADE 的話，從 `permissions.ts` 拿掉一個權限時，sync 刪那一列會靜靜地把所有人的授權一起刪光（見「不要手改 migration」那條裡的 `0023`）。
 
 **授權每次請求都回 DB 重讀，不採信 cookie。** 停權與權限調整才會即時生效，不用等 session 過期。
 
