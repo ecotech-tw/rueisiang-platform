@@ -76,6 +76,15 @@ export interface LayoutElement {
   height: number;
 }
 
+export interface CyberbizCatalogProduct {
+  sku: string;
+  productId: string;
+  variantId: string;
+  productName: string;
+  variantName: string;
+  published: number;
+}
+
 export interface Warehouse {
   settings: { canvasWidth: number; canvasHeight: number };
   zones: Zone[];
@@ -134,6 +143,7 @@ function useWarehouseMutation<TArgs, TResult>(
     mutationFn: run,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["items", "catalog"] });
       void queryClient.invalidateQueries({ queryKey: ACTIVITY_KEY });
     },
   });
@@ -154,6 +164,12 @@ export interface ItemForm {
 export function useCreateItem() {
   return useWarehouseMutation((input: ItemForm) =>
     write<{ id: string }>("/api/wms/items", "POST", input),
+  );
+}
+
+export function useCreateCatalogItem() {
+  return useWarehouseMutation((input: ItemForm & { cyberbizSku?: string }) =>
+    write<{ id: string; cyberbizSku: string | null }>("/api/items/catalog", "POST", input),
   );
 }
 

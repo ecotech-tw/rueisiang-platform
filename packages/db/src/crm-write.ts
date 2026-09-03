@@ -68,7 +68,7 @@ export async function findCustomerByPhone(db: Database, phone: string) {
   return row ?? null;
 }
 
-export async function findCustomer(db: Database, id: string) {
+export async function findCustomer(db: Database, id: string): Promise<any | null> {
   const [row] = await db.select().from(customers).where(eq(customers.id, id)).limit(1);
   return row ?? null;
 }

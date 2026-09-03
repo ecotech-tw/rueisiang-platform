@@ -13,6 +13,8 @@ import { Sync } from "./routes/crm/Sync.js";
 import { Invite } from "./routes/Invite.js";
 import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
+import { ItemCategories } from "./routes/items/Categories.js";
+import { Items } from "./routes/items/Items.js";
 import { Payout } from "./routes/tools/Payout.js";
 import { Categories } from "./routes/wms/Categories.js";
 import { WarehouseMap } from "./routes/wms/Map.js";
@@ -97,6 +99,11 @@ export function App() {
           <Route path="tags" element={<Tags />} />
           <Route path="activity" element={<Activity />} />
           <Route path="sync" element={<Sync />} />
+        </Route>
+
+        <Route path="items">
+          <Route path="catalog" element={<Items />} />
+          <Route path="categories" element={<ItemCategories />} />
         </Route>
 
         <Route path="wms">

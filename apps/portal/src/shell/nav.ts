@@ -45,6 +45,16 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: "items",
+    label: "品項管理",
+    icon: "box",
+    items: [
+      { label: "品項主檔", to: "/items/catalog", permission: "wms:inventory:read", icon: "box" },
+      { label: "品項分類", to: "/items/categories", permission: "wms:category:write", icon: "category" },
+      { label: "SKU 對應", to: "/tools/sku-mappings", permission: "tools:sku-mapping:read", icon: "link" },
+    ],
+  },
+  {
     key: "wms",
     label: "倉儲管理系統",
     icon: "warehouse",
@@ -64,8 +74,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "出金表執行", to: "/tools/payout", permission: "tools:payout:run", icon: "payments" },
       { label: "商品銷售報表執行", to: "/tools/cyberbiz-sales", permission: "tools:cyberbiz-sales:run", icon: "report" },
       { label: "蝦皮銷售報表", to: "/tools/shopee-sales", permission: "tools:shopee-sales:run", icon: "shoppingBag" },
-      { label: "SKU 對應", to: "/tools/sku-mappings", permission: "tools:sku-mapping:read", icon: "link" },
-      { label: "商品分類管理", to: "/tools/product-categories", permission: "tools:product-category:read", icon: "category" },
       { label: "店別與報表設定", to: "/tools/payout/settings", permission: "tools:payout:config", icon: "storefront" },
       { label: "報表管理", to: "/tools/manual-reports", permission: "reports:cyberbiz:write", icon: "edit" },
       { label: "營運統計", to: "/tools/analytics", permission: "reports:analytics:read", icon: "analytics" },

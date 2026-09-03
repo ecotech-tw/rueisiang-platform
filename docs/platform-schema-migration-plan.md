@@ -523,6 +523,26 @@ report_manual_payout_daily   0 列
 
 ---
 
+## 目前 Codex 實作狀態（2026-09-03）
+
+已先以手寫 migration 草稿完成本機測試收斂：
+
+- `0073_permissions_auth_rename.sql`：建立 `permissions` 鏡像表，新增 auth grant 表，並用 trigger 暫時同步 legacy 表，讓舊 migration 測試與新查詢路徑都能工作。
+- `0074_crm_rename_foundation.sql`：CRM 表改名前置、`raw_json` / `synced_at` 欄位 rename、webhook unified table 補 product/customer 共用欄位。
+- `0075_items_wms_foundation.sql`：建立 `item_categories` / `items` 與 WMS 新 foundation tables。
+- `0076_media_storage_provider.sql`：補 `media_objects.storage_provider`。
+- `0077_report_scopes_foundation.sql`：建立 unified `scopes`，先從 `report_scopes` / `payout_stores` 回填。
+
+本機驗證：
+
+- `pnpm typecheck` 通過。
+- `pnpm --filter @rueisiang/api exec vitest run --pool=threads --poolOptions.threads.singleThread` 通過（40 files / 661 tests）。
+- `pnpm --filter @rueisiang/api build`、`pnpm --filter @rueisiang/portal build` 通過。
+
+⚠️ 這些 migration 仍是草稿：正式前必須在 verify D1 對正式匯出檔重跑，尤其要確認 legacy trigger / view 只是過渡安全網，不會被誤當成最終 contract。
+
+---
+
 ## 上線流程
 
 1. **備份**：`wrangler d1 export`，**依外鍵相依重排**（原始匯出檔還原會失敗，

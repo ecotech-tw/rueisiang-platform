@@ -2,6 +2,7 @@ import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
+import { itemCategories, items as itemMasters } from "./schema/items.js";
 import {
   customReportProducts,
   cyberbizProductLinks,
@@ -13,6 +14,10 @@ import {
   warehouseSettings,
   zoneImages,
   zones,
+  wmsCategories,
+  wmsItems,
+  wmsShelves,
+  wmsZones,
 } from "./schema/wms.js";
 
 /**
@@ -44,6 +49,14 @@ const DEFAULT_SHELF_LEVELS: ShelfLevel[] = [
 export interface ShelfLevel {
   id: string;
   name: string;
+}
+
+export interface WarehouseSnapshot {
+  settings: { canvasWidth: number; canvasHeight: number };
+  zones: Array<Record<string, any>>;
+  layoutElements: Array<Record<string, any>>;
+  categories: Array<Record<string, any>>;
+  items: Array<Record<string, any>>;
 }
 
 /**
@@ -169,13 +182,13 @@ export class WmsError extends Error {
  * 地圖那一頁要同時畫出倉位、地圖標示、每個倉位裡有什麼、還有畫布尺寸。拆成五支
  * API 的話畫面會一格一格跳出來，而且中間那幾個瞬間的地圖是錯的（有倉位、沒東西）。
  */
-export async function loadWarehouse(db: Database) {
+export async function loadWarehouse(db: Database): Promise<WarehouseSnapshot> {
   const [settingsRow] = await db
     .select()
     .from(warehouseSettings)
     .where(eq(warehouseSettings.id, SETTINGS_ID));
 
-  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, targetRows] = await Promise.all([
     db.select().from(zones).orderBy(asc(zones.code)),
     db.select().from(layoutElements).orderBy(asc(layoutElements.label)),
     db.select().from(warehouseCategories).orderBy(asc(warehouseCategories.name)),
@@ -189,10 +202,49 @@ export async function loadWarehouse(db: Database) {
      * 踩過一次（quantity 拿到 minStock 的值）。分開查再自己配對，沒有那個問題。
      */
     db.select().from(cyberbizProductLinks),
+    db.select({
+      itemId: wmsItems.itemId,
+      sku: itemMasters.sku,
+      name: itemMasters.name,
+      itemCategoryName: itemCategories.name,
+      wmsCategoryName: wmsCategories.name,
+      quantity: wmsItems.quantity,
+      unit: wmsItems.unit,
+      minStock: wmsItems.minStock,
+      notes: wmsItems.notes,
+      shelfId: wmsItems.shelfId,
+      shelfCode: wmsShelves.code,
+      zoneId: wmsShelves.zoneId,
+      updatedAt: wmsItems.updatedAt,
+    })
+      .from(wmsItems)
+      .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
+      .leftJoin(itemCategories, eq(itemCategories.id, itemMasters.categoryId))
+      .leftJoin(wmsCategories, eq(wmsCategories.id, wmsItems.wmsCategoryId))
+      .leftJoin(wmsShelves, eq(wmsShelves.id, wmsItems.shelfId))
+      .leftJoin(wmsZones, eq(wmsZones.id, wmsShelves.zoneId))
+      .orderBy(asc(itemMasters.name)),
   ]);
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
   const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
+  const legacySkus = new Set(itemRows.map((item) => item.sku).filter((sku): sku is string => Boolean(sku)));
+  const projectedTargetItems = targetRows
+    .filter((item) => !legacySkus.has(item.sku))
+    .map((item) => ({
+      id: item.itemId,
+      sku: item.sku,
+      name: item.name,
+      category: item.wmsCategoryName ?? item.itemCategoryName ?? "未分類",
+      quantity: item.quantity,
+      unit: item.unit,
+      minStock: item.minStock,
+      zoneId: item.zoneId,
+      shelfLevel: item.shelfCode,
+      notes: item.notes,
+      updatedAt: item.updatedAt,
+      cyberbiz: null,
+    }));
   return {
     // 設定那一列可能還沒建（全新的資料庫），給預設值而不是回 null。
     settings: {
@@ -206,23 +258,26 @@ export async function loadWarehouse(db: Database) {
     })),
     layoutElements: elementRows,
     categories: categoryRows,
-    items: itemRows.map((item) => {
-      const link = linksByItem.get(item.id);
-      return {
-        ...item,
-        cyberbiz: link
-          ? {
-              cyberbizProductId: link.cyberbizProductId,
-              cyberbizVariantId: link.cyberbizVariantId,
-              sku: link.sku,
-              syncStatus: link.syncStatus,
-              lastSyncedQuantity: link.lastSyncedQuantity,
-              lastSyncedAt: link.lastSyncedAt,
-              lastError: link.lastError,
-            }
-          : null,
-      };
-    }),
+    items: [
+      ...itemRows.map((item) => {
+        const link = linksByItem.get(item.id);
+        return {
+          ...item,
+          cyberbiz: link
+            ? {
+                cyberbizProductId: link.cyberbizProductId,
+                cyberbizVariantId: link.cyberbizVariantId,
+                sku: link.sku,
+                syncStatus: link.syncStatus,
+                lastSyncedQuantity: link.lastSyncedQuantity,
+                lastSyncedAt: link.lastSyncedAt,
+                lastError: link.lastError,
+              }
+            : null,
+        };
+      }),
+      ...projectedTargetItems,
+    ],
   };
 }
 
@@ -247,6 +302,7 @@ export async function createZone(db: Database, input: ZoneInput & { actor: Actor
   const code = input.code.trim().toUpperCase();
   const name = input.name.trim();
 
+  const parsedShelves = normalizeShelfLevels(input.shelfLevels);
   const zone = {
     id,
     code,
@@ -257,12 +313,23 @@ export async function createZone(db: Database, input: ZoneInput & { actor: Actor
     y: clamp(input.y, 38, BOUNDS.y),
     width: clamp(input.width, 18, BOUNDS.width),
     height: clamp(input.height, 16, BOUNDS.height),
-    shelfLevels: JSON.stringify(normalizeShelfLevels(input.shelfLevels)),
+    shelfLevels: JSON.stringify(parsedShelves),
     notes: input.notes?.trim() || "",
   };
 
   await db.batch([
     db.insert(zones).values(zone),
+    db.insert(wmsZones).values({ id, code, name, color: zone.color, notes: zone.notes, active: 1 }).onConflictDoNothing(),
+    ...parsedShelves.map((shelf, index) =>
+      db.insert(wmsShelves).values({
+        id: crypto.randomUUID(),
+        zoneId: id,
+        code: shelf.id,
+        name: shelf.name,
+        sortOrder: index,
+        active: 1,
+      }).onConflictDoNothing(),
+    ),
     writeEvent(db, {
       entityType: "zone",
       entityId: id,
@@ -334,6 +401,29 @@ export async function updateZone(
 
   await db.batch([
     db.update(zones).set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(zones.id, id)),
+    db
+      .update(wmsZones)
+      .set({
+        code: next.code,
+        name: next.name,
+        color: next.color,
+        notes: next.notes,
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(wmsZones.id, id)),
+    ...shelfLevels.map((shelf, index) =>
+      db.insert(wmsShelves).values({
+        id: crypto.randomUUID(),
+        zoneId: id,
+        code: shelf.id,
+        name: shelf.name,
+        sortOrder: index,
+        active: 1,
+      }).onConflictDoUpdate({
+        target: [wmsShelves.zoneId, wmsShelves.code],
+        set: { name: shelf.name, sortOrder: index, updatedAt: sql`CURRENT_TIMESTAMP` },
+      }),
+    ),
     writeEvent(db, {
       entityType: "zone",
       entityId: id,
@@ -342,8 +432,8 @@ export async function updateZone(
       summary: moved ? "移動倉位" : resized ? "調整倉位大小" : "修改倉位資料",
       field: moved ? "position" : resized ? "size" : "details",
       // 移動與縮放寫得出「從哪到哪」；改資料的變更太雜，只留快照。
-      oldValue: moved ? asPosition(current) : resized ? asSize(current) : null,
-      newValue: moved ? asPosition(next) : resized ? asSize(next) : null,
+      oldValue: moved ? asPosition(current as { x: number; y: number }) : resized ? asSize(current as { width: number; height: number }) : null,
+      newValue: moved ? asPosition(next as { x: number; y: number }) : resized ? asSize(next as { width: number; height: number }) : null,
       payload: { before: current, after: next },
       actor: input.actor,
     }),
@@ -371,6 +461,8 @@ export async function deleteZone(db: Database, id: string, actor: Actor) {
   await db.batch([
     // zone_images 是 cascade；物件與 media metadata 由 route 在外部刪除成功後另外清理。
     db.delete(zones).where(eq(zones.id, id)),
+    db.delete(wmsShelves).where(eq(wmsShelves.zoneId, id)),
+    db.delete(wmsZones).where(eq(wmsZones.id, id)),
     writeEvent(db, {
       entityType: "zone",
       entityId: id,
@@ -492,8 +584,46 @@ export async function createItem(db: Database, input: ItemInput & { actor: Actor
   };
   await requireSkuAvailableForExternalMappings(db, sku);
 
+  const [wmsCat] = await db
+    .select({ id: wmsCategories.id })
+    .from(wmsCategories)
+    .where(eq(wmsCategories.name, category))
+    .limit(1);
+
+  let shelfId: string | null = null;
+  if (placement.zoneId && placement.shelfLevel) {
+    const [shelf] = await db
+      .select({ id: wmsShelves.id })
+      .from(wmsShelves)
+      .where(and(eq(wmsShelves.zoneId, placement.zoneId), eq(wmsShelves.code, placement.shelfLevel)))
+      .limit(1);
+    shelfId = shelf?.id ?? null;
+  }
+
+  const targetSku = sku || `WMS-${id.slice(0, 8).toUpperCase()}`;
+  const targetItem = {
+    id,
+    source: "custom" as const,
+    kind: sku ? ("sellable" as const) : ("supply" as const),
+    sku: targetSku,
+    name,
+    categoryId: null,
+    active: 1,
+  };
+  const targetWms = {
+    itemId: id,
+    wmsCategoryId: wmsCat?.id ?? null,
+    shelfId,
+    quantity: item.quantity,
+    unit: item.unit,
+    minStock: item.minStock,
+    notes: item.notes,
+  };
+
   await db.batch([
     db.insert(inventoryItems).values(item),
+    db.insert(itemMasters).values(targetItem).onConflictDoNothing(),
+    db.insert(wmsItems).values(targetWms).onConflictDoNothing(),
     writeEvent(db, {
       entityType: "inventory_item",
       entityId: id,
@@ -593,11 +723,45 @@ export async function updateItem(
 
   const moved = next.zoneId !== current.zoneId || next.shelfLevel !== current.shelfLevel;
 
+  let shelfId: string | null = null;
+  if (placement.zoneId && placement.shelfLevel) {
+    const [shelf] = await db
+      .select({ id: wmsShelves.id })
+      .from(wmsShelves)
+      .where(and(eq(wmsShelves.zoneId, placement.zoneId), eq(wmsShelves.code, placement.shelfLevel)))
+      .limit(1);
+    shelfId = shelf?.id ?? null;
+  }
+  const [wmsCat] = await db
+    .select({ id: wmsCategories.id })
+    .from(wmsCategories)
+    .where(eq(wmsCategories.name, category))
+    .limit(1);
+
   await db.batch([
     db
       .update(inventoryItems)
       .set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` })
       .where(eq(inventoryItems.id, id)),
+    db
+      .update(itemMasters)
+      .set({
+        name: next.name,
+        ...(next.sku ? { sku: next.sku } : {}),
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(itemMasters.id, id)),
+    db
+      .update(wmsItems)
+      .set({
+        wmsCategoryId: wmsCat?.id ?? null,
+        shelfId,
+        unit: next.unit,
+        minStock: wantsMinStock,
+        notes: next.notes,
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(wmsItems.itemId, id)),
     writeEvent(db, {
       entityType: "inventory_item",
       entityId: id,
@@ -636,6 +800,8 @@ export async function deleteItem(db: Database, id: string, actor: Actor) {
 
   await db.batch([
     db.delete(inventoryItems).where(eq(inventoryItems.id, id)),
+    db.delete(wmsItems).where(eq(wmsItems.itemId, id)),
+    db.delete(itemMasters).where(eq(itemMasters.id, id)),
     writeEvent(db, {
       entityType: "inventory_item",
       entityId: id,
@@ -677,6 +843,10 @@ export async function countItem(
       .update(inventoryItems)
       .set({ quantity: next, updatedAt: sql`CURRENT_TIMESTAMP` })
       .where(eq(inventoryItems.id, id)),
+    db
+      .update(wmsItems)
+      .set({ quantity: next, updatedAt: sql`CURRENT_TIMESTAMP` })
+      .where(eq(wmsItems.itemId, id)),
     writeEvent(db, {
       entityType: "inventory_item",
       entityId: id,
@@ -715,6 +885,7 @@ export async function createWarehouseCategory(
 
   await db.batch([
     db.insert(warehouseCategories).values(category),
+    db.insert(wmsCategories).values({ id: category.id, name, color: category.color, active: 1 }).onConflictDoNothing(),
     writeEvent(db, {
       entityType: "warehouse_category",
       entityId: category.id,
@@ -755,6 +926,10 @@ export async function updateWarehouseCategory(
       .set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` })
       .where(eq(warehouseCategories.id, id)),
     db
+      .update(wmsCategories)
+      .set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` })
+      .where(eq(wmsCategories.id, id)),
+    db
       .update(inventoryItems)
       .set({ category: next.name, updatedAt: sql`CURRENT_TIMESTAMP` })
       .where(eq(inventoryItems.category, current.name)),
@@ -788,6 +963,7 @@ export async function deleteWarehouseCategory(db: Database, id: string, actor: A
 
   await db.batch([
     db.delete(warehouseCategories).where(eq(warehouseCategories.id, id)),
+    db.delete(wmsCategories).where(eq(wmsCategories.id, id)),
     writeEvent(db, {
       entityType: "warehouse_category",
       entityId: id,

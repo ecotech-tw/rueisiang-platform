@@ -478,6 +478,18 @@ driver 的執行報告 `.md` 現在只存在 GitHub Actions 的 artifact 裡，
 
 ---
 
+## 目前 UI / API 切分狀態（2026-09-03）
+
+品項已先從導覽上獨立出來：
+
+- 新增 `/items/catalog`「品項主檔」頁。
+- 新增 `/items/categories`「品項分類」頁，已改接 `item_categories`；WMS 庫存分類仍留在倉儲作業，不再同步。
+- 側邊欄新增「品項管理」，底下放品項主檔、品項分類、SKU 對應。
+- 原本「營運工具」不再直接列商品分類與 SKU 對應，避免 item 主檔與報表工具混在同一層。
+- API 新增 `/api/items/catalog`，目前會以 `items` 為主、補上 CYBERBIZ 已同步但尚未入主檔的 SKU，以及既有 WMS 過渡品項；後續再把「納入倉儲」正式接到 `wms_items`。
+
+---
+
 ## 這一輪刻意**不做**的事
 
 寫在這裡是為了讓下一個人知道它們被考慮過。

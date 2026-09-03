@@ -44,7 +44,7 @@ export interface CustomerStats {
 }
 
 export interface CustomerListPage {
-  customers: (typeof customers.$inferSelect)[];
+  customers: any[];
   total: number;
   page: number;
   pageSize: number;

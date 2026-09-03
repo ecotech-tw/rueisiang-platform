@@ -142,8 +142,8 @@ export async function syncCyberbizCustomer(
     updatedAt: incoming.updatedAt || existing.updatedAt,
   };
 
-  const changed = Object.entries(next).some(
-    ([key, value]) => value !== existing[key as keyof typeof existing],
+  const changed = Object.entries(next as Record<string, unknown>).some(
+    ([key, value]) => value !== (existing as Record<string, unknown>)[key],
   );
 
   if (!changed) {
@@ -290,10 +290,10 @@ export async function upsertCyberbizCustomers(
           cyberbizUid: sql`coalesce(nullif(excluded.cyberbiz_uid, ''), ${customers.cyberbizUid})`,
           cyberbizTagsJson: sql`case when excluded.cyberbiz_tags_json in ('[]', '') then ${customers.cyberbizTagsJson} else excluded.cyberbiz_tags_json end`,
           cyberbizUpdatedAt: sql`coalesce(nullif(excluded.cyberbiz_updated_at, ''), ${customers.cyberbizUpdatedAt})`,
-          cyberbizRawJson: sql`excluded.cyberbiz_raw_json`,
+          cyberbizRawJson: sql`excluded.raw_json`,
           syncStatus: sql`'synced'`,
           syncError: sql`null`,
-          lastSyncedAt: sql`excluded.last_synced_at`,
+          lastSyncedAt: sql`excluded.synced_at`,
           blockedAt: sql`case when excluded.status = 'blocked' then coalesce(${customers.blockedAt}, excluded.blocked_at) else ${customers.blockedAt} end`,
           createdAt: sql`coalesce(nullif(excluded.created_at, ''), ${customers.createdAt})`,
           updatedAt: sql`excluded.updated_at`,

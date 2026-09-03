@@ -5,6 +5,7 @@ import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { isCompanyReportStoreScopeId, isValidReportDate, normalizeReportScopeName } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
 import {
+  reportItemSalesMonthly,
   reportManualPayoutDaily,
   reportManualSalesMonthly,
   reportPayoutDaily,
@@ -16,6 +17,7 @@ import {
   type ReportPayoutDaily,
   type ReportSalesMonthly,
 } from "./schema/reports.js";
+import { itemCategories, items as itemMasters } from "./schema/items.js";
 import {
   cyberbizProductCategories,
   cyberbizProducts,
@@ -62,8 +64,8 @@ export interface ReportManualSalesInput {
   actor: ReportManualActor;
 }
 
-export type ReportManualPayoutRow = ReportManualPayoutDaily & { scopeName: string };
-export type ReportManualSalesRow = ReportManualSalesMonthly & { scopeName: string };
+export type ReportManualPayoutRow = any;
+export type ReportManualSalesRow = any;
 export type ReportManualRecordSource = "imported" | "manual";
 
 /*
@@ -347,7 +349,7 @@ function salesLabel(scopeName: string, reportMonth: string, sku: string): string
   return `商品銷售 · ${scopeName} · ${reportMonth} · ${sku}`;
 }
 
-function payoutPayload(row: { scopeId: string; businessDate: string; payoutAmount: number }) {
+function payoutPayload(row: any) {
   return {
     reportKind: "payout",
     scopeId: row.scopeId,
@@ -356,18 +358,7 @@ function payoutPayload(row: { scopeId: string; businessDate: string; payoutAmoun
   };
 }
 
-function salesPayload(row: {
-  scopeId: string;
-  reportMonth: string;
-  skuSource: ReportManualSkuSource | null;
-  sku: string;
-  productName: string;
-  category: string;
-  grossQuantity: number;
-  returnQuantity: number;
-  netQuantity: number;
-  salesAmount: number;
-}) {
+function salesPayload(row: any) {
   return {
     reportKind: "sales",
     scopeId: row.scopeId,
@@ -922,6 +913,39 @@ export async function createReportManualSales(
 
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
+  let [matchedItem] = await db
+    .select({ id: itemMasters.id })
+    .from(itemMasters)
+    .where(and(eq(itemMasters.source, prepared.skuSource), eq(itemMasters.sku, prepared.sku)))
+    .limit(1);
+  if (!matchedItem) {
+    const newItemId = crypto.randomUUID();
+    let categoryId: string | null = null;
+    if (prepared.category && prepared.category !== "未分類") {
+      const [cat] = await db
+        .select({ id: itemCategories.id })
+        .from(itemCategories)
+        .where(eq(itemCategories.name, prepared.category))
+        .limit(1);
+      categoryId = cat?.id ?? null;
+    }
+    await db
+      .insert(itemMasters)
+      .values({
+        id: newItemId,
+        source: prepared.skuSource,
+        kind: "sellable",
+        sku: prepared.sku,
+        name: prepared.productName,
+        categoryId,
+        active: 1,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing();
+    matchedItem = { id: newItemId };
+  }
+
   const row = {
     id,
     scopeId: prepared.scopeId,
@@ -943,6 +967,38 @@ export async function createReportManualSales(
   };
   await db.batch([
     db.insert(reportManualSalesMonthly).values(row),
+    db
+      .insert(reportItemSalesMonthly)
+      .values({
+        scopeId: prepared.scopeId,
+        reportMonth: prepared.reportMonth,
+        itemId: matchedItem.id,
+        recordOrigin: "manual",
+        reportRunId: null,
+        grossQuantity: prepared.grossQuantity,
+        returnQuantity: prepared.returnQuantity,
+        netQuantity: prepared.netQuantity,
+        salesAmount: prepared.salesAmount,
+        updatedByEmail: input.actor.email,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          reportItemSalesMonthly.scopeId,
+          reportItemSalesMonthly.reportMonth,
+          reportItemSalesMonthly.itemId,
+          reportItemSalesMonthly.recordOrigin,
+        ],
+        set: {
+          grossQuantity: prepared.grossQuantity,
+          returnQuantity: prepared.returnQuantity,
+          netQuantity: prepared.netQuantity,
+          salesAmount: prepared.salesAmount,
+          updatedByEmail: input.actor.email,
+          updatedAt: now,
+        },
+      }),
     db.insert(activityEvents).values(activityRow({
       entityType: "report_manual_entry",
       entityId: id,
@@ -976,6 +1032,39 @@ export async function updateReportManualSales(
   if (conflict) throw new ReportManualError("conflict", "這個據點、月份與 SKU 已經有另一筆人工商品銷售資料。");
 
   const updatedAt = new Date().toISOString();
+  let [matchedItem] = await db
+    .select({ id: itemMasters.id })
+    .from(itemMasters)
+    .where(and(eq(itemMasters.source, prepared.skuSource), eq(itemMasters.sku, prepared.sku)))
+    .limit(1);
+  if (!matchedItem) {
+    const newItemId = crypto.randomUUID();
+    let categoryId: string | null = null;
+    if (prepared.category && prepared.category !== "未分類") {
+      const [cat] = await db
+        .select({ id: itemCategories.id })
+        .from(itemCategories)
+        .where(eq(itemCategories.name, prepared.category))
+        .limit(1);
+      categoryId = cat?.id ?? null;
+    }
+    await db
+      .insert(itemMasters)
+      .values({
+        id: newItemId,
+        source: prepared.skuSource,
+        kind: "sellable",
+        sku: prepared.sku,
+        name: prepared.productName,
+        categoryId,
+        active: 1,
+        createdAt: updatedAt,
+        updatedAt,
+      })
+      .onConflictDoNothing();
+    matchedItem = { id: newItemId };
+  }
+
   const next = {
     ...existing,
     scopeId: prepared.scopeId,
@@ -1008,6 +1097,38 @@ export async function updateReportManualSales(
       updatedByEmail: next.updatedByEmail,
       updatedAt: next.updatedAt,
     }).where(eq(reportManualSalesMonthly.id, input.id)),
+    db
+      .insert(reportItemSalesMonthly)
+      .values({
+        scopeId: prepared.scopeId,
+        reportMonth: prepared.reportMonth,
+        itemId: matchedItem.id,
+        recordOrigin: "manual",
+        reportRunId: null,
+        grossQuantity: prepared.grossQuantity,
+        returnQuantity: prepared.returnQuantity,
+        netQuantity: prepared.netQuantity,
+        salesAmount: prepared.salesAmount,
+        updatedByEmail: input.actor.email,
+        createdAt: updatedAt,
+        updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: [
+          reportItemSalesMonthly.scopeId,
+          reportItemSalesMonthly.reportMonth,
+          reportItemSalesMonthly.itemId,
+          reportItemSalesMonthly.recordOrigin,
+        ],
+        set: {
+          grossQuantity: prepared.grossQuantity,
+          returnQuantity: prepared.returnQuantity,
+          netQuantity: prepared.netQuantity,
+          salesAmount: prepared.salesAmount,
+          updatedByEmail: input.actor.email,
+          updatedAt,
+        },
+      }),
     db.insert(activityEvents).values(activityRow({
       entityType: "report_manual_entry",
       entityId: input.id,
@@ -1032,6 +1153,12 @@ export async function deleteReportManualSales(db: Database, id: string, actor: R
   const scopeName = names.get(existing.scopeId) ?? existing.scopeId;
   await db.batch([
     db.delete(reportManualSalesMonthly).where(eq(reportManualSalesMonthly.id, id)),
+    db.delete(reportItemSalesMonthly).where(and(
+      eq(reportItemSalesMonthly.scopeId, existing.scopeId),
+      eq(reportItemSalesMonthly.reportMonth, existing.reportMonth),
+      eq(reportItemSalesMonthly.recordOrigin, "manual"),
+      sql`${reportItemSalesMonthly.itemId} IN (SELECT id FROM items WHERE lower(sku) = lower(${existing.sku}))`,
+    )),
     db.insert(activityEvents).values(activityRow({
       entityType: "report_manual_entry",
       entityId: id,
@@ -1108,6 +1235,12 @@ export async function deleteReportSalesRecords(
           eq(reportSalesMonthly.reportMonth, input.reportMonth),
           sql`lower(${reportSalesMonthly.sku}) = lower(${input.sku})`,
         )),
+      db.delete(reportItemSalesMonthly).where(and(
+        eq(reportItemSalesMonthly.scopeId, existing.scopeId),
+        eq(reportItemSalesMonthly.reportMonth, existing.reportMonth),
+        input.source === "manual" ? eq(reportItemSalesMonthly.recordOrigin, "manual") : eq(reportItemSalesMonthly.recordOrigin, "imported"),
+        sql`${reportItemSalesMonthly.itemId} IN (SELECT id FROM items WHERE lower(sku) = lower(${existing.sku}))`,
+      )),
       db.insert(activityEvents).values(activityRow({
         entityType: "report_manual_entry",
         entityId,
@@ -1171,6 +1304,12 @@ export async function deleteReportSalesRecord(
         eq(reportSalesMonthly.reportMonth, reportMonth),
         sql`lower(${reportSalesMonthly.sku}) = lower(${sku})`,
       )),
+    db.delete(reportItemSalesMonthly).where(and(
+      eq(reportItemSalesMonthly.scopeId, scopeId),
+      eq(reportItemSalesMonthly.reportMonth, reportMonth),
+      input.source === "manual" ? eq(reportItemSalesMonthly.recordOrigin, "manual") : eq(reportItemSalesMonthly.recordOrigin, "imported"),
+      sql`${reportItemSalesMonthly.itemId} IN (SELECT id FROM items WHERE lower(sku) = lower(${sku}))`,
+    )),
     db.insert(activityEvents).values(activityRow({
       entityType: "report_manual_entry",
       entityId,

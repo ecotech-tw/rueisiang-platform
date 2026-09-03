@@ -17,13 +17,12 @@ export const mediaObjects = sqliteTable("media_objects", {
   contentType: text("content_type").notNull(),
   size: integer("size").notNull(),
   checksum: text("checksum").notNull(),
+  storageProvider: text("storage_provider").notNull().default("nas"),
   createdBy: text("created_by"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
   expiresAt: text("expires_at"),
 }, (table) => [
-  index("idx_media_objects_namespace_created_at").on(table.namespace, table.createdAt),
-  index("idx_media_objects_scope_key").on(table.namespace, table.scopeKey),
-  index("idx_media_objects_expires_at").on(table.expiresAt),
+  index("idx_media_objects_expires_at").on(table.expiresAt).where(sql`${table.expiresAt} IS NOT NULL`),
 ]);
 
 export type MediaObject = typeof mediaObjects.$inferSelect;

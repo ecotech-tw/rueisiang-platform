@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
+  reportItemSalesMonthly,
   reportManualSalesMonthly,
   reportPayoutDaily,
   reportSalesMonthly,
@@ -206,6 +207,14 @@ const EFFECTIVE_SALES_SOURCE = sql`(
       AND manual.report_month = imported.report_month
       AND lower(manual.sku) = lower(imported.sku)
   )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM report_item_sales_monthly AS target_sales
+      JOIN items AS target_item ON target_item.id = target_sales.item_id
+      WHERE target_sales.scope_id = imported.scope_id
+        AND target_sales.report_month = imported.report_month
+        AND lower(target_item.sku) = lower(imported.sku)
+    )
   UNION ALL
   SELECT
     manual.scope_id,
@@ -218,6 +227,28 @@ const EFFECTIVE_SALES_SOURCE = sql`(
     manual.net_quantity,
     manual.sales_amount
   FROM report_manual_sales_monthly AS manual
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM report_item_sales_monthly AS target_sales
+    JOIN items AS target_item ON target_item.id = target_sales.item_id
+    WHERE target_sales.scope_id = manual.scope_id
+      AND target_sales.report_month = manual.report_month
+      AND lower(target_item.sku) = lower(manual.sku)
+  )
+  UNION ALL
+  SELECT
+    target.scope_id,
+    target.report_month,
+    item.sku,
+    item.name AS product_name,
+    COALESCE(category.name, '未分類') AS category,
+    target.gross_quantity,
+    target.return_quantity,
+    target.net_quantity,
+    target.sales_amount
+  FROM report_item_sales_monthly AS target
+  JOIN items AS item ON item.id = target.item_id
+  LEFT JOIN item_categories AS category ON category.id = item.category_id
 ) AS report_sales_effective`;
 
 const EFFECTIVE_SALES_COLUMNS = {
@@ -270,7 +301,7 @@ export async function latestReportSalesPeriods(
 ): Promise<LatestReportSalesPeriods> {
   if (!scopeIds.length) return { latestPeriod: null, byScope: {} };
 
-  const [importedRows, manualRows] = await Promise.all([
+  const [importedRows, manualRows, targetRows] = await Promise.all([
     db.select({
       scopeId: reportSalesMonthly.scopeId,
       reportMonth: sql<string | null>`max(${reportSalesMonthly.reportMonth})`,
@@ -283,11 +314,17 @@ export async function latestReportSalesPeriods(
     }).from(reportManualSalesMonthly)
       .where(inArray(reportManualSalesMonthly.scopeId, [...scopeIds]))
       .groupBy(reportManualSalesMonthly.scopeId),
+    db.select({
+      scopeId: reportItemSalesMonthly.scopeId,
+      reportMonth: sql<string | null>`max(${reportItemSalesMonthly.reportMonth})`,
+    }).from(reportItemSalesMonthly)
+      .where(inArray(reportItemSalesMonthly.scopeId, [...scopeIds]))
+      .groupBy(reportItemSalesMonthly.scopeId),
   ]);
 
   const byScope: Record<string, string> = {};
   let latestPeriod: string | null = null;
-  for (const row of [...importedRows, ...manualRows]) {
+  for (const row of [...importedRows, ...manualRows, ...targetRows]) {
     if (!row.reportMonth) continue;
     const existing = byScope[row.scopeId];
     if (!existing || row.reportMonth > existing) byScope[row.scopeId] = row.reportMonth;

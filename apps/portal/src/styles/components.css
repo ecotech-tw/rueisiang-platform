@@ -383,6 +383,7 @@
 .page.fills > .panel.grows > .admin-form,
 .page.fills > .panel.grows > .pager,
 .page.fills > .panel.grows > .form-error,
+.page.fills > .panel.grows > .ui-alert,
 .page.fills > .panel.grows > .table-note { flex: none; }
 .page.fills > .panel.grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
 
