@@ -24,7 +24,8 @@ import {
   redact,
   requireEnv,
   salesFilename,
-  scopeIdFromStoreName,
+  parseStoresInput,
+  storeScopeId,
   skillPath,
 } from "../lib/common.mjs";
 import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
@@ -88,7 +89,10 @@ async function main() {
   if ((args.start || args.end) && args.month) throw new Error("--month 與 --start/--end 只能擇一。");
   if (Boolean(args.start) !== Boolean(args.end)) throw new Error("--start 與 --end 要一起給。");
 
-  const config = await loadConfig();
+  const config = await loadConfig(undefined, {
+    // 平台觸發時店別從 D1 傳進來；手動執行沒有這個輸入，照 config.json 跑。
+    storesOverride: parseStoresInput(process.env.REPORT_STORES_JSON),
+  });
   const env = await loadEnv();
   requireEnv(env, ["CYBERBIZ_USERNAME", "CYBERBIZ_PASSWORD"]);
   const range = args.start ? dateRange(args.start, args.end) : args.month ? monthRange(args.month) : previousMonth();
@@ -165,7 +169,7 @@ async function main() {
         const document = range.start.slice(0, 7) === range.end.slice(0, 7)
           ? await parseSalesReport(localPath, {
             scopeType: "store",
-            scopeId: scopeIdFromStoreName(store.name),
+            scopeId: storeScopeId(store),
             scopeName: store.name,
             reportMonth: range.start.slice(0, 7),
             start: range.start,
@@ -190,7 +194,7 @@ async function main() {
             apiUrl: ingestConfig.apiUrl,
             ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
             kind: "sales",
-            scopeId: scopeIdFromStoreName(store.name),
+            scopeId: storeScopeId(store),
             scopeName: store.name,
             reportMonth: document.reportMonth,
             rows: monthlyRows(document),

@@ -11,6 +11,8 @@ import path from "node:path";
 import zlib from "node:zlib";
 import {
   loadConfig,
+  parseStoresInput,
+  storeScopeId,
   dateRange,
   driveFolderIdFromUrl,
   driveFolderUrlFromId,
@@ -311,42 +313,59 @@ check("商品銷售終端摘要不會印出 object", terminalSummary(salesReport
 const config = await loadConfig();
 
 /*
- * stores.json 覆蓋 config.json 的店別。平台的「店別設定」頁存檔時會把這個檔案
- * 寫回 repo；沒有這條路，網頁上改店別不會影響執行，而兩邊看起來都正常。
+ * 平台傳進來的店別（workflow 的 stores_json）蓋掉 config.json 的那一份。
+ * 舊版是把清單 commit 成 stores.json 讓 runner 讀，同一份資料存在 D1、
+ * stores.json、config.json 三個地方。
  */
 {
   const dir = path.join(temp, "stores-override");
   await fs.mkdir(dir, { recursive: true });
   const configPath = path.join(dir, "config.json");
-  const storesPath = path.join(dir, "stores.json");
   await fs.writeFile(
     configPath,
-    JSON.stringify({ stores: [{ name: "設定檔裡的店" }], recipientEmail: "x@y.z" }),
+    JSON.stringify({ stores: [{ name: "設定檔裡的店", scopeId: "cyberbiz:store:local" }], recipientEmail: "x@y.z" }),
     "utf8",
   );
 
   const before = await loadConfig(configPath);
-  check("沒有 stores.json 時照 config.json 走", before.stores.map((item) => item.name), ["設定檔裡的店"]);
+  check("沒有 stores_json 時照 config.json 走", before.stores.map((item) => item.name), ["設定檔裡的店"]);
 
-  await fs.writeFile(storesPath, JSON.stringify({ stores: [{ name: "平台存回來的店" }] }), "utf8");
-  const after = await loadConfig(configPath);
-  check("有 stores.json 就以它為準", after.stores.map((item) => item.name), ["平台存回來的店"]);
+  const override = parseStoresInput(JSON.stringify([{ name: "平台傳來的店", scopeId: "cyberbiz:store:abc" }]));
+  const after = await loadConfig(configPath, { storesOverride: override });
+  check("有 stores_json 就以它為準", after.stores.map((item) => item.name), ["平台傳來的店"]);
   check("其他設定不受影響", after.recipientEmail, "x@y.z");
 
-  // 空清單不算數：平台還沒存過任何店的時候，不該把工具變成一家都不跑。
-  await fs.writeFile(storesPath, JSON.stringify({ stores: [] }), "utf8");
-  check("空的 stores.json 退回 config.json", (await loadConfig(configPath)).stores.map((item) => item.name), ["設定檔裡的店"]);
+  // 手動執行不會有這個輸入，那時候照 config.json 跑，不是跑零家店。
+  check("空字串等於沒有傳", parseStoresInput(""), null);
+  check("空白字串等於沒有傳", parseStoresInput("   "), null);
 
-  // 壞掉的 JSON 要吵，不能默默照舊的跑——那會讓人以為存檔生效了。
-  await fs.writeFile(storesPath, "{ not json", "utf8");
-  let threw = false;
-  try {
-    await loadConfig(configPath);
-  } catch {
-    threw = true;
+  // 壞掉的 JSON 要吵，不能默默退回 config.json——平台選了三家店卻跑了九家，
+  // 是最難發現的一種錯。
+  for (const [label, raw] of [
+    ["壞掉的 JSON", "{ not json"],
+    ["空陣列", "[]"],
+    ["沒有 scopeId", JSON.stringify([{ name: "缺 scopeId" }])],
+  ]) {
+    let threw = false;
+    try {
+      parseStoresInput(raw);
+    } catch {
+      threw = true;
+    }
+    check(`stores_json ${label} 會報錯而不是默默照舊`, threw, true);
   }
-  check("stores.json 壞掉時會報錯而不是默默照舊", threw, true);
+
+  // scopeId 一律由上層給：舊版從店名算，改店名就換一個 scope，報表被切成兩半。
+  let scopeThrew = false;
+  try {
+    storeScopeId({ name: "沒有 scopeId 的店" });
+  } catch {
+    scopeThrew = true;
+  }
+  check("沒有 scopeId 的店會擋下來", scopeThrew, true);
+  check("有 scopeId 就照用", storeScopeId({ name: "x", scopeId: "cyberbiz:store:abc" }), "cyberbiz:store:abc");
 }
+check("config 的店別都有 scopeId（手動執行要用）", config.stores.every((store) => Boolean(store.scopeId)), true);
 check("config 使用 Drive 連結而非店別 ID", config.stores.every((store) => store.driveFolderUrl && !store.driveFolderId), true);
 check("config 使用根資料夾連結而非 ID", Boolean(config.driveRootFolderUrl) && !config.driveRootFolderId, true);
 check("config 店別不再含 performance", config.stores.every((store) => !Object.hasOwn(store, "performance")), true);

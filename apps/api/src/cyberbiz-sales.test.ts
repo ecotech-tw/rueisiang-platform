@@ -155,21 +155,22 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     expect(await response.json()).toMatchObject({ configured: false });
   });
 
-  it("sales repository 分開設定時，店別設定仍同步到兩個 repository", async () => {
+  it("店別設定跟著這次執行送給 runner，含 scopeId 與 Drive 資料夾", async () => {
     const calls = stubGithub();
     env = { ...env, CYBERBIZ_SALES_GITHUB_REPO: "ecotech-tw/report-runner", CYBERBIZ_SALES_GITHUB_REF: "release" };
-    const id = await seedUser("admin@ecotech.tw", "role-admin");
-    const response = await as(id, "admin@ecotech.tw", "/api/tools/payout/stores", {
-      method: "PUT",
-      body: JSON.stringify({ stores: [{ name: "新店", driveFolderUrl: "https://drive.google.com/drive/folders/folder-id", driveFolderName: "新店" }] }),
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+
+    await as(id, "manager@ecotech.tw", "/api/tools/cyberbiz-sales/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: ["宏匯廣場1F"], start: "2026-07-01", end: "2026-07-31" }),
     });
 
-    expect(response.status).toBe(200);
-    const writes = calls.filter((call) => call.url.includes("/contents/tools/cyberbiz-reports/stores.json"));
-    expect(writes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ url: expect.stringContaining("/repos/ecotech-tw/rueisiang-platform/"), body: expect.objectContaining({ branch: "main" }) }),
-      expect.objectContaining({ url: expect.stringContaining("/repos/ecotech-tw/report-runner/"), body: expect.objectContaining({ branch: "release" }) }),
-    ]));
+    // 舊版是把清單 commit 成兩個 repository 的 stores.json；現在跟著 dispatch 走。
+    const dispatch = calls[0]!;
+    expect(dispatch.url).toContain("/repos/ecotech-tw/report-runner/");
+    const sent = JSON.parse((dispatch.body as { inputs: { stores_json: string } }).inputs.stores_json) as { name: string; scopeId: string }[];
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ name: "宏匯廣場1F", scopeId: cyberbizScopeIdFromStoreName("宏匯廣場1F") });
   });
 
   it("商品銷售執行收到 null body 時回傳 400", async () => {

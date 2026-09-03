@@ -9,16 +9,15 @@ import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqli
  */
 
 /**
- * 出金表的店別清單。
+ * 出金表與商品銷售報表的店別清單。**這張表是唯一來源。**
  *
  * 舊的 Worker 把 stores.json 打包進程式碼裡，所以設定頁改完之後要下載檔案、
- * commit 回 repo、重新部署，執行頁才會看到——實務上沒有人會這樣改。搬進來
- * 之後改存 D1，設定頁存檔就生效。
+ * commit 回 repo、重新部署，執行頁才會看到。搬進 D1 之後設定頁存檔就生效，
+ * 但 runner 那邊仍然讀它自己 repo 裡的 stores.json——同一份清單存在三個地方
+ * （D1、stores.json、config.json），改了一個另外兩個不會跟著動。
  *
- * **但 GitHub Actions 上的 driver 仍然讀它自己 repo 裡的 stores.json。**
- * 這張表決定「網頁上看得到哪幾家店」，driver 決定「那家店的檔案上傳到哪個
- * Drive 資料夾」。在這裡新增一家帳務 repo 沒有的店，執行時會失敗——所以設定頁
- * 仍然提供 stores.json 下載，而且要把這件事講清楚。
+ * 現在店別是**觸發執行時跟著 dispatch 傳給 runner 的**（見 cyberbiz-scope.ts
+ * 的 runnerStores），stores.json 已經移除。
  */
 export const payoutStores = sqliteTable("payout_stores", {
   id: text("id").primaryKey(),
@@ -26,7 +25,7 @@ export const payoutStores = sqliteTable("payout_stores", {
   name: text("name").notNull(),
   driveFolderUrl: text("drive_folder_url").notNull().default(""),
   driveFolderName: text("drive_folder_name").notNull().default(""),
-  /** 關閉後只保留設定，不會出現在出金表與商品銷售報表的執行頁。 */
+  /** 關閉後只保留設定，不會出現在出金表與商品銷售報表的執行頁，也不會被送給 runner。 */
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   /** 顯示順序。同仁習慣的店序跟建立時間無關，所以另外存。 */
   sortOrder: integer("sort_order").notNull().default(0),

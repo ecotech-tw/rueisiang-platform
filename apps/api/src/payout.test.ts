@@ -4,7 +4,7 @@ import { payoutRuns, payoutStores, reportPayoutDaily, reportScopes, userRoles, u
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
-import { manualScopeIdFromStoreName } from "./cyberbiz-scope.js";
+import { cyberbizScopeIdFromStoreName, manualScopeIdFromStoreName } from "./cyberbiz-scope.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 /**
@@ -132,6 +132,44 @@ describe("執行", () => {
 
     const { requestId } = (await response.json()) as { requestId: string };
     expect((dispatch.body as { inputs: { request_id: string } }).inputs.request_id).toBe(requestId);
+  });
+
+  it("店別設定跟著這次執行送給 runner，含 scopeId 與 Drive 資料夾", async () => {
+    const calls = stubGithub();
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+
+    await as(id, "manager@ecotech.tw", "/api/tools/payout/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: ["宏匯廣場1F"], ...RANGE }),
+    });
+
+    /*
+     * 舊版是把清單 commit 成 runner repo 的 stores.json，同一份資料存在三個地方。
+     * 現在跟著 dispatch 走，而且 scopeId 由平台給——runner 自己從店名算的話，
+     * 改店名就會建出一家新店，報表資料被切成兩半。
+     */
+    const sent = (calls[0]!.body as { inputs: { stores_json: string } }).inputs.stores_json;
+    expect(JSON.parse(sent)).toEqual([
+      {
+        scopeId: cyberbizScopeIdFromStoreName("宏匯廣場1F"),
+        name: "宏匯廣場1F",
+        driveFolderUrl: "https://drive.google.com/drive/folders/1o8r9R9EFSjVE1yYAVgTsv4luUFRaJ3Ao",
+        driveFolderName: "宏匯",
+      },
+    ]);
+  });
+
+  it("只送選到的店，沒選的不會跟著過去", async () => {
+    const calls = stubGithub();
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+
+    await as(id, "manager@ecotech.tw", "/api/tools/payout/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: ["宏匯廣場1F", "夢時代-7F"], ...RANGE }),
+    });
+
+    const sent = JSON.parse((calls[0]!.body as { inputs: { stores_json: string } }).inputs.stores_json) as { name: string }[];
+    expect(sent.map((store) => store.name)).toEqual(["宏匯廣場1F", "夢時代-7F"]);
   });
 
   it("單一店別照原樣送出", async () => {
@@ -421,22 +459,12 @@ describe("手動上傳出金", () => {
 });
 
 describe("店別設定", () => {
-  /** 讀 stores.json 的回應（GitHub 的 Contents API 回 base64）。 */
-  function storesFile(stores: unknown) {
-    const text = `${JSON.stringify({ stores }, null, 2)}
-`;
-    const bytes = new TextEncoder().encode(text);
-    let binary = "";
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return { sha: "old-sha", content: btoa(binary) };
-  }
-
   const TWO_STORES = [
     { name: "乙店", driveFolderUrl: "", driveFolderName: "" },
     { name: "甲店", driveFolderUrl: "https://drive.google.com/drive/folders/abc123", driveFolderName: "甲" },
   ];
 
-  it("顯示開關直接生效，且不會改寫 runner 的 stores.json", async () => {
+  it("顯示開關直接生效，而且完全不用跟 GitHub 講話", async () => {
     const calls = stubGithub();
     const [store] = await listPayoutStores(db());
     const id = await seedUser("eli@ecotech.tw", "role-admin");
@@ -454,37 +482,9 @@ describe("店別設定", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("單店欄位自動儲存，並同步 runner 的 stores.json", async () => {
-    const calls = stubGithub([{ body: storesFile([{ name: "舊的" }]) }, { body: {} }]);
-    const [store] = await listPayoutStores(db());
-    const id = await seedUser("eli@ecotech.tw", "role-admin");
-
-    const response = await as(id, "eli@ecotech.tw", `/api/tools/payout/stores/${store!.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        name: "自動儲存測試店",
-        driveFolderUrl: "https://drive.google.com/drive/folders/autosave",
-        driveFolderName: "自動儲存",
-        enabled: true,
-      }),
-    });
-
-    expect(response.status).toBe(200);
-    expect((await response.json()) as { store: { name: string } }).toMatchObject({
-      store: { name: "自動儲存測試店" },
-    });
-    expect((await listPayoutStores(db()))[0]).toMatchObject({
-      name: "自動儲存測試店",
-      driveFolderName: "自動儲存",
-    });
-    expect(calls).toHaveLength(2);
-    expect((calls[1]!.body as { content: string }).content).toBeTruthy();
-    expect(new TextDecoder().decode(Uint8Array.from(atob((calls[1]!.body as { content: string }).content), (ch) => ch.charCodeAt(0))))
-      .not.toContain("enabled");
-  });
 
   it("新增店別自動儲存，並接在清單尾端", async () => {
-    const calls = stubGithub([{ body: storesFile([{ name: "舊的" }]) }, { body: {} }]);
+    const calls = stubGithub();
     const id = await seedUser("eli@ecotech.tw", "role-admin");
 
     const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
@@ -502,25 +502,13 @@ describe("店別設定", () => {
       store: { name: "新增測試店" },
     });
     expect((await listPayoutStores(db())).at(-1)!.name).toBe("新增測試店");
-    expect(calls).toHaveLength(2);
+    // 存店別不再需要 commit stores.json——D1 就是唯一來源。
+    expect(calls).toHaveLength(0);
   });
 
-  it("刪除店別自動儲存，並同步 runner 的 stores.json", async () => {
-    const calls = stubGithub([{ body: storesFile([{ name: "舊的" }]) }, { body: {} }]);
-    const [store] = await listPayoutStores(db());
-    const id = await seedUser("eli@ecotech.tw", "role-admin");
-
-    const response = await as(id, "eli@ecotech.tw", `/api/tools/payout/stores/${store!.id}`, {
-      method: "DELETE",
-    });
-
-    expect(response.status).toBe(200);
-    expect((await listPayoutStores(db())).some((candidate) => candidate.id === store!.id)).toBe(false);
-    expect(calls).toHaveLength(2);
-  });
 
   it("整組換掉，順序照送進來的排", async () => {
-    stubGithub([{ status: 404, body: {} }, { body: {} }]);
+    stubGithub();
     const id = await seedUser("eli@ecotech.tw", "role-admin");
     const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
       method: "PUT",
@@ -532,98 +520,10 @@ describe("店別設定", () => {
     expect(body.stores.map((store) => store.name)).toEqual(["乙店", "甲店"]);
   });
 
-  it("commit 回帳務 repo 的 stores.json，帶上 sha 與是誰改的", async () => {
-    const calls = stubGithub([{ body: storesFile([{ name: "舊的" }]) }, { body: {} }]);
-    const id = await seedUser("eli@ecotech.tw", "role-admin");
 
-    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
-      method: "PUT",
-      body: JSON.stringify({ stores: TWO_STORES }),
-    });
-    expect((await response.json()) as { committed: boolean }).toMatchObject({
-      syncedToRepo: true,
-      committed: true,
-    });
 
-    const put = calls[1]!;
-    expect(put.method).toBe("PUT");
-    expect(put.url).toContain("/contents/tools/cyberbiz-reports/stores.json");
 
-    const sent = put.body as { message: string; content: string; sha: string; branch: string };
-    // 沒帶 sha 的話 GitHub 會當成「建立新檔案」而拒絕。
-    expect(sent.sha).toBe("old-sha");
-    expect(sent.branch).toBe("main");
-    expect(sent.message).toContain("eli@ecotech.tw");
-    // 中文店名要能正確還原——btoa 直接吃字串會炸，這裡驗的是有先轉 UTF-8。
-    expect(new TextDecoder().decode(Uint8Array.from(atob(sent.content), (ch) => ch.charCodeAt(0))))
-      .toContain("乙店");
-  });
 
-  it("內容一樣就不留下一筆什麼都沒動的 commit", async () => {
-    const calls = stubGithub([{ body: storesFile(TWO_STORES) }]);
-    const id = await seedUser("eli@ecotech.tw", "role-admin");
-
-    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
-      method: "PUT",
-      body: JSON.stringify({ stores: TWO_STORES }),
-    });
-
-    expect((await response.json()) as { committed: boolean }).toMatchObject({
-      syncedToRepo: true,
-      committed: false,
-    });
-    expect(calls).toHaveLength(1);
-  });
-
-  it("儲存顯示開關，但不把平台欄位寫進 runner 的 stores.json", async () => {
-    const calls = stubGithub([{ body: storesFile([{ name: "舊的" }]) }, { body: {} }]);
-    const id = await seedUser("eli@ecotech.tw", "role-admin");
-    const stores = TWO_STORES.map((store, index) => ({ ...store, enabled: index === 0 }));
-
-    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
-      method: "PUT",
-      body: JSON.stringify({ stores }),
-    });
-
-    expect(response.status).toBe(200);
-    expect((await response.json()) as { stores: { enabled: boolean }[] }).toMatchObject({
-      stores: [{ enabled: true }, { enabled: false }],
-    });
-    const put = calls[1]!;
-    const content = put.body as { content: string };
-    const decoded = new TextDecoder().decode(Uint8Array.from(atob(content.content), (ch) => ch.charCodeAt(0)));
-    expect(decoded).not.toContain("enabled");
-  });
-
-  it("推不上 repo 就整筆不存——不然平台顯示的跟 driver 讀的會不一樣", async () => {
-    stubGithub([{ status: 403, body: { message: "no" } }]);
-    const id = await seedUser("eli@ecotech.tw", "role-admin");
-
-    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
-      method: "PUT",
-      body: JSON.stringify({ stores: TWO_STORES }),
-    });
-
-    expect(response.status).toBe(502);
-    expect(await db().select().from(payoutStores)).toHaveLength(9);
-  });
-
-  it("沒接 GitHub 時仍然存本地，但要說得出 repo 沒更新", async () => {
-    stubGithub();
-    env = { ...env, GITHUB_TOKEN: undefined };
-    const id = await seedUser("eli@ecotech.tw", "role-admin");
-
-    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
-      method: "PUT",
-      body: JSON.stringify({ stores: TWO_STORES }),
-    });
-
-    expect((await response.json()) as { syncedToRepo: boolean }).toMatchObject({
-      syncedToRepo: false,
-      committed: false,
-    });
-    expect(await db().select().from(payoutStores)).toHaveLength(2);
-  });
 
   it.each([
     ["店名重複", [{ name: "甲店" }, { name: "甲店" }]],

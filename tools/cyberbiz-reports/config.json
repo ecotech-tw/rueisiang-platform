@@ -41,47 +41,56 @@
     {
       "name": "誠品西門店3F",
       "driveFolderUrl": "https://drive.google.com/drive/folders/1WErhqB6jsTc2Gle4OXu7eoK2DRIoxrFG",
-      "driveFolderName": "誠品西門"
+      "driveFolderName": "誠品西門",
+      "scopeId": "cyberbiz:store:6Kqg5ZOB6KW_6ZaA5bqXM0Y"
     },
     {
       "name": "宏匯廣場1F",
       "driveFolderUrl": "https://drive.google.com/drive/folders/1o8r9R9EFSjVE1yYAVgTsv4luUFRaJ3Ao",
-      "driveFolderName": "宏匯"
+      "driveFolderName": "宏匯",
+      "scopeId": "cyberbiz:store:5a6P5Yyv5buj5aC0MUY"
     },
     {
       "name": "夢時代-7F",
       "driveFolderUrl": "https://drive.google.com/drive/folders/1Hagb84o2O5OeCrrLfVke8YUStUtT2rMO",
-      "driveFolderName": "夢時代"
+      "driveFolderName": "夢時代",
+      "scopeId": "cyberbiz:store:5aSi5pmC5LujLTdG"
     },
     {
       "name": "台南新光西門",
       "driveFolderUrl": "https://drive.google.com/drive/folders/14V5miPEkfB_ASpMZZKr4s0jlbyIX0h8O",
-      "driveFolderName": "台南新光"
+      "driveFolderName": "台南新光",
+      "scopeId": "cyberbiz:store:5Y-w5Y2X5paw5YWJ6KW_6ZaA"
     },
     {
       "name": "東山服務區",
       "driveFolderUrl": "https://drive.google.com/drive/folders/11ofcZvX4nsBd6zuhy7ZsNAuRyDap9Z1Z",
-      "driveFolderName": "東山服務區"
+      "driveFolderName": "東山服務區",
+      "scopeId": "cyberbiz:store:5p2x5bGx5pyN5YuZ5Y2A"
     },
     {
       "name": "新營南服務區",
       "driveFolderUrl": "https://drive.google.com/drive/folders/1AtX0v5xYVvVk2mk0t0ZnEYiqvm1o4uNZ",
-      "driveFolderName": "新營南服務區"
+      "driveFolderName": "新營南服務區",
+      "scopeId": "cyberbiz:store:5paw54ef5Y2X5pyN5YuZ5Y2A"
     },
     {
       "name": "仁德南服務區",
       "driveFolderUrl": "https://drive.google.com/drive/folders/1FGdA9IQgq0kikVVfF3nOgedeoYDWAefu",
-      "driveFolderName": "仁德服務區"
+      "driveFolderName": "仁德服務區",
+      "scopeId": "cyberbiz:store:5LuB5b635Y2X5pyN5YuZ5Y2A"
     },
     {
       "name": "仁德北服務區",
       "driveFolderUrl": "https://drive.google.com/drive/folders/1FGdA9IQgq0kikVVfF3nOgedeoYDWAefu",
-      "driveFolderName": "仁德服務區"
+      "driveFolderName": "仁德服務區",
+      "scopeId": "cyberbiz:store:5LuB5b635YyX5pyN5YuZ5Y2A"
     },
     {
       "name": "品皇觀光工廠",
       "driveFolderUrl": "https://drive.google.com/drive/folders/1238ahZoJjo_w481pJZ-2EyRfJ59bIESZ",
-      "driveFolderName": "品皇觀光工廠"
+      "driveFolderName": "品皇觀光工廠",
+      "scopeId": "cyberbiz:store:5ZOB55qH6KeA5YWJ5bel5bug"
     }
   ]
 }

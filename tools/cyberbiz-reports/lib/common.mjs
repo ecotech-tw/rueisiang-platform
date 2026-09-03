@@ -7,7 +7,6 @@ const LIB_DIR = path.dirname(fileURLToPath(import.meta.url));
 // 所有工具執行期路徑都以 tools/cyberbiz-reports 為基準，
 // 不依賴啟動 Node 時所在的工作目錄。
 export const SKILL_DIR = path.resolve(LIB_DIR, "..");
-const LEGACY_SKILL_DIR = path.resolve(SKILL_DIR, "..", "cyberbiz-monthly-payout");
 
 export function skillPath(...parts) {
   return path.join(SKILL_DIR, ...parts);
@@ -65,41 +64,51 @@ export async function saveEnv(updates, file = skillPath(".env")) {
 }
 
 /**
- * 讀設定。店別清單如果有 stores.json 就以它為準，蓋掉 config.json 裡的那一份。
+ * 讀設定。
  *
- * 兩個檔案的來源不同：config.json 是這個工具自己的設定（CYBERBIZ 網址、Drive
- * 根目錄、欄位公式），由開發者維護；stores.json 是平台「店別設定」頁存檔時
- * 寫回來的，由同仁維護。
+ * config.json 是這個工具自己的設定：CYBERBIZ 網址、Drive 根目錄、欄位公式，
+ * 以及一份**給手動執行用的**店別清單，由開發者維護。
  *
- * 沒有這一段的話，平台上改店別完全不會影響執行——設定頁看起來有存檔，實際上
- * driver 還是照 config.json 跑。那是最難查的一種落差：兩邊都「正常」，只是
- * 講的不是同一件事。
+ * 平台觸發時店別是從 D1 讀出來、由 dispatch input 傳進來的（見 storesOverride），
+ * 那一份才是真相。舊版是把店別 commit 成 stores.json 讓 runner 讀——同一份清單
+ * 存在 D1、stores.json、config.json 三個地方，改了其中一個另外兩個不會跟著動。
  *
- * stores.json 不存在時行為完全不變，所以還沒用過設定頁的環境不受影響。
+ * @param {object} [options]
+ * @param {Array|null} [options.storesOverride] 平台傳進來的店別清單，有值就蓋掉 config.json 的
  */
-export async function loadConfig(file = skillPath("config.json")) {
+export async function loadConfig(file = skillPath("config.json"), options = {}) {
   const config = JSON.parse(await fs.readFile(file, "utf8"));
-
-  // 先讀新路徑；改名期間仍接受舊 runner checkout 的店別設定，避免默默退回 config.json。
-  const storesFiles = [path.join(path.dirname(file), "stores.json")];
-  if (path.resolve(file) === path.resolve(skillPath("config.json"))) {
-    storesFiles.push(path.join(LEGACY_SKILL_DIR, "stores.json"));
-  }
-  for (const storesFile of storesFiles) {
-    try {
-      const raw = await fs.readFile(storesFile, "utf8");
-      const stores = JSON.parse(raw).stores;
-      if (Array.isArray(stores) && stores.length) {
-        config.stores = stores;
-        break;
-      }
-    } catch (error) {
-      // 檔案不存在是正常狀態；其他錯誤（例如 JSON 壞掉）要讓人知道，不能默默跑舊的。
-      if (error.code !== "ENOENT") throw error;
-    }
-  }
-
+  const override = options.storesOverride;
+  if (Array.isArray(override) && override.length) config.stores = override;
   return config;
+}
+
+/**
+ * 解析平台傳進來的店別清單（workflow 的 stores_json input）。
+ *
+ * 空字串是正常狀態——從 GitHub 的 Actions 頁面手動執行時不會有這個輸入，
+ * 那時候就照 config.json 跑。內容壞掉要讓人知道，不能默默退回舊清單：
+ * 平台選了三家店卻跑了 config.json 裡的九家，是最難發現的一種錯。
+ */
+export function parseStoresInput(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`stores_json 不是合法的 JSON：${error.message}`);
+  }
+  const stores = Array.isArray(parsed) ? parsed : parsed?.stores;
+  if (!Array.isArray(stores) || !stores.length) {
+    throw new Error("stores_json 必須是非空的店別陣列。");
+  }
+  for (const store of stores) {
+    if (!store?.name) throw new Error("stores_json 裡有沒有 name 的店。");
+    if (!store?.scopeId) throw new Error(`store「${store.name}」沒有 scopeId。`);
+  }
+  return stores;
 }
 
 export async function saveConfig(config, file = skillPath("config.json")) {
@@ -194,9 +203,23 @@ export function salesFilename(storeName, startDate, endDate) {
   return `[${storeName}]商品銷售總表${startDate}~${endDate}.xlsx`;
 }
 
-/** 用 UTF-8 base64url 保留中文店名的穩定性，讓 API 與 runner 得到同一個 D1 scope ID。 */
-export function scopeIdFromStoreName(name) {
-  return `cyberbiz:store:${Buffer.from(name, "utf8").toString("base64url")}`.slice(0, 100);
+/**
+ * 這一家店在 D1 的 scope ID。
+ *
+ * **一律由上層給**，不再從店名算出來。舊版是 base64url(店名)，所以改店名等於
+ * 換一個 scope——匯入時對不到既有的據點，會建出一家新店，報表資料從此被切成兩半。
+ * 平台從 D1 讀出 scopeId 用 dispatch input 傳進來；手動執行時走 config.json 裡
+ * 那一份（同樣要有 scopeId，值從平台的店別設定頁抄過來）。
+ */
+export function storeScopeId(store) {
+  const scopeId = String(store?.scopeId ?? "").trim();
+  if (!scopeId) {
+    throw new Error(
+      `store「${store?.name ?? "?"}」沒有 scopeId：平台觸發時由 stores_json 帶入，`
+      + "手動執行請在 config.json 的 stores 補上（值抄自平台的店別設定頁）。",
+    );
+  }
+  return scopeId;
 }
 
 const SECRET_KEYS = [

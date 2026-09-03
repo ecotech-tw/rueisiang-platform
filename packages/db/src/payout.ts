@@ -18,7 +18,7 @@ export interface PayoutStoreInput {
 }
 
 /**
- * 目前正式在跑的九家店，與帳務 repo 的 stores.json 一致。
+ * 目前正式在跑的九家店。
  *
  * 寫在程式碼裡是為了讓新環境（或本機 dev）一開起來就有東西可看——空清單會讓
  * 執行頁整片空白，然後有人要手動把九組 Drive 連結重打一次。只在表是空的時候
@@ -45,7 +45,7 @@ export async function listPayoutStores(
     .orderBy(payoutStores.sortOrder, payoutStores.name);
 }
 
-/** 只切換平台上的顯示狀態；runner 的 stores.json 不需要跟著改。 */
+/** 只切換平台上的顯示狀態；關掉的店不會出現在執行頁，也不會被送給 runner。 */
 export async function updatePayoutStoreEnabled(
   db: Database,
   input: { id: string; enabled: boolean },

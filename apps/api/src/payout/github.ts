@@ -13,18 +13,24 @@ import type { Env } from "../env.js";
 
 const GITHUB_API = "https://api.github.com";
 
-/**
- * driver 在 runner 上讀的就是這個檔案——它決定每家店的檔案上傳到哪個 Drive
- * 資料夾。平台的 D1 只決定「網頁上看得到哪幾家店」，兩邊不同步的話，執行時會
- * 找不到資料夾而失敗，所以設定頁存檔時要一起把它寫回去。
- */
-const STORES_PATH = "tools/cyberbiz-reports/stores.json";
+
+/** 傳給 runner 的一家店。scopeId 從 D1 帶過去，runner 不再從店名算。 */
+export interface RunnerStore {
+  scopeId: string;
+  name: string;
+  driveFolderUrl: string;
+  driveFolderName: string;
+}
 
 export interface PayoutGithub {
-  dispatch(input: { store: string; start: string; end: string; requestId: string }): Promise<void>;
+  dispatch(input: {
+    store: string;
+    stores: RunnerStore[];
+    start: string;
+    end: string;
+    requestId: string;
+  }): Promise<void>;
   listRuns(requestId?: string): Promise<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>;
-  /** 把店別清單寫回帳務 repo。內容沒變就不 commit，回傳有沒有真的推上去。 */
-  pushStores(input: { stores: unknown; message: string }): Promise<boolean>;
 }
 
 export interface WorkflowRun {
@@ -47,23 +53,6 @@ export class PayoutGithubError extends Error {
     super(message);
     this.name = "PayoutGithubError";
   }
-}
-
-/**
- * btoa 只吃 latin1，中文店名直接丟進去會丟 InvalidCharacterError。
- * 先轉成 UTF-8 位元組再逐 byte 組回字串。
- */
-function toBase64(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-function fromBase64(value: string): string {
-  const binary = atob(value.replace(/\s/g, ""));
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
 }
 
 /** 沒設定 token 就回 undefined，讓呼叫端決定要不要報錯——設定頁不需要它也該打得開。 */
@@ -108,6 +97,9 @@ export function payoutGithub(env: Env): PayoutGithub | undefined {
           ref: env.PAYOUT_GITHUB_REF ?? "main",
           inputs: {
             store: input.store,
+            // runner 要的 Drive 資料夾與 scopeId 直接跟著這一次執行傳過去，
+            // 不再靠 commit 一份 stores.json 讓兩邊「保持同步」。
+            stores_json: JSON.stringify(input.stores),
             start: input.start,
             end: input.end,
             skip_upload: false,
@@ -157,36 +149,6 @@ export function payoutGithub(env: Env): PayoutGithub | undefined {
       return { runs, steps };
     },
 
-    async pushStores({ stores, message }) {
-      const next = `${JSON.stringify({ stores }, null, 2)}
-`;
-
-      /*
-       * 先讀一次拿 sha。GitHub 的 Contents API 要用它做樂觀鎖：沒帶等於「這是新
-       * 檔案」，檔案已經存在時會被拒絕。順便比對內容——沒改到就不要留下一筆
-       * 什麼都沒動的 commit。
-       */
-      const current = (await call(
-        `/repos/${repo}/contents/${STORES_PATH}?ref=${encodeURIComponent(env.PAYOUT_GITHUB_REF ?? "main")}`,
-      ).catch((error: unknown) => {
-        // 檔案還不存在是合理狀態（新 repo），其他錯誤照樣往上丟。
-        if (error instanceof PayoutGithubError && error.status === 404) return null;
-        throw error;
-      })) as { sha?: string; content?: string } | null;
-
-      if (current?.content && fromBase64(current.content) === next) return false;
-
-      await call(`/repos/${repo}/contents/${STORES_PATH}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          branch: env.PAYOUT_GITHUB_REF ?? "main",
-          message,
-          content: toBase64(next),
-          ...(current?.sha ? { sha: current.sha } : {}),
-        }),
-      });
-      return true;
-    },
   };
 }
 
