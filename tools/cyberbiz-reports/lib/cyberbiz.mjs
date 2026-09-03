@@ -14,6 +14,49 @@ export function fail(code, message, details = {}) {
   throw error;
 }
 
+/*
+ * CYBERBIZ 後台會不定期跳行銷彈窗（例如 2026-08 底開始的「團購獲利新架構」
+ * webinar），整片蓋在畫面上。它不是我們要的東西，但 Playwright 的 click 會被
+ * 它攔截，症狀是 `locator.click: Timeout 30000ms exceeded`——看錯誤訊息完全
+ * 猜不到是彈窗，只能開 artifact 的截圖才知道。
+ *
+ * 每次導航後都關一次。選擇器故意寫得寬：對方換一套 modal 元件的機率不低，
+ * 關不掉時退回按 Escape，再關不掉就放著繼續跑——彈窗不一定會擋到我們要點的
+ * 東西，不該因為關不掉就讓整次執行失敗。
+ */
+const OVERLAY_CLOSE_SELECTORS = [
+  '[role="dialog"] button[aria-label*="close" i]',
+  '[role="dialog"] button[aria-label*="關閉"]',
+  ".modal.show button.close, .modal.in button.close",
+  "button[data-dismiss='modal'], button[data-bs-dismiss='modal']",
+  ".modal.show .modal-header button, .modal.show [class*='close']",
+];
+
+export async function dismissOverlays(page, { log } = {}) {
+  for (const selector of OVERLAY_CLOSE_SELECTORS) {
+    const button = page.locator(selector).first();
+    const visible = await button.isVisible().catch(() => false);
+    if (!visible) continue;
+    // force：關閉鈕自己有時也被 backdrop 蓋住，正常 click 一樣會逾時
+    await button.click({ timeout: 3000, force: true }).catch(() => {});
+    await page.waitForTimeout(300);
+    log?.(`關掉一個蓋在畫面上的彈窗（${selector}）`);
+    return true;
+  }
+
+  // 沒有認得的關閉鈕就試 Escape；沒有彈窗時按它也無害
+  const blocked = await page
+    .locator(".modal.show, .modal.in, [role='dialog']")
+    .first()
+    .isVisible()
+    .catch(() => false);
+  if (!blocked) return false;
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(300);
+  log?.("畫面上有彈窗但找不到關閉鈕，已試過 Escape");
+  return true;
+}
+
 export const PRODUCT_SALES_REPORT_LINK_NAME = /\u5546\s*\u54c1\s*\u92b7\s*\u552e\s*(?:\u7e3d\s*\u8868|\u5831\s*\u8868)/;
 
 function toPickerInput(iso) {
@@ -39,6 +82,7 @@ export async function login(page, {
 }) {
   await page.goto(`${origin}/admin/pos_shops`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1500);
+  await dismissOverlays(page);
 
   if (!page.url().includes("/user/sign_in")) return { status: "already_signed_in" };
 
@@ -106,6 +150,7 @@ async function expandTable(page) {
 export async function listStores(page, { origin }) {
   await page.goto(`${origin}/admin/pos_shops`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1500);
+  await dismissOverlays(page);
   const heading = await page.locator("body").innerText();
   if (!heading.includes("POS 商店")) {
     fail("NOT_SIGNED_IN", "看不到 POS 商店列表，可能尚未登入。");
@@ -140,6 +185,7 @@ export async function listStores(page, { origin }) {
 export async function resolveStore(page, { origin, storeName }) {
   await page.goto(`${origin}/admin/pos_shops`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1000);
+  await dismissOverlays(page);
   await expandTable(page);
   const search = page.getByRole("textbox", { name: "Search:", exact: true });
   if ((await search.count()) === 1) {
@@ -246,6 +292,7 @@ export async function exportPayoutReport(page, {
     waitUntil: "domcontentloaded",
   });
   await page.waitForTimeout(1000);
+  await dismissOverlays(page);
 
   const text = await page.locator("body").innerText();
   if (!text.includes("每日出金報表")) {
@@ -313,6 +360,7 @@ export async function exportSalesReport(page, {
   const reportIndexUrl = `${storeBase}${reportPath}`;
   const response = await page.goto(reportIndexUrl, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1000);
+  await dismissOverlays(page);
 
   const reportLink = page.getByRole("link", {
     name: PRODUCT_SALES_REPORT_LINK_NAME,

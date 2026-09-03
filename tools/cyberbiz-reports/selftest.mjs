@@ -24,6 +24,7 @@ import {
 import { parsePayoutReport, readSheet, readZipEntries, verifyPayoutFile, writeZipEntries } from "./payout/parser.mjs";
 import { addPayoutColumns } from "./payout/columns.mjs";
 import { terminalSummary, writeMarkdown } from "./lib/report.mjs";
+import { dismissOverlays } from "./lib/cyberbiz.mjs";
 
 let failures = 0;
 function check(label, actual, expected) {
@@ -448,6 +449,52 @@ for (const ref of ["H2", "I2", "J2", "K2", "H3", "K3"]) {
     (rerunXml.match(new RegExp(`<c r="${ref}"`, "g")) ?? []).length,
     1,
   );
+}
+
+/*
+ * CYBERBIZ 後台的行銷彈窗會把 click 攔掉，症狀是 locator.click 逾時——
+ * 看訊息猜不到是彈窗，只能開截圖才知道。用假的 page 驗行為，不開瀏覽器。
+ */
+{
+  function fakePage({ visible = [], clickThrows = false } = {}) {
+    const calls = { clicked: [], escape: 0 };
+    return {
+      calls,
+      locator(selector) {
+        const hit = visible.includes(selector);
+        return {
+          first: () => ({
+            isVisible: async () => hit,
+            click: async () => {
+              if (clickThrows) throw new Error("intercepted");
+              calls.clicked.push(selector);
+            },
+          }),
+        };
+      },
+      keyboard: { press: async () => { calls.escape += 1; } },
+      waitForTimeout: async () => {},
+    };
+  }
+
+  const closable = fakePage({ visible: ['[role="dialog"] button[aria-label*="close" i]'] });
+  check("認得的關閉鈕會被按下", await dismissOverlays(closable), true);
+  check("而且真的按到那顆", closable.calls.clicked.length, 1);
+  check("按得掉就不用 Escape", closable.calls.escape, 0);
+
+  const clean = fakePage();
+  check("沒有彈窗時回 false", await dismissOverlays(clean), false);
+  check("沒有彈窗不會亂按 Escape", clean.calls.escape, 0);
+
+  const noButton = fakePage({ visible: [".modal.show, .modal.in, [role='dialog']"] });
+  check("有彈窗但沒有關閉鈕就按 Escape", await dismissOverlays(noButton), true);
+  check("Escape 按了一次", noButton.calls.escape, 1);
+
+  // 關不掉不該讓整次執行失敗：彈窗不一定擋到我們要點的東西。
+  const stubborn = fakePage({ visible: ['[role="dialog"] button[aria-label*="close" i]'], clickThrows: true });
+  let threw = false;
+  try { await dismissOverlays(stubborn); } catch { threw = true; }
+  check("關閉鈕點不動也不會丟例外", threw, false);
 }
 
 await fs.rm(temp, { recursive: true, force: true });
