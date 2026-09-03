@@ -423,13 +423,10 @@ VALUES
 INSERT INTO report_item_sales_monthly
   (scope_id, report_month, item_id, record_origin, report_run_id,
    gross_quantity, return_quantity, net_quantity, sales_amount,
-   item_name_snapshot, category_name_snapshot, category_parent_name_snapshot,
    updated_by_email, created_at, updated_at)
 SELECT COALESCE(sm.keep_id, s.scope_id), s.report_month, m.item_id,
        'imported', (SELECT id FROM report_runs WHERE request_id = 'migration:cyberbiz:0086'),
        s.gross_quantity, s.return_quantity, s.net_quantity, s.sales_amount,
-       -- 舊表本來就有這兩欄快照，直接沿用
-       s.product_name, s.category, '',
        '', s.updated_at, s.updated_at
 FROM report_sales_monthly s
 JOIN _migration_item_map m ON m.old_id = s.sku
@@ -439,8 +436,9 @@ LEFT JOIN _migration_scope_map sm ON sm.old_id = s.scope_id;
 ⚠️ **`JOIN _migration_item_map` 是 INNER JOIN**——對不到的列會被默默丟掉。
 驗證查詢 13 就是在數這個。**對不到的必須先有落點**，不能靠 JOIN 吃掉。
 
-⚠️ `category_parent_name_snapshot` 搬移時一律 `''`：現在沒有階層，都是大分類。
-之後建了階層，新資料才會有值。
+📌 舊表的 `product_name` 與 `category` 兩欄**不搬**——報表一律 join `items`
+（理由見 overhaul 的 #35）。⚠️ 這代表搬完之後，歷史報表的分類會跟著**現在的**
+分類走，不是匯入當時的。這是刻意接受的代價，**上線前要讓看報表的人知道**。
 
 人工的那一張 `record_origin='manual'`、`report_run_id` 是 NULL、
 `updated_by_email` 從舊表帶過來。出金兩張同理，只是沒有商品與分類。

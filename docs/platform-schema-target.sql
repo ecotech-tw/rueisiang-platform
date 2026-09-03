@@ -838,19 +838,21 @@ CREATE TABLE report_run_reports (
  * 那條規則只在一個共用函式實作，不要在各統計裡各寫一次。
  *
  * 商品身分用 item_id 不用 SKU：SKU 會被改，改了之後同一個商品在報表裡會裂成
- * 兩筆。**所有的分組與加總都用 item_id**，快照只拿來顯示。
+ * 兩筆。
  *
- * **名稱與分類存快照**，因為報表是歷史事實：
- *   - 分類每季可能調整，不存快照的話改一次分類就把過去的圓餅圖全部洗掉
- *   - 兩層分類要連父帶子一起存，只存子分類的話上層還是會跟著現在的階層跑
- *   - 舊版 report_sales_monthly 本來就有 product_name 與 category 兩欄——
- *     不存等於把手上已經有的資料丟掉，而那是回不來的
- *   - activity_events **不能**取代快照：商品建立時不一定有分類事件，父子關係
- *     也要一起還原，而且查不到「第一次修改以前」的值
- *
- * 兩個沒有存的：
+ * **不存名稱／分類／單價快照**，一律 join items：
+ *   - 跨年比較要的是同一套分類。存快照的話，每調整一次分類就多一道斷層，
+ *     去年在舊分類、今年在新分類，同一張趨勢圖上根本比不起來
+ *   - 舊版那一欄（report_sales_monthly.category）本來就不是嚴謹的歷史紀錄——
+ *     report-data.ts 的 upsert 是 `category = excluded.category`，重跑同一個月
+ *     就會刷新，而重跑是常見操作（補完對應就會重跑）
  *   - 單價 = sales_amount ÷ net_quantity，本來就算得出來
- *   - source 在 items 上不可變，join 得到，不會因為時間而不同
+ *   - source 在 items 上不可變，join 得到
+ *
+ * ⚠️ 已知代價，是**刻意接受的**：改分類會回頭改變歷史報表的分佈。要回溯
+ *    「當時屬於哪一類」的話，activity_events 不保證補得回來（商品建立時不一定
+ *    有分類事件，父子關係也要一起還原）。真的需要那個能力時再加欄位，
+ *    不是現在為了一個還沒發生的需求先付成本。
  *
  * 賣出去的是什麼就存什麼：禮盒就是禮盒，不展開成用料（見 item_components）。
  */
@@ -874,15 +876,6 @@ CREATE TABLE report_item_sales_monthly (
   return_quantity  INTEGER NOT NULL DEFAULT 0,
   net_quantity     INTEGER NOT NULL DEFAULT 0,
   sales_amount     INTEGER NOT NULL DEFAULT 0,
-
-  /*
-   * 匯入／建立當下的名稱與分類。只拿來顯示，分組與加總一律用 item_id。
-   * 分類要連父帶子存：只存子分類的話，改階層時上層還是會跟著現在的走。
-   * 沒有分類時兩欄都是 ''（對應 items.category_id IS NULL）。
-   */
-  item_name_snapshot            VARCHAR(500) NOT NULL DEFAULT '',
-  category_name_snapshot        VARCHAR(255) NOT NULL DEFAULT '',
-  category_parent_name_snapshot VARCHAR(255) NOT NULL DEFAULT '',
 
   -- 人工修訂列表直接顯示這一欄（ManualReports.tsx）；改成 join activity_events
   -- 的話一頁 20 列要查 20 次
