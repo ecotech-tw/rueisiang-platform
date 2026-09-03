@@ -152,128 +152,108 @@ Phase 0 做的是**把三份清單收成一份**，以及把推導收成一處�
 
 ---
 
-## Phase 0.5：開 verify DB 並量測
+## Phase 0.5：驗證與量測
 
-**在 Cloudflare 開 `rueisiang-platform-verify`，把正式資料倒進去。**
+### ✅ 已完成：對正式資料跑過 17 支驗證查詢
+
+做法是 `wrangler d1 export` 之後在本機用 SQLite 跑——那 17 支全部是唯讀 SELECT，
+不必等 verify DB。
+
+⚠️ **`wrangler d1 export` 出來的檔案順序是壞的**：子表的 INSERT 排在父表前面，
+直接餵給 D1 會噴 `no such table: main.roles`。要先依外鍵相依拓撲排序重排
+（順便注意有 7 張表是 `CREATE TABLE IF NOT EXISTS "name"` 而不是反引號，
+寫解析程式時容易把表名讀成 `IF`）。
+
+### 結果：資料乾淨，原本的防禦性設計大半用不到
+
+| # | 檢查 | 結果 |
+|---|---|---|
+| 1 | 有 link 但 SKU 對不上 | **0** |
+| 2 | `inventory_items.sku` 是 NULL／空 | **6**（見下）|
+| 3 | 其中有 link 的 | 0 |
+| 4 | cyberbiz `(product_id, variant_id)` 重複 | **0** |
+| 5 | `custom_report_products.category` 不在字典 | **0** |
+| 6 | `inventory_items.category` 不在字典 | **0** |
+| 7 | 會被合併的 scope | **0** |
+| 8 | legacy scope id | **0** |
+| 9 | `payout_stores` 對不到 `report_scopes` | **1**（見下）|
+| 10 | 真正的組合包 | **0** |
+| 11 | 同時是 mapping 又是 ignore | **0** |
+| 12 | 蝦皮 `external_sku` 底線超過一個 | **0** |
+| 13 | 報表孤兒 SKU | **0** |
+| 14 | `shelf_level` 值分布 | 兩種格式（見下）|
+| 15 | 有 zone 沒 shelf_level | **1** |
+| 16 | manual 客戶 | **0**（11,061 筆全是 cyberbiz）|
+| 17 | `role_permissions` 的鍵值 | DB 38 個 = 程式碼 38 個，**沒有孤兒** |
+
+**因此可以砍掉的段落**：
+
+- scope 合併的 canonical map 與「三種情況分開處理」——**沒有 scope 要合併**
+- 組合包的 custom item 建立與人工確認清單——**71 筆全是一對一數量 1**
+- manual 客戶的補推討論——**一筆都沒有**
+- 分類補建——**沒有對不上的名稱**
+
+`permissions` 鏡像表的外鍵也可以直接套上去，不必先清資料。
+
+### ⚠️ 只有三件事要處理
+
+**1. 6 筆沒有 SKU 的 `inventory_items`**
+
+全是包材／半成品：`淋膜紙`、`護髮素蓋子`、`護髮素軟管`、`養皂3入禮盒`、
+`養皂（未包）`、`護髮素罐裝空瓶`。都沒有 link，所以要自動編號
+（`WMS-` + 原 id 後八碼）並給 `kind='supply'`。
+
+📌 **只有 6 筆，也可以在搬移前請人補上真的 SKU**，那樣更乾淨。
+
+**2. 店別清單兩邊各缺一個**
+
+`payout_stores` 有「裕隆城」（已停用）而 `report_scopes` 沒有；
+`report_scopes` 有「蝦皮」而 `payout_stores` 沒有。合併成 `scopes` 時取聯集。
+
+⚠️ 蝦皮現在是 `scope_kind='store'`，搬移時要改成 `'channel'`。
+
+**3. `shelf_level` 有兩種格式**
+
+52 筆是 `top` / `middle` / `bottom`（`zones.shelf_levels` 的預設三層），
+16 筆是 UUID（香水區、麻紗巾這些後來自訂分層的倉位），1 筆有 zone 但沒
+shelf_level。`wms_shelves` 兩種都要對得上，那 1 筆要有落點。
+
+### 資料量：停機應該是秒級
+
+| 表 | 列數 |
+|---|---|
+| `customers` | 11,061 |
+| `cyberbiz_customer_webhooks` | 4,288 |
+| `report_sales_monthly` | 4,110 |
+| `report_payout_daily` | 3,369 |
+| `activity_events` | 2,593 |
+| `report_manual_sales_monthly` | 383 |
+| 其餘每張 | < 600 |
+
+匯出檔 34 MB。最大的表一萬多列，所以整支 migration 預期是**秒級**，不是分鐘級。
+
+### 🔒 Parity check 的基準（搬完必須一模一樣）
+
+```
+report_sales_monthly         net_quantity 186,529 / sales_amount 29,528,346 / 4,110 列
+report_payout_daily          payout_amount 45,874,851 / 3,369 列
+report_manual_sales_monthly  net_quantity 5,663 / sales_amount 2,014,715 / 383 列
+report_manual_payout_daily   0 列
+```
+
+### 還沒做：verify DB（0.5b）
 
 ```bash
 npx wrangler d1 create rueisiang-platform-verify
 npx wrangler d1 export rueisiang-platform --remote --output prod-backup.sql
-npx wrangler d1 execute rueisiang-platform-verify --remote --file prod-backup.sql
+# ⚠️ 要用重排過的檔案；原始匯出檔會因為外鍵順序失敗
+npx wrangler d1 execute rueisiang-platform-verify --remote --file prod-backup-ordered.sql
 ```
 
-⚠️ 這台開發機是 Windows on ARM，**跑不了 wrangler**（沒有 workerd）。這一步
-要由人在別的環境執行，或用 Cloudflare 的網頁介面。
+⚠️ 這台開發機是 Windows on ARM，**跑不了 wrangler**（沒有 workerd）。
 
-本機測試同一份匯出檔也用得上：
-`apps/api/src/local-d1/` 的 `createLocalD1()` 吃 SQLite 檔，把匯出檔灌進去就是
-一份跟正式一樣的資料。
-
-### 要先量的數字
-
-**D1 跑 migration 時資料庫是鎖住的，那個秒數就是停機時間**，而那只能在有真資料
-的地方量。
-
-- 匯出檔大小
-- `customers` 列數
-- `report_sales_monthly` 列數
-- **整支 migration 在 verify 上跑完要幾秒**（這是要公告的停機時間）
-
-### 要先跑的驗證查詢
-
-這些的答案會**改變 migration 的寫法**，在寫程式之前就要有答案。
-
-```sql
--- ══ items 身分合併 ══
-
--- 1. 有 link 但 SKU 對不上的（會被錯建成兩個 item——這正是要修的問題）
-SELECT l.id, l.sku AS link_sku, i.sku AS wms_sku, c.sku AS cb_sku
-FROM cyberbiz_product_links l
-JOIN inventory_items i ON i.id = l.inventory_item_id
-LEFT JOIN cyberbiz_products c
-  ON c.product_id = l.cyberbiz_product_id AND c.variant_id = l.cyberbiz_variant_id
-WHERE UPPER(COALESCE(i.sku,'')) <> COALESCE(c.sku,'');
-
--- 2. inventory_items 有多少筆 sku 是 NULL 或空（items.sku 是 NOT NULL）
-SELECT COUNT(*) FROM inventory_items WHERE sku IS NULL OR sku = '';
-
--- 3. 其中有多少筆是有 link 的（有 link 就能拿官網 SKU，不用自動編號）
-SELECT COUNT(*) FROM inventory_items i
-JOIN cyberbiz_product_links l ON l.inventory_item_id = i.id
-WHERE i.sku IS NULL OR i.sku = '';
-
--- 4. cyberbiz_products 的 (product_id, variant_id) 有無重複（要升 UNIQUE）
-SELECT product_id, variant_id, COUNT(*) c
-FROM cyberbiz_products GROUP BY 1,2 HAVING c > 1;
-
--- ══ 分類 ══
-
--- 5. custom_report_products.category 有多少不在 report_product_categories 裡
-SELECT DISTINCT category FROM custom_report_products
-WHERE category <> '未分類'
-  AND category NOT IN (SELECT name FROM report_product_categories);
-
--- 6. inventory_items.category 有多少不在 warehouse_categories 字典裡
-SELECT DISTINCT category FROM inventory_items
-WHERE category NOT IN (SELECT name FROM warehouse_categories);
-
--- ══ scope 合併 ══
-
--- 7. 哪些 scope 會被合併（只看同名的，不是全表比對）
-SELECT normalized_name, scope_kind, COUNT(*) c, GROUP_CONCAT(id)
-FROM report_scopes GROUP BY 1,2 HAVING c > 1;
-
--- 8. legacy id（不是 cyberbiz:/shopee: 開頭的）
-SELECT id, name FROM report_scopes
-WHERE id NOT LIKE 'cyberbiz:%' AND id NOT LIKE 'shopee:%';
-
--- 9. payout_stores.name 與 report_scopes.name 是否完全對應（合併的前提）
-SELECT p.name FROM payout_stores p
-LEFT JOIN report_scopes s ON s.name = p.name
-WHERE s.id IS NULL;
-
--- ══ 外部 SKU 對應 ══
-
--- 10. 真正的組合包有幾筆（決定歷史報表要不要人工修）
-SELECT mapping_id, COUNT(*) c, MAX(quantity) q
-FROM product_bundle_components GROUP BY 1 HAVING c > 1 OR q > 1;
-
--- 11. 同一個 (channel, external_sku) 同時是 mapping 又是 ignore（合併會撞 UNIQUE）
-SELECT m.channel, m.external_sku FROM product_sku_mappings m
-JOIN report_sku_ignores i ON i.channel = m.channel AND i.external_sku = m.external_sku;
-
--- 12. 蝦皮 external_sku 裡底線超過一個的（拆兩欄會拆錯）
-SELECT external_sku FROM product_sku_mappings
-WHERE channel = 'shopee'
-  AND length(external_sku) - length(replace(external_sku,'_','')) > 1;
-
--- ══ 報表事實 ══
-
--- 13. report_sales_monthly.sku 對不到任何 items 來源的孤兒
-SELECT COUNT(*) FROM report_sales_monthly s
-WHERE NOT EXISTS (SELECT 1 FROM inventory_items i WHERE UPPER(i.sku) = s.sku)
-  AND NOT EXISTS (SELECT 1 FROM cyberbiz_products c WHERE c.sku = s.sku)
-  AND NOT EXISTS (SELECT 1 FROM custom_report_products p WHERE p.sku = s.sku);
-
--- ══ WMS ══
-
--- 14. inventory_items.shelf_level 的值分布（對不上 wms_shelves 的要有落點）
-SELECT shelf_level, COUNT(*) FROM inventory_items GROUP BY 1;
-
--- 15. 有多少 zone_id IS NOT NULL AND shelf_level IS NULL（會失去區域資訊）
-SELECT COUNT(*) FROM inventory_items WHERE zone_id IS NOT NULL AND shelf_level IS NULL;
-
--- ══ CRM／權限 ══
-
--- 16. 有多少 manual 客戶（決定要不要補推到官網）
-SELECT COUNT(*) FROM customers WHERE source_channel = 'manual';
-
--- 17. role_permissions 有沒有 PERMISSIONS 以外的鍵值（新的 FK 會擋下來）
---     PERMISSIONS 的清單要從 packages/auth/src/permissions.ts 貼進來比對
-SELECT DISTINCT permission FROM role_permissions;
-```
-
----
+它剩下的用途只有兩個：**量整支 migration 在 D1 上跑幾秒**，以及**驗證備份還原得
+回去**（沒試過的備份不算備份）。查詢的答案已經有了。
 
 ## 上線那一次：migration 檔案的順序
 
@@ -309,15 +289,21 @@ SELECT DISTINCT permission FROM role_permissions;
 
 只用 SKU 比對的話，那些會被錯建成兩個 item，**正好把這次要修的問題固化下來**。
 
+✅ **Phase 0.5 實測目前是 0 筆**——三層優先順序仍然照做（成本很低，而且 link
+本來就是比 SKU 更準的來源），但不必為了搶救資料而緊張。
+
 ```
 1. cyberbiz_product_links（inventory_item_id ↔ product_id + variant_id）
 2. 精確的 source + 正規化 SKU（UPPER + TRIM）
 3. 都對不到 → 才建 custom item
 ```
 
-⚠️ `inventory_items.sku` 可以是 NULL（驗證查詢 2、3）。有 link 的走第 1 層拿官網
-SKU；沒有 link 又沒有 SKU 的，用 `WMS-` + 原 id 後八碼 —— 醜但唯一，而且看得出
-是自動產生的，之後人搜得出來改。
+⚠️ `inventory_items.sku` 可以是 NULL。**實測 6 筆，而且都沒有 link**：
+`淋膜紙`、`護髮素蓋子`、`護髮素軟管`、`養皂3入禮盒`、`養皂（未包）`、
+`護髮素罐裝空瓶`——全是包材／半成品，`kind='supply'`。
+
+用 `WMS-` + 原 id 後八碼自動編號：醜但唯一，而且看得出是自動產生的。
+📌 **只有 6 筆，也可以在搬移前請人補上真的 SKU**，那樣更乾淨。
 
 #### 對照表要**持久化**，不用 TEMP
 
@@ -376,29 +362,16 @@ UPDATE items SET category_id = (
 ⚠️ **`cyberbiz_product_categories` 用 CASCADE 指著 `cyberbiz_products`**，
 所以上面這兩段一定要在 drop 之前跑完。
 
-### scope 合併：⚠️ 不可以直接加總
+### scope 合併：✅ 不需要（Phase 0.5 已驗證）
 
-同月同 SKU 撞主鍵時**不能無條件加總**。如果兩個 scope 是同一家店被重複匯入的
-alias，加總會把銷量與金額**算兩次**。
+正式資料裡**沒有任何同名 scope**（驗證查詢 7 回 0 筆），也沒有 legacy id
+（查詢 8 回 0 筆）。原本規劃的 canonical map 與「數值一致去重／日期互補合併／
+同鍵不同值擋下 migration」三種情況**都用不到**，`report_sales_monthly` 的主鍵
+也不會撞。
 
-先建 canonical map，**只看會被合併的 scope**（驗證查詢 7），再分三種情況：
-
-```sql
-CREATE TABLE _migration_scope_map (
-  old_id  VARCHAR(36) PRIMARY KEY,
-  keep_id VARCHAR(36) NOT NULL
-);
-```
-
-| 情況 | 處理 |
-|---|---|
-| 兩邊數值**完全一致** | 去重，只留一筆 |
-| 月份／日期**互補**（各自有對方沒有的期間）| 可以合併 |
-| **同鍵但數值不同** | 🚫 **擋下 migration**，產人工確認清單 |
-
-第三種不能自動決定——那代表同一家店同一個月有兩個不同的數字，只有人知道哪個對。
-
-📌 **出金（`report_payout_daily`）要做同一套檢查**，不能只做銷售。
+⚠️ 但 `payout_stores` 與 `report_scopes` 的清單**不完全一樣**（查詢 9）：
+前者有「裕隆城」（已停用），後者有「蝦皮」。合併成 `scopes` 時取聯集，
+並把蝦皮那一列的 `scope_kind` 從 `'store'` 改成 `'channel'`。
 
 ### 報表事實表
 
@@ -442,7 +415,10 @@ LEFT JOIN _migration_scope_map sm ON sm.old_id = s.scope_id;
 人工的那一張 `record_origin='manual'`、`report_run_id` 是 NULL、
 `updated_by_email` 從舊表帶過來。出金兩張同理，只是沒有商品與分類。
 
-### 標籤：⚠️ 要先複製字典
+### 標籤：⚠️ 要先複製字典（順序不能換）
+
+📌 Phase 0.5 實測 `customer_tag_catalog` 與 `saved_views` **都是 0 列**，
+所以這一段實際上沒有資料要搬。步驟仍然寫在這裡——正式環境隨時可能開始用。
 
 ```sql
 -- 1. 先整份複製 catalog——漏了這步的話，字典裡本來就有的標籤（VIP）
@@ -482,11 +458,9 @@ external_variant_key = CASE WHEN instr(external_sku,'_') > 0
                     ELSE '' END
 ```
 
-⚠️ **組合包**（驗證查詢 10）：
-- 一列且數量 1 → `item_id` 直接指過去，不建 `item_components`
-- 多列或數量 > 1 → 建一個 `source='custom'` 的 item ＋ N 列 `item_components`。
-  名稱只能用 `external_name`——搬移程式看不出它是不是對應官網某個真的禮盒，
-  **搬完要產一份人工確認清單**
+✅ **組合包不需要處理**（驗證查詢 10 回 0 筆）：`product_bundle_components`
+的 71 列全部是「一筆用料、數量 1」，也就是一對一。搬移時 `item_id` 直接指過去，
+不必建 custom item，也不會有需要人工確認的清單。
 
 ### `activity_events`
 
@@ -535,15 +509,24 @@ SELECT COUNT(*) FROM crm_customer_tags;            -- vs JSON 炸開的總數
 SELECT COUNT(*) FROM _migration_item_map;          -- vs 三個來源的去重總數
 ```
 
-⚠️ **筆數可以不同**（scope 合併會讓筆數變少），**但金額與數量的總和必須完全
-相等**。不相等就是 migration 失敗，不准繼續。
+⚠️ **金額與數量的總和必須完全相等**。不相等就是 migration 失敗，不准繼續。
+（沒有 scope 要合併，所以這一輪**筆數也應該一模一樣**。）
+
+Phase 0.5 量到的基準：
+
+```
+report_sales_monthly         net_quantity 186,529 / sales_amount 29,528,346 / 4,110 列
+report_payout_daily          payout_amount 45,874,851 / 3,369 列
+report_manual_sales_monthly  net_quantity 5,663 / sales_amount 2,014,715 / 383 列
+report_manual_payout_daily   0 列
+```
 
 ---
 
 ## 上線流程
 
-1. **備份**：`wrangler d1 export`，並在 verify DB 上**試還原一次**
-   （沒試過的備份不算備份）
+1. **備份**：`wrangler d1 export`，**依外鍵相依重排**（原始匯出檔還原會失敗，
+   見 Phase 0.5），並在 verify DB 上**試還原一次**——沒試過的備份不算備份
 2. 公告維護窗口（時間長度來自 Phase 0.5 的量測）
 3. merge → `deploy.yml` 自動跑 migration ＋ 部署
 4. 跑 parity check 的查詢，對數字
