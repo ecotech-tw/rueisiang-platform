@@ -37,7 +37,9 @@ export interface SandboxConfig {
   providers: { codex: boolean; gemini: boolean };
   defaultModel: string;
   activeModel: string;
+  fallbackModel: string | null;
   activeModelUpdatedAt: string | null;
+  credentialStatus: { codex: "unconfigured" | "ready" | "needs_reauth"; codexLastErrorAt: number | null };
   models: AssistantModel[];
   tools: AssistantTool[];
   activePrompt: PromptRevision | null;
@@ -154,6 +156,18 @@ export function useSandboxConfig() {
   });
 }
 
+export function useSavePiCodexCredential() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (credential: string) =>
+      request<{ configured: boolean; status: "unconfigured" | "ready" | "needs_reauth"; lastErrorAt: number | null }>("/api/assistant/codex-credential", {
+        method: "POST",
+        body: JSON.stringify({ credential }),
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["assistant", "sandbox", "config"] }),
+  });
+}
+
 export function useSavePrompt() {
   const client = useQueryClient();
   return useMutation({
@@ -251,9 +265,21 @@ export function useSaveAssistantModel() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (model: string) =>
-      request<{ activeModel: string; updatedAt: string }>("/api/assistant/config", {
+      request<{ activeModel: string; fallbackModel: string | null; updatedAt: string }>("/api/assistant/config", {
         method: "PATCH",
         body: JSON.stringify({ model }),
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["assistant", "sandbox", "config"] }),
+  });
+}
+
+export function useSaveAssistantFallbackModel() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (fallbackModel: string | null) =>
+      request<{ activeModel: string; fallbackModel: string | null; updatedAt: string }>("/api/assistant/config", {
+        method: "PATCH",
+        body: JSON.stringify({ fallbackModel }),
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["assistant", "sandbox", "config"] }),
   });

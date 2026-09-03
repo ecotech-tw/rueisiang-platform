@@ -110,15 +110,71 @@ export async function resetPiLineAgent(
 
 /** 不旋轉 access token；設定頁只確認 vault 能解密目前的 credential。 */
 export async function piCodexCredentialConfigured(env: AppEnv["Bindings"]): Promise<boolean> {
+  return (await piCodexCredentialStatus(env)).configured;
+}
+
+export type PiCodexCredentialState = "unconfigured" | "ready" | "needs_reauth";
+
+export interface PiCodexCredentialStatus {
+  configured: boolean;
+  status: PiCodexCredentialState;
+  lastErrorAt: number | null;
+}
+
+export async function piCodexCredentialStatus(env: AppEnv["Bindings"]): Promise<PiCodexCredentialStatus> {
   const namespace = env.ASSISTANT_CREDENTIAL_VAULT;
-  if (!namespace) return false;
+  if (!namespace) return { configured: false, status: "unconfigured", lastErrorAt: null };
   try {
     const response = await namespace.getByName("openai-codex").fetch(new Request(
       "https://assistant-credential.internal/status",
       { method: "POST" },
     ));
-    return response.ok;
+    const payload = await response.json().catch(() => null) as {
+      configured?: unknown;
+      status?: unknown;
+      lastErrorAt?: unknown;
+    } | null;
+    if (!response.ok || payload?.configured !== true) {
+      return { configured: false, status: "unconfigured", lastErrorAt: null };
+    }
+    return {
+      configured: true,
+      status: payload.status === "needs_reauth" ? "needs_reauth" : "ready",
+      lastErrorAt: typeof payload.lastErrorAt === "number" ? payload.lastErrorAt : null,
+    };
   } catch {
-    return false;
+    return { configured: false, status: "unconfigured", lastErrorAt: null };
   }
+}
+
+/** 將新的 Pi／Codex OAuth credential 匯入唯一 vault；成功回應不包含 credential 原值。 */
+export async function savePiCodexCredential(
+  env: AppEnv["Bindings"],
+  credential: string,
+): Promise<PiCodexCredentialStatus> {
+  const namespace = env.ASSISTANT_CREDENTIAL_VAULT;
+  if (!namespace) throw new PiAgentRequestError("平台尚未綁定 ASSISTANT_CREDENTIAL_VAULT Durable Object。", 503);
+  const response = await namespace.getByName("openai-codex").fetch(new Request(
+    "https://assistant-credential.internal/credential",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ credential }),
+    },
+  ));
+  const payload = await response.json().catch(() => null) as {
+    configured?: unknown;
+    status?: unknown;
+    lastErrorAt?: unknown;
+    error?: unknown;
+  } | null;
+  if (!response.ok) {
+    const message = typeof payload?.error === "string" ? payload.error : "Codex credential 匯入失敗。";
+    throw new PiAgentRequestError(message, response.status);
+  }
+  return {
+    configured: payload?.configured === true,
+    status: payload?.status === "needs_reauth" ? "needs_reauth" : "ready",
+    lastErrorAt: typeof payload?.lastErrorAt === "number" ? payload.lastErrorAt : null,
+  };
 }

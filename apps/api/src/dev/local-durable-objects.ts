@@ -11,6 +11,8 @@ interface LocalDurableObjectEntry {
   alarm: {
     scheduled: boolean;
     running: boolean;
+    at: number | null;
+    timer: ReturnType<typeof setTimeout> | null;
   };
 }
 
@@ -29,7 +31,12 @@ export class LocalDurableObjectNamespace {
     let entry = this.entries.get(name);
     if (!entry) {
       const sqlite = new DatabaseSync(":memory:");
-      const alarm = { scheduled: false, running: false };
+      const alarm = {
+        scheduled: false,
+        running: false,
+        at: null as number | null,
+        timer: null as ReturnType<typeof setTimeout> | null,
+      };
       const storage = {
         sql: {
           exec: (query: string, ...bindings: unknown[]) => {
@@ -40,11 +47,18 @@ export class LocalDurableObjectNamespace {
             return sqlite.prepare(query).all(...bindings as never[]);
           },
         },
-        setAlarm: async () => {
+        getAlarm: async () => alarm.at,
+        setAlarm: async (at: number) => {
           alarm.scheduled = true;
+          alarm.at = at;
         },
         deleteAlarm: async () => {
           alarm.scheduled = false;
+          alarm.at = null;
+          if (alarm.timer) {
+            clearTimeout(alarm.timer);
+            alarm.timer = null;
+          }
         },
       };
       const state = {
@@ -69,20 +83,32 @@ export class LocalDurableObjectNamespace {
 
   private scheduleAlarm(entry: LocalDurableObjectEntry): void {
     if (!entry.alarm.scheduled || entry.alarm.running || !entry.object.alarm) return;
-    entry.alarm.scheduled = false;
-    entry.alarm.running = true;
-    setTimeout(() => {
+    if (entry.alarm.timer) clearTimeout(entry.alarm.timer);
+    const delay = Math.max(0, (entry.alarm.at ?? Date.now()) - Date.now());
+    entry.alarm.timer = setTimeout(() => {
+      entry.alarm.timer = null;
+      if (!entry.alarm.scheduled || entry.alarm.running) return;
+      if ((entry.alarm.at ?? Date.now()) > Date.now()) {
+        this.scheduleAlarm(entry);
+        return;
+      }
+      entry.alarm.scheduled = false;
+      entry.alarm.at = null;
+      entry.alarm.running = true;
       void entry.object.alarm!()
         .catch((error) => console.error("本機 Pi Agent alarm 執行失敗", error))
         .finally(() => {
           entry.alarm.running = false;
           this.scheduleAlarm(entry);
         });
-    }, 0);
+    }, delay);
   }
 
   close(): void {
-    for (const entry of this.entries.values()) entry.sqlite.close();
+    for (const entry of this.entries.values()) {
+      if (entry.alarm.timer) clearTimeout(entry.alarm.timer);
+      entry.sqlite.close();
+    }
     this.entries.clear();
   }
 }

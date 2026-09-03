@@ -851,6 +851,97 @@ describe("AI 助理 Sandbox", () => {
     expect(await response.json()).toMatchObject({ model: "gemini-3.1-flash-lite", text: "已使用新模型。" });
   });
 
+  it("可以設定任意 fallback model，Gemini 失敗時改用 GPT 完成同一輪", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({
+        fetch: async (request: Request) => request.url.endsWith("/status")
+          ? Response.json({ configured: true, status: "ready", lastErrorAt: null })
+          : Response.json({ accessToken: CODEX_ACCESS_TOKEN }),
+      }),
+    };
+
+    const saved = await as("admin", "admin@ecotech.tw", "/api/assistant/config", {
+      method: "PATCH",
+      body: JSON.stringify({ model: "gemini-3.6-flash", fallbackModel: "gpt-5.4-mini" }),
+    });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({
+      activeModel: "gemini-3.6-flash",
+      fallbackModel: "gpt-5.4-mini",
+    });
+
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes("generativelanguage")) {
+        return new Response(JSON.stringify({ error: { message: "Gemini temporary outage" } }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/codex/responses")) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "GPT fallback 回覆" }] } }],
+          usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3, totalTokenCount: 5 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ error: { message: "unexpected provider" } }), { status: 500 });
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: [], input: "測試模型 fallback" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      model: "gpt-5.4-mini",
+      text: "GPT fallback 回覆",
+    });
+    expect(requests.some((url) => url.includes("generativelanguage"))).toBe(true);
+    expect(requests.some((url) => url.includes("/codex/responses"))).toBe(true);
+  });
+
+  it("只有具備設定權限的人可以匯入 Codex credential，而且回應不包含原文", async () => {
+    await seedUser("staff", "staff@ecotech.tw", "role-staff");
+    const forbidden = await as("staff", "staff@ecotech.tw", "/api/assistant/codex-credential", {
+      method: "POST",
+      body: JSON.stringify({ credential: "{}" }),
+    });
+    expect(forbidden.status).toBe(403);
+
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const credential = JSON.stringify({
+      "openai-codex": {
+        access: "access-imported",
+        refresh: "refresh-imported",
+        expires: Date.now() + 3_600_000,
+      },
+    });
+    let receivedCredential = "";
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({
+        fetch: async (request: Request) => {
+          if (request.url.endsWith("/credential")) {
+            const payload = await request.json() as { credential?: unknown };
+            receivedCredential = typeof payload.credential === "string" ? payload.credential : "";
+            return Response.json({ configured: true, status: "ready", lastErrorAt: null });
+          }
+          return Response.json({ configured: true, status: "ready", lastErrorAt: null });
+        },
+      }),
+    };
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/codex-credential", {
+      method: "POST",
+      body: JSON.stringify({ credential }),
+    });
+    expect(response.status).toBe(200);
+    expect(receivedCredential).toBe(credential);
+    expect(JSON.stringify(await response.json())).not.toContain("refresh-imported");
+  });
+
   it("可以從小香設定更新 tool 狀態", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/tools/weather_open_meteo", {

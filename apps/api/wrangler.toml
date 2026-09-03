@@ -86,7 +86,7 @@ SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 #   GOOGLE_OAUTH_CLIENT_ID
 #   GOOGLE_OAUTH_CLIENT_SECRET
 #   GEMINI_API_KEY              Pi Google provider；Sandbox／LINE 選 Gemini 模型時使用
-#   PI_OPENAI_CODEX_CREDENTIAL  Pi／Codex CLI 的 ChatGPT OAuth credential JSON；不是 OPENAI_API_KEY
+#   PI_OPENAI_CODEX_CREDENTIAL  舊版 bootstrap 用的 Pi／Codex OAuth credential JSON；匯入 vault 後可移除
 #   PI_CREDENTIAL_ENCRYPTION_KEY  至少 32 字元，vault 以 AES-GCM 加密 credential
 #   PI_OPENAI_CODEX_RELAY_TOKEN  可選；NAS Codex relay 的共享 secret，必須搭配 PI_OPENAI_CODEX_RELAY_URL
 #   NAS_STORAGE_TOKEN            NAS storage gateway 的獨立 shared secret；必須搭配 NAS_STORAGE_URL

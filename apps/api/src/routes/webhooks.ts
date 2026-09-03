@@ -70,7 +70,7 @@ import {
   resetPiLineAgent,
   runPiLineAgent,
 } from "../pi-agent.js";
-import { resolvePiAssistantModelId } from "../pi-agent-models.js";
+import { isPiAssistantModel, resolvePiAssistantModelId } from "../pi-agent-models.js";
 import {
   isExpiredLineImageAttachment,
   isPermanentLineImageError,
@@ -535,6 +535,10 @@ async function runLineAssistant(input: {
       }),
     ]);
     const configuredModel = resolvePiAssistantModelId(assistantConfig?.activeModel, defaultModel);
+    const fallbackModel = isPiAssistantModel(assistantConfig?.fallbackModel)
+      && assistantConfig?.fallbackModel !== configuredModel
+      ? assistantConfig.fallbackModel
+      : undefined;
     modelId = configuredModel;
     if (!prompt) throw new Error("小香的 prompt 設定目前無法使用。");
     promptRevisionId = prompt.id;
@@ -570,6 +574,7 @@ async function runLineAssistant(input: {
         webhookEventId: input.webhookEventId,
         runId,
         model: configuredModel,
+        ...(fallbackModel ? { fallbackModel } : {}),
         systemPrompt,
         userText: promptText,
         toolKeys: allowedToolKeys,

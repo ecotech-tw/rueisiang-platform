@@ -4,6 +4,11 @@ import { serializePiError } from "./pi-agent-diagnostics.js";
 const OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const REFRESH_BEFORE_EXPIRY_MS = 10 * 60 * 1_000;
+const INITIAL_ALARM_DELAY_MS = 60_000;
+const MIN_ALARM_DELAY_MS = 60_000;
+const REFRESH_RETRY_DELAY_MS = 5 * 60 * 1_000;
+const REAUTH_RETRY_DELAY_MS = 60 * 60 * 1_000;
+const MAX_CREDENTIAL_SEED_LENGTH = 64 * 1024;
 
 interface CodexCredential {
   access: string;
@@ -20,9 +25,40 @@ interface EncryptedCredentialRow extends Record<string, SqlStorageValue>, Encryp
   seed_fingerprint: string;
 }
 
+interface CredentialStatusRow extends Record<string, SqlStorageValue> {
+  status: string;
+  last_error_code: string | null;
+  last_error_at: number | null;
+}
+
 interface LoadedCredential {
   credential: CodexCredential;
   seedFingerprint: string;
+}
+
+export type PiCredentialStatus = "ready" | "needs_reauth";
+
+export interface PiCredentialStatusResponse {
+  configured: boolean;
+  status: PiCredentialStatus;
+  lastErrorAt: number | null;
+}
+
+export class PiCredentialRefreshError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code?: string,
+  ) {
+    super(`OpenAI Codex OAuth refresh 失敗（HTTP ${status}）。`);
+    this.name = "PiCredentialRefreshError";
+  }
+}
+
+export class PiCredentialInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PiCredentialInputError";
+  }
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -132,7 +168,10 @@ async function refreshCredential(credential: CodexCredential): Promise<CodexCred
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new Error(`OpenAI Codex OAuth refresh 失敗（HTTP ${response.status}）。`);
+      const payload = record(await response.json().catch(() => null));
+      const candidate = text(payload?.error);
+      const code = /^[a-z0-9._-]{1,80}$/iu.test(candidate) ? candidate : undefined;
+      throw new PiCredentialRefreshError(response.status, code);
     }
     const payload = record(await response.json());
     const access = text(payload?.access_token);
@@ -152,7 +191,7 @@ export class AssistantCredentialVault {
   private readonly sql: SqlStorage;
   private chain: Promise<void> = Promise.resolve();
 
-  constructor(ctx: DurableObjectState, private readonly env: Env) {
+  constructor(private readonly ctx: DurableObjectState, private readonly env: Env) {
     this.sql = ctx.storage.sql;
     ctx.blockConcurrencyWhile(async () => {
       this.sql.exec(`
@@ -163,7 +202,24 @@ export class AssistantCredentialVault {
           seed_fingerprint TEXT NOT NULL,
           updated_at INTEGER NOT NULL
         )
+        ;
+        CREATE TABLE IF NOT EXISTS assistant_credential_status (
+          provider_id TEXT PRIMARY KEY,
+          status TEXT NOT NULL,
+          last_error_code TEXT,
+          last_error_at INTEGER,
+          updated_at INTEGER NOT NULL
+        )
       `);
+      const storedCredential = [...this.sql.exec<{ provider_id: string }>(
+        "SELECT provider_id FROM assistant_credentials WHERE provider_id = ? LIMIT 1",
+        "openai-codex",
+      )][0];
+      if (this.env.PI_CREDENTIAL_ENCRYPTION_KEY?.trim()
+        && (storedCredential || this.env.PI_OPENAI_CODEX_CREDENTIAL?.trim())
+        && await ctx.storage.getAlarm() === null) {
+        await ctx.storage.setAlarm(Date.now() + INITIAL_ALARM_DELAY_MS);
+      }
     });
   }
 
@@ -181,17 +237,85 @@ export class AssistantCredentialVault {
       "openai-codex",
     )][0];
     const seed = this.env.PI_OPENAI_CODEX_CREDENTIAL?.trim();
-    if (stored && !seed) {
+    if (stored) {
       return { credential: await decryptCredential(secret, stored), seedFingerprint: stored.seed_fingerprint };
     }
     if (!seed) throw new Error("平台尚未設定 PI_OPENAI_CODEX_CREDENTIAL。");
+    if (seed.length > MAX_CREDENTIAL_SEED_LENGTH) throw new PiCredentialInputError("Codex credential JSON 太大，無法匯入。");
     const seedFingerprint = await credentialSeedFingerprint(seed);
-    if (stored && stored.seed_fingerprint === seedFingerprint) {
-      return { credential: await decryptCredential(secret, stored), seedFingerprint };
-    }
     const credential = parseOpenAICodexCredentialSeed(seed);
     await this.saveCredential(secret, credential, seedFingerprint);
+    await this.markCredentialReady();
     return { credential, seedFingerprint };
+  }
+
+  private async importCredential(seed: string): Promise<PiCredentialStatusResponse> {
+    if (seed.length > MAX_CREDENTIAL_SEED_LENGTH) {
+      throw new PiCredentialInputError("Codex credential JSON 太大，無法匯入。");
+    }
+    let credential: CodexCredential;
+    try {
+      credential = parseOpenAICodexCredentialSeed(seed);
+    } catch {
+      throw new PiCredentialInputError("Codex credential JSON 缺少有效的 access、refresh 或 expires。");
+    }
+    const secret = this.env.PI_CREDENTIAL_ENCRYPTION_KEY?.trim();
+    if (!secret) throw new Error("平台尚未設定 PI_CREDENTIAL_ENCRYPTION_KEY。");
+    await this.saveCredential(secret, credential, await credentialSeedFingerprint(seed));
+    await this.markCredentialReady();
+    await this.scheduleAlarm(credential);
+    return this.credentialStatus();
+  }
+
+  private credentialStatus(): PiCredentialStatusResponse {
+    const row = [...this.sql.exec<CredentialStatusRow>(
+      "SELECT status, last_error_code, last_error_at FROM assistant_credential_status WHERE provider_id = ? LIMIT 1",
+      "openai-codex",
+    )][0];
+    return {
+      configured: true,
+      status: row?.status === "needs_reauth" ? "needs_reauth" : "ready",
+      lastErrorAt: typeof row?.last_error_at === "number" ? row.last_error_at : null,
+    };
+  }
+
+  private async markCredentialReady(): Promise<void> {
+    this.sql.exec(
+      `INSERT INTO assistant_credential_status (provider_id, status, last_error_code, last_error_at, updated_at)
+       VALUES (?, 'ready', NULL, NULL, ?)
+       ON CONFLICT(provider_id) DO UPDATE SET
+         status = 'ready',
+         last_error_code = NULL,
+         last_error_at = NULL,
+         updated_at = excluded.updated_at`,
+      "openai-codex",
+      Date.now(),
+    );
+  }
+
+  private async markCredentialNeedsReauth(error: PiCredentialRefreshError): Promise<void> {
+    const now = Date.now();
+    this.sql.exec(
+      `INSERT INTO assistant_credential_status (provider_id, status, last_error_code, last_error_at, updated_at)
+       VALUES (?, 'needs_reauth', ?, ?, ?)
+       ON CONFLICT(provider_id) DO UPDATE SET
+         status = 'needs_reauth',
+         last_error_code = excluded.last_error_code,
+         last_error_at = excluded.last_error_at,
+         updated_at = excluded.updated_at`,
+      "openai-codex",
+      error.code ?? "http_401",
+      now,
+      now,
+    );
+  }
+
+  private async scheduleAlarm(credential: CodexCredential): Promise<void> {
+    const status = this.credentialStatus();
+    const nextAt = status.status === "needs_reauth"
+      ? Date.now() + REAUTH_RETRY_DELAY_MS
+      : Math.max(Date.now() + MIN_ALARM_DELAY_MS, credential.expires - REFRESH_BEFORE_EXPIRY_MS);
+    await this.ctx.storage.setAlarm(nextAt);
   }
 
   private async saveCredential(
@@ -222,9 +346,21 @@ export class AssistantCredentialVault {
     const loaded = await this.loadCredential();
     let credential = loaded.credential;
     if (Date.now() + REFRESH_BEFORE_EXPIRY_MS >= credential.expires) {
-      credential = await refreshCredential(credential);
-      await this.saveCredential(secret, credential, loaded.seedFingerprint);
+      try {
+        credential = await refreshCredential(credential);
+        await this.saveCredential(secret, credential, loaded.seedFingerprint);
+        await this.markCredentialReady();
+      } catch (error) {
+        if (error instanceof PiCredentialRefreshError && error.status === 401) {
+          await this.markCredentialNeedsReauth(error);
+          await this.ctx.storage.setAlarm(Date.now() + REAUTH_RETRY_DELAY_MS);
+        } else {
+          await this.ctx.storage.setAlarm(Date.now() + REFRESH_RETRY_DELAY_MS);
+        }
+        throw error;
+      }
     }
+    await this.scheduleAlarm(credential);
     return credential.access;
   }
 
@@ -235,8 +371,19 @@ export class AssistantCredentialVault {
     }
     try {
       if (url.pathname === "/status") {
-        await this.serialized(() => this.loadCredential().then(() => undefined));
-        return Response.json({ configured: true });
+        const status = await this.serialized(async () => {
+          const loaded = await this.loadCredential();
+          await this.scheduleAlarm(loaded.credential);
+          return this.credentialStatus();
+        });
+        return Response.json(status);
+      }
+      if (url.pathname === "/credential") {
+        const payload = record(await request.json().catch(() => null));
+        const seed = text(payload?.credential);
+        if (!seed) throw new PiCredentialInputError("請提供 Codex credential JSON。");
+        const status = await this.serialized(() => this.importCredential(seed));
+        return Response.json(status);
       }
       if (url.pathname !== "/access-token") {
         return Response.json({ error: "Not found" }, { status: 404 });
@@ -248,7 +395,34 @@ export class AssistantCredentialVault {
         console.error("Pi credential vault 無法提供 access token", { error: serializePiError(error) });
       }
       const message = error instanceof Error ? error.message : "OpenAI Codex credential 無法使用。";
-      return Response.json({ error: message }, { status: 503 });
+      if (error instanceof PiCredentialInputError) {
+        return Response.json({ error: message }, { status: 400 });
+      }
+      const needsReauth = error instanceof PiCredentialRefreshError && error.status === 401;
+      return Response.json({
+        error: message,
+        ...(needsReauth ? { code: "reauth_required", status: "needs_reauth" } : {}),
+      }, { status: needsReauth ? 401 : 503 });
     }
+  }
+
+  async alarm(): Promise<void> {
+    await this.serialized(async () => {
+      try {
+        await this.accessToken();
+        console.info("Pi credential vault 已完成 OAuth token 預先更新", { provider: "openai-codex" });
+      } catch (error) {
+        const nextRetryAt = Date.now()
+          + (error instanceof PiCredentialRefreshError && error.status === 401
+            ? REAUTH_RETRY_DELAY_MS
+            : REFRESH_RETRY_DELAY_MS);
+        await this.ctx.storage.setAlarm(nextRetryAt);
+        console.error("Pi credential vault token 預先更新失敗", {
+          provider: "openai-codex",
+          nextRetryAt,
+          error: serializePiError(error),
+        });
+      }
+    });
   }
 }

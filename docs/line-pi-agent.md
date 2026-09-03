@@ -118,10 +118,19 @@ PI_OPENAI_CODEX_RELAY_TOKEN=<與本機 relay 相同的 token>
 
 ## Credential setup
 
-先在可信任的本機用 Codex CLI 登入 ChatGPT。Windows 預設 credential 位於
-`%USERPROFILE%\.codex\auth.json`。不要把檔案或以下輸出 commit、貼進 issue、PR 或 log。
+先在可信任的本機用 Codex CLI 或 Pi 登入 ChatGPT。Windows 預設 credential 位於
+`%USERPROFILE%\.codex\auth.json` 或 `%USERPROFILE%\.pi\agent\auth.json`。不要把檔案或以下輸出
+commit、貼進 issue、PR 或 log。
 
-完整 Codex auth file 可能太大；可在 PowerShell 只把必要欄位複製到剪貼簿：
+正式環境的唯一 credential owner 是 credential-vault Durable Object。它會把目前的 access token
+與 refresh token 加密保存於自己的 SQLite，access token 即將到期時自動 refresh，並把每次 rotation
+拿到的新 refresh token 寫回去；各個 chat DO 不會保存或複製 refresh token。
+
+建議流程是登入後到平台的 **小香助理 → 設定 → ChatGPT／Codex OAuth credential**，貼上 Pi
+`auth.json` 全文，或只貼 `openai-codex` provider 的 JSON，按「匯入並更新 credential」。API
+只回傳狀態，不會把 access 或 refresh token 放進回應。
+
+若要從 Codex CLI auth file 只取必要欄位，可在 PowerShell 複製到剪貼簿：
 
 ```powershell
 $codexAuth = Get-Content "$env:USERPROFILE\.codex\auth.json" -Raw | ConvertFrom-Json
@@ -131,12 +140,16 @@ $codexAuth = Get-Content "$env:USERPROFILE\.codex\auth.json" -Raw | ConvertFrom-
 } | ConvertTo-Json -Compress | Set-Clipboard
 ```
 
-到 Cloudflare Worker 的 **Settings → Variables and Secrets** 新增兩個 Codex Secret：
+Cloudflare Worker 只需要保留以下加密 key：
 
 | 名稱 | 值 |
 |---|---|
-| `PI_OPENAI_CODEX_CREDENTIAL` | 上一步剪貼簿內的 JSON；也接受 Pi `auth.json` 的 `openai-codex` credential |
 | `PI_CREDENTIAL_ENCRYPTION_KEY` | 至少 32 字元的獨立高熵字串 |
+
+`PI_OPENAI_CODEX_CREDENTIAL` 現在只是舊部署的 bootstrap secret，第一次從 vault 讀取時才會
+匯入；vault 已經有 credential 後會永遠以 DO 內的資料為準，並忽略這個 secret。既有部署請先
+透過設定頁匯入並確認 GPT 可用，再從 Worker 的 **Settings → Variables and Secrets** 移除
+`PI_OPENAI_CODEX_CREDENTIAL`；新的正式部署可以完全不設定它。
 
 加密 key 可在本機產生：
 
@@ -144,10 +157,14 @@ $codexAuth = Get-Content "$env:USERPROFILE\.codex\auth.json" -Raw | ConvertFrom-
 node -e "console.log(crypto.randomUUID() + crypto.randomUUID())"
 ```
 
-vault 第一次使用時會讀取 seed，之後保存並旋轉最新 credential。系統會記住 seed 的 SHA-256
-fingerprint；重新登入後更新 `PI_OPENAI_CODEX_CREDENTIAL`，下一次請求會自動重新灌入。不要單獨
-更換 encryption key，否則既有 vault 資料無法解密；若必須輪替，請同時重新登入並更新兩個值。
-Worker 永遠只從 vault RPC 取得短效 access token，不會把 refresh token 複製到每個 chat DO。
+不要單獨更換 `PI_CREDENTIAL_ENCRYPTION_KEY`，否則既有 vault 資料無法解密；若 key 遺失，必須
+先恢復同一把 key 才能讀取已保存的 credential。這把 key 是用來保護 DO 資料的應用程式 secret，
+不是 OAuth token，應持續留在 Worker secret 中。
+
+如果狀態變成「需要重新授權」，請在本機重新執行 `codex login` 或 Pi 的 `/login openai-codex`，
+再把新的 `auth.json` 透過設定頁匯入。不要把同一顆 refresh token 同時複製到多個 credential store；
+refresh token 可能 rotation 或 revoke，舊副本會使新的 token chain 失效。Worker 永遠只從 vault
+RPC 取得短效 access token。
 
 若要使用 Gemini 模型，再新增 `GEMINI_API_KEY`。兩種 provider 可以只設一種；Sandbox 會停用
 缺少 credential 的那組模型。若 active model 所屬 provider 未設定，API 會明確回傳 503，不會

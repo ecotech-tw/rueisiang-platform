@@ -28,7 +28,7 @@ export interface Env {
   GEMINI_API_KEY?: string;
   /** 尚未建立 assistant config 時的 LINE fallback；正常情況由後台 active model 決定。 */
   PI_AGENT_MODEL?: string;
-  /** Pi 或 Codex CLI 的 ChatGPT OAuth credential JSON；seed fingerprint 改變時會重新灌入 vault。 */
+  /** 舊版 bootstrap 用的 Pi／Codex OAuth credential JSON；vault 已有資料後不再讀取這個 secret。 */
   PI_OPENAI_CODEX_CREDENTIAL?: string;
   /** vault 內 credential 的應用層 AES-GCM encryption key，至少 32 字元。 */
   PI_CREDENTIAL_ENCRYPTION_KEY?: string;

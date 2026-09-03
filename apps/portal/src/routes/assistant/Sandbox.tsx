@@ -10,6 +10,7 @@ import {
   useSandboxSession,
   useSandboxSessions,
   useSaveAssistantModel,
+  useSaveAssistantFallbackModel,
   useSavePrompt,
   useUploadSandboxAttachment,
   AssistantApiError,
@@ -65,6 +66,7 @@ export function Sandbox() {
   usePageTitle("小香助理 Sandbox");
   const config = useSandboxConfig();
   const saveModel = useSaveAssistantModel();
+  const saveFallbackModel = useSaveAssistantFallbackModel();
   const savePrompt = useSavePrompt();
   const run = useRunSandbox();
   const sessions = useSandboxSessions();
@@ -72,6 +74,7 @@ export function Sandbox() {
   const closeSession = useCloseSandboxSession();
   const uploadAttachment = useUploadSandboxAttachment();
   const [model, setModel] = useState("");
+  const [fallbackModel, setFallbackModel] = useState("");
   const [promptId, setPromptId] = useState("");
   const [prompt, setPrompt] = useState("");
   const [input, setInput] = useState("台北現在的天氣如何？");
@@ -89,6 +92,7 @@ export function Sandbox() {
   useEffect(() => {
     if (!config.data) return;
     setModel((current) => current || config.data.activeModel);
+    setFallbackModel((current) => current || config.data.fallbackModel || "");
     setPromptId((current) => current || config.data.activePrompt?.id || "");
     setPrompt((current) => current || config.data.activePrompt?.systemPrompt || "");
     const availableToolKeys = new Set(config.data.tools.map((tool) => tool.key));
@@ -125,9 +129,11 @@ export function Sandbox() {
   if (!data) return null;
   const activeRevision = data.revisions.find((revision) => revision.id === promptId);
   const selectedModel = data.models.find((item) => item.id === model);
+  const selectedFallbackModel = data.models.find((item) => item.id === fallbackModel);
   const codexModels = data.models.filter((item) => item.provider === "openai-codex");
   const geminiModels = data.models.filter((item) => item.provider === "google");
   const modelReady = Boolean(selectedModel?.supported && selectedModel.configured);
+  const fallbackReady = !fallbackModel || Boolean(selectedFallbackModel?.supported && selectedFallbackModel.configured);
   const currentSession = session.data?.session;
   const sessionOpen = currentSession?.status === "open";
 
@@ -149,8 +155,15 @@ export function Sandbox() {
   }
 
   function submitModel() {
-    if (!model || model === data.activeModel) return;
+    if (!model || model === data.activeModel || model === fallbackModel) return;
     saveModel.mutate(model);
+  }
+
+  function submitFallbackModel() {
+    if (!fallbackReady || (fallbackModel && (fallbackModel === data.activeModel || fallbackModel === model))) return;
+    saveFallbackModel.mutate(fallbackModel || null, {
+      onSuccess: (result) => setFallbackModel(result.fallbackModel ?? ""),
+    });
   }
 
   function submitRun() {
@@ -222,6 +235,9 @@ export function Sandbox() {
       {!data.providers.gemini ? (
         <Alert tone="danger">尚未設定 GEMINI_API_KEY，Gemini 模型目前不可執行。</Alert>
       ) : null}
+      {data.credentialStatus.codex === "needs_reauth" ? (
+        <Alert tone="danger">ChatGPT／Codex OAuth 更新 token 時回傳 401；請重新執行 codex login 並更新平台 credential。若已設定 fallback，請求會先嘗試備援模型。</Alert>
+      ) : null}
 
       <div className="assistant-sandbox-layout">
         <div className="assistant-settings-column">
@@ -261,6 +277,41 @@ export function Sandbox() {
                   </Button>
                   {saveModel.isSuccess ? <span className="form-hint">已更新，小香之後會使用這個模型。</span> : null}
                   {saveModel.error ? <Alert tone="danger">{saveModel.error.message}</Alert> : null}
+                </div>
+              </label>
+              <label className="field">
+                <span>模型失敗時的 fallback</span>
+                <select value={fallbackModel} onChange={(event) => setFallbackModel(event.target.value)}>
+                  <option value="">不使用 fallback</option>
+                  <optgroup label="GPT / Codex（ChatGPT OAuth）">
+                    {codexModels.map((item) => (
+                      <option key={item.id} value={item.id} disabled={!item.supported || !item.configured}>
+                        {item.label}{item.supported && item.configured ? "" : "（目前不可用）"}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Gemini（API key）">
+                    {geminiModels.map((item) => (
+                      <option key={item.id} value={item.id} disabled={!item.supported || !item.configured}>
+                        {item.label}{item.supported && item.configured ? "" : "（目前不可用）"}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+                <small>主要模型回傳 error 時，這一輪會改用選定的模型重試；不會固定綁死 Gemini。</small>
+                {selectedFallbackModel?.supportsVision ? <small>此 fallback 支援圖片輸入。</small> : null}
+                {fallbackModel === data.activeModel || fallbackModel === model ? <small>fallback 不能與選取中的 active model 相同。</small> : null}
+                <div className="assistant-actions">
+                  <Button
+                    loading={saveFallbackModel.isPending}
+                    loadingLabel="儲存中…"
+                    disabled={!fallbackReady || fallbackModel === data.activeModel || fallbackModel === model || (fallbackModel || "") === (data.fallbackModel || "")}
+                    onClick={submitFallbackModel}
+                  >
+                    儲存 fallback 設定
+                  </Button>
+                  {saveFallbackModel.isSuccess ? <span className="form-hint">fallback 設定已更新。</span> : null}
+                  {saveFallbackModel.error ? <Alert tone="danger">{saveFallbackModel.error.message}</Alert> : null}
                 </div>
               </label>
             </div>

@@ -1326,9 +1326,27 @@ export async function setActiveAssistantModel(
   db: Database,
   input: { assistantKey: string; activeModel: string; updatedBy: string },
 ): Promise<AssistantConfig> {
+  return setAssistantModelConfig(db, input);
+}
+
+export async function setAssistantModelConfig(
+  db: Database,
+  input: {
+    assistantKey: string;
+    activeModel?: string;
+    fallbackModel?: string | null;
+    updatedBy: string;
+  },
+): Promise<AssistantConfig> {
+  const values = {
+    ...(input.activeModel === undefined ? {} : { activeModel: input.activeModel }),
+    ...(input.fallbackModel === undefined ? {} : { fallbackModel: input.fallbackModel }),
+    updatedBy: input.updatedBy,
+    updatedAt: new Date().toISOString(),
+  };
   await db
     .update(assistantConfigs)
-    .set({ activeModel: input.activeModel, updatedBy: input.updatedBy, updatedAt: new Date().toISOString() })
+    .set(values)
     .where(eq(assistantConfigs.assistantKey, input.assistantKey));
   const config = await getAssistantConfig(db, input.assistantKey);
   if (!config) throw new Error("更新小香模型後找不到設定。");

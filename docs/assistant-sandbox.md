@@ -8,15 +8,21 @@ Gemini 時使用 `GEMINI_API_KEY`。架構、session 與 credential setup 見
 ## 本機操作
 
 在 `apps/api/.dev.vars` 放入要測試的 provider credential（這個檔案不進版控）。只測 Gemini
-時不需要 Codex credential；要測 GPT 時則需另外設定下列兩個 Pi secret：
+時不需要 Codex credential；要測 GPT 時需要 `PI_CREDENTIAL_ENCRYPTION_KEY`，以及下列兩種方式
+其中一種提供 OAuth credential：
 
 ```dotenv
 GEMINI_API_KEY=你的_Gemini_API_Key
-PI_OPENAI_CODEX_CREDENTIAL={"access":"...","refresh":"..."}
 PI_CREDENTIAL_ENCRYPTION_KEY=至少_32_字元的獨立高熵字串
+# 舊版本機 bootstrap 可暫時保留；正式環境建議從小香設定頁匯入後移除。
+PI_OPENAI_CODEX_CREDENTIAL={"access":"...","refresh":"...","expires":4102444800000}
 # 要讓已授權的 LINE 對話收到小香回答，還需要設定 Messaging API access token。
 LINE_CHANNEL_ACCESS_TOKEN=你的_LINE_Channel_Access_Token
 ```
+
+正式環境請在「小香助理 → 設定」貼上 Pi `auth.json` 匯入，不要把 rotation 後的新 refresh token
+持續更新到 Worker secret。本機開發的 credential vault 是記憶體內 SQLite；重啟 API 後資料會重置，
+需要重新使用 bootstrap JSON 或從設定頁匯入。
 
 The LINE Channel Secret and Channel Access Token can also be entered in the LINE settings page. Both values are encrypted before they are stored; the existing `LINE_CHANNEL_SECRET` and `LINE_CHANNEL_ACCESS_TOKEN` Worker variables remain fallback options.
 
@@ -121,6 +127,7 @@ Sandbox runs support multi-turn Pi sessions. D1 keeps the selected model, prompt
 - `POST /api/assistant/sandbox/run`：帶入 `sessionId` 時，會 dispatch 到該 session 專屬 Pi DO；第一次使用既有 session 時會從 D1 匯入最近 100 則訊息，之後由 Pi transcript 接續。若指定 `model`，會套用到本輪並更新開啟中的 session。
 
 - `GET /api/assistant/sandbox/config`：模型、tool、active prompt 與 revision history。
+- `POST /api/assistant/codex-credential`：由具備設定寫入權限的管理者匯入 Pi／Codex `auth.json`；只回傳 vault 狀態，不回傳 credential 原值。
 - `POST /api/assistant/sandbox/attachments`、`GET /api/assistant/sandbox/attachments?key=...`：
   上傳或讀取 Sandbox session 的圖片附件；bytes 存 NAS，D1 保存授權與 expiry metadata。
 - `PATCH /api/assistant/config`：儲存小香目前使用的模型。
