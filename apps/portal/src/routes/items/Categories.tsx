@@ -8,7 +8,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, FilterInput, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { WAREHOUSE_CATEGORY_COLORS, type ProductCategory } from "../wms/api.js";
 
 interface ItemCategory extends ProductCategory {
@@ -76,6 +76,21 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (color: str
   );
 }
 
+function CreateDialog({ categories, onClose }: { categories: ItemCategory[]; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [parentId, setParentId] = useState("");
+  const [color, setColor] = useState(nextColor(categories));
+  const toast = useToast();
+  const create = useCategoryMutation((input: { name: string; color: string; parentId: string }) => write("/api/items/categories", "POST", input));
+  const trimmed = name.trim();
+  return <Dialog title="新增品項分類" onClose={onClose} closeDisabled={create.isPending} formProps={{ onSubmit: (event) => { event.preventDefault(); if (trimmed) create.mutate({ name: trimmed, color, parentId }, { onSuccess: () => { toast.show(`已新增「${trimmed}」`); onClose(); } }); } }} actions={<><Button variant="secondary" type="button" onClick={onClose}>取消</Button><Button type="submit" loading={create.isPending} disabled={!trimmed}>新增分類</Button></>}>
+    <TextField label="分類名稱" required autoFocus maxLength={40} placeholder="例如：香氛用品" value={name} onChange={(event) => setName(event.target.value)} />
+    <SelectField label="上層分類（可選）" value={parentId} onChange={(event) => setParentId(event.target.value)} options={[{ label: "建立大分類", value: "" }, ...categories.filter((category) => category.depth === 0).map((category) => ({ label: category.name, value: category.id }))]} />
+    <div className="field"><span>顏色</span><ColorPicker value={color} onChange={setColor} /></div>
+    {create.error ? <Alert tone="danger">{create.error.message}</Alert> : null}
+  </Dialog>;
+}
+
 function SortableCategoryRow({ category, categories, canWrite, onEdit, onDelete }: { category: ItemCategory; categories: ItemCategory[]; canWrite: boolean; onEdit: () => void; onDelete: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id });
   return <tr ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={isDragging ? "dragging" : undefined}>
@@ -119,8 +134,7 @@ function EditDialog({ category, categories, onClose }: { category: ItemCategory;
 
 export function ItemCategories() {
   usePageTitle("品項分類管理");
-  const [newName, setNewName] = useState("");
-  const [newParentId, setNewParentId] = useState("");
+  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ItemCategory | null>(null);
   const [deleting, setDeleting] = useState<ItemCategory | null>(null);
   const query = useItemCategories();
@@ -131,9 +145,8 @@ export function ItemCategories() {
   const [orderedCategories, setOrderedCategories] = useState<ItemCategory[]>([]);
   useEffect(() => { setOrderedCategories(categories); }, [categories]);
   const reorder = useCategoryMutation((ids: string[]) => write("/api/items/categories/reorder", "POST", { ids }));
-  const create = useCategoryMutation((input: { name: string; color: string; parentId: string }) => write("/api/items/categories", "POST", input));
   const remove = useCategoryMutation((id: string) => write(`/api/items/categories/${id}`, "DELETE"));
-  const error = create.error ?? remove.error ?? reorder.error ?? query.error;
+  const error = remove.error ?? reorder.error ?? query.error;
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -147,23 +160,10 @@ export function ItemCategories() {
 
   return (
     <div className="page fills">
-      <PageHeader title="品項分類管理" description="這裡管理 item_categories；它是報表與品項主檔分類，不再與倉儲分類同步。" />
+      <PageHeader title="品項分類管理" description="這裡管理 item_categories；它是報表與品項主檔分類，不再與倉儲分類同步。" actions={canWrite ? <Button icon="plus" onClick={() => setCreating(true)}>新增分類</Button> : null} />
 
       <Panel className="grows">
         <Alert tone="info">品項分類已改接 item_categories。倉儲庫存頁的分類仍是 WMS 作業分類，兩者不會互相改名或同步。</Alert>
-
-        {canWrite ? (
-          <form className="admin-form toolbar category-form" onSubmit={(event) => {
-            event.preventDefault();
-            const name = newName.trim();
-            if (!name) return;
-            create.mutate({ name, color: nextColor(categories), parentId: newParentId }, { onSuccess: () => { toast.show(`已新增「${name}」`); setNewName(""); setNewParentId(""); } });
-          }}>
-            <FilterInput label="新分類名稱" placeholder="新增一個品項分類" maxLength={40} value={newName} onChange={(event) => setNewName(event.target.value)} />
-            <SelectField label="上層分類" value={newParentId} onChange={(event) => setNewParentId(event.target.value)} options={[{ label: "建立大分類", value: "" }, ...categories.filter((category) => category.depth === 0).map((category) => ({ label: category.name, value: category.id }))]} />
-            <Button type="submit" loading={create.isPending} loadingLabel="新增中…" disabled={!newName.trim()}>新增分類</Button>
-          </form>
-        ) : null}
 
         {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
@@ -184,6 +184,7 @@ export function ItemCategories() {
         {query.data && categories.length === 0 ? <p className="muted table-note">還沒有任何品項分類。這不會影響 WMS 分類。</p> : null}
       </Panel>
 
+      {creating ? <CreateDialog categories={categories} onClose={() => setCreating(false)} /> : null}
       {editing ? <EditDialog category={editing} categories={categories} onClose={() => setEditing(null)} /> : null}
       {deleting ? <ConfirmDialog title="刪除這個分類？" confirmLabel="刪除" pending={remove.isPending} onCancel={() => setDeleting(null)} onConfirm={() => remove.mutate(deleting.id, { onSuccess: () => { toast.show(`已刪除「${deleting.name}」`); setDeleting(null); } })}><p><strong>{deleting.name}</strong> 會被移除。目前沒有品項在用它。</p></ConfirmDialog> : null}
     </div>
