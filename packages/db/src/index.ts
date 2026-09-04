@@ -112,6 +112,14 @@ export {
 } from "./product-sku-mappings.js";
 export { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 export {
+  ignoreReportExternalProduct,
+  listReportExternalProducts,
+  resolveReportExternalProduct,
+  unignoreReportExternalProduct,
+  ReportExternalProductError,
+  type ReportExternalProductActor,
+} from "./report-external-products.js";
+export {
   findCyberbizReportRun,
   listCyberbizReportRuns,
   recordCyberbizReportRun,

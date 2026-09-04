@@ -1,4 +1,3 @@
-import { asc } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import {
@@ -17,6 +16,11 @@ import {
   isValidReportDate,
   latestReportSalesPeriods,
   listCyberbizReportProducts,
+  listReportExternalProducts,
+  resolveReportExternalProduct,
+  ignoreReportExternalProduct,
+  unignoreReportExternalProduct,
+  ReportExternalProductError,
   countReportPayoutRecords,
   countReportSalesRecords,
   listReportPayoutRecords,
@@ -59,7 +63,6 @@ import {
 } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
 import { body, requireString } from "../request.js";
-import { reportExternalProducts } from "@rueisiang/db/schema";
 
 function queryValue(c: { req: { query(name: string): string | undefined } }, name: string): string | undefined {
   const value = c.req.query(name)?.trim();
@@ -153,6 +156,14 @@ function handleError(error: unknown): never {
 
 function handleManualError(error: unknown): never {
   if (error instanceof ReportManualError) {
+    const status = error.kind === "not_found" ? 404 : error.kind === "conflict" ? 409 : 400;
+    throw new HTTPException(status, { message: error.message });
+  }
+  throw error;
+}
+
+function handleExternalProductError(error: unknown): never {
+  if (error instanceof ReportExternalProductError) {
     const status = error.kind === "not_found" ? 404 : error.kind === "conflict" ? 409 : 400;
     throw new HTTPException(status, { message: error.message });
   }
@@ -614,8 +625,45 @@ export const cyberbizReports = new Hono<AppEnv>()
   .get("/external-products", requirePermission("reports:cyberbiz:read"), async (c) => {
     const sourceType = queryValue(c, "sourceType");
     const resolution = queryValue(c, "resolution");
-    const rows = await c.get("db").select().from(reportExternalProducts).orderBy(asc(reportExternalProducts.sourceType), asc(reportExternalProducts.externalKey));
-    return c.json({ products: rows.filter((row) => (!sourceType || row.sourceType === sourceType) && (!resolution || row.resolution === resolution)) });
+    const products = await listReportExternalProducts(c.get("db"), {
+      ...(sourceType ? { sourceType } : {}),
+      ...(resolution === "mapped" || resolution === "ignored" ? { resolution } : {}),
+    });
+    return c.json({ products });
+  })
+  .post("/external-products/:id/resolve", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const input = await body(c);
+      const itemId = requireString(input, "itemId", "品項");
+      const user = c.get("user");
+      const product = await resolveReportExternalProduct(c.get("db"), { id: c.req.param("id"), itemId, actor: { id: user.id, email: user.email } });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ product });
+    } catch (error) {
+      handleExternalProductError(error);
+    }
+  })
+  .post("/external-products/:id/ignore", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const input = await body(c);
+      if (input.reason !== undefined && typeof input.reason !== "string") throw new HTTPException(400, { message: "忽略原因必須是文字。" });
+      const user = c.get("user");
+      const product = await ignoreReportExternalProduct(c.get("db"), { id: c.req.param("id"), reason: input.reason as string | undefined, actor: { id: user.id, email: user.email } });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ product });
+    } catch (error) {
+      handleExternalProductError(error);
+    }
+  })
+  .post("/external-products/:id/unignore", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const user = c.get("user");
+      await unignoreReportExternalProduct(c.get("db"), { id: c.req.param("id"), actor: { id: user.id, email: user.email } });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ ok: true });
+    } catch (error) {
+      handleExternalProductError(error);
+    }
   })
   .get("/runs", requirePermission("reports:analytics:read"), async (c) => {
     const limit = Number(queryValue(c, "limit") ?? "50");
