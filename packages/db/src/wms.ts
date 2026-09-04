@@ -1122,8 +1122,11 @@ export async function createLayoutElement(
     height: clamp(input.height, 10, BOUNDS.height),
   };
 
+  const legacyLayoutExists = await hasTable(db, "layout_elements");
   await db.batch([
-    db.insert(layoutElements).values(element),
+    db.insert(wmsLayouts).values({ id: "layout:main", name: "主倉庫", canvasWidth: CANVAS.width.fallback, canvasHeight: CANVAS.height.fallback, active: 1 }).onConflictDoNothing(),
+    db.insert(wmsLayoutElements).values({ id: `wms-decoration:${id}`, layoutId: "layout:main", elementType: "decoration", label, color: element.color, x: element.x, y: element.y, width: element.width, height: element.height, zIndex: 1 }).onConflictDoNothing(),
+    ...(legacyLayoutExists ? [db.insert(layoutElements).values(element)] : []),
     writeEvent(db, {
       entityType: "layout_element",
       entityId: id,
@@ -1143,7 +1146,10 @@ export async function updateLayoutElement(
   id: string,
   input: Partial<LayoutElementInput> & { actor: Actor },
 ) {
-  const [current] = await db.select().from(layoutElements).where(eq(layoutElements.id, id));
+  const legacyLayoutExists = await hasTable(db, "layout_elements");
+  const [current] = legacyLayoutExists
+    ? await db.select().from(layoutElements).where(eq(layoutElements.id, id))
+    : await db.select().from(wmsLayoutElements).where(and(eq(wmsLayoutElements.id, `wms-decoration:${id}`), eq(wmsLayoutElements.elementType, "decoration")));
   if (!current) throw new WmsError("not_found", "找不到這個地圖標示。");
 
   const next = {
@@ -1157,9 +1163,10 @@ export async function updateLayoutElement(
 
   await db.batch([
     db
-      .update(layoutElements)
+      .update(wmsLayoutElements)
       .set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` })
-      .where(eq(layoutElements.id, id)),
+      .where(eq(wmsLayoutElements.id, legacyLayoutExists ? `wms-decoration:${id}` : current.id)),
+    ...(legacyLayoutExists ? [db.update(layoutElements).set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(layoutElements.id, id))] : []),
     writeEvent(db, {
       entityType: "layout_element",
       entityId: id,
@@ -1173,11 +1180,15 @@ export async function updateLayoutElement(
 }
 
 export async function deleteLayoutElement(db: Database, id: string, actor: Actor) {
-  const [element] = await db.select().from(layoutElements).where(eq(layoutElements.id, id));
+  const legacyLayoutExists = await hasTable(db, "layout_elements");
+  const [element] = legacyLayoutExists
+    ? await db.select().from(layoutElements).where(eq(layoutElements.id, id))
+    : await db.select().from(wmsLayoutElements).where(and(eq(wmsLayoutElements.id, `wms-decoration:${id}`), eq(wmsLayoutElements.elementType, "decoration")));
   if (!element) throw new WmsError("not_found", "找不到這個地圖標示。");
 
   await db.batch([
-    db.delete(layoutElements).where(eq(layoutElements.id, id)),
+    db.delete(wmsLayoutElements).where(eq(wmsLayoutElements.id, legacyLayoutExists ? `wms-decoration:${id}` : element.id)),
+    ...(legacyLayoutExists ? [db.delete(layoutElements).where(eq(layoutElements.id, id))] : []),
     writeEvent(db, {
       entityType: "layout_element",
       entityId: id,
