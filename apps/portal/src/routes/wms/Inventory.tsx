@@ -46,7 +46,7 @@ const DEFAULT_FILTERS: Filters = {
 const NO_ZONE = "__none__";
 
 function isLow(item: InventoryItem): boolean {
-  return item.quantity < item.minStock;
+  return Number(item.quantity ?? 0) < Number(item.minStock ?? 0);
 }
 
 /**
@@ -103,11 +103,11 @@ function ItemRow({
         */}
       <td data-label="數量" className="numeric">
         <span className={low ? "stock-low" : undefined}>
-          {item.quantity.toLocaleString("zh-TW")}
-          <span className="cell-sub"> {item.unit}</span>
+          {Number(item.quantity ?? 0).toLocaleString("zh-TW")}
+          <span className="cell-sub"> {item.unit || "件"}</span>
         </span>
       </td>
-      <td data-label="安全庫存" className="numeric cell-sub">{item.minStock.toLocaleString("zh-TW")}</td>
+      <td data-label="安全庫存" className="numeric cell-sub">{Number(item.minStock ?? 0).toLocaleString("zh-TW")}</td>
       <td data-label="狀態">
         {low ? <span className="status status-sync-failed">需要補貨</span> : <span className="status quiet">正常</span>}
         {/*
@@ -201,7 +201,7 @@ export function Inventory() {
       if (!term) return true;
       // 備註也一起搜：「破損」「暫放」這種線索常常只寫在那裡。
       return [item.name, item.sku ?? "", item.category, item.notes]
-        .some((value) => value.toLowerCase().includes(term));
+        .some((value) => String(value ?? "").toLowerCase().includes(term));
     });
 
     const direction = filters.sortDirection === "asc" ? 1 : -1;
@@ -216,7 +216,7 @@ export function Inventory() {
           if (!a.sku || !b.sku) return a.sku ? -1 : b.sku ? 1 : 0;
           return a.sku.localeCompare(b.sku) * direction;
         default:
-          return a.name.localeCompare(b.name, "zh-TW") * direction;
+          return String(a.name ?? a.sku ?? "").localeCompare(String(b.name ?? b.sku ?? ""), "zh-TW") * direction;
       }
     });
   }, [items, filters.search, filters.category, filters.zone, filters.stock, filters.sortField, filters.sortDirection]);
