@@ -668,7 +668,7 @@ export async function updateItem(
       .where(eq(wmsItems.itemId, id)).limit(1);
     if (!target) throw new WmsError("not_found", "找不到這項商品。");
     const category = input.category?.trim() || target.category || "";
-    const wmsCategoryId = await requireCategory(db, category);
+    const wmsCategoryId = category ? await requireCategory(db, category) : null;
     const zoneId = input.zoneId === undefined ? target.shelf?.zoneId ?? null : input.zoneId?.trim() || null;
     const shelfLevel = input.shelfLevel === undefined ? target.shelf?.code ?? null : input.shelfLevel;
     const shelfId = await resolveTargetShelf(db, zoneId, shelfLevel ?? null);
