@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 /**
  * 通路 SKU 對應。
  *
- * 映射資料寫在報表 target schema，但操作入口放在 WMS：通路商品最後要回答的是
+ * 映射資料寫在報表 target schema，但操作入口放在品項管理：通路商品最後要回答的是
  * 「倉庫要扣哪些品項」，不能讓外部商品解析與 SKU 對應各自維護一份清單。
  */
 const PRODUCT_SKU_MAPPINGS_KEY = ["tools", "product-sku-mappings"] as const;

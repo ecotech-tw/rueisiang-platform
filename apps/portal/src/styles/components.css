@@ -1359,8 +1359,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-size: 12px;
   line-height: 1.25;
 }
-/* 版面標籤不能被後面渲染的倉位方塊蓋住；zIndex 也沿用資料表的前後層級。 */
-.map-element { z-index: 3; }
+/* 檢視模式的裝飾只負責顯示，不能攔截倉位點擊；配置模式才需要把它拉到倉位上方拖曳。 */
+.map-element { z-index: 1; pointer-events: none; }
+.map-element.editable { z-index: 3; pointer-events: auto; }
 .map-zone { z-index: 2; }
 /*
  * touch-action: none 只放在拖得動的方塊上，不放在捲動容器。放在容器上的話
@@ -1767,7 +1768,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .change-values b { font-variant-numeric: tabular-nums; font-weight: 700; }
 .change-values i { color: var(--color-muted); font-style: normal; }
 
-/* 品項主檔的分類群組，讓階層成為掃描表格的分段而不是藏在縮排裡。 */
+/* 品項列表的分類群組，讓階層成為掃描表格的分段而不是藏在縮排裡。 */
 .catalog-group-row td {
   height: 42px;
   padding-block: 8px;
@@ -1776,6 +1777,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .catalog-group-row .cell-sub { margin-left: 8px; }
 .catalog-category-filter { min-width: min(260px, 100%); }
+/* 分類篩選是工具列的 compact 控制項，要跟左側搜尋框同高，不沿用對話框欄位的 44px。 */
+.admin-form.toolbar .catalog-category-filter .combobox-group { min-height: 35px; }
+.admin-form.toolbar .catalog-category-filter .combobox-input { min-height: 33px !important; padding: 7px 10px !important; }
+.admin-form.toolbar .catalog-category-filter .combobox-trigger { padding: 7px 10px; }
 
 /* 目錄的新鮮度說明。貼在工具列下方，跟表格分開。 */
 .catalog-note { margin: 0 4px 4px; font-size: 12px; }

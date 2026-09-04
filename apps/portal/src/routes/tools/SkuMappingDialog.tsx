@@ -217,7 +217,7 @@ export function SkuMappingDialog({
   return (
     <Dialog
       title={mapping ? "編輯 SKU 對應" : "新增 SKU 對應"}
-      titleMeta="通路商品先對應到 WMS 品項；沒有入庫管理的材料才使用自訂商品。"
+      titleMeta="通路商品先對應到品項列表；需要庫存管理的材料選 WMS 品項，其他才使用自訂商品。"
       className="sku-mapping-dialog"
       bodyClassName="sku-mapping-dialog-body"
       onClose={onClose}
@@ -249,7 +249,7 @@ export function SkuMappingDialog({
 
         <div className="sku-mapping-components">
           <div className="sku-mapping-components-head">
-            <div><strong>對應到 WMS 品項</strong><span className="cell-sub">WMS 品項會隨報表銷售量展開扣料；自訂商品不會建立庫存。</span></div>
+            <div><strong>對應到品項</strong><span className="cell-sub">WMS 品項會隨報表銷售量展開扣料；自訂商品不會建立庫存。</span></div>
             <Button type="button" variant="secondary" icon="plus" onClick={() => setComponents((current) => [...current, emptyDraft()])} disabled={pending}>新增用料</Button>
           </div>
           {components.map((component, index) => {

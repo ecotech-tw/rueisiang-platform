@@ -104,7 +104,8 @@ async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
       const element = elementRows.find((candidate) => candidate.zoneId === zone.id);
       return { ...zone, category: "", x: element?.x ?? 0, y: element?.y ?? 0, width: element?.width ?? 18, height: element?.height ?? 16, shelfLevels: shelvesByZone.get(zone.id) ?? DEFAULT_SHELF_LEVELS, imageCount: imageCounts.get(zone.id) ?? 0 };
     }),
-    layoutElements: elementRows,
+    // zone 也是一種 layout element，但地圖會依 zones 另外渲染；只回傳裝飾，避免同一個倉位畫兩次。
+    layoutElements: elementRows.filter((element) => element.elementType === "decoration"),
     categories: categoryRows,
     items: itemRows.map(({ wms, item }) => {
       const shelf = wms.shelfId ? shelfById.get(wms.shelfId) : undefined;

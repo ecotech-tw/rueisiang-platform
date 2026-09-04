@@ -53,11 +53,11 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
       if (!response.ok) await readError(response);
       const data = await response.json() as { items: CatalogItem[] };
       setCatalog(data.items.filter((item) => !item.inWarehouse && item.source !== "wms"));
-    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "無法載入品項主檔。"));
+    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "無法載入品項列表。"));
   }, []);
 
   async function submit() {
-    if (!selected) { setError("請先選擇一個品項主檔。若是全新的自訂商品，請先到品項主檔建立。"); return; }
+    if (!selected) { setError("請先選擇一個品項列表項目。若是全新的自訂商品，請先到品項列表建立。"); return; }
     setPending(true); setError(null);
     try {
       const response = await fetch(`/api/items/catalog/${selected.id}/warehouse`, {
@@ -71,9 +71,9 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
   }
 
   return (
-    <Dialog title="從品項主檔納入倉儲" titleMeta="WMS 只管理庫存與位置；通路 SKU 對應請到 WMS／SKU 對應集中設定。" onClose={onClose} closeDisabled={pending} formProps={{ onSubmit: (event) => { event.preventDefault(); void submit(); } }} actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button><Button type="submit" loading={pending}>納入倉儲</Button></>}>
+    <Dialog title="從品項列表納入倉儲" titleMeta="WMS 只管理庫存與位置；通路 SKU 對應請到品項管理／SKU 對應集中設定。" onClose={onClose} closeDisabled={pending} formProps={{ onSubmit: (event) => { event.preventDefault(); void submit(); } }} actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button><Button type="submit" loading={pending}>納入倉儲</Button></>}>
       <div className="field">
-        <span>品項主檔<b aria-hidden="true">必填</b></span>
+        <span>品項列表<b aria-hidden="true">必填</b></span>
         <Combobox.Root items={catalog} value={selected} onValueChange={setSelected} itemToStringLabel={(item) => item ? `${item.sku} ${item.name}` : ""} autoHighlight disabled={pending}>
           <Combobox.InputGroup className="combobox-group">
             <Combobox.Input className="combobox-input" placeholder="搜尋 SKU 或商品名稱" autoFocus />

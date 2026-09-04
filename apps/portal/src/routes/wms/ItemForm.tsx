@@ -52,7 +52,7 @@ export function ItemForm({
   zones: Zone[];
   categories: ProductCategory[];
   cyberbizProducts?: CyberbizCatalogProduct[];
-  /** 品項主檔模式只建立 items，不處理 wms_items 的庫存、倉位與安全庫存。 */
+  /** 品項列表模式只建立 items，不處理 wms_items 的庫存、倉位與安全庫存。 */
   catalogOnly?: boolean;
   /** 從 CYBERBIZ 未入主檔列表建立品項時，先選好那筆商品。 */
   initialCyberbizSku?: string;
@@ -167,11 +167,22 @@ export function ItemForm({
                 items={cyberbizProducts}
                 value={selectedCyberbiz ?? null}
                 onValueChange={(product) => {
-                  if (!product) { setSelectedCyberbizSku(""); return; }
+                  if (!product) { setSelectedCyberbizSku(""); set({ sku: "", name: "" }); return; }
                   setSelectedCyberbizSku(product.sku);
                   set({ sku: product.sku, name: `${product.productName}${product.variantName ? `（${product.variantName}）` : ""}` });
                 }}
-                onInputValueChange={(value) => { const product = cyberbizProducts.find((candidate) => candidate.sku === value.trim().toUpperCase()); setSelectedCyberbizSku(product?.sku ?? ""); }}
+                onInputValueChange={(value, details) => {
+                  // 初始值同步的 reason 是 none；只有真的輸入搜尋字串時才清掉目前的連結。
+                  if (details.reason !== "input-change") return;
+                  const product = cyberbizProducts.find((candidate) => candidate.sku === value.trim().toUpperCase());
+                  if (product) {
+                    setSelectedCyberbizSku(product.sku);
+                    set({ sku: product.sku, name: `${product.productName}${product.variantName ? `（${product.variantName}）` : ""}` });
+                  } else if (selectedCyberbizSku) {
+                    setSelectedCyberbizSku("");
+                    set({ sku: "", name: "" });
+                  }
+                }}
                 itemToStringLabel={(product) => product ? `${product.sku}　${product.productName}${product.variantName ? `（${product.variantName}）` : ""}` : ""}
                 autoHighlight
               >

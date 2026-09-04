@@ -49,8 +49,9 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "品項管理",
     icon: "box",
     items: [
-      { label: "品項主檔", to: "/items/catalog", permission: "items:item:read", icon: "box" },
+      { label: "品項列表", to: "/items/catalog", permission: "items:item:read", icon: "box" },
       { label: "品項分類", to: "/items/categories", permission: "items:category:read", icon: "category" },
+      { label: "SKU 對應", to: "/items/sku-mappings", permission: "wms:mapping:read", icon: "link" },
     ],
   },
   {
@@ -60,7 +61,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "倉位地圖", to: "/wms/map", permission: "wms:map:read", icon: "grid" },
       { label: "商品庫存", to: "/wms/inventory", permission: "wms:inventory:read", icon: "box" },
-      { label: "SKU 對應", to: "/wms/sku-mappings", permission: "wms:mapping:read", icon: "link" },
       { label: "CYBERBIZ 庫存", to: "/wms/cyberbiz", permission: "wms:inventory:read", icon: "cloudSync" },
       { label: "倉儲分類管理", to: "/wms/categories", permission: "wms:category:write", icon: "category" },
       { label: "操作紀錄", to: "/wms/activity", permission: "wms:activity:read", icon: "history" },
