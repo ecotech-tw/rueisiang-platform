@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, closestCenter, type DragEndEvent, type DragOverEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Icon } from "../../shell/icons.js";
@@ -91,9 +91,9 @@ function CreateDialog({ categories, onClose }: { categories: ItemCategory[]; onC
   </Dialog>;
 }
 
-function SortableCategoryRow({ category, categories, canWrite, onEdit, onDelete }: { category: ItemCategory; categories: ItemCategory[]; canWrite: boolean; onEdit: () => void; onDelete: () => void }) {
+function SortableCategoryRow({ category, categories, canWrite, over, onEdit, onDelete }: { category: ItemCategory; categories: ItemCategory[]; canWrite: boolean; over: boolean; onEdit: () => void; onDelete: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id });
-  return <tr ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={isDragging ? "dragging" : undefined}>
+  return <tr ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={isDragging ? "dragging" : over ? "drop-target" : undefined}>
     <td data-label="分類" style={{ paddingLeft: category.depth === 1 ? 48 : undefined }}><span className="category-drag-handle" {...attributes} {...listeners} aria-label="拖曳調整排序" title="拖曳調整排序"><Icon name="dragHandle" /></span><span className={`status status-tone-${category.color}`}>{category.depth === 1 ? `↳ ${category.name}` : category.name}</span>{category.depth === 1 ? <div className="cell-sub">上層：{categories.find((parent) => parent.id === category.parentId)?.name ?? "—"}</div> : null}</td>
     <td data-label="使用中的品項" className="numeric">{category.usageCount}</td>
     {canWrite ? <td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" onClick={onEdit} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" className="danger" icon="trash" disabled={category.usageCount > 0} onClick={onDelete} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></div></td> : null}
@@ -143,6 +143,9 @@ export function ItemCategories() {
   const canWrite = permissions.has("wms:category:write");
   const categories = query.data?.categories ?? [];
   const [orderedCategories, setOrderedCategories] = useState<ItemCategory[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const [dragDeltaX, setDragDeltaX] = useState(0);
   useEffect(() => { setOrderedCategories(categories); }, [categories]);
   const reorder = useCategoryMutation((input: { ids: string[]; parents: Record<string, string | null> }) => write("/api/items/categories/reorder", "POST", input));
   const remove = useCategoryMutation((id: string) => write(`/api/items/categories/${id}`, "DELETE"));
@@ -163,9 +166,25 @@ export function ItemCategories() {
     if (horizontal > 32) parentId = target.depth === 0 ? target.id : target.parentId;
     if (horizontal < -32) parentId = null;
     const updated = next.map((category) => category.id === active.id ? { ...category, parentId, depth: parentId ? 1 : 0 } : category);
-    setOrderedCategories(updated);
-    reorder.mutate({ ids: updated.map((category) => category.id), parents: Object.fromEntries(updated.map((category) => [category.id, category.id === active.id ? parentId : category.parentId])) }, { onSuccess: () => toast.show(parentId !== activeCategory.parentId ? "分類階層與排序已更新" : "分類排序已更新") });
+    // 先整理成樹狀顯示，避免子分類被拖到 parent 上方，看起來像階層壞掉。
+    const arranged = updated.flatMap((category) => category.parentId ? [] : [category, ...updated.filter((child) => child.parentId === category.id)]);
+    setOrderedCategories(arranged);
+    setDraggingId(null); setOverId(null); setDragDeltaX(0);
+    reorder.mutate({ ids: arranged.map((category) => category.id), parents: Object.fromEntries(arranged.map((category) => [category.id, category.parentId])) }, { onSuccess: () => toast.show(parentId !== activeCategory.parentId ? "分類階層與排序已更新" : "分類排序已更新") });
   }
+
+  function handleDragOver(event: DragOverEvent) {
+    setDraggingId(String(event.active.id));
+    setOverId(event.over ? String(event.over.id) : null);
+    setDragDeltaX(event.delta.x);
+  }
+
+  const overCategory = orderedCategories.find((category) => category.id === overId);
+  const dropHint = draggingId && overCategory
+    ? dragDeltaX > 32 ? `放開後將放入「${overCategory.depth === 0 ? overCategory.name : orderedCategories.find((category) => category.id === overCategory.parentId)?.name ?? overCategory.name}」底下`
+      : dragDeltaX < -32 ? "放開後將移回大分類"
+        : "放開後將調整同層排序"
+    : null;
 
   return (
     <div className="page fills">
@@ -176,13 +195,14 @@ export function ItemCategories() {
 
         {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
+        {dropHint ? <div className="drag-drop-hint" role="status">{dropHint}</div> : null}
         <div className="table-scroll">
           <table className="data-table category-table">
             <thead><tr><th>分類</th><th className="numeric">使用中的品項</th>{canWrite ? <th /> : null}</tr></thead>
-            <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <DndContext collisionDetection={closestCenter} onDragOver={handleDragOver} onDragCancel={() => { setDraggingId(null); setOverId(null); setDragDeltaX(0); }} onDragEnd={handleDragEnd}>
               <SortableContext items={orderedCategories.map((category) => category.id)} strategy={verticalListSortingStrategy}>
                 <tbody>
-                  {orderedCategories.map((category) => <SortableCategoryRow key={category.id} category={category} categories={categories} canWrite={canWrite} onEdit={() => setEditing(category)} onDelete={() => setDeleting(category)} />)}
+                  {orderedCategories.map((category) => <SortableCategoryRow key={category.id} category={category} categories={categories} canWrite={canWrite} over={overId === category.id && draggingId !== category.id} onEdit={() => setEditing(category)} onDelete={() => setDeleting(category)} />)}
                 </tbody>
               </SortableContext>
             </DndContext>

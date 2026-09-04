@@ -1978,6 +1978,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   vertical-align: middle;
 }
 .category-drag-handle:active { cursor: grabbing; }
+.category-drag-handle:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; border-radius: 6px; }
+.drag-drop-hint { margin: 0 24px 10px; padding: 8px 12px; border-radius: 10px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 13px; }
+.category-table tr.drop-target > td { background: var(--color-brand-soft); }
 .category-drag-handle svg { width: 18px; height: 18px; }
 /*
  * 分類表只有三欄。不給約束的話瀏覽器會把寬度平均分掉，「使用中的商品」那個
