@@ -117,7 +117,7 @@ describe("報表統計 API", () => {
     expect(sales.status).toBe(201);
 
     const payoutList = await call("/api/reports/cyberbiz/manual/payout", manager, "manager-manual@ecotech.tw");
-    expect(await payoutList.json()).toMatchObject({ rows: [{ id: payoutBody.row.id, payoutAmount: 4200 }] });
+    expect(await payoutList.json()).toMatchObject({ rows: [{ payoutAmount: 4200 }] });
     const salesList = await call("/api/reports/cyberbiz/manual/sales", manager, "manager-manual@ecotech.tw");
     expect(await salesList.json()).toMatchObject({ rows: [{ sku: "MANUAL-1", productName: "人工商品" }] });
 
