@@ -15,6 +15,7 @@ import {
 } from "./api.js";
 import { CountDialog } from "./CountDialog.js";
 import { ItemForm } from "./ItemForm.js";
+import { EnrollItemDialog } from "./EnrollItemDialog.js";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
@@ -170,6 +171,7 @@ export function Inventory() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
   const [editing, setEditing] = useState<InventoryItem | "new" | null>(null);
+  const [enrolling, setEnrolling] = useState(false);
   const [counting, setCounting] = useState<InventoryItem | null>(null);
   const [deleting, setDeleting] = useState<InventoryItem | null>(null);
 
@@ -244,6 +246,8 @@ export function Inventory() {
           </>
         }
         actions={canWrite ? (
+          <div className="row-actions">
+            <Button variant="secondary" onClick={() => setEnrolling(true)}>從品項主檔納入</Button>
             <Button
               icon="plus"
               className="add-action"
@@ -252,6 +256,7 @@ export function Inventory() {
             >
               <span>新增商品</span>
             </Button>
+          </div>
           ) : null}
       />
 
@@ -394,6 +399,7 @@ export function Inventory() {
         />
       ) : null}
 
+      {enrolling ? <EnrollItemDialog categories={categories} zones={zones} onClose={() => setEnrolling(false)} onSuccess={() => { void query.refetch(); }} /> : null}
       {counting ? <CountDialog item={counting} onClose={() => setCounting(null)} /> : null}
 
       {deleting ? (

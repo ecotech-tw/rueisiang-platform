@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Icon } from "../../shell/icons.js";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
@@ -73,6 +76,15 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (color: str
   );
 }
 
+function SortableCategoryRow({ category, categories, canWrite, onEdit, onDelete }: { category: ItemCategory; categories: ItemCategory[]; canWrite: boolean; onEdit: () => void; onDelete: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id });
+  return <tr ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={isDragging ? "dragging" : undefined}>
+    <td data-label="分類"><span className="category-drag-handle" {...attributes} {...listeners} aria-label="拖曳調整排序" title="拖曳調整排序"><Icon name="dragHandle" /></span><span className={`status status-tone-${category.color}`}>{category.depth === 1 ? `↳ ${category.name}` : category.name}</span>{category.depth === 1 ? <div className="cell-sub">上層：{categories.find((parent) => parent.id === category.parentId)?.name ?? "—"}</div> : null}</td>
+    <td data-label="使用中的品項" className="numeric">{category.usageCount}</td>
+    {canWrite ? <td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" onClick={onEdit} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" className="danger" icon="trash" disabled={category.usageCount > 0} onClick={onDelete} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></div></td> : null}
+  </tr>;
+}
+
 function EditDialog({ category, categories, onClose }: { category: ItemCategory; categories: ItemCategory[]; onClose: () => void }) {
   const [name, setName] = useState(category.name);
   const [parentId, setParentId] = useState(category.parentId ?? "");
@@ -116,21 +128,18 @@ export function ItemCategories() {
   const canWrite = permissions.has("wms:category:write");
   const categories = query.data?.categories ?? [];
   const [orderedCategories, setOrderedCategories] = useState<ItemCategory[]>([]);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
   useEffect(() => { setOrderedCategories(categories); }, [categories]);
   const reorder = useCategoryMutation((ids: string[]) => write("/api/items/categories/reorder", "POST", { ids }));
   const create = useCategoryMutation((input: { name: string; color: string; parentId: string }) => write("/api/items/categories", "POST", input));
   const remove = useCategoryMutation((id: string) => write(`/api/items/categories/${id}`, "DELETE"));
   const error = create.error ?? remove.error ?? reorder.error ?? query.error;
-  function moveCategory(targetId: string) {
-    if (!draggingId || draggingId === targetId) return;
-    const next = [...orderedCategories];
-    const from = next.findIndex((category) => category.id === draggingId);
-    const to = next.findIndex((category) => category.id === targetId);
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = orderedCategories.findIndex((category) => category.id === active.id);
+    const to = orderedCategories.findIndex((category) => category.id === over.id);
     if (from < 0 || to < 0) return;
-    const [moved] = next.splice(from, 1);
-    if (!moved) return;
-    next.splice(to, 0, moved);
+    const next = arrayMove(orderedCategories, from, to);
     setOrderedCategories(next);
     reorder.mutate(next.map((category) => category.id));
   }
@@ -160,15 +169,13 @@ export function ItemCategories() {
         <div className="table-scroll">
           <table className="data-table category-table">
             <thead><tr><th>分類</th><th className="numeric">使用中的品項</th>{canWrite ? <th /> : null}</tr></thead>
-            <tbody>
-              {orderedCategories.map((category) => (
-                <tr key={category.id} draggable={canWrite} onDragStart={() => setDraggingId(category.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { moveCategory(category.id); setDraggingId(null); }} onDragEnd={() => setDraggingId(null)} className={draggingId === category.id ? "dragging" : undefined}>
-                  <td data-label="分類"><span className="category-drag-handle" aria-label="拖曳調整排序" title="拖曳調整排序"><Icon name="dragHandle" /></span><span className={`status status-tone-${category.color}`}>{category.depth === 1 ? `↳ ${category.name}` : category.name}</span>{category.depth === 1 ? <div className="cell-sub">上層：{categories.find((parent) => parent.id === category.parentId)?.name ?? "—"}</div> : null}</td>
-                  <td data-label="使用中的品項" className="numeric">{category.usageCount}</td>
-                  {canWrite ? <td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" disabled={remove.isPending} onClick={() => setEditing(category)} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" className="danger" icon="trash" disabled={category.usageCount > 0 || remove.isPending} onClick={() => setDeleting(category)} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></div></td> : null}
-                </tr>
-              ))}
-            </tbody>
+            <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={orderedCategories.map((category) => category.id)} strategy={verticalListSortingStrategy}>
+                <tbody>
+                  {orderedCategories.map((category) => <SortableCategoryRow key={category.id} category={category} categories={categories} canWrite={canWrite} onEdit={() => setEditing(category)} onDelete={() => setDeleting(category)} />)}
+                </tbody>
+              </SortableContext>
+            </DndContext>
           </table>
         </div>
 
