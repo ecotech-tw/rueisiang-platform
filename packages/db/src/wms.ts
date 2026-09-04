@@ -3,6 +3,7 @@ import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 import { itemComponents, items as itemMasters } from "./schema/items.js";
+import { mediaObjects } from "./schema/media.js";
 import {
   customReportProducts,
   cyberbizProductLinks,
@@ -1252,6 +1253,11 @@ export async function updateWarehouseSettings(
   return next;
 }
 
+function targetImageId(zoneId: string, objectKey: string): string {
+  const bytes = new TextEncoder().encode(`${zoneId}\u0000${objectKey}`);
+  return `target-${Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
 // ───────────────────────────── 倉位照片 ─────────────────────────────
 
 /**
@@ -1272,19 +1278,23 @@ export async function recordZoneImage(
     actor: Actor;
   },
 ) {
-  const [zone] = await db.select({ code: zones.code, name: zones.name }).from(zones).where(eq(zones.id, input.zoneId));
+  const legacyImagesExists = await hasTable(db, "zone_images");
+  const [zone] = legacyImagesExists
+    ? await db.select({ code: zones.code, name: zones.name }).from(zones).where(eq(zones.id, input.zoneId))
+    : await db.select({ code: wmsZones.code, name: wmsZones.name }).from(wmsZones).where(eq(wmsZones.id, input.zoneId));
   if (!zone) throw new WmsError("not_found", "找不到這個倉位。");
 
   const id = crypto.randomUUID();
   await db.batch([
-    db.insert(zoneImages).values({
+    db.insert(wmsZoneImages).values({ zoneId: input.zoneId, objectKey: input.objectKey, sortOrder: 0 }).onConflictDoNothing(),
+    ...(legacyImagesExists ? [db.insert(zoneImages).values({
       id,
       zoneId: input.zoneId,
       objectKey: input.objectKey,
       filename: input.filename,
       contentType: input.contentType,
       size: input.size,
-    }),
+    })] : []),
     writeEvent(db, {
       entityType: "zone",
       entityId: input.zoneId,
@@ -1297,31 +1307,41 @@ export async function recordZoneImage(
     }),
   ]);
 
-  return { id };
+  return { id: legacyImagesExists ? id : targetImageId(input.zoneId, input.objectKey) };
 }
 
 export async function listZoneImages(db: Database, zoneId: string) {
-  return db
-    .select()
-    .from(zoneImages)
-    .where(eq(zoneImages.zoneId, zoneId))
-    .orderBy(asc(zoneImages.createdAt));
+  if (await hasTable(db, "zone_images")) {
+    return db.select().from(zoneImages).where(eq(zoneImages.zoneId, zoneId)).orderBy(asc(zoneImages.createdAt));
+  }
+  const rows = await db.select({ image: wmsZoneImages, media: mediaObjects }).from(wmsZoneImages).innerJoin(mediaObjects, eq(mediaObjects.objectKey, wmsZoneImages.objectKey)).where(eq(wmsZoneImages.zoneId, zoneId)).orderBy(asc(wmsZoneImages.sortOrder), asc(wmsZoneImages.createdAt));
+  return rows.map(({ image, media }) => ({ id: targetImageId(image.zoneId, image.objectKey), zoneId: image.zoneId, objectKey: image.objectKey, filename: media.filename, contentType: media.contentType, size: media.size, createdAt: image.createdAt }));
 }
 
 export async function findZoneImage(db: Database, id: string) {
-  const [row] = await db.select().from(zoneImages).where(eq(zoneImages.id, id));
-  return row ?? null;
+  if (await hasTable(db, "zone_images")) {
+    const [row] = await db.select().from(zoneImages).where(eq(zoneImages.id, id));
+    return row ?? null;
+  }
+  const rows = await db.select({ image: wmsZoneImages, media: mediaObjects }).from(wmsZoneImages).innerJoin(mediaObjects, eq(mediaObjects.objectKey, wmsZoneImages.objectKey));
+  const row = rows.find(({ image }) => targetImageId(image.zoneId, image.objectKey) === id);
+  if (!row) return null;
+  return { id, zoneId: row.image.zoneId, objectKey: row.image.objectKey, filename: row.media.filename, contentType: row.media.contentType, size: row.media.size, createdAt: row.image.createdAt };
 }
 
 /** 刪照片的 D1 索引；外部物件必須由呼叫端先刪成功，media metadata 才能再清掉。 */
 export async function deleteZoneImage(db: Database, id: string, actor: Actor) {
-  const [image] = await db.select().from(zoneImages).where(eq(zoneImages.id, id));
+  const legacyImagesExists = await hasTable(db, "zone_images");
+  const image = await findZoneImage(db, id);
   if (!image) throw new WmsError("not_found", "找不到這張照片。");
 
-  const [zone] = await db.select({ code: zones.code, name: zones.name }).from(zones).where(eq(zones.id, image.zoneId));
+  const [zone] = legacyImagesExists
+    ? await db.select({ code: zones.code, name: zones.name }).from(zones).where(eq(zones.id, image.zoneId))
+    : await db.select({ code: wmsZones.code, name: wmsZones.name }).from(wmsZones).where(eq(wmsZones.id, image.zoneId));
 
   await db.batch([
-    db.delete(zoneImages).where(eq(zoneImages.id, id)),
+    db.delete(wmsZoneImages).where(and(eq(wmsZoneImages.zoneId, image.zoneId), eq(wmsZoneImages.objectKey, image.objectKey))),
+    ...(legacyImagesExists ? [db.delete(zoneImages).where(eq(zoneImages.id, id))] : []),
     writeEvent(db, {
       entityType: "zone",
       entityId: image.zoneId,
@@ -1339,9 +1359,10 @@ export async function deleteZoneImage(db: Database, id: string, actor: Actor) {
 
 /** 刪倉位之前要把它的照片從 R2 清掉——資料表那邊是 cascade，但 R2 沒有。 */
 export async function zoneImageKeys(db: Database, zoneId: string): Promise<string[]> {
-  const rows = await db
-    .select({ objectKey: zoneImages.objectKey })
-    .from(zoneImages)
-    .where(eq(zoneImages.zoneId, zoneId));
+  if (await hasTable(db, "zone_images")) {
+    const rows = await db.select({ objectKey: zoneImages.objectKey }).from(zoneImages).where(eq(zoneImages.zoneId, zoneId));
+    return rows.map((row) => row.objectKey);
+  }
+  const rows = await db.select({ objectKey: wmsZoneImages.objectKey }).from(wmsZoneImages).where(eq(wmsZoneImages.zoneId, zoneId));
   return rows.map((row) => row.objectKey);
 }
