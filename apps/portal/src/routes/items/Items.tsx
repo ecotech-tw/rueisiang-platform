@@ -6,6 +6,7 @@ import { useSession } from "../../auth/session.js";
 import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
+import { Icon } from "../../shell/icons.js";
 import { ItemForm } from "../wms/ItemForm.js";
 import type { CyberbizCatalogProduct, ProductCategory, Zone } from "../wms/api.js";
 
@@ -165,7 +166,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
         >
           <Combobox.InputGroup className="combobox-group">
             <Combobox.Input className="combobox-input" placeholder="搜尋或選擇分類" />
-            <Combobox.Trigger className="combobox-trigger" aria-label="開啟分類選單">⌄</Combobox.Trigger>
+            <Combobox.Trigger className="combobox-trigger" aria-label="開啟分類選單"><Icon name="chevronDown" /></Combobox.Trigger>
           </Combobox.InputGroup>
           <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span>{categoryLabel(category)}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
         </Combobox.Root>
