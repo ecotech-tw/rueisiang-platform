@@ -114,7 +114,8 @@ function WarehouseDialog({ item, categories, zones, onClose }: { item: ItemCatal
 }
 
 function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; categories: ProductCategory[]; onClose: () => void }) {
-  const [name, setName] = useState(item.name);
+  // 舊資料搬移期間少數商品名稱可能是 null；表單不能把它直接交給 trim，否則整頁會白屏。
+  const [name, setName] = useState(item.name ?? "");
   const [categoryId, setCategoryId] = useState(item.categoryId ?? "");
   const queryClient = useQueryClient();
   const update = useMutation({
@@ -177,7 +178,7 @@ export function Items() {
     return items.filter((item) => {
       if (category !== "all" && item.category !== category) return false;
       if (!term) return true;
-      return [item.name, item.sku ?? "", item.category, item.notes].some((value) => value.toLowerCase().includes(term));
+      return [item.name, item.sku ?? "", item.category, item.notes].some((value) => String(value ?? "").toLowerCase().includes(term));
     });
   }, [items, search, category]);
 

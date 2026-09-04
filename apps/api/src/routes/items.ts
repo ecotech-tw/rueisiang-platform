@@ -129,7 +129,7 @@ export const items = new Hono<AppEnv>()
         return {
           id: row.id,
           sku: row.sku,
-          name: row.name,
+          name: row.name ?? "",
           source: row.source,
           category: row.categoryName ?? "未分類",
           categoryId: row.categoryId,
@@ -164,7 +164,7 @@ export const items = new Hono<AppEnv>()
         .map((item) => ({
           id: `wms:${item.id}`,
           sku: item.sku!,
-          name: item.name,
+          name: item.name ?? "",
           source: "wms" as const,
           category: item.category,
           categoryId: null,
