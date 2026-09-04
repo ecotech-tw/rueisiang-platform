@@ -51,10 +51,11 @@ export const items = new Hono<AppEnv>()
         color: itemCategories.color,
         active: itemCategories.active,
         usageCount: count(itemMasters.id),
+        parentId: itemCategories.parentId,
+        depth: itemCategories.depth,
       })
       .from(itemCategories)
       .leftJoin(itemMasters, eq(itemMasters.categoryId, itemCategories.id))
-      .where(eq(itemCategories.depth, 0))
       .groupBy(itemCategories.id)
       .orderBy(asc(itemCategories.sortOrder), asc(itemCategories.name));
     return c.json({ categories: rows });
@@ -62,9 +63,16 @@ export const items = new Hono<AppEnv>()
   .post("/categories", requirePermission("wms:category:write"), async (c) => {
     const input = await body(c);
     const name = requireString(input, "name", "分類名稱").slice(0, 40);
-    const [duplicate] = await c.get("db").select({ id: itemCategories.id }).from(itemCategories).where(and(eq(itemCategories.name, name), eq(itemCategories.depth, 0))).limit(1);
-    if (duplicate) throw new HTTPException(409, { message: `品項分類「${name}」已經存在。` });
-    const category = { id: crypto.randomUUID(), depth: 0, name, color: normalizeColor(input.color) };
+    const parentId = typeof input.parentId === "string" && input.parentId.trim() ? input.parentId.trim() : null;
+    let depth = 0;
+    if (parentId) {
+      const [parent] = await c.get("db").select({ id: itemCategories.id, depth: itemCategories.depth }).from(itemCategories).where(eq(itemCategories.id, parentId)).limit(1);
+      if (!parent || parent.depth !== 0) throw new HTTPException(400, { message: "子分類的上層必須是大分類。" });
+      depth = 1;
+    }
+    const [duplicate] = await c.get("db").select({ id: itemCategories.id }).from(itemCategories).where(and(eq(itemCategories.name, name), parentId ? eq(itemCategories.parentId, parentId) : eq(itemCategories.depth, 0))).limit(1);
+    if (duplicate) throw new HTTPException(409, { message: `同一層級已有品項分類「${name}」。` });
+    const category = { id: crypto.randomUUID(), depth, parentId, parentDepth: parentId ? 0 : null, name, color: normalizeColor(input.color) };
     await c.get("db").insert(itemCategories).values(category);
     return c.json(category, 201);
   })
@@ -73,9 +81,22 @@ export const items = new Hono<AppEnv>()
     const id = c.req.param("id");
     const [current] = await c.get("db").select().from(itemCategories).where(eq(itemCategories.id, id)).limit(1);
     if (!current) throw new HTTPException(404, { message: "找不到品項分類。" });
+    let parentId = current.parentId;
+    let depth = current.depth;
+    if (input.parentId !== undefined) {
+      parentId = typeof input.parentId === "string" && input.parentId.trim() ? input.parentId.trim() : null;
+      if (parentId) {
+        const [parent] = await c.get("db").select({ id: itemCategories.id, depth: itemCategories.depth }).from(itemCategories).where(eq(itemCategories.id, parentId)).limit(1);
+        if (!parent || parent.depth !== 0 || parent.id === id) throw new HTTPException(400, { message: "子分類的上層必須是其他大分類。" });
+      }
+      depth = parentId ? 1 : 0;
+    }
     const patch = {
       ...(typeof input.name === "string" && input.name.trim() ? { name: input.name.trim().slice(0, 40) } : {}),
       ...(input.color !== undefined ? { color: normalizeColor(input.color) } : {}),
+      parentId,
+      parentDepth: parentId ? 0 : null,
+      depth,
       updatedAt: new Date().toISOString(),
     };
     await c.get("db").update(itemCategories).set(patch).where(eq(itemCategories.id, id));

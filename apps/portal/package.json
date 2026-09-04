@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@base-ui/react": "^1.7.0",
     "@rueisiang/auth": "workspace:*",
     "@tanstack/react-query": "^5.90.2",
     "react": "19.2.6",
