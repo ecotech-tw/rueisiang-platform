@@ -79,10 +79,14 @@ export const items = new Hono<AppEnv>()
   .post("/categories/reorder", requirePermission("wms:category:write"), async (c) => {
     const input = await body(c);
     const ids = Array.isArray(input.ids) ? input.ids.filter((id): id is string => typeof id === "string" && id.trim() !== "") : [];
+    const parents = (input.parents && typeof input.parents === "object" ? input.parents : {}) as Record<string, unknown>;
     if (!ids.length || new Set(ids).size !== ids.length) throw new HTTPException(400, { message: "分類排序資料不正確。" });
     const rows = await c.get("db").select({ id: itemCategories.id }).from(itemCategories);
     if (rows.length !== ids.length || rows.some((row) => !ids.includes(row.id))) throw new HTTPException(400, { message: "分類排序資料與目前分類不一致，請重新整理後再試。" });
-    await c.get("db").batch(ids.map((id, sortOrder) => c.get("db").update(itemCategories).set({ sortOrder, updatedAt: new Date().toISOString() }).where(eq(itemCategories.id, id))) as never);
+    const parentIds = ids.map((id) => typeof parents[id] === "string" && parents[id] ? parents[id] as string : null);
+    const rootIds = new Set(ids.filter((_id, index) => parentIds[index] === null));
+    if (parentIds.some((parentId, index) => parentId !== null && (parentId === ids[index] || !rootIds.has(parentId)))) throw new HTTPException(400, { message: "分類階層不正確；子分類只能放在大分類底下。" });
+    await c.get("db").batch(ids.map((id, sortOrder) => c.get("db").update(itemCategories).set({ sortOrder, parentId: parentIds[sortOrder], parentDepth: parentIds[sortOrder] ? 0 : null, depth: parentIds[sortOrder] ? 1 : 0, updatedAt: new Date().toISOString() }).where(eq(itemCategories.id, id))) as never);
     return c.json({ ok: true });
   })
   .patch("/categories/:id", requirePermission("wms:category:write"), async (c) => {

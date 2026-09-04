@@ -85,7 +85,7 @@ function CreateDialog({ categories, onClose }: { categories: ItemCategory[]; onC
   const trimmed = name.trim();
   return <Dialog title="新增品項分類" onClose={onClose} closeDisabled={create.isPending} formProps={{ onSubmit: (event) => { event.preventDefault(); if (trimmed) create.mutate({ name: trimmed, color, parentId }, { onSuccess: () => { toast.show(`已新增「${trimmed}」`); onClose(); } }); } }} actions={<><Button variant="secondary" type="button" onClick={onClose}>取消</Button><Button type="submit" loading={create.isPending} disabled={!trimmed}>新增分類</Button></>}>
     <TextField label="分類名稱" required autoFocus maxLength={40} placeholder="例如：香氛用品" value={name} onChange={(event) => setName(event.target.value)} />
-    <SelectField label="上層分類（可選）" value={parentId} onChange={(event) => setParentId(event.target.value)} options={[{ label: "建立大分類", value: "" }, ...categories.filter((category) => category.depth === 0).map((category) => ({ label: category.name, value: category.id }))]} />
+    <SelectField label="上層分類" value={parentId} onChange={(event) => setParentId(event.target.value)} options={[{ label: "無", value: "" }, ...categories.filter((category) => category.depth === 0).map((category) => ({ label: category.name, value: category.id }))]} />
     <div className="field"><span>顏色</span><ColorPicker value={color} onChange={setColor} /></div>
     {create.error ? <Alert tone="danger">{create.error.message}</Alert> : null}
   </Dialog>;
@@ -125,7 +125,7 @@ function EditDialog({ category, categories, onClose }: { category: ItemCategory;
       actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>取消</Button><Button type="submit" loading={update.isPending} disabled={!trimmed}>儲存</Button></>}
     >
       <TextField label="名稱" required autoFocus maxLength={40} value={name} onChange={(event) => setName(event.target.value)} />
-      <SelectField label="上層分類" value={parentId} onChange={(event) => setParentId(event.target.value)} options={[{ label: "大分類（無上層）", value: "" }, ...categories.filter((candidate) => candidate.depth === 0 && candidate.id !== category.id).map((candidate) => ({ label: candidate.name, value: candidate.id }))]} />
+      <SelectField label="上層分類" value={parentId} onChange={(event) => setParentId(event.target.value)} options={[{ label: "無", value: "" }, ...categories.filter((candidate) => candidate.depth === 0 && candidate.id !== category.id).map((candidate) => ({ label: candidate.name, value: candidate.id }))]} />
       <div className="field"><span>顏色</span><ColorPicker value={color} onChange={setColor} /></div>
       {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
     </Dialog>
@@ -144,18 +144,27 @@ export function ItemCategories() {
   const categories = query.data?.categories ?? [];
   const [orderedCategories, setOrderedCategories] = useState<ItemCategory[]>([]);
   useEffect(() => { setOrderedCategories(categories); }, [categories]);
-  const reorder = useCategoryMutation((ids: string[]) => write("/api/items/categories/reorder", "POST", { ids }));
+  const reorder = useCategoryMutation((input: { ids: string[]; parents: Record<string, string | null> }) => write("/api/items/categories/reorder", "POST", input));
   const remove = useCategoryMutation((id: string) => write(`/api/items/categories/${id}`, "DELETE"));
   const error = remove.error ?? reorder.error ?? query.error;
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    if (!over) return;
     const from = orderedCategories.findIndex((category) => category.id === active.id);
     const to = orderedCategories.findIndex((category) => category.id === over.id);
     if (from < 0 || to < 0) return;
+    const target = orderedCategories[to];
+    if (!target || active.id === over.id) return;
+    const horizontal = event.delta.x;
     const next = arrayMove(orderedCategories, from, to);
-    setOrderedCategories(next);
-    reorder.mutate(next.map((category) => category.id), { onSuccess: () => toast.show("分類排序已更新") });
+    const activeCategory = next.find((category) => category.id === active.id);
+    if (!activeCategory) return;
+    let parentId = activeCategory.parentId;
+    if (horizontal > 32 && target.depth === 0) parentId = target.id;
+    if (horizontal < -32) parentId = null;
+    const updated = next.map((category) => category.id === active.id ? { ...category, parentId, depth: parentId ? 1 : 0 } : category);
+    setOrderedCategories(updated);
+    reorder.mutate({ ids: updated.map((category) => category.id), parents: Object.fromEntries(updated.map((category) => [category.id, category.id === active.id ? parentId : category.parentId])) }, { onSuccess: () => toast.show(parentId !== activeCategory.parentId ? "分類階層與排序已更新" : "分類排序已更新") });
   }
 
   return (
