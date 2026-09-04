@@ -2,7 +2,7 @@ import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
-import { itemCategories, items as itemMasters } from "./schema/items.js";
+import { itemCategories, itemComponents, items as itemMasters } from "./schema/items.js";
 import {
   customReportProducts,
   cyberbizProductLinks,
@@ -519,6 +519,20 @@ async function requireCategory(db: Database, name: string) {
     .from(warehouseCategories)
     .where(eq(warehouseCategories.name, name));
   if (!row) throw new WmsError("invalid", "請選一個已經建立的倉儲分類。");
+  return row.id;
+}
+
+/** target schema 的品項沒有 legacy inventory_items 的 zone 欄位，位置要從 shelf 反查。 */
+async function resolveTargetShelf(db: Database, zoneId: string | null, shelfCode: string | null) {
+  if (!zoneId || !shelfCode) return null;
+  const [shelf] = await db
+    .select({ id: wmsShelves.id })
+    .from(wmsShelves)
+    .innerJoin(wmsZones, eq(wmsZones.id, wmsShelves.zoneId))
+    .where(and(eq(wmsZones.id, zoneId), eq(wmsShelves.code, shelfCode)))
+    .limit(1);
+  if (!shelf) throw new WmsError("invalid", "找不到指定的層架。");
+  return shelf.id;
 }
 
 /**
@@ -644,7 +658,31 @@ export async function updateItem(
   input: Partial<ItemInput> & { actor: Actor },
 ) {
   const [current] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
-  if (!current) throw new WmsError("not_found", "找不到這項商品。");
+  if (!current) {
+    const [target] = await db
+      .select({ item: itemMasters, wms: wmsItems, category: wmsCategories.name, shelf: wmsShelves })
+      .from(wmsItems)
+      .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
+      .leftJoin(wmsCategories, eq(wmsCategories.id, wmsItems.wmsCategoryId))
+      .leftJoin(wmsShelves, eq(wmsShelves.id, wmsItems.shelfId))
+      .where(eq(wmsItems.itemId, id)).limit(1);
+    if (!target) throw new WmsError("not_found", "找不到這項商品。");
+    const category = input.category?.trim() || target.category || "";
+    const wmsCategoryId = await requireCategory(db, category);
+    const zoneId = input.zoneId === undefined ? target.shelf?.zoneId ?? null : input.zoneId?.trim() || null;
+    const shelfLevel = input.shelfLevel === undefined ? target.shelf?.code ?? null : input.shelfLevel;
+    const shelfId = await resolveTargetShelf(db, zoneId, shelfLevel ?? null);
+    const nextName = input.name?.trim() || target.item.name;
+    const nextSku = input.sku === undefined ? target.item.sku : input.sku.trim().toUpperCase();
+    if (nextSku !== target.item.sku) await requireSkuAvailableForExternalMappings(db, nextSku, id);
+    const nextMinStock = clamp(input.minStock, target.wms.minStock, QUANTITY);
+    await db.batch([
+      db.update(itemMasters).set({ name: nextName, sku: nextSku, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(itemMasters.id, id)),
+      db.update(wmsItems).set({ wmsCategoryId, shelfId, unit: input.unit?.trim() || target.wms.unit, minStock: nextMinStock, notes: input.notes === undefined ? target.wms.notes : input.notes.trim(), updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(wmsItems.itemId, id)),
+      writeEvent(db, { entityType: "inventory_item", entityId: id, entityLabel: `${nextSku} ${nextName}`, eventType: "item_updated", summary: "修改商品資料", payload: { before: target, after: { name: nextName, sku: nextSku, wmsCategoryId, shelfId } }, actor: input.actor }),
+    ]);
+    return;
+  }
 
   const category = input.category?.trim() || current.category;
   if (category !== current.category) await requireCategory(db, category);
@@ -777,7 +815,18 @@ export async function updateItem(
 
 export async function deleteItem(db: Database, id: string, actor: Actor) {
   const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
-  if (!item) throw new WmsError("not_found", "找不到這項商品。");
+  if (!item) {
+    const [target] = await db.select({ item: itemMasters }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).where(eq(wmsItems.itemId, id)).limit(1);
+    if (!target) throw new WmsError("not_found", "找不到這項商品。");
+    const [componentUse] = await db.select({ parentItemId: itemComponents.parentItemId }).from(itemComponents).where(eq(itemComponents.componentItemId, id)).limit(1);
+    if (componentUse) throw new WmsError("conflict", "這項商品仍是 BOM 用料，請先移除組成後再移出倉儲。");
+    await db.batch([
+      // 移出倉儲不等於刪除平台品項；CYBERBIZ item 必須保留給報表與下次納入倉儲使用。
+      db.delete(wmsItems).where(eq(wmsItems.itemId, id)),
+      writeEvent(db, { entityType: "inventory_item", entityId: id, entityLabel: `${target.item.sku} ${target.item.name}`, eventType: "item_deleted", summary: "移出倉儲", payload: target.item, actor }),
+    ]);
+    return;
+  }
   /*
    * 只要還被任何一筆對應當成用料就擋，並指出是哪一筆。
    *
@@ -833,7 +882,17 @@ export async function countItem(
   }
 
   const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
-  if (!item) throw new WmsError("not_found", "找不到這項商品。");
+  if (!item) {
+    const [target] = await db.select({ item: itemMasters, wms: wmsItems }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).where(eq(wmsItems.itemId, id)).limit(1);
+    if (!target) throw new WmsError("not_found", "找不到這項商品。");
+    const next = clamp(parsed, 0, QUANTITY);
+    const changed = target.wms.quantity !== next;
+    await db.batch([
+      db.update(wmsItems).set({ quantity: next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(wmsItems.itemId, id)),
+      writeEvent(db, { entityType: "inventory_item", entityId: id, entityLabel: `${target.item.sku} ${target.item.name}`, eventType: "item_counted", summary: note?.trim() || (changed ? "盤點更新庫存數量" : "盤點確認數量無誤"), field: "quantity", oldValue: String(target.wms.quantity), newValue: String(next), actor }),
+    ]);
+    return { quantity: next, changed, belowMinimum: next < target.wms.minStock };
+  }
 
   const next = clamp(parsed, 0, QUANTITY);
   const changed = item.quantity !== next;
