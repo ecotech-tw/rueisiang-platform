@@ -1977,7 +1977,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .combobox-popup { z-index: 100; width: var(--anchor-width); max-height: 320px; overflow: auto; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-canvas); box-shadow: var(--shadow-panel); padding: 6px; }
 .combobox-item { display: flex; align-items: center; gap: 8px; min-height: 44px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; text-align: left; background: transparent; color: var(--color-ink); cursor: pointer; }
 .combobox-item > span { flex: 1; }
-.combobox-category-label small { color: var(--color-muted); font-size: 12px; }
+.combobox-category-label small { color: var(--color-muted); font-size: 12px; font-weight: 400; opacity: .72; }
 .combobox-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-muted); }
 .combobox-item:hover, .combobox-item[data-highlighted] { background: --alpha(var(--color-brand) / 8%); }
 .combobox-item [data-checked] { color: var(--color-brand); }
