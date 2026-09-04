@@ -198,9 +198,10 @@ async function normalizeSalesRows(
   /** 對不到任何對應，也沒被標記忽略——要人去補的。 */
   skippedSkus: string[];
   mappedProducts: Array<{ externalKey: string; externalName: string; systemSku: string }>;
+  ignoredProducts: Array<{ externalKey: string; externalName: string; reason: string }>;
 }> {
   const parsed = preparsed ?? parseSalesRows(input);
-  if (!parsed.length) return { rows: [], skippedSkus: [], mappedProducts: [] };
+  if (!parsed.length) return { rows: [], skippedSkus: [], mappedProducts: [], ignoredProducts: [] };
 
   const resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku), channel);
 
@@ -215,6 +216,11 @@ async function normalizeSalesRows(
    */
   const ignored = await resolveIgnoredSkus(db, parsed.map((row) => row.externalSku), channel);
   const skipped: string[] = [];
+  const ignoredProducts = [...new Set(parsed.filter((row) => ignored.has(row.externalSku)).map((row) => row.externalSku))].map((externalKey) => ({
+    externalKey,
+    externalName: "",
+    reason: "匯入設定標記為不納入報表",
+  }));
   const usable: ParsedSalesRow[] = [];
   const seenSkipped = new Set<string>();
   for (const row of parsed) {
@@ -284,7 +290,7 @@ async function normalizeSalesRows(
     if (!resolvedItem || resolvedItem.components.length !== 1 || !resolvedItem.components[0]?.inventoryItemId) return [];
     return [{ externalKey, externalName: resolvedItem.externalName, systemSku: resolvedItem.components[0].sku }];
   });
-  return { rows: [...rows.values()], skippedSkus: skipped, mappedProducts };
+  return { rows: [...rows.values()], skippedSkus: skipped, mappedProducts, ignoredProducts };
 }
 
 function payoutRows(input: CyberbizReportIngestInput) {
@@ -314,6 +320,16 @@ async function recordMappedProducts(db: Database, sourceType: string, products: 
   await db.insert(reportExternalProducts).values(values).onConflictDoUpdate({
     target: [reportExternalProducts.sourceType, reportExternalProducts.externalKey, reportExternalProducts.externalVariantKey],
     set: { externalName: sql`excluded.external_name`, resolution: "mapped", itemId: sql`excluded.item_id`, updatedAt: sql`CURRENT_TIMESTAMP` },
+  });
+}
+
+async function recordIgnoredProducts(db: Database, sourceType: string, products: readonly { externalKey: string; externalName: string; reason: string }[]): Promise<void> {
+  if (!products.length) return;
+  await db.insert(reportExternalProducts).values(products.map((product) => ({
+    id: crypto.randomUUID(), sourceType, externalKey: product.externalKey, externalVariantKey: "", externalName: product.externalName, resolution: "ignored" as const, itemId: null, ignoredReason: product.reason,
+  }))).onConflictDoUpdate({
+    target: [reportExternalProducts.sourceType, reportExternalProducts.externalKey, reportExternalProducts.externalVariantKey],
+    set: { externalName: sql`excluded.external_name`, resolution: "ignored", itemId: null, ignoredReason: sql`excluded.ignored_reason`, updatedAt: sql`CURRENT_TIMESTAMP` },
   });
 }
 
@@ -400,6 +416,7 @@ export function createCyberbizReportIngestor(db: Database) {
         const sales = await normalizeSalesRows(db, salesInput, dataChannel, parsedSales);
         await recordUnmappedIssues(db, runId, sales.skippedSkus);
         await recordMappedProducts(db, dataChannel, sales.mappedProducts);
+        await recordIgnoredProducts(db, dataChannel, sales.ignoredProducts);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? {
             scopeId: scope.id,
@@ -423,6 +440,7 @@ export function createCyberbizReportIngestor(db: Database) {
         const sales = await normalizeSalesRows(db, scopedInput, dataChannel);
         await recordUnmappedIssues(db, runId, sales.skippedSkus);
         await recordMappedProducts(db, dataChannel, sales.mappedProducts);
+        await recordIgnoredProducts(db, dataChannel, sales.ignoredProducts);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? {
             scopeId: scope.id,
