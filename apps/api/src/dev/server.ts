@@ -86,7 +86,6 @@ await seedDevData(d1);
 const env = {
   DB: d1,
   UPLOADS: uploads,
-  AUTH_SESSION_SECRET: DEV_SECRET,
   GOOGLE_OAUTH_CLIENT_ID: "local-client-id",
   GOOGLE_OAUTH_CLIENT_SECRET: "local-client-secret",
   PUBLIC_APP_URL: `http://localhost:${PORTAL_PORT}`,
@@ -137,13 +136,17 @@ function devIndex(): string {
 </body></html>`;
 }
 
-async function devLogin(url: URL): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+async function devLogin(url: URL, database: ReturnType<typeof createLocalD1>): Promise<{ status: number; headers: Record<string, string>; body: string }> {
   const email = url.searchParams.get("as") ?? DEV_ACCOUNTS[0].email;
   const account = DEV_ACCOUNTS.find((item) => item.email === email);
   if (!account) return { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" }, body: "沒有這個帳號" };
+  // 不再假造 dev-* user id；migrated DB 可能已有相同 email 但不同的正式 user id。
+  const result = await database.prepare("SELECT id FROM users WHERE lower(email) = lower(?) LIMIT 1").bind(email).all<{ id: string }>();
+  const user = result.results[0];
+  if (!user) return { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" }, body: "資料庫沒有這個帳號，請重新執行 seed" };
 
   const token = await signSession(
-    newSessionClaims({ id: `dev-${account.email}`, email: account.email, name: account.name, pictureUrl: "" }),
+    newSessionClaims({ id: user.id, email: account.email, name: account.name, pictureUrl: "" }),
     DEV_SECRET,
   );
   return {
@@ -167,7 +170,7 @@ const server = http
     }
 
     if (url.pathname === "/dev/login") {
-      const result = await devLogin(url);
+      const result = await devLogin(url, d1);
       res.writeHead(result.status, result.headers);
       res.end(result.body);
       return;
