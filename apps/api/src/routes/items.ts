@@ -129,10 +129,8 @@ export const items = new Hono<AppEnv>()
         sku: itemMasters.sku,
         name: itemMasters.name,
         categoryId: itemMasters.categoryId,
-        categoryName: itemCategories.name,
-        categoryColor: itemCategories.color,
         active: itemMasters.active,
-      }).from(itemMasters).leftJoin(itemCategories, eq(itemCategories.id, itemMasters.categoryId)).orderBy(asc(itemMasters.name)),
+      }).from(itemMasters).orderBy(asc(itemMasters.name)),
       db.select({
         sku: cyberbizProducts.sku,
         productId: cyberbizProducts.productId,
@@ -149,6 +147,7 @@ export const items = new Hono<AppEnv>()
       db.select().from(wmsItems),
     ]);
 
+    const itemCategoryById = new Map(categories.map((category) => [category.id, category]));
     const cyberbizNameBySku = new Map(cyberbizRows.map((row) => [row.sku, displayCyberbizName(row)]));
     const masterSkus = new Set(masterRows.map((row) => `${row.source}:${row.sku}`));
     const wmsBySku = new Map(warehouse.items.filter((item) => item.sku).map((item) => [item.sku!, item]));
@@ -162,9 +161,9 @@ export const items = new Hono<AppEnv>()
           sku: row.sku,
           name: row.name || (row.source === "cyberbiz" ? cyberbizNameBySku.get(row.sku) : undefined) || row.sku,
           source: row.source,
-          category: row.categoryName ?? "未分類",
+          category: itemCategoryById.get(row.categoryId ?? "")?.name ?? "未分類",
           categoryId: row.categoryId,
-          categoryColor: row.categoryColor ?? "slate",
+          categoryColor: itemCategoryById.get(row.categoryId ?? "")?.color ?? "slate",
           inWarehouse: Boolean(targetWms || legacyWms),
           quantity: targetWms?.quantity ?? legacyWms?.quantity ?? null,
           unit: targetWms?.unit ?? legacyWms?.unit ?? "",
