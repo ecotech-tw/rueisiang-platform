@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Combobox } from "@base-ui/react/combobox";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
@@ -50,6 +51,10 @@ async function loadItemCatalog(): Promise<ItemCatalogData> {
     await readError(response);
   }
   return (await response.json()) as ItemCatalogData;
+}
+
+function categoryLabel(category: ProductCategory): string {
+  return category.depth === 1 ? `　${category.name}` : category.name;
 }
 
 function sourceLabel(item: ItemCatalogItem): string {
@@ -149,12 +154,22 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
     >
       <TextField label="品項名稱" required autoFocus value={name} onChange={(event) => setName(event.target.value)} />
       <TextField label="SKU" value={item.sku} disabled hint="SKU 是外部對應鍵，這一輪先不在 UI 直接改。" />
-      <SelectField
-        label="品項分類"
-        value={categoryId}
-        onChange={(event) => setCategoryId(event.target.value)}
-        options={[{ label: "未分類", value: "" }, ...categories.map((category) => ({ label: category.name, value: category.id }))]}
-      />
+      <div className="field">
+        <span>品項分類</span>
+        <Combobox.Root
+          items={categories}
+          value={categories.find((category) => category.id === categoryId) ?? null}
+          onValueChange={(category) => setCategoryId(category?.id ?? "")}
+          itemToStringLabel={(category) => category ? categoryLabel(category) : ""}
+          autoHighlight
+        >
+          <Combobox.InputGroup className="combobox-group">
+            <Combobox.Input className="combobox-input" placeholder="搜尋或選擇分類" />
+            <Combobox.Trigger className="combobox-trigger" aria-label="開啟分類選單">⌄</Combobox.Trigger>
+          </Combobox.InputGroup>
+          <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span>{categoryLabel(category)}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+        </Combobox.Root>
+      </div>
       {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
     </Dialog>
   );
@@ -213,7 +228,7 @@ export function Items() {
             onChange={(event) => setCategory(event.target.value)}
             options={[
               { value: "all", label: "全部分類" },
-              ...categories.map((item) => ({ value: item.name, label: item.name })),
+              ...categories.map((item) => ({ value: item.name, label: categoryLabel(item) })),
             ]}
           />
         </form>
