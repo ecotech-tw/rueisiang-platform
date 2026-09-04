@@ -7,7 +7,7 @@ import { SortableHeader } from "../../shell/SortableHeader.js";
 import { Switch } from "../../shell/Switch.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -21,6 +21,7 @@ import {
   useManualReportOptions,
   useManualReportScopes,
   useManualSales,
+  useReportRuns,
   useUpdateManualPayout,
   useUpdateManualScope,
   useUpdateManualSales,
@@ -916,6 +917,7 @@ export function ManualReports() {
   const canWrite = permissions.has("reports:cyberbiz:write");
   const optionsQuery = useManualReportOptions(canWrite);
   const scopesQuery = useManualReportScopes(canWrite);
+  const runsQuery = useReportRuns(canWrite);
   const [payoutFilters, setPayoutFilters] = useState<ManualPayoutQuery>(DEFAULT_PAYOUT_FILTERS);
   const [salesFilters, setSalesFilters] = useState<ManualSalesQuery>(DEFAULT_SALES_FILTERS);
   const payoutsQuery = useManualPayouts(payoutFilters, canWrite);
@@ -1015,12 +1017,20 @@ export function ManualReports() {
     <div className="page fills manual-report-page">
       <PageHeader
         title="報表管理"
-        actions={
+        actions={ 
           <div className="page-head-actions">
             <Button variant="secondary" icon="storefront" disabled={busy} onClick={() => setScopeDialog(true)}>管理據點</Button>
           </div>
         }
       />
+
+      {runsQuery.data?.runs.length ? (
+        <Panel title="最近匯入" className="manual-report-runs">
+          <div className="data-table-wrap"><table className="data-table"><thead><tr><th>時間</th><th>來源</th><th>狀態</th><th className="numeric">銷售</th><th className="numeric">出金</th><th className="numeric">問題</th></tr></thead><tbody>
+            {runsQuery.data.runs.map((run) => <tr key={run.id}><td>{new Date(run.createdAt).toLocaleString("zh-TW", { hour12: false })}</td><td>{run.sourceType}</td><td><StatusBadge tone={run.status === "succeeded" ? "success" : run.status === "failed" ? "danger" : "warning"}>{run.status === "succeeded" ? "完成" : run.status === "failed" ? "失敗" : "處理中"}</StatusBadge></td><td className="numeric">{run.importedSalesRows}</td><td className="numeric">{run.importedPayoutRows}</td><td className="numeric">{run.skippedRows}</td></tr>)}
+          </tbody></table></div>
+        </Panel>
+      ) : null}
 
       <Panel className="manual-report-panel grows">
         <div className="manual-report-toolbar">

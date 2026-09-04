@@ -180,6 +180,28 @@ export interface ManualSalesImportResult {
   totals: Pick<ManualSalesImportRow, "grossQuantity" | "returnQuantity" | "netQuantity" | "salesAmount">;
 }
 
+export interface ReportRunSummary {
+  id: string;
+  sourceType: string;
+  importsSales: number;
+  importsPayout: number;
+  status: "queued" | "running" | "succeeded" | "failed";
+  importedSalesRows: number;
+  importedPayoutRows: number;
+  skippedRows: number;
+  lastError: string;
+  createdAt: string;
+}
+
+export function useReportRuns(enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: ["reports", "runs"],
+    queryFn: () => request<{ runs: ReportRunSummary[] }>("/api/reports/cyberbiz/runs?limit=10"),
+    refetchInterval: (query) => query.state.data?.runs.some((run) => run.status === "running") ? 3000 : false,
+  });
+}
+
 export type ManualPayoutDeleteInput = Pick<ManualPayoutRow, "id" | "source" | "scopeId" | "businessDate">;
 export type ManualSalesDeleteInput = Pick<ManualSalesRow, "id" | "source" | "scopeId" | "reportMonth" | "sku">;
 
