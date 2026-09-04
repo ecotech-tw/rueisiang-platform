@@ -1,5 +1,5 @@
 import { applySyncPlan, buildSyncPlan, createDatabase, listCompanyLinks, type LinkedItem, type RemoteItem } from "@rueisiang/db";
-import { activityEvents, cyberbizProductLinks, inventoryItems, warehouseCategories } from "@rueisiang/db/schema";
+import { activityEvents, cyberbizProductLinks, inventoryItems, items, warehouseCategories, wmsCyberbizLinks, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1 } from "./local-d1/d1.js";
@@ -165,5 +165,25 @@ describe("套用同步", () => {
     const bulk = rows.filter((row) => row.id.startsWith("bulk-"));
     expect(bulk).toHaveLength(40);
     expect(bulk.every((row) => row.quantity === Number(row.id.split("-")[1]) + 1)).toBe(true);
+  });
+});
+
+describe("target WMS CYBERBIZ 連結", () => {
+  const actor = { id: "u1", email: "admin@ecotech.tw" };
+
+  it("legacy link 表移除後仍可讀取與套用同步結果", async () => {
+    const targetD1 = createLocalD1();
+    const targetDb = createDatabase(targetD1 as never);
+    await targetDb.insert(items).values({ id: "target-linked-item", source: "custom", kind: "sellable", sku: "TARGET-LINK-001", name: "Target 連結商品", active: 1 });
+    await targetDb.insert(wmsItems).values({ itemId: "target-linked-item", quantity: 7, minStock: 2, unit: "件", notes: "" });
+    await targetDb.insert(wmsCyberbizLinks).values({ id: "target-link", wmsItemId: "target-linked-item", cyberbizProductId: "target-product", cyberbizVariantId: "target-variant", sku: "TARGET-LINK-001" });
+    await targetD1.exec("PRAGMA foreign_keys = OFF; DROP TABLE cyberbiz_product_links; PRAGMA foreign_keys = ON;");
+
+    const link = (await listCompanyLinks(targetDb))[0];
+    expect(link).toMatchObject({ linkId: "target-link", inventoryItemId: "target-linked-item", itemSku: "TARGET-LINK-001", quantity: 7, minStock: 2 });
+    const result = await applySyncPlan(targetDb, buildSyncPlan([link!], [{ productId: "target-product", variantId: "target-variant", sku: "TARGET-LINK-001", quantity: 11, safetyQuantity: 4 }]), actor);
+    expect(result).toEqual({ updated: 1, unchanged: 0, failed: 0 });
+    expect((await targetDb.select().from(wmsItems))[0]).toMatchObject({ itemId: "target-linked-item", quantity: 11, minStock: 4 });
+    expect((await targetDb.select().from(wmsCyberbizLinks))[0]).toMatchObject({ syncStatus: "synced", lastSyncedQuantity: 11 });
   });
 });

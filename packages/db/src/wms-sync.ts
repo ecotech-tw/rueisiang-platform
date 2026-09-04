@@ -2,7 +2,8 @@ import { eq, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
-import { cyberbizProductLinks, inventoryItems } from "./schema/wms.js";
+import { items as itemMasters } from "./schema/items.js";
+import { cyberbizProductLinks, inventoryItems, wmsCyberbizLinks, wmsItems } from "./schema/wms.js";
 import { WmsError } from "./wms.js";
 
 /**
@@ -56,6 +57,11 @@ export interface SyncPlanEntry {
 
 const normalizedSku = (value: string) => value.trim().toUpperCase();
 
+async function useTargetLinks(db: Database): Promise<boolean> {
+  const row = await db.get<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cyberbiz_product_links' LIMIT 1`);
+  return !row;
+}
+
 /**
  * 決定每一筆連結該怎麼處理。純函式，沒有 I/O——所以「連結失效時會不會誤寫數量」
  * 這種問題可以直接測，不必架一個假的官網。
@@ -87,6 +93,29 @@ export function buildSyncPlan(links: LinkedItem[], remotes: RemoteItem[]): SyncP
 
 /** 讀出所有公司倉的連結，附上 WMS 這邊目前的數量。 */
 export async function listCompanyLinks(db: Database, productId?: string): Promise<LinkedItem[]> {
+  if (await useTargetLinks(db)) {
+    return db
+      .select({
+        linkId: wmsCyberbizLinks.id,
+        inventoryItemId: wmsCyberbizLinks.wmsItemId,
+        cyberbizProductId: wmsCyberbizLinks.cyberbizProductId,
+        cyberbizVariantId: wmsCyberbizLinks.cyberbizVariantId,
+        linkedSku: sql<string>`${wmsCyberbizLinks.sku}`.as("linked_sku"),
+        itemSku: itemMasters.sku,
+        itemName: itemMasters.name,
+        quantity: wmsItems.quantity,
+        minStock: wmsItems.minStock,
+      })
+      .from(wmsCyberbizLinks)
+      .innerJoin(wmsItems, eq(wmsItems.itemId, wmsCyberbizLinks.wmsItemId))
+      .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
+      .where(
+        productId
+          ? sql`${wmsCyberbizLinks.warehouseScope} = 'company' AND ${wmsCyberbizLinks.cyberbizProductId} = ${productId}`
+          : sql`${wmsCyberbizLinks.warehouseScope} = 'company'`,
+      );
+  }
+
   const rows = await db
     .select({
       linkId: cyberbizProductLinks.id,
@@ -121,6 +150,28 @@ export interface SyncOutcome {
   failed: number;
 }
 
+function updateLink(
+  db: Database,
+  target: boolean,
+  linkId: string,
+  values: Record<string, unknown>,
+) {
+  return (target ? db.update(wmsCyberbizLinks) : db.update(cyberbizProductLinks))
+    .set(values as never)
+    .where(eq(target ? wmsCyberbizLinks.id : cyberbizProductLinks.id, linkId));
+}
+
+function updateLinkedItem(
+  db: Database,
+  target: boolean,
+  itemId: string,
+  values: Record<string, unknown>,
+) {
+  return (target ? db.update(wmsItems) : db.update(inventoryItems))
+    .set(values as never)
+    .where(eq(target ? wmsItems.itemId : inventoryItems.id, itemId));
+}
+
 /**
  * 把計畫套用到 WMS。
  *
@@ -141,6 +192,7 @@ export async function applySyncPlan(
   actor: { id?: string | null; email?: string | null } | null,
 ): Promise<SyncOutcome> {
   const syncedAt = new Date().toISOString();
+  const target = await useTargetLinks(db);
   /*
    * drizzle 的 batch 要求「至少一句」的 tuple 型別，收集階段給不出來（可能是空的），
    * 所以這裡先當成一般陣列，送出去之前才在有內容的分支斷言。
@@ -157,10 +209,7 @@ export async function applySyncPlan(
     if (entry.status === "failed" || !entry.remote) {
       failed += 1;
       statements.push(
-        db
-          .update(cyberbizProductLinks)
-          .set({ syncStatus: "failed", lastError: entry.error, updatedAt: sql`CURRENT_TIMESTAMP` })
-          .where(eq(cyberbizProductLinks.id, entry.link.linkId)),
+        updateLink(db, target, entry.link.linkId, { syncStatus: "failed", lastError: entry.error, updatedAt: sql`CURRENT_TIMESTAMP` }),
         db.insert(activityEvents).values(
           activityRow({
             entityType: "inventory_item",
@@ -181,40 +230,31 @@ export async function applySyncPlan(
     if (!entry.quantityChanged && !entry.minStockChanged) {
       unchanged += 1;
       statements.push(
-        db
-          .update(cyberbizProductLinks)
-          .set({
-            syncStatus: "synced",
-            lastError: "",
-            lastSyncedQuantity: entry.remote.quantity,
-            lastSyncedAt: syncedAt,
-            updatedAt: sql`CURRENT_TIMESTAMP`,
-          })
-          .where(eq(cyberbizProductLinks.id, entry.link.linkId)),
+        updateLink(db, target, entry.link.linkId, {
+          syncStatus: "synced",
+          lastError: "",
+          lastSyncedQuantity: entry.remote.quantity,
+          lastSyncedAt: syncedAt,
+          updatedAt: sql`CURRENT_TIMESTAMP`,
+        }),
       );
       continue;
     }
 
     updated += 1;
     statements.push(
-      db
-        .update(inventoryItems)
-        .set({
-          quantity: entry.remote.quantity,
-          minStock: entry.remote.safetyQuantity,
-          updatedAt: sql`CURRENT_TIMESTAMP`,
-        })
-        .where(eq(inventoryItems.id, entry.link.inventoryItemId)),
-      db
-        .update(cyberbizProductLinks)
-        .set({
-          syncStatus: "synced",
-          lastError: "",
-          lastSyncedQuantity: entry.remote.quantity,
-          lastSyncedAt: syncedAt,
-          updatedAt: sql`CURRENT_TIMESTAMP`,
-        })
-        .where(eq(cyberbizProductLinks.id, entry.link.linkId)),
+      updateLinkedItem(db, target, entry.link.inventoryItemId, {
+        quantity: entry.remote.quantity,
+        minStock: entry.remote.safetyQuantity,
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      }),
+      updateLink(db, target, entry.link.linkId, {
+        syncStatus: "synced",
+        lastError: "",
+        lastSyncedQuantity: entry.remote.quantity,
+        lastSyncedAt: syncedAt,
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      }),
       db.insert(activityEvents).values(
         activityRow({
           entityType: "inventory_item",
@@ -258,22 +298,27 @@ export async function linkItemToCyberbiz(
     actor: { id: string; email: string };
   },
 ) {
-  const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, input.inventoryItemId));
+  const target = await useTargetLinks(db);
+  const [item] = target
+    ? await db.select({ sku: itemMasters.sku, name: itemMasters.name }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).where(eq(wmsItems.itemId, input.inventoryItemId))
+    : await db.select({ sku: inventoryItems.sku, name: inventoryItems.name }).from(inventoryItems).where(eq(inventoryItems.id, input.inventoryItemId));
   if (!item) throw new WmsError("not_found", "找不到這項商品。");
 
   const id = crypto.randomUUID();
+  const link = {
+    id,
+    cyberbizProductId: input.productId,
+    cyberbizVariantId: input.variantId,
+    sku: input.sku.trim().toUpperCase(),
+    warehouseScope: "company" as const,
+    syncStatus: "synced" as const,
+    lastSyncedQuantity: input.quantity,
+    lastSyncedAt: new Date().toISOString(),
+  };
   await db.batch([
-    db.insert(cyberbizProductLinks).values({
-      id,
-      inventoryItemId: input.inventoryItemId,
-      cyberbizProductId: input.productId,
-      cyberbizVariantId: input.variantId,
-      sku: input.sku.trim().toUpperCase(),
-      warehouseScope: "company",
-      syncStatus: "synced",
-      lastSyncedQuantity: input.quantity,
-      lastSyncedAt: new Date().toISOString(),
-    }),
+    target
+      ? db.insert(wmsCyberbizLinks).values({ ...link, wmsItemId: input.inventoryItemId })
+      : db.insert(cyberbizProductLinks).values({ ...link, inventoryItemId: input.inventoryItemId }),
     db.insert(activityEvents).values(
       activityRow({
         entityType: "inventory_item",
@@ -285,7 +330,7 @@ export async function linkItemToCyberbiz(
         actor: input.actor,
       }),
     ),
-  ]);
+  ] as never);
 
   return { id };
 }
@@ -301,11 +346,16 @@ export async function unlinkItemFromCyberbiz(
   inventoryItemId: string,
   actor: { id: string; email: string },
 ) {
-  const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, inventoryItemId));
+  const target = await useTargetLinks(db);
+  const [item] = target
+    ? await db.select({ sku: itemMasters.sku, name: itemMasters.name }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).where(eq(wmsItems.itemId, inventoryItemId))
+    : await db.select({ sku: inventoryItems.sku, name: inventoryItems.name }).from(inventoryItems).where(eq(inventoryItems.id, inventoryItemId));
   if (!item) throw new WmsError("not_found", "找不到這項商品。");
 
   await db.batch([
-    db.delete(cyberbizProductLinks).where(eq(cyberbizProductLinks.inventoryItemId, inventoryItemId)),
+    target
+      ? db.delete(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.wmsItemId, inventoryItemId))
+      : db.delete(cyberbizProductLinks).where(eq(cyberbizProductLinks.inventoryItemId, inventoryItemId)),
     db.insert(activityEvents).values(
       activityRow({
         entityType: "inventory_item",
@@ -317,7 +367,7 @@ export async function unlinkItemFromCyberbiz(
         actor,
       }),
     ),
-  ]);
+  ] as never);
 }
 
 /**
@@ -327,16 +377,13 @@ export async function unlinkItemFromCyberbiz(
  * 「已同步」只是同一件事的兩行。失敗才值得單獨記——那是需要有人處理的狀態。
  */
 export async function markLinkSynced(db: Database, linkId: string, quantity: number): Promise<void> {
-  await db
-    .update(cyberbizProductLinks)
-    .set({
-      syncStatus: "synced",
-      lastError: "",
-      lastSyncedQuantity: quantity,
-      lastSyncedAt: new Date().toISOString(),
-      updatedAt: sql`CURRENT_TIMESTAMP`,
-    })
-    .where(eq(cyberbizProductLinks.id, linkId));
+  await updateLink(db, await useTargetLinks(db), linkId, {
+    syncStatus: "synced",
+    lastError: "",
+    lastSyncedQuantity: quantity,
+    lastSyncedAt: new Date().toISOString(),
+    updatedAt: sql`CURRENT_TIMESTAMP`,
+  });
 }
 
 /**
@@ -352,10 +399,7 @@ export async function markLinkFailed(
   context: { inventoryItemId: string; label: string; actor: { id: string; email: string } },
 ): Promise<void> {
   await db.batch([
-    db
-      .update(cyberbizProductLinks)
-      .set({ syncStatus: "failed", lastError: error, updatedAt: sql`CURRENT_TIMESTAMP` })
-      .where(eq(cyberbizProductLinks.id, linkId)),
+    updateLink(db, await useTargetLinks(db), linkId, { syncStatus: "failed", lastError: error, updatedAt: sql`CURRENT_TIMESTAMP` }),
     db.insert(activityEvents).values(
       activityRow({
         entityType: "inventory_item",
@@ -369,5 +413,5 @@ export async function markLinkFailed(
         actor: context.actor,
       }),
     ),
-  ]);
+  ] as never);
 }

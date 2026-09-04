@@ -316,4 +316,36 @@ describe("報表 scope migration", () => {
       { sku: "LEGACY-BUNDLE-B", quantity: 3 },
     ]);
   });
+
+  it("0086 以 legacy SKU 將 CYBERBIZ 連結搬到 target WMS 品項", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0073_lame_shinko_yamashiro.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name, quantity, min_stock) VALUES (?, ?, ?, ?, ?)")
+      .run("legacy-linked-item", "LINKED-001", "已連結商品", 4, 2);
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_product_links (
+        id, inventory_item_id, cyberbiz_product_id, cyberbiz_variant_id, sku,
+        warehouse_scope, pos_shop_id, sync_status, last_synced_quantity, last_synced_at, last_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("legacy-link", "legacy-linked-item", "product-001", "variant-001", " linked-001 ", "company", 0, "failed", 3, "2026-01-01T00:00:00.000Z", "曾經失敗");
+
+    applyLikeD1(sqlite, "0073_lame_shinko_yamashiro.sql", "0086_wms_cyberbiz_links_target.sql");
+
+    expect(sqlite.prepare(`
+      SELECT link.id, link.wms_item_id, link.cyberbiz_product_id, link.cyberbiz_variant_id,
+        link.sku, link.sync_status, wms.quantity, wms.min_stock
+      FROM wms_cyberbiz_links link
+      JOIN wms_items wms ON wms.item_id = link.wms_item_id
+    `).all()).toEqual([{
+      id: "backfill:wms-link:legacy-link",
+      wms_item_id: "legacy-linked-item",
+      cyberbiz_product_id: "product-001",
+      cyberbiz_variant_id: "variant-001",
+      sku: "LINKED-001",
+      sync_status: "failed",
+      quantity: 4,
+      min_stock: 2,
+    }]);
+  });
 });

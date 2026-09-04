@@ -17,6 +17,7 @@ import {
   zoneImages,
   zones,
   wmsCategories,
+  wmsCyberbizLinks,
   wmsItems,
   wmsLayouts,
   wmsLayoutElements,
@@ -796,11 +797,17 @@ export async function updateItem(
    */
   const wantsMinStock = clamp(input.minStock, current.minStock, QUANTITY);
   if (wantsMinStock !== current.minStock) {
-    const [link] = await db
-      .select({ id: cyberbizProductLinks.id })
-      .from(cyberbizProductLinks)
-      .where(eq(cyberbizProductLinks.inventoryItemId, id))
-      .limit(1);
+    const [link] = await (await hasTable(db, "cyberbiz_product_links")
+      ? db
+        .select({ id: cyberbizProductLinks.id })
+        .from(cyberbizProductLinks)
+        .where(eq(cyberbizProductLinks.inventoryItemId, id))
+        .limit(1)
+      : db
+        .select({ id: wmsCyberbizLinks.id })
+        .from(wmsCyberbizLinks)
+        .where(eq(wmsCyberbizLinks.wmsItemId, id))
+        .limit(1));
     if (link) {
       throw new WmsError(
         "conflict",

@@ -2,7 +2,7 @@ import type { CyberbizInventoryClient } from "@rueisiang/cyberbiz";
 import { classifyPayload, createWebhookEventId, parseProductEvent } from "@rueisiang/cyberbiz";
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { cyberbizProductLinks, cyberbizProductWebhooks } from "./schema/wms.js";
+import { cyberbizProductLinks, cyberbizProductWebhooks, wmsCyberbizLinks } from "./schema/wms.js";
 import { applySyncPlan, buildSyncPlan, listCompanyLinks, type SyncOutcome } from "./wms-sync.js";
 
 /**
@@ -39,6 +39,18 @@ export interface ProcessProductWebhookInput {
 }
 
 /** 把事件的處理結果寫回去。result 存 JSON，之後查「那次到底做了什麼」用。 */
+async function hasLegacyLinks(db: Database): Promise<boolean> {
+  const row = await db.get<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cyberbiz_product_links' LIMIT 1`);
+  return Boolean(row);
+}
+
+async function productIdForVariant(db: Database, variantId: string): Promise<string | null> {
+  const [link] = await (await hasLegacyLinks(db)
+    ? db.select({ productId: cyberbizProductLinks.cyberbizProductId }).from(cyberbizProductLinks).where(eq(cyberbizProductLinks.cyberbizVariantId, variantId)).limit(1)
+    : db.select({ productId: wmsCyberbizLinks.cyberbizProductId }).from(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.cyberbizVariantId, variantId)).limit(1));
+  return link?.productId ?? null;
+}
+
 async function markEvent(
   db: Database,
   eventId: string,
@@ -120,17 +132,13 @@ export async function processProductWebhook(
      */
     let productId = event.productId;
     if (!productId) {
-      const [link] = await db
-        .select({ productId: cyberbizProductLinks.cyberbizProductId })
-        .from(cyberbizProductLinks)
-        .where(eq(cyberbizProductLinks.cyberbizVariantId, event.variantId))
-        .limit(1);
-      if (!link) {
+      const linkedProductId = await productIdForVariant(db, event.variantId);
+      if (!linkedProductId) {
         const reason = "這個款式沒有連結到 WMS 的商品";
         await markEvent(db, eventId, { status: "ignored", result: { reason } });
         return { eventId, topic, status: "ignored", reason, variantId: event.variantId };
       }
-      productId = link.productId;
+      productId = linkedProductId;
 
       /*
        * 反查到就立刻寫回去。
@@ -230,12 +238,7 @@ export async function retryFailedProductWebhooks(
        */
       let productId = row.productId;
       if (!productId && row.variantId) {
-        const [link] = await db
-          .select({ productId: cyberbizProductLinks.cyberbizProductId })
-          .from(cyberbizProductLinks)
-          .where(eq(cyberbizProductLinks.cyberbizVariantId, row.variantId))
-          .limit(1);
-        productId = link?.productId ?? null;
+        productId = await productIdForVariant(db, row.variantId);
       }
       if (!productId) throw new Error("這筆事件沒有 product_id，補跑不了");
 
