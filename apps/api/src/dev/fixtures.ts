@@ -14,11 +14,11 @@ import {
   customers,
   inventoryItems,
   layoutElements,
-  reportProductCategories,
   warehouseCategories,
-  cyberbizProductCategories,
-  cyberbizProducts,
   reportScopes,
+  itemCategories,
+  items as itemMasters,
+  targetCyberbizProducts,
   userRoles,
   users,
   warehouseSettings,
@@ -227,31 +227,54 @@ const DEV_PRODUCT_CATEGORIES = [
 ] as const;
 
 async function seedDevProductCatalog(db: ReturnType<typeof createDatabase>): Promise<void> {
-  await db.insert(reportProductCategories).values([...DEV_PRODUCT_CATEGORIES]).onConflictDoNothing({ target: reportProductCategories.name });
+  // 開發資料也走 target schema，否則 compat view 一旦移除，啟動就會重新長出 legacy 依賴。
+  await db.insert(itemCategories).values(DEV_PRODUCT_CATEGORIES.map((category) => ({
+    id: category.id,
+    name: category.name,
+    color: category.color,
+    depth: 0,
+    parentId: null,
+    parentDepth: null,
+    sortOrder: 0,
+    active: 1,
+  }))).onConflictDoNothing();
 
-  const existingProducts = new Set((await db.select({ sku: cyberbizProducts.sku }).from(cyberbizProducts)).map((row) => row.sku));
-  const missingProducts = DEV_SALES_PRODUCTS
-    .filter((product) => !existingProducts.has(product.sku))
-    .map((product) => ({
-      sku: product.sku,
-      productId: `dev-product-${product.sku}`,
-      variantId: `dev-variant-${product.sku}`,
+  const existingItems = await db.select({ id: itemMasters.id, sku: itemMasters.sku }).from(itemMasters);
+  const itemIdBySku = new Map(existingItems.map((row) => [row.sku, row.id]));
+  for (const product of DEV_SALES_PRODUCTS) {
+    const itemId = itemIdBySku.get(product.sku) ?? `cb:${product.sku}`;
+    if (!itemIdBySku.has(product.sku)) {
+      await db.insert(itemMasters).values({
+        id: itemId,
+        source: "cyberbiz",
+        kind: "sellable",
+        sku: product.sku,
+        name: product.productName,
+        active: 1,
+      }).onConflictDoNothing();
+      itemIdBySku.set(product.sku, itemId);
+    }
+    await db.insert(targetCyberbizProducts).values({
+      itemId,
+      cyberbizProductId: `dev-product-${product.sku}`,
+      cyberbizVariantId: `dev-variant-${product.sku}`,
       productName: product.productName,
       variantName: "",
       published: 1,
-    }));
-  if (missingProducts.length) await db.insert(cyberbizProducts).values(missingProducts);
+      rawJson: "{}",
+      syncStatus: "synced",
+    }).onConflictDoNothing();
+  }
 
-  const categoryRows = await db.select({ id: reportProductCategories.id, name: reportProductCategories.name }).from(reportProductCategories);
-  const categoryIdByName = new Map(categoryRows.map((row) => [row.name, row.id]));
-  const existingAssignments = new Set((await db.select({ sku: cyberbizProductCategories.sku }).from(cyberbizProductCategories)).map((row) => row.sku));
-  const missingAssignments = Object.entries(DEV_SKU_CATEGORIES)
-    .filter(([sku]) => !existingAssignments.has(sku))
-    .flatMap(([sku, name]) => {
-      const categoryId = categoryIdByName.get(name);
-      return categoryId ? [{ sku, categoryId }] : [];
-    });
-  if (missingAssignments.length) await db.insert(cyberbizProductCategories).values(missingAssignments);
+  const categoryRows = await db.select({ id: itemCategories.id, name: itemCategories.name }).from(itemCategories);
+  const categoryIdByName = new Map(categoryRows.map((category) => [category.name, category.id]));
+  for (const [sku, categoryName] of Object.entries(DEV_SKU_CATEGORIES)) {
+    const itemId = itemIdBySku.get(sku);
+    const categoryId = categoryIdByName.get(categoryName);
+    if (itemId && categoryId) {
+      await db.update(itemMasters).set({ categoryId }).where(eq(itemMasters.id, itemId));
+    }
+  }
 }
 
 async function seedDevAnalytics(db: ReturnType<typeof createDatabase>): Promise<void> {

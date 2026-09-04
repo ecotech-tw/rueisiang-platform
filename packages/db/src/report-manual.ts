@@ -11,6 +11,7 @@ import {
   reportPayoutDaily,
   reportSalesMonthly,
   reportScopes,
+  scopes as targetScopes,
   targetReportPayoutDaily,
   type ReportManualPayoutDaily,
   type ReportManualSalesMonthly,
@@ -18,7 +19,7 @@ import {
   type ReportPayoutDaily,
   type ReportSalesMonthly,
 } from "./schema/reports.js";
-import { itemCategories, items as itemMasters } from "./schema/items.js";
+import { itemCategories, cyberbizProducts as targetCyberbizProducts, items as itemMasters } from "./schema/items.js";
 import {
   cyberbizProductCategories,
   cyberbizProducts,
@@ -193,28 +194,28 @@ async function requireScope(db: Database, scopeId: string) {
   const id = scopeId.trim();
   if (!id) throw new ReportManualError("invalid", "請選擇據點。");
   // 停用據點仍有歷史報表需要修訂；新增據點的入口只會提供啟用中的選項。
-  const [scope] = await db.select({ id: reportScopes.id, name: reportScopes.name })
-    .from(reportScopes)
-    .where(and(
-      eq(reportScopes.id, id),
-      eq(reportScopes.scopeKind, "store"),
-    ))
-    .limit(1);
-  if (!scope || !isCompanyReportStoreScopeId(scope.id)) {
+  const scope = await (await hasTable(db, "report_scopes")
+    ? db.select({ id: reportScopes.id, name: reportScopes.name })
+      .from(reportScopes)
+      .where(and(eq(reportScopes.id, id), eq(reportScopes.scopeKind, "store"))).limit(1)
+    : db.select({ id: targetScopes.id, name: targetScopes.name })
+      .from(targetScopes)
+      .where(and(eq(targetScopes.id, id), eq(targetScopes.scopeKind, "store"))).limit(1));
+  if (!scope[0] || !isCompanyReportStoreScopeId(scope[0].id)) {
     throw new ReportManualError("not_found", "找不到可納入公司報表的啟用據點。");
   }
-  return scope;
+  return scope[0];
 }
 
 export async function listReportManagementScopes(db: Database): Promise<ReportManagementScope[]> {
-  const scopes = await db.select({
-    id: reportScopes.id,
-    name: reportScopes.name,
-    active: reportScopes.active,
-  }).from(reportScopes)
-    .where(eq(reportScopes.scopeKind, "store"))
-    .orderBy(desc(reportScopes.active), asc(reportScopes.name));
-  return scopes
+  const rows = await (await hasTable(db, "report_scopes")
+    ? db.select({ id: reportScopes.id, name: reportScopes.name, active: reportScopes.active })
+      .from(reportScopes).where(eq(reportScopes.scopeKind, "store"))
+      .orderBy(desc(reportScopes.active), asc(reportScopes.name))
+    : db.select({ id: targetScopes.id, name: targetScopes.name, active: targetScopes.active })
+      .from(targetScopes).where(eq(targetScopes.scopeKind, "store"))
+      .orderBy(desc(targetScopes.active), asc(targetScopes.name)));
+  return rows
     .filter((scope) => isCompanyReportStoreScopeId(scope.id))
     .map((scope) => ({ ...scope, active: scope.active === 1 }));
 }
@@ -228,24 +229,30 @@ export async function createReportManagementScope(
   if (!id || !isCompanyReportStoreScopeId(id) || !name) {
     throw new ReportManualError("invalid", "據點 ID 或名稱不正確。");
   }
-  const [existingId] = await db.select({ id: reportScopes.id }).from(reportScopes).where(eq(reportScopes.id, id)).limit(1);
+  const useLegacyScopes = await hasTable(db, "report_scopes");
+  const normalizedName = normalizeReportScopeName(name);
+  const [existingId] = await (useLegacyScopes
+    ? db.select({ id: reportScopes.id }).from(reportScopes).where(eq(reportScopes.id, id)).limit(1)
+    : db.select({ id: targetScopes.id }).from(targetScopes).where(eq(targetScopes.id, id)).limit(1));
   if (existingId) throw new ReportManualError("conflict", "這個據點 ID 已經存在。");
-  const [existingName] = await db.select({ id: reportScopes.id }).from(reportScopes).where(and(
-    eq(reportScopes.scopeKind, "store"),
-    eq(reportScopes.normalizedName, normalizeReportScopeName(name)),
-  )).limit(1);
+  const [existingName] = await (useLegacyScopes
+    ? db.select({ id: reportScopes.id }).from(reportScopes).where(and(eq(reportScopes.scopeKind, "store"), eq(reportScopes.normalizedName, normalizedName))).limit(1)
+    : db.select({ id: targetScopes.id }).from(targetScopes).where(and(eq(targetScopes.scopeKind, "store"), eq(targetScopes.normalizedName, normalizedName))).limit(1));
   if (existingName) throw new ReportManualError("conflict", "這個據點名稱已經存在。");
 
   const now = new Date().toISOString();
-  await db.insert(reportScopes).values({
-    id,
-    scopeKind: "store",
-    name,
-    normalizedName: normalizeReportScopeName(name),
-    active: input.active === false ? 0 : 1,
-    createdAt: now,
-    updatedAt: now,
-  });
+  if (useLegacyScopes) {
+    await db.insert(reportScopes).values({
+      id, scopeKind: "store", name, normalizedName,
+      active: input.active === false ? 0 : 1, createdAt: now, updatedAt: now,
+    });
+  } else {
+    await db.insert(targetScopes).values({
+      id, sourceType: "report", scopeKind: "store", name, normalizedName,
+      driveFolderUrl: "", driveFolderName: "", sortOrder: 0,
+      active: input.active === false ? 0 : 1, createdAt: now, updatedAt: now,
+    });
+  }
   return { id, name, active: input.active !== false };
 }
 
@@ -255,28 +262,35 @@ export async function updateReportManagementScope(
 ): Promise<ReportManagementScope> {
   const id = input.id.trim();
   if (!id || !isCompanyReportStoreScopeId(id)) throw new ReportManualError("invalid", "據點 ID 不正確。");
-  const [existing] = await db.select({ id: reportScopes.id, name: reportScopes.name, active: reportScopes.active })
-    .from(reportScopes)
-    .where(and(eq(reportScopes.id, id), eq(reportScopes.scopeKind, "store")))
-    .limit(1);
+  const useLegacyScopes = await hasTable(db, "report_scopes");
+  const [existing] = await (useLegacyScopes
+    ? db.select({ id: reportScopes.id, name: reportScopes.name, active: reportScopes.active })
+      .from(reportScopes).where(and(eq(reportScopes.id, id), eq(reportScopes.scopeKind, "store"))).limit(1)
+    : db.select({ id: targetScopes.id, name: targetScopes.name, active: targetScopes.active })
+      .from(targetScopes).where(and(eq(targetScopes.id, id), eq(targetScopes.scopeKind, "store"))).limit(1));
   if (!existing) throw new ReportManualError("not_found", "找不到這個據點。");
   const name = input.name === undefined ? existing.name : input.name.trim();
   if (!name) throw new ReportManualError("invalid", "據點名稱不可為空白。");
   if (name !== existing.name) {
-    const [duplicate] = await db.select({ id: reportScopes.id }).from(reportScopes).where(and(
-      eq(reportScopes.scopeKind, "store"),
-      eq(reportScopes.normalizedName, normalizeReportScopeName(name)),
-      ne(reportScopes.id, id),
-    )).limit(1);
+    const [duplicate] = await (useLegacyScopes
+      ? db.select({ id: reportScopes.id }).from(reportScopes).where(and(
+        eq(reportScopes.scopeKind, "store"), eq(reportScopes.normalizedName, normalizeReportScopeName(name)), ne(reportScopes.id, id),
+      )).limit(1)
+      : db.select({ id: targetScopes.id }).from(targetScopes).where(and(
+        eq(targetScopes.scopeKind, "store"), eq(targetScopes.normalizedName, normalizeReportScopeName(name)), ne(targetScopes.id, id),
+      )).limit(1));
     if (duplicate) throw new ReportManualError("conflict", "這個據點名稱已經存在。");
   }
   const active = input.active === undefined ? existing.active === 1 : input.active;
-  await db.update(reportScopes).set({
-    name,
-    normalizedName: normalizeReportScopeName(name),
-    active: active ? 1 : 0,
-    updatedAt: new Date().toISOString(),
-  }).where(eq(reportScopes.id, id));
+  if (useLegacyScopes) {
+    await db.update(reportScopes).set({
+      name, normalizedName: normalizeReportScopeName(name), active: active ? 1 : 0, updatedAt: new Date().toISOString(),
+    }).where(eq(reportScopes.id, id));
+  } else {
+    await db.update(targetScopes).set({
+      name, normalizedName: normalizeReportScopeName(name), active: active ? 1 : 0, updatedAt: new Date().toISOString(),
+    }).where(eq(targetScopes.id, id));
+  }
   return { id, name, active };
 }
 
@@ -311,15 +325,27 @@ async function prepareSales(
   let productName = (input.productName ?? "").trim();
   let category = (input.category ?? "").trim() || "未分類";
   if (input.skuSource === "cyberbiz") {
-    const [product] = await db.select({
-      ...getTableColumns(cyberbizProducts),
-      categoryName: reportProductCategories.name,
-    })
-      .from(cyberbizProducts)
-      .leftJoin(cyberbizProductCategories, eq(cyberbizProductCategories.sku, cyberbizProducts.sku))
-      .leftJoin(reportProductCategories, eq(reportProductCategories.id, cyberbizProductCategories.categoryId))
-      .where(eq(cyberbizProducts.sku, sku))
-      .limit(1);
+    const useTargetCatalog = !await hasTable(db, "report_manual_sales_monthly")
+      || !await hasTable(db, "cyberbiz_products_legacy")
+      || !await hasTable(db, "cyberbiz_product_categories")
+      || !await hasTable(db, "report_product_categories");
+    const [product] = useTargetCatalog
+      ? await db.select({
+        sku: itemMasters.sku,
+        productName: targetCyberbizProducts.productName,
+        variantName: targetCyberbizProducts.variantName,
+        categoryName: itemCategories.name,
+      }).from(targetCyberbizProducts)
+        .innerJoin(itemMasters, eq(itemMasters.id, targetCyberbizProducts.itemId))
+        .leftJoin(itemCategories, eq(itemCategories.id, itemMasters.categoryId))
+        .where(eq(itemMasters.sku, sku)).limit(1)
+      : await db.select({
+        ...getTableColumns(cyberbizProducts),
+        categoryName: reportProductCategories.name,
+      }).from(cyberbizProducts)
+        .leftJoin(cyberbizProductCategories, eq(cyberbizProductCategories.sku, cyberbizProducts.sku))
+        .leftJoin(reportProductCategories, eq(reportProductCategories.id, cyberbizProductCategories.categoryId))
+        .where(eq(cyberbizProducts.sku, sku)).limit(1);
     if (!product) throw new ReportManualError("not_found", `找不到 CYBERBIZ SKU「${sku}」。`);
     productName = formatCyberbizProductName(product);
     category = product.categoryName ?? "未分類";
@@ -327,12 +353,11 @@ async function prepareSales(
     if (input.categoryId !== undefined) {
       const categoryId = input.categoryId?.trim() ?? "";
       if (categoryId) {
-        const [selectedCategory] = await db.select({ name: reportProductCategories.name })
-          .from(reportProductCategories)
-          .where(eq(reportProductCategories.id, categoryId))
-          .limit(1);
-        if (!selectedCategory) throw new ReportManualError("not_found", "找不到指定商品分類。");
-        category = selectedCategory.name;
+        const selectedCategory = await (await hasTable(db, "report_manual_sales_monthly")
+          ? db.select({ name: reportProductCategories.name }).from(reportProductCategories).where(eq(reportProductCategories.id, categoryId)).limit(1)
+          : db.select({ name: itemCategories.name }).from(itemCategories).where(eq(itemCategories.id, categoryId)).limit(1));
+        if (!selectedCategory[0]) throw new ReportManualError("not_found", "找不到指定商品分類。");
+        category = selectedCategory[0].name;
       } else {
         category = "未分類";
       }
@@ -389,8 +414,10 @@ function salesPayload(row: any) {
 }
 
 async function scopeNames(db: Database): Promise<Map<string, string>> {
-  return new Map((await db.select({ id: reportScopes.id, name: reportScopes.name }).from(reportScopes))
-    .map((scope) => [scope.id, scope.name]));
+  const rows = await (await hasTable(db, "report_scopes")
+    ? db.select({ id: reportScopes.id, name: reportScopes.name }).from(reportScopes)
+    : db.select({ id: targetScopes.id, name: targetScopes.name }).from(targetScopes));
+  return new Map(rows.map((scope) => [scope.id, scope.name]));
 }
 
 async function findTargetManualPayout(db: Database, id: string) {
@@ -411,12 +438,18 @@ async function findTargetManualSales(db: Database, id: string) {
 }
 
 async function ensureTargetSalesItem(db: Database, prepared: Awaited<ReturnType<typeof prepareSales>>, now: string) {
-  const [existing] = await db.select({ id: itemMasters.id }).from(itemMasters)
-    .where(and(eq(itemMasters.source, prepared.skuSource), eq(itemMasters.sku, prepared.sku))).limit(1);
-  if (existing) return existing;
   const [category] = prepared.category && prepared.category !== "未分類"
     ? await db.select({ id: itemCategories.id }).from(itemCategories).where(eq(itemCategories.name, prepared.category)).limit(1)
     : [];
+  const [existing] = await db.select({ id: itemMasters.id, categoryId: itemMasters.categoryId }).from(itemMasters)
+    .where(and(eq(itemMasters.source, prepared.skuSource), eq(itemMasters.sku, prepared.sku))).limit(1);
+  if (existing) {
+    if (prepared.skuSource === "custom") {
+      const categoryId = category?.id ?? (prepared.category === "未分類" ? null : existing.categoryId);
+      await db.update(itemMasters).set({ name: prepared.productName, categoryId, updatedAt: now }).where(eq(itemMasters.id, existing.id));
+    }
+    return { id: existing.id };
+  }
   const id = crypto.randomUUID();
   await db.insert(itemMasters).values({
     id,

@@ -1,9 +1,19 @@
 import {
+  addProductSkuMapping,
   createDatabase,
+  createReportProductCategory,
+  deleteProductSkuMapping,
   ignoreReportExternalProduct,
+  deleteReportProductCategory,
+  listCyberbizProductCategoryManagement,
+  listProductCategoryOptions,
+  loadProductSkuMappingManagement,
   resolveReportExternalProduct,
   schema,
+  setCyberbizProductCategory,
   unignoreReportExternalProduct,
+  updateProductSkuMapping,
+  updateReportProductCategory,
 } from "@rueisiang/db";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -40,5 +50,75 @@ describe("報表外部商品管理", () => {
 
     await unignoreReportExternalProduct(db(), { id: resolved.id, actor: ACTOR });
     expect(await db().select().from(schema.reportExternalProducts).where(eq(schema.reportExternalProducts.id, resolved.id))).toEqual([]);
+  });
+
+  it("刪除 legacy 分類表後仍能管理 target CYBERBIZ 商品分類", async () => {
+    const itemId = "target-cyberbiz-item";
+    await db().insert(schema.items).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku: "CB-TARGET-001", name: "Target 官網商品", active: 1 });
+    await db().insert(schema.targetCyberbizProducts).values({
+      itemId, cyberbizProductId: "target-product", cyberbizVariantId: "target-variant", productName: "Target 官網商品", variantName: "大包裝", published: 1,
+    });
+    await d1.exec(`
+      PRAGMA foreign_keys = OFF;
+      DROP TABLE report_product_categories;
+      DROP TABLE cyberbiz_product_categories;
+      DROP TABLE cyberbiz_products_legacy;
+      DROP TRIGGER IF EXISTS trg_cyberbiz_products_compat_insert;
+      DROP TRIGGER IF EXISTS trg_cyberbiz_products_compat_update;
+      DROP VIEW cyberbiz_products_compat;
+      PRAGMA foreign_keys = ON;
+    `);
+
+    const created = await createReportProductCategory(db(), { name: "Target 分類", color: "teal", actor: ACTOR });
+    expect(created).toMatchObject({ name: "Target 分類", color: "teal" });
+    expect(await setCyberbizProductCategory(db(), { sku: "CB-TARGET-001", categoryId: created.id, actor: ACTOR }))
+      .toMatchObject({ sku: "CB-TARGET-001", categoryId: created.id, categoryName: "Target 分類" });
+    expect((await listCyberbizProductCategoryManagement(db())).products).toMatchObject([{
+      sku: "CB-TARGET-001", name: "Target 官網商品（大包裝）", categoryId: created.id, categoryName: "Target 分類",
+    }]);
+    expect(await listProductCategoryOptions(db())).toMatchObject([{
+      id: created.id, name: "Target 分類", color: "teal", skuCount: 1, usageCount: 1,
+    }]);
+
+    const updated = await updateReportProductCategory(db(), created.id, { name: "Target 分類修訂", color: "amber", actor: ACTOR });
+    expect(updated).toMatchObject({ id: created.id, name: "Target 分類修訂", color: "amber" });
+    expect((await listCyberbizProductCategoryManagement(db())).products[0]).toMatchObject({ categoryName: "Target 分類修訂" });
+    await expect(deleteReportProductCategory(db(), created.id, ACTOR)).rejects.toMatchObject({ kind: "conflict" });
+    await setCyberbizProductCategory(db(), { sku: "CB-TARGET-001", categoryId: null, actor: ACTOR });
+    await deleteReportProductCategory(db(), created.id, ACTOR);
+    expect(await db().select().from(schema.itemCategories)).toEqual([]);
+  });
+
+  it("刪除 legacy mapping 表後仍能管理 target 單一用料 mapping", async () => {
+    const wmsItemId = "target-wms-item";
+    await db().insert(schema.items).values({ id: wmsItemId, source: "custom", kind: "sellable", sku: "WMS-TARGET-001", name: "WMS Target 商品", active: 1 });
+    await db().insert(schema.wmsItems).values({ itemId: wmsItemId, quantity: 4, unit: "件", minStock: 1, notes: "" });
+    await d1.exec("PRAGMA foreign_keys = OFF; DROP TABLE product_sku_mappings; DROP TABLE product_bundle_components; DROP TABLE custom_report_products; DROP TABLE report_sku_ignores; PRAGMA foreign_keys = ON;");
+
+    const created = await addProductSkuMapping(db(), {
+      channel: "Shopee", externalName: "Target 外部商品", externalSku: "target-ext-001",
+      components: [{ customSku: "TARGET-CUSTOM-001", customName: "Target 自訂用料", customCategory: "未分類", quantity: 1 }], actor: ACTOR,
+    });
+    expect(created).toMatchObject({ channel: "shopee", externalSku: "TARGET-EXT-001" });
+    const createdManagement = await loadProductSkuMappingManagement(db());
+    expect(createdManagement.mappings).toMatchObject([{
+      id: created.id,
+      channel: "shopee",
+      components: [{ source: "custom", sku: "TARGET-CUSTOM-001", name: "Target 自訂用料", quantity: 1 }],
+    }]);
+
+    const updated = await updateProductSkuMapping(db(), {
+      id: created.id, channel: "shopee", externalName: "Target 外部商品修訂", externalSku: "target-ext-002",
+      components: [{ inventoryItemId: wmsItemId, quantity: 1 }], actor: ACTOR,
+    });
+    expect(updated).toMatchObject({ id: created.id, externalSku: "TARGET-EXT-002" });
+    expect((await loadProductSkuMappingManagement(db())).mappings).toMatchObject([{
+      id: created.id,
+      externalSku: "TARGET-EXT-002",
+      components: [{ source: "item", inventoryItemId: wmsItemId, sku: "WMS-TARGET-001", quantity: 1 }],
+    }]);
+
+    await deleteProductSkuMapping(db(), created.id, ACTOR);
+    expect((await loadProductSkuMappingManagement(db())).mappings).toEqual([]);
   });
 });

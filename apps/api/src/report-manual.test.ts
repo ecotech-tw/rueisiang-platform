@@ -375,40 +375,56 @@ describe("報表人工修訂資料", () => {
   });
 
   it("刪除 legacy 報表表後仍可用 target 表完成人工 CRUD 與查詢", async () => {
-    await d1.exec("PRAGMA foreign_keys = OFF; DROP TABLE report_sales_monthly; DROP TABLE report_payout_daily; DROP TABLE report_manual_sales_monthly; DROP TABLE report_manual_payout_daily; PRAGMA foreign_keys = ON;");
+    await d1.exec("PRAGMA foreign_keys = OFF; DROP TABLE report_sales_monthly; DROP TABLE report_payout_daily; DROP TABLE report_manual_sales_monthly; DROP TABLE report_manual_payout_daily; DROP TABLE report_scopes; DROP TABLE report_product_categories; PRAGMA foreign_keys = ON;");
+    await db().insert(schema.itemCategories).values({ id: "target-manual-category", name: "Target 人工分類", color: "rose" });
 
+    await insertReportPayoutDaily(db(), [{ scopeId: SCOPE, businessDate: "2026-09-01", payoutAmount: 1000 }]);
     const payout = await createReportManualPayout(db(), {
       scopeId: SCOPE,
       businessDate: "2026-09-01",
       payoutAmount: 1234,
       actor: ACTOR,
     });
-    expect((await queryReportPayout(db(), {
-      range: { period: "2026-09", startDate: "2026-09-01", endDate: "2026-09-30" },
-      scopeType: "store",
-      scopeId: SCOPE,
-      groupBy: ["day"],
-    }))?.totals).toEqual({ payoutAmount: 1234 });
+    const payoutPage = await listReportPayoutRecords(db(), {
+      scopeId: SCOPE, page: 1, pageSize: 10, sortField: "businessDate", sortDirection: "asc",
+    });
+    expect(payoutPage.rows).toMatchObject([{ source: "manual", businessDate: "2026-09-01", payoutAmount: 1234 }]);
+    const updatedPayout = await updateReportManualPayout(db(), { ...payout, payoutAmount: 2345, actor: ACTOR });
+    expect(updatedPayout.payoutAmount).toBe(2345);
     await deleteReportManualPayout(db(), payout.id, ACTOR);
 
+    await insertReportSalesMonthly(db(), [{
+      scopeId: SCOPE, reportMonth: "2026-09", sku: "TARGET-IMPORTED-SKU", productName: "Target 匯入商品",
+      category: "Target 人工分類", grossQuantity: 4, returnQuantity: 1, netQuantity: 3, salesAmount: 300,
+    }]);
     const sales = await createReportManualSales(db(), {
       scopeId: SCOPE,
       reportMonth: "2026-09",
       skuSource: "custom",
-      sku: "TARGET-MANUAL-SKU",
+      sku: "TARGET-IMPORTED-SKU",
       productName: "Target 人工商品",
+      category: "Target 人工分類",
+      categoryId: "target-manual-category",
       grossQuantity: 3,
       returnQuantity: 0,
       netQuantity: 3,
       salesAmount: 456,
       actor: ACTOR,
     });
+    const salesPage = await listReportSalesRecords(db(), {
+      scopeId: SCOPE, search: "Target 人工商品", page: 1, pageSize: 10, sortField: "sku", sortDirection: "asc",
+    });
+    expect(salesPage.rows).toMatchObject([{ source: "manual", sku: "TARGET-IMPORTED-SKU", productName: "Target 人工商品", salesAmount: 456 }]);
+    const updatedSales = await updateReportManualSales(db(), {
+      id: sales.id, scopeId: SCOPE, reportMonth: "2026-09", skuSource: "custom", sku: "TARGET-IMPORTED-SKU",
+      productName: "Target 人工商品（修訂）", category: "Target 人工分類", categoryId: "target-manual-category",
+      grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 600, actor: ACTOR,
+    });
+    expect(updatedSales.productName).toBe("Target 人工商品（修訂）");
     expect((await queryReportSales(db(), {
       range: { period: "2026-09", startDate: "2026-09-01", endDate: "2026-09-30" },
-      scopeType: "store",
-      scopeId: SCOPE,
-      groupBy: ["sku"],
-    }))?.totals).toMatchObject({ netQuantity: 3, salesAmount: 456 });
+      scopeType: "store", scopeId: SCOPE, groupBy: ["sku"],
+    }))?.totals).toMatchObject({ netQuantity: 4, salesAmount: 600 });
     await deleteReportManualSales(db(), sales.id, ACTOR);
   });
 });

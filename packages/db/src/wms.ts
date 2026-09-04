@@ -3,6 +3,7 @@ import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 import { itemComponents, items as itemMasters } from "./schema/items.js";
+import { reportExternalProducts } from "./schema/reports.js";
 import { mediaObjects } from "./schema/media.js";
 import {
   customReportProducts,
@@ -617,6 +618,21 @@ async function resolveTargetShelf(db: Database, zoneId: string | null, shelfCode
  */
 async function requireSkuAvailableForExternalMappings(db: Database, sku: string | null, inventoryItemId?: string) {
   if (!sku) return;
+  if (!await hasTable(db, "product_sku_mappings")) {
+    const [owner] = await db.select({ channel: reportExternalProducts.sourceType, externalSku: reportExternalProducts.externalKey })
+      .from(reportExternalProducts)
+      .where(and(
+        eq(reportExternalProducts.externalKey, sku),
+        eq(reportExternalProducts.resolution, "mapped"),
+        inventoryItemId ? sql`NOT (${reportExternalProducts.itemId} = ${inventoryItemId})` : sql`1 = 1`,
+      )).limit(1);
+    if (owner) throw new WmsError("conflict", `WMS SKU「${sku}」已被外部 SKU 對應「${owner.channel} · ${owner.externalSku}」使用。`);
+    const [customOwner] = await db.select({ sku: itemMasters.sku, name: itemMasters.name }).from(itemMasters)
+      .leftJoin(wmsItems, eq(wmsItems.itemId, itemMasters.id))
+      .where(and(eq(itemMasters.source, "custom"), eq(itemMasters.sku, sku), isNull(wmsItems.itemId))).limit(1);
+    if (customOwner) throw new WmsError("conflict", `WMS SKU「${sku}」已被自訂商品主檔「${customOwner.name}」使用，請先改掉那筆自訂 SKU。`);
+    return;
+  }
   const conflicting = await db
     .select({ channel: productSkuMappings.channel, externalSku: productSkuMappings.externalSku })
     .from(productSkuMappings)

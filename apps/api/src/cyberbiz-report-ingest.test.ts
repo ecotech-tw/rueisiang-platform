@@ -748,6 +748,54 @@ describe("報表月資料匯入", () => {
     ]);
   });
 
+  it("刪除 legacy 報表與 mapping 表後仍能用 target scope、外部對應與事實表完成匯入", async () => {
+    await db().insert(schema.items).values([
+      { id: "target-import-item", source: "custom", kind: "sellable", sku: "TARGET-EXT", name: "Target 商品", active: 1 },
+      { id: "target-direct-item", source: "custom", kind: "sellable", sku: "TARGET-DIRECT", name: "Target 直連商品", active: 1 },
+    ]);
+    await db().insert(schema.wmsItems).values({ itemId: "target-direct-item", quantity: 2, unit: "件", minStock: 1, notes: "" });
+    await db().insert(schema.reportExternalProducts).values({
+      id: "target-import-mapping", sourceType: "shopee", externalKey: "TARGET-EXT", externalVariantKey: "",
+      externalName: "外部 Target 商品", resolution: "mapped", itemId: "target-import-item", ignoredReason: "",
+    });
+    await d1.exec(`
+      PRAGMA foreign_keys = OFF;
+      DROP TABLE report_sales_monthly;
+      DROP TABLE report_payout_daily;
+      DROP TABLE report_manual_sales_monthly;
+      DROP TABLE report_manual_payout_daily;
+      DROP TABLE report_scopes;
+      DROP TABLE report_product_categories;
+      DROP TABLE product_sku_mappings;
+      DROP TABLE product_bundle_components;
+      DROP TABLE report_sku_ignores;
+      DROP TABLE custom_report_products;
+      DROP TABLE inventory_items;
+      DROP TABLE cyberbiz_product_categories;
+      DROP TABLE cyberbiz_products_legacy;
+      DROP TRIGGER IF EXISTS trg_cyberbiz_products_compat_insert;
+      DROP TRIGGER IF EXISTS trg_cyberbiz_products_compat_update;
+      DROP VIEW cyberbiz_products_compat;
+      PRAGMA foreign_keys = ON;
+    `);
+
+    const response = await request(shopeeBundle([
+      salesRow("TARGET-EXT", 250, { grossQuantity: 2, netQuantity: 2 }),
+      salesRow("TARGET-DIRECT", 125),
+    ], [{ businessDate: "2026-07-01", payoutAmount: 75 }], "2026-07"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { rowCount: 3, salesRowCount: 2, payoutRowCount: 1, skippedSkus: [] } });
+    expect(await db().select({ sku: schema.items.sku }).from(schema.items).where(eq(schema.items.id, "target-import-item")))
+      .toEqual([{ sku: "TARGET-EXT" }]);
+    expect(await db().select({ itemId: schema.reportItemSalesMonthly.itemId, recordOrigin: schema.reportItemSalesMonthly.recordOrigin, salesAmount: schema.reportItemSalesMonthly.salesAmount }).from(schema.reportItemSalesMonthly).orderBy(schema.reportItemSalesMonthly.itemId))
+      .toEqual([
+        { itemId: "target-direct-item", recordOrigin: "imported", salesAmount: 125 },
+        { itemId: "target-import-item", recordOrigin: "imported", salesAmount: 250 },
+      ]);
+    expect(await db().select({ recordOrigin: schema.targetReportPayoutDaily.recordOrigin, payoutAmount: schema.targetReportPayoutDaily.payoutAmount }).from(schema.targetReportPayoutDaily))
+      .toEqual([{ recordOrigin: "imported", payoutAmount: 75 }]);
+  });
+
   it("公司查詢會把 CYBERBIZ 與蝦皮的相同 WMS SKU 一起加總", async () => {
     expect((await request(salesBody([salesRow("WMS-001", 100), salesRow("WMS-001", 50)]))).status).toBe(200);
     expect((await request(shopeeBundle([salesRow("P-001", 0, { grossQuantity: 3, netQuantity: 3 })]))).status).toBe(200);

@@ -22,7 +22,7 @@ export {
   type UserRoleAssignment,
 } from "./auth.js";
 export * from "./crm.js";
-export { itemCategories, itemComponents, items };
+export { itemCategories, itemComponents, items, cyberbizProducts as targetCyberbizProducts } from "./items.js";
 export type ItemCategory = typeof itemCategories.$inferSelect;
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;

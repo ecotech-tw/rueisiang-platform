@@ -247,4 +247,31 @@ describe("報表 scope migration", () => {
     expect(sqlite.prepare("SELECT sku, category_id FROM cyberbiz_product_categories").all())
       .toEqual([{ sku: "SOAP-001", category_id: "report-legacy-bath" }]);
   });
+
+  it("0084 以舊商品 SKU 解析 target item，且正規化外部 SKU，不把 legacy ID 當 target FK", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0073_lame_shinko_yamashiro.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("legacy-mapping-item", "MIGRATE-ITEM-001", "搬移商品");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, channel, external_name, external_sku) VALUES (?, ?, ?, ?)")
+      .run("mapping-normalize", "Shopee", "外部商品", " ext-migrate-001 ");
+    sqlite.prepare("INSERT INTO product_bundle_components (id, mapping_id, inventory_item_id, quantity) VALUES (?, ?, ?, ?)")
+      .run("mapping-normalize:0", "mapping-normalize", "legacy-mapping-item", 1);
+
+    applyLikeD1(sqlite, "0073_lame_shinko_yamashiro.sql", "0084_report_external_mapping_backfill.sql");
+
+    expect(sqlite.prepare(`
+      SELECT external.source_type, external.external_key, external.item_id, item.source, item.sku
+      FROM report_external_products external
+      JOIN items item ON item.id = external.item_id
+      WHERE external.id = 'backfill:external:mapping-normalize'
+    `).all()).toEqual([{
+      source_type: "shopee",
+      external_key: "EXT-MIGRATE-001",
+      item_id: "legacy-mapping-item",
+      source: "custom",
+      sku: "MIGRATE-ITEM-001",
+    }]);
+  });
 });

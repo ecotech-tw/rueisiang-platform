@@ -1,4 +1,4 @@
-import { asc, count, eq, getTableColumns } from "drizzle-orm";
+import { and, asc, count, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
@@ -7,10 +7,17 @@ import {
   customReportProducts,
   cyberbizProductCategories,
   cyberbizProducts,
+  wmsItems,
 } from "./schema/wms.js";
+import { itemCategories, cyberbizProducts as targetCyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { reportProductCategories } from "./schema/report-products.js";
 import { normalizeExternalSku } from "./product-sku-mappings.js";
 import { WmsError, type Actor } from "./wms.js";
+
+async function hasTable(db: Database, name: string): Promise<boolean> {
+  const row = await db.get<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${name} LIMIT 1`);
+  return Boolean(row);
+}
 
 export interface ProductCategoryOption {
   id: string;
@@ -63,8 +70,30 @@ function requireReportCategoryName(value: unknown): string {
   return name;
 }
 
+async function listTargetProductCategoryOptions(db: Database): Promise<ProductCategoryOption[]> {
+  const [categoryRows, cyberbizCounts, customCounts] = await Promise.all([
+    db.select({ id: itemCategories.id, name: itemCategories.name, color: itemCategories.color }).from(itemCategories).orderBy(asc(itemCategories.name)),
+    db.select({ categoryId: itemMasters.categoryId, total: count() }).from(itemMasters)
+      .innerJoin(targetCyberbizProducts, eq(targetCyberbizProducts.itemId, itemMasters.id))
+      .groupBy(itemMasters.categoryId),
+    db.select({ categoryId: itemMasters.categoryId, total: count() }).from(itemMasters)
+      .leftJoin(wmsItems, eq(wmsItems.itemId, itemMasters.id))
+      .where(and(eq(itemMasters.source, "custom"), isNull(wmsItems.itemId)))
+      .groupBy(itemMasters.categoryId),
+  ]);
+  const skuCounts = new Map(cyberbizCounts.map((row) => [row.categoryId ?? "", Number(row.total)]));
+  const customProductCounts = new Map(customCounts.map((row) => [row.categoryId ?? "", Number(row.total)]));
+  return categoryRows.map((row) => ({
+    ...row,
+    skuCount: skuCounts.get(row.id) ?? 0,
+    customProductCount: customProductCounts.get(row.id) ?? 0,
+    usageCount: (skuCounts.get(row.id) ?? 0) + (customProductCounts.get(row.id) ?? 0),
+  }));
+}
+
 /** 商品分類選項只讀報表自己的主檔；WMS 倉儲分類不會出現在這裡。 */
 export async function listProductCategoryOptions(db: Database): Promise<ProductCategoryOption[]> {
+  if (!await hasTable(db, "report_product_categories")) return listTargetProductCategoryOptions(db);
   const [categoryRows, skuCountRows, customCountRows] = await Promise.all([
     db.select({
       id: reportProductCategories.id,
@@ -94,6 +123,27 @@ export async function listProductCategoryOptions(db: Database): Promise<ProductC
 export async function listCyberbizProductCategoryManagement(
   db: Database,
 ): Promise<CyberbizProductCategoryManagementData> {
+  if (!await hasTable(db, "cyberbiz_product_categories")) {
+    const [productRows, categories] = await Promise.all([
+      db.select({
+        sku: itemMasters.sku,
+        productName: targetCyberbizProducts.productName,
+        variantName: targetCyberbizProducts.variantName,
+        published: targetCyberbizProducts.published,
+        categoryId: itemMasters.categoryId,
+        categoryName: itemCategories.name,
+        categoryColor: itemCategories.color,
+      }).from(targetCyberbizProducts)
+        .innerJoin(itemMasters, eq(itemMasters.id, targetCyberbizProducts.itemId))
+        .leftJoin(itemCategories, eq(itemCategories.id, itemMasters.categoryId))
+        .orderBy(asc(targetCyberbizProducts.productName), asc(targetCyberbizProducts.variantName), asc(itemMasters.sku)),
+      listProductCategoryOptions(db),
+    ]);
+    return {
+      products: productRows.map((row) => ({ sku: row.sku, name: formatCyberbizProductName(row), published: row.published === 1, categoryId: row.categoryId ?? null, categoryName: row.categoryName ?? null, categoryColor: row.categoryColor ?? null })),
+      categories,
+    };
+  }
   const [productRows, categories] = await Promise.all([
     db.select({
       ...getTableColumns(cyberbizProducts),
@@ -132,6 +182,26 @@ export async function setCyberbizProductCategory(
 ): Promise<CyberbizProductCategoryWriteResult> {
   const sku = normalizeExternalSku(input.sku);
   if (!sku) throw new WmsError("invalid", "請提供要設定分類的 SKU。");
+
+  if (!await hasTable(db, "cyberbiz_product_categories")) {
+    const [product] = await db.select({ id: itemMasters.id, sku: itemMasters.sku, categoryId: itemMasters.categoryId })
+      .from(targetCyberbizProducts).innerJoin(itemMasters, eq(itemMasters.id, targetCyberbizProducts.itemId))
+      .where(eq(itemMasters.sku, sku)).limit(1);
+    if (!product) throw new WmsError("not_found", `找不到 CYBERBIZ SKU「${sku}」。`);
+    const categoryId = input.categoryId?.trim() || null;
+    let categoryName: string | null = null;
+    if (categoryId) {
+      const [category] = await db.select({ id: itemCategories.id, name: itemCategories.name }).from(itemCategories).where(eq(itemCategories.id, categoryId)).limit(1);
+      if (!category) throw new WmsError("not_found", "找不到指定的商品分類。");
+      categoryName = category.name;
+    }
+    if (product.categoryId === categoryId) return { sku, categoryId, categoryName };
+    await db.batch([
+      db.update(itemMasters).set({ categoryId, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, product.id)),
+      db.insert(activityEvents).values(activityRow({ entityType: "cyberbiz_product_category", entityId: sku, entityLabel: sku, eventType: "cyberbiz_product_category_updated", summary: "更新 CYBERBIZ 商品分類", field: "category", oldValue: product.categoryId, newValue: categoryName, actor: input.actor, source: "wms" })),
+    ] as never);
+    return { sku, categoryId, categoryName };
+  }
 
   const [product] = await db.select({ sku: cyberbizProducts.sku })
     .from(cyberbizProducts)
@@ -195,6 +265,16 @@ export async function createReportProductCategory(
   input: { name: string; color?: unknown; actor: Actor },
 ): Promise<ReportProductCategoryWriteResult> {
   const name = requireReportCategoryName(input.name);
+  if (!await hasTable(db, "report_product_categories")) {
+    const [duplicate] = await db.select({ id: itemCategories.id }).from(itemCategories).where(eq(itemCategories.name, name)).limit(1);
+    if (duplicate) throw new WmsError("conflict", `商品分類「${name}」已經存在。`);
+    const category = { id: crypto.randomUUID(), name, color: normalizeReportCategoryColor(input.color, "rose"), depth: 0, parentId: null, parentDepth: null, sortOrder: 0, active: 1 };
+    await db.batch([
+      db.insert(itemCategories).values(category),
+      db.insert(activityEvents).values(activityRow({ entityType: "report_product_category", entityId: category.id, entityLabel: category.name, eventType: "report_product_category_created", summary: "新增商品分類", payload: category, actor: input.actor, source: "reports" })),
+    ] as never);
+    return { id: category.id, name: category.name, color: category.color };
+  }
   const [duplicate] = await db.select({ id: reportProductCategories.id })
     .from(reportProductCategories)
     .where(eq(reportProductCategories.name, name))
@@ -228,6 +308,21 @@ export async function updateReportProductCategory(
   id: string,
   input: { name?: string; color?: unknown; actor: Actor },
 ): Promise<ReportProductCategoryWriteResult> {
+  if (!await hasTable(db, "report_product_categories")) {
+    const [current] = await db.select().from(itemCategories).where(eq(itemCategories.id, id)).limit(1);
+    if (!current) throw new WmsError("not_found", "找不到這個商品分類。");
+    const name = input.name === undefined ? current.name : requireReportCategoryName(input.name);
+    if (name !== current.name) {
+      const [duplicate] = await db.select({ id: itemCategories.id }).from(itemCategories).where(eq(itemCategories.name, name)).limit(1);
+      if (duplicate && duplicate.id !== id) throw new WmsError("conflict", `商品分類「${name}」已經存在。`);
+    }
+    const next = { name, color: normalizeReportCategoryColor(input.color, current.color) };
+    await db.batch([
+      db.update(itemCategories).set({ ...next, updatedAt: new Date().toISOString() }).where(eq(itemCategories.id, id)),
+      db.insert(activityEvents).values(activityRow({ entityType: "report_product_category", entityId: id, entityLabel: name, eventType: "report_product_category_updated", summary: name !== current.name ? "重新命名商品分類" : "修改商品分類顏色", field: name !== current.name ? "name" : "color", oldValue: name !== current.name ? current.name : current.color, newValue: name !== current.name ? name : next.color, payload: { before: current, after: next }, actor: input.actor, source: "reports" })),
+    ] as never);
+    return { id, ...next };
+  }
   const [current] = await db.select().from(reportProductCategories)
     .where(eq(reportProductCategories.id, id)).limit(1);
   if (!current) throw new WmsError("not_found", "找不到這個商品分類。");
@@ -269,6 +364,17 @@ export async function updateReportProductCategory(
 
 /** 刪除前擋住仍有現行商品使用的分類；歷史 report snapshot 不在這個檢查範圍。 */
 export async function deleteReportProductCategory(db: Database, id: string, actor: Actor): Promise<void> {
+  if (!await hasTable(db, "report_product_categories")) {
+    const [category] = await db.select().from(itemCategories).where(eq(itemCategories.id, id)).limit(1);
+    if (!category) throw new WmsError("not_found", "找不到這個商品分類。");
+    const [usage] = await db.select({ total: count() }).from(itemMasters).where(eq(itemMasters.categoryId, id));
+    if (Number(usage?.total ?? 0)) throw new WmsError("conflict", `商品分類「${category.name}」仍被 ${Number(usage?.total ?? 0)} 個品項使用，請先改分其他分類。`);
+    await db.batch([
+      db.delete(itemCategories).where(eq(itemCategories.id, id)),
+      db.insert(activityEvents).values(activityRow({ entityType: "report_product_category", entityId: id, entityLabel: category.name, eventType: "report_product_category_deleted", summary: "刪除商品分類", payload: category, actor, source: "reports" })),
+    ] as never);
+    return;
+  }
   const [category] = await db.select().from(reportProductCategories)
     .where(eq(reportProductCategories.id, id)).limit(1);
   if (!category) throw new WmsError("not_found", "找不到這個商品分類。");

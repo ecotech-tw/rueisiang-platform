@@ -6,13 +6,16 @@ import {
   reportPayoutDaily,
   reportSalesMonthly,
   reportScopes,
+  reportRuns,
+  reportRunScopes,
+  scopes as targetScopes,
   targetReportPayoutDaily,
   type NewReportPayoutDaily,
   type NewReportSalesMonthly,
   type ReportScope,
   type ReportScopeKind,
 } from "./schema/reports.js";
-import { items as itemMasters } from "./schema/items.js";
+import { itemCategories, items as itemMasters } from "./schema/items.js";
 import { customReportProducts, inventoryItems, productBundleComponents, productSkuMappings } from "./schema/wms.js";
 import { legacyShopeeExternalSku, reportDataChannel } from "./product-sku-mappings.js";
 
@@ -21,6 +24,86 @@ export type { ReportManualSkuSource, ReportPayoutDaily, ReportScopeKind } from "
 async function hasTable(db: Database, name: string): Promise<boolean> {
   const row = await db.get<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${name} LIMIT 1`);
   return Boolean(row);
+}
+
+/**
+ * 舊版手動匯入沒有 run ID，但 target imported row 不能用 NULL 偽裝成歷史資料。
+ * target-only DB 遇到這條入口時建立一筆可追查的 system import run，讓 FK 與 origin
+ * 的語意都維持一致；自動 ingest 傳入的 run ID 則沿用原本的 run。
+ */
+async function ensureTargetImportRun(
+  db: Database,
+  input: {
+    reportRunId?: string;
+    sourceType: string;
+    importsSales: boolean;
+    importsPayout: boolean;
+    scopeIds: readonly string[];
+    startDate: string;
+    endDate: string;
+  },
+): Promise<string | undefined> {
+  if (input.reportRunId) return input.reportRunId;
+  if (!input.scopeIds.length) return undefined;
+  const id = crypto.randomUUID();
+  const requestId = `target-import:${id}`;
+  await db.batch([
+    db.insert(reportRuns).values({
+      id,
+      requestId,
+      sourceType: input.sourceType,
+      importsSales: input.importsSales ? 1 : 0,
+      importsPayout: input.importsPayout ? 1 : 0,
+      periodKind: input.importsSales ? "month" : "custom",
+      startDate: input.startDate,
+      endDate: input.endDate,
+      status: "succeeded",
+      actorEmail: "system@target-import",
+    }),
+    ...[...new Set(input.scopeIds)].map((scopeId) => db.insert(reportRunScopes).values({ reportRunId: id, scopeId })),
+  ] as never);
+  return id;
+}
+
+async function ensureTargetSalesItems(
+  db: Database,
+  rows: readonly NewReportSalesMonthly[],
+  createMissing: boolean,
+): Promise<Map<string, string>> {
+  const wanted = [...new Set(rows.map((row) => row.sku.trim().toLowerCase()).filter(Boolean))];
+  const found = wanted.length
+    ? await db.all<{ id: string; source: string; sku: string }>(sql`SELECT id, source, sku FROM items WHERE lower(sku) IN (${sql.join(wanted.map((sku) => sql`${sku}`), sql`, `)})`)
+    : [];
+  const bySku = new Map<string, { id: string; source: string }>();
+  for (const item of found) {
+    const key = item.sku.toLowerCase();
+    // target item 的 SKU 可能因不同來源重複；WMS／custom 解析結果優先於官網鏡像。
+    const current = bySku.get(key);
+    if (!current || (current.source === "cyberbiz" && item.source !== "cyberbiz")) bySku.set(key, { id: item.id, source: item.source });
+  }
+
+  const categoryNames = [...new Set(rows.map((row) => (row.category ?? "").trim()).filter((category) => category && category !== "未分類"))];
+  const categories = categoryNames.length
+    ? await db.select({ id: itemCategories.id, name: itemCategories.name }).from(itemCategories).where(inArray(itemCategories.name, categoryNames))
+    : [];
+  const categoryByName = new Map(categories.map((category) => [category.name, category.id]));
+  if (createMissing) for (const row of rows) {
+    const sku = row.sku.trim();
+    const key = sku.toLowerCase();
+    if (!sku || bySku.has(key)) continue;
+    const id = crypto.randomUUID();
+    await db.insert(itemMasters).values({
+      id,
+      source: "custom",
+      kind: "sellable",
+      sku,
+      name: (row.productName ?? "").trim() || sku,
+      categoryId: categoryByName.get((row.category ?? "").trim()) ?? null,
+      active: 1,
+    });
+    bySku.set(key, { id, source: "custom" });
+  }
+  return new Map([...bySku].map(([sku, item]) => [sku, item.id]));
 }
 
 export type ReportGroupBy = "day" | "month" | "scope" | "sku" | "category";
@@ -135,10 +218,28 @@ export function isValidReportDate(value: string): boolean {
   return isDate(value);
 }
 
+function asReportScope(scope: typeof targetScopes.$inferSelect): ReportScope {
+  return {
+    id: scope.id,
+    scopeKind: scope.scopeKind as ReportScopeKind,
+    name: scope.name,
+    normalizedName: scope.normalizedName,
+    active: scope.active,
+    createdAt: scope.createdAt,
+    updatedAt: scope.updatedAt,
+  };
+}
+
 export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind): Promise<ReportScope[]> {
-  return db.select().from(reportScopes)
-    .where(and(eq(reportScopes.active, 1), scopeKind ? eq(reportScopes.scopeKind, scopeKind) : undefined))
-    .orderBy(asc(reportScopes.name));
+  if (await hasTable(db, "report_scopes")) {
+    return db.select().from(reportScopes)
+      .where(and(eq(reportScopes.active, 1), scopeKind ? eq(reportScopes.scopeKind, scopeKind) : undefined))
+      .orderBy(asc(reportScopes.name));
+  }
+  const rows = await db.select().from(targetScopes)
+    .where(and(eq(targetScopes.active, 1), scopeKind ? eq(targetScopes.scopeKind, scopeKind) : undefined))
+    .orderBy(asc(targetScopes.name));
+  return rows.map(asReportScope);
 }
 
 /**
@@ -399,48 +500,85 @@ export async function latestReportSalesPeriods(
 
 export async function upsertReportScope(db: Database, input: ReportScopeInput): Promise<ReportScope> {
   const now = new Date().toISOString();
-  await db.insert(reportScopes).values({
+  const name = input.name.trim();
+  const normalizedName = normalizeReportScopeName(name);
+  const active = input.active === false ? 0 : 1;
+  if (await hasTable(db, "report_scopes")) {
+    await db.insert(reportScopes).values({
+      id: input.id,
+      scopeKind: input.scopeKind,
+      name,
+      normalizedName,
+      active,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: reportScopes.id,
+      set: { scopeKind: input.scopeKind, name, normalizedName, active, updatedAt: now },
+    });
+    const [scope] = await db.select().from(reportScopes).where(eq(reportScopes.id, input.id)).limit(1);
+    if (!scope) throw new Error("寫入報表 scope 後找不到資料。");
+    return scope;
+  }
+
+  await db.insert(targetScopes).values({
     id: input.id,
+    sourceType: "report",
     scopeKind: input.scopeKind,
-    name: input.name.trim(),
-    normalizedName: normalizeReportScopeName(input.name),
-    active: input.active === false ? 0 : 1,
+    name,
+    normalizedName,
+    active,
+    driveFolderUrl: "",
+    driveFolderName: "",
+    sortOrder: 0,
     updatedAt: now,
   }).onConflictDoUpdate({
-    target: reportScopes.id,
-    set: {
-      scopeKind: input.scopeKind,
-      name: input.name.trim(),
-      normalizedName: normalizeReportScopeName(input.name),
-      active: input.active === false ? 0 : 1,
-      updatedAt: now,
-    },
+    target: targetScopes.id,
+    set: { scopeKind: input.scopeKind, name, normalizedName, active, updatedAt: now },
   });
-  const [scope] = await db.select().from(reportScopes).where(eq(reportScopes.id, input.id)).limit(1);
-  if (!scope) throw new Error("寫入報表 scope 後找不到資料。");
-  return scope;
+  const [scope] = await db.select().from(targetScopes).where(eq(targetScopes.id, input.id)).limit(1);
+  if (!scope) throw new Error("寫入 target 報表 scope 後找不到資料。");
+  return asReportScope(scope);
 }
 
 export async function findReportScope(
   db: Database,
   input: { scopeKind: ReportScopeKind; id?: string; name?: string },
 ): Promise<ReportScope | null> {
-  if (input.id) {
-    const [scope] = await db.select().from(reportScopes).where(and(
-      eq(reportScopes.id, input.id),
+  if (await hasTable(db, "report_scopes")) {
+    if (input.id) {
+      const [scope] = await db.select().from(reportScopes).where(and(
+        eq(reportScopes.id, input.id),
+        eq(reportScopes.scopeKind, input.scopeKind),
+        eq(reportScopes.active, 1),
+      )).limit(1);
+      return scope ?? null;
+    }
+    if (!input.name) return null;
+    const legacyScopes = await db.select().from(reportScopes).where(and(
       eq(reportScopes.scopeKind, input.scopeKind),
+      eq(reportScopes.normalizedName, normalizeReportScopeName(input.name)),
       eq(reportScopes.active, 1),
+    )).limit(2);
+    if (legacyScopes.length > 1) throw new ReportScopeAmbiguousError(input.scopeKind, input.name);
+    return legacyScopes[0] ?? null;
+  }
+
+  if (input.id) {
+    const [scope] = await db.select().from(targetScopes).where(and(
+      eq(targetScopes.id, input.id),
+      eq(targetScopes.scopeKind, input.scopeKind),
+      eq(targetScopes.active, 1),
     )).limit(1);
-    return scope ?? null;
+    return scope ? asReportScope(scope) : null;
   }
   if (!input.name) return null;
-  const scopes = await db.select().from(reportScopes).where(and(
-    eq(reportScopes.scopeKind, input.scopeKind),
-    eq(reportScopes.normalizedName, normalizeReportScopeName(input.name)),
-    eq(reportScopes.active, 1),
+  const targetRows = await db.select().from(targetScopes).where(and(
+    eq(targetScopes.scopeKind, input.scopeKind),
+    eq(targetScopes.normalizedName, normalizeReportScopeName(input.name)),
+    eq(targetScopes.active, 1),
   )).limit(2);
-  if (scopes.length > 1) throw new ReportScopeAmbiguousError(input.scopeKind, input.name);
-  return scopes[0] ?? null;
+  if (targetRows.length > 1) throw new ReportScopeAmbiguousError(input.scopeKind, input.name);
+  return targetRows[0] ? asReportScope(targetRows[0]) : null;
 }
 
 /** 月份匯入是一次性快照；即使當月零筆，也要清掉該據點該月份的舊 SKU。 */
@@ -512,24 +650,51 @@ export async function insertReportSalesMonthly(
   }
   if (batch.length) await db.batch(batch as [Statement, ...Statement[]]);
 
-  if (target?.reportRunId) {
-    const targetRows = rows.filter((row) => row.scopeId === target.scopeId && row.reportMonth === target.reportMonth);
-    const itemRows = targetRows.length
-      ? await db.select({ id: itemMasters.id, sku: itemMasters.sku }).from(itemMasters).where(sql`lower(${itemMasters.sku}) IN (${sql.join([...new Set(targetRows.map((row) => row.sku.toLowerCase()))].map((sku) => sql`${sku}`), sql`, `)})`)
-      : [];
-    const itemsBySku = new Map(itemRows.filter((item): item is { id: string; sku: string } => Boolean(item.sku)).map((item) => [item.sku.toLowerCase(), item.id]));
-    const mappedRows = targetRows.flatMap((row) => {
-      const itemId = itemsBySku.get(row.sku.toLowerCase());
-      return itemId ? [{ scopeId: row.scopeId, reportMonth: row.reportMonth, itemId, recordOrigin: "imported" as const, reportRunId: target.reportRunId, grossQuantity: row.grossQuantity, returnQuantity: row.returnQuantity, netQuantity: row.netQuantity, salesAmount: row.salesAmount }] : [];
+  /*
+   * legacy 表存在時只有帶 run 的自動匯入才同步 target，避免既有測試與舊 API
+   * 無意間產生兩份資料；legacy 表不存在時，手動匯入也必須直接落到 target。
+   */
+  const targetWriteRequested = !legacySalesExists || Boolean(target?.reportRunId);
+  if (targetWriteRequested) {
+    const targetEntries = legacySalesExists
+      ? target ? [{
+        scopeId: target.scopeId,
+        reportMonth: target.reportMonth,
+        rows: rows.filter((row) => row.scopeId === target.scopeId && row.reportMonth === target.reportMonth),
+        replaceExisting: target.replaceExisting !== false,
+      }] : []
+      : [...months.values()].map((entry) => ({ ...entry, replaceExisting: entry.replaceExisting }));
+    const targetInputRows = targetEntries.flatMap((entry) => entry.rows);
+    const targetMonths = targetEntries.map((entry) => entry.reportMonth).filter(Boolean).sort();
+    const targetRunId = await ensureTargetImportRun(db, {
+      reportRunId: target?.reportRunId,
+      sourceType: "cyberbiz",
+      importsSales: true,
+      importsPayout: false,
+      scopeIds: targetEntries.map((entry) => entry.scopeId),
+      startDate: targetMonths.length ? `${targetMonths[0]}-01` : "1970-01-01",
+      endDate: targetMonths.length ? (() => {
+        const [year, month] = targetMonths.at(-1)!.split("-").map(Number);
+        return new Date(Date.UTC(year!, month!, 0)).toISOString().slice(0, 10);
+      })() : "1970-01-01",
     });
-    const targetStatements: Statement[] = [];
-    if (target.replaceExisting !== false) {
-      targetStatements.push(db.delete(reportItemSalesMonthly).where(and(eq(reportItemSalesMonthly.scopeId, target.scopeId), eq(reportItemSalesMonthly.reportMonth, target.reportMonth), eq(reportItemSalesMonthly.recordOrigin, "imported"))));
+    const itemsBySku = await ensureTargetSalesItems(db, targetInputRows, !legacySalesExists);
+    for (const entry of targetEntries) {
+      const mappedRows = entry.rows.flatMap((row) => {
+        const itemId = itemsBySku.get(row.sku.trim().toLowerCase());
+        return itemId && targetRunId
+          ? [{ scopeId: row.scopeId, reportMonth: row.reportMonth, itemId, recordOrigin: "imported" as const, reportRunId: targetRunId, grossQuantity: row.grossQuantity, returnQuantity: row.returnQuantity, netQuantity: row.netQuantity, salesAmount: row.salesAmount }]
+          : [];
+      });
+      const targetStatements: Statement[] = [];
+      if (entry.replaceExisting) {
+        targetStatements.push(db.delete(reportItemSalesMonthly).where(and(eq(reportItemSalesMonthly.scopeId, entry.scopeId), eq(reportItemSalesMonthly.reportMonth, entry.reportMonth), eq(reportItemSalesMonthly.recordOrigin, "imported"))));
+      }
+      for (const chunk of chunks(mappedRows, 20)) {
+        if (chunk.length) targetStatements.push(db.insert(reportItemSalesMonthly).values(chunk).onConflictDoUpdate({ target: [reportItemSalesMonthly.scopeId, reportItemSalesMonthly.reportMonth, reportItemSalesMonthly.itemId, reportItemSalesMonthly.recordOrigin], set: { reportRunId: targetRunId, grossQuantity: sql`excluded.gross_quantity`, returnQuantity: sql`excluded.return_quantity`, netQuantity: sql`excluded.net_quantity`, salesAmount: sql`excluded.sales_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } }));
+      }
+      if (targetStatements.length) await db.batch(targetStatements as [Statement, ...Statement[]]);
     }
-    for (const chunk of chunks(mappedRows, 20)) {
-      if (chunk.length) targetStatements.push(db.insert(reportItemSalesMonthly).values(chunk).onConflictDoUpdate({ target: [reportItemSalesMonthly.scopeId, reportItemSalesMonthly.reportMonth, reportItemSalesMonthly.itemId, reportItemSalesMonthly.recordOrigin], set: { reportRunId: target.reportRunId, grossQuantity: sql`excluded.gross_quantity`, returnQuantity: sql`excluded.return_quantity`, netQuantity: sql`excluded.net_quantity`, salesAmount: sql`excluded.sales_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } }));
-    }
-    if (targetStatements.length) await db.batch(targetStatements as [Statement, ...Statement[]]);
   }
 }
 
@@ -550,10 +715,23 @@ export async function insertReportPayoutDaily(db: Database, rows: readonly NewRe
   for (const chunk of chunks(statements, 50)) {
     if (chunk.length) await db.batch(chunk as [Statement, ...Statement[]]);
   }
-  if (reportRunId && rows.length) {
-    const targetRows = rows.map((row) => ({ scopeId: row.scopeId, businessDate: row.businessDate, recordOrigin: "imported" as const, reportRunId, payoutAmount: row.payoutAmount }));
+
+  const targetWriteRequested = !legacyPayoutExists || Boolean(reportRunId);
+  if (targetWriteRequested && rows.length) {
+    const dates = rows.map((row) => row.businessDate).sort();
+    const targetId = await ensureTargetImportRun(db, {
+      reportRunId,
+      sourceType: "cyberbiz",
+      importsSales: false,
+      importsPayout: true,
+      scopeIds: rows.map((row) => row.scopeId),
+      startDate: dates[0]!,
+      endDate: dates.at(-1)!,
+    });
+    if (!targetId) return;
+    const targetRows = rows.map((row) => ({ scopeId: row.scopeId, businessDate: row.businessDate, recordOrigin: "imported" as const, reportRunId: targetId, payoutAmount: row.payoutAmount }));
     for (const chunk of chunks(targetRows, 20)) {
-      await db.batch([db.insert(targetReportPayoutDaily).values(chunk).onConflictDoUpdate({ target: [targetReportPayoutDaily.scopeId, targetReportPayoutDaily.businessDate, targetReportPayoutDaily.recordOrigin], set: { reportRunId, payoutAmount: sql`excluded.payout_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } })]);
+      await db.batch([db.insert(targetReportPayoutDaily).values(chunk).onConflictDoUpdate({ target: [targetReportPayoutDaily.scopeId, targetReportPayoutDaily.businessDate, targetReportPayoutDaily.recordOrigin], set: { reportRunId: targetId, payoutAmount: sql`excluded.payout_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } })]);
     }
   }
 }

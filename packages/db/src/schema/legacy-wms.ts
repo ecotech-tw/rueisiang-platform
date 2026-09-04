@@ -143,7 +143,7 @@ export const customReportProducts = sqliteTable("custom_report_products", {
  * 做成 D1 表而不是直接查官網：匯入不能依賴外部服務的可用性。目錄本身（SKU、品名）
  * 很少變，由 variants/update webhook 與 cron 更新。
  */
-export const cyberbizProducts = sqliteTable("cyberbiz_products", {
+export const cyberbizProducts = sqliteTable("cyberbiz_products_compat", {
   /** 官網的 SKU，一律大寫，報表就用這個當商品身分。 */
   sku: text("sku").primaryKey(),
   productId: text("product_id").notNull(),
