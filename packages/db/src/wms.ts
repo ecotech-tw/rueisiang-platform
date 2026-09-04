@@ -530,8 +530,20 @@ export interface ItemInput {
  * 層架 id 存在 inventory_items.shelf_level，是一個沒有外鍵的字串——沒有這道檢查，
  * 打錯的層架 id 會安靜地存進去。
  */
+async function hasTable(db: Database, name: string): Promise<boolean> {
+  const row = await db.get<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${name} LIMIT 1`);
+  return Boolean(row);
+}
+
 async function resolvePlacement(db: Database, zoneId: string | null, shelfLevel: string | null) {
   if (!zoneId) return { zoneId: null, shelfLevel: null };
+
+  const [targetZone] = await db.select({ id: wmsZones.id }).from(wmsZones).where(eq(wmsZones.id, zoneId));
+  if (targetZone) {
+    if (!shelfLevel) return { zoneId, shelfLevel: null };
+    const [shelf] = await db.select({ code: wmsShelves.code }).from(wmsShelves).where(and(eq(wmsShelves.zoneId, zoneId), eq(wmsShelves.code, shelfLevel))).limit(1);
+    return { zoneId, shelfLevel: shelf?.code ?? null };
+  }
 
   const [zone] = await db
     .select({ shelfLevels: zones.shelfLevels })
@@ -549,12 +561,11 @@ async function resolvePlacement(db: Database, zoneId: string | null, shelfLevel:
 
 /** 分類存的是名字不是外鍵，所以要自己確認它真的在分類表裡。 */
 async function requireCategory(db: Database, name: string) {
-  const [row] = await db
-    .select({ id: warehouseCategories.id })
-    .from(warehouseCategories)
-    .where(eq(warehouseCategories.name, name));
-  if (!row) throw new WmsError("invalid", "請選一個已經建立的倉儲分類。");
-  return row.id;
+  const [target] = await db.select({ id: wmsCategories.id }).from(wmsCategories).where(eq(wmsCategories.name, name));
+  if (target) return target.id;
+  const [legacy] = await db.select({ id: warehouseCategories.id }).from(warehouseCategories).where(eq(warehouseCategories.name, name));
+  if (!legacy) throw new WmsError("invalid", "請選一個已經建立的倉儲分類。");
+  return legacy.id;
 }
 
 /** target schema 的品項沒有 legacy inventory_items 的 zone 欄位，位置要從 shelf 反查。 */
@@ -668,11 +679,12 @@ export async function createItem(db: Database, input: ItemInput & { actor: Actor
     minStock: item.minStock,
     notes: item.notes,
   };
+  const legacyInventoryExists = await hasTable(db, "inventory_items");
 
   await db.batch([
-    db.insert(inventoryItems).values(item),
     db.insert(itemMasters).values(targetItem).onConflictDoNothing(),
     db.insert(wmsItems).values(targetWms).onConflictDoNothing(),
+    ...(legacyInventoryExists ? [db.insert(inventoryItems).values(item)] : []),
     writeEvent(db, {
       entityType: "inventory_item",
       entityId: id,
@@ -692,7 +704,10 @@ export async function updateItem(
   id: string,
   input: Partial<ItemInput> & { actor: Actor },
 ) {
-  const [current] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
+  const legacyInventoryExists = await hasTable(db, "inventory_items");
+  const [current] = legacyInventoryExists
+    ? await db.select().from(inventoryItems).where(eq(inventoryItems.id, id))
+    : [];
   if (!current) {
     const [target] = await db
       .select({ item: itemMasters, wms: wmsItems, category: wmsCategories.name, shelf: wmsShelves })
@@ -849,7 +864,10 @@ export async function updateItem(
 }
 
 export async function deleteItem(db: Database, id: string, actor: Actor) {
-  const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
+  const legacyInventoryExists = await hasTable(db, "inventory_items");
+  const [item] = legacyInventoryExists
+    ? await db.select().from(inventoryItems).where(eq(inventoryItems.id, id))
+    : [];
   if (!item) {
     const [target] = await db.select({ item: itemMasters }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).where(eq(wmsItems.itemId, id)).limit(1);
     if (!target) throw new WmsError("not_found", "找不到這項商品。");
