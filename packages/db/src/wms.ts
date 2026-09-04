@@ -16,6 +16,7 @@ import {
   zones,
   wmsCategories,
   wmsItems,
+  wmsLayouts,
   wmsShelves,
   wmsZones,
 } from "./schema/wms.js";
@@ -1147,6 +1148,13 @@ export async function updateWarehouseSettings(
       .values({ id: SETTINGS_ID, ...next })
       .onConflictDoUpdate({
         target: warehouseSettings.id,
+        set: { ...next, updatedAt: sql`CURRENT_TIMESTAMP` },
+      }),
+    db
+      .insert(wmsLayouts)
+      .values({ id: "layout:main", name: "主倉庫", ...next, active: 1 })
+      .onConflictDoUpdate({
+        target: wmsLayouts.id,
         set: { ...next, updatedAt: sql`CURRENT_TIMESTAMP` },
       }),
     writeEvent(db, {
