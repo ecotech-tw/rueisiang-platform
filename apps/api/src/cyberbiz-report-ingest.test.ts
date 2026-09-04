@@ -676,6 +676,8 @@ describe("報表月資料匯入", () => {
     expect(await response.json()).toMatchObject({ result: { skippedSkus: [] } });
     expect(await db().select({ sku: schema.reportSalesMonthly.sku }).from(schema.reportSalesMonthly))
       .toEqual([{ sku: "SKU-1" }]);
+    expect(await db().select({ externalKey: schema.reportExternalProducts.externalKey, resolution: schema.reportExternalProducts.resolution, ignoredReason: schema.reportExternalProducts.ignoredReason }).from(schema.reportExternalProducts))
+      .toEqual([{ externalKey: "RESEND-001", resolution: "ignored", ignoredReason: "匯入設定標記為不納入報表" }]);
   });
 
   it("目錄裡有的商品被標記忽略時，一樣不會進報表", async () => {
