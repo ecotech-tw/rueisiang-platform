@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { useToast } from "../../shell/Toast.js";
 import { ItemForm } from "../wms/ItemForm.js";
 import type { CyberbizCatalogProduct, ProductCategory, Zone } from "../wms/api.js";
 
@@ -118,6 +119,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
   // 舊資料搬移期間少數商品名稱可能是 null；表單不能把它直接交給 trim，否則整頁會白屏。
   const [name, setName] = useState(item.name ?? "");
   const [categoryId, setCategoryId] = useState(item.categoryId ?? "");
+  const toast = useToast();
   const queryClient = useQueryClient();
   const update = useMutation({
     mutationFn: async () => {
@@ -132,6 +134,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["items", "catalog"] });
+      toast.show("品項主檔已更新");
       onClose();
     },
   });

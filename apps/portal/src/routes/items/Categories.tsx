@@ -89,6 +89,7 @@ function EditDialog({ category, categories, onClose }: { category: ItemCategory;
   const [name, setName] = useState(category.name);
   const [parentId, setParentId] = useState(category.parentId ?? "");
   const [color, setColor] = useState(category.color);
+  const toast = useToast();
   const update = useCategoryMutation((input: { id: string; name: string; color: string; parentId: string }) =>
     write(`/api/items/categories/${input.id}`, "PATCH", { name: input.name, color: input.color, parentId: input.parentId || null }),
   );
@@ -103,7 +104,7 @@ function EditDialog({ category, categories, onClose }: { category: ItemCategory;
       formProps={{
         onSubmit: (event) => {
           event.preventDefault();
-          if (trimmed) update.mutate({ id: category.id, name: trimmed, color, parentId }, { onSuccess: onClose });
+          if (trimmed) update.mutate({ id: category.id, name: trimmed, color, parentId }, { onSuccess: () => { toast.show("品項分類已更新"); onClose(); } });
         },
       }}
       actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>取消</Button><Button type="submit" loading={update.isPending} disabled={!trimmed}>儲存</Button></>}
@@ -141,7 +142,7 @@ export function ItemCategories() {
     if (from < 0 || to < 0) return;
     const next = arrayMove(orderedCategories, from, to);
     setOrderedCategories(next);
-    reorder.mutate(next.map((category) => category.id));
+    reorder.mutate(next.map((category) => category.id), { onSuccess: () => toast.show("分類排序已更新") });
   }
 
   return (
