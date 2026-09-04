@@ -119,7 +119,7 @@ export function ItemForm({
     const { minStock, ...rest } = payload;
     update.mutate(
       { ...rest, ...(linkedToCyberbiz ? {} : { minStock }), id: item.id },
-      { onSuccess: onClose },
+      { onSuccess: () => { toast.show("商品資料已更新"); onClose(); } },
     );
   }
 
