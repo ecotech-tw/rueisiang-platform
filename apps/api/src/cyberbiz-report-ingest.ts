@@ -12,7 +12,7 @@ import {
   type Database,
   type ReportScopeKind,
 } from "@rueisiang/db";
-import { reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
+import { reportIngestIssues, reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
 
 export type CyberbizReportIngestKind = "sales" | "payout" | "sales_and_payout";
 
@@ -297,6 +297,22 @@ function payoutRows(input: CyberbizReportIngestInput) {
   return [...rows.values()];
 }
 
+async function recordUnmappedIssues(db: Database, runId: string | null, skippedSkus: readonly string[]): Promise<void> {
+  if (!runId || !skippedSkus.length) return;
+  await db.insert(reportIngestIssues).values(skippedSkus.map((externalKey) => ({
+    reportRunId: runId,
+    externalKey,
+    externalVariantKey: "",
+    externalName: "",
+    issueType: "unmapped" as const,
+    detail: "找不到可用的品項或 SKU 對應。",
+    rowCount: 1,
+  }))).onConflictDoUpdate({
+    target: [reportIngestIssues.reportRunId, reportIngestIssues.externalKey, reportIngestIssues.externalVariantKey, reportIngestIssues.issueType],
+    set: { detail: "找不到可用的品項或 SKU 對應。", rowCount: 1 },
+  });
+}
+
 export function createCyberbizReportIngestor(db: Database) {
   return {
     async ingest(value: unknown): Promise<{
@@ -353,7 +369,8 @@ export function createCyberbizReportIngestor(db: Database) {
         db.insert(reportRuns).values({ id: runId, requestId, sourceType: dataChannel, importsSales: input.kind !== "payout" ? 1 : 0, importsPayout: input.kind !== "sales" ? 1 : 0, periodKind: input.reportMonth ? "month" : "custom", startDate, endDate, status: "running", actorEmail: "" }),
         db.insert(reportRunScopes).values({ reportRunId: runId, scopeId: scope.id }),
       ]);
-      if (input.kind === "sales_and_payout") {
+      try {
+        if (input.kind === "sales_and_payout") {
         const salesInput = { ...scopedInput, rows: input.salesRows ?? [] };
         // 先驗證 sales 的資料格式，再寫入 payout；只有 mapping 不存在時才保留「先存 payout」的行為。
         const parsedSales = parseSalesRows(salesInput);
@@ -361,6 +378,7 @@ export function createCyberbizReportIngestor(db: Database) {
         // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
         await insertReportPayoutDaily(db, payout, runId ?? undefined);
         const sales = await normalizeSalesRows(db, salesInput, dataChannel, parsedSales);
+        await recordUnmappedIssues(db, runId, sales.skippedSkus);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? {
             scopeId: scope.id,
@@ -382,6 +400,7 @@ export function createCyberbizReportIngestor(db: Database) {
       }
       if (input.kind === "sales") {
         const sales = await normalizeSalesRows(db, scopedInput, dataChannel);
+        await recordUnmappedIssues(db, runId, sales.skippedSkus);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? {
             scopeId: scope.id,
@@ -403,6 +422,10 @@ export function createCyberbizReportIngestor(db: Database) {
       await insertReportPayoutDaily(db, rows, runId ?? undefined);
       if (runId) await db.update(reportRuns).set({ status: "succeeded", importedPayoutRows: rows.length, updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
       return { kind: input.kind, scopeId: scope.id, rowCount: rows.length };
+      } catch (error) {
+        if (runId) await db.update(reportRuns).set({ status: "failed", lastError: error instanceof Error ? error.message : String(error), updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
+        throw error;
+      }
     },
   };
 }
