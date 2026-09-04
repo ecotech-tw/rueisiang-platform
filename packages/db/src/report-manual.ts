@@ -26,6 +26,19 @@ import {
 import { reportProductCategories } from "./schema/report-products.js";
 import { normalizeExternalSku } from "./product-sku-mappings.js";
 
+async function hasTable(db: Database, name: string): Promise<boolean> {
+  const row = await db.get<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${name} LIMIT 1`);
+  return Boolean(row);
+}
+
+function targetPayoutRecordId(scopeId: string, businessDate: string): string {
+  return `target:${scopeId}:${businessDate}`;
+}
+
+function targetSalesRecordId(scopeId: string, reportMonth: string, itemId: string): string {
+  return `target:${scopeId}:${reportMonth}:${itemId}`;
+}
+
 export interface ReportManualActor {
   id: string;
   email: string;
@@ -380,6 +393,65 @@ async function scopeNames(db: Database): Promise<Map<string, string>> {
     .map((scope) => [scope.id, scope.name]));
 }
 
+async function findTargetManualPayout(db: Database, id: string) {
+  const [row] = await db.select().from(targetReportPayoutDaily)
+    .where(and(
+      eq(targetReportPayoutDaily.recordOrigin, "manual"),
+      sql`'target:' || ${targetReportPayoutDaily.scopeId} || ':' || ${targetReportPayoutDaily.businessDate} = ${id}`,
+    )).limit(1);
+  return row ?? null;
+}
+
+async function findTargetManualSales(db: Database, id: string) {
+  const rows = await db.select({ sales: reportItemSalesMonthly, item: itemMasters })
+    .from(reportItemSalesMonthly)
+    .innerJoin(itemMasters, eq(itemMasters.id, reportItemSalesMonthly.itemId))
+    .where(eq(reportItemSalesMonthly.recordOrigin, "manual"));
+  return rows.find(({ sales }) => targetSalesRecordId(sales.scopeId, sales.reportMonth, sales.itemId) === id) ?? null;
+}
+
+async function ensureTargetSalesItem(db: Database, prepared: Awaited<ReturnType<typeof prepareSales>>, now: string) {
+  const [existing] = await db.select({ id: itemMasters.id }).from(itemMasters)
+    .where(and(eq(itemMasters.source, prepared.skuSource), eq(itemMasters.sku, prepared.sku))).limit(1);
+  if (existing) return existing;
+  const [category] = prepared.category && prepared.category !== "未分類"
+    ? await db.select({ id: itemCategories.id }).from(itemCategories).where(eq(itemCategories.name, prepared.category)).limit(1)
+    : [];
+  const id = crypto.randomUUID();
+  await db.insert(itemMasters).values({
+    id,
+    source: prepared.skuSource,
+    kind: "sellable",
+    sku: prepared.sku,
+    name: prepared.productName,
+    categoryId: category?.id ?? null,
+    active: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return { id };
+}
+
+function targetSalesRecord(row: { sales: typeof reportItemSalesMonthly.$inferSelect; item: typeof itemMasters.$inferSelect }, scopeName: string, category = "未分類"): ReportSalesRecord {
+  return {
+    id: targetSalesRecordId(row.sales.scopeId, row.sales.reportMonth, row.sales.itemId),
+    source: "manual",
+    scopeId: row.sales.scopeId,
+    scopeName,
+    reportMonth: row.sales.reportMonth,
+    skuSource: row.item.source === "custom" || row.item.source === "cyberbiz" ? row.item.source : null,
+    sku: row.item.sku,
+    productName: row.item.name,
+    category,
+    grossQuantity: row.sales.grossQuantity,
+    returnQuantity: row.sales.returnQuantity,
+    netQuantity: row.sales.netQuantity,
+    salesAmount: row.sales.salesAmount,
+    updatedByEmail: row.sales.updatedByEmail || "系統匯入",
+    updatedAt: row.sales.updatedAt,
+  };
+}
+
 /*
  * 人工修訂頁讀的是「目前有效值」，不是只讀人工表：
  * - 同一 key 有人工資料時，排除匯入資料。
@@ -456,6 +528,85 @@ const SALES_RECORD_SOURCE = sql`(
   FROM report_manual_sales_monthly AS manual
 ) AS report_sales_records`;
 
+const TARGET_PAYOUT_RECORD_SOURCE = sql`(
+  SELECT
+    'imported' AS source,
+    'target:' || imported.scope_id || ':' || imported.business_date AS id,
+    imported.scope_id,
+    imported.business_date,
+    imported.payout_amount,
+    '系統匯入' AS updated_by_email,
+    imported.updated_at
+  FROM report_payout_daily_target AS imported
+  WHERE imported.record_origin = 'imported'
+    AND NOT EXISTS (
+      SELECT 1 FROM report_payout_daily_target AS manual
+      WHERE manual.scope_id = imported.scope_id
+        AND manual.business_date = imported.business_date
+        AND manual.record_origin = 'manual'
+    )
+  UNION ALL
+  SELECT
+    'manual' AS source,
+    'target:' || manual.scope_id || ':' || manual.business_date AS id,
+    manual.scope_id,
+    manual.business_date,
+    manual.payout_amount,
+    manual.updated_by_email,
+    manual.updated_at
+  FROM report_payout_daily_target AS manual
+  WHERE manual.record_origin = 'manual'
+) AS report_payout_records`;
+
+const TARGET_SALES_RECORD_SOURCE = sql`(
+  SELECT
+    'imported' AS source,
+    'target:' || imported.scope_id || ':' || imported.report_month || ':' || imported.item_id AS id,
+    imported.scope_id,
+    imported.report_month,
+    item.source AS sku_source,
+    item.sku,
+    item.name AS product_name,
+    COALESCE(category.name, '未分類') AS category,
+    imported.gross_quantity,
+    imported.return_quantity,
+    imported.net_quantity,
+    imported.sales_amount,
+    '系統匯入' AS updated_by_email,
+    imported.updated_at
+  FROM report_item_sales_monthly AS imported
+  JOIN items AS item ON item.id = imported.item_id
+  LEFT JOIN item_categories AS category ON category.id = item.category_id
+  WHERE imported.record_origin = 'imported'
+    AND NOT EXISTS (
+      SELECT 1 FROM report_item_sales_monthly AS manual
+      WHERE manual.scope_id = imported.scope_id
+        AND manual.report_month = imported.report_month
+        AND manual.item_id = imported.item_id
+        AND manual.record_origin = 'manual'
+    )
+  UNION ALL
+  SELECT
+    'manual' AS source,
+    'target:' || manual.scope_id || ':' || manual.report_month || ':' || manual.item_id AS id,
+    manual.scope_id,
+    manual.report_month,
+    item.source AS sku_source,
+    item.sku,
+    item.name AS product_name,
+    COALESCE(category.name, '未分類') AS category,
+    manual.gross_quantity,
+    manual.return_quantity,
+    manual.net_quantity,
+    manual.sales_amount,
+    manual.updated_by_email,
+    manual.updated_at
+  FROM report_item_sales_monthly AS manual
+  JOIN items AS item ON item.id = manual.item_id
+  LEFT JOIN item_categories AS category ON category.id = item.category_id
+  WHERE manual.record_origin = 'manual'
+) AS report_sales_records`;
+
 function textValue(value: unknown): string {
   return typeof value === "string" ? value : String(value ?? "");
 }
@@ -476,7 +627,7 @@ function listLimit(query: { page: number; pageSize: number }): { limit: number; 
  * 兩邊各寫一次遲早會漂移。分成兩個函式是為了讓上層能各自快取——筆數只跟
  * 篩選條件有關，翻頁與換排序都不該讓它重算。
  */
-function payoutRecordScope(query: ReportPayoutFilters) {
+function payoutRecordScope(query: ReportPayoutFilters, source = PAYOUT_RECORD_SOURCE) {
   const conditions = [sql`1 = 1`];
   if (query.scopeId) conditions.push(sql`report_payout_records.scope_id = ${query.scopeId}`);
   if (query.source) conditions.push(sql`report_payout_records.source = ${query.source}`);
@@ -492,13 +643,14 @@ function payoutRecordScope(query: ReportPayoutFilters) {
   }
   return {
     where: sql.join(conditions, sql` AND `),
-    from: sql`FROM ${PAYOUT_RECORD_SOURCE}
-    LEFT JOIN report_scopes ON report_scopes.id = report_payout_records.scope_id`,
+    from: sql`FROM ${source}
+    LEFT JOIN scopes AS report_scopes ON report_scopes.id = report_payout_records.scope_id`,
   };
 }
 
 export async function countReportPayoutRecords(db: Database, query: ReportPayoutFilters): Promise<number> {
-  const { where, from } = payoutRecordScope(query);
+  const source = await hasTable(db, "report_payout_daily") ? PAYOUT_RECORD_SOURCE : TARGET_PAYOUT_RECORD_SOURCE;
+  const { where, from } = payoutRecordScope(query, source);
   const rows = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count ${from} WHERE ${where}`);
   return numberValue(rows[0]?.count);
 }
@@ -507,7 +659,8 @@ export async function listReportPayoutRecords(
   db: Database,
   query: ReportPayoutListQuery,
 ): Promise<ReportPayoutListPage> {
-  const { where, from } = payoutRecordScope(query);
+  const source = await hasTable(db, "report_payout_daily") ? PAYOUT_RECORD_SOURCE : TARGET_PAYOUT_RECORD_SOURCE;
+  const { where, from } = payoutRecordScope(query, source);
   const sortColumns = {
     scope: "COALESCE(report_scopes.name, report_payout_records.scope_id)",
     businessDate: "report_payout_records.business_date",
@@ -546,7 +699,7 @@ export async function listReportPayoutRecords(
   };
 }
 
-function salesRecordScope(query: ReportSalesFilters) {
+function salesRecordScope(query: ReportSalesFilters, source = SALES_RECORD_SOURCE) {
   const conditions = [sql`1 = 1`];
   if (query.scopeId) conditions.push(sql`report_sales_records.scope_id = ${query.scopeId}`);
   if (query.source) conditions.push(sql`report_sales_records.source = ${query.source}`);
@@ -564,13 +717,14 @@ function salesRecordScope(query: ReportSalesFilters) {
   }
   return {
     where: sql.join(conditions, sql` AND `),
-    from: sql`FROM ${SALES_RECORD_SOURCE}
-    LEFT JOIN report_scopes ON report_scopes.id = report_sales_records.scope_id`,
+    from: sql`FROM ${source}
+    LEFT JOIN scopes AS report_scopes ON report_scopes.id = report_sales_records.scope_id`,
   };
 }
 
 export async function countReportSalesRecords(db: Database, query: ReportSalesFilters): Promise<number> {
-  const { where, from } = salesRecordScope(query);
+  const source = await hasTable(db, "report_sales_monthly") ? SALES_RECORD_SOURCE : TARGET_SALES_RECORD_SOURCE;
+  const { where, from } = salesRecordScope(query, source);
   const rows = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count ${from} WHERE ${where}`);
   return numberValue(rows[0]?.count);
 }
@@ -579,7 +733,8 @@ export async function listReportSalesRecords(
   db: Database,
   query: ReportSalesListQuery,
 ): Promise<ReportSalesListPage> {
-  const { where, from } = salesRecordScope(query);
+  const source = await hasTable(db, "report_sales_monthly") ? SALES_RECORD_SOURCE : TARGET_SALES_RECORD_SOURCE;
+  const { where, from } = salesRecordScope(query, source);
   const sortColumns = {
     scope: "COALESCE(report_scopes.name, report_sales_records.scope_id)",
     reportMonth: "report_sales_records.report_month",
@@ -636,6 +791,22 @@ export async function listReportSalesRecords(
 }
 
 export async function listReportManualPayouts(db: Database): Promise<ReportManualPayoutRow[]> {
+  if (!await hasTable(db, "report_manual_payout_daily")) {
+    const names = await scopeNames(db);
+    const rows = await db.select().from(targetReportPayoutDaily)
+      .where(eq(targetReportPayoutDaily.recordOrigin, "manual"))
+      .orderBy(asc(targetReportPayoutDaily.businessDate), asc(targetReportPayoutDaily.scopeId));
+    return rows.map((row) => ({
+      id: targetPayoutRecordId(row.scopeId, row.businessDate),
+      source: "manual",
+      scopeId: row.scopeId,
+      scopeName: names.get(row.scopeId) ?? row.scopeId,
+      businessDate: row.businessDate,
+      payoutAmount: row.payoutAmount,
+      updatedByEmail: row.updatedByEmail,
+      updatedAt: row.updatedAt,
+    }));
+  }
   const [rows, names] = await Promise.all([
     db.select().from(reportManualPayoutDaily)
       .orderBy(asc(reportManualPayoutDaily.businessDate), asc(reportManualPayoutDaily.id)),
@@ -645,6 +816,15 @@ export async function listReportManualPayouts(db: Database): Promise<ReportManua
 }
 
 export async function listReportManualSales(db: Database): Promise<ReportManualSalesRow[]> {
+  if (!await hasTable(db, "report_manual_sales_monthly")) {
+    const names = await scopeNames(db);
+    const [rows, categories] = await Promise.all([
+      db.select({ sales: reportItemSalesMonthly, item: itemMasters }).from(reportItemSalesMonthly).innerJoin(itemMasters, eq(itemMasters.id, reportItemSalesMonthly.itemId)).where(eq(reportItemSalesMonthly.recordOrigin, "manual")).orderBy(asc(reportItemSalesMonthly.reportMonth), asc(itemMasters.sku), asc(reportItemSalesMonthly.itemId)),
+      db.select({ id: itemCategories.id, name: itemCategories.name }).from(itemCategories),
+    ]);
+    const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
+    return rows.map((row) => targetSalesRecord(row, names.get(row.sales.scopeId) ?? row.sales.scopeId, categoryNames.get(row.item.categoryId ?? "") ?? "未分類"));
+  }
   const [rows, names] = await Promise.all([
     db.select().from(reportManualSalesMonthly)
       .orderBy(asc(reportManualSalesMonthly.reportMonth), asc(reportManualSalesMonthly.sku), asc(reportManualSalesMonthly.id)),
@@ -653,10 +833,28 @@ export async function listReportManualSales(db: Database): Promise<ReportManualS
   return rows.map((row) => ({ ...row, scopeName: names.get(row.scopeId) ?? row.scopeId }));
 }
 
+async function createTargetManualPayout(db: Database, input: ReportManualPayoutInput): Promise<ReportManualPayoutRow> {
+  const prepared = await preparePayout(db, input);
+  const [existing] = await db.select().from(targetReportPayoutDaily).where(and(
+    eq(targetReportPayoutDaily.scopeId, prepared.scopeId),
+    eq(targetReportPayoutDaily.businessDate, prepared.businessDate),
+    eq(targetReportPayoutDaily.recordOrigin, "manual"),
+  )).limit(1);
+  if (existing) throw new ReportManualError("conflict", "這個據點在這個日期已經有人工出金資料，請改用編輯。");
+  const id = targetPayoutRecordId(prepared.scopeId, prepared.businessDate);
+  const now = new Date().toISOString();
+  await db.batch([
+    db.insert(targetReportPayoutDaily).values({ scopeId: prepared.scopeId, businessDate: prepared.businessDate, recordOrigin: "manual", reportRunId: null, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, createdAt: now, updatedAt: now }),
+    db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: id, entityLabel: payoutLabel(prepared.scope.name, prepared.businessDate), eventType: "report_manual_payout_created", summary: `新增人工出金資料：${prepared.scope.name} ${prepared.businessDate}`, field: "payoutAmount", newValue: String(prepared.payoutAmount), payload: payoutPayload(prepared), actor: input.actor, source: "reports" })),
+  ] as never);
+  return { id, source: "manual", scopeId: prepared.scopeId, scopeName: prepared.scope.name, businessDate: prepared.businessDate, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, updatedAt: now };
+}
+
 export async function createReportManualPayout(
   db: Database,
   input: ReportManualPayoutInput,
 ): Promise<ReportManualPayoutRow> {
+  if (!await hasTable(db, "report_manual_payout_daily")) return createTargetManualPayout(db, input);
   const prepared = await preparePayout(db, input);
   const [existing] = await db.select({ id: reportManualPayoutDaily.id })
     .from(reportManualPayoutDaily)
@@ -700,10 +898,32 @@ export async function createReportManualPayout(
   return { ...row, scopeName: prepared.scope.name };
 }
 
+async function updateTargetManualPayout(db: Database, input: ReportManualPayoutInput & { id: string }): Promise<ReportManualPayoutRow> {
+  const existing = await findTargetManualPayout(db, input.id);
+  if (!existing) throw new ReportManualError("not_found", "找不到這筆人工出金資料。");
+  const prepared = await preparePayout(db, input);
+  const [conflict] = await db.select({ scopeId: targetReportPayoutDaily.scopeId }).from(targetReportPayoutDaily).where(and(
+    eq(targetReportPayoutDaily.scopeId, prepared.scopeId),
+    eq(targetReportPayoutDaily.businessDate, prepared.businessDate),
+    eq(targetReportPayoutDaily.recordOrigin, "manual"),
+    sql`NOT (${targetReportPayoutDaily.scopeId} = ${existing.scopeId} AND ${targetReportPayoutDaily.businessDate} = ${existing.businessDate})`,
+  )).limit(1);
+  if (conflict) throw new ReportManualError("conflict", "這個據點在這個日期已經有另一筆人工出金資料。");
+  const updatedAt = new Date().toISOString();
+  const id = targetPayoutRecordId(prepared.scopeId, prepared.businessDate);
+  await db.batch([
+    db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, existing.scopeId), eq(targetReportPayoutDaily.businessDate, existing.businessDate), eq(targetReportPayoutDaily.recordOrigin, "manual"))),
+    db.insert(targetReportPayoutDaily).values({ scopeId: prepared.scopeId, businessDate: prepared.businessDate, recordOrigin: "manual", reportRunId: null, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, updatedAt }).onConflictDoUpdate({ target: [targetReportPayoutDaily.scopeId, targetReportPayoutDaily.businessDate, targetReportPayoutDaily.recordOrigin], set: { payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, updatedAt } }),
+    db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: input.id, entityLabel: payoutLabel(prepared.scope.name, prepared.businessDate), eventType: "report_manual_payout_updated", summary: `更新人工出金資料：${prepared.scope.name} ${prepared.businessDate}`, field: "payoutAmount", oldValue: String(existing.payoutAmount), newValue: String(prepared.payoutAmount), payload: { before: payoutPayload(existing), after: payoutPayload(prepared) }, actor: input.actor, source: "reports" })),
+  ] as never);
+  return { id, source: "manual", scopeId: prepared.scopeId, scopeName: prepared.scope.name, businessDate: prepared.businessDate, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, updatedAt };
+}
+
 export async function updateReportManualPayout(
   db: Database,
   input: ReportManualPayoutInput & { id: string },
 ): Promise<ReportManualPayoutRow> {
+  if (!await hasTable(db, "report_manual_payout_daily")) return updateTargetManualPayout(db, input);
   const [existing] = await db.select().from(reportManualPayoutDaily)
     .where(eq(reportManualPayoutDaily.id, input.id)).limit(1);
   if (!existing) throw new ReportManualError("not_found", "找不到這筆人工出金資料。");
@@ -755,7 +975,19 @@ export async function updateReportManualPayout(
   return { ...next, scopeName: prepared.scope.name };
 }
 
+async function deleteTargetManualPayout(db: Database, id: string, actor: ReportManualActor): Promise<void> {
+  const existing = await findTargetManualPayout(db, id);
+  if (!existing) throw new ReportManualError("not_found", "找不到這筆人工出金資料。");
+  const names = await scopeNames(db);
+  const scopeName = names.get(existing.scopeId) ?? existing.scopeId;
+  await db.batch([
+    db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, existing.scopeId), eq(targetReportPayoutDaily.businessDate, existing.businessDate), eq(targetReportPayoutDaily.recordOrigin, "manual"))),
+    db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: id, entityLabel: payoutLabel(scopeName, existing.businessDate), eventType: "report_manual_payout_deleted", summary: `刪除人工出金資料：${scopeName} ${existing.businessDate}`, field: "payoutAmount", oldValue: String(existing.payoutAmount), payload: payoutPayload(existing), actor, source: "reports" })),
+  ] as never);
+}
+
 export async function deleteReportManualPayout(db: Database, id: string, actor: ReportManualActor): Promise<void> {
+  if (!await hasTable(db, "report_manual_payout_daily")) return deleteTargetManualPayout(db, id, actor);
   const [existing] = await db.select().from(reportManualPayoutDaily)
     .where(eq(reportManualPayoutDaily.id, id)).limit(1);
   if (!existing) throw new ReportManualError("not_found", "找不到這筆人工出金資料。");
@@ -789,6 +1021,22 @@ export async function deleteReportPayoutRecord(
   const businessDate = input.businessDate.trim();
   if (!scopeId || !isValidReportDate(businessDate)) {
     throw new ReportManualError("invalid", "出金紀錄的據點或日期不正確。");
+  }
+
+  if (!await hasTable(db, "report_manual_payout_daily")) {
+    const [existing] = await db.select().from(targetReportPayoutDaily).where(and(
+      eq(targetReportPayoutDaily.scopeId, scopeId),
+      eq(targetReportPayoutDaily.businessDate, businessDate),
+      eq(targetReportPayoutDaily.recordOrigin, input.source === "imported" ? "imported" : "manual"),
+    )).limit(1);
+    if (!existing) throw new ReportManualError("not_found", "找不到這筆出金紀錄。");
+    const names = await scopeNames(db);
+    const scopeName = names.get(scopeId) ?? scopeId;
+    await db.batch([
+      db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, scopeId), eq(targetReportPayoutDaily.businessDate, businessDate), eq(targetReportPayoutDaily.recordOrigin, existing.recordOrigin))),
+      db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: input.id, entityLabel: payoutLabel(scopeName, businessDate), eventType: "report_payout_record_deleted", summary: `刪除出金資料：${scopeName} ${businessDate}`, field: "payoutAmount", oldValue: String(existing.payoutAmount), payload: { source: input.source, ...payoutPayload(existing) }, actor, source: "reports" })),
+    ] as never);
+    return;
   }
 
   const [manual] = input.source === "manual"
@@ -845,6 +1093,19 @@ export async function deleteReportPayoutRecords(
   actor: ReportManualActor,
 ): Promise<number> {
   if (!inputs.length) throw new ReportManualError("invalid", "至少要選取一筆出金紀錄。");
+
+  if (!await hasTable(db, "report_manual_payout_daily")) {
+    const unique = new Map<string, ReportPayoutRecordDeleteInput>();
+    for (const input of inputs) {
+      const scopeId = input.scopeId.trim();
+      const businessDate = input.businessDate.trim();
+      if (!input.id.trim() || !scopeId || !isValidReportDate(businessDate)) throw new ReportManualError("invalid", "出金紀錄的據點、日期或 ID 不正確。");
+      const key = `${input.source}:${scopeId}:${businessDate}`;
+      if (!unique.has(key)) unique.set(key, { ...input, id: input.id.trim(), scopeId, businessDate });
+    }
+    for (const input of unique.values()) await deleteReportPayoutRecord(db, input, actor);
+    return unique.size;
+  }
 
   const unique = new Map<string, ReportPayoutRecordDeleteInput>();
   for (const input of inputs) {
@@ -915,10 +1176,31 @@ export async function deleteReportPayoutRecords(
   return entries.length;
 }
 
+async function createTargetManualSales(db: Database, input: ReportManualSalesInput): Promise<ReportManualSalesRow> {
+  const prepared = await prepareSales(db, input);
+  const now = new Date().toISOString();
+  const matchedItem = await ensureTargetSalesItem(db, prepared, now);
+  const [existing] = await db.select({ itemId: reportItemSalesMonthly.itemId }).from(reportItemSalesMonthly).where(and(
+    eq(reportItemSalesMonthly.scopeId, prepared.scopeId),
+    eq(reportItemSalesMonthly.reportMonth, prepared.reportMonth),
+    eq(reportItemSalesMonthly.itemId, matchedItem.id),
+    eq(reportItemSalesMonthly.recordOrigin, "manual"),
+  )).limit(1);
+  if (existing) throw new ReportManualError("conflict", "這個據點、月份與 SKU 已經有人工商品銷售資料，請改用編輯。");
+  const row = { scopeId: prepared.scopeId, reportMonth: prepared.reportMonth, itemId: matchedItem.id, recordOrigin: "manual" as const, reportRunId: null, grossQuantity: prepared.grossQuantity, returnQuantity: prepared.returnQuantity, netQuantity: prepared.netQuantity, salesAmount: prepared.salesAmount, updatedByEmail: input.actor.email, createdAt: now, updatedAt: now };
+  const id = targetSalesRecordId(row.scopeId, row.reportMonth, row.itemId);
+  await db.batch([
+    db.insert(reportItemSalesMonthly).values(row),
+    db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: id, entityLabel: salesLabel(prepared.scope.name, prepared.reportMonth, prepared.sku), eventType: "report_manual_sales_created", summary: `新增人工商品銷售資料：${prepared.scope.name} ${prepared.reportMonth} ${prepared.sku}`, payload: salesPayload(prepared), actor: input.actor, source: "reports" })),
+  ] as never);
+  return targetSalesRecord({ sales: row, item: { ...matchedItem, source: prepared.skuSource, sku: prepared.sku, name: prepared.productName } as typeof itemMasters.$inferSelect }, prepared.scope.name, prepared.category);
+}
+
 export async function createReportManualSales(
   db: Database,
   input: ReportManualSalesInput,
 ): Promise<ReportManualSalesRow> {
+  if (!await hasTable(db, "report_manual_sales_monthly")) return createTargetManualSales(db, input);
   const prepared = await prepareSales(db, input);
   const [existing] = await db.select({ id: reportManualSalesMonthly.id })
     .from(reportManualSalesMonthly)
@@ -1031,10 +1313,31 @@ export async function createReportManualSales(
   return { ...row, scopeName: prepared.scope.name };
 }
 
+async function updateTargetManualSales(db: Database, input: ReportManualSalesInput & { id: string }): Promise<ReportManualSalesRow> {
+  const existing = await findTargetManualSales(db, input.id);
+  if (!existing) throw new ReportManualError("not_found", "找不到這筆人工商品銷售資料。");
+  const prepared = await prepareSales(db, input);
+  const now = new Date().toISOString();
+  const matchedItem = await ensureTargetSalesItem(db, prepared, now);
+  const [conflict] = await db.select({ itemId: reportItemSalesMonthly.itemId }).from(reportItemSalesMonthly).where(and(
+    eq(reportItemSalesMonthly.scopeId, prepared.scopeId), eq(reportItemSalesMonthly.reportMonth, prepared.reportMonth), eq(reportItemSalesMonthly.itemId, matchedItem.id), eq(reportItemSalesMonthly.recordOrigin, "manual"),
+    sql`NOT (${reportItemSalesMonthly.scopeId} = ${existing.sales.scopeId} AND ${reportItemSalesMonthly.reportMonth} = ${existing.sales.reportMonth} AND ${reportItemSalesMonthly.itemId} = ${existing.sales.itemId})`,
+  )).limit(1);
+  if (conflict) throw new ReportManualError("conflict", "這個據點、月份與 SKU 已經有另一筆人工商品銷售資料。");
+  const next = { scopeId: prepared.scopeId, reportMonth: prepared.reportMonth, itemId: matchedItem.id, recordOrigin: "manual" as const, reportRunId: null, grossQuantity: prepared.grossQuantity, returnQuantity: prepared.returnQuantity, netQuantity: prepared.netQuantity, salesAmount: prepared.salesAmount, updatedByEmail: input.actor.email, updatedAt: now };
+  await db.batch([
+    db.delete(reportItemSalesMonthly).where(and(eq(reportItemSalesMonthly.scopeId, existing.sales.scopeId), eq(reportItemSalesMonthly.reportMonth, existing.sales.reportMonth), eq(reportItemSalesMonthly.itemId, existing.sales.itemId), eq(reportItemSalesMonthly.recordOrigin, "manual"))),
+    db.insert(reportItemSalesMonthly).values({ ...next, createdAt: existing.sales.createdAt }).onConflictDoUpdate({ target: [reportItemSalesMonthly.scopeId, reportItemSalesMonthly.reportMonth, reportItemSalesMonthly.itemId, reportItemSalesMonthly.recordOrigin], set: { grossQuantity: next.grossQuantity, returnQuantity: next.returnQuantity, netQuantity: next.netQuantity, salesAmount: next.salesAmount, updatedByEmail: next.updatedByEmail, updatedAt: next.updatedAt } }),
+    db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: input.id, entityLabel: salesLabel(prepared.scope.name, prepared.reportMonth, prepared.sku), eventType: "report_manual_sales_updated", summary: `更新人工商品銷售資料：${prepared.scope.name} ${prepared.reportMonth} ${prepared.sku}`, payload: { before: salesPayload(existing.sales), after: salesPayload(prepared) }, actor: input.actor, source: "reports" })),
+  ] as never);
+  return targetSalesRecord({ sales: { ...next, createdAt: existing.sales.createdAt }, item: { ...matchedItem, source: prepared.skuSource, sku: prepared.sku, name: prepared.productName } as typeof itemMasters.$inferSelect }, prepared.scope.name, prepared.category);
+}
+
 export async function updateReportManualSales(
   db: Database,
   input: ReportManualSalesInput & { id: string },
 ): Promise<ReportManualSalesRow> {
+  if (!await hasTable(db, "report_manual_sales_monthly")) return updateTargetManualSales(db, input);
   const [existing] = await db.select().from(reportManualSalesMonthly)
     .where(eq(reportManualSalesMonthly.id, input.id)).limit(1);
   if (!existing) throw new ReportManualError("not_found", "找不到這筆人工商品銷售資料。");
@@ -1169,7 +1472,19 @@ export async function updateReportManualSales(
   return { ...next, scopeName: prepared.scope.name };
 }
 
+async function deleteTargetManualSales(db: Database, id: string, actor: ReportManualActor): Promise<void> {
+  const existing = await findTargetManualSales(db, id);
+  if (!existing) throw new ReportManualError("not_found", "找不到這筆人工商品銷售資料。");
+  const names = await scopeNames(db);
+  const scopeName = names.get(existing.sales.scopeId) ?? existing.sales.scopeId;
+  await db.batch([
+    db.delete(reportItemSalesMonthly).where(and(eq(reportItemSalesMonthly.scopeId, existing.sales.scopeId), eq(reportItemSalesMonthly.reportMonth, existing.sales.reportMonth), eq(reportItemSalesMonthly.itemId, existing.sales.itemId), eq(reportItemSalesMonthly.recordOrigin, "manual"))),
+    db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: id, entityLabel: salesLabel(scopeName, existing.sales.reportMonth, existing.item.sku), eventType: "report_manual_sales_deleted", summary: `刪除人工商品銷售資料：${scopeName} ${existing.sales.reportMonth} ${existing.item.sku}`, payload: salesPayload({ ...existing.sales, skuSource: existing.item.source, sku: existing.item.sku, productName: existing.item.name, category: "未分類" }), actor, source: "reports" })),
+  ] as never);
+}
+
 export async function deleteReportManualSales(db: Database, id: string, actor: ReportManualActor): Promise<void> {
+  if (!await hasTable(db, "report_manual_sales_monthly")) return deleteTargetManualSales(db, id, actor);
   const [existing] = await db.select().from(reportManualSalesMonthly)
     .where(eq(reportManualSalesMonthly.id, id)).limit(1);
   if (!existing) throw new ReportManualError("not_found", "找不到這筆人工商品銷售資料。");
@@ -1215,6 +1530,11 @@ export async function deleteReportSalesRecords(
     }
     const key = input.source === "manual" ? `manual:${id}` : `imported:${scopeId}:${reportMonth}:${sku}`;
     if (!unique.has(key)) unique.set(key, { ...input, id, scopeId, reportMonth, sku });
+  }
+
+  if (!await hasTable(db, "report_manual_sales_monthly")) {
+    for (const input of unique.values()) await deleteReportSalesRecord(db, input, actor);
+    return unique.size;
   }
 
   const entries: Array<{
@@ -1285,6 +1605,28 @@ export async function deleteReportSalesRecords(
   return entries.length;
 }
 
+async function deleteTargetSalesRecord(db: Database, input: ReportSalesRecordDeleteInput, actor: ReportManualActor): Promise<void> {
+  const rows = await db.select({ sales: reportItemSalesMonthly, item: itemMasters })
+    .from(reportItemSalesMonthly)
+    .innerJoin(itemMasters, eq(itemMasters.id, reportItemSalesMonthly.itemId))
+    .where(and(
+      eq(reportItemSalesMonthly.scopeId, input.scopeId),
+      eq(reportItemSalesMonthly.reportMonth, input.reportMonth),
+      eq(reportItemSalesMonthly.recordOrigin, input.source === "manual" ? "manual" : "imported"),
+    ));
+  const existing = input.source === "manual"
+    ? rows.find(({ sales }) => targetSalesRecordId(sales.scopeId, sales.reportMonth, sales.itemId) === input.id)
+    : rows.find(({ item }) => item.sku.toLowerCase() === input.sku.toLowerCase());
+  if (!existing) throw new ReportManualError("not_found", "找不到這筆商品銷售紀錄。");
+  const names = await scopeNames(db);
+  const scopeName = names.get(existing.sales.scopeId) ?? existing.sales.scopeId;
+  const deletedSalesPayload = salesPayload({ ...existing.sales, skuSource: existing.item.source, sku: existing.item.sku, productName: existing.item.name, category: "未分類" });
+  await db.batch([
+    db.delete(reportItemSalesMonthly).where(and(eq(reportItemSalesMonthly.scopeId, existing.sales.scopeId), eq(reportItemSalesMonthly.reportMonth, existing.sales.reportMonth), eq(reportItemSalesMonthly.itemId, existing.sales.itemId), eq(reportItemSalesMonthly.recordOrigin, existing.sales.recordOrigin))),
+    db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: input.id, entityLabel: salesLabel(scopeName, existing.sales.reportMonth, existing.item.sku), eventType: "report_sales_record_deleted", summary: `刪除商品銷售資料：${scopeName} ${existing.sales.reportMonth} ${existing.item.sku}`, oldValue: JSON.stringify(deletedSalesPayload), payload: { source: input.source, ...deletedSalesPayload }, actor, source: "reports" })),
+  ] as never);
+}
+
 /** 刪除頁面目前看到的商品銷售紀錄；刪除人工覆寫後讓同 key 的匯入值自然恢復。 */
 export async function deleteReportSalesRecord(
   db: Database,
@@ -1296,6 +1638,10 @@ export async function deleteReportSalesRecord(
   const sku = normalizeExternalSku(input.sku);
   if (!scopeId || !/^\d{4}-(0[1-9]|1[0-2])$/u.test(reportMonth) || !sku) {
     throw new ReportManualError("invalid", "商品銷售紀錄的據點、月份或 SKU 不正確。");
+  }
+
+  if (!await hasTable(db, "report_manual_sales_monthly")) {
+    return deleteTargetSalesRecord(db, { ...input, scopeId, reportMonth, sku }, actor);
   }
 
   const [manual] = input.source === "manual"

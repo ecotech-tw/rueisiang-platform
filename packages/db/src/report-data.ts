@@ -18,6 +18,11 @@ import { legacyShopeeExternalSku, reportDataChannel } from "./product-sku-mappin
 
 export type { ReportManualSkuSource, ReportPayoutDaily, ReportScopeKind } from "./schema/reports.js";
 
+async function hasTable(db: Database, name: string): Promise<boolean> {
+  const row = await db.get<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${name} LIMIT 1`);
+  return Boolean(row);
+}
+
 export type ReportGroupBy = "day" | "month" | "scope" | "sku" | "category";
 
 export interface ReportRange {
@@ -253,6 +258,31 @@ const EFFECTIVE_SALES_SOURCE = sql`(
   LEFT JOIN item_categories AS category ON category.id = item.category_id
 ) AS report_sales_effective`;
 
+const TARGET_EFFECTIVE_SALES_SOURCE = sql`(
+  SELECT
+    sales.scope_id,
+    sales.report_month,
+    item.sku,
+    item.name AS product_name,
+    COALESCE(category.name, '未分類') AS category,
+    sales.gross_quantity,
+    sales.return_quantity,
+    sales.net_quantity,
+    sales.sales_amount
+  FROM report_item_sales_monthly AS sales
+  JOIN items AS item ON item.id = sales.item_id
+  LEFT JOIN item_categories AS category ON category.id = item.category_id
+  WHERE sales.record_origin = 'manual'
+    OR (sales.record_origin = 'imported' AND NOT EXISTS (
+      SELECT 1
+      FROM report_item_sales_monthly AS manual
+      WHERE manual.scope_id = sales.scope_id
+        AND manual.report_month = sales.report_month
+        AND manual.item_id = sales.item_id
+        AND manual.record_origin = 'manual'
+    ))
+) AS report_sales_effective`;
+
 const EFFECTIVE_SALES_COLUMNS = {
   scopeId: sql.raw("report_sales_effective.scope_id"),
   reportMonth: sql.raw("report_sales_effective.report_month"),
@@ -308,6 +338,22 @@ const EFFECTIVE_PAYOUT_SOURCE = sql`(
   )
 ) AS report_payout_effective`;
 
+const TARGET_EFFECTIVE_PAYOUT_SOURCE = sql`(
+  SELECT
+    target.scope_id,
+    target.business_date,
+    target.payout_amount
+  FROM report_payout_daily_target AS target
+  WHERE target.record_origin = 'manual'
+    OR (target.record_origin = 'imported' AND NOT EXISTS (
+      SELECT 1
+      FROM report_payout_daily_target AS manual
+      WHERE manual.scope_id = target.scope_id
+        AND manual.business_date = target.business_date
+        AND manual.record_origin = 'manual'
+    ))
+) AS report_payout_effective`;
+
 const EFFECTIVE_PAYOUT_COLUMNS = {
   scopeId: sql.raw("report_payout_effective.scope_id"),
   businessDate: sql.raw("report_payout_effective.business_date"),
@@ -326,25 +372,15 @@ export async function latestReportSalesPeriods(
 ): Promise<LatestReportSalesPeriods> {
   if (!scopeIds.length) return { latestPeriod: null, byScope: {} };
 
+  const legacySalesExists = await hasTable(db, "report_sales_monthly");
   const [importedRows, manualRows, targetRows] = await Promise.all([
-    db.select({
-      scopeId: reportSalesMonthly.scopeId,
-      reportMonth: sql<string | null>`max(${reportSalesMonthly.reportMonth})`,
-    }).from(reportSalesMonthly)
-      .where(inArray(reportSalesMonthly.scopeId, [...scopeIds]))
-      .groupBy(reportSalesMonthly.scopeId),
-    db.select({
-      scopeId: reportManualSalesMonthly.scopeId,
-      reportMonth: sql<string | null>`max(${reportManualSalesMonthly.reportMonth})`,
-    }).from(reportManualSalesMonthly)
-      .where(inArray(reportManualSalesMonthly.scopeId, [...scopeIds]))
-      .groupBy(reportManualSalesMonthly.scopeId),
-    db.select({
-      scopeId: reportItemSalesMonthly.scopeId,
-      reportMonth: sql<string | null>`max(${reportItemSalesMonthly.reportMonth})`,
-    }).from(reportItemSalesMonthly)
-      .where(inArray(reportItemSalesMonthly.scopeId, [...scopeIds]))
-      .groupBy(reportItemSalesMonthly.scopeId),
+    legacySalesExists
+      ? db.select({ scopeId: reportSalesMonthly.scopeId, reportMonth: sql<string | null>`max(${reportSalesMonthly.reportMonth})` }).from(reportSalesMonthly).where(inArray(reportSalesMonthly.scopeId, [...scopeIds])).groupBy(reportSalesMonthly.scopeId)
+      : Promise.resolve([]),
+    legacySalesExists
+      ? db.select({ scopeId: reportManualSalesMonthly.scopeId, reportMonth: sql<string | null>`max(${reportManualSalesMonthly.reportMonth})` }).from(reportManualSalesMonthly).where(inArray(reportManualSalesMonthly.scopeId, [...scopeIds])).groupBy(reportManualSalesMonthly.scopeId)
+      : Promise.resolve([]),
+    db.select({ scopeId: reportItemSalesMonthly.scopeId, reportMonth: sql<string | null>`max(${reportItemSalesMonthly.reportMonth})` }).from(reportItemSalesMonthly).where(inArray(reportItemSalesMonthly.scopeId, [...scopeIds])).groupBy(reportItemSalesMonthly.scopeId),
   ]);
 
   const byScope: Record<string, string> = {};
@@ -437,8 +473,10 @@ export async function insertReportSalesMonthly(
 
   // replace 模式每月一組：該月的 delete 與它自己的 insert 綁在一起，一組不跨 db.batch()。batch 是
   // 一個 transaction，把組切開的話中途失敗會留下「刪掉了但沒寫回去」的空洞。一組本身就超過上限時讓它獨佔一批。
+  const legacySalesExists = await hasTable(db, "report_sales_monthly");
   const groups: Statement[][] = [];
   for (const entry of months.values()) {
+    if (!legacySalesExists) continue;
     const group: Statement[] = [];
     if (entry.replaceExisting) {
       group.push(db.delete(reportSalesMonthly).where(and(
@@ -497,9 +535,10 @@ export async function insertReportSalesMonthly(
 
 export async function insertReportPayoutDaily(db: Database, rows: readonly NewReportPayoutDaily[], reportRunId?: string): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
+  const legacyPayoutExists = await hasTable(db, "report_payout_daily");
   const statements: Statement[] = [];
   for (const chunk of chunks(rows, 20)) {
-    if (!chunk.length) continue;
+    if (!legacyPayoutExists || !chunk.length) continue;
     statements.push(db.insert(reportPayoutDaily).values(chunk).onConflictDoUpdate({
       target: [reportPayoutDaily.scopeId, reportPayoutDaily.businessDate],
       set: {
@@ -638,6 +677,8 @@ export async function queryReportSales(
   if (!ids.length) return null;
   const groups = selectedGroups(query.groupBy?.length ? query.groupBy : ["sku"]);
   const dimensions = groups.map((group) => SALES_GROUPS[group]);
+  const effectiveSalesSource = await hasTable(db, "report_sales_monthly") ? EFFECTIVE_SALES_SOURCE : TARGET_EFFECTIVE_SALES_SOURCE;
+  const legacyInventoryExists = await hasTable(db, "inventory_items");
   const requestedSku = query.sku?.trim();
   const productQuery = query.productQuery?.trim();
   // 這次查詢涵蓋的通路；legacy 一律納入，那是還沒標通路的舊 mapping。
@@ -666,7 +707,7 @@ export async function queryReportSales(
      * 蝦皮的別名另外吃 legacyShopeeExternalSku：匯入端允許「商品ID_規格ID」回退到只有
      * 商品 ID 的舊 mapping，查詢端沒有跟上的話同一個值查得到匯入卻查不到報表。
      */
-    ...(requestedSku ? [sql`(
+    ...(requestedSku ? [legacyInventoryExists ? sql`(
       lower(${EFFECTIVE_SALES_COLUMNS.sku}) = lower(${requestedSku})
       OR (
         NOT EXISTS (
@@ -688,7 +729,7 @@ export async function queryReportSales(
             ) = 1
         )
       )
-    )`] : []),
+    )` : sql`lower(${EFFECTIVE_SALES_COLUMNS.sku}) = lower(${requestedSku})`] : []),
     ...(query.category ? [sql`lower(${EFFECTIVE_SALES_COLUMNS.category}) = lower(${query.category})`] : []),
     ...(query.productName ? [sql`lower(${EFFECTIVE_SALES_COLUMNS.productName}) LIKE lower(${`%${query.productName}%`})`] : []),
     ...(productQuery ? [sql`(
@@ -706,12 +747,12 @@ export async function queryReportSales(
   ];
   const grouped = dimensions.length ? sql` GROUP BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const order = dimensions.length ? sql` ORDER BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
-  const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${EFFECTIVE_SALES_SOURCE} WHERE ${sql.join(filters, sql` AND `)}${grouped}${order}`);
+  const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${effectiveSalesSource} WHERE ${sql.join(filters, sql` AND `)}${grouped}${order}`);
   const emptyAggregate = rows.length > 0 && rows.every((row) => (
     row.grossQuantity == null && row.returnQuantity == null && row.netQuantity == null && row.salesAmount == null
   ));
   if (!rows.length || emptyAggregate) {
-    const coverage = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count FROM ${EFFECTIVE_SALES_SOURCE} WHERE ${monthConditions(
+    const coverage = await db.all<{ count: unknown }>(sql`SELECT COUNT(*) AS count FROM ${effectiveSalesSource} WHERE ${monthConditions(
       EFFECTIVE_SALES_COLUMNS.reportMonth,
       EFFECTIVE_SALES_COLUMNS.scopeId,
       query.range,
@@ -764,6 +805,7 @@ export async function queryReportPayout(
 ): Promise<ReportPayoutQueryResult | null> {
   const { ids, scope } = await scopeIdsForQuery(db, query, directory);
   if (!ids.length) return null;
+  const effectivePayoutSource = await hasTable(db, "report_payout_daily") ? EFFECTIVE_PAYOUT_SOURCE : TARGET_EFFECTIVE_PAYOUT_SOURCE;
   const groups = selectedPayoutGroups(query.groupBy?.length ? query.groupBy : ["day"]);
   const dimensions = groups.map((group) => PAYOUT_GROUPS[group]);
   const conditions = queryConditions(EFFECTIVE_PAYOUT_COLUMNS.businessDate, EFFECTIVE_PAYOUT_COLUMNS.scopeId, query.range, ids);
@@ -773,7 +815,7 @@ export async function queryReportPayout(
   ];
   const grouped = dimensions.length ? sql` GROUP BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
   const order = dimensions.length ? sql` ORDER BY ${sql.join(dimensions.map((item) => item.expression), sql`, `)}` : sql``;
-  const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${EFFECTIVE_PAYOUT_SOURCE} WHERE ${conditions}${grouped}${order}`);
+  const rows = await db.all<Record<string, unknown>>(sql`SELECT ${sql.join(selected, sql`, `)} FROM ${effectivePayoutSource} WHERE ${conditions}${grouped}${order}`);
   if (!rows.length || (dimensions.length === 0 && rows.every((row) => row.payoutAmount == null))) return null;
   const scopeNames = new Map((await directory.stores()).map((item) => [item.id, item.name]));
   const resultRows = rows.map((row) => ({
