@@ -114,7 +114,7 @@ export const reportItemSalesMonthly = sqliteTable("report_item_sales_monthly", {
 ]);
 
 /** 每日出金；匯入與人工修訂合併在 record_origin。 */
-export const targetReportPayoutDaily = sqliteTable("report_payout_daily", {
+export const targetReportPayoutDaily = sqliteTable("report_payout_daily_target", {
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
   businessDate: text("business_date").notNull(),
   recordOrigin: text("record_origin").$type<ReportRecordOrigin>().notNull(),

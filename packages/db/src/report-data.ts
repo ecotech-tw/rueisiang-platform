@@ -265,22 +265,45 @@ const EFFECTIVE_SALES_COLUMNS = {
 
 const EFFECTIVE_PAYOUT_SOURCE = sql`(
   SELECT
+    target.scope_id,
+    target.business_date,
+    target.payout_amount
+  FROM report_payout_daily_target AS target
+  WHERE target.record_origin = 'imported'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM report_manual_payout_daily AS manual
+      WHERE manual.scope_id = target.scope_id
+        AND manual.business_date = target.business_date
+    )
+  UNION ALL
+  SELECT
     imported.scope_id,
     imported.business_date,
     imported.payout_amount
   FROM report_payout_daily AS imported
   WHERE NOT EXISTS (
-    SELECT 1
-    FROM report_manual_payout_daily AS manual
-    WHERE manual.scope_id = imported.scope_id
-      AND manual.business_date = imported.business_date
+    SELECT 1 FROM report_payout_daily_target AS target
+    WHERE target.scope_id = imported.scope_id
+      AND target.business_date = imported.business_date
   )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM report_manual_payout_daily AS manual
+      WHERE manual.scope_id = imported.scope_id
+        AND manual.business_date = imported.business_date
+    )
   UNION ALL
   SELECT
     manual.scope_id,
     manual.business_date,
     manual.payout_amount
   FROM report_manual_payout_daily AS manual
+  WHERE NOT EXISTS (
+    SELECT 1 FROM report_payout_daily_target AS target
+    WHERE target.scope_id = manual.scope_id
+      AND target.business_date = manual.business_date
+  )
 ) AS report_payout_effective`;
 
 const EFFECTIVE_PAYOUT_COLUMNS = {
