@@ -113,7 +113,7 @@ export const items = new Hono<AppEnv>()
     const db = c.get("db");
     const [warehouse, categories, masterRows, cyberbizRows, targetWmsRows] = await Promise.all([
       loadWarehouse(db),
-      db.select({ id: itemCategories.id, name: itemCategories.name, color: itemCategories.color }).from(itemCategories).where(eq(itemCategories.depth, 0)).orderBy(asc(itemCategories.sortOrder), asc(itemCategories.name)),
+      db.select({ id: itemCategories.id, name: itemCategories.name, color: itemCategories.color, parentId: itemCategories.parentId, depth: itemCategories.depth }).from(itemCategories).orderBy(asc(itemCategories.depth), asc(itemCategories.sortOrder), asc(itemCategories.name)),
       db.select({
         id: itemMasters.id,
         source: itemMasters.source,
