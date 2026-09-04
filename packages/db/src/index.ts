@@ -150,6 +150,7 @@ export {
   type ReportScopeInput,
 } from "./report-data.js";
 export { getReportRun, listReportIngestIssues, listReportRuns } from "./report-runs.js";
+export { checkWmsParity, type WmsParityReport } from "./wms-parity.js";
 export {
   createReportManualPayout,
   createReportManualSales,
