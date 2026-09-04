@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
 import type { ProductCategory, Zone } from "./api.js";
 
@@ -24,7 +24,7 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
   const zone = zones.find((candidate) => candidate.id === zoneId);
   const selected = catalog.find((item) => item.id === selectedId);
 
-  useMemo(() => {
+  useEffect(() => {
     void fetch("/api/items/catalog", { credentials: "same-origin" }).then(async (response) => {
       if (!response.ok) await readError(response);
       const data = await response.json() as { items: CatalogItem[] };
