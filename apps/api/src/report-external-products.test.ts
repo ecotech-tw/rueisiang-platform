@@ -1,5 +1,6 @@
 import {
   addProductSkuMapping,
+  addReportSkuIgnore,
   createDatabase,
   createReportProductCategory,
   deleteProductSkuMapping,
@@ -8,6 +9,7 @@ import {
   listCyberbizProductCategoryManagement,
   listProductCategoryOptions,
   loadProductSkuMappingManagement,
+  resolveProductSkus,
   resolveReportExternalProduct,
   schema,
   setCyberbizProductCategory,
@@ -87,6 +89,38 @@ describe("報表外部商品管理", () => {
     await setCyberbizProductCategory(db(), { sku: "CB-TARGET-001", categoryId: null, actor: ACTOR });
     await deleteReportProductCategory(db(), created.id, ACTOR);
     expect(await db().select().from(schema.itemCategories)).toEqual([]);
+  });
+
+  it("target mapping 可用 item_components 保存多用料 BOM，解析與忽略都不依賴 legacy 表", async () => {
+    await d1.exec("PRAGMA foreign_keys = OFF; DROP TABLE product_sku_mappings; DROP TABLE product_bundle_components; DROP TABLE custom_report_products; DROP TABLE report_sku_ignores; PRAGMA foreign_keys = ON;");
+
+    const created = await addProductSkuMapping(db(), {
+      channel: "Shopee", externalName: "Target 組合商品", externalSku: "target-bundle-001",
+      components: [
+        { customSku: "TARGET-COMPONENT-A", customName: "Target 用料 A", customCategory: "未分類", quantity: 2 },
+        { customSku: "TARGET-COMPONENT-B", customName: "Target 用料 B", customCategory: "未分類", quantity: 1 },
+      ], actor: ACTOR,
+    });
+    expect((await loadProductSkuMappingManagement(db())).mappings).toMatchObject([{
+      id: created.id,
+      externalSku: "TARGET-BUNDLE-001",
+      components: [
+        { source: "custom", sku: "TARGET-COMPONENT-A", name: "Target 用料 A", quantity: 2 },
+        { source: "custom", sku: "TARGET-COMPONENT-B", name: "Target 用料 B", quantity: 1 },
+      ],
+    }]);
+    expect(await resolveProductSkus(db(), ["TARGET-BUNDLE-001"], "shopee")).toMatchObject(new Map([
+      ["TARGET-BUNDLE-001", {
+        externalName: "Target 組合商品",
+        components: [
+          { sku: "TARGET-COMPONENT-A", quantity: 2 },
+          { sku: "TARGET-COMPONENT-B", quantity: 1 },
+        ],
+      }],
+    ]));
+
+    await addReportSkuIgnore(db(), { channel: "shopee", externalSku: "TARGET-BUNDLE-001", reason: "補寄用", actor: ACTOR });
+    expect(await resolveProductSkus(db(), ["TARGET-BUNDLE-001"], "shopee")).toEqual(new Map());
   });
 
   it("刪除 legacy mapping 表後仍能管理 target 單一用料 mapping", async () => {

@@ -1,5 +1,4 @@
 -- CYBERBIZ 目錄從 SKU 主鍵搬到 items 的延伸表；舊表先保留成相容來源，供尚未搬完的 mapping 讀取。
-PRAGMA foreign_keys = OFF;
 --> statement-breakpoint
 ALTER TABLE `cyberbiz_products` RENAME TO `cyberbiz_products_legacy`;
 --> statement-breakpoint
@@ -93,5 +92,3 @@ BEGIN
   SET `cyberbiz_product_id` = NEW.`product_id`, `cyberbiz_variant_id` = NEW.`variant_id`, `product_name` = NEW.`product_name`, `variant_name` = NEW.`variant_name`, `published` = NEW.`published`, `synced_at` = COALESCE(NEW.`synced_at`, CURRENT_TIMESTAMP)
   WHERE `item_id` = (SELECT `id` FROM `items` WHERE `source` = 'cyberbiz' AND lower(`sku`) = lower(OLD.`sku`) LIMIT 1);
 END;
---> statement-breakpoint
-PRAGMA foreign_keys = ON;

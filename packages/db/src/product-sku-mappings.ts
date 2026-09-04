@@ -14,7 +14,12 @@ import {
   wmsItems,
 } from "./schema/wms.js";
 import { reportProductCategories } from "./schema/report-products.js";
-import { itemCategories, cyberbizProducts as targetCyberbizProducts, items as itemMasters } from "./schema/items.js";
+import {
+  itemCategories,
+  itemComponents,
+  cyberbizProducts as targetCyberbizProducts,
+  items as itemMasters,
+} from "./schema/items.js";
 import { reportExternalProducts } from "./schema/reports.js";
 import { WmsError, type Actor } from "./wms.js";
 
@@ -159,26 +164,66 @@ async function loadTargetProductSkuMappingManagement(db: Database): Promise<Prod
   ]);
   const categoryById = new Map(categories.map((category) => [category.id, category.name]));
   const wmsIds = new Set(wmsRows.map((row) => row.itemId));
+  const parentIds = rows.map((row) => row.itemId).filter((id): id is string => !!id);
+  const componentRows = await inBatches(parentIds, (batch) => db
+    .select({ parentItemId: itemComponents.parentItemId, componentItemId: itemComponents.componentItemId, quantity: itemComponents.quantity })
+    .from(itemComponents)
+    .where(inArray(itemComponents.parentItemId, batch))
+    // item_components 目前沒有排序欄位；rowid 保留 mapping 編輯時的輸入順序，
+    // 也讓報表整筆金額固定落在第一個用料上。
+    .orderBy(asc(itemComponents.parentItemId), sql`rowid`));
+  const componentIds = [...new Set(componentRows.map((row) => row.componentItemId))];
+  const componentItems = await inBatches(componentIds, (batch) => db
+    .select({ id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId })
+    .from(itemMasters)
+    .where(inArray(itemMasters.id, batch)));
+  const componentById = new Map(componentItems.map((row) => [row.id, row]));
+  const componentsByParent = new Map<string, typeof componentRows>();
+  for (const row of componentRows) {
+    const list = componentsByParent.get(row.parentItemId) ?? [];
+    list.push(row);
+    componentsByParent.set(row.parentItemId, list);
+  }
   const rowItemId = (row: { itemId: string | null }) => row.itemId ?? "";
+  const managementComponent = (row: {
+    id: string;
+    source: "cyberbiz" | "custom";
+    sku: string;
+    name: string;
+    categoryId: string | null;
+    quantity: number;
+  }): ProductBundleComponentManagementRow => ({
+    source: row.source === "cyberbiz" ? "cyberbiz" : wmsIds.has(row.id) ? "item" : "custom",
+    inventoryItemId: wmsIds.has(row.id) ? row.id : null,
+    cyberbizSku: row.source === "cyberbiz" ? row.sku : null,
+    customProductId: row.source !== "cyberbiz" && !wmsIds.has(row.id) ? row.id : null,
+    sku: row.sku,
+    name: row.name,
+    category: categoryById.get(row.categoryId ?? "") ?? "未分類",
+    quantity: row.quantity,
+  });
   return {
-    mappings: rows.map((row) => ({
-      id: row.id,
-      channel: row.channel,
-      externalName: row.externalName,
-      externalSku: row.externalSku,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-      components: [{
-        source: row.itemSource === "cyberbiz" ? "cyberbiz" : wmsIds.has(rowItemId(row)) ? "item" : "custom",
-        inventoryItemId: wmsIds.has(rowItemId(row)) ? rowItemId(row) : null,
-        cyberbizSku: row.itemSource === "cyberbiz" ? row.sku : null,
-        customProductId: row.itemSource !== "cyberbiz" && !wmsIds.has(rowItemId(row)) ? rowItemId(row) : null,
-        sku: row.sku,
-        name: row.itemName,
-        category: categoryById.get(row.itemCategoryId ?? "") ?? "未分類",
-        quantity: 1,
-      }],
-    })),
+    mappings: rows.map((row) => {
+      const parentId = rowItemId(row);
+      const children = (componentsByParent.get(parentId) ?? [])
+        .map((component) => {
+          const item = componentById.get(component.componentItemId);
+          return item ? managementComponent({ ...item, quantity: component.quantity }) : null;
+        })
+        .filter((component): component is ProductBundleComponentManagementRow => component !== null);
+      const direct = row.itemSource && row.sku && row.itemName
+        ? managementComponent({ id: parentId, source: row.itemSource, sku: row.sku, name: row.itemName, categoryId: row.itemCategoryId, quantity: 1 })
+        : null;
+      return {
+        id: row.id,
+        channel: row.channel,
+        externalName: row.externalName,
+        externalSku: row.externalSku,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        components: children.length ? children : direct ? [direct] : [],
+      };
+    }),
     categories: categories.map((row) => row.name),
   };
 }
@@ -608,14 +653,60 @@ async function requireTargetMappingItem(
     return item.id;
   }
   if (!component.customSku) throw new WmsError("invalid", "自訂 SKU 不可為空。");
-  const [existing] = await db.select({ id: itemMasters.id }).from(itemMasters)
+  const [existing] = await db.select({ id: itemMasters.id, categoryId: itemMasters.categoryId }).from(itemMasters)
     .where(and(eq(itemMasters.source, "custom"), eq(itemMasters.sku, component.customSku))).limit(1);
-  if (existing) return existing.id;
-  const id = crypto.randomUUID();
   const [category] = component.customCategory && component.customCategory !== "未分類"
     ? await db.select({ id: itemCategories.id }).from(itemCategories).where(eq(itemCategories.name, component.customCategory)).limit(1)
     : [];
+  if (existing) {
+    await db.update(itemMasters).set({
+      name: component.customName,
+      categoryId: category?.id ?? (component.customCategory === "未分類" ? null : existing.categoryId),
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    }).where(eq(itemMasters.id, existing.id));
+    return existing.id;
+  }
+  const id = crypto.randomUUID();
   await db.insert(itemMasters).values({ id, source: "custom", kind: "sellable", sku: component.customSku, name: component.customName, categoryId: category?.id ?? null, active: 1 });
+  return id;
+}
+
+function targetBundleItemId(mappingId: string): string {
+  return `report-bundle:${mappingId}`;
+}
+
+function targetBundleSku(mappingId: string): string {
+  return `REPORT-BUNDLE:${mappingId}`.toUpperCase();
+}
+
+async function prepareTargetComponentItems(
+  db: Database,
+  components: NormalizedComponent[],
+): Promise<string[]> {
+  return Promise.all(components.map((component) => requireTargetMappingItem(db, component)));
+}
+
+async function ensureTargetBundleItem(
+  db: Database,
+  mappingId: string,
+  name: string,
+  now: string,
+): Promise<string> {
+  const id = targetBundleItemId(mappingId);
+  await db.insert(itemMasters).values({
+    id,
+    source: "custom",
+    kind: "sellable",
+    sku: targetBundleSku(mappingId),
+    name,
+    categoryId: null,
+    active: 1,
+    createdAt: now,
+    updatedAt: now,
+  }).onConflictDoUpdate({
+    target: itemMasters.id,
+    set: { name, updatedAt: now },
+  });
   return id;
 }
 
@@ -630,19 +721,34 @@ async function addTargetProductSkuMapping(
   if (!externalSku) throw new WmsError("invalid", "外部 SKU 不可為空。");
   if (!externalName) throw new WmsError("invalid", "通路商品名稱不可為空。");
   const components = validateBundleComponents(input.components);
-  if (components.length !== 1 || components[0]!.quantity !== 1) throw new WmsError("invalid", "目前 target 商品解析只支援單一用料且數量固定為 1；組合商品請先拆成獨立品項。");
   await requireExternalSkuAvailable(db, externalSku, components.map((component) => component.inventoryItemId).filter((id): id is string => !!id), components.map((component) => component.customSku).filter((sku): sku is string => !!sku));
   const [existing] = await db.select({ id: reportExternalProducts.id, resolution: reportExternalProducts.resolution }).from(reportExternalProducts).where(and(
     eq(reportExternalProducts.sourceType, channel), eq(reportExternalProducts.externalKey, externalSku), eq(reportExternalProducts.externalVariantKey, ""),
   )).limit(1);
   if (existing?.resolution === "mapped") throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經存在，請改用編輯功能。`);
-  const itemId = await requireTargetMappingItem(db, components[0]!);
   const id = existing?.id ?? crypto.randomUUID();
+  const now = new Date().toISOString();
+  const componentItemIds = await prepareTargetComponentItems(db, components);
+  const itemId = components.length === 1 && components[0]!.quantity === 1
+    ? componentItemIds[0]!
+    : await ensureTargetBundleItem(db, id, externalName, now);
+  const bundleRows = components.length === 1 && components[0]!.quantity === 1
+    ? []
+    : componentItemIds.map((componentItemId, index) => ({
+      parentItemId: itemId,
+      componentItemId,
+      quantity: components[index]!.quantity,
+      createdAt: now,
+      updatedAt: now,
+    }));
   await db.batch([
+    ...(existing ? [db.delete(itemComponents).where(eq(itemComponents.parentItemId, targetBundleItemId(id)))] : []),
+    ...(bundleRows.length ? [db.insert(itemComponents).values(bundleRows)] : []),
     existing
-      ? db.update(reportExternalProducts).set({ externalName, resolution: "mapped", itemId, ignoredReason: "", updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(reportExternalProducts.id, id))
+      ? db.update(reportExternalProducts).set({ externalName, resolution: "mapped", itemId, ignoredReason: "", updatedAt: now }).where(eq(reportExternalProducts.id, id))
       : db.insert(reportExternalProducts).values({ id, sourceType: channel, externalKey: externalSku, externalVariantKey: "", externalName, resolution: "mapped", itemId, ignoredReason: "" }),
-    db.insert(activityEvents).values(activityRow({ entityType: "product_sku_mapping", entityId: id, entityLabel: externalName, eventType: existing ? "product_sku_mapping_updated" : "product_sku_mapping_created", summary: `${existing ? "更新" : "新增"}${channel} 外部 SKU 對應：${externalSku}`, field: "externalSku", newValue: externalSku, actor: input.actor, source: "wms" })),
+    ...(existing && !bundleRows.length ? [db.delete(itemMasters).where(eq(itemMasters.id, targetBundleItemId(id)))] : []),
+    db.insert(activityEvents).values(activityRow({ entityType: "product_sku_mapping", entityId: id, entityLabel: externalName, eventType: existing ? "product_sku_mapping_updated" : "product_sku_mapping_created", summary: `${existing ? "更新" : "新增"}${channel} 外部 SKU 對應：${externalSku}（${components.length} 個組合用料）`, field: "externalSku", newValue: externalSku, actor: input.actor, source: "wms" })),
   ] as never);
   return { id, channel, externalName, externalSku };
 }
@@ -718,17 +824,34 @@ async function updateTargetProductSkuMapping(
   if (!externalSku) throw new WmsError("invalid", "外部 SKU 不可為空。");
   if (!externalName) throw new WmsError("invalid", "通路商品名稱不可為空。");
   const components = validateBundleComponents(input.components);
-  if (components.length !== 1 || components[0]!.quantity !== 1) throw new WmsError("invalid", "目前 target 商品解析只支援單一用料且數量固定為 1；組合商品請先拆成獨立品項。");
   await requireExternalSkuAvailable(db, externalSku, components.map((component) => component.inventoryItemId).filter((id): id is string => !!id), components.map((component) => component.customSku).filter((sku): sku is string => !!sku));
   const channel = normalizeProductSkuChannel(input.channel ?? mapping.sourceType);
   const [existing] = await db.select({ id: reportExternalProducts.id }).from(reportExternalProducts).where(and(
     eq(reportExternalProducts.sourceType, channel), eq(reportExternalProducts.externalKey, externalSku), eq(reportExternalProducts.externalVariantKey, ""), ne(reportExternalProducts.id, input.id),
   )).limit(1);
   if (existing) throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經對應到其他商品。`);
-  const itemId = await requireTargetMappingItem(db, components[0]!);
+  const now = new Date().toISOString();
+  const componentItemIds = await prepareTargetComponentItems(db, components);
+  const useBundle = components.length !== 1 || components[0]!.quantity !== 1;
+  const itemId = useBundle
+    ? await ensureTargetBundleItem(db, input.id, externalName, now)
+    : componentItemIds[0]!;
+  const bundleRows = useBundle
+    ? componentItemIds.map((componentItemId, index) => ({
+      parentItemId: itemId,
+      componentItemId,
+      quantity: components[index]!.quantity,
+      createdAt: now,
+      updatedAt: now,
+    }))
+    : [];
+  const oldBundle = mapping.itemId === targetBundleItemId(input.id);
   await db.batch([
-    db.update(reportExternalProducts).set({ sourceType: channel, externalKey: externalSku, externalName, itemId, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(reportExternalProducts.id, input.id)),
-    db.insert(activityEvents).values(activityRow({ entityType: "product_sku_mapping", entityId: input.id, entityLabel: externalName, eventType: "product_sku_mapping_updated", summary: `更新${channel} 外部 SKU 對應：${externalSku}`, field: "externalSku", oldValue: mapping.externalKey, newValue: externalSku, actor: input.actor, source: "wms" })),
+    db.update(reportExternalProducts).set({ sourceType: channel, externalKey: externalSku, externalName, itemId, updatedAt: now }).where(eq(reportExternalProducts.id, input.id)),
+    db.delete(itemComponents).where(eq(itemComponents.parentItemId, targetBundleItemId(input.id))),
+    ...(bundleRows.length ? [db.insert(itemComponents).values(bundleRows)] : []),
+    ...(!useBundle && oldBundle ? [db.delete(itemMasters).where(eq(itemMasters.id, targetBundleItemId(input.id)))] : []),
+    db.insert(activityEvents).values(activityRow({ entityType: "product_sku_mapping", entityId: input.id, entityLabel: externalName, eventType: "product_sku_mapping_updated", summary: `更新${channel} 外部 SKU 對應：${externalSku}（${components.length} 個組合用料）`, field: "externalSku", oldValue: mapping.externalKey, newValue: externalSku, actor: input.actor, source: "wms" })),
   ] as never);
   return { id: input.id, channel, externalName, externalSku };
 }
@@ -817,8 +940,12 @@ export async function updateProductSkuMapping(
 async function deleteTargetProductSkuMapping(db: Database, id: string, actor: Actor): Promise<void> {
   const [mapping] = await db.select().from(reportExternalProducts).where(eq(reportExternalProducts.id, id)).limit(1);
   if (!mapping || mapping.resolution !== "mapped") throw new WmsError("not_found", "找不到這筆外部 SKU 對應。");
+  const bundleId = targetBundleItemId(id);
+  const hasBundle = await db.select({ parentItemId: itemComponents.parentItemId }).from(itemComponents)
+    .where(eq(itemComponents.parentItemId, bundleId)).limit(1);
   await db.batch([
     db.delete(reportExternalProducts).where(eq(reportExternalProducts.id, id)),
+    ...(hasBundle.length ? [db.delete(itemMasters).where(eq(itemMasters.id, bundleId))] : []),
     db.insert(activityEvents).values(activityRow({ entityType: "product_sku_mapping", entityId: id, entityLabel: mapping.externalName || mapping.externalKey, eventType: "product_sku_mapping_deleted", summary: `移除${mapping.sourceType} 外部 SKU 對應：${mapping.externalKey}`, field: "externalSku", oldValue: mapping.externalKey, actor, source: "wms" })),
   ] as never);
 }
@@ -910,11 +1037,12 @@ async function resolveTargetProductSkus(
       externalName: reportExternalProducts.externalName,
       resolution: reportExternalProducts.resolution,
       itemId: reportExternalProducts.itemId,
+      itemSource: itemMasters.source,
       itemSku: itemMasters.sku,
       itemName: itemMasters.name,
       itemCategoryId: itemMasters.categoryId,
     }).from(reportExternalProducts)
-      .innerJoin(itemMasters, eq(itemMasters.id, reportExternalProducts.itemId))
+      .leftJoin(itemMasters, eq(itemMasters.id, reportExternalProducts.itemId))
       .where(and(
       inArray(reportExternalProducts.sourceType, lookupSources),
       inArray(reportExternalProducts.externalKey, lookupWanted),
@@ -940,6 +1068,32 @@ async function resolveTargetProductSkus(
     db.select({ id: itemCategories.id, name: itemCategories.name }).from(itemCategories),
   ]);
   const categoryById = new Map(categoryRows.map((row) => [row.id, row.name]));
+  const parentIds = [...new Set(externalRows.map((row) => row.itemId).filter((id): id is string => !!id))];
+  const targetBundleRows = await inBatches(parentIds, (batch) => db
+    .select({ parentItemId: itemComponents.parentItemId, componentItemId: itemComponents.componentItemId, quantity: itemComponents.quantity })
+    .from(itemComponents)
+    .where(inArray(itemComponents.parentItemId, batch))
+    // item_components 目前沒有排序欄位；rowid 保留 mapping 編輯時的輸入順序。
+    .orderBy(asc(itemComponents.parentItemId), sql`rowid`));
+  const targetComponentIds = [...new Set(targetBundleRows.map((row) => row.componentItemId))];
+  const [targetComponentItems, targetWmsRows] = await Promise.all([
+    inBatches(targetComponentIds, (batch) => db
+      .select({ id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId })
+      .from(itemMasters)
+      .where(inArray(itemMasters.id, batch))),
+    inBatches(targetComponentIds, (batch) => db
+      .select({ itemId: wmsItems.itemId })
+      .from(wmsItems)
+      .where(inArray(wmsItems.itemId, batch))),
+  ]);
+  const targetComponentById = new Map(targetComponentItems.map((row) => [row.id, row]));
+  const targetWmsIds = new Set(targetWmsRows.map((row) => row.itemId));
+  const targetComponentsByParent = new Map<string, typeof targetBundleRows>();
+  for (const row of targetBundleRows) {
+    const list = targetComponentsByParent.get(row.parentItemId) ?? [];
+    list.push(row);
+    targetComponentsByParent.set(row.parentItemId, list);
+  }
 
   const ignored = new Set(externalRows
     .filter((row) => row.resolution === "ignored")
@@ -960,6 +1114,34 @@ async function resolveTargetProductSkus(
       explicit.set(key, { sourceType: row.sourceType, itemId: row.itemId, externalName: row.externalName });
     }
   }
+  const targetComponent = (item: {
+    id: string;
+    source: "cyberbiz" | "custom";
+    sku: string;
+    name: string;
+    categoryId: string | null;
+  }, quantity: number): ResolvedProductSkuComponent => ({
+    inventoryItemId: targetWmsIds.has(item.id) ? item.id : null,
+    sku: item.sku,
+    name: item.name,
+    category: categoryById.get(item.categoryId ?? "") ?? "未分類",
+    quantity,
+  });
+  const targetComponents = (parent: {
+    id: string;
+    source: "cyberbiz" | "custom";
+    sku: string;
+    name: string;
+    categoryId: string | null;
+  }): ResolvedProductSkuComponent[] => {
+    const children = (targetComponentsByParent.get(parent.id) ?? [])
+      .map((row) => {
+        const item = targetComponentById.get(row.componentItemId);
+        return item ? targetComponent(item, row.quantity) : null;
+      })
+      .filter((component): component is ResolvedProductSkuComponent => component !== null);
+    return children.length ? children : [targetComponent(parent, 1)];
+  };
   const allItemRows = new Map<string, { id: string; sku: string; name: string; category: string }>();
   for (const row of directRows) {
     if (!row.sku) continue;
@@ -982,11 +1164,17 @@ async function resolveTargetProductSkus(
     const item = mapping?.itemId
       ? externalRows.find((row) => row.resolution === "mapped" && row.itemId === mapping.itemId)
       : undefined;
-    if (mapping && item?.itemSku) {
-      const itemName = item.itemName || mapping.externalName || item.itemSku;
+    if (mapping && item?.itemId && item.itemSource && item.itemSku && item.itemName) {
+      const parent = {
+        id: item.itemId,
+        source: item.itemSource,
+        sku: item.itemSku,
+        name: item.itemName || mapping.externalName || item.itemSku,
+        categoryId: item.itemCategoryId,
+      };
       resolved.set(key, {
-        externalName: mapping.externalName || itemName,
-        components: [{ inventoryItemId: item.itemId, sku: item.itemSku, name: itemName, category: categoryById.get(item.itemCategoryId ?? "") ?? "未分類", quantity: 1 }],
+        externalName: mapping.externalName || parent.name,
+        components: targetComponents(parent),
       });
       resolvedChannels.set(key, mapping.sourceType);
       mappedKeys.add(key);

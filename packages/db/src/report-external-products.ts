@@ -66,8 +66,10 @@ export async function ignoreReportExternalProduct(
   if (!id) throw new ReportExternalProductError("invalid", "外部商品 ID 不可為空白。");
   const product = await findProduct(db, id);
   const reason = input.reason?.trim() ?? "";
+  const generatedBundleId = product.itemId === `report-bundle:${id}` ? product.itemId : null;
   await db.batch([
     db.update(reportExternalProducts).set({ resolution: "ignored", itemId: null, ignoredReason: reason, updatedAt: new Date().toISOString() }).where(eq(reportExternalProducts.id, id)),
+    ...(generatedBundleId ? [db.delete(itemMasters).where(eq(itemMasters.id, generatedBundleId))] : []),
     db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: id, entityLabel: product.externalName || product.externalKey, eventType: "report_external_product_ignored", summary: `忽略外部商品「${product.externalName || product.externalKey}」`, field: "ignoredReason", newValue: reason, actor: input.actor, source: "reports" })),
   ] as never);
   const [updated] = await db.select().from(reportExternalProducts).where(eq(reportExternalProducts.id, id));

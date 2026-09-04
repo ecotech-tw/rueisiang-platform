@@ -274,4 +274,46 @@ describe("報表 scope migration", () => {
       sku: "MIGRATE-ITEM-001",
     }]);
   });
+
+  it("0085 將多用料 mapping 搬成 target BOM，且保留用料順序與數量", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0073_lame_shinko_yamashiro.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("legacy-bundle-item", "LEGACY-BUNDLE-A", "組合用料 A");
+    sqlite.prepare("INSERT INTO custom_report_products (id, sku, name, category) VALUES (?, ?, ?, ?)")
+      .run("legacy-custom-item", "LEGACY-BUNDLE-B", "組合用料 B", "未分類");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, channel, external_name, external_sku) VALUES (?, ?, ?, ?)")
+      .run("legacy-bundle-mapping", "Shopee", "舊組合商品", " old-bundle-001 ");
+    sqlite.prepare("INSERT INTO product_bundle_components (id, mapping_id, inventory_item_id, quantity) VALUES (?, ?, ?, ?)")
+      .run("legacy-bundle-mapping:000", "legacy-bundle-mapping", "legacy-bundle-item", 2);
+    sqlite.prepare("INSERT INTO product_bundle_components (id, mapping_id, custom_product_id, quantity) VALUES (?, ?, ?, ?)")
+      .run("legacy-bundle-mapping:001", "legacy-bundle-mapping", "legacy-custom-item", 3);
+
+    applyLikeD1(sqlite, "0073_lame_shinko_yamashiro.sql", "0084_report_external_mapping_backfill.sql");
+    applyLikeD1(sqlite, "0084_report_external_mapping_backfill.sql", "0085_report_bundle_target_backfill.sql");
+
+    expect(sqlite.prepare(`
+      SELECT external.source_type, external.external_key, external.item_id, item.source, item.sku
+      FROM report_external_products external
+      JOIN items item ON item.id = external.item_id
+      WHERE external.id = 'backfill:external:legacy-bundle-mapping'
+    `).all()).toEqual([{
+      source_type: "shopee",
+      external_key: "OLD-BUNDLE-001",
+      item_id: "report-bundle:legacy-bundle-mapping",
+      source: "custom",
+      sku: "REPORT-BUNDLE:LEGACY-BUNDLE-MAPPING",
+    }]);
+    expect(sqlite.prepare(`
+      SELECT item.sku, component.quantity
+      FROM item_components component
+      JOIN items item ON item.id = component.component_item_id
+      WHERE component.parent_item_id = 'report-bundle:legacy-bundle-mapping'
+      ORDER BY component.rowid
+    `).all()).toEqual([
+      { sku: "LEGACY-BUNDLE-A", quantity: 2 },
+      { sku: "LEGACY-BUNDLE-B", quantity: 3 },
+    ]);
+  });
 });
