@@ -58,6 +58,10 @@ function useCategoryMutation<TInput>(fn: (input: TInput) => Promise<unknown>) {
   });
 }
 
+function arrangeCategories(categories: ItemCategory[]): ItemCategory[] {
+  return categories.flatMap((category) => category.parentId ? [] : [category, ...categories.filter((child) => child.parentId === category.id)]);
+}
+
 function nextColor(taken: ItemCategory[]): string {
   const used = new Set(taken.map((category) => category.color));
   return WAREHOUSE_CATEGORY_COLORS.find((color) => !used.has(color)) ?? WAREHOUSE_CATEGORY_COLORS[taken.length % WAREHOUSE_CATEGORY_COLORS.length]!;
@@ -146,7 +150,7 @@ export function ItemCategories() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [dragDeltaX, setDragDeltaX] = useState(0);
-  useEffect(() => { setOrderedCategories(categories); }, [categories]);
+  useEffect(() => { setOrderedCategories(arrangeCategories(categories)); }, [categories]);
   const reorder = useCategoryMutation((input: { ids: string[]; parents: Record<string, string | null> }) => write("/api/items/categories/reorder", "POST", input));
   const remove = useCategoryMutation((id: string) => write(`/api/items/categories/${id}`, "DELETE"));
   const error = remove.error ?? reorder.error ?? query.error;
@@ -167,7 +171,7 @@ export function ItemCategories() {
     if (horizontal < -32) parentId = null;
     const updated = next.map((category) => category.id === active.id ? { ...category, parentId, depth: parentId ? 1 : 0 } : category);
     // 先整理成樹狀顯示，避免子分類被拖到 parent 上方，看起來像階層壞掉。
-    const arranged = updated.flatMap((category) => category.parentId ? [] : [category, ...updated.filter((child) => child.parentId === category.id)]);
+    const arranged = arrangeCategories(updated);
     setOrderedCategories(arranged);
     setDraggingId(null); setOverId(null); setDragDeltaX(0);
     reorder.mutate({ ids: arranged.map((category) => category.id), parents: Object.fromEntries(arranged.map((category) => [category.id, category.parentId])) }, { onSuccess: () => toast.show(parentId !== activeCategory.parentId ? "分類階層與排序已更新" : "分類排序已更新") });
