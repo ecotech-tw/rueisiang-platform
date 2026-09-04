@@ -347,7 +347,9 @@ export async function createZone(db: Database, input: ZoneInput & { actor: Actor
 
   await db.batch([
     db.insert(zones).values(zone),
+    db.insert(wmsLayouts).values({ id: "layout:main", name: "主倉庫", canvasWidth: CANVAS.width.fallback, canvasHeight: CANVAS.height.fallback, active: 1 }).onConflictDoNothing(),
     db.insert(wmsZones).values({ id, code, name, color: zone.color, notes: zone.notes, active: 1 }).onConflictDoNothing(),
+    db.insert(wmsLayoutElements).values({ id: `wms-zone:${id}`, layoutId: "layout:main", elementType: "zone", zoneId: id, label: name, color: zone.color, x: zone.x, y: zone.y, width: zone.width, height: zone.height, zIndex: 0 }).onConflictDoNothing(),
     ...parsedShelves.map((shelf, index) =>
       db.insert(wmsShelves).values({
         id: crypto.randomUUID(),
@@ -439,6 +441,10 @@ export async function updateZone(
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
       .where(eq(wmsZones.id, id)),
+    db
+      .insert(wmsLayoutElements)
+      .values({ id: `wms-zone:${id}`, layoutId: "layout:main", elementType: "zone", zoneId: id, label: next.name, color: next.color, x: next.x, y: next.y, width: next.width, height: next.height, zIndex: 0 })
+      .onConflictDoUpdate({ target: wmsLayoutElements.id, set: { label: next.name, color: next.color, x: next.x, y: next.y, width: next.width, height: next.height, updatedAt: sql`CURRENT_TIMESTAMP` } }),
     ...shelfLevels.map((shelf, index) =>
       db.insert(wmsShelves).values({
         id: crypto.randomUUID(),
@@ -489,6 +495,7 @@ export async function deleteZone(db: Database, id: string, actor: Actor) {
   await db.batch([
     // zone_images 是 cascade；物件與 media metadata 由 route 在外部刪除成功後另外清理。
     db.delete(zones).where(eq(zones.id, id)),
+    db.delete(wmsLayoutElements).where(eq(wmsLayoutElements.zoneId, id)),
     db.delete(wmsShelves).where(eq(wmsShelves.zoneId, id)),
     db.delete(wmsZones).where(eq(wmsZones.id, id)),
     writeEvent(db, {
