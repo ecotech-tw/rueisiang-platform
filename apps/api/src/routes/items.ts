@@ -119,6 +119,7 @@ export const items = new Hono<AppEnv>()
       db.select().from(wmsItems),
     ]);
 
+    const cyberbizNameBySku = new Map(cyberbizRows.map((row) => [row.sku, displayCyberbizName(row)]));
     const masterSkus = new Set(masterRows.map((row) => `${row.source}:${row.sku}`));
     const wmsBySku = new Map(warehouse.items.filter((item) => item.sku).map((item) => [item.sku!, item]));
     const wmsByItemId = new Map(targetWmsRows.map((row) => [row.itemId, row]));
@@ -129,7 +130,7 @@ export const items = new Hono<AppEnv>()
         return {
           id: row.id,
           sku: row.sku,
-          name: row.name ?? "",
+          name: row.name || (row.source === "cyberbiz" ? cyberbizNameBySku.get(row.sku) : undefined) || row.sku,
           source: row.source,
           category: row.categoryName ?? "未分類",
           categoryId: row.categoryId,
