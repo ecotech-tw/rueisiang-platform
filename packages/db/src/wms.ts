@@ -17,7 +17,9 @@ import {
   wmsCategories,
   wmsItems,
   wmsLayouts,
+  wmsLayoutElements,
   wmsShelves,
+  wmsZoneImages,
   wmsZones,
 } from "./schema/wms.js";
 
@@ -183,7 +185,41 @@ export class WmsError extends Error {
  * 地圖那一頁要同時畫出倉位、地圖標示、每個倉位裡有什麼、還有畫布尺寸。拆成五支
  * API 的話畫面會一格一格跳出來，而且中間那幾個瞬間的地圖是錯的（有倉位、沒東西）。
  */
+async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
+  const [layout] = await db.select().from(wmsLayouts).where(eq(wmsLayouts.active, 1)).orderBy(asc(wmsLayouts.id)).limit(1);
+  const [zoneRows, elementRows, categoryRows, itemRows, shelfRows, imageRows] = await Promise.all([
+    db.select().from(wmsZones).orderBy(asc(wmsZones.code)),
+    db.select().from(wmsLayoutElements).orderBy(asc(wmsLayoutElements.zIndex), asc(wmsLayoutElements.label)),
+    db.select().from(wmsCategories).orderBy(asc(wmsCategories.name)),
+    db.select({ wms: wmsItems, item: itemMasters }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).orderBy(asc(itemMasters.name)),
+    db.select().from(wmsShelves).orderBy(asc(wmsShelves.zoneId), asc(wmsShelves.sortOrder)),
+    db.select({ zoneId: wmsZoneImages.zoneId, total: count() }).from(wmsZoneImages).groupBy(wmsZoneImages.zoneId),
+  ]);
+  const shelvesByZone = new Map<string, ShelfLevel[]>();
+  for (const shelf of shelfRows) shelvesByZone.set(shelf.zoneId, [...(shelvesByZone.get(shelf.zoneId) ?? []), { id: shelf.code, name: shelf.name }]);
+  const imageCounts = new Map(imageRows.map((row) => [row.zoneId, row.total]));
+  const shelfById = new Map(shelfRows.map((shelf) => [shelf.id, shelf]));
+  return {
+    settings: { canvasWidth: layout?.canvasWidth ?? CANVAS.width.fallback, canvasHeight: layout?.canvasHeight ?? CANVAS.height.fallback },
+    zones: zoneRows.map((zone) => {
+      const element = elementRows.find((candidate) => candidate.zoneId === zone.id);
+      return { ...zone, category: "", x: element?.x ?? 0, y: element?.y ?? 0, width: element?.width ?? 18, height: element?.height ?? 16, shelfLevels: shelvesByZone.get(zone.id) ?? DEFAULT_SHELF_LEVELS, imageCount: imageCounts.get(zone.id) ?? 0 };
+    }),
+    layoutElements: elementRows,
+    categories: categoryRows,
+    items: itemRows.map(({ wms, item }) => {
+      const shelf = wms.shelfId ? shelfById.get(wms.shelfId) : undefined;
+      const category = wms.wmsCategoryId ? categoryRows.find((candidate) => candidate.id === wms.wmsCategoryId) : undefined;
+      return { id: item.id, sku: item.sku, name: item.name, category: category?.name ?? "未分類", quantity: wms.quantity, unit: wms.unit, minStock: wms.minStock, zoneId: shelf?.zoneId ?? null, shelfLevel: shelf?.code ?? null, notes: wms.notes, updatedAt: wms.updatedAt, cyberbiz: null };
+    }),
+  };
+}
+
 export async function loadWarehouse(db: Database): Promise<WarehouseSnapshot> {
+  const [targetZone] = await db.select({ id: wmsZones.id }).from(wmsZones).limit(1);
+  const [targetItem] = await db.select({ id: wmsItems.itemId }).from(wmsItems).limit(1);
+  // 舊測試／尚未搬移的空資料庫仍可能只有由 trigger 建出的 target zone；有 target item 才切換完整 target 讀取。
+  if (targetZone && targetItem) return loadTargetWarehouse(db);
   const [settingsRow] = await db
     .select()
     .from(warehouseSettings)
