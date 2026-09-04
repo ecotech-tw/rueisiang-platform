@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   insertReportPayoutDaily,
   insertReportSalesMonthly,
@@ -12,7 +12,8 @@ import {
   type Database,
   type ReportScopeKind,
 } from "@rueisiang/db";
-import { reportIngestIssues, reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
+import { items as itemMasters } from "@rueisiang/db/schema";
+import { reportExternalProducts, reportIngestIssues, reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
 
 export type CyberbizReportIngestKind = "sales" | "payout" | "sales_and_payout";
 
@@ -196,9 +197,10 @@ async function normalizeSalesRows(
   }>;
   /** 對不到任何對應，也沒被標記忽略——要人去補的。 */
   skippedSkus: string[];
+  mappedProducts: Array<{ externalKey: string; externalName: string; systemSku: string }>;
 }> {
   const parsed = preparsed ?? parseSalesRows(input);
-  if (!parsed.length) return { rows: [], skippedSkus: [] };
+  if (!parsed.length) return { rows: [], skippedSkus: [], mappedProducts: [] };
 
   const resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku), channel);
 
@@ -277,7 +279,12 @@ async function normalizeSalesRows(
       });
     }
   }
-  return { rows: [...rows.values()], skippedSkus: skipped };
+  const mappedProducts = [...new Set(usable.map((row) => row.externalSku))].flatMap((externalKey) => {
+    const resolvedItem = resolved.get(externalKey);
+    if (!resolvedItem || resolvedItem.components.length !== 1 || !resolvedItem.components[0]?.inventoryItemId) return [];
+    return [{ externalKey, externalName: resolvedItem.externalName, systemSku: resolvedItem.components[0].sku }];
+  });
+  return { rows: [...rows.values()], skippedSkus: skipped, mappedProducts };
 }
 
 function payoutRows(input: CyberbizReportIngestInput) {
@@ -295,6 +302,19 @@ function payoutRows(input: CyberbizReportIngestInput) {
     });
   }
   return [...rows.values()];
+}
+
+async function recordMappedProducts(db: Database, sourceType: string, products: readonly { externalKey: string; externalName: string; systemSku: string }[]): Promise<void> {
+  const values = [];
+  for (const product of products) {
+    const [item] = await db.select({ id: itemMasters.id }).from(itemMasters).where(sql`lower(${itemMasters.sku}) = lower(${product.systemSku})`).limit(1);
+    if (item) values.push({ id: crypto.randomUUID(), sourceType, externalKey: product.externalKey, externalVariantKey: "", externalName: product.externalName, resolution: "mapped" as const, itemId: item.id, ignoredReason: "" });
+  }
+  if (!values.length) return;
+  await db.insert(reportExternalProducts).values(values).onConflictDoUpdate({
+    target: [reportExternalProducts.sourceType, reportExternalProducts.externalKey, reportExternalProducts.externalVariantKey],
+    set: { externalName: sql`excluded.external_name`, resolution: "mapped", itemId: sql`excluded.item_id`, updatedAt: sql`CURRENT_TIMESTAMP` },
+  });
 }
 
 async function recordUnmappedIssues(db: Database, runId: string | null, skippedSkus: readonly string[]): Promise<void> {
@@ -379,6 +399,7 @@ export function createCyberbizReportIngestor(db: Database) {
         await insertReportPayoutDaily(db, payout, runId ?? undefined);
         const sales = await normalizeSalesRows(db, salesInput, dataChannel, parsedSales);
         await recordUnmappedIssues(db, runId, sales.skippedSkus);
+        await recordMappedProducts(db, dataChannel, sales.mappedProducts);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? {
             scopeId: scope.id,
@@ -401,6 +422,7 @@ export function createCyberbizReportIngestor(db: Database) {
       if (input.kind === "sales") {
         const sales = await normalizeSalesRows(db, scopedInput, dataChannel);
         await recordUnmappedIssues(db, runId, sales.skippedSkus);
+        await recordMappedProducts(db, dataChannel, sales.mappedProducts);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? {
             scopeId: scope.id,
