@@ -934,7 +934,10 @@ export async function countItem(
     throw new WmsError("invalid", "盤點數量必須是 0 或正整數。");
   }
 
-  const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
+  const legacyInventoryExists = await hasTable(db, "inventory_items");
+  const [item] = legacyInventoryExists
+    ? await db.select().from(inventoryItems).where(eq(inventoryItems.id, id))
+    : [];
   if (!item) {
     const [target] = await db.select({ item: itemMasters, wms: wmsItems }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).where(eq(wmsItems.itemId, id)).limit(1);
     if (!target) throw new WmsError("not_found", "找不到這項商品。");
@@ -995,9 +998,10 @@ export async function createWarehouseCategory(
   const name = input.name.trim().slice(0, 40);
   const category = { id: crypto.randomUUID(), name, color: normalizeColor(input.color, "rose") };
 
+  const legacyCategoriesExists = await hasTable(db, "warehouse_categories");
   await db.batch([
-    db.insert(warehouseCategories).values(category),
     db.insert(wmsCategories).values({ id: category.id, name, color: category.color, active: 1 }).onConflictDoNothing(),
+    ...(legacyCategoriesExists ? [db.insert(warehouseCategories).values(category)] : []),
     writeEvent(db, {
       entityType: "warehouse_category",
       entityId: category.id,
@@ -1023,7 +1027,10 @@ export async function updateWarehouseCategory(
   id: string,
   input: { name?: string; color?: unknown; actor: Actor },
 ) {
-  const [current] = await db.select().from(warehouseCategories).where(eq(warehouseCategories.id, id));
+  const legacyCategoriesExists = await hasTable(db, "warehouse_categories");
+  const [current] = legacyCategoriesExists
+    ? await db.select().from(warehouseCategories).where(eq(warehouseCategories.id, id))
+    : await db.select().from(wmsCategories).where(eq(wmsCategories.id, id));
   if (!current) throw new WmsError("not_found", "找不到這個倉儲分類。");
 
   const next = {
@@ -1034,17 +1041,15 @@ export async function updateWarehouseCategory(
 
   await db.batch([
     db
-      .update(warehouseCategories)
-      .set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` })
-      .where(eq(warehouseCategories.id, id)),
-    db
       .update(wmsCategories)
       .set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` })
       .where(eq(wmsCategories.id, id)),
-    db
-      .update(inventoryItems)
-      .set({ category: next.name, updatedAt: sql`CURRENT_TIMESTAMP` })
-      .where(eq(inventoryItems.category, current.name)),
+    ...(legacyCategoriesExists
+      ? [
+        db.update(warehouseCategories).set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(warehouseCategories.id, id)),
+        db.update(inventoryItems).set({ category: next.name, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(inventoryItems.category, current.name)),
+      ]
+      : []),
     writeEvent(db, {
       entityType: "warehouse_category",
       entityId: id,
@@ -1061,21 +1066,23 @@ export async function updateWarehouseCategory(
 }
 
 export async function deleteWarehouseCategory(db: Database, id: string, actor: Actor) {
-  const [category] = await db.select().from(warehouseCategories).where(eq(warehouseCategories.id, id));
+  const legacyCategoriesExists = await hasTable(db, "warehouse_categories");
+  const [category] = legacyCategoriesExists
+    ? await db.select().from(warehouseCategories).where(eq(warehouseCategories.id, id))
+    : await db.select().from(wmsCategories).where(eq(wmsCategories.id, id));
   if (!category) throw new WmsError("not_found", "找不到這個倉儲分類。");
 
-  // 沒有外鍵擋著（category 存的是名字），所以一定要自己查。兩種商品都要算。
-  const [usage] = await db
-    .select({ total: count() })
-    .from(inventoryItems)
-    .where(eq(inventoryItems.category, category.name));
+  // target 以外鍵保存分類，legacy 則以名稱保存；兩種資料都要阻擋正在使用的分類。
+  const [usage] = legacyCategoriesExists
+    ? await db.select({ total: count() }).from(inventoryItems).where(eq(inventoryItems.category, category.name))
+    : await db.select({ total: count() }).from(wmsItems).where(eq(wmsItems.wmsCategoryId, id));
   if ((usage?.total ?? 0) > 0) {
     throw new WmsError("conflict", `還有 ${usage?.total} 項庫存商品是這個倉儲分類，請先改成別的分類。`);
   }
 
   await db.batch([
-    db.delete(warehouseCategories).where(eq(warehouseCategories.id, id)),
     db.delete(wmsCategories).where(eq(wmsCategories.id, id)),
+    ...(legacyCategoriesExists ? [db.delete(warehouseCategories).where(eq(warehouseCategories.id, id))] : []),
     writeEvent(db, {
       entityType: "warehouse_category",
       entityId: id,
