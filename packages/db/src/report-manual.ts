@@ -800,7 +800,14 @@ export async function deleteReportPayoutRecord(
       eq(reportPayoutDaily.businessDate, businessDate),
     )).limit(1)
     : [];
-  const existing = manual ?? imported;
+  const [targetImported] = input.source === "imported"
+    ? await db.select().from(targetReportPayoutDaily).where(and(
+      eq(targetReportPayoutDaily.scopeId, scopeId),
+      eq(targetReportPayoutDaily.businessDate, businessDate),
+      eq(targetReportPayoutDaily.recordOrigin, "imported"),
+    )).limit(1)
+    : [];
+  const existing = manual ?? imported ?? targetImported;
   if (!existing) throw new ReportManualError("not_found", "找不到這筆出金紀錄。");
 
   const names = await scopeNames(db);
@@ -814,6 +821,9 @@ export async function deleteReportPayoutRecord(
         eq(reportPayoutDaily.scopeId, scopeId),
         eq(reportPayoutDaily.businessDate, businessDate),
       )),
+    input.source === "imported"
+      ? db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, scopeId), eq(targetReportPayoutDaily.businessDate, businessDate), eq(targetReportPayoutDaily.recordOrigin, "imported")))
+      : db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, scopeId), eq(targetReportPayoutDaily.businessDate, businessDate), eq(targetReportPayoutDaily.recordOrigin, "manual"))),
     db.insert(activityEvents).values(activityRow({
       entityType: "report_manual_entry",
       entityId,
@@ -850,7 +860,7 @@ export async function deleteReportPayoutRecords(
 
   const entries: Array<{
     input: ReportPayoutRecordDeleteInput;
-    existing: ReportManualPayoutDaily | ReportPayoutDaily;
+    existing: ReportManualPayoutDaily | ReportPayoutDaily | typeof targetReportPayoutDaily.$inferSelect;
   }> = [];
   for (const input of unique.values()) {
     const [manual] = input.source === "manual"
@@ -862,7 +872,10 @@ export async function deleteReportPayoutRecords(
         eq(reportPayoutDaily.businessDate, input.businessDate),
       )).limit(1)
       : [];
-    const existing = manual ?? imported;
+    const [targetImported] = input.source === "imported"
+      ? await db.select().from(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, input.scopeId), eq(targetReportPayoutDaily.businessDate, input.businessDate), eq(targetReportPayoutDaily.recordOrigin, "imported"))).limit(1)
+      : [];
+    const existing = manual ?? imported ?? targetImported;
     if (!existing) throw new ReportManualError("not_found", "找不到選取的出金紀錄。");
     entries.push({ input, existing });
   }
@@ -880,6 +893,7 @@ export async function deleteReportPayoutRecords(
           eq(reportPayoutDaily.scopeId, input.scopeId),
           eq(reportPayoutDaily.businessDate, input.businessDate),
         )),
+      db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, input.scopeId), eq(targetReportPayoutDaily.businessDate, input.businessDate), eq(targetReportPayoutDaily.recordOrigin, input.source === "imported" ? "imported" : "manual"))),
       db.insert(activityEvents).values(activityRow({
         entityType: "report_manual_entry",
         entityId,
