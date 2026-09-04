@@ -271,13 +271,13 @@ const EFFECTIVE_PAYOUT_SOURCE = sql`(
     target.business_date,
     target.payout_amount
   FROM report_payout_daily_target AS target
-  WHERE target.record_origin = 'imported'
-    AND NOT EXISTS (
+  WHERE target.record_origin = 'manual'
+    OR (target.record_origin = 'imported' AND NOT EXISTS (
       SELECT 1
       FROM report_manual_payout_daily AS manual
       WHERE manual.scope_id = target.scope_id
         AND manual.business_date = target.business_date
-    )
+    ))
   UNION ALL
   SELECT
     imported.scope_id,

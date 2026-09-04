@@ -11,6 +11,7 @@ import {
   reportPayoutDaily,
   reportSalesMonthly,
   reportScopes,
+  targetReportPayoutDaily,
   type ReportManualPayoutDaily,
   type ReportManualSalesMonthly,
   type ReportManualSkuSource,
@@ -387,30 +388,29 @@ async function scopeNames(db: Database): Promise<Map<string, string>> {
  */
 const PAYOUT_RECORD_SOURCE = sql`(
   SELECT
-    'imported' AS source,
-    'imported:' || imported.scope_id || ':' || imported.business_date AS id,
-    imported.scope_id,
-    imported.business_date,
-    imported.payout_amount,
-    '系統匯入' AS updated_by_email,
-    imported.updated_at
-  FROM report_payout_daily AS imported
-  WHERE NOT EXISTS (
-    SELECT 1
-    FROM report_manual_payout_daily AS manual
-    WHERE manual.scope_id = imported.scope_id
-      AND manual.business_date = imported.business_date
-  )
+    target.record_origin AS source,
+    CASE WHEN target.record_origin = 'manual' THEN 'target:' || target.scope_id || ':' || target.business_date ELSE 'imported:' || target.scope_id || ':' || target.business_date END AS id,
+    target.scope_id, target.business_date, target.payout_amount,
+    CASE WHEN target.record_origin = 'manual' THEN target.updated_by_email ELSE '系統匯入' END AS updated_by_email,
+    target.updated_at
+  FROM report_payout_daily_target AS target
+  WHERE target.record_origin = 'manual'
+    OR NOT EXISTS (SELECT 1 FROM report_manual_payout_daily AS manual WHERE manual.scope_id = target.scope_id AND manual.business_date = target.business_date)
   UNION ALL
   SELECT
-    'manual' AS source,
-    manual.id,
-    manual.scope_id,
-    manual.business_date,
-    manual.payout_amount,
-    manual.updated_by_email,
-    manual.updated_at
+    'imported' AS source,
+    'imported:' || imported.scope_id || ':' || imported.business_date AS id,
+    imported.scope_id, imported.business_date, imported.payout_amount,
+    '系統匯入' AS updated_by_email, imported.updated_at
+  FROM report_payout_daily AS imported
+  WHERE NOT EXISTS (SELECT 1 FROM report_payout_daily_target AS target WHERE target.scope_id = imported.scope_id AND target.business_date = imported.business_date)
+    AND NOT EXISTS (SELECT 1 FROM report_manual_payout_daily AS manual WHERE manual.scope_id = imported.scope_id AND manual.business_date = imported.business_date)
+  UNION ALL
+  SELECT
+    'manual' AS source, manual.id, manual.scope_id, manual.business_date, manual.payout_amount,
+    manual.updated_by_email, manual.updated_at
   FROM report_manual_payout_daily AS manual
+  WHERE NOT EXISTS (SELECT 1 FROM report_payout_daily_target AS target WHERE target.scope_id = manual.scope_id AND target.business_date = manual.business_date)
 ) AS report_payout_records`;
 
 const SALES_RECORD_SOURCE = sql`(
@@ -683,6 +683,7 @@ export async function createReportManualPayout(
   };
   await db.batch([
     db.insert(reportManualPayoutDaily).values(row),
+    db.insert(targetReportPayoutDaily).values({ scopeId: prepared.scopeId, businessDate: prepared.businessDate, recordOrigin: "manual", reportRunId: null, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, createdAt: now, updatedAt: now }),
     db.insert(activityEvents).values(activityRow({
       entityType: "report_manual_entry",
       entityId: id,
@@ -735,6 +736,8 @@ export async function updateReportManualPayout(
       updatedByEmail: next.updatedByEmail,
       updatedAt: next.updatedAt,
     }).where(eq(reportManualPayoutDaily.id, input.id)),
+    db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.recordOrigin, "manual"), eq(targetReportPayoutDaily.scopeId, existing.scopeId), eq(targetReportPayoutDaily.businessDate, existing.businessDate))),
+    db.insert(targetReportPayoutDaily).values({ scopeId: next.scopeId, businessDate: next.businessDate, recordOrigin: "manual", reportRunId: null, payoutAmount: next.payoutAmount, updatedByEmail: next.updatedByEmail, updatedAt }).onConflictDoUpdate({ target: [targetReportPayoutDaily.scopeId, targetReportPayoutDaily.businessDate, targetReportPayoutDaily.recordOrigin], set: { payoutAmount: next.payoutAmount, updatedByEmail: next.updatedByEmail, updatedAt } }),
     db.insert(activityEvents).values(activityRow({
       entityType: "report_manual_entry",
       entityId: input.id,
@@ -760,6 +763,7 @@ export async function deleteReportManualPayout(db: Database, id: string, actor: 
   const scopeName = names.get(existing.scopeId) ?? existing.scopeId;
   await db.batch([
     db.delete(reportManualPayoutDaily).where(eq(reportManualPayoutDaily.id, id)),
+    db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.recordOrigin, "manual"), eq(targetReportPayoutDaily.scopeId, existing.scopeId), eq(targetReportPayoutDaily.businessDate, existing.businessDate))),
     db.insert(activityEvents).values(activityRow({
       entityType: "report_manual_entry",
       entityId: id,
