@@ -1097,6 +1097,12 @@ export async function updateReportManualSales(
       updatedByEmail: next.updatedByEmail,
       updatedAt: next.updatedAt,
     }).where(eq(reportManualSalesMonthly.id, input.id)),
+    db.delete(reportItemSalesMonthly).where(and(
+      eq(reportItemSalesMonthly.scopeId, existing.scopeId),
+      eq(reportItemSalesMonthly.reportMonth, existing.reportMonth),
+      eq(reportItemSalesMonthly.recordOrigin, "manual"),
+      sql`${reportItemSalesMonthly.itemId} IN (SELECT id FROM items WHERE source = ${existing.skuSource} AND lower(sku) = lower(${existing.sku}))`,
+    )),
     db
       .insert(reportItemSalesMonthly)
       .values({
@@ -1239,7 +1245,7 @@ export async function deleteReportSalesRecords(
         eq(reportItemSalesMonthly.scopeId, existing.scopeId),
         eq(reportItemSalesMonthly.reportMonth, existing.reportMonth),
         input.source === "manual" ? eq(reportItemSalesMonthly.recordOrigin, "manual") : eq(reportItemSalesMonthly.recordOrigin, "imported"),
-        sql`${reportItemSalesMonthly.itemId} IN (SELECT id FROM items WHERE lower(sku) = lower(${existing.sku}))`,
+        sql`${reportItemSalesMonthly.itemId} IN (SELECT id FROM items WHERE source = ${skuSource} AND lower(sku) = lower(${existing.sku}))`,
       )),
       db.insert(activityEvents).values(activityRow({
         entityType: "report_manual_entry",
