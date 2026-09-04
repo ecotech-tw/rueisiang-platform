@@ -220,10 +220,6 @@ export function Items() {
       />
 
       <Panel className="grows">
-        <Alert tone="info">
-          管理方式：先到「品項分類」建立分類，再在這裡新增品項；要調整數量請到「倉儲管理系統 → 商品庫存」執行盤點，避免主檔編輯誤改庫存。
-        </Alert>
-
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <FilterInput
             label="搜尋"
