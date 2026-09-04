@@ -9,6 +9,7 @@ import { body, requireString } from "../request.js";
 import {
   cyberbizProducts,
   itemCategories,
+  itemComponents,
   items as itemMasters,
   reportProductCategories,
   cyberbizProductCategories,
@@ -16,6 +17,7 @@ import {
   wmsCategories,
   wmsShelves,
   wmsZones,
+  reportItemSalesMonthly,
 } from "@rueisiang/db/schema";
 
 const COLORS = new Set(["rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand"]);
@@ -242,6 +244,21 @@ export const items = new Hono<AppEnv>()
     const active = input.active === undefined ? current.active : Number(input.active) ? 1 : 0;
     await db.update(itemMasters).set({ name, categoryId, active, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, id));
     return c.json({ id, name, categoryId, active });
+  })
+  .delete("/catalog/:id", requirePermission("wms:inventory:write"), async (c) => {
+    const db = c.get("db");
+    const id = c.req.param("id");
+    const [item] = await db.select().from(itemMasters).where(eq(itemMasters.id, id)).limit(1);
+    if (!item) throw new HTTPException(404, { message: "找不到品項主檔。" });
+    if (item.source === "cyberbiz") throw new HTTPException(409, { message: "CYBERBIZ 品項由同步管理，請停用品項，不要刪除主檔。" });
+    const [wms] = await db.select({ itemId: wmsItems.itemId }).from(wmsItems).where(eq(wmsItems.itemId, id)).limit(1);
+    if (wms) throw new HTTPException(409, { message: "品項仍在倉儲中，請先移出倉儲。" });
+    const [component] = await db.select({ parentItemId: itemComponents.parentItemId }).from(itemComponents).where(eq(itemComponents.componentItemId, id)).limit(1);
+    if (component) throw new HTTPException(409, { message: "品項仍是 BOM 用料，請先移除組成。" });
+    const [sales] = await db.select({ scopeId: reportItemSalesMonthly.scopeId }).from(reportItemSalesMonthly).where(eq(reportItemSalesMonthly.itemId, id)).limit(1);
+    if (sales) throw new HTTPException(409, { message: "品項已有報表紀錄，請停用品項，不要刪除主檔。" });
+    await db.delete(itemMasters).where(eq(itemMasters.id, id));
+    return c.json({ ok: true });
   })
   .post("/catalog/:id/warehouse", requirePermission("wms:inventory:write"), async (c) => {
     const db = c.get("db");
