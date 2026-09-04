@@ -149,6 +149,7 @@ export {
   type ReportScopeKind,
   type ReportScopeInput,
 } from "./report-data.js";
+export { getReportRun, listReportIngestIssues, listReportRuns } from "./report-runs.js";
 export {
   createReportManualPayout,
   createReportManualSales,
