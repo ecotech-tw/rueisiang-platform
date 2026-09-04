@@ -76,6 +76,15 @@ export const items = new Hono<AppEnv>()
     await c.get("db").insert(itemCategories).values(category);
     return c.json(category, 201);
   })
+  .post("/categories/reorder", requirePermission("wms:category:write"), async (c) => {
+    const input = await body(c);
+    const ids = Array.isArray(input.ids) ? input.ids.filter((id): id is string => typeof id === "string" && id.trim() !== "") : [];
+    if (!ids.length || new Set(ids).size !== ids.length) throw new HTTPException(400, { message: "分類排序資料不正確。" });
+    const rows = await c.get("db").select({ id: itemCategories.id }).from(itemCategories);
+    if (rows.length !== ids.length || rows.some((row) => !ids.includes(row.id))) throw new HTTPException(400, { message: "分類排序資料與目前分類不一致，請重新整理後再試。" });
+    await c.get("db").batch(ids.map((id, sortOrder) => c.get("db").update(itemCategories).set({ sortOrder, updatedAt: new Date().toISOString() }).where(eq(itemCategories.id, id))) as never);
+    return c.json({ ok: true });
+  })
   .patch("/categories/:id", requirePermission("wms:category:write"), async (c) => {
     const input = await body(c);
     const id = c.req.param("id");

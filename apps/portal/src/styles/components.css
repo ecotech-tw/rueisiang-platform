@@ -1966,6 +1966,19 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 看起來像壞掉。給它一個上限，剩下的空間留給色票。
  */
 .category-form input { flex: 0 1 280px; min-width: 0; }
+.category-drag-handle {
+  display: inline-flex;
+  width: 28px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  color: var(--color-muted);
+  cursor: grab;
+  vertical-align: middle;
+}
+.category-drag-handle:active { cursor: grabbing; }
+.category-drag-handle svg { width: 18px; height: 18px; }
 /*
  * 分類表只有三欄。不給約束的話瀏覽器會把寬度平均分掉，「使用中的商品」那個
  * 個位數會被推到畫面正中央，離它的表頭很遠——欄位少的表格反而更需要指定寬度。

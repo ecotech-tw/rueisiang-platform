@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Icon } from "../../shell/icons.js";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
@@ -114,9 +115,25 @@ export function ItemCategories() {
   const { permissions } = useSession();
   const canWrite = permissions.has("wms:category:write");
   const categories = query.data?.categories ?? [];
+  const [orderedCategories, setOrderedCategories] = useState<ItemCategory[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  useEffect(() => { setOrderedCategories(categories); }, [categories]);
+  const reorder = useCategoryMutation((ids: string[]) => write("/api/items/categories/reorder", "POST", { ids }));
   const create = useCategoryMutation((input: { name: string; color: string; parentId: string }) => write("/api/items/categories", "POST", input));
   const remove = useCategoryMutation((id: string) => write(`/api/items/categories/${id}`, "DELETE"));
-  const error = create.error ?? remove.error ?? query.error;
+  const error = create.error ?? remove.error ?? reorder.error ?? query.error;
+  function moveCategory(targetId: string) {
+    if (!draggingId || draggingId === targetId) return;
+    const next = [...orderedCategories];
+    const from = next.findIndex((category) => category.id === draggingId);
+    const to = next.findIndex((category) => category.id === targetId);
+    if (from < 0 || to < 0) return;
+    const [moved] = next.splice(from, 1);
+    if (!moved) return;
+    next.splice(to, 0, moved);
+    setOrderedCategories(next);
+    reorder.mutate(next.map((category) => category.id));
+  }
 
   return (
     <div className="page fills">
@@ -144,9 +161,9 @@ export function ItemCategories() {
           <table className="data-table category-table">
             <thead><tr><th>分類</th><th className="numeric">使用中的品項</th>{canWrite ? <th /> : null}</tr></thead>
             <tbody>
-              {categories.map((category) => (
-                <tr key={category.id}>
-                  <td data-label="分類"><span className={`status status-tone-${category.color}`}>{category.depth === 1 ? `↳ ${category.name}` : category.name}</span>{category.depth === 1 ? <div className="cell-sub">上層：{categories.find((parent) => parent.id === category.parentId)?.name ?? "—"}</div> : null}</td>
+              {orderedCategories.map((category) => (
+                <tr key={category.id} draggable={canWrite} onDragStart={() => setDraggingId(category.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => { moveCategory(category.id); setDraggingId(null); }} onDragEnd={() => setDraggingId(null)} className={draggingId === category.id ? "dragging" : undefined}>
+                  <td data-label="分類"><span className="category-drag-handle" aria-label="拖曳調整排序" title="拖曳調整排序"><Icon name="dragHandle" /></span><span className={`status status-tone-${category.color}`}>{category.depth === 1 ? `↳ ${category.name}` : category.name}</span>{category.depth === 1 ? <div className="cell-sub">上層：{categories.find((parent) => parent.id === category.parentId)?.name ?? "—"}</div> : null}</td>
                   <td data-label="使用中的品項" className="numeric">{category.usageCount}</td>
                   {canWrite ? <td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" disabled={remove.isPending} onClick={() => setEditing(category)} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" className="danger" icon="trash" disabled={category.usageCount > 0 || remove.isPending} onClick={() => setDeleting(category)} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></div></td> : null}
                 </tr>
