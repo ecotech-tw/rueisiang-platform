@@ -91,12 +91,12 @@ function CreateDialog({ categories, onClose }: { categories: ItemCategory[]; onC
   </Dialog>;
 }
 
-function SortableCategoryRow({ category, canWrite, over, parentHighlight, onEdit, onDelete, onPromote }: { category: ItemCategory; canWrite: boolean; over: boolean; parentHighlight: boolean; onEdit: () => void; onDelete: () => void; onPromote: () => void }) {
+function SortableCategoryRow({ category, canWrite, over, parentHighlight, onEdit, onDelete }: { category: ItemCategory; canWrite: boolean; over: boolean; parentHighlight: boolean; onEdit: () => void; onDelete: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id });
   return <tr ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={isDragging ? "dragging" : parentHighlight ? "drop-parent" : over ? "drop-target" : undefined}>
     <td data-label="分類" style={{ paddingLeft: category.depth === 1 ? 48 : undefined }}><span className="category-drag-handle" {...attributes} {...listeners} aria-label="拖曳調整排序" title="拖曳調整排序"><Icon name="dragHandle" /></span><span className={`status status-tone-${category.color}`}>{category.name}</span></td>
     <td data-label="使用中的品項" className="numeric">{category.usageCount}</td>
-    {canWrite ? <td data-label="操作"><div className="row-actions">{category.depth === 1 ? <Button variant="icon" icon="chevronLeft" onClick={onPromote} title="移回大分類" aria-label={`將 ${category.name} 移回大分類`} /> : null}<Button variant="icon" icon="edit" onClick={onEdit} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" className="danger" icon="trash" disabled={category.usageCount > 0} onClick={onDelete} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></div></td> : null}
+    {canWrite ? <td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" onClick={onEdit} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" className="danger" icon="trash" disabled={category.usageCount > 0} onClick={onDelete} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></div></td> : null}
   </tr>;
 }
 
@@ -150,14 +150,6 @@ export function ItemCategories() {
   const reorder = useCategoryMutation((input: { ids: string[]; parents: Record<string, string | null> }) => write("/api/items/categories/reorder", "POST", input));
   const remove = useCategoryMutation((id: string) => write(`/api/items/categories/${id}`, "DELETE"));
   const error = remove.error ?? reorder.error ?? query.error;
-  function promoteCategory(category: ItemCategory) {
-    if (category.depth !== 1) return;
-    const updated = orderedCategories.map((item) => item.id === category.id ? { ...item, parentId: null, depth: 0 } : item);
-    const arranged = updated.flatMap((item) => item.parentId ? [] : [item, ...updated.filter((child) => child.parentId === item.id)]);
-    setOrderedCategories(arranged);
-    reorder.mutate({ ids: arranged.map((item) => item.id), parents: Object.fromEntries(arranged.map((item) => [item.id, item.parentId])) }, { onSuccess: () => toast.show("已移回大分類") });
-  }
-
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over) return;
@@ -165,13 +157,13 @@ export function ItemCategories() {
     const to = orderedCategories.findIndex((category) => category.id === over.id);
     if (from < 0 || to < 0) return;
     const target = orderedCategories[to];
-    if (!target || active.id === over.id) return;
+    if (!target) return;
     const horizontal = event.delta.x;
     const next = arrayMove(orderedCategories, from, to);
     const activeCategory = next.find((category) => category.id === active.id);
     if (!activeCategory) return;
     let parentId = activeCategory.parentId;
-    if (horizontal > 32) parentId = target.depth === 0 ? target.id : target.parentId;
+    if (horizontal > 32 && active.id !== target.id) parentId = target.depth === 0 ? target.id : target.parentId;
     if (horizontal < -32) parentId = null;
     const updated = next.map((category) => category.id === active.id ? { ...category, parentId, depth: parentId ? 1 : 0 } : category);
     // 先整理成樹狀顯示，避免子分類被拖到 parent 上方，看起來像階層壞掉。
@@ -211,7 +203,7 @@ export function ItemCategories() {
             <DndContext collisionDetection={closestCenter} onDragOver={handleDragOver} onDragCancel={() => { setDraggingId(null); setOverId(null); setDragDeltaX(0); }} onDragEnd={handleDragEnd}>
               <SortableContext items={orderedCategories.map((category) => category.id)} strategy={verticalListSortingStrategy}>
                 <tbody>
-                  {orderedCategories.map((category) => <SortableCategoryRow key={category.id} category={category} canWrite={canWrite} over={overId === category.id && draggingId !== category.id} parentHighlight={parentHighlightId === category.id && draggingId !== category.id} onEdit={() => setEditing(category)} onDelete={() => setDeleting(category)} onPromote={() => promoteCategory(category)} />)}
+                  {orderedCategories.map((category) => <SortableCategoryRow key={category.id} category={category} canWrite={canWrite} over={overId === category.id && draggingId !== category.id} parentHighlight={parentHighlightId === category.id && draggingId !== category.id} onEdit={() => setEditing(category)} onDelete={() => setDeleting(category)} />)}
                 </tbody>
               </SortableContext>
             </DndContext>
