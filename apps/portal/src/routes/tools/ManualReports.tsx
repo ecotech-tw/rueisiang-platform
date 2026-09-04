@@ -21,6 +21,7 @@ import {
   useManualReportOptions,
   useManualReportScopes,
   useManualSales,
+  useReportRun,
   useReportRuns,
   useUpdateManualPayout,
   useUpdateManualScope,
@@ -918,6 +919,8 @@ export function ManualReports() {
   const optionsQuery = useManualReportOptions(canWrite);
   const scopesQuery = useManualReportScopes(canWrite);
   const runsQuery = useReportRuns(canWrite);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const runDetailQuery = useReportRun(selectedRunId, canWrite);
   const [payoutFilters, setPayoutFilters] = useState<ManualPayoutQuery>(DEFAULT_PAYOUT_FILTERS);
   const [salesFilters, setSalesFilters] = useState<ManualSalesQuery>(DEFAULT_SALES_FILTERS);
   const payoutsQuery = useManualPayouts(payoutFilters, canWrite);
@@ -1026,9 +1029,15 @@ export function ManualReports() {
 
       {runsQuery.data?.runs.length ? (
         <Panel title="最近匯入" className="manual-report-runs">
-          <div className="data-table-wrap"><table className="data-table"><thead><tr><th>時間</th><th>來源</th><th>狀態</th><th className="numeric">銷售</th><th className="numeric">出金</th><th className="numeric">問題</th></tr></thead><tbody>
-            {runsQuery.data.runs.map((run) => <tr key={run.id}><td>{new Date(run.createdAt).toLocaleString("zh-TW", { hour12: false })}</td><td>{run.sourceType}</td><td><StatusBadge tone={run.status === "succeeded" ? "success" : run.status === "failed" ? "danger" : "warning"}>{run.status === "succeeded" ? "完成" : run.status === "failed" ? "失敗" : "處理中"}</StatusBadge></td><td className="numeric">{run.importedSalesRows}</td><td className="numeric">{run.importedPayoutRows}</td><td className="numeric">{run.skippedRows}</td></tr>)}
+          <div className="data-table-wrap"><table className="data-table"><thead><tr><th>時間</th><th>來源</th><th>狀態</th><th className="numeric">銷售</th><th className="numeric">出金</th><th className="numeric">問題</th><th /></tr></thead><tbody>
+            {runsQuery.data.runs.map((run) => <tr key={run.id}><td>{new Date(run.createdAt).toLocaleString("zh-TW", { hour12: false })}</td><td>{run.sourceType}</td><td><StatusBadge tone={run.status === "succeeded" ? "success" : run.status === "failed" ? "danger" : "warning"}>{run.status === "succeeded" ? "完成" : run.status === "failed" ? "失敗" : "處理中"}</StatusBadge></td><td className="numeric">{run.importedSalesRows}</td><td className="numeric">{run.importedPayoutRows}</td><td className="numeric">{run.skippedRows}</td><td><Button variant="secondary" onClick={() => setSelectedRunId(run.id)}>查看</Button></td></tr>)}
           </tbody></table></div>
+        </Panel>
+      ) : null}
+      {selectedRunId && runDetailQuery.data ? (
+        <Panel title="匯入問題明細" className="manual-report-issues">
+          <div className="flex items-center justify-between"><span className="muted">{runDetailQuery.data.run.lastError || "此執行沒有錯誤訊息。"}</span><Button variant="secondary" onClick={() => setSelectedRunId(null)}>關閉</Button></div>
+          {runDetailQuery.data.issues.length ? <ul className="manual-report-issue-list">{runDetailQuery.data.issues.map((issue) => <li key={`${issue.externalKey}:${issue.issueType}`}><strong>{issue.externalKey}</strong><span>{issue.detail}</span></li>)}</ul> : <p className="muted">沒有匯入問題。</p>}
         </Panel>
       ) : null}
 

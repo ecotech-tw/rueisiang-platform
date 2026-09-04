@@ -193,12 +193,28 @@ export interface ReportRunSummary {
   createdAt: string;
 }
 
+export interface ReportIngestIssueSummary {
+  externalKey: string;
+  externalName: string;
+  issueType: string;
+  detail: string;
+  rowCount: number;
+}
+
 export function useReportRuns(enabled = true) {
   return useQuery({
     enabled,
     queryKey: ["reports", "runs"],
     queryFn: () => request<{ runs: ReportRunSummary[] }>("/api/reports/cyberbiz/runs?limit=10"),
     refetchInterval: (query) => query.state.data?.runs.some((run) => run.status === "running") ? 3000 : false,
+  });
+}
+
+export function useReportRun(id: string | null, enabled = true) {
+  return useQuery({
+    enabled: enabled && Boolean(id),
+    queryKey: ["reports", "run", id],
+    queryFn: () => request<{ run: ReportRunSummary; issues: ReportIngestIssueSummary[] }>(`/api/reports/cyberbiz/runs/${encodeURIComponent(id ?? "")}`),
   });
 }
 
