@@ -3,6 +3,7 @@ import {
   createReportManualPayout,
   createReportManualSales,
   deleteReportManualPayout,
+  deleteReportManualSales,
   deleteReportPayoutRecord,
   deleteReportSalesRecord,
   insertReportPayoutDaily,
@@ -371,5 +372,43 @@ describe("報表人工修訂資料", () => {
       actor: ACTOR,
     });
     expect(updatedSales.productName).toBe("停用據點商品修訂");
+  });
+
+  it("刪除 legacy 報表表後仍可用 target 表完成人工 CRUD 與查詢", async () => {
+    await d1.exec("PRAGMA foreign_keys = OFF; DROP TABLE report_sales_monthly; DROP TABLE report_payout_daily; DROP TABLE report_manual_sales_monthly; DROP TABLE report_manual_payout_daily; PRAGMA foreign_keys = ON;");
+
+    const payout = await createReportManualPayout(db(), {
+      scopeId: SCOPE,
+      businessDate: "2026-09-01",
+      payoutAmount: 1234,
+      actor: ACTOR,
+    });
+    expect((await queryReportPayout(db(), {
+      range: { period: "2026-09", startDate: "2026-09-01", endDate: "2026-09-30" },
+      scopeType: "store",
+      scopeId: SCOPE,
+      groupBy: ["day"],
+    }))?.totals).toEqual({ payoutAmount: 1234 });
+    await deleteReportManualPayout(db(), payout.id, ACTOR);
+
+    const sales = await createReportManualSales(db(), {
+      scopeId: SCOPE,
+      reportMonth: "2026-09",
+      skuSource: "custom",
+      sku: "TARGET-MANUAL-SKU",
+      productName: "Target 人工商品",
+      grossQuantity: 3,
+      returnQuantity: 0,
+      netQuantity: 3,
+      salesAmount: 456,
+      actor: ACTOR,
+    });
+    expect((await queryReportSales(db(), {
+      range: { period: "2026-09", startDate: "2026-09-01", endDate: "2026-09-30" },
+      scopeType: "store",
+      scopeId: SCOPE,
+      groupBy: ["sku"],
+    }))?.totals).toMatchObject({ netQuantity: 3, salesAmount: 456 });
+    await deleteReportManualSales(db(), sales.id, ACTOR);
   });
 });
