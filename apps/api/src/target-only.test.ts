@@ -6,6 +6,7 @@ import {
   insertReportSalesMonthly,
   listCompanyLinks,
   loadWarehouse,
+  processProductWebhook,
   queryReportPayout,
   queryReportSales,
   syncCyberbizProducts,
@@ -123,6 +124,14 @@ describe("target-only destructive integration", () => {
       cyberbizProductId: "target-product",
       cyberbizVariantId: "target-variant",
     });
+    const webhook = await processProductWebhook(db, {
+      rawBody: JSON.stringify({ variant_id: "target-variant", sku: "TARGET-WMS" }),
+      topic: "variants/update",
+      client: { fetchProduct: async () => [{ productId: "target-product", variantId: "target-variant", sku: "TARGET-WMS", quantity: 9, safetyQuantity: 3 }] } as never,
+    });
+    expect(webhook).toMatchObject({ status: "processed", sync: { updated: 1, failed: 0 } });
+    expect((await db.select().from(wmsItems)).find((item) => item.itemId === "target-wms-item"))
+      .toMatchObject({ quantity: 9, minStock: 3 });
     expect((await db.select({ sku: items.sku }).from(items).where(eq(items.source, "cyberbiz")))).toEqual([{ sku: "TARGET-CYBERBIZ" }]);
   });
 });
