@@ -62,6 +62,12 @@ function categoryLabel(category: ProductCategory): string {
   return category.depth === 1 ? `　${category.name}` : category.name;
 }
 
+function categoryPath(category: ProductCategory, categories: ProductCategory[]): string {
+  if (!category.parentId) return category.name;
+  const parent = categories.find((candidate) => candidate.id === category.parentId);
+  return parent ? `${parent.name} / ${category.name}` : category.name;
+}
+
 function sourceLabel(item: ItemCatalogItem): string {
   if (item.source === "cyberbiz") return item.notes.includes("尚未建立") ? "CYBERBIZ 未入主檔" : "CYBERBIZ";
   if (item.source === "wms") return "WMS 過渡品項";
@@ -165,14 +171,14 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
           items={arrangeCategories(categories)}
           value={categories.find((category) => category.id === categoryId) ?? null}
           onValueChange={(category) => setCategoryId(category?.id ?? "")}
-          itemToStringLabel={(category) => category ? categoryLabel(category) : ""}
+          itemToStringLabel={(category) => category ? categoryPath(category, categories) : ""}
           autoHighlight
         >
           <Combobox.InputGroup className="combobox-group">
             <Combobox.Input className="combobox-input" placeholder="搜尋或選擇分類" />
             <Combobox.Clear className="combobox-clear" aria-label="清除分類"><Icon name="close" /></Combobox.Clear><Combobox.Trigger className="combobox-trigger" aria-label="開啟分類選單"><Icon name="chevronDown" /></Combobox.Trigger>
           </Combobox.InputGroup>
-          <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span>{categoryLabel(category)}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+          <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span className="combobox-category-label">{category.parentId ? <><small>{categoryPath(category, categories).split(" / ")[0]} / </small>{category.name}</> : category.name}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
         </Combobox.Root>
       </div>
       {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
