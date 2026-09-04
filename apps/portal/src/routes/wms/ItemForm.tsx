@@ -15,6 +15,11 @@ import {
   type Zone,
 } from "./api.js";
 
+/** 分類下拉先排母分類，再排它的子分類，避免所有子分類集中在列表底部。 */
+function arrangeCategories(categories: ProductCategory[]): ProductCategory[] {
+  return categories.flatMap((category) => category.parentId ? [] : [category, ...categories.filter((child) => child.parentId === category.id)]);
+}
+
 /** 這一欄有兩種格式：D1 的 CURRENT_TIMESTAMP 沒有時區，同步寫進來的是帶 Z 的 ISO。 */
 function categoryLabel(category: ProductCategory): string {
   if (category.depth !== 1 || !category.parentId) return category.name;
@@ -203,7 +208,7 @@ export function ItemForm({
               hint={categories.length === 0 ? (catalogOnly ? "還沒有任何品項分類，請先去「品項分類」建立一個。" : "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。") : undefined}
               options={[
                 { label: "請選擇分類", value: "" },
-                ...categories.map((category) => ({ label: categoryLabel(category), value: category.name })),
+                ...arrangeCategories(categories).map((category) => ({ label: categoryLabel(category), value: category.name })),
               ]}
             />
           </div>

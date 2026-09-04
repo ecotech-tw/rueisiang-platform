@@ -54,6 +54,10 @@ async function loadItemCatalog(): Promise<ItemCatalogData> {
   return (await response.json()) as ItemCatalogData;
 }
 
+function arrangeCategories(categories: ProductCategory[]): ProductCategory[] {
+  return categories.flatMap((category) => category.parentId ? [] : [category, ...categories.filter((child) => child.parentId === category.id)]);
+}
+
 function categoryLabel(category: ProductCategory): string {
   return category.depth === 1 ? `　${category.name}` : category.name;
 }
@@ -158,7 +162,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
       <div className="field">
         <span>品項分類</span>
         <Combobox.Root
-          items={categories}
+          items={arrangeCategories(categories)}
           value={categories.find((category) => category.id === categoryId) ?? null}
           onValueChange={(category) => setCategoryId(category?.id ?? "")}
           itemToStringLabel={(category) => category ? categoryLabel(category) : ""}
