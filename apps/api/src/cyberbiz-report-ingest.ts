@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import {
   insertReportPayoutDaily,
   insertReportSalesMonthly,
@@ -11,6 +12,7 @@ import {
   type Database,
   type ReportScopeKind,
 } from "@rueisiang/db";
+import { reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
 
 export type CyberbizReportIngestKind = "sales" | "payout" | "sales_and_payout";
 
@@ -341,21 +343,33 @@ export function createCyberbizReportIngestor(db: Database) {
         name: input.scopeName,
       });
       const scopedInput = { ...input, scopeId: scope.id };
+      const [targetScope] = await db.select({ id: scopes.id }).from(scopes).where(eq(scopes.id, scope.id)).limit(1);
+      const runId = targetScope ? crypto.randomUUID() : null;
+      const requestId = runId ? `cyberbiz-ingest:${scope.id}:${input.reportMonth ?? "adhoc"}:${runId}` : "";
+      const payoutDates = (input.payoutRows ?? []).flatMap((row) => record(row) && typeof row.businessDate === "string" ? [row.businessDate] : []);
+      const startDate = input.reportMonth ? `${input.reportMonth}-01` : (payoutDates.sort()[0] ?? new Date().toISOString().slice(0, 10));
+      const endDate = input.reportMonth ? new Date(Date.UTC(Number(input.reportMonth.slice(0, 4)), Number(input.reportMonth.slice(5, 7)), 0)).toISOString().slice(0, 10) : (payoutDates.sort().at(-1) ?? startDate);
+      if (runId) await db.batch([
+        db.insert(reportRuns).values({ id: runId, requestId, sourceType: dataChannel, importsSales: input.kind !== "payout" ? 1 : 0, importsPayout: input.kind !== "sales" ? 1 : 0, periodKind: input.reportMonth ? "month" : "custom", startDate, endDate, status: "running", actorEmail: "" }),
+        db.insert(reportRunScopes).values({ reportRunId: runId, scopeId: scope.id }),
+      ]);
       if (input.kind === "sales_and_payout") {
         const salesInput = { ...scopedInput, rows: input.salesRows ?? [] };
         // 先驗證 sales 的資料格式，再寫入 payout；只有 mapping 不存在時才保留「先存 payout」的行為。
         const parsedSales = parseSalesRows(salesInput);
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
         // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
-        await insertReportPayoutDaily(db, payout);
+        await insertReportPayoutDaily(db, payout, runId ?? undefined);
         const sales = await normalizeSalesRows(db, salesInput, dataChannel, parsedSales);
         await insertReportSalesMonthly(db, sales.rows, input.reportMonth
           ? {
             scopeId: scope.id,
             reportMonth: input.reportMonth,
             replaceExisting: input.salesWriteMode !== "merge",
+            ...(runId ? { reportRunId: runId } : {}),
           }
           : undefined);
+        if (runId) await db.update(reportRuns).set({ status: "succeeded", importedSalesRows: sales.rows.length, importedPayoutRows: payout.length, skippedRows: sales.skippedSkus.length, updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
         return {
           kind: input.kind,
           scopeId: scope.id,
@@ -373,8 +387,10 @@ export function createCyberbizReportIngestor(db: Database) {
             scopeId: scope.id,
             reportMonth: input.reportMonth,
             replaceExisting: input.salesWriteMode !== "merge",
+            ...(runId ? { reportRunId: runId } : {}),
           }
           : undefined);
+        if (runId) await db.update(reportRuns).set({ status: "succeeded", importedSalesRows: sales.rows.length, skippedRows: sales.skippedSkus.length, updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
         return {
           kind: input.kind,
           scopeId: scope.id,
@@ -384,7 +400,8 @@ export function createCyberbizReportIngestor(db: Database) {
         };
       }
       const rows = payoutRows(scopedInput);
-      await insertReportPayoutDaily(db, rows);
+      await insertReportPayoutDaily(db, rows, runId ?? undefined);
+      if (runId) await db.update(reportRuns).set({ status: "succeeded", importedPayoutRows: rows.length, updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
       return { kind: input.kind, scopeId: scope.id, rowCount: rows.length };
     },
   };

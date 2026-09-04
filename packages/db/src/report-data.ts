@@ -6,11 +6,13 @@ import {
   reportPayoutDaily,
   reportSalesMonthly,
   reportScopes,
+  targetReportPayoutDaily,
   type NewReportPayoutDaily,
   type NewReportSalesMonthly,
   type ReportScope,
   type ReportScopeKind,
 } from "./schema/reports.js";
+import { items as itemMasters } from "./schema/items.js";
 import { customReportProducts, inventoryItems, productBundleComponents, productSkuMappings } from "./schema/wms.js";
 import { legacyShopeeExternalSku, reportDataChannel } from "./product-sku-mappings.js";
 
@@ -409,7 +411,7 @@ export async function findReportScope(
 export async function insertReportSalesMonthly(
   db: Database,
   rows: readonly NewReportSalesMonthly[],
-  target?: { scopeId: string; reportMonth: string; replaceExisting?: boolean },
+  target?: { scopeId: string; reportMonth: string; replaceExisting?: boolean; reportRunId?: string },
 ): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
   const months = new Map<string, {
@@ -471,9 +473,29 @@ export async function insertReportSalesMonthly(
     batch.push(...group);
   }
   if (batch.length) await db.batch(batch as [Statement, ...Statement[]]);
+
+  if (target?.reportRunId) {
+    const targetRows = rows.filter((row) => row.scopeId === target.scopeId && row.reportMonth === target.reportMonth);
+    const itemRows = targetRows.length
+      ? await db.select({ id: itemMasters.id, sku: itemMasters.sku }).from(itemMasters).where(sql`lower(${itemMasters.sku}) IN (${sql.join([...new Set(targetRows.map((row) => row.sku.toLowerCase()))].map((sku) => sql`${sku}`), sql`, `)})`)
+      : [];
+    const itemsBySku = new Map(itemRows.filter((item): item is { id: string; sku: string } => Boolean(item.sku)).map((item) => [item.sku.toLowerCase(), item.id]));
+    const mappedRows = targetRows.flatMap((row) => {
+      const itemId = itemsBySku.get(row.sku.toLowerCase());
+      return itemId ? [{ scopeId: row.scopeId, reportMonth: row.reportMonth, itemId, recordOrigin: "imported" as const, reportRunId: target.reportRunId, grossQuantity: row.grossQuantity, returnQuantity: row.returnQuantity, netQuantity: row.netQuantity, salesAmount: row.salesAmount }] : [];
+    });
+    const targetStatements: Statement[] = [];
+    if (target.replaceExisting !== false) {
+      targetStatements.push(db.delete(reportItemSalesMonthly).where(and(eq(reportItemSalesMonthly.scopeId, target.scopeId), eq(reportItemSalesMonthly.reportMonth, target.reportMonth), eq(reportItemSalesMonthly.recordOrigin, "imported"))));
+    }
+    for (const chunk of chunks(mappedRows, 20)) {
+      if (chunk.length) targetStatements.push(db.insert(reportItemSalesMonthly).values(chunk).onConflictDoUpdate({ target: [reportItemSalesMonthly.scopeId, reportItemSalesMonthly.reportMonth, reportItemSalesMonthly.itemId, reportItemSalesMonthly.recordOrigin], set: { reportRunId: target.reportRunId, grossQuantity: sql`excluded.gross_quantity`, returnQuantity: sql`excluded.return_quantity`, netQuantity: sql`excluded.net_quantity`, salesAmount: sql`excluded.sales_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } }));
+    }
+    if (targetStatements.length) await db.batch(targetStatements as [Statement, ...Statement[]]);
+  }
 }
 
-export async function insertReportPayoutDaily(db: Database, rows: readonly NewReportPayoutDaily[]): Promise<void> {
+export async function insertReportPayoutDaily(db: Database, rows: readonly NewReportPayoutDaily[], reportRunId?: string): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
   const statements: Statement[] = [];
   for (const chunk of chunks(rows, 20)) {
@@ -488,6 +510,12 @@ export async function insertReportPayoutDaily(db: Database, rows: readonly NewRe
   }
   for (const chunk of chunks(statements, 50)) {
     if (chunk.length) await db.batch(chunk as [Statement, ...Statement[]]);
+  }
+  if (reportRunId && rows.length) {
+    const targetRows = rows.map((row) => ({ scopeId: row.scopeId, businessDate: row.businessDate, recordOrigin: "imported" as const, reportRunId, payoutAmount: row.payoutAmount }));
+    for (const chunk of chunks(targetRows, 20)) {
+      await db.batch([db.insert(targetReportPayoutDaily).values(chunk).onConflictDoUpdate({ target: [targetReportPayoutDaily.scopeId, targetReportPayoutDaily.businessDate, targetReportPayoutDaily.recordOrigin], set: { reportRunId, payoutAmount: sql`excluded.payout_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } })]);
+    }
   }
 }
 
