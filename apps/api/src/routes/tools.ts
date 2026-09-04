@@ -416,7 +416,7 @@ export const tools = new Hono<AppEnv>()
     return c.json({ ...result, scopeName: resolvedScopeName, reportMonth }, 201);
   })
 
-  /** SKU 對應的入口已移到 WMS 導覽；API 路徑先保留在 tools 之下，避免既有前端與報表流程斷線。 */
+  /** SKU 對應的入口已移到品項管理；API 路徑先保留在 tools 之下，避免既有前端與報表流程斷線。 */
   .get("/product-sku-mappings", requirePermission("wms:mapping:read"), async (c) => {
     return c.json(await loadProductSkuMappingManagement(c.get("db")));
   })

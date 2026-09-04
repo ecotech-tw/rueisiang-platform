@@ -68,7 +68,7 @@ function categoryPath(category: ProductCategory, categories: ProductCategory[]):
 }
 
 function sourceLabel(item: ItemCatalogItem): string {
-  if (item.source === "cyberbiz") return item.notes.includes("尚未建立") ? "CYBERBIZ 未入主檔" : "CYBERBIZ";
+  if (item.source === "cyberbiz") return item.notes.includes("尚未建立") ? "CYBERBIZ 待建立品項" : "CYBERBIZ";
   if (item.source === "wms") return "WMS 過渡品項";
   return "自建品項";
 }
@@ -196,14 +196,14 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["items", "catalog"] });
-      toast.show("品項主檔已更新");
+      toast.show("品項已更新");
       onClose();
     },
   });
   const valid = name.trim() !== "";
   return (
     <Dialog
-      title="編輯品項主檔"
+      title="編輯品項"
       onClose={onClose}
       closeDisabled={update.isPending}
       formProps={{ onSubmit: (event) => { event.preventDefault(); if (valid) update.mutate(); } }}
@@ -267,11 +267,11 @@ export function Items() {
     <div className="page fills">
       <PageHeader
         title="品項管理"
-        description="集中維護可被倉儲、SKU 對應與報表共用的品項主檔；庫存盤點仍留在倉儲頁處理。"
+        description="集中維護可被倉儲、SKU 對應與報表共用的品項；庫存盤點仍留在倉儲頁處理。"
         actions={canWrite ? <Button icon="plus" onClick={() => setEditing("new")}>新增品項</Button> : null}
       />
 
-      <div className="stat-row catalog-stat-row" aria-label="品項主檔摘要">
+      <div className="stat-row catalog-stat-row" aria-label="品項列表摘要">
         <div className="stat"><span>品項總數</span><strong>{items.length.toLocaleString("zh-TW")}</strong></div>
         <div className="stat"><span>已納入倉儲</span><strong>{inWarehouseCount.toLocaleString("zh-TW")}</strong></div>
         <div className="stat"><span>待納入倉儲</span><strong>{pendingWarehouseCount.toLocaleString("zh-TW")}</strong></div>
@@ -340,7 +340,7 @@ export function Items() {
                       {canWrite ? (
                         <td data-label="操作">
                           {item.source === "cyberbiz" && item.notes.includes("尚未建立") ? (
-                            <Button variant="secondary" onClick={() => setEditing({ cyberbizSku: item.sku })}>建立主檔</Button>
+                            <Button variant="secondary" onClick={() => setEditing({ cyberbizSku: item.sku })}>建立品項</Button>
                           ) : !item.inWarehouse && canEnroll ? (
                             <div className="row-actions">
                               <Button variant="secondary" onClick={() => setWarehouseItem(item)}>納入倉儲</Button>

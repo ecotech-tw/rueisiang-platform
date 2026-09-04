@@ -193,7 +193,7 @@ export function ItemCategories() {
 
   return (
     <div className="page fills">
-      <PageHeader title="品項分類管理" description="這裡管理 item_categories；它是報表與品項主檔分類，不再與倉儲分類同步。" actions={canWrite ? <Button icon="plus" onClick={() => setCreating(true)}>新增分類</Button> : null} />
+      <PageHeader title="品項分類管理" description="這裡管理 item_categories；它是報表與品項列表分類，不再與倉儲分類同步。" actions={canWrite ? <Button icon="plus" onClick={() => setCreating(true)}>新增分類</Button> : null} />
 
       <Panel className="grows">
         <Alert tone="info">品項分類已改接 item_categories。倉儲庫存頁的分類仍是 WMS 作業分類，兩者不會互相改名或同步。</Alert>

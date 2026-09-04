@@ -247,7 +247,7 @@ export function Inventory() {
         }
         actions={canWrite ? (
           <div className="row-actions">
-            <Button variant="secondary" onClick={() => setEnrolling(true)}>從品項主檔納入</Button>
+            <Button variant="secondary" onClick={() => setEnrolling(true)}>從品項列表納入</Button>
             <Button
               icon="plus"
               className="add-action"

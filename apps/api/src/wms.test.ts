@@ -119,6 +119,21 @@ describe("WMS target-only API", () => {
       .toMatchObject([{ eventType: "zone_created" }, { eventType: "zone_moved" }]);
   });
 
+  it("地圖資料不會把 zone 的 layout row 當成額外元素回傳", async () => {
+    const userId = await seedUser();
+    await seedZone();
+    await db.insert(wmsLayoutElements).values({
+      id: "wms-decoration-1", layoutId: "layout:main", elementType: "decoration", zoneId: null,
+      label: "出貨口", color: "sky", x: 40, y: 10, width: 12, height: 10, zIndex: 1,
+    });
+
+    const response = await as(userId, "admin@ecotech.tw", "/api/wms/warehouse");
+    expect(response.status).toBe(200);
+    const warehouse = await response.json() as { layoutElements: Array<{ id: string; elementType: string }> };
+    expect(warehouse.layoutElements).toHaveLength(1);
+    expect(warehouse.layoutElements[0]).toMatchObject({ id: "wms-decoration-1", elementType: "decoration" });
+  });
+
   it("有商品使用倉位或層架時禁止刪除與移除層架", async () => {
     const userId = await seedUser();
     await seedCategory();
