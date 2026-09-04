@@ -1966,12 +1966,14 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 看起來像壞掉。給它一個上限，剩下的空間留給色票。
  */
 .category-form input { flex: 0 1 280px; min-width: 0; }
-.combobox-group { display: flex; align-items: center; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-canvas); }
+.combobox-group { position: relative; display: flex; align-items: center; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-canvas); }
+.combobox-group:has(.combobox-clear[data-visible="true"]) .combobox-trigger { display: none; }
 .combobox-group:focus-within { border-color: var(--color-brand); box-shadow: 0 0 0 3px --alpha(var(--color-brand) / 14%); }
-.combobox-input { min-width: 0; flex: 1; border: 0 !important; outline: 0; background: transparent; }
-.combobox-clear { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 8px 4px; cursor: pointer; }
+.combobox-input { min-width: 0; flex: 1; border: 0 !important; outline: 0; background: transparent; padding-right: 44px !important; }
+.combobox-clear { position: absolute; right: 34px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 8px 4px; cursor: pointer; }
+.combobox-clear[data-visible="false"] { display: none; }
 .combobox-clear svg { width: 16px; height: 16px; }
-.combobox-trigger { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 10px 14px; cursor: pointer; }
+.combobox-trigger { position: absolute; right: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 10px 14px; cursor: pointer; }
 .combobox-trigger svg { width: 20px; height: 20px; }
 .combobox-positioner { z-index: 100; }
 .combobox-popup { z-index: 100; width: var(--anchor-width); max-height: 320px; overflow: auto; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-canvas); box-shadow: var(--shadow-panel); padding: 6px; }
