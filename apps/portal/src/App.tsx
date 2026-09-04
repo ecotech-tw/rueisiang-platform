@@ -23,6 +23,7 @@ import { Cyberbiz } from "./routes/wms/Cyberbiz.js";
 import { Inventory } from "./routes/wms/Inventory.js";
 import { SkuMappings } from "./routes/tools/SkuMappings.js";
 import { CyberbizProductCategories } from "./routes/tools/CyberbizProductCategories.js";
+import { ExternalProducts } from "./routes/tools/ExternalProducts.js";
 import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
 import { ManualReports } from "./routes/tools/ManualReports.js";
@@ -125,6 +126,7 @@ export function App() {
           <Route path="shopee-sales/settings" element={<Navigate to="/tools/payout/settings" replace />} />
           <Route path="sku-mappings" element={<SkuMappings />} />
           <Route path="product-categories" element={<CyberbizProductCategories />} />
+          <Route path="external-products" element={<ExternalProducts />} />
         </Route>
 
         <Route path="assistant">
