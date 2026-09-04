@@ -13,6 +13,7 @@ import {
   reportSkuIgnores,
 } from "./schema/wms.js";
 import { reportProductCategories } from "./schema/report-products.js";
+import { cyberbizProducts as targetCyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { WmsError, type Actor } from "./wms.js";
 
 /** 外部 SKU 寫入前統一格式，避免大小寫造成兩筆 mapping。 */
@@ -1121,6 +1122,25 @@ export async function syncCyberbizProducts(
         syncedAt: sql`CURRENT_TIMESTAMP`,
       },
     });
+  }
+
+  // CYBERBIZ 商品先建立平台品項主檔，再建立延伸資料；不因同步而自動納入倉儲。
+  for (const row of values) {
+    const name = [row.productName, row.variantName].filter(Boolean).join(" - ") || row.sku;
+    const [existing] = await db.select({ id: itemMasters.id }).from(itemMasters)
+      .where(and(eq(itemMasters.source, "cyberbiz"), eq(itemMasters.sku, row.sku))).limit(1);
+    const itemId = existing?.id ?? crypto.randomUUID();
+    await db.insert(itemMasters).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku: row.sku, name, active: 1 })
+      .onConflictDoUpdate({ target: [itemMasters.source, itemMasters.sku], set: { name, active: 1, updatedAt: sql`CURRENT_TIMESTAMP` } });
+    await db.insert(targetCyberbizProducts).values({
+      itemId, cyberbizProductId: row.productId, cyberbizVariantId: row.variantId,
+      productName: row.productName, variantName: row.variantName, published: row.published,
+      rawJson: "{}", syncStatus: "synced", syncedAt: sql`CURRENT_TIMESTAMP`,
+    }).onConflictDoUpdate({ target: targetCyberbizProducts.itemId, set: {
+      cyberbizProductId: row.productId, cyberbizVariantId: row.variantId,
+      productName: row.productName, variantName: row.variantName, published: row.published,
+      syncStatus: "synced", syncedAt: sql`CURRENT_TIMESTAMP`,
+    } });
   }
   return { synced: values.length };
 }
