@@ -38,38 +38,6 @@ async function findCategoryId(db: Database, raw: unknown): Promise<string | null
   return byName?.id ?? null;
 }
 
-/**
- * 過渡期保護 invariant：CYBERBIZ 目錄鏡像進來後，一定要有對應的 items。
- * 正式版會放在 CYBERBIZ sync service；目前先在 item catalog 讀取前補齊，避免 UI
- * 看到「官網有、平台主檔沒有」卻無法被報表 / WMS 參照。
- */
-async function ensureCyberbizItemMasters(db: Database): Promise<void> {
-  const [catalog, existing] = await Promise.all([
-    db.select({
-      sku: cyberbizProducts.sku,
-      productName: cyberbizProducts.productName,
-      variantName: cyberbizProducts.variantName,
-    }).from(cyberbizProducts),
-    db.select({ sku: itemMasters.sku }).from(itemMasters).where(eq(itemMasters.source, "cyberbiz")),
-  ]);
-  const existingSkus = new Set(existing.map((row) => row.sku));
-  const now = new Date().toISOString();
-  const missing = catalog.filter((row) => !existingSkus.has(row.sku));
-  for (const row of missing) {
-    await db.insert(itemMasters).values({
-      id: crypto.randomUUID(),
-      source: "cyberbiz",
-      kind: "sellable",
-      sku: row.sku,
-      name: displayCyberbizName(row),
-      categoryId: null,
-      active: 1,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-}
-
 /** 品項主檔。items 是商品身分，wms_items 只是其中需要入庫管理的延伸資料。 */
 export const items = new Hono<AppEnv>()
   .use("*", requireAuth)
@@ -120,7 +88,6 @@ export const items = new Hono<AppEnv>()
   })
   .get("/catalog", requirePermission("wms:inventory:read"), async (c) => {
     const db = c.get("db");
-    await ensureCyberbizItemMasters(db);
     const [warehouse, categories, masterRows, cyberbizRows, targetWmsRows] = await Promise.all([
       loadWarehouse(db),
       db.select({ id: itemCategories.id, name: itemCategories.name, color: itemCategories.color }).from(itemCategories).where(eq(itemCategories.depth, 0)).orderBy(asc(itemCategories.sortOrder), asc(itemCategories.name)),
