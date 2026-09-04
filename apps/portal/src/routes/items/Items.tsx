@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -56,7 +57,7 @@ function sourceLabel(item: ItemCatalogItem): string {
   return "自建品項";
 }
 
-function WarehouseDialog({ item, categories, zones, onClose }: { item: ItemCatalogItem; categories: ProductCategory[]; zones: Zone[]; onClose: () => void }) {
+export function WarehouseDialog({ item, categories, zones, onClose }: { item: ItemCatalogItem; categories: ProductCategory[]; zones: Zone[]; onClose: () => void }) {
   const [wmsCategoryId, setWmsCategoryId] = useState(categories[0]?.id ?? "");
   const [zoneId, setZoneId] = useState("");
   const [shelfLevel, setShelfLevel] = useState("");
@@ -162,7 +163,7 @@ export function Items() {
   const [category, setCategory] = useState("all");
   const [editing, setEditing] = useState<"new" | { cyberbizSku: string } | null>(null);
   const [editingItem, setEditingItem] = useState<ItemCatalogItem | null>(null);
-  const [warehousing, setWarehousing] = useState<ItemCatalogItem | null>(null);
+  const navigate = useNavigate();
   const query = useQuery({ queryKey: ["items", "catalog"], queryFn: loadItemCatalog, staleTime: 30_000 });
   const { permissions } = useSession();
   const canWrite = permissions.has("wms:inventory:write");
@@ -170,7 +171,6 @@ export function Items() {
   const items = query.data?.items ?? [];
   const categories = query.data?.categories ?? [];
   const zones = query.data?.zones ?? [];
-  const warehouseCategories = query.data?.warehouseCategories ?? [];
   const cyberbizProducts = query.data?.cyberbizProducts ?? [];
 
   const visible = useMemo(() => {
@@ -247,7 +247,7 @@ export function Items() {
                         <Button variant="secondary" onClick={() => setEditing({ cyberbizSku: item.sku })}>建立主檔</Button>
                       ) : !item.inWarehouse ? (
                         <div className="row-actions">
-                          <Button variant="secondary" onClick={() => setWarehousing(item)}>納入倉儲</Button>
+                          <Button variant="secondary" onClick={() => navigate("/wms/inventory")}>前往 WMS 納入倉儲</Button>
                           <Button variant="icon" icon="edit" title="編輯品項" aria-label={`編輯 ${item.name}`} onClick={() => setEditingItem(item)} />
                         </div>
                       ) : (
@@ -266,8 +266,6 @@ export function Items() {
       </Panel>
 
       {editingItem ? <EditItemDialog item={editingItem} categories={categories} onClose={() => setEditingItem(null)} /> : null}
-      {warehousing ? <WarehouseDialog item={warehousing} categories={warehouseCategories} zones={zones} onClose={() => setWarehousing(null)} /> : null}
-
       {editing ? (
         <ItemForm
           zones={zones}
