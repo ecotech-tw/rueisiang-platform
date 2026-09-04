@@ -1359,17 +1359,20 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-size: 12px;
   line-height: 1.25;
 }
+/* 版面標籤不能被後面渲染的倉位方塊蓋住；zIndex 也沿用資料表的前後層級。 */
+.map-element { z-index: 3; }
+.map-zone { z-index: 2; }
 /*
  * touch-action: none 只放在拖得動的方塊上，不放在捲動容器。放在容器上的話
  * 手指按在任何地方都不會捲動，等於把整張圖鎖死。
  */
 .map-zone.editable,
 .map-element.editable { cursor: grab; touch-action: none; }
-.map-zone.dragging { cursor: grabbing; opacity: .85; z-index: 2; }
+.map-zone.dragging { cursor: grabbing; opacity: .85; z-index: 5; }
 .map-zone:not(.editable) { cursor: pointer; }
 
 /* 選中：加一圈輪廓，不換底色——換底色的話那一格就不再是它代表的顏色。 */
-.map-zone.selected { outline: 2px solid var(--color-brand); outline-offset: 1px; z-index: 1; }
+.map-zone.selected { outline: 2px solid var(--color-brand); outline-offset: 1px; z-index: 4; }
 .map-zone:focus-visible,
 .map-element:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 
@@ -1763,6 +1766,16 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .change-values { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .change-values b { font-variant-numeric: tabular-nums; font-weight: 700; }
 .change-values i { color: var(--color-muted); font-style: normal; }
+
+/* 品項主檔的分類群組，讓階層成為掃描表格的分段而不是藏在縮排裡。 */
+.catalog-group-row td {
+  height: 42px;
+  padding-block: 8px;
+  border-top: 1px solid var(--color-line);
+  background: var(--color-canvas);
+}
+.catalog-group-row .cell-sub { margin-left: 8px; }
+.catalog-category-filter { min-width: min(260px, 100%); }
 
 /* 目錄的新鮮度說明。貼在工具列下方，跟表格分開。 */
 .catalog-note { margin: 0 4px 4px; font-size: 12px; }

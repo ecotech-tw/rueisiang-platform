@@ -1,5 +1,7 @@
+import { Combobox } from "@base-ui/react/combobox";
 import { useEffect, useState } from "react";
 import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
+import { Icon } from "../../shell/icons.js";
 import type { ProductCategory, Zone } from "./api.js";
 
 interface CatalogItem { id: string; sku: string; name: string; source: string; inWarehouse: boolean; }
@@ -9,10 +11,33 @@ async function readError(response: Response): Promise<never> {
   throw new Error(body?.message ?? body?.error ?? `操作失敗（${response.status}）。`);
 }
 
+function CategoryPicker({ categories, value, onChange, disabled }: { categories: ProductCategory[]; value: string; onChange: (value: string) => void; disabled: boolean }) {
+  const selected = categories.find((category) => category.id === value) ?? null;
+  return (
+    <div className="field">
+      <span>倉儲分類</span>
+      <Combobox.Root
+        items={categories}
+        value={selected}
+        onValueChange={(category) => onChange(category?.id ?? "")}
+        itemToStringLabel={(category) => category?.name ?? ""}
+        autoHighlight
+        disabled={disabled}
+      >
+        <Combobox.InputGroup className="combobox-group">
+          <Combobox.Input className="combobox-input" placeholder="搜尋或選擇倉儲分類" />
+          <Combobox.Clear className="combobox-clear" aria-label="清除倉儲分類"><Icon name="close" /></Combobox.Clear>
+          <Combobox.Trigger className="combobox-trigger" aria-label="開啟倉儲分類選單"><Icon name="chevronDown" /></Combobox.Trigger>
+        </Combobox.InputGroup>
+        <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到倉儲分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span>{category.name}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+      </Combobox.Root>
+    </div>
+  );
+}
+
 export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { categories: ProductCategory[]; zones: Zone[]; onClose: () => void; onSuccess: () => void }) {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState("");
+  const [selected, setSelected] = useState<CatalogItem | null>(null);
   const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
   const [zoneId, setZoneId] = useState("");
   const [shelfLevel, setShelfLevel] = useState("");
@@ -22,7 +47,6 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const zone = zones.find((candidate) => candidate.id === zoneId);
-  const selected = catalog.find((item) => item.id === selectedId);
 
   useEffect(() => {
     void fetch("/api/items/catalog", { credentials: "same-origin" }).then(async (response) => {
@@ -32,13 +56,8 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
     }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "無法載入品項主檔。"));
   }, []);
 
-  const options = catalog.filter((item) => {
-    const term = search.trim().toLowerCase();
-    return !term || `${item.sku} ${item.name}`.toLowerCase().includes(term);
-  }).slice(0, 30);
-
   async function submit() {
-    if (!selected) { setError("請先選擇一個品項。"); return; }
+    if (!selected) { setError("請先選擇一個品項主檔。若是全新的自訂商品，請先到品項主檔建立。"); return; }
     setPending(true); setError(null);
     try {
       const response = await fetch(`/api/items/catalog/${selected.id}/warehouse`, {
@@ -51,16 +70,24 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
     finally { setPending(false); }
   }
 
-  return <Dialog title="從品項主檔納入倉儲" onClose={onClose} closeDisabled={pending} formProps={{ onSubmit: (event) => { event.preventDefault(); void submit(); } }} actions={<><Button variant="secondary" type="button" onClick={onClose}>取消</Button><Button type="submit" loading={pending}>納入倉儲</Button></>}>
-    <TextField label="搜尋品項" placeholder="搜尋 SKU、商品名稱" value={search} onChange={(event) => setSearch(event.target.value)} autoFocus />
-    <div className="combobox-options" role="listbox" aria-label="品項選擇">
-      {options.map((item) => <button type="button" role="option" aria-selected={item.id === selectedId} className={`combobox-option${item.id === selectedId ? " selected" : ""}`} key={item.id} onClick={() => setSelectedId(item.id)}><strong>{item.name}</strong><span>{item.sku}</span></button>)}
-      {!options.length ? <p className="muted">沒有可納入的品項。</p> : null}
-    </div>
-    {selected ? <p className="field-static">已選擇：{selected.name}（{selected.sku}）</p> : null}
-    <SelectField label="倉儲分類" value={categoryId} onChange={(event) => setCategoryId(event.target.value)} options={[{ label: "未分類", value: "" }, ...categories.map((item) => ({ label: item.name, value: item.id }))]} />
-    <div className="field-grid"><SelectField label="倉位" value={zoneId} onChange={(event) => { setZoneId(event.target.value); setShelfLevel(""); }} options={[{ label: "未指定倉位", value: "" }, ...zones.map((item) => ({ label: `${item.code} ${item.name}`, value: item.id }))]} /><SelectField label="層架" value={shelfLevel} disabled={!zone} onChange={(event) => setShelfLevel(event.target.value)} options={[{ label: zone ? "不指定層架" : "請先選倉位", value: "" }, ...(zone?.shelfLevels ?? []).map((item) => ({ label: item.name, value: item.id }))]} /></div>
-    <div className="field-grid trio"><TextField label="初始數量" type="number" min={0} value={quantity} onChange={(event) => setQuantity(event.target.value)} /><TextField label="單位" value={unit} onChange={(event) => setUnit(event.target.value)} /><TextField label="安全庫存" type="number" min={0} value={minStock} onChange={(event) => setMinStock(event.target.value)} /></div>
-    {error ? <Alert tone="danger">{error}</Alert> : null}
-  </Dialog>;
+  return (
+    <Dialog title="從品項主檔納入倉儲" titleMeta="WMS 只管理庫存與位置；通路 SKU 對應請到 WMS／SKU 對應集中設定。" onClose={onClose} closeDisabled={pending} formProps={{ onSubmit: (event) => { event.preventDefault(); void submit(); } }} actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button><Button type="submit" loading={pending}>納入倉儲</Button></>}>
+      <div className="field">
+        <span>品項主檔<b aria-hidden="true">必填</b></span>
+        <Combobox.Root items={catalog} value={selected} onValueChange={setSelected} itemToStringLabel={(item) => item ? `${item.sku} ${item.name}` : ""} autoHighlight disabled={pending}>
+          <Combobox.InputGroup className="combobox-group">
+            <Combobox.Input className="combobox-input" placeholder="搜尋 SKU 或商品名稱" autoFocus />
+            <Combobox.Clear className="combobox-clear" aria-label="清除品項"><Icon name="close" /></Combobox.Clear>
+            <Combobox.Trigger className="combobox-trigger" aria-label="開啟品項選單"><Icon name="chevronDown" /></Combobox.Trigger>
+          </Combobox.InputGroup>
+          <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>沒有可納入的品項</Combobox.Empty><Combobox.List>{(item: CatalogItem) => <Combobox.Item key={item.id} value={item} className="combobox-item"><strong>{item.sku || "無 SKU"}</strong><span>{item.name}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+        </Combobox.Root>
+        {selected ? <small>已選擇：{selected.name}（{selected.sku || "無 SKU"}）</small> : <small>只顯示尚未納入倉儲的品項。</small>}
+      </div>
+      <CategoryPicker categories={categories} value={categoryId} onChange={setCategoryId} disabled={pending} />
+      <div className="field-grid"><SelectField label="倉位" value={zoneId} onChange={(event) => { setZoneId(event.target.value); setShelfLevel(""); }} options={[{ label: "未指定倉位", value: "" }, ...zones.map((item) => ({ label: `${item.code} ${item.name}`, value: item.id }))]} disabled={pending} /><SelectField label="層架" value={shelfLevel} disabled={!zone || pending} onChange={(event) => setShelfLevel(event.target.value)} options={[{ label: zone ? "不指定層架" : "請先選倉位", value: "" }, ...(zone?.shelfLevels ?? []).map((item) => ({ label: item.name, value: item.id }))]} /></div>
+      <div className="field-grid trio"><TextField label="初始數量" type="number" min={0} value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={pending} /><TextField label="單位" value={unit} onChange={(event) => setUnit(event.target.value)} disabled={pending} /><TextField label="安全庫存" type="number" min={0} value={minStock} onChange={(event) => setMinStock(event.target.value)} disabled={pending} /></div>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+    </Dialog>
+  );
 }

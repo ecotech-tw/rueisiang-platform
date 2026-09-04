@@ -416,13 +416,13 @@ export const tools = new Hono<AppEnv>()
     return c.json({ ...result, scopeName: resolvedScopeName, reportMonth }, 201);
   })
 
-  /** SKU 對應只服務報表匯入，跟倉位、盤點、庫存數量無關，所以掛在營運工具而不是倉儲。 */
-  .get("/product-sku-mappings", requirePermission("tools:sku-mapping:read"), async (c) => {
+  /** SKU 對應的入口已移到 WMS 導覽；API 路徑先保留在 tools 之下，避免既有前端與報表流程斷線。 */
+  .get("/product-sku-mappings", requirePermission("wms:mapping:read"), async (c) => {
     return c.json(await loadProductSkuMappingManagement(c.get("db")));
   })
 
-  /** 建立一筆通路商品 mapping；至少要有一個 WMS 用料，單品也以 quantity=1 保存。 */
-  .post("/product-sku-mappings", requirePermission("tools:sku-mapping:write"), async (c) => {
+  /** 建立一筆通路商品 mapping；至少要有一個用料，WMS 品項會參與庫存扣料。 */
+  .post("/product-sku-mappings", requirePermission("wms:mapping:write"), async (c) => {
     const input = await body(c);
     const user = c.get("user");
     const result = await addProductSkuMapping(c.get("db"), {
@@ -436,7 +436,7 @@ export const tools = new Hono<AppEnv>()
     return c.json(result, 201);
   })
 
-  .patch("/product-sku-mappings/:mappingId", requirePermission("tools:sku-mapping:write"), async (c) => {
+  .patch("/product-sku-mappings/:mappingId", requirePermission("wms:mapping:write"), async (c) => {
     const input = await body(c);
     const user = c.get("user");
     const result = await updateProductSkuMapping(c.get("db"), {
@@ -452,7 +452,7 @@ export const tools = new Hono<AppEnv>()
   })
 
   /** SKU 對應頁挑用料用的 CYBERBIZ 商品清單（讀 D1 鏡像，不打官網）。 */
-  .get("/cyberbiz-products", requirePermission("tools:sku-mapping:read"), async (c) => {
+  .get("/cyberbiz-products", requirePermission("wms:mapping:read"), async (c) => {
     return c.json({ products: await listCyberbizProducts(c.get("db")) });
   })
 
@@ -461,11 +461,11 @@ export const tools = new Hono<AppEnv>()
    *
    * 與「還沒建對應」在匯入端行為相同（都略過），差別只在要不要提醒——標記過的不再吵。
    */
-  .get("/report-sku-ignores", requirePermission("tools:sku-mapping:read"), async (c) => {
+  .get("/report-sku-ignores", requirePermission("wms:mapping:read"), async (c) => {
     return c.json({ ignores: await listReportSkuIgnores(c.get("db")) });
   })
 
-  .post("/report-sku-ignores", requirePermission("tools:sku-mapping:write"), async (c) => {
+  .post("/report-sku-ignores", requirePermission("wms:mapping:write"), async (c) => {
     const input = await body(c);
     const user = c.get("user");
     const result = await addReportSkuIgnore(c.get("db"), {
@@ -477,13 +477,13 @@ export const tools = new Hono<AppEnv>()
     return c.json(result, 201);
   })
 
-  .delete("/report-sku-ignores/:id", requirePermission("tools:sku-mapping:write"), async (c) => {
+  .delete("/report-sku-ignores/:id", requirePermission("wms:mapping:write"), async (c) => {
     const user = c.get("user");
     await deleteReportSkuIgnore(c.get("db"), c.req.param("id"), { id: user.id, email: user.email });
     return c.json({ ok: true });
   })
 
-  .delete("/product-sku-mappings/:mappingId", requirePermission("tools:sku-mapping:write"), async (c) => {
+  .delete("/product-sku-mappings/:mappingId", requirePermission("wms:mapping:write"), async (c) => {
     const user = c.get("user");
     await deleteProductSkuMapping(c.get("db"), c.req.param("mappingId"), { id: user.id, email: user.email });
     await forgetReportAnalytics(cacheClient(c.env));

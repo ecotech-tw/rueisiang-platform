@@ -23,7 +23,6 @@ import { Cyberbiz } from "./routes/wms/Cyberbiz.js";
 import { Inventory } from "./routes/wms/Inventory.js";
 import { SkuMappings } from "./routes/tools/SkuMappings.js";
 import { CyberbizProductCategories } from "./routes/tools/CyberbizProductCategories.js";
-import { ExternalProducts } from "./routes/tools/ExternalProducts.js";
 import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
 import { ManualReports } from "./routes/tools/ManualReports.js";
@@ -110,7 +109,7 @@ export function App() {
         <Route path="wms">
           <Route path="map" element={<WarehouseMap />} />
           <Route path="inventory" element={<Inventory />} />
-          <Route path="sku-mappings" element={<Navigate to="/tools/sku-mappings" replace />} />
+          <Route path="sku-mappings" element={<SkuMappings />} />
           <Route path="cyberbiz" element={<Cyberbiz />} />
           <Route path="categories" element={<Categories />} />
           <Route path="activity" element={<WmsActivity />} />
@@ -124,9 +123,9 @@ export function App() {
           <Route path="cyberbiz-sales" element={<CyberbizSales />} />
           <Route path="shopee-sales" element={<ShopeeSales />} />
           <Route path="shopee-sales/settings" element={<Navigate to="/tools/payout/settings" replace />} />
-          <Route path="sku-mappings" element={<SkuMappings />} />
+          <Route path="sku-mappings" element={<Navigate to="/wms/sku-mappings" replace />} />
           <Route path="product-categories" element={<CyberbizProductCategories />} />
-          <Route path="external-products" element={<ExternalProducts />} />
+          <Route path="external-products" element={<Navigate to="/wms/sku-mappings" replace />} />
         </Route>
 
         <Route path="assistant">

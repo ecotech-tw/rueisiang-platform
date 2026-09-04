@@ -41,7 +41,7 @@ async function findCategoryId(db: Database, raw: unknown): Promise<string | null
 /** 品項主檔。items 是商品身分，wms_items 只是其中需要入庫管理的延伸資料。 */
 export const items = new Hono<AppEnv>()
   .use("*", requireAuth)
-  .get("/categories", requirePermission("wms:inventory:read"), async (c) => {
+  .get("/categories", requirePermission("items:category:read"), async (c) => {
     const rows = await c.get("db")
       .select({
         id: itemCategories.id,
@@ -58,7 +58,7 @@ export const items = new Hono<AppEnv>()
       .orderBy(asc(itemCategories.sortOrder), asc(itemCategories.name));
     return c.json({ categories: rows });
   })
-  .post("/categories", requirePermission("wms:category:write"), async (c) => {
+  .post("/categories", requirePermission("items:category:write"), async (c) => {
     const input = await body(c);
     const name = requireString(input, "name", "分類名稱").slice(0, 40);
     const parentId = typeof input.parentId === "string" && input.parentId.trim() ? input.parentId.trim() : null;
@@ -74,7 +74,7 @@ export const items = new Hono<AppEnv>()
     await c.get("db").insert(itemCategories).values(category);
     return c.json(category, 201);
   })
-  .post("/categories/reorder", requirePermission("wms:category:write"), async (c) => {
+  .post("/categories/reorder", requirePermission("items:category:write"), async (c) => {
     const input = await body(c);
     const ids = Array.isArray(input.ids) ? input.ids.filter((id): id is string => typeof id === "string" && id.trim() !== "") : [];
     const parents = (input.parents && typeof input.parents === "object" ? input.parents : {}) as Record<string, unknown>;
@@ -87,7 +87,7 @@ export const items = new Hono<AppEnv>()
     await c.get("db").batch(ids.map((id, sortOrder) => c.get("db").update(itemCategories).set({ sortOrder, parentId: parentIds[sortOrder], parentDepth: parentIds[sortOrder] ? 0 : null, depth: parentIds[sortOrder] ? 1 : 0, updatedAt: new Date().toISOString() }).where(eq(itemCategories.id, id))) as never);
     return c.json({ ok: true });
   })
-  .patch("/categories/:id", requirePermission("wms:category:write"), async (c) => {
+  .patch("/categories/:id", requirePermission("items:category:write"), async (c) => {
     const input = await body(c);
     const id = c.req.param("id");
     const [current] = await c.get("db").select().from(itemCategories).where(eq(itemCategories.id, id)).limit(1);
@@ -113,14 +113,14 @@ export const items = new Hono<AppEnv>()
     await c.get("db").update(itemCategories).set(patch).where(eq(itemCategories.id, id));
     return c.json({ id, ...patch });
   })
-  .delete("/categories/:id", requirePermission("wms:category:write"), async (c) => {
+  .delete("/categories/:id", requirePermission("items:category:write"), async (c) => {
     const id = c.req.param("id");
     const [{ total } = { total: 0 }] = await c.get("db").select({ total: count() }).from(itemMasters).where(eq(itemMasters.categoryId, id));
     if (Number(total) > 0) throw new HTTPException(409, { message: `還有 ${total} 個品項使用這個分類。` });
     await c.get("db").delete(itemCategories).where(eq(itemCategories.id, id));
     return c.json({ ok: true });
   })
-  .get("/catalog", requirePermission("wms:inventory:read"), async (c) => {
+  .get("/catalog", requirePermission("items:item:read"), async (c) => {
     const db = c.get("db");
     const [warehouse, categories, masterRows, cyberbizRows, targetWmsRows] = await Promise.all([
       loadWarehouse(db),
@@ -173,12 +173,12 @@ export const items = new Hono<AppEnv>()
     return c.json({
       items: catalogItems,
       categories,
-      warehouseCategories: warehouse.categories,
+      warehouseCategories: can(c.get("user"), "wms:inventory:write") ? warehouse.categories : [],
       cyberbizProducts: cyberbizRows,
       zones: can(c.get("user"), "wms:map:read") ? warehouse.zones : [],
     });
   })
-  .post("/catalog", requirePermission("wms:inventory:write"), async (c) => {
+  .post("/catalog", requirePermission("items:item:write"), async (c) => {
     const input = await body(c);
     const db = c.get("db");
     const selectedSku = typeof input.cyberbizSku === "string" ? input.cyberbizSku.trim().toUpperCase() : "";
@@ -228,7 +228,7 @@ export const items = new Hono<AppEnv>()
     await db.insert(itemMasters).values(item);
     return c.json({ id: item.id, cyberbizSku: null }, 201);
   })
-  .patch("/catalog/:id", requirePermission("wms:inventory:write"), async (c) => {
+  .patch("/catalog/:id", requirePermission("items:item:write"), async (c) => {
     const input = await body(c);
     const db = c.get("db");
     const id = c.req.param("id");
@@ -243,7 +243,7 @@ export const items = new Hono<AppEnv>()
     await db.update(itemMasters).set({ name, categoryId, active, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, id));
     return c.json({ id, name, categoryId, active });
   })
-  .delete("/catalog/:id", requirePermission("wms:inventory:write"), async (c) => {
+  .delete("/catalog/:id", requirePermission("items:item:write"), async (c) => {
     const db = c.get("db");
     const id = c.req.param("id");
     const [item] = await db.select().from(itemMasters).where(eq(itemMasters.id, id)).limit(1);

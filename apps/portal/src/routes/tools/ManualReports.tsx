@@ -1,3 +1,4 @@
+import { Combobox } from "@base-ui/react/combobox";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
@@ -101,6 +102,37 @@ const DEFAULT_SALES_FILTERS: ManualSalesQuery = {
 // 舊人工報表可能保留已刪除的分類名稱；這個值只存在表單狀態，不會送到 API。
 const LEGACY_CATEGORY_OPTION = "__legacy_category__";
 
+function ManualCombo<T>({
+  items,
+  value,
+  onChange,
+  placeholder,
+  emptyLabel,
+  itemToStringLabel,
+  renderItem,
+  disabled = false,
+}: {
+  items: T[];
+  value: T | null;
+  onChange: (item: T | null) => void;
+  placeholder: string;
+  emptyLabel: string;
+  itemToStringLabel: (item: T | null) => string;
+  renderItem: (item: T) => React.ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <Combobox.Root items={items} value={value} onValueChange={onChange} itemToStringLabel={itemToStringLabel} autoHighlight disabled={disabled}>
+      <Combobox.InputGroup className="combobox-group">
+        <Combobox.Input className="combobox-input" placeholder={placeholder} />
+        <Combobox.Clear className="combobox-clear" aria-label="清除選擇"><Icon name="close" /></Combobox.Clear>
+        <Combobox.Trigger className="combobox-trigger" aria-label="開啟選單"><Icon name="chevronDown" /></Combobox.Trigger>
+      </Combobox.InputGroup>
+      <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>{emptyLabel}</Combobox.Empty><Combobox.List>{(item: T) => <Combobox.Item key={itemToStringLabel(item)} value={item} className="combobox-item">{renderItem(item)}<Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+    </Combobox.Root>
+  );
+}
+
 function ErrorMessage({ error }: { error: Error | null | undefined }) {
   return error ? <Alert tone="danger">{error.message}</Alert> : null;
 }
@@ -157,6 +189,12 @@ function ManualReportDialog({
     }
     return options;
   }, [productName, products, sku, skuSource]);
+  const categoryOptions = useMemo(() => [
+    { id: "", name: "未分類", color: "slate" },
+    ...(legacyCategory ? [{ id: LEGACY_CATEGORY_OPTION, name: `${legacyCategory}（已不在分類清單）`, color: "slate" }] : []),
+    ...categories,
+  ], [categories, legacyCategory]);
+  const selectedCategory = categoryOptions.find((option) => option.id === categoryId) ?? null;
   const payoutValue = parseSafeInteger(payoutAmount);
   const salesValues = {
     grossQuantity: parseSafeInteger(grossQuantity),
@@ -297,25 +335,23 @@ function ManualReportDialog({
             </div>
             {skuSource === "cyberbiz" ? (
               <>
-                <SelectField
-                  label="CYBERBIZ SKU"
-                  required
-                  value={sku}
-                  onChange={(event) => {
-                    const nextSku = event.target.value;
-                    const product = products.find((item) => item.sku === nextSku);
-                    setSku(nextSku);
-                    setProductName(product?.name ?? nextSku);
-                  }}
-                  options={[
-                    { label: "請選擇商品", value: "" },
-                    ...productOptions.map((product) => ({
-                      label: `${product.sku} · ${product.name}${product.published ? "" : "（已下架）"}`,
-                      value: product.sku,
-                    })),
-                  ]}
-                  disabled={pending}
-                />
+                <div className="field">
+                  <span>CYBERBIZ SKU<b aria-hidden="true">必填</b></span>
+                  <ManualCombo
+                    items={productOptions}
+                    value={productOptions.find((product) => product.sku === sku) ?? null}
+                    onChange={(product) => {
+                      const nextSku = product?.sku ?? "";
+                      setSku(nextSku);
+                      setProductName(product?.name ?? nextSku);
+                    }}
+                    placeholder="搜尋 SKU 或商品名稱"
+                    emptyLabel="找不到 CYBERBIZ 商品"
+                    itemToStringLabel={(product) => product ? `${product.sku} ${product.name}` : ""}
+                    renderItem={(product) => <><strong>{product.sku}</strong><span>{product.name}{product.published ? "" : "（已下架）"}</span></>}
+                    disabled={pending}
+                  />
+                </div>
                 <TextField label="商品名稱" value={productName} readOnly hint="名稱會取自 CYBERBIZ 商品目錄。" />
               </>
             ) : (
@@ -334,25 +370,23 @@ function ManualReportDialog({
                   onChange={(event) => setProductName(event.target.value)}
                   disabled={pending}
                 />
-                <SelectField
-                  label="商品分類"
-                  value={categoryId}
-                  onChange={(event) => {
-                    const nextCategoryId = event.target.value;
-                    setCategoryId(nextCategoryId);
-                    setCategory(nextCategoryId === LEGACY_CATEGORY_OPTION
-                      ? legacyCategory ?? "未分類"
-                      : categories.find((option) => option.id === nextCategoryId)?.name ?? "未分類");
-                  }}
-                  options={[
-                    { label: "未分類", value: "" },
-                    ...(legacyCategory
-                      ? [{ label: `${legacyCategory}（已不在分類清單）`, value: LEGACY_CATEGORY_OPTION }]
-                      : []),
-                    ...categories.map((option) => ({ label: option.name, value: option.id })),
-                  ]}
-                  disabled={pending}
-                />
+                <div className="field">
+                  <span>商品分類</span>
+                  <ManualCombo
+                    items={categoryOptions}
+                    value={selectedCategory}
+                    onChange={(option) => {
+                      const nextCategoryId = option?.id ?? "";
+                      setCategoryId(nextCategoryId);
+                      setCategory(nextCategoryId === LEGACY_CATEGORY_OPTION ? legacyCategory ?? "未分類" : option?.name ?? "未分類");
+                    }}
+                    placeholder="搜尋或選擇分類"
+                    emptyLabel="找不到分類"
+                    itemToStringLabel={(option) => option?.name ?? ""}
+                    renderItem={(option) => <span>{option.name}</span>}
+                    disabled={pending}
+                  />
+                </div>
               </div>
             )}
             <div className="field-grid trio">
@@ -1041,7 +1075,7 @@ export function ManualReports() {
         </Panel>
       ) : null}
 
-      <Panel className="manual-report-panel grows">
+      <Panel className="manual-report-panel grows" title={kind === "payout" ? "每日出金紀錄" : "每月商品銷售紀錄"} description={kind === "payout" ? "依每日出金日期查看、篩選與修訂紀錄。" : "依報表月份查看、篩選與修訂商品銷售紀錄。"}>
         <div className="manual-report-toolbar">
           <div className="manual-report-tabs" role="tablist" aria-label="報表類型">
             <Button
@@ -1052,7 +1086,7 @@ export function ManualReports() {
               onClick={() => { setKind("payout"); setSelectedPayoutIds(new Set()); setSelectedSalesIds(new Set()); }}
             >
               <Icon name="payments" />
-              出金
+              每日出金
             </Button>
             <Button
               variant="chip"
@@ -1062,7 +1096,7 @@ export function ManualReports() {
               onClick={() => { setKind("sales"); setSelectedPayoutIds(new Set()); setSelectedSalesIds(new Set()); }}
             >
               <Icon name="report" />
-              商品銷售
+              每月商品銷售
             </Button>
           </div>
           <div className="manual-report-actions">

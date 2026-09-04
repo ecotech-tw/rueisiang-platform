@@ -20,10 +20,10 @@ function arrangeCategories(categories: ProductCategory[]): ProductCategory[] {
   return categories.flatMap((category) => category.parentId ? [] : [category, ...categories.filter((child) => child.parentId === category.id)]);
 }
 
-/** 這一欄有兩種格式：D1 的 CURRENT_TIMESTAMP 沒有時區，同步寫進來的是帶 Z 的 ISO。 */
-function categoryLabel(category: ProductCategory): string {
-  if (category.depth !== 1 || !category.parentId) return category.name;
-  return `　${category.name}`;
+function categoryPath(category: ProductCategory, categories: ProductCategory[]): string {
+  if (!category.parentId) return category.name;
+  const parent = categories.find((candidate) => candidate.id === category.parentId);
+  return parent ? `${parent.name} / ${category.name}` : category.name;
 }
 
 function formatTime(value: string): string {
@@ -64,8 +64,10 @@ export function ItemForm({
    */
   const linkedToCyberbiz = Boolean(item?.cyberbiz);
   const initialCyberbiz = cyberbizProducts.find((product) => product.sku === initialCyberbizSku);
+  const initialCategory = categories.find((category) => category.name === (item?.category ?? (categories.length === 1 ? categories[0]?.name : "")));
 
   const [selectedCyberbizSku, setSelectedCyberbizSku] = useState(initialCyberbiz?.sku ?? "");
+  const [selectedCategoryId, setSelectedCategoryId] = useState(initialCategory?.id ?? "");
   const [fields, setFields] = useState({
     sku: item?.sku ?? initialCyberbiz?.sku ?? "",
     name: item?.name ?? (initialCyberbiz ? `${initialCyberbiz.productName}${initialCyberbiz.variantName ? `（${initialCyberbiz.variantName}）` : ""}` : ""),
@@ -105,6 +107,7 @@ export function ItemForm({
       sku: fields.sku.trim(),
       name: fields.name.trim(),
       category: fields.category,
+      ...(catalogOnly ? { categoryId: selectedCategoryId || null } : {}),
       quantity: Math.max(0, Math.round(Number(fields.quantity) || 0)),
       unit: fields.unit.trim() || "件",
       minStock: Math.max(0, Math.round(Number(fields.minStock) || 0)),
@@ -114,7 +117,7 @@ export function ItemForm({
     };
     if (!item) {
       const createPayload = selectedCyberbiz ? { ...payload, cyberbizSku: selectedCyberbiz.sku } : payload;
-      const mutation = canPickCyberbiz ? createCatalog : create;
+      const mutation = catalogOnly || canPickCyberbiz ? createCatalog : create;
       mutation.mutate(createPayload, { onSuccess: onClose });
       return;
     }
@@ -200,17 +203,27 @@ export function ItemForm({
               disabled={Boolean(selectedCyberbiz)}
               hint={selectedCyberbiz ? "已由 CYBERBIZ 商品帶入。" : "會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"}
             />
-            <SelectField
-              label="分類"
-              required
-              value={fields.category}
-              onChange={(event) => set({ category: event.target.value })}
-              hint={categories.length === 0 ? (catalogOnly ? "還沒有任何品項分類，請先去「品項分類」建立一個。" : "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。") : undefined}
-              options={[
-                { label: "請選擇分類", value: "" },
-                ...arrangeCategories(categories).map((category) => ({ label: categoryLabel(category), value: category.name })),
-              ]}
-            />
+            <div className="field">
+              <span>分類<b aria-hidden="true">必填</b></span>
+              <Combobox.Root
+                items={arrangeCategories(categories)}
+                value={(catalogOnly ? categories.find((category) => category.id === selectedCategoryId) : categories.find((category) => category.name === fields.category)) ?? null}
+                onValueChange={(category) => {
+                  setSelectedCategoryId(category?.id ?? "");
+                  set({ category: category?.name ?? "" });
+                }}
+                itemToStringLabel={(category) => category ? categoryPath(category, categories) : ""}
+                autoHighlight
+              >
+                <Combobox.InputGroup className="combobox-group">
+                  <Combobox.Input className="combobox-input" placeholder="搜尋或選擇分類" />
+                  <Combobox.Clear className="combobox-clear" aria-label="清除分類"><Icon name="close" /></Combobox.Clear>
+                  <Combobox.Trigger className="combobox-trigger" aria-label="開啟分類選單"><Icon name="chevronDown" /></Combobox.Trigger>
+                </Combobox.InputGroup>
+                <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span>{categoryPath(category, categories)}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+              </Combobox.Root>
+              <small>{categories.length === 0 ? (catalogOnly ? "還沒有任何品項分類，請先去「品項分類」建立一個。" : "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。") : "可搜尋分類名稱或選擇階層分類。"}</small>
+            </div>
           </div>
 
           {!catalogOnly ? (

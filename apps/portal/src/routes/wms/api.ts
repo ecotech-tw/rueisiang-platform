@@ -170,7 +170,7 @@ export function useCreateItem() {
 }
 
 export function useCreateCatalogItem() {
-  return useWarehouseMutation((input: ItemForm & { cyberbizSku?: string }) =>
+  return useWarehouseMutation((input: ItemForm & { cyberbizSku?: string; categoryId?: string | null }) =>
     write<{ id: string; cyberbizSku: string | null }>("/api/items/catalog", "POST", input),
   );
 }

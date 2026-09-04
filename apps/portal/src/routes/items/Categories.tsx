@@ -144,7 +144,7 @@ export function ItemCategories() {
   const query = useItemCategories();
   const toast = useToast();
   const { permissions } = useSession();
-  const canWrite = permissions.has("wms:category:write");
+  const canWrite = permissions.has("items:category:write");
   const categories = query.data?.categories ?? [];
   const [orderedCategories, setOrderedCategories] = useState<ItemCategory[]>([]);
   const [draggingId, setDraggingId] = useState<string | null>(null);

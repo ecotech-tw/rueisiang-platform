@@ -22,8 +22,11 @@ import {
   productSkuChannelLabel,
   PRODUCT_SKU_CHANNEL_OPTIONS,
   type ProductSkuMapping,
+  type UnmappedProductOption,
 } from "./sku-mapping-api.js";
 import { SkuMappingDialog } from "./SkuMappingDialog.js";
+
+type MappingDialogState = ProductSkuMapping | "new" | { kind: "new"; product: UnmappedProductOption };
 
 function formatTime(value: string): string {
   const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
@@ -48,12 +51,12 @@ export function SkuMappings() {
   const remove = useDeleteProductSkuMapping();
   const toast = useToast();
   const { permissions } = useSession();
-  const canWrite = permissions.has("tools:sku-mapping:write");
+  const canWrite = permissions.has("wms:mapping:write");
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [channelFilter, setChannelFilter] = useState("all");
-  const [mappingDialog, setMappingDialog] = useState<ProductSkuMapping | "new" | null>(null);
+  const [mappingDialog, setMappingDialog] = useState<MappingDialogState | null>(null);
   const [deleting, setDeleting] = useState<ProductSkuMapping | null>(null);
   const ignoresQuery = useReportSkuIgnores();
   const addIgnore = useAddReportSkuIgnore();
@@ -65,6 +68,7 @@ export function SkuMappings() {
 
   const data = query.data;
   const mappings = data?.mappings ?? [];
+  const unmappedProducts = data?.unmappedProducts ?? [];
   const channels = useMemo(
     () => [...new Set(mappings.map((mapping) => mapping.channel))].sort((a, b) => productSkuChannelLabel(a).localeCompare(productSkuChannelLabel(b), "zh-TW")),
     [mappings],
@@ -91,8 +95,8 @@ export function SkuMappings() {
   return (
     <div className="page fills">
       <PageHeader
-        title="SKU 對應"
-        description="把通路商品對應到組合用料；不同通路指到同一個用料，報表就會統計成同一個商品。"
+        title="WMS SKU 對應"
+        description="在 WMS 集中管理通路商品要扣哪些品項；不同通路指到同一個用料，報表就會統計成同一個商品。"
         actions={canWrite ? (
           <Button
             icon="plus"
@@ -105,6 +109,27 @@ export function SkuMappings() {
           </Button>
         ) : null}
       />
+
+      <Panel className="mapping-pending-panel" title="待處理外部商品" description={unmappedProducts.length ? `最近匯入有 ${unmappedProducts.length} 筆外部商品尚未建立對應。` : "目前沒有待建立對應的外部商品。"}>
+        {unmappedProducts.length ? (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead><tr><th>通路</th><th>外部商品</th><th>最近出現</th><th className="numeric">資料列</th><th /></tr></thead>
+              <tbody>
+                {unmappedProducts.map((product) => (
+                  <tr key={`${product.channel}:${product.externalSku}`}>
+                    <td data-label="通路"><span className="status status-tone-amber">{productSkuChannelLabel(product.channel)}</span></td>
+                    <td data-label="外部商品"><span className="cell-strong">{product.externalName || "未提供名稱"}</span><small className="cell-sub"><code>{product.externalSku}</code></small></td>
+                    <td data-label="最近出現" className="cell-sub">{formatTime(product.lastSeenAt)}</td>
+                    <td data-label="資料列" className="numeric">{product.rowCount.toLocaleString("zh-TW")}</td>
+                    <td data-label="操作">{canWrite ? <Button variant="secondary" onClick={() => setMappingDialog({ kind: "new", product })}>建立對應</Button> : null}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p className="muted">報表匯入找不到對應時，外部 SKU 會在這裡集中處理。已建立對應或標記忽略的商品不會重複顯示。</p>}
+      </Panel>
 
       {/*
         * 忽略清單收合起來。
@@ -295,8 +320,11 @@ export function SkuMappings() {
       {mappingDialog ? (
         <SkuMappingDialog
           categories={categories}
-          key={mappingDialog === "new" ? "new" : mappingDialog.id}
-          mapping={mappingDialog === "new" ? undefined : mappingDialog}
+          items={data?.items ?? []}
+          unmappedProducts={unmappedProducts}
+          initialExternalProduct={mappingDialog === "new" || "id" in mappingDialog ? undefined : mappingDialog.product}
+          key={mappingDialog === "new" ? "new" : "id" in mappingDialog ? mappingDialog.id : `new:${mappingDialog.product.externalSku}`}
+          mapping={mappingDialog === "new" || !("id" in mappingDialog) ? undefined : mappingDialog}
           onClose={() => setMappingDialog(null)}
         />
       ) : null}

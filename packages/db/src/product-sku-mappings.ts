@@ -1,10 +1,10 @@
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { activityEvents } from "./schema/activity.js";
 import { itemCategories, itemComponents, cyberbizProducts, items as itemMasters } from "./schema/items.js";
-import { reportExternalProducts } from "./schema/reports.js";
+import { reportExternalProducts, reportIngestIssues, reportRuns } from "./schema/reports.js";
 import { wmsItems } from "./schema/wms.js";
 import { WmsError, type Actor } from "./wms.js";
 
@@ -62,9 +62,28 @@ export interface ProductBundleComponentManagementRow {
   quantity: number;
 }
 
+export interface ProductSkuMappingItemOption {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+}
+
+export interface UnmappedProductOption {
+  channel: string;
+  externalSku: string;
+  externalName: string;
+  rowCount: number;
+  lastSeenAt: string;
+}
+
 export interface ProductSkuMappingManagementData {
   mappings: ProductSkuMappingManagementRow[];
   categories: string[];
+  /** 只列入庫的 target item，mapping 的用料來源集中從這裡挑。 */
+  items: ProductSkuMappingItemOption[];
+  /** 從最近匯入問題彙整，並排除已經有 mapping／ignore 的外部 SKU。 */
+  unmappedProducts: UnmappedProductOption[];
 }
 
 export interface ResolvedProductSku {
@@ -97,7 +116,7 @@ async function categoryNames(db: Database): Promise<Map<string, string>> {
 }
 
 async function loadTargetProductSkuMappingManagement(db: Database): Promise<ProductSkuMappingManagementData> {
-  const [rows, categories, wmsRows] = await Promise.all([
+  const [rows, categories, wmsRows, unmappedRows, resolvedRows] = await Promise.all([
     db.select({
       id: reportExternalProducts.id,
       channel: reportExternalProducts.sourceType,
@@ -118,10 +137,40 @@ async function loadTargetProductSkuMappingManagement(db: Database): Promise<Prod
     db.select({ id: itemCategories.id, name: itemCategories.name })
       .from(itemCategories)
       .orderBy(asc(itemCategories.name)),
-    db.select({ itemId: wmsItems.itemId }).from(wmsItems),
+    db.select({ itemId: wmsItems.itemId, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId })
+      .from(wmsItems)
+      .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
+      .orderBy(asc(itemMasters.name), asc(itemMasters.sku)),
+    db.select({
+      channel: reportRuns.sourceType,
+      externalSku: reportIngestIssues.externalKey,
+      externalName: reportIngestIssues.externalName,
+      rowCount: reportIngestIssues.rowCount,
+      lastSeenAt: reportRuns.createdAt,
+    })
+      .from(reportIngestIssues)
+      .innerJoin(reportRuns, eq(reportRuns.id, reportIngestIssues.reportRunId))
+      .where(eq(reportIngestIssues.issueType, "unmapped"))
+      .orderBy(desc(reportRuns.createdAt)),
+    db.select({ channel: reportExternalProducts.sourceType, externalSku: reportExternalProducts.externalKey })
+      .from(reportExternalProducts),
   ]);
   const categoryById = new Map(categories.map((category) => [category.id, category.name]));
   const wmsIds = new Set(wmsRows.map((row) => row.itemId));
+  const resolvedKeys = new Set(resolvedRows.map((row) => `${normalizeProductSkuChannel(row.channel)}\u0000${normalizeExternalSku(row.externalSku)}`));
+  const unmappedByKey = new Map<string, UnmappedProductOption>();
+  for (const row of unmappedRows) {
+    const externalSku = normalizeExternalSku(row.externalSku);
+    const key = `${normalizeProductSkuChannel(row.channel)}\u0000${externalSku}`;
+    if (!externalSku || resolvedKeys.has(key) || unmappedByKey.has(key)) continue;
+    unmappedByKey.set(key, {
+      channel: normalizeProductSkuChannel(row.channel),
+      externalSku,
+      externalName: row.externalName.trim(),
+      rowCount: row.rowCount,
+      lastSeenAt: row.lastSeenAt,
+    });
+  }
   const parentIds = rows.map((row) => row.itemId).filter((id): id is string => !!id);
   const componentRows = await inBatches(parentIds, (batch) => db
     .select({ parentItemId: itemComponents.parentItemId, componentItemId: itemComponents.componentItemId, quantity: itemComponents.quantity })
@@ -158,6 +207,13 @@ async function loadTargetProductSkuMappingManagement(db: Database): Promise<Prod
     quantity: row.quantity,
   });
   return {
+    items: wmsRows.map((row) => ({
+      id: row.itemId,
+      sku: row.sku,
+      name: row.name || row.sku,
+      category: categoryById.get(row.categoryId ?? "") ?? "未分類",
+    })),
+    unmappedProducts: [...unmappedByKey.values()],
     mappings: rows.map((row) => {
       const children = (componentsByParent.get(row.itemId ?? "") ?? [])
         .map((component) => {
