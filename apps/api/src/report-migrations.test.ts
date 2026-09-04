@@ -348,4 +348,22 @@ describe("報表 scope migration", () => {
       min_stock: 2,
     }]);
   });
+
+  it("0087 清掉沒有 media metadata 的懸空 zone image", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0086_wms_cyberbiz_links_target.sql");
+    sqlite.prepare(`
+      INSERT INTO zones (id, code, name, category, x, y, width, height)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("orphan-zone", "ORPHAN", "懸空圖片測試", "一般備品", 0, 0, 10, 10);
+    sqlite.prepare(`
+      INSERT INTO zone_images (id, zone_id, object_key, filename, content_type, size)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run("orphan-image", "orphan-zone", "wms/orphan.jpg", "orphan.jpg", "image/jpeg", 10);
+
+    applyLikeD1(sqlite, "0086_wms_cyberbiz_links_target.sql", "0087_wms_orphan_image_cleanup.sql");
+
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM zone_images").get()).toEqual({ count: 0 });
+  });
 });
