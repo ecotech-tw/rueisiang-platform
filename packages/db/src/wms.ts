@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNull, notInArray, sql } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
@@ -219,8 +219,10 @@ async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
 export async function loadWarehouse(db: Database): Promise<WarehouseSnapshot> {
   const [targetZone] = await db.select({ id: wmsZones.id }).from(wmsZones).limit(1);
   const [targetItem] = await db.select({ id: wmsItems.itemId }).from(wmsItems).limit(1);
+  const legacyInventoryExists = await hasTable(db, "inventory_items");
   // 舊測試／尚未搬移的空資料庫仍可能只有由 trigger 建出的 target zone；有 target item 才切換完整 target 讀取。
-  if (targetZone && targetItem) return loadTargetWarehouse(db);
+  // legacy inventory 一旦移除，target 即使目前沒有品項也必須是唯一讀取來源。
+  if (!legacyInventoryExists || (targetZone && targetItem)) return loadTargetWarehouse(db);
   const [settingsRow] = await db
     .select()
     .from(warehouseSettings)
@@ -346,11 +348,12 @@ export async function createZone(db: Database, input: ZoneInput & { actor: Actor
     notes: input.notes?.trim() || "",
   };
 
+  const legacyZonesExists = await hasTable(db, "zones");
   await db.batch([
-    db.insert(zones).values(zone),
     db.insert(wmsLayouts).values({ id: "layout:main", name: "主倉庫", canvasWidth: CANVAS.width.fallback, canvasHeight: CANVAS.height.fallback, active: 1 }).onConflictDoNothing(),
     db.insert(wmsZones).values({ id, code, name, color: zone.color, notes: zone.notes, active: 1 }).onConflictDoNothing(),
     db.insert(wmsLayoutElements).values({ id: `wms-zone:${id}`, layoutId: "layout:main", elementType: "zone", zoneId: id, label: name, color: zone.color, x: zone.x, y: zone.y, width: zone.width, height: zone.height, zIndex: 0 }).onConflictDoNothing(),
+    ...(legacyZonesExists ? [db.insert(zones).values(zone)] : []),
     ...parsedShelves.map((shelf, index) =>
       db.insert(wmsShelves).values({
         id: crypto.randomUUID(),
@@ -380,7 +383,21 @@ export async function updateZone(
   id: string,
   input: Partial<ZoneInput> & { actor: Actor },
 ) {
-  const [current] = await db.select().from(zones).where(eq(zones.id, id));
+  const legacyZonesExists = await hasTable(db, "zones");
+  const [targetCurrent] = legacyZonesExists
+    ? []
+    : await db.select().from(wmsZones).where(eq(wmsZones.id, id));
+  const targetShelves = legacyZonesExists
+    ? []
+    : await db.select().from(wmsShelves).where(eq(wmsShelves.zoneId, id)).orderBy(asc(wmsShelves.sortOrder));
+  const [targetElement] = legacyZonesExists
+    ? []
+    : await db.select().from(wmsLayoutElements).where(and(eq(wmsLayoutElements.zoneId, id), eq(wmsLayoutElements.elementType, "zone"))).limit(1);
+  const [current] = legacyZonesExists
+    ? await db.select().from(zones).where(eq(zones.id, id))
+    : targetCurrent
+      ? [{ ...targetCurrent, category: "", x: targetElement?.x ?? 0, y: targetElement?.y ?? 0, width: targetElement?.width ?? 18, height: targetElement?.height ?? 16, shelfLevels: JSON.stringify(targetShelves.map((shelf) => ({ id: shelf.code, name: shelf.name }))) }]
+      : [];
   if (!current) throw new WmsError("not_found", "找不到這個倉位。");
 
   const shelfLevels =
@@ -396,10 +413,9 @@ export async function updateZone(
    */
   if (input.shelfLevels !== undefined) {
     const allowed = new Set(shelfLevels.map((level) => level.id));
-    const inUse = await db
-      .selectDistinct({ shelfLevel: inventoryItems.shelfLevel })
-      .from(inventoryItems)
-      .where(eq(inventoryItems.zoneId, id));
+    const inUse = legacyZonesExists
+      ? await db.selectDistinct({ shelfLevel: inventoryItems.shelfLevel }).from(inventoryItems).where(eq(inventoryItems.zoneId, id))
+      : await db.select({ shelfLevel: wmsShelves.code }).from(wmsItems).innerJoin(wmsShelves, eq(wmsShelves.id, wmsItems.shelfId)).where(eq(wmsShelves.zoneId, id));
 
     // shelf_level 可以是 null（放在這一區但沒指定層），那種不算佔用任何一層。
     const blocked = inUse
@@ -431,7 +447,6 @@ export async function updateZone(
   const resized = input.width !== undefined || input.height !== undefined;
 
   await db.batch([
-    db.update(zones).set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(zones.id, id)),
     db
       .update(wmsZones)
       .set({
@@ -442,6 +457,12 @@ export async function updateZone(
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
       .where(eq(wmsZones.id, id)),
+    ...(legacyZonesExists ? [db.update(zones).set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(zones.id, id))] : []),
+    ...(targetShelves.length || !legacyZonesExists
+      ? [targetShelves.length || shelfLevels.length
+        ? db.delete(wmsShelves).where(and(eq(wmsShelves.zoneId, id), shelfLevels.length ? notInArray(wmsShelves.code, shelfLevels.map((shelf) => shelf.id)) : sql`1 = 1`))
+        : db.delete(wmsShelves).where(eq(wmsShelves.zoneId, id))]
+      : []),
     db
       .insert(wmsLayoutElements)
       .values({ id: `wms-zone:${id}`, layoutId: "layout:main", elementType: "zone", zoneId: id, label: next.name, color: next.color, x: next.x, y: next.y, width: next.width, height: next.height, zIndex: 0 })
@@ -482,21 +503,26 @@ export async function updateZone(
  * 英文錯誤。這裡先自己查一次是為了給人看得懂的話，不是為了取代那道關。
  */
 export async function deleteZone(db: Database, id: string, actor: Actor) {
-  const [zone] = await db.select().from(zones).where(eq(zones.id, id));
+  const legacyZonesExists = await hasTable(db, "zones");
+  const [targetZone] = legacyZonesExists ? [] : await db.select().from(wmsZones).where(eq(wmsZones.id, id));
+  const [zone] = legacyZonesExists
+    ? await db.select().from(zones).where(eq(zones.id, id))
+    : targetZone
+      ? [{ ...targetZone, category: "", x: 0, y: 0, width: 18, height: 16, shelfLevels: "[]" }]
+      : [];
   if (!zone) throw new WmsError("not_found", "找不到這個倉位。");
 
-  const [items] = await db
-    .select({ total: count() })
-    .from(inventoryItems)
-    .where(eq(inventoryItems.zoneId, id));
+  const [items] = legacyZonesExists
+    ? await db.select({ total: count() }).from(inventoryItems).where(eq(inventoryItems.zoneId, id))
+    : await db.select({ total: count() }).from(wmsItems).innerJoin(wmsShelves, eq(wmsShelves.id, wmsItems.shelfId)).where(eq(wmsShelves.zoneId, id));
   if ((items?.total ?? 0) > 0) {
     throw new WmsError("conflict", `這個倉位還有 ${items?.total} 項商品，請先移到別的倉位。`);
   }
 
   await db.batch([
     // zone_images 是 cascade；物件與 media metadata 由 route 在外部刪除成功後另外清理。
-    db.delete(zones).where(eq(zones.id, id)),
     db.delete(wmsLayoutElements).where(eq(wmsLayoutElements.zoneId, id)),
+    ...(legacyZonesExists ? [db.delete(zones).where(eq(zones.id, id))] : []),
     db.delete(wmsShelves).where(eq(wmsShelves.zoneId, id)),
     db.delete(wmsZones).where(eq(wmsZones.id, id)),
     writeEvent(db, {
