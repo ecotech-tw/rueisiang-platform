@@ -1,4 +1,4 @@
-import { applySyncPlan, buildSyncPlan, createDatabase, listCompanyLinks, type LinkedItem, type RemoteItem } from "@rueisiang/db";
+import { applySyncPlan, buildSyncPlan, createDatabase, listCompanyLinks, loadWarehouse, type LinkedItem, type RemoteItem } from "@rueisiang/db";
 import { activityEvents, cyberbizProductLinks, inventoryItems, items, warehouseCategories, wmsCyberbizLinks, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -177,10 +177,25 @@ describe("target WMS CYBERBIZ 連結", () => {
     await targetDb.insert(items).values({ id: "target-linked-item", source: "custom", kind: "sellable", sku: "TARGET-LINK-001", name: "Target 連結商品", active: 1 });
     await targetDb.insert(wmsItems).values({ itemId: "target-linked-item", quantity: 7, minStock: 2, unit: "件", notes: "" });
     await targetDb.insert(wmsCyberbizLinks).values({ id: "target-link", wmsItemId: "target-linked-item", cyberbizProductId: "target-product", cyberbizVariantId: "target-variant", sku: "TARGET-LINK-001" });
-    await targetD1.exec("PRAGMA foreign_keys = OFF; DROP TABLE cyberbiz_product_links; PRAGMA foreign_keys = ON;");
+    await targetD1.exec(`
+      PRAGMA foreign_keys = OFF;
+      DROP TABLE cyberbiz_product_links;
+      DROP TABLE zone_images;
+      DROP TABLE inventory_items;
+      DROP TABLE zones;
+      DROP TABLE warehouse_categories;
+      DROP TABLE warehouse_settings;
+      DROP TABLE layout_elements;
+      PRAGMA foreign_keys = ON;
+    `);
 
     const link = (await listCompanyLinks(targetDb))[0];
     expect(link).toMatchObject({ linkId: "target-link", inventoryItemId: "target-linked-item", itemSku: "TARGET-LINK-001", quantity: 7, minStock: 2 });
+    expect((await loadWarehouse(targetDb)).items[0]?.cyberbiz).toMatchObject({
+      cyberbizProductId: "target-product",
+      cyberbizVariantId: "target-variant",
+      sku: "TARGET-LINK-001",
+    });
     const result = await applySyncPlan(targetDb, buildSyncPlan([link!], [{ productId: "target-product", variantId: "target-variant", sku: "TARGET-LINK-001", quantity: 11, safetyQuantity: 4 }]), actor);
     expect(result).toEqual({ updated: 1, unchanged: 0, failed: 0 });
     expect((await targetDb.select().from(wmsItems))[0]).toMatchObject({ itemId: "target-linked-item", quantity: 11, minStock: 4 });

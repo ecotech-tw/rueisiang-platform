@@ -190,14 +190,16 @@ export class WmsError extends Error {
  */
 async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
   const [layout] = await db.select().from(wmsLayouts).where(eq(wmsLayouts.active, 1)).orderBy(asc(wmsLayouts.id)).limit(1);
-  const [zoneRows, elementRows, categoryRows, itemRows, shelfRows, imageRows] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, shelfRows, imageRows, linkRows] = await Promise.all([
     db.select().from(wmsZones).orderBy(asc(wmsZones.code)),
     db.select().from(wmsLayoutElements).orderBy(asc(wmsLayoutElements.zIndex), asc(wmsLayoutElements.label)),
     db.select().from(wmsCategories).orderBy(asc(wmsCategories.name)),
     db.select({ wms: wmsItems, item: itemMasters }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).orderBy(asc(itemMasters.name)),
     db.select().from(wmsShelves).orderBy(asc(wmsShelves.zoneId), asc(wmsShelves.sortOrder)),
     db.select({ zoneId: wmsZoneImages.zoneId, total: count() }).from(wmsZoneImages).groupBy(wmsZoneImages.zoneId),
+    db.select().from(wmsCyberbizLinks),
   ]);
+  const linksByItem = new Map(linkRows.map((link) => [link.wmsItemId, link]));
   const shelvesByZone = new Map<string, ShelfLevel[]>();
   for (const shelf of shelfRows) shelvesByZone.set(shelf.zoneId, [...(shelvesByZone.get(shelf.zoneId) ?? []), { id: shelf.code, name: shelf.name }]);
   const imageCounts = new Map(imageRows.map((row) => [row.zoneId, row.total]));
@@ -213,7 +215,29 @@ async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
     items: itemRows.map(({ wms, item }) => {
       const shelf = wms.shelfId ? shelfById.get(wms.shelfId) : undefined;
       const category = wms.wmsCategoryId ? categoryRows.find((candidate) => candidate.id === wms.wmsCategoryId) : undefined;
-      return { id: item.id, sku: item.sku, name: item.name, category: category?.name ?? "未分類", quantity: wms.quantity, unit: wms.unit, minStock: wms.minStock, zoneId: shelf?.zoneId ?? null, shelfLevel: shelf?.code ?? null, notes: wms.notes, updatedAt: wms.updatedAt, cyberbiz: null };
+      const link = linksByItem.get(item.id);
+      return {
+        id: item.id,
+        sku: item.sku,
+        name: item.name,
+        category: category?.name ?? "未分類",
+        quantity: wms.quantity,
+        unit: wms.unit,
+        minStock: wms.minStock,
+        zoneId: shelf?.zoneId ?? null,
+        shelfLevel: shelf?.code ?? null,
+        notes: wms.notes,
+        updatedAt: wms.updatedAt,
+        cyberbiz: link ? {
+          cyberbizProductId: link.cyberbizProductId,
+          cyberbizVariantId: link.cyberbizVariantId,
+          sku: link.sku,
+          syncStatus: link.syncStatus,
+          lastSyncedQuantity: link.lastSyncedQuantity,
+          lastSyncedAt: link.lastSyncedAt,
+          lastError: link.lastError,
+        } : null,
+      };
     }),
   };
 }
