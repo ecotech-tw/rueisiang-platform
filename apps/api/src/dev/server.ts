@@ -90,8 +90,9 @@ const env = {
   GOOGLE_OAUTH_CLIENT_ID: "local-client-id",
   GOOGLE_OAUTH_CLIENT_SECRET: "local-client-secret",
   PUBLIC_APP_URL: `http://localhost:${PORTAL_PORT}`,
-  // .dev.vars 放最後，這樣要蓋掉上面任何一個預設值都可以。
+  // 讀取其他本機設定，但登入密鑰固定使用 DEV_SECRET，確保 /dev/login 發出的 cookie 能被 API 驗證。
   ...loadDevVars(),
+  AUTH_SESSION_SECRET: DEV_SECRET,
 };
 
 const localAgentObjects = new LocalDurableObjectNamespace(
