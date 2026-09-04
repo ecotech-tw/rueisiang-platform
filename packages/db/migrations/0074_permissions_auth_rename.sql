@@ -9,7 +9,10 @@ ALTER TABLE `roles` ADD `key` text;
 --> statement-breakpoint
 UPDATE `roles` SET `key` = `role_key`;
 --> statement-breakpoint
-ALTER TABLE `roles` ADD `updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL;
+/* SQLite／D1 不允許 ADD COLUMN 使用 CURRENT_TIMESTAMP 作為非固定 default；先加欄位，再回填既有資料。 */
+ALTER TABLE `roles` ADD `updated_at` text;
+--> statement-breakpoint
+UPDATE `roles` SET `updated_at` = CURRENT_TIMESTAMP WHERE `updated_at` IS NULL;
 --> statement-breakpoint
 DROP INDEX IF EXISTS `idx_roles_key`;
 --> statement-breakpoint

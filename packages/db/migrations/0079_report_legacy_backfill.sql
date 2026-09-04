@@ -1,4 +1,11 @@
 /* 將既有報表快照搬到 item_id 粒度；無法對到品項主檔的列保留在 legacy 表供人工處理。 */
+INSERT OR IGNORE INTO `items` (`id`, `source`, `kind`, `sku`, `name`, `category_id`, `active`)
+SELECT
+  'custom:report-product:' || lower(hex(randomblob(8))),
+  'custom', 'sellable', p.`sku`, p.`name`, NULL, 1
+FROM `custom_report_products` p
+WHERE NOT EXISTS (SELECT 1 FROM `items` i WHERE lower(i.`sku`) = lower(p.`sku`));
+--> statement-breakpoint
 INSERT OR IGNORE INTO `report_runs` (
   `id`, `request_id`, `source_type`, `imports_sales`, `period_kind`, `start_date`, `end_date`,
   `status`, `imported_sales_rows`, `actor_email`
