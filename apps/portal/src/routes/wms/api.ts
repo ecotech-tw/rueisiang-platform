@@ -64,6 +64,8 @@ export interface ProductCategory {
   id: string;
   name: string;
   color: string;
+  parentId?: string | null;
+  depth?: number;
 }
 
 export interface LayoutElement {

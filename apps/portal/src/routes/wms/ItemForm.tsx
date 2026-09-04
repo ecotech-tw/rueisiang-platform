@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Combobox } from "@base-ui/react/combobox";
 import { useToast } from "../../shell/Toast.js";
 import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
 import {
@@ -14,6 +15,11 @@ import {
 } from "./api.js";
 
 /** 這一欄有兩種格式：D1 的 CURRENT_TIMESTAMP 沒有時區，同步寫進來的是帶 Z 的 ISO。 */
+function categoryLabel(category: ProductCategory): string {
+  if (category.depth !== 1 || !category.parentId) return category.name;
+  return `　${category.name}`;
+}
+
 function formatTime(value: string): string {
   const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
   const parsed = new Date(normalized);
@@ -146,33 +152,28 @@ export function ItemForm({
       }
     >
           {canPickCyberbiz ? (
-            <>
-              <TextField
-                label="CYBERBIZ 商品"
-                list="cyberbiz-products"
-                placeholder="搜尋或選擇 SKU／商品名稱，不連結就留空"
-                value={selectedCyberbizSku}
-                onChange={(event) => {
-                  const value = event.target.value.trim().toUpperCase();
-                  setSelectedCyberbizSku(value);
-                  const product = cyberbizProducts.find((candidate) => candidate.sku === value);
-                  if (product) {
-                    set({
-                      sku: product.sku,
-                      name: `${product.productName}${product.variantName ? `（${product.variantName}）` : ""}`,
-                    });
-                  }
+            <div className="field">
+              <span>CYBERBIZ 商品</span>
+              <Combobox.Root
+                items={cyberbizProducts}
+                value={selectedCyberbiz ?? null}
+                onValueChange={(product) => {
+                  if (!product) { setSelectedCyberbizSku(""); return; }
+                  setSelectedCyberbizSku(product.sku);
+                  set({ sku: product.sku, name: `${product.productName}${product.variantName ? `（${product.variantName}）` : ""}` });
                 }}
-                hint={selectedCyberbiz ? `會自動連結 ${selectedCyberbiz.productId} / ${selectedCyberbiz.variantId}` : "選到 CYBERBIZ 商品時會自動帶 SKU 與名稱，儲存後直接建立連結。"}
-              />
-              <datalist id="cyberbiz-products">
-                {cyberbizProducts.map((product) => (
-                  <option key={product.sku} value={product.sku}>
-                    {product.productName}{product.variantName ? `（${product.variantName}）` : ""}
-                  </option>
-                ))}
-              </datalist>
-            </>
+                onInputValueChange={(value) => { const product = cyberbizProducts.find((candidate) => candidate.sku === value.trim().toUpperCase()); setSelectedCyberbizSku(product?.sku ?? ""); }}
+                itemToStringLabel={(product) => product ? `${product.sku}　${product.productName}${product.variantName ? `（${product.variantName}）` : ""}` : ""}
+                autoHighlight
+              >
+                <Combobox.InputGroup className="combobox-group">
+                  <Combobox.Input className="combobox-input" placeholder="搜尋 SKU、商品名稱或規格" />
+                  <Combobox.Trigger className="combobox-trigger" aria-label="開啟商品選單">⌄</Combobox.Trigger>
+                </Combobox.InputGroup>
+                <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到符合的 CYBERBIZ 商品</Combobox.Empty><Combobox.List>{(product: CyberbizCatalogProduct) => <Combobox.Item key={product.sku} value={product} className="combobox-item"><strong>{product.sku}</strong><span>{product.productName}{product.variantName ? `（${product.variantName}）` : ""}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+              </Combobox.Root>
+              <small>{selectedCyberbiz ? `會自動連結 ${selectedCyberbiz.productId} / ${selectedCyberbiz.variantId}` : "選到 CYBERBIZ 商品時會自動帶 SKU 與名稱，儲存後直接建立連結。"}</small>
+            </div>
           ) : null}
 
           <TextField
@@ -201,7 +202,7 @@ export function ItemForm({
               hint={categories.length === 0 ? (catalogOnly ? "還沒有任何品項分類，請先去「品項分類」建立一個。" : "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。") : undefined}
               options={[
                 { label: "請選擇分類", value: "" },
-                ...categories.map((category) => ({ label: category.name, value: category.name })),
+                ...categories.map((category) => ({ label: categoryLabel(category), value: category.name })),
               ]}
             />
           </div>
