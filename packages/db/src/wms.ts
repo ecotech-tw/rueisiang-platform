@@ -2,7 +2,7 @@ import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
-import { itemCategories, itemComponents, items as itemMasters } from "./schema/items.js";
+import { itemComponents, items as itemMasters } from "./schema/items.js";
 import {
   customReportProducts,
   cyberbizProductLinks,
@@ -188,7 +188,7 @@ export async function loadWarehouse(db: Database): Promise<WarehouseSnapshot> {
     .from(warehouseSettings)
     .where(eq(warehouseSettings.id, SETTINGS_ID));
 
-  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, targetRows] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, imageCounts, linkRows, targetRows, targetItemRows, targetCategoryRows, targetShelfRows] = await Promise.all([
     db.select().from(zones).orderBy(asc(zones.code)),
     db.select().from(layoutElements).orderBy(asc(layoutElements.label)),
     db.select().from(warehouseCategories).orderBy(asc(warehouseCategories.name)),
@@ -202,47 +202,38 @@ export async function loadWarehouse(db: Database): Promise<WarehouseSnapshot> {
      * 踩過一次（quantity 拿到 minStock 的值）。分開查再自己配對，沒有那個問題。
      */
     db.select().from(cyberbizProductLinks),
-    db.select({
-      itemId: wmsItems.itemId,
-      sku: itemMasters.sku,
-      name: itemMasters.name,
-      itemCategoryName: itemCategories.name,
-      wmsCategoryName: wmsCategories.name,
-      quantity: wmsItems.quantity,
-      unit: wmsItems.unit,
-      minStock: wmsItems.minStock,
-      notes: wmsItems.notes,
-      shelfId: wmsItems.shelfId,
-      shelfCode: wmsShelves.code,
-      zoneId: wmsShelves.zoneId,
-      updatedAt: wmsItems.updatedAt,
-    })
-      .from(wmsItems)
-      .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
-      .leftJoin(itemCategories, eq(itemCategories.id, itemMasters.categoryId))
-      .leftJoin(wmsCategories, eq(wmsCategories.id, wmsItems.wmsCategoryId))
-      .leftJoin(wmsShelves, eq(wmsShelves.id, wmsItems.shelfId))
-      .leftJoin(wmsZones, eq(wmsZones.id, wmsShelves.zoneId))
-      .orderBy(asc(itemMasters.name)),
+    db.select().from(wmsItems),
+    db.select().from(itemMasters),
+    db.select().from(wmsCategories),
+    db.select().from(wmsShelves),
   ]);
 
   const imagesByZone = new Map(imageCounts.map((row) => [row.zoneId, row.total]));
+  const targetItemsById = new Map(targetItemRows.map((row) => [row.id, row]));
+  const targetCategoriesById = new Map(targetCategoryRows.map((row) => [row.id, row]));
+  const targetShelvesById = new Map(targetShelfRows.map((row) => [row.id, row]));
   const linksByItem = new Map(linkRows.map((link) => [link.inventoryItemId, link]));
   const legacySkus = new Set(itemRows.map((item) => item.sku).filter((sku): sku is string => Boolean(sku)));
   const projectedTargetItems = targetRows
-    .filter((item) => !legacySkus.has(item.sku))
-    .map((item) => ({
-      id: item.itemId,
-      sku: item.sku,
-      name: item.name,
-      category: item.wmsCategoryName ?? item.itemCategoryName ?? "未分類",
-      quantity: item.quantity,
-      unit: item.unit,
-      minStock: item.minStock,
-      zoneId: item.zoneId,
-      shelfLevel: item.shelfCode,
-      notes: item.notes,
-      updatedAt: item.updatedAt,
+    .map((wmsItem) => {
+      const item = targetItemsById.get(wmsItem.itemId);
+      const shelf = wmsItem.shelfId ? targetShelvesById.get(wmsItem.shelfId) : undefined;
+      const category = wmsItem.wmsCategoryId ? targetCategoriesById.get(wmsItem.wmsCategoryId) : undefined;
+      return { wmsItem, item, shelf, category };
+    })
+    .filter((row) => row.item && !legacySkus.has(row.item.sku))
+    .map(({ wmsItem, item, shelf, category }) => ({
+      id: wmsItem.itemId,
+      sku: item!.sku,
+      name: item!.name,
+      category: category?.name ?? "未分類",
+      quantity: wmsItem.quantity,
+      unit: wmsItem.unit,
+      minStock: wmsItem.minStock,
+      zoneId: shelf?.zoneId ?? null,
+      shelfLevel: shelf?.code ?? null,
+      notes: wmsItem.notes,
+      updatedAt: wmsItem.updatedAt,
       cyberbiz: null,
     }));
   return {
