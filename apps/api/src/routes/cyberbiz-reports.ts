@@ -1,3 +1,4 @@
+import { asc } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import {
@@ -58,6 +59,7 @@ import {
 } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
 import { body, requireString } from "../request.js";
+import { reportExternalProducts } from "@rueisiang/db/schema";
 
 function queryValue(c: { req: { query(name: string): string | undefined } }, name: string): string | undefined {
   const value = c.req.query(name)?.trim();
@@ -608,6 +610,12 @@ export const cyberbizReports = new Hono<AppEnv>()
       };
     });
     return jsonWithCache(c, result);
+  })
+  .get("/external-products", requirePermission("reports:cyberbiz:read"), async (c) => {
+    const sourceType = queryValue(c, "sourceType");
+    const resolution = queryValue(c, "resolution");
+    const rows = await c.get("db").select().from(reportExternalProducts).orderBy(asc(reportExternalProducts.sourceType), asc(reportExternalProducts.externalKey));
+    return c.json({ products: rows.filter((row) => (!sourceType || row.sourceType === sourceType) && (!resolution || row.resolution === resolution)) });
   })
   .get("/runs", requirePermission("reports:analytics:read"), async (c) => {
     const limit = Number(queryValue(c, "limit") ?? "50");
