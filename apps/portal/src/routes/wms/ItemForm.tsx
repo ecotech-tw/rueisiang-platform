@@ -174,7 +174,7 @@ export function ItemForm({
               >
                 <Combobox.InputGroup className="combobox-group">
                   <Combobox.Input className="combobox-input" placeholder="搜尋 SKU、商品名稱或規格" />
-                  {selectedCyberbizSku ? <Combobox.Clear className="combobox-clear" aria-label="清除商品"><Icon name="close" /></Combobox.Clear> : <Combobox.Trigger className="combobox-trigger" aria-label="開啟商品選單"><Icon name="chevronDown" /></Combobox.Trigger>}
+                  <Combobox.Clear className="combobox-clear" aria-label="清除商品"><Icon name="close" /></Combobox.Clear><Combobox.Trigger className="combobox-trigger" aria-label="開啟商品選單"><Icon name="chevronDown" /></Combobox.Trigger>
                 </Combobox.InputGroup>
                 <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到符合的 CYBERBIZ 商品</Combobox.Empty><Combobox.List>{(product: CyberbizCatalogProduct) => <Combobox.Item key={product.sku} value={product} className="combobox-item"><strong>{product.sku}</strong><span>{product.productName}{product.variantName ? `（${product.variantName}）` : ""}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
               </Combobox.Root>
