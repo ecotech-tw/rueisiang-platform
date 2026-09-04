@@ -10,7 +10,7 @@ import {
 } from "@rueisiang/auth";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { rolePermissions, roles, userPermissions, userRoles, users } from "./schema/auth.js";
+import { rolePermissionGrants, roles, userPermissionGrants, userRoleAssignments, users } from "./schema/auth.js";
 
 /**
  * 權限管理頁用到的查詢。與 users.ts 分開：那邊是每次請求都會跑的授權讀取路徑，
@@ -47,11 +47,11 @@ export async function listUsers(db: Database): Promise<AdminUserRow[]> {
       id: users.id,
       email: users.email,
       /*
-       * 兩個名字都要撈。users.name 是 Google 帳號上的姓名，只有 Google 登入
+       * 兩個名字都要撈。users.googleName 是 Google 帳號上的姓名，只有 Google 登入
        * 才會寫；走邀請連結設密碼的人那一欄永遠是空的。只看它的話，後台會把
        * 每一個帳密使用者都顯示成「（尚未登入過）」——即使他天天在用。
        */
-      name: users.name,
+      name: users.googleName,
       displayName: users.displayName,
       status: users.status,
       lastLoginAt: users.lastLoginAt,
@@ -62,13 +62,13 @@ export async function listUsers(db: Database): Promise<AdminUserRow[]> {
 
   const granted = await db
     .select({
-      userId: userRoles.userId,
-      roleKey: roles.key,
+      userId: userRoleAssignments.userId,
+      roleKey: roles.roleKey,
       roleName: roles.name,
     })
-    .from(userRoles)
-    .innerJoin(roles, eq(roles.id, userRoles.roleId))
-    .orderBy(asc(roles.key));
+    .from(userRoleAssignments)
+    .innerJoin(roles, eq(roles.id, userRoleAssignments.roleId))
+    .orderBy(asc(roles.roleKey));
 
   const byUser = new Map<string, AssignmentRow[]>();
   for (const item of granted) {
@@ -91,18 +91,18 @@ export async function listRoles(db: Database): Promise<RoleRow[]> {
   const rows = await db
     .select({
       id: roles.id,
-      key: roles.key,
+      key: roles.roleKey,
       name: roles.name,
       description: roles.description,
       isSystem: roles.isSystem,
     })
     .from(roles)
     // 管理員角色排前面，自訂角色接在後面——人找「管理者」的頻率遠高於找自己建的那幾個。
-    .orderBy(desc(roles.isSystem), asc(roles.key));
+    .orderBy(desc(roles.isSystem), asc(roles.roleKey));
 
   const granted = await db
-    .select({ roleId: rolePermissions.roleId, permission: rolePermissions.permission })
-    .from(rolePermissions);
+    .select({ roleId: rolePermissionGrants.roleId, permission: rolePermissionGrants.permission })
+    .from(rolePermissionGrants);
 
   const byRole = new Map<string, Permission[]>();
   for (const item of granted) {
@@ -304,10 +304,10 @@ export async function setUserStatus(db: Database, id: string, status: UserStatus
 /** 這個人是否持有某個角色（不分資料範圍）。用來判斷是不是還剩最後一位管理者。 */
 export async function hasRole(db: Database, userId: string, roleKey: string): Promise<boolean> {
   const [row] = await db
-    .select({ userId: userRoles.userId })
-    .from(userRoles)
-    .innerJoin(roles, eq(roles.id, userRoles.roleId))
-    .where(and(eq(userRoles.userId, userId), eq(roles.key, roleKey)))
+    .select({ userId: userRoleAssignments.userId })
+    .from(userRoleAssignments)
+    .innerJoin(roles, eq(roles.id, userRoleAssignments.roleId))
+    .where(and(eq(userRoleAssignments.userId, userId), eq(roles.roleKey, roleKey)))
     .limit(1);
   return Boolean(row);
 }
@@ -322,12 +322,12 @@ export async function assignRole(
   db: Database,
   grant: RoleGrant & { grantedBy: string },
 ): Promise<"ok" | "unknown-role"> {
-  const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.key, grant.roleKey)).limit(1);
+  const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.roleKey, grant.roleKey)).limit(1);
   if (!role) return "unknown-role";
 
   // scope_type / scope_id 留白＝全域。欄位還在，但目前沒有東西照範圍切資料。
   await db
-    .insert(userRoles)
+    .insert(userRoleAssignments)
     .values({ userId: grant.userId, roleId: role.id, grantedBy: grant.grantedBy })
     .onConflictDoNothing();
   return "ok";
@@ -335,12 +335,12 @@ export async function assignRole(
 
 /** 收回一筆角色指派。回傳是否真的刪到東西，讓呼叫端能回 404。 */
 export async function revokeRole(db: Database, grant: RoleGrant): Promise<boolean> {
-  const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.key, grant.roleKey)).limit(1);
+  const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.roleKey, grant.roleKey)).limit(1);
   if (!role) return false;
 
   const result = await db
-    .delete(userRoles)
-    .where(and(eq(userRoles.userId, grant.userId), eq(userRoles.roleId, role.id)));
+    .delete(userRoleAssignments)
+    .where(and(eq(userRoleAssignments.userId, grant.userId), eq(userRoleAssignments.roleId, role.id)));
   return (result.meta?.changes ?? 0) > 0;
 }
 
@@ -381,7 +381,7 @@ export async function createRole(
   const id = `role-${crypto.randomUUID()}`;
   await db.insert(roles).values({
     id,
-    key,
+    roleKey: key,
     name: input.name.trim(),
     description: (input.description ?? "").trim(),
     isSystem: false,
@@ -403,7 +403,7 @@ export async function updateRole(
   const [role] = await db
     .select({ id: roles.id })
     .from(roles)
-    .where(eq(roles.key, key))
+    .where(eq(roles.roleKey, key))
     .limit(1);
   if (!role) return { kind: "not-found" };
   if (key === PROTECTED_ROLE_KEY) return { kind: "protected-role" };
@@ -425,9 +425,9 @@ async function writePermissions(
   roleId: string,
   permissions: readonly string[],
 ): Promise<void> {
-  await db.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
+  await db.delete(rolePermissionGrants).where(eq(rolePermissionGrants.roleId, roleId));
   if (permissions.length) {
-    await db.insert(rolePermissions).values(
+    await db.insert(rolePermissionGrants).values(
       [...new Set(permissions)].map((permission) => ({ roleId, permission })),
     );
   }
@@ -441,7 +441,7 @@ export async function deleteRole(db: Database, key: string): Promise<RoleWriteRe
   const [role] = await db
     .select({ id: roles.id })
     .from(roles)
-    .where(eq(roles.key, key))
+    .where(eq(roles.roleKey, key))
     .limit(1);
   if (!role) return { kind: "not-found" };
   if (key === PROTECTED_ROLE_KEY) return { kind: "protected-role" };
@@ -453,10 +453,10 @@ export async function deleteRole(db: Database, key: string): Promise<RoleWriteRe
 /** 每個角色目前有幾個人持有。刪除前的確認訊息要講得出數字才有意義。 */
 export async function countRoleHolders(db: Database): Promise<Record<string, number>> {
   const rows = await db
-    .select({ roleKey: roles.key, holders: sql<number>`count(*)` })
-    .from(userRoles)
-    .innerJoin(roles, eq(roles.id, userRoles.roleId))
-    .groupBy(roles.key);
+    .select({ roleKey: roles.roleKey, holders: sql<number>`count(*)` })
+    .from(userRoleAssignments)
+    .innerJoin(roles, eq(roles.id, userRoleAssignments.roleId))
+    .groupBy(roles.roleKey);
   return Object.fromEntries(rows.map((row) => [row.roleKey, Number(row.holders)]));
 }
 
@@ -497,8 +497,8 @@ export async function deleteUser(db: Database, id: string): Promise<DeleteUserRe
  */
 export async function listDirectPermissions(db: Database): Promise<Record<string, Permission[]>> {
   const rows = await db
-    .select({ userId: userPermissions.userId, permission: userPermissions.permission })
-    .from(userPermissions);
+    .select({ userId: userPermissionGrants.userId, permission: userPermissionGrants.permission })
+    .from(userPermissionGrants);
 
   const byUser: Record<string, Permission[]> = {};
   for (const row of rows) {
@@ -517,7 +517,7 @@ export async function grantPermission(
   if (!(input.permission in PERMISSIONS)) return "unknown-permission";
 
   await db
-    .insert(userPermissions)
+    .insert(userPermissionGrants)
     .values({
       userId: input.userId,
       permission: input.permission,
@@ -536,11 +536,11 @@ export async function revokePermission(
   input: { userId: string; permission: string },
 ): Promise<boolean> {
   const result = await db
-    .delete(userPermissions)
+    .delete(userPermissionGrants)
     .where(
       and(
-        eq(userPermissions.userId, input.userId),
-        eq(userPermissions.permission, input.permission),
+        eq(userPermissionGrants.userId, input.userId),
+        eq(userPermissionGrants.permission, input.permission),
       ),
     );
   return (result.meta?.changes ?? 0) > 0;

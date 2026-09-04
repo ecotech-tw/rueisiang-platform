@@ -121,7 +121,6 @@ export const wms = new Hono<AppEnv>()
     if (can(c.get("user"), "wms:inventory:read")) return c.json(warehouse);
     return c.json({ ...warehouse, items: [], categories: [] });
   })
-
   // ───────────────────────────── 倉位 ─────────────────────────────
 
   .post("/zones", requirePermission("wms:map:write"), async (c) => {

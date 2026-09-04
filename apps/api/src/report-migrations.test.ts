@@ -247,4 +247,221 @@ describe("報表 scope migration", () => {
     expect(sqlite.prepare("SELECT sku, category_id FROM cyberbiz_product_categories").all())
       .toEqual([{ sku: "SOAP-001", category_id: "report-legacy-bath" }]);
   });
+
+  it("0084 以舊商品 SKU 解析 target item，且正規化外部 SKU，不把 legacy ID 當 target FK", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0073_lame_shinko_yamashiro.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("legacy-mapping-item", "MIGRATE-ITEM-001", "搬移商品");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, channel, external_name, external_sku) VALUES (?, ?, ?, ?)")
+      .run("mapping-normalize", "Shopee", "外部商品", " ext-migrate-001 ");
+    sqlite.prepare("INSERT INTO product_bundle_components (id, mapping_id, inventory_item_id, quantity) VALUES (?, ?, ?, ?)")
+      .run("mapping-normalize:0", "mapping-normalize", "legacy-mapping-item", 1);
+
+    applyLikeD1(sqlite, "0073_lame_shinko_yamashiro.sql", "0084_report_external_mapping_backfill.sql");
+
+    expect(sqlite.prepare(`
+      SELECT external.source_type, external.external_key, external.item_id, item.source, item.sku
+      FROM report_external_products external
+      JOIN items item ON item.id = external.item_id
+      WHERE external.id = 'backfill:external:mapping-normalize'
+    `).all()).toEqual([{
+      source_type: "shopee",
+      external_key: "EXT-MIGRATE-001",
+      item_id: "legacy-mapping-item",
+      source: "custom",
+      sku: "MIGRATE-ITEM-001",
+    }]);
+  });
+
+  it("0085 將多用料 mapping 搬成 target BOM，且保留用料順序與數量", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0073_lame_shinko_yamashiro.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name) VALUES (?, ?, ?)")
+      .run("legacy-bundle-item", "LEGACY-BUNDLE-A", "組合用料 A");
+    sqlite.prepare("INSERT INTO custom_report_products (id, sku, name, category) VALUES (?, ?, ?, ?)")
+      .run("legacy-custom-item", "LEGACY-BUNDLE-B", "組合用料 B", "未分類");
+    sqlite.prepare("INSERT INTO product_sku_mappings (id, channel, external_name, external_sku) VALUES (?, ?, ?, ?)")
+      .run("legacy-bundle-mapping", "Shopee", "舊組合商品", " old-bundle-001 ");
+    sqlite.prepare("INSERT INTO product_bundle_components (id, mapping_id, inventory_item_id, quantity) VALUES (?, ?, ?, ?)")
+      .run("legacy-bundle-mapping:000", "legacy-bundle-mapping", "legacy-bundle-item", 2);
+    sqlite.prepare("INSERT INTO product_bundle_components (id, mapping_id, custom_product_id, quantity) VALUES (?, ?, ?, ?)")
+      .run("legacy-bundle-mapping:001", "legacy-bundle-mapping", "legacy-custom-item", 3);
+
+    applyLikeD1(sqlite, "0073_lame_shinko_yamashiro.sql", "0084_report_external_mapping_backfill.sql");
+    applyLikeD1(sqlite, "0084_report_external_mapping_backfill.sql", "0085_report_bundle_target_backfill.sql");
+
+    expect(sqlite.prepare(`
+      SELECT external.source_type, external.external_key, external.item_id, item.source, item.sku
+      FROM report_external_products external
+      JOIN items item ON item.id = external.item_id
+      WHERE external.id = 'backfill:external:legacy-bundle-mapping'
+    `).all()).toEqual([{
+      source_type: "shopee",
+      external_key: "OLD-BUNDLE-001",
+      item_id: "report-bundle:legacy-bundle-mapping",
+      source: "custom",
+      sku: "REPORT-BUNDLE:LEGACY-BUNDLE-MAPPING",
+    }]);
+    expect(sqlite.prepare(`
+      SELECT item.sku, component.quantity
+      FROM item_components component
+      JOIN items item ON item.id = component.component_item_id
+      WHERE component.parent_item_id = 'report-bundle:legacy-bundle-mapping'
+      ORDER BY component.rowid
+    `).all()).toEqual([
+      { sku: "LEGACY-BUNDLE-A", quantity: 2 },
+      { sku: "LEGACY-BUNDLE-B", quantity: 3 },
+    ]);
+  });
+
+  it("0086 以 legacy SKU 將 CYBERBIZ 連結搬到 target WMS 品項", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0073_lame_shinko_yamashiro.sql");
+    sqlite.prepare("INSERT INTO inventory_items (id, sku, name, quantity, min_stock) VALUES (?, ?, ?, ?, ?)")
+      .run("legacy-linked-item", "LINKED-001", "已連結商品", 4, 2);
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_product_links (
+        id, inventory_item_id, cyberbiz_product_id, cyberbiz_variant_id, sku,
+        warehouse_scope, pos_shop_id, sync_status, last_synced_quantity, last_synced_at, last_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("legacy-link", "legacy-linked-item", "product-001", "variant-001", " linked-001 ", "company", 0, "failed", 3, "2026-01-01T00:00:00.000Z", "曾經失敗");
+
+    applyLikeD1(sqlite, "0073_lame_shinko_yamashiro.sql", "0086_wms_cyberbiz_links_target.sql");
+
+    expect(sqlite.prepare(`
+      SELECT link.id, link.wms_item_id, link.cyberbiz_product_id, link.cyberbiz_variant_id,
+        link.sku, link.sync_status, wms.quantity, wms.min_stock
+      FROM wms_cyberbiz_links link
+      JOIN wms_items wms ON wms.item_id = link.wms_item_id
+    `).all()).toEqual([{
+      id: "backfill:wms-link:legacy-link",
+      wms_item_id: "legacy-linked-item",
+      cyberbiz_product_id: "product-001",
+      cyberbiz_variant_id: "variant-001",
+      sku: "LINKED-001",
+      sync_status: "failed",
+      quantity: 4,
+      min_stock: 2,
+    }]);
+  });
+
+  it("0087 清掉沒有 media metadata 的懸空 zone image", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0086_wms_cyberbiz_links_target.sql");
+    sqlite.prepare(`
+      INSERT INTO zones (id, code, name, category, x, y, width, height)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("orphan-zone", "ORPHAN", "懸空圖片測試", "一般備品", 0, 0, 10, 10);
+    sqlite.prepare(`
+      INSERT INTO zone_images (id, zone_id, object_key, filename, content_type, size)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run("orphan-image", "orphan-zone", "wms/orphan.jpg", "orphan.jpg", "image/jpeg", 10);
+
+    applyLikeD1(sqlite, "0086_wms_cyberbiz_links_target.sql", "0087_wms_orphan_image_cleanup.sql");
+
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM zone_images").get()).toEqual({ count: 0 });
+  });
+
+  it("0088 會在 target 回填後移除已取代的 legacy 表與相容物件", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0088_drop_migrated_legacy_schema.sql");
+
+    for (const name of [
+      "cyberbiz_product_links",
+      "zone_images",
+      "product_bundle_components",
+      "cyberbiz_product_categories",
+      "product_sku_mappings",
+      "report_sku_ignores",
+      "custom_report_products",
+      "cyberbiz_products_legacy",
+      "report_sales_monthly",
+      "report_payout_daily",
+      "report_manual_sales_monthly",
+      "report_manual_payout_daily",
+      "report_product_categories",
+      "report_scopes",
+      "inventory_items",
+      "zones",
+      "warehouse_categories",
+      "product_categories",
+      "warehouse_settings",
+      "layout_elements",
+      "cyberbiz_products_compat",
+      "trg_cyberbiz_products_compat_insert",
+      "trg_cyberbiz_products_compat_update",
+    ]) {
+      expect(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name = ? LIMIT 1").get(name)).toBeUndefined();
+    }
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM pragma_foreign_key_check").get()).toEqual({ count: 0 });
+    expect(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'items'").get()).toEqual({ 1: 1 });
+    expect(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'wms_items'").get()).toEqual({ 1: 1 });
+    expect(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'report_item_sales_monthly'").get()).toEqual({ 1: 1 });
+  });
+
+  it("0088 會先保留人工銷售與出金修訂，再刪除 legacy 表", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0087_wms_orphan_image_cleanup.sql");
+    sqlite.exec(`
+      INSERT INTO report_scopes (id, scope_kind, name, normalized_name, active)
+      VALUES ('manual-scope', 'store', '人工測試店', '人工測試店', 1);
+      INSERT INTO report_manual_sales_monthly (
+        id, scope_id, report_month, sku_source, sku, product_name, category,
+        gross_quantity, return_quantity, net_quantity, sales_amount,
+        created_by_id, created_by_email, updated_by_id, updated_by_email,
+        created_at, updated_at
+      ) VALUES (
+        'manual-sales', 'manual-scope', '2026-08', 'custom', ' manual-001 ', '人工商品', '未分類',
+        5, 1, 4, 380, 'u1', 'u1@example.com', 'u2', 'u2@example.com',
+        '2026-08-31T01:00:00.000Z', '2026-08-31T02:00:00.000Z'
+      );
+      INSERT INTO report_manual_payout_daily (
+        id, scope_id, business_date, payout_amount,
+        created_by_id, created_by_email, updated_by_id, updated_by_email,
+        created_at, updated_at
+      ) VALUES (
+        'manual-payout', 'manual-scope', '2026-08-31', 1200,
+        'u1', 'u1@example.com', 'u2', 'u2@example.com',
+        '2026-08-31T01:00:00.000Z', '2026-08-31T02:00:00.000Z'
+      );
+    `);
+
+    applyLikeD1(sqlite, "0087_wms_orphan_image_cleanup.sql", "0088_drop_migrated_legacy_schema.sql");
+
+    expect(sqlite.prepare(`
+      SELECT item.source, item.sku, item.name, sales.record_origin,
+        sales.gross_quantity, sales.return_quantity, sales.net_quantity,
+        sales.sales_amount, sales.updated_by_email
+      FROM report_item_sales_monthly sales
+      JOIN items item ON item.id = sales.item_id
+      WHERE sales.scope_id = 'manual-scope'
+    `).all()).toEqual([{
+      source: "custom",
+      sku: "MANUAL-001",
+      name: "人工商品",
+      record_origin: "manual",
+      gross_quantity: 5,
+      return_quantity: 1,
+      net_quantity: 4,
+      sales_amount: 380,
+      updated_by_email: "u2@example.com",
+    }]);
+    expect(sqlite.prepare(`
+      SELECT scope_id, business_date, record_origin, payout_amount, updated_by_email
+      FROM report_payout_daily_target
+    `).all()).toEqual([{
+      scope_id: "manual-scope",
+      business_date: "2026-08-31",
+      record_origin: "manual",
+      payout_amount: 1200,
+      updated_by_email: "u2@example.com",
+    }]);
+  });
 });

@@ -11,8 +11,9 @@ import {
   upsertReportScope,
   type ReportAnalyticsRange,
 } from "@rueisiang/db";
+import { itemCategories } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
+import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
 
 let d1: LocalD1;
 function db() { return createDatabase(d1 as never); }
@@ -28,7 +29,7 @@ function countScopeReads(target: LocalD1) {
   let reads = 0;
   const spy = {
     prepare(query: string) {
-      if (query.includes("report_scopes")) reads += 1;
+      if (query.includes("scopes")) reads += 1;
       return target.prepare(query);
     },
     batch: (statements: never) => target.batch(statements),
@@ -41,9 +42,13 @@ const WEST = "cyberbiz:store:西門3F";
 const EAST = "cyberbiz:store:信義2F";
 
 beforeEach(async () => {
-  d1 = createLocalD1();
+  d1 = createTargetOnlyD1();
   await upsertReportScope(db(), { id: WEST, scopeKind: "store", name: "誠品西門店 3F" });
   await upsertReportScope(db(), { id: EAST, scopeKind: "store", name: "誠品信義店 2F" });
+  await db().insert(itemCategories).values([
+    { id: "cat-bath", depth: 0, parentId: null, parentDepth: null, name: "沐浴", color: "rose", sortOrder: 0, active: 1 },
+    { id: "cat-food", depth: 0, parentId: null, parentDepth: null, name: "食品", color: "rose", sortOrder: 1, active: 1 },
+  ]);
 });
 
 describe("店別名冊", () => {
@@ -57,7 +62,7 @@ describe("店別名冊", () => {
     expect(await directory.store({ id: "cyberbiz:store:不存在" })).toBeNull();
     expect(await directory.store({})).toBeNull();
 
-    await upsertReportScope(db(), { id: "cyberbiz:store:西門3F備份", scopeKind: "store", name: "誠品西門店 3F" });
+    await upsertReportScope(db(), { id: "shopee:store:西門3F備份", scopeKind: "store", name: "誠品西門店 3F", sourceType: "shopee" });
     await expect(createReportScopeDirectory(db()).store({ name: "誠品西門店 3F" })).rejects.toThrow(/對應到多個/u);
   });
 
@@ -65,7 +70,7 @@ describe("店別名冊", () => {
     let attempts = 0;
     const flaky = {
       prepare(query: string) {
-        if (query.includes("report_scopes")) {
+        if (query.includes("scopes")) {
           attempts += 1;
           if (attempts === 1) throw new Error("D1 暫時性錯誤");
         }
@@ -247,7 +252,7 @@ describe("商品銷售統計查詢", () => {
     // 名冊在整份統計裡共用一份，不是每個子查詢各讀一次。
     expect(reads()).toBe(1);
 
-    // 指定店別也是同一份名冊推導出來的，不必再查一次 report_scopes。
+    // 指定店別也是同一份名冊推導出來的，不必再查一次 scopes。
     const store = countScopeReads(d1);
     await queryReportSalesSummary(createDatabase(store.spy as never), {
       range: parseReportRange("2026-07"),

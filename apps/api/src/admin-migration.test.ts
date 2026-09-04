@@ -6,8 +6,10 @@ import {
   assistantLineChannels,
   assistantLineGroups,
   assistantToolConfigs,
+  rolePermissionGrants,
   rolePermissions,
   roles,
+  userPermissionGrants,
   userPermissions,
   users,
 } from "@rueisiang/db/schema";
@@ -47,6 +49,9 @@ const CYBERBIZ_REPORT_WRITE_PERMISSION_MIGRATION = fileURLToPath(
 );
 const PRODUCT_CATEGORY_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0071_product_category_permission.sql", import.meta.url),
+);
+const ITEM_WMS_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0089_item_wms_permissions.sql", import.meta.url),
 );
 const ROLE_CLASSIFICATION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0070_roles_except_admin_are_custom.sql", import.meta.url),
@@ -128,10 +133,45 @@ describe("bootstrap 管理員權限 migration", () => {
     const productCategoryPermissionSql = readFileSync(PRODUCT_CATEGORY_PERMISSION_MIGRATION, "utf8");
     d1.sqlite.exec(productCategoryPermissionSql);
     d1.sqlite.exec(productCategoryPermissionSql);
+    const itemWmsPermissionSql = readFileSync(ITEM_WMS_PERMISSION_MIGRATION, "utf8");
+    d1.sqlite.exec(itemWmsPermissionSql);
+    d1.sqlite.exec(itemWmsPermissionSql);
 
     const permissions = await db.select().from(rolePermissions);
     expect(permissions).toHaveLength(ALL_PERMISSIONS.length);
     expect(new Set(permissions.map((row) => row.permission))).toEqual(new Set(ALL_PERMISSIONS));
+  });
+
+  it("0089 會把舊品項與 SKU 對應授權搬到新權限，而且可安全重跑", async () => {
+    const d1 = createLocalD1();
+    const db = createDatabase(d1 as never);
+
+    await db.insert(roles).values({ id: "role-legacy", key: "legacy", name: "舊角色", isSystem: false });
+    await db.insert(rolePermissionGrants).values([
+      { roleId: "role-legacy", permission: "wms:inventory:read" },
+      { roleId: "role-legacy", permission: "tools:sku-mapping:write" },
+    ]);
+    await db.insert(users).values({ id: "user-legacy", email: "legacy-item@ecotech.tw", status: "active" });
+    await db.insert(userPermissionGrants).values([
+      { userId: "user-legacy", permission: "wms:category:write", grantedBy: "bootstrap" },
+      { userId: "user-legacy", permission: "tools:sku-mapping:read", grantedBy: "bootstrap" },
+    ]);
+
+    const sql = readFileSync(ITEM_WMS_PERMISSION_MIGRATION, "utf8");
+    d1.sqlite.exec(sql);
+    d1.sqlite.exec(sql);
+
+    const roleRows = await db.select().from(rolePermissionGrants);
+    expect(new Set(roleRows.filter((row) => row.roleId === "role-legacy").map((row) => row.permission))).toEqual(new Set([
+      "wms:inventory:read", "items:item:read", "items:category:read", "wms:mapping:write",
+    ]));
+    expect(roleRows.some((row) => row.permission.startsWith("tools:sku-mapping:"))).toBe(false);
+
+    const userRows = await db.select().from(userPermissionGrants);
+    expect(new Set(userRows.filter((row) => row.userId === "user-legacy").map((row) => row.permission))).toEqual(new Set([
+      "wms:category:write", "items:category:write", "wms:mapping:read",
+    ]));
+    expect(userRows.some((row) => row.permission.startsWith("tools:sku-mapping:"))).toBe(false);
   });
 
   it("移除蝦皮設定權限時保留既有角色與直接授權", async () => {

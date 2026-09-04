@@ -1,11 +1,12 @@
 import { createDatabase, retryFailedProductWebhooks, syncSystemRoles } from "@rueisiang/db";
 import {
   activityEvents,
-  cyberbizProductLinks,
   cyberbizProductWebhooks,
   customers,
-  inventoryItems,
-  warehouseCategories,
+  items,
+  wmsCategories,
+  wmsCyberbizLinks,
+  wmsItems,
 } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -114,13 +115,14 @@ beforeEach(async () => {
     CYBERBIZ_API_BASE_URL: BASE,
   };
   await syncSystemRoles(db());
-  await db().insert(warehouseCategories).values({ id: "cat-1", name: "醬菜類", color: "sky" });
-  await db().insert(inventoryItems).values({
-    id: "item-1", sku: "BPK24004", name: "干貝XO醬", category: "醬菜類", quantity: 178, minStock: 24,
+  await db().insert(wmsCategories).values({ id: "cat-1", name: "醬菜類", color: "sky", active: 1 });
+  await db().insert(items).values({ id: "item-1", source: "cyberbiz", kind: "sellable", sku: "BPK24004", name: "干貝XO醬", active: 1 });
+  await db().insert(wmsItems).values({
+    itemId: "item-1", wmsCategoryId: "cat-1", quantity: 178, minStock: 24, unit: "件", notes: "",
   });
-  await db().insert(cyberbizProductLinks).values({
+  await db().insert(wmsCyberbizLinks).values({
     id: "link-1",
-    inventoryItemId: "item-1",
+    wmsItemId: "item-1",
     cyberbizProductId: "56750193",
     cyberbizVariantId: "68463869",
     sku: "BPK24004",
@@ -170,7 +172,7 @@ describe("處理", () => {
       sync: { updated: 1, unchanged: 0, failed: 0, linked: 1 },
     });
 
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
 
     const [event] = await db()
@@ -201,14 +203,14 @@ describe("處理", () => {
       { topic: "variants/update" },
     );
 
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
   });
 
   it("安全庫存也跟著官網走", async () => {
     stubCyberbiz({ body: product({ quantity: 200, safety: 50 }) });
     await post({ product_id: "56750193" }, { topic: "variants/update" });
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.minStock).toBe(50);
   });
 
@@ -219,7 +221,7 @@ describe("處理", () => {
 
     expect(json).toMatchObject({ status: "processed", productId: "56750193" });
     expect(calls).toEqual([`${BASE}/v1/products/56750193`]);
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
   });
 
@@ -237,9 +239,9 @@ describe("處理", () => {
     const { json } = await post({ product_id: "56750193" }, { topic: "variants/update" });
 
     expect(json).toMatchObject({ sync: { updated: 0, failed: 1 } });
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(178);
-    const [link] = await db().select().from(cyberbizProductLinks);
+    const [link] = await db().select().from(wmsCyberbizLinks);
     expect(link?.syncStatus).toBe("failed");
   });
 });
@@ -312,7 +314,7 @@ describe("失敗與補跑", () => {
     expect(row?.productId).toBe("56750193");
 
     // 數量沒被亂寫。
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(178);
   });
 
@@ -333,7 +335,7 @@ describe("失敗與補跑", () => {
     });
 
     expect(result).toMatchObject({ attempted: 1, processed: 1, failed: 0 });
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
     const [row] = await db().select().from(cyberbizProductWebhooks);
     expect(row?.status).toBe("processed");
@@ -397,7 +399,7 @@ describe("一個網址的分派", () => {
     });
 
     expect(json).toMatchObject({ kind: "product", status: "processed" });
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
   });
 
@@ -425,7 +427,7 @@ describe("一個網址的分派", () => {
     });
 
     expect(json).toMatchObject({ kind: "product", status: "processed" });
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
   });
 
@@ -495,7 +497,7 @@ describe("review 抓到的回歸", () => {
     const { json } = await post({ data: { product_id: "56750193", inventory_quantity: 200 } });
 
     expect(json).toMatchObject({ kind: "product", status: "processed" });
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
   });
 
@@ -506,7 +508,7 @@ describe("review 抓到的回歸", () => {
     });
 
     expect(json).toMatchObject({ kind: "product", status: "processed" });
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
   });
 
@@ -539,7 +541,7 @@ describe("review 抓到的回歸", () => {
     });
 
     expect(result).toMatchObject({ attempted: 1, processed: 1, failed: 0 });
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
   });
 
@@ -625,7 +627,7 @@ describe("review 抓到的回歸", () => {
     });
 
     expect(result).toMatchObject({ processed: 1, failed: 0 });
-    const [item] = await db().select().from(inventoryItems);
+    const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
     // 順便把反查到的寫回去，下次不必再查。
     const [row] = await db().select().from(cyberbizProductWebhooks);

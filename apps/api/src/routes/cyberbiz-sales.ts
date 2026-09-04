@@ -92,6 +92,7 @@ export const cyberbizSales = new Hono<AppEnv>()
       reportKind: "sales",
       periodKind: periodKind(start, end),
       stores,
+      scopeIds: stores.map(cyberbizScopeIdFromStoreName),
       startDate: start,
       endDate: end,
       actor: c.get("user"),

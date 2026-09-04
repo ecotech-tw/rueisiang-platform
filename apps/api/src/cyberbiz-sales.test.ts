@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, insertReportSalesMonthly, listCyberbizReportRuns, listPayoutStores, listReportScopes, seedPayoutStores, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
-import { cyberbizProducts, inventoryItems, payoutStores, productBundleComponents, productSkuMappings, reportSalesMonthly, userRoles, users } from "@rueisiang/db/schema";
+import { cyberbizProductCatalog, items, payoutStores, reportExternalProducts, reportItemSalesMonthly, userRoles, users, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -16,6 +16,24 @@ let env: Record<string, unknown>;
 
 function db() {
   return createDatabase(d1 as never);
+}
+
+async function seedCyberbizProduct(sku: string, productId: string, variantId: string, productName: string, published = 1) {
+  const itemId = `cyberbiz:${sku}`;
+  await db().insert(items).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku, name: productName, active: 1 });
+  await db().insert(cyberbizProductCatalog).values({ itemId, cyberbizProductId: productId, cyberbizVariantId: variantId, productName, variantName: "", published });
+  return itemId;
+}
+
+async function reportSalesRows() {
+  return db().select({
+    scopeId: reportItemSalesMonthly.scopeId,
+    reportMonth: reportItemSalesMonthly.reportMonth,
+    sku: items.sku,
+    productName: items.name,
+    netQuantity: reportItemSalesMonthly.netQuantity,
+    salesAmount: reportItemSalesMonthly.salesAmount,
+  }).from(reportItemSalesMonthly).innerJoin(items, eq(items.id, reportItemSalesMonthly.itemId));
 }
 
 async function seedUser(email: string, roleId: string) {
@@ -185,13 +203,7 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
   });
 
   it("主管可以上傳完整月份的手動 sales，並沿用 CYBERBIZ 商品目錄", async () => {
-    await db().insert(cyberbizProducts).values({
-      sku: "MANUAL-001",
-      productId: "manual-product-001",
-      variantId: "manual-variant-001",
-      productName: "手動商品",
-      variantName: "",
-    });
+    await seedCyberbizProduct("MANUAL-001", "manual-product-001", "manual-variant-001", "手動商品");
     const id = await seedUser("manager-sales@ecotech.tw", "role-manager");
     const response = await as(id, "manager-sales@ecotech.tw", "/api/tools/manual-sales", {
       method: "POST",
@@ -211,7 +223,7 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
       rowCount: 1,
       skippedSkus: [],
     });
-    const rows = await db().select().from(reportSalesMonthly);
+    const rows = await reportSalesRows();
     expect(rows).toEqual([expect.objectContaining({
       scopeId: expect.stringMatching(/^manual:store:/),
       reportMonth: "2026-07",
@@ -223,24 +235,17 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
   });
 
   it("手動 sales 的外部 SKU 可以在同一個 scope 用 CYBERBIZ mapping 查回來", async () => {
-    await db().insert(inventoryItems).values({
-      id: "manual-query-item",
-      sku: "SYSTEM-001",
-      name: "系統商品",
-      category: "未分類",
-    });
-    await db().insert(productSkuMappings).values({
+    await db().insert(items).values({ id: "manual-query-item", source: "custom", kind: "sellable", sku: "SYSTEM-001", name: "系統商品", active: 1 });
+    await db().insert(wmsItems).values({ itemId: "manual-query-item", quantity: 0, minStock: 5, unit: "件", notes: "" });
+    await db().insert(reportExternalProducts).values({
       id: "manual-query-mapping",
-      channel: "cyberbiz",
+      sourceType: "cyberbiz",
+      externalKey: "EXTERNAL-001",
+      externalVariantKey: "",
       externalName: "外部商品",
-      externalSku: "EXTERNAL-001",
-    });
-    await db().insert(productBundleComponents).values({
-      id: "manual-query-mapping:0",
-      mappingId: "manual-query-mapping",
-      inventoryItemId: "manual-query-item",
-      customProductId: null,
-      quantity: 1,
+      resolution: "mapped",
+      itemId: "manual-query-item",
+      ignoredReason: "",
     });
     const id = await seedUser("manager-sales-query@ecotech.tw", "role-manager");
     const response = await as(id, "manager-sales-query@ecotech.tw", "/api/tools/manual-sales", {
@@ -264,14 +269,7 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
   });
 
   it("手動 sales 商品目錄沿用 sales 權限，供舊版合併檔補回 SKU", async () => {
-    await db().insert(cyberbizProducts).values({
-      sku: "LEGACY-001",
-      productId: "legacy-product-001",
-      variantId: "legacy-variant-001",
-      productName: "舊檔商品",
-      variantName: "",
-      published: 0,
-    });
+    await seedCyberbizProduct("LEGACY-001", "legacy-product-001", "legacy-variant-001", "舊檔商品", 0);
     const manager = await seedUser("manager-manual-products@ecotech.tw", "role-manager");
     const response = await as(manager, "manager-manual-products@ecotech.tw", "/api/tools/manual-sales/products");
 
@@ -315,13 +313,7 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
   });
 
   it("manual sales rejects scope IDs with mismatched names", async () => {
-    await db().insert(cyberbizProducts).values({
-      sku: "MISMATCH-001",
-      productId: "mismatch-product-001",
-      variantId: "mismatch-variant-001",
-      productName: "驗證商品",
-      variantName: "",
-    });
+    await seedCyberbizProduct("MISMATCH-001", "mismatch-product-001", "mismatch-variant-001", "驗證商品");
     const id = await seedUser("manager-manual-scope-mismatch@ecotech.tw", "role-manager");
     const first = await as(id, "manager-manual-scope-mismatch@ecotech.tw", "/api/tools/manual-sales", {
       method: "POST",
@@ -347,16 +339,10 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     expect(await listReportScopes(db(), "store")).toEqual([
       expect.objectContaining({ id: firstBody.scopeId, name: "原本的店" }),
     ]);
-    expect((await db().select().from(reportSalesMonthly)).map((row) => row.netQuantity)).toEqual([1]);
+    expect((await reportSalesRows()).map((row) => row.netQuantity)).toEqual([1]);
   });
   it("新建據點名稱撞到既有據點時擋下來，不會覆寫那家店當月的匯入資料", async () => {
-    await db().insert(cyberbizProducts).values({
-      sku: "COLLIDE-001",
-      productId: "collide-product-001",
-      variantId: "collide-variant-001",
-      productName: "撞名商品",
-      variantName: "",
-    });
+    await seedCyberbizProduct("COLLIDE-001", "collide-product-001", "collide-variant-001", "撞名商品");
     const importedScopeId = cyberbizScopeIdFromStoreName("中友百貨");
     await upsertReportScope(db(), { id: importedScopeId, scopeKind: "store", name: "中友百貨" });
     await insertReportSalesMonthly(db(), [{
@@ -384,13 +370,13 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: expect.stringContaining("已經有名為「中友百貨」的據點") });
     expect(await listReportScopes(db(), "store")).toEqual([expect.objectContaining({ id: importedScopeId })]);
-    expect((await db().select().from(reportSalesMonthly)).map((row) => [row.scopeId, row.salesAmount])).toEqual([
+    expect((await reportSalesRows()).map((row) => [row.scopeId, row.salesAmount])).toEqual([
       [importedScopeId, 99999],
     ]);
   });
   it("同名的既有據點都列得出來，不會有一個永遠選不到", async () => {
     await upsertReportScope(db(), { id: "cyberbiz:store:duplicate-a", scopeKind: "store", name: "重複店" });
-    await upsertReportScope(db(), { id: "manual:store:duplicate-b", scopeKind: "store", name: "重複店" });
+    await upsertReportScope(db(), { id: "manual:store:duplicate-b", sourceType: "manual", scopeKind: "store", name: "重複店" });
     const id = await seedUser("manager-duplicate-scopes@ecotech.tw", "role-manager");
 
     const response = await as(id, "manager-duplicate-scopes@ecotech.tw", "/api/tools/manual-sales/scopes");
@@ -418,6 +404,6 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     });
 
     expect(response.status).toBe(422);
-    expect(await db().select().from(reportSalesMonthly)).toHaveLength(0);
+    expect(await reportSalesRows()).toHaveLength(0);
   });
 });

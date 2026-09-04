@@ -93,8 +93,8 @@ export {
   loadProductSkuMappingManagement,
   normalizeExternalSku,
   normalizeProductSkuChannel,
-  reportDataChannel,
-  reportScopeChannel,
+  dataChannelFromScopeId,
+  scopeChannelFromId,
   resolveIgnoredSkus,
   syncCyberbizProducts,
   resolveProductSkus,
@@ -111,6 +111,14 @@ export {
   type ResolvedProductSkuComponent,
 } from "./product-sku-mappings.js";
 export { formatCyberbizProductName } from "./cyberbiz-product-name.js";
+export {
+  ignoreReportExternalProduct,
+  listReportExternalProducts,
+  resolveReportExternalProduct,
+  unignoreReportExternalProduct,
+  ReportExternalProductError,
+  type ReportExternalProductActor,
+} from "./report-external-products.js";
 export {
   findCyberbizReportRun,
   listCyberbizReportRuns,
@@ -140,7 +148,6 @@ export {
   type ReportManualSkuSource,
   type ReportPayoutQuery,
   type ReportPayoutQueryResult,
-  type ReportPayoutDaily,
   type ReportScopeDirectory,
   type ReportRange,
   type ReportSalesQuery,
@@ -149,6 +156,7 @@ export {
   type ReportScopeKind,
   type ReportScopeInput,
 } from "./report-data.js";
+export { getReportRun, listReportIngestIssues, listReportRuns } from "./report-runs.js";
 export {
   createReportManualPayout,
   createReportManualSales,
@@ -343,6 +351,7 @@ export {
   seedPayoutStores,
   updatePayoutStoreEnabled,
   deletePayoutStore,
+  type PayoutRun,
   type PayoutStoreInput,
 } from "./payout.js";
 export {

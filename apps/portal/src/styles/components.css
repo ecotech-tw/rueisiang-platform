@@ -383,6 +383,7 @@
 .page.fills > .panel.grows > .admin-form,
 .page.fills > .panel.grows > .pager,
 .page.fills > .panel.grows > .form-error,
+.page.fills > .panel.grows > .ui-alert,
 .page.fills > .panel.grows > .table-note { flex: none; }
 .page.fills > .panel.grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
 
@@ -1358,17 +1359,20 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-size: 12px;
   line-height: 1.25;
 }
+/* 版面標籤不能被後面渲染的倉位方塊蓋住；zIndex 也沿用資料表的前後層級。 */
+.map-element { z-index: 3; }
+.map-zone { z-index: 2; }
 /*
  * touch-action: none 只放在拖得動的方塊上，不放在捲動容器。放在容器上的話
  * 手指按在任何地方都不會捲動，等於把整張圖鎖死。
  */
 .map-zone.editable,
 .map-element.editable { cursor: grab; touch-action: none; }
-.map-zone.dragging { cursor: grabbing; opacity: .85; z-index: 2; }
+.map-zone.dragging { cursor: grabbing; opacity: .85; z-index: 5; }
 .map-zone:not(.editable) { cursor: pointer; }
 
 /* 選中：加一圈輪廓，不換底色——換底色的話那一格就不再是它代表的顏色。 */
-.map-zone.selected { outline: 2px solid var(--color-brand); outline-offset: 1px; z-index: 1; }
+.map-zone.selected { outline: 2px solid var(--color-brand); outline-offset: 1px; z-index: 4; }
 .map-zone:focus-visible,
 .map-element:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 
@@ -1763,6 +1767,16 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .change-values b { font-variant-numeric: tabular-nums; font-weight: 700; }
 .change-values i { color: var(--color-muted); font-style: normal; }
 
+/* 品項主檔的分類群組，讓階層成為掃描表格的分段而不是藏在縮排裡。 */
+.catalog-group-row td {
+  height: 42px;
+  padding-block: 8px;
+  border-top: 1px solid var(--color-line);
+  background: var(--color-canvas);
+}
+.catalog-group-row .cell-sub { margin-left: 8px; }
+.catalog-category-filter { min-width: min(260px, 100%); }
+
 /* 目錄的新鮮度說明。貼在工具列下方，跟表格分開。 */
 .catalog-note { margin: 0 4px 4px; font-size: 12px; }
 
@@ -1965,6 +1979,40 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 看起來像壞掉。給它一個上限，剩下的空間留給色票。
  */
 .category-form input { flex: 0 1 280px; min-width: 0; }
+.combobox-group { position: relative; display: flex; align-items: center; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-canvas); }
+.combobox-group:focus-within { border-color: var(--color-brand); box-shadow: 0 0 0 3px --alpha(var(--color-brand) / 14%); }
+.combobox-input { min-width: 0; flex: 1; border: 0 !important; outline: 0; background: transparent; padding-right: 44px !important; }
+.combobox-clear { position: absolute; right: 34px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 8px 4px; cursor: pointer; }
+.combobox-clear svg { width: 16px; height: 16px; }
+.combobox-trigger { position: absolute; right: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 10px 14px; cursor: pointer; }
+.combobox-trigger svg { width: 20px; height: 20px; }
+.combobox-positioner { z-index: 100; }
+.combobox-popup { z-index: 100; width: var(--anchor-width); max-height: 320px; overflow: auto; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-canvas); box-shadow: var(--shadow-panel); padding: 6px; }
+.combobox-item { display: flex; align-items: center; gap: 8px; min-height: 44px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; text-align: left; background: transparent; color: var(--color-ink); cursor: pointer; }
+.combobox-item > span { flex: 1; }
+.combobox-category-label small { color: var(--color-muted); font-size: 12px; font-weight: 400; opacity: .72; }
+.combobox-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-muted); }
+.combobox-item:hover, .combobox-item[data-highlighted] { background: --alpha(var(--color-brand) / 8%); }
+.combobox-item [data-checked] { color: var(--color-brand); }
+.combobox-popup:has(.combobox-item) { display: block; }
+.category-drag-handle {
+  display: inline-flex;
+  width: 28px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  color: var(--color-muted);
+  cursor: grab;
+  vertical-align: middle;
+}
+.category-drag-handle:active { cursor: grabbing; }
+.category-drag-handle:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; border-radius: 6px; }
+.drag-drop-hint { margin: 0 24px 10px; padding: 8px 12px; border-radius: 10px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 13px; }
+.category-table tr.drop-target > td { border-top: 2px solid var(--color-brand); background: --alpha(var(--color-brand) / 4%); }
+.category-table tr.drop-parent > td { background: --alpha(var(--color-brand) / 7%); }
+.category-table tr.dragging { opacity: .72; }
+.category-drag-handle svg { width: 18px; height: 18px; }
 /*
  * 分類表只有三欄。不給約束的話瀏覽器會把寬度平均分掉，「使用中的商品」那個
  * 個位數會被推到畫面正中央，離它的表頭很遠——欄位少的表格反而更需要指定寬度。

@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 /**
  * 通路 SKU 對應。
  *
- * 放在營運工具而不是倉儲：它只服務報表匯入，跟倉位、盤點、庫存數量都無關。用料可以
- * 指向 WMS 商品，但那只是三種來源之一。
+ * 映射資料寫在報表 target schema，但操作入口放在 WMS：通路商品最後要回答的是
+ * 「倉庫要扣哪些品項」，不能讓外部商品解析與 SKU 對應各自維護一份清單。
  */
 const PRODUCT_SKU_MAPPINGS_KEY = ["tools", "product-sku-mappings"] as const;
 const REPORT_SKU_IGNORES_KEY = ["tools", "report-sku-ignores"] as const;
@@ -50,7 +50,7 @@ export interface ProductSkuMapping {
   components: ProductBundleComponent[];
 }
 
-/** 一列用料的來源二選一：WMS 商品，或報表自訂商品。 */
+/** 一列用料可來自 WMS 品項、CYBERBIZ 商品或不入庫的自訂商品。 */
 export interface ProductBundleComponent {
   source: "item" | "cyberbiz" | "custom";
   inventoryItemId: string | null;
@@ -71,9 +71,26 @@ export interface ProductBundleComponentInput {
   quantity: number;
 }
 
+export interface ProductSkuMappingItemOption {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+}
+
+export interface UnmappedProductOption {
+  channel: string;
+  externalSku: string;
+  externalName: string;
+  rowCount: number;
+  lastSeenAt: string;
+}
+
 export interface ProductSkuMappingData {
   mappings: ProductSkuMapping[];
   categories: string[];
+  items: ProductSkuMappingItemOption[];
+  unmappedProducts: UnmappedProductOption[];
 }
 
 export const PRODUCT_SKU_CHANNEL_OPTIONS = [

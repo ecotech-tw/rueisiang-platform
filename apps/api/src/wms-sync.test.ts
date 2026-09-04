@@ -1,5 +1,5 @@
-import { applySyncPlan, buildSyncPlan, createDatabase, listCompanyLinks, type LinkedItem, type RemoteItem } from "@rueisiang/db";
-import { activityEvents, cyberbizProductLinks, inventoryItems, warehouseCategories } from "@rueisiang/db/schema";
+import { applySyncPlan, buildSyncPlan, createDatabase, listCompanyLinks, loadWarehouse, type LinkedItem, type RemoteItem } from "@rueisiang/db";
+import { activityEvents, items, wmsCategories, wmsCyberbizLinks, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1 } from "./local-d1/d1.js";
@@ -79,13 +79,12 @@ describe("套用同步", () => {
   const actor = { id: "u1", email: "admin@ecotech.tw" };
 
   beforeEach(async () => {
-    db = createDatabase(createLocalD1() as never);
-    await db.insert(warehouseCategories).values({ id: "cat-1", name: "一般備品", color: "rose" });
-    await db.insert(inventoryItems).values({
-      id: "i1", sku: "BOX-01", name: "紙箱", category: "一般備品", quantity: 10, minStock: 5,
-    });
-    await db.insert(cyberbizProductLinks).values({
-      id: "l1", inventoryItemId: "i1", cyberbizProductId: "p1", cyberbizVariantId: "v1", sku: "BOX-01",
+    db = createDatabase(createLocalD1(":memory:", { targetOnly: true }) as never);
+    await db.insert(items).values({ id: "i1", source: "custom", kind: "sellable", sku: "BOX-01", name: "紙箱", active: 1 });
+    await db.insert(wmsCategories).values({ id: "cat-1", name: "一般備品", color: "rose", active: 1 });
+    await db.insert(wmsItems).values({ itemId: "i1", wmsCategoryId: "cat-1", quantity: 10, minStock: 5 });
+    await db.insert(wmsCyberbizLinks).values({
+      id: "l1", wmsItemId: "i1", cyberbizProductId: "p1", cyberbizVariantId: "v1", sku: "BOX-01",
     });
   });
 
@@ -93,7 +92,7 @@ describe("套用同步", () => {
     const result = await applySyncPlan(db, buildSyncPlan([LINK], [REMOTE]), actor);
     expect(result).toEqual({ updated: 1, unchanged: 0, failed: 0 });
 
-    const [item] = await db.select().from(inventoryItems);
+    const [item] = await db.select().from(wmsItems);
     expect(item?.quantity).toBe(42);
     // 安全庫存也跟著官網走——那是同一份設定的兩個地方。
     expect(item?.minStock).toBe(8);
@@ -108,11 +107,11 @@ describe("套用同步", () => {
     const result = await applySyncPlan(db, buildSyncPlan([LINK], [{ ...REMOTE, sku: "OTHER-99" }]), actor);
     expect(result).toEqual({ updated: 0, unchanged: 0, failed: 1 });
 
-    const [item] = await db.select().from(inventoryItems);
+    const [item] = await db.select().from(wmsItems);
     // 這是整個檔案最重要的一條斷言。
     expect(item?.quantity).toBe(10);
 
-    const [link] = await db.select().from(cyberbizProductLinks);
+    const [link] = await db.select().from(wmsCyberbizLinks);
     expect(link?.syncStatus).toBe("failed");
     expect(link?.lastError).toContain("SKU");
 
@@ -127,7 +126,7 @@ describe("套用同步", () => {
 
     // 沒變就不該留紀錄，不然每次同步都灌一整頁「什麼都沒發生」。
     expect(await db.select().from(activityEvents)).toHaveLength(0);
-    const [link] = await db.select().from(cyberbizProductLinks);
+    const [link] = await db.select().from(wmsCyberbizLinks);
     expect(link?.lastSyncedQuantity).toBe(10);
     expect(link?.syncStatus).toBe("synced");
   });
@@ -143,11 +142,10 @@ describe("套用同步", () => {
     const remotes: RemoteItem[] = [];
     for (let index = 0; index < 40; index += 1) {
       const id = `bulk-${index}`;
-      await db.insert(inventoryItems).values({
-        id, sku: `SKU-${index}`, name: `商品 ${index}`, category: "一般備品", quantity: 0, minStock: 0,
-      });
-      await db.insert(cyberbizProductLinks).values({
-        id: `link-${index}`, inventoryItemId: id, cyberbizProductId: "p1", cyberbizVariantId: `var-${index}`, sku: `SKU-${index}`,
+      await db.insert(items).values({ id, source: "custom", kind: "sellable", sku: `SKU-${index}`, name: `商品 ${index}`, active: 1 });
+      await db.insert(wmsItems).values({ itemId: id, wmsCategoryId: "cat-1", quantity: 0, minStock: 0 });
+      await db.insert(wmsCyberbizLinks).values({
+        id: `link-${index}`, wmsItemId: id, cyberbizProductId: "p1", cyberbizVariantId: `var-${index}`, sku: `SKU-${index}`,
       });
       links.push({
         linkId: `link-${index}`, inventoryItemId: id, cyberbizProductId: "p1", cyberbizVariantId: `var-${index}`,
@@ -161,9 +159,34 @@ describe("套用同步", () => {
     const result = await applySyncPlan(db, buildSyncPlan(links, remotes), actor);
     expect(result.updated).toBe(40);
 
-    const rows = await db.select().from(inventoryItems).where(eq(inventoryItems.category, "一般備品"));
-    const bulk = rows.filter((row) => row.id.startsWith("bulk-"));
+    const rows = await db.select().from(wmsItems).where(eq(wmsItems.wmsCategoryId, "cat-1"));
+    const bulk = rows.filter((row) => row.itemId.startsWith("bulk-"));
     expect(bulk).toHaveLength(40);
-    expect(bulk.every((row) => row.quantity === Number(row.id.split("-")[1]) + 1)).toBe(true);
+    expect(bulk.every((row) => row.quantity === Number(row.itemId.split("-")[1]) + 1)).toBe(true);
+  });
+});
+
+describe("target WMS CYBERBIZ 連結", () => {
+  const actor = { id: "u1", email: "admin@ecotech.tw" };
+
+  it("legacy link 表移除後仍可讀取與套用同步結果", async () => {
+    const targetD1 = createLocalD1(":memory:", { targetOnly: true });
+    const targetDb = createDatabase(targetD1 as never);
+    await targetDb.insert(items).values({ id: "target-linked-item", source: "custom", kind: "sellable", sku: "TARGET-LINK-001", name: "Target 連結商品", active: 1 });
+    await targetDb.insert(wmsItems).values({ itemId: "target-linked-item", quantity: 7, minStock: 2, unit: "件", notes: "" });
+    await targetDb.insert(wmsCyberbizLinks).values({ id: "target-link", wmsItemId: "target-linked-item", cyberbizProductId: "target-product", cyberbizVariantId: "target-variant", sku: "TARGET-LINK-001" });
+
+
+    const link = (await listCompanyLinks(targetDb))[0];
+    expect(link).toMatchObject({ linkId: "target-link", inventoryItemId: "target-linked-item", itemSku: "TARGET-LINK-001", quantity: 7, minStock: 2 });
+    expect((await loadWarehouse(targetDb)).items[0]?.cyberbiz).toMatchObject({
+      cyberbizProductId: "target-product",
+      cyberbizVariantId: "target-variant",
+      sku: "TARGET-LINK-001",
+    });
+    const result = await applySyncPlan(targetDb, buildSyncPlan([link!], [{ productId: "target-product", variantId: "target-variant", sku: "TARGET-LINK-001", quantity: 11, safetyQuantity: 4 }]), actor);
+    expect(result).toEqual({ updated: 1, unchanged: 0, failed: 0 });
+    expect((await targetDb.select().from(wmsItems))[0]).toMatchObject({ itemId: "target-linked-item", quantity: 11, minStock: 4 });
+    expect((await targetDb.select().from(wmsCyberbizLinks))[0]).toMatchObject({ syncStatus: "synced", lastSyncedQuantity: 11 });
   });
 });

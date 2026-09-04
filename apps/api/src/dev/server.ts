@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import app from "../index.js";
-import { createLocalD1 } from "../local-d1/d1.js";
+import { createTargetOnlyD1 } from "../local-d1/d1.js";
 import { createLocalR2 } from "../local-d1/r2.js";
 import { AssistantCredentialVault } from "../pi-agent-credentials.js";
 import { AssistantChatAgent } from "../pi-agent-do.js";
@@ -78,7 +78,7 @@ function loadDevVars(): Record<string, string> {
   return vars;
 }
 
-const d1 = createLocalD1(DB_FILE);
+const d1 = createTargetOnlyD1(DB_FILE);
 // 上傳的檔案跟 local.sqlite 放一起，想重來就把兩個一起刪掉。
 const uploads = createLocalR2(path.resolve(here, "../../local-uploads"));
 await seedDevData(d1);
@@ -86,12 +86,12 @@ await seedDevData(d1);
 const env = {
   DB: d1,
   UPLOADS: uploads,
-  AUTH_SESSION_SECRET: DEV_SECRET,
   GOOGLE_OAUTH_CLIENT_ID: "local-client-id",
   GOOGLE_OAUTH_CLIENT_SECRET: "local-client-secret",
   PUBLIC_APP_URL: `http://localhost:${PORTAL_PORT}`,
-  // .dev.vars 放最後，這樣要蓋掉上面任何一個預設值都可以。
+  // 讀取其他本機設定，但登入密鑰固定使用 DEV_SECRET，確保 /dev/login 發出的 cookie 能被 API 驗證。
   ...loadDevVars(),
+  AUTH_SESSION_SECRET: DEV_SECRET,
 };
 
 const localAgentObjects = new LocalDurableObjectNamespace(
@@ -136,13 +136,17 @@ function devIndex(): string {
 </body></html>`;
 }
 
-async function devLogin(url: URL): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+async function devLogin(url: URL, database: ReturnType<typeof createTargetOnlyD1>): Promise<{ status: number; headers: Record<string, string>; body: string }> {
   const email = url.searchParams.get("as") ?? DEV_ACCOUNTS[0].email;
   const account = DEV_ACCOUNTS.find((item) => item.email === email);
   if (!account) return { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" }, body: "沒有這個帳號" };
+  // 不再假造 dev-* user id；migrated DB 可能已有相同 email 但不同的正式 user id。
+  const result = await database.prepare("SELECT id FROM users WHERE lower(email) = lower(?) LIMIT 1").bind(email).all<{ id: string }>();
+  const user = result.results[0];
+  if (!user) return { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" }, body: "資料庫沒有這個帳號，請重新執行 seed" };
 
   const token = await signSession(
-    newSessionClaims({ id: `dev-${account.email}`, email: account.email, name: account.name, pictureUrl: "" }),
+    newSessionClaims({ id: user.id, email: account.email, name: account.name, pictureUrl: "" }),
     DEV_SECRET,
   );
   return {
@@ -166,7 +170,7 @@ const server = http
     }
 
     if (url.pathname === "/dev/login") {
-      const result = await devLogin(url);
+      const result = await devLogin(url, d1);
       res.writeHead(result.status, result.headers);
       res.end(result.body);
       return;

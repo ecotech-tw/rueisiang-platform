@@ -35,34 +35,7 @@ export const payoutStores = sqliteTable("payout_stores", {
   uniqueIndex("idx_payout_stores_name").on(table.name),
 ]);
 
-/**
- * 誰按了執行、跑了哪幾家店、哪一段區間。
- *
- * 舊的 Worker 沒有這一層：任何拿到網址的人都能觸發，事後也查不出是誰。
- * 搬進平台之後執行要 tools:payout:run，順手把這件事記下來——出金表會動到
- * 正式帳務的 Drive 檔案，出問題時「上次是誰跑的」是第一個要問的問題。
- */
-export const payoutRuns = sqliteTable("payout_runs", {
-  id: text("id").primaryKey(),
-  /**
-   * 送進 workflow 的識別碼。workflow_dispatch 不會回傳 run id，只能靠它
-   * 在後來的清單裡認出這一次是哪一筆（run-name 會帶上它）。
-   */
-  requestId: text("request_id").notNull(),
-  storesJson: text("stores_json").notNull().default("[]"),
-  startDate: text("start_date").notNull(),
-  endDate: text("end_date").notNull(),
-  actorId: text("actor_id").notNull(),
-  // email 跟著存：人離職、帳號被刪之後仍然看得出當初是誰跑的。
-  actorEmail: text("actor_email").notNull(),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [
-  uniqueIndex("idx_payout_runs_request_id").on(table.requestId),
-  index("idx_payout_runs_created_at").on(table.createdAt),
-]);
-
 export type PayoutStore = typeof payoutStores.$inferSelect;
-export type PayoutRun = typeof payoutRuns.$inferSelect;
 
 /**
  * 蝦皮報表的全域設定。

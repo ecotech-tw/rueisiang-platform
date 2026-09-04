@@ -23,6 +23,7 @@ import { auth } from "./routes/auth.js";
 import { crm } from "./routes/crm.js";
 import { drainLineAssistantQueueOutbox, processLineAssistantQueueMessage, webhooks } from "./routes/webhooks.js";
 import { health } from "./routes/health.js";
+import { items } from "./routes/items.js";
 import { PayoutGithubError } from "./payout/github.js";
 import { ShopeeSalesGithubError } from "./shopee-sales/github.js";
 import { tools } from "./routes/tools.js";
@@ -60,6 +61,7 @@ const routes = app
   .route("/mcp/cyberbiz-reports", cyberbizReportsMcp)
   .route("/tools", tools)
   .route("/reports/cyberbiz", cyberbizReports)
+  .route("/items", items)
   .route("/wms", wms)
   .route("/webhooks", webhooks);
 

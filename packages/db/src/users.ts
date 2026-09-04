@@ -1,7 +1,7 @@
 import type { AuthUser, Permission, RoleAssignment, UserStatus } from "@rueisiang/auth";
 import { and, eq, ne, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { rolePermissions, roles, userPermissions, userRoles, users } from "./schema/auth.js";
+import { rolePermissionGrants, roles, userPermissionGrants, userRoleAssignments, users } from "./schema/auth.js";
 
 /**
  * 載入使用者與他所有的角色指派。
@@ -24,13 +24,13 @@ export async function loadAuthUser(
 
   const granted = await db
     .select({
-      roleKey: roles.key,
-      permission: rolePermissions.permission,
+      roleKey: roles.roleKey,
+      permission: rolePermissionGrants.permission,
     })
-    .from(userRoles)
-    .innerJoin(roles, eq(roles.id, userRoles.roleId))
-    .leftJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
-    .where(eq(userRoles.userId, row.id));
+    .from(userRoleAssignments)
+    .innerJoin(roles, eq(roles.id, userRoleAssignments.roleId))
+    .leftJoin(rolePermissionGrants, eq(rolePermissionGrants.roleId, roles.id))
+    .where(eq(userRoleAssignments.userId, row.id));
 
   // 同一個角色會因為多個權限而出現多列，收攏成一筆 assignment。
   const byAssignment = new Map<string, RoleAssignment>();
@@ -52,16 +52,16 @@ export async function loadAuthUser(
    * 而這是每個請求都會跑的路徑，可讀性比省一次往返重要。
    */
   const direct = await db
-    .select({ permission: userPermissions.permission })
-    .from(userPermissions)
-    .where(eq(userPermissions.userId, row.id));
+    .select({ permission: userPermissionGrants.permission })
+    .from(userPermissionGrants)
+    .where(eq(userPermissionGrants.userId, row.id));
 
   return {
     id: row.id,
     email: row.email,
     // 自己設定的顯示名稱優先，沒設才退回 Google 帳號上的姓名。
-    name: row.displayName || row.name,
-    googleName: row.name,
+    name: row.displayName || row.googleName,
+    googleName: row.googleName,
     pictureUrl: row.pictureUrl,
     status: row.status as UserStatus,
     assignments: [...byAssignment.values()],
@@ -79,7 +79,7 @@ export async function recordLogin(
     .update(users)
     .set({
       googleSubject: identity.googleSubject,
-      name: identity.name,
+      googleName: identity.name,
       pictureUrl: identity.pictureUrl,
       status: "active",
       lastLoginAt: sql`CURRENT_TIMESTAMP`,
@@ -115,9 +115,9 @@ export async function countOtherActiveAdmins(db: Database, excludeUserId: string
   const [row] = await db
     .select({ value: sql<number>`count(distinct ${users.id})` })
     .from(users)
-    .innerJoin(userRoles, eq(userRoles.userId, users.id))
-    .innerJoin(roles, eq(roles.id, userRoles.roleId))
-    .where(and(eq(roles.key, "admin"), eq(users.status, "active"), ne(users.id, excludeUserId)));
+    .innerJoin(userRoleAssignments, eq(userRoleAssignments.userId, users.id))
+    .innerJoin(roles, eq(roles.id, userRoleAssignments.roleId))
+    .where(and(eq(roles.roleKey, "admin"), eq(users.status, "active"), ne(users.id, excludeUserId)));
 
   return Number(row?.value ?? 0);
 }

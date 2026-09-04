@@ -1,7 +1,7 @@
-import { SYSTEM_ROLES } from "@rueisiang/auth";
+import { PERMISSIONS, SYSTEM_ROLES } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { rolePermissions, roles } from "./schema/auth.js";
+import { permissions, rolePermissionGrants, roles } from "./schema/auth.js";
 
 /**
  * 把程式碼裡定義的初始角色同步進資料庫。
@@ -18,28 +18,35 @@ export async function syncSystemRoles(db: Database): Promise<void> {
   const [anyRole] = await db.select({ id: roles.id }).from(roles).limit(1);
   const isFirstInitialization = !anyRole;
 
+  await db.insert(permissions).values(
+    Object.keys(PERMISSIONS).map((permission) => ({ permission })),
+  ).onConflictDoUpdate({
+    target: permissions.permission,
+    set: { syncedAt: new Date().toISOString() },
+  });
+
   for (const [key, definition] of Object.entries(SYSTEM_ROLES)) {
     const [existing] = await db
       .select({ id: roles.id })
       .from(roles)
-      .where(eq(roles.key, key))
+      .where(eq(roles.roleKey, key))
       .limit(1);
     const roleId = existing?.id ?? `role-${key}`;
 
     // 以 key 做原子 upsert，避免兩個同步請求同時補同一個缺少的角色時撞 unique constraint。
     const isProtected = key === "admin";
     if (!isProtected && !existing && !isFirstInitialization) continue;
-    await db.insert(roles).values({ id: roleId, key, name: definition.name, isSystem: isProtected }).onConflictDoUpdate({
-      target: roles.key,
+    await db.insert(roles).values({ id: roleId, roleKey: key, name: definition.name, isSystem: isProtected }).onConflictDoUpdate({
+      target: roles.roleKey,
       set: isProtected ? { name: definition.name, isSystem: true } : { isSystem: false },
     });
 
     // admin 是唯一受保護的角色，必須永遠保有完整的系統管理權限；
     // 其他角色只在第一次建立時灌入模板，之後由管理者的設定為準。
     if (!isProtected && existing) continue;
-    await db.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
+    await db.delete(rolePermissionGrants).where(eq(rolePermissionGrants.roleId, roleId));
     if (definition.permissions.length) {
-      await db.insert(rolePermissions).values(
+      await db.insert(rolePermissionGrants).values(
         definition.permissions.map((permission) => ({ roleId, permission })),
       ).onConflictDoNothing();
     }

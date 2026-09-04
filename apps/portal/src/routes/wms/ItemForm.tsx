@@ -1,17 +1,31 @@
 import { useState } from "react";
+import { Combobox } from "@base-ui/react/combobox";
 import { useToast } from "../../shell/Toast.js";
+import { Icon } from "../../shell/icons.js";
 import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
 import {
+  useCreateCatalogItem,
   useCreateItem,
   useLinkCyberbiz,
   useUnlinkCyberbiz,
   useUpdateItem,
+  type CyberbizCatalogProduct,
   type InventoryItem,
   type ProductCategory,
   type Zone,
 } from "./api.js";
 
-/** 這一欄有兩種格式：D1 的 CURRENT_TIMESTAMP 沒有時區，同步寫進來的是帶 Z 的 ISO。 */
+/** 分類下拉先排母分類，再排它的子分類，避免所有子分類集中在列表底部。 */
+function arrangeCategories(categories: ProductCategory[]): ProductCategory[] {
+  return categories.flatMap((category) => category.parentId ? [] : [category, ...categories.filter((child) => child.parentId === category.id)]);
+}
+
+function categoryPath(category: ProductCategory, categories: ProductCategory[]): string {
+  if (!category.parentId) return category.name;
+  const parent = categories.find((candidate) => candidate.id === category.parentId);
+  return parent ? `${parent.name} / ${category.name}` : category.name;
+}
+
 function formatTime(value: string): string {
   const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
   const parsed = new Date(normalized);
@@ -29,11 +43,19 @@ export function ItemForm({
   item,
   zones,
   categories,
+  cyberbizProducts = [],
+  catalogOnly = false,
+  initialCyberbizSku = "",
   onClose,
 }: {
   item?: InventoryItem;
   zones: Zone[];
   categories: ProductCategory[];
+  cyberbizProducts?: CyberbizCatalogProduct[];
+  /** 品項主檔模式只建立 items，不處理 wms_items 的庫存、倉位與安全庫存。 */
+  catalogOnly?: boolean;
+  /** 從 CYBERBIZ 未入主檔列表建立品項時，先選好那筆商品。 */
+  initialCyberbizSku?: string;
   onClose: () => void;
 }) {
   /*
@@ -41,10 +63,14 @@ export function ItemForm({
    * 數量本來就不在這張表單裡改（走盤點），安全庫存也要比照。
    */
   const linkedToCyberbiz = Boolean(item?.cyberbiz);
+  const initialCyberbiz = cyberbizProducts.find((product) => product.sku === initialCyberbizSku);
+  const initialCategory = categories.find((category) => category.name === (item?.category ?? (categories.length === 1 ? categories[0]?.name : "")));
 
+  const [selectedCyberbizSku, setSelectedCyberbizSku] = useState(initialCyberbiz?.sku ?? "");
+  const [selectedCategoryId, setSelectedCategoryId] = useState(initialCategory?.id ?? "");
   const [fields, setFields] = useState({
-    sku: item?.sku ?? "",
-    name: item?.name ?? "",
+    sku: item?.sku ?? initialCyberbiz?.sku ?? "",
+    name: item?.name ?? (initialCyberbiz ? `${initialCyberbiz.productName}${initialCyberbiz.variantName ? `（${initialCyberbiz.variantName}）` : ""}` : ""),
     // 只有一個分類時直接選好——那是絕大多數的情況，少一次點擊。
     category: item?.category ?? (categories.length === 1 ? categories[0]!.name : ""),
     quantity: String(item?.quantity ?? 0),
@@ -56,12 +82,13 @@ export function ItemForm({
   });
 
   const create = useCreateItem();
+  const createCatalog = useCreateCatalogItem();
   const update = useUpdateItem();
   const link = useLinkCyberbiz();
   const unlink = useUnlinkCyberbiz();
   const toast = useToast();
-  const pending = create.isPending || update.isPending;
-  const error = create.error ?? update.error;
+  const pending = create.isPending || createCatalog.isPending || update.isPending;
+  const error = create.error ?? createCatalog.error ?? update.error;
 
   /** 選了倉位才有層可選，而且只能選那個倉位自己的層。 */
   const zone = zones.find((candidate) => candidate.id === fields.zoneId);
@@ -70,7 +97,9 @@ export function ItemForm({
     setFields((current) => ({ ...current, ...patch }));
   }
 
-  const valid = fields.name.trim() !== "" && fields.category !== "";
+  const selectedCyberbiz = cyberbizProducts.find((product) => product.sku === selectedCyberbizSku);
+  const canPickCyberbiz = !item && cyberbizProducts.length > 0;
+  const valid = (fields.name.trim() !== "" || Boolean(selectedCyberbiz)) && fields.category !== "";
 
   function submit() {
     if (!valid) return;
@@ -78,6 +107,7 @@ export function ItemForm({
       sku: fields.sku.trim(),
       name: fields.name.trim(),
       category: fields.category,
+      ...(catalogOnly ? { categoryId: selectedCategoryId || null } : {}),
       quantity: Math.max(0, Math.round(Number(fields.quantity) || 0)),
       unit: fields.unit.trim() || "件",
       minStock: Math.max(0, Math.round(Number(fields.minStock) || 0)),
@@ -86,7 +116,9 @@ export function ItemForm({
       notes: fields.notes.trim(),
     };
     if (!item) {
-      create.mutate(payload, { onSuccess: onClose });
+      const createPayload = selectedCyberbiz ? { ...payload, cyberbizSku: selectedCyberbiz.sku } : payload;
+      const mutation = catalogOnly || canPickCyberbiz ? createCatalog : create;
+      mutation.mutate(createPayload, { onSuccess: onClose });
       return;
     }
 
@@ -102,13 +134,13 @@ export function ItemForm({
     const { minStock, ...rest } = payload;
     update.mutate(
       { ...rest, ...(linkedToCyberbiz ? {} : { minStock }), id: item.id },
-      { onSuccess: onClose },
+      { onSuccess: () => { toast.show("商品資料已更新"); onClose(); } },
     );
   }
 
   return (
     <Dialog
-      title={item ? "編輯商品" : "新增商品"}
+      title={item ? "編輯商品" : catalogOnly ? "新增品項" : "新增商品"}
       onClose={onClose}
       closeDisabled={pending}
       formProps={{
@@ -123,16 +155,42 @@ export function ItemForm({
             取消
           </Button>
           <Button type="submit" loading={pending} loadingLabel="儲存中…" disabled={!valid}>
-            {item ? "儲存" : "新增商品"}
+            {item ? "儲存" : catalogOnly ? "新增品項" : "新增商品"}
           </Button>
         </>
       }
     >
+          {canPickCyberbiz ? (
+            <div className="field">
+              <span>CYBERBIZ 商品</span>
+              <Combobox.Root
+                items={cyberbizProducts}
+                value={selectedCyberbiz ?? null}
+                onValueChange={(product) => {
+                  if (!product) { setSelectedCyberbizSku(""); return; }
+                  setSelectedCyberbizSku(product.sku);
+                  set({ sku: product.sku, name: `${product.productName}${product.variantName ? `（${product.variantName}）` : ""}` });
+                }}
+                onInputValueChange={(value) => { const product = cyberbizProducts.find((candidate) => candidate.sku === value.trim().toUpperCase()); setSelectedCyberbizSku(product?.sku ?? ""); }}
+                itemToStringLabel={(product) => product ? `${product.sku}　${product.productName}${product.variantName ? `（${product.variantName}）` : ""}` : ""}
+                autoHighlight
+              >
+                <Combobox.InputGroup className="combobox-group">
+                  <Combobox.Input className="combobox-input" placeholder="搜尋 SKU、商品名稱或規格" />
+                  <Combobox.Clear className="combobox-clear" aria-label="清除商品"><Icon name="close" /></Combobox.Clear><Combobox.Trigger className="combobox-trigger" aria-label="開啟商品選單"><Icon name="chevronDown" /></Combobox.Trigger>
+                </Combobox.InputGroup>
+                <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到符合的 CYBERBIZ 商品</Combobox.Empty><Combobox.List>{(product: CyberbizCatalogProduct) => <Combobox.Item key={product.sku} value={product} className="combobox-item"><strong>{product.sku}</strong><span>{product.productName}{product.variantName ? `（${product.variantName}）` : ""}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+              </Combobox.Root>
+              <small>{selectedCyberbiz ? `會自動連結 ${selectedCyberbiz.productId} / ${selectedCyberbiz.variantId}` : "選到 CYBERBIZ 商品時會自動帶 SKU 與名稱，儲存後直接建立連結。"}</small>
+            </div>
+          ) : null}
+
           <TextField
             label="商品名稱"
-            required
-            autoFocus
+            required={!selectedCyberbiz}
+            autoFocus={!canPickCyberbiz}
             value={fields.name}
+            disabled={Boolean(selectedCyberbiz)}
             onChange={(event) => set({ name: event.target.value })}
           />
 
@@ -142,73 +200,78 @@ export function ItemForm({
               placeholder="例如 BOX-M"
               value={fields.sku}
               onChange={(event) => set({ sku: event.target.value })}
-              hint="會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"
+              disabled={Boolean(selectedCyberbiz)}
+              hint={selectedCyberbiz ? "已由 CYBERBIZ 商品帶入。" : "會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"}
             />
-            <SelectField
-              label="分類"
-              required
-              value={fields.category}
-              onChange={(event) => set({ category: event.target.value })}
-              hint={categories.length === 0 ? "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。" : undefined}
-              options={[
-                { label: "請選擇分類", value: "" },
-                ...categories.map((category) => ({ label: category.name, value: category.name })),
-              ]}
-            />
+            <div className="field">
+              <span>分類<b aria-hidden="true">必填</b></span>
+              <Combobox.Root
+                items={arrangeCategories(categories)}
+                value={(catalogOnly ? categories.find((category) => category.id === selectedCategoryId) : categories.find((category) => category.name === fields.category)) ?? null}
+                onValueChange={(category) => {
+                  setSelectedCategoryId(category?.id ?? "");
+                  set({ category: category?.name ?? "" });
+                }}
+                itemToStringLabel={(category) => category ? categoryPath(category, categories) : ""}
+                autoHighlight
+              >
+                <Combobox.InputGroup className="combobox-group">
+                  <Combobox.Input className="combobox-input" placeholder="搜尋或選擇分類" />
+                  <Combobox.Clear className="combobox-clear" aria-label="清除分類"><Icon name="close" /></Combobox.Clear>
+                  <Combobox.Trigger className="combobox-trigger" aria-label="開啟分類選單"><Icon name="chevronDown" /></Combobox.Trigger>
+                </Combobox.InputGroup>
+                <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span>{categoryPath(category, categories)}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+              </Combobox.Root>
+              <small>{categories.length === 0 ? (catalogOnly ? "還沒有任何品項分類，請先去「品項分類」建立一個。" : "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。") : "可搜尋分類名稱或選擇階層分類。"}</small>
+            </div>
           </div>
 
-          <div className="field-grid trio">
-            {/*
-              * 數量只有新增時填得動。既有商品要改數量得走盤點——那裡會留下
-              * 「誰、什麼時候、從幾改到幾」的紀錄，直接在這裡改就沒有了。
-              */}
-            {item ? (
-              <div className="field">
-                <span>目前數量</span>
-                <p className="field-static">
-                  {item.quantity.toLocaleString("zh-TW")} {item.unit}
-                  <small>要改數量請用列表上的「盤點」。</small>
-                </p>
+          {!catalogOnly ? (
+            <>
+              <div className="field-grid trio">
+                {/*
+                  * 數量只有新增時填得動。既有商品要改數量得走盤點——那裡會留下
+                  * 「誰、什麼時候、從幾改到幾」的紀錄，直接在這裡改就沒有了。
+                  */}
+                {item ? (
+                  <div className="field">
+                    <span>目前數量</span>
+                    <p className="field-static">
+                      {item.quantity.toLocaleString("zh-TW")} {item.unit}
+                      <small>要改數量請用列表上的「盤點」。</small>
+                    </p>
+                  </div>
+                ) : (
+                  <TextField
+                    label="初始數量"
+                    type="number"
+                    min={0}
+                    inputMode="numeric"
+                    value={fields.quantity}
+                    onChange={(event) => set({ quantity: event.target.value })}
+                  />
+                )}
+                <TextField
+                  label="單位"
+                  placeholder="件"
+                  value={fields.unit}
+                  onChange={(event) => set({ unit: event.target.value })}
+                />
+                <TextField
+                  label="安全庫存"
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  value={linkedToCyberbiz ? String(item?.minStock ?? "") : fields.minStock}
+                  disabled={linkedToCyberbiz}
+                  onChange={(event) => set({ minStock: event.target.value })}
+                  hint={linkedToCyberbiz
+                    ? "已連結 CYBERBIZ，安全庫存以官網為準，請到官網修改。"
+                    : "低於這個數量會被標成需要補貨。"}
+                />
               </div>
-            ) : (
-              <TextField
-                label="初始數量"
-                type="number"
-                min={0}
-                inputMode="numeric"
-                value={fields.quantity}
-                onChange={(event) => set({ quantity: event.target.value })}
-              />
-            )}
-            <TextField
-              label="單位"
-              placeholder="件"
-              value={fields.unit}
-              onChange={(event) => set({ unit: event.target.value })}
-            />
-            {/*
-              * 已連結的商品，安全庫存以官網為準，這裡鎖起來。
-              *
-              * 不鎖的話會很難解釋：改了不會推上官網，而且下次同步就被官網的值蓋
-              * 回去——使用者看到的是自己的修改安靜地消失。與其之後才發現，不如
-              * 一開始就說清楚要去哪裡改。
-              */}
-            <TextField
-              label="安全庫存"
-              type="number"
-              min={0}
-              inputMode="numeric"
-              // 已連結時顯示這一刻的值，不是開表單那一刻的——同步隨時會改它。
-              value={linkedToCyberbiz ? String(item?.minStock ?? "") : fields.minStock}
-              disabled={linkedToCyberbiz}
-              onChange={(event) => set({ minStock: event.target.value })}
-              hint={linkedToCyberbiz
-                ? "已連結 CYBERBIZ，安全庫存以官網為準，請到官網修改。"
-                : "低於這個數量會被標成需要補貨。"}
-            />
-          </div>
 
-          <div className="address-fields">
+              <div className="address-fields">
             <div className="field-grid">
               <SelectField
                 label="倉位"
@@ -237,6 +300,8 @@ export function ItemForm({
               />
             </div>
           </div>
+            </>
+          ) : null}
 
           <TextField label="備註" value={fields.notes} onChange={(event) => set({ notes: event.target.value })} />
 

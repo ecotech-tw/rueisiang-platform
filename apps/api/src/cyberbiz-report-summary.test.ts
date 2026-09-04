@@ -6,16 +6,38 @@ import {
   syncSystemRoles,
   upsertReportScope,
 } from "@rueisiang/db";
-import { cyberbizProducts, inventoryItems, productBundleComponents, productSkuMappings, reportPayoutDaily, reportSalesMonthly, users, userRoles } from "@rueisiang/db/schema";
+import { cyberbizProductCatalog, itemCategories, items, reportExternalProducts, users, userRoles } from "@rueisiang/db/schema";
+import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
-import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
+import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
 
 const SECRET = "test-secret";
 let d1: LocalD1;
 let env: Record<string, unknown>;
 
 function db() { return createDatabase(d1 as never); }
+
+async function seedCyberbizProduct(input: {
+  itemId: string;
+  sku: string;
+  productId: string;
+  variantId: string;
+  productName: string;
+  variantName?: string;
+}): Promise<void> {
+  await db().insert(items).values({ id: input.itemId, source: "cyberbiz", kind: "sellable", sku: input.sku, name: [input.productName, input.variantName].filter(Boolean).join(" - ") || input.sku, active: 1 });
+  await db().insert(cyberbizProductCatalog).values({ itemId: input.itemId, cyberbizProductId: input.productId, cyberbizVariantId: input.variantId, productName: input.productName, variantName: input.variantName ?? "", published: 1, rawJson: "{}", syncStatus: "synced" });
+}
+
+async function targetSalesRows(): Promise<Array<{ reportMonth: string; sku: string; productName: string; category: string; salesAmount: number }>> {
+  return db().all(sql`SELECT sales.report_month AS reportMonth, item.sku AS sku, item.name AS productName, COALESCE(category.name, '未分類') AS category, sales.sales_amount AS salesAmount
+    FROM report_item_sales_monthly AS sales
+    INNER JOIN items AS item ON item.id = sales.item_id
+    LEFT JOIN item_categories AS category ON category.id = item.category_id
+    WHERE sales.record_origin = 'imported'
+    ORDER BY sales.report_month, item.sku`) as never;
+}
 
 async function seedUser(email: string, roleId: string): Promise<string> {
   const id = `user-${email}`;
@@ -57,7 +79,7 @@ async function mutate(
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-09-01T04:00:00.000Z"));
-  d1 = createLocalD1();
+  d1 = createTargetOnlyD1();
   env = {
     DB: d1,
     AUTH_SESSION_SECRET: SECRET,
@@ -117,7 +139,7 @@ describe("報表統計 API", () => {
     expect(sales.status).toBe(201);
 
     const payoutList = await call("/api/reports/cyberbiz/manual/payout", manager, "manager-manual@ecotech.tw");
-    expect(await payoutList.json()).toMatchObject({ rows: [{ id: payoutBody.row.id, payoutAmount: 4200 }] });
+    expect(await payoutList.json()).toMatchObject({ rows: [{ payoutAmount: 4200 }] });
     const salesList = await call("/api/reports/cyberbiz/manual/sales", manager, "manager-manual@ecotech.tw");
     expect(await salesList.json()).toMatchObject({ rows: [{ sku: "MANUAL-1", productName: "人工商品" }] });
 
@@ -192,7 +214,7 @@ describe("報表統計 API", () => {
     expect(sales.status).toBe(200);
     expect(await sales.json()).toMatchObject({
       total: 1,
-      rows: [{ sku: "IMPORTED-1", productName: "匯入商品", source: "imported", skuSource: null }],
+      rows: [{ sku: "IMPORTED-1", productName: "匯入商品", source: "imported", skuSource: "custom" }],
     });
 
     /*
@@ -379,12 +401,12 @@ describe("報表統計 API", () => {
       ],
     });
 
-    await db().insert(cyberbizProducts).values({
+    await seedCyberbizProduct({
+      itemId: "item-import-1",
       sku: "SKU-1",
       productId: "import-product-1",
       variantId: "import-variant-1",
       productName: "商品一",
-      variantName: "",
     });
 
     const sales = await mutate(
@@ -446,6 +468,10 @@ describe("報表統計 API", () => {
 
   it("standard sales import keeps every uploaded field and accepts multiple months", async () => {
     const manager = await seedUser("manager-standard-report-import@ecotech.tw", "role-manager");
+    await db().insert(itemCategories).values([
+      { id: "standard-category-1", depth: 0, parentId: null, parentDepth: null, name: "上傳分類", color: "rose", sortOrder: 0, active: 1 },
+      { id: "standard-category-2", depth: 0, parentId: null, parentDepth: null, name: "另一個分類", color: "rose", sortOrder: 1, active: 1 },
+    ]);
     const response = await mutate(
       "/api/reports/cyberbiz/manual/import/sales",
       "POST",
@@ -487,14 +513,9 @@ describe("報表統計 API", () => {
       rowCount: 2,
       totals: { grossQuantity: 8, returnQuantity: 1, netQuantity: 7, salesAmount: 1150 },
     });
-    expect(await db().select({
-      reportMonth: reportSalesMonthly.reportMonth,
-      sku: reportSalesMonthly.sku,
-      productName: reportSalesMonthly.productName,
-      category: reportSalesMonthly.category,
-    }).from(reportSalesMonthly).orderBy(reportSalesMonthly.reportMonth)).toEqual([
-      { reportMonth: "2026-08", sku: "STANDARD-001", productName: "上傳商品名稱", category: "上傳分類" },
-      { reportMonth: "2026-09", sku: "STANDARD-002", productName: "另一個商品", category: "另一個分類" },
+    expect(await targetSalesRows()).toEqual([
+      { reportMonth: "2026-08", sku: "STANDARD-001", productName: "上傳商品名稱", category: "上傳分類", salesAmount: 250 },
+      { reportMonth: "2026-09", sku: "STANDARD-002", productName: "另一個商品", category: "另一個分類", salesAmount: 900 },
     ]);
   });
 
@@ -511,12 +532,12 @@ describe("報表統計 API", () => {
       netQuantity: 8,
       salesAmount: 800,
     }]);
-    await db().insert(cyberbizProducts).values({
+    await seedCyberbizProduct({
+      itemId: "item-merge-new",
       sku: "NEW-SKU",
       productId: "merge-product",
       variantId: "merge-variant",
       productName: "新商品",
-      variantName: "",
     });
 
     const response = await mutate(
@@ -540,40 +561,38 @@ describe("報表統計 API", () => {
       },
     );
     expect(response.status).toBe(201);
-    expect(await db().select({ sku: reportSalesMonthly.sku, salesAmount: reportSalesMonthly.salesAmount })
-      .from(reportSalesMonthly).orderBy(reportSalesMonthly.sku)).toEqual([
-      { sku: "NEW-SKU", salesAmount: 200 },
-      { sku: "OLD-SKU", salesAmount: 800 },
+    expect(await targetSalesRows()).toEqual([
+      { reportMonth: "2026-08", sku: "NEW-SKU", productName: "新商品", category: "未分類", salesAmount: 200 },
+      { reportMonth: "2026-08", sku: "OLD-SKU", productName: "既有商品", category: "未分類", salesAmount: 800 },
     ]);
   });
 
   it("舊版商品名稱會沿用既有 CYBERBIZ mapping 自動補 SKU，匯入後寫入系統商品", async () => {
-    await db().insert(inventoryItems).values({
-      id: "legacy-sales-item",
+    await db().insert(items).values({
+      id: "target-sales-item",
+      source: "custom",
+      kind: "sellable",
       sku: "SOAP-SYSTEM",
       name: "美膚皂",
-      category: "清潔",
+      categoryId: null,
+      active: 1,
     });
-    await db().insert(productSkuMappings).values({
-      id: "legacy-sales-mapping",
-      channel: "cyberbiz",
+    await db().insert(reportExternalProducts).values({
+      id: "target-sales-mapping",
+      sourceType: "cyberbiz",
+      externalKey: "SOAP-CYBERBIZ",
+      externalVariantKey: "",
       externalName: "醬釀美膚皂 -",
-      externalSku: "SOAP-CYBERBIZ",
+      resolution: "mapped",
+      itemId: "target-sales-item",
+      ignoredReason: "",
     });
-    await db().insert(cyberbizProducts).values({
+    await seedCyberbizProduct({
+      itemId: "target-cyberbiz-sales-item",
       sku: "SOAP-CYBERBIZ",
-      productId: "legacy-sales-product",
-      variantId: "legacy-sales-variant",
+      productId: "target-sales-product",
+      variantId: "target-sales-variant",
       productName: "目前的美膚皂名稱",
-      variantName: "",
-    });
-    await db().insert(productBundleComponents).values({
-      id: "legacy-sales-mapping:0",
-      mappingId: "legacy-sales-mapping",
-      inventoryItemId: "legacy-sales-item",
-      customProductId: null,
-      cyberbizSku: null,
-      quantity: 1,
     });
     const manager = await seedUser("manager-report-import-mapping@ecotech.tw", "role-manager");
 
@@ -611,8 +630,7 @@ describe("報表統計 API", () => {
       skippedSkus: [],
       totals: { grossQuantity: 19, returnQuantity: 0, netQuantity: 19, salesAmount: 0 },
     });
-    expect(await db().select({ sku: reportSalesMonthly.sku, productName: reportSalesMonthly.productName }).from(reportSalesMonthly))
-      .toEqual([{ sku: "SOAP-SYSTEM", productName: "美膚皂" }]);
+    expect(await targetSalesRows()).toEqual([{ reportMonth: "2026-08", sku: "SOAP-SYSTEM", productName: "美膚皂", category: "未分類", salesAmount: 0 }]);
   });
 
   it("deletes the effective imported record and removes it from report summaries", async () => {
@@ -756,9 +774,8 @@ describe("報表統計 API", () => {
     expect(salesDelete.status).toBe(200);
     expect(await salesDelete.json()).toMatchObject({ ok: true, deletedCount: 2 });
 
-    expect(await db().select({ businessDate: reportPayoutDaily.businessDate, payoutAmount: reportPayoutDaily.payoutAmount })
-      .from(reportPayoutDaily)).toEqual([{ businessDate: "2026-08-04", payoutAmount: 400 }]);
-    expect(await db().select({ sku: reportSalesMonthly.sku, salesAmount: reportSalesMonthly.salesAmount })
-      .from(reportSalesMonthly)).toEqual([{ sku: "BATCH-A", salesAmount: 100 }]);
+    expect(await db().all(sql`SELECT business_date AS businessDate, payout_amount AS payoutAmount
+      FROM report_payout_daily_target WHERE record_origin = 'imported'`)).toEqual([{ businessDate: "2026-08-04", payoutAmount: 400 }]);
+    expect(await targetSalesRows()).toEqual([{ reportMonth: "2026-08", sku: "BATCH-A", productName: "人工商品 A", category: "未分類", salesAmount: 100 }]);
   });
 });

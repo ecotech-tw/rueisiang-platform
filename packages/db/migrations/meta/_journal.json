@@ -519,6 +519,13 @@
       "when": 1788410619984,
       "tag": "0073_lame_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "6",
+      "when": 1788544619378,
+      "tag": "0089_item_wms_permissions",
+      "breakpoints": true
     }
   ]
 }

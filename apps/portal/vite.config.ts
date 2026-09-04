@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
     // Tailwind v4 沒有 tailwind.config.js——設定全寫在 styles.css 的 @theme 裡。
     plugins: [react(), tailwindcss()],
     server: {
+      host: "0.0.0.0",
       port: portalPort,
       strictPort: true,
       // 本機開發時把 /api 轉給 apps/api 的 dev server（見 README 的 Windows on ARM 說明）。

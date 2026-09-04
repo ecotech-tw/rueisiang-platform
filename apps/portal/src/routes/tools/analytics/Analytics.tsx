@@ -1,3 +1,4 @@
+import { Combobox } from "@base-ui/react/combobox";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Icon } from "../../../shell/icons.js";
@@ -5,7 +6,7 @@ import { usePageTitle } from "../../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader } from "../../../ui/index.js";
 import { PayoutTab } from "./PayoutTab.js";
 import { SalesTab } from "./SalesTab.js";
-import { useReportScopes } from "./api.js";
+import { useReportScopes, type ReportScopeOption } from "./api.js";
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
@@ -181,33 +182,33 @@ export function Analytics() {
         <div className="analytics-filter-fields">
           <label className="analytics-filter-field">
             <span>店別</span>
-            <select
-              value={selectedScope}
-              onChange={(event) => setFilter({ scopeId: event.target.value || null })}
+            <Combobox.Root
+              items={[{ id: "", name: "公司整體", latestSalesPeriod: null } satisfies ReportScopeOption, ...(scopes.data?.scopes ?? [])]}
+              value={selectedScopeOption ?? (selectedScope ? null : { id: "", name: "公司整體", latestSalesPeriod: null })}
+              onValueChange={(scope) => setFilter({ scopeId: scope?.id || null })}
+              itemToStringLabel={(scope) => scope?.name ?? ""}
               disabled={scopes.isPending}
             >
-              <option value="">公司整體</option>
-              {(scopes.data?.scopes ?? []).map((scope) => (
-                <option key={scope.id} value={scope.id}>{scope.name}</option>
-              ))}
-            </select>
+              <Combobox.InputGroup className="combobox-group"><Combobox.Input className="combobox-input" placeholder="搜尋店別" /><Combobox.Trigger className="combobox-trigger" aria-label="開啟店別選單"><Icon name="chevronDown" /></Combobox.Trigger></Combobox.InputGroup>
+              <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.List>{(scope: ReportScopeOption) => <Combobox.Item key={scope.id} value={scope} className="combobox-item">{scope.name}<Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+            </Combobox.Root>
           </label>
           <label className="analytics-filter-field">
             <span>期間</span>
-            <select
-              value={custom ? "custom" : period}
-              onChange={(event) => {
-                if (event.target.value === "custom") {
+            <Combobox.Root
+              items={[...options, { value: "custom", label: "自訂日期區間" }]}
+              value={custom ? { value: "custom", label: "自訂日期區間" } : options.find((option) => option.value === period) ?? null}
+              onValueChange={(option) => {
+                if (!option || option.value === "custom") {
                   const fallbackStart = startDate || `${defaultMonth}-01`;
                   setFilter({ period: null, startDate: fallbackStart, endDate: endDate || monthEnd(defaultMonth) });
-                } else {
-                  setFilter({ period: event.target.value, startDate: null, endDate: null });
-                }
+                } else setFilter({ period: option.value, startDate: null, endDate: null });
               }}
+              itemToStringLabel={(option) => option?.label ?? ""}
             >
-              {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              <option value="custom">自訂日期區間</option>
-            </select>
+              <Combobox.InputGroup className="combobox-group"><Combobox.Input className="combobox-input" placeholder="搜尋期間" /><Combobox.Trigger className="combobox-trigger" aria-label="開啟期間選單"><Icon name="chevronDown" /></Combobox.Trigger></Combobox.InputGroup>
+              <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.List>{(option: { value: string; label: string }) => <Combobox.Item key={option.value} value={option} className="combobox-item">{option.label}<Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
+            </Combobox.Root>
           </label>
           {tab === "sales" ? (
             <div className="analytics-filter-field analytics-product-field">

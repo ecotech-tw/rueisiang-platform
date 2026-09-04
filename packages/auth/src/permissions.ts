@@ -18,6 +18,12 @@ export const PERMISSIONS = {
   "crm:sync:trigger": "手動觸發 CYBERBIZ 同步",
   "crm:order:read": "檢視客戶訂單與消費紀錄",
 
+  // 品項主檔
+  "items:item:read": "檢視品項主檔",
+  "items:item:write": "管理品項主檔",
+  "items:category:read": "檢視品項分類",
+  "items:category:write": "管理品項分類",
+
   // 倉儲管理系統
   "wms:map:read": "檢視倉位地圖",
   "wms:map:write": "編輯倉位地圖",
@@ -25,6 +31,8 @@ export const PERMISSIONS = {
   "wms:inventory:write": "編輯庫存",
   "wms:inventory:count": "執行盤點",
   "wms:category:write": "管理倉儲分類",
+  "wms:mapping:read": "檢視通路 SKU 對應",
+  "wms:mapping:write": "管理通路 SKU 對應",
   "wms:activity:read": "檢視倉儲操作紀錄",
   "wms:sync:trigger": "手動觸發庫存同步",
 
@@ -33,8 +41,6 @@ export const PERMISSIONS = {
   "tools:payout:config": "修改店別與報表設定",
   "tools:cyberbiz-sales:run": "執行 CYBERBIZ 商品銷售報表",
   "tools:shopee-sales:run": "執行蝦皮銷售報表",
-  "tools:sku-mapping:read": "檢視通路 SKU 對應",
-  "tools:sku-mapping:write": "修改通路 SKU 對應",
   "tools:product-category:read": "檢視商品分類",
   "tools:product-category:write": "管理商品分類",
   "reports:cyberbiz:read": "檢視 CYBERBIZ 銷售與出金報表",
@@ -69,13 +75,13 @@ export const SYSTEM_ROLES = {
       "crm:tag:read", "crm:tag:write", "crm:view:write", "crm:activity:read",
       "crm:sync:read", "crm:sync:trigger",
       "crm:order:read",
+      "items:item:read", "items:item:write", "items:category:read", "items:category:write",
       "wms:map:read", "wms:map:write",
       "wms:inventory:read", "wms:inventory:write", "wms:inventory:count",
-      "wms:category:write", "wms:activity:read", "wms:sync:trigger",
+      "wms:category:write", "wms:mapping:read", "wms:mapping:write", "wms:activity:read", "wms:sync:trigger",
       "tools:payout:run",
       "tools:cyberbiz-sales:run",
       "tools:shopee-sales:run",
-      "tools:sku-mapping:read", "tools:sku-mapping:write",
       "reports:cyberbiz:read", "reports:cyberbiz:write",
     ],
   },
@@ -84,6 +90,7 @@ export const SYSTEM_ROLES = {
     permissions: [
       "crm:customer:read", "crm:customer:write",
       "crm:tag:read", "crm:view:write", "crm:activity:read",
+      "items:item:read", "items:category:read",
       "wms:map:read", "wms:inventory:read", "wms:inventory:count",
     ],
   },
@@ -91,6 +98,7 @@ export const SYSTEM_ROLES = {
     name: "檢視者",
     permissions: [
       "crm:customer:read", "crm:tag:read", "crm:activity:read", "crm:sync:read",
+      "items:item:read", "items:category:read",
       "wms:map:read", "wms:inventory:read", "wms:activity:read",
     ],
   },

@@ -57,9 +57,11 @@ export type IconName =
   | "chevronLeft"
   | "chevronRight"
   | "external"
-  | "attachment";
+  | "attachment"
+  | "dragHandle";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  dragHandle: <path d="M8 5.5h.01M8 12h.01M8 18.5h.01M16 5.5h.01M16 12h.01M16 18.5h.01" />,
   plus: <path d="M12 5.5v13M5.5 12h13" />,
   search: (
     <>
