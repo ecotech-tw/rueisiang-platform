@@ -93,8 +93,8 @@ export {
   loadProductSkuMappingManagement,
   normalizeExternalSku,
   normalizeProductSkuChannel,
-  reportDataChannel,
-  reportScopeChannel,
+  dataChannelFromScopeId,
+  scopeChannelFromId,
   resolveIgnoredSkus,
   syncCyberbizProducts,
   resolveProductSkus,
@@ -148,7 +148,6 @@ export {
   type ReportManualSkuSource,
   type ReportPayoutQuery,
   type ReportPayoutQueryResult,
-  type ReportPayoutDaily,
   type ReportScopeDirectory,
   type ReportRange,
   type ReportSalesQuery,
@@ -158,7 +157,6 @@ export {
   type ReportScopeInput,
 } from "./report-data.js";
 export { getReportRun, listReportIngestIssues, listReportRuns } from "./report-runs.js";
-export { checkWmsParity, type WmsParityReport } from "./wms-parity.js";
 export {
   createReportManualPayout,
   createReportManualSales,
@@ -353,6 +351,7 @@ export {
   seedPayoutStores,
   updatePayoutStoreEnabled,
   deletePayoutStore,
+  type PayoutRun,
   type PayoutStoreInput,
 } from "./payout.js";
 export {

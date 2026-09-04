@@ -7,12 +7,10 @@ import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { body, requireString } from "../request.js";
 import {
-  cyberbizProducts,
   itemCategories,
   itemComponents,
   items as itemMasters,
-  reportProductCategories,
-  cyberbizProductCategories,
+  cyberbizProductCatalog,
   wmsItems,
   wmsCategories,
   wmsShelves,
@@ -136,81 +134,41 @@ export const items = new Hono<AppEnv>()
         active: itemMasters.active,
       }).from(itemMasters).orderBy(asc(itemMasters.name)),
       db.select({
-        sku: cyberbizProducts.sku,
-        productId: cyberbizProducts.productId,
-        variantId: cyberbizProducts.variantId,
-        productName: cyberbizProducts.productName,
-        variantName: cyberbizProducts.variantName,
-        published: cyberbizProducts.published,
-        reportCategoryName: reportProductCategories.name,
+        sku: itemMasters.sku,
+        productId: cyberbizProductCatalog.cyberbizProductId,
+        variantId: cyberbizProductCatalog.cyberbizVariantId,
+        productName: cyberbizProductCatalog.productName,
+        variantName: cyberbizProductCatalog.variantName,
+        published: cyberbizProductCatalog.published,
+        reportCategoryName: itemCategories.name,
       })
-        .from(cyberbizProducts)
-        .leftJoin(cyberbizProductCategories, eq(cyberbizProductCategories.sku, cyberbizProducts.sku))
-        .leftJoin(reportProductCategories, eq(reportProductCategories.id, cyberbizProductCategories.categoryId))
-        .orderBy(asc(cyberbizProducts.productName), asc(cyberbizProducts.variantName), asc(cyberbizProducts.sku)),
+        .from(cyberbizProductCatalog)
+        .innerJoin(itemMasters, eq(itemMasters.id, cyberbizProductCatalog.itemId))
+        .leftJoin(itemCategories, eq(itemCategories.id, itemMasters.categoryId))
+        .orderBy(asc(cyberbizProductCatalog.productName), asc(cyberbizProductCatalog.variantName), asc(itemMasters.sku)),
       db.select().from(wmsItems),
     ]);
 
     const itemCategoryById = new Map(categories.map((category) => [category.id, category]));
-    const cyberbizNameBySku = new Map(cyberbizRows.map((row) => [row.sku, displayCyberbizName(row)]));
-    const masterSkus = new Set(masterRows.map((row) => `${row.source}:${row.sku}`));
-    const wmsBySku = new Map(warehouse.items.filter((item) => item.sku).map((item) => [item.sku!, item]));
     const wmsByItemId = new Map(targetWmsRows.map((row) => [row.itemId, row]));
-    const catalogItems = [
-      ...masterRows.map((row) => {
-        const legacyWms = wmsBySku.get(row.sku);
-        const targetWms = wmsByItemId.get(row.id);
-        return {
-          id: row.id,
-          sku: row.sku,
-          name: row.name || (row.source === "cyberbiz" ? cyberbizNameBySku.get(row.sku) : undefined) || row.sku,
-          source: row.source,
-          category: itemCategoryById.get(row.categoryId ?? "")?.name ?? "未分類",
-          categoryId: row.categoryId,
-          categoryColor: itemCategoryById.get(row.categoryId ?? "")?.color ?? "slate",
-          inWarehouse: Boolean(targetWms || legacyWms),
-          quantity: targetWms?.quantity ?? legacyWms?.quantity ?? null,
-          unit: targetWms?.unit ?? legacyWms?.unit ?? "",
-          minStock: targetWms?.minStock ?? legacyWms?.minStock ?? null,
-          notes: targetWms?.notes ?? legacyWms?.notes ?? "",
-          cyberbiz: row.source === "cyberbiz",
-        };
-      }),
-      ...cyberbizRows
-        .filter((row) => !masterSkus.has(`cyberbiz:${row.sku}`))
-        .map((row) => ({
-          id: `cyberbiz:${row.sku}`,
-          sku: row.sku,
-          name: displayCyberbizName(row),
-          source: "cyberbiz" as const,
-          category: row.reportCategoryName ?? "未分類",
-          categoryId: null,
-          categoryColor: "slate",
-          inWarehouse: Boolean(wmsBySku.get(row.sku)),
-          quantity: wmsBySku.get(row.sku)?.quantity ?? null,
-          unit: wmsBySku.get(row.sku)?.unit ?? "",
-          minStock: wmsBySku.get(row.sku)?.minStock ?? null,
-          notes: "CYBERBIZ 已同步，但尚未建立 item 主檔",
-          cyberbiz: true,
-        })),
-      ...warehouse.items
-        .filter((item) => item.sku && !masterSkus.has(`custom:${item.sku}`) && !masterSkus.has(`cyberbiz:${item.sku}`))
-        .map((item) => ({
-          id: `wms:${item.id}`,
-          sku: item.sku!,
-          name: item.name ?? "",
-          source: "wms" as const,
-          category: item.category,
-          categoryId: null,
-          categoryColor: "slate",
-          inWarehouse: true,
-          quantity: item.quantity,
-          unit: item.unit,
-          minStock: item.minStock,
-          notes: "既有 WMS 品項，尚未搬入 item 主檔",
-          cyberbiz: Boolean(item.cyberbiz),
-        })),
-    ];
+    const catalogItems = masterRows.map((row) => {
+      const wms = wmsByItemId.get(row.id);
+      return {
+        id: row.id,
+        sku: row.sku,
+        name: row.name || row.sku,
+        source: row.source,
+        category: itemCategoryById.get(row.categoryId ?? "")?.name ?? "未分類",
+        categoryId: row.categoryId,
+        categoryColor: itemCategoryById.get(row.categoryId ?? "")?.color ?? "slate",
+        inWarehouse: Boolean(wms),
+        quantity: wms?.quantity ?? null,
+        unit: wms?.unit ?? "",
+        minStock: wms?.minStock ?? null,
+        notes: wms?.notes ?? "",
+        cyberbiz: row.source === "cyberbiz",
+      };
+    });
 
     return c.json({
       items: catalogItems,
@@ -228,7 +186,13 @@ export const items = new Hono<AppEnv>()
     const now = new Date().toISOString();
 
     if (selectedSku) {
-      const [selected] = await db.select().from(cyberbizProducts).where(eq(cyberbizProducts.sku, selectedSku)).limit(1);
+      const [selected] = await db.select({
+        sku: itemMasters.sku,
+        productName: cyberbizProductCatalog.productName,
+        variantName: cyberbizProductCatalog.variantName,
+      }).from(cyberbizProductCatalog)
+        .innerJoin(itemMasters, eq(itemMasters.id, cyberbizProductCatalog.itemId))
+        .where(eq(itemMasters.sku, selectedSku)).limit(1);
       if (!selected) throw new HTTPException(404, { message: `找不到 CYBERBIZ SKU「${selectedSku}」。` });
       const [duplicate] = await db.select({ id: itemMasters.id }).from(itemMasters).where(and(eq(itemMasters.source, "cyberbiz"), eq(itemMasters.sku, selected.sku))).limit(1);
       if (duplicate) throw new HTTPException(409, { message: `CYBERBIZ SKU「${selected.sku}」已經有品項主檔。` });

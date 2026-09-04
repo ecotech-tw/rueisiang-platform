@@ -15,10 +15,10 @@ import {
 import { items, wmsCyberbizLinks, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { createLocalD1 } from "./local-d1/d1.js";
+import { createTargetOnlyD1 } from "./local-d1/d1.js";
 
 /** target schema 正式切換前的 destructive smoke：刪掉所有已搬移的 legacy 來源後再走一次主要流程。 */
-async function dropMigratedLegacyTables(d1: ReturnType<typeof createLocalD1>) {
+async function dropMigratedLegacyTables(d1: ReturnType<typeof createTargetOnlyD1>) {
   await d1.exec(`
     PRAGMA foreign_keys = OFF;
     DROP VIEW IF EXISTS cyberbiz_products_compat;
@@ -50,7 +50,7 @@ async function dropMigratedLegacyTables(d1: ReturnType<typeof createLocalD1>) {
 
 describe("target-only destructive integration", () => {
   it("移除 legacy report/WMS 表後仍可匯入、查詢、人工修訂與同步", async () => {
-    const d1 = createLocalD1();
+    const d1 = createTargetOnlyD1();
     const db = createDatabase(d1 as never);
     const scopeId = "cyberbiz:store:target-only";
     const actor = { id: "target-only-user", email: "target-only@example.com" };

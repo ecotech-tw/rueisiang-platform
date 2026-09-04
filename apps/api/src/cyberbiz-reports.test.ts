@@ -2,10 +2,10 @@ import {
   createDatabase,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
-  schema,
   upsertReportScope,
   type ReportGroupBy,
 } from "@rueisiang/db";
+import { itemCategories, items, reportExternalProducts, wmsItems } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createCyberbizReportService } from "./cyberbiz-reports.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -18,6 +18,10 @@ const EAST = "cyberbiz:store:信義2F";
 
 beforeEach(async () => {
   d1 = createLocalD1();
+  await db().insert(itemCategories).values([
+    { id: "cat-bath", depth: 0, name: "沐浴", color: "rose", sortOrder: 0, active: 1 },
+    { id: "cat-food", depth: 0, name: "食品", color: "mint", sortOrder: 1, active: 1 },
+  ]);
   await upsertReportScope(db(), { id: WEST, scopeKind: "store", name: "誠品西門店 3F" });
   await upsertReportScope(db(), { id: EAST, scopeKind: "store", name: "誠品信義店 2F" });
   await insertReportSalesMonthly(db(), [
@@ -126,14 +130,10 @@ describe("報表月資料查詢", () => {
   });
 
   it("查外部 SKU 會經由用料換算成系統 SKU", async () => {
-    await db().insert(schema.inventoryItems).values({
-      id: "item-1", sku: "SKU-1", name: "商品一", category: "沐浴",
-    });
-    await db().insert(schema.productSkuMappings).values({
-      id: "mapping-1", channel: "cyberbiz", externalName: "商品一", externalSku: "P-001_M-001",
-    });
-    await db().insert(schema.productBundleComponents).values({
-      id: "mapping-1:0", mappingId: "mapping-1", inventoryItemId: "item-1", customProductId: null, quantity: 1,
+    await db().insert(items).values({ id: "item-1", source: "cyberbiz", kind: "sellable", sku: "SKU-1", name: "商品一", active: 1 });
+    await db().insert(wmsItems).values({ itemId: "item-1", quantity: 1, unit: "件", minStock: 0, notes: "" });
+    await db().insert(reportExternalProducts).values({
+      id: "mapping-1", sourceType: "cyberbiz", externalKey: "P-001_M-001", externalVariantKey: "", externalName: "商品一", resolution: "mapped", itemId: "item-1", ignoredReason: "",
     });
 
     const result = await createCyberbizReportService(db()).querySales({
@@ -144,16 +144,17 @@ describe("報表月資料查詢", () => {
   });
 
   it("查詢值本身是 WMS SKU 時不會把別筆 mapping 的商品一起加總", async () => {
-    await db().insert(schema.inventoryItems).values([
-      { id: "item-1", sku: "SKU-1", name: "商品一", category: "沐浴" },
-      { id: "item-2", sku: "SKU-2", name: "商品二", category: "食品" },
+    await db().insert(items).values([
+      { id: "item-1", source: "cyberbiz", kind: "sellable", sku: "SKU-1", name: "商品一", active: 1 },
+      { id: "item-2", source: "cyberbiz", kind: "sellable", sku: "SKU-2", name: "商品二", active: 1 },
+    ]);
+    await db().insert(wmsItems).values([
+      { itemId: "item-1", quantity: 1, unit: "件", minStock: 0, notes: "" },
+      { itemId: "item-2", quantity: 1, unit: "件", minStock: 0, notes: "" },
     ]);
     // external_sku 允許等於另一個商品的 WMS SKU；查 SKU-1 不該把 SKU-2 的資料算進來。
-    await db().insert(schema.productSkuMappings).values({
-      id: "mapping-cross", channel: "cyberbiz", externalName: "商品二", externalSku: "SKU-1",
-    });
-    await db().insert(schema.productBundleComponents).values({
-      id: "mapping-cross:0", mappingId: "mapping-cross", inventoryItemId: "item-2", customProductId: null, quantity: 1,
+    await db().insert(reportExternalProducts).values({
+      id: "mapping-cross", sourceType: "cyberbiz", externalKey: "SKU-1", externalVariantKey: "", externalName: "商品二", resolution: "mapped", itemId: "item-2", ignoredReason: "",
     });
 
     const result = await createCyberbizReportService(db()).querySales({
@@ -164,15 +165,11 @@ describe("報表月資料查詢", () => {
   });
 
   it("別的通路的別名不會被算進來", async () => {
-    await db().insert(schema.inventoryItems).values({
-      id: "item-1", sku: "SKU-1", name: "商品一", category: "沐浴",
-    });
+    await db().insert(items).values({ id: "item-1", source: "cyberbiz", kind: "sellable", sku: "SKU-1", name: "商品一", active: 1 });
+    await db().insert(wmsItems).values({ itemId: "item-1", quantity: 1, unit: "件", minStock: 0, notes: "" });
     // scope 是 cyberbiz，蝦皮的別名不該讓 cyberbiz 的查詢命中。
-    await db().insert(schema.productSkuMappings).values({
-      id: "mapping-shopee-only", channel: "shopee", externalName: "商品一", externalSku: "P-999_M-999",
-    });
-    await db().insert(schema.productBundleComponents).values({
-      id: "mapping-shopee-only:000", mappingId: "mapping-shopee-only", inventoryItemId: "item-1", customProductId: null, quantity: 1,
+    await db().insert(reportExternalProducts).values({
+      id: "mapping-shopee-only", sourceType: "shopee", externalKey: "P-999_M-999", externalVariantKey: "", externalName: "商品一", resolution: "mapped", itemId: "item-1", ignoredReason: "",
     });
 
     const result = await createCyberbizReportService(db()).querySales({
@@ -202,7 +199,7 @@ describe("報表月資料查詢", () => {
 
   it("同 scope kind 的重複名稱會回傳明確的 ambiguous scope 錯誤", async () => {
     await upsertReportScope(db(), { id: "cyberbiz:store:duplicate-a", scopeKind: "store", name: "重複門市" });
-    await upsertReportScope(db(), { id: "cyberbiz:store:duplicate-b", scopeKind: "store", name: "重複 門市" });
+    await upsertReportScope(db(), { id: "cyberbiz:store:duplicate-b", sourceType: "manual", scopeKind: "store", name: "重複 門市" });
     await expect(createCyberbizReportService(db()).querySales({ period: "2026-07", scopeType: "store", scopeName: "重複門市" }))
       .rejects.toMatchObject({ status: 409, code: "ambiguous_scope" });
   });

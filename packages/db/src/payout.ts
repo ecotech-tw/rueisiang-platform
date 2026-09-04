@@ -1,14 +1,27 @@
 import { desc, eq } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { payoutRuns, payoutStores, type PayoutStore } from "./schema/tools.js";
+import { findCyberbizReportRun, listCyberbizReportRuns, recordCyberbizReportRun } from "./cyberbiz-reports.js";
+import type { PayoutStore } from "./schema/tools.js";
+import { payoutStores } from "./schema/tools.js";
 
 /**
  * 出金表的店別與執行紀錄。
  *
  * 這裡不執行任何東西——真正的流程跑在 GitHub Actions 的 runner 上（開 Chrome、
- * 登 CYBERBIZ、讀 Gmail、寫 Drive）。平台只負責「有哪些店」「誰按了執行」，
- * 憑證一個都不碰。
+ * 登 CYBERBIZ、讀 Gmail、寫 Drive）。平台只負責「有哪些店」「誰按過執行」，憑證
+ * 一個都不碰；執行紀錄與報表匯入共用 target report_runs。
  */
+
+export interface PayoutRun {
+  id: string;
+  requestId: string;
+  storesJson: string;
+  startDate: string;
+  endDate: string;
+  actorId: string;
+  actorEmail: string;
+  createdAt: string;
+}
 
 export interface PayoutStoreInput {
   name: string;
@@ -17,13 +30,7 @@ export interface PayoutStoreInput {
   enabled: boolean;
 }
 
-/**
- * 目前正式在跑的九家店。
- *
- * 寫在程式碼裡是為了讓新環境（或本機 dev）一開起來就有東西可看——空清單會讓
- * 執行頁整片空白，然後有人要手動把九組 Drive 連結重打一次。只在表是空的時候
- * 寫入，之後就以資料庫為準：這是起點，不是每次都覆蓋回去的來源。
- */
+/** 目前正式在跑的九家店。 */
 export const DEFAULT_PAYOUT_STORES: PayoutStoreInput[] = [
   { name: "誠品西門店3F", driveFolderUrl: "https://drive.google.com/drive/folders/1WErhqB6jsTc2Gle4OXu7eoK2DRIoxrFG", driveFolderName: "誠品西門", enabled: true },
   { name: "宏匯廣場1F", driveFolderUrl: "https://drive.google.com/drive/folders/1o8r9R9EFSjVE1yYAVgTsv4luUFRaJ3Ao", driveFolderName: "宏匯", enabled: true },
@@ -104,13 +111,7 @@ export async function deletePayoutStore(db: Database, id: string): Promise<Payou
   return store;
 }
 
-/**
- * 表是空的才寫入預設店別，已經有資料就完全不動。
- *
- * 跟 syncSystemRoles 放在一起被呼叫，但語意刻意不同：初始角色只在空資料庫時用程式碼
- * 建立，非管理員角色的調整會保留；店別是同仁自己維護的資料，覆蓋回去會把人家的
- * 修改抹掉。
- */
+/** 表是空的才寫入預設店別；使用者之後的設定不會被覆蓋。 */
 export async function seedPayoutStores(db: Database): Promise<void> {
   const [existing] = await db.select({ id: payoutStores.id }).from(payoutStores).limit(1);
   if (existing) return;
@@ -124,12 +125,7 @@ export async function seedPayoutStores(db: Database): Promise<void> {
   );
 }
 
-/**
- * 整份店別清單換掉。
- *
- * 逐筆比對再決定新增／修改／刪除，只是為了保住 id 而寫的一堆分支——這張表沒有
- * 任何東西用 id 指過來（執行紀錄存的是店名字串），整組重寫既簡單又不會漏。
- */
+/** 整份店別清單換掉；執行紀錄只連結 target scope，不依賴 payout store 的 id。 */
 export async function replacePayoutStores(db: Database, stores: PayoutStoreInput[]): Promise<void> {
   await db.batch([
     db.delete(payoutStores),
@@ -148,31 +144,44 @@ export async function recordPayoutRun(
   input: {
     requestId: string;
     stores: string[];
+    scopeIds?: string[];
+    periodKind?: "month" | "custom";
     startDate: string;
     endDate: string;
     actor: { id: string; email: string };
   },
 ): Promise<void> {
-  await db.insert(payoutRuns).values({
-    id: crypto.randomUUID(),
+  await recordCyberbizReportRun(db, {
     requestId: input.requestId,
-    storesJson: JSON.stringify(input.stores),
+    reportKind: "payout",
+    periodKind: input.periodKind ?? "custom",
+    stores: input.stores,
+    scopeIds: input.scopeIds,
     startDate: input.startDate,
     endDate: input.endDate,
-    actorId: input.actor.id,
-    actorEmail: input.actor.email,
+    actor: input.actor,
   });
 }
 
-export async function listPayoutRuns(db: Database, limit = 20) {
-  return db.select().from(payoutRuns).orderBy(desc(payoutRuns.createdAt)).limit(limit);
+function toPayoutRun(run: Awaited<ReturnType<typeof listCyberbizReportRuns>>[number]): PayoutRun {
+  return {
+    id: run.id,
+    requestId: run.requestId,
+    storesJson: run.storesJson,
+    startDate: run.startDate,
+    endDate: run.endDate,
+    actorId: run.actorId,
+    actorEmail: run.actorEmail,
+    createdAt: run.createdAt,
+  };
 }
 
-export async function findPayoutRun(db: Database, requestId: string) {
-  const [row] = await db
-    .select()
-    .from(payoutRuns)
-    .where(eq(payoutRuns.requestId, requestId))
-    .limit(1);
-  return row ?? null;
+export async function listPayoutRuns(db: Database, limit = 20): Promise<PayoutRun[]> {
+  const runs = await listCyberbizReportRuns(db, "payout", limit);
+  return runs.map(toPayoutRun);
+}
+
+export async function findPayoutRun(db: Database, requestId: string): Promise<PayoutRun | null> {
+  const run = await findCyberbizReportRun(db, requestId);
+  return run?.reportKind === "payout" ? toPayoutRun(run) : null;
 }

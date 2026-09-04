@@ -12,17 +12,18 @@ import { ASSISTANT_KEY, DEFAULT_ASSISTANT_PROMPT, OPEN_METEO_TOOL_KEY } from "@r
 import { DEFAULT_PI_CODEX_MODEL } from "../pi-agent.js";
 import {
   customers,
-  inventoryItems,
-  layoutElements,
-  warehouseCategories,
-  reportScopes,
+  scopes,
   itemCategories,
   items as itemMasters,
-  targetCyberbizProducts,
+  cyberbizProductCatalog,
   userRoles,
   users,
-  warehouseSettings,
-  zones,
+  wmsCategories,
+  wmsItems,
+  wmsLayoutElements,
+  wmsLayouts,
+  wmsShelves,
+  wmsZones,
 } from "@rueisiang/db/schema";
 import type { LocalD1 } from "../local-d1/d1.js";
 
@@ -254,7 +255,7 @@ async function seedDevProductCatalog(db: ReturnType<typeof createDatabase>): Pro
       }).onConflictDoNothing();
       itemIdBySku.set(product.sku, itemId);
     }
-    await db.insert(targetCyberbizProducts).values({
+    await db.insert(cyberbizProductCatalog).values({
       itemId,
       cyberbizProductId: `dev-product-${product.sku}`,
       cyberbizVariantId: `dev-variant-${product.sku}`,
@@ -279,8 +280,8 @@ async function seedDevProductCatalog(db: ReturnType<typeof createDatabase>): Pro
 
 async function seedDevAnalytics(db: ReturnType<typeof createDatabase>): Promise<void> {
   await seedDevProductCatalog(db);
-  const [existingCyberbiz] = await db.select({ id: reportScopes.id }).from(reportScopes)
-    .where(eq(reportScopes.id, DEV_ANALYTICS_SCOPES[0].id)).limit(1);
+  const [existingCyberbiz] = await db.select({ id: scopes.id }).from(scopes)
+    .where(eq(scopes.id, DEV_ANALYTICS_SCOPES[0].id)).limit(1);
 
   if (!existingCyberbiz) {
     for (const scope of DEV_ANALYTICS_SCOPES) await upsertReportScope(db, scope);
@@ -290,8 +291,8 @@ async function seedDevAnalytics(db: ReturnType<typeof createDatabase>): Promise<
 
   // 舊的 local.sqlite 已經有 CYBERBIZ 假資料時，也要補進蝦皮，才能在公司視角
   // 看見跨通路比較；不重灌原有資料，保留開發者在畫面上的修改。
-  const [existingShopee] = await db.select({ id: reportScopes.id }).from(reportScopes)
-    .where(eq(reportScopes.id, DEV_SHOPEE_SCOPE.id)).limit(1);
+  const [existingShopee] = await db.select({ id: scopes.id }).from(scopes)
+    .where(eq(scopes.id, DEV_SHOPEE_SCOPE.id)).limit(1);
   if (!existingShopee) {
     await upsertReportScope(db, DEV_SHOPEE_SCOPE);
     await insertReportSalesMonthly(db, DEV_SALES_PERIODS.flatMap(([month, factor]) => (
@@ -354,15 +355,70 @@ const DEV_ITEMS = [
 ] as const;
 
 async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<void> {
-  const existing = await db.select({ id: zones.id }).from(zones).limit(1);
+  const existing = await db.select({ id: wmsZones.id }).from(wmsZones).limit(1);
   if (existing.length) return;
 
-  await db.insert(warehouseSettings).values({ id: "main", canvasWidth: 1600, canvasHeight: 900 });
-  await db.insert(warehouseCategories).values([...DEV_CATEGORIES]);
-  await db.insert(zones).values([...DEV_ZONES]);
-  await db.insert(layoutElements).values([
-    { id: "dev-el-1", label: "出貨口", color: "rose", x: 66, y: 10, width: 14, height: 12 },
-    { id: "dev-el-2", label: "走道", color: "slate", x: 8, y: 34, width: 52, height: 8 },
+  const categoryIdByName = new Map(DEV_CATEGORIES.map((category) => [category.name, category.id]));
+  await db.insert(wmsCategories).values(DEV_CATEGORIES.map((category) => ({
+    id: category.id,
+    name: category.name,
+    color: category.color,
+    active: 1,
+  })));
+  await db.insert(wmsLayouts).values({ id: "layout:main", name: "主倉庫", canvasWidth: 1600, canvasHeight: 900, active: 1 });
+  await db.insert(wmsZones).values(DEV_ZONES.map((zone) => ({
+    id: zone.id,
+    code: zone.code,
+    name: zone.name,
+    color: zone.color,
+    notes: "",
+    active: 1,
+  })));
+
+  const shelfIdByZoneAndCode = new Map<string, string>();
+  for (const zone of DEV_ZONES) {
+    for (const [index, shelf] of [
+      { code: "top", name: "上層" },
+      { code: "middle", name: "中層" },
+      { code: "bottom", name: "底層" },
+    ].entries()) {
+      const id = `dev-shelf-${zone.id}-${shelf.code}`;
+      shelfIdByZoneAndCode.set(`${zone.id}:${shelf.code}`, id);
+      await db.insert(wmsShelves).values({ id, zoneId: zone.id, code: shelf.code, name: shelf.name, sortOrder: index, active: 1 });
+    }
+  }
+  await db.insert(wmsLayoutElements).values([
+    ...DEV_ZONES.map((zone) => ({
+      id: `wms-zone:${zone.id}`,
+      layoutId: "layout:main",
+      elementType: "zone" as const,
+      zoneId: zone.id,
+      label: zone.name,
+      color: zone.color,
+      x: zone.x,
+      y: zone.y,
+      width: zone.width,
+      height: zone.height,
+      zIndex: 0,
+    })),
+    { id: "dev-el-1", layoutId: "layout:main", elementType: "decoration" as const, zoneId: null, label: "出貨口", color: "rose", x: 66, y: 10, width: 14, height: 12, zIndex: 1 },
+    { id: "dev-el-2", layoutId: "layout:main", elementType: "decoration" as const, zoneId: null, label: "走道", color: "slate", x: 8, y: 34, width: 52, height: 8, zIndex: 1 },
   ]);
-  await db.insert(inventoryItems).values([...DEV_ITEMS]);
+  await db.insert(itemMasters).values(DEV_ITEMS.map((item) => ({
+    id: item.id,
+    source: "custom" as const,
+    kind: item.sku ? "sellable" as const : "supply" as const,
+    sku: item.sku ?? `WMS-${item.id.slice(-8).toUpperCase()}`,
+    name: item.name,
+    active: 1,
+  })));
+  await db.insert(wmsItems).values(DEV_ITEMS.map((item) => ({
+    itemId: item.id,
+    wmsCategoryId: categoryIdByName.get(item.category) ?? null,
+    shelfId: item.zoneId && item.shelfLevel ? shelfIdByZoneAndCode.get(`${item.zoneId}:${item.shelfLevel}`) ?? null : null,
+    quantity: item.quantity,
+    unit: item.unit,
+    minStock: item.minStock,
+    notes: "",
+  })));
 }

@@ -1,5 +1,5 @@
 import type { Database } from "./client.js";
-import { reportDataChannel } from "./product-sku-mappings.js";
+import { dataChannelFromScopeId } from "./product-sku-mappings.js";
 import {
   createReportScopeDirectory,
   queryReportPayout,
@@ -539,7 +539,7 @@ export async function queryReportPayoutSummary(db: Database, query: ReportAnalyt
     return [{
       scopeId: id,
       scopeName: scopeName(row),
-      channel: reportDataChannel(id),
+      channel: dataChannelFromScopeId(id),
       value,
       share: current.total === 0 ? 0 : value / current.total,
       yoy: growthForScope(value, id, lastYearScopeValues),
@@ -648,7 +648,7 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
     return [{
       scopeId: id,
       scopeName: scopeName(row),
-      channel: reportDataChannel(id),
+      channel: dataChannelFromScopeId(id),
       value,
       share: currentMetrics.salesAmount === 0 ? 0 : value / currentMetrics.salesAmount,
       quantityShare: currentMetrics.netQuantity === 0 ? 0 : numberValue(row, "netQuantity") / currentMetrics.netQuantity,

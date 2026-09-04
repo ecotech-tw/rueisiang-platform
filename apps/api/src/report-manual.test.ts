@@ -30,7 +30,7 @@ const SCOPE = "cyberbiz:store:manual-test";
 const ACTOR: ReportManualActor = { id: "user-manual-test", email: "manager@ecotech.tw" };
 
 beforeEach(async () => {
-  d1 = createLocalD1();
+  d1 = createLocalD1(":memory:", { targetOnly: true });
   await upsertReportScope(db(), { id: SCOPE, scopeKind: "store", name: "人工測試據點" });
   await upsertReportScope(db(), { id: "cyberbiz:store:disabled", scopeKind: "store", name: "停用據點", active: false });
 });
@@ -265,10 +265,11 @@ describe("報表人工修訂資料", () => {
       payoutAmount: 9000,
       actor: ACTOR,
     });
-    await db().insert(schema.cyberbizProducts).values({
-      sku: "SOAP-SYSTEM",
-      productId: "manual-delete-product",
-      variantId: "manual-delete-variant",
+    await db().insert(schema.items).values({ id: "manual-delete-item", source: "cyberbiz", kind: "sellable", sku: "SOAP-SYSTEM", name: "匯入商品", active: 1 });
+    await db().insert(schema.cyberbizProductCatalog).values({
+      itemId: "manual-delete-item",
+      cyberbizProductId: "manual-delete-product",
+      cyberbizVariantId: "manual-delete-variant",
       productName: "匯入商品",
       variantName: "",
     });
@@ -308,10 +309,10 @@ describe("報表人工修訂資料", () => {
       sku: "SOAP-SYSTEM",
     }, ACTOR);
 
-    expect(await db().select({ payoutAmount: schema.reportPayoutDaily.payoutAmount })
-      .from(schema.reportPayoutDaily)).toEqual([{ payoutAmount: 1000 }]);
-    expect(await db().select({ sku: schema.reportSalesMonthly.sku, salesAmount: schema.reportSalesMonthly.salesAmount })
-      .from(schema.reportSalesMonthly)).toEqual([{ sku: "soap-system", salesAmount: 100 }]);
+    expect(await db().select({ payoutAmount: schema.targetReportPayoutDaily.payoutAmount })
+      .from(schema.targetReportPayoutDaily)).toEqual([{ payoutAmount: 1000 }]);
+    expect(await db().select({ itemId: schema.reportItemSalesMonthly.itemId, salesAmount: schema.reportItemSalesMonthly.salesAmount })
+      .from(schema.reportItemSalesMonthly)).toEqual([{ itemId: "manual-delete-item", salesAmount: 100 }]);
     const deleteEvent = (await db().select({
       eventType: schema.activityEvents.eventType,
       payloadJson: schema.activityEvents.payloadJson,
@@ -326,7 +327,7 @@ describe("報表人工修訂資料", () => {
       reportMonth: "2026-08",
       sku: "SOAP-SYSTEM",
     }, ACTOR);
-    expect(await db().select().from(schema.reportSalesMonthly)).toEqual([]);
+    expect(await db().select().from(schema.reportItemSalesMonthly)).toEqual([]);
   });
 
   it("allows historical manual edits for a disabled report scope", async () => {
@@ -374,9 +375,8 @@ describe("報表人工修訂資料", () => {
     expect(updatedSales.productName).toBe("停用據點商品修訂");
   });
 
-  it("刪除 legacy 報表表後仍可用 target 表完成人工 CRUD 與查詢", async () => {
-    await d1.exec("PRAGMA foreign_keys = OFF; DROP TABLE report_sales_monthly; DROP TABLE report_payout_daily; DROP TABLE report_manual_sales_monthly; DROP TABLE report_manual_payout_daily; DROP TABLE report_scopes; DROP TABLE report_product_categories; PRAGMA foreign_keys = ON;");
-    await db().insert(schema.itemCategories).values({ id: "target-manual-category", name: "Target 人工分類", color: "rose" });
+  it("target 報表表可完成人工 CRUD 與查詢", async () => {
+    await db().insert(schema.itemCategories).values({ id: "target-manual-category", depth: 0, parentId: null, parentDepth: null, name: "Target 人工分類", color: "rose", sortOrder: 0, active: 1 });
 
     await insertReportPayoutDaily(db(), [{ scopeId: SCOPE, businessDate: "2026-09-01", payoutAmount: 1000 }]);
     const payout = await createReportManualPayout(db(), {

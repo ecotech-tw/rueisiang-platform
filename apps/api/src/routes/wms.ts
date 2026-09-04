@@ -2,7 +2,6 @@ import { can } from "@rueisiang/auth";
 import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import {
   WMS_ENTITY_TYPES,
-  checkWmsParity,
   applySyncPlan,
   syncCyberbizProducts,
   buildSyncPlan,
@@ -122,8 +121,6 @@ export const wms = new Hono<AppEnv>()
     if (can(c.get("user"), "wms:inventory:read")) return c.json(warehouse);
     return c.json({ ...warehouse, items: [], categories: [] });
   })
-  .get("/parity", requirePermission("wms:map:read"), async (c) => c.json(await checkWmsParity(c.get("db"))))
-
   // ───────────────────────────── 倉位 ─────────────────────────────
 
   .post("/zones", requirePermission("wms:map:write"), async (c) => {

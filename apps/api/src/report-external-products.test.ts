@@ -26,7 +26,7 @@ function db() { return createDatabase(d1 as never); }
 const ACTOR = { id: "external-product-test", email: "manager@example.com" };
 
 beforeEach(() => {
-  d1 = createLocalD1();
+  d1 = createLocalD1(":memory:", { targetOnly: true });
 });
 
 describe("報表外部商品管理", () => {
@@ -57,20 +57,9 @@ describe("報表外部商品管理", () => {
   it("刪除 legacy 分類表後仍能管理 target CYBERBIZ 商品分類", async () => {
     const itemId = "target-cyberbiz-item";
     await db().insert(schema.items).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku: "CB-TARGET-001", name: "Target 官網商品", active: 1 });
-    await db().insert(schema.targetCyberbizProducts).values({
+    await db().insert(schema.cyberbizProductCatalog).values({
       itemId, cyberbizProductId: "target-product", cyberbizVariantId: "target-variant", productName: "Target 官網商品", variantName: "大包裝", published: 1,
     });
-    await d1.exec(`
-      PRAGMA foreign_keys = OFF;
-      DROP TABLE report_product_categories;
-      DROP TABLE cyberbiz_product_categories;
-      DROP TABLE cyberbiz_products_legacy;
-      DROP TRIGGER IF EXISTS trg_cyberbiz_products_compat_insert;
-      DROP TRIGGER IF EXISTS trg_cyberbiz_products_compat_update;
-      DROP VIEW cyberbiz_products_compat;
-      PRAGMA foreign_keys = ON;
-    `);
-
     const created = await createReportProductCategory(db(), { name: "Target 分類", color: "teal", actor: ACTOR });
     expect(created).toMatchObject({ name: "Target 分類", color: "teal" });
     expect(await setCyberbizProductCategory(db(), { sku: "CB-TARGET-001", categoryId: created.id, actor: ACTOR }))
@@ -92,8 +81,6 @@ describe("報表外部商品管理", () => {
   });
 
   it("target mapping 可用 item_components 保存多用料 BOM，解析與忽略都不依賴 legacy 表", async () => {
-    await d1.exec("PRAGMA foreign_keys = OFF; DROP TABLE product_sku_mappings; DROP TABLE product_bundle_components; DROP TABLE custom_report_products; DROP TABLE report_sku_ignores; PRAGMA foreign_keys = ON;");
-
     const created = await addProductSkuMapping(db(), {
       channel: "Shopee", externalName: "Target 組合商品", externalSku: "target-bundle-001",
       components: [
@@ -123,11 +110,10 @@ describe("報表外部商品管理", () => {
     expect(await resolveProductSkus(db(), ["TARGET-BUNDLE-001"], "shopee")).toEqual(new Map());
   });
 
-  it("刪除 legacy mapping 表後仍能管理 target 單一用料 mapping", async () => {
+  it("target mapping 可管理 target 單一用料 mapping", async () => {
     const wmsItemId = "target-wms-item";
     await db().insert(schema.items).values({ id: wmsItemId, source: "custom", kind: "sellable", sku: "WMS-TARGET-001", name: "WMS Target 商品", active: 1 });
     await db().insert(schema.wmsItems).values({ itemId: wmsItemId, quantity: 4, unit: "件", minStock: 1, notes: "" });
-    await d1.exec("PRAGMA foreign_keys = OFF; DROP TABLE product_sku_mappings; DROP TABLE product_bundle_components; DROP TABLE custom_report_products; DROP TABLE report_sku_ignores; PRAGMA foreign_keys = ON;");
 
     const created = await addProductSkuMapping(db(), {
       channel: "Shopee", externalName: "Target 外部商品", externalSku: "target-ext-001",

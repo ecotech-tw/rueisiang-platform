@@ -86,7 +86,12 @@ const migrationsDir = path.resolve(here, "../../../../packages/db/migrations");
  * 檔案路徑省略時用記憶體資料庫（測試要的：每次都從乾淨的狀態開始）。
  * 給檔案路徑時資料會留著，所以 `pnpm dev` 重開不必重新建帳號。
  */
-export function createLocalD1(filename = ":memory:"): LocalD1 {
+export interface LocalD1Options {
+  /** 只建立 target schema；正式 dev server 與 destructive test 使用這個模式。 */
+  targetOnly?: boolean;
+}
+
+export function createLocalD1(filename = ":memory:", options: LocalD1Options = {}): LocalD1 {
   if (filename !== ":memory:") fs.mkdirSync(path.dirname(filename), { recursive: true });
 
   const database = new LocalD1(new DatabaseSync(filename));
@@ -99,7 +104,14 @@ export function createLocalD1(filename = ":memory:"): LocalD1 {
       .map((row) => row.name),
   );
 
-  const files = fs.readdirSync(migrationsDir).filter((name) => name.endsWith(".sql")).sort();
+  const files = fs.readdirSync(migrationsDir)
+    .filter((name) => name.endsWith(".sql") && (options.targetOnly || name !== "0088_drop_migrated_legacy_schema.sql"))
+    .sort();
+
+  /*
+   * 舊相容模式保留給歷史 migration／compatibility tests；正式本機 server 必須走
+   * targetOnly，否則刪掉 legacy migration 後重開會讓 fixture 又寫回不存在的表。
+   */
   if (!files.length) throw new Error(`${migrationsDir} 裡沒有 migration。`);
 
   for (const file of files) {
@@ -112,4 +124,8 @@ export function createLocalD1(filename = ":memory:"): LocalD1 {
     database.sqlite.prepare("INSERT INTO _local_migrations (name) VALUES (?)").run(file);
   }
   return database;
+}
+
+export function createTargetOnlyD1(filename = ":memory:"): LocalD1 {
+  return createLocalD1(filename, { targetOnly: true });
 }

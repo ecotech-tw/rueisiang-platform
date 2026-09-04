@@ -14,10 +14,10 @@ import {
 } from "@rueisiang/db";
 import {
   activityEvents,
-  cyberbizProductCategories,
-  cyberbizProducts,
-  reportProductCategories,
-  reportManualSalesMonthly,
+  itemCategories,
+  items,
+  reportItemSalesMonthly,
+  cyberbizProductCatalog,
   users,
   userRoles,
 } from "@rueisiang/db/schema";
@@ -33,7 +33,7 @@ let d1: LocalD1;
 let db: Database;
 
 beforeEach(async () => {
-  d1 = createLocalD1();
+  d1 = createLocalD1(":memory:", { targetOnly: true });
   db = createDatabase(d1 as never);
   await syncSystemRoles(db);
 });
@@ -69,14 +69,16 @@ async function as(userId: string, email: string, path: string, init: RequestInit
 }
 
 async function seedCategory(id: string, name: string) {
-  await db.insert(reportProductCategories).values({ id, name, color: "rose" });
+  await db.insert(itemCategories).values({ id, depth: 0, parentId: null, parentDepth: null, name, color: "rose", sortOrder: 0, active: 1 });
 }
 
 async function seedCyberbizProduct(sku: string, productName: string, variantName = "") {
-  await db.insert(cyberbizProducts).values({
-    sku,
-    productId: `product-${sku}`,
-    variantId: `variant-${sku}`,
+  const itemId = `item-${sku}`;
+  await db.insert(items).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku, name: productName, active: 1 });
+  await db.insert(cyberbizProductCatalog).values({
+    itemId,
+    cyberbizProductId: `product-${sku}`,
+    cyberbizVariantId: `variant-${sku}`,
     productName,
     variantName,
     published: 1,
@@ -115,7 +117,7 @@ describe("CYBERBIZ 商品分類資料層", () => {
     });
 
     expect(assigned).toEqual({ sku: "SKU-A", categoryId: "category-bath", categoryName: "沐浴清潔" });
-    expect(await db.select().from(cyberbizProductCategories)).toHaveLength(1);
+    expect((await db.select().from(items).where(eq(items.sku, "SKU-A")))[0]?.categoryId).toBe("category-bath");
 
     const management = await listCyberbizProductCategoryManagement(db);
     expect(management.products).toEqual([
@@ -142,7 +144,7 @@ describe("CYBERBIZ 商品分類資料層", () => {
     ]);
 
     await setCyberbizProductCategory(db, { sku: "SKU-A", categoryId: null, actor });
-    expect(await db.select().from(cyberbizProductCategories)).toHaveLength(0);
+    expect((await db.select().from(items).where(eq(items.sku, "SKU-A")))[0]?.categoryId).toBeNull();
     expect(await db.select().from(activityEvents).where(eq(activityEvents.entityType, "cyberbiz_product_category")))
       .toHaveLength(2);
   });
@@ -155,7 +157,7 @@ describe("CYBERBIZ 商品分類資料層", () => {
     const updated = await updateReportProductCategory(db, created.id, { name: "生活日用", color: "mint", actor });
     expect(updated).toEqual({ id: created.id, name: "生活日用", color: "mint" });
     await deleteReportProductCategory(db, created.id, actor);
-    expect(await db.select().from(reportProductCategories)).toEqual([]);
+    expect(await db.select().from(itemCategories)).toEqual([]);
 
     await seedCategory("category-used", "已使用");
     await seedCyberbizProduct("SKU-USED", "使用中的商品");
@@ -198,8 +200,12 @@ describe("CYBERBIZ 商品分類資料層", () => {
 
     expect(categorized.category).toBe("沐浴清潔");
     expect(uncategorized.category).toBe("未分類");
-    expect(await db.select({ category: reportManualSalesMonthly.category }).from(reportManualSalesMonthly))
-      .toEqual([{ category: "沐浴清潔" }, { category: "未分類" }]);
+    expect(await db.select({ category: itemCategories.name })
+      .from(reportItemSalesMonthly)
+      .innerJoin(items, eq(items.id, reportItemSalesMonthly.itemId))
+      .leftJoin(itemCategories, eq(itemCategories.id, items.categoryId))
+      .orderBy(items.sku))
+      .toEqual([{ category: "沐浴清潔" }, { category: null }]);
   });
 });
 

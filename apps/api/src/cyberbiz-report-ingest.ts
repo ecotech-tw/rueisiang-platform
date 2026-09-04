@@ -5,8 +5,8 @@ import {
   findReportScope,
   upsertReportScope,
   normalizeExternalSku,
-  reportDataChannel,
-  reportScopeChannel,
+  dataChannelFromScopeId,
+  scopeChannelFromId,
   resolveIgnoredSkus,
   resolveProductSkus,
   type Database,
@@ -179,7 +179,7 @@ function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
 async function normalizeSalesRows(
   db: Database,
   input: CyberbizReportIngestInput,
-  channel = reportDataChannel(input.scopeId),
+  channel = dataChannelFromScopeId(input.scopeId),
   // sales_and_payout 會先 parse 一次做格式驗證，把結果傳進來，省掉整份報表重複解析與彙總。
   preparsed?: ParsedSalesRow[],
 ): Promise<{
@@ -370,8 +370,8 @@ export function createCyberbizReportIngestor(db: Database) {
       const input = readInput(value);
       // 沿用既有 scope 看的是 scope 自己的通路，不是資料通路：manual 據點也放 CYBERBIZ
       // 商品，但它必須是自己的 scope，不能因為同名就寫進自動匯入那家店。
-      const scopeChannel = reportScopeChannel(input.scopeId);
-      const dataChannel = reportDataChannel(input.scopeId);
+      const scopeChannel = scopeChannelFromId(input.scopeId);
+      const dataChannel = dataChannelFromScopeId(input.scopeId);
       const canReuseScopeByName = scopeChannel === "legacy" || scopeChannel === "cyberbiz";
       const existingById = await findReportScope(db, { scopeKind: input.scopeType, id: input.scopeId });
       const nameMatch = existingById ?? (
@@ -379,7 +379,7 @@ export function createCyberbizReportIngestor(db: Database) {
           ? null
           : await findReportScope(db, { scopeKind: input.scopeType, name: input.scopeName })
       );
-      const nameMatchChannel = nameMatch ? reportScopeChannel(nameMatch.id) : null;
+      const nameMatchChannel = nameMatch ? scopeChannelFromId(nameMatch.id) : null;
       // 舊版 CYBERBIZ 設定可能使用任意 legacy ID，仍可依同名沿用；蝦皮則一定以自己的
       // scope ID 建立，不能因為名稱剛好相同而把資料寫進其他通路。
       const existing = existingById ?? (
@@ -393,6 +393,7 @@ export function createCyberbizReportIngestor(db: Database) {
         id: input.scopeId,
         scopeKind: input.scopeType,
         name: input.scopeName,
+        sourceType: dataChannel,
       });
       const scopedInput = { ...input, scopeId: scope.id };
       const [targetScope] = await db.select({ id: scopes.id }).from(scopes).where(eq(scopes.id, scope.id)).limit(1);

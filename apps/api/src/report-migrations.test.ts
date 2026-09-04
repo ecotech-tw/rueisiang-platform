@@ -366,4 +366,102 @@ describe("報表 scope migration", () => {
 
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM zone_images").get()).toEqual({ count: 0 });
   });
+
+  it("0088 會在 target 回填後移除已取代的 legacy 表與相容物件", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0088_drop_migrated_legacy_schema.sql");
+
+    for (const name of [
+      "cyberbiz_product_links",
+      "zone_images",
+      "product_bundle_components",
+      "cyberbiz_product_categories",
+      "product_sku_mappings",
+      "report_sku_ignores",
+      "custom_report_products",
+      "cyberbiz_products_legacy",
+      "report_sales_monthly",
+      "report_payout_daily",
+      "report_manual_sales_monthly",
+      "report_manual_payout_daily",
+      "report_product_categories",
+      "report_scopes",
+      "inventory_items",
+      "zones",
+      "warehouse_categories",
+      "product_categories",
+      "warehouse_settings",
+      "layout_elements",
+      "cyberbiz_products_compat",
+      "trg_cyberbiz_products_compat_insert",
+      "trg_cyberbiz_products_compat_update",
+    ]) {
+      expect(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name = ? LIMIT 1").get(name)).toBeUndefined();
+    }
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM pragma_foreign_key_check").get()).toEqual({ count: 0 });
+    expect(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'items'").get()).toEqual({ 1: 1 });
+    expect(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'wms_items'").get()).toEqual({ 1: 1 });
+    expect(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'report_item_sales_monthly'").get()).toEqual({ 1: 1 });
+  });
+
+  it("0088 會先保留人工銷售與出金修訂，再刪除 legacy 表", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, "0087_wms_orphan_image_cleanup.sql");
+    sqlite.exec(`
+      INSERT INTO report_scopes (id, scope_kind, name, normalized_name, active)
+      VALUES ('manual-scope', 'store', '人工測試店', '人工測試店', 1);
+      INSERT INTO report_manual_sales_monthly (
+        id, scope_id, report_month, sku_source, sku, product_name, category,
+        gross_quantity, return_quantity, net_quantity, sales_amount,
+        created_by_id, created_by_email, updated_by_id, updated_by_email,
+        created_at, updated_at
+      ) VALUES (
+        'manual-sales', 'manual-scope', '2026-08', 'custom', ' manual-001 ', '人工商品', '未分類',
+        5, 1, 4, 380, 'u1', 'u1@example.com', 'u2', 'u2@example.com',
+        '2026-08-31T01:00:00.000Z', '2026-08-31T02:00:00.000Z'
+      );
+      INSERT INTO report_manual_payout_daily (
+        id, scope_id, business_date, payout_amount,
+        created_by_id, created_by_email, updated_by_id, updated_by_email,
+        created_at, updated_at
+      ) VALUES (
+        'manual-payout', 'manual-scope', '2026-08-31', 1200,
+        'u1', 'u1@example.com', 'u2', 'u2@example.com',
+        '2026-08-31T01:00:00.000Z', '2026-08-31T02:00:00.000Z'
+      );
+    `);
+
+    applyLikeD1(sqlite, "0087_wms_orphan_image_cleanup.sql", "0088_drop_migrated_legacy_schema.sql");
+
+    expect(sqlite.prepare(`
+      SELECT item.source, item.sku, item.name, sales.record_origin,
+        sales.gross_quantity, sales.return_quantity, sales.net_quantity,
+        sales.sales_amount, sales.updated_by_email
+      FROM report_item_sales_monthly sales
+      JOIN items item ON item.id = sales.item_id
+      WHERE sales.scope_id = 'manual-scope'
+    `).all()).toEqual([{
+      source: "custom",
+      sku: "MANUAL-001",
+      name: "人工商品",
+      record_origin: "manual",
+      gross_quantity: 5,
+      return_quantity: 1,
+      net_quantity: 4,
+      sales_amount: 380,
+      updated_by_email: "u2@example.com",
+    }]);
+    expect(sqlite.prepare(`
+      SELECT scope_id, business_date, record_origin, payout_amount, updated_by_email
+      FROM report_payout_daily_target
+    `).all()).toEqual([{
+      scope_id: "manual-scope",
+      business_date: "2026-08-31",
+      record_origin: "manual",
+      payout_amount: 1200,
+      updated_by_email: "u2@example.com",
+    }]);
+  });
 });

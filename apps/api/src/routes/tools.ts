@@ -16,7 +16,6 @@ import {
   isCompanyReportStoreScopeId,
   listReportScopes,
   normalizeReportScopeName,
-  recordCyberbizReportRun,
   ReportScopeAmbiguousError,
   listPayoutRuns,
   listPayoutStores,
@@ -623,15 +622,8 @@ export const tools = new Hono<AppEnv>()
     await recordPayoutRun(c.get("db"), {
       requestId,
       stores: requested,
-      startDate: start,
-      endDate: end,
-      actor: { id: user.id, email: user.email },
-    });
-    await recordCyberbizReportRun(c.get("db"), {
-      requestId,
-      reportKind: "payout",
+      scopeIds: requested.map(cyberbizScopeIdFromStoreName),
       periodKind: isCompleteMonth(start, end) ? "month" : "custom",
-      stores: requested,
       startDate: start,
       endDate: end,
       actor: { id: user.id, email: user.email },

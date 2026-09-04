@@ -2,7 +2,7 @@ import type { CyberbizInventoryClient } from "@rueisiang/cyberbiz";
 import { classifyPayload, createWebhookEventId, parseProductEvent } from "@rueisiang/cyberbiz";
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { cyberbizProductLinks, cyberbizProductWebhooks, wmsCyberbizLinks } from "./schema/wms.js";
+import { cyberbizProductWebhooks, wmsCyberbizLinks } from "./schema/wms.js";
 import { applySyncPlan, buildSyncPlan, listCompanyLinks, type SyncOutcome } from "./wms-sync.js";
 
 /**
@@ -39,15 +39,11 @@ export interface ProcessProductWebhookInput {
 }
 
 /** 把事件的處理結果寫回去。result 存 JSON，之後查「那次到底做了什麼」用。 */
-async function hasLegacyLinks(db: Database): Promise<boolean> {
-  const row = await db.get<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cyberbiz_product_links' LIMIT 1`);
-  return Boolean(row);
-}
-
 async function productIdForVariant(db: Database, variantId: string): Promise<string | null> {
-  const [link] = await (await hasLegacyLinks(db)
-    ? db.select({ productId: cyberbizProductLinks.cyberbizProductId }).from(cyberbizProductLinks).where(eq(cyberbizProductLinks.cyberbizVariantId, variantId)).limit(1)
-    : db.select({ productId: wmsCyberbizLinks.cyberbizProductId }).from(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.cyberbizVariantId, variantId)).limit(1));
+  const [link] = await db.select({ productId: wmsCyberbizLinks.cyberbizProductId })
+    .from(wmsCyberbizLinks)
+    .where(eq(wmsCyberbizLinks.cyberbizVariantId, variantId))
+    .limit(1);
   return link?.productId ?? null;
 }
 

@@ -123,6 +123,28 @@ export const wmsCyberbizLinks = sqliteTable("wms_cyberbiz_links", {
   index("idx_wms_cyberbiz_links_sku").on(table.sku),
 ]);
 
+/** CYBERBIZ 商品／庫存 webhook 的去重與處理狀態。 */
+export const cyberbizProductWebhooks = sqliteTable("cyberbiz_product_webhooks", {
+  id: text("id").primaryKey(),
+  topic: text("topic").notNull(),
+  productId: text("product_id"),
+  variantId: text("variant_id"),
+  sku: text("sku").notNull().default(""),
+  quantity: integer("quantity"),
+  payloadHash: text("payload_hash").notNull(),
+  status: text("status").notNull().default("processing"),
+  attempts: integer("attempts").notNull().default(1),
+  result: text("result").notNull().default(""),
+  lastError: text("last_error").notNull().default(""),
+  receivedAt: text("received_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  processedAt: text("processed_at"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_cyberbiz_product_webhooks_status").on(table.status, table.receivedAt),
+  index("idx_cyberbiz_product_webhooks_variant").on(table.variantId, table.receivedAt),
+]);
+
+export type CyberbizProductWebhook = typeof cyberbizProductWebhooks.$inferSelect;
 export type WmsCategory = typeof wmsCategories.$inferSelect;
 export type WmsZone = typeof wmsZones.$inferSelect;
 export type WmsShelf = typeof wmsShelves.$inferSelect;
@@ -131,31 +153,3 @@ export type WmsLayoutElement = typeof wmsLayoutElements.$inferSelect;
 export type WmsZoneImage = typeof wmsZoneImages.$inferSelect;
 export type WmsItem = typeof wmsItems.$inferSelect;
 export type WmsCyberbizLink = typeof wmsCyberbizLinks.$inferSelect;
-
-// 過渡期相容舊 service 名稱；實作會在這輪 schema overhaul 裡逐一改到新名稱。
-export {
-  customReportProducts,
-  cyberbizProductCategories,
-  cyberbizProductLinks,
-  cyberbizProductWebhooks,
-  cyberbizProducts,
-  inventoryItems,
-  layoutElements,
-  productBundleComponents,
-  productSkuMappings,
-  reportSkuIgnores,
-  warehouseCategories,
-  warehouseSettings,
-  zoneImages,
-  zones,
-  type CyberbizProduct,
-  type CustomReportProduct,
-  type InventoryItem,
-  type LayoutElement,
-  type ProductBundleComponent,
-  type ProductSkuMapping,
-  type ReportSkuIgnore,
-  type WarehouseCategory,
-  type Zone,
-  type ZoneImage,
-} from "./legacy-wms.js";

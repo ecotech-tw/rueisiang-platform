@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import app from "../index.js";
-import { createLocalD1 } from "../local-d1/d1.js";
+import { createTargetOnlyD1 } from "../local-d1/d1.js";
 import { createLocalR2 } from "../local-d1/r2.js";
 import { AssistantCredentialVault } from "../pi-agent-credentials.js";
 import { AssistantChatAgent } from "../pi-agent-do.js";
@@ -78,7 +78,7 @@ function loadDevVars(): Record<string, string> {
   return vars;
 }
 
-const d1 = createLocalD1(DB_FILE);
+const d1 = createTargetOnlyD1(DB_FILE);
 // 上傳的檔案跟 local.sqlite 放一起，想重來就把兩個一起刪掉。
 const uploads = createLocalR2(path.resolve(here, "../../local-uploads"));
 await seedDevData(d1);
@@ -136,7 +136,7 @@ function devIndex(): string {
 </body></html>`;
 }
 
-async function devLogin(url: URL, database: ReturnType<typeof createLocalD1>): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+async function devLogin(url: URL, database: ReturnType<typeof createTargetOnlyD1>): Promise<{ status: number; headers: Record<string, string>; body: string }> {
   const email = url.searchParams.get("as") ?? DEV_ACCOUNTS[0].email;
   const account = DEV_ACCOUNTS.find((item) => item.email === email);
   if (!account) return { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" }, body: "沒有這個帳號" };

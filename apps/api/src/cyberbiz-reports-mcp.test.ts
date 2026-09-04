@@ -1,7 +1,8 @@
 import { createDatabase, insertReportSalesMonthly, upsertReportScope } from "@rueisiang/db";
+import { itemCategories } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
-import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
+import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
 
 const MCP_TOKEN = "mcp-report-secret";
 let d1: LocalD1;
@@ -28,9 +29,10 @@ async function call(method: string, id: number, params: Record<string, unknown> 
 }
 
 beforeEach(async () => {
-  d1 = createLocalD1();
+  d1 = createTargetOnlyD1();
   const db = createDatabase(d1 as never);
   await upsertReportScope(db, { id: "cyberbiz:store:test", scopeKind: "store", name: "測試店" });
+  await db.insert(itemCategories).values({ id: "mcp-bath", depth: 0, parentId: null, parentDepth: null, name: "沐浴", color: "rose", sortOrder: 0, active: 1 });
   await insertReportSalesMonthly(db, [{
     scopeId: "cyberbiz:store:test", reportMonth: "2026-07", sku: "SKU-1", productName: "商品一", category: "沐浴",
     grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 180,

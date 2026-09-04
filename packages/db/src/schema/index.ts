@@ -2,7 +2,6 @@
 import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { itemCategories, itemComponents, items } from "./items.js";
-export { reportProductCategories } from "./report-products.js";
 
 export * from "./activity.js";
 export * from "./assistant.js";
@@ -22,28 +21,16 @@ export {
   type UserRoleAssignment,
 } from "./auth.js";
 export * from "./crm.js";
-export { itemCategories, itemComponents, items, cyberbizProducts as targetCyberbizProducts } from "./items.js";
+export { itemCategories, itemComponents, items, cyberbizProducts as cyberbizProductCatalog, type CyberbizProduct } from "./items.js";
 export type ItemCategory = typeof itemCategories.$inferSelect;
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;
-export type CyberbizProduct = any;
 export type ItemComponent = typeof itemComponents.$inferSelect;
 export * from "./media.js";
 export * from "./reports.js";
 export * from "./tools.js";
 export {
-  cyberbizProductCategories,
-  cyberbizProductLinks,
   cyberbizProductWebhooks,
-  cyberbizProducts,
-  customReportProducts,
-  inventoryItems,
-  layoutElements,
-  productBundleComponents,
-  productSkuMappings,
-  reportSkuIgnores,
-  warehouseCategories,
-  warehouseSettings,
   wmsCategories,
   wmsCyberbizLinks,
   wmsItems,
@@ -52,11 +39,7 @@ export {
   wmsShelves,
   wmsZoneImages,
   wmsZones,
-  zoneImages,
-  zones,
-  type InventoryItem,
-  type LayoutElement,
-  type WarehouseCategory,
+  type CyberbizProductWebhook,
   type WmsCategory,
   type WmsCyberbizLink,
   type WmsItem,
@@ -65,8 +48,6 @@ export {
   type WmsShelf,
   type WmsZone,
   type WmsZoneImage,
-  type Zone,
-  type ZoneImage,
 } from "./wms.js";
 
 // 測試與少數 route 會直接從 schema barrel 使用舊欄位名稱；實作會在本輪逐一改掉。

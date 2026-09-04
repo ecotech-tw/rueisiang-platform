@@ -11,8 +11,10 @@ import {
   assistantSandboxMessages,
   customerTagCatalog,
   customers,
-  inventoryItems,
-  layoutElements,
+  items,
+  wmsItems,
+  wmsLayoutElements,
+  wmsLayouts,
   mediaObjects,
   rolePermissions,
   roles,
@@ -971,14 +973,8 @@ describe("AI 助理 Sandbox", () => {
 
   it("Sandbox 可以透過共用 registry 搜尋 WMS 商品與位置", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
-    await db().insert(inventoryItems).values({
-      id: "wms-item-1",
-      sku: "BOX-001",
-      name: "紙箱",
-      category: "一般備品",
-      quantity: 3,
-      minStock: 5,
-    });
+    await db().insert(items).values({ id: "wms-item-1", source: "custom", kind: "supply", sku: "BOX-001", name: "紙箱", active: 1 });
+    await db().insert(wmsItems).values({ itemId: "wms-item-1", quantity: 3, unit: "件", minStock: 5, notes: "" });
 
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { contents?: unknown[] };
@@ -1006,9 +1002,13 @@ describe("AI 助理 Sandbox", () => {
 
   it("Sandbox 可以透過 WMS list tool 取得商品清單做 mapping", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
-    await db().insert(inventoryItems).values([
-      { id: "mapping-1", sku: "BOX-001", name: "紙箱", category: "一般備品", quantity: 3, minStock: 5 },
-      { id: "mapping-2", sku: "TAPE-001", name: "封箱膠帶", category: "一般備品", quantity: 8, minStock: 5 },
+    await db().insert(items).values([
+      { id: "mapping-1", source: "custom", kind: "supply", sku: "BOX-001", name: "紙箱", active: 1 },
+      { id: "mapping-2", source: "custom", kind: "supply", sku: "TAPE-001", name: "封箱膠帶", active: 1 },
+    ]);
+    await db().insert(wmsItems).values([
+      { itemId: "mapping-1", quantity: 3, unit: "件", minStock: 5, notes: "" },
+      { itemId: "mapping-2", quantity: 8, unit: "件", minStock: 5, notes: "" },
     ]);
 
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
@@ -1036,25 +1036,10 @@ describe("AI 助理 Sandbox", () => {
 
   it("Sandbox 可以查詢 WMS 地圖標籤與相對位置", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
-    await db().insert(layoutElements).values([
-      {
-        id: "map-label-1",
-        label: "冷藏區",
-        color: "sky",
-        x: 12,
-        y: 18,
-        width: 20,
-        height: 10,
-      },
-      {
-        id: "map-label-2",
-        label: "大門入口",
-        color: "rose",
-        x: 40,
-        y: 18,
-        width: 12,
-        height: 10,
-      },
+    await db().insert(wmsLayouts).values({ id: "layout-1", name: "測試地圖", canvasWidth: 1600, canvasHeight: 900, active: 1 });
+    await db().insert(wmsLayoutElements).values([
+      { id: "map-label-1", layoutId: "layout-1", elementType: "decoration", label: "冷藏區", color: "sky", x: 12, y: 18, width: 20, height: 10, zIndex: 0 },
+      { id: "map-label-2", layoutId: "layout-1", elementType: "decoration", label: "大門入口", color: "rose", x: 40, y: 18, width: 12, height: 10, zIndex: 1 },
     ]);
 
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {

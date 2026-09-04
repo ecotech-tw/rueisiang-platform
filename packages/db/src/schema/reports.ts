@@ -153,21 +153,3 @@ export type ReportRun = typeof reportRuns.$inferSelect;
 export type ReportItemSalesMonthly = typeof reportItemSalesMonthly.$inferSelect;
 export type TargetReportPayoutDaily = typeof targetReportPayoutDaily.$inferSelect;
 export type ReportIngestIssue = typeof reportIngestIssues.$inferSelect;
-
-// 過渡期相容舊 service 名稱；實作會在這輪 schema overhaul 裡逐一改到新名稱。
-export {
-  reportManualPayoutDaily,
-  reportManualSalesMonthly,
-  reportPayoutDaily,
-  reportSalesMonthly,
-  reportScopes,
-  type NewReportPayoutDaily,
-  type NewReportSalesMonthly,
-  type ReportManualPayoutDaily,
-  type ReportManualSalesMonthly,
-  type ReportManualSkuSource,
-  type ReportPayoutDaily,
-  type ReportSalesMonthly,
-  type ReportScope,
-  type ReportScopeKind,
-} from "./legacy-reports.js";
