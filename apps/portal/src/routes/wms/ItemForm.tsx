@@ -147,13 +147,13 @@ export function ItemForm({
     const { minStock, ...rest } = payload;
     update.mutate(
       { ...rest, ...(linkedToCyberbiz ? {} : { minStock }), id: item.id },
-      { onSuccess: () => { toast.show("商品資料已更新"); onClose(); } },
+      { onSuccess: () => { toast.show("品項資料已更新"); onClose(); } },
     );
   }
 
   return (
     <Dialog
-      title={item ? "編輯商品" : catalogOnly ? "新增品項" : "新增商品"}
+      title={item ? "編輯品項" : catalogOnly ? "新增品項" : "新增商品"}
       onClose={onClose}
       closeDisabled={pending}
       formProps={{
@@ -379,6 +379,9 @@ export function ItemForm({
               ) : (
                 <div className="link-panel">
                   <div>
+                    {item.source === "cyberbiz" ? (
+                      <div className="cell-strong">品項主檔已與 cyberbiz_products 同步</div>
+                    ) : null}
                     <div className="cell-sub">
                       連結之後，盤點會把數量推回官網，官網的異動也同步得回來。
                     </div>

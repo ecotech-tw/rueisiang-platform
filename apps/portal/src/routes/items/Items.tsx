@@ -177,7 +177,9 @@ export function Items() {
   const items = query.data?.items ?? [];
   const categories = query.data?.categories ?? [];
   const zones = query.data?.zones ?? [];
-  const cyberbizProducts = query.data?.cyberbizProducts ?? [];
+  const cyberbizProducts = (query.data?.cyberbizProducts ?? []).filter((product) =>
+    !items.some((item) => item.sku.trim().toUpperCase() === product.sku.trim().toUpperCase()),
+  );
 
   const selectedCategoryIds = useMemo(
     () => categoryId === "all" ? null : categoryScope(categoryId, categories),

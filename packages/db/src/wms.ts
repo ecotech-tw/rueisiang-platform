@@ -112,7 +112,7 @@ async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
       const category = wms.wmsCategoryId ? categoryRows.find((candidate) => candidate.id === wms.wmsCategoryId) : undefined;
       const link = linksByItem.get(item.id);
       return {
-        id: item.id, sku: item.sku, name: item.name, category: category?.name ?? "未分類", quantity: wms.quantity,
+        id: item.id, source: item.source, sku: item.sku, name: item.name, category: category?.name ?? "未分類", quantity: wms.quantity,
         unit: wms.unit, minStock: wms.minStock, zoneId: shelf?.zoneId ?? null, shelfLevel: shelf?.code ?? null,
         notes: wms.notes, updatedAt: wms.updatedAt,
         cyberbiz: link ? { cyberbizProductId: link.cyberbizProductId, cyberbizVariantId: link.cyberbizVariantId, sku: link.sku, syncStatus: link.syncStatus, lastSyncedQuantity: link.lastSyncedQuantity, lastSyncedAt: link.lastSyncedAt, lastError: link.lastError } : null,
@@ -223,6 +223,9 @@ export async function createItem(db: Database, input: ItemInput & { actor: Actor
   const placement = await requirePlacement(db, input.zoneId?.trim() || null, input.shelfLevel?.trim() || null);
   const id = crypto.randomUUID();
   const sku = input.sku?.trim().toUpperCase() || `WMS-${id.slice(0, 8).toUpperCase()}`;
+  const [existingCustom] = await db.select({ id: itemMasters.id }).from(itemMasters)
+    .where(and(eq(itemMasters.source, "custom"), eq(itemMasters.sku, sku))).limit(1);
+  if (existingCustom) throw new WmsError("conflict", `自訂 SKU「${sku}」已經存在，請從品項列表選取既有品項。`);
   await requireSkuAvailableForExternalMappings(db, sku);
   const item = { id, source: "custom" as const, kind: input.sku?.trim() ? "sellable" as const : "supply" as const, sku, name, category, quantity: clamp(input.quantity, 0, QUANTITY), unit: input.unit?.trim() || "件", minStock: clamp(input.minStock, 5, QUANTITY), zoneId: placement.zoneId, shelfLevel: placement.shelfLevel, notes: input.notes?.trim() || "" };
   await db.batch([

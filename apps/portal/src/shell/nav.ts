@@ -60,7 +60,7 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: "warehouse",
     items: [
       { label: "倉位地圖", to: "/wms/map", permission: "wms:map:read", icon: "grid" },
-      { label: "商品庫存", to: "/wms/inventory", permission: "wms:inventory:read", icon: "box" },
+      { label: "品項庫存", to: "/wms/inventory", permission: "wms:inventory:read", icon: "box" },
       { label: "CYBERBIZ 庫存", to: "/wms/cyberbiz", permission: "wms:inventory:read", icon: "cloudSync" },
       { label: "倉儲分類管理", to: "/wms/categories", permission: "wms:category:write", icon: "category" },
       { label: "操作紀錄", to: "/wms/activity", permission: "wms:activity:read", icon: "history" },

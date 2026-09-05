@@ -121,6 +121,8 @@ function ItemRow({
           >
             {item.cyberbiz.syncStatus === "failed" ? "同步失敗" : "CYBERBIZ"}
           </span>
+        ) : item.source === "cyberbiz" ? (
+          <span className="status status-sync-synced" title="品項主檔由 cyberbiz_products 同步">CYBERBIZ</span>
         ) : null}
       </td>
       {canWrite || canCount ? (
@@ -167,11 +169,11 @@ function ItemRow({
 }
 
 export function Inventory() {
-  usePageTitle("商品庫存");
+  usePageTitle("品項庫存");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
-  const [editing, setEditing] = useState<InventoryItem | "new" | null>(null);
-  const [enrolling, setEnrolling] = useState(false);
+  const [editing, setEditing] = useState<InventoryItem | null>(null);
+  const [adding, setAdding] = useState(false);
   const [counting, setCounting] = useState<InventoryItem | null>(null);
   const [deleting, setDeleting] = useState<InventoryItem | null>(null);
 
@@ -238,7 +240,7 @@ export function Inventory() {
   return (
     <div className="page fills">
       <PageHeader
-        title="商品庫存"
+        title="品項庫存"
         description={
           <>
               倉庫裡有什麼、放在哪、還剩多少。
@@ -246,18 +248,10 @@ export function Inventory() {
           </>
         }
         actions={canWrite ? (
-          <div className="row-actions">
-            <Button variant="secondary" onClick={() => setEnrolling(true)}>從品項列表納入</Button>
-            <Button
-              icon="plus"
-              className="add-action"
-              onClick={() => setEditing("new")}
-              aria-label="新增商品"
-            >
-              <span>新增商品</span>
-            </Button>
-          </div>
-          ) : null}
+          <Button icon="plus" className="add-action" onClick={() => setAdding(true)} aria-label="新增品項">
+            新增品項
+          </Button>
+        ) : null}
       />
 
       <Panel className="grows">
@@ -388,18 +382,14 @@ export function Inventory() {
            * 載入，但快照不會跟著變——畫面上就會看起來像沒成功（實際上資料庫已經
            * 寫進去了）。找不到就退回快照：那代表這一項剛被別人刪掉。
            */
-          item={
-            editing === "new"
-              ? undefined
-              : items.find((candidate) => candidate.id === editing.id) ?? editing
-          }
+          item={items.find((candidate) => candidate.id === editing.id) ?? editing}
           zones={zones}
           categories={categories}
           onClose={() => setEditing(null)}
         />
       ) : null}
 
-      {enrolling ? <EnrollItemDialog categories={categories} zones={zones} onClose={() => setEnrolling(false)} onSuccess={() => { void query.refetch(); }} /> : null}
+      {adding ? <EnrollItemDialog categories={categories} zones={zones} onClose={() => setAdding(false)} onSuccess={() => { void query.refetch(); }} /> : null}
       {counting ? <CountDialog item={counting} onClose={() => setCounting(null)} /> : null}
 
       {deleting ? (
