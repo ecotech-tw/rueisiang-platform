@@ -2509,17 +2509,15 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   box-shadow: 0 0 0 3px --alpha(var(--color-brand) / 14%);
 }
 .dropdown-control.select-trigger { background-image: none; }
-.filter-control .select-trigger {
-  width: max-content;
-  max-width: 100%;
-}
-.field .select-trigger { width: 100%; }
-.pager-size .select-trigger { width: auto; }
-.filter-control .select-control {
+.filter-select-control {
   display: inline-flex;
   width: max-content;
   max-width: 100%;
+  min-width: 0;
 }
+.filter-select-control .select-trigger { width: 100%; max-width: 100%; }
+.field .select-trigger { width: 100%; }
+.pager-size .select-trigger { width: auto; }
 .filter-control .dropdown-control {
   min-height: 34px;
   padding: 7px 38px 7px 10px;
@@ -2527,7 +2525,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
   background-size: 5px 5px, 5px 5px;
 }
-.filter-control .select-control::after { right: 12px; width: 7px; height: 7px; }
 .pager-size .select-control { display: inline-flex; width: max-content; }
 .pager-size .dropdown-control {
   min-height: 32px;

@@ -30,7 +30,9 @@ export function FilterSelect({ label, options, className = "", ...selectProps }:
   return (
     <label className="filter-control">
       <span className="sr-only">{label}</span>
-      <DropdownSelect {...selectProps} options={options} aria-label={label} className={className} />
+      <span className="filter-select-control">
+        <DropdownSelect {...selectProps} options={options} aria-label={label} className={className} />
+      </span>
     </label>
   );
 }
