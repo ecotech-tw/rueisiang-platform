@@ -15,7 +15,7 @@ interface ItemCatalogItem {
   id: string;
   sku: string;
   name: string;
-  source: "cyberbiz" | "custom" | "wms";
+  source: "cyberbiz" | "custom";
   category: string;
   categoryId: string | null;
   categoryColor: string;
@@ -79,8 +79,7 @@ function categoryScope(categoryId: string, categories: ProductCategory[]): Set<s
 }
 
 function sourceLabel(item: ItemCatalogItem): string {
-  if (item.source === "cyberbiz") return item.notes.includes("尚未建立") ? "CYBERBIZ 待建立品項" : "CYBERBIZ";
-  if (item.source === "wms") return "WMS 過渡品項";
+  if (item.source === "cyberbiz") return "CYBERBIZ";
   return "自訂品項";
 }
 
@@ -240,7 +239,7 @@ export function Items() {
             label="來源"
             value={sourceFilter}
             onChange={(event) => { setSourceFilter(event.target.value); setPage(1); }}
-            options={[{ value: "all", label: "全部來源" }, { value: "cyberbiz", label: "CYBERBIZ" }, { value: "custom", label: "自訂品項" }, { value: "wms", label: "WMS 過渡品項" }]}
+            options={[{ value: "all", label: "全部來源" }, { value: "cyberbiz", label: "CYBERBIZ" }, { value: "custom", label: "自訂品項" }]}
           />
           <FilterSelect
             label="分類"
