@@ -3,6 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Pager } from "../../shell/Pager.js";
 import {
   Alert,
   Button,
@@ -55,6 +56,8 @@ export function SkuMappings() {
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [channelFilter, setChannelFilter] = useState("all");
   const [mappingDialog, setMappingDialog] = useState<MappingDialogState | null>(null);
   const [deleting, setDeleting] = useState<ProductSkuMapping | null>(null);
@@ -92,6 +95,9 @@ export function SkuMappings() {
       && matches(mapping, term),
     );
   }, [category, channelFilter, mappings, search]);
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedVisible = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   return (
     <div className="page fills">
       <PageHeader
@@ -209,11 +215,7 @@ export function SkuMappings() {
         </details>
       ) : null}
 
-      <Panel
-        className="grows"
-        title="目前對應"
-        description={`共 ${visible.length.toLocaleString("zh-TW")} 筆${visible.length !== mappings.length ? `（全部 ${mappings.length.toLocaleString("zh-TW")} 筆）` : ""}`}
-      >
+      <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <FilterInput
             label="搜尋"
@@ -221,22 +223,22 @@ export function SkuMappings() {
             type="search"
             placeholder="搜尋通路商品、外部 SKU、WMS SKU 或分類"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => { setSearch(event.target.value); setPage(1); }}
           />
           <FilterSelect
             label="通路"
             value={channelFilter}
-            onChange={(event) => setChannelFilter(event.target.value)}
+            onChange={(event) => { setChannelFilter(event.target.value); setPage(1); }}
             options={[{ value: "all", label: "全部通路" }, ...channels.map((value) => ({ value, label: productSkuChannelLabel(value) }))]}
           />
           <FilterSelect
             label="分類"
             value={category}
-            onChange={(event) => setCategory(event.target.value)}
+            onChange={(event) => { setCategory(event.target.value); setPage(1); }}
             options={[{ value: "all", label: "全部分類" }, ...categories.map((value) => ({ value, label: value }))]}
           />
           {search || channelFilter !== "all" || category !== "all" ? (
-            <Button variant="link" onClick={() => { setSearch(""); setChannelFilter("all"); setCategory("all"); }}>
+            <Button variant="link" onClick={() => { setSearch(""); setChannelFilter("all"); setCategory("all"); setPage(1); }}>
               清除篩選
             </Button>
           ) : null}
@@ -259,7 +261,7 @@ export function SkuMappings() {
               </tr>
             </thead>
             <tbody>
-              {visible.map((mapping) => (
+              {pagedVisible.map((mapping) => (
                 <tr key={mapping.id}>
                   <td data-label="通路"><span className="status status-tone-slate">{productSkuChannelLabel(mapping.channel)}</span></td>
                   <td data-label="通路商品">
@@ -314,6 +316,17 @@ export function SkuMappings() {
           <p className="muted table-note">
             {mappings.length === 0 ? "還沒有任何外部 SKU 對應。" : "沒有符合條件的對應，請調整搜尋或篩選。"}
           </p>
+        ) : null}
+        {visible.length > 0 ? (
+          <Pager
+            page={currentPage}
+            pageSize={pageSize}
+            pageSizes={[10, 25, 50, 100]}
+            totalPages={totalPages}
+            totalLabel={`共 ${visible.length.toLocaleString("zh-TW")} 筆`}
+            onPage={setPage}
+            onPageSize={(next) => { setPageSize(next); setPage(1); }}
+          />
         ) : null}
       </Panel>
 

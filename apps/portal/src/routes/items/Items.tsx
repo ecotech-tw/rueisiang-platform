@@ -2,10 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Combobox } from "@base-ui/react/combobox";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
-import { Alert, Button, Dialog, FilterInput, PageHeader, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Icon } from "../../shell/icons.js";
+import { Pager } from "../../shell/Pager.js";
 import { ItemForm } from "../wms/ItemForm.js";
 import type { CyberbizCatalogProduct, ProductCategory, Zone } from "../wms/api.js";
 
@@ -56,10 +57,6 @@ function arrangeCategories(categories: ProductCategory[]): ProductCategory[] {
   return categories.flatMap((category) => category.parentId ? [] : [category, ...categories.filter((child) => child.parentId === category.id)]);
 }
 
-function categoryLabel(category: ProductCategory): string {
-  return category.depth === 1 ? `　${category.name}` : category.name;
-}
-
 function categoryPath(category: ProductCategory, categories: ProductCategory[]): string {
   if (!category.parentId) return category.name;
   const parent = categories.find((candidate) => candidate.id === category.parentId);
@@ -86,8 +83,6 @@ function sourceLabel(item: ItemCatalogItem): string {
   if (item.source === "wms") return "WMS 過渡品項";
   return "自建品項";
 }
-
-const ALL_CATEGORY: ProductCategory = { id: "all", name: "全部分類", color: "slate", parentId: null, depth: 0 };
 
 interface ItemCatalogGroup {
   id: string;
@@ -168,6 +163,8 @@ export function Items() {
   usePageTitle("品項列表");
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [editing, setEditing] = useState<"new" | { cyberbizSku: string } | null>(null);
   const [editingItem, setEditingItem] = useState<ItemCatalogItem | null>(null);
   const query = useQuery({ queryKey: ["items", "catalog"], queryFn: loadItemCatalog, staleTime: 30_000 });
@@ -193,7 +190,10 @@ export function Items() {
       return [item.name, item.sku ?? "", item.category, item.notes].some((value) => String(value ?? "").toLowerCase().includes(term));
     });
   }, [items, search, selectedCategoryIds]);
-  const groups = useMemo(() => arrangeCatalogGroups(visible, categories), [categories, visible]);
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedItems = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const groups = useMemo(() => arrangeCatalogGroups(pagedItems, categories), [categories, pagedItems]);
   const inWarehouseCount = items.filter((item) => item.inWarehouse).length;
   const cyberbizCount = items.filter((item) => item.source === "cyberbiz").length;
   const pendingWarehouseCount = items.length - inWarehouseCount;
@@ -213,7 +213,7 @@ export function Items() {
         <div className="stat"><span>CYBERBIZ 鏡像</span><strong>{cyberbizCount.toLocaleString("zh-TW")}</strong></div>
       </div>
 
-      <Panel className="grows" title="全部品項" description={`目前顯示 ${visible.length.toLocaleString("zh-TW")} / ${items.length.toLocaleString("zh-TW")} 項；分類標籤直接顯示在每一列。`}>
+      <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <FilterInput
             label="搜尋"
@@ -221,21 +221,14 @@ export function Items() {
             type="search"
             placeholder="搜尋品名、SKU、分類或備註"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => { setSearch(event.target.value); setPage(1); }}
           />
-          <label className="field catalog-category-filter">
-            <span>分類</span>
-            <Combobox.Root
-              items={[ALL_CATEGORY, ...arrangeCategories(categories)]}
-              value={categoryId === "all" ? ALL_CATEGORY : categories.find((item) => item.id === categoryId) ?? null}
-              onValueChange={(item) => setCategoryId(item?.id ?? "all")}
-              itemToStringLabel={(item) => item?.name ?? ""}
-              autoHighlight
-            >
-              <Combobox.InputGroup className="combobox-group"><Combobox.Input className="combobox-input" placeholder="搜尋或選擇分類" /><Combobox.Clear className="combobox-clear" aria-label="清除分類"><Icon name="close" /></Combobox.Clear><Combobox.Trigger className="combobox-trigger" aria-label="開啟分類選單"><Icon name="chevronDown" /></Combobox.Trigger></Combobox.InputGroup>
-              <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(item: ProductCategory) => <Combobox.Item key={item.id} value={item} className="combobox-item"><span>{item.id === "all" ? item.name : categoryLabel(item)}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
-            </Combobox.Root>
-          </label>
+          <FilterSelect
+            label="分類"
+            value={categoryId}
+            onChange={(event) => { setCategoryId(event.target.value); setPage(1); }}
+            options={[{ value: "all", label: "全部分類" }, ...arrangeCategories(categories).map((category) => ({ value: category.id, label: category.parentId ? categoryPath(category, categories) : category.name }))]}
+          />
         </form>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
@@ -281,6 +274,17 @@ export function Items() {
 
         {query.isPending ? <p className="muted table-note">載入中…</p> : null}
         {query.data && visible.length === 0 ? <p className="muted table-note">沒有符合條件的品項。</p> : null}
+        {visible.length > 0 ? (
+          <Pager
+            page={currentPage}
+            pageSize={pageSize}
+            pageSizes={[10, 25, 50, 100]}
+            totalPages={totalPages}
+            totalLabel={`共 ${visible.length.toLocaleString("zh-TW")} 項`}
+            onPage={setPage}
+            onPageSize={(next) => { setPageSize(next); setPage(1); }}
+          />
+        ) : null}
       </Panel>
 
       {editingItem ? <EditItemDialog item={editingItem} categories={categories} onClose={() => setEditingItem(null)} /> : null}

@@ -1777,12 +1777,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   background: var(--color-canvas);
 }
 .catalog-group-row .cell-sub { margin-left: 8px; }
-.catalog-category-filter { min-width: min(260px, 100%); }
-/* 分類篩選是工具列的 compact 控制項，要跟左側搜尋框同高，不沿用對話框欄位的 44px。 */
-.admin-form.toolbar .catalog-category-filter .combobox-group { min-height: 35px; }
-.admin-form.toolbar .catalog-category-filter .combobox-input { min-height: 33px !important; padding: 7px 10px !important; }
-.admin-form.toolbar .catalog-category-filter .combobox-trigger { padding: 7px 10px; }
-
 /* 目錄的新鮮度說明。貼在工具列下方，跟表格分開。 */
 .catalog-note { margin: 0 4px 4px; font-size: 12px; }
 
