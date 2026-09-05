@@ -20,6 +20,20 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createLocalD1, LocalD1 } from "./local-d1/d1.js";
 
+/**
+ * 這幾支測試把舊的權限 migration 重播在「已經套完所有 migration」的資料庫上，
+ * 檢查它們重跑不會壞。0019 與 0020 當年寫的是 roles.`key`，那一欄在 0094 被拿掉了
+ * （它只是 role_key 的舊鏡像），照原文重播會 no such column。
+ *
+ * 這裡只換欄位名稱，不動檔案本身——真正的 migration 順序是 0019 先跑、0094 後跑，
+ * 在那個順序下原文永遠是對的。要檢查的是「INSERT OR IGNORE 重跑不會多塞」，
+ * 換個欄位名不影響這件事。
+ */
+function readHistoricalMigration(file: string): string {
+  // 只換 roles 那個欄位，不要碰 assistant_tool_configs.key（那一欄還在）。
+  return readFileSync(file, "utf8").replace(/(FROM\s+`?roles`?\s+WHERE\s+)`?key`?/gi, "$1`role_key`");
+}
+
 const REPAIR_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0019_restore_admin_permissions.sql", import.meta.url),
 );
@@ -97,43 +111,43 @@ describe("bootstrap 管理員權限 migration", () => {
       { roleId: "role-admin", permission: "admin:role:write" },
     ]);
 
-    const sql = readFileSync(REPAIR_MIGRATION, "utf8");
+    const sql = readHistoricalMigration(REPAIR_MIGRATION);
     d1.sqlite.exec(sql);
     d1.sqlite.exec(sql);
-    const orderPermissionSql = readFileSync(ORDER_PERMISSION_MIGRATION, "utf8");
+    const orderPermissionSql = readHistoricalMigration(ORDER_PERMISSION_MIGRATION);
     d1.sqlite.exec(orderPermissionSql);
     d1.sqlite.exec(orderPermissionSql);
-    const shopeeMigrationSql = readFileSync(SHOPEE_MIGRATION, "utf8");
+    const shopeeMigrationSql = readHistoricalMigration(SHOPEE_MIGRATION);
     const shopeePermissionSql = shopeeMigrationSql.slice(
       shopeeMigrationSql.indexOf("INSERT OR IGNORE INTO role_permissions"),
     );
     d1.sqlite.exec(shopeePermissionSql);
     d1.sqlite.exec(shopeePermissionSql);
-    const cyberbizReportMigrationSql = readFileSync(CYBERBIZ_REPORT_MIGRATION, "utf8");
+    const cyberbizReportMigrationSql = readHistoricalMigration(CYBERBIZ_REPORT_MIGRATION);
     const cyberbizReportPermissionSql = cyberbizReportMigrationSql.slice(
       cyberbizReportMigrationSql.indexOf("INSERT OR IGNORE INTO role_permissions"),
     );
     d1.sqlite.exec(cyberbizReportPermissionSql);
     d1.sqlite.exec(cyberbizReportPermissionSql);
-    const cyberbizSalesPermissionSql = readFileSync(CYBERBIZ_SALES_PERMISSION_MIGRATION, "utf8");
+    const cyberbizSalesPermissionSql = readHistoricalMigration(CYBERBIZ_SALES_PERMISSION_MIGRATION);
     d1.sqlite.exec(cyberbizSalesPermissionSql);
     d1.sqlite.exec(cyberbizSalesPermissionSql);
-    const removeShopeeSettingsPermissionSql = readFileSync(REMOVE_SHOPEE_SETTINGS_PERMISSION_MIGRATION, "utf8");
+    const removeShopeeSettingsPermissionSql = readHistoricalMigration(REMOVE_SHOPEE_SETTINGS_PERMISSION_MIGRATION);
     d1.sqlite.exec(removeShopeeSettingsPermissionSql);
     d1.sqlite.exec(removeShopeeSettingsPermissionSql);
-    const skuMappingPermissionSql = readFileSync(SKU_MAPPING_PERMISSION_MIGRATION, "utf8")
+    const skuMappingPermissionSql = readHistoricalMigration(SKU_MAPPING_PERMISSION_MIGRATION)
       .split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean);
     for (const statement of [...skuMappingPermissionSql, ...skuMappingPermissionSql]) d1.sqlite.exec(statement);
-    const analyticsPermissionSql = readFileSync(ANALYTICS_PERMISSION_MIGRATION, "utf8");
+    const analyticsPermissionSql = readHistoricalMigration(ANALYTICS_PERMISSION_MIGRATION);
     d1.sqlite.exec(analyticsPermissionSql);
     d1.sqlite.exec(analyticsPermissionSql);
-    const cyberbizReportWritePermissionSql = readFileSync(CYBERBIZ_REPORT_WRITE_PERMISSION_MIGRATION, "utf8");
+    const cyberbizReportWritePermissionSql = readHistoricalMigration(CYBERBIZ_REPORT_WRITE_PERMISSION_MIGRATION);
     d1.sqlite.exec(cyberbizReportWritePermissionSql);
     d1.sqlite.exec(cyberbizReportWritePermissionSql);
-    const productCategoryPermissionSql = readFileSync(PRODUCT_CATEGORY_PERMISSION_MIGRATION, "utf8");
+    const productCategoryPermissionSql = readHistoricalMigration(PRODUCT_CATEGORY_PERMISSION_MIGRATION);
     d1.sqlite.exec(productCategoryPermissionSql);
     d1.sqlite.exec(productCategoryPermissionSql);
-    const itemWmsPermissionSql = readFileSync(ITEM_WMS_PERMISSION_MIGRATION, "utf8");
+    const itemWmsPermissionSql = readHistoricalMigration(ITEM_WMS_PERMISSION_MIGRATION);
     d1.sqlite.exec(itemWmsPermissionSql);
     d1.sqlite.exec(itemWmsPermissionSql);
 
@@ -157,7 +171,7 @@ describe("bootstrap 管理員權限 migration", () => {
       { userId: "user-legacy", permission: "tools:sku-mapping:read", grantedBy: "bootstrap" },
     ]);
 
-    const sql = readFileSync(ITEM_WMS_PERMISSION_MIGRATION, "utf8");
+    const sql = readHistoricalMigration(ITEM_WMS_PERMISSION_MIGRATION);
     d1.sqlite.exec(sql);
     d1.sqlite.exec(sql);
 
@@ -187,7 +201,7 @@ describe("bootstrap 管理員權限 migration", () => {
       grantedBy: "bootstrap",
     });
 
-    const sql = readFileSync(REMOVE_SHOPEE_SETTINGS_PERMISSION_MIGRATION, "utf8");
+    const sql = readHistoricalMigration(REMOVE_SHOPEE_SETTINGS_PERMISSION_MIGRATION);
     d1.sqlite.exec(sql);
     d1.sqlite.exec(sql);
 
@@ -297,7 +311,7 @@ describe("角色分類 migration", () => {
       0,
     );
 
-    const sql = readFileSync(ROLE_CLASSIFICATION_MIGRATION, "utf8");
+    const sql = readHistoricalMigration(ROLE_CLASSIFICATION_MIGRATION);
     sqlite.exec(sql);
     sqlite.exec(sql);
 

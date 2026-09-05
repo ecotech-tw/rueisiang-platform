@@ -547,6 +547,13 @@
       "when": 1788630491531,
       "tag": "0093_schema_single_definition",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "6",
+      "when": 1788630000000,
+      "tag": "0094_drop_roles_legacy_key",
+      "breakpoints": true
     }
   ]
 }
