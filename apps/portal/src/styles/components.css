@@ -1984,16 +1984,27 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .combobox-popup:has(.combobox-item) { display: block; }
 /* 不可輸入的 dropdown 也使用同一套 autocomplete popup 視覺，只保留選取互動。 */
 .select-trigger {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   width: 100%;
+  padding-right: 52px;
   background-image: none;
   text-align: left;
 }
 .select-trigger:focus-visible { outline: 0; }
 .select-trigger-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.select-trigger-icon { display: inline-flex; flex: none; align-items: center; margin-left: auto; color: var(--color-muted); }
+.select-trigger-icon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: inline-flex;
+  width: 44px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+}
 .select-trigger-icon svg { width: 20px; height: 20px; }
 .select-positioner { z-index: 100; }
 .select-popup {
@@ -2516,6 +2527,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   min-width: 0;
 }
 .filter-select-control .select-trigger { width: 100%; max-width: 100%; }
+.analytics-filter-field .select-trigger,
 .field .select-trigger { width: 100%; }
 .pager-size .select-trigger { width: auto; }
 .filter-control .dropdown-control {
