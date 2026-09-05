@@ -210,10 +210,15 @@ async function requireSkuAvailableForExternalMappings(db: Database, sku: string 
     .from(reportExternalProducts)
     .where(and(eq(reportExternalProducts.externalKey, sku), eq(reportExternalProducts.resolution, "mapped"), itemId ? sql`NOT (${reportExternalProducts.itemId} = ${itemId})` : sql`1 = 1`)).limit(1);
   if (mapping) throw new WmsError("conflict", `WMS SKU「${sku}」已被外部 SKU 對應「${mapping.channel} · ${mapping.externalSku}」使用。`);
-  const [customOwner] = await db.select({ name: itemMasters.name }).from(itemMasters)
-    .leftJoin(wmsItems, eq(wmsItems.itemId, itemMasters.id))
-    .where(and(eq(itemMasters.source, "custom"), eq(itemMasters.sku, sku), sql`${wmsItems.itemId} IS NULL`, itemId ? sql`${itemMasters.id} <> ${itemId}` : undefined)).limit(1);
-  if (customOwner) throw new WmsError("conflict", `WMS SKU「${sku}」已被自訂商品主檔「${customOwner.name}」使用，請先改掉那筆自訂 SKU。`);
+  // SKU 是全平台唯一（items 的 idx_items_sku），所以這裡不能只查 custom：打一個既有的
+  // CYBERBIZ SKU 一樣是重複，只是會撞在索引上變成看不懂的錯誤訊息。
+  const [owner] = await db.select({ name: itemMasters.name, source: itemMasters.source }).from(itemMasters)
+    .where(and(eq(itemMasters.sku, sku), itemId ? sql`${itemMasters.id} <> ${itemId}` : undefined)).limit(1);
+  if (owner) {
+    throw new WmsError("conflict", owner.source === "cyberbiz"
+      ? `SKU「${sku}」已經是 CYBERBIZ 品項「${owner.name}」，請從品項列表選取，不要另外建一筆。`
+      : `SKU「${sku}」已被自訂品項「${owner.name}」使用，請改用別的 SKU。`);
+  }
 }
 
 export async function createItem(db: Database, input: ItemInput & { actor: Actor }) {

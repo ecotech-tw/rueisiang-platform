@@ -23,6 +23,8 @@ export const mediaObjects = sqliteTable("media_objects", {
   expiresAt: text("expires_at"),
 }, (table) => [
   index("idx_media_objects_expires_at").on(table.expiresAt).where(sql`${table.expiresAt} IS NOT NULL`),
+  index("idx_media_objects_namespace_created_at").on(table.namespace, table.createdAt),
+  index("idx_media_objects_scope_key").on(table.namespace, table.scopeKey),
 ]);
 
 export type MediaObject = typeof mediaObjects.$inferSelect;

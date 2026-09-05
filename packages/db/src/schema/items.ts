@@ -43,7 +43,10 @@ export const items = sqliteTable("items", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
-  uniqueIndex("idx_items_source_sku").on(table.source, table.sku),
+  // SKU 是全平台唯一，不是「每個來源各自唯一」。舊的 UNIQUE(source, sku) 讓同一個 SKU
+  // 可以在 cyberbiz 與 custom 各存一份，0081／0088 的 backfill 就是這樣建出四組重複的
+  // 品項（見 0089_z）。靠 UI 過濾擋不住 sync、批次匯入與直接打 API，所以擋在這裡。
+  uniqueIndex("idx_items_sku").on(table.sku),
   index("idx_items_category").on(table.categoryId, table.active),
   index("idx_items_name").on(table.name),
   check("ck_items_source", sql`${table.source} IN ('cyberbiz', 'custom')`),

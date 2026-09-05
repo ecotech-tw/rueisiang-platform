@@ -8,24 +8,28 @@ export type WmsLayoutElementType = "zone" | "decoration";
 /** 倉儲作業用分類；與營運分析的 item_categories 分開。 */
 export const wmsCategories = sqliteTable("wms_categories", {
   id: text("id").primaryKey(),
-  name: text("name").notNull().unique(),
+  name: text("name").notNull(),
   color: text("color").notNull().default("rose"),
   active: integer("active").notNull().default(1),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [
+  uniqueIndex("idx_wms_categories_name").on(table.name),
+]);
 
 /** 倉庫裡的一個區域；幾何位置在 wms_layout_elements。 */
 export const wmsZones = sqliteTable("wms_zones", {
   id: text("id").primaryKey(),
-  code: text("code").notNull().unique(),
+  code: text("code").notNull(),
   name: text("name").notNull(),
   color: text("color").notNull().default("mint"),
   notes: text("notes").notNull().default(""),
   active: integer("active").notNull().default(1),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [
+  uniqueIndex("idx_wms_zones_code").on(table.code),
+]);
 
 /** 倉位裡的層；wms_items 指向這裡而不是 JSON 字串。 */
 export const wmsShelves = sqliteTable("wms_shelves", {
@@ -45,13 +49,15 @@ export const wmsShelves = sqliteTable("wms_shelves", {
 /** 倉庫地圖。 */
 export const wmsLayouts = sqliteTable("wms_layouts", {
   id: text("id").primaryKey(),
-  name: text("name").notNull().unique(),
+  name: text("name").notNull(),
   canvasWidth: integer("canvas_width").notNull().default(1600),
   canvasHeight: integer("canvas_height").notNull().default(900),
   active: integer("active").notNull().default(1),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [
+  uniqueIndex("idx_wms_layouts_name").on(table.name),
+]);
 
 /** 地圖上的方塊：倉位或裝飾元素。 */
 export const wmsLayoutElements = sqliteTable("wms_layout_elements", {
@@ -106,9 +112,9 @@ export const wmsItems = sqliteTable("wms_items", {
 /** WMS 商品與 CYBERBIZ 款式的同步連結；與商品主檔分開，避免同步自動創造 WMS 品項。 */
 export const wmsCyberbizLinks = sqliteTable("wms_cyberbiz_links", {
   id: text("id").primaryKey(),
-  wmsItemId: text("wms_item_id").notNull().unique().references(() => wmsItems.itemId, { onDelete: "cascade" }),
+  wmsItemId: text("wms_item_id").notNull().references(() => wmsItems.itemId, { onDelete: "cascade" }),
   cyberbizProductId: text("cyberbiz_product_id").notNull(),
-  cyberbizVariantId: text("cyberbiz_variant_id").notNull().unique(),
+  cyberbizVariantId: text("cyberbiz_variant_id").notNull(),
   sku: text("sku").notNull(),
   warehouseScope: text("warehouse_scope").notNull().default("company"),
   posShopId: integer("pos_shop_id").notNull().default(0),
@@ -119,6 +125,8 @@ export const wmsCyberbizLinks = sqliteTable("wms_cyberbiz_links", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
+  uniqueIndex("idx_wms_cyberbiz_links_item").on(table.wmsItemId),
+  uniqueIndex("idx_wms_cyberbiz_links_variant").on(table.cyberbizVariantId),
   index("idx_wms_cyberbiz_links_status").on(table.syncStatus),
   index("idx_wms_cyberbiz_links_sku").on(table.sku),
 ]);
