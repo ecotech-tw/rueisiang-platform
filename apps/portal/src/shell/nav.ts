@@ -50,7 +50,7 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: "box",
     items: [
       { label: "品項列表", to: "/items/catalog", permission: "items:item:read", icon: "box" },
-      { label: "品項分類", to: "/items/categories", permission: "items:category:read", icon: "category" },
+      { label: "品項分類管理", to: "/items/categories", permission: "items:category:read", icon: "widgets" },
       { label: "SKU 對應", to: "/items/sku-mappings", permission: "wms:mapping:read", icon: "link" },
     ],
   },
