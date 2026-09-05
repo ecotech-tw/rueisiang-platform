@@ -73,15 +73,18 @@ export function Pager({
         <span className="muted">{totalLabel}</span>
         <label className="pager-size">
           每頁
-          <select
-            aria-label="每頁筆數"
-            value={String(pageSize)}
-            onChange={(event) => onPageSize(Number(event.target.value))}
-          >
-            {pageSizes.map((size) => (
-              <option key={size} value={size}>{size}</option>
-            ))}
-          </select>
+          <span className="select-control">
+            <select
+              aria-label="每頁筆數"
+              className="dropdown-control"
+              value={String(pageSize)}
+              onChange={(event) => onPageSize(Number(event.target.value))}
+            >
+              {pageSizes.map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </span>
           筆
         </label>
       </div>

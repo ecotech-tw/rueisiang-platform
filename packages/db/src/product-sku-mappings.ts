@@ -51,8 +51,10 @@ export interface ProductSkuMappingManagementRow extends ProductSkuMappingRow {
 }
 
 export interface ProductBundleComponentManagementRow {
+  /** target schema 的 item id；所有新的 SKU 對應都直接保存這個 ID。 */
+  itemId: string;
+  /** 舊 API/UI 使用的 WMS item id；新資料以 itemId 為準。 */
   source: "item" | "cyberbiz" | "custom";
-  /** target schema 的 item id；名稱保留給既有 API/UI。 */
   inventoryItemId: string | null;
   cyberbizSku: string | null;
   customProductId: string | null;
@@ -80,7 +82,7 @@ export interface UnmappedProductOption {
 export interface ProductSkuMappingManagementData {
   mappings: ProductSkuMappingManagementRow[];
   categories: string[];
-  /** 只列入庫的 target item，mapping 的用料來源集中從這裡挑。 */
+  /** 可直接作為 mapping 用料的 target item；包含 WMS 品項與 CYBERBIZ 鏡像，不包含未入庫自訂品項。 */
   items: ProductSkuMappingItemOption[];
   /** 從最近匯入問題彙整，並排除已經有 mapping／ignore 的外部 SKU。 */
   unmappedProducts: UnmappedProductOption[];
@@ -116,7 +118,7 @@ async function categoryNames(db: Database): Promise<Map<string, string>> {
 }
 
 async function loadTargetProductSkuMappingManagement(db: Database): Promise<ProductSkuMappingManagementData> {
-  const [rows, categories, wmsRows, unmappedRows, resolvedRows] = await Promise.all([
+  const [rows, categories, wmsRows, cyberbizRows, unmappedRows, resolvedRows] = await Promise.all([
     db.select({
       id: reportExternalProducts.id,
       channel: reportExternalProducts.sourceType,
@@ -141,6 +143,10 @@ async function loadTargetProductSkuMappingManagement(db: Database): Promise<Prod
       .from(wmsItems)
       .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
       .orderBy(asc(itemMasters.name), asc(itemMasters.sku)),
+    db.select({ id: itemMasters.id, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId })
+      .from(itemMasters)
+      .where(eq(itemMasters.source, "cyberbiz"))
+      .orderBy(asc(itemMasters.name), asc(itemMasters.sku)),
     db.select({
       channel: reportRuns.sourceType,
       externalSku: reportIngestIssues.externalKey,
@@ -157,6 +163,25 @@ async function loadTargetProductSkuMappingManagement(db: Database): Promise<Prod
   ]);
   const categoryById = new Map(categories.map((category) => [category.id, category.name]));
   const wmsIds = new Set(wmsRows.map((row) => row.itemId));
+  const itemOptions = new Map<string, ProductSkuMappingItemOption>();
+  for (const row of wmsRows) {
+    itemOptions.set(row.itemId, {
+      id: row.itemId,
+      sku: row.sku,
+      name: row.name || row.sku,
+      category: categoryById.get(row.categoryId ?? "") ?? "未分類",
+    });
+  }
+  for (const row of cyberbizRows) {
+    if (!itemOptions.has(row.id)) {
+      itemOptions.set(row.id, {
+        id: row.id,
+        sku: row.sku,
+        name: row.name || row.sku,
+        category: categoryById.get(row.categoryId ?? "") ?? "未分類",
+      });
+    }
+  }
   const resolvedKeys = new Set(resolvedRows.map((row) => `${normalizeProductSkuChannel(row.channel)}\u0000${normalizeExternalSku(row.externalSku)}`));
   const unmappedByKey = new Map<string, UnmappedProductOption>();
   for (const row of unmappedRows) {
@@ -197,6 +222,7 @@ async function loadTargetProductSkuMappingManagement(db: Database): Promise<Prod
     categoryId: string | null;
     quantity: number;
   }): ProductBundleComponentManagementRow => ({
+    itemId: row.id,
     source: row.source === "cyberbiz" ? "cyberbiz" : wmsIds.has(row.id) ? "item" : "custom",
     inventoryItemId: wmsIds.has(row.id) ? row.id : null,
     cyberbizSku: row.source === "cyberbiz" ? row.sku : null,
@@ -207,12 +233,7 @@ async function loadTargetProductSkuMappingManagement(db: Database): Promise<Prod
     quantity: row.quantity,
   });
   return {
-    items: wmsRows.map((row) => ({
-      id: row.itemId,
-      sku: row.sku,
-      name: row.name || row.sku,
-      category: categoryById.get(row.categoryId ?? "") ?? "未分類",
-    })),
+    items: [...itemOptions.values()],
     unmappedProducts: [...unmappedByKey.values()],
     mappings: rows.map((row) => {
       const children = (componentsByParent.get(row.itemId ?? "") ?? [])
@@ -243,7 +264,9 @@ export async function loadProductSkuMappingManagement(db: Database): Promise<Pro
 }
 
 export interface ProductBundleComponentInput {
-  /** target wms_items.item_id；保留 API 名稱避免前端 payload 變更。 */
+  /** target items.id；新的 SKU 對應直接使用全平台品項主檔。 */
+  itemId?: string | null;
+  /** 舊版 API 的 target wms_items.item_id，保留給既有資料與相容性。 */
   inventoryItemId?: string | null;
   cyberbizSku?: string | null;
   customSku?: string | null;
@@ -253,6 +276,7 @@ export interface ProductBundleComponentInput {
 }
 
 interface NormalizedComponent {
+  itemId: string | null;
   inventoryItemId: string | null;
   cyberbizSku: string | null;
   customSku: string | null;
@@ -267,24 +291,30 @@ function validateBundleComponents(components: ProductBundleComponentInput[] | un
   const seenCyberbiz = new Set<string>();
   const seenCustom = new Set<string>();
   return components.map((component) => {
+    const itemId = typeof component?.itemId === "string" ? component.itemId.trim() : "";
     const inventoryItemId = typeof component?.inventoryItemId === "string" ? component.inventoryItemId.trim() : "";
     const cyberbizSku = typeof component?.cyberbizSku === "string" ? normalizeExternalSku(component.cyberbizSku) : "";
     const customSku = typeof component?.customSku === "string" ? normalizeExternalSku(component.customSku) : "";
     if (!Number.isSafeInteger(component?.quantity) || component.quantity <= 0) {
       throw new WmsError("invalid", "組合用料的數量必須是大於 0 的整數。");
     }
-    if ([inventoryItemId, cyberbizSku, customSku].filter(Boolean).length !== 1) {
-      throw new WmsError("invalid", "每一列組合用料只能選擇 WMS 商品、CYBERBIZ 商品或自訂 SKU 其中一種。");
+    if ([itemId, inventoryItemId, cyberbizSku, customSku].filter(Boolean).length !== 1) {
+      throw new WmsError("invalid", "每一列組合用料只能選擇一個品項。");
+    }
+    if (itemId) {
+      if (seenItems.has(itemId)) throw new WmsError("invalid", "組合用料不可重複設定同一個品項。");
+      seenItems.add(itemId);
+      return { itemId, inventoryItemId: null, cyberbizSku: null, customSku: null, customName: "", customCategory: "", quantity: component.quantity };
     }
     if (inventoryItemId) {
       if (seenItems.has(inventoryItemId)) throw new WmsError("invalid", "組合用料不可重複設定同一個 WMS 商品。");
       seenItems.add(inventoryItemId);
-      return { inventoryItemId, cyberbizSku: null, customSku: null, customName: "", customCategory: "", quantity: component.quantity };
+      return { itemId: null, inventoryItemId, cyberbizSku: null, customSku: null, customName: "", customCategory: "", quantity: component.quantity };
     }
     if (cyberbizSku) {
       if (seenCyberbiz.has(cyberbizSku)) throw new WmsError("invalid", "組合用料不可重複設定同一個 CYBERBIZ 商品。");
       seenCyberbiz.add(cyberbizSku);
-      return { inventoryItemId: null, cyberbizSku, customSku: null, customName: "", customCategory: "", quantity: component.quantity };
+      return { itemId: null, inventoryItemId: null, cyberbizSku, customSku: null, customName: "", customCategory: "", quantity: component.quantity };
     }
     if (seenCustom.has(customSku)) throw new WmsError("invalid", "組合用料不可重複設定同一個自訂 SKU。");
     seenCustom.add(customSku);
@@ -293,6 +323,7 @@ function validateBundleComponents(components: ProductBundleComponentInput[] | un
     return {
       inventoryItemId: null,
       cyberbizSku: null,
+      itemId: null,
       customSku,
       customName,
       customCategory: (component.customCategory ?? "").trim() || "未分類",
@@ -325,6 +356,21 @@ async function requireExternalSkuAvailable(
 }
 
 async function requireTargetMappingItem(db: Database, component: NormalizedComponent): Promise<string> {
+  if (component.itemId) {
+    const [item] = await db.select({ id: itemMasters.id, source: itemMasters.source })
+      .from(itemMasters)
+      .where(eq(itemMasters.id, component.itemId))
+      .limit(1);
+    if (!item) throw new WmsError("not_found", "找不到對應的品項。");
+    if (item.source !== "cyberbiz") {
+      const [wmsItem] = await db.select({ itemId: wmsItems.itemId })
+        .from(wmsItems)
+        .where(eq(wmsItems.itemId, item.id))
+        .limit(1);
+      if (!wmsItem) throw new WmsError("invalid", "SKU 對應只能選擇 CYBERBIZ 品項或已納入 WMS 的品項。");
+    }
+    return item.id;
+  }
   if (component.inventoryItemId) {
     const [item] = await db.select({ id: itemMasters.id })
       .from(wmsItems)
@@ -404,7 +450,7 @@ async function addTargetProductSkuMapping(
   if (!externalName) throw new WmsError("invalid", "通路商品名稱不可為空。");
   const components = validateBundleComponents(input.components);
   await requireExternalSkuAvailable(db, externalSku,
-    components.map((component) => component.inventoryItemId).filter((id): id is string => !!id),
+    components.map((component) => component.itemId ?? component.inventoryItemId).filter((id): id is string => !!id),
     components.map((component) => component.customSku).filter((sku): sku is string => !!sku));
   const [existing] = await db.select({ id: reportExternalProducts.id, resolution: reportExternalProducts.resolution })
     .from(reportExternalProducts)
@@ -462,7 +508,7 @@ async function updateTargetProductSkuMapping(
   if (!externalName) throw new WmsError("invalid", "通路商品名稱不可為空。");
   const components = validateBundleComponents(input.components);
   await requireExternalSkuAvailable(db, externalSku,
-    components.map((component) => component.inventoryItemId).filter((id): id is string => !!id),
+    components.map((component) => component.itemId ?? component.inventoryItemId).filter((id): id is string => !!id),
     components.map((component) => component.customSku).filter((sku): sku is string => !!sku));
   const [existing] = await db.select({ id: reportExternalProducts.id }).from(reportExternalProducts).where(and(
     eq(reportExternalProducts.sourceType, channel), eq(reportExternalProducts.externalKey, externalSku),
@@ -820,7 +866,10 @@ export async function listCyberbizReportProducts(db: Database): Promise<Cyberbiz
   const catalog = await listCyberbizProducts(db);
   const mappings = await db.select({ sku: reportExternalProducts.externalKey, name: reportExternalProducts.externalName })
     .from(reportExternalProducts)
-    .where(eq(reportExternalProducts.resolution, "mapped"));
+    .where(and(
+      eq(reportExternalProducts.sourceType, "cyberbiz"),
+      eq(reportExternalProducts.resolution, "mapped"),
+    ));
   const products = new Map<string, CyberbizReportProductOption>(catalog.map((product) => [
     normalizeExternalSku(product.sku), { ...product, sku: normalizeExternalSku(product.sku), aliases: [] },
   ]));

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 /**
  * 通路 SKU 對應。
  *
- * 映射資料寫在報表 target schema，但操作入口放在 WMS：通路商品最後要回答的是
+ * 映射資料寫在報表 target schema，但操作入口放在品項管理：通路商品最後要回答的是
  * 「倉庫要扣哪些品項」，不能讓外部商品解析與 SKU 對應各自維護一份清單。
  */
 const PRODUCT_SKU_MAPPINGS_KEY = ["tools", "product-sku-mappings"] as const;
@@ -50,8 +50,9 @@ export interface ProductSkuMapping {
   components: ProductBundleComponent[];
 }
 
-/** 一列用料可來自 WMS 品項、CYBERBIZ 商品或不入庫的自訂商品。 */
+/** 一列用料直接指向全平台品項；source 僅保留供舊資料列表顯示。 */
 export interface ProductBundleComponent {
+  itemId: string;
   source: "item" | "cyberbiz" | "custom";
   inventoryItemId: string | null;
   cyberbizSku: string | null;
@@ -63,11 +64,7 @@ export interface ProductBundleComponent {
 }
 
 export interface ProductBundleComponentInput {
-  inventoryItemId?: string | null;
-  cyberbizSku?: string | null;
-  customSku?: string | null;
-  customName?: string | null;
-  customCategory?: string | null;
+  itemId: string;
   quantity: number;
 }
 

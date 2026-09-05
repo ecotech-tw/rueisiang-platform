@@ -1,4 +1,5 @@
 import type { InputHTMLAttributes, SelectHTMLAttributes } from "react";
+import { DropdownSelect } from "./DropdownSelect.js";
 
 export interface FilterInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "aria-label"> {
   label: string;
@@ -25,15 +26,13 @@ export interface FilterSelectProps extends Omit<SelectHTMLAttributes<HTMLSelectE
 }
 
 /** 工具列用的精簡下拉欄位：options 與 aria label 都由元件統一輸出。 */
-export function FilterSelect({ label, options, ...selectProps }: FilterSelectProps) {
+export function FilterSelect({ label, options, className = "", ...selectProps }: FilterSelectProps) {
   return (
     <label className="filter-control">
       <span className="sr-only">{label}</span>
-      <select {...selectProps} aria-label={label}>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </select>
+      <span className="filter-select-control">
+        <DropdownSelect {...selectProps} options={options} aria-label={label} className={className} />
+      </span>
     </label>
   );
 }

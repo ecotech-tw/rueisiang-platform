@@ -142,6 +142,7 @@ export {
   queryReportSales,
   scopeIdsForQuery,
   isCompanyReportStoreScopeId,
+  canonicalReportStoreScopes,
   ReportScopeAmbiguousError,
   upsertReportScope,
   type ReportGroupBy,

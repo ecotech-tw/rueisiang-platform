@@ -13,6 +13,7 @@ import {
   wmsShelves,
   wmsZones,
   wmsZoneImages,
+  wmsCyberbizLinks,
 } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
@@ -119,6 +120,21 @@ describe("WMS target-only API", () => {
       .toMatchObject([{ eventType: "zone_created" }, { eventType: "zone_moved" }]);
   });
 
+  it("地圖資料不會把 zone 的 layout row 當成額外元素回傳", async () => {
+    const userId = await seedUser();
+    await seedZone();
+    await db.insert(wmsLayoutElements).values({
+      id: "wms-decoration-1", layoutId: "layout:main", elementType: "decoration", zoneId: null,
+      label: "出貨口", color: "sky", x: 40, y: 10, width: 12, height: 10, zIndex: 1,
+    });
+
+    const response = await as(userId, "admin@ecotech.tw", "/api/wms/warehouse");
+    expect(response.status).toBe(200);
+    const warehouse = await response.json() as { layoutElements: Array<{ id: string; elementType: string }> };
+    expect(warehouse.layoutElements).toHaveLength(1);
+    expect(warehouse.layoutElements[0]).toMatchObject({ id: "wms-decoration-1", elementType: "decoration" });
+  });
+
   it("有商品使用倉位或層架時禁止刪除與移除層架", async () => {
     const userId = await seedUser();
     await seedCategory();
@@ -157,6 +173,24 @@ describe("WMS target-only API", () => {
     const [afterWms] = await db.select().from(wmsItems).where(eq(wmsItems.itemId, id));
     expect(afterMaster?.name).toBe("小紙箱（改）");
     expect(afterWms?.quantity).toBe(12);
+
+    await db.insert(wmsCyberbizLinks).values({
+      id: "wms-cyberbiz-link-1",
+      wmsItemId: id,
+      cyberbizProductId: "product-1",
+      cyberbizVariantId: "variant-1",
+      sku: "BOX-02",
+      warehouseScope: "company",
+      syncStatus: "synced",
+      lastSyncedQuantity: 12,
+      lastSyncedAt: new Date().toISOString(),
+    });
+    const changedLinkedSku = await as(userId, "admin@ecotech.tw", `/api/wms/items/${id}`, {
+      method: "PATCH", body: JSON.stringify({ sku: "BOX-99", category: "一般備品" }),
+    });
+    expect(changedLinkedSku.status).toBe(409);
+    const [unchangedMaster] = await db.select().from(items).where(eq(items.id, id));
+    expect(unchangedMaster?.sku).toBe("BOX-02");
   });
 
   it("盤點會更新 wms_items，數量不變也會留下紀錄", async () => {

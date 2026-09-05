@@ -3,6 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { Pager } from "../../shell/Pager.js";
 import {
   Alert,
   Button,
@@ -40,7 +41,7 @@ function matches(mapping: ProductSkuMapping, search: string): boolean {
     mapping.channel,
     mapping.externalName,
     mapping.externalSku,
-    ...mapping.components.flatMap((component) => [component.sku, component.name, component.category]),
+    ...mapping.components.flatMap((component) => [component.sku, component.name]),
   ]
     .some((value) => value.toLocaleLowerCase("zh-TW").includes(search));
 }
@@ -54,7 +55,8 @@ export function SkuMappings() {
   const canWrite = permissions.has("wms:mapping:write");
 
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [channelFilter, setChannelFilter] = useState("all");
   const [mappingDialog, setMappingDialog] = useState<MappingDialogState | null>(null);
   const [deleting, setDeleting] = useState<ProductSkuMapping | null>(null);
@@ -73,30 +75,21 @@ export function SkuMappings() {
     () => [...new Set(mappings.map((mapping) => mapping.channel))].sort((a, b) => productSkuChannelLabel(a).localeCompare(productSkuChannelLabel(b), "zh-TW")),
     [mappings],
   );
-  /*
-   * 沒填分類的自訂用料存成「未分類」，但那不一定是分類主檔裡的一列（全新資料庫沒有）。
-   * 不補進來的話那些對應在分類篩選裡選不到。
-   */
-  const categories = useMemo(() => {
-    const names = new Set(data?.categories ?? []);
-    for (const mapping of data?.mappings ?? []) {
-      for (const component of mapping.components) names.add(component.category);
-    }
-    return [...names].sort((a, b) => a.localeCompare(b, "zh-TW"));
-  }, [data]);
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("zh-TW");
     return mappings.filter((mapping) =>
       (channelFilter === "all" || mapping.channel === channelFilter)
-      && (category === "all" || mapping.components.some((component) => component.category === category))
       && matches(mapping, term),
     );
-  }, [category, channelFilter, mappings, search]);
+  }, [channelFilter, mappings, search]);
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedVisible = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   return (
     <div className="page fills">
       <PageHeader
-        title="WMS SKU 對應"
-        description="在 WMS 集中管理通路商品要扣哪些品項；不同通路指到同一個用料，報表就會統計成同一個商品。"
+        title="SKU 對應"
+        description="在品項管理集中設定通路商品要扣哪些品項；不同通路指到同一個用料，報表就會統計成同一個商品。"
         actions={canWrite ? (
           <Button
             icon="plus"
@@ -209,34 +202,24 @@ export function SkuMappings() {
         </details>
       ) : null}
 
-      <Panel
-        className="grows"
-        title="目前對應"
-        description={`共 ${visible.length.toLocaleString("zh-TW")} 筆${visible.length !== mappings.length ? `（全部 ${mappings.length.toLocaleString("zh-TW")} 筆）` : ""}`}
-      >
+      <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <FilterInput
             label="搜尋"
             className="search-input"
             type="search"
-            placeholder="搜尋通路商品、外部 SKU、WMS SKU 或分類"
+            placeholder="搜尋通路商品、外部 SKU 或品項 SKU"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => { setSearch(event.target.value); setPage(1); }}
           />
           <FilterSelect
             label="通路"
             value={channelFilter}
-            onChange={(event) => setChannelFilter(event.target.value)}
+            onChange={(event) => { setChannelFilter(event.target.value); setPage(1); }}
             options={[{ value: "all", label: "全部通路" }, ...channels.map((value) => ({ value, label: productSkuChannelLabel(value) }))]}
           />
-          <FilterSelect
-            label="分類"
-            value={category}
-            onChange={(event) => setCategory(event.target.value)}
-            options={[{ value: "all", label: "全部分類" }, ...categories.map((value) => ({ value, label: value }))]}
-          />
-          {search || channelFilter !== "all" || category !== "all" ? (
-            <Button variant="link" onClick={() => { setSearch(""); setChannelFilter("all"); setCategory("all"); }}>
+          {search || channelFilter !== "all" ? (
+            <Button variant="link" onClick={() => { setSearch(""); setChannelFilter("all"); setPage(1); }}>
               清除篩選
             </Button>
           ) : null}
@@ -253,13 +236,12 @@ export function SkuMappings() {
                 <th>通路商品</th>
                 <th>外部 SKU</th>
                 <th>組合用料</th>
-                <th>分類</th>
                 <th>建立時間</th>
                 {canWrite ? <th /> : null}
               </tr>
             </thead>
             <tbody>
-              {visible.map((mapping) => (
+              {pagedVisible.map((mapping) => (
                 <tr key={mapping.id}>
                   <td data-label="通路"><span className="status status-tone-slate">{productSkuChannelLabel(mapping.channel)}</span></td>
                   <td data-label="通路商品">
@@ -268,15 +250,10 @@ export function SkuMappings() {
                   <td data-label="外部 SKU"><span className="cell-strong">{mapping.externalSku}</span></td>
                   <td data-label="組合用料">
                     {mapping.components.map((component) => (
-                      <div className="cell-sub" key={component.customProductId ?? component.inventoryItemId ?? component.sku}>
+                      <div className="cell-sub" key={component.itemId}>
                         {component.sku} × {component.quantity}
-                        {component.source === "custom" ? <span className="status status-tone-slate">自訂</span> : null}
+                        {component.source === "custom" ? <span className="status status-tone-slate">舊自訂</span> : null}
                       </div>
-                    ))}
-                  </td>
-                  <td data-label="分類">
-                    {[...new Set(mapping.components.map((component) => component.category))].map((name) => (
-                      <span className="status status-tone-slate" key={name}>{name}</span>
                     ))}
                   </td>
                   <td data-label="建立時間" className="cell-sub whitespace-nowrap">{formatTime(mapping.createdAt)}</td>
@@ -315,13 +292,22 @@ export function SkuMappings() {
             {mappings.length === 0 ? "還沒有任何外部 SKU 對應。" : "沒有符合條件的對應，請調整搜尋或篩選。"}
           </p>
         ) : null}
+        {visible.length > 0 ? (
+          <Pager
+            page={currentPage}
+            pageSize={pageSize}
+            pageSizes={[10, 25, 50, 100]}
+            totalPages={totalPages}
+            totalLabel={`共 ${visible.length.toLocaleString("zh-TW")} 筆`}
+            onPage={setPage}
+            onPageSize={(next) => { setPageSize(next); setPage(1); }}
+          />
+        ) : null}
       </Panel>
 
       {mappingDialog ? (
         <SkuMappingDialog
-          categories={categories}
           items={data?.items ?? []}
-          unmappedProducts={unmappedProducts}
           initialExternalProduct={mappingDialog === "new" || "id" in mappingDialog ? undefined : mappingDialog.product}
           key={mappingDialog === "new" ? "new" : "id" in mappingDialog ? mappingDialog.id : `new:${mappingDialog.product.externalSku}`}
           mapping={mappingDialog === "new" || !("id" in mappingDialog) ? undefined : mappingDialog}

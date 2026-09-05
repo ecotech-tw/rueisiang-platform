@@ -254,6 +254,30 @@ export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind
   return rows.map(asReportScope);
 }
 
+function reportScopePriority(scopeId: string): number {
+  if (scopeId.startsWith("cyberbiz:store:")) return 0;
+  if (scopeId.startsWith("report:store:")) return 1;
+  if (scopeId.startsWith("manual:store:")) return 2;
+  if (scopeId.startsWith("payout:store:")) return 3;
+  return 4;
+}
+
+/**
+ * 統計頁的店別選項只列一個業務據點：migration 會同時保留 CYBERBIZ
+ * report scope 與 payout store scope，兩者名稱相同但 ID 不同，不能直接把兩列都丟給 UI。
+ * 蝦皮是 channel，不應混進店別下拉；公司總額查詢仍可透過原本的 scope 規則納入。
+ */
+export function canonicalReportStoreScopes(scopes: readonly ReportScope[]): ReportScope[] {
+  const canonical = new Map<string, ReportScope>();
+  for (const scope of scopes) {
+    if (scope.id.startsWith("shopee:")) continue;
+    const key = scope.normalizedName || scope.name;
+    const current = canonical.get(key);
+    if (!current || reportScopePriority(scope.id) < reportScopePriority(current.id)) canonical.set(key, scope);
+  }
+  return [...canonical.values()].sort((left, right) => left.name.localeCompare(right.name, "zh-Hant"));
+}
+
 /**
  * 單次請求內共用的店別名冊。
  *
@@ -579,7 +603,12 @@ export async function scopeIdsForQuery(
 ): Promise<{ ids: string[]; scope?: ReportScope }> {
   if (query.scopeType === "store") {
     const scope = await directory.store({ id: query.scopeId, name: query.scopeName });
-    return scope ? { ids: [scope.id], scope } : { ids: [] };
+    if (!scope) return { ids: [] };
+    // 同一店別可能同時有 CYBERBIZ 與 payout 的 scope ID；查單店時兩邊資料要一起算。
+    const aliases = (await directory.stores())
+      .filter((candidate) => !candidate.id.startsWith("shopee:") && candidate.scopeKind === scope.scopeKind && candidate.normalizedName === scope.normalizedName)
+      .map((candidate) => candidate.id);
+    return { ids: aliases.length ? aliases : [scope.id], scope };
   }
   return {
     // 公司總額納入所有通路，但只接受既定的 channel:store:id 格式與舊版 store- ID。

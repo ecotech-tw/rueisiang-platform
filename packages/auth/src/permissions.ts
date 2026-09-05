@@ -18,9 +18,9 @@ export const PERMISSIONS = {
   "crm:sync:trigger": "手動觸發 CYBERBIZ 同步",
   "crm:order:read": "檢視客戶訂單與消費紀錄",
 
-  // 品項主檔
-  "items:item:read": "檢視品項主檔",
-  "items:item:write": "管理品項主檔",
+  // 品項列表
+  "items:item:read": "檢視品項列表",
+  "items:item:write": "管理品項列表",
   "items:category:read": "檢視品項分類",
   "items:category:write": "管理品項分類",
 

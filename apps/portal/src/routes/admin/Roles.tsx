@@ -18,10 +18,10 @@ import {
  * 也可以刪除。管理員維持唯讀，避免任何一位管理者把自己鎖在系統外。
  */
 
-/** 權限鍵值是 <模組>:<資源>:<動作>，第一段就是分組依據。 */
+/** 權限鍵值是 <模組>:<資源>:<動作>；reports 與 tools 都歸在營運管理。 */
 const MODULE_LABELS: Record<string, string> = {
   crm: "客戶關係管理",
-  items: "品項主檔",
+  items: "品項管理",
   wms: "倉儲管理系統",
   tools: "營運工具",
   admin: "系統管理",
@@ -29,7 +29,8 @@ const MODULE_LABELS: Record<string, string> = {
 const PROTECTED_ROLE_KEY = "admin";
 
 function moduleOf(permission: string): string {
-  return permission.split(":")[0] ?? "";
+  const module = permission.split(":")[0] ?? "";
+  return module === "reports" ? "tools" : module;
 }
 
 /** 依模組分組，模組順序照 MODULE_LABELS 的宣告順序，不是字母序。 */

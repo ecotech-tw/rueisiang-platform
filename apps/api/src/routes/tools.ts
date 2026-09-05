@@ -47,8 +47,7 @@ function text(input: Record<string, unknown>, field: string): string | undefined
 }
 
 /**
- * 組合用料。每一列是 WMS 商品或自訂 SKU，恰有一種——哪一種由 packages/db 判定，
- * 這裡只負責把 JSON 攤成型別對的形狀。
+ * 組合用料一律直接指向 target items；這裡只負責驗證 JSON 並攤成型別對的形狀。
  */
 function bundleComponents(input: Record<string, unknown>): ProductBundleComponentInput[] {
   if (!Array.isArray(input.components) || input.components.length === 0) {
@@ -63,14 +62,9 @@ function bundleComponents(input: Record<string, unknown>): ProductBundleComponen
     if (typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity <= 0) {
       throw new HTTPException(400, { message: "組合用料數量必須是大於 0 的整數。" });
     }
-    return {
-      inventoryItemId: typeof component.inventoryItemId === "string" ? component.inventoryItemId : null,
-      cyberbizSku: typeof component.cyberbizSku === "string" ? component.cyberbizSku : null,
-      customSku: typeof component.customSku === "string" ? component.customSku : null,
-      customName: typeof component.customName === "string" ? component.customName : null,
-      customCategory: typeof component.customCategory === "string" ? component.customCategory : null,
-      quantity,
-    };
+    const itemId = typeof component.itemId === "string" ? component.itemId.trim() : "";
+    if (!itemId) throw new HTTPException(400, { message: "SKU 對應必須直接選擇品項。" });
+    return { itemId, quantity };
   });
 }
 
@@ -416,7 +410,7 @@ export const tools = new Hono<AppEnv>()
     return c.json({ ...result, scopeName: resolvedScopeName, reportMonth }, 201);
   })
 
-  /** SKU 對應的入口已移到 WMS 導覽；API 路徑先保留在 tools 之下，避免既有前端與報表流程斷線。 */
+  /** SKU 對應的入口已移到品項管理；API 路徑先保留在 tools 之下，避免既有前端與報表流程斷線。 */
   .get("/product-sku-mappings", requirePermission("wms:mapping:read"), async (c) => {
     return c.json(await loadProductSkuMappingManagement(c.get("db")));
   })

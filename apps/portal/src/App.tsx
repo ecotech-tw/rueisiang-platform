@@ -104,12 +104,13 @@ export function App() {
         <Route path="items">
           <Route path="catalog" element={<Items />} />
           <Route path="categories" element={<ItemCategories />} />
+          <Route path="sku-mappings" element={<SkuMappings />} />
         </Route>
 
         <Route path="wms">
           <Route path="map" element={<WarehouseMap />} />
           <Route path="inventory" element={<Inventory />} />
-          <Route path="sku-mappings" element={<SkuMappings />} />
+          <Route path="sku-mappings" element={<Navigate to="/items/sku-mappings" replace />} />
           <Route path="cyberbiz" element={<Cyberbiz />} />
           <Route path="categories" element={<Categories />} />
           <Route path="activity" element={<WmsActivity />} />
@@ -123,9 +124,9 @@ export function App() {
           <Route path="cyberbiz-sales" element={<CyberbizSales />} />
           <Route path="shopee-sales" element={<ShopeeSales />} />
           <Route path="shopee-sales/settings" element={<Navigate to="/tools/payout/settings" replace />} />
-          <Route path="sku-mappings" element={<Navigate to="/wms/sku-mappings" replace />} />
+          <Route path="sku-mappings" element={<Navigate to="/items/sku-mappings" replace />} />
           <Route path="product-categories" element={<CyberbizProductCategories />} />
-          <Route path="external-products" element={<Navigate to="/wms/sku-mappings" replace />} />
+          <Route path="external-products" element={<Navigate to="/items/sku-mappings" replace />} />
         </Route>
 
         <Route path="assistant">

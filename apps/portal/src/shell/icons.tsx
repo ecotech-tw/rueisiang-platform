@@ -17,6 +17,7 @@ export type IconName =
   | "history"
   | "sync"
   | "warehouse"
+  | "inventory"
   | "grid"
   | "box"
   | "cloudSync"
@@ -169,6 +170,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M3.6 9.9 12 4.7l8.4 5.2v9.9H3.6z" />
       <path d="M8.6 19.8v-6.1h6.8v6.1" />
       <path d="M8.6 16.7h6.8" />
+    </>
+  ),
+  inventory: (
+    <>
+      <path d="m4 6.7 8-3.6 8 3.6-8 3.6z" />
+      <path d="M4 6.7v5.2l8 3.6 8-3.6V6.7M4 12v5.2l8 3.6 8-3.6V12" />
+      <path d="M12 10.3v5.2M12 15.5v5.3" />
     </>
   ),
   grid: (

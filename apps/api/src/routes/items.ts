@@ -38,7 +38,7 @@ async function findCategoryId(db: Database, raw: unknown): Promise<string | null
   return byName?.id ?? null;
 }
 
-/** 品項主檔。items 是商品身分，wms_items 只是其中需要入庫管理的延伸資料。 */
+/** 品項列表。items 是商品身分，wms_items 只是其中需要入庫管理的延伸資料。 */
 export const items = new Hono<AppEnv>()
   .use("*", requireAuth)
   .get("/categories", requirePermission("items:category:read"), async (c) => {
@@ -195,7 +195,7 @@ export const items = new Hono<AppEnv>()
         .where(eq(itemMasters.sku, selectedSku)).limit(1);
       if (!selected) throw new HTTPException(404, { message: `找不到 CYBERBIZ SKU「${selectedSku}」。` });
       const [duplicate] = await db.select({ id: itemMasters.id }).from(itemMasters).where(and(eq(itemMasters.source, "cyberbiz"), eq(itemMasters.sku, selected.sku))).limit(1);
-      if (duplicate) throw new HTTPException(409, { message: `CYBERBIZ SKU「${selected.sku}」已經有品項主檔。` });
+      if (duplicate) throw new HTTPException(409, { message: `CYBERBIZ SKU「${selected.sku}」已經有相同品項。` });
       const item = {
         id: crypto.randomUUID(),
         source: "cyberbiz" as const,
@@ -213,7 +213,7 @@ export const items = new Hono<AppEnv>()
 
     const sku = requireString(input, "sku", "SKU").toUpperCase();
     const [duplicate] = await db.select({ id: itemMasters.id }).from(itemMasters).where(and(eq(itemMasters.source, "custom"), eq(itemMasters.sku, sku))).limit(1);
-    if (duplicate) throw new HTTPException(409, { message: `自建 SKU「${sku}」已經有品項主檔。` });
+    if (duplicate) throw new HTTPException(409, { message: `自建 SKU「${sku}」已經有相同品項。` });
     const item = {
       id: crypto.randomUUID(),
       source: "custom" as const,
@@ -233,7 +233,7 @@ export const items = new Hono<AppEnv>()
     const db = c.get("db");
     const id = c.req.param("id");
     const [current] = await db.select().from(itemMasters).where(eq(itemMasters.id, id)).limit(1);
-    if (!current) throw new HTTPException(404, { message: "找不到品項主檔。" });
+    if (!current) throw new HTTPException(404, { message: "找不到品項。" });
 
     const categoryId = input.categoryId === undefined && input.category === undefined
       ? current.categoryId
@@ -247,7 +247,7 @@ export const items = new Hono<AppEnv>()
     const db = c.get("db");
     const id = c.req.param("id");
     const [item] = await db.select().from(itemMasters).where(eq(itemMasters.id, id)).limit(1);
-    if (!item) throw new HTTPException(404, { message: "找不到品項主檔。" });
+    if (!item) throw new HTTPException(404, { message: "找不到品項。" });
     if (item.source === "cyberbiz") throw new HTTPException(409, { message: "CYBERBIZ 品項由同步管理，請停用品項，不要刪除主檔。" });
     const [wms] = await db.select({ itemId: wmsItems.itemId }).from(wmsItems).where(eq(wmsItems.itemId, id)).limit(1);
     if (wms) throw new HTTPException(409, { message: "品項仍在倉儲中，請先移出倉儲。" });
@@ -263,7 +263,7 @@ export const items = new Hono<AppEnv>()
     const id = c.req.param("id");
     const input = await body(c);
     const [item] = await db.select({ id: itemMasters.id }).from(itemMasters).where(eq(itemMasters.id, id)).limit(1);
-    if (!item) throw new HTTPException(404, { message: "找不到品項主檔。" });
+    if (!item) throw new HTTPException(404, { message: "找不到品項。" });
     const [existing] = await db.select({ itemId: wmsItems.itemId }).from(wmsItems).where(eq(wmsItems.itemId, id)).limit(1);
     if (existing) throw new HTTPException(409, { message: "這個品項已經納入倉儲。" });
 

@@ -46,6 +46,7 @@ export interface CyberbizLink {
 
 export interface InventoryItem {
   id: string;
+  source: "cyberbiz" | "custom";
   sku: string | null;
   name: string;
   category: string;

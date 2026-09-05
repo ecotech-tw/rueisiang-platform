@@ -104,14 +104,15 @@ async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
       const element = elementRows.find((candidate) => candidate.zoneId === zone.id);
       return { ...zone, category: "", x: element?.x ?? 0, y: element?.y ?? 0, width: element?.width ?? 18, height: element?.height ?? 16, shelfLevels: shelvesByZone.get(zone.id) ?? DEFAULT_SHELF_LEVELS, imageCount: imageCounts.get(zone.id) ?? 0 };
     }),
-    layoutElements: elementRows,
+    // zone 也是一種 layout element，但地圖會依 zones 另外渲染；只回傳裝飾，避免同一個倉位畫兩次。
+    layoutElements: elementRows.filter((element) => element.elementType === "decoration"),
     categories: categoryRows,
     items: itemRows.map(({ wms, item }) => {
       const shelf = wms.shelfId ? shelfById.get(wms.shelfId) : undefined;
       const category = wms.wmsCategoryId ? categoryRows.find((candidate) => candidate.id === wms.wmsCategoryId) : undefined;
       const link = linksByItem.get(item.id);
       return {
-        id: item.id, sku: item.sku, name: item.name, category: category?.name ?? "未分類", quantity: wms.quantity,
+        id: item.id, source: item.source, sku: item.sku, name: item.name, category: category?.name ?? "未分類", quantity: wms.quantity,
         unit: wms.unit, minStock: wms.minStock, zoneId: shelf?.zoneId ?? null, shelfLevel: shelf?.code ?? null,
         notes: wms.notes, updatedAt: wms.updatedAt,
         cyberbiz: link ? { cyberbizProductId: link.cyberbizProductId, cyberbizVariantId: link.cyberbizVariantId, sku: link.sku, syncStatus: link.syncStatus, lastSyncedQuantity: link.lastSyncedQuantity, lastSyncedAt: link.lastSyncedAt, lastError: link.lastError } : null,
@@ -222,6 +223,9 @@ export async function createItem(db: Database, input: ItemInput & { actor: Actor
   const placement = await requirePlacement(db, input.zoneId?.trim() || null, input.shelfLevel?.trim() || null);
   const id = crypto.randomUUID();
   const sku = input.sku?.trim().toUpperCase() || `WMS-${id.slice(0, 8).toUpperCase()}`;
+  const [existingCustom] = await db.select({ id: itemMasters.id }).from(itemMasters)
+    .where(and(eq(itemMasters.source, "custom"), eq(itemMasters.sku, sku))).limit(1);
+  if (existingCustom) throw new WmsError("conflict", `自訂 SKU「${sku}」已經存在，請從品項列表選取既有品項。`);
   await requireSkuAvailableForExternalMappings(db, sku);
   const item = { id, source: "custom" as const, kind: input.sku?.trim() ? "sellable" as const : "supply" as const, sku, name, category, quantity: clamp(input.quantity, 0, QUANTITY), unit: input.unit?.trim() || "件", minStock: clamp(input.minStock, 5, QUANTITY), zoneId: placement.zoneId, shelfLevel: placement.shelfLevel, notes: input.notes?.trim() || "" };
   await db.batch([
@@ -236,6 +240,7 @@ export async function updateItem(db: Database, id: string, input: Partial<ItemIn
   const [current] = await db.select({ item: itemMasters, wms: wmsItems, category: wmsCategories.name, shelf: wmsShelves })
     .from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).leftJoin(wmsCategories, eq(wmsCategories.id, wmsItems.wmsCategoryId)).leftJoin(wmsShelves, eq(wmsShelves.id, wmsItems.shelfId)).where(eq(wmsItems.itemId, id)).limit(1);
   if (!current) throw new WmsError("not_found", "找不到這項商品。");
+  const [cyberbizLink] = await db.select({ id: wmsCyberbizLinks.id }).from(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.wmsItemId, id)).limit(1);
   const category = input.category?.trim() || current.category || "";
   const wmsCategoryId = await requireCategory(db, category);
   const zoneId = input.zoneId === undefined ? current.shelf?.zoneId ?? null : input.zoneId?.trim() || null;
@@ -243,7 +248,10 @@ export async function updateItem(db: Database, id: string, input: Partial<ItemIn
   const placement = await requirePlacement(db, zoneId, shelfLevel);
   const nextName = input.name?.trim() || current.item.name;
   const nextSku = input.sku === undefined ? current.item.sku : input.sku.trim().toUpperCase() || current.item.sku;
-  if (nextSku !== current.item.sku) await requireSkuAvailableForExternalMappings(db, nextSku, id);
+  if (nextSku !== current.item.sku) {
+    if (cyberbizLink) throw new WmsError("conflict", "這項品項已連結 CYBERBIZ，SKU 必須與官網連結一致，不能在 WMS 修改。");
+    await requireSkuAvailableForExternalMappings(db, nextSku, id);
+  }
   const nextMinStock = clamp(input.minStock, current.wms.minStock, QUANTITY);
   if (nextMinStock !== current.wms.minStock) {
     const [link] = await db.select({ id: wmsCyberbizLinks.id }).from(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.wmsItemId, id)).limit(1);
