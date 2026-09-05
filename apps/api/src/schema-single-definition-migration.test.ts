@@ -23,6 +23,7 @@ function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): voi
 
 const BEFORE = "0092_item_categories_constraints.sql";
 const SINGLE_DEFINITION = "0093_schema_single_definition.sql";
+const DROP_LEGACY_KEY = "0094_drop_roles_legacy_key.sql";
 
 describe("schema 一張表一個定義", () => {
   it("0093 重建 users 時不會把角色授權連坐刪光", () => {
@@ -69,5 +70,26 @@ describe("schema 一張表一個定義", () => {
       "idx_webhook_events_status", "idx_webhook_events_customer", "idx_webhook_events_entity",
     ]) expect(names).toContain(name);
     expect(names).not.toContain("idx_cyberbiz_customer_webhooks_customer");
+  });
+
+  it("0094 拿掉 roles 的舊 key 欄位，角色與授權都留著", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, SINGLE_DEFINITION);
+
+    sqlite.prepare("INSERT INTO roles (id, role_key, name) VALUES ('r1', 'admin', '管理者')").run();
+    sqlite.prepare("INSERT INTO role_permissions (role_id, permission) VALUES ('r1', 'admin:user:read')").run();
+
+    applyLikeD1(sqlite, SINGLE_DEFINITION, DROP_LEGACY_KEY);
+
+    const columns = sqlite.prepare("PRAGMA table_info(roles)").all().map((row) => (row as { name: string }).name);
+    expect(columns).not.toContain("key");
+    expect(columns).toContain("role_key");
+    // roles 底下有四張 ON DELETE CASCADE 的子表，DROP COLUMN 不該碰到它們。
+    expect(sqlite.prepare("SELECT role_key FROM roles").all()).toEqual([{ role_key: "admin" }]);
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM role_permissions").get()).toEqual({ n: 1 });
+    const triggers = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all().map((row) => (row as { name: string }).name);
+    expect(triggers).not.toContain("trg_roles_role_key_to_legacy_insert");
+    expect(triggers).not.toContain("trg_roles_role_key_to_legacy_update");
   });
 });
