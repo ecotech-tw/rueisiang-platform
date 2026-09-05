@@ -40,7 +40,7 @@ export interface SelectFieldProps extends Omit<SelectHTMLAttributes<HTMLSelectEl
 export function SelectField({ label, required, hint, error, options, selectClassName = "", ...selectProps }: SelectFieldProps) {
   return (
     <Field label={label} required={required} hint={hint} error={error}>
-      <select {...selectProps} required={required} className={selectClassName}>
+      <select {...selectProps} required={required} className={`dropdown-control ${selectClassName}`.trim()}>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </Field>

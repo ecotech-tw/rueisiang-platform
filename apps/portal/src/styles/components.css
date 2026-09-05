@@ -2402,18 +2402,28 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font: inherit;
 }
 /*
- * select 也要一份。原本只寫了 input，所以對話框裡的下拉（地址的縣市／區域）
- * 是瀏覽器原生外觀——跟旁邊的輸入框放在一起特別明顯。
+ * 所有一般下拉共用 autocomplete 的輸入框外觀，但保留原生 select 行為：
+ * 可以展開選項，不能在欄位內輸入搜尋文字。
  */
-.field select {
-  padding: 10px 12px;
+.field select,
+.dropdown-control {
+  appearance: none;
+  min-height: var(--size-field);
+  min-width: 0;
+  padding: 10px 44px 10px 12px;
   border: 1px solid var(--color-line);
   border-radius: 10px;
-  background: var(--color-paper);
+  background-color: var(--color-canvas);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%237b6d68' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+  background-size: 20px;
   color: var(--color-ink);
   font: inherit;
+  cursor: pointer;
 }
-.field select:disabled { background: var(--color-soft-line); color: var(--color-muted); }
+.field select:disabled,
+.dropdown-control:disabled { background-color: var(--color-soft-line); color: var(--color-muted); cursor: not-allowed; }
 /* 唯讀的欄位（例如已連結 CYBERBIZ 的安全庫存）跟 select 用同一個外觀，看起來是鎖住不是壞掉。 */
 .field input:disabled { background: var(--color-soft-line); color: var(--color-muted); cursor: not-allowed; }
 /*
@@ -2425,6 +2435,25 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .field select { min-width: 0; }
 .field input:focus-visible,
 .field select:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
+.dropdown-control:focus-visible {
+  outline: 0;
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px --alpha(var(--color-brand) / 14%);
+}
+.filter-control .dropdown-control {
+  min-height: 34px;
+  padding: 7px 38px 7px 10px;
+  border-radius: 10px;
+  background-position: right 10px center;
+  background-size: 18px;
+}
+.pager-size .dropdown-control {
+  min-height: 32px;
+  padding: 5px 30px 5px 8px;
+  border-radius: 9px;
+  background-position: right 7px center;
+  background-size: 16px;
+}
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
 /*
  * 三個窄欄位（數量、單位、安全庫存）。auto-fit 在對話框的寬度下只排得下兩欄，

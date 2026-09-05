@@ -248,8 +248,8 @@ export function Inventory() {
           </>
         }
         actions={canWrite ? (
-          <Button icon="plus" className="add-action" onClick={() => setAdding(true)} aria-label="新增品項">
-            新增品項
+          <Button icon="plus" className="add-action" onClick={() => setAdding(true)} aria-label="新增入庫">
+            新增入庫
           </Button>
         ) : null}
       />
@@ -355,7 +355,7 @@ export function Inventory() {
         {query.data && filtered.length === 0 ? (
           <p className="muted table-note">
             {items.length === 0
-              ? "還沒有任何商品。先在倉儲分類管理建一個分類，再回來新增商品。"
+              ? "還沒有任何入庫品項。請先在品項列表新增自訂品項，再回來新增入庫。"
               : "沒有符合條件的商品，調整一下搜尋或篩選看看。"}
           </p>
         ) : null}

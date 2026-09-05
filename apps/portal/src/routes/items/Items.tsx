@@ -2,13 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Combobox } from "@base-ui/react/combobox";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Icon } from "../../shell/icons.js";
 import { Pager } from "../../shell/Pager.js";
 import { ItemForm } from "../wms/ItemForm.js";
-import type { CyberbizCatalogProduct, ProductCategory, Zone } from "../wms/api.js";
+import type { ProductCategory, Zone } from "../wms/api.js";
 
 interface ItemCatalogItem {
   id: string;
@@ -29,7 +30,6 @@ interface ItemCatalogItem {
 interface ItemCatalogData {
   items: ItemCatalogItem[];
   categories: ProductCategory[];
-  cyberbizProducts: CyberbizCatalogProduct[];
   zones: Zone[];
 }
 
@@ -81,7 +81,7 @@ function categoryScope(categoryId: string, categories: ProductCategory[]): Set<s
 function sourceLabel(item: ItemCatalogItem): string {
   if (item.source === "cyberbiz") return item.notes.includes("尚未建立") ? "CYBERBIZ 待建立品項" : "CYBERBIZ";
   if (item.source === "wms") return "WMS 過渡品項";
-  return "自建品項";
+  return "自訂品項";
 }
 
 interface ItemCatalogGroup {
@@ -162,22 +162,34 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
 export function Items() {
   usePageTitle("品項列表");
   const [search, setSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [categoryId, setCategoryId] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [editing, setEditing] = useState<"new" | { cyberbizSku: string } | null>(null);
+  const [editing, setEditing] = useState<"new" | null>(null);
   const [editingItem, setEditingItem] = useState<ItemCatalogItem | null>(null);
+  const [deleting, setDeleting] = useState<ItemCatalogItem | null>(null);
   const query = useQuery({ queryKey: ["items", "catalog"], queryFn: loadItemCatalog, staleTime: 30_000 });
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/items/catalog/${id}`, { method: "DELETE", credentials: "same-origin" });
+      if (!response.ok) await readError(response);
+      return response.json() as Promise<{ ok: true }>;
+    },
+    onSuccess: (_result, id) => {
+      void queryClient.invalidateQueries({ queryKey: ["items", "catalog"] });
+      toast.show(`已刪除自訂品項「${items.find((item) => item.id === id)?.name ?? ""}」`);
+      setDeleting(null);
+    },
+  });
   const { permissions } = useSession();
   const canWrite = permissions.has("items:item:write");
 
   const items = query.data?.items ?? [];
   const categories = query.data?.categories ?? [];
   const zones = query.data?.zones ?? [];
-  const cyberbizProducts = (query.data?.cyberbizProducts ?? []).filter((product) =>
-    !items.some((item) => item.sku.trim().toUpperCase() === product.sku.trim().toUpperCase()),
-  );
-
   const selectedCategoryIds = useMemo(
     () => categoryId === "all" ? null : categoryScope(categoryId, categories),
     [categoryId, categories],
@@ -185,11 +197,12 @@ export function Items() {
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     return items.filter((item) => {
+      if (sourceFilter !== "all" && item.source !== sourceFilter) return false;
       if (selectedCategoryIds && !selectedCategoryIds.has(item.categoryId ?? "")) return false;
       if (!term) return true;
       return [item.name, item.sku ?? "", item.category, item.notes].some((value) => String(value ?? "").toLowerCase().includes(term));
     });
-  }, [items, search, selectedCategoryIds]);
+  }, [items, search, sourceFilter, selectedCategoryIds]);
   const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pagedItems = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -203,7 +216,7 @@ export function Items() {
       <PageHeader
         title="品項列表"
         description="集中維護可被倉儲、SKU 對應與報表共用的品項；庫存盤點仍留在倉儲頁處理。"
-        actions={canWrite ? <Button icon="plus" onClick={() => setEditing("new")}>新增品項</Button> : null}
+        actions={canWrite ? <Button icon="plus" onClick={() => setEditing("new")}>新增自訂品項</Button> : null}
       />
 
       <div className="stat-row catalog-stat-row" aria-label="品項列表摘要">
@@ -224,6 +237,12 @@ export function Items() {
             onChange={(event) => { setSearch(event.target.value); setPage(1); }}
           />
           <FilterSelect
+            label="來源"
+            value={sourceFilter}
+            onChange={(event) => { setSourceFilter(event.target.value); setPage(1); }}
+            options={[{ value: "all", label: "全部來源" }, { value: "cyberbiz", label: "CYBERBIZ" }, { value: "custom", label: "自訂品項" }, { value: "wms", label: "WMS 過渡品項" }]}
+          />
+          <FilterSelect
             label="分類"
             value={categoryId}
             onChange={(event) => { setCategoryId(event.target.value); setPage(1); }}
@@ -232,7 +251,7 @@ export function Items() {
         </form>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
-
+        {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -259,11 +278,20 @@ export function Items() {
                   <td data-label="安全庫存" className="numeric cell-sub">{item.inWarehouse && item.minStock !== null ? item.minStock.toLocaleString("zh-TW") : "—"}</td>
                   {canWrite ? (
                     <td data-label="操作">
-                      {item.source === "cyberbiz" && item.notes.includes("尚未建立") ? (
-                        <Button variant="secondary" onClick={() => setEditing({ cyberbizSku: item.sku })}>建立品項</Button>
-                      ) : (
+                      <div className="row-actions">
                         <Button variant="icon" icon="edit" title="編輯品項" aria-label={`編輯 ${item.name}`} onClick={() => setEditingItem(item)} />
-                      )}
+                        {item.source === "custom" ? (
+                          <Button
+                            variant="icon"
+                            className="danger"
+                            icon="trash"
+                            title={item.inWarehouse ? "請先從倉儲移除後再刪除" : "刪除自訂品項"}
+                            aria-label={`刪除自訂品項 ${item.name}`}
+                            disabled={remove.isPending || item.inWarehouse}
+                            onClick={() => setDeleting(item)}
+                          />
+                        ) : null}
+                      </div>
                     </td>
                   ) : null}
                 </tr>
@@ -292,11 +320,23 @@ export function Items() {
         <ItemForm
           zones={zones}
           categories={categories}
-          cyberbizProducts={cyberbizProducts}
           catalogOnly
-          initialCyberbizSku={editing === "new" ? "" : editing.cyberbizSku}
           onClose={() => setEditing(null)}
         />
+      ) : null}
+
+      {deleting ? (
+        <ConfirmDialog
+          title="刪除這個自訂品項？"
+          confirmLabel="刪除"
+          pending={remove.isPending}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => remove.mutate(deleting.id)}
+        >
+          <p>
+            <strong>{deleting.name}</strong>{deleting.sku ? `（${deleting.sku}）` : ""} 將從品項主檔移除。
+          </p>
+        </ConfirmDialog>
       ) : null}
     </div>
   );

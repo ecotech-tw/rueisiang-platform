@@ -75,6 +75,7 @@ export function Pager({
           每頁
           <select
             aria-label="每頁筆數"
+            className="dropdown-control"
             value={String(pageSize)}
             onChange={(event) => onPageSize(Number(event.target.value))}
           >

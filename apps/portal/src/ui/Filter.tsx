@@ -25,11 +25,11 @@ export interface FilterSelectProps extends Omit<SelectHTMLAttributes<HTMLSelectE
 }
 
 /** 工具列用的精簡下拉欄位：options 與 aria label 都由元件統一輸出。 */
-export function FilterSelect({ label, options, ...selectProps }: FilterSelectProps) {
+export function FilterSelect({ label, options, className = "", ...selectProps }: FilterSelectProps) {
   return (
     <label className="filter-control">
       <span className="sr-only">{label}</span>
-      <select {...selectProps} aria-label={label}>
+      <select {...selectProps} aria-label={label} className={`dropdown-control ${className}`.trim()}>
         {options.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}
