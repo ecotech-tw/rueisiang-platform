@@ -2035,7 +2035,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .select-item[data-highlighted],
 .select-item[data-selected] { background: --alpha(var(--color-brand) / 8%); }
-.select-item-text { min-width: 0; max-width: calc(100% - 28px); flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-item-text { width: max-content; min-width: 0; max-width: calc(100% - 28px); flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .select-item-indicator { flex: none; margin-left: 4px; color: var(--color-secondary); }
 .category-drag-handle {
   display: inline-flex;
