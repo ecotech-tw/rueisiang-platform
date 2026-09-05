@@ -24,6 +24,7 @@ function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): voi
 const BEFORE_MERGE = "0089_item_wms_permissions.sql";
 const MERGE = "0089_z_merge_duplicate_sku_items.sql";
 const UNIQUE_INDEX = "0090_items_sku_unique.sql";
+const ALIGN_NAMES = "0091_align_index_names.sql";
 
 /** 把一組重複的 SKU 種進 items：cyberbiz 一筆、custom 一筆。 */
 function seedDuplicate(sqlite: DatabaseSync, sku: string, categoryId: string | null): void {
@@ -78,5 +79,25 @@ describe("items SKU 全平台唯一", () => {
     applyLikeD1(sqlite, BEFORE_MERGE, UNIQUE_INDEX);
 
     expect(sqlite.prepare("SELECT id FROM items WHERE sku = 'Y1'").get()).toEqual({ id: "custom:Y1" });
+  });
+
+  it("0091 之後，索引名稱跟 schema 宣告的一致", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, ALIGN_NAMES);
+
+    const names = new Set(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all().map((row) => (row as { name: string }).name));
+    // schema/*.ts 宣告的名字要在
+    for (const name of [
+      "idx_wms_categories_name", "idx_wms_zones_code", "idx_wms_layouts_name",
+      "idx_wms_cyberbiz_links_item", "idx_wms_cyberbiz_links_variant",
+      "idx_crm_tags_name", "idx_webhook_events_status", "idx_webhook_events_entity",
+      "idx_payout_daily_date", "idx_item_categories_id_depth",
+    ]) expect(names).toContain(name);
+    // 改名前的名字與重複的索引要不在
+    for (const name of [
+      "idx_customer_tag_catalog_name", "idx_cyberbiz_customer_webhooks_status",
+      "idx_payout_target_date", "idx_cyberbiz_products_item",
+    ]) expect(names).not.toContain(name);
   });
 });
