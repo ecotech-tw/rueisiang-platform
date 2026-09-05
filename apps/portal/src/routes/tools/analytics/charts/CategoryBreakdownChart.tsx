@@ -22,6 +22,7 @@ interface CategoryBreakdownChartProps {
 interface CategoryChartRow extends SalesCategoryBreakdown {
   label: string;
   quantity: number;
+  amount: number;
 }
 
 function formatPercent(value: number): string {
@@ -41,6 +42,7 @@ function aggregateParentRows(breakdown: SalesCategoryBreakdown[]): CategoryChart
       current.returnQuantity += row.returnQuantity;
       current.netQuantity += row.netQuantity;
       current.quantity += row.netQuantity;
+      current.amount += row.value;
       continue;
     }
     grouped.set(label, {
@@ -49,6 +51,7 @@ function aggregateParentRows(breakdown: SalesCategoryBreakdown[]): CategoryChart
       categoryParent: null,
       label,
       quantity: row.netQuantity,
+      amount: row.value,
     });
   }
   return [...grouped.values()].sort((left, right) => right.quantity - left.quantity);
@@ -57,18 +60,82 @@ function aggregateParentRows(breakdown: SalesCategoryBreakdown[]): CategoryChart
 function CategoryLegend({
   payload,
   rows,
+  shareKey,
 }: {
   payload?: readonly ChartLegendEntry[];
   rows: CategoryChartRow[];
+  shareKey: "quantityShare" | "share";
 }) {
   return (
     <AnalyticsLegend
       payload={payload}
       formatValue={(value) => {
         const row = rows.find((item) => item.label === value);
-        return <>{value} <b>{formatPercent(row?.quantityShare ?? 0)}</b></>;
+        return <>{value} <b>{formatPercent(row?.[shareKey] ?? 0)}</b></>;
       }}
     />
+  );
+}
+
+function CategoryPie({
+  title,
+  ariaLabel,
+  data,
+  dataKey,
+  shareKey,
+  valueFormatter,
+  rows,
+  canDrill,
+  onOpenChildren,
+}: {
+  title: string;
+  ariaLabel: string;
+  data: CategoryChartRow[];
+  dataKey: "quantity" | "amount";
+  shareKey: "quantityShare" | "share";
+  valueFormatter: (value: number) => string;
+  rows: CategoryChartRow[];
+  canDrill: boolean;
+  onOpenChildren: (entry: unknown) => void;
+}) {
+  return (
+    <div className="analytics-category-chart-card">
+      <h3>{title}</h3>
+      <div className="analytics-chart analytics-category-chart" role="img" aria-label={ariaLabel}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey={dataKey}
+              nameKey="label"
+              cx="50%"
+              cy="45%"
+              innerRadius="38%"
+              outerRadius="70%"
+              paddingAngle={2}
+              stroke="var(--color-paper)"
+              strokeWidth={2}
+              cursor={canDrill ? "pointer" : "default"}
+              onClick={onOpenChildren}
+            >
+              {data.map((row, index) => <Cell key={row.label} fill={`var(--color-tone-${TONES[index % TONES.length]})`} />)}
+            </Pie>
+            <Tooltip
+              content={(
+                <AnalyticsTooltip
+                  valueFormatter={valueFormatter}
+                  valueMeta={(entry) => {
+                    const row = rows.find((item) => item.label === entry.name);
+                    return row ? `（佔比 ${formatPercent(row[shareKey])}）` : null;
+                  }}
+                />
+              )}
+            />
+            <Legend content={<CategoryLegend rows={rows} shareKey={shareKey} />} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
   );
 }
 
@@ -90,12 +157,12 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
     () => activeParent
       ? breakdown
         .filter((row) => row.categoryParent === activeParent || (row.categoryParent === null && row.category === activeParent))
-        .map((row) => ({ ...row, label: row.category, quantity: row.netQuantity }))
+        .map((row) => ({ ...row, label: row.category, quantity: row.netQuantity, amount: row.value }))
         .sort((left, right) => right.quantity - left.quantity)
       : parentRows,
     [activeParent, breakdown, parentRows],
   );
-  const data = rows.map((row) => ({ ...row, label: row.label, quantity: row.netQuantity }));
+  const data = rows.map((row) => ({ ...row, label: row.label, quantity: row.netQuantity, amount: row.value }));
   const canDrill = !activeParent && childParentNames.size > 0;
 
   function openChildren(entry: unknown) {
@@ -105,21 +172,22 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
 
   return (
     <Panel
-      title={activeParent ? `分類銷量佔比・${activeParent}` : "分類銷量佔比"}
-      description={activeParent ? "目前顯示子分類；點選返回可回到母分類。" : "以淨銷量呈現母分類占比；點選有子分類的母分類可繼續下鑽。"}
+      title={activeParent ? `分類銷量與銷售額佔比・${activeParent}` : "分類銷量與銷售額佔比"}
+      description={activeParent ? "目前顯示子分類；點選返回可回到母分類。" : "同時呈現母分類在本期淨銷量與銷售額的占比；點選有子分類的母分類可繼續下鑽。"}
       actions={data.length ? (
         <div className="analytics-panel-actions">
           {activeParent ? <Button variant="link" onClick={() => setSelectedParent(null)}>返回母分類</Button> : null}
-          <AnalyticsDataDialog title={activeParent ? `${activeParent}・子分類資料` : "分類銷量資料"} description="依本期淨銷量排序，銷售額僅作參考。">
+          <AnalyticsDataDialog title={activeParent ? `${activeParent}・子分類資料` : "分類銷量與銷售額資料"} description="依本期淨銷量排序，並列銷售額佔比。">
             <table className="data-table analytics-table">
-              <thead><tr><th>分類</th><th className="numeric">淨銷量</th><th className="numeric">銷量佔比</th><th className="numeric">售額（參考）</th></tr></thead>
+              <thead><tr><th>分類</th><th className="numeric">淨銷量</th><th className="numeric">銷量佔比</th><th className="numeric">銷售額</th><th className="numeric">銷售額佔比</th></tr></thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={`${row.categoryParent ?? "root"}:${row.category}`}>
                     <td data-label="分類" className="cell-strong">{row.category}</td>
                     <td data-label="淨銷量" className="numeric">{quantityFormatter(row.netQuantity)}</td>
                     <td data-label="銷量佔比" className="numeric">{formatPercent(row.quantityShare)}</td>
-                    <td data-label="售額（參考）" className="numeric">{valueFormatter(row.value)}</td>
+                    <td data-label="銷售額" className="numeric">{valueFormatter(row.value)}</td>
+                    <td data-label="銷售額佔比" className="numeric">{formatPercent(row.share)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -130,39 +198,29 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
       className="analytics-chart-panel analytics-category-panel"
     >
       {data.length ? (
-        <div className="analytics-chart analytics-category-chart" role="img" aria-label="商品分類淨銷量佔比圖">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={data}
-                dataKey="quantity"
-                nameKey="label"
-                cx="50%"
-                cy="45%"
-                innerRadius="38%"
-                outerRadius="70%"
-                paddingAngle={2}
-                stroke="var(--color-paper)"
-                strokeWidth={2}
-                cursor={canDrill ? "pointer" : "default"}
-                onClick={openChildren}
-              >
-                {data.map((row, index) => <Cell key={row.label} fill={`var(--color-tone-${TONES[index % TONES.length]})`} />)}
-              </Pie>
-              <Tooltip
-                content={(
-                  <AnalyticsTooltip
-                    valueFormatter={quantityFormatter}
-                    valueMeta={(entry) => {
-                      const row = rows.find((item) => item.label === entry.name);
-                      return row ? `（佔比 ${formatPercent(row.quantityShare)}）` : null;
-                    }}
-                  />
-                )}
-              />
-              <Legend content={<CategoryLegend rows={rows} />} />
-            </PieChart>
-          </ResponsiveContainer>
+        <div className="analytics-category-chart-duo">
+          <CategoryPie
+            title="分類銷量"
+            ariaLabel="商品分類淨銷量佔比圖"
+            data={data}
+            dataKey="quantity"
+            shareKey="quantityShare"
+            valueFormatter={quantityFormatter}
+            rows={rows}
+            canDrill={canDrill}
+            onOpenChildren={openChildren}
+          />
+          <CategoryPie
+            title="分類銷售額"
+            ariaLabel="商品分類銷售額佔比圖"
+            data={data}
+            dataKey="amount"
+            shareKey="share"
+            valueFormatter={valueFormatter}
+            rows={rows}
+            canDrill={canDrill}
+            onOpenChildren={openChildren}
+          />
         </div>
       ) : <p className="analytics-chart-empty">本期沒有分類資料。</p>}
     </Panel>
