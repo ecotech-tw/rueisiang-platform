@@ -67,6 +67,7 @@ export function ItemForm({
   const initialCategory = categories.find((category) => category.name === (item?.category ?? (categories.length === 1 ? categories[0]?.name : "")));
 
   const [selectedCyberbizSku, setSelectedCyberbizSku] = useState(initialCyberbiz?.sku ?? "");
+  const [catalogSource, setCatalogSource] = useState<"cyberbiz" | "custom">(catalogOnly ? "cyberbiz" : "custom");
   const [selectedCategoryId, setSelectedCategoryId] = useState(initialCategory?.id ?? "");
   const [fields, setFields] = useState({
     sku: item?.sku ?? initialCyberbiz?.sku ?? "",
@@ -97,9 +98,21 @@ export function ItemForm({
     setFields((current) => ({ ...current, ...patch }));
   }
 
+  function changeCatalogSource(source: "cyberbiz" | "custom") {
+    setCatalogSource(source);
+    setSelectedCyberbizSku("");
+    set({ sku: "", name: "" });
+  }
+
   const selectedCyberbiz = cyberbizProducts.find((product) => product.sku === selectedCyberbizSku);
-  const canPickCyberbiz = !item && cyberbizProducts.length > 0;
-  const valid = (fields.name.trim() !== "" || Boolean(selectedCyberbiz)) && fields.category !== "";
+  const isCatalogCreate = catalogOnly && !item;
+  const canPickCyberbiz = isCatalogCreate && catalogSource === "cyberbiz";
+  const showManualIdentityFields = !isCatalogCreate || catalogSource === "custom";
+  const valid = fields.category !== "" && (
+    isCatalogCreate
+      ? catalogSource === "cyberbiz" ? Boolean(selectedCyberbiz) : Boolean(fields.name.trim() && fields.sku.trim())
+      : fields.name.trim() !== ""
+  );
 
   function submit() {
     if (!valid) return;
@@ -160,6 +173,17 @@ export function ItemForm({
         </>
       }
     >
+          {isCatalogCreate ? (
+            <SelectField
+              label="品項來源"
+              required
+              value={catalogSource}
+              onChange={(event) => changeCatalogSource(event.target.value === "custom" ? "custom" : "cyberbiz")}
+              options={[{ label: "CYBERBIZ 商品", value: "cyberbiz" }, { label: "自訂品項", value: "custom" }]}
+              disabled={pending || Boolean(initialCyberbizSku)}
+            />
+          ) : null}
+
           {canPickCyberbiz ? (
             <div className="field">
               <span>CYBERBIZ 商品</span>
@@ -187,7 +211,7 @@ export function ItemForm({
                 autoHighlight
               >
                 <Combobox.InputGroup className="combobox-group">
-                  <Combobox.Input className="combobox-input" placeholder="搜尋 SKU、商品名稱或規格" />
+                  <Combobox.Input className="combobox-input" placeholder="搜尋 SKU、商品名稱或規格" autoFocus />
                   <Combobox.Clear className="combobox-clear" aria-label="清除商品"><Icon name="close" /></Combobox.Clear><Combobox.Trigger className="combobox-trigger" aria-label="開啟商品選單"><Icon name="chevronDown" /></Combobox.Trigger>
                 </Combobox.InputGroup>
                 <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到符合的 CYBERBIZ 商品</Combobox.Empty><Combobox.List>{(product: CyberbizCatalogProduct) => <Combobox.Item key={product.sku} value={product} className="combobox-item"><strong>{product.sku}</strong><span>{product.productName}{product.variantName ? `（${product.variantName}）` : ""}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
@@ -196,24 +220,26 @@ export function ItemForm({
             </div>
           ) : null}
 
-          <TextField
-            label="商品名稱"
-            required={!selectedCyberbiz}
-            autoFocus={!canPickCyberbiz}
-            value={fields.name}
-            disabled={Boolean(selectedCyberbiz)}
-            onChange={(event) => set({ name: event.target.value })}
-          />
+          {showManualIdentityFields ? (
+            <TextField
+              label="商品名稱"
+              required
+              autoFocus={!canPickCyberbiz}
+              value={fields.name}
+              onChange={(event) => set({ name: event.target.value })}
+            />
+          ) : null}
 
           <div className="field-grid">
-            <TextField
-              label="SKU"
-              placeholder="例如 BOX-M"
-              value={fields.sku}
-              onChange={(event) => set({ sku: event.target.value })}
-              disabled={Boolean(selectedCyberbiz)}
-              hint={selectedCyberbiz ? "已由 CYBERBIZ 商品帶入。" : "會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"}
-            />
+            {showManualIdentityFields ? (
+              <TextField
+                label="SKU"
+                placeholder="例如 BOX-M"
+                value={fields.sku}
+                onChange={(event) => set({ sku: event.target.value })}
+                hint={isCatalogCreate ? "自訂品項需要填寫 SKU。" : "會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"}
+              />
+            ) : null}
             <div className="field">
               <span>分類<b aria-hidden="true">必填</b></span>
               <Combobox.Root

@@ -67,6 +67,21 @@ function categoryPath(category: ProductCategory, categories: ProductCategory[]):
   return parent ? `${parent.name} / ${category.name}` : category.name;
 }
 
+function categoryScope(categoryId: string, categories: ProductCategory[]): Set<string> {
+  const ids = new Set([categoryId]);
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const category of categories) {
+      if (category.parentId && ids.has(category.parentId) && !ids.has(category.id)) {
+        ids.add(category.id);
+        expanded = true;
+      }
+    }
+  }
+  return ids;
+}
+
 function sourceLabel(item: ItemCatalogItem): string {
   if (item.source === "cyberbiz") return item.notes.includes("尚未建立") ? "CYBERBIZ 待建立品項" : "CYBERBIZ";
   if (item.source === "wms") return "WMS 過渡品項";
@@ -250,14 +265,18 @@ export function Items() {
   const warehouseCategories = query.data?.warehouseCategories ?? [];
   const cyberbizProducts = query.data?.cyberbizProducts ?? [];
 
+  const selectedCategoryIds = useMemo(
+    () => categoryId === "all" ? null : categoryScope(categoryId, categories),
+    [categoryId, categories],
+  );
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     return items.filter((item) => {
-      if (categoryId !== "all" && item.categoryId !== categoryId) return false;
+      if (selectedCategoryIds && !selectedCategoryIds.has(item.categoryId ?? "")) return false;
       if (!term) return true;
       return [item.name, item.sku ?? "", item.category, item.notes].some((value) => String(value ?? "").toLowerCase().includes(term));
     });
-  }, [items, search, categoryId]);
+  }, [items, search, selectedCategoryIds]);
   const groups = useMemo(() => arrangeCatalogGroups(visible, categories), [categories, visible]);
   const inWarehouseCount = items.filter((item) => item.inWarehouse).length;
   const cyberbizCount = items.filter((item) => item.source === "cyberbiz").length;
