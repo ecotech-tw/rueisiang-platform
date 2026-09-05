@@ -33,6 +33,8 @@ interface ItemCatalogData {
   zones: Zone[];
 }
 
+const UNCLASSIFIED_CATEGORY_ID = "__unclassified__";
+
 class ItemCatalogError extends Error {
   constructor(message: string) {
     super(message);
@@ -106,6 +108,7 @@ function arrangeCatalogGroups(items: ItemCatalogItem[], categories: ProductCateg
 function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; categories: ProductCategory[]; onClose: () => void }) {
   // 舊資料搬移期間少數商品名稱可能是 null；表單不能把它直接交給 trim，否則整頁會白屏。
   const [name, setName] = useState(item.name ?? "");
+  const [sku, setSku] = useState(item.sku ?? "");
   const [categoryId, setCategoryId] = useState(item.categoryId ?? "");
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -115,7 +118,11 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
         method: "PATCH",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), categoryId: categoryId || null }),
+        body: JSON.stringify({
+          name: name.trim(),
+          ...(item.source === "custom" ? { sku: sku.trim() } : {}),
+          categoryId: categoryId || null,
+        }),
       });
       if (!response.ok) await readError(response);
       return response.json() as Promise<{ id: string }>;
@@ -126,7 +133,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
       onClose();
     },
   });
-  const valid = name.trim() !== "";
+  const valid = name.trim() !== "" && (item.source !== "custom" || sku.trim() !== "");
   return (
     <Dialog
       title="編輯品項"
@@ -136,7 +143,13 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
       actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={update.isPending}>取消</Button><Button type="submit" loading={update.isPending} disabled={!valid}>儲存</Button></>}
     >
       <TextField label="品項名稱" required autoFocus value={name} onChange={(event) => setName(event.target.value)} />
-      <TextField label="SKU" value={item.sku} disabled hint="SKU 是外部對應鍵，這一輪先不在 UI 直接改。" />
+      <TextField
+        label="SKU"
+        value={item.source === "custom" ? sku : item.sku}
+        disabled={item.source !== "custom"}
+        onChange={item.source === "custom" ? (event) => setSku(event.target.value) : undefined}
+        hint={item.source === "custom" ? "會自動轉成大寫；SKU 必須是全平台唯一。" : "CYBERBIZ 品項的 SKU 必須與官網連結一致，請到官網修改。"}
+      />
       <div className="field">
         <span>品項分類</span>
         <Combobox.Root
@@ -190,18 +203,22 @@ export function Items() {
   const categories = query.data?.categories ?? [];
   const zones = query.data?.zones ?? [];
   const selectedCategoryIds = useMemo(
-    () => categoryId === "all" ? null : categoryScope(categoryId, categories),
+    () => categoryId === "all" || categoryId === UNCLASSIFIED_CATEGORY_ID
+      ? null
+      : categoryScope(categoryId, categories),
     [categoryId, categories],
   );
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     return items.filter((item) => {
       if (sourceFilter !== "all" && item.source !== sourceFilter) return false;
-      if (selectedCategoryIds && !selectedCategoryIds.has(item.categoryId ?? "")) return false;
+      if (categoryId === UNCLASSIFIED_CATEGORY_ID) {
+        if (item.categoryId && categories.some((category) => category.id === item.categoryId)) return false;
+      } else if (selectedCategoryIds && !selectedCategoryIds.has(item.categoryId ?? "")) return false;
       if (!term) return true;
       return [item.name, item.sku ?? "", item.category, item.notes].some((value) => String(value ?? "").toLowerCase().includes(term));
     });
-  }, [items, search, sourceFilter, selectedCategoryIds]);
+  }, [categories, categoryId, items, search, sourceFilter, selectedCategoryIds]);
   const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pagedItems = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -245,7 +262,11 @@ export function Items() {
             label="分類"
             value={categoryId}
             onChange={(event) => { setCategoryId(event.target.value); setPage(1); }}
-            options={[{ value: "all", label: "全部分類" }, ...arrangeCategories(categories).map((category) => ({ value: category.id, label: category.parentId ? categoryPath(category, categories) : category.name }))]}
+            options={[
+              { value: "all", label: "全部分類" },
+              { value: UNCLASSIFIED_CATEGORY_ID, label: "未分類" },
+              ...arrangeCategories(categories).map((category) => ({ value: category.id, label: category.parentId ? categoryPath(category, categories) : category.name })),
+            ]}
           />
         </form>
 

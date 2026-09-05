@@ -331,6 +331,7 @@ const TARGET_EFFECTIVE_SALES_SOURCE = sql`(
     item.sku,
     item.name AS product_name,
     COALESCE(category.name, '未分類') AS category,
+    parent_category.name AS category_parent,
     sales.gross_quantity,
     sales.return_quantity,
     sales.net_quantity,
@@ -338,6 +339,7 @@ const TARGET_EFFECTIVE_SALES_SOURCE = sql`(
   FROM report_item_sales_monthly AS sales
   JOIN items AS item ON item.id = sales.item_id
   LEFT JOIN item_categories AS category ON category.id = item.category_id
+  LEFT JOIN item_categories AS parent_category ON parent_category.id = category.parent_id
   WHERE sales.record_origin = 'manual'
     OR (sales.record_origin = 'imported' AND NOT EXISTS (
       SELECT 1
@@ -355,6 +357,7 @@ const EFFECTIVE_SALES_COLUMNS = {
   sku: sql.raw("report_sales_effective.sku"),
   productName: sql.raw("report_sales_effective.product_name"),
   category: sql.raw("report_sales_effective.category"),
+  categoryParent: sql.raw("report_sales_effective.category_parent"),
   grossQuantity: sql.raw("report_sales_effective.gross_quantity"),
   returnQuantity: sql.raw("report_sales_effective.return_quantity"),
   netQuantity: sql.raw("report_sales_effective.net_quantity"),
@@ -737,6 +740,7 @@ export async function queryReportSales(
   const selected = [
     ...dimensions.map((item) => sql`${item.expression} AS ${sql.raw(item.alias)}`),
     ...(groups.includes("sku") ? [sql`MAX(${EFFECTIVE_SALES_COLUMNS.productName}) AS productName`] : []),
+    ...(groups.includes("category") ? [sql`MAX(${EFFECTIVE_SALES_COLUMNS.categoryParent}) AS categoryParent`] : []),
     sql`SUM(${EFFECTIVE_SALES_COLUMNS.grossQuantity}) AS grossQuantity`,
     sql`SUM(${EFFECTIVE_SALES_COLUMNS.returnQuantity}) AS returnQuantity`,
     sql`SUM(${EFFECTIVE_SALES_COLUMNS.netQuantity}) AS netQuantity`,

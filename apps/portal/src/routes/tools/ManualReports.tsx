@@ -1056,44 +1056,49 @@ export function ManualReports() {
         }
       />
 
-      <Panel className="manual-report-panel grows" title={kind === "payout" ? "每日出金紀錄" : "每月商品銷售紀錄"} description={kind === "payout" ? "依每日出金日期查看、篩選與修訂紀錄。" : "依報表月份查看、篩選與修訂商品銷售紀錄。"}>
-        <div className="manual-report-toolbar">
-          <div className="manual-report-tabs" role="tablist" aria-label="報表類型">
-            <Button
-              variant="chip"
-              selected={kind === "payout"}
-              role="tab"
-              aria-selected={kind === "payout"}
-              onClick={() => { setKind("payout"); setSelectedPayoutIds(new Set()); setSelectedSalesIds(new Set()); }}
-            >
-              <Icon name="payments" />
-              每日出金
-            </Button>
-            <Button
-              variant="chip"
-              selected={kind === "sales"}
-              role="tab"
-              aria-selected={kind === "sales"}
-              onClick={() => { setKind("sales"); setSelectedPayoutIds(new Set()); setSelectedSalesIds(new Set()); }}
-            >
-              <Icon name="report" />
-              每月商品銷售
-            </Button>
+      <Panel
+        className="manual-report-panel grows"
+        title={kind === "payout" ? "每日出金紀錄" : "每月商品銷售紀錄"}
+        description={kind === "payout" ? "依每日出金日期查看、篩選與修訂紀錄。" : "依報表月份查看、篩選與修訂商品銷售紀錄。"}
+        actions={(
+          <div className="manual-report-toolbar">
+            <div className="manual-report-tabs" role="tablist" aria-label="報表類型">
+              <Button
+                variant="chip"
+                selected={kind === "payout"}
+                role="tab"
+                aria-selected={kind === "payout"}
+                onClick={() => { setKind("payout"); setSelectedPayoutIds(new Set()); setSelectedSalesIds(new Set()); }}
+              >
+                <Icon name="payments" />
+                每日出金
+              </Button>
+              <Button
+                variant="chip"
+                selected={kind === "sales"}
+                role="tab"
+                aria-selected={kind === "sales"}
+                onClick={() => { setKind("sales"); setSelectedPayoutIds(new Set()); setSelectedSalesIds(new Set()); }}
+              >
+                <Icon name="report" />
+                每月商品銷售
+              </Button>
+            </div>
+            <div className="manual-report-actions">
+              <Button variant="secondary" icon="attachment" disabled={busy} onClick={() => setImportDialog({ kind })}>匯入報表</Button>
+              <Button
+                icon="plus"
+                className="add-action"
+                disabled={!scopes.length || busy}
+                onClick={() => setDialog({ kind })}
+                aria-label={`新增${kind === "payout" ? "出金" : "商品銷售"}資料`}
+              >
+                <span>新增一列</span>
+              </Button>
+            </div>
           </div>
-          <div className="manual-report-actions">
-            <Button variant="secondary" icon="attachment" disabled={busy} onClick={() => setImportDialog({ kind })}>匯入報表</Button>
-            <Button
-              icon="plus"
-              className="add-action"
-              disabled={!scopes.length || busy}
-              onClick={() => setDialog({ kind })}
-              aria-label={`新增${kind === "payout" ? "出金" : "商品銷售"}資料`}
-            >
-              <span>新增一列</span>
-            </Button>
-          </div>
-        </div>
-
+        )}
+      >
         {scopes.length === 0 ? <Alert tone="warning">尚未有可選的啟用據點。</Alert> : null}
         {kind === "payout" ? (
           <>

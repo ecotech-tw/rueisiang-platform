@@ -3820,14 +3820,15 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /* 報表人工修訂：一頁一個資料入口，兩種報表用同一套列編輯節奏。 */
 /* 報表管理：一頁一個資料入口，兩種報表用同一套列編輯節奏。 */
 .manual-report-panel { min-width: 0; }
+.manual-report-panel > .panel-head { align-items: center; }
+.manual-report-panel > .panel-head > div:last-child { flex: 1 1 auto; min-width: 0; }
 .manual-report-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
-  margin: -4px -22px 18px;
-  padding: 4px 22px 18px;
-  border-bottom: 1px solid var(--color-line);
+  margin: 0;
+  padding: 0;
 }
 .manual-report-tabs {
   display: flex;
@@ -4010,6 +4011,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 @media (max-width: 620px) {
   .page-head-actions { width: 100%; justify-content: flex-start; }
   .page-head-actions > button { flex: 1 1 auto; }
+  .manual-report-panel > .panel-head { align-items: stretch; flex-direction: column; gap: 12px; }
+  .manual-report-panel > .panel-head > div:last-child { width: 100%; }
   .manual-report-toolbar { align-items: stretch; flex-direction: column; gap: 12px; }
   .manual-report-tabs { width: 100%; margin-right: 0; margin-left: 0; }
   .manual-report-tabs .filter-chip { flex: 1; min-width: 0; }

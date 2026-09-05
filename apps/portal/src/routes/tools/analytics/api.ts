@@ -73,6 +73,7 @@ export interface SalesBreakdown {
 
 export interface SalesCategoryBreakdown {
   category: string;
+  categoryParent: string | null;
   value: number;
   share: number;
   quantityShare: number;

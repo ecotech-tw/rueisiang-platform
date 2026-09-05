@@ -92,6 +92,8 @@ export interface ReportSalesBreakdown {
 
 export interface ReportSalesCategoryBreakdown {
   category: string;
+  /** 子分類所屬的母分類；null 代表母分類本身或未分類。 */
+  categoryParent: string | null;
   value: number;
   share: number;
   quantityShare: number;
@@ -662,9 +664,11 @@ export async function queryReportSalesSummary(db: Database, query: ReportAnalyti
   const categoryResult = await queryReportSales(db, { ...reportQuery(query, comparison.current), groupBy: ["category"] }, directory);
   const byCategory = (categoryResult?.rows ?? []).flatMap((row) => {
     const category = stringValue(row, "category") ?? "未分類";
+    const categoryParent = stringValue(row, "categoryParent") || null;
     const value = numberValue(row, "salesAmount");
     return [{
       category,
+      categoryParent,
       value,
       share: currentMetrics.salesAmount === 0 ? 0 : value / currentMetrics.salesAmount,
       quantityShare: currentMetrics.netQuantity === 0 ? 0 : numberValue(row, "netQuantity") / currentMetrics.netQuantity,
