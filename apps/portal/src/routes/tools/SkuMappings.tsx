@@ -41,7 +41,7 @@ function matches(mapping: ProductSkuMapping, search: string): boolean {
     mapping.channel,
     mapping.externalName,
     mapping.externalSku,
-    ...mapping.components.flatMap((component) => [component.sku, component.name, component.category]),
+    ...mapping.components.flatMap((component) => [component.sku, component.name]),
   ]
     .some((value) => value.toLocaleLowerCase("zh-TW").includes(search));
 }
@@ -55,7 +55,6 @@ export function SkuMappings() {
   const canWrite = permissions.has("wms:mapping:write");
 
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [channelFilter, setChannelFilter] = useState("all");
@@ -77,8 +76,7 @@ export function SkuMappings() {
     [mappings],
   );
   /*
-   * 沒填分類的自訂用料存成「未分類」，但那不一定是分類主檔裡的一列（全新資料庫沒有）。
-   * 不補進來的話那些對應在分類篩選裡選不到。
+   * 自訂用料的分類仍由對話框使用；沒有分類主檔的舊資料也要保留在選項裡，避免編輯時遺失。
    */
   const categories = useMemo(() => {
     const names = new Set(data?.categories ?? []);
@@ -91,10 +89,9 @@ export function SkuMappings() {
     const term = search.trim().toLocaleLowerCase("zh-TW");
     return mappings.filter((mapping) =>
       (channelFilter === "all" || mapping.channel === channelFilter)
-      && (category === "all" || mapping.components.some((component) => component.category === category))
       && matches(mapping, term),
     );
-  }, [category, channelFilter, mappings, search]);
+  }, [channelFilter, mappings, search]);
   const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pagedVisible = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -221,7 +218,7 @@ export function SkuMappings() {
             label="搜尋"
             className="search-input"
             type="search"
-            placeholder="搜尋通路商品、外部 SKU、WMS SKU 或分類"
+            placeholder="搜尋通路商品、外部 SKU 或 WMS SKU"
             value={search}
             onChange={(event) => { setSearch(event.target.value); setPage(1); }}
           />
@@ -231,14 +228,8 @@ export function SkuMappings() {
             onChange={(event) => { setChannelFilter(event.target.value); setPage(1); }}
             options={[{ value: "all", label: "全部通路" }, ...channels.map((value) => ({ value, label: productSkuChannelLabel(value) }))]}
           />
-          <FilterSelect
-            label="分類"
-            value={category}
-            onChange={(event) => { setCategory(event.target.value); setPage(1); }}
-            options={[{ value: "all", label: "全部分類" }, ...categories.map((value) => ({ value, label: value }))]}
-          />
-          {search || channelFilter !== "all" || category !== "all" ? (
-            <Button variant="link" onClick={() => { setSearch(""); setChannelFilter("all"); setCategory("all"); setPage(1); }}>
+          {search || channelFilter !== "all" ? (
+            <Button variant="link" onClick={() => { setSearch(""); setChannelFilter("all"); setPage(1); }}>
               清除篩選
             </Button>
           ) : null}
@@ -255,7 +246,6 @@ export function SkuMappings() {
                 <th>通路商品</th>
                 <th>外部 SKU</th>
                 <th>組合用料</th>
-                <th>分類</th>
                 <th>建立時間</th>
                 {canWrite ? <th /> : null}
               </tr>
@@ -274,11 +264,6 @@ export function SkuMappings() {
                         {component.sku} × {component.quantity}
                         {component.source === "custom" ? <span className="status status-tone-slate">自訂</span> : null}
                       </div>
-                    ))}
-                  </td>
-                  <td data-label="分類">
-                    {[...new Set(mapping.components.map((component) => component.category))].map((name) => (
-                      <span className="status status-tone-slate" key={name}>{name}</span>
                     ))}
                   </td>
                   <td data-label="建立時間" className="cell-sub whitespace-nowrap">{formatTime(mapping.createdAt)}</td>
