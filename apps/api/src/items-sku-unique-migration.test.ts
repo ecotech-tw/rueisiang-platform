@@ -25,6 +25,7 @@ const BEFORE_MERGE = "0089_item_wms_permissions.sql";
 const MERGE = "0089_z_merge_duplicate_sku_items.sql";
 const UNIQUE_INDEX = "0090_items_sku_unique.sql";
 const ALIGN_NAMES = "0091_align_index_names.sql";
+const CATEGORY_CONSTRAINTS = "0092_item_categories_constraints.sql";
 
 /** 把一組重複的 SKU 種進 items：cyberbiz 一筆、custom 一筆。 */
 function seedDuplicate(sqlite: DatabaseSync, sku: string, categoryId: string | null): void {
@@ -99,5 +100,40 @@ describe("items SKU 全平台唯一", () => {
       "idx_customer_tag_catalog_name", "idx_cyberbiz_customer_webhooks_status",
       "idx_payout_target_date", "idx_cyberbiz_products_item",
     ]) expect(names).not.toContain(name);
+  });
+
+  it("0092 重建 item_categories 時不會把 items 的分類連坐清掉", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, ALIGN_NAMES);
+
+    sqlite.prepare("INSERT INTO item_categories (id, depth, parent_id, parent_depth, name) VALUES ('root', 0, NULL, NULL, '沐浴清潔')").run();
+    sqlite.prepare("INSERT INTO item_categories (id, depth, parent_id, parent_depth, name) VALUES ('kid', 1, 'root', 0, '洗髮')").run();
+    sqlite.prepare("INSERT INTO items (id, source, kind, sku, name, category_id, active) VALUES ('i1', 'custom', 'sellable', 'S1', '商品一', 'kid', 1)").run();
+
+    applyLikeD1(sqlite, ALIGN_NAMES, CATEGORY_CONSTRAINTS);
+
+    // items.category_id 是 ON DELETE SET NULL；重建時沒有先存後補的話這裡會是 null。
+    expect(sqlite.prepare("SELECT category_id FROM items WHERE id = 'i1'").get()).toEqual({ category_id: "kid" });
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM item_categories").get()).toEqual({ n: 2 });
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE substr(name, 1, 1) = char(95)").get()).toEqual({ n: 0 });
+  });
+
+  it("0092 之後兩層分類的約束真的擋得住", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, CATEGORY_CONSTRAINTS);
+    const insert = (id: string, depth: number, parentId: string | null, parentDepth: number | null, name: string) =>
+      sqlite.prepare("INSERT INTO item_categories (id, depth, parent_id, parent_depth, name) VALUES (?, ?, ?, ?, ?)")
+        .run(id, depth, parentId, parentDepth, name);
+
+    insert("root", 0, null, null, "沐浴清潔");
+    insert("kid", 1, "root", 0, "洗髮");
+
+    expect(() => insert("dup", 0, null, null, "沐浴清潔")).toThrow(/UNIQUE/i);
+    expect(() => insert("grandkid", 2, "kid", 1, "孫")).toThrow(/CHECK/i);
+    expect(() => insert("self", 1, "self", 0, "自己")).toThrow(/FOREIGN KEY/i);
+    expect(() => insert("kid2", 1, "root", 0, "洗髮")).toThrow(/UNIQUE/i);
+    expect(() => sqlite.prepare("DELETE FROM item_categories WHERE id = 'root'").run()).toThrow(/FOREIGN KEY/i);
   });
 });
