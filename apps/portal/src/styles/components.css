@@ -796,10 +796,11 @@
  */
 .sku-mapping-component-row {
   display: grid;
-  grid-template-columns: minmax(120px, 150px) minmax(200px, 1fr) minmax(80px, 110px) 40px;
+  grid-template-columns: minmax(120px, 150px) minmax(0, 1fr) minmax(80px, 96px) 40px;
   align-items: end;
   gap: 10px;
 }
+.sku-mapping-component-row .combobox-group { width: 100%; min-width: 0; }
 /*
  * 自訂那一排只有名稱與分類：沿用同一組欄寬，但從第二欄開始擺，
  * 讓「名稱」對齊上排的 SKU、「分類」對齊上排的數量。

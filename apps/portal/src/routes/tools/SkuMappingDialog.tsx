@@ -293,7 +293,7 @@ export function SkuMappingDialog({
                   ) : (
                     <TextField label="" aria-label={`自訂 SKU ${index + 1}`} placeholder="例如 GIFT-BOX" value={component.value} onChange={(event) => patchComponent(index, { value: event.target.value })} disabled={pending} />
                   )}
-                  <TextField label="" aria-label={`每組數量 ${index + 1}`} placeholder="數量" type="number" min="1" step="1" value={component.quantity} onChange={(event) => patchComponent(index, { quantity: event.target.value })} disabled={pending} />
+                  <TextField label="數量" aria-label={`每組數量 ${index + 1}`} placeholder="1" type="number" min="1" step="1" value={component.quantity} onChange={(event) => patchComponent(index, { quantity: event.target.value })} disabled={pending} />
                   <Button type="button" variant="icon" icon="close" title={`移除用料 ${index + 1}`} aria-label={`移除用料 ${index + 1}`} onClick={() => setComponents((current) => current.filter((_item, itemIndex) => itemIndex !== index))} disabled={pending} />
                 </div>
                 {component.source === "custom" ? (
