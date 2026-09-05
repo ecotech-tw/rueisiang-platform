@@ -366,6 +366,7 @@
 .page.fills { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 20px; }
 /* flex 的 gap 已經負責間距，子元素不要再自己加 margin，否則會變兩倍。 */
 .page.fills > * + * { margin-top: 0; }
+.page.fills > .stat-row { margin-bottom: 0; }
 .page.fills > .page-head,
 .page.fills > .stat-row,
 .page.fills > details,

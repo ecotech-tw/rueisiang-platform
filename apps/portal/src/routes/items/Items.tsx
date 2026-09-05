@@ -248,7 +248,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
 }
 
 export function Items() {
-  usePageTitle("品項管理");
+  usePageTitle("品項列表");
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("all");
   const [editing, setEditing] = useState<"new" | { cyberbizSku: string } | null>(null);
@@ -285,7 +285,7 @@ export function Items() {
   return (
     <div className="page fills">
       <PageHeader
-        title="品項管理"
+        title="品項列表"
         description="集中維護可被倉儲、SKU 對應與報表共用的品項；庫存盤點仍留在倉儲頁處理。"
         actions={canWrite ? <Button icon="plus" onClick={() => setEditing("new")}>新增品項</Button> : null}
       />
