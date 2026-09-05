@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { DropdownSelect } from "../ui/DropdownSelect.js";
 import { Icon } from "./icons.js";
 
 /**
@@ -74,12 +73,18 @@ export function Pager({
         <span className="muted">{totalLabel}</span>
         <label className="pager-size">
           每頁
-          <DropdownSelect
-            aria-label="每頁筆數"
-            options={pageSizes.map((size) => ({ label: String(size), value: String(size) }))}
-            value={String(pageSize)}
-            onChange={(event) => onPageSize(Number(event.target.value))}
-          />
+          <span className="select-control">
+            <select
+              aria-label="每頁筆數"
+              className="dropdown-control"
+              value={String(pageSize)}
+              onChange={(event) => onPageSize(Number(event.target.value))}
+            >
+              {pageSizes.map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </span>
           筆
         </label>
       </div>
