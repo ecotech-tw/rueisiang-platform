@@ -122,7 +122,7 @@ describe("蝦皮銷售報表", () => {
   });
 
   it("店別設定權限也可以讀寫蝦皮報表設定", async () => {
-    await db().insert(roles).values({ id: "role-tools-config", key: "tools-config", name: "店別與報表設定", isSystem: false });
+    await db().insert(roles).values({ id: "role-tools-config", roleKey: "tools-config", name: "店別與報表設定", isSystem: false });
     await db().insert(rolePermissions).values({ roleId: "role-tools-config", permission: "tools:payout:config" });
     const id = await seedUser("tools-config@ecotech.tw", "role-tools-config");
 

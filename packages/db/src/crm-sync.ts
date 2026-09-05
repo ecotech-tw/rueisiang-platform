@@ -74,10 +74,10 @@ export async function syncCyberbizCustomer(
         cyberbizUid: incoming.uid || null,
         cyberbizTagsJson: JSON.stringify(incoming.tags),
         cyberbizUpdatedAt: incoming.updatedAt || null,
-        cyberbizRawJson: JSON.stringify(incoming.raw),
+        rawJson: JSON.stringify(incoming.raw),
         syncStatus: "synced",
         syncError: null,
-        lastSyncedAt: now,
+        syncedAt: now,
         lastWebhookAt: fromWebhook ? now : null,
         blockedAt: incoming.blocked ? now : null,
         createdAt: incoming.createdAt || now,
@@ -134,7 +134,7 @@ export async function syncCyberbizCustomer(
     cyberbizUid: incoming.uid || existing.cyberbizUid,
     cyberbizTagsJson: incoming.tags.length ? JSON.stringify(incoming.tags) : existing.cyberbizTagsJson,
     cyberbizUpdatedAt: incoming.updatedAt || existing.cyberbizUpdatedAt,
-    cyberbizRawJson: JSON.stringify(incoming.raw),
+    rawJson: JSON.stringify(incoming.raw),
     syncStatus: "synced",
     syncError: null,
     blockedAt: incoming.blocked ? existing.blockedAt || now : existing.blockedAt,
@@ -150,7 +150,7 @@ export async function syncCyberbizCustomer(
     // 沒有實質變化就只更新「什麼時候確認過」，不要在操作紀錄裡灌一堆雜訊。
     await db
       .update(customers)
-      .set({ lastSyncedAt: now, lastWebhookAt: fromWebhook ? now : existing.lastWebhookAt })
+      .set({ syncedAt: now, lastWebhookAt: fromWebhook ? now : existing.lastWebhookAt })
       .where(eq(customers.id, existing.id));
     return { action: "unchanged", customerId: existing.id };
   }
@@ -158,7 +158,7 @@ export async function syncCyberbizCustomer(
   await db.batch([
     db
       .update(customers)
-      .set({ ...next, lastSyncedAt: now, lastWebhookAt: fromWebhook ? now : existing.lastWebhookAt })
+      .set({ ...next, syncedAt: now, lastWebhookAt: fromWebhook ? now : existing.lastWebhookAt })
       .where(eq(customers.id, existing.id)),
     db.insert(activityEvents).values({
       ...activityRow({
@@ -265,10 +265,10 @@ export async function upsertCyberbizCustomers(
         cyberbizUid: customer.uid || null,
         cyberbizTagsJson: JSON.stringify(customer.tags),
         cyberbizUpdatedAt: customer.updatedAt || null,
-        cyberbizRawJson: JSON.stringify(customer.raw),
+        rawJson: JSON.stringify(customer.raw),
         syncStatus: "synced",
         syncError: null,
-        lastSyncedAt: now,
+        syncedAt: now,
         blockedAt: customer.blocked ? now : null,
         createdAt,
         updatedAt: customer.updatedAt || createdAt,
@@ -290,10 +290,10 @@ export async function upsertCyberbizCustomers(
           cyberbizUid: sql`coalesce(nullif(excluded.cyberbiz_uid, ''), ${customers.cyberbizUid})`,
           cyberbizTagsJson: sql`case when excluded.cyberbiz_tags_json in ('[]', '') then ${customers.cyberbizTagsJson} else excluded.cyberbiz_tags_json end`,
           cyberbizUpdatedAt: sql`coalesce(nullif(excluded.cyberbiz_updated_at, ''), ${customers.cyberbizUpdatedAt})`,
-          cyberbizRawJson: sql`excluded.raw_json`,
+          rawJson: sql`excluded.raw_json`,
           syncStatus: sql`'synced'`,
           syncError: sql`null`,
-          lastSyncedAt: sql`excluded.synced_at`,
+          syncedAt: sql`excluded.synced_at`,
           blockedAt: sql`case when excluded.status = 'blocked' then coalesce(${customers.blockedAt}, excluded.blocked_at) else ${customers.blockedAt} end`,
           createdAt: sql`coalesce(nullif(excluded.created_at, ''), ${customers.createdAt})`,
           updatedAt: sql`excluded.updated_at`,

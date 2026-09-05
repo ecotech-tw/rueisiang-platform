@@ -103,9 +103,9 @@ export async function createCustomer(
       cyberbizCustomerId: linked?.externalId ?? null,
       cyberbizUid: linked?.uid || null,
       cyberbizTagsJson: JSON.stringify(linked?.tags ?? input.tags),
-      cyberbizRawJson: JSON.stringify(linked?.raw ?? {}),
+      rawJson: JSON.stringify(linked?.raw ?? {}),
       syncStatus: linked ? "synced" : "local_only",
-      lastSyncedAt: linked ? now : null,
+      syncedAt: linked ? now : null,
       blockedAt: linked?.blocked ? now : null,
     }),
     writeEvent(db, {
@@ -144,7 +144,7 @@ export async function updateCustomer(
         email: input.email,
         address: input.address,
         cyberbizTagsJson: JSON.stringify(input.tags),
-        ...(input.syncedToRemote ? { syncStatus: "synced", syncError: null, lastSyncedAt: new Date().toISOString() } : {}),
+        ...(input.syncedToRemote ? { syncStatus: "synced", syncError: null, syncedAt: new Date().toISOString() } : {}),
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
       .where(eq(customers.id, id)),

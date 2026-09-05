@@ -54,7 +54,7 @@ beforeEach(async () => {
 
 async function seedUser(email = "admin@ecotech.tw", roleId: string | null = "role-admin") {
   const id = crypto.randomUUID();
-  await db.insert(users).values({ id, email, displayName: email, name: email, status: "active" });
+  await db.insert(users).values({ id, email, displayName: email, googleName: email, status: "active" });
   if (roleId) await db.insert(userRoles).values({ userId: id, roleId });
   return id;
 }

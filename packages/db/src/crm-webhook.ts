@@ -236,7 +236,7 @@ export async function retryFailedWebhooks(
 
 export interface SyncStatus {
   customers: { total: number; synced: number; localOnly: number; failed: number };
-  lastSyncedAt: string | null;
+  syncedAt: string | null;
   webhooks: { processed: number; failed: number; ignored: number; lastReceivedAt: string | null };
   recent: {
     id: string;
@@ -257,7 +257,7 @@ export async function readSyncStatus(db: Database): Promise<SyncStatus> {
       .from(customers)
       .groupBy(customers.syncStatus),
     db
-      .select({ value: sql<string | null>`max(${customers.lastSyncedAt})` })
+      .select({ value: sql<string | null>`max(${customers.syncedAt})` })
       .from(customers),
     db
       .select({ status: cyberbizCustomerWebhooks.status, value: sql<number>`count(*)` })
@@ -288,7 +288,7 @@ export async function readSyncStatus(db: Database): Promise<SyncStatus> {
       localOnly: bySync.local_only ?? 0,
       failed: bySync.failed ?? 0,
     },
-    lastSyncedAt: lastSynced[0]?.value ?? null,
+    syncedAt: lastSynced[0]?.value ?? null,
     webhooks: {
       processed: byWebhook.processed ?? 0,
       failed: byWebhook.failed ?? 0,
@@ -310,7 +310,7 @@ export async function deleteEmptyCyberbizCustomers(
   db: Database,
 ): Promise<{ deleted: number; ids: string[] }> {
   const suspicious = await db
-    .select({ id: customers.id, raw: customers.cyberbizRawJson })
+    .select({ id: customers.id, raw: customers.rawJson })
     .from(customers)
     .where(
       and(

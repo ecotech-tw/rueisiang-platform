@@ -87,7 +87,7 @@ describe("bootstrap 管理員權限 migration", () => {
 
     await db.insert(roles).values({
       id: "role-admin",
-      key: "admin",
+      roleKey: "admin",
       name: "管理者",
       isSystem: true,
     });
@@ -146,7 +146,7 @@ describe("bootstrap 管理員權限 migration", () => {
     const d1 = createLocalD1();
     const db = createDatabase(d1 as never);
 
-    await db.insert(roles).values({ id: "role-legacy", key: "legacy", name: "舊角色", isSystem: false });
+    await db.insert(roles).values({ id: "role-legacy", roleKey: "legacy", name: "舊角色", isSystem: false });
     await db.insert(rolePermissionGrants).values([
       { roleId: "role-legacy", permission: "wms:inventory:read" },
       { roleId: "role-legacy", permission: "tools:sku-mapping:write" },
@@ -178,7 +178,7 @@ describe("bootstrap 管理員權限 migration", () => {
     const d1 = createLocalD1();
     const db = createDatabase(d1 as never);
 
-    await db.insert(roles).values({ id: "role-legacy", key: "legacy", name: "舊設定角色", isSystem: false });
+    await db.insert(roles).values({ id: "role-legacy", roleKey: "legacy", name: "舊設定角色", isSystem: false });
     await db.insert(rolePermissions).values({ roleId: "role-legacy", permission: "tools:shopee-sales:config" });
     await db.insert(users).values({ id: "user-legacy", email: "legacy@ecotech.tw", status: "active" });
     await db.insert(userPermissions).values({
