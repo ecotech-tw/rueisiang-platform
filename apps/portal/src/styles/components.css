@@ -802,11 +802,9 @@
 }
 .sku-mapping-component-row .combobox-group { width: 100%; min-width: 0; }
 /*
- * 自訂那一排只有名稱與分類：沿用同一組欄寬，但從第二欄開始擺，
- * 讓「名稱」對齊上排的 SKU、「分類」對齊上排的數量。
+ * 自訂用料只需要名稱；沿用同一組欄寬，讓名稱對齊上排的商品欄位。
  */
-.sku-mapping-component-row.is-custom-detail > .field:first-child { grid-column: 2; }
-.sku-mapping-component-row.is-custom-detail > .field:last-child { grid-column: 3 / -1; }
+.sku-mapping-component-row.is-custom-detail > .field { grid-column: 2; }
 /* 同一列用料的兩排靠得更近，看起來是一組，不是兩列。 */
 .sku-mapping-component { gap: 6px; }
 .sku-mapping-component + .sku-mapping-component { padding-top: 6px; }
@@ -814,9 +812,7 @@
 @media (max-width: 620px) {
   .sku-mapping-component-row { grid-template-columns: minmax(0, 1fr) 40px; }
   .sku-mapping-component-row > .field:nth-child(-n + 2) { grid-column: 1 / -1; }
-  /* 選擇器要比上面那兩條 .is-custom-detail 更明確，否則名稱會留在第 2 欄、分類跑到畫面外。 */
-  .sku-mapping-component-row.is-custom-detail > .field:first-child,
-  .sku-mapping-component-row.is-custom-detail > .field:last-child { grid-column: 1 / -1; }
+  .sku-mapping-component-row.is-custom-detail > .field { grid-column: 1 / -1; }
 }
 /*
  * 表格上方的工具列。先前它跟表頭之間沒有任何界線，看起來像黏在一起的兩排東西。

@@ -19,12 +19,11 @@ interface ComponentDraft {
   source: "item" | "cyberbiz" | "custom";
   value: string;
   customName: string;
-  customCategory: string;
   quantity: string;
 }
 
 function emptyDraft(): ComponentDraft {
-  return { source: "cyberbiz", value: "", customName: "", customCategory: "", quantity: "1" };
+  return { source: "cyberbiz", value: "", customName: "", quantity: "1" };
 }
 
 function itemLabel(item: ProductSkuMappingItemOption): string {
@@ -83,24 +82,6 @@ function Combo<T>({
   );
 }
 
-function CategoryPicker({ value, categories, onChange, disabled }: { value: string; categories: string[]; onChange: (value: string) => void; disabled: boolean }) {
-  const options = [{ id: "", name: "未分類" }, ...categories.map((name) => ({ id: name, name }))];
-  const selected = options.find((option) => option.id === value) ?? null;
-  return (
-    <Combo
-      items={options}
-      value={selected}
-      onChange={(option) => onChange(option?.id ?? "")}
-      label="商品分類"
-      placeholder="搜尋或選擇分類"
-      emptyLabel="找不到分類"
-      disabled={disabled}
-      itemToStringLabel={(option) => option?.name ?? ""}
-      renderItem={(option) => <span>{option.name}</span>}
-    />
-  );
-}
-
 function ExternalProductPicker({ options, value, onChange, disabled }: { options: UnmappedProductOption[]; value: UnmappedProductOption | null; onChange: (value: UnmappedProductOption | null) => void; disabled: boolean }) {
   return (
     <Combo
@@ -119,14 +100,12 @@ function ExternalProductPicker({ options, value, onChange, disabled }: { options
 
 export function SkuMappingDialog({
   mapping,
-  categories,
   items,
   unmappedProducts,
   initialExternalProduct,
   onClose,
 }: {
   mapping?: ProductSkuMapping;
-  categories: string[];
   items: ProductSkuMappingItemOption[];
   unmappedProducts: UnmappedProductOption[];
   initialExternalProduct?: UnmappedProductOption;
@@ -147,7 +126,6 @@ export function SkuMappingDialog({
       source: component.source,
       value: component.source === "item" ? component.inventoryItemId ?? "" : component.source === "cyberbiz" ? component.cyberbizSku ?? component.sku : component.sku,
       customName: component.source === "custom" ? component.name : "",
-      customCategory: component.source === "custom" ? component.category : "",
       quantity: String(component.quantity),
     }));
   });
@@ -156,8 +134,6 @@ export function SkuMappingDialog({
   const error = add.error ?? update.error;
   const cyberbizProducts = useCyberbizProducts().data?.products ?? [];
   const cyberbizBySku = new Map(cyberbizProducts.map((product) => [product.sku, product]));
-  const usedCategories = components.map((component) => component.customCategory).filter((name) => name && !categories.includes(name));
-  const categoryOptions = [...new Set([...categories, ...usedCategories])];
   const channelOptions = PRODUCT_SKU_CHANNEL_OPTIONS.some((option) => option.value === channel)
     ? PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value }))
     : [{ label: productSkuChannelLabel(channel), value: channel }, ...PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value }))];
@@ -202,7 +178,7 @@ export function SkuMappingDialog({
         const customSku = component.value.trim();
         const customName = component.customName.trim();
         if (!customSku || !customName) { setValidationError("自訂商品要填寫 SKU 與商品名稱。"); return; }
-        parsed.push({ customSku, customName, customCategory: component.customCategory || null, quantity });
+        parsed.push({ customSku, customName, quantity });
       }
     }
     const keys = parsed.map((component) => component.inventoryItemId ?? component.cyberbizSku ?? component.customSku ?? "").map((value) => value.toUpperCase());
@@ -262,7 +238,7 @@ export function SkuMappingDialog({
                     label=""
                     aria-label={`用料 ${index + 1} 來源`}
                     value={component.source}
-                    onChange={(event) => patchComponent(index, { source: event.target.value as ComponentDraft["source"], value: "", customName: "", customCategory: "" })}
+                    onChange={(event) => patchComponent(index, { source: event.target.value as ComponentDraft["source"], value: "", customName: "" })}
                     options={[{ label: "WMS 品項", value: "item" }, { label: "CYBERBIZ 商品", value: "cyberbiz" }, { label: "自訂商品（不入庫）", value: "custom" }]}
                     disabled={pending}
                   />
@@ -299,7 +275,6 @@ export function SkuMappingDialog({
                 {component.source === "custom" ? (
                   <div className="sku-mapping-component-row is-custom-detail">
                     <TextField label="" aria-label={`自訂商品名稱 ${index + 1}`} placeholder="報表顯示的商品名稱" value={component.customName} onChange={(event) => patchComponent(index, { customName: event.target.value })} disabled={pending} />
-                    <CategoryPicker value={component.customCategory} categories={categoryOptions} onChange={(value) => patchComponent(index, { customCategory: value })} disabled={pending} />
                   </div>
                 ) : null}
               </div>

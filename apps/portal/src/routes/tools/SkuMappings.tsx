@@ -75,16 +75,6 @@ export function SkuMappings() {
     () => [...new Set(mappings.map((mapping) => mapping.channel))].sort((a, b) => productSkuChannelLabel(a).localeCompare(productSkuChannelLabel(b), "zh-TW")),
     [mappings],
   );
-  /*
-   * 自訂用料的分類仍由對話框使用；沒有分類主檔的舊資料也要保留在選項裡，避免編輯時遺失。
-   */
-  const categories = useMemo(() => {
-    const names = new Set(data?.categories ?? []);
-    for (const mapping of data?.mappings ?? []) {
-      for (const component of mapping.components) names.add(component.category);
-    }
-    return [...names].sort((a, b) => a.localeCompare(b, "zh-TW"));
-  }, [data]);
   const visible = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("zh-TW");
     return mappings.filter((mapping) =>
@@ -317,7 +307,6 @@ export function SkuMappings() {
 
       {mappingDialog ? (
         <SkuMappingDialog
-          categories={categories}
           items={data?.items ?? []}
           unmappedProducts={unmappedProducts}
           initialExternalProduct={mappingDialog === "new" || "id" in mappingDialog ? undefined : mappingDialog.product}
