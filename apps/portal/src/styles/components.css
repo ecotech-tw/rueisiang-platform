@@ -1976,11 +1976,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .combobox-positioner { z-index: 100; }
 .combobox-popup { z-index: 100; width: var(--anchor-width); max-height: 320px; overflow: auto; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-canvas); box-shadow: var(--shadow-panel); padding: 6px; }
 .combobox-item { display: flex; align-items: center; gap: 8px; min-height: 44px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; text-align: left; background: transparent; color: var(--color-ink); cursor: pointer; }
-.combobox-item > span { flex: 1; }
+.combobox-item > *:not([data-checked]) { min-width: 0; flex: 0 1 auto; }
 .combobox-category-label small { color: var(--color-muted); font-size: 12px; font-weight: 400; opacity: .72; }
 .combobox-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-muted); }
 .combobox-item:hover, .combobox-item[data-highlighted] { background: --alpha(var(--color-brand) / 8%); }
-.combobox-item [data-checked] { color: var(--color-brand); }
+.combobox-item [data-checked] { flex: none; margin-left: 4px; color: var(--color-brand); }
 .combobox-popup:has(.combobox-item) { display: block; }
 /* 不可輸入的 dropdown 也使用同一套 autocomplete popup 視覺，只保留選取互動。 */
 .select-trigger {
@@ -2024,8 +2024,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .select-item[data-highlighted],
 .select-item[data-selected] { background: --alpha(var(--color-brand) / 8%); }
-.select-item-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.select-item-indicator { flex: none; color: var(--color-secondary); }
+.select-item-text { min-width: 0; max-width: calc(100% - 28px); flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-item-indicator { flex: none; margin-left: 4px; color: var(--color-secondary); }
 .category-drag-handle {
   display: inline-flex;
   width: 28px;
@@ -2508,6 +2508,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   border-color: var(--color-brand);
   box-shadow: 0 0 0 3px --alpha(var(--color-brand) / 14%);
 }
+.dropdown-control.select-trigger { background-image: none; }
 .filter-control .select-trigger {
   width: max-content;
   max-width: 100%;
@@ -2537,6 +2538,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .pager-size .select-control::after { right: 10px; width: 6px; height: 6px; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+.field-grid > .field { min-width: 0; }
+.field > .combobox-group { width: 100%; min-width: 0; }
 /*
  * 三個窄欄位（數量、單位、安全庫存）。auto-fit 在對話框的寬度下只排得下兩欄，
  * 第三個會自己掉到下一列、旁邊空一大格。這種一組的數字欄位就明講要三欄。
