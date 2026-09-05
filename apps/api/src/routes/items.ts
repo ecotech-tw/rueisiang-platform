@@ -1,6 +1,6 @@
 import { can } from "@rueisiang/auth";
 import { loadWarehouse, type Database } from "@rueisiang/db";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, ne } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -252,8 +252,23 @@ export const items = new Hono<AppEnv>()
       : await findCategoryId(db, input.categoryId ?? input.category);
     const name = typeof input.name === "string" && input.name.trim() ? input.name.trim() : current.name;
     const active = input.active === undefined ? current.active : Number(input.active) ? 1 : 0;
-    await db.update(itemMasters).set({ name, categoryId, active, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, id));
-    return c.json({ id, name, categoryId, active });
+    let sku = current.sku;
+    if (input.sku !== undefined) {
+      const requestedSku = requireString(input, "sku", "SKU").toUpperCase();
+      if (current.source !== "custom" && requestedSku !== current.sku) {
+        throw new HTTPException(409, { message: "這項品項已連結 CYBERBIZ，SKU 必須與官網連結一致，不能在 WMS 修改。" });
+      }
+      if (requestedSku !== current.sku) {
+        const [duplicate] = await db.select({ id: itemMasters.id, name: itemMasters.name })
+          .from(itemMasters)
+          .where(and(eq(itemMasters.sku, requestedSku), ne(itemMasters.id, id)))
+          .limit(1);
+        if (duplicate) throw new HTTPException(409, { message: `SKU「${requestedSku}」已被品項「${duplicate.name}」使用。` });
+        sku = requestedSku;
+      }
+    }
+    await db.update(itemMasters).set({ name, sku, categoryId, active, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, id));
+    return c.json({ id, sku, name, categoryId, active });
   })
   .delete("/catalog/:id", requirePermission("items:item:write"), async (c) => {
     const db = c.get("db");

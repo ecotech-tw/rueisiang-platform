@@ -364,8 +364,8 @@ async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<
     name: category.name,
     color: category.color,
     active: 1,
-  })));
-  await db.insert(wmsLayouts).values({ id: "layout:main", name: "主倉庫", canvasWidth: 1600, canvasHeight: 900, active: 1 });
+  }))).onConflictDoNothing();
+  await db.insert(wmsLayouts).values({ id: "layout:main", name: "主倉庫", canvasWidth: 1600, canvasHeight: 900, active: 1 }).onConflictDoNothing();
   await db.insert(wmsZones).values(DEV_ZONES.map((zone) => ({
     id: zone.id,
     code: zone.code,
@@ -373,7 +373,7 @@ async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<
     color: zone.color,
     notes: "",
     active: 1,
-  })));
+  }))).onConflictDoNothing();
 
   const shelfIdByZoneAndCode = new Map<string, string>();
   for (const zone of DEV_ZONES) {
@@ -384,7 +384,7 @@ async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<
     ].entries()) {
       const id = `dev-shelf-${zone.id}-${shelf.code}`;
       shelfIdByZoneAndCode.set(`${zone.id}:${shelf.code}`, id);
-      await db.insert(wmsShelves).values({ id, zoneId: zone.id, code: shelf.code, name: shelf.name, sortOrder: index, active: 1 });
+      await db.insert(wmsShelves).values({ id, zoneId: zone.id, code: shelf.code, name: shelf.name, sortOrder: index, active: 1 }).onConflictDoNothing();
     }
   }
   await db.insert(wmsLayoutElements).values([
@@ -403,7 +403,7 @@ async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<
     })),
     { id: "dev-el-1", layoutId: "layout:main", elementType: "decoration" as const, zoneId: null, label: "出貨口", color: "rose", x: 66, y: 10, width: 14, height: 12, zIndex: 1 },
     { id: "dev-el-2", layoutId: "layout:main", elementType: "decoration" as const, zoneId: null, label: "走道", color: "slate", x: 8, y: 34, width: 52, height: 8, zIndex: 1 },
-  ]);
+  ]).onConflictDoNothing();
   await db.insert(itemMasters).values(DEV_ITEMS.map((item) => ({
     id: item.id,
     source: "custom" as const,
@@ -411,7 +411,7 @@ async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<
     sku: item.sku ?? `WMS-${item.id.slice(-8).toUpperCase()}`,
     name: item.name,
     active: 1,
-  })));
+  }))).onConflictDoNothing();
   await db.insert(wmsItems).values(DEV_ITEMS.map((item) => ({
     itemId: item.id,
     wmsCategoryId: categoryIdByName.get(item.category) ?? null,
@@ -420,5 +420,5 @@ async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<
     unit: item.unit,
     minStock: item.minStock,
     notes: "",
-  })));
+  }))).onConflictDoNothing();
 }

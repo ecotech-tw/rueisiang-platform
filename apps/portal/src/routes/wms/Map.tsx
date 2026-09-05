@@ -90,6 +90,8 @@ export function WarehouseMap() {
   const [exporting, setExporting] = useState(false);
   /** 檢視模式下按在哪裡，用來分辨「點一下」與「平移」。 */
   const pressAt = useRef<{ x: number; y: number } | null>(null);
+  /** pointerup 只記錄候選點擊，等 click 事件才開抽屜，避免同一個指標事件把抽屜立刻關掉。 */
+  const clickCandidate = useRef<{ zoneId: string } | null>(null);
 
   const query = useWarehouse();
   const updateZone = useUpdateZone();
@@ -268,16 +270,34 @@ export function WarehouseMap() {
                   tabIndex={editing ? -1 : 0}
                   aria-label={`${zone.code} ${zone.name}，放了 ${zoneItems.length} 項商品`}
                   onPointerDown={(event) => {
+                    clickCandidate.current = null;
                     if (editing) zoneDrag.start(event, zone.id, zone, "move");
                     else pressAt.current = { x: event.clientX, y: event.clientY };
                   }}
-                  onPointerMove={zoneDrag.move}
+                  onPointerMove={(event) => {
+                    if (!editing && pressAt.current && Math.hypot(event.clientX - pressAt.current.x, event.clientY - pressAt.current.y) >= CLICK_SLOP) {
+                      pressAt.current = null;
+                    }
+                    zoneDrag.move(event);
+                  }}
                   onPointerUp={(event) => {
                     // 配置模式下點方塊是選它來拖，不是看明細。
-                    if (zoneDrag.end(event) || editing) return;
+                    if (zoneDrag.end(event) || editing) {
+                      pressAt.current = null;
+                      clickCandidate.current = null;
+                      return;
+                    }
                     const from = pressAt.current;
                     pressAt.current = null;
-                    if (from && Math.hypot(event.clientX - from.x, event.clientY - from.y) >= CLICK_SLOP) return;
+                    clickCandidate.current = from && Math.hypot(event.clientX - from.x, event.clientY - from.y) < CLICK_SLOP
+                      ? { zoneId: zone.id }
+                      : null;
+                  }}
+                  onClick={(event) => {
+                    const candidate = clickCandidate.current;
+                    clickCandidate.current = null;
+                    if (candidate?.zoneId !== zone.id) return;
+                    event.stopPropagation();
                     setSelected(zone.id);
                   }}
                   onKeyDown={(event) => {
