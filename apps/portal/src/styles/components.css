@@ -785,34 +785,24 @@
   gap: 12px;
 }
 .sku-mapping-components-head > div { display: grid; gap: 2px; }
-/* 一列用料是兩排：主排（來源、商品或自訂 SKU、數量、移除），自訂時多一排名稱與分類。 */
+/* 一列用料是品項、數量、移除；不再另外選來源。 */
 .sku-mapping-component { display: grid; gap: 8px; }
 .sku-mapping-component + .sku-mapping-component { padding-top: 2px; }
-/*
- * 最後一欄寫死成圖示按鈕的 40px，不用 auto。
- *
- * auto 在「沒有移除鍵」的自訂那一排會收成 0，多出來的空間被 1fr 吃掉，兩排的欄寬
- * 就對不齊了——畫面上看起來像兩個沒對準的表格。
- */
 .sku-mapping-component-row {
   display: grid;
-  grid-template-columns: minmax(120px, 150px) minmax(0, 1fr) minmax(80px, 96px) 40px;
+  grid-template-columns: minmax(0, 1fr) minmax(80px, 96px) 40px;
   align-items: end;
   gap: 10px;
 }
 .sku-mapping-component-row .combobox-group { width: 100%; min-width: 0; }
-/*
- * 自訂用料只需要名稱；沿用同一組欄寬，讓名稱對齊上排的商品欄位。
- */
-.sku-mapping-component-row.is-custom-detail > .field { grid-column: 2; }
 /* 同一列用料的兩排靠得更近，看起來是一組，不是兩列。 */
 .sku-mapping-component { gap: 6px; }
 .sku-mapping-component + .sku-mapping-component { padding-top: 6px; }
 .sku-mapping-component-row > .field { min-width: 0; }
 @media (max-width: 620px) {
   .sku-mapping-component-row { grid-template-columns: minmax(0, 1fr) 40px; }
-  .sku-mapping-component-row > .field:nth-child(-n + 2) { grid-column: 1 / -1; }
-  .sku-mapping-component-row.is-custom-detail > .field { grid-column: 1 / -1; }
+  .sku-mapping-component-row > .field:first-child { grid-column: 1 / -1; }
+  .sku-mapping-component-row > .field:nth-child(2) { grid-column: 1; }
 }
 /*
  * 表格上方的工具列。先前它跟表頭之間沒有任何界線，看起來像黏在一起的兩排東西。

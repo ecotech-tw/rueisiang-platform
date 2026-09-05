@@ -208,7 +208,7 @@ export function SkuMappings() {
             label="搜尋"
             className="search-input"
             type="search"
-            placeholder="搜尋通路商品、外部 SKU 或 WMS SKU"
+            placeholder="搜尋通路商品、外部 SKU 或品項 SKU"
             value={search}
             onChange={(event) => { setSearch(event.target.value); setPage(1); }}
           />
@@ -250,9 +250,9 @@ export function SkuMappings() {
                   <td data-label="外部 SKU"><span className="cell-strong">{mapping.externalSku}</span></td>
                   <td data-label="組合用料">
                     {mapping.components.map((component) => (
-                      <div className="cell-sub" key={component.customProductId ?? component.inventoryItemId ?? component.sku}>
+                      <div className="cell-sub" key={component.itemId}>
                         {component.sku} × {component.quantity}
-                        {component.source === "custom" ? <span className="status status-tone-slate">自訂</span> : null}
+                        {component.source === "custom" ? <span className="status status-tone-slate">舊自訂</span> : null}
                       </div>
                     ))}
                   </td>
@@ -308,7 +308,6 @@ export function SkuMappings() {
       {mappingDialog ? (
         <SkuMappingDialog
           items={data?.items ?? []}
-          unmappedProducts={unmappedProducts}
           initialExternalProduct={mappingDialog === "new" || "id" in mappingDialog ? undefined : mappingDialog.product}
           key={mappingDialog === "new" ? "new" : "id" in mappingDialog ? mappingDialog.id : `new:${mappingDialog.product.externalSku}`}
           mapping={mappingDialog === "new" || !("id" in mappingDialog) ? undefined : mappingDialog}

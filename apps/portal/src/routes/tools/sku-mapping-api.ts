@@ -50,8 +50,9 @@ export interface ProductSkuMapping {
   components: ProductBundleComponent[];
 }
 
-/** 一列用料可來自 WMS 品項、CYBERBIZ 商品或不入庫的自訂商品。 */
+/** 一列用料直接指向全平台品項；source 僅保留供舊資料列表顯示。 */
 export interface ProductBundleComponent {
+  itemId: string;
   source: "item" | "cyberbiz" | "custom";
   inventoryItemId: string | null;
   cyberbizSku: string | null;
@@ -63,11 +64,7 @@ export interface ProductBundleComponent {
 }
 
 export interface ProductBundleComponentInput {
-  inventoryItemId?: string | null;
-  cyberbizSku?: string | null;
-  customSku?: string | null;
-  customName?: string | null;
-  customCategory?: string | null;
+  itemId: string;
   quantity: number;
 }
 
