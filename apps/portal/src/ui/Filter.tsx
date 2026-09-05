@@ -1,4 +1,5 @@
 import type { InputHTMLAttributes, SelectHTMLAttributes } from "react";
+import { DropdownSelect } from "./DropdownSelect.js";
 
 export interface FilterInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "aria-label"> {
   label: string;
@@ -29,11 +30,7 @@ export function FilterSelect({ label, options, className = "", ...selectProps }:
   return (
     <label className="filter-control">
       <span className="sr-only">{label}</span>
-      <select {...selectProps} aria-label={label} className={`dropdown-control ${className}`.trim()}>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </select>
+      <DropdownSelect {...selectProps} options={options} aria-label={label} className={className} />
     </label>
   );
 }

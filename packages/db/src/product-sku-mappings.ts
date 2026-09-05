@@ -866,7 +866,10 @@ export async function listCyberbizReportProducts(db: Database): Promise<Cyberbiz
   const catalog = await listCyberbizProducts(db);
   const mappings = await db.select({ sku: reportExternalProducts.externalKey, name: reportExternalProducts.externalName })
     .from(reportExternalProducts)
-    .where(eq(reportExternalProducts.resolution, "mapped"));
+    .where(and(
+      eq(reportExternalProducts.sourceType, "cyberbiz"),
+      eq(reportExternalProducts.resolution, "mapped"),
+    ));
   const products = new Map<string, CyberbizReportProductOption>(catalog.map((product) => [
     normalizeExternalSku(product.sku), { ...product, sku: normalizeExternalSku(product.sku), aliases: [] },
   ]));

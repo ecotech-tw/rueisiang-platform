@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, Dialog, DropdownSelect, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -132,6 +132,11 @@ export function Sandbox() {
   const selectedFallbackModel = data.models.find((item) => item.id === fallbackModel);
   const codexModels = data.models.filter((item) => item.provider === "openai-codex");
   const geminiModels = data.models.filter((item) => item.provider === "google");
+  const modelOptions = [
+    ...codexModels.map((item) => ({ label: `GPT / Codex：${item.label}${item.supported && item.configured ? "" : "（目前不可用）"}`, value: item.id, disabled: !item.supported || !item.configured })),
+    ...geminiModels.map((item) => ({ label: `Gemini：${item.label}${item.supported && item.configured ? "" : "（目前不可用）"}`, value: item.id, disabled: !item.supported || !item.configured })),
+  ];
+  const fallbackOptions = [{ label: "不使用 fallback", value: "" }, ...modelOptions];
   const modelReady = Boolean(selectedModel?.supported && selectedModel.configured);
   const fallbackReady = !fallbackModel || Boolean(selectedFallbackModel?.supported && selectedFallbackModel.configured);
   const currentSession = session.data?.session;
@@ -245,22 +250,7 @@ export function Sandbox() {
             <div className="field-grid">
               <label className="field">
                 <span>Pi 模型</span>
-                <select value={model} onChange={(event) => setModel(event.target.value)}>
-                  <optgroup label="GPT / Codex（ChatGPT OAuth）">
-                    {codexModels.map((item) => (
-                      <option key={item.id} value={item.id} disabled={!item.supported || !item.configured}>
-                        {item.label}{item.supported && item.configured ? "" : "（目前不可用）"}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Gemini（API key）">
-                    {geminiModels.map((item) => (
-                      <option key={item.id} value={item.id} disabled={!item.supported || !item.configured}>
-                        {item.label}{item.supported && item.configured ? "" : "（目前不可用）"}
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
+                <DropdownSelect options={modelOptions} value={model} onChange={(event) => setModel(event.target.value)} aria-label="Pi 模型" />
                 <small>{selectedModel?.note ?? "GPT 使用 ChatGPT OAuth；Gemini 使用 Cloudflare secret 裡的 API key。"}</small>
                 {selectedModel?.supportsVision ? <small>此模型支援圖片輸入，可在下方附加 JPEG、PNG、WebP 或 GIF。</small> : null}
                 <small>目前小香正式使用：{data.models.find((item) => item.id === data.activeModel)?.label ?? data.activeModel}</small>
@@ -281,23 +271,7 @@ export function Sandbox() {
               </label>
               <label className="field">
                 <span>模型失敗時的 fallback</span>
-                <select value={fallbackModel} onChange={(event) => setFallbackModel(event.target.value)}>
-                  <option value="">不使用 fallback</option>
-                  <optgroup label="GPT / Codex（ChatGPT OAuth）">
-                    {codexModels.map((item) => (
-                      <option key={item.id} value={item.id} disabled={!item.supported || !item.configured}>
-                        {item.label}{item.supported && item.configured ? "" : "（目前不可用）"}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Gemini（API key）">
-                    {geminiModels.map((item) => (
-                      <option key={item.id} value={item.id} disabled={!item.supported || !item.configured}>
-                        {item.label}{item.supported && item.configured ? "" : "（目前不可用）"}
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
+                <DropdownSelect options={fallbackOptions} value={fallbackModel} onChange={(event) => setFallbackModel(event.target.value)} aria-label="模型失敗時的 fallback" />
                 <small>主要模型回傳 error 時，這一輪會改用選定的模型重試；不會固定綁死 Gemini。</small>
                 {selectedFallbackModel?.supportsVision ? <small>此 fallback 支援圖片輸入。</small> : null}
                 {fallbackModel === data.activeModel || fallbackModel === model ? <small>fallback 不能與選取中的 active model 相同。</small> : null}

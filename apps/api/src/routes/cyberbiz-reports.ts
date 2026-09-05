@@ -13,6 +13,7 @@ import {
   insertReportSalesMonthly,
   insertReportPayoutDaily,
   isCompanyReportStoreScopeId,
+  canonicalReportStoreScopes,
   isValidReportDate,
   latestReportSalesPeriods,
   listCyberbizReportProducts,
@@ -609,8 +610,10 @@ export const cyberbizReports = new Hono<AppEnv>()
   .use("*", requireAuth)
   .get("/scopes", requirePermission("reports:analytics:read"), async (c) => {
     const result = await cachedReportAnalytics(cacheClient(c.env), "scopes", async () => {
-      const scopes = await listReportScopes(c.get("db"), "store");
-      const latest = await latestReportSalesPeriods(c.get("db"), scopes.map((scope) => scope.id));
+      const allScopes = await listReportScopes(c.get("db"), "store");
+      const reportScopes = allScopes.filter((scope) => !scope.id.startsWith("shopee:") && isCompanyReportStoreScopeId(scope.id));
+      const scopes = canonicalReportStoreScopes(reportScopes);
+      const latest = await latestReportSalesPeriods(c.get("db"), reportScopes.map((scope) => scope.id));
       return {
         latestSalesPeriod: latest.latestPeriod,
         scopes: scopes.map((scope) => ({
@@ -681,7 +684,7 @@ export const cyberbizReports = new Hono<AppEnv>()
       listProductCategoryOptions(c.get("db")),
     ]);
     return c.json({
-      scopes: scopes
+      scopes: canonicalReportStoreScopes(scopes)
         .filter((scope) => scope.active === 1 && isCompanyReportStoreScopeId(scope.id))
         .map((scope) => ({ id: scope.id, name: scope.name })),
       products,

@@ -1982,6 +1982,50 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .combobox-item:hover, .combobox-item[data-highlighted] { background: --alpha(var(--color-brand) / 8%); }
 .combobox-item [data-checked] { color: var(--color-brand); }
 .combobox-popup:has(.combobox-item) { display: block; }
+/* 不可輸入的 dropdown 也使用同一套 autocomplete popup 視覺，只保留選取互動。 */
+.select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background-image: none;
+  text-align: left;
+}
+.select-trigger:focus-visible { outline: 0; }
+.select-trigger-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-trigger-icon { display: inline-flex; flex: none; align-items: center; margin-left: auto; color: var(--color-muted); }
+.select-trigger-icon svg { width: 20px; height: 20px; }
+.select-positioner { z-index: 100; }
+.select-popup {
+  z-index: 100;
+  width: var(--anchor-width);
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-canvas);
+  box-shadow: var(--shadow-panel);
+}
+.select-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-ink);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.select-item[data-highlighted],
+.select-item[data-selected] { background: --alpha(var(--color-brand) / 8%); }
+.select-item-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-item-indicator { flex: none; color: var(--color-secondary); }
 .category-drag-handle {
   display: inline-flex;
   width: 28px;
@@ -2402,8 +2446,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font: inherit;
 }
 /*
- * 所有一般下拉共用 autocomplete 的輸入框外觀，但保留原生 select 行為：
- * 可以展開選項，不能在欄位內輸入搜尋文字。
+ * 所有一般下拉共用 autocomplete 的輸入框外觀，但不提供文字輸入：
+ * 可以展開選項並選取，不會把 dropdown 變成可搜尋欄位。
  */
 .field select,
 .dropdown-control {
@@ -2426,6 +2470,28 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .field select:disabled,
 .dropdown-control:disabled { background-color: var(--color-soft-line); color: var(--color-muted); cursor: not-allowed; }
+/* select 是 replaced element，不能可靠地繪製偽元素；用外層放置固定的 Chevron。 */
+.select-control {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.select-control::after {
+  position: absolute;
+  top: calc(50% - 4px);
+  right: 16px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--color-muted);
+  border-bottom: 2px solid var(--color-muted);
+  content: "";
+  pointer-events: none;
+  transform: rotate(45deg);
+}
+.select-control > .dropdown-control {
+  width: 100%;
+  background-image: none;
+}
 /* 唯讀的欄位（例如已連結 CYBERBIZ 的安全庫存）跟 select 用同一個外觀，看起來是鎖住不是壞掉。 */
 .field input:disabled { background: var(--color-soft-line); color: var(--color-muted); cursor: not-allowed; }
 /*
@@ -2442,6 +2508,17 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   border-color: var(--color-brand);
   box-shadow: 0 0 0 3px --alpha(var(--color-brand) / 14%);
 }
+.filter-control .select-trigger {
+  width: max-content;
+  max-width: 100%;
+}
+.field .select-trigger { width: 100%; }
+.pager-size .select-trigger { width: auto; }
+.filter-control .select-control {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+}
 .filter-control .dropdown-control {
   min-height: 34px;
   padding: 7px 38px 7px 10px;
@@ -2449,6 +2526,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
   background-size: 5px 5px, 5px 5px;
 }
+.filter-control .select-control::after { right: 12px; width: 7px; height: 7px; }
+.pager-size .select-control { display: inline-flex; width: max-content; }
 .pager-size .dropdown-control {
   min-height: 32px;
   padding: 5px 30px 5px 8px;
@@ -2456,6 +2535,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
   background-size: 5px 5px, 5px 5px;
 }
+.pager-size .select-control::after { right: 10px; width: 6px; height: 6px; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
 /*
  * 三個窄欄位（數量、單位、安全庫存）。auto-fit 在對話框的寬度下只排得下兩欄，
