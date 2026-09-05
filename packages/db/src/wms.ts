@@ -240,6 +240,7 @@ export async function updateItem(db: Database, id: string, input: Partial<ItemIn
   const [current] = await db.select({ item: itemMasters, wms: wmsItems, category: wmsCategories.name, shelf: wmsShelves })
     .from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).leftJoin(wmsCategories, eq(wmsCategories.id, wmsItems.wmsCategoryId)).leftJoin(wmsShelves, eq(wmsShelves.id, wmsItems.shelfId)).where(eq(wmsItems.itemId, id)).limit(1);
   if (!current) throw new WmsError("not_found", "找不到這項商品。");
+  const [cyberbizLink] = await db.select({ id: wmsCyberbizLinks.id }).from(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.wmsItemId, id)).limit(1);
   const category = input.category?.trim() || current.category || "";
   const wmsCategoryId = await requireCategory(db, category);
   const zoneId = input.zoneId === undefined ? current.shelf?.zoneId ?? null : input.zoneId?.trim() || null;
@@ -247,7 +248,10 @@ export async function updateItem(db: Database, id: string, input: Partial<ItemIn
   const placement = await requirePlacement(db, zoneId, shelfLevel);
   const nextName = input.name?.trim() || current.item.name;
   const nextSku = input.sku === undefined ? current.item.sku : input.sku.trim().toUpperCase() || current.item.sku;
-  if (nextSku !== current.item.sku) await requireSkuAvailableForExternalMappings(db, nextSku, id);
+  if (nextSku !== current.item.sku) {
+    if (cyberbizLink) throw new WmsError("conflict", "這項品項已連結 CYBERBIZ，SKU 必須與官網連結一致，不能在 WMS 修改。");
+    await requireSkuAvailableForExternalMappings(db, nextSku, id);
+  }
   const nextMinStock = clamp(input.minStock, current.wms.minStock, QUANTITY);
   if (nextMinStock !== current.wms.minStock) {
     const [link] = await db.select({ id: wmsCyberbizLinks.id }).from(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.wmsItemId, id)).limit(1);

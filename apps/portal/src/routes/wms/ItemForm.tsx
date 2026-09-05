@@ -237,7 +237,10 @@ export function ItemForm({
                 placeholder="例如 BOX-M"
                 value={fields.sku}
                 onChange={(event) => set({ sku: event.target.value })}
-                hint={isCatalogCreate ? "自訂品項需要填寫 SKU。" : "會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"}
+                disabled={linkedToCyberbiz}
+                hint={linkedToCyberbiz
+                  ? "已連結 CYBERBIZ，SKU 必須與官網連結一致，請到官網修改。"
+                  : isCatalogCreate ? "自訂品項需要填寫 SKU。" : "會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"}
               />
             ) : null}
             <div className="field">

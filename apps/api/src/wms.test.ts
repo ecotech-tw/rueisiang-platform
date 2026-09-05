@@ -13,6 +13,7 @@ import {
   wmsShelves,
   wmsZones,
   wmsZoneImages,
+  wmsCyberbizLinks,
 } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
@@ -172,6 +173,24 @@ describe("WMS target-only API", () => {
     const [afterWms] = await db.select().from(wmsItems).where(eq(wmsItems.itemId, id));
     expect(afterMaster?.name).toBe("小紙箱（改）");
     expect(afterWms?.quantity).toBe(12);
+
+    await db.insert(wmsCyberbizLinks).values({
+      id: "wms-cyberbiz-link-1",
+      wmsItemId: id,
+      cyberbizProductId: "product-1",
+      cyberbizVariantId: "variant-1",
+      sku: "BOX-02",
+      warehouseScope: "company",
+      syncStatus: "synced",
+      lastSyncedQuantity: 12,
+      lastSyncedAt: new Date().toISOString(),
+    });
+    const changedLinkedSku = await as(userId, "admin@ecotech.tw", `/api/wms/items/${id}`, {
+      method: "PATCH", body: JSON.stringify({ sku: "BOX-99", category: "一般備品" }),
+    });
+    expect(changedLinkedSku.status).toBe(409);
+    const [unchangedMaster] = await db.select().from(items).where(eq(items.id, id));
+    expect(unchangedMaster?.sku).toBe("BOX-02");
   });
 
   it("盤點會更新 wms_items，數量不變也會留下紀錄", async () => {
