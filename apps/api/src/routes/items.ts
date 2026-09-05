@@ -211,13 +211,25 @@ export const items = new Hono<AppEnv>()
       return c.json({ id: item.id, cyberbizSku: selected.sku }, 201);
     }
 
-    const sku = requireString(input, "sku", "SKU").toUpperCase();
-    const [duplicate] = await db.select({ id: itemMasters.id }).from(itemMasters).where(and(eq(itemMasters.source, "custom"), eq(itemMasters.sku, sku))).limit(1);
-    if (duplicate) throw new HTTPException(409, { message: `自建 SKU「${sku}」已經有相同品項。` });
+    // SKU 留白＝包材或半成品（淋膜紙、護髮素軟管這些本來就沒有 SKU）。自動編一組
+    // WMS- 開頭的號碼，並把 kind 設成 supply；有填 SKU 的就是拿去賣的東西。
+    // 編號規則與 0076 回填既有那六筆時用的一樣。
+    const id = crypto.randomUUID();
+    const inputSku = typeof input.sku === "string" ? input.sku.trim().toUpperCase() : "";
+    const sku = inputSku || `WMS-${id.slice(0, 8).toUpperCase()}`;
+    // SKU 是全平台唯一（items 的 idx_items_sku），所以這裡不能只查 custom：
+    // 打到既有的 CYBERBIZ SKU 一樣是重複，只是會撞在索引上變成看不懂的訊息。
+    const [duplicate] = await db.select({ name: itemMasters.name, source: itemMasters.source })
+      .from(itemMasters).where(eq(itemMasters.sku, sku)).limit(1);
+    if (duplicate) {
+      throw new HTTPException(409, duplicate.source === "cyberbiz"
+        ? { message: `SKU「${sku}」已經是 CYBERBIZ 品項「${duplicate.name}」，直接用那一筆就好。` }
+        : { message: `SKU「${sku}」已被自訂品項「${duplicate.name}」使用。` });
+    }
     const item = {
-      id: crypto.randomUUID(),
+      id,
       source: "custom" as const,
-      kind: "supply" as const,
+      kind: inputSku ? "sellable" as const : "supply" as const,
       sku,
       name: requireString(input, "name", "商品名稱"),
       categoryId,
@@ -226,7 +238,7 @@ export const items = new Hono<AppEnv>()
       updatedAt: now,
     };
     await db.insert(itemMasters).values(item);
-    return c.json({ id: item.id, cyberbizSku: null }, 201);
+    return c.json({ id: item.id, sku: item.sku, cyberbizSku: null }, 201);
   })
   .patch("/catalog/:id", requirePermission("items:item:write"), async (c) => {
     const input = await body(c);
