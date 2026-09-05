@@ -2009,7 +2009,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .select-positioner { z-index: 100; }
 .select-popup {
   z-index: 100;
-  width: var(--anchor-width);
+  width: max-content;
+  min-width: var(--anchor-width);
+  max-width: min(520px, calc(100vw - 24px));
   max-height: 320px;
   overflow: auto;
   padding: 6px;
@@ -2021,7 +2023,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .select-item {
   display: flex;
   align-items: center;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
+  max-width: 100%;
   min-height: 44px;
   gap: 8px;
   padding: 10px 12px;
@@ -2035,7 +2039,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .select-item[data-highlighted],
 .select-item[data-selected] { background: --alpha(var(--color-brand) / 8%); }
-.select-item-text { width: max-content; min-width: 0; max-width: calc(100% - 28px); flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-item-text { width: max-content; min-width: 0; max-width: min(460px, calc(100% - 28px)); flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .select-item-indicator { flex: none; margin-left: 4px; color: var(--color-secondary); }
 .category-drag-handle {
   display: inline-flex;
