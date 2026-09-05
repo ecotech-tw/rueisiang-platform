@@ -84,7 +84,11 @@ export const userRoles = sqliteTable("user_roles", {
   roleId: text("role_id").notNull(),
   grantedBy: text("granted_by"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [primaryKey({ columns: [table.userId, table.roleId] })]);
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.roleId] }),
+  // 主鍵是 (user_id, role_id)，「這個人有哪些角色」用得到前綴，「這個角色有誰」用不到。
+  index("idx_user_roles_user").on(table.userId),
+]);
 
 export const userPermissions = sqliteTable("user_permissions", {
   userId: text("user_id").notNull(),

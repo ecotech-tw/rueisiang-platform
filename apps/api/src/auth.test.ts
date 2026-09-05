@@ -173,7 +173,7 @@ describe("個人資料", () => {
 
   it("設定顯示名稱之後，/me 回傳的就是它", async () => {
     const id = await seedUser("who@ecotech.tw", "role-staff");
-    await createDatabase(d1 as never).update(users).set({ name: "Google 上的姓名" }).where(eq(users.id, id));
+    await createDatabase(d1 as never).update(users).set({ googleName: "Google 上的姓名" }).where(eq(users.id, id));
 
     expect((await patch(id, "who@ecotech.tw", JSON.stringify({ displayName: "  小林  " }))).status).toBe(200);
 
@@ -188,7 +188,7 @@ describe("個人資料", () => {
 
   it("清空就退回 Google 帳號上的姓名", async () => {
     const id = await seedUser("back@ecotech.tw", "role-staff");
-    await createDatabase(d1 as never).update(users).set({ name: "Google 姓名" }).where(eq(users.id, id));
+    await createDatabase(d1 as never).update(users).set({ googleName: "Google 姓名" }).where(eq(users.id, id));
 
     await patch(id, "back@ecotech.tw", JSON.stringify({ displayName: "暫時的" }));
     await patch(id, "back@ecotech.tw", JSON.stringify({ displayName: "" }));

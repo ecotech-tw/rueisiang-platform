@@ -60,7 +60,7 @@ describe("系統角色同步", () => {
 
     await Promise.all([syncSystemRoles(freshDb), syncSystemRoles(freshDb)]);
 
-    const managerRows = await freshDb.select({ id: roles.id }).from(roles).where(eq(roles.key, "manager"));
+    const managerRows = await freshDb.select({ id: roles.id }).from(roles).where(eq(roles.roleKey, "manager"));
     expect(managerRows).toHaveLength(1);
     const managerId = managerRows[0]?.id;
     expect(managerId).toBeTruthy();

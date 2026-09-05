@@ -76,7 +76,7 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
     await db.insert(users).values({
       id,
       email: account.email,
-      name: account.name,
+      googleName: account.name,
       status: account.email === "left@ecotech.tw" ? "disabled" : "active",
       lastLoginAt: "2026-08-17 09:12:44",
     });

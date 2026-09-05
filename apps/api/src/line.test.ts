@@ -85,7 +85,7 @@ async function hmacBase64(secret: string, body: string): Promise<string> {
 }
 
 async function seedAdmin() {
-  await db().insert(users).values({ id: "admin", email: "admin@ecotech.tw", name: "管理者", status: "active" });
+  await db().insert(users).values({ id: "admin", email: "admin@ecotech.tw", googleName: "管理者", status: "active" });
   await db().insert(userRoles).values({ userId: "admin", roleId: "role-admin" });
 }
 

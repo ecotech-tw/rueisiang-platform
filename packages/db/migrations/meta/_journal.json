@@ -540,6 +540,13 @@
       "when": 1788628310095,
       "tag": "0091_align_index_names",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "6",
+      "when": 1788630491531,
+      "tag": "0093_schema_single_definition",
+      "breakpoints": true
     }
   ]
 }

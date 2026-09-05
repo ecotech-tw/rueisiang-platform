@@ -323,7 +323,7 @@ describe("小香的客戶搜尋工具", () => {
 });
 
 async function seedUser(id: string, email: string, roleId: string) {
-  await db().insert(users).values({ id, email, name: email, status: "active" });
+  await db().insert(users).values({ id, email, googleName: email, status: "active" });
   await db().insert(userRoles).values({ userId: id, roleId });
 }
 
@@ -372,7 +372,7 @@ beforeEach(async () => {
  */
 describe("只有 LINE 權限的人", () => {
   async function seedLineOnlyUser() {
-    await db().insert(roles).values({ id: "role-line", key: "line-only", name: "LINE 管理", isSystem: false });
+    await db().insert(roles).values({ id: "role-line", roleKey: "line-only", name: "LINE 管理", isSystem: false });
     await db().insert(rolePermissions).values([
       { roleId: "role-line", permission: "assistant:line:read" },
       { roleId: "role-line", permission: "assistant:line:write" },
@@ -1076,7 +1076,7 @@ describe("AI 助理 Sandbox", () => {
       address: "台北市中山區測試路 1 號",
       cyberbizCustomerId: "cyberbiz-1",
       cyberbizTagsJson: JSON.stringify(["VIP", "北區"]),
-      cyberbizRawJson: JSON.stringify({ secret: "should-not-leak" }),
+      rawJson: JSON.stringify({ secret: "should-not-leak" }),
       syncStatus: "synced",
       createdAt: "2026-08-20 16:30:00",
       updatedAt: "2026-08-20 16:30:00",
@@ -1164,7 +1164,7 @@ describe("AI 助理 Sandbox", () => {
       name: "王小明",
       email: "ming@example.com",
       cyberbizCustomerId: "cyberbiz-7",
-      cyberbizRawJson: JSON.stringify({ secret: "should-not-leak" }),
+      rawJson: JSON.stringify({ secret: "should-not-leak" }),
       createdAt: "2026-08-20 16:30:00",
       updatedAt: "2026-08-20 16:30:00",
     });
