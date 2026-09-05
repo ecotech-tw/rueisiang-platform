@@ -760,13 +760,16 @@ export async function syncCyberbizProducts(
   }
   for (const row of rows.values()) {
     const itemName = [row.productName, row.variantName].filter(Boolean).join(" - ") || row.sku;
+    // SKU 是全平台唯一的，所以這裡不能只找 cyberbiz 那一筆：官網開始賣一個原本手動建的
+    // SKU 時，要接管既有的品項，再插一筆新的會撞 idx_items_sku。名稱沿用既有的，
+    // 官網回傳的 "商品 - 規格 -" 那種格式比人取的名字難讀。
     const [existing] = await db.select({ id: itemMasters.id, name: itemMasters.name })
       .from(itemMasters)
-      .where(and(eq(itemMasters.source, "cyberbiz"), eq(itemMasters.sku, row.sku)))
+      .where(eq(itemMasters.sku, row.sku))
       .limit(1);
     const itemId = existing?.id ?? crypto.randomUUID();
     await db.insert(itemMasters).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku: row.sku, name: existing?.name ?? itemName, active: 1 })
-      .onConflictDoUpdate({ target: [itemMasters.source, itemMasters.sku], set: { active: 1, updatedAt: sql`CURRENT_TIMESTAMP` } });
+      .onConflictDoUpdate({ target: itemMasters.sku, set: { source: "cyberbiz", active: 1, updatedAt: sql`CURRENT_TIMESTAMP` } });
     await db.insert(cyberbizProducts).values({
       itemId,
       cyberbizProductId: row.productId,

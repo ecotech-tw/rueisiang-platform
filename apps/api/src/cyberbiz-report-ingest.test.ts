@@ -53,9 +53,13 @@ beforeEach(async () => {
   ]);
 });
 
-async function seedWmsItem(id: string, sku: string, name = `WMS ${sku}`) {
-  await db().insert(items).values({ id, source: "custom", kind: "sellable", sku, name, categoryId: null, active: 1 });
-  await db().insert(wmsItems).values({ itemId: id, quantity: 10, minStock: 2, unit: "件", notes: "" });
+/** SKU 是全平台唯一的：官網同步過的 SKU 已經有 items，這裡只能補 wms_items，不能再建一筆。 */
+async function seedWmsItem(id: string, sku: string, name = `WMS ${sku}`): Promise<string> {
+  const [existing] = await db().select({ id: items.id }).from(items).where(eq(items.sku, sku)).limit(1);
+  const itemId = existing?.id ?? id;
+  if (!existing) await db().insert(items).values({ id: itemId, source: "custom", kind: "sellable", sku, name, categoryId: null, active: 1 });
+  await db().insert(wmsItems).values({ itemId, quantity: 10, minStock: 2, unit: "件", notes: "" });
+  return itemId;
 }
 
 async function seedMapping(id: string, channel: string, externalKey: string, itemId: string, externalName = externalKey) {
@@ -93,12 +97,12 @@ describe("target 報表月資料匯入", () => {
   });
 
   it("target BOM 會依輸入順序展開用料，銷售額只計一次", async () => {
-    await seedWmsItem("component-net", "NET-001", "起泡網");
-    await seedWmsItem("component-soap", "SOAP-001", "香皂");
+    const componentNet = await seedWmsItem("component-net", "NET-001", "起泡網");
+    const componentSoap = await seedWmsItem("component-soap", "SOAP-001", "香皂");
     await db().insert(items).values({ id: "bundle-parent", source: "custom", kind: "sellable", sku: "BUNDLE-001", name: "洗沐組", categoryId: null, active: 1 });
     await db().insert(itemComponents).values([
-      { parentItemId: "bundle-parent", componentItemId: "component-net", quantity: 1 },
-      { parentItemId: "bundle-parent", componentItemId: "component-soap", quantity: 2 },
+      { parentItemId: "bundle-parent", componentItemId: componentNet, quantity: 1 },
+      { parentItemId: "bundle-parent", componentItemId: componentSoap, quantity: 2 },
     ]);
     await seedMapping("map-bundle", "shopee", "SET-001", "bundle-parent", "洗沐組");
 

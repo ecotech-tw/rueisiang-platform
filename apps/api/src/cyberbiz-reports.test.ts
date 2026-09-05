@@ -6,12 +6,23 @@ import {
   type ReportGroupBy,
 } from "@rueisiang/db";
 import { itemCategories, items, reportExternalProducts, wmsItems } from "@rueisiang/db/schema";
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createCyberbizReportService } from "./cyberbiz-reports.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 let d1: LocalD1;
 function db() { return createDatabase(d1 as never); }
+
+/**
+ * SKU 是全平台唯一的，beforeEach 匯報表時就已經替每個 SKU 建好 items。
+ * 測試要的是「同一筆商品也在倉儲裡」，所以拿既有的 id 用，不能再插一筆。
+ */
+async function itemIdBySku(sku: string): Promise<string> {
+  const [row] = await db().select({ id: items.id }).from(items).where(eq(items.sku, sku)).limit(1);
+  if (!row) throw new Error(`測試資料裡沒有 SKU ${sku}`);
+  return row.id;
+}
 
 const WEST = "cyberbiz:store:西門3F";
 const EAST = "cyberbiz:store:信義2F";
@@ -130,10 +141,10 @@ describe("報表月資料查詢", () => {
   });
 
   it("查外部 SKU 會經由用料換算成系統 SKU", async () => {
-    await db().insert(items).values({ id: "item-1", source: "cyberbiz", kind: "sellable", sku: "SKU-1", name: "商品一", active: 1 });
-    await db().insert(wmsItems).values({ itemId: "item-1", quantity: 1, unit: "件", minStock: 0, notes: "" });
+    const itemOne = await itemIdBySku("SKU-1");
+    await db().insert(wmsItems).values({ itemId: itemOne, quantity: 1, unit: "件", minStock: 0, notes: "" });
     await db().insert(reportExternalProducts).values({
-      id: "mapping-1", sourceType: "cyberbiz", externalKey: "P-001_M-001", externalVariantKey: "", externalName: "商品一", resolution: "mapped", itemId: "item-1", ignoredReason: "",
+      id: "mapping-1", sourceType: "cyberbiz", externalKey: "P-001_M-001", externalVariantKey: "", externalName: "商品一", resolution: "mapped", itemId: itemOne, ignoredReason: "",
     });
 
     const result = await createCyberbizReportService(db()).querySales({
@@ -144,17 +155,15 @@ describe("報表月資料查詢", () => {
   });
 
   it("查詢值本身是 WMS SKU 時不會把別筆 mapping 的商品一起加總", async () => {
-    await db().insert(items).values([
-      { id: "item-1", source: "cyberbiz", kind: "sellable", sku: "SKU-1", name: "商品一", active: 1 },
-      { id: "item-2", source: "cyberbiz", kind: "sellable", sku: "SKU-2", name: "商品二", active: 1 },
-    ]);
+    const itemOne = await itemIdBySku("SKU-1");
+    const itemTwo = await itemIdBySku("SKU-2");
     await db().insert(wmsItems).values([
-      { itemId: "item-1", quantity: 1, unit: "件", minStock: 0, notes: "" },
-      { itemId: "item-2", quantity: 1, unit: "件", minStock: 0, notes: "" },
+      { itemId: itemOne, quantity: 1, unit: "件", minStock: 0, notes: "" },
+      { itemId: itemTwo, quantity: 1, unit: "件", minStock: 0, notes: "" },
     ]);
     // external_sku 允許等於另一個商品的 WMS SKU；查 SKU-1 不該把 SKU-2 的資料算進來。
     await db().insert(reportExternalProducts).values({
-      id: "mapping-cross", sourceType: "cyberbiz", externalKey: "SKU-1", externalVariantKey: "", externalName: "商品二", resolution: "mapped", itemId: "item-2", ignoredReason: "",
+      id: "mapping-cross", sourceType: "cyberbiz", externalKey: "SKU-1", externalVariantKey: "", externalName: "商品二", resolution: "mapped", itemId: itemTwo, ignoredReason: "",
     });
 
     const result = await createCyberbizReportService(db()).querySales({
@@ -165,11 +174,11 @@ describe("報表月資料查詢", () => {
   });
 
   it("別的通路的別名不會被算進來", async () => {
-    await db().insert(items).values({ id: "item-1", source: "cyberbiz", kind: "sellable", sku: "SKU-1", name: "商品一", active: 1 });
-    await db().insert(wmsItems).values({ itemId: "item-1", quantity: 1, unit: "件", minStock: 0, notes: "" });
+    const itemOne = await itemIdBySku("SKU-1");
+    await db().insert(wmsItems).values({ itemId: itemOne, quantity: 1, unit: "件", minStock: 0, notes: "" });
     // scope 是 cyberbiz，蝦皮的別名不該讓 cyberbiz 的查詢命中。
     await db().insert(reportExternalProducts).values({
-      id: "mapping-shopee-only", sourceType: "shopee", externalKey: "P-999_M-999", externalVariantKey: "", externalName: "商品一", resolution: "mapped", itemId: "item-1", ignoredReason: "",
+      id: "mapping-shopee-only", sourceType: "shopee", externalKey: "P-999_M-999", externalVariantKey: "", externalName: "商品一", resolution: "mapped", itemId: itemOne, ignoredReason: "",
     });
 
     const result = await createCyberbizReportService(db()).querySales({
