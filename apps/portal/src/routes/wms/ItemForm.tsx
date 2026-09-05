@@ -88,9 +88,9 @@ export function ItemForm({
   }
 
   const isCatalogCreate = catalogOnly && !item;
-  const valid = fields.category !== "" && (
-    isCatalogCreate ? Boolean(fields.name.trim() && fields.sku.trim()) : fields.name.trim() !== ""
-  );
+  // SKU 是選填：包材與半成品（淋膜紙、護髮素軟管這些）本來就沒有 SKU，
+  // 後端會自動編一組 WMS- 開頭的號碼並把 kind 設成 supply。
+  const valid = fields.category !== "" && fields.name.trim() !== "";
 
   function submit() {
     if (!valid) return;
@@ -166,7 +166,7 @@ export function ItemForm({
               disabled={linkedToCyberbiz}
               hint={linkedToCyberbiz
                 ? "已連結 CYBERBIZ，SKU 必須與官網連結一致，請到官網修改。"
-                : isCatalogCreate ? "自訂品項需要填寫 SKU。" : "會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"}
+                : isCatalogCreate ? "會自動轉成大寫。包材或半成品可以留白，系統會自動編號。" : "會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"}
             />
             <div className="field">
               <span>分類<b aria-hidden="true">必填</b></span>
