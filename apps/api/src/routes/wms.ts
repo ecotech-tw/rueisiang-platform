@@ -174,7 +174,7 @@ export const wms = new Hono<AppEnv>()
     return c.json({ ok: true });
   })
 
-  // ───────────────────────── CYBERBIZ 庫存 ─────────────────────────
+  // ─────────────────────── CYBERBIZ 庫存同步 ───────────────────────
 
   /**
    * 從官網同步庫存到 WMS。
@@ -555,8 +555,8 @@ export const wms = new Hono<AppEnv>()
         targetQuantity: result.quantity,
       });
       await markLinkSynced(c.get("db"), mine.linkId, result.quantity);
-      // 官網那邊的數字變了，快取的目錄就過期了。不清掉的話「CYBERBIZ 庫存」
-      // 那一頁最多一整天還顯示舊數量，看的人會以為根本沒推成功。
+      // 官網那邊的數字變了，快取的目錄就過期了。不清掉的話後續目錄查詢
+      // 最多一整天還會讀到舊數量。
       await forgetCatalog(cacheClient(c.env));
       return c.json({ ...result, cyberbiz: { status: "synced", changed: pushed.changed } });
     } catch (failure) {

@@ -63,8 +63,8 @@ UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
 UPSTASH_REDIS_REST_TOKEN=你的token
 ```
 
-Upstash 只影響「CYBERBIZ 庫存」那一頁的速度：沒設定的話每次開頁都會去翻官網的
-商品目錄，功能是好的，只是要等幾秒。
+Upstash 只影響 CYBERBIZ 商品目錄查詢的速度：沒設定的話用 SKU 連結品項或定時鏡像時
+會直接翻官網商品目錄，功能是好的，只是要等幾秒。
 `/dev` 那兩條路由是 dev server 自己接的，不在 Hono app 裡，所以正式環境不存在。
 
 資料庫 schema 改動後：
@@ -236,7 +236,7 @@ xlsx，平台會暫存後交給 GitHub Actions 解密、整理並上傳到設定
 | 服務 | 給誰用 | 沒設定會怎樣 | 正式站 |
 |---|---|---|---|
 | **R2** bucket `rueisiang-platform-uploads` | 倉位的現場照片 | 上傳回「尚未設定照片儲存空間」，地圖與庫存完全正常 | ❌ 還沒開 |
-| **Upstash Redis**（`UPSTASH_REDIS_REST_URL` / `_TOKEN`） | 快取 CYBERBIZ 商品目錄一天 | 「CYBERBIZ 庫存」每次開頁直接翻官網，慢幾秒但功能正常 | ✅ |
+| **Upstash Redis**（`UPSTASH_REDIS_REST_URL` / `_TOKEN`） | 快取 CYBERBIZ 商品目錄一天 | SKU 連結品項或定時鏡像時直接翻官網，慢幾秒但功能正常 | ✅ |
 
 Upstash Redis 是平台的選用快取服務。Workers 開不了原生的 Redis 連線，但 Upstash
 的 REST 端點只是一個 HTTPS 請求——那正好是 Worker 做得到的形式。

@@ -546,9 +546,9 @@ describe("review 抓到的回歸", () => {
   });
 
   /*
-   * 「CYBERBIZ 庫存」那一頁列的是官網公司倉的**全部**商品，不是只有連到 WMS 的
-   * 那些。所以只在 processed 時清快取不夠——沒連結所以 ignored 的事件同樣代表
-   * 畫面上某個數字過期了，而快取的 TTL 是一整天。
+   * 目錄快取列的是官網公司倉的**全部**商品，不是只有連到 WMS 的那些。
+   * 所以只在 processed 時清快取不夠——沒連結所以 ignored 的事件同樣代表
+   * 某個快取數字過期了，而快取的 TTL 是一整天。
    */
   describe("目錄快取要清掉", () => {
     const REDIS = "https://redis.example.test";

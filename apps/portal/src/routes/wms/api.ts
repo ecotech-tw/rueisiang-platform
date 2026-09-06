@@ -79,15 +79,6 @@ export interface LayoutElement {
   height: number;
 }
 
-export interface CyberbizCatalogProduct {
-  sku: string;
-  productId: string;
-  variantId: string;
-  productName: string;
-  variantName: string;
-  published: number;
-}
-
 export interface Warehouse {
   settings: { canvasWidth: number; canvasHeight: number };
   zones: Zone[];
@@ -384,16 +375,5 @@ export function useLinkCyberbiz() {
 export function useUnlinkCyberbiz() {
   return useWarehouseMutation((id: string) =>
     write<{ ok: true }>(`/api/wms/items/${id}/cyberbiz-link`, "DELETE"),
-  );
-}
-
-/** 手動把官網的數量同步進來。只動已連結的品項。 */
-export function useSyncCyberbiz() {
-  return useWarehouseMutation((productId?: string) =>
-    write<{ updated: number; unchanged: number; failed: number; linked: number }>(
-      "/api/wms/cyberbiz/sync",
-      "POST",
-      productId ? { productId } : {},
-    ),
   );
 }

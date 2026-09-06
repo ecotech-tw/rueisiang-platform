@@ -220,8 +220,8 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
   /*
    * 報表的商品身分來自 cyberbiz_products 鏡像，所以它必須自己會更新。
    *
-   * 原本只有「有人打開 CYBERBIZ 庫存頁」才會寫，等於新商品上架後的月匯入會不會漏掉它，
-   * 取決於剛好有沒有人去點那一頁。
+   * 商品目錄鏡像不能依賴人工打開某個頁面，不然新商品上架後的月匯入會不會漏掉它，
+   * 取決於剛好有沒有人觸發目錄查詢。
    */
   ctx.waitUntil(
     mirrorCyberbizCatalog(env, db)
