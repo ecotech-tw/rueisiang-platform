@@ -19,7 +19,7 @@ import { createTargetOnlyD1 } from "./local-d1/d1.js";
 
 /** target schema 正式切換前的 destructive smoke：刪掉所有已搬移的 legacy 來源後再走一次主要流程。 */
 /*
- * 這裡刻意沒有 `DROP TABLE report_payout_daily`：0099 把 target 表改名成這個名字之後，
+ * 這裡刻意沒有 `DROP TABLE report_payout_daily`：0100 把 target 表改名成這個名字之後，
  * 它已經不是 legacy 表而是正在用的那一張，照著舊清單刪會把測試自己要驗的資料刪掉。
  * legacy 的那一張在 targetOnly 模式下早就被 0088 刪乾淨了。
  */
