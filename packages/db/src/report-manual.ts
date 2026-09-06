@@ -415,10 +415,13 @@ async function ensureTargetSalesItem(db: Database, prepared: Awaited<ReturnType<
   const [category] = prepared.category !== "未分類"
     ? await db.select({ id: itemCategories.id }).from(itemCategories).where(eq(itemCategories.name, prepared.category)).limit(1)
     : [];
-  const [existing] = await db.select({ id: itemMasters.id, categoryId: itemMasters.categoryId }).from(itemMasters)
-    .where(and(eq(itemMasters.source, prepared.skuSource), eq(itemMasters.sku, prepared.sku))).limit(1);
+  // SKU 是全平台唯一（items 的 idx_items_sku），所以不能只找同一個 source：人工報表
+  // 輸入的 SKU 若已經是官網鏡像，這裡找不到就會往下插一筆新的，直接撞在索引上。
+  const [existing] = await db.select({ id: itemMasters.id, source: itemMasters.source, categoryId: itemMasters.categoryId }).from(itemMasters)
+    .where(eq(itemMasters.sku, prepared.sku)).limit(1);
   if (existing) {
-    if (prepared.skuSource === "custom") await db.update(itemMasters).set({ name: prepared.productName, categoryId: category?.id ?? null, updatedAt: now }).where(eq(itemMasters.id, existing.id));
+    // 官網鏡像的名稱與分類由同步負責，人工報表不覆蓋。
+    if (existing.source === "custom") await db.update(itemMasters).set({ name: prepared.productName, categoryId: category?.id ?? null, updatedAt: now }).where(eq(itemMasters.id, existing.id));
     return { id: existing.id };
   }
   const id = crypto.randomUUID();

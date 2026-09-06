@@ -228,9 +228,7 @@ export async function createItem(db: Database, input: ItemInput & { actor: Actor
   const placement = await requirePlacement(db, input.zoneId?.trim() || null, input.shelfLevel?.trim() || null);
   const id = crypto.randomUUID();
   const sku = input.sku?.trim().toUpperCase() || `WMS-${id.slice(0, 8).toUpperCase()}`;
-  const [existingCustom] = await db.select({ id: itemMasters.id }).from(itemMasters)
-    .where(and(eq(itemMasters.source, "custom"), eq(itemMasters.sku, sku))).limit(1);
-  if (existingCustom) throw new WmsError("conflict", `自訂 SKU「${sku}」已經存在，請從品項列表選取既有品項。`);
+  // 重複檢查在 requireSkuAvailableForExternalMappings 裡，它會跨 source 查並說出是哪一筆。
   await requireSkuAvailableForExternalMappings(db, sku);
   const item = { id, source: "custom" as const, kind: input.sku?.trim() ? "sellable" as const : "supply" as const, sku, name, category, quantity: clamp(input.quantity, 0, QUANTITY), unit: input.unit?.trim() || "件", minStock: clamp(input.minStock, 5, QUANTITY), zoneId: placement.zoneId, shelfLevel: placement.shelfLevel, notes: input.notes?.trim() || "" };
   await db.batch([
