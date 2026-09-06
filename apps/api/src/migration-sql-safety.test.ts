@@ -31,3 +31,33 @@ describe("migration SQL 對 D1 的解析是安全的", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/*
+ * 正式部署不看這份 journal：`wrangler d1 migrations apply` 直接掃 migrations 資料夾
+ * （`getMigrationNames` 用 opendirSync），跟 drizzle 的紀錄無關。journal 只有 `pnpm generate`
+ * 在用，它拿裡面的 idx 決定下一支的編號。
+ *
+ * **所以這裡不能反過來要求「每個 .sql 都要在 journal 裡」**：手寫的資料搬移 migration
+ * 有 23 支從來沒登記過，而且它們全都正常部署了。那個規則會擋掉一種本來就允許的作法。
+ *
+ * 真正會出事的只有下面兩件：指向不存在檔案的殭屍條目，以及重複的 idx——後者會讓
+ * generate 編出一個已經存在的檔名，把別人的 migration 蓋掉。
+ */
+describe("migration journal 的一致性", () => {
+  const names = new Set(
+    fs.readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).map((file) => file.replace(/\.sql$/, "")),
+  );
+  const journal = JSON.parse(
+    fs.readFileSync(path.join(migrationsDir, "meta", "_journal.json"), "utf8"),
+  ) as { entries: { idx: number; tag: string }[] };
+
+  it("每一條都有對應的檔案", () => {
+    expect(journal.entries.filter((entry) => !names.has(entry.tag)).map((entry) => entry.tag)).toEqual([]);
+  });
+
+  it("idx 沒有重複——重複的話 generate 會編出撞號的檔名", () => {
+    const seen = new Set<number>();
+    const duplicated = journal.entries.filter((entry) => seen.size === seen.add(entry.idx).size);
+    expect(duplicated.map((entry) => entry.tag)).toEqual([]);
+  });
+});
