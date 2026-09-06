@@ -309,8 +309,8 @@ describe("報表人工修訂資料", () => {
       sku: "SOAP-SYSTEM",
     }, ACTOR);
 
-    expect(await db().select({ payoutAmount: schema.targetReportPayoutDaily.payoutAmount })
-      .from(schema.targetReportPayoutDaily)).toEqual([{ payoutAmount: 1000 }]);
+    expect(await db().select({ payoutAmount: schema.reportPayoutDaily.payoutAmount })
+      .from(schema.reportPayoutDaily)).toEqual([{ payoutAmount: 1000 }]);
     expect(await db().select({ itemId: schema.reportItemSalesMonthly.itemId, salesAmount: schema.reportItemSalesMonthly.salesAmount })
       .from(schema.reportItemSalesMonthly)).toEqual([{ itemId: "manual-delete-item", salesAmount: 100 }]);
     const deleteEvent = (await db().select({

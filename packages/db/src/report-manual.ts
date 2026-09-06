@@ -7,7 +7,7 @@ import { activityEvents } from "./schema/activity.js";
 import {
   reportItemSalesMonthly,
   scopes as targetScopes,
-  targetReportPayoutDaily,
+  reportPayoutDaily,
 } from "./schema/reports.js";
 import { itemCategories, cyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { normalizeExternalSku } from "./product-sku-mappings.js";
@@ -275,10 +275,10 @@ const PAYOUT_RECORD_SOURCE = sql`(
     target.scope_id, target.business_date, target.payout_amount,
     CASE WHEN target.record_origin = 'manual' THEN target.updated_by_email ELSE '系統匯入' END AS updated_by_email,
     target.updated_at
-  FROM report_payout_daily_target AS target
+  FROM report_payout_daily AS target
   WHERE target.record_origin = 'manual'
     OR NOT EXISTS (
-      SELECT 1 FROM report_payout_daily_target AS manual
+      SELECT 1 FROM report_payout_daily AS manual
       WHERE manual.scope_id = target.scope_id AND manual.business_date = target.business_date AND manual.record_origin = 'manual'
     )
 ) AS report_payout_records`;
@@ -396,8 +396,8 @@ export async function listReportSalesRecords(db: Database, query: ReportSalesLis
 
 export async function listReportManualPayouts(db: Database): Promise<ReportManualPayoutRow[]> {
   const names = await scopeNames(db);
-  const rows = await db.select().from(targetReportPayoutDaily).where(eq(targetReportPayoutDaily.recordOrigin, "manual"))
-    .orderBy(asc(targetReportPayoutDaily.businessDate), asc(targetReportPayoutDaily.scopeId));
+  const rows = await db.select().from(reportPayoutDaily).where(eq(reportPayoutDaily.recordOrigin, "manual"))
+    .orderBy(asc(reportPayoutDaily.businessDate), asc(reportPayoutDaily.scopeId));
   return rows.map((row) => ({ id: targetPayoutRecordId(row.scopeId, row.businessDate), source: "manual", scopeId: row.scopeId, scopeName: names.get(row.scopeId) ?? row.scopeId, businessDate: row.businessDate, payoutAmount: row.payoutAmount, updatedByEmail: row.updatedByEmail, updatedAt: row.updatedAt }));
 }
 
@@ -430,9 +430,9 @@ async function ensureTargetSalesItem(db: Database, prepared: Awaited<ReturnType<
 }
 
 async function findTargetManualPayout(db: Database, id: string) {
-  const [row] = await db.select().from(targetReportPayoutDaily).where(and(
-    eq(targetReportPayoutDaily.recordOrigin, "manual"),
-    sql`'target:' || ${targetReportPayoutDaily.scopeId} || ':' || ${targetReportPayoutDaily.businessDate} = ${id}`,
+  const [row] = await db.select().from(reportPayoutDaily).where(and(
+    eq(reportPayoutDaily.recordOrigin, "manual"),
+    sql`'target:' || ${reportPayoutDaily.scopeId} || ':' || ${reportPayoutDaily.businessDate} = ${id}`,
   )).limit(1);
   return row ?? null;
 }
@@ -453,12 +453,12 @@ function targetSalesRecord(
 
 async function createTargetManualPayout(db: Database, input: ReportManualPayoutInput): Promise<ReportManualPayoutRow> {
   const prepared = await preparePayout(db, input);
-  const [existing] = await db.select().from(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, prepared.scopeId), eq(targetReportPayoutDaily.businessDate, prepared.businessDate), eq(targetReportPayoutDaily.recordOrigin, "manual"))).limit(1);
+  const [existing] = await db.select().from(reportPayoutDaily).where(and(eq(reportPayoutDaily.scopeId, prepared.scopeId), eq(reportPayoutDaily.businessDate, prepared.businessDate), eq(reportPayoutDaily.recordOrigin, "manual"))).limit(1);
   if (existing) throw new ReportManualError("conflict", "這個據點在這個日期已經有人工出金資料，請改用編輯。");
   const id = targetPayoutRecordId(prepared.scopeId, prepared.businessDate);
   const now = new Date().toISOString();
   await db.batch([
-    db.insert(targetReportPayoutDaily).values({ scopeId: prepared.scopeId, businessDate: prepared.businessDate, recordOrigin: "manual", reportRunId: null, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, createdAt: now, updatedAt: now }),
+    db.insert(reportPayoutDaily).values({ scopeId: prepared.scopeId, businessDate: prepared.businessDate, recordOrigin: "manual", reportRunId: null, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, createdAt: now, updatedAt: now }),
     db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: id, entityLabel: payoutLabel(prepared.scope.name, prepared.businessDate), eventType: "report_manual_payout_created", summary: `新增人工出金資料：${prepared.scope.name} ${prepared.businessDate}`, field: "payoutAmount", newValue: String(prepared.payoutAmount), payload: payoutPayload(prepared), actor: input.actor, source: "reports" })),
   ] as never);
   return { id, source: "manual", scopeId: prepared.scopeId, scopeName: prepared.scope.name, businessDate: prepared.businessDate, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, updatedAt: now };
@@ -470,16 +470,16 @@ async function updateTargetManualPayout(db: Database, input: ReportManualPayoutI
   const existing = await findTargetManualPayout(db, input.id);
   if (!existing) throw new ReportManualError("not_found", "找不到這筆人工出金資料。");
   const prepared = await preparePayout(db, input);
-  const [conflict] = await db.select({ scopeId: targetReportPayoutDaily.scopeId }).from(targetReportPayoutDaily).where(and(
-    eq(targetReportPayoutDaily.scopeId, prepared.scopeId), eq(targetReportPayoutDaily.businessDate, prepared.businessDate), eq(targetReportPayoutDaily.recordOrigin, "manual"),
-    sql`NOT (${targetReportPayoutDaily.scopeId} = ${existing.scopeId} AND ${targetReportPayoutDaily.businessDate} = ${existing.businessDate})`,
+  const [conflict] = await db.select({ scopeId: reportPayoutDaily.scopeId }).from(reportPayoutDaily).where(and(
+    eq(reportPayoutDaily.scopeId, prepared.scopeId), eq(reportPayoutDaily.businessDate, prepared.businessDate), eq(reportPayoutDaily.recordOrigin, "manual"),
+    sql`NOT (${reportPayoutDaily.scopeId} = ${existing.scopeId} AND ${reportPayoutDaily.businessDate} = ${existing.businessDate})`,
   )).limit(1);
   if (conflict) throw new ReportManualError("conflict", "這個據點在這個日期已經有另一筆人工出金資料。");
   const updatedAt = new Date().toISOString();
   const id = targetPayoutRecordId(prepared.scopeId, prepared.businessDate);
   await db.batch([
-    db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, existing.scopeId), eq(targetReportPayoutDaily.businessDate, existing.businessDate), eq(targetReportPayoutDaily.recordOrigin, "manual"))),
-    db.insert(targetReportPayoutDaily).values({ scopeId: prepared.scopeId, businessDate: prepared.businessDate, recordOrigin: "manual", reportRunId: null, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, updatedAt }).onConflictDoUpdate({ target: [targetReportPayoutDaily.scopeId, targetReportPayoutDaily.businessDate, targetReportPayoutDaily.recordOrigin], set: { payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, updatedAt } }),
+    db.delete(reportPayoutDaily).where(and(eq(reportPayoutDaily.scopeId, existing.scopeId), eq(reportPayoutDaily.businessDate, existing.businessDate), eq(reportPayoutDaily.recordOrigin, "manual"))),
+    db.insert(reportPayoutDaily).values({ scopeId: prepared.scopeId, businessDate: prepared.businessDate, recordOrigin: "manual", reportRunId: null, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, updatedAt }).onConflictDoUpdate({ target: [reportPayoutDaily.scopeId, reportPayoutDaily.businessDate, reportPayoutDaily.recordOrigin], set: { payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, updatedAt } }),
     db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: input.id, entityLabel: payoutLabel(prepared.scope.name, prepared.businessDate), eventType: "report_manual_payout_updated", summary: `更新人工出金資料：${prepared.scope.name} ${prepared.businessDate}`, field: "payoutAmount", oldValue: String(existing.payoutAmount), newValue: String(prepared.payoutAmount), payload: { before: payoutPayload(existing), after: payoutPayload(prepared) }, actor: input.actor, source: "reports" })),
   ] as never);
   return { id, source: "manual", scopeId: prepared.scopeId, scopeName: prepared.scope.name, businessDate: prepared.businessDate, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, updatedAt };
@@ -493,7 +493,7 @@ export async function deleteReportManualPayout(db: Database, id: string, actor: 
   const names = await scopeNames(db);
   const scopeName = names.get(existing.scopeId) ?? existing.scopeId;
   await db.batch([
-    db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, existing.scopeId), eq(targetReportPayoutDaily.businessDate, existing.businessDate), eq(targetReportPayoutDaily.recordOrigin, "manual"))),
+    db.delete(reportPayoutDaily).where(and(eq(reportPayoutDaily.scopeId, existing.scopeId), eq(reportPayoutDaily.businessDate, existing.businessDate), eq(reportPayoutDaily.recordOrigin, "manual"))),
     db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: id, entityLabel: payoutLabel(scopeName, existing.businessDate), eventType: "report_manual_payout_deleted", summary: `刪除人工出金資料：${scopeName} ${existing.businessDate}`, field: "payoutAmount", oldValue: String(existing.payoutAmount), payload: payoutPayload(existing), actor, source: "reports" })),
   ] as never);
 }
@@ -502,12 +502,12 @@ export async function deleteReportPayoutRecord(db: Database, input: ReportPayout
   const scopeId = input.scopeId.trim();
   const businessDate = input.businessDate.trim();
   if (!scopeId || !isValidReportDate(businessDate)) throw new ReportManualError("invalid", "出金紀錄的據點或日期不正確。");
-  const [existing] = await db.select().from(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, scopeId), eq(targetReportPayoutDaily.businessDate, businessDate), eq(targetReportPayoutDaily.recordOrigin, input.source))).limit(1);
+  const [existing] = await db.select().from(reportPayoutDaily).where(and(eq(reportPayoutDaily.scopeId, scopeId), eq(reportPayoutDaily.businessDate, businessDate), eq(reportPayoutDaily.recordOrigin, input.source))).limit(1);
   if (!existing) throw new ReportManualError("not_found", "找不到這筆出金紀錄。");
   const names = await scopeNames(db);
   const scopeName = names.get(scopeId) ?? scopeId;
   await db.batch([
-    db.delete(targetReportPayoutDaily).where(and(eq(targetReportPayoutDaily.scopeId, scopeId), eq(targetReportPayoutDaily.businessDate, businessDate), eq(targetReportPayoutDaily.recordOrigin, input.source))),
+    db.delete(reportPayoutDaily).where(and(eq(reportPayoutDaily.scopeId, scopeId), eq(reportPayoutDaily.businessDate, businessDate), eq(reportPayoutDaily.recordOrigin, input.source))),
     db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: input.id, entityLabel: payoutLabel(scopeName, businessDate), eventType: "report_payout_record_deleted", summary: `刪除出金資料：${scopeName} ${businessDate}`, field: "payoutAmount", oldValue: String(existing.payoutAmount), payload: { source: input.source, ...payoutPayload(existing) }, actor, source: "reports" })),
   ] as never);
 }

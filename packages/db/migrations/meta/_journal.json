@@ -589,6 +589,13 @@
       "when": 1788800000000,
       "tag": "0099_permission_grants_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "6",
+      "when": 1788800000000,
+      "tag": "0099_rename_payout_daily",
+      "breakpoints": true
     }
   ]
 }

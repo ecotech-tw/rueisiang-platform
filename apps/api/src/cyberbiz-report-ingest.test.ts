@@ -12,7 +12,7 @@ import {
   reportItemSalesMonthly,
   reportRuns,
   scopes,
-  targetReportPayoutDaily,
+  reportPayoutDaily,
   wmsItems,
 } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
@@ -153,7 +153,7 @@ describe("target 報表月資料匯入", () => {
     expect(response.status).toBe(200);
     const [run] = await db().select().from(reportRuns).where(eq(reportRuns.status, "succeeded"));
     expect(run).toMatchObject({ importsSales: 1, importsPayout: 1, importedSalesRows: 1, importedPayoutRows: 1 });
-    expect(await db().select().from(targetReportPayoutDaily)).toMatchObject([{ scopeId: "shopee:store:default", payoutAmount: 250, recordOrigin: "imported" }]);
+    expect(await db().select().from(reportPayoutDaily)).toMatchObject([{ scopeId: "shopee:store:default", payoutAmount: 250, recordOrigin: "imported" }]);
   });
 
   it("不同通路同名 scope 不會互相覆蓋", async () => {
@@ -171,7 +171,7 @@ describe("target 報表月資料匯入", () => {
       salesRows: [{ sku: "SOAP-001", grossQuantity: "bad" }], payoutRows: [{ businessDate: "2026-07-01", payoutAmount: 250 }],
     });
     expect(response.status).toBe(422);
-    expect(await db().select().from(targetReportPayoutDaily)).toHaveLength(0);
+    expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
     expect(await db().select({ status: reportRuns.status }).from(reportRuns)).toEqual([{ status: "failed" }]);
   });
 

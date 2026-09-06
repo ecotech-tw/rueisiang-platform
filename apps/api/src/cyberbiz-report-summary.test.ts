@@ -775,7 +775,7 @@ describe("報表統計 API", () => {
     expect(await salesDelete.json()).toMatchObject({ ok: true, deletedCount: 2 });
 
     expect(await db().all(sql`SELECT business_date AS businessDate, payout_amount AS payoutAmount
-      FROM report_payout_daily_target WHERE record_origin = 'imported'`)).toEqual([{ businessDate: "2026-08-04", payoutAmount: 400 }]);
+      FROM report_payout_daily WHERE record_origin = 'imported'`)).toEqual([{ businessDate: "2026-08-04", payoutAmount: 400 }]);
     expect(await targetSalesRows()).toEqual([{ reportMonth: "2026-08", sku: "BATCH-A", productName: "人工商品 A", category: "未分類", salesAmount: 100 }]);
   });
 });

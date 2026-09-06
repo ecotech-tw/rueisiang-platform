@@ -453,6 +453,7 @@ describe("報表 scope migration", () => {
       sales_amount: 380,
       updated_by_email: "u2@example.com",
     }]);
+    // 這個測試只跑到 0088，那時候還沒有 0099 的改名——名字要停在當下的樣子。
     expect(sqlite.prepare(`
       SELECT scope_id, business_date, record_origin, payout_amount, updated_by_email
       FROM report_payout_daily_target

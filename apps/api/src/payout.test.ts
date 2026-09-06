@@ -1,11 +1,11 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, listPayoutRuns, listPayoutStores, seedPayoutStores, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
-import { payoutStores, reportRuns, scopes, targetReportPayoutDaily, userRoles, users } from "@rueisiang/db/schema";
+import { payoutStores, reportRuns, scopes, reportPayoutDaily, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { cyberbizScopeIdFromStoreName, manualScopeIdFromStoreName } from "./cyberbiz-scope.js";
-import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
+import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
 
 /**
  * 出金表。
@@ -71,7 +71,7 @@ async function as(userId: string, email: string, path: string, init: RequestInit
 const RANGE = { start: "2026-07-01", end: "2026-07-31" };
 
 beforeEach(async () => {
-  d1 = createLocalD1();
+  d1 = createTargetOnlyD1();
   env = {
     DB: d1,
     AUTH_SESSION_SECRET: SECRET,
@@ -397,7 +397,7 @@ describe("手動上傳出金", () => {
 
     expect(response.status).toBe(201);
     expect(await response.json()).toMatchObject({ dayCount: 2, total: 175, coverageStart: "2026-07-01", coverageEnd: "2026-07-02" });
-    expect((await db().select().from(targetReportPayoutDaily)).map((row) => [row.businessDate, row.payoutAmount])).toEqual([
+    expect((await db().select().from(reportPayoutDaily)).map((row) => [row.businessDate, row.payoutAmount])).toEqual([
       ["2026-07-01", 125],
       ["2026-07-02", 50],
     ]);
@@ -415,7 +415,7 @@ describe("手動上傳出金", () => {
 
     expect(response.status).toBe(400);
     expect((await db().select().from(scopes)).some((scope) => scope.id !== "company")).toBe(false);
-    expect(await db().select().from(targetReportPayoutDaily)).toHaveLength(0);
+    expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
   });
 
   it("不認得的既有 scope 會改用可納入公司總計的 manual scope", async () => {
@@ -433,7 +433,7 @@ describe("手動上傳出金", () => {
     expect(response.status).toBe(201);
     const result = await response.json() as { scopeId: string };
     expect(result.scopeId).toMatch(/^manual:store:/);
-    expect((await db().select().from(targetReportPayoutDaily))[0]?.scopeId).toBe(result.scopeId);
+    expect((await db().select().from(reportPayoutDaily))[0]?.scopeId).toBe(result.scopeId);
 
     const scopes = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout/scopes");
     expect((await scopes.json()) as { scopes: { id: string }[] }).toEqual({ scopes: [{ id: result.scopeId, name: "退租店" }] });
@@ -454,7 +454,7 @@ describe("手動上傳出金", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: expect.stringContaining("已經有名為「中友百貨」的據點") });
     expect((await db().select().from(scopes)).map((scope) => scope.id)).not.toContain(manualScopeIdFromStoreName("中友百貨"));
-    expect(await db().select().from(targetReportPayoutDaily)).toHaveLength(0);
+    expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
   });
 });
 
