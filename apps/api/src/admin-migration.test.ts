@@ -6,6 +6,7 @@ import {
   assistantLineChannels,
   assistantLineGroups,
   assistantToolConfigs,
+  permissions,
   rolePermissionGrants,
   rolePermissions,
   roles,
@@ -94,10 +95,31 @@ function freshAt(tag: string): DatabaseSync {
   return sqlite;
 }
 
+/**
+ * 授權表從 0099 起有外鍵指向 permissions 鏡像表，所以種授權之前鏡像要先有東西。
+ *
+ * 除了 permissions.ts 現在宣告的，還要把這些舊 migration 檔案裡出現過的鍵值一起種——
+ * 它們授權的是當年的權限，其中有些後來被改名或移除了。真正的 migration 順序沒有這個
+ * 問題（0019 跑的時候外鍵還不存在），只有把舊檔案重播在現在的資料庫上才會遇到。
+ */
+const HISTORICAL_PERMISSIONS = [...new Set(
+  readdirSync(MIGRATIONS_DIR)
+    .filter((file) => file.endsWith(".sql"))
+    .flatMap((file) => readFileSync(path.join(MIGRATIONS_DIR, file), "utf8").match(/'[a-z][a-z-]*:[a-z_-]+:[a-z_-]+'/g) ?? [])
+    .map((quoted) => quoted.slice(1, -1)),
+)];
+
+async function seedPermissionMirror(db: ReturnType<typeof createDatabase>) {
+  await db.insert(permissions).values(
+    [...new Set([...ALL_PERMISSIONS, ...HISTORICAL_PERMISSIONS])].map((permission) => ({ permission })),
+  ).onConflictDoNothing();
+}
+
 describe("bootstrap 管理員權限 migration", () => {
   it("把只有三個 admin 權限的既有管理員補齊，而且可以安全重跑", async () => {
     const d1 = createLocalD1();
     const db = createDatabase(d1 as never);
+    await seedPermissionMirror(db);
 
     await db.insert(roles).values({
       id: "role-admin",
@@ -159,6 +181,7 @@ describe("bootstrap 管理員權限 migration", () => {
   it("0089 會把舊品項與 SKU 對應授權搬到新權限，而且可安全重跑", async () => {
     const d1 = createLocalD1();
     const db = createDatabase(d1 as never);
+    await seedPermissionMirror(db);
 
     await db.insert(roles).values({ id: "role-legacy", roleKey: "legacy", name: "舊角色", isSystem: false });
     await db.insert(rolePermissionGrants).values([
@@ -191,6 +214,7 @@ describe("bootstrap 管理員權限 migration", () => {
   it("移除蝦皮設定權限時保留既有角色與直接授權", async () => {
     const d1 = createLocalD1();
     const db = createDatabase(d1 as never);
+    await seedPermissionMirror(db);
 
     await db.insert(roles).values({ id: "role-legacy", roleKey: "legacy", name: "舊設定角色", isSystem: false });
     await db.insert(rolePermissions).values({ roleId: "role-legacy", permission: "tools:shopee-sales:config" });

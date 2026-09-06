@@ -45,7 +45,9 @@ export const permissions = sqliteTable("permissions", {
 
 export const rolePermissionGrants = sqliteTable("role_permission_grants", {
   roleId: text("role_id").notNull().references(() => roles.id, { onDelete: "cascade" }),
-  permission: text("permission").notNull(),
+  // RESTRICT 不是 CASCADE：從 permissions.ts 拿掉一個權限時，sync 刪那一列會靜靜
+  // 把所有人的授權一起刪光（0023 就是這樣）。要的是刪不掉、當場報錯。
+  permission: text("permission").notNull().references(() => permissions.permission, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   primaryKey({ columns: [table.roleId, table.permission] }),
@@ -63,7 +65,7 @@ export const userRoleAssignments = sqliteTable("user_role_assignments", {
 
 export const userPermissionGrants = sqliteTable("user_permission_grants", {
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  permission: text("permission").notNull(),
+  permission: text("permission").notNull().references(() => permissions.permission, { onDelete: "restrict" }),
   grantedBy: text("granted_by"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
