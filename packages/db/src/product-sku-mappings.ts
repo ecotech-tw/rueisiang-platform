@@ -389,20 +389,25 @@ async function requireTargetMappingItem(db: Database, component: NormalizedCompo
     return item.id;
   }
   if (!component.customSku) throw new WmsError("invalid", "自訂 SKU 不可為空。");
-  const [existing] = await db.select({ id: itemMasters.id, categoryId: itemMasters.categoryId })
+  // SKU 是全平台唯一（items 的 idx_items_sku），所以不能只找 custom：這個 SKU 若已經
+  // 是官網鏡像，這裡找不到就會往下插一筆新的，直接撞在索引上。找到就沿用同一筆。
+  const [existing] = await db.select({ id: itemMasters.id, source: itemMasters.source, categoryId: itemMasters.categoryId })
     .from(itemMasters)
-    .where(and(eq(itemMasters.source, "custom"), eq(itemMasters.sku, component.customSku)))
+    .where(eq(itemMasters.sku, component.customSku))
     .limit(1);
   const [category] = component.customCategory !== "未分類"
     ? await db.select({ id: itemCategories.id }).from(itemCategories).where(eq(itemCategories.name, component.customCategory)).limit(1)
     : [];
   const categoryId = category?.id ?? null;
   if (existing) {
-    await db.update(itemMasters).set({
-      name: component.customName,
-      categoryId,
-      updatedAt: sql`CURRENT_TIMESTAMP`,
-    }).where(eq(itemMasters.id, existing.id));
+    // 官網鏡像的名稱與分類由同步負責，不要被這裡輸入的自訂名稱蓋掉。
+    if (existing.source === "custom") {
+      await db.update(itemMasters).set({
+        name: component.customName,
+        categoryId,
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      }).where(eq(itemMasters.id, existing.id));
+    }
     return existing.id;
   }
   const id = crypto.randomUUID();

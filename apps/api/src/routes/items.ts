@@ -25,10 +25,6 @@ function normalizeColor(value: unknown): string {
   return COLORS.has(color) ? color : "rose";
 }
 
-function displayCyberbizName(row: { productName: string; variantName: string }): string {
-  return `${row.productName}${row.variantName ? `（${row.variantName}）` : ""}`;
-}
-
 async function findCategoryId(db: Database, raw: unknown): Promise<string | null> {
   const value = String(raw ?? "").trim();
   if (!value) return null;
@@ -181,35 +177,8 @@ export const items = new Hono<AppEnv>()
   .post("/catalog", requirePermission("items:item:write"), async (c) => {
     const input = await body(c);
     const db = c.get("db");
-    const selectedSku = typeof input.cyberbizSku === "string" ? input.cyberbizSku.trim().toUpperCase() : "";
     const categoryId = await findCategoryId(db, input.categoryId ?? input.category);
     const now = new Date().toISOString();
-
-    if (selectedSku) {
-      const [selected] = await db.select({
-        sku: itemMasters.sku,
-        productName: cyberbizProductCatalog.productName,
-        variantName: cyberbizProductCatalog.variantName,
-      }).from(cyberbizProductCatalog)
-        .innerJoin(itemMasters, eq(itemMasters.id, cyberbizProductCatalog.itemId))
-        .where(eq(itemMasters.sku, selectedSku)).limit(1);
-      if (!selected) throw new HTTPException(404, { message: `找不到 CYBERBIZ SKU「${selectedSku}」。` });
-      const [duplicate] = await db.select({ id: itemMasters.id }).from(itemMasters).where(and(eq(itemMasters.source, "cyberbiz"), eq(itemMasters.sku, selected.sku))).limit(1);
-      if (duplicate) throw new HTTPException(409, { message: `CYBERBIZ SKU「${selected.sku}」已經有相同品項。` });
-      const item = {
-        id: crypto.randomUUID(),
-        source: "cyberbiz" as const,
-        kind: "sellable" as const,
-        sku: selected.sku,
-        name: displayCyberbizName(selected),
-        categoryId,
-        active: 1,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await db.insert(itemMasters).values(item);
-      return c.json({ id: item.id, cyberbizSku: selected.sku }, 201);
-    }
 
     // SKU 留白＝包材或半成品（淋膜紙、護髮素軟管這些本來就沒有 SKU）。自動編一組
     // WMS- 開頭的號碼，並把 kind 設成 supply；有填 SKU 的就是拿去賣的東西。
@@ -238,7 +207,7 @@ export const items = new Hono<AppEnv>()
       updatedAt: now,
     };
     await db.insert(itemMasters).values(item);
-    return c.json({ id: item.id, sku: item.sku, cyberbizSku: null }, 201);
+    return c.json({ id: item.id, sku: item.sku }, 201);
   })
   .patch("/catalog/:id", requirePermission("items:item:write"), async (c) => {
     const input = await body(c);
