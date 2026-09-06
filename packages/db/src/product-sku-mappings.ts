@@ -810,10 +810,12 @@ export async function syncCyberbizProducts(
     });
   }
   for (const row of rows.values()) {
-    const itemName = [row.productName, row.variantName].filter(Boolean).join(" - ") || row.sku;
+    // 跟後台、報表共用同一支：自己接一次的話，商品名會重複（官網的 variantName 本身
+    // 就是「商品名 - 規格」），而且兩邊的名稱從此各長各的。
+    const itemName = formatCyberbizProductName(row) || row.sku;
     // SKU 是全平台唯一的，所以這裡不能只找 cyberbiz 那一筆：官網開始賣一個原本手動建的
-    // SKU 時，要接管既有的品項，再插一筆新的會撞 idx_items_sku。名稱沿用既有的，
-    // 官網回傳的 "商品 - 規格 -" 那種格式比人取的名字難讀。
+    // SKU 時，要接管既有的品項，再插一筆新的會撞 idx_items_sku。名稱沿用既有的：
+    // 人取的名字比官網的商品名精確。
     const [existing] = await db.select({ id: itemMasters.id, name: itemMasters.name })
       .from(itemMasters)
       .where(eq(itemMasters.sku, row.sku))
