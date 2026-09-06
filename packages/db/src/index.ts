@@ -308,8 +308,10 @@ export {
   type SyncContext,
 } from "./crm-sync.js";
 export {
+  WEBHOOK_EVENT_RETENTION_DAYS,
   deleteEmptyCyberbizCustomers,
   processCustomerWebhook,
+  purgeSettledWebhookEvents,
   readSyncStatus,
   retryFailedWebhooks,
   type ProcessWebhookInput,

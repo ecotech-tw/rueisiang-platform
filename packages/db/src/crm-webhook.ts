@@ -5,7 +5,7 @@ import {
   isCustomerTopic,
   parseCyberbizCustomer,
 } from "@rueisiang/cyberbiz";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { syncCyberbizCustomer, type CyberbizSyncResult } from "./crm-sync.js";
 import { crmCustomers, cyberbizWebhookEvents } from "./schema/crm.js";
@@ -338,3 +338,37 @@ export async function deleteEmptyCyberbizCustomers(
 
   return { deleted: ids.length, ids };
 }
+
+/** 處理完的 webhook 事件保留幾天。失敗的不算在內——那是還沒解決的問題。 */
+export const WEBHOOK_EVENT_RETENTION_DAYS = 30;
+
+/**
+ * 清掉處理完的 webhook 事件。
+ *
+ * 這張表只進不出：官網每改一次會員或商品就多一列，正式庫已經四千多列，而它的
+ * 用途只有「這一筆處理過了嗎」與「失敗的要補跑」，兩者都只看得到最近的資料。
+ *
+ * ⚠️ 只刪 processed 與 ignored。failed 的留著——那是還沒解決的問題，刪掉就再也
+ * 沒有人會發現它；processing 也留著，那可能是正在跑的。
+ */
+export async function purgeSettledWebhookEvents(
+  db: Database,
+  options: { retentionDays?: number } = {},
+): Promise<{ deleted: number }> {
+  const days = Math.max(1, Math.trunc(options.retentionDays ?? WEBHOOK_EVENT_RETENTION_DAYS));
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const stale = await db.select({ id: cyberbizWebhookEvents.id })
+    .from(cyberbizWebhookEvents)
+    .where(and(
+      inArray(cyberbizWebhookEvents.status, ["processed", "ignored"]),
+      lt(cyberbizWebhookEvents.receivedAt, cutoff),
+    ));
+  if (!stale.length) return { deleted: 0 };
+  // 一次刪一批，不要用 IN (幾千個 id)：D1 對單一語句的參數量有上限。
+  for (let offset = 0; offset < stale.length; offset += 100) {
+    const batch = stale.slice(offset, offset + 100).map((row) => row.id);
+    await db.delete(cyberbizWebhookEvents).where(inArray(cyberbizWebhookEvents.id, batch));
+  }
+  return { deleted: stale.length };
+}
+

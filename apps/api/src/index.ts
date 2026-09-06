@@ -5,6 +5,7 @@ import {
   createDatabase,
   deleteMediaObject,
   listExpiredMediaObjects,
+  purgeSettledWebhookEvents,
   retryFailedProductWebhooks,
   retryFailedWebhooks,
   syncCyberbizProducts,
@@ -186,6 +187,21 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
   ctx.waitUntil(
     cleanupExpiredMedia(env, db)
       .catch((error) => assistantLog("error", "media.expiry_cleanup_failed", {
+        error: assistantErrorDetails(error),
+      })),
+  );
+
+  /*
+   * webhook 事件只進不出：官網每改一次會員或商品就多一列，而它的用途只有
+   * 「這一筆處理過了嗎」與「失敗的要補跑」，兩者都只看得到最近的資料。
+   * 只清 processed 與 ignored——failed 是還沒解決的問題，清掉就沒人會發現它。
+   */
+  ctx.waitUntil(
+    purgeSettledWebhookEvents(db)
+      .then((result) => {
+        if (result.deleted) assistantLog("info", "scheduled.webhook_event_purge", result);
+      })
+      .catch((error) => assistantLog("error", "scheduled.webhook_event_purge_failed", {
         error: assistantErrorDetails(error),
       })),
   );
