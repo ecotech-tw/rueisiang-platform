@@ -22,10 +22,10 @@ function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): voi
 }
 
 const BEFORE = "0099_permission_grants_fk.sql";
-const BEFORE_ACTIVITY_RENAME = "0099_rename_payout_daily.sql";
-const RENAME = "0100_activity_entity_type_rename.sql";
+const BEFORE_ACTIVITY_RENAME = "0100_rename_payout_daily.sql";
+const RENAME = "0101_activity_entity_type_rename.sql";
 
-describe("0100 activity entity_type rename", () => {
+describe("0101 activity entity_type rename", () => {
   it("只改四種 entity_type，保留 entity_id 與其他類型", () => {
     const sqlite = new DatabaseSync(":memory:");
     sqlite.exec("PRAGMA foreign_keys = ON;");
@@ -60,7 +60,7 @@ describe("0100 activity entity_type rename", () => {
     ]);
   });
 
-  it("重跑 0100 不會改動已完成的資料", () => {
+  it("重跑 0101 不會改動已完成的資料", () => {
     const sqlite = new DatabaseSync(":memory:");
     sqlite.exec("PRAGMA foreign_keys = ON;");
     applyLikeD1(sqlite, null, BEFORE);

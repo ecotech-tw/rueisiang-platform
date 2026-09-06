@@ -88,13 +88,14 @@ transaction 中，而 transaction 內切換 `foreign_keys` 沒有效果；被 `O
 0097_webhook_events_entity_type
 0098_cyberbiz_item_name_dedupe
 0099_permission_grants_fk
-0100_activity_entity_type_rename
+0100_rename_payout_daily
+0101_activity_entity_type_rename
 ```
 
 `0097_webhook_events_entity_type` 只補上既有會員事件的 `entity_type` 約束；商品事件
 仍在 WMS 專用表，不能把這支 migration 解讀成兩種 webhook 已完成合併。
 
-`0100_activity_entity_type_rename` 只用一支 `UPDATE` 將 `activity_events.entity_type` 的
+`0101_activity_entity_type_rename` 只用一支 `UPDATE` 將 `activity_events.entity_type` 的
 四個舊值改成 target 值，保留 `entity_id` 與其他欄位，不重建資料表。
 
 ## 驗證與量測

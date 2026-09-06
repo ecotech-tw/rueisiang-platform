@@ -58,7 +58,7 @@ SELECT topic, status, COUNT(*) AS n
 FROM cyberbiz_product_webhooks
 GROUP BY 1, 2;
 
-SELECT '=== 0100 activity entity types ===' AS q;
+SELECT '=== 0101 activity entity types ===' AS q;
 SELECT entity_type, COUNT(*) AS n
 FROM activity_events
 GROUP BY 1
