@@ -1,8 +1,8 @@
 name: D1 查詢（唯讀）
 
-# 開發機是 Windows on ARM，跑不了 wrangler（沒有 workerd），所以「我想看一下正式庫
-# 現在長怎樣」在本機是做不到的。每次都為了一個 SELECT 去改一支 workflow 太笨，
-# 這裡開一條固定的路。
+# 正式 deploy 與 D1 migration 由 ubuntu-latest 上的 deploy workflow 執行；本機不需要
+# 安裝或執行 wrangler。這支 workflow 提供一條固定的唯讀查詢路徑，讓合併後能直接
+# 查看正式庫的實際狀態。
 #
 # 只能唯讀。下面的 guard 會擋掉任何不是以 SELECT／WITH／PRAGMA 開頭的句子，也擋掉
 # 所有寫入關鍵字。要改資料一律走 migration——那才有版本、有 review、有回滾。
@@ -72,4 +72,24 @@ jobs:
 
       - name: 查詢
         working-directory: apps/api
-        run: npx wrangler d1 execute rueisiang-platform --remote --file=../../query.sql
+        run: |
+          python3 - <<'PY'
+          import re
+          import subprocess
+
+          sql = open("../../query.sql", encoding="utf-8").read()
+          # 和上面的 guard 使用同一套規則；每句分開用 --command 執行，才能把 SELECT 結果
+          # 留在 Actions log。D1 的 --file 模式只會回報 rows read，不會印出查詢結果。
+          stripped = re.sub(r"/\*.*?\*/", " ", sql, flags=re.S)
+          stripped = re.sub(r"--[^\n]*", " ", stripped)
+          statements = [statement.strip() for statement in stripped.split(";") if statement.strip()]
+          for index, statement in enumerate(statements, start=1):
+              print(f"=== query {index}/{len(statements)} ===")
+              subprocess.run(
+                  [
+                      "pnpm", "exec", "wrangler", "d1", "execute", "rueisiang-platform",
+                      "--remote", "--command", statement, "--json",
+                  ],
+                  check=True,
+              )
+          PY
