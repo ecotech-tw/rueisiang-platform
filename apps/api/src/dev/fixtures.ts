@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import {
   createDatabase,
   ensureAssistantDefaults,
+  formatCyberbizProductName,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
   seedPayoutStores,
@@ -156,6 +157,15 @@ function buildDevPayoutRows() {
   return rows;
 }
 
+/*
+ * 官網的款式名稱長什麼樣子。
+ *
+ * 它不是「大款」這種單純的規格，而是「商品名 - 規格」，單一款式的商品規格是空的，
+ * 只留一個尾巴的連字號。假資料以前給空字串，於是本機永遠看不到正式站上那個把商品名
+ * 印兩次的名稱——真正的形狀進來才擋得住下一次。
+ */
+const devVariantName = (productName: string): string => `${productName} -`;
+
 const DEV_SALES_PRODUCTS = [
   { sku: "DEMO-THERMO", productName: "雲朵保溫杯", category: "生活用品", grossQuantity: 86, salesAmount: 51_600 },
   { sku: "DEMO-TOTE", productName: "城市帆布袋", category: "生活用品", grossQuantity: 74, salesAmount: 37_000 },
@@ -252,7 +262,7 @@ async function seedDevProductCatalog(db: ReturnType<typeof createDatabase>): Pro
         source: "cyberbiz",
         kind: "sellable",
         sku: product.sku,
-        name: product.productName,
+        name: formatCyberbizProductName({ productName: product.productName, variantName: devVariantName(product.productName) }),
         active: 1,
       }).onConflictDoNothing();
       itemIdBySku.set(product.sku, itemId);
@@ -262,7 +272,7 @@ async function seedDevProductCatalog(db: ReturnType<typeof createDatabase>): Pro
       cyberbizProductId: `dev-product-${product.sku}`,
       cyberbizVariantId: `dev-variant-${product.sku}`,
       productName: product.productName,
-      variantName: "",
+      variantName: devVariantName(product.productName),
       published: 1,
       rawJson: "{}",
       syncStatus: "synced",
