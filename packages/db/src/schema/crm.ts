@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const crmCustomers = sqliteTable("crm_customers", {
   id: text("id").primaryKey(),
@@ -68,9 +68,10 @@ export const crmSavedViews = sqliteTable("crm_saved_views", {
 export const cyberbizWebhookEvents = sqliteTable("cyberbiz_webhook_events", {
   id: text("id").primaryKey(),
   topic: text("topic").notNull(),
-  status: text("status").notNull().default("received"),
-  // cyberbizCustomerId／customerId／resultJson 是會員 webhook 時代留下的欄位，
-  // entityType 那三欄才是合併商品 webhook 之後的形狀。兩套現在都還在正式庫裡。
+  status: text("status").notNull().default("processing"),
+  // cyberbizCustomerId／customerId／resultJson 是會員 webhook 時代留下的欄位。
+  // 目標形狀是 entityType ＋ externalEntityId（見 docs/platform-schema-target.sql
+  // 的「兩張併一張」），但商品事件還走 cyberbiz_product_webhooks，兩套都還在。
   cyberbizCustomerId: text("cyberbiz_customer_id"),
   customerId: text("customer_id").references(() => crmCustomers.id, { onDelete: "set null" }),
   payloadJson: text("payload_json").notNull(),
@@ -79,10 +80,12 @@ export const cyberbizWebhookEvents = sqliteTable("cyberbiz_webhook_events", {
   receivedAt: text("received_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   processedAt: text("processed_at"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  entityType: text("entity_type"),
+  entityType: text("entity_type").notNull().default("customer"),
   externalEntityId: text("external_entity_id"),
-  attempts: integer("attempts").notNull().default(0),
+  attempts: integer("attempts").notNull().default(1),
 }, (table) => [
+  check("ck_webhook_events_entity", sql`${table.entityType} IN ('customer', 'product')`),
+  check("ck_webhook_events_status", sql`${table.status} IN ('processing', 'processed', 'ignored', 'failed')`),
   index("idx_webhook_events_status").on(table.status, table.receivedAt),
   index("idx_webhook_events_customer").on(table.cyberbizCustomerId, table.receivedAt),
   index("idx_webhook_events_entity").on(table.entityType, table.externalEntityId, table.receivedAt),
