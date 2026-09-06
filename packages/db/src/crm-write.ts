@@ -2,8 +2,9 @@ import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizePhone } from "./phone.js";
 import { activityRow } from "./activity.js";
+import { customerTagNames, replaceCustomerTags } from "./crm-tags.js";
 import { activityEvents } from "./schema/activity.js";
-import { customers } from "./schema/crm.js";
+import { crmCustomerTags, crmTags, customers } from "./schema/crm.js";
 
 /**
  * 客戶的寫入操作：新增、編輯、封鎖。
@@ -70,19 +71,25 @@ export async function findCustomerByPhone(db: Database, phone: string) {
 
 export async function findCustomer(db: Database, id: string): Promise<any | null> {
   const [row] = await db.select().from(customers).where(eq(customers.id, id)).limit(1);
-  return row ?? null;
+  if (!row) return null;
+  const tags = await db
+    .select({ name: crmTags.name })
+    .from(crmCustomerTags)
+    .innerJoin(crmTags, eq(crmTags.id, crmCustomerTags.crmTagId))
+    .where(eq(crmCustomerTags.customerId, id));
+  return { ...row, tags: tags.map((tag) => tag.name) };
 }
 
 /**
  * 建立客戶。
  *
- * remote 有值代表這筆已經先在官網建好了（呼叫端負責），這裡只是把它落地。
- * 沒有的話就是純本地的客戶（sourceChannel = manual），之後可以再連結。
+ * 呼叫端先在官網建立會員，這裡只負責把成功回傳的會員落地；
+ * 因此新客戶一定有 cyberbizCustomerId，歷史本地資料才可能是 NULL。
  */
 export async function createCustomer(
   db: Database,
   input: CustomerInput & {
-    remote?: { externalId: string; uid: string; tags: string[]; raw: unknown; blocked: boolean };
+    remote: { externalId: string; uid: string; tags: string[]; raw: unknown; blocked: boolean };
     actor: Actor;
   },
 ): Promise<{ id: string }> {
@@ -98,25 +105,24 @@ export async function createCustomer(
       name: input.name,
       email: input.email,
       address: input.address,
-      sourceChannel: linked ? "cyberbiz" : "manual",
-      status: linked?.blocked ? "blocked" : "active",
-      cyberbizCustomerId: linked?.externalId ?? null,
-      cyberbizUid: linked?.uid || null,
-      cyberbizTagsJson: JSON.stringify(linked?.tags ?? input.tags),
-      rawJson: JSON.stringify(linked?.raw ?? {}),
-      syncStatus: linked ? "synced" : "local_only",
-      syncedAt: linked ? now : null,
-      blockedAt: linked?.blocked ? now : null,
+      status: linked.blocked ? "blocked" : "active",
+      cyberbizCustomerId: linked.externalId,
+      cyberbizUid: linked.uid || null,
+      rawJson: JSON.stringify(linked.raw),
+      syncStatus: "synced",
+      syncedAt: now,
+      blockedAt: linked.blocked ? now : null,
     }),
     writeEvent(db, {
       customerId: id,
       customerName: input.name,
       eventType: "customer_created",
-      summary: linked ? "新增客戶並同步到 CYBERBIZ" : "新增客戶（僅存在本地）",
-      payload: { phone: input.phone, name: input.name, linked: Boolean(linked) },
+      summary: "新增客戶並同步到 CYBERBIZ",
+      payload: { phone: input.phone, name: input.name, linked: true },
       actor: input.actor,
     }),
   ]);
+  await replaceCustomerTags(db, id, linked.tags);
 
   return { id };
 }
@@ -132,7 +138,9 @@ export async function updateCustomer(
   const changed = (
     ["phone", "name", "email", "address"] as const
   ).filter((field) => before[field] !== input[field]);
-  const tagsChanged = before.cyberbizTagsJson !== JSON.stringify(input.tags);
+  const beforeTags = await customerTagNames(db, id);
+  const nextTags = [...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean))].sort();
+  const tagsChanged = beforeTags.join("\u0000") !== nextTags.join("\u0000");
 
   await db.batch([
     db
@@ -143,8 +151,7 @@ export async function updateCustomer(
         name: input.name,
         email: input.email,
         address: input.address,
-        cyberbizTagsJson: JSON.stringify(input.tags),
-        ...(input.syncedToRemote ? { syncStatus: "synced", syncError: null, syncedAt: new Date().toISOString() } : {}),
+        ...(input.syncedToRemote ? { syncStatus: "synced", syncedAt: new Date().toISOString() } : {}),
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
       .where(eq(customers.id, id)),
@@ -161,6 +168,7 @@ export async function updateCustomer(
       actor: input.actor,
     }),
   ]);
+  await replaceCustomerTags(db, id, input.tags);
 }
 
 export async function setCustomerBlocked(

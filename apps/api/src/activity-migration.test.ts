@@ -25,7 +25,7 @@ SELECT
   '', NULL, NULL, e.payload_json,
   e.actor_type, e.actor_id, e.actor_email, e.source, e.status, e.error, e.created_at
 FROM customer_events e
-LEFT JOIN customers c ON c.id = e.customer_id;
+LEFT JOIN crm_customers c ON c.id = e.customer_id;
 `;
 
 /** 重建搬移前的那張表。0009 已經把它刪掉了，測試要自己造回來。 */

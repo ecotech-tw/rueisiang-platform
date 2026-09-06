@@ -1,6 +1,6 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
 import { createDatabase, syncCyberbizCustomer, syncCyberbizCustomers } from "@rueisiang/db";
-import { activityEvents, customers } from "@rueisiang/db/schema";
+import { activityEvents, crmCustomerTags, crmTags, customers } from "@rueisiang/db/schema";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -60,7 +60,7 @@ describe("第一次收到會員", () => {
       name: "王小明",
       phone: "0912345678",
       normalizedPhone: "0912345678",
-      sourceChannel: "cyberbiz",
+      cyberbizCustomerId: "cb-1",
       syncStatus: "synced",
       status: "active",
     });
@@ -70,13 +70,12 @@ describe("第一次收到會員", () => {
     expect(events[0]?.eventType).toBe("cyberbiz_imported");
   });
 
-  it("webhook 來的會標成 webhook 事件並記下 lastWebhookAt", async () => {
+  it("webhook 來的會標成 webhook 事件", async () => {
     const result = await syncCyberbizCustomer(db(), member(), { topic: "customers/create", eventId: "evt-1" });
 
     const events = await eventsFor(result.customerId!);
     expect(events[0]?.eventType).toBe("cyberbiz_webhook_created");
     expect(events[0]?.source).toBe("cyberbiz_webhook");
-    expect((await rowByExternalId("cb-1"))?.lastWebhookAt).toBeTruthy();
   });
 
   it("國碼會被正規化，之後搜尋才對得上", async () => {
@@ -145,7 +144,13 @@ describe("再次收到同一個會員", () => {
 
   it("標籤是空陣列時保留既有標籤", async () => {
     await syncCyberbizCustomer(db(), member({ tags: [] }), { topic: "t" });
-    expect((await rowByExternalId("cb-1"))?.cyberbizTagsJson).toBe('["VIP"]');
+    const customer = await rowByExternalId("cb-1");
+    const tags = await db()
+      .select({ name: crmTags.name })
+      .from(crmCustomerTags)
+      .innerJoin(crmTags, eq(crmTags.id, crmCustomerTags.crmTagId))
+      .where(eq(crmCustomerTags.customerId, customer!.id));
+    expect(tags.map((tag) => tag.name)).toEqual(["VIP"]);
   });
 
   it("官網解除封鎖不會自動解除本地的封鎖", async () => {
@@ -158,15 +163,14 @@ describe("再次收到同一個會員", () => {
   });
 });
 
-describe("人工建立的客戶", () => {
-  it("被同步接手之後仍然標成 manual", async () => {
+describe("以 CYBERBIZ 會員 ID 對應客戶", () => {
+  it("以會員 ID 更新既有客戶", async () => {
     const id = "manual-1";
     await db().insert(customers).values({
       id,
       phone: "0912345678",
       normalizedPhone: "0912345678",
       name: "人工客戶",
-      sourceChannel: "manual",
       cyberbizCustomerId: "cb-1",
     });
 
@@ -174,7 +178,6 @@ describe("人工建立的客戶", () => {
 
     const row = await rowByExternalId("cb-1");
     expect(row?.id).toBe(id);
-    expect(row?.sourceChannel).toBe("manual");
     expect(row?.name).toBe("官網名字");
   });
 });

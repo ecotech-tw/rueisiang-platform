@@ -1,7 +1,8 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
+import { replaceCustomerTags } from "./crm-tags.js";
 import { normalizePhone } from "./phone.js";
 import { activityEvents } from "./schema/activity.js";
 import { customers } from "./schema/crm.js";
@@ -16,8 +17,8 @@ import { customers } from "./schema/crm.js";
  *     身分：兩個會員可以共用同一支公司電話。拿它們去比對會把不同的人併成一筆。
  *  2. **沒有會員 ID 的事件一律不寫。** 寧可留下一筆 ignored 的紀錄讓人去查，
  *     也不要生出一個對不到官網的幽靈客戶。
- *  3. **本地標成 manual 的客戶不會被改成 cyberbiz。** 那是人工建立的判斷，
- *     同步不該蓋掉。
+ *  3. **來源只由 cyberbiz_customer_id 判斷。** 不再維護第二份 source_channel 真相；
+ *     沒有會員 ID 的歷史本地資料不會被電話或 Email 猜測合併。
  *  4. **空值不覆蓋既有資料**（電話除外，見下方註解）。官網那邊沒填不代表
  *     我們這邊要清掉。
  */
@@ -32,7 +33,7 @@ export interface CyberbizSyncResult {
 
 export interface SyncContext {
   topic: string;
-  /** 有值代表這次是 webhook 觸發的，紀錄與時間戳會不一樣。 */
+  /** 有值代表這次是 webhook 觸發的，活動紀錄事件名稱會不一樣。 */
   eventId?: string;
 }
 
@@ -68,17 +69,13 @@ export async function syncCyberbizCustomer(
         name: incoming.name,
         email: incoming.email,
         address: incoming.address,
-        sourceChannel: "cyberbiz",
         status: incoming.blocked ? "blocked" : "active",
         cyberbizCustomerId: incoming.externalId,
         cyberbizUid: incoming.uid || null,
-        cyberbizTagsJson: JSON.stringify(incoming.tags),
         cyberbizUpdatedAt: incoming.updatedAt || null,
         rawJson: JSON.stringify(incoming.raw),
         syncStatus: "synced",
-        syncError: null,
         syncedAt: now,
-        lastWebhookAt: fromWebhook ? now : null,
         blockedAt: incoming.blocked ? now : null,
         createdAt: incoming.createdAt || now,
         updatedAt: incoming.updatedAt || incoming.createdAt || now,
@@ -98,6 +95,7 @@ export async function syncCyberbizCustomer(
       return syncCyberbizCustomer(db, incoming, context);
     }
 
+    await replaceCustomerTags(db, customerId, incoming.tags);
     await db.insert(activityEvents).values({
       ...activityRow({
         entityType: "customer",
@@ -127,16 +125,13 @@ export async function syncCyberbizCustomer(
     name: incoming.name || existing.name,
     email: incoming.email || existing.email,
     address: incoming.address || existing.address,
-    sourceChannel: existing.sourceChannel === "manual" ? existing.sourceChannel : "cyberbiz",
     // 官網解除封鎖不會自動解除我們這邊的封鎖——那是店裡自己的決定。
     status: incoming.blocked ? "blocked" : existing.status,
     cyberbizCustomerId: incoming.externalId || existing.cyberbizCustomerId,
     cyberbizUid: incoming.uid || existing.cyberbizUid,
-    cyberbizTagsJson: incoming.tags.length ? JSON.stringify(incoming.tags) : existing.cyberbizTagsJson,
     cyberbizUpdatedAt: incoming.updatedAt || existing.cyberbizUpdatedAt,
     rawJson: JSON.stringify(incoming.raw),
     syncStatus: "synced",
-    syncError: null,
     blockedAt: incoming.blocked ? existing.blockedAt || now : existing.blockedAt,
     createdAt: incoming.createdAt || existing.createdAt,
     updatedAt: incoming.updatedAt || existing.updatedAt,
@@ -150,15 +145,16 @@ export async function syncCyberbizCustomer(
     // 沒有實質變化就只更新「什麼時候確認過」，不要在操作紀錄裡灌一堆雜訊。
     await db
       .update(customers)
-      .set({ syncedAt: now, lastWebhookAt: fromWebhook ? now : existing.lastWebhookAt })
+      .set({ syncedAt: now })
       .where(eq(customers.id, existing.id));
+    if (incoming.tags.length) await replaceCustomerTags(db, existing.id, incoming.tags);
     return { action: "unchanged", customerId: existing.id };
   }
 
   await db.batch([
     db
       .update(customers)
-      .set({ ...next, syncedAt: now, lastWebhookAt: fromWebhook ? now : existing.lastWebhookAt })
+      .set({ ...next, syncedAt: now })
       .where(eq(customers.id, existing.id)),
     db.insert(activityEvents).values({
       ...activityRow({
@@ -177,6 +173,7 @@ export async function syncCyberbizCustomer(
       createdAt: now,
     }),
   ]);
+  if (incoming.tags.length) await replaceCustomerTags(db, existing.id, incoming.tags);
 
   return { action: "updated", customerId: existing.id };
 }
@@ -259,15 +256,12 @@ export async function upsertCyberbizCustomers(
         name: customer.name,
         email: customer.email,
         address: customer.address,
-        sourceChannel: "cyberbiz",
         status: customer.blocked ? "blocked" : "active",
         cyberbizCustomerId: customer.externalId,
         cyberbizUid: customer.uid || null,
-        cyberbizTagsJson: JSON.stringify(customer.tags),
         cyberbizUpdatedAt: customer.updatedAt || null,
         rawJson: JSON.stringify(customer.raw),
         syncStatus: "synced",
-        syncError: null,
         syncedAt: now,
         blockedAt: customer.blocked ? now : null,
         createdAt,
@@ -283,16 +277,12 @@ export async function upsertCyberbizCustomers(
           name: sql`coalesce(nullif(excluded.name, ''), ${customers.name})`,
           email: sql`coalesce(nullif(excluded.email, ''), ${customers.email})`,
           address: sql`coalesce(nullif(excluded.address, ''), ${customers.address})`,
-          // 人工建立的客戶不會被同步改成 cyberbiz 來源。
-          sourceChannel: sql`case when ${customers.sourceChannel} = 'manual' then 'manual' else 'cyberbiz' end`,
           // 官網解除封鎖不會自動解除本地封鎖。
           status: sql`case when excluded.status = 'blocked' then 'blocked' else ${customers.status} end`,
           cyberbizUid: sql`coalesce(nullif(excluded.cyberbiz_uid, ''), ${customers.cyberbizUid})`,
-          cyberbizTagsJson: sql`case when excluded.cyberbiz_tags_json in ('[]', '') then ${customers.cyberbizTagsJson} else excluded.cyberbiz_tags_json end`,
           cyberbizUpdatedAt: sql`coalesce(nullif(excluded.cyberbiz_updated_at, ''), ${customers.cyberbizUpdatedAt})`,
           rawJson: sql`excluded.raw_json`,
           syncStatus: sql`'synced'`,
-          syncError: sql`null`,
           syncedAt: sql`excluded.synced_at`,
           blockedAt: sql`case when excluded.status = 'blocked' then coalesce(${customers.blockedAt}, excluded.blocked_at) else ${customers.blockedAt} end`,
           createdAt: sql`coalesce(nullif(excluded.created_at, ''), ${customers.createdAt})`,
@@ -303,6 +293,16 @@ export async function upsertCyberbizCustomers(
 
   // 一頁一次 D1 呼叫。逐筆送的話光往返次數就會撞上 Worker 的限制。
   await db.batch(statements as [typeof statements[number], ...typeof statements]);
+
+  const stored = await db
+    .select({ id: customers.id, cyberbizCustomerId: customers.cyberbizCustomerId })
+    .from(customers)
+    .where(inArray(customers.cyberbizCustomerId, usable.map((customer) => customer.externalId)));
+  const storedByExternalId = new Map(stored.map((customer) => [customer.cyberbizCustomerId, customer.id]));
+  for (const customer of usable) {
+    const customerId = storedByExternalId.get(customer.externalId);
+    if (customerId && customer.tags.length) await replaceCustomerTags(db, customerId, customer.tags);
+  }
 
   return {
     received: incoming.length,

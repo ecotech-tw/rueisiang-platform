@@ -6,7 +6,6 @@ import { Alert, Button, FilterInput, PageHeader, Panel } from "../../ui/index.js
 
 interface TagRow {
   name: string;
-  inCatalog: boolean;
   customerCount: number;
   linkedCount: number;
 }
@@ -108,10 +107,7 @@ export function Tags() {
       <PageHeader
         title="標籤管理"
         description={
-          <>
-          標籤有兩個來源：這裡建立的，以及從 CYBERBIZ 同步進來、掛在客戶身上的。
-          改名或移除會一併更新客戶，並推回官網。
-          </>
+          <>標籤由本系統統一管理；CYBERBIZ 會員同步時會自動補進字典。改名或移除會一併更新客戶，並推回官網。</>
         }
       />
 
@@ -148,7 +144,6 @@ export function Tags() {
                 <th>標籤</th>
                 <th className="numeric">使用中的客戶</th>
                 <th className="numeric">其中已連到官網</th>
-                <th>來源</th>
                 {canWrite ? <th /> : null}
               </tr>
             </thead>
@@ -184,11 +179,6 @@ export function Tags() {
                   </td>
                   <td className="numeric">{tag.customerCount}</td>
                   <td className="numeric">{tag.linkedCount}</td>
-                  <td>
-                    <span className={`status ${tag.inCatalog ? "status-source-crm" : "status-source-cyberbiz_sync"}`}>
-                      {tag.inCatalog ? "本系統建立" : "來自 CYBERBIZ"}
-                    </span>
-                  </td>
                   {canWrite ? (
                     <td>
                       <div className="row-actions">

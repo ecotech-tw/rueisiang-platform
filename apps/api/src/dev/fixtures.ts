@@ -12,6 +12,8 @@ import { ASSISTANT_KEY, DEFAULT_ASSISTANT_PROMPT, OPEN_METEO_TOOL_KEY } from "@r
 import { DEFAULT_PI_CODEX_MODEL } from "../pi-agent.js";
 import {
   customers,
+  crmCustomerTags,
+  crmTags,
   scopes,
   itemCategories,
   items as itemMasters,
@@ -48,10 +50,10 @@ export const DEV_ACCOUNTS = [
  */
 const DEV_CUSTOMERS = [
   { name: "王小明", phone: "0912 345 678", email: "wang@example.com", address: "台北市大安區忠孝東路四段 1 號", channel: "cyberbiz", tags: ["VIP", "熟客"], status: "active", sync: "synced" },
-  { name: "陳美玲", phone: "0922 333 444", email: "chen@example.com", address: "新北市板橋區文化路一段 25 號", channel: "manual", tags: [], status: "active", sync: "local_only" },
+  { name: "陳美玲", phone: "0922 333 444", email: "chen@example.com", address: "新北市板橋區文化路一段 25 號", channel: "manual", tags: [], status: "active", sync: "synced" },
   { name: "林大同", phone: "0933 555 666", email: "lin@example.com", address: "台中市西屯區台灣大道三段 99 號", channel: "cyberbiz", tags: ["批發"], status: "active", sync: "failed" },
   { name: "", phone: "0944 777 888", email: "", address: "", channel: "cyberbiz", tags: [], status: "active", sync: "synced" },
-  { name: "黃美華", phone: "0955 999 000", email: "huang@example.com", address: "高雄市前鎮區中山二路 5 號", channel: "manual", tags: ["需追蹤"], status: "blocked", sync: "local_only" },
+  { name: "黃美華", phone: "0955 999 000", email: "huang@example.com", address: "高雄市前鎮區中山二路 5 號", channel: "manual", tags: ["需追蹤"], status: "blocked", sync: "synced" },
 ] as const;
 
 export async function seedDevData(d1: LocalD1): Promise<void> {
@@ -317,14 +319,16 @@ async function seedDevCustomers(db: ReturnType<typeof createDatabase>): Promise<
       name: customer.name,
       email: customer.email,
       address: customer.address,
-      sourceChannel: customer.channel,
       status: customer.status,
-      cyberbizTagsJson: JSON.stringify(customer.tags),
       cyberbizCustomerId: customer.channel === "cyberbiz" ? `cb-${index}` : null,
       syncStatus: customer.sync,
-      syncError: customer.sync === "failed" ? "CYBERBIZ 回 429，稍後重試" : null,
       blockedAt: customer.status === "blocked" ? "2026-08-01 09:00:00" : null,
     });
+    for (const tagName of customer.tags) {
+      const tagId = `dev-tag-${tagName}`;
+      await db.insert(crmTags).values({ id: tagId, name: tagName }).onConflictDoNothing();
+      await db.insert(crmCustomerTags).values({ customerId: `dev-customer-${index}`, crmTagId: tagId }).onConflictDoNothing();
+    }
   }
 }
 

@@ -47,7 +47,6 @@ interface ViewRow {
   id: string;
   name: string;
   search: string;
-  channel: string;
   status: string;
   tag: string;
   sortField: string;
@@ -80,7 +79,6 @@ describe("儲存視圖", () => {
       body: JSON.stringify({
         name: "待補地址的客人",
         search: "台北",
-        channel: "cyberbiz",
         status: "active",
         tag: "VIP",
         sortField: "name",
@@ -94,7 +92,6 @@ describe("儲存視圖", () => {
     expect(view).toMatchObject({
       name: "待補地址的客人",
       search: "台北",
-      channel: "cyberbiz",
       status: "active",
       tag: "VIP",
       sortField: "name",
@@ -110,7 +107,6 @@ describe("儲存視圖", () => {
       method: "POST",
       body: JSON.stringify({
         name: "亂寫的",
-        channel: "蝦皮",
         status: "刪除",
         // 排序欄位可能是舊版本存下來的；每頁 999 筆會把 Worker 撐爆。
         sortField: "'; drop table customers; --",
@@ -120,7 +116,6 @@ describe("儲存視圖", () => {
 
     const [view] = await listViews(id, "staff@ecotech.tw");
     expect(view).toMatchObject({
-      channel: "all",
       status: "all",
       tag: "all",
       sortField: "updatedAt",
@@ -139,7 +134,6 @@ describe("儲存視圖", () => {
     const [view] = await listViews(id, "staff@ecotech.tw");
     const params = new URLSearchParams({
       search: view!.search,
-      channel: view!.channel,
       status: view!.status,
       tag: view!.tag,
       sortField: view!.sortField,

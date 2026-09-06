@@ -9,7 +9,8 @@ import {
   assistantLineGroups,
   assistantLineMessages,
   assistantSandboxMessages,
-  customerTagCatalog,
+  crmCustomerTags,
+  crmTags,
   customers,
   items,
   wmsItems,
@@ -1075,7 +1076,6 @@ describe("AI 助理 Sandbox", () => {
       email: "ming@example.com",
       address: "台北市中山區測試路 1 號",
       cyberbizCustomerId: "cyberbiz-1",
-      cyberbizTagsJson: JSON.stringify(["VIP", "北區"]),
       rawJson: JSON.stringify({ secret: "should-not-leak" }),
       syncStatus: "synced",
       createdAt: "2026-08-20 16:30:00",
@@ -1089,7 +1089,14 @@ describe("AI 助理 Sandbox", () => {
       createdAt: "2026-08-20 15:59:59",
       updatedAt: "2026-08-20 15:59:59",
     });
-    await db().insert(customerTagCatalog).values({ id: "tag-vip", name: "VIP" });
+    await db().insert(crmTags).values([
+      { id: "tag-vip", name: "VIP" },
+      { id: "tag-north", name: "北區" },
+    ]);
+    await db().insert(crmCustomerTags).values([
+      { customerId: "crm-customer-1", crmTagId: "tag-vip" },
+      { customerId: "crm-customer-1", crmTagId: "tag-north" },
+    ]);
     await db().insert(activityEvents).values({
       id: "crm-event-1",
       entityType: "customer",

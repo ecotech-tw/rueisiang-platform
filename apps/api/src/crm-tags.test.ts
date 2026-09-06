@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, customerTagCatalog, customers, userRoles, users } from "@rueisiang/db/schema";
+import { activityEvents, crmCustomerTags, crmTags, customers, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -27,9 +27,14 @@ async function seedCustomer(id: string, tags: string[], cyberbizId: string | nul
     phone: `09${id.padStart(8, "0")}`,
     normalizedPhone: `09${id.padStart(8, "0")}`,
     name: `客戶${id}`,
-    cyberbizTagsJson: JSON.stringify(tags),
     cyberbizCustomerId: cyberbizId,
   });
+  for (const name of tags) {
+    const tagId = `tag-${name}`;
+    await db().insert(crmTags).values({ id: tagId, name }).onConflictDoNothing();
+    const [tag] = await db().select({ id: crmTags.id }).from(crmTags).where(eq(crmTags.name, name));
+    await db().insert(crmCustomerTags).values({ customerId: id, crmTagId: tag!.id });
+  }
 }
 
 async function as(userId: string, email: string, path: string, init: RequestInit = {}) {
@@ -51,8 +56,12 @@ async function as(userId: string, email: string, path: string, init: RequestInit
 }
 
 async function tagsOf(customerId: string): Promise<string[]> {
-  const [row] = await db().select().from(customers).where(eq(customers.id, customerId));
-  return JSON.parse(row?.cyberbizTagsJson ?? "[]") as string[];
+  const rows = await db()
+    .select({ name: crmTags.name })
+    .from(crmCustomerTags)
+    .innerJoin(crmTags, eq(crmTags.id, crmCustomerTags.crmTagId))
+    .where(eq(crmCustomerTags.customerId, customerId));
+  return rows.map((row) => row.name).sort();
 }
 
 beforeEach(async () => {
@@ -73,18 +82,18 @@ afterEach(() => {
 describe("標籤列表", () => {
   it("字典與客戶身上的標籤取聯集", async () => {
     const id = await seedUser("staff@ecotech.tw", "role-staff");
-    await db().insert(customerTagCatalog).values({ id: "t1", name: "還沒人用的標籤" });
+    await db().insert(crmTags).values({ id: "t1", name: "還沒人用的標籤" });
     await seedCustomer("1", ["VIP", "熟客"], "cb-1");
     await seedCustomer("2", ["VIP"]);
 
     const body = (await (await as(id, "staff@ecotech.tw", "/api/crm/tags")).json()) as {
-      tags: { name: string; inCatalog: boolean; customerCount: number; linkedCount: number }[];
+      tags: { name: string; customerCount: number; linkedCount: number }[];
     };
 
     const byName = Object.fromEntries(body.tags.map((tag) => [tag.name, tag]));
-    expect(byName["VIP"]).toMatchObject({ inCatalog: false, customerCount: 2, linkedCount: 1 });
+    expect(byName["VIP"]).toMatchObject({ customerCount: 2, linkedCount: 1 });
     expect(byName["熟客"]).toMatchObject({ customerCount: 1, linkedCount: 1 });
-    expect(byName["還沒人用的標籤"]).toMatchObject({ inCatalog: true, customerCount: 0 });
+    expect(byName["還沒人用的標籤"]).toMatchObject({ customerCount: 0, linkedCount: 0 });
   });
 
   it("沒有 crm:tag:read 的人被擋下", async () => {
@@ -114,7 +123,7 @@ describe("新增標籤", () => {
 
 describe("改名與移除", () => {
   beforeEach(async () => {
-    await db().insert(customerTagCatalog).values({ id: "t1", name: "VIP" });
+    await db().insert(crmTags).values({ id: "t1", name: "VIP" });
     await seedCustomer("1", ["VIP", "熟客"]);
     await seedCustomer("2", ["VIP"]);
     await seedCustomer("3", ["其他"]);
@@ -130,7 +139,7 @@ describe("改名與移除", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(await tagsOf("1")).toEqual(["貴賓", "熟客"]);
+    expect(await tagsOf("1")).toEqual(expect.arrayContaining(["貴賓", "熟客"]));
     expect(await tagsOf("2")).toEqual(["貴賓"]);
     expect(await tagsOf("3")).toEqual(["其他"]);
     // VIP2 不是 VIP，不能被一起改掉。
@@ -144,8 +153,9 @@ describe("改名與移除", () => {
       body: JSON.stringify({ name: "貴賓" }),
     });
 
-    const catalog = await db().select().from(customerTagCatalog);
-    expect(catalog.map((tag) => tag.name)).toEqual(["貴賓"]);
+    const catalog = await db().select().from(crmTags);
+    expect(catalog.map((tag) => tag.name)).toContain("貴賓");
+    expect(catalog.map((tag) => tag.name)).not.toContain("VIP");
   });
 
   it("移除會從客戶身上拿掉，其他標籤留著", async () => {
@@ -157,7 +167,7 @@ describe("改名與移除", () => {
 
     expect(await tagsOf("1")).toEqual(["熟客"]);
     expect(await tagsOf("2")).toEqual([]);
-    expect(await db().select().from(customerTagCatalog)).toHaveLength(0);
+    expect(await db().select().from(crmTags)).toHaveLength(3);
   });
 
   it("每個被改到的客戶都留下一筆操作紀錄", async () => {
