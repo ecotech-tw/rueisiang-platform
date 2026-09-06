@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, crmCustomerTags, crmTags, crmCustomers, userRoles, users } from "@rueisiang/db/schema";
+import { activityEvents, crmCustomerTags, crmTags, crmCustomers, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -17,7 +17,7 @@ function db() {
 async function seedUser(email: string, roleId: string) {
   const id = `user-${email}`;
   await db().insert(users).values({ id, email, status: "active" });
-  await db().insert(userRoles).values({ userId: id, roleId });
+  await db().insert(userRoleAssignments).values({ userId: id, roleId });
   return id;
 }
 

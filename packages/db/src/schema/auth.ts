@@ -75,34 +75,6 @@ export const userPermissionGrants = sqliteTable("user_permission_grants", {
 
 export const GLOBAL_SCOPE = "";
 
-// 過渡期相容舊 service 名稱；實作會在這輪 schema overhaul 裡逐一改到新名稱。
-export const rolePermissions = sqliteTable("role_permissions", {
-  roleId: text("role_id").notNull(),
-  permission: text("permission").notNull(),
-}, (table) => [primaryKey({ columns: [table.roleId, table.permission] })]);
-
-export const userRoles = sqliteTable("user_roles", {
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  roleId: text("role_id").notNull().references(() => roles.id, { onDelete: "cascade" }),
-  // 資料範圍。目前一律留白＝全域，但欄位與主鍵都保留著：哪天真的有模組要按店別
-  // 切資料時不必再開一次 migration。理由見 packages/auth/src/rbac.ts 的 can()。
-  scopeType: text("scope_type").notNull().default(GLOBAL_SCOPE),
-  scopeId: text("scope_id").notNull().default(GLOBAL_SCOPE),
-  grantedBy: text("granted_by"),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [
-  primaryKey({ columns: [table.userId, table.roleId, table.scopeType, table.scopeId] }),
-  // 主鍵是 (user_id, role_id)，「這個人有哪些角色」用得到前綴，「這個角色有誰」用不到。
-  index("idx_user_roles_user").on(table.userId),
-]);
-
-export const userPermissions = sqliteTable("user_permissions", {
-  userId: text("user_id").notNull(),
-  permission: text("permission").notNull(),
-  grantedBy: text("granted_by"),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [primaryKey({ columns: [table.userId, table.permission] })]);
-
 export type User = typeof users.$inferSelect;
 export type Role = typeof roles.$inferSelect;
 export type UserRoleAssignment = typeof userRoleAssignments.$inferSelect;

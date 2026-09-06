@@ -19,7 +19,7 @@ import {
   reportItemSalesMonthly,
   cyberbizProductCatalog,
   users,
-  userRoles,
+  userRoleAssignments,
 } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -41,7 +41,7 @@ beforeEach(async () => {
 async function seedUser(email: string, roleId: string): Promise<string> {
   const id = crypto.randomUUID();
   await db.insert(users).values({ id, email, displayName: email, status: "active" });
-  await db.insert(userRoles).values({ userId: id, roleId });
+  await db.insert(userRoleAssignments).values({ userId: id, roleId });
   return id;
 }
 

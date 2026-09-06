@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { rolePermissions, roles, userPermissions, userRoles, users } from "@rueisiang/db/schema";
+import { rolePermissionGrants, roles, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -17,7 +17,7 @@ function db() {
 async function seedUser(email: string, roleId: string | null, options: { status?: string } = {}) {
   const id = `user-${email}`;
   await db().insert(users).values({ id, email, status: options.status ?? "active" });
-  if (roleId) await db().insert(userRoles).values({ userId: id, roleId });
+  if (roleId) await db().insert(userRoleAssignments).values({ userId: id, roleId });
   return id;
 }
 
@@ -64,7 +64,7 @@ describe("系統角色同步", () => {
     expect(managerRows).toHaveLength(1);
     const managerId = managerRows[0]?.id;
     expect(managerId).toBeTruthy();
-    const managerPermissions = await freshDb.select().from(rolePermissions).where(eq(rolePermissions.roleId, managerId!));
+    const managerPermissions = await freshDb.select().from(rolePermissionGrants).where(eq(rolePermissionGrants.roleId, managerId!));
     expect(managerPermissions.length).toBeGreaterThan(0);
   });
 });
@@ -228,7 +228,7 @@ describe("角色指派", () => {
       expect(response.status).toBe(201);
     }
 
-    const rows = await db().select().from(userRoles).where(eq(userRoles.userId, target));
+    const rows = await db().select().from(userRoleAssignments).where(eq(userRoleAssignments.userId, target));
     expect(rows).toHaveLength(2);
   });
 
@@ -245,7 +245,7 @@ describe("角色指派", () => {
       expect(response.status).toBe(201);
     }
 
-    const rows = await db().select().from(userRoles).where(eq(userRoles.userId, target));
+    const rows = await db().select().from(userRoleAssignments).where(eq(userRoleAssignments.userId, target));
     expect(rows).toHaveLength(1);
   });
 
@@ -273,7 +273,7 @@ describe("角色指派", () => {
       { method: "DELETE" },
     );
     expect(response.status).toBe(200);
-    expect(await db().select().from(userRoles).where(eq(userRoles.userId, target))).toHaveLength(0);
+    expect(await db().select().from(userRoleAssignments).where(eq(userRoleAssignments.userId, target))).toHaveLength(0);
   });
 
   it("調完權限，對方下一個請求就吃到新權限", async () => {
@@ -323,17 +323,17 @@ describe("重新同步角色權限", () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
 
     // 模擬管理者在 UI 調整檢視者：收回讀取權限，改給客戶編輯權限。
-    await db().insert(rolePermissions).values({ roleId: "role-viewer", permission: "crm:customer:write" });
+    await db().insert(rolePermissionGrants).values({ roleId: "role-viewer", permission: "crm:customer:write" });
     await db()
-      .delete(rolePermissions)
+      .delete(rolePermissionGrants)
       .where(
-        and(eq(rolePermissions.roleId, "role-viewer"), eq(rolePermissions.permission, "crm:customer:read")),
+        and(eq(rolePermissionGrants.roleId, "role-viewer"), eq(rolePermissionGrants.permission, "crm:customer:read")),
       );
 
     const response = await as(admin, "admin@ecotech.tw", "/api/admin/roles/sync", { method: "POST" });
     expect(response.status).toBe(200);
 
-    const viewer = await db().select().from(rolePermissions).where(eq(rolePermissions.roleId, "role-viewer"));
+    const viewer = await db().select().from(rolePermissionGrants).where(eq(rolePermissionGrants.roleId, "role-viewer"));
     const permissions = viewer.map((row) => row.permission);
     expect(permissions).not.toContain("crm:customer:read");
     expect(permissions).toContain("crm:customer:write");
@@ -344,7 +344,7 @@ describe("重新同步角色權限", () => {
     const viewer = await seedUser("viewer@ecotech.tw", "role-viewer");
 
     // 把 admin:user:read 塞給檢視者，他就看得到帳號列表了。
-    await db().insert(rolePermissions).values({ roleId: "role-viewer", permission: "admin:user:read" });
+    await db().insert(rolePermissionGrants).values({ roleId: "role-viewer", permission: "admin:user:read" });
     expect((await as(viewer, "viewer@ecotech.tw", "/api/admin/users")).status).toBe(200);
 
     await as(admin, "admin@ecotech.tw", "/api/admin/roles/sync", { method: "POST" });
@@ -357,12 +357,12 @@ describe("重新同步角色權限", () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
 
     await db()
-      .delete(rolePermissions)
-      .where(and(eq(rolePermissions.roleId, "role-admin"), eq(rolePermissions.permission, "admin:user:read")));
+      .delete(rolePermissionGrants)
+      .where(and(eq(rolePermissionGrants.roleId, "role-admin"), eq(rolePermissionGrants.permission, "admin:user:read")));
 
     await as(admin, "admin@ecotech.tw", "/api/admin/roles/sync", { method: "POST" });
 
-    const permissions = await db().select().from(rolePermissions).where(eq(rolePermissions.roleId, "role-admin"));
+    const permissions = await db().select().from(rolePermissionGrants).where(eq(rolePermissionGrants.roleId, "role-admin"));
     expect(permissions.map((row) => row.permission)).toContain("admin:user:read");
   });
 });
@@ -629,7 +629,7 @@ describe("刪除帳號", () => {
     const target = await disabledUser(admin);
     await as(admin, "admin@ecotech.tw", `/api/admin/users/${target}`, { method: "DELETE" });
 
-    const rows = await db().select().from(userRoles).where(eq(userRoles.userId, target));
+    const rows = await db().select().from(userRoleAssignments).where(eq(userRoleAssignments.userId, target));
     expect(rows).toHaveLength(0);
   });
 
@@ -825,7 +825,7 @@ describe("直接授予權限", () => {
     });
     await as(admin, "admin@ecotech.tw", `/api/admin/users/${helper}`, { method: "DELETE" });
 
-    const rows = await db().select().from(userPermissions).where(eq(userPermissions.userId, helper));
+    const rows = await db().select().from(userPermissionGrants).where(eq(userPermissionGrants.userId, helper));
     expect(rows).toHaveLength(0);
   });
 

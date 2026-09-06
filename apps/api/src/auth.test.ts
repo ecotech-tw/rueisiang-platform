@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, recordLogin, syncSystemRoles } from "@rueisiang/db";
-import { users, userRoles } from "@rueisiang/db/schema";
+import { users, userRoleAssignments } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -14,7 +14,7 @@ async function seedUser(email: string, roleId: string) {
   const db = createDatabase(d1 as never);
   const id = `user-${email}`;
   await db.insert(users).values({ id, email, status: "active" });
-  await db.insert(userRoles).values({ userId: id, roleId });
+  await db.insert(userRoleAssignments).values({ userId: id, roleId });
   return id;
 }
 
@@ -143,9 +143,9 @@ describe("已登入", () => {
     expect(before.permissions).not.toContain("admin:user:write");
 
     await createDatabase(d1 as never)
-      .update(userRoles)
+      .update(userRoleAssignments)
       .set({ roleId: "role-admin" })
-      .where(eq(userRoles.userId, id));
+      .where(eq(userRoleAssignments.userId, id));
 
     const after = (await (await call("/api/auth/me", { headers: { Cookie: cookie } })).json()) as {
       permissions: string[];

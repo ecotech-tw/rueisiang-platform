@@ -17,9 +17,9 @@ import {
   wmsLayoutElements,
   wmsLayouts,
   mediaObjects,
-  rolePermissions,
+  rolePermissionGrants,
   roles,
-  userRoles,
+  userRoleAssignments,
   users,
 } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -325,7 +325,7 @@ describe("小香的客戶搜尋工具", () => {
 
 async function seedUser(id: string, email: string, roleId: string) {
   await db().insert(users).values({ id, email, googleName: email, status: "active" });
-  await db().insert(userRoles).values({ userId: id, roleId });
+  await db().insert(userRoleAssignments).values({ userId: id, roleId });
 }
 
 async function cookieFor(id: string, email: string) {
@@ -374,7 +374,7 @@ beforeEach(async () => {
 describe("只有 LINE 權限的人", () => {
   async function seedLineOnlyUser() {
     await db().insert(roles).values({ id: "role-line", roleKey: "line-only", name: "LINE 管理", isSystem: false });
-    await db().insert(rolePermissions).values([
+    await db().insert(rolePermissionGrants).values([
       { roleId: "role-line", permission: "assistant:line:read" },
       { roleId: "role-line", permission: "assistant:line:write" },
     ]);

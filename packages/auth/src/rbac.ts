@@ -54,7 +54,8 @@ function usableDirect(user: AuthUser): readonly Permission[] {
  *
  * 哪天真的有模組需要（例如專櫃同仁只該看到自己店的客戶），那時的作法是：
  * 先給該資料表加上店別欄位、把過濾接進那條查詢，最後才在 UI 開放那一種範圍。
- * user_roles 的 scope_type / scope_id 欄位仍然留著，不必再開一次 migration。
+ * 範圍欄位在 0110 跟著舊的 user_roles 一起收掉了（值全是空字串，沒有消費者），
+ * 所以那時要開一支 migration 把欄位加到 user_role_assignments 上。
  */
 export function can(user: AuthUser, permission: Permission): boolean {
   if (usableDirect(user).includes(permission)) return true;
