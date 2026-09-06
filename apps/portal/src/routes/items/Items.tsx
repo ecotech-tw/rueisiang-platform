@@ -3,7 +3,7 @@ import { Combobox } from "@base-ui/react/combobox";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Icon } from "../../shell/icons.js";
@@ -16,6 +16,8 @@ interface ItemCatalogItem {
   sku: string;
   name: string;
   source: "cyberbiz" | "custom";
+  kind: "sellable" | "supply";
+  active: number;
   category: string;
   categoryId: string | null;
   categoryColor: string;
@@ -80,6 +82,10 @@ function categoryScope(categoryId: string, categories: ProductCategory[]): Set<s
   return ids;
 }
 
+function kindLabel(item: ItemCatalogItem): string {
+  return item.kind === "supply" ? "包材／半成品" : "可販售";
+}
+
 function sourceLabel(item: ItemCatalogItem): string {
   if (item.source === "cyberbiz") return "CYBERBIZ";
   return "自訂品項";
@@ -110,6 +116,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
   const [name, setName] = useState(item.name ?? "");
   const [sku, setSku] = useState(item.sku ?? "");
   const [categoryId, setCategoryId] = useState(item.categoryId ?? "");
+  const [kind, setKind] = useState(item.kind);
   const toast = useToast();
   const queryClient = useQueryClient();
   const update = useMutation({
@@ -121,6 +128,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
         body: JSON.stringify({
           name: name.trim(),
           ...(item.source === "custom" ? { sku: sku.trim() } : {}),
+          kind,
           categoryId: categoryId || null,
         }),
       });
@@ -149,6 +157,13 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
         disabled={item.source !== "custom"}
         onChange={item.source === "custom" ? (event) => setSku(event.target.value) : undefined}
         hint={item.source === "custom" ? "會自動轉成大寫；SKU 必須是全平台唯一。" : "CYBERBIZ 品項的 SKU 必須與官網連結一致，請到官網修改。"}
+      />
+      <SelectField
+        label="用途"
+        value={kind}
+        onChange={(event) => setKind(event.target.value === "supply" ? "supply" : "sellable")}
+        options={[{ label: "可販售", value: "sellable" }, { label: "包材／半成品", value: "supply" }]}
+        hint="0076 搬移時只憑「有沒有 SKU」分過一輪，分錯的請改回來。"
       />
       <div className="field">
         <span>品項分類</span>
@@ -279,6 +294,7 @@ export function Items() {
               <tr>
                 <th>品項</th>
                 <th>來源</th>
+                <th>用途</th>
                 <th>分類</th>
                 <th>倉儲庫存</th>
                 <th>安全庫存</th>
@@ -293,6 +309,7 @@ export function Items() {
                     <div className="cell-sub">{item.sku || "沒有 SKU"}</div>
                   </td>
                   <td data-label="來源"><span className="status quiet">{sourceLabel(item)}</span></td>
+                  <td data-label="用途"><span className="status quiet">{kindLabel(item)}</span></td>
                   <td data-label="分類"><span className={`status status-tone-${group.color}`}>{group.label}</span></td>
                   <td data-label="倉儲庫存" className="numeric">{item.inWarehouse && item.quantity !== null ? item.quantity.toLocaleString("zh-TW") : "—"} <span className="cell-sub">{item.unit}</span></td>
                   <td data-label="安全庫存" className="numeric cell-sub">{item.inWarehouse && item.minStock !== null ? item.minStock.toLocaleString("zh-TW") : "—"}</td>

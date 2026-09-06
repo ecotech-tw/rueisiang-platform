@@ -820,7 +820,9 @@ export async function syncCyberbizProducts(
       .limit(1);
     const itemId = existing?.id ?? crypto.randomUUID();
     await db.insert(itemMasters).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku: row.sku, name: existing?.name ?? itemName, active: 1 })
-      .onConflictDoUpdate({ target: itemMasters.sku, set: { source: "cyberbiz", active: 1, updatedAt: sql`CURRENT_TIMESTAMP` } });
+      // active 與 kind 是我們的判斷，同步一律不碰——官網下架不代表要從倉庫地圖上拿掉它。
+      // 只有 source 要更新：官網開始賣一個原本手動建的 SKU 時，那一筆就變成鏡像了。
+      .onConflictDoUpdate({ target: itemMasters.sku, set: { source: "cyberbiz", updatedAt: sql`CURRENT_TIMESTAMP` } });
     await db.insert(cyberbizProducts).values({
       itemId,
       cyberbizProductId: row.productId,

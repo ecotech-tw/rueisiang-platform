@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, createReportManualSales, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, createReportManualSales, syncCyberbizProducts, syncSystemRoles } from "@rueisiang/db";
 import { itemCategories, items, scopes, users, userRoles } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -100,3 +100,40 @@ describe("SKU 全平台唯一之後，找既有品項不能只看 source", () =>
     expect((await db.select({ name: items.name }).from(items).where(eq(items.id, "cb:ABX2")))[0]).toEqual({ name: "官網商品" });
   });
 });
+
+describe("kind 是我們的判斷，不是同步來的事實", () => {
+  async function patchItem(id: string, payload: Record<string, unknown>) {
+    const admin = await seedAdmin(`edit-${crypto.randomUUID()}@ecotech.tw`);
+    const token = await signSession(newSessionClaims({ id: admin.id, email: admin.email, name: admin.email, pictureUrl: "" }), SECRET);
+    return app.fetch(new Request(`https://test.local/api/items/catalog/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}` },
+      body: JSON.stringify(payload),
+    }), env() as never);
+  }
+
+  it("分錯的可以改回來——0076 只憑有沒有 SKU 分過一輪", async () => {
+    await db.insert(items).values({ id: "i1", source: "custom", kind: "supply", sku: "WMS-1", name: "養皂3入禮盒", active: 1 });
+
+    expect((await patchItem("i1", { kind: "sellable" })).status).toBe(200);
+    expect((await db.select({ kind: items.kind }).from(items).where(eq(items.id, "i1")))[0]).toEqual({ kind: "sellable" });
+  });
+
+  it("沒送 kind 就不動它", async () => {
+    await db.insert(items).values({ id: "i2", source: "custom", kind: "supply", sku: "WMS-2", name: "淋膜紙", active: 1 });
+
+    expect((await patchItem("i2", { name: "淋膜紙（大）" })).status).toBe(200);
+    expect((await db.select({ kind: items.kind }).from(items).where(eq(items.id, "i2")))[0]).toEqual({ kind: "supply" });
+  });
+
+  it("CYBERBIZ 同步不覆寫 kind 與 active", async () => {
+    await db.insert(items).values({ id: "i3", source: "custom", kind: "supply", sku: "ABX3", name: "護髮素軟管", active: 0 });
+
+    await syncCyberbizProducts(db, [{ sku: "ABX3", productId: "p3", variantId: "v3", productName: "護髮素軟管" }]);
+
+    const [row] = await db.select().from(items).where(eq(items.sku, "ABX3"));
+    // source 會被接管（官網開始賣它了），但 kind 與 active 是我們的判斷。
+    expect(row).toMatchObject({ id: "i3", source: "cyberbiz", kind: "supply", active: 0, name: "護髮素軟管" });
+  });
+});
+
