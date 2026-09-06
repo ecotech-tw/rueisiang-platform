@@ -170,6 +170,12 @@ R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要�
 - [ ] 評估將 `cyberbiz_product_webhooks` 合併至 `cyberbiz_webhook_events`；需先改
       webhook 接收、事件分類、重試與 retention 路徑。
 
+### 上線後收尾
+
+- [ ] 移除已不再被 runtime 使用的 `packages/db` 舊程式碼，並先完成 consumer 搜尋與 parity 驗證。
+- [ ] 更新小香的八個 tools，補上三個 shape-change tests，確保 schema 收尾後的工具契約仍一致。
+- [ ] 更新 README「下一步」與受影響的 design documents，讓 schema、runtime、測試與部署說明保持一致。
+
 ## 出金表：它跑在哪、憑證從哪來
 
 出金表**不在 Worker 裡跑**。Worker 有執行時間上限，而這個流程要開瀏覽器登

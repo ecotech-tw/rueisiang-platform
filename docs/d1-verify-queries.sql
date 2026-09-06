@@ -58,6 +58,18 @@ SELECT topic, status, COUNT(*) AS n
 FROM cyberbiz_product_webhooks
 GROUP BY 1, 2;
 
+SELECT '=== 0100 activity entity types ===' AS q;
+SELECT entity_type, COUNT(*) AS n
+FROM activity_events
+GROUP BY 1
+ORDER BY 1;
+
+-- 舊 entity_type 應已全部改名，結果應為 0 列，不輸出 entity_id 或其他個資。
+SELECT entity_type, COUNT(*) AS n
+FROM activity_events
+WHERE entity_type IN ('inventory_item', 'report_product_category', 'zone', 'warehouse_category')
+GROUP BY 1;
+
 SELECT '=== report parity observation ===' AS q;
 -- Approved production-backup baseline (2026-09-03):
 -- imported: 4,110 rows / net_quantity 186,529 / sales_amount 29,528,346

@@ -86,10 +86,16 @@ transaction 中，而 transaction 內切換 `foreign_keys` 沒有效果；被 `O
 0095_crm_target_cutover
 0096_merge_scopes
 0097_webhook_events_entity_type
+0098_cyberbiz_item_name_dedupe
+0099_permission_grants_fk
+0100_activity_entity_type_rename
 ```
 
 `0097_webhook_events_entity_type` 只補上既有會員事件的 `entity_type` 約束；商品事件
 仍在 WMS 專用表，不能把這支 migration 解讀成兩種 webhook 已完成合併。
+
+`0100_activity_entity_type_rename` 只用一支 `UPDATE` 將 `activity_events.entity_type` 的
+四個舊值改成 target 值，保留 `entity_id` 與其他欄位，不重建資料表。
 
 ## 驗證與量測
 
@@ -137,5 +143,6 @@ Migration 沒有 migration-level rollback。若套用失敗或資料驗證不符
 切換與 parity 驗證，再另開 migration。不要把目前仍被 runtime 使用的舊表直接列入
 `DROP TABLE`。
 
-同一時間只能有一個 worktree 產生 schema migration。新 migration 應先修改
-`packages/db/src/schema/` 與測試，再由 Drizzle 產生；既有 migration 不直接修改。
+同一時間只能有一個 worktree 產生 schema migration。涉及 schema 的新 migration 應先修改
+`packages/db/src/schema/` 與測試，再由 Drizzle 產生；純資料更新則手寫 SQL 並補 D1-style
+migration test。既有 migration 不直接修改。

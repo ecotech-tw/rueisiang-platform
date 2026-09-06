@@ -478,7 +478,7 @@ const wmsGetActivityTool: PlatformToolDefinition = {
     type: "object",
     properties: {
       search: { type: "string", description: "操作紀錄、商品、儲位或操作者的關鍵字，可留空。" },
-      entityType: { type: "string", description: "zone、inventory_item、product_category、layout_element 或 warehouse，可留空查全部。" },
+      entityType: { type: "string", description: "wms_zone、item、wms_category、product_category、item_category、product_sku_mapping、cyberbiz_product_category、layout_element 或 warehouse，可留空查全部。" },
       page: { type: "string", description: "頁碼，預設 1。" },
       pageSize: { type: "string", description: "每頁筆數，預設 20，最多 50。" },
     },
