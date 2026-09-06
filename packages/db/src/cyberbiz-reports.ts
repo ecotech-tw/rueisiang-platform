@@ -1,6 +1,6 @@
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { normalizeReportScopeName } from "./report-data.js";
+import { normalizeReportScopeName, scopeSourceTypeFromId } from "./report-data.js";
 import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
 import type { SalesTopSkuMetric } from "./report-analytics.js";
 import type { ReportGroupBy, ReportPayoutQuery, ReportSalesQuery } from "./report-data.js";
@@ -103,7 +103,7 @@ export async function recordCyberbizReportRun(
     ? [...requestedScopeIds]
     : input.stores.map((name) => existingScopeRows.find((scope) => normalizeReportScopeName(scope.name) === normalizeReportScopeName(name))?.id).filter((scopeId): scopeId is string => !!scopeId);
   const scopeKind = "store" as const;
-  const sourceType = input.reportKind === "sales" ? "cyberbiz" : "payout";
+
   const missingScopes = requestedScopeIds
     ? input.stores.flatMap((name, index) => {
       const id = requestedScopeIds[index];
@@ -111,9 +111,11 @@ export async function recordCyberbizReportRun(
     })
     : [];
   await db.batch([
+    // source_type 看 id 前綴，不看這次在跑哪種報表：出金與銷售是同一家店、
+    // 同一個 driver，用 reportKind 決定會讓同一家店長出兩列。
     ...missingScopes.map((scope) => db.insert(scopes).values({
       id: scope.id,
-      sourceType,
+      sourceType: scopeSourceTypeFromId(scope.id),
       scopeKind,
       name: scope.name.trim(),
       normalizedName: normalizeReportScopeName(scope.name),
@@ -123,7 +125,9 @@ export async function recordCyberbizReportRun(
     db.insert(reportRuns).values({
       id,
       requestId: input.requestId,
-      sourceType,
+      // report_runs.source_type 也是 driver，不是報表種類。這支路徑只有 CYBERBIZ
+      // 在跑（蝦皮走 shopee_sales_runs），出金與銷售都是同一個 driver。
+      sourceType: "cyberbiz",
       importsSales: input.reportKind === "sales" ? 1 : 0,
       importsPayout: input.reportKind === "payout" ? 1 : 0,
       periodKind: input.periodKind,
