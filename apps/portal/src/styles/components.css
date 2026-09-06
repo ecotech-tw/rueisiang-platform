@@ -3650,6 +3650,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .analytics-category-chart { height: 300px; }
 .analytics-category-chart-duo { display: grid; gap: 14px; }
 .analytics-category-chart-card { display: grid; gap: 8px; min-width: 0; }
+.analytics-category-chart-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .analytics-category-chart-card h3 { margin: 0; color: var(--color-muted); font-size: 12px; font-weight: 800; }
 .analytics-channel-chart { height: 260px; }
 .analytics-sku-chart { height: 360px; }
