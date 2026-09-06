@@ -126,6 +126,7 @@ export const items = new Hono<AppEnv>()
         source: itemMasters.source,
         sku: itemMasters.sku,
         name: itemMasters.name,
+        kind: itemMasters.kind,
         categoryId: itemMasters.categoryId,
         active: itemMasters.active,
       }).from(itemMasters).orderBy(asc(itemMasters.name)),
@@ -154,6 +155,8 @@ export const items = new Hono<AppEnv>()
         sku: row.sku,
         name: row.name || row.sku,
         source: row.source,
+        kind: row.kind,
+        active: row.active,
         category: itemCategoryById.get(row.categoryId ?? "")?.name ?? "未分類",
         categoryId: row.categoryId,
         categoryColor: itemCategoryById.get(row.categoryId ?? "")?.color ?? "slate",
@@ -221,6 +224,9 @@ export const items = new Hono<AppEnv>()
       : await findCategoryId(db, input.categoryId ?? input.category);
     const name = typeof input.name === "string" && input.name.trim() ? input.name.trim() : current.name;
     const active = input.active === undefined ? current.active : Number(input.active) ? 1 : 0;
+    // kind 是我們的判斷，不是同步來的事實：0076 只憑「有沒有 SKU」分了一輪，
+    // 分錯的要有地方改，不然這一欄永遠不能拿來當過濾條件。
+    const kind = input.kind === "supply" || input.kind === "sellable" ? input.kind : current.kind;
     let sku = current.sku;
     if (input.sku !== undefined) {
       const requestedSku = requireString(input, "sku", "SKU").toUpperCase();
@@ -236,8 +242,8 @@ export const items = new Hono<AppEnv>()
         sku = requestedSku;
       }
     }
-    await db.update(itemMasters).set({ name, sku, categoryId, active, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, id));
-    return c.json({ id, sku, name, categoryId, active });
+    await db.update(itemMasters).set({ name, sku, kind, categoryId, active, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, id));
+    return c.json({ id, sku, name, kind, categoryId, active });
   })
   .delete("/catalog/:id", requirePermission("items:item:write"), async (c) => {
     const db = c.get("db");
