@@ -61,10 +61,16 @@ function CategoryLegend({
   payload,
   rows,
   shareKey,
+  canDrill,
+  childParentNames,
+  onSelectParent,
 }: {
   payload?: readonly ChartLegendEntry[];
   rows: CategoryChartRow[];
   shareKey: "quantityShare" | "share";
+  canDrill: boolean;
+  childParentNames: ReadonlySet<string>;
+  onSelectParent: (parent: string) => void;
 }) {
   return (
     <AnalyticsLegend
@@ -73,6 +79,8 @@ function CategoryLegend({
         const row = rows.find((item) => item.label === value);
         return <>{value} <b>{formatPercent(row?.[shareKey] ?? 0)}</b></>;
       }}
+      selectableValue={(value) => canDrill && childParentNames.has(value)}
+      onSelectValue={(value) => onSelectParent(value)}
     />
   );
 }
@@ -150,7 +158,17 @@ function CategoryPie({
                 />
               )}
             />
-            <Legend content={<CategoryLegend rows={rows} shareKey={shareKey} />} />
+            <Legend
+              content={(
+                <CategoryLegend
+                  rows={rows}
+                  shareKey={shareKey}
+                  canDrill={canDrill}
+                  childParentNames={childParentNames}
+                  onSelectParent={onSelectParent}
+                />
+              )}
+            />
           </PieChart>
         </ResponsiveContainer>
       </div>

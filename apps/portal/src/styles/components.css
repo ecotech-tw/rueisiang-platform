@@ -3708,7 +3708,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .analytics-tooltip-meta { color: var(--color-brand-dark); font-size: 11px; font-weight: 700; }
 .analytics-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px; padding-top: 5px; color: var(--color-muted); font-size: 11px; }
 /* 不換行，才不會在標籤擠不下時被逐字折成直的；擠不下就整個項目換到下一列。 */
-.analytics-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.analytics-legend-item { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; font: inherit; white-space: nowrap; }
+.analytics-legend-item.interactive { cursor: pointer; }
+.analytics-legend-item.interactive:hover { color: var(--color-brand-dark); }
+.analytics-legend-item.interactive:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; border-radius: 999px; }
 
 .analytics-empty-panel,
 .analytics-coming-soon { display: grid; justify-items: start; gap: 10px; padding: 30px; }

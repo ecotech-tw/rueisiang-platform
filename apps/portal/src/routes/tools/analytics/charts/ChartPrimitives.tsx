@@ -49,18 +49,38 @@ export interface ChartLegendEntry {
 export interface AnalyticsLegendProps {
   payload?: readonly ChartLegendEntry[];
   formatValue?: (value: string, entry: ChartLegendEntry) => ReactNode;
+  selectableValue?: (value: string, entry: ChartLegendEntry) => boolean;
+  onSelectValue?: (value: string, entry: ChartLegendEntry) => void;
 }
 
-export function AnalyticsLegend({ payload, formatValue }: AnalyticsLegendProps): ReactNode {
+export function AnalyticsLegend({ payload, formatValue, selectableValue, onSelectValue }: AnalyticsLegendProps): ReactNode {
   if (!payload?.length) return null;
   return (
     <div className="analytics-legend">
-      {payload.map((entry, index) => (
-        <span key={`${entry.dataKey ?? entry.value ?? "series"}-${entry.value ?? ""}-${index}`}>
-          <i style={{ background: entry.color ?? "var(--color-brand)" }} />
-          {formatValue?.(entry.value ?? entry.dataKey ?? "", entry) ?? entry.value ?? entry.dataKey}
-        </span>
-      ))}
+      {payload.map((entry, index) => {
+        const value = entry.value ?? entry.dataKey ?? "";
+        const content = (
+          <>
+            <i style={{ background: entry.color ?? "var(--color-brand)" }} />
+            {formatValue?.(value, entry) ?? entry.value ?? entry.dataKey}
+          </>
+        );
+        const selectable = Boolean(value && onSelectValue && selectableValue?.(value, entry));
+        return selectable ? (
+          <button
+            className="analytics-legend-item interactive"
+            type="button"
+            key={`${entry.dataKey ?? entry.value ?? "series"}-${entry.value ?? ""}-${index}`}
+            onClick={() => onSelectValue?.(value, entry)}
+          >
+            {content}
+          </button>
+        ) : (
+          <span className="analytics-legend-item" key={`${entry.dataKey ?? entry.value ?? "series"}-${entry.value ?? ""}-${index}`}>
+            {content}
+          </span>
+        );
+      })}
     </div>
   );
 }
