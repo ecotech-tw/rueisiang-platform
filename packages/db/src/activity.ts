@@ -16,11 +16,11 @@ import { activityEvents } from "./schema/activity.js";
  */
 export type ActivityEntityType =
   | "customer"
-  | "zone"
-  | "inventory_item"
+  | "wms_zone"
+  | "item"
   | "product_category"
-  | "warehouse_category"
-  | "report_product_category"
+  | "wms_category"
+  | "item_category"
   | "product_sku_mapping"
   | "cyberbiz_product_category"
   | "report_manual_entry"
@@ -87,7 +87,7 @@ export interface ActivityQuery {
    * 一次篩好幾種東西。
    *
    * 倉儲那一頁要的是「倉位、商品、分類、標示、倉庫設定」這一整組——它們是同一個
-   * 模組的五種資料，不是五個獨立的清單。用 source 篩不行：CYBERBIZ 同步改到庫存
+   * 模組的多種資料，不是多個獨立的清單。用 source 篩不行：CYBERBIZ 同步改到庫存
    * 時寫的是 cyberbiz_sync，但那也該出現在倉儲的紀錄裡。
    */
   entityTypes?: readonly ActivityEntityType[];
@@ -98,15 +98,16 @@ export interface ActivityQuery {
   pageSize: number;
 }
 
-/** 倉儲會寫到的六種東西。倉儲的操作紀錄頁用它一次篩完。 */
+/** 倉儲會寫到的資料類型。倉儲的操作紀錄頁用它一次篩完。 */
 export const WMS_ENTITY_TYPES = [
-  "zone",
-  "inventory_item",
-  "warehouse_category",
-  // Keep filtering legacy activity rows while new WMS events use warehouse_category.
+  "wms_zone",
+  "item",
+  "wms_category",
+  // 保留沒有實際寫入點的舊分類篩選，避免歷史資料查詢失去入口。
   "product_category",
   "product_sku_mapping",
   "cyberbiz_product_category",
+  "item_category",
   "layout_element",
   "warehouse",
 ] as const satisfies readonly ActivityEntityType[];

@@ -101,7 +101,7 @@ export async function applySyncPlan(
       failed += 1;
       statements.push(
         updateLink(db, entry.link.linkId, { syncStatus: "failed", lastError: entry.error, updatedAt: sql`CURRENT_TIMESTAMP` }),
-        db.insert(activityEvents).values(activityRow({ entityType: "inventory_item", entityId: entry.link.inventoryItemId, entityLabel: label, eventType: "cyberbiz_sync_failed", summary: entry.error, source: "cyberbiz_sync", status: "failed", error: entry.error, actor })),
+        db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: entry.link.inventoryItemId, entityLabel: label, eventType: "cyberbiz_sync_failed", summary: entry.error, source: "cyberbiz_sync", status: "failed", error: entry.error, actor })),
       );
       continue;
     }
@@ -114,7 +114,7 @@ export async function applySyncPlan(
     statements.push(
       updateLinkedItem(db, entry.link.inventoryItemId, { quantity: entry.remote.quantity, minStock: entry.remote.safetyQuantity, updatedAt: sql`CURRENT_TIMESTAMP` }),
       updateLink(db, entry.link.linkId, { syncStatus: "synced", lastError: "", lastSyncedQuantity: entry.remote.quantity, lastSyncedAt: syncedAt, updatedAt: sql`CURRENT_TIMESTAMP` }),
-      db.insert(activityEvents).values(activityRow({ entityType: "inventory_item", entityId: entry.link.inventoryItemId, entityLabel: label, eventType: "cyberbiz_synced", summary: entry.quantityChanged ? "從 CYBERBIZ 同步庫存數量" : "從 CYBERBIZ 同步安全庫存", field: entry.quantityChanged ? "quantity" : "minStock", oldValue: String(entry.quantityChanged ? entry.link.quantity : entry.link.minStock), newValue: String(entry.quantityChanged ? entry.remote.quantity : entry.remote.safetyQuantity), source: "cyberbiz_sync", actor })),
+      db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: entry.link.inventoryItemId, entityLabel: label, eventType: "cyberbiz_synced", summary: entry.quantityChanged ? "從 CYBERBIZ 同步庫存數量" : "從 CYBERBIZ 同步安全庫存", field: entry.quantityChanged ? "quantity" : "minStock", oldValue: String(entry.quantityChanged ? entry.link.quantity : entry.link.minStock), newValue: String(entry.quantityChanged ? entry.remote.quantity : entry.remote.safetyQuantity), source: "cyberbiz_sync", actor })),
     );
   }
   for (let index = 0; index < statements.length; index += 50) {
@@ -134,7 +134,7 @@ export async function linkItemToCyberbiz(
   const now = new Date().toISOString();
   await db.batch([
     db.insert(wmsCyberbizLinks).values({ id, wmsItemId: input.inventoryItemId, cyberbizProductId: input.productId, cyberbizVariantId: input.variantId, sku: input.sku.trim().toUpperCase(), warehouseScope: "company", syncStatus: "synced", lastSyncedQuantity: input.quantity, lastSyncedAt: now }),
-    db.insert(activityEvents).values(activityRow({ entityType: "inventory_item", entityId: input.inventoryItemId, entityLabel: `${item.sku} ${item.name}`, eventType: "cyberbiz_linked", summary: `連結 CYBERBIZ 款式 ${input.variantId}`, source: "cyberbiz_sync", actor: input.actor })),
+    db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: input.inventoryItemId, entityLabel: `${item.sku} ${item.name}`, eventType: "cyberbiz_linked", summary: `連結 CYBERBIZ 款式 ${input.variantId}`, source: "cyberbiz_sync", actor: input.actor })),
   ] as never);
   return { id };
 }
@@ -144,7 +144,7 @@ export async function unlinkItemFromCyberbiz(db: Database, inventoryItemId: stri
   if (!item) throw new WmsError("not_found", "找不到這項商品。");
   await db.batch([
     db.delete(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.wmsItemId, inventoryItemId)),
-    db.insert(activityEvents).values(activityRow({ entityType: "inventory_item", entityId: inventoryItemId, entityLabel: `${item.sku} ${item.name}`, eventType: "cyberbiz_unlinked", summary: "解除 CYBERBIZ 連結（庫存數量保留）", source: "cyberbiz_sync", actor })),
+    db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: inventoryItemId, entityLabel: `${item.sku} ${item.name}`, eventType: "cyberbiz_unlinked", summary: "解除 CYBERBIZ 連結（庫存數量保留）", source: "cyberbiz_sync", actor })),
   ] as never);
 }
 
@@ -160,6 +160,6 @@ export async function markLinkFailed(
 ): Promise<void> {
   await db.batch([
     updateLink(db, linkId, { syncStatus: "failed", lastError: error, updatedAt: sql`CURRENT_TIMESTAMP` }),
-    db.insert(activityEvents).values(activityRow({ entityType: "inventory_item", entityId: context.inventoryItemId, entityLabel: context.label, eventType: "cyberbiz_sync_failed", summary: "盤點已存，但沒有推上 CYBERBIZ", source: "cyberbiz_sync", status: "failed", error, actor: context.actor })),
+    db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: context.inventoryItemId, entityLabel: context.label, eventType: "cyberbiz_sync_failed", summary: "盤點已存，但沒有推上 CYBERBIZ", source: "cyberbiz_sync", status: "failed", error, actor: context.actor })),
   ] as never);
 }

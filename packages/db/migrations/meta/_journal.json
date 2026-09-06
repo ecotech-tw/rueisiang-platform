@@ -598,6 +598,13 @@
       "breakpoints": true
     },
     {
+      "idx": 101,
+      "version": "6",
+      "when": 1788714401765,
+      "tag": "0101_activity_entity_type_rename",
+      "breakpoints": true
+    },
+    {
       "idx": 110,
       "version": "6",
       "when": 1788820000000,

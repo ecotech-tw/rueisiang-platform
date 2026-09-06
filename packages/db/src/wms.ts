@@ -138,7 +138,7 @@ export async function createZone(db: Database, input: ZoneInput & { actor: Actor
     db.insert(wmsZones).values({ id, code, name, color: zone.color, notes: zone.notes, active: 1 }),
     db.insert(wmsLayoutElements).values({ id: `wms-zone:${id}`, layoutId: "layout:main", elementType: "zone", zoneId: id, label: name, color: zone.color, x: zone.x, y: zone.y, width: zone.width, height: zone.height, zIndex: 0 }),
     ...shelves.map((shelf, index) => db.insert(wmsShelves).values({ id: crypto.randomUUID(), zoneId: id, code: shelf.id, name: shelf.name, sortOrder: index, active: 1 })),
-    writeEvent(db, { entityType: "zone", entityId: id, entityLabel: `${code} ${name}`, eventType: "zone_created", summary: "新增倉位", payload: zone, actor: input.actor }),
+    writeEvent(db, { entityType: "wms_zone", entityId: id, entityLabel: `${code} ${name}`, eventType: "zone_created", summary: "新增倉位", payload: zone, actor: input.actor }),
   ] as never);
   return { id };
 }
@@ -163,7 +163,7 @@ export async function updateZone(db: Database, id: string, input: Partial<ZoneIn
     db.update(wmsLayoutElements).set({ label: next.name, color: next.color, x: next.x, y: next.y, width: next.width, height: next.height, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(wmsLayoutElements.id, currentElement.id)),
     db.delete(wmsShelves).where(and(eq(wmsShelves.zoneId, id), shelves.length ? notInArray(wmsShelves.code, shelves.map((shelf) => shelf.id)) : sql`1 = 1`)),
     ...shelves.map((shelf, index) => db.insert(wmsShelves).values({ id: crypto.randomUUID(), zoneId: id, code: shelf.id, name: shelf.name, sortOrder: index, active: 1 }).onConflictDoUpdate({ target: [wmsShelves.zoneId, wmsShelves.code], set: { name: shelf.name, sortOrder: index, updatedAt: sql`CURRENT_TIMESTAMP` } })),
-    writeEvent(db, { entityType: "zone", entityId: id, entityLabel: `${next.code} ${next.name}`, eventType: moved ? "zone_moved" : resized ? "zone_resized" : "zone_updated", summary: moved ? "移動倉位" : resized ? "調整倉位大小" : "修改倉位資料", field: moved ? "position" : resized ? "size" : "details", oldValue: moved ? asPosition(current) : resized ? asSize(current) : null, newValue: moved ? asPosition(next) : resized ? asSize(next) : null, payload: { before: current, after: next }, actor: input.actor }),
+    writeEvent(db, { entityType: "wms_zone", entityId: id, entityLabel: `${next.code} ${next.name}`, eventType: moved ? "zone_moved" : resized ? "zone_resized" : "zone_updated", summary: moved ? "移動倉位" : resized ? "調整倉位大小" : "修改倉位資料", field: moved ? "position" : resized ? "size" : "details", oldValue: moved ? asPosition(current) : resized ? asSize(current) : null, newValue: moved ? asPosition(next) : resized ? asSize(next) : null, payload: { before: current, after: next }, actor: input.actor }),
   ] as never);
 }
 
@@ -176,7 +176,7 @@ export async function deleteZone(db: Database, id: string, actor: Actor) {
     db.delete(wmsLayoutElements).where(eq(wmsLayoutElements.zoneId, id)),
     db.delete(wmsShelves).where(eq(wmsShelves.zoneId, id)),
     db.delete(wmsZones).where(eq(wmsZones.id, id)),
-    writeEvent(db, { entityType: "zone", entityId: id, entityLabel: `${zone.code} ${zone.name}`, eventType: "zone_deleted", summary: "刪除倉位", payload: zone, actor }),
+    writeEvent(db, { entityType: "wms_zone", entityId: id, entityLabel: `${zone.code} ${zone.name}`, eventType: "zone_deleted", summary: "刪除倉位", payload: zone, actor }),
   ] as never);
 }
 
@@ -234,7 +234,7 @@ export async function createItem(db: Database, input: ItemInput & { actor: Actor
   await db.batch([
     db.insert(itemMasters).values({ id, source: "custom", kind: item.kind, sku, name, categoryId: null, active: 1 }),
     db.insert(wmsItems).values({ itemId: id, wmsCategoryId, shelfId: placement.shelfId, quantity: item.quantity, unit: item.unit, minStock: item.minStock, notes: item.notes }),
-    writeEvent(db, { entityType: "inventory_item", entityId: id, entityLabel: `${sku} ${name}`, eventType: "item_created", summary: "新增庫存商品", payload: item, actor: input.actor }),
+    writeEvent(db, { entityType: "item", entityId: id, entityLabel: `${sku} ${name}`, eventType: "item_created", summary: "新增庫存商品", payload: item, actor: input.actor }),
   ] as never);
   return { id };
 }
@@ -265,7 +265,7 @@ export async function updateItem(db: Database, id: string, input: Partial<ItemIn
   await db.batch([
     db.update(itemMasters).set({ name: next.name, sku: next.sku, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(itemMasters.id, id)),
     db.update(wmsItems).set({ wmsCategoryId, shelfId: placement.shelfId, unit: next.unit, minStock: next.minStock, notes: next.notes, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(wmsItems.itemId, id)),
-    writeEvent(db, { entityType: "inventory_item", entityId: id, entityLabel: `${next.sku} ${next.name}`, eventType: moved ? "item_moved" : "item_updated", summary: moved ? "調整商品存放位置" : "修改商品資料", field: moved ? "placement" : "details", payload: { before: current, after: next }, actor: input.actor }),
+    writeEvent(db, { entityType: "item", entityId: id, entityLabel: `${next.sku} ${next.name}`, eventType: moved ? "item_moved" : "item_updated", summary: moved ? "調整商品存放位置" : "修改商品資料", field: moved ? "placement" : "details", payload: { before: current, after: next }, actor: input.actor }),
   ] as never);
 }
 
@@ -276,7 +276,7 @@ export async function deleteItem(db: Database, id: string, actor: Actor) {
   if (componentUse) throw new WmsError("conflict", "這項商品仍是 BOM 用料，請先移除組成後再移出倉儲。");
   await db.batch([
     db.delete(wmsItems).where(eq(wmsItems.itemId, id)),
-    writeEvent(db, { entityType: "inventory_item", entityId: id, entityLabel: `${current.item.sku} ${current.item.name}`, eventType: "item_deleted", summary: "移出倉儲", payload: current.item, actor }),
+    writeEvent(db, { entityType: "item", entityId: id, entityLabel: `${current.item.sku} ${current.item.name}`, eventType: "item_deleted", summary: "移出倉儲", payload: current.item, actor }),
   ] as never);
 }
 
@@ -289,7 +289,7 @@ export async function countItem(db: Database, id: string, quantity: unknown, act
   const changed = current.wms.quantity !== next;
   await db.batch([
     db.update(wmsItems).set({ quantity: next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(wmsItems.itemId, id)),
-    writeEvent(db, { entityType: "inventory_item", entityId: id, entityLabel: `${current.item.sku} ${current.item.name}`, eventType: "item_counted", summary: note?.trim() || (changed ? "盤點更新庫存數量" : "盤點確認數量無誤"), field: "quantity", oldValue: String(current.wms.quantity), newValue: String(next), actor }),
+    writeEvent(db, { entityType: "item", entityId: id, entityLabel: `${current.item.sku} ${current.item.name}`, eventType: "item_counted", summary: note?.trim() || (changed ? "盤點更新庫存數量" : "盤點確認數量無誤"), field: "quantity", oldValue: String(current.wms.quantity), newValue: String(next), actor }),
   ] as never);
   return { quantity: next, changed, belowMinimum: next < current.wms.minStock };
 }
@@ -303,7 +303,7 @@ export async function createWarehouseCategory(db: Database, input: { name: strin
   const category = { id: crypto.randomUUID(), name, color: normalizeColor(input.color, "rose") };
   await db.batch([
     db.insert(wmsCategories).values({ ...category, active: 1 }),
-    writeEvent(db, { entityType: "warehouse_category", entityId: category.id, entityLabel: name, eventType: "warehouse_category_created", summary: "新增倉儲分類", payload: category, actor: input.actor }),
+    writeEvent(db, { entityType: "wms_category", entityId: category.id, entityLabel: name, eventType: "warehouse_category_created", summary: "新增倉儲分類", payload: category, actor: input.actor }),
   ] as never);
   return { id: category.id };
 }
@@ -314,7 +314,7 @@ export async function updateWarehouseCategory(db: Database, id: string, input: {
   const next = { name: input.name?.trim().slice(0, 40) || current.name, color: normalizeColor(input.color, current.color) };
   await db.batch([
     db.update(wmsCategories).set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(wmsCategories.id, id)),
-    writeEvent(db, { entityType: "warehouse_category", entityId: id, entityLabel: next.name, eventType: "warehouse_category_updated", summary: next.name !== current.name ? "重新命名倉儲分類" : "修改倉儲分類顏色", field: next.name !== current.name ? "name" : "color", oldValue: next.name !== current.name ? current.name : current.color, newValue: next.name !== current.name ? next.name : next.color, payload: { before: current, after: next }, actor: input.actor }),
+    writeEvent(db, { entityType: "wms_category", entityId: id, entityLabel: next.name, eventType: "warehouse_category_updated", summary: next.name !== current.name ? "重新命名倉儲分類" : "修改倉儲分類顏色", field: next.name !== current.name ? "name" : "color", oldValue: next.name !== current.name ? current.name : current.color, newValue: next.name !== current.name ? next.name : next.color, payload: { before: current, after: next }, actor: input.actor }),
   ] as never);
 }
 
@@ -325,7 +325,7 @@ export async function deleteWarehouseCategory(db: Database, id: string, actor: A
   if (Number(usage?.total ?? 0)) throw new WmsError("conflict", `還有 ${Number(usage?.total)} 項庫存商品是這個倉儲分類，請先改成別的分類。`);
   await db.batch([
     db.delete(wmsCategories).where(eq(wmsCategories.id, id)),
-    writeEvent(db, { entityType: "warehouse_category", entityId: id, entityLabel: category.name, eventType: "warehouse_category_deleted", summary: "刪除倉儲分類", payload: category, actor }),
+    writeEvent(db, { entityType: "wms_category", entityId: id, entityLabel: category.name, eventType: "warehouse_category_deleted", summary: "刪除倉儲分類", payload: category, actor }),
   ] as never);
 }
 
@@ -381,7 +381,7 @@ export async function recordZoneImage(db: Database, input: { zoneId: string; obj
   if (!zone) throw new WmsError("not_found", "找不到這個倉位。");
   await db.batch([
     db.insert(wmsZoneImages).values({ zoneId: input.zoneId, objectKey: input.objectKey, sortOrder: 0 }).onConflictDoNothing(),
-    writeEvent(db, { entityType: "zone", entityId: input.zoneId, entityLabel: `${zone.code} ${zone.name}`, eventType: "image_uploaded", summary: "上傳倉位現場照片", field: "image", newValue: input.filename, actor: input.actor }),
+    writeEvent(db, { entityType: "wms_zone", entityId: input.zoneId, entityLabel: `${zone.code} ${zone.name}`, eventType: "image_uploaded", summary: "上傳倉位現場照片", field: "image", newValue: input.filename, actor: input.actor }),
   ] as never);
   return { id: targetImageId(input.zoneId, input.objectKey) };
 }
@@ -423,7 +423,7 @@ export async function deleteZoneImage(db: Database, id: string, actor: Actor) {
   const [zone] = await db.select({ code: wmsZones.code, name: wmsZones.name }).from(wmsZones).where(eq(wmsZones.id, image.zoneId)).limit(1);
   await db.batch([
     db.delete(wmsZoneImages).where(and(eq(wmsZoneImages.zoneId, image.zoneId), eq(wmsZoneImages.objectKey, image.objectKey))),
-    writeEvent(db, { entityType: "zone", entityId: image.zoneId, entityLabel: zone ? `${zone.code} ${zone.name}` : "", eventType: "image_deleted", summary: "刪除倉位現場照片", field: "image", oldValue: image.filename, actor }),
+    writeEvent(db, { entityType: "wms_zone", entityId: image.zoneId, entityLabel: zone ? `${zone.code} ${zone.name}` : "", eventType: "image_deleted", summary: "刪除倉位現場照片", field: "image", oldValue: image.filename, actor }),
   ] as never);
   return { objectKey: image.objectKey };
 }

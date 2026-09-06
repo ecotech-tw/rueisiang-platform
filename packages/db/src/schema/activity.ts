@@ -16,7 +16,7 @@ export const activityEvents = sqliteTable("activity_events", {
   id: text("id").primaryKey(),
 
   /**
-   * 這筆紀錄講的是哪一種東西：customer、zone、inventory_item、product_category…
+   * 這筆紀錄講的是哪一種東西：customer、wms_zone、item、item_category…
    *
    * 刻意不做成 enum 或外鍵：新模組搬進來時只要開始寫自己的 entityType 就好，
    * 不必先改 schema。代價是打錯字不會被擋下來，所以寫入端統一走

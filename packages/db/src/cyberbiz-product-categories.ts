@@ -194,7 +194,7 @@ export async function createReportProductCategory(
   await db.batch([
     db.insert(itemCategories).values(category),
     db.insert(activityEvents).values(activityRow({
-      entityType: "report_product_category",
+      entityType: "item_category",
       entityId: category.id,
       entityLabel: category.name,
       eventType: "report_product_category_created",
@@ -227,7 +227,7 @@ export async function updateReportProductCategory(
   await db.batch([
     db.update(itemCategories).set({ ...next, updatedAt: new Date().toISOString() }).where(eq(itemCategories.id, id)),
     db.insert(activityEvents).values(activityRow({
-      entityType: "report_product_category",
+      entityType: "item_category",
       entityId: id,
       entityLabel: name,
       eventType: "report_product_category_updated",
@@ -254,7 +254,7 @@ export async function deleteReportProductCategory(db: Database, id: string, acto
   await db.batch([
     db.delete(itemCategories).where(eq(itemCategories.id, id)),
     db.insert(activityEvents).values(activityRow({
-      entityType: "report_product_category",
+      entityType: "item_category",
       entityId: id,
       entityLabel: category.name,
       eventType: "report_product_category_deleted",
