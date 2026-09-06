@@ -554,6 +554,13 @@
       "when": 1788630000000,
       "tag": "0094_drop_roles_legacy_key",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1788669067429,
+      "tag": "0095_crm_target_cutover",
+      "breakpoints": true
     }
   ]
 }
