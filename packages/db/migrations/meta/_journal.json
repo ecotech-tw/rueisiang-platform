@@ -596,6 +596,13 @@
       "when": 1788810000000,
       "tag": "0100_rename_payout_daily",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "6",
+      "when": 1788820000000,
+      "tag": "0110_drop_legacy_rbac_tables",
+      "breakpoints": true
     }
   ]
 }

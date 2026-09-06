@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, createReportManualSales, syncCyberbizProducts, syncSystemRoles } from "@rueisiang/db";
-import { itemCategories, items, scopes, users, userRoles } from "@rueisiang/db/schema";
+import { itemCategories, items, scopes, users, userRoleAssignments } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -27,7 +27,7 @@ beforeEach(async () => {
 async function seedAdmin(email = "admin@ecotech.tw") {
   const id = crypto.randomUUID();
   await db.insert(users).values({ id, email, displayName: email, googleName: email, status: "active" });
-  await db.insert(userRoles).values({ userId: id, roleId: "role-admin" });
+  await db.insert(userRoleAssignments).values({ userId: id, roleId: "role-admin" });
   return { id, email };
 }
 

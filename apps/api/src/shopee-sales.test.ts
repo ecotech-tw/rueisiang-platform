@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, getShopeeSalesSettings, listShopeeSalesRuns, syncSystemRoles } from "@rueisiang/db";
-import { rolePermissions, roles, userRoles, users } from "@rueisiang/db/schema";
+import { rolePermissionGrants, roles, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
@@ -30,7 +30,7 @@ function stubGithub() {
 async function seedUser(email: string, roleId: string) {
   const id = `user-${email}`;
   await db().insert(users).values({ id, email, status: "active" });
-  await db().insert(userRoles).values({ userId: id, roleId });
+  await db().insert(userRoleAssignments).values({ userId: id, roleId });
   return id;
 }
 
@@ -123,7 +123,7 @@ describe("蝦皮銷售報表", () => {
 
   it("店別設定權限也可以讀寫蝦皮報表設定", async () => {
     await db().insert(roles).values({ id: "role-tools-config", roleKey: "tools-config", name: "店別與報表設定", isSystem: false });
-    await db().insert(rolePermissions).values({ roleId: "role-tools-config", permission: "tools:payout:config" });
+    await db().insert(rolePermissionGrants).values({ roleId: "role-tools-config", permission: "tools:payout:config" });
     const id = await seedUser("tools-config@ecotech.tw", "role-tools-config");
 
     const response = await as(id, "tools-config@ecotech.tw", "/api/tools/shopee-sales/settings", {

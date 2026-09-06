@@ -22,7 +22,7 @@ import {
   assistantRuns,
   assistantToolCalls,
   mediaObjects,
-  userRoles,
+  userRoleAssignments,
   users,
 } from "@rueisiang/db/schema";
 import type { AssistantToolCall } from "@rueisiang/assistant";
@@ -86,7 +86,7 @@ async function hmacBase64(secret: string, body: string): Promise<string> {
 
 async function seedAdmin() {
   await db().insert(users).values({ id: "admin", email: "admin@ecotech.tw", googleName: "管理者", status: "active" });
-  await db().insert(userRoles).values({ userId: "admin", roleId: "role-admin" });
+  await db().insert(userRoleAssignments).values({ userId: "admin", roleId: "role-admin" });
 }
 
 async function cookie() {

@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { users, userRoles } from "@rueisiang/db/schema";
+import { users, userRoleAssignments } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -37,7 +37,7 @@ function json(path: string, method: string, payload?: unknown, cookie?: string) 
 async function adminCookie() {
   const id = "user-admin";
   await db().insert(users).values({ id, email: "admin@ecotech.tw", status: "active" });
-  await db().insert(userRoles).values({ userId: id, roleId: "role-admin" });
+  await db().insert(userRoleAssignments).values({ userId: id, roleId: "role-admin" });
   const token = await signSession(
     newSessionClaims({ id, email: "admin@ecotech.tw", name: "管理者", pictureUrl: "" }),
     SECRET,

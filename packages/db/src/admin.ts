@@ -325,7 +325,6 @@ export async function assignRole(
   const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.roleKey, grant.roleKey)).limit(1);
   if (!role) return "unknown-role";
 
-  // scope_type / scope_id 留白＝全域。欄位還在，但目前沒有東西照範圍切資料。
   await db
     .insert(userRoleAssignments)
     .values({ userId: grant.userId, roleId: role.id, grantedBy: grant.grantedBy })

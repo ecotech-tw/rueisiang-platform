@@ -8,10 +8,8 @@ import {
   assistantToolConfigs,
   permissions,
   rolePermissionGrants,
-  rolePermissions,
   roles,
   userPermissionGrants,
-  userPermissions,
   users,
 } from "@rueisiang/db/schema";
 import { readdirSync, readFileSync } from "node:fs";
@@ -30,9 +28,22 @@ import { createLocalD1, LocalD1 } from "./local-d1/d1.js";
  * 在那個順序下原文永遠是對的。要檢查的是「INSERT OR IGNORE 重跑不會多塞」，
  * 換個欄位名不影響這件事。
  */
+/**
+ * 這幾支測試把舊的權限 migration 重播在「已經套完所有 migration」的資料庫上，
+ * 檢查它們重跑不會壞。那些檔案寫的是當年的表名與欄位名，有些已經不存在了：
+ *   roles.`key`      → role_key（0094 刪掉）
+ *   role_permissions → role_permission_grants（0110 刪掉）
+ *   user_permissions → user_permission_grants（0110 刪掉）
+ *
+ * 這裡只換名字，不動檔案本身——真正的 migration 順序下原文永遠是對的（0019 跑的
+ * 時候那些表都還在）。要檢查的是「INSERT OR IGNORE 重跑不會多塞」，換個名字不影響。
+ */
 function readHistoricalMigration(file: string): string {
-  // 只換 roles 那個欄位，不要碰 assistant_tool_configs.key（那一欄還在）。
-  return readFileSync(file, "utf8").replace(/(FROM\s+`?roles`?\s+WHERE\s+)`?key`?/gi, "$1`role_key`");
+  return readFileSync(file, "utf8")
+    // 只換 roles 那個欄位，不要碰 assistant_tool_configs.key（那一欄還在）。
+    .replace(/(FROM\s+`?roles`?\s+WHERE\s+)`?key`?/gi, "$1`role_key`")
+    .replace(/`?\brole_permissions\b`?/g, "`role_permission_grants`")
+    .replace(/`?\buser_permissions\b`?/g, "`user_permission_grants`");
 }
 
 const REPAIR_MIGRATION = fileURLToPath(
@@ -127,7 +138,7 @@ describe("bootstrap 管理員權限 migration", () => {
       name: "管理者",
       isSystem: true,
     });
-    await db.insert(rolePermissions).values([
+    await db.insert(rolePermissionGrants).values([
       { roleId: "role-admin", permission: "admin:user:read" },
       { roleId: "role-admin", permission: "admin:user:write" },
       { roleId: "role-admin", permission: "admin:role:write" },
@@ -141,13 +152,13 @@ describe("bootstrap 管理員權限 migration", () => {
     d1.sqlite.exec(orderPermissionSql);
     const shopeeMigrationSql = readHistoricalMigration(SHOPEE_MIGRATION);
     const shopeePermissionSql = shopeeMigrationSql.slice(
-      shopeeMigrationSql.indexOf("INSERT OR IGNORE INTO role_permissions"),
+      shopeeMigrationSql.indexOf("INSERT OR IGNORE INTO"),
     );
     d1.sqlite.exec(shopeePermissionSql);
     d1.sqlite.exec(shopeePermissionSql);
     const cyberbizReportMigrationSql = readHistoricalMigration(CYBERBIZ_REPORT_MIGRATION);
     const cyberbizReportPermissionSql = cyberbizReportMigrationSql.slice(
-      cyberbizReportMigrationSql.indexOf("INSERT OR IGNORE INTO role_permissions"),
+      cyberbizReportMigrationSql.indexOf("INSERT OR IGNORE INTO"),
     );
     d1.sqlite.exec(cyberbizReportPermissionSql);
     d1.sqlite.exec(cyberbizReportPermissionSql);
@@ -173,7 +184,7 @@ describe("bootstrap 管理員權限 migration", () => {
     d1.sqlite.exec(itemWmsPermissionSql);
     d1.sqlite.exec(itemWmsPermissionSql);
 
-    const permissions = await db.select().from(rolePermissions);
+    const permissions = await db.select().from(rolePermissionGrants);
     expect(permissions).toHaveLength(ALL_PERMISSIONS.length);
     expect(new Set(permissions.map((row) => row.permission))).toEqual(new Set(ALL_PERMISSIONS));
   });
@@ -217,9 +228,9 @@ describe("bootstrap 管理員權限 migration", () => {
     await seedPermissionMirror(db);
 
     await db.insert(roles).values({ id: "role-legacy", roleKey: "legacy", name: "舊設定角色", isSystem: false });
-    await db.insert(rolePermissions).values({ roleId: "role-legacy", permission: "tools:shopee-sales:config" });
+    await db.insert(rolePermissionGrants).values({ roleId: "role-legacy", permission: "tools:shopee-sales:config" });
     await db.insert(users).values({ id: "user-legacy", email: "legacy@ecotech.tw", status: "active" });
-    await db.insert(userPermissions).values({
+    await db.insert(userPermissionGrants).values({
       userId: "user-legacy",
       permission: "tools:shopee-sales:config",
       grantedBy: "bootstrap",
@@ -229,11 +240,11 @@ describe("bootstrap 管理員權限 migration", () => {
     d1.sqlite.exec(sql);
     d1.sqlite.exec(sql);
 
-    const roleRows = await db.select().from(rolePermissions);
-    expect(roleRows).toContainEqual({ roleId: "role-legacy", permission: "tools:payout:config" });
-    expect(roleRows).not.toContainEqual({ roleId: "role-legacy", permission: "tools:shopee-sales:config" });
+    const roleRows = await db.select().from(rolePermissionGrants);
+    expect(roleRows).toContainEqual({ roleId: "role-legacy", permission: "tools:payout:config", createdAt: expect.any(String) });
+    expect(roleRows).not.toContainEqual(expect.objectContaining({ permission: "tools:shopee-sales:config" }));
 
-    const userRows = await db.select().from(userPermissions);
+    const userRows = await db.select().from(userPermissionGrants);
     expect(userRows).toContainEqual({ userId: "user-legacy", permission: "tools:payout:config", grantedBy: "bootstrap", createdAt: expect.any(String) });
     expect(userRows).not.toContainEqual(expect.objectContaining({ permission: "tools:shopee-sales:config" }));
   });

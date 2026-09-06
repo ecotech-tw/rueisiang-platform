@@ -19,7 +19,7 @@ import {
   itemCategories,
   items as itemMasters,
   cyberbizProductCatalog,
-  userRoles,
+  userRoleAssignments,
   users,
   wmsCategories,
   wmsItems,
@@ -83,7 +83,7 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
       status: account.email === "left@ecotech.tw" ? "disabled" : "active",
       lastLoginAt: "2026-08-17 09:12:44",
     });
-    if (account.role) await db.insert(userRoles).values({ userId: id, roleId: account.role });
+    if (account.role) await db.insert(userRoleAssignments).values({ userId: id, roleId: account.role });
   }
 }
 

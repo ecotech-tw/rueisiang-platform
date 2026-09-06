@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, insertReportSalesMonthly, listCyberbizReportRuns, listPayoutStores, listReportScopes, seedPayoutStores, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
-import { cyberbizProductCatalog, items, payoutStores, reportExternalProducts, reportItemSalesMonthly, userRoles, users, wmsItems } from "@rueisiang/db/schema";
+import { cyberbizProductCatalog, items, payoutStores, reportExternalProducts, reportItemSalesMonthly, userRoleAssignments, users, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -39,7 +39,7 @@ async function reportSalesRows() {
 async function seedUser(email: string, roleId: string) {
   const id = `user-${email}`;
   await db().insert(users).values({ id, email, status: "active" });
-  await db().insert(userRoles).values({ userId: id, roleId });
+  await db().insert(userRoleAssignments).values({ userId: id, roleId });
   return id;
 }
 
