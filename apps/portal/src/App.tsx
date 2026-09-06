@@ -19,7 +19,6 @@ import { Payout } from "./routes/tools/Payout.js";
 import { Categories } from "./routes/wms/Categories.js";
 import { WarehouseMap } from "./routes/wms/Map.js";
 import { Activity as WmsActivity } from "./routes/wms/Activity.js";
-import { Cyberbiz } from "./routes/wms/Cyberbiz.js";
 import { Inventory } from "./routes/wms/Inventory.js";
 import { SkuMappings } from "./routes/tools/SkuMappings.js";
 import { CyberbizProductCategories } from "./routes/tools/CyberbizProductCategories.js";
@@ -111,7 +110,6 @@ export function App() {
           <Route path="map" element={<WarehouseMap />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="sku-mappings" element={<Navigate to="/items/sku-mappings" replace />} />
-          <Route path="cyberbiz" element={<Cyberbiz />} />
           <Route path="categories" element={<Categories />} />
           <Route path="activity" element={<WmsActivity />} />
         </Route>
