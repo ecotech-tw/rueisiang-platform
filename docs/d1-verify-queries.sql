@@ -41,12 +41,11 @@ SELECT (SELECT COUNT(*) FROM item_categories WHERE depth NOT IN (0, 1)) AS bad_d
        (SELECT COUNT(*) FROM item_categories c WHERE c.parent_id IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM item_categories p WHERE p.id = c.parent_id AND p.depth = c.parent_depth)) AS orphan;
 
-SELECT '=== permission parity ===' AS q;
+SELECT '=== permission grants ===' AS q;
 SELECT (SELECT COUNT(*) FROM users) AS users,
-       (SELECT COUNT(*) FROM user_roles) AS compatibility_user_roles,
        (SELECT COUNT(*) FROM user_role_assignments) AS role_assignments,
-       (SELECT COUNT(*) FROM role_permissions) AS compatibility_role_permissions,
-       (SELECT COUNT(*) FROM role_permission_grants) AS permission_grants;
+       (SELECT COUNT(*) FROM role_permission_grants) AS role_permission_grants,
+       (SELECT COUNT(*) FROM user_permission_grants) AS user_permission_grants;
 
 SELECT '=== 0097 webhook entity types ===' AS q;
 SELECT entity_type, status, COUNT(*) AS n
@@ -70,7 +69,7 @@ SELECT COUNT(*) AS rows, SUM(net_quantity) AS net_qty, SUM(sales_amount) AS amou
 FROM report_item_sales_monthly WHERE record_origin = 'imported';
 SELECT COUNT(*) AS rows, SUM(net_quantity) AS net_qty, SUM(sales_amount) AS amount
 FROM report_item_sales_monthly WHERE record_origin = 'manual';
-SELECT COUNT(*) AS rows, SUM(payout_amount) AS amount FROM report_payout_daily_target;
+SELECT COUNT(*) AS rows, SUM(payout_amount) AS amount FROM report_payout_daily;
 
 SELECT '=== foreign keys ===' AS q;
 -- 結果應為 0 列。
