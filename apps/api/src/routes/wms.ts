@@ -55,6 +55,9 @@ interface UploadedFile {
 /** 現場照片的大小上限。手機拍的照片大多在 3–4 MB，5 MB 夠用又不會塞爆 R2。 */
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+/** CYBERBIZ API 每秒最多 5 個請求；全部同步要分批，不能一次打滿。 */
+const CYBERBIZ_SYNC_BATCH_SIZE = 5;
+const CYBERBIZ_SYNC_BATCH_DELAY_MS = 1_000;
 
 async function deleteStoredObject(env: AppEnv["Bindings"], objectKey: string): Promise<void> {
   try {
@@ -182,8 +185,8 @@ export const wms = new Hono<AppEnv>()
    * **官網是庫存數量的真相來源**，所以這條路是「官網 → WMS」。反過來的那條是
    * 盤點：人在現場數完之後推上去（見 /items/:id/count）。
    *
-   * 帶 productId 就只同步那一個商品（webhook 與盤點後的回寫用），不帶就是全部
-   * 已連結的品項。
+   * 帶 itemId 就只同步那一個 WMS 品項；帶 productId 則同步該官網商品底下的所有已
+   * 連結款式（webhook 與盤點後的回寫用），兩者都不帶就是全部已連結的品項。
    */
   .post("/cyberbiz/sync", requirePermission("wms:sync:trigger"), async (c) => {
     const client = cyberbizInventoryClient(c.env);
@@ -191,7 +194,11 @@ export const wms = new Hono<AppEnv>()
 
     const input = await body(c);
     const productId = text(input, "productId");
-    const links = await listCompanyLinks(c.get("db"), productId || undefined);
+    const inventoryItemId = text(input, "itemId");
+    const links = await listCompanyLinks(c.get("db"), {
+      productId: productId || undefined,
+      inventoryItemId: inventoryItemId || undefined,
+    });
     if (!links.length) return c.json({ updated: 0, unchanged: 0, failed: 0, linked: 0 });
 
     /*
@@ -199,10 +206,17 @@ export const wms = new Hono<AppEnv>()
      *
      * 全量拉一次要翻幾十頁，Worker 有執行時間上限，而且絕大多數商品根本沒連到
      * WMS——為了幾十筆連結去拉幾千筆商品是白費的。用 productId 去重之後，
-     * 通常只有個位數的請求。
+     * 請求數會少很多；仍要遵守 CYBERBIZ 每秒 5 次的限制，所以分批讀取。
      */
     const productIds = [...new Set(links.map((link) => link.cyberbizProductId))];
-    const remotes = (await Promise.all(productIds.map((id) => client.fetchProduct(id)))).flat();
+    const remotes: Awaited<ReturnType<typeof client.fetchProduct>> = [];
+    for (let index = 0; index < productIds.length; index += CYBERBIZ_SYNC_BATCH_SIZE) {
+      const batch = productIds.slice(index, index + CYBERBIZ_SYNC_BATCH_SIZE);
+      remotes.push(...(await Promise.all(batch.map((id) => client.fetchProduct(id)))).flat());
+      if (index + CYBERBIZ_SYNC_BATCH_SIZE < productIds.length) {
+        await new Promise<void>((resolve) => setTimeout(resolve, CYBERBIZ_SYNC_BATCH_DELAY_MS));
+      }
+    }
 
     const user = c.get("user");
     const result = await applySyncPlan(c.get("db"), buildSyncPlan(links, remotes), {

@@ -372,6 +372,20 @@ export function useLinkCyberbiz() {
   );
 }
 
+export interface CyberbizSyncResult {
+  updated: number;
+  unchanged: number;
+  failed: number;
+  linked: number;
+}
+
+/** 從 CYBERBIZ 回讀數量與安全庫存；不帶 itemId 就同步全部已連結品項。 */
+export function useSyncCyberbiz() {
+  return useWarehouseMutation(({ itemId }: { itemId?: string } = {}) =>
+    write<CyberbizSyncResult>("/api/wms/cyberbiz/sync", "POST", itemId ? { itemId } : {}),
+  );
+}
+
 export function useUnlinkCyberbiz() {
   return useWarehouseMutation((id: string) =>
     write<{ ok: true }>(`/api/wms/items/${id}/cyberbiz-link`, "DELETE"),
