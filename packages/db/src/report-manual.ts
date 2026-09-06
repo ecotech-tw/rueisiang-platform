@@ -2,7 +2,7 @@ import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
-import { isCompanyReportStoreScopeId, isValidReportDate, normalizeReportScopeName, type ReportManualSkuSource } from "./report-data.js";
+import { isCompanyReportStoreScopeId, isValidReportDate, normalizeReportScopeName, scopeSourceTypeFromId, type ReportManualSkuSource } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
 import {
   reportItemSalesMonthly,
@@ -179,7 +179,7 @@ export async function createReportManagementScope(db: Database, input: ReportMan
   if (existingName) throw new ReportManualError("conflict", "這個據點名稱已經存在。");
   const now = new Date().toISOString();
   await db.insert(targetScopes).values({
-    id, sourceType: "report", scopeKind: "store", name, normalizedName,
+    id, sourceType: scopeSourceTypeFromId(id), scopeKind: "store", name, normalizedName,
     driveFolderUrl: "", driveFolderName: "", sortOrder: 0, active: input.active === false ? 0 : 1,
     createdAt: now, updatedAt: now,
   });

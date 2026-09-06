@@ -417,12 +417,24 @@ export async function latestReportSalesPeriods(
   return { latestPeriod, byScope };
 }
 
+/**
+ * scope 的 source_type 是「哪個 driver 抓的」，不是「從哪張舊表來的」。
+ * 值域跟 TypeScript 的 ReportSourceType 一致（見 docs/platform-schema-target.sql）。
+ *
+ * 依據只能是 id 前綴：出金與銷售是同一家店、同一個 driver，用「這次在跑哪種報表」
+ * 去決定會讓同一家店長出兩種 source_type——0078 就是這樣把 13 家店變成 26 列的。
+ * 沒有前綴的是舊的 payout 店別（uuid），那些都是 CYBERBIZ POS。
+ */
+export function scopeSourceTypeFromId(scopeId: string): string {
+  return scopeId.startsWith("shopee:") ? "shopee" : "cyberbiz";
+}
+
 export async function upsertReportScope(db: Database, input: ReportScopeInput): Promise<ReportScope> {
   const now = new Date().toISOString();
   const name = input.name.trim();
   const normalizedName = normalizeReportScopeName(name);
   const active = input.active === false ? 0 : 1;
-  const sourceType = input.sourceType?.trim().toLowerCase() || "report";
+  const sourceType = input.sourceType?.trim().toLowerCase() || scopeSourceTypeFromId(input.id);
   await db.insert(targetScopes).values({
     id: input.id,
     sourceType,
