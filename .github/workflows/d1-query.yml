@@ -1,0 +1,75 @@
+name: D1 查詢（唯讀）
+
+# 開發機是 Windows on ARM，跑不了 wrangler（沒有 workerd），所以「我想看一下正式庫
+# 現在長怎樣」在本機是做不到的。每次都為了一個 SELECT 去改一支 workflow 太笨，
+# 這裡開一條固定的路。
+#
+# 只能唯讀。下面的 guard 會擋掉任何不是以 SELECT／WITH／PRAGMA 開頭的句子，也擋掉
+# 所有寫入關鍵字。要改資料一律走 migration——那才有版本、有 review、有回滾。
+#
+# ⚠️ 輸出會留在 Actions 的 log 裡，而 log 對所有能看這個 repo 的人都是公開的。
+#    不要用它撈客戶電話、Email 這類個資；要看那些請直接開 Cloudflare 後台。
+
+on:
+  workflow_dispatch:
+    inputs:
+      sql:
+        description: 只接受 SELECT / WITH / PRAGMA，用分號分隔多句
+        required: true
+        type: string
+
+concurrency:
+  group: d1-query
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # 走 env 而不是把 ${{ }} 直接內插進 shell：內插是在 shell 看到之前發生的，
+      # 輸入裡只要有一行剛好等於結束標記就能跳出 heredoc 執行任意指令。
+      # 檢查與執行也都吃同一個檔案，不再經過 shell 變數轉手——引號與換行轉一手
+      # 就會走樣，而走樣的 SQL 正是下面那道 guard 最需要擋住的東西。
+      - name: 寫入查詢
+        env:
+          INPUT_SQL: ${{ inputs.sql }}
+        run: python3 -c "import os; open('query.sql', 'w', encoding='utf-8').write(os.environ['INPUT_SQL'])"
+
+      - name: 確認是唯讀
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          sql = open("query.sql", encoding="utf-8").read()
+          # 先拿掉註解，不然 "-- delete from x" 會被誤判成寫入。
+          stripped = re.sub(r"/\*.*?\*/", " ", sql, flags=re.S)
+          stripped = re.sub(r"--[^\n]*", " ", stripped)
+          banned = re.findall(
+              r"\b(insert|update|delete|drop|alter|create|replace|attach|detach|vacuum|reindex|begin|commit|rollback)\b",
+              stripped, re.I)
+          if banned:
+              sys.exit(f"::error::這支 workflow 只能唯讀，出現了寫入關鍵字：{sorted(set(w.lower() for w in banned))}")
+          statements = [s.strip() for s in stripped.split(";") if s.strip()]
+          if not statements:
+              sys.exit("::error::沒有可執行的句子。")
+          for statement in statements:
+              if not re.match(r"^(select|with|pragma)\b", statement, re.I):
+                  sys.exit(f"::error::每一句都要以 SELECT／WITH／PRAGMA 開頭：{statement[:60]}")
+          print(f"通過，共 {len(statements)} 句。")
+          PY
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 補上 workerd 執行檔
+        run: pnpm rebuild workerd
+
+      - name: 查詢
+        working-directory: apps/api
+        run: npx wrangler d1 execute rueisiang-platform --remote --file=../../query.sql
