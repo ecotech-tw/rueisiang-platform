@@ -5,7 +5,7 @@ import {
   reportRuns,
   reportRunScopes,
   scopes as targetScopes,
-  targetReportPayoutDaily,
+  reportPayoutDaily,
 } from "./schema/reports.js";
 import { itemCategories, items as itemMasters } from "./schema/items.js";
 import { dataChannelFromScopeId, shopeeBaseExternalSku } from "./product-sku-mappings.js";
@@ -369,11 +369,11 @@ const TARGET_EFFECTIVE_PAYOUT_SOURCE = sql`(
     target.scope_id,
     target.business_date,
     target.payout_amount
-  FROM report_payout_daily_target AS target
+  FROM report_payout_daily AS target
   WHERE target.record_origin = 'manual'
     OR (target.record_origin = 'imported' AND NOT EXISTS (
       SELECT 1
-      FROM report_payout_daily_target AS manual
+      FROM report_payout_daily AS manual
       WHERE manual.scope_id = target.scope_id
         AND manual.business_date = target.business_date
         AND manual.record_origin = 'manual'
@@ -562,7 +562,7 @@ export async function insertReportPayoutDaily(db: Database, rows: readonly NewRe
     if (!targetId) return;
     const targetRows = rows.map((row) => ({ scopeId: row.scopeId, businessDate: row.businessDate, recordOrigin: "imported" as const, reportRunId: targetId, payoutAmount: row.payoutAmount }));
     for (const chunk of chunks(targetRows, 20)) {
-      await db.batch([db.insert(targetReportPayoutDaily).values(chunk).onConflictDoUpdate({ target: [targetReportPayoutDaily.scopeId, targetReportPayoutDaily.businessDate, targetReportPayoutDaily.recordOrigin], set: { reportRunId: targetId, payoutAmount: sql`excluded.payout_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } })]);
+      await db.batch([db.insert(reportPayoutDaily).values(chunk).onConflictDoUpdate({ target: [reportPayoutDaily.scopeId, reportPayoutDaily.businessDate, reportPayoutDaily.recordOrigin], set: { reportRunId: targetId, payoutAmount: sql`excluded.payout_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } })]);
     }
   }
 }

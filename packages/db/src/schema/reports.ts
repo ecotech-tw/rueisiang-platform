@@ -114,7 +114,7 @@ export const reportItemSalesMonthly = sqliteTable("report_item_sales_monthly", {
 ]);
 
 /** 每日出金；匯入與人工修訂合併在 record_origin。 */
-export const targetReportPayoutDaily = sqliteTable("report_payout_daily_target", {
+export const reportPayoutDaily = sqliteTable("report_payout_daily", {
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
   businessDate: text("business_date").notNull(),
   recordOrigin: text("record_origin").$type<ReportRecordOrigin>().notNull(),
@@ -151,5 +151,5 @@ export type Scope = typeof scopes.$inferSelect;
 export type ReportExternalProduct = typeof reportExternalProducts.$inferSelect;
 export type ReportRun = typeof reportRuns.$inferSelect;
 export type ReportItemSalesMonthly = typeof reportItemSalesMonthly.$inferSelect;
-export type TargetReportPayoutDaily = typeof targetReportPayoutDaily.$inferSelect;
+export type ReportPayoutDaily = typeof reportPayoutDaily.$inferSelect;
 export type ReportIngestIssue = typeof reportIngestIssues.$inferSelect;

@@ -9,7 +9,7 @@ import { itemCategories, items, reportExternalProducts, wmsItems } from "@rueisi
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createCyberbizReportService } from "./cyberbiz-reports.js";
-import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
+import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
 
 let d1: LocalD1;
 function db() { return createDatabase(d1 as never); }
@@ -28,7 +28,7 @@ const WEST = "cyberbiz:store:西門3F";
 const EAST = "cyberbiz:store:信義2F";
 
 beforeEach(async () => {
-  d1 = createLocalD1();
+  d1 = createTargetOnlyD1();
   await db().insert(itemCategories).values([
     { id: "cat-bath", depth: 0, name: "沐浴", color: "rose", sortOrder: 0, active: 1 },
     { id: "cat-food", depth: 0, name: "食品", color: "mint", sortOrder: 1, active: 1 },
