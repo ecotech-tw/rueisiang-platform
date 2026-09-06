@@ -158,7 +158,7 @@ worktree 之間共用同一個 stash stack。不要用裸的 `git stash` / `git 
 
 | 種類 | 放哪 | 誰是唯一來源 | 例子 |
 |---|---|---|---|
-| **要照著做的步驟** | `.claude/skills/<名字>/SKILL.md` | skill 本身 | `platform-deploy`、`cyberbiz-reports` |
+| **要照著做的步驟** | `.claude/skills/<名字>/SKILL.md` | skill 本身 | `platform-deploy`、`cyberbiz-reports`、`pre-pr-check` |
 | **現在系統長什麼樣** | `docs/*.md` | **程式碼**；文件只解釋「為什麼」 | `line-pi-agent.md`、`assistant-sandbox.md` |
 | **還沒做的事** | `README.md` 的「下一步」 | README | — |
 | **還沒做的設計** | `docs/*-design.md`，開頭標明「還沒做」 | 該文件 | `assistant-multi-account-design.md` |
@@ -198,6 +198,9 @@ Git 已經記著的東西（完成項目、移除的理由、過去怎麼修的�
 
 ## 五、PR
 
+- **開 PR 前與 merge 前，各對一次 `origin/main`。** 分支上的 CI 沒看過別人那支 PR 的檔案，
+  所以 migration 編號、新檔名、具名 export 這類全域唯一的東西在分支上永遠測不出衝突——
+  兩支各自綠燈、合起來紅在 main 上。步驟見 `.claude/skills/pre-pr-check/SKILL.md`。
 - **不要直接推 main。** 開分支 + `gh pr create`，一行修正也一樣。
 - PR 開著的時候可以繼續推，推完要重新 review；合併之後就不要再推那個分支。
 - Merge 永遠由人類確認後執行。
