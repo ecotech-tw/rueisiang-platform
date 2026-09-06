@@ -8,6 +8,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useDeleteItem,
+  useSyncCyberbiz,
   useWarehouse,
   type InventoryItem,
   type ProductCategory,
@@ -68,9 +69,12 @@ function ItemRow({
   categories,
   canWrite,
   canCount,
+  canSync,
   onEdit,
   onCount,
   onDelete,
+  onSync,
+  syncing,
   busy,
 }: {
   item: InventoryItem;
@@ -78,9 +82,12 @@ function ItemRow({
   categories: ProductCategory[];
   canWrite: boolean;
   canCount: boolean;
+  canSync: boolean;
   onEdit: () => void;
   onCount: () => void;
   onDelete: () => void;
+  onSync: () => void;
+  syncing: boolean;
   busy: boolean;
 }) {
   const category = categories.find((candidate) => candidate.name === item.category);
@@ -125,7 +132,7 @@ function ItemRow({
           <span className="status status-sync-synced" title="品項主檔由 cyberbiz_products 同步">CYBERBIZ</span>
         ) : null}
       </td>
-      {canWrite || canCount ? (
+      {canWrite || canCount || canSync ? (
         <td data-label="操作">
           <div className="row-actions">
             {canCount ? (
@@ -138,6 +145,20 @@ function ItemRow({
                 aria-label={`盤點 ${item.name}`}
               >
                 盤點
+              </Button>
+            ) : null}
+            {canSync && item.cyberbiz ? (
+              <Button
+                variant="secondary"
+                icon="sync"
+                className="sync-action"
+                loading={syncing}
+                loadingLabel="同步中…"
+                onClick={onSync}
+                disabled={busy}
+                aria-label={`同步 ${item.name}`}
+              >
+                同步
               </Button>
             ) : null}
             {canWrite ? (
@@ -179,14 +200,41 @@ export function Inventory() {
 
   const query = useWarehouse();
   const remove = useDeleteItem();
+  const sync = useSyncCyberbiz();
   const toast = useToast();
   const { permissions } = useSession();
   const canWrite = permissions.has("wms:inventory:write");
   const canCount = permissions.has("wms:inventory:count");
+  const canSync = permissions.has("wms:sync:trigger");
+  const [syncTarget, setSyncTarget] = useState<"all" | string | null>(null);
 
   const zones = query.data?.zones ?? [];
   const categories = query.data?.categories ?? [];
   const items = query.data?.items ?? [];
+  const linkedCount = items.filter((item) => item.cyberbiz !== null).length;
+
+  function runSync(item?: InventoryItem) {
+    setSyncTarget(item?.id ?? "all");
+    sync.mutate(item ? { itemId: item.id } : {}, {
+      onSuccess: (result) => {
+        if (result.failed) {
+          toast.show(item
+            ? `「${item.name}」同步失敗`
+            : `同步完成，但有 ${result.failed} 項失敗`);
+          return;
+        }
+        if (item) {
+          toast.show(result.updated ? `已同步「${item.name}」的數量與安全庫存` : `「${item.name}」已是最新`);
+          return;
+        }
+        toast.show(result.linked
+          ? `同步完成 ${result.linked} 項：更新 ${result.updated} 項、無變更 ${result.unchanged} 項`
+            + (result.failed ? `、失敗 ${result.failed} 項` : "")
+          : "沒有可同步的 CYBERBIZ 品項");
+      },
+      onSettled: () => setSyncTarget(null),
+    });
+  }
 
   /*
    * 篩選、排序、分頁都在這裡做——後端一次回完整份資料，見 api.ts 的說明。
@@ -245,12 +293,29 @@ export function Inventory() {
           <>
               倉庫裡有什麼、放在哪、還剩多少。
               {lowCount ? `目前有 ${lowCount} 項需要補貨。` : null}
+              {canSync ? " 可從 CYBERBIZ 同步數量與安全庫存。" : null}
           </>
         }
-        actions={canWrite ? (
-          <Button icon="plus" className="add-action" onClick={() => setAdding(true)} aria-label="新增入庫">
-            新增入庫
-          </Button>
+        actions={canSync || canWrite ? (
+          <div className="pager-buttons">
+            {canSync ? (
+              <Button
+                variant="secondary"
+                icon="sync"
+                loading={syncTarget === "all"}
+                loadingLabel="同步中…"
+                disabled={sync.isPending || linkedCount === 0}
+                onClick={() => runSync()}
+              >
+                全部同步
+              </Button>
+            ) : null}
+            {canWrite ? (
+              <Button icon="plus" className="add-action" onClick={() => setAdding(true)} aria-label="新增入庫">
+                新增入庫
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       />
 
@@ -317,6 +382,7 @@ export function Inventory() {
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
         {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
+        {sync.error ? <Alert tone="danger">{sync.error.message}</Alert> : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -340,10 +406,13 @@ export function Inventory() {
                   categories={categories}
                   canWrite={canWrite}
                   canCount={canCount}
-                  busy={remove.isPending}
+                  canSync={canSync}
+                  busy={remove.isPending || sync.isPending}
+                  syncing={syncTarget === item.id}
                   onEdit={() => setEditing(item)}
                   onCount={() => setCounting(item)}
                   onDelete={() => setDeleting(item)}
+                  onSync={() => runSync(item)}
                 />
               ))}
             </tbody>

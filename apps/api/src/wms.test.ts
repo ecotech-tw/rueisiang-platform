@@ -19,7 +19,7 @@ import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalR2 } from "./local-d1/r2.js";
 import { createTargetOnlyD1 } from "./local-d1/d1.js";
@@ -35,6 +35,8 @@ type TestEnv = {
   AUTH_SESSION_SECRET: string;
   GOOGLE_OAUTH_CLIENT_ID: string;
   GOOGLE_OAUTH_CLIENT_SECRET: string;
+  CYBERBIZ_API_TOKEN?: string;
+  CYBERBIZ_API_BASE_URL?: string;
 };
 
 const env = (): TestEnv => ({
@@ -43,6 +45,10 @@ const env = (): TestEnv => ({
   AUTH_SESSION_SECRET: SECRET,
   GOOGLE_OAUTH_CLIENT_ID: "test-client",
   GOOGLE_OAUTH_CLIENT_SECRET: "test-secret",
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 beforeEach(async () => {
@@ -191,6 +197,81 @@ describe("WMS target-only API", () => {
     expect(changedLinkedSku.status).toBe(409);
     const [unchangedMaster] = await db.select().from(items).where(eq(items.id, id));
     expect(unchangedMaster?.sku).toBe("BOX-02");
+  });
+
+  it("CYBERBIZ 同步可以只同步一項，也可以同步全部連結品項", async () => {
+    const userId = await seedUser();
+    await seedCategory();
+    await seedWmsItem("item-1", "BOX-01");
+    await seedWmsItem("item-2", "BOX-02");
+    await db.insert(wmsCyberbizLinks).values([
+      {
+        id: "wms-cyberbiz-link-1",
+        wmsItemId: "item-1",
+        cyberbizProductId: "product-1",
+        cyberbizVariantId: "variant-1",
+        sku: "BOX-01",
+        warehouseScope: "company",
+        syncStatus: "synced",
+        lastSyncedQuantity: 10,
+        lastSyncedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "wms-cyberbiz-link-2",
+        wmsItemId: "item-2",
+        cyberbizProductId: "product-1",
+        cyberbizVariantId: "variant-2",
+        sku: "BOX-02",
+        warehouseScope: "company",
+        syncStatus: "synced",
+        lastSyncedQuantity: 10,
+        lastSyncedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    vi.stubGlobal("fetch", async (url: string) => {
+      const productId = new URL(url).pathname.split("/").pop();
+      const variants = productId === "product-1"
+        ? [
+            { variantId: "variant-1", sku: "BOX-01", quantity: 14, safety: 8 },
+            { variantId: "variant-2", sku: "BOX-02", quantity: 22, safety: 6 },
+          ]
+        : [];
+      return new Response(JSON.stringify({
+        product: {
+          title: "同步測試商品",
+          published: true,
+          product_variants: variants.map((remote) => ({
+            id: remote.variantId,
+            sku: remote.sku,
+            inventory_quantity: remote.quantity,
+            safety_inventory_quantity: remote.safety,
+            inventory_management: true,
+          })),
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    const runtimeEnv = { ...env(), CYBERBIZ_API_TOKEN: "test-token", CYBERBIZ_API_BASE_URL: "https://cyberbiz.test" };
+
+    const one = await as(userId, "admin@ecotech.tw", "/api/wms/cyberbiz/sync", {
+      method: "POST",
+      body: JSON.stringify({ itemId: "item-1" }),
+    }, runtimeEnv);
+    expect(one.status).toBe(200);
+    expect(await one.json()).toMatchObject({ updated: 1, unchanged: 0, failed: 0, linked: 1 });
+    expect(await db.select({ quantity: wmsItems.quantity, minStock: wmsItems.minStock }).from(wmsItems).where(eq(wmsItems.itemId, "item-1")))
+      .toMatchObject([{ quantity: 14, minStock: 8 }]);
+    expect(await db.select({ quantity: wmsItems.quantity, minStock: wmsItems.minStock }).from(wmsItems).where(eq(wmsItems.itemId, "item-2")))
+      .toMatchObject([{ quantity: 10, minStock: 5 }]);
+
+    const all = await as(userId, "admin@ecotech.tw", "/api/wms/cyberbiz/sync", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }, runtimeEnv);
+    expect(all.status).toBe(200);
+    expect(await all.json()).toMatchObject({ updated: 1, unchanged: 1, failed: 0, linked: 2 });
+    expect(await db.select({ quantity: wmsItems.quantity, minStock: wmsItems.minStock }).from(wmsItems).where(eq(wmsItems.itemId, "item-2")))
+      .toMatchObject([{ quantity: 22, minStock: 6 }]);
   });
 
   it("盤點會更新 wms_items，數量不變也會留下紀錄", async () => {

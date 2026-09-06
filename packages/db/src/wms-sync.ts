@@ -47,7 +47,17 @@ export function buildSyncPlan(links: LinkedItem[], remotes: RemoteItem[]): SyncP
   });
 }
 
-export async function listCompanyLinks(db: Database, productId?: string): Promise<LinkedItem[]> {
+export async function listCompanyLinks(
+  db: Database,
+  options: { productId?: string; inventoryItemId?: string } = {},
+): Promise<LinkedItem[]> {
+  const productFilter = options.productId
+    ? sql` AND ${wmsCyberbizLinks.cyberbizProductId} = ${options.productId}`
+    : sql``;
+  const itemFilter = options.inventoryItemId
+    ? sql` AND ${wmsCyberbizLinks.wmsItemId} = ${options.inventoryItemId}`
+    : sql``;
+
   return db.select({
     linkId: wmsCyberbizLinks.id,
     inventoryItemId: wmsCyberbizLinks.wmsItemId,
@@ -62,9 +72,7 @@ export async function listCompanyLinks(db: Database, productId?: string): Promis
     .from(wmsCyberbizLinks)
     .innerJoin(wmsItems, eq(wmsItems.itemId, wmsCyberbizLinks.wmsItemId))
     .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
-    .where(productId
-      ? sql`${wmsCyberbizLinks.warehouseScope} = 'company' AND ${wmsCyberbizLinks.cyberbizProductId} = ${productId}`
-      : sql`${wmsCyberbizLinks.warehouseScope} = 'company'`);
+    .where(sql`${wmsCyberbizLinks.warehouseScope} = 'company'${productFilter}${itemFilter}`);
 }
 
 export interface SyncOutcome { updated: number; unchanged: number; failed: number }

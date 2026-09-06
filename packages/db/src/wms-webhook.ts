@@ -151,7 +151,7 @@ export async function processProductWebhook(
         .where(eq(cyberbizProductWebhooks.id, eventId));
     }
 
-    const links = await listCompanyLinks(db, productId);
+    const links = await listCompanyLinks(db, { productId });
     if (!links.length) {
       const reason = "這個商品沒有連結到 WMS 的商品";
       await markEvent(db, eventId, { status: "ignored", result: { reason, productId } });
@@ -238,7 +238,7 @@ export async function retryFailedProductWebhooks(
       }
       if (!productId) throw new Error("這筆事件沒有 product_id，補跑不了");
 
-      const links = await listCompanyLinks(db, productId);
+      const links = await listCompanyLinks(db, { productId });
       if (links.length) {
         const remotes = await input.client.fetchProduct(productId);
         await applySyncPlan(db, buildSyncPlan(links, remotes), null);
