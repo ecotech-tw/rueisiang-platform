@@ -30,7 +30,9 @@ WHERE typeof(json_each.value) = 'text'
   AND trim(json_each.value) <> '';
 --> statement-breakpoint
 
-/* Historical local-only rows are retained as customers; the target status is synced/failed. */
+/* Historical local-only rows are retained as customers, with the target status synced or failed.
+   Keep every comment in this file free of semicolons: D1 splits the file on bare ones before
+   parsing. See migration-sql-safety.test.ts. */
 UPDATE `crm_customers`
 SET `sync_status` = 'synced'
 WHERE `sync_status` = 'local_only';
