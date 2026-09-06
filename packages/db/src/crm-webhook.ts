@@ -8,7 +8,7 @@ import {
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { syncCyberbizCustomer, type CyberbizSyncResult } from "./crm-sync.js";
-import { customers, cyberbizCustomerWebhooks } from "./schema/crm.js";
+import { crmCustomers, cyberbizWebhookEvents } from "./schema/crm.js";
 
 /**
  * 收到的 webhook 先落地再處理。
@@ -59,14 +59,14 @@ export async function processCustomerWebhook(
   const eventId = await createWebhookEventId(topic, rawBody);
 
   const [duplicate] = await db
-    .select({ status: cyberbizCustomerWebhooks.status })
-    .from(cyberbizCustomerWebhooks)
-    .where(eq(cyberbizCustomerWebhooks.id, eventId))
+    .select({ status: cyberbizWebhookEvents.status })
+    .from(cyberbizWebhookEvents)
+    .where(eq(cyberbizWebhookEvents.id, eventId))
     .limit(1);
   if (duplicate) return { eventId, topic, status: "duplicate", reason: duplicate.status };
 
   let incoming = parseCyberbizCustomer(payload);
-  await db.insert(cyberbizCustomerWebhooks).values({
+  await db.insert(cyberbizWebhookEvents).values({
     id: eventId,
     topic,
     status: "processing",
@@ -181,7 +181,7 @@ async function markEvent(
   },
 ): Promise<void> {
   await db
-    .update(cyberbizCustomerWebhooks)
+    .update(cyberbizWebhookEvents)
     .set({
       status: update.status,
       ...(update.customerId !== undefined ? { customerId: update.customerId } : {}),
@@ -193,7 +193,7 @@ async function markEvent(
       processedAt: sql`CURRENT_TIMESTAMP`,
       updatedAt: sql`CURRENT_TIMESTAMP`,
     })
-    .where(eq(cyberbizCustomerWebhooks.id, eventId));
+    .where(eq(cyberbizWebhookEvents.id, eventId));
 }
 
 /**
@@ -209,17 +209,17 @@ export async function retryFailedWebhooks(
   const limit = options.limit ?? 20;
 
   const pending = await db
-    .select({ id: cyberbizCustomerWebhooks.id, topic: cyberbizCustomerWebhooks.topic, payloadJson: cyberbizCustomerWebhooks.payloadJson })
-    .from(cyberbizCustomerWebhooks)
-    .where(eq(cyberbizCustomerWebhooks.status, "failed"))
-    .orderBy(desc(cyberbizCustomerWebhooks.receivedAt))
+    .select({ id: cyberbizWebhookEvents.id, topic: cyberbizWebhookEvents.topic, payloadJson: cyberbizWebhookEvents.payloadJson })
+    .from(cyberbizWebhookEvents)
+    .where(eq(cyberbizWebhookEvents.status, "failed"))
+    .orderBy(desc(cyberbizWebhookEvents.receivedAt))
     .limit(limit);
 
   let recovered = 0;
   for (const event of pending) {
     try {
       // 刪掉舊那筆再重跑，讓它走一模一樣的路徑（識別碼是內容雜湊，會是同一個）。
-      await db.delete(cyberbizCustomerWebhooks).where(eq(cyberbizCustomerWebhooks.id, event.id));
+      await db.delete(cyberbizWebhookEvents).where(eq(cyberbizWebhookEvents.id, event.id));
       const outcome = await processCustomerWebhook(db, {
         rawBody: event.payloadJson,
         topic: event.topic,
@@ -253,28 +253,28 @@ export interface SyncStatus {
 export async function readSyncStatus(db: Database): Promise<SyncStatus> {
   const [customerCounts, lastSynced, webhookCounts, recent] = await Promise.all([
     db
-      .select({ status: customers.syncStatus, value: sql<number>`count(*)` })
-      .from(customers)
-      .groupBy(customers.syncStatus),
+      .select({ status: crmCustomers.syncStatus, value: sql<number>`count(*)` })
+      .from(crmCustomers)
+      .groupBy(crmCustomers.syncStatus),
     db
-      .select({ value: sql<string | null>`max(${customers.syncedAt})` })
-      .from(customers),
+      .select({ value: sql<string | null>`max(${crmCustomers.syncedAt})` })
+      .from(crmCustomers),
     db
-      .select({ status: cyberbizCustomerWebhooks.status, value: sql<number>`count(*)` })
-      .from(cyberbizCustomerWebhooks)
-      .groupBy(cyberbizCustomerWebhooks.status),
+      .select({ status: cyberbizWebhookEvents.status, value: sql<number>`count(*)` })
+      .from(cyberbizWebhookEvents)
+      .groupBy(cyberbizWebhookEvents.status),
     db
       .select({
-        id: cyberbizCustomerWebhooks.id,
-        topic: cyberbizCustomerWebhooks.topic,
-        status: cyberbizCustomerWebhooks.status,
-        cyberbizCustomerId: cyberbizCustomerWebhooks.cyberbizCustomerId,
-        lastError: cyberbizCustomerWebhooks.lastError,
-        receivedAt: cyberbizCustomerWebhooks.receivedAt,
-        payloadJson: cyberbizCustomerWebhooks.payloadJson,
+        id: cyberbizWebhookEvents.id,
+        topic: cyberbizWebhookEvents.topic,
+        status: cyberbizWebhookEvents.status,
+        cyberbizCustomerId: cyberbizWebhookEvents.cyberbizCustomerId,
+        lastError: cyberbizWebhookEvents.lastError,
+        receivedAt: cyberbizWebhookEvents.receivedAt,
+        payloadJson: cyberbizWebhookEvents.payloadJson,
       })
-      .from(cyberbizCustomerWebhooks)
-      .orderBy(desc(cyberbizCustomerWebhooks.receivedAt))
+      .from(cyberbizWebhookEvents)
+      .orderBy(desc(cyberbizWebhookEvents.receivedAt))
       .limit(20),
   ]);
 
@@ -309,14 +309,14 @@ export async function deleteEmptyCyberbizCustomers(
   db: Database,
 ): Promise<{ deleted: number; ids: string[] }> {
   const suspicious = await db
-    .select({ id: customers.id, raw: customers.rawJson })
-    .from(customers)
+    .select({ id: crmCustomers.id, raw: crmCustomers.rawJson })
+    .from(crmCustomers)
     .where(
       and(
-        isNotNull(customers.cyberbizCustomerId),
-        eq(customers.email, ""),
-        eq(customers.phone, ""),
-        eq(customers.address, ""),
+        isNotNull(crmCustomers.cyberbizCustomerId),
+        eq(crmCustomers.email, ""),
+        eq(crmCustomers.phone, ""),
+        eq(crmCustomers.address, ""),
       ),
     );
 
@@ -333,7 +333,7 @@ export async function deleteEmptyCyberbizCustomers(
     .map((row) => row.id);
   for (const id of ids) {
     // customer_events 有 on delete cascade，紀錄會跟著走。
-    await db.delete(customers).where(eq(customers.id, id));
+    await db.delete(crmCustomers).where(eq(crmCustomers.id, id));
   }
 
   return { deleted: ids.length, ids };

@@ -1,6 +1,6 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
 import { createDatabase, syncCyberbizCustomer, syncCyberbizCustomers } from "@rueisiang/db";
-import { activityEvents, crmCustomerTags, crmTags, customers } from "@rueisiang/db/schema";
+import { activityEvents, crmCustomerTags, crmTags, crmCustomers } from "@rueisiang/db/schema";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -34,7 +34,7 @@ function member(overrides: Partial<CyberbizCustomer> = {}): CyberbizCustomer {
 }
 
 async function rowByExternalId(externalId: string) {
-  const [row] = await db().select().from(customers).where(eq(customers.cyberbizCustomerId, externalId));
+  const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.cyberbizCustomerId, externalId));
   return row;
 }
 
@@ -97,7 +97,7 @@ describe("沒有會員 ID 的事件", () => {
 
     expect(result.action).toBe("ignored");
     expect(result.reason).toContain("沒有會員 ID");
-    expect(await db().select().from(customers)).toHaveLength(0);
+    expect(await db().select().from(crmCustomers)).toHaveLength(0);
   });
 });
 
@@ -166,7 +166,7 @@ describe("再次收到同一個會員", () => {
 describe("以 CYBERBIZ 會員 ID 對應客戶", () => {
   it("以會員 ID 更新既有客戶", async () => {
     const id = "manual-1";
-    await db().insert(customers).values({
+    await db().insert(crmCustomers).values({
       id,
       phone: "0912345678",
       normalizedPhone: "0912345678",
@@ -188,7 +188,7 @@ describe("電話相同但會員不同", () => {
     await syncCyberbizCustomer(db(), member({ externalId: "cb-2", name: "同電話的另一位" }), { topic: "t" });
 
     // 公司電話這種情況很常見，併成一筆等於把兩個人的資料混在一起。
-    expect(await db().select().from(customers)).toHaveLength(2);
+    expect(await db().select().from(crmCustomers)).toHaveLength(2);
   });
 });
 
@@ -213,6 +213,6 @@ describe("整批同步", () => {
     const second = await syncCyberbizCustomers(db(), batch, { topic: "initial-sync" });
 
     expect(second).toMatchObject({ created: 0, unchanged: 2 });
-    expect(await db().select().from(customers)).toHaveLength(2);
+    expect(await db().select().from(crmCustomers)).toHaveLength(2);
   });
 });

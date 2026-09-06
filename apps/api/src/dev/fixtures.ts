@@ -11,7 +11,7 @@ import {
 import { ASSISTANT_KEY, DEFAULT_ASSISTANT_PROMPT, OPEN_METEO_TOOL_KEY } from "@rueisiang/assistant";
 import { DEFAULT_PI_CODEX_MODEL } from "../pi-agent.js";
 import {
-  customers,
+  crmCustomers,
   crmCustomerTags,
   crmTags,
   scopes,
@@ -306,13 +306,13 @@ async function seedDevAnalytics(db: ReturnType<typeof createDatabase>): Promise<
 
 /** 與帳號分開判斷，這樣舊的 local.sqlite 也會補上客戶資料。 */
 async function seedDevCustomers(db: ReturnType<typeof createDatabase>): Promise<void> {
-  const existing = await db.select({ id: customers.id }).from(customers).limit(1);
+  const existing = await db.select({ id: crmCustomers.id }).from(crmCustomers).limit(1);
   if (existing.length) return;
 
   let index = 0;
   for (const customer of DEV_CUSTOMERS) {
     index += 1;
-    await db.insert(customers).values({
+    await db.insert(crmCustomers).values({
       id: `dev-customer-${index}`,
       phone: customer.phone,
       normalizedPhone: customer.phone.replace(/\D/g, ""),

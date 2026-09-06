@@ -88,21 +88,9 @@ export const cyberbizWebhookEvents = sqliteTable("cyberbiz_webhook_events", {
   index("idx_webhook_events_entity").on(table.entityType, table.externalEntityId, table.receivedAt),
 ]);
 
-// 舊名稱暫留為 TypeScript source alias，供尚未切換的非 CRM consumer 使用；
-// 它們不會建立 customers／saved_views 等資料庫 view，也不是另一份 schema 定義。
-// 同一張實體表宣告兩個 sqliteTable 會讓 drizzle 漏掉索引與約束（#180）。
-export const customers = crmCustomers;
-export const savedViews = crmSavedViews;
-export const customerTagCatalog = crmTags;
-export const cyberbizCustomerWebhooks = cyberbizWebhookEvents;
 
 export type CrmCustomer = typeof crmCustomers.$inferSelect;
 export type NewCrmCustomer = typeof crmCustomers.$inferInsert;
-export type Customer = CrmCustomer;
-export type NewCustomer = NewCrmCustomer;
 export type CrmSavedView = typeof crmSavedViews.$inferSelect;
-export type SavedView = CrmSavedView;
 export type CrmTag = typeof crmTags.$inferSelect;
-export type CustomerTag = CrmTag;
 export type CyberbizWebhookEvent = typeof cyberbizWebhookEvents.$inferSelect;
-export type CyberbizCustomerWebhook = CyberbizWebhookEvent;

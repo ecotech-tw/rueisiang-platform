@@ -5,7 +5,7 @@ import { activityRow } from "./activity.js";
 import { replaceCustomerTags } from "./crm-tags.js";
 import { normalizePhone } from "./phone.js";
 import { activityEvents } from "./schema/activity.js";
-import { customers } from "./schema/crm.js";
+import { crmCustomers } from "./schema/crm.js";
 
 /**
  * 把 CYBERBIZ 的會員資料寫進本地客戶表。
@@ -54,14 +54,14 @@ export async function syncCyberbizCustomer(
   const fromWebhook = Boolean(context.eventId);
   const [existing] = await db
     .select()
-    .from(customers)
-    .where(eq(customers.cyberbizCustomerId, incoming.externalId))
+    .from(crmCustomers)
+    .where(eq(crmCustomers.cyberbizCustomerId, incoming.externalId))
     .limit(1);
 
   if (!existing) {
     const customerId = crypto.randomUUID();
     await db
-      .insert(customers)
+      .insert(crmCustomers)
       .values({
         id: customerId,
         phone: incoming.phone,
@@ -83,9 +83,9 @@ export async function syncCyberbizCustomer(
       .onConflictDoNothing();
 
     const [stored] = await db
-      .select({ id: customers.id })
-      .from(customers)
-      .where(eq(customers.cyberbizCustomerId, incoming.externalId))
+      .select({ id: crmCustomers.id })
+      .from(crmCustomers)
+      .where(eq(crmCustomers.cyberbizCustomerId, incoming.externalId))
       .limit(1);
     if (!stored) throw new Error("CYBERBIZ 會員 ID 寫入失敗");
 
@@ -144,18 +144,18 @@ export async function syncCyberbizCustomer(
   if (!changed) {
     // 沒有實質變化就只更新「什麼時候確認過」，不要在操作紀錄裡灌一堆雜訊。
     await db
-      .update(customers)
+      .update(crmCustomers)
       .set({ syncedAt: now })
-      .where(eq(customers.id, existing.id));
+      .where(eq(crmCustomers.id, existing.id));
     if (incoming.tags.length) await replaceCustomerTags(db, existing.id, incoming.tags);
     return { action: "unchanged", customerId: existing.id };
   }
 
   await db.batch([
     db
-      .update(customers)
+      .update(crmCustomers)
       .set({ ...next, syncedAt: now })
-      .where(eq(customers.id, existing.id)),
+      .where(eq(crmCustomers.id, existing.id)),
     db.insert(activityEvents).values({
       ...activityRow({
         entityType: "customer",
@@ -248,7 +248,7 @@ export async function upsertCyberbizCustomers(
   const statements = usable.map((customer) => {
     const createdAt = customer.createdAt || now;
     return db
-      .insert(customers)
+      .insert(crmCustomers)
       .values({
         id: crypto.randomUUID(),
         phone: customer.phone,
@@ -268,24 +268,24 @@ export async function upsertCyberbizCustomers(
         updatedAt: customer.updatedAt || createdAt,
       })
       .onConflictDoUpdate({
-        target: customers.cyberbizCustomerId,
+        target: crmCustomers.cyberbizCustomerId,
         set: {
           // 電話以官網的 mobile 為準，空值也照寫（會員本人沒填就是沒填）。
           phone: sql`excluded.phone`,
           normalizedPhone: sql`excluded.normalized_phone`,
           // 其餘欄位空值不覆蓋，跟單筆路徑同一套規則。
-          name: sql`coalesce(nullif(excluded.name, ''), ${customers.name})`,
-          email: sql`coalesce(nullif(excluded.email, ''), ${customers.email})`,
-          address: sql`coalesce(nullif(excluded.address, ''), ${customers.address})`,
+          name: sql`coalesce(nullif(excluded.name, ''), ${crmCustomers.name})`,
+          email: sql`coalesce(nullif(excluded.email, ''), ${crmCustomers.email})`,
+          address: sql`coalesce(nullif(excluded.address, ''), ${crmCustomers.address})`,
           // 官網解除封鎖不會自動解除本地封鎖。
-          status: sql`case when excluded.status = 'blocked' then 'blocked' else ${customers.status} end`,
-          cyberbizUid: sql`coalesce(nullif(excluded.cyberbiz_uid, ''), ${customers.cyberbizUid})`,
-          cyberbizUpdatedAt: sql`coalesce(nullif(excluded.cyberbiz_updated_at, ''), ${customers.cyberbizUpdatedAt})`,
+          status: sql`case when excluded.status = 'blocked' then 'blocked' else ${crmCustomers.status} end`,
+          cyberbizUid: sql`coalesce(nullif(excluded.cyberbiz_uid, ''), ${crmCustomers.cyberbizUid})`,
+          cyberbizUpdatedAt: sql`coalesce(nullif(excluded.cyberbiz_updated_at, ''), ${crmCustomers.cyberbizUpdatedAt})`,
           rawJson: sql`excluded.raw_json`,
           syncStatus: sql`'synced'`,
           syncedAt: sql`excluded.synced_at`,
-          blockedAt: sql`case when excluded.status = 'blocked' then coalesce(${customers.blockedAt}, excluded.blocked_at) else ${customers.blockedAt} end`,
-          createdAt: sql`coalesce(nullif(excluded.created_at, ''), ${customers.createdAt})`,
+          blockedAt: sql`case when excluded.status = 'blocked' then coalesce(${crmCustomers.blockedAt}, excluded.blocked_at) else ${crmCustomers.blockedAt} end`,
+          createdAt: sql`coalesce(nullif(excluded.created_at, ''), ${crmCustomers.createdAt})`,
           updatedAt: sql`excluded.updated_at`,
         },
       });
@@ -295,9 +295,9 @@ export async function upsertCyberbizCustomers(
   await db.batch(statements as [typeof statements[number], ...typeof statements]);
 
   const stored = await db
-    .select({ id: customers.id, cyberbizCustomerId: customers.cyberbizCustomerId })
-    .from(customers)
-    .where(inArray(customers.cyberbizCustomerId, usable.map((customer) => customer.externalId)));
+    .select({ id: crmCustomers.id, cyberbizCustomerId: crmCustomers.cyberbizCustomerId })
+    .from(crmCustomers)
+    .where(inArray(crmCustomers.cyberbizCustomerId, usable.map((customer) => customer.externalId)));
   const storedByExternalId = new Map(stored.map((customer) => [customer.cyberbizCustomerId, customer.id]));
   for (const customer of usable) {
     const customerId = storedByExternalId.get(customer.externalId);

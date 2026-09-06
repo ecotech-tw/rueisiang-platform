@@ -1,5 +1,5 @@
 import { createDatabase } from "@rueisiang/db";
-import { activityEvents, customers } from "@rueisiang/db/schema";
+import { activityEvents, crmCustomers } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { createLocalD1 } from "./local-d1/d1.js";
@@ -51,7 +51,7 @@ describe("把 customer_events 搬進 activity_events", () => {
     const d1 = createLocalD1();
     const db = createDatabase(d1 as never);
 
-    await db.insert(customers).values({
+    await db.insert(crmCustomers).values({
       id: "cust-1",
       phone: "0900111222",
       normalizedPhone: "886900111222",

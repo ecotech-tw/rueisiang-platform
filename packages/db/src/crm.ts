@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizePhone } from "./phone.js";
-import { crmCustomerTags, crmTags, customers } from "./schema/crm.js";
+import { crmCustomerTags, crmTags, crmCustomers } from "./schema/crm.js";
 
 /**
  * 客戶列表的查詢。行為沿用舊 CRM 的 app/api/customers/route.ts：
@@ -10,11 +10,11 @@ import { crmCustomerTags, crmTags, customers } from "./schema/crm.js";
 
 /** 可以拿來排序的欄位。白名單化，避免呼叫端把任意字串塞進 order by。 */
 const SORT_COLUMNS = {
-  name: customers.name,
-  phone: customers.phone,
-  status: customers.status,
-  createdAt: customers.createdAt,
-  updatedAt: customers.updatedAt,
+  name: crmCustomers.name,
+  phone: crmCustomers.phone,
+  status: crmCustomers.status,
+  createdAt: crmCustomers.createdAt,
+  updatedAt: crmCustomers.updatedAt,
 } as const;
 
 export type CustomerSortField = keyof typeof SORT_COLUMNS;
@@ -113,16 +113,16 @@ function buildWhere(query: CustomerQuery, dates: CustomerDateFilters): SQL | und
     const digits = normalizePhone(query.search);
     conditions.push(
       or(
-        like(customers.phone, term),
-        ...(digits ? [like(customers.normalizedPhone, `%${digits}%`)] : []),
-        like(customers.name, term),
-        like(customers.email, term),
-        like(customers.address, term),
+        like(crmCustomers.phone, term),
+        ...(digits ? [like(crmCustomers.normalizedPhone, `%${digits}%`)] : []),
+        like(crmCustomers.name, term),
+        like(crmCustomers.email, term),
+        like(crmCustomers.address, term),
         sql`EXISTS (
           SELECT 1
           FROM ${crmCustomerTags} AS customer_tag
           JOIN ${crmTags} AS tag ON tag.id = customer_tag.crm_tag_id
-          WHERE customer_tag.customer_id = ${customers.id}
+          WHERE customer_tag.customer_id = ${crmCustomers.id}
             AND tag.name LIKE ${term}
         )`,
       )!,
@@ -130,29 +130,29 @@ function buildWhere(query: CustomerQuery, dates: CustomerDateFilters): SQL | und
   }
 
   if (query.status === "active" || query.status === "blocked") {
-    conditions.push(eq(customers.status, query.status));
+    conditions.push(eq(crmCustomers.status, query.status));
   }
   if (query.tag && query.tag !== "all") {
     conditions.push(sql`EXISTS (
       SELECT 1
       FROM ${crmCustomerTags} AS customer_tag
       JOIN ${crmTags} AS tag ON tag.id = customer_tag.crm_tag_id
-      WHERE customer_tag.customer_id = ${customers.id}
+      WHERE customer_tag.customer_id = ${crmCustomers.id}
         AND tag.name = ${query.tag}
     )`);
   }
 
   if (dates.createdFrom) {
-    conditions.push(sql`datetime(${customers.createdAt}) >= datetime(${dates.createdFrom})`);
+    conditions.push(sql`datetime(${crmCustomers.createdAt}) >= datetime(${dates.createdFrom})`);
   }
   if (dates.createdTo) {
-    conditions.push(sql`datetime(${customers.createdAt}) < datetime(${dates.createdTo})`);
+    conditions.push(sql`datetime(${crmCustomers.createdAt}) < datetime(${dates.createdTo})`);
   }
   if (dates.updatedFrom) {
-    conditions.push(sql`datetime(${customers.updatedAt}) >= datetime(${dates.updatedFrom})`);
+    conditions.push(sql`datetime(${crmCustomers.updatedAt}) >= datetime(${dates.updatedFrom})`);
   }
   if (dates.updatedTo) {
-    conditions.push(sql`datetime(${customers.updatedAt}) < datetime(${dates.updatedTo})`);
+    conditions.push(sql`datetime(${crmCustomers.updatedAt}) < datetime(${dates.updatedTo})`);
   }
 
   return conditions.length ? and(...conditions) : undefined;
@@ -164,14 +164,14 @@ function buildWhere(query: CustomerQuery, dates: CustomerDateFilters): SQL | und
  */
 export async function customerStats(db: Database): Promise<CustomerStats> {
   const [[allRow], [activeRow], [blockedRow], [incompleteRow]] = await Promise.all([
-    db.select({ value: count() }).from(customers),
-    db.select({ value: count() }).from(customers).where(eq(customers.status, "active")),
-    db.select({ value: count() }).from(customers).where(eq(customers.status, "blocked")),
+    db.select({ value: count() }).from(crmCustomers),
+    db.select({ value: count() }).from(crmCustomers).where(eq(crmCustomers.status, "active")),
+    db.select({ value: count() }).from(crmCustomers).where(eq(crmCustomers.status, "blocked")),
     // 「資料不完整」＝沒填姓名或沒填地址，出貨時會卡住的那些。
     db
       .select({ value: count() })
-      .from(customers)
-      .where(or(eq(customers.name, ""), eq(customers.address, ""))),
+      .from(crmCustomers)
+      .where(or(eq(crmCustomers.name, ""), eq(crmCustomers.address, ""))),
   ]);
 
   return {
@@ -188,18 +188,18 @@ export async function listCustomers(
   dates: CustomerDateFilters = {},
 ): Promise<CustomerListPage> {
   const where = buildWhere(query, dates);
-  const sortColumn = SORT_COLUMNS[query.sortField] ?? customers.updatedAt;
+  const sortColumn = SORT_COLUMNS[query.sortField] ?? crmCustomers.updatedAt;
 
   const [rows, [totalRow]] = await Promise.all([
     db
       .select()
-      .from(customers)
+      .from(crmCustomers)
       .where(where)
       // 第二個排序鍵是 id：不加的話同值的列在分頁之間順序會飄，同一筆可能出現兩次。
-      .orderBy(query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn), desc(customers.id))
+      .orderBy(query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn), desc(crmCustomers.id))
       .limit(query.pageSize)
       .offset((query.page - 1) * query.pageSize),
-    db.select({ value: count() }).from(customers).where(where),
+    db.select({ value: count() }).from(crmCustomers).where(where),
   ]);
 
   const customerIds = rows.map((row) => row.id);

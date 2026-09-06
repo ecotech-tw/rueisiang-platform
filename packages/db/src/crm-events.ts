@@ -1,7 +1,7 @@
 import { and, desc, eq, like, or, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
-import { customers } from "./schema/crm.js";
+import { crmCustomers } from "./schema/crm.js";
 
 /**
  * CRM 的操作紀錄。
@@ -55,7 +55,7 @@ function buildWhere(query: EventQuery): SQL | undefined {
     const term = `%${query.search}%`;
     /*
      * 搜尋橫跨紀錄本身與客戶——找「某個人身上發生過什麼」是最常見的用法。
-     * 名字比對 entityLabel（紀錄當下的快照）而不是 customers.name：客戶改名之後
+     * 名字比對 entityLabel（紀錄當下的快照）而不是 crmCustomers.name：客戶改名之後
      * 用舊名字仍然找得到那段歷史，客戶被刪掉也還找得到。
      */
     conditions.push(
@@ -64,7 +64,7 @@ function buildWhere(query: EventQuery): SQL | undefined {
         like(activityEvents.eventType, term),
         like(activityEvents.actorEmail, term),
         like(activityEvents.entityLabel, term),
-        like(customers.phone, term),
+        like(crmCustomers.phone, term),
       )!,
     );
   }
@@ -89,7 +89,7 @@ export async function listCustomerEvents(
       customerId: activityEvents.entityId,
       // 名字讀快照，不讀 customers——客戶被刪掉之後這一頁仍然讀得懂。
       customerName: activityEvents.entityLabel,
-      customerPhone: customers.phone,
+      customerPhone: crmCustomers.phone,
       eventType: activityEvents.eventType,
       summary: activityEvents.summary,
       actorType: activityEvents.actorType,
@@ -105,7 +105,7 @@ export async function listCustomerEvents(
      * 過時的），所以還是要 join；但用 inner 的話客戶一刪，他的操作紀錄就整批從
      * 畫面上消失——連「刪掉這個客戶」這件事本身都查不到。
      */
-    .leftJoin(customers, eq(customers.id, activityEvents.entityId))
+    .leftJoin(crmCustomers, eq(crmCustomers.id, activityEvents.entityId))
     .where(where)
     .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
     .limit(query.pageSize + 1)
