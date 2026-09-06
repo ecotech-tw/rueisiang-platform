@@ -74,7 +74,8 @@ packages/
   config/    共用 tsconfig
 docs/        系統現況與還沒做的設計。**不放操作步驟，也不放 TODO**
 .claude/skills/  要照著做的操作步驟。platform-deploy（開通與部署）、
-                 cyberbiz-reports（出金表、商品銷售報表與報表查詢）
+                 cyberbiz-reports（出金表、商品銷售報表與報表查詢）、
+                 pre-pr-check（開 PR 前與請人 merge 前對一次 main）
 ```
 
 **業務邏輯放在 `packages/db`**，不放路由。路由只做參數解析、權限檢查、回應格式；查詢與同步寫在 `packages/db/src/*.ts` 再從 `src/index.ts` 具名 export。要改行為先找那裡。
