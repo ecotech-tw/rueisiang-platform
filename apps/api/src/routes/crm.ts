@@ -117,23 +117,18 @@ export const crm = new Hono<AppEnv>()
      * 官網根本沒有這個人。沿用舊 CRM 的順序，理由一樣。
      */
     const client = cyberbizClient(c.env);
-    const wantsCyberbiz = input.sourceChannel !== "manual";
-    let remote;
-
-    if (wantsCyberbiz) {
-      if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN，只能建立本地客戶。" });
-      const created = await client.create(fields);
-      if (!created.externalId) {
-        throw new HTTPException(502, { message: "CYBERBIZ 已建立會員但沒有回傳會員 ID，請重新同步確認。" });
-      }
-      remote = {
-        externalId: created.externalId,
-        uid: created.uid,
-        tags: created.tags,
-        raw: created.raw,
-        blocked: created.blocked,
-      };
+    if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN，無法建立客戶。" });
+    const created = await client.create(fields);
+    if (!created.externalId) {
+      throw new HTTPException(502, { message: "CYBERBIZ 已建立會員但沒有回傳會員 ID，請重新同步確認。" });
     }
+    const remote = {
+      externalId: created.externalId,
+      uid: created.uid,
+      tags: created.tags,
+      raw: created.raw,
+      blocked: created.blocked,
+    };
 
     const user = c.get("user");
     const result = await createCustomer(c.get("db"), {
@@ -245,7 +240,7 @@ export const crm = new Hono<AppEnv>()
    * 改名或刪除一個標籤。
    *
    * 一輪只處理一批客戶（每位有連到官網的都要打一次 API），回傳 hasMore 讓呼叫端
-   * 接著跑——跟全量同步同一個模式。第一輪才動字典，之後幾輪只處理剩下的客戶。
+   * 接著跑——跟全量同步同一個模式。改名時保留舊字典項目直到所有 relation 都搬完。
    */
   .patch("/tags/:name", requirePermission("crm:tag:write"), async (c) => {
     const original = decodeURIComponent(c.req.param("name"));
@@ -261,8 +256,9 @@ export const crm = new Hono<AppEnv>()
       pushTags: client ? (externalId, tags) => client.updateTags(externalId, tags).then(() => undefined) : undefined,
     });
 
-    // 字典只在第一輪動一次，後面幾輪是在收尾剩下的客戶。
-    if (new URL(c.req.url).searchParams.get("continue") !== "1") {
+    // 改名先建立新字典項目，等所有客戶都成功搬完才刪掉舊項目；失敗時保留舊項目，
+    // 讓下一次重試仍能找到尚未搬完的 relation。
+    if (!result.hasMore && result.failures.length === 0) {
       if (nextName) await renameTagInCatalog(c.get("db"), original, nextName);
       else await deleteTagFromCatalog(c.get("db"), original);
     }

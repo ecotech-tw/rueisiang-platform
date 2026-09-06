@@ -1,6 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { customers, userRoles, users } from "@rueisiang/db/schema";
+import { crmCustomerTags, crmTags, customers, userRoles, users } from "@rueisiang/db/schema";
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -20,10 +21,15 @@ async function seedUser(email: string, roleId: string) {
   return id;
 }
 
-async function seedCustomer(input: Partial<typeof customers.$inferInsert> & { id: string; phone: string }) {
-  await db()
-    .insert(customers)
-    .values({ normalizedPhone: input.phone.replace(/\D/g, ""), ...input });
+async function seedCustomer(input: Partial<typeof customers.$inferInsert> & { id: string; phone: string; tags?: string[] }) {
+  const { tags = [], ...customer } = input;
+  await db().insert(customers).values({ normalizedPhone: input.phone.replace(/\D/g, ""), ...customer });
+  for (const name of tags) {
+    const tagId = `tag-${name}`;
+    await db().insert(crmTags).values({ id: tagId, name }).onConflictDoNothing();
+    const [tag] = await db().select({ id: crmTags.id }).from(crmTags).where(eq(crmTags.name, name));
+    await db().insert(crmCustomerTags).values({ customerId: input.id, crmTagId: tag!.id });
+  }
 }
 
 async function as(userId: string, email: string, path: string) {
@@ -88,9 +94,9 @@ describe("客戶列表的把關", () => {
 
 describe("搜尋與篩選", () => {
   beforeEach(async () => {
-    await seedCustomer({ id: "c1", phone: "0912 345 678", name: "王小明", email: "wang@example.com", address: "台北市", sourceChannel: "cyberbiz", cyberbizTagsJson: '["VIP","熟客"]' });
-    await seedCustomer({ id: "c2", phone: "0922333444", name: "陳美玲", email: "chen@example.com", address: "新北市", sourceChannel: "manual" });
-    await seedCustomer({ id: "c3", phone: "0933555666", name: "", email: "", address: "", sourceChannel: "cyberbiz", status: "blocked" });
+    await seedCustomer({ id: "c1", phone: "0912 345 678", name: "王小明", email: "wang@example.com", address: "台北市", cyberbizCustomerId: "cb-1", tags: ["VIP", "熟客"] });
+    await seedCustomer({ id: "c2", phone: "0922333444", name: "陳美玲", email: "chen@example.com", address: "新北市" });
+    await seedCustomer({ id: "c3", phone: "0933555666", name: "", email: "", address: "", cyberbizCustomerId: "cb-3", status: "blocked" });
   });
 
   it("預設回全部，並附上統計", async () => {
@@ -113,12 +119,6 @@ describe("搜尋與篩選", () => {
     const id = await seedUser("staff@ecotech.tw", "role-staff");
     const body = await list(id, "staff@ecotech.tw", query);
     expect(body.customers.map((customer) => customer.id)).toEqual(expected);
-  });
-
-  it("依通路篩選", async () => {
-    const id = await seedUser("staff@ecotech.tw", "role-staff");
-    const body = await list(id, "staff@ecotech.tw", "?channel=manual");
-    expect(body.customers.map((customer) => customer.id)).toEqual(["c2"]);
   });
 
   it("依狀態篩選", async () => {

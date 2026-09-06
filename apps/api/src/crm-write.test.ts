@@ -105,7 +105,6 @@ describe("新增客戶", () => {
     expect(row).toMatchObject({
       name: "王小明",
       cyberbizCustomerId: "cb-new",
-      sourceChannel: "cyberbiz",
       syncStatus: "synced",
     });
   });
@@ -175,18 +174,19 @@ describe("新增客戶", () => {
     expect(await db().select().from(customers)).toHaveLength(0);
   });
 
-  it("指定 manual 就只建本地，不碰官網", async () => {
+  it("沒有 CYBERBIZ 設定時不能建立本地客戶", async () => {
     const calls = stubCyberbiz();
+    env = { ...env, CYBERBIZ_API_TOKEN: undefined };
     const id = await seedUser("staff@ecotech.tw", "role-staff");
 
-    await as(id, "staff@ecotech.tw", "/api/crm/customers", {
+    const response = await as(id, "staff@ecotech.tw", "/api/crm/customers", {
       method: "POST",
-      body: JSON.stringify({ phone: "0912345678", name: "只在本地", sourceChannel: "manual" }),
+      body: JSON.stringify({ phone: "0912345678", name: "只在本地" }),
     });
 
+    expect(response.status).toBe(409);
     expect(calls).toHaveLength(0);
-    const [row] = await db().select().from(customers);
-    expect(row).toMatchObject({ sourceChannel: "manual", syncStatus: "local_only" });
+    expect(await db().select().from(customers)).toHaveLength(0);
   });
 
   it("電話重複時擋下來", async () => {
@@ -243,7 +243,6 @@ describe("編輯客戶", () => {
       normalizedPhone: "0912345678",
       name: "原本的名字",
       cyberbizCustomerId: "cb-1",
-      sourceChannel: "cyberbiz",
     });
   }
 
@@ -287,7 +286,6 @@ describe("編輯客戶", () => {
       phone: "0922333444",
       normalizedPhone: "0922333444",
       name: "本地客戶",
-      sourceChannel: "manual",
     });
     const id = await seedUser("staff@ecotech.tw", "role-staff");
 

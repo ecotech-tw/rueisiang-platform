@@ -1,86 +1,79 @@
-import { and, asc, eq, like, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { activityEvents } from "./schema/activity.js";
-import { customerTagCatalog, customers } from "./schema/crm.js";
+import { crmCustomerTags, crmTags, customers } from "./schema/crm.js";
 
-/**
- * 標籤。
- *
- * 標籤有兩個來源，這是理解這個檔案的關鍵：
- *   1. customer_tag_catalog —— 我們自己維護的字典，可以先建好一個還沒有人用的標籤
- *   2. customers.cyberbiz_tags_json —— 客戶身上實際掛著的標籤，從 CYBERBIZ 同步進來
- *
- * 官網那邊隨時可能冒出字典裡沒有的標籤，所以列表是兩者的聯集。
- */
-
+/** 標籤字典與客戶身上的使用情形。客戶標籤只存在 crm_customer_tags。 */
 export interface TagRow {
   name: string;
-  /** 字典裡有沒有這一筆。沒有的話代表它只存在於客戶身上。 */
-  inCatalog: boolean;
   customerCount: number;
-  /** 其中有幾位已經連到 CYBERBIZ 會員——改名時需要推回官網的就是這些。 */
+  /** 其中有幾位已經連到 CYBERBIZ 會員。 */
   linkedCount: number;
 }
 
-/**
- * 用 json_each 在 SQL 裡聚合，不要把客戶全部撈出來在記憶體裡數。
- * 舊 CRM 是後者，一萬多筆客戶會直接撐爆 Worker。
- */
 export async function listTags(db: Database): Promise<TagRow[]> {
-  const [catalog, counts] = await Promise.all([
-    db.select({ name: customerTagCatalog.name }).from(customerTagCatalog).orderBy(asc(customerTagCatalog.name)),
-    db.all<{ tag: string; customer_count: number; linked_count: number }>(sql`
-      select
-        json_each.value as tag,
-        count(*) as customer_count,
-        sum(case when ${customers.cyberbizCustomerId} is not null then 1 else 0 end) as linked_count
-      from ${customers}, json_each(${customers.cyberbizTagsJson})
-      group by json_each.value
-    `),
-  ]);
+  const rows = await db
+    .select({
+      name: crmTags.name,
+      customerCount: count(crmCustomerTags.customerId),
+      linkedCount: sql<number>`sum(case when ${customers.cyberbizCustomerId} is not null then 1 else 0 end)`,
+    })
+    .from(crmTags)
+    .leftJoin(crmCustomerTags, eq(crmCustomerTags.crmTagId, crmTags.id))
+    .leftJoin(customers, eq(customers.id, crmCustomerTags.customerId))
+    .groupBy(crmTags.id, crmTags.name)
+    .orderBy(asc(crmTags.name));
 
-  const byName = new Map<string, TagRow>();
-  for (const row of catalog) {
-    byName.set(row.name, { name: row.name, inCatalog: true, customerCount: 0, linkedCount: 0 });
-  }
-  for (const row of counts) {
-    const existing = byName.get(row.tag);
-    if (existing) {
-      existing.customerCount = Number(row.customer_count);
-      existing.linkedCount = Number(row.linked_count);
-    } else {
-      byName.set(row.tag, {
-        name: row.tag,
-        inCatalog: false,
-        customerCount: Number(row.customer_count),
-        linkedCount: Number(row.linked_count),
-      });
-    }
-  }
-
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+  return rows.map((row) => ({
+    name: row.name,
+    customerCount: Number(row.customerCount),
+    linkedCount: Number(row.linkedCount),
+  }));
 }
 
 export async function createTag(db: Database, name: string): Promise<"created" | "duplicate"> {
   const trimmed = name.trim();
   const [existing] = await db
-    .select({ name: customerTagCatalog.name })
-    .from(customerTagCatalog)
-    .where(eq(customerTagCatalog.name, trimmed))
+    .select({ name: crmTags.name })
+    .from(crmTags)
+    .where(eq(crmTags.name, trimmed))
     .limit(1);
   if (existing) return "duplicate";
 
-  await db.insert(customerTagCatalog).values({ id: crypto.randomUUID(), name: trimmed });
+  await db.insert(crmTags).values({ id: crypto.randomUUID(), name: trimmed });
   return "created";
 }
 
+/** 以 relation 表取代一位客戶的完整標籤集合。空集合代表清空。 */
+export async function replaceCustomerTags(db: Database, customerId: string, names: string[]): Promise<void> {
+  const uniqueNames = [...new Set(names.map((name) => name.trim()).filter(Boolean))];
+  for (const name of uniqueNames) {
+    await db.insert(crmTags).values({ id: crypto.randomUUID(), name }).onConflictDoNothing();
+  }
+  const tags = uniqueNames.length
+    ? await db.select({ id: crmTags.id }).from(crmTags).where(inArray(crmTags.name, uniqueNames))
+    : [];
+  await db.delete(crmCustomerTags).where(eq(crmCustomerTags.customerId, customerId));
+  if (tags.length) {
+    await db.insert(crmCustomerTags)
+      .values(tags.map((tag) => ({ customerId, crmTagId: tag.id })))
+      .onConflictDoNothing();
+  }
+}
+
+export async function customerTagNames(db: Database, customerId: string): Promise<string[]> {
+  const rows = await db
+    .select({ name: crmTags.name })
+    .from(crmCustomerTags)
+    .innerJoin(crmTags, eq(crmTags.id, crmCustomerTags.crmTagId))
+    .where(eq(crmCustomerTags.customerId, customerId));
+  return rows.map((row) => row.name).sort();
+}
+
 export interface TagChangeResult {
-  /** 這一輪處理了幾位客戶。 */
   processed: number;
-  /** 其中有幾位需要推回 CYBERBIZ。 */
   linked: number;
-  /** 還有沒有客戶等著處理——有的話再呼叫一次。 */
   hasMore: boolean;
   failures: { customerId: string; error: string }[];
 }
@@ -89,30 +82,15 @@ export interface TagChangeOptions {
   /** null 代表刪除這個標籤。 */
   nextName: string | null;
   actor: { actorType: string; actorId: string | null; actorEmail: string | null };
-  /** 一輪最多處理幾位客戶。每位都要打一次官網 API，所以不能無上限。 */
   limit?: number;
-  /** 把標籤推回 CYBERBIZ。沒給就只改本地。 */
   pushTags?: (externalId: string, tags: string[]) => Promise<void>;
-}
-
-function parseTags(value: string): string[] {
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : [];
-  } catch {
-    return [];
-  }
 }
 
 /**
  * 把某個標籤改名或移除，一次處理一批客戶。
  *
- * 為什麼要分批：每位有連到 CYBERBIZ 的客戶都要打一次官網 API。一個標籤掛在
- * 幾百位客戶身上就是幾百次呼叫，一口氣做完會撞上 Worker 的時間與請求上限。
- * 回傳 hasMore 讓呼叫端接著跑，跟全量同步同一個模式。
- *
- * 用 LIKE 先在 SQL 裡篩出可能相關的客戶，再在記憶體裡精確比對——JSON 字串的
- * LIKE 可能誤中（例如找「VIP」會連「VIP2」一起撈出來），所以那一層還是要比。
+ * 改名時先建立新字典項目，逐批搬移 relation，最後由 API route 刪掉舊字典項目。
+ * 這樣即使某一位客戶推送失敗，也不會因為刪除舊 tag 而把他的本地標籤弄丟。
  */
 export async function applyTagChange(
   db: Database,
@@ -120,36 +98,63 @@ export async function applyTagChange(
   options: TagChangeOptions,
 ): Promise<TagChangeResult> {
   const limit = options.limit ?? 50;
-  const needle = `%${JSON.stringify(originalName).slice(1, -1)}%`;
+  const [originalTag] = await db
+    .select({ id: crmTags.id })
+    .from(crmTags)
+    .where(eq(crmTags.name, originalName))
+    .limit(1);
+  if (!originalTag) return { processed: 0, linked: 0, hasMore: false, failures: [] };
+
+  let nextTagId: string | null = null;
+  if (options.nextName) {
+    await db
+      .insert(crmTags)
+      .values({ id: crypto.randomUUID(), name: options.nextName.trim() })
+      .onConflictDoNothing();
+    const [nextTag] = await db
+      .select({ id: crmTags.id })
+      .from(crmTags)
+      .where(eq(crmTags.name, options.nextName.trim()))
+      .limit(1);
+    nextTagId = nextTag?.id ?? null;
+  }
 
   const candidates = await db
     .select({
       id: customers.id,
-      // 操作紀錄要存客戶當下的名字，所以這裡一起撈。
       name: customers.name,
       cyberbizCustomerId: customers.cyberbizCustomerId,
-      tags: customers.cyberbizTagsJson,
-      syncStatus: customers.syncStatus,
     })
-    .from(customers)
-    .where(and(like(customers.cyberbizTagsJson, needle)))
+    .from(crmCustomerTags)
+    .innerJoin(customers, eq(customers.id, crmCustomerTags.customerId))
+    .where(eq(crmCustomerTags.crmTagId, originalTag.id))
+    .orderBy(asc(customers.id))
     .limit(limit + 1);
 
-  const affected = candidates
-    .filter((customer) => parseTags(customer.tags).includes(originalName))
-    .slice(0, limit);
+  const affected = candidates.slice(0, limit);
   const hasMore = candidates.length > limit;
+  const allTags = affected.length
+    ? await db
+      .select({ customerId: crmCustomerTags.customerId, name: crmTags.name })
+      .from(crmCustomerTags)
+      .innerJoin(crmTags, eq(crmTags.id, crmCustomerTags.crmTagId))
+      .where(inArray(crmCustomerTags.customerId, affected.map((customer) => customer.id)))
+    : [];
+  const tagsByCustomer = new Map<string, string[]>();
+  for (const row of allTags) {
+    const tags = tagsByCustomer.get(row.customerId) ?? [];
+    tags.push(row.name);
+    tagsByCustomer.set(row.customerId, tags);
+  }
 
   const failures: TagChangeResult["failures"] = [];
   let linked = 0;
 
   for (const customer of affected) {
-    const before = parseTags(customer.tags);
+    const before = tagsByCustomer.get(customer.id) ?? [originalName];
     const after = [
       ...new Set(
-        before.flatMap((tag) =>
-          tag === originalName ? (options.nextName ? [options.nextName] : []) : [tag],
-        ),
+        before.flatMap((tag) => tag === originalName ? (options.nextName ? [options.nextName] : []) : [tag]),
       ),
     ];
 
@@ -158,7 +163,6 @@ export async function applyTagChange(
         await options.pushTags(customer.cyberbizCustomerId, after);
         linked += 1;
       } catch (error) {
-        // 推不上去就先不要改本地，兩邊才不會不一致。
         failures.push({
           customerId: customer.id,
           error: error instanceof Error ? error.message : "推送標籤到 CYBERBIZ 失敗",
@@ -168,10 +172,13 @@ export async function applyTagChange(
     }
 
     await db.batch([
-      db
-        .update(customers)
-        .set({ cyberbizTagsJson: JSON.stringify(after), updatedAt: sql`CURRENT_TIMESTAMP` })
-        .where(eq(customers.id, customer.id)),
+      db.delete(crmCustomerTags).where(and(
+        eq(crmCustomerTags.customerId, customer.id),
+        eq(crmCustomerTags.crmTagId, originalTag.id),
+      )),
+      ...(nextTagId
+        ? [db.insert(crmCustomerTags).values({ customerId: customer.id, crmTagId: nextTagId }).onConflictDoNothing()]
+        : []),
       db.insert(activityEvents).values(
         activityRow({
           entityType: "customer",
@@ -192,15 +199,15 @@ export async function applyTagChange(
   return { processed: affected.length, linked, hasMore, failures };
 }
 
-/** 字典本身的改名／刪除。客戶身上的標籤由 applyTagChange 處理。 */
+/** 改名／刪除的字典收尾。客戶身上的 relation 由 applyTagChange 處理。 */
 export async function renameTagInCatalog(db: Database, from: string, to: string): Promise<void> {
-  await db.delete(customerTagCatalog).where(eq(customerTagCatalog.name, from));
+  await db.delete(crmTags).where(eq(crmTags.name, from));
   await db
-    .insert(customerTagCatalog)
-    .values({ id: crypto.randomUUID(), name: to })
+    .insert(crmTags)
+    .values({ id: crypto.randomUUID(), name: to.trim() })
     .onConflictDoNothing();
 }
 
 export async function deleteTagFromCatalog(db: Database, name: string): Promise<void> {
-  await db.delete(customerTagCatalog).where(eq(customerTagCatalog.name, name));
+  await db.delete(crmTags).where(eq(crmTags.name, name));
 }

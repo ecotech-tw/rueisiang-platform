@@ -150,15 +150,12 @@ type CustomerToolRecord = {
   name: string;
   email: string;
   address: string;
-  sourceChannel: string;
   status: string;
+  tags: string[];
   cyberbizCustomerId: string | null;
   cyberbizUid: string | null;
-  cyberbizTagsJson: string;
   syncStatus: string;
-  syncError: string | null;
-  lastSyncedAt: string | null;
-  lastWebhookAt: string | null;
+  syncedAt: string | null;
   blockedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -171,15 +168,12 @@ function customerToolView(customer: CustomerToolRecord) {
     name: customer.name,
     email: customer.email,
     address: customer.address,
-    sourceChannel: customer.sourceChannel,
     status: customer.status,
-    tags: parseStringArray(customer.cyberbizTagsJson),
+    tags: customer.tags,
     cyberbizCustomerId: customer.cyberbizCustomerId,
     cyberbizUid: customer.cyberbizUid,
     syncStatus: customer.syncStatus,
-    syncError: customer.syncError,
-    lastSyncedAt: customer.lastSyncedAt,
-    lastWebhookAt: customer.lastWebhookAt,
+    syncedAt: customer.syncedAt,
     blockedAt: customer.blockedAt,
     createdAt: customer.createdAt,
     updatedAt: customer.updatedAt,
@@ -516,14 +510,13 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
     type: "object",
     properties: {
       search: { type: "string", description: "姓名、電話、Email、地址或標籤關鍵字，可留空。" },
-      channel: { type: "string", description: "客戶來源：all、manual 或 cyberbiz。預設 all。", enum: ["all", "manual", "cyberbiz"] },
       status: { type: "string", description: "客戶狀態：all、active 或 blocked。預設 all。", enum: ["all", "active", "blocked"] },
       tag: { type: "string", description: "指定標籤名稱，可留空。" },
       date: { type: "string", description: "指定日期，使用 YYYY-MM-DD；例如今天要填入系統提供的 currentDate。可留空。" },
       dateField: { type: "string", description: "日期欄位：createdAt 查詢當天新增客戶，updatedAt 查詢當天更新客戶。預設 createdAt。", enum: ["createdAt", "updatedAt"] },
       page: { type: "string", description: "頁碼，預設 1。" },
       limit: { type: "string", description: "最多回傳幾位客戶，1 到 100，預設 25。" },
-      sortField: { type: "string", description: "排序欄位：name、phone、sourceChannel、status、createdAt 或 updatedAt。預設 updatedAt。" },
+      sortField: { type: "string", description: "排序欄位：name、phone、status、createdAt 或 updatedAt。預設 updatedAt。" },
       sortDirection: { type: "string", description: "排序方向：asc 或 desc。預設 desc。", enum: ["asc", "desc"] },
     },
   },
@@ -540,7 +533,6 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
 
     const query = normalizeCustomerQuery({
       search,
-      channel: textInput(input, "channel"),
       status: textInput(input, "status"),
       tag: textInput(input, "tag"),
       page: textInput(input, "page") || "1",

@@ -5,7 +5,7 @@ import {
   isCustomerTopic,
   parseCyberbizCustomer,
 } from "@rueisiang/cyberbiz";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { syncCyberbizCustomer, type CyberbizSyncResult } from "./crm-sync.js";
 import { customers, cyberbizCustomerWebhooks } from "./schema/crm.js";
@@ -235,7 +235,7 @@ export async function retryFailedWebhooks(
 }
 
 export interface SyncStatus {
-  customers: { total: number; synced: number; localOnly: number; failed: number };
+  customers: { total: number; synced: number; failed: number };
   syncedAt: string | null;
   webhooks: { processed: number; failed: number; ignored: number; lastReceivedAt: string | null };
   recent: {
@@ -285,7 +285,6 @@ export async function readSyncStatus(db: Database): Promise<SyncStatus> {
     customers: {
       total: customerCounts.reduce((sum, row) => sum + Number(row.value), 0),
       synced: bySync.synced ?? 0,
-      localOnly: bySync.local_only ?? 0,
       failed: bySync.failed ?? 0,
     },
     syncedAt: lastSynced[0]?.value ?? null,
@@ -314,7 +313,7 @@ export async function deleteEmptyCyberbizCustomers(
     .from(customers)
     .where(
       and(
-        eq(customers.sourceChannel, "cyberbiz"),
+        isNotNull(customers.cyberbizCustomerId),
         eq(customers.email, ""),
         eq(customers.phone, ""),
         eq(customers.address, ""),

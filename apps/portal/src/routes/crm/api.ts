@@ -6,12 +6,11 @@ export interface Customer {
   name: string;
   email: string;
   address: string;
-  sourceChannel: string;
   status: string;
+  tags: string[];
   cyberbizCustomerId: string | null;
-  cyberbizTagsJson: string;
   syncStatus: string;
-  syncError: string | null;
+  syncedAt: string | null;
   updatedAt: string;
 }
 
@@ -25,7 +24,6 @@ export interface CustomerListResult {
 
 export interface CustomerFilters {
   search: string;
-  channel: string;
   status: string;
   tag: string;
   page: number;
@@ -36,7 +34,6 @@ export interface CustomerFilters {
 
 export const DEFAULT_FILTERS: CustomerFilters = {
   search: "",
-  channel: "all",
   status: "all",
   tag: "all",
   page: 1,
@@ -48,7 +45,6 @@ export const DEFAULT_FILTERS: CustomerFilters = {
 export function useCustomers(filters: CustomerFilters) {
   const params = new URLSearchParams({
     search: filters.search,
-    channel: filters.channel,
     status: filters.status,
     tag: filters.tag,
     page: String(filters.page),
@@ -70,16 +66,6 @@ export function useCustomers(filters: CustomerFilters) {
     // 換頁或改篩選時先留著上一批資料，畫面不會整個閃成空白再長回來。
     placeholderData: keepPreviousData,
   });
-}
-
-/** 標籤存成 JSON 字串；壞掉的資料不該讓整列炸掉。 */
-export function parseTags(value: string): string[] {
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : [];
-  } catch {
-    return [];
-  }
 }
 
 export interface CustomerForm {
@@ -121,7 +107,7 @@ function useCrmMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise<
 }
 
 export function useCreateCustomer() {
-  return useCrmMutation((input: CustomerForm & { sourceChannel?: string }) =>
+  return useCrmMutation((input: CustomerForm) =>
     write<{ id: string; linked: boolean }>("/api/crm/customers", {
       method: "POST",
       body: JSON.stringify(input),
@@ -187,7 +173,6 @@ export function useDeleteSavedView() {
 export function matchesView(filters: CustomerFilters, view: SavedViewFilters): boolean {
   return (
     filters.search === view.search &&
-    filters.channel === view.channel &&
     filters.status === view.status &&
     filters.tag === view.tag &&
     filters.sortField === view.sortField &&

@@ -1,6 +1,6 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
 import { createDatabase, upsertCyberbizCustomers } from "@rueisiang/db";
-import { activityEvents, customers } from "@rueisiang/db/schema";
+import { activityEvents, crmCustomerTags, crmTags, customers } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -99,20 +99,12 @@ describe("批次的合併規則與逐筆一致", () => {
 
   it("標籤是空陣列時保留既有標籤", async () => {
     await upsertCyberbizCustomers(db(), [member({ tags: [] })]);
-    expect((await row())?.cyberbizTagsJson).toBe('["VIP"]');
-  });
-
-  it("人工建立的客戶不會被改成 cyberbiz 來源", async () => {
-    await db()
-      .update(customers)
-      .set({ sourceChannel: "manual" })
-      .where(eq(customers.cyberbizCustomerId, "cb-1"));
-
-    await upsertCyberbizCustomers(db(), [member({ name: "官網名字" })]);
-
-    const found = await row();
-    expect(found?.sourceChannel).toBe("manual");
-    expect(found?.name).toBe("官網名字");
+    const rows = await db()
+      .select({ name: crmTags.name })
+      .from(crmCustomerTags)
+      .innerJoin(crmTags, eq(crmTags.id, crmCustomerTags.crmTagId))
+      .where(eq(crmCustomerTags.customerId, (await row())!.id));
+    expect(rows.map((tag) => tag.name)).toEqual(["VIP"]);
   });
 
   it("官網解除封鎖不會自動解除本地封鎖", async () => {
@@ -123,16 +115,14 @@ describe("批次的合併規則與逐筆一致", () => {
     expect((await row())?.status).toBe("blocked");
   });
 
-  it("同步狀態會被修回 synced，錯誤訊息清掉", async () => {
+  it("同步狀態會被修回 synced", async () => {
     await db()
       .update(customers)
-      .set({ syncStatus: "failed", syncError: "上次失敗" })
+      .set({ syncStatus: "failed" })
       .where(eq(customers.cyberbizCustomerId, "cb-1"));
 
     await upsertCyberbizCustomers(db(), [member()]);
 
-    const found = await row();
-    expect(found?.syncStatus).toBe("synced");
-    expect(found?.syncError).toBeNull();
+    expect((await row())?.syncStatus).toBe("synced");
   });
 });

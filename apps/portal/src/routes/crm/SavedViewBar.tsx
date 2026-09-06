@@ -17,7 +17,6 @@ interface Props {
   canManage: boolean;
 }
 
-const CHANNEL_TEXT: Record<string, string> = { cyberbiz: "CYBERBIZ", manual: "人工建立" };
 const STATUS_TEXT: Record<string, string> = { active: "正常", blocked: "已封鎖" };
 const SORT_TEXT: Record<string, string> = {
   updatedAt: "最近更新",
@@ -30,7 +29,6 @@ const SORT_TEXT: Record<string, string> = {
 function describe(view: SavedViewFilters): string {
   const parts = [
     view.search ? `搜尋「${view.search}」` : "",
-    CHANNEL_TEXT[view.channel] ?? "",
     STATUS_TEXT[view.status] ?? "",
     view.tag !== "all" ? `標籤 ${view.tag}` : "",
     `${SORT_TEXT[view.sortField] ?? view.sortField}（${view.sortDirection === "asc" ? "舊到新" : "新到舊"}）`,

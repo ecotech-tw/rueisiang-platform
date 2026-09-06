@@ -1182,7 +1182,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .status-channel-cyberbiz { background: var(--color-info-soft); color: var(--color-info); }
 .status-channel-manual { background: var(--color-soft-line); color: var(--color-muted); }
 .status-sync-synced { background: var(--color-ok-soft); color: var(--color-ok); }
-.status-sync-local_only { background: var(--color-soft-line); color: var(--color-muted); }
 .status-sync-failed { background: var(--color-brand-soft); color: var(--color-brand-dark); }
 .status-webhook-processed { background: var(--color-ok-soft); color: var(--color-ok); }
 .status-webhook-ignored { background: var(--color-soft-line); color: var(--color-muted); }

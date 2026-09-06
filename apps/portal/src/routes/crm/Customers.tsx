@@ -4,7 +4,6 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import {
   DEFAULT_FILTERS,
-  parseTags,
   useBlockCustomer,
   useCustomers,
   useTagOptions,
@@ -17,9 +16,7 @@ import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, FilterSelect, PageHeader, Panel, SearchFilterInput } from "../../ui/index.js";
 
-const CHANNEL_LABEL: Record<string, string> = { manual: "人工建立", cyberbiz: "CYBERBIZ" };
 const SYNC_LABEL: Record<string, string> = {
-  local_only: "僅本地",
   synced: "已同步",
   failed: "同步失敗",
 };
@@ -54,7 +51,7 @@ function CustomerRow({
   onBlock: () => void;
   busy: boolean;
 }) {
-  const tags = parseTags(customer.cyberbizTagsJson);
+  const tags = customer.tags;
 
   /*
    * data-label 是給手機版用的：窄螢幕時 CSS 把每個 td 變成「標籤 ＋ 值」的一列，
@@ -76,20 +73,12 @@ function CustomerRow({
         ) : null}
       </td>
       <td data-label="電話" className="whitespace-nowrap">{customer.phone}</td>
-      <td data-label="通路">
-        <span className={`status status-channel-${customer.sourceChannel}`}>
-          {CHANNEL_LABEL[customer.sourceChannel] ?? customer.sourceChannel}
-        </span>
-      </td>
       <td data-label="地址" className="cell-sub">{customer.address || "—"}</td>
       <td data-label="狀態">
         <span className={`status status-sync-${customer.syncStatus}`}>
           {SYNC_LABEL[customer.syncStatus] ?? customer.syncStatus}
         </span>
         {customer.status === "blocked" ? <span className="status status-disabled">已封鎖</span> : null}
-        {customer.syncError ? (
-          <div className="cell-sub" title={customer.syncError}>{customer.syncError}</div>
-        ) : null}
       </td>
       <td data-label="最近更新" className="cell-sub whitespace-nowrap">{formatDate(customer.updatedAt)}</td>
       {canWrite || canBlock ? (
@@ -139,10 +128,10 @@ export function Customers() {
 
   /** 改任何篩選條件都要回到第 1 頁，否則會停在一個新條件下不存在的頁碼。 */
   /*
-   * 只算真正在「篩掉資料」的三個。排序與每頁筆數也在同一個面板裡，但它們不會
+   * 只算真正在「篩掉資料」的兩個。排序與每頁筆數也在同一個面板裡，但它們不會
    * 讓人看不到某些客戶——把它們算進去，數字會在什麼都沒篩的時候就亮著。
    */
-  const activeFilterCount = [filters.channel, filters.status, filters.tag].filter(
+  const activeFilterCount = [filters.status, filters.tag].filter(
     (value) => value !== "all",
   ).length;
 
@@ -210,28 +199,18 @@ export function Customers() {
           {activeFilterCount ? (
             <Button
               variant="link"
-              onClick={() => update({ channel: "all", status: "all", tag: "all" })}
+              onClick={() => update({ status: "all", tag: "all" })}
             >
               清除篩選
             </Button>
           ) : null}
 
           {/*
-            * 三個下拉直接排在搜尋旁邊。桌機一行放得下，多一顆「篩選」按鈕加一整列
+            * 篩選下拉直接排在搜尋旁邊。桌機一行放得下，多一顆「篩選」按鈕加一整列
             * 只是把兩次點擊塞進本來就看得到的東西前面。
             * 手機空間不夠才收起來——那顆按鈕與這裡的 open 狀態都只在窄螢幕生效。
             */}
           <div className={`filter-fields${showFilters ? " open" : ""}`}>
-          <FilterSelect
-            label="通路"
-            value={filters.channel}
-            onChange={(event) => update({ channel: event.target.value })}
-            options={[
-              { value: "all", label: "全部通路" },
-              { value: "cyberbiz", label: "CYBERBIZ" },
-              { value: "manual", label: "人工建立" },
-            ]}
-          />
           <FilterSelect
             label="狀態"
             value={filters.status}
@@ -272,7 +251,6 @@ export function Customers() {
                   */}
                 <SortableHeader label="客人" field="name" active={filters.sortField} direction={filters.sortDirection} onSort={sortBy} />
                 <SortableHeader label="電話" field="phone" active={filters.sortField} direction={filters.sortDirection} onSort={sortBy} />
-                <th>通路</th>
                 <th>地址</th>
                 <th>狀態</th>
                 <SortableHeader label="最近更新" field="updatedAt" active={filters.sortField} direction={filters.sortDirection} onSort={sortBy} />

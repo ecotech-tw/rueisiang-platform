@@ -6,7 +6,7 @@ import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 interface SyncStatus {
   configured: boolean;
   webhookConfigured: boolean;
-  customers: { total: number; synced: number; localOnly: number; failed: number };
+  customers: { total: number; synced: number; failed: number };
   lastSyncedAt: string | null;
   webhooks: { processed: number; failed: number; ignored: number; lastReceivedAt: string | null };
   recent: {
@@ -167,7 +167,6 @@ export function Sync() {
       <div className="stat-row">
         <div className="stat"><span>客戶總數</span><strong>{data.customers.total}</strong></div>
         <div className="stat"><span>已與官網同步</span><strong>{data.customers.synced}</strong></div>
-        <div className="stat"><span>僅存在本地</span><strong>{data.customers.localOnly}</strong></div>
         <div className="stat"><span>同步失敗</span><strong>{data.customers.failed}</strong></div>
       </div>
 

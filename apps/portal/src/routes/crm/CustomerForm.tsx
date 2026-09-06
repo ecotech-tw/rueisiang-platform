@@ -7,7 +7,6 @@ import {
 } from "../../lib/taiwan-address.js";
 import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
 import {
-  parseTags,
   useCreateCustomer,
   useTagOptions,
   useUpdateCustomer,
@@ -38,7 +37,7 @@ function fieldsOf(customer: Customer): Fields {
     name: customer.name,
     email: customer.email,
     address: customer.address,
-    tags: parseTags(customer.cyberbizTagsJson),
+    tags: customer.tags,
   };
 }
 

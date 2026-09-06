@@ -1,7 +1,7 @@
-import { and, asc, count, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizePhone } from "./phone.js";
-import { customers } from "./schema/crm.js";
+import { crmCustomerTags, crmTags, customers } from "./schema/crm.js";
 
 /**
  * 客戶列表的查詢。行為沿用舊 CRM 的 app/api/customers/route.ts：
@@ -12,7 +12,6 @@ import { customers } from "./schema/crm.js";
 const SORT_COLUMNS = {
   name: customers.name,
   phone: customers.phone,
-  sourceChannel: customers.sourceChannel,
   status: customers.status,
   createdAt: customers.createdAt,
   updatedAt: customers.updatedAt,
@@ -24,8 +23,6 @@ export const CUSTOMER_PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export interface CustomerQuery {
   search: string;
-  /** all／manual／cyberbiz */
-  channel: string;
   /** all／active／blocked */
   status: string;
   /** all 或某個標籤名稱 */
@@ -65,7 +62,6 @@ export interface CustomerDateFilters {
 export function defaultCustomerQuery(): CustomerQuery {
   return {
     search: "",
-    channel: "all",
     status: "all",
     tag: "all",
     page: 1,
@@ -91,7 +87,6 @@ export function normalizeCustomerQuery(
 
   return {
     search: typeof input.search === "string" ? input.search.trim() : defaults.search,
-    channel: input.channel === "manual" || input.channel === "cyberbiz" ? input.channel : defaults.channel,
     status: input.status === "active" || input.status === "blocked" ? input.status : defaults.status,
     tag: typeof input.tag === "string" && input.tag.trim() ? input.tag.trim() : defaults.tag,
     page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : defaults.page,
@@ -113,7 +108,7 @@ function buildWhere(query: CustomerQuery, dates: CustomerDateFilters): SQL | und
      * ——那是 CYBERBIZ 帶進來的原樣。只比對 phone 的話這種搜尋一定落空，
      * 所以把搜尋字串也正規化一次，去跟 normalized_phone 比。
      *
-     * 標籤存成 JSON 字串，也一併掃過去——使用者不會知道標籤跟其他欄位存法不同。
+     * 標籤是關聯表，也一併用 EXISTS 掃過去——使用者不需要知道資料怎麼拆表。
      */
     const digits = normalizePhone(query.search);
     conditions.push(
@@ -123,20 +118,28 @@ function buildWhere(query: CustomerQuery, dates: CustomerDateFilters): SQL | und
         like(customers.name, term),
         like(customers.email, term),
         like(customers.address, term),
-        like(customers.cyberbizTagsJson, term),
+        sql`EXISTS (
+          SELECT 1
+          FROM ${crmCustomerTags} AS customer_tag
+          JOIN ${crmTags} AS tag ON tag.id = customer_tag.crm_tag_id
+          WHERE customer_tag.customer_id = ${customers.id}
+            AND tag.name LIKE ${term}
+        )`,
       )!,
     );
   }
 
-  if (query.channel === "manual" || query.channel === "cyberbiz") {
-    conditions.push(eq(customers.sourceChannel, query.channel));
-  }
   if (query.status === "active" || query.status === "blocked") {
     conditions.push(eq(customers.status, query.status));
   }
   if (query.tag && query.tag !== "all") {
-    // 用 JSON.stringify 再去掉頭尾引號，讓標籤裡的引號與反斜線被正確跳脫。
-    conditions.push(like(customers.cyberbizTagsJson, `%${JSON.stringify(query.tag).slice(1, -1)}%`));
+    conditions.push(sql`EXISTS (
+      SELECT 1
+      FROM ${crmCustomerTags} AS customer_tag
+      JOIN ${crmTags} AS tag ON tag.id = customer_tag.crm_tag_id
+      WHERE customer_tag.customer_id = ${customers.id}
+        AND tag.name = ${query.tag}
+    )`);
   }
 
   if (dates.createdFrom) {
@@ -199,8 +202,24 @@ export async function listCustomers(
     db.select({ value: count() }).from(customers).where(where),
   ]);
 
+  const customerIds = rows.map((row) => row.id);
+  const tagRows = customerIds.length
+    ? await db
+      .select({ customerId: crmCustomerTags.customerId, name: crmTags.name })
+      .from(crmCustomerTags)
+      .innerJoin(crmTags, eq(crmTags.id, crmCustomerTags.crmTagId))
+      .where(inArray(crmCustomerTags.customerId, customerIds))
+      .orderBy(asc(crmTags.name))
+    : [];
+  const tagsByCustomer = new Map<string, string[]>();
+  for (const row of tagRows) {
+    const tags = tagsByCustomer.get(row.customerId) ?? [];
+    tags.push(row.name);
+    tagsByCustomer.set(row.customerId, tags);
+  }
+
   return {
-    customers: rows,
+    customers: rows.map((row) => ({ ...row, tags: tagsByCustomer.get(row.id) ?? [] })),
     total: totalRow?.value ?? 0,
     page: query.page,
     pageSize: query.pageSize,
