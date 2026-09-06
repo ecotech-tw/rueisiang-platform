@@ -22,6 +22,7 @@ function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): voi
 }
 
 const BEFORE = "0099_permission_grants_fk.sql";
+const BEFORE_ACTIVITY_RENAME = "0099_rename_payout_daily.sql";
 const RENAME = "0100_activity_entity_type_rename.sql";
 
 describe("0100 activity entity_type rename", () => {
@@ -68,8 +69,9 @@ describe("0100 activity entity_type rename", () => {
       VALUES ('evt-idempotent', 'inventory_item', 'item-1', 'test', 'migration test')
     `).run();
 
-    applyLikeD1(sqlite, BEFORE, RENAME);
-    applyLikeD1(sqlite, BEFORE, RENAME);
+    applyLikeD1(sqlite, BEFORE, BEFORE_ACTIVITY_RENAME);
+    applyLikeD1(sqlite, BEFORE_ACTIVITY_RENAME, RENAME);
+    applyLikeD1(sqlite, BEFORE_ACTIVITY_RENAME, RENAME);
 
     expect(sqlite.prepare("SELECT entity_type, entity_id FROM activity_events WHERE id = 'evt-idempotent'").get())
       .toEqual({ entity_type: "item", entity_id: "item-1" });
