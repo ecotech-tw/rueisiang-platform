@@ -146,6 +146,30 @@ R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要�
 兩種儲存都沒設定時，上傳照片會回「尚未設定照片儲存空間」，地圖與庫存不受影響。
 開通步驟見 `platform-deploy` skill 的 5.1。
 
+### Production smoke 與 CYBERBIZ webhook
+
+下列驗收需要正式帳號或 CYBERBIZ 後台權限，不能用本機 fixture 取代；完成後把結果留在
+對應 PR／deploy 紀錄，不要把登入 cookie 或外部 payload 貼進 repo。
+
+- [ ] WMS：登入正式站完成單一已連結品項同步與全部同步，確認數量、安全庫存、上次同步時間與操作紀錄。
+- [ ] CRM：登入正式站完成客戶列表、標籤與核准的測試客戶寫入 smoke test，確認 target tables 與 CYBERBIZ 回應一致。
+- [ ] CYBERBIZ：在後台確認實際啟用的會員、商品／庫存 Webhook Events、endpoint 與驗證設定；再以 production event log 對照是否有漏送。
+
+### 平台 schema 收尾
+
+下列 cleanup 要在確認所有 runtime consumer 都已切換、完成 parity 與正式 smoke test
+後，分別開 migration；不要為了縮短表數直接刪除仍被使用的 compatibility table。
+
+- [ ] Permission auth cutover：移除 `role_permissions`、`user_roles`、`user_permissions`
+      compatibility tables，改由 `role_permission_grants`、`user_role_assignments`、
+      `user_permission_grants` 作為唯一 runtime source。
+- [ ] Report runtime cutover：將出金／蝦皮設定與執行資料切換至 `scopes`／`report_runs`，
+      並完成舊表資料 parity。
+- [ ] 評估將 `report_payout_daily_target` 整理為正式的 `report_payout_daily` 名稱，
+      包含 runtime、migration 與 rollback 驗證。
+- [ ] 評估將 `cyberbiz_product_webhooks` 合併至 `cyberbiz_webhook_events`；需先改
+      webhook 接收、事件分類、重試與 retention 路徑。
+
 ## 出金表：它跑在哪、憑證從哪來
 
 出金表**不在 Worker 裡跑**。Worker 有執行時間上限，而這個流程要開瀏覽器登
