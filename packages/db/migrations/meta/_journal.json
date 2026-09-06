@@ -591,10 +591,10 @@
       "breakpoints": true
     },
     {
-      "idx": 99,
+      "idx": 100,
       "version": "6",
-      "when": 1788800000000,
-      "tag": "0099_rename_payout_daily",
+      "when": 1788810000000,
+      "tag": "0100_rename_payout_daily",
       "breakpoints": true
     }
   ]
