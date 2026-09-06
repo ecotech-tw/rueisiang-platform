@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, customers, userRoles, users } from "@rueisiang/db/schema";
+import { activityEvents, crmCustomers, userRoles, users } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -21,13 +21,13 @@ async function seedUser(email: string, roleId: string) {
 }
 
 async function seedCustomer(id: string, name: string, phone: string) {
-  await db().insert(customers).values({ id, name, phone, normalizedPhone: phone });
+  await db().insert(crmCustomers).values({ id, name, phone, normalizedPhone: phone });
 }
 
 async function seedEvent(input: {
   id: string;
   customerId: string;
-  /** 紀錄裡存的客戶名快照。搜尋姓名時比對的是它，不是 customers.name。 */
+  /** 紀錄裡存的客戶名快照。搜尋姓名時比對的是它，不是 crmCustomers.name。 */
   customerName?: string;
   summary: string;
   source?: string;

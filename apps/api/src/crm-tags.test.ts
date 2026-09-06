@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, crmCustomerTags, crmTags, customers, userRoles, users } from "@rueisiang/db/schema";
+import { activityEvents, crmCustomerTags, crmTags, crmCustomers, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -22,7 +22,7 @@ async function seedUser(email: string, roleId: string) {
 }
 
 async function seedCustomer(id: string, tags: string[], cyberbizId: string | null = null) {
-  await db().insert(customers).values({
+  await db().insert(crmCustomers).values({
     id,
     phone: `09${id.padStart(8, "0")}`,
     normalizedPhone: `09${id.padStart(8, "0")}`,
@@ -187,9 +187,9 @@ describe("改名與移除", () => {
   it("推不上 CYBERBIZ 的客戶不會被改掉本地，兩邊才不會不一致", async () => {
     const id = await seedUser("manager@ecotech.tw", "role-manager");
     await db()
-      .update(customers)
+      .update(crmCustomers)
       .set({ cyberbizCustomerId: "cb-1" })
-      .where(eq(customers.id, "1"));
+      .where(eq(crmCustomers.id, "1"));
 
     env = { ...env, CYBERBIZ_API_TOKEN: "token" };
     vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ error: "不給改" }), { status: 422 }));

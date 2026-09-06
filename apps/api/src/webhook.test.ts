@@ -1,5 +1,5 @@
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { customers, cyberbizCustomerWebhooks, cyberbizProductWebhooks } from "@rueisiang/db/schema";
+import { crmCustomers, cyberbizWebhookEvents, cyberbizProductWebhooks } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -108,7 +108,7 @@ describe("webhook 的處理", () => {
     const response = await post(body, { query });
 
     expect(await response.json()).toMatchObject({ status: "processed", action: "created" });
-    const [row] = await db().select().from(customers).where(eq(customers.cyberbizCustomerId, "cb-1"));
+    const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.cyberbizCustomerId, "cb-1"));
     expect(row?.name).toBe("王小明");
   });
 
@@ -118,7 +118,7 @@ describe("webhook 的處理", () => {
     const second = await post(body, { query });
 
     expect(await second.json()).toMatchObject({ status: "duplicate" });
-    expect(await db().select().from(customers)).toHaveLength(1);
+    expect(await db().select().from(crmCustomers)).toHaveLength(1);
   });
 
   it("非會員事件會記錄但不處理", async () => {
@@ -126,9 +126,9 @@ describe("webhook 的處理", () => {
     const response = await post(body, { query });
 
     expect(await response.json()).toMatchObject({ status: "ignored" });
-    expect(await db().select().from(customers)).toHaveLength(0);
+    expect(await db().select().from(crmCustomers)).toHaveLength(0);
     // 仍然留一筆紀錄，之後要查「到底有沒有收到」才有依據。
-    expect(await db().select().from(cyberbizCustomerWebhooks)).toHaveLength(1);
+    expect(await db().select().from(cyberbizWebhookEvents)).toHaveLength(1);
   });
 
   it("沒有會員 ID 的事件不會生出幽靈客戶", async () => {
@@ -136,14 +136,14 @@ describe("webhook 的處理", () => {
     const response = await post(body, { query });
 
     expect(await response.json()).toMatchObject({ status: "ignored" });
-    expect(await db().select().from(customers)).toHaveLength(0);
+    expect(await db().select().from(crmCustomers)).toHaveLength(0);
   });
 
   it("原始 payload 會存下來，事後補跑才有東西可跑", async () => {
     const body = JSON.stringify({ topic: "customers/create", customer: member });
     await post(body, { query });
 
-    const [event] = await db().select().from(cyberbizCustomerWebhooks);
+    const [event] = await db().select().from(cyberbizWebhookEvents);
     expect(event?.payloadJson).toBe(body);
     expect(event?.status).toBe("processed");
     expect(event?.cyberbizCustomerId).toBe("cb-1");
@@ -196,7 +196,7 @@ describe("處理失敗時", () => {
     // 仍然把重讀失敗的原因留著，看得出這一筆用的不是官網最新資料。
     expect(outcome.error).toContain("404");
 
-    const [row] = await db().select().from(customers).where(eq(customers.cyberbizCustomerId, "79797774"));
+    const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.cyberbizCustomerId, "79797774"));
     expect(row?.name).toBe("官網查不到但事件有帶");
   });
 
@@ -205,7 +205,7 @@ describe("處理失敗時", () => {
     const outcome = (await (await post(body, { query })).json()) as { status: string };
 
     expect(outcome.status).toBe("ignored");
-    expect(await db().select().from(customers)).toHaveLength(0);
+    expect(await db().select().from(crmCustomers)).toHaveLength(0);
   });
 
   it("沒有設 API token 時不重讀，直接用 payload 內容處理", async () => {
@@ -244,7 +244,7 @@ describe("不是會員的事件", () => {
     expect(outcome.status).toBe("ignored");
     expect(outcome.reason).toContain("商品");
     // 先前這裡會建出一位叫「★潤白養膚小皂」的客人。
-    expect(await db().select().from(customers)).toHaveLength(0);
+    expect(await db().select().from(crmCustomers)).toHaveLength(0);
   });
 
   /*
@@ -256,7 +256,7 @@ describe("不是會員的事件", () => {
   it("商品事件記在商品那張表，不是會員那張", async () => {
     await post(JSON.stringify(productEvent), { query });
 
-    expect(await db().select().from(cyberbizCustomerWebhooks)).toHaveLength(0);
+    expect(await db().select().from(cyberbizWebhookEvents)).toHaveLength(0);
 
     const [event] = await db().select().from(cyberbizProductWebhooks);
     expect(event?.variantId).toBe("75900635");
@@ -270,7 +270,7 @@ describe("不是會員的事件", () => {
     const outcome = (await response.json()) as { status: string; topic: string; reason?: string };
     expect(outcome.topic).toBe("unknown");
     expect(outcome.status).toBe("ignored");
-    expect(await db().select().from(customers)).toHaveLength(0);
+    expect(await db().select().from(crmCustomers)).toHaveLength(0);
   });
 
   it("payload 認得出是會員時，就算沒有 topic 標頭也會處理", async () => {

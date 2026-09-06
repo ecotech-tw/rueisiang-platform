@@ -2,7 +2,7 @@ import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { activityEvents } from "./schema/activity.js";
-import { crmCustomerTags, crmTags, customers } from "./schema/crm.js";
+import { crmCustomerTags, crmTags, crmCustomers } from "./schema/crm.js";
 
 /** 標籤字典與客戶身上的使用情形。客戶標籤只存在 crm_customer_tags。 */
 export interface TagRow {
@@ -17,11 +17,11 @@ export async function listTags(db: Database): Promise<TagRow[]> {
     .select({
       name: crmTags.name,
       customerCount: count(crmCustomerTags.customerId),
-      linkedCount: sql<number>`sum(case when ${customers.cyberbizCustomerId} is not null then 1 else 0 end)`,
+      linkedCount: sql<number>`sum(case when ${crmCustomers.cyberbizCustomerId} is not null then 1 else 0 end)`,
     })
     .from(crmTags)
     .leftJoin(crmCustomerTags, eq(crmCustomerTags.crmTagId, crmTags.id))
-    .leftJoin(customers, eq(customers.id, crmCustomerTags.customerId))
+    .leftJoin(crmCustomers, eq(crmCustomers.id, crmCustomerTags.customerId))
     .groupBy(crmTags.id, crmTags.name)
     .orderBy(asc(crmTags.name));
 
@@ -121,14 +121,14 @@ export async function applyTagChange(
 
   const candidates = await db
     .select({
-      id: customers.id,
-      name: customers.name,
-      cyberbizCustomerId: customers.cyberbizCustomerId,
+      id: crmCustomers.id,
+      name: crmCustomers.name,
+      cyberbizCustomerId: crmCustomers.cyberbizCustomerId,
     })
     .from(crmCustomerTags)
-    .innerJoin(customers, eq(customers.id, crmCustomerTags.customerId))
+    .innerJoin(crmCustomers, eq(crmCustomers.id, crmCustomerTags.customerId))
     .where(eq(crmCustomerTags.crmTagId, originalTag.id))
-    .orderBy(asc(customers.id))
+    .orderBy(asc(crmCustomers.id))
     .limit(limit + 1);
 
   const affected = candidates.slice(0, limit);

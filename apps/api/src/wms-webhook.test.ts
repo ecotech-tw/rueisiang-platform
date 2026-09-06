@@ -2,7 +2,7 @@ import { createDatabase, retryFailedProductWebhooks, syncSystemRoles } from "@ru
 import {
   activityEvents,
   cyberbizProductWebhooks,
-  customers,
+  crmCustomers,
   items,
   wmsCategories,
   wmsCyberbizLinks,
@@ -282,7 +282,7 @@ describe("不處理的", () => {
 
     expect(json).toMatchObject({ kind: "customer" });
     // 真的走完會員那條路：客戶建出來了，而且沒有污染商品那張表。
-    expect(await db().select().from(customers)).toHaveLength(1);
+    expect(await db().select().from(crmCustomers)).toHaveLength(1);
     expect(await db().select().from(cyberbizProductWebhooks)).toHaveLength(0);
   });
 
@@ -412,7 +412,7 @@ describe("一個網址的分派", () => {
     });
 
     expect(json).toMatchObject({ kind: "customer" });
-    expect(await db().select().from(customers)).toHaveLength(1);
+    expect(await db().select().from(crmCustomers)).toHaveLength(1);
   });
 
   /*

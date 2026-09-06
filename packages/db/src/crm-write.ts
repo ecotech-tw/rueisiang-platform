@@ -4,7 +4,7 @@ import { normalizePhone } from "./phone.js";
 import { activityRow } from "./activity.js";
 import { customerTagNames, replaceCustomerTags } from "./crm-tags.js";
 import { activityEvents } from "./schema/activity.js";
-import { crmCustomerTags, crmTags, customers } from "./schema/crm.js";
+import { crmCustomerTags, crmTags, crmCustomers } from "./schema/crm.js";
 
 /**
  * 客戶的寫入操作：新增、編輯、封鎖。
@@ -62,15 +62,15 @@ function writeEvent(
 
 export async function findCustomerByPhone(db: Database, phone: string) {
   const [row] = await db
-    .select({ id: customers.id, name: customers.name })
-    .from(customers)
-    .where(eq(customers.normalizedPhone, normalizePhone(phone)))
+    .select({ id: crmCustomers.id, name: crmCustomers.name })
+    .from(crmCustomers)
+    .where(eq(crmCustomers.normalizedPhone, normalizePhone(phone)))
     .limit(1);
   return row ?? null;
 }
 
 export async function findCustomer(db: Database, id: string): Promise<any | null> {
-  const [row] = await db.select().from(customers).where(eq(customers.id, id)).limit(1);
+  const [row] = await db.select().from(crmCustomers).where(eq(crmCustomers.id, id)).limit(1);
   if (!row) return null;
   const tags = await db
     .select({ name: crmTags.name })
@@ -98,7 +98,7 @@ export async function createCustomer(
   const linked = input.remote;
 
   await db.batch([
-    db.insert(customers).values({
+    db.insert(crmCustomers).values({
       id,
       phone: input.phone,
       normalizedPhone: normalizePhone(input.phone),
@@ -144,7 +144,7 @@ export async function updateCustomer(
 
   await db.batch([
     db
-      .update(customers)
+      .update(crmCustomers)
       .set({
         phone: input.phone,
         normalizedPhone: normalizePhone(input.phone),
@@ -154,7 +154,7 @@ export async function updateCustomer(
         ...(input.syncedToRemote ? { syncStatus: "synced", syncedAt: new Date().toISOString() } : {}),
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
-      .where(eq(customers.id, id)),
+      .where(eq(crmCustomers.id, id)),
     writeEvent(db, {
       customerId: id,
       customerName: input.name,
@@ -183,13 +183,13 @@ export async function setCustomerBlocked(
 
   await db.batch([
     db
-      .update(customers)
+      .update(crmCustomers)
       .set({
         status: blocked ? "blocked" : "active",
         blockedAt: blocked ? sql`CURRENT_TIMESTAMP` : null,
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
-      .where(eq(customers.id, id)),
+      .where(eq(crmCustomers.id, id)),
     writeEvent(db, {
       customerId: id,
       customerName: before.name,

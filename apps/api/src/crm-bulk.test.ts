@@ -1,6 +1,6 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
 import { createDatabase, upsertCyberbizCustomers } from "@rueisiang/db";
-import { activityEvents, crmCustomerTags, crmTags, customers } from "@rueisiang/db/schema";
+import { activityEvents, crmCustomerTags, crmTags, crmCustomers } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -34,7 +34,7 @@ function member(overrides: Partial<CyberbizCustomer> = {}): CyberbizCustomer {
 }
 
 async function row(externalId = "cb-1") {
-  const [found] = await db().select().from(customers).where(eq(customers.cyberbizCustomerId, externalId));
+  const [found] = await db().select().from(crmCustomers).where(eq(crmCustomers.cyberbizCustomerId, externalId));
   return found;
 }
 
@@ -50,14 +50,14 @@ describe("批次寫入", () => {
     ]);
 
     expect(summary).toEqual({ received: 2, written: 2, skipped: 0 });
-    expect(await db().select().from(customers)).toHaveLength(2);
+    expect(await db().select().from(crmCustomers)).toHaveLength(2);
   });
 
   it("沒有會員 ID 的略過，不會生出幽靈客戶", async () => {
     const summary = await upsertCyberbizCustomers(db(), [member(), member({ externalId: "" })]);
 
     expect(summary).toMatchObject({ received: 2, written: 1, skipped: 1 });
-    expect(await db().select().from(customers)).toHaveLength(1);
+    expect(await db().select().from(crmCustomers)).toHaveLength(1);
   });
 
   it("重跑同一批不會產生重複客戶", async () => {
@@ -65,7 +65,7 @@ describe("批次寫入", () => {
     await upsertCyberbizCustomers(db(), batch);
     await upsertCyberbizCustomers(db(), batch);
 
-    expect(await db().select().from(customers)).toHaveLength(2);
+    expect(await db().select().from(crmCustomers)).toHaveLength(2);
   });
 
   it("不寫操作紀錄——一次匯入上萬筆會把紀錄灌成雜訊", async () => {
@@ -117,9 +117,9 @@ describe("批次的合併規則與逐筆一致", () => {
 
   it("同步狀態會被修回 synced", async () => {
     await db()
-      .update(customers)
+      .update(crmCustomers)
       .set({ syncStatus: "failed" })
-      .where(eq(customers.cyberbizCustomerId, "cb-1"));
+      .where(eq(crmCustomers.cyberbizCustomerId, "cb-1"));
 
     await upsertCyberbizCustomers(db(), [member()]);
 

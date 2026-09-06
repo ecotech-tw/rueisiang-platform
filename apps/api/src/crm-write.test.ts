@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, customers, userRoles, users } from "@rueisiang/db/schema";
+import { activityEvents, crmCustomers, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -101,7 +101,7 @@ describe("新增客戶", () => {
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.url).toContain("/v1/customers");
 
-    const [row] = await db().select().from(customers);
+    const [row] = await db().select().from(crmCustomers);
     expect(row).toMatchObject({
       name: "王小明",
       cyberbizCustomerId: "cb-new",
@@ -156,7 +156,7 @@ describe("新增客戶", () => {
       district: "大安區",
     });
     // 本地仍然只存拼好的那一串。
-    const [row] = await db().select().from(customers);
+    const [row] = await db().select().from(crmCustomers);
     expect(row?.address).toBe("台北市大安區忠孝東路四段 1 號");
   });
 
@@ -171,7 +171,7 @@ describe("新增客戶", () => {
 
     expect(response.status).toBe(422);
     // 這是這個檔案最重要的一條：不要留下看起來同步過、實際上官網沒有的客戶。
-    expect(await db().select().from(customers)).toHaveLength(0);
+    expect(await db().select().from(crmCustomers)).toHaveLength(0);
   });
 
   it("沒有 CYBERBIZ 設定時不能建立本地客戶", async () => {
@@ -186,7 +186,7 @@ describe("新增客戶", () => {
 
     expect(response.status).toBe(409);
     expect(calls).toHaveLength(0);
-    expect(await db().select().from(customers)).toHaveLength(0);
+    expect(await db().select().from(crmCustomers)).toHaveLength(0);
   });
 
   it("電話重複時擋下來", async () => {
@@ -237,7 +237,7 @@ describe("新增客戶", () => {
 
 describe("編輯客戶", () => {
   async function seedLinked() {
-    await db().insert(customers).values({
+    await db().insert(crmCustomers).values({
       id: "c1",
       phone: "0912345678",
       normalizedPhone: "0912345678",
@@ -260,7 +260,7 @@ describe("編輯客戶", () => {
     // 先 GET 讀現況（地址沒改時要把官網原本的欄位原樣送回去），第二支才是寫入。
     expect(calls[0]?.method).toBe("GET");
     expect(calls[1]?.method).toBe("PUT");
-    const [row] = await db().select().from(customers).where(eq(customers.id, "c1"));
+    const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.id, "c1"));
     expect(row?.name).toBe("改過的名字");
   });
 
@@ -275,13 +275,13 @@ describe("編輯客戶", () => {
     });
 
     expect(response.status).toBeGreaterThanOrEqual(400);
-    const [row] = await db().select().from(customers).where(eq(customers.id, "c1"));
+    const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.id, "c1"));
     expect(row?.name).toBe("原本的名字");
   });
 
   it("沒有連結官網的客戶只改本地", async () => {
     const calls = stubCyberbiz();
-    await db().insert(customers).values({
+    await db().insert(crmCustomers).values({
       id: "c2",
       phone: "0922333444",
       normalizedPhone: "0922333444",
@@ -295,14 +295,14 @@ describe("編輯客戶", () => {
     });
 
     expect(calls).toHaveLength(0);
-    const [row] = await db().select().from(customers).where(eq(customers.id, "c2"));
+    const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.id, "c2"));
     expect(row?.name).toBe("改過了");
   });
 
   it("換成別人已經在用的電話會被擋下", async () => {
     stubCyberbiz();
     await seedLinked();
-    await db().insert(customers).values({
+    await db().insert(crmCustomers).values({
       id: "c2",
       phone: "0922333444",
       normalizedPhone: "0922333444",
@@ -330,7 +330,7 @@ describe("編輯客戶", () => {
 
 describe("封鎖客戶", () => {
   beforeEach(async () => {
-    await db().insert(customers).values({
+    await db().insert(crmCustomers).values({
       id: "c1",
       phone: "0912345678",
       normalizedPhone: "0912345678",
@@ -351,7 +351,7 @@ describe("封鎖客戶", () => {
     expect(response.status).toBe(200);
     // 官網沒有 blocked 欄位，停權是改 status。
     expect(calls[0]?.body).toEqual({ status: "disabled" });
-    const [row] = await db().select().from(customers).where(eq(customers.id, "c1"));
+    const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.id, "c1"));
     expect(row?.status).toBe("blocked");
     expect(row?.blockedAt).toBeTruthy();
   });
@@ -368,7 +368,7 @@ describe("封鎖客戶", () => {
       body: JSON.stringify({ blocked: false }),
     });
 
-    const [row] = await db().select().from(customers).where(eq(customers.id, "c1"));
+    const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.id, "c1"));
     expect(row?.status).toBe("active");
     expect(row?.blockedAt).toBeNull();
   });

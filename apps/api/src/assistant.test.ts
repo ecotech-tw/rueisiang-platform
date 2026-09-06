@@ -11,7 +11,7 @@ import {
   assistantSandboxMessages,
   crmCustomerTags,
   crmTags,
-  customers,
+  crmCustomers,
   items,
   wmsItems,
   wmsLayoutElements,
@@ -308,7 +308,7 @@ function db() {
 
 describe("小香的客戶搜尋工具", () => {
   it("回傳整個資料庫的統計，不是這次篩選的結果", async () => {
-    await db().insert(customers).values([
+    await db().insert(crmCustomers).values([
       { id: "tool-1", phone: "0911000001", normalizedPhone: "0911000001", name: "有資料的客戶", address: "台南市", status: "active" },
       { id: "tool-2", phone: "0911000002", normalizedPhone: "0911000002", name: "", address: "", status: "active" },
       { id: "tool-3", phone: "0911000003", normalizedPhone: "0911000003", name: "停權客戶", address: "高雄市", status: "blocked" },
@@ -1068,7 +1068,7 @@ describe("AI 助理 Sandbox", () => {
 
   it("Sandbox 可以透過共用 registry 查詢 CRM 客戶與背景", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
-    await db().insert(customers).values({
+    await db().insert(crmCustomers).values({
       id: "crm-customer-1",
       phone: "0912-345-678",
       normalizedPhone: "0912345678",
@@ -1081,7 +1081,7 @@ describe("AI 助理 Sandbox", () => {
       createdAt: "2026-08-20 16:30:00",
       updatedAt: "2026-08-20 16:30:00",
     });
-    await db().insert(customers).values({
+    await db().insert(crmCustomers).values({
       id: "crm-customer-2",
       phone: "0922-345-678",
       normalizedPhone: "0922345678",
@@ -1164,7 +1164,7 @@ describe("AI 助理 Sandbox", () => {
 
   it("Sandbox 可以即時查詢 CYBERBIZ 客戶訂單並只回傳整理後的資料", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
-    await db().insert(customers).values({
+    await db().insert(crmCustomers).values({
       id: "crm-customer-order-1",
       phone: "0912-345-678",
       normalizedPhone: "0912345678",
@@ -1228,7 +1228,7 @@ describe("AI 助理 Sandbox", () => {
 
   it("沒有搜尋條件時使用 CYBERBIZ customer orders endpoint 並套用 limit", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
-    await db().insert(customers).values({
+    await db().insert(crmCustomers).values({
       id: "crm-customer-order-direct-1",
       phone: "0912-345-678",
       normalizedPhone: "0912345678",

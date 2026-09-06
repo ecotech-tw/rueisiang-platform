@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { crmCustomerTags, crmTags, customers, userRoles, users } from "@rueisiang/db/schema";
+import { crmCustomerTags, crmTags, crmCustomers, userRoles, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -21,9 +21,9 @@ async function seedUser(email: string, roleId: string) {
   return id;
 }
 
-async function seedCustomer(input: Partial<typeof customers.$inferInsert> & { id: string; phone: string; tags?: string[] }) {
+async function seedCustomer(input: Partial<typeof crmCustomers.$inferInsert> & { id: string; phone: string; tags?: string[] }) {
   const { tags = [], ...customer } = input;
-  await db().insert(customers).values({ normalizedPhone: input.phone.replace(/\D/g, ""), ...customer });
+  await db().insert(crmCustomers).values({ normalizedPhone: input.phone.replace(/\D/g, ""), ...customer });
   for (const name of tags) {
     const tagId = `tag-${name}`;
     await db().insert(crmTags).values({ id: tagId, name }).onConflictDoNothing();
