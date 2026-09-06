@@ -70,6 +70,10 @@ export async function processCustomerWebhook(
     id: eventId,
     topic,
     status: "processing",
+    // entityType 是目標形狀（會員與商品事件共用一張表）的分辨欄位。商品那邊還在
+    // cyberbiz_product_webhooks，但這裡先寫對，那一欄才有可信度。
+    entityType: "customer",
+    externalEntityId: incoming.externalId || null,
     cyberbizCustomerId: incoming.externalId || null,
     payloadJson: rawBody,
   });
