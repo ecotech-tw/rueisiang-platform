@@ -336,6 +336,8 @@ export const wms = new Hono<AppEnv>()
       page: Number.isFinite(page) && page > 0 ? Math.floor(page) : 1,
       pageSize: [25, 50, 100].includes(size) ? size : 25,
     });
+    // 操作紀錄是即時稽核資料，不應被瀏覽器、CDN 或中間層留住舊頁。
+    c.header("Cache-Control", "no-store");
     return c.json(result);
   })
 

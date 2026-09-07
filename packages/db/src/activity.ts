@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, like, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 
@@ -190,8 +190,13 @@ export async function listActivity(db: Database, query: ActivityQuery): Promise<
     })
     .from(activityEvents)
     .where(where)
-    // id 當第二排序鍵：同一秒寫入的多筆順序才穩定，翻頁不會重複或漏。
-    .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
+    // D1 的 CURRENT_TIMESTAMP 只有秒；julianday 同時吃得下既有的
+    // `YYYY-MM-DD HH:mm:ss` 與新資料可能使用的 ISO timestamp。rowid 作為同秒
+    // 的最後順序鍵，比 UUID v4 更接近實際寫入順序，翻頁也不會因隨機 id 漂移。
+    .orderBy(
+      desc(sql`julianday(${activityEvents.createdAt})`),
+      desc(sql`rowid`),
+    )
     .limit(query.pageSize + 1)
     .offset((query.page - 1) * query.pageSize);
 
