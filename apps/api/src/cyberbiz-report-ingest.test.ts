@@ -24,12 +24,35 @@ const TOKEN = "report-ingest-secret";
 let d1: ReturnType<typeof createTargetOnlyD1>;
 const db = () => createDatabase(d1 as never);
 
-function request(body: unknown, token = TOKEN) {
+function d1WithSqlVariableLimit(limit: number) {
+  return {
+    ...d1,
+    prepare(query: string) {
+      const statement = d1.prepare(query);
+      return {
+        ...statement,
+        bind(...values: unknown[]) {
+          if (values.length > limit) throw new Error(`too many SQL variables in test: ${values.length}`);
+          return statement.bind(...values);
+        },
+        all: statement.all.bind(statement),
+        run: statement.run.bind(statement),
+        first: statement.first.bind(statement),
+        raw: statement.raw.bind(statement),
+      };
+    },
+    batch: d1.batch.bind(d1),
+    exec: d1.exec.bind(d1),
+    dump: d1.dump.bind(d1),
+  };
+}
+
+function request(body: unknown, token = TOKEN, database: unknown = d1) {
   return app.fetch(new Request("https://platform.example.test/api/internal/cyberbiz-reports/ingest", {
     method: "POST",
     headers: { "content-type": "application/json", "x-cyberbiz-report-token": token },
     body: JSON.stringify(body),
-  }), { DB: d1, CYBERBIZ_REPORT_INGEST_TOKEN: TOKEN } as never);
+  }), { DB: database, CYBERBIZ_REPORT_INGEST_TOKEN: TOKEN } as never);
 }
 
 function salesBody(rows: unknown[], reportMonth = "2026-07", scopeId = "cyberbiz:store:a", scopeName = "測試店", salesWriteMode?: "replace" | "merge") {
@@ -175,17 +198,33 @@ describe("target 報表月資料匯入", () => {
     expect(await db().select({ status: reportRuns.status }).from(reportRuns)).toEqual([{ status: "failed" }]);
   });
 
-  it("大量 SKU 匯入會分批查 item，避免超過 D1 SQL variables 上限", async () => {
+  it("大量 SKU 匯入會分批查 item 與寫入銷售，避免超過 D1 SQL variables 上限", async () => {
     const rows = Array.from({ length: 140 }, (_, index) => {
       const sku = `BULK-${String(index).padStart(3, "0")}`;
       return { sku, productId: `p-${index}`, variantId: `v-${index}`, productName: `大量商品 ${index}` };
     });
     await syncCyberbizProducts(db(), rows);
 
-    const response = await request(salesBody(rows.map((row) => salesRow(row.sku, 10)), "2026-10"));
+    const response = await request(salesBody(rows.map((row) => salesRow(row.sku, 10)), "2026-10"), TOKEN, d1WithSqlVariableLimit(100));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ result: { rowCount: 140, skippedSkus: [] } });
+  });
+
+  it("大量出金日資料會分批寫入，避免超過 D1 SQL variables 上限", async () => {
+    const response = await request({
+      kind: "payout",
+      scopeType: "store",
+      scopeId: "cyberbiz:store:a",
+      scopeName: "測試店",
+      rows: Array.from({ length: 31 }, (_, index) => ({
+        businessDate: `2026-10-${String(index + 1).padStart(2, "0")}`,
+        payoutAmount: 100 + index,
+      })),
+    }, TOKEN, d1WithSqlVariableLimit(100));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { kind: "payout", rowCount: 31 } });
   });
 
   it("target-only database 沒有 legacy 報表表名，匯入仍可完成", async () => {
