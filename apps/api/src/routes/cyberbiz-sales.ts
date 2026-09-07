@@ -5,7 +5,7 @@ import type { AppEnv } from "../env.js";
 import { requirePermission } from "../middleware/auth.js";
 import { body } from "../request.js";
 import { cyberbizSalesGithub } from "../cyberbiz-sales/github.js";
-import { cyberbizScopeIdFromStoreName, runnerStores } from "../cyberbiz-scope.js";
+import { runnerStores } from "../cyberbiz-scope.js";
 
 function isValidDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -50,7 +50,7 @@ export const cyberbizSales = new Hono<AppEnv>()
     const runs = await listCyberbizReportRuns(c.get("db"), "sales", 10);
     const range = previousMonthRange();
     return c.json({
-      stores: stores.map((store) => ({ name: store.name, scopeId: cyberbizScopeIdFromStoreName(store.name), folder: store.driveFolderName, folderUrl: store.driveFolderUrl })),
+      stores: stores.map((store) => ({ name: store.name, scopeId: store.id, folder: store.driveFolderName, folderUrl: store.driveFolderUrl })),
       defaultStart: range.start,
       defaultEnd: range.end,
       configured: Boolean(cyberbizSalesGithub(c.env)),
@@ -92,7 +92,7 @@ export const cyberbizSales = new Hono<AppEnv>()
       reportKind: "sales",
       periodKind: periodKind(start, end),
       stores,
-      scopeIds: stores.map(cyberbizScopeIdFromStoreName),
+      scopeIds: configuredStores.filter((store) => stores.includes(store.name)).map((store) => store.id),
       startDate: start,
       endDate: end,
       actor: c.get("user"),

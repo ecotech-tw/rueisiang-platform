@@ -29,6 +29,15 @@ SELECT normalized_name, COUNT(*) AS n FROM scopes GROUP BY 1 HAVING n > 1;
 
 SELECT COUNT(*) AS with_drive FROM scopes WHERE drive_folder_url <> '';
 
+SELECT '=== 0111 payout stores removed ===' AS q;
+-- 舊表應已移除，結果應為 0 列；CYBERBIZ 實體店別改由 scopes 承載。
+SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'payout_stores';
+SELECT COUNT(*) AS runnable_cyberbiz_stores
+FROM scopes
+WHERE source_type = 'cyberbiz'
+  AND scope_kind = 'store'
+  AND id NOT LIKE 'manual:%';
+
 SELECT '=== items ===' AS q;
 -- SKU 是全平台唯一，結果應為 0 列。
 SELECT sku, COUNT(*) AS n FROM items GROUP BY 1 HAVING n > 1;

@@ -1,13 +1,6 @@
-/**
- * 將店名轉成 runner／Worker 間穩定一致且帶有通路前綴的 scopeId。
- * 店名仍是人看的名稱；AI 查詢使用店名，避免讓使用者接觸內部 ID。
- */
-export function cyberbizScopeIdFromStoreName(name: string): string {
-  const bytes = new TextEncoder().encode(name);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return `cyberbiz:store:${btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")}`.slice(0, 100);
-}
+import { cyberbizScopeIdFromStoreName } from "@rueisiang/db";
+
+export { cyberbizScopeIdFromStoreName };
 
 const MANUAL_SCOPE_PREFIX = "manual:store:";
 const MAX_SCOPE_ID_LENGTH = 100;
@@ -53,9 +46,9 @@ export function manualScopeIdFromStoreName(name: string): string {
  * scopeId 一起帶過去：runner 舊版是自己從店名算（base64url），等於同一條規則
  * 寫在兩個 repo 的兩個語言裡。
  */
-export function runnerStores(stores: Array<{ name: string; driveFolderUrl: string; driveFolderName: string }>) {
-  return stores.map(({ name, driveFolderUrl, driveFolderName }) => ({
-    scopeId: cyberbizScopeIdFromStoreName(name),
+export function runnerStores(stores: Array<{ id?: string; scopeId?: string; name: string; driveFolderUrl: string; driveFolderName: string }>) {
+  return stores.map(({ id, scopeId, name, driveFolderUrl, driveFolderName }) => ({
+    scopeId: scopeId ?? id ?? cyberbizScopeIdFromStoreName(name),
     name,
     driveFolderUrl,
     driveFolderName,

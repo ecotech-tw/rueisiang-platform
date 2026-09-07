@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, listPayoutRuns, listPayoutStores, seedPayoutStores, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
-import { payoutStores, reportRuns, scopes, reportPayoutDaily, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { reportRuns, scopes, reportPayoutDaily, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -92,15 +92,21 @@ afterEach(() => {
 
 describe("店別種子", () => {
   it("空的時候塞入正式在跑的九家店", async () => {
-    expect(await db().select().from(payoutStores)).toHaveLength(9);
+    expect(await listPayoutStores(db())).toHaveLength(9);
   });
 
   it("已經有資料就完全不動——那是同仁自己維護的東西", async () => {
-    await db().delete(payoutStores);
-    await db().insert(payoutStores).values({ id: "s1", name: "只有這一家" });
+    await db().delete(scopes).where(eq(scopes.sourceType, "cyberbiz"));
+    await db().insert(scopes).values({
+      id: cyberbizScopeIdFromStoreName("只有這一家"),
+      sourceType: "cyberbiz",
+      scopeKind: "store",
+      name: "只有這一家",
+      normalizedName: "只有這一家",
+    });
 
     await seedPayoutStores(db());
-    const rows = await db().select().from(payoutStores);
+    const rows = await listPayoutStores(db());
     expect(rows.map((row) => row.name)).toEqual(["只有這一家"]);
   });
 
@@ -113,7 +119,7 @@ describe("執行", () => {
   it("全部店別送出 store=全部，並帶上識別碼", async () => {
     const calls = stubGithub();
     const id = await seedUser("manager@ecotech.tw", "role-manager");
-    const names = (await db().select().from(payoutStores)).map((row) => row.name);
+    const names = (await listPayoutStores(db())).map((row) => row.name);
 
     const response = await as(id, "manager@ecotech.tw", "/api/tools/payout/run", {
       method: "POST",
@@ -282,7 +288,7 @@ describe("執行", () => {
 
   it("關閉的店別不會出現在執行頁，也不能被 API 繞過", async () => {
     const [hidden] = await listPayoutStores(db());
-    await db().update(payoutStores).set({ enabled: false }).where(eq(payoutStores.id, hidden!.id));
+    await db().update(scopes).set({ active: 0 }).where(eq(scopes.id, hidden!.id));
     const id = await seedUser("manager@ecotech.tw", "role-manager");
 
     const state = await as(id, "manager@ecotech.tw", "/api/tools/payout/state");
@@ -299,7 +305,7 @@ describe("執行", () => {
   it("全選啟用店別時不會把隱藏店送給 runner", async () => {
     const calls = stubGithub();
     const [hidden] = await listPayoutStores(db());
-    await db().update(payoutStores).set({ enabled: false }).where(eq(payoutStores.id, hidden!.id));
+    await db().update(scopes).set({ active: 0 }).where(eq(scopes.id, hidden!.id));
     const id = await seedUser("manager@ecotech.tw", "role-manager");
     const names = (await listPayoutStores(db(), { enabledOnly: true })).map((store) => store.name);
 
@@ -414,7 +420,7 @@ describe("手動上傳出金", () => {
     });
 
     expect(response.status).toBe(400);
-    expect((await db().select().from(scopes)).some((scope) => scope.id !== "company")).toBe(false);
+    expect((await db().select().from(scopes)).some((scope) => scope.name === "不應建立")).toBe(false);
     expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
   });
 
@@ -436,7 +442,7 @@ describe("手動上傳出金", () => {
     expect((await db().select().from(reportPayoutDaily))[0]?.scopeId).toBe(result.scopeId);
 
     const scopes = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout/scopes");
-    expect((await scopes.json()) as { scopes: { id: string }[] }).toEqual({ scopes: [{ id: result.scopeId, name: "退租店" }] });
+    expect(((await scopes.json()) as { scopes: { id: string }[] }).scopes).toContainEqual({ id: result.scopeId, name: "退租店" });
   });
 
   it("新建據點名稱撞到既有據點時擋下來，不另外建立同名 scope", async () => {
@@ -520,6 +526,27 @@ describe("店別設定", () => {
     expect(body.stores.map((store) => store.name)).toEqual(["乙店", "甲店"]);
   });
 
+  it("整組換掉不會停用或刪掉手動退租店", async () => {
+    await db().insert(scopes).values({
+      id: manualScopeIdFromStoreName("退租店"),
+      sourceType: "cyberbiz",
+      scopeKind: "store",
+      name: "退租店",
+      normalizedName: "退租店",
+      active: 1,
+    });
+    const id = await seedUser("eli@ecotech.tw", "role-admin");
+    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
+      method: "PUT",
+      body: JSON.stringify({ stores: TWO_STORES }),
+    });
+
+    expect(response.status).toBe(200);
+    const [manual] = await db().select({ active: scopes.active, name: scopes.name }).from(scopes)
+      .where(eq(scopes.id, manualScopeIdFromStoreName("退租店")));
+    expect(manual).toEqual({ active: 1, name: "退租店" });
+  });
+
 
 
 
@@ -541,7 +568,7 @@ describe("店別設定", () => {
     expect(response.status).toBe(400);
 
     // 擋下來就不能動到原本的九家，也不該去碰 repo。
-    expect(await db().select().from(payoutStores)).toHaveLength(9);
+    expect(await listPayoutStores(db())).toHaveLength(9);
     expect(calls).toHaveLength(0);
   });
 

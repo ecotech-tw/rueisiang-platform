@@ -126,8 +126,9 @@ function readStores(input: Record<string, unknown>): PayoutStoreInput[] {
     const store = (raw ?? {}) as Record<string, unknown>;
     const name = typeof store.name === "string" ? store.name.trim() : "";
     if (!name) throw new HTTPException(400, { message: `第 ${index + 1} 家店沒有填店名。` });
-    if (seen.has(name)) throw new HTTPException(400, { message: `店名重複：${name}` });
-    seen.add(name);
+    const normalizedName = normalizeReportScopeName(name);
+    if (seen.has(normalizedName)) throw new HTTPException(400, { message: `店名重複：${name}` });
+    seen.add(normalizedName);
 
     const url = typeof store.driveFolderUrl === "string" ? store.driveFolderUrl.trim() : "";
     // 空的允許（還沒建資料夾），但填了就要真的是 Drive 資料夾連結——
@@ -160,7 +161,8 @@ function assertStoreNameAvailable(
   candidate: PayoutStoreInput,
   id?: string,
 ): void {
-  if (stores.some((store) => store.id !== id && store.name === candidate.name)) {
+  const normalizedName = normalizeReportScopeName(candidate.name);
+  if (stores.some((store) => store.id !== id && normalizeReportScopeName(store.name) === normalizedName)) {
     throw new HTTPException(400, { message: `店名重複：${candidate.name}` });
   }
 }
@@ -548,7 +550,7 @@ export const tools = new Hono<AppEnv>()
     return c.json({
       stores: stores.map((store) => ({
         name: store.name,
-        scopeId: cyberbizScopeIdFromStoreName(store.name),
+        scopeId: store.id,
         folder: store.driveFolderName,
         // 連結帶出去，執行頁就能直接點進 Drive 看跑出來的檔案。
         folderUrl: store.driveFolderUrl,
@@ -616,7 +618,7 @@ export const tools = new Hono<AppEnv>()
     await recordPayoutRun(c.get("db"), {
       requestId,
       stores: requested,
-      scopeIds: requested.map(cyberbizScopeIdFromStoreName),
+      scopeIds: configuredStores.filter((store) => requested.includes(store.name)).map((store) => store.id),
       periodKind: isCompleteMonth(start, end) ? "month" : "custom",
       startDate: start,
       endDate: end,

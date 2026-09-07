@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, insertReportSalesMonthly, listCyberbizReportRuns, listPayoutStores, listReportScopes, seedPayoutStores, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
-import { cyberbizProductCatalog, items, payoutStores, reportExternalProducts, reportItemSalesMonthly, userRoleAssignments, users, wmsItems } from "@rueisiang/db/schema";
+import { cyberbizProductCatalog, items, reportExternalProducts, reportItemSalesMonthly, scopes, userRoleAssignments, users, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -144,7 +144,7 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
 
   it("關閉的店別不會出現在商品銷售執行頁，也不能被 API 繞過", async () => {
     const [hidden] = await listPayoutStores(db());
-    await db().update(payoutStores).set({ enabled: false }).where(eq(payoutStores.id, hidden!.id));
+    await db().update(scopes).set({ active: 0 }).where(eq(scopes.id, hidden!.id));
     const id = await seedUser("manager@ecotech.tw", "role-manager");
 
     const state = await as(id, "manager@ecotech.tw", "/api/tools/cyberbiz-sales/state");
@@ -336,9 +336,9 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
       }),
     });
     expect(second.status).toBe(400);
-    expect(await listReportScopes(db(), "store")).toEqual([
+    expect(await listReportScopes(db(), "store")).toContainEqual(
       expect.objectContaining({ id: firstBody.scopeId, name: "原本的店" }),
-    ]);
+    );
     expect((await reportSalesRows()).map((row) => row.netQuantity)).toEqual([1]);
   });
   it("新建據點名稱撞到既有據點時擋下來，不會覆寫那家店當月的匯入資料", async () => {
@@ -369,7 +369,7 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: expect.stringContaining("已經有名為「中友百貨」的據點") });
-    expect(await listReportScopes(db(), "store")).toEqual([expect.objectContaining({ id: importedScopeId })]);
+    expect(await listReportScopes(db(), "store")).toContainEqual(expect.objectContaining({ id: importedScopeId }));
     expect((await reportSalesRows()).map((row) => [row.scopeId, row.salesAmount])).toEqual([
       [importedScopeId, 99999],
     ]);
