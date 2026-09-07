@@ -86,9 +86,9 @@ async function ensureTargetSalesItems(
   createMissing: boolean,
 ): Promise<Map<string, string>> {
   const wanted = [...new Set(rows.map((row) => row.sku.trim().toLowerCase()).filter(Boolean))];
-  const found = wanted.length
-    ? await db.all<{ id: string; source: string; sku: string }>(sql`SELECT id, source, sku FROM items WHERE lower(sku) IN (${sql.join(wanted.map((sku) => sql`${sku}`), sql`, `)})`)
-    : [];
+  const found = (await Promise.all(chunks(wanted, 50).map((batch) => db.all<{ id: string; source: string; sku: string }>(
+    sql`SELECT id, source, sku FROM items WHERE lower(sku) IN (${sql.join(batch.map((sku) => sql`${sku}`), sql`, `)})`,
+  )))).flat();
   const bySku = new Map<string, { id: string; source: string }>();
   for (const item of found) {
     const key = item.sku.toLowerCase();
@@ -98,9 +98,9 @@ async function ensureTargetSalesItems(
   }
 
   const categoryNames = [...new Set(rows.map((row) => (row.category ?? "").trim()).filter((category) => category && category !== "未分類"))];
-  const categories = categoryNames.length
-    ? await db.select({ id: itemCategories.id, name: itemCategories.name }).from(itemCategories).where(inArray(itemCategories.name, categoryNames))
-    : [];
+  const categories = (await Promise.all(chunks(categoryNames, 50).map((batch) => db.select({ id: itemCategories.id, name: itemCategories.name })
+    .from(itemCategories)
+    .where(inArray(itemCategories.name, batch))))).flat();
   const categoryByName = new Map(categories.map((category) => [category.name, category.id]));
   if (createMissing) for (const row of rows) {
     const sku = row.sku.trim();
