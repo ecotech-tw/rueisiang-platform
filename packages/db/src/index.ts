@@ -408,6 +408,7 @@ export {
   linkItemToCyberbiz,
   listCompanyLinks,
   recordCyberbizSyncFailed,
+  recordCyberbizSyncSucceeded,
   type LinkedItem,
   type RemoteItem,
   type SyncOutcome,

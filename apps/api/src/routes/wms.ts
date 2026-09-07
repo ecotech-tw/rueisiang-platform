@@ -25,6 +25,7 @@ import {
   listCompanyLinks,
   loadWarehouse,
   recordCyberbizSyncFailed,
+  recordCyberbizSyncSucceeded,
   recordMediaObject,
   updateWarehouseCategory,
   updateItem,
@@ -559,6 +560,12 @@ export const wms = new Hono<AppEnv>()
         variantId: mine.cyberbizVariantId,
         sku: mine.linkedSku,
         targetQuantity: result.quantity,
+      });
+      await recordCyberbizSyncSucceeded(c.get("db"), {
+        inventoryItemId: id,
+        label: mine.itemSku ? `${mine.itemSku} ${mine.itemName}` : mine.itemName,
+        actor,
+        quantity: result.quantity,
       });
       // 數量同步結果由 activity_events 保存；target schema 不再維護另一份 link 狀態。
       // 官網那邊的數字變了，快取的目錄就過期了。不清掉的話後續目錄查詢

@@ -185,6 +185,23 @@ export async function linkItemToCyberbiz(
   return { id: input.inventoryItemId };
 }
 
+export async function recordCyberbizSyncSucceeded(
+  db: Database,
+  context: { inventoryItemId: string; label: string; actor: { id: string; email: string }; quantity: number },
+): Promise<void> {
+  await db.insert(activityEvents).values(activityRow({
+    entityType: "item",
+    entityId: context.inventoryItemId,
+    entityLabel: context.label,
+    eventType: "cyberbiz_pushed",
+    summary: "盤點數量已推上 CYBERBIZ",
+    field: "quantity",
+    newValue: String(context.quantity),
+    source: "cyberbiz_sync",
+    actor: context.actor,
+  }));
+}
+
 export async function recordCyberbizSyncFailed(
   db: Database,
   context: { inventoryItemId: string; label: string; actor: { id: string; email: string }; error: string },
