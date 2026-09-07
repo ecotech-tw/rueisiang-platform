@@ -121,6 +121,20 @@ describe("webhook 的處理", () => {
     expect(await db().select().from(crmCustomers)).toHaveLength(1);
   });
 
+  it("同一個事件同時重送不會因去重競爭變成 500", async () => {
+    const body = JSON.stringify({ topic: "customers/create", customer: { ...member, id: "cb-race" } });
+    const responses = await Promise.all([
+      post(body, { query }),
+      post(body, { query }),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    const outcomes = await Promise.all(responses.map((response) => response.json() as Promise<{ status: string }>));
+    expect(outcomes.filter((outcome) => outcome.status === "processed")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "duplicate")).toHaveLength(1);
+    expect(await db().select().from(crmCustomers)).toHaveLength(1);
+  });
+
   it("非會員事件會記錄但不處理", async () => {
     const body = JSON.stringify({ topic: "orders/create", order: { id: 1 } });
     const response = await post(body, { query });

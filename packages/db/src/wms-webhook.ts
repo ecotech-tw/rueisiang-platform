@@ -79,15 +79,7 @@ export async function processProductWebhook(
 
   const eventId = await createWebhookEventId(topic, rawBody);
   const event = parseProductEvent(payload);
-
-  const [duplicate] = await db
-    .select({ status: cyberbizProductWebhooks.status })
-    .from(cyberbizProductWebhooks)
-    .where(eq(cyberbizProductWebhooks.id, eventId))
-    .limit(1);
-  if (duplicate) return { eventId, topic, status: "duplicate", reason: duplicate.status };
-
-  await db.insert(cyberbizProductWebhooks).values({
+  const inserted = await db.insert(cyberbizProductWebhooks).values({
     id: eventId,
     topic,
     productId: event.productId || null,
@@ -96,7 +88,18 @@ export async function processProductWebhook(
     quantity: event.quantity,
     payloadHash: eventId,
     status: "processing",
-  });
+  }).onConflictDoNothing();
+
+  // 會員 webhook 與這條商品 webhook 都可能被 CYBERBIZ 同時重送；insert 本身才是 claim。
+  if ((inserted.meta?.changes ?? 0) === 0) {
+    const [duplicate] = await db
+      .select({ status: cyberbizProductWebhooks.status })
+      .from(cyberbizProductWebhooks)
+      .where(eq(cyberbizProductWebhooks.id, eventId))
+      .limit(1);
+    if (!duplicate) throw new Error("商品 webhook 去重後找不到既有事件。");
+    return { eventId, topic, status: "duplicate", reason: duplicate.status };
+  }
 
   try {
     /*

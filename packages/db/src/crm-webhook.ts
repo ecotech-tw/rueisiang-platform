@@ -57,16 +57,8 @@ export async function processCustomerWebhook(
   }
 
   const eventId = await createWebhookEventId(topic, rawBody);
-
-  const [duplicate] = await db
-    .select({ status: cyberbizWebhookEvents.status })
-    .from(cyberbizWebhookEvents)
-    .where(eq(cyberbizWebhookEvents.id, eventId))
-    .limit(1);
-  if (duplicate) return { eventId, topic, status: "duplicate", reason: duplicate.status };
-
   let incoming = parseCyberbizCustomer(payload);
-  await db.insert(cyberbizWebhookEvents).values({
+  const inserted = await db.insert(cyberbizWebhookEvents).values({
     id: eventId,
     topic,
     status: "processing",
@@ -76,7 +68,23 @@ export async function processCustomerWebhook(
     externalEntityId: incoming.externalId || null,
     cyberbizCustomerId: incoming.externalId || null,
     payloadJson: rawBody,
-  });
+  }).onConflictDoNothing();
+
+  /*
+   * 兩個相同 webhook 可能同時抵達：先查再 insert 不是 claim，兩邊都可能在查詢
+   * 時看不到資料，接著其中一邊會撞 primary key。用 SQLite 的 affected-row 數量
+   * 把 insert 本身當成 claim；只有成功插入的那一邊可以繼續處理，另一邊正常回報
+   * duplicate，不讓 CYBERBIZ 或 Workers Logs 收到假的 500。
+   */
+  if ((inserted.meta?.changes ?? 0) === 0) {
+    const [duplicate] = await db
+      .select({ status: cyberbizWebhookEvents.status })
+      .from(cyberbizWebhookEvents)
+      .where(eq(cyberbizWebhookEvents.id, eventId))
+      .limit(1);
+    if (!duplicate) throw new Error("webhook 去重後找不到既有事件。");
+    return { eventId, topic, status: "duplicate", reason: duplicate.status };
+  }
 
   try {
     /*
