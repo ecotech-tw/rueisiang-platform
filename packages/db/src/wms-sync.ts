@@ -327,29 +327,45 @@ export async function linkItemToCyberbiz(
   if (duplicate) throw new WmsError("conflict", "這個 CYBERBIZ 款式已經連到其他品項。");
 
   const now = new Date().toISOString();
-  await db.batch([
-    db.update(itemMasters).set({ source: "cyberbiz", updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(itemMasters.id, input.inventoryItemId)),
-    db.insert(cyberbizProducts).values({
-      itemId: input.inventoryItemId,
-      cyberbizProductId: input.productId,
-      cyberbizVariantId: input.variantId,
-      productName: "",
-      variantName: "",
-      published: 1,
-      rawJson: "{}",
-      syncStatus: "synced",
-      syncedAt: now,
-    }).onConflictDoUpdate({
-      target: cyberbizProducts.itemId,
-      set: {
+  try {
+    // 不使用 onConflictDoUpdate：兩個並行 link request 不能把既有外部身分改掉。
+    await db.batch([
+      db.update(itemMasters).set({ source: "cyberbiz", updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(itemMasters.id, input.inventoryItemId)),
+      db.insert(cyberbizProducts).values({
+        itemId: input.inventoryItemId,
         cyberbizProductId: input.productId,
         cyberbizVariantId: input.variantId,
+        productName: "",
+        variantName: "",
+        published: 1,
+        rawJson: "{}",
         syncStatus: "synced",
         syncedAt: now,
-      },
-    }),
-    db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: input.inventoryItemId, entityLabel: `${item.item.sku} ${item.item.name}`, eventType: "cyberbiz_linked", summary: `連結 CYBERBIZ 款式 ${input.variantId}`, source: "cyberbiz_sync", actor: input.actor })),
-  ] as never);
+      }),
+      db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: input.inventoryItemId, entityLabel: `${item.item.sku} ${item.item.name}`, eventType: "cyberbiz_linked", summary: `連結 CYBERBIZ 款式 ${input.variantId}`, source: "cyberbiz_sync", actor: input.actor })),
+    ] as never);
+  } catch (error) {
+    // 競爭 request 可能已經先完成；相同 mapping 仍保持冪等，不同 mapping 一律拒絕。
+    const [raced] = await db.select({
+      productId: cyberbizProducts.cyberbizProductId,
+      variantId: cyberbizProducts.cyberbizVariantId,
+    }).from(cyberbizProducts).where(eq(cyberbizProducts.itemId, input.inventoryItemId)).limit(1);
+    if (raced) {
+      if (raced.productId === input.productId && raced.variantId === input.variantId) {
+        return { id: input.inventoryItemId };
+      }
+      throw new WmsError("conflict", "這項品項已經連結 CYBERBIZ 款式，不能改變既有身分。");
+    }
+    const [racedDuplicate] = await db.select({ itemId: cyberbizProducts.itemId })
+      .from(cyberbizProducts)
+      .where(and(
+        eq(cyberbizProducts.cyberbizProductId, input.productId),
+        eq(cyberbizProducts.cyberbizVariantId, input.variantId),
+      ))
+      .limit(1);
+    if (racedDuplicate) throw new WmsError("conflict", "這個 CYBERBIZ 款式已經連到其他品項。");
+    throw error;
+  }
   return { id: input.inventoryItemId };
 }
 
@@ -357,6 +373,7 @@ export async function recordCyberbizSyncSucceeded(
   db: Database,
   context: { inventoryItemId: string; label: string; actor: { id?: string | null; email?: string | null } | null; quantity: number },
 ): Promise<void> {
+  await setCyberbizProductSyncStatus(db, context.inventoryItemId, "synced");
   await db.insert(activityEvents).values(activityRow({
     entityType: "item",
     entityId: context.inventoryItemId,
@@ -374,6 +391,7 @@ export async function recordCyberbizSyncFailed(
   db: Database,
   context: { inventoryItemId: string; label: string; actor: { id?: string | null; email?: string | null } | null; error: string },
 ): Promise<void> {
+  await setCyberbizProductSyncStatus(db, context.inventoryItemId, "failed");
   await db.insert(activityEvents).values(activityRow({
     entityType: "item",
     entityId: context.inventoryItemId,
@@ -412,7 +430,11 @@ export async function retryFailedCyberbizPushes(
       eq(activityEvents.field, "quantity"),
       inArray(activityEvents.eventType, ["cyberbiz_sync_failed", "cyberbiz_pushed"]),
     ))
-    .orderBy(desc(activityEvents.createdAt))
+    // created_at 既有資料只有秒精度；rowid 才能判斷同秒內哪筆是後寫的。
+    .orderBy(
+      desc(sql`julianday(${activityEvents.createdAt})`),
+      desc(sql`rowid`),
+    )
     .limit(limit * 4);
 
   const pendingIds: string[] = [];
@@ -427,11 +449,15 @@ export async function retryFailedCyberbizPushes(
   let recovered = 0;
   let failed = 0;
   for (const itemId of pendingIds) {
-    const [link] = await listCompanyLinks(db, { inventoryItemId: itemId });
-    if (!link) continue;
+    // 這次查詢只用來確認 item 仍然存在；真正要推送的數量必須在取得 lease
+    // 後重讀，避免等待另一個盤點完成期間拿舊 snapshot 覆蓋新數量。
+    const [candidate] = await listCompanyLinks(db, { inventoryItemId: itemId });
+    if (!candidate) continue;
     const lockToken = await claimCyberbizSyncLock(db, itemId);
     if (!lockToken) continue;
     try {
+      const [link] = await listCompanyLinks(db, { inventoryItemId: itemId });
+      if (!link) continue;
       await client.setCompanyQuantity({
         productId: link.cyberbizProductId,
         variantId: link.cyberbizVariantId,
@@ -451,7 +477,7 @@ export async function retryFailedCyberbizPushes(
       failed += 1;
       await recordCyberbizSyncFailed(db, {
         inventoryItemId: itemId,
-        label: link.itemSku ? `${link.itemSku} ${link.itemName}` : link.itemName,
+        label: candidate.itemSku ? `${candidate.itemSku} ${candidate.itemName}` : candidate.itemName,
         actor: null,
         error: error instanceof Error ? error.message : "CYBERBIZ 同步失敗",
       });
