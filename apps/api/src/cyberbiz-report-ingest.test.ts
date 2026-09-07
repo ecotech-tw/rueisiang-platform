@@ -175,6 +175,19 @@ describe("target 報表月資料匯入", () => {
     expect(await db().select({ status: reportRuns.status }).from(reportRuns)).toEqual([{ status: "failed" }]);
   });
 
+  it("大量 SKU 匯入會分批查 item，避免超過 D1 SQL variables 上限", async () => {
+    const rows = Array.from({ length: 140 }, (_, index) => {
+      const sku = `BULK-${String(index).padStart(3, "0")}`;
+      return { sku, productId: `p-${index}`, variantId: `v-${index}`, productName: `大量商品 ${index}` };
+    });
+    await syncCyberbizProducts(db(), rows);
+
+    const response = await request(salesBody(rows.map((row) => salesRow(row.sku, 10)), "2026-10"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { rowCount: 140, skippedSkus: [] } });
+  });
+
   it("target-only database 沒有 legacy 報表表名，匯入仍可完成", async () => {
     const names = await d1.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'view', 'trigger') AND (name LIKE 'report_%' OR name IN ('inventory_items', 'product_sku_mappings', 'product_categories'))").all<{ name: string }>();
     expect(names.results.map((row) => row.name)).not.toContain("report_sales_monthly");
