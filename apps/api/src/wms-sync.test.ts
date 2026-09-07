@@ -1,7 +1,7 @@
-import { applySyncPlan, buildSyncPlan, claimCyberbizSyncLock, createDatabase, listCompanyLinks, loadWarehouse, releaseCyberbizSyncLock, type LinkedItem, type RemoteItem } from "@rueisiang/db";
+import { applySyncPlan, buildSyncPlan, claimCyberbizSyncLock, createDatabase, listCompanyLinks, loadWarehouse, releaseCyberbizSyncLock, retryFailedCyberbizPushes, type LinkedItem, type RemoteItem } from "@rueisiang/db";
 import { activityEvents, cyberbizProductCatalog, cyberbizSyncLocks, items, wmsCategories, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createLocalD1 } from "./local-d1/d1.js";
 
 /**
@@ -136,6 +136,41 @@ describe("套用同步", () => {
     const second = await claimCyberbizSyncLock(db, "i1");
     expect(second).toEqual(expect.any(String));
     expect(await db.select().from(cyberbizSyncLocks)).toHaveLength(1);
+  });
+
+  it("補跑不會把同秒內已成功的推送誤判成 failed", async () => {
+    await db.insert(activityEvents).values([
+      {
+        id: "failed-first",
+        entityType: "item",
+        entityId: "i1",
+        eventType: "cyberbiz_sync_failed",
+        summary: "第一次失敗",
+        field: "quantity",
+        source: "cyberbiz_sync",
+        status: "failed",
+        createdAt: "2026-09-07 18:24:12",
+      },
+      {
+        id: "success-second",
+        entityType: "item",
+        entityId: "i1",
+        eventType: "cyberbiz_pushed",
+        summary: "後來成功",
+        field: "quantity",
+        source: "cyberbiz_sync",
+        status: "succeeded",
+        createdAt: "2026-09-07 18:24:12",
+      },
+    ]);
+
+    const client = {
+      setCompanyQuantity: vi.fn(),
+    };
+    const result = await retryFailedCyberbizPushes(db, client as never);
+
+    expect(result).toEqual({ attempted: 0, recovered: 0, failed: 0 });
+    expect(client.setCompanyQuantity).not.toHaveBeenCalled();
   });
 
   it("讀連結時會帶上 WMS 這邊目前的數量", async () => {

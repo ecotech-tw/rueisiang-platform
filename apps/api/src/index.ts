@@ -238,8 +238,9 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
   // 找出尚未被成功事件覆蓋的 item，重新讀官網後以 absolute target reconcile。
   ctx.waitUntil(
     retryFailedCyberbizPushes(db, cyberbizInventoryClient(env))
-      .then((result) => {
+      .then(async (result) => {
         if (result.attempted) assistantLog("info", "scheduled.cyberbiz_push_retry", result);
+        if (result.recovered) await forgetCatalog(cacheClient(env));
       })
       .catch((error) => assistantLog("error", "scheduled.cyberbiz_push_retry_failed", {
         error: assistantErrorDetails(error),

@@ -309,6 +309,31 @@ describe("WMS target-only API", () => {
       .toHaveLength(1);
   });
 
+  it("已連結但缺少 CYBERBIZ token 時，盤點會留下可補跑的失敗事件", async () => {
+    const userId = await seedUser();
+    await seedCategory();
+    await seedWmsItem();
+    await db.insert(cyberbizProductCatalog).values({
+      itemId: "item-1",
+      cyberbizProductId: "product-1",
+      cyberbizVariantId: "variant-1",
+    });
+
+    const counted = await as(userId, "admin@ecotech.tw", "/api/wms/items/item-1/count", {
+      method: "PATCH", body: JSON.stringify({ quantity: 12 }),
+    });
+
+    expect(counted.status).toBe(200);
+    expect(await counted.json()).toMatchObject({
+      quantity: 12,
+      cyberbiz: { status: "failed" },
+    });
+    expect(await db.select({ eventType: activityEvents.eventType, status: activityEvents.status })
+      .from(activityEvents)
+      .where(eq(activityEvents.eventType, "cyberbiz_sync_failed")))
+      .toMatchObject([{ eventType: "cyberbiz_sync_failed", status: "failed" }]);
+  });
+
   it("倉儲分類 CRUD 使用 wms_categories，且使用中的分類不能刪除", async () => {
     const userId = await seedUser();
     await seedCategory();
