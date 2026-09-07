@@ -587,7 +587,7 @@ async function resolveTargetProductSkus(db: Database, externalSkus: string[], ch
     : [];
   const lookupWanted = [...new Set([...wanted, ...baseKeys])];
   const [externalRows, directRows, catalogRows, categories] = await Promise.all([
-    db.select({
+    inBatches(lookupWanted, (batch) => db.select({
       sourceType: reportExternalProducts.sourceType,
       externalKey: reportExternalProducts.externalKey,
       externalName: reportExternalProducts.externalName,
@@ -595,18 +595,18 @@ async function resolveTargetProductSkus(db: Database, externalSkus: string[], ch
       itemId: reportExternalProducts.itemId,
     })
       .from(reportExternalProducts)
-      .where(and(eq(reportExternalProducts.sourceType, normalizedChannel), inArray(reportExternalProducts.externalKey, lookupWanted))),
-    db.select({ id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId })
+      .where(and(eq(reportExternalProducts.sourceType, normalizedChannel), inArray(reportExternalProducts.externalKey, batch)))),
+    inBatches(lookupWanted, (batch) => db.select({ id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId })
       .from(wmsItems)
       .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
-      .where(sql`UPPER(${itemMasters.sku}) IN (${sql.join(lookupWanted.map((sku) => sql`${sku}`), sql`, `)})`),
-    db.select({
+      .where(sql`UPPER(${itemMasters.sku}) IN (${sql.join(batch.map((sku) => sql`${sku}`), sql`, `)})`)),
+    inBatches(lookupWanted, (batch) => db.select({
       id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId,
       productName: cyberbizProducts.productName, variantName: cyberbizProducts.variantName,
     })
       .from(cyberbizProducts)
       .innerJoin(itemMasters, eq(itemMasters.id, cyberbizProducts.itemId))
-      .where(sql`UPPER(${itemMasters.sku}) IN (${sql.join(lookupWanted.map((sku) => sql`${sku}`), sql`, `)})`),
+      .where(sql`UPPER(${itemMasters.sku}) IN (${sql.join(batch.map((sku) => sql`${sku}`), sql`, `)})`)),
     categoryNames(db),
   ]);
   const categoryById = categories;
@@ -772,13 +772,13 @@ export async function resolveIgnoredSkus(db: Database, externalSkus: string[], c
     ? normalized.map((sku) => [sku, shopeeBaseExternalSku(sku)] as const).filter(([, base]) => base)
     : [];
   const wanted = [...new Set([...normalized, ...basePairs.map(([, base]) => base)])];
-  const rows = await db.select({ externalKey: reportExternalProducts.externalKey })
+  const rows = await inBatches(wanted, (batch) => db.select({ externalKey: reportExternalProducts.externalKey })
     .from(reportExternalProducts)
     .where(and(
       eq(reportExternalProducts.sourceType, normalizedChannel),
       eq(reportExternalProducts.resolution, "ignored"),
-      inArray(reportExternalProducts.externalKey, wanted),
-    ));
+      inArray(reportExternalProducts.externalKey, batch),
+    )));
   const ignored = new Set(rows.map((row) => normalizeExternalSku(row.externalKey)));
   for (const [sku, base] of basePairs) if (ignored.has(base)) ignored.add(sku);
   return ignored;
