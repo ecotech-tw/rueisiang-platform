@@ -104,7 +104,10 @@ describe("報表統計 API", () => {
     const options = await call("/api/reports/cyberbiz/manual/options", manager, "manager-manual@ecotech.tw");
     expect(options.status).toBe(200);
     expect(await options.json()).toMatchObject({
-      scopes: [{ id: scopeId, name: "啟用店" }],
+      scopes: [
+        { id: scopeId, name: "啟用店" },
+        { id: "shopee:store:default", name: "蝦皮" },
+      ],
       products: [],
     });
 
@@ -243,17 +246,22 @@ describe("報表統計 API", () => {
 
   it("summary 與 scope 清單由營運統計權限保護，且不回傳停用店", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
+    await upsertReportScope(db(), { id: "shopee:store:default", scopeKind: "store", sourceType: "shopee", name: "蝦皮" });
     await insertReportPayoutDaily(db(), [{ scopeId: "cyberbiz:store:active", businessDate: "2026-08-01", payoutAmount: 2040 }]);
     await insertReportSalesMonthly(db(), [
       { scopeId: "cyberbiz:store:active", reportMonth: "2026-07", sku: "SKU-1", grossQuantity: 1, netQuantity: 1, salesAmount: 100 },
       { scopeId: "cyberbiz:store:active", reportMonth: "2026-08", sku: "SKU-1", grossQuantity: 2, netQuantity: 2, salesAmount: 200 },
+      { scopeId: "shopee:store:default", reportMonth: "2026-08", sku: "SKU-SHOPEE", grossQuantity: 3, netQuantity: 3, salesAmount: 300 },
     ]);
 
     const scopes = await call("/api/reports/cyberbiz/scopes", admin, "admin@ecotech.tw");
     expect(scopes.status).toBe(200);
     expect(await scopes.json()).toEqual({
       latestSalesPeriod: "2026-08",
-      scopes: [{ id: "cyberbiz:store:active", name: "啟用店", latestSalesPeriod: "2026-08" }],
+      scopes: [
+        { id: "cyberbiz:store:active", name: "啟用店", latestSalesPeriod: "2026-08" },
+        { id: "shopee:store:default", name: "蝦皮", latestSalesPeriod: "2026-08" },
+      ],
     });
 
     const summary = await call("/api/reports/cyberbiz/summary/payout?period=2026-08", admin, "admin@ecotech.tw");
@@ -287,6 +295,8 @@ describe("報表統計 API", () => {
   it("report management can create, rename, disable, and re-enable report scopes", async () => {
     const manager = await seedUser("manager-scope-management@ecotech.tw", "role-manager");
 
+    await upsertReportScope(db(), { id: "shopee:store:default", scopeKind: "store", sourceType: "shopee", name: "蝦皮" });
+
     const initial = await call(
       "/api/reports/cyberbiz/manual/scopes",
       manager,
@@ -297,6 +307,19 @@ describe("報表統計 API", () => {
       scopes: [
         { id: "cyberbiz:store:active", name: "啟用店", active: true },
         { id: "cyberbiz:store:disabled", name: "停用店", active: false },
+      ],
+    });
+
+    const filterOptions = await call(
+      "/api/reports/cyberbiz/manual/options",
+      manager,
+      "manager-scope-management@ecotech.tw",
+    );
+    expect(filterOptions.status).toBe(200);
+    expect(await filterOptions.json()).toMatchObject({
+      scopes: [
+        { id: "cyberbiz:store:active", name: "啟用店" },
+        { id: "shopee:store:default", name: "蝦皮" },
       ],
     });
 

@@ -1102,7 +1102,7 @@ export function ManualReports() {
         {scopes.length === 0 ? <Alert tone="warning">尚未有可選的啟用據點。</Alert> : null}
         {kind === "payout" ? (
           <>
-            <PayoutFilters filters={payoutFilters} scopes={managementScopes} onChange={updatePayoutFilters} />
+            <PayoutFilters filters={payoutFilters} scopes={scopes} onChange={updatePayoutFilters} />
             <PayoutTable
               rows={payoutRows}
               busy={busy}
@@ -1139,7 +1139,7 @@ export function ManualReports() {
           </>
         ) : (
           <>
-            <SalesFilters filters={salesFilters} scopes={managementScopes} onChange={updateSalesFilters} />
+            <SalesFilters filters={salesFilters} scopes={scopes} onChange={updateSalesFilters} />
             <SalesTable
               rows={salesRows}
               busy={busy}

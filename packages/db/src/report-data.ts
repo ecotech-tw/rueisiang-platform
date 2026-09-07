@@ -268,13 +268,12 @@ function reportScopePriority(scopeId: string): number {
 /**
  * 統計頁的店別選項只列一個業務據點：migration 會同時保留 CYBERBIZ
  * report scope 與 payout store scope，兩者名稱相同但 ID 不同，不能直接把兩列都丟給 UI。
- * 蝦皮是另一個 source_type，不應混進手動店別管理；公司總額查詢仍可透過原本的 scope 規則納入。
+ * 蝦皮雖然是另一個 source_type，仍是公司報表的一個可篩選據點；只是不進手動據點管理。
  */
 export function canonicalReportStoreScopes(scopes: readonly ReportScope[]): ReportScope[] {
   const canonical = new Map<string, ReportScope>();
   for (const scope of scopes) {
-    if (scope.id.startsWith("shopee:")) continue;
-    const key = scope.normalizedName || scope.name;
+    const key = `${dataChannelFromScopeId(scope.id)}:${scope.normalizedName || scope.name}`;
     const current = canonical.get(key);
     if (!current || reportScopePriority(scope.id) < reportScopePriority(current.id)) canonical.set(key, scope);
   }
