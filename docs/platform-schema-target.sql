@@ -814,9 +814,12 @@ CREATE INDEX idx_report_runs_created ON report_runs(created_at DESC);
  * JSON 版本要 LIKE 掃全表。
  */
 CREATE TABLE report_run_scopes (
-  report_run_id VARCHAR(36) NOT NULL REFERENCES report_runs(id) ON DELETE CASCADE,
+  report_run_id     VARCHAR(36) NOT NULL REFERENCES report_runs(id) ON DELETE CASCADE,
   -- RESTRICT 是刻意的：有執行歷史的 scope 不准刪，要停用就設 active = 0
-  scope_id      VARCHAR(36) NOT NULL REFERENCES scopes(id) ON DELETE RESTRICT,
+  scope_id          VARCHAR(36) NOT NULL REFERENCES scopes(id) ON DELETE RESTRICT,
+  -- 當次執行的上傳位置快照；設定日後改掉，歷史列仍要指回當時的資料夾
+  drive_folder_url  TEXT        NOT NULL DEFAULT '',
+  drive_folder_name TEXT        NOT NULL DEFAULT '',
   PRIMARY KEY (report_run_id, scope_id)
 );
 CREATE INDEX idx_report_run_scopes_scope ON report_run_scopes(scope_id);

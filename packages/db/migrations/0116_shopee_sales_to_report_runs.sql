@@ -1,5 +1,8 @@
 -- 蝦皮已經有正式 scope：shopee:store:default。Drive 設定與執行紀錄
 -- 收斂到 scopes / report_runs / report_run_scopes，避免營運工具各自保留一套 run 表。
+ALTER TABLE `report_run_scopes` ADD `drive_folder_url` text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE `report_run_scopes` ADD `drive_folder_name` text DEFAULT '' NOT NULL;--> statement-breakpoint
+
 INSERT OR IGNORE INTO `scopes` (
   `id`, `source_type`, `scope_kind`, `name`, `normalized_name`,
   `drive_folder_url`, `drive_folder_name`, `sort_order`, `active`
@@ -57,8 +60,12 @@ WHERE NOT EXISTS (
   SELECT 1 FROM `report_runs` r WHERE r.`request_id` = s.`request_id`
 );--> statement-breakpoint
 
-INSERT OR IGNORE INTO `report_run_scopes` (`report_run_id`, `scope_id`)
-SELECT r.`id`, 'shopee:store:default'
+INSERT OR IGNORE INTO `report_run_scopes` (`report_run_id`, `scope_id`, `drive_folder_url`, `drive_folder_name`)
+SELECT
+  r.`id`,
+  'shopee:store:default',
+  s.`drive_folder_url`,
+  COALESCE((SELECT `drive_folder_name` FROM `scopes` WHERE `id` = 'shopee:store:default'), '')
 FROM `report_runs` r
 JOIN `shopee_sales_runs` s ON s.`request_id` = r.`request_id`
 WHERE r.`source_type` = 'shopee';--> statement-breakpoint

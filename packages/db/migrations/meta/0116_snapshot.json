@@ -4758,6 +4758,22 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "drive_folder_url": {
+          "name": "drive_folder_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "drive_folder_name": {
+          "name": "drive_folder_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         }
       },
       "indexes": {

@@ -165,9 +165,10 @@ describe("蝦皮報表設定與執行紀錄收斂", () => {
       period_kind: "month",
       actor_email: "manager@ecotech.tw",
     });
-    expect(sqlite.prepare("SELECT report_run_id, scope_id FROM report_run_scopes WHERE report_run_id = 'run-shopee-1'").get()).toEqual({
+    expect(sqlite.prepare("SELECT report_run_id, scope_id, drive_folder_url FROM report_run_scopes WHERE report_run_id = 'run-shopee-1'").get()).toEqual({
       report_run_id: "run-shopee-1",
       scope_id: "shopee:store:default",
+      drive_folder_url: "https://drive/old-settings",
     });
   });
 });

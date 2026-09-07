@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizeReportScopeName } from "./report-data.js";
 import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
@@ -95,6 +95,7 @@ export async function recordShopeeSalesRun(
     startDate: string;
     endDate: string;
     driveFolderUrl: string;
+    driveFolderName?: string;
     actor: { id: string; email: string };
   },
 ): Promise<void> {
@@ -122,33 +123,43 @@ export async function recordShopeeSalesRun(
       status: "queued",
       actorEmail: input.actor.email,
     }),
-    db.insert(reportRunScopes).values({ reportRunId: id, scopeId: SHOPEE_SCOPE_ID }),
+    db.insert(reportRunScopes).values({
+      reportRunId: id,
+      scopeId: SHOPEE_SCOPE_ID,
+      driveFolderUrl: input.driveFolderUrl,
+      driveFolderName: input.driveFolderName ?? "",
+    }),
   ] as never);
 }
 
 export async function listShopeeSalesRuns(db: Database, limit = 10): Promise<ShopeeSalesRun[]> {
-  const rows = await db.select({ run: reportRuns, scope: scopes })
-    .from(reportRuns)
-    .leftJoin(reportRunScopes, eq(reportRunScopes.reportRunId, reportRuns.id))
-    .leftJoin(scopes, eq(scopes.id, reportRunScopes.scopeId))
-    .where(and(
-      eq(reportRuns.sourceType, "shopee"),
-      eq(reportRuns.importsSales, 1),
-      // 這裡只列人從執行頁觸發的 GitHub workflow；內部 ingest run 不存在於 GitHub run-name。
-      sql`${reportRuns.requestId} NOT LIKE 'cyberbiz-ingest:%'`,
-      sql`${reportRuns.requestId} NOT LIKE 'target-import:%'`,
-      sql`${reportRuns.actorEmail} <> ''`,
-    ))
-    .orderBy(desc(reportRuns.createdAt))
-    .limit(Math.max(1, Math.min(limit, 100)));
-  return rows.map(({ run, scope }) => ({
-    id: run.id,
-    requestId: run.requestId,
-    startDate: run.startDate,
-    endDate: run.endDate,
-    driveFolderUrl: scope?.driveFolderUrl ?? "",
-    actorId: "",
-    actorEmail: run.actorEmail,
-    createdAt: run.createdAt,
-  }));
+  const rows = await db.all<{
+    id: string;
+    requestId: string;
+    startDate: string;
+    endDate: string;
+    driveFolderUrl: string;
+    actorEmail: string;
+    createdAt: string;
+  }>(sql`
+    SELECT
+      run.id AS id,
+      run.request_id AS requestId,
+      run.start_date AS startDate,
+      run.end_date AS endDate,
+      COALESCE(NULLIF(link.drive_folder_url, ''), scope.drive_folder_url, '') AS driveFolderUrl,
+      run.actor_email AS actorEmail,
+      run.created_at AS createdAt
+    FROM report_runs run
+    LEFT JOIN report_run_scopes link ON link.report_run_id = run.id
+    LEFT JOIN scopes scope ON scope.id = link.scope_id
+    WHERE run.source_type = 'shopee'
+      AND run.imports_sales = 1
+      AND run.request_id NOT LIKE 'cyberbiz-ingest:%'
+      AND run.request_id NOT LIKE 'target-import:%'
+      AND run.actor_email <> ''
+    ORDER BY run.created_at DESC
+    LIMIT ${Math.max(1, Math.min(limit, 100))}
+  `);
+  return rows.map((run) => ({ ...run, actorId: "" }));
 }
