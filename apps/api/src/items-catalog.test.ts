@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, createReportManualSales, syncCyberbizProducts, syncSystemRoles } from "@rueisiang/db";
-import { itemCategories, items, scopes, users, userRoleAssignments } from "@rueisiang/db/schema";
+import { cyberbizProducts, itemCategories, items, scopes, users, userRoleAssignments } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -132,6 +132,30 @@ describe("kind 是我們的判斷，不是同步來的事實", () => {
       { sku: "dup-1", productId: "p2", variantId: "v2", productName: "商品二" },
     ])).rejects.toThrow("重複 SKU");
     expect(await db.select().from(items)).toHaveLength(0);
+  });
+
+  it("CYBERBIZ 同步不會改寫既有品項的 external identity", async () => {
+    await db.insert(items).values({ id: "linked-1", source: "cyberbiz", kind: "sellable", sku: "STABLE-1", name: "既有商品", active: 1 });
+    await db.insert(cyberbizProducts).values({
+      itemId: "linked-1",
+      cyberbizProductId: "old-product",
+      cyberbizVariantId: "old-variant",
+      productName: "既有商品",
+      variantName: "規格",
+      published: 1,
+      rawJson: "{}",
+    });
+
+    await expect(syncCyberbizProducts(db, [{
+      sku: "STABLE-1",
+      productId: "new-product",
+      variantId: "new-variant",
+      productName: "不應覆蓋",
+    }])).rejects.toThrow("已連結其他商品身分");
+    expect(await db.select({ productId: cyberbizProducts.cyberbizProductId, variantId: cyberbizProducts.cyberbizVariantId })
+      .from(cyberbizProducts)
+      .where(eq(cyberbizProducts.itemId, "linked-1")))
+      .toEqual([{ productId: "old-product", variantId: "old-variant" }]);
   });
 
   it("CYBERBIZ 同步不覆寫 kind 與 active", async () => {

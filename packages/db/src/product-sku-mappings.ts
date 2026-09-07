@@ -826,32 +826,58 @@ export async function syncCyberbizProducts(
       .where(eq(itemMasters.sku, row.sku))
       .limit(1);
     const itemId = existing?.id ?? crypto.randomUUID();
+    const [existingProduct] = existing
+      ? await db.select({
+        itemId: cyberbizProducts.itemId,
+        productId: cyberbizProducts.cyberbizProductId,
+        variantId: cyberbizProducts.cyberbizVariantId,
+      }).from(cyberbizProducts).where(eq(cyberbizProducts.itemId, itemId)).limit(1)
+      : [];
+    if (existingProduct && (existingProduct.productId !== row.productId || existingProduct.variantId !== row.variantId)) {
+      throw new Error(`CYBERBIZ SKU「${row.sku}」已連結其他商品身分，拒絕改寫 mapping`);
+    }
+    const [identityOwner] = await db.select({ itemId: cyberbizProducts.itemId })
+      .from(cyberbizProducts)
+      .where(and(
+        eq(cyberbizProducts.cyberbizProductId, row.productId),
+        eq(cyberbizProducts.cyberbizVariantId, row.variantId),
+        ne(cyberbizProducts.itemId, itemId),
+      ))
+      .limit(1);
+    if (identityOwner) {
+      throw new Error(`CYBERBIZ external identity「${row.productId}/${row.variantId}」已連結其他品項，拒絕覆蓋 mapping`);
+    }
     await db.insert(itemMasters).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku: row.sku, name: existing?.name ?? itemName, active: 1 })
       // active 與 kind 是我們的判斷，同步一律不碰——官網下架不代表要從倉庫地圖上拿掉它。
       // 只有 source 要更新：官網開始賣一個原本手動建的 SKU 時，那一筆就變成鏡像了。
       .onConflictDoUpdate({ target: itemMasters.sku, set: { source: "cyberbiz", updatedAt: sql`CURRENT_TIMESTAMP` } });
-    await db.insert(cyberbizProducts).values({
-      itemId,
-      cyberbizProductId: row.productId,
-      cyberbizVariantId: row.variantId,
-      productName: row.productName,
-      variantName: row.variantName,
-      published: row.published,
-      rawJson: "{}",
-      syncStatus: "synced",
-      syncedAt: sql`CURRENT_TIMESTAMP`,
-    }).onConflictDoUpdate({
-      target: cyberbizProducts.itemId,
-      set: {
+    if (!existingProduct) {
+      await db.insert(cyberbizProducts).values({
+        itemId,
         cyberbizProductId: row.productId,
         cyberbizVariantId: row.variantId,
         productName: row.productName,
         variantName: row.variantName,
         published: row.published,
+        rawJson: "{}",
         syncStatus: "synced",
         syncedAt: sql`CURRENT_TIMESTAMP`,
-      },
-    });
+      }).onConflictDoNothing();
+      const [racedProduct] = await db.select({
+        productId: cyberbizProducts.cyberbizProductId,
+        variantId: cyberbizProducts.cyberbizVariantId,
+      }).from(cyberbizProducts).where(eq(cyberbizProducts.itemId, itemId)).limit(1);
+      if (!racedProduct || racedProduct.productId !== row.productId || racedProduct.variantId !== row.variantId) {
+        throw new Error(`CYBERBIZ SKU「${row.sku}」在同步期間出現衝突的商品身分，拒絕覆蓋 mapping`);
+      }
+    }
+    await db.update(cyberbizProducts).set({
+      productName: row.productName,
+      variantName: row.variantName,
+      published: row.published,
+      syncStatus: "synced",
+      syncedAt: sql`CURRENT_TIMESTAMP`,
+    }).where(eq(cyberbizProducts.itemId, itemId));
   }
   return { synced: rows.size };
 }

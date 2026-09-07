@@ -224,6 +224,8 @@ export const wms = new Hono<AppEnv>()
       id: user.id,
       email: user.email,
     });
+    // 手動同步已重讀官網庫存，不能讓目錄快取繼續顯示舊數量。
+    await forgetCatalog(cacheClient(c.env));
     return c.json({ ...result, linked: links.length });
   })
 
@@ -554,9 +556,20 @@ export const wms = new Hono<AppEnv>()
      */
     const mine = (await listCompanyLinks(c.get("db"))).find((row) => row.inventoryItemId === id);
     const client = cyberbizInventoryClient(c.env);
-    if (!mine || !client) {
+    if (!mine) {
       const result = await countItem(c.get("db"), id, input.quantity, actor, text(input, "note"));
       return c.json({ ...result, cyberbiz: { status: "unlinked" } });
+    }
+    if (!client) {
+      const result = await countItem(c.get("db"), id, input.quantity, actor, text(input, "note"));
+      const message = "尚未設定 CYBERBIZ_API_TOKEN，盤點已保存，稍後會自動重試";
+      await recordCyberbizSyncFailed(c.get("db"), {
+        inventoryItemId: id,
+        label: mine.itemSku ? `${mine.itemSku} ${mine.itemName}` : mine.itemName,
+        actor,
+        error: message,
+      });
+      return c.json({ ...result, cyberbiz: { status: "failed", error: message } });
     }
 
     // 盤點與外部差額推送共用同一把 lease；否則另一個盤點可能在這裡等候時
