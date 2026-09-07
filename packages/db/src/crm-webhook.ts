@@ -9,6 +9,11 @@ import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { syncCyberbizCustomer, type CyberbizSyncResult } from "./crm-sync.js";
 import { crmCustomers, cyberbizWebhookEvents } from "./schema/crm.js";
+import {
+  claimCyberbizWebhookEvent,
+  claimFailedCyberbizWebhookEvent,
+  requeueStaleCyberbizWebhookEvents,
+} from "./webhook-events.js";
 
 /**
  * 收到的 webhook 先落地再處理。
@@ -41,6 +46,9 @@ export interface ProcessWebhookInput {
   topic: string;
   /** 沒有 client 時就只用 payload 本身的內容，不去官網重新讀。 */
   client?: CyberbizCustomerClient;
+  /** dispatch 或 Cron 已經在共用事件表完成 claim。 */
+  eventId?: string;
+  claimed?: boolean;
 }
 
 export async function processCustomerWebhook(
@@ -56,34 +64,20 @@ export async function processCustomerWebhook(
     throw new Error("webhook 內容不是有效的 JSON");
   }
 
-  const eventId = await createWebhookEventId(topic, rawBody);
+  const eventId = input.eventId ?? await createWebhookEventId(topic, rawBody);
   let incoming = parseCyberbizCustomer(payload);
-  const inserted = await db.insert(cyberbizWebhookEvents).values({
-    id: eventId,
-    topic,
-    status: "processing",
-    // entityType 是目標形狀（會員與商品事件共用一張表）的分辨欄位。商品那邊還在
-    // cyberbiz_product_webhooks，但這裡先寫對，那一欄才有可信度。
-    entityType: "customer",
-    externalEntityId: incoming.externalId || null,
-    cyberbizCustomerId: incoming.externalId || null,
-    payloadJson: rawBody,
-  }).onConflictDoNothing();
-
-  /*
-   * 兩個相同 webhook 可能同時抵達：先查再 insert 不是 claim，兩邊都可能在查詢
-   * 時看不到資料，接著其中一邊會撞 primary key。用 SQLite 的 affected-row 數量
-   * 把 insert 本身當成 claim；只有成功插入的那一邊可以繼續處理，另一邊正常回報
-   * duplicate，不讓 CYBERBIZ 或 Workers Logs 收到假的 500。
-   */
-  if ((inserted.meta?.changes ?? 0) === 0) {
-    const [duplicate] = await db
-      .select({ status: cyberbizWebhookEvents.status })
-      .from(cyberbizWebhookEvents)
-      .where(eq(cyberbizWebhookEvents.id, eventId))
-      .limit(1);
-    if (!duplicate) throw new Error("webhook 去重後找不到既有事件。");
-    return { eventId, topic, status: "duplicate", reason: duplicate.status };
+  if (!input.claimed) {
+    const claim = await claimCyberbizWebhookEvent(db, {
+      id: eventId,
+      topic,
+      entityType: "customer",
+      externalEntityId: incoming.externalId || null,
+      cyberbizCustomerId: incoming.externalId || null,
+      payloadJson: rawBody,
+    });
+    if (!claim.claimed) {
+      return { eventId, topic, status: "duplicate", reason: claim.status };
+    }
   }
 
   try {
@@ -219,23 +213,34 @@ export async function retryFailedWebhooks(
   options: { limit?: number; client?: CyberbizCustomerClient } = {},
 ): Promise<{ attempted: number; recovered: number; stillFailing: number }> {
   const limit = options.limit ?? 20;
+  await requeueStaleCyberbizWebhookEvents(db, "customer");
 
   const pending = await db
-    .select({ id: cyberbizWebhookEvents.id, topic: cyberbizWebhookEvents.topic, payloadJson: cyberbizWebhookEvents.payloadJson })
+    .select({
+      id: cyberbizWebhookEvents.id,
+      topic: cyberbizWebhookEvents.topic,
+      payloadJson: cyberbizWebhookEvents.payloadJson,
+    })
     .from(cyberbizWebhookEvents)
-    .where(eq(cyberbizWebhookEvents.status, "failed"))
+    .where(and(
+      eq(cyberbizWebhookEvents.entityType, "customer"),
+      eq(cyberbizWebhookEvents.status, "failed"),
+    ))
     .orderBy(desc(cyberbizWebhookEvents.receivedAt))
     .limit(limit);
 
+  let attempted = 0;
   let recovered = 0;
   for (const event of pending) {
+    if (!await claimFailedCyberbizWebhookEvent(db, event.id, "customer")) continue;
+    attempted += 1;
     try {
-      // 刪掉舊那筆再重跑，讓它走一模一樣的路徑（識別碼是內容雜湊，會是同一個）。
-      await db.delete(cyberbizWebhookEvents).where(eq(cyberbizWebhookEvents.id, event.id));
       const outcome = await processCustomerWebhook(db, {
         rawBody: event.payloadJson,
         topic: event.topic,
         client: options.client,
+        eventId: event.id,
+        claimed: true,
       });
       if (outcome.status === "processed" || outcome.status === "ignored") recovered += 1;
     } catch {
@@ -243,7 +248,7 @@ export async function retryFailedWebhooks(
     }
   }
 
-  return { attempted: pending.length, recovered, stillFailing: pending.length - recovered };
+  return { attempted, recovered, stillFailing: attempted - recovered };
 }
 
 export interface SyncStatus {
@@ -274,6 +279,7 @@ export async function readSyncStatus(db: Database): Promise<SyncStatus> {
     db
       .select({ status: cyberbizWebhookEvents.status, value: sql<number>`count(*)` })
       .from(cyberbizWebhookEvents)
+      .where(eq(cyberbizWebhookEvents.entityType, "customer"))
       .groupBy(cyberbizWebhookEvents.status),
     db
       .select({
@@ -286,6 +292,7 @@ export async function readSyncStatus(db: Database): Promise<SyncStatus> {
         payloadJson: cyberbizWebhookEvents.payloadJson,
       })
       .from(cyberbizWebhookEvents)
+      .where(eq(cyberbizWebhookEvents.entityType, "customer"))
       .orderBy(desc(cyberbizWebhookEvents.receivedAt))
       .limit(20),
   ]);

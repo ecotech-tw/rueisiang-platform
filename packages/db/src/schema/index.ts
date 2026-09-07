@@ -18,7 +18,15 @@ export {
   type UserRoleAssignment,
 } from "./auth.js";
 export * from "./crm.js";
-export { itemCategories, itemComponents, items, cyberbizProducts as cyberbizProductCatalog, type CyberbizProduct } from "./items.js";
+export {
+  itemCategories,
+  itemComponents,
+  items,
+  cyberbizProducts,
+  // 暫時保留舊 alias，consumer 應改用 canonical cyberbizProducts。
+  cyberbizProducts as cyberbizProductCatalog,
+  type CyberbizProduct,
+} from "./items.js";
 export type ItemCategory = typeof itemCategories.$inferSelect;
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;
@@ -27,18 +35,16 @@ export * from "./media.js";
 export * from "./reports.js";
 export * from "./tools.js";
 export {
-  cyberbizProductWebhooks,
+  cyberbizSyncLocks,
   wmsCategories,
-  wmsCyberbizLinks,
   wmsItems,
   wmsLayoutElements,
   wmsLayouts,
   wmsShelves,
   wmsZoneImages,
   wmsZones,
-  type CyberbizProductWebhook,
+  type CyberbizSyncLock,
   type WmsCategory,
-  type WmsCyberbizLink,
   type WmsItem,
   type WmsLayout,
   type WmsLayoutElement,

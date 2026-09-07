@@ -92,6 +92,7 @@ export async function verifyCyberbizWebhook(
 export function readCyberbizTopic(request: Request, payload: unknown): string {
   const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
   const header =
+    request.headers.get("x-cyberbiz-event") ||
     request.headers.get("x-cyberbiz-topic") ||
     request.headers.get("x-webhook-event") ||
     request.headers.get("x-event-topic");

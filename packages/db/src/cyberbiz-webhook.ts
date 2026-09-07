@@ -1,8 +1,15 @@
 import type { CyberbizCustomerClient, CyberbizInventoryClient } from "@rueisiang/cyberbiz";
-import { classifyPayload, isProductTopic } from "@rueisiang/cyberbiz";
+import {
+  classifyPayload,
+  createWebhookEventId,
+  isProductTopic,
+  parseCyberbizCustomer,
+  parseProductEvent,
+} from "@rueisiang/cyberbiz";
 import type { Database } from "./client.js";
 import { processCustomerWebhook, type WebhookOutcome } from "./crm-webhook.js";
 import { processProductWebhook, type ProductWebhookOutcome } from "./wms-webhook.js";
+import { claimCyberbizWebhookEvent } from "./webhook-events.js";
 
 /**
  * CYBERBIZ 的 webhook 只有一個網址，進來之後在這裡分派。
@@ -70,19 +77,49 @@ export async function dispatchCyberbizWebhook(
     /* 讓下游處理。 */
   }
 
+  const eventId = await createWebhookEventId(topic, rawBody);
   if (looksLikeProduct(payload, topic)) {
+    const event = parseProductEvent(payload);
+    const claim = await claimCyberbizWebhookEvent(db, {
+      id: eventId,
+      topic,
+      entityType: "product",
+      externalEntityId: event.variantId || null,
+      payloadJson: rawBody,
+    });
+    if (!claim.claimed) {
+      return { kind: "product", eventId, topic, status: "duplicate", reason: claim.status };
+    }
+
     const outcome = await processProductWebhook(db, {
       rawBody,
       topic,
       client: input.inventoryClient,
+      eventId,
+      claimed: true,
     });
     return { kind: "product", ...outcome };
+  }
+
+  const event = parseCyberbizCustomer(payload);
+  const claim = await claimCyberbizWebhookEvent(db, {
+    id: eventId,
+    topic,
+    entityType: "customer",
+    externalEntityId: event.externalId || null,
+    cyberbizCustomerId: event.externalId || null,
+    payloadJson: rawBody,
+  });
+  if (!claim.claimed) {
+    return { kind: "customer", eventId, topic, status: "duplicate", reason: claim.status };
   }
 
   const outcome = await processCustomerWebhook(db, {
     rawBody,
     topic,
     client: input.customerClient,
+    eventId,
+    claimed: true,
   });
   return { kind: "customer", ...outcome };
 }

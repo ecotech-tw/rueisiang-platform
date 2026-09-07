@@ -53,10 +53,22 @@ jobs:
       # portal 的產物要先出來——wrangler.toml 的 [assets] 指向 ../portal/dist。
       - run: pnpm build
 
-      # schema 先於程式碼：新欄位要在讀它的程式上線之前就存在。
-      - name: 套用 D1 migration
+      # 0112/0113/0115 先上，但刻意排除 0114：0114 會 DROP 舊 webhook/link 表，
+      # 必須等新 Worker 已經接手流量後才能執行。D1 migrations apply 沒有「做到某一支」
+      # 的參數，所以用同一份 wrangler 設定指向一個移除 0114 的暫存目錄；正式 migration
+      # history 仍由 D1 的 d1_migrations 記錄，下一步會只補套 0114。
+      - name: 套用 cutover 前 D1 migration（保留 legacy table）
         working-directory: apps/api
-        run: npx wrangler d1 migrations apply rueisiang-platform --remote
+        run: |
+          set -euo pipefail
+          pre_dir="$GITHUB_WORKSPACE/.deploy-migrations/pre-cutover"
+          rm -rf "$pre_dir"
+          mkdir -p "$pre_dir"
+          cp "$GITHUB_WORKSPACE"/packages/db/migrations/*.sql "$pre_dir"/
+          rm "$pre_dir/0114_absent_king_cobra.sql"
+          sed 's#^[[:space:]]*migrations_dir = .*#migrations_dir = "../../.deploy-migrations/pre-cutover"#' \
+            wrangler.toml > wrangler.predeploy.toml
+          npx wrangler d1 migrations apply rueisiang-platform --config wrangler.predeploy.toml --remote
 
       # 網址從部署輸出裡讀，不要求人另外維護一個變數：手寫的變數會忘記加
       # https://、會在綁自訂網域之後過期，而部署輸出永遠是當下的事實。
@@ -75,6 +87,11 @@ jobs:
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "::notice::已部署到 $url"
+
+      # 新 Worker 已接手後才刪 legacy table。若這一步失敗，舊表仍在，部署可安全重跑。
+      - name: 套用 cutover 後 D1 migration（移除 legacy table）
+        working-directory: apps/api
+        run: npx wrangler d1 migrations apply rueisiang-platform --remote
 
       # 煙霧測試：確認 Worker 活著，而且 D1 綁定真的接上了。
       # 新部署的 Worker 要幾秒才會在所有節點生效，所以帶重試。

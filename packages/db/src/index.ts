@@ -405,11 +405,13 @@ export {
 export {
   applySyncPlan,
   buildSyncPlan,
+  claimCyberbizSyncLock,
   linkItemToCyberbiz,
   listCompanyLinks,
-  markLinkFailed,
-  markLinkSynced,
-  unlinkItemFromCyberbiz,
+  recordCyberbizSyncFailed,
+  recordCyberbizSyncSucceeded,
+  releaseCyberbizSyncLock,
+  retryFailedCyberbizPushes,
   type LinkedItem,
   type RemoteItem,
   type SyncOutcome,
@@ -428,3 +430,10 @@ export {
   type DispatchInput,
   type DispatchOutcome,
 } from "./cyberbiz-webhook.js";
+export {
+  claimCyberbizWebhookEvent,
+  claimFailedCyberbizWebhookEvent,
+  type ClaimWebhookEventInput,
+  type ClaimWebhookEventResult,
+  type CyberbizWebhookEntityType,
+} from "./webhook-events.js";

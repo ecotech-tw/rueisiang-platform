@@ -6,7 +6,6 @@ import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js
 import {
   useCreateCatalogItem,
   useLinkCyberbiz,
-  useUnlinkCyberbiz,
   useUpdateItem,
   type InventoryItem,
   type ProductCategory,
@@ -75,10 +74,9 @@ export function ItemForm({
   const createCatalog = useCreateCatalogItem();
   const update = useUpdateItem();
   const link = useLinkCyberbiz();
-  const unlink = useUnlinkCyberbiz();
   const toast = useToast();
-  const pending = createCatalog.isPending || update.isPending;
-  const error = createCatalog.error ?? update.error;
+  const pending = createCatalog.isPending || update.isPending || link.isPending;
+  const error = createCatalog.error ?? update.error ?? link.error;
 
   /** 選了倉位才有層可選，而且只能選那個倉位自己的層。 */
   const zone = zones.find((candidate) => candidate.id === fields.zoneId);
@@ -286,23 +284,10 @@ export function ItemForm({
                     <div className="cell-strong">已連結款式 {item.cyberbiz.cyberbizVariantId}</div>
                     <div className="cell-sub">
                       SKU {item.cyberbiz.sku}
-                      {item.cyberbiz.lastSyncedAt ? `・上次同步 ${formatTime(item.cyberbiz.lastSyncedAt)}` : ""}
+                      {item.cyberbiz.syncedAt ? `・目錄同步 ${formatTime(item.cyberbiz.syncedAt)}` : ""}
                     </div>
-                    {item.cyberbiz.lastError ? (
-                      <div className="cell-error">{item.cyberbiz.lastError}</div>
-                    ) : null}
                   </div>
-                  <Button
-                    variant="secondary"
-                    className="danger"
-                    loading={unlink.isPending}
-                    loadingLabel="解除中…"
-                    onClick={() =>
-                      unlink.mutate(item.id, { onSuccess: () => toast.show("已解除連結，庫存數量保留") })
-                    }
-                  >
-                    解除連結
-                  </Button>
+                  <div className="cell-sub">商品身分與官網鏡像共用，若要停止庫存同步請移出 WMS。</div>
                 </div>
               ) : (
                 <div className="link-panel">
@@ -337,7 +322,6 @@ export function ItemForm({
                 </div>
               )}
               {link.error ? <small className="ui-field-error">{link.error.message}</small> : null}
-              {unlink.error ? <small className="ui-field-error">{unlink.error.message}</small> : null}
             </div>
           ) : null}
 

@@ -69,9 +69,8 @@ export const cyberbizWebhookEvents = sqliteTable("cyberbiz_webhook_events", {
   id: text("id").primaryKey(),
   topic: text("topic").notNull(),
   status: text("status").notNull().default("processing"),
-  // cyberbizCustomerId／customerId／resultJson 是會員 webhook 時代留下的欄位。
-  // 目標形狀是 entityType ＋ externalEntityId（見 docs/platform-schema-target.sql
-  // 的「兩張併一張」），但商品事件還走 cyberbiz_product_webhooks，兩套都還在。
+  // cyberbizCustomerId／customerId／resultJson 是會員 webhook 時代留下的欄位；
+  // 商品事件使用 entityType='product' 與 externalEntityId=variant_id。
   cyberbizCustomerId: text("cyberbiz_customer_id"),
   customerId: text("customer_id").references(() => crmCustomers.id, { onDelete: "set null" }),
   payloadJson: text("payload_json").notNull(),

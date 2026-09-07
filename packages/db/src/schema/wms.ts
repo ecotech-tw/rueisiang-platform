@@ -93,6 +93,18 @@ export const wmsZoneImages = sqliteTable("wms_zone_images", {
 ]);
 
 /** 進了倉庫的品項；不是每個 item 都一定有一列。 */
+/**
+ * 外部庫存 API 是差額操作；同一 variant 的盤點推送必須在所有 Worker
+ * instance 之間互斥。這是短 lease，不是業務資料，過期後可被下一次工作接手。
+ */
+export const cyberbizSyncLocks = sqliteTable("cyberbiz_sync_locks", {
+  itemId: text("item_id").primaryKey().references(() => items.id, { onDelete: "cascade" }),
+  token: text("token").notNull(),
+  leaseUntil: text("lease_until").notNull(),
+}, (table) => [
+  index("idx_cyberbiz_sync_locks_lease").on(table.leaseUntil),
+]);
+
 export const wmsItems = sqliteTable("wms_items", {
   itemId: text("item_id").primaryKey().references(() => items.id, { onDelete: "cascade" }),
   wmsCategoryId: text("wms_category_id").references(() => wmsCategories.id, { onDelete: "set null" }),
@@ -109,50 +121,6 @@ export const wmsItems = sqliteTable("wms_items", {
   index("idx_wms_items_low_stock").on(table.itemId).where(sql`${table.quantity} < ${table.minStock}`),
 ]);
 
-/** WMS 商品與 CYBERBIZ 款式的同步連結；與商品主檔分開，避免同步自動創造 WMS 品項。 */
-export const wmsCyberbizLinks = sqliteTable("wms_cyberbiz_links", {
-  id: text("id").primaryKey(),
-  wmsItemId: text("wms_item_id").notNull().references(() => wmsItems.itemId, { onDelete: "cascade" }),
-  cyberbizProductId: text("cyberbiz_product_id").notNull(),
-  cyberbizVariantId: text("cyberbiz_variant_id").notNull(),
-  sku: text("sku").notNull(),
-  warehouseScope: text("warehouse_scope").notNull().default("company"),
-  posShopId: integer("pos_shop_id").notNull().default(0),
-  syncStatus: text("sync_status").notNull().default("synced"),
-  lastSyncedQuantity: integer("last_synced_quantity"),
-  lastSyncedAt: text("last_synced_at"),
-  lastError: text("last_error").notNull().default(""),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [
-  uniqueIndex("idx_wms_cyberbiz_links_item").on(table.wmsItemId),
-  uniqueIndex("idx_wms_cyberbiz_links_variant").on(table.cyberbizVariantId),
-  index("idx_wms_cyberbiz_links_status").on(table.syncStatus),
-  index("idx_wms_cyberbiz_links_sku").on(table.sku),
-]);
-
-/** CYBERBIZ 商品／庫存 webhook 的去重與處理狀態。 */
-export const cyberbizProductWebhooks = sqliteTable("cyberbiz_product_webhooks", {
-  id: text("id").primaryKey(),
-  topic: text("topic").notNull(),
-  productId: text("product_id"),
-  variantId: text("variant_id"),
-  sku: text("sku").notNull().default(""),
-  quantity: integer("quantity"),
-  payloadHash: text("payload_hash").notNull(),
-  status: text("status").notNull().default("processing"),
-  attempts: integer("attempts").notNull().default(1),
-  result: text("result").notNull().default(""),
-  lastError: text("last_error").notNull().default(""),
-  receivedAt: text("received_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  processedAt: text("processed_at"),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [
-  index("idx_cyberbiz_product_webhooks_status").on(table.status, table.receivedAt),
-  index("idx_cyberbiz_product_webhooks_variant").on(table.variantId, table.receivedAt),
-]);
-
-export type CyberbizProductWebhook = typeof cyberbizProductWebhooks.$inferSelect;
 export type WmsCategory = typeof wmsCategories.$inferSelect;
 export type WmsZone = typeof wmsZones.$inferSelect;
 export type WmsShelf = typeof wmsShelves.$inferSelect;
@@ -160,4 +128,4 @@ export type WmsLayout = typeof wmsLayouts.$inferSelect;
 export type WmsLayoutElement = typeof wmsLayoutElements.$inferSelect;
 export type WmsZoneImage = typeof wmsZoneImages.$inferSelect;
 export type WmsItem = typeof wmsItems.$inferSelect;
-export type WmsCyberbizLink = typeof wmsCyberbizLinks.$inferSelect;
+export type CyberbizSyncLock = typeof cyberbizSyncLocks.$inferSelect;

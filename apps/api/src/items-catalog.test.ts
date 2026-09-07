@@ -126,6 +126,14 @@ describe("kind 是我們的判斷，不是同步來的事實", () => {
     expect((await db.select({ kind: items.kind }).from(items).where(eq(items.id, "i2")))[0]).toEqual({ kind: "supply" });
   });
 
+  it("重複 SKU 不會靜默選最後一筆商品身分", async () => {
+    await expect(syncCyberbizProducts(db, [
+      { sku: "DUP-1", productId: "p1", variantId: "v1", productName: "商品一" },
+      { sku: "dup-1", productId: "p2", variantId: "v2", productName: "商品二" },
+    ])).rejects.toThrow("重複 SKU");
+    expect(await db.select().from(items)).toHaveLength(0);
+  });
+
   it("CYBERBIZ 同步不覆寫 kind 與 active", async () => {
     await db.insert(items).values({ id: "i3", source: "custom", kind: "supply", sku: "ABX3", name: "護髮素軟管", active: 0 });
 

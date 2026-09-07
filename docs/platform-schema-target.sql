@@ -12,10 +12,9 @@
 -- 它們對外只有 created_by / updated_by / actor_id → users(id) 這一種相依，
 -- 而 users 這一輪維持原樣。
 --
--- 帳：現況 D1 有 51 張（其中小香 15 張）。這份檔案是非小香的 32 張，加上不動的
--- 15 張，第一階段結束後實體 D1 是 47 張。
--- （Codex 草案的 62 張裡，小香那邊有 19 張——多出來的 4 張是 Durable Object
---   SQLite 上的，不在 D1。）
+-- 本檔列出非小香 target contract；小香的 assistant_* tables 保持既有形狀。
+-- 另外的報表／外部工具專用表不在這份 contract 的逐表說明內；實際 D1 表數以
+-- packages/db schema 與 migration registry 為準。
 -- =============================================================================
 
 
@@ -270,9 +269,9 @@ CREATE TABLE items (
   active      INTEGER      NOT NULL DEFAULT 1,
   created_at  TIMESTAMP    NOT NULL,
   updated_at  TIMESTAMP    NOT NULL,
-  -- 代理主鍵 + 這條 UNIQUE：SKU 只在同一個來源內唯一，官網的 ABC 與自訂的 ABC
-  -- 是兩回事
-  UNIQUE (source, sku),
+  -- SKU 是全平台唯一；官網開始販售原本的自訂 SKU 時，會接管同一筆 item，
+  -- 不能讓 cyberbiz 與 custom 各留一份造成同步／報表歧義。
+  UNIQUE (sku),
   CHECK (source IN ('cyberbiz','custom')),
   CHECK (kind IN ('sellable','supply'))
 );
@@ -484,9 +483,9 @@ CREATE INDEX idx_wms_zone_images_zone ON wms_zone_images(zone_id, sort_order);
  * 包材）只有這裡有。實務上盤點是去官網改，再同步回來，所以官網有的品項
  * 這裡是鏡像值。
  *
- * ❌ 完全沒有 CYBERBIZ 欄位（last_synced_at / last_error / sync_status 全在
- *    cyberbiz_products）——同步失敗與同步時間屬於「官網那一面」，而且
- *    activity_events 已經記了每一次失敗。
+ * ❌ 完全沒有 CYBERBIZ 欄位（sync_status / synced_at 在 cyberbiz_products）——
+ *    商品目錄同步的狀態屬於「官網那一面」；庫存數量同步的成功與失敗由
+ *    activity_events 記錄。
  * ❌ 沒有 zone_id：倉位由 shelf_id 推導。兩個都存的話會出現「在 A 區的
  *    B 區第二層」這種矛盾。
  */
@@ -508,6 +507,18 @@ CREATE INDEX idx_wms_items_category ON wms_items(wms_category_id);
 -- 「需要補貨」清單：partial index 只收真的低於水位的列
 CREATE INDEX idx_wms_items_low_stock ON wms_items(item_id)
   WHERE quantity < min_stock;
+
+
+/*
+ * CYBERBIZ 差額 API 的短 lease。它不是庫存 state，只防止兩個 Worker 同時用
+ * 同一個舊數量計算 delta；lease 過期後可由下一次工作接手。
+ */
+CREATE TABLE cyberbiz_sync_locks (
+  item_id     VARCHAR(36) PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+  token       VARCHAR(36) NOT NULL,
+  lease_until TIMESTAMP   NOT NULL
+);
+CREATE INDEX idx_cyberbiz_sync_locks_lease ON cyberbiz_sync_locks(lease_until);
 
 
 -- =============================================================================

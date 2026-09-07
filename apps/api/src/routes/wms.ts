@@ -3,6 +3,7 @@ import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import {
   WMS_ENTITY_TYPES,
   applySyncPlan,
+  claimCyberbizSyncLock,
   syncCyberbizProducts,
   buildSyncPlan,
   countItem,
@@ -24,10 +25,10 @@ import {
   listActivity,
   listCompanyLinks,
   loadWarehouse,
-  markLinkFailed,
-  markLinkSynced,
+  recordCyberbizSyncFailed,
+  recordCyberbizSyncSucceeded,
+  releaseCyberbizSyncLock,
   recordMediaObject,
-  unlinkItemFromCyberbiz,
   updateWarehouseCategory,
   updateItem,
   updateLayoutElement,
@@ -312,12 +313,6 @@ export const wms = new Hono<AppEnv>()
     return c.json({ ...result, remote }, 201);
   })
 
-  .delete("/items/:id/cyberbiz-link", requirePermission("wms:inventory:write"), async (c) => {
-    const user = c.get("user");
-    await unlinkItemFromCyberbiz(c.get("db"), c.req.param("id"), { id: user.id, email: user.email });
-    return c.json({ ok: true });
-  })
-
   /**
    * 倉儲的操作紀錄。
    *
@@ -553,35 +548,67 @@ export const wms = new Hono<AppEnv>()
      * 的真相是倉庫裡實際有幾件——人已經數完了，不能因為官網連不上就叫他重數，
      * 更不能把他數的結果丟掉。
      *
-     * 所以推不上去時盤點仍然成立，只是把那筆連結標成失敗，等下次同步補。
+     * 所以推不上去時盤點仍然成立，只把失敗寫進 activity_events，等下次同步補。
      */
-    const result = await countItem(c.get("db"), id, input.quantity, actor, text(input, "note"));
-
     const mine = (await listCompanyLinks(c.get("db"))).find((row) => row.inventoryItemId === id);
     const client = cyberbizInventoryClient(c.env);
-    if (!mine || !client) return c.json({ ...result, cyberbiz: { status: "unlinked" } });
+    if (!mine || !client) {
+      const result = await countItem(c.get("db"), id, input.quantity, actor, text(input, "note"));
+      return c.json({ ...result, cyberbiz: { status: "unlinked" } });
+    }
 
+    // 盤點與外部差額推送共用同一把 lease；否則另一個盤點可能在這裡等候時
+    // 改掉本地數量，最後卻被這次 request 的舊 result 推回官網。
+    const lockToken = await claimCyberbizSyncLock(c.get("db"), id);
+    if (!lockToken) {
+      const result = await countItem(c.get("db"), id, input.quantity, actor, text(input, "note"));
+      const message = "這項商品正在由另一個同步工作處理，稍後會自動重試";
+      await recordCyberbizSyncFailed(c.get("db"), {
+        inventoryItemId: id,
+        label: mine.itemSku ? `${mine.itemSku} ${mine.itemName}` : mine.itemName,
+        actor,
+        error: message,
+      });
+      return c.json({ ...result, cyberbiz: { status: "failed", error: message } });
+    }
+
+    let result: Awaited<ReturnType<typeof countItem>> | undefined;
     try {
+      result = await countItem(c.get("db"), id, input.quantity, actor, text(input, "note"));
       const pushed = await client.setCompanyQuantity({
         productId: mine.cyberbizProductId,
         variantId: mine.cyberbizVariantId,
         sku: mine.linkedSku,
         targetQuantity: result.quantity,
       });
-      await markLinkSynced(c.get("db"), mine.linkId, result.quantity);
+      await recordCyberbizSyncSucceeded(c.get("db"), {
+        inventoryItemId: id,
+        label: mine.itemSku ? `${mine.itemSku} ${mine.itemName}` : mine.itemName,
+        actor,
+        quantity: result.quantity,
+      });
+      // 數量同步結果由 activity_events 保存；target schema 不再維護另一份 link 狀態。
       // 官網那邊的數字變了，快取的目錄就過期了。不清掉的話後續目錄查詢
       // 最多一整天還會讀到舊數量。
       await forgetCatalog(cacheClient(c.env));
       return c.json({ ...result, cyberbiz: { status: "synced", changed: pushed.changed } });
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : "CYBERBIZ 同步失敗";
-      await markLinkFailed(c.get("db"), mine.linkId, message, {
-        inventoryItemId: id,
-        label: mine.itemSku ? `${mine.itemSku} ${mine.itemName}` : mine.itemName,
-        actor,
-      });
-      // 盤點本身是成功的，所以回 200——只是附帶告訴呼叫端官網沒推上去。
-      return c.json({ ...result, cyberbiz: { status: "failed", error: message } });
+      // countItem 失敗（例如輸入不合法）時沒有可回傳的盤點結果，交給既有
+      // error middleware；只有已完成本地盤點的外部失敗才留下補跑事件。
+      if (result) {
+        await recordCyberbizSyncFailed(c.get("db"), {
+          inventoryItemId: id,
+          label: mine.itemSku ? `${mine.itemSku} ${mine.itemName}` : mine.itemName,
+          actor,
+          error: message,
+        });
+        // 盤點本身是成功的，所以回 200——只是附帶告訴呼叫端官網沒推上去。
+        return c.json({ ...result, cyberbiz: { status: "failed", error: message } });
+      }
+      throw failure;
+    } finally {
+      await releaseCyberbizSyncLock(c.get("db"), id, lockToken);
     }
   })
 

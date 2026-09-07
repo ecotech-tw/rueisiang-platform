@@ -172,7 +172,9 @@ export function createInventoryClient(
 
       const before = await fetchProduct(productId);
       const current = before.find(
-        (item) => item.variantId === variantId && item.sku.trim().toUpperCase() === wanted,
+        (item) => isCompanyProduct(item)
+          && item.variantId === variantId
+          && item.sku.trim().toUpperCase() === wanted,
       );
       if (!current) {
         throw new Error("CYBERBIZ 的商品連結已失效：找不到原本的 product_id、variant_id 與 SKU。");
@@ -188,8 +190,12 @@ export function createInventoryClient(
         };
       }
 
+      // stock_adjustments 是差額 API，不是冪等的 absolute update。若上游已套用
+      // 但 response 遺失，重送同一 delta 會把庫存加倍；模糊失敗交給呼叫端
+      // 重新讀取並 reconcile，不能由通用 HTTP client 自動 retry。
       await request("/v1/stock_adjustments", {
         method: "POST",
+        retries: 0,
         body: {
           // 0 是公司倉。門市的庫存不歸 WMS 管。
           pos_shop_id: 0,
@@ -198,7 +204,7 @@ export function createInventoryClient(
       });
 
       const after = await fetchProduct(productId);
-      const verified = after.find((item) => item.variantId === variantId);
+      const verified = after.find((item) => isCompanyProduct(item) && item.variantId === variantId);
       if (!verified || verified.quantity !== target) {
         throw new Error(
           `CYBERBIZ 已接受庫存調整，但重新讀取是 ${verified?.quantity ?? "未知"}，預期 ${target}。`,

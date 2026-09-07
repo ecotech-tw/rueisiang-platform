@@ -56,16 +56,24 @@ SELECT (SELECT COUNT(*) FROM users) AS users,
        (SELECT COUNT(*) FROM role_permission_grants) AS role_permission_grants,
        (SELECT COUNT(*) FROM user_permission_grants) AS user_permission_grants;
 
-SELECT '=== 0097 webhook entity types ===' AS q;
+SELECT '=== 0112 unified webhook entity types ===' AS q;
 SELECT entity_type, status, COUNT(*) AS n
 FROM cyberbiz_webhook_events
 GROUP BY 1, 2;
 
--- 商品 webhook 仍由 WMS 專用表處理；topic 可用來確認實際收到的事件種類，
+-- 會員與商品事件共用這張表；topic 可用來確認實際收到的事件種類，
 -- 不輸出 payload 或外部個資。這是「已收到」的觀測，不等同於 CYBERBIZ 後台勾選設定。
-SELECT topic, status, COUNT(*) AS n
-FROM cyberbiz_product_webhooks
-GROUP BY 1, 2;
+SELECT entity_type, topic, status, COUNT(*) AS n
+FROM cyberbiz_webhook_events
+GROUP BY 1, 2, 3;
+
+SELECT '=== 0113 WMS CYBERBIZ identity cutover ===' AS q;
+-- 舊 WMS 對應表應已移除，結果應為 0 列。
+SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wms_cyberbiz_links';
+-- WMS 與官網身分透過 items.id 連接；這裡只觀測目前有官網身分的 WMS 品項數。
+SELECT COUNT(*) AS wms_cyberbiz_items
+FROM wms_items w
+JOIN cyberbiz_products p ON p.item_id = w.item_id;
 
 SELECT '=== 0101 activity entity types ===' AS q;
 SELECT entity_type, COUNT(*) AS n

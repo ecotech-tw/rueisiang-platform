@@ -2,12 +2,11 @@ import { and, asc, count, eq, notInArray, sql } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
-import { itemComponents, items as itemMasters } from "./schema/items.js";
+import { cyberbizProducts, itemComponents, items as itemMasters } from "./schema/items.js";
 import { reportExternalProducts } from "./schema/reports.js";
 import { mediaObjects } from "./schema/media.js";
 import {
   wmsCategories,
-  wmsCyberbizLinks,
   wmsItems,
   wmsLayouts,
   wmsLayoutElements,
@@ -84,16 +83,16 @@ function asSize(box: { width: number; height: number }): string { return `${box.
 
 async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
   const [layout] = await db.select().from(wmsLayouts).where(eq(wmsLayouts.active, 1)).orderBy(asc(wmsLayouts.id)).limit(1);
-  const [zoneRows, elementRows, categoryRows, itemRows, shelfRows, imageRows, linkRows] = await Promise.all([
+  const [zoneRows, elementRows, categoryRows, itemRows, shelfRows, imageRows, cyberbizRows] = await Promise.all([
     db.select().from(wmsZones).orderBy(asc(wmsZones.code)),
     db.select().from(wmsLayoutElements).orderBy(asc(wmsLayoutElements.zIndex), asc(wmsLayoutElements.label)),
     db.select().from(wmsCategories).orderBy(asc(wmsCategories.name)),
     db.select({ wms: wmsItems, item: itemMasters }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).orderBy(asc(itemMasters.name)),
     db.select().from(wmsShelves).orderBy(asc(wmsShelves.zoneId), asc(wmsShelves.sortOrder)),
     db.select({ zoneId: wmsZoneImages.zoneId, total: count() }).from(wmsZoneImages).groupBy(wmsZoneImages.zoneId),
-    db.select().from(wmsCyberbizLinks),
+    db.select().from(cyberbizProducts),
   ]);
-  const linksByItem = new Map(linkRows.map((link) => [link.wmsItemId, link]));
+  const cyberbizByItem = new Map(cyberbizRows.map((product) => [product.itemId, product]));
   const shelvesByZone = new Map<string, ShelfLevel[]>();
   for (const shelf of shelfRows) shelvesByZone.set(shelf.zoneId, [...(shelvesByZone.get(shelf.zoneId) ?? []), { id: shelf.code, name: shelf.name }]);
   const imageCounts = new Map(imageRows.map((row) => [row.zoneId, row.total]));
@@ -110,12 +109,12 @@ async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
     items: itemRows.map(({ wms, item }) => {
       const shelf = wms.shelfId ? shelfById.get(wms.shelfId) : undefined;
       const category = wms.wmsCategoryId ? categoryRows.find((candidate) => candidate.id === wms.wmsCategoryId) : undefined;
-      const link = linksByItem.get(item.id);
+      const product = cyberbizByItem.get(item.id);
       return {
         id: item.id, source: item.source, sku: item.sku, name: item.name, category: category?.name ?? "未分類", quantity: wms.quantity,
         unit: wms.unit, minStock: wms.minStock, zoneId: shelf?.zoneId ?? null, shelfLevel: shelf?.code ?? null,
         notes: wms.notes, updatedAt: wms.updatedAt,
-        cyberbiz: link ? { cyberbizProductId: link.cyberbizProductId, cyberbizVariantId: link.cyberbizVariantId, sku: link.sku, syncStatus: link.syncStatus, lastSyncedQuantity: link.lastSyncedQuantity, lastSyncedAt: link.lastSyncedAt, lastError: link.lastError } : null,
+        cyberbiz: product ? { cyberbizProductId: product.cyberbizProductId, cyberbizVariantId: product.cyberbizVariantId, sku: item.sku, syncStatus: product.syncStatus, syncedAt: product.syncedAt } : null,
       };
     }),
   };
@@ -243,7 +242,10 @@ export async function updateItem(db: Database, id: string, input: Partial<ItemIn
   const [current] = await db.select({ item: itemMasters, wms: wmsItems, category: wmsCategories.name, shelf: wmsShelves })
     .from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).leftJoin(wmsCategories, eq(wmsCategories.id, wmsItems.wmsCategoryId)).leftJoin(wmsShelves, eq(wmsShelves.id, wmsItems.shelfId)).where(eq(wmsItems.itemId, id)).limit(1);
   if (!current) throw new WmsError("not_found", "找不到這項商品。");
-  const [cyberbizLink] = await db.select({ id: wmsCyberbizLinks.id }).from(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.wmsItemId, id)).limit(1);
+  const [cyberbizProduct] = await db.select({ itemId: cyberbizProducts.itemId })
+    .from(cyberbizProducts)
+    .where(eq(cyberbizProducts.itemId, id))
+    .limit(1);
   const category = input.category?.trim() || current.category || "";
   const wmsCategoryId = await requireCategory(db, category);
   const zoneId = input.zoneId === undefined ? current.shelf?.zoneId ?? null : input.zoneId?.trim() || null;
@@ -252,13 +254,12 @@ export async function updateItem(db: Database, id: string, input: Partial<ItemIn
   const nextName = input.name?.trim() || current.item.name;
   const nextSku = input.sku === undefined ? current.item.sku : input.sku.trim().toUpperCase() || current.item.sku;
   if (nextSku !== current.item.sku) {
-    if (cyberbizLink) throw new WmsError("conflict", "這項品項已連結 CYBERBIZ，SKU 必須與官網連結一致，不能在 WMS 修改。");
+    if (current.item.source !== "custom" || cyberbizProduct) throw new WmsError("conflict", "這項品項已連結 CYBERBIZ，SKU 必須與官網連結一致，不能在 WMS 修改。");
     await requireSkuAvailableForExternalMappings(db, nextSku, id);
   }
   const nextMinStock = clamp(input.minStock, current.wms.minStock, QUANTITY);
   if (nextMinStock !== current.wms.minStock) {
-    const [link] = await db.select({ id: wmsCyberbizLinks.id }).from(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.wmsItemId, id)).limit(1);
-    if (link) throw new WmsError("conflict", "這項商品已連結 CYBERBIZ，安全庫存以官網為準，請到官網修改。");
+    if (current.item.source !== "custom" || cyberbizProduct) throw new WmsError("conflict", "這項商品已連結 CYBERBIZ，安全庫存以官網為準，請到官網修改。");
   }
   const next = { sku: nextSku, name: nextName, category, unit: input.unit?.trim() || current.wms.unit, minStock: nextMinStock, zoneId, shelfLevel, notes: input.notes === undefined ? current.wms.notes : input.notes.trim() };
   const moved = next.zoneId !== (current.shelf?.zoneId ?? null) || next.shelfLevel !== (current.shelf?.code ?? null);

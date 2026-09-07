@@ -151,7 +151,7 @@ R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要�
 下列驗收需要正式帳號或 CYBERBIZ 後台權限，不能用本機 fixture 取代；完成後把結果留在
 對應 PR／deploy 紀錄，不要把登入 cookie 或外部 payload 貼進 repo。
 
-- [ ] WMS：登入正式站完成單一已連結品項同步與全部同步，確認數量、安全庫存、上次同步時間與操作紀錄。
+- [ ] WMS：登入正式站完成單一 CYBERBIZ 品項同步與全部同步，確認數量、安全庫存與操作紀錄。
 - [ ] CRM：登入正式站完成客戶列表、標籤與核准的測試客戶寫入 smoke test，確認 target tables 與 CYBERBIZ 回應一致。
 - [ ] CYBERBIZ：在後台確認實際啟用的會員、商品／庫存 Webhook Events、endpoint 與驗證設定；再以 production event log 對照是否有漏送。
 
@@ -167,8 +167,6 @@ R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要�
       並完成舊表資料 parity。
 - [ ] 評估將 `report_payout_daily_target` 整理為正式的 `report_payout_daily` 名稱，
       包含 runtime、migration 與 rollback 驗證。
-- [ ] 評估將 `cyberbiz_product_webhooks` 合併至 `cyberbiz_webhook_events`；需先改
-      webhook 接收、事件分類、重試與 retention 路徑。
 
 ### 上線後收尾
 

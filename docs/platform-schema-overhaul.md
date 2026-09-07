@@ -253,6 +253,11 @@ join 它**。要庫存就即時打 CYBERBIZ API（Redis 快取）。
 所以 `wms_items.quantity` 對官網有的品項是**鏡像值**，對自製材料與包材是
 **唯一紀錄**。送 quantity 失敗記在 log，不需要欄位。
 
+`cyberbiz_products(item_id)` 是唯一的 WMS 外部身分延伸；`(cyberbiz_product_id,
+cyberbiz_variant_id)` 也必須唯一，既有 mapping 不可被重新指向另一個外部商品。官網
+`stock_adjustments` 是差額 API，不可自動 retry；盤點推送用 `cyberbiz_sync_locks` 的
+短 lease 互斥，這張表只保存併發控制，不是另一份庫存或同步狀態真相。
+
 ### CRM（#26–#30）：5 張 → 4 張
 
 | # | 表 | 決定 |

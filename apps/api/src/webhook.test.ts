@@ -1,5 +1,5 @@
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { crmCustomers, cyberbizWebhookEvents, cyberbizProductWebhooks } from "@rueisiang/db/schema";
+import { crmCustomers, cyberbizWebhookEvents } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -261,19 +261,12 @@ describe("不是會員的事件", () => {
     expect(await db().select().from(crmCustomers)).toHaveLength(0);
   });
 
-  /*
-   * 這一條的斷言換過表。
-   *
-   * Phase 4 之前商品事件會被記進「會員 webhook」那張表並標成 ignored——當時沒有
-   * 別的地方可以放。現在一個網址進來會分派，商品事件落在自己的表裡，不再借住。
-   */
-  it("商品事件記在商品那張表，不是會員那張", async () => {
+  it("商品事件與會員事件都記在共用 webhook 表", async () => {
     await post(JSON.stringify(productEvent), { query });
 
-    expect(await db().select().from(cyberbizWebhookEvents)).toHaveLength(0);
-
-    const [event] = await db().select().from(cyberbizProductWebhooks);
-    expect(event?.variantId).toBe("75900635");
+    const [event] = await db().select().from(cyberbizWebhookEvents);
+    expect(event?.entityType).toBe("product");
+    expect(event?.externalEntityId).toBe("75900635");
     expect(event?.status).toBe("ignored");
   });
 
