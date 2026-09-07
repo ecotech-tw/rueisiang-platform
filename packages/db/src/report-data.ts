@@ -41,6 +41,9 @@ export interface NewReportPayoutDaily {
   payoutAmount: number;
 }
 
+const REPORT_SALES_WRITE_BATCH_SIZE = 9;
+const REPORT_PAYOUT_WRITE_BATCH_SIZE = 10;
+
 /**
  * 舊版手動匯入沒有 run ID，但 target imported row 不能用 NULL 偽裝成歷史資料。
  * target-only DB 遇到這條入口時建立一筆可追查的 system import run，讓 FK 與 origin
@@ -543,7 +546,7 @@ export async function insertReportSalesMonthly(
       if (entry.replaceExisting) {
         targetStatements.push(db.delete(reportItemSalesMonthly).where(and(eq(reportItemSalesMonthly.scopeId, entry.scopeId), eq(reportItemSalesMonthly.reportMonth, entry.reportMonth), eq(reportItemSalesMonthly.recordOrigin, "imported"))));
       }
-      for (const chunk of chunks(mappedRows, 20)) {
+      for (const chunk of chunks(mappedRows, REPORT_SALES_WRITE_BATCH_SIZE)) {
         if (chunk.length) targetStatements.push(db.insert(reportItemSalesMonthly).values(chunk).onConflictDoUpdate({ target: [reportItemSalesMonthly.scopeId, reportItemSalesMonthly.reportMonth, reportItemSalesMonthly.itemId, reportItemSalesMonthly.recordOrigin], set: { reportRunId: targetRunId, grossQuantity: sql`excluded.gross_quantity`, returnQuantity: sql`excluded.return_quantity`, netQuantity: sql`excluded.net_quantity`, salesAmount: sql`excluded.sales_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } }));
       }
       if (targetStatements.length) await db.batch(targetStatements as [Statement, ...Statement[]]);
@@ -564,7 +567,7 @@ export async function insertReportPayoutDaily(db: Database, rows: readonly NewRe
     });
     if (!targetId) return;
     const targetRows = rows.map((row) => ({ scopeId: row.scopeId, businessDate: row.businessDate, recordOrigin: "imported" as const, reportRunId: targetId, payoutAmount: row.payoutAmount }));
-    for (const chunk of chunks(targetRows, 20)) {
+    for (const chunk of chunks(targetRows, REPORT_PAYOUT_WRITE_BATCH_SIZE)) {
       await db.batch([db.insert(reportPayoutDaily).values(chunk).onConflictDoUpdate({ target: [reportPayoutDaily.scopeId, reportPayoutDaily.businessDate, reportPayoutDaily.recordOrigin], set: { reportRunId: targetId, payoutAmount: sql`excluded.payout_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } })]);
     }
   }
