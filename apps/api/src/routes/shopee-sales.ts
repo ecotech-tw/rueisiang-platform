@@ -88,7 +88,14 @@ export const shopeeSales = new Hono<AppEnv>()
     }
 
     const user = c.get("user");
-    await recordShopeeSalesRun(c.get("db"), { requestId, startDate: range.start, endDate: range.end, driveFolderUrl, actor: { id: user.id, email: user.email } });
+    await recordShopeeSalesRun(c.get("db"), {
+      requestId,
+      startDate: range.start,
+      endDate: range.end,
+      driveFolderUrl,
+      driveFolderName: settings.driveFolderName,
+      actor: { id: user.id, email: user.email },
+    });
     return c.json({ requestId, start: range.start, end: range.end }, 202);
   })
   .get("/status", requirePermission("tools:shopee-sales:run"), async (c) => {

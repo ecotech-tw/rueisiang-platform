@@ -268,7 +268,7 @@ function reportScopePriority(scopeId: string): number {
 /**
  * 統計頁的店別選項只列一個業務據點：migration 會同時保留 CYBERBIZ
  * report scope 與 payout store scope，兩者名稱相同但 ID 不同，不能直接把兩列都丟給 UI。
- * 蝦皮是 channel，不應混進店別下拉；公司總額查詢仍可透過原本的 scope 規則納入。
+ * 蝦皮是另一個 source_type，不應混進手動店別管理；公司總額查詢仍可透過原本的 scope 規則納入。
  */
 export function canonicalReportStoreScopes(scopes: readonly ReportScope[]): ReportScope[] {
   const canonical = new Map<string, ReportScope>();
@@ -743,6 +743,15 @@ export async function queryReportSales(
         LEFT JOIN items AS component_item ON component_item.id = component.component_item_id
         WHERE mapping.resolution = 'mapped'
           AND mapping.source_type IN (${sql.join(aliasChannels.map((channel) => sql`${channel}`), sql`, `)})
+          AND mapping.source_type = CASE
+            WHEN ${EFFECTIVE_SALES_COLUMNS.scopeId} LIKE 'shopee:%' THEN 'shopee'
+            WHEN ${EFFECTIVE_SALES_COLUMNS.scopeId} LIKE 'manual:%' THEN 'cyberbiz'
+            WHEN ${EFFECTIVE_SALES_COLUMNS.scopeId} LIKE 'report:%' THEN 'cyberbiz'
+            WHEN ${EFFECTIVE_SALES_COLUMNS.scopeId} LIKE 'payout:%' THEN 'cyberbiz'
+            WHEN ${EFFECTIVE_SALES_COLUMNS.scopeId} LIKE 'store-%' THEN 'cyberbiz'
+            WHEN instr(${EFFECTIVE_SALES_COLUMNS.scopeId}, ':') > 0 THEN substr(${EFFECTIVE_SALES_COLUMNS.scopeId}, 1, instr(${EFFECTIVE_SALES_COLUMNS.scopeId}, ':') - 1)
+            ELSE 'cyberbiz'
+          END
           AND mapping.external_key IN (${sql.join(aliasKeys.map((key) => sql`upper(trim(${key}))`), sql`, `)})
           AND (lower(mapped_item.sku) = lower(${EFFECTIVE_SALES_COLUMNS.sku}) OR lower(component_item.sku) = lower(${EFFECTIVE_SALES_COLUMNS.sku}))
         )

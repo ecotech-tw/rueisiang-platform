@@ -29,6 +29,8 @@ const BEFORE = "0095_crm_target_cutover.sql";
 const MERGE = "0096_merge_scopes.sql";
 const BEFORE_DROP_PAYOUT_STORES = "0110_drop_legacy_rbac_tables.sql";
 const DROP_PAYOUT_STORES = "0111_drop_payout_stores.sql";
+const BEFORE_SHOPEE_MIGRATION = "0115_massive_tinkerer.sql";
+const SHOPEE_MIGRATION = "0116_shopee_sales_to_report_runs.sql";
 
 function insertScope(sqlite: DatabaseSync, row: {
   id: string; sourceType: string; name: string; normalized: string;
@@ -119,6 +121,55 @@ describe("payout_stores 收斂到 scopes", () => {
       { id: "cyberbiz:store:uuid-3", source_type: "cyberbiz", drive_folder_url: "https://drive/manual-name" },
       { id: "manual:store:old", source_type: "manual", drive_folder_url: "" },
     ]);
+  });
+});
+
+describe("蝦皮報表設定與執行紀錄收斂", () => {
+  it("沿用既有 shopee scope 的 Drive 設定，並把舊 run 搬進 report_runs", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, BEFORE_SHOPEE_MIGRATION);
+
+    insertScope(sqlite, {
+      id: "shopee:store:default",
+      sourceType: "shopee",
+      name: "蝦皮",
+      normalized: "蝦皮",
+      drive: "https://drive/scope",
+      driveName: "蝦皮正確資料夾",
+    });
+    sqlite.prepare(`
+      INSERT INTO shopee_sales_settings (id, drive_folder_url, drive_folder_name)
+      VALUES ('default', 'https://drive/old-settings', '舊設定')
+    `).run();
+    sqlite.prepare(`
+      INSERT INTO shopee_sales_runs (id, request_id, start_date, end_date, drive_folder_url, actor_id, actor_email, created_at)
+      VALUES ('run-shopee-1', 'request-shopee-1', '2026-08-01', '2026-08-31', 'https://drive/old-settings', 'user-1', 'manager@ecotech.tw', '2026-09-01 10:00:00')
+    `).run();
+
+    applyLikeD1(sqlite, BEFORE_SHOPEE_MIGRATION, SHOPEE_MIGRATION);
+
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('shopee_sales_settings', 'shopee_sales_runs')").all()).toEqual([]);
+    expect(sqlite.prepare("SELECT source_type, scope_kind, drive_folder_url, drive_folder_name FROM scopes WHERE id = 'shopee:store:default'").get()).toEqual({
+      source_type: "shopee",
+      scope_kind: "store",
+      drive_folder_url: "https://drive/scope",
+      drive_folder_name: "蝦皮正確資料夾",
+    });
+    expect(sqlite.prepare("SELECT id, request_id, source_type, imports_sales, imports_payout, period_kind, actor_email FROM report_runs WHERE request_id = 'request-shopee-1'").get()).toEqual({
+      id: "run-shopee-1",
+      request_id: "request-shopee-1",
+      source_type: "shopee",
+      imports_sales: 1,
+      imports_payout: 1,
+      period_kind: "month",
+      actor_email: "manager@ecotech.tw",
+    });
+    expect(sqlite.prepare("SELECT report_run_id, scope_id, drive_folder_url FROM report_run_scopes WHERE report_run_id = 'run-shopee-1'").get()).toEqual({
+      report_run_id: "run-shopee-1",
+      scope_id: "shopee:store:default",
+      drive_folder_url: "https://drive/old-settings",
+    });
   });
 });
 

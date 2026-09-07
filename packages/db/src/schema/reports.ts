@@ -79,6 +79,8 @@ export const reportRuns = sqliteTable("report_runs", {
 export const reportRunScopes = sqliteTable("report_run_scopes", {
   reportRunId: text("report_run_id").notNull().references(() => reportRuns.id, { onDelete: "cascade" }),
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  driveFolderUrl: text("drive_folder_url").notNull().default(""),
+  driveFolderName: text("drive_folder_name").notNull().default(""),
 }, (table) => [
   primaryKey({ columns: [table.reportRunId, table.scopeId] }),
   index("idx_report_run_scopes_scope").on(table.scopeId),
