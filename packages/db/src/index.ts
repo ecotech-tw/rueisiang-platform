@@ -364,6 +364,7 @@ export {
   saveShopeeSalesSettings,
   type ShopeeSalesSettingsInput,
 } from "./shopee-sales.js";
+export { cyberbizScopeIdFromStoreName } from "./scope-id.js";
 export {
   WAREHOUSE_CATEGORY_COLORS,
   WmsError,

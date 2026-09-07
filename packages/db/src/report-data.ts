@@ -423,10 +423,13 @@ export async function latestReportSalesPeriods(
  *
  * 依據只能是 id 前綴：出金與銷售是同一家店、同一個 driver，用「這次在跑哪種報表」
  * 去決定會讓同一家店長出兩種 source_type——0078 就是這樣把 13 家店變成 26 列的。
+ * manual scope 是人工補上的退租店，不是 runner 可執行的 CYBERBIZ POS 店。
  * 沒有前綴的是舊的 payout 店別（uuid），那些都是 CYBERBIZ POS。
  */
 export function scopeSourceTypeFromId(scopeId: string): string {
-  return scopeId.startsWith("shopee:") ? "shopee" : "cyberbiz";
+  if (scopeId.startsWith("shopee:")) return "shopee";
+  if (scopeId.startsWith("manual:")) return "manual";
+  return "cyberbiz";
 }
 
 export async function upsertReportScope(db: Database, input: ReportScopeInput): Promise<ReportScope> {

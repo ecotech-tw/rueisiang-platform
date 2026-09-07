@@ -1,41 +1,10 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
- * 營運工具的表。出金表與蝦皮銷售報表共用這個模組，但各自保留設定與執行紀錄。
- *
- * 出金表真正的執行在 GitHub Actions 的 runner 上——這裡不跑 Chrome、不碰
- * CYBERBIZ 或 Google 的憑證，只保管「有哪些店」與「誰按過執行」。
+ * 營運工具的表。出金表店別已併入 reports.ts 的 scopes；這裡只剩尚未 target 化的
+ * 蝦皮報表設定與執行紀錄。
  */
-
-/**
- * 出金表與商品銷售報表的店別清單。**這張表是唯一來源。**
- *
- * 舊的 Worker 把 stores.json 打包進程式碼裡，所以設定頁改完之後要下載檔案、
- * commit 回 repo、重新部署，執行頁才會看到。搬進 D1 之後設定頁存檔就生效，
- * 但 runner 那邊仍然讀它自己 repo 裡的 stores.json——同一份清單存在三個地方
- * （D1、stores.json、config.json），改了一個另外兩個不會跟著動。
- *
- * 現在店別是**觸發執行時跟著 dispatch 傳給 runner 的**（見 cyberbiz-scope.ts
- * 的 runnerStores），stores.json 已經移除。
- */
-export const payoutStores = sqliteTable("payout_stores", {
-  id: text("id").primaryKey(),
-  /** 必須與 CYBERBIZ 後台的 POS 商店名稱完全一致，driver 靠它找店。 */
-  name: text("name").notNull(),
-  driveFolderUrl: text("drive_folder_url").notNull().default(""),
-  driveFolderName: text("drive_folder_name").notNull().default(""),
-  /** 關閉後只保留設定，不會出現在出金表與商品銷售報表的執行頁，也不會被送給 runner。 */
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-  /** 顯示順序。同仁習慣的店序跟建立時間無關，所以另外存。 */
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [
-  uniqueIndex("idx_payout_stores_name").on(table.name),
-]);
-
-export type PayoutStore = typeof payoutStores.$inferSelect;
 
 /**
  * 蝦皮報表的全域設定。

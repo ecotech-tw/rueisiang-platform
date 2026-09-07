@@ -27,6 +27,8 @@ function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): voi
 
 const BEFORE = "0095_crm_target_cutover.sql";
 const MERGE = "0096_merge_scopes.sql";
+const BEFORE_DROP_PAYOUT_STORES = "0110_drop_legacy_rbac_tables.sql";
+const DROP_PAYOUT_STORES = "0111_drop_payout_stores.sql";
 
 function insertScope(sqlite: DatabaseSync, row: {
   id: string; sourceType: string; name: string; normalized: string;
@@ -79,6 +81,43 @@ describe("scopes 合併", () => {
     expect(sqlite.prepare("SELECT id, source_type, scope_kind FROM scopes WHERE id IN ('shopee:store:default', 'uuid-3') ORDER BY id").all()).toEqual([
       { id: "shopee:store:default", source_type: "shopee", scope_kind: "channel" },
       { id: "uuid-3", source_type: "cyberbiz", scope_kind: "store" },
+    ]);
+  });
+});
+
+describe("payout_stores 收斂到 scopes", () => {
+  it("刪舊表前把 0096 後異動的店別設定同步回 scopes", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, BEFORE_DROP_PAYOUT_STORES);
+
+    insertScope(sqlite, { id: "cyberbiz:store:abc", sourceType: "cyberbiz", name: "宏匯廣場1F", normalized: "宏匯廣場1f" });
+    sqlite.prepare(`
+      INSERT INTO payout_stores (id, name, drive_folder_url, drive_folder_name, enabled, sort_order)
+      VALUES ('uuid-1', '宏匯廣場1F', 'https://drive/new', '宏匯新資料夾', 0, 7)
+    `).run();
+    sqlite.prepare(`
+      INSERT INTO payout_stores (id, name, drive_folder_url, drive_folder_name, enabled, sort_order)
+      VALUES ('uuid-2', '只有出金設定', 'https://drive/only', '只有出金', 1, 8)
+    `).run();
+    insertScope(sqlite, { id: "manual:store:old", sourceType: "cyberbiz", name: "退租店", normalized: "退租店" });
+    sqlite.prepare(`
+      INSERT INTO payout_stores (id, name, drive_folder_url, drive_folder_name, enabled, sort_order)
+      VALUES ('uuid-3', '退租店', 'https://drive/manual-name', '同名正式店', 1, 9)
+    `).run();
+
+    applyLikeD1(sqlite, BEFORE_DROP_PAYOUT_STORES, DROP_PAYOUT_STORES);
+
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'payout_stores'").get()).toBeUndefined();
+    expect(sqlite.prepare("SELECT id, drive_folder_url, drive_folder_name, sort_order, active FROM scopes WHERE normalized_name = '宏匯廣場1f'").all()).toEqual([
+      { id: "cyberbiz:store:abc", drive_folder_url: "https://drive/new", drive_folder_name: "宏匯新資料夾", sort_order: 7, active: 0 },
+    ]);
+    expect(sqlite.prepare("SELECT id, source_type, scope_kind, name, active FROM scopes WHERE normalized_name = '只有出金設定'").all()).toEqual([
+      { id: "cyberbiz:store:uuid-2", source_type: "cyberbiz", scope_kind: "store", name: "只有出金設定", active: 1 },
+    ]);
+    expect(sqlite.prepare("SELECT id, source_type, drive_folder_url FROM scopes WHERE normalized_name = '退租店' ORDER BY id").all()).toEqual([
+      { id: "cyberbiz:store:uuid-3", source_type: "cyberbiz", drive_folder_url: "https://drive/manual-name" },
+      { id: "manual:store:old", source_type: "manual", drive_folder_url: "" },
     ]);
   });
 });

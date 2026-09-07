@@ -90,6 +90,8 @@ transaction 中，而 transaction 內切換 `foreign_keys` 沒有效果；被 `O
 0099_permission_grants_fk
 0100_rename_payout_daily
 0101_activity_entity_type_rename
+0110_drop_legacy_rbac_tables
+0111_drop_payout_stores
 ```
 
 `0097_webhook_events_entity_type` 只補上既有會員事件的 `entity_type` 約束；商品事件
@@ -97,6 +99,9 @@ transaction 中，而 transaction 內切換 `foreign_keys` 沒有效果；被 `O
 
 `0101_activity_entity_type_rename` 只用一支 `UPDATE` 將 `activity_events.entity_type` 的
 四個舊值改成 target 值，保留 `entity_id` 與其他欄位，不重建資料表。
+
+`0111_drop_payout_stores` 刪除前會先把 0096 之後可能異動的 Drive 目標、排序與啟用狀態
+同步回 `scopes`；之後出金與商品銷售執行頁也改讀 `scopes`。
 
 ## 驗證與量測
 
