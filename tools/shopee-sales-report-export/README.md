@@ -6,11 +6,11 @@
 
 完整月份執行時，同一份報表會依 F 欄日期產生每日 payout 資料，並將「商品 ID＋規格 ID」數量彙總成 sales 月資料；scope 固定為 `shopee:store:default`（蝦皮）。
 
-sales 的外部 SKU 使用報表 Z 欄商品 ID 與 AB 欄規格 ID 組成的 `商品ID_規格ID`。若該 mapping 有組合用料，平台匯入 D1 時會依每組用料數量展開成各 WMS SKU；蝦皮報表的 salesAmount 維持 0，不會把同一筆商品金額複製到每個用料。
+sales 的外部 SKU 使用報表 Z 欄商品 ID 與 AB 欄規格 ID 組成的 `商品ID_規格ID`。若該 mapping 有組合用料，平台匯入 D1 時會依每組用料數量展開成各 WMS SKU；因為蝦皮報表沒有用料層級金額，匯入時仍只把 salesAmount 掛在第一個用料，避免組合包營收重複計算。
 
 既有 mapping 若仍只有商品 ID，平台在找不到精確的 `商品ID_規格ID` mapping 時會 fallback 到商品 ID；新增或編輯 mapping 時仍建議使用含規格 ID 的完整外部 SKU。
 
-蝦皮報表的 `G` 是訂單金額欄，可能因同一訂單有多個商品而重複出現；因此目前不將它分攤到商品 sales，蝦皮 sales 的 `salesAmount` 保留為 0，商品數量以 AH、退貨數量以 AI 為準。業績則只對 A 欄訂單編號去重後計算 `G - S - U`。
+蝦皮報表的 `G` 是訂單層級商品總價，可能因同一訂單有多個商品而重複出現，所以只用在業績計算。商品 salesAmount 的 parsing 規則是 `AE 欄商品單價 × AH 欄商品銷售數量`。商品數量以 AH、退貨數量以 AI 為準；業績仍只對 A 欄訂單編號去重後計算 `G - S - U`。
 
 ```bash
 node driver.mjs --input "Order.completed.20250201_20250228.xlsx" --password 042213 --drive-folder-url "https://drive.google.com/drive/folders/..."
@@ -22,7 +22,7 @@ node driver.mjs --input "Order.completed.20250201_20250228.xlsx" --password 0422
 node driver.mjs --input "Order.completed.20250201_20250228.xlsx" --password 042213 --skip-upload
 ```
 
-工具會解密報表、依 A 欄訂單去重後計算 `G - S - U`，並將 `Z + AA` 商品組合依 AH 數量彙總成新的工作表。
+工具會解密報表、依 A 欄訂單去重後計算 `G - S - U`，並將 `Z + AA` 商品組合依 AH 數量與 `AE × AH` 商品銷售金額彙總成新的工作表。
 
 加密報表在 Linux/GitHub Actions 上需要安裝 `msoffcrypto-tool`；Windows 本機若有 Microsoft Excel，也可以由工具使用 Excel COM 解密。
 
