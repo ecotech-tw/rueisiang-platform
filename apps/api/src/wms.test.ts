@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, listActivity, syncSystemRoles } from "@rueisiang/db";
 import {
   activityEvents,
   cyberbizProductCatalog,
@@ -100,6 +100,54 @@ async function seedWmsItem(id = "item-1", sku = "BOX-01") {
   await db.insert(wmsItems).values({ itemId: id, wmsCategoryId: "wms-cat-1", quantity: 10, unit: "件", minStock: 5, notes: "" });
   return id;
 }
+
+describe("倉儲操作紀錄排序", () => {
+  it("同一秒也依實際寫入順序排在最新的前面，而不是用隨機 UUID", async () => {
+    await db.insert(activityEvents).values([
+      {
+        id: "zzzz-event",
+        entityType: "item",
+        entityId: "item-1",
+        eventType: "item_counted",
+        summary: "第一筆",
+        source: "wms",
+        createdAt: "2026-09-07 18:24:12",
+      },
+      {
+        id: "aaaa-event",
+        entityType: "item",
+        entityId: "item-1",
+        eventType: "item_counted",
+        summary: "第二筆",
+        source: "wms",
+        createdAt: "2026-09-07 18:24:12",
+      },
+      {
+        id: "newer-event",
+        entityType: "item",
+        entityId: "item-1",
+        eventType: "item_counted",
+        summary: "更新的一筆",
+        source: "wms",
+        createdAt: "2026-09-07 18:24:13",
+      },
+    ]);
+
+    const result = await listActivity(db, {
+      entityTypes: ["item"],
+      source: "all",
+      search: "",
+      page: 1,
+      pageSize: 25,
+    });
+
+    expect(result.events.map((event) => event.id)).toEqual([
+      "newer-event",
+      "aaaa-event",
+      "zzzz-event",
+    ]);
+  });
+});
 
 describe("WMS target-only API", () => {
   it("新增與移動倉位，並在 target tables 留下操作紀錄", async () => {

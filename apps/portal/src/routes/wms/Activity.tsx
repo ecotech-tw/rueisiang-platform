@@ -143,6 +143,11 @@ export function Activity() {
       }
       return (await response.json()) as ActivityList;
     },
+    // 稽核頁不能沿用全站 30 秒 stale window；webhook／cron 在另一個 Worker
+    // instance 寫入時，前端不會收到 mutation invalidation。
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
     // 換頁時先留著上一批，畫面不會整個閃成空白再長回來。
     placeholderData: keepPreviousData,
   });
