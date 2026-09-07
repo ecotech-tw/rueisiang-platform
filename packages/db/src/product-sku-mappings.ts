@@ -797,9 +797,11 @@ export async function syncCyberbizProducts(
   }>,
 ): Promise<{ synced: number }> {
   const rows = new Map<string, { sku: string; productId: string; variantId: string; productName: string; variantName: string; published: number }>();
+  const duplicates = new Set<string>();
   for (const product of products) {
     const sku = normalizeExternalSku(product.sku ?? "");
     if (!sku) continue;
+    if (rows.has(sku)) duplicates.add(sku);
     rows.set(sku, {
       sku,
       productId: String(product.productId ?? ""),
@@ -808,6 +810,9 @@ export async function syncCyberbizProducts(
       variantName: (product.variantName ?? "").trim(),
       published: product.published === false ? 0 : 1,
     });
+  }
+  if (duplicates.size) {
+    throw new Error(`CYBERBIZ 目錄包含重複 SKU，拒絕覆蓋商品身分：${[...duplicates].sort().join(", ")}`);
   }
   for (const row of rows.values()) {
     // 跟後台、報表共用同一支：自己接一次的話，商品名會重複（官網的 variantName 本身

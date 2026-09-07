@@ -6,10 +6,10 @@
 
 ## 範圍
 
-第一階段的 target contract 是非小香部分 32 張表；小香的 15 張 `assistant_*` tables
-維持既有形狀。WMS 庫存同步使用 `wms_items` 與 `cyberbiz_products` 透過 `items.id`
-隱含對應；CYBERBIZ 會員與商品／庫存事件共用 `cyberbiz_webhook_events`，因此不能用原本的
-32 + 15 推斷目前實體表數量。
+第一階段的 target contract 是非小香的核心 tables；小香的 `assistant_*` tables 維持既有
+形狀。WMS 庫存同步使用 `wms_items` 與 `cyberbiz_products` 透過 `items.id` 隱含對應，另以
+`cyberbiz_sync_locks` 保存跨 Worker 的短 lease；CYBERBIZ 會員與商品／庫存事件共用
+`cyberbiz_webhook_events`，因此不能用歷史文件中的表數推斷目前實體表數量。
 
 商品事件的外部身分放在 `external_entity_id`（variant_id），原始內容放在
 `payload_json`。接收、事件分類、重試與 retention 都只讀這張共用事件表；不能再讓
@@ -22,11 +22,18 @@ WMS 維護另一套 webhook event store。
 
 ### 1. Migration 以 D1 transaction 執行
 
-正式 deploy 由 `.github/workflows/deploy.yml` 的 `ubuntu-latest` 執行，順序是：
+正式 deploy 由 `.github/workflows/deploy.yml` 的 `ubuntu-latest` 執行。0114 會刪除仍可能被舊
+Worker 使用的 legacy table，因此 cutover migration 會分兩段：先套用除 0114 外的 migration，
+再部署新 Worker，最後才套用 0114 並做 health check：
 
 ```
-pnpm test → pnpm build → D1 migrations apply → Worker deploy → health check
+pnpm test → pnpm build → D1 migrations (pre-cutover, keep legacy) → Worker deploy
+  → D1 migrations (0114 drop legacy) → health check
 ```
+
+這不是長期雙寫或雙 schema；只是把 destructive DDL 放到新 Worker 接手之後，避免部署窗口中
+舊 Worker 遇到 `no such table`。暫存 migration 目錄與正式目錄共用同一個 D1 `d1_migrations`
+registry，第二段只會補套被刻意排除的 0114。
 
 Migration 內不要使用 `PRAGMA foreign_keys = OFF` 保護重建。D1 會把 migration 包在
 transaction 中，而 transaction 內切換 `foreign_keys` 沒有效果；被 `ON DELETE CASCADE`
@@ -95,10 +102,14 @@ transaction 中，而 transaction 內切換 `foreign_keys` 沒有效果；被 `O
 0111_drop_payout_stores
 0112_cyberbiz_webhook_events_unify
 0113_wms_cyberbiz_identity_cutover
+0114_absent_king_cobra
+0115_massive_tinkerer
 ```
 
 `0097_webhook_events_entity_type` 先補上共用事件表的 `entity_type` 約束；`0112` 完成
-會員與商品事件的 unified cutover；`0113` 再將 WMS 商品身分切換到 `items` 的延伸表。
+會員與商品事件的 unified cutover；`0113` 再將 WMS 商品身分切換到 `items` 的延伸表；`0115`
+建立跨 Worker 的 CYBERBIZ 差額同步 lease；`0114` 最後才移除已無 runtime consumer 的兩張
+legacy webhook/link 表。
 
 `0101_activity_entity_type_rename` 只用一支 `UPDATE` 將 `activity_events.entity_type` 的
 四個舊值改成 target 值，保留 `entity_id` 與其他欄位，不重建資料表。

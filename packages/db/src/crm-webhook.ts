@@ -9,7 +9,11 @@ import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { syncCyberbizCustomer, type CyberbizSyncResult } from "./crm-sync.js";
 import { crmCustomers, cyberbizWebhookEvents } from "./schema/crm.js";
-import { claimCyberbizWebhookEvent, claimFailedCyberbizWebhookEvent } from "./webhook-events.js";
+import {
+  claimCyberbizWebhookEvent,
+  claimFailedCyberbizWebhookEvent,
+  requeueStaleCyberbizWebhookEvents,
+} from "./webhook-events.js";
 
 /**
  * 收到的 webhook 先落地再處理。
@@ -209,6 +213,7 @@ export async function retryFailedWebhooks(
   options: { limit?: number; client?: CyberbizCustomerClient } = {},
 ): Promise<{ attempted: number; recovered: number; stillFailing: number }> {
   const limit = options.limit ?? 20;
+  await requeueStaleCyberbizWebhookEvents(db, "customer");
 
   const pending = await db
     .select({

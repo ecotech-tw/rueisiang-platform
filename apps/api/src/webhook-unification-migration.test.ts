@@ -43,8 +43,27 @@ describe("0112/0113 CYBERBIZ target cutover", () => {
       "{\"productId\":\"product-1\"}",
       "官網暫時無法連線",
     );
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_product_webhooks
+        (id, topic, product_id, variant_id, sku, quantity, payload_hash, status, attempts, result, last_error)
+      VALUES ('collision-event', 'variants/update', 'product-2', 'variant-2', 'SKU-2', 3, 'collision-event', 'processed', 1, '{}', '')
+    `).run();
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_webhook_events
+        (id, topic, status, entity_type, payload_json, result_json, attempts)
+      VALUES ('collision-event', 'customers/update', 'processed', 'customer', '{}', '{}', 1)
+    `).run();
 
     applyLikeD1(sqlite, "0111_drop_payout_stores.sql", "0112_cyberbiz_webhook_events_unify.sql");
+
+    expect(sqlite.prepare(`
+      SELECT status, error
+      FROM activity_events
+      WHERE id = 'migration:0112:webhook-conflict:collision-event'
+    `).get()).toEqual({
+      status: "failed",
+      error: "cyberbiz_webhook_events 已存在相同 id",
+    });
 
     sqlite.prepare(`
       INSERT INTO items (id, source, kind, sku, name, active)
@@ -59,9 +78,18 @@ describe("0112/0113 CYBERBIZ target cutover", () => {
         (id, wms_item_id, cyberbiz_product_id, cyberbiz_variant_id, sku, last_error)
       VALUES ('legacy-link', 'wms-item-1', 'product-1', 'variant-1', 'SKU-1', '舊同步失敗')
     `).run();
+    sqlite.prepare(`
+      INSERT INTO items (id, source, kind, sku, name, active)
+      VALUES ('occupied-item', 'cyberbiz', 'sellable', 'SKU-OCCUPIED', '已佔用商品', 1)
+    `).run();
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_products (item_id, cyberbiz_product_id, cyberbiz_variant_id)
+      VALUES ('occupied-item', 'product-1', 'variant-1')
+    `).run();
 
     applyLikeD1(sqlite, "0112_cyberbiz_webhook_events_unify.sql", "0113_wms_cyberbiz_identity_cutover.sql");
 
+    // data migration 與 generated schema drop 分開；先驗證 0113 完成搬移，再套用 0114。
     expect(sqlite.prepare(`
       SELECT id, topic, entity_type, external_entity_id, status, attempts, last_error, payload_json
       FROM cyberbiz_webhook_events
@@ -83,20 +111,24 @@ describe("0112/0113 CYBERBIZ target cutover", () => {
     });
     expect(sqlite.prepare(`
       SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cyberbiz_product_webhooks'
-    `).get()).toBeUndefined();
+    `).get()).toEqual({ name: "cyberbiz_product_webhooks" });
     expect(sqlite.prepare(`
       SELECT item_id, cyberbiz_product_id, cyberbiz_variant_id
       FROM cyberbiz_products
       WHERE item_id = 'wms-item-1'
+    `).get()).toBeUndefined();
+    expect(sqlite.prepare(`
+      SELECT status, error
+      FROM activity_events
+      WHERE id = 'migration:0113:wms-cyberbiz:collision:legacy-link'
     `).get()).toEqual({
-      item_id: "wms-item-1",
-      cyberbiz_product_id: "product-1",
-      cyberbiz_variant_id: "variant-1",
+      status: "failed",
+      error: "target cyberbiz_products 已存在衝突的 mapping",
     });
     expect(sqlite.prepare(`
       SELECT entity_type, entity_id, event_type, status, error
       FROM activity_events
-      WHERE id = 'migration:0113:wms-cyberbiz:legacy-link'
+      WHERE id = 'migration:0113:wms-cyberbiz:failed:legacy-link'
     `).get()).toEqual({
       entity_type: "item",
       entity_id: "wms-item-1",
@@ -104,6 +136,14 @@ describe("0112/0113 CYBERBIZ target cutover", () => {
       status: "failed",
       error: "舊同步失敗",
     });
+    expect(sqlite.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wms_cyberbiz_links'
+    `).get()).toEqual({ name: "wms_cyberbiz_links" });
+
+    applyLikeD1(sqlite, "0113_wms_cyberbiz_identity_cutover.sql", "0114_absent_king_cobra.sql");
+    expect(sqlite.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cyberbiz_product_webhooks'
+    `).get()).toBeUndefined();
     expect(sqlite.prepare(`
       SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wms_cyberbiz_links'
     `).get()).toBeUndefined();

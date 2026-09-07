@@ -7,6 +7,7 @@ import {
   listExpiredMediaObjects,
   purgeSettledWebhookEvents,
   retryFailedProductWebhooks,
+  retryFailedCyberbizPushes,
   retryFailedWebhooks,
   syncCyberbizProducts,
 } from "@rueisiang/db";
@@ -229,6 +230,18 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
         if (result.processed) await forgetCatalog(cacheClient(env));
       })
       .catch((error) => assistantLog("error", "scheduled.product_webhook_retry_failed", {
+        error: assistantErrorDetails(error),
+      })),
+  );
+
+  // 盤點推送失敗不是 webhook，不能只靠上面的 webhook retry；用 activity log
+  // 找出尚未被成功事件覆蓋的 item，重新讀官網後以 absolute target reconcile。
+  ctx.waitUntil(
+    retryFailedCyberbizPushes(db, cyberbizInventoryClient(env))
+      .then((result) => {
+        if (result.attempted) assistantLog("info", "scheduled.cyberbiz_push_retry", result);
+      })
+      .catch((error) => assistantLog("error", "scheduled.cyberbiz_push_retry_failed", {
         error: assistantErrorDetails(error),
       })),
   );

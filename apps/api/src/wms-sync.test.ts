@@ -1,5 +1,5 @@
-import { applySyncPlan, buildSyncPlan, createDatabase, listCompanyLinks, loadWarehouse, type LinkedItem, type RemoteItem } from "@rueisiang/db";
-import { activityEvents, cyberbizProductCatalog, items, wmsCategories, wmsItems } from "@rueisiang/db/schema";
+import { applySyncPlan, buildSyncPlan, claimCyberbizSyncLock, createDatabase, listCompanyLinks, loadWarehouse, releaseCyberbizSyncLock, type LinkedItem, type RemoteItem } from "@rueisiang/db";
+import { activityEvents, cyberbizProductCatalog, cyberbizSyncLocks, items, wmsCategories, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1 } from "./local-d1/d1.js";
@@ -113,16 +113,29 @@ describe("套用同步", () => {
     const [event] = await db.select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_sync_failed"));
     expect(event?.status).toBe("failed");
     expect(event?.error).toContain("SKU");
+    expect((await db.select().from(cyberbizProductCatalog))[0]?.syncStatus).toBe("failed");
 
   });
 
-  it("沒有變化時不寫商品，也不製造操作紀錄", async () => {
+  it("沒有變化時不寫商品，但會留下最後同步時間", async () => {
     const same = { ...REMOTE, quantity: 10, safetyQuantity: 5 };
     const result = await applySyncPlan(db, buildSyncPlan([LINK], [same]), actor);
     expect(result).toEqual({ updated: 0, unchanged: 1, failed: 0 });
 
-    // 沒變就不該留紀錄，不然每次同步都灌一整頁「什麼都沒發生」。
-    expect(await db.select().from(activityEvents)).toHaveLength(0);
+    const [event] = await db.select().from(activityEvents);
+    expect(event).toMatchObject({ eventType: "cyberbiz_synced", field: "sync", source: "cyberbiz_sync" });
+    expect((await db.select().from(cyberbizProductCatalog))[0]?.syncStatus).toBe("synced");
+  });
+
+  it("外部差額推送同一時間只允許一個工作取得 lease", async () => {
+    const first = await claimCyberbizSyncLock(db, "i1");
+    expect(first).toEqual(expect.any(String));
+    expect(await claimCyberbizSyncLock(db, "i1")).toBeNull();
+
+    await releaseCyberbizSyncLock(db, "i1", first!);
+    const second = await claimCyberbizSyncLock(db, "i1");
+    expect(second).toEqual(expect.any(String));
+    expect(await db.select().from(cyberbizSyncLocks)).toHaveLength(1);
   });
 
   it("讀連結時會帶上 WMS 這邊目前的數量", async () => {

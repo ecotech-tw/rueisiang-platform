@@ -405,10 +405,13 @@ export {
 export {
   applySyncPlan,
   buildSyncPlan,
+  claimCyberbizSyncLock,
   linkItemToCyberbiz,
   listCompanyLinks,
   recordCyberbizSyncFailed,
   recordCyberbizSyncSucceeded,
+  releaseCyberbizSyncLock,
+  retryFailedCyberbizPushes,
   type LinkedItem,
   type RemoteItem,
   type SyncOutcome,

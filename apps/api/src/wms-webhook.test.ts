@@ -223,24 +223,26 @@ describe("處理", () => {
     expect(item?.quantity).toBe(200);
   });
 
-  it("數量沒變就不寫商品，也不留紀錄", async () => {
+  it("數量沒變就不寫商品，但會留下最後同步時間", async () => {
     stubCyberbiz({ body: product({ quantity: 178, safety: 24 }) });
     const { json } = await post({ product_id: "56750193" }, { topic: "variants/update" });
 
     expect(json).toMatchObject({ sync: { updated: 0, unchanged: 1, failed: 0 } });
-    // 沒變就不該留紀錄，不然每個 webhook 都灌一整頁「什麼都沒發生」。
-    expect(await db().select().from(activityEvents)).toHaveLength(0);
+    const [event] = await db().select().from(activityEvents);
+    expect(event).toMatchObject({ eventType: "cyberbiz_synced", field: "sync", source: "cyberbiz_sync" });
   });
 
   it("SKU 對不上時連結標成失敗，數量一動也不動", async () => {
     stubCyberbiz({ body: product({ quantity: 200, sku: "換過了" }) });
     const { json } = await post({ product_id: "56750193" }, { topic: "variants/update" });
 
-    expect(json).toMatchObject({ sync: { updated: 0, failed: 1 } });
+    expect(json).toMatchObject({ status: "failed", sync: { updated: 0, failed: 1 } });
+    const [event] = await db().select().from(cyberbizWebhookEvents);
+    expect(event?.status).toBe("failed");
     const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(178);
-    const [event] = await db().select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_sync_failed"));
-    expect(event?.status).toBe("failed");
+    const [activityEvent] = await db().select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_sync_failed"));
+    expect(activityEvent?.status).toBe("failed");
   });
 });
 
@@ -603,6 +605,30 @@ describe("review 抓到的回歸", () => {
       await post({ id: 7, mobile: "0912345678", name: "王小明" });
       expect(redis).toHaveLength(0);
     });
+  });
+
+  it("processing lease 逾時的商品事件會重新進入補跑", async () => {
+    await db().insert(cyberbizWebhookEvents).values({
+      id: "stale-event",
+      topic: "variants/update",
+      entityType: "product",
+      externalEntityId: "68463869",
+      payloadJson: JSON.stringify({ id: 68463869, sku: "BPK24004", inventory_quantity: 200 }),
+      status: "processing",
+      updatedAt: "2000-01-01 00:00:00",
+    });
+    stubCyberbiz({ body: product({ quantity: 200 }) });
+
+    const result = await retryFailedProductWebhooks(db(), {
+      client: (await import("@rueisiang/cyberbiz")).createInventoryClient({
+        apiToken: TOKEN,
+        baseUrl: BASE,
+      }),
+    });
+
+    expect(result).toMatchObject({ processed: 1, failed: 0 });
+    const [row] = await db().select().from(cyberbizWebhookEvents);
+    expect(row?.status).toBe("processed");
   });
 
   it("共用事件表的商品 payload 可以補跑", async () => {

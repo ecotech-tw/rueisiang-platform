@@ -75,8 +75,8 @@ export function ItemForm({
   const update = useUpdateItem();
   const link = useLinkCyberbiz();
   const toast = useToast();
-  const pending = createCatalog.isPending || update.isPending;
-  const error = createCatalog.error ?? update.error;
+  const pending = createCatalog.isPending || update.isPending || link.isPending;
+  const error = createCatalog.error ?? update.error ?? link.error;
 
   /** 選了倉位才有層可選，而且只能選那個倉位自己的層。 */
   const zone = zones.find((candidate) => candidate.id === fields.zoneId);

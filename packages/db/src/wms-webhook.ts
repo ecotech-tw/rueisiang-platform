@@ -5,7 +5,11 @@ import type { Database } from "./client.js";
 import { cyberbizWebhookEvents } from "./schema/crm.js";
 import { cyberbizProducts } from "./schema/items.js";
 import { wmsItems } from "./schema/wms.js";
-import { claimCyberbizWebhookEvent, claimFailedCyberbizWebhookEvent } from "./webhook-events.js";
+import {
+  claimCyberbizWebhookEvent,
+  claimFailedCyberbizWebhookEvent,
+  requeueStaleCyberbizWebhookEvents,
+} from "./webhook-events.js";
 import { applySyncPlan, buildSyncPlan, listCompanyLinks, type SyncOutcome } from "./wms-sync.js";
 
 /**
@@ -157,12 +161,16 @@ export async function processProductWebhook(
      */
     const outcome = await applySyncPlan(db, buildSyncPlan(links, remotes), null);
     const sync = { ...outcome, linked: links.length };
-
-    await markEvent(db, eventId, { status: "processed", result: { productId, sync } });
+    const status = sync.failed > 0 ? "failed" : "processed";
+    await markEvent(db, eventId, {
+      status,
+      result: { productId, sync },
+      ...(sync.failed > 0 ? { error: `${sync.failed} 筆 WMS 庫存同步失敗` } : {}),
+    });
     return {
       eventId,
       topic,
-      status: "processed",
+      status,
       productId,
       variantId: event.variantId || null,
       sync,
@@ -194,6 +202,8 @@ export async function retryFailedProductWebhooks(
   db: Database,
   input: { client?: CyberbizInventoryClient } = {},
 ): Promise<{ attempted: number; processed: number; failed: number }> {
+  await requeueStaleCyberbizWebhookEvents(db, "product");
+
   const pending = await db
     .select({
       id: cyberbizWebhookEvents.id,

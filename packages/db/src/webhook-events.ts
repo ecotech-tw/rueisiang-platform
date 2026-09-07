@@ -18,6 +18,12 @@ export type ClaimWebhookEventResult =
   | { claimed: false; status: string };
 
 /**
+ * Worker 在 claim 後可能在寫回結果前被中止。processing 不是終態：超過這個
+ * lease 的事件可以安全地交給下一次補跑，避免一筆事件永久卡死。
+ */
+export const WEBHOOK_PROCESSING_LEASE_SECONDS = 5 * 60;
+
+/**
  * 所有 CYBERBIZ webhook 的唯一入口 claim。
  *
  * 會員與商品共用同一張表、同一個內容雜湊主鍵，才能讓重送不會因為分流而
@@ -54,6 +60,28 @@ export async function claimCyberbizWebhookEvent(
 /**
  * 以單一 UPDATE claim 一筆 failed 事件，避免補跑期間再被另一個排程重複處理。
  */
+export async function requeueStaleCyberbizWebhookEvents(
+  db: Database,
+  entityType: CyberbizWebhookEntityType,
+  leaseSeconds = WEBHOOK_PROCESSING_LEASE_SECONDS,
+): Promise<number> {
+  const seconds = Math.max(60, Math.trunc(leaseSeconds));
+  const updated = await db
+    .update(cyberbizWebhookEvents)
+    .set({
+      status: "failed",
+      lastError: "webhook processing lease 已逾時，重新排程",
+      processedAt: null,
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    })
+    .where(and(
+      eq(cyberbizWebhookEvents.entityType, entityType),
+      eq(cyberbizWebhookEvents.status, "processing"),
+      sql`${cyberbizWebhookEvents.updatedAt} < datetime('now', ${`-${seconds} seconds`})`,
+    ));
+  return updated.meta?.changes ?? 0;
+}
+
 export async function claimFailedCyberbizWebhookEvent(
   db: Database,
   id: string,

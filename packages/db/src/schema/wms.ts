@@ -93,6 +93,18 @@ export const wmsZoneImages = sqliteTable("wms_zone_images", {
 ]);
 
 /** 進了倉庫的品項；不是每個 item 都一定有一列。 */
+/**
+ * 外部庫存 API 是差額操作；同一 variant 的盤點推送必須在所有 Worker
+ * instance 之間互斥。這是短 lease，不是業務資料，過期後可被下一次工作接手。
+ */
+export const cyberbizSyncLocks = sqliteTable("cyberbiz_sync_locks", {
+  itemId: text("item_id").primaryKey().references(() => items.id, { onDelete: "cascade" }),
+  token: text("token").notNull(),
+  leaseUntil: text("lease_until").notNull(),
+}, (table) => [
+  index("idx_cyberbiz_sync_locks_lease").on(table.leaseUntil),
+]);
+
 export const wmsItems = sqliteTable("wms_items", {
   itemId: text("item_id").primaryKey().references(() => items.id, { onDelete: "cascade" }),
   wmsCategoryId: text("wms_category_id").references(() => wmsCategories.id, { onDelete: "set null" }),
@@ -116,3 +128,4 @@ export type WmsLayout = typeof wmsLayouts.$inferSelect;
 export type WmsLayoutElement = typeof wmsLayoutElements.$inferSelect;
 export type WmsZoneImage = typeof wmsZoneImages.$inferSelect;
 export type WmsItem = typeof wmsItems.$inferSelect;
+export type CyberbizSyncLock = typeof cyberbizSyncLocks.$inferSelect;
