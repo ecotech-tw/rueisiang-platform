@@ -1,6 +1,6 @@
 import type { CyberbizInventoryClient } from "@rueisiang/cyberbiz";
 import { classifyPayload, createWebhookEventId, parseProductEvent } from "@rueisiang/cyberbiz";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, lt, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { cyberbizProductWebhooks, wmsCyberbizLinks } from "./schema/wms.js";
 import { applySyncPlan, buildSyncPlan, listCompanyLinks, type SyncOutcome } from "./wms-sync.js";
@@ -36,6 +36,9 @@ export interface ProcessProductWebhookInput {
   topic: string;
   /** 沒有 client 就沒辦法重讀，只能記下來等補跑。 */
   client?: CyberbizInventoryClient;
+  /** Cron 已經 claim 的事件；一般 webhook 不傳，會由 insert 取得 claim。 */
+  eventId?: string;
+  processingToken?: string;
 }
 
 /** 把事件的處理結果寫回去。result 存 JSON，之後查「那次到底做了什麼」用。 */
@@ -50,6 +53,7 @@ async function productIdForVariant(db: Database, variantId: string): Promise<str
 async function markEvent(
   db: Database,
   eventId: string,
+  processingToken: string,
   input: { status: string; result?: unknown; error?: string },
 ): Promise<void> {
   await db
@@ -58,10 +62,14 @@ async function markEvent(
       status: input.status,
       result: input.result === undefined ? "" : JSON.stringify(input.result),
       lastError: input.error ?? "",
+      processingToken: null,
       processedAt: sql`CURRENT_TIMESTAMP`,
       updatedAt: sql`CURRENT_TIMESTAMP`,
     })
-    .where(eq(cyberbizProductWebhooks.id, eventId));
+    .where(and(
+      eq(cyberbizProductWebhooks.id, eventId),
+      eq(cyberbizProductWebhooks.processingToken, processingToken),
+    ));
 }
 
 export async function processProductWebhook(
@@ -77,28 +85,44 @@ export async function processProductWebhook(
     throw new Error("webhook 內容不是有效的 JSON");
   }
 
-  const eventId = await createWebhookEventId(topic, rawBody);
+  const eventId = input.eventId ?? await createWebhookEventId(topic, rawBody);
   const event = parseProductEvent(payload);
-  const inserted = await db.insert(cyberbizProductWebhooks).values({
-    id: eventId,
-    topic,
-    productId: event.productId || null,
-    variantId: event.variantId || null,
-    sku: event.sku,
-    quantity: event.quantity,
-    payloadHash: eventId,
-    status: "processing",
-  }).onConflictDoNothing();
+  const processingToken = input.processingToken ?? crypto.randomUUID();
 
-  // 會員 webhook 與這條商品 webhook 都可能被 CYBERBIZ 同時重送；insert 本身才是 claim。
-  if ((inserted.meta?.changes ?? 0) === 0) {
-    const [duplicate] = await db
-      .select({ status: cyberbizProductWebhooks.status })
+  if (input.processingToken) {
+    const [claimed] = await db
+      .select({ id: cyberbizProductWebhooks.id })
       .from(cyberbizProductWebhooks)
-      .where(eq(cyberbizProductWebhooks.id, eventId))
+      .where(and(
+        eq(cyberbizProductWebhooks.id, eventId),
+        eq(cyberbizProductWebhooks.processingToken, processingToken),
+        eq(cyberbizProductWebhooks.status, "processing"),
+      ))
       .limit(1);
-    if (!duplicate) throw new Error("商品 webhook 去重後找不到既有事件。");
-    return { eventId, topic, status: "duplicate", reason: duplicate.status };
+    if (!claimed) return { eventId, topic, status: "duplicate", reason: "claim_lost" };
+  } else {
+    const inserted = await db.insert(cyberbizProductWebhooks).values({
+      id: eventId,
+      topic,
+      productId: event.productId || null,
+      variantId: event.variantId || null,
+      sku: event.sku,
+      quantity: event.quantity,
+      payloadHash: eventId,
+      status: "processing",
+      processingToken,
+    }).onConflictDoNothing();
+
+    // 會員 webhook 與這條商品 webhook 都可能被 CYBERBIZ 同時重送；insert 本身才是 claim。
+    if ((inserted.meta?.changes ?? 0) === 0) {
+      const [duplicate] = await db
+        .select({ status: cyberbizProductWebhooks.status })
+        .from(cyberbizProductWebhooks)
+        .where(eq(cyberbizProductWebhooks.id, eventId))
+        .limit(1);
+      if (!duplicate) throw new Error("商品 webhook 去重後找不到既有事件。");
+      return { eventId, topic, status: "duplicate", reason: duplicate.status };
+    }
   }
 
   try {
@@ -112,13 +136,13 @@ export async function processProductWebhook(
      */
     if (classifyPayload(payload) === "customer") {
       const reason = "這是會員事件，不是商品／庫存（請改送 /api/webhooks/cyberbiz/customers）";
-      await markEvent(db, eventId, { status: "ignored", result: { reason } });
+      await markEvent(db, eventId, processingToken, { status: "ignored", result: { reason } });
       return { eventId, topic, status: "ignored", reason };
     }
 
     if (!event.productId && !event.variantId) {
       const reason = "認不出是哪個商品：payload 裡沒有 product_id 也沒有 variant_id";
-      await markEvent(db, eventId, { status: "ignored", result: { reason } });
+      await markEvent(db, eventId, processingToken, { status: "ignored", result: { reason } });
       return { eventId, topic, status: "ignored", reason };
     }
 
@@ -134,7 +158,7 @@ export async function processProductWebhook(
       const linkedProductId = await productIdForVariant(db, event.variantId);
       if (!linkedProductId) {
         const reason = "這個款式沒有連結到 WMS 的商品";
-        await markEvent(db, eventId, { status: "ignored", result: { reason } });
+        await markEvent(db, eventId, processingToken, { status: "ignored", result: { reason } });
         return { eventId, topic, status: "ignored", reason, variantId: event.variantId };
       }
       productId = linkedProductId;
@@ -157,7 +181,7 @@ export async function processProductWebhook(
     const links = await listCompanyLinks(db, { productId });
     if (!links.length) {
       const reason = "這個商品沒有連結到 WMS 的商品";
-      await markEvent(db, eventId, { status: "ignored", result: { reason, productId } });
+      await markEvent(db, eventId, processingToken, { status: "ignored", result: { reason, productId } });
       return { eventId, topic, status: "ignored", reason, productId, variantId: event.variantId || null };
     }
 
@@ -172,7 +196,7 @@ export async function processProductWebhook(
     const outcome = await applySyncPlan(db, buildSyncPlan(links, remotes), null);
     const sync = { ...outcome, linked: links.length };
 
-    await markEvent(db, eventId, { status: "processed", result: { productId, sync } });
+    await markEvent(db, eventId, processingToken, { status: "processed", result: { productId, sync } });
     return {
       eventId,
       topic,
@@ -183,7 +207,7 @@ export async function processProductWebhook(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "處理商品 webhook 時失敗";
-    await markEvent(db, eventId, { status: "failed", error: message });
+    await markEvent(db, eventId, processingToken, { status: "failed", error: message });
     return {
       eventId,
       topic,
@@ -199,15 +223,26 @@ export async function processProductWebhook(
 const MAX_RETRIES_PER_RUN = 10;
 
 /**
- * 補跑失敗的商品 webhook。cron 每 15 分叫一次。
+ * 補跑失敗或卡住的商品 webhook。cron 每 15 分叫一次。
  *
- * 失敗的多半是「官網當下不通」這種會自己好的狀況。CYBERBIZ 的重送次數有限，
- * 用完就沒了，所以補跑這一步是「事件收到了但沒處理成功」的最後一道網。
+ * 失敗的多半是「官網當下不通」這種會自己好的狀況。processing 也可能是 Worker
+ * 在落地事件後被中止；超過 lease 時間就重新 claim。claim token 讓舊 Worker 完成
+ * 時不能覆寫新的重試結果。
  */
+const PRODUCT_WEBHOOK_PROCESSING_LEASE_MINUTES = 15;
+
 export async function retryFailedProductWebhooks(
   db: Database,
   input: { client?: CyberbizInventoryClient } = {},
 ): Promise<{ attempted: number; processed: number; failed: number }> {
+  const staleProcessing = lt(
+    cyberbizProductWebhooks.updatedAt,
+    sql`datetime('now', '-${sql.raw(String(PRODUCT_WEBHOOK_PROCESSING_LEASE_MINUTES))} minutes')`,
+  );
+  const retryable = or(
+    eq(cyberbizProductWebhooks.status, "failed"),
+    and(eq(cyberbizProductWebhooks.status, "processing"), staleProcessing),
+  );
   const pending = await db
     .select({
       id: cyberbizProductWebhooks.id,
@@ -216,13 +251,31 @@ export async function retryFailedProductWebhooks(
       variantId: cyberbizProductWebhooks.variantId,
     })
     .from(cyberbizProductWebhooks)
-    .where(eq(cyberbizProductWebhooks.status, "failed"))
+    .where(retryable)
     .limit(MAX_RETRIES_PER_RUN);
 
+  let attempted = 0;
   let processed = 0;
   let failed = 0;
 
   for (const row of pending) {
+    const processingToken = crypto.randomUUID();
+    const claimed = await db
+      .update(cyberbizProductWebhooks)
+      .set({
+        status: "processing",
+        processingToken,
+        attempts: sql`${cyberbizProductWebhooks.attempts} + 1`,
+        lastError: "",
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(and(
+        eq(cyberbizProductWebhooks.id, row.id),
+        retryable,
+      ));
+    if ((claimed.meta?.changes ?? 0) === 0) continue;
+    attempted += 1;
+
     /*
      * 補跑不重放原本的 payload——那份已經舊了，而且我們本來就不採信它的數量。
      * 直接拿 product_id 重新同步一次，結果一樣而且用的是當下的數字。
@@ -246,30 +299,37 @@ export async function retryFailedProductWebhooks(
         const remotes = await input.client.fetchProduct(productId);
         await applySyncPlan(db, buildSyncPlan(links, remotes), null);
       }
-      await db
+      const updated = await db
         .update(cyberbizProductWebhooks)
         .set({
           status: "processed",
           productId,
-          attempts: sql`${cyberbizProductWebhooks.attempts} + 1`,
           lastError: "",
+          processingToken: null,
           processedAt: sql`CURRENT_TIMESTAMP`,
           updatedAt: sql`CURRENT_TIMESTAMP`,
         })
-        .where(eq(cyberbizProductWebhooks.id, row.id));
-      processed += 1;
+        .where(and(
+          eq(cyberbizProductWebhooks.id, row.id),
+          eq(cyberbizProductWebhooks.processingToken, processingToken),
+        ));
+      if ((updated.meta?.changes ?? 0) > 0) processed += 1;
     } catch (error) {
-      failed += 1;
-      await db
+      const updated = await db
         .update(cyberbizProductWebhooks)
         .set({
-          attempts: sql`${cyberbizProductWebhooks.attempts} + 1`,
+          status: "failed",
           lastError: error instanceof Error ? error.message : "補跑失敗",
+          processedAt: sql`CURRENT_TIMESTAMP`,
           updatedAt: sql`CURRENT_TIMESTAMP`,
         })
-        .where(eq(cyberbizProductWebhooks.id, row.id));
+        .where(and(
+          eq(cyberbizProductWebhooks.id, row.id),
+          eq(cyberbizProductWebhooks.processingToken, processingToken),
+        ));
+      if ((updated.meta?.changes ?? 0) > 0) failed += 1;
     }
   }
 
-  return { attempted: pending.length, processed, failed };
+  return { attempted, processed, failed };
 }

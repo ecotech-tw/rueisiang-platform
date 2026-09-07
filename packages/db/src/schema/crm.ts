@@ -83,6 +83,7 @@ export const cyberbizWebhookEvents = sqliteTable("cyberbiz_webhook_events", {
   entityType: text("entity_type").notNull().default("customer"),
   externalEntityId: text("external_entity_id"),
   attempts: integer("attempts").notNull().default(1),
+  processingToken: text("processing_token"),
 }, (table) => [
   check("ck_webhook_events_entity", sql`${table.entityType} IN ('customer', 'product')`),
   check("ck_webhook_events_status", sql`${table.status} IN ('processing', 'processed', 'ignored', 'failed')`),

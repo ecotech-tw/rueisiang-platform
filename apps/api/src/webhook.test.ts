@@ -1,4 +1,9 @@
-import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import {
+  createDatabase,
+  processCustomerWebhook,
+  retryFailedWebhooks,
+  syncSystemRoles,
+} from "@rueisiang/db";
 import { crmCustomers, cyberbizWebhookEvents, cyberbizProductWebhooks } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -161,6 +166,75 @@ describe("webhook 的處理", () => {
     expect(event?.payloadJson).toBe(body);
     expect(event?.status).toBe("processed");
     expect(event?.cyberbizCustomerId).toBe("cb-1");
+  });
+
+  it("失敗事件補跑會保留原事件並增加 attempts", async () => {
+    const eventId = "crm-retry-event";
+    const body = JSON.stringify({ topic: "customers/create", customer: { ...member, id: "cb-retry" } });
+    await db().insert(cyberbizWebhookEvents).values({
+      id: eventId,
+      topic: "customers/create",
+      status: "failed",
+      entityType: "customer",
+      payloadJson: body,
+      attempts: 1,
+      updatedAt: "2000-01-01 00:00:00",
+    });
+
+    const result = await retryFailedWebhooks(db());
+
+    expect(result).toMatchObject({ attempted: 1, recovered: 1, stillFailing: 0 });
+    const [event] = await db().select().from(cyberbizWebhookEvents).where(eq(cyberbizWebhookEvents.id, eventId));
+    expect(event?.status).toBe("processed");
+    expect(event?.attempts).toBe(2);
+    expect(event?.processingToken).toBeNull();
+  });
+
+  it("卡住的 processing 事件會被 lease 重新 claim", async () => {
+    const eventId = "crm-stale-event";
+    const body = JSON.stringify({ topic: "customers/create", customer: { ...member, id: "cb-stale" } });
+    await db().insert(cyberbizWebhookEvents).values({
+      id: eventId,
+      topic: "customers/create",
+      status: "processing",
+      processingToken: "dead-worker-token",
+      entityType: "customer",
+      payloadJson: body,
+      attempts: 1,
+      updatedAt: "2000-01-01 00:00:00",
+    });
+
+    const result = await retryFailedWebhooks(db());
+
+    expect(result).toMatchObject({ attempted: 1, recovered: 1 });
+    const [event] = await db().select().from(cyberbizWebhookEvents).where(eq(cyberbizWebhookEvents.id, eventId));
+    expect(event?.status).toBe("processed");
+    expect(event?.processingToken).toBeNull();
+  });
+
+  it("舊 worker 的 token 不能接管別人已 claim 的事件", async () => {
+    const eventId = "crm-live-lease";
+    const body = JSON.stringify({ topic: "customers/create", customer: { ...member, id: "cb-live" } });
+    await db().insert(cyberbizWebhookEvents).values({
+      id: eventId,
+      topic: "customers/create",
+      status: "processing",
+      processingToken: "current-worker-token",
+      entityType: "customer",
+      payloadJson: body,
+    });
+
+    const outcome = await processCustomerWebhook(db(), {
+      rawBody: body,
+      topic: "customers/create",
+      eventId,
+      processingToken: "old-worker-token",
+    });
+
+    expect(outcome).toMatchObject({ status: "duplicate", reason: "claim_lost" });
+    const [event] = await db().select().from(cyberbizWebhookEvents).where(eq(cyberbizWebhookEvents.id, eventId));
+    expect(event?.processingToken).toBe("current-worker-token");
+    expect(event?.status).toBe("processing");
   });
 
   it("內容不是 JSON 就 400", async () => {

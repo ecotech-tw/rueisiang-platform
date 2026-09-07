@@ -178,7 +178,7 @@ export type AppType = typeof routes;
  * 取代舊 CRM 那個「前端每 15 秒打一次 drain」的輪詢——那要有人開著分頁才會動，
  * 關掉瀏覽器同步就停了。改成伺服器端固定跑，跟誰有沒有登入無關。
  *
- * 目前只做一件事：補跑處理失敗的 webhook。全量同步仍然是手動觸發，
+ * 目前只做一件事：補跑處理失敗或卡住的 webhook。全量同步仍然是手動觸發，
  * 因為它會打很多次官網 API，不該在沒人看著的時候自己跑起來。
  */
 async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -193,7 +193,7 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
 
   /*
    * webhook 事件只進不出：官網每改一次會員或商品就多一列，而它的用途只有
-   * 「這一筆處理過了嗎」與「失敗的要補跑」，兩者都只看得到最近的資料。
+   * 「這一筆處理過了嗎」與「失敗或卡住的要補跑」，兩者都只看得到最近的資料。
    * 只清 processed 與 ignored——failed 是還沒解決的問題，清掉就沒人會發現它。
    */
   ctx.waitUntil(

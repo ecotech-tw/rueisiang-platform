@@ -147,6 +147,7 @@ export const cyberbizProductWebhooks = sqliteTable("cyberbiz_product_webhooks", 
   receivedAt: text("received_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   processedAt: text("processed_at"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  processingToken: text("processing_token"),
 }, (table) => [
   index("idx_cyberbiz_product_webhooks_status").on(table.status, table.receivedAt),
   index("idx_cyberbiz_product_webhooks_variant").on(table.variantId, table.receivedAt),

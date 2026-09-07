@@ -545,6 +545,38 @@ describe("review 抓到的回歸", () => {
     expect(item?.quantity).toBe(200);
   });
 
+  it("卡住的 processing 商品事件會被 lease 重新 claim", async () => {
+    await db().insert(cyberbizProductWebhooks).values({
+      id: "stale-product-event",
+      topic: "variants/update",
+      productId: "56750193",
+      variantId: "68463869",
+      sku: "BPK24004",
+      payloadHash: "stale-product-event",
+      status: "processing",
+      processingToken: "dead-worker-token",
+      attempts: 1,
+      updatedAt: "2000-01-01 00:00:00",
+    });
+    stubCyberbiz({ body: product({ quantity: 200 }) });
+
+    const result = await retryFailedProductWebhooks(db(), {
+      client: (await import("@rueisiang/cyberbiz")).createInventoryClient({
+        apiToken: TOKEN,
+        baseUrl: BASE,
+      }),
+    });
+
+    expect(result).toMatchObject({ attempted: 1, processed: 1, failed: 0 });
+    const [event] = await db()
+      .select()
+      .from(cyberbizProductWebhooks)
+      .where(eq(cyberbizProductWebhooks.id, "stale-product-event"));
+    expect(event?.status).toBe("processed");
+    expect(event?.attempts).toBe(2);
+    expect(event?.processingToken).toBeNull();
+  });
+
   /*
    * 目錄快取列的是官網公司倉的**全部**商品，不是只有連到 WMS 的那些。
    * 所以只在 processed 時清快取不夠——沒連結所以 ignored 的事件同樣代表

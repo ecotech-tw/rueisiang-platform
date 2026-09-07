@@ -5,7 +5,7 @@ import {
   isCustomerTopic,
   parseCyberbizCustomer,
 } from "@rueisiang/cyberbiz";
-import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { syncCyberbizCustomer, type CyberbizSyncResult } from "./crm-sync.js";
 import { crmCustomers, cyberbizWebhookEvents } from "./schema/crm.js";
@@ -41,6 +41,9 @@ export interface ProcessWebhookInput {
   topic: string;
   /** 沒有 client 時就只用 payload 本身的內容，不去官網重新讀。 */
   client?: CyberbizCustomerClient;
+  /** Cron 已經 claim 的事件；一般 webhook 不傳，會由 insert 取得 claim。 */
+  eventId?: string;
+  processingToken?: string;
 }
 
 export async function processCustomerWebhook(
@@ -56,34 +59,50 @@ export async function processCustomerWebhook(
     throw new Error("webhook 內容不是有效的 JSON");
   }
 
-  const eventId = await createWebhookEventId(topic, rawBody);
+  const eventId = input.eventId ?? await createWebhookEventId(topic, rawBody);
+  const processingToken = input.processingToken ?? crypto.randomUUID();
   let incoming = parseCyberbizCustomer(payload);
-  const inserted = await db.insert(cyberbizWebhookEvents).values({
-    id: eventId,
-    topic,
-    status: "processing",
-    // entityType 是目標形狀（會員與商品事件共用一張表）的分辨欄位。商品那邊還在
-    // cyberbiz_product_webhooks，但這裡先寫對，那一欄才有可信度。
-    entityType: "customer",
-    externalEntityId: incoming.externalId || null,
-    cyberbizCustomerId: incoming.externalId || null,
-    payloadJson: rawBody,
-  }).onConflictDoNothing();
 
-  /*
-   * 兩個相同 webhook 可能同時抵達：先查再 insert 不是 claim，兩邊都可能在查詢
-   * 時看不到資料，接著其中一邊會撞 primary key。用 SQLite 的 affected-row 數量
-   * 把 insert 本身當成 claim；只有成功插入的那一邊可以繼續處理，另一邊正常回報
-   * duplicate，不讓 CYBERBIZ 或 Workers Logs 收到假的 500。
-   */
-  if ((inserted.meta?.changes ?? 0) === 0) {
-    const [duplicate] = await db
-      .select({ status: cyberbizWebhookEvents.status })
+  if (input.processingToken) {
+    const [claimed] = await db
+      .select({ id: cyberbizWebhookEvents.id })
       .from(cyberbizWebhookEvents)
-      .where(eq(cyberbizWebhookEvents.id, eventId))
+      .where(and(
+        eq(cyberbizWebhookEvents.id, eventId),
+        eq(cyberbizWebhookEvents.processingToken, processingToken),
+        eq(cyberbizWebhookEvents.status, "processing"),
+      ))
       .limit(1);
-    if (!duplicate) throw new Error("webhook 去重後找不到既有事件。");
-    return { eventId, topic, status: "duplicate", reason: duplicate.status };
+    if (!claimed) return { eventId, topic, status: "duplicate", reason: "claim_lost" };
+  } else {
+    const inserted = await db.insert(cyberbizWebhookEvents).values({
+      id: eventId,
+      topic,
+      status: "processing",
+      // entityType 是目標形狀（會員與商品事件共用一張表）的分辨欄位。商品那邊還在
+      // cyberbiz_product_webhooks，但這裡先寫對，那一欄才有可信度。
+      entityType: "customer",
+      externalEntityId: incoming.externalId || null,
+      cyberbizCustomerId: incoming.externalId || null,
+      payloadJson: rawBody,
+      processingToken,
+    }).onConflictDoNothing();
+
+    /*
+     * 兩個相同 webhook 可能同時抵達：先查再 insert 不是 claim，兩邊都可能在查詢
+     * 時看不到資料，接著其中一邊會撞 primary key。用 SQLite 的 affected-row 數量
+     * 把 insert 本身當成 claim；只有成功插入的那一邊可以繼續處理，另一邊正常回報
+     * duplicate，不讓 CYBERBIZ 或 Workers Logs 收到假的 500。
+     */
+    if ((inserted.meta?.changes ?? 0) === 0) {
+      const [duplicate] = await db
+        .select({ status: cyberbizWebhookEvents.status })
+        .from(cyberbizWebhookEvents)
+        .where(eq(cyberbizWebhookEvents.id, eventId))
+        .limit(1);
+      if (!duplicate) throw new Error("webhook 去重後找不到既有事件。");
+      return { eventId, topic, status: "duplicate", reason: duplicate.status };
+    }
   }
 
   try {
@@ -101,12 +120,12 @@ export async function processCustomerWebhook(
     const kind = classifyPayload(payload);
     if (kind === "product") {
       const reason = "商品／庫存事件，不是會員（Phase 4 才會用到）";
-      await markEvent(db, eventId, { status: "ignored", result: { reason } });
+      await markEvent(db, eventId, processingToken, { status: "ignored", result: { reason } });
       return { eventId, topic, status: "ignored", reason };
     }
     if (!isCustomerTopic(topic) && kind !== "customer") {
       const reason = "無法判斷是不是會員事件，不處理";
-      await markEvent(db, eventId, { status: "ignored", result: { reason } });
+      await markEvent(db, eventId, processingToken, { status: "ignored", result: { reason } });
       return { eventId, topic, status: "ignored", reason };
     }
 
@@ -145,7 +164,7 @@ export async function processCustomerWebhook(
     }
 
     const result = await syncCyberbizCustomer(db, incoming, { topic, eventId });
-    await markEvent(db, eventId, {
+    await markEvent(db, eventId, processingToken, {
       status: result.action === "ignored" ? "ignored" : "processed",
       customerId: result.customerId,
       cyberbizCustomerId: incoming.externalId || null,
@@ -172,11 +191,11 @@ export async function processCustomerWebhook(
      * 雜湊，重送進來會走到上面那條 duplicate 判斷，直接回 200 而不會重新處理。
      * 也就是說 5xx 只換來一連串沒有效果的重送，還讓對方的後台一直亮紅燈。
      *
-     * 真正會重試的是我們自己的 Cron（每 15 分鐘撿 failed 的來補跑）。所以這裡
+     * 真正會重試的是我們自己的 Cron（每 15 分鐘撿 failed 或卡住的事件補跑）。所以這裡
      * 誠實地說「收到了、但還沒處理成功」，把錯誤留在事件上讓同步頁看得到。
      */
     const message = error instanceof Error ? error.message : "webhook 處理失敗";
-    await markEvent(db, eventId, { status: "failed", error: message });
+    await markEvent(db, eventId, processingToken, { status: "failed", error: message });
     return { eventId, topic, status: "failed", error: message };
   }
 }
@@ -184,6 +203,7 @@ export async function processCustomerWebhook(
 async function markEvent(
   db: Database,
   eventId: string,
+  processingToken: string,
   update: {
     status: string;
     customerId?: string | null;
@@ -202,40 +222,79 @@ async function markEvent(
         : {}),
       ...(update.result !== undefined ? { resultJson: JSON.stringify(update.result) } : {}),
       ...(update.error !== undefined ? { lastError: update.error } : {}),
+      processingToken: null,
       processedAt: sql`CURRENT_TIMESTAMP`,
       updatedAt: sql`CURRENT_TIMESTAMP`,
     })
-    .where(eq(cyberbizWebhookEvents.id, eventId));
+    .where(and(
+      eq(cyberbizWebhookEvents.id, eventId),
+      eq(cyberbizWebhookEvents.processingToken, processingToken),
+    ));
 }
 
 /**
- * 補跑失敗的事件。
+ * 補跑失敗或卡住的事件。
  *
  * 這條取代舊 CRM 那個「前端每 15 秒打一次 drain」的輪詢——那個作法要有人
  * 開著分頁才會動，關掉瀏覽器同步就停了。現在由 Cron 定時跑。
+ *
+ * processing 不能只靠狀態判斷：Worker 可能在落地事件後就被中止。超過 lease
+ * 時間的 processing 事件會被重新 claim；claim token 讓舊 Worker 完成時不能覆寫
+ * 新一輪的結果。
  */
+const WEBHOOK_PROCESSING_LEASE_MINUTES = 15;
+
 export async function retryFailedWebhooks(
   db: Database,
   options: { limit?: number; client?: CyberbizCustomerClient } = {},
 ): Promise<{ attempted: number; recovered: number; stillFailing: number }> {
   const limit = options.limit ?? 20;
-
+  const staleProcessing = lt(
+    cyberbizWebhookEvents.updatedAt,
+    sql`datetime('now', '-${sql.raw(String(WEBHOOK_PROCESSING_LEASE_MINUTES))} minutes')`,
+  );
+  const retryable = or(
+    eq(cyberbizWebhookEvents.status, "failed"),
+    and(eq(cyberbizWebhookEvents.status, "processing"), staleProcessing),
+  );
   const pending = await db
-    .select({ id: cyberbizWebhookEvents.id, topic: cyberbizWebhookEvents.topic, payloadJson: cyberbizWebhookEvents.payloadJson })
+    .select({
+      id: cyberbizWebhookEvents.id,
+      topic: cyberbizWebhookEvents.topic,
+      payloadJson: cyberbizWebhookEvents.payloadJson,
+    })
     .from(cyberbizWebhookEvents)
-    .where(eq(cyberbizWebhookEvents.status, "failed"))
+    .where(retryable)
     .orderBy(desc(cyberbizWebhookEvents.receivedAt))
     .limit(limit);
 
+  let attempted = 0;
   let recovered = 0;
   for (const event of pending) {
+    const processingToken = crypto.randomUUID();
+    const claimed = await db
+      .update(cyberbizWebhookEvents)
+      .set({
+        status: "processing",
+        processingToken,
+        attempts: sql`${cyberbizWebhookEvents.attempts} + 1`,
+        lastError: null,
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(and(
+        eq(cyberbizWebhookEvents.id, event.id),
+        retryable,
+      ));
+    if ((claimed.meta?.changes ?? 0) === 0) continue;
+    attempted += 1;
+
     try {
-      // 刪掉舊那筆再重跑，讓它走一模一樣的路徑（識別碼是內容雜湊，會是同一個）。
-      await db.delete(cyberbizWebhookEvents).where(eq(cyberbizWebhookEvents.id, event.id));
       const outcome = await processCustomerWebhook(db, {
         rawBody: event.payloadJson,
         topic: event.topic,
         client: options.client,
+        eventId: event.id,
+        processingToken,
       });
       if (outcome.status === "processed" || outcome.status === "ignored") recovered += 1;
     } catch {
@@ -243,7 +302,7 @@ export async function retryFailedWebhooks(
     }
   }
 
-  return { attempted: pending.length, recovered, stillFailing: pending.length - recovered };
+  return { attempted, recovered, stillFailing: attempted - recovered };
 }
 
 export interface SyncStatus {
@@ -358,10 +417,10 @@ export const WEBHOOK_EVENT_RETENTION_DAYS = 30;
  * 清掉處理完的 webhook 事件。
  *
  * 這張表只進不出：官網每改一次會員或商品就多一列，正式庫已經四千多列，而它的
- * 用途只有「這一筆處理過了嗎」與「失敗的要補跑」，兩者都只看得到最近的資料。
+ * 用途只有「這一筆處理過了嗎」與「失敗或卡住的要補跑」，兩者都只看得到最近的資料。
  *
  * ⚠️ 只刪 processed 與 ignored。failed 的留著——那是還沒解決的問題，刪掉就再也
- * 沒有人會發現它；processing 也留著，那可能是正在跑的。
+ * 沒有人會發現它；processing 也留著，lease 會負責判斷它是不是仍在跑。
  */
 export async function purgeSettledWebhookEvents(
   db: Database,
