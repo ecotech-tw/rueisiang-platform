@@ -27,7 +27,6 @@ export * from "./media.js";
 export * from "./reports.js";
 export * from "./tools.js";
 export {
-  cyberbizProductWebhooks,
   wmsCategories,
   wmsCyberbizLinks,
   wmsItems,
@@ -36,7 +35,6 @@ export {
   wmsShelves,
   wmsZoneImages,
   wmsZones,
-  type CyberbizProductWebhook,
   type WmsCategory,
   type WmsCyberbizLink,
   type WmsItem,

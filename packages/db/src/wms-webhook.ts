@@ -1,8 +1,10 @@
 import type { CyberbizInventoryClient } from "@rueisiang/cyberbiz";
 import { classifyPayload, createWebhookEventId, parseProductEvent } from "@rueisiang/cyberbiz";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { cyberbizProductWebhooks, wmsCyberbizLinks } from "./schema/wms.js";
+import { cyberbizWebhookEvents } from "./schema/crm.js";
+import { wmsCyberbizLinks } from "./schema/wms.js";
+import { claimCyberbizWebhookEvent, claimFailedCyberbizWebhookEvent } from "./webhook-events.js";
 import { applySyncPlan, buildSyncPlan, listCompanyLinks, type SyncOutcome } from "./wms-sync.js";
 
 /**
@@ -36,6 +38,9 @@ export interface ProcessProductWebhookInput {
   topic: string;
   /** 沒有 client 就沒辦法重讀，只能記下來等補跑。 */
   client?: CyberbizInventoryClient;
+  /** dispatch 或 Cron 已經在共用事件表完成 claim。 */
+  eventId?: string;
+  claimed?: boolean;
 }
 
 /** 把事件的處理結果寫回去。result 存 JSON，之後查「那次到底做了什麼」用。 */
@@ -53,15 +58,15 @@ async function markEvent(
   input: { status: string; result?: unknown; error?: string },
 ): Promise<void> {
   await db
-    .update(cyberbizProductWebhooks)
+    .update(cyberbizWebhookEvents)
     .set({
       status: input.status,
-      result: input.result === undefined ? "" : JSON.stringify(input.result),
-      lastError: input.error ?? "",
+      ...(input.result !== undefined ? { resultJson: JSON.stringify(input.result) } : {}),
+      ...(input.error !== undefined ? { lastError: input.error } : {}),
       processedAt: sql`CURRENT_TIMESTAMP`,
       updatedAt: sql`CURRENT_TIMESTAMP`,
     })
-    .where(eq(cyberbizProductWebhooks.id, eventId));
+    .where(eq(cyberbizWebhookEvents.id, eventId));
 }
 
 export async function processProductWebhook(
@@ -77,28 +82,20 @@ export async function processProductWebhook(
     throw new Error("webhook 內容不是有效的 JSON");
   }
 
-  const eventId = await createWebhookEventId(topic, rawBody);
+  const eventId = input.eventId ?? await createWebhookEventId(topic, rawBody);
   const event = parseProductEvent(payload);
-  const inserted = await db.insert(cyberbizProductWebhooks).values({
-    id: eventId,
-    topic,
-    productId: event.productId || null,
-    variantId: event.variantId || null,
-    sku: event.sku,
-    quantity: event.quantity,
-    payloadHash: eventId,
-    status: "processing",
-  }).onConflictDoNothing();
-
-  // 會員 webhook 與這條商品 webhook 都可能被 CYBERBIZ 同時重送；insert 本身才是 claim。
-  if ((inserted.meta?.changes ?? 0) === 0) {
-    const [duplicate] = await db
-      .select({ status: cyberbizProductWebhooks.status })
-      .from(cyberbizProductWebhooks)
-      .where(eq(cyberbizProductWebhooks.id, eventId))
-      .limit(1);
-    if (!duplicate) throw new Error("商品 webhook 去重後找不到既有事件。");
-    return { eventId, topic, status: "duplicate", reason: duplicate.status };
+  if (!input.claimed) {
+    const claim = await claimCyberbizWebhookEvent(db, {
+      id: eventId,
+      topic,
+      entityType: "product",
+      // target schema 以 variant_id 作為商品事件的外部身分；只有 product_id 時保留 null。
+      externalEntityId: event.variantId || null,
+      payloadJson: rawBody,
+    });
+    if (!claim.claimed) {
+      return { eventId, topic, status: "duplicate", reason: claim.status };
+    }
   }
 
   try {
@@ -139,19 +136,6 @@ export async function processProductWebhook(
       }
       productId = linkedProductId;
 
-      /*
-       * 反查到就立刻寫回去。
-       *
-       * 這一列是在解析完就插進去的，那時候只有 variant_id——如果接下來重讀官網
-       * 失敗，這一列會以 product_id = null 留在 failed。補跑是靠 product_id 重新
-       * 同步的，讀到 null 就直接放棄，於是這種事件**永遠救不回來**，而且沒有任何
-       * 跡象。（補跑那邊另外也加了用 variant_id 反查的退路，處理這次修正之前就
-       * 已經卡在那裡的舊資料。）
-       */
-      await db
-        .update(cyberbizProductWebhooks)
-        .set({ productId, updatedAt: sql`CURRENT_TIMESTAMP` })
-        .where(eq(cyberbizProductWebhooks.id, eventId));
     }
 
     const links = await listCompanyLinks(db, { productId });
@@ -163,7 +147,7 @@ export async function processProductWebhook(
 
     if (!client) throw new Error("尚未設定 CYBERBIZ_API_TOKEN，無法回官網重讀數量");
 
-    // 回官網重讀。事件說的數量只進 webhook 那張表，不進庫存。
+    // 回官網重讀。事件說的數量只進共用事件表，不直接寫庫存。
     const remotes = await client.fetchProduct(productId);
     /*
      * actor 給 null：這不是任何人按的。activityRow 會把它記成 system，
@@ -210,66 +194,34 @@ export async function retryFailedProductWebhooks(
 ): Promise<{ attempted: number; processed: number; failed: number }> {
   const pending = await db
     .select({
-      id: cyberbizProductWebhooks.id,
-      topic: cyberbizProductWebhooks.topic,
-      productId: cyberbizProductWebhooks.productId,
-      variantId: cyberbizProductWebhooks.variantId,
+      id: cyberbizWebhookEvents.id,
+      topic: cyberbizWebhookEvents.topic,
+      payloadJson: cyberbizWebhookEvents.payloadJson,
     })
-    .from(cyberbizProductWebhooks)
-    .where(eq(cyberbizProductWebhooks.status, "failed"))
+    .from(cyberbizWebhookEvents)
+    .where(and(
+      eq(cyberbizWebhookEvents.entityType, "product"),
+      eq(cyberbizWebhookEvents.status, "failed"),
+    ))
     .limit(MAX_RETRIES_PER_RUN);
 
+  let attempted = 0;
   let processed = 0;
   let failed = 0;
 
   for (const row of pending) {
-    /*
-     * 補跑不重放原本的 payload——那份已經舊了，而且我們本來就不採信它的數量。
-     * 直接拿 product_id 重新同步一次，結果一樣而且用的是當下的數字。
-     */
-    try {
-      if (!input.client) throw new Error("尚未設定 CYBERBIZ_API_TOKEN");
-
-      /*
-       * product_id 可能是空的：只帶款式 id 的事件在反查之前就先落地了。正常情況
-       * 反查完會寫回去，但在那之前失敗的舊資料還留著 null——用 variant_id 再查
-       * 一次就救得回來。
-       */
-      let productId = row.productId;
-      if (!productId && row.variantId) {
-        productId = await productIdForVariant(db, row.variantId);
-      }
-      if (!productId) throw new Error("這筆事件沒有 product_id，補跑不了");
-
-      const links = await listCompanyLinks(db, { productId });
-      if (links.length) {
-        const remotes = await input.client.fetchProduct(productId);
-        await applySyncPlan(db, buildSyncPlan(links, remotes), null);
-      }
-      await db
-        .update(cyberbizProductWebhooks)
-        .set({
-          status: "processed",
-          productId,
-          attempts: sql`${cyberbizProductWebhooks.attempts} + 1`,
-          lastError: "",
-          processedAt: sql`CURRENT_TIMESTAMP`,
-          updatedAt: sql`CURRENT_TIMESTAMP`,
-        })
-        .where(eq(cyberbizProductWebhooks.id, row.id));
-      processed += 1;
-    } catch (error) {
-      failed += 1;
-      await db
-        .update(cyberbizProductWebhooks)
-        .set({
-          attempts: sql`${cyberbizProductWebhooks.attempts} + 1`,
-          lastError: error instanceof Error ? error.message : "補跑失敗",
-          updatedAt: sql`CURRENT_TIMESTAMP`,
-        })
-        .where(eq(cyberbizProductWebhooks.id, row.id));
-    }
+    if (!await claimFailedCyberbizWebhookEvent(db, row.id, "product")) continue;
+    attempted += 1;
+    const outcome = await processProductWebhook(db, {
+      rawBody: row.payloadJson,
+      topic: row.topic,
+      client: input.client,
+      eventId: row.id,
+      claimed: true,
+    });
+    if (outcome.status === "processed" || outcome.status === "ignored") processed += 1;
+    if (outcome.status === "failed") failed += 1;
   }
 
-  return { attempted: pending.length, processed, failed };
+  return { attempted, processed, failed };
 }

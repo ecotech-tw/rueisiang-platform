@@ -7,12 +7,12 @@
 ## 範圍
 
 第一階段的 target contract 是非小香部分 32 張表；小香的 15 張 `assistant_*` tables
-維持既有形狀。WMS 庫存同步另外使用 `wms_cyberbiz_links` 與
-`cyberbiz_product_webhooks`，因此不能用原本的 32 + 15 推斷目前實體表數量。
+維持既有形狀。WMS 庫存同步使用 `wms_cyberbiz_links`；CYBERBIZ 會員與商品／庫存
+事件共用 `cyberbiz_webhook_events`，因此不能用原本的 32 + 15 推斷目前實體表數量。
 
-CYBERBIZ 會員事件使用 `cyberbiz_webhook_events`。商品／庫存 webhook 目前仍由
-`cyberbiz_product_webhooks` 處理；若要將兩者合併，必須另行改接收與重試路徑，不能只
-刪表或搬資料。
+商品事件的外部身分放在 `external_entity_id`（variant_id），原始內容放在
+`payload_json`。接收、事件分類、重試與 retention 都只讀這張共用事件表；不能再讓
+WMS 維護另一套 webhook event store。
 
 本輪採一次上線，不做 expand/contract 或長期雙寫。Breaking change 必須在維護窗口
 內套用，並以正式資料備份完成本機重播與 parity 驗證後才可進入 deploy。
@@ -92,10 +92,11 @@ transaction 中，而 transaction 內切換 `foreign_keys` 沒有效果；被 `O
 0101_activity_entity_type_rename
 0110_drop_legacy_rbac_tables
 0111_drop_payout_stores
+0112_cyberbiz_webhook_events_unify
 ```
 
-`0097_webhook_events_entity_type` 只補上既有會員事件的 `entity_type` 約束；商品事件
-仍在 WMS 專用表，不能把這支 migration 解讀成兩種 webhook 已完成合併。
+`0097_webhook_events_entity_type` 先補上共用事件表的 `entity_type` 約束；`0112` 才完成
+商品接收、重試與既有資料的 unified cutover。
 
 `0101_activity_entity_type_rename` 只用一支 `UPDATE` 將 `activity_events.entity_type` 的
 四個舊值改成 target 值，保留 `entity_id` 與其他欄位，不重建資料表。

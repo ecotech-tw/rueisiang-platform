@@ -1,7 +1,7 @@
 import { createDatabase, retryFailedProductWebhooks, syncSystemRoles } from "@rueisiang/db";
 import {
   activityEvents,
-  cyberbizProductWebhooks,
+  cyberbizWebhookEvents,
   crmCustomers,
   items,
   wmsCategories,
@@ -138,7 +138,7 @@ describe("驗證", () => {
     stubCyberbiz();
     const { response } = await post({ product_id: "56750193" }, { secret: "wrong" });
     expect(response.status).toBe(401);
-    expect(await db().select().from(cyberbizProductWebhooks)).toHaveLength(0);
+    expect(await db().select().from(cyberbizWebhookEvents)).toHaveLength(0);
   });
 
   it("沒設密鑰就一律不收", async () => {
@@ -281,9 +281,10 @@ describe("不處理的", () => {
     const { json } = await post({ id: 7, mobile: "0912345678", name: "王小明" });
 
     expect(json).toMatchObject({ kind: "customer" });
-    // 真的走完會員那條路：客戶建出來了，而且沒有污染商品那張表。
+    // 真的走完會員那條路：客戶建出來了，而且事件仍留在共用表。
     expect(await db().select().from(crmCustomers)).toHaveLength(1);
-    expect(await db().select().from(cyberbizProductWebhooks)).toHaveLength(0);
+    const [event] = await db().select().from(cyberbizWebhookEvents);
+    expect(event?.entityType).toBe("customer");
   });
 
   it("同一筆事件送兩次只處理一次", async () => {
@@ -309,9 +310,10 @@ describe("失敗與補跑", () => {
     expect(response.status).toBe(200);
     expect(json).toMatchObject({ status: "failed" });
 
-    const [row] = await db().select().from(cyberbizProductWebhooks);
+    const [row] = await db().select().from(cyberbizWebhookEvents);
     expect(row?.status).toBe("failed");
-    expect(row?.productId).toBe("56750193");
+    expect(row?.entityType).toBe("product");
+    expect(JSON.parse(row?.payloadJson ?? "{}").product_id).toBe("56750193");
 
     // 數量沒被亂寫。
     const [item] = await db().select().from(wmsItems);
@@ -337,7 +339,7 @@ describe("失敗與補跑", () => {
     expect(result).toMatchObject({ attempted: 1, processed: 1, failed: 0 });
     const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
-    const [row] = await db().select().from(cyberbizProductWebhooks);
+    const [row] = await db().select().from(cyberbizWebhookEvents);
     expect(row?.status).toBe("processed");
     // 補跑算第二次嘗試。
     expect(row?.attempts).toBe(2);
@@ -355,7 +357,7 @@ describe("失敗與補跑", () => {
     });
 
     expect(result).toMatchObject({ attempted: 1, processed: 0, failed: 1 });
-    const [row] = await db().select().from(cyberbizProductWebhooks);
+    const [row] = await db().select().from(cyberbizWebhookEvents);
     expect(row?.status).toBe("failed");
     expect(row?.attempts).toBe(2);
   });
@@ -513,18 +515,17 @@ describe("review 抓到的回歸", () => {
   });
 
   /*
-   * 只帶款式 id 的事件在反查 product_id 之前就先落地了。重讀失敗的話那一列會
-   * 以 product_id = null 留在 failed，而補跑是靠 product_id 跑的——讀到 null
-   * 就直接放棄，於是這種事件永遠救不回來。
+   * 只帶款式 id 的事件也要完整落在共用表；即使第一次重讀失敗，原始 payload
+   * 仍然保留，Cron 補跑時可以再用 variant id 反查商品。
    */
-  it("只帶款式 id 又重讀失敗時，反查到的 product_id 有存下來", async () => {
+  it("只帶款式 id 又重讀失敗時，事件仍保留可補跑的 payload", async () => {
     stubCyberbiz({ status: 401, body: { error: "token 過期" } });
     const { json } = await post({ id: 68463869, sku: "BPK24004", inventory_quantity: 200 });
 
     expect(json).toMatchObject({ status: "failed" });
-    const [row] = await db().select().from(cyberbizProductWebhooks);
-    // 修正前這裡是 null，補跑會立刻放棄。
-    expect(row?.productId).toBe("56750193");
+    const [row] = await db().select().from(cyberbizWebhookEvents);
+    expect(row?.entityType).toBe("product");
+    expect(JSON.parse(row?.payloadJson ?? "{}").id).toBe(68463869);
   });
 
   it("所以補跑救得回來", async () => {
@@ -606,15 +607,13 @@ describe("review 抓到的回歸", () => {
     });
   });
 
-  it("product_id 是 null 的舊資料，補跑會用 variant_id 反查回來", async () => {
-    // 直接塞一筆修正之前留下來的形狀。
-    await db().insert(cyberbizProductWebhooks).values({
+  it("共用事件表的商品 payload 可以補跑", async () => {
+    await db().insert(cyberbizWebhookEvents).values({
       id: "old-event",
       topic: "variants/update",
-      productId: null,
-      variantId: "68463869",
-      sku: "BPK24004",
-      payloadHash: "old-event",
+      entityType: "product",
+      externalEntityId: "68463869",
+      payloadJson: JSON.stringify({ id: 68463869, sku: "BPK24004", inventory_quantity: 200 }),
       status: "failed",
     });
     stubCyberbiz({ body: product({ quantity: 200 }) });
@@ -629,8 +628,7 @@ describe("review 抓到的回歸", () => {
     expect(result).toMatchObject({ processed: 1, failed: 0 });
     const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(200);
-    // 順便把反查到的寫回去，下次不必再查。
-    const [row] = await db().select().from(cyberbizProductWebhooks);
-    expect(row?.productId).toBe("56750193");
+    const [row] = await db().select().from(cyberbizWebhookEvents);
+    expect(row?.status).toBe("processed");
   });
 });

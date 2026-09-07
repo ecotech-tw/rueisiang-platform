@@ -167,8 +167,6 @@ R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要�
       並完成舊表資料 parity。
 - [ ] 評估將 `report_payout_daily_target` 整理為正式的 `report_payout_daily` 名稱，
       包含 runtime、migration 與 rollback 驗證。
-- [ ] 評估將 `cyberbiz_product_webhooks` 合併至 `cyberbiz_webhook_events`；需先改
-      webhook 接收、事件分類、重試與 retention 路徑。
 
 ### 上線後收尾
 
