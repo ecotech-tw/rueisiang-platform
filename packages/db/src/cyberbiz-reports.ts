@@ -1,4 +1,4 @@
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizeReportScopeName, scopeSourceTypeFromId } from "./report-data.js";
 import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
@@ -66,11 +66,18 @@ async function asCyberbizReportRun(db: Database, run: typeof reportRuns.$inferSe
 
 async function listTargetRuns(db: Database, reportKind?: CyberbizReportRunKind, limit = 20): Promise<CyberbizReportRun[]> {
   const rows = await db.select().from(reportRuns)
-    .where(reportKind === "sales"
-      ? eq(reportRuns.importsSales, 1)
-      : reportKind === "payout"
-        ? eq(reportRuns.importsPayout, 1)
-        : undefined)
+    .where(and(
+      reportKind === "sales"
+        ? eq(reportRuns.importsSales, 1)
+        : reportKind === "payout"
+          ? eq(reportRuns.importsPayout, 1)
+          : undefined,
+      // 執行頁只追 GitHub workflow_dispatch 建立的那筆 requestId；內部 D1 ingest
+      // 也會留下 report_runs，但那些 requestId 不存在於 GitHub run-name，不能拿來當「上一次執行」。
+      sql`${reportRuns.requestId} NOT LIKE 'cyberbiz-ingest:%'`,
+      sql`${reportRuns.requestId} NOT LIKE 'target-import:%'`,
+      sql`${reportRuns.actorEmail} <> ''`,
+    ))
     .orderBy(desc(reportRuns.createdAt))
     .limit(Math.max(1, Math.min(limit, 100)));
   return Promise.all(rows.map((run) => asCyberbizReportRun(db, run)));

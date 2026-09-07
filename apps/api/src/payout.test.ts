@@ -286,6 +286,33 @@ describe("執行", () => {
     });
   });
 
+  it("state 不會把內部 D1 ingest run 當成 GitHub workflow 追蹤目標", async () => {
+    stubGithub();
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+    const run = await as(id, "manager@ecotech.tw", "/api/tools/payout/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: ["宏匯廣場1F"], ...RANGE }),
+    });
+    const { requestId } = (await run.json()) as { requestId: string };
+    await db().insert(reportRuns).values({
+      id: crypto.randomUUID(),
+      requestId: `cyberbiz-ingest:cyberbiz:store:x:2026-08:${crypto.randomUUID()}`,
+      sourceType: "cyberbiz",
+      importsSales: 0,
+      importsPayout: 1,
+      periodKind: "month",
+      startDate: RANGE.start,
+      endDate: RANGE.end,
+      status: "succeeded",
+      actorEmail: "",
+    });
+
+    const state = await as(id, "manager@ecotech.tw", "/api/tools/payout/state");
+    expect((await state.json()) as { latestRequestId: string }).toMatchObject({
+      latestRequestId: requestId,
+    });
+  });
+
   it("關閉的店別不會出現在執行頁，也不能被 API 繞過", async () => {
     const [hidden] = await listPayoutStores(db());
     await db().update(scopes).set({ active: 0 }).where(eq(scopes.id, hidden!.id));
