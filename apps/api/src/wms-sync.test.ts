@@ -1,5 +1,5 @@
 import { applySyncPlan, buildSyncPlan, createDatabase, listCompanyLinks, loadWarehouse, type LinkedItem, type RemoteItem } from "@rueisiang/db";
-import { activityEvents, items, wmsCategories, wmsCyberbizLinks, wmsItems } from "@rueisiang/db/schema";
+import { activityEvents, cyberbizProductCatalog, items, wmsCategories, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1 } from "./local-d1/d1.js";
@@ -12,7 +12,6 @@ import { createLocalD1 } from "./local-d1/d1.js";
  */
 
 const LINK: LinkedItem = {
-  linkId: "l1",
   inventoryItemId: "i1",
   cyberbizProductId: "p1",
   cyberbizVariantId: "v1",
@@ -83,8 +82,8 @@ describe("套用同步", () => {
     await db.insert(items).values({ id: "i1", source: "custom", kind: "sellable", sku: "BOX-01", name: "紙箱", active: 1 });
     await db.insert(wmsCategories).values({ id: "cat-1", name: "一般備品", color: "rose", active: 1 });
     await db.insert(wmsItems).values({ itemId: "i1", wmsCategoryId: "cat-1", quantity: 10, minStock: 5 });
-    await db.insert(wmsCyberbizLinks).values({
-      id: "l1", wmsItemId: "i1", cyberbizProductId: "p1", cyberbizVariantId: "v1", sku: "BOX-01",
+    await db.insert(cyberbizProductCatalog).values({
+      itemId: "i1", cyberbizProductId: "p1", cyberbizVariantId: "v1",
     });
   });
 
@@ -103,7 +102,7 @@ describe("套用同步", () => {
     expect(event?.source).toBe("cyberbiz_sync");
   });
 
-  it("連結失效時：數量一動也不動，連結標成 failed", async () => {
+  it("外部身分失效時：數量一動也不動，留下失敗紀錄", async () => {
     const result = await applySyncPlan(db, buildSyncPlan([LINK], [{ ...REMOTE, sku: "OTHER-99" }]), actor);
     expect(result).toEqual({ updated: 0, unchanged: 0, failed: 1 });
 
@@ -111,29 +110,24 @@ describe("套用同步", () => {
     // 這是整個檔案最重要的一條斷言。
     expect(item?.quantity).toBe(10);
 
-    const [link] = await db.select().from(wmsCyberbizLinks);
-    expect(link?.syncStatus).toBe("failed");
-    expect(link?.lastError).toContain("SKU");
-
-    const [event] = await db.select().from(activityEvents);
+    const [event] = await db.select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_sync_failed"));
     expect(event?.status).toBe("failed");
+    expect(event?.error).toContain("SKU");
+
   });
 
-  it("沒有變化時不寫商品，只更新同步時間", async () => {
+  it("沒有變化時不寫商品，也不製造操作紀錄", async () => {
     const same = { ...REMOTE, quantity: 10, safetyQuantity: 5 };
     const result = await applySyncPlan(db, buildSyncPlan([LINK], [same]), actor);
     expect(result).toEqual({ updated: 0, unchanged: 1, failed: 0 });
 
     // 沒變就不該留紀錄，不然每次同步都灌一整頁「什麼都沒發生」。
     expect(await db.select().from(activityEvents)).toHaveLength(0);
-    const [link] = await db.select().from(wmsCyberbizLinks);
-    expect(link?.lastSyncedQuantity).toBe(10);
-    expect(link?.syncStatus).toBe("synced");
   });
 
   it("讀連結時會帶上 WMS 這邊目前的數量", async () => {
     const [link] = await listCompanyLinks(db);
-    expect(link).toMatchObject({ linkId: "l1", cyberbizVariantId: "v1", quantity: 10, minStock: 5 });
+    expect(link).toMatchObject({ inventoryItemId: "i1", cyberbizVariantId: "v1", quantity: 10, minStock: 5 });
   });
 
   it("一次幾十筆也要全部寫進去（分批送不能漏）", async () => {
@@ -144,11 +138,11 @@ describe("套用同步", () => {
       const id = `bulk-${index}`;
       await db.insert(items).values({ id, source: "custom", kind: "sellable", sku: `SKU-${index}`, name: `商品 ${index}`, active: 1 });
       await db.insert(wmsItems).values({ itemId: id, wmsCategoryId: "cat-1", quantity: 0, minStock: 0 });
-      await db.insert(wmsCyberbizLinks).values({
-        id: `link-${index}`, wmsItemId: id, cyberbizProductId: "p1", cyberbizVariantId: `var-${index}`, sku: `SKU-${index}`,
+      await db.insert(cyberbizProductCatalog).values({
+        itemId: id, cyberbizProductId: "p1", cyberbizVariantId: `var-${index}`,
       });
       links.push({
-        linkId: `link-${index}`, inventoryItemId: id, cyberbizProductId: "p1", cyberbizVariantId: `var-${index}`,
+        inventoryItemId: id, cyberbizProductId: "p1", cyberbizVariantId: `var-${index}`,
         linkedSku: `SKU-${index}`, itemSku: `SKU-${index}`, itemName: `商品 ${index}`, quantity: 0, minStock: 0,
       });
       remotes.push({
@@ -174,11 +168,11 @@ describe("target WMS CYBERBIZ 連結", () => {
     const targetDb = createDatabase(targetD1 as never);
     await targetDb.insert(items).values({ id: "target-linked-item", source: "custom", kind: "sellable", sku: "TARGET-LINK-001", name: "Target 連結商品", active: 1 });
     await targetDb.insert(wmsItems).values({ itemId: "target-linked-item", quantity: 7, minStock: 2, unit: "件", notes: "" });
-    await targetDb.insert(wmsCyberbizLinks).values({ id: "target-link", wmsItemId: "target-linked-item", cyberbizProductId: "target-product", cyberbizVariantId: "target-variant", sku: "TARGET-LINK-001" });
+    await targetDb.insert(cyberbizProductCatalog).values({ itemId: "target-linked-item", cyberbizProductId: "target-product", cyberbizVariantId: "target-variant" });
 
 
     const link = (await listCompanyLinks(targetDb))[0];
-    expect(link).toMatchObject({ linkId: "target-link", inventoryItemId: "target-linked-item", itemSku: "TARGET-LINK-001", quantity: 7, minStock: 2 });
+    expect(link).toMatchObject({ inventoryItemId: "target-linked-item", cyberbizVariantId: "target-variant", itemSku: "TARGET-LINK-001", quantity: 7, minStock: 2 });
     expect((await loadWarehouse(targetDb)).items[0]?.cyberbiz).toMatchObject({
       cyberbizProductId: "target-product",
       cyberbizVariantId: "target-variant",
@@ -187,6 +181,6 @@ describe("target WMS CYBERBIZ 連結", () => {
     const result = await applySyncPlan(targetDb, buildSyncPlan([link!], [{ productId: "target-product", variantId: "target-variant", sku: "TARGET-LINK-001", quantity: 11, safetyQuantity: 4 }]), actor);
     expect(result).toEqual({ updated: 1, unchanged: 0, failed: 0 });
     expect((await targetDb.select().from(wmsItems))[0]).toMatchObject({ itemId: "target-linked-item", quantity: 11, minStock: 4 });
-    expect((await targetDb.select().from(wmsCyberbizLinks))[0]).toMatchObject({ syncStatus: "synced", lastSyncedQuantity: 11 });
+    expect(await targetDb.select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_synced"))).toHaveLength(1);
   });
 });

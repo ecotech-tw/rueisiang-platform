@@ -12,7 +12,7 @@ import {
   syncCyberbizProducts,
   upsertReportScope,
 } from "@rueisiang/db";
-import { items, wmsCyberbizLinks, wmsItems } from "@rueisiang/db/schema";
+import { cyberbizProductCatalog, items, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { createTargetOnlyD1 } from "./local-d1/d1.js";
@@ -68,12 +68,10 @@ describe("target-only destructive integration", () => {
       active: 1,
     });
     await db.insert(wmsItems).values({ itemId: "target-wms-item", quantity: 7, minStock: 2, unit: "件", notes: "" });
-    await db.insert(wmsCyberbizLinks).values({
-      id: "target-only-link",
-      wmsItemId: "target-wms-item",
+    await db.insert(cyberbizProductCatalog).values({
+      itemId: "target-wms-item",
       cyberbizProductId: "target-product",
       cyberbizVariantId: "target-variant",
-      sku: "TARGET-WMS",
     });
     await dropMigratedLegacyTables(d1);
 
@@ -118,7 +116,6 @@ describe("target-only destructive integration", () => {
     }))?.totals).toEqual({ payoutAmount: 110 });
 
     expect(await listCompanyLinks(db)).toMatchObject([{
-      linkId: "target-only-link",
       inventoryItemId: "target-wms-item",
       itemSku: "TARGET-WMS",
       quantity: 7,

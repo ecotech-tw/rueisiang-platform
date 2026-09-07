@@ -39,9 +39,8 @@ export interface CyberbizLink {
   cyberbizVariantId: string;
   sku: string;
   syncStatus: string;
-  lastSyncedQuantity: number | null;
-  lastSyncedAt: string | null;
-  lastError: string;
+  /** 官網目錄鏡像最後同步時間；庫存同步結果記在 activity_events。 */
+  syncedAt: string;
 }
 
 export interface InventoryItem {
@@ -383,11 +382,5 @@ export interface CyberbizSyncResult {
 export function useSyncCyberbiz() {
   return useWarehouseMutation(({ itemId }: { itemId?: string } = {}) =>
     write<CyberbizSyncResult>("/api/wms/cyberbiz/sync", "POST", itemId ? { itemId } : {}),
-  );
-}
-
-export function useUnlinkCyberbiz() {
-  return useWarehouseMutation((id: string) =>
-    write<{ ok: true }>(`/api/wms/items/${id}/cyberbiz-link`, "DELETE"),
   );
 }

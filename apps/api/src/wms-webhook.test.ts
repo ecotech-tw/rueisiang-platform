@@ -1,11 +1,11 @@
 import { createDatabase, retryFailedProductWebhooks, syncSystemRoles } from "@rueisiang/db";
 import {
   activityEvents,
+  cyberbizProductCatalog,
   cyberbizWebhookEvents,
   crmCustomers,
   items,
   wmsCategories,
-  wmsCyberbizLinks,
   wmsItems,
 } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
@@ -120,12 +120,10 @@ beforeEach(async () => {
   await db().insert(wmsItems).values({
     itemId: "item-1", wmsCategoryId: "cat-1", quantity: 178, minStock: 24, unit: "件", notes: "",
   });
-  await db().insert(wmsCyberbizLinks).values({
-    id: "link-1",
-    wmsItemId: "item-1",
+  await db().insert(cyberbizProductCatalog).values({
+    itemId: "item-1",
     cyberbizProductId: "56750193",
     cyberbizVariantId: "68463869",
-    sku: "BPK24004",
   });
 });
 
@@ -241,8 +239,8 @@ describe("處理", () => {
     expect(json).toMatchObject({ sync: { updated: 0, failed: 1 } });
     const [item] = await db().select().from(wmsItems);
     expect(item?.quantity).toBe(178);
-    const [link] = await db().select().from(wmsCyberbizLinks);
-    expect(link?.syncStatus).toBe("failed");
+    const [event] = await db().select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_sync_failed"));
+    expect(event?.status).toBe("failed");
   });
 });
 

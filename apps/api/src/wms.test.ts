@@ -2,6 +2,7 @@ import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
 import {
   activityEvents,
+  cyberbizProductCatalog,
   items,
   mediaObjects,
   users,
@@ -13,7 +14,6 @@ import {
   wmsShelves,
   wmsZones,
   wmsZoneImages,
-  wmsCyberbizLinks,
 } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
@@ -180,16 +180,10 @@ describe("WMS target-only API", () => {
     expect(afterMaster?.name).toBe("小紙箱（改）");
     expect(afterWms?.quantity).toBe(12);
 
-    await db.insert(wmsCyberbizLinks).values({
-      id: "wms-cyberbiz-link-1",
-      wmsItemId: id,
+    await db.insert(cyberbizProductCatalog).values({
+      itemId: id,
       cyberbizProductId: "product-1",
       cyberbizVariantId: "variant-1",
-      sku: "BOX-02",
-      warehouseScope: "company",
-      syncStatus: "synced",
-      lastSyncedQuantity: 12,
-      lastSyncedAt: new Date().toISOString(),
     });
     const changedLinkedSku = await as(userId, "admin@ecotech.tw", `/api/wms/items/${id}`, {
       method: "PATCH", body: JSON.stringify({ sku: "BOX-99", category: "一般備品" }),
@@ -204,29 +198,9 @@ describe("WMS target-only API", () => {
     await seedCategory();
     await seedWmsItem("item-1", "BOX-01");
     await seedWmsItem("item-2", "BOX-02");
-    await db.insert(wmsCyberbizLinks).values([
-      {
-        id: "wms-cyberbiz-link-1",
-        wmsItemId: "item-1",
-        cyberbizProductId: "product-1",
-        cyberbizVariantId: "variant-1",
-        sku: "BOX-01",
-        warehouseScope: "company",
-        syncStatus: "synced",
-        lastSyncedQuantity: 10,
-        lastSyncedAt: "2026-01-01T00:00:00.000Z",
-      },
-      {
-        id: "wms-cyberbiz-link-2",
-        wmsItemId: "item-2",
-        cyberbizProductId: "product-1",
-        cyberbizVariantId: "variant-2",
-        sku: "BOX-02",
-        warehouseScope: "company",
-        syncStatus: "synced",
-        lastSyncedQuantity: 10,
-        lastSyncedAt: "2026-01-01T00:00:00.000Z",
-      },
+    await db.insert(cyberbizProductCatalog).values([
+      { itemId: "item-1", cyberbizProductId: "product-1", cyberbizVariantId: "variant-1" },
+      { itemId: "item-2", cyberbizProductId: "product-1", cyberbizVariantId: "variant-2" },
     ]);
 
     vi.stubGlobal("fetch", async (url: string) => {

@@ -7,8 +7,9 @@
 ## 範圍
 
 第一階段的 target contract 是非小香部分 32 張表；小香的 15 張 `assistant_*` tables
-維持既有形狀。WMS 庫存同步使用 `wms_cyberbiz_links`；CYBERBIZ 會員與商品／庫存
-事件共用 `cyberbiz_webhook_events`，因此不能用原本的 32 + 15 推斷目前實體表數量。
+維持既有形狀。WMS 庫存同步使用 `wms_items` 與 `cyberbiz_products` 透過 `items.id`
+隱含對應；CYBERBIZ 會員與商品／庫存事件共用 `cyberbiz_webhook_events`，因此不能用原本的
+32 + 15 推斷目前實體表數量。
 
 商品事件的外部身分放在 `external_entity_id`（variant_id），原始內容放在
 `payload_json`。接收、事件分類、重試與 retention 都只讀這張共用事件表；不能再讓
@@ -93,10 +94,11 @@ transaction 中，而 transaction 內切換 `foreign_keys` 沒有效果；被 `O
 0110_drop_legacy_rbac_tables
 0111_drop_payout_stores
 0112_cyberbiz_webhook_events_unify
+0113_wms_cyberbiz_identity_cutover
 ```
 
-`0097_webhook_events_entity_type` 先補上共用事件表的 `entity_type` 約束；`0112` 才完成
-商品接收、重試與既有資料的 unified cutover。
+`0097_webhook_events_entity_type` 先補上共用事件表的 `entity_type` 約束；`0112` 完成
+會員與商品事件的 unified cutover；`0113` 再將 WMS 商品身分切換到 `items` 的延伸表。
 
 `0101_activity_entity_type_rename` 只用一支 `UPDATE` 將 `activity_events.entity_type` 的
 四個舊值改成 target 值，保留 `entity_id` 與其他欄位，不重建資料表。

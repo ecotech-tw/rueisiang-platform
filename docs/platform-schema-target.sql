@@ -484,9 +484,9 @@ CREATE INDEX idx_wms_zone_images_zone ON wms_zone_images(zone_id, sort_order);
  * 包材）只有這裡有。實務上盤點是去官網改，再同步回來，所以官網有的品項
  * 這裡是鏡像值。
  *
- * ❌ 完全沒有 CYBERBIZ 欄位（last_synced_at / last_error / sync_status 全在
- *    cyberbiz_products）——同步失敗與同步時間屬於「官網那一面」，而且
- *    activity_events 已經記了每一次失敗。
+ * ❌ 完全沒有 CYBERBIZ 欄位（sync_status / synced_at 在 cyberbiz_products）——
+ *    商品目錄同步的狀態屬於「官網那一面」；庫存數量同步的成功與失敗由
+ *    activity_events 記錄。
  * ❌ 沒有 zone_id：倉位由 shelf_id 推導。兩個都存的話會出現「在 A 區的
  *    B 區第二層」這種矛盾。
  */

@@ -3,7 +3,8 @@ import { classifyPayload, createWebhookEventId, parseProductEvent } from "@rueis
 import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { cyberbizWebhookEvents } from "./schema/crm.js";
-import { wmsCyberbizLinks } from "./schema/wms.js";
+import { cyberbizProducts } from "./schema/items.js";
+import { wmsItems } from "./schema/wms.js";
 import { claimCyberbizWebhookEvent, claimFailedCyberbizWebhookEvent } from "./webhook-events.js";
 import { applySyncPlan, buildSyncPlan, listCompanyLinks, type SyncOutcome } from "./wms-sync.js";
 
@@ -45,11 +46,12 @@ export interface ProcessProductWebhookInput {
 
 /** 把事件的處理結果寫回去。result 存 JSON，之後查「那次到底做了什麼」用。 */
 async function productIdForVariant(db: Database, variantId: string): Promise<string | null> {
-  const [link] = await db.select({ productId: wmsCyberbizLinks.cyberbizProductId })
-    .from(wmsCyberbizLinks)
-    .where(eq(wmsCyberbizLinks.cyberbizVariantId, variantId))
+  const [product] = await db.select({ productId: cyberbizProducts.cyberbizProductId })
+    .from(wmsItems)
+    .innerJoin(cyberbizProducts, eq(cyberbizProducts.itemId, wmsItems.itemId))
+    .where(eq(cyberbizProducts.cyberbizVariantId, variantId))
     .limit(1);
-  return link?.productId ?? null;
+  return product?.productId ?? null;
 }
 
 async function markEvent(

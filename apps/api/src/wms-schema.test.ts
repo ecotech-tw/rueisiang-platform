@@ -1,8 +1,8 @@
 import { createDatabase, createZone } from "@rueisiang/db";
 import {
+  cyberbizProductCatalog,
   items,
   mediaObjects,
-  wmsCyberbizLinks,
   wmsItems,
   wmsShelves,
   wmsZoneImages,
@@ -96,35 +96,29 @@ describe("CYBERBIZ 商品對應", () => {
     await seedItem("i2");
   });
 
-  const LINK = {
-    id: "l1",
-    wmsItemId: "i1",
+  const PRODUCT = {
+    itemId: "i1",
     cyberbizProductId: "p1",
     cyberbizVariantId: "v1",
-    sku: "BOX-01",
-    warehouseScope: "company",
-    posShopId: 0,
-    syncStatus: "synced",
-    lastError: "",
   };
 
   it("一個款式只能對到一個品項", async () => {
-    await db.insert(wmsCyberbizLinks).values(LINK);
+    await db.insert(cyberbizProductCatalog).values(PRODUCT);
     await expect(
-      db.insert(wmsCyberbizLinks).values({ ...LINK, id: "l2", wmsItemId: "i2" }),
+      db.insert(cyberbizProductCatalog).values({ ...PRODUCT, itemId: "i2" }),
     ).rejects.toThrow();
   });
 
   it("一個品項也只能對到一個款式", async () => {
-    await db.insert(wmsCyberbizLinks).values(LINK);
+    await db.insert(cyberbizProductCatalog).values(PRODUCT);
     await expect(
-      db.insert(wmsCyberbizLinks).values({ ...LINK, id: "l2", cyberbizVariantId: "v2" }),
+      db.insert(cyberbizProductCatalog).values({ ...PRODUCT, cyberbizVariantId: "v2" }),
     ).rejects.toThrow();
   });
 
-  it("品項被刪掉時對應也跟著刪，不會留下指向空氣的那一筆", async () => {
-    await db.insert(wmsCyberbizLinks).values(LINK);
+  it("品項被刪掉時官網鏡像也跟著刪，不會留下指向空氣的那一筆", async () => {
+    await db.insert(cyberbizProductCatalog).values(PRODUCT);
     await db.delete(items).where(eq(items.id, "i1"));
-    expect(await db.select().from(wmsCyberbizLinks)).toHaveLength(0);
+    expect(await db.select().from(cyberbizProductCatalog)).toHaveLength(0);
   });
 });

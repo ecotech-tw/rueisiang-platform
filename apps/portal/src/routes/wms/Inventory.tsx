@@ -118,15 +118,15 @@ function ItemRow({
       <td data-label="狀態">
         {low ? <span className="status status-sync-failed">需要補貨</span> : <span className="status quiet">正常</span>}
         {/*
-          * 有連結才顯示，沒連結不顯示「未連結」——大部分商品本來就不連，
-          * 每一列都掛一個「未連結」只是把整欄變成雜訊。同步失敗才要跳出來。
+          * 有官網鏡像才顯示，沒有鏡像不顯示「未連結」——大部分自訂品項本來就不連，
+          * 每一列都掛一個「未連結」只是把整欄變成雜訊。官網目錄同步失敗才要跳出來。
           */}
         {item.cyberbiz ? (
           <span
             className={`status ${item.cyberbiz.syncStatus === "failed" ? "status-sync-failed" : "status-sync-synced"}`}
-            title={item.cyberbiz.lastError || `已連結 CYBERBIZ 款式 ${item.cyberbiz.cyberbizVariantId}`}
+            title={`已連結 CYBERBIZ 款式 ${item.cyberbiz.cyberbizVariantId}`}
           >
-            {item.cyberbiz.syncStatus === "failed" ? "同步失敗" : "CYBERBIZ"}
+            {item.cyberbiz.syncStatus === "failed" ? "目錄同步失敗" : "CYBERBIZ"}
           </span>
         ) : item.source === "cyberbiz" ? (
           <span className="status status-sync-synced" title="品項主檔由 cyberbiz_products 同步">CYBERBIZ</span>

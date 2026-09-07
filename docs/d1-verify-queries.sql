@@ -67,6 +67,14 @@ SELECT entity_type, topic, status, COUNT(*) AS n
 FROM cyberbiz_webhook_events
 GROUP BY 1, 2, 3;
 
+SELECT '=== 0113 WMS CYBERBIZ identity cutover ===' AS q;
+-- 舊 WMS 對應表應已移除，結果應為 0 列。
+SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wms_cyberbiz_links';
+-- WMS 與官網身分透過 items.id 連接；這裡只觀測目前有官網身分的 WMS 品項數。
+SELECT COUNT(*) AS wms_cyberbiz_items
+FROM wms_items w
+JOIN cyberbiz_products p ON p.item_id = w.item_id;
+
 SELECT '=== 0101 activity entity types ===' AS q;
 SELECT entity_type, COUNT(*) AS n
 FROM activity_events

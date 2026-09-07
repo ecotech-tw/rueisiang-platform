@@ -28,7 +28,6 @@ export * from "./reports.js";
 export * from "./tools.js";
 export {
   wmsCategories,
-  wmsCyberbizLinks,
   wmsItems,
   wmsLayoutElements,
   wmsLayouts,
@@ -36,7 +35,6 @@ export {
   wmsZoneImages,
   wmsZones,
   type WmsCategory,
-  type WmsCyberbizLink,
   type WmsItem,
   type WmsLayout,
   type WmsLayoutElement,

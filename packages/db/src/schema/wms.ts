@@ -109,28 +109,6 @@ export const wmsItems = sqliteTable("wms_items", {
   index("idx_wms_items_low_stock").on(table.itemId).where(sql`${table.quantity} < ${table.minStock}`),
 ]);
 
-/** WMS 商品與 CYBERBIZ 款式的同步連結；與商品主檔分開，避免同步自動創造 WMS 品項。 */
-export const wmsCyberbizLinks = sqliteTable("wms_cyberbiz_links", {
-  id: text("id").primaryKey(),
-  wmsItemId: text("wms_item_id").notNull().references(() => wmsItems.itemId, { onDelete: "cascade" }),
-  cyberbizProductId: text("cyberbiz_product_id").notNull(),
-  cyberbizVariantId: text("cyberbiz_variant_id").notNull(),
-  sku: text("sku").notNull(),
-  warehouseScope: text("warehouse_scope").notNull().default("company"),
-  posShopId: integer("pos_shop_id").notNull().default(0),
-  syncStatus: text("sync_status").notNull().default("synced"),
-  lastSyncedQuantity: integer("last_synced_quantity"),
-  lastSyncedAt: text("last_synced_at"),
-  lastError: text("last_error").notNull().default(""),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [
-  uniqueIndex("idx_wms_cyberbiz_links_item").on(table.wmsItemId),
-  uniqueIndex("idx_wms_cyberbiz_links_variant").on(table.cyberbizVariantId),
-  index("idx_wms_cyberbiz_links_status").on(table.syncStatus),
-  index("idx_wms_cyberbiz_links_sku").on(table.sku),
-]);
-
 export type WmsCategory = typeof wmsCategories.$inferSelect;
 export type WmsZone = typeof wmsZones.$inferSelect;
 export type WmsShelf = typeof wmsShelves.$inferSelect;
@@ -138,4 +116,3 @@ export type WmsLayout = typeof wmsLayouts.$inferSelect;
 export type WmsLayoutElement = typeof wmsLayoutElements.$inferSelect;
 export type WmsZoneImage = typeof wmsZoneImages.$inferSelect;
 export type WmsItem = typeof wmsItems.$inferSelect;
-export type WmsCyberbizLink = typeof wmsCyberbizLinks.$inferSelect;

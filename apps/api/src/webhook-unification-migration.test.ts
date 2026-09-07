@@ -20,8 +20,8 @@ function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): voi
   }
 }
 
-describe("0112 unified CYBERBIZ webhook events", () => {
-  it("把舊商品事件搬進共用表並保留可補跑的欄位", () => {
+describe("0112/0113 CYBERBIZ target cutover", () => {
+  it("把舊事件與 WMS 商品身分搬進 target 表", () => {
     const sqlite = new DatabaseSync(":memory:");
     sqlite.exec("PRAGMA foreign_keys = ON;");
     applyLikeD1(sqlite, null, "0111_drop_payout_stores.sql");
@@ -46,6 +46,22 @@ describe("0112 unified CYBERBIZ webhook events", () => {
 
     applyLikeD1(sqlite, "0111_drop_payout_stores.sql", "0112_cyberbiz_webhook_events_unify.sql");
 
+    sqlite.prepare(`
+      INSERT INTO items (id, source, kind, sku, name, active)
+      VALUES ('wms-item-1', 'cyberbiz', 'sellable', 'SKU-1', '商品 1', 1)
+    `).run();
+    sqlite.prepare(`
+      INSERT INTO wms_items (item_id, quantity, min_stock, unit, notes)
+      VALUES ('wms-item-1', 3, 1, '件', '')
+    `).run();
+    sqlite.prepare(`
+      INSERT INTO wms_cyberbiz_links
+        (id, wms_item_id, cyberbiz_product_id, cyberbiz_variant_id, sku, last_error)
+      VALUES ('legacy-link', 'wms-item-1', 'product-1', 'variant-1', 'SKU-1', '舊同步失敗')
+    `).run();
+
+    applyLikeD1(sqlite, "0112_cyberbiz_webhook_events_unify.sql", "0113_wms_cyberbiz_identity_cutover.sql");
+
     expect(sqlite.prepare(`
       SELECT id, topic, entity_type, external_entity_id, status, attempts, last_error, payload_json
       FROM cyberbiz_webhook_events
@@ -67,6 +83,29 @@ describe("0112 unified CYBERBIZ webhook events", () => {
     });
     expect(sqlite.prepare(`
       SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cyberbiz_product_webhooks'
+    `).get()).toBeUndefined();
+    expect(sqlite.prepare(`
+      SELECT item_id, cyberbiz_product_id, cyberbiz_variant_id
+      FROM cyberbiz_products
+      WHERE item_id = 'wms-item-1'
+    `).get()).toEqual({
+      item_id: "wms-item-1",
+      cyberbiz_product_id: "product-1",
+      cyberbiz_variant_id: "variant-1",
+    });
+    expect(sqlite.prepare(`
+      SELECT entity_type, entity_id, event_type, status, error
+      FROM activity_events
+      WHERE id = 'migration:0113:wms-cyberbiz:legacy-link'
+    `).get()).toEqual({
+      entity_type: "item",
+      entity_id: "wms-item-1",
+      event_type: "cyberbiz_sync_failed",
+      status: "failed",
+      error: "舊同步失敗",
+    });
+    expect(sqlite.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wms_cyberbiz_links'
     `).get()).toBeUndefined();
   });
 });

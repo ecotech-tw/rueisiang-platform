@@ -1,17 +1,18 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { cyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { activityEvents } from "./schema/activity.js";
-import { items as itemMasters } from "./schema/items.js";
-import { wmsCyberbizLinks, wmsItems } from "./schema/wms.js";
+import { wmsItems } from "./schema/wms.js";
 import { WmsError } from "./wms.js";
 
+/** WMS 裡實際有庫存、而且在 CYBERBIZ 有外部身分的品項。 */
 export interface LinkedItem {
-  linkId: string;
   /** target wms_items.item_id；保留既有 API 欄位名稱。 */
   inventoryItemId: string;
   cyberbizProductId: string;
   cyberbizVariantId: string;
+  /** items.sku 是全平台唯一，也是 CYBERBIZ 款式的 SKU。 */
   linkedSku: string;
   itemSku: string;
   itemName: string;
@@ -47,39 +48,52 @@ export function buildSyncPlan(links: LinkedItem[], remotes: RemoteItem[]): SyncP
   });
 }
 
+/**
+ * target schema 沒有另一張 WMS-CYBERBIZ link 表。
+ *
+ * wms_items 表示「這個 item 進了倉庫」，cyberbiz_products 表示「這個 item
+ * 在官網的身分」；兩張延伸表都用 items.id，所以 join 本身就是連結。
+ */
 export async function listCompanyLinks(
   db: Database,
   options: { productId?: string; inventoryItemId?: string } = {},
 ): Promise<LinkedItem[]> {
-  const productFilter = options.productId
-    ? sql` AND ${wmsCyberbizLinks.cyberbizProductId} = ${options.productId}`
-    : sql``;
-  const itemFilter = options.inventoryItemId
-    ? sql` AND ${wmsCyberbizLinks.wmsItemId} = ${options.inventoryItemId}`
-    : sql``;
+  const filters = [eq(cyberbizProducts.itemId, wmsItems.itemId)];
+  if (options.productId) filters.push(eq(cyberbizProducts.cyberbizProductId, options.productId));
+  if (options.inventoryItemId) filters.push(eq(wmsItems.itemId, options.inventoryItemId));
 
-  return db.select({
-    linkId: wmsCyberbizLinks.id,
-    inventoryItemId: wmsCyberbizLinks.wmsItemId,
-    cyberbizProductId: wmsCyberbizLinks.cyberbizProductId,
-    cyberbizVariantId: wmsCyberbizLinks.cyberbizVariantId,
-    linkedSku: sql<string>`${wmsCyberbizLinks.sku}`.as("linked_sku"),
-    itemSku: itemMasters.sku,
-    itemName: itemMasters.name,
-    quantity: wmsItems.quantity,
-    minStock: wmsItems.minStock,
+  const rows = await db.select({
+    inventoryItemId: wmsItems.itemId,
+    cyberbizProductId: cyberbizProducts.cyberbizProductId,
+    cyberbizVariantId: cyberbizProducts.cyberbizVariantId,
+    item: {
+      sku: itemMasters.sku,
+      name: itemMasters.name,
+    },
+    wms: {
+      quantity: wmsItems.quantity,
+      minStock: wmsItems.minStock,
+    },
   })
-    .from(wmsCyberbizLinks)
-    .innerJoin(wmsItems, eq(wmsItems.itemId, wmsCyberbizLinks.wmsItemId))
+    .from(wmsItems)
     .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
-    .where(sql`${wmsCyberbizLinks.warehouseScope} = 'company'${productFilter}${itemFilter}`);
+    .innerJoin(cyberbizProducts, eq(cyberbizProducts.itemId, wmsItems.itemId))
+    .where(and(...filters));
+
+  return rows.map((row) => ({
+    inventoryItemId: row.inventoryItemId,
+    cyberbizProductId: row.cyberbizProductId,
+    cyberbizVariantId: row.cyberbizVariantId,
+    linkedSku: row.item.sku,
+    itemSku: row.item.sku,
+    itemName: row.item.name,
+    quantity: row.wms.quantity,
+    minStock: row.wms.minStock,
+  }));
 }
 
 export interface SyncOutcome { updated: number; unchanged: number; failed: number }
 
-function updateLink(db: Database, linkId: string, values: Record<string, unknown>) {
-  return db.update(wmsCyberbizLinks).set(values as never).where(eq(wmsCyberbizLinks.id, linkId));
-}
 function updateLinkedItem(db: Database, itemId: string, values: Record<string, unknown>) {
   return db.update(wmsItems).set(values as never).where(eq(wmsItems.itemId, itemId));
 }
@@ -89,7 +103,6 @@ export async function applySyncPlan(
   plan: SyncPlanEntry[],
   actor: { id?: string | null; email?: string | null } | null,
 ): Promise<SyncOutcome> {
-  const syncedAt = new Date().toISOString();
   type Statement = Parameters<Database["batch"]>[0][number];
   const statements: Statement[] = [];
   let updated = 0;
@@ -100,20 +113,17 @@ export async function applySyncPlan(
     if (entry.status === "failed" || !entry.remote) {
       failed += 1;
       statements.push(
-        updateLink(db, entry.link.linkId, { syncStatus: "failed", lastError: entry.error, updatedAt: sql`CURRENT_TIMESTAMP` }),
         db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: entry.link.inventoryItemId, entityLabel: label, eventType: "cyberbiz_sync_failed", summary: entry.error, source: "cyberbiz_sync", status: "failed", error: entry.error, actor })),
       );
       continue;
     }
     if (!entry.quantityChanged && !entry.minStockChanged) {
       unchanged += 1;
-      statements.push(updateLink(db, entry.link.linkId, { syncStatus: "synced", lastError: "", lastSyncedQuantity: entry.remote.quantity, lastSyncedAt: syncedAt, updatedAt: sql`CURRENT_TIMESTAMP` }));
       continue;
     }
     updated += 1;
     statements.push(
       updateLinkedItem(db, entry.link.inventoryItemId, { quantity: entry.remote.quantity, minStock: entry.remote.safetyQuantity, updatedAt: sql`CURRENT_TIMESTAMP` }),
-      updateLink(db, entry.link.linkId, { syncStatus: "synced", lastError: "", lastSyncedQuantity: entry.remote.quantity, lastSyncedAt: syncedAt, updatedAt: sql`CURRENT_TIMESTAMP` }),
       db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: entry.link.inventoryItemId, entityLabel: label, eventType: "cyberbiz_synced", summary: entry.quantityChanged ? "從 CYBERBIZ 同步庫存數量" : "從 CYBERBIZ 同步安全庫存", field: entry.quantityChanged ? "quantity" : "minStock", oldValue: String(entry.quantityChanged ? entry.link.quantity : entry.link.minStock), newValue: String(entry.quantityChanged ? entry.remote.quantity : entry.remote.safetyQuantity), source: "cyberbiz_sync", actor })),
     );
   }
@@ -128,38 +138,66 @@ export async function linkItemToCyberbiz(
   db: Database,
   input: { inventoryItemId: string; productId: string; variantId: string; sku: string; quantity: number; actor: { id: string; email: string } },
 ) {
-  const [item] = await db.select({ sku: itemMasters.sku, name: itemMasters.name }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).where(eq(wmsItems.itemId, input.inventoryItemId)).limit(1);
+  const [item] = await db.select({ item: itemMasters })
+    .from(wmsItems)
+    .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
+    .where(eq(wmsItems.itemId, input.inventoryItemId))
+    .limit(1);
   if (!item) throw new WmsError("not_found", "找不到這項商品。");
-  const id = crypto.randomUUID();
+  if (normalizedSku(item.item.sku) !== normalizedSku(input.sku)) {
+    throw new WmsError("conflict", "品項 SKU 與 CYBERBIZ 款式 SKU 不一致，不能建立連結。");
+  }
+
+  const [duplicate] = await db.select({ itemId: cyberbizProducts.itemId })
+    .from(cyberbizProducts)
+    .where(and(
+      eq(cyberbizProducts.cyberbizProductId, input.productId),
+      eq(cyberbizProducts.cyberbizVariantId, input.variantId),
+      ne(cyberbizProducts.itemId, input.inventoryItemId),
+    ))
+    .limit(1);
+  if (duplicate) throw new WmsError("conflict", "這個 CYBERBIZ 款式已經連到其他品項。");
+
   const now = new Date().toISOString();
   await db.batch([
-    db.insert(wmsCyberbizLinks).values({ id, wmsItemId: input.inventoryItemId, cyberbizProductId: input.productId, cyberbizVariantId: input.variantId, sku: input.sku.trim().toUpperCase(), warehouseScope: "company", syncStatus: "synced", lastSyncedQuantity: input.quantity, lastSyncedAt: now }),
-    db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: input.inventoryItemId, entityLabel: `${item.sku} ${item.name}`, eventType: "cyberbiz_linked", summary: `連結 CYBERBIZ 款式 ${input.variantId}`, source: "cyberbiz_sync", actor: input.actor })),
+    db.update(itemMasters).set({ source: "cyberbiz", updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(itemMasters.id, input.inventoryItemId)),
+    db.insert(cyberbizProducts).values({
+      itemId: input.inventoryItemId,
+      cyberbizProductId: input.productId,
+      cyberbizVariantId: input.variantId,
+      productName: "",
+      variantName: "",
+      published: 1,
+      rawJson: "{}",
+      syncStatus: "synced",
+      syncedAt: now,
+    }).onConflictDoUpdate({
+      target: cyberbizProducts.itemId,
+      set: {
+        cyberbizProductId: input.productId,
+        cyberbizVariantId: input.variantId,
+        syncStatus: "synced",
+        syncedAt: now,
+      },
+    }),
+    db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: input.inventoryItemId, entityLabel: `${item.item.sku} ${item.item.name}`, eventType: "cyberbiz_linked", summary: `連結 CYBERBIZ 款式 ${input.variantId}`, source: "cyberbiz_sync", actor: input.actor })),
   ] as never);
-  return { id };
+  return { id: input.inventoryItemId };
 }
 
-export async function unlinkItemFromCyberbiz(db: Database, inventoryItemId: string, actor: { id: string; email: string }) {
-  const [item] = await db.select({ sku: itemMasters.sku, name: itemMasters.name }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).where(eq(wmsItems.itemId, inventoryItemId)).limit(1);
-  if (!item) throw new WmsError("not_found", "找不到這項商品。");
-  await db.batch([
-    db.delete(wmsCyberbizLinks).where(eq(wmsCyberbizLinks.wmsItemId, inventoryItemId)),
-    db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: inventoryItemId, entityLabel: `${item.sku} ${item.name}`, eventType: "cyberbiz_unlinked", summary: "解除 CYBERBIZ 連結（庫存數量保留）", source: "cyberbiz_sync", actor })),
-  ] as never);
-}
-
-export async function markLinkSynced(db: Database, linkId: string, quantity: number): Promise<void> {
-  await updateLink(db, linkId, { syncStatus: "synced", lastError: "", lastSyncedQuantity: quantity, lastSyncedAt: new Date().toISOString(), updatedAt: sql`CURRENT_TIMESTAMP` });
-}
-
-export async function markLinkFailed(
+export async function recordCyberbizSyncFailed(
   db: Database,
-  linkId: string,
-  error: string,
-  context: { inventoryItemId: string; label: string; actor: { id: string; email: string } },
+  context: { inventoryItemId: string; label: string; actor: { id: string; email: string }; error: string },
 ): Promise<void> {
-  await db.batch([
-    updateLink(db, linkId, { syncStatus: "failed", lastError: error, updatedAt: sql`CURRENT_TIMESTAMP` }),
-    db.insert(activityEvents).values(activityRow({ entityType: "item", entityId: context.inventoryItemId, entityLabel: context.label, eventType: "cyberbiz_sync_failed", summary: "盤點已存，但沒有推上 CYBERBIZ", source: "cyberbiz_sync", status: "failed", error, actor: context.actor })),
-  ] as never);
+  await db.insert(activityEvents).values(activityRow({
+    entityType: "item",
+    entityId: context.inventoryItemId,
+    entityLabel: context.label,
+    eventType: "cyberbiz_sync_failed",
+    summary: "盤點已存，但沒有推上 CYBERBIZ",
+    source: "cyberbiz_sync",
+    status: "failed",
+    error: context.error,
+    actor: context.actor,
+  }));
 }

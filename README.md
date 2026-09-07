@@ -151,7 +151,7 @@ R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要�
 下列驗收需要正式帳號或 CYBERBIZ 後台權限，不能用本機 fixture 取代；完成後把結果留在
 對應 PR／deploy 紀錄，不要把登入 cookie 或外部 payload 貼進 repo。
 
-- [ ] WMS：登入正式站完成單一已連結品項同步與全部同步，確認數量、安全庫存、上次同步時間與操作紀錄。
+- [ ] WMS：登入正式站完成單一 CYBERBIZ 品項同步與全部同步，確認數量、安全庫存與操作紀錄。
 - [ ] CRM：登入正式站完成客戶列表、標籤與核准的測試客戶寫入 smoke test，確認 target tables 與 CYBERBIZ 回應一致。
 - [ ] CYBERBIZ：在後台確認實際啟用的會員、商品／庫存 Webhook Events、endpoint 與驗證設定；再以 production event log 對照是否有漏送。
 
