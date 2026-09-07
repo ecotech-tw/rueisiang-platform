@@ -161,7 +161,7 @@ async function requireScope(db: Database, scopeId: string) {
 export async function listReportManagementScopes(db: Database): Promise<ReportManagementScope[]> {
   const rows = await db.select({ id: targetScopes.id, name: targetScopes.name, active: targetScopes.active })
     .from(targetScopes)
-    .where(eq(targetScopes.scopeKind, "store"))
+    .where(and(eq(targetScopes.scopeKind, "store"), ne(targetScopes.sourceType, "shopee")))
     .orderBy(desc(targetScopes.active), asc(targetScopes.name));
   return rows.filter((scope) => isCompanyReportStoreScopeId(scope.id)).map((scope) => ({ ...scope, active: scope.active === 1 }));
 }

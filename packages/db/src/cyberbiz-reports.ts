@@ -64,9 +64,10 @@ async function asCyberbizReportRun(db: Database, run: typeof reportRuns.$inferSe
   };
 }
 
-async function listTargetRuns(db: Database, reportKind?: CyberbizReportRunKind, limit = 20): Promise<CyberbizReportRun[]> {
+async function listTargetRuns(db: Database, reportKind?: CyberbizReportRunKind, limit = 20, sourceType = "cyberbiz"): Promise<CyberbizReportRun[]> {
   const rows = await db.select().from(reportRuns)
     .where(and(
+      eq(reportRuns.sourceType, sourceType),
       reportKind === "sales"
         ? eq(reportRuns.importsSales, 1)
         : reportKind === "payout"
@@ -132,8 +133,8 @@ export async function recordCyberbizReportRun(
     db.insert(reportRuns).values({
       id,
       requestId: input.requestId,
-      // report_runs.source_type 也是 driver，不是報表種類。這支路徑只有 CYBERBIZ
-      // 在跑（蝦皮走 shopee_sales_runs），出金與銷售都是同一個 driver。
+      // report_runs.source_type 也是 driver，不是報表種類。這支路徑只建立 CYBERBIZ
+      // workflow run；蝦皮同樣寫 report_runs，但由 shopee-sales.ts 指定 source_type。
       sourceType: "cyberbiz",
       importsSales: input.reportKind === "sales" ? 1 : 0,
       importsPayout: input.reportKind === "payout" ? 1 : 0,

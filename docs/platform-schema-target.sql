@@ -669,7 +669,7 @@ CREATE TABLE scopes (
   id                VARCHAR(36)   PRIMARY KEY,
   -- 'cyberbiz' | 'shopee'（唯一來源是 TS 的 ReportSourceType，不是資料表）
   source_type       VARCHAR(20)   NOT NULL,
-  -- 'store'（實體門市）| 'channel'（蝦皮、momo、官網）| 'company'（全公司彙總）
+  -- 'store'（可納入公司報表的門市／通路，含 shopee:store:default）| 'channel'（通路彙總）| 'company'（全公司彙總）
   scope_kind        VARCHAR(20)   NOT NULL,
   name              VARCHAR(255)  NOT NULL,
   /*

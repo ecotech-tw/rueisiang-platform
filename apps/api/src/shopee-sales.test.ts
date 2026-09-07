@@ -1,6 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, getShopeeSalesSettings, listShopeeSalesRuns, syncSystemRoles } from "@rueisiang/db";
-import { rolePermissionGrants, roles, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { reportRuns, rolePermissionGrants, roles, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
@@ -109,6 +110,12 @@ describe("蝦皮銷售報表", () => {
     const sourceUrl = inputs.source_url!;
     expect(sourceUrl).toContain("/api/internal/shopee-sales/source/");
     expect(await listShopeeSalesRuns(db())).toHaveLength(1);
+    expect(await db().select({ sourceType: reportRuns.sourceType, importsSales: reportRuns.importsSales, importsPayout: reportRuns.importsPayout }).from(reportRuns)).toEqual([
+      { sourceType: "shopee", importsSales: 1, importsPayout: 1 },
+    ]);
+    expect(await db().select({ id: scopes.id, driveFolderUrl: scopes.driveFolderUrl }).from(scopes).where(eq(scopes.id, "shopee:store:default"))).toEqual([
+      { id: "shopee:store:default", driveFolderUrl: "https://drive.google.com/drive/folders/folder123" },
+    ]);
     const state = await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/state");
     expect((await state.json()) as { latestRequestId: string }).toMatchObject({ latestRequestId: expect.any(String) });
     expect((await getShopeeSalesSettings(db())).driveFolderName).toBe("蝦皮");

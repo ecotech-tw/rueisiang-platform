@@ -295,7 +295,7 @@ review 時發現 `apps/api/src/routes/crm.ts:120` 有明確的
 | # | 表 | 決定 |
 |---|---|---|
 | 31 | `report_sources` | 🗑️ **刪** → `scopes.source_type` 一欄 |
-| 32 | `scopes` | ✅ 三處合併，去掉 `report_` 前綴。➕ `scope_kind = 'channel'` |
+| 32 | `scopes` | ✅ 三處合併，去掉 `report_` 前綴。蝦皮沿用 `shopee:store:default` 納入公司報表 |
 | 33 | `report_external_products` | ✅ 合併 mappings + ignores。身分**拆兩欄** |
 | 34 | `report_runs` | ✅ 三張併一張。`report_kind` enum → **兩個旗標** |
 | 34b | `report_run_scopes` | ✅ 新增子表取代 `stores_json` |
