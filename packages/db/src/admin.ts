@@ -472,7 +472,7 @@ export type DeleteUserResult = "ok" | "not-found" | "still-active";
  * 不小心把還在用的帳號清掉。
  *
  * 稽核軌跡不會斷：操作紀錄與出金表執行紀錄存的是當下的 email 快照
- * （customer_events.actor_email、payout_runs.actor_email），不是外鍵，所以
+ * （activity_events.actor_email、report_runs.actor_email），不是外鍵，所以
  * 「這筆是誰做的」在人被刪掉之後仍然答得出來。角色指派則靠 FK cascade 一起走。
  */
 export async function deleteUser(db: Database, id: string): Promise<DeleteUserResult> {

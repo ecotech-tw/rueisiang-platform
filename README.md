@@ -155,22 +155,8 @@ R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要�
 - [ ] CRM：登入正式站完成客戶列表、標籤與核准的測試客戶寫入 smoke test，確認 target tables 與 CYBERBIZ 回應一致。
 - [ ] CYBERBIZ：在後台確認實際啟用的會員、商品／庫存 Webhook Events、endpoint 與驗證設定；再以 production event log 對照是否有漏送。
 
-### 平台 schema 收尾
-
-下列 cleanup 要在確認所有 runtime consumer 都已切換、完成 parity 與正式 smoke test
-後，分別開 migration；不要為了縮短表數直接刪除仍被使用的 compatibility table。
-
-- [ ] Permission auth cutover：移除 `role_permissions`、`user_roles`、`user_permissions`
-      compatibility tables，改由 `role_permission_grants`、`user_role_assignments`、
-      `user_permission_grants` 作為唯一 runtime source。
-- [ ] Report runtime cutover：將出金／蝦皮設定與執行資料切換至 `scopes`／`report_runs`，
-      並完成舊表資料 parity。
-- [ ] 評估將 `report_payout_daily_target` 整理為正式的 `report_payout_daily` 名稱，
-      包含 runtime、migration 與 rollback 驗證。
-
 ### 上線後收尾
 
-- [ ] 移除已不再被 runtime 使用的 `packages/db` 舊程式碼，並先完成 consumer 搜尋與 parity 驗證。
 - [ ] 更新小香的八個 tools，補上三個 shape-change tests，確保 schema 收尾後的工具契約仍一致。
 - [ ] 更新 README「下一步」與受影響的 design documents，讓 schema、runtime、測試與部署說明保持一致。
 
