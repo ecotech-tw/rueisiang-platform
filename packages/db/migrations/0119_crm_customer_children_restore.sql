@@ -1,18 +1,35 @@
--- parent 重建時，crm_customer_tags 會因 ON DELETE CASCADE 被清空。不要先 DELETE：
--- 0118 完成後舊 Worker 可能已寫入新關聯，INSERT OR IGNORE 才不會把它們刪掉。
-INSERT OR IGNORE INTO `crm_customer_tags`
-  SELECT * FROM `_crm_customer_tags_backup`;--> statement-breakpoint
+-- 在同一個 transaction 內 snapshot customer 並重建 parent。子表 backup 已由
+-- 0118 完成，還原留到後續 migration，讓每支 migration 的 CPU 負載更小。
+CREATE TABLE `_crm_customers_backup` AS SELECT * FROM `crm_customers`;--> statement-breakpoint
 
--- webhook 的 customer_id 是 ON DELETE SET NULL。只補真正被清空的列，保留中間
--- transaction 期間由 Worker 新寫入或修改的關聯。
-UPDATE `cyberbiz_webhook_events`
-SET `customer_id` = (
-  SELECT `customer_id`
-  FROM `_webhook_customer_backup`
-  WHERE `_webhook_customer_backup`.`id` = `cyberbiz_webhook_events`.`id`
-)
-WHERE `customer_id` IS NULL
-  AND `id` IN (SELECT `id` FROM `_webhook_customer_backup`);--> statement-breakpoint
+DROP TABLE `crm_customers`;--> statement-breakpoint
 
-DROP TABLE `_crm_customer_tags_backup`;--> statement-breakpoint
-DROP TABLE `_webhook_customer_backup`;
+CREATE TABLE `crm_customers` (
+	`id` text PRIMARY KEY NOT NULL,
+	`phone` text NOT NULL,
+	`normalized_phone` text NOT NULL,
+	`name` text DEFAULT '' NOT NULL,
+	`email` text DEFAULT '' NOT NULL,
+	`address` text DEFAULT '' NOT NULL,
+	`status` text DEFAULT 'active' NOT NULL,
+	`cyberbiz_customer_id` text,
+	`cyberbiz_uid` text,
+	`cyberbiz_updated_at` text,
+	`raw_json` text DEFAULT '{}' NOT NULL,
+	`sync_status` text DEFAULT 'synced' NOT NULL,
+	`synced_at` text,
+	`blocked_at` text,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	CONSTRAINT "ck_crm_customers_status" CHECK("crm_customers"."status" IN ('active', 'blocked')),
+	CONSTRAINT "ck_crm_customers_sync_status" CHECK("crm_customers"."sync_status" IN ('synced', 'failed'))
+);--> statement-breakpoint
+
+INSERT INTO `crm_customers`
+  (`id`, `phone`, `normalized_phone`, `name`, `email`, `address`, `status`,
+   `cyberbiz_customer_id`, `cyberbiz_uid`, `cyberbiz_updated_at`, `raw_json`,
+   `sync_status`, `synced_at`, `blocked_at`, `created_at`, `updated_at`)
+  SELECT `id`, `phone`, `normalized_phone`, `name`, `email`, `address`, `status`,
+   `cyberbiz_customer_id`, `cyberbiz_uid`, `cyberbiz_updated_at`, `raw_json`,
+   `sync_status`, `synced_at`, `blocked_at`, `created_at`, `updated_at`
+  FROM `_crm_customers_backup`;
