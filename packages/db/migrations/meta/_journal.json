@@ -652,6 +652,13 @@
       "when": 1788790330890,
       "tag": "0116_shopee_sales_to_report_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "6",
+      "when": 1788839949279,
+      "tag": "0117_crm_customers_checks",
+      "breakpoints": true
     }
   ]
 }
