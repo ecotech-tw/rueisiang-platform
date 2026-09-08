@@ -30,12 +30,16 @@ function currentMonth(): string {
   return monthValue(nowInTaipei());
 }
 
+function previousMonth(): string {
+  const now = nowInTaipei();
+  return monthValue(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
+}
+
 function periodOptions(latestSalesPeriod?: string | null): Array<{ value: string; label: string }> {
   const now = nowInTaipei();
   const month = monthValue(now);
   const year = String(now.getUTCFullYear());
   const options = [
-    { value: month, label: `本月（${month}）` },
     { value: year, label: `今年（${year}）` },
   ];
   for (let offset = 1; offset <= 12; offset += 1) {
@@ -47,7 +51,7 @@ function periodOptions(latestSalesPeriod?: string | null): Array<{ value: string
     const value = String(now.getUTCFullYear() - offset);
     options.push({ value, label: `${value} 年` });
   }
-  if (latestSalesPeriod && !options.some((option) => option.value === latestSalesPeriod)) {
+  if (latestSalesPeriod && latestSalesPeriod !== month && !options.some((option) => option.value === latestSalesPeriod)) {
     options.unshift({ value: latestSalesPeriod, label: `最新資料（${latestSalesPeriod}）` });
   }
   return options;
@@ -69,7 +73,8 @@ export function Analytics() {
   usePageTitle("營運統計");
   const [params, setParams] = useSearchParams();
   const scopes = useReportScopes();
-  const defaultMonth = currentMonth();
+  const currentPeriod = currentMonth();
+  const defaultMonth = previousMonth();
   const periodParam = params.get("period");
   const startDate = params.get("startDate") ?? "";
   const endDate = params.get("endDate") ?? "";
@@ -85,7 +90,9 @@ export function Analytics() {
       ? selectedScopeOption?.latestSalesPeriod ?? null
       : scopes.data?.latestSalesPeriod ?? null
     : null;
-  const period = periodParam ?? (tab === "sales" ? latestSalesPeriod ?? defaultMonth : defaultMonth);
+  const usableLatestSalesPeriod = latestSalesPeriod === currentPeriod ? null : latestSalesPeriod;
+  const fallbackPeriod = tab === "sales" ? usableLatestSalesPeriod ?? defaultMonth : defaultMonth;
+  const period = periodParam && periodParam !== currentPeriod ? periodParam : fallbackPeriod;
   const dateError = custom && startDate && endDate && startDate > endDate;
   const salesPeriodPending = tab === "sales" && !custom && !periodParam && scopes.isPending;
   const ready = (!custom || Boolean(startDate && endDate && !dateError)) && !salesPeriodPending;
@@ -107,8 +114,8 @@ export function Analytics() {
     ? scopes.data?.scopes.find((scope) => scope.id === selectedScope)?.name ?? "指定店別"
     : "公司整體";
   const options = useMemo(
-    () => periodOptions(latestSalesPeriod),
-    [latestSalesPeriod],
+    () => periodOptions(usableLatestSalesPeriod),
+    [usableLatestSalesPeriod],
   );
   const scopeOptions = useMemo(
     () => [{ value: "", label: "公司整體" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))],
@@ -120,11 +127,10 @@ export function Analytics() {
   );
 
   useEffect(() => {
-    if (tab !== "sales" || custom || periodParam || salesPeriodPending || !scopes.data) return;
-    const nextPeriod = latestSalesPeriod ?? defaultMonth;
-    if (params.get("period") === nextPeriod) return;
-    setParams(updateParams(params, { period: nextPeriod }), { replace: true });
-  }, [custom, defaultMonth, latestSalesPeriod, params, periodParam, salesPeriodPending, scopes.data, setParams, tab]);
+    if (custom || salesPeriodPending || (tab === "sales" && !scopes.data)) return;
+    if (params.get("period") === period) return;
+    setParams(updateParams(params, { period }), { replace: true });
+  }, [custom, period, params, salesPeriodPending, scopes.data, setParams, tab]);
 
   useEffect(() => {
     setProductDraft(productParam);
