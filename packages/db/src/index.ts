@@ -1,5 +1,9 @@
 export { createDatabase, type Database } from "./client.js";
 export {
+  HrError, bindHrUser, createHrAssignment, createHrEmployee, createHrEmployer, createHrEmployment,
+  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, listHrEmployees, listHrEmployers, listHrScopes, updateHrEmployee,
+} from "./hr-people.js";
+export {
   createAssistantPromptRevision,
   appendAssistantSandboxMessage,
   closeAssistantSandboxSession,

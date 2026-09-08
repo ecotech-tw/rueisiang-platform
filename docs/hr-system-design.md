@@ -1,6 +1,6 @@
 # HR 系統設計
 
-本文是尚未實作的設計，不代表已有 HR 功能或已通過法遵審查。待辦唯一來源為 [README 下一步](../README.md#下一步)；開發操作依 [development-workflow](./development-workflow.md)。
+本文記錄尚未實作的 HR 擴充設計，不代表已通過法遵審查。人事基礎的實際欄位以 [hr-people schema](../packages/db/src/schema/hr-people.ts) 為準，API 與並行規則以 [hr-people service](../packages/db/src/hr-people.ts) 為準。待辦唯一來源為 [README 下一步](../README.md#下一步)；開發操作依 [development-workflow](./development-workflow.md)。
 
 ## 一、邊界與依賴
 
@@ -81,12 +81,14 @@ ERD 省略審核、附件與快照明細關係；以下資料字典才是候選�
 
 ### 4.1 人事、範圍與規則
 
+人事基礎使用 text ID、RESTRICT 外鍵、revision 與半開日期區間。`ended_on` 表示不再任職的第一天，不是最後出勤日。復職新增任職，結束任職前先結束超出期間的櫃點指派；同法人不可重疊，不同法人任職不在本階段推論其工時合法性。
+
+全平台人事讀寫與帳號綁定是獨立明確權限，不預設授予現有主管／同仁角色；帳號綁定決定本人可見性，不能只憑人事編輯權限修改。櫃點指派只是工作歸屬，不能當作管理授權。未知帳號與停用帳號不可新增綁定；離職不自動停權，帳號停權也不刪歷史。
+
+基礎新增與結束入口不提供刪除或覆寫已結束期間；正式審核修訂與雇主編輯／停用依下列擴充設計處理。網站 `/hr/employees` 與 `/hr/me` 不提供打卡、排班或薪資計算。
+
 | 表 | 專屬欄位與關聯 | SQL 約束／主要索引 |
 |---|---|---|
-| `hr_employers` | `name, registration_number?, active` | 統編非空唯一；active 為 0/1 |
-| `hr_employees` | `employee_number, display_name, user_id? → users` | 員工編號唯一、非空 user 唯一 |
-| `hr_employments` | `employee_id, employer_id, hired_on, ended_on?, seniority_start_on` | 日期有效；索引 employee + hired_on |
-| `hr_employee_scopes` | `employment_id, scope_id, valid_from, valid_to?` | 唯一 employment + scope + valid_from；scope + valid_from 索引 |
 | `hr_management_scopes` | `user_id, scope_id` | 複合 PK；只授予範圍，不自行授予功能權限 |
 | `hr_work_rule_versions` | `employer_id, version_number, valid_from, valid_to?, rule_kind, source_url, confirmed_by` | 唯一 employer + version_number；允許的 rule_kind CHECK |
 | `hr_compensation_versions` | `employment_id, version_number, valid_from, valid_to?, pay_basis, base_amount_minor, work_rule_version_id` | 唯一 employment + version_number；pay_basis 為 month/day/hour，金額非負 |
@@ -210,7 +212,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典才是候選�
 
 ## 六、入口、權限與私密資料
 
-候選權限目錄在功能 PR 才加入程式碼，不現在同步 permissions 表。
+以下只定義後續功能的授權契約；正式權限以 permissions.ts 為唯一來源。人事基礎使用 `hr:self:read`、`hr:employee:read`、`hr:employee:write` 與 `hr:employee:bind`，不要把尚未加入目錄的候選權限同步到資料庫。
 
 | API／UI 契約（候選） | 權限 | 資料範圍與驗證 |
 |---|---|---|
@@ -241,7 +243,6 @@ RFID 簽章、防重送、設備綁定與撤銷；LINE 透過可信 channel 身�
 | 切片 | 交付邊界 | 進入下一階段的證據 |
 |---|---|---|
 | 設計 | ERD、資料字典、權限、制度問題與案例 | 人類確認制度、schema review 找出不變量與關鍵 query；無 migration |
-| 員工基礎 | employer／員工／任職／scope 與本人授權，service/API/UI/tests | 未開帳號可建檔、復職保留歷史、停權及跨員工越權測試 |
 | 排班 | 班次版本、快速排班、送審／發布 | 跨櫃衝突、分段／跨夜、同時發布、已發布不可覆寫 |
 | 打卡出勤 | 網站事件、補卡、異常、出勤計算 | 單卡、重送、跨夜歸屬、休息、無班打卡、補卡後重算 |
 | 假別加班 | 申請、額度、補休、特殊日 | 並行超用、撤回退額度、法定案例、颱風排班資格凍結 |

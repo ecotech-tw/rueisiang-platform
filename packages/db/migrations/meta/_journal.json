@@ -722,6 +722,13 @@
       "when": 1789009775636,
       "tag": "0126_drop_product_category_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "6",
+      "when": 1788864697455,
+      "tag": "0127_jazzy_mysterio",
+      "breakpoints": true
     }
   ]
 }

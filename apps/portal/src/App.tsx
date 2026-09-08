@@ -13,6 +13,7 @@ import { Sync } from "./routes/crm/Sync.js";
 import { Invite } from "./routes/Invite.js";
 import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
+import { HrEmployees, HrSelf } from "./routes/hr/Employees.js";
 import { ItemCategories } from "./routes/items/Categories.js";
 import { Items } from "./routes/items/Items.js";
 import { Payout } from "./routes/tools/Payout.js";
@@ -131,6 +132,11 @@ export function App() {
           <Route path="sandbox" element={<Sandbox />} />
           <Route path="settings" element={<AssistantSettings />} />
           <Route path="line" element={<LineSettings />} />
+        </Route>
+
+        <Route path="hr">
+          <Route path="employees" element={<HrEmployees />} />
+          <Route path="me" element={<HrSelf />} />
         </Route>
 
         <Route path="admin">

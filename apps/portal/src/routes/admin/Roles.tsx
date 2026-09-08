@@ -24,6 +24,7 @@ const MODULE_LABELS: Record<string, string> = {
   items: "品項管理",
   wms: "倉儲管理系統",
   tools: "營運工具",
+  hr: "人事管理",
   admin: "系統管理",
 };
 const PROTECTED_ROLE_KEY = "admin";

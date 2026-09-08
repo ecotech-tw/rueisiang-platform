@@ -18,6 +18,7 @@ export {
   type UserRoleAssignment,
 } from "./auth.js";
 export * from "./crm.js";
+export * from "./hr-people.js";
 export {
   itemCategories,
   itemComponents,

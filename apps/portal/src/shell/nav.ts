@@ -89,6 +89,15 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: "hr",
+    label: "人事管理",
+    icon: "people",
+    items: [
+      { label: "我的人事資料", to: "/hr/me", permission: "hr:self:read", icon: "people" },
+      { label: "員工管理", to: "/hr/employees", permission: "hr:employee:read", icon: "list" },
+    ],
+  },
+  {
     key: "admin",
     label: "系統管理",
     icon: "shieldPerson",

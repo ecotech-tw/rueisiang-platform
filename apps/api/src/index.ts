@@ -25,6 +25,7 @@ import { auth } from "./routes/auth.js";
 import { crm } from "./routes/crm.js";
 import { drainLineAssistantQueueOutbox, processLineAssistantQueueMessage, webhooks } from "./routes/webhooks.js";
 import { health } from "./routes/health.js";
+import { hr } from "./routes/hr.js";
 import { items } from "./routes/items.js";
 import { PayoutGithubError } from "./payout/github.js";
 import { ShopeeSalesGithubError } from "./shopee-sales/github.js";
@@ -56,6 +57,7 @@ const routes = app
   .route("/health", health)
   .route("/auth", auth)
   .route("/admin", admin)
+  .route("/hr", hr)
   .route("/assistant", assistant)
   .route("/crm", crm)
   .route("/internal/shopee-sales", shopeeSalesInternal)

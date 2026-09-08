@@ -10,6 +10,7 @@ import {
 } from "@rueisiang/auth";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { hrEmployees } from "./schema/hr-people.js";
 import { rolePermissionGrants, roles, userPermissionGrants, userRoleAssignments, users } from "./schema/auth.js";
 
 /**
@@ -459,7 +460,7 @@ export async function countRoleHolders(db: Database): Promise<Record<string, num
   return Object.fromEntries(rows.map((row) => [row.roleKey, Number(row.holders)]));
 }
 
-export type DeleteUserResult = "ok" | "not-found" | "still-active";
+export type DeleteUserResult = "ok" | "not-found" | "still-active" | "employee-linked";
 
 /**
  * 刪除帳號。**啟用中的不能刪**，已停用與還沒登入過的都可以。
@@ -483,6 +484,9 @@ export async function deleteUser(db: Database, id: string): Promise<DeleteUserRe
     .limit(1);
   if (!row) return "not-found";
   if (row.status === "active") return "still-active";
+
+  const [employee] = await db.select({ id: hrEmployees.id }).from(hrEmployees).where(eq(hrEmployees.userId, id)).limit(1);
+  if (employee) return "employee-linked";
 
   await db.delete(users).where(eq(users.id, id));
   return "ok";

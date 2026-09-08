@@ -253,6 +253,9 @@ export const admin = new Hono<AppEnv>()
     if (result === "still-active") {
       throw new HTTPException(409, { message: "啟用中的帳號不能直接刪除。請先停用再刪。" });
     }
+    if (result === "employee-linked") {
+      throw new HTTPException(409, { message: "此帳號仍綁定員工，請由有綁定權限的人資先解除關聯；任職紀錄會保留。" });
+    }
     return c.json({ id });
   })
 
