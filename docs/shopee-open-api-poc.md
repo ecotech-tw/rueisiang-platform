@@ -124,6 +124,7 @@ token **不能放 Worker secret 或 Actions secret**——那些程式改不了�
 | Y | 商品名稱 | `get_order_detail` → `item_name` |
 | Z | 商品ID | `item_id` |
 | AA | 商品選項名稱 | `model_name` |
+| AE | 商品單價 | `get_order_detail` → 商品單價 |
 | AH | 數量 | `model_quantity_purchased` |
 | AI | 退貨數量 | Returns API |
 
@@ -132,8 +133,7 @@ D1 那一段完全不用重寫：`transformShopeeWorkbook` 已經產出 `dailySa
 `shopee:store:default`。
 
 既有的業務規則要原封不動搬過來：業績依 A 欄訂單編號去重後計 `G − S − U`；
-商品以 `Z + AA` 為鍵、數量取 AH、退貨取 AI；蝦皮 sales 的 `salesAmount` 保留 0
-（G 是訂單金額，同一訂單多商品時會重複，不分攤到商品）。
+商品以 `Z + AA` 為鍵、數量取 AH、退貨取 AI；蝦皮 sales 的 `salesAmount` 取 `AE 欄商品單價 × AH 欄商品銷售數量`。
 
 ## 兩個階段
 

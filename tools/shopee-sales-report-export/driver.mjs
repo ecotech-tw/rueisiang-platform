@@ -90,7 +90,18 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
 
     await ensureDir(path.resolve(toolPath(config.reportsDir)));
     await fs.writeFile(path.resolve(toolPath(config.reportsDir), `${range.label}-蝦皮銷售報表.md`), [
-      `# 蝦皮銷售報表 ${range.label}`, "", `- 對帳區間：${range.start} ~ ${range.end}`, `- 業績合計：${summary.totalPerformance.toLocaleString("zh-TW")}`, `- 商品銷售數量合計：${summary.totalQuantity.toLocaleString("zh-TW")}`, `- 不重複訂單：${summary.uniqueOrders}`, `- 商品組合：${summary.uniqueProducts}`, `- D1：${ingested ? `已更新 sales 月資料 ${ingested.salesRowCount ?? 0} 筆、payout ${ingested.payoutRowCount ?? summary.dailyPayoutRows.length} 筆` : isCompleteMonth ? "未更新（缺少 ingest token 或使用 --skip-upload）" : "自訂區間不寫入 D1"}`, uploaded?.webViewLink ? `- Drive：${uploaded.webViewLink}` : "- Drive：未上傳", "",
+      `# 蝦皮銷售報表 ${range.label}`,
+      "",
+      `- 對帳區間：${range.start} ~ ${range.end}`,
+      `- 業績合計：${summary.totalPerformance.toLocaleString("zh-TW")}`,
+      `- 商品銷售數量合計：${summary.totalQuantity.toLocaleString("zh-TW")}`,
+      `- 商品銷售金額合計：${summary.totalSalesAmount.toLocaleString("zh-TW")}`,
+      `- 不重複訂單：${summary.uniqueOrders}`,
+      `- 商品組合：${summary.uniqueProducts}`,
+      "- 商品銷售金額規則：AE 欄商品單價 × AH 欄商品銷售數量。",
+      `- D1：${ingested ? `已更新 sales 月資料 ${ingested.salesRowCount ?? 0} 筆、payout ${ingested.payoutRowCount ?? summary.dailyPayoutRows.length} 筆` : isCompleteMonth ? "未更新（缺少 ingest token 或使用 --skip-upload）" : "自訂區間不寫入 D1"}`,
+      uploaded?.webViewLink ? `- Drive：${uploaded.webViewLink}` : "- Drive：未上傳",
+      "",
     ].join("\n"), "utf8");
 
     return { outputPath: resolvedOutput, summary, uploaded, ingested, range };
@@ -116,6 +127,7 @@ async function main() {
   log(`已產出：${result.outputPath}`);
   log(`業績合計：${result.summary.totalPerformance.toLocaleString("zh-TW")}`);
   log(`商品數量合計：${result.summary.totalQuantity.toLocaleString("zh-TW")}`);
+  log(`商品銷售金額合計：${result.summary.totalSalesAmount.toLocaleString("zh-TW")}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

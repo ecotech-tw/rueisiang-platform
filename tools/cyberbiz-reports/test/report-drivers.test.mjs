@@ -20,15 +20,15 @@ test("蝦皮每日列會在送入 D1 前彙總成月份商品資料", () => {
   assert.deepEqual(monthlySalesIngestRows([
     {
       businessDate: "2026-07-01", sku: "P-001", productName: "黑色", category: "未分類",
-      grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 0,
+      grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 60,
     },
     {
       businessDate: "2026-07-02", sku: "P-001", productName: "白色", category: "未分類",
-      grossQuantity: 2, returnQuantity: 1, netQuantity: 1, salesAmount: 0,
+      grossQuantity: 2, returnQuantity: 1, netQuantity: 1, salesAmount: 41,
     },
   ], "2026-07"), [{
     reportMonth: "2026-07", sku: "P-001", productName: "黑色 / 白色", category: "未分類",
-    grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 0,
+    grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 101,
   }]);
 });
 
