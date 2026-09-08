@@ -1,5 +1,14 @@
 -- 在同一個 transaction 內 snapshot customer 並重建 parent。子表 backup 已由
 -- 0118 完成，還原留到後續 migration，讓每支 migration 的 CPU 負載更小。
+--
+-- 兩支 child table 原本沒有 customer_id index。SQLite 在 DROP parent 時執行
+-- ON DELETE CASCADE / SET NULL，沒有這兩支 index 會對每個 customer 掃 child table，
+-- 正式 D1 會因此超過 CPU 預算。
+CREATE INDEX IF NOT EXISTS `idx_crm_customer_tags_customer`
+  ON `crm_customer_tags` (`customer_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_webhook_events_customer_id`
+  ON `cyberbiz_webhook_events` (`customer_id`);--> statement-breakpoint
+
 CREATE TABLE `_crm_customers_backup` AS SELECT * FROM `crm_customers`;--> statement-breakpoint
 
 DROP TABLE `crm_customers`;--> statement-breakpoint

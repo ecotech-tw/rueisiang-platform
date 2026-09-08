@@ -61,6 +61,10 @@ describe("crm_customers 的兩條 CHECK", () => {
       SELECT COUNT(*) AS n FROM sqlite_master
       WHERE type = 'index' AND tbl_name = 'crm_customers' AND sql IS NOT NULL
     `).get()).toEqual({ n: 6 });
+    expect(sqlite.prepare(`
+      SELECT COUNT(*) AS n FROM sqlite_master
+      WHERE type = 'index' AND name IN ('idx_crm_customer_tags_customer', 'idx_webhook_events_customer_id')
+    `).get()).toEqual({ n: 2 });
     expect(sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE substr(name, 1, 1) = char(95)").get()).toEqual({ n: 0 });
   });
 
