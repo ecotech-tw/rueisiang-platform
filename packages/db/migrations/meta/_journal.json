@@ -659,6 +659,20 @@
       "when": 1788839949279,
       "tag": "0117_crm_customers_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "6",
+      "when": 1788854000000,
+      "tag": "0118_crm_customers_rebuild",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "6",
+      "when": 1788854000001,
+      "tag": "0119_crm_customer_children_restore",
+      "breakpoints": true
     }
   ]
 }
