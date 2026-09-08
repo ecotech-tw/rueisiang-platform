@@ -22,10 +22,10 @@ function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): voi
 }
 
 const BEFORE = "0116_shopee_sales_to_report_runs.sql";
-const CHECKS = "0117_crm_customers_checks.sql";
+const MIGRATION_END = "0117_crm_customers_checks.sql";
 
 /**
- * 明寫 sync_status，跟正式環境一樣——crm-sync.ts 與 crm-write.ts 三處 insert 都
+ * 明寫 sync_status，跟正式環境一樣——crm-sync.ts 與 crm-write.ts 的 insert 都
  * 帶 "synced"。不帶的話會吃到舊表的預設 'local_only'，那個值不在新的值域裡。
  */
 function seedCustomer(sqlite: DatabaseSync, id: string) {
@@ -47,7 +47,7 @@ describe("crm_customers 的兩條 CHECK", () => {
       VALUES ('w1', 'customers/update', '{}', 'c1', 'customer')
     `).run();
 
-    applyLikeD1(sqlite, BEFORE, CHECKS);
+    applyLikeD1(sqlite, BEFORE, MIGRATION_END);
 
     expect(sqlite.prepare("SELECT COUNT(*) AS n FROM crm_customers").get()).toEqual({ n: 1 });
     // crm_customer_tags 是 ON DELETE CASCADE；沒有先存後補的話這裡會變成 0。
@@ -66,7 +66,7 @@ describe("crm_customers 的兩條 CHECK", () => {
   it("值域外的 status 與 sync_status 寫不進去", () => {
     const sqlite = new DatabaseSync(":memory:");
     sqlite.exec("PRAGMA foreign_keys = ON;");
-    applyLikeD1(sqlite, null, CHECKS);
+    applyLikeD1(sqlite, null, MIGRATION_END);
     const insert = (id: string, column: "status" | "sync_status", value: string) =>
       sqlite.prepare(`INSERT INTO crm_customers (id, phone, normalized_phone, ${column}) VALUES (?, '09', '09', ?)`).run(id, value);
 
@@ -85,15 +85,15 @@ describe("crm_customers 的兩條 CHECK", () => {
     // 舊表的預設就是 local_only，不帶欄位就會拿到它。
     sqlite.prepare("INSERT INTO crm_customers (id, phone, normalized_phone) VALUES ('legacy', '09', '09')").run();
 
-    // 正式環境長不出這種列（三處 insert 都明寫 synced），但真的遇到時要吵，
+    // 正式環境長不出這種列（寫入端都明寫 synced），但真的遇到時要吵，
     // 不能猜它該對應到 synced 還是 failed——猜錯會讓補跑撈錯對象。
-    expect(() => applyLikeD1(sqlite, BEFORE, CHECKS)).toThrow(/CHECK/i);
+    expect(() => applyLikeD1(sqlite, BEFORE, MIGRATION_END)).toThrow(/CHECK/i);
   });
 
   it("沒帶 sync_status 時的預設是 synced，不是舊的 local_only", () => {
     const sqlite = new DatabaseSync(":memory:");
     sqlite.exec("PRAGMA foreign_keys = ON;");
-    applyLikeD1(sqlite, null, CHECKS);
+    applyLikeD1(sqlite, null, MIGRATION_END);
 
     seedCustomer(sqlite, "c2");
 
