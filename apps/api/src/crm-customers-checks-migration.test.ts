@@ -22,8 +22,8 @@ function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): voi
 }
 
 const BEFORE = "0116_shopee_sales_to_report_runs.sql";
-const REBUILD = "0118_crm_customers_rebuild.sql";
-const MIGRATION_END = "0119_crm_customer_children_restore.sql";
+const REBUILD = "0119_crm_customer_children_restore.sql";
+const MIGRATION_END = "0122_crm_customer_children_restore.sql";
 
 /**
  * 明寫 sync_status，跟正式環境一樣——crm-sync.ts 與 crm-write.ts 的 insert 都
@@ -79,7 +79,7 @@ describe("crm_customers 的兩條 CHECK", () => {
 
     applyLikeD1(sqlite, BEFORE, REBUILD);
 
-    // 模擬舊 Worker 在兩支 migration 之間建立的資料。
+    // 模擬舊 Worker 在 parent 重建與索引／子表還原之間建立的資料。
     seedCustomer(sqlite, "c2");
     sqlite.prepare("INSERT INTO crm_customer_tags (customer_id, crm_tag_id) VALUES ('c2', 't2')").run();
     sqlite.prepare(`

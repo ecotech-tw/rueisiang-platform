@@ -673,6 +673,27 @@
       "when": 1788854000001,
       "tag": "0119_crm_customer_children_restore",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "6",
+      "when": 1788854000002,
+      "tag": "0120_crm_customers_indexes_a",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "6",
+      "when": 1788854000003,
+      "tag": "0121_crm_customers_indexes_b",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "6",
+      "when": 1788854000004,
+      "tag": "0122_crm_customer_children_restore",
+      "breakpoints": true
     }
   ]
 }
