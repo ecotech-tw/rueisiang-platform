@@ -170,10 +170,6 @@ R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要�
 - [ ] CRM：登入正式站完成客戶列表、標籤與核准的測試客戶寫入 smoke test，確認 target tables 與 CYBERBIZ 回應一致。
 - [ ] CYBERBIZ：在後台確認實際啟用的會員、商品／庫存 Webhook Events、endpoint 與驗證設定；再以 production event log 對照是否有漏送。
 
-### 上線後收尾
-
-- [ ] 更新 README「下一步」與受影響的 design documents，讓 schema、runtime、測試與部署說明保持一致。
-
 ## 出金表：它跑在哪、憑證從哪來
 
 出金表**不在 Worker 裡跑**。Worker 有執行時間上限，而這個流程要開瀏覽器登
