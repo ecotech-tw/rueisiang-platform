@@ -611,7 +611,7 @@ export const cyberbizReports = new Hono<AppEnv>()
   .get("/scopes", requirePermission("reports:analytics:read"), async (c) => {
     const result = await cachedReportAnalytics(cacheClient(c.env), "scopes", async () => {
       const allScopes = await listReportScopes(c.get("db"), "store");
-      const reportScopes = allScopes.filter((scope) => !scope.id.startsWith("shopee:") && isCompanyReportStoreScopeId(scope.id));
+      const reportScopes = allScopes.filter((scope) => isCompanyReportStoreScopeId(scope.id));
       const scopes = canonicalReportStoreScopes(reportScopes);
       const latest = await latestReportSalesPeriods(c.get("db"), reportScopes.map((scope) => scope.id));
       return {
