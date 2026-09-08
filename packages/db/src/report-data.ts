@@ -421,7 +421,8 @@ export async function latestReportSalesPeriods(
 
 /**
  * scope 的 source_type 是「哪個 driver 抓的」，不是「從哪張舊表來的」。
- * 值域跟 TypeScript 的 ReportSourceType 一致（見 docs/platform-schema-target.sql）。
+ * 值域是這個函式自己列的三個（shopee／manual／cyberbiz）；scopes.source_type 沒有 CHECK，
+ * 因為之後加通路不想每次都重建整張表。
  *
  * 依據只能是 id 前綴：出金與銷售是同一家店、同一個 driver，用「這次在跑哪種報表」
  * 去決定會讓同一家店長出兩種 source_type——0078 就是這樣把 13 家店變成 26 列的。

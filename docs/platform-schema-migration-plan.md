@@ -1,8 +1,7 @@
 # Platform schema migration plan
 
-這份文件描述平台 schema migration 的執行規則與驗證方式。target contract 見
-[`platform-schema-target.sql`](./platform-schema-target.sql)，設計取捨見
-[`platform-schema-overhaul.md`](./platform-schema-overhaul.md)。
+這份文件描述平台 schema migration 的執行規則與驗證方式。schema 本身的唯一來源是
+`packages/db/src/schema/`。
 
 ## 範圍
 
