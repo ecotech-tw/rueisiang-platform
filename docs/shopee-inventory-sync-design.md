@@ -62,7 +62,7 @@ app 時就把 Worker 的 webhook 位址規劃進去，不然之後要回頭改 a
 
 查詢與寫入都走 `packages/db/src/product-sku-mappings.ts` 的具名函式，不要在路由裡直接查表。
 
-`external_sku` 用**蝦皮的「商品ID_規格ID」**（xlsx 的 AC 欄，例如
+`external_key` 用**蝦皮的「商品ID_規格ID」**（xlsx 的 AC 欄，例如
 `26491332332_216256146329`）。
 
 原本想用賣家自訂貨號（AF／AG 欄），但抽 2026-07 的 774 列看過，**兩欄的填寫率都是 0%**，
@@ -121,7 +121,7 @@ item_components           parent_item_id → 多個品項 × 數量
 ```
 
 對應本身唯一的用途是報表匯入時把外部 SKU 對成商品名稱與分類
-（`resolveProductSkus`，見 `apps/api/src/cyberbiz-report-ingest.ts`）。它回答的是「這個
+（`resolveProductSkus`，見 `packages/db/src/product-sku-mappings.ts`）。它回答的是「這個
 外部 SKU 顯示成哪個商品」，跟「賣掉這一組要扣哪些料」是兩個問題。改成一對多的話報表會
 壞掉——它要顯示的是「買5送二再送一賣了 1551 組」，不是拆開的三個品項。
 
