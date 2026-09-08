@@ -12,7 +12,12 @@ import {
   crmCustomerTags,
   crmTags,
   crmCustomers,
+  itemCategories,
   items,
+  reportItemSalesMonthly,
+  reportPayoutDaily,
+  reportRuns,
+  scopes,
   wmsItems,
   wmsLayoutElements,
   wmsLayouts,
@@ -27,8 +32,9 @@ import { DatabaseSync } from "node:sqlite";
 import { zstdDecompressSync } from "node:zlib";
 import { PLATFORM_TOOL_DEFINITIONS } from "@rueisiang/tools";
 import app from "./index.js";
+import { createCyberbizReportService } from "./cyberbiz-reports.js";
 import { AssistantChatAgent } from "./pi-agent-do.js";
-import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
+import { createLocalD1, createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
 
 const SECRET = "assistant-test-secret";
 const CODEX_ACCESS_TOKEN = `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify({
@@ -969,6 +975,151 @@ describe("AI 助理 Sandbox", () => {
     expect(PLATFORM_TOOL_DEFINITIONS.find((tool) => tool.key === "query_payout_report")).toMatchObject({
       label: "查詢業績／出金報表",
       description: expect.stringContaining("使用者說「業績」時，以這裡的 payoutAmount 回答"),
+    });
+  });
+
+  it("小香內建資料工具在 target schema 上都能讀取新形狀", async () => {
+    d1 = createTargetOnlyD1();
+    env.DB = d1;
+    const database = db();
+    await syncSystemRoles(database);
+
+    await database.insert(scopes).values({
+      id: "cyberbiz:store:demo",
+      sourceType: "cyberbiz",
+      scopeKind: "store",
+      name: "示範門市",
+      normalizedName: "示範門市",
+      active: 1,
+    });
+    await database.insert(itemCategories).values({ id: "cat-soap", name: "香氛皂", depth: 0 });
+    await database.insert(items).values({
+      id: "tool-item-1",
+      source: "custom",
+      kind: "sellable",
+      sku: "SOAP-001",
+      name: "薰衣草皂",
+      categoryId: "cat-soap",
+      active: 1,
+    });
+    await database.insert(wmsItems).values({ itemId: "tool-item-1", quantity: 2, unit: "件", minStock: 5, notes: "低庫存測試" });
+    await database.insert(reportRuns).values({
+      id: "report-run-tools",
+      requestId: "report-run-tools",
+      sourceType: "cyberbiz",
+      importsSales: 1,
+      importsPayout: 1,
+      periodKind: "month",
+      startDate: "2026-08-01",
+      endDate: "2026-08-31",
+      status: "succeeded",
+      actorEmail: "admin@ecotech.tw",
+    });
+    await database.insert(reportItemSalesMonthly).values({
+      scopeId: "cyberbiz:store:demo",
+      reportMonth: "2026-08",
+      itemId: "tool-item-1",
+      recordOrigin: "imported",
+      reportRunId: "report-run-tools",
+      grossQuantity: 3,
+      returnQuantity: 1,
+      netQuantity: 2,
+      salesAmount: 640,
+    });
+    await database.insert(reportPayoutDaily).values({
+      scopeId: "cyberbiz:store:demo",
+      businessDate: "2026-08-01",
+      recordOrigin: "imported",
+      reportRunId: "report-run-tools",
+      payoutAmount: 580,
+    });
+    await database.insert(crmCustomers).values({
+      id: "tool-customer-1",
+      phone: "0912-345-678",
+      normalizedPhone: "0912345678",
+      name: "王小香",
+      email: "xiang@example.com",
+      address: "台北市測試路 1 號",
+      cyberbizCustomerId: "cyberbiz-customer-1",
+      rawJson: JSON.stringify({ secret: "不應暴露" }),
+      syncStatus: "synced",
+    });
+    await database.insert(crmTags).values({ id: "tag-vip", name: "VIP" });
+    await database.insert(crmCustomerTags).values({ customerId: "tool-customer-1", crmTagId: "tag-vip" });
+    await database.insert(activityEvents).values([
+      {
+        id: "tool-wms-event-1",
+        entityType: "item",
+        entityId: "tool-item-1",
+        entityLabel: "薰衣草皂",
+        eventType: "inventory_updated",
+        summary: "更新庫存",
+        source: "wms",
+      },
+      {
+        id: "tool-crm-event-1",
+        entityType: "customer",
+        entityId: "tool-customer-1",
+        entityLabel: "王小香",
+        eventType: "customer_updated",
+        summary: "更新客戶資料",
+        source: "crm",
+      },
+    ]);
+
+    const context = {
+      surface: "sandbox",
+      db: database,
+      services: { cyberbizReports: createCyberbizReportService(database) },
+    } as const;
+    const execute = async (key: string, input: Record<string, string> = {}) => JSON.parse(
+      await PLATFORM_TOOL_MAP.get(key)!.execute(input, context),
+    ) as Record<string, unknown>;
+
+    expect(await execute("wms_list_inventory", { pageSize: "10" })).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: "tool-item-1", quantity: 2 })],
+    });
+    expect(await execute("wms_search_warehouse", { query: "薰衣草" })).toMatchObject({
+      inventoryTotal: 1,
+      inventoryItems: [expect.objectContaining({ id: "tool-item-1" })],
+    });
+    expect(await execute("wms_get_inventory_item", { id: "tool-item-1" })).toMatchObject({
+      found: true,
+      item: expect.objectContaining({ sku: "SOAP-001" }),
+    });
+    expect(await execute("wms_list_low_stock_items")).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: "tool-item-1", quantity: 2, minStock: 5 })],
+    });
+    expect(await execute("wms_get_activity", { search: "庫存" })).toMatchObject({
+      events: [expect.objectContaining({ entityId: "tool-item-1", summary: "更新庫存" })],
+    });
+
+    const customers = await execute("crm_search_customers", { search: "小香" });
+    expect(customers).toMatchObject({
+      total: 1,
+      customers: [expect.objectContaining({ id: "tool-customer-1", name: "王小香" })],
+    });
+    expect(JSON.stringify(customers)).not.toContain("sourceChannel");
+    expect(JSON.stringify(customers)).not.toContain("不應暴露");
+
+    const customer = await execute("crm_get_customer", { customerId: "tool-customer-1", include: "events,tags" });
+    expect(customer).toMatchObject({
+      found: true,
+      tags: ["VIP"],
+      events: [expect.objectContaining({ customerId: "tool-customer-1", summary: "更新客戶資料" })],
+    });
+    expect(JSON.stringify(customer)).not.toContain("inCatalog");
+    expect(JSON.stringify(customer)).not.toContain("不應暴露");
+
+    expect(await execute("query_sales_report", { period: "2026-08", scopeType: "store", scopeName: "示範門市" })).toMatchObject({
+      status: "ok",
+      totals: expect.objectContaining({ netQuantity: 2, salesAmount: 640 }),
+    });
+    expect(await execute("query_payout_report", { period: "2026-08", scopeType: "store", scopeName: "示範門市" })).toMatchObject({
+      status: "ok",
+      totals: expect.objectContaining({ payoutAmount: 580 }),
     });
   });
 
