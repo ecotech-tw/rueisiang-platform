@@ -22,7 +22,8 @@ function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): voi
 }
 
 const BEFORE = "0116_shopee_sales_to_report_runs.sql";
-const MIGRATION_END = "0117_crm_customers_checks.sql";
+const REBUILD = "0118_crm_customers_rebuild.sql";
+const MIGRATION_END = "0119_crm_customer_children_restore.sql";
 
 /**
  * 明寫 sync_status，跟正式環境一樣——crm-sync.ts 與 crm-write.ts 的 insert 都
@@ -61,6 +62,36 @@ describe("crm_customers 的兩條 CHECK", () => {
       WHERE type = 'index' AND tbl_name = 'crm_customers' AND sql IS NOT NULL
     `).get()).toEqual({ n: 6 });
     expect(sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE substr(name, 1, 1) = char(95)").get()).toEqual({ n: 0 });
+  });
+
+  it("中間 transaction 的新增資料不會被子表還原覆蓋", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    applyLikeD1(sqlite, null, BEFORE);
+
+    seedCustomer(sqlite, "c1");
+    sqlite.prepare("INSERT INTO crm_tags (id, name) VALUES ('t1', 'VIP'), ('t2', '新標籤')").run();
+    sqlite.prepare("INSERT INTO crm_customer_tags (customer_id, crm_tag_id) VALUES ('c1', 't1')").run();
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_webhook_events (id, topic, payload_json, customer_id, entity_type)
+      VALUES ('w1', 'customers/update', '{}', 'c1', 'customer')
+    `).run();
+
+    applyLikeD1(sqlite, BEFORE, REBUILD);
+
+    // 模擬舊 Worker 在兩支 migration 之間建立的資料。
+    seedCustomer(sqlite, "c2");
+    sqlite.prepare("INSERT INTO crm_customer_tags (customer_id, crm_tag_id) VALUES ('c2', 't2')").run();
+    sqlite.prepare(`
+      INSERT INTO cyberbiz_webhook_events (id, topic, payload_json, customer_id, entity_type)
+      VALUES ('w2', 'customers/update', '{}', 'c2', 'customer')
+    `).run();
+
+    applyLikeD1(sqlite, REBUILD, MIGRATION_END);
+
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM crm_customer_tags").get()).toEqual({ n: 2 });
+    expect(sqlite.prepare("SELECT customer_id FROM cyberbiz_webhook_events WHERE id = 'w2'").get())
+      .toEqual({ customer_id: "c2" });
   });
 
   it("值域外的 status 與 sync_status 寫不進去", () => {
