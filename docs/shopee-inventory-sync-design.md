@@ -50,17 +50,19 @@ app 時就把 Worker 的 webhook 位址規劃進去，不然之後要回頭改 a
   → 驗簽（HMAC-SHA256，authorization header）
   → get_order_detail 取商品明細（item_id / model_id / 數量）
   → 用外部 SKU 對到 WMS 品項
-  → 扣 inventory_items.quantity，並寫一筆 activity event
+  → 扣 wms_items.quantity，並寫一筆 activity event
 ```
 
 ### 對應關係用既有的表
 
-`product_sku_mappings`（`packages/db/src/schema/wms.ts`）已經是「外部通路 SKU → WMS 品項」
-的對應，而且 `channel + external_sku` 用來識別不同通路的 mapping。蝦皮直接用它，**不要另外開一張蝦皮專用的
-對應表**——同一個實體有兩份對應表的話，兩邊會漂移，而漂移的症狀是庫存扣到錯的商品，
-沒有人看得出來。
+`report_external_products`（`packages/db/src/schema/reports.ts`）已經是「外部通路 SKU → 平台
+品項」的對應，用 `source_type + external_key + external_variant_key` 識別。蝦皮直接用它，
+**不要另外開一張蝦皮專用的對應表**——同一個實體有兩份對應表的話，兩邊會漂移，而漂移的
+症狀是庫存扣到錯的商品，沒有人看得出來。
 
-`external_sku` 用**蝦皮的「商品ID_規格ID」**（xlsx 的 AC 欄，例如
+查詢與寫入都走 `packages/db/src/product-sku-mappings.ts` 的具名函式，不要在路由裡直接查表。
+
+`external_key` 用**蝦皮的「商品ID_規格ID」**（xlsx 的 AC 欄，例如
 `26491332332_216256146329`）。
 
 原本想用賣家自訂貨號（AF／AG 欄），但抽 2026-07 的 774 列看過，**兩欄的填寫率都是 0%**，
@@ -86,7 +88,8 @@ app 時就把 Worker 的 webhook 位址規劃進去，不然之後要回頭改 a
 
 這是三種不同的皂，扣庫存不能合在一起。
 
-`product_sku_mappings` 以 `channel + external_sku` 唯一。報表現在使用
+對應以 `source_type + external_key` 唯一（蝦皮把完整的 `商品ID_規格ID` 存在 `external_key`，
+`external_variant_key` 留空）。報表現在使用
 `商品ID_規格ID`，但為了讓既有設定可以平滑升級，解析時找不到完整鍵會回退查找舊的
 `商品ID`；若同時存在兩者，完整的規格鍵優先。
 
@@ -110,37 +113,34 @@ xlsx 的三張工作表不動——`業績計算` 依訂單、`商品銷售統�
 而且**佔了總數量 2237 的 2023（90%）**。最大的那個「買5送二再送一」實際出貨是
 **5 個香皂 ＋ 2 個旅行皂 ＋ 1 個起泡網**——三種不同商品，不是同一個商品乘以 8。
 
-所以要另外一張用料表。**不要把 `product_sku_mappings` 改成一對多**：
+所以用料另外存一張表。**不要把對應改成一對多**：
 
 ```
-product_sku_mappings        （不動）external_sku → 一個 WMS 品項
-product_bundle_components   （新增）mapping → 多個品項 × 數量
+report_external_products  external_key → 一個平台品項
+item_components           parent_item_id → 多個品項 × 數量
 ```
 
-`product_sku_mappings` 現在唯一的用途是報表匯入時把外部 SKU 對成商品名稱與分類
-（`resolveProductSkus`，見 `apps/api/src/cyberbiz-report-ingest.ts`）。它回答的是「這個
+對應本身唯一的用途是報表匯入時把外部 SKU 對成商品名稱與分類
+（`resolveProductSkus`，見 `packages/db/src/product-sku-mappings.ts`）。它回答的是「這個
 外部 SKU 顯示成哪個商品」，跟「賣掉這一組要扣哪些料」是兩個問題。改成一對多的話報表會
 壞掉——它要顯示的是「買5送二再送一賣了 1551 組」，不是拆開的三個品項。
 
-新表的形狀：
+`item_components` 的形狀：
 
 | 欄 | 說明 |
 |---|---|
-| `mapping_id` | → `product_sku_mappings`，`ON DELETE CASCADE` |
-| `inventory_item_id` | → `inventory_items`，**`ON DELETE RESTRICT`** |
+| `parent_item_id` | → `items`，`ON DELETE CASCADE`。有用料的對應會配一個 `report-bundle:<mapping id>` 的容器品項 |
+| `component_item_id` | → `items`，**`ON DELETE RESTRICT`** |
 | `quantity` | 一組扣幾個 |
-| | `UNIQUE(mapping_id, inventory_item_id)` |
+| | 主鍵是 `(parent_item_id, component_item_id)` |
 
-`inventory_item_id` 刻意用 RESTRICT 而不是既有那張表的 CASCADE：商品被刪掉時如果用料靜靜
-消失，組合包就會少扣，而且沒有人看得出來——那正是這整份設計最想擋掉的失敗模式。
+`component_item_id` 刻意用 RESTRICT：商品被刪掉時如果用料靜靜消失，組合包就會少扣，
+而且沒有人看得出來——那正是這整份設計最想擋掉的失敗模式。
 
-扣帳的解析順序：**有用料就照用料扣，沒有用料就扣 `inventory_item_id` 一個。** 這樣單品
+扣帳的解析順序：**有用料就照用料扣，沒有用料就扣對應到的那個品項一個。** 這樣單品
 不必建用料，2026-07 的 42 個款式只有 13 個要建。
 
-這是純新增的 migration，不重建 `product_sku_mappings`，避開 D1 上 `DROP TABLE` 連坐刪除
-那個坑（見 `CLAUDE.md` 的禁止事項）。
-
-用料表要有地方編輯，所以 WMS 那頁要加對應的 UI。
+用料的編輯 UI 已經在 WMS 的商品對應頁。
 
 ### 組合內容會變，所以扣帳要寫快照
 
@@ -154,16 +154,16 @@ product_bundle_components   （新增）mapping → 多個品項 × 數量
 維護成本高，而且一樣擋不住「1 號換組成、10 號才更新資料」的落差。快照至少讓那段期間
 受影響的訂單查得出來、補得回去。
 
-報表與庫存扣帳都共用同一份 mapping。一般商品只走 `product_sku_mappings` 的一對一對應；任何通路的報表若 mapping 有用料，匯入 D1 時會依用料數量展開成各 WMS SKU，讓商品銷售查詢能反映實際銷售的單品數量。蝦皮來源的 salesAmount 來自 `AE 欄商品單價 × AH 欄商品銷售數量`；若 mapping 展開成多個用料，匯入 D1 時仍只把金額掛在第一個用料，不能把組合包金額複製到每個元件。組合內容更新後只影響之後重新匯入的報表，已產出的月份資料仍是當時的快照。
+報表與庫存扣帳都共用同一份 mapping。一般商品只走 `report_external_products` 的一對一對應；任何通路的報表若 mapping 有用料，匯入 D1 時會依用料數量展開成各 WMS SKU，讓商品銷售查詢能反映實際銷售的單品數量。蝦皮來源的 salesAmount 來自 `AE 欄商品單價 × AH 欄商品銷售數量`；若 mapping 展開成多個用料，匯入 D1 時仍只把金額掛在第一個用料，不能把組合包金額複製到每個元件。組合內容更新後只影響之後重新匯入的報表，已產出的月份資料仍是當時的快照。
 
 ### 不變條件
 
 照 `packages/db/src/wms-sync.ts` 檔頭那三條的調性辦，理由完全相同——**寧可讓一筆停在
 「待處理」，也不要把數量扣到錯的商品上**：
 
-1. 外部 SKU 在 `product_sku_mappings` 找不到 → 不扣，記成待處理，通知。
-2. 一個外部 SKU 對到多個 WMS 品項 → 不扣（`external_sku` 是 unique，理論上不會發生，
-   但要驗）。
+1. 外部 SKU 在 `report_external_products` 找不到 → 不扣，記成待處理，通知。
+2. 一個外部 SKU 對到多個平台品項 → 不扣（`source_type + external_key + external_variant_key`
+   是 unique，理論上不會發生，但要驗）。
 3. 訂單明細缺數量或數量不合理 → 不扣，記錄原始 payload。
 
 「待處理」要看得到、補完對應之後能重跑，否則那些單會靜靜地消失。
@@ -206,11 +206,11 @@ WMS 現在每一次數量變動都會寫 activity event（見 `countItem`）。�
 1. **要不要先去蝦皮後台補齊 42 個款式的賣家自訂貨號。** 補了就能用人維護、跨通路一致的
    貨號當鍵；不補就用 `商品ID_規格ID`，代價是重新上架會換 ID。
 2. **在哪個訂單狀態扣帳。** 付款完成、出貨、還是完成？取消率高低會影響選擇。
-3. **正式環境的 `product_sku_mappings` 現在有哪些蝦皮對應、用的是哪種鍵。** 換鍵之前要先
+3. **正式環境的 `report_external_products` 現在有哪些蝦皮對應、用的是哪種鍵。** 換鍵之前要先
    看清楚，換完要重匯受影響的月份。
 4. **既有的蝦皮訂單要不要回補。** 上線前已經賣掉的那些單不會有 webhook，要不要用
    `get_order_list` 補一次，補的話從哪一天開始。
 5. **13 個組合包的用料由誰建、什麼時候建。** 沒建完之前那些款式只能停在待處理，
    而它們佔了 90% 的數量，等於整條扣帳幾乎不會動。
 6. **蝦皮與 CYBERBIZ 是不是同一份實體庫存。** 若兩邊各自備貨、不共用同一批貨，那扣帳的
-   目標就不是同一個 `inventory_items`，整個設計要改。
+   目標就不是同一個 `wms_items`，整個設計要改。

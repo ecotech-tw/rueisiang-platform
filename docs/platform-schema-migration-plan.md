@@ -22,18 +22,14 @@ WMS 維護另一套 webhook event store。
 
 ### 1. Migration 以 D1 transaction 執行
 
-正式 deploy 由 `.github/workflows/deploy.yml` 的 `ubuntu-latest` 執行。0114 會刪除仍可能被舊
-Worker 使用的 legacy table，因此 cutover migration 會分兩段：先套用除 0114 外的 migration，
-再部署新 Worker，最後才套用 0114 並做 health check：
+正式 deploy 由 `.github/workflows/deploy.yml` 的 `ubuntu-latest` 執行：
 
 ```
-pnpm test → pnpm build → D1 migrations (pre-cutover, keep legacy) → Worker deploy
-  → D1 migrations (0114 drop legacy) → health check
+pnpm test → pnpm build → D1 migrations → Worker deploy → health check
 ```
 
-這不是長期雙寫或雙 schema；只是把 destructive DDL 放到新 Worker 接手之後，避免部署窗口中
-舊 Worker 遇到 `no such table`。暫存 migration 目錄與正式目錄共用同一個 D1 `d1_migrations`
-registry，第二段只會補套被刻意排除的 0114。
+會刪除仍可能被舊 Worker 讀寫的表時，把那一支 destructive migration 留到新 Worker 接手
+之後才套用，避免部署窗口中舊 Worker 遇到 `no such table`。
 
 Migration 內不要使用 `PRAGMA foreign_keys = OFF` 保護重建。D1 會把 migration 包在
 transaction 中，而 transaction 內切換 `foreign_keys` 沒有效果；被 `ON DELETE CASCADE`
@@ -64,58 +60,8 @@ transaction 中，而 transaction 內切換 `foreign_keys` 沒有效果；被 `O
 
 ## Migration registry
 
-實際檔名、順序與 production 是否已套用，以
-`packages/db/migrations/`、`packages/db/migrations/meta/_journal.json` 與 D1 的
-`d1_migrations` 為準。本輪相關 migration 為：
-
-```
-0074_permissions_auth_rename
-0075_crm_rename_foundation
-0076_items_wms_foundation
-0077_media_storage_provider
-0078_report_scopes_foundation
-0079_report_legacy_backfill
-0080_report_payout_target
-0081_report_external_products_backfill
-0082_wms_layout_shelf_backfill
-0083_cyberbiz_product_identity
-0084_report_external_mapping_backfill
-0085_report_bundle_target_backfill
-0086_wms_cyberbiz_links_target
-0087_wms_orphan_image_cleanup
-0088_drop_migrated_legacy_schema
-0089_item_wms_permissions
-0089_z_merge_duplicate_sku_items
-0090_items_sku_unique
-0091_align_index_names
-0092_item_categories_constraints
-0093_schema_single_definition
-0094_drop_roles_legacy_key
-0095_crm_target_cutover
-0096_merge_scopes
-0097_webhook_events_entity_type
-0098_cyberbiz_item_name_dedupe
-0099_permission_grants_fk
-0100_rename_payout_daily
-0101_activity_entity_type_rename
-0110_drop_legacy_rbac_tables
-0111_drop_payout_stores
-0112_cyberbiz_webhook_events_unify
-0113_wms_cyberbiz_identity_cutover
-0114_absent_king_cobra
-0115_massive_tinkerer
-```
-
-`0097_webhook_events_entity_type` 先補上共用事件表的 `entity_type` 約束；`0112` 完成
-會員與商品事件的 unified cutover；`0113` 再將 WMS 商品身分切換到 `items` 的延伸表；`0115`
-建立跨 Worker 的 CYBERBIZ 差額同步 lease；`0114` 最後才移除已無 runtime consumer 的兩張
-legacy webhook/link 表。
-
-`0101_activity_entity_type_rename` 只用一支 `UPDATE` 將 `activity_events.entity_type` 的
-四個舊值改成 target 值，保留 `entity_id` 與其他欄位，不重建資料表。
-
-`0111_drop_payout_stores` 刪除前會先把 0096 之後可能異動的 Drive 目標、排序與啟用狀態
-同步回 `scopes`；之後出金與商品銷售執行頁也改讀 `scopes`。
+實際檔名、順序與 production 是否已套用，以 `packages/db/migrations/`、
+`packages/db/migrations/meta/_journal.json` 與 D1 的 `d1_migrations` 為準。
 
 ## 驗證與量測
 
