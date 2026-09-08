@@ -293,8 +293,9 @@ INSERT INTO user_role_assignments (user_id, role_id, granted_by)
 刻意只塞三個 `admin:*` 權限，剛好夠這個人登入並進到權限管理頁。其餘的角色與權限
 不必手寫——登入之後按一次「重新同步」，`permissions.ts` 的完整內容就會寫進資料庫。
 
-這幾行是唯一需要手動碰資料庫的地方，而且它們不依賴 `permissions.ts` 的內容，
-所以日後權限怎麼增減都不會讓這段 SQL 過期。
+這幾行是唯一需要手動碰資料庫的地方。它們不依賴 `permissions.ts` 有哪些權限，
+所以權限增減不影響這段 SQL；但它寫死了授權相關的表名與欄名，**那幾張表改名時
+要回來一起改**（`0094` 與 `0110` 就是這樣讓這段 SQL 過期的）。
 
 **日後改了 `permissions.ts`**：部署之後到權限管理頁按「重新同步」即可，
 那條端點需要 `admin:role:write`，沒有額外的 secret 要管理。
