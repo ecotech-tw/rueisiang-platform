@@ -22,7 +22,7 @@ function applyLikeD1(sqlite: DatabaseSync, from: string | null, to: string): voi
 }
 
 const BEFORE = "0116_shopee_sales_to_report_runs.sql";
-const MIGRATION_END = "0120_crm_customer_webhook_restore.sql";
+const MIGRATION_END = "0117_crm_customers_checks.sql";
 
 /**
  * 明寫 sync_status，跟正式環境一樣——crm-sync.ts 與 crm-write.ts 的 insert 都
