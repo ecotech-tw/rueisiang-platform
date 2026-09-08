@@ -273,14 +273,19 @@ Observability log 裡的 `$workers.scriptVersion.id` 應該與它一致；若不
 到 **Storage & Databases → D1 → 你的資料庫 → Console**，把信箱換成你自己的之後執行：
 
 ```sql
-INSERT INTO roles (id, key, name, is_system) VALUES ('role-admin', 'admin', '管理者', 1)
-  ON CONFLICT(key) DO NOTHING;
-INSERT INTO role_permissions (role_id, permission) VALUES
+INSERT INTO roles (id, role_key, name, is_system) VALUES ('role-admin', 'admin', '管理者', 1)
+  ON CONFLICT(role_key) DO NOTHING;
+-- 授權表的 permission 有外鍵指向 permissions 鏡像表，鏡像是空的就種不進授權。
+-- 這三列之後會被「重新同步」重寫，不必手動維護。
+INSERT INTO permissions (permission) VALUES
+  ('admin:user:read'), ('admin:user:write'), ('admin:role:write')
+  ON CONFLICT DO NOTHING;
+INSERT INTO role_permission_grants (role_id, permission) VALUES
   ('role-admin', 'admin:user:read'), ('role-admin', 'admin:user:write'), ('role-admin', 'admin:role:write')
   ON CONFLICT DO NOTHING;
 INSERT INTO users (id, email, invited_by) VALUES ('user-bootstrap', 'you@ecotech.tw', 'bootstrap')
   ON CONFLICT(email) DO NOTHING;
-INSERT INTO user_roles (user_id, role_id, granted_by)
+INSERT INTO user_role_assignments (user_id, role_id, granted_by)
   SELECT id, 'role-admin', 'bootstrap' FROM users WHERE email = 'you@ecotech.tw'
   ON CONFLICT DO NOTHING;
 ```
@@ -288,8 +293,9 @@ INSERT INTO user_roles (user_id, role_id, granted_by)
 刻意只塞三個 `admin:*` 權限，剛好夠這個人登入並進到權限管理頁。其餘的角色與權限
 不必手寫——登入之後按一次「重新同步」，`permissions.ts` 的完整內容就會寫進資料庫。
 
-這四行是唯一需要手動碰資料庫的地方，而且它們不依賴 `permissions.ts` 的內容，
-所以日後權限怎麼增減都不會讓這段 SQL 過期。
+這幾行是唯一需要手動碰資料庫的地方。它們不依賴 `permissions.ts` 有哪些權限，
+所以權限增減不影響這段 SQL；但它寫死了授權相關的表名與欄名，**那幾張表改名時
+要回來一起改**（`0094` 與 `0110` 就是這樣讓這段 SQL 過期的）。
 
 **日後改了 `permissions.ts`**：部署之後到權限管理頁按「重新同步」即可，
 那條端點需要 `admin:role:write`，沒有額外的 secret 要管理。
