@@ -38,7 +38,7 @@ export const PERMISSIONS = {
 
   // 營運工具
   "tools:payout:run": "執行出金表",
-  "tools:payout:config": "修改店別與報表設定",
+  "tools:payout:config": "管理通路（名稱、來源、Drive 設定）",
   "tools:cyberbiz-sales:run": "執行 CYBERBIZ 商品銷售報表",
   "tools:shopee-sales:run": "執行蝦皮銷售報表",
   "tools:product-category:read": "檢視商品分類",

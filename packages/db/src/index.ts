@@ -171,6 +171,7 @@ export {
   countReportPayoutRecords,
   countReportSalesRecords,
   listReportPayoutRecords,
+  archiveReportManagementScope,
   listReportManagementScopes,
   listReportSalesRecords,
   listReportManualPayouts,
@@ -353,7 +354,7 @@ export {
   savePayoutStore,
   seedPayoutStores,
   updatePayoutStoreEnabled,
-  deletePayoutStore,
+  archivePayoutStore,
   type PayoutRun,
   type PayoutStoreInput,
 } from "./payout.js";
@@ -437,3 +438,4 @@ export {
   type ClaimWebhookEventResult,
   type CyberbizWebhookEntityType,
 } from "./webhook-events.js";
+export type { ScopeKind } from "./schema/reports.js";

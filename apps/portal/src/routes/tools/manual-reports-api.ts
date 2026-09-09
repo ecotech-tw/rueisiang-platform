@@ -10,10 +10,6 @@ export interface ManualScopeOption {
   name: string;
 }
 
-export interface ManualManagementScope extends ManualScopeOption {
-  active: boolean;
-}
-
 export interface ManualProductOption {
   sku: string;
   name: string;
@@ -293,45 +289,6 @@ function listQuery(params: URLSearchParams, query: {
   if (query.source !== "all") params.set("source", query.source);
   params.set("sortField", query.sortField);
   params.set("sortDirection", query.sortDirection);
-}
-
-export function useManualReportScopes(enabled = true) {
-  return useQuery({
-    enabled,
-    queryKey: ["reports", "manual", "scopes"],
-    queryFn: () => request<{ scopes: ManualManagementScope[] }>("/api/reports/cyberbiz/manual/scopes"),
-  });
-}
-
-export function useCreateManualScope() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (input: ManualScopeInput) => write<{ scope: ManualManagementScope }>("/api/reports/cyberbiz/manual/scopes", "POST", input),
-    onSuccess: () => invalidateManualQueries(client),
-  });
-}
-
-export function useUpdateManualScope() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (input: ManualScopeInput & { id: string }) => write<{ scope: ManualManagementScope }>(
-      `/api/reports/cyberbiz/manual/scopes/${encodeURIComponent(input.id)}`,
-      "PATCH",
-      input,
-    ),
-    onSuccess: () => invalidateManualQueries(client),
-  });
-}
-
-export function useDeleteManualScope() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => write<{ scope: ManualManagementScope }>(
-      `/api/reports/cyberbiz/manual/scopes/${encodeURIComponent(id)}`,
-      "DELETE",
-    ),
-    onSuccess: () => invalidateManualQueries(client),
-  });
 }
 
 export function useManualPayouts(query: ManualPayoutQuery, enabled = true) {

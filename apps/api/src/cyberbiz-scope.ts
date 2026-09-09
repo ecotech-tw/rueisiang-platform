@@ -45,11 +45,15 @@ export function manualScopeIdFromStoreName(name: string): string {
  *
  * scopeId 一起帶過去：runner 舊版是自己從店名算（base64url），等於同一條規則
  * 寫在兩個 repo 的兩個語言裡。
+ *
+ * name 送的是 externalName——CYBERBIZ 後台的店名。平台上的名字是給人看的、隨時
+ * 可以改；runner 要的是能在後台找到那家店的字串，兩者混用的話一改名 runner 就
+ * 抓不到東西，而且失敗訊息只會說「找不到店」。
  */
-export function runnerStores(stores: Array<{ id?: string; scopeId?: string; name: string; driveFolderUrl: string; driveFolderName: string }>) {
-  return stores.map(({ id, scopeId, name, driveFolderUrl, driveFolderName }) => ({
+export function runnerStores(stores: Array<{ id?: string; scopeId?: string; name: string; externalName?: string; driveFolderUrl: string; driveFolderName: string }>) {
+  return stores.map(({ id, scopeId, name, externalName, driveFolderUrl, driveFolderName }) => ({
     scopeId: scopeId ?? id ?? cyberbizScopeIdFromStoreName(name),
-    name,
+    name: externalName?.trim() || name,
     driveFolderUrl,
     driveFolderName,
   }));

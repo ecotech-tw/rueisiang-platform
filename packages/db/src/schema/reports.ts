@@ -20,6 +20,16 @@ export const scopes = sqliteTable("scopes", {
   driveFolderName: text("drive_folder_name").notNull().default(""),
   sortOrder: integer("sort_order").notNull().default(0),
   active: integer("active").notNull().default(1),
+  /**
+   * 外部系統裡的名字。`name` 是我們自己叫它什麼，隨時可以改；這一欄是拿去跟外部
+   * 對帳的鍵，改了就對不上。目前只有 CYBERBIZ 用得到——runner 拿它去後台找店。
+   */
+  externalName: text("external_name").notNull().default(""),
+  /**
+   * 封存時間。通路不能刪：出金、銷售、報表執行與人事指派都指著它，刪掉等於把
+   * 那些歷史變成查不到的孤兒。封存只是從所有挑選清單消失，歷史照樣算。
+   */
+  archivedAt: text("archived_at"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [

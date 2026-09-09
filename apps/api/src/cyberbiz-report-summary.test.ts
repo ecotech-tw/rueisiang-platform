@@ -294,94 +294,121 @@ describe("報表統計 API", () => {
     expect(invalid.status).toBe(400);
   });
 
-  // 通路管理列出每一個通路，不挑 source 也不挑 kind——它們都會有報表。
-  it("通路管理可以新增、改名、停用與重新啟用，且列出所有通路", async () => {
+  // 通路管理是唯一的入口：列出每一個通路，不挑 source 也不挑 kind。
+  it("通路管理可以新增、改名、改種類與來源、停用與封存", async () => {
     const manager = await seedUser("manager-scope-management@ecotech.tw", "role-manager");
 
     await upsertReportScope(db(), { id: "shopee:store:default", scopeKind: "store", sourceType: "shopee", name: "蝦皮" });
 
-    const initial = await call(
-      "/api/reports/cyberbiz/manual/scopes",
-      manager,
-      "manager-scope-management@ecotech.tw",
-    );
+    const initial = await call("/api/tools/scopes", manager, "manager-scope-management@ecotech.tw");
     expect(initial.status).toBe(200);
     expect(await initial.json()).toMatchObject({
       scopes: [
-        { id: "company", name: "公司整體", active: true },
-        { id: "cyberbiz:store:active", name: "啟用店", active: true },
-        { id: "shopee:store:default", name: "蝦皮", active: true },
+        { id: "company", name: "公司整體", scopeKind: "company", active: true, archivedAt: null },
+        { id: "cyberbiz:store:active", name: "啟用店", sourceType: "cyberbiz", active: true },
+        { id: "shopee:store:default", name: "蝦皮", sourceType: "shopee", active: true },
         { id: "cyberbiz:store:disabled", name: "停用店", active: false },
       ],
     });
 
-    const filterOptions = await call(
-      "/api/reports/cyberbiz/manual/options",
-      manager,
-      "manager-scope-management@ecotech.tw",
-    );
-    expect(filterOptions.status).toBe(200);
-    expect(await filterOptions.json()).toMatchObject({
-      scopes: [
-        { id: "cyberbiz:store:active", name: "啟用店" },
-        { id: "shopee:store:default", name: "蝦皮" },
-      ],
-    });
-
     const created = await mutate(
-      "/api/reports/cyberbiz/manual/scopes",
+      "/api/tools/scopes",
       "POST",
       manager,
       "manager-scope-management@ecotech.tw",
-      { name: "歷史據點" },
+      { name: "歷史通路" },
     );
     expect(created.status).toBe(201);
-    const createdBody = await created.json() as { scope: { id: string; name: string; active: boolean } };
-    expect(createdBody.scope).toMatchObject({ name: "歷史據點", active: true });
+    const createdBody = await created.json() as { scope: { id: string } };
     expect(createdBody.scope.id).toMatch(/^manual:store:/u);
 
-    const renamed = await mutate(
-      `/api/reports/cyberbiz/manual/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+    // 種類、來源與外部店名都是可管理的欄位，不是從 ID 前綴推出來的。
+    const updated = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
       "PATCH",
       manager,
       "manager-scope-management@ecotech.tw",
-      { name: "歷史據點（北區）", active: false },
+      { name: "蝦皮二館", externalName: "蝦皮二館賣場" },
     );
-    expect(renamed.status).toBe(200);
-    expect(await renamed.json()).toMatchObject({
-      scope: { id: createdBody.scope.id, name: "歷史據點（北區）", active: false },
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({
+      scope: { id: createdBody.scope.id, name: "蝦皮二館", externalName: "蝦皮二館賣場", active: true },
     });
 
-    const disabledOptions = await call(
-      "/api/reports/cyberbiz/manual/options",
+    // 來源、種類與 Drive 只有管理者能改；合併成一頁不該順便放寬權限。
+    const forbidden = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+      "PATCH",
+      manager,
+      "manager-scope-management@ecotech.tw",
+      { scopeKind: "channel" },
+    );
+    expect(forbidden.status).toBe(403);
+
+    const admin = await seedUser("admin-scope-management@ecotech.tw", "role-admin");
+    const configured = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+      "PATCH",
+      admin,
+      "admin-scope-management@ecotech.tw",
+      { scopeKind: "channel", sourceType: "Shopee", driveFolderUrl: "https://drive.google.com/drive/folders/abc" },
+    );
+    expect(configured.status).toBe(200);
+    expect(await configured.json()).toMatchObject({
+      scope: { scopeKind: "channel", sourceType: "shopee", driveFolderUrl: "https://drive.google.com/drive/folders/abc" },
+    });
+
+    const badKind = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+      "PATCH",
+      admin,
+      "admin-scope-management@ecotech.tw",
+      { scopeKind: "warehouse" },
+    );
+    expect(badKind.status).toBe(400);
+
+    // Drive 連結對沒有 config 權限的人整個不回傳，不是只有畫面上藏起來。
+    const managerView = await call("/api/tools/scopes", manager, "manager-scope-management@ecotech.tw");
+    const managerRows = (await managerView.json() as { scopes: Array<{ id: string; driveFolderUrl: string }> }).scopes;
+    expect(managerRows.find((scope) => scope.id === createdBody.scope.id)?.driveFolderUrl).toBe("");
+
+    // 停用只是不再出現在補登選單；封存才會從管理清單收起來。兩者都不刪資料。
+    const disabled = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+      "PATCH",
+      manager,
+      "manager-scope-management@ecotech.tw",
+      { active: false },
+    );
+    expect(disabled.status).toBe(200);
+    const options = await call("/api/reports/cyberbiz/manual/options", manager, "manager-scope-management@ecotech.tw");
+    expect((await options.json() as { scopes: Array<{ id: string }> }).scopes)
+      .not.toContainEqual(expect.objectContaining({ id: createdBody.scope.id }));
+
+    const archived = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}/archive`,
+      "POST",
       manager,
       "manager-scope-management@ecotech.tw",
     );
-    expect((await disabledOptions.json() as { scopes: Array<{ id: string }> }).scopes)
-      .not.toContainEqual({ id: createdBody.scope.id });
+    expect(archived.status).toBe(200);
+    expect(await archived.json()).toMatchObject({ scope: { id: createdBody.scope.id, active: false } });
+    const afterArchive = await call("/api/tools/scopes", manager, "manager-scope-management@ecotech.tw");
+    const rows = (await afterArchive.json() as { scopes: Array<{ id: string; archivedAt: string | null }> }).scopes;
+    expect(rows.find((scope) => scope.id === createdBody.scope.id)?.archivedAt).toEqual(expect.any(String));
+    // 封存的通路仍然在資料庫裡，歷史查得到。
+    expect(rows).toHaveLength(5);
 
-    const reenabled = await mutate(
-      `/api/reports/cyberbiz/manual/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+    // 重新啟用會一併解除封存，不然「停用」與「封存」會互相打架。
+    const restored = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
       "PATCH",
       manager,
       "manager-scope-management@ecotech.tw",
       { active: true },
     );
-    expect(reenabled.status).toBe(200);
-    expect(await reenabled.json()).toMatchObject({
-      scope: { id: createdBody.scope.id, name: "歷史據點（北區）", active: true },
-    });
-
-    const disabled = await mutate(
-      `/api/reports/cyberbiz/manual/scopes/${encodeURIComponent(createdBody.scope.id)}`,
-      "DELETE",
-      manager,
-      "manager-scope-management@ecotech.tw",
-    );
-    expect(disabled.status).toBe(200);
-    expect(await disabled.json()).toMatchObject({
-      scope: { id: createdBody.scope.id, name: "歷史據點（北區）", active: false },
-    });
+    expect(restored.status).toBe(200);
+    expect(await restored.json()).toMatchObject({ scope: { active: true, archivedAt: null } });
   });
 
   it("report management imports payout and sales snapshots with duplicate rows aggregated", async () => {

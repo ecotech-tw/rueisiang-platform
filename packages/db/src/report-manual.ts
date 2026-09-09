@@ -3,6 +3,7 @@ import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { isValidReportDate, normalizeReportScopeName, scopeSourceTypeFromId, type ReportManualSkuSource } from "./report-data.js";
+import type { ScopeKind } from "./schema/reports.js";
 import { activityEvents } from "./schema/activity.js";
 import {
   reportItemSalesMonthly,
@@ -138,8 +139,53 @@ export interface ReportSalesRecordDeleteInput {
   sku: string;
 }
 
-export interface ReportManagementScope { id: string; name: string; active: boolean }
-export interface ReportManagementScopeInput { id: string; name: string; active?: boolean }
+/**
+ * 通路：出金與商品銷售都掛在它底下。
+ *
+ * 「店別」是舊的說法。同一份報表底下同時有實體櫃點、蝦皮賣場與未來的其他通路，
+ * 它們都有自己的銷售明細與金額，差別只在顆粒度與資料怎麼進來——所以 sourceType
+ * 與 scopeKind 是可以管理的欄位，不是從 ID 前綴猜出來的。
+ */
+export interface ReportManagementScope {
+  id: string;
+  name: string;
+  /** 外部系統裡的名字；只有 CYBERBIZ 需要，runner 拿它找店。 */
+  externalName: string;
+  sourceType: string;
+  scopeKind: ScopeKind;
+  /** 出金與商品銷售報表要寫進哪個 Google Drive 資料夾；只有 runner 跑得動的通路要填。 */
+  driveFolderUrl: string;
+  driveFolderName: string;
+  active: boolean;
+  archivedAt: string | null;
+}
+export interface ReportManagementScopeInput {
+  id: string;
+  name: string;
+  externalName?: string;
+  sourceType?: string;
+  scopeKind?: ScopeKind;
+  driveFolderUrl?: string;
+  driveFolderName?: string;
+  active?: boolean;
+}
+
+const SCOPE_KINDS: readonly ScopeKind[] = ["store", "channel", "company"];
+
+/** 來源只是標籤，之後接新通路不想每次都改 enum；擋掉的只有空白與怪字元。 */
+function normalizeSourceType(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!/^[a-z0-9_-]{1,32}$/.test(normalized)) {
+    throw new ReportManualError("invalid", "通路來源只能是英數字、底線與連字號。");
+  }
+  return normalized;
+}
+
+function normalizeScopeKind(value: string): ScopeKind {
+  const kind = value.trim() as ScopeKind;
+  if (!SCOPE_KINDS.includes(kind)) throw new ReportManualError("invalid", "通路種類不正確。");
+  return kind;
+}
 
 function safeInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value)) throw new ReportManualError("invalid", `${label}必須是安全整數。`);
@@ -155,11 +201,20 @@ async function requireScope(db: Database, scopeId: string) {
   return scope;
 }
 
+/** 管理頁列出每一個通路，含已封存的——封存要看得到才還原得回來。 */
 export async function listReportManagementScopes(db: Database): Promise<ReportManagementScope[]> {
-  const rows = await db.select({ id: targetScopes.id, name: targetScopes.name, active: targetScopes.active })
-    .from(targetScopes)
-    .orderBy(desc(targetScopes.active), asc(targetScopes.name));
-  return rows.map((scope) => ({ ...scope, active: scope.active === 1 }));
+  const rows = await db.select({
+    id: targetScopes.id, name: targetScopes.name, externalName: targetScopes.externalName,
+    sourceType: targetScopes.sourceType, scopeKind: targetScopes.scopeKind,
+    driveFolderUrl: targetScopes.driveFolderUrl, driveFolderName: targetScopes.driveFolderName,
+    active: targetScopes.active, archivedAt: targetScopes.archivedAt,
+  }).from(targetScopes)
+    .orderBy(asc(sql`${targetScopes.archivedAt} IS NOT NULL`), desc(targetScopes.active), asc(targetScopes.name));
+  return rows.map((scope) => ({
+    ...scope,
+    scopeKind: scope.scopeKind as ScopeKind,
+    active: scope.active === 1,
+  }));
 }
 
 export async function createReportManagementScope(db: Database, input: ReportManagementScopeInput): Promise<ReportManagementScope> {
@@ -172,23 +227,38 @@ export async function createReportManagementScope(db: Database, input: ReportMan
   const [existingName] = await db.select({ id: targetScopes.id }).from(targetScopes)
     .where(eq(targetScopes.normalizedName, normalizedName)).limit(1);
   if (existingName) throw new ReportManualError("conflict", "這個通路名稱已經存在。");
+  const sourceType = input.sourceType === undefined ? scopeSourceTypeFromId(id) : normalizeSourceType(input.sourceType);
+  const scopeKind = input.scopeKind === undefined ? "store" : normalizeScopeKind(input.scopeKind);
+  const externalName = (input.externalName ?? "").trim();
+  const driveFolderUrl = (input.driveFolderUrl ?? "").trim();
+  const driveFolderName = (input.driveFolderName ?? "").trim();
   const now = new Date().toISOString();
   await db.insert(targetScopes).values({
-    id, sourceType: scopeSourceTypeFromId(id), scopeKind: "store", name, normalizedName,
-    driveFolderUrl: "", driveFolderName: "", sortOrder: 0, active: input.active === false ? 0 : 1,
+    id, sourceType, scopeKind, name, normalizedName, externalName,
+    driveFolderUrl, driveFolderName, sortOrder: 0, active: input.active === false ? 0 : 1,
     createdAt: now, updatedAt: now,
   });
-  return { id, name, active: input.active !== false };
+  return {
+    id, name, externalName, sourceType, scopeKind, driveFolderUrl, driveFolderName,
+    active: input.active !== false, archivedAt: null,
+  };
 }
 
 export async function updateReportManagementScope(
   db: Database,
-  input: { id: string; name?: string; active?: boolean },
+  input: {
+    id: string; name?: string; externalName?: string; sourceType?: string;
+    scopeKind?: ScopeKind; driveFolderUrl?: string; driveFolderName?: string; active?: boolean;
+  },
 ): Promise<ReportManagementScope> {
   const id = input.id.trim();
   if (!id || !isValidScopeId(id)) throw new ReportManualError("invalid", "通路 ID 不正確。");
-  const [existing] = await db.select({ id: targetScopes.id, name: targetScopes.name, active: targetScopes.active })
-    .from(targetScopes).where(eq(targetScopes.id, id)).limit(1);
+  const [existing] = await db.select({
+    id: targetScopes.id, name: targetScopes.name, externalName: targetScopes.externalName,
+    sourceType: targetScopes.sourceType, scopeKind: targetScopes.scopeKind,
+    driveFolderUrl: targetScopes.driveFolderUrl, driveFolderName: targetScopes.driveFolderName,
+    active: targetScopes.active, archivedAt: targetScopes.archivedAt,
+  }).from(targetScopes).where(eq(targetScopes.id, id)).limit(1);
   if (!existing) throw new ReportManualError("not_found", "找不到這個通路。");
   const name = input.name === undefined ? existing.name : input.name.trim();
   if (!name) throw new ReportManualError("invalid", "通路名稱不可為空白。");
@@ -198,10 +268,44 @@ export async function updateReportManagementScope(
     )).limit(1);
     if (duplicate) throw new ReportManualError("conflict", "這個通路名稱已經存在。");
   }
+  const externalName = input.externalName === undefined ? existing.externalName : input.externalName.trim();
+  const sourceType = input.sourceType === undefined ? existing.sourceType : normalizeSourceType(input.sourceType);
+  const scopeKind = input.scopeKind === undefined ? existing.scopeKind as ScopeKind : normalizeScopeKind(input.scopeKind);
+  const driveFolderUrl = input.driveFolderUrl === undefined ? existing.driveFolderUrl : input.driveFolderUrl.trim();
+  const driveFolderName = input.driveFolderName === undefined ? existing.driveFolderName : input.driveFolderName.trim();
   const active = input.active === undefined ? existing.active === 1 : input.active;
-  await db.update(targetScopes).set({ name, normalizedName: normalizeReportScopeName(name), active: active ? 1 : 0, updatedAt: new Date().toISOString() })
-    .where(eq(targetScopes.id, id));
-  return { id, name, active };
+  // 封存的通路要先還原才能重新啟用；不然「停用」與「封存」會互相打架。
+  const archivedAt = active && existing.archivedAt ? null : existing.archivedAt;
+  await db.update(targetScopes).set({
+    name, normalizedName: normalizeReportScopeName(name), externalName, sourceType, scopeKind,
+    driveFolderUrl, driveFolderName, active: active ? 1 : 0, archivedAt, updatedAt: new Date().toISOString(),
+  }).where(eq(targetScopes.id, id));
+  return { id, name, externalName, sourceType, scopeKind, driveFolderUrl, driveFolderName, active, archivedAt };
+}
+
+/**
+ * 封存，不刪除。
+ *
+ * 出金、商品銷售、報表執行與人事指派都用 scope_id 指著這一列。封存只是從所有
+ * 挑選清單消失；它過去的數字仍然是公司的營收，統計照算。
+ */
+export async function archiveReportManagementScope(db: Database, scopeId: string): Promise<ReportManagementScope> {
+  const id = scopeId.trim();
+  if (!id || !isValidScopeId(id)) throw new ReportManualError("invalid", "通路 ID 不正確。");
+  const [existing] = await db.select({
+    id: targetScopes.id, name: targetScopes.name, externalName: targetScopes.externalName,
+    sourceType: targetScopes.sourceType, scopeKind: targetScopes.scopeKind,
+    driveFolderUrl: targetScopes.driveFolderUrl, driveFolderName: targetScopes.driveFolderName,
+    active: targetScopes.active, archivedAt: targetScopes.archivedAt,
+  }).from(targetScopes).where(eq(targetScopes.id, id)).limit(1);
+  if (!existing) throw new ReportManualError("not_found", "找不到這個通路。");
+  const now = new Date().toISOString();
+  await db.update(targetScopes).set({ active: 0, archivedAt: now, updatedAt: now }).where(eq(targetScopes.id, id));
+  return {
+    id, name: existing.name, externalName: existing.externalName, sourceType: existing.sourceType,
+    scopeKind: existing.scopeKind as ScopeKind, driveFolderUrl: existing.driveFolderUrl,
+    driveFolderName: existing.driveFolderName, active: false, archivedAt: now,
+  };
 }
 
 async function preparePayout(db: Database, input: Omit<ReportManualPayoutInput, "actor">) {

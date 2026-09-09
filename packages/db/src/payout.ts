@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { findCyberbizReportRun, listCyberbizReportRuns, recordCyberbizReportRun } from "./cyberbiz-reports.js";
 import { normalizeReportScopeName } from "./report-data.js";
@@ -26,6 +26,8 @@ export interface PayoutRun {
 
 export interface PayoutStoreInput {
   name: string;
+  /** CYBERBIZ 後台的店名，runner 拿它找店。空的時候沿用 name。 */
+  externalName?: string;
   driveFolderUrl: string;
   driveFolderName: string;
   enabled: boolean;
@@ -33,6 +35,7 @@ export interface PayoutStoreInput {
 
 export interface PayoutStore extends PayoutStoreInput {
   id: string;
+  externalName: string;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -51,12 +54,17 @@ export const DEFAULT_PAYOUT_STORES: PayoutStoreInput[] = [
   { name: "品皇觀光工廠", driveFolderUrl: "https://drive.google.com/drive/folders/1238ahZoJjo_w481pJZ-2EyRfJ59bIESZ", driveFolderName: "品皇觀光工廠", enabled: true },
 ];
 
+/**
+ * runner 跑得動的店：CYBERBIZ 來源、還沒封存。
+ *
+ * 不再看 ID 前綴——手動上傳的退租店 source_type 就是 manual，用欄位判斷比用
+ * 字串前綴可靠，而且改得動。
+ */
 function payoutScopeCondition(enabledOnly = false) {
   const runnableCyberbizStore = and(
     eq(scopes.sourceType, "cyberbiz"),
     eq(scopes.scopeKind, "store"),
-    // 手動上傳的退租店會進公司報表，但 runner 已經抓不到，不能出現在執行頁。
-    sql`${scopes.id} NOT LIKE 'manual:%'`,
+    isNull(scopes.archivedAt),
   );
   return enabledOnly ? and(runnableCyberbizStore, eq(scopes.active, 1)) : runnableCyberbizStore;
 }
@@ -65,6 +73,7 @@ function toPayoutStore(scope: typeof scopes.$inferSelect): PayoutStore {
   return {
     id: scope.id,
     name: scope.name,
+    externalName: scope.externalName || scope.name,
     driveFolderUrl: scope.driveFolderUrl,
     driveFolderName: scope.driveFolderName,
     enabled: scope.active === 1,
@@ -76,15 +85,6 @@ function toPayoutStore(scope: typeof scopes.$inferSelect): PayoutStore {
 
 function payoutScopeIdCondition(scopeId: string) {
   return and(eq(scopes.id, scopeId), payoutScopeCondition(false));
-}
-
-function unusedScopeCondition(scopeId: string) {
-  return and(
-    eq(scopes.id, scopeId),
-    sql`NOT EXISTS (SELECT 1 FROM report_run_scopes WHERE scope_id = ${scopeId})`,
-    sql`NOT EXISTS (SELECT 1 FROM report_item_sales_monthly WHERE scope_id = ${scopeId})`,
-    sql`NOT EXISTS (SELECT 1 FROM report_payout_daily WHERE scope_id = ${scopeId})`,
-  );
 }
 
 export async function listPayoutStores(
@@ -126,6 +126,7 @@ export async function savePayoutStore(
       .set({
         name: input.name,
         normalizedName: normalizeReportScopeName(input.name),
+        externalName: input.externalName ?? input.name,
         driveFolderUrl: input.driveFolderUrl,
         driveFolderName: input.driveFolderName,
         active: input.enabled ? 1 : 0,
@@ -143,6 +144,7 @@ export async function savePayoutStore(
       scopeKind: "store",
       name: input.name,
       normalizedName: normalizeReportScopeName(input.name),
+      externalName: input.externalName ?? input.name,
       driveFolderUrl: input.driveFolderUrl,
       driveFolderName: input.driveFolderName,
       active: input.enabled ? 1 : 0,
@@ -157,17 +159,22 @@ export async function savePayoutStore(
   return store ? toPayoutStore(store) : null;
 }
 
-export async function deletePayoutStore(db: Database, id: string): Promise<PayoutStore | null> {
+/**
+ * 封存，不刪除。
+ *
+ * 出金、商品銷售、報表執行與人事指派都用 scope_id 指著這一列；真的刪掉，那些
+ * 歷史就變成查不到來源的孤兒。原本的作法是「沒被引用才真刪」，但使用者按下去
+ * 之前不知道自己會拿到哪一種結果。
+ */
+export async function archivePayoutStore(db: Database, id: string): Promise<PayoutStore | null> {
   const [store] = await db.select().from(scopes)
     .where(payoutScopeIdCondition(id))
     .limit(1);
   if (!store) return null;
 
-  await db.batch([
-    db.update(scopes).set({ active: 0, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(scopes.id, id)),
-    db.delete(scopes).where(unusedScopeCondition(id)),
-  ] as never);
-  return toPayoutStore(store);
+  const now = new Date().toISOString();
+  await db.update(scopes).set({ active: 0, archivedAt: now, updatedAt: now }).where(eq(scopes.id, id));
+  return { ...toPayoutStore(store), enabled: false };
 }
 
 /** 表是空的才寫入預設店別；使用者之後的設定不會被覆蓋。 */
@@ -184,6 +191,7 @@ export async function seedPayoutStores(db: Database): Promise<void> {
       scopeKind: "store" as const,
       name: store.name,
       normalizedName: normalizeReportScopeName(store.name),
+      externalName: store.externalName ?? store.name,
       driveFolderUrl: store.driveFolderUrl,
       driveFolderName: store.driveFolderName,
       active: store.enabled ? 1 : 0,
@@ -192,7 +200,7 @@ export async function seedPayoutStores(db: Database): Promise<void> {
   );
 }
 
-/** 整份店別清單換掉；有歷史資料的 scope 只停用，沒有歷史資料的才刪除。 */
+/** 整份店別清單換掉；清單裡沒有的一律封存，不刪除。 */
 export async function replacePayoutStores(db: Database, stores: PayoutStoreInput[]): Promise<void> {
   const normalizedNames = stores.map((store) => normalizeReportScopeName(store.name));
   const existing = await db.select().from(scopes)
@@ -206,6 +214,7 @@ export async function replacePayoutStores(db: Database, stores: PayoutStoreInput
       statements.push(db.update(scopes).set({
         name: incoming.store.name,
         normalizedName: normalizeReportScopeName(incoming.store.name),
+        externalName: incoming.store.externalName ?? incoming.store.name,
         driveFolderUrl: incoming.store.driveFolderUrl,
         driveFolderName: incoming.store.driveFolderName,
         active: incoming.store.enabled ? 1 : 0,
@@ -218,8 +227,9 @@ export async function replacePayoutStores(db: Database, stores: PayoutStoreInput
   if (normalizedNames.length) {
     const removed = existing.filter((scope) => !normalizedNames.includes(scope.normalizedName));
     for (const scope of removed) {
-      statements.push(db.update(scopes).set({ active: 0, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(scopes.id, scope.id)));
-      statements.push(db.delete(scopes).where(unusedScopeCondition(scope.id)));
+      statements.push(db.update(scopes)
+        .set({ active: 0, archivedAt: sql`CURRENT_TIMESTAMP`, updatedAt: sql`CURRENT_TIMESTAMP` })
+        .where(eq(scopes.id, scope.id)));
     }
   }
 
@@ -233,6 +243,7 @@ export async function replacePayoutStores(db: Database, stores: PayoutStoreInput
       scopeKind: "store" as const,
       name: store.name,
       normalizedName,
+      externalName: store.externalName ?? store.name,
       driveFolderUrl: store.driveFolderUrl,
       driveFolderName: store.driveFolderName,
       active: store.enabled ? 1 : 0,

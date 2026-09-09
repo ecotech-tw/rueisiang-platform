@@ -282,3 +282,58 @@ export function useSaveShopeeSalesSettings() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "shopee-sales"] }),
   });
 }
+
+/**
+ * 通路管理。
+ *
+ * 名稱、種類、來源、外部店名、Drive 設定與啟用狀態都在同一份資料裡——原本分散在
+ * 「店別與報表設定」與「報表管理 → 管理據點」兩個入口，兩邊寫同一個欄位卻互相
+ * 看不到對方。
+ */
+export interface ManagementScope {
+  id: string;
+  name: string;
+  externalName: string;
+  sourceType: string;
+  scopeKind: "store" | "channel" | "company";
+  driveFolderUrl: string;
+  driveFolderName: string;
+  active: boolean;
+  archivedAt: string | null;
+}
+
+export function useScopes() {
+  return useQuery({
+    queryKey: ["tools", "scopes"],
+    queryFn: () => call<{ scopes: ManagementScope[] }>("/api/tools/scopes"),
+  });
+}
+
+export function useSaveScope() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (scope: Partial<ManagementScope> & { id?: string; name: string }) => {
+      const { id, archivedAt: _archivedAt, ...payload } = scope;
+      return call<{ scope: ManagementScope }>(
+        id ? `/api/tools/scopes/${encodeURIComponent(id)}` : "/api/tools/scopes",
+        { method: id ? "PATCH" : "POST", body: JSON.stringify(payload) },
+      );
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["tools"] });
+      void client.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}
+
+export function useArchiveScope() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      call<{ scope: ManagementScope }>(`/api/tools/scopes/${encodeURIComponent(id)}/archive`, { method: "POST" }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["tools"] });
+      void client.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}

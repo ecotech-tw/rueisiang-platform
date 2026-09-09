@@ -701,6 +701,20 @@
       "when": 1788965431616,
       "tag": "0123_backfill_line_scope_tool",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "6",
+      "when": 1788949369703,
+      "tag": "0124_scopes_channel_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "6",
+      "when": 1788949400000,
+      "tag": "0125_scopes_external_name_backfill",
+      "breakpoints": true
     }
   ]
 }

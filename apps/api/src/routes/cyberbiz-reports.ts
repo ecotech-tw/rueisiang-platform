@@ -3,7 +3,6 @@ import { HTTPException } from "hono/http-exception";
 import {
   createReportManualPayout,
   createReportManualSales,
-  createReportManagementScope,
   deleteReportManualPayout,
   deleteReportManualSales,
   deleteReportPayoutRecord,
@@ -12,7 +11,9 @@ import {
   deleteReportSalesRecords,
   insertReportSalesMonthly,
   insertReportPayoutDaily,
+  createReportManagementScope,
   isValidScopeId,
+  listReportManagementScopes,
   listAllReportScopes,
   canonicalReportStoreScopes,
   isValidReportDate,
@@ -26,7 +27,6 @@ import {
   countReportPayoutRecords,
   countReportSalesRecords,
   listReportPayoutRecords,
-  listReportManagementScopes,
   listReportSalesRecords,
   listReportScopes,
   listReportRuns,
@@ -36,7 +36,6 @@ import {
   ReportManualError,
   updateReportManualPayout,
   updateReportManualSales,
-  updateReportManagementScope,
   normalizeExternalSku,
   type Database,
   type ReportGroupBy,
@@ -349,13 +348,13 @@ async function resolveImportScope(
     const existing = (await listReportManagementScopes(db)).find((scope) => scope.id === input.scopeId);
     if (existing) {
       if (!existing.active) {
-        throw new ReportManualError("invalid", "停用據點不可匯入報表，請先重新啟用。");
+        throw new ReportManualError("invalid", "停用的通路不可匯入報表，請先重新啟用。");
       }
-      // 已選取既有據點時，以資料庫中的名稱為準，不讓匯入順便改名。
+      // 已選取既有通路時，以資料庫中的名稱為準，不讓匯入順便改名。
       return existing;
     }
   }
-  // 新增據點統一走管理頁相同的重名檢查，避免匯入路徑拆出第二個同名 scope。
+  // 新增通路統一走管理頁相同的重名檢查，避免匯入路徑拆出第二個同名 scope。
   return createReportManagementScope(db, { id: input.scopeId, name: input.scopeName });
 }
 
@@ -534,22 +533,6 @@ function recordDeleteSource(input: Record<string, unknown>): ReportManualRecordS
   return input.source;
 }
 
-function reportScopeId(c: { req: { param(name: string): string | undefined } }): string {
-  const id = c.req.param("id")?.trim();
-  if (!id) throw new HTTPException(400, { message: "缺少據點 ID。" });
-  return id;
-}
-
-function reportScopeName(input: Record<string, unknown>): string {
-  return requireString(input, "name", "據點名稱");
-}
-
-function reportScopeActive(input: Record<string, unknown>): boolean | undefined {
-  if (input.active === undefined) return undefined;
-  if (typeof input.active !== "boolean") throw new HTTPException(400, { message: "據點啟用狀態格式不正確。" });
-  return input.active;
-}
-
 function payoutRecordDeleteValue(input: Record<string, unknown>): ReportPayoutRecordDeleteInput {
   const businessDate = requireString(input, "businessDate", "出金日期");
   if (!isValidReportDate(businessDate)) throw new HTTPException(400, { message: "出金日期必須是有效的 YYYY-MM-DD。" });
@@ -612,7 +595,7 @@ export const cyberbizReports = new Hono<AppEnv>()
   .get("/scopes", requirePermission("reports:analytics:read"), async (c) => {
     const result = await cachedReportAnalytics(cacheClient(c.env), "scopes", async () => {
       // 含停用：統計看的是歷史，一家店收掉之後它過去的數字仍然要篩得出來。
-      const reportScopes = await listAllReportScopes(c.get("db"), "store");
+      const reportScopes = await listAllReportScopes(c.get("db"));
       const scopes = canonicalReportStoreScopes(reportScopes);
       const latest = await latestReportSalesPeriods(c.get("db"), reportScopes.map((scope) => scope.id));
       return {
@@ -691,49 +674,6 @@ export const cyberbizReports = new Hono<AppEnv>()
       products,
       categories: categories.map(({ id, name, color }) => ({ id, name, color })),
     });
-  })
-  .get("/manual/scopes", requirePermission("reports:cyberbiz:write"), async (c) => {
-    return c.json({ scopes: await listReportManagementScopes(c.get("db")) });
-  })
-  .post("/manual/scopes", requirePermission("reports:cyberbiz:write"), async (c) => {
-    try {
-      const input = await body(c);
-      const name = reportScopeName(input);
-      const scope = await createReportManagementScope(c.get("db"), {
-        id: manualScopeIdFromStoreName(name),
-        name,
-        active: reportScopeActive(input),
-      });
-      await forgetReportAnalytics(cacheClient(c.env));
-      return c.json({ scope }, 201);
-    } catch (error) {
-      handleManualError(error);
-    }
-  })
-  .patch("/manual/scopes/:id", requirePermission("reports:cyberbiz:write"), async (c) => {
-    try {
-      const input = await body(c);
-      const name = input.name === undefined ? undefined : reportScopeName(input);
-      const active = reportScopeActive(input);
-      const scope = await updateReportManagementScope(c.get("db"), {
-        id: reportScopeId(c),
-        ...(name === undefined ? {} : { name }),
-        ...(active === undefined ? {} : { active }),
-      });
-      await forgetReportAnalytics(cacheClient(c.env));
-      return c.json({ scope });
-    } catch (error) {
-      handleManualError(error);
-    }
-  })
-  .delete("/manual/scopes/:id", requirePermission("reports:cyberbiz:write"), async (c) => {
-    try {
-      const scope = await updateReportManagementScope(c.get("db"), { id: reportScopeId(c), active: false });
-      await forgetReportAnalytics(cacheClient(c.env));
-      return c.json({ scope });
-    } catch (error) {
-      handleManualError(error);
-    }
   })
   .post("/manual/import/payout", requirePermission("reports:cyberbiz:write"), async (c) => {
     try {

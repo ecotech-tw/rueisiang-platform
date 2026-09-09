@@ -2,7 +2,7 @@ import {
   addProductSkuMapping,
   addReportSkuIgnore,
   createReportProductCategory,
-  deletePayoutStore,
+  archivePayoutStore,
   deleteReportProductCategory,
   deleteProductSkuMapping,
   deleteReportSkuIgnore,
@@ -13,7 +13,13 @@ import {
   loadProductSkuMappingManagement,
   updateProductSkuMapping,
   insertReportPayoutDaily,
+  archiveReportManagementScope,
+  createReportManagementScope,
   isValidScopeId,
+  listReportManagementScopes,
+  ReportManualError,
+  type ScopeKind,
+  updateReportManagementScope,
   listReportScopes,
   normalizeReportScopeName,
   ReportScopeAmbiguousError,
@@ -30,7 +36,8 @@ import {
   type PayoutStoreInput,
   type ProductBundleComponentInput,
 } from "@rueisiang/db";
-import { Hono } from "hono";
+import { can } from "@rueisiang/auth";
+import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
@@ -635,6 +642,60 @@ export const tools = new Hono<AppEnv>()
     return c.json(await github.listRuns(requestId));
   })
 
+
+  /**
+   * 通路管理。
+   *
+   * 一張 scopes 表原本有兩個管理入口（店別與報表設定、報表管理→管理據點），兩邊
+   * 篩選條件不同、刪除行為不同，卻寫同一個 active 欄位——在其中一邊關掉一家店，
+   * 另一邊的執行頁也會跟著消失。合成這一組之後只有一個地方管。
+   */
+  .get("/scopes", requirePermission("reports:cyberbiz:write"), async (c) => {
+    const scopes = await listReportManagementScopes(c.get("db"));
+    return c.json({ scopes: scopes.map((scope) => redactScope(scope, canConfigure(c))) });
+  })
+
+  .post("/scopes", requirePermission("reports:cyberbiz:write"), async (c) => {
+    const input = await body(c);
+    const name = requireString(input, "name", "通路名稱");
+    try {
+      const scope = await createReportManagementScope(c.get("db"), {
+        id: scopeIdFor(input, name),
+        name,
+        ...scopeFields(input, canConfigure(c)),
+      });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ scope: redactScope(scope, canConfigure(c)) }, 201);
+    } catch (error) {
+      throw scopeError(error);
+    }
+  })
+
+  .patch("/scopes/:id", requirePermission("reports:cyberbiz:write"), async (c) => {
+    const input = await body(c);
+    try {
+      const scope = await updateReportManagementScope(c.get("db"), {
+        id: c.req.param("id"),
+        ...("name" in input ? { name: requireString(input, "name", "通路名稱") } : {}),
+        ...scopeFields(input, canConfigure(c)),
+      });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ scope: redactScope(scope, canConfigure(c)) });
+    } catch (error) {
+      throw scopeError(error);
+    }
+  })
+
+  /** 封存，不刪除：出金、銷售、報表執行與人事指派都指著這個 ID。 */
+  .post("/scopes/:id/archive", requirePermission("reports:cyberbiz:write"), async (c) => {
+    try {
+      const scope = await archiveReportManagementScope(c.get("db"), c.req.param("id"));
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json({ scope: redactScope(scope, canConfigure(c)) });
+    } catch (error) {
+      throw scopeError(error);
+    }
+  })
   /** 設定頁。讀要 config 權限——能改的人才需要看到 Drive 連結。 */
   .get("/payout/stores", requirePermission("tools:payout:config"), async (c) => {
     return c.json({ stores: await listPayoutStores(c.get("db")) });
@@ -690,7 +751,7 @@ export const tools = new Hono<AppEnv>()
       throw new HTTPException(400, { message: "至少要留一家店。" });
     }
 
-    const store = await deletePayoutStore(c.get("db"), id);
+    const store = await archivePayoutStore(c.get("db"), id);
     if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
     return c.json({ ok: true });
   })
@@ -707,3 +768,69 @@ export const tools = new Hono<AppEnv>()
     await replacePayoutStores(c.get("db"), stores);
     return c.json({ stores: await listPayoutStores(c.get("db")) });
   });
+
+/**
+ * 通路管理的權限分兩層，跟合併前一樣：
+ *
+ * - `reports:cyberbiz:write`（主管也有）：看清單、新增、改名、停用與封存。
+ * - `tools:payout:config`（只有管理者）：來源、種類與 Drive 資料夾。
+ *
+ * 兩頁合併成一頁不該順便放寬權限。Drive 連結對沒有 config 權限的人整個不回傳，
+ * 不是只有畫面上藏起來——SPA 的 JavaScript 全在使用者手上。
+ */
+function canConfigure(c: Context<AppEnv>): boolean {
+  return can(c.get("user"), "tools:payout:config");
+}
+
+function redactScope<T extends { driveFolderUrl: string; driveFolderName: string }>(scope: T, configurable: boolean): T {
+  return configurable ? scope : { ...scope, driveFolderUrl: "", driveFolderName: "" };
+}
+
+/** 沒送的欄位不動，送空字串就是清掉。沒有 config 權限時送了設定欄位一律 403。 */
+function scopeFields(input: Record<string, unknown>, configurable: boolean) {
+  const fields: {
+    externalName?: string; sourceType?: string; scopeKind?: ScopeKind;
+    driveFolderUrl?: string; driveFolderName?: string; active?: boolean;
+  } = {};
+  const configured = ["sourceType", "scopeKind", "driveFolderUrl", "driveFolderName"]
+    .filter((key) => key in input);
+  if (configured.length && !configurable) {
+    throw new HTTPException(403, { message: "只有管理者可以改通路的來源、種類與 Drive 設定。" });
+  }
+  for (const key of ["externalName", "sourceType", "driveFolderUrl", "driveFolderName"] as const) {
+    if (!(key in input)) continue;
+    if (typeof input[key] !== "string") throw new HTTPException(400, { message: `${key} 必須是文字。` });
+    fields[key] = (input[key] as string).trim();
+  }
+  if ("scopeKind" in input) {
+    if (typeof input.scopeKind !== "string") throw new HTTPException(400, { message: "通路種類必須是文字。" });
+    fields.scopeKind = input.scopeKind as ScopeKind;
+  }
+  if ("active" in input) {
+    if (typeof input.active !== "boolean") throw new HTTPException(400, { message: "啟用開關必須是布林值。" });
+    fields.active = input.active;
+  }
+  return fields;
+}
+
+/**
+ * 新通路的 ID。
+ *
+ * 送 ID 就用送的，沒送就從名稱產一個。ID 是永久的——出金與銷售資料都指著它，
+ * 所以改名不會換 ID，也不該換。
+ */
+function scopeIdFor(input: Record<string, unknown>, name: string): string {
+  const requested = typeof input.id === "string" ? input.id.trim() : "";
+  if (!requested) return manualScopeIdFromStoreName(name);
+  if (!isValidScopeId(requested)) throw new HTTPException(400, { message: "通路 ID 含有不允許的字元。" });
+  return requested;
+}
+
+function scopeError(error: unknown): HTTPException {
+  if (error instanceof ReportManualError) {
+    const status = error.kind === "not_found" ? 404 : error.kind === "conflict" ? 409 : 400;
+    return new HTTPException(status, { message: error.message });
+  }
+  if (error instanceof HTTPException) return error;
+  throw error;
+}

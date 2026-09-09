@@ -565,10 +565,12 @@ describe("店別設定", () => {
     expect(body.stores.map((store) => store.name)).toEqual(["乙店", "甲店"]);
   });
 
-  it("整組換掉不會停用或刪掉手動退租店", async () => {
+  // 退租店的 source 是 manual——runner 抓不到它。判斷依據是 source_type 這個欄位，
+  // 不是 ID 開頭那幾個字。
+  it("整組換掉不會停用或封存手動退租店", async () => {
     await db().insert(scopes).values({
       id: manualScopeIdFromStoreName("退租店"),
-      sourceType: "cyberbiz",
+      sourceType: "manual",
       scopeKind: "store",
       name: "退租店",
       normalizedName: "退租店",
@@ -581,9 +583,9 @@ describe("店別設定", () => {
     });
 
     expect(response.status).toBe(200);
-    const [manual] = await db().select({ active: scopes.active, name: scopes.name }).from(scopes)
-      .where(eq(scopes.id, manualScopeIdFromStoreName("退租店")));
-    expect(manual).toEqual({ active: 1, name: "退租店" });
+    const [manual] = await db().select({ active: scopes.active, name: scopes.name, archivedAt: scopes.archivedAt })
+      .from(scopes).where(eq(scopes.id, manualScopeIdFromStoreName("退租店")));
+    expect(manual).toEqual({ active: 1, name: "退租店", archivedAt: null });
   });
 
 

@@ -22,7 +22,7 @@ import { Activity as WmsActivity } from "./routes/wms/Activity.js";
 import { Inventory } from "./routes/wms/Inventory.js";
 import { SkuMappings } from "./routes/tools/SkuMappings.js";
 import { CyberbizProductCategories } from "./routes/tools/CyberbizProductCategories.js";
-import { PayoutSettings } from "./routes/tools/PayoutSettings.js";
+import { Scopes } from "./routes/tools/Scopes.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
 import { ManualReports } from "./routes/tools/ManualReports.js";
 import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
@@ -117,11 +117,12 @@ export function App() {
         <Route path="tools">
           <Route path="payout" element={<Payout />} />
           <Route path="analytics" element={<Suspense fallback={<div className="boot">載入統計頁…</div>}><Analytics /></Suspense>} />
-          <Route path="payout/settings" element={<PayoutSettings />} />
+          <Route path="scopes" element={<Scopes />} />
+          <Route path="payout/settings" element={<Navigate to="/tools/scopes" replace />} />
           <Route path="manual-reports" element={<ManualReports />} />
           <Route path="cyberbiz-sales" element={<CyberbizSales />} />
           <Route path="shopee-sales" element={<ShopeeSales />} />
-          <Route path="shopee-sales/settings" element={<Navigate to="/tools/payout/settings" replace />} />
+          <Route path="shopee-sales/settings" element={<Navigate to="/tools/scopes" replace />} />
           <Route path="sku-mappings" element={<Navigate to="/items/sku-mappings" replace />} />
           <Route path="product-categories" element={<CyberbizProductCategories />} />
           <Route path="external-products" element={<Navigate to="/items/sku-mappings" replace />} />
