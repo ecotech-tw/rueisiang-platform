@@ -14,6 +14,7 @@ import { Invite } from "./routes/Invite.js";
 import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
 import { HrEmployees, HrSelf } from "./routes/hr/Employees.js";
+import { HrLanding, HrLayout } from "./routes/hr/HrLayout.js";
 import { ItemCategories } from "./routes/items/Categories.js";
 import { Items } from "./routes/items/Items.js";
 import { Payout } from "./routes/tools/Payout.js";
@@ -134,7 +135,8 @@ export function App() {
           <Route path="line" element={<LineSettings />} />
         </Route>
 
-        <Route path="hr">
+        <Route path="hr" element={<HrLayout />}>
+          <Route index element={<HrLanding />} />
           <Route path="employees" element={<HrEmployees />} />
           <Route path="me" element={<HrSelf />} />
         </Route>

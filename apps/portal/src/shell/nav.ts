@@ -5,9 +5,7 @@ export interface NavItem {
   label: string;
   to: string;
   /** 沒有這個權限的人看不到這一項。純外觀——真正的把關在 API。 */
-  permission?: Permission;
-  /** 本人入口依員工身分顯示，不需要額外授予管理權限。 */
-  employeeOnly?: boolean;
+  permission: Permission;
   /** 側邊選單收合成窄欄時只剩圖示，所以每一項都要有。 */
   icon: IconName;
   /**
@@ -92,10 +90,9 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     key: "hr",
-    label: "人事管理",
+    label: "HRIS",
     icon: "people",
     items: [
-      { label: "我的人事資料", to: "/hr/me", employeeOnly: true, icon: "people" },
       { label: "員工管理", to: "/hr/employees", permission: "hr:employee:read", icon: "list" },
     ],
   },

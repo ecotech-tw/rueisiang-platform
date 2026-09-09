@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import type { SessionUser } from "../auth/session.js";
+import { Icon } from "./icons.js";
 
 interface AccountPanelProps {
   user: SessionUser | null;
@@ -101,6 +102,21 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
             <span aria-hidden="true">☺</span>
             個人資料
           </Link>
+
+          {user.isEmployee ? (
+            <Link
+              className="account-menu-item"
+              role="menuitem"
+              to="/hr/me"
+              onClick={() => {
+                setOpen(false);
+                onNavigate();
+              }}
+            >
+              <Icon name="people" className="account-menu-icon" />
+              HR Information
+            </Link>
+          ) : null}
 
           <button type="button" className="account-menu-item danger" role="menuitem" onClick={onLogout}>
             <span aria-hidden="true">↪</span>

@@ -315,6 +315,7 @@
   text-decoration: none;
 }
 .account-menu-item:hover { background: var(--color-soft-line); }
+.account-menu-icon { width: 20px; height: 20px; flex: none; color: var(--color-brand); }
 .account-menu-item.danger { color: var(--color-brand-dark); font-weight: 700; }
 .account-menu-item.danger:hover { background: var(--color-brand-soft); }
 
@@ -361,6 +362,38 @@
  * 留著的話地圖四周會有一圈 32px 的白邊，那正是「鋪滿」要拿掉的東西。
  */
 .content:has(.page.bleed) { padding: 0; overflow: hidden; }
+
+/* HRIS 內層導覽把個人入口與管理功能分組，避免把所有人事功能堆進 Sidebar。 */
+.hr-module { display: grid; gap: 20px; }
+.hr-module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-line);
+}
+.hr-module-title { display: flex; align-items: baseline; gap: 10px; flex: none; }
+.hr-module-kicker { color: var(--color-brand); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+.hr-module-title strong { color: var(--color-ink); font-size: 19px; letter-spacing: .02em; }
+.hr-module-nav { display: flex; align-items: center; gap: 14px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.hr-module-nav::-webkit-scrollbar { display: none; }
+.hr-module-group { display: flex; align-items: center; gap: 5px; flex: none; }
+.hr-module-group + .hr-module-group { padding-left: 14px; border-left: 1px solid var(--color-soft-line); }
+.hr-module-group-label { padding: 0 5px; color: var(--color-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.hr-module-link {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.hr-module-link:hover { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
+.hr-module-link:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-module-link.active { background: var(--color-brand-soft); color: var(--color-brand-dark); font-weight: 700; }
 
 /* 撐滿剩餘高度、內部捲動的頁面。 */
 .page.fills { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 20px; }
@@ -3977,3 +4010,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .manual-payout-step .admin-form.toolbar select,
 .manual-sales-step .admin-form.toolbar select { max-width: none; }
 .manual-sales-sku-input { min-width: 150px; max-width: 220px; }
+
+@media (max-width: 760px) {
+  .hr-module-header { align-items: stretch; flex-direction: column; gap: 10px; }
+  .hr-module-nav { width: 100%; justify-content: flex-start; }
+}
