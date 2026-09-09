@@ -32,6 +32,18 @@ const KIND_LABELS: Record<ManagementScope["scopeKind"], string> = {
   company: "彙總",
 };
 
+/**
+ * 來源＝這個通路的資料由哪一支 driver 進來，所以是固定的清單而不是自由文字。
+ *
+ * 只有 cyberbiz 會被出金表與商品銷售報表的 runner 執行；shopee 是人匯出 xlsx
+ * 再上傳；manual 完全靠人工補登。之後接新的 driver 就在這裡加一個。
+ */
+const SOURCE_OPTIONS = [
+  { value: "cyberbiz", label: "CYBERBIZ（runner 自動抓）" },
+  { value: "shopee", label: "蝦皮（匯出 xlsx 上傳）" },
+  { value: "manual", label: "人工補登" },
+] as const;
+
 const SOURCE_LABELS: Record<string, string> = {
   cyberbiz: "CYBERBIZ",
   shopee: "蝦皮",
@@ -66,6 +78,10 @@ function ScopeDialog({
   const save = useSaveScope();
   const toast = useToast();
   const valid = name.trim() !== "";
+  // 舊資料可能有清單以外的來源；不能因為選單沒有就把它悄悄換掉。
+  const sourceOptions = SOURCE_OPTIONS.some((option) => option.value === sourceType)
+    ? SOURCE_OPTIONS.map((option) => ({ label: option.label, value: option.value }))
+    : [{ label: sourceType, value: sourceType }, ...SOURCE_OPTIONS.map((option) => ({ label: option.label, value: option.value }))];
 
   return (
     <Dialog
@@ -79,7 +95,9 @@ function ScopeDialog({
           save.mutate({
             ...(scope ? { id: scope.id } : {}),
             name: name.trim(),
-            externalName: externalName.trim(),
+            // 外部店名只有 CYBERBIZ 用得到；換了來源就把它清掉，不要留一個
+            // 沒有人會再讀、卻看起來還有效的值。
+            externalName: sourceType === "cyberbiz" ? externalName.trim() : "",
             // 沒有 config 權限的人送這幾個欄位會被 API 擋成 403，所以乾脆不送。
             ...(canConfigure ? { sourceType, scopeKind, driveFolderUrl, driveFolderName } : {}),
           }, {
@@ -111,23 +129,24 @@ function ScopeDialog({
           value={scopeKind}
           onChange={(event) => setScopeKind(event.target.value as ManagementScope["scopeKind"])}
           options={KIND_OPTIONS.map((kind) => ({ label: kind.label, value: kind.value }))}
-          hint="櫃點是實體店面或櫃位，通路是線上賣場這類沒有店面的來源。"
         />
       ) : null}
       {canConfigure ? (
-        <TextField
+        <SelectField
           label="來源"
           value={sourceType}
           onChange={(event) => setSourceType(event.target.value)}
-          hint="只有 cyberbiz 的通路會被出金表與商品銷售報表的 runner 執行。"
+          options={sourceOptions}
         />
       ) : null}
-      <TextField
-        label="外部店名"
-        value={externalName}
-        onChange={(event) => setExternalName(event.target.value)}
-        hint="CYBERBIZ 後台的店名，runner 拿它找店。跟平台名稱不一樣時才要填。"
-      />
+      {sourceType === "cyberbiz" ? (
+        <TextField
+          label="外部店名"
+          value={externalName}
+          onChange={(event) => setExternalName(event.target.value)}
+          hint="CYBERBIZ 後台的店名，runner 拿它找店。跟平台名稱不一樣時才要填。"
+        />
+      ) : null}
       {canConfigure ? (
         <TextField
           label="Google Drive 資料夾連結"
