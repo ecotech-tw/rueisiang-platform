@@ -22,10 +22,10 @@ interface SidebarProps {
 }
 
 /** 沒有權限的項目直接不畫出來；父項的子項也要一起過濾。 */
-function visibleItems(items: NavItem[], permissions: ReadonlySet<Permission>): NavItem[] {
+function visibleItems(items: NavItem[], permissions: ReadonlySet<Permission>, isEmployee: boolean): NavItem[] {
   return items
-    .filter((item) => permissions.has(item.permission))
-    .map((item) => ({ ...item, children: visibleItems(item.children ?? [], permissions) }));
+    .filter((item) => item.employeeOnly ? isEmployee : Boolean(item.permission && permissions.has(item.permission)))
+    .map((item) => ({ ...item, children: visibleItems(item.children ?? [], permissions, isEmployee) }));
 }
 
 function Item({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
@@ -61,17 +61,19 @@ function Item({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
 function Section({
   section,
   permissions,
+  isEmployee,
   open,
   onToggle,
   onNavigate,
 }: {
   section: NavSection;
   permissions: ReadonlySet<Permission>;
+  isEmployee: boolean;
   open: boolean;
   onToggle: () => void;
   onNavigate: () => void;
 }) {
-  const items = visibleItems(section.items, permissions);
+  const items = visibleItems(section.items, permissions, isEmployee);
   if (!items.length) return null;
 
   return (
@@ -174,6 +176,7 @@ export function Sidebar({ permissions, collapsed, onToggle, user, onLogout, onNa
               key={section.key}
               section={section}
               permissions={permissions}
+              isEmployee={user?.isEmployee === true}
               open={openKey === section.key}
               onToggle={() => setOpenKey((current) => (current === section.key ? null : section.key))}
               onNavigate={onNavigate}

@@ -54,10 +54,8 @@ export const PERMISSIONS = {
   "assistant:line:write": "修改小香 LINE 前台設定",
 
   // 人事：全平台人事管理權限，不隨既有主管角色授予。
-  "hr:self:read": "檢視本人人事資料",
   "hr:employee:read": "檢視全平台員工與任職資料",
   "hr:employee:write": "管理全平台員工與任職資料",
-  "hr:employee:bind": "綁定員工登入帳號",
 
   // 系統
   "admin:user:read": "檢視帳號",

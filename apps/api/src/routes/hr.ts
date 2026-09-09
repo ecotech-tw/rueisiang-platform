@@ -1,6 +1,6 @@
 import {
-  HrError, bindHrUser, createHrAssignment, createHrEmployee, createHrEmployer, createHrEmployment,
-  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, listHrEmployees, listHrEmployers, listHrScopes, updateHrEmployee,
+  HrError, assignHrEmployee, createHrAssignment, createHrEmployment,
+  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, listHrCandidates, listHrEmployees, listHrScopes, updateHrEmployee,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -36,8 +36,14 @@ export const hr = new Hono<AppEnv>()
     if (error instanceof HrError || error instanceof HTTPException) return c.json({ error: error.message }, error.status);
     throw error;
   })
-  .get("/me", requirePermission("hr:self:read"), async (c) => c.json({ profile: await getHrSelf(c.get("db"), c.get("user").id) }))
-  .get("/employers", requirePermission("hr:employee:read"), async (c) => c.json({ employers: await listHrEmployers(c.get("db")) }))
+  // 本人資格來自員工關聯而不是手動授權；requireAuth 仍每次檢查帳號是否啟用。
+  .get("/me", async (c) => c.json({ profile: await getHrSelf(c.get("db"), c.get("user").id) }))
+  .get("/candidates", requirePermission("hr:employee:write"), async (c) => {
+    const page = Number(c.req.query("page") ?? "1");
+    const search = c.req.query("search")?.trim() ?? "";
+    if (!Number.isSafeInteger(page) || page < 1 || page > 10000 || search.length > 100) throw new HTTPException(400, { message: "查詢條件不正確。" });
+    return c.json(await listHrCandidates(c.get("db"), { page, search, userId: c.req.query("userId") }));
+  })
   .get("/scopes", requirePermission("hr:employee:read"), async (c) => c.json({ scopes: await listHrScopes(c.get("db")) }))
   .get("/employees", requirePermission("hr:employee:read"), async (c) => {
     const page = Number(c.req.query("page") ?? "1");
@@ -45,24 +51,16 @@ export const hr = new Hono<AppEnv>()
     return c.json(await listHrEmployees(c.get("db"), page));
   })
   .get("/employees/:id", requirePermission("hr:employee:read"), async (c) => c.json(await getHrEmployee(c.get("db"), c.req.param("id"))))
-  .post("/employers", requirePermission("hr:employee:write"), async (c) => {
-    const input = await body(c);
-    const registrationNumber = input.registrationNumber === null || input.registrationNumber === undefined || input.registrationNumber === "" ? null : text(input, "registrationNumber", "統編", 8);
-    if (registrationNumber && !/^\d{8}$/.test(registrationNumber)) throw new HTTPException(400, { message: "統編須為八位數字。" });
-    return c.json(await createHrEmployer(c.get("db"), { name: text(input, "name", "雇主名稱"), registrationNumber }, c.get("user")), 201);
-  })
   .post("/employees", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
-    return c.json(await createHrEmployee(c.get("db"), { employeeNumber: text(input, "employeeNumber", "員工編號", 40), displayName: text(input, "displayName", "姓名") }, c.get("user")), 201);
+    const hiredOn = date(input, "hiredOn")!;
+    const seniorityStartOn = date(input, "seniorityStartOn")!;
+    if (seniorityStartOn > hiredOn) throw new HTTPException(400, { message: "年資認列日起不得晚於到職日。" });
+    return c.json(await assignHrEmployee(c.get("db"), { userId: text(input, "userId", "使用者"), employeeNumber: text(input, "employeeNumber", "員工編號", 40), hiredOn, seniorityStartOn }, c.get("user")), 201);
   })
   .patch("/employees/:id", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
-    return c.json(await updateHrEmployee(c.get("db"), c.req.param("id"), { employeeNumber: text(input, "employeeNumber", "員工編號", 40), displayName: text(input, "displayName", "姓名"), revision: revision(input) }, c.get("user")));
-  })
-  .put("/employees/:id/account", requirePermission("hr:employee:bind"), async (c) => {
-    const input = await body(c);
-    const userEmail = input.userEmail === null ? null : text(input, "userEmail", "啟用帳號的電子信箱", 254).toLowerCase();
-    return c.json(await bindHrUser(c.get("db"), c.req.param("id"), { userEmail, revision: revision(input) }, c.get("user")));
+    return c.json(await updateHrEmployee(c.get("db"), c.req.param("id"), { employeeNumber: text(input, "employeeNumber", "員工編號", 40), revision: revision(input) }, c.get("user")));
   })
   .post("/employments", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
@@ -71,7 +69,7 @@ export const hr = new Hono<AppEnv>()
     const seniorityStartOn = date(input, "seniorityStartOn")!;
     period(hiredOn, endedOn);
     if (seniorityStartOn > hiredOn) throw new HTTPException(400, { message: "年資認列日起不得晚於到職日。" });
-    return c.json(await createHrEmployment(c.get("db"), { employeeId: text(input, "employeeId", "員工"), employerId: text(input, "employerId", "雇主"), hiredOn, endedOn, seniorityStartOn }, c.get("user")), 201);
+    return c.json(await createHrEmployment(c.get("db"), { userId: text(input, "userId", "員工"), hiredOn, endedOn, seniorityStartOn }, c.get("user")), 201);
   })
   .patch("/employments/:id/end", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);

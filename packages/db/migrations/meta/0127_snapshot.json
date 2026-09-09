@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9f940b39-3944-4dff-8500-507c4f96c91d",
+  "id": "1a447a6a-6f49-473a-b8aa-ccd38346c221",
   "prevId": "32972c57-963b-4aa9-84e2-e9a285805b80",
   "tables": {
     "cyberbiz_products": {
@@ -4174,8 +4174,8 @@
     "hr_employees": {
       "name": "hr_employees",
       "columns": {
-        "id": {
-          "name": "id",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": true,
           "notNull": true,
@@ -4186,20 +4186,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "display_name": {
-          "name": "display_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -4234,13 +4220,6 @@
             "employee_number"
           ],
           "isUnique": true
-        },
-        "idx_hr_employees_user": {
-          "name": "idx_hr_employees_user",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -4265,89 +4244,9 @@
           "name": "ck_hr_employees_number",
           "value": "length(trim(\"hr_employees\".\"employee_number\")) BETWEEN 1 AND 40"
         },
-        "ck_hr_employees_name": {
-          "name": "ck_hr_employees_name",
-          "value": "length(trim(\"hr_employees\".\"display_name\")) BETWEEN 1 AND 100"
-        },
         "ck_hr_employees_revision": {
           "name": "ck_hr_employees_revision",
           "value": "\"hr_employees\".\"revision\" > 0"
-        }
-      }
-    },
-    "hr_employers": {
-      "name": "hr_employers",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "registration_number": {
-          "name": "registration_number",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        }
-      },
-      "indexes": {
-        "idx_hr_employers_registration": {
-          "name": "idx_hr_employers_registration",
-          "columns": [
-            "registration_number"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "ck_hr_employers_name": {
-          "name": "ck_hr_employers_name",
-          "value": "length(trim(\"hr_employers\".\"name\")) BETWEEN 1 AND 100"
-        },
-        "ck_hr_employers_registration": {
-          "name": "ck_hr_employers_registration",
-          "value": "\"hr_employers\".\"registration_number\" IS NULL OR (length(\"hr_employers\".\"registration_number\") = 8 AND \"hr_employers\".\"registration_number\" NOT GLOB '*[^0-9]*')"
-        },
-        "ck_hr_employers_revision": {
-          "name": "ck_hr_employers_revision",
-          "value": "\"hr_employers\".\"revision\" > 0"
         }
       }
     },
@@ -4361,15 +4260,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "employee_id": {
-          "name": "employee_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "employer_id": {
-          "name": "employer_id",
+        "employee_user_id": {
+          "name": "employee_user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -4425,44 +4317,22 @@
         "idx_hr_employments_start": {
           "name": "idx_hr_employments_start",
           "columns": [
-            "employee_id",
-            "employer_id",
+            "employee_user_id",
             "hired_on"
           ],
           "isUnique": true
-        },
-        "idx_hr_employments_employer": {
-          "name": "idx_hr_employments_employer",
-          "columns": [
-            "employer_id",
-            "hired_on"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {
-        "hr_employments_employee_id_hr_employees_id_fk": {
-          "name": "hr_employments_employee_id_hr_employees_id_fk",
+        "hr_employments_employee_user_id_hr_employees_user_id_fk": {
+          "name": "hr_employments_employee_user_id_hr_employees_user_id_fk",
           "tableFrom": "hr_employments",
           "tableTo": "hr_employees",
           "columnsFrom": [
-            "employee_id"
+            "employee_user_id"
           ],
           "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "hr_employments_employer_id_hr_employers_id_fk": {
-          "name": "hr_employments_employer_id_hr_employers_id_fk",
-          "tableFrom": "hr_employments",
-          "tableTo": "hr_employers",
-          "columnsFrom": [
-            "employer_id"
-          ],
-          "columnsTo": [
-            "id"
+            "user_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"

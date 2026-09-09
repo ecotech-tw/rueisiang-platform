@@ -485,7 +485,7 @@ export async function deleteUser(db: Database, id: string): Promise<DeleteUserRe
   if (!row) return "not-found";
   if (row.status === "active") return "still-active";
 
-  const [employee] = await db.select({ id: hrEmployees.id }).from(hrEmployees).where(eq(hrEmployees.userId, id)).limit(1);
+  const [employee] = await db.select({ userId: hrEmployees.userId }).from(hrEmployees).where(eq(hrEmployees.userId, id)).limit(1);
   if (employee) return "employee-linked";
 
   await db.delete(users).where(eq(users.id, id));

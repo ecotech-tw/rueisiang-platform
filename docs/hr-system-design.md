@@ -1,6 +1,6 @@
 # HR 系統設計
 
-本文記錄尚未實作的 HR 擴充設計，不代表已通過法遵審查。人事基礎的實際欄位以 [hr-people schema](../packages/db/src/schema/hr-people.ts) 為準，API 與並行規則以 [hr-people service](../packages/db/src/hr-people.ts) 為準。待辦唯一來源為 [README 下一步](../README.md#下一步)；開發操作依 [development-workflow](./development-workflow.md)。
+本文定義 HR 擴充的領域邊界，不代表已通過法遵審查。人事基礎的實際欄位以 [hr-people schema](../packages/db/src/schema/hr-people.ts) 為準，API 與並行規則以 [hr-people service](../packages/db/src/hr-people.ts) 為準。待辦唯一來源為 [README 下一步](../README.md#下一步)；開發操作依 [development-workflow](./development-workflow.md)。
 
 ## 一、邊界與依賴
 
@@ -8,7 +8,7 @@ HR 提供員工入口、排班、打卡、請假／加班、績效分配、審�
 
 | 既有來源 | 整合方式與影響 |
 |---|---|
-| `packages/db/src/schema/auth.ts` 的 `users` | 員工可綁定帳號；帳號停權即時禁止操作，離職與帳號停權不是同一狀態 |
+| `packages/db/src/schema/auth.ts` 的 `users` | 平台使用者是員工身分來源；被指派後以 `user_id` 關聯，帳號停權即時禁止操作，離職與帳號停權不是同一狀態 |
 | `packages/db/src/schema/reports.ts` 的 `scopes` | 排班、任職與獎金使用其 ID；HR 適用性另以關聯設定，不改報表通路語意 |
 | `report_payout_daily`、`report_item_sales_monthly` | 僅為可選業績來源；出金不自動等於營業額，商品月報不能推出個人業績 |
 | `activityEvents`／`recordActivity()` | 沿用操作索引；擴充型別與 HR 可見性，敏感明細留在 HR 授權路徑 |
@@ -24,7 +24,7 @@ HR 提供員工入口、排班、打卡、請假／加班、績效分配、審�
 
 | 決策 | 影響／未確認時的邊界 |
 |---|---|
-| 員工數、雇主法人、同時多份聘僱 | 決定結算與投保歸屬；提案以獨立 employer 建模，即使只有一家也用真實一列，不以 scope 代替法人 |
+| 員工數、是否多法人、同時多份聘僱 | 第一版員工直接來自既有 `users`，不新增雇主建檔或帳號綁定；若未來真的有多法人，再以薪資／投保需求新增法人實體，不讓 scope 代替法人 |
 | 月／日／時薪及年資認列 | 薪資版本、到離職、復職、假別額度 |
 | 工時制度、跨夜、分段班、休息時間 | 班次規則與法遵檢查；不預設已取得變形工時必要程序 |
 | 10:30～19:30 為 50% 日薪的意義 | 時段與給薪係數分離；未確認合法計薪方式前不開放此係數用於正式結帳 |
@@ -40,9 +40,8 @@ HR 提供員工入口、排班、打卡、請假／加班、績效分配、審�
 
 ```mermaid
 erDiagram
-  users ||--o| hr_employees : account
+  users ||--|| hr_employees : employee
   hr_employees ||--o{ hr_employments : employment
-  hr_employers ||--o{ hr_employments : employer
   hr_employments ||--o{ hr_employee_scopes : assignment
   scopes ||--o{ hr_employee_scopes : location
   hr_employments ||--o{ hr_compensation_versions : salary
@@ -65,7 +64,7 @@ erDiagram
   hr_payslips ||--o{ hr_payslip_lines : detail
 ```
 
-ERD 省略審核、附件與快照明細關係；以下資料字典才是候選表的完整邊界。實作階段新增的具體欄位與 SQL 約束以 Drizzle schema 為唯一來源，不能另維護平行建表 SQL。
+ERD 省略審核、附件與快照明細關係；以下資料字典描述後續領域的表邊界。已落地的具體欄位與 SQL 約束以 Drizzle schema 為唯一來源，不能另維護平行建表 SQL。
 
 ## 四、SQL 共通契約
 
@@ -81,16 +80,19 @@ ERD 省略審核、附件與快照明細關係；以下資料字典才是候選�
 
 ### 4.1 人事、範圍與規則
 
-人事基礎使用 text ID、RESTRICT 外鍵、revision 與半開日期區間。`ended_on` 表示不再任職的第一天，不是最後出勤日。復職新增任職，結束任職前先結束超出期間的櫃點指派；同法人不可重疊，不同法人任職不在本階段推論其工時合法性。
+人事基礎使用 `users.id` 作為 `hr_employees.user_id` 的主鍵與外鍵，不再複製姓名，也不新增雇主或帳號綁定表。其他實體使用 text ID、RESTRICT 外鍵、revision 與半開日期區間。`ended_on` 表示不再任職的第一天，不是最後出勤日。復職新增任職，結束任職前先結束超出期間的櫃點指派；同一使用者的任職期間不可重疊。
 
-全平台人事讀寫與帳號綁定是獨立明確權限，不預設授予現有主管／同仁角色；帳號綁定決定本人可見性，不能只憑人事編輯權限修改。櫃點指派只是工作歸屬，不能當作管理授權。未知帳號與停用帳號不可新增綁定；離職不自動停權，帳號停權也不刪歷史。
+員工指派與全平台人事讀寫是獨立明確權限，不預設授予現有主管／同仁角色；員工指派直接選現有 user，完成後該 user 由 session 身分取得本人入口，不需要另一個本人讀取權限。櫃點指派只是工作歸屬，不能當作管理授權。不存在或已是員工的 user 不可重複指派；離職不自動停權，帳號停權也不刪歷史。
 
-基礎新增與結束入口不提供刪除或覆寫已結束期間；正式審核修訂與雇主編輯／停用依下列擴充設計處理。網站 `/hr/employees` 與 `/hr/me` 不提供打卡、排班或薪資計算。
+基礎指派與結束入口不提供刪除或覆寫已結束期間；正式審核修訂與未來法人／薪資設定依下列擴充設計處理。網站 `/hr/employees` 與 `/hr/me` 不提供打卡、排班或薪資計算。
 
 | 表 | 專屬欄位與關聯 | SQL 約束／主要索引 |
 |---|---|---|
+| `hr_employees` | `user_id → users.id`、`employee_number` | user_id PK/FK；員工編號唯一、非空 |
+| `hr_employments` | `employee_user_id → hr_employees.user_id`、`hired_on, ended_on?, seniority_start_on` | 日期有效；同 user 的任職期間不可重疊；索引 user + hired_on |
+| `hr_employee_scopes` | `employment_id`、`scope_id → scopes.id`、`valid_from, valid_to?` | 任職與 scope 的 FK；期間不可重疊；scope + valid_from 索引 |
 | `hr_management_scopes` | `user_id, scope_id` | 複合 PK；只授予範圍，不自行授予功能權限 |
-| `hr_work_rule_versions` | `employer_id, version_number, valid_from, valid_to?, rule_kind, source_url, confirmed_by` | 唯一 employer + version_number；允許的 rule_kind CHECK |
+| `hr_work_rule_versions` | `employer_id, version_number, valid_from, valid_to?, rule_kind, source_url, confirmed_by` | 未來多法人定案後才加入；唯一 employer + version_number；允許的 rule_kind CHECK |
 | `hr_compensation_versions` | `employment_id, version_number, valid_from, valid_to?, pay_basis, base_amount_minor, work_rule_version_id` | 唯一 employment + version_number；pay_basis 為 month/day/hour，金額非負 |
 | `hr_pay_components` | `code, name, direction, treatment_code` | code 唯一；earning/deduction/employer_cost；treatment 對應受控法遵分類，不以名稱判斷工資 |
 | `hr_compensation_components` | `compensation_version_id, pay_component_id, amount_minor` | 複合 PK；金額非負 |
@@ -111,7 +113,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典才是候選�
 | `hr_schedule_versions` | `employer_id, period_start, period_end, version_number, status, supersedes_id? → 同表, submitted_by?, approved_by?, decision_reason?` | 唯一 employer + period_start + period_end + version；狀態 CHECK |
 | `hr_schedule_entries` | `schedule_version_id, employment_id, scope_id, shift_version_id, work_date, starts_at, ends_at` | 結束大於開始；索引 employment + work_date、scope + work_date |
 | `hr_clock_sources` | `source_kind, source_key, active` | 唯一 kind + key；portal/rfid/line/manual |
-| `hr_clock_events` | `employee_id, scope_id?, source_id, external_event_id, occurred_at, received_at, event_kind` | 唯一 source + external_event；索引 employee + occurred_at；未知進出可用 observation |
+| `hr_clock_events` | `employee_user_id, scope_id?, source_id, external_event_id, occurred_at, received_at, event_kind` | 唯一 source + external_event；索引 employee_user_id + occurred_at；未知進出可用 observation |
 | `hr_clock_correction_requests` | `employment_id, schedule_entry_id?, original_event_id?, proposed_at, proposed_kind, reason, status, submitted_by, reviewed_by?, reviewed_at?, decision_reason?` | 狀態 CHECK；索引 employment + status |
 | `hr_attendance_runs` | `employer_id, period_start, period_end, input_revision, engine_version, status, request_id` | request 唯一；狀態 CHECK |
 | `hr_attendance_results` | `attendance_run_id, schedule_entry_id, worked_seconds, late_seconds, early_seconds, missing_kind, status` | 唯一 run + entry；秒數非負 |
@@ -212,11 +214,12 @@ ERD 省略審核、附件與快照明細關係；以下資料字典才是候選�
 
 ## 六、入口、權限與私密資料
 
-以下只定義後續功能的授權契約；正式權限以 permissions.ts 為唯一來源。人事基礎使用 `hr:self:read`、`hr:employee:read`、`hr:employee:write` 與 `hr:employee:bind`，不要把尚未加入目錄的候選權限同步到資料庫。
+以下只定義後續功能的授權契約；正式權限以 `permissions.ts` 為唯一來源。人事基礎使用 `hr:employee:read`、`hr:employee:write`，本人入口只要求登入且由 `users.id → hr_employees.user_id` 判定，不新增或同步另一個本人讀取權限。
 
 | API／UI 契約（候選） | 權限 | 資料範圍與驗證 |
 |---|---|---|
-| `/api/hr/me`、`/me/schedule`、`/me/attendance` | `hr:self:read` | 只由 session user 解析 employee，不接受代指定本人 ID |
+| `/api/hr/me`、`/me/schedule`、`/me/attendance` | 僅需登入／未來依功能要求 | 只由 session user 解析 employee，不接受代指定本人 ID |
+| `/api/hr/candidates`、`/employees` POST | `hr:employee:write` | 從既有 users 選取；不得任意建立第二個人員身分 |
 | `POST /api/hr/me/clock-events` | `hr:clock:create` | 現行任職、伺服器時間、idempotency key；網站不允許回填時間 |
 | `/api/hr/me/leave-requests`、`/overtime-requests`、`/clock-corrections` | `hr:request:create` | 本人；申請可表達歷史時間但需審核 |
 | `/api/hr/employees` | `hr:employee:read/write` | 此表記法代表各自 read、write 鍵；薪資與私密欄位另驗權 |
@@ -232,7 +235,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典才是候選�
 
 Portal 沿用 M3 元件，提供手機打卡與班表、週／月員工×日期快速排班、多格套班、差異審核、出勤異常列表與逐項可展開薪資單。AI／Excel 排班輸入先存草稿、來源附件與不確定欄位，經人類發布才生效。
 
-RFID 簽章、防重送、設備綁定與撤銷；LINE 透過可信 channel 身分綁定員工，不信任模型傳來的 employee_id。小香專屬整合資料同時含 assistantKey 與 channelKey 並引用 channel 主鍵。模型不能直接結帳或核准自己的代送申請。離線裝置事件同時保留 occurred_at／received_at，超出可信時間窗口轉待確認，不當即時網站打卡。
+RFID 簽章、防重送、設備綁定與撤銷；LINE 透過可信 channel 身分解析既有 `user_id`／員工，不信任模型傳來的 employee_user_id。小香專屬整合資料同時含 assistantKey 與 channelKey 並引用 channel 主鍵。模型不能直接結帳或核准自己的代送申請。離線裝置事件同時保留 occurred_at／received_at，超出可信時間窗口轉待確認，不當即時網站打卡。
 
 薪資、身分證、銀行帳號、請假證明不得進通用可見的 audit payload、錯誤或公開媒體 URL。快取按授權隔離；私密下載須短效／不可公開快取。資料留存、刪除申請、備份存取與法定保存年限以正式核定制度設定，不能把帳號刪除 cascade 成出勤／工資紀錄刪除。
 
@@ -242,7 +245,8 @@ RFID 簽章、防重送、設備綁定與撤銷；LINE 透過可信 channel 身�
 
 | 切片 | 交付邊界 | 進入下一階段的證據 |
 |---|---|---|
-| 設計 | ERD、資料字典、權限、制度問題與案例 | 人類確認制度、schema review 找出不變量與關鍵 query；無 migration |
+| 設計 | ERD、資料字典、權限、制度問題與案例 | 人類確認制度、schema review 找出不變量與關鍵 query |
+| 員工基礎 | 從既有 users 指派員工、任職／復職、櫃點歸屬與本人入口 | 不重複指派、任職不重疊、停用保留歷史、本人只能看 session 對應資料 |
 | 排班 | 班次版本、快速排班、送審／發布 | 跨櫃衝突、分段／跨夜、同時發布、已發布不可覆寫 |
 | 打卡出勤 | 網站事件、補卡、異常、出勤計算 | 單卡、重送、跨夜歸屬、休息、無班打卡、補卡後重算 |
 | 假別加班 | 申請、額度、補休、特殊日 | 並行超用、撤回退額度、法定案例、颱風排班資格凍結 |

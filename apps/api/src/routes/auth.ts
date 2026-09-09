@@ -23,6 +23,7 @@ import {
   authenticateWithPassword,
   findInvitation,
   loadAuthUser,
+  isHrEmployee,
   recordLogin,
   updateProfile,
 } from "@rueisiang/db";
@@ -281,7 +282,7 @@ export const auth = new Hono<AppEnv>()
   })
 
   /** 前端啟動時呼叫這一條決定 sidebar 顯示什麼。權限仍以每個 API 自己的檢查為準。 */
-  .get("/me", requireAuth, (c) => {
+  .get("/me", requireAuth, async (c) => {
     const user = c.get("user");
     return c.json({
       id: user.id,
@@ -291,5 +292,6 @@ export const auth = new Hono<AppEnv>()
       pictureUrl: user.pictureUrl,
       permissions: permissionsOf(user),
       roles: user.assignments.map((assignment) => assignment.roleKey),
+      isEmployee: await isHrEmployee(c.get("db"), user.id),
     });
   });

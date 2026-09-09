@@ -10,6 +10,8 @@ export interface SessionUser {
   pictureUrl: string;
   permissions: Permission[];
   roles: string[];
+  /** 人事身分，不是管理權限；員工自動取得本人入口。 */
+  isEmployee?: boolean;
 }
 
 /** 未登入時回 null 而不是丟錯——這是預期中的狀態，不是異常。 */
