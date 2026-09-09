@@ -154,6 +154,7 @@ describe("HR 員工基礎", () => {
     await assign("self");
     const activity = await listActivity(db, { source: "all", search: "", page: 1, pageSize: 50 });
     expect(activity.events).toEqual([]);
+    expect((await listActivity(db, { source: "hr", search: "", page: 1, pageSize: 50 })).events).toEqual([]);
     d1.sqlite.exec("CREATE TRIGGER fail_hr_audit BEFORE INSERT ON activity_events WHEN NEW.source='hr' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;");
     expect((await request("/hr/employees", "POST", { userId: "other", employeeNumber: "FAILED", hiredOn: "2026-01-01", seniorityStartOn: "2026-01-01" })).status).toBe(500);
     expect(d1.sqlite.prepare("SELECT user_id FROM hr_employees WHERE user_id='other'").get()).toBeUndefined();

@@ -146,8 +146,8 @@ export interface ActivityResult {
  * 從畫面上消失，等於「刪掉一個客戶」這件事本身也查不到了。
  */
 export async function listActivity(db: Database, query: ActivityQuery): Promise<ActivityResult> {
-  // 人事紀錄不可因 CRM 選了「全部來源」而外洩。HR 來源須由獨立授權入口明確指定。
-  const conditions: SQL[] = query.source === "hr" ? [] : [sql`${activityEvents.source} <> 'hr'`];
+  // 人事紀錄不可由共用操作紀錄 helper 回傳；若要看 HR 稽核，必須走獨立授權查詢入口。
+  const conditions: SQL[] = [sql`${activityEvents.source} <> 'hr'`];
   if (query.entityType) conditions.push(eq(activityEvents.entityType, query.entityType));
   if (query.entityTypes?.length) {
     conditions.push(inArray(activityEvents.entityType, [...query.entityTypes]));
