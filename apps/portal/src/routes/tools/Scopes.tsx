@@ -39,15 +39,15 @@ const KIND_LABELS: Record<ManagementScope["scopeKind"], string> = {
  * 再上傳；manual 完全靠人工補登。之後接新的 driver 就在這裡加一個。
  */
 const SOURCE_OPTIONS = [
-  { value: "cyberbiz", label: "CYBERBIZ（runner 自動抓）" },
-  { value: "shopee", label: "蝦皮（匯出 xlsx 上傳）" },
-  { value: "manual", label: "人工補登" },
+  { value: "cyberbiz", label: "CYBERBIZ" },
+  { value: "shopee", label: "蝦皮" },
+  { value: "manual", label: "其他" },
 ] as const;
 
 const SOURCE_LABELS: Record<string, string> = {
   cyberbiz: "CYBERBIZ",
   shopee: "蝦皮",
-  manual: "人工補登",
+  manual: "其他",
 };
 
 function sourceLabel(sourceType: string): string {
