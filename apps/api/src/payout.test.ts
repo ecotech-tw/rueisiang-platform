@@ -451,13 +451,25 @@ describe("手動上傳出金", () => {
     expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
   });
 
-  it("不認得的既有 scope 會改用可納入公司總計的 manual scope", async () => {
-    await upsertReportScope(db(), { id: "invalid-scope-id", scopeKind: "store", name: "舊店" });
+  // 既有 scope 一律沿用，不看前綴：換掉它等於把同一家店的歷史拆成兩個通路。
+  it("既有 scope 沿用原本的 ID，只有 ID 含不允許的字元才改用 manual scope", async () => {
+    await upsertReportScope(db(), { id: "no-prefix-scope-id", scopeKind: "store", name: "舊店" });
     const id = await seedUser("manual-scope@ecotech.tw", "role-admin");
+    const kept = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout", {
+      method: "POST",
+      body: JSON.stringify({
+        scopeId: "no-prefix-scope-id",
+        scopeName: "舊店",
+        rows: [{ businessDate: "2026-06-01", payoutAmount: 50 }],
+      }),
+    });
+    expect(kept.status).toBe(201);
+    expect((await kept.json() as { scopeId: string }).scopeId).toBe("no-prefix-scope-id");
+
     const response = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout", {
       method: "POST",
       body: JSON.stringify({
-        scopeId: "invalid-scope-id",
+        scopeId: "有空白 的 id",
         scopeName: "退租店",
         rows: [{ businessDate: "2026-07-01", payoutAmount: 100 }],
       }),
@@ -466,7 +478,7 @@ describe("手動上傳出金", () => {
     expect(response.status).toBe(201);
     const result = await response.json() as { scopeId: string };
     expect(result.scopeId).toMatch(/^manual:store:/);
-    expect((await db().select().from(reportPayoutDaily))[0]?.scopeId).toBe(result.scopeId);
+    expect((await db().select().from(reportPayoutDaily).where(eq(reportPayoutDaily.businessDate, "2026-07-01")))[0]?.scopeId).toBe(result.scopeId);
 
     const scopes = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout/scopes");
     expect(((await scopes.json()) as { scopes: { id: string }[] }).scopes).toContainEqual({ id: result.scopeId, name: "退租店" });

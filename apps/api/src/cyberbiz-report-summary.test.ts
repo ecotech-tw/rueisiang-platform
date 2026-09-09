@@ -244,7 +244,8 @@ describe("報表統計 API", () => {
     expect(await emptySecondPage.json()).toMatchObject({ page: 2, total: 2, rows: [] });
   });
 
-  it("summary 與 scope 清單由營運統計權限保護，且不回傳停用店", async () => {
+  // 統計是歷史：停用店仍要出現在清單裡，不然它過去的數字沒有地方查。
+  it("summary 與 scope 清單由營運統計權限保護，並含停用通路", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     await upsertReportScope(db(), { id: "shopee:store:default", scopeKind: "store", sourceType: "shopee", name: "蝦皮" });
     await insertReportPayoutDaily(db(), [{ scopeId: "cyberbiz:store:active", businessDate: "2026-08-01", payoutAmount: 2040 }]);
@@ -259,6 +260,7 @@ describe("報表統計 API", () => {
     expect(await scopes.json()).toEqual({
       latestSalesPeriod: "2026-08",
       scopes: [
+        { id: "cyberbiz:store:disabled", name: "停用店", latestSalesPeriod: null },
         { id: "cyberbiz:store:active", name: "啟用店", latestSalesPeriod: "2026-08" },
         { id: "shopee:store:default", name: "蝦皮", latestSalesPeriod: "2026-08" },
       ],
@@ -292,7 +294,8 @@ describe("報表統計 API", () => {
     expect(invalid.status).toBe(400);
   });
 
-  it("report management can create, rename, disable, and re-enable report scopes", async () => {
+  // 通路管理列出每一個通路，不挑 source 也不挑 kind——它們都會有報表。
+  it("通路管理可以新增、改名、停用與重新啟用，且列出所有通路", async () => {
     const manager = await seedUser("manager-scope-management@ecotech.tw", "role-manager");
 
     await upsertReportScope(db(), { id: "shopee:store:default", scopeKind: "store", sourceType: "shopee", name: "蝦皮" });
@@ -305,7 +308,9 @@ describe("報表統計 API", () => {
     expect(initial.status).toBe(200);
     expect(await initial.json()).toMatchObject({
       scopes: [
+        { id: "company", name: "公司整體", active: true },
         { id: "cyberbiz:store:active", name: "啟用店", active: true },
+        { id: "shopee:store:default", name: "蝦皮", active: true },
         { id: "cyberbiz:store:disabled", name: "停用店", active: false },
       ],
     });
@@ -485,7 +490,7 @@ describe("報表統計 API", () => {
       "POST",
       manager,
       "manager-report-import@ecotech.tw",
-      { scopeId: "invalid-scope-id", scopeName: "錯誤 scope", rows: [{ businessDate: "2026-08-01", payoutAmount: 1 }] },
+      { scopeId: "有空白 的 id", scopeName: "錯誤 scope", rows: [{ businessDate: "2026-08-01", payoutAmount: 1 }] },
     )).status).toBe(400);
   });
 

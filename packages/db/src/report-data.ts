@@ -250,9 +250,27 @@ function asReportScope(scope: typeof targetScopes.$inferSelect): ReportScope {
   };
 }
 
+/**
+ * 還在營運、可以挑的通路。**只給挑選用**——執行頁、補登下拉這種「要新增資料」的
+ * 地方。報表計算不能用這個，見 listAllReportScopes。
+ */
 export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind): Promise<ReportScope[]> {
   const rows = await db.select().from(targetScopes)
     .where(and(eq(targetScopes.active, 1), scopeKind ? eq(targetScopes.scopeKind, scopeKind) : undefined))
+    .orderBy(asc(targetScopes.name));
+  return rows.map(asReportScope);
+}
+
+/**
+ * 全部的通路，含已停用。
+ *
+ * 報表是歷史：一家店收掉之後，它過去的出金與銷售仍然是公司的營收，仍然要能查、
+ * 仍然要進公司總額。用 active 濾名冊等於「關掉開關就把歷史抹掉一塊」，而且抹掉
+ * 的當下沒有任何錯誤訊息——只是數字變小。
+ */
+export async function listAllReportScopes(db: Database, scopeKind?: ReportScopeKind): Promise<ReportScope[]> {
+  const rows = await db.select().from(targetScopes)
+    .where(scopeKind ? eq(targetScopes.scopeKind, scopeKind) : undefined)
     .orderBy(asc(targetScopes.name));
   return rows.map(asReportScope);
 }
@@ -301,7 +319,7 @@ export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
 
   function stores(): Promise<ReportScope[]> {
     // 失敗的 promise 不能留下來，不然同一次請求後續的呼叫拿到的都是同一個錯誤，連重試都沒有。
-    return (all ??= listReportScopes(db, "store").catch((error) => {
+    return (all ??= listAllReportScopes(db, "store").catch((error) => {
       all = undefined;
       throw error;
     }));
@@ -310,8 +328,8 @@ export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
   return {
     stores,
     /*
-     * 從同一份名冊推導，不另外查一次。名冊的條件（scopeKind = store 且 active）
-     * 跟 findReportScope 的 id 分支完全等價，name 分支也只是比對 normalizedName
+     * 從同一份名冊推導，不另外查一次。名冊的條件（scopeKind = store）跟
+     * findReportScope 的 id 分支完全等價，name 分支也只是比對 normalizedName
      * 再加上「超過一筆就是同名」，所以指定店別的下限是一次查詢而不是兩次。
      */
     async store(lookup) {
@@ -590,13 +608,6 @@ const SALES_GROUPS: Record<SalesGroupBy, { alias: string; expression: ReturnType
 
 type PayoutGroupBy = "day" | "month" | "scope";
 
-const REPORT_STORE_SCOPE_ID = /^(?:[A-Za-z][A-Za-z0-9_-]*:store:|store-)/;
-
-/** 公司報表會納入的店別 scope 格式；避免寫入查不到的孤兒 scope。 */
-export function isCompanyReportStoreScopeId(scopeId: string): boolean {
-  return REPORT_STORE_SCOPE_ID.test(scopeId);
-}
-
 const PAYOUT_GROUPS: Record<PayoutGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
   day: { alias: "businessDate", expression: EFFECTIVE_PAYOUT_COLUMNS.businessDate },
   month: { alias: "reportMonth", expression: sql`substr(${EFFECTIVE_PAYOUT_COLUMNS.businessDate}, 1, 7)` },
@@ -627,15 +638,14 @@ export async function scopeIdsForQuery(
     if (!scope) return { ids: [] };
     // 同一店別可能同時有 CYBERBIZ 與 payout 的 scope ID；查單店時兩邊資料要一起算。
     const aliases = (await directory.stores())
-      .filter((candidate) => !candidate.id.startsWith("shopee:") && candidate.scopeKind === scope.scopeKind && candidate.normalizedName === scope.normalizedName)
+      .filter((candidate) => candidate.scopeKind === scope.scopeKind && candidate.normalizedName === scope.normalizedName)
       .map((candidate) => candidate.id);
     return { ids: aliases.length ? aliases : [scope.id], scope };
   }
   return {
-    // 公司總額納入所有通路，但只接受既定的 channel:store:id 格式與舊版 store- ID。
-    ids: (await directory.stores())
-      .filter((scope) => isCompanyReportStoreScopeId(scope.id))
-      .map((scope) => scope.id),
+    // 公司總額納入每一個 store 通路。不看 ID 前綴、也不看停用與否：顆粒度不同
+    // （出金有些是月結）是報表要處理的事，不是決定它算不算公司營收的條件。
+    ids: (await directory.stores()).map((scope) => scope.id),
   };
 }
 

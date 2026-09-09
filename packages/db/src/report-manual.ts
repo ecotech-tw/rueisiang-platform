@@ -2,7 +2,7 @@ import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
-import { isCompanyReportStoreScopeId, isValidReportDate, normalizeReportScopeName, scopeSourceTypeFromId, type ReportManualSkuSource } from "./report-data.js";
+import { isValidReportDate, normalizeReportScopeName, scopeSourceTypeFromId, type ReportManualSkuSource } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
 import {
   reportItemSalesMonthly,
@@ -11,6 +11,7 @@ import {
 } from "./schema/reports.js";
 import { itemCategories, cyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { normalizeExternalSku } from "./product-sku-mappings.js";
+import { isValidScopeId } from "./scope-id.js";
 
 function targetPayoutRecordId(scopeId: string, businessDate: string): string {
   return `target:${scopeId}:${businessDate}`;
@@ -149,34 +150,28 @@ async function requireScope(db: Database, scopeId: string) {
   const id = scopeId.trim();
   if (!id) throw new ReportManualError("invalid", "請選擇據點。");
   const [scope] = await db.select({ id: targetScopes.id, name: targetScopes.name })
-    .from(targetScopes)
-    .where(and(eq(targetScopes.id, id), eq(targetScopes.scopeKind, "store")))
-    .limit(1);
-  if (!scope || !isCompanyReportStoreScopeId(scope.id)) {
-    throw new ReportManualError("not_found", "找不到可納入公司報表的啟用據點。");
-  }
+    .from(targetScopes).where(eq(targetScopes.id, id)).limit(1);
+  if (!scope) throw new ReportManualError("not_found", "找不到這個通路。");
   return scope;
 }
 
 export async function listReportManagementScopes(db: Database): Promise<ReportManagementScope[]> {
   const rows = await db.select({ id: targetScopes.id, name: targetScopes.name, active: targetScopes.active })
     .from(targetScopes)
-    .where(and(eq(targetScopes.scopeKind, "store"), ne(targetScopes.sourceType, "shopee")))
     .orderBy(desc(targetScopes.active), asc(targetScopes.name));
-  return rows.filter((scope) => isCompanyReportStoreScopeId(scope.id)).map((scope) => ({ ...scope, active: scope.active === 1 }));
+  return rows.map((scope) => ({ ...scope, active: scope.active === 1 }));
 }
 
 export async function createReportManagementScope(db: Database, input: ReportManagementScopeInput): Promise<ReportManagementScope> {
   const id = input.id.trim();
   const name = input.name.trim();
-  if (!id || !isCompanyReportStoreScopeId(id) || !name) throw new ReportManualError("invalid", "據點 ID 或名稱不正確。");
+  if (!id || !isValidScopeId(id) || !name) throw new ReportManualError("invalid", "通路 ID 或名稱不正確。");
   const normalizedName = normalizeReportScopeName(name);
   const [existingId] = await db.select({ id: targetScopes.id }).from(targetScopes).where(eq(targetScopes.id, id)).limit(1);
   if (existingId) throw new ReportManualError("conflict", "這個據點 ID 已經存在。");
-  const [existingName] = await db.select({ id: targetScopes.id }).from(targetScopes).where(and(
-    eq(targetScopes.scopeKind, "store"), eq(targetScopes.normalizedName, normalizedName),
-  )).limit(1);
-  if (existingName) throw new ReportManualError("conflict", "這個據點名稱已經存在。");
+  const [existingName] = await db.select({ id: targetScopes.id }).from(targetScopes)
+    .where(eq(targetScopes.normalizedName, normalizedName)).limit(1);
+  if (existingName) throw new ReportManualError("conflict", "這個通路名稱已經存在。");
   const now = new Date().toISOString();
   await db.insert(targetScopes).values({
     id, sourceType: scopeSourceTypeFromId(id), scopeKind: "store", name, normalizedName,
@@ -191,17 +186,17 @@ export async function updateReportManagementScope(
   input: { id: string; name?: string; active?: boolean },
 ): Promise<ReportManagementScope> {
   const id = input.id.trim();
-  if (!id || !isCompanyReportStoreScopeId(id)) throw new ReportManualError("invalid", "據點 ID 不正確。");
+  if (!id || !isValidScopeId(id)) throw new ReportManualError("invalid", "通路 ID 不正確。");
   const [existing] = await db.select({ id: targetScopes.id, name: targetScopes.name, active: targetScopes.active })
-    .from(targetScopes).where(and(eq(targetScopes.id, id), eq(targetScopes.scopeKind, "store"))).limit(1);
-  if (!existing) throw new ReportManualError("not_found", "找不到這個據點。");
+    .from(targetScopes).where(eq(targetScopes.id, id)).limit(1);
+  if (!existing) throw new ReportManualError("not_found", "找不到這個通路。");
   const name = input.name === undefined ? existing.name : input.name.trim();
-  if (!name) throw new ReportManualError("invalid", "據點名稱不可為空白。");
+  if (!name) throw new ReportManualError("invalid", "通路名稱不可為空白。");
   if (name !== existing.name) {
     const [duplicate] = await db.select({ id: targetScopes.id }).from(targetScopes).where(and(
-      eq(targetScopes.scopeKind, "store"), eq(targetScopes.normalizedName, normalizeReportScopeName(name)), ne(targetScopes.id, id),
+      eq(targetScopes.normalizedName, normalizeReportScopeName(name)), ne(targetScopes.id, id),
     )).limit(1);
-    if (duplicate) throw new ReportManualError("conflict", "這個據點名稱已經存在。");
+    if (duplicate) throw new ReportManualError("conflict", "這個通路名稱已經存在。");
   }
   const active = input.active === undefined ? existing.active === 1 : input.active;
   await db.update(targetScopes).set({ name, normalizedName: normalizeReportScopeName(name), active: active ? 1 : 0, updatedAt: new Date().toISOString() })

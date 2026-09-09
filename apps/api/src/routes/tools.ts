@@ -13,7 +13,7 @@ import {
   loadProductSkuMappingManagement,
   updateProductSkuMapping,
   insertReportPayoutDaily,
-  isCompanyReportStoreScopeId,
+  isValidScopeId,
   listReportScopes,
   normalizeReportScopeName,
   ReportScopeAmbiguousError,
@@ -222,8 +222,7 @@ export const tools = new Hono<AppEnv>()
    * sales 那樣要求完整月份。
    */
   .get("/manual-payout/scopes", requirePermission("tools:payout:config"), async (c) => {
-    const scopes = (await listReportScopes(c.get("db"), "store"))
-      .filter((scope) => isCompanyReportStoreScopeId(scope.id));
+    const scopes = await listReportScopes(c.get("db"), "store");
     return c.json({ scopes: scopes.map((scope) => ({ id: scope.id, name: scope.name })) });
   })
 
@@ -232,7 +231,7 @@ export const tools = new Hono<AppEnv>()
     const scopeName = requireString(input, "scopeName", "據點名稱");
     // 既有據點沿用它的 ID，才不會讓同一家店的歷史被拆成兩個 scope。
     const requestedScopeId = typeof input.scopeId === "string" ? input.scopeId.trim() : "";
-    const scopeId = requestedScopeId && isCompanyReportStoreScopeId(requestedScopeId)
+    const scopeId = requestedScopeId && isValidScopeId(requestedScopeId)
       ? requestedScopeId
       : manualScopeIdFromStoreName(scopeName);
 

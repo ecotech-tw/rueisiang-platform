@@ -141,7 +141,7 @@ export {
   queryReportPayout,
   queryReportSales,
   scopeIdsForQuery,
-  isCompanyReportStoreScopeId,
+  listAllReportScopes,
   canonicalReportStoreScopes,
   ReportScopeAmbiguousError,
   upsertReportScope,
@@ -364,7 +364,7 @@ export {
   saveShopeeSalesSettings,
   type ShopeeSalesSettingsInput,
 } from "./shopee-sales.js";
-export { cyberbizScopeIdFromStoreName } from "./scope-id.js";
+export { cyberbizScopeIdFromStoreName, isValidScopeId } from "./scope-id.js";
 export {
   WAREHOUSE_CATEGORY_COLORS,
   WmsError,

@@ -12,7 +12,8 @@ import {
   deleteReportSalesRecords,
   insertReportSalesMonthly,
   insertReportPayoutDaily,
-  isCompanyReportStoreScopeId,
+  isValidScopeId,
+  listAllReportScopes,
   canonicalReportStoreScopes,
   isValidReportDate,
   latestReportSalesPeriods,
@@ -330,8 +331,8 @@ function importScope(input: Record<string, unknown>): {
 } {
   const scopeName = requireString(input, "scopeName", "據點名稱");
   const requestedScopeId = typeof input.scopeId === "string" ? input.scopeId.trim() : "";
-  if (requestedScopeId && !isCompanyReportStoreScopeId(requestedScopeId)) {
-    throw new HTTPException(400, { message: "據點 ID 不是公司報表可辨識的店別。" });
+  if (requestedScopeId && !isValidScopeId(requestedScopeId)) {
+    throw new HTTPException(400, { message: "通路 ID 含有不允許的字元。" });
   }
   return {
     scopeId: requestedScopeId || manualScopeIdFromStoreName(scopeName),
@@ -610,8 +611,8 @@ export const cyberbizReports = new Hono<AppEnv>()
   .use("*", requireAuth)
   .get("/scopes", requirePermission("reports:analytics:read"), async (c) => {
     const result = await cachedReportAnalytics(cacheClient(c.env), "scopes", async () => {
-      const allScopes = await listReportScopes(c.get("db"), "store");
-      const reportScopes = allScopes.filter((scope) => isCompanyReportStoreScopeId(scope.id));
+      // 含停用：統計看的是歷史，一家店收掉之後它過去的數字仍然要篩得出來。
+      const reportScopes = await listAllReportScopes(c.get("db"), "store");
       const scopes = canonicalReportStoreScopes(reportScopes);
       const latest = await latestReportSalesPeriods(c.get("db"), reportScopes.map((scope) => scope.id));
       return {
@@ -685,7 +686,7 @@ export const cyberbizReports = new Hono<AppEnv>()
     ]);
     return c.json({
       scopes: canonicalReportStoreScopes(scopes)
-        .filter((scope) => scope.active === 1 && isCompanyReportStoreScopeId(scope.id))
+        .filter((scope) => scope.active === 1)
         .map((scope) => ({ id: scope.id, name: scope.name })),
       products,
       categories: categories.map(({ id, name, color }) => ({ id, name, color })),

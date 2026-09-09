@@ -142,7 +142,8 @@ describe("報表統計比較期算法", () => {
 });
 
 describe("出金統計查詢", () => {
-  it("按日聚合、不補缺漏日期，並以有資料的天數計算日均", async () => {
+  // 停用只代表「不再新增資料」；它過去的出金仍然是公司的營收，統計要照算。
+  it("按日聚合、不補缺漏日期，並以有資料的天數計算日均；停用通路的歷史照算", async () => {
     await upsertReportScope(db(), { id: "cyberbiz:store:停用店", scopeKind: "store", name: "停用店", active: false });
     await insertReportPayoutDaily(db(), [
       { scopeId: WEST, businessDate: "2026-08-01", payoutAmount: 2040 },
@@ -164,24 +165,24 @@ describe("出金統計查詢", () => {
       granularity: "day",
       complete: true,
       current: {
-        total: 5140,
+        total: 15139,
         points: [
-          { key: "2026-08-01", value: 5040 },
+          { key: "2026-08-01", value: 15039 },
           { key: "2026-08-03", value: 100 },
         ],
       },
       previous: { total: 1000 },
       lastYear: { total: 0, points: [{ key: "2025-08-01", value: 0 }] },
-      dailyAverage: 2570,
+      dailyAverage: 7569.5,
       dataDays: 2,
-      highestDay: { date: "2026-08-01", value: 5040 },
-      growth: { mom: 4.14, yoy: null },
+      highestDay: { date: "2026-08-01", value: 15039 },
+      growth: { mom: 14.139, yoy: null },
     });
     expect(result.breakdown).toEqual([
+      expect.objectContaining({ scopeId: "cyberbiz:store:停用店", value: 9999, channel: "cyberbiz", yoy: null }),
       expect.objectContaining({ scopeId: EAST, value: 3000, channel: "cyberbiz", yoy: null }),
       expect.objectContaining({ scopeId: WEST, value: 2140, channel: "cyberbiz", yoy: null }),
     ]);
-    expect(result.breakdown.some((row) => row.scopeId === "cyberbiz:store:停用店")).toBe(false);
   });
 
   it("單店沒有資料時回傳空狀態，不把其他店的資料算進來", async () => {

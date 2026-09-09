@@ -163,10 +163,19 @@ describe("報表人工修訂資料", () => {
     expect(updated.productName).toBe("歷史分類商品（修訂）");
   });
 
-  it("人工資料只接受公司報表可辨識的據點，且同 key 不可重複", async () => {
-    await upsertReportScope(db(), { id: "invalid-scope-id", scopeKind: "store", name: "不納入據點" });
+  // 只要通路存在就收得下：ID 前綴不決定它算不算數，不存在的才擋。
+  it("人工資料接受任何存在的通路、擋掉不存在的，且同 key 不可重複", async () => {
+    await upsertReportScope(db(), { id: "no-prefix-scope-id", scopeKind: "store", name: "沒有前綴的通路" });
+    const accepted = await createReportManualPayout(db(), {
+      scopeId: "no-prefix-scope-id",
+      businessDate: "2026-08-01",
+      payoutAmount: 1,
+      actor: ACTOR,
+    });
+    expect(accepted.scopeId).toBe("no-prefix-scope-id");
+
     await expect(createReportManualPayout(db(), {
-      scopeId: "invalid-scope-id",
+      scopeId: "沒有這個通路",
       businessDate: "2026-08-01",
       payoutAmount: 1,
       actor: ACTOR,

@@ -55,7 +55,8 @@ describe("報表月資料查詢", () => {
     expect(result.totals).toEqual({ grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 380 });
   });
 
-  it("公司查詢會把蝦皮 scope 一起加總", async () => {
+  // 公司總額不看 ID 長什麼樣：每個通路都會有自己的銷售與金額，只是顆粒度不同。
+  it("公司查詢會把每一個通路一起加總，不論 ID 格式", async () => {
     const shopeeScope = "shopee:store:mall";
     await upsertReportScope(db(), { id: shopeeScope, scopeKind: "store", name: "蝦皮商城" });
     await insertReportSalesMonthly(db(), [{
@@ -63,18 +64,18 @@ describe("報表月資料查詢", () => {
       grossQuantity: 100, returnQuantity: 0, netQuantity: 100, salesAmount: 10000,
     }]);
     await insertReportPayoutDaily(db(), [{ scopeId: shopeeScope, businessDate: "2026-07-01", payoutAmount: 20000 }]);
-    await upsertReportScope(db(), { id: "invalid-scope-id", scopeKind: "store", name: "不應計入公司總額" });
+    await upsertReportScope(db(), { id: "no-prefix-scope-id", scopeKind: "store", name: "沒有前綴的通路" });
     await insertReportSalesMonthly(db(), [{
-      scopeId: "invalid-scope-id", reportMonth: "2026-07", sku: "SKU-INVALID", productName: "錯誤 scope", category: "其他",
+      scopeId: "no-prefix-scope-id", reportMonth: "2026-07", sku: "SKU-NO-PREFIX", productName: "沒有前綴的通路商品", category: "其他",
       grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 1,
     }]);
-    await insertReportPayoutDaily(db(), [{ scopeId: "invalid-scope-id", businessDate: "2026-07-01", payoutAmount: 1 }]);
+    await insertReportPayoutDaily(db(), [{ scopeId: "no-prefix-scope-id", businessDate: "2026-07-01", payoutAmount: 1 }]);
 
     const service = createCyberbizReportService(db());
     expect((await service.querySales({ period: "2026-07", scopeType: "company" })).totals)
-      .toEqual({ grossQuantity: 109, returnQuantity: 1, netQuantity: 108, salesAmount: 10680 });
+      .toEqual({ grossQuantity: 110, returnQuantity: 1, netQuantity: 109, salesAmount: 10681 });
     expect((await service.queryPayout({ period: "2026-07", scopeType: "company" })).totals)
-      .toEqual({ payoutAmount: 26000 });
+      .toEqual({ payoutAmount: 26001 });
   });
 
   it("公司查詢包含舊版 store- scope ID", async () => {
