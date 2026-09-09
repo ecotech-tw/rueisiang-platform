@@ -3,7 +3,7 @@ import { useArchiveScope, useSaveScope, useScopes, type ManagementScope } from "
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Switch } from "../../shell/Switch.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, DropdownSelect, PageHeader, Panel } from "../../ui/index.js";
 import { Tooltip } from "../../ui/Tooltip.js";
 import { useSession } from "../../auth/session.js";
 
@@ -18,11 +18,11 @@ import { useSession } from "../../auth/session.js";
  * 它們都有自己的銷售明細與金額，差別只在顆粒度與資料怎麼進來。
  */
 
-const KINDS: Array<{ value: ManagementScope["scopeKind"]; label: string; hint: string }> = [
-  { value: "store", label: "櫃點", hint: "實體店面或櫃位" },
-  { value: "channel", label: "通路", hint: "線上賣場這類沒有實體店面的來源" },
-  { value: "company", label: "彙總", hint: "不放資料的容器，不計入公司總額" },
-];
+const KIND_OPTIONS = [
+  { value: "store", label: "櫃點" },
+  { value: "channel", label: "通路" },
+  { value: "company", label: "彙總（不計入公司總額）" },
+] as const;
 
 const SOURCE_HINTS: Record<string, string> = {
   cyberbiz: "runner 會登入 CYBERBIZ 後台抓這家店的出金與銷售",
@@ -93,11 +93,6 @@ export function Scopes() {
       <PageHeader title="通路管理" />
 
       <Panel>
-        <p className="muted">
-          出金表、商品銷售報表與營運統計都掛在通路底下。<strong>停用</strong>只是不再出現在執行頁與補登選單，
-          過去的數字照樣算進報表；<strong>封存</strong>則是連管理清單都收起來。兩者都不會刪掉歷史資料。
-        </p>
-
         <div className="admin-form toolbar">
           <Button
             variant="secondary"
@@ -156,20 +151,16 @@ export function Scopes() {
                   </td>
                   {canConfigure ? (
                   <td>
-                    <select
+                    <DropdownSelect
                       aria-label={`${draft.name || "這個通路"}的種類`}
-                      className="cell-input"
+                      options={KIND_OPTIONS}
                       value={draft.scopeKind}
                       onChange={(event) => {
                         const scopeKind = event.target.value as ManagementScope["scopeKind"];
                         update(draft.key, { scopeKind });
                         save(draft.key, { scopeKind });
                       }}
-                    >
-                      {KINDS.map((kind) => (
-                        <option key={kind.value} value={kind.value}>{kind.label}</option>
-                      ))}
-                    </select>
+                    />
                   </td>
                   ) : null}
                   {canConfigure ? (
