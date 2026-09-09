@@ -114,7 +114,7 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
               }}
             >
               <Icon name="people" className="account-menu-icon" />
-              HR Information
+              我的人事資料
             </Link>
           ) : null}
 
