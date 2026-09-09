@@ -20,6 +20,8 @@ import {
   listActivity,
   loadWarehouse,
   normalizeCustomerQuery,
+  canonicalReportStoreScopes,
+  listReportScopes,
   type CyberbizPayoutQuery,
   type CyberbizSalesQuery,
   type ReportGroupBy,
@@ -1161,6 +1163,29 @@ const crmGetOrdersTool: PlatformToolDefinition = {
   },
 };
 
+export const LIST_REPORT_SCOPES_TOOL_KEY = "list_report_scopes";
+
+const listReportScopesTool: PlatformToolDefinition = {
+  key: LIST_REPORT_SCOPES_TOOL_KEY,
+  label: "列出報表據點",
+  description: "列出目前可供報表查詢的啟用據點正式名稱與 scopeId。當使用者用簡稱或不確定店名時，先呼叫這個工具，再把回傳的 scopeName 原樣傳給 query_payout_report 或 query_sales_report；不要自行猜測店名。",
+  defaultStatus: "enabled",
+  surfaces: ["sandbox", "line", "mcp"],
+  requiredPermissions: ["reports:cyberbiz:read"],
+  parameters: {
+    type: "object",
+    properties: {},
+  },
+  async execute(_input, context) {
+    const scopes = canonicalReportStoreScopes(await listReportScopes(database(context), "store"));
+    return json({
+      status: "ok",
+      scopeType: "store",
+      scopes: scopes.map((scope) => ({ scopeId: scope.id, scopeName: scope.name })),
+    });
+  },
+};
+
 const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
   key: "query_sales_report",
   label: "查詢商品銷售報表",
@@ -1263,6 +1288,7 @@ export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   crmSearchCustomersTool,
   crmGetCustomerTool,
   crmGetOrdersTool,
+  listReportScopesTool,
   cyberbizQuerySalesReportTool,
   cyberbizQueryPayoutReportTool,
 ];

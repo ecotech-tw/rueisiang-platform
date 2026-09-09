@@ -184,6 +184,59 @@ describe("0033 預設開放全部小香工具", () => {
   });
 });
 
+describe("0123 回填報表據點查詢工具", () => {
+  const legacyLineTools = [
+    "weather_open_meteo",
+    "wms_list_inventory",
+    "wms_search_warehouse",
+    "wms_get_inventory_item",
+    "wms_list_low_stock_items",
+    "wms_get_activity",
+    "crm_search_customers",
+    "crm_get_customer",
+    "crm_get_orders",
+    "query_sales_report",
+    "query_payout_report",
+  ];
+
+  it("只把新工具補給原本完整授權的 channel 與 custom 對話", () => {
+    const sqlite = freshAt("0122_crm_customer_children_restore.sql");
+    for (const [channelKey, complete] of [["complete-channel", true], ["partial-channel", false]] as const) {
+      sqlite.exec(`
+        INSERT INTO assistant_line_channels
+          (channel_key, assistant_key, channel_id, display_name, enabled, updated_by)
+        VALUES ('${channelKey}', '${channelKey}', 'ch', '小香', 1, 'test');
+        INSERT INTO assistant_line_groups
+          (id, channel_key, line_group_id, display_name, enabled, tool_mode)
+        VALUES ('${channelKey}-full', '${channelKey}', '${channelKey}-full', '完整授權', 1, 'custom'),
+               ('${channelKey}-partial', '${channelKey}', '${channelKey}-partial', '部分授權', 1, 'custom');
+      `);
+      const keys = complete ? legacyLineTools : legacyLineTools.slice(0, -1);
+      for (const key of keys) {
+        sqlite.exec(`
+          INSERT INTO assistant_channel_tools (id, channel_key, tool_key, created_by)
+          VALUES ('${channelKey}-${key}', '${channelKey}', '${key}', 'test');
+        `);
+      }
+      for (const [groupId, groupKeys] of [[`${channelKey}-full`, keys], [`${channelKey}-partial`, keys.slice(0, -1)]] as const) {
+        for (const key of groupKeys) {
+          sqlite.exec(`
+            INSERT INTO assistant_chat_tools (id, group_id, channel_tool_id, created_by)
+            VALUES ('${groupId}-${key}', '${groupId}', '${channelKey}-${key}', 'test');
+          `);
+        }
+      }
+    }
+
+    applyLikeD1(sqlite, "0122_crm_customer_children_restore.sql", "0123_backfill_line_scope_tool.sql");
+
+    expect(sqlite.prepare("SELECT channel_key, tool_key FROM assistant_channel_tools WHERE tool_key = 'list_report_scopes' ORDER BY channel_key").all())
+      .toEqual([{ channel_key: "complete-channel", tool_key: "list_report_scopes" }]);
+    expect(sqlite.prepare("SELECT group_id, channel_tool_id FROM assistant_chat_tools WHERE channel_tool_id IN (SELECT id FROM assistant_channel_tools WHERE tool_key = 'list_report_scopes')").all())
+      .toEqual([{ group_id: "complete-channel-full", channel_tool_id: expect.any(String) }]);
+  });
+});
+
 describe("被 0023 誤刪的 LINE 群組", () => {
   function migrated(to: string): DatabaseSync {
     const sqlite = new DatabaseSync(":memory:");

@@ -44,16 +44,27 @@ afterEach(() => {
 });
 
 describe("報表 MCP endpoint", () => {
-  it("協商、列出兩個工具，並直接查詢 D1 月資料", async () => {
+  it("協商、列出報表工具，並直接查詢 D1 月資料", async () => {
     const initialized = await call("initialize", 1, { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test-client", version: "1.0.0" } });
     expect(initialized.status).toBe(200);
     expect((await initialized.json() as { result: { protocolVersion: string } }).result.protocolVersion).toBe("2025-06-18");
 
     const listed = await call("tools/list", 2, {}, { "MCP-Protocol-Version": "2025-06-18" });
     const listBody = await listed.json() as { result: { tools: Array<{ name: string }> } };
-    expect(listBody.result.tools.map((tool) => tool.name)).toEqual(["query_sales_report", "query_payout_report"]);
+    expect(listBody.result.tools.map((tool) => tool.name)).toEqual(["list_report_scopes", "query_sales_report", "query_payout_report"]);
 
-    const queried = await call("tools/call", 3, {
+    const scopes = await call("tools/call", 3, {
+      name: "list_report_scopes",
+      arguments: {},
+    }, { "MCP-Protocol-Version": "2025-06-18" });
+    const scopesBody = await scopes.json() as { result: { isError: boolean; structuredContent: { scopes: Array<{ scopeName: string }> } } };
+    expect(scopesBody.result.isError).toBe(false);
+    expect(scopesBody.result.structuredContent.scopes).toEqual([
+      { scopeId: "cyberbiz:store:test", scopeName: "測試店" },
+      { scopeId: "shopee:store:default", scopeName: "蝦皮" },
+    ]);
+
+    const queried = await call("tools/call", 4, {
       name: "query_sales_report",
       arguments: { period: "2026-07", scopeType: "store", scopeName: "測試店", category: "沐浴" },
     }, { "MCP-Protocol-Version": "2025-06-18" });
