@@ -401,6 +401,7 @@ describe("只有 LINE 權限的人", () => {
       "crm_get_customer",
       "crm_get_orders",
       "crm_search_customers",
+      "list_report_scopes",
       "query_payout_report",
       "query_sales_report",
       "weather_open_meteo",
@@ -512,6 +513,7 @@ describe("AI 助理 Sandbox", () => {
       "crm_search_customers",
       "crm_get_customer",
       "crm_get_orders",
+      "list_report_scopes",
       "query_sales_report",
       "query_payout_report",
     ]);

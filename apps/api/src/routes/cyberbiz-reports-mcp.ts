@@ -9,7 +9,7 @@ const PROTOCOL_VERSION = "2025-06-18";
 const LEGACY_PROTOCOL_VERSION = "2025-03-26";
 const MAX_REQUEST_BYTES = 128 * 1024;
 const TOOL_TIMEOUT_MS = 15_000;
-const TOOL_KEYS = ["query_sales_report", "query_payout_report"] as const;
+const TOOL_KEYS = ["list_report_scopes", "query_sales_report", "query_payout_report"] as const;
 
 type JsonRpcId = string | number;
 type JsonRpcRequest = { jsonrpc: "2.0"; id?: JsonRpcId; method: string; params?: unknown };
