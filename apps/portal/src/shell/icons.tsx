@@ -44,6 +44,7 @@ export type IconName =
   | "copy"
   | "block"
   | "unblock"
+  | "archive"
   | "trash"
   | "close"
   | "bookmark"
@@ -308,6 +309,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="12" cy="12" r="8.2" />
       <path d="m8.3 12.2 2.6 2.6 4.8-5.2" />
+    </>
+  ),
+  archive: (
+    <>
+      <path d="M3.8 5.2h16.4v3.4H3.8z" />
+      <path d="M5.4 8.6v9.3a1.4 1.4 0 0 0 1.4 1.4h10.4a1.4 1.4 0 0 0 1.4-1.4V8.6" />
+      <path d="M12 11.2v4.6m0 0-2-2m2 2 2-2" />
     </>
   ),
   trash: (

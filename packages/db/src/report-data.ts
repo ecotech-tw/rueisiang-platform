@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
   reportItemSalesMonthly,
@@ -266,19 +266,18 @@ export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind
 }
 
 /**
- * 會有報表資料的全部通路：實體櫃點、蝦皮這種通路，含停用與已封存的。
+ * 全部的通路，一個都不挑。
  *
- * 排除 `company` kind——那一列是彙總的容器，把它加進總額會重複計算。除此之外
- * 不挑 source 也不挑 ID：每個通路都會有自己的銷售明細與金額，只是顆粒度不同。
+ * 不看 source、不看 kind、不看 ID 格式、不看停用與封存。每個通路都會有自己的
+ * 銷售明細與金額，只是顆粒度不同（出金有些是月結）——顆粒度是報表要處理的事，
+ * 不是決定它算不算公司營收的條件。
  *
- * 含停用與封存是刻意的。報表是歷史：一家店收掉之後，它過去的出金與銷售仍然是
+ * 含停用與封存尤其刻意。報表是歷史：一家店收掉之後，它過去的出金與銷售仍然是
  * 公司的營收，仍然要能查、仍然要進公司總額。用 active 濾名冊等於「關掉開關就把
  * 歷史抹掉一塊」，而且抹掉的當下沒有任何錯誤訊息——只是數字變小。
  */
 export async function listAllReportScopes(db: Database): Promise<ReportScope[]> {
-  const rows = await db.select().from(targetScopes)
-    .where(ne(targetScopes.scopeKind, "company"))
-    .orderBy(asc(targetScopes.name));
+  const rows = await db.select().from(targetScopes).orderBy(asc(targetScopes.name));
   return rows.map(asReportScope);
 }
 
@@ -335,8 +334,8 @@ export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
   return {
     stores,
     /*
-     * 從同一份名冊推導，不另外查一次。名冊的條件（非 company kind）跟
-     * findReportScope 的 id 分支完全等價，name 分支也只是比對 normalizedName
+     * 從同一份名冊推導，不另外查一次。名冊沒有任何篩選，所以跟 findReportScope
+     * 的 id 分支完全等價，name 分支也只是比對 normalizedName
      * 再加上「超過一筆就是同名」，所以指定店別的下限是一次查詢而不是兩次。
      */
     async store(lookup) {
@@ -649,11 +648,8 @@ export async function scopeIdsForQuery(
       .map((candidate) => candidate.id);
     return { ids: aliases.length ? aliases : [scope.id], scope };
   }
-  return {
-    // 公司總額納入每一個通路。不看 ID 前綴、也不看停用與否：顆粒度不同（出金有些
-    // 是月結）是報表要處理的事，不是決定它算不算公司營收的條件。
-    ids: (await directory.stores()).map((scope) => scope.id),
-  };
+  // 公司總額納入每一個通路，一個都不挑。
+  return { ids: (await directory.stores()).map((scope) => scope.id) };
 }
 
 function queryConditions(

@@ -260,6 +260,7 @@ describe("報表統計 API", () => {
     expect(await scopes.json()).toEqual({
       latestSalesPeriod: "2026-08",
       scopes: [
+        { id: "company", name: "公司整體", latestSalesPeriod: null },
         { id: "cyberbiz:store:disabled", name: "停用店", latestSalesPeriod: null },
         { id: "cyberbiz:store:active", name: "啟用店", latestSalesPeriod: "2026-08" },
         { id: "shopee:store:default", name: "蝦皮", latestSalesPeriod: "2026-08" },

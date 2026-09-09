@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useArchiveScope, useSaveScope, useScopes, type ManagementScope } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { useSession } from "../../auth/session.js";
 import { Switch } from "../../shell/Switch.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, DropdownSelect, PageHeader, Panel } from "../../ui/index.js";
-import { Tooltip } from "../../ui/Tooltip.js";
-import { useSession } from "../../auth/session.js";
+import { Pager } from "../../shell/Pager.js";
+import { SortableHeader } from "../../shell/SortableHeader.js";
+import { useToast } from "../../shell/Toast.js";
+import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 
 /**
  * 通路管理。
@@ -14,37 +16,136 @@ import { useSession } from "../../auth/session.js";
  * scopes 表、寫同一個 active 欄位，但篩選條件與刪除行為都不一樣——在其中一邊
  * 關掉一家店，另一邊的執行頁也會跟著消失，而沒有人預期那件事。
  *
- * 這裡叫「通路」不叫「店別」：實體櫃點、蝦皮賣場與之後的其他來源都掛在同一張表，
+ * 叫「通路」不叫「店別」：實體櫃點、蝦皮賣場與之後的其他來源都掛在同一張表，
  * 它們都有自己的銷售明細與金額，差別只在顆粒度與資料怎麼進來。
  */
 
 const KIND_OPTIONS = [
   { value: "store", label: "櫃點" },
   { value: "channel", label: "通路" },
-  { value: "company", label: "彙總（不計入公司總額）" },
+  { value: "company", label: "彙總" },
 ] as const;
 
-const SOURCE_HINTS: Record<string, string> = {
-  cyberbiz: "runner 會登入 CYBERBIZ 後台抓這家店的出金與銷售",
-  shopee: "蝦皮，報表由人匯出 xlsx 上傳",
-  manual: "沒有自動來源，資料靠人工補登",
+const KIND_LABELS: Record<ManagementScope["scopeKind"], string> = {
+  store: "櫃點",
+  channel: "通路",
+  company: "彙總",
 };
 
-type Draft = {
-  key: string;
-  id?: string;
-  name: string;
-  externalName: string;
-  sourceType: string;
-  scopeKind: ManagementScope["scopeKind"];
-  driveFolderUrl: string;
-  driveFolderName: string;
-  active: boolean;
-  archivedAt: string | null;
+const SOURCE_LABELS: Record<string, string> = {
+  cyberbiz: "CYBERBIZ",
+  shopee: "蝦皮",
+  manual: "人工補登",
 };
 
-function toDraft(scope: ManagementScope): Draft {
-  return { key: scope.id, ...scope };
+function sourceLabel(sourceType: string): string {
+  return SOURCE_LABELS[sourceType] ?? sourceType;
+}
+
+/** 停用與封存都不是刪除，但影響範圍不同，所以列上要看得出來是哪一種。 */
+function statusLabel(scope: ManagementScope): { label: string; tone: string } {
+  if (scope.archivedAt) return { label: "已封存", tone: "quiet" };
+  return scope.active ? { label: "營業中", tone: "ok" } : { label: "已停業", tone: "warn" };
+}
+
+function ScopeDialog({
+  scope,
+  canConfigure,
+  onClose,
+}: {
+  scope: ManagementScope | null;
+  canConfigure: boolean;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(scope?.name ?? "");
+  const [externalName, setExternalName] = useState(scope?.externalName ?? "");
+  const [sourceType, setSourceType] = useState(scope?.sourceType ?? "manual");
+  const [scopeKind, setScopeKind] = useState<ManagementScope["scopeKind"]>(scope?.scopeKind ?? "store");
+  const [driveFolderUrl, setDriveFolderUrl] = useState(scope?.driveFolderUrl ?? "");
+  const [driveFolderName, setDriveFolderName] = useState(scope?.driveFolderName ?? "");
+  const save = useSaveScope();
+  const toast = useToast();
+  const valid = name.trim() !== "";
+
+  return (
+    <Dialog
+      title={scope ? "編輯通路" : "新增通路"}
+      onClose={onClose}
+      closeDisabled={save.isPending}
+      formProps={{
+        onSubmit: (event) => {
+          event.preventDefault();
+          if (!valid) return;
+          save.mutate({
+            ...(scope ? { id: scope.id } : {}),
+            name: name.trim(),
+            externalName: externalName.trim(),
+            // 沒有 config 權限的人送這幾個欄位會被 API 擋成 403，所以乾脆不送。
+            ...(canConfigure ? { sourceType, scopeKind, driveFolderUrl, driveFolderName } : {}),
+          }, {
+            onSuccess: () => {
+              toast.show(scope ? `已更新「${name.trim()}」` : `已新增通路「${name.trim()}」`);
+              onClose();
+            },
+          });
+        },
+      }}
+      actions={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={save.isPending}>取消</Button>
+          <Button type="submit" loading={save.isPending} disabled={!valid}>儲存</Button>
+        </>
+      }
+    >
+      <TextField
+        label="通路名稱"
+        required
+        autoFocus
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        hint="平台上顯示的名字，隨時可以改。報表資料綁的是 ID，改名不會拆散歷史。"
+      />
+      {canConfigure ? (
+        <SelectField
+          label="種類"
+          value={scopeKind}
+          onChange={(event) => setScopeKind(event.target.value as ManagementScope["scopeKind"])}
+          options={KIND_OPTIONS.map((kind) => ({ label: kind.label, value: kind.value }))}
+          hint="櫃點是實體店面或櫃位，通路是線上賣場這類沒有店面的來源。"
+        />
+      ) : null}
+      {canConfigure ? (
+        <TextField
+          label="來源"
+          value={sourceType}
+          onChange={(event) => setSourceType(event.target.value)}
+          hint="只有 cyberbiz 的通路會被出金表與商品銷售報表的 runner 執行。"
+        />
+      ) : null}
+      <TextField
+        label="外部店名"
+        value={externalName}
+        onChange={(event) => setExternalName(event.target.value)}
+        hint="CYBERBIZ 後台的店名，runner 拿它找店。跟平台名稱不一樣時才要填。"
+      />
+      {canConfigure ? (
+        <TextField
+          label="Google Drive 資料夾連結"
+          value={driveFolderUrl}
+          onChange={(event) => setDriveFolderUrl(event.target.value)}
+          placeholder="https://drive.google.com/drive/folders/…"
+          hint="報表整理完會放到這個資料夾。"
+        />
+      ) : null}
+      {canConfigure ? (
+        <TextField
+          label="資料夾顯示名稱"
+          value={driveFolderName}
+          onChange={(event) => setDriveFolderName(event.target.value)}
+        />
+      ) : null}
+    </Dialog>
+  );
 }
 
 export function Scopes() {
@@ -52,36 +153,66 @@ export function Scopes() {
   // 來源、種類與 Drive 設定只有管理者能改，API 也擋著；這裡只是不要畫出改不動的欄位。
   const canConfigure = useSession().permissions.has("tools:payout:config");
   const query = useScopes();
-  const saveScope = useSaveScope();
   const archiveScope = useArchiveScope();
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [archiving, setArchiving] = useState<Draft | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
+  const saveScope = useSaveScope();
+  const toast = useToast();
 
-  useEffect(() => {
-    if (!query.data || loaded) return;
-    setDrafts(query.data.scopes.map(toDraft));
-    setLoaded(true);
-  }, [query.data, loaded]);
+  const [editing, setEditing] = useState<{ scope: ManagementScope | null } | null>(null);
+  const [archiving, setArchiving] = useState<ManagementScope | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("open");
+  const [kindFilter, setKindFilter] = useState("all");
+  const [sortField, setSortField] = useState("name");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const visible = useMemo(
-    () => drafts.filter((draft) => showArchived || !draft.archivedAt),
-    [drafts, showArchived],
-  );
-  const archivedCount = drafts.filter((draft) => draft.archivedAt).length;
-  const busy = saveScope.isPending || archiveScope.isPending;
+  const scopes = useMemo(() => query.data?.scopes ?? [], [query.data]);
 
-  function update(key: string, patch: Partial<Draft>) {
-    setDrafts((current) => current.map((draft) => (draft.key === key ? { ...draft, ...patch } : draft)));
+  const visible = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    const filtered = scopes.filter((scope) => {
+      if (statusFilter === "open" && (scope.archivedAt || !scope.active)) return false;
+      if (statusFilter === "closed" && (scope.archivedAt || scope.active)) return false;
+      if (statusFilter === "archived" && !scope.archivedAt) return false;
+      if (kindFilter !== "all" && scope.scopeKind !== kindFilter) return false;
+      if (!keyword) return true;
+      return [scope.name, scope.externalName, sourceLabel(scope.sourceType), scope.sourceType]
+        .some((value) => value.toLowerCase().includes(keyword));
+    });
+    const direction = sortDirection === "asc" ? 1 : -1;
+    return [...filtered].sort((left, right) => {
+      if (sortField === "kind") return direction * KIND_LABELS[left.scopeKind].localeCompare(KIND_LABELS[right.scopeKind], "zh-Hant");
+      if (sortField === "source") return direction * sourceLabel(left.sourceType).localeCompare(sourceLabel(right.sourceType), "zh-Hant");
+      if (sortField === "status") return direction * statusLabel(left).label.localeCompare(statusLabel(right).label, "zh-Hant");
+      return direction * left.name.localeCompare(right.name, "zh-Hant");
+    });
+  }, [scopes, search, statusFilter, kindFilter, sortField, sortDirection]);
+
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const rows = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  function sort(field: string, direction: "asc" | "desc") {
+    setSortField(field);
+    setSortDirection(direction);
+    setPage(1);
   }
 
-  /** 欄位離開就存。新的一列要有名字才存得起來——名稱是唯一必填。 */
-  function save(key: string, patch?: Partial<Draft>) {
-    const draft = { ...drafts.find((candidate) => candidate.key === key)!, ...patch };
-    if (!draft.name.trim()) return;
-    saveScope.mutate(draft, {
-      onSuccess: (result) => update(key, { id: result.scope.id, archivedAt: result.scope.archivedAt }),
+  /**
+   * 這個開關寫的是「這個通路還在營業」。
+   *
+   * 成功才跳 toast；失敗留在面板上緣的 Alert，那是 Toast.tsx 檔頭的決定——失敗
+   * 是要人讀完處理的東西，不能做成會自己消失的浮動提示。
+   *
+   * 關掉之後它不再出現在出金表／商品銷售報表的執行頁，也不能再補登資料；已經
+   * 匯入的數字照樣算進營運統計——報表是歷史，不會因為關掉開關就變少。
+   */
+  function toggleActive(scope: ManagementScope, active: boolean) {
+    saveScope.mutate({ id: scope.id, name: scope.name, active }, {
+      onSuccess: () => toast.show(active
+        ? `「${scope.name}」恢復營業，會重新出現在報表執行頁`
+        : `「${scope.name}」已停業，歷史數字仍算進營運統計`),
     });
   }
 
@@ -89,36 +220,41 @@ export function Scopes() {
   if (query.error) return <div className="page"><Alert tone="danger">{query.error.message}</Alert></div>;
 
   return (
-    <div className="page">
-      <PageHeader title="通路管理" />
+    <div className="page fills">
+      <PageHeader
+        title="通路管理"
+        description="出金表、商品銷售報表與營運統計都掛在通路底下。停業與封存都不會刪掉已經匯入的歷史資料。"
+        actions={<Button icon="plus" onClick={() => setEditing({ scope: null })}>新增通路</Button>}
+      />
 
-      <Panel>
-        <div className="admin-form toolbar">
-          <Button
-            variant="secondary"
-            disabled={busy}
-            onClick={() => setDrafts((current) => [...current, {
-              key: crypto.randomUUID(),
-              name: "",
-              externalName: "",
-              sourceType: "manual",
-              scopeKind: "store",
-              driveFolderUrl: "",
-              driveFolderName: "",
-              active: true,
-              archivedAt: null,
-            }])}
-          >
-            ＋ 新增通路
-          </Button>
-          {archivedCount ? (
-            <Button variant="link" onClick={() => setShowArchived((current) => !current)}>
-              {showArchived ? "隱藏已封存" : `顯示已封存（${archivedCount}）`}
-            </Button>
-          ) : null}
-          {busy ? <span className="form-hint">自動儲存中…</span> : null}
-          {!busy && saveScope.isSuccess ? <span className="form-hint">已自動儲存。</span> : null}
-        </div>
+      <Panel className="grows">
+        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+          <FilterInput
+            label="搜尋"
+            className="search-input"
+            type="search"
+            placeholder="搜尋通路名稱、外部店名或來源"
+            value={search}
+            onChange={(event) => { setSearch(event.target.value); setPage(1); }}
+          />
+          <FilterSelect
+            label="狀態"
+            value={statusFilter}
+            onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}
+            options={[
+              { value: "open", label: "營業中" },
+              { value: "closed", label: "已停業" },
+              { value: "archived", label: "已封存" },
+              { value: "all", label: "全部" },
+            ]}
+          />
+          <FilterSelect
+            label="種類"
+            value={kindFilter}
+            onChange={(event) => { setKindFilter(event.target.value); setPage(1); }}
+            options={[{ value: "all", label: "全部種類" }, ...KIND_OPTIONS.map((kind) => ({ value: kind.value, label: kind.label }))]}
+          />
+        </form>
 
         {saveScope.error ? <Alert tone="danger">{saveScope.error.message}</Alert> : null}
         {archiveScope.error ? <Alert tone="danger">{archiveScope.error.message}</Alert> : null}
@@ -127,142 +263,107 @@ export function Scopes() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>名稱</th>
-                {canConfigure ? <th>種類</th> : null}
-                {canConfigure ? <th>來源</th> : null}
-                <th>外部店名</th>
-                {canConfigure ? <th>Drive 資料夾連結</th> : null}
-                {canConfigure ? <th>資料夾顯示名稱</th> : null}
-                <th>啟用</th>
+                <SortableHeader label="通路" field="name" active={sortField} direction={sortDirection} onSort={sort} />
+                <SortableHeader label="種類" field="kind" active={sortField} direction={sortDirection} onSort={sort} />
+                <SortableHeader label="來源" field="source" active={sortField} direction={sortDirection} onSort={sort} />
+                {canConfigure ? <th>Drive 資料夾</th> : null}
+                <SortableHeader label="狀態" field="status" active={sortField} direction={sortDirection} onSort={sort} />
+                <th>還在營業</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {visible.map((draft, index) => (
-                <tr key={draft.key} className={draft.archivedAt ? "muted" : undefined}>
-                  <td>
-                    <input
-                      aria-label={`第 ${index + 1} 個通路的名稱`}
-                      className="cell-input"
-                      value={draft.name}
-                      onChange={(event) => update(draft.key, { name: event.target.value })}
-                      onBlur={() => save(draft.key)}
-                    />
-                  </td>
-                  {canConfigure ? (
-                  <td>
-                    <DropdownSelect
-                      aria-label={`${draft.name || "這個通路"}的種類`}
-                      options={KIND_OPTIONS}
-                      value={draft.scopeKind}
-                      onChange={(event) => {
-                        const scopeKind = event.target.value as ManagementScope["scopeKind"];
-                        update(draft.key, { scopeKind });
-                        save(draft.key, { scopeKind });
-                      }}
-                    />
-                  </td>
-                  ) : null}
-                  {canConfigure ? (
-                  <td>
-                    <Tooltip label={SOURCE_HINTS[draft.sourceType] ?? "自訂來源"}>
-                      <input
-                        aria-label={`${draft.name || "這個通路"}的來源`}
-                        className="cell-input"
-                        value={draft.sourceType}
-                        onChange={(event) => update(draft.key, { sourceType: event.target.value })}
-                        onBlur={() => save(draft.key)}
-                      />
-                    </Tooltip>
-                  </td>
-                  ) : null}
-                  <td>
-                    <input
-                      aria-label={`${draft.name || "這個通路"}在外部系統的店名`}
-                      className="cell-input"
-                      placeholder={draft.sourceType === "cyberbiz" ? "CYBERBIZ 後台的店名" : "不需要"}
-                      value={draft.externalName}
-                      onChange={(event) => update(draft.key, { externalName: event.target.value })}
-                      onBlur={() => save(draft.key)}
-                    />
-                  </td>
-                  {canConfigure ? (
-                  <td>
-                    <input
-                      aria-label={`${draft.name || "這個通路"}的 Drive 連結`}
-                      className="cell-input wide"
-                      placeholder="https://drive.google.com/drive/folders/…"
-                      value={draft.driveFolderUrl}
-                      onChange={(event) => update(draft.key, { driveFolderUrl: event.target.value })}
-                      onBlur={() => save(draft.key)}
-                    />
-                  </td>
-                  ) : null}
-                  {canConfigure ? (
-                  <td>
-                    <input
-                      aria-label={`${draft.name || "這個通路"}的資料夾顯示名稱`}
-                      className="cell-input"
-                      value={draft.driveFolderName}
-                      onChange={(event) => update(draft.key, { driveFolderName: event.target.value })}
-                      onBlur={() => save(draft.key)}
-                    />
-                  </td>
-                  ) : null}
-                  <td data-label="啟用">
-                    <div className="report-store-toggle">
+              {rows.map((scope) => {
+                const status = statusLabel(scope);
+                return (
+                  <tr key={scope.id}>
+                    <td data-label="通路">
+                      <div className="cell-strong">{scope.name}</div>
+                      <div className="cell-sub">
+                        {scope.externalName && scope.externalName !== scope.name ? `後台店名：${scope.externalName}` : scope.id}
+                      </div>
+                    </td>
+                    <td data-label="種類"><span className="status quiet">{KIND_LABELS[scope.scopeKind]}</span></td>
+                    <td data-label="來源"><span className="status quiet">{sourceLabel(scope.sourceType)}</span></td>
+                    {canConfigure ? (
+                      <td data-label="Drive 資料夾">
+                        {scope.driveFolderUrl
+                          ? <a href={scope.driveFolderUrl} target="_blank" rel="noreferrer">{scope.driveFolderName || "開啟資料夾"}</a>
+                          : <span className="cell-sub">—</span>}
+                      </td>
+                    ) : null}
+                    <td data-label="狀態"><span className={`status ${status.tone}`}>{status.label}</span></td>
+                    <td data-label="還在營業">
                       <Switch
-                        checked={draft.active}
-                        busy={busy}
-                        onChange={(active) => {
-                          update(draft.key, { active });
-                          save(draft.key, { active });
-                        }}
-                        label={`${draft.name || `第 ${index + 1} 個通路`}出現在執行頁與補登選單`}
+                        checked={scope.active}
+                        busy={saveScope.isPending}
+                        disabled={Boolean(scope.archivedAt)}
+                        onChange={(active) => toggleActive(scope, active)}
+                        label={`${scope.name}還在營業——關掉就不再出現在報表執行頁與補登選單，歷史數字不受影響`}
                       />
-                      <span>{draft.archivedAt ? "已封存" : draft.active ? "啟用" : "停用"}</span>
-                    </div>
-                  </td>
-                  <td>
-                    {draft.id && !draft.archivedAt ? (
+                    </td>
+                    <td data-label="操作">
                       <div className="row-actions">
                         <Button
                           variant="icon"
-                          icon="box"
-                          disabled={busy}
-                          onClick={() => setArchiving(draft)}
-                          title={`封存 ${draft.name || "這個通路"}`}
-                          aria-label={`封存 ${draft.name || `第 ${index + 1} 個通路`}`}
+                          icon="edit"
+                          title="編輯通路"
+                          aria-label={`編輯 ${scope.name}`}
+                          onClick={() => setEditing({ scope })}
                         />
+                        {scope.archivedAt ? null : (
+                          <Button
+                            variant="icon"
+                            icon="archive"
+                            title="封存通路"
+                            aria-label={`封存 ${scope.name}`}
+                            disabled={archiveScope.isPending}
+                            onClick={() => setArchiving(scope)}
+                          />
+                        )}
                       </div>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
 
-        {visible.length === 0 ? <p className="muted table-note">目前沒有通路，報表執行頁會是空的。</p> : null}
+        {visible.length === 0 ? <p className="muted table-note">沒有符合條件的通路。</p> : null}
+        {visible.length > 0 ? (
+          <Pager
+            page={currentPage}
+            pageSize={pageSize}
+            pageSizes={[10, 25, 50, 100]}
+            totalPages={totalPages}
+            totalLabel={`共 ${visible.length.toLocaleString("zh-TW")} 個通路`}
+            onPage={setPage}
+            onPageSize={(next) => { setPageSize(next); setPage(1); }}
+          />
+        ) : null}
       </Panel>
+
+      {editing ? (
+        <ScopeDialog scope={editing.scope} canConfigure={canConfigure} onClose={() => setEditing(null)} />
+      ) : null}
 
       {archiving ? (
         <ConfirmDialog
-          title={`封存「${archiving.name || "這個通路"}」？`}
+          title={`封存「${archiving.name}」？`}
           confirmLabel="封存"
           pending={archiveScope.isPending}
           onCancel={() => setArchiving(null)}
           onConfirm={() => {
             const target = archiving;
             setArchiving(null);
-            if (!target.id) return;
             archiveScope.mutate(target.id, {
-              onSuccess: () => update(target.key, { active: false, archivedAt: new Date().toISOString() }),
+              onSuccess: () => toast.show(`已封存「${target.name}」`),
             });
           }}
         >
-          <p><strong>{archiving.name || "這個通路"}</strong> 會從執行頁、補登選單與這張清單收起來。</p>
-          <p className="muted">已匯入的出金與商品銷售不會被刪除，營運統計仍然算得到它。</p>
+          <p><strong>{archiving.name}</strong> 會從報表執行頁、補登選單與這張清單的預設檢視收起來。</p>
+          <p className="muted">已匯入的出金與商品銷售不會被刪除，營運統計仍然算得到它；狀態篩選選「已封存」就找得回來。</p>
         </ConfirmDialog>
       ) : null}
     </div>
