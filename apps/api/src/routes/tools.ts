@@ -2,7 +2,6 @@ import {
   addProductSkuMapping,
   addReportSkuIgnore,
   createReportProductCategory,
-  archivePayoutStore,
   deleteReportProductCategory,
   deleteProductSkuMapping,
   deleteReportSkuIgnore,
@@ -26,14 +25,10 @@ import {
   listPayoutRuns,
   listPayoutStores,
   recordPayoutRun,
-  replacePayoutStores,
   upsertReportScope,
-  savePayoutStore,
   setCyberbizProductCategory,
   updateReportProductCategory,
-  updatePayoutStoreEnabled,
   type Database,
-  type PayoutStoreInput,
   type ProductBundleComponentInput,
 } from "@rueisiang/db";
 import { can } from "@rueisiang/auth";
@@ -123,56 +118,6 @@ function isCompleteMonth(start: string, end: string): boolean {
   return start === monthStart && end === monthEnd;
 }
 
-function readStores(input: Record<string, unknown>): PayoutStoreInput[] {
-  if (!Array.isArray(input.stores)) {
-    throw new HTTPException(400, { message: "請提供店別清單。" });
-  }
-
-  const seen = new Set<string>();
-  return input.stores.map((raw, index) => {
-    const store = (raw ?? {}) as Record<string, unknown>;
-    const name = typeof store.name === "string" ? store.name.trim() : "";
-    if (!name) throw new HTTPException(400, { message: `第 ${index + 1} 家店沒有填店名。` });
-    const normalizedName = normalizeReportScopeName(name);
-    if (seen.has(normalizedName)) throw new HTTPException(400, { message: `店名重複：${name}` });
-    seen.add(normalizedName);
-
-    const url = typeof store.driveFolderUrl === "string" ? store.driveFolderUrl.trim() : "";
-    // 空的允許（還沒建資料夾），但填了就要真的是 Drive 資料夾連結——
-    // 貼錯連結會讓整批檔案上傳到別的地方，跑完才發現就來不及了。
-    if (url && !/^https?:\/\/[^\s]*(\/folders\/[\w-]+|[?&]id=[\w-]+)/.test(url)) {
-      throw new HTTPException(400, { message: `${name} 的 Google Drive 資料夾連結格式不正確。` });
-    }
-    const enabled = store.enabled === undefined ? true : store.enabled;
-    if (typeof enabled !== "boolean") {
-      throw new HTTPException(400, { message: `${name} 的顯示開關格式不正確。` });
-    }
-
-    return {
-      name,
-      driveFolderUrl: url,
-      driveFolderName: typeof store.driveFolderName === "string" ? store.driveFolderName.trim() : "",
-      enabled,
-    };
-  });
-}
-
-function readStore(input: Record<string, unknown>): PayoutStoreInput {
-  const [store] = readStores({ stores: [input] });
-  return store!;
-}
-
-
-function assertStoreNameAvailable(
-  stores: Array<{ id: string; name: string }>,
-  candidate: PayoutStoreInput,
-  id?: string,
-): void {
-  const normalizedName = normalizeReportScopeName(candidate.name);
-  if (stores.some((store) => store.id !== id && normalizeReportScopeName(store.name) === normalizedName)) {
-    throw new HTTPException(400, { message: `店名重複：${candidate.name}` });
-  }
-}
 
 const MAX_MANUAL_SALES_ROWS = 20_000;
 
@@ -695,85 +640,16 @@ export const tools = new Hono<AppEnv>()
     } catch (error) {
       throw scopeError(error);
     }
-  })
-  /** 設定頁。讀要 config 權限——能改的人才需要看到 Drive 連結。 */
-  .get("/payout/stores", requirePermission("tools:payout:config"), async (c) => {
-    return c.json({ stores: await listPayoutStores(c.get("db")) });
-  })
-
-  .post("/payout/stores", requirePermission("tools:payout:config"), async (c) => {
-    const input = readStore(await body(c));
-    const currentStores = await listPayoutStores(c.get("db"));
-    assertStoreNameAvailable(currentStores, input);
-
-    const store = await savePayoutStore(c.get("db"), input);
-    if (!store) throw new HTTPException(500, { message: "新增店別失敗，請稍後再試。" });
-    return c.json({ store }, 201);
-  })
-
-  .patch("/payout/stores/:id", requirePermission("tools:payout:config"), async (c) => {
-    const id = c.req.param("id");
-    const currentStores = await listPayoutStores(c.get("db"));
-    const current = currentStores.find((store) => store.id === id);
-    if (!current) throw new HTTPException(404, { message: "找不到這家店。" });
-
-    const input = await body(c);
-    const hasStoreDetails = ["name", "driveFolderUrl", "driveFolderName"].some((field) => field in input);
-    if (!hasStoreDetails) {
-      if (typeof input.enabled !== "boolean") {
-        throw new HTTPException(400, { message: "店別顯示開關必須是布林值。" });
-      }
-      const store = await updatePayoutStoreEnabled(c.get("db"), { id, enabled: input.enabled });
-      if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
-      return c.json({ store });
-    }
-
-    const next = readStore({
-      name: "name" in input ? input.name : current.name,
-      driveFolderUrl: "driveFolderUrl" in input ? input.driveFolderUrl : current.driveFolderUrl,
-      driveFolderName: "driveFolderName" in input ? input.driveFolderName : current.driveFolderName,
-      enabled: "enabled" in input ? input.enabled : current.enabled,
-    });
-    assertStoreNameAvailable(currentStores, next, id);
-
-    const store = await savePayoutStore(c.get("db"), { id, ...next });
-    if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
-    return c.json({ store });
-  })
-
-  .delete("/payout/stores/:id", requirePermission("tools:payout:config"), async (c) => {
-    const id = c.req.param("id");
-    const currentStores = await listPayoutStores(c.get("db"));
-    if (!currentStores.some((store) => store.id === id)) {
-      throw new HTTPException(404, { message: "找不到這家店。" });
-    }
-    if (currentStores.length === 1) {
-      throw new HTTPException(400, { message: "至少要留一家店。" });
-    }
-
-    const store = await archivePayoutStore(c.get("db"), id);
-    if (!store) throw new HTTPException(404, { message: "找不到這家店。" });
-    return c.json({ ok: true });
-  })
-
-  /**
-   * 存店別。D1 就是唯一來源——舊版還要先把清單 commit 成 runner repo 的
-   * stores.json，成功了才寫本地；現在店別是觸發執行時跟著 dispatch 傳過去的，
-   * 存檔不必再跟 GitHub 講話。
-   */
-  .put("/payout/stores", requirePermission("tools:payout:config"), async (c) => {
-    const stores = readStores(await body(c));
-    if (!stores.length) throw new HTTPException(400, { message: "至少要留一家店。" });
-
-    await replacePayoutStores(c.get("db"), stores);
-    return c.json({ stores: await listPayoutStores(c.get("db")) });
   });
 
 /**
  * 通路管理的權限分兩層，跟合併前一樣：
  *
  * - `reports:cyberbiz:write`（主管也有）：看清單、新增、改名、停用與封存。
- * - `tools:payout:config`（只有管理者）：來源、種類與 Drive 資料夾。
+ * - `tools:payout:config`（只有管理者）：來源、種類、外部店名與 Drive 資料夾。
+ *
+ * 外部店名屬於後者，因為它決定 runner 去 CYBERBIZ 後台抓哪一家店的錢——那跟
+ * 「這個通路在平台上叫什麼」是兩件事。
  *
  * 兩頁合併成一頁不該順便放寬權限。Drive 連結對沒有 config 權限的人整個不回傳，
  * 不是只有畫面上藏起來——SPA 的 JavaScript 全在使用者手上。
@@ -792,15 +668,20 @@ function scopeFields(input: Record<string, unknown>, configurable: boolean) {
     externalName?: string; sourceType?: string; scopeKind?: ScopeKind;
     driveFolderUrl?: string; driveFolderName?: string; active?: boolean;
   } = {};
-  const configured = ["sourceType", "scopeKind", "driveFolderUrl", "driveFolderName"]
+  const configured = ["sourceType", "scopeKind", "driveFolderUrl", "driveFolderName", "externalName"]
     .filter((key) => key in input);
   if (configured.length && !configurable) {
-    throw new HTTPException(403, { message: "只有管理者可以改通路的來源、種類與 Drive 設定。" });
+    throw new HTTPException(403, { message: "只有管理者可以改通路的來源、種類、外部店名與 Drive 設定。" });
   }
   for (const key of ["externalName", "sourceType", "driveFolderUrl", "driveFolderName"] as const) {
     if (!(key in input)) continue;
     if (typeof input[key] !== "string") throw new HTTPException(400, { message: `${key} 必須是文字。` });
     fields[key] = (input[key] as string).trim();
+  }
+  // 空的允許（還沒建資料夾），但填了就要真的是 Drive 資料夾連結——貼錯連結會讓
+  // 整批報表上傳到別的地方，而那是跑完才會發現的。
+  if (fields.driveFolderUrl && !/^https?:\/\/[^\s]*(\/folders\/[\w-]+|[?&]id=[\w-]+)/.test(fields.driveFolderUrl)) {
+    throw new HTTPException(400, { message: "Google Drive 資料夾連結格式不正確。" });
   }
   if ("scopeKind" in input) {
     if (typeof input.scopeKind !== "string") throw new HTTPException(400, { message: "通路種類必須是文字。" });

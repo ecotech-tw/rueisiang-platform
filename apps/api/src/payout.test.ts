@@ -503,125 +503,110 @@ describe("手動上傳出金", () => {
   });
 });
 
-describe("店別設定", () => {
-  const TWO_STORES = [
-    { name: "乙店", driveFolderUrl: "", driveFolderName: "" },
-    { name: "甲店", driveFolderUrl: "https://drive.google.com/drive/folders/abc123", driveFolderName: "甲" },
-  ];
-
-  it("顯示開關直接生效，而且完全不用跟 GitHub 講話", async () => {
+describe("通路設定", () => {
+  // /payout/stores 那組寫入端已經沒有任何呼叫端（設定改走 /api/tools/scopes），
+  // 留著會是第二條寫進 scopes 的路，而且它不認得 external_name。這裡改成驗
+  // 同一批行為在新端點上仍然成立。
+  it("停業開關直接生效，而且完全不用跟 GitHub 講話", async () => {
     const calls = stubGithub();
     const [store] = await listPayoutStores(db());
     const id = await seedUser("eli@ecotech.tw", "role-admin");
 
-    const response = await as(id, "eli@ecotech.tw", `/api/tools/payout/stores/${store!.id}`, {
+    const response = await as(id, "eli@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(store!.id)}`, {
       method: "PATCH",
-      body: JSON.stringify({ enabled: false }),
+      body: JSON.stringify({ active: false }),
     });
 
     expect(response.status).toBe(200);
-    expect((await response.json()) as { store: { id: string; enabled: boolean } }).toMatchObject({
-      store: { id: store!.id, enabled: false },
-    });
-    expect((await listPayoutStores(db()))[0]!.enabled).toBe(false);
+    expect((await listPayoutStores(db())).some((scope) => scope.id === store!.id && scope.enabled)).toBe(false);
     expect(calls).toHaveLength(0);
   });
 
-
-  it("新增店別自動儲存，並接在清單尾端", async () => {
-    const calls = stubGithub();
-    const id = await seedUser("eli@ecotech.tw", "role-admin");
-
-    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
-      method: "POST",
-      body: JSON.stringify({
-        name: "新增測試店",
-        driveFolderUrl: "",
-        driveFolderName: "",
-        enabled: true,
-      }),
-    });
-
-    expect(response.status).toBe(201);
-    expect((await response.json()) as { store: { id: string; name: string } }).toMatchObject({
-      store: { name: "新增測試店" },
-    });
-    expect((await listPayoutStores(db())).at(-1)!.name).toBe("新增測試店");
-    // 存店別不再需要 commit stores.json——D1 就是唯一來源。
-    expect(calls).toHaveLength(0);
-  });
-
-
-  it("整組換掉，順序照送進來的排", async () => {
+  it("改名不會動到 runner 用的外部店名", async () => {
     stubGithub();
+    const [store] = await listPayoutStores(db());
     const id = await seedUser("eli@ecotech.tw", "role-admin");
-    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
-      method: "PUT",
-      body: JSON.stringify({ stores: TWO_STORES }),
+
+    const response = await as(id, "eli@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(store!.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: "改過的名字" }),
     });
 
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { stores: { name: string }[] };
-    expect(body.stores.map((store) => store.name)).toEqual(["乙店", "甲店"]);
+    const [renamed] = await db().select({ name: scopes.name, externalName: scopes.externalName })
+      .from(scopes).where(eq(scopes.id, store!.id));
+    expect(renamed).toEqual({ name: "改過的名字", externalName: store!.externalName });
   });
 
-  // 退租店的 source 是 manual——runner 抓不到它。判斷依據是 source_type 這個欄位，
-  // 不是 ID 開頭那幾個字。
-  it("整組換掉不會停用或封存手動退租店", async () => {
-    await db().insert(scopes).values({
-      id: manualScopeIdFromStoreName("退租店"),
-      sourceType: "manual",
-      scopeKind: "store",
-      name: "退租店",
-      normalizedName: "退租店",
-      active: 1,
-    });
+  it("Drive 連結貼錯會被擋下來", async () => {
+    stubGithub();
+    const [store] = await listPayoutStores(db());
     const id = await seedUser("eli@ecotech.tw", "role-admin");
-    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
-      method: "PUT",
-      body: JSON.stringify({ stores: TWO_STORES }),
+
+    const response = await as(id, "eli@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(store!.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ driveFolderUrl: "https://example.com/not-a-folder" }),
     });
 
-    expect(response.status).toBe(200);
-    const [manual] = await db().select({ active: scopes.active, name: scopes.name, archivedAt: scopes.archivedAt })
-      .from(scopes).where(eq(scopes.id, manualScopeIdFromStoreName("退租店")));
-    expect(manual).toEqual({ active: 1, name: "退租店", archivedAt: null });
-  });
-
-
-
-
-
-
-  it.each([
-    ["店名重複", [{ name: "甲店" }, { name: "甲店" }]],
-    ["沒填店名", [{ name: "  " }]],
-    // 貼錯連結會讓整批檔案上傳到別的地方，跑完才發現就來不及了。
-    ["連結不是 Drive 資料夾", [{ name: "甲店", driveFolderUrl: "https://example.com/x" }]],
-    ["一家都不留", []],
-  ])("擋下不合法的設定（%s）", async (_label, stores) => {
-    const calls = stubGithub();
-    const id = await seedUser("eli@ecotech.tw", "role-admin");
-    const response = await as(id, "eli@ecotech.tw", "/api/tools/payout/stores", {
-      method: "PUT",
-      body: JSON.stringify({ stores }),
-    });
     expect(response.status).toBe(400);
-
-    // 擋下來就不能動到原本的九家，也不該去碰 repo。
-    expect(await listPayoutStores(db())).toHaveLength(9);
-    expect(calls).toHaveLength(0);
   });
 
-  it("主管可以執行但不能改店別設定", async () => {
+  it("沒填名稱的新通路建不起來", async () => {
     stubGithub();
+    const id = await seedUser("eli@ecotech.tw", "role-admin");
+
+    const response = await as(id, "eli@ecotech.tw", "/api/tools/scopes", {
+      method: "POST",
+      body: JSON.stringify({ name: "  " }),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("名稱重複建不起來", async () => {
+    stubGithub();
+    const [store] = await listPayoutStores(db());
+    const id = await seedUser("eli@ecotech.tw", "role-admin");
+
+    const response = await as(id, "eli@ecotech.tw", "/api/tools/scopes", {
+      method: "POST",
+      body: JSON.stringify({ name: store!.name }),
+    });
+
+    expect(response.status).toBe(409);
+  });
+
+  it("主管可以執行與改名，但不能改來源、種類與 Drive", async () => {
+    stubGithub();
+    const [store] = await listPayoutStores(db());
     const id = await seedUser("manager@ecotech.tw", "role-manager");
     expect((await as(id, "manager@ecotech.tw", "/api/tools/payout/state")).status).toBe(200);
-    expect(
-      (await as(id, "manager@ecotech.tw", "/api/tools/payout/stores", {
-        method: "PUT",
-        body: JSON.stringify({ stores: [{ name: "甲店" }] }),
-      })).status,
-    ).toBe(403);
+
+    expect((await as(id, "manager@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(store!.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: "主管改的名字" }),
+    })).status).toBe(200);
+
+    expect((await as(id, "manager@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(store!.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ driveFolderUrl: "https://drive.google.com/drive/folders/abc123" }),
+    })).status).toBe(403);
+  });
+
+  it("封存的通路不出現在執行清單，還原之後回來", async () => {
+    stubGithub();
+    const [store] = await listPayoutStores(db());
+    const id = await seedUser("eli@ecotech.tw", "role-admin");
+
+    expect((await as(id, "eli@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(store!.id)}/archive`, {
+      method: "POST",
+    })).status).toBe(200);
+    expect((await listPayoutStores(db())).some((scope) => scope.id === store!.id)).toBe(false);
+
+    expect((await as(id, "eli@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(store!.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ active: true }),
+    })).status).toBe(200);
+    expect((await listPayoutStores(db())).some((scope) => scope.id === store!.id)).toBe(true);
   });
 });

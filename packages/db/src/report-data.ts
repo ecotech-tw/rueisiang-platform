@@ -18,6 +18,7 @@ export type ReportScopeKind = "store" | "company";
 export type ReportManualSkuSource = "custom" | "cyberbiz";
 export interface ReportScope {
   id: string;
+  sourceType: string;
   scopeKind: ReportScopeKind;
   name: string;
   normalizedName: string;
@@ -245,6 +246,7 @@ export function isValidReportDate(value: string): boolean {
 function asReportScope(scope: typeof targetScopes.$inferSelect): ReportScope {
   return {
     id: scope.id,
+    sourceType: scope.sourceType,
     scopeKind: scope.scopeKind as ReportScopeKind,
     name: scope.name,
     normalizedName: scope.normalizedName,
@@ -643,8 +645,12 @@ export async function scopeIdsForQuery(
     const scope = await directory.store({ id: query.scopeId, name: query.scopeName });
     if (!scope) return { ids: [] };
     // 同一店別可能同時有 CYBERBIZ 與 payout 的 scope ID；查單店時兩邊資料要一起算。
+    // 同名才合併，而且限定同一個 source：這裡要處理的是「同一家店在 migration
+    // 期間留下 CYBERBIZ 與 payout 兩個 ID」，不是把同名的蝦皮賣場也算進實體店。
     const aliases = (await directory.stores())
-      .filter((candidate) => candidate.scopeKind === scope.scopeKind && candidate.normalizedName === scope.normalizedName)
+      .filter((candidate) => candidate.sourceType === scope.sourceType
+        && candidate.scopeKind === scope.scopeKind
+        && candidate.normalizedName === scope.normalizedName)
       .map((candidate) => candidate.id);
     return { ids: aliases.length ? aliases : [scope.id], scope };
   }

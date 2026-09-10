@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizeReportScopeName } from "./report-data.js";
 import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
@@ -38,47 +38,21 @@ function asShopeeSettings(scope?: Pick<typeof scopes.$inferSelect, "id" | "drive
   };
 }
 
+/**
+ * 蝦皮的 Drive 設定。
+ *
+ * 用 source_type 找而不是寫死 ID：設定的唯一入口是通路管理頁，那裡新增的蝦皮通路
+ * 拿到的是自動產生的 ID。寫死 ID 的話，管理者在通路管理設好資料夾，上傳仍然回
+ * 「尚未設定」，而且看不出為什麼。
+ */
 export async function getShopeeSalesSettings(db: Database): Promise<ShopeeSalesSettings> {
   const [scope] = await db
     .select({ id: scopes.id, driveFolderUrl: scopes.driveFolderUrl, driveFolderName: scopes.driveFolderName, updatedAt: scopes.updatedAt })
     .from(scopes)
-    .where(eq(scopes.id, SHOPEE_SCOPE_ID))
+    .where(and(eq(scopes.sourceType, "shopee"), isNull(scopes.archivedAt)))
+    .orderBy(desc(scopes.active), asc(scopes.sortOrder), asc(scopes.id))
     .limit(1);
   return asShopeeSettings(scope);
-}
-
-export async function saveShopeeSalesSettings(
-  db: Database,
-  input: ShopeeSalesSettingsInput,
-): Promise<void> {
-  const now = new Date().toISOString();
-  await db
-    .insert(scopes)
-    .values({
-      id: SHOPEE_SCOPE_ID,
-      sourceType: "shopee",
-      scopeKind: "store",
-      name: SHOPEE_SCOPE_NAME,
-      normalizedName: normalizeReportScopeName(SHOPEE_SCOPE_NAME),
-      driveFolderUrl: input.driveFolderUrl,
-      driveFolderName: input.driveFolderName,
-      active: 1,
-      sortOrder: 0,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: scopes.id,
-      set: {
-        sourceType: "shopee",
-        scopeKind: "store",
-        name: SHOPEE_SCOPE_NAME,
-        normalizedName: normalizeReportScopeName(SHOPEE_SCOPE_NAME),
-        driveFolderUrl: input.driveFolderUrl,
-        driveFolderName: input.driveFolderName,
-        active: 1,
-        updatedAt: now,
-      },
-    });
 }
 
 function isCompleteMonth(startDate: string, endDate: string): boolean {
@@ -100,9 +74,12 @@ export async function recordShopeeSalesRun(
   },
 ): Promise<void> {
   const id = crypto.randomUUID();
+  // 掛在設定解析到的那個蝦皮通路上。寫死 SHOPEE_SCOPE_ID 的話，管理者在通路管理
+  // 建的蝦皮通路會拿到另一個 ID，執行紀錄就會掛到一個沒有人維護的第二列上。
+  const scopeId = (await getShopeeSalesSettings(db)).id;
   await db.batch([
     db.insert(scopes).values({
-      id: SHOPEE_SCOPE_ID,
+      id: scopeId,
       sourceType: "shopee",
       scopeKind: "store",
       name: SHOPEE_SCOPE_NAME,
@@ -125,7 +102,7 @@ export async function recordShopeeSalesRun(
     }),
     db.insert(reportRunScopes).values({
       reportRunId: id,
-      scopeId: SHOPEE_SCOPE_ID,
+      scopeId,
       driveFolderUrl: input.driveFolderUrl,
       driveFolderName: input.driveFolderName ?? "",
     }),

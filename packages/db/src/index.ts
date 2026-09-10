@@ -350,11 +350,7 @@ export {
   listPayoutRuns,
   listPayoutStores,
   recordPayoutRun,
-  replacePayoutStores,
-  savePayoutStore,
   seedPayoutStores,
-  updatePayoutStoreEnabled,
-  archivePayoutStore,
   type PayoutRun,
   type PayoutStoreInput,
 } from "./payout.js";
@@ -362,8 +358,6 @@ export {
   getShopeeSalesSettings,
   listShopeeSalesRuns,
   recordShopeeSalesRun,
-  saveShopeeSalesSettings,
-  type ShopeeSalesSettingsInput,
 } from "./shopee-sales.js";
 export { cyberbizScopeIdFromStoreName, isValidScopeId } from "./scope-id.js";
 export {

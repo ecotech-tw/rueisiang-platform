@@ -898,13 +898,7 @@ export function ManualReports() {
 
   return (
     <div className="page fills manual-report-page">
-      <PageHeader
-        title="報表管理"
-        actions={ 
-          <div className="page-head-actions">
-          </div>
-        }
-      />
+      <PageHeader title="報表管理" />
 
       <Panel
         className="manual-report-panel grows"

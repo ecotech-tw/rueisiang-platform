@@ -329,22 +329,25 @@ describe("報表統計 API", () => {
       "PATCH",
       manager,
       "manager-scope-management@ecotech.tw",
-      { name: "蝦皮二館", externalName: "蝦皮二館賣場" },
+      { name: "蝦皮二館" },
     );
     expect(updated.status).toBe(200);
     expect(await updated.json()).toMatchObject({
-      scope: { id: createdBody.scope.id, name: "蝦皮二館", externalName: "蝦皮二館賣場", active: true },
+      scope: { id: createdBody.scope.id, name: "蝦皮二館", active: true },
     });
 
-    // 來源、種類與 Drive 只有管理者能改；合併成一頁不該順便放寬權限。
-    const forbidden = await mutate(
-      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
-      "PATCH",
-      manager,
-      "manager-scope-management@ecotech.tw",
-      { scopeKind: "channel" },
-    );
-    expect(forbidden.status).toBe(403);
+    // 來源、種類、外部店名與 Drive 只有管理者能改；合併成一頁不該順便放寬權限。
+    // 外部店名決定 runner 去後台抓哪一家店的錢，所以跟 Drive 同一層。
+    for (const payload of [{ scopeKind: "channel" }, { externalName: "蝦皮二館賣場" }]) {
+      const forbidden = await mutate(
+        `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+        "PATCH",
+        manager,
+        "manager-scope-management@ecotech.tw",
+        payload,
+      );
+      expect(forbidden.status).toBe(403);
+    }
 
     const admin = await seedUser("admin-scope-management@ecotech.tw", "role-admin");
     const configured = await mutate(
@@ -352,11 +355,14 @@ describe("報表統計 API", () => {
       "PATCH",
       admin,
       "admin-scope-management@ecotech.tw",
-      { scopeKind: "channel", sourceType: "Shopee", driveFolderUrl: "https://drive.google.com/drive/folders/abc" },
+      { scopeKind: "channel", sourceType: "Shopee", externalName: "蝦皮二館賣場", driveFolderUrl: "https://drive.google.com/drive/folders/abc" },
     );
     expect(configured.status).toBe(200);
     expect(await configured.json()).toMatchObject({
-      scope: { scopeKind: "channel", sourceType: "shopee", driveFolderUrl: "https://drive.google.com/drive/folders/abc" },
+      scope: {
+        scopeKind: "channel", sourceType: "shopee", externalName: "蝦皮二館賣場",
+        driveFolderUrl: "https://drive.google.com/drive/folders/abc",
+      },
     });
 
     const badKind = await mutate(

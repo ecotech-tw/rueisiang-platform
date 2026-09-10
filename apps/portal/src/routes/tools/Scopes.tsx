@@ -97,9 +97,16 @@ function ScopeDialog({
             name: name.trim(),
             // 外部店名只有 CYBERBIZ 用得到；換了來源就把它清掉，不要留一個
             // 沒有人會再讀、卻看起來還有效的值。
-            externalName: sourceType === "cyberbiz" ? externalName.trim() : "",
             // 沒有 config 權限的人送這幾個欄位會被 API 擋成 403，所以乾脆不送。
-            ...(canConfigure ? { sourceType, scopeKind, driveFolderUrl, driveFolderName } : {}),
+            ...(canConfigure ? {
+              sourceType,
+              scopeKind,
+              driveFolderUrl,
+              driveFolderName,
+              // 外部店名只有 CYBERBIZ 用得到；換了來源就清掉，不要留一個沒有人
+              // 會再讀、卻看起來還有效的值。
+              externalName: sourceType === "cyberbiz" ? externalName.trim() : "",
+            } : {}),
           }, {
             onSuccess: () => {
               toast.show(scope ? `已更新「${name.trim()}」` : `已新增通路「${name.trim()}」`);
@@ -139,7 +146,7 @@ function ScopeDialog({
           options={sourceOptions}
         />
       ) : null}
-      {sourceType === "cyberbiz" ? (
+      {canConfigure && sourceType === "cyberbiz" ? (
         <TextField
           label="外部店名"
           value={externalName}
@@ -232,6 +239,13 @@ export function Scopes() {
       onSuccess: () => toast.show(active
         ? `「${scope.name}」恢復營業，會重新出現在報表執行頁`
         : `「${scope.name}」已停業，歷史數字仍算進營運統計`),
+    });
+  }
+
+  /** 還原＝解除封存並恢復營業；API 的 active: true 會一併把 archived_at 清掉。 */
+  function restore(scope: ManagementScope) {
+    saveScope.mutate({ id: scope.id, name: scope.name, active: true }, {
+      onSuccess: () => toast.show(`已還原「${scope.name}」`),
     });
   }
 
@@ -330,7 +344,16 @@ export function Scopes() {
                           aria-label={`編輯 ${scope.name}`}
                           onClick={() => setEditing({ scope })}
                         />
-                        {scope.archivedAt ? null : (
+                        {scope.archivedAt ? (
+                          <Button
+                            variant="icon"
+                            icon="history"
+                            title="還原通路"
+                            aria-label={`還原 ${scope.name}`}
+                            disabled={saveScope.isPending}
+                            onClick={() => restore(scope)}
+                          />
+                        ) : (
                           <Button
                             variant="icon"
                             icon="archive"
