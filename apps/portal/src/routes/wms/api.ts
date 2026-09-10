@@ -154,12 +154,6 @@ export interface ItemForm {
   notes: string;
 }
 
-export function useCreateItem() {
-  return useWarehouseMutation((input: ItemForm) =>
-    write<{ id: string }>("/api/wms/items", "POST", input),
-  );
-}
-
 export function useCreateCatalogItem() {
   return useWarehouseMutation((input: ItemForm & { categoryId?: string | null }) =>
     write<{ id: string; sku: string }>("/api/items/catalog", "POST", input),

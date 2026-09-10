@@ -1,7 +1,7 @@
 import { readFirstSheet, toAmount, toBusinessDate, type CellValue, type Sheet } from "./xlsx.js";
 
-export const PAYOUT_TEMPLATE_HEADERS = ["出金日期", "出金金額"] as const;
-export const SALES_TEMPLATE_HEADERS = [
+const PAYOUT_TEMPLATE_HEADERS = ["出金日期", "出金金額"] as const;
+const SALES_TEMPLATE_HEADERS = [
   "報表月份",
   "SKU",
   "商品名稱",

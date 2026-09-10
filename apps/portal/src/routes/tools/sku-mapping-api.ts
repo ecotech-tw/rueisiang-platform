@@ -8,7 +8,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
  */
 const PRODUCT_SKU_MAPPINGS_KEY = ["tools", "product-sku-mappings"] as const;
 const REPORT_SKU_IGNORES_KEY = ["tools", "report-sku-ignores"] as const;
-const CYBERBIZ_PRODUCTS_KEY = ["tools", "cyberbiz-products"] as const;
 
 async function readError(response: Response): Promise<never> {
   const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
@@ -27,7 +26,7 @@ async function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", paylo
   return (await response.json()) as T;
 }
 
-/** 每一支寫入都失效對應、忽略清單與商品目錄；用 void 不回傳 promise，理由同 wms/api.ts。 */
+/** 每一支寫入都失效對應與忽略清單；用 void 不回傳 promise，理由同 wms/api.ts。 */
 function useSkuMappingMutation<TArgs, TResult>(run: (args: TArgs) => Promise<TResult>) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -35,7 +34,6 @@ function useSkuMappingMutation<TArgs, TResult>(run: (args: TArgs) => Promise<TRe
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: PRODUCT_SKU_MAPPINGS_KEY });
       void queryClient.invalidateQueries({ queryKey: REPORT_SKU_IGNORES_KEY });
-      void queryClient.invalidateQueries({ queryKey: CYBERBIZ_PRODUCTS_KEY });
     },
   });
 }
@@ -100,7 +98,6 @@ export function productSkuChannelLabel(channel: string): string {
     ?? (channel === "legacy" ? "未分類（舊資料）" : channel);
 }
 
-
 export function useProductSkuMappings() {
   return useQuery({
     queryKey: PRODUCT_SKU_MAPPINGS_KEY,
@@ -111,7 +108,6 @@ export function useProductSkuMappings() {
     },
   });
 }
-
 
 export function useCreateProductSkuMapping() {
   return useSkuMappingMutation(
@@ -151,7 +147,6 @@ export function useDeleteProductSkuMapping() {
   );
 }
 
-
 /** 刻意不納入報表的外部 SKU（補寄、已下架這類）。 */
 export interface ReportSkuIgnore {
   id: string;
@@ -185,21 +180,3 @@ export function useDeleteReportSkuIgnore() {
   );
 }
 
-
-/** D1 鏡像裡的 CYBERBIZ 商品；SKU 對應頁挑用料用。 */
-export interface CyberbizProductOption {
-  sku: string;
-  name: string;
-  published: boolean;
-}
-
-export function useCyberbizProducts() {
-  return useQuery({
-    queryKey: CYBERBIZ_PRODUCTS_KEY,
-    queryFn: async () => {
-      const response = await fetch("/api/tools/cyberbiz-products", { credentials: "same-origin" });
-      if (!response.ok) await readError(response);
-      return (await response.json()) as { products: CyberbizProductOption[] };
-    },
-  });
-}

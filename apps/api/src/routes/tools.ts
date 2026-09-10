@@ -3,12 +3,9 @@ import {
   addReportSkuIgnore,
   deleteProductSkuMapping,
   deleteReportSkuIgnore,
-  findReportScope,
-  listCyberbizProducts,
   listReportSkuIgnores,
   loadProductSkuMappingManagement,
   updateProductSkuMapping,
-  insertReportPayoutDaily,
   archiveReportManagementScope,
   createReportManagementScope,
   isValidScopeId,
@@ -16,14 +13,9 @@ import {
   ReportManualError,
   type ScopeKind,
   updateReportManagementScope,
-  listReportScopes,
-  normalizeReportScopeName,
-  ReportScopeAmbiguousError,
   listPayoutRuns,
   listPayoutStores,
   recordPayoutRun,
-  upsertReportScope,
-  type Database,
   type ProductBundleComponentInput,
 } from "@rueisiang/db";
 import { can } from "@rueisiang/auth";
@@ -35,7 +27,6 @@ import { payoutGithub } from "../payout/github.js";
 import { body, requireString } from "../request.js";
 import { forgetReportAnalytics } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
-import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cyberbiz-report-ingest.js";
 
 /** 只取字串欄位；沒帶就是 undefined（代表「這次不動它」），不是空字串。 */
 function text(input: Record<string, unknown>, field: string): string | undefined {
@@ -65,7 +56,13 @@ function bundleComponents(input: Record<string, unknown>): ProductBundleComponen
   });
 }
 
-import { cyberbizScopeIdFromStoreName, manualScopeIdFromStoreName, runnerStores } from "../cyberbiz-scope.js";
+import { manualScopeIdFromStoreName, runnerStores } from "../cyberbiz-scope.js";
+
+function isValidDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 import { cyberbizSales } from "./cyberbiz-sales.js";
 import { shopeeSales } from "./shopee-sales.js";
 
@@ -96,16 +93,6 @@ function previousMonthRange(): { start: string; end: string } {
   return { start: `${year}-${padded}-01`, end: `${year}-${padded}-${lastDay}` };
 }
 
-/**
- * 擋掉格式錯誤，也擋掉 2026-02-30 這種日曆上不存在的日期——Date 會自己把它
- * 捲到 3/2，所以要拿解析回來的字串比對原字串。
- */
-function isValidDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
 function isCompleteMonth(start: string, end: string): boolean {
   const [year = 0, month = 0] = start.split("-").map(Number);
   const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
@@ -114,249 +101,9 @@ function isCompleteMonth(start: string, end: string): boolean {
 }
 
 
-const MAX_MANUAL_SALES_ROWS = 20_000;
-
-/** 手動 sales 仍是 CYBERBIZ 報表；manual scope 只是沒有自動抓取來源的店別。 */
-function isCyberbizSalesScopeId(scopeId: string): boolean {
-  return scopeId.length <= 100 && (/^(?:cyberbiz|manual):store:/i.test(scopeId) || /^store-/i.test(scopeId));
-}
-
-/**
- * 要新建據點時，先確認這個名字沒有被別的 scope 用掉。
- *
- * 同名 scope 會讓 findReportScope({ name }) 從此丟 ReportScopeAmbiguousError，而且據點
- * 下拉選單以名稱為 key，只會留下其中一個——另一個的歷史資料使用者再也選不到。與其事後
- * 補救，不如在建立的當下擋掉，請使用者直接從清單選既有據點。
- */
-async function assertStoreScopeNameFree(db: Database, scopeId: string, scopeName: string): Promise<void> {
-  let sameName;
-  try {
-    sameName = await findReportScope(db, { scopeKind: "store", name: scopeName });
-  } catch (error) {
-    if (error instanceof ReportScopeAmbiguousError) {
-      throw new HTTPException(400, { message: error.message });
-    }
-    throw error;
-  }
-  if (sameName && sameName.id !== scopeId) {
-    throw new HTTPException(400, {
-      message: `已經有名為「${scopeName}」的據點，請直接從據點清單選擇，不要另外新建同名據點。`,
-    });
-  }
-}
-
-function isValidReportMonth(value: string): boolean {
-  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
-}
-
-function manualSalesInteger(value: unknown, label: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
-    throw new HTTPException(400, { message: `${label} 必須是安全範圍內的整數。` });
-  }
-  return value;
-}
 
 export const tools = new Hono<AppEnv>()
   .use("*", requireAuth)
-
-  /**
-   * 手動上傳的出金資料。
-   *
-   * 退租 POS 的店在 CYBERBIZ 已經抓不到，但歷史出金還是要進報表。檔案在瀏覽器端解析
-   * （Worker 讀 xlsx 要自己拆 zip，不划算），這裡只收已經整理好的日資料。
-   *
-   * 逐日 upsert，所以同一份重傳、或分次傳半個月都安全——這也是為什麼 payout 不像
-   * sales 那樣要求完整月份。
-   */
-  .get("/manual-payout/scopes", requirePermission("tools:payout:config"), async (c) => {
-    const scopes = await listReportScopes(c.get("db"), "store");
-    return c.json({ scopes: scopes.map((scope) => ({ id: scope.id, name: scope.name })) });
-  })
-
-  .post("/manual-payout", requirePermission("tools:payout:config"), async (c) => {
-    const input = await body(c);
-    const scopeName = requireString(input, "scopeName", "據點名稱");
-    // 既有據點沿用它的 ID，才不會讓同一家店的歷史被拆成兩個 scope。
-    const requestedScopeId = typeof input.scopeId === "string" ? input.scopeId.trim() : "";
-    const scopeId = requestedScopeId && isValidScopeId(requestedScopeId)
-      ? requestedScopeId
-      : manualScopeIdFromStoreName(scopeName);
-
-    if (!Array.isArray(input.rows) || !input.rows.length) {
-      throw new HTTPException(400, { message: "沒有可匯入的出金資料。" });
-    }
-    const rows = input.rows.map((value) => {
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
-        throw new HTTPException(400, { message: "出金資料格式不正確。" });
-      }
-      const row = value as Record<string, unknown>;
-      const businessDate = requireString(row, "businessDate", "關帳日期");
-      if (!isValidDate(businessDate)) {
-        throw new HTTPException(400, { message: `關帳日期格式不正確：${businessDate}` });
-      }
-      const payoutAmount = row.payoutAmount;
-      if (typeof payoutAmount !== "number" || !Number.isFinite(payoutAmount)) {
-        throw new HTTPException(400, { message: `${businessDate} 的金額不是數字。` });
-      }
-      const roundedAmount = Math.round(payoutAmount);
-      if (!Number.isSafeInteger(roundedAmount)) {
-        throw new HTTPException(400, { message: `${businessDate} 的金額超出可安全儲存的整數範圍。` });
-      }
-      return { scopeId, businessDate, payoutAmount: roundedAmount };
-    });
-
-    const amountsByDate = new Map<string, number>();
-    for (const row of rows) {
-      const total = (amountsByDate.get(row.businessDate) ?? 0) + row.payoutAmount;
-      if (!Number.isSafeInteger(total)) {
-        throw new HTTPException(400, { message: `${row.businessDate} 的金額加總超出可安全儲存的整數範圍。` });
-      }
-      amountsByDate.set(row.businessDate, total);
-    }
-    const dailyRows = [...amountsByDate].map(([businessDate, payoutAmount]) => ({
-      scopeId,
-      businessDate,
-      payoutAmount,
-    }));
-
-    await assertStoreScopeNameFree(c.get("db"), scopeId, scopeName);
-    let scope;
-    try {
-      scope = await upsertReportScope(c.get("db"), { id: scopeId, scopeKind: "store", name: scopeName });
-      await insertReportPayoutDaily(c.get("db"), dailyRows);
-    } finally {
-      // 寫完 scope 才在寫日資料時失敗也算改到報表；成功與失敗都要清掉報表快取。
-      await forgetReportAnalytics(cacheClient(c.env));
-    }
-    const dates = dailyRows.map((row) => row.businessDate).sort();
-    return c.json({
-      scopeId: scope.id,
-      scopeName: scope.name,
-      dayCount: dailyRows.length,
-      total: dailyRows.reduce((sum, row) => sum + row.payoutAmount, 0),
-      coverageStart: dates[0],
-      coverageEnd: dates[dates.length - 1],
-    }, 201);
-  })
-
-  /** 手動補上的 CYBERBIZ 商品銷售；整月快照會取代同店同月份的既有資料。 */
-  .get("/manual-sales/scopes", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
-    const [reportScopes, configuredStores] = await Promise.all([
-      listReportScopes(c.get("db"), "store"),
-      listPayoutStores(c.get("db")),
-    ]);
-    // 以名稱去重只用來決定「哪些設定的店還沒有 scope」；既有 scope 一律全部列出，
-    // 不然正式環境已經存在的同名 scope 會有一個永遠選不到，它的歷史資料等於消失。
-    const scopes: { id: string; name: string }[] = [];
-    const named = new Set<string>();
-    for (const scope of reportScopes) {
-      if (!isCyberbizSalesScopeId(scope.id)) continue;
-      named.add(normalizeReportScopeName(scope.name));
-      scopes.push({ id: scope.id, name: scope.name });
-    }
-    for (const store of configuredStores) {
-      const key = normalizeReportScopeName(store.name);
-      if (named.has(key)) continue;
-      named.add(key);
-      scopes.push({ id: cyberbizScopeIdFromStoreName(store.name), name: store.name });
-    }
-    return c.json({
-      scopes: scopes.sort((a, b) => a.name.localeCompare(b.name, "zh-TW")),
-    });
-  })
-
-  /** 手動 sales 舊檔以商品名稱對 SKU 時使用的目錄；沿用 sales 權限，不要求另開 SKU 設定頁。 */
-  .get("/manual-sales/products", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
-    return c.json({ products: await listCyberbizProducts(c.get("db")) });
-  })
-
-  .post("/manual-sales", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
-    const input = await body(c);
-    const scopeName = requireString(input, "scopeName", "據點名稱");
-    const reportMonth = requireString(input, "reportMonth", "報表月份");
-    if (!isValidReportMonth(reportMonth)) {
-      throw new HTTPException(400, { message: "報表月份格式必須是 YYYY-MM。" });
-    }
-    const rawRows = input.rows;
-    if (!Array.isArray(rawRows) || rawRows.length > MAX_MANUAL_SALES_ROWS) {
-      throw new HTTPException(400, {
-        message: Array.isArray(rawRows) && rawRows.length
-          ? `商品銷售資料不能超過 ${MAX_MANUAL_SALES_ROWS.toLocaleString("zh-TW")} 列。`
-          : "沒有可匯入的商品銷售資料。",
-      });
-    }
-    if (!rawRows.length) throw new HTTPException(400, { message: "沒有可匯入的商品銷售資料。" });
-
-    const requestedScopeId = typeof input.scopeId === "string" ? input.scopeId.trim() : "";
-    let scopeId = manualScopeIdFromStoreName(scopeName);
-    let resolvedScopeName = scopeName;
-    let existingScope = null;
-    if (requestedScopeId) {
-      if (!isCyberbizSalesScopeId(requestedScopeId)) {
-        throw new HTTPException(400, { message: "匯入據點 ID 格式不正確。" });
-      }
-      const selectedScope = await findReportScope(c.get("db"), { scopeKind: "store", id: requestedScopeId });
-      existingScope = selectedScope;
-      if (selectedScope) {
-        if (normalizeReportScopeName(selectedScope.name) !== normalizeReportScopeName(scopeName)) {
-          throw new HTTPException(400, { message: "匯入據點 ID 與據點名稱不一致，請重新選擇據點。" });
-        }
-        scopeId = selectedScope.id;
-        resolvedScopeName = selectedScope.name;
-      } else if (
-        requestedScopeId !== cyberbizScopeIdFromStoreName(scopeName)
-        && requestedScopeId !== manualScopeIdFromStoreName(scopeName)
-      ) {
-        throw new HTTPException(400, { message: "找不到指定的匯入據點，請重新選擇據點。" });
-      } else {
-        scopeId = requestedScopeId;
-      }
-    }
-    // sales 是整月覆寫，寫錯 scope 等於把那家店當月的自動匯入資料清掉，所以新建據點前
-    // 一定要確認名字沒有被別人用走。
-    if (!existingScope) {
-      await assertStoreScopeNameFree(c.get("db"), scopeId, scopeName);
-    }
-    const rows = rawRows.map((value, index) => {
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
-        throw new HTTPException(400, { message: `第 ${index + 1} 列商品銷售資料格式不正確。` });
-      }
-      const row = value as Record<string, unknown>;
-      if (row.reportMonth !== undefined && row.reportMonth !== reportMonth) {
-        throw new HTTPException(400, { message: `第 ${index + 1} 列的報表月份與檔案不一致。` });
-      }
-      const sku = requireString(row, "sku", `第 ${index + 1} 列 SKU`);
-      return {
-        reportMonth,
-        sku,
-        grossQuantity: manualSalesInteger(row.grossQuantity, `第 ${index + 1} 列銷售數量`),
-        returnQuantity: manualSalesInteger(row.returnQuantity, `第 ${index + 1} 列退回數量`),
-        netQuantity: manualSalesInteger(row.netQuantity, `第 ${index + 1} 列淨銷售數量`),
-        salesAmount: manualSalesInteger(row.salesAmount, `第 ${index + 1} 列售額總計`),
-      };
-    });
-
-    let result;
-    try {
-      result = await createCyberbizReportIngestor(c.get("db")).ingest({
-        kind: "sales",
-        scopeType: "store",
-        scopeId,
-        scopeName: resolvedScopeName,
-        reportMonth,
-        rows,
-      });
-    } catch (error) {
-      if (error instanceof CyberbizReportIngestError) {
-        throw new HTTPException(422, { message: error.message });
-      }
-      throw error;
-    } finally {
-      // ingest 可能已先寫入 scope 或部分批次後才失敗；成功與失敗都要清掉報表快取。
-      await forgetReportAnalytics(cacheClient(c.env));
-    }
-    return c.json({ ...result, scopeName: resolvedScopeName, reportMonth }, 201);
-  })
 
   /** SKU 對應的入口已移到品項管理；API 路徑先保留在 tools 之下，避免既有前端與報表流程斷線。 */
   .get("/product-sku-mappings", requirePermission("wms:mapping:read"), async (c) => {
@@ -391,11 +138,6 @@ export const tools = new Hono<AppEnv>()
     });
     await forgetReportAnalytics(cacheClient(c.env));
     return c.json(result);
-  })
-
-  /** SKU 對應頁挑用料用的 CYBERBIZ 商品清單（讀 D1 鏡像，不打官網）。 */
-  .get("/cyberbiz-products", requirePermission("wms:mapping:read"), async (c) => {
-    return c.json({ products: await listCyberbizProducts(c.get("db")) });
   })
 
   /**

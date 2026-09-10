@@ -42,14 +42,6 @@ export interface WorkflowStep {
   conclusion: string | null;
 }
 
-export interface PayoutStore {
-  id: string;
-  name: string;
-  driveFolderUrl: string;
-  driveFolderName: string;
-  enabled: boolean;
-}
-
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -153,50 +145,6 @@ export function usePayoutStatus(requestId: string | null) {
   });
 }
 
-export function usePayoutStores() {
-  return useQuery({
-    queryKey: ["tools", "payout", "stores"],
-    queryFn: () => call<{ stores: PayoutStore[] }>("/api/tools/payout/stores"),
-  });
-}
-
-export type PayoutStoreDraft = Omit<PayoutStore, "id"> & { id?: string };
-export type PayoutStoreSaveInput = Partial<Omit<PayoutStore, "id">> & { id?: string };
-
-export function useSavePayoutStore() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (store: PayoutStoreSaveInput) => {
-      const { id, ...payload } = store;
-      return call<{ store: PayoutStore }>(
-        id ? `/api/tools/payout/stores/${encodeURIComponent(id)}` : "/api/tools/payout/stores",
-        {
-          method: id ? "PATCH" : "POST",
-          body: JSON.stringify(payload),
-        },
-      );
-    },
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["tools", "payout"] });
-      void client.invalidateQueries({ queryKey: ["tools", "cyberbiz-sales"] });
-    },
-  });
-}
-
-export function useDeletePayoutStore() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      call<{ ok: true }>(`/api/tools/payout/stores/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["tools", "payout"] });
-      void client.invalidateQueries({ queryKey: ["tools", "cyberbiz-sales"] });
-    },
-  });
-}
-
 /** 執行紀錄裡的店別是 JSON 字串；壞掉的資料不該讓整列炸掉。 */
 export function parseStores(value: string): string[] {
   try {
@@ -264,22 +212,6 @@ export function useShopeeSalesStatus(requestId: string | null) {
     queryKey: ["tools", "shopee-sales", "status", requestId],
     queryFn: () => call<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>(`/api/tools/shopee-sales/status?requestId=${encodeURIComponent(requestId!)}`),
     refetchInterval: (query) => query.state.data?.runs[0]?.status === "completed" ? false : 5000,
-  });
-}
-
-export function useShopeeSalesSettings() {
-  return useQuery({
-    queryKey: ["tools", "shopee-sales", "settings"],
-    queryFn: () => call<{ settings: ShopeeSalesSettings }>("/api/tools/shopee-sales/settings"),
-  });
-}
-
-export function useSaveShopeeSalesSettings() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { driveFolderUrl: string; driveFolderName: string }) =>
-      call<{ settings: ShopeeSalesSettings }>("/api/tools/shopee-sales/settings", { method: "PUT", body: JSON.stringify(input) }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "shopee-sales"] }),
   });
 }
 
