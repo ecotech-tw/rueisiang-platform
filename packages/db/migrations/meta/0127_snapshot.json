@@ -2,7 +2,7 @@
   "version": "6",
   "dialect": "sqlite",
   "id": "1a447a6a-6f49-473a-b8aa-ccd38346c221",
-  "prevId": "32972c57-963b-4aa9-84e2-e9a285805b80",
+  "prevId": "845bbabc-2118-46de-b02c-3331456ee365",
   "tables": {
     "cyberbiz_products": {
       "name": "cyberbiz_products",
@@ -5372,6 +5372,21 @@
           "notNull": true,
           "autoincrement": false,
           "default": 1
+        },
+        "external_name": {
+          "name": "external_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",

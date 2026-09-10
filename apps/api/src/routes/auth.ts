@@ -62,7 +62,19 @@ function configuredAppOrigins(raw: string | undefined): string[] {
 }
 
 function safeReturnTo(value: string | undefined, configuredOrigins: string[]): string {
-  if (!value || (value.startsWith("/") && !value.startsWith("//"))) return value || "/";
+  if (!value) return "/";
+  if (value.startsWith("/")) {
+    try {
+      // Parsing against a base also rejects backslash variants such as /\\evil,
+      // which browsers normalize into an external //evil redirect.
+      const base = new URL("https://rueisiang-return.invalid");
+      const target = new URL(value, base);
+      if (target.origin !== base.origin) return "/";
+      return `${target.pathname}${target.search}${target.hash}`;
+    } catch {
+      return "/";
+    }
+  }
   try {
     const target = new URL(value);
     return configuredOrigins.includes(target.origin) ? target.toString() : "/";
