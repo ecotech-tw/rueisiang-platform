@@ -1,10 +1,12 @@
 import { can } from "@rueisiang/auth";
-import { loadWarehouse, type Database } from "@rueisiang/db";
+import { loadWarehouse, recordActivity, type Database } from "@rueisiang/db";
 import { and, asc, count, eq, ne } from "drizzle-orm";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { forgetReportAnalytics } from "../report-cache.js";
+import { cacheClient } from "../upstash.js";
 import { body, requireString } from "../request.js";
 import {
   itemCategories,
@@ -23,6 +25,18 @@ const COLORS = new Set(["rose", "sky", "mint", "amber", "violet", "teal", "peach
 function normalizeColor(value: unknown): string {
   const color = String(value ?? "rose").trim();
   return COLORS.has(color) ? color : "rose";
+}
+
+/**
+ * 分類改動要讓報表快取失效。
+ *
+ * report_sales_effective 是 LEFT JOIN item_categories 即時讀分類名稱，而
+ * /summary/sales 的快取 TTL 是 24 小時——改了名字或把商品換一個分類之後，營運
+ * 統計的分類佔比最久會錯一天，而且沒有任何操作可以讓它失效。原本 tools 那一側
+ * 的三條路由都有這一步，合併時要跟著搬過來。
+ */
+async function forgetAnalytics(c: Context<AppEnv>) {
+  await forgetReportAnalytics(cacheClient(c.env));
 }
 
 async function findCategoryId(db: Database, raw: unknown): Promise<string | null> {
@@ -68,6 +82,16 @@ export const items = new Hono<AppEnv>()
     if (duplicate) throw new HTTPException(409, { message: `同一層級已有品項分類「${name}」。` });
     const category = { id: crypto.randomUUID(), depth, parentId, parentDepth: parentId ? 0 : null, name, color: normalizeColor(input.color) };
     await c.get("db").insert(itemCategories).values(category);
+    await recordActivity(c.get("db"), {
+      entityType: "item_category",
+      entityId: category.id,
+      entityLabel: category.name,
+      eventType: "item_category_created",
+      summary: "新增品項分類",
+      actor: c.get("user"),
+      source: "wms",
+    });
+    await forgetAnalytics(c);
     return c.json(category, 201);
   })
   .post("/categories/reorder", requirePermission("items:category:write"), async (c) => {
@@ -107,13 +131,38 @@ export const items = new Hono<AppEnv>()
       updatedAt: new Date().toISOString(),
     };
     await c.get("db").update(itemCategories).set(patch).where(eq(itemCategories.id, id));
+    await recordActivity(c.get("db"), {
+      entityType: "item_category",
+      entityId: id,
+      entityLabel: patch.name ?? current.name,
+      eventType: "item_category_updated",
+      summary: "修改品項分類",
+      field: "name",
+      oldValue: current.name,
+      newValue: patch.name ?? current.name,
+      actor: c.get("user"),
+      source: "wms",
+    });
+    await forgetAnalytics(c);
     return c.json({ id, ...patch });
   })
   .delete("/categories/:id", requirePermission("items:category:write"), async (c) => {
     const id = c.req.param("id");
     const [{ total } = { total: 0 }] = await c.get("db").select({ total: count() }).from(itemMasters).where(eq(itemMasters.categoryId, id));
     if (Number(total) > 0) throw new HTTPException(409, { message: `還有 ${total} 個品項使用這個分類。` });
+    const [current] = await c.get("db").select({ name: itemCategories.name }).from(itemCategories).where(eq(itemCategories.id, id)).limit(1);
     await c.get("db").delete(itemCategories).where(eq(itemCategories.id, id));
+    // 紀錄留 entityLabel：分類刪掉之後 join 不回名字，只剩 ID 的紀錄看不懂。
+    await recordActivity(c.get("db"), {
+      entityType: "item_category",
+      entityId: id,
+      entityLabel: current?.name ?? id,
+      eventType: "item_category_deleted",
+      summary: "刪除品項分類",
+      actor: c.get("user"),
+      source: "wms",
+    });
+    await forgetAnalytics(c);
     return c.json({ ok: true });
   })
   .get("/catalog", requirePermission("items:item:read"), async (c) => {
@@ -243,6 +292,26 @@ export const items = new Hono<AppEnv>()
       }
     }
     await db.update(itemMasters).set({ name, sku, kind, categoryId, active, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, id));
+    // 換分類會改到報表的分類佔比，所以要留紀錄也要讓快取失效。cyberbiz 品項沿用
+    // 原本 tools 那一側的 entityType，異動紀錄頁的「商品分類」篩選才接得上。
+    if (categoryId !== current.categoryId) {
+      const [category] = categoryId
+        ? await db.select({ name: itemCategories.name }).from(itemCategories).where(eq(itemCategories.id, categoryId)).limit(1)
+        : [];
+      await recordActivity(db, {
+        entityType: current.source === "cyberbiz" ? "cyberbiz_product_category" : "item",
+        entityId: current.source === "cyberbiz" ? sku : id,
+        entityLabel: name,
+        eventType: "item_category_assigned",
+        summary: "更新品項分類",
+        field: "category",
+        oldValue: current.categoryId,
+        newValue: category?.name ?? null,
+        actor: c.get("user"),
+        source: "wms",
+      });
+      await forgetAnalytics(c);
+    }
     return c.json({ id, sku, name, kind, categoryId, active });
   })
   .delete("/catalog/:id", requirePermission("items:item:write"), async (c) => {

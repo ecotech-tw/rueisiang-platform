@@ -188,9 +188,9 @@ describe("bootstrap 管理員權限 migration", () => {
     d1.sqlite.exec(itemWmsPermissionSql);
     // 0071 種的 tools:product-category:* 在 0126 被移除——它跟 items:category:* 是
     // 同一件事的兩份實作。重播到今天才會等於現在的權限清單。
-    const dropProductCategorySql = readHistoricalMigration(DROP_PRODUCT_CATEGORY_PERMISSION_MIGRATION)
-      .split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean);
-    for (const statement of [...dropProductCategorySql, ...dropProductCategorySql]) d1.sqlite.exec(statement);
+    const dropProductCategorySql = readHistoricalMigration(DROP_PRODUCT_CATEGORY_PERMISSION_MIGRATION);
+    d1.sqlite.exec(dropProductCategorySql);
+    d1.sqlite.exec(dropProductCategorySql);
 
     const permissions = await db.select().from(rolePermissionGrants);
     expect(permissions).toHaveLength(ALL_PERMISSIONS.length);

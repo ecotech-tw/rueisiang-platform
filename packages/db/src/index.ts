@@ -228,7 +228,6 @@ export {
 } from "./media.js";
 export {
   listProductCategoryOptions,
-  REPORT_PRODUCT_CATEGORY_COLORS,
   type ProductCategoryOption,
 } from "./cyberbiz-product-categories.js";
 export { GLOBAL_SCOPE, type Role, type User, type UserRole } from "./schema/auth.js";

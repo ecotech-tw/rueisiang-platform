@@ -11,11 +11,6 @@ export interface ProductCategoryOption {
   usageCount: number;
 }
 
-/** 商品分類的顏色只允許設計系統已經準備好的色階。 */
-export const REPORT_PRODUCT_CATEGORY_COLORS = [
-  "rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand",
-] as const;
-
 /** 商品分類選項只讀全平台品項主檔；WMS 倉儲分類不會出現在這裡。 */
 export async function listProductCategoryOptions(db: Database): Promise<ProductCategoryOption[]> {
   const [categoryRows, cyberbizCounts, customCounts] = await Promise.all([

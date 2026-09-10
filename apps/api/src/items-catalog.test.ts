@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, createReportManualSales, syncCyberbizProducts, syncSystemRoles } from "@rueisiang/db";
-import { cyberbizProducts, itemCategories, items, scopes, users, userRoleAssignments } from "@rueisiang/db/schema";
+import { activityEvents, cyberbizProducts, itemCategories, items, scopes, users, userRoleAssignments } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -210,6 +210,21 @@ describe("品項分類", () => {
     expect((await call("/api/items/categories/cat-1", { method: "DELETE" })).status).toBe(200);
     expect((await categoryRows()).some((row) => row.id === "cat-1")).toBe(false);
     expect((await db.select().from(items).where(eq(items.id, itemId)))).toHaveLength(1);
+  });
+
+  // 分類的寫入是需要授權的操作，所以要查得到是誰做的。被移除那一側原本有寫，
+  // 合併時差點掉在地上。
+  it("建立、改名與刪除分類都留下操作紀錄", async () => {
+    expect((await call("/api/items/categories", { method: "POST", body: JSON.stringify({ name: "新分類" }) })).status).toBe(201);
+    expect((await call("/api/items/categories/cat-1", { method: "PATCH", body: JSON.stringify({ name: "包材（改名）" }) })).status).toBe(200);
+    expect((await call("/api/items/categories/cat-1", { method: "DELETE" })).status).toBe(200);
+
+    const events = await db.select().from(activityEvents).where(eq(activityEvents.entityType, "item_category"));
+    expect(events.map((row) => row.eventType).sort()).toEqual([
+      "item_category_created", "item_category_deleted", "item_category_updated",
+    ]);
+    // 刪掉之後 join 不回名字，所以標籤要當場存下來。
+    expect(events.find((row) => row.eventType === "item_category_deleted")?.entityLabel).toBe("包材（改名）");
   });
 
   it("改名不會動到品項與它的分類關聯", async () => {
