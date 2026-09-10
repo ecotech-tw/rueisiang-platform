@@ -47,6 +47,16 @@ export const hrEmployeeAttendanceLocations = sqliteTable("hr_employee_attendance
 ]);
 
 /** 打卡事件不可覆寫；按鈕只會新增事件，摘要再由事件 kind 判斷。 */
+/** 一段任職的出勤方式與主要辦公位置。主要位置用 assignment id 指向，避免在歷史指派列上覆寫狀態。 */
+export const hrEmploymentAttendanceSettings = sqliteTable("hr_employment_attendance_settings", {
+  employmentId: text("employment_id").primaryKey().references(() => hrEmployments.id, { onDelete: "restrict" }),
+  attendanceMode: text("attendance_mode", { enum: ["general", "scheduled"] as const }).notNull().default("general"),
+  primaryAssignmentId: text("primary_assignment_id").references(() => hrEmployeeAttendanceLocations.id, { onDelete: "restrict" }),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  check("ck_hr_employment_attendance_settings_mode", sql`${table.attendanceMode} IN ('general', 'scheduled')`),
+]);
+
 export const hrClockEvents = sqliteTable("hr_clock_events", {
   id: text("id").primaryKey(),
   employeeUserId: text("employee_user_id").notNull().references(() => hrEmployees.userId, { onDelete: "restrict" }),

@@ -778,6 +778,20 @@
       "when": 1789021713754,
       "tag": "0134_restore_hr_scope_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "6",
+      "when": 1789030955479,
+      "tag": "0135_sticky_dracula",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "6",
+      "when": 1789030956000,
+      "tag": "0136_backfill_hr_attendance_settings",
+      "breakpoints": true
     }
   ]
 }

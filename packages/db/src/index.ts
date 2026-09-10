@@ -2,7 +2,7 @@ export { createDatabase, type Database } from "./client.js";
 export { listHrActivity, type HrAuditResult, type HrAuditRow } from "./hr-audit.js";
 export {
   checkHrClockLocation, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent, endHrAttendanceLocationAssignment,
-  getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation,
+  getHrAttendanceLocation, setHrAttendanceLocationPrimary, getHrClockCalendar, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation,
 } from "./hr-attendance.js";
 export {
   createHrFormRequest, getHrFormRequest, listHrFormApprovers, listHrFormRequests, reviewHrFormRequest,
@@ -10,13 +10,17 @@ export {
   type HrFormRequestEventKind, type HrFormRequestInput, type HrFormRequestStatus,
 } from "./hr-requests.js";
 export {
+  createHrCompensationVersion, createHrInsuranceVersion, fetchHrInsuranceBrackets, HrInsuranceRateError,
+  type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceInput, type HrInsuranceScheme,
+} from "./hr-payroll.js";
+export {
   HrError, assignHrEmployee, createHrAssignment, createHrEmployment,
-  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, grantHrManagementScope, hasHrAssignmentManagementAccess,
+  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, updateHrEmploymentAttendanceMode, grantHrManagementScope, hasHrAssignmentManagementAccess,
   hasHrAttendanceAssignmentManagementAccess, hasHrEmploymentManagementAccess, hasHrManagementAccess, hasHrManagementScopeAccess,
   isHrAdministrator, isHrEmployee,
   listHrCandidates, listHrEmployees, listHrManagementOptions,
   listHrManagementScopes, listHrScopes, listHrSupervisorCandidates, revokeHrManagementScope, updateHrEmployee, updateHrEmployeeSupervisor,
-  type HrManagementScopeRow,
+  HR_EMPLOYEE_PAGE_SIZES, type HrManagementScopeRow, type HrEmployeeDetailOptions, type HrEmployeeListQuery, type HrEmployeeSortField,
 } from "./hr-people.js";
 export {
   createAssistantPromptRevision,

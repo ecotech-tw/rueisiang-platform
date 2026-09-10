@@ -1,14 +1,14 @@
 import { can } from "@rueisiang/auth";
 import {
-  HrError, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
-  createHrEmployment, createHrFormRequest, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters,
-  getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, grantHrManagementScope, hasHrAssignmentManagementAccess,
-  hasHrAttendanceAssignmentManagementAccess, hasHrEmploymentManagementAccess, hasHrManagementAccess, hasHrManagementScopeAccess,
+  HrError, HrInsuranceRateError, HR_EMPLOYEE_PAGE_SIZES, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
+  createHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersion, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters,
+  fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, grantHrManagementScope, hasHrAssignmentManagementAccess,
+  hasHrAttendanceAssignmentManagementAccess, hasHrEmploymentManagementAccess, hasHrManagementAccess, hasHrManagementScopeAccess, setHrAttendanceLocationPrimary,
   isHrAdministrator, listHrActivity,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests, listHrManagementOptions,
   listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest, revokeHrManagementScope,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
-  updateHrEmployeeSupervisor, updateHrFormRequest,
+  updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -105,6 +105,27 @@ function calendarNumber(raw: string | undefined, fallback: number, label: string
   const value = raw === undefined ? fallback : Number(raw);
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new HTTPException(400, { message: `${label}不正確。` });
   return value;
+}
+function attendanceMode(input: Record<string, unknown>, optional = false): "general" | "scheduled" {
+  const value = input.attendanceMode;
+  if (value === undefined && optional) return "general";
+  if (value === "general" || value === "scheduled") return value;
+  throw new HTTPException(400, { message: "出勤方式只能是一般辦公或排班。" });
+}
+function payBasis(input: Record<string, unknown>): "monthly" | "daily" | "hourly" {
+  if (input.payBasis === "monthly" || input.payBasis === "daily" || input.payBasis === "hourly") return input.payBasis;
+  throw new HTTPException(400, { message: "薪資計算方式不正確。" });
+}
+function insuranceScheme(input: Record<string, unknown>): "labor" | "health" {
+  if (input.scheme === "labor" || input.scheme === "health") return input.scheme;
+  throw new HTTPException(400, { message: "保險種類不正確。" });
+}
+function insuranceStatus(input: Record<string, unknown>): "enrolled" | "withdrawn" {
+  if (input.status === "enrolled" || input.status === "withdrawn") return input.status;
+  throw new HTTPException(400, { message: "加退保狀態不正確。" });
+}
+function noteValue(input: Record<string, unknown>) {
+  return input.note === undefined || input.note === null ? "" : text(input, "note", "備註", 1000);
 }
 
 export const hr = new Hono<AppEnv>()
@@ -248,20 +269,46 @@ export const hr = new Hono<AppEnv>()
     period(validFrom, validTo);
     return c.json(await createHrAttendanceLocationAssignment(c.get("db"), { employmentId: c.req.param("id"), locationId: text(input, "locationId", "辦公位置"), validFrom, validTo }, c.get("user")), 201);
   })
+  .post("/attendance-location-assignments/:id/primary", requirePermission("hr:office:write"), async (c) => {
+    if (!await hasHrAttendanceAssignmentManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的辦公位置指派。" });
+    return c.json(await setHrAttendanceLocationPrimary(c.get("db"), c.req.param("id"), c.get("user")));
+  })
   .patch("/attendance-location-assignments/:id/end", requirePermission("hr:office:write"), async (c) => {
     if (!await hasHrAttendanceAssignmentManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的辦公位置指派。" });
     const input = await body(c);
     return c.json(await endHrAttendanceLocationAssignment(c.get("db"), c.req.param("id"), { validTo: date(input, "validTo")!, revision: revision(input) }, c.get("user")));
   })
+  .get("/insurance-brackets", requirePermission("hr:employee:read"), async (c) => {
+    const fallback = currentTaipeiYearMonth().year;
+    const year = calendarNumber(c.req.query("year"), fallback, "年份", 1900, 9999);
+    try {
+      return c.json({ tables: await fetchHrInsuranceBrackets(year) });
+    } catch (error) {
+      if (error instanceof HrInsuranceRateError) throw new HTTPException(502, { message: error.message });
+      throw error;
+    }
+  })
   .get("/employees", requirePermission("hr:employee:read"), async (c) => {
-    const page = Number(c.req.query("page") ?? "1");
-    if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new HTTPException(400, { message: "頁碼不正確。" });
-    return c.json(await listHrEmployees(c.get("db"), page, c.get("user").id));
+    const page = calendarNumber(c.req.query("page"), 1, "頁碼", 1, 10000);
+    const rawPageSize = c.req.query("pageSize");
+    const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
+    if (!HR_EMPLOYEE_PAGE_SIZES.includes(pageSize as (typeof HR_EMPLOYEE_PAGE_SIZES)[number])) throw new HTTPException(400, { message: "每頁筆數不正確。" });
+    const status = c.req.query("status") ?? "all";
+    if (status !== "all" && status !== "active" && status !== "invited" && status !== "disabled") throw new HTTPException(400, { message: "員工狀態不正確。" });
+    const sortField = c.req.query("sortField") ?? "employeeNumber";
+    if (sortField !== "employeeNumber" && sortField !== "name" && sortField !== "email" && sortField !== "status") throw new HTTPException(400, { message: "排序欄位不正確。" });
+    const sortDirection = c.req.query("sortDirection") === "desc" ? "desc" : "asc";
+    const search = c.req.query("search")?.trim() ?? "";
+    if (search.length > 100) throw new HTTPException(400, { message: "搜尋條件不正確。" });
+    return c.json(await listHrEmployees(c.get("db"), { page, pageSize, search, status, sortField, sortDirection }, c.get("user").id));
   })
   .get("/supervisor-candidates", requirePermission("hr:employee:write"), async (c) => c.json({ users: await listHrSupervisorCandidates(c.get("db"), c.req.query("exclude") ?? c.get("user").id, c.get("user").id) }))
   .get("/employees/:id", requirePermission("hr:employee:read"), async (c) => {
     if (!await hasHrManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的員工。" });
-    return c.json(await getHrEmployee(c.get("db"), c.req.param("id"), c.get("user").id));
+    const fullAccess = await isHrAdministrator(c.get("db"), c.get("user").id);
+    return c.json(await getHrEmployee(c.get("db"), c.req.param("id"), c.get("user").id, {
+      includeCompensation: fullAccess, includeInsurance: fullAccess, includeLeave: fullAccess, includeAttendanceEvents: fullAccess,
+    }));
   })
   .post("/employees", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以指派新員工。" });
@@ -269,7 +316,7 @@ export const hr = new Hono<AppEnv>()
     const hiredOn = date(input, "hiredOn")!;
     const seniorityStartOn = date(input, "seniorityStartOn")!;
     if (seniorityStartOn > hiredOn) throw new HTTPException(400, { message: "年資認列日起不得晚於到職日。" });
-    return c.json(await assignHrEmployee(c.get("db"), { userId: text(input, "userId", "使用者"), employeeNumber: text(input, "employeeNumber", "員工編號", 40), hiredOn, seniorityStartOn }, c.get("user")), 201);
+    return c.json(await assignHrEmployee(c.get("db"), { userId: text(input, "userId", "使用者"), employeeNumber: text(input, "employeeNumber", "員工編號", 40), hiredOn, seniorityStartOn, attendanceMode: attendanceMode(input, true) }, c.get("user")), 201);
   })
   .patch("/employees/:id", requirePermission("hr:employee:write"), async (c) => {
     if (!await hasHrManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的員工。" });
@@ -280,6 +327,35 @@ export const hr = new Hono<AppEnv>()
     if (!await hasHrManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的員工。" });
     const input = await body(c);
     return c.json(await updateHrEmployeeSupervisor(c.get("db"), c.req.param("id"), { supervisorUserId: nullableText(input, "supervisorUserId", "主管"), revision: revision(input) }, c.get("user")));
+  })
+  .post("/employments/:id/compensation", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理薪資資料。" });
+    const input = await body(c);
+    const validFrom = date(input, "validFrom")!;
+    const validTo = date(input, "validTo", true);
+    period(validFrom, validTo);
+    return c.json(await createHrCompensationVersion(c.get("db"), {
+      employmentId: c.req.param("id"), validFrom, validTo, payBasis: payBasis(input),
+      baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input),
+    }, c.get("user")), 201);
+  })
+  .post("/employments/:id/insurance", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理勞健保資料。" });
+    const input = await body(c);
+    const scheme = insuranceScheme(input);
+    const status = insuranceStatus(input);
+    const validFrom = date(input, "validFrom")!;
+    const validTo = date(input, "validTo", true);
+    period(validFrom, validTo);
+    const sourceKind = input.sourceKind === "manual" ? "manual" : input.sourceKind === "official" ? "official" : null;
+    if (!sourceKind) throw new HTTPException(400, { message: "級距來源不正確。" });
+    const dependentCount = scheme === "health" ? integerValue(input, "dependentCount", "眷屬人數", 0, 3) : 0;
+    return c.json(await createHrInsuranceVersion(c.get("db"), {
+      employmentId: c.req.param("id"), scheme, status, validFrom, validTo,
+      insuredAmountMinor: status === "withdrawn" ? 0 : integerValue(input, "insuredAmountMinor", "投保金額（分）", 0, Number.MAX_SAFE_INTEGER),
+      dependentCount, rateYear: integerValue(input, "rateYear", "級距年度", 1900, 9999), sourceKind,
+      sourceUrl: input.sourceUrl === undefined || input.sourceUrl === null ? "" : text(input, "sourceUrl", "資料來源", 500), note: noteValue(input),
+    }, c.get("user")), 201);
   })
   .post("/employments", requirePermission("hr:employee:write"), async (c) => {
     // 新任職沒有任何 scope，必須由全平台管理者建立；否則 scoped manager 會建立
@@ -293,7 +369,12 @@ export const hr = new Hono<AppEnv>()
     const seniorityStartOn = date(input, "seniorityStartOn")!;
     period(hiredOn, endedOn);
     if (seniorityStartOn > hiredOn) throw new HTTPException(400, { message: "年資認列日起不得晚於到職日。" });
-    return c.json(await createHrEmployment(c.get("db"), { userId, hiredOn, endedOn, seniorityStartOn }, c.get("user")), 201);
+    return c.json(await createHrEmployment(c.get("db"), { userId, hiredOn, endedOn, seniorityStartOn, attendanceMode: attendanceMode(input, true) }, c.get("user")), 201);
+  })
+  .patch("/employments/:id/attendance-mode", requirePermission("hr:office:write"), async (c) => {
+    if (!await hasHrEmploymentManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的任職紀錄。" });
+    const input = await body(c);
+    return c.json(await updateHrEmploymentAttendanceMode(c.get("db"), c.req.param("id"), { attendanceMode: attendanceMode(input), revision: revision(input) }, c.get("user")));
   })
   .patch("/employments/:id/end", requirePermission("hr:employee:write"), async (c) => {
     if (!await hasHrEmploymentManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的任職紀錄。" });

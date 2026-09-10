@@ -21,6 +21,7 @@ export * from "./crm.js";
 export * from "./hr-people.js";
 export * from "./hr-attendance.js";
 export * from "./hr-requests.js";
+export * from "./hr-payroll.js";
 export {
   itemCategories,
   itemComponents,
