@@ -27,7 +27,10 @@ export type ActivityEntityType =
   | "report_manual_entry"
   | "layout_element"
   /** 倉庫本身的設定（畫布尺寸）。只有一筆，entityId 固定是 main。 */
-  | "warehouse";
+  | "warehouse"
+  | "hr_payroll"
+  | "hr_bonus"
+  | "hr_schedule";
 
 /**
  * 哪裡寫的。前端的操作紀錄頁用它當篩選選項，所以值一改就要一起改那邊的下拉。

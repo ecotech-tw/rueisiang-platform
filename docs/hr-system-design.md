@@ -140,10 +140,10 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 |---|---|---|
 | `hr_leave_policy_versions` | `employer_id, leave_code, version_number, valid_from, valid_to?, unit_kind, pay_rate_ppm, entitlement_rule_code, source_url` | 唯一 employer + code + version；受控假別規則 |
 | `hr_leave_accounts` | `employment_id, leave_policy_version_id, entitlement_start, entitlement_end, revision` | 唯一 employment + policy + entitlement_start；作為額度並行控制根 |
-| `hr_leave_requests` | `employment_id → hr_employments.id`、`leave_type, status, starts_on, ends_on, duration_minutes, reason, reviewed_by?, reviewed_at?, review_comment?, created_by` | 草稿／待審核／核准／駁回／取消狀態 CHECK；期間與時數正值；employment + starts_on 索引；目前供內頁歷史檢視，申請流程另行切片 |
+| `hr_leave_requests` | `employment_id → hr_employments.id`、`leave_type, status, starts_on, ends_on, duration_minutes, pay_rate_ppm, reason, reviewed_by?, reviewed_at?, review_comment?, created_by` | 草稿／待審核／核准／駁回／取消狀態 CHECK；期間、時數與給薪比例受控；pay_rate_ppm 是申請時快照，不靠假別名稱推測扣薪；employment + starts_on 索引 |
 | `hr_leave_request_segments` | `leave_request_id, sequence, starts_at, ends_at, requested_seconds` | 唯一 request + sequence；區段及秒數正值 |
 | `hr_leave_ledger` | `leave_account_id, leave_request_id?, movement_kind, quantity_seconds, expires_on?, idempotency_key` | idempotency 唯一；取得／保留／使用／釋放／到期／結清等種類 CHECK |
-| `hr_overtime_requests` | `employment_id, scope_id, requested_start, requested_end, actual_start?, actual_end?, settlement_kind, status, reason, reviewed_by?, reviewed_at?, decision_reason?` | 區段 CHECK；employment + requested_start 索引；pay/compensatory 類型 |
+| `hr_overtime_requests` | `employment_id, scope_id?, requested_start, requested_end, actual_start?, actual_end?, settlement_kind, status, rate_ppm, reason, reviewed_by?, reviewed_at?, decision_reason?, created_by` | 申請／實際區段 CHECK；核准且 pay 才能進薪資試算；比例與狀態受控；employment + requested_start 索引；pay/compensatory 類型 |
 | `hr_special_day_events` | `employer_id, starts_at, ends_at, event_kind, pay_rule_code, reason, status` | 區段與狀態 CHECK |
 | `hr_special_day_scopes` | `event_id, scope_id` | 複合 PK |
 | `hr_special_day_entitlements` | `event_id, schedule_entry_id, employment_id, eligible_seconds` | 唯一 event + entry；凍結原排班給薪資格 |
@@ -158,14 +158,15 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 
 | 表 | 專屬欄位與關聯 | SQL 約束／主要索引 |
 |---|---|---|
-| `hr_bonus_policies` | `employer_id, code, name` | 唯一 employer + code |
-| `hr_bonus_policy_versions` | `policy_id, version_number, scope_id, performance_kind, revenue_kind, rate_ppm, threshold_minor, valid_from, valid_to?` | 唯一 policy + version；team/individual；金額非負、比例 0～1000000 |
-| `hr_bonus_policy_members` | `policy_version_id, employment_id, valid_from, valid_to?, weight_units` | 唯一 version + employment + valid_from；權重大於零 |
-| `hr_bonus_pools` | `policy_version_id, period_start, period_end, calculation_version, status, pool_amount_minor, approved_by?` | 唯一 policy_version + period_start + period_end + calculation_version |
+| `hr_bonus_policies` | `name, active, created_by` | 政策版本另保存實際計算條件 |
+| `hr_bonus_policy_versions` | `policy_id, version_number, scope_id, performance_kind, revenue_kind, bonus_kind, performance_period, rate_ppm, guarantee_minor, valid_from, valid_to?, created_by` | 唯一 policy + version；績效歸屬為團體或個人，保底是獨立門檻，百分比為必填值；業績期間為當月／前月；保底非負、比例 0～1000000（`guarantee_minor` 對應既有實體欄位 `threshold_minor`） |
+| `hr_bonus_policy_members` | `policy_version_id, employment_id, valid_from, valid_to?, weight_units` | 唯一 version + employment + valid_from；同一員工可套用多筆 policy；權重大於零 |
+| `hr_bonus_performance_snapshots` | `scope_id, employment_id?, period_start, period_end, amount_minor, source_kind, source_ref, provenance_json, created_by` | 薪資計算讀取的核准業績輸入；`employment_id` 為空代表團體業績，金額非負且來源可追溯 |
+| `hr_bonus_pools` | `policy_version_id, period_start, period_end, calculation_version, status, pool_amount_minor, created_by` | 唯一 policy_version + period_start + period_end + calculation_version；目前先保存 calculated 結果，核准／結帳另切片 |
 | `hr_bonus_revenue_snapshots` | `bonus_pool_id, scope_id, employment_id?, source_kind, source_start, source_end, amount_minor, captured_at, provenance_json` | scope + source_start 索引；個人歸屬經服務層驗證 |
-| `hr_bonus_allocations` | `bonus_pool_id, employment_id, weight_units, amount_minor, rounding_adjustment_minor` | 唯一 pool + employment；權重大於零 |
+| `hr_bonus_allocations` | `bonus_pool_id, employment_id, weight_units, scheduled_days, revenue_minor, amount_minor, rounding_adjustment_minor, explanation_json` | 唯一 pool + employment；權重、排班日與業績非負；保留公式與尾差說明 |
 
-團體計算提案：`max(0, revenue - threshold) × rate_ppm / 1000000` 為池；每人按有效權重除以權重總和分配。權重 1/1/2 得 25%/25%/50%，全員為 1 即均分。同一員工可參加不同池，但同池只能分配一次。相同公式文字不代表同一池，以明確池 ID 決定共享範圍。
+櫃點獎金池仍採：已發布班表日期才有資格，`max(0, daily_revenue - threshold) × rate_ppm / 1000000` 形成每日池；再按 `scheduled_days × weight_units` 分配。薪資計算則讀取員工套用的 policy：依績效歸屬選團體或個人業績，先計算 `max(0, 業績 - 保底) × rate`；保底是獨立欄位，百分比是每筆 policy 的必填值，業績期間依 policy 選當月或前月。每筆政策獨立計算後加總，獎金最後四捨五入到新臺幣元。政策類型與公司實際分配公式仍需雇主確認，不能以示範預設取代制度。
 
 個人績效依可信個人業績歸屬計算，不把團體數字直接當每人業績；多筆個人歸屬總額與來源總額需要對帳。缺業績與實際零業績不同。退貨、跨期調整、月中異動、門檻是否按人／按池為需核定規則。
 
@@ -180,7 +181,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `hr_payroll_periods` | `employer_id, period_key, attendance_start, attendance_end, pay_date, status` | 唯一 employer + period_key；有效區間；open/closed |
 | `hr_payroll_runs` | `payroll_period_id, version_number, request_id, input_revision, engine_version, status, expected_count, completed_count, approved_by?` | request 唯一；唯一 period + version；每 period 僅一個 closed run 的 partial unique index |
 | `hr_payroll_run_employees` | `payroll_run_id, employment_id, input_revision, status, last_error?` | 複合 PK；員工批次重試單位 |
-| `hr_payslips` | `payroll_run_id, employment_id, earning_minor, deduction_minor, net_minor, published_at?` | 唯一 run + employment；net = earning - deduction；負實領標異常不能自動付款 |
+| `hr_payslips` | `payroll_run_id, employment_id, employee_number, employee_name, earning_minor, deduction_minor, net_minor, published_at?` | 唯一 run + employment；姓名／員工編號保存快照；net = earning - deduction；負實領標異常不能自動付款 |
 | `hr_payslip_lines` | `payslip_id, line_key, pay_component_id, direction, amount_minor, quantity_seconds?, explanation_json` | 唯一 payslip + line_key；金額非負；direction CHECK |
 | `hr_payslip_bonus_links` | `payslip_line_id, bonus_allocation_id` | 複合 PK；正式採用同一 allocation 不得重複發薪，另由結帳檢查保護 |
 | `hr_payslip_attendance_links` | `payslip_id, attendance_result_id` | 複合 PK |
@@ -193,7 +194,9 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `hr_payslip_adjustment_links` | `payslip_line_id, adjustment_id` | 複合 PK；正式採用不得重複 |
 | `hr_payroll_payments` | `payslip_id, amount_minor, paid_at, reference, idempotency_key` | key 唯一；允許分次支付；付款不是薪資結帳狀態 |
 
-薪資結果須保存姓名／員工編號等必要顯示快照與所有實際輸入版本。明細總和、付款總和、調整是否已採用由結帳服務原子驗證，不能只相信前端傳入 totals。雇主成本不進員工扣款。底薪、固定津貼、績效、加班、未出勤、保險、自提及扣繳分類分別計算；項目名稱不能自行決定是否屬工資或加班基礎。
+目前計算切片提供 policy／員工套用／業績快照管理；`POST /api/hr/payroll/calculate` 以月薪日曆日比例、核准付薪加班、`pay_rate_ppm` 請假快照與員工套用的 bonus policy 建立 `hr_payroll_runs`／`hr_payslips`，不要求計薪者再次貼上業績。`POST /api/hr/bonus/pools/calculate` 仍可用已發布 `hr_schedule_versions` 和請求帶入的核准每日業績快照建立舊式櫃點獎金池。兩者都保存 engine／公式說明與操作紀錄，且不將 `report_payout_daily` 自動視為營業額。這是可驗證的開發／試算引擎，不是已核定的正式發薪規則。
+
+薪資結果須保存姓名／員工編號等必要顯示快照與所有實際輸入版本。現行 `hr-payroll-demo-v1` 已將月薪、核准付薪加班與請假快照寫成薪資單明細，並以固定 requestId 支援重讀原結果；勞健保扣款、出勤正式判定、覆核／結帳／調整仍不可由示範引擎自行推測。明細總和、付款總和、調整是否已採用由結帳服務原子驗證，不能只相信前端傳入 totals。雇主成本不進員工扣款。底薪、固定津貼、績效、加班、未出勤、保險、自提及扣繳分類分別計算；項目名稱不能自行決定是否屬工資或加班基礎。
 
 ## 五、一致性與不可變性
 
@@ -233,18 +236,19 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `/api/hr/me/form-requests` | 僅需登入且必須是本人；審核路徑限指定審核者或 `hr:request:review` | 補打卡申請可存草稿、送出與查詢狀態；審核者填寫意見後核准或駁回 |
 | `/api/hr/me/leave-requests`、`/overtime-requests`、`/clock-corrections` | `hr:request:create` | 本人；申請可表達歷史時間但需審核 |
 | `GET /api/hr/employees`、`GET /api/hr/employees/:id`、`POST/PATCH /api/hr/employees` | `hr:employee:read/write` | 列表支援固定 page size、總數、搜尋、狀態篩選與白名單排序；內頁採單一互斥 accordion。此表記法代表各自 read、write 鍵；薪資、投保、請假與打卡明細另限全平台 HR 管理者 |
-| `/api/hr/schedules`、`/:id/publish` | `hr:schedule:write/approve` | 功能權限與 employer 邊界；範圍授權模型另案定義 |
+| `/api/hr/schedules`（目前提供排班資料模型與開發 fixture） | `hr:schedule:read/write` | 已發布班表才可供獎金試算；管理範圍與發布審核另切片，範圍授權模型另案定義 |
 | `/api/hr/attendance-settings/locations`、`/places`、`/employments/:id/attendance-location`、`/employees/:id/supervisor` | `hr:office:read/write` 或 `hr:employee:write` | 管理出勤設定中的辦公位置與員工主管；Places 搜尋與座標選取限管理權限；員工辦公位置與主管都從員工管理建立，不因指派取得管理權限 |
 | `/api/hr/attendance`、申請 `/:id/review` | `hr:attendance:read/approve` | 授權範圍及不可自審；請假私密附件不隨全櫃點可讀 |
-| `/api/hr/bonus-pools` | `hr:bonus:write/approve` | 來源與參與範圍；改政策不等於批准獎金 |
+| `GET/POST /api/hr/bonus/policies`、`PATCH/DELETE /api/hr/bonus/policies/:versionId`、`GET /api/hr/bonus/assignments`、`POST /api/hr/bonus/policies/:versionId/members`、`GET/POST /api/hr/bonus/performance` | `hr:bonus:read/write` 且限全平台 HR 管理者 | 管理團體／個人績效 policy、獨立保底門檻、必填百分比、員工多筆套用；policy 編輯建立新版本、刪除採停用並保留歷史；業績由核准來源匯入快照，計薪時自動依套用設定計算 |
+| `GET /api/hr/bonus/pools`、`GET /api/hr/bonus/pools/:id`、`POST /api/hr/bonus/pools/calculate` | `hr:bonus:read/calculate` 且限全平台 HR 管理者 | 舊式櫃點池業績必須由請求明確帶入並複製成快照；不把出金表自動視為營業額；改政策／核准／結帳另切片 |
 | `POST /api/hr/employments/:id/compensation`、`/insurance`、`GET /api/hr/insurance-brackets` | `hr:employee:write/read` 且薪資／投保寫入限全平台 HR 管理者 | 版本期間不可重疊；薪資與勞健保明細限全平台 HR 管理者；官方級距即時由勞動部／健保署來源解析，人工覆寫需保存來源與年度 |
-| `/api/hr/payroll-runs`、`/:id/close` | `hr:payroll:calculate/approve/close` | 個別權限；雇主範圍需在多法人確認後以明確授權關聯加入 |
+| `POST /api/hr/payroll/calculate`、`GET /api/hr/payroll/runs`、`GET /api/hr/payroll/runs/:id` | `hr:payroll:read/calculate` 且限全平台 HR 管理者 | `hr-payroll-demo-v1` 依薪資設定與員工已套用 policy 自動計算；覆核、結帳、付款與私密下載另切片 |
 | `/api/hr/me/payslips` | `hr:payslip:read-self` | 僅本人已發布薪資單 |
 | `/api/hr/payroll-exports` | `hr:payroll:export` | 獨立匯出權限、逐次稽核、私密下載 |
 
 跨法人與資料範圍授權尚未在本切片實作，具體 employer 授權表待制度確認後另案定義。現有 API 依功能權限與各資料服務的欄位限制處理，權限每請求依現有授權機制重讀。
 
-platform 沿用 M3 元件，提供 HRIS 管理功能與辦公位置設定；員工本人介面獨立部署在 `hr.rueisiang.com`，以手機 App 形式提供表單申請、置中的打卡日曆與個人資訊。打卡首頁載入時即嘗試取得瀏覽器定位，伺服器仍是範圍判斷的最終來源；補打卡表單可存草稿並追蹤申請中、已核准、已駁回。AI／Excel 排班輸入先存草稿、來源附件與不確定欄位，經人類發布才生效。platform 的帳號選單提供「我的人事資料」連到 HR app。
+platform 沿用 M3 元件，提供 HRIS 管理功能與辦公位置設定；薪資與獎金在 HRIS 下以 top navbar 分成「敘薪管理」「獎金管理」「薪資結算」三個子頁面；員工本人介面獨立部署在 `hr.rueisiang.com`，以手機 App 形式提供表單申請、置中的打卡日曆與個人資訊。打卡首頁載入時即嘗試取得瀏覽器定位，伺服器仍是範圍判斷的最終來源；補打卡表單可存草稿並追蹤申請中、已核准、已駁回。AI／Excel 排班輸入先存草稿、來源附件與不確定欄位，經人類發布才生效。platform 的帳號選單提供「我的人事資料」連到 HR app。
 
 RFID 簽章、防重送、設備綁定與撤銷；LINE 透過可信 channel 身分解析既有 `user_id`／員工，不信任模型傳來的 employee_user_id。小香專屬整合資料同時含 assistantKey 與 channelKey 並引用 channel 主鍵。模型不能直接結帳或核准自己的代送申請。離線裝置事件同時保留 occurred_at／received_at，超出可信時間窗口轉待確認，不當即時網站打卡。
 

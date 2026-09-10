@@ -13,6 +13,12 @@ export {
   type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceInput, type HrInsuranceScheme,
 } from "./hr-payroll.js";
 export {
+  assignHrBonusPolicyMember, calculateHrBonusPool, calculateHrPayroll, createHrBonusPerformanceSnapshot, createHrBonusPolicy, deleteHrBonusPolicy, updateHrBonusPolicy,
+  getHrBonusPool, getHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, listHrBonusAssignments, listHrBonusPerformanceSnapshots, listHrBonusPolicies, listHrBonusPools, listHrPayrollRuns,
+  type AssignHrBonusPolicyInput, type CreateHrBonusPerformanceSnapshotInput, type CreateHrBonusPolicyInput, type HrBonusCalculationInput, type HrBonusKind, type HrBonusPerformancePeriod, type HrBonusPoolResult, type HrBonusRevenueInput, type HrPayrollCalculationInput, type HrPayrollEmployeeResult, type UpdateHrBonusPolicyInput,
+  type HrPayrollLineResult, type HrPayrollRunResult,
+} from "./hr-payroll-calculation.js";
+export {
   HrError, assignHrEmployee, createHrAssignment, createHrEmployment,
   endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, updateHrEmploymentAttendanceMode,
   isHrAdministrator, isHrEmployee,

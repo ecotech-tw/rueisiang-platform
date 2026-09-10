@@ -376,6 +376,11 @@
 .hr-module-title { display: flex; align-items: baseline; gap: 10px; flex: none; }
 .hr-module-title strong { color: var(--color-ink); font-size: 19px; letter-spacing: .02em; }
 .hr-module-current { color: var(--color-muted); font-size: 14px; font-weight: 700; }
+.hr-module-tabs { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; }
+.hr-module-tab { padding: 9px 16px; border-radius: 999px; color: var(--color-muted); font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.hr-module-tab:hover { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
+.hr-module-tab:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-module-tab.active { background: var(--color-brand-soft); color: var(--color-brand-dark); }
 .hr-personal-nav { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; }
 .hr-personal-nav a { padding: 8px 14px; border-radius: 999px; color: var(--color-muted); font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; }
 .hr-personal-nav a:hover { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
@@ -2244,6 +2249,47 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .category-table td:last-child { width: 120px; }
 
 .category-editor-dialog { width: min(520px, 100%); }
+
+/* HR 薪資與獎金：兩個獨立計算上下文，窄螢幕自然堆疊。 */
+.hr-bonus-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.hr-bonus-form { align-items: end; }
+.hr-bonus-form > .field { min-width: 130px; flex: 1 1 150px; }
+.hr-bonus-form > button { flex: 0 0 auto; }
+.hr-bonus-form > .ui-alert { flex: 1 1 100%; }
+.hr-bonus-policy-dialog { width: min(720px, 100%); }
+.hr-bonus-member-field { flex: 1 1 100% !important; }
+.hr-bonus-member-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; max-height: 180px; overflow-y: auto; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-paper); }
+.hr-bonus-member-option { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 0; color: var(--color-ink); font-size: 13px; cursor: pointer; }
+.hr-bonus-member-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-bonus-member-option input { flex: none; accent-color: var(--color-brand); }
+.hr-bonus-edit-note { flex: 1 1 100%; margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--color-brand-soft); }
+.payroll-line-list { display: grid; gap: 5px; min-width: 230px; margin: 0; padding: 0; list-style: none; }
+.payroll-line-list li { display: flex; justify-content: space-between; gap: 12px; }
+.payroll-line-list strong { white-space: nowrap; }
+.text-danger { color: var(--color-brand-dark); }
+.hr-payroll-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.hr-payroll-grid > .panel { min-width: 0; }
+.hr-payroll-grid .panel-head h2 { margin: 0; font-size: 17px; }
+.hr-payroll-grid .panel-head p { margin: 4px 0 0; color: var(--color-muted); font-size: 13px; line-height: 1.6; }
+.hr-payroll-grid .admin-form { margin-top: 18px; align-items: end; }
+.hr-payroll-grid .admin-form > .field { min-width: 130px; flex: 1 1 150px; }
+.hr-payroll-grid .admin-form > button { flex: 0 0 auto; }
+.hr-payroll-result { display: grid; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-line); }
+.hr-payroll-result-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.hr-payroll-result-head b { color: var(--color-brand-dark); font-size: 18px; }
+.hr-payroll-result .data-table { margin-top: 0; }
+.hr-payroll-result .form-hint { margin: 0; }
+.hr-payroll-grid textarea { width: 100%; min-height: 150px; margin-top: 16px; padding: 10px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-paper); color: var(--color-ink); font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; resize: vertical; }
+.hr-payroll-grid textarea:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
+@media (max-width: 900px) {
+  .hr-payroll-grid { grid-template-columns: 1fr; }
+  .hr-bonus-grid { grid-template-columns: 1fr; }
+}
 
 /* 盤點按鈕比旁邊的圖示鈕高一點才對得齊，而且它有文字，要窄一點的內距。 */
 .count-action { padding: 4px 12px; font-size: 13px; }

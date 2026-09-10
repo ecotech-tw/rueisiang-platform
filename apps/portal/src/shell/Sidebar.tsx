@@ -40,7 +40,7 @@ function Item({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
         to={item.to}
         end
         onClick={onNavigate}
-        className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+        className={`nav-item${containsPath(item, location.pathname) ? " active" : ""}`}
         title={item.label}
       >
         <Icon name={item.icon} className="nav-icon" />

@@ -69,6 +69,8 @@ export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   startsOn: text("starts_on").notNull(),
   endsOn: text("ends_on").notNull(),
   durationMinutes: integer("duration_minutes").notNull(),
+  /** 請假提交時凍結給薪比例；不靠 leaveType 名稱猜測是否扣薪。 */
+  payRatePpm: integer("pay_rate_ppm").notNull().default(1_000_000),
   reason: text("reason").notNull().default(""),
   reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
   reviewedAt: text("reviewed_at"),
@@ -80,5 +82,6 @@ export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   check("ck_hr_leave_requests_status", sql`${table.status} IN ('draft', 'pending', 'approved', 'rejected', 'cancelled')`),
   check("ck_hr_leave_requests_dates", sql`length(${table.startsOn}) = 10 AND length(${table.endsOn}) = 10 AND ${table.endsOn} > ${table.startsOn}`),
   check("ck_hr_leave_requests_duration", sql`${table.durationMinutes} > 0`),
+  check("ck_hr_leave_requests_pay_rate", sql`${table.payRatePpm} BETWEEN 0 AND 1000000`),
   check("ck_hr_leave_requests_reason", sql`length(${table.reason}) <= 1000`),
 ]);
