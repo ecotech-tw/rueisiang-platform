@@ -1,4 +1,4 @@
-import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
+import { SESSION_COOKIE, newSessionClaims, readCookie, signSession, verifyPayload } from "@rueisiang/auth";
 import { createDatabase, recordLogin, syncSystemRoles } from "@rueisiang/db";
 import { users, userRoleAssignments } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
@@ -79,6 +79,16 @@ describe("/api/health", () => {
       headers: { Cookie: await sessionCookie("user-csrf", "csrf@ecotech.tw") },
     });
     expect(response.status).toBe(403);
+  });
+
+  it("OAuth returnTo 會拒絕瀏覽器可正規化成外部網址的反斜線路徑", async () => {
+    const response = await call(`/api/auth/google/start?returnTo=${encodeURIComponent("/\\\\evil")}`);
+    const transaction = await verifyPayload<{ returnTo: string; expiresAt: number }>(
+      readCookie(response.headers.get("Set-Cookie"), "rueisiang_oauth"),
+      SECRET,
+    );
+    expect(response.status).toBe(302);
+    expect(transaction?.returnTo).toBe("/");
   });
 });
 

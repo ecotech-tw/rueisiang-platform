@@ -120,6 +120,21 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
             </a>
           ) : null}
 
+          {!user.isEmployee && user.permissions.includes("hr:request:review") ? (
+            <a
+              className="account-menu-item"
+              role="menuitem"
+              href={`${HR_APP_URL}/forms`}
+              onClick={() => {
+                setOpen(false);
+                onNavigate();
+              }}
+            >
+              <Icon name="report" className="account-menu-icon" />
+              補打卡審核
+            </a>
+          ) : null}
+
           <button type="button" className="account-menu-item danger" role="menuitem" onClick={onLogout}>
             <span aria-hidden="true">↪</span>
             登出

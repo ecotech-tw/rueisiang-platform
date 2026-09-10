@@ -13,8 +13,14 @@ import { Button, TextField } from "../ui/index.js";
  * 兩條都是邀請制：名單裡沒有的 email 兩邊都進不來。
  */
 function safeReturnTo(value: string | null): string {
-  if (value && value.startsWith("/") && !value.startsWith("//")) return value;
-  return "/";
+  if (!value) return "/";
+  try {
+    const target = new URL(value, window.location.origin);
+    if (target.origin !== window.location.origin) return "/";
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return "/";
+  }
 }
 
 export function Login() {
