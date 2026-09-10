@@ -76,6 +76,9 @@ const CYBERBIZ_REPORT_WRITE_PERMISSION_MIGRATION = fileURLToPath(
 const PRODUCT_CATEGORY_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0071_product_category_permission.sql", import.meta.url),
 );
+const DROP_PRODUCT_CATEGORY_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0126_drop_product_category_permissions.sql", import.meta.url),
+);
 const ITEM_WMS_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0089_item_wms_permissions.sql", import.meta.url),
 );
@@ -183,6 +186,11 @@ describe("bootstrap 管理員權限 migration", () => {
     const itemWmsPermissionSql = readHistoricalMigration(ITEM_WMS_PERMISSION_MIGRATION);
     d1.sqlite.exec(itemWmsPermissionSql);
     d1.sqlite.exec(itemWmsPermissionSql);
+    // 0071 種的 tools:product-category:* 在 0126 被移除——它跟 items:category:* 是
+    // 同一件事的兩份實作。重播到今天才會等於現在的權限清單。
+    const dropProductCategorySql = readHistoricalMigration(DROP_PRODUCT_CATEGORY_PERMISSION_MIGRATION)
+      .split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean);
+    for (const statement of [...dropProductCategorySql, ...dropProductCategorySql]) d1.sqlite.exec(statement);
 
     const permissions = await db.select().from(rolePermissionGrants);
     expect(permissions).toHaveLength(ALL_PERMISSIONS.length);

@@ -41,8 +41,6 @@ export const PERMISSIONS = {
   "tools:payout:config": "管理通路（名稱、來源、Drive 設定）",
   "tools:cyberbiz-sales:run": "執行 CYBERBIZ 商品銷售報表",
   "tools:shopee-sales:run": "執行蝦皮銷售報表",
-  "tools:product-category:read": "檢視商品分類",
-  "tools:product-category:write": "管理商品分類",
   "reports:cyberbiz:read": "檢視 CYBERBIZ 銷售與出金報表",
   "reports:cyberbiz:write": "新增、修改與刪除報表人工資料",
   "reports:analytics:read": "檢視營運統計",

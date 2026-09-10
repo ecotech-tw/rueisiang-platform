@@ -715,6 +715,13 @@
       "when": 1788949400000,
       "tag": "0125_scopes_external_name_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "6",
+      "when": 1789009775636,
+      "tag": "0126_drop_product_category_permissions",
+      "breakpoints": true
     }
   ]
 }

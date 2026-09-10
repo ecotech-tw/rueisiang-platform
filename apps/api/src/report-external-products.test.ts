@@ -2,20 +2,15 @@ import {
   addProductSkuMapping,
   addReportSkuIgnore,
   createDatabase,
-  createReportProductCategory,
   deleteProductSkuMapping,
   ignoreReportExternalProduct,
-  deleteReportProductCategory,
-  listCyberbizProductCategoryManagement,
   listProductCategoryOptions,
   loadProductSkuMappingManagement,
   resolveProductSkus,
   resolveReportExternalProduct,
   schema,
-  setCyberbizProductCategory,
   unignoreReportExternalProduct,
   updateProductSkuMapping,
-  updateReportProductCategory,
 } from "@rueisiang/db";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -54,30 +49,23 @@ describe("報表外部商品管理", () => {
     expect(await db().select().from(schema.reportExternalProducts).where(eq(schema.reportExternalProducts.id, resolved.id))).toEqual([]);
   });
 
-  it("刪除 legacy 分類表後仍能管理 target CYBERBIZ 商品分類", async () => {
+  // 分類的建立、改名與刪除改由 /api/items/categories 那一組負責（見
+  // items-catalog.test.ts 的「品項分類」）。這裡只留下報表這一側真正在用的東西：
+  // 分類選項的計數。
+  it("刪除 legacy 分類表後仍能算出 target CYBERBIZ 商品的分類選項", async () => {
     const itemId = "target-cyberbiz-item";
-    await db().insert(schema.items).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku: "CB-TARGET-001", name: "Target 官網商品", active: 1 });
+    await db().insert(schema.itemCategories).values({ id: "target-category", depth: 0, name: "Target 分類", color: "teal" });
+    await db().insert(schema.items).values({
+      id: itemId, source: "cyberbiz", kind: "sellable", sku: "CB-TARGET-001",
+      name: "Target 官網商品", active: 1, categoryId: "target-category",
+    });
     await db().insert(schema.cyberbizProductCatalog).values({
       itemId, cyberbizProductId: "target-product", cyberbizVariantId: "target-variant", productName: "Target 官網商品", variantName: "大包裝", published: 1,
     });
-    const created = await createReportProductCategory(db(), { name: "Target 分類", color: "teal", actor: ACTOR });
-    expect(created).toMatchObject({ name: "Target 分類", color: "teal" });
-    expect(await setCyberbizProductCategory(db(), { sku: "CB-TARGET-001", categoryId: created.id, actor: ACTOR }))
-      .toMatchObject({ sku: "CB-TARGET-001", categoryId: created.id, categoryName: "Target 分類" });
-    expect((await listCyberbizProductCategoryManagement(db())).products).toMatchObject([{
-      sku: "CB-TARGET-001", name: "Target 官網商品（大包裝）", categoryId: created.id, categoryName: "Target 分類",
-    }]);
-    expect(await listProductCategoryOptions(db())).toMatchObject([{
-      id: created.id, name: "Target 分類", color: "teal", skuCount: 1, usageCount: 1,
-    }]);
 
-    const updated = await updateReportProductCategory(db(), created.id, { name: "Target 分類修訂", color: "amber", actor: ACTOR });
-    expect(updated).toMatchObject({ id: created.id, name: "Target 分類修訂", color: "amber" });
-    expect((await listCyberbizProductCategoryManagement(db())).products[0]).toMatchObject({ categoryName: "Target 分類修訂" });
-    await expect(deleteReportProductCategory(db(), created.id, ACTOR)).rejects.toMatchObject({ kind: "conflict" });
-    await setCyberbizProductCategory(db(), { sku: "CB-TARGET-001", categoryId: null, actor: ACTOR });
-    await deleteReportProductCategory(db(), created.id, ACTOR);
-    expect(await db().select().from(schema.itemCategories)).toEqual([]);
+    expect(await listProductCategoryOptions(db())).toMatchObject([{
+      id: "target-category", name: "Target 分類", color: "teal", skuCount: 1, usageCount: 1,
+    }]);
   });
 
   it("target mapping 可用 item_components 保存多用料 BOM，解析與忽略都不依賴 legacy 表", async () => {

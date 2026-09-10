@@ -21,7 +21,6 @@ import { WarehouseMap } from "./routes/wms/Map.js";
 import { Activity as WmsActivity } from "./routes/wms/Activity.js";
 import { Inventory } from "./routes/wms/Inventory.js";
 import { SkuMappings } from "./routes/tools/SkuMappings.js";
-import { CyberbizProductCategories } from "./routes/tools/CyberbizProductCategories.js";
 import { Scopes } from "./routes/tools/Scopes.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
 import { ManualReports } from "./routes/tools/ManualReports.js";
@@ -124,7 +123,7 @@ export function App() {
           <Route path="shopee-sales" element={<ShopeeSales />} />
           <Route path="shopee-sales/settings" element={<Navigate to="/tools/scopes" replace />} />
           <Route path="sku-mappings" element={<Navigate to="/items/sku-mappings" replace />} />
-          <Route path="product-categories" element={<CyberbizProductCategories />} />
+          <Route path="product-categories" element={<Navigate to="/items/categories" replace />} />
           <Route path="external-products" element={<Navigate to="/items/sku-mappings" replace />} />
         </Route>
 
