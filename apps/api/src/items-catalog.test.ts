@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, createReportManualSales, syncCyberbizProducts, syncSystemRoles } from "@rueisiang/db";
-import { cyberbizProducts, itemCategories, items, scopes, users, userRoleAssignments } from "@rueisiang/db/schema";
+import { activityEvents, cyberbizProducts, itemCategories, items, scopes, users, userRoleAssignments } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -169,3 +169,91 @@ describe("kind 是我們的判斷，不是同步來的事實", () => {
   });
 });
 
+/*
+ * 分類的建立、改名與刪除原本有兩套實作：/api/items/categories 與已經移除的
+ * /api/tools/product-categories。後者的選單入口在 schema 改造那一輪就拿掉了，但
+ * 它的測試是唯一在守「分類還在用就不能刪」的地方——實作留一套，保護也要留著。
+ */
+describe("品項分類", () => {
+  async function call(pathname: string, init?: RequestInit) {
+    const admin = await seedAdmin(`admin-${crypto.randomUUID()}@ecotech.tw`);
+    const token = await signSession(newSessionClaims({ id: admin.id, email: admin.email, name: admin.email, pictureUrl: "" }), SECRET);
+    return app.fetch(new Request(`https://test.local${pathname}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", Cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}` },
+    }), env() as never);
+  }
+
+  async function categoryRows() {
+    const response = await call("/api/items/categories");
+    return ((await response.json()) as { categories: Array<{ id: string; name: string; usageCount: number; color: string }> }).categories;
+  }
+
+  it("同一層級不能有兩個同名分類", async () => {
+    const response = await call("/api/items/categories", { method: "POST", body: JSON.stringify({ name: "包材" }) });
+    expect(response.status).toBe(409);
+  });
+
+  it("還有品項在用的分類刪不掉，清空之後才刪得掉", async () => {
+    const item = await createItem({ name: "禮盒紙盒", categoryId: "cat-1" });
+    expect(item.status).toBe(201);
+    const itemId = ((await item.json()) as { id: string }).id;
+
+    expect((await categoryRows()).find((row) => row.id === "cat-1")?.usageCount).toBe(1);
+    expect((await call("/api/items/categories/cat-1", { method: "DELETE" })).status).toBe(409);
+
+    // 把品項移出分類就刪得掉——是「先清空再刪」，不是連坐把品項一起刪掉。
+    expect((await call(`/api/items/catalog/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: "禮盒紙盒", kind: "supply", categoryId: null }),
+    })).status).toBe(200);
+    expect((await call("/api/items/categories/cat-1", { method: "DELETE" })).status).toBe(200);
+    expect((await categoryRows()).some((row) => row.id === "cat-1")).toBe(false);
+    expect((await db.select().from(items).where(eq(items.id, itemId)))).toHaveLength(1);
+  });
+
+  // 分類的寫入是需要授權的操作，所以要查得到是誰做的。被移除那一側原本有寫，
+  // 合併時差點掉在地上。
+  it("建立、改名與刪除分類都留下操作紀錄", async () => {
+    expect((await call("/api/items/categories", { method: "POST", body: JSON.stringify({ name: "新分類" }) })).status).toBe(201);
+    expect((await call("/api/items/categories/cat-1", { method: "PATCH", body: JSON.stringify({ name: "包材（改名）" }) })).status).toBe(200);
+    expect((await call("/api/items/categories/cat-1", { method: "DELETE" })).status).toBe(200);
+
+    const events = await db.select().from(activityEvents).where(eq(activityEvents.entityType, "item_category"));
+    expect(events.map((row) => row.eventType).sort()).toEqual([
+      "item_category_created", "item_category_deleted", "item_category_updated",
+    ]);
+    // 刪掉之後 join 不回名字，所以標籤要當場存下來。
+    expect(events.find((row) => row.eventType === "item_category_deleted")?.entityLabel).toBe("包材（改名）");
+
+    // 刪不存在的分類是 404，不會留下一筆「刪了一個沒有的分類」。
+    expect((await call("/api/items/categories/cat-1", { method: "DELETE" })).status).toBe(404);
+    expect(await db.select().from(activityEvents).where(eq(activityEvents.entityType, "item_category"))).toHaveLength(3);
+  });
+
+  it("換分類的紀錄兩邊都存名字，不是一邊 ID 一邊名字", async () => {
+    await db.insert(itemCategories).values({ id: "cat-2", depth: 0, name: "香氛", color: "sky", sortOrder: 1, active: 1 });
+    const item = await createItem({ name: "換分類的品項", categoryId: "cat-1" });
+    const itemId = ((await item.json()) as { id: string }).id;
+
+    expect((await call(`/api/items/catalog/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: "換分類的品項", categoryId: "cat-2" }),
+    })).status).toBe(200);
+
+    const [event] = await db.select().from(activityEvents).where(eq(activityEvents.field, "category"));
+    expect(event).toMatchObject({ oldValue: "包材", newValue: "香氛" });
+  });
+
+  it("改名不會動到品項與它的分類關聯", async () => {
+    expect((await createItem({ name: "包材品項", categoryId: "cat-1" })).status).toBe(201);
+
+    expect((await call("/api/items/categories/cat-1", {
+      method: "PATCH",
+      body: JSON.stringify({ name: "包材（改名）", color: "amber" }),
+    })).status).toBe(200);
+
+    expect((await categoryRows()).find((row) => row.id === "cat-1"))
+      .toMatchObject({ name: "包材（改名）", color: "amber", usageCount: 1 });
+  });
+});
