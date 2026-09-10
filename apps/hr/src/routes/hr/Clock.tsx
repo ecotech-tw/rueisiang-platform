@@ -120,6 +120,7 @@ function StaticClockMap({ cacheKey, onError }: { cacheKey: string; onError: () =
   >
     <img
       className="hr-clock-map-background"
+      crossOrigin="use-credentials"
       src={`${API_BASE_URL}/hr/me/attendance-map?v=${encodeURIComponent(cacheKey)}`}
       alt=""
       aria-hidden="true"
@@ -194,12 +195,13 @@ function MapLibreClockMap({ locations, onError }: { locations: ClockMapLocation[
 function ClockMapBackground() {
   const mapLocations = useHrQuery<{ locations: ClockMapLocation[] }>("/me/attendance-map/locations");
   const [mapFailed, setMapFailed] = useState(false);
-  const [visible, setVisible] = useState(true);
+  const [staticMapFailed, setStaticMapFailed] = useState(false);
   const locations = mapLocations.data?.locations ?? [];
   const locationSignature = JSON.stringify(locations);
 
-  if (locations.length && !mapFailed) return <MapLibreClockMap locations={locations} onError={() => setMapFailed(true)} />;
-  return visible ? <StaticClockMap cacheKey={locationSignature} onError={() => setVisible(false)} /> : null;
+  if (!locations.length) return null;
+  if (!mapFailed) return <MapLibreClockMap locations={locations} onError={() => setMapFailed(true)} />;
+  return staticMapFailed ? null : <StaticClockMap cacheKey={locationSignature} onError={() => setStaticMapFailed(true)} />;
 }
 
 function LocationCard({ status, check, locating, error }: { status?: ClockStatus; check?: ClockLocationCheck; locating: boolean; error?: string }) {

@@ -4,11 +4,22 @@ import { usePageTitle } from "../shell/usePageTitle.js";
 import { Button, TextField } from "../ui/index.js";
 import { API_BASE_URL } from "../config.js";
 
+function safeReturnTo(value: string | null): string {
+  if (!value) return "/";
+  try {
+    const target = new URL(value, window.location.origin);
+    if (target.origin !== window.location.origin) return "/";
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return "/";
+  }
+}
+
 export function Login() {
   usePageTitle("登入");
   const [params] = useSearchParams();
-  const returnTo = params.get("returnTo") ?? "/";
-  const googleReturnTo = returnTo.startsWith("http") ? returnTo : `${window.location.origin}${returnTo}`;
+  const returnTo = safeReturnTo(params.get("returnTo"));
+  const googleReturnTo = `${window.location.origin}${returnTo}`;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(params.get("error"));
