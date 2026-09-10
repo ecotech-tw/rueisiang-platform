@@ -21,8 +21,11 @@ export default defineConfig(({ mode }) => {
   const apiPortOverride = env.API_PORT?.trim();
   const apiPort = readPort(apiPortOverride || env.PORT?.trim(), 8787, apiPortOverride ? "API_PORT" : "PORT");
   const portalPort = readPort(env.PORTAL_PORT, 5173, "PORTAL_PORT");
+  const hrPort = readPort(env.HR_PORT, 5176, "HR_PORT");
+  const hrAppUrl = env.VITE_HR_APP_URL?.trim() || (mode === "development" ? `http://localhost:${hrPort}` : "https://hr.rueisiang.com");
 
   return {
+    define: { "import.meta.env.VITE_HR_APP_URL": JSON.stringify(hrAppUrl) },
     // Tailwind v4 沒有 tailwind.config.js——設定全寫在 styles.css 的 @theme 裡。
     plugins: [react(), tailwindcss()],
     server: {

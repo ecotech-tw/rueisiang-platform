@@ -14,6 +14,10 @@ import { DEFAULT_PI_CODEX_MODEL } from "../pi-agent.js";
 import {
   crmCustomers,
   crmCustomerTags,
+  hrAttendanceLocations,
+  hrEmployeeAttendanceLocations,
+  hrEmployees,
+  hrEmployments,
   crmTags,
   scopes,
   itemCategories,
@@ -39,7 +43,7 @@ import type { LocalD1 } from "../local-d1/d1.js";
 export const DEV_ACCOUNTS = [
   { email: "eli-lin@ecotech.tw", name: "林瑞翔", role: "role-admin", note: "管理者，什麼都看得到" },
   { email: "wang@ecotech.tw", name: "王小明", role: "role-manager", note: "主管" },
-  { email: "chen@ecotech.tw", name: "陳美玲", role: "role-staff", note: "一般同仁" },
+  { email: "chen@ecotech.tw", name: "陳美玲", role: "role-staff", note: "一般同仁，可測試 HR 本人介面" },
   { email: "lin@ecotech.tw", name: "林檢視", role: "role-viewer", note: "檢視者，只有唯讀權限" },
   { email: "none@ecotech.tw", name: "沒有角色", role: null, note: "登得進來但看不到任何項目" },
   { email: "left@ecotech.tw", name: "李離職", role: "role-viewer", note: "已停用，會被擋在門外" },
@@ -72,19 +76,65 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
   await seedDevWarehouse(db);
 
   const existing = await db.select({ id: users.id }).from(users).limit(1);
-  if (existing.length) return;
-
-  for (const account of DEV_ACCOUNTS) {
-    const id = `dev-${account.email}`;
-    await db.insert(users).values({
-      id,
-      email: account.email,
-      googleName: account.name,
-      status: account.email === "left@ecotech.tw" ? "disabled" : "active",
-      lastLoginAt: "2026-08-17 09:12:44",
-    });
-    if (account.role) await db.insert(userRoleAssignments).values({ userId: id, roleId: account.role });
+  if (!existing.length) {
+    for (const account of DEV_ACCOUNTS) {
+      const id = `dev-${account.email}`;
+      await db.insert(users).values({
+        id,
+        email: account.email,
+        googleName: account.name,
+        status: account.email === "left@ecotech.tw" ? "disabled" : "active",
+        lastLoginAt: "2026-08-17 09:12:44",
+      });
+      if (account.role) await db.insert(userRoleAssignments).values({ userId: id, roleId: account.role });
+    }
   }
+
+  await seedDevHr(db);
+}
+
+async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
+  const [employee] = await db.select({ id: users.id }).from(users).where(eq(users.email, "chen@ecotech.tw")).limit(1);
+  if (!employee) return;
+  const [supervisor] = await db.select({ id: users.id }).from(users).where(eq(users.email, "wang@ecotech.tw")).limit(1);
+  const employeeUserId = employee.id;
+  const employmentId = "dev-employment-chen";
+  const locationId = "dev-hr-office";
+
+  await db.insert(hrEmployees).values({
+    userId: employeeUserId,
+    employeeNumber: "DEMO-CHEN",
+    supervisorUserId: supervisor?.id ?? null,
+  }).onConflictDoNothing();
+  await db.insert(hrEmployments).values({
+    id: employmentId,
+    employeeUserId: employeeUserId,
+    hiredOn: "2026-01-01",
+    seniorityStartOn: "2026-01-01",
+  }).onConflictDoNothing();
+  await db.insert(hrAttendanceLocations).values({
+    id: locationId,
+    name: "示範台北辦公室",
+    geolocationRequired: 0,
+    latitudeE7: 250333000,
+    longitudeE7: 1215654000,
+    radiusMeters: 100,
+  }).onConflictDoUpdate({
+    target: hrAttendanceLocations.id,
+    set: {
+      name: "示範台北辦公室",
+      geolocationRequired: 0,
+      latitudeE7: 250333000,
+      longitudeE7: 1215654000,
+      radiusMeters: 100,
+    },
+  });
+  await db.insert(hrEmployeeAttendanceLocations).values({
+    id: "dev-attendance-chen-office",
+    employmentId,
+    locationId,
+    validFrom: "2026-01-01",
+  }).onConflictDoNothing();
 }
 
 const DEV_ANALYTICS_SCOPES = [

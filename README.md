@@ -2,15 +2,16 @@
 
 把 CRM、WMS 與營運工具整合成一個入口：一次登入、一個 sidebar、一套權限，部署在 Cloudflare。
 
-目前平台包含 CRM、倉儲、營運工具與小香助理，正式站在
-<https://platform.rueisiang.com>。
+目前平台包含 CRM、倉儲、營運工具與小香助理，管理站在
+<https://platform.rueisiang.com>；員工 HR 站在 <https://hr.rueisiang.com>。
 
 ## 架構
 
 ```
 apps/
-  portal/     Vite + React Router SPA（純前端）
-  api/        Hono on Cloudflare Workers（同時服務 portal 的靜態檔）
+  portal/     Vite + React Router SPA（platform 管理前端）
+  hr/         Vite + React Router SPA（hr 員工前端）
+  api/        Hono on Cloudflare Workers（服務 platform 與 hr 的 API）
 packages/
   auth/       權限目錄、OAuth、session、RBAC
   db/         drizzle schema（D1）＋ migrations
@@ -21,7 +22,7 @@ tools/        跑在 GitHub Actions runner 上的東西，刻意不在 pnpm work
   shopee-sales-report-export/ 蝦皮銷售報表直接上傳、整理與 Drive 上傳服務（純 JS）
 ```
 
-**部署成一個 Worker**：`apps/api/wrangler.toml` 的 `[assets]` 指向 `../portal/dist`，`run_worker_first = ["/api/*"]` 讓 API 進 Worker、其餘走 Static Assets，同一個網域。
+**platform 部署成一個 Worker**：`apps/api/wrangler.toml` 的 `[assets]` 指向 `../portal/dist`，`run_worker_first = ["/api/*"]` 讓 API 進 Worker、其餘走 Static Assets，同一個網域。`apps/hr` 是獨立的靜態前端部署單位，透過 `VITE_API_BASE_URL` 呼叫共用 API。
 
 **安全性全部在 API。** 前端的權限判斷（sidebar 顯示哪些項目、按鈕要不要出現）純粹是外觀——SPA 的 JavaScript 全在使用者手上，藏起來的按鈕不是安全機制。每一條 API 路由都必須自己驗權限。
 
@@ -29,7 +30,7 @@ tools/        跑在 GitHub Actions runner 上的東西，刻意不在 pnpm work
 
 ```bash
 pnpm install
-pnpm dev          # portal 在 5173，API 在 8787
+pnpm dev          # portal 在 5173、hr 在 5176，API 在 8787
 pnpm build
 pnpm typecheck
 pnpm test
@@ -39,8 +40,8 @@ pnpm test
 （把 Hono app 接上 node:http，配 node:sqlite 當 D1）。**這裡不用 `wrangler dev`**，
 理由見下面那節——這台開發機起不了 workerd。
 
-Codex 與 Claude 同時開發時，請使用各自的 worktree 與 port：Codex 是 Portal `5174`、
-API `8788`；Claude 是 Portal `5175`、API `8789`。完整規則見
+Codex 與 Claude 同時開發時，請使用各自的 worktree 與 port：Codex 是 Portal `5174`、HR `5177`、
+API `8788`；Claude 是 Portal `5175`、HR `5178`、API `8789`。完整規則見
 [`docs/development-workflow.md`](./docs/development-workflow.md)。
 
 **文件寫在哪**：要照著做的步驟在 [`.claude/skills/`](./.claude/skills/)（開通與部署看
@@ -48,7 +49,7 @@ API `8788`；Claude 是 Portal `5175`、API `8789`。完整規則見
 [`docs/`](./docs/)；還沒做的事在下面的「下一步」。分類規則見
 [`docs/development-workflow.md`](./docs/development-workflow.md)。
 
-開 <http://localhost:5173/dev> 選一個身分直接進去，跳過 Google OAuth。種子帳號
+開 <http://localhost:5173/dev>（platform）或 <http://localhost:5176/dev>（hr app）選一個身分直接進去，跳過 Google OAuth。種子帳號
 涵蓋管理者、主管、一般同仁、檢視者、沒有角色、已停用六種，方便直接比對
 不同權限看到的畫面。
 
@@ -59,9 +60,12 @@ API `8788`；Claude 是 Portal `5175`、API `8789`。完整規則見
 
 ```
 CYBERBIZ_API_TOKEN=你的token
+GOOGLE_MAPS_API_KEY=Google Maps Platform server key（Places API New + Maps Static API）
 UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
 UPSTASH_REDIS_REST_TOKEN=你的token
 ```
+
+HR 員工站本機可使用 `apps/hr/.env.local` 覆寫 `VITE_API_BASE_URL` 與 `VITE_MAPLIBRE_STYLE_URL`；預設會透過 Vite proxy 呼叫本機 API，地圖使用不需 token 的 OpenFreeMap style。正式部署由 GitHub repository variable `HR_API_BASE_URL` 注入 API origin（未設定時使用 `https://platform.rueisiang.com/api`）；圖磚 attribution 必須保留。
 
 Upstash 只影響 CYBERBIZ 商品目錄查詢的速度：沒設定的話用 SKU 連結品項或定時鏡像時
 會直接翻官網商品目錄，功能是好的，只是要等幾秒。
@@ -92,7 +96,10 @@ smoke test 的功能只能標記為「可合併」，不能標記為「已上線
 - [ ] 建立主管的 scope／人事資料範圍授權；員工櫃點指派不等於管理權限。
 - [ ] 補上既有 user 的員工指派審核，以及已結束任職、指派的修訂流程，不直接覆寫歷史。
 - [ ] 若確認有多法人，再新增法人及薪資／投保歸屬模型；目前不建立雇主管理介面。
-- [ ] 實作班次版本、快速排班及發布，再接網站打卡、補卡、出勤計算與審核。
+- [x] 建立獨立出勤設定與辦公位置管理（Google Places 搜尋、MapLibre／OpenFreeMap 地圖、Static Maps fallback、geolocation 開關、半徑）；員工可同時指派多個辦公位置與主管，並提供本人手機打卡、出勤日曆／紀錄與補打卡申請。
+- [ ] 完成 `hr.rueisiang.com` 正式 DNS／OAuth redirect／CI 變數設定，並執行 Edge、Chrome 與手機 smoke test。
+- [ ] 確認正式環境 OpenFreeMap 圖磚服務的授權與流量限制，必要時改用自建或核准的 MapLibre style。
+- [ ] 實作班次版本、快速排班及發布、補打卡核准後的出勤計算與審核。
 - [ ] 實作假別額度、請假／加班、補休與颱風等特殊給薪日。
 - [ ] 實作業績快照、獎金政策／池、權重分配與審核。
 - [ ] 實作薪資／投保版本、月薪試算、覆核、結帳、調整單及私密薪資單。

@@ -97,15 +97,16 @@ git rebase origin/main
 
 ### 本機 port
 
-| worktree | Portal | API |
-|---|---|---|
-| 預設（人類） | `5173` | `8787` |
-| Codex | `5174` | `8788` |
-| Claude | `5175` | `8789` |
+| worktree | Portal | HR | API |
+|---|---|---|---|
+| 預設（人類） | `5173` | `5176` | `8787` |
+| Codex | `5174` | `5177` | `8788` |
+| Claude | `5175` | `5178` | `8789` |
 
 ```powershell
 $env:API_PORT = "8788"
 $env:PORTAL_PORT = "5174"
+$env:HR_PORT = "5177"
 pnpm dev
 ```
 

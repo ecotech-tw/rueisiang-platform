@@ -53,8 +53,12 @@ jobs:
 
       # 開發機是 Windows on ARM，起不了 workerd，所以「設定檔到底能不能部署」
       # 這件事只有在 Linux 上才驗得到。放在最後：前面都過了才有意義。
-      - name: 驗證 Worker 設定與打包
+      - name: 驗證 API Worker 設定與打包
         working-directory: apps/api
         run: |
           pnpm rebuild workerd
           npx wrangler deploy --dry-run
+
+      - name: 驗證 HR Worker 設定與打包
+        working-directory: apps/hr
+        run: pnpm dry-run

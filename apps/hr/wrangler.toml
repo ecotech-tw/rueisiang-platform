@@ -1,0 +1,12 @@
+name = "rueisiang-hr"
+compatibility_date = "2026-08-01"
+workers_dev = true
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[routes]]
+pattern = "hr.rueisiang.com"
+custom_domain = true

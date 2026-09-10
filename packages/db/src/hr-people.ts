@@ -1,8 +1,9 @@
-import { and, asc, eq, like, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, like, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { hrEmployees, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
+import { hrAttendanceLocations, hrEmployeeAttendanceLocations } from "./schema/hr-attendance.js";
 import { scopes } from "./schema/reports.js";
 import { users } from "./schema/auth.js";
 
@@ -12,7 +13,7 @@ export class HrError extends Error {
 export interface HrActor { id: string; email: string }
 
 /** 共用稽核只放操作種類與 ID，不放姓名、任職日期等人事內容。 */
-async function write(db: Database, statement: SQL | SQL[], id: string, actor: HrActor, action: string) {
+async function write(db: Database, statement: SQL | SQL[], id: string, actor: HrActor, action: string, conflictMessage = "此使用者已是員工、員工編號已使用，或關聯資料不存在。") {
   const row = activityRow({ entityType: "hr_personnel", entityId: id, source: "hr", eventType: action, summary: "人事資料異動", actor });
   try {
     // 零列寫入不是 SQL 失敗。後續依賴寫入與稽核都必須跟著 changes() guard。
@@ -37,14 +38,16 @@ async function write(db: Database, statement: SQL | SQL[], id: string, actor: Hr
     let cause: unknown = error;
     for (let depth = 0; depth < 5 && cause instanceof Error; depth += 1) { messages.push(cause.message); cause = cause.cause; }
     if (messages.some((message) => /UNIQUE constraint failed|FOREIGN KEY constraint failed/.test(message))) {
-      throw new HrError(409, "此使用者已是員工、員工編號已使用，或關聯資料不存在。");
+      throw new HrError(409, conflictMessage);
     }
     throw error;
   }
 }
 
+export { write as writeHrMutation };
+
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
-const employeeFields = { userId: hrEmployees.userId, employeeNumber: hrEmployees.employeeNumber, displayName, email: users.email, userStatus: users.status, revision: hrEmployees.revision };
+const employeeFields = { userId: hrEmployees.userId, employeeNumber: hrEmployees.employeeNumber, supervisorUserId: hrEmployees.supervisorUserId, displayName, email: users.email, userStatus: users.status, revision: hrEmployees.revision };
 
 export async function listHrCandidates(db: Database, input: { page: number; search: string; userId?: string }) {
   const rows = await db.select({ userId: users.id, displayName, email: users.email, status: users.status }).from(users)
@@ -61,16 +64,33 @@ export async function listHrEmployees(db: Database, page: number) {
     .orderBy(asc(hrEmployees.employeeNumber)).limit(51).offset((page - 1) * 50);
   return { employees: rows.slice(0, 50), hasMore: rows.length > 50, page };
 }
+export async function listHrSupervisorCandidates(db: Database, userId: string) {
+  return db.select({ id: hrEmployees.userId, name: displayName }).from(hrEmployees).innerJoin(users, eq(users.id, hrEmployees.userId))
+    .where(and(ne(hrEmployees.userId, userId), eq(users.status, "active")))
+    .orderBy(asc(displayName));
+}
 export async function getHrEmployee(db: Database, userId: string) {
   const [employee] = await db.select(employeeFields).from(hrEmployees).innerJoin(users, eq(users.id, hrEmployees.userId)).where(eq(hrEmployees.userId, userId));
   if (!employee) throw new HrError(404, "此使用者尚未被指派為員工。");
+  const [supervisor] = employee.supervisorUserId
+    ? await db.select({ displayName }).from(users).where(eq(users.id, employee.supervisorUserId)).limit(1)
+    : [];
   const employments = await db.select().from(hrEmployments).where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployments.hiredOn));
   const assignments = await db.select({
     id: hrEmployeeScopes.id, employmentId: hrEmployeeScopes.employmentId, scopeId: hrEmployeeScopes.scopeId,
     scopeName: scopes.name, validFrom: hrEmployeeScopes.validFrom, validTo: hrEmployeeScopes.validTo, revision: hrEmployeeScopes.revision,
   }).from(hrEmployeeScopes).innerJoin(hrEmployments, eq(hrEmployments.id, hrEmployeeScopes.employmentId))
     .innerJoin(scopes, eq(scopes.id, hrEmployeeScopes.scopeId)).where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployeeScopes.validFrom));
-  return { employee, employments, assignments };
+  const attendanceAssignments = await db.select({
+    id: hrEmployeeAttendanceLocations.id, employmentId: hrEmployeeAttendanceLocations.employmentId,
+    locationId: hrEmployeeAttendanceLocations.locationId, locationName: hrAttendanceLocations.name,
+    validFrom: hrEmployeeAttendanceLocations.validFrom, validTo: hrEmployeeAttendanceLocations.validTo,
+    revision: hrEmployeeAttendanceLocations.revision,
+  }).from(hrEmployeeAttendanceLocations)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrEmployeeAttendanceLocations.employmentId))
+    .innerJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrEmployeeAttendanceLocations.locationId))
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployeeAttendanceLocations.validFrom));
+  return { employee: { ...employee, supervisorName: supervisor?.displayName ?? null }, employments, assignments, attendanceAssignments };
 }
 export async function getHrSelf(db: Database, userId: string) {
   const employee = await isHrEmployee(db, userId);
@@ -98,6 +118,15 @@ export function updateHrEmployee(db: Database, userId: string, input: { employee
   return write(db, sql`UPDATE hr_employees SET employee_number=${input.employeeNumber}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
     WHERE user_id=${userId} AND revision=${input.revision} RETURNING user_id AS id`, userId, actor, "employee_updated");
 }
+export function updateHrEmployeeSupervisor(db: Database, userId: string, input: { supervisorUserId: string | null; revision: number }, actor: HrActor) {
+  return write(db, sql`UPDATE hr_employees SET supervisor_user_id=${input.supervisorUserId}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
+    WHERE user_id=${userId} AND revision=${input.revision}
+      AND (${input.supervisorUserId} IS NULL OR (${input.supervisorUserId} <> ${userId}
+        AND EXISTS (SELECT 1 FROM hr_employees AS supervisor_employee
+          INNER JOIN users AS supervisor_user ON supervisor_user.id=supervisor_employee.user_id
+          WHERE supervisor_employee.user_id=${input.supervisorUserId} AND supervisor_user.status='active')))
+    RETURNING user_id AS id`, userId, actor, "employee_supervisor_updated", "主管不存在、不可指定自己，或資料已變更，請重新整理。");
+}
 export function createHrEmployment(db: Database, input: { userId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string }, actor: HrActor) {
   const id = crypto.randomUUID();
   return write(db, sql`INSERT INTO hr_employments (id, employee_user_id, hired_on, ended_on, seniority_start_on)
@@ -109,6 +138,7 @@ export function endHrEmployment(db: Database, id: string, input: { endedOn: stri
   return write(db, sql`UPDATE hr_employments SET ended_on=${input.endedOn}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
     WHERE id=${id} AND revision=${input.revision} AND ended_on IS NULL AND hired_on < ${input.endedOn}
       AND NOT EXISTS (SELECT 1 FROM hr_employee_scopes WHERE employment_id=${id} AND (valid_to IS NULL OR valid_to > ${input.endedOn}))
+      AND NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${id} AND (valid_to IS NULL OR valid_to > ${input.endedOn}))
     RETURNING id`, id, actor, "employment_ended");
 }
 export function createHrAssignment(db: Database, input: { employmentId: string; scopeId: string; validFrom: string; validTo: string | null }, actor: HrActor) {

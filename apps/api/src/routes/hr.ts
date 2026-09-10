@@ -1,10 +1,15 @@
+import { can } from "@rueisiang/auth";
 import {
-  HrError, assignHrEmployee, createHrAssignment, createHrEmployment,
-  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, listHrCandidates, listHrEmployees, listHrScopes, updateHrEmployee,
+  HrError, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
+  createHrEmployment, createHrFormRequest, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters,
+  getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers,
+  listHrFormRequests, listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest, submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
+  updateHrEmployeeSupervisor, updateHrFormRequest,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
+import { GoogleMapsSearchError, searchGooglePlaces } from "../google-maps.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { body, requireString } from "../request.js";
 
@@ -29,6 +34,74 @@ function revision(input: Record<string, unknown>) {
   if (!Number.isSafeInteger(input.revision) || Number(input.revision) < 1) throw new HTTPException(400, { message: "請提供有效版本，並重新整理後操作。" });
   return input.revision as number;
 }
+function booleanValue(input: Record<string, unknown>, key: string, label: string, fallback?: boolean) {
+  const value = input[key];
+  if (value === undefined && fallback !== undefined) return fallback;
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  throw new HTTPException(400, { message: `${label}格式不正確。` });
+}
+function integerValue(input: Record<string, unknown>, key: string, label: string, min: number, max: number) {
+  const raw = input[key];
+  const value = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() ? Number(raw) : NaN;
+  if (!Number.isSafeInteger(value) || value < min || value > max) throw new HTTPException(400, { message: `${label}必須是 ${min}～${max} 的整數。` });
+  return value;
+}
+function coordinate(input: Record<string, unknown>, key: string, label: string, max: number) {
+  const raw = input[key];
+  if (raw === null || raw === undefined || raw === "") return null;
+  const value = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() ? Number(raw) : NaN;
+  if (!Number.isFinite(value) || value < -max || value > max) throw new HTTPException(400, { message: `${label}必須在有效地理座標範圍內。` });
+  return Math.round(value * 10_000_000);
+}
+function attendanceLocation(input: Record<string, unknown>) {
+  const geolocationRequired = booleanValue(input, "geolocationRequired", "定位判斷", true);
+  const latitudeE7 = coordinate(input, "latitude", "緯度", 90);
+  const longitudeE7 = coordinate(input, "longitude", "經度", 180);
+  if ((latitudeE7 === null) !== (longitudeE7 === null)) throw new HTTPException(400, { message: "緯度與經度必須同時填寫。" });
+  if (geolocationRequired && (latitudeE7 === null || longitudeE7 === null)) throw new HTTPException(400, { message: "啟用定位判斷時必須選擇 Google Maps 地點。" });
+  return {
+    name: text(input, "name", "辦公位置", 100),
+    geolocationRequired,
+    latitudeE7,
+    longitudeE7,
+    radiusMeters: integerValue(input, "radiusMeters", "出勤判斷半徑", 1, 10000),
+  };
+}
+function nullableText(input: Record<string, unknown>, key: string, label: string, max = 100) {
+  if (input[key] === null || input[key] === undefined || input[key] === "") return null;
+  return text(input, key, label, max);
+}
+function requestedAt(input: Record<string, unknown>) {
+  const correctionDate = date(input, "correctionDate")!;
+  const requestedTime = text(input, "requestedTime", "補打卡時間", 5);
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(requestedTime)) throw new HTTPException(400, { message: "補打卡時間必須是有效的 HH:mm。" });
+  const parsed = new Date(`${correctionDate}T${requestedTime}:00+08:00`);
+  if (Number.isNaN(parsed.getTime())) throw new HTTPException(400, { message: "補打卡日期與時間不正確。" });
+  return { correctionDate, requestedAt: parsed.toISOString().slice(0, 19).replace("T", " ") };
+}
+function formRequestInput(input: Record<string, unknown>, employeeUserId: string) {
+  const { correctionDate, requestedAt: at } = requestedAt(input);
+  const requestedEventKind = input.requestedEventKind === "clock_out" ? "clock_out" : input.requestedEventKind === "clock_in" ? "clock_in" : null;
+  if (!requestedEventKind) throw new HTTPException(400, { message: "請選擇上班或下班補打卡。" });
+  return {
+    employeeUserId,
+    correctionDate,
+    requestedEventKind,
+    requestedAt: at,
+    reason: text(input, "reason", "申請原因", 1000),
+    approverUserId: nullableText(input, "approverUserId", "審核者"),
+  } as const;
+}
+function currentTaipeiYearMonth() {
+  const now = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+}
+function calendarNumber(raw: string | undefined, fallback: number, label: string, min: number, max: number) {
+  const value = raw === undefined ? fallback : Number(raw);
+  if (!Number.isSafeInteger(value) || value < min || value > max) throw new HTTPException(400, { message: `${label}不正確。` });
+  return value;
+}
 
 export const hr = new Hono<AppEnv>()
   .use("*", requireAuth)
@@ -38,6 +111,72 @@ export const hr = new Hono<AppEnv>()
   })
   // 本人資格來自員工關聯而不是手動授權；requireAuth 仍每次檢查帳號是否啟用。
   .get("/me", async (c) => c.json({ profile: await getHrSelf(c.get("db"), c.get("user").id) }))
+  .get("/me/clock-events", async (c) => c.json(await getHrClockStatus(c.get("db"), c.get("user").id)))
+  .get("/me/attendance-calendar", async (c) => {
+    const fallback = currentTaipeiYearMonth();
+    const year = calendarNumber(c.req.query("year"), fallback.year, "年份", 1900, 9999);
+    const month = calendarNumber(c.req.query("month"), fallback.month, "月份", 1, 12);
+    return c.json(await getHrClockCalendar(c.get("db"), c.get("user").id, year, month));
+  })
+  .post("/me/attendance-location/check", async (c) => {
+    const input = await body(c);
+    const latitudeE7 = coordinate(input, "latitude", "緯度", 90);
+    const longitudeE7 = coordinate(input, "longitude", "經度", 180);
+    if (latitudeE7 === null || longitudeE7 === null) throw new HTTPException(400, { message: "請先取得完整的目前定位。" });
+    return c.json(await checkHrClockLocation(c.get("db"), c.get("user").id, latitudeE7, longitudeE7));
+  })
+  .get("/me/attendance-map/locations", async (c) => c.json({ locations: await getHrClockMapCenters(c.get("db"), c.get("user").id) }))
+  .get("/me/attendance-map", async (c) => {
+    const apiKey = c.env.GOOGLE_MAPS_API_KEY;
+    if (!apiKey) throw new HTTPException(503, { message: "尚未設定 Google Maps 地圖服務，請聯絡管理者。" });
+    const centers = await getHrClockMapCenters(c.get("db"), c.get("user").id);
+    if (!centers.length) throw new HTTPException(404, { message: "目前沒有可顯示的辦公位置地圖。" });
+    const mapUrl = new URL("https://maps.googleapis.com/maps/api/staticmap");
+    const center = centers[0]!;
+    mapUrl.searchParams.set("center", `${center.latitude},${center.longitude}`);
+    mapUrl.searchParams.set("zoom", centers.length === 1 ? "16" : "12");
+    mapUrl.searchParams.set("size", "640x320");
+    mapUrl.searchParams.set("scale", "2");
+    mapUrl.searchParams.set("maptype", "roadmap");
+    for (const location of centers) mapUrl.searchParams.append("markers", `color:red|${location.latitude},${location.longitude}`);
+    mapUrl.searchParams.set("key", apiKey);
+    const response = await fetch(mapUrl);
+    if (!response.ok) throw new HTTPException(502, { message: "Google Maps 地圖服務暫時無法使用。" });
+    return new Response(response.body, { headers: { "Content-Type": response.headers.get("content-type") ?? "image/png", "Cache-Control": "private, max-age=300" } });
+  })
+  .post("/me/clock-events", async (c) => {
+    const input = await body(c);
+    const latitudeE7 = coordinate(input, "latitude", "緯度", 90);
+    const longitudeE7 = coordinate(input, "longitude", "經度", 180);
+    if ((latitudeE7 === null) !== (longitudeE7 === null)) throw new HTTPException(400, { message: "定位座標格式不完整，請重新定位。" });
+    const result = await createHrClockEvent(c.get("db"), {
+      userId: c.get("user").id,
+      idempotencyKey: text(input, "idempotencyKey", "請求識別碼", 200),
+      latitudeE7,
+      longitudeE7,
+    }, c.get("user"));
+    return c.json(result, result.idempotent ? 200 : 201);
+  })
+  .get("/me/form-approvers", async (c) => c.json(await listHrFormApprovers(c.get("db"), c.get("user").id)))
+  .get("/me/form-requests", async (c) => c.json(await listHrFormRequests(c.get("db"), c.get("user").id, can(c.get("user"), "hr:request:review"))))
+  .get("/me/form-requests/:id", async (c) => c.json({ request: await getHrFormRequest(c.get("db"), c.req.param("id"), c.get("user").id, can(c.get("user"), "hr:request:review")) }))
+  .post("/me/form-requests", async (c) => {
+    const input = formRequestInput(await body(c), c.get("user").id);
+    return c.json(await createHrFormRequest(c.get("db"), input, c.get("user")), 201);
+  })
+  .patch("/me/form-requests/:id", async (c) => {
+    const input = formRequestInput(await body(c), c.get("user").id);
+    return c.json(await updateHrFormRequest(c.get("db"), c.req.param("id"), c.get("user").id, input, c.get("user")));
+  })
+  .post("/me/form-requests/:id/submit", async (c) => c.json(await submitHrFormRequest(c.get("db"), c.req.param("id"), c.get("user").id, c.get("user"))))
+  .post("/me/form-requests/:id/review", async (c) => {
+    const input = await body(c);
+    const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
+    if (!decision) throw new HTTPException(400, { message: "審核結果不正確。" });
+    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+    if (decision === "rejected" && !comment.trim()) throw new HTTPException(400, { message: "駁回時請填寫審核意見。" });
+    return c.json(await reviewHrFormRequest(c.get("db"), c.req.param("id"), c.get("user").id, decision, comment, can(c.get("user"), "hr:request:review"), c.get("user")));
+  })
   .get("/candidates", requirePermission("hr:employee:write"), async (c) => {
     const page = Number(c.req.query("page") ?? "1");
     const search = c.req.query("search")?.trim() ?? "";
@@ -45,11 +184,46 @@ export const hr = new Hono<AppEnv>()
     return c.json(await listHrCandidates(c.get("db"), { page, search, userId: c.req.query("userId") }));
   })
   .get("/scopes", requirePermission("hr:employee:read"), async (c) => c.json({ scopes: await listHrScopes(c.get("db")) }))
+  .get("/attendance-settings/places", requirePermission("hr:office:write"), async (c) => {
+    const query = c.req.query("query")?.trim() ?? "";
+    if (!query || query.length > 100) throw new HTTPException(400, { message: "請輸入 1～100 字的地點搜尋關鍵字。" });
+    const apiKey = c.env.GOOGLE_MAPS_API_KEY;
+    if (!apiKey) throw new HTTPException(503, { message: "尚未設定 Google Maps 搜尋服務，請聯絡管理者。" });
+    try {
+      return c.json({ places: await searchGooglePlaces(query, apiKey) });
+    } catch (error) {
+      if (error instanceof GoogleMapsSearchError) throw new HTTPException(502, { message: error.message });
+      throw error;
+    }
+  })
+  .get("/attendance-settings/locations", requirePermission("hr:office:read"), async (c) => c.json(await listHrAttendanceLocations(c.get("db"))))
+  .get("/attendance-settings/locations/:id", requirePermission("hr:office:write"), async (c) => c.json(await getHrAttendanceLocation(c.get("db"), c.req.param("id"))))
+  .post("/attendance-settings/locations", requirePermission("hr:office:write"), async (c) => {
+    const input = attendanceLocation(await body(c));
+    return c.json(await createHrAttendanceLocation(c.get("db"), input, c.get("user")), 201);
+  })
+  .patch("/attendance-settings/locations/:id", requirePermission("hr:office:write"), async (c) => {
+    const raw = await body(c);
+    const input = attendanceLocation(raw);
+    return c.json(await updateHrAttendanceLocation(c.get("db"), c.req.param("id"), { ...input, revision: revision(raw) }, c.get("user")));
+  })
+  .post("/employments/:id/attendance-location", requirePermission("hr:office:write"), async (c) => {
+    const input = await body(c);
+    const validFrom = date(input, "validFrom")!;
+    const validTo = date(input, "validTo", true);
+    period(validFrom, validTo);
+    return c.json(await createHrAttendanceLocationAssignment(c.get("db"), { employmentId: c.req.param("id"), locationId: text(input, "locationId", "辦公位置"), validFrom, validTo }, c.get("user")), 201);
+  })
+  .patch("/attendance-location-assignments/:id/end", requirePermission("hr:office:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await endHrAttendanceLocationAssignment(c.get("db"), c.req.param("id"), { validTo: date(input, "validTo")!, revision: revision(input) }, c.get("user")));
+  })
   .get("/employees", requirePermission("hr:employee:read"), async (c) => {
     const page = Number(c.req.query("page") ?? "1");
     if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new HTTPException(400, { message: "頁碼不正確。" });
     return c.json(await listHrEmployees(c.get("db"), page));
   })
+  .get("/supervisor-candidates", requirePermission("hr:employee:write"), async (c) => c.json({ users: await listHrSupervisorCandidates(c.get("db"), c.req.query("exclude") ?? c.get("user").id) }))
   .get("/employees/:id", requirePermission("hr:employee:read"), async (c) => c.json(await getHrEmployee(c.get("db"), c.req.param("id"))))
   .post("/employees", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
@@ -61,6 +235,10 @@ export const hr = new Hono<AppEnv>()
   .patch("/employees/:id", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
     return c.json(await updateHrEmployee(c.get("db"), c.req.param("id"), { employeeNumber: text(input, "employeeNumber", "員工編號", 40), revision: revision(input) }, c.get("user")));
+  })
+  .patch("/employees/:id/supervisor", requirePermission("hr:employee:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await updateHrEmployeeSupervisor(c.get("db"), c.req.param("id"), { supervisorUserId: nullableText(input, "supervisorUserId", "主管"), revision: revision(input) }, c.get("user")));
   })
   .post("/employments", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);

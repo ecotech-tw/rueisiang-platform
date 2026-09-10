@@ -16,6 +16,7 @@ export function Login() {
   usePageTitle("登入");
   const [params] = useSearchParams();
   const returnTo = params.get("returnTo") ?? "/";
+  const googleReturnTo = `${window.location.origin}${returnTo}`;
 
   // Google 那條失敗時會帶 ?error= 轉回來；帳密那條的錯誤存在自己的 state。
   const [email, setEmail] = useState("");
@@ -60,7 +61,7 @@ export function Login() {
 
         {error ? <p className="login-error" role="alert">{error}</p> : null}
 
-        <a className="login-button" href={`/api/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`}>
+        <a className="login-button" href={`/api/auth/google/start?returnTo=${encodeURIComponent(googleReturnTo)}`}>
           使用 Google 帳號登入
         </a>
 

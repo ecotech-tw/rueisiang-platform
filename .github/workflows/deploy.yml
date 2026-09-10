@@ -104,3 +104,30 @@ jobs:
             echo "::error::健康檢查沒過：D1 綁定可能沒接上。"
             exit 1
           }
+
+  deploy-hr:
+    needs: deploy
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      VITE_API_BASE_URL: ${{ vars.HR_API_BASE_URL || 'https://platform.rueisiang.com/api' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @rueisiang/hr build
+
+      - name: 部署 HR 靜態 Worker
+        working-directory: apps/hr
+        run: pnpm deploy
+
+      - name: 確認 HR app
+        run: curl -sS --fail --retry 5 --retry-delay 3 --retry-all-errors https://hr.rueisiang.com/ | grep -q '<div id="root">'

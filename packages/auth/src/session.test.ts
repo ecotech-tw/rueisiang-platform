@@ -69,6 +69,10 @@ describe("cookie", () => {
     expect(cookie).toContain("SameSite=Lax");
   });
 
+  it("跨子網域時可以指定 cookie domain", () => {
+    expect(serializeCookie("x", "v", { maxAge: 60, domain: ".rueisiang.com" })).toContain("Domain=.rueisiang.com");
+  });
+
   it("讀得回自己寫的值，含中文與分號", () => {
     const value = "誠品西門店3F; drop table";
     const header = serializeCookie("rueisiang_session", value, { maxAge: 60 }).split(";")[0]!;

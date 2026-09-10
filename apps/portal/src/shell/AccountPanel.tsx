@@ -9,6 +9,8 @@ interface AccountPanelProps {
   onNavigate: () => void;
 }
 
+const HR_APP_URL = (import.meta.env.VITE_HR_APP_URL?.trim() || (import.meta.env.DEV ? "http://localhost:5176" : "https://hr.rueisiang.com")).replace(/\/+$/, "");
+
 const ROLE_LABEL: Record<string, string> = {
   admin: "管理者",
   manager: "主管",
@@ -104,10 +106,10 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
           </Link>
 
           {user.isEmployee ? (
-            <Link
+            <a
               className="account-menu-item"
               role="menuitem"
-              to="/hr/me"
+              href={`${HR_APP_URL}/profile`}
               onClick={() => {
                 setOpen(false);
                 onNavigate();
@@ -115,7 +117,7 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
             >
               <Icon name="people" className="account-menu-icon" />
               我的人事資料
-            </Link>
+            </a>
           ) : null}
 
           <button type="button" className="account-menu-item danger" role="menuitem" onClick={onLogout}>

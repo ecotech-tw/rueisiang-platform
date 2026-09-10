@@ -13,6 +13,7 @@ const timestamps = () => ({
 export const hrEmployees = sqliteTable("hr_employees", {
   userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "restrict" }),
   employeeNumber: text("employee_number").notNull(),
+  supervisorUserId: text("supervisor_user_id").references(() => users.id, { onDelete: "restrict" }),
   ...timestamps(),
 }, (t) => [
   uniqueIndex("idx_hr_employees_number").on(t.employeeNumber),
