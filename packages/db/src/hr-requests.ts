@@ -130,6 +130,7 @@ export async function submitHrFormRequest(db: Database, id: string, employeeUser
   if (!current) throw new HrError(404, "找不到這份申請單。");
   if (current.status !== "draft") throw new HrError(409, "這份申請單已送出，不能重複送出。");
   const approverUserId = current.approverUserId ?? await employeeSupervisor(db, employeeUserId);
+  if (!approverUserId) throw new HrError(400, "送出前請指定審核者。");
   await ensureApprover(db, employeeUserId, approverUserId);
   return writeHrMutation(db, sql`UPDATE hr_form_requests SET
     status='pending', approver_user_id=${approverUserId}, submitted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP

@@ -52,21 +52,6 @@ function taipeiToday() {
 
 beforeEach(async () => {
   d1 = createTargetOnlyD1();
-  // D1 batch 是原子單位；local-d1 預設逐句執行，這裡補上 transaction 才能測到正式語意。
-  let batchTail: Promise<unknown> = Promise.resolve();
-  d1.batch = (statements) => {
-    const pendingBatch = batchTail.then(async () => {
-      d1.sqlite.exec("BEGIN");
-      try {
-        const pending = statements.map((statement) => statement.all());
-        const results = await Promise.all(pending);
-        d1.sqlite.exec("COMMIT");
-        return results;
-      } catch (error) { d1.sqlite.exec("ROLLBACK"); throw error; }
-    });
-    batchTail = pendingBatch.catch(() => undefined);
-    return pendingBatch;
-  };
   db = createDatabase(d1 as never);
   await syncSystemRoles(db);
   cookies = {};
@@ -204,6 +189,15 @@ describe("HR 員工基礎", () => {
     const calendar = await (await request(`/hr/me/attendance-calendar?year=${correctionDate.slice(0, 4)}&month=${correctionDate.slice(5, 7)}`, "GET", undefined, "self")).json() as { today: string; days: { date: string; status: string }[] };
     expect(calendar.today).toBe(correctionDate);
     expect(calendar.days.find((day) => day.date === correctionDate)?.status).toBe("open");
+  });
+
+  it("沒有主管或指定審核者時不能送出補打卡申請", async () => {
+    await assign("self");
+    const id = await created("/hr/me/form-requests", {
+      correctionDate: taipeiToday(), requestedTime: "09:00", requestedEventKind: "clock_in", reason: "未指定審核者測試。", approverUserId: null,
+    }, "self");
+    expect((await request(`/hr/me/form-requests/${id}/submit`, "POST", {}, "self")).status).toBe(400);
+    expect((await (await request(`/hr/me/form-requests/${id}`, "GET", undefined, "self")).json() as { request: { status: string } }).request.status).toBe("draft");
   });
 
   it("本人可用目前位置打卡，伺服器決定上下班與時間且重試不重複", async () => {
