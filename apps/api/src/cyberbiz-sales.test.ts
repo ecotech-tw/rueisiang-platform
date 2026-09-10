@@ -1,11 +1,10 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, insertReportSalesMonthly, listCyberbizReportRuns, listPayoutStores, listReportScopes, seedPayoutStores, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
-import { cyberbizProductCatalog, items, reportExternalProducts, reportItemSalesMonthly, scopes, userRoleAssignments, users, wmsItems } from "@rueisiang/db/schema";
+import { createDatabase, insertReportSalesMonthly, listCyberbizReportRuns, listPayoutStores, seedPayoutStores, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
+import { items, reportItemSalesMonthly, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
-import { createCyberbizReportService } from "./cyberbiz-reports.js";
-import { cyberbizScopeIdFromStoreName } from "./cyberbiz-scope.js";
+import { cyberbizScopeIdFromStoreName, manualScopeIdFromStoreName } from "./cyberbiz-scope.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 const SECRET = "test-secret";
@@ -16,13 +15,6 @@ let env: Record<string, unknown>;
 
 function db() {
   return createDatabase(d1 as never);
-}
-
-async function seedCyberbizProduct(sku: string, productId: string, variantId: string, productName: string, published = 1) {
-  const itemId = `cyberbiz:${sku}`;
-  await db().insert(items).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku, name: productName, active: 1 });
-  await db().insert(cyberbizProductCatalog).values({ itemId, cyberbizProductId: productId, cyberbizVariantId: variantId, productName, variantName: "", published });
-  return itemId;
 }
 
 async function reportSalesRows() {
@@ -202,208 +194,101 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     expect(response.status).toBe(400);
   });
 
-  it("主管可以上傳完整月份的手動 sales，並沿用 CYBERBIZ 商品目錄", async () => {
-    await seedCyberbizProduct("MANUAL-001", "manual-product-001", "manual-variant-001", "手動商品");
-    const id = await seedUser("manager-sales@ecotech.tw", "role-manager");
-    const response = await as(id, "manager-sales@ecotech.tw", "/api/tools/manual-sales", {
+  /*
+   * 人工匯入原本有兩組實作：tools 的 /manual-sales 與報表管理的
+   * /api/reports/cyberbiz/manual/import/sales。前者沒有任何前端呼叫端，這一輪移除。
+   *
+   * 兩邊都要求資料列自己帶 SKU（/manual-sales/products 只是把 CYBERBIZ 目錄丟給
+   * 瀏覽器，名稱對 SKU 是在前端做的），所以移除不會少掉伺服器端的能力。下面幾條
+   * 是原本只有舊那組在守、值得留下來的保護，改釘在活著的那一條上。
+   */
+  const SALES_IMPORT = "/api/reports/cyberbiz/manual/import/sales";
+
+  it("對應不到的 SKU 會被略過並回報，不會靜靜當成賣了 0 個", async () => {
+    const manager = await seedUser("manager-sales@ecotech.tw", "role-manager");
+    const response = await as(manager, "manager-sales@ecotech.tw", SALES_IMPORT, {
       method: "POST",
       body: JSON.stringify({
-        scopeName: "手動測試店",
+        scopeName: "手動店",
         reportMonth: "2026-07",
-        rows: [{ sku: "MANUAL-001", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 250 }],
+        rows: [{ sku: "SKU-1", productName: "商品一", category: "食品", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 200 }],
       }),
     });
 
     expect(response.status).toBe(201);
+    // 沒有對應的 SKU 不會寫進報表，但要出現在 skippedSkus——不然那些銷售會安靜消失。
     expect(await response.json()).toMatchObject({
-      kind: "sales",
-      scopeId: expect.stringMatching(/^manual:store:/),
-      scopeName: "手動測試店",
+      scopeName: "手動店",
       reportMonth: "2026-07",
-      rowCount: 1,
-      skippedSkus: [],
+      skippedSkus: ["SKU-1"],
+      totals: { netQuantity: 0, salesAmount: 0 },
     });
-    const rows = await reportSalesRows();
-    expect(rows).toEqual([expect.objectContaining({
-      scopeId: expect.stringMatching(/^manual:store:/),
-      reportMonth: "2026-07",
-      sku: "MANUAL-001",
-      productName: "手動商品",
-      netQuantity: 2,
-      salesAmount: 250,
-    })]);
+    expect(await reportSalesRows()).toHaveLength(0);
   });
 
-  it("手動 sales 的外部 SKU 可以在同一個 scope 用 CYBERBIZ mapping 查回來", async () => {
-    await db().insert(items).values({ id: "manual-query-item", source: "custom", kind: "sellable", sku: "SYSTEM-001", name: "系統商品", active: 1 });
-    await db().insert(wmsItems).values({ itemId: "manual-query-item", quantity: 0, minStock: 5, unit: "件", notes: "" });
-    await db().insert(reportExternalProducts).values({
-      id: "manual-query-mapping",
-      sourceType: "cyberbiz",
-      externalKey: "EXTERNAL-001",
-      externalVariantKey: "",
-      externalName: "外部商品",
-      resolution: "mapped",
-      itemId: "manual-query-item",
-      ignoredReason: "",
-    });
-    const id = await seedUser("manager-sales-query@ecotech.tw", "role-manager");
-    const response = await as(id, "manager-sales-query@ecotech.tw", "/api/tools/manual-sales", {
-      method: "POST",
-      body: JSON.stringify({
-        scopeName: "手動查詢店",
-        reportMonth: "2026-07",
-        rows: [{ sku: "EXTERNAL-001", grossQuantity: 2, returnQuantity: 0, netQuantity: 2, salesAmount: 200 }],
-      }),
-    });
-
-    expect(response.status).toBe(201);
-    const result = await createCyberbizReportService(db()).querySales({
-      period: "2026-07",
-      scopeType: "store",
-      scopeName: "手動查詢店",
-      sku: "EXTERNAL-001",
-    });
-    expect(result.rows).toMatchObject([{ sku: "SYSTEM-001", netQuantity: 2 }]);
-    expect(result.totals.netQuantity).toBe(2);
-  });
-
-  it("手動 sales 商品目錄沿用 sales 權限，供舊版合併檔補回 SKU", async () => {
-    await seedCyberbizProduct("LEGACY-001", "legacy-product-001", "legacy-variant-001", "舊檔商品", 0);
-    const manager = await seedUser("manager-manual-products@ecotech.tw", "role-manager");
-    const response = await as(manager, "manager-manual-products@ecotech.tw", "/api/tools/manual-sales/products");
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      products: expect.arrayContaining([{ sku: "LEGACY-001", name: "舊檔商品", published: false }]),
-    });
-
-    const viewer = await seedUser("viewer-manual-products@ecotech.tw", "role-viewer");
-    expect((await as(viewer, "viewer-manual-products@ecotech.tw", "/api/tools/manual-sales/products")).status).toBe(403);
-  });
-
-  it("手動 sales 據點清單包含已設定店別，且檢視者不能使用匯入 API", async () => {
-    const store = (await listPayoutStores(db()))[0]!;
-    const manager = await seedUser("manager-manual-scopes@ecotech.tw", "role-manager");
-    const response = await as(manager, "manager-manual-scopes@ecotech.tw", "/api/tools/manual-sales/scopes");
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      scopes: expect.arrayContaining([{ id: cyberbizScopeIdFromStoreName(store.name), name: store.name }]),
-    });
-
-    const viewer = await seedUser("viewer-manual-sales@ecotech.tw", "role-viewer");
-    expect((await as(viewer, "viewer-manual-sales@ecotech.tw", "/api/tools/manual-sales/scopes")).status).toBe(403);
-    expect((await as(viewer, "viewer-manual-sales@ecotech.tw", "/api/tools/manual-sales", {
-      method: "POST",
-      body: JSON.stringify({ scopeName: "不能匯入", reportMonth: "2026-07", rows: [] }),
-    })).status).toBe(403);
-  });
-
-  it("手動 sales 不接受與檔案月份不一致的資料列", async () => {
-    const id = await seedUser("manager-manual-validation@ecotech.tw", "role-manager");
-    const response = await as(id, "manager-manual-validation@ecotech.tw", "/api/tools/manual-sales", {
-      method: "POST",
-      body: JSON.stringify({
-        scopeName: "手動驗證店",
-        reportMonth: "2026-07",
-        rows: [{ sku: "MANUAL-001", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100, reportMonth: "2026-08" }],
-      }),
-    });
-    expect(response.status).toBe(400);
-  });
-
-  it("manual sales rejects scope IDs with mismatched names", async () => {
-    await seedCyberbizProduct("MISMATCH-001", "mismatch-product-001", "mismatch-variant-001", "驗證商品");
-    const id = await seedUser("manager-manual-scope-mismatch@ecotech.tw", "role-manager");
-    const first = await as(id, "manager-manual-scope-mismatch@ecotech.tw", "/api/tools/manual-sales", {
-      method: "POST",
-      body: JSON.stringify({
-        scopeName: "原本的店",
-        reportMonth: "2026-07",
-        rows: [{ sku: "MISMATCH-001", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100 }],
-      }),
-    });
-    expect(first.status).toBe(201);
-    const firstBody = await first.json() as { scopeId: string };
-
-    const second = await as(id, "manager-manual-scope-mismatch@ecotech.tw", "/api/tools/manual-sales", {
-      method: "POST",
-      body: JSON.stringify({
-        scopeId: firstBody.scopeId,
-        scopeName: "不應被覆寫的店",
-        reportMonth: "2026-07",
-        rows: [{ sku: "MISMATCH-001", grossQuantity: 9, returnQuantity: 0, netQuantity: 9, salesAmount: 900 }],
-      }),
-    });
-    expect(second.status).toBe(400);
-    expect(await listReportScopes(db(), "store")).toContainEqual(
-      expect.objectContaining({ id: firstBody.scopeId, name: "原本的店" }),
-    );
-    expect((await reportSalesRows()).map((row) => row.netQuantity)).toEqual([1]);
-  });
   it("新建據點名稱撞到既有據點時擋下來，不會覆寫那家店當月的匯入資料", async () => {
-    await seedCyberbizProduct("COLLIDE-001", "collide-product-001", "collide-variant-001", "撞名商品");
-    const importedScopeId = cyberbizScopeIdFromStoreName("中友百貨");
-    await upsertReportScope(db(), { id: importedScopeId, scopeKind: "store", name: "中友百貨" });
+    await upsertReportScope(db(), { id: "cyberbiz:store:existing", scopeKind: "store", name: "中友百貨" });
     await insertReportSalesMonthly(db(), [{
-      scopeId: importedScopeId,
-      reportMonth: "2026-07",
-      sku: "COLLIDE-001",
-      productName: "撞名商品",
-      category: "未分類",
-      grossQuantity: 5,
-      returnQuantity: 0,
-      netQuantity: 5,
-      salesAmount: 99999,
+      scopeId: "cyberbiz:store:existing", reportMonth: "2026-07", sku: "SKU-KEEP",
+      productName: "既有商品", category: "食品", grossQuantity: 9, returnQuantity: 0, netQuantity: 9, salesAmount: 900,
     }]);
+    const manager = await seedUser("manager-sales-dup@ecotech.tw", "role-manager");
 
-    const id = await seedUser("manager-manual-collide@ecotech.tw", "role-manager");
-    const response = await as(id, "manager-manual-collide@ecotech.tw", "/api/tools/manual-sales", {
+    const response = await as(manager, "manager-sales-dup@ecotech.tw", SALES_IMPORT, {
       method: "POST",
       body: JSON.stringify({
         scopeName: "中友百貨",
         reportMonth: "2026-07",
-        rows: [{ sku: "COLLIDE-001", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 0 }],
+        rows: [{ sku: "SKU-NEW", productName: "新商品", category: "食品", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100 }],
       }),
     });
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: expect.stringContaining("已經有名為「中友百貨」的據點") });
-    expect(await listReportScopes(db(), "store")).toContainEqual(expect.objectContaining({ id: importedScopeId }));
-    expect((await reportSalesRows()).map((row) => [row.scopeId, row.salesAmount])).toEqual([
-      [importedScopeId, 99999],
-    ]);
-  });
-  it("同名的既有據點都列得出來，不會有一個永遠選不到", async () => {
-    await upsertReportScope(db(), { id: "cyberbiz:store:duplicate-a", scopeKind: "store", name: "重複店" });
-    await upsertReportScope(db(), { id: "manual:store:duplicate-b", sourceType: "manual", scopeKind: "store", name: "重複店" });
-    const id = await seedUser("manager-duplicate-scopes@ecotech.tw", "role-manager");
-
-    const response = await as(id, "manager-duplicate-scopes@ecotech.tw", "/api/tools/manual-sales/scopes");
-
-    expect(response.status).toBe(200);
-    const scopes = (await response.json() as { scopes: { id: string; name: string }[] }).scopes;
-    expect(scopes.filter((scope) => scope.name === "重複店").map((scope) => scope.id)).toEqual([
-      "cyberbiz:store:duplicate-a",
-      "manual:store:duplicate-b",
-    ]);
+    expect(response.status).toBe(409);
+    expect((await db().select().from(scopes)).map((scope) => scope.id)).not.toContain(manualScopeIdFromStoreName("中友百貨"));
+    expect(await reportSalesRows()).toMatchObject([{ sku: "SKU-KEEP", netQuantity: 9 }]);
   });
 
   it("同一個 SKU 加總後超出安全整數範圍時整份擋下來", async () => {
-    const id = await seedUser("manager-manual-overflow@ecotech.tw", "role-manager");
-    const response = await as(id, "manager-manual-overflow@ecotech.tw", "/api/tools/manual-sales", {
+    const manager = await seedUser("manager-sales-overflow@ecotech.tw", "role-manager");
+    const response = await as(manager, "manager-sales-overflow@ecotech.tw", SALES_IMPORT, {
       method: "POST",
       body: JSON.stringify({
-        scopeName: "溢位測試店",
+        scopeName: "手動店",
         reportMonth: "2026-07",
         rows: [
-          { sku: "OVERFLOW-001", grossQuantity: 0, returnQuantity: 0, netQuantity: Number.MAX_SAFE_INTEGER, salesAmount: 0 },
-          { sku: "OVERFLOW-001", grossQuantity: 0, returnQuantity: 0, netQuantity: 1, salesAmount: 0 },
+          { sku: "SKU-1", productName: "商品一", category: "食品", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: Number.MAX_SAFE_INTEGER },
+          { sku: "SKU-1", productName: "商品一", category: "食品", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 1 },
         ],
       }),
     });
 
-    expect(response.status).toBe(422);
+    expect(response.status).toBe(400);
+    expect(await reportSalesRows()).toHaveLength(0);
+  });
+
+  it("檢視者不能匯入", async () => {
+    const viewer = await seedUser("viewer-manual-sales@ecotech.tw", "role-viewer");
+    const response = await as(viewer, "viewer-manual-sales@ecotech.tw", SALES_IMPORT, {
+      method: "POST",
+      body: JSON.stringify({ scopeName: "手動店", reportMonth: "2026-07", rows: [] }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(await reportSalesRows()).toHaveLength(0);
+  });
+
+  it("報表月份格式不對就擋下來", async () => {
+    const manager = await seedUser("manager-sales-month@ecotech.tw", "role-manager");
+    const response = await as(manager, "manager-sales-month@ecotech.tw", SALES_IMPORT, {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "手動店",
+        reportMonth: "2026-13",
+        rows: [{ sku: "SKU-1", productName: "商品一", category: "食品", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100 }],
+      }),
+    });
+
+    expect(response.status).toBe(400);
     expect(await reportSalesRows()).toHaveLength(0);
   });
 });

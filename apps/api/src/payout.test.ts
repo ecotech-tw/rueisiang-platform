@@ -404,7 +404,14 @@ describe("查狀態", () => {
   });
 });
 
+/*
+ * 人工匯入原本有兩組實作：tools 的 /manual-payout 與報表管理的
+ * /api/reports/cyberbiz/manual/import/payout。前者沒有任何前端呼叫端，這一輪
+ * 移除，所以這些保護改釘在活著的那一條上。
+ */
 describe("手動上傳出金", () => {
+  const IMPORT = "/api/reports/cyberbiz/manual/import/payout";
+
   it("長店名的 scope ID 保留雜湊，不會因截斷前綴而碰撞", () => {
     const first = manualScopeIdFromStoreName(`${"長店名".repeat(40)}甲`);
     const second = manualScopeIdFromStoreName(`${"長店名".repeat(40)}乙`);
@@ -414,48 +421,11 @@ describe("手動上傳出金", () => {
     expect(second).toHaveLength(100);
   });
 
-  it("同一天的輸入會先加總，再以單筆資料寫入並回傳相同合計", async () => {
-    const id = await seedUser("manual@ecotech.tw", "role-admin");
-    const response = await as(id, "manual@ecotech.tw", "/api/tools/manual-payout", {
-      method: "POST",
-      body: JSON.stringify({
-        scopeName: "退租店",
-        rows: [
-          { businessDate: "2026-07-01", payoutAmount: 100 },
-          { businessDate: "2026-07-01", payoutAmount: 25 },
-          { businessDate: "2026-07-02", payoutAmount: 50 },
-        ],
-      }),
-    });
-
-    expect(response.status).toBe(201);
-    expect(await response.json()).toMatchObject({ dayCount: 2, total: 175, coverageStart: "2026-07-01", coverageEnd: "2026-07-02" });
-    expect((await db().select().from(reportPayoutDaily)).map((row) => [row.businessDate, row.payoutAmount])).toEqual([
-      ["2026-07-01", 125],
-      ["2026-07-02", 50],
-    ]);
-  });
-
-  it.each([
-    ["日曆上不存在的日期", { businessDate: "2026-02-31", payoutAmount: 100 }],
-    ["超出安全整數範圍的金額", { businessDate: "2026-07-01", payoutAmount: Number.MAX_SAFE_INTEGER + 1 }],
-  ])("擋下不合法的資料（%s）且不建立 scope", async (_label, row) => {
-    const id = await seedUser("invalid-manual@ecotech.tw", "role-admin");
-    const response = await as(id, "invalid-manual@ecotech.tw", "/api/tools/manual-payout", {
-      method: "POST",
-      body: JSON.stringify({ scopeName: "不應建立", rows: [row] }),
-    });
-
-    expect(response.status).toBe(400);
-    expect((await db().select().from(scopes)).some((scope) => scope.name === "不應建立")).toBe(false);
-    expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
-  });
-
-  // 既有 scope 一律沿用，不看前綴：換掉它等於把同一家店的歷史拆成兩個通路。
-  it("既有 scope 沿用原本的 ID，只有 ID 含不允許的字元才改用 manual scope", async () => {
+  it("既有 scope 沿用原本的 ID，換掉會把同一家店的歷史拆成兩份", async () => {
     await upsertReportScope(db(), { id: "no-prefix-scope-id", scopeKind: "store", name: "舊店" });
     const id = await seedUser("manual-scope@ecotech.tw", "role-admin");
-    const kept = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout", {
+
+    const kept = await as(id, "manual-scope@ecotech.tw", IMPORT, {
       method: "POST",
       body: JSON.stringify({
         scopeId: "no-prefix-scope-id",
@@ -465,8 +435,12 @@ describe("手動上傳出金", () => {
     });
     expect(kept.status).toBe(201);
     expect((await kept.json() as { scopeId: string }).scopeId).toBe("no-prefix-scope-id");
+    expect((await db().select().from(reportPayoutDaily))[0]?.scopeId).toBe("no-prefix-scope-id");
+  });
 
-    const response = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout", {
+  it("ID 含不允許的字元時擋下來，不會偷偷建一個新 scope", async () => {
+    const id = await seedUser("manual-invalid-id@ecotech.tw", "role-admin");
+    const response = await as(id, "manual-invalid-id@ecotech.tw", IMPORT, {
       method: "POST",
       body: JSON.stringify({
         scopeId: "有空白 的 id",
@@ -475,20 +449,14 @@ describe("手動上傳出金", () => {
       }),
     });
 
-    expect(response.status).toBe(201);
-    const result = await response.json() as { scopeId: string };
-    expect(result.scopeId).toMatch(/^manual:store:/);
-    expect((await db().select().from(reportPayoutDaily).where(eq(reportPayoutDaily.businessDate, "2026-07-01")))[0]?.scopeId).toBe(result.scopeId);
-
-    const scopes = await as(id, "manual-scope@ecotech.tw", "/api/tools/manual-payout/scopes");
-    expect(((await scopes.json()) as { scopes: { id: string }[] }).scopes).toContainEqual({ id: result.scopeId, name: "退租店" });
+    expect(response.status).toBe(400);
+    expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
   });
 
   it("新建據點名稱撞到既有據點時擋下來，不另外建立同名 scope", async () => {
-    const importedScopeId = "cyberbiz:store:existing";
-    await upsertReportScope(db(), { id: importedScopeId, scopeKind: "store", name: "中友百貨" });
+    await upsertReportScope(db(), { id: "cyberbiz:store:existing", scopeKind: "store", name: "中友百貨" });
     const id = await seedUser("manual-duplicate@ecotech.tw", "role-admin");
-    const response = await as(id, "manual-duplicate@ecotech.tw", "/api/tools/manual-payout", {
+    const response = await as(id, "manual-duplicate@ecotech.tw", IMPORT, {
       method: "POST",
       body: JSON.stringify({
         scopeName: "中友百貨",
@@ -496,9 +464,23 @@ describe("手動上傳出金", () => {
       }),
     });
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: expect.stringContaining("已經有名為「中友百貨」的據點") });
+    expect(response.status).toBe(409);
     expect((await db().select().from(scopes)).map((scope) => scope.id)).not.toContain(manualScopeIdFromStoreName("中友百貨"));
+    expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
+  });
+
+  it("日曆上不存在的日期擋下來，而且不建立 scope", async () => {
+    const id = await seedUser("manual-bad-date@ecotech.tw", "role-admin");
+    const response = await as(id, "manual-bad-date@ecotech.tw", IMPORT, {
+      method: "POST",
+      body: JSON.stringify({
+        scopeName: "退租店",
+        rows: [{ businessDate: "2026-02-31", payoutAmount: 100 }],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect((await db().select().from(scopes)).map((scope) => scope.id)).not.toContain(manualScopeIdFromStoreName("退租店"));
     expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
   });
 });
