@@ -95,15 +95,16 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `hr_employee_scopes` | `employment_id`、`scope_id → scopes.id`、`valid_from, valid_to?` | 報表／營運 scope 的任職歸屬；期間不可重疊；scope + valid_from 索引 |
 | `hr_attendance_locations` | `name, geolocation_required, latitude_e7?, longitude_e7?, radius_meters` | 辦公位置名稱唯一；定位開啟時座標成對且有效；半徑 1～10000 公尺 |
 | `hr_employee_attendance_locations` | `employment_id → hr_employments.id`、`location_id → hr_attendance_locations.id`、`valid_from, valid_to?` | RESTRICT 外鍵；期間半開；同一辦公位置的期間不可重疊，同一段任職可同時指派多個辦公位置 |
+| `hr_employment_attendance_settings` | `employment_id → hr_employments.id`、`attendance_mode`、`primary_assignment_id? → hr_employee_attendance_locations.id` | 每段任職一列；一般辦公／排班由受控值表示；主要位置用 pointer 保存，不改寫歷史指派 |
 
 出勤設定頁透過後端 Google Maps Places API（Text Search）搜尋地點，管理者直接選取結果後由系統帶入座標；本人打卡頁由 `apps/hr` 使用開源 MapLibre GL JS 搭配 OpenFreeMap 向量圖磚，套用品牌 style JSON，支援拖曳與手勢縮放且不顯示地圖工具按鈕。圖磚服務需保留 OpenFreeMap／OpenStreetMap attribution；MapLibre 本身不代表圖磚服務永久沒有流量限制。若向量圖磚載入失敗，才退回由 Worker 代理的 Static API 圖片。Worker 的 Places／Static 金鑰只放 secret；前端不需要 Google Maps JavaScript 瀏覽器金鑰。正式環境仍需設定 `GOOGLE_MAPS_API_KEY`、Places API (New) 與 Maps Static API；若改用自建 MapLibre style，只需覆寫 `VITE_MAPLIBRE_STYLE_URL`。
 
 | `hr_management_scopes` | `user_id, scope_id` | 複合 PK；只授予範圍，不自行授予功能權限 |
 | `hr_work_rule_versions` | `employer_id, version_number, valid_from, valid_to?, rule_kind, source_url, confirmed_by` | 未來多法人定案後才加入；唯一 employer + version_number；允許的 rule_kind CHECK |
-| `hr_compensation_versions` | `employment_id, version_number, valid_from, valid_to?, pay_basis, base_amount_minor, work_rule_version_id` | 唯一 employment + version_number；pay_basis 為 month/day/hour，金額非負 |
+| `hr_compensation_versions` | `employment_id → hr_employments.id`、`version_number, valid_from, valid_to?, pay_basis, base_amount_minor, note, created_by` | 唯一 employment + version_number；pay_basis 為 monthly/daily/hourly，金額非負；期間重疊由服務層防止，新版本可原子關閉前一個開放版本 |
 | `hr_pay_components` | `code, name, direction, treatment_code` | code 唯一；earning/deduction/employer_cost；treatment 對應受控法遵分類，不以名稱判斷工資 |
 | `hr_compensation_components` | `compensation_version_id, pay_component_id, amount_minor` | 複合 PK；金額非負 |
-| `hr_insurance_versions` | `employment_id, scheme_code, version_number, valid_from, valid_to?, enrollment_status, insured_amount_minor, dependent_count, voluntary_rate_ppm, rate_table_version_id` | 唯一 employment + scheme + version_number；人數非負、比例範圍 CHECK |
+| `hr_insurance_versions` | `employment_id → hr_employments.id`、`scheme, version_number, status, valid_from, valid_to?, insured_amount_minor, dependent_count, rate_year, source_kind, source_url, note, created_by` | 唯一 employment + scheme + version_number；勞保／健保分開版本，健保眷屬 0～3；官方／人工來源與年度留存，期間重疊由服務層防止 |
 | `hr_statutory_rate_versions` | `scheme_code, version_number, valid_from, valid_to?, source_url, confirmed_by` | 唯一 scheme + version_number |
 | `hr_statutory_rate_brackets` | `rate_version_id, bracket_number, lower_minor, upper_minor?, insured_amount_minor, employee_rate_ppm, employer_rate_ppm` | 唯一 version + bracket；有效金額／比例範圍 |
 
@@ -140,7 +141,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 |---|---|---|
 | `hr_leave_policy_versions` | `employer_id, leave_code, version_number, valid_from, valid_to?, unit_kind, pay_rate_ppm, entitlement_rule_code, source_url` | 唯一 employer + code + version；受控假別規則 |
 | `hr_leave_accounts` | `employment_id, leave_policy_version_id, entitlement_start, entitlement_end, revision` | 唯一 employment + policy + entitlement_start；作為額度並行控制根 |
-| `hr_leave_requests` | `employment_id, policy_version_id, reason, status, submitted_by, reviewed_by?, reviewed_at?, decision_reason?` | 狀態 CHECK；employment + status 索引 |
+| `hr_leave_requests` | `employment_id → hr_employments.id`、`leave_type, status, starts_on, ends_on, duration_minutes, reason, reviewed_by?, reviewed_at?, review_comment?, created_by` | 草稿／待審核／核准／駁回／取消狀態 CHECK；期間與時數正值；employment + starts_on 索引；目前供內頁歷史檢視，申請流程另行切片 |
 | `hr_leave_request_segments` | `leave_request_id, sequence, starts_at, ends_at, requested_seconds` | 唯一 request + sequence；區段及秒數正值 |
 | `hr_leave_ledger` | `leave_account_id, leave_request_id?, movement_kind, quantity_seconds, expires_on?, idempotency_key` | idempotency 唯一；取得／保留／使用／釋放／到期／結清等種類 CHECK |
 | `hr_overtime_requests` | `employment_id, scope_id, requested_start, requested_end, actual_start?, actual_end?, settlement_kind, status, reason, reviewed_by?, reviewed_at?, decision_reason?` | 區段 CHECK；employment + requested_start 索引；pay/compensatory 類型 |
@@ -232,12 +233,12 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `POST /api/hr/me/clock-events` | 僅需登入且必須有現行任職 | 伺服器產生事件時間與上下班 kind；使用 idempotency key；定位開啟時由伺服器檢查距離，網站不允許回填時間 |
 | `/api/hr/me/form-requests` | 僅需登入且必須是本人；審核路徑限指定審核者或 `hr:request:review` | 補打卡申請可存草稿、送出與查詢狀態；審核者填寫意見後核准或駁回 |
 | `/api/hr/me/leave-requests`、`/overtime-requests`、`/clock-corrections` | `hr:request:create` | 本人；申請可表達歷史時間但需審核 |
-| `/api/hr/employees` | `hr:employee:read/write` | 此表記法代表各自 read、write 鍵；薪資與私密欄位另驗權 |
+| `GET /api/hr/employees`、`GET /api/hr/employees/:id`、`POST/PATCH /api/hr/employees` | `hr:employee:read/write` | 列表支援固定 page size、總數、搜尋、狀態篩選與白名單排序；內頁採單一互斥 accordion。此表記法代表各自 read、write 鍵；薪資、投保、請假與打卡明細另限全平台 HR 管理者 |
 | `/api/hr/schedules`、`/:id/publish` | `hr:schedule:write/approve` | 功能權限 AND hr_management_scopes；同時驗 employer 邊界 |
 | `/api/hr/attendance-settings/locations`、`/places`、`/employments/:id/attendance-location`、`/employees/:id/supervisor` | `hr:office:read/write` 或 `hr:employee:write` | 管理出勤設定中的辦公位置與員工主管；Places 搜尋與座標選取限管理權限；員工辦公位置與主管都從員工管理建立，不因指派取得管理權限 |
 | `/api/hr/attendance`、申請 `/:id/review` | `hr:attendance:read/approve` | 授權範圍及不可自審；請假私密附件不隨全櫃點可讀 |
 | `/api/hr/bonus-pools` | `hr:bonus:write/approve` | 來源與參與範圍；改政策不等於批准獎金 |
-| `/api/hr/compensation`、`/insurance` | `hr:compensation:read/write` | 人資／薪資專權，不繼承排班權限 |
+| `POST /api/hr/employments/:id/compensation`、`/insurance`、`GET /api/hr/insurance-brackets` | `hr:employee:write/read` 且薪資／投保寫入限全平台 HR 管理者 | 版本期間不可重疊；薪資與勞健保明細不提供 scoped manager；官方級距即時由勞動部／健保署來源解析，人工覆寫需保存來源與年度 |
 | `/api/hr/payroll-runs`、`/:id/close` | `hr:payroll:calculate/approve/close` | 個別權限；雇主範圍需在多法人確認後以明確授權關聯加入 |
 | `/api/hr/me/payslips` | `hr:payslip:read-self` | 僅本人已發布薪資單 |
 | `/api/hr/payroll-exports` | `hr:payroll:export` | 獨立匯出權限、逐次稽核、私密下載 |

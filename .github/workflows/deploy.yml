@@ -2,9 +2,8 @@ name: Deploy
 
 # 推上 main 就自動部署，另外保留手動觸發（要重跑或回滾時用）。
 #
-# 之所以敢這樣掛：能進 main 的東西都得先過 PR 的 CI——型別檢查、測試、build，
-# 外加在 Linux 上跑一次 wrangler deploy --dry-run。這裡再跑一次是因為手動觸發
-# 可能挑到還沒跑過 CI 的 commit。
+# 之所以敢這樣掛：部署前會在 Linux runner 再跑一次型別檢查、測試與 build，
+# 外加在 CI 裡檢查 wrangler 設定；手動觸發也不會跳過驗證。
 on:
   push:
     branches: [main]
@@ -24,7 +23,89 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      platform: ${{ steps.paths.outputs.platform }}
+      migrations: ${{ steps.paths.outputs.migrations }}
+      hr: ${{ steps.paths.outputs.hr }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: 判斷部署範圍
+        id: paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            changed="manual trigger"
+            platform=true
+            migrations=true
+            hr=true
+          else
+            before='${{ github.event.before }}'
+            if [[ "$before" =~ ^0+$ ]]; then
+              changed="$(git ls-tree -r --name-only "$GITHUB_SHA")"
+            else
+              changed="$(git diff --name-only "$before" "$GITHUB_SHA")"
+            fi
+            platform=false
+            migrations=false
+            hr=false
+            while IFS= read -r path; do
+              case "$path" in
+                apps/api/*|apps/portal/*|packages/assistant/*|packages/auth/*|packages/config/*|packages/cyberbiz/*|packages/db/src/*|packages/db/package.json|packages/db/tsconfig.json|packages/db/drizzle.config.ts|packages/tools/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|.github/workflows/deploy.yml)
+                  platform=true ;;
+              esac
+              case "$path" in
+                packages/db/migrations/*)
+                  migrations=true ;;
+              esac
+              case "$path" in
+                apps/hr/*|packages/auth/*|packages/config/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|.github/workflows/deploy.yml)
+                  hr=true ;;
+              esac
+            done <<< "$changed"
+          fi
+          echo "變更檔案："
+          printf '%s\n' "$changed"
+          echo "platform=$platform" >> "$GITHUB_OUTPUT"
+          echo "migrations=$migrations" >> "$GITHUB_OUTPUT"
+          echo "hr=$hr" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: detect
+    if: needs.detect.outputs.platform == 'true' || needs.detect.outputs.migrations == 'true' || needs.detect.outputs.hr == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # pnpm-workspace.yaml 把 workerd 的安裝腳本關掉了；Linux 上單獨補跑。
+      - name: 補上 workerd 執行檔
+        run: pnpm rebuild workerd
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deploy-portal-dist
+          path: apps/portal/dist
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deploy-hr-dist
+          path: apps/hr/dist
+          if-no-files-found: error
+
+  deploy-platform:
+    needs: [detect, verify]
+    if: needs.detect.outputs.platform == 'true' || needs.detect.outputs.migrations == 'true'
     runs-on: ubuntu-latest
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -46,18 +127,17 @@ jobs:
       - name: 補上 workerd 執行檔
         run: pnpm rebuild workerd
 
-      # 部署前再驗一次。CI 已經跑過，但手動觸發可能挑的是還沒跑過 CI 的 commit。
-      - run: pnpm typecheck
-      - run: pnpm test
+      # verify job 已建立與這個 commit 相同的前端產物；只在 Platform 變更時取回。
+      - uses: actions/download-artifact@v4
+        if: needs.detect.outputs.platform == 'true'
+        with:
+          name: deploy-portal-dist
+          path: apps/portal/dist
 
-      # portal 的產物要先出來——wrangler.toml 的 [assets] 指向 ../portal/dist。
-      - run: pnpm build
-
-      # 0112/0113/0115 先上，但刻意排除 0114：0114 會 DROP 舊 webhook/link 表，
-      # 必須等新 Worker 已經接手流量後才能執行。D1 migrations apply 沒有「做到某一支」
-      # 的參數，所以用同一份 wrangler 設定指向一個移除 0114 的暫存目錄；正式 migration
-      # history 仍由 D1 的 d1_migrations 記錄，下一步會只補套 0114。
+      # 只有 migration 路徑變更才碰 D1。0135/0136 等一般 migration 可安全在同一批套用；
+      # 既有 cutover 流程仍刻意排除 0114，確保 legacy 表在新 Worker 接手前不會被刪除。
       - name: 套用 cutover 前 D1 migration（保留 legacy table）
+        if: needs.detect.outputs.migrations == 'true'
         working-directory: apps/api
         run: |
           set -euo pipefail
@@ -73,16 +153,15 @@ jobs:
       # 網址從部署輸出裡讀，不要求人另外維護一個變數：手寫的變數會忘記加
       # https://、會在綁自訂網域之後過期，而部署輸出永遠是當下的事實。
       - name: 部署 Worker
+        if: needs.detect.outputs.platform == 'true'
         id: deploy
         working-directory: apps/api
         run: |
           set -o pipefail
           npx wrangler deploy | tee deploy.log
-          url=$(grep -oE 'https://[A-Za-z0-9.-]+' deploy.log \
-            | grep -vE 'github\.com|cloudflare\.com' \
-            | head -1)
+          url=$(grep -oE 'https://[^[:space:]]+\.workers\.dev' deploy.log | head -1)
           if [ -z "$url" ]; then
-            echo "::error::部署輸出裡找不到網址，無法做健康檢查。"
+            echo "::error::部署輸出裡找不到 workers.dev 網址，無法做健康檢查。"
             exit 1
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
@@ -90,23 +169,39 @@ jobs:
 
       # 新 Worker 已接手後才刪 legacy table。若這一步失敗，舊表仍在，部署可安全重跑。
       - name: 套用 cutover 後 D1 migration（移除 legacy table）
+        if: needs.detect.outputs.migrations == 'true'
         working-directory: apps/api
         run: npx wrangler d1 migrations apply rueisiang-platform --remote
 
-      # 煙霧測試：確認 Worker 活著，而且 D1 綁定真的接上了。
-      # 新部署的 Worker 要幾秒才會在所有節點生效，所以帶重試。
-      - name: 確認部署結果
+      # 先驗證 workers.dev，再驗證自訂網域；新部署的 Worker 要幾秒才會在所有節點生效。
+      - name: 確認 Platform workers.dev
+        if: needs.detect.outputs.platform == 'true'
         run: |
-          response=$(curl -sS --retry 5 --retry-delay 3 --retry-all-errors \
+          response=$(curl -fsS --retry 5 --retry-delay 3 --retry-all-errors \
             "${{ steps.deploy.outputs.url }}/api/health")
           echo "$response"
           echo "$response" | grep -q '"database":"ok"' || {
-            echo "::error::健康檢查沒過：D1 綁定可能沒接上。"
+            echo "::error::workers.dev 健康檢查沒過：D1 綁定可能沒接上。"
             exit 1
           }
+      - name: 等待 Platform 自訂網域
+        if: needs.detect.outputs.platform == 'true'
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if response=$(curl -fsS --max-time 10 https://platform.rueisiang.com/api/health); then
+              echo "$response"
+              echo "$response" | grep -q '"database":"ok"' && exit 0
+            fi
+            echo "等待 platform.rueisiang.com（第 $attempt/20 次）"
+            sleep 3
+          done
+          echo "::error::Platform 自訂網域健康檢查逾時。"
+          exit 1
 
   deploy-hr:
-    needs: deploy
+    needs: [detect, verify]
+    if: needs.detect.outputs.hr == 'true'
     runs-on: ubuntu-latest
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -123,11 +218,37 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @rueisiang/hr build
+      - uses: actions/download-artifact@v4
+        with:
+          name: deploy-hr-dist
+          path: apps/hr/dist
 
       - name: 部署 HR 靜態 Worker
+        id: deploy_hr
         working-directory: apps/hr
-        run: pnpm deploy
+        run: |
+          set -o pipefail
+          pnpm deploy | tee deploy.log
+          url=$(grep -oE 'https://[^[:space:]]+\.workers\.dev' deploy.log | head -1)
+          if [ -z "$url" ]; then
+            echo "::error::部署輸出裡找不到 HR workers.dev 網址，無法做健康檢查。"
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "::notice::已部署 HR 到 $url"
 
-      - name: 確認 HR app
-        run: curl -sS --fail --retry 5 --retry-delay 3 --retry-all-errors https://hr.rueisiang.com/ | grep -q '<div id="root">'
+      # 先驗證 workers.dev，再等待自訂網域 DNS／憑證與 Worker rollout 完成。
+      - name: 確認 HR workers.dev
+        run: curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "${{ steps.deploy_hr.outputs.url }}/" | grep -q '<div id="root">'
+      - name: 等待 HR 自訂網域
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            if curl -fsS --max-time 10 https://hr.rueisiang.com/ | grep -q '<div id="root">'; then
+              exit 0
+            fi
+            echo "等待 hr.rueisiang.com（第 $attempt/20 次）"
+            sleep 3
+          done
+          echo "::error::HR 自訂網域健康檢查逾時。"
+          exit 1
