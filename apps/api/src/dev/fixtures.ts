@@ -101,6 +101,21 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
   const employmentId = "dev-employment-chen";
   const locationId = "dev-hr-office";
 
+  // 示範主管也要有 HR 員工紀錄，否則員工雖看得到預設主管，送出申請時會被
+  // ensureApprover 正確地擋下（審核者必須是啟用中的員工）。
+  if (supervisor) {
+    await db.insert(hrEmployees).values({
+      userId: supervisor.id,
+      employeeNumber: "DEMO-WANG",
+    }).onConflictDoNothing();
+    await db.insert(hrEmployments).values({
+      id: "dev-employment-wang",
+      employeeUserId: supervisor.id,
+      hiredOn: "2026-01-01",
+      seniorityStartOn: "2026-01-01",
+    }).onConflictDoNothing();
+  }
+
   await db.insert(hrEmployees).values({
     userId: employeeUserId,
     employeeNumber: "DEMO-CHEN",

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Field, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus } from "./api.js";
 
 const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "info" | "success" | "danger" }> = {
@@ -50,15 +50,55 @@ function RequestSummary({ request, reviewer = false }: { request: FormRequest; r
   </div>;
 }
 
+function ReviewDialog({ request, onClose }: { request: FormRequest; onClose: () => void }) {
+  const [comment, setComment] = useState("");
+  const [error, setError] = useState("");
+  const review = useHrWrite();
+
+  async function submit(decision: "approved" | "rejected") {
+    if (decision === "rejected" && !comment.trim()) {
+      setError("駁回時請填寫審核意見。");
+      return;
+    }
+    setError("");
+    try {
+      await review.mutateAsync({ path: `/me/form-requests/${request.id}/review`, method: "POST", values: { decision, comment: comment.trim() } });
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "審核失敗，請稍後再試。");
+    }
+  }
+
+  return <Dialog title="審核補打卡申請" titleMeta={request.requesterName ?? request.employeeUserId} onClose={onClose} closeDisabled={review.isPending} actions={<>
+    <Button variant="secondary" disabled={review.isPending} onClick={onClose}>取消</Button>
+    <Button variant="danger" disabled={review.isPending} onClick={() => { void submit("rejected"); }}>駁回</Button>
+    <Button loading={review.isPending} loadingLabel="核准中…" onClick={() => { void submit("approved"); }}>核准</Button>
+  </>}>
+    <RequestSummary request={request} reviewer />
+    <Field label="審核意見" hint="駁回時必填；核准時可留空。">
+      <textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" />
+    </Field>
+    {error ? <Alert tone="danger">{error}</Alert> : null}
+  </Dialog>;
+}
+
 export function HrForms() {
   usePageTitle("表單申請");
   const navigate = useNavigate();
-  const query = useHrQuery<{ requests: FormRequest[] }>("/me/form-requests");
+  const [reviewing, setReviewing] = useState<FormRequest | null>(null);
+  const query = useHrQuery<{ requests: FormRequest[]; reviewRequests: FormRequest[] }>("/me/form-requests");
   const data = query.data;
   return <div className="page hr-forms-page">
     <PageHeader title="表單申請" description="補打卡申請送出後，會交由後台設定的主管審核。請假單、加班單等表單可在未來擴充。" actions={<Button icon="plus" onClick={() => navigate("/forms/new")}>新增補打卡</Button>} />
     {query.isPending ? <p className="muted">載入申請單…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
+    {data?.reviewRequests.length ? <Panel className="hr-form-review-panel">
+      <div className="panel-head"><div><h2>待我審核</h2><p className="muted">只顯示指定你為審核者、且尚未完成處理的申請。</p></div></div>
+      <div className="hr-form-request-list">{data.reviewRequests.map((request) => <article className="hr-form-request-card review" key={request.id}>
+        <RequestSummary request={request} reviewer />
+        <div className="hr-form-review-actions"><Button onClick={() => setReviewing(request)}>審核</Button></div>
+      </article>)}</div>
+    </Panel> : null}
     <Panel>
       <div className="panel-head"><div><h2>我的申請</h2><p className="muted">可查看草稿、申請中、已核准與已駁回的處理進度。</p></div></div>
       {data?.requests.length ? <div className="hr-form-request-list">{data.requests.map((request) => <article className="hr-form-request-card" key={request.id}>
@@ -66,6 +106,7 @@ export function HrForms() {
         {request.status === "draft" ? <Button variant="secondary" onClick={() => navigate(`/forms/new?request=${encodeURIComponent(request.id)}`)}>繼續編輯</Button> : null}
       </article>)}</div> : <p className="muted">目前沒有申請紀錄。</p>}
     </Panel>
+    {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
   </div>;
 }
 

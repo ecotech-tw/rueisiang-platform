@@ -12,10 +12,15 @@ import { Button, TextField } from "../ui/index.js";
  *
  * 兩條都是邀請制：名單裡沒有的 email 兩邊都進不來。
  */
+function safeReturnTo(value: string | null): string {
+  if (value && value.startsWith("/") && !value.startsWith("//")) return value;
+  return "/";
+}
+
 export function Login() {
   usePageTitle("登入");
   const [params] = useSearchParams();
-  const returnTo = params.get("returnTo") ?? "/";
+  const returnTo = safeReturnTo(params.get("returnTo"));
   const googleReturnTo = `${window.location.origin}${returnTo}`;
 
   // Google 那條失敗時會帶 ?error= 轉回來；帳密那條的錯誤存在自己的 state。
