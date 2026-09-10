@@ -1,5 +1,4 @@
 export { createDatabase, type Database } from "./client.js";
-export { listHrActivity, type HrAuditResult, type HrAuditRow } from "./hr-audit.js";
 export {
   checkHrClockLocation, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent, endHrAttendanceLocationAssignment,
   getHrAttendanceLocation, setHrAttendanceLocationPrimary, getHrClockCalendar, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation,
@@ -15,12 +14,10 @@ export {
 } from "./hr-payroll.js";
 export {
   HrError, assignHrEmployee, createHrAssignment, createHrEmployment,
-  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, updateHrEmploymentAttendanceMode, grantHrManagementScope, hasHrAssignmentManagementAccess,
-  hasHrAttendanceAssignmentManagementAccess, hasHrEmploymentManagementAccess, hasHrManagementAccess, hasHrManagementScopeAccess,
+  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, updateHrEmploymentAttendanceMode,
   isHrAdministrator, isHrEmployee,
-  listHrCandidates, listHrEmployees, listHrManagementOptions,
-  listHrManagementScopes, listHrScopes, listHrSupervisorCandidates, revokeHrManagementScope, updateHrEmployee, updateHrEmployeeSupervisor,
-  HR_EMPLOYEE_PAGE_SIZES, type HrManagementScopeRow, type HrEmployeeDetailOptions, type HrEmployeeListQuery, type HrEmployeeSortField,
+  listHrCandidates, listHrEmployees, listHrScopes, listHrSupervisorCandidates, updateHrEmployee, updateHrEmployeeSupervisor,
+  HR_EMPLOYEE_PAGE_SIZES, type HrEmployeeDetailOptions, type HrEmployeeListQuery, type HrEmployeeSortField,
 } from "./hr-people.js";
 export {
   createAssistantPromptRevision,

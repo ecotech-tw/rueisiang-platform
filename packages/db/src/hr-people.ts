@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, like, ne, notExists, or, sql, type SQL } fro
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
-import { hrEmployees, hrEmployments, hrEmployeeScopes, hrManagementScopes } from "./schema/hr-people.js";
+import { hrEmployees, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
@@ -47,80 +47,12 @@ async function write(db: Database, statement: SQL | SQL[], id: string, actor: Hr
 
 export { write as writeHrMutation };
 
-/** 管理員角色是唯一的全平台 HR 範圍；空的管理範圍不代表全權。 */
+/** 系統 admin 角色代表全平台 HR 管理者，用於保護薪資等敏感明細。 */
 export async function isHrAdministrator(db: Database, userId: string): Promise<boolean> {
   const [row] = await db.select({ userId: userRoleAssignments.userId }).from(userRoleAssignments)
     .innerJoin(roles, eq(roles.id, userRoleAssignments.roleId))
     .where(and(eq(userRoleAssignments.userId, userId), eq(roles.roleKey, "admin"), eq(roles.isSystem, true)))
     .limit(1);
-  return Boolean(row);
-}
-
-/** 範圍授權本身不會授予功能，但可用來限制員工櫃點指派不能擴大管理者權限。 */
-export async function hasHrManagementScopeAccess(db: Database, actorUserId: string, scopeId: string): Promise<boolean> {
-  if (await isHrAdministrator(db, actorUserId)) return true;
-  const [row] = await db.select({ scopeId: hrManagementScopes.scopeId }).from(hrManagementScopes)
-    .where(and(eq(hrManagementScopes.userId, actorUserId), eq(hrManagementScopes.scopeId, scopeId))).limit(1);
-  return Boolean(row);
-}
-
-/** 以任一歷史／目前櫃點歸屬判斷管理範圍，避免把已結束的歷史資料暴露給新範圍。 */
-export async function hasHrManagementAccess(db: Database, actorUserId: string, employeeUserId: string): Promise<boolean> {
-  if (await isHrAdministrator(db, actorUserId)) return true;
-  const [row] = await db.select({ userId: hrEmployees.userId }).from(hrEmployees).where(and(
-    eq(hrEmployees.userId, employeeUserId),
-    sql`EXISTS (
-      SELECT 1 FROM hr_employments AS employment
-      INNER JOIN hr_employee_scopes AS assignment ON assignment.employment_id = employment.id
-      INNER JOIN hr_management_scopes AS managed ON managed.scope_id = assignment.scope_id
-      WHERE employment.employee_user_id = hr_employees.user_id
-        AND managed.user_id = ${actorUserId}
-    )`,
-  )).limit(1);
-  return Boolean(row);
-}
-
-/** 任職／櫃點／辦公位置寫入都要先用同一條規則驗證目標員工。 */
-export async function hasHrEmploymentManagementAccess(db: Database, actorUserId: string, employmentId: string): Promise<boolean> {
-  if (await isHrAdministrator(db, actorUserId)) return true;
-  const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(
-    eq(hrEmployments.id, employmentId),
-    sql`EXISTS (
-      SELECT 1 FROM hr_employee_scopes AS assignment
-      INNER JOIN hr_management_scopes AS managed ON managed.scope_id = assignment.scope_id
-      WHERE assignment.employment_id = hr_employments.id
-        AND managed.user_id = ${actorUserId}
-    )`,
-  )).limit(1);
-  return Boolean(row);
-}
-
-export async function hasHrAssignmentManagementAccess(db: Database, actorUserId: string, assignmentId: string): Promise<boolean> {
-  if (await isHrAdministrator(db, actorUserId)) return true;
-  const [row] = await db.select({ id: hrEmployeeScopes.id }).from(hrEmployeeScopes).where(and(
-    eq(hrEmployeeScopes.id, assignmentId),
-    sql`EXISTS (
-      SELECT 1 FROM hr_management_scopes AS managed
-      WHERE managed.scope_id = hr_employee_scopes.scope_id
-        AND managed.user_id = ${actorUserId}
-    )`,
-  )).limit(1);
-  return Boolean(row);
-}
-
-export async function hasHrAttendanceAssignmentManagementAccess(db: Database, actorUserId: string, assignmentId: string): Promise<boolean> {
-  if (await isHrAdministrator(db, actorUserId)) return true;
-  const [row] = await db.select({ id: hrEmployeeAttendanceLocations.id }).from(hrEmployeeAttendanceLocations)
-    .innerJoin(hrEmployments, eq(hrEmployments.id, hrEmployeeAttendanceLocations.employmentId))
-    .where(and(
-      eq(hrEmployeeAttendanceLocations.id, assignmentId),
-      sql`EXISTS (
-        SELECT 1 FROM hr_employee_scopes AS scope_assignment
-        INNER JOIN hr_management_scopes AS managed ON managed.scope_id = scope_assignment.scope_id
-        WHERE scope_assignment.employment_id = hr_employee_attendance_locations.employment_id
-          AND managed.user_id = ${actorUserId}
-      )`,
-    )).limit(1);
   return Boolean(row);
 }
 
@@ -154,16 +86,8 @@ export async function listHrCandidates(db: Database, input: { page: number; sear
     )).orderBy(asc(users.email)).limit(51).offset((input.page - 1) * 50);
   return { users: rows.slice(0, 50), hasMore: rows.length > 50 };
 }
-export async function listHrEmployees(db: Database, query: HrEmployeeListQuery, actorUserId?: string) {
-  const isAdmin = !actorUserId || await isHrAdministrator(db, actorUserId);
+export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) {
   const conditions = [
-    isAdmin ? undefined : sql`EXISTS (
-      SELECT 1 FROM hr_employments AS employment
-      INNER JOIN hr_employee_scopes AS assignment ON assignment.employment_id = employment.id
-      INNER JOIN hr_management_scopes AS managed ON managed.scope_id = assignment.scope_id
-      WHERE employment.employee_user_id = hr_employees.user_id
-        AND managed.user_id = ${actorUserId}
-    )`,
     query.status === "all" ? undefined : eq(users.status, query.status),
     query.search ? or(
       like(hrEmployees.employeeNumber, `%${query.search}%`),
@@ -184,20 +108,9 @@ export async function listHrEmployees(db: Database, query: HrEmployeeListQuery, 
   const total = totalRow?.value ?? 0;
   return { employees, total, page: query.page, pageSize: query.pageSize, hasMore: query.page * query.pageSize < total };
 }
-export async function listHrSupervisorCandidates(db: Database, userId: string, actorUserId?: string) {
-  const isAdmin = !actorUserId || await isHrAdministrator(db, actorUserId);
+export async function listHrSupervisorCandidates(db: Database, userId: string) {
   return db.select({ id: hrEmployees.userId, name: displayName }).from(hrEmployees).innerJoin(users, eq(users.id, hrEmployees.userId))
-    .where(and(
-      ne(hrEmployees.userId, userId),
-      eq(users.status, "active"),
-      isAdmin ? undefined : sql`EXISTS (
-        SELECT 1 FROM hr_employments AS employment
-        INNER JOIN hr_employee_scopes AS assignment ON assignment.employment_id = employment.id
-        INNER JOIN hr_management_scopes AS managed ON managed.scope_id = assignment.scope_id
-        WHERE employment.employee_user_id = hr_employees.user_id
-          AND managed.user_id = ${actorUserId}
-      )`,
-    ))
+    .where(and(ne(hrEmployees.userId, userId), eq(users.status, "active")))
     .orderBy(asc(displayName));
 }
 export interface HrEmployeeDetailOptions {
@@ -207,35 +120,21 @@ export interface HrEmployeeDetailOptions {
   includeAttendanceEvents?: boolean;
 }
 
-export async function getHrEmployee(db: Database, userId: string, actorUserId?: string, options: HrEmployeeDetailOptions = {}) {
-  const isAdmin = !actorUserId || await isHrAdministrator(db, actorUserId);
+export async function getHrEmployee(db: Database, userId: string, options: HrEmployeeDetailOptions = {}) {
   const [employee] = await db.select(employeeFields).from(hrEmployees).innerJoin(users, eq(users.id, hrEmployees.userId)).where(eq(hrEmployees.userId, userId));
   if (!employee) throw new HrError(404, "此使用者尚未被指派為員工。");
   const [supervisor] = employee.supervisorUserId
     ? await db.select({ displayName }).from(users).where(eq(users.id, employee.supervisorUserId)).limit(1)
     : [];
-  const employmentAccess = isAdmin ? undefined : sql`EXISTS (
-    SELECT 1 FROM hr_employee_scopes AS scope_assignment
-    INNER JOIN hr_management_scopes AS managed ON managed.scope_id = scope_assignment.scope_id
-    WHERE scope_assignment.employment_id = hr_employments.id
-      AND managed.user_id = ${actorUserId}
-  )`;
   const employmentRows = await db.select({ employment: hrEmployments, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode })
     .from(hrEmployments).leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
-    .where(and(eq(hrEmployments.employeeUserId, userId), employmentAccess)).orderBy(asc(hrEmployments.hiredOn));
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployments.hiredOn));
   const employments = employmentRows.map(({ employment, attendanceMode: mode }) => ({ ...employment, attendanceMode: mode ?? "general" }));
   const assignments = await db.select({
     id: hrEmployeeScopes.id, employmentId: hrEmployeeScopes.employmentId, scopeId: hrEmployeeScopes.scopeId,
     scopeName: scopes.name, validFrom: hrEmployeeScopes.validFrom, validTo: hrEmployeeScopes.validTo, revision: hrEmployeeScopes.revision,
   }).from(hrEmployeeScopes).innerJoin(hrEmployments, eq(hrEmployments.id, hrEmployeeScopes.employmentId))
-    .innerJoin(scopes, eq(scopes.id, hrEmployeeScopes.scopeId)).where(and(
-      eq(hrEmployments.employeeUserId, userId),
-      isAdmin ? undefined : sql`EXISTS (
-        SELECT 1 FROM hr_management_scopes AS managed
-        WHERE managed.scope_id = hr_employee_scopes.scope_id
-          AND managed.user_id = ${actorUserId}
-      )`,
-    )).orderBy(asc(hrEmployeeScopes.validFrom));
+    .innerJoin(scopes, eq(scopes.id, hrEmployeeScopes.scopeId)).where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployeeScopes.validFrom));
   const attendanceAssignments = await db.select({
     id: hrEmployeeAttendanceLocations.id, employmentId: hrEmployeeAttendanceLocations.employmentId,
     locationId: hrEmployeeAttendanceLocations.locationId, locationName: hrAttendanceLocations.name,
@@ -244,28 +143,20 @@ export async function getHrEmployee(db: Database, userId: string, actorUserId?: 
   }).from(hrEmployeeAttendanceLocations)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrEmployeeAttendanceLocations.employmentId))
     .innerJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrEmployeeAttendanceLocations.locationId))
-    .where(and(
-      eq(hrEmployments.employeeUserId, userId),
-      isAdmin ? undefined : sql`EXISTS (
-        SELECT 1 FROM hr_employee_scopes AS scope_assignment
-        INNER JOIN hr_management_scopes AS managed ON managed.scope_id = scope_assignment.scope_id
-        WHERE scope_assignment.employment_id = hr_employee_attendance_locations.employment_id
-          AND managed.user_id = ${actorUserId}
-      )`,
-    )).orderBy(asc(hrEmployeeAttendanceLocations.validFrom));
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployeeAttendanceLocations.validFrom));
   const attendanceSettings = await db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, primaryAssignmentId: hrEmploymentAttendanceSettings.primaryAssignmentId })
     .from(hrEmploymentAttendanceSettings).where(sql`EXISTS (SELECT 1 FROM hr_employments WHERE id = hr_employment_attendance_settings.employment_id AND employee_user_id = ${userId})`);
   const primaryByEmployment = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting.primaryAssignmentId]));
   const withPrimary = attendanceAssignments.map((assignment) => ({ ...assignment, isPrimary: primaryByEmployment.get(assignment.employmentId) === assignment.id }));
   const compensationRows = options.includeCompensation ? await db.select().from(hrCompensationVersions)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrCompensationVersions.employmentId))
-    .where(and(eq(hrEmployments.employeeUserId, userId), employmentAccess)).orderBy(desc(hrCompensationVersions.validFrom)) : undefined;
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrCompensationVersions.validFrom)) : undefined;
   const insuranceRows = options.includeInsurance ? await db.select().from(hrInsuranceVersions)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrInsuranceVersions.employmentId))
-    .where(and(eq(hrEmployments.employeeUserId, userId), employmentAccess)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
   const leaveRows = options.includeLeave ? await db.select().from(hrLeaveRequests)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
-    .where(and(eq(hrEmployments.employeeUserId, userId), employmentAccess)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
   const compensation = compensationRows?.map((row) => row.hr_compensation_versions);
   const insurance = insuranceRows?.map((row) => row.hr_insurance_versions);
   const leave = leaveRows?.map((row) => row.hr_leave_requests);
@@ -287,63 +178,10 @@ export async function isHrEmployee(db: Database, userId: string) {
   const [employee] = await db.select({ userId: hrEmployees.userId }).from(hrEmployees).where(eq(hrEmployees.userId, userId)).limit(1);
   return Boolean(employee);
 }
-export async function listHrScopes(db: Database, actorUserId?: string) {
-  const isAdmin = !actorUserId || await isHrAdministrator(db, actorUserId);
+export async function listHrScopes(db: Database) {
   return db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(and(
-    eq(scopes.active, 1),
-    eq(scopes.scopeKind, "store"),
-    sql`${scopes.sourceType} <> 'shopee'`,
-    isAdmin ? undefined : sql`EXISTS (
-      SELECT 1 FROM hr_management_scopes AS managed
-      WHERE managed.scope_id = scopes.id
-        AND managed.user_id = ${actorUserId}
-    )`,
+    eq(scopes.active, 1), eq(scopes.scopeKind, "store"), sql`${scopes.sourceType} <> 'shopee'`,
   )).orderBy(asc(scopes.name));
-}
-
-export interface HrManagementScopeRow {
-  userId: string;
-  userName: string;
-  userEmail: string;
-  scopeId: string;
-  scopeName: string;
-  createdAt: string;
-}
-
-export async function listHrManagementScopes(db: Database): Promise<HrManagementScopeRow[]> {
-  const rows = await db.select({
-    userId: hrManagementScopes.userId,
-    userName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`,
-    userEmail: users.email,
-    scopeId: hrManagementScopes.scopeId,
-    scopeName: scopes.name,
-    createdAt: hrManagementScopes.createdAt,
-  }).from(hrManagementScopes)
-    .innerJoin(users, eq(users.id, hrManagementScopes.userId))
-    .innerJoin(scopes, eq(scopes.id, hrManagementScopes.scopeId))
-    .orderBy(asc(users.email), asc(scopes.name));
-  return rows;
-}
-
-export async function listHrManagementOptions(db: Database) {
-  const usersForGrant = await db.select({
-    id: users.id,
-    name: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`,
-    email: users.email,
-  }).from(users).where(eq(users.status, "active")).orderBy(asc(users.email));
-  return { users: usersForGrant, scopes: await listHrScopes(db), assignments: await listHrManagementScopes(db) };
-}
-
-export function grantHrManagementScope(db: Database, input: { userId: string; scopeId: string }, actor: HrActor) {
-  return write(db, sql`INSERT INTO hr_management_scopes (user_id, scope_id)
-    SELECT ${input.userId}, ${input.scopeId}
-    WHERE EXISTS (SELECT 1 FROM users WHERE id=${input.userId} AND status='active')
-      AND EXISTS (SELECT 1 FROM scopes WHERE id=${input.scopeId} AND active=1 AND scope_kind='store' AND source_type <> 'shopee')
-    RETURNING user_id AS id`, input.userId, actor, "management_scope_granted", "只能把啟用中的帳號授予有效的營運櫃點範圍。" );
-}
-
-export function revokeHrManagementScope(db: Database, input: { userId: string; scopeId: string }, actor: HrActor) {
-  return write(db, sql`DELETE FROM hr_management_scopes WHERE user_id=${input.userId} AND scope_id=${input.scopeId} RETURNING user_id AS id`, input.userId, actor, "management_scope_revoked", "找不到這筆 HR 範圍授權。" );
 }
 
 export function assignHrEmployee(db: Database, input: { userId: string; employeeNumber: string; hiredOn: string; seniorityStartOn: string; attendanceMode: "general" | "scheduled" }, actor: HrActor) {

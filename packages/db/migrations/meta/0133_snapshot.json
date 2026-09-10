@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "88b9fbbf-66ac-49fb-881f-604448466c80",
+  "id": "e4bf91d8-f123-4689-adc6-c7fc3661ee94",
   "prevId": "b0bb33d5-2697-441d-9c36-04d05e2ec36f",
   "tables": {
     "cyberbiz_products": {
@@ -4371,81 +4371,6 @@
         }
       }
     },
-    "hr_management_scopes": {
-      "name": "hr_management_scopes",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scope_id": {
-          "name": "scope_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        }
-      },
-      "indexes": {
-        "idx_hr_management_scopes_scope": {
-          "name": "idx_hr_management_scopes_scope",
-          "columns": [
-            "scope_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "hr_management_scopes_user_id_users_id_fk": {
-          "name": "hr_management_scopes_user_id_users_id_fk",
-          "tableFrom": "hr_management_scopes",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "hr_management_scopes_scope_id_scopes_id_fk": {
-          "name": "hr_management_scopes_scope_id_scopes_id_fk",
-          "tableFrom": "hr_management_scopes",
-          "tableTo": "scopes",
-          "columnsFrom": [
-            "scope_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "hr_management_scopes_user_id_scope_id_pk": {
-          "columns": [
-            "user_id",
-            "scope_id"
-          ],
-          "name": "hr_management_scopes_user_id_scope_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "hr_attendance_locations": {
       "name": "hr_attendance_locations",
       "columns": {
@@ -4878,6 +4803,78 @@
         }
       }
     },
+    "hr_employment_attendance_settings": {
+      "name": "hr_employment_attendance_settings",
+      "columns": {
+        "employment_id": {
+          "name": "employment_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "attendance_mode": {
+          "name": "attendance_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'general'"
+        },
+        "primary_assignment_id": {
+          "name": "primary_assignment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "hr_employment_attendance_settings_employment_id_hr_employments_id_fk": {
+          "name": "hr_employment_attendance_settings_employment_id_hr_employments_id_fk",
+          "tableFrom": "hr_employment_attendance_settings",
+          "tableTo": "hr_employments",
+          "columnsFrom": [
+            "employment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "hr_employment_attendance_settings_primary_assignment_id_hr_employee_attendance_locations_id_fk": {
+          "name": "hr_employment_attendance_settings_primary_assignment_id_hr_employee_attendance_locations_id_fk",
+          "tableFrom": "hr_employment_attendance_settings",
+          "tableTo": "hr_employee_attendance_locations",
+          "columnsFrom": [
+            "primary_assignment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_employment_attendance_settings_mode": {
+          "name": "ck_hr_employment_attendance_settings_mode",
+          "value": "\"hr_employment_attendance_settings\".\"attendance_mode\" IN ('general', 'scheduled')"
+        }
+      }
+    },
     "hr_form_requests": {
       "name": "hr_form_requests",
       "columns": {
@@ -5072,6 +5069,532 @@
         "ck_hr_form_requests_reason": {
           "name": "ck_hr_form_requests_reason",
           "value": "length(trim(\"hr_form_requests\".\"reason\")) BETWEEN 1 AND 1000"
+        }
+      }
+    },
+    "hr_compensation_versions": {
+      "name": "hr_compensation_versions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "employment_id": {
+          "name": "employment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version_number": {
+          "name": "version_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "valid_to": {
+          "name": "valid_to",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pay_basis": {
+          "name": "pay_basis",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "base_amount_minor": {
+          "name": "base_amount_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_hr_compensation_versions_number": {
+          "name": "idx_hr_compensation_versions_number",
+          "columns": [
+            "employment_id",
+            "version_number"
+          ],
+          "isUnique": true
+        },
+        "idx_hr_compensation_versions_period": {
+          "name": "idx_hr_compensation_versions_period",
+          "columns": [
+            "employment_id",
+            "valid_from"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "hr_compensation_versions_employment_id_hr_employments_id_fk": {
+          "name": "hr_compensation_versions_employment_id_hr_employments_id_fk",
+          "tableFrom": "hr_compensation_versions",
+          "tableTo": "hr_employments",
+          "columnsFrom": [
+            "employment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "hr_compensation_versions_created_by_users_id_fk": {
+          "name": "hr_compensation_versions_created_by_users_id_fk",
+          "tableFrom": "hr_compensation_versions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_compensation_versions_number": {
+          "name": "ck_hr_compensation_versions_number",
+          "value": "\"hr_compensation_versions\".\"version_number\" > 0"
+        },
+        "ck_hr_compensation_versions_dates": {
+          "name": "ck_hr_compensation_versions_dates",
+          "value": "length(\"hr_compensation_versions\".\"valid_from\") = 10 AND (\"hr_compensation_versions\".\"valid_to\" IS NULL OR (length(\"hr_compensation_versions\".\"valid_to\") = 10 AND \"hr_compensation_versions\".\"valid_to\" > \"hr_compensation_versions\".\"valid_from\"))"
+        },
+        "ck_hr_compensation_versions_basis": {
+          "name": "ck_hr_compensation_versions_basis",
+          "value": "\"hr_compensation_versions\".\"pay_basis\" IN ('monthly', 'daily', 'hourly')"
+        },
+        "ck_hr_compensation_versions_amount": {
+          "name": "ck_hr_compensation_versions_amount",
+          "value": "\"hr_compensation_versions\".\"base_amount_minor\" >= 0"
+        },
+        "ck_hr_compensation_versions_note": {
+          "name": "ck_hr_compensation_versions_note",
+          "value": "length(\"hr_compensation_versions\".\"note\") <= 1000"
+        }
+      }
+    },
+    "hr_insurance_versions": {
+      "name": "hr_insurance_versions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "employment_id": {
+          "name": "employment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scheme": {
+          "name": "scheme",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version_number": {
+          "name": "version_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "valid_to": {
+          "name": "valid_to",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "insured_amount_minor": {
+          "name": "insured_amount_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dependent_count": {
+          "name": "dependent_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "rate_year": {
+          "name": "rate_year",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_hr_insurance_versions_number": {
+          "name": "idx_hr_insurance_versions_number",
+          "columns": [
+            "employment_id",
+            "scheme",
+            "version_number"
+          ],
+          "isUnique": true
+        },
+        "idx_hr_insurance_versions_period": {
+          "name": "idx_hr_insurance_versions_period",
+          "columns": [
+            "employment_id",
+            "scheme",
+            "valid_from"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "hr_insurance_versions_employment_id_hr_employments_id_fk": {
+          "name": "hr_insurance_versions_employment_id_hr_employments_id_fk",
+          "tableFrom": "hr_insurance_versions",
+          "tableTo": "hr_employments",
+          "columnsFrom": [
+            "employment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "hr_insurance_versions_created_by_users_id_fk": {
+          "name": "hr_insurance_versions_created_by_users_id_fk",
+          "tableFrom": "hr_insurance_versions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_insurance_versions_scheme": {
+          "name": "ck_hr_insurance_versions_scheme",
+          "value": "\"hr_insurance_versions\".\"scheme\" IN ('labor', 'health')"
+        },
+        "ck_hr_insurance_versions_number": {
+          "name": "ck_hr_insurance_versions_number",
+          "value": "\"hr_insurance_versions\".\"version_number\" > 0"
+        },
+        "ck_hr_insurance_versions_status": {
+          "name": "ck_hr_insurance_versions_status",
+          "value": "\"hr_insurance_versions\".\"status\" IN ('enrolled', 'withdrawn')"
+        },
+        "ck_hr_insurance_versions_dates": {
+          "name": "ck_hr_insurance_versions_dates",
+          "value": "length(\"hr_insurance_versions\".\"valid_from\") = 10 AND (\"hr_insurance_versions\".\"valid_to\" IS NULL OR (length(\"hr_insurance_versions\".\"valid_to\") = 10 AND \"hr_insurance_versions\".\"valid_to\" > \"hr_insurance_versions\".\"valid_from\"))"
+        },
+        "ck_hr_insurance_versions_amount": {
+          "name": "ck_hr_insurance_versions_amount",
+          "value": "\"hr_insurance_versions\".\"insured_amount_minor\" >= 0"
+        },
+        "ck_hr_insurance_versions_dependents": {
+          "name": "ck_hr_insurance_versions_dependents",
+          "value": "\"hr_insurance_versions\".\"dependent_count\" BETWEEN 0 AND 3"
+        },
+        "ck_hr_insurance_versions_year": {
+          "name": "ck_hr_insurance_versions_year",
+          "value": "\"hr_insurance_versions\".\"rate_year\" BETWEEN 1900 AND 9999"
+        },
+        "ck_hr_insurance_versions_source": {
+          "name": "ck_hr_insurance_versions_source",
+          "value": "\"hr_insurance_versions\".\"source_kind\" IN ('official', 'manual')"
+        },
+        "ck_hr_insurance_versions_source_url": {
+          "name": "ck_hr_insurance_versions_source_url",
+          "value": "length(\"hr_insurance_versions\".\"source_url\") <= 500"
+        },
+        "ck_hr_insurance_versions_note": {
+          "name": "ck_hr_insurance_versions_note",
+          "value": "length(\"hr_insurance_versions\".\"note\") <= 1000"
+        }
+      }
+    },
+    "hr_leave_requests": {
+      "name": "hr_leave_requests",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "employment_id": {
+          "name": "employment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "leave_type": {
+          "name": "leave_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "starts_on": {
+          "name": "starts_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ends_on": {
+          "name": "ends_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "duration_minutes": {
+          "name": "duration_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "reviewed_by": {
+          "name": "reviewed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reviewed_at": {
+          "name": "reviewed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "review_comment": {
+          "name": "review_comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_hr_leave_requests_employment_period": {
+          "name": "idx_hr_leave_requests_employment_period",
+          "columns": [
+            "employment_id",
+            "starts_on"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "hr_leave_requests_employment_id_hr_employments_id_fk": {
+          "name": "hr_leave_requests_employment_id_hr_employments_id_fk",
+          "tableFrom": "hr_leave_requests",
+          "tableTo": "hr_employments",
+          "columnsFrom": [
+            "employment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "hr_leave_requests_reviewed_by_users_id_fk": {
+          "name": "hr_leave_requests_reviewed_by_users_id_fk",
+          "tableFrom": "hr_leave_requests",
+          "tableTo": "users",
+          "columnsFrom": [
+            "reviewed_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "hr_leave_requests_created_by_users_id_fk": {
+          "name": "hr_leave_requests_created_by_users_id_fk",
+          "tableFrom": "hr_leave_requests",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_leave_requests_type": {
+          "name": "ck_hr_leave_requests_type",
+          "value": "length(trim(\"hr_leave_requests\".\"leave_type\")) BETWEEN 1 AND 80"
+        },
+        "ck_hr_leave_requests_status": {
+          "name": "ck_hr_leave_requests_status",
+          "value": "\"hr_leave_requests\".\"status\" IN ('draft', 'pending', 'approved', 'rejected', 'cancelled')"
+        },
+        "ck_hr_leave_requests_dates": {
+          "name": "ck_hr_leave_requests_dates",
+          "value": "length(\"hr_leave_requests\".\"starts_on\") = 10 AND length(\"hr_leave_requests\".\"ends_on\") = 10 AND \"hr_leave_requests\".\"ends_on\" > \"hr_leave_requests\".\"starts_on\""
+        },
+        "ck_hr_leave_requests_duration": {
+          "name": "ck_hr_leave_requests_duration",
+          "value": "\"hr_leave_requests\".\"duration_minutes\" > 0"
+        },
+        "ck_hr_leave_requests_reason": {
+          "name": "ck_hr_leave_requests_reason",
+          "value": "length(\"hr_leave_requests\".\"reason\") <= 1000"
         }
       }
     },

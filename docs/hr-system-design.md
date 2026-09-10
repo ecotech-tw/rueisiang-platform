@@ -80,7 +80,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 - JSON 僅用於不可變計算說明、外部來源摘要；員工、scope、金額、期間、狀態與關聯仍為正式欄位。不允許可執行任意公式字串或 eval。
 - 所有外鍵查詢路徑建立子表索引，含 RESTRICT 檢查；索引前綴 `idx_hr_`、CHECK 前綴 `ck_hr_`，避免全域撞名。下表列出業務唯一性與主要查詢索引，實作 review 仍逐一列出 FK 索引。
 
-### 4.1 人事、範圍與規則
+### 4.1 人事與規則
 
 人事基礎使用 `users.id` 作為 `hr_employees.user_id` 的主鍵與外鍵，不再複製姓名，也不新增雇主或帳號綁定表。其他實體使用 text ID、RESTRICT 外鍵、revision 與半開日期區間。`ended_on` 表示不再任職的第一天，不是最後出勤日。復職新增任職，結束任職前先結束超出期間的櫃點與辦公位置指派；同一使用者的任職期間不可重疊。
 
@@ -99,7 +99,6 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 
 出勤設定頁透過後端 Google Maps Places API（Text Search）搜尋地點，管理者直接選取結果後由系統帶入座標；本人打卡頁由 `apps/hr` 使用開源 MapLibre GL JS 搭配 OpenFreeMap 向量圖磚，套用品牌 style JSON，支援拖曳與手勢縮放且不顯示地圖工具按鈕。圖磚服務需保留 OpenFreeMap／OpenStreetMap attribution；MapLibre 本身不代表圖磚服務永久沒有流量限制。若向量圖磚載入失敗，才退回由 Worker 代理的 Static API 圖片。Worker 的 Places／Static 金鑰只放 secret；前端不需要 Google Maps JavaScript 瀏覽器金鑰。正式環境仍需設定 `GOOGLE_MAPS_API_KEY`、Places API (New) 與 Maps Static API；若改用自建 MapLibre style，只需覆寫 `VITE_MAPLIBRE_STYLE_URL`。
 
-| `hr_management_scopes` | `user_id, scope_id` | 複合 PK；只授予範圍，不自行授予功能權限 |
 | `hr_work_rule_versions` | `employer_id, version_number, valid_from, valid_to?, rule_kind, source_url, confirmed_by` | 未來多法人定案後才加入；唯一 employer + version_number；允許的 rule_kind CHECK |
 | `hr_compensation_versions` | `employment_id → hr_employments.id`、`version_number, valid_from, valid_to?, pay_basis, base_amount_minor, note, created_by` | 唯一 employment + version_number；pay_basis 為 monthly/daily/hourly，金額非負；期間重疊由服務層防止，新版本可原子關閉前一個開放版本 |
 | `hr_pay_components` | `code, name, direction, treatment_code` | code 唯一；earning/deduction/employer_cost；treatment 對應受控法遵分類，不以名稱判斷工資 |
@@ -234,16 +233,16 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `/api/hr/me/form-requests` | 僅需登入且必須是本人；審核路徑限指定審核者或 `hr:request:review` | 補打卡申請可存草稿、送出與查詢狀態；審核者填寫意見後核准或駁回 |
 | `/api/hr/me/leave-requests`、`/overtime-requests`、`/clock-corrections` | `hr:request:create` | 本人；申請可表達歷史時間但需審核 |
 | `GET /api/hr/employees`、`GET /api/hr/employees/:id`、`POST/PATCH /api/hr/employees` | `hr:employee:read/write` | 列表支援固定 page size、總數、搜尋、狀態篩選與白名單排序；內頁採單一互斥 accordion。此表記法代表各自 read、write 鍵；薪資、投保、請假與打卡明細另限全平台 HR 管理者 |
-| `/api/hr/schedules`、`/:id/publish` | `hr:schedule:write/approve` | 功能權限 AND hr_management_scopes；同時驗 employer 邊界 |
+| `/api/hr/schedules`、`/:id/publish` | `hr:schedule:write/approve` | 功能權限與 employer 邊界；範圍授權模型另案定義 |
 | `/api/hr/attendance-settings/locations`、`/places`、`/employments/:id/attendance-location`、`/employees/:id/supervisor` | `hr:office:read/write` 或 `hr:employee:write` | 管理出勤設定中的辦公位置與員工主管；Places 搜尋與座標選取限管理權限；員工辦公位置與主管都從員工管理建立，不因指派取得管理權限 |
 | `/api/hr/attendance`、申請 `/:id/review` | `hr:attendance:read/approve` | 授權範圍及不可自審；請假私密附件不隨全櫃點可讀 |
 | `/api/hr/bonus-pools` | `hr:bonus:write/approve` | 來源與參與範圍；改政策不等於批准獎金 |
-| `POST /api/hr/employments/:id/compensation`、`/insurance`、`GET /api/hr/insurance-brackets` | `hr:employee:write/read` 且薪資／投保寫入限全平台 HR 管理者 | 版本期間不可重疊；薪資與勞健保明細不提供 scoped manager；官方級距即時由勞動部／健保署來源解析，人工覆寫需保存來源與年度 |
+| `POST /api/hr/employments/:id/compensation`、`/insurance`、`GET /api/hr/insurance-brackets` | `hr:employee:write/read` 且薪資／投保寫入限全平台 HR 管理者 | 版本期間不可重疊；薪資與勞健保明細限全平台 HR 管理者；官方級距即時由勞動部／健保署來源解析，人工覆寫需保存來源與年度 |
 | `/api/hr/payroll-runs`、`/:id/close` | `hr:payroll:calculate/approve/close` | 個別權限；雇主範圍需在多法人確認後以明確授權關聯加入 |
 | `/api/hr/me/payslips` | `hr:payslip:read-self` | 僅本人已發布薪資單 |
 | `/api/hr/payroll-exports` | `hr:payroll:export` | 獨立匯出權限、逐次稽核、私密下載 |
 
-跨法人管理不以空 scope 表示全權；具體 employer 授權表需與法人制度一同定案。API 列表、單筆、批次、匯出、附件皆實施相同範圍判斷，權限每請求依現有授權機制重讀。
+跨法人與資料範圍授權尚未在本切片實作，具體 employer 授權表待制度確認後另案定義。現有 API 依功能權限與各資料服務的欄位限制處理，權限每請求依現有授權機制重讀。
 
 platform 沿用 M3 元件，提供 HRIS 管理功能與辦公位置設定；員工本人介面獨立部署在 `hr.rueisiang.com`，以手機 App 形式提供表單申請、置中的打卡日曆與個人資訊。打卡首頁載入時即嘗試取得瀏覽器定位，伺服器仍是範圍判斷的最終來源；補打卡表單可存草稿並追蹤申請中、已核准、已駁回。AI／Excel 排班輸入先存草稿、來源附件與不確定欄位，經人類發布才生效。platform 的帳號選單提供「我的人事資料」連到 HR app。
 
