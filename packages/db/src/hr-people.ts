@@ -111,7 +111,11 @@ export function assignHrEmployee(db: Database, input: { userId: string; employee
     sql`INSERT INTO hr_employees (user_id, employee_number)
       SELECT id, ${input.employeeNumber} FROM users WHERE id=${input.userId} AND status IN ('active', 'invited') RETURNING user_id AS id`,
     sql`INSERT INTO hr_employments (id, employee_user_id, hired_on, seniority_start_on)
-      SELECT ${employmentId}, ${input.userId}, ${input.hiredOn}, ${input.seniorityStartOn} WHERE changes()=1 RETURNING id`,
+      SELECT ${employmentId}, employee.user_id, ${input.hiredOn}, ${input.seniorityStartOn}
+      FROM hr_employees AS employee INNER JOIN users AS account ON account.id=employee.user_id
+      WHERE employee.user_id=${input.userId} AND employee.employee_number=${input.employeeNumber}
+        AND account.status IN ('active', 'invited')
+      RETURNING id`,
   ], input.userId, actor, "employee_assigned");
 }
 export function updateHrEmployee(db: Database, userId: string, input: { employeeNumber: string; revision: number }, actor: HrActor) {
