@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 
 /**
  * 通路管理。
@@ -308,14 +308,14 @@ export function Scopes() {
                         */}
                       <div className="cell-strong flex items-center gap-2">
                         {scope.name}
-                        {scope.archivedAt ? <span className="status quiet">已封存</span> : null}
+                        {scope.archivedAt ? <StatusBadge>已封存</StatusBadge> : null}
                       </div>
                       <div className="cell-sub">
                         {scope.externalName && scope.externalName !== scope.name ? `後台店名：${scope.externalName}` : scope.id}
                       </div>
                     </td>
-                    <td data-label="種類"><span className="status quiet">{KIND_LABELS[scope.scopeKind]}</span></td>
-                    <td data-label="來源"><span className="status quiet">{sourceLabel(scope.sourceType)}</span></td>
+                    <td data-label="種類"><StatusBadge>{KIND_LABELS[scope.scopeKind]}</StatusBadge></td>
+                    <td data-label="來源"><StatusBadge>{sourceLabel(scope.sourceType)}</StatusBadge></td>
                     {canConfigure ? (
                       <td data-label="Drive 資料夾">
                         {scope.driveFolderUrl
