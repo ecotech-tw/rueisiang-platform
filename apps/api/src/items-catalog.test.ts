@@ -225,6 +225,24 @@ describe("品項分類", () => {
     ]);
     // 刪掉之後 join 不回名字，所以標籤要當場存下來。
     expect(events.find((row) => row.eventType === "item_category_deleted")?.entityLabel).toBe("包材（改名）");
+
+    // 刪不存在的分類是 404，不會留下一筆「刪了一個沒有的分類」。
+    expect((await call("/api/items/categories/cat-1", { method: "DELETE" })).status).toBe(404);
+    expect(await db.select().from(activityEvents).where(eq(activityEvents.entityType, "item_category"))).toHaveLength(3);
+  });
+
+  it("換分類的紀錄兩邊都存名字，不是一邊 ID 一邊名字", async () => {
+    await db.insert(itemCategories).values({ id: "cat-2", depth: 0, name: "香氛", color: "sky", sortOrder: 1, active: 1 });
+    const item = await createItem({ name: "換分類的品項", categoryId: "cat-1" });
+    const itemId = ((await item.json()) as { id: string }).id;
+
+    expect((await call(`/api/items/catalog/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: "換分類的品項", categoryId: "cat-2" }),
+    })).status).toBe(200);
+
+    const [event] = await db.select().from(activityEvents).where(eq(activityEvents.field, "category"));
+    expect(event).toMatchObject({ oldValue: "包材", newValue: "香氛" });
   });
 
   it("改名不會動到品項與它的分類關聯", async () => {

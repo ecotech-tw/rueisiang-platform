@@ -1,6 +1,6 @@
 import { can } from "@rueisiang/auth";
 import { loadWarehouse, recordActivity, type Database } from "@rueisiang/db";
-import { and, asc, count, eq, ne } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -91,7 +91,7 @@ export const items = new Hono<AppEnv>()
       actor: c.get("user"),
       source: "wms",
     });
-    await forgetAnalytics(c);
+    // 不清報表快取：新分類還沒有任何品項掛上來，報表的數字不會變。
     return c.json(category, 201);
   })
   .post("/categories/reorder", requirePermission("items:category:write"), async (c) => {
@@ -151,12 +151,14 @@ export const items = new Hono<AppEnv>()
     const [{ total } = { total: 0 }] = await c.get("db").select({ total: count() }).from(itemMasters).where(eq(itemMasters.categoryId, id));
     if (Number(total) > 0) throw new HTTPException(409, { message: `還有 ${total} 個品項使用這個分類。` });
     const [current] = await c.get("db").select({ name: itemCategories.name }).from(itemCategories).where(eq(itemCategories.id, id)).limit(1);
+    // 不存在就直接 404，不要寫一筆「刪了一個沒有的分類」的紀錄。
+    if (!current) throw new HTTPException(404, { message: "找不到品項分類。" });
     await c.get("db").delete(itemCategories).where(eq(itemCategories.id, id));
-    // 紀錄留 entityLabel：分類刪掉之後 join 不回名字，只剩 ID 的紀錄看不懂。
+    // 紀錄自帶 entityLabel：分類刪掉之後 join 不回名字，只剩 ID 的紀錄看不懂。
     await recordActivity(c.get("db"), {
       entityType: "item_category",
       entityId: id,
-      entityLabel: current?.name ?? id,
+      entityLabel: current.name,
       eventType: "item_category_deleted",
       summary: "刪除品項分類",
       actor: c.get("user"),
@@ -295,9 +297,12 @@ export const items = new Hono<AppEnv>()
     // 換分類會改到報表的分類佔比，所以要留紀錄也要讓快取失效。cyberbiz 品項沿用
     // 原本 tools 那一側的 entityType，異動紀錄頁的「商品分類」篩選才接得上。
     if (categoryId !== current.categoryId) {
-      const [category] = categoryId
-        ? await db.select({ name: itemCategories.name }).from(itemCategories).where(eq(itemCategories.id, categoryId)).limit(1)
-        : [];
+      // 兩邊都存名字。原本那一側是 oldValue 存 ID、newValue 存名字，紀錄會顯示成
+      // 「cat-1 → 包材」，看不出來換掉的是什麼。
+      const names = await db.select({ id: itemCategories.id, name: itemCategories.name })
+        .from(itemCategories)
+        .where(inArray(itemCategories.id, [current.categoryId, categoryId].filter((value): value is string => Boolean(value))));
+      const nameOf = (value: string | null) => value ? names.find((row) => row.id === value)?.name ?? value : null;
       await recordActivity(db, {
         entityType: current.source === "cyberbiz" ? "cyberbiz_product_category" : "item",
         entityId: current.source === "cyberbiz" ? sku : id,
@@ -305,8 +310,8 @@ export const items = new Hono<AppEnv>()
         eventType: "item_category_assigned",
         summary: "更新品項分類",
         field: "category",
-        oldValue: current.categoryId,
-        newValue: category?.name ?? null,
+        oldValue: nameOf(current.categoryId),
+        newValue: nameOf(categoryId),
         actor: c.get("user"),
         source: "wms",
       });
