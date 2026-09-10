@@ -90,9 +90,14 @@ describe("蝦皮銷售報表", () => {
   it("管理者設定 Drive 後，執行者可直接上傳報表並觸發 GitHub", async () => {
     const calls = stubGithub();
     const admin = await seedUser("eli@ecotech.tw", "role-admin");
-    const saved = await as(admin, "eli@ecotech.tw", "/api/tools/shopee-sales/settings", {
-      method: "PUT",
-      body: JSON.stringify({ driveFolderUrl: "https://drive.google.com/drive/folders/folder123", driveFolderName: "蝦皮" }),
+    // Drive 資料夾改在通路管理設定；這裡就是實際的操作路徑。
+    const shopeeScopeId = (await getShopeeSalesSettings(db())).id;
+    const saved = await as(admin, "eli@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(shopeeScopeId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: "蝦皮", sourceType: "shopee",
+        driveFolderUrl: "https://drive.google.com/drive/folders/folder123", driveFolderName: "蝦皮",
+      }),
     });
     expect(saved.status).toBe(200);
 
@@ -113,14 +118,14 @@ describe("蝦皮銷售報表", () => {
     expect(await db().select({ sourceType: reportRuns.sourceType, importsSales: reportRuns.importsSales, importsPayout: reportRuns.importsPayout }).from(reportRuns)).toEqual([
       { sourceType: "shopee", importsSales: 1, importsPayout: 1 },
     ]);
-    expect(await db().select({ id: scopes.id, driveFolderUrl: scopes.driveFolderUrl }).from(scopes).where(eq(scopes.id, "shopee:store:default"))).toEqual([
-      { id: "shopee:store:default", driveFolderUrl: "https://drive.google.com/drive/folders/folder123" },
+    expect(await db().select({ id: scopes.id, driveFolderUrl: scopes.driveFolderUrl }).from(scopes).where(eq(scopes.sourceType, "shopee"))).toEqual([
+      { id: shopeeScopeId, driveFolderUrl: "https://drive.google.com/drive/folders/folder123" },
     ]);
     expect(await db().select({ driveFolderUrl: reportRunScopes.driveFolderUrl, driveFolderName: reportRunScopes.driveFolderName }).from(reportRunScopes)).toEqual([
       { driveFolderUrl: "https://drive.google.com/drive/folders/folder123", driveFolderName: "蝦皮" },
     ]);
-    await as(admin, "eli@ecotech.tw", "/api/tools/shopee-sales/settings", {
-      method: "PUT",
+    await as(admin, "eli@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(shopeeScopeId)}`, {
+      method: "PATCH",
       body: JSON.stringify({ driveFolderUrl: "https://drive.google.com/drive/folders/folder456", driveFolderName: "蝦皮新資料夾" }),
     });
     expect(await listShopeeSalesRuns(db())).toMatchObject([{ driveFolderUrl: "https://drive.google.com/drive/folders/folder123" }]);
@@ -136,17 +141,23 @@ describe("蝦皮銷售報表", () => {
     expect((await app.fetch(new Request(sourceUrl), env as never)).status).toBe(404);
   });
 
-  it("店別設定權限也可以讀寫蝦皮報表設定", async () => {
-    await db().insert(roles).values({ id: "role-tools-config", roleKey: "tools-config", name: "店別與報表設定", isSystem: false });
-    await db().insert(rolePermissionGrants).values({ roleId: "role-tools-config", permission: "tools:payout:config" });
+  it("通路設定權限可以讀蝦皮報表設定", async () => {
+    await db().insert(roles).values({ id: "role-tools-config", roleKey: "tools-config", name: "通路設定", isSystem: false });
+    await db().insert(rolePermissionGrants).values([
+      { roleId: "role-tools-config", permission: "tools:payout:config" },
+      { roleId: "role-tools-config", permission: "reports:cyberbiz:write" },
+    ]);
     const id = await seedUser("tools-config@ecotech.tw", "role-tools-config");
 
-    const response = await as(id, "tools-config@ecotech.tw", "/api/tools/shopee-sales/settings", {
-      method: "PUT",
-      body: JSON.stringify({ driveFolderUrl: "https://drive.google.com/drive/folders/folder123", driveFolderName: "蝦皮" }),
-    });
+    expect((await as(id, "tools-config@ecotech.tw", "/api/tools/shopee-sales/settings")).status).toBe(200);
 
-    expect(response.status).toBe(200);
+    // 寫入改走通路管理，不再有第二個設定端點。
+    const scopeId = (await getShopeeSalesSettings(db())).id;
+    const saved = await as(id, "tools-config@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(scopeId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ driveFolderUrl: "https://drive.google.com/drive/folders/folder123" }),
+    });
+    expect(saved.status).toBe(200);
   });
 
   it("檢視者不能執行", async () => {

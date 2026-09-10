@@ -440,7 +440,7 @@ describe("自訂角色", () => {
     });
 
     // 給了的：出金表看得到。
-    expect((await as(staff, "ops@ecotech.tw", "/api/tools/payout/stores")).status).toBe(200);
+    expect((await as(staff, "ops@ecotech.tw", "/api/tools/payout/state")).status).toBe(200);
     // 沒給的：客戶列表擋下來。
     expect((await as(staff, "ops@ecotech.tw", "/api/crm/customers")).status).toBe(403);
   });
@@ -502,11 +502,11 @@ describe("自訂角色", () => {
       method: "POST",
       body: JSON.stringify({ roleKey }),
     });
-    expect((await as(staff, "ops@ecotech.tw", "/api/tools/payout/stores")).status).toBe(200);
+    expect((await as(staff, "ops@ecotech.tw", "/api/tools/payout/state")).status).toBe(200);
 
     const response = await as(admin, "admin@ecotech.tw", `/api/admin/roles/${roleKey}`, { method: "DELETE" });
     expect(response.status).toBe(200);
-    expect((await as(staff, "ops@ecotech.tw", "/api/tools/payout/stores")).status).toBe(403);
+    expect((await as(staff, "ops@ecotech.tw", "/api/tools/payout/state")).status).toBe(403);
   });
 
   it("角色清單帶著每個角色的持有人數", async () => {

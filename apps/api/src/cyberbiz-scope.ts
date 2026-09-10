@@ -20,7 +20,7 @@ function hashBytes(bytes: Uint8Array): string {
  *
  * 退租 POS 的店在 CYBERBIZ 已經不存在，抓不到它的 scopeId，但出金資料還是要進報表。
  * 用 manual: 前綴自成一個通路，不會跟 cyberbiz: 的自動匯入撞在一起；
- * REPORT_STORE_SCOPE_ID 認得這個格式，所以公司總計照樣把它算進去。
+ * 公司總計不挑通路，所以它照樣算得進去。
  */
 export function manualScopeIdFromStoreName(name: string): string {
   const bytes = new TextEncoder().encode(name.trim());
@@ -45,11 +45,15 @@ export function manualScopeIdFromStoreName(name: string): string {
  *
  * scopeId 一起帶過去：runner 舊版是自己從店名算（base64url），等於同一條規則
  * 寫在兩個 repo 的兩個語言裡。
+ *
+ * name 送的是 externalName——CYBERBIZ 後台的店名。平台上的名字是給人看的、隨時
+ * 可以改；runner 要的是能在後台找到那家店的字串，兩者混用的話一改名 runner 就
+ * 抓不到東西，而且失敗訊息只會說「找不到店」。
  */
-export function runnerStores(stores: Array<{ id?: string; scopeId?: string; name: string; driveFolderUrl: string; driveFolderName: string }>) {
-  return stores.map(({ id, scopeId, name, driveFolderUrl, driveFolderName }) => ({
+export function runnerStores(stores: Array<{ id?: string; scopeId?: string; name: string; externalName?: string; driveFolderUrl: string; driveFolderName: string }>) {
+  return stores.map(({ id, scopeId, name, externalName, driveFolderUrl, driveFolderName }) => ({
     scopeId: scopeId ?? id ?? cyberbizScopeIdFromStoreName(name),
-    name,
+    name: externalName?.trim() || name,
     driveFolderUrl,
     driveFolderName,
   }));

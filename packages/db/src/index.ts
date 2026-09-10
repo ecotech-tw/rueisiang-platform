@@ -141,7 +141,7 @@ export {
   queryReportPayout,
   queryReportSales,
   scopeIdsForQuery,
-  isCompanyReportStoreScopeId,
+  listAllReportScopes,
   canonicalReportStoreScopes,
   ReportScopeAmbiguousError,
   upsertReportScope,
@@ -171,6 +171,7 @@ export {
   countReportPayoutRecords,
   countReportSalesRecords,
   listReportPayoutRecords,
+  archiveReportManagementScope,
   listReportManagementScopes,
   listReportSalesRecords,
   listReportManualPayouts,
@@ -349,11 +350,7 @@ export {
   listPayoutRuns,
   listPayoutStores,
   recordPayoutRun,
-  replacePayoutStores,
-  savePayoutStore,
   seedPayoutStores,
-  updatePayoutStoreEnabled,
-  deletePayoutStore,
   type PayoutRun,
   type PayoutStoreInput,
 } from "./payout.js";
@@ -361,10 +358,8 @@ export {
   getShopeeSalesSettings,
   listShopeeSalesRuns,
   recordShopeeSalesRun,
-  saveShopeeSalesSettings,
-  type ShopeeSalesSettingsInput,
 } from "./shopee-sales.js";
-export { cyberbizScopeIdFromStoreName } from "./scope-id.js";
+export { cyberbizScopeIdFromStoreName, isValidScopeId } from "./scope-id.js";
 export {
   WAREHOUSE_CATEGORY_COLORS,
   WmsError,
@@ -437,3 +432,4 @@ export {
   type ClaimWebhookEventResult,
   type CyberbizWebhookEntityType,
 } from "./webhook-events.js";
+export type { ScopeKind } from "./schema/reports.js";

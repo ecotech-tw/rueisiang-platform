@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { findCyberbizReportRun, listCyberbizReportRuns, recordCyberbizReportRun } from "./cyberbiz-reports.js";
 import { normalizeReportScopeName } from "./report-data.js";
@@ -26,6 +26,8 @@ export interface PayoutRun {
 
 export interface PayoutStoreInput {
   name: string;
+  /** CYBERBIZ 後台的店名，runner 拿它找店。空的時候沿用 name。 */
+  externalName?: string;
   driveFolderUrl: string;
   driveFolderName: string;
   enabled: boolean;
@@ -33,6 +35,7 @@ export interface PayoutStoreInput {
 
 export interface PayoutStore extends PayoutStoreInput {
   id: string;
+  externalName: string;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -51,12 +54,17 @@ export const DEFAULT_PAYOUT_STORES: PayoutStoreInput[] = [
   { name: "品皇觀光工廠", driveFolderUrl: "https://drive.google.com/drive/folders/1238ahZoJjo_w481pJZ-2EyRfJ59bIESZ", driveFolderName: "品皇觀光工廠", enabled: true },
 ];
 
+/**
+ * runner 跑得動的店：CYBERBIZ 來源、還沒封存。
+ *
+ * 不再看 ID 前綴——手動上傳的退租店 source_type 就是 manual，用欄位判斷比用
+ * 字串前綴可靠，而且改得動。
+ */
 function payoutScopeCondition(enabledOnly = false) {
   const runnableCyberbizStore = and(
     eq(scopes.sourceType, "cyberbiz"),
     eq(scopes.scopeKind, "store"),
-    // 手動上傳的退租店會進公司報表，但 runner 已經抓不到，不能出現在執行頁。
-    sql`${scopes.id} NOT LIKE 'manual:%'`,
+    isNull(scopes.archivedAt),
   );
   return enabledOnly ? and(runnableCyberbizStore, eq(scopes.active, 1)) : runnableCyberbizStore;
 }
@@ -65,6 +73,7 @@ function toPayoutStore(scope: typeof scopes.$inferSelect): PayoutStore {
   return {
     id: scope.id,
     name: scope.name,
+    externalName: scope.externalName || scope.name,
     driveFolderUrl: scope.driveFolderUrl,
     driveFolderName: scope.driveFolderName,
     enabled: scope.active === 1,
@@ -72,19 +81,6 @@ function toPayoutStore(scope: typeof scopes.$inferSelect): PayoutStore {
     createdAt: scope.createdAt,
     updatedAt: scope.updatedAt,
   };
-}
-
-function payoutScopeIdCondition(scopeId: string) {
-  return and(eq(scopes.id, scopeId), payoutScopeCondition(false));
-}
-
-function unusedScopeCondition(scopeId: string) {
-  return and(
-    eq(scopes.id, scopeId),
-    sql`NOT EXISTS (SELECT 1 FROM report_run_scopes WHERE scope_id = ${scopeId})`,
-    sql`NOT EXISTS (SELECT 1 FROM report_item_sales_monthly WHERE scope_id = ${scopeId})`,
-    sql`NOT EXISTS (SELECT 1 FROM report_payout_daily WHERE scope_id = ${scopeId})`,
-  );
 }
 
 export async function listPayoutStores(
@@ -95,79 +91,6 @@ export async function listPayoutStores(
     .where(payoutScopeCondition(options.enabledOnly))
     .orderBy(asc(scopes.sortOrder), asc(scopes.name));
   return rows.map(toPayoutStore);
-}
-
-/** 只切換平台上的顯示狀態；關掉的店不會出現在執行頁，也不會被送給 runner。 */
-export async function updatePayoutStoreEnabled(
-  db: Database,
-  input: { id: string; enabled: boolean },
-): Promise<PayoutStore | null> {
-  await db.update(scopes)
-    .set({ active: input.enabled ? 1 : 0, updatedAt: new Date().toISOString() })
-    .where(payoutScopeIdCondition(input.id));
-  const [store] = await db.select().from(scopes).where(payoutScopeIdCondition(input.id)).limit(1);
-  return store ? toPayoutStore(store) : null;
-}
-
-export async function savePayoutStore(
-  db: Database,
-  input: PayoutStoreInput & { id?: string },
-): Promise<PayoutStore | null> {
-  const now = new Date().toISOString();
-  const id = input.id ?? cyberbizScopeIdFromStoreName(input.name);
-
-  if (input.id) {
-    const [existing] = await db.select({ id: scopes.id }).from(scopes)
-      .where(payoutScopeIdCondition(id))
-      .limit(1);
-    if (!existing) return null;
-
-    await db.update(scopes)
-      .set({
-        name: input.name,
-        normalizedName: normalizeReportScopeName(input.name),
-        driveFolderUrl: input.driveFolderUrl,
-        driveFolderName: input.driveFolderName,
-        active: input.enabled ? 1 : 0,
-        updatedAt: now,
-      })
-      .where(eq(scopes.id, id));
-  } else {
-    const [last] = await db.select({ sortOrder: scopes.sortOrder }).from(scopes)
-      .where(payoutScopeCondition(false))
-      .orderBy(desc(scopes.sortOrder))
-      .limit(1);
-    await db.insert(scopes).values({
-      id,
-      sourceType: "cyberbiz",
-      scopeKind: "store",
-      name: input.name,
-      normalizedName: normalizeReportScopeName(input.name),
-      driveFolderUrl: input.driveFolderUrl,
-      driveFolderName: input.driveFolderName,
-      active: input.enabled ? 1 : 0,
-      sortOrder: (last?.sortOrder ?? -1) + 1,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  const [store] = await db.select().from(scopes)
-    .where(payoutScopeIdCondition(id)).limit(1);
-  return store ? toPayoutStore(store) : null;
-}
-
-export async function deletePayoutStore(db: Database, id: string): Promise<PayoutStore | null> {
-  const [store] = await db.select().from(scopes)
-    .where(payoutScopeIdCondition(id))
-    .limit(1);
-  if (!store) return null;
-
-  await db.batch([
-    db.update(scopes).set({ active: 0, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(scopes.id, id)),
-    db.delete(scopes).where(unusedScopeCondition(id)),
-  ] as never);
-  return toPayoutStore(store);
 }
 
 /** 表是空的才寫入預設店別；使用者之後的設定不會被覆蓋。 */
@@ -184,63 +107,13 @@ export async function seedPayoutStores(db: Database): Promise<void> {
       scopeKind: "store" as const,
       name: store.name,
       normalizedName: normalizeReportScopeName(store.name),
+      externalName: store.externalName ?? store.name,
       driveFolderUrl: store.driveFolderUrl,
       driveFolderName: store.driveFolderName,
       active: store.enabled ? 1 : 0,
       sortOrder: index,
     })),
   );
-}
-
-/** 整份店別清單換掉；有歷史資料的 scope 只停用，沒有歷史資料的才刪除。 */
-export async function replacePayoutStores(db: Database, stores: PayoutStoreInput[]): Promise<void> {
-  const normalizedNames = stores.map((store) => normalizeReportScopeName(store.name));
-  const existing = await db.select().from(scopes)
-    .where(payoutScopeCondition(false));
-  const incomingByName = new Map(stores.map((store, index) => [normalizeReportScopeName(store.name), { store, index }]));
-
-  const statements = [];
-  for (const scope of existing) {
-    const incoming = incomingByName.get(scope.normalizedName);
-    if (incoming) {
-      statements.push(db.update(scopes).set({
-        name: incoming.store.name,
-        normalizedName: normalizeReportScopeName(incoming.store.name),
-        driveFolderUrl: incoming.store.driveFolderUrl,
-        driveFolderName: incoming.store.driveFolderName,
-        active: incoming.store.enabled ? 1 : 0,
-        sortOrder: incoming.index,
-        updatedAt: sql`CURRENT_TIMESTAMP`,
-      }).where(eq(scopes.id, scope.id)));
-    }
-  }
-
-  if (normalizedNames.length) {
-    const removed = existing.filter((scope) => !normalizedNames.includes(scope.normalizedName));
-    for (const scope of removed) {
-      statements.push(db.update(scopes).set({ active: 0, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(scopes.id, scope.id)));
-      statements.push(db.delete(scopes).where(unusedScopeCondition(scope.id)));
-    }
-  }
-
-  const existingNames = new Set(existing.map((scope) => scope.normalizedName));
-  statements.push(...stores.flatMap((store, index) => {
-    const normalizedName = normalizeReportScopeName(store.name);
-    if (existingNames.has(normalizedName)) return [];
-    return [db.insert(scopes).values({
-      id: cyberbizScopeIdFromStoreName(store.name),
-      sourceType: "cyberbiz",
-      scopeKind: "store" as const,
-      name: store.name,
-      normalizedName,
-      driveFolderUrl: store.driveFolderUrl,
-      driveFolderName: store.driveFolderName,
-      active: store.enabled ? 1 : 0,
-      sortOrder: index,
-    })];
-  }));
-
-  if (statements.length) await db.batch(statements as never);
 }
 
 export async function recordPayoutRun(

@@ -10,10 +10,15 @@ import {
 import { itemCategories, items as itemMasters } from "./schema/items.js";
 import { dataChannelFromScopeId, shopeeBaseExternalSku } from "./product-sku-mappings.js";
 
+/**
+ * 查詢的維度：一個通路，還是全公司。**不是** scopes.scope_kind——那一欄是這個
+ * 通路本身是什麼（store／channel／company），兩者剛好有兩個同名的值而已。
+ */
 export type ReportScopeKind = "store" | "company";
 export type ReportManualSkuSource = "custom" | "cyberbiz";
 export interface ReportScope {
   id: string;
+  sourceType: string;
   scopeKind: ReportScopeKind;
   name: string;
   normalizedName: string;
@@ -241,6 +246,7 @@ export function isValidReportDate(value: string): boolean {
 function asReportScope(scope: typeof targetScopes.$inferSelect): ReportScope {
   return {
     id: scope.id,
+    sourceType: scope.sourceType,
     scopeKind: scope.scopeKind as ReportScopeKind,
     name: scope.name,
     normalizedName: scope.normalizedName,
@@ -250,10 +256,30 @@ function asReportScope(scope: typeof targetScopes.$inferSelect): ReportScope {
   };
 }
 
+/**
+ * 還在營運、可以挑的通路。**只給挑選用**——執行頁、補登下拉這種「要新增資料」的
+ * 地方。報表計算不能用這個，見 listAllReportScopes。
+ */
 export async function listReportScopes(db: Database, scopeKind?: ReportScopeKind): Promise<ReportScope[]> {
   const rows = await db.select().from(targetScopes)
     .where(and(eq(targetScopes.active, 1), scopeKind ? eq(targetScopes.scopeKind, scopeKind) : undefined))
     .orderBy(asc(targetScopes.name));
+  return rows.map(asReportScope);
+}
+
+/**
+ * 全部的通路，一個都不挑。
+ *
+ * 不看 source、不看 kind、不看 ID 格式、不看停用與封存。每個通路都會有自己的
+ * 銷售明細與金額，只是顆粒度不同（出金有些是月結）——顆粒度是報表要處理的事，
+ * 不是決定它算不算公司營收的條件。
+ *
+ * 含停用與封存尤其刻意。報表是歷史：一家店收掉之後，它過去的出金與銷售仍然是
+ * 公司的營收，仍然要能查、仍然要進公司總額。用 active 濾名冊等於「關掉開關就把
+ * 歷史抹掉一塊」，而且抹掉的當下沒有任何錯誤訊息——只是數字變小。
+ */
+export async function listAllReportScopes(db: Database): Promise<ReportScope[]> {
+  const rows = await db.select().from(targetScopes).orderBy(asc(targetScopes.name));
   return rows.map(asReportScope);
 }
 
@@ -266,13 +292,22 @@ function reportScopePriority(scopeId: string): number {
 }
 
 /**
- * 統計頁的店別選項只列一個業務據點：migration 會同時保留 CYBERBIZ
- * report scope 與 payout store scope，兩者名稱相同但 ID 不同，不能直接把兩列都丟給 UI。
- * 蝦皮雖然是另一個 source_type，仍是公司報表的一個可篩選據點；只是不進手動據點管理。
+ * 挑選用的通路清單，**只給下拉選單**，不是報表要算哪些通路的依據。
+ *
+ * 兩件事：
+ *
+ * 1. 同一個業務據點只列一次。migration 會同時保留 CYBERBIZ report scope 與
+ *    payout store scope，兩者名稱相同但 ID 不同，不能把兩列都丟給 UI。
+ * 2. 排除 `company` kind。那一列是彙總的容器，本身沒有資料，出現在「選一個
+ *    據點」的下拉裡只會讓人選到一個查不到東西的選項。
+ *
+ * **公司總額不套這個函式**——那裡一個通路都不挑，含停用、封存與彙總。挑選與
+ * 計算是兩件事，混用就會變成「用現在的設定決定過去的數字」。
  */
 export function canonicalReportStoreScopes(scopes: readonly ReportScope[]): ReportScope[] {
   const canonical = new Map<string, ReportScope>();
   for (const scope of scopes) {
+    if (scope.scopeKind === "company") continue;
     const key = `${dataChannelFromScopeId(scope.id)}:${scope.normalizedName || scope.name}`;
     const current = canonical.get(key);
     if (!current || reportScopePriority(scope.id) < reportScopePriority(current.id)) canonical.set(key, scope);
@@ -301,7 +336,7 @@ export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
 
   function stores(): Promise<ReportScope[]> {
     // 失敗的 promise 不能留下來，不然同一次請求後續的呼叫拿到的都是同一個錯誤，連重試都沒有。
-    return (all ??= listReportScopes(db, "store").catch((error) => {
+    return (all ??= listAllReportScopes(db).catch((error) => {
       all = undefined;
       throw error;
     }));
@@ -310,8 +345,8 @@ export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
   return {
     stores,
     /*
-     * 從同一份名冊推導，不另外查一次。名冊的條件（scopeKind = store 且 active）
-     * 跟 findReportScope 的 id 分支完全等價，name 分支也只是比對 normalizedName
+     * 從同一份名冊推導，不另外查一次。名冊沒有任何篩選，所以跟 findReportScope
+     * 的 id 分支完全等價，name 分支也只是比對 normalizedName
      * 再加上「超過一筆就是同名」，所以指定店別的下限是一次查詢而不是兩次。
      */
     async store(lookup) {
@@ -590,13 +625,6 @@ const SALES_GROUPS: Record<SalesGroupBy, { alias: string; expression: ReturnType
 
 type PayoutGroupBy = "day" | "month" | "scope";
 
-const REPORT_STORE_SCOPE_ID = /^(?:[A-Za-z][A-Za-z0-9_-]*:store:|store-)/;
-
-/** 公司報表會納入的店別 scope 格式；避免寫入查不到的孤兒 scope。 */
-export function isCompanyReportStoreScopeId(scopeId: string): boolean {
-  return REPORT_STORE_SCOPE_ID.test(scopeId);
-}
-
 const PAYOUT_GROUPS: Record<PayoutGroupBy, { alias: string; expression: ReturnType<typeof sql> }> = {
   day: { alias: "businessDate", expression: EFFECTIVE_PAYOUT_COLUMNS.businessDate },
   month: { alias: "reportMonth", expression: sql`substr(${EFFECTIVE_PAYOUT_COLUMNS.businessDate}, 1, 7)` },
@@ -626,17 +654,17 @@ export async function scopeIdsForQuery(
     const scope = await directory.store({ id: query.scopeId, name: query.scopeName });
     if (!scope) return { ids: [] };
     // 同一店別可能同時有 CYBERBIZ 與 payout 的 scope ID；查單店時兩邊資料要一起算。
+    // 同名才合併，而且限定同一個 source：這裡要處理的是「同一家店在 migration
+    // 期間留下 CYBERBIZ 與 payout 兩個 ID」，不是把同名的蝦皮賣場也算進實體店。
     const aliases = (await directory.stores())
-      .filter((candidate) => !candidate.id.startsWith("shopee:") && candidate.scopeKind === scope.scopeKind && candidate.normalizedName === scope.normalizedName)
+      .filter((candidate) => candidate.sourceType === scope.sourceType
+        && candidate.scopeKind === scope.scopeKind
+        && candidate.normalizedName === scope.normalizedName)
       .map((candidate) => candidate.id);
     return { ids: aliases.length ? aliases : [scope.id], scope };
   }
-  return {
-    // 公司總額納入所有通路，但只接受既定的 channel:store:id 格式與舊版 store- ID。
-    ids: (await directory.stores())
-      .filter((scope) => isCompanyReportStoreScopeId(scope.id))
-      .map((scope) => scope.id),
-  };
+  // 公司總額納入每一個通路，一個都不挑。
+  return { ids: (await directory.stores()).map((scope) => scope.id) };
 }
 
 function queryConditions(

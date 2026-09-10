@@ -5,7 +5,6 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
-import { Switch } from "../../shell/Switch.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
@@ -14,16 +13,12 @@ import {
   useCreateManualSales,
   useDeleteManualPayouts,
   useDeleteManualSalesRecords,
-  useCreateManualScope,
-  useDeleteManualScope,
   useImportManualPayout,
   useImportManualSales,
   useManualPayouts,
   useManualReportOptions,
-  useManualReportScopes,
   useManualSales,
   useUpdateManualPayout,
-  useUpdateManualScope,
   useUpdateManualSales,
   type ManualPayoutInput,
   type ManualPayoutQuery,
@@ -35,7 +30,6 @@ import {
   type ManualSalesQuery,
   type ManualSalesRow,
   type ManualScopeOption,
-  type ManualManagementScope,
   type ManualSkuSource,
 } from "./manual-reports-api.js";
 import {
@@ -804,152 +798,11 @@ function StandardReportImportDialog({
   );
 }
 
-function ScopeManagementDialog({
-  scopes,
-  onClose,
-}: {
-  scopes: ManualManagementScope[];
-  onClose: () => void;
-}) {
-  const createScope = useCreateManualScope();
-  const updateScope = useUpdateManualScope();
-  const deleteScope = useDeleteManualScope();
-  const toast = useToast();
-  const [newName, setNewName] = useState("");
-  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
-  const [deleting, setDeleting] = useState<ManualManagementScope | null>(null);
-  const pending = createScope.isPending || updateScope.isPending || deleteScope.isPending;
-
-  function create() {
-    const name = newName.trim();
-    if (!name) return;
-    createScope.mutate({ name }, {
-      onSuccess: (result) => {
-        setNewName("");
-        toast.show(`已新增據點「${result.scope.name}」`);
-      },
-    });
-  }
-
-  function saveName() {
-    if (!editing || !editing.name.trim()) return;
-    updateScope.mutate({ id: editing.id, name: editing.name.trim() }, {
-      onSuccess: (result) => {
-        setEditing(null);
-        toast.show(`已更新據點「${result.scope.name}」`);
-      },
-    });
-  }
-
-  function toggle(scope: ManualManagementScope, active: boolean) {
-    updateScope.mutate({ id: scope.id, name: scope.name, active }, {
-      onSuccess: () => toast.show(active ? `已啟用據點「${scope.name}」` : `已停用據點「${scope.name}」`),
-    });
-  }
-
-  return (
-    <>
-      <Dialog
-        title="管理報表據點"
-        className="manual-scope-dialog"
-        onClose={onClose}
-        closeDisabled={pending}
-        actions={<Button variant="secondary" type="button" onClick={onClose} disabled={pending}>關閉</Button>}
-      >
-        <div className="manual-scope-manager">
-          <form className="admin-form toolbar manual-scope-create" onSubmit={(event) => { event.preventDefault(); create(); }}>
-            <TextField
-              label="新增據點"
-              required
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              placeholder="例如：中友百貨"
-              disabled={pending}
-            />
-            <Button type="submit" icon="plus" loading={createScope.isPending} disabled={!newName.trim() || pending}>新增</Button>
-          </form>
-          {createScope.error ? <ErrorMessage error={createScope.error} /> : null}
-          {updateScope.error ? <ErrorMessage error={updateScope.error} /> : null}
-          {deleteScope.error ? <ErrorMessage error={deleteScope.error} /> : null}
-          <div className="table-scroll">
-            <table className="data-table manual-scope-table">
-              <thead><tr><th>據點</th><th>狀態</th><th /></tr></thead>
-              <tbody>
-                {scopes.map((scope) => (
-                  <tr key={scope.id}>
-                    <td>
-                      {editing?.id === scope.id ? (
-                        <input
-                          className="cell-input"
-                          value={editing.name}
-                          onChange={(event) => setEditing({ ...editing, name: event.target.value })}
-                          aria-label={`編輯${scope.name}據點名稱`}
-                          disabled={pending}
-                        />
-                      ) : <span className="cell-strong">{scope.name}</span>}
-                      <small className="cell-sub">{scope.id}</small>
-                    </td>
-                    <td data-label="狀態">
-                      <div className="report-scope-toggle">
-                        <Switch
-                          checked={scope.active}
-                          busy={pending}
-                          onChange={(active) => toggle(scope, active)}
-                          label={`${scope.name}報表據點啟用狀態`}
-                        />
-                        <span>{scope.active ? "啟用" : "停用"}</span>
-                      </div>
-                    </td>
-                    <td data-label="操作">
-                      <div className="row-actions">
-                        {editing?.id === scope.id ? (
-                          <>
-                            <Button variant="secondary" disabled={pending || !editing.name.trim()} onClick={saveName}>儲存</Button>
-                            <Button variant="link" disabled={pending} onClick={() => setEditing(null)}>取消</Button>
-                          </>
-                        ) : (
-                          <Button variant="icon" icon="edit" disabled={pending} onClick={() => setEditing({ id: scope.id, name: scope.name })} title={`編輯${scope.name}`} aria-label={`編輯${scope.name}`} />
-                        )}
-                        {scope.active ? (
-                          <Button variant="icon" className="danger" icon="trash" disabled={pending} onClick={() => setDeleting(scope)} title={`停用${scope.name}`} aria-label={`停用${scope.name}`} />
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {!scopes.length ? <p className="manual-report-empty">目前沒有報表據點。</p> : null}
-          <p className="muted">停用只會從選單與報表執行頁隱藏，既有紀錄會保留。</p>
-        </div>
-      </Dialog>
-      {deleting ? (
-        <ConfirmDialog
-          title={`停用「${deleting.name}」？`}
-          confirmLabel="停用據點"
-          pending={deleteScope.isPending}
-          onCancel={() => setDeleting(null)}
-          onConfirm={() => {
-            const target = deleting;
-            setDeleting(null);
-            deleteScope.mutate(target.id, { onSuccess: () => toast.show(`已停用據點「${target.name}」`) });
-          }}
-        >
-          <p><strong>{deleting.name}</strong> 會從報表管理的據點選單移除。</p>
-          <p className="muted">既有出金與商品銷售紀錄不會被刪除，之後仍可重新啟用。</p>
-        </ConfirmDialog>
-      ) : null}
-    </>
-  );
-}
-
 export function ManualReports() {
   usePageTitle("報表管理");
   const { permissions } = useSession();
   const canWrite = permissions.has("reports:cyberbiz:write");
   const optionsQuery = useManualReportOptions(canWrite);
-  const scopesQuery = useManualReportScopes(canWrite);
   const [payoutFilters, setPayoutFilters] = useState<ManualPayoutQuery>(DEFAULT_PAYOUT_FILTERS);
   const [salesFilters, setSalesFilters] = useState<ManualSalesQuery>(DEFAULT_SALES_FILTERS);
   const payoutsQuery = useManualPayouts(payoutFilters, canWrite);
@@ -960,7 +813,6 @@ export function ManualReports() {
   const [kind, setKind] = useState<ManualReportKind>("sales");
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [importDialog, setImportDialog] = useState<ImportDialogState | null>(null);
-  const [scopeDialog, setScopeDialog] = useState(false);
   const [deleting, setDeleting] = useState<DeletingState | null>(null);
   const [selectedPayoutIds, setSelectedPayoutIds] = useState<Set<string>>(() => new Set());
   const [selectedSalesIds, setSelectedSalesIds] = useState<Set<string>>(() => new Set());
@@ -970,8 +822,7 @@ export function ManualReports() {
   const categories = optionsQuery.data?.categories ?? [];
   const payoutPage = payoutsQuery.data;
   const salesPage = salesQuery.data;
-  const managementScopes = scopesQuery.data?.scopes ?? [];
-  const queryError = optionsQuery.error ?? scopesQuery.error ?? (kind === "payout" ? payoutsQuery.error : salesQuery.error);
+  const queryError = optionsQuery.error ?? (kind === "payout" ? payoutsQuery.error : salesQuery.error);
   const payoutRows = payoutPage?.rows ?? [];
   const salesRows = salesPage?.rows ?? [];
   const busy = deletePayouts.isPending || deleteSalesRecords.isPending;
@@ -1038,7 +889,7 @@ export function ManualReports() {
     return <div className="page"><Alert tone="warning">你沒有管理報表資料的權限。</Alert></div>;
   }
   const activeQuery = kind === "payout" ? payoutsQuery : salesQuery;
-  if (optionsQuery.isPending || scopesQuery.isPending || activeQuery.isPending) {
+  if (optionsQuery.isPending || activeQuery.isPending) {
     return <div className="boot">載入報表管理中…</div>;
   }
   if (queryError) {
@@ -1047,14 +898,7 @@ export function ManualReports() {
 
   return (
     <div className="page fills manual-report-page">
-      <PageHeader
-        title="報表管理"
-        actions={ 
-          <div className="page-head-actions">
-            <Button variant="secondary" icon="storefront" disabled={busy} onClick={() => setScopeDialog(true)}>管理據點</Button>
-          </div>
-        }
-      />
+      <PageHeader title="報表管理" />
 
       <Panel
         className="manual-report-panel grows"
@@ -1197,7 +1041,6 @@ export function ManualReports() {
         />
       ) : null}
 
-      {scopeDialog ? <ScopeManagementDialog scopes={managementScopes} onClose={() => setScopeDialog(false)} /> : null}
 
       {deleting ? (
         <ConfirmDialog

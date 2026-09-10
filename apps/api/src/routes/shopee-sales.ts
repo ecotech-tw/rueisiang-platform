@@ -1,10 +1,9 @@
-import { getShopeeSalesSettings, listShopeeSalesRuns, recordShopeeSalesRun, saveShopeeSalesSettings } from "@rueisiang/db";
+import { getShopeeSalesSettings, listShopeeSalesRuns, recordShopeeSalesRun } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { requirePermission } from "../middleware/auth.js";
 import { shopeeSalesGithub } from "../shopee-sales/github.js";
-import { body } from "../request.js";
 
 const MAX_REPORT_BYTES = 25 * 1024 * 1024;
 
@@ -103,11 +102,5 @@ export const shopeeSales = new Hono<AppEnv>()
     if (!github) throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN。" });
     return c.json(await github.listRuns(c.req.query("requestId") ?? undefined));
   })
-  .get("/settings", requirePermission("tools:payout:config"), async (c) => c.json({ settings: await getShopeeSalesSettings(c.get("db")) }))
-  .put("/settings", requirePermission("tools:payout:config"), async (c) => {
-    const input = await body(c);
-    const driveFolderUrl = readDriveUrl(input.driveFolderUrl, false);
-    const driveFolderName = typeof input.driveFolderName === "string" ? input.driveFolderName.trim() : "";
-    await saveShopeeSalesSettings(c.get("db"), { driveFolderUrl, driveFolderName });
-    return c.json({ settings: await getShopeeSalesSettings(c.get("db")) });
-  });
+  // Drive 資料夾改在通路管理設定，這裡不再開第二個寫入端。
+  .get("/settings", requirePermission("tools:payout:config"), async (c) => c.json({ settings: await getShopeeSalesSettings(c.get("db")) }));
