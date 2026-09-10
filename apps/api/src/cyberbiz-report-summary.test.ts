@@ -244,8 +244,9 @@ describe("報表統計 API", () => {
     expect(await emptySecondPage.json()).toMatchObject({ page: 2, total: 2, rows: [] });
   });
 
-  // 統計是歷史：停用店仍要出現在清單裡，不然它過去的數字沒有地方查。
-  it("summary 與 scope 清單由營運統計權限保護，並含停用通路", async () => {
+  // 統計是歷史：停用店仍要出現在清單裡，不然它過去的數字沒有地方查。彙總那一列
+  // 是容器、本身沒有資料，所以不進「選一個據點」的下拉。
+  it("summary 與 scope 清單含停用通路但不含彙總，且由營運統計權限保護", async () => {
     const admin = await seedUser("admin@ecotech.tw", "role-admin");
     await upsertReportScope(db(), { id: "shopee:store:default", scopeKind: "store", sourceType: "shopee", name: "蝦皮" });
     await insertReportPayoutDaily(db(), [{ scopeId: "cyberbiz:store:active", businessDate: "2026-08-01", payoutAmount: 2040 }]);
@@ -260,7 +261,6 @@ describe("報表統計 API", () => {
     expect(await scopes.json()).toEqual({
       latestSalesPeriod: "2026-08",
       scopes: [
-        { id: "company", name: "公司整體", latestSalesPeriod: null },
         { id: "cyberbiz:store:disabled", name: "停用店", latestSalesPeriod: null },
         { id: "cyberbiz:store:active", name: "啟用店", latestSalesPeriod: "2026-08" },
         { id: "shopee:store:default", name: "蝦皮", latestSalesPeriod: "2026-08" },

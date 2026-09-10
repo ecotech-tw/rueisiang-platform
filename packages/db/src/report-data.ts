@@ -292,13 +292,22 @@ function reportScopePriority(scopeId: string): number {
 }
 
 /**
- * 統計頁的店別選項只列一個業務據點：migration 會同時保留 CYBERBIZ
- * report scope 與 payout store scope，兩者名稱相同但 ID 不同，不能直接把兩列都丟給 UI。
- * 蝦皮雖然是另一個 source_type，仍是公司報表的一個可篩選據點；只是不進手動據點管理。
+ * 挑選用的通路清單，**只給下拉選單**，不是報表要算哪些通路的依據。
+ *
+ * 兩件事：
+ *
+ * 1. 同一個業務據點只列一次。migration 會同時保留 CYBERBIZ report scope 與
+ *    payout store scope，兩者名稱相同但 ID 不同，不能把兩列都丟給 UI。
+ * 2. 排除 `company` kind。那一列是彙總的容器，本身沒有資料，出現在「選一個
+ *    據點」的下拉裡只會讓人選到一個查不到東西的選項。
+ *
+ * **公司總額不套這個函式**——那裡一個通路都不挑，含停用、封存與彙總。挑選與
+ * 計算是兩件事，混用就會變成「用現在的設定決定過去的數字」。
  */
 export function canonicalReportStoreScopes(scopes: readonly ReportScope[]): ReportScope[] {
   const canonical = new Map<string, ReportScope>();
   for (const scope of scopes) {
+    if (scope.scopeKind === "company") continue;
     const key = `${dataChannelFromScopeId(scope.id)}:${scope.normalizedName || scope.name}`;
     const current = canonical.get(key);
     if (!current || reportScopePriority(scope.id) < reportScopePriority(current.id)) canonical.set(key, scope);
