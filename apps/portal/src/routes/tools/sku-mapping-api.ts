@@ -100,7 +100,6 @@ export function productSkuChannelLabel(channel: string): string {
     ?? (channel === "legacy" ? "未分類（舊資料）" : channel);
 }
 
-
 export function useProductSkuMappings() {
   return useQuery({
     queryKey: PRODUCT_SKU_MAPPINGS_KEY,
@@ -111,7 +110,6 @@ export function useProductSkuMappings() {
     },
   });
 }
-
 
 export function useCreateProductSkuMapping() {
   return useSkuMappingMutation(
@@ -151,7 +149,6 @@ export function useDeleteProductSkuMapping() {
   );
 }
 
-
 /** 刻意不納入報表的外部 SKU（補寄、已下架這類）。 */
 export interface ReportSkuIgnore {
   id: string;
@@ -185,21 +182,3 @@ export function useDeleteReportSkuIgnore() {
   );
 }
 
-
-/** D1 鏡像裡的 CYBERBIZ 商品；SKU 對應頁挑用料用。 */
-export interface CyberbizProductOption {
-  sku: string;
-  name: string;
-  published: boolean;
-}
-
-export function useCyberbizProducts() {
-  return useQuery({
-    queryKey: CYBERBIZ_PRODUCTS_KEY,
-    queryFn: async () => {
-      const response = await fetch("/api/tools/cyberbiz-products", { credentials: "same-origin" });
-      if (!response.ok) await readError(response);
-      return (await response.json()) as { products: CyberbizProductOption[] };
-    },
-  });
-}

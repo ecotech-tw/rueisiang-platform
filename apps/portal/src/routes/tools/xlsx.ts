@@ -77,7 +77,7 @@ export interface Sheet {
  * 1900 年那套曆法把 1900 當成閏年（相容 Lotus 1-2-3 的舊錯誤），所以基準點取
  * 1899-12-30 才會對得上。關帳時間在同一份檔案裡可能是文字也可能是序號，兩種都要吃。
  */
-export function excelSerialToDate(serial: number): Date {
+function excelSerialToDate(serial: number): Date {
   return new Date(Math.round((serial - 25569) * 86400 * 1000));
 }
 

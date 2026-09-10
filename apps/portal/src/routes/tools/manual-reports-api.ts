@@ -176,51 +176,8 @@ export interface ManualSalesImportResult {
   totals: Pick<ManualSalesImportRow, "grossQuantity" | "returnQuantity" | "netQuantity" | "salesAmount">;
 }
 
-export interface ReportRunSummary {
-  id: string;
-  sourceType: string;
-  importsSales: number;
-  importsPayout: number;
-  status: "queued" | "running" | "succeeded" | "failed";
-  importedSalesRows: number;
-  importedPayoutRows: number;
-  skippedRows: number;
-  lastError: string;
-  createdAt: string;
-}
-
-export interface ReportIngestIssueSummary {
-  externalKey: string;
-  externalName: string;
-  issueType: string;
-  detail: string;
-  rowCount: number;
-}
-
-export function useReportRuns(enabled = true) {
-  return useQuery({
-    enabled,
-    queryKey: ["reports", "runs"],
-    queryFn: () => request<{ runs: ReportRunSummary[] }>("/api/reports/cyberbiz/runs?limit=10"),
-    refetchInterval: (query) => query.state.data?.runs.some((run) => run.status === "running") ? 3000 : false,
-  });
-}
-
-export function useReportRun(id: string | null, enabled = true) {
-  return useQuery({
-    enabled: enabled && Boolean(id),
-    queryKey: ["reports", "run", id],
-    queryFn: () => request<{ run: ReportRunSummary; issues: ReportIngestIssueSummary[] }>(`/api/reports/cyberbiz/runs/${encodeURIComponent(id ?? "")}`),
-  });
-}
-
 export type ManualPayoutDeleteInput = Pick<ManualPayoutRow, "id" | "source" | "scopeId" | "businessDate">;
 export type ManualSalesDeleteInput = Pick<ManualSalesRow, "id" | "source" | "scopeId" | "reportMonth" | "sku">;
-
-export interface ManualScopeInput {
-  name: string;
-  active?: boolean;
-}
 
 export class ManualReportApiError extends Error {
   readonly status: number;
@@ -341,18 +298,6 @@ export function useUpdateManualPayout() {
   });
 }
 
-export function useDeleteManualPayout() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (row: Pick<ManualPayoutRow, "id" | "source" | "scopeId" | "businessDate">) => write<{ ok: true }>(
-      "/api/reports/cyberbiz/manual/payout/record",
-      "DELETE",
-      row,
-    ),
-    onSuccess: () => invalidateManualQueries(client),
-  });
-}
-
 export function useDeleteManualPayouts() {
   const client = useQueryClient();
   return useMutation({
@@ -380,18 +325,6 @@ export function useUpdateManualSales() {
       `/api/reports/cyberbiz/manual/sales/${encodeURIComponent(input.id)}`,
       "PATCH",
       input,
-    ),
-    onSuccess: () => invalidateManualQueries(client),
-  });
-}
-
-export function useDeleteManualSales() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (row: Pick<ManualSalesRow, "id" | "source" | "scopeId" | "reportMonth" | "sku">) => write<{ ok: true }>(
-      "/api/reports/cyberbiz/manual/sales/record",
-      "DELETE",
-      row,
     ),
     onSuccess: () => invalidateManualQueries(client),
   });
