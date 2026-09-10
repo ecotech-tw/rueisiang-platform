@@ -79,6 +79,9 @@ const PRODUCT_CATEGORY_PERMISSION_MIGRATION = fileURLToPath(
 const DROP_PRODUCT_CATEGORY_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0126_drop_product_category_permissions.sql", import.meta.url),
 );
+const HR_ADMIN_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0132_restore_hr_admin_permissions.sql", import.meta.url),
+);
 const ITEM_WMS_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0089_item_wms_permissions.sql", import.meta.url),
 );
@@ -202,6 +205,35 @@ describe("bootstrap 管理員權限 migration", () => {
     const current = await db.select().from(rolePermissionGrants);
     expect(current).toHaveLength(ALL_PERMISSIONS.length);
     expect(new Set(current.map((row) => row.permission))).toEqual(new Set(ALL_PERMISSIONS));
+  });
+
+  it("0132 會把 HR 權限補給既有管理員，而且可安全重跑", () => {
+    const sqlite = freshAt("0131_curious_stone_men.sql");
+    sqlite.prepare("INSERT INTO roles (id, role_key, name, is_system) VALUES (?, ?, ?, ?)").run(
+      "role-admin",
+      "admin",
+      "管理者",
+      1,
+    );
+
+    const sql = readFileSync(HR_ADMIN_PERMISSION_MIGRATION, "utf8");
+    sqlite.exec(sql);
+    sqlite.exec(sql);
+
+    expect(sqlite.prepare("SELECT permission FROM permissions WHERE permission LIKE 'hr:%' ORDER BY permission").all()).toEqual([
+      { permission: "hr:employee:read" },
+      { permission: "hr:employee:write" },
+      { permission: "hr:office:read" },
+      { permission: "hr:office:write" },
+      { permission: "hr:request:review" },
+    ]);
+    expect(sqlite.prepare("SELECT role_id, permission FROM role_permission_grants WHERE permission LIKE 'hr:%' ORDER BY permission").all()).toEqual([
+      { role_id: "role-admin", permission: "hr:employee:read" },
+      { role_id: "role-admin", permission: "hr:employee:write" },
+      { role_id: "role-admin", permission: "hr:office:read" },
+      { role_id: "role-admin", permission: "hr:office:write" },
+      { role_id: "role-admin", permission: "hr:request:review" },
+    ]);
   });
 
   it("0089 會把舊品項與 SKU 對應授權搬到新權限，而且可安全重跑", async () => {
