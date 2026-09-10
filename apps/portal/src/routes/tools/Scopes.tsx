@@ -298,8 +298,7 @@ export function Scopes() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((scope) => {
-                return (
+              {rows.map((scope) => (
                   <tr key={scope.id}>
                     <td data-label="通路">
                       {/*
@@ -307,7 +306,7 @@ export function Scopes() {
                         * 只有「已封存」是開關表達不出來的——它會被 disable，但畫面上看
                         * 不出為什麼，所以標在名稱旁邊。
                         */}
-                      <div className="cell-strong">
+                      <div className="cell-strong flex items-center gap-2">
                         {scope.name}
                         {scope.archivedAt ? <span className="status quiet">已封存</span> : null}
                       </div>
@@ -364,8 +363,7 @@ export function Scopes() {
                       </div>
                     </td>
                   </tr>
-                );
-              })}
+              ))}
             </tbody>
           </table>
         </div>
