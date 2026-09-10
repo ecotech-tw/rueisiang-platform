@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 
 /**
  * 通路管理。
@@ -52,12 +52,6 @@ const SOURCE_LABELS: Record<string, string> = {
 
 function sourceLabel(sourceType: string): string {
   return SOURCE_LABELS[sourceType] ?? sourceType;
-}
-
-/** 停用與封存都不是刪除，但影響範圍不同，所以列上要看得出來是哪一種。 */
-function statusLabel(scope: ManagementScope): { label: string; tone: string } {
-  if (scope.archivedAt) return { label: "已封存", tone: "quiet" };
-  return scope.active ? { label: "營業中", tone: "ok" } : { label: "已停業", tone: "warn" };
 }
 
 function ScopeDialog({
@@ -210,7 +204,6 @@ export function Scopes() {
     return [...filtered].sort((left, right) => {
       if (sortField === "kind") return direction * KIND_LABELS[left.scopeKind].localeCompare(KIND_LABELS[right.scopeKind], "zh-Hant");
       if (sortField === "source") return direction * sourceLabel(left.sourceType).localeCompare(sourceLabel(right.sourceType), "zh-Hant");
-      if (sortField === "status") return direction * statusLabel(left).label.localeCompare(statusLabel(right).label, "zh-Hant");
       return direction * left.name.localeCompare(right.name, "zh-Hant");
     });
   }, [scopes, search, statusFilter, kindFilter, sortField, sortDirection]);
@@ -300,24 +293,29 @@ export function Scopes() {
                 <SortableHeader label="種類" field="kind" active={sortField} direction={sortDirection} onSort={sort} />
                 <SortableHeader label="來源" field="source" active={sortField} direction={sortDirection} onSort={sort} />
                 {canConfigure ? <th>Drive 資料夾</th> : null}
-                <SortableHeader label="狀態" field="status" active={sortField} direction={sortDirection} onSort={sort} />
                 <th>還在營業</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {rows.map((scope) => {
-                const status = statusLabel(scope);
-                return (
+              {rows.map((scope) => (
                   <tr key={scope.id}>
                     <td data-label="通路">
-                      <div className="cell-strong">{scope.name}</div>
+                      {/*
+                        * 開關本身就說得出營業中與已停業，所以那兩個狀態不另開一欄重複。
+                        * 只有「已封存」是開關表達不出來的——它會被 disable，但畫面上看
+                        * 不出為什麼，所以標在名稱旁邊。
+                        */}
+                      <div className="cell-strong flex items-center gap-2">
+                        {scope.name}
+                        {scope.archivedAt ? <StatusBadge>已封存</StatusBadge> : null}
+                      </div>
                       <div className="cell-sub">
                         {scope.externalName && scope.externalName !== scope.name ? `後台店名：${scope.externalName}` : scope.id}
                       </div>
                     </td>
-                    <td data-label="種類"><span className="status quiet">{KIND_LABELS[scope.scopeKind]}</span></td>
-                    <td data-label="來源"><span className="status quiet">{sourceLabel(scope.sourceType)}</span></td>
+                    <td data-label="種類"><StatusBadge>{KIND_LABELS[scope.scopeKind]}</StatusBadge></td>
+                    <td data-label="來源"><StatusBadge>{sourceLabel(scope.sourceType)}</StatusBadge></td>
                     {canConfigure ? (
                       <td data-label="Drive 資料夾">
                         {scope.driveFolderUrl
@@ -325,7 +323,6 @@ export function Scopes() {
                           : <span className="cell-sub">—</span>}
                       </td>
                     ) : null}
-                    <td data-label="狀態"><span className={`status ${status.tone}`}>{status.label}</span></td>
                     <td data-label="還在營業">
                       <Switch
                         checked={scope.active}
@@ -366,8 +363,7 @@ export function Scopes() {
                       </div>
                     </td>
                   </tr>
-                );
-              })}
+              ))}
             </tbody>
           </table>
         </div>
