@@ -208,12 +208,19 @@ describe("WMS target-only API", () => {
     const userId = await seedUser();
     await seedCategory();
     await seedZone();
-    const created = await as(userId, "admin@ecotech.tw", "/api/wms/items", {
+    // 建立走品項列表的 POST /api/items/catalog，入庫走 /warehouse——WMS 自己那條
+    // POST /items 已經沒有呼叫端，跟著這一輪清掉了。
+    const created = await as(userId, "admin@ecotech.tw", "/api/items/catalog", {
       method: "POST",
-      body: JSON.stringify({ sku: "box-02", name: "小紙箱", category: "一般備品", zoneId: "zone-1", shelfLevel: "top", quantity: 12 }),
+      body: JSON.stringify({ sku: "box-02", name: "小紙箱" }),
     });
     expect(created.status).toBe(201);
     const { id } = await created.json() as { id: string };
+    const enrolled = await as(userId, "admin@ecotech.tw", `/api/items/catalog/${id}/warehouse`, {
+      method: "POST",
+      body: JSON.stringify({ wmsCategoryId: "wms-cat-1", zoneId: "zone-1", shelfLevel: "top", quantity: 12 }),
+    });
+    expect(enrolled.status).toBe(200);
     const [master] = await db.select().from(items).where(eq(items.id, id));
     const [wms] = await db.select().from(wmsItems).where(eq(wmsItems.itemId, id));
     expect(master).toMatchObject({ sku: "BOX-02", name: "小紙箱", source: "custom" });

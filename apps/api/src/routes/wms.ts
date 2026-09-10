@@ -13,7 +13,6 @@ import {
   recordZoneImage,
   zoneImageKeys,
   createWarehouseCategory,
-  createItem,
   createLayoutElement,
   createZone,
   deleteWarehouseCategory,
@@ -492,24 +491,6 @@ export const wms = new Hono<AppEnv>()
   })
 
   // ───────────────────────────── 庫存品項 ─────────────────────────────
-
-  .post("/items", requirePermission("wms:inventory:write"), async (c) => {
-    const input = await body(c);
-    const user = c.get("user");
-    const result = await createItem(c.get("db"), {
-      sku: text(input, "sku"),
-      name: requireString(input, "name", "商品名稱"),
-      category: requireString(input, "category", "倉儲分類"),
-      quantity: input.quantity,
-      unit: text(input, "unit"),
-      minStock: input.minStock,
-      zoneId: text(input, "zoneId") ?? null,
-      shelfLevel: text(input, "shelfLevel") ?? null,
-      notes: text(input, "notes"),
-      actor: { id: user.id, email: user.email },
-    });
-    return c.json(result, 201);
-  })
 
   .patch("/items/:id", requirePermission("wms:inventory:write"), async (c) => {
     const input = await body(c);

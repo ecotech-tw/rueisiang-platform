@@ -4,7 +4,6 @@ import {
   deleteProductSkuMapping,
   deleteReportSkuIgnore,
   findReportScope,
-  listCyberbizProducts,
   listReportSkuIgnores,
   loadProductSkuMappingManagement,
   updateProductSkuMapping,
@@ -20,6 +19,7 @@ import {
   normalizeReportScopeName,
   ReportScopeAmbiguousError,
   listPayoutRuns,
+  listCyberbizProducts,
   listPayoutStores,
   recordPayoutRun,
   upsertReportScope,
@@ -391,11 +391,6 @@ export const tools = new Hono<AppEnv>()
     });
     await forgetReportAnalytics(cacheClient(c.env));
     return c.json(result);
-  })
-
-  /** SKU 對應頁挑用料用的 CYBERBIZ 商品清單（讀 D1 鏡像，不打官網）。 */
-  .get("/cyberbiz-products", requirePermission("wms:mapping:read"), async (c) => {
-    return c.json({ products: await listCyberbizProducts(c.get("db")) });
   })
 
   /**

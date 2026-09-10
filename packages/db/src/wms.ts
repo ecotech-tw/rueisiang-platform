@@ -220,24 +220,6 @@ async function requireSkuAvailableForExternalMappings(db: Database, sku: string 
   }
 }
 
-export async function createItem(db: Database, input: ItemInput & { actor: Actor }) {
-  const name = input.name.trim();
-  const category = input.category.trim();
-  const wmsCategoryId = await requireCategory(db, category);
-  const placement = await requirePlacement(db, input.zoneId?.trim() || null, input.shelfLevel?.trim() || null);
-  const id = crypto.randomUUID();
-  const sku = input.sku?.trim().toUpperCase() || `WMS-${id.slice(0, 8).toUpperCase()}`;
-  // 重複檢查在 requireSkuAvailableForExternalMappings 裡，它會跨 source 查並說出是哪一筆。
-  await requireSkuAvailableForExternalMappings(db, sku);
-  const item = { id, source: "custom" as const, kind: input.sku?.trim() ? "sellable" as const : "supply" as const, sku, name, category, quantity: clamp(input.quantity, 0, QUANTITY), unit: input.unit?.trim() || "件", minStock: clamp(input.minStock, 5, QUANTITY), zoneId: placement.zoneId, shelfLevel: placement.shelfLevel, notes: input.notes?.trim() || "" };
-  await db.batch([
-    db.insert(itemMasters).values({ id, source: "custom", kind: item.kind, sku, name, categoryId: null, active: 1 }),
-    db.insert(wmsItems).values({ itemId: id, wmsCategoryId, shelfId: placement.shelfId, quantity: item.quantity, unit: item.unit, minStock: item.minStock, notes: item.notes }),
-    writeEvent(db, { entityType: "item", entityId: id, entityLabel: `${sku} ${name}`, eventType: "item_created", summary: "新增庫存商品", payload: item, actor: input.actor }),
-  ] as never);
-  return { id };
-}
-
 export async function updateItem(db: Database, id: string, input: Partial<ItemInput> & { actor: Actor }) {
   const [current] = await db.select({ item: itemMasters, wms: wmsItems, category: wmsCategories.name, shelf: wmsShelves })
     .from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).leftJoin(wmsCategories, eq(wmsCategories.id, wmsItems.wmsCategoryId)).leftJoin(wmsShelves, eq(wmsShelves.id, wmsItems.shelfId)).where(eq(wmsItems.itemId, id)).limit(1);

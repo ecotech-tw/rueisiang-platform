@@ -29,9 +29,6 @@ import {
   listReportPayoutRecords,
   listReportSalesRecords,
   listReportScopes,
-  listReportRuns,
-  getReportRun,
-  listReportIngestIssues,
   listProductCategoryOptions,
   ReportManualError,
   updateReportManualPayout,
@@ -651,15 +648,6 @@ export const cyberbizReports = new Hono<AppEnv>()
     } catch (error) {
       handleExternalProductError(error);
     }
-  })
-  .get("/runs", requirePermission("reports:analytics:read"), async (c) => {
-    const limit = Number(queryValue(c, "limit") ?? "50");
-    return c.json({ runs: await listReportRuns(c.get("db"), Number.isFinite(limit) ? limit : 50) });
-  })
-  .get("/runs/:id", requirePermission("reports:analytics:read"), async (c) => {
-    const run = await getReportRun(c.get("db"), c.req.param("id"));
-    if (!run) throw new HTTPException(404, { message: "找不到報表執行紀錄。" });
-    return c.json({ run, issues: await listReportIngestIssues(c.get("db"), { reportRunId: run.id }) });
   })
   .get("/manual/options", requirePermission("reports:cyberbiz:write"), async (c) => {
     const [scopes, products, categories] = await Promise.all([
