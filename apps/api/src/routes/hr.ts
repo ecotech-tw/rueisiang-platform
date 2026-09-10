@@ -2,8 +2,12 @@ import { can } from "@rueisiang/auth";
 import {
   HrError, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
   createHrEmployment, createHrFormRequest, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters,
-  getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers,
-  listHrFormRequests, listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest, submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
+  getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, grantHrManagementScope, hasHrAssignmentManagementAccess,
+  hasHrAttendanceAssignmentManagementAccess, hasHrEmploymentManagementAccess, hasHrManagementAccess, hasHrManagementScopeAccess,
+  isHrAdministrator, listHrActivity,
+  listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests, listHrManagementOptions,
+  listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest, revokeHrManagementScope,
+  submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrFormRequest,
 } from "@rueisiang/db";
 import { Hono } from "hono";
@@ -178,12 +182,41 @@ export const hr = new Hono<AppEnv>()
     return c.json(await reviewHrFormRequest(c.get("db"), c.req.param("id"), c.get("user").id, decision, comment, can(c.get("user"), "hr:request:review"), c.get("user")));
   })
   .get("/candidates", requirePermission("hr:employee:write"), async (c) => {
+    // 新員工尚未有 scope 可供範圍判斷；建立人事身分是全平台操作，不能讓 scoped manager
+    // 先建立一筆無範圍資料再從另一條路徑繞過授權邊界。
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以指派新員工。" });
     const page = Number(c.req.query("page") ?? "1");
     const search = c.req.query("search")?.trim() ?? "";
     if (!Number.isSafeInteger(page) || page < 1 || page > 10000 || search.length > 100) throw new HTTPException(400, { message: "查詢條件不正確。" });
     return c.json(await listHrCandidates(c.get("db"), { page, search, userId: c.req.query("userId") }));
   })
-  .get("/scopes", requirePermission("hr:employee:read"), async (c) => c.json({ scopes: await listHrScopes(c.get("db")) }))
+  .get("/scopes", requirePermission("hr:employee:read"), async (c) => c.json({ scopes: await listHrScopes(c.get("db"), c.get("user").id) }))
+  .get("/management-scopes", requirePermission("hr:scope:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以檢視範圍授權。" });
+    return c.json(await listHrManagementOptions(c.get("db")));
+  })
+  .post("/management-scopes", requirePermission("hr:scope:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理範圍授權。" });
+    const input = await body(c);
+    return c.json(await grantHrManagementScope(c.get("db"), {
+      userId: text(input, "userId", "管理者"),
+      scopeId: text(input, "scopeId", "櫃點"),
+    }, c.get("user")), 201);
+  })
+  .delete("/management-scopes/:userId/:scopeId", requirePermission("hr:scope:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理範圍授權。" });
+    return c.json(await revokeHrManagementScope(c.get("db"), {
+      userId: c.req.param("userId"), scopeId: c.req.param("scopeId"),
+    }, c.get("user")));
+  })
+  .get("/audit", requirePermission("hr:audit:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以檢視稽核紀錄。" });
+    const page = calendarNumber(c.req.query("page"), 1, "頁碼", 1, 10000);
+    const pageSize = calendarNumber(c.req.query("pageSize"), 25, "每頁筆數", 1, 100);
+    const search = c.req.query("search")?.trim() ?? "";
+    if (search.length > 100) throw new HTTPException(400, { message: "搜尋條件不正確。" });
+    return c.json(await listHrActivity(c.get("db"), { page, pageSize, search }));
+  })
   .get("/attendance-settings/places", requirePermission("hr:office:write"), async (c) => {
     const query = c.req.query("query")?.trim() ?? "";
     if (!query || query.length > 100) throw new HTTPException(400, { message: "請輸入 1～100 字的地點搜尋關鍵字。" });
@@ -208,6 +241,7 @@ export const hr = new Hono<AppEnv>()
     return c.json(await updateHrAttendanceLocation(c.get("db"), c.req.param("id"), { ...input, revision: revision(raw) }, c.get("user")));
   })
   .post("/employments/:id/attendance-location", requirePermission("hr:office:write"), async (c) => {
+    if (!await hasHrEmploymentManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的任職紀錄。" });
     const input = await body(c);
     const validFrom = date(input, "validFrom")!;
     const validTo = date(input, "validTo", true);
@@ -215,17 +249,22 @@ export const hr = new Hono<AppEnv>()
     return c.json(await createHrAttendanceLocationAssignment(c.get("db"), { employmentId: c.req.param("id"), locationId: text(input, "locationId", "辦公位置"), validFrom, validTo }, c.get("user")), 201);
   })
   .patch("/attendance-location-assignments/:id/end", requirePermission("hr:office:write"), async (c) => {
+    if (!await hasHrAttendanceAssignmentManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的辦公位置指派。" });
     const input = await body(c);
     return c.json(await endHrAttendanceLocationAssignment(c.get("db"), c.req.param("id"), { validTo: date(input, "validTo")!, revision: revision(input) }, c.get("user")));
   })
   .get("/employees", requirePermission("hr:employee:read"), async (c) => {
     const page = Number(c.req.query("page") ?? "1");
     if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new HTTPException(400, { message: "頁碼不正確。" });
-    return c.json(await listHrEmployees(c.get("db"), page));
+    return c.json(await listHrEmployees(c.get("db"), page, c.get("user").id));
   })
-  .get("/supervisor-candidates", requirePermission("hr:employee:write"), async (c) => c.json({ users: await listHrSupervisorCandidates(c.get("db"), c.req.query("exclude") ?? c.get("user").id) }))
-  .get("/employees/:id", requirePermission("hr:employee:read"), async (c) => c.json(await getHrEmployee(c.get("db"), c.req.param("id"))))
+  .get("/supervisor-candidates", requirePermission("hr:employee:write"), async (c) => c.json({ users: await listHrSupervisorCandidates(c.get("db"), c.req.query("exclude") ?? c.get("user").id, c.get("user").id) }))
+  .get("/employees/:id", requirePermission("hr:employee:read"), async (c) => {
+    if (!await hasHrManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的員工。" });
+    return c.json(await getHrEmployee(c.get("db"), c.req.param("id"), c.get("user").id));
+  })
   .post("/employees", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以指派新員工。" });
     const input = await body(c);
     const hiredOn = date(input, "hiredOn")!;
     const seniorityStartOn = date(input, "seniorityStartOn")!;
@@ -233,34 +272,47 @@ export const hr = new Hono<AppEnv>()
     return c.json(await assignHrEmployee(c.get("db"), { userId: text(input, "userId", "使用者"), employeeNumber: text(input, "employeeNumber", "員工編號", 40), hiredOn, seniorityStartOn }, c.get("user")), 201);
   })
   .patch("/employees/:id", requirePermission("hr:employee:write"), async (c) => {
+    if (!await hasHrManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的員工。" });
     const input = await body(c);
     return c.json(await updateHrEmployee(c.get("db"), c.req.param("id"), { employeeNumber: text(input, "employeeNumber", "員工編號", 40), revision: revision(input) }, c.get("user")));
   })
   .patch("/employees/:id/supervisor", requirePermission("hr:employee:write"), async (c) => {
+    if (!await hasHrManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的員工。" });
     const input = await body(c);
     return c.json(await updateHrEmployeeSupervisor(c.get("db"), c.req.param("id"), { supervisorUserId: nullableText(input, "supervisorUserId", "主管"), revision: revision(input) }, c.get("user")));
   })
   .post("/employments", requirePermission("hr:employee:write"), async (c) => {
+    // 新任職沒有任何 scope，必須由全平台管理者建立；否則 scoped manager 會建立
+    // 一筆自己再也無法指派櫃點的孤立任職，並讓範圍語意變得不明確。
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以新增任職或復職紀錄。" });
     const input = await body(c);
+    const userId = text(input, "userId", "員工");
+    if (!await hasHrManagementAccess(c.get("db"), c.get("user").id, userId)) throw new HTTPException(404, { message: "找不到可管理的員工。" });
     const hiredOn = date(input, "hiredOn")!;
     const endedOn = date(input, "endedOn", true);
     const seniorityStartOn = date(input, "seniorityStartOn")!;
     period(hiredOn, endedOn);
     if (seniorityStartOn > hiredOn) throw new HTTPException(400, { message: "年資認列日起不得晚於到職日。" });
-    return c.json(await createHrEmployment(c.get("db"), { userId: text(input, "userId", "員工"), hiredOn, endedOn, seniorityStartOn }, c.get("user")), 201);
+    return c.json(await createHrEmployment(c.get("db"), { userId, hiredOn, endedOn, seniorityStartOn }, c.get("user")), 201);
   })
   .patch("/employments/:id/end", requirePermission("hr:employee:write"), async (c) => {
+    if (!await hasHrEmploymentManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的任職紀錄。" });
     const input = await body(c);
     return c.json(await endHrEmployment(c.get("db"), c.req.param("id"), { endedOn: date(input, "endedOn")!, revision: revision(input) }, c.get("user")));
   })
   .post("/assignments", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
+    const employmentId = text(input, "employmentId", "任職紀錄");
+    const scopeId = text(input, "scopeId", "櫃點");
+    if (!await hasHrEmploymentManagementAccess(c.get("db"), c.get("user").id, employmentId)
+      || !await hasHrManagementScopeAccess(c.get("db"), c.get("user").id, scopeId)) throw new HTTPException(404, { message: "找不到可管理的任職紀錄或櫃點範圍。" });
     const validFrom = date(input, "validFrom")!;
     const validTo = date(input, "validTo", true);
     period(validFrom, validTo);
-    return c.json(await createHrAssignment(c.get("db"), { employmentId: text(input, "employmentId", "任職紀錄"), scopeId: text(input, "scopeId", "櫃點"), validFrom, validTo }, c.get("user")), 201);
+    return c.json(await createHrAssignment(c.get("db"), { employmentId, scopeId, validFrom, validTo }, c.get("user")), 201);
   })
   .patch("/assignments/:id/end", requirePermission("hr:employee:write"), async (c) => {
+    if (!await hasHrAssignmentManagementAccess(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到可管理的櫃點歸屬。" });
     const input = await body(c);
     return c.json(await endHrAssignment(c.get("db"), c.req.param("id"), { validTo: date(input, "validTo")!, revision: revision(input) }, c.get("user")));
   });

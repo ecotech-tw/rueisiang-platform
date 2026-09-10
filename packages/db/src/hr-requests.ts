@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hasHrManagementAccess, isHrAdministrator, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrFormRequests } from "./schema/hr-requests.js";
 import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
@@ -85,15 +85,43 @@ export async function listHrFormApprovers(db: Database, userId: string) {
 export async function listHrFormRequests(db: Database, userId: string, allowAny = false) {
   const requests = await db.select(formFields).from(hrFormRequests)
     .where(eq(hrFormRequests.employeeUserId, userId)).orderBy(desc(hrFormRequests.createdAt));
+  const globalReviewer = allowAny && await isHrAdministrator(db, userId);
+  const scopedReviewer = allowAny && !globalReviewer ? sql`EXISTS (
+    SELECT 1 FROM hr_employments AS employment
+    INNER JOIN hr_employee_scopes AS assignment ON assignment.employment_id = employment.id
+    INNER JOIN hr_management_scopes AS managed ON managed.scope_id = assignment.scope_id
+    WHERE employment.id = hr_form_requests.employment_id
+      AND managed.user_id = ${userId}
+  )` : undefined;
   const reviewRequests = await db.select(formFields).from(hrFormRequests)
-    .where(allowAny ? eq(hrFormRequests.status, "pending") : and(eq(hrFormRequests.approverUserId, userId), eq(hrFormRequests.status, "pending")))
+    .where(and(
+      eq(hrFormRequests.status, "pending"),
+      allowAny
+        ? or(eq(hrFormRequests.approverUserId, userId), globalReviewer ? undefined : scopedReviewer)
+        : eq(hrFormRequests.approverUserId, userId),
+    ))
     .orderBy(asc(hrFormRequests.submittedAt), asc(hrFormRequests.createdAt));
   return { requests, reviewRequests };
 }
 
 export async function getHrFormRequest(db: Database, id: string, userId: string, allowAny = false) {
+  const globalReviewer = allowAny && await isHrAdministrator(db, userId);
+  const scopedReviewer = allowAny && !globalReviewer ? sql`EXISTS (
+    SELECT 1 FROM hr_employments AS employment
+    INNER JOIN hr_employee_scopes AS assignment ON assignment.employment_id = employment.id
+    INNER JOIN hr_management_scopes AS managed ON managed.scope_id = assignment.scope_id
+    WHERE employment.id = hr_form_requests.employment_id
+      AND managed.user_id = ${userId}
+  )` : undefined;
   const [request] = await db.select(formFields).from(hrFormRequests)
-    .where(allowAny ? eq(hrFormRequests.id, id) : and(eq(hrFormRequests.id, id), or(eq(hrFormRequests.employeeUserId, userId), eq(hrFormRequests.approverUserId, userId))))
+    .where(and(
+      eq(hrFormRequests.id, id),
+      or(
+        eq(hrFormRequests.employeeUserId, userId),
+        eq(hrFormRequests.approverUserId, userId),
+        globalReviewer ? undefined : scopedReviewer,
+      ),
+    ))
     .limit(1);
   if (!request) throw new HrError(404, "找不到這份申請單。");
   return request;
@@ -143,6 +171,11 @@ export async function reviewHrFormRequest(db: Database, id: string, reviewerUser
   if (!current) throw new HrError(404, "找不到這份申請單。");
   if (current.employeeUserId === reviewerUserId) throw new HrError(409, "申請人不可審核自己的申請單。");
   if (!allowAny && current.approverUserId !== reviewerUserId) throw new HrError(404, "找不到這份待審核申請單。");
+  if (allowAny && current.approverUserId !== reviewerUserId
+    && !await isHrAdministrator(db, reviewerUserId)
+    && !await hasHrManagementAccess(db, reviewerUserId, current.employeeUserId)) {
+    throw new HrError(404, "找不到這份待審核申請單。");
+  }
   if (current.status !== "pending") throw new HrError(409, "這份申請單已經完成審核。");
   return writeHrMutation(db, sql`UPDATE hr_form_requests SET
     status=${decision}, reviewed_at=CURRENT_TIMESTAMP, review_comment=${comment}, updated_at=CURRENT_TIMESTAMP

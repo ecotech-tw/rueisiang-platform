@@ -1,4 +1,5 @@
 export { createDatabase, type Database } from "./client.js";
+export { listHrActivity, type HrAuditResult, type HrAuditRow } from "./hr-audit.js";
 export {
   checkHrClockLocation, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent, endHrAttendanceLocationAssignment,
   getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation,
@@ -10,8 +11,12 @@ export {
 } from "./hr-requests.js";
 export {
   HrError, assignHrEmployee, createHrAssignment, createHrEmployment,
-  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, isHrEmployee, listHrCandidates, listHrEmployees, listHrScopes, listHrSupervisorCandidates,
-  updateHrEmployee, updateHrEmployeeSupervisor,
+  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, grantHrManagementScope, hasHrAssignmentManagementAccess,
+  hasHrAttendanceAssignmentManagementAccess, hasHrEmploymentManagementAccess, hasHrManagementAccess, hasHrManagementScopeAccess,
+  isHrAdministrator, isHrEmployee,
+  listHrCandidates, listHrEmployees, listHrManagementOptions,
+  listHrManagementScopes, listHrScopes, listHrSupervisorCandidates, revokeHrManagementScope, updateHrEmployee, updateHrEmployeeSupervisor,
+  type HrManagementScopeRow,
 } from "./hr-people.js";
 export {
   createAssistantPromptRevision,

@@ -94,7 +94,9 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: "people",
     items: [
       { label: "員工管理", to: "/hr/employees", permission: "hr:employee:read", icon: "list" },
+      { label: "範圍授權", to: "/hr/management-scopes", permission: "hr:scope:read", icon: "shieldPerson" },
       { label: "出勤設定", to: "/hr/attendance-settings", permission: "hr:office:read", icon: "calendar" },
+      { label: "稽核紀錄", to: "/hr/audit", permission: "hr:audit:read", icon: "history" },
     ],
   },
   {

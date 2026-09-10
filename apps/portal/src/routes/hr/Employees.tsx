@@ -47,15 +47,16 @@ export function HrProfileDetails({ profile }: { profile: Profile }) {
 
 export function HrEmployees() {
   usePageTitle("員工管理");
-  const { permissions } = useSession();
+  const { permissions, user } = useSession();
   const canRead = permissions.has("hr:employee:read");
   const canWrite = permissions.has("hr:employee:write");
+  const canGlobalWrite = canWrite && Boolean(user?.roles.includes("admin"));
   const canOfficeWrite = permissions.has("hr:office:read") && permissions.has("hr:office:write");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState("");
   const [editor, setEditor] = useState<Editor | null>(null);
   const employees = useHrQuery<{ employees: Employee[]; hasMore: boolean }>(`/employees?page=${page}`, canRead);
-  const candidates = useHrQuery<{ users: Candidate[] }>("/candidates", canWrite);
+  const candidates = useHrQuery<{ users: Candidate[] }>("/candidates", canGlobalWrite);
   const scopes = useHrQuery<{ scopes: NamedOption[] }>("/scopes", canRead);
   const officeLocations = useHrQuery<{ locations: AttendanceLocation[] }>("/attendance-settings/locations", canOfficeWrite);
   const supervisors = useHrQuery<{ users: NamedOption[] }>(`/supervisor-candidates?exclude=${encodeURIComponent(selected)}`, canWrite && Boolean(selected));
@@ -68,10 +69,10 @@ export function HrEmployees() {
     <PageHeader title="員工管理" description="從現有使用者指派員工；姓名與登入帳號共用平台 users，不另建雇主或帳號綁定資料。" />
     <section className="panel p-6">
       <div className="flex flex-wrap gap-3">
-        {canWrite ? <Button disabled={!candidateOptions.length} onClick={() => setEditor({ title: "指派使用者為員工", path: "/employees", method: "POST", description: "員工必須先存在於平台使用者名單。指派後即可從「我的人事資料」查看自己的任職資料。", fields: [
+        {canGlobalWrite ? <Button disabled={!candidateOptions.length} onClick={() => setEditor({ title: "指派使用者為員工", path: "/employees", method: "POST", description: "員工必須先存在於平台使用者名單。指派後即可從「我的人事資料」查看自己的任職資料。", fields: [
           { key: "userId", label: "使用者", options: candidateOptions }, { key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" },
         ] })}>指派為員工</Button> : null}
-        <Button variant="secondary" onClick={() => { void employees.refetch(); void candidates.refetch(); void scopes.refetch(); if (canOfficeWrite) void officeLocations.refetch(); if (selected) { void supervisors.refetch(); void detail.refetch(); } }}>重新整理</Button>
+        <Button variant="secondary" onClick={() => { void employees.refetch(); if (canGlobalWrite) void candidates.refetch(); void scopes.refetch(); if (canOfficeWrite) void officeLocations.refetch(); if (selected) { void supervisors.refetch(); void detail.refetch(); } }}>重新整理</Button>
       </div>
       {employees.isPending ? <p>載入中…</p> : null}
       {[employees.error, candidates.error, scopes.error, officeLocations.error, supervisors.error, detail.error].map((error, index) => error ? <Alert key={index} tone="danger">{error.message}</Alert> : null)}
@@ -99,11 +100,11 @@ export function HrEmployees() {
             {(profile.attendanceAssignments ?? []).filter((assignment) => assignment.employmentId === job.id && !assignment.validTo).map((assignment) => <Button key={assignment.id} variant="secondary" onClick={() => setEditor({ title: `結束 ${assignment.locationName} 辦公位置指派`, path: `/attendance-location-assignments/${assignment.id}/end`, method: "PATCH", initial: { revision: assignment.revision }, fields: [{ key: "validTo", label: "迄日（不含）", type: "date" }] })}>結束 {assignment.locationName} 指派</Button>)}
           </div>
         </div>)}
-        <Button className="mt-4" onClick={() => setEditor({ title: "新增任職／復職紀錄", path: "/employments", method: "POST", initial: { userId: profile.employee.userId }, description: "同一使用者的任職期間不可重疊；復職新增紀錄，不修改舊任職。", fields: [
+        {canGlobalWrite ? <Button className="mt-4" onClick={() => setEditor({ title: "新增任職／復職紀錄", path: "/employments", method: "POST", initial: { userId: profile.employee.userId }, description: "同一使用者的任職期間不可重疊；復職新增紀錄，不修改舊任職。", fields: [
           { key: "userId", label: "使用者", options: [{ id: profile.employee.userId, name: `${profile.employee.displayName}（${profile.employee.email}）` }] }, { key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }, { key: "endedOn", label: "不再任職首日（可留空）", type: "date", optional: true },
-        ] })}>新增任職／復職</Button>
+        ] })}>新增任職／復職</Button> : null}
       </> : null}
     </section> : null}
-    {editor ? <EditorDialog editor={editor} onClose={() => { setEditor(null); void employees.refetch(); void candidates.refetch(); if (canOfficeWrite) void officeLocations.refetch(); if (selected) void detail.refetch(); }} /> : null}
+    {editor ? <EditorDialog editor={editor} onClose={() => { setEditor(null); void employees.refetch(); if (canGlobalWrite) void candidates.refetch(); if (canOfficeWrite) void officeLocations.refetch(); if (selected) void detail.refetch(); }} /> : null}
   </div>;
 }

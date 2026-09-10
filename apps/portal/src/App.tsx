@@ -13,8 +13,10 @@ import { Sync } from "./routes/crm/Sync.js";
 import { Invite } from "./routes/Invite.js";
 import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
+import { HrAudit } from "./routes/hr/Audit.js";
 import { HrEmployees } from "./routes/hr/Employees.js";
 import { HrLanding, HrLayout } from "./routes/hr/HrLayout.js";
+import { HrManagementScopes } from "./routes/hr/ManagementScopes.js";
 import { HrAttendanceSettings } from "./routes/hr/AttendanceSettings.js";
 import { ItemCategories } from "./routes/items/Categories.js";
 import { Items } from "./routes/items/Items.js";
@@ -139,6 +141,8 @@ export function App() {
         <Route path="hr" element={<HrLayout />}>
           <Route index element={<HrLanding />} />
           <Route path="employees" element={<HrEmployees />} />
+          <Route path="management-scopes" element={<HrManagementScopes />} />
+          <Route path="audit" element={<HrAudit />} />
           <Route path="attendance-settings" element={<HrAttendanceSettings />} />
         </Route>
 

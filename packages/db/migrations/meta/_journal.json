@@ -764,6 +764,20 @@
       "when": 1789017264170,
       "tag": "0132_restore_hr_admin_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "6",
+      "when": 1789021712754,
+      "tag": "0133_lucky_rick_jones",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "6",
+      "when": 1789021713754,
+      "tag": "0134_restore_hr_scope_permissions",
+      "breakpoints": true
     }
   ]
 }

@@ -58,6 +58,9 @@ export const PERMISSIONS = {
   "hr:employee:write": "管理全平台員工與任職資料",
   "hr:office:read": "檢視 HR 出勤設定",
   "hr:office:write": "管理辦公位置與員工辦公位置指派",
+  "hr:scope:read": "檢視 HR 管理範圍授權",
+  "hr:scope:write": "管理 HR 管理範圍授權",
+  "hr:audit:read": "檢視 HR 稽核紀錄",
   "hr:request:review": "審核 HR 表單",
 
   // 系統

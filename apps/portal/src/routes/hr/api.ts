@@ -35,6 +35,19 @@ export interface AttendanceLocationDetail extends AttendanceLocation {
   latitude: number | null;
   longitude: number | null;
 }
+export interface HrManagementScope {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  scopeId: string;
+  scopeName: string;
+  createdAt: string;
+}
+export interface HrManagementOptions {
+  users: { id: string; name: string; email: string }[];
+  scopes: NamedOption[];
+  assignments: HrManagementScope[];
+}
 export interface GoogleMapPlace {
   id: string;
   name: string;

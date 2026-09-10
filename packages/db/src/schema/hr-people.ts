@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { users } from "./auth.js";
 import { scopes } from "./reports.js";
 
@@ -47,4 +47,14 @@ export const hrEmployeeScopes = sqliteTable("hr_employee_scopes", {
   index("idx_hr_employee_scopes_scope").on(t.scopeId, t.validFrom),
   check("ck_hr_employee_scopes_dates", sql`length(${t.validFrom}) = 10 AND (${t.validTo} IS NULL OR (length(${t.validTo}) = 10 AND ${t.validTo} > ${t.validFrom}))`),
   check("ck_hr_employee_scopes_revision", sql`${t.revision} > 0`),
+]);
+
+/** 管理者能看的 HR 資料範圍；它只授予 scope，不會順便授予任何功能權限。 */
+export const hrManagementScopes = sqliteTable("hr_management_scopes", {
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.scopeId] }),
+  index("idx_hr_management_scopes_scope").on(t.scopeId),
 ]);
