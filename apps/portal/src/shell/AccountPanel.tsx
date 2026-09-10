@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import type { SessionUser } from "../auth/session.js";
+import { Icon } from "./icons.js";
 
 interface AccountPanelProps {
   user: SessionUser | null;
   onLogout: () => void;
   onNavigate: () => void;
 }
+
+const HR_APP_URL = (import.meta.env.VITE_HR_APP_URL?.trim() || (import.meta.env.DEV ? "http://localhost:5176" : "https://hr.rueisiang.com")).replace(/\/+$/, "");
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "管理者",
@@ -101,6 +104,36 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
             <span aria-hidden="true">☺</span>
             個人資料
           </Link>
+
+          {user.isEmployee ? (
+            <a
+              className="account-menu-item"
+              role="menuitem"
+              href={`${HR_APP_URL}/profile`}
+              onClick={() => {
+                setOpen(false);
+                onNavigate();
+              }}
+            >
+              <Icon name="people" className="account-menu-icon" />
+              我的人事資料
+            </a>
+          ) : null}
+
+          {!user.isEmployee && user.permissions.includes("hr:request:review") ? (
+            <a
+              className="account-menu-item"
+              role="menuitem"
+              href={`${HR_APP_URL}/forms`}
+              onClick={() => {
+                setOpen(false);
+                onNavigate();
+              }}
+            >
+              <Icon name="report" className="account-menu-icon" />
+              補打卡審核
+            </a>
+          ) : null}
 
           <button type="button" className="account-menu-item danger" role="menuitem" onClick={onLogout}>
             <span aria-hidden="true">↪</span>

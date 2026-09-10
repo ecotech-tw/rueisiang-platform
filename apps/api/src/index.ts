@@ -1,4 +1,5 @@
 import { CyberbizApiError } from "@rueisiang/cyberbiz";
+import { SESSION_COOKIE, readCookie } from "@rueisiang/auth";
 import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import {
   WmsError,
@@ -25,6 +26,7 @@ import { auth } from "./routes/auth.js";
 import { crm } from "./routes/crm.js";
 import { drainLineAssistantQueueOutbox, processLineAssistantQueueMessage, webhooks } from "./routes/webhooks.js";
 import { health } from "./routes/health.js";
+import { hr } from "./routes/hr.js";
 import { items } from "./routes/items.js";
 import { PayoutGithubError } from "./payout/github.js";
 import { ShopeeSalesGithubError } from "./shopee-sales/github.js";
@@ -40,10 +42,50 @@ export { AssistantChatAgent } from "./pi-agent-do.js";
 export { AssistantCredentialVault } from "./pi-agent-credentials.js";
 
 /**
- * 平台唯一的 Worker：/api/* 由這裡處理，其餘交給 Static Assets（portal 的 SPA）。
- * 路由掛在 /api 底下，與 wrangler.toml 的 run_worker_first 對齊。
+ * API Worker：/api/* 由這裡處理；platform 的 Static Assets 由同一 Worker 提供。
+ * hr app 以獨立靜態站部署，透過 CORS 與這裡共用 session。
  */
 const app = new Hono<AppEnv>().basePath("/api");
+
+function allowedOrigins(raw: string | undefined): string[] {
+  const configured = raw?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
+  return configured.length ? configured : [
+    "http://localhost:5173", "http://localhost:5174", "http://localhost:5175",
+    "http://localhost:5176", "http://localhost:5177", "http://localhost:5178", "http://localhost:5182",
+    "http://127.0.0.1:5173", "http://127.0.0.1:5174", "http://127.0.0.1:5175",
+    "http://127.0.0.1:5176", "http://127.0.0.1:5177", "http://127.0.0.1:5178", "http://127.0.0.1:5182",
+  ];
+}
+
+function sameAllowedOrigin(value: string | undefined, origins: string[]): boolean {
+  if (!value) return false;
+  try {
+    return origins.includes(new URL(value).origin);
+  } catch {
+    return false;
+  }
+}
+
+app.use("*", async (c, next) => {
+  const origins = allowedOrigins(c.env.AUTH_APP_ORIGINS);
+  const origin = c.req.header("Origin");
+  if (origin && !origins.includes(origin)) return c.json({ error: "Origin not allowed" }, 403);
+  if (origin) {
+    c.header("Access-Control-Allow-Origin", origin);
+    c.header("Access-Control-Allow-Credentials", "true");
+    c.header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS");
+    c.header("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token");
+    c.header("Vary", "Origin");
+  }
+  if (c.req.method === "OPTIONS") return c.body(null, 204);
+
+  const isUnsafeMethod = !["GET", "HEAD"].includes(c.req.method);
+  const hasSession = Boolean(readCookie(c.req.header("Cookie"), SESSION_COOKIE));
+  if (c.env.AUTH_COOKIE_DOMAIN && isUnsafeMethod && hasSession && !origin && !sameAllowedOrigin(c.req.header("Referer"), origins)) {
+    return c.json({ error: "需要有效的請求來源。" }, 403);
+  }
+  return next();
+});
 
 const withDatabase = createMiddleware<AppEnv>(async (c, next) => {
   c.set("db", createDatabase(c.env.DB));
@@ -56,6 +98,7 @@ const routes = app
   .route("/health", health)
   .route("/auth", auth)
   .route("/admin", admin)
+  .route("/hr", hr)
   .route("/assistant", assistant)
   .route("/crm", crm)
   .route("/internal/shopee-sales", shopeeSalesInternal)

@@ -12,10 +12,22 @@ import { Button, TextField } from "../ui/index.js";
  *
  * 兩條都是邀請制：名單裡沒有的 email 兩邊都進不來。
  */
+function safeReturnTo(value: string | null): string {
+  if (!value) return "/";
+  try {
+    const target = new URL(value, window.location.origin);
+    if (target.origin !== window.location.origin) return "/";
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return "/";
+  }
+}
+
 export function Login() {
   usePageTitle("登入");
   const [params] = useSearchParams();
-  const returnTo = params.get("returnTo") ?? "/";
+  const returnTo = safeReturnTo(params.get("returnTo"));
+  const googleReturnTo = `${window.location.origin}${returnTo}`;
 
   // Google 那條失敗時會帶 ?error= 轉回來；帳密那條的錯誤存在自己的 state。
   const [email, setEmail] = useState("");
@@ -60,7 +72,7 @@ export function Login() {
 
         {error ? <p className="login-error" role="alert">{error}</p> : null}
 
-        <a className="login-button" href={`/api/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`}>
+        <a className="login-button" href={`/api/auth/google/start?returnTo=${encodeURIComponent(googleReturnTo)}`}>
           使用 Google 帳號登入
         </a>
 

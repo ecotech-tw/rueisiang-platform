@@ -68,6 +68,8 @@ custom_domain = true
 # CYBERBIZ 帳密、Gmail 與 Drive 的授權都留在那邊的 Actions secrets，這裡碰不到。
 [vars]
 PUBLIC_APP_URL = "https://platform.rueisiang.com"
+AUTH_COOKIE_DOMAIN = ".rueisiang.com"
+AUTH_APP_ORIGINS = "https://platform.rueisiang.com,https://hr.rueisiang.com"
 PAYOUT_GITHUB_REPO = "ecotech-tw/rueisiang-platform"
 PAYOUT_WORKFLOW_FILE = "payout.yml"
 PAYOUT_GITHUB_REF = "main"
@@ -85,6 +87,7 @@ SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 #   AUTH_SESSION_SECRET        簽 session cookie 用，換掉等於所有人登出
 #   GOOGLE_OAUTH_CLIENT_ID
 #   GOOGLE_OAUTH_CLIENT_SECRET
+#   GOOGLE_MAPS_API_KEY        Places API (New) 搜尋與 Maps Static API 地圖背景；需啟用 Billing 與這兩項 API
 #   GEMINI_API_KEY              Pi Google provider；Sandbox／LINE 選 Gemini 模型時使用
 #   PI_OPENAI_CODEX_CREDENTIAL  舊版 bootstrap 用的 Pi／Codex OAuth credential JSON；匯入 vault 後可移除
 #   PI_CREDENTIAL_ENCRYPTION_KEY  至少 32 字元，vault 以 AES-GCM 加密 credential

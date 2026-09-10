@@ -21,8 +21,14 @@ export interface Env {
   UPLOADS?: R2Bucket;
 
   AUTH_SESSION_SECRET: string;
+  /** 同一帳號跨 platform.rueisiang.com／hr.rueisiang.com 時使用，例如 .rueisiang.com。 */
+  AUTH_COOKIE_DOMAIN?: string;
+  /** 允許前端 app origin，以逗號分隔；未設定時維持同源行為。 */
+  AUTH_APP_ORIGINS?: string;
   GOOGLE_OAUTH_CLIENT_ID: string;
   GOOGLE_OAUTH_CLIENT_SECRET: string;
+  /** Google Places API (New) 與 Maps Static API 的後端金鑰；只供 HR 出勤功能使用。 */
+  GOOGLE_MAPS_API_KEY?: string;
 
   /** Pi Google provider 使用的 API key；Sandbox 與選用 Gemini 的正式 channel 共用。 */
   GEMINI_API_KEY?: string;

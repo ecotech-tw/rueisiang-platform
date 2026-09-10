@@ -55,16 +55,31 @@ class LocalStatement {
 }
 
 export class LocalD1 {
+  private batchTail: Promise<unknown> = Promise.resolve();
+
   constructor(readonly sqlite: DatabaseSync) {}
 
   prepare(query: string): LocalStatement {
     return new LocalStatement(this.sqlite, query);
   }
 
-  async batch(statements: LocalStatement[]) {
-    const results = [];
-    for (const statement of statements) results.push(await statement.all());
-    return results;
+  batch(statements: LocalStatement[]) {
+    // D1 batch is one sequential, atomic unit. Serialize local batches too so an
+    // awaited statement cannot let another request interleave in the transaction.
+    const pending = this.batchTail.then(async () => {
+      this.sqlite.exec("BEGIN");
+      try {
+        const results = [];
+        for (const statement of statements) results.push(await statement.all());
+        this.sqlite.exec("COMMIT");
+        return results;
+      } catch (error) {
+        this.sqlite.exec("ROLLBACK");
+        throw error;
+      }
+    });
+    this.batchTail = pending.catch(() => undefined);
+    return pending;
   }
 
   async exec(query: string) {

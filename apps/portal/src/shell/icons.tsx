@@ -11,6 +11,7 @@
 
 export type IconName =
   | "people"
+  | "person"
   | "list"
   | "personAdd"
   | "tag"
@@ -128,6 +129,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M3.4 19.2c0-3.1 2.6-4.9 5.8-4.9s5.8 1.8 5.8 4.9" />
       <path d="M16.4 5.9a3.3 3.3 0 0 1 0 5.6" />
       <path d="M17.6 14.7c1.9.6 3 2 3 4.5" />
+    </>
+  ),
+  person: (
+    <>
+      <circle cx="12" cy="8.2" r="3.3" />
+      <path d="M5.8 19.5c0-3.3 2.8-5.2 6.2-5.2s6.2 1.9 6.2 5.2" />
     </>
   ),
   list: (

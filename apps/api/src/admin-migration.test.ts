@@ -1,5 +1,5 @@
 import { ALL_PERMISSIONS } from "@rueisiang/auth";
-import { createDatabase } from "@rueisiang/db";
+import { createDatabase, syncSystemRoles } from "@rueisiang/db";
 import {
   assistantChannelTools,
   assistantChatTools,
@@ -192,9 +192,16 @@ describe("bootstrap 管理員權限 migration", () => {
     d1.sqlite.exec(dropProductCategorySql);
     d1.sqlite.exec(dropProductCategorySql);
 
-    const permissions = await db.select().from(rolePermissionGrants);
-    expect(permissions).toHaveLength(ALL_PERMISSIONS.length);
-    expect(new Set(permissions.map((row) => row.permission))).toEqual(new Set(ALL_PERMISSIONS));
+    // HR 權限由既有角色同步入口加入，不回頭改寫歷史 migration。
+    const historical = await db.select().from(rolePermissionGrants);
+    const preHrPermissions = ALL_PERMISSIONS.filter((permission) => !permission.startsWith("hr:"));
+    expect(historical).toHaveLength(preHrPermissions.length);
+    expect(new Set(historical.map((row) => row.permission))).toEqual(new Set(preHrPermissions));
+    await syncSystemRoles(db);
+    await syncSystemRoles(db);
+    const current = await db.select().from(rolePermissionGrants);
+    expect(current).toHaveLength(ALL_PERMISSIONS.length);
+    expect(new Set(current.map((row) => row.permission))).toEqual(new Set(ALL_PERMISSIONS));
   });
 
   it("0089 會把舊品項與 SKU 對應授權搬到新權限，而且可安全重跑", async () => {

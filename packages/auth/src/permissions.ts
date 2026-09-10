@@ -53,6 +53,13 @@ export const PERMISSIONS = {
   "assistant:line:read": "檢視小香 LINE 前台",
   "assistant:line:write": "修改小香 LINE 前台設定",
 
+  // 人事：全平台人事管理權限，不隨既有主管角色授予。
+  "hr:employee:read": "檢視全平台員工與任職資料",
+  "hr:employee:write": "管理全平台員工與任職資料",
+  "hr:office:read": "檢視 HR 出勤設定",
+  "hr:office:write": "管理辦公位置與員工辦公位置指派",
+  "hr:request:review": "審核 HR 表單",
+
   // 系統
   "admin:user:read": "檢視帳號",
   "admin:user:write": "邀請與停用帳號",
@@ -81,6 +88,7 @@ export const SYSTEM_ROLES = {
       "tools:cyberbiz-sales:run",
       "tools:shopee-sales:run",
       "reports:cyberbiz:read", "reports:cyberbiz:write",
+      "hr:request:review",
     ],
   },
   staff: {

@@ -23,6 +23,7 @@ import {
   authenticateWithPassword,
   findInvitation,
   loadAuthUser,
+  isHrEmployee,
   recordLogin,
   updateProfile,
 } from "@rueisiang/db";
@@ -49,10 +50,44 @@ function callbackUrl(requestUrl: string): string {
   return new URL(CALLBACK_PATH, requestUrl).toString();
 }
 
-/** returnTo 只接受站內路徑，避免被拿來做開放轉址。 */
-function safeReturnTo(value: string | undefined): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
-  return value;
+/** returnTo 只接受已設定的 app origin 或站內路徑，避免被拿來做開放轉址。 */
+function configuredAppOrigins(raw: string | undefined): string[] {
+  const configured = raw?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
+  return configured.length ? configured : [
+    "http://localhost:5173", "http://localhost:5174", "http://localhost:5175",
+    "http://localhost:5176", "http://localhost:5177", "http://localhost:5178", "http://localhost:5182",
+    "http://127.0.0.1:5173", "http://127.0.0.1:5174", "http://127.0.0.1:5175",
+    "http://127.0.0.1:5176", "http://127.0.0.1:5177", "http://127.0.0.1:5178", "http://127.0.0.1:5182",
+  ];
+}
+
+function safeReturnTo(value: string | undefined, configuredOrigins: string[]): string {
+  if (!value) return "/";
+  if (value.startsWith("/")) {
+    try {
+      // Parsing against a base also rejects backslash variants such as /\\evil,
+      // which browsers normalize into an external //evil redirect.
+      const base = new URL("https://rueisiang-return.invalid");
+      const target = new URL(value, base);
+      if (target.origin !== base.origin) return "/";
+      return `${target.pathname}${target.search}${target.hash}`;
+    } catch {
+      return "/";
+    }
+  }
+  try {
+    const target = new URL(value);
+    return configuredOrigins.includes(target.origin) ? target.toString() : "/";
+  } catch {
+    return "/";
+  }
+}
+
+function loginFailureUrl(returnTo: string | undefined, requestUrl: string, reason: string): string {
+  const target = returnTo?.startsWith("http") ? new URL("/login", returnTo) : new URL("/login", requestUrl);
+  target.searchParams.set("error", reason);
+  if (returnTo && returnTo !== "/") target.searchParams.set("returnTo", returnTo);
+  return target.toString();
 }
 
 /**
@@ -63,7 +98,7 @@ function safeReturnTo(value: string | undefined): string {
  * requireAuth，每次請求都回 DB 重讀。
  */
 async function issueSession(
-  c: { env: { AUTH_SESSION_SECRET: string }; header: (name: string, value: string, options?: { append?: boolean }) => void },
+  c: { env: { AUTH_SESSION_SECRET: string; AUTH_COOKIE_DOMAIN?: string }; header: (name: string, value: string, options?: { append?: boolean }) => void },
   user: { id: string; email: string; name?: string; pictureUrl?: string },
 ): Promise<void> {
   const session = await signSession(
@@ -75,7 +110,7 @@ async function issueSession(
     }),
     c.env.AUTH_SESSION_SECRET,
   );
-  c.header("Set-Cookie", serializeCookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_SECONDS }), {
+  c.header("Set-Cookie", serializeCookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_SECONDS, domain: c.env.AUTH_COOKIE_DOMAIN }), {
     append: true,
   });
 }
@@ -87,7 +122,7 @@ export const auth = new Hono<AppEnv>()
       state: randomToken(),
       nonce: randomToken(),
       verifier,
-      returnTo: safeReturnTo(c.req.query("returnTo")),
+      returnTo: safeReturnTo(c.req.query("returnTo"), configuredAppOrigins(c.env.AUTH_APP_ORIGINS)),
       expiresAt: Math.floor(Date.now() / 1000) + TRANSACTION_TTL_SECONDS,
     };
 
@@ -113,11 +148,9 @@ export const auth = new Hono<AppEnv>()
   })
 
   .get("/google/callback", async (c) => {
-    const failure = (reason: string) =>
-      c.redirect(`/login?error=${encodeURIComponent(reason)}`);
-
     const stored = readCookie(c.req.header("Cookie"), TRANSACTION_COOKIE);
     const transaction = await verifyPayload<OAuthTransaction>(stored, c.env.AUTH_SESSION_SECRET);
+    const failure = (reason: string) => c.redirect(loginFailureUrl(transaction?.returnTo, c.req.url, reason));
 
     // 不論成敗都先把一次性的交易 cookie 清掉。
     c.header("Set-Cookie", clearCookie(TRANSACTION_COOKIE, CALLBACK_PATH), { append: true });
@@ -173,7 +206,7 @@ export const auth = new Hono<AppEnv>()
       }),
       c.env.AUTH_SESSION_SECRET,
     );
-    c.header("Set-Cookie", serializeCookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_SECONDS }), {
+    c.header("Set-Cookie", serializeCookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_SECONDS, domain: c.env.AUTH_COOKIE_DOMAIN }), {
       append: true,
     });
 
@@ -181,7 +214,7 @@ export const auth = new Hono<AppEnv>()
   })
 
   .post("/logout", (c) => {
-    c.header("Set-Cookie", clearCookie(SESSION_COOKIE));
+    c.header("Set-Cookie", clearCookie(SESSION_COOKIE, "/", c.env.AUTH_COOKIE_DOMAIN));
     return c.json({ ok: true });
   })
 
@@ -281,7 +314,7 @@ export const auth = new Hono<AppEnv>()
   })
 
   /** 前端啟動時呼叫這一條決定 sidebar 顯示什麼。權限仍以每個 API 自己的檢查為準。 */
-  .get("/me", requireAuth, (c) => {
+  .get("/me", requireAuth, async (c) => {
     const user = c.get("user");
     return c.json({
       id: user.id,
@@ -291,5 +324,6 @@ export const auth = new Hono<AppEnv>()
       pictureUrl: user.pictureUrl,
       permissions: permissionsOf(user),
       roles: user.assignments.map((assignment) => assignment.roleKey),
+      isEmployee: await isHrEmployee(c.get("db"), user.id),
     });
   });

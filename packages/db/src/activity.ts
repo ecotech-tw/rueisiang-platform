@@ -16,6 +16,7 @@ import { activityEvents } from "./schema/activity.js";
  */
 export type ActivityEntityType =
   | "customer"
+  | "hr_personnel"
   | "wms_zone"
   | "item"
   | "product_category"
@@ -34,7 +35,7 @@ export type ActivityEntityType =
  * cyberbiz 拆成 webhook 與 sync 兩種：一個是官網即時推過來的，一個是我們主動
  * 去拉的。排查「這筆資料怎麼變成這樣」時，這兩者的意義完全不同。
  */
-export type ActivitySource = "crm" | "wms" | "cyberbiz_webhook" | "cyberbiz_sync" | "reports";
+export type ActivitySource = "crm" | "wms" | "cyberbiz_webhook" | "cyberbiz_sync" | "reports" | "hr";
 
 export interface ActivityInput {
   entityType: ActivityEntityType;
@@ -145,7 +146,8 @@ export interface ActivityResult {
  * 從畫面上消失，等於「刪掉一個客戶」這件事本身也查不到了。
  */
 export async function listActivity(db: Database, query: ActivityQuery): Promise<ActivityResult> {
-  const conditions: SQL[] = [];
+  // 人事紀錄不可由共用操作紀錄 helper 回傳；若要看 HR 稽核，必須走獨立授權查詢入口。
+  const conditions: SQL[] = [sql`${activityEvents.source} <> 'hr'`];
   if (query.entityType) conditions.push(eq(activityEvents.entityType, query.entityType));
   if (query.entityTypes?.length) {
     conditions.push(inArray(activityEvents.entityType, [...query.entityTypes]));

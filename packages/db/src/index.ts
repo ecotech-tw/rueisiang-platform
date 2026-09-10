@@ -1,5 +1,19 @@
 export { createDatabase, type Database } from "./client.js";
 export {
+  checkHrClockLocation, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent, endHrAttendanceLocationAssignment,
+  getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation,
+} from "./hr-attendance.js";
+export {
+  createHrFormRequest, getHrFormRequest, listHrFormApprovers, listHrFormRequests, reviewHrFormRequest,
+  submitHrFormRequest, updateHrFormRequest,
+  type HrFormRequestEventKind, type HrFormRequestInput, type HrFormRequestStatus,
+} from "./hr-requests.js";
+export {
+  HrError, assignHrEmployee, createHrAssignment, createHrEmployment,
+  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, isHrEmployee, listHrCandidates, listHrEmployees, listHrScopes, listHrSupervisorCandidates,
+  updateHrEmployee, updateHrEmployeeSupervisor,
+} from "./hr-people.js";
+export {
   createAssistantPromptRevision,
   appendAssistantSandboxMessage,
   closeAssistantSandboxSession,

@@ -1,22 +1,22 @@
 # HR 系統設計
 
-本文是尚未實作的設計，不代表已有 HR 功能或已通過法遵審查。待辦唯一來源為 [README 下一步](../README.md#下一步)；開發操作依 [development-workflow](./development-workflow.md)。
+本文定義 HR 擴充的領域邊界，不代表已通過法遵審查。人事基礎的實際欄位以 [hr-people schema](../packages/db/src/schema/hr-people.ts) 為準，API 與並行規則以 [hr-people service](../packages/db/src/hr-people.ts) 為準。待辦唯一來源為 [README 下一步](../README.md#下一步)；開發操作依 [development-workflow](./development-workflow.md)。
 
 ## 一、邊界與依賴
 
-HR 提供員工入口、排班、打卡、請假／加班、績效分配、審核與薪資結帳。沿用單一 Worker、D1、Drizzle、登入、Material 3 UI 與權限目錄，不新增第二套員工登入、櫃點目錄或 SQL 方言。
+HR 提供員工入口、排班、打卡、請假／加班、績效分配、審核與薪資結帳。資料與 API 沿用 D1、Drizzle、登入、Material 3 UI 與權限目錄；員工本人介面由 `apps/hr` 建置成獨立前端，管理介面留在 `apps/portal`，兩者共用 `apps/api`。辦公位置是獨立於報表 scope 的 geolocation 設定目錄，不新增第二套員工登入或 SQL 方言。
 
 | 既有來源 | 整合方式與影響 |
 |---|---|
-| `packages/db/src/schema/auth.ts` 的 `users` | 員工可綁定帳號；帳號停權即時禁止操作，離職與帳號停權不是同一狀態 |
-| `packages/db/src/schema/reports.ts` 的 `scopes` | 排班、任職與獎金使用其 ID；HR 適用性另以關聯設定，不改報表通路語意 |
+| `packages/db/src/schema/auth.ts` 的 `users` | 平台使用者是員工身分來源；被指派後以 `user_id` 關聯，帳號停權即時禁止操作，離職與帳號停權不是同一狀態 |
+| `packages/db/src/schema/reports.ts` 的 `scopes` | 報表、排班與營運歸屬使用其 ID；HR 員工 scope 指派不改報表通路語意，出勤 geolocation 規則另由 HR 出勤設定中的辦公位置管理 |
 | `report_payout_daily`、`report_item_sales_monthly` | 僅為可選業績來源；出金不自動等於營業額，商品月報不能推出個人業績 |
 | `activityEvents`／`recordActivity()` | 沿用操作索引；擴充型別與 HR 可見性，敏感明細留在 HR 授權路徑 |
 | `packages/auth/src/permissions.ts` | 權限鍵唯一來源；DB permission 表仍只是鏡像 |
 | `apps/api/src/routes/cyberbiz-reports-mcp.ts` | 現有唯讀 MCP 不是 HR 寫入授權；未來另接具備員工身分的 adapter |
 | `apps/api/src/local-d1/d1.ts` | 本機與測試沿用同一 D1 介面，不新增另一個 SQLite 模擬器 |
 
-業務與查詢放 `packages/db/src/hr-*.ts`；schema 依人事、出勤、薪資等穩定邊界放 `schema/hr-*.ts` 並由 `schema/index.ts` 匯出。API 負責解析、驗權與回應，portal 不自行計算正式薪資。純計算函式與資料載入分離以便測試，不另引入通用規則框架。
+業務與查詢放 `packages/db/src/hr-*.ts`；schema 依人事、出勤、薪資等穩定邊界放 `schema/hr-*.ts` 並由 `schema/index.ts` 匯出。API 負責解析、驗權與回應，前端 app 不自行計算正式薪資。純計算函式與資料載入分離以便測試，不另引入通用規則框架。
 
 ## 二、先決制度與產品決策
 
@@ -24,14 +24,14 @@ HR 提供員工入口、排班、打卡、請假／加班、績效分配、審�
 
 | 決策 | 影響／未確認時的邊界 |
 |---|---|
-| 員工數、雇主法人、同時多份聘僱 | 決定結算與投保歸屬；提案以獨立 employer 建模，即使只有一家也用真實一列，不以 scope 代替法人 |
+| 員工數、是否多法人、同時多份聘僱 | 第一版員工直接來自既有 `users`，不新增雇主建檔或帳號綁定；若未來真的有多法人，再以薪資／投保需求新增法人實體，不讓 scope 代替法人 |
 | 月／日／時薪及年資認列 | 薪資版本、到離職、復職、假別額度 |
 | 工時制度、跨夜、分段班、休息時間 | 班次規則與法遵檢查；不預設已取得變形工時必要程序 |
 | 10:30～19:30 為 50% 日薪的意義 | 時段與給薪係數分離；未確認合法計薪方式前不開放此係數用於正式結帳 |
 | 團體業績來源、退貨／負值、個人業績歸屬 | 不以出金或零值默認替代；第一版可人工匯入經核准的業績 |
 | 獎金保底、月中到離職、跨櫃與權重 | 預設提案是扣除門檻後非負池、固定權重；是否按出勤比例仍需批准 |
 | 發薪日、出勤結算區間、投保／扣繳 | 結算期不必等於曆月；投保與薪資所屬期分開 |
-| GPS、指定網路、設備限制 | 初版網站打卡是否僅需登入；不在未告知員工下蒐集位置 |
+| GPS、指定網路、設備限制 | 初版由辦公位置設定是否必須 geolocation 與允許半徑；本人打卡頁載入時嘗試取得瀏覽器定位並做預檢，伺服器以請求時位置重新計算，拒絕 GPS 不得打卡；座標不出現在一般出勤列表 |
 | 自審例外、薪資覆核與匯出權限 | 原則禁止自審，例外必須顯式授權及留理由 |
 
 法遵由當期勞動部、勞保局、健保署及必要的財稅官方資料確認，並由雇主人資／勞務顧問核定。規則版本需保存來源 URL、適用日期、確認者；本文件不聲稱已查核最新費率或已符合勞基法。至少涵蓋最低工資、工時／休息／例休假、各類加班、法定假別、特休與補休、勞就職保／健保／勞退、扣繳及保存期限。公司政策可優於法定條件，不能讓任意係數繞過法定下限。
@@ -40,11 +40,12 @@ HR 提供員工入口、排班、打卡、請假／加班、績效分配、審�
 
 ```mermaid
 erDiagram
-  users ||--o| hr_employees : account
+  users ||--|| hr_employees : employee
   hr_employees ||--o{ hr_employments : employment
-  hr_employers ||--o{ hr_employments : employer
   hr_employments ||--o{ hr_employee_scopes : assignment
-  scopes ||--o{ hr_employee_scopes : location
+  scopes ||--o{ hr_employee_scopes : report_location
+  hr_employments ||--o{ hr_employee_attendance_locations : attendance_assignment
+  hr_attendance_locations ||--o{ hr_employee_attendance_locations : location
   hr_employments ||--o{ hr_compensation_versions : salary
   hr_employments ||--o{ hr_insurance_versions : insurance
   hr_shift_templates ||--|{ hr_shift_versions : revision
@@ -65,7 +66,7 @@ erDiagram
   hr_payslips ||--o{ hr_payslip_lines : detail
 ```
 
-ERD 省略審核、附件與快照明細關係；以下資料字典才是候選表的完整邊界。實作階段新增的具體欄位與 SQL 約束以 Drizzle schema 為唯一來源，不能另維護平行建表 SQL。
+ERD 省略審核、附件與快照明細關係；以下資料字典描述後續領域的表邊界。已落地的具體欄位與 SQL 約束以 Drizzle schema 為唯一來源，不能另維護平行建表 SQL。
 
 ## 四、SQL 共通契約
 
@@ -81,14 +82,24 @@ ERD 省略審核、附件與快照明細關係；以下資料字典才是候選�
 
 ### 4.1 人事、範圍與規則
 
+人事基礎使用 `users.id` 作為 `hr_employees.user_id` 的主鍵與外鍵，不再複製姓名，也不新增雇主或帳號綁定表。其他實體使用 text ID、RESTRICT 外鍵、revision 與半開日期區間。`ended_on` 表示不再任職的第一天，不是最後出勤日。復職新增任職，結束任職前先結束超出期間的櫃點與辦公位置指派；同一使用者的任職期間不可重疊。
+
+員工指派與全平台人事讀寫是獨立明確權限，不預設授予現有主管／同仁角色；員工指派直接選現有 user，完成後該 user 由 session 身分取得本人入口，不需要另一個本人讀取權限。櫃點指派只是工作歸屬，不能當作管理授權。不存在或已是員工的 user 不可重複指派；離職不自動停權，帳號停權也不刪歷史。
+
+基礎指派與結束入口不提供刪除或覆寫已結束期間；正式審核修訂與未來法人／薪資設定依下列擴充設計處理。platform 的 `/hr/employees` 不提供打卡、排班或薪資計算；hr app 的 `/clock` 提供本人打卡日曆與打卡入口，`/forms` 提供補打卡申請，`/profile` 顯示本人資料，打卡事件仍由後端依伺服器時間與辦公位置規則判定。主管審核與其他管理入口留在 platform。
+
 | 表 | 專屬欄位與關聯 | SQL 約束／主要索引 |
 |---|---|---|
-| `hr_employers` | `name, registration_number?, active` | 統編非空唯一；active 為 0/1 |
-| `hr_employees` | `employee_number, display_name, user_id? → users` | 員工編號唯一、非空 user 唯一 |
-| `hr_employments` | `employee_id, employer_id, hired_on, ended_on?, seniority_start_on` | 日期有效；索引 employee + hired_on |
-| `hr_employee_scopes` | `employment_id, scope_id, valid_from, valid_to?` | 唯一 employment + scope + valid_from；scope + valid_from 索引 |
+| `hr_employees` | `user_id → users.id`、`employee_number`、`supervisor_user_id? → users.id` | user_id PK/FK；員工編號唯一、非空；主管由後台指派且不得為本人 |
+| `hr_employments` | `employee_user_id → hr_employees.user_id`、`hired_on, ended_on?, seniority_start_on` | 日期有效；同 user 的任職期間不可重疊；索引 user + hired_on |
+| `hr_employee_scopes` | `employment_id`、`scope_id → scopes.id`、`valid_from, valid_to?` | 報表／營運 scope 的任職歸屬；期間不可重疊；scope + valid_from 索引 |
+| `hr_attendance_locations` | `name, geolocation_required, latitude_e7?, longitude_e7?, radius_meters` | 辦公位置名稱唯一；定位開啟時座標成對且有效；半徑 1～10000 公尺 |
+| `hr_employee_attendance_locations` | `employment_id → hr_employments.id`、`location_id → hr_attendance_locations.id`、`valid_from, valid_to?` | RESTRICT 外鍵；期間半開；同一辦公位置的期間不可重疊，同一段任職可同時指派多個辦公位置 |
+
+出勤設定頁透過後端 Google Maps Places API（Text Search）搜尋地點，管理者直接選取結果後由系統帶入座標；本人打卡頁由 `apps/hr` 使用開源 MapLibre GL JS 搭配 OpenFreeMap 向量圖磚，套用品牌 style JSON，支援拖曳與手勢縮放且不顯示地圖工具按鈕。圖磚服務需保留 OpenFreeMap／OpenStreetMap attribution；MapLibre 本身不代表圖磚服務永久沒有流量限制。若向量圖磚載入失敗，才退回由 Worker 代理的 Static API 圖片。Worker 的 Places／Static 金鑰只放 secret；前端不需要 Google Maps JavaScript 瀏覽器金鑰。正式環境仍需設定 `GOOGLE_MAPS_API_KEY`、Places API (New) 與 Maps Static API；若改用自建 MapLibre style，只需覆寫 `VITE_MAPLIBRE_STYLE_URL`。
+
 | `hr_management_scopes` | `user_id, scope_id` | 複合 PK；只授予範圍，不自行授予功能權限 |
-| `hr_work_rule_versions` | `employer_id, version_number, valid_from, valid_to?, rule_kind, source_url, confirmed_by` | 唯一 employer + version_number；允許的 rule_kind CHECK |
+| `hr_work_rule_versions` | `employer_id, version_number, valid_from, valid_to?, rule_kind, source_url, confirmed_by` | 未來多法人定案後才加入；唯一 employer + version_number；允許的 rule_kind CHECK |
 | `hr_compensation_versions` | `employment_id, version_number, valid_from, valid_to?, pay_basis, base_amount_minor, work_rule_version_id` | 唯一 employment + version_number；pay_basis 為 month/day/hour，金額非負 |
 | `hr_pay_components` | `code, name, direction, treatment_code` | code 唯一；earning/deduction/employer_cost；treatment 對應受控法遵分類，不以名稱判斷工資 |
 | `hr_compensation_components` | `compensation_version_id, pay_component_id, amount_minor` | 複合 PK；金額非負 |
@@ -109,7 +120,8 @@ ERD 省略審核、附件與快照明細關係；以下資料字典才是候選�
 | `hr_schedule_versions` | `employer_id, period_start, period_end, version_number, status, supersedes_id? → 同表, submitted_by?, approved_by?, decision_reason?` | 唯一 employer + period_start + period_end + version；狀態 CHECK |
 | `hr_schedule_entries` | `schedule_version_id, employment_id, scope_id, shift_version_id, work_date, starts_at, ends_at` | 結束大於開始；索引 employment + work_date、scope + work_date |
 | `hr_clock_sources` | `source_kind, source_key, active` | 唯一 kind + key；portal/rfid/line/manual |
-| `hr_clock_events` | `employee_id, scope_id?, source_id, external_event_id, occurred_at, received_at, event_kind` | 唯一 source + external_event；索引 employee + occurred_at；未知進出可用 observation |
+| `hr_clock_events` | `employee_user_id, employment_id, attendance_location_id?, source_kind, idempotency_key, event_kind, latitude_e7?, longitude_e7?, distance_meters?, occurred_at, received_at` | Portal idempotency key 唯一；索引 employee_user_id + occurred_at；事件不可覆寫；事件時間存 UTC，顯示轉 Asia/Taipei；定位開啟時保存當次距離 |
+| `hr_form_requests` | `employee_user_id, employment_id, form_kind, status, correction_date, requested_event_kind, requested_at, reason, approver_user_id?, submitted_at, reviewed_at, review_comment?` | 目前只開放補打卡；草稿／申請中／已核准／已駁回；審核者預設取員工主管；補打卡時間存 UTC；送出後不可由申請人修改 |
 | `hr_clock_correction_requests` | `employment_id, schedule_entry_id?, original_event_id?, proposed_at, proposed_kind, reason, status, submitted_by, reviewed_by?, reviewed_at?, decision_reason?` | 狀態 CHECK；索引 employment + status |
 | `hr_attendance_runs` | `employer_id, period_start, period_end, input_revision, engine_version, status, request_id` | request 唯一；狀態 CHECK |
 | `hr_attendance_results` | `attendance_run_id, schedule_entry_id, worked_seconds, late_seconds, early_seconds, missing_kind, status` | 唯一 run + entry；秒數非負 |
@@ -210,15 +222,19 @@ ERD 省略審核、附件與快照明細關係；以下資料字典才是候選�
 
 ## 六、入口、權限與私密資料
 
-候選權限目錄在功能 PR 才加入程式碼，不現在同步 permissions 表。
+以下只定義後續功能的授權契約；正式權限以 `permissions.ts` 為唯一來源。人事基礎使用 `hr:employee:read`、`hr:employee:write`，本人入口只要求登入且由 `users.id → hr_employees.user_id` 判定，不新增或同步另一個本人讀取權限。API 只允許 `AUTH_APP_ORIGINS` 列出的前端 origin；正式環境 session cookie 使用 `.rueisiang.com`，帶 session 的寫入請求必須有核准的 Origin 或 Referer。
 
 | API／UI 契約（候選） | 權限 | 資料範圍與驗證 |
 |---|---|---|
-| `/api/hr/me`、`/me/schedule`、`/me/attendance` | `hr:self:read` | 只由 session user 解析 employee，不接受代指定本人 ID |
-| `POST /api/hr/me/clock-events` | `hr:clock:create` | 現行任職、伺服器時間、idempotency key；網站不允許回填時間 |
+| `/api/hr/me`、`/me/clock-events`、`/me/schedule`、`/me/attendance` | 僅需登入／未來依功能要求 | 只由 session user 解析 employee，不接受代指定本人 ID |
+| `/api/hr/candidates`、`/employees` POST | `hr:employee:write` | 從既有 users 選取；不得任意建立第二個人員身分 |
+| `GET /api/hr/me/attendance-calendar`、`/attendance-location/check`、`/attendance-map/locations`、`/attendance-map` | 僅需登入且必須是本人 | 日曆依有效任職與目前週一至週五基準標示未打卡日；定位檢查由伺服器重新計算，任一指派辦公位置在半徑內即可打卡；地圖座標供 hr app 的 MapLibre／OpenFreeMap 使用，圖磚載入失敗時由 Worker 代理 Static API 圖片 |
+| `POST /api/hr/me/clock-events` | 僅需登入且必須有現行任職 | 伺服器產生事件時間與上下班 kind；使用 idempotency key；定位開啟時由伺服器檢查距離，網站不允許回填時間 |
+| `/api/hr/me/form-requests` | 僅需登入且必須是本人；審核路徑限指定審核者或 `hr:request:review` | 補打卡申請可存草稿、送出與查詢狀態；審核者填寫意見後核准或駁回 |
 | `/api/hr/me/leave-requests`、`/overtime-requests`、`/clock-corrections` | `hr:request:create` | 本人；申請可表達歷史時間但需審核 |
 | `/api/hr/employees` | `hr:employee:read/write` | 此表記法代表各自 read、write 鍵；薪資與私密欄位另驗權 |
 | `/api/hr/schedules`、`/:id/publish` | `hr:schedule:write/approve` | 功能權限 AND hr_management_scopes；同時驗 employer 邊界 |
+| `/api/hr/attendance-settings/locations`、`/places`、`/employments/:id/attendance-location`、`/employees/:id/supervisor` | `hr:office:read/write` 或 `hr:employee:write` | 管理出勤設定中的辦公位置與員工主管；Places 搜尋與座標選取限管理權限；員工辦公位置與主管都從員工管理建立，不因指派取得管理權限 |
 | `/api/hr/attendance`、申請 `/:id/review` | `hr:attendance:read/approve` | 授權範圍及不可自審；請假私密附件不隨全櫃點可讀 |
 | `/api/hr/bonus-pools` | `hr:bonus:write/approve` | 來源與參與範圍；改政策不等於批准獎金 |
 | `/api/hr/compensation`、`/insurance` | `hr:compensation:read/write` | 人資／薪資專權，不繼承排班權限 |
@@ -228,9 +244,9 @@ ERD 省略審核、附件與快照明細關係；以下資料字典才是候選�
 
 跨法人管理不以空 scope 表示全權；具體 employer 授權表需與法人制度一同定案。API 列表、單筆、批次、匯出、附件皆實施相同範圍判斷，權限每請求依現有授權機制重讀。
 
-Portal 沿用 M3 元件，提供手機打卡與班表、週／月員工×日期快速排班、多格套班、差異審核、出勤異常列表與逐項可展開薪資單。AI／Excel 排班輸入先存草稿、來源附件與不確定欄位，經人類發布才生效。
+platform 沿用 M3 元件，提供 HRIS 管理功能與辦公位置設定；員工本人介面獨立部署在 `hr.rueisiang.com`，以手機 App 形式提供表單申請、置中的打卡日曆與個人資訊。打卡首頁載入時即嘗試取得瀏覽器定位，伺服器仍是範圍判斷的最終來源；補打卡表單可存草稿並追蹤申請中、已核准、已駁回。AI／Excel 排班輸入先存草稿、來源附件與不確定欄位，經人類發布才生效。platform 的帳號選單提供「我的人事資料」連到 HR app。
 
-RFID 簽章、防重送、設備綁定與撤銷；LINE 透過可信 channel 身分綁定員工，不信任模型傳來的 employee_id。小香專屬整合資料同時含 assistantKey 與 channelKey 並引用 channel 主鍵。模型不能直接結帳或核准自己的代送申請。離線裝置事件同時保留 occurred_at／received_at，超出可信時間窗口轉待確認，不當即時網站打卡。
+RFID 簽章、防重送、設備綁定與撤銷；LINE 透過可信 channel 身分解析既有 `user_id`／員工，不信任模型傳來的 employee_user_id。小香專屬整合資料同時含 assistantKey 與 channelKey 並引用 channel 主鍵。模型不能直接結帳或核准自己的代送申請。離線裝置事件同時保留 occurred_at／received_at，超出可信時間窗口轉待確認，不當即時網站打卡。
 
 薪資、身分證、銀行帳號、請假證明不得進通用可見的 audit payload、錯誤或公開媒體 URL。快取按授權隔離；私密下載須短效／不可公開快取。資料留存、刪除申請、備份存取與法定保存年限以正式核定制度設定，不能把帳號刪除 cascade 成出勤／工資紀錄刪除。
 
@@ -240,8 +256,8 @@ RFID 簽章、防重送、設備綁定與撤銷；LINE 透過可信 channel 身�
 
 | 切片 | 交付邊界 | 進入下一階段的證據 |
 |---|---|---|
-| 設計 | ERD、資料字典、權限、制度問題與案例 | 人類確認制度、schema review 找出不變量與關鍵 query；無 migration |
-| 員工基礎 | employer／員工／任職／scope 與本人授權，service/API/UI/tests | 未開帳號可建檔、復職保留歷史、停權及跨員工越權測試 |
+| 設計 | ERD、資料字典、權限、制度問題與案例 | 人類確認制度、schema review 找出不變量與關鍵 query |
+| 員工基礎 | 從既有 users 指派員工、任職／復職、櫃點歸屬與本人入口 | 不重複指派、任職不重疊、停用保留歷史、本人只能看 session 對應資料 |
 | 排班 | 班次版本、快速排班、送審／發布 | 跨櫃衝突、分段／跨夜、同時發布、已發布不可覆寫 |
 | 打卡出勤 | 網站事件、補卡、異常、出勤計算 | 單卡、重送、跨夜歸屬、休息、無班打卡、補卡後重算 |
 | 假別加班 | 申請、額度、補休、特殊日 | 並行超用、撤回退額度、法定案例、颱風排班資格凍結 |
@@ -264,6 +280,6 @@ RFID 簽章、防重送、設備綁定與撤銷；LINE 透過可信 channel 身�
 
 ### 部署與回復設計
 
-程式 PR 執行相關 typecheck、test、build，CI 驗證部署設定；不在本機執行 wrangler。新 schema 優先 additive，入口按切片開放，禁止未完成計薪規則直接正式發薪。部署前按既有部署能力準備可恢復資料保護並確認回復責任人，不在本設計假定某個備份服務已開通。
+程式 PR 執行相關 typecheck、test、build，CI 驗證 API Worker 與 HR 靜態 Worker 的部署設定；不在本機執行 wrangler。`platform.rueisiang.com` 維持 API／platform 靜態資產同 Worker，`hr.rueisiang.com` 由 `apps/hr/wrangler.toml` 獨立部署，build 時以 `HR_API_BASE_URL` 指向共用 API。新 schema 優先 additive，入口按切片開放，禁止未完成計薪規則直接正式發薪。部署前按既有部署能力準備可恢復資料保護並確認回復責任人，不在本設計假定某個備份服務已開通。
 
 上線 smoke 使用核准測試員工／資料，驗證本人打卡、跨員工拒絕、主管審核、薪資私密性及稽核；結果留 PR／部署紀錄，不能以本機 fixture 宣稱實機通過。回復優先停用新入口與回退相容程式，保留新增歷史表；寫入錯誤走修復／調整，不刪 HR 表回滾。migration 與 Worker 部署失敗分別判斷，不假設程式回退會回退資料。

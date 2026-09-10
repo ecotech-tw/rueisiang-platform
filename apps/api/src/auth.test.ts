@@ -1,4 +1,4 @@
-import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
+import { SESSION_COOKIE, newSessionClaims, readCookie, signSession, verifyPayload } from "@rueisiang/auth";
 import { createDatabase, recordLogin, syncSystemRoles } from "@rueisiang/db";
 import { users, userRoleAssignments } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
@@ -46,6 +46,49 @@ describe("/api/health", () => {
     const response = await call("/api/health");
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ status: "ok", database: "ok" });
+  });
+
+  it("允許 HR app 的跨來源預檢請求", async () => {
+    const response = await call("/api/auth/me", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:5176",
+        "Access-Control-Request-Method": "GET",
+      },
+    });
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5176");
+    expect(response.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+  });
+
+  it("拒絕未列入設定的跨來源請求", async () => {
+    const response = await call("/api/auth/me", {
+      headers: { Origin: "https://evil.example" },
+    });
+    expect(response.status).toBe(403);
+  });
+
+  it("正式環境的 session 寫入請求必須帶來源", async () => {
+    env = {
+      ...env,
+      AUTH_COOKIE_DOMAIN: ".rueisiang.com",
+      AUTH_APP_ORIGINS: "https://platform.rueisiang.com,https://hr.rueisiang.com",
+    };
+    const response = await call("/api/auth/logout", {
+      method: "POST",
+      headers: { Cookie: await sessionCookie("user-csrf", "csrf@ecotech.tw") },
+    });
+    expect(response.status).toBe(403);
+  });
+
+  it("OAuth returnTo 會拒絕瀏覽器可正規化成外部網址的反斜線路徑", async () => {
+    const response = await call(`/api/auth/google/start?returnTo=${encodeURIComponent("/\\\\evil")}`);
+    const transaction = await verifyPayload<{ returnTo: string; expiresAt: number }>(
+      readCookie(response.headers.get("Set-Cookie"), "rueisiang_oauth"),
+      SECRET,
+    );
+    expect(response.status).toBe(302);
+    expect(transaction?.returnTo).toBe("/");
   });
 });
 

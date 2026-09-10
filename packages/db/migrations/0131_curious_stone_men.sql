@@ -1,0 +1,2 @@
+DROP INDEX `idx_hr_employee_attendance_locations_start`;--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_hr_employee_attendance_locations_start` ON `hr_employee_attendance_locations` (`employment_id`,`location_id`,`valid_from`);

@@ -1,0 +1,58 @@
+@import "tailwindcss";
+@import "./styles/components.css" layer(components);
+
+@theme {
+  --color-brand: #d5383b;
+  --color-brand-dark: #ad282c;
+  --color-brand-soft: #fbe8e5;
+  --color-secondary: #d4958c;
+  --color-ink: #351c1d;
+  --color-muted: #806c69;
+  --color-line: #ead8d4;
+  --color-soft-line: #f1e7e4;
+  --color-paper: #fffefd;
+  --color-canvas: #fbf7f5;
+  --color-ok: #2f6b45;
+  --color-ok-soft: #e8f3ec;
+  --color-info: #2f4d86;
+  --color-info-soft: #eaf0fb;
+  --color-warn: #93621f;
+  --color-warn-soft: #fff3d9;
+  --color-tone-rose: #b3474b;
+  --color-tone-sky: #2f6087;
+  --color-tone-mint: #2f6b52;
+  --color-tone-amber: #93621f;
+  --color-tone-violet: #6a4a8c;
+  --color-tone-teal: #2b6a6b;
+  --color-tone-peach: #a55b3c;
+  --color-tone-slate: #55606e;
+  --color-tone-lime: #566b26;
+  --color-tone-sand: #7d6540;
+  --radius-card: 14px;
+  --radius-field: 9px;
+  --size-field: 44px;
+  --shadow-panel: 0 18px 45px rgba(96, 55, 48, .09);
+  --font-sans: Inter, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+}
+
+@layer base {
+  html, body, #root { min-height: 100%; }
+
+  html:has(.shell),
+  body:has(.shell),
+  #root:has(.shell) {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  button { cursor: pointer; }
+  code { font-size: 12px; }
+  h1, h2, h3 { font-weight: 700; }
+}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Outlet } from "react-router";
+import { Outlet, useLocation } from "react-router";
 import { logout, useSession } from "../auth/session.js";
 import { Sidebar } from "./Sidebar.js";
 import { ToastProvider } from "./Toast.js";
@@ -8,6 +8,7 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, permissions } = useSession();
+  const isHrModule = useLocation().pathname.startsWith("/hr");
 
   const shellClass = [
     "shell",
@@ -22,7 +23,10 @@ export function AppShell() {
     <div className={shellClass}>
       {/* 手機上 sidebar 收成抽屜，靠這條上方列開關——沿用 CRM 的作法。 */}
       <header className="mobile-topbar">
-        <img src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" />
+        <div className="mobile-topbar-brand">
+          <img src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" />
+          {isHrModule ? <strong>HRIS</strong> : null}
+        </div>
         <button
           type="button"
           onClick={() => setMobileMenuOpen((open) => !open)}
