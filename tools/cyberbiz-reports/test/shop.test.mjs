@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeZipEntries } from "../payout/parser.mjs";
-import { statementAmountFromText, statementPeriodFromText } from "../lib/cyberbiz.mjs";
+import { loginOptions, statementAmountFromText, statementPeriodFromText } from "../lib/cyberbiz.mjs";
 import { parseShopReport } from "../shop/parser.mjs";
 
 function inlineCell(ref, value) {
@@ -241,4 +241,35 @@ test("卡片文字：金額帶小數時要跟檔案端同樣四捨五入", () =>
   assert.equal(statementAmountFromText("撥款金額 ? NT$64,559.60 帳款已確認"), 64560);
   assert.equal(statementAmountFromText("撥款金額 ? NT$64,559.40 帳款已確認"), 64559);
   assert.equal(statementAmountFromText("撥款金額 ? NT$1,247.83 帳款已確認"), 1248);
+});
+
+/*
+ * 登入參數組出來的形狀。
+ *
+ * 這幾條是補一次真的壞掉的執行：官網 driver 自己抄了一份 login 參數，抄錯兩個地方
+ * ——twoFactor 讀了不存在的 env.CYBERBIZ_2FA（TypeError，整個 workflow 紅），
+ * gmailToken 直接給了 refresh token（Gmail API 要 access token，只有後台剛好要求
+ * 2FA 的那一次才會炸）。三支 driver 現在共用 loginOptions，這裡守住它的輸出。
+ */
+test("loginOptions：三支 driver 共用同一份登入參數", () => {
+  const env = { CYBERBIZ_USERNAME: "u@example.com", CYBERBIZ_PASSWORD: "pw", GMAIL_REFRESH_TOKEN: "refresh" };
+  const config = { cyberbizOrigin: "https://example.cyberbiz.co", twoFactor: { gmailSearch: "q", codePattern: "\d{6}" } };
+
+  assert.deepEqual(loginOptions({ env, config, gmailToken: "access-token" }), {
+    origin: "https://example.cyberbiz.co",
+    username: "u@example.com",
+    password: "pw",
+    // 這裡一定是換過的 access token，不是 env.GMAIL_REFRESH_TOKEN。
+    gmailToken: "access-token",
+    twoFactor: { gmailSearch: "q", codePattern: "\d{6}" },
+  });
+});
+
+test("loginOptions：config 少東西就當場說清楚，不要等到 2FA 才 TypeError", () => {
+  const env = { CYBERBIZ_USERNAME: "u", CYBERBIZ_PASSWORD: "p" };
+  assert.throws(() => loginOptions({ env, config: {}, gmailToken: null }), /cyberbizOrigin/);
+  assert.throws(
+    () => loginOptions({ env, config: { cyberbizOrigin: "https://x" }, gmailToken: null }),
+    /twoFactor/,
+  );
 });

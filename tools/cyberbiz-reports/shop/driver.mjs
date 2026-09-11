@@ -31,7 +31,7 @@ import {
   skillPath,
 } from "../lib/common.mjs";
 import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
-import { downloadStatement, listStatements, login, openStatementCenter } from "../lib/cyberbiz.mjs";
+import { downloadStatement, listStatements, login, loginOptions, openStatementCenter } from "../lib/cyberbiz.mjs";
 import { accessToken } from "../lib/drive.mjs";
 import { uploadXlsx } from "../lib/drive.mjs";
 import { parseShopReport } from "./parser.mjs";
@@ -126,13 +126,15 @@ async function main() {
   const skipped = [];
   try {
     const page = await newPage(context);
-    await login(page, {
-      origin: config.cyberbizOrigin,
-      username: env.CYBERBIZ_USERNAME,
-      password: env.CYBERBIZ_PASSWORD,
-      gmailToken: env.GMAIL_REFRESH_TOKEN,
-      twoFactor: env.CYBERBIZ_2FA,
-    });
+    /*
+     * 2FA 的驗證碼要去 Gmail 讀，而 Gmail API 收的是**換過的 access token**，
+     * 不是 .env 裡那顆 refresh token。沒有 GMAIL_REFRESH_TOKEN 時傳 null 就好：
+     * 後台記得這台裝置的話根本不會問驗證碼，不該因為沒設信箱就不給跑。
+     */
+    const gmailToken = env.GMAIL_REFRESH_TOKEN
+      ? await accessToken({ ...env, GOOGLE_REFRESH_TOKEN: env.GMAIL_REFRESH_TOKEN })
+      : null;
+    await login(page, loginOptions({ env, config, gmailToken }));
     log(`登入完成，抓 ${startMonth} ~ ${endMonth} 的對帳單`);
 
     await openStatementCenter(page, { origin: config.cyberbizOrigin, startMonth, endMonth, log });

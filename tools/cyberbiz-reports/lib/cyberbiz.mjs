@@ -69,6 +69,29 @@ function monthKeyOf(iso) {
 }
 
 /**
+ * 三支 driver 登入後台要的東西，組在同一個地方。
+ *
+ * 為什麼要這個函式：官網那支自己抄了一份，抄錯兩個地方——`twoFactor` 讀了不存在的
+ * `env.CYBERBIZ_2FA`（正確來源是 config.json），`gmailToken` 直接給了 refresh token
+ * （Gmail API 要的是換過的 access token）。兩個都是要等真的跑到才會炸，而且第二個
+ * 只有在後台剛好要求 2FA 那一次才會炸。三份手抄的設定就是會這樣漂掉。
+ *
+ * gmailToken 由呼叫端傳進來：出金與商品銷售本來就要用同一顆 token 去收信抓附件，
+ * 在這裡再換一次是多打一趟 Google。
+ */
+export function loginOptions({ env, config, gmailToken }) {
+  if (!config?.cyberbizOrigin) throw new Error("config.json 缺少 cyberbizOrigin。");
+  if (!config?.twoFactor) throw new Error("config.json 缺少 twoFactor（2FA 的信件查詢條件）。");
+  return {
+    origin: config.cyberbizOrigin,
+    username: env.CYBERBIZ_USERNAME,
+    password: env.CYBERBIZ_PASSWORD,
+    gmailToken,
+    twoFactor: config.twoFactor,
+  };
+}
+
+/**
  * 登入 CYBERBIZ 後台。已登入就直接回傳。
  * 2FA：送出帳密後若出現驗證碼欄位，從 Gmail 分頁讀取驗證碼填入。
  * 驗證碼與密碼都不會被回傳或寫進 log。

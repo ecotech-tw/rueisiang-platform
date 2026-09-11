@@ -29,7 +29,7 @@ import {
   skillPath,
 } from "../lib/common.mjs";
 import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
-import { exportPayoutReport, listStores, login, resolveStore } from "../lib/cyberbiz.mjs";
+import { exportPayoutReport, listStores, login, loginOptions, resolveStore } from "../lib/cyberbiz.mjs";
 import { downloadAttachment, whoAmI } from "../lib/gmail-api.mjs";
 import { parsePayoutReport, verifyPayoutFile } from "./parser.mjs";
 import { addPayoutColumns } from "./columns.mjs";
@@ -146,13 +146,7 @@ async function main() {
     log(`Gmail 信箱：${mailbox.emailAddress}`);
 
     log("登入 CYBERBIZ…");
-    await login(page, {
-      origin: config.cyberbizOrigin,
-      username: env.CYBERBIZ_USERNAME,
-      password: env.CYBERBIZ_PASSWORD,
-      gmailToken,
-      twoFactor: config.twoFactor,
-    });
+    await login(page, loginOptions({ env, config, gmailToken }));
     log("已登入後台。");
 
     if (args.listStores) {
