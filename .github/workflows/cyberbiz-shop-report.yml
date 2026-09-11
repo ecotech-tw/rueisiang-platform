@@ -73,7 +73,10 @@ jobs:
             echo "PLATFORM_API_URL=$PLATFORM_API_URL"
             echo "CYBERBIZ_REPORT_INGEST_TOKEN=$CYBERBIZ_REPORT_INGEST_TOKEN"
           } > .env
-          for key in CYBERBIZ_USERNAME CYBERBIZ_PASSWORD GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN; do
+          # GMAIL_REFRESH_TOKEN 在這裡是必要的，理由跟出金表一樣：runner 每次都是
+          # 全新的機器，chrome-profile 不會留下來，所以「記住此裝置 30 天」永遠不生效，
+          # CYBERBIZ 每一次執行都會要 2FA 驗證碼，而驗證碼只能去 Gmail 讀。
+          for key in CYBERBIZ_USERNAME CYBERBIZ_PASSWORD GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN GMAIL_REFRESH_TOKEN; do
             if [ -z "${!key}" ]; then
               echo "::error::$key 是空的，請到 Settings → Secrets 補齊"
               exit 1

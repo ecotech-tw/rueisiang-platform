@@ -128,12 +128,15 @@ async function main() {
     const page = await newPage(context);
     /*
      * 2FA 的驗證碼要去 Gmail 讀，而 Gmail API 收的是**換過的 access token**，
-     * 不是 .env 裡那顆 refresh token。沒有 GMAIL_REFRESH_TOKEN 時傳 null 就好：
-     * 後台記得這台裝置的話根本不會問驗證碼，不該因為沒設信箱就不給跑。
+     * 不是 .env 裡那顆 refresh token。
+     *
+     * 這支 driver 不像出金表那樣要收信抓附件（對帳單是瀏覽器直接下載的），所以
+     * Gmail 只有 2FA 這一個用途——但那不代表它可有可無：runner 每次都是全新的機器，
+     * chrome-profile 不會留下來，「記住此裝置 30 天」永遠不生效，所以在 CI 上
+     * **每一次執行都會被要求驗證碼**。本機因為 profile 留著才常常不用。
      */
-    const gmailToken = env.GMAIL_REFRESH_TOKEN
-      ? await accessToken({ ...env, GOOGLE_REFRESH_TOKEN: env.GMAIL_REFRESH_TOKEN })
-      : null;
+    requireEnv(env, ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN"]);
+    const gmailToken = await accessToken({ ...env, GOOGLE_REFRESH_TOKEN: env.GMAIL_REFRESH_TOKEN });
     await login(page, loginOptions({ env, config, gmailToken }));
     log(`登入完成，抓 ${startMonth} ~ ${endMonth} 的對帳單`);
 
