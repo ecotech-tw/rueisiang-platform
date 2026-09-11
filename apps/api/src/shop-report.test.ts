@@ -66,7 +66,6 @@ beforeEach(async () => {
     GITHUB_TOKEN: "gh-token",
     PAYOUT_GITHUB_REPO: "ecotech-tw/rueisiang-platform",
     PAYOUT_WORKFLOW_FILE: "payout.yml",
-    CYBERBIZ_SHOP_WORKFLOW_FILE: "cyberbiz-shop-report.yml",
     CYBERBIZ_SHOP_GITHUB_REF: "main",
   };
   await syncSystemRoles(db());
@@ -156,8 +155,9 @@ describe("官網對帳單執行", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("沒設定 workflow 時 state 回報未設定，執行則回 503", async () => {
-    delete env.CYBERBIZ_SHOP_WORKFLOW_FILE;
+  it("沒設定 GitHub repo 時 state 回報未設定，執行則回 503", async () => {
+    // workflow 檔名寫死在程式裡，所以「有沒有設定」只看 token 與 repo。
+    delete env.PAYOUT_GITHUB_REPO;
     const calls = stubGithub();
     const id = await seedUser("manager@ecotech.tw", "role-manager");
 

@@ -3,6 +3,16 @@ import type { Env } from "../env.js";
 const GITHUB_API = "https://api.github.com";
 
 /**
+ * 這支 workflow 就在本 repo 的 .github/workflows/ 裡，跟這段程式碼一起 commit，
+ * 所以檔名寫死。
+ *
+ * 出金表與商品銷售把檔名放在 Worker 變數裡是有歷史原因的——它們的 workflow 本來
+ * 在帳務 repo，檔名必須能設定。照抄那個做法只會多一個部署步驟，以及一個「檔案改名
+ * 了但變數沒改」的漂移來源，而那種錯誤要等有人按下執行才會發現。
+ */
+const WORKFLOW_FILE = "cyberbiz-shop-report.yml";
+
+/**
  * 官網對帳單的 workflow 觸發與狀態查詢。
  *
  * 跟出金表、商品銷售共用同一個 runner 與 repo，但 workflow 分開，而且**輸入的形狀
@@ -38,9 +48,9 @@ export class ShopReportGithubError extends Error {
 
 export function shopReportGithub(env: Env): ShopReportGithub | undefined {
   const token = env.GITHUB_TOKEN;
+  // repo 仍然可設定：staging 或 fork 要 dispatch 到自己那一份，不是上游。
   const repo = env.CYBERBIZ_SHOP_GITHUB_REPO ?? env.CYBERBIZ_SALES_GITHUB_REPO ?? env.PAYOUT_GITHUB_REPO;
-  const workflow = env.CYBERBIZ_SHOP_WORKFLOW_FILE;
-  if (!token || !repo || !workflow) return undefined;
+  if (!token || !repo) return undefined;
 
   async function call(path: string, init?: RequestInit): Promise<unknown> {
     const response = await fetch(`${GITHUB_API}${path}`, {
@@ -69,7 +79,7 @@ export function shopReportGithub(env: Env): ShopReportGithub | undefined {
 
   return {
     async dispatch(input) {
-      await call(`/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
+      await call(`/repos/${repo}/actions/workflows/${WORKFLOW_FILE}/dispatches`, {
         method: "POST",
         body: JSON.stringify({
           ref: env.CYBERBIZ_SHOP_GITHUB_REF ?? env.CYBERBIZ_SALES_GITHUB_REF ?? env.PAYOUT_GITHUB_REF ?? "main",
@@ -83,7 +93,7 @@ export function shopReportGithub(env: Env): ShopReportGithub | undefined {
     },
 
     async listRuns(requestId) {
-      const body = (await call(`/repos/${repo}/actions/workflows/${workflow}/runs?per_page=100`)) as { workflow_runs?: RawRun[] } | null;
+      const body = (await call(`/repos/${repo}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=100`)) as { workflow_runs?: RawRun[] } | null;
       let runs = (body?.workflow_runs ?? []).map((run): WorkflowRun => ({
         id: run.id,
         status: run.status,
