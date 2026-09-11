@@ -408,3 +408,155 @@ export async function exportSalesReport(page, {
   }
   fail("EXPORT_NOT_ACCEPTED", "商品銷售報表送出匯出後沒有回到報表列表。");
 }
+
+/**
+ * 管理中心 → 對帳中心 → 對帳單列表。
+ *
+ * 跟出金表與商品銷售報表不一樣的地方：
+ *
+ * - **不是每家店一份，而是整個帳戶一份。** 官網的收款與撥款都在這裡，跟 POS 門市無關。
+ * - **一期一張卡，一張卡一個「下載對帳單」。** 區間是系統每半個月自己切的（1–15、
+ *   16–月底），不能自己選日期；能選的只有「要看哪幾個月」。
+ * - **還沒結帳的那一期沒有下載鈕**，而且金額寫的是「預計撥款金額」。那一期要跳過：
+ *   把預計金額當成實際撥款寫進報表，結帳後數字會變，而報表不會自己回頭修。
+ * - **直接下載，不寄信。** 出金表是寄 Email 再從 Gmail 抓附件，這裡是瀏覽器下載事件。
+ */
+const STATEMENT_PERIOD_PATTERN = /(\d{4})\/(\d{2})\/(\d{2})\s*~\s*(\d{4})\/(\d{2})\/(\d{2})/;
+
+export function statementPeriodFromText(text) {
+  const match = STATEMENT_PERIOD_PATTERN.exec(text ?? "");
+  if (!match) return null;
+  return {
+    start: `${match[1]}-${match[2]}-${match[3]}`,
+    end: `${match[4]}-${match[5]}-${match[6]}`,
+  };
+}
+
+/** 卡片上的「撥款金額 NT$64,559」；沒結帳的那期寫的是「預計撥款金額」。 */
+export function statementAmountFromText(text) {
+  const match = /撥款金額[^\d]*([\d,]+)/.exec(text ?? "");
+  return match ? Number(match[1].replace(/,/g, "")) : null;
+}
+
+export async function openStatementCenter(page, { origin, startMonth, endMonth, log } = {}) {
+  await page.goto(`${origin}/admin/settlements`, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1200);
+  await dismissOverlays(page, { log });
+
+  let text = await page.locator("body").innerText();
+  if (!text.includes("對帳單列表")) {
+    // 網址可能改過；退回從側邊選單走一次，比猜第二個網址可靠。
+    log?.("直接開 /admin/settlements 沒看到對帳單列表，改從側邊選單進入");
+    await page.getByRole("link", { name: "管理中心" }).first().click({ timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(500);
+    await page.getByRole("link", { name: "對帳中心" }).first().click({ timeout: 10000 });
+    await page.waitForTimeout(1500);
+    await dismissOverlays(page, { log });
+    text = await page.locator("body").innerText();
+  }
+  if (!text.includes("對帳單列表")) {
+    fail("STATEMENT_PAGE_MISSING", "找不到對帳中心的「對帳單列表」。");
+  }
+
+  // 月份篩選是選填：不填就是後台預設列出的那幾期。填了要按搜尋，不然畫面不會變。
+  if (startMonth || endMonth) {
+    const startField = page.getByPlaceholder("開始月份");
+    const endField = page.getByPlaceholder("結束月份");
+    if (startMonth) await fillMonthField(page, startField, startMonth);
+    if (endMonth) await fillMonthField(page, endField, endMonth);
+    const actual = {
+      start: startMonth ? await startField.inputValue() : "",
+      end: endMonth ? await endField.inputValue() : "",
+    };
+    if ((startMonth && !actual.start) || (endMonth && !actual.end)) {
+      fail("STATEMENT_FILTER_REJECTED", "月份欄位填不進去，可能是日期選擇器不接受直接輸入。", { actual });
+    }
+    await page.getByRole("button", { name: "搜尋" }).first().click({ timeout: 10000 });
+    await page.waitForTimeout(2000);
+    await dismissOverlays(page, { log });
+  }
+}
+
+/**
+ * 填月份欄位，然後**把 react-datepicker 關掉**。
+ *
+ * 點那個欄位會展開月份選單（`.react-datepicker__month-wrapper`），它整片蓋在畫面上，
+ * 之後要點的任何東西都會被它攔截。症狀是 `locator.click: Timeout` 而錯誤訊息只說
+ * 「某個 div 攔截了 pointer events」——看訊息猜不到是自己剛才打開的日期選單。
+ *
+ * fill() 之後選單不會自己收，要按 Escape。
+ */
+async function fillMonthField(page, field, value) {
+  await field.fill(value);
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(300);
+  // Escape 有時只收掉一層；還在的話點一下空白處。
+  const picker = page.locator(".react-datepicker, .react-datepicker__month-wrapper").first();
+  if (await picker.isVisible().catch(() => false)) {
+    await page.locator("body").click({ position: { x: 5, y: 5 }, timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(300);
+  }
+}
+
+/**
+ * 列出畫面上每一期的對帳單。
+ *
+ * 用「有沒有下載鈕」判斷能不能抓，而不是看金額文字或帳期狀態的字串——狀態文案
+ * （「帳款已確認」「本期對帳單處理中」）是最容易被改掉的東西，按鈕存不存在才是
+ * 真正的能力邊界。
+ */
+export async function listStatements(page) {
+  // 卡片必須同時含「對帳區間」與「撥款金額」：後台把標題與日期放在不同節點，
+  // 只用「對帳區間」定位會停在標題列——那一列裡沒有金額也沒有下載鈕，於是每一期
+  // 都會被判成不可下載，driver 什麼都抓不到（實測就是這樣壞的）。
+  const cards = page.locator("div").filter({ hasText: /對帳區間/ }).filter({ hasText: /撥款金額/ });
+  const total = await cards.count();
+  const seen = new Map();
+  for (let index = 0; index < total; index += 1) {
+    const card = cards.nth(index);
+    const text = await card.innerText().catch(() => '');
+    const period = statementPeriodFromText(text);
+    if (!period) continue;
+    // 同時命中外層容器與卡片本身；取文字最短的那個，也就是最貼近單一期間的節點。
+    // 外層容器會含多期的日期，statementPeriodFromText 只取第一個，所以一定要挑最短的。
+    const key = `${period.start}~${period.end}`;
+    const previous = seen.get(key);
+    if (previous && previous.length <= text.length) continue;
+    const download = card.getByRole('button', { name: '下載對帳單' });
+    seen.set(key, {
+      ...period,
+      amount: statementAmountFromText(text),
+      settled: (await download.count()) > 0,
+      length: text.length,
+      locator: card,
+    });
+  }
+  return [...seen.values()]
+    .map(({ length: _length, ...statement }) => statement)
+    .sort((left, right) => left.start.localeCompare(right.start));
+}
+
+/**
+ * 按一張卡的「下載對帳單」，回傳存下來的檔案路徑。
+ *
+ * 點之前要先把蓋住畫面的東西處理掉，實測有兩個會攔截 pointer events：
+ * 我們自己打開的日期選單（見 fillMonthField），以及 `#new-navbar` 那條 sticky 導覽列
+ * ——卡片捲到畫面上緣時會被它蓋住。scrollIntoViewIfNeeded 只保證元素在視窗裡，
+ * 不保證沒有東西疊在上面。
+ */
+export async function downloadStatement(page, statement, { targetPath, log } = {}) {
+  const button = statement.locator.getByRole("button", { name: "下載對帳單" }).first();
+  await page.keyboard.press("Escape").catch(() => {});
+  await dismissOverlays(page, { log });
+  await button.scrollIntoViewIfNeeded({ timeout: 10000 }).catch(() => {});
+  // 往上捲一點，讓卡片離開 sticky 導覽列的覆蓋範圍。
+  await page.mouse.wheel(0, -120).catch(() => {});
+  await page.waitForTimeout(300);
+  const [download] = await Promise.all([
+    page.waitForEvent("download", { timeout: 60000 }),
+    button.click({ timeout: 15000 }),
+  ]);
+  await download.saveAs(targetPath);
+  log?.(`下載 ${statement.start} ~ ${statement.end} → ${targetPath}`);
+  return targetPath;
+}

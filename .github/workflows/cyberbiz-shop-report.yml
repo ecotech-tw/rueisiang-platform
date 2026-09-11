@@ -1,0 +1,120 @@
+name: CYBERBIZ 官網對帳單
+run-name: 官網對帳單｜${{ inputs.start_month }} ~ ${{ inputs.end_month }}｜${{ inputs.request_id }}
+
+# 官網的收款與撥款在後台的「管理中心 → 對帳中心」，跟 POS 門市的出金表是不同的報表：
+# 整個帳戶一份、CYBERBIZ 每半個月自己出一期（1–15、16–月底），區間不能自己選。
+# 所以這裡收的是「要哪幾個月」，driver 會把那幾個月裡每一期都抓下來。
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_month:
+        description: 開始月份 YYYY-MM
+        type: string
+        required: true
+      end_month:
+        description: 結束月份 YYYY-MM
+        type: string
+        required: true
+      request_id:
+        description: 網頁執行識別碼
+        type: string
+        required: true
+
+concurrency:
+  # 跟出金表與商品銷售共用一個 group：三支都會登入同一個後台，同時跑會互相把
+  # 對方的 session 踢掉。
+  group: cyberbiz-reports
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: tools/cyberbiz-reports
+    env:
+      TZ: Asia/Taipei
+      CI: "true"
+      PAYOUT_BROWSER_CHANNEL: chrome
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/cyberbiz-reports/package-lock.json
+
+      - name: 安裝相依套件
+        run: npm ci
+
+      - name: 產生 .env
+        env:
+          CYBERBIZ_USERNAME: ${{ secrets.CYBERBIZ_USERNAME }}
+          CYBERBIZ_PASSWORD: ${{ secrets.CYBERBIZ_PASSWORD }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          PLATFORM_API_URL: ${{ vars.WORKER_URL || 'https://platform.rueisiang.com' }}
+          CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
+        run: |
+          umask 077
+          {
+            echo "CYBERBIZ_USERNAME=$CYBERBIZ_USERNAME"
+            echo "CYBERBIZ_PASSWORD=$CYBERBIZ_PASSWORD"
+            echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"
+            echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"
+            echo "GOOGLE_REFRESH_TOKEN=$GOOGLE_REFRESH_TOKEN"
+            echo "GMAIL_REFRESH_TOKEN=$GMAIL_REFRESH_TOKEN"
+            echo "PLATFORM_API_URL=$PLATFORM_API_URL"
+            echo "CYBERBIZ_REPORT_INGEST_TOKEN=$CYBERBIZ_REPORT_INGEST_TOKEN"
+          } > .env
+          for key in CYBERBIZ_USERNAME CYBERBIZ_PASSWORD GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN; do
+            if [ -z "${!key}" ]; then
+              echo "::error::$key 是空的，請到 Settings → Secrets 補齊"
+              exit 1
+            fi
+          done
+          if [ -z "$CYBERBIZ_REPORT_INGEST_TOKEN" ]; then
+            echo "::error::缺少 CYBERBIZ_REPORT_INGEST_TOKEN，對帳單不匯入平台就沒有意義"
+            exit 1
+          fi
+
+      - name: 執行官網對帳單
+        id: shop
+        env:
+          START_MONTH: ${{ inputs.start_month }}
+          END_MONTH: ${{ inputs.end_month }}
+        run: |
+          for value in "$START_MONTH" "$END_MONTH"; do
+            if ! printf '%s' "$value" | grep -Eq '^[0-9]{4}-(0[1-9]|1[0-2])$'; then
+              echo "::error::月份格式不正確：$value（要 YYYY-MM）"
+              exit 1
+            fi
+          done
+          echo "執行：node shop/driver.mjs --headless --start-month $START_MONTH --end-month $END_MONTH"
+          set +e
+          node shop/driver.mjs --headless --start-month "$START_MONTH" --end-month "$END_MONTH"
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: 保留產出的檔案
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyberbiz-shop-${{ inputs.start_month }}-${{ inputs.end_month }}-${{ github.run_number }}
+          retention-days: 30
+          if-no-files-found: ignore
+          # 下載的對帳單本身也留著：匯入的數字對不上時，要能回頭看原始檔案。
+          path: |
+            tools/cyberbiz-reports/downloads/shop/*.xlsx
+            tools/cyberbiz-reports/screenshots/**/*.png
+
+      - name: 有期間沒完成就讓這次執行標記失敗
+        if: always() && steps.shop.outputs.exit_code != '0'
+        run: |
+          echo "::error::有期間未完成，詳見上方 log 與 artifact"
+          exit 1

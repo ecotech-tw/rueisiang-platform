@@ -89,6 +89,14 @@ export interface Env {
   CYBERBIZ_SALES_WORKFLOW_FILE?: string;
   CYBERBIZ_SALES_GITHUB_REF?: string;
 
+  /**
+   * 官網對帳單 workflow。跟出金表共用同一個 runner 與 repo，但 workflow 分開——
+   * 它收的是月份範圍而不是起訖日，因為對帳單的區間是 CYBERBIZ 每半個月自己切的。
+   */
+  CYBERBIZ_SHOP_GITHUB_REPO?: string;
+  CYBERBIZ_SHOP_WORKFLOW_FILE?: string;
+  CYBERBIZ_SHOP_GITHUB_REF?: string;
+
   /** 蝦皮報表 workflow；平台只暫存檔案並觸發 GitHub Actions。 */
   SHOPEE_GITHUB_REPO?: string;
   SHOPEE_WORKFLOW_FILE?: string;

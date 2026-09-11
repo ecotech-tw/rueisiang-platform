@@ -121,16 +121,34 @@ function parseSharedStrings(xml) {
   });
 }
 
-/** 回傳 { cells: Map<"A1", value>, maxRow } */
-export async function readSheet(filePath) {
-  const entries = await readZipEntries(filePath);
-  const sheetName =
-    [...entries.keys()].find((name) => /^xl\/worksheets\/sheet1\.xml$/.test(name)) ??
-    [...entries.keys()].find((name) => /^xl\/worksheets\/.*\.xml$/.test(name));
-  if (!sheetName) throw new Error("xlsx 裡沒有工作表。");
+/**
+ * 工作表名稱 → xl/worksheets/*.xml 的檔名。
+ *
+ * workbook.xml 的 sheet 順序對應 rId，而 workbook.xml.rels 才知道 rId 指到哪個檔案。
+ * 不能假設「第 N 個工作表就是 sheetN.xml」——那個對應只是慣例，不是規格。
+ */
+function sheetPaths(entries) {
+  const workbook = entries.get("xl/workbook.xml")?.toString("utf8") ?? "";
+  const rels = entries.get("xl/_rels/workbook.xml.rels")?.toString("utf8") ?? "";
+  // 屬性順序不保證：CYBERBIZ 的 rels 是 Target 在 Id 前面，Excel 產的是反過來。
+  // 所以先抓整個標籤，再各自取屬性，不要把順序寫進 regex。
+  const attr = (tag, name) => new RegExp(`${name}="([^"]*)"`).exec(tag)?.[1];
+  const targets = new Map();
+  for (const [tag] of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+    const id = attr(tag, "Id");
+    const target = attr(tag, "Target");
+    if (id && target) targets.set(id, `xl/${target.replace(/^\/?xl\//, "")}`);
+  }
+  const paths = new Map();
+  for (const [tag] of workbook.matchAll(/<sheet\b[^>]*>/g)) {
+    const name = attr(tag, "name");
+    const target = targets.get(attr(tag, "r:id") ?? "");
+    if (name && target) paths.set(decodeXmlText(name), target);
+  }
+  return paths;
+}
 
-  const shared = parseSharedStrings(entries.get("xl/sharedStrings.xml")?.toString("utf8"));
-  const xml = entries.get(sheetName).toString("utf8");
+function readCells(xml, shared) {
   const cells = new Map();
   let maxRow = 0;
 
@@ -159,6 +177,37 @@ export async function readSheet(filePath) {
     maxRow = Math.max(maxRow, Number(/\d+$/.exec(ref)[0]));
   }
   return { cells, maxRow };
+}
+
+/** 回傳 { cells: Map<"A1", value>, maxRow } */
+export async function readSheet(filePath) {
+  const entries = await readZipEntries(filePath);
+  const sheetName =
+    [...entries.keys()].find((name) => /^xl\/worksheets\/sheet1\.xml$/.test(name)) ??
+    [...entries.keys()].find((name) => /^xl\/worksheets\/.*\.xml$/.test(name));
+  if (!sheetName) throw new Error("xlsx 裡沒有工作表。");
+
+  const shared = parseSharedStrings(entries.get("xl/sharedStrings.xml")?.toString("utf8"));
+  return readCells(entries.get(sheetName).toString("utf8"), shared);
+}
+
+/**
+ * 依工作表名稱讀。對帳表有四張表，靠位置抓遲早會抓錯——CYBERBIZ 只要調一次順序，
+ * 錯的那份會照樣解析成功，只是數字全錯。
+ */
+export async function readNamedSheets(filePath, names) {
+  const entries = await readZipEntries(filePath);
+  const paths = sheetPaths(entries);
+  const shared = parseSharedStrings(entries.get("xl/sharedStrings.xml")?.toString("utf8"));
+  const result = new Map();
+  for (const name of names) {
+    const target = paths.get(name);
+    if (!target || !entries.has(target)) {
+      throw new Error(`對帳表裡找不到工作表「${name}」，實際有：${[...paths.keys()].join("、") || "（無）"}`);
+    }
+    result.set(name, readCells(entries.get(target).toString("utf8"), shared));
+  }
+  return result;
 }
 
 /**

@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizeReportScopeName, scopeSourceTypeFromId } from "./report-data.js";
 import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
+import { SHOP_REQUEST_PREFIX } from "./shop-report.js";
 import type { SalesTopSkuMetric } from "./report-analytics.js";
 import type { ReportGroupBy, ReportPayoutQuery, ReportSalesQuery } from "./report-data.js";
 
@@ -77,6 +78,9 @@ async function listTargetRuns(db: Database, reportKind?: CyberbizReportRunKind, 
       // 也會留下 report_runs，但那些 requestId 不存在於 GitHub run-name，不能拿來當「上一次執行」。
       sql`${reportRuns.requestId} NOT LIKE 'cyberbiz-ingest:%'`,
       sql`${reportRuns.requestId} NOT LIKE 'target-import:%'`,
+      // 官網對帳單同時開 imports_sales 與 imports_payout，不排除的話門市的兩個
+      // 執行頁都會把它列進「最近執行」。見 shop-report.ts 的檔頭。
+      sql`${reportRuns.requestId} NOT LIKE ${`${SHOP_REQUEST_PREFIX}%`}`,
       sql`${reportRuns.actorEmail} <> ''`,
     ))
     .orderBy(desc(reportRuns.createdAt))

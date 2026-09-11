@@ -79,6 +79,9 @@ const PRODUCT_CATEGORY_PERMISSION_MIGRATION = fileURLToPath(
 const DROP_PRODUCT_CATEGORY_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0126_drop_product_category_permissions.sql", import.meta.url),
 );
+const SHOP_REPORT_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0139_shop_report_permission.sql", import.meta.url),
+);
 const HR_ADMIN_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0132_restore_hr_admin_permissions.sql", import.meta.url),
 );
@@ -197,6 +200,11 @@ describe("bootstrap 管理員權限 migration", () => {
     const dropProductCategorySql = readHistoricalMigration(DROP_PRODUCT_CATEGORY_PERMISSION_MIGRATION);
     d1.sqlite.exec(dropProductCategorySql);
     d1.sqlite.exec(dropProductCategorySql);
+    for (const statement of readHistoricalMigration(SHOP_REPORT_PERMISSION_MIGRATION)
+      .split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean)) {
+      d1.sqlite.exec(statement);
+      d1.sqlite.exec(statement);
+    }
 
     // HR 權限由既有角色同步入口加入，不回頭改寫歷史 migration。
     const historical = await db.select().from(rolePermissionGrants);
