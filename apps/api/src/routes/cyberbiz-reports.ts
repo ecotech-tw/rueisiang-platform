@@ -28,7 +28,6 @@ import {
   countReportSalesRecords,
   listReportPayoutRecords,
   listReportSalesRecords,
-  listReportScopes,
   listProductCategoryOptions,
   ReportManualError,
   updateReportManualPayout,
@@ -650,15 +649,25 @@ export const cyberbizReports = new Hono<AppEnv>()
     }
   })
   .get("/manual/options", requirePermission("reports:cyberbiz:write"), async (c) => {
+    /*
+     * 含停用、也含 channel。
+     *
+     * 這份清單在畫面上有兩個用途，先前只餵得起其中一個：新增／修訂人工紀錄時要挑
+     * 一個目標據點（只能挑還在用的），以及**篩選既有紀錄**（那看的是歷史，凡是有
+     * 資料的都要篩得到）。原本用 listReportScopes(db, "store") 兩件事共用一份，
+     * 於是官網（channel）與已停用的據點都篩不出來，儘管它們的紀錄就在表裡。
+     *
+     * active 一併帶出去，由畫面決定哪個下拉要不要濾。company 仍然排除——那是彙總
+     * 的容器，本身沒有資料。
+     */
     const [scopes, products, categories] = await Promise.all([
-      listReportScopes(c.get("db"), "store"),
+      listAllReportScopes(c.get("db")),
       listCyberbizReportProducts(c.get("db")),
       listProductCategoryOptions(c.get("db")),
     ]);
     return c.json({
       scopes: canonicalReportStoreScopes(scopes)
-        .filter((scope) => scope.active === 1)
-        .map((scope) => ({ id: scope.id, name: scope.name })),
+        .map((scope) => ({ id: scope.id, name: scope.name, active: scope.active })),
       products,
       categories: categories.map(({ id, name, color }) => ({ id, name, color })),
     });

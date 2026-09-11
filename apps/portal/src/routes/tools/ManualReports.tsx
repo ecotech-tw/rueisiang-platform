@@ -826,9 +826,14 @@ export function ManualReports() {
   const payoutRows = payoutPage?.rows ?? [];
   const salesRows = salesPage?.rows ?? [];
   const busy = deletePayouts.isPending || deleteSalesRecords.isPending;
-  const dialogScopes = dialog?.row && !scopes.some((scope) => scope.id === dialog.row?.scopeId)
-    ? [{ id: dialog.row.scopeId, name: `${dialog.row.scopeName}（已停用）` }, ...scopes]
-    : scopes;
+  /*
+   * 篩選用 scopes（含停用、含官網這種 channel）——那是在翻歷史，凡是有資料的都要
+   * 篩得到。新增與修訂只給 activeScopes：已經收掉的據點不該再被寫入新資料。
+   */
+  const activeScopes = scopes.filter((scope) => scope.active === 1);
+  const dialogScopes = dialog?.row && !activeScopes.some((scope) => scope.id === dialog.row?.scopeId)
+    ? [{ id: dialog.row.scopeId, name: `${dialog.row.scopeName}（已停用）`, active: 0 }, ...activeScopes]
+    : activeScopes;
 
   useEffect(() => {
     const totalPages = payoutPage ? Math.max(1, Math.ceil(payoutPage.total / payoutPage.pageSize)) : 1;
@@ -1036,7 +1041,7 @@ export function ManualReports() {
         <StandardReportImportDialog
           key={importDialog.kind}
           kind={importDialog.kind}
-          scopes={scopes}
+          scopes={activeScopes}
           onClose={() => setImportDialog(null)}
         />
       ) : null}
