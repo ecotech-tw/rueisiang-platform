@@ -28,13 +28,13 @@ function columnRef(index) {
 }
 
 /** 依商品拆分的一列；只填 parser 真的會讀的欄位。 */
-function itemRow(row, { name, variant = "", sku = "", category = "", quantity, gross, discount, sales }) {
+function itemRow(row, { name, variant = "", sku = "", category = "", quantity, gross, discount, sales, kind = "付款" }) {
   const at = (header, value, numeric = false) => {
     const ref = `${columnRef(ITEM_HEADERS.indexOf(header))}${row}`;
     return numeric ? numericCell(ref, value) : inlineCell(ref, value);
   };
   return [
-    at("訂單編號", "#1"), at("交易型態", "付款"), at("收款方", "CYBERBIZ"),
+    at("訂單編號", "#1"), at("交易型態", kind), at("收款方", "CYBERBIZ"),
     at("商品名稱", name), at("款式", variant), at("商品編號(SKU)", sku), at("商品類別", category),
     at("數量", quantity, true), at("商品總額", gross, true), at("負項", discount, true), at("交易金額", sales, true),
   ].join("");
@@ -132,7 +132,7 @@ test("拆分表金額對不上代收金額就整份拒絕", async () => {
   // 少一列的情境：欄位認錯或漏列時，報表會安靜地少一筆錢，所以必須當場失敗。
   const { root, filePath } = await fixture({ collected: 1200 });
   try {
-    await assert.rejects(parseShopReport(filePath), /對不上對帳總表：本期代收金額 1200/);
+    await assert.rejects(parseShopReport(filePath), /總和 1000 對不上對帳總表：代收 1200/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -178,13 +178,38 @@ test("撥款金額算不出來就整份拒絕", async () => {
   }
 });
 
-test("退款是負數，會從收款淨額扣掉", async () => {
-  const { root, filePath } = await fixture({ refund: -200, settlement: 700 });
+test("退款：代收金額沒扣，拆分表扣了，營業額要跟拆分表走", async () => {
+  /*
+   * 實測 2026-08-01~15：代收 84,037、退款 −2,400、拆分表總和 81,637。
+   * 拆分表裡的退款是一列 `交易型態=退款` 的負數（數量 −20、金額 −2,400）。
+   * 所以驗算要對「代收 + 退款」，而營業額也必須是已扣退款的那個數字。
+   */
+  const { root, filePath } = await fixture({
+    collected: 1200, refund: -200, fee: 100, settlement: 900,
+    rows: [
+      { name: "商品甲", sku: "SKU-A", quantity: 3, gross: 1080, discount: 0, sales: 1080 },
+      { name: "運費", quantity: 1, gross: 120, discount: 0, sales: 120 },
+      { name: "商品甲", sku: "SKU-A", kind: "退款", quantity: -1, gross: -200, discount: 0, sales: -200 },
+    ],
+  });
   try {
     const report = await parseShopReport(filePath);
-    assert.equal(report.settlementAmount, 700);
-    // 營業額只看代收與自行收款；退款反映在撥款，不從營業額扣。
     assert.equal(report.revenueAmount, 1000);
+    assert.equal(report.settlementAmount, 900);
+    // 退款併進同一個 SKU：3 件賣出扣掉 1 件退回 = 2 件、1080 − 200 = 880。
+    const skuA = report.items.find((item) => item.sku === "SKU-A");
+    assert.deepEqual({ quantity: skuA.quantity, salesAmount: skuA.salesAmount }, { quantity: 2, salesAmount: 880 });
+    assert.equal(report.items.reduce((sum, item) => sum + item.salesAmount, 0), 1000);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("退款沒出現在拆分表就整份拒絕", async () => {
+  // 代收 1000、退款 −200，淨額是 800；但拆分表只加得到 1000，少了那一列負數。
+  const { root, filePath } = await fixture({ collected: 1000, refund: -200, fee: 100, settlement: 700 });
+  try {
+    await assert.rejects(parseShopReport(filePath), /總和 1000 對不上對帳總表：代收 1000 \+ 退款 -200 = 800/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

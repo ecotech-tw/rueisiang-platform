@@ -122,7 +122,7 @@ function chargeSku(productName) {
   return `CYBERBIZ-CHARGE-${productName.replace(/\s+/g, "")}`;
 }
 
-function parseItems(sheet, { collectedAmount, merchantCollectedAmount }) {
+function parseItems(sheet, { collectedAmount, refundAmount, merchantCollectedAmount }) {
   const { headerRow, columns } = itemColumns(sheet);
   const { cells, maxRow } = sheet;
   const at = (field, row) => cells.get(`${columns.get(field)}${row}`);
@@ -168,26 +168,28 @@ function parseItems(sheet, { collectedAmount, merchantCollectedAmount }) {
    * 這是整份解析唯一的真正驗算：拆分表的交易金額總和必須對得上對帳總表。
    * 對不上就是欄位認錯或漏列，那種錯誤如果放過去，報表會少一筆而且沒有人會發現。
    *
-   * 「對得上」有兩個可能的答案，因為代收金額**不含**商家自行收款（貨到付款那種，
-   * 錢沒經過 CYBERBIZ）。拆分表有沒有把那些訂單列進來，我們手上的檔案答不了——
-   * 實測那一期的自行收款是 0，兩個答案剛好一樣。所以兩個都收，但不猜：
+   * 要對的是「收款淨額」，不是代收金額：
    *
-   *   - 等於「代收 + 自行收款」→ 拆分表含全部訂單，Σ商品 = 營業額，成立。
-   *   - 等於「代收」而且自行收款是 0 → 同上。
-   *   - 等於「代收」但自行收款不是 0 → 拆分表少了那些訂單。這時候 Σ商品 會比
-   *     營業額少一截，正是 chargeSku 那段註解在防的同一種錯。不知道怎麼算就
-   *     整份拒收，讓人把檔案拿出來看，不要靜靜地少算錢。
+   *   - **代收金額未扣退款，拆分表已扣。** 退款在拆分表裡是一列 `交易型態=退款`
+   *     的負數（實測 2026-08-01~15 有一列 −2,400，數量 −20），而對帳總表的
+   *     `本期退款金額` 也是負的，所以相加就是拆分表的總和。
+   *   - **代收金額不含商家自行收款**（貨到付款那種，錢沒經過 CYBERBIZ）。拆分表
+   *     有沒有把那些訂單列進來，手上的檔案還答不了——實測過的兩期自行收款都是 0。
+   *     所以兩個答案都收，但不猜：等於「含自行收款」就成立；等於「不含」而自行
+   *     收款不是 0，代表那些訂單沒進拆分表，Σ商品 會比營業額少一截——不知道怎麼
+   *     算就整份拒收，讓人把檔案拿出來看，不要靜靜地少算錢。
    */
-  const withMerchant = collectedAmount + merchantCollectedAmount;
-  if (cents(salesTotal) !== cents(collectedAmount) && cents(salesTotal) !== cents(withMerchant)) {
+  const netCollected = collectedAmount + refundAmount;
+  const withMerchant = netCollected + merchantCollectedAmount;
+  if (cents(salesTotal) !== cents(netCollected) && cents(salesTotal) !== cents(withMerchant)) {
     throw new Error(
-      `依商品拆分的交易金額總和 ${salesTotal} 對不上對帳總表：本期代收金額 ${collectedAmount}`
-      + `${merchantCollectedAmount ? `，加上商家自行收款 ${merchantCollectedAmount} 是 ${withMerchant}` : ""}。`,
+      `依商品拆分的交易金額總和 ${salesTotal} 對不上對帳總表：代收 ${collectedAmount} + 退款 ${refundAmount} = ${netCollected}`
+      + `${merchantCollectedAmount ? `，再加上商家自行收款 ${merchantCollectedAmount} 是 ${withMerchant}` : ""}。`,
     );
   }
-  if (merchantCollectedAmount && cents(salesTotal) === cents(collectedAmount)) {
+  if (merchantCollectedAmount && cents(salesTotal) === cents(netCollected)) {
     throw new Error(
-      `這一期有商家自行收款 ${merchantCollectedAmount} 元，但依商品拆分的總和 ${salesTotal} 只等於代收金額，`
+      `這一期有商家自行收款 ${merchantCollectedAmount} 元，但依商品拆分的總和 ${salesTotal} 只等於收款淨額 ${netCollected}，`
       + "表示那些訂單沒有出現在拆分表裡，商品銷售會比營業額少這一截。請把這份檔案交給開發者確認要怎麼計入。",
     );
   }
