@@ -792,6 +792,13 @@
       "when": 1789057746240,
       "tag": "0136_cooing_next_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "6",
+      "when": 1789097880773,
+      "tag": "0137_restore_hr_payroll_permissions",
+      "breakpoints": true
     }
   ]
 }
