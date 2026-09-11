@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import {
+  calculateHrBonusPool,
   createDatabase,
   ensureAssistantDefaults,
   formatCyberbizProductName,
@@ -15,9 +16,25 @@ import {
   crmCustomers,
   crmCustomerTags,
   hrAttendanceLocations,
+  hrBonusPools,
+  hrBonusPolicies,
+  hrBonusPolicyMembers,
+  hrBonusPolicyVersions,
+  hrBonusPerformanceSnapshots,
+  hrClockEvents,
+  hrCompensationVersions,
   hrEmployeeAttendanceLocations,
+  hrEmployeeScopes,
   hrEmployees,
   hrEmployments,
+  hrEmploymentAttendanceSettings,
+  hrInsuranceVersions,
+  hrLeaveRequests,
+  hrOvertimeRequests,
+  hrScheduleEntries,
+  hrScheduleVersions,
+  hrShiftTemplates,
+  hrShiftVersions,
   crmTags,
   scopes,
   itemCategories,
@@ -150,6 +167,90 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
     locationId,
     validFrom: "2026-01-01",
   }).onConflictDoNothing();
+  await db.insert(hrEmploymentAttendanceSettings).values({ employmentId, attendanceMode: "general", primaryAssignmentId: "dev-attendance-chen-office" })
+    .onConflictDoUpdate({ target: hrEmploymentAttendanceSettings.employmentId, set: { attendanceMode: "general", primaryAssignmentId: "dev-attendance-chen-office" } });
+
+  const [lin] = await db.select({ id: users.id }).from(users).where(eq(users.email, "eli-lin@ecotech.tw")).limit(1);
+  if (!lin || !supervisor) return;
+  await seedDevPayrollScenario(db, { linUserId: lin.id, supervisorUserId: supervisor.id, locationId });
+}
+
+/**
+ * 開發環境的完整薪資／排班縱切片：林瑞翔是一般辦公員工，王小明是西門櫃位員工。
+ * 所有金額都是分；獎金業績刻意使用 manual 快照，不把出金報表冒充營業額。
+ */
+async function seedDevPayrollScenario(
+  db: ReturnType<typeof createDatabase>,
+  ids: { linUserId: string; supervisorUserId: string; locationId: string },
+) {
+  const linEmploymentId = "dev-employment-lin";
+  const boothEmploymentId = "dev-employment-wang";
+  const ximenScopeId = DEV_ANALYTICS_SCOPES[0].id;
+  const month = "2026-08";
+
+  await db.insert(hrEmployees).values({ userId: ids.linUserId, employeeNumber: "DEMO-LIN", supervisorUserId: ids.supervisorUserId }).onConflictDoUpdate({
+    target: hrEmployees.userId,
+    set: { employeeNumber: "DEMO-LIN", supervisorUserId: ids.supervisorUserId },
+  });
+  await db.insert(hrEmployments).values({ id: linEmploymentId, employeeUserId: ids.linUserId, hiredOn: "2026-01-01", seniorityStartOn: "2026-01-01" }).onConflictDoNothing();
+  await db.insert(hrEmployeeAttendanceLocations).values({ id: "dev-attendance-lin-office", employmentId: linEmploymentId, locationId: ids.locationId, validFrom: "2026-01-01" }).onConflictDoNothing();
+  await db.insert(hrEmploymentAttendanceSettings).values({ employmentId: linEmploymentId, attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" })
+    .onConflictDoUpdate({ target: hrEmploymentAttendanceSettings.employmentId, set: { attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" } });
+  await db.insert(hrCompensationVersions).values({ id: "dev-comp-lin-2026", employmentId: linEmploymentId, versionNumber: 1, validFrom: "2026-01-01", validTo: null, payBasis: "monthly", baseAmountMinor: 6_000_000, note: "開發示範：月薪 NT$60,000", createdBy: ids.linUserId }).onConflictDoNothing();
+  await db.insert(hrInsuranceVersions).values([
+    { id: "dev-insurance-lin-labor-2026", employmentId: linEmploymentId, scheme: "labor", versionNumber: 1, status: "enrolled", validFrom: "2026-01-01", validTo: null, insuredAmountMinor: 45_800_00, dependentCount: 0, rateYear: 2026, sourceKind: "manual", sourceUrl: "", note: "開發示範；正式金額請依官方級距與公司規則確認。", createdBy: ids.linUserId },
+    { id: "dev-insurance-lin-health-2026", employmentId: linEmploymentId, scheme: "health", versionNumber: 1, status: "enrolled", validFrom: "2026-01-01", validTo: null, insuredAmountMinor: 45_800_00, dependentCount: 0, rateYear: 2026, sourceKind: "manual", sourceUrl: "", note: "開發示範；正式金額請依官方級距與公司規則確認。", createdBy: ids.linUserId },
+  ]).onConflictDoNothing();
+
+  // 兩筆核准假勤：一天給薪、一日無薪；payRatePpm 是申請時快照。
+  await db.insert(hrLeaveRequests).values([
+    { id: "dev-leave-lin-paid", employmentId: linEmploymentId, leaveType: "特休", status: "approved", startsOn: `${month}-08`, endsOn: `${month}-09`, durationMinutes: 480, payRatePpm: 1_000_000, reason: "開發示範特休", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-07-20 09:00:00", createdBy: ids.linUserId },
+    { id: "dev-leave-lin-unpaid", employmentId: linEmploymentId, leaveType: "無薪假", status: "approved", startsOn: `${month}-20`, endsOn: `${month}-21`, durationMinutes: 480, payRatePpm: 0, reason: "開發示範無薪假", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-07-20 09:01:00", createdBy: ids.linUserId },
+  ]).onConflictDoNothing();
+  await db.insert(hrOvertimeRequests).values([
+    { id: "dev-overtime-lin-1", employmentId: linEmploymentId, scopeId: null, requestedStart: "2026-08-05 10:00:00", requestedEnd: "2026-08-05 12:00:00", actualStart: "2026-08-05 10:00:00", actualEnd: "2026-08-05 12:00:00", settlementKind: "pay", status: "approved", ratePpm: 1_333_333, reason: "開發示範月結加班", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-08-06 09:00:00", createdBy: ids.linUserId },
+    { id: "dev-overtime-lin-2", employmentId: linEmploymentId, scopeId: null, requestedStart: "2026-08-19 10:00:00", requestedEnd: "2026-08-19 11:30:00", actualStart: "2026-08-19 10:00:00", actualEnd: "2026-08-19 11:30:00", settlementKind: "pay", status: "approved", ratePpm: 1_333_333, reason: "開發示範盤點加班", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-08-20 09:00:00", createdBy: ids.linUserId },
+  ]).onConflictDoNothing();
+
+  // 打卡資料用 UTC 保存（台北 09:00／18:00 對應 01:00／10:00Z）；22 日故意留一個缺卡日供試算畫面呈現。
+  const clockDays = [1, 3, 5, 6, 7, 10, 11, 12, 14, 17, 19, 21, 24, 25, 26, 28, 31];
+  for (const day of clockDays) {
+    const date = `${month}-${String(day).padStart(2, "0")}`;
+    const eventKinds = day === 24 ? ["clock_in"] : ["clock_in", "clock_out"];
+    for (const eventKind of eventKinds) {
+      const at = eventKind === "clock_in" ? `${date} 01:00:00` : `${date} 10:00:00`;
+      await db.insert(hrClockEvents).values({ id: `dev-clock-lin-${day}-${eventKind}`, employeeUserId: ids.linUserId, employmentId: linEmploymentId, attendanceLocationId: ids.locationId, sourceKind: "manual", idempotencyKey: `dev-clock-lin-${day}-${eventKind}`, eventKind: eventKind as "clock_in" | "clock_out", latitudeE7: null, longitudeE7: null, distanceMeters: null, occurredAt: at, receivedAt: at }).onConflictDoNothing();
+    }
+  }
+
+  // 王小明沿用既有主管帳號，但在示範中另有一段排班櫃位任職資料。
+  await db.insert(hrEmploymentAttendanceSettings).values({ employmentId: boothEmploymentId, attendanceMode: "scheduled", primaryAssignmentId: null })
+    .onConflictDoUpdate({ target: hrEmploymentAttendanceSettings.employmentId, set: { attendanceMode: "scheduled", primaryAssignmentId: null } });
+  await db.insert(hrEmployeeScopes).values({ id: "dev-employee-scope-wang-ximen", employmentId: boothEmploymentId, scopeId: ximenScopeId, validFrom: "2026-01-01", validTo: null }).onConflictDoNothing();
+  await db.insert(hrCompensationVersions).values({ id: "dev-comp-wang-2026", employmentId: boothEmploymentId, versionNumber: 1, validFrom: "2026-01-01", validTo: null, payBasis: "monthly", baseAmountMinor: 4_500_000, note: "開發示範：櫃位底薪 NT$45,000", createdBy: ids.supervisorUserId }).onConflictDoNothing();
+  await db.insert(hrOvertimeRequests).values([
+    { id: "dev-overtime-wang-1", employmentId: boothEmploymentId, scopeId: ximenScopeId, requestedStart: "2026-08-08 11:00:00", requestedEnd: "2026-08-08 13:00:00", actualStart: "2026-08-08 11:00:00", actualEnd: "2026-08-08 13:00:00", settlementKind: "pay", status: "approved", ratePpm: 1_333_333, reason: "開發示範櫃位加班", reviewedBy: ids.linUserId, reviewedAt: "2026-08-09 09:00:00", createdBy: ids.supervisorUserId },
+  ]).onConflictDoNothing();
+
+  await db.insert(hrShiftTemplates).values({ id: "dev-shift-booth-day", code: "DEMO-BOOTH-DAY", name: "櫃位日班 10:00–18:00", active: 1, createdBy: ids.linUserId }).onConflictDoNothing();
+  await db.insert(hrShiftVersions).values({ id: "dev-shift-booth-day-v1", shiftTemplateId: "dev-shift-booth-day", versionNumber: 1, startSecond: 2 * 3600, endSecond: 10 * 3600, endDayOffset: 0, payFactorPpm: 1_000_000, createdBy: ids.linUserId }).onConflictDoNothing();
+  await db.insert(hrScheduleVersions).values({ id: "dev-schedule-2026-08-v1", periodStart: "2026-08-01", periodEnd: "2026-09-01", versionNumber: 1, status: "published", submittedBy: ids.supervisorUserId, approvedBy: ids.linUserId, decisionReason: "開發示範班表" }).onConflictDoNothing();
+  const scheduledDays = [1, 3, 5, 8, 10, 12, 15, 17, 19, 22, 24, 26, 29, 31];
+  for (const day of scheduledDays) {
+    const date = `${month}-${String(day).padStart(2, "0")}`;
+    await db.insert(hrScheduleEntries).values({ id: `dev-schedule-entry-wang-${day}`, scheduleVersionId: "dev-schedule-2026-08-v1", employmentId: boothEmploymentId, scopeId: ximenScopeId, shiftVersionId: "dev-shift-booth-day-v1", workDate: date, startsAt: `${date} 02:00:00`, endsAt: `${date} 10:00:00`, createdBy: ids.supervisorUserId }).onConflictDoNothing();
+  }
+
+  // 分開確保三層資料，讓先前 seed 中途失敗後重啟也能補齊 policy／version／member。
+  await db.insert(hrBonusPolicies).values({ id: "dev-bonus-ximen", name: "西門櫃點保底 5% 獎金", active: 1, createdBy: ids.linUserId }).onConflictDoNothing();
+  await db.insert(hrBonusPolicyVersions).values({ id: "dev-bonus-ximen-2026-v1", policyId: "dev-bonus-ximen", versionNumber: 1, scopeId: ximenScopeId, performanceKind: "scheduled_daily", revenueKind: "sales_amount", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 50_000, guaranteeMinor: 15_000_000, validFrom: "2026-01-01", validTo: null, createdBy: ids.linUserId }).onConflictDoNothing();
+  await db.insert(hrBonusPolicyMembers).values({ id: "dev-bonus-member-wang", policyVersionId: "dev-bonus-ximen-2026-v1", employmentId: boothEmploymentId, validFrom: "2026-01-01", validTo: null, weightUnits: 1, createdBy: ids.linUserId }).onConflictDoNothing();
+  await db.insert(hrBonusPerformanceSnapshots).values({ id: "dev-performance-ximen-team-2026-08", scopeId: ximenScopeId, employmentId: null, periodStart: `${month}-01`, periodEnd: "2026-09-01", amountMinor: 18_000_000, sourceKind: "manual", sourceRef: "demo-approved-team-performance-2026-08", provenanceJson: JSON.stringify({ note: "開發示範團體業績快照；非出金表" }), createdBy: ids.linUserId }).onConflictDoNothing();
+  const [existingPool] = await db.select({ id: hrBonusPools.id }).from(hrBonusPools).where(eq(hrBonusPools.policyVersionId, "dev-bonus-ximen-2026-v1")).limit(1);
+  if (!existingPool) {
+    const revenue = scheduledDays.map((day, index) => ({ businessDate: `${month}-${String(day).padStart(2, "0")}`, amountMinor: 18_000_000 + index * 1_500_000, sourceKind: "manual" as const, sourceRef: `demo-sales-${month}-${day}`, provenance: { note: "開發示範核准業績快照；非出金表" } }));
+    await calculateHrBonusPool(db, { policyVersionId: "dev-bonus-ximen-2026-v1", periodKey: month, revenue }, { id: ids.linUserId, email: "eli-lin@ecotech.tw" });
+  }
 }
 
 const DEV_ANALYTICS_SCOPES = [

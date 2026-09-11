@@ -764,6 +764,34 @@
       "when": 1789017264170,
       "tag": "0132_restore_hr_admin_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "6",
+      "when": 1789030955479,
+      "tag": "0133_sticky_dracula",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "6",
+      "when": 1789030956000,
+      "tag": "0134_backfill_hr_attendance_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "6",
+      "when": 1789036647299,
+      "tag": "0135_misty_invaders",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "6",
+      "when": 1789057746240,
+      "tag": "0136_cooing_next_avengers",
+      "breakpoints": true
     }
   ]
 }

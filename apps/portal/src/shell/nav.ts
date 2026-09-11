@@ -8,6 +8,8 @@ export interface NavItem {
   permission: Permission;
   /** 側邊選單收合成窄欄時只剩圖示，所以每一項都要有。 */
   icon: IconName;
+  /** 這個功能有多個平行子頁面時，這些路徑也算在同一項底下。 */
+  activePaths?: string[];
   /**
    * 從屬於這一項的子頁面。目前沒有人用——CRM 與 WMS 搬進來之後才會出現，
    * 例如倉位地圖底下的個別倉區。留著渲染與樣式，等有真的子頁面再掛上去，
@@ -95,6 +97,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "員工管理", to: "/hr/employees", permission: "hr:employee:read", icon: "list" },
       { label: "出勤設定", to: "/hr/attendance-settings", permission: "hr:office:read", icon: "calendar" },
+      { label: "敘薪與獎金", to: "/hr/compensation", permission: "hr:payroll:read", icon: "payments", activePaths: ["/hr/bonus", "/hr/payroll-settlement"] },
     ],
   },
   {
@@ -110,7 +113,8 @@ export const NAV_SECTIONS: NavSection[] = [
 
 /** 這個路徑是否落在某一項（或它的子項）底下，用來決定要不要自動展開。 */
 export function containsPath(item: NavItem, pathname: string): boolean {
-  if (pathname === item.to || pathname.startsWith(`${item.to}/`)) return true;
+  const paths = [item.to, ...(item.activePaths ?? [])];
+  if (paths.some((path) => pathname === path || pathname.startsWith(`${path}/`))) return true;
   return (item.children ?? []).some((child) => containsPath(child, pathname));
 }
 

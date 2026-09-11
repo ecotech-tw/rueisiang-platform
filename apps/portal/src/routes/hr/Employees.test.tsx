@@ -13,6 +13,16 @@ describe("人事資料呈現", () => {
     expect(html).toContain("停用帳號不會刪除任職歷史");
   });
 
+  it("內頁將敏感資料與出勤資料拆成獨立收合區塊", () => {
+    const html = renderToStaticMarkup(<HrProfileDetails profile={{ employee, employments: [], assignments: [] }} collapsible />);
+    expect(html.match(/hr-profile-section-toggle/g)).toHaveLength(7);
+    expect(html).toContain(">任職</span>");
+    expect(html).toContain(">薪資</span>");
+    expect(html).toContain(">勞健保</span>");
+    expect(html).toContain(">辦公位置</span>");
+    expect(html).toContain(">打卡紀錄</span>");
+  });
+
   it("呈現復職歷史與半開期間，姓名不解析為 HTML", () => {
     const profile: Profile = {
       employee: { ...employee, displayName: "<script>alert(1)</script>" },

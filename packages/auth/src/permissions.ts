@@ -58,6 +58,15 @@ export const PERMISSIONS = {
   "hr:employee:write": "管理全平台員工與任職資料",
   "hr:office:read": "檢視 HR 出勤設定",
   "hr:office:write": "管理辦公位置與員工辦公位置指派",
+  "hr:schedule:read": "檢視班次與排班",
+  "hr:schedule:write": "管理班次與排班",
+  "hr:overtime:read": "檢視加班資料",
+  "hr:overtime:write": "管理加班資料",
+  "hr:payroll:read": "檢視薪資試算與薪資單",
+  "hr:payroll:calculate": "執行薪資試算",
+  "hr:bonus:read": "檢視獎金政策與業績",
+  "hr:bonus:write": "管理獎金政策與員工套用",
+  "hr:bonus:calculate": "執行獎金試算",
   "hr:request:review": "審核 HR 表單",
 
   // 系統
@@ -88,6 +97,7 @@ export const SYSTEM_ROLES = {
       "tools:cyberbiz-sales:run",
       "tools:shopee-sales:run",
       "reports:cyberbiz:read", "reports:cyberbiz:write",
+      "hr:schedule:read", "hr:schedule:write",
       "hr:request:review",
     ],
   },

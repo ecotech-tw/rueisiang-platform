@@ -1,11 +1,12 @@
-import { and, asc, eq, like, ne, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, like, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { hrEmployees, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
-import { hrAttendanceLocations, hrEmployeeAttendanceLocations } from "./schema/hr-attendance.js";
+import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
+import { hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
-import { users } from "./schema/auth.js";
+import { roles, userRoleAssignments, users } from "./schema/auth.js";
 
 export class HrError extends Error {
   constructor(public readonly status: 400 | 404 | 409, message: string) { super(message); }
@@ -46,8 +47,34 @@ async function write(db: Database, statement: SQL | SQL[], id: string, actor: Hr
 
 export { write as writeHrMutation };
 
+/** 系統 admin 角色代表全平台 HR 管理者，用於保護薪資等敏感明細。 */
+export async function isHrAdministrator(db: Database, userId: string): Promise<boolean> {
+  const [row] = await db.select({ userId: userRoleAssignments.userId }).from(userRoleAssignments)
+    .innerJoin(roles, eq(roles.id, userRoleAssignments.roleId))
+    .where(and(eq(userRoleAssignments.userId, userId), eq(roles.roleKey, "admin"), eq(roles.isSystem, true)))
+    .limit(1);
+  return Boolean(row);
+}
+
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
 const employeeFields = { userId: hrEmployees.userId, employeeNumber: hrEmployees.employeeNumber, supervisorUserId: hrEmployees.supervisorUserId, displayName, email: users.email, userStatus: users.status, revision: hrEmployees.revision };
+
+const EMPLOYEE_SORT_COLUMNS = {
+  employeeNumber: hrEmployees.employeeNumber,
+  name: displayName,
+  email: users.email,
+  status: users.status,
+} as const;
+export type HrEmployeeSortField = keyof typeof EMPLOYEE_SORT_COLUMNS;
+export const HR_EMPLOYEE_PAGE_SIZES = [10, 25, 50, 100] as const;
+export interface HrEmployeeListQuery {
+  page: number;
+  pageSize: number;
+  search: string;
+  status: "all" | "active" | "invited" | "disabled";
+  sortField: HrEmployeeSortField;
+  sortDirection: "asc" | "desc";
+}
 
 export async function listHrCandidates(db: Database, input: { page: number; search: string; userId?: string }) {
   const rows = await db.select({ userId: users.id, displayName, email: users.email, status: users.status }).from(users)
@@ -59,23 +86,50 @@ export async function listHrCandidates(db: Database, input: { page: number; sear
     )).orderBy(asc(users.email)).limit(51).offset((input.page - 1) * 50);
   return { users: rows.slice(0, 50), hasMore: rows.length > 50 };
 }
-export async function listHrEmployees(db: Database, page: number) {
-  const rows = await db.select(employeeFields).from(hrEmployees).innerJoin(users, eq(users.id, hrEmployees.userId))
-    .orderBy(asc(hrEmployees.employeeNumber)).limit(51).offset((page - 1) * 50);
-  return { employees: rows.slice(0, 50), hasMore: rows.length > 50, page };
+export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) {
+  const conditions = [
+    query.status === "all" ? undefined : eq(users.status, query.status),
+    query.search ? or(
+      like(hrEmployees.employeeNumber, `%${query.search}%`),
+      like(users.email, `%${query.search}%`),
+      like(users.displayName, `%${query.search}%`),
+      like(users.googleName, `%${query.search}%`),
+    ) : undefined,
+  ];
+  const where = and(...conditions);
+  const sortColumn = EMPLOYEE_SORT_COLUMNS[query.sortField];
+  const orderColumn = query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn);
+  const [employees, [totalRow]] = await Promise.all([
+    db.select(employeeFields).from(hrEmployees).innerJoin(users, eq(users.id, hrEmployees.userId))
+      .where(where).orderBy(orderColumn, asc(hrEmployees.employeeNumber), asc(hrEmployees.userId))
+      .limit(query.pageSize).offset((query.page - 1) * query.pageSize),
+    db.select({ value: count() }).from(hrEmployees).innerJoin(users, eq(users.id, hrEmployees.userId)).where(where),
+  ]);
+  const total = totalRow?.value ?? 0;
+  return { employees, total, page: query.page, pageSize: query.pageSize, hasMore: query.page * query.pageSize < total };
 }
 export async function listHrSupervisorCandidates(db: Database, userId: string) {
   return db.select({ id: hrEmployees.userId, name: displayName }).from(hrEmployees).innerJoin(users, eq(users.id, hrEmployees.userId))
     .where(and(ne(hrEmployees.userId, userId), eq(users.status, "active")))
     .orderBy(asc(displayName));
 }
-export async function getHrEmployee(db: Database, userId: string) {
+export interface HrEmployeeDetailOptions {
+  includeCompensation?: boolean;
+  includeInsurance?: boolean;
+  includeLeave?: boolean;
+  includeAttendanceEvents?: boolean;
+}
+
+export async function getHrEmployee(db: Database, userId: string, options: HrEmployeeDetailOptions = {}) {
   const [employee] = await db.select(employeeFields).from(hrEmployees).innerJoin(users, eq(users.id, hrEmployees.userId)).where(eq(hrEmployees.userId, userId));
   if (!employee) throw new HrError(404, "此使用者尚未被指派為員工。");
   const [supervisor] = employee.supervisorUserId
     ? await db.select({ displayName }).from(users).where(eq(users.id, employee.supervisorUserId)).limit(1)
     : [];
-  const employments = await db.select().from(hrEmployments).where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployments.hiredOn));
+  const employmentRows = await db.select({ employment: hrEmployments, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode })
+    .from(hrEmployments).leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployments.hiredOn));
+  const employments = employmentRows.map(({ employment, attendanceMode: mode }) => ({ ...employment, attendanceMode: mode ?? "general" }));
   const assignments = await db.select({
     id: hrEmployeeScopes.id, employmentId: hrEmployeeScopes.employmentId, scopeId: hrEmployeeScopes.scopeId,
     scopeName: scopes.name, validFrom: hrEmployeeScopes.validFrom, validTo: hrEmployeeScopes.validTo, revision: hrEmployeeScopes.revision,
@@ -90,7 +144,31 @@ export async function getHrEmployee(db: Database, userId: string) {
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrEmployeeAttendanceLocations.employmentId))
     .innerJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrEmployeeAttendanceLocations.locationId))
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployeeAttendanceLocations.validFrom));
-  return { employee: { ...employee, supervisorName: supervisor?.displayName ?? null }, employments, assignments, attendanceAssignments };
+  const attendanceSettings = await db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, primaryAssignmentId: hrEmploymentAttendanceSettings.primaryAssignmentId })
+    .from(hrEmploymentAttendanceSettings).where(sql`EXISTS (SELECT 1 FROM hr_employments WHERE id = hr_employment_attendance_settings.employment_id AND employee_user_id = ${userId})`);
+  const primaryByEmployment = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting.primaryAssignmentId]));
+  const withPrimary = attendanceAssignments.map((assignment) => ({ ...assignment, isPrimary: primaryByEmployment.get(assignment.employmentId) === assignment.id }));
+  const compensationRows = options.includeCompensation ? await db.select().from(hrCompensationVersions)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrCompensationVersions.employmentId))
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrCompensationVersions.validFrom)) : undefined;
+  const insuranceRows = options.includeInsurance ? await db.select().from(hrInsuranceVersions)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrInsuranceVersions.employmentId))
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
+  const leaveRows = options.includeLeave ? await db.select().from(hrLeaveRequests)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
+  const compensation = compensationRows?.map((row) => row.hr_compensation_versions);
+  const insurance = insuranceRows?.map((row) => row.hr_insurance_versions);
+  const leave = leaveRows?.map((row) => row.hr_leave_requests);
+  const attendanceEvents = options.includeAttendanceEvents ? await db.select({
+    id: hrClockEvents.id, eventKind: hrClockEvents.eventKind, occurredAt: hrClockEvents.occurredAt,
+    locationName: hrAttendanceLocations.name, distanceMeters: hrClockEvents.distanceMeters,
+  }).from(hrClockEvents).leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
+    .where(eq(hrClockEvents.employeeUserId, userId)).orderBy(desc(hrClockEvents.occurredAt)).limit(200) : undefined;
+  return {
+    employee: { ...employee, supervisorName: supervisor?.displayName ?? null }, employments, assignments, attendanceAssignments: withPrimary,
+    ...(compensation ? { compensation } : {}), ...(insurance ? { insurance } : {}), ...(leave ? { leave } : {}), ...(attendanceEvents ? { attendanceEvents } : {}),
+  };
 }
 export async function getHrSelf(db: Database, userId: string) {
   const employee = await isHrEmployee(db, userId);
@@ -101,10 +179,12 @@ export async function isHrEmployee(db: Database, userId: string) {
   return Boolean(employee);
 }
 export async function listHrScopes(db: Database) {
-  return db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(and(eq(scopes.active, 1), eq(scopes.scopeKind, "store"), sql`${scopes.sourceType} <> 'shopee'`)).orderBy(asc(scopes.name));
+  return db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(and(
+    eq(scopes.active, 1), eq(scopes.scopeKind, "store"), sql`${scopes.sourceType} <> 'shopee'`,
+  )).orderBy(asc(scopes.name));
 }
 
-export function assignHrEmployee(db: Database, input: { userId: string; employeeNumber: string; hiredOn: string; seniorityStartOn: string }, actor: HrActor) {
+export function assignHrEmployee(db: Database, input: { userId: string; employeeNumber: string; hiredOn: string; seniorityStartOn: string; attendanceMode: "general" | "scheduled" }, actor: HrActor) {
   const employmentId = crypto.randomUUID();
   // 指派員工與第一筆任職是同一操作；帳號、姓名與初次任職不分成三次建檔。
   return write(db, [
@@ -116,6 +196,8 @@ export function assignHrEmployee(db: Database, input: { userId: string; employee
       WHERE employee.user_id=${input.userId} AND employee.employee_number=${input.employeeNumber}
         AND account.status IN ('active', 'invited')
       RETURNING id`,
+    sql`INSERT INTO hr_employment_attendance_settings (employment_id, attendance_mode)
+      VALUES (${employmentId}, ${input.attendanceMode}) RETURNING employment_id AS id`,
   ], input.userId, actor, "employee_assigned");
 }
 export function updateHrEmployee(db: Database, userId: string, input: { employeeNumber: string; revision: number }, actor: HrActor) {
@@ -131,12 +213,21 @@ export function updateHrEmployeeSupervisor(db: Database, userId: string, input: 
           WHERE supervisor_employee.user_id=${input.supervisorUserId} AND supervisor_user.status='active')))
     RETURNING user_id AS id`, userId, actor, "employee_supervisor_updated", "主管不存在、不可指定自己，或資料已變更，請重新整理。");
 }
-export function createHrEmployment(db: Database, input: { userId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string }, actor: HrActor) {
+export function createHrEmployment(db: Database, input: { userId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string; attendanceMode: "general" | "scheduled" }, actor: HrActor) {
   const id = crypto.randomUUID();
-  return write(db, sql`INSERT INTO hr_employments (id, employee_user_id, hired_on, ended_on, seniority_start_on)
+  return write(db, [sql`INSERT INTO hr_employments (id, employee_user_id, hired_on, ended_on, seniority_start_on)
     SELECT ${id}, ${input.userId}, ${input.hiredOn}, ${input.endedOn}, ${input.seniorityStartOn}
     WHERE NOT EXISTS (SELECT 1 FROM hr_employments WHERE employee_user_id=${input.userId}
-      AND (${input.endedOn} IS NULL OR hired_on < ${input.endedOn}) AND (ended_on IS NULL OR ended_on > ${input.hiredOn})) RETURNING id`, id, actor, "employment_created");
+      AND (${input.endedOn} IS NULL OR hired_on < ${input.endedOn}) AND (ended_on IS NULL OR ended_on > ${input.hiredOn})) RETURNING id`,
+    sql`INSERT INTO hr_employment_attendance_settings (employment_id, attendance_mode)
+      VALUES (${id}, ${input.attendanceMode}) RETURNING employment_id AS id`,
+  ], id, actor, "employment_created");
+}
+export function updateHrEmploymentAttendanceMode(db: Database, id: string, input: { attendanceMode: "general" | "scheduled"; revision: number }, actor: HrActor) {
+  return write(db, [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP
+    WHERE id=${id} AND revision=${input.revision} RETURNING id`,
+    sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, updated_at=CURRENT_TIMESTAMP
+      WHERE employment_id=${id} RETURNING employment_id AS id`], id, actor, "employment_attendance_mode_updated", "任職資料已變更，請重新整理後再試。");
 }
 export function endHrEmployment(db: Database, id: string, input: { endedOn: string; revision: number }, actor: HrActor) {
   return write(db, sql`UPDATE hr_employments SET ended_on=${input.endedOn}, revision=revision+1, updated_at=CURRENT_TIMESTAMP

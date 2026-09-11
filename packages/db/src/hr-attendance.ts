@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
-import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations } from "./schema/hr-attendance.js";
+import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
 
 export interface HrAttendanceLocationInput {
@@ -57,9 +57,11 @@ export function updateHrAttendanceLocation(db: Database, id: string, input: HrAt
     WHERE id=${id} AND revision=${input.revision} RETURNING id`, id, actor, "attendance_location_updated", "辦公位置已變更、名稱重複或資料不合法，請重新整理。");
 }
 
-export function createHrAttendanceLocationAssignment(db: Database, input: { employmentId: string; locationId: string; validFrom: string; validTo: string | null }, actor: HrActor) {
+export async function createHrAttendanceLocationAssignment(db: Database, input: { employmentId: string; locationId: string; validFrom: string; validTo: string | null }, actor: HrActor) {
   const id = crypto.randomUUID();
-  return writeHrMutation(db, sql`INSERT INTO hr_employee_attendance_locations
+  const [setting] = await db.select({ primaryAssignmentId: hrEmploymentAttendanceSettings.primaryAssignmentId })
+    .from(hrEmploymentAttendanceSettings).where(eq(hrEmploymentAttendanceSettings.employmentId, input.employmentId)).limit(1);
+  const mutations = [sql`INSERT INTO hr_employee_attendance_locations
     (id, employment_id, location_id, valid_from, valid_to)
     SELECT ${id}, ${input.employmentId}, ${input.locationId}, ${input.validFrom}, ${input.validTo}
     WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND hired_on <= ${input.validFrom}
@@ -67,12 +69,39 @@ export function createHrAttendanceLocationAssignment(db: Database, input: { empl
       AND EXISTS (SELECT 1 FROM hr_attendance_locations WHERE id=${input.locationId})
       AND NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${input.employmentId} AND location_id=${input.locationId}
         AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
-    RETURNING id`, id, actor, "attendance_location_assigned", "員工或辦公位置不存在、同一辦公位置期間重疊，請重新整理。");
+    RETURNING id`];
+  // 每段任職至少保留一個主要位置；第一筆指派完成後才把 pointer 指過去，兩步同批提交。
+  if (!setting?.primaryAssignmentId) mutations.push(sql`UPDATE hr_employment_attendance_settings SET primary_assignment_id=${id}, updated_at=CURRENT_TIMESTAMP
+    WHERE employment_id=${input.employmentId} RETURNING employment_id AS id`);
+  return writeHrMutation(db, mutations, id, actor, "attendance_location_assigned", "員工或辦公位置不存在、同一辦公位置期間重疊，請重新整理。");
 }
 
-export function endHrAttendanceLocationAssignment(db: Database, id: string, input: { validTo: string; revision: number }, actor: HrActor) {
-  return writeHrMutation(db, sql`UPDATE hr_employee_attendance_locations SET valid_to=${input.validTo}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
-    WHERE id=${id} AND revision=${input.revision} AND valid_to IS NULL AND valid_from < ${input.validTo} RETURNING id`, id, actor, "attendance_location_unassigned", "辦公位置指派已變更或日期不合法，請重新整理。");
+export async function setHrAttendanceLocationPrimary(db: Database, id: string, actor: HrActor) {
+  const [target] = await db.select({ employmentId: hrEmployeeAttendanceLocations.employmentId }).from(hrEmployeeAttendanceLocations).where(eq(hrEmployeeAttendanceLocations.id, id)).limit(1);
+  if (!target) throw new HrError(404, "找不到這筆辦公位置指派。");
+  return writeHrMutation(db, sql`UPDATE hr_employment_attendance_settings SET primary_assignment_id=${id}, updated_at=CURRENT_TIMESTAMP
+    WHERE employment_id=${target.employmentId}
+      AND EXISTS (SELECT 1 FROM hr_employee_attendance_locations AS assignment
+        WHERE assignment.id=${id} AND assignment.valid_from <= date('now', '+8 hours')
+          AND (assignment.valid_to IS NULL OR assignment.valid_to > date('now', '+8 hours')))
+    RETURNING employment_id AS id`, id, actor, "attendance_location_primary_changed", "辦公位置指派已變更或目前不在有效期間，請重新整理。");
+}
+
+export async function endHrAttendanceLocationAssignment(db: Database, id: string, input: { validTo: string; revision: number }, actor: HrActor) {
+  const [assignment] = await db.select({ employmentId: hrEmployeeAttendanceLocations.employmentId }).from(hrEmployeeAttendanceLocations).where(eq(hrEmployeeAttendanceLocations.id, id)).limit(1);
+  if (!assignment) throw new HrError(404, "找不到這筆辦公位置指派。");
+  const [setting] = await db.select({ primaryAssignmentId: hrEmploymentAttendanceSettings.primaryAssignmentId }).from(hrEmploymentAttendanceSettings)
+    .where(eq(hrEmploymentAttendanceSettings.employmentId, assignment.employmentId)).limit(1);
+  const isPrimary = setting?.primaryAssignmentId === id;
+  const [replacement] = isPrimary ? await db.select({ id: hrEmployeeAttendanceLocations.id }).from(hrEmployeeAttendanceLocations).where(and(
+    eq(hrEmployeeAttendanceLocations.employmentId, assignment.employmentId), sql`${hrEmployeeAttendanceLocations.id} <> ${id}`,
+    sql`${hrEmployeeAttendanceLocations.validFrom} < ${input.validTo} AND (${hrEmployeeAttendanceLocations.validTo} IS NULL OR ${hrEmployeeAttendanceLocations.validTo} > ${input.validTo})`,
+  )).orderBy(asc(hrEmployeeAttendanceLocations.validFrom)).limit(1) : [];
+  const mutations = [sql`UPDATE hr_employee_attendance_locations SET valid_to=${input.validTo}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
+    WHERE id=${id} AND revision=${input.revision} AND valid_to IS NULL AND valid_from < ${input.validTo} RETURNING id`];
+  if (isPrimary) mutations.push(sql`UPDATE hr_employment_attendance_settings SET primary_assignment_id=${replacement?.id ?? null}, updated_at=CURRENT_TIMESTAMP
+    WHERE employment_id=${assignment.employmentId} RETURNING employment_id AS id`);
+  return writeHrMutation(db, mutations, id, actor, "attendance_location_unassigned", "辦公位置指派已變更或日期不合法，請重新整理。");
 }
 
 export interface HrClockEventInput {
@@ -169,14 +198,16 @@ async function currentAttendanceAssignments(db: Database, employmentId: string) 
     latitudeE7: hrAttendanceLocations.latitudeE7,
     longitudeE7: hrAttendanceLocations.longitudeE7,
     radiusMeters: hrAttendanceLocations.radiusMeters,
+    isPrimary: sql<number>`CASE WHEN ${hrEmploymentAttendanceSettings.primaryAssignmentId} = ${hrEmployeeAttendanceLocations.id} THEN 1 ELSE 0 END`,
   }).from(hrEmployeeAttendanceLocations)
     .innerJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrEmployeeAttendanceLocations.locationId))
+    .leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployeeAttendanceLocations.employmentId))
     .where(and(
       eq(hrEmployeeAttendanceLocations.employmentId, employmentId),
       sql`${hrEmployeeAttendanceLocations.validFrom} <= date('now', '+8 hours')`,
       sql`(${hrEmployeeAttendanceLocations.validTo} IS NULL OR ${hrEmployeeAttendanceLocations.validTo} > date('now', '+8 hours'))`,
     ))
-    .orderBy(desc(hrEmployeeAttendanceLocations.validFrom), asc(hrAttendanceLocations.name));
+    .orderBy(desc(sql`CASE WHEN ${hrEmploymentAttendanceSettings.primaryAssignmentId} = ${hrEmployeeAttendanceLocations.id} THEN 1 ELSE 0 END`), desc(hrEmployeeAttendanceLocations.validFrom), asc(hrAttendanceLocations.name));
 }
 
 async function findClockEventByKey(db: Database, userId: string, idempotencyKey: string) {

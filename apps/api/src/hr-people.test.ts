@@ -62,7 +62,7 @@ beforeEach(async () => {
   }
   await db.insert(userRoleAssignments).values({ userId: "admin", roleId: "role-admin" });
   await db.insert(userPermissionGrants).values([
-    { userId: "writer", permission: "hr:employee:read" }, { userId: "writer", permission: "hr:employee:write" },
+    { userId: "writer", permission: "hr:employee:read" }, { userId: "writer", permission: "hr:employee:write" }, { userId: "writer", permission: "hr:request:review" },
   ]);
   await db.insert(scopes).values({ id: "scope", sourceType: "manual", scopeKind: "store", name: "測試櫃點", normalizedName: "測試櫃點" });
 });
