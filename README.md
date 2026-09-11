@@ -131,6 +131,24 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 - [ ] 決定在哪個訂單狀態扣帳，以及上線前的既有訂單要不要回補。
 - [ ] 訂閱 push code 3、驗簽、對應到 `product_sku_mappings` 後扣帳，含冪等與退貨加回。
 
+### 報表執行：四個頁面合併成一頁
+
+出金表、商品銷售、官網、蝦皮現在是四個 nav 項目，但它們的「最近執行」都讀同一張
+`report_runs`，只是各自用不同條件撈，還要靠 `request_id` 前綴互相排擠。
+
+- [ ] 改成 `/tools/reports/run/<driver>` 加 header bar 切換，以及共用的
+      `/tools/reports/log`；前綴排擠換成一個「種類」欄位。header bar 只能顯示使用者
+      有權限的分頁；蝦皮那頁是「先上傳檔案再觸發」，形狀跟另外三個不一樣。
+
+### 官網對帳單：還沒驗過的兩件事
+
+- [ ] workflow 用 `--headless` ＋ `PAYOUT_BROWSER_CHANNEL: chrome` 跑下載，這個組合
+      還沒成功過。本機會噴 `download.saveAs: Target page, context or browser has been
+      closed`，換 `chromium` 全過。真的壞在這裡就把 workflow 改成 `chromium`，並在
+      `npm ci` 之後加一步 `npx playwright install chromium`。
+- [ ] 有商家自行收款（貨到付款）的期間還沒遇過真檔案。parser 會擋下「拆分表少了那些
+      訂單」並要求人工確認，等第一份出現再決定怎麼計入。
+
 ### 小香：MCP tools
 
 `mcp` 目前只是 tool registry 上的 surface 標記，除了唯讀的
