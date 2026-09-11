@@ -461,24 +461,29 @@ export function statementAmountFromText(text) {
   return match ? Math.round(Number(match[1].replace(/,/g, ""))) : null;
 }
 
+/** 對帳中心。實際網址是 statements，不是 settlements——那兩個字很好打錯。 */
+const STATEMENTS_PATH = "/admin/statements";
+
 export async function openStatementCenter(page, { origin, startMonth, endMonth, log } = {}) {
-  await page.goto(`${origin}/admin/settlements`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${origin}${STATEMENTS_PATH}`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1200);
   await dismissOverlays(page, { log });
 
   let text = await page.locator("body").innerText();
   if (!text.includes("對帳單列表")) {
     // 網址可能改過；退回從側邊選單走一次，比猜第二個網址可靠。
-    log?.("直接開 /admin/settlements 沒看到對帳單列表，改從側邊選單進入");
+    log?.(`直接開 ${STATEMENTS_PATH} 沒看到對帳單列表，改從側邊選單進入`);
     await page.getByRole("link", { name: "管理中心" }).first().click({ timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(500);
-    await page.getByRole("link", { name: "對帳中心" }).first().click({ timeout: 10000 });
+    // 側邊選單這條路在 headless 上不保證點得到（實測 CI 會逾時）。它是備援，
+    // 所以逾時本身不該是最後的錯誤訊息——真正有用的是「兩條路都進不去」。
+    await page.getByRole("link", { name: "對帳中心" }).first().click({ timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(1500);
     await dismissOverlays(page, { log });
     text = await page.locator("body").innerText();
   }
   if (!text.includes("對帳單列表")) {
-    fail("STATEMENT_PAGE_MISSING", "找不到對帳中心的「對帳單列表」。");
+    fail("STATEMENT_PAGE_MISSING", `${STATEMENTS_PATH} 與側邊選單都沒進到「對帳單列表」，目前在 ${page.url()}。`);
   }
 
   // 月份篩選是選填：不填就是後台預設列出的那幾期。填了要按搜尋，不然畫面不會變。
