@@ -16,7 +16,7 @@ let db: ReturnType<typeof createDatabase>;
 beforeEach(async () => {
   d1 = createTargetOnlyD1();
   db = createDatabase(d1 as never);
-  await upsertReportScope(db, { id: SCOPE, scopeKind: "store", name: "官網", sourceType: "cyberbiz" });
+  await upsertReportScope(db, { id: SCOPE, scopeKind: "channel", name: "官網", sourceType: "cyberbiz" });
 });
 
 async function monthly() {
@@ -130,5 +130,33 @@ describe("官網半月對帳表匯入", () => {
       .where(and(eq(reportItemSalesPeriod.scopeId, SCOPE), eq(reportItemSalesPeriod.reportMonth, "2026-08")));
     expect(periods).toHaveLength(4);
     expect(periods.reduce((sum, row) => sum + row.salesAmount, 0)).toBe(650);
+  });
+
+  it("大小寫不同的同一個 SKU 會合併相加，不會撞主鍵也不會少算", async () => {
+    // SKU 是用小寫比對解析到品項的，所以這兩列是同一個 item。不先合併的話，
+    // 逐列 insert 會撞 (scope, 期間, item) 主鍵讓整期匯入失敗。
+    await insertReportSalesPeriod(db, {
+      scopeId: SCOPE,
+      periodStart: "2026-08-01",
+      periodEnd: "2026-08-15",
+      rows: [
+        { sku: "SKU-A", productName: "商品甲", grossQuantity: 2, netQuantity: 2, salesAmount: 200 },
+        { sku: "sku-a", productName: "商品甲", grossQuantity: 1, netQuantity: 1, salesAmount: 100 },
+      ],
+    });
+
+    const periods = await db.select({ netQuantity: reportItemSalesPeriod.netQuantity, salesAmount: reportItemSalesPeriod.salesAmount })
+      .from(reportItemSalesPeriod).where(eq(reportItemSalesPeriod.scopeId, SCOPE));
+    expect(periods).toEqual([{ netQuantity: 3, salesAmount: 300 }]);
+    expect(await monthly()).toMatchObject([{ sku: "SKU-A", netQuantity: 3, salesAmount: 300 }]);
+  });
+
+  it("跨月的期間不匯入，月加總不能把兩個月混在一起", async () => {
+    await expect(insertReportSalesPeriod(db, {
+      scopeId: SCOPE,
+      periodStart: "2026-08-16",
+      periodEnd: "2026-09-15",
+      rows: [{ sku: "SKU-A", productName: "商品甲", grossQuantity: 1, netQuantity: 1, salesAmount: 100 }],
+    })).rejects.toThrow(/跨月/);
   });
 });

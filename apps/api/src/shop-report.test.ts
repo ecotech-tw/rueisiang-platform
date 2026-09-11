@@ -140,6 +140,22 @@ describe("官網對帳單執行", () => {
     expect(await listShopReportRuns(db())).toHaveLength(0);
   });
 
+  it("GitHub 拒絕觸發時，那一列會標成 failed 而不是留著假的 queued", async () => {
+    vi.stubGlobal("fetch", async () => new Response("no", { status: 403 }));
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+
+    const response = await as(id, "manager@ecotech.tw", "/api/tools/shop-report/run", {
+      method: "POST",
+      body: JSON.stringify({ startMonth: "2026-08", endMonth: "2026-08" }),
+    });
+
+    expect(response.status).toBe(502);
+    // 先寫再觸發：紀錄留著才知道誰按過，但狀態要說實話。
+    const [stored] = await db().select().from(reportRuns).where(eq(reportRuns.sourceType, "cyberbiz"));
+    expect(stored).toMatchObject({ status: "failed" });
+    expect(stored!.lastError).toContain("GITHUB_TOKEN");
+  });
+
   it("沒有權限的人打不動這三條路由", async () => {
     const calls = stubGithub();
     const id = await seedUser("staff@ecotech.tw", "role-staff");

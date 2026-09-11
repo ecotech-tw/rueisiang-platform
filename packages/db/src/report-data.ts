@@ -649,9 +649,30 @@ export async function insertReportSalesPeriod(
     input.rows.map((row) => ({ ...row, scopeId, reportMonth, returnQuantity: row.returnQuantity ?? 0 })),
     true,
   );
-  const periodRows = input.rows.flatMap((row) => {
+  /*
+   * 同一個 item 只能有一列，而且要用相加合併。
+   *
+   * ensureTargetSalesItems 是用小寫比對 SKU 的，所以來源端的 `SKU-A` 與 `sku-a`
+   * 會解析到同一個 item。直接逐列 insert 的話會撞主鍵 (scope, 期間, item)，D1 丟
+   * UNIQUE constraint，整期匯入 500；而用 onConflictDoUpdate 則是後面那列蓋掉前面，
+   * 金額會少算。兩個都不對——先合併相加才是。
+   */
+  const byItem = new Map<string, {
+    scopeId: string; periodStart: string; periodEnd: string; reportMonth: string; itemId: string;
+    reportRunId: string; grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number;
+  }>();
+  for (const row of input.rows) {
     const itemId = itemsBySku.get(row.sku.trim().toLowerCase());
-    return itemId ? [{
+    if (!itemId) continue;
+    const previous = byItem.get(itemId);
+    if (previous) {
+      previous.grossQuantity += row.grossQuantity;
+      previous.returnQuantity += row.returnQuantity ?? 0;
+      previous.netQuantity += row.netQuantity;
+      previous.salesAmount += row.salesAmount;
+      continue;
+    }
+    byItem.set(itemId, {
       scopeId,
       periodStart,
       periodEnd,
@@ -662,8 +683,9 @@ export async function insertReportSalesPeriod(
       returnQuantity: row.returnQuantity ?? 0,
       netQuantity: row.netQuantity,
       salesAmount: row.salesAmount,
-    }] : [];
-  });
+    });
+  }
+  const periodRows = [...byItem.values()];
 
   // 先清掉這一期的舊列再寫入，重傳同一份檔案的結果才會跟第一次一樣。
   const writes: Statement[] = [db.delete(reportItemSalesPeriod).where(and(

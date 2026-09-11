@@ -132,7 +132,38 @@ test("拆分表金額對不上代收金額就整份拒絕", async () => {
   // 少一列的情境：欄位認錯或漏列時，報表會安靜地少一筆錢，所以必須當場失敗。
   const { root, filePath } = await fixture({ collected: 1200 });
   try {
-    await assert.rejects(parseShopReport(filePath), /與對帳總表的本期代收金額 1200 不一致/);
+    await assert.rejects(parseShopReport(filePath), /對不上對帳總表：本期代收金額 1200/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("有商家自行收款，而且拆分表也含那些訂單：Σ 商品 = 代收 + 自行收款", async () => {
+  // 貨到付款那種錢沒經過 CYBERBIZ，不算在代收金額裡，但仍然是營業額。
+  const { root, filePath } = await fixture({
+    collected: 700, merchant: 300, fee: 100, settlement: 900,
+    rows: [
+      { name: "商品甲", sku: "SKU-A", quantity: 2, gross: 880, discount: 0, sales: 880 },
+      { name: "運費", quantity: 1, gross: 120, discount: 0, sales: 120 },
+    ],
+  });
+  try {
+    const report = await parseShopReport(filePath);
+    assert.equal(report.revenueAmount, 1000);
+    assert.equal(report.items.reduce((sum, item) => sum + item.salesAmount, 0), 1000);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("有商家自行收款但拆分表少了那些訂單就整份拒絕，不可以靜靜地少算", async () => {
+  // 這是最危險的一種：兩張表各自看起來都合理，但 Σ 商品會比營業額少 300，
+  // 而少掉的那一截不會出現在任何地方。
+  const { root, filePath } = await fixture({
+    collected: 1000, merchant: 300, fee: 100, settlement: 1200,
+  });
+  try {
+    await assert.rejects(parseShopReport(filePath), /有商家自行收款 300 元/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -154,16 +185,6 @@ test("退款是負數，會從收款淨額扣掉", async () => {
     assert.equal(report.settlementAmount, 700);
     // 營業額只看代收與自行收款；退款反映在撥款，不從營業額扣。
     assert.equal(report.revenueAmount, 1000);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("貨到付款的自行收款要算進營業額", async () => {
-  const { root, filePath } = await fixture({ merchant: 500, settlement: 1400 });
-  try {
-    const report = await parseShopReport(filePath);
-    assert.equal(report.revenueAmount, 1500);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -212,4 +233,12 @@ test("卡片文字：撥款金額抓得出來，預計撥款也抓得出來", ()
   // 「預計撥款金額」也會被抓到，所以能不能下載一律看按鈕，不看金額文字。
   assert.equal(statementAmountFromText("預計撥款金額 ? NT$36,216 本期對帳單處理中"), 36216);
   assert.equal(statementAmountFromText("對帳區間 2026/09/01 ~ 2026/09/15"), null);
+});
+
+test("卡片文字：金額帶小數時要跟檔案端同樣四捨五入", () => {
+  // 只抓整數位的話 64,559.60 會變成 64559，而檔案端是 Math.round 後的 64560，
+  // driver 的交叉檢查就會把正確的那一期誤判成「抓錯期」而中止整個 run。
+  assert.equal(statementAmountFromText("撥款金額 ? NT$64,559.60 帳款已確認"), 64560);
+  assert.equal(statementAmountFromText("撥款金額 ? NT$64,559.40 帳款已確認"), 64559);
+  assert.equal(statementAmountFromText("撥款金額 ? NT$1,247.83 帳款已確認"), 1248);
 });

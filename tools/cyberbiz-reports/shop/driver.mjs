@@ -163,7 +163,10 @@ async function main() {
     for (const statement of statements) {
       if (!statement.settled) {
         // 沒有下載鈕就是還沒結帳；金額欄寫的是「預計撥款」，不能當成實際數字。
-        skipped.push({ ...statement, reason: "未結帳" });
+        // locator 不要帶進輸出：它會序列化成一坨 Playwright 內部欄位（_guid、_selector），
+        // 讓 run log 裡的 JSON 多一堆看不懂的東西。--list 那條路徑也是這樣濾的。
+        const { locator: _locator, ...rest } = statement;
+        skipped.push({ ...rest, reason: "未結帳" });
         log(`跳過 ${statement.start} ~ ${statement.end}：尚未結帳`);
         continue;
       }
@@ -197,6 +200,23 @@ async function main() {
         log(`匯入平台：${entry.ingest.itemCount} 個 SKU、營業額 ${entry.ingest.salesAmount}`);
       }
       processed.push(entry);
+    }
+
+    /*
+     * 一期都沒抓到就當失敗。
+     *
+     * 「可不可以下載」是看卡片節點裡有沒有下載鈕（見 listStatements）。CYBERBIZ 改版
+     * 把按鈕挪到卡片外面的話，每一期都會被判成未結帳，driver 靜靜地什麼都不抓、然後
+     * 回綠燈——那是最糟的失敗形狀，因為沒有人會來看一個成功的 run。
+     *
+     * 真的整段期間都還沒結帳是可能的（例如當月月初就跑），所以訊息要講清楚兩種可能。
+     */
+    if (!processed.length) {
+      await screenshot(page, "shop-nothing-downloadable");
+      throw new Error(
+        `${startMonth} ~ ${endMonth} 共 ${statements.length} 期，一期都沒有下載鈕。`
+        + "可能是都還沒結帳，也可能是後台改版讓我們認不出按鈕了——請看截圖確認。",
+      );
     }
 
     return { statements: processed, skipped };

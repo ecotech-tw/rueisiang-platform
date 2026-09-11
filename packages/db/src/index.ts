@@ -379,6 +379,7 @@ export {
 export {
   SHOP_SCOPE_ID,
   SHOP_SCOPE_NAME,
+  failShopReportRun,
   listShopReportRuns,
   monthRangeToDates,
   recordShopReportRun,

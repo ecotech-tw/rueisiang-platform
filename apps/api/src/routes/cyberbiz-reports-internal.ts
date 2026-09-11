@@ -57,6 +57,11 @@ function statementInput(value: unknown): {
   const periodStart = date("periodStart");
   const periodEnd = date("periodEnd");
   if (periodEnd < periodStart) throw new CyberbizReportIngestError(422, "invalid_ingest", "periodEnd 早於 periodStart。");
+  // 跨月在這裡擋掉。不擋的話會一路走到 insertReportSalesPeriod 丟一個普通 Error，
+  // route 的 catch 認不得就變成 500——呼叫端看不出是自己送錯東西還是平台壞了。
+  if (periodStart.slice(0, 7) !== periodEnd.slice(0, 7)) {
+    throw new CyberbizReportIngestError(422, "invalid_ingest", `期間跨月無法併入月報：${periodStart} ~ ${periodEnd}`);
+  }
   if (!Array.isArray(body.rows) || !body.rows.length) {
     throw new CyberbizReportIngestError(422, "invalid_ingest", "rows 是必填。");
   }

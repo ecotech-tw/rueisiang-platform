@@ -122,7 +122,7 @@ function chargeSku(productName) {
   return `CYBERBIZ-CHARGE-${productName.replace(/\s+/g, "")}`;
 }
 
-function parseItems(sheet, { collectedAmount }) {
+function parseItems(sheet, { collectedAmount, merchantCollectedAmount }) {
   const { headerRow, columns } = itemColumns(sheet);
   const { cells, maxRow } = sheet;
   const at = (field, row) => cells.get(`${columns.get(field)}${row}`);
@@ -164,11 +164,31 @@ function parseItems(sheet, { collectedAmount }) {
     bySku.set(sku, previous);
   }
 
-  // 這是整份解析唯一的真正驗算：拆分表的交易金額總和必須等於對帳總表的代收金額。
-  // 對不上就是欄位認錯或漏列，那種錯誤如果放過去，報表會少一筆而且沒有人會發現。
-  if (cents(salesTotal) !== cents(collectedAmount)) {
+  /*
+   * 這是整份解析唯一的真正驗算：拆分表的交易金額總和必須對得上對帳總表。
+   * 對不上就是欄位認錯或漏列，那種錯誤如果放過去，報表會少一筆而且沒有人會發現。
+   *
+   * 「對得上」有兩個可能的答案，因為代收金額**不含**商家自行收款（貨到付款那種，
+   * 錢沒經過 CYBERBIZ）。拆分表有沒有把那些訂單列進來，我們手上的檔案答不了——
+   * 實測那一期的自行收款是 0，兩個答案剛好一樣。所以兩個都收，但不猜：
+   *
+   *   - 等於「代收 + 自行收款」→ 拆分表含全部訂單，Σ商品 = 營業額，成立。
+   *   - 等於「代收」而且自行收款是 0 → 同上。
+   *   - 等於「代收」但自行收款不是 0 → 拆分表少了那些訂單。這時候 Σ商品 會比
+   *     營業額少一截，正是 chargeSku 那段註解在防的同一種錯。不知道怎麼算就
+   *     整份拒收，讓人把檔案拿出來看，不要靜靜地少算錢。
+   */
+  const withMerchant = collectedAmount + merchantCollectedAmount;
+  if (cents(salesTotal) !== cents(collectedAmount) && cents(salesTotal) !== cents(withMerchant)) {
     throw new Error(
-      `依商品拆分的交易金額總和 ${salesTotal} 與對帳總表的本期代收金額 ${collectedAmount} 不一致。`,
+      `依商品拆分的交易金額總和 ${salesTotal} 對不上對帳總表：本期代收金額 ${collectedAmount}`
+      + `${merchantCollectedAmount ? `，加上商家自行收款 ${merchantCollectedAmount} 是 ${withMerchant}` : ""}。`,
+    );
+  }
+  if (merchantCollectedAmount && cents(salesTotal) === cents(collectedAmount)) {
+    throw new Error(
+      `這一期有商家自行收款 ${merchantCollectedAmount} 元，但依商品拆分的總和 ${salesTotal} 只等於代收金額，`
+      + "表示那些訂單沒有出現在拆分表裡，商品銷售會比營業額少這一截。請把這份檔案交給開發者確認要怎麼計入。",
     );
   }
 
@@ -181,11 +201,11 @@ function parseItems(sheet, { collectedAmount }) {
   }));
   items.sort((left, right) => left.sku.localeCompare(right.sku));
 
-  // Σ items 一定等於營業額——上面的驗算已經保證了，這裡再擋一次是為了「補 SKU」
-  // 那段邏輯將來被改壞時能當場發現，而不是等報表少錢。
+  // Σ items 一定等於拆分表的總和——上面的驗算已經保證了，這裡再擋一次是為了
+  // 「補 SKU」那段邏輯將來被改壞時能當場發現，而不是等報表少錢。
   const itemTotal = items.reduce((sum, item) => sum + item.salesAmount, 0);
-  if (cents(itemTotal) !== cents(collectedAmount)) {
-    throw new Error(`彙總後的商品金額 ${itemTotal} 與本期代收金額 ${collectedAmount} 不一致。`);
+  if (cents(itemTotal) !== cents(salesTotal)) {
+    throw new Error(`彙總後的商品金額 ${itemTotal} 與依商品拆分的總和 ${salesTotal} 不一致。`);
   }
 
   return {
@@ -208,7 +228,7 @@ export async function parseShopReport(filePath) {
   }
 
   const summary = parseSummary(summarySheet);
-  const { items, charges } = parseItems(itemSheet, summary);
+  const { items, charges, salesTotal } = parseItems(itemSheet, summary);
 
   // 撥款 = 收款淨額 − 費用淨額。退款在檔案裡是負數，所以這裡是相加。
   const netCollected = summary.collectedAmount + summary.refundAmount + summary.merchantCollectedAmount;
@@ -222,8 +242,14 @@ export async function parseShopReport(filePath) {
   return {
     period,
     summary,
-    /** 營業額。代收只含 CYBERBIZ 代收的訂單，貨到付款那種要加自行收款才是全部。 */
-    revenueAmount: Math.round(summary.collectedAmount + summary.merchantCollectedAmount),
+    /*
+     * 營業額用拆分表的總和，不用「代收 + 自行收款」。
+     *
+     * 兩個數字在通過上面的驗算之後一定相等，但**來源不同**：拆分表是 items 的
+     * 來源，所以用它才保證「Σ 商品銷售 = 營業額」是恆等式而不是巧合。寫成
+     * 另一個來源的話，將來哪一邊漂掉都要等報表對不上才會發現。
+     */
+    revenueAmount: Math.round(salesTotal),
     /** 實際入帳的錢，記在期末那一天。 */
     settlementAmount: Math.round(summary.settlementAmount),
     items,

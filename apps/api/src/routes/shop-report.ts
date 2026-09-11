@@ -1,4 +1,4 @@
-import { listShopReportRuns, recordShopReportRun, shopReportRequestId } from "@rueisiang/db";
+import { failShopReportRun, listShopReportRuns, recordShopReportRun, shopReportRequestId } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -56,14 +56,27 @@ export const shopReport = new Hono<AppEnv>()
     const endMonth = requireMonth(input, "endMonth");
     if (startMonth > endMonth) throw new HTTPException(400, { message: "開始月份不能晚於結束月份。" });
 
+    /*
+     * 先記錄再觸發。
+     *
+     * 反過來的話，dispatch 成功但寫入失敗時，workflow 已經在跑、而且會一路把資料
+     * 寫進 D1，但「最近執行」是空的、latestRequestId 也接不回去——沒有人知道那次
+     * 是誰按的、什麼時候按的。先寫再觸發則相反：觸發失敗時多一列沒跑成的紀錄，
+     * 那是看得見也說得清的，所以把它標成 failed 就好。
+     */
     const requestId = shopReportRequestId();
-    await github.dispatch({ startMonth, endMonth, requestId });
     const run = await recordShopReportRun(c.get("db"), {
       requestId,
       startMonth,
       endMonth,
       actor: c.get("user"),
     });
+    try {
+      await github.dispatch({ startMonth, endMonth, requestId });
+    } catch (error) {
+      await failShopReportRun(c.get("db"), requestId, error instanceof Error ? error.message : String(error));
+      throw error;
+    }
     return c.json({ requestId, run, startMonth, endMonth }, 202);
   })
   .get("/status", requirePermission("tools:shop-report:run"), async (c) => {

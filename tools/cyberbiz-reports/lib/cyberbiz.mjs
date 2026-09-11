@@ -432,10 +432,16 @@ export function statementPeriodFromText(text) {
   };
 }
 
-/** 卡片上的「撥款金額 NT$64,559」；沒結帳的那期寫的是「預計撥款金額」。 */
+/**
+ * 卡片上的「撥款金額 NT$64,559」；沒結帳的那期寫的是「預計撥款金額」。
+ *
+ * 小數一定要一起吃進來。CYBERBIZ 的金額帶分（同一份檔案裡金流手續費是 1,247.83），
+ * 只抓整數位的話 `NT$64,559.60` 會變成 64559，而檔案端是 Math.round 之後的 64560，
+ * driver 的交叉檢查就會誤判成「抓錯期」，整個 run 中止。
+ */
 export function statementAmountFromText(text) {
-  const match = /撥款金額[^\d]*([\d,]+)/.exec(text ?? "");
-  return match ? Number(match[1].replace(/,/g, "")) : null;
+  const match = /撥款金額[^\d]*([\d,]+(?:\.\d+)?)/.exec(text ?? "");
+  return match ? Math.round(Number(match[1].replace(/,/g, ""))) : null;
 }
 
 export async function openStatementCenter(page, { origin, startMonth, endMonth, log } = {}) {

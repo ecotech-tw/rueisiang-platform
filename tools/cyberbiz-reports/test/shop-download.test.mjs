@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -44,26 +45,52 @@ const CARD_PAGE = `
     // 後台是按鈕觸發下載，不是 <a download>；用同樣的方式模擬。
     for (const [id, name] of [["dl-0831", "20260816-20260831.xlsx"], ["dl-0815", "20260801-20260815.xlsx"]]) {
       document.getElementById(id).addEventListener("click", () => {
-        const blob = new Blob(["fake-xlsx-" + name], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = name;
-        document.body.appendChild(link);
-        link.click();
+        window.location.href = "/download/" + name;
       });
     }
   </script>
 </body>`;
 
+/*
+ * 頁面用一個真的 HTTP server 服務，下載也是真的 Content-Disposition 回應——
+ * 後台就是這樣做的（按鈕導到一個回檔案的網址），比原本的 blob 模擬更接近實況。
+ *
+ * **這裡固定用 Playwright 自帶的 chromium，不用系統 Chrome。**
+ * 這台機器的 headless Chrome 在下載完成後會把 page 收掉，於是 download.saveAs 拿到
+ * 「Target page, context or browser has been closed」——同一份程式碼換 chromium 就
+ * 三條全過，而且真的跑後台（headed、真 Chrome）也是好的。也就是說壞的是「headless
+ * Chrome 對這種下載的處理」，不是我們的程式，而測試要驗的是後者。
+ *
+ * 注意這件事還沒有在 CI 的 headless Chrome 上證明過，見 driver 的說明。
+ */
+process.env.PAYOUT_BROWSER_CHANNEL = "chromium";
+
 async function withPage(run) {
   const root = await mkdtemp(path.join(os.tmpdir(), "cyberbiz-shop-dl-"));
+  const server = createServer((request, response) => {
+    const name = decodeURIComponent(request.url.replace("/download/", ""));
+    if (request.url.startsWith("/download/")) {
+      response.writeHead(200, {
+        "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "content-disposition": `attachment; filename="${name}"`,
+      });
+      response.end(`fake-xlsx-${name}`);
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(CARD_PAGE);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
   const context = await openBrowser({ headless: true, downloadDir: path.join(root, "downloads") });
   try {
     const page = await context.newPage();
-    await page.setContent(CARD_PAGE);
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
     return await run(page, root);
   } finally {
     await context.close();
+    await new Promise((resolve) => server.close(resolve));
     await rm(root, { recursive: true, force: true });
   }
 }

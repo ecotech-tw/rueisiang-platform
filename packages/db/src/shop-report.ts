@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { normalizeReportScopeName } from "./report-data.js";
 import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
@@ -80,6 +80,20 @@ export async function recordShopReportRun(
     actorEmail: input.actor.email,
     createdAt: new Date().toISOString(),
   };
+}
+
+/**
+ * 觸發 workflow 失敗時把那一列標成 failed。
+ *
+ * 成功的那一側沒有對應的收尾：runner 匯入時建立的是自己那筆 `target-import:` run，
+ * 不會回頭更新這一列，所以跑成功的紀錄會一直停在 queued。執行頁只用它顯示「誰在
+ * 什麼時候按了執行」，實際進度是去問 GitHub 的，所以現在不需要那條回呼；等之後
+ * 需要在清單上直接看到成功或失敗時再補。
+ */
+export async function failShopReportRun(db: Database, requestId: string, message: string): Promise<void> {
+  await db.update(reportRuns)
+    .set({ status: "failed", lastError: message.slice(0, 500), updatedAt: new Date().toISOString() })
+    .where(eq(reportRuns.requestId, requestId));
 }
 
 export async function listShopReportRuns(db: Database, limit = 10): Promise<ShopReportRun[]> {
