@@ -82,6 +82,9 @@ const DROP_PRODUCT_CATEGORY_PERMISSION_MIGRATION = fileURLToPath(
 const HR_ADMIN_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0132_restore_hr_admin_permissions.sql", import.meta.url),
 );
+const HR_PAYROLL_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0137_restore_hr_payroll_permissions.sql", import.meta.url),
+);
 const ITEM_WMS_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0089_item_wms_permissions.sql", import.meta.url),
 );
@@ -234,6 +237,49 @@ describe("bootstrap 管理員權限 migration", () => {
       { role_id: "role-admin", permission: "hr:office:write" },
       { role_id: "role-admin", permission: "hr:request:review" },
     ]);
+  });
+
+  it("0137 會把薪資與獎金權限補給既有管理員，而且可安全重跑", () => {
+    const sqlite = freshAt("0136_cooing_next_avengers.sql");
+    sqlite.prepare("INSERT INTO roles (id, role_key, name, is_system) VALUES (?, ?, ?, ?)").run(
+      "role-admin",
+      "admin",
+      "管理者",
+      1,
+    );
+    for (const permission of [
+      "hr:employee:read",
+      "hr:employee:write",
+      "hr:office:read",
+      "hr:office:write",
+      "hr:request:review",
+    ]) {
+      sqlite.prepare("INSERT INTO role_permission_grants (role_id, permission) VALUES (?, ?)").run("role-admin", permission);
+    }
+
+    const sql = readFileSync(HR_PAYROLL_PERMISSION_MIGRATION, "utf8");
+    sqlite.exec(sql);
+    sqlite.exec(sql);
+
+    const expected = [
+      "hr:bonus:calculate",
+      "hr:bonus:read",
+      "hr:bonus:write",
+      "hr:employee:read",
+      "hr:employee:write",
+      "hr:office:read",
+      "hr:office:write",
+      "hr:overtime:read",
+      "hr:overtime:write",
+      "hr:payroll:calculate",
+      "hr:payroll:read",
+      "hr:request:review",
+      "hr:schedule:read",
+      "hr:schedule:write",
+    ];
+    expect(sqlite.prepare("SELECT permission FROM permissions WHERE permission LIKE 'hr:%' ORDER BY permission").all()).toEqual(expected.map((permission) => ({ permission })));
+    expect(sqlite.prepare("SELECT permission FROM role_permission_grants WHERE role_id = ? AND permission LIKE 'hr:%' ORDER BY permission").all("role-admin")).toEqual(expected.map((permission) => ({ permission })));
+    sqlite.close();
   });
 
   it("0089 會把舊品項與 SKU 對應授權搬到新權限，而且可安全重跑", async () => {
