@@ -68,13 +68,14 @@ function datePeriodContains(date: string, period: { start: string; end: string }
   return LOCAL_DATE.test(date) && date >= period.start && date < period.end;
 }
 
-function latestShiftVersions<T extends { templateId: string; versionNumber: number }>(rows: T[]) {
+function latestShiftVersions<T extends { templateId: string; scopeId: string; versionNumber: number }>(rows: T[]) {
   const latest = new Map<string, T>();
   for (const row of rows) {
-    const current = latest.get(row.templateId);
-    if (!current || row.versionNumber > current.versionNumber) latest.set(row.templateId, row);
+    const key = `${row.templateId}:${row.scopeId}`;
+    const current = latest.get(key);
+    if (!current || row.versionNumber > current.versionNumber) latest.set(key, row);
   }
-  return rows.filter((row) => latest.get(row.templateId) === row);
+  return rows.filter((row) => latest.get(`${row.templateId}:${row.scopeId}`) === row);
 }
 
 async function latestScheduleVersion(db: Database, period: { start: string; end: string }) {
@@ -156,7 +157,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrScopeShiftAssignments.shiftTemplateId))
     .innerJoin(hrShiftVersions, eq(hrShiftVersions.shiftTemplateId, hrShiftTemplates.id))
     .where(eq(hrShiftTemplates.active, 1));
-  const shiftMap = new Map(latestShiftVersions(shiftRows).map((shift) => [shift.versionId, shift]));
+  const shiftMap = new Map(latestShiftVersions(shiftRows).map((shift) => [`${shift.versionId}:${shift.scopeId}`, shift]));
   const employmentRows = await db.select({ id: hrEmployments.id, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployments);
   const employmentMap = new Map(employmentRows.map((employment) => [employment.id, employment]));
   const workers = await db.select({ id: hrScheduleWorkers.id, active: hrScheduleWorkers.active }).from(hrScheduleWorkers);
@@ -166,7 +167,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
   for (const entry of entries) {
     if (!datePeriodContains(entry.workDate, period)) throw new HrError(400, "排班日期必須位於指定月份。 ");
     if (!scopeIds.has(entry.scopeId)) throw new HrError(404, "找不到有效的營運據點。 ");
-    const shift = shiftMap.get(entry.shiftVersionId);
+    const shift = shiftMap.get(`${entry.shiftVersionId}:${entry.scopeId}`);
     if (!shift || shift.scopeId !== entry.scopeId) throw new HrError(400, "班別未設定在這個營運據點。 ");
     if (entry.personKind === "employee") {
       const employment = entry.employmentId ? employmentMap.get(entry.employmentId) : undefined;
@@ -346,5 +347,5 @@ export async function createHrWorkerCompensation(db: Database, input: { workerId
 
 export async function listHrAttendanceLocationsForSchedule(db: Database) {
   return db.select({ id: hrAttendanceLocations.id, name: hrAttendanceLocations.name, scopeId: hrAttendanceLocations.scopeId, scopeName: scopes.name }).from(hrAttendanceLocations)
-    .leftJoin(scopes, eq(scopes.id, hrAttendanceLocations.scopeId)).orderBy(asc(hrAttendanceLocations.name));
+    .leftJoin(scopes, eq(scopes.id, hrAttendanceLocations.scopeId)).where(eq(hrAttendanceLocations.active, 1)).orderBy(asc(hrAttendanceLocations.name));
 }

@@ -139,18 +139,26 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const worker = await request("/hr/schedule-workers", "POST", { displayName: "測試支援人員" });
     expect(worker.status, await worker.clone().text()).toBe(201);
     const workerId = (await worker.json() as { id: string }).id;
-    const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 320_000, note: "測試日薪" });
+    const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", validTo: "2026-09-15", payBasis: "daily", baseAmountMinor: 320_000, note: "測試日薪" });
     expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const laterCompensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-15", payBasis: "daily", baseAmountMinor: 640_000, note: "測試調薪" });
+    expect(laterCompensation.status, await laterCompensation.clone().text()).toBe(201);
     const scheduleResponse = await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen");
     expect(scheduleResponse.status, await scheduleResponse.clone().text()).toBe(200);
     const schedule = await scheduleResponse.json() as { shifts: Array<{ versionId: string }>; version: { revision: number } | null };
     expect(schedule.shifts.length).toBeGreaterThan(0);
     const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [{ personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" }] });
     expect(saved.status, await saved.clone().text()).toBe(200);
+    const savedBody = await saved.json() as { id: string; revision: number };
+    const updated = await request("/hr/schedules", "POST", { periodKey: "2026-09", scheduleVersionId: savedBody.id, revision: savedBody.revision, entries: [
+      { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
+      { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-16" },
+    ] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", requestId: "test-payroll-worker-2026-09" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { workers: Array<{ workerId: string; workerName: string; payBasis: string; scheduledDays: number; amountMinor: number }> } };
-    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "測試支援人員", payBasis: "daily", scheduledDays: 1, amountMinor: 320_000 })]));
+    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "測試支援人員", payBasis: "daily", scheduledDays: 2, amountMinor: 960_000 })]));
   });
 
   it("一般員工不能讀取薪資與獎金資料", async () => {

@@ -327,7 +327,10 @@ export const hr = new Hono<AppEnv>()
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(key)) throw new HTTPException(400, { message: "排班月份必須是 YYYY-MM。" });
     return c.json(await setHrScheduleLock(c.get("db"), key, { revision: revision(raw), locked: booleanValue(raw, "locked", "鎖定狀態") }, c.get("user")));
   })
-  .get("/schedule-workers", requirePermission("hr:schedule:read"), async (c) => c.json({ workers: await listHrScheduleWorkers(c.get("db")) }))
+  .get("/schedule-workers", requirePermission("hr:schedule:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ workers: await listHrScheduleWorkers(c.get("db")) });
+  })
   .post("/schedule-workers", requirePermission("hr:schedule:write"), async (c) => c.json(await createHrScheduleWorker(c.get("db"), { displayName: text(await body(c), "displayName", "姓名", 100) }, c.get("user")), 201))
   .patch("/schedule-workers/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);

@@ -90,7 +90,7 @@ export interface ClockCalendarDay {
   eventCount: number;
   firstEventAt: string | null;
   lastEventAt: string | null;
-  anomaly: "missing" | "incomplete" | "invalid-sequence" | "short-duration" | "late-arrival" | "early-leave" | null;
+  anomaly: "missing" | "incomplete" | "invalid-sequence" | "short-duration" | "late-arrival" | "early-leave" | "unscheduled" | null;
   anomalyMessage: string | null;
   expectedStartAt: string | null;
   expectedEndAt: string | null;

@@ -123,7 +123,7 @@ export interface FormApprover { id: string; name: string }
 export interface FormApproversResponse { approvers: FormApprover[]; defaultApproverUserId: string | null }
 export interface PayrollLine { lineKey: string; direction: "earning" | "deduction"; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }
 export interface PayrollEmployee { employmentId: string; employeeUserId: string; employeeNumber: string; employeeName: string; lines: PayrollLine[]; earningMinor: number; deductionMinor: number; netMinor: number; attendanceDays: number; missingPunchDays: number }
-export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }
+export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }
 export interface PayrollRun { runId: string; periodKey: string; status: "ready"; engineVersion: string; employees: PayrollEmployee[]; workers: PayrollWorker[]; warnings: string[] }
 export type BonusKind = "team_performance" | "individual_performance";
 export type PerformancePeriod = "current_month" | "previous_month";

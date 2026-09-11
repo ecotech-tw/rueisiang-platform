@@ -82,7 +82,7 @@ export interface HrPayrollRunResult {
   status: "ready";
   engineVersion: string;
   employees: HrPayrollEmployeeResult[];
-  workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }>;
+  workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }>;
   warnings: string[];
 }
 
@@ -212,6 +212,13 @@ function daysInMonth(year: number, month: number): number {
 function secondsBetween(start: string, end: string): number {
   const seconds = Math.round((Date.parse(end.replace(" ", "T") + (end.endsWith("Z") ? "" : "Z")) - Date.parse(start.replace(" ", "T") + (start.endsWith("Z") ? "" : "Z"))) / 1000);
   return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : 0;
+}
+
+function taipeiDate(value: string): string {
+  const normalized = value.replace(" ", "T");
+  const timestamp = Date.parse(normalized.endsWith("Z") ? normalized : `${normalized}Z`);
+  if (Number.isNaN(timestamp)) return value.slice(0, 10);
+  return new Date(timestamp + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 function covering<T extends { validFrom: string; validTo: string | null }>(rows: T[], date: string): T | undefined {
@@ -346,10 +353,15 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ));
   const employees = employeeRows.filter((row) => employeeSelected(row, input));
   // 臨時支援人員沒有 users／hr_employments，薪資資格來自已發布班表；不套用獎金 policy。
-  const scheduledWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, workDate: hrScheduleWorkerEntries.workDate }).from(hrScheduleWorkerEntries)
+  const scheduledWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt }).from(hrScheduleWorkerEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
     .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
-    .where(and(eq(hrScheduleVersions.status, "published"), sql`${hrScheduleWorkerEntries.workDate} >= ${period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${period.end}`));
+    .where(and(
+      eq(hrScheduleVersions.status, "published"),
+      eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end),
+      sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
+      sql`${hrScheduleWorkerEntries.workDate} >= ${period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${period.end}`,
+    ));
   if (!employees.length && !scheduledWorkerRows.length) throw new HrError(400, "指定月份沒有符合條件的啟用中員工或已發布支援排班。 ");
 
   const compensations = await db.select().from(hrCompensationVersions).where(and(
@@ -375,8 +387,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     sql`${hrOvertimeRequests.requestedEnd} > ${period.start} AND ${hrOvertimeRequests.requestedStart} < ${period.end}`,
   ));
   const clocks = await db.select().from(hrClockEvents).where(and(
-    sql`${hrClockEvents.occurredAt} >= ${period.start}`,
-    sql`${hrClockEvents.occurredAt} < ${period.end}`,
+    sql`${hrClockEvents.occurredAt} >= datetime(${period.start}, '-8 hours')`,
+    sql`${hrClockEvents.occurredAt} < datetime(${period.end}, '-8 hours')`,
   ));
   const bonusAllocations = input.bonusPoolId ? await db.select().from(hrBonusAllocations).where(eq(hrBonusAllocations.bonusPoolId, input.bonusPoolId)) : [];
   const bonusAssignmentRows = await db.select({
@@ -412,21 +424,41 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const calculationWarnings = new Set<string>();
   const calendarDays = dateRange(period.start, period.end);
   const statementRows: Array<{ employee: HrPayrollEmployeeResult; payslipId: string; lines: HrPayrollLineResult[]; compensationIds: string[]; insuranceIds: string[] }> = [];
-  const workerStatements = new Map<string, { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }>();
-  for (const row of scheduledWorkerRows) {
-    const scheduledDays = new Set(scheduledWorkerRows.filter((item) => item.workerId === row.workerId).map((item) => item.workDate)).size;
-    const compensation = covering(workerCompensations.filter((item) => item.workerId === row.workerId), row.workDate);
-    const existing = workerStatements.get(row.workerId);
-    if (existing) continue;
-    if (!compensation) {
-      calculationWarnings.add(`${row.workerName} 找不到指定月份有效的支援人員敘薪，薪資為 0。`);
-      workerStatements.set(row.workerId, { workerId: row.workerId, workerName: row.workerName, payBasis: "daily", scheduledDays, amountMinor: 0, compensationVersionId: null });
-      continue;
+  type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null };
+  const workerStatements = new Map<string, WorkerStatement>();
+  const workerRowsById = new Map<string, typeof scheduledWorkerRows>();
+  for (const row of scheduledWorkerRows) workerRowsById.set(row.workerId, [...(workerRowsById.get(row.workerId) ?? []), row]);
+  for (const [workerId, rows] of workerRowsById) {
+    const workerName = rows[0]!.workerName;
+    const dates = [...new Set(rows.map((row) => row.workDate))].sort();
+    const workerCompensationsForPeriod = workerCompensations.filter((item) => item.workerId === workerId);
+    const compensationIds = new Set<string>();
+    const payBases = new Set<"monthly" | "daily" | "hourly">();
+    let amountMinor = 0;
+    let missingCompensation = false;
+    for (const date of dates) {
+      const dateRows = rows.filter((row) => row.workDate === date);
+      const compensation = covering(workerCompensationsForPeriod, date);
+      if (!compensation) {
+        missingCompensation = true;
+        continue;
+      }
+      compensationIds.add(compensation.id);
+      payBases.add(compensation.payBasis);
+      if (compensation.payBasis === "monthly") {
+        amountMinor += Math.floor(compensation.baseAmountMinor / daysInMonth(period.year, period.month));
+      } else if (compensation.payBasis === "daily") {
+        amountMinor += compensation.baseAmountMinor;
+      } else {
+        amountMinor += dateRows.reduce((sum, row) => sum + Math.round(compensation.baseAmountMinor * secondsBetween(row.startsAt, row.endsAt) / 3600), 0);
+      }
     }
-    const amountPerDay = compensation.payBasis === "monthly"
-      ? Math.floor(compensation.baseAmountMinor / daysInMonth(period.year, period.month))
-      : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * standardDailyHours);
-    workerStatements.set(row.workerId, { workerId: row.workerId, workerName: row.workerName, payBasis: compensation.payBasis, scheduledDays, amountMinor: amountPerDay * scheduledDays, compensationVersionId: compensation.id });
+    if (missingCompensation) calculationWarnings.add(`${workerName} 有排班日期找不到有效的支援人員敘薪，該日期薪資為 0。`);
+    const payBasis = payBases.size === 1 ? [...payBases][0]! : payBases.size > 1 ? "mixed" : "daily";
+    workerStatements.set(workerId, {
+      workerId, workerName, payBasis, scheduledDays: dates.length, amountMinor,
+      compensationVersionId: compensationIds.size === 1 ? [...compensationIds][0]! : null,
+    });
   }
 
   for (const employee of employees) {
@@ -506,11 +538,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const bonus = bonusAllocations.find((row) => row.employmentId === employee.employmentId);
     if (bonus && bonus.amountMinor > 0) lines.push({ lineKey: "booth_bonus", direction: "earning", amountMinor: bonus.amountMinor, explanation: { bonusPoolId: input.bonusPoolId } });
 
-    const attendanceDays = new Set(clocks.filter((row) => row.employmentId === employee.employmentId).map((row) => row.occurredAt.slice(0, 10)));
-    const missingPunchDays = calendarDays.filter((day) => {
-      const count = clocks.filter((row) => row.employmentId === employee.employmentId && row.occurredAt.slice(0, 10) === day).length;
-      return count === 1;
-    });
+    const employeeClocks = clocks.filter((row) => row.employmentId === employee.employmentId);
+    const attendanceDays = new Set(employeeClocks.map((row) => taipeiDate(row.occurredAt)));
+    const missingPunchDays = calendarDays.filter((day) => employeeClocks.filter((row) => taipeiDate(row.occurredAt) === day).length === 1);
     const compensationIds = employeeCompensations.filter((row) => row.validFrom < period.end && (row.validTo === null || row.validTo > period.start)).map((row) => row.id);
     const insuranceIds = insurance.filter((row) => row.employmentId === employee.employmentId).map((row) => row.id);
     lines.push({ lineKey: "attendance_summary", direction: "earning", amountMinor: 0, explanation: { attendanceDays: attendanceDays.size, missingPunchDays: missingPunchDays.length } });

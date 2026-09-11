@@ -88,7 +88,7 @@ export const hrPayrollWorkerResults = sqliteTable("hr_payroll_worker_results", {
   workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
   workerName: text("worker_name").notNull(),
   compensationVersionId: text("compensation_version_id").references(() => hrWorkerCompensationVersions.id, { onDelete: "restrict" }),
-  payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly"] as const }).notNull(),
+  payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly", "mixed"] as const }).notNull(),
   scheduledDays: integer("scheduled_days").notNull(),
   amountMinor: integer("amount_minor").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),

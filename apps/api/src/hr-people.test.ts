@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, listActivity, syncSystemRoles } from "@rueisiang/db";
-import { hrClockEvents, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { hrAttendanceLocations, hrClockEvents, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -55,13 +55,14 @@ beforeEach(async () => {
   db = createDatabase(d1 as never);
   await syncSystemRoles(db);
   cookies = {};
-  for (const id of ["admin", "self", "other", "writer", "invited"]) {
+  for (const id of ["admin", "manager", "self", "other", "writer", "invited"]) {
     await db.insert(users).values({ id, email: `${id}@example.test`, displayName: id, status: id === "invited" ? "invited" : "active" });
     const token = await signSession(newSessionClaims({ id, email: `${id}@example.test`, name: id, pictureUrl: "" }), SECRET);
     cookies[id] = `${SESSION_COOKIE}=${encodeURIComponent(token)}`;
   }
   await db.insert(userRoleAssignments).values({ userId: "admin", roleId: "role-admin" });
   await db.insert(userPermissionGrants).values([
+    { userId: "manager", permission: "hr:schedule:read" },
     { userId: "writer", permission: "hr:employee:read" }, { userId: "writer", permission: "hr:employee:write" }, { userId: "writer", permission: "hr:request:review" },
   ]);
   await db.insert(scopes).values({ id: "scope", sourceType: "manual", scopeKind: "store", name: "測試櫃點", normalizedName: "測試櫃點" });
@@ -69,6 +70,12 @@ beforeEach(async () => {
 afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); });
 
 describe("HR 員工基礎", () => {
+  it("排班檢視不能讀取支援人員薪資資料", async () => {
+    await created("/hr/schedule-workers", { displayName: "薪資不應外洩" });
+    const response = await request("/hr/schedule-workers", "GET", undefined, "manager");
+    expect(response.status).toBe(403);
+  });
+
   it("管理者只能從現有 users 指派員工，已指派 user 不再出現在候選清單", async () => {
     const candidate = await (await request("/hr/candidates?search=self")).json() as { users: { userId: string; email: string }[] };
     expect(candidate.users).toEqual([{ userId: "self", displayName: "self", email: "self@example.test", status: "active" }]);
@@ -241,6 +248,49 @@ describe("HR 員工基礎", () => {
     expect((await request("/hr/me/clock-events", "POST", { idempotencyKey: "clock-request-far", latitude: 0, longitude: 0 }, "self")).status).toBe(400);
   });
 
+  it("排班員工使用已發布排班據點打卡，且停用位置不再可用", async () => {
+    const today = taipeiToday();
+    await assign("self", "SCHEDULED-1");
+    const job = await firstEmployment("self");
+    expect((await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", revision: 1 })).status).toBe(200);
+    const location = await created("/hr/attendance-settings/locations", { name: "排班打卡據點", scopeId: "scope", geolocationRequired: false, latitude: null, longitude: null, radiusMeters: 100, active: true });
+    const shift = await request("/hr/shift-templates", "POST", { scopeId: "scope", code: "SCHEDULED-1", name: "日班", startTime: "09:00", endTime: "17:00", endDayOffset: 0 });
+    expect(shift.status, await shift.clone().text()).toBe(201);
+    const shiftId = (await shift.json() as { versionId: string }).versionId;
+    const saved = await request("/hr/schedules", "POST", { periodKey: today.slice(0, 7), entries: [{ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: today }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    expect((await (await request("/hr/me/clock-events", "GET", undefined, "self")).json() as { canClock: boolean; locationNames: string[] }).locationNames).toContain("排班打卡據點");
+    const clockedIn = await request("/hr/me/clock-events", "POST", { idempotencyKey: "scheduled-clock-in", latitude: null, longitude: null }, "self");
+    expect(clockedIn.status, await clockedIn.clone().text()).toBe(201);
+    expect((await clockedIn.json() as { event: { eventKind: string } }).event.eventKind).toBe("clock_in");
+    await db.update(hrAttendanceLocations).set({ active: 0 }).where(eq(hrAttendanceLocations.id, location));
+    expect((await (await request("/hr/me/clock-events", "GET", undefined, "self")).json() as { canClock: boolean }).canClock).toBe(false);
+  });
+
+  it("跨午夜排班在隔日仍可完成下班打卡，日曆不重複報異常", async () => {
+    const today = taipeiToday();
+    const previous = new Date(`${today}T00:00:00Z`);
+    previous.setUTCDate(previous.getUTCDate() - 1);
+    const previousDate = previous.toISOString().slice(0, 10);
+    const utcAt = (date: string, time: string) => new Date(`${date}T${time}+08:00`).toISOString().slice(0, 19).replace("T", " ");
+    await assign("self", "OVERNIGHT-1");
+    const job = await firstEmployment("self");
+    expect((await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", revision: 1 })).status).toBe(200);
+    await created("/hr/attendance-settings/locations", { name: "跨午夜據點", scopeId: "scope", geolocationRequired: false, latitude: null, longitude: null, radiusMeters: 100, active: true });
+    const shift = await request("/hr/shift-templates", "POST", { scopeId: "scope", code: "OVERNIGHT-1", name: "跨午夜班", startTime: "23:00", endTime: "07:00", endDayOffset: 1 });
+    expect(shift.status, await shift.clone().text()).toBe(201);
+    const shiftId = (await shift.json() as { versionId: string }).versionId;
+    const saved = await request("/hr/schedules", "POST", { periodKey: previousDate.slice(0, 7), entries: [{ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: previousDate }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const clockInAt = utcAt(previousDate, "23:00:00");
+    await db.insert(hrClockEvents).values({ id: "overnight-clock-in", employeeUserId: "self", employmentId: job, sourceKind: "portal", idempotencyKey: "overnight-clock-in", eventKind: "clock_in", occurredAt: clockInAt, receivedAt: clockInAt });
+    const clockedOut = await request("/hr/me/clock-events", "POST", { idempotencyKey: "overnight-clock-out", latitude: null, longitude: null }, "self");
+    expect(clockedOut.status, await clockedOut.clone().text()).toBe(201);
+    expect((await clockedOut.json() as { event: { eventKind: string } }).event.eventKind).toBe("clock_out");
+    const calendar = await (await request(`/hr/me/attendance-calendar?year=${today.slice(0, 4)}&month=${today.slice(5, 7)}`, "GET", undefined, "self")).json() as { days: { date: string; anomaly: string | null }[] };
+    expect(calendar.days.find((day) => day.date === today)?.anomaly).toBeNull();
+  });
+
   it("全體打卡明細只讓全平台 HR 管理者查看，並支援搜尋與日期分頁", async () => {
     await assign("self");
     const employmentId = await firstEmployment("self");
@@ -253,6 +303,18 @@ describe("HR 員工基礎", () => {
     expect(await listed.json()).toMatchObject({ total: 2, events: [expect.objectContaining({ employeeName: "self", eventKind: "clock_in" }), expect.objectContaining({ manualReason: "測試補登", sourceKind: "manual" })] });
     expect((await request("/hr/attendance-events", "GET", undefined, "self")).status).toBe(403);
     expect((await request("/hr/attendance-events", "GET", undefined, "writer")).status).toBe(403);
+  });
+
+  it("出勤明細的日期篩選使用台北當地日界線", async () => {
+    await assign("self");
+    const employmentId = await firstEmployment("self");
+    await db.insert(hrClockEvents).values([
+      { id: "taipei-boundary-in", employeeUserId: "self", employmentId, sourceKind: "portal", idempotencyKey: "taipei-boundary-in", eventKind: "clock_in", occurredAt: "2026-07-31 16:30:00", receivedAt: "2026-07-31 16:30:01" },
+      { id: "taipei-boundary-out", employeeUserId: "self", employmentId, sourceKind: "portal", idempotencyKey: "taipei-boundary-out", eventKind: "clock_out", occurredAt: "2026-08-01 16:30:00", receivedAt: "2026-08-01 16:30:01" },
+    ]);
+    const response = await request("/hr/attendance-events?startDate=2026-08-01&endDate=2026-08-02&page=1&pageSize=10&sortField=occurredAt&sortDirection=asc");
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(await response.json()).toMatchObject({ total: 1, events: [expect.objectContaining({ id: "taipei-boundary-in" })] });
   });
 
   it("拒絕不合法日曆日期、區間、未知關聯及錯誤頁碼", async () => {

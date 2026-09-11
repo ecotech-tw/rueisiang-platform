@@ -25,7 +25,7 @@ const SOURCE_LABEL: Record<string, string> = { portal: "本人打卡", manual: "
 function dateTime(value: string): string {
   const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
   const parsed = new Date(normalized);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" });
 }
 
 export function HrAttendanceRecords() {

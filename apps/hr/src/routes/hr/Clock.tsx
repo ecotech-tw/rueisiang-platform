@@ -235,7 +235,7 @@ function CalendarGrid({ data, selectedDate, onSelect, slideClass = "" }: { data:
 function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendarDay; onCorrection: (date: string, kind: "clock_in" | "clock_out") => void; onLeave: (date: string) => void }) {
   const correctionKind = day.events.at(-1)?.eventKind === "clock_in" ? "clock_out" : "clock_in";
   const dayLabel = `${Number(day.date.slice(5, 7))} 月 ${Number(day.date.slice(-2))} 日`;
-  const anomalyTitle = day.anomaly === "missing" ? "尚未完成打卡" : day.anomaly === "short-duration" ? "出勤時數異常" : day.anomaly === "late-arrival" ? "上班打卡較晚" : day.anomaly === "early-leave" ? "下班打卡較早" : "打卡紀錄順序異常";
+  const anomalyTitle = day.anomaly === "missing" ? "尚未完成打卡" : day.anomaly === "short-duration" ? "出勤時數異常" : day.anomaly === "late-arrival" ? "上班打卡較晚" : day.anomaly === "early-leave" ? "下班打卡較早" : day.anomaly === "unscheduled" ? "非排班日打卡" : "打卡紀錄順序異常";
   return <section className={`hr-clock-calendar-details${day.anomaly ? " has-anomaly" : ""}`} aria-live="polite">
     <div className="hr-clock-calendar-details-head"><strong>{dayLabel}</strong><span>{["日", "一", "二", "三", "四", "五", "六"][day.weekday]}曜日</span></div>
     {day.status === "leave" ? <p className="hr-clock-calendar-empty-detail">已核准請假，這天沒有預期出勤。</p> : day.events.length ? <ul className="hr-clock-calendar-events">
