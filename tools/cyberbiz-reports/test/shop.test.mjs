@@ -246,7 +246,7 @@ test("卡片文字：金額帶小數時要跟檔案端同樣四捨五入", () =>
 // 官網 driver 曾經自己抄一份 login 參數，twoFactor 與 gmailToken 都抄錯，正式執行才發現。
 test("loginOptions：三支 driver 共用同一份登入參數", () => {
   const env = { CYBERBIZ_USERNAME: "u@example.com", CYBERBIZ_PASSWORD: "pw", GMAIL_REFRESH_TOKEN: "refresh" };
-  const config = { cyberbizOrigin: "https://example.cyberbiz.co", twoFactor: { gmailSearch: "q", codePattern: "\d{6}" } };
+  const config = { cyberbizOrigin: "https://example.cyberbiz.co", twoFactor: { gmailSearch: "q", codePattern: "\\d{6}" } };
 
   assert.deepEqual(loginOptions({ env, config, gmailToken: "access-token" }), {
     origin: "https://example.cyberbiz.co",
@@ -254,7 +254,7 @@ test("loginOptions：三支 driver 共用同一份登入參數", () => {
     password: "pw",
     // 這裡一定是換過的 access token，不是 env.GMAIL_REFRESH_TOKEN。
     gmailToken: "access-token",
-    twoFactor: { gmailSearch: "q", codePattern: "\d{6}" },
+    twoFactor: { gmailSearch: "q", codePattern: "\\d{6}" },
   });
 });
 
