@@ -1,8 +1,12 @@
 export { createDatabase, type Database } from "./client.js";
 export {
-  checkHrClockLocation, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent, endHrAttendanceLocationAssignment,
-  getHrAttendanceLocation, setHrAttendanceLocationPrimary, getHrClockCalendar, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation,
+  checkHrClockLocation, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent, endHrAttendanceLocationAssignment, listHrAttendanceEvents, HR_ATTENDANCE_EVENT_PAGE_SIZES, type HrAttendanceEventListQuery,
+  getHrAttendanceLocation, setHrAttendanceLocationPrimary, getHrClockCalendar, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation, HR_ATTENDANCE_LOCATION_PAGE_SIZES, type HrAttendanceLocationListQuery,
 } from "./hr-attendance.js";
+export {
+  createHrScheduleWorker, createHrShift, createHrWorkerCompensation, getHrSchedule, listHrAttendanceLocationsForSchedule, listHrScheduleWorkers, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
+  type HrShiftInput, type SaveHrScheduleInput, type ScheduleEntryInput,
+} from "./hr-scheduling.js";
 export {
   createHrFormRequest, getHrFormRequest, listHrFormApprovers, listHrFormRequests, reviewHrFormRequest,
   submitHrFormRequest, updateHrFormRequest,

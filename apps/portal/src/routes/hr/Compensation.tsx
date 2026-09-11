@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
-import { useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile } from "./api.js";
+import { useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 
@@ -42,6 +42,28 @@ function CompensationEditor({ employment, current, onClose }: { employment: Empl
   </Dialog>;
 }
 
+function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerRecord; onClose: () => void }) {
+  const current = worker.compensation.find((version) => version.validTo === null) ?? worker.compensation[0];
+  const [validFrom, setValidFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [validTo, setValidTo] = useState("");
+  const [amount, setAmount] = useState(current ? String(current.baseAmountMinor / 100) : "");
+  const [note, setNote] = useState("");
+  const save = useHrWrite();
+  return <Dialog title={`設定 ${worker.displayName} 的敘薪`} onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
+    event.preventDefault();
+    const numericAmount = Number(amount);
+    if (!Number.isSafeInteger(numericAmount) || numericAmount < 0) return;
+    save.mutate({ path: `/schedule-workers/${worker.id}/compensation`, method: "POST", values: { validFrom, validTo: validTo || null, payBasis: "daily", baseAmountMinor: numericAmount * 100, note } }, { onSuccess: onClose });
+  } }} actions={<Button type="submit" loading={save.isPending}>保存日薪</Button>}>
+    <p>支援人員目前以日薪計算；不套用員工獎金 policy。敘薪版本不覆蓋歷史。</p>
+    <TextField label="生效日" type="date" required value={validFrom} onChange={(event) => setValidFrom(event.target.value)} />
+    <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />
+    <TextField label="日薪（元）" type="number" min="0" step="1" required value={amount} onChange={(event) => setAmount(event.target.value)} />
+    <TextField label="備註" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
+    {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
+  </Dialog>;
+}
+
 function EmployeeCompensationRow({ employee, canWrite }: { employee: Employee; canWrite: boolean }) {
   const [editing, setEditing] = useState(false);
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`);
@@ -61,11 +83,18 @@ function EmployeeCompensationRow({ employee, canWrite }: { employee: Employee; c
   </>;
 }
 
+function WorkerCompensationRow({ worker, canWrite, onEdit }: { worker: ScheduleWorkerRecord; canWrite: boolean; onEdit: () => void }) {
+  const current = worker.compensation.find((version) => version.validTo === null) ?? worker.compensation[0];
+  return <tr><td><strong>{worker.displayName}</strong><br /><span className="muted">排班支援人員</span></td><td>日薪</td><td className="numeric">{current ? money(current.baseAmountMinor) : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite ? <Button variant="secondary" onClick={onEdit}>新增版本</Button> : null}</td></tr>;
+}
+
 export function HrCompensationManagement() {
   usePageTitle("敘薪管理");
   const { permissions } = useSession();
   const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc");
   const canWrite = permissions.has("hr:employee:write");
+  const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers", permissions.has("hr:schedule:read"));
+  const [editingWorker, setEditingWorker] = useState<ScheduleWorkerRecord | null>(null);
   return <div className="page">
     <PageHeader title="敘薪管理" description="設定每位員工的薪資計算方式與生效版本；薪資變更不覆蓋歷史，薪資結算會讀取指定月份有效的敘薪版本。" />
     <Alert tone="info">先在這裡完成員工敘薪，再到「獎金管理」套用業績 policy；最後於「薪資結算」直接計算指定月份薪資。</Alert>
@@ -77,5 +106,7 @@ export function HrCompensationManagement() {
       </tbody></table></div>
       {!employees.data?.employees.length ? <p className="empty-state">尚無啟用中的員工。</p> : null}
     </Panel>
+    {permissions.has("hr:schedule:read") ? <Panel><div className="panel-head"><div><h2>排班支援人員</h2><p>沒有平台帳號的支援人員只可從月曆排班加入，薪資結算依已發布排班日數計算，不參與獎金。</p></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>人員</th><th>方式</th><th className="numeric">目前金額</th><th>生效期間</th><th>操作</th></tr></thead><tbody>{(workers.data?.workers ?? []).map((worker) => <WorkerCompensationRow key={worker.id} worker={worker} canWrite={canWrite} onEdit={() => setEditingWorker(worker)} />)}</tbody></table></div>{!workers.data?.workers.length ? <p className="empty-state">尚無排班支援人員。</p> : null}</Panel> : null}
+    {editingWorker ? <WorkerCompensationEditor worker={editingWorker} onClose={() => setEditingWorker(null)} /> : null}
   </div>;
 }

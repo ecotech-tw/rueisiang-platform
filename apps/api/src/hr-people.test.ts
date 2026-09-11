@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, listActivity, syncSystemRoles } from "@rueisiang/db";
-import { scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { hrClockEvents, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -234,7 +234,25 @@ describe("HR 員工基礎", () => {
     const second = await request("/hr/me/clock-events", "POST", { idempotencyKey: "clock-request-2", latitude: 25.033, longitude: 121.5654 }, "self");
     expect(second.status).toBe(201);
     expect((await second.json() as { event: { eventKind: string } }).event.eventKind).toBe("clock_out");
+    const calendar = await (await request(`/hr/me/attendance-calendar?year=${today.slice(0, 4)}&month=${today.slice(5, 7)}`, "GET", undefined, "self")).json() as {
+      days: { date: string; eventCount: number; anomaly: string | null; events: { eventKind: string }[] }[];
+    };
+    expect(calendar.days.find((day) => day.date === today)).toMatchObject({ eventCount: 2, anomaly: "short-duration", anomalyMessage: expect.stringContaining("出勤僅"), events: [{ eventKind: "clock_in" }, { eventKind: "clock_out" }] });
     expect((await request("/hr/me/clock-events", "POST", { idempotencyKey: "clock-request-far", latitude: 0, longitude: 0 }, "self")).status).toBe(400);
+  });
+
+  it("全體打卡明細只讓全平台 HR 管理者查看，並支援搜尋與日期分頁", async () => {
+    await assign("self");
+    const employmentId = await firstEmployment("self");
+    await db.insert(hrClockEvents).values([
+      { id: "event-all-1", employeeUserId: "self", employmentId, sourceKind: "portal", idempotencyKey: "event-all-1", eventKind: "clock_in", occurredAt: "2026-08-05 01:00:00", receivedAt: "2026-08-05 01:00:01" },
+      { id: "event-all-2", employeeUserId: "self", employmentId, sourceKind: "manual", idempotencyKey: "event-all-2", eventKind: "clock_out", manualReason: "測試補登", occurredAt: "2026-08-05 10:00:00", receivedAt: "2026-08-05 10:00:01" },
+    ]);
+    const listed = await request("/hr/attendance-events?search=self&startDate=2026-08-01&endDate=2026-09-01&page=1&pageSize=10&sortField=occurredAt&sortDirection=asc");
+    expect(listed.status, await listed.clone().text()).toBe(200);
+    expect(await listed.json()).toMatchObject({ total: 2, events: [expect.objectContaining({ employeeName: "self", eventKind: "clock_in" }), expect.objectContaining({ manualReason: "測試補登", sourceKind: "manual" })] });
+    expect((await request("/hr/attendance-events", "GET", undefined, "self")).status).toBe(403);
+    expect((await request("/hr/attendance-events", "GET", undefined, "writer")).status).toBe(403);
   });
 
   it("拒絕不合法日曆日期、區間、未知關聯及錯誤頁碼", async () => {

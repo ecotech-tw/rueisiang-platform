@@ -56,6 +56,7 @@ export function HrPayrollSettlement() {
         <div className="table-scroll"><table className="data-table compact"><thead><tr><th>項目</th><th>方向</th><th className="numeric">金額</th></tr></thead><tbody>{employee.lines.map((line) => <tr key={line.lineKey}><td>{readableLine(line)}</td><td>{line.direction === "earning" ? "應發" : "扣款"}</td><td className="numeric">{money(line.amountMinor)}</td></tr>)}</tbody></table></div>
         <p className="form-hint">應發 {money(employee.earningMinor)}・扣款 {money(employee.deductionMinor)}・淨額 {money(employee.netMinor)}</p>
       </div>) : <p className="empty-state">尚未執行本月份試算。</p>}
+      {payrollResult?.workers.map((worker) => <div className="hr-payroll-result" key={`worker-${worker.workerId}`}><div className="hr-payroll-result-head"><strong>{worker.workerName}（排班支援）</strong><b>{money(worker.amountMinor)}</b></div><p className="form-hint">{worker.payBasis === "daily" ? "日薪" : worker.payBasis === "monthly" ? "月薪" : "時薪"}・已發布排班 {worker.scheduledDays} 天{worker.compensationVersionId ? "" : "・尚未設定敘薪"}</p></div>)}
       {payrollResult?.warnings.map((warning) => <p className="form-hint" key={warning}>{warning}</p>)}
     </Panel>
 

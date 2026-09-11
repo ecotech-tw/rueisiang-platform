@@ -16,6 +16,8 @@ import { Profile } from "./routes/me/Profile.js";
 import { HrEmployeeDetail, HrEmployees } from "./routes/hr/Employees.js";
 import { HrLanding, HrLayout } from "./routes/hr/HrLayout.js";
 import { HrAttendanceSettings } from "./routes/hr/AttendanceSettings.js";
+import { HrAttendanceRecords } from "./routes/hr/AttendanceRecords.js";
+import { HrScheduling } from "./routes/hr/Scheduling.js";
 import { HrCompensationManagement } from "./routes/hr/Compensation.js";
 import { HrBonusManagement } from "./routes/hr/BonusManagement.js";
 import { HrPayrollSettlement } from "./routes/hr/PayrollSettlement.js";
@@ -146,6 +148,8 @@ export function App() {
           <Route path="employees" element={<HrEmployees />} />
           <Route path="employees/:id" element={<HrEmployeeDetail />} />
           <Route path="attendance-settings" element={<HrAttendanceSettings />} />
+          <Route path="attendance-records" element={<HrAttendanceRecords />} />
+          <Route path="scheduling" element={<HrScheduling />} />
           <Route path="compensation" element={<HrCompensationManagement />} />
           <Route path="payroll" element={<Navigate to="/hr/payroll-settlement" replace />} />
           <Route path="bonus" element={<HrBonusManagement />} />

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { users } from "./auth.js";
 import { hrEmployments } from "./hr-people.js";
 import { scopes } from "./reports.js";
@@ -24,6 +24,19 @@ export const hrShiftTemplates = sqliteTable("hr_shift_templates", {
   check("ck_hr_shift_templates_name", sql`length(trim(${table.name})) BETWEEN 1 AND 100`),
   check("ck_hr_shift_templates_active", sql`${table.active} IN (0, 1)`),
   check("ck_hr_shift_templates_revision", sql`${table.revision} > 0`),
+]);
+
+/** 同一套班別可套用到多個實體 scope；關聯本身不複製班別時間。 */
+export const hrScopeShiftAssignments = sqliteTable("hr_scope_shift_assignments", {
+  scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  shiftTemplateId: text("shift_template_id").notNull().references(() => hrShiftTemplates.id, { onDelete: "restrict" }),
+  isDefault: integer("is_default").notNull().default(0),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.scopeId, table.shiftTemplateId] }),
+  index("idx_hr_scope_shift_assignments_scope").on(table.scopeId, table.isDefault),
+  check("ck_hr_scope_shift_assignments_default", sql`${table.isDefault} IN (0, 1)`),
 ]);
 
 export const hrShiftVersions = sqliteTable("hr_shift_versions", {
@@ -57,6 +70,8 @@ export const hrScheduleVersions = sqliteTable("hr_schedule_versions", {
   submittedBy: text("submitted_by").references(() => users.id, { onDelete: "restrict" }),
   approvedBy: text("approved_by").references(() => users.id, { onDelete: "restrict" }),
   decisionReason: text("decision_reason").notNull().default(""),
+  // 排班直接發布；lockedAt 只控制是否允許後續調整，不再走草稿／送審／復原狀態。
+  lockedAt: text("locked_at"),
   ...timestamps(),
 }, (table) => [
   uniqueIndex("idx_hr_schedule_versions_period").on(table.periodStart, table.periodEnd, table.versionNumber),
@@ -66,6 +81,20 @@ export const hrScheduleVersions = sqliteTable("hr_schedule_versions", {
   check("ck_hr_schedule_versions_status", sql`${table.status} IN ('draft', 'pending', 'published', 'rejected', 'superseded')`),
   check("ck_hr_schedule_versions_reason", sql`length(${table.decisionReason}) <= 1000`),
   check("ck_hr_schedule_versions_revision", sql`${table.revision} > 0`),
+]);
+
+/** 沒有平台帳號的臨時支援人員只存在於排班，不會混入 users／hr_employees。 */
+export const hrScheduleWorkers = sqliteTable("hr_schedule_workers", {
+  id: text("id").primaryKey(),
+  displayName: text("display_name").notNull(),
+  active: integer("active").notNull().default(1),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  ...timestamps(),
+}, (table) => [
+  index("idx_hr_schedule_workers_active_name").on(table.active, table.displayName),
+  check("ck_hr_schedule_workers_name", sql`length(trim(${table.displayName})) BETWEEN 1 AND 100`),
+  check("ck_hr_schedule_workers_active", sql`${table.active} IN (0, 1)`),
+  check("ck_hr_schedule_workers_revision", sql`${table.revision} > 0`),
 ]);
 
 export const hrScheduleEntries = sqliteTable("hr_schedule_entries", {
@@ -88,6 +117,25 @@ export const hrScheduleEntries = sqliteTable("hr_schedule_entries", {
 ]);
 
 /** 加班申請與核定時段分開保存；只有 approved + pay 才會進入薪資試算。 */
+export const hrScheduleWorkerEntries = sqliteTable("hr_schedule_worker_entries", {
+  id: text("id").primaryKey(),
+  scheduleVersionId: text("schedule_version_id").notNull().references(() => hrScheduleVersions.id, { onDelete: "restrict" }),
+  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  shiftVersionId: text("shift_version_id").notNull().references(() => hrShiftVersions.id, { onDelete: "restrict" }),
+  workDate: text("work_date").notNull(),
+  startsAt: text("starts_at").notNull(),
+  endsAt: text("ends_at").notNull(),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_schedule_worker_entries_unique").on(table.scheduleVersionId, table.workerId, table.workDate, table.startsAt),
+  index("idx_hr_schedule_worker_entries_worker_date").on(table.workerId, table.workDate),
+  index("idx_hr_schedule_worker_entries_scope_date").on(table.scopeId, table.workDate),
+  check("ck_hr_schedule_worker_entries_date", sql`length(${table.workDate}) = 10`),
+  check("ck_hr_schedule_worker_entries_period", sql`${table.endsAt} > ${table.startsAt}`),
+]);
+
 export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   id: text("id").primaryKey(),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
@@ -118,6 +166,9 @@ export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   check("ck_hr_overtime_revision", sql`${table.revision} > 0`),
 ]);
 
+export type HrScopeShiftAssignment = typeof hrScopeShiftAssignments.$inferSelect;
 export type HrScheduleVersion = typeof hrScheduleVersions.$inferSelect;
 export type HrScheduleEntry = typeof hrScheduleEntries.$inferSelect;
+export type HrScheduleWorker = typeof hrScheduleWorkers.$inferSelect;
+export type HrScheduleWorkerEntry = typeof hrScheduleWorkerEntries.$inferSelect;
 export type HrOvertimeRequest = typeof hrOvertimeRequests.$inferSelect;

@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { users } from "./auth.js";
 import { hrEmployees, hrEmployments } from "./hr-people.js";
+import { scopes } from "./reports.js";
 
 const timestamps = () => ({
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -12,6 +14,8 @@ const timestamps = () => ({
 export const hrAttendanceLocations = sqliteTable("hr_attendance_locations", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  // 舊辦公位置先允許未對應，避免升級時猜錯既有資料；新建與編輯由 API 要求 scope。
+  scopeId: text("scope_id").references(() => scopes.id, { onDelete: "restrict" }),
   geolocationRequired: integer("geolocation_required").notNull().default(1),
   latitudeE7: integer("latitude_e7"),
   longitudeE7: integer("longitude_e7"),
@@ -21,6 +25,7 @@ export const hrAttendanceLocations = sqliteTable("hr_attendance_locations", {
   ...timestamps(),
 }, (table) => [
   uniqueIndex("idx_hr_attendance_locations_name").on(table.name),
+  index("idx_hr_attendance_locations_scope").on(table.scopeId, table.active, table.name),
   index("idx_hr_attendance_locations_active").on(table.active, table.name),
   check("ck_hr_attendance_locations_name", sql`length(trim(${table.name})) BETWEEN 1 AND 100`),
   check("ck_hr_attendance_locations_geo_required", sql`${table.geolocationRequired} IN (0, 1)`),
@@ -62,12 +67,18 @@ export const hrClockEvents = sqliteTable("hr_clock_events", {
   employeeUserId: text("employee_user_id").notNull().references(() => hrEmployees.userId, { onDelete: "restrict" }),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   attendanceLocationId: text("attendance_location_id").references(() => hrAttendanceLocations.id, { onDelete: "restrict" }),
+  scopeId: text("scope_id").references(() => scopes.id, { onDelete: "restrict" }),
   sourceKind: text("source_kind").notNull().default("portal"),
   idempotencyKey: text("idempotency_key").notNull(),
   eventKind: text("event_kind", { enum: ["clock_in", "clock_out"] as const }).notNull(),
   latitudeE7: integer("latitude_e7"),
   longitudeE7: integer("longitude_e7"),
   distanceMeters: integer("distance_meters"),
+  // 歷史顯示不能跟著辦公位置／scope 改名；舊資料由 migration 回填當時可查到的名稱。
+  locationNameSnapshot: text("location_name_snapshot").notNull().default(""),
+  scopeNameSnapshot: text("scope_name_snapshot").notNull().default(""),
+  recordedBy: text("recorded_by").references(() => users.id, { onDelete: "restrict" }),
+  manualReason: text("manual_reason").notNull().default(""),
   occurredAt: text("occurred_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   receivedAt: text("received_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [

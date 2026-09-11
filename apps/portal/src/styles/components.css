@@ -393,6 +393,8 @@
 .hr-personal-bottom-link.active { color: var(--color-brand-dark); }
 .hr-location-table td { vertical-align: top; }
 .hr-location-table td > small { display: block; margin-top: 4px; }
+.attendance-records-toolbar .attendance-date-filter { min-width: 150px; }
+.attendance-event-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hr-location-map-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
 .hr-location-map-search .field { min-width: 0; }
 .hr-location-map-link { color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
@@ -4254,3 +4256,28 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .hr-form-actions button { flex: 1 1 30%; }
   .hr-form-request-summary dl { grid-template-columns: 64px minmax(0, 1fr); }
 }
+
+/* HR 月曆排班 */
+.hr-schedule-toolbar { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
+.hr-schedule-toolbar > strong { align-self: center; min-width: 150px; text-align: center; }
+.hr-schedule-toolbar .field { margin: 0; min-width: 190px; }
+.hr-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; min-height: 0; }
+.hr-calendar.weekdays { flex: none; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; text-align: center; }
+.hr-calendar-cell { min-height: 112px; padding: 7px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-canvas); overflow: hidden; }
+.hr-calendar-cell.empty { border-color: transparent; background: transparent; }
+.hr-calendar-date { display: flex; justify-content: space-between; align-items: center; color: var(--color-ink); }
+.hr-calendar-date button, .hr-calendar-entry button { border: 0; background: transparent; color: var(--color-muted); cursor: pointer; }
+.hr-calendar-date button { font-size: 18px; line-height: 1; }
+.hr-calendar-entries { display: grid; gap: 4px; margin-top: 5px; }
+.hr-calendar-entry { position: relative; display: grid; gap: 1px; padding: 4px 20px 4px 6px; border-left: 3px solid var(--color-secondary); border-radius: 5px; background: var(--color-paper); font-size: 11px; }
+.hr-calendar-entry.worker { border-left-color: var(--color-brand); }
+.hr-calendar-entry span, .hr-calendar-entry small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-calendar-entry small { color: var(--color-muted); font-size: 10px; }
+.hr-calendar-entry button { position: absolute; top: 2px; right: 3px; padding: 0 3px; font-size: 14px; }
+@media (max-width: 800px) {
+  .hr-calendar-cell { min-height: 88px; padding: 5px; }
+  .hr-calendar-entry { padding-right: 4px; }
+  .hr-calendar-entry button { display: none; }
+  .hr-calendar-entry small { display: none; }
+}
+.hr-schedule-page > .panel.grows { overflow: auto; }

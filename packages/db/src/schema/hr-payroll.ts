@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { users } from "./auth.js";
 import { hrEmployments } from "./hr-people.js";
+import { hrScheduleWorkers } from "./hr-scheduling.js";
 
 const historyTimestamps = () => ({
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -30,6 +31,27 @@ export const hrCompensationVersions = sqliteTable("hr_compensation_versions", {
 ]);
 
 /** 勞保與健保分開留存；每次加保、退保或級距變更都是不可覆寫的版本。 */
+/** 沒有平台帳號的排班支援人員也需要薪資版本；目前主要使用日薪。 */
+export const hrWorkerCompensationVersions = sqliteTable("hr_worker_compensation_versions", {
+  id: text("id").primaryKey(),
+  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  versionNumber: integer("version_number").notNull(),
+  validFrom: text("valid_from").notNull(),
+  validTo: text("valid_to"),
+  payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly"] as const }).notNull(),
+  baseAmountMinor: integer("base_amount_minor").notNull(),
+  note: text("note").notNull().default(""),
+  ...historyTimestamps(),
+}, (table) => [
+  uniqueIndex("idx_hr_worker_compensation_versions_number").on(table.workerId, table.versionNumber),
+  index("idx_hr_worker_compensation_versions_period").on(table.workerId, table.validFrom),
+  check("ck_hr_worker_compensation_versions_number", sql`${table.versionNumber} > 0`),
+  check("ck_hr_worker_compensation_versions_dates", sql`length(${table.validFrom}) = 10 AND (${table.validTo} IS NULL OR (length(${table.validTo}) = 10 AND ${table.validTo} > ${table.validFrom}))`),
+  check("ck_hr_worker_compensation_versions_basis", sql`${table.payBasis} IN ('monthly', 'daily', 'hourly')`),
+  check("ck_hr_worker_compensation_versions_amount", sql`${table.baseAmountMinor} >= 0`),
+  check("ck_hr_worker_compensation_versions_note", sql`length(${table.note}) <= 1000`),
+]);
+
 export const hrInsuranceVersions = sqliteTable("hr_insurance_versions", {
   id: text("id").primaryKey(),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
