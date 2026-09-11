@@ -129,8 +129,9 @@ async function main() {
 
   const processed = [];
   const skipped = [];
+  let page = null;
   try {
-    const page = await newPage(context);
+    page = await newPage(context);
     // Gmail API 要的是換過的 access token，不是 .env 裡那顆 refresh token。
     const gmailToken = await accessToken({ ...env, GOOGLE_REFRESH_TOKEN: env.GMAIL_REFRESH_TOKEN });
     await login(page, loginOptions({ env, config, gmailToken }));
@@ -221,6 +222,11 @@ async function main() {
     }
 
     return { statements: processed, skipped };
+  } catch (error) {
+    // 任何失敗都留一張截圖。這次的 /admin/settlements 打錯字只留下一句 Playwright
+    // 逾時，artifact 裡什麼都沒有，只能靠猜——一張圖就會直接看到停在哪一頁。
+    if (page) await screenshot(page, "shop-failed").catch(() => {});
+    throw error;
   } finally {
     await context.close();
   }
