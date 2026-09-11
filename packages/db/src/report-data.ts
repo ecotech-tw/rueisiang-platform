@@ -1,11 +1,13 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, sum } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
   reportItemSalesMonthly,
+  reportItemSalesPeriod,
   reportRuns,
   reportRunScopes,
   scopes as targetScopes,
   reportPayoutDaily,
+  type ScopeKind,
 } from "./schema/reports.js";
 import { itemCategories, items as itemMasters } from "./schema/items.js";
 import { dataChannelFromScopeId, shopeeBaseExternalSku } from "./product-sku-mappings.js";
@@ -141,7 +143,11 @@ export interface ReportRange {
 
 export interface ReportScopeInput {
   id: string;
-  scopeKind: ReportScopeKind;
+  /**
+   * 這個欄位直接寫進 `scopes.scope_kind`，所以型別是 `ScopeKind`（含 channel），
+   * 不是上面那個查詢維度的 `ReportScopeKind`。官網就是 channel。
+   */
+  scopeKind: ScopeKind;
   name: string;
   active?: boolean;
   /** 自動匯入可指定通路，避免不同通路的同名據點互相衝突。 */
@@ -586,6 +592,152 @@ export async function insertReportSalesMonthly(
       }
       if (targetStatements.length) await db.batch(targetStatements as [Statement, ...Statement[]]);
     }
+}
+
+export interface NewReportSalesPeriodRow {
+  sku: string;
+  productName?: string;
+  category?: string;
+  grossQuantity: number;
+  returnQuantity?: number;
+  netQuantity: number;
+  salesAmount: number;
+}
+
+/**
+ * 匯入一份「期間」報表，然後重算它所屬月份的月報。
+ *
+ * 給的是 CYBERBIZ 官網的半月對帳表：一個月兩份檔案，區間不能自己選。直接寫月報的話
+ * 第二份會覆蓋第一份；改成累加又會讓同一份重傳加兩遍。所以來源存在
+ * report_item_sales_period（主鍵含期間），月報是它的加總——重傳只換掉那一期，
+ * 兩份半月檔自然相加。
+ *
+ * **同一個 scope 不可以同時走月報與期間兩條路。** 這裡會把該月的 imported 月報整批
+ * 重建成「期間的總和」，所以如果有人另外用月報直寫同一個 scope 的同一個月，那些列
+ * 會在下一次期間匯入時消失。實體店走月報、官網走期間，兩邊的 scope 不重疊。
+ */
+export async function insertReportSalesPeriod(
+  db: Database,
+  input: {
+    scopeId: string;
+    periodStart: string;
+    periodEnd: string;
+    reportRunId?: string;
+    rows: readonly NewReportSalesPeriodRow[];
+  },
+): Promise<{ reportMonth: string; itemCount: number; salesAmount: number }> {
+  type Statement = Parameters<Database["batch"]>[0][number];
+  const { scopeId, periodStart, periodEnd } = input;
+  const reportMonth = periodStart.slice(0, 7);
+  if (periodEnd.slice(0, 7) !== reportMonth) {
+    throw new Error(`期間跨月無法併入月報：${periodStart} ~ ${periodEnd}`);
+  }
+
+  const runId = await ensureTargetImportRun(db, {
+    reportRunId: input.reportRunId,
+    sourceType: "cyberbiz",
+    importsSales: true,
+    importsPayout: false,
+    scopeIds: [scopeId],
+    startDate: periodStart,
+    endDate: periodEnd,
+  });
+  if (!runId) throw new Error("建立報表執行紀錄失敗。");
+
+  const itemsBySku = await ensureTargetSalesItems(
+    db,
+    input.rows.map((row) => ({ ...row, scopeId, reportMonth, returnQuantity: row.returnQuantity ?? 0 })),
+    true,
+  );
+  /*
+   * 同一個 item 只能有一列，而且要用相加合併。
+   *
+   * ensureTargetSalesItems 是用小寫比對 SKU 的，所以來源端的 `SKU-A` 與 `sku-a`
+   * 會解析到同一個 item。直接逐列 insert 的話會撞主鍵 (scope, 期間, item)，D1 丟
+   * UNIQUE constraint，整期匯入 500；而用 onConflictDoUpdate 則是後面那列蓋掉前面，
+   * 金額會少算。兩個都不對——先合併相加才是。
+   */
+  const byItem = new Map<string, {
+    scopeId: string; periodStart: string; periodEnd: string; reportMonth: string; itemId: string;
+    reportRunId: string; grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number;
+  }>();
+  for (const row of input.rows) {
+    const itemId = itemsBySku.get(row.sku.trim().toLowerCase());
+    if (!itemId) continue;
+    const previous = byItem.get(itemId);
+    if (previous) {
+      previous.grossQuantity += row.grossQuantity;
+      previous.returnQuantity += row.returnQuantity ?? 0;
+      previous.netQuantity += row.netQuantity;
+      previous.salesAmount += row.salesAmount;
+      continue;
+    }
+    byItem.set(itemId, {
+      scopeId,
+      periodStart,
+      periodEnd,
+      reportMonth,
+      itemId,
+      reportRunId: runId,
+      grossQuantity: row.grossQuantity,
+      returnQuantity: row.returnQuantity ?? 0,
+      netQuantity: row.netQuantity,
+      salesAmount: row.salesAmount,
+    });
+  }
+  const periodRows = [...byItem.values()];
+
+  // 先清掉這一期的舊列再寫入，重傳同一份檔案的結果才會跟第一次一樣。
+  const writes: Statement[] = [db.delete(reportItemSalesPeriod).where(and(
+    eq(reportItemSalesPeriod.scopeId, scopeId),
+    eq(reportItemSalesPeriod.periodStart, periodStart),
+    eq(reportItemSalesPeriod.periodEnd, periodEnd),
+  ))];
+  for (const chunk of chunks(periodRows, REPORT_SALES_WRITE_BATCH_SIZE)) {
+    if (chunk.length) writes.push(db.insert(reportItemSalesPeriod).values(chunk));
+  }
+  await db.batch(writes as [Statement, ...Statement[]]);
+
+  // 月報 = 該月各期間的總和。先讀出加總再寫，不用 INSERT … SELECT：raw run 不是
+  // D1 batch 收得下的 prepared statement，混進 batch 會在執行時炸掉。
+  const totals = await db.select({
+    itemId: reportItemSalesPeriod.itemId,
+    grossQuantity: sum(reportItemSalesPeriod.grossQuantity).mapWith(Number),
+    returnQuantity: sum(reportItemSalesPeriod.returnQuantity).mapWith(Number),
+    netQuantity: sum(reportItemSalesPeriod.netQuantity).mapWith(Number),
+    salesAmount: sum(reportItemSalesPeriod.salesAmount).mapWith(Number),
+  }).from(reportItemSalesPeriod)
+    .where(and(eq(reportItemSalesPeriod.scopeId, scopeId), eq(reportItemSalesPeriod.reportMonth, reportMonth)))
+    .groupBy(reportItemSalesPeriod.itemId);
+
+  // 整批重建而不是逐列 upsert：某一期的某個 SKU 這次沒出現（更正檔少一列、商品
+  // 下架）時，upsert 不會把上一次的殘留清掉，月報就會多一筆憑空的錢。
+  const monthlyWrites: Statement[] = [db.delete(reportItemSalesMonthly).where(and(
+    eq(reportItemSalesMonthly.scopeId, scopeId),
+    eq(reportItemSalesMonthly.reportMonth, reportMonth),
+    eq(reportItemSalesMonthly.recordOrigin, "imported"),
+  ))];
+  const monthlyRows = totals.map((row) => ({
+    scopeId,
+    reportMonth,
+    itemId: row.itemId,
+    recordOrigin: "imported" as const,
+    reportRunId: runId,
+    grossQuantity: row.grossQuantity,
+    returnQuantity: row.returnQuantity,
+    netQuantity: row.netQuantity,
+    salesAmount: row.salesAmount,
+  }));
+  for (const chunk of chunks(monthlyRows, REPORT_SALES_WRITE_BATCH_SIZE)) {
+    if (chunk.length) monthlyWrites.push(db.insert(reportItemSalesMonthly).values(chunk));
+  }
+  await db.batch(monthlyWrites as [Statement, ...Statement[]]);
+
+  return {
+    reportMonth,
+    itemCount: periodRows.length,
+    salesAmount: periodRows.reduce((sum, row) => sum + row.salesAmount, 0),
+  };
 }
 
 export async function insertReportPayoutDaily(db: Database, rows: readonly NewReportPayoutDaily[], reportRunId?: string): Promise<void> {

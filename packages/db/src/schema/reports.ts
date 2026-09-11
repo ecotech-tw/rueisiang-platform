@@ -102,6 +102,43 @@ export const reportRunReports = sqliteTable("report_run_reports", {
   reportMd: text("report_md").notNull().default(""),
 });
 
+/**
+ * 商品銷售的來源列，一份報表檔案一組。
+ *
+ * 為什麼需要它：官網的對帳表是 CYBERBIZ 每半個月自動出的（1–15、16–月底），
+ * 不能自己選區間，所以一個月有兩份檔案。而 report_item_sales_monthly 的主鍵是
+ * (scope, report_month, item, origin)——兩份半月檔都是同一個月，直接寫會互相
+ * 覆蓋：匯入下半月，上半月就不見了。改成「不覆蓋、直接加」也不行，同一份重傳
+ * 兩次會加兩遍，而且沒有人看得出來多了一份。
+ *
+ * 所以來源是這張表（主鍵含期間），月報是它的加總。重傳同一期只換掉那一期，
+ * 兩份半月檔自然相加。
+ *
+ * 每家店一個月一份的報表（實體店的商品銷售）不必經過這裡——它的期間就是整個
+ * 月，直接寫月報即可。
+ */
+export const reportItemSalesPeriod = sqliteTable("report_item_sales_period", {
+  scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  /** 半開區間的兩端都含，因為 CYBERBIZ 的對帳區間是「16 日到月底」這種閉區間。 */
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  reportMonth: text("report_month").notNull(),
+  itemId: text("item_id").notNull().references(() => items.id, { onDelete: "restrict" }),
+  reportRunId: text("report_run_id").references(() => reportRuns.id, { onDelete: "restrict" }),
+  grossQuantity: integer("gross_quantity").notNull().default(0),
+  returnQuantity: integer("return_quantity").notNull().default(0),
+  netQuantity: integer("net_quantity").notNull().default(0),
+  salesAmount: integer("sales_amount").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.scopeId, table.periodStart, table.periodEnd, table.itemId] }),
+  index("idx_item_sales_period_month").on(table.scopeId, table.reportMonth),
+  check("ck_item_sales_period_dates", sql`length(${table.periodStart}) = 10 AND length(${table.periodEnd}) = 10 AND ${table.periodEnd} >= ${table.periodStart}`),
+  // 期間不可跨月：月報是按 report_month 加總的，跨月的一期會被算進錯的月份。
+  check("ck_item_sales_period_month", sql`${table.reportMonth} = substr(${table.periodStart}, 1, 7) AND ${table.reportMonth} = substr(${table.periodEnd}, 1, 7)`),
+]);
+
 /** 商品銷售月報；分類不存 snapshot，本輪先用 item_id join 目前分類。 */
 export const reportItemSalesMonthly = sqliteTable("report_item_sales_monthly", {
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),

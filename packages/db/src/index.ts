@@ -159,6 +159,8 @@ export {
   createReportScopeDirectory,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
+  insertReportSalesPeriod,
+  type NewReportSalesPeriodRow,
   isValidReportDate,
   latestReportSalesPeriods,
   listReportScopes,
@@ -374,6 +376,16 @@ export {
   listShopeeSalesRuns,
   recordShopeeSalesRun,
 } from "./shopee-sales.js";
+export {
+  SHOP_SCOPE_ID,
+  SHOP_SCOPE_NAME,
+  failShopReportRun,
+  listShopReportRuns,
+  monthRangeToDates,
+  recordShopReportRun,
+  shopReportRequestId,
+  type ShopReportRun,
+} from "./shop-report.js";
 export { cyberbizScopeIdFromStoreName, isValidScopeId } from "./scope-id.js";
 export {
   WAREHOUSE_CATEGORY_COLORS,

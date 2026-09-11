@@ -26,6 +26,7 @@ export type IconName =
   | "widgets"
   | "payments"
   | "storefront"
+  | "globe"
   | "shoppingBag"
   | "assistant"
   | "science"
@@ -233,6 +234,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M4.3 9.8h15.4v9.1a1 1 0 0 1-1 1H5.3a1 1 0 0 1-1-1z" />
       <path d="M3.2 9.8 4.7 5.1a1 1 0 0 1 1-.7h12.6a1 1 0 0 1 1 .7l1.5 4.7" />
       <path d="M9.7 19.9v-4.8h4.6v4.8" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="8.2" />
+      <path d="M3.8 12h16.4" />
+      <path d="M12 3.8c2.1 2.3 3.3 5.2 3.3 8.2s-1.2 5.9-3.3 8.2c-2.1-2.3-3.3-5.2-3.3-8.2s1.2-5.9 3.3-8.2z" />
     </>
   ),
   shoppingBag: (

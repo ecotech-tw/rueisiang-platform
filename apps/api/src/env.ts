@@ -89,6 +89,14 @@ export interface Env {
   CYBERBIZ_SALES_WORKFLOW_FILE?: string;
   CYBERBIZ_SALES_GITHUB_REF?: string;
 
+  /**
+   * 官網對帳單 workflow。跟出金表共用同一個 runner 與 repo，沒設就沿用上面那兩組。
+   *
+   * 沒有 WORKFLOW_FILE：那支 workflow 就在本 repo 裡，檔名寫死在 shop-report/github.ts。
+   */
+  CYBERBIZ_SHOP_GITHUB_REPO?: string;
+  CYBERBIZ_SHOP_GITHUB_REF?: string;
+
   /** 蝦皮報表 workflow；平台只暫存檔案並觸發 GitHub Actions。 */
   SHOPEE_GITHUB_REPO?: string;
   SHOPEE_WORKFLOW_FILE?: string;

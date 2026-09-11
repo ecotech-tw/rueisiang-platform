@@ -124,6 +124,52 @@ export function useCyberbizSalesStatus(requestId: string | null) {
   });
 }
 
+export interface ShopReportRunRecord {
+  id: string;
+  requestId: string;
+  startMonth: string;
+  endMonth: string;
+  actorEmail: string;
+  createdAt: string;
+}
+
+export interface ShopReportState {
+  /** 對帳單是半月結算的，使用者只挑月份範圍；期間由 CYBERBIZ 決定。 */
+  defaultStartMonth: string;
+  defaultEndMonth: string;
+  configured: boolean;
+  latestRequestId: string | null;
+  runs: ShopReportRunRecord[];
+}
+
+export function useShopReportState() {
+  return useQuery({
+    queryKey: ["tools", "shop-report", "state"],
+    queryFn: () => call<ShopReportState>("/api/tools/shop-report/state"),
+  });
+}
+
+export function useRunShopReport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { startMonth: string; endMonth: string }) =>
+      call<{ requestId: string }>("/api/tools/shop-report/run", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "shop-report"] }),
+  });
+}
+
+export function useShopReportStatus(requestId: string | null) {
+  return useQuery({
+    enabled: Boolean(requestId),
+    queryKey: ["tools", "shop-report", "status", requestId],
+    queryFn: () => call<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>(`/api/tools/shop-report/status?requestId=${encodeURIComponent(requestId!)}`),
+    refetchInterval: (query) => query.state.data?.runs[0]?.status === "completed" ? false : 5000,
+  });
+}
+
 /**
  * 追蹤某一次執行。
  *

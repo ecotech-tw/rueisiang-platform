@@ -29,6 +29,7 @@ import { Inventory } from "./routes/wms/Inventory.js";
 import { SkuMappings } from "./routes/tools/SkuMappings.js";
 import { Scopes } from "./routes/tools/Scopes.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
+import { ShopReport } from "./routes/tools/ShopReport.js";
 import { ManualReports } from "./routes/tools/ManualReports.js";
 import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
 import { Placeholder } from "./routes/Placeholder.js";
@@ -126,6 +127,7 @@ export function App() {
           <Route path="payout/settings" element={<Navigate to="/tools/scopes" replace />} />
           <Route path="manual-reports" element={<ManualReports />} />
           <Route path="cyberbiz-sales" element={<CyberbizSales />} />
+          <Route path="shop-report" element={<ShopReport />} />
           <Route path="shopee-sales" element={<ShopeeSales />} />
           <Route path="shopee-sales/settings" element={<Navigate to="/tools/scopes" replace />} />
           <Route path="sku-mappings" element={<Navigate to="/items/sku-mappings" replace />} />
