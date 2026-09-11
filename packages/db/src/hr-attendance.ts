@@ -573,6 +573,10 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
         INNER JOIN hr_schedule_versions AS schedule_version ON schedule_version.id=schedule_entry.schedule_version_id
         WHERE schedule_entry.id=${assignment.id} AND schedule_entry.employment_id=${employment.id}
           AND schedule_entry.scope_id=${assignment.scopeId} AND schedule_version.status='published'
+          AND schedule_version.version_number = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version
+            WHERE latest_schedule_version.period_start = schedule_version.period_start
+              AND latest_schedule_version.period_end = schedule_version.period_end
+              AND latest_schedule_version.status = 'published')
           AND (schedule_entry.work_date = date('now', '+8 hours') OR substr(schedule_entry.ends_at, 1, 10) = date('now', '+8 hours')))`
     : sql`EXISTS (SELECT 1 FROM hr_employee_attendance_locations AS employee_assignment
         WHERE employee_assignment.id=${assignment.id} AND employee_assignment.employment_id=${employment.id}

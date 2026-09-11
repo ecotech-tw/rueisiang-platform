@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type Employee, type PayrollRun, type PayrollLine, type PayrollRunSummary } from "./api.js";
@@ -21,14 +22,19 @@ function readableLine(line: PayrollLine): string {
 
 export function HrPayrollSettlement() {
   usePageTitle("薪資結算");
+  const { permissions, user } = useSession();
+  const isHrAdministrator = user?.roles.includes("admin") ?? false;
+  const canRead = isHrAdministrator && permissions.has("hr:payroll:read");
+  const canCalculate = isHrAdministrator && permissions.has("hr:payroll:calculate");
   const [periodKey, setPeriodKey] = useState("2026-08");
   const [employeeUserId, setEmployeeUserId] = useState("__all__");
   const [error, setError] = useState<string | null>(null);
   const [payrollResult, setPayrollResult] = useState<PayrollRun | null>(null);
-  const runs = useHrQuery<PayrollRunsResponse>("/payroll/runs");
-  const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc");
+  const runs = useHrQuery<PayrollRunsResponse>("/payroll/runs", canRead);
+  const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc", canRead && permissions.has("hr:employee:read"));
   const calculatePayroll = useHrWrite<{ run: PayrollRun }>();
   const employeeOptions = useMemo(() => [{ label: "全部啟用員工", value: "__all__" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
+  if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
 
   function calculate() {
     setError(null);
@@ -48,7 +54,7 @@ export function HrPayrollSettlement() {
       <div className="admin-form">
         <TextField type="month" label="計算月份" value={periodKey} required onChange={(event) => setPeriodKey(event.target.value)} />
         <SelectField label="員工" value={employeeUserId} options={employeeOptions} onChange={(event) => setEmployeeUserId(event.target.value)} />
-        <Button icon="payments" loading={calculatePayroll.isPending} disabled={!periodKey} onClick={calculate}>計算薪資</Button>
+        {canCalculate ? <Button icon="payments" loading={calculatePayroll.isPending} disabled={!periodKey} onClick={calculate}>計算薪資</Button> : <p className="form-hint">目前帳號沒有執行薪資試算的權限。</p>}
       </div>
       {payrollResult ? payrollResult.employees.map((employee) => <div className="hr-payroll-result" key={employee.employmentId}>
         <div className="hr-payroll-result-head"><strong>{employee.employeeName}（{employee.employeeNumber}）</strong><b>{money(employee.netMinor)}</b></div>
@@ -61,6 +67,7 @@ export function HrPayrollSettlement() {
     </Panel>
 
     <Panel>
+      {runs.error ? <Alert tone="danger">{runs.error.message}</Alert> : null}
       <div className="panel-head"><div><h2>薪資計算批次</h2><p>查看每一版批次與結算狀態；核准、關帳與付款按鈕將在制度確認後接續開放。</p></div></div>
       <div className="table-scroll"><table className="data-table"><thead><tr><th>月份</th><th>批次版本</th><th>狀態</th><th>期間</th><th>完成</th><th>引擎</th><th>建立時間</th></tr></thead><tbody>{(runs.data?.runs ?? []).map((item) => <tr key={item.run.id}><td><strong>{item.periodKey}</strong></td><td>v{item.run.versionNumber}</td><td>{RUN_STATUS[item.run.status] ?? item.run.status}</td><td>{PERIOD_STATUS[item.periodStatus] ?? item.periodStatus}</td><td>{item.run.completedCount} / {item.run.expectedCount}</td><td>{item.run.engineVersion}</td><td>{item.run.createdAt}</td></tr>)}</tbody></table></div>
       {!runs.data?.runs.length ? <p className="empty-state">尚未產生薪資計算批次。</p> : null}

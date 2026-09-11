@@ -231,7 +231,10 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
   const employees = await db.select({ employmentId: hrEmployments.id, userId: hrEmployments.employeeUserId, employeeNumber: hrEmployees.employeeNumber, name: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` }).from(hrEmployments)
     .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(sql`${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} >= ${period.start}`)
+    .where(and(
+      sql`${hrEmployments.hiredOn} < ${period.end}`,
+      sql`${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${period.start}`,
+    ))
     .orderBy(asc(hrEmployees.employeeNumber));
   return {
     periodKey,

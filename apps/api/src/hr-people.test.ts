@@ -76,6 +76,16 @@ describe("HR 員工基礎", () => {
     expect(response.status).toBe(403);
   });
 
+  it("排班月份只列出涵蓋該月份的有效任職", async () => {
+    await created("/hr/employees", { userId: "self", employeeNumber: "FUTURE-1", hiredOn: "2026-09-01", seniorityStartOn: "2026-09-01" });
+    const beforeHire = await request("/hr/schedules?periodKey=2026-08");
+    expect(beforeHire.status, await beforeHire.clone().text()).toBe(200);
+    expect((await beforeHire.json() as { employees: { userId: string }[] }).employees).toEqual([]);
+    const afterHire = await request("/hr/schedules?periodKey=2026-09");
+    expect(afterHire.status, await afterHire.clone().text()).toBe(200);
+    expect((await afterHire.json() as { employees: { userId: string }[] }).employees).toEqual([expect.objectContaining({ userId: "self" })]);
+  });
+
   it("管理者只能從現有 users 指派員工，已指派 user 不再出現在候選清單", async () => {
     const candidate = await (await request("/hr/candidates?search=self")).json() as { users: { userId: string; email: string }[] };
     expect(candidate.users).toEqual([{ userId: "self", displayName: "self", email: "self@example.test", status: "active" }]);
