@@ -73,7 +73,8 @@ jobs:
             echo "PLATFORM_API_URL=$PLATFORM_API_URL"
             echo "CYBERBIZ_REPORT_INGEST_TOKEN=$CYBERBIZ_REPORT_INGEST_TOKEN"
           } > .env
-          for key in CYBERBIZ_USERNAME CYBERBIZ_PASSWORD GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN; do
+          # GMAIL_REFRESH_TOKEN 也是必填：runner 不留 chrome-profile，CI 上每次都要 2FA。
+          for key in CYBERBIZ_USERNAME CYBERBIZ_PASSWORD GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN GMAIL_REFRESH_TOKEN; do
             if [ -z "${!key}" ]; then
               echo "::error::$key 是空的，請到 Settings → Secrets 補齊"
               exit 1

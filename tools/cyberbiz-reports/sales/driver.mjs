@@ -29,7 +29,7 @@ import {
   skillPath,
 } from "../lib/common.mjs";
 import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
-import { exportSalesReport, listStores, login, resolveStore } from "../lib/cyberbiz.mjs";
+import { exportSalesReport, listStores, login, loginOptions, resolveStore } from "../lib/cyberbiz.mjs";
 import { downloadAttachment, whoAmI } from "../lib/gmail-api.mjs";
 import { parseSalesReport } from "./parser.mjs";
 import { writeMarkdown, terminalSummary } from "../lib/report.mjs";
@@ -124,13 +124,7 @@ async function main() {
     const gmailToken = await accessToken({ ...env, GOOGLE_REFRESH_TOKEN: env.GMAIL_REFRESH_TOKEN });
     const mailbox = await whoAmI(gmailToken);
     log(`Gmail 信箱：${mailbox.emailAddress}`);
-    await login(page, {
-      origin: config.cyberbizOrigin,
-      username: env.CYBERBIZ_USERNAME,
-      password: env.CYBERBIZ_PASSWORD,
-      gmailToken,
-      twoFactor: config.twoFactor,
-    });
+    await login(page, loginOptions({ env, config, gmailToken }));
 
     if (args.listStores) {
       const stores = await listStores(page, { origin: config.cyberbizOrigin });

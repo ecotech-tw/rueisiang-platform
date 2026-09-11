@@ -31,9 +31,8 @@ import {
   skillPath,
 } from "../lib/common.mjs";
 import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
-import { downloadStatement, listStatements, login, openStatementCenter } from "../lib/cyberbiz.mjs";
-import { accessToken } from "../lib/drive.mjs";
-import { uploadXlsx } from "../lib/drive.mjs";
+import { downloadStatement, listStatements, login, loginOptions, openStatementCenter } from "../lib/cyberbiz.mjs";
+import { accessToken, uploadXlsx } from "../lib/drive.mjs";
 import { parseShopReport } from "./parser.mjs";
 
 const SHOP_SCOPE_ID = "cyberbiz:channel:shop";
@@ -111,7 +110,13 @@ async function main() {
   }
 
   const env = await loadEnv();
-  requireEnv(env, ["CYBERBIZ_USERNAME", "CYBERBIZ_PASSWORD"]);
+  // 所有前置檢查都在開瀏覽器之前：少一顆 secret 就不值得先花幾秒起一個 Chrome。
+  // Gmail 在這支只有 2FA 一個用途（對帳單是瀏覽器直接下載的），但不是可選的——
+  // runner 每次都是新機器，chrome-profile 不留，所以 CI 上每次都會被要求驗證碼。
+  requireEnv(env, [
+    "CYBERBIZ_USERNAME", "CYBERBIZ_PASSWORD",
+    "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN",
+  ]);
   const config = await loadConfig();
   if (!config.cyberbizOrigin) throw new Error("config.json 缺少 cyberbizOrigin。");
   const { startMonth, endMonth } = monthRangeFromArgs(args);
@@ -126,13 +131,9 @@ async function main() {
   const skipped = [];
   try {
     const page = await newPage(context);
-    await login(page, {
-      origin: config.cyberbizOrigin,
-      username: env.CYBERBIZ_USERNAME,
-      password: env.CYBERBIZ_PASSWORD,
-      gmailToken: env.GMAIL_REFRESH_TOKEN,
-      twoFactor: env.CYBERBIZ_2FA,
-    });
+    // Gmail API 要的是換過的 access token，不是 .env 裡那顆 refresh token。
+    const gmailToken = await accessToken({ ...env, GOOGLE_REFRESH_TOKEN: env.GMAIL_REFRESH_TOKEN });
+    await login(page, loginOptions({ env, config, gmailToken }));
     log(`登入完成，抓 ${startMonth} ~ ${endMonth} 的對帳單`);
 
     await openStatementCenter(page, { origin: config.cyberbizOrigin, startMonth, endMonth, log });

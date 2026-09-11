@@ -69,6 +69,23 @@ function monthKeyOf(iso) {
 }
 
 /**
+ * 三支 driver 登入後台要的參數，組在同一個地方——各自手抄過一份，官網那份抄錯兩個。
+ *
+ * gmailToken 由呼叫端傳進來：出金與商品銷售本來就有一顆，在這裡再換一次是多跑一趟。
+ */
+export function loginOptions({ env, config, gmailToken }) {
+  if (!config?.cyberbizOrigin) throw new Error("config.json 缺少 cyberbizOrigin。");
+  if (!config?.twoFactor) throw new Error("config.json 缺少 twoFactor（2FA 的信件查詢條件）。");
+  return {
+    origin: config.cyberbizOrigin,
+    username: env.CYBERBIZ_USERNAME,
+    password: env.CYBERBIZ_PASSWORD,
+    gmailToken,
+    twoFactor: config.twoFactor,
+  };
+}
+
+/**
  * 登入 CYBERBIZ 後台。已登入就直接回傳。
  * 2FA：送出帳密後若出現驗證碼欄位，從 Gmail 分頁讀取驗證碼填入。
  * 驗證碼與密碼都不會被回傳或寫進 log。
