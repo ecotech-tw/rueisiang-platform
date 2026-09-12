@@ -66,6 +66,7 @@ function isValidDate(value: string): boolean {
 import { cyberbizSales } from "./cyberbiz-sales.js";
 import { shopeeSales } from "./shopee-sales.js";
 import { shopReport } from "./shop-report.js";
+import { reportRuns } from "./report-runs.js";
 
 /**
  * 營運工具。出金表與 CYBERBIZ 商品銷售報表都由這裡統一掛載。
@@ -179,6 +180,7 @@ export const tools = new Hono<AppEnv>()
   .route("/shopee-sales", shopeeSales)
   .route("/cyberbiz-sales", cyberbizSales)
   .route("/shop-report", shopReport)
+  .route("/reports/runs", reportRuns)
 
   /** 執行頁一開始要的東西：店別、預設區間、以及後端到底有沒有接上 GitHub。 */
   .get("/payout/state", requirePermission("tools:payout:run"), async (c) => {

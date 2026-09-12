@@ -3,17 +3,12 @@ import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
-  parseStores,
+
   useCyberbizSalesState,
   useCyberbizSalesStatus,
   useRunCyberbizSales,
 } from "./api.js";
 import { useStoreSelection } from "./store-selection.js";
-
-function formatDate(value: string): string {
-  const parsed = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
-}
 
 function monthRange(value: string): { start: string; end: string } | null {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return null;
@@ -54,17 +49,17 @@ export function CyberbizSales() {
   }
 
   return (
-    <div className="page">
+    <div className="page fills">
       <PageHeader
         title="商品銷售報表執行"
-        description="從 CYBERBIZ POS 匯出商品銷售總表，依店別上傳到既有 Google Drive 通路資料夾；每次執行只匯出一份完整月份，並把月資料匯入 D1 供小香查詢。"
+
       />
 
       {!state.data?.configured ? (
         <Alert tone="danger">平台還沒設定商品銷售報表的 GitHub workflow，現在無法執行。</Alert>
       ) : null}
 
-      <Panel>
+      <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <span className="inline-label">報表月份</span>
           <input
@@ -81,7 +76,6 @@ export function CyberbizSales() {
             loadingLabel="執行中…"
             disabled={blocked || !selectedNames.length}
             onClick={() => start_(selectedNames)}
-            title={allSelected ? "所有顯示中的店別執行同一段區間" : "執行勾選的店別"}
           >
             {allSelected ? "全部執行" : `執行選取的 ${selectedNames.length} 家`}
           </Button>
@@ -89,9 +83,7 @@ export function CyberbizSales() {
           {running ? <span className="form-hint">執行中…可以關閉這一頁</span> : null}
         </form>
 
-        <p className="muted table-note">
-          每次執行只匯出一份完整月份 XLSX；原始檔上傳 Drive，並把該月份的商品銷售資料匯入 D1。原始檔與 D1 查詢資料彼此獨立。
-        </p>
+
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
         {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
 
@@ -130,15 +122,15 @@ export function CyberbizSales() {
                       aria-label={`選取 ${store.name}`}
                     />
                   </td>
-                  <td className="cell-strong store-name-cell">{store.name}</td>
-                  <td className="cell-sub">
+                  <td className="cell-strong store-name-cell" data-label="通路">{store.name}</td>
+                  <td className="cell-sub" data-label="Drive 資料夾">
                     {store.folderUrl ? (
                       <a className="link-external" href={store.folderUrl} target="_blank" rel="noopener noreferrer">
                         {store.folder || store.name}<Icon name="external" />
                       </a>
                     ) : "未設定資料夾"}
                   </td>
-                  <td><Button variant="secondary" loading={run.isPending} loadingLabel="執行中…" disabled={blocked} onClick={() => start_([store.name])}>執行</Button></td>
+                  <td data-label="操作"><Button variant="secondary" loading={run.isPending} loadingLabel="執行中…" disabled={blocked} onClick={() => start_([store.name])}>執行</Button></td>
                 </tr>
               ))}
             </tbody>
@@ -157,28 +149,6 @@ export function CyberbizSales() {
         />
       ) : null}
 
-      <Panel title="最近執行">
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead><tr><th>時間</th><th>通路</th><th>區間</th><th>D1 匯入</th><th>執行的人</th></tr></thead>
-            <tbody>
-              {(state.data?.runs ?? []).map((record) => {
-                const names = parseStores(record.storesJson);
-                return (
-                  <tr key={record.id}>
-                    <td className="cell-sub whitespace-nowrap">{formatDate(record.createdAt)}</td>
-                    <td>{names.length > 1 ? `選取 ${names.length} 家` : names[0] ?? "—"}</td>
-                    <td className="cell-sub whitespace-nowrap">{record.startDate} ~ {record.endDate}</td>
-                    <td>{record.periodKind === "month" ? "完整月份可匯入" : "不匯入（Drive only）"}</td>
-                    <td className="cell-sub">{record.actorEmail}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {(state.data?.runs.length ?? 0) === 0 ? <p className="muted table-note">還沒有人從這裡執行過。</p> : null}
-      </Panel>
     </div>
   );
 }

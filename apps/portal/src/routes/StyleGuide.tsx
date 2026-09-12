@@ -12,6 +12,7 @@ import {
   FilterInput,
   FilterSelect,
   PageHeader,
+  PageTabs,
   Panel,
   SelectField,
   StatusBadge,
@@ -163,6 +164,14 @@ export function StyleGuide() {
           <Alert tone="warning">目前仍有一個工作在等待執行。</Alert>
           <Alert tone="danger">無法連線到服務，請稍後再試。</Alert>
         </div>
+      </Panel>
+
+      <Panel title="分頁標籤" description="同一個功能底下平行子頁面的切換列。內凹底槽 ＋ 浮起的選中卡，每一段都是 icon 配文字。">
+        <PageTabs label="範例分頁" tabs={[
+          { label: "出金表", to: "/style-guide", icon: "payments" as const },
+          { label: "商品銷售", to: "/style-guide/demo-a", icon: "report" as const },
+          { label: "官網對帳單", to: "/style-guide/demo-b", icon: "globe" as const },
+        ]} />
       </Panel>
 
       <Panel title="資料表與分頁">

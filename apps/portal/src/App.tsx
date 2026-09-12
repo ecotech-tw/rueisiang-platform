@@ -32,6 +32,8 @@ import { SkuMappings } from "./routes/tools/SkuMappings.js";
 import { Scopes } from "./routes/tools/Scopes.js";
 import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
 import { ShopReport } from "./routes/tools/ShopReport.js";
+import { ReportsLanding, ReportsLayout } from "./routes/tools/reports/ReportsLayout.js";
+import { RunLog } from "./routes/tools/reports/RunLog.js";
 import { ManualReports } from "./routes/tools/ManualReports.js";
 import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
 import { Placeholder } from "./routes/Placeholder.js";
@@ -123,14 +125,24 @@ export function App() {
         </Route>
 
         <Route path="tools">
-          <Route path="payout" element={<Payout />} />
+          {/* 報表執行：四種報表共用一組分頁與一份執行紀錄。 */}
+          <Route path="reports" element={<ReportsLayout />}>
+            <Route index element={<ReportsLanding />} />
+            <Route path="run/cyberbiz-payout" element={<Payout />} />
+            <Route path="run/cyberbiz-sales" element={<CyberbizSales />} />
+            <Route path="run/cyberbiz-shop" element={<ShopReport />} />
+            <Route path="run/shopee" element={<ShopeeSales />} />
+            <Route path="log" element={<RunLog />} />
+          </Route>
+          {/* 舊網址：可能有人加在書籤裡，留著導過去。 */}
+          <Route path="payout" element={<Navigate to="/tools/reports/run/cyberbiz-payout" replace />} />
           <Route path="analytics" element={<Suspense fallback={<div className="boot">載入統計頁…</div>}><Analytics /></Suspense>} />
           <Route path="scopes" element={<Scopes />} />
           <Route path="payout/settings" element={<Navigate to="/tools/scopes" replace />} />
           <Route path="manual-reports" element={<ManualReports />} />
-          <Route path="cyberbiz-sales" element={<CyberbizSales />} />
-          <Route path="shop-report" element={<ShopReport />} />
-          <Route path="shopee-sales" element={<ShopeeSales />} />
+          <Route path="cyberbiz-sales" element={<Navigate to="/tools/reports/run/cyberbiz-sales" replace />} />
+          <Route path="shop-report" element={<Navigate to="/tools/reports/run/cyberbiz-shop" replace />} />
+          <Route path="shopee-sales" element={<Navigate to="/tools/reports/run/shopee" replace />} />
           <Route path="shopee-sales/settings" element={<Navigate to="/tools/scopes" replace />} />
           <Route path="sku-mappings" element={<Navigate to="/items/sku-mappings" replace />} />
           <Route path="product-categories" element={<Navigate to="/items/categories" replace />} />

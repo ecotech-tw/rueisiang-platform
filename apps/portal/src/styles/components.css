@@ -376,11 +376,56 @@
 .hr-module-title { display: flex; align-items: baseline; gap: 10px; flex: none; }
 .hr-module-title strong { color: var(--color-ink); font-size: 19px; letter-spacing: .02em; }
 .hr-module-current { color: var(--color-muted); font-size: 14px; font-weight: 700; }
-.hr-module-tabs { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; }
-.hr-module-tab { padding: 9px 16px; border-radius: 999px; color: var(--color-muted); font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; }
-.hr-module-tab:hover { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
-.hr-module-tab:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-module-tab.active { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+/*
+ * 分頁標籤：分段控制。一條內凹的底槽，選中的那一段浮起來變成一張白卡。
+ *
+ * 不做成一排裸連結：頁面底色是 canvas，沒有底槽的話那一排跟頁面上其他文字連結
+ * 長得一樣，實測會被整個略過。底槽 + 浮起的卡才讀得出「這是可以切換的控制項」。
+ *
+ * 每一段都是 icon 配文字。只有文字時幾個分頁的長相只差在字，掃過去要一個一個讀；
+ * icon 讓人用形狀就認得出要去哪一個。
+ *
+ * flex: none 與 align-self 都不能省——放在 .page.fills 這種 flex 直欄裡時，前者沒有
+ * 會被下面的內容擠成高度 0（DOM 還在，只有眼睛看不到），後者沒有會被拉成滿版。
+ */
+.page-tabs {
+  display: inline-flex; flex: none; align-self: flex-start; align-items: center; gap: 4px;
+  max-width: 100%; padding: 5px; overflow-x: auto;
+  border-radius: 999px; background: var(--color-soft-line); scrollbar-width: none;
+}
+.page-tabs::-webkit-scrollbar { display: none; }
+
+/*
+ * 分頁列 ＋ 子頁面的版型。
+ *
+ * 這一層刻意不是 .page：子頁面自己已經是 .page 了，再包一層會變成 .page 裡有 .page，
+ * 而 .content:has(.page.fills) 會把外層捲動關掉——外層不捲、內層又不是捲動區，內容
+ * 超出視窗就直接被裁掉而且救不回來（小螢幕上一定會遇到）。
+ *
+ * 所以由子頁面決定要不要 .fills，這一層只負責讓它撐得開。
+ */
+.page-tabs-layout {
+  display: flex; flex-direction: column; gap: 20px;
+  width: 100%; min-width: 0; min-height: 0; overflow: hidden;
+}
+.page-tabs-layout:has(.page.fills) { height: 100%; }
+.page-tabs-layout > .page { width: 100%; min-width: 0; }
+.page-tabs-layout > .page.fills {
+  flex: 1 1 auto; min-width: 0; min-height: 0; height: auto; overflow: hidden;
+}
+.page-tab {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 18px; border-radius: 999px;
+  color: var(--color-muted); font-size: 14px; font-weight: 600;
+  text-decoration: none; white-space: nowrap;
+}
+.page-tab svg { width: 20px; height: 20px; flex: none; }
+.page-tab:hover { color: var(--color-brand-dark); }
+.page-tab:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.page-tab.active {
+  background: var(--color-paper); color: var(--color-brand-dark); font-weight: 700;
+  box-shadow: 0 1px 2px --alpha(var(--color-ink) / 8%), 0 4px 10px --alpha(var(--color-ink) / 6%);
+}
 .hr-personal-nav { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; }
 .hr-personal-nav a { padding: 8px 14px; border-radius: 999px; color: var(--color-muted); font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; }
 .hr-personal-nav a:hover { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
@@ -551,6 +596,7 @@
 .page.fills > .ui-alert { flex: none; }
 .page.fills > .panel.grows {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;

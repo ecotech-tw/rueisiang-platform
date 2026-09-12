@@ -4,7 +4,7 @@ import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
-  parseStores,
+
   usePayoutState,
   usePayoutStatus,
   useRunPayout,
@@ -18,13 +18,6 @@ import { useStoreSelection } from "./store-selection.js";
  * 取回報表、寫欄位、上傳 Drive。這一頁只做兩件事——送出，然後把狀態問回來。
  * 送出之後可以直接關掉分頁，工作在 GitHub 那邊照樣跑完。
  */
-
-function formatDate(value: string): string {
-  if (!value) return "—";
-  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
-  const parsed = new Date(normalized);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
-}
 
 export function Payout() {
   usePageTitle("出金表執行");
@@ -67,22 +60,17 @@ export function Payout() {
   if (state.isPending) return <div className="boot">載入中…</div>;
 
   return (
-    <div className="page">
+    <div className="page fills">
       <PageHeader
         title="出金表執行"
-        description={
-          <>
-          送到 GitHub Actions 執行：登入 CYBERBIZ 後台匯出每日出金報表、從 Gmail 取回檔案、
-          補上 H/I/J/K 欄之後上傳到該通路的 Drive 資料夾。送出後可以直接關掉這一頁。
-          </>
-        }
+
       />
 
       {!state.data?.configured ? (
         <Alert tone="danger">平台還沒設定 GITHUB_TOKEN，目前無法觸發執行。</Alert>
       ) : null}
 
-      <Panel>
+      <Panel className="grows">
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <span className="inline-label">對帳區間</span>
           <DateRangePicker
@@ -99,7 +87,6 @@ export function Payout() {
             loading={run.isPending}
             disabled={blocked || !selectedNames.length}
             onClick={() => start_(selectedNames)}
-            title={allSelected ? "所有顯示中的店別跑同一段區間" : "執行勾選的店別"}
           >
             {allSelected ? "全部執行" : `執行選取的 ${selectedNames.length} 家`}
           </Button>
@@ -146,15 +133,14 @@ export function Payout() {
                       aria-label={`選取 ${store.name}`}
                     />
                   </td>
-                  <td className="cell-strong store-name-cell">{store.name}</td>
-                  <td className="cell-sub">
+                  <td className="cell-strong store-name-cell" data-label="通路">{store.name}</td>
+                  <td className="cell-sub" data-label="Drive 資料夾">
                     {store.folderUrl ? (
                       <a
                         className="link-external"
                         href={store.folderUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        title={`在新分頁開啟「${store.folder || store.name}」的 Drive 資料夾`}
                       >
                         {store.folder || store.name}
                         <Icon name="external" />
@@ -163,13 +149,12 @@ export function Payout() {
                       "未設定資料夾"
                     )}
                   </td>
-                  <td>
+                  <td data-label="操作">
                     <div className="row-actions">
                       <Button
                         variant="secondary"
                         disabled={blocked}
                         onClick={() => start_([store.name])}
-                        title={`只跑 ${store.name}`}
                       >
                         執行
                       </Button>
@@ -196,36 +181,6 @@ export function Payout() {
         />
       ) : null}
 
-      <Panel title="最近執行">
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>時間</th>
-                <th>通路</th>
-                <th>區間</th>
-                <th>執行的人</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(state.data?.runs ?? []).map((record) => {
-                const names = parseStores(record.storesJson);
-                return (
-                  <tr key={record.id}>
-                    <td className="cell-sub whitespace-nowrap">{formatDate(record.createdAt)}</td>
-                    <td>{names.length > 1 ? `選取 ${names.length} 家` : names[0] ?? "—"}</td>
-                    <td className="cell-sub whitespace-nowrap">{record.startDate} ~ {record.endDate}</td>
-                    <td className="cell-sub">{record.actorEmail}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {(state.data?.runs.length ?? 0) === 0 ? (
-          <p className="muted table-note">還沒有人從這裡執行過。</p>
-        ) : null}
-      </Panel>
     </div>
   );
 }

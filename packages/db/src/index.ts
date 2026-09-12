@@ -381,6 +381,12 @@ export {
   recordShopeeSalesRun,
 } from "./shopee-sales.js";
 export {
+  REPORT_RUN_KINDS,
+  listReportRuns,
+  type ReportRunKind,
+  type ReportRunListRow,
+} from "./report-runs.js";
+export {
   SHOP_SCOPE_ID,
   SHOP_SCOPE_NAME,
   failShopReportRun,

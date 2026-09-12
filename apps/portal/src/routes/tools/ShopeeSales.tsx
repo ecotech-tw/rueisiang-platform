@@ -25,10 +25,10 @@ export function ShopeeSales() {
   const blocked = running || run.isPending || !file || !password || !state.data?.settings.driveFolderUrl || !state.data.configured;
 
   return (
-    <div className="page">
+    <div className="page fills">
       <PageHeader
         title="蝦皮銷售報表"
-        description="直接上傳從蝦皮下載的加密 Excel，系統會依原始檔名處理報表，再上傳到設定好的 Google Drive。"
+
       />
 
       {!state.data?.configured ? <Alert tone="danger">平台還沒設定 GITHUB_TOKEN，現在無法處理報表。</Alert> : null}
@@ -59,7 +59,7 @@ export function ShopeeSales() {
         />
       ) : null}
 
-      <Panel title="最近上傳">
+      <Panel className="grows" title="最近上傳">
         <div className="table-scroll"><table className="data-table"><thead><tr><th>時間</th><th>區間</th><th>Drive 資料夾</th><th>執行的人</th></tr></thead><tbody>
           {(state.data?.runs ?? []).map((record) => <tr key={record.id}><td className="cell-sub whitespace-nowrap">{formatDate(record.createdAt)}</td><td className="cell-sub whitespace-nowrap">{record.startDate} ~ {record.endDate}</td><td><a className="link-external" href={record.driveFolderUrl} target="_blank" rel="noopener noreferrer">開啟資料夾<Icon name="external" /></a></td><td className="cell-sub">{record.actorEmail}</td></tr>)}
         </tbody></table></div>

@@ -4,8 +4,11 @@ import type { IconName } from "./icons.js";
 export interface NavItem {
   label: string;
   to: string;
-  /** 沒有這個權限的人看不到這一項。純外觀——真正的把關在 API。 */
-  permission: Permission;
+  /**
+   * 沒有這個權限的人看不到這一項。純外觀——真正的把關在 API。
+   * 給陣列就是「任一個」：報表執行底下四種報表各有各的權限，只有一種也要看得到入口。
+   */
+  permission: Permission | Permission[];
   /** 側邊選單收合成窄欄時只剩圖示，所以每一項都要有。 */
   icon: IconName;
   /** 這個功能有多個平行子頁面時，這些路徑也算在同一項底下。 */
@@ -72,10 +75,12 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "營運工具",
     icon: "tune",
     items: [
-      { label: "出金表執行", to: "/tools/payout", permission: "tools:payout:run", icon: "payments" },
-      { label: "商品銷售報表執行", to: "/tools/cyberbiz-sales", permission: "tools:cyberbiz-sales:run", icon: "report" },
-      { label: "官網報表執行", to: "/tools/shop-report", permission: "tools:shop-report:run", icon: "globe" },
-      { label: "蝦皮銷售報表", to: "/tools/shopee-sales", permission: "tools:shopee-sales:run", icon: "shoppingBag" },
+      {
+        label: "報表執行",
+        to: "/tools/reports",
+        permission: ["tools:payout:run", "tools:cyberbiz-sales:run", "tools:shop-report:run", "tools:shopee-sales:run"],
+        icon: "report",
+      },
       { label: "通路管理", to: "/tools/scopes", permission: "reports:cyberbiz:write", icon: "storefront" },
       { label: "報表管理", to: "/tools/manual-reports", permission: "reports:cyberbiz:write", icon: "edit" },
       { label: "營運統計", to: "/tools/analytics", permission: "reports:analytics:read", icon: "analytics" },
