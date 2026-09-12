@@ -20,7 +20,7 @@ const WORKFLOW_FILE = "cyberbiz-shop-report.yml";
  * 切的（1–15、16–月底），我們只能挑「要哪幾個月」。
  */
 export interface ShopReportGithub {
-  dispatch(input: { startMonth: string; endMonth: string; requestId: string }): Promise<void>;
+  dispatch(input: { startMonth: string; endMonth: string; requestId: string; driveFolderUrl: string }): Promise<void>;
   listRuns(requestId?: string): Promise<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>;
 }
 
@@ -87,6 +87,7 @@ export function shopReportGithub(env: Env): ShopReportGithub | undefined {
             start_month: input.startMonth,
             end_month: input.endMonth,
             request_id: input.requestId,
+            drive_folder_url: input.driveFolderUrl,
           },
         }),
       });

@@ -1,4 +1,4 @@
-import { failShopReportRun, listShopReportRuns, recordShopReportRun, shopReportRequestId } from "@rueisiang/db";
+import { failShopReportRun, listReportManagementScopes, listShopReportRuns, recordShopReportRun, SHOP_SCOPE_ID, shopReportRequestId } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -38,12 +38,18 @@ function requireMonth(input: Record<string, unknown>, field: string): string {
 export const shopReport = new Hono<AppEnv>()
   .get("/state", requirePermission("tools:shop-report:run"), async (c) => {
     const runs = await listShopReportRuns(c.get("db"), 10);
+    const scope = (await listReportManagementScopes(c.get("db"))).find((row) => row.id === SHOP_SCOPE_ID);
+    const driveFolderUrl = scope?.driveFolderUrl ?? "";
+    const githubConfigured = Boolean(shopReportGithub(c.env));
     const month = previousMonth();
     return c.json({
       defaultStartMonth: month,
       defaultEndMonth: month,
-      // 沒設定 workflow 時要讓畫面說得出原因，而不是等按下去才報錯。
-      configured: Boolean(shopReportGithub(c.env)),
+      githubConfigured,
+      driveFolderUrl,
+      driveFolderName: scope?.driveFolderName ?? "",
+      // 沒設定 workflow 或 Drive 時要讓畫面說得出原因，而不是等按下去才報錯。
+      configured: Boolean(githubConfigured && driveFolderUrl),
       latestRequestId: runs[0]?.requestId ?? null,
       runs,
     });
@@ -51,6 +57,9 @@ export const shopReport = new Hono<AppEnv>()
   .post("/run", requirePermission("tools:shop-report:run"), async (c) => {
     const github = shopReportGithub(c.env);
     if (!github) throw new HTTPException(503, { message: "平台還沒設定官網對帳單的 GitHub workflow，無法觸發執行。" });
+    const scope = (await listReportManagementScopes(c.get("db"))).find((row) => row.id === SHOP_SCOPE_ID);
+    const driveFolderUrl = scope?.driveFolderUrl?.trim() ?? "";
+    if (!driveFolderUrl) throw new HTTPException(503, { message: "請先在通路管理設定官網的 Google Drive 資料夾。" });
     const input = await body(c);
     const startMonth = requireMonth(input, "startMonth");
     const endMonth = requireMonth(input, "endMonth");
@@ -70,9 +79,11 @@ export const shopReport = new Hono<AppEnv>()
       startMonth,
       endMonth,
       actor: c.get("user"),
+      driveFolderUrl,
+      driveFolderName: scope?.driveFolderName ?? "",
     });
     try {
-      await github.dispatch({ startMonth, endMonth, requestId });
+      await github.dispatch({ startMonth, endMonth, requestId, driveFolderUrl });
     } catch (error) {
       await failShopReportRun(c.get("db"), requestId, error instanceof Error ? error.message : String(error));
       throw error;

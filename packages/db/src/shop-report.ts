@@ -25,6 +25,8 @@ export interface ShopReportRun {
   startMonth: string;
   endMonth: string;
   actorEmail: string;
+  driveFolderUrl: string;
+  driveFolderName: string;
   createdAt: string;
 }
 
@@ -41,7 +43,14 @@ export function monthRangeToDates(startMonth: string, endMonth: string): { start
 
 export async function recordShopReportRun(
   db: Database,
-  input: { requestId: string; startMonth: string; endMonth: string; actor: { id: string; email: string } },
+  input: {
+    requestId: string;
+    startMonth: string;
+    endMonth: string;
+    actor: { id: string; email: string };
+    driveFolderUrl: string;
+    driveFolderName: string;
+  },
 ): Promise<ShopReportRun> {
   const id = crypto.randomUUID();
   const { startDate, endDate } = monthRangeToDates(input.startMonth, input.endMonth);
@@ -70,7 +79,12 @@ export async function recordShopReportRun(
       status: "queued",
       actorEmail: input.actor.email,
     }),
-    db.insert(reportRunScopes).values({ reportRunId: id, scopeId: SHOP_SCOPE_ID }),
+    db.insert(reportRunScopes).values({
+      reportRunId: id,
+      scopeId: SHOP_SCOPE_ID,
+      driveFolderUrl: input.driveFolderUrl,
+      driveFolderName: input.driveFolderName,
+    }),
   ] as never);
   return {
     id,
@@ -78,6 +92,8 @@ export async function recordShopReportRun(
     startMonth: input.startMonth,
     endMonth: input.endMonth,
     actorEmail: input.actor.email,
+    driveFolderUrl: input.driveFolderUrl,
+    driveFolderName: input.driveFolderName,
     createdAt: new Date().toISOString(),
   };
 }
@@ -103,17 +119,23 @@ export async function listShopReportRuns(db: Database, limit = 10): Promise<Shop
     startDate: string;
     endDate: string;
     actorEmail: string;
+    driveFolderUrl: string | null;
+    driveFolderName: string | null;
     createdAt: string;
   }>(sql`
     SELECT
-      id AS id,
-      request_id AS requestId,
-      start_date AS startDate,
-      end_date AS endDate,
-      actor_email AS actorEmail,
-      created_at AS createdAt
-    FROM report_runs
-    WHERE request_id LIKE ${`${SHOP_REQUEST_PREFIX}%`}
+      runs.id AS id,
+      runs.request_id AS requestId,
+      runs.start_date AS startDate,
+      runs.end_date AS endDate,
+      runs.actor_email AS actorEmail,
+      run_scopes.drive_folder_url AS driveFolderUrl,
+      run_scopes.drive_folder_name AS driveFolderName,
+      runs.created_at AS createdAt
+    FROM report_runs AS runs
+    LEFT JOIN report_run_scopes AS run_scopes
+      ON run_scopes.report_run_id = runs.id AND run_scopes.scope_id = ${SHOP_SCOPE_ID}
+    WHERE runs.request_id LIKE ${`${SHOP_REQUEST_PREFIX}%`}
       AND actor_email <> ''
     ORDER BY created_at DESC
     LIMIT ${Math.max(1, Math.min(limit, 100))}
@@ -124,6 +146,8 @@ export async function listShopReportRuns(db: Database, limit = 10): Promise<Shop
     startMonth: row.startDate.slice(0, 7),
     endMonth: row.endDate.slice(0, 7),
     actorEmail: row.actorEmail,
+    driveFolderUrl: row.driveFolderUrl ?? "",
+    driveFolderName: row.driveFolderName ?? "",
     createdAt: row.createdAt,
   }));
 }

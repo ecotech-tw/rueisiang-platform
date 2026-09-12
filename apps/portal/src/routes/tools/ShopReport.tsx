@@ -48,8 +48,14 @@ export function ShopReport() {
 
       />
 
-      {!state.data?.configured ? (
+      {!state.data?.githubConfigured ? (
         <Alert tone="danger">平台還沒設定官網對帳單的 GitHub workflow，現在無法執行。</Alert>
+      ) : null}
+      {state.data?.githubConfigured && !state.data.driveFolderUrl ? (
+        <Alert tone="danger">請先在通路管理設定官網的 Google Drive 資料夾，現在無法執行。</Alert>
+      ) : null}
+      {state.data?.driveFolderUrl ? (
+        <p className="muted table-note">上傳位置：<a className="link-external" href={state.data.driveFolderUrl} target="_blank" rel="noopener noreferrer">{state.data.driveFolderName || "Google Drive 資料夾"}</a></p>
       ) : null}
 
       <Panel className="grows">

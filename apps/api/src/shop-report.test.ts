@@ -70,6 +70,15 @@ beforeEach(async () => {
   };
   await syncSystemRoles(db());
   await seedPayoutStores(db());
+  await db().insert(scopes).values({
+    id: SHOP_SCOPE_ID,
+    sourceType: "cyberbiz",
+    scopeKind: "channel",
+    name: "官網",
+    normalizedName: "官網",
+    driveFolderUrl: "https://drive.google.com/drive/folders/configured",
+    driveFolderName: "官網報表",
+  });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -87,7 +96,7 @@ describe("官網對帳單執行", () => {
     expect(response.status).toBe(202);
     expect(calls[0]).toMatchObject({
       url: expect.stringContaining("/actions/workflows/cyberbiz-shop-report.yml/dispatches"),
-      body: { ref: "main", inputs: { start_month: "2026-08", end_month: "2026-09" } },
+      body: { ref: "main", inputs: { start_month: "2026-08", end_month: "2026-09", drive_folder_url: "https://drive.google.com/drive/folders/configured" } },
     });
 
     const [run] = await listShopReportRuns(db());
@@ -189,6 +198,21 @@ describe("官網對帳單執行", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("沒設定官網 Drive 資料夾時 state 與執行都回報未設定", async () => {
+    await db().update(scopes).set({ driveFolderUrl: "", driveFolderName: "" }).where(eq(scopes.id, SHOP_SCOPE_ID));
+    const calls = stubGithub();
+    const id = await seedUser("manager@ecotech.tw", "role-manager");
+
+    const state = await as(id, "manager@ecotech.tw", "/api/tools/shop-report/state");
+    expect(await state.json()).toMatchObject({ configured: false, githubConfigured: true, driveFolderUrl: "" });
+    const run = await as(id, "manager@ecotech.tw", "/api/tools/shop-report/run", {
+      method: "POST",
+      body: JSON.stringify({ startMonth: "2026-08", endMonth: "2026-08" }),
+    });
+    expect(run.status).toBe(503);
+    expect(calls).toHaveLength(0);
+  });
+
   it("state 帶出上一個月當預設，並接回最近一次執行的識別碼", async () => {
     stubGithub();
     const id = await seedUser("manager@ecotech.tw", "role-manager");
@@ -199,10 +223,11 @@ describe("官網對帳單執行", () => {
     const { requestId } = await started.json() as { requestId: string };
 
     const state = await as(id, "manager@ecotech.tw", "/api/tools/shop-report/state");
-    const payload = await state.json() as { defaultStartMonth: string; defaultEndMonth: string; latestRequestId: string };
+    const payload = await state.json() as { defaultStartMonth: string; defaultEndMonth: string; latestRequestId: string; driveFolderUrl: string };
     expect(payload.latestRequestId).toBe(requestId);
     expect(requestId.startsWith("shop:")).toBe(true);
     expect(payload.defaultStartMonth).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/);
     expect(payload.defaultEndMonth).toBe(payload.defaultStartMonth);
+    expect(payload.driveFolderUrl).toBe("https://drive.google.com/drive/folders/configured");
   });
 });
