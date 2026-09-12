@@ -5,6 +5,7 @@ export { FilterInput, FilterSelect, type FilterInputProps, type FilterSelectOpti
 export { Field, SelectField, TextField, type FieldProps, type SelectFieldProps, type TextFieldProps } from "./Field.js";
 export { Alert, StatusBadge, type StatusTone } from "./Feedback.js";
 export { PageHeader, Panel, type PageHeaderProps, type PanelProps } from "./Panel.js";
+export { PageTabs, type PageTab } from "./PageTabs.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";
 export { Tooltip, type TooltipProps } from "./Tooltip.js";
 export {

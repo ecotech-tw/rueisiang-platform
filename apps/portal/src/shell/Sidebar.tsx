@@ -21,10 +21,11 @@ interface SidebarProps {
   onNavigate: () => void;
 }
 
-/** 沒有權限的項目直接不畫出來；父項的子項也要一起過濾。 */
+/** 沒有權限的項目直接不畫出來；父項的子項也要一起過濾。陣列是「任一個」。 */
 function visibleItems(items: NavItem[], permissions: ReadonlySet<Permission>): NavItem[] {
   return items
-    .filter((item) => permissions.has(item.permission))
+    .filter((item) => (Array.isArray(item.permission) ? item.permission : [item.permission])
+      .some((permission) => permissions.has(permission)))
     .map((item) => ({ ...item, children: visibleItems(item.children ?? [], permissions) }));
 }
 

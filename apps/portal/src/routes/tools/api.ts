@@ -315,3 +315,28 @@ export function useArchiveScope() {
     },
   });
 }
+
+export type ReportRunKind = "cyberbiz-payout" | "cyberbiz-sales" | "cyberbiz-shop" | "shopee";
+
+export interface ReportRunListRow {
+  id: string;
+  requestId: string;
+  kind: ReportRunKind;
+  scopeNames: string[];
+  startDate: string;
+  endDate: string;
+  periodKind: "month" | "custom";
+  status: string;
+  actorEmail: string;
+  createdAt: string;
+}
+
+/** 四種報表共用的執行紀錄。不給 kind 就是全部。 */
+export function useReportRuns(kind?: ReportRunKind) {
+  return useQuery({
+    queryKey: ["tools", "reports", "runs", kind ?? "all"],
+    queryFn: () => call<{ runs: ReportRunListRow[] }>(
+      `/api/tools/reports/runs${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`,
+    ),
+  });
+}
