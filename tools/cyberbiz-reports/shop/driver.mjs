@@ -93,6 +93,7 @@ async function ingestStatement({ apiUrl, ingestToken, report }, fetcher = fetch)
         quantity: item.quantity,
         salesAmount: item.salesAmount,
       })),
+      dailyRows: report.dailyPayouts,
     }),
   });
   const text = await response.text();
@@ -190,6 +191,7 @@ async function main() {
         revenueAmount: report.revenueAmount,
         settlementAmount: report.settlementAmount,
         itemCount: report.items.length,
+        dailyPayoutCount: report.dailyPayouts.length,
         filePath,
       };
       if (driveToken && folderId) {
@@ -199,7 +201,7 @@ async function main() {
       }
       if (ingest) {
         entry.ingest = await ingestStatement({ ...ingest, report });
-        log(`匯入平台：${entry.ingest.itemCount} 個 SKU、營業額 ${entry.ingest.salesAmount}`);
+        log(`匯入平台：${entry.ingest.itemCount} 個 SKU、${entry.ingest.dailyPayoutCount ?? 0} 筆每日入帳、營業額 ${entry.ingest.salesAmount}`);
       }
       processed.push(entry);
     }

@@ -15,6 +15,11 @@ function numericCell(ref, value) {
   return `<c r="${ref}"><v>${value}</v></c>`;
 }
 
+const ORDER_HEADERS = [
+  "訂單編號", "訂單成立時間", "入帳時間", "交易型態", "付款方式", "收款方", "配送方式",
+  "交易金額", "金流手續費", "系統維護費", "人工退款手續費",
+];
+
 const ITEM_HEADERS = [
   "訂單編號", "訂單成立時間", "入帳時間", "交易型態", "付款方式", "收款方", "配送方式",
   "商品名稱", "組合商品內容", "款式", "商品編號(SKU)", "產品廠商編號", "商品類別",
@@ -52,6 +57,7 @@ async function fixture({
     { name: "商品甲", variant: "500mL", sku: "SKU-A", category: "一般", quantity: 2, gross: 960, discount: -80, sales: 880 },
     { name: "運費", quantity: 1, gross: 120, discount: 0, sales: 120 },
   ],
+  dailyOrders = [{ date: start, amount: collected + refund + merchant, paymentFee: fee, systemFee: 0, manualRefundFee: 0 }],
 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "cyberbiz-shop-test-"));
   const filePath = path.join(root, "shop.xlsx");
@@ -62,22 +68,25 @@ async function fixture({
     inlineCell("B3", "本期代收金額") + numericCell("C3", collected),
     inlineCell("B4", "本期退款金額") + numericCell("C4", refund),
     inlineCell("B7", "本期商家自行收款淨額") + numericCell("C7", merchant),
-    inlineCell("B9", "金流手續費") + numericCell("C9", 60),
-    inlineCell("B10", "系統維護費") + numericCell("C10", 10),
+    inlineCell("B9", "金流手續費") + numericCell("C9", fee),
+    inlineCell("B10", "系統維護費") + numericCell("C10", 0),
     inlineCell("B11", "人工退款手續費") + numericCell("C11", 0),
-    inlineCell("B12", "本期使用Cyber幣") + numericCell("C12", 30),
+    inlineCell("B12", "本期使用Cyber幣") + numericCell("C12", 0),
     inlineCell("B13", "本期費用淨額") + numericCell("C13", fee),
     inlineCell("B15", "本期撥款金額") + numericCell("C15", settlement),
   ].join("");
 
+  const orderHeaderCells = ORDER_HEADERS.map((value, index) => inlineCell(`${columnRef(index)}2`, value)).join("");
+  const orderRows = dailyOrders.map((order, index) => `<row r="${index + 3}">${inlineCell(`A${index + 3}`, `#${index + 1}`)}${inlineCell(`C${index + 3}`, `${order.date.replaceAll("/", "-")} 12:00:00`)}${numericCell(`H${index + 3}`, order.amount)}${numericCell(`I${index + 3}`, order.paymentFee)}${numericCell(`J${index + 3}`, order.systemFee)}${numericCell(`K${index + 3}`, order.manualRefundFee)}</row>`).join("");
   const headerCells = ITEM_HEADERS.map((value, index) => inlineCell(`${columnRef(index)}2`, value)).join("");
   const dataRows = rows.map((row, index) => `<row r="${index + 3}">${itemRow(index + 3, row)}</row>`).join("");
 
   await writeZipEntries(filePath, new Map([
-    ["xl/workbook.xml", `<workbook xmlns:r="x"><sheets><sheet sheetId="1" name="對帳總表" r:id="rId1"/><sheet sheetId="2" name="訂單明細（依商品拆分）" r:id="rId2"/></sheets></workbook>`],
-    ["xl/_rels/workbook.xml.rels", `<Relationships><Relationship Target="worksheets/sheet1.xml" Id="rId1"/><Relationship Target="worksheets/sheet2.xml" Id="rId2"/></Relationships>`],
+    ["xl/workbook.xml", `<workbook xmlns:r="x"><sheets><sheet sheetId="1" name="對帳總表" r:id="rId1"/><sheet sheetId="2" name="訂單明細" r:id="rId2"/><sheet sheetId="3" name="訂單明細（依商品拆分）" r:id="rId3"/></sheets></workbook>`],
+    ["xl/_rels/workbook.xml.rels", `<Relationships><Relationship Target="worksheets/sheet1.xml" Id="rId1"/><Relationship Target="worksheets/sheet2.xml" Id="rId2"/><Relationship Target="worksheets/sheet3.xml" Id="rId3"/></Relationships>`],
     ["xl/worksheets/sheet1.xml", `<worksheet><sheetData>${summaryRows}</sheetData></worksheet>`],
-    ["xl/worksheets/sheet2.xml", `<worksheet><sheetData>${inlineCell("A1", period)}${headerCells}${dataRows}</sheetData></worksheet>`],
+    ["xl/worksheets/sheet2.xml", `<worksheet><sheetData>${inlineCell("A1", period)}${orderHeaderCells}${orderRows}</sheetData></worksheet>`],
+    ["xl/worksheets/sheet3.xml", `<worksheet><sheetData>${inlineCell("A1", period)}${headerCells}${dataRows}</sheetData></worksheet>`],
   ]));
   return { root, filePath };
 }
@@ -101,7 +110,27 @@ test("解析半月對帳表：期間、營業額、撥款與逐 SKU 金額", asy
     assert.deepEqual(report.period, { start: "2026-08-16", end: "2026-08-31", reportMonth: "2026-08" });
     assert.equal(report.revenueAmount, 1000);
     assert.equal(report.settlementAmount, 900);
+    assert.deepEqual(report.dailyPayouts, [{ businessDate: "2026-08-16", payoutAmount: 900 }]);
     assert.equal(report.items.reduce((sum, item) => sum + item.salesAmount, 0), 1000);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("依入帳日期整理每日淨入帳，總和仍等於半月撥款", async () => {
+  const { root, filePath } = await fixture({
+    dailyOrders: [
+      { date: "2026/08/16", amount: 600, paymentFee: 60, systemFee: 0, manualRefundFee: 0 },
+      { date: "2026/08/20", amount: 400, paymentFee: 40, systemFee: 0, manualRefundFee: 0 },
+    ],
+  });
+  try {
+    const report = await parseShopReport(filePath);
+    assert.deepEqual(report.dailyPayouts, [
+      { businessDate: "2026-08-16", payoutAmount: 540 },
+      { businessDate: "2026-08-20", payoutAmount: 360 },
+    ]);
+    assert.equal(report.dailyPayouts.reduce((sum, row) => sum + row.payoutAmount, 0), report.settlementAmount);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

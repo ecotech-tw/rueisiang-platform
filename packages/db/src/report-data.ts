@@ -744,24 +744,41 @@ export async function insertReportSalesPeriod(
   };
 }
 
-export async function insertReportPayoutDaily(db: Database, rows: readonly NewReportPayoutDaily[], reportRunId?: string): Promise<void> {
-  if (rows.length) {
-    const dates = rows.map((row) => row.businessDate).sort();
-    const targetId = await ensureTargetImportRun(db, {
-      reportRunId,
-      sourceType: "cyberbiz",
-      importsSales: false,
-      importsPayout: true,
-      scopeIds: rows.map((row) => row.scopeId),
-      startDate: dates[0]!,
-      endDate: dates.at(-1)!,
-    });
-    if (!targetId) return;
-    const targetRows = rows.map((row) => ({ scopeId: row.scopeId, businessDate: row.businessDate, recordOrigin: "imported" as const, reportRunId: targetId, payoutAmount: row.payoutAmount }));
-    for (const chunk of chunks(targetRows, REPORT_PAYOUT_WRITE_BATCH_SIZE)) {
-      await db.batch([db.insert(reportPayoutDaily).values(chunk).onConflictDoUpdate({ target: [reportPayoutDaily.scopeId, reportPayoutDaily.businessDate, reportPayoutDaily.recordOrigin], set: { reportRunId: targetId, payoutAmount: sql`excluded.payout_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } })]);
-    }
+export async function insertReportPayoutDaily(
+  db: Database,
+  rows: readonly NewReportPayoutDaily[],
+  reportRunId?: string,
+  replaceRange?: { scopeId: string; startDate: string; endDate: string },
+): Promise<void> {
+  const dates = rows.map((row) => row.businessDate).sort();
+  const startDate = replaceRange?.startDate ?? dates[0];
+  const endDate = replaceRange?.endDate ?? dates.at(-1);
+  if (!startDate || !endDate) return;
+  const scopeIds = [...new Set([replaceRange?.scopeId, ...rows.map((row) => row.scopeId)].filter((id): id is string => Boolean(id)))];
+  const targetId = await ensureTargetImportRun(db, {
+    reportRunId,
+    sourceType: "cyberbiz",
+    importsSales: false,
+    importsPayout: true,
+    scopeIds,
+    startDate,
+    endDate,
+  });
+  if (!targetId) return;
+
+  type Statement = Parameters<Database["batch"]>[0][number];
+  const writes: Statement[] = [];
+  if (replaceRange) writes.push(db.delete(reportPayoutDaily).where(and(
+    eq(reportPayoutDaily.scopeId, replaceRange.scopeId),
+    eq(reportPayoutDaily.recordOrigin, "imported"),
+    sql`${reportPayoutDaily.businessDate} >= ${replaceRange.startDate}`,
+    sql`${reportPayoutDaily.businessDate} <= ${replaceRange.endDate}`,
+  )));
+  const targetRows = rows.map((row) => ({ scopeId: row.scopeId, businessDate: row.businessDate, recordOrigin: "imported" as const, reportRunId: targetId, payoutAmount: row.payoutAmount }));
+  for (const chunk of chunks(targetRows, REPORT_PAYOUT_WRITE_BATCH_SIZE)) {
+    if (chunk.length) writes.push(db.insert(reportPayoutDaily).values(chunk).onConflictDoUpdate({ target: [reportPayoutDaily.scopeId, reportPayoutDaily.businessDate, reportPayoutDaily.recordOrigin], set: { reportRunId: targetId, payoutAmount: sql`excluded.payout_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } }));
   }
+  if (writes.length) await db.batch(writes as [Statement, ...Statement[]]);
 }
 
 function chunks<T>(values: readonly T[], size: number): T[][] {

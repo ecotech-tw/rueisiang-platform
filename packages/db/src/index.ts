@@ -164,6 +164,7 @@ export {
   insertReportPayoutDaily,
   insertReportSalesMonthly,
   insertReportSalesPeriod,
+  type NewReportPayoutDaily,
   type NewReportSalesPeriodRow,
   isValidReportDate,
   latestReportSalesPeriods,

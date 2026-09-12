@@ -66,6 +66,31 @@ describe("官網對帳單匯入", () => {
     expect(payout).toMatchObject([{ businessDate: "2026-08-31", payoutAmount: 64559 }]);
   });
 
+  it("採用 dailyRows 時按入帳日寫入每日資料", async () => {
+    const response = await post({
+      ...statement,
+      dailyRows: [
+        { businessDate: "2026-08-20", payoutAmount: 300 },
+        { businessDate: "2026-08-31", payoutAmount: 64259 },
+      ],
+    });
+    expect(response.status).toBe(200);
+    expect(await db().select({ businessDate: reportPayoutDaily.businessDate, payoutAmount: reportPayoutDaily.payoutAmount }).from(reportPayoutDaily))
+      .toMatchObject([
+        { businessDate: "2026-08-20", payoutAmount: 300 },
+        { businessDate: "2026-08-31", payoutAmount: 64259 },
+      ]);
+  });
+
+  it("重傳半月資料會先清掉該期舊的每日列", async () => {
+    const first = await post({ ...statement, dailyRows: [{ businessDate: "2026-08-20", payoutAmount: 300 }, { businessDate: "2026-08-31", payoutAmount: 64259 }] });
+    expect(first.status).toBe(200);
+    const second = await post({ ...statement, settlementAmount: 64000, dailyRows: [{ businessDate: "2026-08-31", payoutAmount: 64000 }] });
+    expect(second.status).toBe(200);
+    expect(await db().select({ businessDate: reportPayoutDaily.businessDate, payoutAmount: reportPayoutDaily.payoutAmount }).from(reportPayoutDaily))
+      .toMatchObject([{ businessDate: "2026-08-31", payoutAmount: 64000 }]);
+  });
+
   it("token 不對就回 401，什麼都不寫", async () => {
     const response = await post(statement, "wrong");
     expect(response.status).toBe(401);
@@ -84,11 +109,13 @@ describe("官網對帳單匯入", () => {
     const { scopeName: _scopeName, ...noName } = statement;
     expect((await post(noName)).status).toBe(422);
     expect((await post({ ...statement, periodStart: "2026-8-16" })).status).toBe(422);
-    const empty = await post({ ...statement, periodStart: "2026-08-01", periodEnd: "2026-08-15", settlementAmount: -7, rows: [] });
+    const mismatch = await post({ ...statement, dailyRows: [{ businessDate: "2026-08-20", payoutAmount: 300 }] });
+    expect(mismatch.status).toBe(422);
+    expect(await mismatch.json()).toMatchObject({ error: "invalid_ingest", message: expect.stringContaining("對不上撥款金額") });
+    const empty = await post({ ...statement, periodStart: "2026-08-01", periodEnd: "2026-08-15", settlementAmount: 0, rows: [], dailyRows: [] });
     expect(empty.status).toBe(200);
     expect((await db().select().from(reportItemSalesMonthly))).toHaveLength(0);
-    expect(await db().select({ businessDate: reportPayoutDaily.businessDate, payoutAmount: reportPayoutDaily.payoutAmount }).from(reportPayoutDaily))
-      .toMatchObject([{ businessDate: "2026-08-15", payoutAmount: -7 }]);
+    expect(await db().select().from(reportPayoutDaily)).toHaveLength(0);
     expect((await post({ ...statement, rows: [{ productName: "沒有 SKU", quantity: 1, salesAmount: 10 }] })).status).toBe(422);
   });
 });

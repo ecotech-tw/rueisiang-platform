@@ -2,6 +2,7 @@ import {
   insertReportPayoutDaily,
   insertReportSalesPeriod,
   upsertReportScope,
+  type NewReportPayoutDaily,
   type NewReportSalesPeriodRow,
 } from "@rueisiang/db";
 import { Hono } from "hono";
@@ -11,6 +12,7 @@ import { forgetReportAnalytics } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
 
 const INGEST_TOKEN_HEADER = "x-cyberbiz-report-token";
+type StatementDailyPayout = Pick<NewReportPayoutDaily, "businessDate" | "payoutAmount">;
 
 async function sameSecret(presented: string | undefined, expected: string | undefined): Promise<boolean> {
   if (!presented || !expected) return false;
@@ -33,6 +35,7 @@ function statementInput(value: unknown): {
   periodEnd: string;
   settlementAmount: number;
   rows: NewReportSalesPeriodRow[];
+  dailyRows?: StatementDailyPayout[];
 } {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new CyberbizReportIngestError(422, "invalid_ingest");
@@ -43,11 +46,12 @@ function statementInput(value: unknown): {
     if (!text) throw new CyberbizReportIngestError(422, "invalid_ingest", `${key} 是必填。`);
     return text;
   };
-  const date = (key: string) => {
-    const text = string(key);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new CyberbizReportIngestError(422, "invalid_ingest", `${key} 必須是 YYYY-MM-DD。`);
+  const dateValue = (raw: unknown, label: string) => {
+    const text = typeof raw === "string" ? raw.trim() : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new CyberbizReportIngestError(422, "invalid_ingest", `${label} 必須是 YYYY-MM-DD。`);
     return text;
   };
+  const date = (key: string) => dateValue(body[key], key);
   const integer = (raw: unknown, label: string) => {
     const parsed = Math.round(Number(raw ?? 0));
     if (!Number.isSafeInteger(parsed)) throw new CyberbizReportIngestError(422, "invalid_ingest", `${label} 不是安全整數。`);
@@ -56,6 +60,7 @@ function statementInput(value: unknown): {
 
   const periodStart = date("periodStart");
   const periodEnd = date("periodEnd");
+  const settlementAmount = integer(body.settlementAmount, "撥款金額");
   if (periodEnd < periodStart) throw new CyberbizReportIngestError(422, "invalid_ingest", "periodEnd 早於 periodStart。");
   // 跨月在這裡擋掉。不擋的話會一路走到 insertReportSalesPeriod 丟一個普通 Error，
   // route 的 catch 認不得就變成 500——呼叫端看不出是自己送錯東西還是平台壞了。
@@ -84,13 +89,34 @@ function statementInput(value: unknown): {
     };
   });
 
+  let dailyRows: StatementDailyPayout[] | undefined;
+  if (body.dailyRows !== undefined) {
+    if (!Array.isArray(body.dailyRows)) throw new CyberbizReportIngestError(422, "invalid_ingest", "dailyRows 必須是陣列。");
+    dailyRows = body.dailyRows.map((raw, index) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        throw new CyberbizReportIngestError(422, "invalid_ingest", `每日入帳第 ${index + 1} 列格式不正確。`);
+      }
+      const row = raw as Record<string, unknown>;
+      const businessDate = dateValue(row.businessDate, `每日入帳第 ${index + 1} 列日期`);
+      if (businessDate < periodStart || businessDate > periodEnd) {
+        throw new CyberbizReportIngestError(422, "invalid_ingest", `每日入帳第 ${index + 1} 列日期不在對帳區間。`);
+      }
+      return { businessDate, payoutAmount: integer(row.payoutAmount, `每日入帳第 ${index + 1} 列金額`) };
+    });
+    const dailyTotal = dailyRows.reduce((total, row) => total + row.payoutAmount, 0);
+    if (dailyTotal !== settlementAmount) {
+      throw new CyberbizReportIngestError(422, "invalid_ingest", `每日入帳合計 ${dailyTotal} 對不上撥款金額 ${settlementAmount}。`);
+    }
+  }
+
   return {
     scopeId: string("scopeId"),
     scopeName: string("scopeName"),
     periodStart,
     periodEnd,
-    settlementAmount: integer(body.settlementAmount, "撥款金額"),
+    settlementAmount,
     rows,
+    ...(dailyRows ? { dailyRows } : {}),
   };
 }
 
@@ -128,13 +154,19 @@ export const cyberbizReportsInternal = new Hono<AppEnv>()
         periodEnd: input.periodEnd,
         rows: input.rows,
       });
-      // 撥款記在期末那一天：官網是半月結算，沒有逐日的撥款可以記。
-      await insertReportPayoutDaily(db, [{
+      // 官網沒有逐日銀行撥款；dailyRows 是依入帳日整理的可分配淨額，供報表按日查詢。
+      // 舊呼叫端沒有 dailyRows 時仍保留半月期末列，避免舊版 runner 的資料消失。
+      const payoutRows = input.dailyRows?.map((row) => ({ ...row, scopeId: input.scopeId })) ?? [{
         scopeId: input.scopeId,
         businessDate: input.periodEnd,
         payoutAmount: input.settlementAmount,
-      }]);
-      return c.json({ result: { scopeId: input.scopeId, ...sales, settlementAmount: input.settlementAmount } }, 200);
+      }];
+      await insertReportPayoutDaily(db, payoutRows, undefined, {
+        scopeId: input.scopeId,
+        startDate: input.periodStart,
+        endDate: input.periodEnd,
+      });
+      return c.json({ result: { scopeId: input.scopeId, ...sales, settlementAmount: input.settlementAmount, dailyPayoutCount: payoutRows.length } }, 200);
     } catch (error) {
       if (error instanceof CyberbizReportIngestError) return c.json({ error: error.code, message: error.message }, error.status);
       throw error;
