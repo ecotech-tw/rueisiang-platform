@@ -62,7 +62,7 @@ function statementInput(value: unknown): {
   if (periodStart.slice(0, 7) !== periodEnd.slice(0, 7)) {
     throw new CyberbizReportIngestError(422, "invalid_ingest", `期間跨月無法併入月報：${periodStart} ~ ${periodEnd}`);
   }
-  if (!Array.isArray(body.rows) || !body.rows.length) {
+  if (!Array.isArray(body.rows)) {
     throw new CyberbizReportIngestError(422, "invalid_ingest", "rows 是必填。");
   }
 

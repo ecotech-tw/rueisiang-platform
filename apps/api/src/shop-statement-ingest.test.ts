@@ -80,11 +80,15 @@ describe("官網對帳單匯入", () => {
     expect(await response.json()).toMatchObject({ error: "invalid_ingest", message: expect.stringContaining("跨月") });
   });
 
-  it("缺欄位、日期格式錯、rows 是空的都回 422", async () => {
+  it("缺欄位與日期格式錯回 422；空白期間可用零列匯入", async () => {
     const { scopeName: _scopeName, ...noName } = statement;
     expect((await post(noName)).status).toBe(422);
     expect((await post({ ...statement, periodStart: "2026-8-16" })).status).toBe(422);
-    expect((await post({ ...statement, rows: [] })).status).toBe(422);
+    const empty = await post({ ...statement, periodStart: "2026-08-01", periodEnd: "2026-08-15", settlementAmount: -7, rows: [] });
+    expect(empty.status).toBe(200);
+    expect((await db().select().from(reportItemSalesMonthly))).toHaveLength(0);
+    expect(await db().select({ businessDate: reportPayoutDaily.businessDate, payoutAmount: reportPayoutDaily.payoutAmount }).from(reportPayoutDaily))
+      .toMatchObject([{ businessDate: "2026-08-15", payoutAmount: -7 }]);
     expect((await post({ ...statement, rows: [{ productName: "沒有 SKU", quantity: 1, salesAmount: 10 }] })).status).toBe(422);
   });
 });

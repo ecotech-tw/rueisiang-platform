@@ -82,6 +82,18 @@ async function fixture({
   return { root, filePath };
 }
 
+test("空白半月對帳表仍可解析成零營業額", async () => {
+  const { root, filePath } = await fixture({ collected: 0, fee: 0, settlement: 0, rows: [] });
+  try {
+    const report = await parseShopReport(filePath);
+    assert.equal(report.revenueAmount, 0);
+    assert.equal(report.settlementAmount, 0);
+    assert.deepEqual(report.items, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("解析半月對帳表：期間、營業額、撥款與逐 SKU 金額", async () => {
   const { root, filePath } = await fixture();
   try {
@@ -258,6 +270,11 @@ test("卡片文字：撥款金額抓得出來，預計撥款也抓得出來", ()
   // 「預計撥款金額」也會被抓到，所以能不能下載一律看按鈕，不看金額文字。
   assert.equal(statementAmountFromText("預計撥款金額 ? NT$36,216 本期對帳單處理中"), 36216);
   assert.equal(statementAmountFromText("對帳區間 2026/09/01 ~ 2026/09/15"), null);
+});
+
+test("卡片文字：負數金額保留符號", () => {
+  assert.equal(statementAmountFromText("撥款金額 ? -NT$7 已繳款完成"), -7);
+  assert.equal(statementAmountFromText("撥款金額 ? NT$-58 已繳款完成"), -58);
 });
 
 test("卡片文字：金額帶小數時要跟檔案端同樣四捨五入", () => {
