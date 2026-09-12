@@ -7,6 +7,7 @@
  *   node shop/driver.mjs --start-month 2026-06 --end-month 2026-08
  *   node shop/driver.mjs --skip-upload              # 只下載與匯入，不碰 Drive
  *   node shop/driver.mjs --skip-ingest              # 只下載與上傳，不寫平台
+ *   node shop/driver.mjs --drive-folder-url <url>   # 覆寫上傳位置（平台執行時傳入）
  *   node shop/driver.mjs --list                     # 只列出後台有哪幾期後結束
  *   node shop/driver.mjs --headless
  *
@@ -47,6 +48,7 @@ function parseArgs(argv) {
     else if (arg === "--end-month") args.endMonth = argv[++index];
     else if (arg === "--skip-upload") args.skipUpload = true;
     else if (arg === "--skip-ingest") args.skipIngest = true;
+    else if (arg === "--drive-folder-url") args.driveFolderUrl = argv[++index];
     else if (arg === "--list") args.list = true;
     else if (arg === "--headless") args.headless = true;
     else if (arg === "--help" || arg === "-h") args.help = true;
@@ -149,11 +151,10 @@ async function main() {
 
     const driveToken = args.skipUpload ? null : await accessToken(env);
     // 沒設 shopDriveFolderUrl 就放進通路銷售紀錄的根目錄，跟其他報表同一個地方。
-    const folderId = args.skipUpload
-      ? null
-      : driveFolderIdFromUrl(config.shopDriveFolderUrl ?? config.driveRootFolderUrl ?? "");
+    const folderUrl = args.driveFolderUrl ?? config.shopDriveFolderUrl ?? config.driveRootFolderUrl ?? "";
+    const folderId = args.skipUpload ? null : driveFolderIdFromUrl(folderUrl);
     if (!args.skipUpload && !folderId) {
-      throw new Error("config.json 缺少 Drive 資料夾（shopDriveFolderUrl 或 driveRootFolderUrl）。");
+      throw new Error("缺少有效的 Drive 資料夾連結（--drive-folder-url 或 config.json）。");
     }
     const ingestConfig = args.skipIngest ? { enabled: false, missing: [] } : reportIngestConfig(env);
     if (!args.skipIngest && !ingestConfig.enabled) {

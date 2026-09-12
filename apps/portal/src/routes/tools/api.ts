@@ -130,6 +130,8 @@ export interface ShopReportRunRecord {
   startMonth: string;
   endMonth: string;
   actorEmail: string;
+  driveFolderUrl: string;
+  driveFolderName: string;
   createdAt: string;
 }
 
@@ -138,6 +140,9 @@ export interface ShopReportState {
   defaultStartMonth: string;
   defaultEndMonth: string;
   configured: boolean;
+  githubConfigured: boolean;
+  driveFolderUrl: string;
+  driveFolderName: string;
   latestRequestId: string | null;
   runs: ShopReportRunRecord[];
 }
