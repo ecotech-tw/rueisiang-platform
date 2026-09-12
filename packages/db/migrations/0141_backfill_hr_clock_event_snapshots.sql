@@ -18,11 +18,11 @@ WHERE hr_clock_events.location_name_snapshot = ''
   AND hr_clock_events.attendance_location_id IS NOT NULL;
 --> statement-breakpoint
 UPDATE hr_clock_events
-SET scope_name_snapshot = (
+SET scope_name_snapshot = coalesce((
   SELECT scopes.name
   FROM scopes
   INNER JOIN hr_attendance_locations ON hr_attendance_locations.scope_id = scopes.id
   WHERE hr_attendance_locations.id = hr_clock_events.attendance_location_id
-)
+), '')
 WHERE hr_clock_events.scope_name_snapshot = ''
   AND hr_clock_events.attendance_location_id IS NOT NULL;
