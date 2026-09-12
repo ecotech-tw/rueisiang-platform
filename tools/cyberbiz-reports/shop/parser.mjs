@@ -15,6 +15,7 @@ import { readNamedSheets } from "../payout/parser.mjs";
  */
 
 const SUMMARY_SHEET = "對帳總表";
+const ORDER_SHEET = "訂單明細";
 const ITEM_SHEET = "訂單明細（依商品拆分）";
 
 /** 對帳總表左欄的標籤 → 我們要的欄位名。 */
@@ -30,7 +31,16 @@ const SUMMARY_FIELDS = new Map([
   ["本期撥款金額", "settlementAmount"],
 ]);
 
-/** 依商品拆分的表頭 → 欄位名。缺任何一個就不要猜，直接失敗。 */
+/** 訂單明細的表頭 → 欄位名。缺任何一個就不要猜，直接失敗。 */
+const ORDER_HEADERS = new Map([
+  ["訂單編號", "orderNumber"],
+  ["入帳時間", "accountedAt"],
+  ["交易金額", "transactionAmount"],
+  ["金流手續費", "paymentFee"],
+  ["系統維護費", "systemFee"],
+  ["人工退款手續費", "manualRefundFee"],
+]);
+
 const ITEM_HEADERS = new Map([
   ["訂單編號", "orderNumber"],
   ["商品名稱", "productName"],
@@ -88,19 +98,31 @@ function parseSummary({ cells, maxRow }) {
   return Object.fromEntries(found);
 }
 
-function itemColumns({ cells, maxRow }) {
+function columnsForHeaders({ cells, maxRow }, headers) {
   for (let row = 1; row <= Math.min(maxRow, 10); row += 1) {
     const columns = new Map();
     for (let index = 0; index < 40; index += 1) {
       const ref = index < 26
         ? String.fromCharCode(65 + index)
         : `${String.fromCharCode(64 + Math.floor(index / 26))}${String.fromCharCode(65 + (index % 26))}`;
-      const field = ITEM_HEADERS.get(text(cells.get(`${ref}${row}`)));
+      const field = headers.get(text(cells.get(`${ref}${row}`)));
       if (field) columns.set(field, ref);
     }
-    if (columns.size === ITEM_HEADERS.size) return { headerRow: row, columns };
+    if (columns.size === headers.size) return { headerRow: row, columns };
   }
-  throw new Error("依商品拆分找不到完整的表頭列。");
+  return null;
+}
+
+function itemColumns(sheet) {
+  const result = columnsForHeaders(sheet, ITEM_HEADERS);
+  if (!result) throw new Error("依商品拆分找不到完整的表頭列。");
+  return result;
+}
+
+function orderColumns(sheet) {
+  const result = columnsForHeaders(sheet, ORDER_HEADERS);
+  if (!result) throw new Error("訂單明細找不到完整的表頭列。");
+  return result;
 }
 
 /**
@@ -218,9 +240,65 @@ function parseItems(sheet, { collectedAmount, refundAmount, merchantCollectedAmo
   };
 }
 
+function parseAccountedDate(value, period) {
+  const match = /^(\d{4})[/-](\d{2})[/-](\d{2})/.exec(text(value));
+  if (!match) throw new Error(`訂單明細的入帳時間不是有效日期：${text(value) || "空白"}`);
+  const date = `${match[1]}-${match[2]}-${match[3]}`;
+  if (date < period.start || date > period.end) {
+    throw new Error(`訂單明細的入帳日期不在對帳區間：${date}（${period.start} ~ ${period.end}）`);
+  }
+  return date;
+}
+
+/**
+ * 依「訂單明細」的入帳時間整理每日淨入帳。
+ *
+ * 這不是把半月撥款假裝平均分配，而是用 CYBERBIZ 提供的每日入帳交易與逐筆費用
+ * 還原每日可分配金額；半月層級的 Cyber 幣費用放在期末，最後用報表撥款金額校正
+ * 每日整數化產生的零頭。真正的銀行撥款仍然只有半月一期。
+ */
+function parseDailyPayouts(sheet, period, summary) {
+  const { headerRow, columns } = orderColumns(sheet);
+  const { cells, maxRow } = sheet;
+  const daily = new Map();
+  let transactionTotal = 0;
+  let feeTotal = 0;
+  const at = (field, row) => cells.get(`${columns.get(field)}${row}`);
+
+  for (let row = headerRow + 1; row <= maxRow; row += 1) {
+    if (!text(at("orderNumber", row))) continue;
+    const date = parseAccountedDate(at("accountedAt", row), period);
+    const transactionAmount = number(at("transactionAmount", row), `訂單明細第 ${row} 列交易金額`);
+    const fees = ["paymentFee", "systemFee", "manualRefundFee"]
+      .reduce((total, field) => total + number(at(field, row), `訂單明細第 ${row} 列${field}`), 0);
+    transactionTotal += transactionAmount;
+    feeTotal += fees;
+    daily.set(date, (daily.get(date) ?? 0) + transactionAmount - fees);
+  }
+
+  const expectedTransactions = summary.collectedAmount + summary.refundAmount + summary.merchantCollectedAmount;
+  if (Math.abs(transactionTotal - expectedTransactions) > 0.5) {
+    throw new Error(`訂單明細交易金額 ${transactionTotal} 對不上對帳總表收款淨額 ${expectedTransactions}。`);
+  }
+  const expectedBeforeCyberCoin = transactionTotal - feeTotal - summary.cyberCoinFee;
+  if (Math.abs(expectedBeforeCyberCoin - summary.settlementAmount) > 0.5) {
+    throw new Error(`訂單明細每日入帳淨額 ${expectedBeforeCyberCoin} 對不上半月撥款 ${summary.settlementAmount}。`);
+  }
+
+  daily.set(period.end, (daily.get(period.end) ?? 0) - summary.cyberCoinFee);
+  const rows = [...daily].map(([businessDate, payoutAmount]) => ({ businessDate, payoutAmount: Math.round(payoutAmount) }));
+  const roundedTotal = rows.reduce((total, row) => total + row.payoutAmount, 0);
+  const adjustment = Math.round(summary.settlementAmount) - roundedTotal;
+  const endRow = rows.find((row) => row.businessDate === period.end);
+  if (endRow) endRow.payoutAmount += adjustment;
+  else if (adjustment) rows.push({ businessDate: period.end, payoutAmount: adjustment });
+  return rows.filter((row) => row.payoutAmount !== 0).sort((left, right) => left.businessDate.localeCompare(right.businessDate));
+}
+
 export async function parseShopReport(filePath) {
-  const sheets = await readNamedSheets(filePath, [SUMMARY_SHEET, ITEM_SHEET]);
+  const sheets = await readNamedSheets(filePath, [SUMMARY_SHEET, ORDER_SHEET, ITEM_SHEET]);
   const summarySheet = sheets.get(SUMMARY_SHEET);
+  const orderSheet = sheets.get(ORDER_SHEET);
   const itemSheet = sheets.get(ITEM_SHEET);
 
   const period = parsePeriod(summarySheet.cells.get("A1"));
@@ -240,6 +318,7 @@ export async function parseShopReport(filePath) {
       `撥款金額對不上：代收 ${summary.collectedAmount} + 退款 ${summary.refundAmount} + 自行收款 ${summary.merchantCollectedAmount} − 費用 ${summary.feeAmount} = ${expected}，但檔案寫 ${summary.settlementAmount}。`,
     );
   }
+  const dailyPayouts = parseDailyPayouts(orderSheet, period, summary);
 
   return {
     period,
@@ -252,8 +331,9 @@ export async function parseShopReport(filePath) {
      * 另一個來源的話，將來哪一邊漂掉都要等報表對不上才會發現。
      */
     revenueAmount: Math.round(salesTotal),
-    /** 實際入帳的錢，記在期末那一天。 */
+    /** 半月對帳單載明的撥款總額；逐日可分配列在 dailyPayouts。 */
     settlementAmount: Math.round(summary.settlementAmount),
+    dailyPayouts,
     items,
     charges,
   };

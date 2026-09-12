@@ -457,8 +457,11 @@ export function statementPeriodFromText(text) {
  * driver 的交叉檢查就會誤判成「抓錯期」，整個 run 中止。
  */
 export function statementAmountFromText(text) {
-  const match = /撥款金額[^\d]*([\d,]+(?:\.\d+)?)/.exec(text ?? "");
-  return match ? Math.round(Number(match[1].replace(/,/g, ""))) : null;
+  // CYBERBIZ 的負數可能寫成「-NT$7」或「NT$-7」，兩種都要保留符號。
+  const match = /撥款金額[^\d-]*(-)?(?:NT\$\s*)?([\d,]+(?:\.\d+)?)/.exec(text ?? "");
+  if (!match) return null;
+  const amount = Math.round(Number(match[2].replace(/,/g, "")));
+  return match[1] ? -amount : amount;
 }
 
 /** 對帳中心。實際網址是 statements，不是 settlements——那兩個字很好打錯。 */
