@@ -316,7 +316,11 @@ export function canonicalReportStoreScopes(scopes: readonly ReportScope[]): Repo
     if (scope.scopeKind === "company") continue;
     const key = `${dataChannelFromScopeId(scope.id)}:${scope.normalizedName || scope.name}`;
     const current = canonical.get(key);
-    if (!current || reportScopePriority(scope.id) < reportScopePriority(current.id)) canonical.set(key, scope);
+    if (
+      !current
+      || scope.active > current.active
+      || (scope.active === current.active && reportScopePriority(scope.id) < reportScopePriority(current.id))
+    ) canonical.set(key, scope);
   }
   return [...canonical.values()].sort((left, right) => left.name.localeCompare(right.name, "zh-Hant"));
 }
