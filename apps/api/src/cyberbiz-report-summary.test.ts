@@ -103,10 +103,13 @@ describe("報表統計 API", () => {
 
     const options = await call("/api/reports/cyberbiz/manual/options", manager, "manager-manual@ecotech.tw");
     expect(options.status).toBe(200);
+    // 停用的也要在清單裡，而且帶著 active——畫面靠它決定「篩選」與「可以寫入」
+    // 兩個下拉各自要顯示什麼。
     expect(await options.json()).toMatchObject({
       scopes: [
-        { id: scopeId, name: "啟用店" },
-        { id: "shopee:store:default", name: "蝦皮" },
+        { id: "cyberbiz:store:disabled", name: "停用店", active: 0 },
+        { id: scopeId, name: "啟用店", active: 1 },
+        { id: "shopee:store:default", name: "蝦皮", active: 1 },
       ],
       products: [],
     });
@@ -388,9 +391,11 @@ describe("報表統計 API", () => {
       { active: false },
     );
     expect(disabled.status).toBe(200);
+    // 停用之後仍然在清單裡，但 active 是 0：報表管理要篩得到它過去的紀錄，
+    // 同一份清單濾掉 active=0 之後才是「可以寫入新資料」的那些。
     const options = await call("/api/reports/cyberbiz/manual/options", manager, "manager-scope-management@ecotech.tw");
-    expect((await options.json() as { scopes: Array<{ id: string }> }).scopes)
-      .not.toContainEqual(expect.objectContaining({ id: createdBody.scope.id }));
+    expect((await options.json() as { scopes: Array<{ id: string; active: number }> }).scopes)
+      .toContainEqual(expect.objectContaining({ id: createdBody.scope.id, active: 0 }));
 
     const archived = await mutate(
       `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}/archive`,

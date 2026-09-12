@@ -1,6 +1,8 @@
 import {
+  canonicalReportStoreScopes,
   createDatabase,
   insertReportPayoutDaily,
+  listAllReportScopes,
   insertReportSalesMonthly,
   upsertReportScope,
   type ReportGroupBy,
@@ -44,6 +46,28 @@ beforeEach(async () => {
     { scopeId: WEST, businessDate: "2026-07-02", payoutAmount: 2000 },
     { scopeId: EAST, businessDate: "2026-07-01", payoutAmount: 3000 },
   ]);
+});
+
+describe("報表據點選項", () => {
+  it("同名據點優先保留啟用中的來源", async () => {
+    await upsertReportScope(db(), {
+      id: "cyberbiz:store:retired",
+      scopeKind: "store",
+      name: "同名據點",
+      active: false,
+    });
+    await upsertReportScope(db(), {
+      id: "manual:store:replacement",
+      sourceType: "manual",
+      scopeKind: "store",
+      name: "同名 據點",
+      active: true,
+    });
+
+    const canonical = canonicalReportStoreScopes(await listAllReportScopes(db()));
+    expect(canonical).toContainEqual(expect.objectContaining({ id: "manual:store:replacement", active: 1 }));
+    expect(canonical).not.toContainEqual(expect.objectContaining({ id: "cyberbiz:store:retired" }));
+  });
 });
 
 describe("報表月資料查詢", () => {

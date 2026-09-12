@@ -8,6 +8,8 @@ export type ManualSkuSource = "custom" | "cyberbiz";
 export interface ManualScopeOption {
   id: string;
   name: string;
+  /** 停用的據點仍然篩得到（歷史紀錄還在），但不能當成新增紀錄的目標。 */
+  active: number;
 }
 
 export interface ManualProductOption {
