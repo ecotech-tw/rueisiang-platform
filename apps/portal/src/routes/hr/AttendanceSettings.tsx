@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Field, PageHeader, Panel, TextField } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, type AttendanceLocation, type AttendanceLocationDetail, type GoogleMapPlace } from "./api.js";
+import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Pager } from "../../shell/Pager.js";
+import { SortableHeader } from "../../shell/SortableHeader.js";
+import { useHrQuery, useHrWrite, type AttendanceLocation, type AttendanceLocationDetail, type GoogleMapPlace, type NamedOption } from "./api.js";
 
 interface LocationDraft {
   name: string;
+  scopeId: string | null;
   geolocationRequired: boolean;
   latitude: number | null;
   longitude: number | null;
@@ -16,6 +19,7 @@ interface LocationDraft {
 function draftOf(location?: AttendanceLocationDetail): LocationDraft {
   return {
     name: location?.name ?? "",
+    scopeId: location?.scopeId ?? null,
     geolocationRequired: location?.geolocationRequired ?? true,
     latitude: location?.latitude ?? null,
     longitude: location?.longitude ?? null,
@@ -43,6 +47,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
   const detail = useHrQuery<{ location: AttendanceLocationDetail }>(location ? `/attendance-settings/locations/${location.id}` : "/attendance-settings/locations/new", Boolean(location));
   const source = detail.data?.location;
   const [draft, setDraft] = useState(() => draftOf(source));
+  const scopes = useHrQuery<{ scopes: NamedOption[] }>("/scopes");
   const [mapQuery, setMapQuery] = useState(location?.name ?? "");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPlace, setSelectedPlace] = useState<GoogleMapPlace | null>(() => savedPlace(source));
@@ -82,6 +87,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
     event.preventDefault();
     const values: Record<string, unknown> = {
       name: draft.name.trim(),
+      scopeId: draft.scopeId,
       geolocationRequired: draft.geolocationRequired,
       latitude: draft.latitude,
       longitude: draft.longitude,
@@ -100,6 +106,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       formProps={{ onSubmit: submit }}
       actions={<Button type="submit" loading={save.isPending}>儲存</Button>}
     >
+      <SelectField label="營運據點" value={draft.scopeId ?? ""} options={[{ value: "", label: "請選擇營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => setDraft({ ...draft, scopeId: event.target.value || null })} />
       <TextField
         label="辦公位置名稱"
         required
@@ -180,35 +187,46 @@ export function HrAttendanceSettings() {
   const { permissions } = useSession();
   const canRead = permissions.has("hr:office:read");
   const canWrite = permissions.has("hr:office:write");
-  const locations = useHrQuery<{ locations: AttendanceLocation[] }>("/attendance-settings/locations", canRead);
   const [editor, setEditor] = useState<AttendanceLocation | "new" | null>(null);
+  const [search, setSearch] = useState("");
+  const [scopeId, setScopeId] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [sortField, setSortField] = useState("name");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const locations = useHrQuery<{ locations: AttendanceLocation[]; total?: number; page?: number; pageSize?: number; hasMore?: boolean }>(`/attendance-settings/locations?page=${page}&pageSize=${pageSize}&search=${encodeURIComponent(search)}&scopeId=${encodeURIComponent(scopeId)}&sortField=${sortField}&sortDirection=${sortDirection}`, canRead);
+  const scopes = useHrQuery<{ scopes: NamedOption[] }>("/scopes", canRead);
+  const rows = locations.data?.locations ?? [];
+  const total = locations.data?.total ?? rows.length;
+  const updateSort = (field: string, direction: "asc" | "desc") => { setSortField(field); setSortDirection(direction); setPage(1); };
 
   if (!canRead) return <Alert tone="danger">你沒有檢視出勤設定的權限。</Alert>;
   if (locations.isPending) return <div className="boot">載入中…</div>;
   if (locations.error) return <div className="page"><Alert tone="danger">{locations.error.message}</Alert></div>;
-
-  const locationRows = locations.data?.locations ?? [];
-  const refresh = () => { void locations.refetch(); };
   return (
-    <div className="page">
+    <div className="page fills">
       <PageHeader
         title="出勤設定"
-        description="管理出勤判斷使用的辦公位置；員工的辦公位置請在員工管理中指派。"
+        description="管理營運據點對應的辦公位置與定位範圍；排班制員工不需另行指派個別打卡地點。"
         actions={canWrite ? <Button icon="plus" onClick={() => setEditor("new")}>新增辦公位置</Button> : undefined}
       />
-      <Panel>
+      <Panel className="grows">
         <div className="panel-head">
-          <div><h2>辦公位置</h2><p className="muted">辦公位置是出勤規則的主檔，不等同報表 scope，也不在這裡指派員工。</p></div>
-          <Button variant="secondary" onClick={refresh}>重新整理</Button>
+          <div><h2>辦公位置</h2><p className="muted">同一營運據點目前可設定一個主要辦公位置；歷史打卡保留當時名稱快照。</p></div>
         </div>
+        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+          <FilterInput label="搜尋辦公位置或據點" type="search" className="search-input" placeholder="搜尋辦公位置或營運據點" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
+          <FilterSelect label="營運據點" value={scopeId} options={[{ value: "all", label: "全部營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => { setScopeId(event.target.value); setPage(1); }} />
+        </form>
         {locations.isFetching ? <p className="form-hint">更新中…</p> : null}
         <div className="table-scroll">
           <table className="data-table hr-location-table">
-            <thead><tr><th>辦公位置</th><th>定位判斷</th><th>半徑</th>{canWrite ? <th>操作</th> : null}</tr></thead>
+            <thead><tr><SortableHeader label="辦公位置" field="name" active={sortField} direction={sortDirection} onSort={updateSort} /><SortableHeader label="營運據點" field="scope" active={sortField} direction={sortDirection} onSort={updateSort} /><th>定位判斷</th><SortableHeader label="半徑" field="radius" active={sortField} direction={sortDirection} onSort={updateSort} />{canWrite ? <th>操作</th> : null}</tr></thead>
             <tbody>
-              {locationRows.map((office) => (
+              {rows.map((office) => (
                 <tr key={office.id}>
                   <td><strong>{office.name}</strong><small className="muted">{office.geolocationRequired ? (office.hasCoordinates ? "座標已設定" : "缺少座標") : "不使用定位座標"}</small></td>
+                  <td>{office.scopeName ?? "尚未對應"}</td>
                   <td>{office.geolocationRequired ? "需要" : "不檢查"}</td>
                   <td>{office.geolocationRequired ? `${office.radiusMeters} 公尺` : "—"}</td>
                   {canWrite ? <td><Button variant="icon" icon="edit" title={`編輯 ${office.name}`} aria-label={`編輯 ${office.name}`} onClick={() => setEditor(office)} /></td> : null}
@@ -217,9 +235,10 @@ export function HrAttendanceSettings() {
             </tbody>
           </table>
         </div>
-        {!locationRows.length ? <p className="muted table-note">尚無辦公位置，請先新增辦公室。</p> : null}
+        {!rows.length ? <p className="muted table-note">沒有符合條件的辦公位置。</p> : null}
+        <Pager page={page} pageSize={pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.ceil(total / pageSize)} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
       </Panel>
-      {editor ? <LocationDialog location={editor === "new" ? undefined : editor} onClose={() => { setEditor(null); refresh(); }} /> : null}
+      {editor ? <LocationDialog location={editor === "new" ? undefined : editor} onClose={() => setEditor(null)} /> : null}
     </div>
   );
 }

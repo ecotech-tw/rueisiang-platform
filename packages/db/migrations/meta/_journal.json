@@ -813,6 +813,20 @@
       "when": 1789115504741,
       "tag": "0139_shop_report_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "6",
+      "when": 1789147965273,
+      "tag": "0140_broken_rocket_racer",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "6",
+      "when": 1789147965274,
+      "tag": "0141_backfill_hr_clock_event_snapshots",
+      "breakpoints": true
     }
   ]
 }

@@ -76,20 +76,31 @@ export interface ClockMapLocation {
   latitude: number;
   longitude: number;
 }
+export interface ClockCalendarEvent {
+  id: string;
+  eventKind: "clock_in" | "clock_out";
+  occurredAt: string;
+  locationName: string | null;
+  distanceMeters: number | null;
+}
 export interface ClockCalendarDay {
   date: string;
   weekday: number;
-  status: "not-employed" | "future" | "present" | "open" | "missing" | "rest";
+  status: "not-employed" | "future" | "present" | "open" | "missing" | "rest" | "leave";
   eventCount: number;
   firstEventAt: string | null;
   lastEventAt: string | null;
+  anomaly: "missing" | "incomplete" | "invalid-sequence" | "short-duration" | "late-arrival" | "early-leave" | "unscheduled" | null;
+  anomalyMessage: string | null;
+  expectedStartAt: string | null;
+  expectedEndAt: string | null;
+  events: ClockCalendarEvent[];
 }
 export interface ClockCalendar {
   year: number;
   month: number;
   today: string;
   days: ClockCalendarDay[];
-  missingDates: string[];
 }
 export type FormRequestStatus = "draft" | "pending" | "approved" | "rejected";
 export interface FormRequest {

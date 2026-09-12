@@ -1,7 +1,7 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState } from "react";
-import { NavLink, useNavigate } from "react-router";
+import { NavLink, useLocation, useNavigate } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel } from "../../ui/index.js";
@@ -19,6 +19,10 @@ function formatTaipei(value: string | null) {
 
 function formatNowTaipei(value: Date) {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(value);
+}
+
+function formatDateTaipei(value: Date) {
+  return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", weekday: "long" }).format(value);
 }
 
 function browserLocationError(error: GeolocationPositionError) {
@@ -175,7 +179,9 @@ function MapLibreClockMap({ locations, onError }: { locations: ClockMapLocation[
       if (locations.length > 1) {
         const bounds = new maplibregl.LngLatBounds();
         for (const location of locations) bounds.extend([location.longitude, location.latitude]);
-        map.fitBounds(bounds, { padding: 72, maxZoom: 16 });
+        map.fitBounds(bounds, { padding: { top: 72, right: 72, bottom: 190, left: 72 }, maxZoom: 16 });
+      } else {
+        map.easeTo({ center: [locations[0]!.longitude, locations[0]!.latitude], padding: { top: 0, right: 0, bottom: 170, left: 0 }, duration: 0 });
       }
     };
     const handleError = () => {
@@ -204,41 +210,54 @@ function ClockMapBackground() {
   return staticMapFailed ? null : <StaticClockMap cacheKey={locationSignature} onError={() => setStaticMapFailed(true)} />;
 }
 
-function LocationCard({ status, check, locating, error }: { status?: ClockStatus; check?: ClockLocationCheck; locating: boolean; error?: string }) {
-  const outside = check?.withinRadius === false;
-  const title = check?.locationName ?? status?.locationName ?? "尚未設定辦公位置";
-  const description = locating
-    ? "正在取得目前位置…"
-    : check?.withinRadius
-      ? `目前在範圍內・距離約 ${check.distanceMeters ?? 0} 公尺`
-      : error || check?.message || (status?.locationNames?.length ? `可打卡位置：${status.locationNames.join("、")}` : "尚未取得目前位置");
-  return <div className={`hr-clock-location-card${outside ? " outside" : check?.withinRadius ? " verified" : ""}`}>
-    <span className="hr-clock-location-dot" aria-hidden="true" />
-    <div><strong>{title}</strong></div>
-    <p>{description}</p>
-  </div>;
-}
-
-function CalendarGrid({ data, onMissing }: { data: ClockCalendar; onMissing: (date: string) => void }) {
+function CalendarGrid({ data, selectedDate, onSelect, slideClass = "" }: { data: ClockCalendar; selectedDate: string | null; onSelect: (date: string) => void; slideClass?: string }) {
   const firstWeekday = new Date(Date.UTC(data.year, data.month - 1, 1)).getUTCDay();
   const cells: (ClockCalendarDay | string)[] = [...Array.from({ length: firstWeekday }, (_, index) => `empty-${index}`), ...data.days];
-  return <>
+  return <div className={`hr-clock-calendar-main ${slideClass}`.trim()}>
     <div className="hr-clock-calendar-weekdays" aria-hidden="true">{["日", "一", "二", "三", "四", "五", "六"].map((weekday) => <span key={weekday}>{weekday}</span>)}</div>
     <div className="hr-clock-calendar-grid" aria-label={`${data.year} 年 ${data.month} 月出勤日曆`}>
       {cells.map((day) => typeof day === "string" ? <span className="hr-clock-calendar-empty" key={day} /> : <button
         key={day.date}
         type="button"
-        className={`hr-clock-calendar-day ${day.status}${day.date === data.today ? " today" : ""}`}
-        disabled={day.status === "not-employed" || day.status === "future" || day.status === "rest"}
-        onClick={() => { if (day.status === "missing") onMissing(day.date); }}
-        aria-label={`${day.date}${day.status === "missing" ? "，尚未打卡，申請補打卡" : day.status === "present" ? `，已有 ${day.eventCount} 筆打卡` : ""}`}
+        className={`hr-clock-calendar-day ${day.status}${day.date === data.today ? " today" : ""}${day.date === selectedDate ? " selected" : ""}${day.anomaly ? " has-anomaly" : ""}`}
+        onClick={() => onSelect(day.date)}
+        aria-pressed={day.date === selectedDate}
+        aria-label={`${day.date}${day.anomaly ? "，有出勤異常" : day.status === "leave" ? "，已核准請假" : day.eventCount ? `，已有 ${day.eventCount} 筆打卡` : "，沒有打卡紀錄"}`}
       >
         <strong>{Number(day.date.slice(-2))}</strong>
-        {day.status === "missing" ? <small>補打卡</small> : day.status === "present" ? <small>{day.eventCount} 筆</small> : day.status === "open" ? <small>今日</small> : null}
+        {day.anomaly ? <i aria-hidden="true" /> : null}
       </button>)}
     </div>
-    <div className="hr-clock-calendar-legend"><span><i className="present" />已打卡</span><span><i className="missing" />未打卡</span><span><i className="open" />今天</span><span><i className="rest" />休息日</span></div>
-  </>;
+    <div className="hr-clock-calendar-legend"><span><i className="present" />已完成</span><span><i className="anomaly" />需確認</span><span><i className="today" />今天</span></div>
+  </div>;
+}
+
+function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendarDay; onCorrection: (date: string, kind: "clock_in" | "clock_out") => void; onLeave: (date: string) => void }) {
+  const correctionKind = day.events.at(-1)?.eventKind === "clock_in" ? "clock_out" : "clock_in";
+  const dayLabel = `${Number(day.date.slice(5, 7))} 月 ${Number(day.date.slice(-2))} 日`;
+  const anomalyTitle = day.anomaly === "missing" ? "尚未完成打卡" : day.anomaly === "short-duration" ? "出勤時數異常" : day.anomaly === "late-arrival" ? "上班打卡較晚" : day.anomaly === "early-leave" ? "下班打卡較早" : day.anomaly === "unscheduled" ? "非排班日打卡" : "打卡紀錄順序異常";
+  return <section className={`hr-clock-calendar-details${day.anomaly ? " has-anomaly" : ""}`} aria-live="polite">
+    <div className="hr-clock-calendar-details-head"><strong>{dayLabel}</strong><span>{["日", "一", "二", "三", "四", "五", "六"][day.weekday]}曜日</span></div>
+    {day.status === "leave" ? <p className="hr-clock-calendar-empty-detail">已核准請假，這天沒有預期出勤。</p> : day.events.length ? <ul className="hr-clock-calendar-events">
+      {day.events.map((event) => <li key={event.id}><span>{event.eventKind === "clock_in" ? "上班" : "下班"}</span><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}</small></li>)}
+    </ul> : day.anomaly ? null : <p className="hr-clock-calendar-empty-detail">{day.status === "rest" ? "休息日，沒有預期出勤。" : day.status === "future" ? "尚未到這一天。" : day.status === "not-employed" ? "這天不在任職期間。" : "這天尚未有打卡紀錄。"}</p>}
+    {day.anomaly ? <div className="hr-clock-calendar-anomaly"><strong>{anomalyTitle}</strong><span>{day.anomalyMessage ?? "請確認當日出勤紀錄。"}</span><div className="hr-clock-calendar-actions"><Button onClick={() => onCorrection(day.date, correctionKind)}>申請忘刷</Button><Button variant="secondary" onClick={() => onLeave(day.date)}>請假申請</Button></div></div> : null}
+  </section>;
+}
+
+function ClockOfficeCard({ status, check }: { status?: ClockStatus; check?: ClockLocationCheck }) {
+  const officeName = check?.locationName ?? status?.locationName ?? status?.locationNames?.[0] ?? "尚未設定辦公位置";
+  const detail = check?.withinRadius
+    ? `已定位・距離約 ${check.distanceMeters ?? 0} 公尺`
+    : check?.message ?? (status?.locationNames?.length ? `可打卡位置：${status.locationNames.join("、")}` : "等待定位結果");
+  return <section className="hr-clock-office-card" aria-label="定位到的辦公室">
+    <span className={`hr-clock-office-pin${check?.withinRadius === false ? " outside" : check?.withinRadius ? " verified" : ""}`}><Icon name="storefront" /></span>
+    <div>
+      <span>定位辦公室</span>
+      <strong>{officeName}</strong>
+      <small>{detail}</small>
+    </div>
+  </section>;
 }
 
 function ClockTimeline({ status }: { status?: ClockStatus }) {
@@ -254,6 +273,7 @@ function ClockTimeline({ status }: { status?: ClockStatus }) {
 export function HrClock() {
   usePageTitle("打卡日曆");
   const query = useHrQuery<ClockStatus>("/me/clock-events");
+  const routeLocation = useLocation();
   const clock = useHrWrite();
   const locationCheck = useHrWrite<ClockLocationCheck>();
   const [now, setNow] = useState(() => new Date());
@@ -261,8 +281,13 @@ export function HrClock() {
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
   const status = query.data;
-  const outsideOffice = locationCheck.data?.withinRadius === false;
+  const demoLocationFailed = new URLSearchParams(routeLocation.search).get("demoLocation") === "failed";
+  const demoCheck: ClockLocationCheck | undefined = demoLocationFailed ? { available: true, withinRadius: false, locationName: "示範台北辦公室", locationNames: ["示範台北辦公室"], distanceMeters: 860, radiusMeters: 100, geolocationRequired: true, message: "示意：目前位置不在可打卡範圍內。" } : undefined;
+  const visibleLocationCheck = demoCheck ?? locationCheck.data;
+  const visibleLocationError = demoLocationFailed ? "示意：定位失敗或不在可打卡範圍內，請確認瀏覽器定位權限後重新定位。" : locationError;
+  const outsideOffice = visibleLocationCheck?.withinRadius === false;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1_000);
@@ -317,14 +342,17 @@ export function HrClock() {
   async function clockInOrOut() {
     if (!status?.canClock || clock.isPending || locating) return;
     clock.reset();
+    setSuccessMessage("");
     setLocationError("");
     if (!status.geolocationRequired) {
-      clock.mutate({ path: "/me/clock-events", method: "POST", values: { idempotencyKey: crypto.randomUUID() } });
+      await clock.mutateAsync({ path: "/me/clock-events", method: "POST", values: { idempotencyKey: crypto.randomUUID() } });
+      setSuccessMessage("打卡成功，已更新今天的紀錄。");
       return;
     }
     const located = await verifyLocation();
     if (!located?.check.withinRadius) return;
-    clock.mutate({ path: "/me/clock-events", method: "POST", values: { idempotencyKey: crypto.randomUUID(), latitude: located.current.coords.latitude, longitude: located.current.coords.longitude } });
+    await clock.mutateAsync({ path: "/me/clock-events", method: "POST", values: { idempotencyKey: crypto.randomUUID(), latitude: located.current.coords.latitude, longitude: located.current.coords.longitude } });
+    setSuccessMessage("打卡成功，已更新今天的紀錄。");
   }
 
   async function confirmClock() {
@@ -332,27 +360,40 @@ export function HrClock() {
     await clockInOrOut();
   }
 
+  useEffect(() => {
+    if (!successMessage) return;
+    const timer = window.setTimeout(() => setSuccessMessage(""), 3_200);
+    return () => window.clearTimeout(timer);
+  }, [successMessage]);
+
   const actionLabel = status?.nextEventKind === "clock_out" ? "下班" : "上班";
-  const clockDisabled = !status?.canClock || query.isPending || Boolean(query.error) || (status?.geolocationRequired === true && locationCheck.data?.withinRadius !== true) || locationCheck.isPending;
+  const clockDisabled = demoLocationFailed || !status?.canClock || query.isPending || Boolean(query.error) || (status?.geolocationRequired === true && locationCheck.data?.withinRadius !== true) || locationCheck.isPending;
+  const lastEvent = status?.events[0];
   return <div className="page hr-clock-page hr-clock-full-page">
     <section className="hr-clock-map-stage">
       <ClockMapBackground />
-      <div className="hr-clock-corner hr-clock-status-corner">
+      <div className="hr-clock-hero" aria-label="今日打卡狀態">
+        <Icon name="person" className="hr-clock-hero-person" />
         <p className="hr-clock-now">{formatNowTaipei(now)}</p>
-        <LocationCard status={status} check={locationCheck.data} locating={locating} error={locationError} />
+        <p className="hr-clock-date">{formatDateTaipei(now)}</p>
       </div>
-      <nav className="hr-clock-deep-links" aria-label="打卡詳細資料">
-        <NavLink to="/clock/calendar" aria-label="出勤日曆"><Icon name="calendar" /><span>出勤日曆</span></NavLink>
-        <NavLink to="/clock/logs" aria-label="打卡紀錄"><Icon name="history" /><span>打卡紀錄</span></NavLink>
-      </nav>
-      <div className="hr-clock-action-corner">
-        <Button className="hr-clock-main-action" disabled={clockDisabled} loading={clock.isPending || locating} loadingLabel={locating ? "取得定位中…" : undefined} onClick={() => setConfirmOpen(true)}>{actionLabel}打卡</Button>
-        {status?.geolocationRequired && (locationError || outsideOffice) ? <Button className="hr-clock-retry-action" variant="secondary" disabled={!status.canClock || locating} onClick={() => { void verifyLocation(); }}>重新取得位置</Button> : null}
+      <div className="hr-clock-action-panel">
+        <button className="hr-clock-main-action" type="button" disabled={clockDisabled} aria-label="打卡" aria-busy={clock.isPending || locating || undefined} onClick={() => setConfirmOpen(true)}>
+          {clock.isPending || locating ? <span className="hr-clock-action-loading">…</span> : <Icon name="clock" />}
+        </button>
+        <ClockOfficeCard status={status} check={visibleLocationCheck} />
+        <nav className="hr-clock-deep-links" aria-label="打卡詳細資料">
+          <NavLink to="/clock/calendar" aria-label="出勤日曆"><Icon name="calendar" /><span>出勤日曆</span></NavLink>
+          <NavLink to="/clock/logs" aria-label="打卡紀錄"><Icon name="history" /><span>打卡紀錄</span></NavLink>
+        </nav>
+        {lastEvent ? <p className="hr-clock-last-event">最近一次：{lastEvent.eventKind === "clock_out" ? "下班" : "上班"}・{formatTaipei(lastEvent.occurredAt)}</p> : <p className="hr-clock-last-event">今天尚未打卡。</p>}
+        {(demoLocationFailed || status?.geolocationRequired) && (visibleLocationError || outsideOffice) ? <Button className="hr-clock-retry-action" variant="secondary" disabled={!status?.canClock || locating} onClick={() => { void verifyLocation(); }}>重新定位</Button> : null}
       </div>
-      {status?.message || query.error || locationError || clock.error ? <div className="hr-clock-feedback-corner">
+      {successMessage || status?.message || query.error || visibleLocationError || clock.error ? <div className="hr-clock-feedback-corner">
+        {successMessage ? <Alert tone="success">{successMessage}</Alert> : null}
         {status?.message ? <p className="hr-clock-blocked">{status.message}</p> : null}
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
-        {locationError ? <Alert tone="danger">{locationError}</Alert> : null}
+        {visibleLocationError ? <Alert tone="danger">{visibleLocationError}</Alert> : null}
         {clock.error ? <Alert tone="danger">{clock.error.message}</Alert> : null}
       </div> : null}
     </section>
@@ -365,33 +406,74 @@ export function HrClock() {
 export function HrClockCalendar() {
   usePageTitle("出勤日曆");
   const navigate = useNavigate();
-  const initial = useState(currentMonth)[0];
-  const [calendarMonth, setCalendarMonth] = useState(initial);
+  const [closing, setClosing] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(currentMonth);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [monthSlide, setMonthSlide] = useState("");
+  const touchStartX = useRef<number | null>(null);
   const calendar = useHrQuery<ClockCalendar>(`/me/attendance-calendar?year=${calendarMonth.year}&month=${calendarMonth.month}`);
-  function openCorrection(date: string) {
-    navigate(`/forms/new?date=${encodeURIComponent(date)}&kind=clock_in`);
+  const selectedDay = calendar.data?.days.find((day) => day.date === selectedDate) ?? null;
+
+  useEffect(() => {
+    if (!calendar.data) return;
+    const currentMonthDay = calendar.data.days.find((day) => day.date === calendar.data?.today);
+    setSelectedDate((current) => current && calendar.data?.days.some((day) => day.date === current) ? current : currentMonthDay?.date ?? calendar.data?.days[0]?.date ?? null);
+  }, [calendar.data]);
+
+  function changeMonth(offset: number) {
+    setMonthSlide(offset > 0 ? "slide-next" : "slide-prev");
+    setCalendarMonth((current) => shiftMonth(current.year, current.month, offset));
+    window.setTimeout(() => setMonthSlide(""), 260);
   }
-  return <div className="page hr-clock-page hr-clock-subpage">
-    <NavLink className="hr-clock-back-link" to="/clock"><Icon name="chevronLeft" />返回打卡</NavLink>
-    <PageHeader title="出勤日曆" description="紅色日期代表尚未完成打卡，點擊日期即可填寫補打卡申請單。" />
-    {calendar.data?.missingDates.length ? <Alert tone="warning">有 {calendar.data.missingDates.length} 個工作日尚未完成打卡。</Alert> : null}
+  function handleTouchStart(event: React.TouchEvent<HTMLElement>) {
+    touchStartX.current = event.touches[0]?.clientX ?? null;
+  }
+  function handleTouchEnd(event: React.TouchEvent<HTMLElement>) {
+    const start = touchStartX.current;
+    const end = event.changedTouches[0]?.clientX;
+    touchStartX.current = null;
+    if (start === null || end === undefined || Math.abs(end - start) < 48) return;
+    changeMonth(end < start ? 1 : -1);
+  }
+  function openCorrection(date: string, kind: "clock_in" | "clock_out") {
+    navigate(`/forms/new?date=${encodeURIComponent(date)}&kind=${kind}`);
+  }
+  function openLeave(date: string) {
+    navigate(`/forms?type=leave&date=${encodeURIComponent(date)}`);
+  }
+  function closeSubpage() {
+    setClosing(true);
+    window.setTimeout(() => navigate("/clock"), 220);
+  }
+  return <div className={`page hr-clock-page hr-clock-subpage${closing ? " closing" : ""}`}>
+    <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
+    <PageHeader title="出勤日曆" description="左右滑動切換月份，點擊日期查看打卡紀錄。" />
     {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
-    <section className="panel hr-clock-calendar hr-clock-calendar-open">
+    <section className="panel hr-clock-calendar hr-clock-calendar-open" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       <div className="hr-clock-calendar-toolbar">
-        <Button variant="icon" icon="chevronLeft" aria-label="上一個月" onClick={() => setCalendarMonth(shiftMonth(calendarMonth.year, calendarMonth.month, -1))} />
+        <Button variant="icon" icon="chevronLeft" aria-label="上一個月" onClick={() => changeMonth(-1)} />
         <strong>{monthLabel(calendarMonth.year, calendarMonth.month)}</strong>
-        <Button variant="icon" icon="chevronRight" aria-label="下一個月" onClick={() => setCalendarMonth(shiftMonth(calendarMonth.year, calendarMonth.month, 1))} />
+        <Button variant="icon" icon="chevronRight" aria-label="下一個月" onClick={() => changeMonth(1)} />
       </div>
-      {calendar.isPending ? <p className="muted">載入日曆…</p> : calendar.data ? <CalendarGrid data={calendar.data} onMissing={openCorrection} /> : null}
+      {calendar.isPending ? <p className="muted">載入日曆…</p> : calendar.data ? <>
+        <CalendarGrid key={`${calendarMonth.year}-${calendarMonth.month}`} data={calendar.data} selectedDate={selectedDate} onSelect={setSelectedDate} slideClass={monthSlide} />
+        {selectedDay ? <CalendarDayDetails day={selectedDay} onCorrection={openCorrection} onLeave={openLeave} /> : null}
+      </> : null}
     </section>
   </div>;
 }
 
 export function HrClockLogs() {
   usePageTitle("打卡紀錄");
+  const navigate = useNavigate();
+  const [closing, setClosing] = useState(false);
   const status = useHrQuery<ClockStatus>("/me/clock-events");
-  return <div className="page hr-clock-page hr-clock-subpage">
-    <NavLink className="hr-clock-back-link" to="/clock"><Icon name="chevronLeft" />返回打卡</NavLink>
+  function closeSubpage() {
+    setClosing(true);
+    window.setTimeout(() => navigate("/clock"), 220);
+  }
+  return <div className={`page hr-clock-page hr-clock-subpage${closing ? " closing" : ""}`}>
+    <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
     <PageHeader title="打卡紀錄" description="今天每次操作都會保留；第一筆視為上班，最後一筆視為下班。" />
     <Panel className="hr-clock-history-panel">
       <ClockTimeline status={status.data} />

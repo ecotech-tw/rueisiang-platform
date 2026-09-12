@@ -162,7 +162,7 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   const leave = leaveRows?.map((row) => row.hr_leave_requests);
   const attendanceEvents = options.includeAttendanceEvents ? await db.select({
     id: hrClockEvents.id, eventKind: hrClockEvents.eventKind, occurredAt: hrClockEvents.occurredAt,
-    locationName: hrAttendanceLocations.name, distanceMeters: hrClockEvents.distanceMeters,
+    locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`, distanceMeters: hrClockEvents.distanceMeters,
   }).from(hrClockEvents).leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
     .where(eq(hrClockEvents.employeeUserId, userId)).orderBy(desc(hrClockEvents.occurredAt)).limit(200) : undefined;
   return {

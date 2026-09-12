@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSession } from "../../auth/session.js";
 import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
@@ -26,7 +27,11 @@ function nextDate(value: string): string {
 
 export function HrBonusManagement() {
   usePageTitle("獎金管理");
-  const today = new Date().toISOString().slice(0, 10);
+  const { permissions, user } = useSession();
+  const isHrAdministrator = user?.roles.includes("admin") ?? false;
+  const canRead = isHrAdministrator && permissions.has("hr:bonus:read");
+  const canWrite = isHrAdministrator && permissions.has("hr:bonus:write");
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date());
   const [policyModalOpen, setPolicyModalOpen] = useState(false);
   const [filters, setFilters] = useState({ page: 1, pageSize: 25, search: "", scopeId: "all", bonusKind: "all", performancePeriod: "all" });
   const [policyName, setPolicyName] = useState("");
@@ -41,13 +46,15 @@ export function HrBonusManagement() {
   const [deletingPolicy, setDeletingPolicy] = useState<BonusPolicy | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc");
-  const scopes = useHrQuery<ScopeResponse>("/scopes");
-  const policies = useHrQuery<PolicyResponse>(`/bonus/policies?page=${filters.page}&pageSize=${filters.pageSize}&search=${encodeURIComponent(filters.search)}&scopeId=${encodeURIComponent(filters.scopeId)}&bonusKind=${filters.bonusKind}&performancePeriod=${filters.performancePeriod}`);
-  const assignments = useHrQuery<AssignmentResponse>("/bonus/assignments");
+  const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc", canRead && permissions.has("hr:employee:read"));
+  const scopes = useHrQuery<ScopeResponse>("/scopes", canRead && permissions.has("hr:employee:read"));
+  const policies = useHrQuery<PolicyResponse>(`/bonus/policies?page=${filters.page}&pageSize=${filters.pageSize}&search=${encodeURIComponent(filters.search)}&scopeId=${encodeURIComponent(filters.scopeId)}&bonusKind=${filters.bonusKind}&performancePeriod=${filters.performancePeriod}`, canRead);
+  const assignments = useHrQuery<AssignmentResponse>("/bonus/assignments", canRead);
   const writePolicy = useHrWrite<PolicyWriteResult>();
   const deletePolicy = useHrWrite<{ policyId: string; deleted: boolean }>();
   const toast = useToast();
+  if (!canRead) return <Alert tone="danger">獎金資料僅限全平台 HR 管理者查看。</Alert>;
+
   const employeeOptions = (employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }));
   const scopeOptions = (scopes.data?.scopes ?? []).map((scope) => ({ label: scope.name, value: scope.id }));
   const assignmentsByVersion = new Map<string, string[]>();
@@ -113,7 +120,7 @@ export function HrBonusManagement() {
   }
 
   return <div className="page fills">
-    <PageHeader title="獎金管理" actions={<Button icon="plus" onClick={openCreate}>新增 policy</Button>} />
+    <PageHeader title="獎金管理" actions={canWrite ? <Button icon="plus" onClick={openCreate}>新增 policy</Button> : undefined} />
     {error ? <Alert tone="danger">{error}</Alert> : null}
 
     <Panel className="grows" title="現有 policy">
@@ -125,7 +132,7 @@ export function HrBonusManagement() {
         <FilterSelect label="績效歸屬" value={filters.bonusKind} options={[{ value: "all", label: "全部績效歸屬" }, ...Object.entries(BONUS_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ bonusKind: event.target.value })} />
         <FilterSelect label="業績期間" value={filters.performancePeriod} options={[{ value: "all", label: "全部業績期間" }, ...Object.entries(PERIOD_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ performancePeriod: event.target.value })} />
       </form>
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>名稱</th><th>績效歸屬</th><th>業績期間</th><th>通路</th><th>套用員工</th><th className="numeric">比例</th><th className="numeric">保底</th><th>版本</th><th>操作</th></tr></thead><tbody>{(policies.data?.policies ?? []).map((policy) => <tr key={policy.policyVersionId}><td data-label="名稱"><strong>{policy.policyName}</strong></td><td data-label="績效歸屬">{BONUS_KIND_LABEL[policy.bonusKind]}</td><td data-label="業績期間">{PERIOD_LABEL[policy.performancePeriod]}</td><td data-label="通路">{policy.scopeName}</td><td data-label="套用員工">{assignmentsByVersion.get(policy.policyVersionId)?.join("、") ?? "尚未指派"}</td><td data-label="比例" className="numeric">{(policy.ratePpm / 10_000).toFixed(2)}%</td><td data-label="保底" className="numeric">{money(policy.guaranteeMinor)}</td><td data-label="版本">v{policy.versionNumber}</td><td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" title={`編輯 ${policy.policyName} v${policy.versionNumber}`} aria-label={`編輯 ${policy.policyName} v${policy.versionNumber}`} onClick={() => startEdit(policy)} /><Button variant="icon" icon="trash" title={`刪除 ${policy.policyName}`} aria-label={`刪除 ${policy.policyName}`} className="danger" onClick={() => setDeletingPolicy(policy)} /></div></td></tr>)}</tbody></table></div>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>名稱</th><th>績效歸屬</th><th>業績期間</th><th>通路</th><th>套用員工</th><th className="numeric">比例</th><th className="numeric">保底</th><th>版本</th><th>操作</th></tr></thead><tbody>{(policies.data?.policies ?? []).map((policy) => <tr key={policy.policyVersionId}><td data-label="名稱"><strong>{policy.policyName}</strong></td><td data-label="績效歸屬">{BONUS_KIND_LABEL[policy.bonusKind]}</td><td data-label="業績期間">{PERIOD_LABEL[policy.performancePeriod]}</td><td data-label="通路">{policy.scopeName}</td><td data-label="套用員工">{assignmentsByVersion.get(policy.policyVersionId)?.join("、") ?? "尚未指派"}</td><td data-label="比例" className="numeric">{(policy.ratePpm / 10_000).toFixed(2)}%</td><td data-label="保底" className="numeric">{money(policy.guaranteeMinor)}</td><td data-label="版本">v{policy.versionNumber}</td><td data-label="操作">{canWrite ? <div className="row-actions"><Button variant="icon" icon="edit" title={`編輯 ${policy.policyName} v${policy.versionNumber}`} aria-label={`編輯 ${policy.policyName} v${policy.versionNumber}`} onClick={() => startEdit(policy)} /><Button variant="icon" icon="trash" title={`刪除 ${policy.policyName}`} aria-label={`刪除 ${policy.policyName}`} className="danger" onClick={() => setDeletingPolicy(policy)} /></div> : <span className="muted">—</span>}</td></tr>)}</tbody></table></div>
       {policies.isPending ? <p className="muted table-note">載入中…</p> : null}
       {policies.data && !policies.data.policies.length ? <p className="muted table-note">沒有符合條件的 policy。</p> : null}
       {policies.data && policies.data.total > 0 ? <Pager page={policies.data.page} pageSize={policies.data.pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.max(1, Math.ceil(policies.data.total / policies.data.pageSize))} totalLabel={`共 ${policies.data.total.toLocaleString("zh-TW")} 筆`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}

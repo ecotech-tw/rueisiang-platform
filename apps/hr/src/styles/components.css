@@ -342,6 +342,14 @@
 
  
 .hr-module { display: grid; gap: 20px; }
+.hr-module-self > .page:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation: hr-page-swipe-in .24s cubic-bezier(.05, .7, .1, 1); }
+@keyframes hr-page-swipe-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hr-module-self > .page:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation: none; }
+}
 .hr-module-header {
   display: flex;
   align-items: center;
@@ -385,11 +393,54 @@
 .hr-clock-static-map { position: absolute; inset: 0; z-index: 0; overflow: hidden; cursor: grab; touch-action: none; }
 .hr-clock-static-map:active { cursor: grabbing; }
 .hr-clock-interactive-map .maplibregl-marker { z-index: 1; }
+.hr-clock-interactive-map .maplibregl-ctrl-bottom-left,
+.hr-clock-interactive-map .maplibregl-ctrl-bottom-right { display: none; }
 .hr-clock-interactive-map .maplibregl-ctrl-attrib { background: --alpha(var(--color-paper) / 72%); color: var(--color-muted); font-size: 10px; }
-.hr-clock-subpage { display: grid; gap: 16px; }
+.hr-clock-subpage { position: fixed; inset: 0; z-index: 10; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; width: auto; max-width: none; padding: 22px clamp(18px, 4vw, 48px) 96px; overflow: hidden; background: linear-gradient(180deg, var(--color-canvas), var(--color-paper)); animation: hr-subpage-up .24s cubic-bezier(.05, .7, .1, 1); }
+.hr-clock-subpage.closing { animation: hr-subpage-down .22s cubic-bezier(.3, 0, .8, .15) forwards; }
 .hr-clock-subpage > * + * { margin-top: 0; }
-.hr-clock-calendar-open { padding: 18px 20px; }
-.hr-clock-back-link { display: inline-flex; align-items: center; gap: 5px; width: max-content; color: var(--color-brand-dark); font-size: 13px; font-weight: 700; text-decoration: none; }
+@keyframes hr-subpage-up {
+  from { opacity: 0; transform: translateY(42px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes hr-subpage-down {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(42px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hr-clock-subpage,
+  .hr-clock-subpage.closing { animation: none; }
+}
+.hr-clock-calendar-open { --hr-calendar-grid-height: clamp(260px, 42vh, 320px); min-height: 0; display: grid; grid-template-rows: auto auto auto; align-content: start; padding: 14px 16px; overflow: hidden; touch-action: pan-y; }
+.hr-clock-calendar-main { display: grid; grid-template-rows: auto var(--hr-calendar-grid-height) auto; min-height: 0; }
+.hr-clock-calendar-grid { height: 100%; min-height: 0; grid-template-rows: repeat(6, minmax(0, 1fr)); }
+.hr-clock-calendar-empty { min-height: 0; }
+.hr-clock-calendar-main.slide-next { animation: hr-calendar-slide-next .24s cubic-bezier(.05, .7, .1, 1); }
+.hr-clock-calendar-main.slide-prev { animation: hr-calendar-slide-prev .24s cubic-bezier(.05, .7, .1, 1); }
+@keyframes hr-calendar-slide-next { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes hr-calendar-slide-prev { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+.hr-clock-calendar-details { display: grid; gap: 8px; min-height: 0; padding: 10px 12px; border-top: 1px solid var(--color-soft-line); border-radius: 12px; background: var(--color-canvas); overflow: hidden; }
+.hr-clock-calendar-details-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.hr-clock-calendar-details-head strong { font-size: 14px; }
+.hr-clock-calendar-details-head span { color: var(--color-muted); font-size: 12px; }
+.hr-clock-calendar-empty-detail { margin: 0; color: var(--color-muted); font-size: 12px; }
+.hr-clock-calendar-events { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.hr-clock-calendar-events li { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 4px 8px; min-width: 0; padding: 6px 8px; border-radius: 8px; background: var(--color-paper); }
+.hr-clock-calendar-events li span { color: var(--color-muted); font-size: 11px; }
+.hr-clock-calendar-events li strong { font-size: 12px; font-variant-numeric: tabular-nums; }
+.hr-clock-calendar-events li small { grid-column: 1 / -1; overflow: hidden; color: var(--color-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.hr-clock-calendar-anomaly { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; }
+.hr-clock-calendar-anomaly::before { width: 6px; height: 6px; border-radius: 999px; background: var(--color-brand); content: ""; }
+.hr-clock-calendar-anomaly strong { color: var(--color-brand-dark); font-size: 12px; }
+.hr-clock-calendar-anomaly > span { min-width: 0; overflow: hidden; color: var(--color-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.hr-clock-calendar-actions { display: flex; gap: 6px; }
+.hr-clock-calendar-actions button { min-height: 32px; padding: 5px 10px; font-size: 12px; }
+.hr-clock-calendar-actions .ghost-button { border-color: var(--color-secondary); background: var(--color-paper); color: var(--color-brand-dark); }
+@media (prefers-reduced-motion: reduce) {
+  .hr-clock-calendar-main.slide-next,
+  .hr-clock-calendar-main.slide-prev { animation: none; }
+}
+.hr-clock-back-link { display: inline-flex; align-items: center; gap: 5px; width: max-content; padding: 0; border: 0; background: transparent; color: var(--color-brand-dark); font: inherit; font-size: 13px; font-weight: 700; text-decoration: none; }
 .hr-clock-back-link svg { width: 24px; height: 24px; flex: none; }
 .hr-clock-deep-links { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .hr-clock-deep-links a { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 14px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-paper); color: var(--color-ink); text-decoration: none; transition: border-color .15s ease, transform .15s ease; }
@@ -402,46 +453,48 @@
 .hr-clock-deep-links a > svg { width: 17px; color: var(--color-muted); }
 
  
-.content:has(.hr-clock-full-page) { padding: 0; overflow: hidden; }
+.content:has(.hr-clock-full-page),
+.content:has(.hr-clock-subpage) { padding: 0; overflow: hidden; }
  
 .hr-module:has(.hr-clock-full-page) { position: relative; display: block; min-height: 100%; }
 .hr-clock-full-page { position: fixed; inset: 0; z-index: 0; width: auto; max-width: none; margin: 0; overflow: hidden; }
-.hr-clock-full-page .hr-clock-map-stage { position: absolute; inset: 0; min-height: 100%; border-radius: 0; }
-.hr-clock-full-page .hr-clock-map-stage::after { background: linear-gradient(180deg, --alpha(var(--color-paper) / 8%), --alpha(var(--color-paper) / 40%)); }
+.hr-clock-full-page .hr-clock-map-stage { position: absolute; inset: 0; min-height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; padding: 72px 8px 86px; border-radius: 0; }
+.hr-clock-full-page .hr-clock-map-stage::after { background: linear-gradient(180deg, --alpha(var(--color-brand) / 16%), --alpha(var(--color-brand) / 26%) 46%, --alpha(var(--color-paper) / 92%) 72%); }
 .hr-clock-personal-nav { position: fixed; top: 24px; right: 36px; z-index: 5; padding: 4px; border: 1px solid --alpha(var(--color-ink) / 10%); border-radius: 999px; background: --alpha(var(--color-paper) / 84%); box-shadow: 0 8px 24px --alpha(var(--color-ink) / 10%); backdrop-filter: blur(14px); }
 .hr-clock-personal-nav a { padding: 8px 13px; }
-.hr-clock-full-page .hr-clock-status-corner,
-.hr-clock-full-page .hr-clock-action-corner,
-.hr-clock-full-page .hr-clock-feedback-corner { position: absolute; z-index: 3; }
-.hr-clock-full-page .hr-clock-status-corner { bottom: 112px; left: clamp(24px, 5vw, 72px); display: grid; gap: 12px; width: min(390px, calc(100vw - 48px)); padding: 18px 20px; border: 1px solid --alpha(var(--color-ink) / 10%); border-radius: 22px; background: --alpha(var(--color-paper) / 88%); box-shadow: 0 14px 34px --alpha(var(--color-ink) / 14%); backdrop-filter: blur(14px); }
-.hr-clock-full-page .hr-clock-now { color: var(--color-ink); font-size: clamp(30px, 4vw, 46px); font-weight: 700; text-shadow: none; }
-.hr-clock-full-page .hr-clock-location-card { grid-template-columns: auto minmax(0, 1fr); padding: 0; background: transparent; }
-.hr-clock-full-page .hr-clock-location-card.verified,
-.hr-clock-full-page .hr-clock-location-card.outside { background: transparent; }
-.hr-clock-full-page .hr-clock-location-card p { margin-top: 4px; }
-.hr-clock-full-page .hr-clock-deep-links { position: absolute; top: 92px; right: clamp(24px, 5vw, 72px); z-index: 3; display: grid; gap: 4px; width: auto; padding: 8px 12px; border: 1px solid --alpha(var(--color-ink) / 10%); border-radius: 16px; background: --alpha(var(--color-paper) / 78%); box-shadow: 0 8px 22px --alpha(var(--color-ink) / 9%); backdrop-filter: blur(12px); }
-.hr-clock-full-page .hr-clock-deep-links a { display: inline-flex; align-items: center; gap: 8px; width: auto; min-height: 34px; padding: 5px 2px; border: 0; border-radius: 8px; background: transparent; color: var(--color-ink); font-size: 13px; }
-.hr-clock-full-page .hr-clock-deep-links a:hover { border: 0; background: --alpha(var(--color-brand) / 8%); transform: none; }
+.hr-clock-hero { position: relative; z-index: 3; align-self: center; display: grid; justify-items: center; gap: 8px; color: var(--color-paper); text-align: center; text-shadow: 0 2px 3px --alpha(var(--color-ink) / 48%), 0 7px 18px --alpha(var(--color-ink) / 38%); }
+.hr-clock-hero-person { width: 74px; height: 74px; filter: drop-shadow(0 6px 18px --alpha(var(--color-ink) / 20%)); }
+.hr-clock-full-page .modal-backdrop { position: absolute; inset: 0; z-index: 100; width: 100%; min-height: 100%; box-sizing: border-box; }
+.hr-clock-full-page .hr-clock-now { margin: 8px 0 0; color: var(--color-paper); font-size: clamp(40px, 7vw, 64px); font-weight: 800; line-height: 1; letter-spacing: .02em; }
+.hr-clock-date { margin: 0; color: var(--color-paper); font-size: 18px; font-weight: 800; text-shadow: 0 2px 3px --alpha(var(--color-ink) / 50%), 0 6px 16px --alpha(var(--color-ink) / 40%); }
+.hr-clock-action-panel { position: relative; z-index: 3; display: grid; justify-self: stretch; gap: 12px; width: auto; margin: 0 8px; padding: 64px 18px 18px; border-radius: 34px 34px 24px 24px; background: var(--color-paper); box-shadow: 0 -10px 42px --alpha(var(--color-ink) / 16%); }
+.hr-clock-action-panel::before { position: absolute; top: 10px; left: calc(50% - 24px); width: 48px; height: 4px; border-radius: 999px; background: var(--color-line); content: ""; }
+.hr-clock-full-page .hr-clock-main-action { position: absolute; top: -42px; left: calc(50% - 44px); display: grid; width: 88px; height: 88px; min-height: 0; place-items: center; padding: 0; border: 7px solid var(--color-paper); border-radius: 999px; background: var(--color-brand); box-shadow: 0 12px 28px --alpha(var(--color-brand) / 34%); color: var(--color-paper); }
+.hr-clock-full-page .hr-clock-main-action svg { width: 38px; height: 38px; }
+.hr-clock-full-page .hr-clock-main-action:hover:not(:disabled) { background: var(--color-brand-dark); }
+.hr-clock-full-page .hr-clock-main-action:disabled { background: var(--color-line); color: var(--color-muted); opacity: 1; }
+.hr-clock-action-loading { font-size: 30px; font-weight: 800; line-height: 1; }
+.hr-clock-office-card { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; gap: 12px; padding: 14px 16px; border-radius: 20px; background: var(--color-canvas); }
+.hr-clock-office-pin { display: grid; width: 54px; height: 54px; place-items: center; border-radius: 999px; background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.hr-clock-office-pin.verified { background: var(--color-ok-soft); color: var(--color-ok); }
+.hr-clock-office-pin.outside { background: var(--color-brand-soft); color: var(--color-brand); }
+.hr-clock-office-pin svg { width: 26px; height: 26px; }
+.hr-clock-office-card div { display: grid; gap: 2px; min-width: 0; }
+.hr-clock-office-card span { color: var(--color-muted); font-size: 12px; font-weight: 800; }
+.hr-clock-office-card strong { overflow: hidden; font-size: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.hr-clock-office-card small { overflow: hidden; color: var(--color-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.hr-clock-full-page .hr-clock-deep-links { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.hr-clock-full-page .hr-clock-deep-links a { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 8px 12px; border: 1px solid var(--color-line); border-radius: 999px; background: var(--color-paper); color: var(--color-ink); font-size: 13px; font-weight: 800; }
+.hr-clock-full-page .hr-clock-deep-links a:hover { border-color: var(--color-secondary); background: --alpha(var(--color-brand) / 6%); color: var(--color-brand-dark); transform: none; }
 .hr-clock-full-page .hr-clock-deep-links a > svg { width: 19px; height: 19px; color: var(--color-brand-dark); }
 .hr-clock-full-page .hr-clock-deep-links a span,
 .hr-clock-full-page .hr-clock-deep-links a > span:nth-child(2) { display: inline; }
-.hr-clock-full-page .hr-clock-action-corner { right: clamp(24px, 5vw, 72px); bottom: 112px; display: grid; justify-items: end; gap: 8px; }
-.hr-clock-full-page .hr-clock-main-action { width: auto; min-height: 46px; padding: 10px 22px; border-radius: 999px; box-shadow: 0 8px 20px --alpha(var(--color-brand) / 28%); font-size: 15px; }
-.hr-clock-full-page .hr-clock-retry-action { min-height: 30px; padding: 5px 10px; border: 0; background: --alpha(var(--color-paper) / 72%); color: var(--color-ink); font-size: 12px; }
-.hr-clock-full-page .hr-clock-feedback-corner { top: 92px; left: clamp(24px, 5vw, 72px); display: grid; gap: 8px; max-width: min(400px, calc(100vw - 48px)); }
+.hr-clock-full-page .hr-clock-retry-action { min-height: 38px; padding: 7px 14px; border-radius: 999px; background: var(--color-canvas); color: var(--color-ink); font-size: 13px; font-weight: 800; }
+.hr-clock-last-event { margin: -2px 0 0; color: var(--color-muted); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
+.hr-clock-full-page .hr-clock-feedback-corner { position: absolute; top: 88px; left: clamp(16px, 5vw, 72px); z-index: 4; display: grid; gap: 8px; max-width: min(400px, calc(100vw - 32px)); }
 .hr-clock-full-page .hr-clock-feedback-corner .ui-alert { font-size: 12px; }
 .hr-clock-now { margin: 0; color: var(--color-muted); font-size: 32px; font-variant-numeric: tabular-nums; letter-spacing: .03em; }
-.hr-clock-location-card { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 10px; padding: 14px 16px; border-radius: 14px; background: var(--color-canvas); }
-.hr-clock-location-card.verified { background: var(--color-ok-soft); }
-.hr-clock-location-card.outside { background: var(--color-brand-soft); }
-.hr-clock-location-card.outside .hr-clock-location-dot { background: var(--color-brand); }
-.hr-clock-location-dot { width: 11px; height: 11px; grid-row: span 2; border-radius: 50%; background: var(--color-ok); }
-.hr-clock-location-card div { display: grid; gap: 2px; }
-.hr-clock-location-card small { color: var(--color-muted); font-size: 12px; }
-.hr-clock-location-card strong { font-size: 16px; }
-.hr-clock-location-card p { grid-column: 2; margin: 1px 0 0; color: var(--color-muted); font-size: 13px; }
 .hr-clock-main-action { width: 100%; min-height: 58px; font-size: 18px; }
-.hr-clock-main-action:disabled { background: var(--color-line); color: var(--color-muted); opacity: 1; }
 .hr-clock-blocked { margin: 0; color: var(--color-muted); font-size: 14px; }
 .hr-clock-history-panel { display: grid; gap: 14px; }
 .hr-clock-history-panel .panel-head { margin-bottom: 0; }
@@ -456,27 +509,29 @@
 .hr-clock-calendar-toolbar strong { font-size: 16px; }
 .hr-clock-calendar-weekdays,
 .hr-clock-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
-.hr-clock-calendar-weekdays { padding: 14px 0 6px; color: var(--color-muted); font-size: 12px; font-weight: 700; text-align: center; }
+.hr-clock-calendar-weekdays { padding: 10px 0 4px; color: var(--color-muted); font-size: 12px; font-weight: 700; text-align: center; }
 .hr-clock-calendar-empty { min-height: 52px; }
-.hr-clock-calendar-day { display: grid; min-height: 58px; align-content: center; justify-items: center; gap: 2px; padding: 5px 2px; border: 1px solid transparent; border-radius: 12px; background: var(--color-canvas); color: var(--color-ink); font-variant-numeric: tabular-nums; }
-.hr-clock-calendar-day:hover:not(:disabled) { background: var(--color-brand-soft); }
-.hr-clock-calendar-day:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-clock-calendar-day small { color: var(--color-muted); font-size: 10px; line-height: 1.1; }
-.hr-clock-calendar-day.present { background: var(--color-ok-soft); color: var(--color-ok); }
-.hr-clock-calendar-day.missing { border-color: var(--color-brand); background: var(--color-brand-soft); color: var(--color-brand-dark); cursor: pointer; }
-.hr-clock-calendar-day.missing small { color: var(--color-brand-dark); font-weight: 700; }
-.hr-clock-calendar-day.open { border-color: var(--color-secondary); background: var(--color-paper); }
+.hr-clock-calendar-day { position: relative; display: grid; min-height: 0; align-content: center; justify-items: center; gap: 3px; padding: 4px 2px; border: 1px solid transparent; border-radius: 12px; background: transparent; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+.hr-clock-calendar-day strong { font-size: 14px; font-weight: 700; }
+.hr-clock-calendar-day > i { width: 5px; height: 5px; border-radius: 999px; background: var(--color-brand); content: ""; }
+.hr-clock-calendar-day.selected { border-color: var(--color-brand); background: var(--color-brand-soft); color: var(--color-brand-dark); box-shadow: 0 0 0 2px --alpha(var(--color-brand) / 18%); }
+.hr-clock-calendar-day.today { border-color: var(--color-secondary); }
+.hr-clock-calendar-day.today strong { font-weight: 800; }
+.hr-clock-calendar-day.today.selected { border-color: var(--color-brand); box-shadow: 0 0 0 2px --alpha(var(--color-brand) / 18%); }
+.hr-clock-calendar-day.present { background: transparent; color: var(--color-ok); }
+.hr-clock-calendar-day.missing { border-color: transparent; background: transparent; color: var(--color-ink); }
 .hr-clock-calendar-day.rest,
 .hr-clock-calendar-day.future,
-.hr-clock-calendar-day.not-employed { background: transparent; color: var(--color-muted); opacity: .55; }
-.hr-clock-calendar-day.today strong { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
-.hr-clock-calendar-legend { display: flex; flex-wrap: wrap; gap: 12px 18px; padding-top: 16px; color: var(--color-muted); font-size: 12px; }
+.hr-clock-calendar-day.leave,
+.hr-clock-calendar-day.not-employed { background: transparent; color: var(--color-muted); opacity: .52; }
+.hr-clock-calendar-day:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-clock-calendar-day:hover { background: --alpha(var(--color-brand) / 7%); }
+.hr-clock-calendar-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; padding-top: 8px; color: var(--color-muted); font-size: 11px; }
 .hr-clock-calendar-legend span { display: inline-flex; align-items: center; gap: 5px; }
-.hr-clock-calendar-legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--color-canvas); }
-.hr-clock-calendar-legend i.present { background: var(--color-ok-soft); border: 1px solid var(--color-ok); }
-.hr-clock-calendar-legend i.missing { background: var(--color-brand-soft); border: 1px solid var(--color-brand); }
-.hr-clock-calendar-legend i.open { background: var(--color-paper); border: 1px solid var(--color-secondary); }
-.hr-clock-calendar-legend i.rest { background: var(--color-soft-line); }
+.hr-clock-calendar-legend i { width: 7px; height: 7px; border-radius: 999px; background: var(--color-soft-line); }
+.hr-clock-calendar-legend i.present { background: var(--color-ok); }
+.hr-clock-calendar-legend i.anomaly { background: var(--color-brand); }
+.hr-clock-calendar-legend i.today { border: 1px solid var(--color-secondary); background: transparent; }
 .hr-forms-page,
 .hr-form-page { width: 100%; max-width: 760px; margin-right: auto; margin-left: auto; }
 .hr-form-review-panel { border-color: var(--color-secondary); }
@@ -3831,7 +3886,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .shell:has(.hr-clock-full-page) .mobile-topbar { background: transparent; border-bottom-color: transparent; }
   .hr-module-header { align-items: stretch; flex-direction: column; gap: 4px; padding-bottom: 6px; }
   .hr-personal-top-nav { display: none; }
-  .hr-personal-bottom-nav { position: fixed; right: 50%; bottom: max(12px, env(safe-area-inset-bottom)); left: auto; z-index: 20; display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; width: min(260px, calc(100% - 48px)); min-height: 56px; overflow: visible; padding: 5px 8px; border: 1px solid var(--color-line); border-radius: 22px; background: var(--color-paper); box-shadow: 0 7px 22px --alpha(var(--color-ink) / 15%); transform: translateX(50%); }
+  .hr-personal-bottom-nav { position: fixed; right: 50%; bottom: max(12px, env(safe-area-inset-bottom)); left: auto; z-index: 20; display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; width: min(260px, calc(100% - 48px)); min-height: 56px; overflow: visible; padding: 5px 8px; border: 1px solid --alpha(var(--color-paper) / 62%); border-radius: 22px; background: --alpha(var(--color-paper) / 58%); box-shadow: 0 12px 34px --alpha(var(--color-ink) / 18%); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); transform: translateX(50%); }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .hr-personal-bottom-nav { background: --alpha(var(--color-paper) / 92%); }
+  }
   .hr-personal-bottom-link { position: relative; z-index: 1; display: grid; width: 100%; min-height: 44px; place-items: center; align-content: center; gap: 0; padding: 5px 4px; border-radius: 14px; font-size: 0; font-weight: 700; }
   .hr-personal-nav-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   .hr-personal-bottom-link .hr-personal-nav-icon { color: var(--color-muted); }
@@ -3845,20 +3903,46 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .hr-location-map-search { grid-template-columns: 1fr; }
   .hr-clock-map-stage { border-radius: 18px; }
   .hr-clock-now { font-size: 28px; }
-  .hr-clock-location-card { padding: 12px; }
   .hr-clock-deep-links { grid-template-columns: 1fr; }
   .hr-clock-timeline li { grid-template-columns: 58px minmax(0, 1fr); gap: 10px; }
+  .hr-clock-subpage { gap: 8px; padding: 14px 12px 88px; }
+  .hr-clock-subpage .page-head { margin-bottom: 0; }
+  .hr-clock-subpage > * + * { margin-top: 0; }
+  .hr-clock-subpage .page-head h1 { font-size: 18px; }
+  .hr-clock-subpage .page-head p { display: none; }
+  .hr-clock-calendar-open { --hr-calendar-grid-height: clamp(216px, 40vh, 276px); padding: 10px 12px; }
+  .hr-clock-calendar-toolbar { padding: 4px 0 8px; }
   .hr-clock-calendar-weekdays, .hr-clock-calendar-grid { gap: 3px; }
-  .hr-clock-calendar-day { min-height: 52px; border-radius: 9px; }
-  .hr-clock-calendar-day small { font-size: 9px; }
+  .hr-clock-calendar-weekdays { padding-top: 7px; }
+  .hr-clock-calendar-day { min-height: 0; border-radius: 9px; }
+  .hr-clock-calendar-details { gap: 6px; padding: 8px 10px; }
+  @media (max-height: 720px) {
+    .hr-clock-calendar-open { --hr-calendar-grid-height: 228px; }
+  }
+  .hr-clock-calendar-events { gap: 4px; }
+  .hr-clock-calendar-events li { padding: 5px 6px; }
+  .hr-clock-calendar-anomaly { grid-template-columns: auto minmax(0, 1fr); }
+  .hr-clock-calendar-anomaly > span { grid-column: 2; }
+  .hr-clock-calendar-actions { grid-column: 1 / -1; justify-content: stretch; }
+  .hr-clock-calendar-actions button { flex: 1; }
+  .hr-clock-calendar-legend { padding-top: 6px; gap: 6px 10px; }
   .hr-clock-personal-nav { display: none; }
-  .hr-clock-full-page .hr-clock-status-corner { bottom: 104px; left: 16px; width: min(330px, calc(100vw - 32px)); padding: 15px 16px; border-radius: 18px; }
-  .hr-clock-full-page .hr-clock-now { font-size: 30px; }
-  .hr-clock-full-page .hr-clock-deep-links { top: 86px; right: 16px; gap: 1px; padding: 6px 10px; border-radius: 14px; }
-  .hr-clock-full-page .hr-clock-deep-links a { min-height: 32px; font-size: 12px; }
-  .hr-clock-full-page .hr-clock-action-corner { right: 16px; bottom: 104px; }
-  .hr-clock-full-page .hr-clock-main-action { min-height: 42px; padding: 9px 17px; font-size: 13px; }
-  .hr-clock-full-page .hr-clock-feedback-corner { top: 142px; left: 16px; max-width: calc(100vw - 32px); }
+  .hr-clock-full-page .hr-clock-map-stage { display: block; padding: 0; }
+  .hr-clock-hero { position: absolute; top: 24px; right: 14px; left: 14px; gap: 3px; }
+  .hr-clock-hero-person { width: 38px; height: 38px; }
+  .hr-clock-full-page .hr-clock-now { margin-top: 3px; font-size: clamp(34px, 11.5vw, 46px); }
+  .hr-clock-date { font-size: 14px; }
+  .hr-clock-action-panel { position: absolute; right: 16px; bottom: 94px; left: 16px; width: auto; max-height: none; margin: 0; padding: 54px 16px 14px; overflow: visible; border-radius: 30px; }
+  .hr-clock-action-panel::-webkit-scrollbar { display: none; }
+  .hr-clock-full-page .hr-clock-main-action { top: -36px; left: calc(50% - 38px); width: 76px; height: 76px; border-width: 6px; }
+  .hr-clock-full-page .hr-clock-main-action svg { width: 32px; height: 32px; }
+  .hr-clock-office-card { grid-template-columns: 48px minmax(0, 1fr); padding: 12px 14px; }
+  .hr-clock-office-pin { width: 48px; height: 48px; }
+  .hr-clock-office-card strong { font-size: 18px; }
+  .hr-clock-full-page .hr-clock-deep-links { width: 100%; }
+  .hr-clock-full-page .hr-clock-deep-links a { min-height: 36px; font-size: 12px; }
+  .hr-clock-full-page .hr-clock-retry-action { width: 100%; min-height: 38px; }
+  .hr-clock-full-page .hr-clock-feedback-corner { top: 12px; left: 16px; max-width: calc(100vw - 32px); }
   .hr-form-field-row { grid-template-columns: 1fr; gap: 16px; }
   .hr-form-actions { flex-wrap: wrap; }
   .hr-form-actions button { flex: 1 1 30%; }

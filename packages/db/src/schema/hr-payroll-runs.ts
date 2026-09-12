@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { hrCompensationVersions, hrInsuranceVersions } from "./hr-payroll.js";
+import { hrCompensationVersions, hrInsuranceVersions, hrWorkerCompensationVersions } from "./hr-payroll.js";
 import { hrEmployments } from "./hr-people.js";
+import { hrScheduleWorkers } from "./hr-scheduling.js";
 import { users } from "./auth.js";
 
 export const hrPayrollPeriods = sqliteTable("hr_payroll_periods", {
@@ -80,6 +81,25 @@ export const hrPayslips = sqliteTable("hr_payslips", {
   check("ck_hr_payslips_employee_number", sql`length(trim(${table.employeeNumber})) BETWEEN 1 AND 40`),
 ]);
 
+/** 約聘／臨時支援人員沒有 employee payslip，仍保留同一批薪資試算的歷史結果。 */
+export const hrPayrollWorkerResults = sqliteTable("hr_payroll_worker_results", {
+  id: text("id").primaryKey(),
+  payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
+  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  workerName: text("worker_name").notNull(),
+  compensationVersionId: text("compensation_version_id").references(() => hrWorkerCompensationVersions.id, { onDelete: "restrict" }),
+  payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly", "mixed"] as const }).notNull(),
+  scheduledDays: integer("scheduled_days").notNull(),
+  amountMinor: integer("amount_minor").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_payroll_worker_results_run_worker").on(table.payrollRunId, table.workerId),
+  index("idx_hr_payroll_worker_results_worker").on(table.workerId, table.createdAt),
+  check("ck_hr_payroll_worker_results_name", sql`length(trim(${table.workerName})) BETWEEN 1 AND 100`),
+  check("ck_hr_payroll_worker_results_days", sql`${table.scheduledDays} >= 0`),
+  check("ck_hr_payroll_worker_results_amount", sql`${table.amountMinor} >= 0`),
+]);
+
 export const hrPayslipLines = sqliteTable("hr_payslip_lines", {
   id: text("id").primaryKey(),
   payslipId: text("payslip_id").notNull().references(() => hrPayslips.id, { onDelete: "restrict" }),
@@ -109,5 +129,6 @@ export const hrPayslipInsuranceLinks = sqliteTable("hr_payslip_insurance_links",
 
 export type HrPayrollPeriod = typeof hrPayrollPeriods.$inferSelect;
 export type HrPayrollRun = typeof hrPayrollRuns.$inferSelect;
+export type HrPayrollWorkerResult = typeof hrPayrollWorkerResults.$inferSelect;
 export type HrPayslip = typeof hrPayslips.$inferSelect;
 export type HrPayslipLine = typeof hrPayslipLines.$inferSelect;
