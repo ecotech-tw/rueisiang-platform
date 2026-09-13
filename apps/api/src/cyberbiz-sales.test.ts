@@ -175,7 +175,7 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
       body: JSON.stringify({ stores: ["宏匯廣場1F"], start: "2026-07-01", end: "2026-07-31" }),
     });
 
-    // 舊版是把清單 commit 成兩個 repository 的 stores.json；現在跟著 dispatch 走。
+    // 店別設定隨這次 dispatch 傳給 runner，不依賴 repository 內的設定檔。
     const dispatch = calls[0]!;
     expect(dispatch.url).toContain("/repos/ecotech-tw/report-runner/");
     const sent = JSON.parse((dispatch.body as { inputs: { stores_json: string } }).inputs.stores_json) as { name: string; scopeId: string }[];

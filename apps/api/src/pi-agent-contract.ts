@@ -43,7 +43,7 @@ export interface PiLineAgentRunResponse {
   result: AssistantRunResult;
 }
 
-export interface PiSandboxAgentContext {
+interface PiSandboxAgentContext {
   assistantKey: string;
   /** 有 D1 session 時就是 session id；單次 API 測試則使用 run id，避免不同測試互相污染。 */
   conversationId: string;

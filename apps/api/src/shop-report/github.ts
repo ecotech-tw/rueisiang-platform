@@ -24,7 +24,7 @@ export interface ShopReportGithub {
   listRuns(requestId?: string): Promise<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>;
 }
 
-export interface WorkflowRun {
+interface WorkflowRun {
   id: number;
   status: string;
   conclusion: string | null;
@@ -33,7 +33,7 @@ export interface WorkflowRun {
   title: string;
 }
 
-export interface WorkflowStep {
+interface WorkflowStep {
   name: string;
   status: string;
   conclusion: string | null;

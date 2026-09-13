@@ -24,7 +24,7 @@ export function formatCyberbizProductName(product: { productName: string; varian
  * 前綴不吻合時原樣保留：官網哪天改了格式，寧可顯示得囉唆一點，也不要靠猜測把
  * 使用者看得懂的字切掉。
  */
-export function variantSpec(productName: string, variantName: string): string {
+function variantSpec(productName: string, variantName: string): string {
   const variant = variantName.trim();
   if (!variant.startsWith(productName)) return variant;
   return variant.slice(productName.length).replace(/^\s*-\s*/, "").replace(/\s*-\s*$/, "").trim();

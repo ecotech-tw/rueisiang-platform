@@ -6,11 +6,6 @@ import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
 const SHOPEE_SCOPE_ID = "shopee:store:default";
 const SHOPEE_SCOPE_NAME = "蝦皮";
 
-export interface ShopeeSalesSettingsInput {
-  driveFolderUrl: string;
-  driveFolderName: string;
-}
-
 export interface ShopeeSalesSettings {
   id: string;
   driveFolderUrl: string;

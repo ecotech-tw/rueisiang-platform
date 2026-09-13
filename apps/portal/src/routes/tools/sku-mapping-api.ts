@@ -81,7 +81,7 @@ export interface UnmappedProductOption {
   lastSeenAt: string;
 }
 
-export interface ProductSkuMappingData {
+interface ProductSkuMappingData {
   mappings: ProductSkuMapping[];
   categories: string[];
   items: ProductSkuMappingItemOption[];

@@ -13,7 +13,7 @@ import { AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
 import type { SalesBreakdown } from "../api.js";
 
 /** 銷量與銷售額是同一份 breakdown 的兩種讀法，圖表本身完全一樣，只有取值與文案不同。 */
-export type ChannelMetric = "quantity" | "amount";
+type ChannelMetric = "quantity" | "amount";
 
 /*
  * 兩張圖各一組色。同一張圖裡還是「一個通路一個顏色」，看得出哪幾條是蝦皮；

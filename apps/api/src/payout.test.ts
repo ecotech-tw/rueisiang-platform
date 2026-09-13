@@ -150,7 +150,7 @@ describe("執行", () => {
     });
 
     /*
-     * 舊版是把清單 commit 成 runner repo 的 stores.json，同一份資料存在三個地方。
+     * 店別設定隨這次 dispatch 傳給 runner，scopeId 與選取結果必須保持一致。
      * 現在跟著 dispatch 走，而且 scopeId 由平台給——runner 自己從店名算的話，
      * 改店名就會建出一家新店，報表資料被切成兩半。
      */

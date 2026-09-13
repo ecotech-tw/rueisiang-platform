@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export type ManualReportKind = "payout" | "sales";
-export type ManualRecordSource = "imported" | "manual";
+type ManualRecordSource = "imported" | "manual";
 export type ManualSourceFilter = "all" | ManualRecordSource;
 export type ManualSkuSource = "custom" | "cyberbiz";
 
@@ -138,7 +138,7 @@ export interface ManualPayoutImportResult {
   coverageEnd: string;
 }
 
-export interface ManualSalesImportRow {
+interface ManualSalesImportRow {
   sku: string;
   productName: string;
   category: string;
@@ -148,18 +148,18 @@ export interface ManualSalesImportRow {
   salesAmount: number;
 }
 
-export interface ManualStandardSalesImportRow extends ManualSalesImportRow {
+interface ManualStandardSalesImportRow extends ManualSalesImportRow {
   reportMonth: string;
 }
 
-export interface ManualStandardSalesImportInput {
+interface ManualStandardSalesImportInput {
   format: "standard";
   scopeId?: string;
   scopeName: string;
   rows: ManualStandardSalesImportRow[];
 }
 
-export interface ManualLegacySalesImportInput {
+interface ManualLegacySalesImportInput {
   scopeId?: string;
   scopeName: string;
   reportMonth: string;
@@ -181,7 +181,7 @@ export interface ManualSalesImportResult {
 export type ManualPayoutDeleteInput = Pick<ManualPayoutRow, "id" | "source" | "scopeId" | "businessDate">;
 export type ManualSalesDeleteInput = Pick<ManualSalesRow, "id" | "source" | "scopeId" | "reportMonth" | "sku">;
 
-export class ManualReportApiError extends Error {
+class ManualReportApiError extends Error {
   readonly status: number;
 
   constructor(status: number, message: string) {

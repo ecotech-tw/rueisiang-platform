@@ -2,13 +2,13 @@ import { Select } from "@base-ui/react/select";
 import type { ChangeEventHandler } from "react";
 import { Icon } from "../shell/icons.js";
 
-export interface DropdownSelectOption {
+interface DropdownSelectOption {
   label: string;
   value: string;
   disabled?: boolean;
 }
 
-export interface DropdownSelectProps {
+interface DropdownSelectProps {
   options: readonly DropdownSelectOption[];
   value?: string | number | readonly string[];
   defaultValue?: string | number | readonly string[];

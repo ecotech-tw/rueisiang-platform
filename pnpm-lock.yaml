@@ -75,9 +75,6 @@ importers:
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      '@rueisiang/auth':
-        specifier: workspace:*
-        version: link:../../packages/auth
       '@tanstack/react-query':
         specifier: ^5.90.2
         version: 5.101.4(react@19.2.6)

@@ -15,7 +15,7 @@ import type { CacheClient } from "./upstash.js";
  * 因為按下同步的人就是在盯著那幾個數字看。**只有 CYBERBIZ webhook 不清**：
  * 它是官網推過來的，頻率不受我們控制，一有動靜就清等於快取不存在。
  */
-export const CRM_STATS_CACHE_TTL_SECONDS = 60;
+const CRM_STATS_CACHE_TTL_SECONDS = 60;
 
 const CRM_NAMESPACE = {
   prefix: "crm:v1",

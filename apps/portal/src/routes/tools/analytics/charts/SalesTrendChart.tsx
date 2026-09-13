@@ -23,7 +23,7 @@ import {
 } from "./ChartPrimitives.js";
 import type { AnalyticsGranularity, AnalyticsRange } from "../api.js";
 
-export interface SalesTrendSeries {
+interface SalesTrendSeries {
   current: AnalyticsRange;
   trend: AnalyticsRange | null;
   lastYear: AnalyticsRange | null;

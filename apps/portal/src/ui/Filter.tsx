@@ -1,7 +1,7 @@
 import type { InputHTMLAttributes, SelectHTMLAttributes } from "react";
 import { DropdownSelect } from "./DropdownSelect.js";
 
-export interface FilterInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "aria-label"> {
+interface FilterInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "aria-label"> {
   label: string;
 }
 
@@ -15,12 +15,12 @@ export function FilterInput({ label, ...inputProps }: FilterInputProps) {
   );
 }
 
-export interface FilterSelectOption {
+interface FilterSelectOption {
   label: string;
   value: string;
 }
 
-export interface FilterSelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "aria-label" | "children"> {
+interface FilterSelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "aria-label" | "children"> {
   label: string;
   options: readonly FilterSelectOption[];
 }

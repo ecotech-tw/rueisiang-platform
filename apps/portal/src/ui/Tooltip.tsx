@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
-export interface TooltipProps {
+interface TooltipProps {
   /** 提示內容。純文字；需要標題與段落的是 Material 的 rich tooltip，不要用這個撐。 */
   label: string;
   children: ReactNode;

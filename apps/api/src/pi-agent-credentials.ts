@@ -54,7 +54,7 @@ export class PiCredentialRefreshError extends Error {
   }
 }
 
-export class PiCredentialInputError extends Error {
+class PiCredentialInputError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PiCredentialInputError";

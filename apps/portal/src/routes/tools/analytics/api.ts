@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
-export interface ReportScopeOption {
+interface ReportScopeOption {
   id: string;
   name: string;
   latestSalesPeriod: string | null;
@@ -13,7 +13,7 @@ export interface ReportScopesResponse {
 
 export type AnalyticsGranularity = "day" | "month" | "year";
 
-export interface AnalyticsPoint {
+interface AnalyticsPoint {
   key: string;
   value: number;
 }
@@ -25,7 +25,7 @@ export interface AnalyticsRange {
   points: AnalyticsPoint[];
 }
 
-export interface ReportGrowth {
+interface ReportGrowth {
   mom: number | null;
   yoy: number | null;
 }

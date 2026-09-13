@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL } from "../config.js";
 
-export interface SessionUser {
+interface SessionUser {
   id: string;
   email: string;
   name: string;
@@ -29,9 +29,4 @@ export function useSession() {
     loading: query.isPending,
     error: query.error,
   };
-}
-
-export async function logout(): Promise<void> {
-  await fetch(`${API_BASE_URL}/auth/logout`, { method: "POST", credentials: "include" });
-  window.location.href = "/login";
 }

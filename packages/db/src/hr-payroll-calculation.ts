@@ -42,7 +42,7 @@ const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：需先設定公�
 const BONUS_SOURCE_WARNING = "業績是此次請求明確帶入的快照；未自動套用出金表。";
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
 
-export type HrPayrollEmployeeFilter = "all" | "general" | "scheduled";
+type HrPayrollEmployeeFilter = "all" | "general" | "scheduled";
 
 export interface HrPayrollCalculationInput {
   periodKey: string;
@@ -103,7 +103,7 @@ export interface HrBonusCalculationInput {
   revenue: HrBonusRevenueInput[];
 }
 
-export interface HrBonusAllocationResult {
+interface HrBonusAllocationResult {
   employmentId: string;
   employeeNumber: string;
   employeeName: string;

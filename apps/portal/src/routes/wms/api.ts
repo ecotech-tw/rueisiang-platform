@@ -34,7 +34,7 @@ export interface Zone {
 }
 
 /** 一個品項跟 CYBERBIZ 款式的連結。沒連結時是 null。 */
-export interface CyberbizLink {
+interface CyberbizLink {
   cyberbizProductId: string;
   cyberbizVariantId: string;
   sku: string;
@@ -205,9 +205,6 @@ export const WAREHOUSE_CATEGORY_COLORS = [
   "rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand",
 ] as const;
 
-/** 地圖標示仍沿用同一組視覺色階；分類頁使用上面語意更清楚的名稱。 */
-export const CATEGORY_COLORS = WAREHOUSE_CATEGORY_COLORS;
-
 export function useCreateWarehouseCategory() {
   return useWarehouseMutation((input: { name: string; color: string }) =>
     write<{ id: string }>("/api/wms/categories", "POST", input),
@@ -284,7 +281,7 @@ export function useUpdateSettings() {
 
 // ───────────────────────────── 倉位照片 ─────────────────────────────
 
-export interface ZoneImage {
+interface ZoneImage {
   id: string;
   zoneId: string;
   filename: string;

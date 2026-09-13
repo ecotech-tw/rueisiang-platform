@@ -30,7 +30,7 @@ export interface StandardSalesImportRow {
   salesAmount: number;
 }
 
-export interface StandardPayoutImportPreview {
+interface StandardPayoutImportPreview {
   kind: "payout";
   rows: StandardPayoutImportRow[];
   total: number;
@@ -38,7 +38,7 @@ export interface StandardPayoutImportPreview {
   coverageEnd: string;
 }
 
-export interface StandardSalesImportPreview {
+interface StandardSalesImportPreview {
   kind: "sales";
   rows: StandardSalesImportRow[];
   reportMonths: string[];

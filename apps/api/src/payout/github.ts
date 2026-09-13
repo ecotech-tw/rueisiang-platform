@@ -15,7 +15,7 @@ const GITHUB_API = "https://api.github.com";
 
 
 /** 傳給 runner 的一家店。scopeId 從 D1 帶過去，runner 不再從店名算。 */
-export interface RunnerStore {
+interface RunnerStore {
   scopeId: string;
   name: string;
   driveFolderUrl: string;
@@ -33,7 +33,7 @@ export interface PayoutGithub {
   listRuns(requestId?: string): Promise<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>;
 }
 
-export interface WorkflowRun {
+interface WorkflowRun {
   id: number;
   status: string;
   conclusion: string | null;
@@ -42,7 +42,7 @@ export interface WorkflowRun {
   title: string;
 }
 
-export interface WorkflowStep {
+interface WorkflowStep {
   name: string;
   status: string;
   conclusion: string | null;
@@ -97,8 +97,7 @@ export function payoutGithub(env: Env): PayoutGithub | undefined {
           ref: env.PAYOUT_GITHUB_REF ?? "main",
           inputs: {
             store: input.store,
-            // runner 要的 Drive 資料夾與 scopeId 直接跟著這一次執行傳過去，
-            // 不再靠 commit 一份 stores.json 讓兩邊「保持同步」。
+            // runner 要的店別、scopeId 與 Drive 設定直接跟著這次執行傳過去。
             stores_json: JSON.stringify(input.stores),
             start: input.start,
             end: input.end,

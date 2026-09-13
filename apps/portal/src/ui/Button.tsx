@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { Icon, type IconName } from "../shell/icons.js";
 
-export type ButtonVariant =
+type ButtonVariant =
   | "primary"
   | "secondary"
   | "danger"
@@ -12,7 +12,7 @@ export type ButtonVariant =
   | "chip-remove"
   | "chip-action";
 
-export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> {
+interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> {
   variant?: ButtonVariant;
   icon?: IconName;
   loading?: boolean;

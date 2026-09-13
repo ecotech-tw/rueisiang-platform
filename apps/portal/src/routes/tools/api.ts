@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-export interface PayoutStoreSummary {
+interface PayoutStoreSummary {
   name: string;
   scopeId?: string;
   folder: string;
   folderUrl: string;
 }
 
-export interface PayoutRunRecord {
+interface PayoutRunRecord {
   id: string;
   requestId: string;
   storesJson: string;
@@ -74,7 +74,7 @@ export function useRunPayout() {
   });
 }
 
-export interface CyberbizReportRunRecord {
+interface CyberbizReportRunRecord {
   id: string;
   requestId: string;
   reportKind: "sales" | "payout";
@@ -124,7 +124,7 @@ export function useCyberbizSalesStatus(requestId: string | null) {
   });
 }
 
-export interface ShopReportRunRecord {
+interface ShopReportRunRecord {
   id: string;
   requestId: string;
   startMonth: string;
@@ -196,24 +196,14 @@ export function usePayoutStatus(requestId: string | null) {
   });
 }
 
-/** 執行紀錄裡的店別是 JSON 字串；壞掉的資料不該讓整列炸掉。 */
-export function parseStores(value: string): string[] {
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((name): name is string => typeof name === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-export interface ShopeeSalesSettings {
+interface ShopeeSalesSettings {
   id: string;
   driveFolderUrl: string;
   driveFolderName: string;
   updatedAt: string;
 }
 
-export interface ShopeeSalesRunRecord {
+interface ShopeeSalesRunRecord {
   id: string;
   requestId: string;
   startDate: string;

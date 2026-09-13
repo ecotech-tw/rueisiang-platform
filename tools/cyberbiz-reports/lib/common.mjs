@@ -69,9 +69,8 @@ export async function saveEnv(updates, file = skillPath(".env")) {
  * config.json 是這個工具自己的設定：CYBERBIZ 網址、Drive 根目錄、欄位公式，
  * 以及一份**給手動執行用的**店別清單，由開發者維護。
  *
- * 平台觸發時店別是從 D1 讀出來、由 dispatch input 傳進來的（見 storesOverride），
- * 那一份才是真相。舊版是把店別 commit 成 stores.json 讓 runner 讀——同一份清單
- * 存在 D1、stores.json、config.json 三個地方，改了其中一個另外兩個不會跟著動。
+ * 平台觸發時店別是從 D1 讀出來、由 dispatch input 傳進來的（見 storesOverride）；
+ * 直接執行時才使用 config.json 裡的預設店別。
  *
  * @param {object} [options]
  * @param {Array|null} [options.storesOverride] 平台傳進來的店別清單，有值就蓋掉 config.json 的
@@ -208,15 +207,15 @@ export function salesFilename(storeName, startDate, endDate) {
  *
  * **一律由上層給**，不再從店名算出來。舊版是 base64url(店名)，所以改店名等於
  * 換一個 scope——匯入時對不到既有的據點，會建出一家新店，報表資料從此被切成兩半。
- * 平台從 D1 讀出 scopeId 用 dispatch input 傳進來；手動執行時走 config.json 裡
- * 那一份（同樣要有 scopeId，值從平台的店別設定頁抄過來）。
+ * 平台從 D1 讀出 scopeId 用 dispatch input 傳進來；直接執行時走 config.json 裡
+ * 那一份（同樣要有 scopeId）。
  */
 export function storeScopeId(store) {
   const scopeId = String(store?.scopeId ?? "").trim();
   if (!scopeId) {
     throw new Error(
       `store「${store?.name ?? "?"}」沒有 scopeId：平台觸發時由 stores_json 帶入，`
-      + "手動執行請在 config.json 的 stores 補上（值抄自平台的店別設定頁）。",
+      + "直接執行請在 config.json 的 stores 補上 scopeId。",
     );
   }
   return scopeId;

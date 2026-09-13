@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "../shell/icons.js";
 
-export type StatusTone = "success" | "info" | "warning" | "danger" | "neutral";
+type StatusTone = "success" | "info" | "warning" | "danger" | "neutral";
 
 const STATUS_CLASS: Record<StatusTone, string> = {
   success: "ui-status-success",

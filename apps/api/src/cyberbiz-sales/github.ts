@@ -14,14 +14,14 @@ export interface CyberbizSalesGithub {
 }
 
 /** 傳給 runner 的一家店。scopeId 從 D1 帶過去，runner 不再從店名算。 */
-export interface RunnerStore {
+interface RunnerStore {
   scopeId: string;
   name: string;
   driveFolderUrl: string;
   driveFolderName: string;
 }
 
-export interface WorkflowRun {
+interface WorkflowRun {
   id: number;
   status: string;
   conclusion: string | null;
@@ -30,7 +30,7 @@ export interface WorkflowRun {
   title: string;
 }
 
-export interface WorkflowStep {
+interface WorkflowStep {
   name: string;
   status: string;
   conclusion: string | null;

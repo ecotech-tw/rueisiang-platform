@@ -21,7 +21,7 @@ export type ClaimWebhookEventResult =
  * Worker 在 claim 後可能在寫回結果前被中止。processing 不是終態：超過這個
  * lease 的事件可以安全地交給下一次補跑，避免一筆事件永久卡死。
  */
-export const WEBHOOK_PROCESSING_LEASE_SECONDS = 5 * 60;
+const WEBHOOK_PROCESSING_LEASE_SECONDS = 5 * 60;
 
 /**
  * 所有 CYBERBIZ webhook 的唯一入口 claim。
