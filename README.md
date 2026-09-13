@@ -88,24 +88,31 @@ smoke test 的功能只能標記為「可合併」，不能標記為「已上線
 
 ### HR：排班、出勤與薪資
 
-領域模型、候選資料表、SQL 約束、權限與驗收契約見
-[`docs/hr-system-design.md`](./docs/hr-system-design.md)。先確認制度與資料庫設計，
-再按依賴切片實作；不以設計提案代替法遵確認。
+產品規格分別見：
 
-- [ ] 確認聘僱與工時制度、日薪係數、業績來源、分配方式、發薪區間及審核權限，完成設計 review。
-- [ ] 另案設計 HR 範圍授權與專用稽核入口；目前櫃點歸屬只記錄員工的營運工作範圍，HR 管理採既有功能權限控管。
-- [ ] 補上既有 user 的員工指派審核，以及已結束任職、指派的修訂流程，不直接覆寫歷史。
-- [ ] 若確認有多法人，再新增法人及薪資／投保歸屬模型；目前不建立雇主管理介面。
-- [x] 建立獨立出勤設定與辦公位置管理（Google Places 搜尋、MapLibre／OpenFreeMap 地圖、Static Maps fallback、geolocation 開關、半徑）；員工可同時指派多個辦公位置與主管，並提供本人手機打卡、出勤日曆／紀錄與補打卡申請。
+- [`docs/hr-navigation-prd.md`](./docs/hr-navigation-prd.md)
+- [`docs/hr-employee-setup-prd.md`](./docs/hr-employee-setup-prd.md)
+- [`docs/hr-attendance-prd.md`](./docs/hr-attendance-prd.md)
+- [`docs/hr-scheduling-prd.md`](./docs/hr-scheduling-prd.md)
+- [`docs/hr-leave-prd.md`](./docs/hr-leave-prd.md)
+- [`docs/hr-special-workdays-prd.md`](./docs/hr-special-workdays-prd.md)
+- [`docs/hr-bonus-prd.md`](./docs/hr-bonus-prd.md)
+- [`docs/hr-insurance-setup-prd.md`](./docs/hr-insurance-setup-prd.md)
+- [`docs/hr-payroll-settlement-prd.md`](./docs/hr-payroll-settlement-prd.md)
+
+領域模型與共通 SQL 約束見 [`docs/hr-system-design.md`](./docs/hr-system-design.md)；正式實作依各 PRD 與既有 schema 盤點後切片，不以設計文件取代法遵確認。
+
+- [ ] 對照員工、任職、主管、辦公地點與出勤 PRD，補齊既有實作的缺口與回歸測試。
+- [ ] 將既有班別排班路徑調整為辦公地點排班；加入每個地點週一至週日上下班時段、標準工時與打卡容許範圍。
+- [ ] 完成月度人工假勤、給薪比例、人工扣款與假勤統計。
+- [ ] 完成特殊上班日常駐規則、按需指派、補貼與薪資明細。
+- [ ] 完成多 Scope、多 Policy 累加的獎金計算、明細與歷史快照。
+- [ ] 完成薪資項目、個人加班規則、勞健保員工扣款、薪資試算、分批結帳與薪資調整。
+- [ ] 完成勞健保年度同步、差異預覽、人工更新與失敗提醒。
+- [ ] 完成 HR 管理頁面的權限、異常導向、responsive UI 與 API／migration 回歸測試。
 - [ ] 完成 `hr.rueisiang.com` 正式 DNS／OAuth redirect／CI 變數設定，並執行 Edge、Chrome 與手機 smoke test。
-- [ ] 確認正式環境 OpenFreeMap 圖磚服務的授權與流量限制，必要時改用自建或核准的 MapLibre style。
-- [ ] 實作班次版本、快速排班及發布、補打卡核准後的出勤計算與審核。
-- [ ] 實作假別額度、請假／加班、補休與颱風等特殊給薪日。
-- [x] 建立獎金管理子頁面：可設定團體／個人績效、獨立保底門檻、必填百分比與當月／前月業績，讓員工套用一或多筆 policy；計算薪資時自動讀取由業績來源匯入的快照並將獎金四捨五入到新臺幣元。舊式櫃點獎金池與正式來源匯入、覆核、結帳仍待制度確認。
-- [x] 建立薪資／勞健保 append-only 版本、官方級距即時來源、人工覆寫與員工內頁歷史；薪資金額與勞健保明細限全平台 HR 管理者。
-- [ ] 完成正式月薪／獎金試算規則、覆核、結帳、調整單及私密薪資單；目前僅提供 `hr-payroll-demo-v1` 開發試算與可重現薪資單。
-- [ ] 完成實機 smoke 與至少兩個完整月份平行計薪對帳，再正式啟用薪資結算。
-- [ ] 接入具備可信員工身分的 RFID／LINE／MCP 與圖片排班草稿，不繞過既有審核。
+- [ ] 完成至少兩個完整月份的平行計薪對帳，再正式啟用薪資結算。
+- [ ] 完成 0.5 小時加班單位、固定加班金額、30 日制與相關給薪規則的法遵確認。
 
 ### 蝦皮：改用 Open API 取數
 
