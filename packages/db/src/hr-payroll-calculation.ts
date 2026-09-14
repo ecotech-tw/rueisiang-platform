@@ -380,6 +380,14 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     .where(and(eq(hrPayrollPeriods.periodKey, period.periodKey), eq(hrPayrollRuns.status, "closed"), inArray(hrPayslips.employmentId, employees.map((employee) => employee.employmentId)))) : [];
   if (closedEmploymentIds.length) throw new HrError(409, "同一員工同一月份已有已結帳結果，請改用薪資調整。 ");
   // 臨時支援人員沒有 users／hr_employments，薪資資格來自已發布班表；不套用獎金 policy。
+  const scheduledEmployeeRows = await db.select({ employmentId: hrScheduleEntries.employmentId, workDate: hrScheduleEntries.workDate }).from(hrScheduleEntries)
+    .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
+    .where(and(
+      eq(hrScheduleVersions.status, "published"),
+      eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end),
+      sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
+      sql`${hrScheduleEntries.workDate} >= ${period.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
+    ));
   const scheduledWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt }).from(hrScheduleWorkerEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
     .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
@@ -389,6 +397,12 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleWorkerEntries.workDate} >= ${period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${period.end}`,
     ));
+  const scheduledDatesByEmployment = new Map<string, Set<string>>();
+  for (const row of scheduledEmployeeRows) {
+    const dates = scheduledDatesByEmployment.get(row.employmentId) ?? new Set<string>();
+    dates.add(row.workDate);
+    scheduledDatesByEmployment.set(row.employmentId, dates);
+  }
   if (!employees.length && !scheduledWorkerRows.length) throw new HrError(400, "指定月份沒有符合條件的啟用中員工或已發布支援排班。 ");
 
   const compensations = await db.select().from(hrCompensationVersions).where(and(
@@ -514,9 +528,16 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     let specialMinor = 0;
     const compensationItemTotals = new Map<string, number>();
     const specialAssignments = specialWorkdays.filter((item) => item.employmentId === employee.employmentId);
+    const scheduledDates = scheduledDatesByEmployment.get(employee.employmentId) ?? new Set<string>();
+    const specialDates = new Set(specialAssignments.map((item) => item.workDate));
+    if (employeeCompensations.some((item) => item.payBasis === "daily") && scheduledDates.size === 0) {
+      calculationWarnings.add(`${employee.employeeName} 為日薪制但本期沒有已發布排班，薪資為 0。`);
+    }
     for (const day of employmentDays) {
       const compensation = covering(employeeCompensations, day);
       if (!compensation) continue;
+      // 日薪是買「已發布的工作日」，不能把整段任職期間誤當成出勤日；特殊上班日則由明確套用資料保留計薪機會。
+      if (compensation.payBasis === "daily" && !scheduledDates.has(day) && !specialDates.has(day)) continue;
       const special = specialAssignments.find((item) => item.workDate === day);
       if (special) {
         let hours = 0;
@@ -566,7 +587,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     if (fullMonthComp?.payBasis === "hourly" && !monthlyData.hourly.some((item) => item.employmentId === employee.employmentId)) {
       calculationWarnings.add(`${employee.employeeName} 為時薪制但尚未登記本期工時；請登記工時或明確標記本期無工時。`);
     }
-    if (baseMinor > 0) lines.push({ lineKey: "base_salary", direction: "earning", amountMinor: baseMinor, explanation: { payBasis: fullMonthComp?.payBasis ?? "unknown", period: input.periodKey, rule: fullMonthComp?.payBasis === "hourly" ? "依月度人工工時登記（0.5 小時單位）" : "月薪按日曆日比例；日薪／時薪按任職日計算" } });
+    if (baseMinor > 0) lines.push({ lineKey: "base_salary", direction: "earning", amountMinor: baseMinor, explanation: { payBasis: fullMonthComp?.payBasis ?? "unknown", period: input.periodKey, rule: fullMonthComp?.payBasis === "hourly" ? "依月度人工工時登記（0.5 小時單位）" : fullMonthComp?.payBasis === "daily" ? "依已發布排班日期計算；特殊上班日依套用資料" : "月薪按日曆日比例" } });
     if (specialMinor > 0) lines.push({ lineKey: "special_workday", direction: "earning", amountMinor: specialMinor, explanation: { rule: "特殊上班日取代當日基本薪資", assignmentIds: specialAssignments.map((item) => item.id) } });
     for (const [index, special] of specialAssignments.entries()) {
       if (!special.allowanceQuantity) continue;
@@ -1120,9 +1141,45 @@ export async function getHrBonusPool(db: Database, poolId: string) {
 }
 
 export async function listHrPayrollRuns(db: Database) {
-  return db.select({ run: hrPayrollRuns, periodKey: hrPayrollPeriods.periodKey, periodStatus: hrPayrollPeriods.status }).from(hrPayrollRuns)
+  // D1/SQLite 對 join 後同名欄位的巢狀映射不可靠；明確別名才能避免期間 status 蓋掉批次 status。
+  const rows = await db.select({
+    runId: hrPayrollRuns.id,
+    payrollPeriodId: hrPayrollRuns.payrollPeriodId,
+    versionNumber: hrPayrollRuns.versionNumber,
+    requestId: hrPayrollRuns.requestId,
+    inputRevision: hrPayrollRuns.inputRevision,
+    engineVersion: hrPayrollRuns.engineVersion,
+    runStatus: hrPayrollRuns.status,
+    expectedCount: hrPayrollRuns.expectedCount,
+    completedCount: hrPayrollRuns.completedCount,
+    approvedBy: hrPayrollRuns.approvedBy,
+    createdBy: hrPayrollRuns.createdBy,
+    createdAt: hrPayrollRuns.createdAt,
+    updatedAt: hrPayrollRuns.updatedAt,
+    periodKey: hrPayrollPeriods.periodKey,
+    periodStatus: hrPayrollPeriods.status,
+  }).from(hrPayrollRuns)
     .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
     .orderBy(desc(hrPayrollRuns.createdAt));
+  return rows.map((row) => ({
+    run: {
+      id: row.runId,
+      payrollPeriodId: row.payrollPeriodId,
+      versionNumber: row.versionNumber,
+      requestId: row.requestId,
+      inputRevision: row.inputRevision,
+      engineVersion: row.engineVersion,
+      status: row.runStatus,
+      expectedCount: row.expectedCount,
+      completedCount: row.completedCount,
+      approvedBy: row.approvedBy,
+      createdBy: row.createdBy,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    },
+    periodKey: row.periodKey,
+    periodStatus: row.periodStatus,
+  }));
 }
 
 export async function closeHrPayrollRun(db: Database, runId: string, actor: HrActor) {

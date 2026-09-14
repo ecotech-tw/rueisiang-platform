@@ -49,8 +49,11 @@ class LocalStatement {
   }
 
   async raw<T = unknown[]>(): Promise<T[]> {
-    const rows = this.prepared().all(...(this.params as never[])) as Record<string, unknown>[];
-    return rows.map((row) => Object.values(row)) as T[];
+    // Drizzle 的 D1 mapper 依欄位順序處理 join；Object.values() 會把同名欄位折疊，
+    // 例如薪資批次與期間都有 status 時就會把其中一個值弄丟。
+    const statement = this.prepared();
+    statement.setReturnArrays(true);
+    return statement.all(...(this.params as never[])) as T[];
   }
 }
 

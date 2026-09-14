@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { PageTabs } from "../../ui/index.js";
+import { HrOverview } from "./Overview.js";
 
 /** platform 只承載 HR 管理功能；員工本人入口在 hr.rueisiang.com。 */
 const EMPLOYEE_TABS = [
@@ -35,7 +36,8 @@ export function HrLayout() {
   const isAttendance = pathname.includes("/attendance-settings") || pathname.includes("/attendance-records") || pathname.includes("/special-workdays") || pathname.includes("/overtime");
   const isScheduling = pathname.includes("/scheduling");
   const isPayroll = pathname.includes("/compensation") || pathname.includes("/bonus") || pathname.includes("/payroll-settlement") || pathname.includes("/monthly-data") || pathname.includes("/payroll-settings");
-  const current = isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "敘薪與獎金" : "員工管理";
+  const isOverview = pathname === "/hr" || pathname === "/hr/";
+  const current = isOverview ? "概覽" : isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "敘薪與獎金" : "員工管理";
   const tabs = isEmployee ? EMPLOYEE_TABS : isAttendance ? ATTENDANCE_TABS : isScheduling ? SCHEDULING_TABS : isPayroll ? PAYROLL_TABS : [];
   const visibleTabs = tabs.filter((tab) => permissions.has(tab.permission) && (!tab.adminOnly || isHrAdministrator));
 
@@ -52,5 +54,6 @@ export function HrLanding() {
   const { permissions, user } = useSession();
   const isHrAdministrator = user?.roles.includes("admin") ?? false;
   const target = permissions.has("hr:employee:read") ? "/hr/employees" : permissions.has("hr:office:read") ? "/hr/attendance-settings" : isHrAdministrator && permissions.has("hr:payroll:read") ? "/hr/compensation" : isHrAdministrator && permissions.has("hr:bonus:read") ? "/hr/bonus" : "/";
+  if (isHrAdministrator && (["hr:employee:read", "hr:office:read", "hr:schedule:read", "hr:payroll:read", "hr:bonus:read"] as const).some((permission) => permissions.has(permission))) return <HrOverview />;
   return <Navigate to={target} replace />;
 }

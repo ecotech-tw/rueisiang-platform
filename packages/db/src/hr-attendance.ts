@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
@@ -400,6 +400,86 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
     };
   });
   return { year, month, today, days };
+}
+
+/**
+ * 首頁只需要異常數量；批次撈取整個月份，避免對每一位員工重複跑五次 D1 查詢。
+ * 判斷規則與 getHrClockCalendar 共用同一組日曆 helper，新增摘要不會另造一套出勤語意。
+ */
+export async function countHrClockCalendarAnomalies(db: Database, userIds: string[], year: number, month: number) {
+  if (!userIds.length) return 0;
+  const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  const queryStart = calendarDate(monthStart, -1);
+  const queryEnd = calendarDate(monthEnd, 1);
+  const [employments, attendanceSettings, schedules, events, leaves] = await Promise.all([
+    db.select({ userId: hrEmployments.employeeUserId, employmentId: hrEmployments.id, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployments)
+      .where(inArray(hrEmployments.employeeUserId, userIds)),
+    db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmploymentAttendanceSettings)
+      .innerJoin(hrEmployments, eq(hrEmployments.id, hrEmploymentAttendanceSettings.employmentId))
+      .where(inArray(hrEmployments.employeeUserId, userIds)),
+    db.select({ employmentId: hrScheduleEntries.employmentId, workDate: hrScheduleEntries.workDate, startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt }).from(hrScheduleEntries)
+      .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
+      .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleEntries.employmentId))
+      .where(and(
+        inArray(hrEmployments.employeeUserId, userIds), eq(hrScheduleVersions.status, "published"),
+        sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
+        sql`${hrScheduleEntries.workDate} BETWEEN ${queryStart} AND ${monthEnd}`,
+      )),
+    db.select({
+      id: hrClockEvents.id,
+      rowId: sql<number>`hr_clock_events.rowid`,
+      employeeUserId: hrClockEvents.employeeUserId,
+      eventKind: hrClockEvents.eventKind,
+      occurredAt: hrClockEvents.occurredAt,
+      eventDate: sql<string>`date(${hrClockEvents.occurredAt}, '+8 hours')`,
+    }).from(hrClockEvents)
+      .where(and(inArray(hrClockEvents.employeeUserId, userIds), sql`date(${hrClockEvents.occurredAt}, '+8 hours') BETWEEN ${queryStart} AND ${queryEnd}`))
+      .orderBy(asc(hrClockEvents.occurredAt), asc(sql`hr_clock_events.rowid`)),
+    db.select({ userId: hrEmployments.employeeUserId, startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn }).from(hrLeaveRequests)
+      .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
+      .where(and(
+        inArray(hrEmployments.employeeUserId, userIds), eq(hrLeaveRequests.status, "approved"),
+        sql`${hrLeaveRequests.startsOn} <= ${monthEnd}`, sql`${hrLeaveRequests.endsOn} > ${monthStart}`,
+      )),
+  ]);
+  const modeByEmployment = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting.attendanceMode]));
+  const scheduleByEmployment = new Map<string, CalendarSchedule[]>();
+  for (const schedule of schedules) scheduleByEmployment.set(schedule.employmentId, [...(scheduleByEmployment.get(schedule.employmentId) ?? []), schedule]);
+  const eventDatesByUser = new Map<string, Map<string, typeof events>>();
+  for (const event of events) {
+    const dates = eventDatesByUser.get(event.employeeUserId) ?? new Map<string, typeof events>();
+    dates.set(event.eventDate, [...(dates.get(event.eventDate) ?? []), event]);
+    eventDatesByUser.set(event.employeeUserId, dates);
+  }
+  const leavesByUser = new Map<string, typeof leaves>();
+  for (const leave of leaves) leavesByUser.set(leave.userId, [...(leavesByUser.get(leave.userId) ?? []), leave]);
+  const today = taipeiToday();
+  let anomalyCount = 0;
+  for (const userId of userIds) {
+    const userEmployments = employments.filter((employment) => employment.userId === userId);
+    const userEvents = eventDatesByUser.get(userId) ?? new Map<string, typeof events>();
+    const userLeaves = leavesByUser.get(userId) ?? [];
+    for (let day = 1; day <= lastDay; day += 1) {
+      const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+      const dayEvents = userEvents.get(date) ?? [];
+      const onLeave = userLeaves.some((leave) => leave.startsOn <= date && leave.endsOn > date);
+      const activeEmployments = userEmployments.filter((employment) => employment.hiredOn <= date && (!employment.endedOn || employment.endedOn > date));
+      const employed = activeEmployments.length > 0;
+      const scheduledEmployment = activeEmployments.find((employment) => modeByEmployment.get(employment.employmentId) === "scheduled");
+      const scheduleRows = scheduledEmployment ? scheduleByEmployment.get(scheduledEmployment.employmentId) ?? [] : [];
+      const schedule = scheduledEmployment ? scheduleForDate(scheduleRows, date) : null;
+      const previousOvernight = scheduledEmployment ? overnightScheduleForDate(scheduleRows, date) : null;
+      const anomalyEvents = calendarEventsForDate(userEvents, date, schedule, previousOvernight);
+      const expected = employed && (scheduledEmployment ? Boolean(schedule) : weekday !== 0 && weekday !== 6);
+      const status = !employed ? "not-employed" : date > today ? "future" : onLeave ? "leave" : dayEvents.length ? "present" : date === today ? "open" : expected ? "missing" : "rest";
+      if (status === "leave" || status === "future" || status === "rest" || status === "not-employed" || status === "open") continue;
+      if (calendarAnomaly(anomalyEvents, schedule, expected, Boolean(scheduledEmployment))) anomalyCount += 1;
+    }
+  }
+  return anomalyCount;
 }
 
 const clockEventFields = {

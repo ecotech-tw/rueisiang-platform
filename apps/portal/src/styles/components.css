@@ -500,6 +500,7 @@
  *
  * 改成相鄰通用選擇器：不管放什麼進來都有間距，新元件不必知道這條規則。
  */
+.page { min-width: 0; }
 .page > * + * { margin-top: 20px; }
 .page-head { margin-bottom: 0; }
 .page-head h1 { margin: 0 0 4px; font-size: 24px; }
@@ -3987,3 +3988,50 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .hr-calendar-entry small { display: none; }
 }
 .hr-schedule-page > .panel.grows { overflow: auto; }
+
+/* HRIS 概覽卡片 */
+.hr-overview-page { gap: 22px; }
+.hr-overview-page > .panel { padding: 20px; }
+.hr-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.hr-overview-card { display: grid; gap: 13px; min-height: 190px; padding: 18px; border: 1px solid var(--color-line); border-radius: 18px; background: var(--color-paper); color: var(--color-ink); text-decoration: none; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.hr-overview-card:hover { border-color: var(--color-secondary); box-shadow: 0 8px 20px --alpha(var(--color-ink) / 9%); transform: translateY(-2px); }
+.hr-overview-card:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-overview-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hr-overview-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.hr-overview-icon svg { width: 19px; height: 19px; }
+.hr-overview-value { font-size: clamp(22px, 2vw, 30px); letter-spacing: -.02em; }
+.hr-overview-card p { min-height: 42px; margin: 0; color: var(--color-muted); font-size: 12px; line-height: 1.65; }
+.hr-overview-action { align-self: end; color: var(--color-brand-dark); font-size: 13px; font-weight: 800; }
+.hr-overview-action span { display: inline-block; margin-left: 3px; transition: transform .16s ease; }
+.hr-overview-card:hover .hr-overview-action span { transform: translateX(3px); }
+
+/* 薪資結算的摘要表先給總覽，明細用 details 漸進展開，避免首頁式長表一次淹沒畫面。 */
+.hr-payroll-result-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-line); }
+.hr-payroll-result-toolbar > strong { color: var(--color-brand-dark); }
+.hr-payroll-summary { margin-top: 12px; }
+.hr-payroll-summary .data-table { margin-top: 0; }
+.hr-payroll-details { display: grid; gap: 8px; margin-top: 14px; }
+.hr-payroll-employee { overflow: hidden; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-paper); }
+.hr-payroll-employee > summary { cursor: pointer; list-style: none; }
+.hr-payroll-employee > summary::-webkit-details-marker { display: none; }
+.hr-payroll-employee > summary::after { display: inline-block; margin-left: 8px; color: var(--color-muted); content: "＋"; }
+.hr-payroll-employee[open] > summary::after { content: "−"; }
+.hr-payroll-result-head { padding: 13px 15px; }
+.hr-payroll-result-person { display: grid; gap: 4px; min-width: 0; }
+.hr-payroll-result-person strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-payroll-result-body { padding: 0 15px 14px; }
+.hr-payroll-result-body .data-table { margin-top: 0; }
+.hr-payroll-result-body > .form-hint { margin: 8px 0 0; }
+.hr-payroll-warning-list { margin: 7px 0 0; padding-left: 20px; }
+.hr-payroll-worker-results { display: grid; gap: 10px; margin-top: 20px; }
+.hr-payroll-worker-results > h3 { margin: 0; font-size: 16px; }
+.hr-payroll-worker-results .hr-payroll-result { margin-top: 0; padding: 14px; border: 1px solid var(--color-line); border-top: 1px solid var(--color-line); border-radius: 12px; }
+@media (max-width: 1100px) { .hr-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) {
+  .hr-overview-page > .panel { padding: 12px; }
+  .hr-overview-grid { grid-template-columns: 1fr; }
+  .hr-overview-card { min-height: 0; }
+  .hr-overview-card p { min-height: 0; }
+  .hr-payroll-result-toolbar { align-items: flex-start; flex-direction: column; }
+  .hr-payroll-summary { margin-inline: -12px; }
+}

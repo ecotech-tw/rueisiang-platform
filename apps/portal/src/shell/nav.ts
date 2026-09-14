@@ -23,6 +23,8 @@ export interface NavItem {
 
 export interface NavSection {
   key: string;
+  /** 大項自己的首頁；目前只有 HRIS 概覽需要在沒有子頁 active 時保持展開。 */
+  homePath?: string;
   label: string;
   /** 大項自己也有圖示——收合成窄欄之後，那是唯一還看得到的線索。 */
   icon: IconName;
@@ -98,6 +100,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     key: "hr",
+    homePath: "/hr",
     label: "HRIS",
     icon: "people",
     items: [
@@ -126,5 +129,6 @@ export function containsPath(item: NavItem, pathname: string): boolean {
 }
 
 export function sectionContainsPath(section: NavSection, pathname: string): boolean {
+  if (section.homePath && (pathname === section.homePath || pathname.startsWith(`${section.homePath}/`))) return true;
   return section.items.some((item) => containsPath(item, pathname));
 }

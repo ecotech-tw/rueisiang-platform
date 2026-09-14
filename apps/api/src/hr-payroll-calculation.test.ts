@@ -30,6 +30,17 @@ beforeEach(async () => {
 afterEach(() => d1.sqlite.close());
 
 describe("HR 薪資與櫃點獎金試算", () => {
+  it("提供 HRIS 概覽的四個待辦摘要", async () => {
+    const response = await request("/hr/overview");
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { periodKey: string; attendance: { anomalyCount: number }; schedule: { status: string; missingEmployeeCount: number }; insurance: { totalEmployeeCount: number; missingEmployeeCount: number }; payroll: { status: string; runId: string | null } };
+    expect(body.periodKey).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/);
+    expect(body.attendance.anomalyCount).toBeGreaterThanOrEqual(0);
+    expect(body.schedule.missingEmployeeCount).toBeGreaterThanOrEqual(0);
+    expect(body.insurance.totalEmployeeCount).toBeGreaterThanOrEqual(0);
+    expect(body.payroll).toEqual(expect.objectContaining({ status: expect.any(String) }));
+  });
+
   it("使用林瑞翔的假勤與加班紀錄建立辦公室薪資單", async () => {
     const invalidScope = await request("/hr/bonus/policies", "POST", { name: "不存在通路", scopeId: "missing-scope", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 50_000, guaranteeMinor: 0 });
     expect(invalidScope.status, await invalidScope.clone().text()).toBe(404);
@@ -54,6 +65,15 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
     const repeat = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-2026-08-lin" });
     expect((await repeat.json() as { run: { runId: string } }).run.runId).toBe(body.run.runId);
+  });
+
+  it("薪資批次列表分開保留批次狀態與薪資期間狀態", async () => {
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-run-list-status" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const listed = await request("/hr/payroll/runs");
+    expect(listed.status, await listed.clone().text()).toBe(200);
+    const body = await listed.json() as { runs: Array<{ run: { requestId: string; status: string }; periodStatus: string }> };
+    expect(body.runs.find((item) => item.run.requestId === "test-payroll-run-list-status")).toMatchObject({ run: { status: "ready" }, periodStatus: "open" });
   });
 
   it("按員工套用的 policy 自動計算櫃位業績獎金並四捨五入到元", async () => {
@@ -161,10 +181,41 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "測試支援人員", payBasis: "daily", scheduledDays: 2, amountMinor: 960_000 })]));
   });
 
+  it("日薪員工只按已發布排班日期計薪，沒有排班不把整月任職日當成出勤", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "測試日薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
+    expect(mode.status, await mode.clone().text()).toBe(200);
+    const scheduleResponse = await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen");
+    expect(scheduleResponse.status, await scheduleResponse.clone().text()).toBe(200);
+    const schedule = await scheduleResponse.json() as { version: { id: string; revision: number } | null; shifts: Array<{ versionId: string }> };
+    expect(schedule.version).toBeNull();
+    expect(schedule.shifts.length).toBeGreaterThan(0);
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-17" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-daily-schedule-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as {
+      run: {
+        employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }>;
+        warnings: string[];
+      };
+    };
+    expect(body.run.employees[0]).toMatchObject({ earningMinor: 360_000 });
+    expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "base_salary", amountMinor: 360_000, explanation: expect.objectContaining({ rule: "依已發布排班日期計算；特殊上班日依套用資料" }) }),
+    ]));
+    expect(body.run.warnings.some((warning) => warning.includes("日薪制但本期沒有已發布排班"))).toBe(false);
+  });
+
   it("一般員工不能讀取薪資與獎金資料", async () => {
     cookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
     expect((await request("/hr/bonus/policies")).status).toBe(403);
     expect((await request("/hr/payroll/runs/not-for-staff")).status).toBe(403);
+    expect((await request("/hr/overview")).status).toBe(403);
   });
 
   it("只用已發布班表日期的核准業績，按保底後固定比例計算櫃點獎金", async () => {
