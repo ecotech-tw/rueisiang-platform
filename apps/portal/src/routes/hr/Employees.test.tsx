@@ -19,8 +19,10 @@ describe("人事資料呈現", () => {
     expect(html).toContain(">任職</span>");
     expect(html).toContain(">薪資</span>");
     expect(html).toContain(">勞健保</span>");
-    expect(html).toContain(">辦公位置</span>");
+    expect(html).toContain(">辦公位置摘要</span>");
     expect(html).toContain(">打卡紀錄</span>");
+    expect(html).not.toContain("資料管理");
+    expect(html).not.toContain("設為主要");
   });
 
   it("呈現復職歷史與半開期間，姓名不解析為 HTML", () => {
