@@ -136,6 +136,80 @@ export const hrScheduleWorkerEntries = sqliteTable("hr_schedule_worker_entries",
   check("ck_hr_schedule_worker_entries_period", sql`${table.endsAt} > ${table.startsAt}`),
 ]);
 
+export const hrSpecialWorkdayRules = sqliteTable("hr_special_workday_rules", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  active: integer("active").notNull().default(1),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  revision: integer("revision").notNull().default(1),
+}, (table) => [
+  check("ck_hr_special_workday_rules_name", sql`length(trim(${table.name})) BETWEEN 1 AND 100`),
+  check("ck_hr_special_workday_rules_active", sql`${table.active} IN (0, 1)`),
+  check("ck_hr_special_workday_rules_revision", sql`${table.revision} > 0`),
+]);
+
+export const hrSpecialWorkdayRuleVersions = sqliteTable("hr_special_workday_rule_versions", {
+  id: text("id").primaryKey(),
+  ruleId: text("rule_id").notNull().references(() => hrSpecialWorkdayRules.id, { onDelete: "restrict" }),
+  versionNumber: integer("version_number").notNull(),
+  validFrom: text("valid_from").notNull(),
+  validTo: text("valid_to"),
+  wageKind: text("wage_kind", { enum: ["fixed_hourly", "multiplier"] as const }).notNull(),
+  fixedAmountMinor: integer("fixed_amount_minor"),
+  multiplierPpm: integer("multiplier_ppm"),
+  overtimeRule: text("overtime_rule").notNull(),
+  workSource: text("work_source", { enum: ["schedule", "hourly", "manual"] as const }).notNull(),
+  note: text("note").notNull().default(""),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_special_workday_versions_number").on(table.ruleId, table.versionNumber),
+  index("idx_hr_special_workday_versions_period").on(table.validFrom, table.validTo),
+  check("ck_hr_special_workday_versions_dates", sql`length(${table.validFrom}) = 10 AND (${table.validTo} IS NULL OR (length(${table.validTo}) = 10 AND ${table.validTo} > ${table.validFrom}))`),
+  check("ck_hr_special_workday_versions_wage", sql`(${table.wageKind} = 'fixed_hourly' AND ${table.fixedAmountMinor} IS NOT NULL AND ${table.fixedAmountMinor} >= 0 AND ${table.multiplierPpm} IS NULL) OR (${table.wageKind} = 'multiplier' AND ${table.fixedAmountMinor} IS NULL AND ${table.multiplierPpm} IS NOT NULL AND ${table.multiplierPpm} >= 0)`),
+  check("ck_hr_special_workday_versions_overtime", sql`length(trim(${table.overtimeRule})) BETWEEN 1 AND 100`),
+  check("ck_hr_special_workday_versions_source", sql`${table.workSource} IN ('schedule', 'hourly', 'manual')`),
+  check("ck_hr_special_workday_versions_note", sql`length(${table.note}) <= 1000`),
+]);
+
+export const hrSpecialWorkdayAllowances = sqliteTable("hr_special_workday_allowances", {
+  id: text("id").primaryKey(),
+  ruleVersionId: text("rule_version_id").notNull().references(() => hrSpecialWorkdayRuleVersions.id, { onDelete: "restrict" }),
+  itemName: text("item_name").notNull(),
+  unitAmountMinor: integer("unit_amount_minor").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_hr_special_workday_allowances_version").on(table.ruleVersionId),
+  check("ck_hr_special_workday_allowances_name", sql`length(trim(${table.itemName})) BETWEEN 1 AND 100`),
+  check("ck_hr_special_workday_allowances_amount", sql`${table.unitAmountMinor} >= 0`),
+]);
+
+export const hrSpecialWorkdayAssignments = sqliteTable("hr_special_workday_assignments", {
+  id: text("id").primaryKey(),
+  ruleVersionId: text("rule_version_id").notNull().references(() => hrSpecialWorkdayRuleVersions.id, { onDelete: "restrict" }),
+  employmentId: text("employment_id").references(() => hrEmployments.id, { onDelete: "restrict" }),
+  workerId: text("worker_id").references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  workDate: text("work_date").notNull(),
+  ruleNameSnapshot: text("rule_name_snapshot").notNull(),
+  wageKindSnapshot: text("wage_kind_snapshot").notNull(),
+  fixedAmountMinorSnapshot: integer("fixed_amount_minor_snapshot"),
+  multiplierPpmSnapshot: integer("multiplier_ppm_snapshot"),
+  workSourceSnapshot: text("work_source_snapshot").notNull(),
+  allowanceSnapshotJson: text("allowance_snapshot_json").notNull().default("[]"),
+  allowanceQuantity: integer("allowance_quantity").notNull().default(0),
+  appliedBy: text("applied_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  appliedAt: text("applied_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_special_workday_assignments_employment_date").on(table.employmentId, table.workDate),
+  uniqueIndex("idx_hr_special_workday_assignments_worker_date").on(table.workerId, table.workDate),
+  index("idx_hr_special_workday_assignments_date").on(table.workDate, table.employmentId, table.workerId),
+  check("ck_hr_special_workday_assignments_target", sql`(${table.employmentId} IS NOT NULL AND ${table.workerId} IS NULL) OR (${table.employmentId} IS NULL AND ${table.workerId} IS NOT NULL)`),
+  check("ck_hr_special_workday_assignments_date", sql`length(${table.workDate}) = 10`),
+  check("ck_hr_special_workday_assignments_quantity", sql`${table.allowanceQuantity} >= 0`),
+]);
+
 export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   id: text("id").primaryKey(),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
@@ -155,6 +229,7 @@ export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   ...timestamps(),
 }, (table) => [
   index("idx_hr_overtime_employment_start").on(table.employmentId, table.requestedStart),
+  uniqueIndex("idx_hr_overtime_unique_request").on(table.employmentId, table.requestedStart, table.requestedEnd),
   index("idx_hr_overtime_status").on(table.status, table.requestedStart),
   check("ck_hr_overtime_requested_period", sql`${table.requestedEnd} > ${table.requestedStart}`),
   check("ck_hr_overtime_actual_pair", sql`(${table.actualStart} IS NULL AND ${table.actualEnd} IS NULL) OR (${table.actualStart} IS NOT NULL AND ${table.actualEnd} IS NOT NULL AND ${table.actualEnd} > ${table.actualStart})`),
@@ -172,3 +247,7 @@ export type HrScheduleEntry = typeof hrScheduleEntries.$inferSelect;
 export type HrScheduleWorker = typeof hrScheduleWorkers.$inferSelect;
 export type HrScheduleWorkerEntry = typeof hrScheduleWorkerEntries.$inferSelect;
 export type HrOvertimeRequest = typeof hrOvertimeRequests.$inferSelect;
+export type HrSpecialWorkdayRule = typeof hrSpecialWorkdayRules.$inferSelect;
+export type HrSpecialWorkdayRuleVersion = typeof hrSpecialWorkdayRuleVersions.$inferSelect;
+export type HrSpecialWorkdayAllowance = typeof hrSpecialWorkdayAllowances.$inferSelect;
+export type HrSpecialWorkdayAssignment = typeof hrSpecialWorkdayAssignments.$inferSelect;

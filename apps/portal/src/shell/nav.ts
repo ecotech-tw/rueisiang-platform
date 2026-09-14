@@ -102,9 +102,10 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: "people",
     items: [
       { label: "員工管理", to: "/hr/employees", permission: "hr:employee:read", icon: "list" },
-      { label: "出勤管理", to: "/hr/attendance-records", permission: "hr:office:read", icon: "calendar", activePaths: ["/hr/attendance-settings"] },
+      { label: "出勤管理", to: "/hr/attendance-records", permission: "hr:office:read", icon: "calendar", activePaths: ["/hr/attendance-settings", "/hr/special-workdays"] },
+      { label: "加班審核", to: "/hr/overtime", permission: "hr:request:review", icon: "calendar" },
       { label: "月曆排班", to: "/hr/scheduling", permission: "hr:schedule:read", icon: "calendar" },
-      { label: "敘薪與獎金", to: "/hr/compensation", permission: "hr:payroll:read", icon: "payments", activePaths: ["/hr/bonus", "/hr/payroll-settlement"] },
+      { label: "敘薪與獎金", to: "/hr/compensation", permission: "hr:payroll:read", icon: "payments", activePaths: ["/hr/bonus", "/hr/payroll-settlement", "/hr/monthly-data"] },
     ],
   },
   {

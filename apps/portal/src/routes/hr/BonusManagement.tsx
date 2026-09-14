@@ -35,7 +35,7 @@ export function HrBonusManagement() {
   const [policyModalOpen, setPolicyModalOpen] = useState(false);
   const [filters, setFilters] = useState({ page: 1, pageSize: 25, search: "", scopeId: "all", bonusKind: "all", performancePeriod: "all" });
   const [policyName, setPolicyName] = useState("");
-  const [policyScopeId, setPolicyScopeId] = useState("");
+  const [policyScopeIds, setPolicyScopeIds] = useState<string[]>([]);
   const [bonusKind, setBonusKind] = useState<BonusPolicy["bonusKind"]>("team_performance");
   const [performancePeriod, setPerformancePeriod] = useState<BonusPolicy["performancePeriod"]>("current_month");
   const [ratePercent, setRatePercent] = useState("5");
@@ -67,7 +67,7 @@ export function HrBonusManagement() {
   function resetPolicyForm() {
     setEditingPolicyVersionId(null);
     setPolicyName("");
-    setPolicyScopeId("");
+    setPolicyScopeIds([]);
     setBonusKind("team_performance");
     setPerformancePeriod("current_month");
     setRatePercent("5");
@@ -90,7 +90,7 @@ export function HrBonusManagement() {
     setError(null);
     setEditingPolicyVersionId(policy.policyVersionId);
     setPolicyName(policy.policyName);
-    setPolicyScopeId(policy.scopeId);
+    setPolicyScopeIds(policy.scopeIds?.length ? policy.scopeIds : [policy.scopeId]);
     setBonusKind(policy.bonusKind);
     setPerformancePeriod(policy.performancePeriod);
     setRatePercent((policy.ratePpm / 10_000).toString());
@@ -103,13 +103,17 @@ export function HrBonusManagement() {
   function toggleEmployee(employeeUserId: string) {
     setSelectedEmployeeIds((current) => current.includes(employeeUserId) ? current.filter((id) => id !== employeeUserId) : [...current, employeeUserId]);
   }
+  function toggleScope(scopeId: string) {
+    setPolicyScopeIds((current) => current.includes(scopeId) ? current.filter((id) => id !== scopeId) : [...current, scopeId]);
+  }
 
   function submitPolicy(event: React.FormEvent) {
     event.preventDefault();
     const rate = Number(ratePercent);
     const amount = Number(guarantee);
     if (!Number.isFinite(rate) || rate < 0 || rate > 100 || !Number.isSafeInteger(amount) || amount < 0) { setError("請輸入有效的百分比與保底金額。"); return; }
-    const values = { name: policyName, scopeId: policyScopeId, bonusKind, performancePeriod, ratePpm: Math.round(rate * 10_000), guaranteeMinor: amount * 100, ...(editingPolicyVersionId ? {} : { employeeUserIds: selectedEmployeeIds, assignmentValidFrom }) };
+    if (!policyScopeIds.length) { setError("至少選擇一個適用 Scope。"); return; }
+    const values = { name: policyName, scopeIds: policyScopeIds, scopeId: policyScopeIds[0], bonusKind, performancePeriod, ratePpm: Math.round(rate * 10_000), guaranteeMinor: amount * 100, ...(editingPolicyVersionId ? {} : { employeeUserIds: selectedEmployeeIds, assignmentValidFrom }) };
     const editing = editingPolicyVersionId !== null;
     writePolicy.mutate({ path: editing ? `/bonus/policies/${editingPolicyVersionId}` : "/bonus/policies", method: editing ? "PATCH" : "POST", values: editing ? { ...values, validFrom: assignmentValidFrom } : values }, { onSuccess: (result) => { setPolicyModalOpen(false); resetPolicyForm(); succeed(editing ? "policy 已更新，系統建立了新的版本。" : `獎金 policy 已建立${result.assignmentCount ? `，並套用到 ${result.assignmentCount} 位員工` : ""}。`); }, onError: fail });
   }
@@ -132,7 +136,7 @@ export function HrBonusManagement() {
         <FilterSelect label="績效歸屬" value={filters.bonusKind} options={[{ value: "all", label: "全部績效歸屬" }, ...Object.entries(BONUS_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ bonusKind: event.target.value })} />
         <FilterSelect label="業績期間" value={filters.performancePeriod} options={[{ value: "all", label: "全部業績期間" }, ...Object.entries(PERIOD_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ performancePeriod: event.target.value })} />
       </form>
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>名稱</th><th>績效歸屬</th><th>業績期間</th><th>通路</th><th>套用員工</th><th className="numeric">比例</th><th className="numeric">保底</th><th>版本</th><th>操作</th></tr></thead><tbody>{(policies.data?.policies ?? []).map((policy) => <tr key={policy.policyVersionId}><td data-label="名稱"><strong>{policy.policyName}</strong></td><td data-label="績效歸屬">{BONUS_KIND_LABEL[policy.bonusKind]}</td><td data-label="業績期間">{PERIOD_LABEL[policy.performancePeriod]}</td><td data-label="通路">{policy.scopeName}</td><td data-label="套用員工">{assignmentsByVersion.get(policy.policyVersionId)?.join("、") ?? "尚未指派"}</td><td data-label="比例" className="numeric">{(policy.ratePpm / 10_000).toFixed(2)}%</td><td data-label="保底" className="numeric">{money(policy.guaranteeMinor)}</td><td data-label="版本">v{policy.versionNumber}</td><td data-label="操作">{canWrite ? <div className="row-actions"><Button variant="icon" icon="edit" title={`編輯 ${policy.policyName} v${policy.versionNumber}`} aria-label={`編輯 ${policy.policyName} v${policy.versionNumber}`} onClick={() => startEdit(policy)} /><Button variant="icon" icon="trash" title={`刪除 ${policy.policyName}`} aria-label={`刪除 ${policy.policyName}`} className="danger" onClick={() => setDeletingPolicy(policy)} /></div> : <span className="muted">—</span>}</td></tr>)}</tbody></table></div>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>名稱</th><th>績效歸屬</th><th>業績期間</th><th>通路</th><th>套用員工</th><th className="numeric">比例</th><th className="numeric">保底</th><th>版本</th><th>操作</th></tr></thead><tbody>{(policies.data?.policies ?? []).map((policy) => <tr key={policy.policyVersionId}><td data-label="名稱"><strong>{policy.policyName}</strong></td><td data-label="績效歸屬">{BONUS_KIND_LABEL[policy.bonusKind]}</td><td data-label="業績期間">{PERIOD_LABEL[policy.performancePeriod]}</td><td data-label="通路">{(policy.scopeNames?.length ? policy.scopeNames : [policy.scopeName]).join("、")}</td><td data-label="套用員工">{assignmentsByVersion.get(policy.policyVersionId)?.join("、") ?? "尚未指派"}</td><td data-label="比例" className="numeric">{(policy.ratePpm / 10_000).toFixed(2)}%</td><td data-label="保底" className="numeric">{money(policy.guaranteeMinor)}</td><td data-label="版本">v{policy.versionNumber}</td><td data-label="操作">{canWrite ? <div className="row-actions"><Button variant="icon" icon="edit" title={`編輯 ${policy.policyName} v${policy.versionNumber}`} aria-label={`編輯 ${policy.policyName} v${policy.versionNumber}`} onClick={() => startEdit(policy)} /><Button variant="icon" icon="trash" title={`刪除 ${policy.policyName}`} aria-label={`刪除 ${policy.policyName}`} className="danger" onClick={() => setDeletingPolicy(policy)} /></div> : <span className="muted">—</span>}</td></tr>)}</tbody></table></div>
       {policies.isPending ? <p className="muted table-note">載入中…</p> : null}
       {policies.data && !policies.data.policies.length ? <p className="muted table-note">沒有符合條件的 policy。</p> : null}
       {policies.data && policies.data.total > 0 ? <Pager page={policies.data.page} pageSize={policies.data.pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.max(1, Math.ceil(policies.data.total / policies.data.pageSize))} totalLabel={`共 ${policies.data.total.toLocaleString("zh-TW")} 筆`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
@@ -143,7 +147,7 @@ export function HrBonusManagement() {
         {employees.error ? <Alert tone="danger">{employees.error.message}</Alert> : null}
         {scopes.error ? <Alert tone="danger">{scopes.error.message}</Alert> : null}
         <TextField label="政策名稱" value={policyName} maxLength={100} required onChange={(event) => setPolicyName(event.target.value)} />
-        <SelectField label="適用通路／櫃點" value={policyScopeId} options={[{ label: "請選擇", value: "" }, ...scopeOptions]} required onChange={(event) => setPolicyScopeId(event.target.value)} />
+        <div className="field hr-bonus-scope-field"><span>適用通路／櫃點</span><small>同一 policy 可複選多個通路或櫃點，業績會先合計後只扣一次保底。</small><div className="hr-bonus-member-picker">{scopeOptions.length ? scopeOptions.map((scope) => <label key={scope.value} className="hr-bonus-member-option"><input type="checkbox" checked={policyScopeIds.includes(scope.value)} onChange={() => toggleScope(scope.value)} /><span>{scope.label}</span></label>) : <span className="muted">目前沒有可用 Scope。</span>}</div><small>已選：{policyScopeIds.length ? policyScopeIds.map((id) => scopeOptions.find((scope) => scope.value === id)?.label ?? id).join("、") : "尚未選擇"}</small></div>
         <SelectField label="績效歸屬" value={bonusKind} options={Object.entries(BONUS_KIND_LABEL).map(([value, label]) => ({ value, label }))} onChange={(event) => setBonusKind(event.target.value as BonusPolicy["bonusKind"])} />
         <SelectField label="業績期間" value={performancePeriod} options={Object.entries(PERIOD_LABEL).map(([value, label]) => ({ value, label }))} onChange={(event) => setPerformancePeriod(event.target.value as BonusPolicy["performancePeriod"])} />
         <TextField label="百分比（%）" type="number" min="0" max="100" step="0.01" value={ratePercent} required onChange={(event) => setRatePercent(event.target.value)} />

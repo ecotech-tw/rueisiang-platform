@@ -1,10 +1,10 @@
-import { and, asc, count, desc, eq, like, ne, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { hrEmployees, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
+import { hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
 import { roles, userRoleAssignments, users } from "./schema/auth.js";
 
@@ -148,18 +148,31 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     .from(hrEmploymentAttendanceSettings).where(sql`EXISTS (SELECT 1 FROM hr_employments WHERE id = hr_employment_attendance_settings.employment_id AND employee_user_id = ${userId})`);
   const primaryByEmployment = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting.primaryAssignmentId]));
   const withPrimary = attendanceAssignments.map((assignment) => ({ ...assignment, isPrimary: primaryByEmployment.get(assignment.employmentId) === assignment.id }));
-  const compensationRows = options.includeCompensation ? await db.select().from(hrCompensationVersions)
-    .innerJoin(hrEmployments, eq(hrEmployments.id, hrCompensationVersions.employmentId))
+  // Join 時不要用 select() 取兩張表的完整欄位：SQLite/D1 的重複欄名會讓 compensation id 被 employment id 覆蓋。
+  const compensationRows = options.includeCompensation ? await db.select({
+    id: hrCompensationVersions.id, employmentId: hrCompensationVersions.employmentId, versionNumber: hrCompensationVersions.versionNumber,
+    validFrom: hrCompensationVersions.validFrom, validTo: hrCompensationVersions.validTo, payBasis: hrCompensationVersions.payBasis,
+    baseAmountMinor: hrCompensationVersions.baseAmountMinor, note: hrCompensationVersions.note, createdAt: hrCompensationVersions.createdAt, createdBy: hrCompensationVersions.createdBy,
+  }).from(hrCompensationVersions).innerJoin(hrEmployments, eq(hrEmployments.id, hrCompensationVersions.employmentId))
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrCompensationVersions.validFrom)) : undefined;
-  const insuranceRows = options.includeInsurance ? await db.select().from(hrInsuranceVersions)
-    .innerJoin(hrEmployments, eq(hrEmployments.id, hrInsuranceVersions.employmentId))
+  const compensationItems = compensationRows?.length ? await db.select().from(hrCompensationItems).where(inArray(hrCompensationItems.compensationVersionId, compensationRows.map((row) => row.id))) : [];
+  const insuranceRows = options.includeInsurance ? await db.select({
+    id: hrInsuranceVersions.id, employmentId: hrInsuranceVersions.employmentId, scheme: hrInsuranceVersions.scheme, versionNumber: hrInsuranceVersions.versionNumber,
+    status: hrInsuranceVersions.status, validFrom: hrInsuranceVersions.validFrom, validTo: hrInsuranceVersions.validTo, insuredAmountMinor: hrInsuranceVersions.insuredAmountMinor,
+    dependentCount: hrInsuranceVersions.dependentCount, rateYear: hrInsuranceVersions.rateYear, sourceKind: hrInsuranceVersions.sourceKind, sourceUrl: hrInsuranceVersions.sourceUrl,
+    note: hrInsuranceVersions.note, createdAt: hrInsuranceVersions.createdAt, createdBy: hrInsuranceVersions.createdBy,
+  }).from(hrInsuranceVersions).innerJoin(hrEmployments, eq(hrEmployments.id, hrInsuranceVersions.employmentId))
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
-  const leaveRows = options.includeLeave ? await db.select().from(hrLeaveRequests)
-    .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
+  const leaveRows = options.includeLeave ? await db.select({
+    id: hrLeaveRequests.id, employmentId: hrLeaveRequests.employmentId, leaveType: hrLeaveRequests.leaveType, status: hrLeaveRequests.status,
+    startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn, durationMinutes: hrLeaveRequests.durationMinutes, payRatePpm: hrLeaveRequests.payRatePpm,
+    reason: hrLeaveRequests.reason, reviewedBy: hrLeaveRequests.reviewedBy, reviewedAt: hrLeaveRequests.reviewedAt,
+    reviewComment: hrLeaveRequests.reviewComment, createdAt: hrLeaveRequests.createdAt, createdBy: hrLeaveRequests.createdBy,
+  }).from(hrLeaveRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
-  const compensation = compensationRows?.map((row) => row.hr_compensation_versions);
-  const insurance = insuranceRows?.map((row) => row.hr_insurance_versions);
-  const leave = leaveRows?.map((row) => row.hr_leave_requests);
+  const compensation = compensationRows?.map((row) => ({ ...row, items: compensationItems.filter((item) => item.compensationVersionId === row.id) }));
+  const insurance = insuranceRows;
+  const leave = leaveRows;
   const attendanceEvents = options.includeAttendanceEvents ? await db.select({
     id: hrClockEvents.id, eventKind: hrClockEvents.eventKind, occurredAt: hrClockEvents.occurredAt,
     locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`, distanceMeters: hrClockEvents.distanceMeters,

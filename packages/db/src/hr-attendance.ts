@@ -1,7 +1,9 @@
 import { and, asc, count, desc, eq, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { activityRow } from "./activity.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
-import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
+import { activityEvents } from "./schema/activity.js";
+import { hrAttendanceLocationSchedules, hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
 import { hrScheduleEntries, hrScheduleVersions } from "./schema/hr-scheduling.js";
@@ -15,6 +17,47 @@ export interface HrAttendanceLocationInput {
   latitudeE7: number | null;
   longitudeE7: number | null;
   radiusMeters: number;
+}
+
+export interface HrAttendanceLocationScheduleInput {
+  dayOfWeek: number;
+  isRestDay: boolean;
+  startMinute: number | null;
+  endMinute: number | null;
+  standardMinutes: number;
+  toleranceMinutes: number;
+}
+
+export async function getHrAttendanceLocationSchedules(db: Database, locationId: string) {
+  const [location] = await db.select({ id: hrAttendanceLocations.id }).from(hrAttendanceLocations).where(eq(hrAttendanceLocations.id, locationId)).limit(1);
+  if (!location) throw new HrError(404, "找不到這個辦公位置。 ");
+  const rows = await db.select().from(hrAttendanceLocationSchedules).where(eq(hrAttendanceLocationSchedules.locationId, locationId)).orderBy(asc(hrAttendanceLocationSchedules.dayOfWeek));
+  const byDay = new Map(rows.map((row) => [row.dayOfWeek, row]));
+  return Array.from({ length: 7 }, (_, dayOfWeek) => {
+    const row = byDay.get(dayOfWeek);
+    return row ?? { id: null, locationId, dayOfWeek, isRestDay: dayOfWeek === 0 ? 1 : 0, startMinute: dayOfWeek === 0 ? null : 540, endMinute: dayOfWeek === 0 ? null : 1080, standardMinutes: dayOfWeek === 0 ? 0 : 480, toleranceMinutes: 10, createdBy: null, createdAt: null, updatedAt: null, revision: 0 };
+  });
+}
+
+export async function saveHrAttendanceLocationSchedules(db: Database, locationId: string, schedules: HrAttendanceLocationScheduleInput[], actor: HrActor) {
+  const uniqueDays = new Set(schedules.map((schedule) => schedule.dayOfWeek));
+  if (schedules.length !== 7 || uniqueDays.size !== 7 || [...uniqueDays].some((day) => !Number.isInteger(day) || day < 0 || day > 6)) throw new HrError(400, "必須完整提供週一至週日的工時設定。 ");
+  for (const schedule of schedules) {
+    if (![0, 1].includes(Number(schedule.isRestDay)) || !Number.isInteger(schedule.standardMinutes) || schedule.standardMinutes < 0 || schedule.standardMinutes > 1440 || !Number.isInteger(schedule.toleranceMinutes) || schedule.toleranceMinutes < 0 || schedule.toleranceMinutes > 1440) throw new HrError(400, "工作地點工時設定不正確。 ");
+    if (schedule.isRestDay) {
+      if (schedule.startMinute !== null || schedule.endMinute !== null) throw new HrError(400, "休息日不可設定上下班時間。 ");
+    } else {
+      const startMinute = schedule.startMinute;
+      const endMinute = schedule.endMinute;
+      if (typeof startMinute !== "number" || typeof endMinute !== "number" || !Number.isInteger(startMinute) || !Number.isInteger(endMinute) || startMinute < 0 || startMinute > 1439 || endMinute < 0 || endMinute > 1439 || endMinute <= startMinute || schedule.standardMinutes <= 0) throw new HrError(400, "營業日必須設定有效上下班時間與標準工時。 ");
+    }
+  }
+  const [location] = await db.select({ id: hrAttendanceLocations.id }).from(hrAttendanceLocations).where(eq(hrAttendanceLocations.id, locationId)).limit(1);
+  if (!location) throw new HrError(404, "找不到這個辦公位置。 ");
+  const statements = schedules.map((schedule) => db.insert(hrAttendanceLocationSchedules).values({ id: crypto.randomUUID(), locationId, dayOfWeek: schedule.dayOfWeek, isRestDay: schedule.isRestDay ? 1 : 0, startMinute: schedule.startMinute, endMinute: schedule.endMinute, standardMinutes: schedule.standardMinutes, toleranceMinutes: schedule.toleranceMinutes, createdBy: actor.id }).onConflictDoUpdate({ target: [hrAttendanceLocationSchedules.locationId, hrAttendanceLocationSchedules.dayOfWeek], set: { isRestDay: schedule.isRestDay ? 1 : 0, startMinute: schedule.startMinute, endMinute: schedule.endMinute, standardMinutes: schedule.standardMinutes, toleranceMinutes: schedule.toleranceMinutes, updatedAt: sql`CURRENT_TIMESTAMP`, revision: sql`${hrAttendanceLocationSchedules.revision} + 1` } }));
+  statements.push(db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: locationId, source: "hr", eventType: "attendance_location_schedule_updated", summary: "辦公位置週期工時更新", actor, payload: { days: schedules.length } })) as never);
+  await db.batch(statements as never);
+  return { locationId, schedules: await getHrAttendanceLocationSchedules(db, locationId) };
 }
 
 export const HR_ATTENDANCE_LOCATION_PAGE_SIZES = [10, 25, 50, 100] as const;
@@ -87,6 +130,10 @@ export async function listHrAttendanceEvents(db: Database, input: HrAttendanceEv
       sourceKind: hrClockEvents.sourceKind,
       manualReason: hrClockEvents.manualReason,
       distanceMeters: hrClockEvents.distanceMeters,
+      timeAnomalyKind: hrClockEvents.timeAnomalyKind,
+      expectedStartMinute: hrClockEvents.expectedStartMinute,
+      expectedEndMinute: hrClockEvents.expectedEndMinute,
+      toleranceMinutes: hrClockEvents.toleranceMinutes,
     }).from(hrClockEvents)
       .innerJoin(hrEmployees, eq(hrEmployees.userId, hrClockEvents.employeeUserId))
       .innerJoin(users, eq(users.id, hrClockEvents.employeeUserId))
@@ -362,6 +409,10 @@ const clockEventFields = {
   locationName: sql<string>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`,
   scopeName: sql<string>`nullif(${hrClockEvents.scopeNameSnapshot}, '')`,
   distanceMeters: hrClockEvents.distanceMeters,
+  timeAnomalyKind: hrClockEvents.timeAnomalyKind,
+  expectedStartMinute: hrClockEvents.expectedStartMinute,
+  expectedEndMinute: hrClockEvents.expectedEndMinute,
+  toleranceMinutes: hrClockEvents.toleranceMinutes,
   sourceKind: hrClockEvents.sourceKind,
   manualReason: hrClockEvents.manualReason,
   recordedBy: hrClockEvents.recordedBy,
@@ -405,11 +456,9 @@ async function currentAttendanceAssignments(db: Database, employmentId: string) 
 }
 
 async function currentClockAssignments(db: Database, employmentId: string) {
-  const [setting] = await db.select({ attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmploymentAttendanceSettings)
-    .where(eq(hrEmploymentAttendanceSettings.employmentId, employmentId)).limit(1);
-  if (setting?.attendanceMode !== "scheduled") return currentAttendanceAssignments(db, employmentId);
-  // 排班制不讀員工個別地點指派；今日班次與今日結束的跨午夜班次都可打卡。
-  return db.selectDistinct({
+  // 排班只補充當日可參考的地點，不取代員工有效辦公位置；沒有排班也能在有效位置打卡。
+  const assigned = await currentAttendanceAssignments(db, employmentId);
+  const scheduled = await db.selectDistinct({
     id: sql<string>`${hrScheduleEntries.id}`.as("scheduled_entry_id"),
     locationId: sql<string>`${hrAttendanceLocations.id}`.as("scheduled_location_id"),
     locationName: sql<string>`${hrAttendanceLocations.name}`.as("scheduled_location_name"),
@@ -431,6 +480,8 @@ async function currentClockAssignments(db: Database, employmentId: string) {
       sql`${hrAttendanceLocations.active} = 1`,
       sql`(${hrScheduleEntries.workDate} = date('now', '+8 hours') OR substr(${hrScheduleEntries.endsAt}, 1, 10) = date('now', '+8 hours'))`,
     )).orderBy(asc(hrAttendanceLocations.name));
+  const assignedLocationIds = new Set(assigned.map((item) => item.locationId));
+  return [...assigned, ...scheduled.filter((item) => !assignedLocationIds.has(item.locationId))];
 }
 
 async function findClockEventByKey(db: Database, userId: string, idempotencyKey: string) {
@@ -478,7 +529,8 @@ function locationNames(assignments: { locationName: string }[]) {
 }
 
 function geolocationRequired(assignments: { geolocationRequired: number }[]) {
-  return assignments.length > 0 && assignments.every((assignment) => Boolean(assignment.geolocationRequired));
+  // 只要可打卡位置中有一處要求定位，就不能以另一處免定位設定繞過距離判斷。
+  return assignments.some((assignment) => Boolean(assignment.geolocationRequired));
 }
 
 function nearestLocation(assignments: Awaited<ReturnType<typeof currentAttendanceAssignments>>, latitudeE7: number, longitudeE7: number) {
@@ -543,6 +595,32 @@ export async function getHrClockStatus(db: Database, userId: string) {
   };
 }
 
+async function locationScheduleForDate(db: Database, locationId: string, date: string) {
+  const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const [schedule] = await db.select().from(hrAttendanceLocationSchedules).where(and(eq(hrAttendanceLocationSchedules.locationId, locationId), eq(hrAttendanceLocationSchedules.dayOfWeek, dayOfWeek))).limit(1);
+  return schedule ?? null;
+}
+
+function serverTaipeiNow() {
+  const now = new Date();
+  const taipei = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  return { occurredAt: now.toISOString().slice(0, 19).replace("T", " "), date: taipei.toISOString().slice(0, 10), minute: taipei.getUTCHours() * 60 + taipei.getUTCMinutes() };
+}
+
+function clockTimeAnomaly(schedule: Awaited<ReturnType<typeof locationScheduleForDate>>, eventKind: "clock_in" | "clock_out", minute: number) {
+  if (!schedule) return null;
+  if (schedule.isRestDay) return "rest_day" as const;
+  const tolerance = schedule.toleranceMinutes;
+  if (eventKind === "clock_in") {
+    if (minute < schedule.startMinute! - tolerance) return "early" as const;
+    if (minute > schedule.startMinute! + tolerance) return "late" as const;
+  } else {
+    if (minute < schedule.endMinute! - tolerance) return "early_leave" as const;
+    if (minute > schedule.endMinute! + tolerance) return "overtime" as const;
+  }
+  return null;
+}
+
 export async function createHrClockEvent(db: Database, input: HrClockEventInput, actor: HrActor) {
   const existing = await findClockEventByKey(db, input.userId, input.idempotencyKey);
   if (existing) return { event: existing, idempotent: true };
@@ -568,6 +646,11 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   if (distance !== null && distance > assignment.radiusMeters) {
     throw new HrError(400, `目前位置不在可打卡辦公位置範圍內，最近的「${assignment.locationName}」約 ${distance} 公尺。`);
   }
+  const serverNow = serverTaipeiNow();
+  const schedule = await locationScheduleForDate(db, assignment.locationId, serverNow.date);
+  const latest = await latestClockEvent(db, input.userId);
+  const eventKind = latest?.eventKind === "clock_in" ? "clock_out" as const : "clock_in" as const;
+  const timeAnomalyKind = clockTimeAnomaly(schedule, eventKind, serverNow.minute);
   const assignmentExists = assignment.isScheduled
     ? sql`EXISTS (SELECT 1 FROM hr_schedule_entries AS schedule_entry
         INNER JOIN hr_schedule_versions AS schedule_version ON schedule_version.id=schedule_entry.schedule_version_id
@@ -586,13 +669,9 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   const id = crypto.randomUUID();
   try {
     await writeHrMutation(db, sql`INSERT INTO hr_clock_events
-      (id, employee_user_id, employment_id, attendance_location_id, scope_id, source_kind, idempotency_key, event_kind, latitude_e7, longitude_e7, distance_meters, location_name_snapshot, scope_name_snapshot, recorded_by, manual_reason)
-      SELECT ${id}, ${input.userId}, ${employment.id}, ${assignment.locationId}, ${assignment.scopeId}, 'portal', ${input.idempotencyKey},
-        CASE WHEN coalesce((SELECT event_kind FROM hr_clock_events
-          WHERE employee_user_id=${input.userId}
-          ORDER BY occurred_at DESC, rowid DESC LIMIT 1), 'clock_out') = 'clock_in'
-          THEN 'clock_out' ELSE 'clock_in' END,
-        ${latitudeE7}, ${longitudeE7}, ${distance}, ${assignment.locationName}, ${assignment.scopeName ?? ""}, ${actor.id}, ''
+      (id, employee_user_id, employment_id, attendance_location_id, scope_id, source_kind, idempotency_key, event_kind, latitude_e7, longitude_e7, distance_meters, location_name_snapshot, scope_name_snapshot, recorded_by, manual_reason, time_anomaly_kind, expected_start_minute, expected_end_minute, tolerance_minutes, occurred_at, received_at)
+      SELECT ${id}, ${input.userId}, ${employment.id}, ${assignment.locationId}, ${assignment.scopeId}, 'portal', ${input.idempotencyKey}, ${eventKind},
+        ${latitudeE7}, ${longitudeE7}, ${distance}, ${assignment.locationName}, ${assignment.scopeName ?? ""}, ${actor.id}, '', ${timeAnomalyKind}, ${schedule?.startMinute ?? null}, ${schedule?.endMinute ?? null}, ${schedule?.toleranceMinutes ?? null}, ${serverNow.occurredAt}, ${serverNow.occurredAt}
       WHERE EXISTS (SELECT 1 FROM hr_employments
         WHERE id=${employment.id} AND employee_user_id=${input.userId}
           AND hired_on <= date('now', '+8 hours')

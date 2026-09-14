@@ -8,19 +8,22 @@ const HR_TABS = [
   { label: "敘薪管理", to: "/hr/compensation", permission: "hr:payroll:read" as const, icon: "payments" as const, adminOnly: true },
   { label: "獎金管理", to: "/hr/bonus", permission: "hr:bonus:read" as const, icon: "tag" as const, adminOnly: true },
   { label: "薪資結算", to: "/hr/payroll-settlement", permission: "hr:payroll:read" as const, icon: "report" as const, adminOnly: true },
+  { label: "月度資料登記", to: "/hr/monthly-data", permission: "hr:payroll:read" as const, icon: "edit" as const, adminOnly: true },
 ];
 
 const ATTENDANCE_TABS = [
   { label: "出勤紀錄", to: "/hr/attendance-records", permission: "hr:office:read" as const, icon: "calendar" as const, adminOnly: false },
   { label: "出勤設定", to: "/hr/attendance-settings", permission: "hr:office:read" as const, icon: "tune" as const, adminOnly: false },
+  { label: "特殊上班日", to: "/hr/special-workdays", permission: "hr:office:read" as const, icon: "calendar" as const, adminOnly: false },
+  { label: "加班審核", to: "/hr/overtime", permission: "hr:request:review" as const, icon: "calendar" as const, adminOnly: false },
 ];
 
 export function HrLayout() {
   const pathname = useLocation().pathname;
   const { permissions, user } = useSession();
   const isHrAdministrator = user?.roles.includes("admin") ?? false;
-  const isAttendance = pathname.includes("/attendance-settings") || pathname.includes("/attendance-records");
-  const current = isAttendance ? "出勤管理" : pathname.includes("/scheduling") ? "月曆排班" : pathname.includes("/payroll-settlement") ? "薪資結算" : pathname.includes("/bonus") ? "獎金管理" : pathname.includes("/compensation") ? "敘薪管理" : "員工管理";
+  const isAttendance = pathname.includes("/attendance-settings") || pathname.includes("/attendance-records") || pathname.includes("/special-workdays") || pathname.includes("/overtime");
+  const current = isAttendance ? "出勤管理" : pathname.includes("/scheduling") ? "月曆排班" : pathname.includes("/payroll-settlement") ? "薪資結算" : pathname.includes("/monthly-data") ? "月度資料登記" : pathname.includes("/bonus") ? "獎金管理" : pathname.includes("/compensation") ? "敘薪管理" : "員工管理";
   const tabs = isAttendance ? ATTENDANCE_TABS : HR_TABS;
   const visibleTabs = tabs.filter((tab) => permissions.has(tab.permission) && (!tab.adminOnly || isHrAdministrator));
 

@@ -24,6 +24,37 @@ export const hrPayrollPeriods = sqliteTable("hr_payroll_periods", {
   check("ck_hr_payroll_periods_revision", sql`${table.revision} > 0`),
 ]);
 
+/** 已結帳期間的差額補發／扣回；不改寫原薪資單，於生效月份產生獨立明細。 */
+export const hrPayrollAdjustments = sqliteTable("hr_payroll_adjustments", {
+  id: text("id").primaryKey(),
+  employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
+  sourcePeriodKey: text("source_period_key").notNull(),
+  effectivePeriodKey: text("effective_period_key").notNull(),
+  reason: text("reason").notNull(),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedBy: text("updated_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  revision: integer("revision").notNull().default(1),
+}, (table) => [
+  index("idx_hr_payroll_adjustments_effective").on(table.effectivePeriodKey, table.employmentId),
+  check("ck_hr_payroll_adjustments_source_period", sql`${table.sourcePeriodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
+  check("ck_hr_payroll_adjustments_effective_period", sql`${table.effectivePeriodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
+  check("ck_hr_payroll_adjustments_reason", sql`length(trim(${table.reason})) BETWEEN 1 AND 1000`),
+  check("ck_hr_payroll_adjustments_revision", sql`${table.revision} > 0`),
+]);
+
+export const hrPayrollAdjustmentItems = sqliteTable("hr_payroll_adjustment_items", {
+  id: text("id").primaryKey(),
+  adjustmentId: text("adjustment_id").notNull().references(() => hrPayrollAdjustments.id, { onDelete: "restrict" }),
+  itemName: text("item_name").notNull(),
+  amountMinor: integer("amount_minor").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_hr_payroll_adjustment_items_adjustment").on(table.adjustmentId),
+  check("ck_hr_payroll_adjustment_items_name", sql`length(trim(${table.itemName})) BETWEEN 1 AND 100`),
+]);
+
 export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   id: text("id").primaryKey(),
   payrollPeriodId: text("payroll_period_id").notNull().references(() => hrPayrollPeriods.id, { onDelete: "restrict" }),
@@ -128,6 +159,8 @@ export const hrPayslipInsuranceLinks = sqliteTable("hr_payslip_insurance_links",
 }, (table) => [primaryKey({ columns: [table.payslipId, table.insuranceVersionId] })]);
 
 export type HrPayrollPeriod = typeof hrPayrollPeriods.$inferSelect;
+export type HrPayrollAdjustment = typeof hrPayrollAdjustments.$inferSelect;
+export type HrPayrollAdjustmentItem = typeof hrPayrollAdjustmentItems.$inferSelect;
 export type HrPayrollRun = typeof hrPayrollRuns.$inferSelect;
 export type HrPayrollWorkerResult = typeof hrPayrollWorkerResults.$inferSelect;
 export type HrPayslip = typeof hrPayslips.$inferSelect;

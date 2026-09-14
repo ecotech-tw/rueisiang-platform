@@ -420,6 +420,11 @@
 .hr-location-table td > small { display: block; margin-top: 4px; }
 .attendance-records-toolbar .attendance-date-filter { min-width: 150px; }
 .attendance-event-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hr-weekly-schedule-editor { display: grid; gap: 0.55rem; }
+.hr-weekly-schedule-row { display: grid; grid-template-columns: 4rem 8rem repeat(4, minmax(7rem, 1fr)); align-items: end; gap: 0.55rem; padding: 0.6rem; border: 1px solid var(--outline-variant); border-radius: 0.65rem; }
+.hr-weekly-schedule-row .field { margin: 0; }
+.hr-weekly-schedule-row .field > span:first-child { font-size: 0.75rem; }
+@media (max-width: 900px) { .hr-weekly-schedule-row { grid-template-columns: 1fr 1fr; } }
 .hr-location-map-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
 .hr-location-map-search .field { min-width: 0; }
 .hr-location-map-link { color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }

@@ -50,17 +50,23 @@ describe("HR 薪資與勞健保", () => {
     expect(body.tables.find((table) => table.scheme === "labor")?.brackets[1]).toMatchObject({ insuredAmount: 30300, lowerSalary: 29501 });
     expect(body.tables.find((table) => table.scheme === "health")?.brackets[0]).toMatchObject({ insuredAmount: 29500, lowerSalary: 0 });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((await request("/hr/insurance-rates/sync", "POST", { year: 2026 })).status).toBe(201);
+    expect((await request("/hr/insurance-rates/sync", "POST", { year: 2026 })).status).toBe(201);
+    const synced = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: { status: string }[] };
+    expect(synced.tables.filter((table) => table.status === "draft")).toHaveLength(2);
+    expect(synced.tables.filter((table) => table.status === "archived")).toHaveLength(0);
   });
 
   it("薪資與保險異動以版本保存，新增加保會關閉前一個開放版本", async () => {
     await assign();
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
     const employmentId = profile.employments[0]!.id;
-    expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 4000000 })).status).toBe(201);
+    expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 4000000, items: [{ itemName: "交通津貼", amountMinor: 300000, itemKind: "fixed", includeOvertime: true, includeInsurance: false, includeTax: true }] })).status).toBe(201);
     expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-03-01", payBasis: "monthly", baseAmountMinor: 4500000 })).status).toBe(201);
     expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { scheme: "labor", status: "enrolled", validFrom: "2026-01-01", insuredAmountMinor: 4580000, dependentCount: 0, rateYear: 2026, sourceKind: "official", sourceUrl: "https://apiservice.mol.gov.tw/" })).status).toBe(201);
     expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { scheme: "labor", status: "withdrawn", validFrom: "2026-03-01", insuredAmountMinor: 0, dependentCount: 0, rateYear: 2026, sourceKind: "manual" })).status).toBe(201);
-    const detail = await (await request("/hr/employees/employee")).json() as { compensation: { baseAmountMinor: number }[]; insurance: { status: string; validFrom: string; validTo: string | null }[] };
+    const detail = await (await request("/hr/employees/employee")).json() as { compensation: { baseAmountMinor: number; items?: { itemName: string; includeOvertime: number }[] }[]; insurance: { status: string; validFrom: string; validTo: string | null }[] };
+    expect(detail.compensation.find((item) => item.baseAmountMinor === 4000000)?.items).toEqual([expect.objectContaining({ itemName: "交通津貼", includeOvertime: 1 })]);
     expect(detail.compensation).toEqual(expect.arrayContaining([
       expect.objectContaining({ baseAmountMinor: 4500000, validFrom: "2026-03-01", validTo: null }),
       expect.objectContaining({ baseAmountMinor: 4000000, validFrom: "2026-01-01", validTo: "2026-03-01" }),
@@ -69,5 +75,39 @@ describe("HR 薪資與勞健保", () => {
       expect.objectContaining({ status: "enrolled", validFrom: "2026-01-01", validTo: "2026-03-01" }),
       expect.objectContaining({ status: "withdrawn", validFrom: "2026-03-01", validTo: null }),
     ]));
+  });
+
+  it("特殊上班日保存規則版本快照，允許零補貼且阻擋重複套用", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const created = await request("/hr/special-workdays/rules", "POST", { name: "測試國定日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRule: "不自動核准加班", workSource: "manual", note: "測試", allowances: [{ itemName: "餐費", unitAmountMinor: 0 }] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const createdBody = await created.json() as { versionId: string };
+    const listed = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { name: string }; versions: Array<{ id: string; allowances: Array<{ itemName: string; unitAmountMinor: number }> }> }> };
+    expect(listed.rules).toEqual(expect.arrayContaining([expect.objectContaining({ rule: expect.objectContaining({ name: "測試國定日" }), versions: [expect.objectContaining({ id: createdBody.versionId, allowances: [expect.objectContaining({ itemName: "餐費", unitAmountMinor: 0 })] })] })]));
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: createdBody.versionId, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    expect((await request("/hr/special-workdays/assignments?start=2026-02-01&end=2026-03-01")).status).toBe(200);
+    expect((await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: createdBody.versionId, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] })).status).toBe(409);
+  });
+
+  it("公司負擔規則會進入薪資扣款，結帳後同員工月份改用薪資調整", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 4000000 })).status).toBe(201);
+    expect((await request("/hr/insurance-contribution-rules", "POST", { scheme: "labor", validFrom: "2026-01-01", employeeRatePpm: 10000, employerRatePpm: 20000, dependentRatePpm: 1000000, sourceKind: "manual", note: "測試公司規則" })).status).toBe(201);
+    expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { scheme: "labor", status: "enrolled", validFrom: "2026-01-01", insuredAmountMinor: 3000000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "測試投保" })).status).toBe(201);
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], requestId: "close-test-2026-01" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const result = await calculated.json() as { run: { runId: string; warnings: string[]; employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    expect(result.run.warnings).not.toContain("本版未計算勞健保扣款：需先設定公司採用的費率與負擔規則。");
+    expect(result.run.employees[0]?.lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "labor_insurance", amountMinor: 30000 })]));
+    const closed = await request(`/hr/payroll/runs/${result.run.runId}/close`, "POST", {});
+    expect(closed.status, await closed.clone().text()).toBe(200);
+    expect((await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], requestId: "close-test-2026-01-repeat" })).status).toBe(409);
+    const adjustment = await request("/hr/payroll/adjustments", "POST", { employmentId, sourcePeriodKey: "2026-01", effectivePeriodKey: "2026-02", reason: "結帳後補發", items: [{ itemName: "補發", amountMinor: 50000 }] });
+    expect(adjustment.status, await adjustment.clone().text()).toBe(201);
   });
 });
