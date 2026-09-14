@@ -365,7 +365,25 @@
 }
 .hr-module-title { display: flex; align-items: baseline; gap: 10px; flex: none; }
 .hr-module-title strong { color: var(--color-ink); font-size: 19px; letter-spacing: .02em; }
-.hr-module-current { color: var(--color-muted); font-size: 14px; font-weight: 700; }
+.hr-module-kicker { color: var(--color-brand); font-size: 12px; font-weight: 800; letter-spacing: .14em; }
+.hr-module-current { color: var(--color-ink); font-size: 16px; font-weight: 800; }
+.hr-domain-nav {
+  display: inline-flex; flex: none; align-items: stretch; max-width: 100%; overflow-x: auto;
+  padding: 4px; border: 1px solid var(--color-line); border-radius: 14px;
+  background: var(--color-soft-line); scrollbar-width: none;
+}
+.hr-domain-nav::-webkit-scrollbar { display: none; }
+.hr-domain-tab {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 38px;
+  padding: 0 16px; border-radius: 10px; color: var(--color-muted); font-size: 13px;
+  font-weight: 700; text-decoration: none; white-space: nowrap;
+}
+.hr-domain-tab + .hr-domain-tab { border-left: 1px solid var(--color-line); border-radius: 0 10px 10px 0; }
+.hr-domain-tab:hover { color: var(--color-brand-dark); background: --alpha(var(--color-brand) / 7%); }
+.hr-domain-tab.active { color: var(--color-brand-dark); background: var(--color-paper); box-shadow: 0 2px 7px --alpha(var(--color-ink) / 8%); }
+.hr-domain-tab.active + .hr-domain-tab { border-left-color: transparent; }
+.hr-module-subnav { display: flex; min-width: 0; }
+.hr-module-subnav .page-tabs { align-self: flex-start; }
 /*
  * 分頁標籤：分段控制。一條內凹的底槽，選中的那一段浮起來變成一張白卡。
  *
@@ -3921,8 +3939,45 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 
 @media (max-width: 760px) {
-  .hr-module-header { align-items: stretch; flex-direction: column; gap: 4px; padding-bottom: 6px; }
+  .hr-module-self { padding-bottom: 84px; }
+  .shell:has(.hr-clock-full-page) .mobile-topbar { background: transparent; border-bottom-color: transparent; }
+  .hr-module-header { align-items: stretch; flex-direction: column; gap: 10px; padding-bottom: 6px; }
+  .hr-domain-nav { align-self: stretch; }
+  .hr-domain-tab { flex: 1 0 auto; padding-right: 12px; padding-left: 12px; }
+  .hr-module-subnav { overflow-x: auto; }
+  .hr-personal-top-nav { display: none; }
+  .hr-personal-bottom-nav { position: fixed; right: 50%; bottom: max(12px, env(safe-area-inset-bottom)); left: auto; z-index: 20; display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; width: min(260px, calc(100% - 48px)); min-height: 56px; overflow: visible; padding: 5px 8px; border: 1px solid var(--color-line); border-radius: 22px; background: var(--color-paper); box-shadow: 0 7px 22px --alpha(var(--color-ink) / 15%); transform: translateX(50%); }
+  .hr-personal-bottom-link { position: relative; z-index: 1; display: grid; width: 100%; min-height: 44px; place-items: center; align-content: center; gap: 0; padding: 5px 4px; border-radius: 14px; font-size: 0; font-weight: 700; }
+  .hr-personal-nav-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  .hr-personal-bottom-link .hr-personal-nav-icon { color: var(--color-muted); }
+  .hr-personal-bottom-link.active .hr-personal-nav-icon { color: var(--color-brand-dark); }
+  .hr-personal-bottom-link.active:not(.center)::after { position: absolute; bottom: 1px; width: 4px; height: 4px; border-radius: 50%; background: var(--color-brand); content: ""; }
+  .hr-personal-bottom-link.center { align-self: start; min-height: 66px; margin-top: -25px; padding-top: 29px; }
+  .hr-personal-bottom-link.center .hr-personal-nav-icon { position: absolute; top: 0; width: 58px; height: 58px; border: 4px solid var(--color-paper); border-radius: 50%; background: var(--color-brand); color: var(--color-paper); box-shadow: 0 5px 12px --alpha(var(--color-ink) / 20%); }
+  .hr-personal-bottom-link.center .hr-personal-nav-icon svg { width: 29px; height: 29px; }
+  .hr-personal-bottom-link.center.active .hr-personal-nav-icon { background: var(--color-brand-dark); }
+  .hr-personal-bottom-link.center.active { color: var(--color-brand-dark); }
   .hr-location-map-search { grid-template-columns: 1fr; }
+  .hr-clock-map-stage { border-radius: 18px; }
+  .hr-clock-now { font-size: 28px; }
+  .hr-clock-location-card { padding: 12px; }
+  .hr-clock-deep-links { grid-template-columns: 1fr; }
+  .hr-clock-timeline li { grid-template-columns: 58px minmax(0, 1fr); gap: 10px; }
+  .hr-clock-calendar-weekdays, .hr-clock-calendar-grid { gap: 3px; }
+  .hr-clock-calendar-day { min-height: 52px; border-radius: 9px; }
+  .hr-clock-calendar-day small { font-size: 9px; }
+  .hr-clock-personal-nav { display: none; }
+  .hr-clock-full-page .hr-clock-status-corner { bottom: 104px; left: 16px; width: min(330px, calc(100vw - 32px)); padding: 15px 16px; border-radius: 18px; }
+  .hr-clock-full-page .hr-clock-now { font-size: 30px; }
+  .hr-clock-full-page .hr-clock-deep-links { top: 86px; right: 16px; gap: 1px; padding: 6px 10px; border-radius: 14px; }
+  .hr-clock-full-page .hr-clock-deep-links a { min-height: 32px; font-size: 12px; }
+  .hr-clock-full-page .hr-clock-action-corner { right: 16px; bottom: 104px; }
+  .hr-clock-full-page .hr-clock-main-action { min-height: 42px; padding: 9px 17px; font-size: 13px; }
+  .hr-clock-full-page .hr-clock-feedback-corner { top: 142px; left: 16px; max-width: calc(100vw - 32px); }
+  .hr-form-field-row { grid-template-columns: 1fr; gap: 16px; }
+  .hr-form-actions { flex-wrap: wrap; }
+  .hr-form-actions button { flex: 1 1 30%; }
+  .hr-form-request-summary dl { grid-template-columns: 64px minmax(0, 1fr); }
 }
 
 /* HR 月曆排班 */
