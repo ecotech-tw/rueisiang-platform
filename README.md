@@ -210,9 +210,9 @@ CYBERBIZ、等 2FA 驗證信、下載 xlsx、寫欄位、上傳 Drive——一�
 與 `packages/*`）：它相依 Playwright，拉進來會讓每個人的 `pnpm install` 都扛一份
 只有 runner 用得到的瀏覽器函式庫。它自己用 `npm ci`，CI 另外跑 `node selftest.mjs`。
 
-**店別清單有兩個來源。** `config.json` 是這個工具自己的設定（CYBERBIZ 網址、Drive
-根目錄、欄位公式），由維護者管；`stores.json` 是平台「店別設定」頁存檔時寫回來的，
-由同仁管。`loadConfig` 讀到 `stores.json` 就以它為準，沒有那個檔案時照 `config.json` 走。
+**店別設定依執行方式決定。** `config.json` 是工具直接執行時的設定（CYBERBIZ 網址、Drive
+根目錄、欄位公式與預設店別），由維護者管。平台觸發 workflow 時，Worker 會把 D1 的店別、
+scope ID 與 Drive 設定放進 `stores_json`，runner 以這次執行的輸入為準。
 
 ### 需要哪些 secret
 
@@ -226,7 +226,7 @@ CYBERBIZ、等 2FA 驗證信、下載 xlsx、寫欄位、上傳 Drive——一�
 | `GMAIL_REFRESH_TOKEN` | Gmail 唯讀（收 2FA 驗證信與報表附件） |
 
 另外 Worker 端需要共用的 `GITHUB_TOKEN`：fine-grained PAT，需給出金與蝦皮所使用 repo 的
-**Actions 讀寫**（觸發與查狀態）；若出金設定頁要寫回 `stores.json`，還需要 **Contents 讀寫**。
+**Actions 讀寫**（觸發與查狀態）。
 
 ### 這些憑證掛在哪個 Google 帳號
 
