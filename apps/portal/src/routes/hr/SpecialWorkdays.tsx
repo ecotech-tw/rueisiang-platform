@@ -5,6 +5,7 @@ import { Alert, Button, Dialog, Panel, PageHeader, SelectField, TextField } from
 import { useHrQuery, useHrWrite, type Employee, type Profile, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment } from "./api.js";
 
 interface EmployeeListResponse { employees: Employee[] }
+interface AllowanceDraft { itemName: string; amount: string }
 function today() { return new Date().toISOString().slice(0, 10); }
 function money(minor: number) { return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`; }
 
@@ -16,21 +17,37 @@ function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () 
   const [wageKind, setWageKind] = useState<"fixed_hourly" | "multiplier">(current?.wageKind ?? "fixed_hourly");
   const [amount, setAmount] = useState(current ? String((current.fixedAmountMinor ?? 0) / 100) : "");
   const [multiplier, setMultiplier] = useState(current ? String((current.multiplierPpm ?? 1_000_000) / 10_000) : "100");
-  const [workSource, setWorkSource] = useState<"schedule" | "hourly" | "manual">(current?.workSource ?? "hourly");
   const [overtimeRule, setOvertimeRule] = useState(current?.overtimeRule ?? "依員工核准加班規則另計");
-  const [allowanceName, setAllowanceName] = useState(current?.allowances[0]?.itemName ?? "");
-  const [allowanceAmount, setAllowanceAmount] = useState(current ? String((current.allowances[0]?.unitAmountMinor ?? 0) / 100) : "");
+  const [allowances, setAllowances] = useState<AllowanceDraft[]>(() => (current?.allowances ?? []).map((allowance) => ({ itemName: allowance.itemName, amount: String(allowance.unitAmountMinor / 100) })));
   const [note, setNote] = useState(current?.note ?? "");
+  const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
-  const submit = (event: React.FormEvent) => { event.preventDefault(); const values = { name, validFrom, validTo: validTo || null, wageKind, fixedAmountMinor: wageKind === "fixed_hourly" ? Math.round(Number(amount) * 100) : null, multiplierPpm: wageKind === "multiplier" ? Math.round(Number(multiplier) * 10_000) : null, overtimeRule, workSource, note, allowances: allowanceName ? [{ itemName: allowanceName, unitAmountMinor: Math.round(Number(allowanceAmount) * 100) }] : [] }; save.mutate({ path: rule ? `/special-workdays/rules/${rule.rule.id}/versions` : "/special-workdays/rules", method: "POST", values }, { onSuccess: onClose }); };
+  const updateAllowance = (index: number, patch: Partial<AllowanceDraft>) => setAllowances((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const filledAllowances = allowances.filter((allowance) => allowance.itemName.trim() || allowance.amount.trim());
+    const parsedAllowances = [] as Array<{ itemName: string; unitAmountMinor: number }>;
+    for (const [index, allowance] of filledAllowances.entries()) {
+      const amount = Number(allowance.amount);
+      if (!allowance.itemName.trim() || !Number.isSafeInteger(amount) || amount < 0) { setMessage(`第 ${index + 1} 筆補貼請填寫名稱與非負整數金額。`); return; }
+      parsedAllowances.push({ itemName: allowance.itemName.trim(), unitAmountMinor: amount * 100 });
+    }
+    setMessage(null);
+    const values = { name, validFrom, validTo: validTo || null, wageKind, fixedAmountMinor: wageKind === "fixed_hourly" ? Math.round(Number(amount) * 100) : null, multiplierPpm: wageKind === "multiplier" ? Math.round(Number(multiplier) * 10_000) : null, overtimeRule, note: note.trim(), allowances: parsedAllowances };
+    save.mutate({ path: rule ? `/special-workdays/rules/${rule.rule.id}/versions` : "/special-workdays/rules", method: "POST", values }, { onSuccess: onClose });
+  };
   return <Dialog title={rule ? `建立「${rule.rule.name}」新版本` : "新增特殊上班日規則"} onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: submit }} actions={<Button type="submit" loading={save.isPending}>保存規則</Button>}>
     {!rule ? <TextField label="規則名稱" required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /> : <p>規則名稱：<strong>{rule.rule.name}</strong>（歷史版本不覆寫）</p>}
     <div className="form-grid two"><TextField label="生效日" type="date" required value={validFrom} onChange={(event) => setValidFrom(event.target.value)} /><TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} /></div>
     <div className="form-grid two"><SelectField label="薪資方式" value={wageKind} options={[{ value: "fixed_hourly", label: "固定每小時金額" }, { value: "multiplier", label: "依底薪倍率" }]} onChange={(event) => setWageKind(event.target.value as "fixed_hourly" | "multiplier")} />{wageKind === "fixed_hourly" ? <TextField label="固定每小時（元）" type="number" min="0" step="1" required value={amount} onChange={(event) => setAmount(event.target.value)} /> : <TextField label="倍率（%）" type="number" min="0" step="0.01" required value={multiplier} onChange={(event) => setMultiplier(event.target.value)} />}</div>
-    <div className="form-grid two"><SelectField label="工時來源" value={workSource} options={[{ value: "schedule", label: "已發布排班" }, { value: "hourly", label: "月底工時登記" }, { value: "manual", label: "其他人工資料（僅留異常）" }]} onChange={(event) => setWorkSource(event.target.value as "schedule" | "hourly" | "manual")} /><TextField label="加班規則" required maxLength={100} value={overtimeRule} onChange={(event) => setOvertimeRule(event.target.value)} /></div>
-    <div className="form-grid two"><TextField label="補貼項目（可留空）" value={allowanceName} onChange={(event) => setAllowanceName(event.target.value)} /><TextField label="補貼單價（元）" type="number" min="0" step="1" value={allowanceAmount} onChange={(event) => setAllowanceAmount(event.target.value)} /></div>
-    <TextField label="備註" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
-    {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
+    <TextField label="加班規則" required maxLength={100} value={overtimeRule} onChange={(event) => setOvertimeRule(event.target.value)} />
+    <p className="form-hint">特殊上班日的實際工時統一由「薪資結算／月度資料登記」提供。</p>
+    <div className="form-section"><div className="panel-head"><div><h3>補貼項目</h3><p className="muted">可新增多筆補貼；套用日期時再填寫本次補貼數量。</p></div><Button type="button" variant="secondary" icon="plus" disabled={allowances.length >= 50} onClick={() => setAllowances((items) => [...items, { itemName: "", amount: "" }])}>新增補貼</Button></div>
+      {allowances.map((allowance, index) => <div className="form-grid two" key={`allowance-${index}`}><TextField label={`補貼項目 ${index + 1}`} value={allowance.itemName} onChange={(event) => updateAllowance(index, { itemName: event.target.value })} /><div><TextField label="補貼單價（元）" type="number" min="0" step="1" value={allowance.amount} onChange={(event) => updateAllowance(index, { amount: event.target.value })} /><Button type="button" variant="secondary" icon="trash" onClick={() => setAllowances((items) => items.filter((_, itemIndex) => itemIndex !== index))}>移除</Button></div></div>)}
+      {!allowances.length ? <p className="muted">尚未設定補貼。</p> : null}
+    </div>
+    <TextField label="備註（選填）" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
+    {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
   </Dialog>;
 }
 
@@ -61,8 +78,8 @@ export function HrSpecialWorkdays() {
   const rows = useMemo(() => rules.data?.rules ?? [], [rules.data]);
   if (!canRead) return <Alert tone="danger">你沒有檢視特殊上班日規則的權限。</Alert>;
   return <div className="page fills"><PageHeader title="特殊上班日" description="先建立可重複使用的規則，再按需要套用到員工或支援人員日期；套用不等於打卡，也不等於加班核准。" actions={canWrite ? <div className="button-row"><Button variant="secondary" onClick={() => setEditor("assign")} disabled={!rows.length}>套用到員工日期</Button><Button icon="plus" onClick={() => setEditor("new")}>新增規則</Button></div> : undefined} />
-    {rules.error || assignments.error || toggleRule.error ? <Alert tone="danger">{rules.error?.message ?? assignments.error?.message ?? toggleRule.error?.message}</Alert> : null}<Alert tone="info">固定特殊薪資取代當日底薪；規則要求的工時若缺少，薪資試算會列異常而不自行補 0。加班仍須另行申請與核准。</Alert>
-    <Panel><div className="panel-head"><div><h2>規則主檔</h2><p className="muted">建立新版本不覆寫歷史；停用後不可新增日期套用。</p></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>規則</th><th>版本／期間</th><th>薪資方式</th><th>工時來源</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map((item) => { const version = item.versions.at(-1)!; return <tr key={item.rule.id}><td><strong>{item.rule.name}</strong></td><td>v{version.versionNumber}・{version.validFrom}～{version.validTo ?? "目前"}</td><td>{version.wageKind === "fixed_hourly" ? `每小時 ${money(version.fixedAmountMinor ?? 0)}` : `倍率 ${((version.multiplierPpm ?? 0) / 10_000).toFixed(2)}%`}</td><td>{version.workSource === "schedule" ? "排班" : version.workSource === "hourly" ? "月底工時" : "人工資料"}</td><td>{item.rule.active ? "啟用" : "停用"}</td><td>{canWrite ? <div className="row-actions"><Button variant="secondary" onClick={() => setEditor(item)}>新增版本</Button><Button variant="secondary" onClick={() => toggleRule.mutate({ path: `/special-workdays/rules/${item.rule.id}/status`, method: "POST", values: { active: !item.rule.active } }, { onSuccess: () => void rules.refetch() })}>{item.rule.active ? "停用" : "啟用"}</Button></div> : null}</td></tr>; })}</tbody></table></div>{!rows.length ? <p className="empty-state">尚未建立特殊上班日規則。</p> : null}</Panel>
+    {rules.error || assignments.error || toggleRule.error ? <Alert tone="danger">{rules.error?.message ?? assignments.error?.message ?? toggleRule.error?.message}</Alert> : null}<Alert tone="info">固定特殊薪資取代當日底薪；特殊上班日缺少月度工時資料時，薪資試算會列異常而不自行補 0。加班仍須另行申請與核准。</Alert>
+    <Panel><div className="panel-head"><div><h2>規則主檔</h2><p className="muted">建立新版本不覆寫歷史；停用後不可新增日期套用。</p></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>規則</th><th>版本／期間</th><th>薪資方式</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map((item) => { const version = item.versions.at(-1)!; return <tr key={item.rule.id}><td><strong>{item.rule.name}</strong></td><td>v{version.versionNumber}・{version.validFrom}～{version.validTo ?? "目前"}</td><td>{version.wageKind === "fixed_hourly" ? `每小時 ${money(version.fixedAmountMinor ?? 0)}` : `倍率 ${((version.multiplierPpm ?? 0) / 10_000).toFixed(2)}%`}</td><td>{item.rule.active ? "啟用" : "停用"}</td><td>{canWrite ? <div className="row-actions"><Button variant="secondary" onClick={() => setEditor(item)}>新增版本</Button><Button variant="secondary" onClick={() => toggleRule.mutate({ path: `/special-workdays/rules/${item.rule.id}/status`, method: "POST", values: { active: !item.rule.active } }, { onSuccess: () => void rules.refetch() })}>{item.rule.active ? "停用" : "啟用"}</Button></div> : null}</td></tr>; })}</tbody></table></div>{!rows.length ? <p className="empty-state">尚未建立特殊上班日規則。</p> : null}</Panel>
     <Panel className="grows"><div className="panel-head"><div><h2>日期套用紀錄</h2><p className="muted">套用時保存規則名稱、薪資設定與補貼數量快照。</p></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>人員</th><th>日期</th><th>規則</th><th>薪資方式</th><th>補貼數量</th><th>套用時間</th></tr></thead><tbody>{(assignments.data?.assignments ?? []).map((item) => <tr key={item.assignment.id}><td>{item.employeeName ?? item.workerName ?? "—"}</td><td>{item.assignment.workDate}</td><td>{item.assignment.ruleNameSnapshot}</td><td>{item.assignment.wageKindSnapshot}</td><td>{item.assignment.allowanceQuantity}</td><td>{item.assignment.appliedAt}</td></tr>)}</tbody></table></div>{!assignments.data?.assignments.length ? <p className="empty-state">尚未有日期套用紀錄。</p> : null}</Panel>
     {editor === "new" ? <RuleDialog onClose={() => { setEditor(null); void rules.refetch(); }} /> : null}{editor && editor !== "new" && editor !== "assign" ? <RuleDialog rule={editor} onClose={() => { setEditor(null); void rules.refetch(); }} /> : null}{editor === "assign" ? <AssignDialog rules={rows} onClose={() => { setEditor(null); void assignments.refetch(); }} /> : null}
   </div>;

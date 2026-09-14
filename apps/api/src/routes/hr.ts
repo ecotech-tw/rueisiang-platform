@@ -218,7 +218,8 @@ function specialWorkdayRule(input: Record<string, unknown>) {
     const item = raw as Record<string, unknown>;
     return { itemName: text(item, "itemName", "補貼項目", 100), unitAmountMinor: integerValue(item, "unitAmountMinor", "補貼單價（分）", 0, Number.MAX_SAFE_INTEGER) };
   });
-  return { name: text(input, "name", "規則名稱", 100), validFrom: date(input, "validFrom")!, validTo: date(input, "validTo", true), wageKind, fixedAmountMinor: wageKind === "fixed_hourly" ? integerValue(input, "fixedAmountMinor", "固定每小時金額（分）", 0, Number.MAX_SAFE_INTEGER) : null, multiplierPpm: wageKind === "multiplier" ? integerValue(input, "multiplierPpm", "薪資倍率（ppm）", 0, 10_000_000) : null, overtimeRule: text(input, "overtimeRule", "加班規則", 100), workSource: input.workSource === "schedule" || input.workSource === "hourly" || input.workSource === "manual" ? input.workSource : (() => { throw new HTTPException(400, { message: "工時來源不正確。" }); })(), note: noteValue(input), allowances } as const;
+  const workSource = input.workSource === undefined ? undefined : input.workSource === "schedule" || input.workSource === "hourly" || input.workSource === "manual" ? input.workSource : (() => { throw new HTTPException(400, { message: "工時來源不正確。" }); })();
+  return { name: text(input, "name", "規則名稱", 100), validFrom: date(input, "validFrom")!, validTo: date(input, "validTo", true), wageKind, fixedAmountMinor: wageKind === "fixed_hourly" ? integerValue(input, "fixedAmountMinor", "固定每小時金額（分）", 0, Number.MAX_SAFE_INTEGER) : null, multiplierPpm: wageKind === "multiplier" ? integerValue(input, "multiplierPpm", "薪資倍率（ppm）", 0, 10_000_000) : null, overtimeRule: text(input, "overtimeRule", "加班規則", 100), workSource, note: noteValue(input), allowances } as const;
 }
 function specialAssignments(input: Record<string, unknown>) {
   if (!Array.isArray(input.assignments) || !input.assignments.length || input.assignments.length > 1000) throw new HTTPException(400, { message: "特殊上班日套用清單格式不正確。" });

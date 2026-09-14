@@ -9,8 +9,9 @@ import { users } from "./schema/auth.js";
 
 export type SpecialWorkdayWageKind = "fixed_hourly" | "multiplier";
 export type SpecialWorkdaySource = "schedule" | "hourly" | "manual";
+const DEFAULT_SPECIAL_WORKDAY_SOURCE: SpecialWorkdaySource = "hourly";
 export interface SpecialWorkdayAllowanceInput { itemName: string; unitAmountMinor: number }
-export interface SpecialWorkdayRuleInput { name: string; validFrom: string; validTo: string | null; wageKind: SpecialWorkdayWageKind; fixedAmountMinor?: number | null; multiplierPpm?: number | null; overtimeRule: string; workSource: SpecialWorkdaySource; note: string; allowances: SpecialWorkdayAllowanceInput[] }
+export interface SpecialWorkdayRuleInput { name: string; validFrom: string; validTo: string | null; wageKind: SpecialWorkdayWageKind; fixedAmountMinor?: number | null; multiplierPpm?: number | null; overtimeRule: string; workSource?: SpecialWorkdaySource; note?: string; allowances: SpecialWorkdayAllowanceInput[] }
 export interface SpecialWorkdayAssignmentInput { ruleVersionId: string; assignments: Array<{ employmentId?: string; workerId?: string; workDate: string; allowanceQuantity: number }> }
 
 function validDate(value: string) {
@@ -19,15 +20,17 @@ function validDate(value: string) {
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new HrError(400, "日期不是有效日期。 ");
 }
 function validate(input: SpecialWorkdayRuleInput) {
+  const workSource = input.workSource ?? DEFAULT_SPECIAL_WORKDAY_SOURCE;
+  const note = input.note ?? "";
   validDate(input.validFrom); if (input.validTo) { validDate(input.validTo); if (input.validTo <= input.validFrom) throw new HrError(400, "規則迄日必須晚於生效日。 "); }
   if (!input.name.trim() || input.name.length > 100 || !input.overtimeRule.trim() || input.overtimeRule.length > 100) throw new HrError(400, "特殊上班日規則名稱與加班規則必填。 ");
   if (input.wageKind === "fixed_hourly" && (!Number.isSafeInteger(input.fixedAmountMinor) || input.fixedAmountMinor! < 0)) throw new HrError(400, "固定每小時金額不正確。 ");
   if (input.wageKind === "multiplier" && (!Number.isSafeInteger(input.multiplierPpm) || input.multiplierPpm! < 0)) throw new HrError(400, "薪資倍率不正確。 ");
-  if (input.wageKind !== "fixed_hourly" && input.wageKind !== "multiplier" || input.workSource !== "schedule" && input.workSource !== "hourly" && input.workSource !== "manual") throw new HrError(400, "特殊上班日計算方式不正確。 ");
-  if (input.note.length > 1000 || input.allowances.length > 50 || input.allowances.some((item) => !item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.unitAmountMinor) || item.unitAmountMinor < 0)) throw new HrError(400, "補貼項目不正確。 ");
+  if (input.wageKind !== "fixed_hourly" && input.wageKind !== "multiplier" || workSource !== "schedule" && workSource !== "hourly" && workSource !== "manual") throw new HrError(400, "特殊上班日計算方式不正確。 ");
+  if (note.length > 1000 || input.allowances.length > 50 || input.allowances.some((item) => !item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.unitAmountMinor) || item.unitAmountMinor < 0)) throw new HrError(400, "補貼項目不正確。 ");
 }
 function versionValues(ruleId: string, versionNumber: number, input: SpecialWorkdayRuleInput, actor: HrActor, versionId: string) {
-  return { id: versionId, ruleId, versionNumber, validFrom: input.validFrom, validTo: input.validTo, wageKind: input.wageKind, fixedAmountMinor: input.wageKind === "fixed_hourly" ? input.fixedAmountMinor! : null, multiplierPpm: input.wageKind === "multiplier" ? input.multiplierPpm! : null, overtimeRule: input.overtimeRule.trim(), workSource: input.workSource, note: input.note.trim(), createdBy: actor.id } as const;
+  return { id: versionId, ruleId, versionNumber, validFrom: input.validFrom, validTo: input.validTo, wageKind: input.wageKind, fixedAmountMinor: input.wageKind === "fixed_hourly" ? input.fixedAmountMinor! : null, multiplierPpm: input.wageKind === "multiplier" ? input.multiplierPpm! : null, overtimeRule: input.overtimeRule.trim(), workSource: input.workSource ?? DEFAULT_SPECIAL_WORKDAY_SOURCE, note: (input.note ?? "").trim(), createdBy: actor.id } as const;
 }
 
 export async function listHrSpecialWorkdayRules(db: Database) {
