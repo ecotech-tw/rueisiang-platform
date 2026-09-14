@@ -174,11 +174,11 @@ describe("WMS target-only API", () => {
       .toMatchObject([{ eventType: "zone_created" }, { eventType: "zone_moved" }]);
   });
 
-  it("地圖資料不會把 zone 的 layout row 當成額外元素回傳", async () => {
+  it("地圖標示回傳可寫入的 id，編輯與刪除不會找不到標示", async () => {
     const userId = await seedUser();
     await seedZone();
     await db.insert(wmsLayoutElements).values({
-      id: "wms-decoration-1", layoutId: "layout:main", elementType: "decoration", zoneId: null,
+      id: "wms-decoration:element-1", layoutId: "layout:main", elementType: "decoration", zoneId: null,
       label: "出貨口", color: "sky", x: 40, y: 10, width: 12, height: 10, zIndex: 1,
     });
 
@@ -186,7 +186,19 @@ describe("WMS target-only API", () => {
     expect(response.status).toBe(200);
     const warehouse = await response.json() as { layoutElements: Array<{ id: string; elementType: string }> };
     expect(warehouse.layoutElements).toHaveLength(1);
-    expect(warehouse.layoutElements[0]).toMatchObject({ id: "wms-decoration-1", elementType: "decoration" });
+    expect(warehouse.layoutElements[0]).toMatchObject({ id: "element-1", elementType: "decoration" });
+
+    const edited = await as(userId, "admin@ecotech.tw", "/api/wms/elements/element-1", {
+      method: "PATCH", body: JSON.stringify({ label: "包材區", color: "mint" }),
+    });
+    expect(edited.status).toBe(200);
+    expect(await db.select({ label: wmsLayoutElements.label, color: wmsLayoutElements.color })
+      .from(wmsLayoutElements).where(eq(wmsLayoutElements.id, "wms-decoration:element-1")))
+      .toEqual([{ label: "包材區", color: "mint" }]);
+
+    const deleted = await as(userId, "admin@ecotech.tw", "/api/wms/elements/element-1", { method: "DELETE" });
+    expect(deleted.status).toBe(200);
+    expect(await db.select().from(wmsLayoutElements).where(eq(wmsLayoutElements.id, "wms-decoration:element-1"))).toHaveLength(0);
   });
 
   it("有商品使用倉位或層架時禁止刪除與移除層架", async () => {
