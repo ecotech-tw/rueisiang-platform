@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
@@ -210,10 +211,13 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
   );
 }
 
-export function HrAttendanceSettings() {
-  usePageTitle("出勤設定");
+export function HrAttendanceSettings({ schedulingMode = false }: { schedulingMode?: boolean } = {}) {
+  const pageTitle = schedulingMode ? "辦公地點指派" : "出勤設定";
+  usePageTitle(pageTitle);
+  const navigate = useNavigate();
   const { permissions } = useSession();
   const canRead = permissions.has("hr:office:read");
+  const canReviewOvertime = permissions.has("hr:request:review");
   const canWrite = permissions.has("hr:office:write");
   const [editor, setEditor] = useState<AttendanceLocation | "new" | null>(null);
   const [search, setSearch] = useState("");
@@ -234,9 +238,9 @@ export function HrAttendanceSettings() {
   return (
     <div className="page fills">
       <PageHeader
-        title="出勤設定"
-        description="管理營運據點對應的辦公位置與定位範圍；排班制員工不需另行指派個別打卡地點。"
-        actions={canWrite ? <Button icon="plus" onClick={() => setEditor("new")}>新增辦公位置</Button> : undefined}
+        title={pageTitle}
+        description={schedulingMode ? "管理排班可用的辦公位置與每週工時規則；員工可依有效辦公位置進行出勤。" : "管理營運據點對應的辦公位置與定位範圍；排班制員工不需另行指派個別打卡地點。"}
+        actions={(canWrite || (!schedulingMode && canReviewOvertime)) ? <div className="button-row">{!schedulingMode && canReviewOvertime ? <Button variant="secondary" onClick={() => navigate("/hr/overtime")}>加班審核</Button> : null}{canWrite ? <Button icon="plus" onClick={() => setEditor("new")}>新增辦公位置</Button> : null}</div> : undefined}
       />
       <Panel className="grows">
         <div className="panel-head">

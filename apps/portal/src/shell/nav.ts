@@ -101,11 +101,10 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "HRIS",
     icon: "people",
     items: [
-      { label: "員工管理", to: "/hr/employees", permission: "hr:employee:read", icon: "list" },
-      { label: "出勤管理", to: "/hr/attendance-records", permission: "hr:office:read", icon: "calendar", activePaths: ["/hr/attendance-settings", "/hr/special-workdays"] },
-      { label: "加班審核", to: "/hr/overtime", permission: "hr:request:review", icon: "calendar" },
-      { label: "月曆排班", to: "/hr/scheduling", permission: "hr:schedule:read", icon: "calendar" },
-      { label: "敘薪與獎金", to: "/hr/compensation", permission: "hr:payroll:read", icon: "payments", activePaths: ["/hr/bonus", "/hr/payroll-settlement", "/hr/monthly-data"] },
+      { label: "員工管理", to: "/hr/employees", permission: "hr:employee:read", icon: "list", activePaths: ["/hr/insurance"] },
+      { label: "出勤管理", to: "/hr/attendance-records", permission: "hr:office:read", icon: "calendar", activePaths: ["/hr/attendance-settings", "/hr/special-workdays", "/hr/overtime"] },
+      { label: "排班管理", to: "/hr/scheduling", permission: "hr:schedule:read", icon: "calendar", activePaths: ["/hr/scheduling/locations"] },
+      { label: "敘薪與獎金", to: "/hr/compensation", permission: "hr:payroll:read", icon: "payments", activePaths: ["/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/monthly-data"] },
     ],
   },
   {
