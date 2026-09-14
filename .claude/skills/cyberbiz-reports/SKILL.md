@@ -23,7 +23,7 @@ Playwright，拉進 workspace 會讓每個人的 `pnpm install` 都扛一份只�
 | 在哪 | 負責 | 碰得到憑證嗎 |
 |---|---|---|
 | 平台的「出金表執行」頁 | 同仁按執行、選區間、看進度 | 否 |
-| 平台的 Worker（`apps/api/src/payout/github.ts`） | `workflow_dispatch` 觸發、查 run 狀態、把店別寫回 `stores.json` | 否，只有一顆 GitHub PAT |
+| 平台的 Worker（`apps/api/src/payout/github.ts`） | `workflow_dispatch` 觸發、查 run 狀態、把本次店別設定放進 workflow input | 否，只有一顆 GitHub PAT |
 | GitHub Actions runner（`.github/workflows/payout.yml`） | 真的跑 `driver.mjs`：開 Chrome、登 CYBERBIZ、讀 Gmail、寫 Drive | 是，全部 |
 
 **Worker 不跑這個流程。** 它有執行時間上限，而一趟要三分半。
@@ -43,15 +43,16 @@ Playwright，拉進 workspace 會讓每個人的 `pnpm install` 都扛一份只�
 
 也可以直接到 Actions → 出金表月結 → Run workflow，那是同一條路。
 
-## 店別清單有兩個來源
+## 店別設定如何傳入
 
-| 檔案 | 誰維護 | 內容 |
-|---|---|---|
-| `config.json` | 維護者（改 code 的人） | CYBERBIZ 網址、Drive 根目錄、欄位公式、**預設店別** |
-| `stores.json` | 同仁（平台的「店別設定」頁） | 只有店別清單 |
+| 執行方式 | 店別設定來源 |
+|---|---|
+| 直接執行 driver | `config.json` 的預設店別，由維護者管理 |
+| 平台執行頁觸發 workflow | D1 的店別、scope ID 與 Drive 設定，放在這次 dispatch 的 `stores_json` |
+| Actions 頁面手動執行 | `stores_json` 留空，使用 `config.json` |
 
-`loadConfig` 讀到 `stores.json` 就以它為準；沒有那個檔案、或裡面是空清單時照
-`config.json` 走；JSON 壞掉會直接報錯，不默默跑舊的。
+`loadConfig` 會在收到非空的 `stores_json` 時覆蓋 `config.json` 的店別；JSON 壞掉會直接報錯，
+不會默默退回預設清單。
 
 **店名必須與 CYBERBIZ 後台完全一致**，driver 靠它找店。用 `node payout/driver.mjs --list-stores`
 對。在平台上新增一家後台沒有的店，執行時會 `STORE_NOT_FOUND`。
@@ -204,8 +205,8 @@ xlsx 解析（含自閉合空儲存格）、月份守門、機密遮蔽、欄位
 | `FORMULA_NOT_EVALUATED` | 上傳後轉檔驗算不出值，多半是欄位注入寫壞了 |
 | `GOOGLE_API_ERROR` 401/403、`invalid_grant` | token 失效。先確認 OAuth 應用程式是「正式版」而非「測試中」，再重跑 `node setup.mjs auth` 與 `mail` |
 | 平台上按了執行沒動靜 | 已有工作在跑（`concurrency: payout`，一次只跑一個），等前一個結束；或到 Actions 看那次 run 的 log |
-| 平台回「平台的 GitHub 憑證有問題」 | `GITHUB_TOKEN` 過期或權限不足。要給相關 repo 的 Actions 讀寫；若要同步 `stores.json`，還要 Contents 讀寫 |
-| 在平台改了店別但執行時沒生效 | 設定頁存檔會把 `stores.json` 寫回 repo，確認那個 commit 真的進去了；workflow 讀的是 `PAYOUT_GITHUB_REF`（預設 main）那一版 |
+| 平台回「平台的 GitHub 憑證有問題」 | `GITHUB_TOKEN` 過期或權限不足。要給相關 repo 的 Actions 讀寫 |
+| 在平台改了店別但執行時沒生效 | 確認該次 workflow 的 `stores_json` input 與 Worker 查到的 D1 設定一致；若 dispatch 到其他 repo，檢查 `PAYOUT_GITHUB_REF`（預設 main） |
 
 ## 已知但還沒處理
 
