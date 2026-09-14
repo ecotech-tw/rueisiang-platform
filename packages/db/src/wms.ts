@@ -17,6 +17,7 @@ import {
 
 export interface Actor { id: string; email: string }
 const SETTINGS_ID = "main";
+const DECORATION_ID_PREFIX = "wms-decoration:";
 export interface ShelfLevel { id: string; name: string }
 const DEFAULT_SHELF_LEVELS: ShelfLevel[] = [
   { id: "top", name: "上層" }, { id: "middle", name: "中層" }, { id: "bottom", name: "底層" },
@@ -81,6 +82,15 @@ function writeEvent(db: Database, input: {
 function asPosition(box: { x: number; y: number }): string { return `${box.x}%, ${box.y}%`; }
 function asSize(box: { width: number; height: number }): string { return `${box.width}% × ${box.height}%`; }
 
+/** 儲存層的裝飾 id 帶種類前綴；API 對外沿用新增時回傳的原始 id。 */
+function publicDecorationId(id: string): string {
+  return id.startsWith(DECORATION_ID_PREFIX) ? id.slice(DECORATION_ID_PREFIX.length) : id;
+}
+
+function decorationStorageId(id: string): string {
+  return `${DECORATION_ID_PREFIX}${publicDecorationId(id)}`;
+}
+
 async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
   const [layout] = await db.select().from(wmsLayouts).where(eq(wmsLayouts.active, 1)).orderBy(asc(wmsLayouts.id)).limit(1);
   const [zoneRows, elementRows, categoryRows, itemRows, shelfRows, imageRows, cyberbizRows] = await Promise.all([
@@ -104,7 +114,10 @@ async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
       return { ...zone, category: "", x: element?.x ?? 0, y: element?.y ?? 0, width: element?.width ?? 18, height: element?.height ?? 16, shelfLevels: shelvesByZone.get(zone.id) ?? DEFAULT_SHELF_LEVELS, imageCount: imageCounts.get(zone.id) ?? 0 };
     }),
     // zone 也是一種 layout element，但地圖會依 zones 另外渲染；只回傳裝飾，避免同一個倉位畫兩次。
-    layoutElements: elementRows.filter((element) => element.elementType === "decoration"),
+    // 儲存層 id 帶 wms-decoration: 前綴，不能把那個內部 id 直接交給更新 API。
+    layoutElements: elementRows
+      .filter((element) => element.elementType === "decoration")
+      .map((element) => ({ ...element, id: publicDecorationId(element.id) })),
     categories: categoryRows,
     items: itemRows.map(({ wms, item }) => {
       const shelf = wms.shelfId ? shelfById.get(wms.shelfId) : undefined;
@@ -319,28 +332,30 @@ export async function createLayoutElement(db: Database, input: LayoutElementInpu
   const element = { id, label: input.label.trim().slice(0, 40), color: input.color?.trim() || "rose", x: clamp(input.x, 10, BOUNDS.x), y: clamp(input.y, 10, BOUNDS.y), width: clamp(input.width, 12, BOUNDS.width), height: clamp(input.height, 10, BOUNDS.height) };
   await db.batch([
     db.insert(wmsLayouts).values({ id: "layout:main", name: "主倉庫", canvasWidth: CANVAS.width.fallback, canvasHeight: CANVAS.height.fallback, active: 1 }).onConflictDoNothing(),
-    db.insert(wmsLayoutElements).values({ id: `wms-decoration:${id}`, layoutId: "layout:main", elementType: "decoration", label: element.label, color: element.color, x: element.x, y: element.y, width: element.width, height: element.height, zIndex: 1 }),
+    db.insert(wmsLayoutElements).values({ id: `${DECORATION_ID_PREFIX}${id}`, layoutId: "layout:main", elementType: "decoration", label: element.label, color: element.color, x: element.x, y: element.y, width: element.width, height: element.height, zIndex: 1 }),
     writeEvent(db, { entityType: "layout_element", entityId: id, entityLabel: element.label, eventType: "element_created", summary: "新增地圖標示", payload: element, actor: input.actor }),
   ] as never);
   return { id };
 }
 
 export async function updateLayoutElement(db: Database, id: string, input: Partial<LayoutElementInput> & { actor: Actor }) {
-  const [current] = await db.select().from(wmsLayoutElements).where(and(eq(wmsLayoutElements.id, `wms-decoration:${id}`), eq(wmsLayoutElements.elementType, "decoration"))).limit(1);
+  const publicId = publicDecorationId(id);
+  const [current] = await db.select().from(wmsLayoutElements).where(and(eq(wmsLayoutElements.id, decorationStorageId(id)), eq(wmsLayoutElements.elementType, "decoration"))).limit(1);
   if (!current) throw new WmsError("not_found", "找不到這個地圖標示。");
   const next = { label: input.label?.trim().slice(0, 40) || current.label, color: input.color?.trim() || current.color, x: clamp(input.x, current.x, BOUNDS.x), y: clamp(input.y, current.y, BOUNDS.y), width: clamp(input.width, current.width, BOUNDS.width), height: clamp(input.height, current.height, BOUNDS.height) };
   await db.batch([
     db.update(wmsLayoutElements).set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(wmsLayoutElements.id, current.id)),
-    writeEvent(db, { entityType: "layout_element", entityId: id, entityLabel: next.label, eventType: "element_updated", summary: "調整地圖標示", payload: { before: current, after: next }, actor: input.actor }),
+    writeEvent(db, { entityType: "layout_element", entityId: publicId, entityLabel: next.label, eventType: "element_updated", summary: "調整地圖標示", payload: { before: current, after: next }, actor: input.actor }),
   ] as never);
 }
 
 export async function deleteLayoutElement(db: Database, id: string, actor: Actor) {
-  const [element] = await db.select().from(wmsLayoutElements).where(and(eq(wmsLayoutElements.id, `wms-decoration:${id}`), eq(wmsLayoutElements.elementType, "decoration"))).limit(1);
+  const publicId = publicDecorationId(id);
+  const [element] = await db.select().from(wmsLayoutElements).where(and(eq(wmsLayoutElements.id, decorationStorageId(id)), eq(wmsLayoutElements.elementType, "decoration"))).limit(1);
   if (!element) throw new WmsError("not_found", "找不到這個地圖標示。");
   await db.batch([
     db.delete(wmsLayoutElements).where(eq(wmsLayoutElements.id, element.id)),
-    writeEvent(db, { entityType: "layout_element", entityId: id, entityLabel: element.label, eventType: "element_deleted", summary: "刪除地圖標示", payload: element, actor }),
+    writeEvent(db, { entityType: "layout_element", entityId: publicId, entityLabel: element.label, eventType: "element_deleted", summary: "刪除地圖標示", payload: element, actor }),
   ] as never);
 }
 
