@@ -10,7 +10,7 @@ export interface Employee {
   revision: number;
 }
 export interface Employment { id: string; employeeUserId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string; attendanceMode?: "general" | "scheduled"; revision: number }
-export interface Assignment { id: string; employmentId: string; scopeName: string; validFrom: string; validTo: string | null; revision: number }
+interface Assignment { id: string; employmentId: string; scopeName: string; validFrom: string; validTo: string | null; revision: number }
 export interface AttendanceAssignment {
   id: string;
   employmentId: string;
@@ -28,7 +28,7 @@ export interface AttendanceEvent { id: string; eventKind: "clock_in" | "clock_ou
 export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; assignments: Assignment[]; attendanceAssignments?: AttendanceAssignment[]; compensation?: CompensationVersion[]; insurance?: InsuranceVersion[]; leave?: LeaveRequest[]; attendanceEvents?: AttendanceEvent[] }
 export interface NamedOption { id: string; name: string }
 export interface Candidate { userId: string; displayName: string; email: string; status: "invited" | "active" }
-export interface InsuranceBracket { level: number; lowerSalary: number; upperSalary: number | null; insuredAmount: number }
+interface InsuranceBracket { level: number; lowerSalary: number; upperSalary: number | null; insuredAmount: number }
 export interface InsuranceBracketTable { scheme: "labor" | "health"; year: number; sourceUrl: string; fetchedAt: string; brackets: InsuranceBracket[] }
 export interface AttendanceLocation {
   id: string;
@@ -51,95 +51,23 @@ export interface GoogleMapPlace {
   latitude: number;
   longitude: number;
 }
-export interface ClockEvent {
-  id: string;
-  eventKind: "clock_in" | "clock_out";
-  occurredAt: string;
-  locationName: string | null;
-  distanceMeters: number | null;
-}
-export interface ClockStatus {
-  canClock: boolean;
-  message: string | null;
-  nextEventKind: "clock_in" | "clock_out";
-  geolocationRequired: boolean;
-  locationName: string | null;
-  locationNames?: string[];
-  radiusMeters: number | null;
-  events: ClockEvent[];
-}
-export interface ClockLocationCheck {
-  available: boolean;
-  withinRadius: boolean;
-  locationName: string | null;
-  locationNames: string[];
-  distanceMeters: number | null;
-  radiusMeters: number | null;
-  geolocationRequired: boolean;
-  message: string | null;
-}
-export interface ClockMapLocation {
-  id: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-}
-export interface ClockCalendarDay {
-  date: string;
-  weekday: number;
-  status: "not-employed" | "future" | "present" | "open" | "missing" | "rest";
-  eventCount: number;
-  firstEventAt: string | null;
-  lastEventAt: string | null;
-}
-export interface ClockCalendar {
-  year: number;
-  month: number;
-  today: string;
-  days: ClockCalendarDay[];
-  missingDates: string[];
-}
-export type FormRequestStatus = "draft" | "pending" | "approved" | "rejected";
-export interface FormRequest {
-  id: string;
-  employeeUserId: string;
-  employmentId: string;
-  formKind: "clock_correction";
-  status: FormRequestStatus;
-  correctionDate: string;
-  requestedEventKind: "clock_in" | "clock_out";
-  requestedAt: string;
-  reason: string;
-  approverUserId: string | null;
-  approverName: string | null;
-  requesterName: string | null;
-  submittedAt: string | null;
-  reviewedAt: string | null;
-  reviewComment: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-export interface FormApprover { id: string; name: string }
-export interface FormApproversResponse { approvers: FormApprover[]; defaultApproverUserId: string | null }
 export interface PayrollLine { lineKey: string; direction: "earning" | "deduction"; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }
-export interface PayrollEmployee { employmentId: string; employeeUserId: string; employeeNumber: string; employeeName: string; lines: PayrollLine[]; earningMinor: number; deductionMinor: number; netMinor: number; attendanceDays: number; missingPunchDays: number }
-export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }
+interface PayrollEmployee { employmentId: string; employeeUserId: string; employeeNumber: string; employeeName: string; lines: PayrollLine[]; earningMinor: number; deductionMinor: number; netMinor: number; attendanceDays: number; missingPunchDays: number }
+interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }
 export interface PayrollRun { runId: string; periodKey: string; status: "ready"; engineVersion: string; employees: PayrollEmployee[]; workers: PayrollWorker[]; warnings: string[] }
-export type BonusKind = "team_performance" | "individual_performance";
-export type PerformancePeriod = "current_month" | "previous_month";
+type BonusKind = "team_performance" | "individual_performance";
+type PerformancePeriod = "current_month" | "previous_month";
 export interface BonusPolicy { policyVersionId: string; policyId: string; policyName: string; versionNumber: number; scopeId: string; scopeName: string; bonusKind: BonusKind; performancePeriod: PerformancePeriod; ratePpm: number; guaranteeMinor: number; validFrom: string; validTo: string | null }
 export interface BonusAssignment { assignment: { id: string; employmentId: string; validFrom: string; validTo: string | null; weightUnits: number }; policyVersionId: string; policyName: string; bonusKind: BonusKind; performancePeriod: PerformancePeriod; employeeUserId: string; employeeNumber: string; employeeName: string }
-export interface BonusPerformanceSnapshot { snapshot: { id: string; employmentId: string | null; periodStart: string; periodEnd: string; amountMinor: number; sourceKind: "manual" | "report"; sourceRef: string }; scopeName: string; employeeUserId: string | null; employeeName: string | null }
+
 export interface PayrollRunSummary { run: { id: string; versionNumber: number; status: string; engineVersion: string; expectedCount: number; completedCount: number; createdAt: string }; periodKey: string; periodStatus: string }
-export interface BonusAllocation { employmentId: string; employeeNumber: string; employeeName: string; weightUnits: number; scheduledDays: number; revenueMinor: number; amountMinor: number }
-export interface BonusPool { poolId: string; policyVersionId: string; policyName: string; scopeId: string; scopeName: string; periodKey: string; status: "calculated" | "approved" | "closed" | "failed"; poolAmountMinor: number; allocations: BonusAllocation[]; daily: Array<{ businessDate: string; revenueMinor: number; bonusMinor: number; scheduled: boolean }>; warnings: string[] }
-export interface ScheduleScope { id: string; name: string }
+interface ScheduleScope { id: string; name: string }
 export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; code: string; name: string; startSecond: number; endSecond: number; endDayOffset: number }
-export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string }
-export interface ScheduleWorker { id: string; name: string; active: boolean | number }
+interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string }
+interface ScheduleWorker { id: string; name: string; active: boolean | number }
 export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; workDate: string; startsAt: string; endsAt: string; employeeNumber: string | null; personName: string; scopeName: string; shiftName: string }
 export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
-export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; note: string }
+interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; note: string }
 export interface ScheduleWorkerRecord { id: string; displayName: string; active: boolean | number; revision: number; compensation: WorkerCompensation[] }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

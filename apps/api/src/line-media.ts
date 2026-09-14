@@ -15,7 +15,7 @@ import type { Env } from "./env.js";
 const LINE_ATTACHMENT_TTL_MS = 7 * 24 * 60 * 60_000;
 const LINE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
-export class LineImageStorageError extends Error {
+class LineImageStorageError extends Error {
   readonly retryable: boolean;
 
   constructor(message: string, retryable: boolean, cause?: unknown) {

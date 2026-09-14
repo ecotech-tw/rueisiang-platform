@@ -113,7 +113,7 @@ export async function piCodexCredentialConfigured(env: AppEnv["Bindings"]): Prom
   return (await piCodexCredentialStatus(env)).configured;
 }
 
-export type PiCodexCredentialState = "unconfigured" | "ready" | "needs_reauth";
+type PiCodexCredentialState = "unconfigured" | "ready" | "needs_reauth";
 
 export interface PiCodexCredentialStatus {
   configured: boolean;

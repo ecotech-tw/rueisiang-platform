@@ -7,7 +7,7 @@ import { FilterInput } from "./Filter.js";
  */
 const SEARCH_DEBOUNCE_MS = 400;
 
-export interface SearchFilterInputProps {
+interface SearchFilterInputProps {
   label: string;
   placeholder: string;
   /** 已經套用的關鍵字。外部改動（例如「清除篩選」）時輸入框會跟著回到這個值。 */

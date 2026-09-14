@@ -75,9 +75,8 @@ export interface Env {
   /*
    * 出金表。真正的執行在帳務 repo 的 GitHub Actions 上——CYBERBIZ 帳密、Gmail 與
    * Drive 的授權都只存在那邊的 Actions secrets，平台一個都不碰。這裡的 token 是
-   * fine-grained PAT，供出金表與蝦皮報表共用；**只需要各自 repo 的 Actions 讀寫**。
-   * 舊版還要 Contents 寫入，用來把店別清單 commit 成 stores.json；店別改成跟著
-   * dispatch 傳過去之後那個權限就不需要了，可以在 GitHub 上收回。
+   * fine-grained PAT，供出金表、商品銷售與蝦皮報表共用；只需要各自 repo 的
+   * Actions 讀寫。
    */
   GITHUB_TOKEN?: string;
   PAYOUT_GITHUB_REPO?: string;

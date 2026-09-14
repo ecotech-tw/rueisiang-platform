@@ -12,7 +12,7 @@ import path from "node:path";
  * 條件請求、list 之類的，補上去只是增加沒人跑過的程式碼。
  */
 
-export interface LocalR2Object {
+interface LocalR2Object {
   key: string;
   size: number;
   httpMetadata?: { contentType?: string };

@@ -314,9 +314,7 @@ check("商品銷售終端摘要不會印出 object", terminalSummary(salesReport
 const config = await loadConfig();
 
 /*
- * 平台傳進來的店別（workflow 的 stores_json）蓋掉 config.json 的那一份。
- * 舊版是把清單 commit 成 stores.json 讓 runner 讀，同一份資料存在 D1、
- * stores.json、config.json 三個地方。
+ * 平台傳進來的店別（workflow 的 stores_json）蓋掉 config.json 的預設店別。
  */
 {
   const dir = path.join(temp, "stores-override");

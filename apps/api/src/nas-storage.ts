@@ -6,22 +6,22 @@ const MAX_ERROR_BODY_BYTES = 64 * 1024;
 const OBJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GENERATED_KEY = /^(assistant\/vision\/(?:[A-Za-z0-9._-]{1,100}\/)?\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.[A-Za-z0-9]+|wms\/zones\/[A-Za-z0-9._-]{1,100}\/\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.[A-Za-z0-9]+|reports\/cyberbiz\/[A-Za-z0-9._-]{1,100}\/\d{4}\/(0[1-9]|1[0-2])\/[0-9a-f-]{36}\.(xlsx|json))$/;
 
-export type NasStorageNamespace = "assistant" | "wms" | "reports";
+type NasStorageNamespace = "assistant" | "wms" | "reports";
 
-export interface NasStorageObject {
+interface NasStorageObject {
   key: string;
   size: number;
   checksum: string;
   contentType: string;
 }
 
-export interface NasStorageHead {
+interface NasStorageHead {
   key: string;
   size: number;
   contentType: string;
 }
 
-export interface NasStoragePutInput {
+interface NasStoragePutInput {
   namespace: NasStorageNamespace;
   scope: "vision" | "zones" | "cyberbiz";
   /** assistant vision uses the chat/session id; WMS zones use the zone id. */

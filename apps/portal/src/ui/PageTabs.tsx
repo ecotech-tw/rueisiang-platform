@@ -1,7 +1,7 @@
 import { NavLink } from "react-router";
 import { Icon, type IconName } from "../shell/icons.js";
 
-export interface PageTab {
+interface PageTab {
   label: string;
   to: string;
   icon?: IconName;

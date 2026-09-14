@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
 import {
-  CATEGORY_COLORS,
+  WAREHOUSE_CATEGORY_COLORS,
   useCreateZone,
   useUpdateZone,
   type ShelfLevel,
@@ -113,7 +113,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
           <div className="field">
             <span>顏色</span>
             <div className="color-picker" role="radiogroup" aria-label="倉位顏色">
-              {CATEGORY_COLORS.map((color) => (
+              {WAREHOUSE_CATEGORY_COLORS.map((color) => (
                 <label
                   key={color}
                   className={`color-swatch tone-${color}${fields.color === color ? " selected" : ""}`}

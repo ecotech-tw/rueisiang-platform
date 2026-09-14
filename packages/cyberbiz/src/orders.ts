@@ -97,7 +97,7 @@ export interface CyberbizOrderNumberMapping {
   orderId: string;
 }
 
-export interface CyberbizCustomerOrderPageFilters {
+interface CyberbizCustomerOrderPageFilters {
   page?: number;
   perPage?: number;
   offset?: number;

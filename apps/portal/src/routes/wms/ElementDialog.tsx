@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useToast } from "../../shell/Toast.js";
 import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
 import {
-  CATEGORY_COLORS,
+  WAREHOUSE_CATEGORY_COLORS,
   useCreateElement,
   useDeleteElement,
   useUpdateElement,
@@ -100,7 +100,7 @@ export function ElementDialog({
           <div className="field">
             <span>顏色</span>
             <div className="color-picker" role="radiogroup" aria-label="標籤顏色">
-              {CATEGORY_COLORS.map((tone) => (
+              {WAREHOUSE_CATEGORY_COLORS.map((tone) => (
                 <label key={tone} className={`color-swatch tone-${tone}${color === tone ? " selected" : ""}`}>
                   <input
                     type="radio"

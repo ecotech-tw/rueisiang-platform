@@ -2,19 +2,19 @@ import type { ReactNode } from "react";
 import { Panel } from "./Panel.js";
 import { StatusBadge } from "./Feedback.js";
 
-export interface WorkflowRunSummary {
+interface WorkflowRunSummary {
   status: string;
   conclusion: string | null;
   url?: string;
 }
 
-export interface WorkflowStepSummary {
+interface WorkflowStepSummary {
   name: string;
   status: string;
   conclusion: string | null;
 }
 
-export interface WorkflowRunPanelProps {
+interface WorkflowRunPanelProps {
   tracking: boolean;
   latest?: WorkflowRunSummary;
   steps: readonly WorkflowStepSummary[];

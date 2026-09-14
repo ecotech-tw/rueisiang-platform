@@ -1,7 +1,7 @@
 import { useId, type FormHTMLAttributes, type ReactNode } from "react";
 import { Button } from "./Button.js";
 
-export interface DialogProps {
+interface DialogProps {
   title: ReactNode;
   titleMeta?: ReactNode;
   children: ReactNode;

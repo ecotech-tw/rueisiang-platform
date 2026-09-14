@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export interface PanelProps {
+interface PanelProps {
   title?: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
@@ -28,7 +28,7 @@ export function Panel({ title, description, actions, className = "", children }:
   );
 }
 
-export interface PageHeaderProps {
+interface PageHeaderProps {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;

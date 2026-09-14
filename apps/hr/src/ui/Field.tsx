@@ -1,7 +1,7 @@
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 import { DropdownSelect } from "./DropdownSelect.js";
 
-export interface FieldProps {
+interface FieldProps {
   label?: ReactNode;
   required?: boolean;
   hint?: ReactNode;
@@ -21,7 +21,7 @@ export function Field({ label, required, hint, error, className = "", children }
   );
 }
 
-export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "className">, Omit<FieldProps, "children" | "className"> {
+interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "className">, Omit<FieldProps, "children" | "className"> {
   inputClassName?: string;
 }
 
@@ -33,7 +33,7 @@ export function TextField({ label, required, hint, error, inputClassName = "", .
   );
 }
 
-export interface SelectFieldProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "className" | "children">, Omit<FieldProps, "children" | "className"> {
+interface SelectFieldProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "className" | "children">, Omit<FieldProps, "children" | "className"> {
   options: readonly { label: string; value: string }[];
   selectClassName?: string;
 }

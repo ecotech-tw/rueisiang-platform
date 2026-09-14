@@ -16,9 +16,9 @@ import type {
 } from "@earendil-works/pi-ai";
 
 export const PI_CODEX_PROVIDER_ID = "openai-codex";
-export const PI_GEMINI_PROVIDER_ID = "google";
+const PI_GEMINI_PROVIDER_ID = "google";
 
-export type PiCodexAccessTokenResolver = (signal: AbortSignal | undefined) => Promise<string>;
+type PiCodexAccessTokenResolver = (signal: AbortSignal | undefined) => Promise<string>;
 
 export interface PiCodexRelayConfig {
   /** NAS relay 的 HTTPS origin；本機測試可使用 localhost／loopback 的 HTTP。 */
@@ -140,7 +140,7 @@ export function piAssistantModel(modelId: string): Model<Api> {
 }
 
 /** Worker-safe Codex transport：不載入 Pi 給 CLI 使用的 Node OAuth login flow。 */
-export function streamPiCodex(
+function streamPiCodex(
   model: Model<Api>,
   context: Context,
   options: ModelsSimpleStreamOptions,
@@ -161,7 +161,7 @@ export function streamPiCodex(
 }
 
 /** Gemini API key 仍由 Cloudflare secret 注入；Pi 只負責 provider adapter 與 agent loop。 */
-export function streamPiGemini(
+function streamPiGemini(
   model: Model<Api>,
   context: Context,
   options: ModelsSimpleStreamOptions,
@@ -182,7 +182,7 @@ export interface PiAssistantModelCredentials {
   geminiApiKey?: string;
 }
 
-export function streamPiAssistantModel(
+function streamPiAssistantModel(
   model: Model<Api>,
   context: Context,
   options: ModelsSimpleStreamOptions,
