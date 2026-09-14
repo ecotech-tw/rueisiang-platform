@@ -113,8 +113,8 @@ workspace 會讓每個開發者的 `pnpm install` 都扛一份只有 GitHub Acti
 用 `npm ci` 自己安裝，CI 另外跑一步 `node selftest.mjs`。
 
 平台這一端只負責「有哪些店」「誰按了執行」，憑證一個都不碰——那些是本 repo 的
-Actions secrets。設定頁存檔時會把店別寫回 `tools/cyberbiz-reports/stores.json`，
-driver 的 `loadConfig` 讀到它就以它為準（沒有這個檔案時照 `config.json` 走）。
+Actions secrets。平台觸發 workflow 時會把 D1 的店別、scope ID 與 Drive 設定放進
+`stores_json`；直接在 Actions 手動執行時才使用 `tools/cyberbiz-reports/config.json` 的預設店別。
 
 **CYBERBIZ 同步分批做。** Worker 有執行時間上限，全量拉一次可能拉不完，所以每次最多 `MAX_PAGES_PER_RUN` 頁，回報還有沒有下一頁。cron（每 15 分）只補跑失敗的 webhook，不做全量同步。
 
