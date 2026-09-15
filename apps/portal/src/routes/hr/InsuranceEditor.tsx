@@ -14,6 +14,8 @@ function taipeiToday(): string {
 }
 
 function bracketForSalary(brackets: InsuranceBracket[] | undefined, salary: string) {
+  // Number("") 是 0，會落在第 1 級；還沒填月薪時要顯示「請輸入月薪」，不能先帶出最低級距。
+  if (!salary.trim()) return undefined;
   const value = Number(salary);
   if (!Number.isSafeInteger(value) || value < 0) return undefined;
   return brackets?.find((bracket) => value >= bracket.lowerSalary && (bracket.upperSalary === null || value <= bracket.upperSalary));
@@ -28,10 +30,14 @@ interface InsuranceDraft {
   manualAmount: string;
 }
 
-export function InsuranceEditor({ employment, defaultSalary, defaultDependentCount, onClose }: { employment: Employment; defaultSalary?: number; defaultDependentCount?: number; onClose: () => void }) {
+/**
+ * existing 決定生效日的預設值：新加保從到職日起算；已經有版本的人，同一個起日一定跟既有版本重疊，
+ * 所以改從今天起算，存的時候由後端關閉前一個版本。
+ */
+export function InsuranceEditor({ employment, existing, defaultSalary, defaultDependentCount, onClose }: { employment: Employment; existing: boolean; defaultSalary?: number; defaultDependentCount?: number; onClose: () => void }) {
   const currentYear = taipeiToday().slice(0, 4);
   const [status, setStatus] = useState<"enrolled" | "withdrawn">("enrolled");
-  const [validFrom, setValidFrom] = useState(employment.hiredOn);
+  const [validFrom, setValidFrom] = useState(existing ? taipeiToday() : employment.hiredOn);
   const [salary, setSalary] = useState(defaultSalary === undefined ? "" : String(defaultSalary));
   const [drafts, setDrafts] = useState<Record<InsuranceScheme, InsuranceDraft>>({
     labor: { manual: false, manualAmount: "" },
@@ -41,9 +47,7 @@ export function InsuranceEditor({ employment, defaultSalary, defaultDependentCou
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
   const table = useHrQuery<{ tables: InsuranceRateTableRecord[] }>(`/insurance-rates?year=${encodeURIComponent(currentYear)}`);
-  const saveLabor = useHrWrite();
-  const saveHealth = useHrWrite();
-  const pending = saveLabor.isPending || saveHealth.isPending;
+  const save = useHrWrite<{ ids: string[] }>();
   const activeTables = useMemo(() => new Map(table.data?.tables.filter((item) => item.status === "active").map((item) => [item.scheme, item])), [table.data?.tables]);
   const selected = useMemo(() => ({
     labor: bracketForSalary(activeTables.get("labor")?.brackets, salary),
@@ -60,7 +64,7 @@ export function InsuranceEditor({ employment, defaultSalary, defaultDependentCou
 
   const updateDraft = (scheme: InsuranceScheme, patch: Partial<InsuranceDraft>) => setDrafts((current) => ({ ...current, [scheme]: { ...current[scheme], ...patch } }));
 
-  return <Dialog title="編輯勞健保" titleMeta="勞保與健保一起建立版本" onClose={onClose} closeDisabled={pending} formProps={{ onSubmit: (event) => {
+  return <Dialog title={existing ? "編輯勞健保" : "新增加保資料"} titleMeta="勞保與健保一起建立版本" onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     const healthDependents = Number(dependents);
     if (status === "enrolled") {
@@ -75,13 +79,13 @@ export function InsuranceEditor({ employment, defaultSalary, defaultDependentCou
     const valuesFor = (scheme: InsuranceScheme) => {
       const draft = drafts[scheme];
       const activeTable = activeTables.get(scheme);
-      const nextAmount = amount(scheme) ?? 0;
       return {
         scheme,
         status,
         validFrom,
-        validTo: null,
-        insuredAmountMinor: nextAmount * 100,
+        // 在職的人不設訖日；任職已結束時後端要求版本在結束日前收尾，直接帶任職結束日，不另外讓人填。
+        validTo: employment.endedOn ?? null,
+        insuredAmountMinor: (amount(scheme) ?? 0) * 100,
         dependentCount: scheme === "health" ? healthDependents : 0,
         rateYear: Number(currentYear),
         sourceKind: draft.manual ? "manual" : "official",
@@ -89,16 +93,14 @@ export function InsuranceEditor({ employment, defaultSalary, defaultDependentCou
         note,
       };
     };
-    Promise.all(SCHEMES.map((scheme) => (scheme === "labor" ? saveLabor : saveHealth).mutateAsync({ path: `/employments/${employment.id}/insurance`, method: "POST", values: valuesFor(scheme) })))
-      .then(() => onClose())
-      .catch(() => undefined);
-  } }} actions={<Button type="submit" loading={pending}>儲存勞健保</Button>}>
+    save.mutate({ path: `/employments/${employment.id}/insurance`, method: "POST", values: { versions: SCHEMES.map(valuesFor) } }, { onSuccess: onClose });
+  } }} actions={<Button type="submit" loading={save.isPending}>儲存勞健保</Button>}>
     <p>系統會用目前啟用的官方級距依實際月薪自動帶入勞保與健保投保金額；每年級距調整後，再由系統整理需要調整的人員提醒管理者。</p>
     <Field label="狀態"><div className="segmented-control" role="group" aria-label="勞健保狀態">
       <button type="button" className={status === "enrolled" ? "selected" : ""} onClick={() => setStatus("enrolled")}>加保／變更級距</button>
       <button type="button" className={status === "withdrawn" ? "selected" : ""} onClick={() => setStatus("withdrawn")}>退保</button>
     </div></Field>
-    <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
+    <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} hint={existing ? "從這天起套用新的投保資料，前一個版本會在前一天結束。" : undefined} />
     {status === "enrolled" ? <>
       <TextField label="實際月薪（元）" type="number" min="0" step="1" value={salary} required onChange={(event) => setSalary(event.target.value)} hint="投保級距會依目前啟用的官方級距自動判定，不需手動選年度或級距。" />
       <div className="form-grid two">
@@ -120,6 +122,6 @@ export function InsuranceEditor({ employment, defaultSalary, defaultDependentCou
     <TextField label="備註" required={(drafts.labor.manual || drafts.health.manual) && status === "enrolled"} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint={(drafts.labor.manual || drafts.health.manual) && status === "enrolled" ? "人工覆寫必須留下覆核備註。" : undefined} />
     {table.error ? <Alert tone="danger">{table.error.message}；仍可勾選人工覆寫並填入金額。</Alert> : null}
     {status === "enrolled" && !table.isPending && SCHEMES.some((scheme) => !activeTables.get(scheme) && !drafts[scheme].manual) ? <Alert tone="warning">目前年度尚未有完整已啟用的官方級距；請先同步並啟用，或針對缺少的險別改用人工覆寫。</Alert> : null}
-    {message || saveLabor.error || saveHealth.error ? <Alert tone="danger">{message || saveLabor.error?.message || saveHealth.error?.message}</Alert> : null}
+    {message || save.error ? <Alert tone="danger">{message || save.error?.message}</Alert> : null}
   </Dialog>;
 }

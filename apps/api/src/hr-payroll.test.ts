@@ -66,9 +66,9 @@ describe("HR 薪資與勞健保", () => {
     expect(afterActivation.tables.find((table) => table.scheme === "health")?.status).toBe("draft");
     await assign();
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
-    const official = await request(`/hr/employments/${profile.employments[0]!.id}/insurance`, "POST", {
-      scheme: "labor", status: "enrolled", validFrom: "2026-01-01", insuredAmountMinor: 2_950_000, dependentCount: 0, rateYear: 2026, sourceKind: "official", sourceUrl: afterActivation.tables.find((table) => table.scheme === "labor")?.sourceUrl,
-    });
+    const official = await request(`/hr/employments/${profile.employments[0]!.id}/insurance`, "POST", { versions: [
+      { scheme: "labor", status: "enrolled", validFrom: "2026-01-01", insuredAmountMinor: 2_950_000, dependentCount: 0, rateYear: 2026, sourceKind: "official", sourceUrl: afterActivation.tables.find((table) => table.scheme === "labor")?.sourceUrl },
+    ] });
     expect(official.status, await official.clone().text()).toBe(201);
     expect(synced.tables.filter((table) => table.status === "archived")).toHaveLength(0);
   });
@@ -92,8 +92,8 @@ describe("HR 薪資與勞健保", () => {
     const employmentId = profile.employments[0]!.id;
     expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 4000000, items: [{ itemName: "交通津貼", amountMinor: 300000, itemKind: "fixed", includeOvertime: true, includeInsurance: false, includeTax: true }] })).status).toBe(201);
     expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-03-01", payBasis: "monthly", baseAmountMinor: 4500000 })).status).toBe(201);
-    expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { scheme: "labor", status: "enrolled", validFrom: "2026-01-01", insuredAmountMinor: 4580000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "測試人工覆核投保金額" })).status).toBe(201);
-    expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { scheme: "labor", status: "withdrawn", validFrom: "2026-03-01", insuredAmountMinor: 0, dependentCount: 0, rateYear: 2026, sourceKind: "manual" })).status).toBe(201);
+    expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { versions: [{ scheme: "labor", status: "enrolled", validFrom: "2026-01-01", insuredAmountMinor: 4580000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "測試人工覆核投保金額" }] })).status).toBe(201);
+    expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { versions: [{ scheme: "labor", status: "withdrawn", validFrom: "2026-03-01", insuredAmountMinor: 0, dependentCount: 0, rateYear: 2026, sourceKind: "manual" }] })).status).toBe(201);
     const detail = await (await request("/hr/employees/employee")).json() as { compensation: { baseAmountMinor: number; items?: { itemName: string; includeOvertime: number }[] }[]; insurance: { status: string; validFrom: string; validTo: string | null }[] };
     expect(detail.compensation.find((item) => item.baseAmountMinor === 4000000)?.items).toEqual([expect.objectContaining({ itemName: "交通津貼", includeOvertime: 1 })]);
     expect(detail.compensation).toEqual(expect.arrayContaining([
@@ -104,6 +104,33 @@ describe("HR 薪資與勞健保", () => {
       expect.objectContaining({ status: "enrolled", validFrom: "2026-01-01", validTo: "2026-03-01" }),
       expect.objectContaining({ status: "withdrawn", validFrom: "2026-03-01", validTo: null }),
     ]));
+  });
+
+  it("勞保與健保一起存，任一險別寫不進去時兩邊都不留版本", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const path = `/hr/employments/${profile.employments[0]!.id}/insurance`;
+    const labor = (validFrom: string) => ({ scheme: "labor", status: "enrolled", validFrom, insuredAmountMinor: 3_000_000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "測試投保" });
+    const health = (validFrom: string) => ({ scheme: "health", status: "enrolled", validFrom, insuredAmountMinor: 3_000_000, dependentCount: 1, rateYear: 2026, sourceKind: "manual", note: "測試投保" });
+    const insurance = async () => (await (await request("/hr/employees/employee")).json() as { insurance: { scheme: string; validFrom: string; validTo: string | null }[] }).insurance;
+
+    expect((await request(path, "POST", { versions: [health("2026-01-01")] })).status).toBe(201);
+    // 健保在同一天已經有版本，這一筆會期間重疊；勞保不能因為排在前面就先寫進去。
+    expect((await request(path, "POST", { versions: [labor("2026-01-01"), health("2026-01-01")] })).status).toBe(409);
+    expect((await insurance()).filter((version) => version.scheme === "labor")).toHaveLength(0);
+
+    // 換一個生效日重送，兩個險別都要成功，健保的前一版被關閉。
+    expect((await request(path, "POST", { versions: [labor("2026-02-01"), health("2026-02-01")] })).status).toBe(201);
+    expect(await insurance()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scheme: "labor", validFrom: "2026-02-01", validTo: null }),
+      expect.objectContaining({ scheme: "health", validFrom: "2026-01-01", validTo: "2026-02-01" }),
+      expect.objectContaining({ scheme: "health", validFrom: "2026-02-01", validTo: null }),
+    ]));
+    expect((await request(path, "POST", { versions: [labor("2026-03-01"), labor("2026-03-01")] })).status).toBe(400);
+    // Dialog 沒填備註時送的是空字串，不是 undefined；官方級距加保與退保都不需要備註。
+    const withdrawn = (scheme: string) => ({ scheme, status: "withdrawn", validFrom: "2026-03-01", insuredAmountMinor: 0, dependentCount: 0, rateYear: 2026, sourceKind: "official", sourceUrl: "", note: "" });
+    const blankNote = await request(path, "POST", { versions: [withdrawn("labor"), withdrawn("health")] });
+    expect(blankNote.status, await blankNote.clone().text()).toBe(201);
   });
 
   it("部分結算只在所有啟用員工 claim 完成後關閉薪資期間", async () => {
@@ -174,7 +201,7 @@ describe("HR 薪資與勞健保", () => {
     const employmentId = profile.employments[0]!.id;
     expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 4000000 })).status).toBe(201);
     expect((await request("/hr/insurance-contribution-rules", "POST", { scheme: "labor", validFrom: "2026-01-01", employeeRatePpm: 10000, employerRatePpm: 20000, dependentRatePpm: 1000000, sourceKind: "manual", note: "測試公司規則" })).status).toBe(201);
-    expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { scheme: "labor", status: "enrolled", validFrom: "2026-01-01", insuredAmountMinor: 3000000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "測試投保" })).status).toBe(201);
+    expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { versions: [{ scheme: "labor", status: "enrolled", validFrom: "2026-01-01", insuredAmountMinor: 3000000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "測試投保" }] })).status).toBe(201);
     const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], requestId: "close-test-2026-01" });
     expect(calculated.status, await calculated.clone().text()).toBe(200);
     const result = await calculated.json() as { run: { runId: string; warnings: string[]; employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };

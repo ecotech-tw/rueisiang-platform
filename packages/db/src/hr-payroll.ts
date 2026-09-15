@@ -154,13 +154,6 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
   return writeHrMutation(db, [...closePrevious, insert, ...itemStatements], id, actor, "compensation_version_created", "任職不存在、薪資期間重疊或資料不合法，請重新整理。 ");
 }
 
-async function applyInsuranceMutation(db: Database, mutations: SQL[], id: string, actor: HrActor) {
-  return writeHrMutation(db, mutations, id, actor, "insurance_version_created", "保險版本已變更、期間重疊或資料不合法，請重新整理。 ", {
-    // 沒有上一個開放版本時，關閉舊版本這一步不存在是合法情況；新版本 INSERT 仍必須成功。
-    allowEmptyMutationIndexes: mutations.length > 1 ? new Set([0]) : new Set(),
-  });
-}
-
 export interface HrInsuranceInput {
   employmentId: string;
   scheme: HrInsuranceScheme;
@@ -264,7 +257,34 @@ function isDateOnly(value: string) {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-export async function createHrInsuranceVersion(db: Database, input: HrInsuranceInput, actor: HrActor) {
+/**
+ * 勞保與健保一起存：每個險別的「關閉前一個開放版本＋新版本」全部放進同一個 D1 batch。
+ *
+ * 分成兩次送的話，勞保成功、健保失敗時勞保已經寫進去；使用者再按一次儲存，勞保會撞上
+ * 自己剛建的版本（期間重疊）而失敗，健保就永遠存不進去。
+ */
+export async function createHrInsuranceVersions(db: Database, inputs: HrInsuranceInput[], actor: HrActor) {
+  if (!inputs.length || inputs.length > 2 || new Set(inputs.map((input) => input.scheme)).size !== inputs.length || new Set(inputs.map((input) => input.employmentId)).size !== 1) {
+    throw new HrError(400, "一次只能為同一段任職各建立一筆勞保、健保版本。 ");
+  }
+  const mutations: SQL[] = [];
+  // 沒有上一個開放版本時，關閉舊版本這一步不存在是合法情況；新版本 INSERT 仍必須成功。
+  const allowEmptyMutationIndexes = new Set<number>();
+  const ids: string[] = [];
+  for (const input of inputs) {
+    const version = await insuranceVersionStatements(db, input, actor);
+    if (version.closePrevious) {
+      allowEmptyMutationIndexes.add(mutations.length);
+      mutations.push(version.closePrevious);
+    }
+    mutations.push(version.insert);
+    ids.push(version.id);
+  }
+  await writeHrMutation(db, mutations, inputs[0]!.employmentId, actor, "insurance_version_created", "保險版本已變更、期間重疊或資料不合法，請重新整理。 ", { allowEmptyMutationIndexes });
+  return { ids };
+}
+
+async function insuranceVersionStatements(db: Database, input: HrInsuranceInput, actor: HrActor) {
   if (!isDateOnly(input.validFrom) || (input.validTo !== null && (!isDateOnly(input.validTo) || input.validTo <= input.validFrom))) throw new HrError(400, "保險生效／迄日不正確。 ");
   if (!Number.isSafeInteger(input.insuredAmountMinor) || input.insuredAmountMinor < 0 || !Number.isSafeInteger(input.dependentCount) || input.dependentCount < 0 || input.dependentCount > 3 || !Number.isSafeInteger(input.rateYear) || input.rateYear < 1900 || input.rateYear > 9999) throw new HrError(400, "保險級距資料不正確。 ");
   if (input.status !== "enrolled" && input.status !== "withdrawn") throw new HrError(400, "保險狀態不正確。 ");
@@ -291,16 +311,17 @@ export async function createHrInsuranceVersion(db: Database, input: HrInsuranceI
     .orderBy(desc(hrInsuranceVersions.validFrom)).limit(1);
   const id = crypto.randomUUID();
   const closePrevious = current && current.validFrom < input.validFrom
-    ? [sql`UPDATE hr_insurance_versions SET valid_to=${input.validFrom}
-      WHERE id=${current.id} AND valid_to IS NULL AND valid_from < ${input.validFrom} RETURNING id`]
-    : [];
+    ? sql`UPDATE hr_insurance_versions SET valid_to=${input.validFrom}
+      WHERE id=${current.id} AND valid_to IS NULL AND valid_from < ${input.validFrom} RETURNING id`
+    : null;
   const insert = sql`INSERT INTO hr_insurance_versions
     (id, employment_id, scheme, version_number, status, valid_from, valid_to, insured_amount_minor, dependent_count, rate_year, source_kind, source_url, note, created_by)
     SELECT ${id}, ${input.employmentId}, ${input.scheme}, coalesce((SELECT max(version_number) + 1 FROM hr_insurance_versions WHERE employment_id=${input.employmentId} AND scheme=${input.scheme}), 1),
       ${input.status}, ${input.validFrom}, ${input.validTo}, ${input.insuredAmountMinor}, ${input.dependentCount}, ${input.rateYear}, ${input.sourceKind}, ${input.sourceUrl}, ${input.note}, ${actor.id}
     WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId}
       AND hired_on <= ${input.validFrom} AND (ended_on IS NULL OR (${input.validTo} IS NOT NULL AND ${input.validTo} <= ended_on)))
-      AND (${input.sourceKind} <> 'official' OR EXISTS (
+      -- 跟上面的 JS 檢查一致：只有加保要對得上官方級距。退保金額固定是 0，永遠對不上任何一級。
+      AND (${input.sourceKind} <> 'official' OR ${input.status} = 'withdrawn' OR EXISTS (
         SELECT 1 FROM hr_insurance_rate_tables AS official_table
         WHERE official_table.scheme=${input.scheme} AND official_table.year=${input.rateYear} AND official_table.status='active'
           AND official_table.source_url=${input.sourceUrl}
@@ -310,5 +331,5 @@ export async function createHrInsuranceVersion(db: Database, input: HrInsuranceI
       AND NOT EXISTS (SELECT 1 FROM hr_insurance_versions WHERE employment_id=${input.employmentId} AND scheme=${input.scheme}
         AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
     RETURNING id`;
-  return applyInsuranceMutation(db, [...closePrevious, insert], id, actor);
+  return { id, closePrevious, insert };
 }

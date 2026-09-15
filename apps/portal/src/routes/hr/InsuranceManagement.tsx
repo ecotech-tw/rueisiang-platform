@@ -7,7 +7,7 @@ import { useHrQuery, useHrWrite, type Employee, type Employment, type InsuranceR
 import { InsuranceEditor } from "./InsuranceEditor.js";
 
 interface EmployeeListResponse { employees: Employee[] }
-interface InsuranceEdit { employment: Employment; defaultSalary?: number; dependentCount?: number }
+interface InsuranceEdit { employment: Employment; existing: boolean; defaultSalary?: number; dependentCount?: number }
 
 function today() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
@@ -50,7 +50,7 @@ function InsuranceRow({ employee, canWrite, onEdit }: { employee: Employee; canW
     <td>{health?.status === "enrolled" ? health.dependentCount : "—"}</td>
     <td>{labor?.sourceKind === "manual" || health?.sourceKind === "manual" ? "需人工覆核" : hasInsurance ? "—" : "待新增"}</td>
     <td><div className="row-actions">
-      {canWrite && employment ? <Button variant="secondary" onClick={() => onEdit({ employment, defaultSalary: defaultSalary === undefined ? undefined : defaultSalary / 100, dependentCount: health?.dependentCount })}>{hasInsurance ? "編輯勞健保" : "新增加保資料"}</Button> : null}
+      {canWrite && employment ? <Button variant="secondary" onClick={() => onEdit({ employment, existing: hasInsurance, defaultSalary: defaultSalary === undefined ? undefined : defaultSalary / 100, dependentCount: health?.dependentCount })}>{hasInsurance ? "編輯勞健保" : "新增加保資料"}</Button> : null}
       <Button variant="secondary" onClick={() => navigate(`/hr/employees/${encodeURIComponent(employee.userId)}`)}>查看內頁</Button>
     </div></td>
   </tr>;
@@ -86,6 +86,6 @@ export function HrInsuranceManagement() {
       </tbody></table></div>
       {!employees.data?.employees.length ? <p className="empty-state">尚無啟用中的員工。</p> : null}
     </Panel>
-    {editing ? <InsuranceEditor employment={editing.employment} defaultSalary={editing.defaultSalary} defaultDependentCount={editing.dependentCount} onClose={() => setEditing(null)} /> : null}
+    {editing ? <InsuranceEditor employment={editing.employment} existing={editing.existing} defaultSalary={editing.defaultSalary} defaultDependentCount={editing.dependentCount} onClose={() => setEditing(null)} /> : null}
   </div>;
 }
