@@ -158,6 +158,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) throw new Error(result.error ?? `操作失敗（${response.status}）`);
   return result;
 }
+/**
+ * 敘薪、投保、獎金、薪資結算等管理頁共用的員工名單。
+ * 用 employable 而不是 active：邀請中的員工還沒登入過平台，但照樣要敘薪、加保、算薪水。
+ */
+export const HR_ROSTER_PATH = "/employees?page=1&pageSize=100&status=employable&sortField=name&sortDirection=asc";
+
 export function useHrQuery<T>(path: string, enabled = true) {
   return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false });
 }

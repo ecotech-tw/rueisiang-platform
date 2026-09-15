@@ -4,7 +4,7 @@ import { activityRow } from "./activity.js";
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
 import { listHrSpecialWorkdaysForPayroll } from "./hr-special-workdays.js";
-import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrClockEvents } from "./schema/hr-attendance.js";
 import {
@@ -481,7 +481,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     .where(and(
       sql`${hrEmployments.hiredOn} < ${period.end}`,
       sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${period.start})`,
-      eq(users.status, "active"),
+      hrEmployableUser,
     ));
   const employees = employeeRows.filter((row) => employeeSelected(row, input));
   const closedEmploymentIds = employees.length ? await db.select({ employmentId: hrPayslips.employmentId }).from(hrPayslips)

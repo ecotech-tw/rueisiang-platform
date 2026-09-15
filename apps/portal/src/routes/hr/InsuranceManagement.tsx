@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, type Employee, type Employment, type InsuranceRateTableRecord, type InsuranceVersion, type Profile } from "./api.js";
+import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type Employment, type InsuranceRateTableRecord, type InsuranceVersion, type Profile } from "./api.js";
 import { InsuranceEditor } from "./InsuranceEditor.js";
 
 interface EmployeeListResponse { employees: Employee[] }
@@ -63,7 +63,7 @@ export function HrInsuranceManagement() {
   const canRead = isHrAdministrator && permissions.has("hr:employee:read");
   const canWrite = isHrAdministrator && permissions.has("hr:employee:write");
   const year = today().slice(0, 4);
-  const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc", canRead);
+  const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, canRead);
   const rates = useHrQuery<{ tables: InsuranceRateTableRecord[] }>(`/insurance-rates?year=${year}`, canRead);
   const syncRates = useHrWrite();
   const activateRate = useHrWrite();

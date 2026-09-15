@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, type Employee, type Profile } from "./api.js";
+import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type Profile } from "./api.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 interface LeaveType { id: string; name: string; defaultPayRatePpm: number }
@@ -37,7 +37,7 @@ export function HrMonthlyData() {
   const [noWork, setNoWork] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc", canRead);
+  const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, canRead);
   const profile = useHrQuery<{ employee: Employee; employments: Profile["employments"] }>(employeeUserId ? `/employees/${encodeURIComponent(employeeUserId)}` : "/employees/__none__", canRead && Boolean(employeeUserId));
   const data = useHrQuery<MonthlyResponse>(`/payroll/monthly-data?periodKey=${encodeURIComponent(periodKey)}${employeeUserId ? `&employeeUserId=${encodeURIComponent(employeeUserId)}` : ""}`, canRead && Boolean(periodKey));
   const write = useHrWrite();

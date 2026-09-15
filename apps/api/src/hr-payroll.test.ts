@@ -133,6 +133,17 @@ describe("HR 薪資與勞健保", () => {
     expect(blankNote.status, await blankNote.clone().text()).toBe(201);
   });
 
+  it("邀請中、還沒登入過平台的員工照樣列入薪資試算", async () => {
+    const db = createDatabase(d1 as never);
+    await db.insert(users).values({ id: "invited-employee", email: "invited-employee@example.test", displayName: "邀請中員工", status: "invited" });
+    await assignUser("invited-employee", "E-INVITED");
+    const profile = await (await request("/hr/employees/invited-employee")).json() as { employments: { id: string }[] };
+    expect((await request(`/hr/employments/${profile.employments[0]!.id}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 3_000_000 })).status).toBe(201);
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["invited-employee"], requestId: "invited-employee-2026-01" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    expect((await calculated.json() as { run: { employees: unknown[] } }).run.employees).toHaveLength(1);
+  });
+
   it("部分結算只在所有啟用員工 claim 完成後關閉薪資期間", async () => {
     const db = createDatabase(d1 as never);
     await db.insert(users).values({ id: "employee-two", email: "employee-two@example.test", displayName: "第二位員工", status: "active" });

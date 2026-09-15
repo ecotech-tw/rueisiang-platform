@@ -4,7 +4,7 @@ import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel, SearchFilterInp
 import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { useHrQuery, useHrWrite, type BonusAssignment, type BonusPolicy, type Employee, type NamedOption } from "./api.js";
+import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type BonusAssignment, type BonusPolicy, type Employee, type NamedOption } from "./api.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 interface PolicyResponse { policies: BonusPolicy[]; total: number; page: number; pageSize: number; hasMore: boolean }
@@ -46,7 +46,7 @@ export function HrBonusManagement() {
   const [deletingPolicy, setDeletingPolicy] = useState<BonusPolicy | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc", canRead && permissions.has("hr:employee:read"));
+  const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, canRead && permissions.has("hr:employee:read"));
   const scopes = useHrQuery<ScopeResponse>("/scopes", canRead && permissions.has("hr:employee:read"));
   const policies = useHrQuery<PolicyResponse>(`/bonus/policies?page=${filters.page}&pageSize=${filters.pageSize}&search=${encodeURIComponent(filters.search)}&scopeId=${encodeURIComponent(filters.scopeId)}&bonusKind=${filters.bonusKind}&performancePeriod=${filters.performancePeriod}`, canRead);
   const assignments = useHrQuery<AssignmentResponse>("/bonus/assignments", canRead);

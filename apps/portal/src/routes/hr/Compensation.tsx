@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
-import { useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceRateTableRecord, type InsuranceContributionRule } from "./api.js";
+import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceRateTableRecord, type InsuranceContributionRule } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 
@@ -120,7 +120,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   const isHrAdministrator = user?.isHrAdministrator ?? false;
   const canRead = isHrAdministrator && permissions.has("hr:payroll:read");
   const canWrite = isHrAdministrator && permissions.has("hr:employee:write");
-  const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc", !settingsOnly && canRead && permissions.has("hr:employee:read"));
+  const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, !settingsOnly && canRead && permissions.has("hr:employee:read"));
   const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers", !settingsOnly && canRead && permissions.has("hr:schedule:read"));
   const currentYear = Number(taipeiToday().slice(0, 4));
   const rates = useHrQuery<{ tables: InsuranceRateTableRecord[] }>(`/insurance-rates?year=${currentYear}`, canRead);
