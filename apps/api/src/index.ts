@@ -1,5 +1,5 @@
 import { CyberbizApiError } from "@rueisiang/cyberbiz";
-import { SESSION_COOKIE, readCookie } from "@rueisiang/auth";
+import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, readCookie } from "@rueisiang/auth";
 import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import {
   WmsError,
@@ -81,7 +81,8 @@ app.use("*", async (c, next) => {
   if (c.req.method === "OPTIONS") return c.body(null, 204);
 
   const isUnsafeMethod = !["GET", "HEAD"].includes(c.req.method);
-  const hasSession = Boolean(readCookie(c.req.header("Cookie"), SESSION_COOKIE));
+  const cookies = c.req.header("Cookie");
+  const hasSession = Boolean(readCookie(cookies, SESSION_COOKIE) || readCookie(cookies, DEVICE_SESSION_COOKIE));
   if (c.env.AUTH_COOKIE_DOMAIN && isUnsafeMethod && hasSession && !origin && !sameAllowedOrigin(c.req.header("Referer"), origins)) {
     return c.json({ error: "需要有效的請求來源。" }, 403);
   }

@@ -5,6 +5,7 @@ export * from "./activity.js";
 export * from "./assistant.js";
 export {
   GLOBAL_SCOPE,
+  authDeviceSessions,
   permissions,
   roles,
   users,

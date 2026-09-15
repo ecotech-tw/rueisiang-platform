@@ -1,5 +1,6 @@
+import { useSignOut } from "../auth/session.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { Alert, PageHeader } from "../ui/index.js";
+import { Alert, Button, PageHeader } from "../ui/index.js";
 import { useHrQuery, type Profile as HrProfile } from "./hr/api.js";
 
 function ProfileDetails({ profile }: { profile: HrProfile }) {
@@ -27,7 +28,9 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
 export function HrProfile() {
   usePageTitle("個人資訊");
   const query = useHrQuery<{ profile: HrProfile | null }>("/me");
-  return <div className="page hr-forms-page"><PageHeader title="個人資訊" description="這裡顯示與你登入帳號相連的任職、營運櫃點與辦公位置；資料有誤請聯絡管理者。" />
+  const signOut = useSignOut();
+  // 這台手機會一直保持登入，共用裝置一定要找得到登出。
+  return <div className="page hr-forms-page"><PageHeader title="個人資訊" description="這裡顯示與你登入帳號相連的任職、營運櫃點與辦公位置；資料有誤請聯絡管理者。" actions={<Button variant="secondary" onClick={() => void signOut()}>登出這台裝置</Button>} />
     {query.isPending ? <p>載入中…</p> : query.error ? <Alert tone="danger">{query.error.message}</Alert> : query.data?.profile ? <section className="panel p-6"><ProfileDetails profile={query.data.profile} /></section> : <Alert>尚未指派為員工，請聯絡管理者。</Alert>}
   </div>;
 }

@@ -10,6 +10,7 @@ import {
 } from "@rueisiang/auth";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { revokeUserDeviceSessions } from "./device-sessions.js";
 import { hrEmployees } from "./schema/hr-people.js";
 import { rolePermissionGrants, roles, userPermissionGrants, userRoleAssignments, users } from "./schema/auth.js";
 
@@ -300,6 +301,8 @@ export async function setUserStatus(db: Database, id: string, status: UserStatus
     .update(users)
     .set({ status, updatedAt: sql`CURRENT_TIMESTAMP` })
     .where(eq(users.id, id));
+  // 停權當下已經擋得住（requireAuth 每次讀狀態）；撤銷是為了之後重新啟用時，舊手機不會跟著復活。
+  if (status === "disabled") await revokeUserDeviceSessions(db, id);
 }
 
 /** 這個人是否持有某個角色（不分資料範圍）。用來判斷是不是還剩最後一位管理者。 */

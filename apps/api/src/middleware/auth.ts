@@ -1,5 +1,18 @@
-import { SESSION_COOKIE, can, readCookie, verifySession, type Permission } from "@rueisiang/auth";
-import { loadAuthUser } from "@rueisiang/db";
+import {
+  DEVICE_SESSION_COOKIE,
+  DEVICE_SESSION_IDLE_SECONDS,
+  SESSION_COOKIE,
+  can,
+  clearCookie,
+  readCookie,
+  serializeCookie,
+  serializeDeviceToken,
+  verifySession,
+  type DeviceToken,
+  type Permission,
+} from "@rueisiang/auth";
+import { loadAuthUser, revokeDeviceSession, useDeviceSession } from "@rueisiang/db";
+import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -11,25 +24,80 @@ import type { AppEnv } from "../env.js";
  * 全在使用者手上，藏起來的按鈕不是安全機制。任何會讀寫資料的路由都必須
  * 自己掛上 requireAuth / requirePermission，不能靠前端沒有提供入口。
  */
-export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
-  const token = readCookie(c.req.header("Cookie"), SESSION_COOKIE);
-  const claims = await verifySession(token, c.env.AUTH_SESSION_SECRET);
-  if (!claims) {
-    throw new HTTPException(401, { message: "請先登入。" });
-  }
-
+async function signInAs(c: Context<AppEnv>, userId: string): Promise<void> {
   // 每次請求都回資料庫重讀，不採信 cookie 內容：
-  // 停權或調整權限才能即時生效，而不是等 12 小時後 session 過期。
-  const user = await loadAuthUser(c.get("db"), { id: claims.userId });
+  // 停權或調整權限才能即時生效，而不是等 session 過期。
+  const user = await loadAuthUser(c.get("db"), { id: userId });
   if (!user) {
     throw new HTTPException(401, { message: "帳號不存在。" });
   }
   if (user.status !== "active") {
     throw new HTTPException(403, { message: "這個帳號已停用。" });
   }
-
   c.set("user", user);
+}
+
+export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
+  const token = readCookie(c.req.header("Cookie"), SESSION_COOKIE);
+  const claims = await verifySession(token, c.env.AUTH_SESSION_SECRET);
+  if (!claims) {
+    throw new HTTPException(401, { message: "請先登入。" });
+  }
+  await signInAs(c, claims.userId);
+  c.set("deviceSession", false);
   await next();
+});
+
+/**
+ * 裝置 cookie 只送到這個路徑底下。
+ *
+ * 靠瀏覽器的 Path 規則而不是只靠 middleware：cookie 根本不會出現在後台 API 的請求裡，
+ * 平台頁面也就不會因為「裝置認得、session 已過期」而顯示成已登入卻每個 API 都 401。
+ */
+export const DEVICE_COOKIE_PATH = "/api/hr/me";
+
+/** 不帶 Domain：只有發 cookie 的 API 主機收得到，不跟著 `.rueisiang.com` 散出去。 */
+export function deviceCookie(token: DeviceToken): string {
+  return serializeCookie(DEVICE_SESSION_COOKIE, serializeDeviceToken(token), {
+    maxAge: DEVICE_SESSION_IDLE_SECONDS,
+    path: DEVICE_COOKIE_PATH,
+  });
+}
+
+export function clearDeviceCookie(): string {
+  return clearCookie(DEVICE_SESSION_COOKIE, DEVICE_COOKIE_PATH);
+}
+
+/**
+ * 員工本人入口（`/api/hr/me/*`）用：「記住這台手機」或 12 小時 session 都認。
+ *
+ * 裝置優先，有在用才會一直延長；裝置失效但 session 還有效時退回 session，
+ * 前端再從 `deviceRemembered: false` 知道要重新記住。
+ */
+export const requireSelfAuth = createMiddleware<AppEnv>(async (c, next) => {
+  const cookies = c.req.header("Cookie");
+  const rawDevice = readCookie(cookies, DEVICE_SESSION_COOKIE);
+  let device = await useDeviceSession(c.get("db"), rawDevice);
+  const claims = await verifySession(readCookie(cookies, SESSION_COOKIE), c.env.AUTH_SESSION_SECRET);
+
+  /*
+   * 兩張都有效卻不是同一個人：共用瀏覽器上 A 留下裝置 cookie，B 之後登入。
+   * 平台登出只清得到 session（裝置 cookie 的 Path 不含 /api/auth），所以這種情況一定會發生。
+   * 以剛登入的 session 為準；裝置優先的話 B 會被默默認成 A，讀寫到 A 的人事資料。
+   */
+  if (device && claims && device.userId !== claims.userId) {
+    await revokeDeviceSession(c.get("db"), rawDevice);
+    c.header("Set-Cookie", clearDeviceCookie(), { append: true });
+    device = null;
+  }
+
+  if (device) {
+    if (device.renewed) c.header("Set-Cookie", deviceCookie(device.renewed), { append: true });
+    await signInAs(c, device.userId);
+    c.set("deviceSession", true);
+    return next();
+  }
+  return requireAuth(c, next);
 });
 
 /** 要求特定權限。 */

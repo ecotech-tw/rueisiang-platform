@@ -225,7 +225,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 
 ## 六、入口、權限與私密資料
 
-以下只定義後續功能的授權契約；正式權限以 `permissions.ts` 為唯一來源。人事基礎使用 `hr:employee:read`、`hr:employee:write`，本人入口只要求登入且由 `users.id → hr_employees.user_id` 判定，不新增或同步另一個本人讀取權限。API 只允許 `AUTH_APP_ORIGINS` 列出的前端 origin；正式環境 session cookie 使用 `.rueisiang.com`，帶 session 的寫入請求必須有核准的 Origin 或 Referer。
+以下只定義後續功能的授權契約；正式權限以 `permissions.ts` 為唯一來源。人事基礎使用 `hr:employee:read`、`hr:employee:write`，本人入口只要求登入且由 `users.id → hr_employees.user_id` 判定，不新增或同步另一個本人讀取權限。API 只允許 `AUTH_APP_ORIGINS` 列出的前端 origin；正式環境 session cookie 使用 `.rueisiang.com`，帶 session 或裝置 cookie 的寫入請求必須有核准的 Origin 或 Referer。HR app 另發「記住這台手機」的裝置 cookie（`auth_device_sessions`）：只送到 `/api/hr/me`、只由 12 小時 session 發放、閒置 7 天失效且每天輪替，停權時一併撤銷；後台與其他 HR 管理 API 不接受它。
 
 | API／UI 契約（候選） | 權限 | 資料範圍與驗證 |
 |---|---|---|
