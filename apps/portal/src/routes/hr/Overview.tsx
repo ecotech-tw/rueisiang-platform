@@ -45,9 +45,9 @@ export function HrOverview() {
   return <div className="page hr-overview-page">
     <PageHeader title="HRIS 概覽" description={`只顯示目前月份 ${periodLabel(data.periodKey)} 的待辦數量與處理入口，不在首頁展開薪資或投保明細。`} />
     {overview.isFetching ? <p className="form-hint">更新中…</p> : null}
-    <Panel>
+    <Panel className="hr-overview-panel">
       <div className="hr-overview-grid">{cards.map((card) => <Link className="hr-overview-card" to={card.to} key={card.title}>
-        <div className="hr-overview-card-head"><span className="hr-overview-icon"><Icon name={card.icon} /></span><StatusBadge tone={card.tone}>{card.title}</StatusBadge></div>
+        <div className="hr-overview-card-head"><span className={`hr-overview-icon hr-overview-icon-${card.tone}`}><Icon name={card.icon} /></span><StatusBadge tone={card.tone}>{card.title}</StatusBadge></div>
         <strong className="hr-overview-value">{card.value}</strong>
         <p>{card.description}</p>
         <span className="hr-overview-action">{card.action} <span aria-hidden="true">→</span></span>
