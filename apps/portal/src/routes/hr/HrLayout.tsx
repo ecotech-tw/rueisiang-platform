@@ -9,7 +9,6 @@ import { HrUserMenu } from "./HrUserMenu.js";
 /** platform 只承載 HR 管理功能；員工本人入口在 hr.rueisiang.com。 */
 const EMPLOYEE_TABS = [
   { label: "員工列表", to: "/hr/employees", permission: "hr:employee:read" as const, icon: "list" as const, adminOnly: false, activePaths: ["/hr/employees"] },
-  { label: "勞健保管理", to: "/hr/insurance", permission: "hr:employee:read" as const, icon: "payments" as const, adminOnly: true },
 ];
 
 const ATTENDANCE_TABS = [
@@ -25,6 +24,7 @@ const SCHEDULING_TABS = [
 
 const PAYROLL_TABS = [
   { label: "敘薪管理", to: "/hr/compensation", permission: "hr:payroll:read" as const, icon: "payments" as const, adminOnly: true },
+  { label: "勞健保管理", to: "/hr/insurance", permission: "hr:employee:read" as const, icon: "payments" as const, adminOnly: true },
   { label: "獎金管理", to: "/hr/bonus", permission: "hr:bonus:read" as const, icon: "tag" as const, adminOnly: true },
   { label: "制度設定", to: "/hr/payroll-settings", permission: "hr:payroll:read" as const, icon: "tune" as const, adminOnly: true },
   { label: "薪資結算", to: "/hr/payroll-settlement", permission: "hr:payroll:read" as const, icon: "report" as const, adminOnly: true, activePaths: ["/hr/monthly-data"] },
@@ -53,10 +53,10 @@ type HrNavGroup = {
 
 const HR_PRIMARY_NAV: HrNavGroup[] = [
   { label: "儀表板", to: "/hr", icon: "analytics", permissions: OVERVIEW_PERMISSIONS, adminOnly: true, activePaths: ["/hr"] },
-  { label: "員工", to: "/hr/employees", icon: "list", permissions: ["hr:employee:read"], activePaths: ["/hr/employees", "/hr/insurance"], children: EMPLOYEE_TABS },
+  { label: "員工", to: "/hr/employees", icon: "list", permissions: ["hr:employee:read"], activePaths: ["/hr/employees"], children: EMPLOYEE_TABS },
   { label: "出勤", to: "/hr/attendance-records", icon: "clock", permissions: ["hr:office:read"], activePaths: ["/hr/attendance-records", "/hr/attendance-settings", "/hr/special-workdays", "/hr/overtime"], children: ATTENDANCE_TABS },
   { label: "排班", to: "/hr/scheduling", icon: "calendar", permissions: ["hr:schedule:read", "hr:office:read"], activePaths: ["/hr/scheduling"], children: SCHEDULING_TABS },
-  { label: "薪資獎金", to: "/hr/compensation", icon: "payments", permissions: ["hr:payroll:read", "hr:bonus:read"], adminOnly: true, activePaths: ["/hr/compensation", "/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/monthly-data"], children: PAYROLL_TABS },
+  { label: "薪資獎金", to: "/hr/compensation", icon: "payments", permissions: ["hr:payroll:read", "hr:bonus:read", "hr:employee:read"], adminOnly: true, activePaths: ["/hr/compensation", "/hr/insurance", "/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/monthly-data"], children: PAYROLL_TABS },
 ];
 
 function isActive(paths: string[], pathname: string) {
@@ -72,10 +72,10 @@ export function HrLayout() {
   const { permissions, user } = useSession();
   const isHrAdministrator = user?.isHrAdministrator ?? false;
   // HRIS 是一套獨立管理系統：進到 /hr 後不再借用平台側欄，避免 CRM/WMS 導覽干擾人資流程。
-  const isEmployee = pathname.includes("/employees") || pathname.includes("/insurance");
+  const isEmployee = pathname.includes("/employees");
   const isAttendance = pathname.includes("/attendance-settings") || pathname.includes("/attendance-records") || pathname.includes("/special-workdays") || pathname.includes("/overtime");
   const isScheduling = pathname.includes("/scheduling");
-  const isPayroll = pathname.includes("/compensation") || pathname.includes("/bonus") || pathname.includes("/payroll-settlement") || pathname.includes("/monthly-data") || pathname.includes("/payroll-settings");
+  const isPayroll = pathname.includes("/compensation") || pathname.includes("/insurance") || pathname.includes("/bonus") || pathname.includes("/payroll-settlement") || pathname.includes("/monthly-data") || pathname.includes("/payroll-settings");
   const isOverview = pathname === "/hr" || pathname === "/hr/";
   const current = isOverview ? "儀表板" : isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "敘薪與獎金" : "員工管理";
   const [openMenu, setOpenMenu] = useState<string | null>(null);

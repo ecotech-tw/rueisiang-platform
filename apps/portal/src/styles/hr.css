@@ -731,6 +731,60 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-overview-action span { display: inline-block; margin-left: 3px; transition-property: transform; transition-duration: 150ms; transition-timing-function: ease-out; }
 .hr-overview-card:hover .hr-overview-action span { transform: translateX(3px); }
 
+.hr-system .segmented-control {
+  display: inline-flex;
+  gap: 4px;
+  width: 100%;
+  padding: 5px;
+  border-radius: 999px;
+  background: --alpha(var(--color-paper) / 34%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 58%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
+  -webkit-backdrop-filter: blur(8px) saturate(155%);
+  backdrop-filter: blur(8px) saturate(155%);
+}
+.hr-system .segmented-control button {
+  flex: 1;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition-property: background-color, color, scale, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system .segmented-control button:hover { background: --alpha(var(--color-brand) / 8%); color: var(--color-brand-dark); }
+.hr-system .segmented-control button.selected {
+  background: --alpha(var(--color-paper) / 56%);
+  color: var(--color-brand-dark);
+  box-shadow: 0 1px 0 --alpha(var(--color-paper) / 62%) inset, 0 8px 18px --alpha(var(--color-ink) / 8%);
+}
+.hr-system .segmented-control button:active { scale: .96; }
+.hr-system .segmented-control button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-system .hr-insurance-scheme-card {
+  display: grid;
+  gap: 12px;
+  align-self: stretch;
+  padding: 14px;
+  border-radius: 18px;
+  background: --alpha(var(--color-paper) / 26%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 58%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
+    0 10px 24px --alpha(var(--color-ink) / 6%);
+  -webkit-backdrop-filter: blur(7px) saturate(150%);
+  backdrop-filter: blur(7px) saturate(150%);
+}
+.hr-system .hr-insurance-scheme-card h3 { margin: 0 0 3px; color: var(--color-ink); font-size: 15px; }
+.hr-system .hr-insurance-scheme-card p { margin: 0; }
+
 @media (max-width: 1100px) { .hr-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) {
   .hr-overview-page > .panel { padding: 12px; }
