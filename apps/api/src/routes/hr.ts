@@ -1,4 +1,4 @@
-import { can } from "@rueisiang/auth";
+import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie } from "@rueisiang/auth";
 import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
   createHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersion, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrAttendanceLocationSchedules, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
@@ -14,12 +14,14 @@ import {
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   taipeiWallClockToUtc,
+  createDeviceSession, revokeDeviceSession,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { GoogleMapsSearchError, searchGooglePlaces } from "../google-maps.js";
-import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { DEVICE_COOKIE_PATH, clearDeviceCookie, deviceCookie, requireAuth, requirePermission, requireSelfAuth } from "../middleware/auth.js";
+import { sessionUserPayload } from "./auth.js";
 import { body, requireString } from "../request.js";
 
 function text(input: Record<string, unknown>, key: string, label: string, max = 100) {
@@ -264,11 +266,34 @@ function secondsFromTime(input: Record<string, unknown>, key: string) {
   return hour * 3600 + minute * 60;
 }
 
+function isSelfServicePath(path: string) {
+  return path === DEVICE_COOKIE_PATH || path.startsWith(`${DEVICE_COOKIE_PATH}/`);
+}
+
 export const hr = new Hono<AppEnv>()
-  .use("*", requireAuth)
+  // 本人入口也認「記住這台手機」；其餘管理路由一律要 12 小時 session。
+  .use("*", (c, next) => isSelfServicePath(c.req.path) ? requireSelfAuth(c, next) : requireAuth(c, next))
   .onError((error, c) => {
     if (error instanceof HrError || error instanceof HTTPException) return c.json({ error: error.message }, error.status);
     throw error;
+  })
+  .get("/me/session", async (c) => c.json({ ...await sessionUserPayload(c.get("db"), c.get("user")), deviceRemembered: c.get("deviceSession") }))
+  /*
+   * 記住這台手機。只接受 12 小時 session 發：裝置 cookie 能自己再發一台的話，
+   * 被偷的那台撤銷之後，它早先替自己發出去的另一台還活著。
+   */
+  .post("/me/device", async (c) => {
+    if (c.get("deviceSession")) return c.json({ ok: true });
+    const token = await createDeviceSession(c.get("db"), c.get("user").id, c.req.header("User-Agent") ?? "");
+    c.header("Set-Cookie", deviceCookie(token), { append: true });
+    return c.json({ ok: true }, 201);
+  })
+  /** HR app 的登出：撤銷這台，並一起清掉 session，不然下一次打開又會被自動記住。 */
+  .delete("/me/device", async (c) => {
+    await revokeDeviceSession(c.get("db"), readCookie(c.req.header("Cookie"), DEVICE_SESSION_COOKIE));
+    c.header("Set-Cookie", clearDeviceCookie(), { append: true });
+    c.header("Set-Cookie", clearCookie(SESSION_COOKIE, "/", c.env.AUTH_COOKIE_DOMAIN), { append: true });
+    return c.json({ ok: true });
   })
   // 本人資格來自員工關聯而不是手動授權；requireAuth 仍每次檢查帳號是否啟用。
   .get("/me", async (c) => c.json({ profile: await getHrSelf(c.get("db"), c.get("user").id) }))

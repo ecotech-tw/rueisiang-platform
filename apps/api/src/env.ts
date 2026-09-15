@@ -110,5 +110,7 @@ export interface AppEnv {
     db: Database;
     /** 由 requireAuth 中介層放入，已確認是 active 的帳號。 */
     user: AuthUser;
+    /** 由 requireSelfAuth 放入：這次是靠「記住這台手機」而不是 12 小時 session 認出來的。 */
+    deviceSession: boolean;
   };
 }

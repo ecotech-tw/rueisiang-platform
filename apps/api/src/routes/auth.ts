@@ -16,6 +16,7 @@ import {
   validatePassword,
   verifyIdToken,
   verifyPayload,
+  type AuthUser,
   type Expiring,
 } from "@rueisiang/auth";
 import {
@@ -27,6 +28,7 @@ import {
   isHrAdministrator,
   recordLogin,
   updateProfile,
+  type Database,
 } from "@rueisiang/db";
 import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import { Hono } from "hono";
@@ -315,17 +317,19 @@ export const auth = new Hono<AppEnv>()
   })
 
   /** 前端啟動時呼叫這一條決定 sidebar 顯示什麼。權限仍以每個 API 自己的檢查為準。 */
-  .get("/me", requireAuth, async (c) => {
-    const user = c.get("user");
-    return c.json({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      googleName: user.googleName,
-      pictureUrl: user.pictureUrl,
-      permissions: permissionsOf(user),
-      roles: user.assignments.map((assignment) => assignment.roleKey),
-      isEmployee: await isHrEmployee(c.get("db"), user.id),
-      isHrAdministrator: await isHrAdministrator(c.get("db"), user.id),
-    });
-  });
+  .get("/me", requireAuth, async (c) => c.json(await sessionUserPayload(c.get("db"), c.get("user"))));
+
+/** `/api/auth/me` 與 HR app 的 `/api/hr/me/session` 共用，兩個前端讀同一個形狀。 */
+export async function sessionUserPayload(db: Database, user: AuthUser) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    googleName: user.googleName,
+    pictureUrl: user.pictureUrl,
+    permissions: permissionsOf(user),
+    roles: user.assignments.map((assignment) => assignment.roleKey),
+    isEmployee: await isHrEmployee(db, user.id),
+    isHrAdministrator: await isHrAdministrator(db, user.id),
+  };
+}

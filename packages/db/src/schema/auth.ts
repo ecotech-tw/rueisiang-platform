@@ -73,6 +73,27 @@ export const userPermissionGrants = sqliteTable("user_permission_grants", {
   index("idx_user_permission_grants_permission").on(table.permission),
 ]);
 
+/**
+ * HR app「記住這台手機」的登入。只存 secret 的雜湊，規則見 @rueisiang/auth 的 device-session.ts。
+ *
+ * previousTokenHash 是換 secret 後的短暫緩衝；過了緩衝還拿舊值來的，視為被偷去用，整台撤銷。
+ * 撤銷只填 revokedAt 不刪列，之後查「這台是什麼時候被踢的」才有根據。
+ */
+export const authDeviceSessions = sqliteTable("auth_device_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  previousTokenHash: text("previous_token_hash"),
+  userAgent: text("user_agent").notNull().default(""),
+  rotatedAt: text("rotated_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  revokedAt: text("revoked_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_auth_device_sessions_token_hash").on(table.tokenHash),
+  index("idx_auth_device_sessions_user_id").on(table.userId),
+]);
+
 export const GLOBAL_SCOPE = "";
 
 export type User = typeof users.$inferSelect;

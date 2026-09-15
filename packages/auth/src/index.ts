@@ -24,6 +24,18 @@ export {
   type SessionClaims,
 } from "./session.js";
 
+export {
+  DEVICE_SESSION_COOKIE,
+  DEVICE_SESSION_IDLE_SECONDS,
+  DEVICE_SESSION_REUSE_GRACE_SECONDS,
+  DEVICE_SESSION_ROTATE_SECONDS,
+  hashDeviceSecret,
+  newDeviceToken,
+  parseDeviceToken,
+  serializeDeviceToken,
+  type DeviceToken,
+} from "./device-session.js";
+
 export { clearCookie, readCookie, serializeCookie, type CookieOptions } from "./cookies.js";
 
 export { signPayload, verifyPayload, type Expiring } from "./signed.js";
