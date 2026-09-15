@@ -50,8 +50,9 @@ function isFile(value: unknown): value is File {
 export const shopeeSales = new Hono<AppEnv>()
   .get("/state", requirePermission("tools:shopee-sales:run"), async (c) => {
     const settings = await getShopeeSalesSettings(c.get("db"));
-    const runs = await listShopeeSalesRuns(c.get("db"), 10);
-    return c.json({ settings, ...previousMonthRange(), configured: Boolean(shopeeSalesGithub(c.env) && c.env.UPLOADS), latestRequestId: runs[0]?.requestId ?? null, runs });
+    // 只要最新一筆來接回進度；歷次紀錄統一看「執行紀錄」分頁。
+    const [latest] = await listShopeeSalesRuns(c.get("db"), 1);
+    return c.json({ settings, ...previousMonthRange(), configured: Boolean(shopeeSalesGithub(c.env) && c.env.UPLOADS), latestRequestId: latest?.requestId ?? null });
   })
   .post("/upload", requirePermission("tools:shopee-sales:run"), async (c) => {
     const github = shopeeSalesGithub(c.env);

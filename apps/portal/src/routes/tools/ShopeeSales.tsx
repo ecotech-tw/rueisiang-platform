@@ -4,11 +4,6 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Field, PageHeader, Panel, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import { useRunShopeeSales, useShopeeSalesState, useShopeeSalesStatus } from "./api.js";
 
-function formatDate(value: string): string {
-  const parsed = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
-}
-
 export function ShopeeSales() {
   usePageTitle("蝦皮銷售報表");
   const state = useShopeeSalesState();
@@ -25,11 +20,8 @@ export function ShopeeSales() {
   const blocked = running || run.isPending || !file || !password || !state.data?.settings.driveFolderUrl || !state.data.configured;
 
   return (
-    <div className="page fills">
-      <PageHeader
-        title="蝦皮銷售報表"
-
-      />
+    <div className="page">
+      <PageHeader title="蝦皮銷售報表" />
 
       {!state.data?.configured ? <Alert tone="danger">平台還沒設定 GITHUB_TOKEN，現在無法處理報表。</Alert> : null}
       {!state.data?.settings.driveFolderUrl ? <Alert tone="danger">尚未設定 Google Drive 資料夾，請由有權限的人前往「店別與報表設定」。</Alert> : null}
@@ -58,13 +50,6 @@ export function ShopeeSales() {
           steps={status.data?.steps ?? []}
         />
       ) : null}
-
-      <Panel className="grows" title="最近上傳">
-        <div className="table-scroll"><table className="data-table"><thead><tr><th>時間</th><th>區間</th><th>Drive 資料夾</th><th>執行的人</th></tr></thead><tbody>
-          {(state.data?.runs ?? []).map((record) => <tr key={record.id}><td className="cell-sub whitespace-nowrap">{formatDate(record.createdAt)}</td><td className="cell-sub whitespace-nowrap">{record.startDate} ~ {record.endDate}</td><td><a className="link-external" href={record.driveFolderUrl} target="_blank" rel="noopener noreferrer">開啟資料夾<Icon name="external" /></a></td><td className="cell-sub">{record.actorEmail}</td></tr>)}
-        </tbody></table></div>
-        {(state.data?.runs.length ?? 0) === 0 ? <p className="muted table-note">還沒有上傳過報表。</p> : null}
-      </Panel>
     </div>
   );
 }

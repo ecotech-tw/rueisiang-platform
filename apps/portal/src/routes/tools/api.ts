@@ -203,23 +203,12 @@ interface ShopeeSalesSettings {
   updatedAt: string;
 }
 
-interface ShopeeSalesRunRecord {
-  id: string;
-  requestId: string;
-  startDate: string;
-  endDate: string;
-  driveFolderUrl: string;
-  actorEmail: string;
-  createdAt: string;
-}
-
 export interface ShopeeSalesState {
   settings: ShopeeSalesSettings;
   start: string;
   end: string;
   configured: boolean;
   latestRequestId: string | null;
-  runs: ShopeeSalesRunRecord[];
 }
 
 export function useShopeeSalesState() {
