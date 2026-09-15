@@ -7,6 +7,7 @@ export function isHrPath(pathname: string) {
 }
 
 let pending: { toHr: boolean; resolve: () => void } | null = null;
+let latestId = 0;
 
 /**
  * 用 View Transition 包住「進入／離開 HRIS」這一次導覽。
@@ -25,6 +26,7 @@ export function navigateAcrossHr(event: MouseEvent<HTMLAnchorElement>, navigate:
   event.preventDefault();
   const toHr = isHrPath(to);
   const root = document.documentElement;
+  const id = ++latestId;
   root.dataset.hrTransition = toHr ? "enter" : "leave";
 
   const transition = document.startViewTransition(() => new Promise<void>((resolve) => {
@@ -34,6 +36,11 @@ export function navigateAcrossHr(event: MouseEvent<HTMLAnchorElement>, navigate:
     navigate(to);
   }));
   void transition.finished.finally(() => {
+    /*
+     * 進入動畫還沒播完就點回平台時，瀏覽器會丟掉上一次轉場，而它的 finished 晚一個 microtask 才結束——
+     * 那時下一次已經掛上 data-hr-transition="leave"。不比對就會把新的狀態清掉，離開只剩預設的淡入淡出。
+     */
+    if (id !== latestId) return;
     delete root.dataset.hrTransition;
     pending = null;
   });
