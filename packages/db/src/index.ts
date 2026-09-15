@@ -1,27 +1,43 @@
 export { createDatabase, type Database } from "./client.js";
+export { formatTaipeiDate, taipeiDateFromUtcWallClock, taipeiMidnightUtc, taipeiWallClockToUtc } from "./taipei-time.js";
 export {
   checkHrClockLocation, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent, endHrAttendanceLocationAssignment, listHrAttendanceEvents, HR_ATTENDANCE_EVENT_PAGE_SIZES, type HrAttendanceEventListQuery,
-  getHrAttendanceLocation, setHrAttendanceLocationPrimary, getHrClockCalendar, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation, HR_ATTENDANCE_LOCATION_PAGE_SIZES, type HrAttendanceLocationListQuery,
+  getHrAttendanceLocation, getHrAttendanceLocationSchedules, saveHrAttendanceLocationSchedules, setHrAttendanceLocationPrimary, getHrClockCalendar, countHrClockCalendarAnomalies, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation, HR_ATTENDANCE_LOCATION_PAGE_SIZES, type HrAttendanceLocationListQuery, type HrAttendanceLocationScheduleInput,
 } from "./hr-attendance.js";
+export { getHrOverview, type HrOverviewResult, type HrOverviewPayrollStatus } from "./hr-overview.js";
 export {
   createHrScheduleWorker, createHrShift, createHrWorkerCompensation, getHrSchedule, listHrAttendanceLocationsForSchedule, listHrScheduleWorkers, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
   type HrShiftInput, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";
+export {
+  assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive,
+  type SpecialWorkdayAllowanceInput, type SpecialWorkdayAssignmentInput, type SpecialWorkdayRuleInput,
+} from "./hr-special-workdays.js";
+export { createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, type HrOvertimeInput } from "./hr-overtime.js";
 export {
   createHrFormRequest, getHrFormRequest, listHrFormApprovers, listHrFormRequests, reviewHrFormRequest,
   submitHrFormRequest, updateHrFormRequest,
   type HrFormRequestEventKind, type HrFormRequestInput, type HrFormRequestStatus,
 } from "./hr-requests.js";
 export {
-  createHrCompensationVersion, createHrInsuranceVersion, fetchHrInsuranceBrackets, HrInsuranceRateError,
-  type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceInput, type HrInsuranceScheme,
+  activateHrInsuranceRateTable, createHrCompensationVersion, createHrInsuranceContributionRule, createHrInsuranceVersion, fetchHrInsuranceBrackets, HrInsuranceRateError, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables,
+  type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceContributionInput, type HrInsuranceInput, type HrInsuranceRateTableRecord, type HrInsuranceScheme,
 } from "./hr-payroll.js";
 export {
-  assignHrBonusPolicyMember, calculateHrBonusPool, calculateHrPayroll, createHrBonusPerformanceSnapshot, createHrBonusPolicy, deleteHrBonusPolicy, updateHrBonusPolicy,
+  assignHrBonusPolicyMember, calculateHrBonusPool, calculateHrPayroll, closeHrPayrollRun, createHrBonusPerformanceSnapshot, createHrBonusPolicy, deleteHrBonusPolicy, updateHrBonusPolicy,
   getHrBonusPool, getHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, listHrBonusAssignments, listHrBonusPerformanceSnapshots, listHrBonusPolicies, listHrBonusPools, listHrPayrollRuns,
   type AssignHrBonusPolicyInput, type CreateHrBonusPerformanceSnapshotInput, type CreateHrBonusPolicyInput, type HrBonusCalculationInput, type HrBonusKind, type HrBonusPerformancePeriod, type HrBonusPoolResult, type HrBonusRevenueInput, type HrPayrollCalculationInput, type HrPayrollEmployeeResult, type UpdateHrBonusPolicyInput,
   type HrPayrollLineResult, type HrPayrollRunResult,
 } from "./hr-payroll-calculation.js";
+export {
+  createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, listHrLeaveTypes, listHrMonthlyData, updateHrMonthlyHourly, updateHrMonthlyLeave,
+  listHrMonthlyEntriesForPayroll,
+  type MonthlyHourlyInput, type MonthlyLeaveInput,
+} from "./hr-monthly-data.js";
+export {
+  createHrPayrollAdjustment, listHrPayrollAdjustments, listHrPayrollAdjustmentsForPeriod, updateHrPayrollAdjustment,
+  type HrPayrollAdjustmentInput, type HrPayrollAdjustmentItemInput,
+} from "./hr-payroll-adjustments.js";
 export {
   HrError, assignHrEmployee, createHrAssignment, createHrEmployment,
   endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, updateHrEmploymentAttendanceMode,

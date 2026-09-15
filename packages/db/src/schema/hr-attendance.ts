@@ -36,6 +36,32 @@ export const hrAttendanceLocations = sqliteTable("hr_attendance_locations", {
   check("ck_hr_attendance_locations_geo_pair", sql`(${table.geolocationRequired} = 0) OR (${table.latitudeE7} IS NOT NULL AND ${table.longitudeE7} IS NOT NULL)`),
 ]);
 
+/** 辦公位置週期工時；星期日=0，休息日不保存上下班時間。 */
+export const hrAttendanceLocationSchedules = sqliteTable("hr_attendance_location_schedules", {
+  id: text("id").primaryKey(),
+  locationId: text("location_id").notNull().references(() => hrAttendanceLocations.id, { onDelete: "restrict" }),
+  dayOfWeek: integer("day_of_week").notNull(),
+  isRestDay: integer("is_rest_day").notNull().default(0),
+  startMinute: integer("start_minute"),
+  endMinute: integer("end_minute"),
+  standardMinutes: integer("standard_minutes").notNull().default(480),
+  toleranceMinutes: integer("tolerance_minutes").notNull().default(10),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  revision: integer("revision").notNull().default(1),
+}, (table) => [
+  uniqueIndex("idx_hr_attendance_location_schedules_day").on(table.locationId, table.dayOfWeek),
+  check("ck_hr_attendance_location_schedules_day", sql`${table.dayOfWeek} BETWEEN 0 AND 6`),
+  check("ck_hr_attendance_location_schedules_rest", sql`${table.isRestDay} IN (0, 1)`),
+  check("ck_hr_attendance_location_schedules_start", sql`${table.startMinute} IS NULL OR ${table.startMinute} BETWEEN 0 AND 1439`),
+  check("ck_hr_attendance_location_schedules_end", sql`${table.endMinute} IS NULL OR ${table.endMinute} BETWEEN 0 AND 1439`),
+  check("ck_hr_attendance_location_schedules_period", sql`${table.isRestDay} = 1 OR (${table.startMinute} IS NOT NULL AND ${table.endMinute} IS NOT NULL AND ${table.endMinute} > ${table.startMinute})`),
+  check("ck_hr_attendance_location_schedules_standard", sql`${table.standardMinutes} BETWEEN 0 AND 1440`),
+  check("ck_hr_attendance_location_schedules_tolerance", sql`${table.toleranceMinutes} BETWEEN 0 AND 1440`),
+  check("ck_hr_attendance_location_schedules_revision", sql`${table.revision} > 0`),
+]);
+
 /** 同一段任職可同時指派多個辦公位置；每個位置各自用期間資料保留指派歷史。 */
 export const hrEmployeeAttendanceLocations = sqliteTable("hr_employee_attendance_locations", {
   id: text("id").primaryKey(),
@@ -70,6 +96,8 @@ export const hrClockEvents = sqliteTable("hr_clock_events", {
   scopeId: text("scope_id").references(() => scopes.id, { onDelete: "restrict" }),
   sourceKind: text("source_kind").notNull().default("portal"),
   idempotencyKey: text("idempotency_key").notNull(),
+  /** 核准補打卡產生的更正事件；同一申請最多只能消費一次。 */
+  correctionRequestId: text("correction_request_id"),
   eventKind: text("event_kind", { enum: ["clock_in", "clock_out"] as const }).notNull(),
   latitudeE7: integer("latitude_e7"),
   longitudeE7: integer("longitude_e7"),
@@ -79,10 +107,15 @@ export const hrClockEvents = sqliteTable("hr_clock_events", {
   scopeNameSnapshot: text("scope_name_snapshot").notNull().default(""),
   recordedBy: text("recorded_by").references(() => users.id, { onDelete: "restrict" }),
   manualReason: text("manual_reason").notNull().default(""),
+  timeAnomalyKind: text("time_anomaly_kind"),
+  expectedStartMinute: integer("expected_start_minute"),
+  expectedEndMinute: integer("expected_end_minute"),
+  toleranceMinutes: integer("tolerance_minutes"),
   occurredAt: text("occurred_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   receivedAt: text("received_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_hr_clock_events_idempotency").on(table.idempotencyKey),
+  uniqueIndex("idx_hr_clock_events_correction_request").on(table.correctionRequestId),
   index("idx_hr_clock_events_employee_occurred").on(table.employeeUserId, table.occurredAt),
   check("ck_hr_clock_events_source", sql`${table.sourceKind} IN ('portal', 'rfid', 'line', 'manual')`),
   check("ck_hr_clock_events_kind", sql`${table.eventKind} IN ('clock_in', 'clock_out')`),
@@ -90,4 +123,10 @@ export const hrClockEvents = sqliteTable("hr_clock_events", {
   check("ck_hr_clock_events_latitude", sql`${table.latitudeE7} IS NULL OR ${table.latitudeE7} BETWEEN -900000000 AND 900000000`),
   check("ck_hr_clock_events_longitude", sql`${table.longitudeE7} IS NULL OR ${table.longitudeE7} BETWEEN -1800000000 AND 1800000000`),
   check("ck_hr_clock_events_distance", sql`${table.distanceMeters} IS NULL OR ${table.distanceMeters} >= 0`),
+  check("ck_hr_clock_events_anomaly", sql`${table.timeAnomalyKind} IS NULL OR ${table.timeAnomalyKind} IN ('early', 'late', 'early_leave', 'overtime', 'rest_day')`),
+  check("ck_hr_clock_events_expected_start", sql`${table.expectedStartMinute} IS NULL OR ${table.expectedStartMinute} BETWEEN 0 AND 1439`),
+  check("ck_hr_clock_events_expected_end", sql`${table.expectedEndMinute} IS NULL OR ${table.expectedEndMinute} BETWEEN 0 AND 1439`),
+  check("ck_hr_clock_events_tolerance", sql`${table.toleranceMinutes} IS NULL OR ${table.toleranceMinutes} BETWEEN 0 AND 1440`),
 ]);
+
+export type HrAttendanceLocationSchedule = typeof hrAttendanceLocationSchedules.$inferSelect;

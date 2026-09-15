@@ -1,15 +1,19 @@
 import { can } from "@rueisiang/auth";
 import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
-  createHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersion, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters,
-  fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
+  createHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersion, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrAttendanceLocationSchedules, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
+  createHrInsuranceContributionRule, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, activateHrInsuranceRateTable, saveHrAttendanceLocationSchedules, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest,
-  assignHrBonusPolicyMember, calculateHrBonusPool, calculateHrPayroll, createHrBonusPerformanceSnapshot, createHrBonusPolicy, deleteHrBonusPolicy, getHrBonusPool, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, getHrPayrollRun, listHrBonusAssignments, listHrBonusPerformanceSnapshots, listHrBonusPolicies, listHrBonusPools, listHrPayrollRuns,
+  assignHrBonusPolicyMember, calculateHrBonusPool, calculateHrPayroll, closeHrPayrollRun, createHrBonusPerformanceSnapshot, createHrBonusPolicy, deleteHrBonusPolicy, getHrBonusPool, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, getHrPayrollRun, listHrBonusAssignments, listHrBonusPerformanceSnapshots, listHrBonusPolicies, listHrBonusPools, listHrPayrollRuns,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest,
   createHrScheduleWorker, createHrShift, createHrWorkerCompensation, getHrSchedule, listHrScheduleWorkers, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
+  assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive,
+  createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
+  createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
+  taipeiWallClockToUtc,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -83,9 +87,12 @@ function requestedAt(input: Record<string, unknown>) {
   const correctionDate = date(input, "correctionDate")!;
   const requestedTime = text(input, "requestedTime", "補打卡時間", 5);
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(requestedTime)) throw new HTTPException(400, { message: "補打卡時間必須是有效的 HH:mm。" });
-  const parsed = new Date(`${correctionDate}T${requestedTime}:00+08:00`);
-  if (Number.isNaN(parsed.getTime())) throw new HTTPException(400, { message: "補打卡日期與時間不正確。" });
-  return { correctionDate, requestedAt: parsed.toISOString().slice(0, 19).replace("T", " ") };
+  const normalized = `${correctionDate} ${requestedTime}:00`;
+  try {
+    return { correctionDate, requestedAt: taipeiWallClockToUtc(normalized) };
+  } catch {
+    throw new HTTPException(400, { message: "補打卡日期與時間不正確。" });
+  }
 }
 function formRequestInput(input: Record<string, unknown>, employeeUserId: string) {
   const { correctionDate, requestedAt: at } = requestedAt(input);
@@ -101,8 +108,10 @@ function formRequestInput(input: Record<string, unknown>, employeeUserId: string
   } as const;
 }
 function currentTaipeiYearMonth() {
-  const now = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+  const year = Number(parts.find((item) => item.type === "year")?.value);
+  const month = Number(parts.find((item) => item.type === "month")?.value);
+  return { year, month };
 }
 function calendarNumber(raw: string | undefined, fallback: number, label: string, min: number, max: number) {
   const value = raw === undefined ? fallback : Number(raw);
@@ -137,11 +146,38 @@ function performancePeriod(input: Record<string, unknown>): "current_month" | "p
 }
 function employeeUserIds(input: Record<string, unknown>): string[] | undefined {
   if (input.employeeUserIds === undefined) return undefined;
-  if (!Array.isArray(input.employeeUserIds) || input.employeeUserIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200)) throw new HTTPException(400, { message: "指派員工格式不正確。" });
+  if (!Array.isArray(input.employeeUserIds) || input.employeeUserIds.length > 80 || input.employeeUserIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.employeeUserIds).size !== input.employeeUserIds.length) throw new HTTPException(400, { message: "指派員工格式不正確。" });
   return input.employeeUserIds as string[];
+}
+function bonusScopeIds(input: Record<string, unknown>): string[] | undefined {
+  if (input.scopeIds === undefined) return undefined;
+  if (!Array.isArray(input.scopeIds) || input.scopeIds.length > 100 || input.scopeIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.scopeIds).size !== input.scopeIds.length) throw new HTTPException(400, { message: "適用 Scope 格式不正確。" });
+  return input.scopeIds as string[];
 }
 function noteValue(input: Record<string, unknown>) {
   return input.note === undefined || input.note === null ? "" : text(input, "note", "備註", 1000);
+}
+function compensationItems(input: Record<string, unknown>) {
+  if (input.items === undefined) return undefined;
+  if (!Array.isArray(input.items) || input.items.length > 50) throw new HTTPException(400, { message: "薪資項目格式不正確。" });
+  return input.items.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資項目格式不正確。` });
+    const item = raw as Record<string, unknown>;
+    const itemKind: "fixed" | "variable" | null = item.itemKind === "fixed" || item.itemKind === "variable" ? item.itemKind : null;
+    if (!itemKind) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資項目類型不正確。` });
+    return { itemName: text(item, "itemName", "薪資項目", 100), amountMinor: integerValue(item, "amountMinor", "薪資項目金額（分）", 0, Number.MAX_SAFE_INTEGER), itemKind, includeOvertime: booleanValue(item, "includeOvertime", "是否納入加班費計算", false), includeInsurance: booleanValue(item, "includeInsurance", "是否納入勞健保", false), includeTax: booleanValue(item, "includeTax", "是否計入應稅所得", true) };
+  });
+}
+function adjustmentItems(input: Record<string, unknown>) {
+  if (!Array.isArray(input.items) || input.items.length < 1 || input.items.length > 50) throw new HTTPException(400, { message: "薪資調整項目格式不正確。" });
+  return input.items.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資調整格式不正確。` });
+    const item = raw as Record<string, unknown>;
+    const rawAmount = item.amountMinor;
+    const amountMinor = typeof rawAmount === "number" ? rawAmount : typeof rawAmount === "string" ? Number(rawAmount) : NaN;
+    if (!Number.isSafeInteger(amountMinor)) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資調整金額不正確。` });
+    return { itemName: text(item, "itemName", "調整項目", 100), amountMinor };
+  });
 }
 function periodKey(input: Record<string, unknown>) {
   const value = text(input, "periodKey", "計算月份", 7);
@@ -167,6 +203,59 @@ function scheduleEntries(input: Record<string, unknown>) {
     return { personKind, employmentId, workerId, scopeId: text(value, "scopeId", "營運據點"), shiftVersionId: text(value, "shiftVersionId", "班別版本"), workDate } as const;
   });
 }
+function locationSchedules(input: Record<string, unknown>) {
+  if (!Array.isArray(input.schedules) || input.schedules.length !== 7) throw new HTTPException(400, { message: "請完整提供週一至週日工時設定。" });
+  return input.schedules.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 天工時設定不正確。` });
+    const value = raw as Record<string, unknown>;
+    const isRestDay = value.isRestDay === true || value.isRestDay === "true" || value.isRestDay === 1;
+    const startMinute = value.startMinute === null || value.startMinute === undefined || value.startMinute === "" ? null : integerValue(value, "startMinute", "上班分鐘", 0, 1439);
+    const endMinute = value.endMinute === null || value.endMinute === undefined || value.endMinute === "" ? null : integerValue(value, "endMinute", "下班分鐘", 0, 1439);
+    return { dayOfWeek: integerValue(value, "dayOfWeek", "星期", 0, 6), isRestDay, startMinute, endMinute, standardMinutes: integerValue(value, "standardMinutes", "標準工時（分鐘）", 0, 1440), toleranceMinutes: integerValue(value, "toleranceMinutes", "容許範圍（分鐘）", 0, 1440) };
+  });
+}
+function specialWorkdayRule(input: Record<string, unknown>) {
+  const wageKind = input.wageKind === "fixed_hourly" || input.wageKind === "multiplier" ? input.wageKind : null;
+  if (!wageKind) throw new HTTPException(400, { message: "特殊上班日薪資方式不正確。" });
+  const rawAllowances = input.allowances;
+  if (!Array.isArray(rawAllowances) || rawAllowances.length > 50) throw new HTTPException(400, { message: "補貼項目格式不正確。" });
+  const allowances = rawAllowances.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆補貼格式不正確。` });
+    const item = raw as Record<string, unknown>;
+    return { itemName: text(item, "itemName", "補貼項目", 100), unitAmountMinor: integerValue(item, "unitAmountMinor", "補貼單價（分）", 0, Number.MAX_SAFE_INTEGER) };
+  });
+  if (input.workSource !== undefined) throw new HTTPException(400, { message: "特殊上班日工時來源由系統依人員類型決定，不可由請求指定。" });
+  return { name: text(input, "name", "規則名稱", 100), validFrom: date(input, "validFrom")!, validTo: date(input, "validTo", true), wageKind, fixedAmountMinor: wageKind === "fixed_hourly" ? integerValue(input, "fixedAmountMinor", "固定每小時金額（分）", 0, Number.MAX_SAFE_INTEGER) : null, multiplierPpm: wageKind === "multiplier" ? integerValue(input, "multiplierPpm", "薪資倍率（ppm）", 0, 10_000_000) : null, overtimeRule: text(input, "overtimeRule", "加班規則", 100), note: noteValue(input), allowances } as const;
+}
+function specialAssignments(input: Record<string, unknown>) {
+  if (!Array.isArray(input.assignments) || !input.assignments.length || input.assignments.length > 1000) throw new HTTPException(400, { message: "特殊上班日套用清單格式不正確。" });
+  return input.assignments.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆套用資料不正確。` });
+    const item = raw as Record<string, unknown>;
+    const targetCount = [item.employmentId, item.workerId].filter((value) => typeof value === "string" && value.length > 0).length;
+    if (targetCount !== 1) throw new HTTPException(400, { message: `第 ${index + 1} 筆必須指定一位員工或支援人員。` });
+    return { employmentId: typeof item.employmentId === "string" ? item.employmentId : undefined, workerId: typeof item.workerId === "string" ? item.workerId : undefined, workDate: date(item, "workDate")!, allowanceQuantity: integerValue(item, "allowanceQuantity", "補貼數量", 0, Number.MAX_SAFE_INTEGER) };
+  });
+}
+function dateTimeValue(input: Record<string, unknown>, key: string, label: string) {
+  const value = text(input, key, label, 19);
+  if (!/^\d{4}-\d{2}-\d{2}(?: |T)\d{2}:\d{2}(?::\d{2})?$/.test(value)) throw new HTTPException(400, { message: `${label}格式必須是台北時間 YYYY-MM-DD HH:mm[:ss]。` });
+  const normalized = value.replace("T", " ").length === 16 ? `${value.replace("T", " ")}:00` : value.replace("T", " ");
+  try {
+    return taipeiWallClockToUtc(normalized);
+  } catch {
+    throw new HTTPException(400, { message: `${label}不是有效的台北時間。` });
+  }
+}
+function optionalDateTimeValue(input: Record<string, unknown>, key: string, label: string) {
+  if (input[key] === undefined || input[key] === null || input[key] === "") return undefined;
+  return dateTimeValue(input, key, label);
+}
+function overtimeInput(input: Record<string, unknown>, employeeUserId: string) {
+  const settlementKind = input.settlementKind === "pay" || input.settlementKind === "compensatory" ? input.settlementKind : null;
+  if (!settlementKind) throw new HTTPException(400, { message: "加班結算方式不正確。" });
+  return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), reason: text(input, "reason", "加班原因", 1000) } as const;
+}
 function secondsFromTime(input: Record<string, unknown>, key: string) {
   const value = text(input, key, key === "startTime" ? "開始時間" : "結束時間", 5);
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) throw new HTTPException(400, { message: "班別時間必須是有效的 HH:mm。" });
@@ -183,6 +272,12 @@ export const hr = new Hono<AppEnv>()
   })
   // 本人資格來自員工關聯而不是手動授權；requireAuth 仍每次檢查帳號是否啟用。
   .get("/me", async (c) => c.json({ profile: await getHrSelf(c.get("db"), c.get("user").id) }))
+  .get("/overview", async (c) => {
+    const user = c.get("user");
+    const canViewOverview = (["hr:employee:read", "hr:office:read", "hr:schedule:read", "hr:payroll:read", "hr:bonus:read"] as const).some((permission) => can(user, permission));
+    if (!canViewOverview || !await isHrAdministrator(c.get("db"), user.id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以檢視 HRIS 概覽。" });
+    return c.json(await getHrOverview(c.get("db")));
+  })
   .get("/me/clock-events", async (c) => c.json(await getHrClockStatus(c.get("db"), c.get("user").id)))
   .get("/me/attendance-calendar", async (c) => {
     const fallback = currentTaipeiYearMonth();
@@ -228,6 +323,19 @@ export const hr = new Hono<AppEnv>()
       longitudeE7,
     }, c.get("user"));
     return c.json(result, result.idempotent ? 200 : 201);
+  })
+  .get("/me/overtime", async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), c.get("user").id) }))
+  .post("/me/overtime", async (c) => c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(await body(c), c.get("user").id), c.get("user")), 201))
+  .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db")) }))
+  .post("/overtime/:id/review", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
+    if (!decision) throw new HTTPException(400, { message: "加班審核結果不正確。" });
+    const comment = input.comment ? text(input, "comment", "審核意見", 1000) : "";
+    const actualStart = optionalDateTimeValue(input, "actualStart", "實際加班開始");
+    const actualEnd = optionalDateTimeValue(input, "actualEnd", "實際加班結束");
+    if ((actualStart === undefined) !== (actualEnd === undefined)) throw new HTTPException(400, { message: "實際加班開始與結束時間必須一起填寫。" });
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined));
   })
   .get("/me/form-approvers", async (c) => c.json(await listHrFormApprovers(c.get("db"), c.get("user").id)))
   .get("/me/form-requests", async (c) => c.json(await listHrFormRequests(c.get("db"), c.get("user").id, can(c.get("user"), "hr:request:review"))))
@@ -283,6 +391,8 @@ export const hr = new Hono<AppEnv>()
     return c.json(await listHrAttendanceLocations(c.get("db"), { page, pageSize, search, scopeId: c.req.query("scopeId") ?? "all", sortField, sortDirection }));
   })
   .get("/attendance-settings/locations/:id", requirePermission("hr:office:write"), async (c) => c.json(await getHrAttendanceLocation(c.get("db"), c.req.param("id"))))
+  .get("/attendance-settings/locations/:id/schedules", requirePermission("hr:office:read"), async (c) => c.json({ schedules: await getHrAttendanceLocationSchedules(c.get("db"), c.req.param("id")) }))
+  .put("/attendance-settings/locations/:id/schedules", requirePermission("hr:office:write"), async (c) => c.json(await saveHrAttendanceLocationSchedules(c.get("db"), c.req.param("id"), locationSchedules(await body(c)), c.get("user"))))
   .post("/attendance-settings/locations", requirePermission("hr:office:write"), async (c) => {
     const input = attendanceLocation(await body(c));
     return c.json(await createHrAttendanceLocation(c.get("db"), input, c.get("user")), 201);
@@ -309,6 +419,12 @@ export const hr = new Hono<AppEnv>()
     if (search.length > 100 || !["all", "clock_in", "clock_out"].includes(eventKind) || !["all", "portal", "manual", "rfid", "line"].includes(sourceKind) || !["occurredAt", "employee", "source"].includes(sortField)) throw new HTTPException(400, { message: "出勤紀錄查詢條件不正確。" });
     return c.json(await listHrAttendanceEvents(c.get("db"), { page, pageSize, search, eventKind: eventKind as "all" | "clock_in" | "clock_out", sourceKind: sourceKind as "all" | "portal" | "manual" | "rfid" | "line", startDate, endDate, sortField: sortField as "occurredAt" | "employee" | "source", sortDirection }));
   })
+  .get("/special-workdays/rules", requirePermission("hr:office:read"), async (c) => c.json({ rules: await listHrSpecialWorkdayRules(c.get("db")) }))
+  .post("/special-workdays/rules", requirePermission("hr:office:write"), async (c) => c.json(await createHrSpecialWorkdayRule(c.get("db"), specialWorkdayRule(await body(c)), c.get("user")), 201))
+  .post("/special-workdays/rules/:id/versions", requirePermission("hr:office:write"), async (c) => c.json(await createHrSpecialWorkdayRuleVersion(c.get("db"), c.req.param("id"), specialWorkdayRule(await body(c)), c.get("user")), 201))
+  .post("/special-workdays/rules/:id/status", requirePermission("hr:office:write"), async (c) => { const input = await body(c); return c.json(await setHrSpecialWorkdayRuleActive(c.get("db"), c.req.param("id"), booleanValue(input, "active", "啟用狀態"), c.get("user"))); })
+  .get("/special-workdays/assignments", requirePermission("hr:office:read"), async (c) => { const start = c.req.query("start"); const end = c.req.query("end"); if (start) date({ date: start }, "date"); if (end) date({ date: end }, "date"); if (start && end && end <= start) throw new HTTPException(400, { message: "查詢迄日必須晚於開始日。" }); return c.json({ assignments: await listHrSpecialWorkdayAssignments(c.get("db"), start, end) }); })
+  .post("/special-workdays/assignments", requirePermission("hr:office:write"), async (c) => { const input = await body(c); return c.json(await assignHrSpecialWorkdays(c.get("db"), { ruleVersionId: text(input, "ruleVersionId", "規則版本"), assignments: specialAssignments(input) }, c.get("user")), 201); })
   .get("/schedules", requirePermission("hr:schedule:read"), async (c) => {
     const rawPeriod = c.req.query("periodKey");
     if (!rawPeriod || !/^\d{4}-(0[1-9]|1[0-2])$/.test(rawPeriod)) throw new HTTPException(400, { message: "排班月份必須是 YYYY-MM。" });
@@ -363,7 +479,37 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await endHrAttendanceLocationAssignment(c.get("db"), c.req.param("id"), { validTo: date(input, "validTo")!, revision: revision(input) }, c.get("user")));
   })
+  .get("/insurance-contribution-rules", requirePermission("hr:employee:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ rules: await listHrInsuranceContributionRules(c.get("db")) });
+  })
+  .post("/insurance-contribution-rules", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理保險負擔規則。" });
+    const input = await body(c); const validFrom = date(input, "validFrom")!; const validTo = date(input, "validTo", true);
+    return c.json(await createHrInsuranceContributionRule(c.get("db"), { scheme: insuranceScheme(input), validFrom, validTo, employeeRatePpm: integerValue(input, "employeeRatePpm", "員工負擔費率（ppm）", 0, 1_000_000), employerRatePpm: integerValue(input, "employerRatePpm", "雇主負擔費率（ppm）", 0, 1_000_000), dependentRatePpm: integerValue(input, "dependentRatePpm", "眷屬倍率（ppm）", 0, 1_000_000), sourceKind: input.sourceKind === "official" ? "official" : "manual", note: noteValue(input) }, c.get("user")), 201);
+  })
+  .get("/insurance-rates", requirePermission("hr:employee:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const rawYear = c.req.query("year"); const year = rawYear ? Number(rawYear) : undefined;
+    if (year !== undefined && (!Number.isSafeInteger(year) || year < 1900 || year > 9999)) throw new HTTPException(400, { message: "費率年度不正確。" });
+    return c.json({ tables: await listHrInsuranceRateTables(c.get("db"), year) });
+  })
+  .post("/insurance-rates/sync", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以同步官方級距。" });
+    const input = await body(c); const year = integerValue(input, "year", "費率年度", 1900, 9999);
+    try {
+      return c.json({ tables: await syncHrInsuranceRateTables(c.get("db"), year, c.get("user")) }, 201);
+    } catch (error) {
+      if (error instanceof HrInsuranceRateError) throw new HTTPException(502, { message: error.message });
+      throw error;
+    }
+  })
+  .post("/insurance-rates/:id/activate", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以啟用官方級距。" });
+    return c.json(await activateHrInsuranceRateTable(c.get("db"), c.req.param("id"), c.get("user")));
+  })
   .get("/insurance-brackets", requirePermission("hr:employee:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const fallback = currentTaipeiYearMonth().year;
     const year = calendarNumber(c.req.query("year"), fallback, "年份", 1900, 9999);
     try {
@@ -373,6 +519,69 @@ export const hr = new Hono<AppEnv>()
       throw error;
     }
   })
+  .get("/payroll/monthly-data/leave-types", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db")) });
+  })
+  .post("/payroll/monthly-data/leave-types", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await createHrLeaveType(c.get("db"), { name: text(input, "name", "假別名稱", 80), defaultPayRatePpm: integerValue(input, "defaultPayRatePpm", "預設給薪比例（ppm）", 0, 1_000_000) }, c.get("user")), 201);
+  })
+  .get("/payroll/monthly-data", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await listHrMonthlyData(c.get("db"), periodKey({ periodKey: c.req.query("periodKey") ?? "" }), c.req.query("employeeUserId")));
+  })
+  .post("/payroll/monthly-data/leave", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await createHrMonthlyLeave(c.get("db"), {
+      employmentId: text(input, "employmentId", "員工任職"), leaveTypeId: text(input, "leaveTypeId", "假別"), leaveDate: date(input, "leaveDate")!,
+      hoursHalfUnits: integerValue(input, "hoursHalfUnits", "假勤時數（半小時）", 1, 48), payRatePpm: integerValue(input, "payRatePpm", "給薪比例（ppm）", 0, 1_000_000),
+      deductionAmount: integerValue(input, "deductionAmount", "扣款金額（元）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input),
+    }, c.get("user")), 201);
+  })
+  .patch("/payroll/monthly-data/leave/:id", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await updateHrMonthlyLeave(c.get("db"), c.req.param("id"), {
+      employmentId: text(input, "employmentId", "員工任職"), leaveTypeId: text(input, "leaveTypeId", "假別"), leaveDate: date(input, "leaveDate")!,
+      hoursHalfUnits: integerValue(input, "hoursHalfUnits", "假勤時數（半小時）", 1, 48), payRatePpm: integerValue(input, "payRatePpm", "給薪比例（ppm）", 0, 1_000_000),
+      deductionAmount: integerValue(input, "deductionAmount", "扣款金額（元）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input), revision: revision(input),
+    }, c.get("user")));
+  })
+  .post("/payroll/monthly-data/hourly", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    const noWork = booleanValue(input, "noWork", "本期無工時", false);
+    return c.json(await createHrMonthlyHourly(c.get("db"), {
+      employmentId: text(input, "employmentId", "員工任職"), workDate: date(input, "workDate")!, hoursHalfUnits: integerValue(input, "hoursHalfUnits", "工時（半小時）", 0, 48), noWork, note: noteValue(input),
+    }, c.get("user")), 201);
+  })
+  .patch("/payroll/monthly-data/hourly/:id", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    const noWork = booleanValue(input, "noWork", "本期無工時", false);
+    return c.json(await updateHrMonthlyHourly(c.get("db"), c.req.param("id"), {
+      employmentId: text(input, "employmentId", "員工任職"), workDate: date(input, "workDate")!, hoursHalfUnits: integerValue(input, "hoursHalfUnits", "工時（半小時）", 0, 48), noWork, note: noteValue(input), revision: revision(input),
+    }, c.get("user")));
+  })
+  .get("/payroll/adjustments", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const effectivePeriodKey = c.req.query("effectivePeriodKey");
+    const rows = await listHrPayrollAdjustments(c.get("db"), effectivePeriodKey);
+    return c.json({ adjustments: rows.map((row) => ({ ...row.adjustment, employeeName: row.employeeName, items: row.items })) });
+  })
+  .post("/payroll/adjustments", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await createHrPayrollAdjustment(c.get("db"), { employmentId: text(input, "employmentId", "員工任職"), sourcePeriodKey: text(input, "sourcePeriodKey", "原薪資月份", 7), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "調整原因", 1000), items: adjustmentItems(input) }, c.get("user")), 201);
+  })
+  .patch("/payroll/adjustments/:id", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await updateHrPayrollAdjustment(c.get("db"), c.req.param("id"), { employmentId: text(input, "employmentId", "員工任職"), sourcePeriodKey: text(input, "sourcePeriodKey", "原薪資月份", 7), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "調整原因", 1000), items: adjustmentItems(input), revision: revision(input) }, c.get("user")));
+  })
   .get("/payroll/runs", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ runs: await listHrPayrollRuns(c.get("db")) });
@@ -381,7 +590,11 @@ export const hr = new Hono<AppEnv>()
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ run: await getHrPayrollRun(c.get("db"), c.req.param("id")) });
   })
-  .post("/payroll/calculate", requirePermission("hr:payroll:calculate"), async (c) => {
+  .post("/payroll/runs/:id/close", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ run: await closeHrPayrollRun(c.get("db"), c.req.param("id"), c.get("user")) });
+  })
+  .post("/payroll/calculate",  requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
     const selectedUsers = input.employeeUserIds === undefined ? undefined : input.employeeUserIds;
@@ -416,7 +629,7 @@ export const hr = new Hono<AppEnv>()
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
     return c.json(await createHrBonusPolicy(c.get("db"), {
-      name: text(input, "name", "政策名稱", 100), scopeId: text(input, "scopeId", "適用通路"),
+      name: text(input, "name", "政策名稱", 100), scopeId: input.scopeId === undefined ? undefined : text(input, "scopeId", "適用通路"), scopeIds: bonusScopeIds(input),
       bonusKind: bonusKind(input), performancePeriod: performancePeriod(input), ratePpm: integerValue(input, "ratePpm", "獎金比例（ppm）", 0, 1_000_000), guaranteeMinor: integerValue(input, "guaranteeMinor", "保底金額（分）", 0, Number.MAX_SAFE_INTEGER), employeeUserIds: employeeUserIds(input), assignmentValidFrom: input.assignmentValidFrom === undefined ? undefined : date(input, "assignmentValidFrom")!,
     }, c.get("user")), 201);
   })
@@ -424,7 +637,7 @@ export const hr = new Hono<AppEnv>()
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
     return c.json(await updateHrBonusPolicy(c.get("db"), {
-      policyVersionId: c.req.param("versionId"), name: text(input, "name", "政策名稱", 100), scopeId: text(input, "scopeId", "適用通路"),
+      policyVersionId: c.req.param("versionId"), name: text(input, "name", "政策名稱", 100), scopeId: input.scopeId === undefined ? undefined : text(input, "scopeId", "適用通路"), scopeIds: bonusScopeIds(input),
       bonusKind: bonusKind(input), performancePeriod: performancePeriod(input), ratePpm: integerValue(input, "ratePpm", "獎金比例（ppm）", 0, 1_000_000), guaranteeMinor: integerValue(input, "guaranteeMinor", "保底金額（分）", 0, Number.MAX_SAFE_INTEGER), validFrom: date(input, "validFrom")!, employeeUserIds: employeeUserIds(input), assignmentValidFrom: input.assignmentValidFrom === undefined ? undefined : date(input, "assignmentValidFrom")!,
     }, c.get("user")));
   })
@@ -471,7 +684,8 @@ export const hr = new Hono<AppEnv>()
   .post("/bonus/pools/calculate", requirePermission("hr:bonus:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
-    if (!Array.isArray(input.revenue) || input.revenue.length > 366) throw new HTTPException(400, { message: "請提供指定月份的每日核准業績快照。" });
+    // 多 Scope policy 每個 Scope 每天各一筆；上限為 100 個 Scope × 閏年最長月份 366 天。
+    if (!Array.isArray(input.revenue) || input.revenue.length > 36_600) throw new HTTPException(400, { message: "指定月份的核准業績快照筆數不正確。" });
     const revenue = input.revenue.map((raw, index) => {
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆業績格式不正確。` });
       const item = raw as Record<string, unknown>;
@@ -479,6 +693,7 @@ export const hr = new Hono<AppEnv>()
       if (sourceKind === null) throw new HTTPException(400, { message: `第 ${index + 1} 筆業績來源不正確。` });
       const provenance = item.provenance && typeof item.provenance === "object" && !Array.isArray(item.provenance) ? item.provenance as Record<string, unknown> : {};
       return {
+        scopeId: item.scopeId === undefined ? undefined : text(item, "scopeId", "適用 Scope", 200),
         businessDate: date(item, "businessDate")!, amountMinor: integerValue(item, "amountMinor", "業績金額（分）", 0, Number.MAX_SAFE_INTEGER),
         sourceKind, sourceRef: item.sourceRef === undefined ? undefined : text(item, "sourceRef", "來源識別碼", 200), provenance,
       } as const;
@@ -529,7 +744,7 @@ export const hr = new Hono<AppEnv>()
     period(validFrom, validTo);
     return c.json(await createHrCompensationVersion(c.get("db"), {
       employmentId: c.req.param("id"), validFrom, validTo, payBasis: payBasis(input),
-      baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input),
+      baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input), items: compensationItems(input),
     }, c.get("user")), 201);
   })
   .post("/employments/:id/insurance", requirePermission("hr:employee:write"), async (c) => {

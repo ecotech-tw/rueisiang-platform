@@ -24,6 +24,7 @@ import {
   findInvitation,
   loadAuthUser,
   isHrEmployee,
+  isHrAdministrator,
   recordLogin,
   updateProfile,
 } from "@rueisiang/db";
@@ -325,5 +326,6 @@ export const auth = new Hono<AppEnv>()
       permissions: permissionsOf(user),
       roles: user.assignments.map((assignment) => assignment.roleKey),
       isEmployee: await isHrEmployee(c.get("db"), user.id),
+      isHrAdministrator: await isHrAdministrator(c.get("db"), user.id),
     });
   });

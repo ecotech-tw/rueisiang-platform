@@ -1,10 +1,12 @@
-import { NavLink } from "react-router";
+import { NavLink, useLocation } from "react-router";
 import { Icon, type IconName } from "../shell/icons.js";
 
 interface PageTab {
   label: string;
   to: string;
   icon?: IconName;
+  /** 內頁仍屬於這個分頁時，保留該分頁的選取狀態。 */
+  activePaths?: string[];
 }
 
 /**
@@ -18,6 +20,7 @@ interface PageTab {
  * 變動，為了少一段而讓版面忽有忽無反而更難讀。
  */
 export function PageTabs({ tabs, label }: { tabs: PageTab[]; label: string }) {
+  const pathname = useLocation().pathname;
   if (!tabs.length) return null;
   return (
     <nav className="page-tabs" aria-label={label}>
@@ -26,7 +29,7 @@ export function PageTabs({ tabs, label }: { tabs: PageTab[]; label: string }) {
           key={tab.to}
           to={tab.to}
           end
-          className={({ isActive }) => `page-tab${isActive ? " active" : ""}`}
+          className={({ isActive }) => `page-tab${isActive || tab.activePaths?.some((path) => pathname === path || pathname.startsWith(`${path}/`)) ? " active" : ""}`}
         >
           {tab.icon ? <Icon name={tab.icon} /> : null}
           <span>{tab.label}</span>

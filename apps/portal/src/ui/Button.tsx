@@ -20,6 +20,8 @@ interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "cla
   loadingLabel?: ReactNode;
   /** filter chip 的選取狀態；會同步套用 selected class 與 aria-pressed。 */
   selected?: boolean;
+  /** 停用按下縮放；適合會被連續操作或需要保持穩定的控制項。 */
+  static?: boolean;
   className?: string;
   ref?: Ref<HTMLButtonElement>;
   children?: ReactNode;
@@ -37,6 +39,7 @@ export function Button({
   loading = false,
   loadingLabel,
   selected = false,
+  static: isStatic = false,
   className = "",
   disabled = false,
   type = "button",
@@ -64,6 +67,7 @@ export function Button({
     baseClass,
     variant === "danger" ? "danger" : "",
     selectable && selected ? "selected" : "",
+    isStatic ? "button-static" : "",
     icon && variant !== "icon" ? "with-icon" : "",
     className,
   ].filter(Boolean).join(" ");

@@ -11,10 +11,21 @@ function pad(value: number): string {
   return String(value).padStart(2, "0");
 }
 
-const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
+const TAIPEI_CALENDAR_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Taipei",
+  calendar: "gregory",
+  year: "numeric",
+  month: "2-digit",
+});
 
-function nowInTaipei(): Date {
-  return new Date(Date.now() + TAIPEI_OFFSET_MS);
+function nowInTaipei(): { year: number; month: number } {
+  const parts = TAIPEI_CALENDAR_FORMATTER.formatToParts(new Date());
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value);
+  return { year: part("year"), month: part("month") - 1 };
+}
+
+function monthStart(year: number, month: number): Date {
+  return new Date(Date.UTC(year, month, 1));
 }
 
 function monthValue(date: Date): string {
@@ -27,28 +38,29 @@ function monthEnd(value: string): string {
 }
 
 function currentMonth(): string {
-  return monthValue(nowInTaipei());
+  const now = nowInTaipei();
+  return monthValue(monthStart(now.year, now.month));
 }
 
 function previousMonth(): string {
   const now = nowInTaipei();
-  return monthValue(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
+  return monthValue(monthStart(now.year, now.month - 1));
 }
 
 function periodOptions(latestSalesPeriod?: string | null): Array<{ value: string; label: string }> {
   const now = nowInTaipei();
-  const month = monthValue(now);
-  const year = String(now.getUTCFullYear());
+  const month = monthValue(monthStart(now.year, now.month));
+  const year = String(now.year);
   const options = [
     { value: year, label: `今年（${year}）` },
   ];
   for (let offset = 1; offset <= 12; offset += 1) {
-    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+    const date = monthStart(now.year, now.month - offset);
     const value = monthValue(date);
     options.push({ value, label: value });
   }
   for (let offset = 1; offset <= 2; offset += 1) {
-    const value = String(now.getUTCFullYear() - offset);
+    const value = String(now.year - offset);
     options.push({ value, label: `${value} 年` });
   }
   if (latestSalesPeriod && latestSalesPeriod !== month && !options.some((option) => option.value === latestSalesPeriod)) {

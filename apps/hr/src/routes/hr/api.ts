@@ -124,6 +124,7 @@ export interface FormRequest {
 }
 export interface FormApprover { id: string; name: string }
 export interface FormApproversResponse { approvers: FormApprover[]; defaultApproverUserId: string | null }
+export interface OvertimeRequest { request: { id: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; decisionReason: string; createdAt: string }; employeeName: string | null }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);

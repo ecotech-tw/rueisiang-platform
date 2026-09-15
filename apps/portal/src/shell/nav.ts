@@ -23,6 +23,8 @@ export interface NavItem {
 
 export interface NavSection {
   key: string;
+  /** 大項自己的首頁；目前只有 HRIS 概覽需要在沒有子頁 active 時保持展開。 */
+  homePath?: string;
   label: string;
   /** 大項自己也有圖示——收合成窄欄之後，那是唯一還看得到的線索。 */
   icon: IconName;
@@ -98,13 +100,14 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     key: "hr",
+    homePath: "/hr",
     label: "HRIS",
     icon: "people",
     items: [
-      { label: "員工管理", to: "/hr/employees", permission: "hr:employee:read", icon: "list" },
-      { label: "出勤管理", to: "/hr/attendance-records", permission: "hr:office:read", icon: "calendar", activePaths: ["/hr/attendance-settings"] },
-      { label: "月曆排班", to: "/hr/scheduling", permission: "hr:schedule:read", icon: "calendar" },
-      { label: "敘薪與獎金", to: "/hr/compensation", permission: "hr:payroll:read", icon: "payments", activePaths: ["/hr/bonus", "/hr/payroll-settlement"] },
+      { label: "員工管理", to: "/hr/employees", permission: "hr:employee:read", icon: "list", activePaths: ["/hr/insurance"] },
+      { label: "出勤管理", to: "/hr/attendance-records", permission: "hr:office:read", icon: "calendar", activePaths: ["/hr/attendance-settings", "/hr/special-workdays", "/hr/overtime"] },
+      { label: "排班管理", to: "/hr/scheduling", permission: "hr:schedule:read", icon: "calendar", activePaths: ["/hr/scheduling/locations"] },
+      { label: "敘薪與獎金", to: "/hr/compensation", permission: "hr:payroll:read", icon: "payments", activePaths: ["/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/monthly-data"] },
     ],
   },
   {
@@ -126,5 +129,6 @@ export function containsPath(item: NavItem, pathname: string): boolean {
 }
 
 export function sectionContainsPath(section: NavSection, pathname: string): boolean {
+  if (section.homePath && (pathname === section.homePath || pathname.startsWith(`${section.homePath}/`))) return true;
   return section.items.some((item) => containsPath(item, pathname));
 }

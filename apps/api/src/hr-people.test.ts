@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, listActivity, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, listActivity, syncSystemRoles, taipeiWallClockToUtc } from "@rueisiang/db";
 import { hrAttendanceLocations, hrClockEvents, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -203,9 +203,11 @@ describe("HR 員工基礎", () => {
     expect(reviewList.reviewRequests).toEqual([expect.objectContaining({ id: createdRequest, status: "pending" })]);
     expect((await request(`/hr/me/form-requests/${createdRequest}/review`, "POST", { decision: "approved", comment: "核准。" }, "other")).status).toBe(200);
     expect((await (await request("/hr/me/form-requests", "GET", undefined, "self")).json() as { requests: { status: string; reviewComment: string | null }[] }).requests[0]).toMatchObject({ status: "approved", reviewComment: "核准。" });
+    const correctedEvents = await db.select({ eventKind: hrClockEvents.eventKind, correctionRequestId: hrClockEvents.correctionRequestId, occurredAt: hrClockEvents.occurredAt }).from(hrClockEvents).where(eq(hrClockEvents.correctionRequestId, createdRequest));
+    expect(correctedEvents).toEqual([{ eventKind: "clock_in", correctionRequestId: createdRequest, occurredAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/) }]);
     const calendar = await (await request(`/hr/me/attendance-calendar?year=${correctionDate.slice(0, 4)}&month=${correctionDate.slice(5, 7)}`, "GET", undefined, "self")).json() as { today: string; days: { date: string; status: string }[] };
     expect(calendar.today).toBe(correctionDate);
-    expect(calendar.days.find((day) => day.date === correctionDate)?.status).toBe("open");
+    expect(calendar.days.find((day) => day.date === correctionDate)?.status).toBe("present");
   });
 
   it("沒有主管或指定審核者時不能送出補打卡申請", async () => {
@@ -282,7 +284,7 @@ describe("HR 員工基礎", () => {
     const previous = new Date(`${today}T00:00:00Z`);
     previous.setUTCDate(previous.getUTCDate() - 1);
     const previousDate = previous.toISOString().slice(0, 10);
-    const utcAt = (date: string, time: string) => new Date(`${date}T${time}+08:00`).toISOString().slice(0, 19).replace("T", " ");
+    const utcAt = (date: string, time: string) => taipeiWallClockToUtc(`${date} ${time.length === 5 ? `${time}:00` : time}`);
     await assign("self", "OVERNIGHT-1");
     const job = await firstEmployment("self");
     expect((await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", revision: 1 })).status).toBe(200);

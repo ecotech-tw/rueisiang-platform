@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { users } from "./auth.js";
 import { hrEmployments } from "./hr-people.js";
 import { scopes } from "./reports.js";
@@ -49,6 +49,17 @@ export const hrBonusPolicyVersions = sqliteTable("hr_bonus_policy_versions", {
   check("ck_hr_bonus_policy_versions_dates", sql`length(${table.validFrom}) = 10 AND (${table.validTo} IS NULL OR (length(${table.validTo}) = 10 AND ${table.validTo} > ${table.validFrom}))`),
 ]);
 
+/** Policy 版本的 Scope 集合；scope_id 留在版本表作為舊資料相容欄位，新的計算以本表為準。 */
+export const hrBonusPolicyVersionScopes = sqliteTable("hr_bonus_policy_version_scopes", {
+  policyVersionId: text("policy_version_id").notNull().references(() => hrBonusPolicyVersions.id, { onDelete: "restrict" }),
+  scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.policyVersionId, table.scopeId] }),
+  index("idx_hr_bonus_policy_version_scopes_scope").on(table.scopeId, table.policyVersionId),
+]);
+
 export const hrBonusPolicyMembers = sqliteTable("hr_bonus_policy_members", {
   id: text("id").primaryKey(),
   policyVersionId: text("policy_version_id").notNull().references(() => hrBonusPolicyVersions.id, { onDelete: "restrict" }),
@@ -96,6 +107,8 @@ export const hrBonusPerformanceSnapshots = sqliteTable("hr_bonus_performance_sna
   amountMinor: integer("amount_minor").notNull(),
   sourceKind: text("source_kind", { enum: ["manual", "report"] as const }).notNull(),
   sourceRef: text("source_ref").notNull().default(""),
+  /** 非 NULL 的冪等鍵；補上 employmentId 可為 NULL 時 SQLite UNIQUE 的缺口。 */
+  idempotencyKey: text("idempotency_key").notNull(),
   provenanceJson: text("provenance_json").notNull().default("{}"),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -103,9 +116,11 @@ export const hrBonusPerformanceSnapshots = sqliteTable("hr_bonus_performance_sna
   index("idx_hr_bonus_performance_scope_period").on(table.scopeId, table.periodStart, table.periodEnd),
   index("idx_hr_bonus_performance_employment_period").on(table.employmentId, table.periodStart, table.periodEnd),
   uniqueIndex("idx_hr_bonus_performance_source").on(table.scopeId, table.employmentId, table.periodStart, table.periodEnd, table.sourceRef),
+  uniqueIndex("idx_hr_bonus_performance_idempotency").on(table.idempotencyKey),
   check("ck_hr_bonus_performance_period", sql`${table.periodEnd} > ${table.periodStart}`),
   check("ck_hr_bonus_performance_amount", sql`${table.amountMinor} >= 0`),
   check("ck_hr_bonus_performance_kind", sql`${table.sourceKind} IN ('manual', 'report')`),
+  check("ck_hr_bonus_performance_idempotency", sql`length(trim(${table.idempotencyKey})) > 0`),
   check("ck_hr_bonus_performance_provenance", sql`length(${table.provenanceJson}) <= 10000`),
 ]);
 
@@ -148,6 +163,7 @@ export const hrBonusAllocations = sqliteTable("hr_bonus_allocations", {
 ]);
 
 export type HrBonusPolicyVersion = typeof hrBonusPolicyVersions.$inferSelect;
+export type HrBonusPolicyVersionScope = typeof hrBonusPolicyVersionScopes.$inferSelect;
 export type HrBonusPolicyMember = typeof hrBonusPolicyMembers.$inferSelect;
 export type HrBonusPerformanceSnapshot = typeof hrBonusPerformanceSnapshots.$inferSelect;
 export type HrBonusPool = typeof hrBonusPools.$inferSelect;

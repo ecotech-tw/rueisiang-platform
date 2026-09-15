@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
-import { useHrQuery, useHrWrite, type AttendanceLocation, type AttendanceLocationDetail, type GoogleMapPlace, type NamedOption } from "./api.js";
+import { useHrQuery, useHrWrite, type AttendanceLocation, type AttendanceLocationDetail, type AttendanceLocationSchedule, type GoogleMapPlace, type NamedOption } from "./api.js";
 
 interface LocationDraft {
   name: string;
@@ -15,6 +16,13 @@ interface LocationDraft {
   radiusMeters: string;
   revision?: number;
 }
+
+const WEEKDAYS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
+function defaultSchedules(locationId = ""): AttendanceLocationSchedule[] {
+  return Array.from({ length: 7 }, (_, dayOfWeek) => ({ id: null, locationId, dayOfWeek, isRestDay: dayOfWeek === 0, startMinute: dayOfWeek === 0 ? null : 540, endMinute: dayOfWeek === 0 ? null : 1080, standardMinutes: dayOfWeek === 0 ? 0 : 480, toleranceMinutes: 10, revision: 0 }));
+}
+function timeValue(minutes: number | null) { return minutes === null ? "" : `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`; }
+function timeMinutes(value: string) { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return null; return Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5)); }
 
 function draftOf(location?: AttendanceLocationDetail): LocationDraft {
   return {
@@ -45,14 +53,17 @@ function savedPlace(location?: AttendanceLocationDetail): GoogleMapPlace | null 
 
 function LocationDialog({ location, onClose }: { location?: AttendanceLocation; onClose: () => void }) {
   const detail = useHrQuery<{ location: AttendanceLocationDetail }>(location ? `/attendance-settings/locations/${location.id}` : "/attendance-settings/locations/new", Boolean(location));
+  const scheduleQuery = useHrQuery<{ schedules: AttendanceLocationSchedule[] }>(location ? `/attendance-settings/locations/${location.id}/schedules` : "/attendance-settings/locations/new/schedules", Boolean(location));
   const source = detail.data?.location;
   const [draft, setDraft] = useState(() => draftOf(source));
   const scopes = useHrQuery<{ scopes: NamedOption[] }>("/scopes");
   const [mapQuery, setMapQuery] = useState(location?.name ?? "");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPlace, setSelectedPlace] = useState<GoogleMapPlace | null>(() => savedPlace(source));
+  const [weeklySchedules, setWeeklySchedules] = useState<AttendanceLocationSchedule[]>(() => defaultSchedules(location?.id ?? ""));
   const places = useHrQuery<{ places: GoogleMapPlace[] }>(`/attendance-settings/places?query=${encodeURIComponent(searchQuery)}`, Boolean(searchQuery));
-  const save = useHrWrite();
+  const save = useHrWrite<{ id?: string }>();
+  const saveSchedule = useHrWrite();
   const editing = Boolean(location);
   const path = editing ? `/attendance-settings/locations/${location?.id}` : "/attendance-settings/locations";
 
@@ -63,6 +74,9 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       setSelectedPlace(savedPlace(source));
     }
   }, [source]);
+  useEffect(() => {
+    if (scheduleQuery.data?.schedules) setWeeklySchedules(scheduleQuery.data.schedules);
+  }, [scheduleQuery.data]);
 
   if (editing && detail.isPending) {
     return <Dialog title="編輯辦公位置" onClose={onClose}><p className="muted">載入位置設定…</p></Dialog>;
@@ -94,17 +108,24 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       radiusMeters: Number(draft.radiusMeters),
     };
     if (draft.revision !== undefined) values.revision = draft.revision;
-    save.mutate({ path, method: editing ? "PATCH" : "POST", values }, { onSuccess: onClose });
+    save.mutate({ path, method: editing ? "PATCH" : "POST", values }, { onSuccess: (result) => {
+      const locationId = editing ? location?.id : (result as { id?: string }).id;
+      if (!locationId) { onClose(); return; }
+      saveSchedule.mutate({ path: `/attendance-settings/locations/${locationId}/schedules`, method: "PUT", values: { schedules: weeklySchedules } }, { onSuccess: onClose });
+    } });
   }
 
+  function updateSchedule(dayOfWeek: number, patch: Partial<AttendanceLocationSchedule>) {
+    setWeeklySchedules((current) => current.map((schedule) => schedule.dayOfWeek === dayOfWeek ? { ...schedule, ...patch } : schedule));
+  }
   const coordinateQuery = draft.latitude !== null && draft.longitude !== null ? `${draft.latitude}, ${draft.longitude}` : "";
   return (
     <Dialog
       title={editing ? "編輯辦公位置" : "新增辦公位置"}
       onClose={onClose}
-      closeDisabled={save.isPending}
+      closeDisabled={save.isPending || saveSchedule.isPending}
       formProps={{ onSubmit: submit }}
-      actions={<Button type="submit" loading={save.isPending}>儲存</Button>}
+      actions={<Button type="submit" loading={save.isPending || saveSchedule.isPending}>儲存</Button>}
     >
       <SelectField label="營運據點" value={draft.scopeId ?? ""} options={[{ value: "", label: "請選擇營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => setDraft({ ...draft, scopeId: event.target.value || null })} />
       <TextField
@@ -166,6 +187,13 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
         </div>
       </Field>
       {coordinateQuery ? <a className="hr-location-map-link" href={mapsSearch(coordinateQuery)} target="_blank" rel="noreferrer">在 Google Maps 檢視已選辦公位置</a> : null}
+      <Field label="每週工作時段" hint="排班制員工會使用當日排班；未排班時仍可依有效辦公位置打卡。跨午夜時段請由排班資料指定。">
+        <div className="hr-weekly-schedule-editor">{WEEKDAYS.map((label, dayOfWeek) => {
+          const schedule = weeklySchedules.find((item) => item.dayOfWeek === dayOfWeek) ?? defaultSchedules().find((item) => item.dayOfWeek === dayOfWeek)!;
+          const restDay = Boolean(schedule.isRestDay);
+          return <div className="hr-weekly-schedule-row" key={dayOfWeek}><strong>{label}</strong><label className="checkbox-field"><input type="checkbox" checked={restDay} onChange={(event) => updateSchedule(dayOfWeek, { isRestDay: event.target.checked, startMinute: event.target.checked ? null : (schedule.startMinute ?? 540), endMinute: event.target.checked ? null : (schedule.endMinute ?? 1080), standardMinutes: event.target.checked ? 0 : (schedule.standardMinutes || 480) })} /> 休息日</label><TextField label="開始" type="time" value={timeValue(schedule.startMinute)} disabled={restDay} onChange={(event) => updateSchedule(dayOfWeek, { startMinute: timeMinutes(event.target.value) })} /><TextField label="結束" type="time" value={timeValue(schedule.endMinute)} disabled={restDay} onChange={(event) => updateSchedule(dayOfWeek, { endMinute: timeMinutes(event.target.value) })} /><TextField label="標準分鐘" type="number" min="0" max="1440" step="1" value={schedule.standardMinutes} disabled={restDay} onChange={(event) => updateSchedule(dayOfWeek, { standardMinutes: Number(event.target.value) })} /><TextField label="寬限分鐘" type="number" min="0" max="180" step="1" value={schedule.toleranceMinutes} onChange={(event) => updateSchedule(dayOfWeek, { toleranceMinutes: Number(event.target.value) })} /></div>;
+        })}</div>
+      </Field>
       <TextField
         label="出勤判斷半徑（公尺）"
         required
@@ -178,14 +206,18 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
         hint="例如 50 代表距離辦公位置中心 50 公尺內。定位關閉時不會使用此值。"
       />
       {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
+      {saveSchedule.error ? <Alert tone="danger">{saveSchedule.error.message}</Alert> : null}
     </Dialog>
   );
 }
 
 export function HrAttendanceSettings() {
-  usePageTitle("出勤設定");
+  const pageTitle = "出勤設定";
+  usePageTitle(pageTitle);
+  const navigate = useNavigate();
   const { permissions } = useSession();
   const canRead = permissions.has("hr:office:read");
+  const canReviewOvertime = permissions.has("hr:request:review");
   const canWrite = permissions.has("hr:office:write");
   const [editor, setEditor] = useState<AttendanceLocation | "new" | null>(null);
   const [search, setSearch] = useState("");
@@ -206,9 +238,9 @@ export function HrAttendanceSettings() {
   return (
     <div className="page fills">
       <PageHeader
-        title="出勤設定"
+        title={pageTitle}
         description="管理營運據點對應的辦公位置與定位範圍；排班制員工不需另行指派個別打卡地點。"
-        actions={canWrite ? <Button icon="plus" onClick={() => setEditor("new")}>新增辦公位置</Button> : undefined}
+        actions={(canWrite || canReviewOvertime) ? <div className="button-row">{canReviewOvertime ? <Button variant="secondary" onClick={() => navigate("/hr/overtime")}>加班審核</Button> : null}{canWrite ? <Button icon="plus" onClick={() => setEditor("new")}>新增辦公位置</Button> : null}</div> : undefined}
       />
       <Panel className="grows">
         <div className="panel-head">

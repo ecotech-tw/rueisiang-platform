@@ -1,10 +1,10 @@
-import { and, asc, count, desc, eq, like, ne, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { hrEmployees, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
+import { hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
 import { roles, userRoleAssignments, users } from "./schema/auth.js";
 
@@ -14,22 +14,28 @@ export class HrError extends Error {
 export interface HrActor { id: string; email: string }
 
 /** 共用稽核只放操作種類與 ID，不放姓名、任職日期等人事內容。 */
-async function write(db: Database, statement: SQL | SQL[], id: string, actor: HrActor, action: string, conflictMessage = "此使用者已是員工、員工編號已使用，或關聯資料不存在。") {
+async function write(db: Database, statement: SQL | SQL[], id: string, actor: HrActor, action: string, conflictMessage = "此使用者已是員工、員工編號已使用，或關聯資料不存在。", options: { allowEmptyMutationIndexes?: ReadonlySet<number> } = {}) {
   const row = activityRow({ entityType: "hr_personnel", entityId: id, source: "hr", eventType: action, summary: "人事資料異動", actor });
   try {
     // 零列寫入不是 SQL 失敗。後續依賴寫入與稽核都必須跟著 changes() guard。
     const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
     const mutations = Array.isArray(statement) ? statement : [statement];
-    const statements = [...mutations, sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
-        SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}
-        WHERE changes() = 1`].map((query) => {
+    const guardStatements = mutations.flatMap((mutation, index) => [
+      mutation,
+      // D1 會在 batch commit 後才回傳各 statement 的結果；用同一交易內的 CHECK
+      // 將零列 mutation 轉成 rollback，避免後續步驟留下 partial write。
+      sql`INSERT INTO hr_mutation_guards (id, ok) VALUES (${crypto.randomUUID()}, CASE WHEN changes() > 0 OR ${options.allowEmptyMutationIndexes?.has(index) ? 1 : 0} = 1 THEN 1 ELSE 0 END)`,
+    ]);
+    const statements = [...guardStatements, sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
+        VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
+      sql`DELETE FROM hr_mutation_guards`].map((query) => {
       const compiled = dialect.sqlToQuery(query);
       return db.$client.prepare(compiled.sql).bind(...compiled.params);
     });
     // Drizzle raw run 不具 D1 batch 所需的 prepared statement，使用原 binding 執行安全綁參數的 SQL。
     const results = await db.$client.batch(statements);
     // 每個 mutation 都帶 RETURNING；多步指派不能只檢查第一步，否則可能留下沒有任職的員工。
-    if (results.slice(0, mutations.length).some((result) => !result.results.length)) {
+    if (mutations.some((_, index) => !options.allowEmptyMutationIndexes?.has(index) && !results[index * 2]?.results.length)) {
       throw new HrError(409, "資料已變更、期間重疊或使用者不可指派，請重新整理後確認。");
     }
     return { id };
@@ -38,7 +44,7 @@ async function write(db: Database, statement: SQL | SQL[], id: string, actor: Hr
     const messages: string[] = [];
     let cause: unknown = error;
     for (let depth = 0; depth < 5 && cause instanceof Error; depth += 1) { messages.push(cause.message); cause = cause.cause; }
-    if (messages.some((message) => /UNIQUE constraint failed|FOREIGN KEY constraint failed/.test(message))) {
+    if (messages.some((message) => /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed|daily_leave_capacity_exceeded|monthly_leave_validation_failed|monthly_hourly_validation_failed|payroll_period_closed|payroll_period_not_ready|payroll_run_closed|payroll_run_snapshot_invalid|bonus_performance_idempotency_required|special_workday_source_server_determined|overtime_rate_server_determined/.test(message))) {
       throw new HrError(409, conflictMessage);
     }
     throw error;
@@ -148,18 +154,31 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     .from(hrEmploymentAttendanceSettings).where(sql`EXISTS (SELECT 1 FROM hr_employments WHERE id = hr_employment_attendance_settings.employment_id AND employee_user_id = ${userId})`);
   const primaryByEmployment = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting.primaryAssignmentId]));
   const withPrimary = attendanceAssignments.map((assignment) => ({ ...assignment, isPrimary: primaryByEmployment.get(assignment.employmentId) === assignment.id }));
-  const compensationRows = options.includeCompensation ? await db.select().from(hrCompensationVersions)
-    .innerJoin(hrEmployments, eq(hrEmployments.id, hrCompensationVersions.employmentId))
+  // Join 時不要用 select() 取兩張表的完整欄位：SQLite/D1 的重複欄名會讓 compensation id 被 employment id 覆蓋。
+  const compensationRows = options.includeCompensation ? await db.select({
+    id: hrCompensationVersions.id, employmentId: hrCompensationVersions.employmentId, versionNumber: hrCompensationVersions.versionNumber,
+    validFrom: hrCompensationVersions.validFrom, validTo: hrCompensationVersions.validTo, payBasis: hrCompensationVersions.payBasis,
+    baseAmountMinor: hrCompensationVersions.baseAmountMinor, note: hrCompensationVersions.note, createdAt: hrCompensationVersions.createdAt, createdBy: hrCompensationVersions.createdBy,
+  }).from(hrCompensationVersions).innerJoin(hrEmployments, eq(hrEmployments.id, hrCompensationVersions.employmentId))
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrCompensationVersions.validFrom)) : undefined;
-  const insuranceRows = options.includeInsurance ? await db.select().from(hrInsuranceVersions)
-    .innerJoin(hrEmployments, eq(hrEmployments.id, hrInsuranceVersions.employmentId))
+  const compensationItems = compensationRows?.length ? await db.select().from(hrCompensationItems).where(inArray(hrCompensationItems.compensationVersionId, compensationRows.map((row) => row.id))) : [];
+  const insuranceRows = options.includeInsurance ? await db.select({
+    id: hrInsuranceVersions.id, employmentId: hrInsuranceVersions.employmentId, scheme: hrInsuranceVersions.scheme, versionNumber: hrInsuranceVersions.versionNumber,
+    status: hrInsuranceVersions.status, validFrom: hrInsuranceVersions.validFrom, validTo: hrInsuranceVersions.validTo, insuredAmountMinor: hrInsuranceVersions.insuredAmountMinor,
+    dependentCount: hrInsuranceVersions.dependentCount, rateYear: hrInsuranceVersions.rateYear, sourceKind: hrInsuranceVersions.sourceKind, sourceUrl: hrInsuranceVersions.sourceUrl,
+    note: hrInsuranceVersions.note, createdAt: hrInsuranceVersions.createdAt, createdBy: hrInsuranceVersions.createdBy,
+  }).from(hrInsuranceVersions).innerJoin(hrEmployments, eq(hrEmployments.id, hrInsuranceVersions.employmentId))
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
-  const leaveRows = options.includeLeave ? await db.select().from(hrLeaveRequests)
-    .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
+  const leaveRows = options.includeLeave ? await db.select({
+    id: hrLeaveRequests.id, employmentId: hrLeaveRequests.employmentId, leaveType: hrLeaveRequests.leaveType, status: hrLeaveRequests.status,
+    startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn, durationMinutes: hrLeaveRequests.durationMinutes, payRatePpm: hrLeaveRequests.payRatePpm,
+    reason: hrLeaveRequests.reason, reviewedBy: hrLeaveRequests.reviewedBy, reviewedAt: hrLeaveRequests.reviewedAt,
+    reviewComment: hrLeaveRequests.reviewComment, createdAt: hrLeaveRequests.createdAt, createdBy: hrLeaveRequests.createdBy,
+  }).from(hrLeaveRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
-  const compensation = compensationRows?.map((row) => row.hr_compensation_versions);
-  const insurance = insuranceRows?.map((row) => row.hr_insurance_versions);
-  const leave = leaveRows?.map((row) => row.hr_leave_requests);
+  const compensation = compensationRows?.map((row) => ({ ...row, items: compensationItems.filter((item) => item.compensationVersionId === row.id) }));
+  const insurance = insuranceRows;
+  const leave = leaveRows;
   const attendanceEvents = options.includeAttendanceEvents ? await db.select({
     id: hrClockEvents.id, eventKind: hrClockEvents.eventKind, occurredAt: hrClockEvents.occurredAt,
     locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`, distanceMeters: hrClockEvents.distanceMeters,

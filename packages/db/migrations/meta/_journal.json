@@ -827,6 +827,90 @@
       "when": 1789147965274,
       "tag": "0141_backfill_hr_clock_event_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1789150000000,
+      "tag": "0142_multi_scope_bonus_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1789150000001,
+      "tag": "0143_hr_monthly_data",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1789150000002,
+      "tag": "0144_hr_attendance_location_schedules",
+      "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1789150000003,
+      "tag": "0145_hr_payroll_adjustments",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1789150000004,
+      "tag": "0146_hr_special_workdays",
+      "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1789150000005,
+      "tag": "0147_hr_compensation_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1789150000006,
+      "tag": "0148_hr_insurance_rate_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1789150000007,
+      "tag": "0149_hr_insurance_contribution_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1789150000008,
+      "tag": "0150_hr_overtime_duplicate_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1789150000009,
+      "tag": "0151_insurance_rate_archive_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1789150000010,
+      "tag": "0152_hr_insurance_content_hash",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1789150000011,
+      "tag": "0153_hr_payroll_integrity",
+      "breakpoints": true
     }
   ]
 }

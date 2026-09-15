@@ -32,7 +32,7 @@ export function HrAttendanceRecords() {
   usePageTitle("出勤紀錄");
   const { permissions, user } = useSession();
   const canRead = permissions.has("hr:office:read");
-  const isHrAdministrator = user?.roles.includes("admin") ?? false;
+  const isHrAdministrator = user?.isHrAdministrator ?? false;
   const [filters, setFilters] = useState({ page: 1, pageSize: 25, search: "", eventKind: "all", sourceKind: "all", startDate: "", endDate: "", sortField: "occurredAt", sortDirection: "desc" as "asc" | "desc" });
   const query = `/attendance-events?page=${filters.page}&pageSize=${filters.pageSize}&search=${encodeURIComponent(filters.search)}&eventKind=${filters.eventKind}&sourceKind=${filters.sourceKind}&startDate=${filters.startDate}&endDate=${filters.endDate}&sortField=${filters.sortField}&sortDirection=${filters.sortDirection}`;
   const events = useHrQuery<AttendanceEventsResponse>(query, canRead && isHrAdministrator);

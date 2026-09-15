@@ -1,4 +1,5 @@
 import { cyberbizRequest, type CyberbizConfig, type RequestOptions } from "./http.js";
+import { parseTaipeiWallClock } from "./time.js";
 
 /**
  * CYBERBIZ 訂單 API 的安全、可供工具使用的資料形狀。
@@ -146,10 +147,7 @@ function firstNumber(record: Record<string, unknown>, keys: string[]): number | 
 function readTimestamp(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) return "";
   const raw = value.trim();
-  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(raw)
-    ? `${raw.replace(" ", "T")}+08:00`
-    : raw;
-  const date = new Date(normalized);
+  const date = parseTaipeiWallClock(raw) ?? new Date(raw);
   return Number.isNaN(date.getTime()) ? raw : date.toISOString();
 }
 

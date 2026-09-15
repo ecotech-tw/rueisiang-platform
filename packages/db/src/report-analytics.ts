@@ -1,4 +1,5 @@
 import type { Database } from "./client.js";
+import { formatTaipeiDate } from "./taipei-time.js";
 import { dataChannelFromScopeId } from "./product-sku-mappings.js";
 import {
   createReportScopeDirectory,
@@ -174,7 +175,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * 的查詢會提前切到下一天，出金頁就會短少最後一筆資料。
  */
 function todayInTaipei(): string {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return formatTaipeiDate(new Date());
 }
 
 function parseDate(value: string): DateRangeParts {
