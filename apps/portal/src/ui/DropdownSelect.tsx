@@ -1,5 +1,6 @@
 import { Select } from "@base-ui/react/select";
 import type { ChangeEventHandler } from "react";
+import { useLocation } from "react-router";
 import { Icon } from "../shell/icons.js";
 
 interface DropdownSelectOption {
@@ -45,6 +46,8 @@ export function DropdownSelect({
   onChange,
   ...ariaProps
 }: DropdownSelectProps) {
+  const { pathname } = useLocation();
+  const isHrSystem = pathname === "/hr" || pathname.startsWith("/hr/");
   const selectedValue = value === undefined ? undefined : String(value);
   const initialValue = defaultValue === undefined ? undefined : String(defaultValue);
   const selectedOption = options.find((option) => option.value === selectedValue);
@@ -67,8 +70,8 @@ export function DropdownSelect({
         <Select.Icon className="select-trigger-icon"><Icon name="chevronDown" /></Select.Icon>
       </Select.Trigger>
       <Select.Portal>
-        <Select.Positioner className="select-positioner">
-          <Select.Popup className="select-popup">
+        <Select.Positioner className={`select-positioner${isHrSystem ? " hr-select-positioner" : ""}`}>
+          <Select.Popup className={`select-popup${isHrSystem ? " hr-liquid-select-popup" : ""}`}>
             <Select.List>
               {options.map((option) => (
                 <Select.Item key={option.value} value={option} disabled={option.disabled} className="select-item">

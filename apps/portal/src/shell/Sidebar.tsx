@@ -72,8 +72,27 @@ function Section({
   onToggle: () => void;
   onNavigate: () => void;
 }) {
+  const location = useLocation();
   const items = visibleItems(section.items, permissions);
   if (!items.length) return null;
+
+  if (items.length === 1 && section.homePath) {
+    const item = items[0]!;
+    return (
+      <div className="nav-section single">
+        <NavLink
+          to={item.to}
+          end
+          onClick={onNavigate}
+          className={`nav-section-head nav-section-link${sectionContainsPath(section, location.pathname) ? " active" : ""}`}
+          title={section.label}
+        >
+          <Icon name={section.icon} className="nav-icon" />
+          <span className="nav-label">{section.label}</span>
+        </NavLink>
+      </div>
+    );
+  }
 
   return (
     <div className={`nav-section${open ? " open" : ""}`}>

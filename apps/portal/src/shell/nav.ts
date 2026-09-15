@@ -102,12 +102,14 @@ export const NAV_SECTIONS: NavSection[] = [
     key: "hr",
     homePath: "/hr",
     label: "HRIS",
-    icon: "people",
+    icon: "analytics",
     items: [
-      { label: "員工管理", to: "/hr/employees", permission: "hr:employee:read", icon: "list", activePaths: ["/hr/insurance"] },
-      { label: "出勤管理", to: "/hr/attendance-records", permission: "hr:office:read", icon: "calendar", activePaths: ["/hr/attendance-settings", "/hr/special-workdays", "/hr/overtime"] },
-      { label: "排班管理", to: "/hr/scheduling", permission: "hr:schedule:read", icon: "calendar", activePaths: ["/hr/scheduling/locations"] },
-      { label: "敘薪與獎金", to: "/hr/compensation", permission: "hr:payroll:read", icon: "payments", activePaths: ["/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/monthly-data"] },
+      {
+        label: "HRIS",
+        to: "/hr",
+        permission: ["hr:employee:read", "hr:office:read", "hr:schedule:read", "hr:payroll:read", "hr:bonus:read"],
+        icon: "analytics",
+      },
     ],
   },
   {

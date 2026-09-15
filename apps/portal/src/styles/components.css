@@ -9,6 +9,13 @@
   transition-timing-function: ease-out;
 }
 .shell.sidebar-collapsed { grid-template-columns: 76px minmax(0, 1fr); }
+.shell.hr-shell { grid-template-columns: minmax(0, 1fr); }
+.hr-shell .content {
+  padding: 0;
+  background:
+    radial-gradient(circle at top left, --alpha(var(--color-brand) / 8%), transparent 34rem),
+    var(--color-canvas);
+}
 
 .sidebar {
   position: sticky;
@@ -151,8 +158,11 @@
 }
 .nav-section-head:hover { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
 .nav-section-head:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
-.nav-section.open .nav-section-head { color: var(--color-brand-dark); }
-.nav-section.open .nav-section-head .nav-icon { color: var(--color-brand); }
+.nav-section.open .nav-section-head,
+.nav-section-link.active { color: var(--color-brand-dark); }
+.nav-section.open .nav-section-head .nav-icon,
+.nav-section-link.active .nav-icon { color: var(--color-brand); }
+.nav-section-link { text-decoration: none; }
 
 .nav-chevron {
   width: 7px;
@@ -367,22 +377,6 @@
  */
 .content:has(.page.bleed) { padding: 0; overflow: hidden; }
 
-/* HRIS 內層導覽把個人入口與管理功能分組，避免把所有人事功能堆進 Sidebar。 */
-.hr-module { display: grid; gap: 20px; }
-.hr-module-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--color-line);
-}
-.hr-module-title { display: flex; align-items: baseline; gap: 10px; flex: none; }
-.hr-module-title strong { color: var(--color-ink); font-size: 19px; letter-spacing: .02em; }
-.hr-module-kicker { color: var(--color-brand); font-size: 12px; font-weight: 800; letter-spacing: .14em; }
-.hr-module-current { color: var(--color-ink); font-size: 16px; font-weight: 800; }
-.hr-module-subnav { display: flex; min-width: 0; }
-.hr-module-subnav .page-tabs { align-self: flex-start; }
 /*
  * 分頁標籤：分段控制。一條內凹的底槽，選中的那一段浮起來變成一張白卡。
  *
@@ -4052,25 +4046,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .hr-schedule-page > .panel.grows { overflow: auto; }
 
-/* HRIS 概覽卡片 */
-.hr-overview-page { gap: 22px; }
-.hr-overview-page > .hr-overview-panel { padding: 0; border: 0; background: transparent; box-shadow: none; }
-.hr-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-.hr-overview-card { display: grid; gap: 13px; min-height: 190px; padding: 18px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-paper); color: var(--color-ink); text-decoration: none; transition-property: background-color, border-color, box-shadow, transform; transition-duration: 150ms; transition-timing-function: ease-out; }
-.hr-overview-card:hover { border-color: var(--color-secondary); background-color: --alpha(var(--color-brand) / 4%); box-shadow: 0 8px 20px --alpha(var(--color-ink) / 9%); transform: translateY(-2px); }
-.hr-overview-card:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-overview-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.hr-overview-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; background: var(--color-brand-soft); color: var(--color-brand-dark); }
-.hr-overview-icon-warning { background: var(--color-warn-soft); color: var(--color-warn); }
-.hr-overview-icon-success { background: var(--color-ok-soft); color: var(--color-ok); }
-.hr-overview-icon-info { background: var(--color-info-soft); color: var(--color-info); }
-.hr-overview-icon svg { width: 19px; height: 19px; }
-.hr-overview-value { font-size: clamp(22px, 2vw, 30px); letter-spacing: -.02em; }
-.hr-overview-card p { min-height: 42px; margin: 0; color: var(--color-muted); font-size: 12px; line-height: 1.65; }
-.hr-overview-action { align-self: end; color: var(--color-brand-dark); font-size: 13px; font-weight: 800; }
-.hr-overview-action span { display: inline-block; margin-left: 3px; transition-property: transform; transition-duration: 150ms; transition-timing-function: ease-out; }
-.hr-overview-card:hover .hr-overview-action span { transform: translateX(3px); }
-
 /* 薪資結算的摘要表先給總覽，明細用 details 漸進展開，避免首頁式長表一次淹沒畫面。 */
 .hr-payroll-result-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-line); }
 .hr-payroll-result-toolbar > strong { color: var(--color-brand-dark); }
@@ -4130,13 +4105,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .hr-overview-card:hover .hr-overview-action span { transform: none; }
 }
 
-@media (max-width: 1100px) { .hr-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) {
-  .hr-overview-page > .panel { padding: 12px; }
-  .hr-overview-page > .hr-overview-panel { padding: 0; }
-  .hr-overview-grid { grid-template-columns: 1fr; }
-  .hr-overview-card { min-height: 0; }
-  .hr-overview-card p { min-height: 0; }
   .hr-payroll-result-toolbar { align-items: flex-start; flex-direction: column; }
   .hr-payroll-summary { margin-inline: -12px; }
 }
