@@ -5,6 +5,7 @@
  * 「.panel 的 padding」跟「p-6」誰贏要看誰寫在後面，那是最難查的一種 bug。
  */
 @import "./styles/components.css" layer(components);
+@import "./styles/hr.css" layer(components);
 
 /*
  * 設計 token 只寫這一份。@theme 讓同一個值既是 CSS 變數

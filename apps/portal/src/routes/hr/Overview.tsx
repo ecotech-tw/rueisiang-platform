@@ -17,7 +17,7 @@ function periodLabel(periodKey: string) {
 }
 
 export function HrOverview() {
-  usePageTitle("HRIS 概覽");
+  usePageTitle("HRIS 儀表板");
   const { permissions, user } = useSession();
   const isHrAdministrator = user?.isHrAdministrator ?? false;
   const canViewOverview = OVERVIEW_PERMISSIONS.some((permission) => permissions.has(permission));
@@ -43,7 +43,7 @@ export function HrOverview() {
   });
 
   return <div className="page hr-overview-page">
-    <PageHeader title="HRIS 概覽" description={`只顯示目前月份 ${periodLabel(data.periodKey)} 的待辦數量與處理入口，不在首頁展開薪資或投保明細。`} />
+    <PageHeader title="HRIS 儀表板" description={`只顯示目前月份 ${periodLabel(data.periodKey)} 的待辦數量與處理入口，不在儀表板展開薪資或投保明細。`} />
     {overview.isFetching ? <p className="form-hint">更新中…</p> : null}
     <Panel className="hr-overview-panel">
       <div className="hr-overview-grid">{cards.map((card) => <Link className="hr-overview-card" to={card.to} key={card.title}>

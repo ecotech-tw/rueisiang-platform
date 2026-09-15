@@ -1,0 +1,617 @@
+/* HRIS 在 /hr 底下以獨立系統呈現：不沿用平台 sidebar，避免人資流程被 CRM/WMS 導覽打斷。 */
+.hr-module { display: grid; gap: 20px; }
+.hr-system { height: 100%; min-height: 0; align-content: stretch; grid-template-rows: auto minmax(0, 1fr); gap: 0; }
+.hr-liquid-defs { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+.hr-system-header {
+  position: sticky;
+  top: 0;
+  z-index: 18;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 36px 12px;
+  background: transparent;
+}
+.hr-system-brand {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 46px;
+  overflow: hidden;
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: --alpha(var(--color-paper) / 22%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 24%) inset,
+    0 -10px 24px --alpha(var(--color-brand) / 5%) inset,
+    0 14px 34px --alpha(var(--color-ink) / 10%);
+  -webkit-backdrop-filter: blur(7px) saturate(150%) contrast(102%);
+  backdrop-filter: blur(7px) saturate(150%) contrast(102%);
+}
+.hr-system-brand::before,
+.hr-system-nav::before,
+.hr-system-platform-link::before,
+.hr-system-submenu::before {
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 18% 0%, --alpha(var(--color-paper) / 24%), transparent 32%),
+    radial-gradient(circle at 82% 100%, --alpha(var(--color-brand) / 7%), transparent 38%),
+    linear-gradient(135deg, --alpha(var(--color-paper) / 16%) 0%, transparent 28%, --alpha(var(--color-paper) / 7%) 66%, transparent 100%);
+  filter: url(#hr-liquid-glass-soft);
+  content: "";
+  pointer-events: none;
+}
+.hr-system-submenu::before {
+  background:
+    radial-gradient(circle at 18% 0%, --alpha(var(--color-paper) / 50%), transparent 34%),
+    radial-gradient(circle at 86% 100%, --alpha(var(--color-brand) / 13%), transparent 40%),
+    linear-gradient(135deg, --alpha(var(--color-paper) / 34%) 0%, transparent 30%, --alpha(var(--color-paper) / 16%) 68%, transparent 100%);
+  filter: url(#hr-liquid-glass-menu);
+}
+.hr-system-brand::after,
+.hr-system-nav::after,
+.hr-system-platform-link::after,
+.hr-system-submenu::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow:
+    0 0 18px --alpha(var(--color-paper) / 24%) inset,
+    0 0 34px --alpha(var(--color-brand) / 5%) inset;
+  content: "";
+  pointer-events: none;
+}
+.hr-system-brand img {
+  width: 142px;
+  height: auto;
+  flex: none;
+  object-fit: contain;
+}
+.hr-system-brand span {
+  display: inline-grid;
+  min-height: 30px;
+  place-items: center;
+  padding: 0 11px 0 13px;
+  border-left: 1px solid --alpha(var(--color-ink) / 6%);
+  color: var(--color-brand-dark);
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+.hr-system-brand strong { overflow: hidden; color: var(--color-muted); font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.hr-system-nav {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  justify-self: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 4px;
+  padding: 6px;
+  overflow: visible;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: --alpha(var(--color-paper) / 20%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 22%) inset,
+    0 -12px 26px --alpha(var(--color-brand) / 5%) inset,
+    0 14px 34px --alpha(var(--color-ink) / 10%);
+  -webkit-backdrop-filter: blur(7px) saturate(150%) contrast(102%);
+  backdrop-filter: blur(7px) saturate(150%) contrast(102%);
+  scrollbar-width: none;
+}
+.hr-system-nav::-webkit-scrollbar { display: none; }
+.hr-system-nav-item { position: relative; z-index: 1; }
+.hr-system-nav-item::after {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 10px;
+  content: "";
+}
+.hr-system-nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  overflow: hidden;
+  padding: 0 15px;
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+  transition-property: background-color, color, scale, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system-nav-link:hover,
+.hr-system-nav-item.open > .hr-system-nav-link { background: --alpha(var(--color-brand) / 10%); color: var(--color-brand-dark); }
+.hr-system-nav-link:active,
+.hr-system-platform-link:active { scale: .96; }
+.hr-system-nav-link:focus-visible,
+.hr-system-submenu-link:focus-visible,
+.hr-system-platform-link:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-system-nav-item.active > .hr-system-nav-link {
+  background: --alpha(var(--color-paper) / 30%);
+  color: var(--color-brand-dark);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
+    0 8px 18px --alpha(var(--color-ink) / 9%);
+  -webkit-backdrop-filter: blur(6px) saturate(145%);
+  backdrop-filter: blur(6px) saturate(145%);
+}
+.hr-system-nav-link svg { width: 19px; height: 19px; flex: none; }
+.hr-system-nav-chevron {
+  width: 15px !important;
+  height: 15px !important;
+  color: var(--color-muted);
+  transition-property: transform;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system-nav-item.open .hr-system-nav-chevron { transform: rotate(180deg); }
+.hr-system-submenu {
+  position: absolute;
+  isolation: isolate;
+  top: calc(100% + 10px);
+  left: 50%;
+  z-index: 30;
+  display: grid;
+  gap: 3px;
+  min-width: 190px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  background: --alpha(var(--color-paper) / 84%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 82%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 44%) inset,
+    0 -12px 28px --alpha(var(--color-brand) / 9%) inset,
+    0 24px 56px --alpha(var(--color-ink) / 20%),
+    0 6px 18px --alpha(var(--color-brand) / 13%);
+  -webkit-backdrop-filter: blur(28px) saturate(205%) contrast(110%);
+  backdrop-filter: blur(28px) saturate(205%) contrast(110%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -6px);
+  transition-property: opacity, transform;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system-nav-item.open .hr-system-submenu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.hr-system-submenu-link {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+  transition-property: background-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system-submenu-link:hover,
+.hr-system-submenu-link.active { background: --alpha(var(--color-brand) / 16%); color: var(--color-brand-dark); }
+.hr-system-submenu-link svg { width: 19px; height: 19px; }
+.hr-system-platform-link {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 46px;
+  overflow: hidden;
+  padding: 0 16px 0 13px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: --alpha(var(--color-brand) / 64%);
+  color: var(--color-paper);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 40%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
+    0 -10px 22px --alpha(var(--color-brand-dark) / 18%) inset,
+    0 14px 34px --alpha(var(--color-brand) / 24%);
+  -webkit-backdrop-filter: blur(7px) saturate(150%) contrast(102%);
+  backdrop-filter: blur(7px) saturate(150%) contrast(102%);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  transition-property: background-color, border-color, color, scale, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system-platform-link:hover { border-color: --alpha(var(--color-brand-dark) / 28%); background: var(--color-brand-dark); color: var(--color-paper); }
+.hr-system-platform-link svg { width: 18px; height: 18px; flex: none; transform: translateX(-1px); }
+.hr-system-main {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  min-height: 0;
+  padding: 28px 36px 36px;
+}
+.hr-system-main:has(.page.fills) {
+  height: 100%;
+  overflow: hidden;
+}
+.hr-system-main > .page.fills { min-height: 0; }
+.hr-system .panel:not(.hr-overview-panel),
+.hr-system .hr-payroll-employee,
+.hr-system .hr-payroll-worker-results .hr-payroll-result,
+.hr-system .hr-profile-section,
+.hr-overview-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid transparent;
+  background: --alpha(var(--color-paper) / 24%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 20%) inset,
+    0 -16px 34px --alpha(var(--color-brand) / 5%) inset,
+    0 16px 38px --alpha(var(--color-ink) / 9%);
+  -webkit-backdrop-filter: blur(7px) saturate(150%) contrast(102%);
+  backdrop-filter: blur(7px) saturate(150%) contrast(102%);
+}
+.hr-system .panel:not(.hr-overview-panel)::before,
+.hr-system .hr-payroll-employee::before,
+.hr-system .hr-payroll-worker-results .hr-payroll-result::before,
+.hr-system .hr-profile-section::before,
+.hr-overview-card::before {
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 16% 0%, --alpha(var(--color-paper) / 20%), transparent 34%),
+    radial-gradient(circle at 90% 100%, --alpha(var(--color-brand) / 6%), transparent 38%),
+    linear-gradient(135deg, --alpha(var(--color-paper) / 13%) 0%, transparent 30%, --alpha(var(--color-paper) / 6%) 68%, transparent 100%);
+  content: "";
+  pointer-events: none;
+}
+.hr-system .panel:not(.hr-overview-panel)::after,
+.hr-system .hr-payroll-employee::after,
+.hr-system .hr-payroll-worker-results .hr-payroll-result::after,
+.hr-system .hr-profile-section::after,
+.hr-overview-card::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow:
+    0 0 16px --alpha(var(--color-paper) / 20%) inset,
+    0 0 30px --alpha(var(--color-brand) / 4%) inset;
+  content: "";
+  pointer-events: none;
+}
+.hr-system .table-scroll .data-table thead th { background: --alpha(var(--color-paper) / 74%); backdrop-filter: blur(10px) saturate(150%); }
+.hr-system .table-scroll { min-width: 0; }
+.hr-system .primary-button,
+.hr-system .ghost-button,
+.hr-system .icon-button {
+  -webkit-backdrop-filter: blur(6px) saturate(145%);
+  backdrop-filter: blur(6px) saturate(145%);
+}
+.hr-system .ghost-button,
+.hr-system .icon-button {
+  border-color: transparent;
+  background: --alpha(var(--color-paper) / 22%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 52%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
+    0 8px 20px --alpha(var(--color-ink) / 7%);
+}
+.hr-system .primary-button {
+  border-color: transparent;
+  background: --alpha(var(--color-info) / 74%);
+  color: var(--color-paper);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 30%) inset,
+    0 -8px 18px --alpha(var(--color-ink) / 12%) inset,
+    0 10px 24px --alpha(var(--color-info) / 18%);
+}
+.hr-system .primary-button.add-action {
+  background: --alpha(var(--color-ok) / 78%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 30%) inset,
+    0 -8px 18px --alpha(var(--color-ink) / 12%) inset,
+    0 10px 24px --alpha(var(--color-ok) / 18%);
+}
+.hr-system .primary-button.danger {
+  background: --alpha(var(--color-brand-dark) / 86%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 26%) inset,
+    0 -8px 18px --alpha(var(--color-ink) / 16%) inset,
+    0 10px 24px --alpha(var(--color-brand) / 20%);
+}
+.hr-system .ghost-button:hover:not(:disabled),
+.hr-system .icon-button:hover:not(:disabled) { background: --alpha(var(--color-brand) / 10%); }
+.hr-system .primary-button:hover:not(:disabled) { background: --alpha(var(--color-info) / 92%); }
+.hr-system .primary-button.add-action:hover:not(:disabled) { background: --alpha(var(--color-ok) / 92%); }
+.hr-system .primary-button.danger:hover:not(:disabled) { background: var(--color-brand-dark); }
+.hr-system .dropdown-control,
+.hr-system input[type="date"],
+.hr-system input[type="month"],
+.hr-system input[type="datetime-local"] {
+  border-color: transparent;
+  background-color: --alpha(var(--color-paper) / 38%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 66%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 24%) inset,
+    0 8px 22px --alpha(var(--color-ink) / 7%);
+  -webkit-backdrop-filter: blur(8px) saturate(155%) contrast(103%);
+  backdrop-filter: blur(8px) saturate(155%) contrast(103%);
+  transition-property: background-color, box-shadow, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system .dropdown-control:hover,
+.hr-system input[type="date"]:hover,
+.hr-system input[type="month"]:hover,
+.hr-system input[type="datetime-local"]:hover { background-color: --alpha(var(--color-paper) / 50%); }
+.hr-system .dropdown-control:focus-visible,
+.hr-system input[type="date"]:focus-visible,
+.hr-system input[type="month"]:focus-visible,
+.hr-system input[type="datetime-local"]:focus-visible {
+  outline: 2px solid var(--color-secondary);
+  outline-offset: 2px;
+}
+.hr-system input[type="date"]::-webkit-calendar-picker-indicator,
+.hr-system input[type="month"]::-webkit-calendar-picker-indicator,
+.hr-system input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  border-radius: 999px;
+  padding: 6px;
+  background-color: --alpha(var(--color-brand) / 12%);
+  cursor: pointer;
+}
+.hr-liquid-select-popup {
+  position: relative;
+  isolation: isolate;
+  overflow: auto;
+  border-color: transparent;
+  border-radius: 18px;
+  background: --alpha(var(--color-paper) / 34%);
+  outline: 0;
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 48%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
+    0 -12px 28px --alpha(var(--color-brand) / 5%) inset,
+    0 22px 52px --alpha(var(--color-ink) / 14%),
+    0 6px 18px --alpha(var(--color-brand) / 8%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%) contrast(104%);
+  backdrop-filter: blur(20px) saturate(180%) contrast(104%);
+}
+.hr-liquid-select-popup::before {
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 18% 0%, --alpha(var(--color-paper) / 22%), transparent 34%),
+    radial-gradient(circle at 86% 100%, --alpha(var(--color-brand) / 6%), transparent 40%),
+    linear-gradient(135deg, --alpha(var(--color-paper) / 12%) 0%, transparent 30%, --alpha(var(--color-paper) / 5%) 68%, transparent 100%);
+  filter: url(#hr-liquid-glass-menu);
+  content: "";
+  pointer-events: none;
+}
+.hr-liquid-select-popup .select-item {
+  border-radius: 12px;
+  color: var(--color-muted);
+  font-weight: 800;
+  transition-property: background-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-liquid-select-popup .select-item[data-highlighted],
+.hr-liquid-select-popup .select-item[data-selected] { background: --alpha(var(--color-brand) / 10%); color: var(--color-brand-dark); }
+.hr-liquid-select-popup .select-item-indicator { color: var(--color-brand); }
+.hr-module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-line);
+}
+.hr-module-title { display: flex; align-items: baseline; gap: 10px; flex: none; }
+.hr-module-title strong { color: var(--color-ink); font-size: 19px; letter-spacing: .02em; }
+.hr-module-kicker { color: var(--color-brand); font-size: 12px; font-weight: 800; letter-spacing: .14em; }
+.hr-module-current { color: var(--color-ink); font-size: 16px; font-weight: 800; }
+.hr-module-subnav { display: flex; min-width: 0; }
+.hr-module-subnav .page-tabs { align-self: flex-start; }
+
+@media (max-width: 900px) {
+  .hr-shell .content { padding: 0; }
+  .hr-system-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 12px;
+    padding: 12px 16px 14px;
+  }
+  .hr-system-brand { grid-column: 1; }
+  .hr-system-platform-link { grid-column: 2; grid-row: 1; padding-inline: 12px; }
+  .hr-system-nav {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+  .hr-system-nav-item { flex: 1 0 auto; }
+  .hr-system-nav-link { justify-content: center; padding-inline: 12px; }
+  .hr-system-submenu { left: 0; transform: translate(0, -6px); }
+  .hr-system-nav-item.open .hr-system-submenu { transform: translate(0, 0); }
+  .hr-system-main { padding: 20px 16px 28px; }
+}
+
+/* HRIS 概覽卡片 */
+.hr-overview-page { gap: 22px; }
+.hr-overview-page > .hr-overview-panel { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.hr-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.hr-overview-card { display: grid; gap: 13px; min-height: 190px; padding: 18px; border-radius: 18px; color: var(--color-ink); text-decoration: none; transition-property: background-color, box-shadow, transform; transition-duration: 150ms; transition-timing-function: ease-out; }
+.hr-overview-card:hover { background-color: --alpha(var(--color-paper) / 42%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 62%) inset, 0 18px 42px --alpha(var(--color-ink) / 11%); transform: translateY(-2px); }
+.hr-system .hr-schedule-page > .panel.grows {
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.hr-system .hr-schedule-toolbar {
+  align-items: end;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 22px;
+  background: --alpha(var(--color-paper) / 24%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 58%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
+    0 12px 30px --alpha(var(--color-ink) / 7%);
+  -webkit-backdrop-filter: blur(7px) saturate(150%);
+  backdrop-filter: blur(7px) saturate(150%);
+}
+.hr-system .hr-schedule-toolbar > strong {
+  display: inline-grid;
+  min-height: 42px;
+  min-width: 132px;
+  place-items: center;
+  color: var(--color-ink);
+  font-size: 17px;
+  letter-spacing: .02em;
+}
+.hr-system .hr-calendar.weekdays {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin: 2px 0 8px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  background: --alpha(var(--color-paper) / 52%);
+  box-shadow: 0 1px 0 --alpha(var(--color-paper) / 70%) inset;
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  backdrop-filter: blur(10px) saturate(160%);
+}
+.hr-system .hr-calendar.weekdays strong {
+  min-height: 26px;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.hr-system .hr-calendar:not(.weekdays) { gap: 8px; padding: 2px 0 0; }
+.hr-system .hr-calendar-cell {
+  position: relative;
+  isolation: isolate;
+  min-height: 138px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  background: --alpha(var(--color-paper) / 34%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 64%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 22%) inset,
+    0 10px 24px --alpha(var(--color-ink) / 6%);
+  -webkit-backdrop-filter: blur(6px) saturate(145%);
+  backdrop-filter: blur(6px) saturate(145%);
+}
+.hr-system .hr-calendar-cell::before {
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(circle at 22% 0%, --alpha(var(--color-paper) / 22%), transparent 36%), linear-gradient(135deg, --alpha(var(--color-paper) / 12%), transparent 62%);
+  content: "";
+  pointer-events: none;
+}
+.hr-system .hr-calendar-cell.empty { box-shadow: none; background: transparent; }
+.hr-system .hr-calendar-cell.empty::before { content: none; }
+.hr-system .hr-calendar-date strong {
+  display: inline-grid;
+  min-width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 900;
+}
+.hr-system .hr-calendar-date button {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 999px;
+  background: --alpha(var(--color-paper) / 36%);
+  color: var(--color-muted);
+  transition-property: background-color, color, scale;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system .hr-calendar-date button:hover { background: --alpha(var(--color-brand) / 14%); color: var(--color-brand-dark); }
+.hr-system .hr-calendar-date button:active { scale: .96; }
+.hr-system .hr-calendar-entries { gap: 6px; margin-top: 8px; }
+.hr-system .hr-calendar-entry {
+  overflow: hidden;
+  padding: 7px 28px 7px 9px;
+  border-left: 0;
+  border-radius: 12px;
+  background: --alpha(var(--color-secondary) / 14%);
+  box-shadow: 0 1px 0 --alpha(var(--color-paper) / 44%) inset;
+}
+.hr-system .hr-calendar-entry.worker { background: --alpha(var(--color-brand) / 13%); }
+.hr-system .hr-calendar-entry span { color: var(--color-ink); font-weight: 800; }
+.hr-system .hr-calendar-entry small { color: var(--color-muted); }
+.hr-system .hr-calendar-entry button {
+  top: 5px;
+  right: 5px;
+  border-radius: 999px;
+  color: var(--color-muted);
+}
+.hr-system .hr-calendar-entry button:hover { background: --alpha(var(--color-brand) / 12%); color: var(--color-brand-dark); }
+.hr-overview-card:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-overview-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hr-overview-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.hr-overview-icon-warning { background: var(--color-warn-soft); color: var(--color-warn); }
+.hr-overview-icon-success { background: var(--color-ok-soft); color: var(--color-ok); }
+.hr-overview-icon-info { background: var(--color-info-soft); color: var(--color-info); }
+.hr-overview-icon svg { width: 19px; height: 19px; }
+.hr-overview-value { font-size: clamp(22px, 2vw, 30px); letter-spacing: -.02em; }
+.hr-overview-card p { min-height: 42px; margin: 0; color: var(--color-muted); font-size: 12px; line-height: 1.65; }
+.hr-overview-action { align-self: end; color: var(--color-brand-dark); font-size: 13px; font-weight: 800; }
+.hr-overview-action span { display: inline-block; margin-left: 3px; transition-property: transform; transition-duration: 150ms; transition-timing-function: ease-out; }
+.hr-overview-card:hover .hr-overview-action span { transform: translateX(3px); }
+
+@media (max-width: 1100px) { .hr-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) {
+  .hr-overview-page > .panel { padding: 12px; }
+  .hr-overview-page > .hr-overview-panel { padding: 0; }
+  .hr-overview-grid { grid-template-columns: 1fr; }
+  .hr-overview-card { min-height: 0; }
+  .hr-overview-card p { min-height: 0; }
+}

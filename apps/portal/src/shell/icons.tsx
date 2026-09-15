@@ -51,6 +51,7 @@ export type IconName =
   | "close"
   | "bookmark"
   | "check"
+  | "clock"
   | "calendar"
   | "plus"
   | "search"
@@ -345,6 +346,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
   attachment: <path d="m8.5 12.9 6.1-6.1a3.2 3.2 0 0 1 4.5 4.5l-7.5 7.5a5 5 0 0 1-7.1-7.1l7.8-7.8a2.9 2.9 0 0 1 4.1 4.1l-7.2 7.2a1.5 1.5 0 0 1-2.1-2.1l6.5-6.5" />,
   bookmark: <path d="M7 4.2h10a.8.8 0 0 1 .8.8v14.4L12 16.1l-5.8 3.3V5a.8.8 0 0 1 .8-.8z" />,
   check: <path d="M5.2 12.6 9.8 17.2 18.8 7.4" />,
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="8.4" />
+      <path d="M12 7.4V12l3.2 2" />
+      <path d="M7.1 3.9 4.7 6.2M16.9 3.9l2.4 2.3" />
+    </>
+  ),
   calendar: (
     <>
       <rect x="3.6" y="5.2" width="16.8" height="15.2" rx="2.4" />
