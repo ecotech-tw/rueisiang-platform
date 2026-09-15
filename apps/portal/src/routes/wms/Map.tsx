@@ -116,9 +116,11 @@ export function WarehouseMap() {
    */
   const zoneDrag = useDragBox(async (id, box) => {
     await updateZone.mutateAsync({ id, ...box });
+    toast.show("倉位位置已更新");
   });
   const elementDrag = useDragBox(async (id, box) => {
     await updateElement.mutateAsync({ id, ...box });
+    toast.show("地圖標示已更新");
   }, ELEMENT_BOUNDS);
 
   /**

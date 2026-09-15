@@ -18,6 +18,7 @@ import {
 export interface Actor { id: string; email: string }
 const SETTINGS_ID = "main";
 const DECORATION_ID_PREFIX = "wms-decoration:";
+const LEGACY_DECORATION_ID_PREFIX = "wms-decoration-";
 export interface ShelfLevel { id: string; name: string }
 const DEFAULT_SHELF_LEVELS: ShelfLevel[] = [
   { id: "top", name: "上層" }, { id: "middle", name: "中層" }, { id: "bottom", name: "底層" },
@@ -88,11 +89,33 @@ function asSize(box: { width: number; height: number }): string { return `${box.
 
 /** 儲存層的裝飾 id 帶種類前綴；API 對外沿用新增時回傳的原始 id。 */
 function publicDecorationId(id: string): string {
-  return id.startsWith(DECORATION_ID_PREFIX) ? id.slice(DECORATION_ID_PREFIX.length) : id;
+  if (id.startsWith(DECORATION_ID_PREFIX)) return id.slice(DECORATION_ID_PREFIX.length);
+  if (id.startsWith(LEGACY_DECORATION_ID_PREFIX)) return id.slice(LEGACY_DECORATION_ID_PREFIX.length);
+  return id;
 }
 
 function decorationStorageId(id: string): string {
   return `${DECORATION_ID_PREFIX}${publicDecorationId(id)}`;
+}
+
+/**
+ * 找裝飾時保留舊資料格式：開發 fixture 曾直接用公開 id，早期資料也可能用連字號前綴。
+ * 新資料一律使用冒號前綴，但讀寫不能因為資料尚未回填就把標籤判成不存在。
+ */
+async function findDecoration(db: Database, id: string) {
+  const publicId = publicDecorationId(id);
+  const storageIds = [
+    decorationStorageId(publicId),
+    publicId,
+    `${LEGACY_DECORATION_ID_PREFIX}${publicId}`,
+  ];
+  for (const storageId of storageIds) {
+    const [element] = await db.select().from(wmsLayoutElements)
+      .where(and(eq(wmsLayoutElements.id, storageId), eq(wmsLayoutElements.elementType, "decoration")))
+      .limit(1);
+    if (element) return element;
+  }
+  return null;
 }
 
 async function loadTargetWarehouse(db: Database): Promise<WarehouseSnapshot> {
@@ -344,7 +367,7 @@ export async function createLayoutElement(db: Database, input: LayoutElementInpu
 
 export async function updateLayoutElement(db: Database, id: string, input: Partial<LayoutElementInput> & { actor: Actor }) {
   const publicId = publicDecorationId(id);
-  const [current] = await db.select().from(wmsLayoutElements).where(and(eq(wmsLayoutElements.id, decorationStorageId(id)), eq(wmsLayoutElements.elementType, "decoration"))).limit(1);
+  const current = await findDecoration(db, id);
   if (!current) throw new WmsError("not_found", "找不到這個地圖標示。");
   const next = { label: input.label?.trim().slice(0, 40) || current.label, color: input.color?.trim() || current.color, x: clamp(input.x, current.x, ELEMENT_BOUNDS.x), y: clamp(input.y, current.y, ELEMENT_BOUNDS.y), width: clamp(input.width, current.width, ELEMENT_BOUNDS.width), height: clamp(input.height, current.height, ELEMENT_BOUNDS.height) };
   await db.batch([
@@ -355,7 +378,7 @@ export async function updateLayoutElement(db: Database, id: string, input: Parti
 
 export async function deleteLayoutElement(db: Database, id: string, actor: Actor) {
   const publicId = publicDecorationId(id);
-  const [element] = await db.select().from(wmsLayoutElements).where(and(eq(wmsLayoutElements.id, decorationStorageId(id)), eq(wmsLayoutElements.elementType, "decoration"))).limit(1);
+  const element = await findDecoration(db, id);
   if (!element) throw new WmsError("not_found", "找不到這個地圖標示。");
   await db.batch([
     db.delete(wmsLayoutElements).where(eq(wmsLayoutElements.id, element.id)),

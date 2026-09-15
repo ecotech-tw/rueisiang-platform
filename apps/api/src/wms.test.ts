@@ -215,6 +215,21 @@ describe("WMS target-only API", () => {
     const deleted = await as(userId, "admin@ecotech.tw", "/api/wms/elements/element-1", { method: "DELETE" });
     expect(deleted.status).toBe(200);
     expect(await db.select().from(wmsLayoutElements).where(eq(wmsLayoutElements.id, "wms-decoration:element-1"))).toHaveLength(0);
+
+    // 開發 fixture／舊資料可能直接把公開 id 存在 target table；仍需能編輯與刪除。
+    await db.insert(wmsLayoutElements).values({
+      id: "legacy-element", layoutId: "layout:main", elementType: "decoration", zoneId: null,
+      label: "舊標示", color: "slate", x: 10, y: 10, width: 12, height: 10, zIndex: 1,
+    });
+    const legacyEdited = await as(userId, "admin@ecotech.tw", "/api/wms/elements/legacy-element", {
+      method: "PATCH", body: JSON.stringify({ x: 20, y: 30 }),
+    });
+    expect(legacyEdited.status).toBe(200);
+    expect(await db.select({ x: wmsLayoutElements.x, y: wmsLayoutElements.y })
+      .from(wmsLayoutElements).where(eq(wmsLayoutElements.id, "legacy-element")))
+      .toEqual([{ x: 20, y: 30 }]);
+    const legacyDeleted = await as(userId, "admin@ecotech.tw", "/api/wms/elements/legacy-element", { method: "DELETE" });
+    expect(legacyDeleted.status).toBe(200);
   });
 
   it("有商品使用倉位或層架時禁止刪除與移除層架", async () => {
