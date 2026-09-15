@@ -63,10 +63,26 @@ export type IconName =
   | "chevronRight"
   | "external"
   | "attachment"
-  | "dragHandle";
+  | "dragHandle"
+  | "apps"
+  | "logout";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   dragHandle: <path d="M8 5.5h.01M8 12h.01M8 18.5h.01M16 5.5h.01M16 12h.01M16 18.5h.01" />,
+  apps: (
+    <>
+      <rect x="4.2" y="4.2" width="6.2" height="6.2" rx="1.6" />
+      <rect x="13.6" y="4.2" width="6.2" height="6.2" rx="1.6" />
+      <rect x="4.2" y="13.6" width="6.2" height="6.2" rx="1.6" />
+      <rect x="13.6" y="13.6" width="6.2" height="6.2" rx="1.6" />
+    </>
+  ),
+  logout: (
+    <>
+      <path d="M10 4.6H6.4a1.8 1.8 0 0 0-1.8 1.8v11.2a1.8 1.8 0 0 0 1.8 1.8H10" />
+      <path d="M15.2 8.2 19 12l-3.8 3.8M19 12H9.8" />
+    </>
+  ),
   plus: <path d="M12 5.5v13M5.5 12h13" />,
   search: (
     <>

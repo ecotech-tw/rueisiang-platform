@@ -1,9 +1,10 @@
 import type { Permission } from "@rueisiang/auth/permissions";
-import { useState } from "react";
-import { Link, Navigate, NavLink, Outlet, useLocation } from "react-router";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { Navigate, NavLink, Outlet, useLocation } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { Icon, type IconName } from "../../shell/icons.js";
 import { HrOverview } from "./Overview.js";
+import { HrUserMenu } from "./HrUserMenu.js";
 
 /** platform 只承載 HR 管理功能；員工本人入口在 hr.rueisiang.com。 */
 const EMPLOYEE_TABS = [
@@ -85,6 +86,60 @@ export function HrLayout() {
       return { ...item, to: fallbackTo, children };
     })
     .filter((item) => (item.permissions.some((permission) => permissions.has(permission)) || item.children.length > 0) && (!item.adminOnly || isHrAdministrator));
+  const activeLabel = visiblePrimaryNav.find((item) => isActive(item.activePaths ?? [item.to], pathname))?.label ?? null;
+
+  /*
+   * 選中那一格底下的玻璃膠囊是一塊會滑動的 thumb，不是每一格各自的底色。
+   * 每一格寬度跟著文字走，只能量實際的 offsetLeft / offsetWidth 再交給 CSS 變數。
+   */
+  const navRef = useRef<HTMLElement>(null);
+  const thumbRef = useRef<HTMLSpanElement>(null);
+  const placedRef = useRef<{ label: string | null; x: number }>({ label: null, x: 0 });
+
+  const placeThumb = useCallback(() => {
+    const nav = navRef.current;
+    if (!nav) return null;
+    const item = nav.querySelector<HTMLElement>(".hr-system-nav-item.active");
+    if (!item) {
+      nav.removeAttribute("data-thumb");
+      return null;
+    }
+    nav.style.setProperty("--hr-thumb-x", `${item.offsetLeft}px`);
+    nav.style.setProperty("--hr-thumb-w", `${item.offsetWidth}px`);
+    nav.setAttribute("data-thumb", "");
+    return item.offsetLeft;
+  }, []);
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const previous = placedRef.current;
+    const x = placeThumb();
+    if (x === null) {
+      placedRef.current = { label: null, x: 0 };
+      return;
+    }
+    if (!nav?.hasAttribute("data-thumb-ready")) {
+      // 第一次定位不播滑動；下一個 frame 才打開 transition，否則會從最左邊滑進來。
+      requestAnimationFrame(() => nav?.setAttribute("data-thumb-ready", ""));
+    } else if (previous.label && previous.label !== activeLabel && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      // 沿用參考範例的「拉長再回彈」：往哪邊走就從反方向那一側撐開，看起來是被拖過去的。
+      const thumb = thumbRef.current;
+      if (thumb) {
+        thumb.style.transformOrigin = x > previous.x ? "left" : "right";
+        thumb.animate([{ scale: "1 1" }, { scale: "1.1 1" }, { scale: "1 1" }], { duration: 440, easing: "ease" });
+      }
+    }
+    placedRef.current = { label: activeLabel, x };
+  }, [activeLabel, placeThumb]);
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    // 字型晚到或視窗縮放都會改變每一格的寬度。
+    const observer = new ResizeObserver(() => placeThumb());
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [placeThumb]);
 
   return <div className="hr-module hr-system">
     <svg className="hr-liquid-defs" aria-hidden="true" focusable="false">
@@ -103,7 +158,8 @@ export function HrLayout() {
         <span>HRIS</span>
         <strong>{current}</strong>
       </div>
-      <nav className="hr-system-nav" aria-label="HRIS 主要導覽">
+      <nav className="hr-system-nav" aria-label="HRIS 主要導覽" ref={navRef}>
+        <span className="hr-system-nav-thumb" ref={thumbRef} aria-hidden="true" />
         {visiblePrimaryNav.map((item) => {
           const active = isActive(item.activePaths ?? [item.to], pathname);
           const open = openMenu === item.label;
@@ -142,7 +198,7 @@ export function HrLayout() {
           </div>;
         })}
       </nav>
-      <Link className="hr-system-platform-link" to="/"><Icon name="chevronLeft" />返回平台</Link>
+      <HrUserMenu />
     </header>
 
     <div className="hr-system-main">
