@@ -128,12 +128,44 @@ async function write<T>(path: string, method: "POST" | "PATCH" | "DELETE", paylo
  * onSuccess，而那時候該列往往已經因為重新載入而被換掉，通知就再也不會出現。
  * 這是 CRM 那邊踩過的坑。
  */
+type LayoutPositionPatch = {
+  id: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+};
+
+type WarehouseMutationContext = { previous: Warehouse | undefined };
+type OptimisticUpdate<TArgs> = (warehouse: Warehouse, args: TArgs) => Warehouse;
+
+function patchLayoutRows<T extends { id: string }>(rows: T[], patch: LayoutPositionPatch): T[] {
+  return rows.map((row) => row.id !== patch.id ? row : {
+    ...row,
+    ...(patch.x === undefined ? {} : { x: patch.x }),
+    ...(patch.y === undefined ? {} : { y: patch.y }),
+    ...(patch.width === undefined ? {} : { width: patch.width }),
+    ...(patch.height === undefined ? {} : { height: patch.height }),
+  });
+}
+
 function useWarehouseMutation<TArgs, TResult>(
   run: (args: TArgs) => Promise<TResult>,
+  optimisticUpdate?: OptimisticUpdate<TArgs>,
 ) {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation<TResult, Error, TArgs, WarehouseMutationContext>({
     mutationFn: run,
+    onMutate: optimisticUpdate ? async (args) => {
+      // 先停掉可能仍在回來的舊查詢，避免它把剛套用的前端位置蓋回去。
+      await queryClient.cancelQueries({ queryKey: WAREHOUSE_KEY });
+      const previous = queryClient.getQueryData<Warehouse>(WAREHOUSE_KEY);
+      if (previous) queryClient.setQueryData(WAREHOUSE_KEY, optimisticUpdate(previous, args));
+      return { previous };
+    } : undefined,
+    onError: (_error, _args, context) => {
+      if (context?.previous) queryClient.setQueryData(WAREHOUSE_KEY, context.previous);
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: WAREHOUSE_KEY });
       void queryClient.invalidateQueries({ queryKey: ["items", "catalog"] });
@@ -243,8 +275,10 @@ export function useCreateZone() {
  * 整包送的話，拖一下就會把當下畫面上的所有欄位覆寫回去，包含別人剛改過的。
  */
 export function useUpdateZone() {
-  return useWarehouseMutation(({ id, ...input }: Partial<ZoneForm> & { id: string; x?: number; y?: number; width?: number; height?: number }) =>
-    write<{ ok: true }>(`/api/wms/zones/${id}`, "PATCH", input),
+  type Args = Partial<ZoneForm> & LayoutPositionPatch;
+  return useWarehouseMutation(
+    ({ id, ...input }: Args) => write<{ ok: true }>(`/api/wms/zones/${id}`, "PATCH", input),
+    (warehouse, args) => ({ ...warehouse, zones: patchLayoutRows(warehouse.zones, args) }),
   );
 }
 
@@ -264,8 +298,10 @@ export function useCreateElement() {
 }
 
 export function useUpdateElement() {
-  return useWarehouseMutation(({ id, ...input }: Partial<ElementForm> & { id: string; x?: number; y?: number; width?: number; height?: number }) =>
-    write<{ ok: true }>(`/api/wms/elements/${id}`, "PATCH", input),
+  type Args = Partial<ElementForm> & LayoutPositionPatch;
+  return useWarehouseMutation(
+    ({ id, ...input }: Args) => write<{ ok: true }>(`/api/wms/elements/${id}`, "PATCH", input),
+    (warehouse, args) => ({ ...warehouse, layoutElements: patchLayoutRows(warehouse.layoutElements, args) }),
   );
 }
 

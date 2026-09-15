@@ -583,8 +583,8 @@ async function seedDevWarehouse(db: ReturnType<typeof createDatabase>): Promise<
       height: zone.height,
       zIndex: 0,
     })),
-    { id: "dev-el-1", layoutId: "layout:main", elementType: "decoration" as const, zoneId: null, label: "出貨口", color: "rose", x: 66, y: 10, width: 14, height: 12, zIndex: 1 },
-    { id: "dev-el-2", layoutId: "layout:main", elementType: "decoration" as const, zoneId: null, label: "走道", color: "slate", x: 8, y: 34, width: 52, height: 8, zIndex: 1 },
+    { id: "wms-decoration:dev-el-1", layoutId: "layout:main", elementType: "decoration" as const, zoneId: null, label: "出貨口", color: "rose", x: 66, y: 10, width: 14, height: 12, zIndex: 1 },
+    { id: "wms-decoration:dev-el-2", layoutId: "layout:main", elementType: "decoration" as const, zoneId: null, label: "走道", color: "slate", x: 8, y: 34, width: 52, height: 8, zIndex: 1 },
   ]).onConflictDoNothing();
   await db.insert(itemMasters).values(DEV_ITEMS.map((item) => ({
     id: item.id,
