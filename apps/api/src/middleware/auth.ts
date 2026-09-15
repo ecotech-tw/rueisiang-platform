@@ -11,7 +11,7 @@ import {
   type DeviceToken,
   type Permission,
 } from "@rueisiang/auth";
-import { loadAuthUser, useDeviceSession } from "@rueisiang/db";
+import { loadAuthUser, revokeDeviceSession, useDeviceSession } from "@rueisiang/db";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
@@ -75,7 +75,22 @@ export function clearDeviceCookie(): string {
  * 前端再從 `deviceRemembered: false` 知道要重新記住。
  */
 export const requireSelfAuth = createMiddleware<AppEnv>(async (c, next) => {
-  const device = await useDeviceSession(c.get("db"), readCookie(c.req.header("Cookie"), DEVICE_SESSION_COOKIE));
+  const cookies = c.req.header("Cookie");
+  const rawDevice = readCookie(cookies, DEVICE_SESSION_COOKIE);
+  let device = await useDeviceSession(c.get("db"), rawDevice);
+  const claims = await verifySession(readCookie(cookies, SESSION_COOKIE), c.env.AUTH_SESSION_SECRET);
+
+  /*
+   * 兩張都有效卻不是同一個人：共用瀏覽器上 A 留下裝置 cookie，B 之後登入。
+   * 平台登出只清得到 session（裝置 cookie 的 Path 不含 /api/auth），所以這種情況一定會發生。
+   * 以剛登入的 session 為準；裝置優先的話 B 會被默默認成 A，讀寫到 A 的人事資料。
+   */
+  if (device && claims && device.userId !== claims.userId) {
+    await revokeDeviceSession(c.get("db"), rawDevice);
+    c.header("Set-Cookie", clearDeviceCookie(), { append: true });
+    device = null;
+  }
+
   if (device) {
     if (device.renewed) c.header("Set-Cookie", deviceCookie(device.renewed), { append: true });
     await signInAs(c, device.userId);

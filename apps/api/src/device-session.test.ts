@@ -121,6 +121,21 @@ describe("HR app 記住這台手機", () => {
     expect((await call("/api/hr/me/session", { headers: { Cookie: cookie } })).status).toBe(401);
   });
 
+  it("共用瀏覽器換人登入時，以新的 session 為準並撤銷上一個人的裝置", async () => {
+    const alice = await seedUser("alice@ecotech.tw");
+    const bob = await seedUser("bob@ecotech.tw");
+    const aliceDevice = await rememberDevice(alice, "alice@ecotech.tw");
+
+    const response = await call("/api/hr/me/session", {
+      headers: { Cookie: `${aliceDevice}; ${await sessionCookie(bob, "bob@ecotech.tw")}` },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ id: bob, deviceRemembered: false });
+    expect(setCookies(response).some((value) => value.startsWith(`${DEVICE_SESSION_COOKIE}=;`))).toBe(true);
+    // 被清掉的那張就算被人另外留著，也不能再拿來當 Alice。
+    expect((await call("/api/hr/me/session", { headers: { Cookie: aliceDevice } })).status).toBe(401);
+  });
+
   it("停權當下擋住，重新啟用後舊手機也不會復活", async () => {
     const id = await seedUser("off@ecotech.tw");
     const cookie = await rememberDevice(id, "off@ecotech.tw");
