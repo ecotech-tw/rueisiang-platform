@@ -34,6 +34,10 @@ export interface WarehouseSnapshot {
 const BOUNDS = {
   x: { min: 0, max: 92 }, y: { min: 0, max: 92 }, width: { min: 8, max: 42 }, height: { min: 8, max: 38 },
 } as const;
+/** 地圖標示是輔助文字，允許比倉位小；前端 useDragBox 也使用同一組最小值。 */
+const ELEMENT_BOUNDS = {
+  x: { min: 0, max: 92 }, y: { min: 0, max: 92 }, width: { min: 2, max: 42 }, height: { min: 2, max: 38 },
+} as const;
 const CANVAS = { width: { min: 900, max: 3200, fallback: 1600 }, height: { min: 550, max: 2000, fallback: 900 } } as const;
 const QUANTITY = { min: 0, max: 1_000_000 } as const;
 
@@ -329,7 +333,7 @@ export interface LayoutElementInput { label: string; color?: string; x?: unknown
 
 export async function createLayoutElement(db: Database, input: LayoutElementInput & { actor: Actor }) {
   const id = crypto.randomUUID();
-  const element = { id, label: input.label.trim().slice(0, 40), color: input.color?.trim() || "rose", x: clamp(input.x, 10, BOUNDS.x), y: clamp(input.y, 10, BOUNDS.y), width: clamp(input.width, 12, BOUNDS.width), height: clamp(input.height, 10, BOUNDS.height) };
+  const element = { id, label: input.label.trim().slice(0, 40), color: input.color?.trim() || "rose", x: clamp(input.x, 10, ELEMENT_BOUNDS.x), y: clamp(input.y, 10, ELEMENT_BOUNDS.y), width: clamp(input.width, 12, ELEMENT_BOUNDS.width), height: clamp(input.height, 10, ELEMENT_BOUNDS.height) };
   await db.batch([
     db.insert(wmsLayouts).values({ id: "layout:main", name: "主倉庫", canvasWidth: CANVAS.width.fallback, canvasHeight: CANVAS.height.fallback, active: 1 }).onConflictDoNothing(),
     db.insert(wmsLayoutElements).values({ id: `${DECORATION_ID_PREFIX}${id}`, layoutId: "layout:main", elementType: "decoration", label: element.label, color: element.color, x: element.x, y: element.y, width: element.width, height: element.height, zIndex: 1 }),
@@ -342,7 +346,7 @@ export async function updateLayoutElement(db: Database, id: string, input: Parti
   const publicId = publicDecorationId(id);
   const [current] = await db.select().from(wmsLayoutElements).where(and(eq(wmsLayoutElements.id, decorationStorageId(id)), eq(wmsLayoutElements.elementType, "decoration"))).limit(1);
   if (!current) throw new WmsError("not_found", "找不到這個地圖標示。");
-  const next = { label: input.label?.trim().slice(0, 40) || current.label, color: input.color?.trim() || current.color, x: clamp(input.x, current.x, BOUNDS.x), y: clamp(input.y, current.y, BOUNDS.y), width: clamp(input.width, current.width, BOUNDS.width), height: clamp(input.height, current.height, BOUNDS.height) };
+  const next = { label: input.label?.trim().slice(0, 40) || current.label, color: input.color?.trim() || current.color, x: clamp(input.x, current.x, ELEMENT_BOUNDS.x), y: clamp(input.y, current.y, ELEMENT_BOUNDS.y), width: clamp(input.width, current.width, ELEMENT_BOUNDS.width), height: clamp(input.height, current.height, ELEMENT_BOUNDS.height) };
   await db.batch([
     db.update(wmsLayoutElements).set({ ...next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(wmsLayoutElements.id, current.id)),
     writeEvent(db, { entityType: "layout_element", entityId: publicId, entityLabel: next.label, eventType: "element_updated", summary: "調整地圖標示", payload: { before: current, after: next }, actor: input.actor }),

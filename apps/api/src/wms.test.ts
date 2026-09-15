@@ -188,6 +188,22 @@ describe("WMS target-only API", () => {
     expect(warehouse.layoutElements).toHaveLength(1);
     expect(warehouse.layoutElements[0]).toMatchObject({ id: "element-1", elementType: "decoration" });
 
+    const resized = await as(userId, "admin@ecotech.tw", "/api/wms/elements/element-1", {
+      method: "PATCH", body: JSON.stringify({ width: 1, height: 1 }),
+    });
+    expect(resized.status).toBe(200);
+    expect(await db.select({ width: wmsLayoutElements.width, height: wmsLayoutElements.height })
+      .from(wmsLayoutElements).where(eq(wmsLayoutElements.id, "wms-decoration:element-1")))
+      .toEqual([{ width: 2, height: 2 }]);
+
+    const moved = await as(userId, "admin@ecotech.tw", "/api/wms/elements/element-1", {
+      method: "PATCH", body: JSON.stringify({ x: 60, y: 20 }),
+    });
+    expect(moved.status).toBe(200);
+    expect(await db.select({ x: wmsLayoutElements.x, y: wmsLayoutElements.y, width: wmsLayoutElements.width, height: wmsLayoutElements.height })
+      .from(wmsLayoutElements).where(eq(wmsLayoutElements.id, "wms-decoration:element-1")))
+      .toEqual([{ x: 60, y: 20, width: 2, height: 2 }]);
+
     const edited = await as(userId, "admin@ecotech.tw", "/api/wms/elements/element-1", {
       method: "PATCH", body: JSON.stringify({ label: "包材區", color: "mint" }),
     });

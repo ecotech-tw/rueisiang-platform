@@ -18,7 +18,7 @@ import {
 import { CanvasDialog } from "./CanvasDialog.js";
 import { downloadMapImage } from "./exportMap.js";
 import { ElementDialog } from "./ElementDialog.js";
-import { useDragBox, type Box } from "./useDragBox.js";
+import { ELEMENT_BOUNDS, useDragBox, type Box } from "./useDragBox.js";
 import { useMapViewport } from "./useMapViewport.js";
 import { ZoneDialog } from "./ZoneDialog.js";
 import { ZoneDrawer } from "./ZoneDrawer.js";
@@ -114,12 +114,12 @@ export function WarehouseMap() {
    * 寫入失敗時要把暫存位置丟掉。不然方塊會停在一個伺服器不同意的地方，
    * 而且看起來像存成功了。
    */
-  const zoneDrag = useDragBox((id, box) =>
-    updateZone.mutate({ id, ...box }, { onError: () => zoneDrag.reset() }),
-  );
-  const elementDrag = useDragBox((id, box) =>
-    updateElement.mutate({ id, ...box }, { onError: () => elementDrag.reset() }),
-  );
+  const zoneDrag = useDragBox(async (id, box) => {
+    await updateZone.mutateAsync({ id, ...box });
+  });
+  const elementDrag = useDragBox(async (id, box) => {
+    await updateElement.mutateAsync({ id, ...box });
+  }, ELEMENT_BOUNDS);
 
   /**
    * 搜尋商品或 SKU，符合的倉位亮起來、其他暗下去。
