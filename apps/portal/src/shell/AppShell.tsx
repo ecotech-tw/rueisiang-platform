@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router";
 import { logout, useSession } from "../auth/session.js";
+import { isHrPath, settleHrTransition } from "./hr-transition.js";
 import { Sidebar } from "./Sidebar.js";
 import { ToastProvider } from "./Toast.js";
 
@@ -8,7 +9,10 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, permissions } = useSession();
-  const isHrModule = useLocation().pathname.startsWith("/hr");
+  const isHrModule = isHrPath(useLocation().pathname);
+
+  // 新畫面已經進 DOM、還沒上色：這時放行 View Transition 拍「新狀態」才拍得到。
+  useLayoutEffect(() => settleHrTransition(isHrModule), [isHrModule]);
 
   const shellClass = [
     "shell",

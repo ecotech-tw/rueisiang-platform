@@ -1,7 +1,46 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Link } from "react-router";
 import type { SessionUser } from "../auth/session.js";
 import { Icon } from "./icons.js";
+
+/** 平台 sidebar 與 HRIS 右上角共用同一顆頭像，Google 頭像的載入規則只寫一次。 */
+export function UserAvatar({ user }: { user: SessionUser }) {
+  const initial = (user.name || user.email || "R").trim().charAt(0).toUpperCase();
+  return (
+    <span className="account-avatar">
+      {user.pictureUrl ? (
+        // Google 的頭像網址會擋帶 referrer 的請求，舊系統兩套都踩過這個坑。
+        <img className="account-avatar-image" src={user.pictureUrl} alt="" referrerPolicy="no-referrer" />
+      ) : (
+        <span className="account-avatar-initial" aria-hidden="true">{initial}</span>
+      )}
+    </span>
+  );
+}
+
+/** 帳號選單點外面或按 Escape 就收起；Escape 會傳進 onClose，讓呼叫端決定焦點要不要還給按鈕。 */
+export function useDismiss(ref: RefObject<HTMLElement | null>, open: boolean, onClose: (event: PointerEvent | KeyboardEvent) => void) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+
+    function closeOnOutside(event: PointerEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) onCloseRef.current(event);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onCloseRef.current(event);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open, ref]);
+}
 
 interface AccountPanelProps {
   user: SessionUser | null;
@@ -28,28 +67,11 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-
-    function closeOnOutside(event: PointerEvent) {
-      if (panelRef.current && !panelRef.current.contains(event.target as Node)) setOpen(false);
-    }
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-
-    document.addEventListener("pointerdown", closeOnOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
+  useDismiss(panelRef, open, () => setOpen(false));
 
   if (!user) return null;
 
   const displayName = user.name || user.email;
-  const initial = (user.name || user.email || "R").trim().charAt(0).toUpperCase();
 
   return (
     <div className="account-panel" ref={panelRef}>
@@ -61,14 +83,7 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
         onClick={() => setOpen((value) => !value)}
         title={user.email}
       >
-        <span className="account-avatar">
-          {user.pictureUrl ? (
-            // Google 的頭像網址會擋帶 referrer 的請求，舊系統兩套都踩過這個坑。
-            <img className="account-avatar-image" src={user.pictureUrl} alt="" referrerPolicy="no-referrer" />
-          ) : (
-            <span className="account-avatar-initial" aria-hidden="true">{initial}</span>
-          )}
-        </span>
+        <UserAvatar user={user} />
         <span className="account-copy">
           <strong>{displayName}</strong>
           <small>{user.email}</small>

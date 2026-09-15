@@ -1,6 +1,24 @@
 /* HRIS 在 /hr 底下以獨立系統呈現：不沿用平台 sidebar，避免人資流程被 CRM/WMS 導覽打斷。 */
 .hr-module { display: grid; gap: 20px; }
-.hr-system { height: 100%; min-height: 0; align-content: stretch; grid-template-rows: auto minmax(0, 1fr); gap: 0; }
+.hr-system {
+  height: 100%;
+  min-height: 0;
+  align-content: stretch;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  /*
+   * 玻璃邊緣：頂端一條 1px 高光＋一圈 1px 淡框，其餘交給柔和的外陰影。
+   * Liquid Glass Switcher 範例那種多層斜角高光在這裡太厚，膠囊邊緣會變成一圈白框，所以不用。
+   */
+  --hr-glass-rim:
+    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 22%) inset,
+    0 -12px 26px --alpha(var(--color-brand) / 5%) inset,
+    0 14px 34px --alpha(var(--color-ink) / 10%);
+  --hr-glass-thumb-rim:
+    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
+    0 8px 18px --alpha(var(--color-ink) / 9%);
+}
 .hr-liquid-defs { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
 .hr-system-header {
   position: sticky;
@@ -26,18 +44,15 @@
   border: 1px solid transparent;
   border-radius: 999px;
   background: --alpha(var(--color-paper) / 22%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 24%) inset,
-    0 -10px 24px --alpha(var(--color-brand) / 5%) inset,
-    0 14px 34px --alpha(var(--color-ink) / 10%);
+  box-shadow: var(--hr-glass-rim);
   -webkit-backdrop-filter: blur(7px) saturate(150%) contrast(102%);
   backdrop-filter: blur(7px) saturate(150%) contrast(102%);
 }
 .hr-system-brand::before,
 .hr-system-nav::before,
-.hr-system-platform-link::before,
-.hr-system-submenu::before {
+.hr-user-trigger::before,
+.hr-system-submenu::before,
+.hr-user-dropdown::before {
   position: absolute;
   inset: 1px;
   z-index: -1;
@@ -50,7 +65,8 @@
   content: "";
   pointer-events: none;
 }
-.hr-system-submenu::before {
+.hr-system-submenu::before,
+.hr-user-dropdown::before {
   background:
     radial-gradient(circle at 18% 0%, --alpha(var(--color-paper) / 50%), transparent 34%),
     radial-gradient(circle at 86% 100%, --alpha(var(--color-brand) / 13%), transparent 40%),
@@ -59,8 +75,9 @@
 }
 .hr-system-brand::after,
 .hr-system-nav::after,
-.hr-system-platform-link::after,
-.hr-system-submenu::after {
+.hr-user-trigger::after,
+.hr-system-submenu::after,
+.hr-user-dropdown::after {
   position: absolute;
   inset: 0;
   z-index: -1;
@@ -102,14 +119,37 @@
   border: 1px solid transparent;
   border-radius: 999px;
   background: --alpha(var(--color-paper) / 20%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 22%) inset,
-    0 -12px 26px --alpha(var(--color-brand) / 5%) inset,
-    0 14px 34px --alpha(var(--color-ink) / 10%);
+  box-shadow: var(--hr-glass-rim);
   -webkit-backdrop-filter: blur(7px) saturate(150%) contrast(102%);
   backdrop-filter: blur(7px) saturate(150%) contrast(102%);
   scrollbar-width: none;
+}
+/*
+ * 選中那一格底下滑動的玻璃膠囊（參考 Liquid Glass Switcher）。
+ * 位置與寬度由 HrLayout 量好寫進 --hr-thumb-x / --hr-thumb-w；
+ * data-thumb-ready 之前不開 transition，第一次載入才不會從最左邊滑進來。
+ */
+.hr-system-nav-thumb {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  z-index: 0;
+  width: var(--hr-thumb-w, 0px);
+  border-radius: 999px;
+  background: --alpha(var(--color-paper) / 30%);
+  box-shadow: var(--hr-glass-thumb-rim);
+  -webkit-backdrop-filter: blur(6px) saturate(145%);
+  backdrop-filter: blur(6px) saturate(145%);
+  opacity: 0;
+  translate: var(--hr-thumb-x, 0px) 0;
+  pointer-events: none;
+}
+.hr-system-nav[data-thumb] .hr-system-nav-thumb { opacity: 1; }
+.hr-system-nav[data-thumb-ready] .hr-system-nav-thumb {
+  transition-property: translate, width, opacity;
+  transition-duration: 400ms;
+  transition-timing-function: cubic-bezier(1, 0, 0.4, 1);
 }
 .hr-system-nav::-webkit-scrollbar { display: none; }
 .hr-system-nav-item { position: relative; z-index: 1; }
@@ -139,23 +179,23 @@
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
-.hr-system-nav-link:hover,
-.hr-system-nav-item.open > .hr-system-nav-link { background: --alpha(var(--color-brand) / 10%); color: var(--color-brand-dark); }
+/* 選中那一格已經有 thumb 當底，不再疊 hover 的 state layer，否則玻璃會被染成一塊色。 */
+.hr-system-nav-item:not(.active) > .hr-system-nav-link:hover,
+.hr-system-nav-item.open:not(.active) > .hr-system-nav-link { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
 .hr-system-nav-link:active,
-.hr-system-platform-link:active { scale: .96; }
+.hr-user-trigger:active { scale: .96; }
 .hr-system-nav-link:focus-visible,
 .hr-system-submenu-link:focus-visible,
-.hr-system-platform-link:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-system-nav-item.active > .hr-system-nav-link {
-  background: --alpha(var(--color-paper) / 30%);
-  color: var(--color-brand-dark);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
-    0 8px 18px --alpha(var(--color-ink) / 9%);
-  -webkit-backdrop-filter: blur(6px) saturate(145%);
-  backdrop-filter: blur(6px) saturate(145%);
-}
+.hr-user-trigger:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-system-nav-item.active > .hr-system-nav-link { color: var(--color-brand-dark); }
 .hr-system-nav-link svg { width: 19px; height: 19px; flex: none; }
+/* 範例的 hover 回饋：圖示微微放大，選中那一格維持原尺寸。 */
+.hr-system-nav-link svg:not(.hr-system-nav-chevron) {
+  transition-property: scale;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.5, 0, 0, 1);
+}
+.hr-system-nav-item:not(.active) > .hr-system-nav-link:hover svg:not(.hr-system-nav-chevron) { scale: 1.2; }
 .hr-system-nav-chevron {
   width: 15px !important;
   height: 15px !important;
@@ -165,11 +205,11 @@
   transition-timing-function: ease-out;
 }
 .hr-system-nav-item.open .hr-system-nav-chevron { transform: rotate(180deg); }
-.hr-system-submenu {
+.hr-system-submenu,
+.hr-user-dropdown {
   position: absolute;
   isolation: isolate;
   top: calc(100% + 10px);
-  left: 50%;
   z-index: 30;
   display: grid;
   gap: 3px;
@@ -193,6 +233,7 @@
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
+.hr-system-submenu { left: 50%; }
 .hr-system-nav-item.open .hr-system-submenu {
   opacity: 1;
   pointer-events: auto;
@@ -216,39 +257,64 @@
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
+button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-family: inherit; text-align: left; cursor: pointer; }
 .hr-system-submenu-link:hover,
 .hr-system-submenu-link.active { background: --alpha(var(--color-brand) / 16%); color: var(--color-brand-dark); }
+.hr-system-submenu-link.danger { color: var(--color-brand-dark); }
 .hr-system-submenu-link svg { width: 19px; height: 19px; }
-.hr-system-platform-link {
+
+/* ── 右上角帳號選單：頭像是觸發鈕，回平台與登出收在裡面 ─────────────── */
+.hr-user-menu { position: relative; justify-self: end; }
+/* 46px 對齊左邊品牌膠囊的高度；頭像 36px ＋ 4px 玻璃邊，內外圓角同心。 */
+.hr-user-trigger {
   position: relative;
   isolation: isolate;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 46px;
-  overflow: hidden;
-  padding: 0 16px 0 13px;
-  border: 1px solid transparent;
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  padding: 0;
+  border: 0;
   border-radius: 999px;
-  background: --alpha(var(--color-brand) / 64%);
-  color: var(--color-paper);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 40%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
-    0 -10px 22px --alpha(var(--color-brand-dark) / 18%) inset,
-    0 14px 34px --alpha(var(--color-brand) / 24%);
+  background: --alpha(var(--color-paper) / 22%);
+  box-shadow: var(--hr-glass-rim);
   -webkit-backdrop-filter: blur(7px) saturate(150%) contrast(102%);
   backdrop-filter: blur(7px) saturate(150%) contrast(102%);
-  font-size: 13px;
-  font-weight: 800;
-  text-decoration: none;
-  transition-property: background-color, border-color, color, scale, box-shadow;
+  cursor: pointer;
+  transition-property: background-color, scale;
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
-.hr-system-platform-link:hover { border-color: --alpha(var(--color-brand-dark) / 28%); background: var(--color-brand-dark); color: var(--color-paper); }
-.hr-system-platform-link svg { width: 18px; height: 18px; flex: none; transform: translateX(-1px); }
+.hr-user-trigger:hover,
+.hr-user-menu.open .hr-user-trigger { background: --alpha(var(--color-brand) / 7%); }
+.hr-user-trigger .account-avatar {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  box-shadow: none;
+  outline: 1px solid --alpha(var(--color-ink) / 10%);
+  outline-offset: -1px;
+}
+.hr-user-dropdown {
+  right: 0;
+  min-width: 220px;
+  transform: translateY(-6px);
+}
+.hr-user-menu.open .hr-user-dropdown {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.hr-user-profile {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin-bottom: 4px;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid --alpha(var(--color-ink) / 8%);
+}
+.hr-user-profile strong { overflow: hidden; color: var(--color-ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.hr-user-profile small { overflow: hidden; color: var(--color-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .hr-system-main {
   display: grid;
   gap: 20px;
@@ -455,7 +521,7 @@
     padding: 12px 16px 14px;
   }
   .hr-system-brand { grid-column: 1; }
-  .hr-system-platform-link { grid-column: 2; grid-row: 1; padding-inline: 12px; }
+  .hr-user-menu { grid-column: 2; grid-row: 1; }
   .hr-system-nav {
     grid-column: 1 / -1;
     justify-self: stretch;
@@ -469,17 +535,70 @@
   .hr-system-main { padding: 20px 16px 28px; }
 }
 
+/*
+ * 進出 HRIS 的沉浸式轉場（shell/hr-transition.ts 用 View Transition 觸發）。
+ *
+ * 進入：平台像隔著一層玻璃往前推散、糊掉，HRIS 從玻璃後面浮上來；接著 header 三塊依序落定。
+ * 離開：比進入短、幅度小，焦點已經要回平台了，不跟它搶。
+ *
+ * view-transition-name 只在轉場那一刻掛上：常駐的話，之後任何一次 View Transition
+ * 都會把 header 拆成獨立圖層。
+ */
+:root[data-hr-transition] .hr-system-brand { view-transition-name: hr-brand; }
+:root[data-hr-transition] .hr-system-nav { view-transition-name: hr-nav; }
+:root[data-hr-transition] .hr-user-menu { view-transition-name: hr-user; }
+
+:root[data-hr-transition="enter"]::view-transition-old(root) { animation: hr-glass-recede 420ms cubic-bezier(0.2, 0, 0, 1) both; }
+:root[data-hr-transition="enter"]::view-transition-new(root) { animation: hr-glass-surface 560ms cubic-bezier(0.2, 0, 0, 1) both; }
+:root[data-hr-transition="enter"]::view-transition-new(hr-brand),
+:root[data-hr-transition="enter"]::view-transition-new(hr-nav),
+:root[data-hr-transition="enter"]::view-transition-new(hr-user) { animation: hr-chunk-in 400ms cubic-bezier(0.2, 0, 0, 1) 160ms both; }
+:root[data-hr-transition="enter"]::view-transition-new(hr-nav) { animation-delay: 260ms; }
+:root[data-hr-transition="enter"]::view-transition-new(hr-user) { animation-delay: 360ms; }
+
+:root[data-hr-transition="leave"]::view-transition-old(root) { animation: hr-glass-sink 300ms ease-out both; }
+:root[data-hr-transition="leave"]::view-transition-new(root) { animation: hr-glass-clear 420ms cubic-bezier(0.2, 0, 0, 1) both; }
+:root[data-hr-transition="leave"]::view-transition-old(hr-brand),
+:root[data-hr-transition="leave"]::view-transition-old(hr-nav),
+:root[data-hr-transition="leave"]::view-transition-old(hr-user) { animation: hr-chunk-out 150ms ease-out both; }
+
+@keyframes hr-glass-recede { to { opacity: 0; scale: 1.06; filter: blur(18px) saturate(160%); } }
+@keyframes hr-glass-surface { from { opacity: 0; scale: .94; filter: blur(18px) saturate(180%) brightness(1.06); } }
+@keyframes hr-glass-sink { to { opacity: 0; scale: .96; filter: blur(12px) saturate(150%); } }
+@keyframes hr-glass-clear { from { opacity: 0; scale: 1.03; filter: blur(12px) saturate(150%); } }
+@keyframes hr-chunk-in { from { opacity: 0; translate: 0 -12px; filter: blur(4px); } }
+@keyframes hr-chunk-out { to { opacity: 0; translate: 0 -12px; filter: blur(4px); } }
+
 /* HRIS 概覽卡片 */
 .hr-overview-page { gap: 22px; }
 .hr-overview-page > .hr-overview-panel { padding: 0; border: 0; background: transparent; box-shadow: none; }
 .hr-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .hr-overview-card { display: grid; gap: 13px; min-height: 190px; padding: 18px; border-radius: 18px; color: var(--color-ink); text-decoration: none; transition-property: background-color, box-shadow, transform; transition-duration: 150ms; transition-timing-function: ease-out; }
 .hr-overview-card:hover { background-color: --alpha(var(--color-paper) / 42%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 62%) inset, 0 18px 42px --alpha(var(--color-ink) / 11%); transform: translateY(-2px); }
+/*
+ * 排班月曆是 panel 自己捲，不是裡面的表格捲。玻璃光澤若留在 ::before / ::after，
+ * 絕對定位的高度只有 panel 的可視高度、又會跟著內容捲走，往下捲時光澤停在半路切出一條硬邊，
+ * 格子的 backdrop-filter 還會照出那條邊。改畫在 panel 本身：元素自己的背景與內陰影不隨內容捲動。
+ */
 .hr-system .hr-schedule-page > .panel.grows {
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  background:
+    radial-gradient(circle at 16% 0%, --alpha(var(--color-paper) / 20%), transparent 34%),
+    radial-gradient(circle at 90% 100%, --alpha(var(--color-brand) / 6%), transparent 38%),
+    linear-gradient(135deg, --alpha(var(--color-paper) / 13%) 0%, transparent 30%, --alpha(var(--color-paper) / 6%) 68%, transparent 100%),
+    --alpha(var(--color-paper) / 24%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 20%) inset,
+    0 -16px 34px --alpha(var(--color-brand) / 5%) inset,
+    0 0 16px --alpha(var(--color-paper) / 20%) inset,
+    0 0 30px --alpha(var(--color-brand) / 4%) inset,
+    0 16px 38px --alpha(var(--color-ink) / 9%);
 }
+.hr-system .hr-schedule-page > .panel.grows::before,
+.hr-system .hr-schedule-page > .panel.grows::after { content: none; }
 .hr-system .hr-schedule-toolbar {
   align-items: end;
   gap: 12px;
@@ -504,7 +623,11 @@
 }
 .hr-system .hr-calendar.weekdays {
   position: sticky;
-  top: 0;
+  /*
+   * sticky 的 top 從捲動容器的內距下緣算起。top: 0 會在上方留一條 panel 的 padding（20px），
+   * 捲上去的日期格從那條縫露出來、疊在星期列上面。抵掉那段 padding，星期列才貼齊 panel 頂端。
+   */
+  top: -20px;
   z-index: 2;
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -512,10 +635,11 @@
   margin: 2px 0 8px;
   padding: 8px 10px;
   border-radius: 16px;
-  background: --alpha(var(--color-paper) / 52%);
+  /* 日期格會從底下捲過；52% 時數字直接透出來疊在星期字上，調到跟子選單同一個不透明度。 */
+  background: --alpha(var(--color-paper) / 84%);
   box-shadow: 0 1px 0 --alpha(var(--color-paper) / 70%) inset;
-  -webkit-backdrop-filter: blur(10px) saturate(160%);
-  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
 }
 .hr-system .hr-calendar.weekdays strong {
   min-height: 26px;
