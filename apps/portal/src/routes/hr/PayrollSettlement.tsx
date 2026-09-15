@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, type Employee, type PayrollRun, type PayrollEmployee, type PayrollLine, type PayrollRunSummary, type Profile } from "./api.js";
+import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type PayrollRun, type PayrollEmployee, type PayrollLine, type PayrollRunSummary, type Profile } from "./api.js";
 
 interface PayrollRunsResponse { runs: PayrollRunSummary[] }
 interface EmployeeListResponse { employees: Employee[] }
@@ -68,7 +68,7 @@ export function HrPayrollSettlement() {
   const selectedRun = useHrQuery<{ run: PayrollRun }>(selectedRunId ? `/payroll/runs/${selectedRunId}` : "/payroll/runs/__none__", canRead && Boolean(selectedRunId));
   const adjustmentProfile = useHrQuery<Profile>(adjustmentUserId ? `/employees/${encodeURIComponent(adjustmentUserId)}` : "/employees/__none__", canRead && Boolean(adjustmentUserId));
   const adjustments = useHrQuery<{ adjustments: Array<{ id: string; employeeName: string; effectivePeriodKey: string; reason: string; items: Array<{ itemName: string; amountMinor: number }> }> }>(`/payroll/adjustments?effectivePeriodKey=${encodeURIComponent(adjustmentEffectivePeriodKey)}`, canRead && Boolean(adjustmentEffectivePeriodKey));
-  const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc", canRead && permissions.has("hr:employee:read"));
+  const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, canRead && permissions.has("hr:employee:read"));
   const calculatePayroll = useHrWrite<{ run: PayrollRun }>();
   const closePayroll = useHrWrite<{ run: PayrollRun }>();
   const createAdjustment = useHrWrite();

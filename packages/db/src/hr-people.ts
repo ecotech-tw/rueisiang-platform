@@ -63,6 +63,16 @@ export async function isHrAdministrator(db: Database, userId: string): Promise<b
 }
 
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
+
+/**
+ * 人事上還算數的帳號：啟用中或邀請中。
+ *
+ * 帳號狀態只管能不能登入平台；在不在職看任職期間。邀請中的員工還沒登入過，
+ * 但敘薪、投保與薪資都照常要處理，只排除已停用的帳號。管理頁名單、薪資試算與
+ * 概覽都用這一個條件，不要在各處另寫 `status = 'active'`。
+ */
+export const hrEmployableUser = sql`${users.status} IN ('active', 'invited')`;
+
 const employeeFields = { userId: hrEmployees.userId, employeeNumber: hrEmployees.employeeNumber, supervisorUserId: hrEmployees.supervisorUserId, displayName, email: users.email, userStatus: users.status, revision: hrEmployees.revision };
 
 const EMPLOYEE_SORT_COLUMNS = {
@@ -77,7 +87,8 @@ export interface HrEmployeeListQuery {
   page: number;
   pageSize: number;
   search: string;
-  status: "all" | "active" | "invited" | "disabled";
+  /** employable＝啟用中或邀請中，見 hrEmployableUser。 */
+  status: "all" | "employable" | "active" | "invited" | "disabled";
   sortField: HrEmployeeSortField;
   sortDirection: "asc" | "desc";
 }
@@ -85,7 +96,7 @@ export interface HrEmployeeListQuery {
 export async function listHrCandidates(db: Database, input: { page: number; search: string; userId?: string }) {
   const rows = await db.select({ userId: users.id, displayName, email: users.email, status: users.status }).from(users)
     .where(and(
-      sql`${users.status} IN ('active', 'invited')`,
+      hrEmployableUser,
       notExists(db.select({ id: hrEmployees.userId }).from(hrEmployees).where(eq(hrEmployees.userId, users.id))),
       input.userId ? eq(users.id, input.userId) : undefined,
       input.search ? or(like(users.email, `%${input.search}%`), like(users.displayName, `%${input.search}%`), like(users.googleName, `%${input.search}%`)) : undefined,
@@ -94,7 +105,7 @@ export async function listHrCandidates(db: Database, input: { page: number; sear
 }
 export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) {
   const conditions = [
-    query.status === "all" ? undefined : eq(users.status, query.status),
+    query.status === "all" ? undefined : query.status === "employable" ? hrEmployableUser : eq(users.status, query.status),
     query.search ? or(
       like(hrEmployees.employeeNumber, `%${query.search}%`),
       like(users.email, `%${query.search}%`),

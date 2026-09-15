@@ -732,7 +732,7 @@ export const hr = new Hono<AppEnv>()
     const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
     if (!HR_EMPLOYEE_PAGE_SIZES.includes(pageSize as (typeof HR_EMPLOYEE_PAGE_SIZES)[number])) throw new HTTPException(400, { message: "每頁筆數不正確。" });
     const status = c.req.query("status") ?? "all";
-    if (status !== "all" && status !== "active" && status !== "invited" && status !== "disabled") throw new HTTPException(400, { message: "員工狀態不正確。" });
+    if (status !== "all" && status !== "employable" && status !== "active" && status !== "invited" && status !== "disabled") throw new HTTPException(400, { message: "員工狀態不正確。" });
     const sortField = c.req.query("sortField") ?? "employeeNumber";
     if (sortField !== "employeeNumber" && sortField !== "name" && sortField !== "email" && sortField !== "status") throw new HTTPException(400, { message: "排序欄位不正確。" });
     const sortDirection = c.req.query("sortDirection") === "desc" ? "desc" : "asc";

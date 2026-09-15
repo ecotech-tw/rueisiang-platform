@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, Panel, PageHeader, SelectField, TextField } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, type Employee, type Profile, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment } from "./api.js";
+import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type Profile, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment } from "./api.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 interface AllowanceDraft { itemName: string; amount: string }
@@ -61,7 +61,7 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
   const [workerId, setWorkerId] = useState("");
   const [workDate, setWorkDate] = useState(today());
   const [quantity, setQuantity] = useState("0");
-  const employees = useHrQuery<EmployeeListResponse>("/employees?page=1&pageSize=100&status=active&sortField=name&sortDirection=asc");
+  const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH);
   const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers");
   const profile = useHrQuery<Profile>(employeeUserId ? `/employees/${encodeURIComponent(employeeUserId)}` : "/employees/__none__", Boolean(employeeUserId));
   const save = useHrWrite();
