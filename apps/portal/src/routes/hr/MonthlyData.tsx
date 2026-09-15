@@ -11,21 +11,28 @@ interface MonthlyHourly { id: string; employmentId: string; employeeNumber: stri
 interface MonthlyResponse { periodKey: string; leaveTypes: LeaveType[]; leaves: MonthlyLeave[]; hourly: MonthlyHourly[] }
 
 function yuan(value: number) { return `NT$ ${value.toLocaleString("zh-TW")}`; }
+function taipeiToday() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+function taipeiMonth() { return taipeiToday().slice(0, 7); }
 
 export function HrMonthlyData() {
   usePageTitle("月度資料登記");
   const { permissions, user } = useSession();
-  const canRead = Boolean(user?.roles.includes("admin") && permissions.has("hr:payroll:read"));
-  const canWrite = Boolean(user?.roles.includes("admin") && permissions.has("hr:payroll:calculate"));
-  const [periodKey, setPeriodKey] = useState(() => new Date().toISOString().slice(0, 7));
+  const isHrAdministrator = user?.isHrAdministrator ?? false;
+  const canRead = isHrAdministrator && permissions.has("hr:payroll:read");
+  const canWrite = isHrAdministrator && permissions.has("hr:payroll:calculate");
+  const [periodKey, setPeriodKey] = useState(taipeiMonth);
   const [employeeUserId, setEmployeeUserId] = useState("");
   const [mode, setMode] = useState<"leave" | "hourly">("leave");
   const [leaveTypeId, setLeaveTypeId] = useState("");
-  const [leaveDate, setLeaveDate] = useState(() => `${new Date().toISOString().slice(0, 7)}-01`);
+  const [leaveDate, setLeaveDate] = useState(() => `${taipeiMonth()}-01`);
   const [leaveHours, setLeaveHours] = useState("8");
   const [payRate, setPayRate] = useState("100");
   const [deduction, setDeduction] = useState("0");
-  const [workDate, setWorkDate] = useState(() => `${new Date().toISOString().slice(0, 7)}-01`);
+  const [workDate, setWorkDate] = useState(() => `${taipeiMonth()}-01`);
   const [workHours, setWorkHours] = useState("8");
   const [noWork, setNoWork] = useState(false);
   const [note, setNote] = useState("");

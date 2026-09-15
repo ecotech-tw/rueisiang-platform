@@ -30,7 +30,7 @@ const PAYROLL_TABS = [
 export function HrLayout() {
   const pathname = useLocation().pathname;
   const { permissions, user } = useSession();
-  const isHrAdministrator = user?.roles.includes("admin") ?? false;
+  const isHrAdministrator = user?.isHrAdministrator ?? false;
   // Sidebar 的 HRIS 子項已經是第一層；這裡只顯示目前領域的第二層頁籤，避免同一份 sitemap 畫兩次。
   const isEmployee = pathname.includes("/employees") || pathname.includes("/insurance");
   const isAttendance = pathname.includes("/attendance-settings") || pathname.includes("/attendance-records") || pathname.includes("/special-workdays") || pathname.includes("/overtime");
@@ -52,7 +52,7 @@ export function HrLayout() {
 
 export function HrLanding() {
   const { permissions, user } = useSession();
-  const isHrAdministrator = user?.roles.includes("admin") ?? false;
+  const isHrAdministrator = user?.isHrAdministrator ?? false;
   const target = permissions.has("hr:employee:read") ? "/hr/employees" : permissions.has("hr:office:read") ? "/hr/attendance-settings" : isHrAdministrator && permissions.has("hr:payroll:read") ? "/hr/compensation" : isHrAdministrator && permissions.has("hr:bonus:read") ? "/hr/bonus" : "/";
   if (isHrAdministrator && (["hr:employee:read", "hr:office:read", "hr:schedule:read", "hr:payroll:read", "hr:bonus:read"] as const).some((permission) => permissions.has(permission))) return <HrOverview />;
   return <Navigate to={target} replace />;

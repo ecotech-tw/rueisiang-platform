@@ -38,8 +38,8 @@ function eventLabel(index: number, total: number) {
 }
 
 function currentMonth() {
-  const now = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+  return { year: Number(parts.find((part) => part.type === "year")?.value), month: Number(parts.find((part) => part.type === "month")?.value) };
 }
 
 function monthLabel(year: number, month: number) {

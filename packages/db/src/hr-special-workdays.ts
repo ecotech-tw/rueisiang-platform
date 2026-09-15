@@ -20,7 +20,8 @@ function validDate(value: string) {
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new HrError(400, "日期不是有效日期。 ");
 }
 function validate(input: SpecialWorkdayRuleInput) {
-  const workSource = input.workSource ?? DEFAULT_SPECIAL_WORKDAY_SOURCE;
+  if (input.workSource !== undefined) throw new HrError(400, "特殊上班日工時來源由系統決定，不可由請求指定。 ");
+  const workSource = DEFAULT_SPECIAL_WORKDAY_SOURCE;
   const note = input.note ?? "";
   validDate(input.validFrom); if (input.validTo) { validDate(input.validTo); if (input.validTo <= input.validFrom) throw new HrError(400, "規則迄日必須晚於生效日。 "); }
   if (!input.name.trim() || input.name.length > 100 || !input.overtimeRule.trim() || input.overtimeRule.length > 100) throw new HrError(400, "特殊上班日規則名稱與加班規則必填。 ");

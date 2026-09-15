@@ -23,10 +23,13 @@ export const hrFormRequests = sqliteTable("hr_form_requests", {
   submittedAt: text("submitted_at"),
   reviewedAt: text("reviewed_at"),
   reviewComment: text("review_comment"),
+  /** approved 補打卡實際產生的 append-only clock event。 */
+  correctedClockEventId: text("corrected_clock_event_id"),
   ...timestamps(),
 }, (table) => [
   index("idx_hr_form_requests_employee_created").on(table.employeeUserId, table.createdAt),
   index("idx_hr_form_requests_approver_status").on(table.approverUserId, table.status),
+  index("idx_hr_form_requests_corrected_event").on(table.correctedClockEventId),
   check("ck_hr_form_requests_kind", sql`${table.formKind} = 'clock_correction'`),
   check("ck_hr_form_requests_status", sql`${table.status} IN ('draft', 'pending', 'approved', 'rejected')`),
   check("ck_hr_form_requests_event_kind", sql`${table.requestedEventKind} IN ('clock_in', 'clock_out')`),

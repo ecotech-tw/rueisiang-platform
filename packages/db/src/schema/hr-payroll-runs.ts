@@ -5,12 +5,18 @@ import { hrEmployments } from "./hr-people.js";
 import { hrScheduleWorkers } from "./hr-scheduling.js";
 import { users } from "./auth.js";
 
+/** writeHrMutation 用的交易內 guard；CHECK 失敗會讓整個 D1 batch rollback。 */
+export const hrMutationGuards = sqliteTable("hr_mutation_guards", {
+  id: text("id").primaryKey(),
+  ok: integer("ok").notNull(),
+}, (table) => [check("ck_hr_mutation_guards_ok", sql`${table.ok} = 1`)]);
+
 export const hrPayrollPeriods = sqliteTable("hr_payroll_periods", {
   id: text("id").primaryKey(),
   periodKey: text("period_key").notNull(),
   attendanceStart: text("attendance_start").notNull(),
   attendanceEnd: text("attendance_end").notNull(),
-  payDate: text("pay_date").notNull(),
+  payDate: text("pay_date"),
   status: text("status", { enum: ["open", "closed"] as const }).notNull().default("open"),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -19,7 +25,7 @@ export const hrPayrollPeriods = sqliteTable("hr_payroll_periods", {
 }, (table) => [
   uniqueIndex("idx_hr_payroll_periods_key").on(table.periodKey),
   check("ck_hr_payroll_periods_key", sql`${table.periodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
-  check("ck_hr_payroll_periods_dates", sql`length(${table.attendanceStart}) = 10 AND length(${table.attendanceEnd}) = 10 AND ${table.attendanceEnd} > ${table.attendanceStart} AND length(${table.payDate}) = 10`),
+  check("ck_hr_payroll_periods_dates", sql`length(${table.attendanceStart}) = 10 AND length(${table.attendanceEnd}) = 10 AND ${table.attendanceEnd} > ${table.attendanceStart} AND (${table.payDate} IS NULL OR length(${table.payDate}) = 10)`),
   check("ck_hr_payroll_periods_status", sql`${table.status} IN ('open', 'closed')`),
   check("ck_hr_payroll_periods_revision", sql`${table.revision} > 0`),
 ]);
@@ -61,6 +67,10 @@ export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   versionNumber: integer("version_number").notNull(),
   requestId: text("request_id").notNull(),
   inputRevision: integer("input_revision").notNull(),
+  payDate: text("pay_date"),
+  calculationInputJson: text("calculation_input_json").notNull().default("{}"),
+  sourceSnapshotJson: text("source_snapshot_json").notNull().default("{}"),
+  warningsJson: text("warnings_json").notNull().default("[]"),
   engineVersion: text("engine_version").notNull(),
   status: text("status", { enum: ["calculating", "ready", "approved", "closed", "failed"] as const }).notNull().default("calculating"),
   expectedCount: integer("expected_count").notNull().default(0),
@@ -75,8 +85,24 @@ export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   index("idx_hr_payroll_runs_period_status").on(table.payrollPeriodId, table.status),
   check("ck_hr_payroll_runs_version", sql`${table.versionNumber} > 0`),
   check("ck_hr_payroll_runs_input_revision", sql`${table.inputRevision} > 0`),
+  check("ck_hr_payroll_runs_pay_date", sql`${table.payDate} IS NULL OR length(${table.payDate}) = 10`),
+  check("ck_hr_payroll_runs_calculation_input", sql`length(${table.calculationInputJson}) <= 10000`),
+  check("ck_hr_payroll_runs_source_snapshot", sql`length(${table.sourceSnapshotJson}) <= 2000000`),
+  check("ck_hr_payroll_runs_warnings", sql`length(${table.warningsJson}) <= 100000`),
   check("ck_hr_payroll_runs_status", sql`${table.status} IN ('calculating', 'ready', 'approved', 'closed', 'failed')`),
   check("ck_hr_payroll_runs_counts", sql`${table.expectedCount} >= 0 AND ${table.completedCount} BETWEEN 0 AND ${table.expectedCount}`),
+]);
+
+/** 只保存 migration 後的新結帳 claim；既有歷史結果不重寫，但未來並行結帳由資料庫唯一鍵仲裁。 */
+export const hrPayrollClosedEmployees = sqliteTable("hr_payroll_closed_employees", {
+  periodKey: text("period_key").notNull(),
+  employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
+  payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
+  closedAt: text("closed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.periodKey, table.employmentId] }),
+  index("idx_hr_payroll_closed_employees_run").on(table.payrollRunId),
+  check("ck_hr_payroll_closed_employees_period", sql`${table.periodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
 ]);
 
 export const hrPayrollRunEmployees = sqliteTable("hr_payroll_run_employees", {

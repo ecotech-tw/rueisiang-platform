@@ -26,6 +26,8 @@ import {
   type CyberbizSalesQuery,
   type ReportGroupBy,
   type Database,
+  taipeiMidnightUtc,
+  taipeiWallClockToUtc,
 } from "@rueisiang/db";
 import type { ToolContract, ToolContext, ToolSurface } from "./contract.js";
 
@@ -186,22 +188,16 @@ function taipeiDayRange(date: string): { from: string; to: string } {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(date)) {
     throw new AssistantError("CRM 日期請使用 YYYY-MM-DD 格式。");
   }
-  const start = new Date(`${date}T00:00:00+08:00`);
-  if (!Number.isFinite(start.getTime())) throw new AssistantError("CRM 日期格式無效。");
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: ASSISTANT_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(start);
-  const normalized = [
-    parts.find((part) => part.type === "year")?.value,
-    parts.find((part) => part.type === "month")?.value,
-    parts.find((part) => part.type === "day")?.value,
-  ].join("-");
-  if (normalized !== date) throw new AssistantError("CRM 日期格式無效。");
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1_000);
-  return { from: start.toISOString(), to: end.toISOString() };
+  try {
+    const startWallClock = taipeiMidnightUtc(date);
+    const nextDate = new Date(`${date}T00:00:00Z`);
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+    const endWallClock = taipeiMidnightUtc(nextDate.toISOString().slice(0, 10));
+    const toIso = (wallClock: string) => new Date(`${wallClock.replace(" ", "T")}Z`).toISOString();
+    return { from: toIso(startWallClock), to: toIso(endWallClock) };
+  } catch {
+    throw new AssistantError("CRM 日期格式無效。");
+  }
 }
 
 const platformOpenMeteoTool: PlatformToolDefinition = {
@@ -674,9 +670,10 @@ async function resolveCustomerOrderIdentities(
 }
 
 function parseCyberbizFilterDate(value: string): number | null {
-  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(value)
-    ? `${value.replace(" ", "T")}+08:00`
-    : value;
+  let normalized = value;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(value)) {
+    try { normalized = `${taipeiWallClockToUtc(value).replace(" ", "T")}Z`; } catch { return null; }
+  }
   const timestamp = Date.parse(normalized);
   return Number.isNaN(timestamp) ? null : timestamp;
 }

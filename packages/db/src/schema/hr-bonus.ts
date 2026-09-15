@@ -107,6 +107,8 @@ export const hrBonusPerformanceSnapshots = sqliteTable("hr_bonus_performance_sna
   amountMinor: integer("amount_minor").notNull(),
   sourceKind: text("source_kind", { enum: ["manual", "report"] as const }).notNull(),
   sourceRef: text("source_ref").notNull().default(""),
+  /** 非 NULL 的冪等鍵；補上 employmentId 可為 NULL 時 SQLite UNIQUE 的缺口。 */
+  idempotencyKey: text("idempotency_key").notNull(),
   provenanceJson: text("provenance_json").notNull().default("{}"),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -114,9 +116,11 @@ export const hrBonusPerformanceSnapshots = sqliteTable("hr_bonus_performance_sna
   index("idx_hr_bonus_performance_scope_period").on(table.scopeId, table.periodStart, table.periodEnd),
   index("idx_hr_bonus_performance_employment_period").on(table.employmentId, table.periodStart, table.periodEnd),
   uniqueIndex("idx_hr_bonus_performance_source").on(table.scopeId, table.employmentId, table.periodStart, table.periodEnd, table.sourceRef),
+  uniqueIndex("idx_hr_bonus_performance_idempotency").on(table.idempotencyKey),
   check("ck_hr_bonus_performance_period", sql`${table.periodEnd} > ${table.periodStart}`),
   check("ck_hr_bonus_performance_amount", sql`${table.amountMinor} >= 0`),
   check("ck_hr_bonus_performance_kind", sql`${table.sourceKind} IN ('manual', 'report')`),
+  check("ck_hr_bonus_performance_idempotency", sql`length(trim(${table.idempotencyKey})) > 0`),
   check("ck_hr_bonus_performance_provenance", sql`length(${table.provenanceJson}) <= 10000`),
 ]);
 

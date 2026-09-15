@@ -6,7 +6,11 @@ import { useHrQuery, useHrWrite, type Employee, type Profile, type ScheduleWorke
 
 interface EmployeeListResponse { employees: Employee[] }
 interface AllowanceDraft { itemName: string; amount: string }
-function today() { return new Date().toISOString().slice(0, 10); }
+function today() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
 function money(minor: number) { return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`; }
 
 function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () => void }) {

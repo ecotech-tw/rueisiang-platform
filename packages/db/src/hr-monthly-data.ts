@@ -71,6 +71,13 @@ function validateDateInPeriod(date: string, periodKey: string, label: string) {
   return range;
 }
 
+async function ensureDailyLeaveCapacity(db: Database, input: { employmentId: string; leaveDate: string; hoursHalfUnits: number }, excludeId?: string) {
+  const [row] = await db.select({ hoursHalfUnits: sql<number>`coalesce(sum(${hrMonthlyLeaveEntries.hoursHalfUnits}), 0)` })
+    .from(hrMonthlyLeaveEntries)
+    .where(and(eq(hrMonthlyLeaveEntries.employmentId, input.employmentId), eq(hrMonthlyLeaveEntries.leaveDate, input.leaveDate), excludeId ? sql`${hrMonthlyLeaveEntries.id} <> ${excludeId}` : undefined));
+  if (Number(row?.hoursHalfUnits ?? 0) + input.hoursHalfUnits > 48) throw new HrError(400, "同一員工同一天的假勤時數合計不可超過 24 小時。 ");
+}
+
 export async function listHrLeaveTypes(db: Database, includeInactive = false) {
   return db.select().from(hrLeaveTypes).where(includeInactive ? undefined : eq(hrLeaveTypes.active, 1)).orderBy(asc(hrLeaveTypes.name));
 }
@@ -129,8 +136,10 @@ export async function createHrMonthlyLeave(db: Database, input: MonthlyLeaveInpu
   validateHalfUnits(input.hoursHalfUnits, "假勤時數");
   if (!Number.isSafeInteger(input.payRatePpm) || input.payRatePpm < 0 || input.payRatePpm > PPM) throw new HrError(400, "給薪比例必須介於 0～100%。 ");
   validateMoneyYuan(input.deductionAmount, "扣款金額");
+  if ((input.note ?? "").length > 1000) throw new HrError(400, "假勤備註不可超過 1000 字。 ");
   await ensureOpenPeriod(db, input.leaveDate, input.employmentId);
   await ensureEmploymentOnDate(db, input.employmentId, input.leaveDate);
+  await ensureDailyLeaveCapacity(db, input);
   const [leaveType] = await db.select({ id: hrLeaveTypes.id }).from(hrLeaveTypes).where(and(eq(hrLeaveTypes.id, input.leaveTypeId), eq(hrLeaveTypes.active, 1))).limit(1);
   if (!leaveType) throw new HrError(404, "找不到啟用中的假別。 ");
   const id = crypto.randomUUID();
@@ -146,12 +155,14 @@ export async function updateHrMonthlyLeave(db: Database, id: string, input: Omit
   validateHalfUnits(input.hoursHalfUnits, "假勤時數");
   if (!Number.isSafeInteger(input.payRatePpm) || input.payRatePpm < 0 || input.payRatePpm > PPM) throw new HrError(400, "給薪比例必須介於 0～100%。 ");
   validateMoneyYuan(input.deductionAmount, "扣款金額");
+  if ((input.note ?? "").length > 1000) throw new HrError(400, "假勤備註不可超過 1000 字。 ");
   const [existing] = await db.select({ employmentId: hrMonthlyLeaveEntries.employmentId, leaveDate: hrMonthlyLeaveEntries.leaveDate }).from(hrMonthlyLeaveEntries).where(eq(hrMonthlyLeaveEntries.id, id)).limit(1);
   if (!existing) throw new HrError(404, "找不到假勤資料。 ");
   await ensureOpenPeriod(db, existing.leaveDate, existing.employmentId);
   await ensureOpenPeriod(db, input.leaveDate, input.employmentId);
   await ensureEmploymentOnDate(db, input.employmentId, input.leaveDate);
-  const [type] = await db.select({ id: hrLeaveTypes.id }).from(hrLeaveTypes).where(eq(hrLeaveTypes.id, input.leaveTypeId)).limit(1);
+  await ensureDailyLeaveCapacity(db, input, id);
+  const [type] = await db.select({ id: hrLeaveTypes.id }).from(hrLeaveTypes).where(and(eq(hrLeaveTypes.id, input.leaveTypeId), eq(hrLeaveTypes.active, 1))).limit(1);
   if (!type) throw new HrError(404, "找不到假別。 ");
   return writeHrMutation(db, sql`UPDATE hr_monthly_leave_entries SET
     employment_id=${input.employmentId}, leave_type_id=${input.leaveTypeId}, leave_date=${input.leaveDate}, hours_half_units=${input.hoursHalfUnits}, pay_rate_ppm=${input.payRatePpm}, deduction_amount=${input.deductionAmount}, note=${input.note ?? ""}, updated_by=${actor.id}, updated_at=CURRENT_TIMESTAMP, revision=revision+1

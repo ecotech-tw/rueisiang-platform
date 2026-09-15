@@ -9,6 +9,7 @@ import { users } from "./schema/auth.js";
 import { hrScheduleEntries, hrScheduleVersions } from "./schema/hr-scheduling.js";
 import { hrLeaveRequests } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
+import { formatTaipeiDate, taipeiDateFromUtcWallClock, taipeiMidnightUtc } from "./taipei-time.js";
 
 export interface HrAttendanceLocationInput {
   name: string;
@@ -107,13 +108,15 @@ export interface HrAttendanceEventListQuery {
 }
 
 export async function listHrAttendanceEvents(db: Database, input: HrAttendanceEventListQuery) {
+  const startUtc = input.startDate ? taipeiMidnightUtc(input.startDate) : null;
+  const endUtc = input.endDate ? taipeiMidnightUtc(input.endDate) : null;
   const where = and(
     input.search ? or(like(hrEmployees.employeeNumber, `%${input.search}%`), like(users.displayName, `%${input.search}%`), like(users.googleName, `%${input.search}%`), like(users.email, `%${input.search}%`)) : undefined,
     input.eventKind !== "all" ? eq(hrClockEvents.eventKind, input.eventKind) : undefined,
     input.sourceKind !== "all" ? eq(hrClockEvents.sourceKind, input.sourceKind) : undefined,
-    // occurred_at 以 UTC 保存；查詢日期是台北當地日，必須先把邊界轉回 UTC。
-    input.startDate ? sql`${hrClockEvents.occurredAt} >= datetime(${input.startDate}, '-8 hours')` : undefined,
-    input.endDate ? sql`${hrClockEvents.occurredAt} < datetime(${input.endDate}, '-8 hours')` : undefined,
+    // occurred_at 以 UTC 保存；查詢日期是台北當地日，邊界先由 IANA timezone 轉成 UTC wall-clock。
+    startUtc ? sql`${hrClockEvents.occurredAt} >= ${startUtc}` : undefined,
+    endUtc ? sql`${hrClockEvents.occurredAt} < ${endUtc}` : undefined,
   );
   const sortColumn = input.sortField === "employee" ? hrEmployees.employeeNumber : input.sortField === "source" ? hrClockEvents.sourceKind : hrClockEvents.occurredAt;
   const order = input.sortDirection === "desc" ? desc(sortColumn) : asc(sortColumn);
@@ -201,11 +204,12 @@ export async function createHrAttendanceLocationAssignment(db: Database, input: 
 export async function setHrAttendanceLocationPrimary(db: Database, id: string, actor: HrActor) {
   const [target] = await db.select({ employmentId: hrEmployeeAttendanceLocations.employmentId }).from(hrEmployeeAttendanceLocations).where(eq(hrEmployeeAttendanceLocations.id, id)).limit(1);
   if (!target) throw new HrError(404, "找不到這筆辦公位置指派。");
+  const today = taipeiToday();
   return writeHrMutation(db, sql`UPDATE hr_employment_attendance_settings SET primary_assignment_id=${id}, updated_at=CURRENT_TIMESTAMP
     WHERE employment_id=${target.employmentId}
       AND EXISTS (SELECT 1 FROM hr_employee_attendance_locations AS assignment
-        WHERE assignment.id=${id} AND assignment.valid_from <= date('now', '+8 hours')
-          AND (assignment.valid_to IS NULL OR assignment.valid_to > date('now', '+8 hours')))
+        WHERE assignment.id=${id} AND assignment.valid_from <= ${today}
+          AND (assignment.valid_to IS NULL OR assignment.valid_to > ${today}))
     RETURNING employment_id AS id`, id, actor, "attendance_location_primary_changed", "辦公位置指派已變更或目前不在有效期間，請重新整理。");
 }
 
@@ -244,9 +248,10 @@ export interface HrClockLocationCheck {
   message: string | null;
 }
 
-function taipeiToday() {
-  const shifted = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  return shifted.toISOString().slice(0, 10);
+const TAIPEI_CLOCK_FORMATTER = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+function taipeiToday(value = new Date()) {
+  return formatTaipeiDate(value);
 }
 
 const GENERAL_MINIMUM_SPAN_MINUTES = 60;
@@ -261,8 +266,10 @@ function wallClockMinutes(value: string) {
 function taipeiClockMinutes(value: string) {
   const timestamp = Date.parse(`${value.replace(" ", "T")}Z`);
   if (Number.isNaN(timestamp)) return null;
-  const shifted = new Date(timestamp + 8 * 60 * 60 * 1000);
-  return shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+  const parts = TAIPEI_CLOCK_FORMATTER.formatToParts(new Date(timestamp));
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value);
+  return Number.isInteger(hour) && Number.isInteger(minute) ? hour * 60 + minute : null;
 }
 
 function scheduleForDate(schedules: CalendarSchedule[], date: string) {
@@ -326,6 +333,9 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
   const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
   const queryStart = calendarDate(monthStart, -1);
   const queryEnd = calendarDate(monthEnd, 1);
+  const queryStartUtc = taipeiMidnightUtc(queryStart);
+  // 事件查詢保留 queryEnd 當天，讓月底跨午夜班次能帶入隔日的下班打卡。
+  const queryEndUtc = taipeiMidnightUtc(calendarDate(queryEnd, 1));
   const [employments, attendanceSettings, schedules, events, leaves] = await Promise.all([
     db.select({ id: hrEmployments.id, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployments)
       .where(eq(hrEmployments.employeeUserId, userId)),
@@ -348,10 +358,9 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
       occurredAt: hrClockEvents.occurredAt,
       locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`,
       distanceMeters: hrClockEvents.distanceMeters,
-      eventDate: sql<string>`date(${hrClockEvents.occurredAt}, '+8 hours')`,
     }).from(hrClockEvents)
       .leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
-      .where(and(eq(hrClockEvents.employeeUserId, userId), sql`date(${hrClockEvents.occurredAt}, '+8 hours') BETWEEN ${queryStart} AND ${queryEnd}`))
+      .where(and(eq(hrClockEvents.employeeUserId, userId), sql`${hrClockEvents.occurredAt} >= ${queryStartUtc}`, sql`${hrClockEvents.occurredAt} < ${queryEndUtc}`))
       .orderBy(asc(hrClockEvents.occurredAt), asc(sql`hr_clock_events.rowid`)),
     db.select({ startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn }).from(hrLeaveRequests)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
@@ -360,8 +369,11 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
         sql`${hrLeaveRequests.startsOn} <= ${monthEnd}`, sql`${hrLeaveRequests.endsOn} > ${monthStart}`,
       )),
   ]);
-  const eventDates = new Map<string, typeof events>();
-  for (const event of events) eventDates.set(event.eventDate, [...(eventDates.get(event.eventDate) ?? []), event]);
+  const eventDates = new Map<string, Array<(typeof events)[number] & { eventDate: string }>>();
+  for (const event of events) {
+    const datedEvent = { ...event, eventDate: taipeiDateFromUtcWallClock(event.occurredAt) };
+    eventDates.set(datedEvent.eventDate, [...(eventDates.get(datedEvent.eventDate) ?? []), datedEvent]);
+  }
   const modeByEmployment = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting.attendanceMode]));
   const scheduleByEmployment = new Map<string, CalendarSchedule[]>();
   for (const schedule of schedules) scheduleByEmployment.set(schedule.employmentId, [...(scheduleByEmployment.get(schedule.employmentId) ?? []), schedule]);
@@ -413,6 +425,9 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
   const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
   const queryStart = calendarDate(monthStart, -1);
   const queryEnd = calendarDate(monthEnd, 1);
+  const queryStartUtc = taipeiMidnightUtc(queryStart);
+  // 與個人日曆相同，保留 queryEnd 當天供月底跨午夜班次判定。
+  const queryEndUtc = taipeiMidnightUtc(calendarDate(queryEnd, 1));
   const [employments, attendanceSettings, schedules, events, leaves] = await Promise.all([
     db.select({ userId: hrEmployments.employeeUserId, employmentId: hrEmployments.id, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployments)
       .where(inArray(hrEmployments.employeeUserId, userIds)),
@@ -433,9 +448,8 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
       employeeUserId: hrClockEvents.employeeUserId,
       eventKind: hrClockEvents.eventKind,
       occurredAt: hrClockEvents.occurredAt,
-      eventDate: sql<string>`date(${hrClockEvents.occurredAt}, '+8 hours')`,
     }).from(hrClockEvents)
-      .where(and(inArray(hrClockEvents.employeeUserId, userIds), sql`date(${hrClockEvents.occurredAt}, '+8 hours') BETWEEN ${queryStart} AND ${queryEnd}`))
+      .where(and(inArray(hrClockEvents.employeeUserId, userIds), sql`${hrClockEvents.occurredAt} >= ${queryStartUtc}`, sql`${hrClockEvents.occurredAt} < ${queryEndUtc}`))
       .orderBy(asc(hrClockEvents.occurredAt), asc(sql`hr_clock_events.rowid`)),
     db.select({ userId: hrEmployments.employeeUserId, startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn }).from(hrLeaveRequests)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
@@ -447,10 +461,11 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
   const modeByEmployment = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting.attendanceMode]));
   const scheduleByEmployment = new Map<string, CalendarSchedule[]>();
   for (const schedule of schedules) scheduleByEmployment.set(schedule.employmentId, [...(scheduleByEmployment.get(schedule.employmentId) ?? []), schedule]);
-  const eventDatesByUser = new Map<string, Map<string, typeof events>>();
+  const eventDatesByUser = new Map<string, Map<string, Array<(typeof events)[number] & { eventDate: string }>>>();
   for (const event of events) {
-    const dates = eventDatesByUser.get(event.employeeUserId) ?? new Map<string, typeof events>();
-    dates.set(event.eventDate, [...(dates.get(event.eventDate) ?? []), event]);
+    const datedEvent = { ...event, eventDate: taipeiDateFromUtcWallClock(event.occurredAt) };
+    const dates = eventDatesByUser.get(event.employeeUserId) ?? new Map<string, Array<(typeof events)[number] & { eventDate: string }>>();
+    dates.set(datedEvent.eventDate, [...(dates.get(datedEvent.eventDate) ?? []), datedEvent]);
     eventDatesByUser.set(event.employeeUserId, dates);
   }
   const leavesByUser = new Map<string, typeof leaves>();
@@ -498,18 +513,18 @@ const clockEventFields = {
   recordedBy: hrClockEvents.recordedBy,
 };
 
-async function currentEmployment(db: Database, userId: string) {
+async function currentEmployment(db: Database, userId: string, today = taipeiToday()) {
   const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
     .where(and(
       eq(hrEmployments.employeeUserId, userId),
-      sql`${hrEmployments.hiredOn} <= date('now', '+8 hours')`,
-      sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > date('now', '+8 hours'))`,
+      sql`${hrEmployments.hiredOn} <= ${today}`,
+      sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${today})`,
     ))
     .orderBy(desc(hrEmployments.hiredOn)).limit(1);
   return employment;
 }
 
-async function currentAttendanceAssignments(db: Database, employmentId: string) {
+async function currentAttendanceAssignments(db: Database, employmentId: string, today = taipeiToday()) {
   return db.select({
     id: sql<string>`${hrEmployeeAttendanceLocations.id}`.as("employee_attendance_assignment_id"),
     locationId: sql<string>`${hrEmployeeAttendanceLocations.locationId}`.as("employee_attendance_location_id"),
@@ -529,15 +544,15 @@ async function currentAttendanceAssignments(db: Database, employmentId: string) 
     .where(and(
       eq(hrEmployeeAttendanceLocations.employmentId, employmentId),
       sql`${hrAttendanceLocations.active} = 1`,
-      sql`${hrEmployeeAttendanceLocations.validFrom} <= date('now', '+8 hours')`,
-      sql`(${hrEmployeeAttendanceLocations.validTo} IS NULL OR ${hrEmployeeAttendanceLocations.validTo} > date('now', '+8 hours'))`,
+      sql`${hrEmployeeAttendanceLocations.validFrom} <= ${today}`,
+      sql`(${hrEmployeeAttendanceLocations.validTo} IS NULL OR ${hrEmployeeAttendanceLocations.validTo} > ${today})`,
     ))
     .orderBy(desc(sql`CASE WHEN ${hrEmploymentAttendanceSettings.primaryAssignmentId} = ${hrEmployeeAttendanceLocations.id} THEN 1 ELSE 0 END`), desc(hrEmployeeAttendanceLocations.validFrom), asc(hrAttendanceLocations.name));
 }
 
-async function currentClockAssignments(db: Database, employmentId: string) {
+async function currentClockAssignments(db: Database, employmentId: string, today = taipeiToday()) {
   // 排班只補充當日可參考的地點，不取代員工有效辦公位置；沒有排班也能在有效位置打卡。
-  const assigned = await currentAttendanceAssignments(db, employmentId);
+  const assigned = await currentAttendanceAssignments(db, employmentId, today);
   const scheduled = await db.selectDistinct({
     id: sql<string>`${hrScheduleEntries.id}`.as("scheduled_entry_id"),
     locationId: sql<string>`${hrAttendanceLocations.id}`.as("scheduled_location_id"),
@@ -558,7 +573,7 @@ async function currentClockAssignments(db: Database, employmentId: string) {
       eq(hrScheduleEntries.employmentId, employmentId), eq(hrScheduleVersions.status, "published"),
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
       sql`${hrAttendanceLocations.active} = 1`,
-      sql`(${hrScheduleEntries.workDate} = date('now', '+8 hours') OR substr(${hrScheduleEntries.endsAt}, 1, 10) = date('now', '+8 hours'))`,
+      sql`(${hrScheduleEntries.workDate} = ${today} OR substr(${hrScheduleEntries.endsAt}, 1, 10) = ${today})`,
     )).orderBy(asc(hrAttendanceLocations.name));
   const assignedLocationIds = new Set(assigned.map((item) => item.locationId));
   return [...assigned, ...scheduled.filter((item) => !assignedLocationIds.has(item.locationId))];
@@ -578,10 +593,12 @@ async function findClockEventById(db: Database, id: string) {
   return event;
 }
 
-async function todayClockEvents(db: Database, userId: string) {
+async function todayClockEvents(db: Database, userId: string, today = taipeiToday()) {
+  const startUtc = taipeiMidnightUtc(today);
+  const endUtc = taipeiMidnightUtc(calendarDate(today, 1));
   return db.select(clockEventFields).from(hrClockEvents)
     .leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
-    .where(and(eq(hrClockEvents.employeeUserId, userId), sql`date(${hrClockEvents.occurredAt}, '+8 hours') = date('now', '+8 hours')`))
+    .where(and(eq(hrClockEvents.employeeUserId, userId), sql`${hrClockEvents.occurredAt} >= ${startUtc}`, sql`${hrClockEvents.occurredAt} < ${endUtc}`))
     // SQLite 的 CURRENT_TIMESTAMP 只有秒精度；rowid 讓同一秒的連續按鈕仍有先後。
     .orderBy(desc(hrClockEvents.occurredAt), sql`hr_clock_events.rowid DESC`);
 }
@@ -683,8 +700,8 @@ async function locationScheduleForDate(db: Database, locationId: string, date: s
 
 function serverTaipeiNow() {
   const now = new Date();
-  const taipei = new Date(now.getTime() + 8 * 60 * 60 * 1000);
-  return { occurredAt: now.toISOString().slice(0, 19).replace("T", " "), date: taipei.toISOString().slice(0, 10), minute: taipei.getUTCHours() * 60 + taipei.getUTCMinutes() };
+  const occurredAt = now.toISOString().slice(0, 19).replace("T", " ");
+  return { occurredAt, date: taipeiToday(now), minute: taipeiClockMinutes(occurredAt)! };
 }
 
 function clockTimeAnomaly(schedule: Awaited<ReturnType<typeof locationScheduleForDate>>, eventKind: "clock_in" | "clock_out", minute: number) {
@@ -705,9 +722,10 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   const existing = await findClockEventByKey(db, input.userId, input.idempotencyKey);
   if (existing) return { event: existing, idempotent: true };
 
-  const employment = await currentEmployment(db, input.userId);
+  const serverNow = serverTaipeiNow();
+  const employment = await currentEmployment(db, input.userId, serverNow.date);
   if (!employment) throw new HrError(400, "目前沒有有效任職，暫時無法打卡。");
-  const assignments = await currentClockAssignments(db, employment.id);
+  const assignments = await currentClockAssignments(db, employment.id, serverNow.date);
   if (!assignments.length) throw new HrError(400, "尚未指派目前辦公位置，暫時無法打卡。");
 
   const requiresLocation = geolocationRequired(assignments);
@@ -726,7 +744,6 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   if (distance !== null && distance > assignment.radiusMeters) {
     throw new HrError(400, `目前位置不在可打卡辦公位置範圍內，最近的「${assignment.locationName}」約 ${distance} 公尺。`);
   }
-  const serverNow = serverTaipeiNow();
   const schedule = await locationScheduleForDate(db, assignment.locationId, serverNow.date);
   const latest = await latestClockEvent(db, input.userId);
   const eventKind = latest?.eventKind === "clock_in" ? "clock_out" as const : "clock_in" as const;
@@ -740,11 +757,11 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
             WHERE latest_schedule_version.period_start = schedule_version.period_start
               AND latest_schedule_version.period_end = schedule_version.period_end
               AND latest_schedule_version.status = 'published')
-          AND (schedule_entry.work_date = date('now', '+8 hours') OR substr(schedule_entry.ends_at, 1, 10) = date('now', '+8 hours')))`
+          AND (schedule_entry.work_date = ${serverNow.date} OR substr(schedule_entry.ends_at, 1, 10) = ${serverNow.date}))`
     : sql`EXISTS (SELECT 1 FROM hr_employee_attendance_locations AS employee_assignment
         WHERE employee_assignment.id=${assignment.id} AND employee_assignment.employment_id=${employment.id}
-          AND employee_assignment.valid_from <= date('now', '+8 hours')
-          AND (employee_assignment.valid_to IS NULL OR employee_assignment.valid_to > date('now', '+8 hours')))`;
+          AND employee_assignment.valid_from <= ${serverNow.date}
+          AND (employee_assignment.valid_to IS NULL OR employee_assignment.valid_to > ${serverNow.date}))`;
 
   const id = crypto.randomUUID();
   try {
@@ -754,8 +771,8 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
         ${latitudeE7}, ${longitudeE7}, ${distance}, ${assignment.locationName}, ${assignment.scopeName ?? ""}, ${actor.id}, '', ${timeAnomalyKind}, ${schedule?.startMinute ?? null}, ${schedule?.endMinute ?? null}, ${schedule?.toleranceMinutes ?? null}, ${serverNow.occurredAt}, ${serverNow.occurredAt}
       WHERE EXISTS (SELECT 1 FROM hr_employments
         WHERE id=${employment.id} AND employee_user_id=${input.userId}
-          AND hired_on <= date('now', '+8 hours')
-          AND (ended_on IS NULL OR ended_on > date('now', '+8 hours')))
+          AND hired_on <= ${serverNow.date}
+          AND (ended_on IS NULL OR ended_on > ${serverNow.date}))
         AND ${assignmentExists}
         AND EXISTS (SELECT 1 FROM hr_attendance_locations
           WHERE id=${assignment.locationId} AND active=1)

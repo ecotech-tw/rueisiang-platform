@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert, Button, Dialog, Field, SelectField, TextField } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, type Employment, type InsuranceBracketTable } from "./api.js";
+import { useHrQuery, useHrWrite, type Employment, type InsuranceRateTableRecord } from "./api.js";
 
 const INSURANCE_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };
 
@@ -22,9 +22,9 @@ export function InsuranceEditor({ employment, scheme, defaultSalary, onClose }: 
   const [dependents, setDependents] = useState("0");
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
-  const table = useHrQuery<{ tables: InsuranceBracketTable[] }>(`/insurance-brackets?year=${encodeURIComponent(year)}`, !manual);
+  const table = useHrQuery<{ tables: InsuranceRateTableRecord[] }>(`/insurance-rates?year=${encodeURIComponent(year)}`, !manual);
   const save = useHrWrite();
-  const selectedTable = table.data?.tables.find((item) => item.scheme === scheme);
+  const selectedTable = table.data?.tables.find((item) => item.scheme === scheme && item.status === "active");
   const selected = selectedTable?.brackets.find((bracket) => bracket.level === Number(level)) ?? selectedTable?.brackets.find((bracket) => {
     const value = Number(salary);
     return Number.isSafeInteger(value) && value >= bracket.lowerSalary && (bracket.upperSalary === null || value <= bracket.upperSalary);
@@ -46,7 +46,7 @@ export function InsuranceEditor({ employment, scheme, defaultSalary, onClose }: 
       dependentCount: scheme === "health" ? Number(dependents) : 0, rateYear, sourceKind: manual ? "manual" : "official", sourceUrl, note,
     } }, { onSuccess: onClose });
   } }} actions={<Button type="submit" loading={save.isPending}>儲存</Button>}>
-    <p>官方級距由勞動部／健保署開放資料即時取得；法定資料無法取得時不自行推測。</p>
+    <p>只有已同步、審閱並啟用的官方級距才能標記為官方來源；尚未啟用時請使用具名人工覆寫，不自行推測法定金額。</p>
     <SelectField label="狀態" value={status} options={[{ value: "enrolled", label: "加保／變更級距" }, { value: "withdrawn", label: "退保" }]} onChange={(event) => setStatus(event.target.value as "enrolled" | "withdrawn")} />
     <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
     <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />
@@ -59,8 +59,9 @@ export function InsuranceEditor({ employment, scheme, defaultSalary, onClose }: 
       {scheme === "health" ? <TextField label="眷屬人數（0～3）" type="number" min="0" max="3" step="1" value={dependents} onChange={(event) => setDependents(event.target.value)} /> : null}
       <p className="muted">本次投保金額：{amount > 0 ? `NT$ ${amount.toLocaleString("zh-TW")}` : "尚未決定"}{selectedTable ? `；來源：官方資料（${selectedTable.fetchedAt}）` : ""}</p>
     </> : null}
-    <TextField label="備註" value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} />
+    <TextField label="備註" required={manual && status === "enrolled"} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint={manual && status === "enrolled" ? "人工覆寫必須留下覆核備註。" : undefined} />
     {table.error ? <Alert tone="danger">{table.error.message}；仍可勾選人工覆寫並填入金額。</Alert> : null}
+    {!manual && !table.isPending && !selectedTable ? <Alert tone="warning">本年度尚未有已啟用的{INSURANCE_LABEL[scheme]}官方級距；請先由 HR 管理者同步、審閱並啟用，或改用人工覆寫。</Alert> : null}
     {message || save.error ? <Alert tone="danger">{message || save.error?.message}</Alert> : null}
   </Dialog>;
 }

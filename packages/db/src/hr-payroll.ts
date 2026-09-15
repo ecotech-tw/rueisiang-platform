@@ -1,7 +1,5 @@
 import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
-import { activityRow } from "./activity.js";
-import { activityEvents } from "./schema/activity.js";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrCompensationVersions, hrInsuranceContributionRules, hrInsuranceRateTables, hrInsuranceVersions } from "./schema/hr-payroll.js";
@@ -157,27 +155,10 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
 }
 
 async function applyInsuranceMutation(db: Database, mutations: SQL[], id: string, actor: HrActor) {
-  const row = activityRow({ entityType: "hr_personnel", entityId: id, source: "hr", eventType: "insurance_version_created", summary: "人事資料異動", actor });
-  const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
-  const statements = [...mutations, sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
-    SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}
-    WHERE changes() = 1`].map((query) => {
-    const compiled = dialect.sqlToQuery(query);
-    return db.$client.prepare(compiled.sql).bind(...compiled.params);
+  return writeHrMutation(db, mutations, id, actor, "insurance_version_created", "保險版本已變更、期間重疊或資料不合法，請重新整理。 ", {
+    // 沒有上一個開放版本時，關閉舊版本這一步不存在是合法情況；新版本 INSERT 仍必須成功。
+    allowEmptyMutationIndexes: mutations.length > 1 ? new Set([0]) : new Set(),
   });
-  try {
-    const results = await db.$client.batch(statements);
-    // 最後一個真正 mutation 永遠是 INSERT；關閉上一版沒有資料時是合法的。
-    const inserted = results[mutations.length - 1];
-    if (!inserted?.results.length) throw new HrError(409, "保險版本已變更、期間重疊或資料不合法，請重新整理。 ");
-    return { id };
-  } catch (error) {
-    if (error instanceof HrError) throw error;
-    if (error instanceof Error && /UNIQUE constraint failed|FOREIGN KEY constraint failed/.test(error.message)) {
-      throw new HrError(409, "保險版本已變更、期間重疊或資料不合法，請重新整理。");
-    }
-    throw error;
-  }
 }
 
 export interface HrInsuranceInput {
@@ -205,6 +186,7 @@ export async function createHrInsuranceContributionRule(db: Database, input: HrI
   if (!isDateOnly(input.validFrom) || (input.validTo !== null && (!isDateOnly(input.validTo) || input.validTo <= input.validFrom))) throw new HrError(400, "費率生效／迄日不正確。 ");
   if (![input.employeeRatePpm, input.employerRatePpm, input.dependentRatePpm].every((value) => Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000)) throw new HrError(400, "保險負擔費率必須是 0～100% 的整數 ppm。 ");
   if (input.note.length > 1000 || (input.sourceKind !== "official" && input.sourceKind !== "manual")) throw new HrError(400, "保險負擔規則資料不正確。 ");
+  if (input.sourceKind === "manual" && !input.note.trim()) throw new HrError(400, "人工保險負擔規則必須留下覆核備註。 ");
   const id = crypto.randomUUID();
   return writeHrMutation(db, sql`INSERT INTO hr_insurance_contribution_rules
     (id, scheme, valid_from, valid_to, employee_rate_ppm, employer_rate_ppm, dependent_rate_ppm, source_kind, note, created_by)
@@ -231,28 +213,48 @@ export async function syncHrInsuranceRateTables(db: Database, year: number, acto
   const tables = await fetchHrInsuranceBrackets(year, fetcher);
   const existing = await db.select({ scheme: hrInsuranceRateTables.scheme, contentHash: hrInsuranceRateTables.contentHash }).from(hrInsuranceRateTables).where(eq(hrInsuranceRateTables.year, year));
   const statements = [];
-  const syncedSchemes: HrInsuranceScheme[] = [];
   for (const table of tables) {
     const dataJson = JSON.stringify({ brackets: table.brackets });
     const contentHash = await sha256(dataJson);
     // 同一年度、同一內容不重建版本；只有官方內容變動才建立新的待審閱版本。
     if (existing.some((row) => row.scheme === table.scheme && row.contentHash === contentHash)) continue;
-    syncedSchemes.push(table.scheme);
-    statements.push(db.update(hrInsuranceRateTables).set({ status: "archived" }).where(and(eq(hrInsuranceRateTables.scheme, table.scheme), eq(hrInsuranceRateTables.year, year), eq(hrInsuranceRateTables.status, "draft"))));
-    statements.push(db.insert(hrInsuranceRateTables).values({ id: crypto.randomUUID(), scheme: table.scheme, year, status: "draft", sourceUrl: table.sourceUrl, fetchedAt: table.fetchedAt, dataJson, contentHash, createdBy: actor.id }));
+    const id = crypto.randomUUID();
+    const activityId = `insurance-rate-sync-${year}-${table.scheme}-${contentHash}`;
+    statements.push(sql`UPDATE hr_insurance_rate_tables
+      SET status='archived'
+      WHERE scheme=${table.scheme} AND year=${year} AND status='draft'
+        AND NOT EXISTS (SELECT 1 FROM hr_insurance_rate_tables WHERE scheme=${table.scheme} AND year=${year} AND content_hash=${contentHash})`);
+    statements.push(sql`INSERT INTO hr_insurance_rate_tables
+      (id, scheme, year, status, source_url, fetched_at, data_json, content_hash, created_by)
+      SELECT ${id}, ${table.scheme}, ${year}, 'draft', ${table.sourceUrl}, ${table.fetchedAt}, ${dataJson}, ${contentHash}, ${actor.id}
+      WHERE NOT EXISTS (SELECT 1 FROM hr_insurance_rate_tables WHERE scheme=${table.scheme} AND year=${year} AND content_hash=${contentHash})`);
+    statements.push(sql`INSERT OR IGNORE INTO activity_events
+      (id, entity_type, entity_id, entity_label, event_type, summary, field, old_value, new_value, payload_json, actor_type, actor_id, actor_email, source, status, error)
+      VALUES (${activityId}, 'hr_payroll', ${`insurance-rates-${year}`}, '', 'insurance_rate_tables_synced', '官方勞健保級距已同步待審閱', '', NULL, NULL,
+        ${JSON.stringify({ year, schemes: [table.scheme], contentHash })}, 'user', ${actor.id}, ${actor.email}, 'hr', 'succeeded', NULL)`);
   }
-  if (syncedSchemes.length) statements.push(db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: `insurance-rates-${year}`, source: "hr", eventType: "insurance_rate_tables_synced", summary: "官方勞健保級距已同步待審閱", actor, payload: { year, schemes: syncedSchemes } })));
-  if (statements.length) await db.batch(statements as never);
+  if (statements.length) {
+    const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
+    const prepared = statements.map((query) => {
+      const compiled = dialect.sqlToQuery(query);
+      return db.$client.prepare(compiled.sql).bind(...compiled.params);
+    });
+    try { await db.$client.batch(prepared); }
+    catch (error) {
+      if (error instanceof Error && /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed/.test(error.message)) throw new HrError(409, "官方級距同步版本已變更，請重新整理後再試。 ");
+      throw error;
+    }
+  }
   return listHrInsuranceRateTables(db, year);
 }
 export async function activateHrInsuranceRateTable(db: Database, id: string, actor: HrActor) {
   const [draft] = await db.select().from(hrInsuranceRateTables).where(and(eq(hrInsuranceRateTables.id, id), eq(hrInsuranceRateTables.status, "draft"))).limit(1);
   if (!draft) throw new HrError(404, "找不到待審閱的官方級距版本。 ");
-  await db.batch([
-    db.update(hrInsuranceRateTables).set({ status: "archived" }).where(and(eq(hrInsuranceRateTables.scheme, draft.scheme), eq(hrInsuranceRateTables.year, draft.year), eq(hrInsuranceRateTables.status, "active"))),
-    db.update(hrInsuranceRateTables).set({ status: "active", activatedAt: sql`CURRENT_TIMESTAMP`, activatedBy: actor.id }).where(and(eq(hrInsuranceRateTables.id, id), eq(hrInsuranceRateTables.status, "draft"))),
-    db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: id, source: "hr", eventType: "insurance_rate_table_activated", summary: "官方勞健保級距已啟用", actor, payload: { scheme: draft.scheme, year: draft.year } })),
-  ] as never);
+  await writeHrMutation(db, [
+    sql`UPDATE hr_insurance_rate_tables SET status='archived' WHERE scheme=${draft.scheme} AND year=${draft.year} AND status='active' RETURNING id`,
+    sql`UPDATE hr_insurance_rate_tables SET status='active', activated_at=CURRENT_TIMESTAMP, activated_by=${actor.id}
+      WHERE id=${id} AND status='draft' RETURNING id`,
+  ], id, actor, "insurance_rate_table_activated", "官方級距版本已被其他人啟用，請重新整理。 ", { allowEmptyMutationIndexes: new Set([0]) });
   return { id, status: "active" as const };
 }
 
@@ -267,8 +269,23 @@ export async function createHrInsuranceVersion(db: Database, input: HrInsuranceI
   if (!Number.isSafeInteger(input.insuredAmountMinor) || input.insuredAmountMinor < 0 || !Number.isSafeInteger(input.dependentCount) || input.dependentCount < 0 || input.dependentCount > 3 || !Number.isSafeInteger(input.rateYear) || input.rateYear < 1900 || input.rateYear > 9999) throw new HrError(400, "保險級距資料不正確。 ");
   if (input.status !== "enrolled" && input.status !== "withdrawn") throw new HrError(400, "保險狀態不正確。 ");
   if (input.status === "withdrawn" && input.insuredAmountMinor !== 0) throw new HrError(400, "退保版本的投保金額必須為 0。 ");
+  if (input.status === "enrolled" && input.insuredAmountMinor <= 0) throw new HrError(400, "加保版本的投保金額必須大於 0。 ");
   if (input.sourceKind !== "official" && input.sourceKind !== "manual") throw new HrError(400, "保險來源不正確。 ");
   if (input.sourceUrl.length > 500 || input.note.length > 1000) throw new HrError(400, "保險來源或備註過長。 ");
+  if (input.sourceKind === "manual" && input.status === "enrolled" && !input.note.trim()) throw new HrError(400, "人工覆寫投保金額必須留下覆核備註。 ");
+  if (input.sourceKind === "official" && input.status === "enrolled") {
+    if (!input.sourceUrl.trim()) throw new HrError(400, "官方來源版本必須保存官方級距來源網址。 ");
+    const officialTables = await db.select({ sourceUrl: hrInsuranceRateTables.sourceUrl, dataJson: hrInsuranceRateTables.dataJson }).from(hrInsuranceRateTables)
+      .where(and(eq(hrInsuranceRateTables.scheme, input.scheme), eq(hrInsuranceRateTables.year, input.rateYear), eq(hrInsuranceRateTables.status, "active")));
+    const officialTable = officialTables.find((table) => {
+      if (table.sourceUrl !== input.sourceUrl) return false;
+      try {
+        const brackets = (JSON.parse(table.dataJson) as { brackets?: HrInsuranceBracket[] }).brackets ?? [];
+        return brackets.some((bracket) => bracket.insuredAmount * 100 === input.insuredAmountMinor);
+      } catch { return false; }
+    });
+    if (!officialTable) throw new HrError(officialTables.length ? 400 : 409, officialTables.length ? "投保金額必須對應已啟用官方級距與來源。 " : "指定年度尚未有已審閱啟用的官方級距，不能標記為官方來源。 ");
+  }
   const [current] = await db.select({ id: hrInsuranceVersions.id, validFrom: hrInsuranceVersions.validFrom }).from(hrInsuranceVersions)
     .where(and(eq(hrInsuranceVersions.employmentId, input.employmentId), eq(hrInsuranceVersions.scheme, input.scheme), sql`${hrInsuranceVersions.validTo} IS NULL`))
     .orderBy(desc(hrInsuranceVersions.validFrom)).limit(1);
@@ -283,6 +300,13 @@ export async function createHrInsuranceVersion(db: Database, input: HrInsuranceI
       ${input.status}, ${input.validFrom}, ${input.validTo}, ${input.insuredAmountMinor}, ${input.dependentCount}, ${input.rateYear}, ${input.sourceKind}, ${input.sourceUrl}, ${input.note}, ${actor.id}
     WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId}
       AND hired_on <= ${input.validFrom} AND (ended_on IS NULL OR (${input.validTo} IS NOT NULL AND ${input.validTo} <= ended_on)))
+      AND (${input.sourceKind} <> 'official' OR EXISTS (
+        SELECT 1 FROM hr_insurance_rate_tables AS official_table
+        WHERE official_table.scheme=${input.scheme} AND official_table.year=${input.rateYear} AND official_table.status='active'
+          AND official_table.source_url=${input.sourceUrl}
+          AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(official_table.data_json) THEN json_extract(official_table.data_json, '$.brackets') ELSE '[]' END) AS official_bracket
+            WHERE CAST(json_extract(official_bracket.value, '$.insuredAmount') AS INTEGER) * 100 = ${input.insuredAmountMinor})
+      ))
       AND NOT EXISTS (SELECT 1 FROM hr_insurance_versions WHERE employment_id=${input.employmentId} AND scheme=${input.scheme}
         AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
     RETURNING id`;

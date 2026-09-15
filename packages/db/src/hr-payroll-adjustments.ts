@@ -22,12 +22,21 @@ function validate(input: HrPayrollAdjustmentInput) {
     if (!item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.amountMinor)) throw new HrError(400, "薪資調整項目或金額不正確。 ");
   }
 }
+async function ensureSourceClosed(db: Database, employmentId: string, sourcePeriodKey: string) {
+  const [closed] = await db.select({ id: hrPayslips.id }).from(hrPayslips)
+    .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId))
+    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
+    .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, sourcePeriodKey), eq(hrPayrollRuns.status, "closed"))).limit(1);
+  if (!closed) throw new HrError(409, "原薪資月份尚未有已結帳結果，不能建立薪資調整。 ");
+}
+
 async function ensureEditable(db: Database, employmentId: string, effectivePeriodKey: string) {
+  const [periodRow] = await db.select({ status: hrPayrollPeriods.status }).from(hrPayrollPeriods).where(eq(hrPayrollPeriods.periodKey, effectivePeriodKey)).limit(1);
   const [closed] = await db.select({ id: hrPayslips.id }).from(hrPayslips)
     .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId))
     .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
     .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, effectivePeriodKey), eq(hrPayrollRuns.status, "closed"))).limit(1);
-  if (closed) throw new HrError(409, "調整生效月份已結帳，請建立下一個月份的新調整。 ");
+  if (periodRow?.status === "closed" || closed) throw new HrError(409, "調整生效月份已結帳，請建立下一個月份的新調整。 ");
 }
 async function ensureEmployment(db: Database, employmentId: string) {
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(eq(hrEmployments.id, employmentId)).limit(1);
@@ -68,7 +77,7 @@ export async function listHrPayrollAdjustments(db: Database, effectivePeriodKey?
 }
 
 export async function createHrPayrollAdjustment(db: Database, input: HrPayrollAdjustmentInput, actor: HrActor) {
-  validate(input); await ensureEmployment(db, input.employmentId); await ensureEditable(db, input.employmentId, input.effectivePeriodKey);
+  validate(input); await ensureEmployment(db, input.employmentId); await ensureSourceClosed(db, input.employmentId, input.sourcePeriodKey); await ensureEditable(db, input.employmentId, input.effectivePeriodKey);
   const id = crypto.randomUUID();
   const statements = [
     db.insert(hrPayrollAdjustments).values({ id, employmentId: input.employmentId, sourcePeriodKey: input.sourcePeriodKey, effectivePeriodKey: input.effectivePeriodKey, reason: input.reason.trim(), createdBy: actor.id, updatedBy: actor.id }),
@@ -80,9 +89,11 @@ export async function createHrPayrollAdjustment(db: Database, input: HrPayrollAd
 }
 
 export async function updateHrPayrollAdjustment(db: Database, id: string, input: HrPayrollAdjustmentInput & { revision: number }, actor: HrActor) {
-  validate(input); await ensureEmployment(db, input.employmentId); await ensureEditable(db, input.employmentId, input.effectivePeriodKey);
-  const [current] = await db.select({ id: hrPayrollAdjustments.id }).from(hrPayrollAdjustments).where(and(eq(hrPayrollAdjustments.id, id), eq(hrPayrollAdjustments.revision, input.revision))).limit(1);
-  if (!current) throw new HrError(409, "薪資調整不存在或版本已過期，請重新整理。 ");
+  validate(input);
+  const [current] = await db.select({ id: hrPayrollAdjustments.id, employmentId: hrPayrollAdjustments.employmentId, effectivePeriodKey: hrPayrollAdjustments.effectivePeriodKey, revision: hrPayrollAdjustments.revision }).from(hrPayrollAdjustments).where(eq(hrPayrollAdjustments.id, id)).limit(1);
+  if (!current || current.revision !== input.revision) throw new HrError(409, "薪資調整不存在或版本已過期，請重新整理。 ");
+  await ensureEditable(db, current.employmentId, current.effectivePeriodKey);
+  await ensureEmployment(db, input.employmentId); await ensureSourceClosed(db, input.employmentId, input.sourcePeriodKey); await ensureEditable(db, input.employmentId, input.effectivePeriodKey);
   const update = sql`UPDATE hr_payroll_adjustments SET employment_id=${input.employmentId}, source_period_key=${input.sourcePeriodKey}, effective_period_key=${input.effectivePeriodKey}, reason=${input.reason.trim()}, updated_by=${actor.id}, updated_at=CURRENT_TIMESTAMP, revision=revision+1 WHERE id=${id} AND revision=${input.revision} RETURNING id`;
   const deleteItems = sql`DELETE FROM hr_payroll_adjustment_items WHERE adjustment_id=${id} AND EXISTS (SELECT 1 FROM hr_payroll_adjustments WHERE id=${id} AND revision=${input.revision + 1}) RETURNING id`;
   const insertItems = input.items.map((item) => sql`INSERT INTO hr_payroll_adjustment_items (id, adjustment_id, item_name, amount_minor)

@@ -1,4 +1,5 @@
 import { cyberbizRequest, type CyberbizConfig, type RequestOptions } from "./http.js";
+import { parseTaipeiWallClock } from "./time.js";
 
 /**
  * CYBERBIZ 的會員 API。
@@ -116,18 +117,11 @@ function readTags(customer: Record<string, unknown>): string[] {
     .filter(Boolean);
 }
 
-/**
- * CYBERBIZ 的時間字串沒有時區，實際上是台北時間。
- * 不補 +08:00 直接丟給 Date 會被當成 UTC，整批資料差八小時。
- */
+/** CYBERBIZ 的無時區時間字串依 API 約定視為台北時間。 */
 function readTimestamp(customer: Record<string, unknown>, key: "created_at" | "updated_at"): string {
   const value = firstString(customer, [key]);
   if (!value) return "";
-
-  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
-    ? `${value.replace(" ", "T")}+08:00`
-    : value;
-  const date = new Date(normalized);
+  const date = parseTaipeiWallClock(value) ?? new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 

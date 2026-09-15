@@ -136,8 +136,9 @@ describe("已登入", () => {
     });
     expect(response.status).toBe(200);
 
-    const body = (await response.json()) as { email: string; permissions: string[] };
+    const body = (await response.json()) as { email: string; permissions: string[]; isHrAdministrator: boolean };
     expect(body.email).toBe("admin@ecotech.tw");
+    expect(body.isHrAdministrator).toBe(true);
     expect(body.permissions).toContain("admin:user:write");
     expect(body.permissions).toContain("wms:inventory:count");
   });
@@ -148,7 +149,8 @@ describe("已登入", () => {
       headers: { Cookie: await sessionCookie(id, "viewer@ecotech.tw") },
     });
 
-    const body = (await response.json()) as { permissions: string[] };
+    const body = (await response.json()) as { permissions: string[]; isHrAdministrator: boolean };
+    expect(body.isHrAdministrator).toBe(false);
     expect(body.permissions).toContain("crm:customer:read");
     expect(body.permissions).not.toContain("crm:customer:write");
     expect(body.permissions).not.toContain("admin:user:write");

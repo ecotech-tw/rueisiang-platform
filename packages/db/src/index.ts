@@ -1,4 +1,5 @@
 export { createDatabase, type Database } from "./client.js";
+export { formatTaipeiDate, taipeiDateFromUtcWallClock, taipeiMidnightUtc, taipeiWallClockToUtc } from "./taipei-time.js";
 export {
   checkHrClockLocation, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent, endHrAttendanceLocationAssignment, listHrAttendanceEvents, HR_ATTENDANCE_EVENT_PAGE_SIZES, type HrAttendanceEventListQuery,
   getHrAttendanceLocation, getHrAttendanceLocationSchedules, saveHrAttendanceLocationSchedules, setHrAttendanceLocationPrimary, getHrClockCalendar, countHrClockCalendarAnomalies, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation, HR_ATTENDANCE_LOCATION_PAGE_SIZES, type HrAttendanceLocationListQuery, type HrAttendanceLocationScheduleInput,

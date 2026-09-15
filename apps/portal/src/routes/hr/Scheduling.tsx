@@ -4,10 +4,16 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 
-function periodKey(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; }
-function daysInMonth(date: Date) { return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate(); }
-function weekday(date: Date) { return new Date(date.getFullYear(), date.getMonth(), 1).getDay(); }
-function dateAt(month: Date, day: number) { return `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; }
+function taipeiMonthStart() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+  const year = Number(parts.find((item) => item.type === "year")?.value);
+  const month = Number(parts.find((item) => item.type === "month")?.value);
+  return new Date(Date.UTC(year, month - 1, 1));
+}
+function periodKey(date: Date) { return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`; }
+function daysInMonth(date: Date) { return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate(); }
+function weekday(date: Date) { return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).getUTCDay(); }
+function dateAt(month: Date, day: number) { return `${month.getUTCFullYear()}-${String(month.getUTCMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; }
 function timeOf(seconds: number) { return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}`; }
 function shiftLabel(shift: ScheduleShift) { return `${shift.name}（${timeOf(shift.startSecond)}–${timeOf(shift.endSecond)}${shift.endDayOffset ? " 次日" : ""}）`; }
 
@@ -61,7 +67,7 @@ export function HrScheduling() {
   const { permissions } = useSession();
   const canRead = permissions.has("hr:schedule:read");
   const canWrite = permissions.has("hr:schedule:write");
-  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [month, setMonth] = useState(taipeiMonthStart);
   const key = periodKey(month);
   const schedule = useHrQuery<HrScheduleResponse>(`/schedules?periodKey=${key}`, canRead);
   const [scopeId, setScopeId] = useState("all");
@@ -87,7 +93,7 @@ export function HrScheduling() {
 
   return <div className="page fills hr-schedule-page">
     <PageHeader title="排班月曆" description="排班儲存即直接發布；鎖定只禁止修改，不使用草稿或送審流程。正式員工依排班出勤，臨時支援排班會納入日薪且不套用獎金。" actions={canWrite ? <div className="button-row"><Button variant="secondary" disabled={!defaultScope} onClick={() => setNewShift(true)}>新增班別</Button>{version ? <Button variant="secondary" onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked)} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } })}>儲存並發布</Button></div> : undefined} />
-    <div className="hr-schedule-toolbar"><Button variant="secondary" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>上個月</Button><strong>{month.getFullYear()} 年 {month.getMonth() + 1} 月</strong><Button variant="secondary" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>下個月</Button><SelectField label="營運據點" value={scopeId} options={[{ value: "all", label: "全部營運據點" }, ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => setScopeId(event.target.value)} /></div>
+    <div className="hr-schedule-toolbar"><Button variant="secondary" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() - 1, 1)))}>上個月</Button><strong>{month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月</strong><Button variant="secondary" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1)))}>下個月</Button><SelectField label="營運據點" value={scopeId} options={[{ value: "all", label: "全部營運據點" }, ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => setScopeId(event.target.value)} /></div>
     {data.version?.locked ? <Alert tone="info">此月份已鎖定；如需調整，先按「開鎖」，系統會留下操作紀錄。</Alert> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
     <Panel className="grows">

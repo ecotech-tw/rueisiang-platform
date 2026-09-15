@@ -96,6 +96,8 @@ export const hrClockEvents = sqliteTable("hr_clock_events", {
   scopeId: text("scope_id").references(() => scopes.id, { onDelete: "restrict" }),
   sourceKind: text("source_kind").notNull().default("portal"),
   idempotencyKey: text("idempotency_key").notNull(),
+  /** 核准補打卡產生的更正事件；同一申請最多只能消費一次。 */
+  correctionRequestId: text("correction_request_id"),
   eventKind: text("event_kind", { enum: ["clock_in", "clock_out"] as const }).notNull(),
   latitudeE7: integer("latitude_e7"),
   longitudeE7: integer("longitude_e7"),
@@ -113,6 +115,7 @@ export const hrClockEvents = sqliteTable("hr_clock_events", {
   receivedAt: text("received_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_hr_clock_events_idempotency").on(table.idempotencyKey),
+  uniqueIndex("idx_hr_clock_events_correction_request").on(table.correctionRequestId),
   index("idx_hr_clock_events_employee_occurred").on(table.employeeUserId, table.occurredAt),
   check("ck_hr_clock_events_source", sql`${table.sourceKind} IN ('portal', 'rfid', 'line', 'manual')`),
   check("ck_hr_clock_events_kind", sql`${table.eventKind} IN ('clock_in', 'clock_out')`),

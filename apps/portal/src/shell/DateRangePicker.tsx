@@ -21,7 +21,13 @@ interface Props {
 }
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
-const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
+const TAIPEI_CALENDAR_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Taipei",
+  calendar: "gregory",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 /** 一律用 UTC 算，避免跨時區時 new Date("2026-07-01") 被推成 6/30。 */
 function iso(date: Date): string {
@@ -55,16 +61,20 @@ function daysOf(anchor: Date): (Date | null)[] {
   ];
 }
 
+function taipeiMonth(): { year: number; month: number } {
+  const parts = TAIPEI_CALENDAR_FORMATTER.formatToParts(new Date());
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value);
+  return { year: part("year"), month: part("month") - 1 };
+}
+
 function thisMonth(): Date {
-  const now = new Date(Date.now() + TAIPEI_OFFSET_MS);
-  return monthStart(now.getUTCFullYear(), now.getUTCMonth());
+  const { year, month } = taipeiMonth();
+  return monthStart(year, month);
 }
 
 function presets(): { label: string; start: string; end: string }[] {
   // 以台北時間的「今天」為準：Worker 與瀏覽器可能在不同時區，但同仁想的是台灣的日期。
-  const now = new Date(Date.now() + TAIPEI_OFFSET_MS);
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth();
+  const { year, month } = taipeiMonth();
 
   const range = (from: Date, to: Date) => ({ start: iso(from), end: iso(to) });
   const lastDay = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 0));

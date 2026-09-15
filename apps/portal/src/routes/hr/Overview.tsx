@@ -19,7 +19,7 @@ function periodLabel(periodKey: string) {
 export function HrOverview() {
   usePageTitle("HRIS 概覽");
   const { permissions, user } = useSession();
-  const isHrAdministrator = user?.roles.includes("admin") ?? false;
+  const isHrAdministrator = user?.isHrAdministrator ?? false;
   const canViewOverview = OVERVIEW_PERMISSIONS.some((permission) => permissions.has(permission));
   const overview = useHrQuery<HrOverview>("/overview", canViewOverview);
 

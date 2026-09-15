@@ -19,8 +19,7 @@ export interface HrOverviewResult {
 }
 
 function taipeiToday() {
-  const shifted = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  return shifted.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date());
 }
 
 function periodKeyFromDate(date: string) {
