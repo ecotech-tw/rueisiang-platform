@@ -946,7 +946,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   -webkit-backdrop-filter: blur(7px) saturate(150%);
   backdrop-filter: blur(7px) saturate(150%);
 }
-.hr-system .hr-insurance-scheme-card h3 { margin: 0; color: var(--color-ink); font-size: 15px; }
 .hr-system .hr-insurance-scheme-card p { margin: 0; }
 .hr-system .hr-insurance-bracket-summary { color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
 .hr-system .hr-insurance-estimate { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: --alpha(var(--color-paper) / 46%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 64%) inset, 0 0 0 1px --alpha(var(--color-ink) / 6%) inset; }
