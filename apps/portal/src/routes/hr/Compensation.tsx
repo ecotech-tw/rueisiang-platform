@@ -251,15 +251,13 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Emp
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
   const employmentVersions = useMemo(() => (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id), [profile.data?.compensation, employment?.id]);
   const current = useMemo(() => currentVersion(employmentVersions), [employmentVersions]);
-  const latest = useMemo(() => latestVersion(employmentVersions), [employmentVersions]);
-  const upcoming = latest && latest.id !== current?.id ? latest : undefined;
   if (profile.isLoading) return <tr><td>{employee.displayName}</td><td colSpan={5}>載入敘薪資料…</td></tr>;
   return <tr>
     <td><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.hiredOn}～${employment.endedOn ?? "目前"}` : "尚無任職"}</td>
-    <td>{current ? PAY_BASIS_LABEL[current.payBasis] : "尚未設定"}{upcoming ? <><br /><span className="muted">下一版：{PAY_BASIS_LABEL[upcoming.payBasis]}</span></> : null}</td>
-    <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}{upcoming ? <><br /><span className="muted">下一版：{totalsText(versionTotals(upcoming))}</span></> : null}</td>
-    <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}{upcoming ? <><br /><span className="muted">下一版：{upcoming.validFrom}～{upcoming.validTo ?? "目前"}</span></> : null}</td>
+    <td>{current ? PAY_BASIS_LABEL[current.payBasis] : "尚未設定"}</td>
+    <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}</td>
+    <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td>
     <td>{canWrite && employment ? <Button variant="secondary" onClick={() => onEdit(employee.userId)}>{current ? "更新敘薪" : "新增敘薪"}</Button> : null}</td>
   </tr>;
 }
