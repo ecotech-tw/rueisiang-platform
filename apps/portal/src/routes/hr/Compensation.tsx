@@ -39,7 +39,9 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const [userId, setUserId] = useState(initialUserId ?? "");
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(userId)}`, Boolean(userId));
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
-  const current = useMemo(() => currentVersion(profile.data?.compensation ?? []), [profile.data?.compensation]);
+  const current = useMemo(() => employment
+    ? currentVersion((profile.data?.compensation ?? []).filter((version) => version.employmentId === employment.id))
+    : undefined, [profile.data?.compensation, employment?.id]);
 
   const [validFrom, setValidFrom] = useState(taipeiToday());
   const [validTo, setValidTo] = useState("");
@@ -72,6 +74,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     setIncludeOvertime(Boolean(item?.includeOvertime));
     setIncludeInsurance(Boolean(item?.includeInsurance));
     setIncludeTax(item ? Boolean(item.includeTax) : true);
+    setNote(current?.note ?? "");
     setMessage(null);
   }, [current, employment]);
 
@@ -150,7 +153,9 @@ function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerR
 function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (userId: string) => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`);
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
-  const current = currentVersion(profile.data?.compensation ?? []);
+  const current = useMemo(() => employment
+    ? currentVersion((profile.data?.compensation ?? []).filter((version) => version.employmentId === employment.id))
+    : undefined, [profile.data?.compensation, employment?.id]);
   if (profile.isLoading) return <HrSkeletonTableRow columns={6} />;
   return <tr>
     <td><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>

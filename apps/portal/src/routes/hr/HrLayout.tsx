@@ -77,11 +77,15 @@ function matchingPathLength(paths: string[], pathname: string) {
   return paths.reduce((longest, path) => matchesPath(path, pathname) ? Math.max(longest, path.length) : longest, -1);
 }
 
+function childActivePaths(child: HrNavChild) {
+  return [child.to, ...(child.activePaths ?? [])];
+}
+
 /** 同一組子選單只有最具體的路徑可以呈現 active，避免父路徑和子路徑同時亮起。 */
 function isActiveChild(children: HrNavChild[], child: HrNavChild, pathname: string) {
-  const childLength = matchingPathLength(child.activePaths ?? [child.to], pathname);
+  const childLength = matchingPathLength(childActivePaths(child), pathname);
   if (childLength < 0) return false;
-  const longestLength = Math.max(...children.map((item) => matchingPathLength(item.activePaths ?? [item.to], pathname)));
+  const longestLength = Math.max(...children.map((item) => matchingPathLength(childActivePaths(item), pathname)));
   return childLength === longestLength;
 }
 
