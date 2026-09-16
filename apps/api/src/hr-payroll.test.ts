@@ -312,6 +312,9 @@ describe("HR 薪資與勞健保", () => {
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
     const employmentId = profile.employments[0]!.id;
     expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 4000000 })).status).toBe(201);
+    const defaultEstimate = await request(`/hr/employments/${employmentId}/insurance/estimate`, "POST", { validFrom: "2026-01-01", versions: [{ scheme: "health", status: "enrolled", insuredAmountMinor: 4_200_000, dependentCount: 1 }] });
+    expect(defaultEstimate.status, await defaultEstimate.clone().text()).toBe(200);
+    expect(await defaultEstimate.json()).toMatchObject({ estimates: [expect.objectContaining({ scheme: "health", employeeAmountMinor: 130_200 })] });
     expect((await request("/hr/insurance-contribution-rules", "POST", { scheme: "labor", validFrom: "2026-01-01", employeeRatePpm: 10000, employerRatePpm: 20000, dependentRatePpm: 1000000, sourceKind: "manual", note: "測試公司規則" })).status).toBe(201);
     expect((await request("/hr/insurance-contribution-rules", "POST", { scheme: "health", validFrom: "2026-01-01", employeeRatePpm: 50000, employerRatePpm: 100000, dependentRatePpm: 100000, sourceKind: "manual", note: "測試健保規則" })).status).toBe(201);
     const estimate = await request(`/hr/employments/${employmentId}/insurance/estimate`, "POST", { validFrom: "2026-01-01", versions: [

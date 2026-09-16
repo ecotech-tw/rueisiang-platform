@@ -235,6 +235,16 @@ export interface HrInsuranceContributionEstimate {
   scheme: HrInsuranceScheme; status: "enrolled" | "withdrawn"; insuredAmountMinor: number; dependentCount: number; employeeAmountMinor: number | null;
   ruleId: string | null; employeeRatePpm: number | null; dependentRatePpm: number | null;
 }
+/**
+ * 勞健保員工負擔以整數元計算：先將本人負擔四捨五入到元，再套用健保眷屬倍率。
+ * 例如 42,000 × 1.551% = 651.42 元，1 位眷屬應為 651 × 2 = 1,302 元。
+ */
+export function calculateHrInsuranceEmployeeAmount(input: { scheme: HrInsuranceScheme; insuredAmountMinor: number; employeeRatePpm: number; dependentRatePpm: number; dependentCount: number }): number {
+  const employeeAmountMinor = Math.floor(input.insuredAmountMinor * input.employeeRatePpm / 1_000_000);
+  const employeeAmountYuan = Math.round(employeeAmountMinor / 100);
+  const dependentMultiplier = input.scheme === "health" ? 1 + input.dependentCount * input.dependentRatePpm / 1_000_000 : 1;
+  return Math.round(employeeAmountYuan * dependentMultiplier) * 100;
+}
 export async function listHrInsuranceContributionRules(db: Database, validOn?: string): Promise<HrInsuranceContributionRuleRecord[]> {
   const rows = await db.select().from(hrInsuranceContributionRules).orderBy(desc(hrInsuranceContributionRules.validFrom), hrInsuranceContributionRules.scheme);
   const stored = rows.filter((row) => validOn === undefined || (row.validFrom <= validOn && (row.validTo === null || validOn < row.validTo)))
@@ -253,8 +263,7 @@ export async function estimateHrInsuranceContributions(db: Database, input: { va
     if (version.status === "withdrawn") return { ...version, employeeAmountMinor: 0, ruleId: null, employeeRatePpm: null, dependentRatePpm: null };
     const rule = rules.find((item) => item.scheme === version.scheme && item.validFrom <= input.validFrom && (item.validTo === null || input.validFrom < item.validTo));
     if (!rule) return { ...version, employeeAmountMinor: null, ruleId: null, employeeRatePpm: null, dependentRatePpm: null };
-    const dependentMultiplier = version.scheme === "health" ? 1 + version.dependentCount * rule.dependentRatePpm / 1_000_000 : 1;
-    return { ...version, employeeAmountMinor: Math.floor(version.insuredAmountMinor * rule.employeeRatePpm / 1_000_000 * dependentMultiplier), ruleId: rule.id, employeeRatePpm: rule.employeeRatePpm, dependentRatePpm: rule.dependentRatePpm };
+    return { ...version, employeeAmountMinor: calculateHrInsuranceEmployeeAmount({ scheme: version.scheme, insuredAmountMinor: version.insuredAmountMinor, employeeRatePpm: rule.employeeRatePpm, dependentRatePpm: rule.dependentRatePpm, dependentCount: version.dependentCount }), ruleId: rule.id, employeeRatePpm: rule.employeeRatePpm, dependentRatePpm: rule.dependentRatePpm };
   });
 }
 export async function createHrInsuranceContributionRule(db: Database, input: HrInsuranceContributionInput, actor: HrActor) {

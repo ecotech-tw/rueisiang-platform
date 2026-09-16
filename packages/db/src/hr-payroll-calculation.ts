@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
-import { listHrInsuranceContributionRules } from "./hr-payroll.js";
+import { calculateHrInsuranceEmployeeAmount, listHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
 import { listHrSpecialWorkdaysForPayroll } from "./hr-special-workdays.js";
 import { HrError, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
@@ -844,9 +844,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         calculationWarnings.add(`${employee.employeeName} 的${scheme === "labor" ? "勞保" : "健保"}缺少有效負擔規則，請在保險設定完成審閱。`);
         continue;
       }
-      const insuredMinor = insuranceVersion.insuredAmountMinor;
-      const dependentMultiplier = scheme === "health" ? 1 + insuranceVersion.dependentCount * contributionRule.dependentRatePpm / PPM : 1;
-      const employeeShare = Math.floor(insuredMinor * contributionRule.employeeRatePpm / PPM * dependentMultiplier);
+      const employeeShare = calculateHrInsuranceEmployeeAmount({
+        scheme,
+        insuredAmountMinor: insuranceVersion.insuredAmountMinor,
+        employeeRatePpm: contributionRule.employeeRatePpm,
+        dependentRatePpm: contributionRule.dependentRatePpm,
+        dependentCount: insuranceVersion.dependentCount,
+      });
       if (employeeShare > 0) lines.push({ lineKey: `${scheme}_insurance`, direction: "deduction", amountMinor: employeeShare, explanation: { scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount, employeeRatePpm: contributionRule.employeeRatePpm, dependentRatePpm: contributionRule.dependentRatePpm, ruleId: contributionRule.id, sourceKind: contributionRule.sourceKind } });
     }
     lines.push({ lineKey: "attendance_summary", direction: "earning", amountMinor: 0, explanation: { attendanceDays: attendanceDays.size, missingPunchDays: missingPunchDays.length } });

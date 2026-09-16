@@ -953,8 +953,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .hr-insurance-estimate-title { color: var(--color-muted); font-size: 11px; font-weight: 800; letter-spacing: .02em; }
 .hr-system .hr-insurance-estimate strong { color: var(--color-brand-dark); font-size: 16px; letter-spacing: -.01em; }
 .hr-system .hr-insurance-estimate .muted { font-size: 11px; }
-.hr-system .hr-insurance-estimate-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.hr-system .hr-insurance-estimate-toolbar .muted { font-size: 11px; }
 .hr-system .hr-insurance-estimate-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
 .hr-system .hr-insurance-estimate-total strong { font-size: 17px; }
 
