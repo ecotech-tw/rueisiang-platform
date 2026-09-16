@@ -135,14 +135,16 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
         {SCHEMES.map((scheme) => {
           const activeTable = activeTables.get(scheme);
           const selection = bracketSelections[scheme];
+          const selectedBracket = selectedBrackets[scheme];
           const nextAmount = amount(scheme);
           const estimate = estimateFor(scheme);
           const bracketOptions = [
-            { value: AUTO_BRACKET, label: activeTable ? "依實際月薪自動帶入" : "依實際月薪自動帶入（尚未有級距）" },
+            { value: "", label: activeTable ? "請輸入實際月薪" : "尚未有可用級距", disabled: true },
             ...(activeTable?.brackets ?? []).map((bracket) => ({ value: String(bracket.level), label: `第 ${bracket.level} 級／${amountLabel(bracket.insuredAmount)}` })),
           ];
+          const displayedSelection = selection === AUTO_BRACKET ? String(selectedBracket?.level ?? "") : selection;
           return <section className="hr-insurance-scheme-card" key={scheme}>
-            <SelectField label={`${INSURANCE_LABEL[scheme]}級距`} value={selection} options={bracketOptions} onChange={(event) => updateBracketSelection(scheme, event.target.value)} />
+            <SelectField label={`${INSURANCE_LABEL[scheme]}級距`} value={displayedSelection} options={bracketOptions} onChange={(event) => updateBracketSelection(scheme, event.target.value)} />
             <div className="hr-insurance-estimate" aria-live="polite"><div className="hr-insurance-estimate-title">員工每月扣款試算</div>{calculationPending ? <span className="muted">試算中…</span> : calculationError ? <span className="muted">暫時無法取得試算</span> : estimateIsCurrent && estimate?.employeeAmountMinor !== null && estimate?.employeeAmountMinor !== undefined ? <><strong>{premiumLabel(estimate.employeeAmountMinor)}</strong><span className="muted">依員工負擔 {estimate.employeeRatePpm === null ? "—" : `${(estimate.employeeRatePpm / 10_000).toFixed(2)}%`}{scheme === "health" && dependentCount > 0 ? `・含 ${dependentCount} 位眷屬` : ""}</span></> : estimateIsCurrent && estimate ? <span className="muted">尚未設定此生效日的系統或公司負擔規則</span> : Number.isSafeInteger(nextAmount) && (nextAmount ?? 0) > 0 ? <span className="muted">輸入完整資料後自動計算</span> : <span className="muted">選擇級距後即可計算</span>}</div>
           </section>;
         })}
