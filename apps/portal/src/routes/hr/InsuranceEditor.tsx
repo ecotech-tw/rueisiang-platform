@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Dialog, Field, TextField } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, type Employment, type InsuranceBracket, type InsuranceRateTableRecord } from "./api.js";
+import { Alert, Button, Dialog, Field, SelectField, TextField } from "../../ui/index.js";
+import { useHrInsuranceEstimate, useHrQuery, useHrWrite, type Employment, type InsuranceBracket, type InsuranceEstimateRequest, type InsuranceRateTableRecord } from "./api.js";
 
 const INSURANCE_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };
 const SCHEMES = ["labor", "health"] as const;
+const ESTIMATE_DEBOUNCE_MS = 180;
+const AUTO_BRACKET = "__auto__";
 
 type InsuranceScheme = typeof SCHEMES[number];
 
@@ -25,9 +27,8 @@ function amountLabel(amount: number | undefined) {
   return amount === undefined ? "尚未決定" : `NT$ ${amount.toLocaleString("zh-TW")}`;
 }
 
-interface InsuranceDraft {
-  manual: boolean;
-  manualAmount: string;
+function premiumLabel(amountMinor: number) {
+  return `-NT$ ${Math.round(amountMinor / 100).toLocaleString("zh-TW")}`;
 }
 
 /**
@@ -39,10 +40,7 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
   const [status, setStatus] = useState<"enrolled" | "withdrawn">("enrolled");
   const [validFrom, setValidFrom] = useState(existing ? taipeiToday() : employment.hiredOn);
   const [salary, setSalary] = useState(defaultSalary === undefined ? "" : String(defaultSalary));
-  const [drafts, setDrafts] = useState<Record<InsuranceScheme, InsuranceDraft>>({
-    labor: { manual: false, manualAmount: "" },
-    health: { manual: false, manualAmount: "" },
-  });
+  const [bracketSelections, setBracketSelections] = useState<Record<InsuranceScheme, string>>({ labor: AUTO_BRACKET, health: AUTO_BRACKET });
   const [dependents, setDependents] = useState(String(defaultDependentCount ?? 0));
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
@@ -54,31 +52,60 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
     health: bracketForSalary(activeTables.get("health")?.brackets, salary),
   }), [activeTables, salary]);
 
-  useEffect(() => { setMessage(""); }, [status, validFrom, salary, drafts, dependents, note]);
+  const selectedBrackets = useMemo(() => ({
+    labor: bracketSelections.labor === AUTO_BRACKET ? selected.labor : activeTables.get("labor")?.brackets.find((bracket) => String(bracket.level) === bracketSelections.labor),
+    health: bracketSelections.health === AUTO_BRACKET ? selected.health : activeTables.get("health")?.brackets.find((bracket) => String(bracket.level) === bracketSelections.health),
+  }), [activeTables, bracketSelections.health, bracketSelections.labor, selected]);
 
-  const amount = (scheme: InsuranceScheme) => {
-    if (status === "withdrawn") return 0;
-    const draft = drafts[scheme];
-    return draft.manual ? Number(draft.manualAmount) : selected[scheme]?.insuredAmount;
-  };
+  useEffect(() => { setMessage(""); }, [status, validFrom, salary, bracketSelections, dependents, note]);
 
-  const updateDraft = (scheme: InsuranceScheme, patch: Partial<InsuranceDraft>) => setDrafts((current) => ({ ...current, [scheme]: { ...current[scheme], ...patch } }));
+  const usesManualSource = (scheme: InsuranceScheme) => activeTables.get(scheme)?.sourceKind === "manual";
+  const amount = (scheme: InsuranceScheme) => status === "withdrawn" ? 0 : selectedBrackets[scheme]?.insuredAmount;
 
-  return <Dialog title={existing ? "編輯勞健保" : "新增加保資料"} titleMeta="勞保與健保一起建立版本" onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
+  const updateBracketSelection = (scheme: InsuranceScheme, value: string) => setBracketSelections((current) => ({ ...current, [scheme]: value }));
+  const dependentCount = Number(dependents);
+  const estimateValues = useMemo<InsuranceEstimateRequest>(() => ({
+    validFrom,
+    versions: SCHEMES.map((scheme) => ({ scheme, status, insuredAmountMinor: (amount(scheme) ?? 0) * 100, dependentCount: scheme === "health" ? dependentCount : 0 })),
+  }), [activeTables, bracketSelections, dependentCount, selected, selectedBrackets, status, validFrom]);
+  const estimateSignature = JSON.stringify(estimateValues);
+  const estimateReady = Boolean(validFrom) && Number.isSafeInteger(dependentCount) && dependentCount >= 0 && dependentCount <= 3 && (status === "withdrawn" || SCHEMES.every((scheme) => {
+    const nextAmount = amount(scheme);
+    return Number.isSafeInteger(nextAmount) && (nextAmount ?? 0) > 0;
+  }));
+  const [debouncedEstimateValues, setDebouncedEstimateValues] = useState<InsuranceEstimateRequest | null>(null);
+  useEffect(() => {
+    if (!estimateReady) { setDebouncedEstimateValues(null); return; }
+    const timeout = window.setTimeout(() => setDebouncedEstimateValues(estimateValues), ESTIMATE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [estimateReady, estimateSignature, estimateValues]);
+  const estimateQuery = useHrInsuranceEstimate(employment.id, debouncedEstimateValues);
+  const debouncedEstimateSignature = debouncedEstimateValues ? JSON.stringify(debouncedEstimateValues) : "";
+  const estimateIsCurrent = estimateReady && debouncedEstimateSignature === estimateSignature;
+  const calculationPending = estimateReady && (!estimateIsCurrent || estimateQuery.isPending || estimateQuery.isFetching);
+  const calculationError = estimateIsCurrent ? estimateQuery.error : undefined;
+  const calculated = estimateIsCurrent ? estimateQuery.data?.estimates : undefined;
+  const laborEstimate = calculated?.find((estimate) => estimate.scheme === "labor");
+  const healthEstimate = calculated?.find((estimate) => estimate.scheme === "health");
+  const totalPremium = laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined && healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined
+    ? laborEstimate.employeeAmountMinor + healthEstimate.employeeAmountMinor
+    : undefined;
+
+  return <Dialog title={existing ? "編輯勞健保" : "新增加保資料"} titleMeta="勞保與健保一起建立版本" className="hr-insurance-dialog" onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     const healthDependents = Number(dependents);
     if (status === "enrolled") {
       for (const scheme of SCHEMES) {
         const nextAmount = amount(scheme);
-        if (!Number.isSafeInteger(nextAmount) || (nextAmount ?? 0) <= 0) { setMessage(drafts[scheme].manual ? `請輸入${INSURANCE_LABEL[scheme]}人工投保金額。` : `請輸入實際月薪，讓系統依目前啟用的${INSURANCE_LABEL[scheme]}級距帶入投保金額。`); return; }
+        if (!Number.isSafeInteger(nextAmount) || (nextAmount ?? 0) <= 0) { setMessage(`請輸入實際月薪，讓系統依目前啟用的${INSURANCE_LABEL[scheme]}級距帶入投保金額。`); return; }
       }
       if (!Number.isSafeInteger(healthDependents) || healthDependents < 0 || healthDependents > 3) { setMessage("眷屬人數必須介於 0～3。"); return; }
-      if ((drafts.labor.manual || drafts.health.manual) && !note.trim()) { setMessage("人工覆寫必須留下覆核備註。"); return; }
+      if (SCHEMES.some(usesManualSource) && !note.trim()) { setMessage("人工來源必須留下覆核備註。"); return; }
     }
     setMessage("");
     const valuesFor = (scheme: InsuranceScheme) => {
-      const draft = drafts[scheme];
       const activeTable = activeTables.get(scheme);
+      const manual = usesManualSource(scheme);
       return {
         scheme,
         status,
@@ -88,40 +115,50 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
         insuredAmountMinor: (amount(scheme) ?? 0) * 100,
         dependentCount: scheme === "health" ? healthDependents : 0,
         rateYear: Number(currentYear),
-        sourceKind: draft.manual ? "manual" : "official",
-        sourceUrl: draft.manual ? "" : activeTable?.sourceUrl ?? "",
+        sourceKind: manual ? "manual" : "official",
+        sourceUrl: manual ? "" : activeTable?.sourceUrl ?? "",
         note,
       };
     };
     save.mutate({ path: `/employments/${employment.id}/insurance`, method: "POST", values: { versions: SCHEMES.map(valuesFor) } }, { onSuccess: onClose });
-  } }} actions={<Button type="submit" loading={save.isPending}>儲存勞健保</Button>}>
-    <p>系統會用目前啟用的官方級距依實際月薪自動帶入勞保與健保投保金額；每年級距調整後，再由系統整理需要調整的人員提醒管理者。</p>
+  } }} actions={<Button type="submit" loading={save.isPending}>儲存</Button>}>
     <Field label="狀態"><div className="segmented-control" role="group" aria-label="勞健保狀態">
       <button type="button" className={status === "enrolled" ? "selected" : ""} onClick={() => setStatus("enrolled")}>加保／變更級距</button>
       <button type="button" className={status === "withdrawn" ? "selected" : ""} onClick={() => setStatus("withdrawn")}>退保</button>
     </div></Field>
-    <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} hint={existing ? "從這天起套用新的投保資料，前一個版本會在前一天結束。" : undefined} />
+    <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
     {status === "enrolled" ? <>
-      <TextField label="實際月薪（元）" type="number" min="0" step="1" value={salary} required onChange={(event) => setSalary(event.target.value)} hint="投保級距會依目前啟用的官方級距自動判定，不需手動選年度或級距。" />
+      <TextField label="實際月薪（元）" type="number" min="0" step="1" value={salary} required onChange={(event) => setSalary(event.target.value)} hint="勞保／健保級距會依月薪自動帶入，也可以從下拉選單選擇其他級距。" />
       <div className="form-grid two">
         {SCHEMES.map((scheme) => {
           const activeTable = activeTables.get(scheme);
-          const draft = drafts[scheme];
-          const selectedBracket = selected[scheme];
-          const nextAmount = draft.manual ? Number(draft.manualAmount) : selectedBracket?.insuredAmount;
+          const selection = bracketSelections[scheme];
+          const selectedBracket = selectedBrackets[scheme];
+          const bracketOptions = [
+            { value: "", label: activeTable ? "請輸入實際月薪" : "尚未有可用級距", disabled: true },
+            ...(activeTable?.brackets ?? []).map((bracket) => ({ value: String(bracket.level), label: `第 ${bracket.level} 級／${amountLabel(bracket.insuredAmount)}` })),
+          ];
+          const displayedSelection = selection === AUTO_BRACKET ? String(selectedBracket?.level ?? "") : selection;
           return <section className="hr-insurance-scheme-card" key={scheme}>
-            <div><h3>{INSURANCE_LABEL[scheme]}</h3><p className="muted">目前投保金額：{Number.isSafeInteger(nextAmount) && (nextAmount ?? 0) > 0 ? amountLabel(nextAmount) : "尚未決定"}</p></div>
-            {!draft.manual ? <p className="form-hint">{selectedBracket ? `第 ${selectedBracket.level} 級／${amountLabel(selectedBracket.insuredAmount)}；來源：官方資料（${activeTable?.fetchedAt ?? "尚未載入"}）` : activeTable ? "請輸入月薪以自動帶入級距。" : `尚未啟用${INSURANCE_LABEL[scheme]}官方級距。`}</p> : null}
-            <Field label="人工覆寫" hint="只在官方資料尚未啟用或主管機關要求人工調整時使用。"><span className="checkbox-field"><input type="checkbox" checked={draft.manual} onChange={(event) => updateDraft(scheme, { manual: event.target.checked })} />改用人工投保金額</span></Field>
-            {draft.manual ? <TextField label="人工投保金額（元）" type="number" min="0" step="1" value={draft.manualAmount} required onChange={(event) => updateDraft(scheme, { manualAmount: event.target.value })} /> : null}
+            <SelectField label={`${INSURANCE_LABEL[scheme]}級距`} value={displayedSelection} options={bracketOptions} onChange={(event) => updateBracketSelection(scheme, event.target.value)} />
           </section>;
         })}
       </div>
       <TextField label="健保眷屬人數（0～3）" type="number" min="0" max="3" step="1" value={dependents} onChange={(event) => setDependents(event.target.value)} />
+      <div className="hr-insurance-estimate hr-insurance-estimate-summary" aria-live="polite">
+        <div className="hr-insurance-estimate-title">員工每月扣款試算</div>
+        {calculationPending ? <span className="muted">試算中…</span> : calculationError ? <span className="muted">暫時無法取得試算</span> : calculated ? <>
+          <div className="hr-insurance-estimate-breakdown">
+            <div className="hr-insurance-estimate-row"><span>勞保<small className="muted">{laborEstimate?.employeeRatePpm === null || laborEstimate?.employeeRatePpm === undefined ? "—" : `員工負擔 ${(laborEstimate.employeeRatePpm / 10_000).toFixed(2)}%`}</small></span>{laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined ? <strong>{premiumLabel(laborEstimate.employeeAmountMinor)}</strong> : <span className="muted">尚未設定有效規則</span>}</div>
+            <div className="hr-insurance-estimate-row"><span>健保<small className="muted">{healthEstimate?.employeeRatePpm === null || healthEstimate?.employeeRatePpm === undefined ? "—" : `員工負擔 ${(healthEstimate.employeeRatePpm / 10_000).toFixed(2)}%${dependentCount > 0 ? `・含 ${dependentCount} 位眷屬` : ""}`}</small></span>{healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined ? <strong>{premiumLabel(healthEstimate.employeeAmountMinor)}</strong> : <span className="muted">尚未設定有效規則</span>}</div>
+          </div>
+          {totalPremium !== undefined ? <div className="hr-insurance-estimate-total"><span>合計</span><strong>{premiumLabel(totalPremium)}</strong></div> : null}
+        </> : Number.isSafeInteger(dependentCount) && dependentCount >= 0 && dependentCount <= 3 ? <span className="muted">選擇級距後即可計算</span> : <span className="muted">請輸入有效的眷屬人數</span>}
+      </div>
     </> : <Alert tone="info">退保會同時建立勞保與健保退保版本，生效日之後不再列入薪資扣款計算。</Alert>}
-    <TextField label="備註" required={(drafts.labor.manual || drafts.health.manual) && status === "enrolled"} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint={(drafts.labor.manual || drafts.health.manual) && status === "enrolled" ? "人工覆寫必須留下覆核備註。" : undefined} />
-    {table.error ? <Alert tone="danger">{table.error.message}；仍可勾選人工覆寫並填入金額。</Alert> : null}
-    {status === "enrolled" && !table.isPending && SCHEMES.some((scheme) => !activeTables.get(scheme) && !drafts[scheme].manual) ? <Alert tone="warning">目前年度尚未有完整已啟用的官方級距；請先同步並啟用，或針對缺少的險別改用人工覆寫。</Alert> : null}
-    {message || save.error ? <Alert tone="danger">{message || save.error?.message}</Alert> : null}
+    <TextField label="備註" required={SCHEMES.some(usesManualSource) && status === "enrolled"} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint={SCHEMES.some(usesManualSource) && status === "enrolled" ? "人工來源必須留下覆核備註。" : undefined} />
+    {table.error ? <Alert tone="danger">{table.error.message}；請取得並啟用級距後再儲存。</Alert> : null}
+    {status === "enrolled" && !table.isPending && SCHEMES.some((scheme) => !activeTables.get(scheme)) ? <Alert tone="warning">目前年度尚未有完整已啟用的級距；請先按「取得級距」並啟用後再儲存。</Alert> : null}
+    {message || save.error || calculationError ? <Alert tone="danger">{message || save.error?.message || calculationError?.message}</Alert> : null}
   </Dialog>;
 }

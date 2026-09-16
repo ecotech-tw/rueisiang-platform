@@ -412,7 +412,18 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   content: "";
   pointer-events: none;
 }
-.hr-system .table-scroll .data-table thead th { background: --alpha(var(--color-paper) / 74%); backdrop-filter: blur(10px) saturate(150%); }
+.hr-system .table-scroll .data-table thead th {
+  background: --alpha(var(--color-paper) / 82%);
+  -webkit-backdrop-filter: blur(14px) saturate(165%);
+  backdrop-filter: blur(14px) saturate(165%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 76%) inset,
+    0 10px 24px --alpha(var(--color-ink) / 15%),
+    0 1px 0 --alpha(var(--color-ink) / 5%),
+    inset 0 -1px 0 --alpha(var(--color-brand) / 22%);
+}
+.hr-system .table-scroll .data-table thead th:first-child { border-top-left-radius: 12px; }
+.hr-system .table-scroll .data-table thead th:last-child { border-top-right-radius: 12px; }
 .hr-system .table-scroll { min-width: 0; }
 .hr-system .primary-button,
 .hr-system .ghost-button,
@@ -935,8 +946,86 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   -webkit-backdrop-filter: blur(7px) saturate(150%);
   backdrop-filter: blur(7px) saturate(150%);
 }
-.hr-system .hr-insurance-scheme-card h3 { margin: 0 0 3px; color: var(--color-ink); font-size: 15px; }
 .hr-system .hr-insurance-scheme-card p { margin: 0; }
+.hr-system .hr-insurance-estimate { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: --alpha(var(--color-paper) / 46%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 64%) inset, 0 0 0 1px --alpha(var(--color-ink) / 6%) inset; }
+.hr-system .hr-insurance-estimate-title { color: var(--color-muted); font-size: 11px; font-weight: 800; letter-spacing: .02em; }
+.hr-system .hr-insurance-estimate strong { color: var(--color-brand-dark); font-size: 16px; letter-spacing: -.01em; }
+.hr-system .hr-insurance-estimate .muted { font-size: 11px; }
+.hr-system .hr-insurance-estimate-breakdown { display: grid; gap: 8px; margin-top: 4px; }
+.hr-system .hr-insurance-estimate-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid --alpha(var(--color-ink) / 7%); }
+.hr-system .hr-insurance-estimate-row > span { display: grid; gap: 2px; }
+.hr-system .hr-insurance-estimate-row small { font-size: 11px; font-weight: 500; }
+.hr-system .hr-insurance-estimate-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; padding: 10px 0 2px; color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
+.hr-system .hr-insurance-estimate-total strong { font-size: 17px; }
+
+/* 級距維護：輸入欄位保持表格密度，手機則沿用 data-label 卡片排版。 */
+.hr-system .status-manual { background: var(--color-warn-soft); color: var(--color-warn); }
+.hr-system .hr-rate-management-intro { display: grid; gap: 8px; padding-inline: 4px; }
+.hr-system .hr-rate-management-intro strong { color: var(--color-ink); font-size: 14px; }
+.hr-system .hr-rate-management-intro p { margin: 0; color: var(--color-muted); font-size: 12px; line-height: 1.7; }
+.hr-system .hr-rate-management-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 4px; }
+.hr-system .hr-rate-scheme-tabs { flex: 1 1 260px; max-width: 360px; }
+.hr-system .hr-rate-management-toolbar .row-actions { justify-content: flex-end; gap: 10px; }
+.hr-system .hr-rate-management-context { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-height: 30px; padding: 4px 2px; color: var(--color-muted); font-size: 12px; }
+.hr-system .hr-rate-management-loading { display: grid; place-items: center; min-height: 260px; color: var(--color-muted); }
+.hr-system .hr-rate-editor-form { display: grid; gap: 18px; padding-bottom: 16px; }
+.hr-system .hr-rate-editor-intro { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; padding-inline: 2px; }
+.hr-system .hr-rate-editor-intro strong { color: var(--color-ink); font-size: 14px; }
+.hr-system .hr-rate-editor-intro .muted { font-size: 12px; }
+.hr-system .hr-rate-editor-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; padding-top: 4px; }
+.hr-system .hr-rate-editor-form > .field-grid { column-gap: 20px; row-gap: 20px; }
+.hr-rate-source { display: grid; justify-items: start; gap: 4px; min-width: 120px; }
+.hr-rate-source a { color: var(--color-brand-dark); font-size: 12px; font-weight: 700; }
+.hr-rate-source .cell-sub { max-width: 260px; white-space: normal; }
+.hr-rate-editor { display: grid; gap: 16px; min-width: 0; }
+.hr-rate-editor-scroll {
+  max-height: 380px;
+  overflow: auto;
+  isolation: isolate;
+  border: 1px solid --alpha(var(--color-ink) / 10%);
+  border-radius: 16px;
+  background: --alpha(var(--color-paper) / 30%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 70%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
+    0 12px 24px --alpha(var(--color-ink) / 8%);
+  scrollbar-gutter: stable;
+}
+.hr-rate-editor-table { min-width: 680px; border-collapse: separate; border-spacing: 0; }
+.hr-system .hr-rate-editor-scroll .hr-rate-editor-table thead th:first-child { border-top-left-radius: 14px; }
+.hr-system .hr-rate-editor-scroll .hr-rate-editor-table thead th:last-child { border-top-right-radius: 14px; }
+.hr-rate-editor-table th { height: 44px; padding-block: 6px; font-size: 12px; }
+.hr-rate-editor-table td { padding-block: 8px; }
+.hr-rate-level { display: grid; place-items: center; width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--color-soft-line); border-radius: 10px; background: --alpha(var(--color-paper) / 54%); color: var(--color-muted); font-weight: 800; font-variant-numeric: tabular-nums; }
+.hr-rate-editor-table .hr-rate-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font: inherit;
+  transition-property: background-color, border-color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-rate-editor-table .hr-rate-input:hover { background: var(--color-canvas); }
+.hr-rate-editor-table .hr-rate-input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; border-color: var(--color-secondary); }
+.hr-rate-editor-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding-inline: 2px; }
+
+@media (max-width: 760px) {
+  .hr-rate-management-toolbar { align-items: stretch; flex-direction: column; }
+  .hr-rate-scheme-tabs { max-width: none; }
+  .hr-rate-management-toolbar .row-actions { justify-content: stretch; }
+  .hr-rate-management-toolbar .row-actions > * { flex: 1; }
+  .hr-rate-editor-scroll { overflow-x: visible; }
+  .hr-rate-editor-table { min-width: 0; }
+  .hr-rate-editor-table td { padding-block: 5px; }
+  .hr-rate-level { min-height: 38px; }
+  .hr-rate-editor-table .hr-rate-input { min-height: 38px; }
+}
 
 @media (max-width: 1100px) { .hr-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) {

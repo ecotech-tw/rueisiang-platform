@@ -20,8 +20,8 @@ export {
   type HrFormRequestEventKind, type HrFormRequestInput, type HrFormRequestStatus,
 } from "./hr-requests.js";
 export {
-  activateHrInsuranceRateTable, createHrCompensationVersion, voidHrCompensationVersion, createHrInsuranceContributionRule, createHrInsuranceVersions, fetchHrInsuranceBrackets, HrInsuranceRateError, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables,
-  type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceContributionInput, type HrInsuranceInput, type HrInsuranceRateTableRecord, type HrInsuranceScheme,
+  activateHrInsuranceRateTable, calculateHrInsuranceEmployeeAmount, createHrCompensationVersion, voidHrCompensationVersion, createHrInsuranceContributionRule, createHrInsuranceVersions, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, HrInsuranceRateError, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable,
+  type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceContributionEstimate, type HrInsuranceContributionInput, type HrInsuranceContributionRuleRecord, type HrInsuranceEstimateVersionInput, type HrInsuranceInput, type HrInsuranceRateTableRecord, type HrInsuranceRateTableSourceKind, type HrInsuranceRateTableUpdateInput, type HrManualInsuranceRateTableInput, type HrInsuranceScheme,
 } from "./hr-payroll.js";
 export {
   assignHrBonusPolicyMember, calculateHrBonusPool, calculateHrPayroll, closeHrPayrollRun, createHrBonusPerformanceSnapshot, createHrBonusPolicy, deleteHrBonusPolicy, updateHrBonusPolicy,

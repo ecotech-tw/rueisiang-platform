@@ -2,7 +2,7 @@ import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie } f
 import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
   createHrCompensationVersion, voidHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrAttendanceLocationSchedules, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
-  createHrInsuranceContributionRule, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, activateHrInsuranceRateTable, saveHrAttendanceLocationSchedules, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
+  createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, saveHrAttendanceLocationSchedules, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest,
@@ -133,6 +133,34 @@ function payBasis(input: Record<string, unknown>): "monthly" | "daily" | "hourly
 function insuranceScheme(input: Record<string, unknown>): "labor" | "health" {
   if (input.scheme === "labor" || input.scheme === "health") return input.scheme;
   throw new HTTPException(400, { message: "保險種類不正確。" });
+}
+function insuranceRateSource(input: Record<string, unknown>) {
+  const value = input.sourceUrl;
+  if (value === undefined || value === null || value === "") return "";
+  if (typeof value !== "string" || value.length > 500) throw new HTTPException(400, { message: "級距來源最多 500 字。" });
+  return value.trim();
+}
+function insuranceRateBrackets(input: Record<string, unknown>) {
+  const raw = input.brackets;
+  if (!Array.isArray(raw) || raw.length > 500) throw new HTTPException(400, { message: "級距清單格式不正確。" });
+  return raw.map((value, index) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new HTTPException(400, { message: `第 ${index + 1} 筆級距格式不正確。` });
+    const bracket = value as Record<string, unknown>;
+    const upperRaw = bracket.upperSalary;
+    const upperSalary = upperRaw === undefined || upperRaw === null || upperRaw === "" ? null : integerValue(bracket, "upperSalary", "級距上限", 0, Number.MAX_SAFE_INTEGER);
+    return {
+      level: integerValue(bracket, "level", "級距序號", 1, 1_000_000),
+      lowerSalary: integerValue(bracket, "lowerSalary", "級距下限", 0, Number.MAX_SAFE_INTEGER),
+      upperSalary,
+      insuredAmount: integerValue(bracket, "insuredAmount", "投保金額", 1, Number.MAX_SAFE_INTEGER),
+    };
+  });
+}
+function expectedRateContentHash(input: Record<string, unknown>) {
+  const value = input.contentHash ?? input.expectedContentHash;
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/i.test(value)) throw new HTTPException(400, { message: "級距版本識別碼不正確，請重新整理後再試。" });
+  return value;
 }
 function insuranceStatus(input: Record<string, unknown>): "enrolled" | "withdrawn" {
   if (input.status === "enrolled" || input.status === "withdrawn") return input.status;
@@ -541,8 +569,15 @@ export const hr = new Hono<AppEnv>()
     if (year !== undefined && (!Number.isSafeInteger(year) || year < 1900 || year > 9999)) throw new HTTPException(400, { message: "費率年度不正確。" });
     return c.json({ tables: await listHrInsuranceRateTables(c.get("db"), year) });
   })
+  .post("/insurance-rates", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以維護級距。" });
+    const input = await body(c);
+    return c.json(await createHrManualInsuranceRateTable(c.get("db"), {
+      scheme: insuranceScheme(input), year: integerValue(input, "year", "費率年度", 1900, 9999), sourceUrl: insuranceRateSource(input), note: noteValue(input), brackets: insuranceRateBrackets(input),
+    }, c.get("user")), 201);
+  })
   .post("/insurance-rates/sync", requirePermission("hr:employee:write"), async (c) => {
-    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以同步官方級距。" });
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以取得官方級距。" });
     const input = await body(c); const year = integerValue(input, "year", "費率年度", 1900, 9999);
     try {
       return c.json({ tables: await syncHrInsuranceRateTables(c.get("db"), year, c.get("user")) }, 201);
@@ -551,9 +586,22 @@ export const hr = new Hono<AppEnv>()
       throw error;
     }
   })
+  .patch("/insurance-rates/:id", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以維護級距。" });
+    const input = await body(c);
+    return c.json(await updateHrInsuranceRateTable(c.get("db"), c.req.param("id"), {
+      sourceUrl: insuranceRateSource(input), note: noteValue(input), brackets: insuranceRateBrackets(input), expectedContentHash: expectedRateContentHash(input),
+    }, c.get("user")));
+  })
+  .delete("/insurance-rates/:id", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以維護級距。" });
+    const input = await body(c);
+    return c.json(await deleteHrInsuranceRateTable(c.get("db"), c.req.param("id"), c.get("user"), expectedRateContentHash(input)));
+  })
   .post("/insurance-rates/:id/activate", requirePermission("hr:employee:write"), async (c) => {
-    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以啟用官方級距。" });
-    return c.json(await activateHrInsuranceRateTable(c.get("db"), c.req.param("id"), c.get("user")));
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以啟用級距。" });
+    const input = await body(c);
+    return c.json(await activateHrInsuranceRateTable(c.get("db"), c.req.param("id"), c.get("user"), expectedRateContentHash(input)));
   })
   .get("/insurance-brackets", requirePermission("hr:employee:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
@@ -797,6 +845,24 @@ export const hr = new Hono<AppEnv>()
   .post("/employments/:id/compensation/:versionId/void", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理薪資資料。" });
     return c.json(await voidHrCompensationVersion(c.get("db"), c.req.param("id"), c.req.param("versionId"), c.get("user")));
+  })
+  .post("/employments/:id/insurance/estimate", requirePermission("hr:employee:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以試算勞健保金額。" });
+    const input = await body(c);
+    const validFrom = date(input, "validFrom")!;
+    if (!Array.isArray(input.versions) || input.versions.length < 1 || input.versions.length > 2) throw new HTTPException(400, { message: "試算投保版本格式不正確。" });
+    const versions = input.versions.map((raw, index) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆試算投保版本格式不正確。` });
+      const item = raw as Record<string, unknown>;
+      const scheme = insuranceScheme(item);
+      const status = insuranceStatus(item);
+      return {
+        scheme, status,
+        insuredAmountMinor: status === "withdrawn" ? 0 : integerValue(item, "insuredAmountMinor", "投保金額（分）", 0, Number.MAX_SAFE_INTEGER),
+        dependentCount: scheme === "health" ? integerValue(item, "dependentCount", "眷屬人數", 0, 3) : 0,
+      };
+    });
+    return c.json({ estimates: await estimateHrInsuranceContributions(c.get("db"), { validFrom, versions }) });
   })
   .post("/employments/:id/insurance", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理勞健保資料。" });
