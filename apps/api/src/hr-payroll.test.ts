@@ -113,14 +113,18 @@ describe("HR 薪資與勞健保", () => {
     expect(updatedDraft.contentHash).not.toBe(draft.contentHash);
     expect((await request(`/hr/insurance-rates/${createdBody.id}`, "PATCH", { sourceUrl: "過期版本", note: "過期", contentHash: draft.contentHash, brackets })).status).toBe(409);
 
-    expect((await request(`/hr/insurance-rates/${createdBody.id}/activate`, "POST", {})).status).toBe(200);
+    expect((await request(`/hr/insurance-rates/${createdBody.id}/activate`, "POST", { contentHash: draft.contentHash })).status).toBe(409);
+    expect((await request(`/hr/insurance-rates/${createdBody.id}/activate`, "POST", { contentHash: updatedDraft.contentHash })).status).toBe(200);
     const active = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: Array<{ id: string; status: string; sourceKind: string }> };
     expect(active.tables.find((table) => table.id === createdBody.id)).toMatchObject({ status: "active", sourceKind: "manual" });
 
     const next = await request("/hr/insurance-rates", "POST", { scheme: "labor", year: 2026, sourceUrl: "第二版", note: "待審閱刪除測試", brackets });
     expect(next.status, await next.clone().text()).toBe(201);
     const nextBody = await next.json() as { id: string };
-    expect((await request(`/hr/insurance-rates/${nextBody.id}`, "DELETE", {})).status).toBe(200);
+    const nextListed = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: Array<{ id: string; contentHash: string }> };
+    const nextDraft = nextListed.tables.find((table) => table.id === nextBody.id)!;
+    expect((await request(`/hr/insurance-rates/${nextBody.id}`, "DELETE", { contentHash: draft.contentHash })).status).toBe(409);
+    expect((await request(`/hr/insurance-rates/${nextBody.id}`, "DELETE", { contentHash: nextDraft.contentHash })).status).toBe(200);
     const afterDelete = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: Array<{ id: string }> };
     expect(afterDelete.tables.some((table) => table.id === nextBody.id)).toBe(false);
   });

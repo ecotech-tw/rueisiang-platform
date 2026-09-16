@@ -189,7 +189,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       setMessage(null);
       save.mutate({ path: `/employments/${employment.id}/compensation`, method: "POST", values: {
         validFrom, validTo: validTo || null, payBasis, baseAmountMinor: draftAmountMinor(baseAmount), note,
-        // 型態與三個納入與否不再讓人逐項設定：一律是固定項目，並納入加班基礎、投保級距與應稅所得。
+        // 型態與三個納入與否不再讓人逐項設定：一律是固定項目，並納入加班基礎、勞保／健保級距與應稅所得。
         items: items.map((item) => ({ itemName: item.name.trim(), amountMinor: draftAmountMinor(item.amount), itemKind: "fixed", amountBasis: item.basis, includeOvertime: true, includeInsurance: true, includeTax: true })),
       } }, { onSuccess: onClose });
     } }}
@@ -198,7 +198,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       <Button type="submit" loading={save.isPending} disabled={!employment || voidCompensation.isPending}>保存敘薪</Button>
     </>}
   >
-    <p>{allVoided ? "所有敘薪版本已撤回；請重新填寫要建立的敘薪版本，生效日可自行指定。" : isEditing ? "更新會建立新的敘薪版本，不會覆寫既有紀錄；若要修正前一筆，請先解除最新敘薪，直到撤回第一版。" : "敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與投保級距由系統依已啟用的設定套用，不在這裡填。"}</p>
+    <p>{allVoided ? "所有敘薪版本已撤回；請重新填寫要建立的敘薪版本，生效日可自行指定。" : isEditing ? "更新會建立新的敘薪版本，不會覆寫既有紀錄；若要修正前一筆，請先解除最新敘薪，直到撤回第一版。" : "敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與勞保／健保級距由系統依已啟用的設定套用，不在這裡填。"}</p>
     <SelectField
       label="員工"
       value={userId}
@@ -325,7 +325,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   const employeeTablePath = `/employees?page=${employeeFilters.page}&pageSize=${employeeFilters.pageSize}&search=${encodeURIComponent(employeeFilters.search)}&status=${employeeFilters.status}&sortField=${employeeFilters.sortField}&sortDirection=${employeeFilters.sortDirection}`;
   const employeeTable = useHrQuery<EmployeePageResponse>(employeeTablePath, !settingsOnly && canRead && permissions.has("hr:employee:read"));
   const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers", !settingsOnly && canRead && permissions.has("hr:schedule:read"));
-  // 投保級距集中在「勞健保管理」的級距管理 modal；這裡只維護公司負擔規則。
+  // 勞保／健保級距集中在「勞健保管理」的級距管理 modal；這裡只維護公司負擔規則。
   const contributionRules = useHrQuery<{ rules: InsuranceContributionRule[] }>("/insurance-contribution-rules", settingsOnly && canRead);
   const createContribution = useHrWrite();
   const [contributionScheme, setContributionScheme] = useState<"labor" | "health">("labor");

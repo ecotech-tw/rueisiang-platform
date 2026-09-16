@@ -76,7 +76,7 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
   };
   const confirmRemove = () => {
     if (!isExistingDraft) return;
-    remove.mutate({ path: `/insurance-rates/${table.id}`, method: "DELETE", values: {} }, { onSuccess: () => { setConfirmDelete(false); (onDeleted ?? onSaved)?.(); } });
+    remove.mutate({ path: `/insurance-rates/${table.id}`, method: "DELETE", values: { contentHash: table.contentHash } }, { onSuccess: () => { setConfirmDelete(false); (onDeleted ?? onSaved)?.(); } });
   };
 
   return <>
@@ -107,7 +107,7 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
       {message || save.error || remove.error ? <Alert tone="danger">{message || save.error?.message || remove.error?.message}</Alert> : null}
       <div className="hr-rate-editor-actions">
         {isExistingDraft ? <Button type="button" variant="danger" icon="trash" onClick={() => setConfirmDelete(true)} disabled={save.isPending || remove.isPending}>刪除草稿</Button> : null}
-        <Button type="submit" loading={save.isPending}>保存級距</Button>
+        <Button type="submit" loading={save.isPending}>儲存</Button>
       </div>
     </form>
     {confirmDelete ? <ConfirmDialog title={`刪除${SCHEME_LABEL[scheme]}級距草稿？`} pending={remove.isPending} onCancel={() => setConfirmDelete(false)} onConfirm={confirmRemove}><p>這只會刪除尚未啟用的待審閱版本，不會影響目前啟用或歷史級距。</p></ConfirmDialog> : null}

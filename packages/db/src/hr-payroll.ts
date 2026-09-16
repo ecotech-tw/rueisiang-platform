@@ -441,21 +441,25 @@ export async function updateHrInsuranceRateTable(db: Database, id: string, input
     WHERE id=${id} AND status='draft'${expected} RETURNING id`, id, actor, "insurance_rate_table_updated", "級距版本已被其他人變更，請重新整理後再試。 ");
 }
 
-export async function deleteHrInsuranceRateTable(db: Database, id: string, actor: HrActor) {
-  await getDraftRateTable(db, id);
-  return writeHrMutation(db, sql`DELETE FROM hr_insurance_rate_tables WHERE id=${id} AND status='draft' RETURNING id`, id, actor, "insurance_rate_table_deleted", "級距版本已被其他人變更，請重新整理後再試。 ");
+export async function deleteHrInsuranceRateTable(db: Database, id: string, actor: HrActor, expectedContentHash?: string) {
+  const table = await getDraftRateTable(db, id);
+  if (expectedContentHash && expectedContentHash !== table.contentHash) throw new HrError(409, "級距版本已被其他人變更，請重新整理後再試。 ");
+  const expected = expectedContentHash ? sql` AND content_hash=${expectedContentHash}` : sql``;
+  return writeHrMutation(db, sql`DELETE FROM hr_insurance_rate_tables WHERE id=${id} AND status='draft'${expected} RETURNING id`, id, actor, "insurance_rate_table_deleted", "級距版本已被其他人變更，請重新整理後再試。 ");
 }
 
-export async function activateHrInsuranceRateTable(db: Database, id: string, actor: HrActor) {
+export async function activateHrInsuranceRateTable(db: Database, id: string, actor: HrActor, expectedContentHash?: string) {
   const [draft] = await db.select().from(hrInsuranceRateTables).where(and(eq(hrInsuranceRateTables.id, id), eq(hrInsuranceRateTables.status, "draft"))).limit(1);
   if (!draft) throw new HrError(404, "找不到待審閱的級距版本。 ");
+  if (expectedContentHash && expectedContentHash !== draft.contentHash) throw new HrError(409, "級距版本已被其他人變更，請重新整理後再試。 ");
   const data = rateTableData(draft.dataJson);
   const brackets = normalizeInsuranceBrackets(data.brackets);
   if (!brackets.length) throw new HrError(400, "至少要有一筆級距才能啟用。 ");
+  const expected = expectedContentHash ? sql` AND content_hash=${expectedContentHash}` : sql``;
   await writeHrMutation(db, [
     sql`UPDATE hr_insurance_rate_tables SET status='archived' WHERE scheme=${draft.scheme} AND year=${draft.year} AND status='active' RETURNING id`,
     sql`UPDATE hr_insurance_rate_tables SET status='active', activated_at=CURRENT_TIMESTAMP, activated_by=${actor.id}
-      WHERE id=${id} AND status='draft' RETURNING id`,
+      WHERE id=${id} AND status='draft'${expected} RETURNING id`,
   ], id, actor, "insurance_rate_table_activated", "級距版本已被其他人啟用，請重新整理。 ", { allowEmptyMutationIndexes: new Set([0]) });
   return { id, status: "active" as const, sourceKind: data.sourceKind };
 }
@@ -507,7 +511,7 @@ async function insuranceVersionStatements(db: Database, input: HrInsuranceInput,
   if (input.status === "enrolled" && input.insuredAmountMinor <= 0) throw new HrError(400, "加保版本的投保金額必須大於 0。 ");
   if (input.sourceKind !== "official" && input.sourceKind !== "manual") throw new HrError(400, "保險來源不正確。 ");
   if (input.sourceUrl.length > 500 || input.note.length > 1000) throw new HrError(400, "保險來源或備註過長。 ");
-  if (input.sourceKind === "manual" && input.status === "enrolled" && !input.note.trim()) throw new HrError(400, "人工覆寫投保金額必須留下覆核備註。 ");
+  if (input.sourceKind === "manual" && input.status === "enrolled" && !input.note.trim()) throw new HrError(400, "人工來源必須留下覆核備註。 ");
   if (input.sourceKind === "official" && input.status === "enrolled") {
     if (!input.sourceUrl.trim()) throw new HrError(400, "官方來源版本必須保存官方級距來源網址。 ");
     const officialTables = await db.select({ sourceUrl: hrInsuranceRateTables.sourceUrl, dataJson: hrInsuranceRateTables.dataJson }).from(hrInsuranceRateTables)

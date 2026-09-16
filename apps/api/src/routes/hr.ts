@@ -576,13 +576,6 @@ export const hr = new Hono<AppEnv>()
       scheme: insuranceScheme(input), year: integerValue(input, "year", "費率年度", 1900, 9999), sourceUrl: insuranceRateSource(input), note: noteValue(input), brackets: insuranceRateBrackets(input),
     }, c.get("user")), 201);
   })
-  .post("/insurance-rates/manual", requirePermission("hr:employee:write"), async (c) => {
-    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以維護級距。" });
-    const input = await body(c);
-    return c.json(await createHrManualInsuranceRateTable(c.get("db"), {
-      scheme: insuranceScheme(input), year: integerValue(input, "year", "費率年度", 1900, 9999), sourceUrl: insuranceRateSource(input), note: noteValue(input), brackets: insuranceRateBrackets(input),
-    }, c.get("user")), 201);
-  })
   .post("/insurance-rates/sync", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以取得官方級距。" });
     const input = await body(c); const year = integerValue(input, "year", "費率年度", 1900, 9999);
@@ -602,11 +595,13 @@ export const hr = new Hono<AppEnv>()
   })
   .delete("/insurance-rates/:id", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以維護級距。" });
-    return c.json(await deleteHrInsuranceRateTable(c.get("db"), c.req.param("id"), c.get("user")));
+    const input = await body(c);
+    return c.json(await deleteHrInsuranceRateTable(c.get("db"), c.req.param("id"), c.get("user"), expectedRateContentHash(input)));
   })
   .post("/insurance-rates/:id/activate", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以啟用級距。" });
-    return c.json(await activateHrInsuranceRateTable(c.get("db"), c.req.param("id"), c.get("user")));
+    const input = await body(c);
+    return c.json(await activateHrInsuranceRateTable(c.get("db"), c.req.param("id"), c.get("user"), expectedRateContentHash(input)));
   })
   .get("/insurance-brackets", requirePermission("hr:employee:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
