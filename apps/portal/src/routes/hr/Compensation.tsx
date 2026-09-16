@@ -126,6 +126,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const updateItem = (key: string, patch: Partial<SalaryItemDraft>) => setItems((list) => list.map((item) => item.key === key ? { ...item, ...patch } : item));
 
   const effectiveVersion = current ?? (latestVersion && !latestVersion.voidedAt ? latestVersion : undefined);
+  const isCorrection = Boolean(latestVersion?.voidedAt);
   const canVoid = Boolean(latestVersion && !latestVersion.voidedAt);
   const voidLatest = () => {
     if (!employment || !latestVersion || latestVersion.voidedAt) return;
@@ -136,7 +137,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
 
   return <>
     <Dialog
-    title={isEditing ? "更新敘薪" : "新增敘薪"}
+    title={isCorrection ? "修正敘薪" : isEditing ? "更新敘薪" : "新增敘薪"}
     titleMeta={selected ? `${selected.displayName}／${selected.employeeNumber}` : "選一位員工後填寫薪資組成"}
     onClose={onClose}
     closeDisabled={save.isPending || voidCompensation.isPending}
@@ -190,7 +191,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       <Button type="submit" loading={save.isPending} disabled={!employment || voidCompensation.isPending}>保存敘薪</Button>
     </>}
   >
-    <p>{isEditing ? "更新會建立新的敘薪版本，不會覆寫既有紀錄；若上一筆輸入錯誤，可先解除最新敘薪，再以原生效日建立修正版。" : "敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與投保級距由系統依已啟用的設定套用，不在這裡填。"}</p>
+    <p>{isCorrection ? `第 ${latestVersion?.versionNumber} 版已解除；以下沿用該版本資料建立同一生效日的修正版，不會覆寫歷史紀錄。` : isEditing ? "更新會建立新的敘薪版本，不會覆寫既有紀錄；若上一筆輸入錯誤，可先解除最新敘薪，再以原生效日建立修正版。" : "敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與投保級距由系統依已啟用的設定套用，不在這裡填。"}</p>
     <SelectField
       label="員工"
       value={userId}
@@ -202,7 +203,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     {isEditing ? <p className="form-hint">更新敘薪時員工欄位已鎖定，避免誤改到其他員工。</p> : null}
     {userId && profile.isPending ? <p className="muted">載入目前敘薪…</p> : null}
     {userId && !profile.isPending && !employment ? <Alert tone="warning">這位員工沒有任職紀錄，請先在員工列表建立任職。</Alert> : null}
-    {employment ? <p className="form-hint">任職期間 {employment.hiredOn}～{employment.endedOn ?? "目前"}；目前敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : latestVersion?.voidedAt ? "已解除（可建立修正版）" : "尚未設定"}。</p> : null}
+    {employment ? <p className="form-hint">任職期間 {employment.hiredOn}～{employment.endedOn ?? "目前"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : latestVersion?.voidedAt ? "已解除（可建立修正版）" : "尚未設定"}。{isCorrection ? ` 本次修正版本生效日：${latestVersion?.validFrom}。` : ""}</p> : null}
     <div className="field-grid">
       <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
       <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />
@@ -223,7 +224,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
           : <SelectField
             aria-label="薪資項目"
             value={item.name}
-            options={[{ value: "", label: "請選擇項目" }, ...ITEM_PRESETS.map((name) => ({ value: name, label: name })), { value: CUSTOM_ITEM, label: "其他（自行輸入）" }]}
+            options={[{ value: "", label: "請選擇項目" }, ...ITEM_PRESETS.filter((name) => name === item.name || !items.some((other) => other.key !== item.key && other.name.trim() === name)).map((name) => ({ value: name, label: name })), { value: CUSTOM_ITEM, label: "其他（自行輸入）" }]}
             onChange={(event) => updateItem(item.key, event.target.value === CUSTOM_ITEM ? { custom: true, name: "" } : { name: event.target.value })}
           />}
         <SelectField
@@ -293,7 +294,7 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Emp
     <td>{current ? PAY_BASIS_LABEL[current.payBasis] : latestVoided ? "已解除" : "尚未設定"}</td>
     <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}</td>
     <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : latestVoided ? `第 ${latest?.versionNumber} 版已解除` : "—"}</td>
-    <td>{canWrite && employment ? <Button variant="secondary" onClick={() => onEdit(employee.userId)}>{current ? "更新敘薪" : latestVoided ? "修正敘薪" : "新增敘薪"}</Button> : null}</td>
+    <td>{canWrite && employment ? <Button variant="secondary" onClick={() => onEdit(employee.userId)}>{latestVoided ? "修正敘薪" : current ? "更新敘薪" : "新增敘薪"}</Button> : null}</td>
   </tr>;
 }
 
