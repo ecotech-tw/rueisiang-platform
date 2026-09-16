@@ -32,6 +32,7 @@ function WorkerDialog({ worker, onClose }: { worker: ScheduleWorkerRecord | null
   const save = useHrWrite();
   const [displayName, setDisplayName] = useState(worker?.displayName ?? "");
   const [active, setActive] = useState(worker ? isActive(worker) : true);
+  const isEditing = Boolean(worker);
   return <Dialog title={worker ? `編輯支援人員 · ${worker.displayName}` : "新增支援人員"} onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     save.mutate({
