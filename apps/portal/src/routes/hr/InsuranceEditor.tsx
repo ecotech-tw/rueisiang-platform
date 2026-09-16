@@ -157,8 +157,8 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
       </div>
     </> : <Alert tone="info">退保會同時建立勞保與健保退保版本，生效日之後不再列入薪資扣款計算。</Alert>}
     <TextField label="備註" required={SCHEMES.some(usesManualSource) && status === "enrolled"} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint={SCHEMES.some(usesManualSource) && status === "enrolled" ? "人工來源必須留下覆核備註。" : undefined} />
-    {table.error ? <Alert tone="danger">{table.error.message}；請取得並啟用級距後再保存。</Alert> : null}
-    {status === "enrolled" && !table.isPending && SCHEMES.some((scheme) => !activeTables.get(scheme)) ? <Alert tone="warning">目前年度尚未有完整已啟用的級距；請先按「取得級距」並啟用後再保存。</Alert> : null}
+    {table.error ? <Alert tone="danger">{table.error.message}；請取得並啟用級距後再儲存。</Alert> : null}
+    {status === "enrolled" && !table.isPending && SCHEMES.some((scheme) => !activeTables.get(scheme)) ? <Alert tone="warning">目前年度尚未有完整已啟用的級距；請先按「取得級距」並啟用後再儲存。</Alert> : null}
     {message || save.error || calculationError ? <Alert tone="danger">{message || save.error?.message || calculationError?.message}</Alert> : null}
   </Dialog>;
 }
