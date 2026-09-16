@@ -1,7 +1,7 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie } from "@rueisiang/auth";
 import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
-  createHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrAttendanceLocationSchedules, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
+  createHrCompensationVersion, voidHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrAttendanceLocationSchedules, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
   createHrInsuranceContributionRule, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, activateHrInsuranceRateTable, saveHrAttendanceLocationSchedules, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
@@ -778,6 +778,10 @@ export const hr = new Hono<AppEnv>()
       employmentId: c.req.param("id"), validFrom, validTo, payBasis: payBasis(input),
       baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input), items: compensationItems(input),
     }, c.get("user")), 201);
+  })
+  .post("/employments/:id/compensation/:versionId/void", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理薪資資料。" });
+    return c.json(await voidHrCompensationVersion(c.get("db"), c.req.param("id"), c.req.param("versionId"), c.get("user")));
   })
   .post("/employments/:id/insurance", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理勞健保資料。" });

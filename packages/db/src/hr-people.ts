@@ -169,7 +169,8 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   const compensationRows = options.includeCompensation ? await db.select({
     id: hrCompensationVersions.id, employmentId: hrCompensationVersions.employmentId, versionNumber: hrCompensationVersions.versionNumber,
     validFrom: hrCompensationVersions.validFrom, validTo: hrCompensationVersions.validTo, payBasis: hrCompensationVersions.payBasis,
-    baseAmountMinor: hrCompensationVersions.baseAmountMinor, note: hrCompensationVersions.note, createdAt: hrCompensationVersions.createdAt, createdBy: hrCompensationVersions.createdBy,
+    baseAmountMinor: hrCompensationVersions.baseAmountMinor, note: hrCompensationVersions.note, voidedAt: hrCompensationVersions.voidedAt, voidedBy: hrCompensationVersions.voidedBy,
+    createdAt: hrCompensationVersions.createdAt, createdBy: hrCompensationVersions.createdBy,
   }).from(hrCompensationVersions).innerJoin(hrEmployments, eq(hrEmployments.id, hrCompensationVersions.employmentId))
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrCompensationVersions.validFrom)) : undefined;
   const compensationItems = compensationRows?.length ? await db.select().from(hrCompensationItems).where(inArray(hrCompensationItems.compensationVersionId, compensationRows.map((row) => row.id))) : [];

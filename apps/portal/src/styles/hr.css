@@ -457,6 +457,13 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .primary-button:hover:not(:disabled) { background: --alpha(var(--color-info) / 92%); }
 .hr-system .primary-button.add-action:hover:not(:disabled) { background: --alpha(var(--color-ok) / 92%); }
 .hr-system .primary-button.danger:hover:not(:disabled) { background: var(--color-brand-dark); }
+/* 敘薪列表的列操作用圖示呈現；顏色只表達動作類型，不取代 title／aria-label。 */
+.hr-system .compensation-action-update { color: var(--color-info); }
+.hr-system .compensation-action-update:hover:not(:disabled) { background: var(--color-info-soft); color: var(--color-info); }
+.hr-system .compensation-action-add { color: var(--color-ok); }
+.hr-system .compensation-action-add:hover:not(:disabled) { background: var(--color-ok-soft); color: var(--color-ok); }
+.hr-system .compensation-action-correction { color: var(--color-brand-dark); }
+.hr-system .compensation-action-correction:hover:not(:disabled) { background: var(--color-brand-soft); color: var(--color-brand-dark); }
 .hr-system .dropdown-control,
 .hr-system input[type="date"],
 .hr-system input[type="month"],

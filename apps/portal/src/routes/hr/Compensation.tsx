@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceRateTableRecord, type InsuranceContributionRule } from "./api.js";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
@@ -24,10 +25,15 @@ function taipeiToday(): string {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-function currentVersion<T extends { validFrom: string; validTo: string | null }>(versions: T[]): T | undefined {
+function currentVersion<T extends { validFrom: string; validTo: string | null; voidedAt?: string | null }>(versions: T[]): T | undefined {
   const today = taipeiToday();
-  return versions.find((version) => version.validFrom <= today && (version.validTo === null || today < version.validTo))
-    ?? versions.filter((version) => version.validFrom <= today).sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0];
+  const active = versions.filter((version) => !version.voidedAt);
+  return active.find((version) => version.validFrom <= today && (version.validTo === null || today < version.validTo))
+    ?? (versions.some((version) => version.voidedAt) ? undefined : active.filter((version) => version.validFrom <= today).sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0]);
+}
+
+function latestCompensationVersion<T extends { validFrom: string; versionNumber: number; voidedAt?: string | null }>(versions: T[]): T | undefined {
+  return versions.filter((version) => !version.voidedAt).slice().sort((left, right) => right.validFrom.localeCompare(left.validFrom) || right.versionNumber - left.versionNumber)[0];
 }
 
 function nextDay(date: string): string {
@@ -79,7 +85,12 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(userId)}`, Boolean(userId));
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
   const employmentVersions = useMemo(() => (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id), [profile.data?.compensation, employment?.id]);
+  const latestVersion = useMemo(() => latestCompensationVersion(employmentVersions), [employmentVersions]);
   const current = useMemo(() => currentVersion(employmentVersions), [employmentVersions]);
+  const allVoided = employmentVersions.length > 0 && !latestVersion;
+  const templateVersion = latestVersion ?? current;
+  const isEditing = Boolean(initialUserId) || Boolean(latestVersion);
+  const expectedValidFrom = latestVersion ? nextDay(latestVersion.validFrom) : null;
 
   const [validFrom, setValidFrom] = useState(taipeiToday());
   const [validTo, setValidTo] = useState("");
@@ -88,7 +99,9 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const [items, setItems] = useState<SalaryItemDraft[]>([]);
   const [note, setNote] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [voidConfirmation, setVoidConfirmation] = useState(false);
   const save = useHrWrite();
+  const voidCompensation = useHrWrite();
 
   // 換一位員工就重新帶入那個人目前的敘薪當預設值，不沿用上一個人的金額與項目。
   useEffect(() => {
@@ -98,18 +111,17 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     const endedOn = employment?.endedOn ?? null;
     const start = !employment ? today : employment.hiredOn > today || (endedOn && today >= endedOn) ? employment.hiredOn : today;
     /*
-     * 今天已經有一版時，再從今天起算一定期間重疊、存不進去（後端只會回一句籠統的錯誤）。
-     * 直接跳到最後一版的隔天，讓預設值就是可以存的日期。
+     * 敘薪版本依序銜接：一般更新是上一版生效日的次日；若要修正較早版本，
+     * 先依序解除較新的版本，直到第一版也能被修正。
      */
-    const latestStart = employmentVersions.reduce<string | null>((latest, version) => !latest || version.validFrom > latest ? version.validFrom : latest, null);
-    setValidFrom(latestStart && latestStart >= start ? nextDay(latestStart) : start);
+    setValidFrom(expectedValidFrom ?? start);
     setValidTo(endedOn ?? "");
-    setPayBasis(current?.payBasis ?? "monthly");
-    setBaseAmount(current ? String(current.baseAmountMinor / 100) : "");
-    setItems((current?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
-    setNote(current?.note ?? "");
+    setPayBasis(templateVersion?.payBasis ?? "monthly");
+    setBaseAmount(templateVersion ? String(templateVersion.baseAmountMinor / 100) : "");
+    setItems((templateVersion?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
+    setNote("");
     setMessage(null);
-  }, [current, employment, employmentVersions]);
+  }, [employment, employmentVersions, expectedValidFrom, templateVersion]);
 
   const selected = employees.find((employee) => employee.userId === userId);
   const baseMinor = draftAmountMinor(baseAmount) ?? 0;
@@ -119,14 +131,28 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   ]);
   const updateItem = (key: string, patch: Partial<SalaryItemDraft>) => setItems((list) => list.map((item) => item.key === key ? { ...item, ...patch } : item));
 
-  return <Dialog
-    title="新增敘薪"
+  const effectiveVersion = current ?? latestVersion;
+  const canVoid = Boolean(latestVersion);
+  const voidLatest = () => {
+    if (!employment || !latestVersion || latestVersion.voidedAt) return;
+    voidCompensation.mutate({ path: `/employments/${employment.id}/compensation/${latestVersion.id}/void`, method: "POST", values: {} }, {
+      onSuccess: () => { setVoidConfirmation(false); onClose(); },
+    });
+  };
+
+  return <>
+    <Dialog
+    title={isEditing ? "更新敘薪" : "新增敘薪"}
     titleMeta={selected ? `${selected.displayName}／${selected.employeeNumber}` : "選一位員工後填寫薪資組成"}
     onClose={onClose}
-    closeDisabled={save.isPending}
+    closeDisabled={save.isPending || voidCompensation.isPending}
     formProps={{ onSubmit: (event) => {
       event.preventDefault();
       if (!employment) { setMessage(userId ? "這位員工沒有任職紀錄，請先在員工列表建立任職。" : "請先選擇員工。"); return; }
+      if (expectedValidFrom !== null && validFrom !== expectedValidFrom) {
+        setMessage(`更新敘薪的生效日只能是 ${expectedValidFrom}（上一筆生效日的次日）；若要修正上一筆，請先解除最新敘薪。`);
+        return;
+      }
       // 期間不合法時後端只回一句籠統的 409；先在這裡講清楚是哪一段超出任職期間。
       if (validFrom < employment.hiredOn) { setMessage(`生效日不能早於到職日 ${employment.hiredOn}。`); return; }
       if (employment.endedOn && (!validTo || validTo > employment.endedOn)) { setMessage(`任職已於 ${employment.endedOn} 結束，迄日要填到 ${employment.endedOn}（含）之前。`); return; }
@@ -136,7 +162,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
        * 不先擋的話使用者只會看到一句「任職不存在、薪資期間重疊或資料不合法」，不知道要改哪裡。
        */
       const newEnd = validTo || "9999-12-31";
-      const overlapping = employmentVersions.find((version) => {
+      const overlapping = employmentVersions.filter((version) => !version.voidedAt).find((version) => {
         // 後端會在同一批次收尾較早開始的開放版本，這種銜接不是重疊。
         if (version.validTo === null && version.validFrom < validFrom) return false;
         return version.validFrom < newEnd && (version.validTo === null || version.validTo > validFrom);
@@ -163,19 +189,24 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
         items: items.map((item) => ({ itemName: item.name.trim(), amountMinor: draftAmountMinor(item.amount), itemKind: "fixed", amountBasis: item.basis, includeOvertime: true, includeInsurance: true, includeTax: true })),
       } }, { onSuccess: onClose });
     } }}
-    actions={<Button type="submit" loading={save.isPending} disabled={!employment}>保存敘薪</Button>}
+    actions={<>
+      {canVoid ? <Button variant="danger" icon="history" disabled={save.isPending || voidCompensation.isPending} onClick={() => setVoidConfirmation(true)}>解除最新敘薪</Button> : null}
+      <Button type="submit" loading={save.isPending} disabled={!employment || voidCompensation.isPending}>保存敘薪</Button>
+    </>}
   >
-    <p>敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與投保級距由系統依已啟用的設定套用，不在這裡填。</p>
+    <p>{allVoided ? "所有敘薪版本已撤回；請重新填寫要建立的敘薪版本，生效日可自行指定。" : isEditing ? "更新會建立新的敘薪版本，不會覆寫既有紀錄；若要修正前一筆，請先解除最新敘薪，直到撤回第一版。" : "敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與投保級距由系統依已啟用的設定套用，不在這裡填。"}</p>
     <SelectField
       label="員工"
       value={userId}
       required
       options={[{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.displayName}／${employee.employeeNumber}` }))]}
+      disabled={isEditing}
       onChange={(event) => setUserId(event.target.value)}
     />
+    {isEditing ? <p className="form-hint">更新敘薪時員工欄位已鎖定，避免誤改到其他員工。</p> : null}
     {userId && profile.isPending ? <p className="muted">載入目前敘薪…</p> : null}
     {userId && !profile.isPending && !employment ? <Alert tone="warning">這位員工沒有任職紀錄，請先在員工列表建立任職。</Alert> : null}
-    {employment ? <p className="form-hint">任職期間 {employment.hiredOn}～{employment.endedOn ?? "目前"}；目前敘薪 {current ? `${PAY_BASIS_LABEL[current.payBasis]} ${totalsText(versionTotals(current))}` : "尚未設定"}。</p> : null}
+    {employment ? <p className="form-hint">任職期間 {employment.hiredOn}～{employment.endedOn ?? "目前"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
     <div className="field-grid">
       <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
       <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />
@@ -196,7 +227,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
           : <SelectField
             aria-label="薪資項目"
             value={item.name}
-            options={[{ value: "", label: "請選擇項目" }, ...ITEM_PRESETS.map((name) => ({ value: name, label: name })), { value: CUSTOM_ITEM, label: "其他（自行輸入）" }]}
+            options={[{ value: "", label: "請選擇項目" }, ...ITEM_PRESETS.filter((name) => name === item.name || !items.some((other) => other.key !== item.key && other.name.trim() === name)).map((name) => ({ value: name, label: name })), { value: CUSTOM_ITEM, label: "其他（自行輸入）" }]}
             onChange={(event) => updateItem(item.key, event.target.value === CUSTOM_ITEM ? { custom: true, name: "" } : { name: event.target.value })}
           />}
         <SelectField
@@ -215,8 +246,19 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     </div>
 
     <TextField label="備註" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
-    {message || save.error || profile.error ? <Alert tone="danger">{message || save.error?.message || profile.error?.message}</Alert> : null}
-  </Dialog>;
+    {message || save.error || voidCompensation.error || profile.error ? <Alert tone="danger">{message || save.error?.message || voidCompensation.error?.message || profile.error?.message}</Alert> : null}
+    </Dialog>
+    {voidConfirmation && latestVersion && employment ? <ConfirmDialog
+      title="解除最新敘薪？"
+      confirmLabel="解除敘薪"
+      pending={voidCompensation.isPending}
+      onCancel={() => setVoidConfirmation(false)}
+      onConfirm={voidLatest}
+    >
+      <p>這會解除 <strong>{selected?.displayName ?? "這位員工"}</strong> 的第 {latestVersion.versionNumber} 版敘薪；資料不會刪除，既有月份的薪資快照也不會被改動。</p>
+      <p className="muted">解除後會回到上一個仍有效的版本；可重複解除，直到第一版，再建立第一版修正版。</p>
+    </ConfirmDialog> : null}
+  </>;
 }
 
 function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerRecord; onClose: () => void }) {
@@ -244,23 +286,28 @@ function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerR
 function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (userId: string) => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`);
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
-  const current = useMemo(() => employment
-    ? currentVersion((profile.data?.compensation ?? []).filter((version) => version.employmentId === employment.id))
-    : undefined, [profile.data?.compensation, employment?.id]);
+  const compensationVersions = (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id);
+  const current = currentVersion(compensationVersions);
+  const latest = latestCompensationVersion(compensationVersions);
+  const allVoided = compensationVersions.length > 0 && !latest;
   if (profile.isLoading) return <HrSkeletonTableRow columns={6} />;
   return <tr>
     <td><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.hiredOn}～${employment.endedOn ?? "目前"}` : "尚無任職"}</td>
-    <td>{current ? PAY_BASIS_LABEL[current.payBasis] : "尚未設定"}</td>
+    <td>{current ? PAY_BASIS_LABEL[current.payBasis] : allVoided ? "已全部撤回" : "尚未設定"}</td>
     <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}</td>
-    <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td>
-    <td>{canWrite && employment ? <Button variant="secondary" onClick={() => onEdit(employee.userId)}>{current ? "更新敘薪" : "新增敘薪"}</Button> : null}</td>
+    <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : allVoided ? "已全部撤回" : "—"}</td>
+    <td>{canWrite && employment ? latest
+      ? <Button variant="icon" icon="edit" className="compensation-action-update" title="更新敘薪" aria-label="更新敘薪" onClick={() => onEdit(employee.userId)} />
+      : allVoided
+        ? <Button variant="icon" icon="edit" className="compensation-action-update" title="更新敘薪" aria-label="更新敘薪" onClick={() => onEdit(employee.userId)} />
+        : <Button variant="icon" icon="plus" className="compensation-action-add" title="新增敘薪" aria-label="新增敘薪" onClick={() => onEdit(employee.userId)} /> : null}</td>
   </tr>;
 }
 
 function WorkerCompensationRow({ worker, canWrite, onEdit }: { worker: ScheduleWorkerRecord; canWrite: boolean; onEdit: () => void }) {
   const current = currentVersion(worker.compensation);
-  return <tr><td><strong>{worker.displayName}</strong><br /><span className="muted">排班支援人員</span></td><td>日薪</td><td className="numeric">{current ? money(current.baseAmountMinor) : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite ? <Button variant="secondary" onClick={onEdit}>新增版本</Button> : null}</td></tr>;
+  return <tr><td><strong>{worker.displayName}</strong><br /><span className="muted">排班支援人員</span></td><td>日薪</td><td className="numeric">{current ? money(current.baseAmountMinor) : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite ? <Button variant="icon" icon="plus" className="compensation-action-add" title="新增版本" aria-label={`為${worker.displayName}新增敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
 }
 
 export function HrCompensationManagement({ settingsOnly = false }: { settingsOnly?: boolean } = {}) {

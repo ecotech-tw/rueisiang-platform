@@ -9,7 +9,7 @@ const historyTimestamps = () => ({
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
 });
 
-/** 薪資只新增版本，不覆寫舊資料；validTo 是不再適用的第一天。 */
+/** 薪資只新增版本，不覆寫舊資料；誤登時以 voidedAt 解除，validTo 是不再適用的第一天。 */
 export const hrCompensationVersions = sqliteTable("hr_compensation_versions", {
   id: text("id").primaryKey(),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
@@ -19,6 +19,8 @@ export const hrCompensationVersions = sqliteTable("hr_compensation_versions", {
   payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly"] as const }).notNull(),
   baseAmountMinor: integer("base_amount_minor").notNull(),
   note: text("note").notNull().default(""),
+  voidedAt: text("voided_at"),
+  voidedBy: text("voided_by").references(() => users.id, { onDelete: "restrict" }),
   ...historyTimestamps(),
 }, (table) => [
   uniqueIndex("idx_hr_compensation_versions_number").on(table.employmentId, table.versionNumber),

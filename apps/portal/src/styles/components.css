@@ -2134,8 +2134,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   color: var(--color-muted);
 }
 .select-trigger-icon svg { width: 20px; height: 20px; }
-.select-positioner { z-index: 100; }
+.select-positioner { z-index: 100; pointer-events: none; }
 .select-popup {
+  pointer-events: auto;
   z-index: 100;
   width: max-content;
   min-width: var(--anchor-width);

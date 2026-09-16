@@ -60,6 +60,7 @@ export function DropdownSelect({
       defaultValue={initialOption}
       onValueChange={(nextValue) => onChange?.(changeEvent(nextValue?.value ?? ""))}
       disabled={disabled}
+      modal={false}
       required={required}
       name={name}
       id={id}
