@@ -35,10 +35,6 @@ function latestCompensationVersion<T extends { validFrom: string; versionNumber:
   return versions.filter((version) => !version.voidedAt).slice().sort((left, right) => right.validFrom.localeCompare(left.validFrom) || right.versionNumber - left.versionNumber)[0];
 }
 
-function firstCompensationVersion<T extends { versionNumber: number }>(versions: T[]): T | undefined {
-  return versions.slice().sort((left, right) => left.versionNumber - right.versionNumber)[0];
-}
-
 function nextDay(date: string): string {
   const next = new Date(`${date}T00:00:00Z`);
   next.setUTCDate(next.getUTCDate() + 1);
@@ -89,13 +85,11 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
   const employmentVersions = useMemo(() => (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id), [profile.data?.compensation, employment?.id]);
   const latestVersion = useMemo(() => latestCompensationVersion(employmentVersions), [employmentVersions]);
-  const firstVersion = useMemo(() => firstCompensationVersion(employmentVersions), [employmentVersions]);
   const current = useMemo(() => currentVersion(employmentVersions), [employmentVersions]);
   const allVoided = employmentVersions.length > 0 && !latestVersion;
-  const templateVersion = latestVersion ?? firstVersion ?? current;
-  const isEditing = Boolean(initialUserId) || Boolean(latestVersion || firstVersion);
-  const isCorrection = allVoided;
-  const expectedValidFrom = latestVersion ? nextDay(latestVersion.validFrom) : allVoided ? firstVersion?.validFrom ?? null : null;
+  const templateVersion = latestVersion ?? current;
+  const isEditing = Boolean(initialUserId) || Boolean(latestVersion);
+  const expectedValidFrom = latestVersion ? nextDay(latestVersion.validFrom) : null;
 
   const [validFrom, setValidFrom] = useState(taipeiToday());
   const [validTo, setValidTo] = useState("");
@@ -119,15 +113,14 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
      * 敘薪版本依序銜接：一般更新是上一版生效日的次日；若要修正較早版本，
      * 先依序解除較新的版本，直到第一版也能被修正。
      */
-    setValidFrom(allVoided ? firstVersion?.validFrom ?? start : expectedValidFrom ?? start);
-    setValidTo(allVoided ? firstVersion?.validTo ?? "" : endedOn ?? "");
+    setValidFrom(expectedValidFrom ?? start);
+    setValidTo(endedOn ?? "");
     setPayBasis(templateVersion?.payBasis ?? "monthly");
     setBaseAmount(templateVersion ? String(templateVersion.baseAmountMinor / 100) : "");
     setItems((templateVersion?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
     setNote("");
     setMessage(null);
-  }, [allVoided, employment, employmentVersions, expectedValidFrom, firstVersion, templateVersion]);
-  const selected = employees.find((employee) => employee.userId === userId);
+  }, [employment, employmentVersions, expectedValidFrom, templateVersion]);  const selected = employees.find((employee) => employee.userId === userId);
   const baseMinor = draftAmountMinor(baseAmount) ?? 0;
   const draftTotals = totalsByBasis([
     { basis: payBasis, amountMinor: baseMinor },
@@ -154,9 +147,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       event.preventDefault();
       if (!employment) { setMessage(userId ? "這位員工沒有任職紀錄，請先在員工列表建立任職。" : "請先選擇員工。"); return; }
       if (expectedValidFrom !== null && validFrom !== expectedValidFrom) {
-        setMessage(isCorrection
-          ? `這是第一版的修正版，生效日請填 ${expectedValidFrom}。`
-          : `更新敘薪的生效日只能是 ${expectedValidFrom}（上一筆生效日的次日）；若要修正上一筆，請先解除最新敘薪。`);
+        setMessage(`更新敘薪的生效日只能是 ${expectedValidFrom}（上一筆生效日的次日）；若要修正上一筆，請先解除最新敘薪。`);
         return;
       }
       // 期間不合法時後端只回一句籠統的 409；先在這裡講清楚是哪一段超出任職期間。
@@ -200,7 +191,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       <Button type="submit" loading={save.isPending} disabled={!employment || voidCompensation.isPending}>保存敘薪</Button>
     </>}
   >
-    <p>{allVoided ? "所有敘薪版本已撤回；以下沿用第一版資料，保存後會以第一版生效日建立修正版。" : isEditing ? "更新會建立新的敘薪版本，不會覆寫既有紀錄；若要修正前一筆，請先解除最新敘薪，直到撤回第一版。" : "敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與投保級距由系統依已啟用的設定套用，不在這裡填。"}</p>
+    <p>{allVoided ? "所有敘薪版本已撤回；請重新填寫要建立的敘薪版本，生效日可自行指定。" : isEditing ? "更新會建立新的敘薪版本，不會覆寫既有紀錄；若要修正前一筆，請先解除最新敘薪，直到撤回第一版。" : "敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與投保級距由系統依已啟用的設定套用，不在這裡填。"}</p>
     <SelectField
       label="員工"
       value={userId}
@@ -212,10 +203,10 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     {isEditing ? <p className="form-hint">更新敘薪時員工欄位已鎖定，避免誤改到其他員工。</p> : null}
     {userId && profile.isPending ? <p className="muted">載入目前敘薪…</p> : null}
     {userId && !profile.isPending && !employment ? <Alert tone="warning">這位員工沒有任職紀錄，請先在員工列表建立任職。</Alert> : null}
-    {employment ? <p className="form-hint">任職期間 {employment.hiredOn}～{employment.endedOn ?? "目前"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : allVoided ? "已全部撤回" : "尚未設定"}。{isCorrection ? ` 本次修正版本生效日：${firstVersion?.validFrom ?? ""}。` : ""}</p> : null}
+    {employment ? <p className="form-hint">任職期間 {employment.hiredOn}～{employment.endedOn ?? "目前"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
     <div className="field-grid">
-      <TextField label="生效日" type="date" value={validFrom} required disabled={isCorrection} onChange={(event) => setValidFrom(event.target.value)} />
-      <TextField label="迄日（不含，可留空）" type="date" value={validTo} disabled={isCorrection} onChange={(event) => setValidTo(event.target.value)} />
+      <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
+      <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />
     </div>
     <div className="salary-items">
       <span className="salary-items-label">薪資項目</span>

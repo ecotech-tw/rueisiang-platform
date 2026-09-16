@@ -152,14 +152,11 @@ describe("HR 薪資與勞健保", () => {
     const first = afterVoid.compensation.find((version) => version.baseAmountMinor === 4000000)!;
     expect((await request(`${path}/${first.id}/void`, "POST", {})).status).toBe(409);
 
-    expect((await request(path, "POST", { validFrom: "2026-01-03", payBasis: "monthly", baseAmountMinor: 4200000 })).status).toBe(400);
-    expect((await request(path, "POST", { validFrom: "2026-01-01", validTo: "2026-01-02", payBasis: "monthly", baseAmountMinor: 4200000 })).status).toBe(201);
-    expect((await request(path, "POST", { validFrom: "2026-01-02", validTo: "2026-01-03", payBasis: "monthly", baseAmountMinor: 4700000 })).status).toBe(201);
+    expect((await request(path, "POST", { validFrom: "2026-01-03", validTo: "2026-01-04", payBasis: "monthly", baseAmountMinor: 4200000 })).status).toBe(201);
     const afterReplacement = await (await request("/hr/employees/employee")).json() as { compensation: Array<{ validFrom: string; baseAmountMinor: number; voidedAt: string | null }> };
     expect(afterReplacement.compensation).toEqual(expect.arrayContaining([
       expect.objectContaining({ validFrom: "2026-01-01", baseAmountMinor: 4000000, voidedAt: expect.any(String) }),
-      expect.objectContaining({ validFrom: "2026-01-01", baseAmountMinor: 4200000, voidedAt: null }),
-      expect.objectContaining({ validFrom: "2026-01-02", baseAmountMinor: 4700000, voidedAt: null }),
+      expect.objectContaining({ validFrom: "2026-01-03", baseAmountMinor: 4200000, voidedAt: null }),
     ]));
   });
 

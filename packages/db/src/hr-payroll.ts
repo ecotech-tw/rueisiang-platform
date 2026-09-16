@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
