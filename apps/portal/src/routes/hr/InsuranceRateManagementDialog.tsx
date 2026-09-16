@@ -25,8 +25,8 @@ export function InsuranceRateManagementDialog({ year, onClose }: { year: number;
   const refresh = () => { void rates.refetch(); };
 
   return <>
-    <Dialog title="級距管理" titleMeta={`${year} 年・勞保與健保投保級距`} onClose={onClose} closeDisabled={getRates.isPending || activateRate.isPending || editorBusy} className="wide">
-      <div className="hr-rate-management-intro"><strong>管理年度投保級距</strong><p>可在這裡取得官方級距，或直接建立人工版本。人工版本必須留下來源或覆核備註；啟用後的版本與歷史版本不可直接修改。</p></div>
+    <Dialog title="級距管理" titleMeta={`${year} 年・勞保級距與健保級距`} onClose={onClose} closeDisabled={getRates.isPending || activateRate.isPending || editorBusy} className="wide">
+      <div className="hr-rate-management-intro"><strong>管理年度勞保級距與健保級距</strong><p>可在這裡取得官方級距，或直接建立人工版本。人工版本必須留下來源或覆核備註；啟用後的版本與歷史版本不可直接修改。</p></div>
       <div className="hr-rate-management-toolbar">
         <div className="segmented-control hr-rate-scheme-tabs" role="group" aria-label="級距種類">
           {SCHEMES.map((item) => <button type="button" className={scheme === item ? "selected" : ""} aria-pressed={scheme === item} key={item} onClick={() => setScheme(item)}>{SCHEME_LABEL[item]}{tables.some((table) => table.scheme === item && table.status === "draft") ? "・待審閱" : ""}</button>)}

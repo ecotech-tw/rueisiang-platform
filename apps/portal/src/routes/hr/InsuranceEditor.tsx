@@ -130,7 +130,7 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
     </div></Field>
     <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} hint={existing ? "從這天起套用新的投保資料，前一個版本會在前一天結束。" : undefined} />
     {status === "enrolled" ? <>
-      <TextField label="實際月薪（元）" type="number" min="0" step="1" value={salary} required onChange={(event) => setSalary(event.target.value)} hint="投保級距會依月薪自動帶入，也可以從下拉選單選擇其他級距。" />
+      <TextField label="實際月薪（元）" type="number" min="0" step="1" value={salary} required onChange={(event) => setSalary(event.target.value)} hint="勞保／健保級距會依月薪自動帶入，也可以從下拉選單選擇其他級距。" />
       <div className="form-grid two">
         {SCHEMES.map((scheme) => {
           const activeTable = activeTables.get(scheme);
@@ -144,7 +144,7 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
           ];
           return <section className="hr-insurance-scheme-card" key={scheme}>
             <div><h3>{INSURANCE_LABEL[scheme]}</h3></div>
-            <SelectField label={`${INSURANCE_LABEL[scheme]}投保級距`} value={selection} options={bracketOptions} onChange={(event) => updateBracketSelection(scheme, event.target.value)} hint={activeTable?.sourceKind === "manual" ? "目前套用人工維護級距，保存時會標示人工來源。" : "可依實際月薪自動帶入，或直接選擇其他級距。"} />
+            <SelectField label={`${INSURANCE_LABEL[scheme]}級距`} value={selection} options={bracketOptions} onChange={(event) => updateBracketSelection(scheme, event.target.value)} hint={activeTable?.sourceKind === "manual" ? "目前套用人工維護級距，保存時會標示人工來源。" : "可依實際月薪自動帶入，或直接選擇其他級距。"} />
             <p className="hr-insurance-bracket-summary">{selectedBracket ? `投保金額／${amountLabel(selectedBracket.insuredAmount)}` : activeTable ? "請輸入月薪以自動帶入級距。" : `尚未啟用${INSURANCE_LABEL[scheme]}級距。`}</p>
             <div className="hr-insurance-estimate" aria-live="polite"><div className="hr-insurance-estimate-title">員工每月扣款試算</div>{calculationPending ? <span className="muted">試算中…</span> : calculationError ? <span className="muted">暫時無法取得試算</span> : estimateIsCurrent && estimate?.employeeAmountMinor !== null && estimate?.employeeAmountMinor !== undefined ? <><strong>{premiumLabel(estimate.employeeAmountMinor)}</strong><span className="muted">依員工負擔 {estimate.employeeRatePpm === null ? "—" : `${(estimate.employeeRatePpm / 10_000).toFixed(2)}%`}{scheme === "health" && dependentCount > 0 ? `・含 ${dependentCount} 位眷屬` : ""}</span></> : estimateIsCurrent && estimate ? <span className="muted">尚未設定此生效日的系統或公司負擔規則</span> : Number.isSafeInteger(nextAmount) && (nextAmount ?? 0) > 0 ? <span className="muted">輸入完整資料後自動計算</span> : <span className="muted">選擇級距後即可計算</span>}</div>
           </section>;
