@@ -168,7 +168,13 @@ function compensationItems(input: Record<string, unknown>) {
     const item = raw as Record<string, unknown>;
     const itemKind: "fixed" | "variable" | null = item.itemKind === "fixed" || item.itemKind === "variable" ? item.itemKind : null;
     if (!itemKind) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資項目類型不正確。` });
-    return { itemName: text(item, "itemName", "薪資項目", 100), amountMinor: integerValue(item, "amountMinor", "薪資項目金額（分）", 0, Number.MAX_SAFE_INTEGER), itemKind, includeOvertime: booleanValue(item, "includeOvertime", "是否納入加班費計算", false), includeInsurance: booleanValue(item, "includeInsurance", "是否納入勞健保", false), includeTax: booleanValue(item, "includeTax", "是否計入應稅所得", true) };
+    // 沒送 amountBasis 就當成月給：舊的呼叫端與大多數津貼都是月給。
+    const amountBasis = item.amountBasis === "daily" ? "daily" as const
+      : item.amountBasis === "hourly" ? "hourly" as const
+      : item.amountBasis === undefined || item.amountBasis === null || item.amountBasis === "monthly" ? "monthly" as const
+      : null;
+    if (!amountBasis) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資項目的計算單位不正確。` });
+    return { itemName: text(item, "itemName", "薪資項目", 100), amountMinor: integerValue(item, "amountMinor", "薪資項目金額（分）", 0, Number.MAX_SAFE_INTEGER), itemKind, amountBasis, includeOvertime: booleanValue(item, "includeOvertime", "是否納入加班費計算", false), includeInsurance: booleanValue(item, "includeInsurance", "是否納入勞健保", false), includeTax: booleanValue(item, "includeTax", "是否計入應稅所得", true) };
   });
 }
 function adjustmentItems(input: Record<string, unknown>) {
