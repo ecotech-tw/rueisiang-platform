@@ -591,3 +591,51 @@ export async function downloadStatement(page, statement, { targetPath, log } = {
   log?.(`下載 ${statement.start} ~ ${statement.end} → ${targetPath}`);
   return targetPath;
 }
+
+/**
+ * D1 匯入成功且檔案金額已和卡片交叉確認後，確認這一期的帳款。
+ *
+ * 已經確認過的卡片沒有這顆按鈕；只有同時看到「帳款已確認」才把沒有按鈕視為冪等成功，
+ * 避免後台改版造成靜默略過（若帳戶啟用一鍵請款發票，確認還會觸發請款發票流程）。
+ */
+export async function confirmStatement(page, statement, { log } = {}) {
+  const button = statement.locator.getByRole("button", { name: "確認帳款", exact: true }).first();
+  const hasButton = (await button.count()) > 0 && await button.isVisible().catch(() => false);
+  if (!hasButton) {
+    const cardText = await statement.locator.innerText().catch(() => "");
+    if (cardText.includes("帳款已確認")) {
+      log?.(`略過確認 ${statement.start} ~ ${statement.end}：帳款已確認`);
+      return "already_confirmed";
+    }
+    fail("STATEMENT_CONFIRM_BUTTON_MISSING", `找不到確認帳款按鈕，且卡片沒有顯示已確認（${statement.start} ~ ${statement.end}）。`);
+  }
+
+  await page.keyboard.press("Escape").catch(() => {});
+  await dismissOverlays(page, { log });
+  await button.scrollIntoViewIfNeeded({ timeout: 10000 }).catch(() => {});
+  // 往上捲一點，讓卡片離開 sticky 導覽列的覆蓋範圍。
+  await page.mouse.wheel(0, -120).catch(() => {});
+  await page.waitForTimeout(300);
+  await button.click({ timeout: 15000 });
+
+  // CYBERBIZ 會先開一個「確認帳款」modal，第一下只是開啟提醒；必須再按 modal
+  // footer 的「確認」才會真的送出。按鈕名稱要限定在 modal 裡，不能誤點卡片上的「確認帳款」。
+  const modal = page.locator(".modal-container").filter({ hasText: /是否要確認帳款/ }).first();
+  if ((await modal.count()) === 0) {
+    fail("STATEMENT_CONFIRM_MODAL_MISSING", `點擊確認帳款後找不到確認 modal（${statement.start} ~ ${statement.end}）。`);
+  }
+  await modal.waitFor({ state: "visible", timeout: 10000 });
+  await modal.getByRole("button", { name: "確認", exact: true }).click({ timeout: 15000 });
+
+  // modal 與卡片按鈕都在後台完成請求後消失；等到兩者都完成，避免 runner 還沒完成就結束瀏覽器。
+  await modal.waitFor({ state: "hidden", timeout: 15000 }).catch(() => {});
+  await button.waitFor({ state: "hidden", timeout: 15000 }).catch(() => {});
+  if (await modal.isVisible().catch(() => false)) {
+    fail("STATEMENT_CONFIRM_FAILED", `確認帳款後 modal 仍在畫面上（${statement.start} ~ ${statement.end}）。`);
+  }
+  if (await button.isVisible().catch(() => false)) {
+    fail("STATEMENT_CONFIRM_FAILED", `確認帳款後按鈕仍在畫面上（${statement.start} ~ ${statement.end}）。`);
+  }
+  log?.(`確認帳款 ${statement.start} ~ ${statement.end}`);
+  return "clicked";
+}

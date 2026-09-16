@@ -5,6 +5,7 @@ import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type BonusAssignment, type BonusPolicy, type Employee, type NamedOption } from "./api.js";
+import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 interface PolicyResponse { policies: BonusPolicy[]; total: number; page: number; pageSize: number; hasMore: boolean }
@@ -54,6 +55,7 @@ export function HrBonusManagement() {
   const deletePolicy = useHrWrite<{ policyId: string; deleted: boolean }>();
   const toast = useToast();
   if (!canRead) return <Alert tone="danger">獎金資料僅限全平台 HR 管理者查看。</Alert>;
+  if (policies.isPending || assignments.isPending || employees.isPending || scopes.isPending) return <HrPageSkeleton variant="table" />;
 
   const employeeOptions = (employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }));
   const scopeOptions = (scopes.data?.scopes ?? []).map((scope) => ({ label: scope.name, value: scope.id }));

@@ -4,6 +4,7 @@ import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type CompensationVersion, type 
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 const PAY_BASIS_LABEL: Record<CompensationVersion["payBasis"], string> = { monthly: "月薪", daily: "日薪", hourly: "時薪" };
@@ -120,7 +121,9 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     setItems((templateVersion?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
     setNote("");
     setMessage(null);
-  }, [employment, employmentVersions, expectedValidFrom, templateVersion]);  const selected = employees.find((employee) => employee.userId === userId);
+  }, [employment, employmentVersions, expectedValidFrom, templateVersion]);
+
+  const selected = employees.find((employee) => employee.userId === userId);
   const baseMinor = draftAmountMinor(baseAmount) ?? 0;
   const draftTotals = totalsByBasis([
     { basis: payBasis, amountMinor: baseMinor },
@@ -287,7 +290,7 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Emp
   const current = currentVersion(compensationVersions);
   const latest = latestCompensationVersion(compensationVersions);
   const allVoided = compensationVersions.length > 0 && !latest;
-  if (profile.isLoading) return <tr><td>{employee.displayName}</td><td colSpan={5}>載入敘薪資料…</td></tr>;
+  if (profile.isLoading) return <HrSkeletonTableRow columns={6} />;
   return <tr>
     <td><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.hiredOn}～${employment.endedOn ?? "目前"}` : "尚無任職"}</td>
@@ -331,6 +334,10 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   // null＝關閉；{ userId: null }＝從上方按鈕開啟、還沒選員工。
   const [editing, setEditing] = useState<{ userId: string | null } | null>(null);
   if (!canRead) return <Alert tone="danger">敘薪明細僅限全平台 HR 管理者查看。</Alert>;
+  const pageLoading = settingsOnly
+    ? rates.isPending || contributionRules.isPending
+    : (permissions.has("hr:employee:read") && employees.isPending) || (permissions.has("hr:schedule:read") && workers.isPending);
+  if (pageLoading) return <HrPageSkeleton variant="table" />;
   return <div className="page">
     <PageHeader
       title={settingsOnly ? "制度設定" : "敘薪管理"}
