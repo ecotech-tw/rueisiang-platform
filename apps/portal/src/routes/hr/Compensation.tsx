@@ -294,13 +294,17 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Emp
     <td>{current ? PAY_BASIS_LABEL[current.payBasis] : latestVoided ? "已解除" : "尚未設定"}</td>
     <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}</td>
     <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : latestVoided ? `第 ${latest?.versionNumber} 版已解除` : "—"}</td>
-    <td>{canWrite && employment ? <Button variant="secondary" onClick={() => onEdit(employee.userId)}>{latestVoided ? "修正敘薪" : current ? "更新敘薪" : "新增敘薪"}</Button> : null}</td>
+    <td>{canWrite && employment ? latestVoided
+      ? <Button variant="icon" icon="unblock" className="compensation-action-correction" title="修正敘薪" aria-label="修正敘薪" onClick={() => onEdit(employee.userId)} />
+      : current
+        ? <Button variant="icon" icon="edit" className="compensation-action-update" title="更新敘薪" aria-label="更新敘薪" onClick={() => onEdit(employee.userId)} />
+        : <Button variant="icon" icon="plus" className="compensation-action-add" title="新增敘薪" aria-label="新增敘薪" onClick={() => onEdit(employee.userId)} /> : null}</td>
   </tr>;
 }
 
 function WorkerCompensationRow({ worker, canWrite, onEdit }: { worker: ScheduleWorkerRecord; canWrite: boolean; onEdit: () => void }) {
   const current = currentVersion(worker.compensation);
-  return <tr><td><strong>{worker.displayName}</strong><br /><span className="muted">排班支援人員</span></td><td>日薪</td><td className="numeric">{current ? money(current.baseAmountMinor) : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite ? <Button variant="secondary" onClick={onEdit}>新增版本</Button> : null}</td></tr>;
+  return <tr><td><strong>{worker.displayName}</strong><br /><span className="muted">排班支援人員</span></td><td>日薪</td><td className="numeric">{current ? money(current.baseAmountMinor) : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite ? <Button variant="icon" icon="plus" className="compensation-action-add" title="新增版本" aria-label={`為${worker.displayName}新增敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
 }
 
 export function HrCompensationManagement({ settingsOnly = false }: { settingsOnly?: boolean } = {}) {
