@@ -98,7 +98,7 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
           </table>
         </div>
         {!brackets.length ? <p className="empty-state">尚無級距，請新增一筆。</p> : null}
-        <div className="hr-rate-editor-foot"><Button type="button" variant="secondary" icon="plus" onClick={addBracket}>新增級距</Button><span className="muted">上限留空代表該級距沒有上限。</span></div>
+        <div className="hr-rate-editor-foot"><Button type="button" icon="plus" onClick={addBracket}>新增級距</Button><span className="muted">上限留空代表該級距沒有上限。</span></div>
       </div>
       <div className="field-grid">
         <TextField label="資料來源網址或公告名稱（可留空）" value={sourceUrl} maxLength={500} onChange={(event) => setSourceUrl(event.target.value)} />
