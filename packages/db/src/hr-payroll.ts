@@ -122,17 +122,21 @@ export interface HrCompensationInput {
   payBasis: "monthly" | "daily" | "hourly";
   baseAmountMinor: number;
   note: string;
-  items?: Array<{ itemName: string; amountMinor: number; itemKind: "fixed" | "variable"; includeOvertime: boolean; includeInsurance: boolean; includeTax: boolean }>;
+  items?: Array<{ itemName: string; amountMinor: number; itemKind: "fixed" | "variable"; amountBasis: "monthly" | "daily" | "hourly"; includeOvertime: boolean; includeInsurance: boolean; includeTax: boolean }>;
 }
 
 export async function createHrCompensationVersion(db: Database, input: HrCompensationInput, actor: HrActor) {
   if (!isDateOnly(input.validFrom) || (input.validTo !== null && (!isDateOnly(input.validTo) || input.validTo <= input.validFrom))) throw new HrError(400, "敘薪生效／迄日不正確。 ");
   if (!Number.isSafeInteger(input.baseAmountMinor) || input.baseAmountMinor < 0 || input.note.length > 1000) throw new HrError(400, "敘薪資料不正確。 ");
+  if (input.items && (input.items.length > 50 || input.items.some((item) => !item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.amountMinor) || item.amountMinor < 0 || (item.itemKind !== "fixed" && item.itemKind !== "variable") || !["monthly", "daily", "hourly"].includes(item.amountBasis) || typeof item.includeOvertime !== "boolean" || typeof item.includeInsurance !== "boolean" || typeof item.includeTax !== "boolean"))) throw new HrError(400, "薪資項目不正確。 ");
+  if (input.items) {
+    const itemNames = input.items.map((item) => item.itemName.trim());
+    if (new Set(itemNames).size !== itemNames.length) throw new HrError(400, "同一敘薪版本不可有重複的薪資項目名稱。 ");
+  }
   const [current] = await db.select({ id: hrCompensationVersions.id, validFrom: hrCompensationVersions.validFrom }).from(hrCompensationVersions)
     .where(and(eq(hrCompensationVersions.employmentId, input.employmentId), sql`${hrCompensationVersions.validTo} IS NULL`))
     .orderBy(desc(hrCompensationVersions.validFrom)).limit(1);
   const id = crypto.randomUUID();
-  if (input.items && (input.items.length > 50 || input.items.some((item) => !item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.amountMinor) || item.amountMinor < 0 || (item.itemKind !== "fixed" && item.itemKind !== "variable") || typeof item.includeOvertime !== "boolean" || typeof item.includeInsurance !== "boolean" || typeof item.includeTax !== "boolean"))) throw new HrError(400, "薪資項目不正確。 ");
   const closePrevious = current && current.validFrom < input.validFrom
     ? [sql`UPDATE hr_compensation_versions SET valid_to=${input.validFrom}
       WHERE id=${current.id} AND valid_to IS NULL AND valid_from < ${input.validFrom} RETURNING id`]
@@ -148,8 +152,8 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
     RETURNING id`;
   const itemStatements = (input.items ?? []).map((item) => {
     const itemId = crypto.randomUUID();
-    return sql`INSERT INTO hr_compensation_items (id, compensation_version_id, item_name, amount_minor, item_kind, include_overtime, include_insurance, include_tax, created_by)
-      VALUES (${itemId}, ${id}, ${item.itemName.trim()}, ${item.amountMinor}, ${item.itemKind}, ${item.includeOvertime ? 1 : 0}, ${item.includeInsurance ? 1 : 0}, ${item.includeTax ? 1 : 0}, ${actor.id}) RETURNING id`;
+    return sql`INSERT INTO hr_compensation_items (id, compensation_version_id, item_name, amount_minor, item_kind, amount_basis, include_overtime, include_insurance, include_tax, created_by)
+      VALUES (${itemId}, ${id}, ${item.itemName.trim()}, ${item.amountMinor}, ${item.itemKind}, ${item.amountBasis}, ${item.includeOvertime ? 1 : 0}, ${item.includeInsurance ? 1 : 0}, ${item.includeTax ? 1 : 0}, ${actor.id}) RETURNING id`;
   });
   return writeHrMutation(db, [...closePrevious, insert, ...itemStatements], id, actor, "compensation_version_created", "任職不存在、薪資期間重疊或資料不合法，請重新整理。 ");
 }

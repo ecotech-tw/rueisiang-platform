@@ -7,6 +7,12 @@ import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 const PAY_BASIS_LABEL: Record<CompensationVersion["payBasis"], string> = { monthly: "月薪", daily: "日薪", hourly: "時薪" };
+const PAY_BASIS_UNIT: Record<CompensationVersion["payBasis"], string> = { monthly: "月", daily: "日", hourly: "時" };
+/** 常見的薪資項目；選「其他」那一列會換成自由輸入，名稱仍由 HR 決定。 */
+const ITEM_PRESETS = ["職務加給", "職務津貼", "伙食費", "全勤獎金", "交通津貼", "主管加給", "證照津貼", "輪班津貼"];
+const CUSTOM_ITEM = "__custom__";
+/** 每筆項目自己的計算單位；月給的津貼不會因為員工是日薪就被乘上出勤天數。 */
+const ITEM_BASIS_OPTIONS = [{ value: "monthly", label: "月" }, { value: "daily", label: "日" }, { value: "hourly", label: "時" }] as const;
 
 function money(minor: number): string {
   return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`;
@@ -24,61 +30,94 @@ function currentVersion<T extends { validFrom: string; validTo: string | null }>
     ?? versions.filter((version) => version.validFrom <= today).sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0];
 }
 
+function nextDay(date: string): string {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10);
+}
+
 function currentEmployment(employments: Employment[]): Employment | undefined {
   const today = taipeiToday();
   return employments.find((employment) => employment.hiredOn <= today && (employment.endedOn === null || today < employment.endedOn)) ?? employments[0];
 }
 
 /**
+ * 不同單位的金額不能相加：日薪 1,800／日 與職務加給 3,000／月 是兩件事，
+ * 加起來的 4,800 不對應任何一筆實付金額。改成各單位各自小計後並列。
+ */
+function totalsByBasis(entries: Array<{ basis: CompensationVersion["payBasis"]; amountMinor: number }>) {
+  return (["monthly", "daily", "hourly"] as const)
+    .map((basis) => ({ basis, amountMinor: entries.filter((entry) => entry.basis === basis).reduce((sum, entry) => sum + entry.amountMinor, 0) }))
+    .filter((row) => row.amountMinor > 0);
+}
+
+function totalsText(totals: ReturnType<typeof totalsByBasis>): string {
+  return totals.length ? totals.map((row) => `${money(row.amountMinor)}／${PAY_BASIS_UNIT[row.basis]}`).join("　＋　") : money(0);
+}
+
+function versionTotals(version: CompensationVersion) {
+  return totalsByBasis([
+    { basis: version.payBasis, amountMinor: version.baseAmountMinor },
+    ...(version.items ?? []).map((item) => ({ basis: item.amountBasis ?? "monthly", amountMinor: item.amountMinor })),
+  ]);
+}
+
+interface SalaryItemDraft { key: string; name: string; amount: string; custom: boolean; basis: CompensationVersion["payBasis"] }
+
+function draftAmountMinor(amount: string): number | null {
+  const value = Number(amount);
+  return amount.trim() && Number.isSafeInteger(value) && value >= 0 ? value * 100 : null;
+}
+
+/**
  * 敘薪 Dialog 自己選員工：從上方「新增敘薪」進來時還沒選人，從列上的按鈕進來時預選那一位。
  *
- * 這個元件掛在頁面層，不掛在 <tr> 裡——對話框的 <div> 放進 <tbody> 是不合法的 HTML，
- * 瀏覽器會把它搬走，遮罩與定位就整個跑掉。
+ * 這個元件掛在頁面層，不掛在 <tr> 裡——對話框的 <div> 放進 <tbody> 是不合法的 HTML。
  */
 function CompensationEditor({ employees, initialUserId, onClose }: { employees: Employee[]; initialUserId: string | null; onClose: () => void }) {
   const [userId, setUserId] = useState(initialUserId ?? "");
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(userId)}`, Boolean(userId));
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
-  const current = useMemo(() => employment
-    ? currentVersion((profile.data?.compensation ?? []).filter((version) => version.employmentId === employment.id))
-    : undefined, [profile.data?.compensation, employment?.id]);
+  const employmentVersions = useMemo(() => (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id), [profile.data?.compensation, employment?.id]);
+  const current = useMemo(() => currentVersion(employmentVersions), [employmentVersions]);
 
   const [validFrom, setValidFrom] = useState(taipeiToday());
   const [validTo, setValidTo] = useState("");
   const [payBasis, setPayBasis] = useState<CompensationVersion["payBasis"]>("monthly");
-  const [amount, setAmount] = useState("");
+  const [baseAmount, setBaseAmount] = useState("");
+  const [items, setItems] = useState<SalaryItemDraft[]>([]);
   const [note, setNote] = useState("");
-  const [itemName, setItemName] = useState("");
-  const [itemAmount, setItemAmount] = useState("");
-  const [itemKind, setItemKind] = useState<"fixed" | "variable">("fixed");
-  const [includeOvertime, setIncludeOvertime] = useState(false);
-  const [includeInsurance, setIncludeInsurance] = useState(false);
-  const [includeTax, setIncludeTax] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
 
-  // 換一位員工就重新帶入那個人目前的敘薪當預設值，不沿用上一個人的金額。
+  // 換一位員工就重新帶入那個人目前的敘薪當預設值，不沿用上一個人的金額與項目。
   useEffect(() => {
     const today = taipeiToday();
-    const item = current?.items?.[0];
     // 任職已結束的人，今天已經落在任職期間外；後端要求版本整段都在任職期間內，
     // 所以改從到職日起算，並把任職結束日帶成迄日，否則一定存不進去。
     const endedOn = employment?.endedOn ?? null;
-    setValidFrom(!employment ? today : employment.hiredOn > today || (endedOn && today >= endedOn) ? employment.hiredOn : today);
+    const start = !employment ? today : employment.hiredOn > today || (endedOn && today >= endedOn) ? employment.hiredOn : today;
+    /*
+     * 今天已經有一版時，再從今天起算一定期間重疊、存不進去（後端只會回一句籠統的錯誤）。
+     * 直接跳到最後一版的隔天，讓預設值就是可以存的日期。
+     */
+    const latestStart = employmentVersions.reduce<string | null>((latest, version) => !latest || version.validFrom > latest ? version.validFrom : latest, null);
+    setValidFrom(latestStart && latestStart >= start ? nextDay(latestStart) : start);
     setValidTo(endedOn ?? "");
     setPayBasis(current?.payBasis ?? "monthly");
-    setAmount(current ? String(current.baseAmountMinor / 100) : "");
-    setItemName(item?.itemName ?? "");
-    setItemAmount(item ? String(item.amountMinor / 100) : "");
-    setItemKind(item?.itemKind ?? "fixed");
-    setIncludeOvertime(Boolean(item?.includeOvertime));
-    setIncludeInsurance(Boolean(item?.includeInsurance));
-    setIncludeTax(item ? Boolean(item.includeTax) : true);
+    setBaseAmount(current ? String(current.baseAmountMinor / 100) : "");
+    setItems((current?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
     setNote(current?.note ?? "");
     setMessage(null);
-  }, [current, employment]);
+  }, [current, employment, employmentVersions]);
 
   const selected = employees.find((employee) => employee.userId === userId);
+  const baseMinor = draftAmountMinor(baseAmount) ?? 0;
+  const draftTotals = totalsByBasis([
+    { basis: payBasis, amountMinor: baseMinor },
+    ...items.map((item) => ({ basis: item.basis, amountMinor: draftAmountMinor(item.amount) ?? 0 })),
+  ]);
+  const updateItem = (key: string, patch: Partial<SalaryItemDraft>) => setItems((list) => list.map((item) => item.key === key ? { ...item, ...patch } : item));
 
   return <Dialog
     title="新增敘薪"
@@ -92,12 +131,37 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       if (validFrom < employment.hiredOn) { setMessage(`生效日不能早於到職日 ${employment.hiredOn}。`); return; }
       if (employment.endedOn && (!validTo || validTo > employment.endedOn)) { setMessage(`任職已於 ${employment.endedOn} 結束，迄日要填到 ${employment.endedOn}（含）之前。`); return; }
       if (validTo && validTo <= validFrom) { setMessage("迄日必須晚於生效日。"); return; }
-      const numericAmount = Number(amount);
-      if (!Number.isSafeInteger(numericAmount) || numericAmount < 0) { setMessage("請輸入非負整數的薪資金額（元）。"); return; }
-      const itemValue = Number(itemAmount);
-      if (itemName.trim() && (!Number.isSafeInteger(itemValue) || itemValue < 0)) { setMessage("薪資項目金額必須是非負整數元。"); return; }
+      /*
+       * 後端會自動把「還沒結束、而且比新版本早開始」的那一版收尾，所以只有這兩種情況才是真的撞期。
+       * 不先擋的話使用者只會看到一句「任職不存在、薪資期間重疊或資料不合法」，不知道要改哪裡。
+       */
+      const newEnd = validTo || "9999-12-31";
+      const overlapping = employmentVersions.find((version) => {
+        // 後端會在同一批次收尾較早開始的開放版本，這種銜接不是重疊。
+        if (version.validTo === null && version.validFrom < validFrom) return false;
+        return version.validFrom < newEnd && (version.validTo === null || version.validTo > validFrom);
+      });
+      if (overlapping) {
+        const nextAvailableDate = overlapping.validTo ?? nextDay(overlapping.validFrom);
+        setMessage(`${overlapping.validFrom}～${overlapping.validTo ?? "目前"} 已經有一個敘薪版本（${PAY_BASIS_LABEL[overlapping.payBasis]} ${totalsText(versionTotals(overlapping))}）。歷史版本不可覆寫，請把生效日改到 ${nextAvailableDate} 或之後。`);
+        return;
+      }
+      if (draftAmountMinor(baseAmount) === null) { setMessage("基本薪資請填非負整數的金額（元）。"); return; }
+      const seenNames = new Set<string>();
+      for (const item of items) {
+        const name = item.name.trim();
+        if (!name) { setMessage("每個薪資項目都要有名稱，不需要的請按刪除。"); return; }
+        if (draftAmountMinor(item.amount) === null) { setMessage(`「${name}」的金額請填非負整數（元）。`); return; }
+        // 同名項目分成兩列時，薪資單會出現兩筆一樣的名稱，看不出誰是誰；要嘛合併金額、要嘛改名。
+        if (seenNames.has(name)) { setMessage(`「${name}」重複了，請合併成一列或改成不同名稱。`); return; }
+        seenNames.add(name);
+      }
       setMessage(null);
-      save.mutate({ path: `/employments/${employment.id}/compensation`, method: "POST", values: { validFrom, validTo: validTo || null, payBasis, baseAmountMinor: numericAmount * 100, note, items: itemName.trim() ? [{ itemName: itemName.trim(), amountMinor: itemValue * 100, itemKind, includeOvertime, includeInsurance, includeTax }] : [] } }, { onSuccess: onClose });
+      save.mutate({ path: `/employments/${employment.id}/compensation`, method: "POST", values: {
+        validFrom, validTo: validTo || null, payBasis, baseAmountMinor: draftAmountMinor(baseAmount), note,
+        // 型態與三個納入與否不再讓人逐項設定：一律是固定項目，並納入加班基礎、投保級距與應稅所得。
+        items: items.map((item) => ({ itemName: item.name.trim(), amountMinor: draftAmountMinor(item.amount), itemKind: "fixed", amountBasis: item.basis, includeOvertime: true, includeInsurance: true, includeTax: true })),
+      } }, { onSuccess: onClose });
     } }}
     actions={<Button type="submit" loading={save.isPending} disabled={!employment}>保存敘薪</Button>}
   >
@@ -111,18 +175,45 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     />
     {userId && profile.isPending ? <p className="muted">載入目前敘薪…</p> : null}
     {userId && !profile.isPending && !employment ? <Alert tone="warning">這位員工沒有任職紀錄，請先在員工列表建立任職。</Alert> : null}
-    {employment ? <p className="form-hint">任職期間 {employment.hiredOn}～{employment.endedOn ?? "目前"}；目前敘薪 {current ? `${PAY_BASIS_LABEL[current.payBasis]} ${money(current.baseAmountMinor)}` : "尚未設定"}。</p> : null}
-    <div className="form-grid two">
+    {employment ? <p className="form-hint">任職期間 {employment.hiredOn}～{employment.endedOn ?? "目前"}；目前敘薪 {current ? `${PAY_BASIS_LABEL[current.payBasis]} ${totalsText(versionTotals(current))}` : "尚未設定"}。</p> : null}
+    <div className="field-grid">
       <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
       <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />
     </div>
-    <div className="form-grid two">
-      <SelectField label="薪資計算方式" value={payBasis} options={[{ value: "monthly", label: "月薪" }, { value: "daily", label: "日薪" }, { value: "hourly", label: "時薪" }]} onChange={(event) => setPayBasis(event.target.value as CompensationVersion["payBasis"])} />
-      <TextField label="金額（元）" type="number" min="0" step="1" value={amount} required onChange={(event) => setAmount(event.target.value)} />
+    <div className="salary-items">
+      <span className="salary-items-label">薪資項目</span>
+      <div className="salary-items-head"><span>項目</span><span>計算單位</span><span>金額（元）</span><span className="salary-item-spacer" aria-hidden="true" /></div>
+      <div className="salary-item-row">
+        <span className="salary-item-name">基本薪資</span>
+        {/* 基本薪資的單位就是這份敘薪的計薪方式（月薪／日薪／時薪），不另外開一個欄位重複設定。 */}
+        <SelectField aria-label="基本薪資的計算單位（即計薪方式）" value={payBasis} options={ITEM_BASIS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))} onChange={(event) => setPayBasis(event.target.value as CompensationVersion["payBasis"])} />
+        <TextField aria-label="基本薪資金額（元）" type="number" min="0" step="1" value={baseAmount} required onChange={(event) => setBaseAmount(event.target.value)} />
+        <span className="salary-item-spacer" aria-hidden="true" />
+      </div>
+      {items.map((item) => <div className="salary-item-row" key={item.key}>
+        {item.custom
+          ? <TextField aria-label="薪資項目名稱" value={item.name} placeholder="自行輸入項目名稱" onChange={(event) => updateItem(item.key, { name: event.target.value })} />
+          : <SelectField
+            aria-label="薪資項目"
+            value={item.name}
+            options={[{ value: "", label: "請選擇項目" }, ...ITEM_PRESETS.map((name) => ({ value: name, label: name })), { value: CUSTOM_ITEM, label: "其他（自行輸入）" }]}
+            onChange={(event) => updateItem(item.key, event.target.value === CUSTOM_ITEM ? { custom: true, name: "" } : { name: event.target.value })}
+          />}
+        <SelectField
+          aria-label={`${item.name.trim() || "項目"}的計算單位`}
+          value={item.basis}
+          options={ITEM_BASIS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          onChange={(event) => updateItem(item.key, { basis: event.target.value as CompensationVersion["payBasis"] })}
+        />
+        <TextField aria-label={`${item.name.trim() || "項目"}金額（元）`} type="number" min="0" step="1" value={item.amount} onChange={(event) => updateItem(item.key, { amount: event.target.value })} />
+        <Button variant="icon" icon="trash" title={`刪除${item.name.trim() || "這個項目"}`} aria-label={`刪除${item.name.trim() || "這個項目"}`} onClick={() => setItems((list) => list.filter((row) => row.key !== item.key))} />
+      </div>)}
+      <div className="salary-items-foot">
+        <Button variant="secondary" icon="plus" onClick={() => setItems((list) => [...list, { key: `item-${Date.now()}-${list.length}`, name: "", amount: "", custom: false, basis: "monthly" }])}>新增項目</Button>
+        <p className="salary-items-total">合計：<strong>{totalsText(draftTotals)}</strong></p>
+      </div>
     </div>
-    <div className="form-grid two"><TextField label="薪資項目（可留空）" value={itemName} onChange={(event) => setItemName(event.target.value)} /><TextField label="項目金額（元）" type="number" min="0" step="1" value={itemAmount} onChange={(event) => setItemAmount(event.target.value)} /></div>
-    <div className="form-grid two"><SelectField label="項目型態" value={itemKind} options={[{ value: "fixed", label: "固定" }, { value: "variable", label: "變動（需 HR 覆核）" }]} onChange={(event) => setItemKind(event.target.value as "fixed" | "variable")} /><label className="checkbox-field"><input type="checkbox" checked={includeOvertime} onChange={(event) => setIncludeOvertime(event.target.checked)} /> 納入加班費基礎</label></div>
-    <div className="button-row"><label className="checkbox-field"><input type="checkbox" checked={includeInsurance} onChange={(event) => setIncludeInsurance(event.target.checked)} /> 納入勞健保基礎</label><label className="checkbox-field"><input type="checkbox" checked={includeTax} onChange={(event) => setIncludeTax(event.target.checked)} /> 計入應稅所得</label></div>
+
     <TextField label="備註" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
     {message || save.error || profile.error ? <Alert tone="danger">{message || save.error?.message || profile.error?.message}</Alert> : null}
   </Dialog>;
@@ -161,7 +252,7 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Emp
     <td><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.hiredOn}～${employment.endedOn ?? "目前"}` : "尚無任職"}</td>
     <td>{current ? PAY_BASIS_LABEL[current.payBasis] : "尚未設定"}</td>
-    <td className="numeric">{current ? money(current.baseAmountMinor) : "—"}</td>
+    <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}</td>
     <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td>
     <td>{canWrite && employment ? <Button variant="secondary" onClick={() => onEdit(employee.userId)}>{current ? "更新敘薪" : "新增敘薪"}</Button> : null}</td>
   </tr>;
@@ -203,7 +294,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   return <div className="page">
     <PageHeader
       title={settingsOnly ? "制度設定" : "敘薪管理"}
-      description={settingsOnly ? "管理官方勞健保級距與公司採用的負擔規則；薪資結算只使用已保存的設定。" : "設定每位員工的薪資計算方式與生效版本；薪資變更不覆蓋歷史，薪資結算會讀取指定月份有效的敘薪版本。"}
+      description={settingsOnly ? "管理官方勞健保級距與公司採用的負擔規則；薪資結算只使用已保存的設定。" : "設定每位員工的薪資組成與生效版本；薪資變更不覆蓋歷史，薪資結算會讀取指定月份有效的敘薪版本。"}
       actions={!settingsOnly && canWrite ? <Button icon="plus" onClick={() => setEditing({ userId: null })}>新增敘薪</Button> : null}
     />
     {settingsOnly ? <>
@@ -213,8 +304,8 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
       <Alert tone="info">先在這裡完成員工敘薪，再到「勞健保管理」建立投保版本與「獎金管理」套用業績 policy；最後於「薪資結算」直接計算指定月份薪資。</Alert>
       {!canWrite ? <Alert tone="info">目前帳號只有敘薪檢視權限，無法新增薪資版本。</Alert> : null}
       <Panel>
-      <div className="panel-head"><div><h2>員工敘薪</h2><p>月薪、日薪與時薪都以版本保存；勞健保版本請到「勞健保管理」建立。</p></div></div>
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>員工</th><th>目前任職</th><th>方式</th><th className="numeric">金額</th><th>生效期間</th><th>操作</th></tr></thead><tbody>
+      <div className="panel-head"><div><h2>員工敘薪</h2><p>月薪、日薪與時薪都以版本保存；金額依計算單位分開列出，月給與日給不相加。勞健保版本請到「勞健保管理」建立。</p></div></div>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>員工</th><th>目前任職</th><th>方式</th><th className="numeric">總計薪資</th><th>生效期間</th><th>操作</th></tr></thead><tbody>
         {(employees.data?.employees ?? []).map((employee) => <EmployeeCompensationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={(userId) => setEditing({ userId })} />)}
       </tbody></table></div>
       {!employees.data?.employees.length ? <p className="empty-state">尚無員工。</p> : null}

@@ -229,7 +229,10 @@ describe("HR 薪資與櫃點獎金試算", () => {
   });
 
   it("日薪員工只按已發布排班日期計薪，沒有排班不把整月任職日當成出勤", async () => {
-    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "測試日薪" });
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "測試日薪", items: [
+      // 月給的職務津貼：日薪員工上幾天班都不該乘上天數，只能按月拆。
+      { itemName: "職務津貼", amountMinor: 300_000, itemKind: "fixed", amountBasis: "monthly", includeOvertime: true, includeInsurance: true, includeTax: true },
+    ] });
     expect(compensation.status, await compensation.clone().text()).toBe(201);
     const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
     expect(mode.status, await mode.clone().text()).toBe(200);
@@ -251,11 +254,67 @@ describe("HR 薪資與櫃點獎金試算", () => {
         warnings: string[];
       };
     };
-    expect(body.run.employees[0]).toMatchObject({ earningMinor: 360_000 });
+    // 本薪 1,800 × 2 天；職務津貼 3,000／月 只按 30 日制拆成 2 天份（100 × 2），不是 3,000 × 2。
+    expect(body.run.employees[0]).toMatchObject({ earningMinor: 380_000 });
     expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
       expect.objectContaining({ lineKey: "base_salary", amountMinor: 360_000, explanation: expect.objectContaining({ rule: "依已發布排班日期計算；特殊上班日依套用資料" }) }),
+      expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 20_000, explanation: expect.objectContaining({ itemName: "職務津貼", amountBasis: "monthly" }) }),
     ]));
     expect(body.run.warnings.some((warning) => warning.includes("日薪制但本期沒有已發布排班"))).toBe(false);
+  });
+
+  it("月薪制的每日薪資項目只按工作日計算", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "monthly", baseAmountMinor: 180_000, note: "測試月薪", items: [
+      { itemName: "每日津貼", amountMinor: 15_000, itemKind: "fixed", amountBasis: "daily", includeOvertime: false, includeInsurance: false, includeTax: false },
+    ] });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
+    expect(mode.status, await mode.clone().text()).toBe(200);
+    const scheduleResponse = await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen");
+    const schedule = await scheduleResponse.json() as { shifts: Array<{ versionId: string }> };
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-17" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-daily-item-workdays" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    expect(body.run.employees[0]).toMatchObject({ earningMinor: 210_000 });
+    expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "base_salary", amountMinor: 180_000 }),
+      expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 30_000 }),
+    ]));
+  });
+
+  it("加班基礎按薪資項目自己的計算單位換算", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "測試日薪加班", items: [
+      { itemName: "月給津貼", amountMinor: 300_000, itemKind: "fixed", amountBasis: "monthly", includeOvertime: true, includeInsurance: false, includeTax: false },
+    ] });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const adminCookie = cookie;
+    cookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
+    const overtime = await request("/hr/me/overtime", "POST", { requestedStart: "2026-09-03 18:00", requestedEnd: "2026-09-03 20:00", settlementKind: "pay", reason: "測試薪資項目加班基礎" });
+    expect(overtime.status, await overtime.clone().text()).toBe(201);
+    const overtimeId = (await overtime.json() as { id: string }).id;
+    cookie = adminCookie;
+    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+    expect(reviewed.status, await reviewed.clone().text()).toBe(200);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-item-overtime-basis" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
+      // (180,000／8 + 300,000／30／8) × 2 小時 × 1.333333。
+      expect.objectContaining({ lineKey: "overtime", amountMinor: 63_333 }),
+    ]));
+  });
+
+  it("後端拒絕同一敘薪版本的重複薪資項目名稱", async () => {
+    const response = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "monthly", baseAmountMinor: 180_000, note: "重複項目測試", items: [
+      { itemName: "交通津貼", amountMinor: 10_000, itemKind: "fixed", amountBasis: "monthly", includeOvertime: false, includeInsurance: false, includeTax: false },
+      { itemName: " 交通津貼 ", amountMinor: 20_000, itemKind: "fixed", amountBasis: "monthly", includeOvertime: false, includeInsurance: false, includeTax: false },
+    ] });
+    expect(response.status, await response.clone().text()).toBe(400);
   });
 
   it("一般員工不能讀取薪資與獎金資料", async () => {

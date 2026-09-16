@@ -918,6 +918,20 @@
       "when": 1789466672069,
       "tag": "0154_auth_device_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "6",
+      "when": 1789532629779,
+      "tag": "0155_hr_compensation_item_basis",
+      "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "6",
+      "when": 1789532707047,
+      "tag": "0156_hr_compensation_item_basis_backfill",
+      "breakpoints": true
     }
   ]
 }

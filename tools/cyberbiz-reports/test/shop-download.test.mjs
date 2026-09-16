@@ -5,13 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openBrowser } from "../lib/browser.mjs";
-import { downloadStatement, listStatements } from "../lib/cyberbiz.mjs";
+import { confirmStatement, downloadStatement, listStatements } from "../lib/cyberbiz.mjs";
 
 /*
- * 對帳單是**瀏覽器下載**，不是像出金表那樣寄 Email 再從 Gmail 抓附件。這兩支測試
- * 用一個合成頁面把那條路走完：卡片長得跟後台一樣（區間、撥款金額、下載鈕，以及一張
- * 沒有下載鈕的未結帳卡），驗 listStatements 分得出來、downloadStatement 真的把檔案
- * 存到我們指定的路徑。
+ * 對帳單是**瀏覽器下載**，不是像出金表那樣寄 Email 再從 Gmail 抓附件。這組測試
+ * 用一個合成頁面把那條路走完：卡片長得跟後台一樣（區間、撥款金額、下載鈕、確認鈕，以及一張
+ * 沒有下載鈕的未結帳卡），驗 listStatements 分得出來、下載與確認操作真的作用在正確卡片。
  *
  * 這裡不碰 CYBERBIZ：後台的 selector 要用真頁面確認，但「按了之後檔案會不會落地」
  * 是我們自己的程式碼，這裡就驗得完。
@@ -38,6 +37,7 @@ const CARD_PAGE = `
     <div class="card">
       <p>對帳區間 2026/08/01 ~ 2026/08/15</p>
       <p>撥款金額 ? NT$76,285</p>
+      <button id="confirm-0815">確認帳款</button>
       <button id="dl-0815">下載對帳單</button>
     </div>
   </div>
@@ -48,6 +48,13 @@ const CARD_PAGE = `
         window.location.href = "/download/" + name;
       });
     }
+    document.getElementById("confirm-0815").addEventListener("click", (event) => {
+      const card = event.currentTarget.parentElement;
+      event.currentTarget.remove();
+      const status = document.createElement("p");
+      status.textContent = "帳款已確認";
+      card.append(status);
+    });
   </script>
 </body>`;
 
@@ -135,5 +142,19 @@ test("同一頁下載兩期，兩個檔案各自落地", async () => {
     }
     assert.equal(paths.length, 2);
     for (const filePath of paths) assert.ok((await stat(filePath)).size > 0, `${filePath} 是空的`);
+  });
+});
+
+test("確認帳款只點未確認的期間，重跑與已確認期間都不會重複點擊", async () => {
+  await withPage(async (page) => {
+    const statements = await listStatements(page);
+    const pending = statements.find((statement) => statement.end === "2026-08-15");
+    const confirmed = statements.find((statement) => statement.end === "2026-08-31");
+
+    assert.equal(await confirmStatement(page, pending), "clicked");
+    assert.equal(await confirmStatement(page, pending), "already_confirmed");
+    assert.equal(await confirmStatement(page, confirmed), "already_confirmed");
+    assert.equal(await page.getByRole("button", { name: "確認帳款", exact: true }).count(), 0);
+    assert.match(await page.locator(".card").filter({ hasText: "2026/08/01" }).innerText(), /帳款已確認/);
   });
 });

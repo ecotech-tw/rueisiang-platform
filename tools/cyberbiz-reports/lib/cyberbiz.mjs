@@ -591,3 +591,38 @@ export async function downloadStatement(page, statement, { targetPath, log } = {
   log?.(`下載 ${statement.start} ~ ${statement.end} → ${targetPath}`);
   return targetPath;
 }
+
+/**
+ * D1 匯入成功且檔案金額已和卡片交叉確認後，確認這一期的帳款。
+ *
+ * 已經確認過的卡片沒有這顆按鈕；只有同時看到「帳款已確認」才把沒有按鈕視為冪等成功，
+ * 避免後台改版造成靜默略過（若帳戶啟用一鍵請款發票，確認還會觸發請款發票流程）。
+ */
+export async function confirmStatement(page, statement, { log } = {}) {
+  const button = statement.locator.getByRole("button", { name: "確認帳款", exact: true }).first();
+  const hasButton = (await button.count()) > 0 && await button.isVisible().catch(() => false);
+  if (!hasButton) {
+    const cardText = await statement.locator.innerText().catch(() => "");
+    if (cardText.includes("帳款已確認")) {
+      log?.(`略過確認 ${statement.start} ~ ${statement.end}：帳款已確認`);
+      return "already_confirmed";
+    }
+    fail("STATEMENT_CONFIRM_BUTTON_MISSING", `找不到確認帳款按鈕，且卡片沒有顯示已確認（${statement.start} ~ ${statement.end}）。`);
+  }
+
+  await page.keyboard.press("Escape").catch(() => {});
+  await dismissOverlays(page, { log });
+  await button.scrollIntoViewIfNeeded({ timeout: 10000 }).catch(() => {});
+  // 往上捲一點，讓卡片離開 sticky 導覽列的覆蓋範圍。
+  await page.mouse.wheel(0, -120).catch(() => {});
+  await page.waitForTimeout(300);
+  await button.click({ timeout: 15000 });
+
+  // 按鈕在後台完成請求後會被移除；等到它消失，避免 runner 還沒完成就結束瀏覽器。
+  await button.waitFor({ state: "hidden", timeout: 15000 }).catch(() => {});
+  if (await button.isVisible().catch(() => false)) {
+    fail("STATEMENT_CONFIRM_FAILED", `確認帳款後按鈕仍在畫面上（${statement.start} ~ ${statement.end}）。`);
+  }
+  log?.(`確認帳款 ${statement.start} ~ ${statement.end}`);
+  return "clicked";
+}

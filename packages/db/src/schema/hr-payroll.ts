@@ -38,6 +38,11 @@ export const hrCompensationItems = sqliteTable("hr_compensation_items", {
   itemName: text("item_name").notNull(),
   amountMinor: integer("amount_minor").notNull(),
   itemKind: text("item_kind", { enum: ["fixed", "variable"] as const }).notNull(),
+  /*
+   * 這筆金額是「每月」「每工作日」還是「每小時」給付，跟本薪的計薪方式分開。
+   * 日薪人員的職務津貼通常仍是月給；沒有這個欄位時津貼會被當成日給，上班 20 天就乘 20 倍。
+   */
+  amountBasis: text("amount_basis", { enum: ["monthly", "daily", "hourly"] as const }).notNull().default("monthly"),
   includeOvertime: integer("include_overtime").notNull().default(0),
   includeInsurance: integer("include_insurance").notNull().default(0),
   includeTax: integer("include_tax").notNull().default(1),
@@ -48,6 +53,10 @@ export const hrCompensationItems = sqliteTable("hr_compensation_items", {
   check("ck_hr_compensation_items_name", sql`length(trim(${table.itemName})) BETWEEN 1 AND 100`),
   check("ck_hr_compensation_items_amount", sql`${table.amountMinor} >= 0`),
   check("ck_hr_compensation_items_kind", sql`${table.itemKind} IN ('fixed', 'variable')`),
+  /*
+   * amount_basis 沒有 CHECK：SQLite 不能 ALTER 加 CHECK，drizzle 會改成「建新表→搬→刪舊表」，
+   * 那種 migration 在 D1 的交易裡會連坐刪資料（見 CLAUDE.md 的 0023）。值域由 TS 的 enum 與 API 驗證把關。
+   */
   check("ck_hr_compensation_items_flags", sql`${table.includeOvertime} IN (0, 1) AND ${table.includeInsurance} IN (0, 1) AND ${table.includeTax} IN (0, 1)`),
 ]);
 
