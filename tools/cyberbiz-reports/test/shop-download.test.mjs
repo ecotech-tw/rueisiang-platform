@@ -9,8 +9,8 @@ import { confirmStatement, downloadStatement, listStatements } from "../lib/cybe
 
 /*
  * 對帳單是**瀏覽器下載**，不是像出金表那樣寄 Email 再從 Gmail 抓附件。這組測試
- * 用一個合成頁面把那條路走完：卡片長得跟後台一樣（區間、撥款金額、下載鈕、確認鈕，以及一張
- * 沒有下載鈕的未結帳卡），驗 listStatements 分得出來、下載與確認操作真的作用在正確卡片。
+ * 用一個合成頁面把那條路走完：卡片長得跟後台一樣（區間、撥款金額、下載鈕、確認鈕與二次確認
+ * modal，以及一張沒有下載鈕的未結帳卡），驗 listStatements 分得出來、下載與確認操作真的作用在正確卡片。
  *
  * 這裡不碰 CYBERBIZ：後台的 selector 要用真頁面確認，但「按了之後檔案會不會落地」
  * 是我們自己的程式碼，這裡就驗得完。
@@ -41,6 +41,17 @@ const CARD_PAGE = `
       <button id="dl-0815">下載對帳單</button>
     </div>
   </div>
+  <div class="modal-container" id="confirm-modal" hidden>
+    <div class="formModal">
+      <h2>確認帳款</h2>
+      <div class="desc">是否要確認帳款？</div>
+      <div class="desc notify">提醒：請務必實際確認帳款金額，確認後無法取消！</div>
+      <div class="formModal-footer">
+        <button type="button">取消</button>
+        <button id="confirm-modal-submit" type="button">確認</button>
+      </div>
+    </div>
+  </div>
   <script>
     // 後台是按鈕觸發下載，不是 <a download>；用同樣的方式模擬。
     for (const [id, name] of [["dl-0831", "20260816-20260831.xlsx"], ["dl-0815", "20260801-20260815.xlsx"]]) {
@@ -48,12 +59,18 @@ const CARD_PAGE = `
         window.location.href = "/download/" + name;
       });
     }
-    document.getElementById("confirm-0815").addEventListener("click", (event) => {
-      const card = event.currentTarget.parentElement;
-      event.currentTarget.remove();
+    const confirmationModal = document.getElementById("confirm-modal");
+    document.getElementById("confirm-0815").addEventListener("click", () => {
+      confirmationModal.hidden = false;
+    });
+    document.getElementById("confirm-modal-submit").addEventListener("click", () => {
+      const confirmButton = document.getElementById("confirm-0815");
+      const card = confirmButton.closest(".card");
+      confirmButton.remove();
       const status = document.createElement("p");
       status.textContent = "帳款已確認";
       card.append(status);
+      confirmationModal.hidden = true;
     });
   </script>
 </body>`;

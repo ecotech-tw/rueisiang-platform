@@ -618,8 +618,21 @@ export async function confirmStatement(page, statement, { log } = {}) {
   await page.waitForTimeout(300);
   await button.click({ timeout: 15000 });
 
-  // 按鈕在後台完成請求後會被移除；等到它消失，避免 runner 還沒完成就結束瀏覽器。
+  // CYBERBIZ 會先開一個「確認帳款」modal，第一下只是開啟提醒；必須再按 modal
+  // footer 的「確認」才會真的送出。按鈕名稱要限定在 modal 裡，不能誤點卡片上的「確認帳款」。
+  const modal = page.locator(".modal-container").filter({ hasText: /是否要確認帳款/ }).first();
+  if ((await modal.count()) === 0) {
+    fail("STATEMENT_CONFIRM_MODAL_MISSING", `點擊確認帳款後找不到確認 modal（${statement.start} ~ ${statement.end}）。`);
+  }
+  await modal.waitFor({ state: "visible", timeout: 10000 });
+  await modal.getByRole("button", { name: "確認", exact: true }).click({ timeout: 15000 });
+
+  // modal 與卡片按鈕都在後台完成請求後消失；等到兩者都完成，避免 runner 還沒完成就結束瀏覽器。
+  await modal.waitFor({ state: "hidden", timeout: 15000 }).catch(() => {});
   await button.waitFor({ state: "hidden", timeout: 15000 }).catch(() => {});
+  if (await modal.isVisible().catch(() => false)) {
+    fail("STATEMENT_CONFIRM_FAILED", `確認帳款後 modal 仍在畫面上（${statement.start} ~ ${statement.end}）。`);
+  }
   if (await button.isVisible().catch(() => false)) {
     fail("STATEMENT_CONFIRM_FAILED", `確認帳款後按鈕仍在畫面上（${statement.start} ~ ${statement.end}）。`);
   }
