@@ -187,7 +187,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       } }, { onSuccess: onClose });
     } }}
     actions={<>
-      {canVoid ? <Button variant="danger" icon="unblock" disabled={save.isPending || voidCompensation.isPending} onClick={() => setVoidConfirmation(true)}>解除最新敘薪</Button> : null}
+      {canVoid ? <Button variant="danger" icon="history" disabled={save.isPending || voidCompensation.isPending} onClick={() => setVoidConfirmation(true)}>解除最新敘薪</Button> : null}
       <Button type="submit" loading={save.isPending} disabled={!employment || voidCompensation.isPending}>保存敘薪</Button>
     </>}
   >
