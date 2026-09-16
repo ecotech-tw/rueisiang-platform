@@ -5,6 +5,7 @@ import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import { useHrQuery, type AttendanceEvent } from "./api.js";
+import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface AttendanceEventRow extends AttendanceEvent {
   employeeUserId: string;
@@ -39,7 +40,7 @@ export function HrAttendanceRecords() {
   const update = (patch: Partial<typeof filters>) => setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
 
   if (!canRead || !isHrAdministrator) return <Alert tone="danger">出勤明細僅限全平台 HR 管理者查看。</Alert>;
-  if (events.isPending) return <div className="page"><div className="boot">載入出勤紀錄…</div></div>;
+  if (events.isPending) return <HrPageSkeleton variant="table" />;
   if (events.error) return <div className="page"><Alert tone="danger">{events.error.message}</Alert></div>;
   const data = events.data;
   const rows = data?.events ?? [];

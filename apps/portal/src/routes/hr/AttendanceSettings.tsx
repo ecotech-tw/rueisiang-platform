@@ -6,6 +6,7 @@ import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, PageHeader, Pa
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useHrQuery, useHrWrite, type AttendanceLocation, type AttendanceLocationDetail, type AttendanceLocationSchedule, type GoogleMapPlace, type NamedOption } from "./api.js";
+import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface LocationDraft {
   name: string;
@@ -233,7 +234,7 @@ export function HrAttendanceSettings() {
   const updateSort = (field: string, direction: "asc" | "desc") => { setSortField(field); setSortDirection(direction); setPage(1); };
 
   if (!canRead) return <Alert tone="danger">你沒有檢視出勤設定的權限。</Alert>;
-  if (locations.isPending) return <div className="boot">載入中…</div>;
+  if (locations.isPending) return <HrPageSkeleton variant="table" />;
   if (locations.error) return <div className="page"><Alert tone="danger">{locations.error.message}</Alert></div>;
   return (
     <div className="page fills">

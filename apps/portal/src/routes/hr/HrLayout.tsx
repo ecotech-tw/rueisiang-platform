@@ -4,11 +4,12 @@ import { Navigate, NavLink, Outlet, useLocation } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { Icon, type IconName } from "../../shell/icons.js";
 import { HrOverview } from "./Overview.js";
+import { HrPageTransition } from "./HrPageTransition.js";
 import { HrUserMenu } from "./HrUserMenu.js";
 
 /** platform 只承載 HR 管理功能；員工本人入口在 hr.rueisiang.com。 */
 const EMPLOYEE_TABS = [
-  { label: "員工列表", to: "/hr/employees", permission: "hr:employee:read" as const, icon: "list" as const, adminOnly: false, activePaths: ["/hr/employees"] },
+  { label: "員工列表", to: "/hr/employees", permission: "hr:employee:read" as const, icon: "list" as const, adminOnly: false, activePaths: ["/hr/employees"], end: false },
 ];
 
 const ATTENDANCE_TABS = [
@@ -39,6 +40,7 @@ type HrNavChild = {
   permission: Permission;
   adminOnly?: boolean;
   activePaths?: string[];
+  end?: boolean;
 };
 
 type HrNavGroup = {
@@ -56,15 +58,31 @@ const HR_PRIMARY_NAV: HrNavGroup[] = [
   { label: "員工", to: "/hr/employees", icon: "list", permissions: ["hr:employee:read"], activePaths: ["/hr/employees"], children: EMPLOYEE_TABS },
   { label: "出勤", to: "/hr/attendance-records", icon: "clock", permissions: ["hr:office:read"], activePaths: ["/hr/attendance-records", "/hr/attendance-settings", "/hr/special-workdays", "/hr/overtime"], children: ATTENDANCE_TABS },
   { label: "排班", to: "/hr/scheduling", icon: "calendar", permissions: ["hr:schedule:read", "hr:office:read"], activePaths: ["/hr/scheduling"], children: SCHEDULING_TABS },
-  { label: "薪資獎金", to: "/hr/compensation", icon: "payments", permissions: ["hr:payroll:read", "hr:bonus:read", "hr:employee:read"], adminOnly: true, activePaths: ["/hr/compensation", "/hr/insurance", "/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/monthly-data"], children: PAYROLL_TABS },
+  { label: "薪資", to: "/hr/compensation", icon: "payments", permissions: ["hr:payroll:read", "hr:bonus:read", "hr:employee:read"], adminOnly: true, activePaths: ["/hr/compensation", "/hr/insurance", "/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/monthly-data"], children: PAYROLL_TABS },
 ];
 
+function matchesPath(path: string, pathname: string) {
+  return pathname === path || (path !== "/hr" && pathname.startsWith(`${path}/`));
+}
+
 function isActive(paths: string[], pathname: string) {
-  return paths.some((path) => pathname === path || (path !== "/hr" && pathname.startsWith(`${path}/`)));
+  return paths.some((path) => matchesPath(path, pathname));
 }
 
 function visibleChildren(children: HrNavChild[] | undefined, permissions: ReadonlySet<Permission>, isHrAdministrator: boolean) {
   return (children ?? []).filter((child) => permissions.has(child.permission) && (!child.adminOnly || isHrAdministrator));
+}
+
+function matchingPathLength(paths: string[], pathname: string) {
+  return paths.reduce((longest, path) => matchesPath(path, pathname) ? Math.max(longest, path.length) : longest, -1);
+}
+
+/** 同一組子選單只有最具體的路徑可以呈現 active，避免父路徑和子路徑同時亮起。 */
+function isActiveChild(children: HrNavChild[], child: HrNavChild, pathname: string) {
+  const childLength = matchingPathLength(child.activePaths ?? [child.to], pathname);
+  if (childLength < 0) return false;
+  const longestLength = Math.max(...children.map((item) => matchingPathLength(item.activePaths ?? [item.to], pathname)));
+  return childLength === longestLength;
 }
 
 export function HrLayout() {
@@ -77,7 +95,7 @@ export function HrLayout() {
   const isScheduling = pathname.includes("/scheduling");
   const isPayroll = pathname.includes("/compensation") || pathname.includes("/insurance") || pathname.includes("/bonus") || pathname.includes("/payroll-settlement") || pathname.includes("/monthly-data") || pathname.includes("/payroll-settings");
   const isOverview = pathname === "/hr" || pathname === "/hr/";
-  const current = isOverview ? "儀表板" : isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "敘薪與獎金" : "員工管理";
+  const current = isOverview ? "儀表板" : isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "薪資" : "員工管理";
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const visiblePrimaryNav = HR_PRIMARY_NAV
     .map((item) => {
@@ -187,7 +205,8 @@ export function HrLayout() {
               {item.children.map((child) => <NavLink
                 key={child.to}
                 to={child.to}
-                className={() => `hr-system-submenu-link${isActive(child.activePaths ?? [child.to], pathname) ? " active" : ""}`}
+                className={() => `hr-system-submenu-link${isActiveChild(item.children, child, pathname) ? " active" : ""}`}
+                end={child.end ?? true}
                 role="menuitem"
                 onClick={() => setOpenMenu(null)}
               >
@@ -202,7 +221,7 @@ export function HrLayout() {
     </header>
 
     <div className="hr-system-main">
-      <Outlet />
+      <HrPageTransition><Outlet /></HrPageTransition>
     </div>
   </div>;
 }

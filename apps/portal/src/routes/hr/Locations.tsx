@@ -3,6 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, FilterInput, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type Profile } from "./api.js";
+import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 type LocationEdit = { kind: "assignment" | "attendance-mode" | "end"; profile: Profile; assignment?: AttendanceAssignment };
@@ -86,7 +87,7 @@ function EndLocationAssignmentDialog({ assignment, onClose }: { assignment: Atte
 function EmployeeLocationRow({ employee, locations, canWrite, onEdit }: { employee: Employee; locations: AttendanceLocation[]; canWrite: boolean; onEdit: (edit: LocationEdit) => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`);
   const primary = useHrWrite();
-  if (profile.isPending) return <tr><td>{employee.displayName}</td><td colSpan={5}>載入辦公位置資料…</td></tr>;
+  if (profile.isPending) return <HrSkeletonTableRow columns={5} />;
   if (profile.error || !profile.data) return <tr><td>{employee.displayName}</td><td colSpan={5}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
   const data = profile.data;
   const employment = currentEmployment(data.employments);
@@ -110,6 +111,7 @@ export function HrLocationAssignments() {
   const employees = useHrQuery<EmployeeListResponse>(`/employees?page=1&pageSize=100&status=all&search=${encodeURIComponent(search)}&sortField=name&sortDirection=asc`, canRead);
   const locations = useHrQuery<{ locations: AttendanceLocation[] }>("/attendance-settings/locations", canRead);
   if (!canRead) return <Alert tone="danger">你沒有檢視辦公地點指派的權限。</Alert>;
+  if (employees.isPending || locations.isPending) return <HrPageSkeleton variant="table" />;
   return <div className="page fills">
     <PageHeader title="辦公地點指派" description="以員工為操作主體管理有效辦公位置、主要位置與任職出勤方式；地點名稱與週期工時請到出勤設定維護。" />
     <Panel className="grows">

@@ -1,9 +1,9 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router";
+import { NavLink, useLocation } from "react-router";
 import type { SessionUser } from "../auth/session.js";
 import { AccountPanel } from "./AccountPanel.js";
-import { isHrPath, navigateAcrossHr } from "./hr-transition.js";
+import { SystemSwitcher } from "./SystemSwitcher.js";
 import { Icon } from "./icons.js";
 import {
   NAV_SECTIONS,
@@ -74,7 +74,6 @@ function Section({
   onNavigate: () => void;
 }) {
   const location = useLocation();
-  const navigate = useNavigate();
   const items = visibleItems(section.items, permissions);
   if (!items.length) return null;
 
@@ -85,10 +84,7 @@ function Section({
         <NavLink
           to={item.to}
           end
-          onClick={(event) => {
-            if (isHrPath(item.to)) navigateAcrossHr(event, navigate, item.to);
-            onNavigate();
-          }}
+          onClick={onNavigate}
           className={`nav-section-head nav-section-link${sectionContainsPath(section, location.pathname) ? " active" : ""}`}
           title={section.label}
         >
@@ -219,6 +215,7 @@ export function Sidebar({ permissions, collapsed, onToggle, user, onLogout, onNa
       </div>
 
       <div className="sidebar-foot">
+        <SystemSwitcher permissions={permissions} onNavigate={onNavigate} />
         <AccountPanel user={user} onLogout={onLogout} onNavigate={onNavigate} />
       </div>
     </aside>

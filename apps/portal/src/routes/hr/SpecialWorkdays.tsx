@@ -3,6 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, Panel, PageHeader, SelectField, TextField } from "../../ui/index.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type Profile, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment } from "./api.js";
+import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 interface AllowanceDraft { itemName: string; amount: string }
@@ -81,6 +82,7 @@ export function HrSpecialWorkdays() {
   const [editor, setEditor] = useState<"new" | SpecialWorkdayRule | "assign" | null>(null);
   const rows = useMemo(() => rules.data?.rules ?? [], [rules.data]);
   if (!canRead) return <Alert tone="danger">你沒有檢視特殊上班日規則的權限。</Alert>;
+  if (rules.isPending || assignments.isPending) return <HrPageSkeleton variant="table" />;
   return <div className="page fills"><PageHeader title="特殊上班日" description="先建立可重複使用的規則，再按需要套用到員工或支援人員日期；套用不等於打卡，也不等於加班核准。" actions={canWrite ? <div className="button-row"><Button variant="secondary" onClick={() => setEditor("assign")} disabled={!rows.length}>套用到員工日期</Button><Button icon="plus" onClick={() => setEditor("new")}>新增規則</Button></div> : undefined} />
     {rules.error || assignments.error || toggleRule.error ? <Alert tone="danger">{rules.error?.message ?? assignments.error?.message ?? toggleRule.error?.message}</Alert> : null}<Alert tone="info">固定特殊薪資取代當日底薪；特殊上班日缺少月度工時資料時，薪資試算會列異常而不自行補 0。加班仍須另行申請與核准。</Alert>
     <Panel><div className="panel-head"><div><h2>規則主檔</h2><p className="muted">建立新版本不覆寫歷史；停用後不可新增日期套用。</p></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>規則</th><th>版本／期間</th><th>薪資方式</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map((item) => { const version = item.versions.at(-1)!; return <tr key={item.rule.id}><td><strong>{item.rule.name}</strong></td><td>v{version.versionNumber}・{version.validFrom}～{version.validTo ?? "目前"}</td><td>{version.wageKind === "fixed_hourly" ? `每小時 ${money(version.fixedAmountMinor ?? 0)}` : `倍率 ${((version.multiplierPpm ?? 0) / 10_000).toFixed(2)}%`}</td><td>{item.rule.active ? "啟用" : "停用"}</td><td>{canWrite ? <div className="row-actions"><Button variant="secondary" onClick={() => setEditor(item)}>新增版本</Button><Button variant="secondary" onClick={() => toggleRule.mutate({ path: `/special-workdays/rules/${item.rule.id}/status`, method: "POST", values: { active: !item.rule.active } }, { onSuccess: () => void rules.refetch() })}>{item.rule.active ? "停用" : "啟用"}</Button></div> : null}</td></tr>; })}</tbody></table></div>{!rows.length ? <p className="empty-state">尚未建立特殊上班日規則。</p> : null}</Panel>
