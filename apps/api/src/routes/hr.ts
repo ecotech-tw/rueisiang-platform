@@ -9,7 +9,7 @@ import {
   assignHrBonusPolicyMember, calculateHrBonusPool, calculateHrPayroll, closeHrPayrollRun, createHrBonusPerformanceSnapshot, createHrBonusPolicy, deleteHrBonusPolicy, getHrBonusPool, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, getHrPayrollRun, listHrBonusAssignments, listHrBonusPerformanceSnapshots, listHrBonusPolicies, listHrBonusPools, listHrPayrollRuns,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest,
-  createHrScheduleWorker, createHrShift, createHrWorkerCompensation, getHrSchedule, listHrScheduleWorkers, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
+  createHrScheduleWorker, createHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
@@ -478,6 +478,21 @@ export const hr = new Hono<AppEnv>()
   .get("/schedule-workers", requirePermission("hr:schedule:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ workers: await listHrScheduleWorkers(c.get("db")) });
+  })
+  .get("/schedule-workers/management", requirePermission("hr:schedule:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const page = calendarNumber(c.req.query("page"), 1, "頁碼", 1, 10000);
+    const rawPageSize = c.req.query("pageSize");
+    const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
+    if (!HR_SCHEDULE_WORKER_PAGE_SIZES.includes(pageSize as (typeof HR_SCHEDULE_WORKER_PAGE_SIZES)[number])) throw new HTTPException(400, { message: "每頁筆數不正確。" });
+    const status = c.req.query("status") ?? "all";
+    if (status !== "all" && status !== "active" && status !== "inactive") throw new HTTPException(400, { message: "支援人員狀態不正確。" });
+    const sortField = c.req.query("sortField") ?? "name";
+    if (sortField !== "name" && sortField !== "status") throw new HTTPException(400, { message: "排序欄位不正確。" });
+    const sortDirection = c.req.query("sortDirection") === "desc" ? "desc" : "asc";
+    const search = c.req.query("search")?.trim() ?? "";
+    if (search.length > 100) throw new HTTPException(400, { message: "搜尋條件不正確。" });
+    return c.json(await listHrScheduleWorkersPage(c.get("db"), { page, pageSize, search, status, sortField, sortDirection }));
   })
   .post("/schedule-workers", requirePermission("hr:schedule:write"), async (c) => c.json(await createHrScheduleWorker(c.get("db"), { displayName: text(await body(c), "displayName", "姓名", 100) }, c.get("user")), 201))
   .patch("/schedule-workers/:id", requirePermission("hr:schedule:write"), async (c) => {

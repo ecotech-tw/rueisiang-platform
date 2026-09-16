@@ -21,6 +21,7 @@ import { HrLocationAssignments } from "./routes/hr/Locations.js";
 import { HrSpecialWorkdays } from "./routes/hr/SpecialWorkdays.js";
 import { HrAttendanceRecords } from "./routes/hr/AttendanceRecords.js";
 import { HrScheduling } from "./routes/hr/Scheduling.js";
+import { HrSupportWorkers } from "./routes/hr/SupportWorkers.js";
 import { HrCompensationManagement } from "./routes/hr/Compensation.js";
 import { HrBonusManagement } from "./routes/hr/BonusManagement.js";
 import { HrPayrollSettlement } from "./routes/hr/PayrollSettlement.js";
@@ -164,6 +165,7 @@ export function App() {
           <Route index element={<HrLanding />} />
           <Route path="employees" element={<HrEmployees />} />
           <Route path="employees/:id" element={<HrEmployeeDetail />} />
+          <Route path="support-workers" element={<HrSupportWorkers />} />
           <Route path="insurance" element={<HrInsuranceManagement />} />
           <Route path="attendance-settings" element={<HrAttendanceSettings />} />
           <Route path="special-workdays" element={<HrSpecialWorkdays />} />

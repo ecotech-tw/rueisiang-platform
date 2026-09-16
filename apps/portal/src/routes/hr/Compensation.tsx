@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceRateTableRecord, type InsuranceContributionRule } from "./api.js";
+import { Pager } from "../../shell/Pager.js";
+import { SortableHeader } from "../../shell/SortableHeader.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[] }
+interface EmployeePageResponse { employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean }
+const EMPLOYEE_PAGE_SIZES = [10, 25, 50, 100] as const;
 const PAY_BASIS_LABEL: Record<CompensationVersion["payBasis"], string> = { monthly: "月薪", daily: "日薪", hourly: "時薪" };
 const PAY_BASIS_UNIT: Record<CompensationVersion["payBasis"], string> = { monthly: "月", daily: "日", hourly: "時" };
 /** 常見的薪資項目；選「其他」那一列會換成自由輸入，名稱仍由 HR 決定。 */
@@ -317,6 +321,9 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   const canRead = isHrAdministrator && permissions.has("hr:payroll:read");
   const canWrite = isHrAdministrator && permissions.has("hr:employee:write");
   const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, !settingsOnly && canRead && permissions.has("hr:employee:read"));
+  const [employeeFilters, setEmployeeFilters] = useState({ page: 1, pageSize: 25, search: "", status: "all", sortField: "employeeNumber", sortDirection: "asc" as "asc" | "desc" });
+  const employeeTablePath = `/employees?page=${employeeFilters.page}&pageSize=${employeeFilters.pageSize}&search=${encodeURIComponent(employeeFilters.search)}&status=${employeeFilters.status}&sortField=${employeeFilters.sortField}&sortDirection=${employeeFilters.sortDirection}`;
+  const employeeTable = useHrQuery<EmployeePageResponse>(employeeTablePath, !settingsOnly && canRead && permissions.has("hr:employee:read"));
   const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers", !settingsOnly && canRead && permissions.has("hr:schedule:read"));
   const currentYear = Number(taipeiToday().slice(0, 4));
   // 官方級距與公司負擔規則屬於「制度設定」；敘薪管理只處理員工薪資，不在這裡再開一份設定入口。
@@ -336,13 +343,12 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   if (!canRead) return <Alert tone="danger">敘薪明細僅限全平台 HR 管理者查看。</Alert>;
   const pageLoading = settingsOnly
     ? rates.isPending || contributionRules.isPending
-    : (permissions.has("hr:employee:read") && employees.isPending) || (permissions.has("hr:schedule:read") && workers.isPending);
+    : (permissions.has("hr:employee:read") && (employees.isPending || employeeTable.isPending)) || (permissions.has("hr:schedule:read") && workers.isPending);
   if (pageLoading) return <HrPageSkeleton variant="table" />;
   return <div className="page">
     <PageHeader
       title={settingsOnly ? "制度設定" : "敘薪管理"}
-      description={settingsOnly ? "管理官方勞健保級距與公司採用的負擔規則；薪資結算只使用已保存的設定。" : "設定每位員工的薪資組成與生效版本；薪資變更不覆蓋歷史，薪資結算會讀取指定月份有效的敘薪版本。"}
-      actions={!settingsOnly && canWrite ? <Button icon="plus" onClick={() => setEditing({ userId: null })}>新增敘薪</Button> : null}
+      description={settingsOnly ? "管理官方勞健保級距與公司採用的負擔規則；薪資結算只使用已保存的設定。" : "薪資直接對應員工或支援人員；請從列表每列的新增／編輯操作進入。薪資變更不覆蓋歷史。"}
     />
     {settingsOnly ? <>
       <Panel><div className="panel-head"><div><h2>官方勞健保級距</h2><p className="muted">同步後先以草稿保存，HR 審閱來源與級距後再啟用；不直接覆蓋目前採用版本。</p></div>{canWrite ? <Button icon="sync" loading={syncRates.isPending} onClick={() => syncRates.mutate({ path: "/insurance-rates/sync", method: "POST", values: { year: currentYear } }, { onSuccess: () => void rates.refetch() })}>同步本年度官方資料</Button> : null}</div>{rates.error || syncRates.error ? <Alert tone="danger">{rates.error?.message ?? syncRates.error?.message}</Alert> : null}<div className="table-scroll"><table className="data-table compact"><thead><tr><th>種類</th><th>年度</th><th>狀態</th><th>級距筆數</th><th>抓取時間</th><th>操作</th></tr></thead><tbody>{(rates.data?.tables ?? []).map((table) => <tr key={table.id}><td>{table.scheme === "labor" ? "勞保" : "健保"}</td><td>{table.year}</td><td>{table.status === "draft" ? "待審閱" : table.status === "active" ? "目前啟用" : "封存"}</td><td>{table.brackets.length}</td><td>{table.fetchedAt}</td><td>{canWrite && table.status === "draft" ? <Button variant="secondary" loading={activateRate.isPending} onClick={() => activateRate.mutate({ path: `/insurance-rates/${table.id}/activate`, method: "POST", values: {} }, { onSuccess: () => void rates.refetch() })}>審閱後啟用</Button> : null}</td></tr>)}</tbody></table></div></Panel>
@@ -351,13 +357,22 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
       <Alert tone="info">先在這裡完成員工敘薪，再到「勞健保管理」建立投保版本與「獎金管理」套用業績 policy；最後於「薪資結算」直接計算指定月份薪資。</Alert>
       {!canWrite ? <Alert tone="info">目前帳號只有敘薪檢視權限，無法新增薪資版本。</Alert> : null}
       <Panel>
-      <div className="panel-head"><div><h2>員工敘薪</h2><p>月薪、日薪與時薪都以版本保存；金額依計算單位分開列出，月給與日給不相加。勞健保版本請到「勞健保管理」建立。</p></div></div>
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>員工</th><th>目前任職</th><th>方式</th><th className="numeric">總計薪資</th><th>生效期間</th><th>操作</th></tr></thead><tbody>
-        {(employees.data?.employees ?? []).map((employee) => <EmployeeCompensationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={(userId) => setEditing({ userId })} />)}
+      <div className="panel-head"><div><h2>員工敘薪</h2><p>薪資直接 mapping 到員工；月薪、日薪與時薪都以版本保存，請使用每列的新增／編輯操作。金額依計算單位分開列出，月給與日給不相加。勞健保版本請到「勞健保管理」建立。</p></div></div>
+      <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+        <SearchFilterInput label="搜尋" placeholder="搜尋員工編號、姓名或 Email" value={employeeFilters.search} onSearch={(search) => setEmployeeFilters((current) => ({ ...current, search, page: 1 }))} />
+        <FilterSelect label="狀態" value={employeeFilters.status} onChange={(event) => setEmployeeFilters((current) => ({ ...current, status: event.target.value, page: 1 }))} options={[{ value: "all", label: "全部狀態" }, { value: "employable", label: "可任職" }, { value: "disabled", label: "已停用帳號" }]} />
+      </form>
+      {employeeTable.error ? <Alert tone="danger">{employeeTable.error.message}</Alert> : null}
+      <div className="table-scroll"><table className="data-table"><thead><tr>
+        <SortableHeader label="員工" field="name" active={employeeFilters.sortField} direction={employeeFilters.sortDirection} onSort={(sortField, sortDirection) => setEmployeeFilters((current) => ({ ...current, sortField, sortDirection, page: 1 }))} />
+        <th>目前任職</th><th>方式</th><th className="numeric">總計薪資</th><th>生效期間</th><th>操作</th>
+      </tr></thead><tbody>
+        {(employeeTable.data?.employees ?? []).map((employee) => <EmployeeCompensationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={(userId) => setEditing({ userId })} />)}
       </tbody></table></div>
-      {!employees.data?.employees.length ? <p className="empty-state">尚無員工。</p> : null}
+      {!employeeTable.data?.employees.length ? <p className="empty-state">{employeeTable.data?.total ? "沒有符合條件的員工。" : "尚無員工。"}</p> : null}
+      {employeeTable.data && employeeTable.data.total > 0 ? <Pager page={employeeTable.data.page} pageSize={employeeTable.data.pageSize} pageSizes={EMPLOYEE_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(employeeTable.data.total / employeeTable.data.pageSize))} totalLabel={`共 ${employeeTable.data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => setEmployeeFilters((current) => ({ ...current, page }))} onPageSize={(pageSize) => setEmployeeFilters((current) => ({ ...current, pageSize, page: 1 }))} /> : null}
     </Panel>
-      {permissions.has("hr:schedule:read") ? <Panel><div className="panel-head"><div><h2>排班支援人員</h2><p>沒有平台帳號的支援人員只可從月曆排班加入，薪資結算依已發布排班日數計算，不參與獎金。</p></div></div>{workers.error ? <Alert tone="danger">{workers.error.message}</Alert> : null}<div className="table-scroll"><table className="data-table"><thead><tr><th>人員</th><th>方式</th><th className="numeric">目前金額</th><th>生效期間</th><th>操作</th></tr></thead><tbody>{(workers.data?.workers ?? []).map((worker) => <WorkerCompensationRow key={worker.id} worker={worker} canWrite={canWrite} onEdit={() => setEditingWorker(worker)} />)}</tbody></table></div>{!workers.error && !workers.data?.workers.length ? <p className="empty-state">尚無排班支援人員。</p> : null}</Panel> : null}
+      {permissions.has("hr:schedule:read") ? <Panel><div className="panel-head"><div><h2>支援人員敘薪</h2><p>薪資直接 mapping 到支援人員主檔；目前以日薪計算，薪資結算依已發布排班日數計算，不參與獎金。</p></div></div>{workers.error ? <Alert tone="danger">{workers.error.message}</Alert> : null}<div className="table-scroll"><table className="data-table"><thead><tr><th>人員</th><th>方式</th><th className="numeric">目前金額</th><th>生效期間</th><th>操作</th></tr></thead><tbody>{(workers.data?.workers ?? []).map((worker) => <WorkerCompensationRow key={worker.id} worker={worker} canWrite={canWrite} onEdit={() => setEditingWorker(worker)} />)}</tbody></table></div>{!workers.error && !workers.data?.workers.length ? <p className="empty-state">尚無排班支援人員。</p> : null}</Panel> : null}
       {editing ? <CompensationEditor employees={employees.data?.employees ?? []} initialUserId={editing.userId} onClose={() => setEditing(null)} /> : null}
       {editingWorker ? <WorkerCompensationEditor worker={editingWorker} onClose={() => setEditingWorker(null)} /> : null}
     </>}
