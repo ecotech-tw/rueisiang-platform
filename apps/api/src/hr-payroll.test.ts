@@ -115,6 +115,8 @@ describe("HR 薪資與勞健保", () => {
     expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-02", payBasis: "monthly", baseAmountMinor: 4500000 })).status).toBe(201);
     const beforeVoid = await (await request("/hr/employees/employee")).json() as { compensation: Array<{ id: string; validFrom: string; validTo: string | null; baseAmountMinor: number; voidedAt: string | null; voidedBy: string | null }> };
     const latest = beforeVoid.compensation.find((version) => version.baseAmountMinor === 4500000)!;
+    const first = beforeVoid.compensation.find((version) => version.baseAmountMinor === 4000000)!;
+    expect((await request(`/hr/employments/${employmentId}/compensation/${first.id}/void`, "POST", {})).status).toBe(409);
     const voided = await request(`/hr/employments/${employmentId}/compensation/${latest.id}/void`, "POST", {});
     expect(voided.status, await voided.clone().text()).toBe(200);
     expect((await request(`/hr/employments/${employmentId}/compensation/${latest.id}/void`, "POST", {})).status).toBe(409);

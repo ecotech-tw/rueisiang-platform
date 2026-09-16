@@ -170,7 +170,7 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
 
 /** 解除最新敘薪但不刪除資料；重複呼叫可依序撤回到第一版，且不影響既有薪資快照。 */
 export async function voidHrCompensationVersion(db: Database, employmentId: string, versionId: string, actor: HrActor) {
-  const [version] = await db.select({ id: hrCompensationVersions.id, versionNumber: hrCompensationVersions.versionNumber, voidedAt: hrCompensationVersions.voidedAt }).from(hrCompensationVersions)
+  const [version] = await db.select({ id: hrCompensationVersions.id, versionNumber: hrCompensationVersions.versionNumber, validFrom: hrCompensationVersions.validFrom, voidedAt: hrCompensationVersions.voidedAt }).from(hrCompensationVersions)
     .where(and(eq(hrCompensationVersions.id, versionId), eq(hrCompensationVersions.employmentId, employmentId))).limit(1);
   if (!version) throw new HrError(404, "找不到這個敘薪版本。 ");
   if (version.voidedAt !== null) throw new HrError(409, "這個敘薪版本已經解除。 ");
@@ -178,7 +178,11 @@ export async function voidHrCompensationVersion(db: Database, employmentId: stri
     .where(and(eq(hrCompensationVersions.employmentId, employmentId), sql`${hrCompensationVersions.voidedAt} IS NULL`)).orderBy(desc(hrCompensationVersions.validFrom), desc(hrCompensationVersions.versionNumber)).limit(1);
   if (latest?.id !== version.id) throw new HrError(409, "只能解除最新的敘薪版本；歷史薪資請保留不變。請先依序解除較新的版本。 ");
   await writeHrMutation(db, sql`UPDATE hr_compensation_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
-    WHERE id=${versionId} AND employment_id=${employmentId} AND voided_at IS NULL RETURNING id`, versionId, actor, "compensation_version_voided", "敘薪版本已被其他人變更，請重新整理。 ");
+    WHERE id=${versionId} AND employment_id=${employmentId} AND voided_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM hr_compensation_versions AS newer
+        WHERE newer.employment_id=${employmentId} AND newer.voided_at IS NULL
+          AND (newer.valid_from > ${version.validFrom} OR (newer.valid_from = ${version.validFrom} AND newer.version_number > ${version.versionNumber})))
+    RETURNING id`, versionId, actor, "compensation_version_voided", "敘薪版本已被其他人變更，請重新整理。 ");
   return { id: versionId, status: "voided" as const };
 }
 
