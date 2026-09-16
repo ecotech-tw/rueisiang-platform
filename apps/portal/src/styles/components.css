@@ -2582,7 +2582,14 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .salary-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
 .salary-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
 @media (max-width: 560px) {
-  .salary-item-row { grid-template-columns: minmax(0, 1fr) 110px 44px; gap: 8px; }
+  .salary-items-head { display: none; }
+  .salary-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 8px; }
+  .salary-item-row > :first-child { grid-column: 1 / -1; }
+  .salary-item-row > .field:nth-child(2)::before,
+  .salary-item-row > .field:nth-child(3)::before { display: block; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
+  .salary-item-row > .field:nth-child(2)::before { content: "計算單位"; }
+  .salary-item-row > .field:nth-child(3)::before { content: "金額（元）"; }
+  .salary-item-row > .icon-button { align-self: end; margin-bottom: 2px; }
 }
 /* 對話框移到 body 之後用來補回頁面的樣式範圍；display: contents 才不會多出一層版面。 */
 .modal-scope { display: contents; }

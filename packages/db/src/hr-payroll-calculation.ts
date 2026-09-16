@@ -218,6 +218,13 @@ function dateRange(start: string, end: string): string[] {
   return result;
 }
 
+function dailyItemAppliesOnWorkday(attendanceMode: string, payBasis: "monthly" | "daily" | "hourly", date: string, scheduledDates: ReadonlySet<string>, specialDates: ReadonlySet<string>): boolean {
+  if (specialDates.has(date)) return true;
+  if (payBasis === "daily" || attendanceMode === "scheduled") return scheduledDates.has(date);
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return weekday !== 0 && weekday !== 6;
+}
+
 function overlapDays(start: string, end: string, from: string, to: string | null): string[] {
   const lower = start > from ? start : from;
   const upper = to && to < end ? to : end;
@@ -708,7 +715,11 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const itemHours = entry && !entry.noWork ? entry.hoursHalfUnits / 2 : 0;
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === compensation.id)) {
         // 每一筆項目自己決定單位：月給的津貼不能因為員工是日薪就每個工作日再加一次。
-        const itemAmount = item.amountBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays) : item.amountBasis === "daily" ? item.amountMinor : Math.round(item.amountMinor * itemHours);
+        const itemAmount = item.amountBasis === "monthly"
+          ? Math.floor(item.amountMinor / monthlyDivisorDays)
+          : item.amountBasis === "daily"
+            ? dailyItemAppliesOnWorkday(employee.attendanceMode, compensation.payBasis, day, scheduledDates, specialDates) ? item.amountMinor : 0
+            : Math.round(item.amountMinor * itemHours);
         compensationItemTotals.set(item.id, (compensationItemTotals.get(item.id) ?? 0) + itemAmount);
       }
     }
@@ -791,7 +802,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const hourly = compensation?.payBasis === "monthly"
         ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays / standardDailyHours)
         : compensation?.payBasis === "daily" ? Math.floor(compensation.baseAmountMinor / standardDailyHours) : compensation?.baseAmountMinor ?? 0;
-      const itemHourly = compensation ? compensationItems.filter((item) => item.compensationVersionId === compensation.id && item.includeOvertime).reduce((sum, item) => sum + (compensation.payBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays / standardDailyHours) : compensation.payBasis === "daily" ? Math.floor(item.amountMinor / standardDailyHours) : item.amountMinor), 0) : 0;
+      const itemHourly = compensation ? compensationItems.filter((item) => item.compensationVersionId === compensation.id && item.includeOvertime).reduce((sum, item) => sum + (item.amountBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays / standardDailyHours) : item.amountBasis === "daily" ? Math.floor(item.amountMinor / standardDailyHours) : item.amountMinor), 0) : 0;
       overtimeMinor += Math.floor((hourly + itemHourly) * seconds / 3600 * row.ratePpm / PPM);
       overtimeSeconds += seconds;
     }

@@ -128,11 +128,15 @@ export interface HrCompensationInput {
 export async function createHrCompensationVersion(db: Database, input: HrCompensationInput, actor: HrActor) {
   if (!isDateOnly(input.validFrom) || (input.validTo !== null && (!isDateOnly(input.validTo) || input.validTo <= input.validFrom))) throw new HrError(400, "敘薪生效／迄日不正確。 ");
   if (!Number.isSafeInteger(input.baseAmountMinor) || input.baseAmountMinor < 0 || input.note.length > 1000) throw new HrError(400, "敘薪資料不正確。 ");
+  if (input.items && (input.items.length > 50 || input.items.some((item) => !item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.amountMinor) || item.amountMinor < 0 || (item.itemKind !== "fixed" && item.itemKind !== "variable") || !["monthly", "daily", "hourly"].includes(item.amountBasis) || typeof item.includeOvertime !== "boolean" || typeof item.includeInsurance !== "boolean" || typeof item.includeTax !== "boolean"))) throw new HrError(400, "薪資項目不正確。 ");
+  if (input.items) {
+    const itemNames = input.items.map((item) => item.itemName.trim());
+    if (new Set(itemNames).size !== itemNames.length) throw new HrError(400, "同一敘薪版本不可有重複的薪資項目名稱。 ");
+  }
   const [current] = await db.select({ id: hrCompensationVersions.id, validFrom: hrCompensationVersions.validFrom }).from(hrCompensationVersions)
     .where(and(eq(hrCompensationVersions.employmentId, input.employmentId), sql`${hrCompensationVersions.validTo} IS NULL`))
     .orderBy(desc(hrCompensationVersions.validFrom)).limit(1);
   const id = crypto.randomUUID();
-  if (input.items && (input.items.length > 50 || input.items.some((item) => !item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.amountMinor) || item.amountMinor < 0 || (item.itemKind !== "fixed" && item.itemKind !== "variable") || !["monthly", "daily", "hourly"].includes(item.amountBasis) || typeof item.includeOvertime !== "boolean" || typeof item.includeInsurance !== "boolean" || typeof item.includeTax !== "boolean"))) throw new HrError(400, "薪資項目不正確。 ");
   const closePrevious = current && current.validFrom < input.validFrom
     ? [sql`UPDATE hr_compensation_versions SET valid_to=${input.validFrom}
       WHERE id=${current.id} AND valid_to IS NULL AND valid_from < ${input.validFrom} RETURNING id`]

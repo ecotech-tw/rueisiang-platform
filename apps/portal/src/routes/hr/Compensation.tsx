@@ -134,11 +134,15 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
        * 後端會自動把「還沒結束、而且比新版本早開始」的那一版收尾，所以只有這兩種情況才是真的撞期。
        * 不先擋的話使用者只會看到一句「任職不存在、薪資期間重疊或資料不合法」，不知道要改哪裡。
        */
-      const overlapping = employmentVersions.find((version) => version.validTo === null
-        ? version.validFrom >= validFrom
-        : version.validFrom < (validTo || "9999-12-31") && version.validTo > validFrom);
+      const newEnd = validTo || "9999-12-31";
+      const overlapping = employmentVersions.find((version) => {
+        // 後端會在同一批次收尾較早開始的開放版本，這種銜接不是重疊。
+        if (version.validTo === null && version.validFrom < validFrom) return false;
+        return version.validFrom < newEnd && (version.validTo === null || version.validTo > validFrom);
+      });
       if (overlapping) {
-        setMessage(`${overlapping.validFrom}～${overlapping.validTo ?? "目前"} 已經有一個敘薪版本（${PAY_BASIS_LABEL[overlapping.payBasis]} ${totalsText(versionTotals(overlapping))}）。歷史版本不可覆寫，請把生效日改到 ${nextDay(overlapping.validFrom)} 或之後。`);
+        const nextAvailableDate = overlapping.validTo ?? nextDay(overlapping.validFrom);
+        setMessage(`${overlapping.validFrom}～${overlapping.validTo ?? "目前"} 已經有一個敘薪版本（${PAY_BASIS_LABEL[overlapping.payBasis]} ${totalsText(versionTotals(overlapping))}）。歷史版本不可覆寫，請把生效日改到 ${nextAvailableDate} 或之後。`);
         return;
       }
       if (draftAmountMinor(baseAmount) === null) { setMessage("基本薪資請填非負整數的金額（元）。"); return; }
