@@ -29,6 +29,10 @@ function currentVersion<T extends { validFrom: string; validTo: string | null }>
     ?? versions.filter((version) => version.validFrom <= today).sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0];
 }
 
+function latestVersion<T extends { validFrom: string }>(versions: T[]): T | undefined {
+  return versions.slice().sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0];
+}
+
 function nextDay(date: string): string {
   const next = new Date(`${date}T00:00:00Z`);
   next.setUTCDate(next.getUTCDate() + 1);
@@ -77,8 +81,10 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const [userId, setUserId] = useState(initialUserId ?? "");
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(userId)}`, Boolean(userId));
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
-  const current = useMemo(() => currentVersion(profile.data?.compensation ?? []), [profile.data?.compensation]);
   const employmentVersions = useMemo(() => (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id), [profile.data?.compensation, employment?.id]);
+  const current = useMemo(() => currentVersion(employmentVersions), [employmentVersions]);
+  // 新增版本不覆寫歷史；若已有未來版本，下一次更新要沿用最新版本，避免把已修正的資料帶回舊版本。
+  const latest = useMemo(() => latestVersion(employmentVersions), [employmentVersions]);
 
   const [validFrom, setValidFrom] = useState(taipeiToday());
   const [validTo, setValidTo] = useState("");
@@ -103,12 +109,12 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     const latestStart = employmentVersions.reduce<string | null>((latest, version) => !latest || version.validFrom > latest ? version.validFrom : latest, null);
     setValidFrom(latestStart && latestStart >= start ? nextDay(latestStart) : start);
     setValidTo(endedOn ?? "");
-    setPayBasis(current?.payBasis ?? "monthly");
-    setBaseAmount(current ? String(current.baseAmountMinor / 100) : "");
-    setItems((current?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
+    setPayBasis(latest?.payBasis ?? "monthly");
+    setBaseAmount(latest ? String(latest.baseAmountMinor / 100) : "");
+    setItems((latest?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
     setNote("");
     setMessage(null);
-  }, [current, employment, employmentVersions]);
+  }, [current, employment, employmentVersions, latest]);
 
   const selected = employees.find((employee) => employee.userId === userId);
   const baseMinor = draftAmountMinor(baseAmount) ?? 0;
@@ -119,7 +125,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const updateItem = (key: string, patch: Partial<SalaryItemDraft>) => setItems((list) => list.map((item) => item.key === key ? { ...item, ...patch } : item));
 
   return <Dialog
-    title="新增敘薪"
+    title={current ? "更新敘薪" : "新增敘薪"}
     titleMeta={selected ? `${selected.displayName}／${selected.employeeNumber}` : "選一位員工後填寫薪資組成"}
     onClose={onClose}
     closeDisabled={save.isPending}
@@ -195,7 +201,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
           : <SelectField
             aria-label="薪資項目"
             value={item.name}
-            options={[{ value: "", label: "請選擇項目" }, ...ITEM_PRESETS.map((name) => ({ value: name, label: name })), { value: CUSTOM_ITEM, label: "其他（自行輸入）" }]}
+            options={[{ value: "", label: "請選擇項目" }, ...ITEM_PRESETS.filter((name) => name === item.name || !items.some((other) => other.key !== item.key && other.name.trim() === name)).map((name) => ({ value: name, label: name })), { value: CUSTOM_ITEM, label: "其他（自行輸入）" }]}
             onChange={(event) => updateItem(item.key, event.target.value === CUSTOM_ITEM ? { custom: true, name: "" } : { name: event.target.value })}
           />}
         <SelectField
