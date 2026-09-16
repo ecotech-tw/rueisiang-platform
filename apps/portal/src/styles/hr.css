@@ -413,14 +413,17 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   pointer-events: none;
 }
 .hr-system .table-scroll .data-table thead th {
-  background: --alpha(var(--color-paper) / 78%);
+  background: --alpha(var(--color-paper) / 82%);
   -webkit-backdrop-filter: blur(14px) saturate(165%);
   backdrop-filter: blur(14px) saturate(165%);
   box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 70%) inset,
-    0 8px 18px --alpha(var(--color-ink) / 12%),
-    inset 0 -1px 0 --alpha(var(--color-brand) / 18%);
+    0 1px 0 --alpha(var(--color-paper) / 76%) inset,
+    0 10px 24px --alpha(var(--color-ink) / 15%),
+    0 1px 0 --alpha(var(--color-ink) / 5%),
+    inset 0 -1px 0 --alpha(var(--color-brand) / 22%);
 }
+.hr-system .table-scroll .data-table thead th:first-child { border-top-left-radius: 12px; }
+.hr-system .table-scroll .data-table thead th:last-child { border-top-right-radius: 12px; }
 .hr-system .table-scroll { min-width: 0; }
 .hr-system .primary-button,
 .hr-system .ghost-button,
@@ -978,6 +981,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-rate-editor-scroll {
   max-height: 380px;
   overflow: auto;
+  isolation: isolate;
   border: 1px solid --alpha(var(--color-ink) / 10%);
   border-radius: 16px;
   background: --alpha(var(--color-paper) / 30%);
@@ -987,9 +991,9 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
     0 12px 24px --alpha(var(--color-ink) / 8%);
   scrollbar-gutter: stable;
 }
-.hr-rate-editor-table { min-width: 680px; }
-.hr-rate-editor-table thead th:first-child { border-top-left-radius: 14px; }
-.hr-rate-editor-table thead th:last-child { border-top-right-radius: 14px; }
+.hr-rate-editor-table { min-width: 680px; border-collapse: separate; border-spacing: 0; }
+.hr-system .hr-rate-editor-scroll .hr-rate-editor-table thead th:first-child { border-top-left-radius: 14px; }
+.hr-system .hr-rate-editor-scroll .hr-rate-editor-table thead th:last-child { border-top-right-radius: 14px; }
 .hr-rate-editor-table th { height: 44px; padding-block: 6px; font-size: 12px; }
 .hr-rate-editor-table td { padding-block: 8px; }
 .hr-rate-level { display: grid; place-items: center; width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--color-soft-line); border-radius: 10px; background: --alpha(var(--color-paper) / 54%); color: var(--color-muted); font-weight: 800; font-variant-numeric: tabular-nums; }
