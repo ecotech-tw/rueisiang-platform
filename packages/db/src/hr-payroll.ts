@@ -125,7 +125,7 @@ export interface HrCompensationInput {
   items?: Array<{ itemName: string; amountMinor: number; itemKind: "fixed" | "variable"; amountBasis: "monthly" | "daily" | "hourly"; includeOvertime: boolean; includeInsurance: boolean; includeTax: boolean }>;
 }
 
-export async function createHrCompensationVersion(db: Database, input: HrCompensationInput, actor: HrActor) {
+function validateCompensationInput(input: HrCompensationInput) {
   if (!isDateOnly(input.validFrom) || (input.validTo !== null && (!isDateOnly(input.validTo) || input.validTo <= input.validFrom))) throw new HrError(400, "敘薪生效／迄日不正確。 ");
   if (!Number.isSafeInteger(input.baseAmountMinor) || input.baseAmountMinor < 0 || input.note.length > 1000) throw new HrError(400, "敘薪資料不正確。 ");
   if (input.items && (input.items.length > 50 || input.items.some((item) => !item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.amountMinor) || item.amountMinor < 0 || (item.itemKind !== "fixed" && item.itemKind !== "variable") || !["monthly", "daily", "hourly"].includes(item.amountBasis) || typeof item.includeOvertime !== "boolean" || typeof item.includeInsurance !== "boolean" || typeof item.includeTax !== "boolean"))) throw new HrError(400, "薪資項目不正確。 ");
@@ -133,6 +133,18 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
     const itemNames = input.items.map((item) => item.itemName.trim());
     if (new Set(itemNames).size !== itemNames.length) throw new HrError(400, "同一敘薪版本不可有重複的薪資項目名稱。 ");
   }
+}
+
+function compensationItemStatements(versionId: string, items: HrCompensationInput["items"], actor: HrActor) {
+  return (items ?? []).map((item) => {
+    const itemId = crypto.randomUUID();
+    return sql`INSERT INTO hr_compensation_items (id, compensation_version_id, item_name, amount_minor, item_kind, amount_basis, include_overtime, include_insurance, include_tax, created_by)
+      VALUES (${itemId}, ${versionId}, ${item.itemName.trim()}, ${item.amountMinor}, ${item.itemKind}, ${item.amountBasis}, ${item.includeOvertime ? 1 : 0}, ${item.includeInsurance ? 1 : 0}, ${item.includeTax ? 1 : 0}, ${actor.id}) RETURNING id`;
+  });
+}
+
+export async function createHrCompensationVersion(db: Database, input: HrCompensationInput, actor: HrActor) {
+  validateCompensationInput(input);
   const [latest] = await db.select({ id: hrCompensationVersions.id, validFrom: hrCompensationVersions.validFrom, validTo: hrCompensationVersions.validTo, versionNumber: hrCompensationVersions.versionNumber }).from(hrCompensationVersions)
     .where(and(eq(hrCompensationVersions.employmentId, input.employmentId), sql`${hrCompensationVersions.voidedAt} IS NULL`))
     .orderBy(desc(hrCompensationVersions.validFrom), desc(hrCompensationVersions.versionNumber)).limit(1);
@@ -153,12 +165,32 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
       AND NOT EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId} AND voided_at IS NULL
         AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
     RETURNING id`;
-  const itemStatements = (input.items ?? []).map((item) => {
-    const itemId = crypto.randomUUID();
-    return sql`INSERT INTO hr_compensation_items (id, compensation_version_id, item_name, amount_minor, item_kind, amount_basis, include_overtime, include_insurance, include_tax, created_by)
-      VALUES (${itemId}, ${id}, ${item.itemName.trim()}, ${item.amountMinor}, ${item.itemKind}, ${item.amountBasis}, ${item.includeOvertime ? 1 : 0}, ${item.includeInsurance ? 1 : 0}, ${item.includeTax ? 1 : 0}, ${actor.id}) RETURNING id`;
-  });
-  return writeHrMutation(db, [...closePrevious, insert, ...itemStatements], id, actor, "compensation_version_created", "任職不存在、敘薪更新日期不連續、薪資期間重疊或資料不合法，請重新整理。 ");
+  return writeHrMutation(db, [...closePrevious, insert, ...compensationItemStatements(id, input.items, actor)], id, actor, "compensation_version_created", "任職不存在、敘薪更新日期不連續、薪資期間重疊或資料不合法，請重新整理。 ");
+}
+
+/** 修正任一未解除版本：保留原版本與薪資快照，讓新資料只取代同一有效期間。 */
+export async function correctHrCompensationVersion(db: Database, employmentId: string, versionId: string, input: HrCompensationInput, actor: HrActor) {
+  validateCompensationInput(input);
+  if (input.employmentId !== employmentId) throw new HrError(400, "敘薪任職資料不一致。 ");
+  const [target] = await db.select({ id: hrCompensationVersions.id, validFrom: hrCompensationVersions.validFrom, validTo: hrCompensationVersions.validTo, voidedAt: hrCompensationVersions.voidedAt }).from(hrCompensationVersions)
+    .where(and(eq(hrCompensationVersions.id, versionId), eq(hrCompensationVersions.employmentId, employmentId))).limit(1);
+  if (!target) throw new HrError(404, "找不到這個敘薪版本。 ");
+  if (target.voidedAt !== null) throw new HrError(409, "這個敘薪版本已經解除，不能重複修正。 ");
+  if (input.validFrom !== target.validFrom || input.validTo !== target.validTo) throw new HrError(400, "修正版只能修改薪資內容，不能修改原版本的有效期間。 ");
+  const id = crypto.randomUUID();
+  const voidTarget = sql`UPDATE hr_compensation_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
+    WHERE id=${versionId} AND employment_id=${employmentId} AND voided_at IS NULL RETURNING id`;
+  const insert = sql`INSERT INTO hr_compensation_versions
+    (id, employment_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, note, created_by)
+    SELECT ${id}, ${input.employmentId}, coalesce((SELECT max(version_number) + 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId}), 1),
+      ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${input.note}, ${actor.id}
+    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId}
+      AND hired_on <= ${input.validFrom} AND (ended_on IS NULL OR (${input.validTo} IS NOT NULL AND ${input.validTo} <= ended_on)))
+      AND NOT EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId} AND id <> ${versionId} AND voided_at IS NULL
+        AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
+    RETURNING id`;
+  await writeHrMutation(db, [voidTarget, insert, ...compensationItemStatements(id, input.items, actor)], id, actor, "compensation_version_corrected", "敘薪版本已被其他人變更、期間重疊或資料不合法，請重新整理。 ");
+  return { id, correctedVersionId: versionId, status: "corrected" as const };
 }
 
 /** 解除最新敘薪但不刪除資料，讓誤登版本可以被同日修正且不影響既有薪資快照。 */
@@ -168,8 +200,8 @@ export async function voidHrCompensationVersion(db: Database, employmentId: stri
   if (!version) throw new HrError(404, "找不到這個敘薪版本。 ");
   if (version.voidedAt !== null) throw new HrError(409, "這個敘薪版本已經解除。 ");
   const [latest] = await db.select({ id: hrCompensationVersions.id }).from(hrCompensationVersions)
-    .where(eq(hrCompensationVersions.employmentId, employmentId)).orderBy(desc(hrCompensationVersions.versionNumber)).limit(1);
-  if (latest?.id !== version.id) throw new HrError(409, "只能解除最新的敘薪版本；歷史薪資請保留不變。 ");
+    .where(and(eq(hrCompensationVersions.employmentId, employmentId), sql`${hrCompensationVersions.voidedAt} IS NULL`)).orderBy(desc(hrCompensationVersions.validFrom), desc(hrCompensationVersions.versionNumber)).limit(1);
+  if (latest?.id !== version.id) throw new HrError(409, "只能解除最新的敘薪版本；歷史薪資請保留不變。若要修正此版本，請從版本紀錄選擇修正。 ");
   await writeHrMutation(db, sql`UPDATE hr_compensation_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
     WHERE id=${versionId} AND employment_id=${employmentId} AND voided_at IS NULL RETURNING id`, versionId, actor, "compensation_version_voided", "敘薪版本已被其他人變更，請重新整理。 ");
   return { id: versionId, status: "voided" as const };
