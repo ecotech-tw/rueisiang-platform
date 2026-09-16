@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
@@ -301,10 +301,47 @@ export async function createHrShift(db: Database, input: HrShiftInput, actor: Hr
   return { id: templateId, versionId, assignmentId };
 }
 
+export const HR_SCHEDULE_WORKER_PAGE_SIZES = [10, 25, 50, 100] as const;
+const SCHEDULE_WORKER_SORT_COLUMNS = { name: hrScheduleWorkers.displayName, status: hrScheduleWorkers.active } as const;
+export type HrScheduleWorkerSortField = keyof typeof SCHEDULE_WORKER_SORT_COLUMNS;
+export interface HrScheduleWorkerListQuery {
+  page: number;
+  pageSize: number;
+  search: string;
+  status: "all" | "active" | "inactive";
+  sortField: HrScheduleWorkerSortField;
+  sortDirection: "asc" | "desc";
+}
+
+async function withWorkerCompensation(db: Database, workers: Array<typeof hrScheduleWorkers.$inferSelect>) {
+  const compensation = workers.length
+    ? await db.select().from(hrWorkerCompensationVersions)
+      .where(inArray(hrWorkerCompensationVersions.workerId, workers.map((worker) => worker.id)))
+      .orderBy(desc(hrWorkerCompensationVersions.validFrom), desc(hrWorkerCompensationVersions.versionNumber))
+    : [];
+  return workers.map((worker) => ({ ...worker, compensation: compensation.filter((version) => version.workerId === worker.id) }));
+}
+
 export async function listHrScheduleWorkers(db: Database) {
   const workers = await db.select().from(hrScheduleWorkers).orderBy(asc(hrScheduleWorkers.active), asc(hrScheduleWorkers.displayName));
-  const compensation = await db.select().from(hrWorkerCompensationVersions).orderBy(desc(hrWorkerCompensationVersions.validFrom), desc(hrWorkerCompensationVersions.versionNumber));
-  return workers.map((worker) => ({ ...worker, compensation: compensation.filter((version) => version.workerId === worker.id) }));
+  return withWorkerCompensation(db, workers);
+}
+
+export async function listHrScheduleWorkersPage(db: Database, query: HrScheduleWorkerListQuery) {
+  const where = and(
+    query.status === "all" ? undefined : eq(hrScheduleWorkers.active, query.status === "active" ? 1 : 0),
+    query.search ? like(hrScheduleWorkers.displayName, `%${query.search}%`) : undefined,
+  );
+  const sortColumn = SCHEDULE_WORKER_SORT_COLUMNS[query.sortField];
+  const orderColumn = query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn);
+  const [rows, [totalRow]] = await Promise.all([
+    db.select().from(hrScheduleWorkers).where(where)
+      .orderBy(orderColumn, asc(hrScheduleWorkers.displayName), asc(hrScheduleWorkers.id))
+      .limit(query.pageSize).offset((query.page - 1) * query.pageSize),
+    db.select({ value: count() }).from(hrScheduleWorkers).where(where),
+  ]);
+  const total = totalRow?.value ?? 0;
+  return { workers: await withWorkerCompensation(db, rows), total, page: query.page, pageSize: query.pageSize, hasMore: query.page * query.pageSize < total };
 }
 
 export async function createHrScheduleWorker(db: Database, input: { displayName: string }, actor: HrActor) {
