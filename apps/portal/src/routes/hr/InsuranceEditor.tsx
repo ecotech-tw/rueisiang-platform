@@ -122,12 +122,11 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
     };
     save.mutate({ path: `/employments/${employment.id}/insurance`, method: "POST", values: { versions: SCHEMES.map(valuesFor) } }, { onSuccess: onClose });
   } }} actions={<Button type="submit" loading={save.isPending}>儲存</Button>}>
-    <p>系統會用目前啟用的官方或人工級距依實際月薪帶入勞保與健保投保金額；輸入或修改資料後會依生效日即時計算每月扣款，正式金額仍以薪資結算為準。</p>
     <Field label="狀態"><div className="segmented-control" role="group" aria-label="勞健保狀態">
       <button type="button" className={status === "enrolled" ? "selected" : ""} onClick={() => setStatus("enrolled")}>加保／變更級距</button>
       <button type="button" className={status === "withdrawn" ? "selected" : ""} onClick={() => setStatus("withdrawn")}>退保</button>
     </div></Field>
-    <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} hint={existing ? "從這天起套用新的投保資料，前一個版本會在前一天結束。" : undefined} />
+    <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
     {status === "enrolled" ? <>
       <TextField label="實際月薪（元）" type="number" min="0" step="1" value={salary} required onChange={(event) => setSalary(event.target.value)} hint="勞保／健保級距會依月薪自動帶入，也可以從下拉選單選擇其他級距。" />
       <div className="form-grid two">
