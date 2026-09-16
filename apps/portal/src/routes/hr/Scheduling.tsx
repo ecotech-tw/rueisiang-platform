@@ -3,6 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
+import { HrPageSkeleton } from "./HrSkeleton.js";
 
 function taipeiMonthStart() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -85,7 +86,7 @@ export function HrScheduling() {
   const entriesOn = (day: string) => visibleEntries.filter((entry) => entry.workDate === day);
 
   if (!canRead) return <Alert tone="danger">你沒有檢視排班的權限。</Alert>;
-  if (schedule.isPending) return <div className="boot">載入排班…</div>;
+  if (schedule.isPending) return <HrPageSkeleton variant="calendar" />;
   if (schedule.error || !data) return <div className="page"><Alert tone="danger">{schedule.error?.message ?? "排班資料載入失敗。"}</Alert></div>;
   const version = data.version;
   const defaultScope = scopeId === "all" ? data.scopes[0]?.id ?? "" : scopeId;

@@ -3,6 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceRateTableRecord, type InsuranceContributionRule } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 const PAY_BASIS_LABEL: Record<CompensationVersion["payBasis"], string> = { monthly: "月薪", daily: "日薪", hourly: "時薪" };
@@ -77,8 +78,8 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const [userId, setUserId] = useState(initialUserId ?? "");
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(userId)}`, Boolean(userId));
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
-  const current = useMemo(() => currentVersion(profile.data?.compensation ?? []), [profile.data?.compensation]);
   const employmentVersions = useMemo(() => (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id), [profile.data?.compensation, employment?.id]);
+  const current = useMemo(() => currentVersion(employmentVersions), [employmentVersions]);
 
   const [validFrom, setValidFrom] = useState(taipeiToday());
   const [validTo, setValidTo] = useState("");
@@ -106,7 +107,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     setPayBasis(current?.payBasis ?? "monthly");
     setBaseAmount(current ? String(current.baseAmountMinor / 100) : "");
     setItems((current?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
-    setNote("");
+    setNote(current?.note ?? "");
     setMessage(null);
   }, [current, employment, employmentVersions]);
 
@@ -243,8 +244,10 @@ function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerR
 function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (userId: string) => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`);
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
-  const current = currentVersion(profile.data?.compensation ?? []);
-  if (profile.isLoading) return <tr><td>{employee.displayName}</td><td colSpan={5}>載入敘薪資料…</td></tr>;
+  const current = useMemo(() => employment
+    ? currentVersion((profile.data?.compensation ?? []).filter((version) => version.employmentId === employment.id))
+    : undefined, [profile.data?.compensation, employment?.id]);
+  if (profile.isLoading) return <HrSkeletonTableRow columns={6} />;
   return <tr>
     <td><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.hiredOn}～${employment.endedOn ?? "目前"}` : "尚無任職"}</td>
@@ -284,6 +287,10 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   // null＝關閉；{ userId: null }＝從上方按鈕開啟、還沒選員工。
   const [editing, setEditing] = useState<{ userId: string | null } | null>(null);
   if (!canRead) return <Alert tone="danger">敘薪明細僅限全平台 HR 管理者查看。</Alert>;
+  const pageLoading = settingsOnly
+    ? rates.isPending || contributionRules.isPending
+    : (permissions.has("hr:employee:read") && employees.isPending) || (permissions.has("hr:schedule:read") && workers.isPending);
+  if (pageLoading) return <HrPageSkeleton variant="table" />;
   return <div className="page">
     <PageHeader
       title={settingsOnly ? "制度設定" : "敘薪管理"}

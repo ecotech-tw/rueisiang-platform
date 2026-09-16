@@ -6,6 +6,7 @@ import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type Candidate, type CompensationVersion, type Employee, type Employment, type InsuranceVersion, type LeaveRequest, type NamedOption, type Profile } from "./api.js";
+import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface FieldDefinition { key: string; label: string; type?: "date" | "email"; optional?: boolean; options?: NamedOption[]; maxLength?: number }
 interface Editor { title: string; path: string; method: string; fields: FieldDefinition[]; initial?: Record<string, unknown>; description?: string }
@@ -166,7 +167,7 @@ export function HrEmployeeDetail() {
   const detail = useHrQuery<Profile>(`/employees/${encodeURIComponent(id)}`, canRead && Boolean(id));
   usePageTitle(detail.data ? `${detail.data.employee.employeeNumber} ${detail.data.employee.displayName}` : "員工內頁");
   if (!canRead) return <Alert tone="danger">你沒有檢視員工資料的權限。</Alert>;
-  if (detail.isPending) return <div className="page"><p>載入員工資料…</p></div>;
+  if (detail.isPending) return <HrPageSkeleton variant="detail" />;
   if (detail.error || !detail.data) return <div className="page"><Alert tone="danger">{detail.error?.message ?? "找不到員工資料。"}</Alert><Button variant="secondary" onClick={() => navigate("/hr/employees")}>返回員工列表</Button></div>;
   const profile = detail.data;
   return <div className="page">
@@ -225,6 +226,7 @@ export function HrEmployees() {
   const employees = useHrQuery<{ employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean }>(`/employees?page=${filters.page}&pageSize=${filters.pageSize}&search=${encodeURIComponent(filters.search)}&status=${filters.status}&sortField=${filters.sortField}&sortDirection=${filters.sortDirection}`, canRead);
   const candidates = useHrQuery<{ users: Candidate[] }>("/candidates", canWrite);
   if (!canRead) return <Alert tone="danger">你沒有檢視員工資料的權限。</Alert>;
+  if (employees.isPending) return <HrPageSkeleton variant="table" />;
   const data = employees.data;
   const update = (patch: Partial<typeof filters>) => setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;

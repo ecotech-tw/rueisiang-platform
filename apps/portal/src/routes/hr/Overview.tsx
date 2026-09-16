@@ -5,6 +5,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon, type IconName } from "../../shell/icons.js";
 import { Alert, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type HrOverview } from "./api.js";
+import { HrPageSkeleton } from "./HrSkeleton.js";
 
 const OVERVIEW_PERMISSIONS: Permission[] = ["hr:employee:read", "hr:office:read", "hr:schedule:read", "hr:payroll:read", "hr:bonus:read"];
 const PAYROLL_STATUS: Record<HrOverview["payroll"]["status"], string> = {
@@ -24,7 +25,7 @@ export function HrOverview() {
   const overview = useHrQuery<HrOverview>("/overview", canViewOverview);
 
   if (!canViewOverview) return <Alert tone="danger">你沒有檢視 HRIS 概覽的權限。</Alert>;
-  if (overview.isPending) return <div className="page"><div className="boot">載入 HRIS 概覽…</div></div>;
+  if (overview.isPending) return <HrPageSkeleton variant="dashboard" />;
   if (overview.error || !overview.data) return <div className="page"><Alert tone="danger">{overview.error?.message ?? "概覽資料載入失敗。"}</Alert></div>;
 
   const data = overview.data;

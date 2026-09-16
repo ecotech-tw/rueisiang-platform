@@ -3,6 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type Profile } from "./api.js";
+import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 interface LeaveType { id: string; name: string; defaultPayRatePpm: number }
@@ -46,6 +47,7 @@ export function HrMonthlyData() {
   const leaveTypeOptions = [{ label: "請選擇假別", value: "" }, ...(data.data?.leaveTypes ?? []).map((leaveType) => ({ label: leaveType.name, value: leaveType.id }))];
 
   if (!canRead) return <Alert tone="danger">月度資料僅限全平台 HR 管理者查看。</Alert>;
+  if (employees.isPending || (Boolean(periodKey) && data.isPending)) return <HrPageSkeleton variant="table" />;
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!selectedEmployment) { setError("請先選擇指定月份有效的任職紀錄。"); return; }

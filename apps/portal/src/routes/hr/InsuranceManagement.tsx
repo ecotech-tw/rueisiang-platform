@@ -5,6 +5,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type Employment, type InsuranceRateTableRecord, type InsuranceVersion, type Profile } from "./api.js";
 import { InsuranceEditor } from "./InsuranceEditor.js";
+import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 interface InsuranceEdit { employment: Employment; existing: boolean; defaultSalary?: number; dependentCount?: number }
@@ -34,7 +35,7 @@ function money(minor: number) {
 function InsuranceRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (edit: InsuranceEdit) => void }) {
   const navigate = useNavigate();
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`);
-  if (profile.isPending) return <tr><td>{employee.displayName}</td><td colSpan={7}>載入投保資料…</td></tr>;
+  if (profile.isPending) return <HrSkeletonTableRow columns={7} />;
   if (profile.error || !profile.data) return <tr><td>{employee.displayName}</td><td colSpan={7}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
   const insurance = profile.data.insurance ?? [];
   const labor = currentInsurance(insurance, "labor");
@@ -69,6 +70,7 @@ export function HrInsuranceManagement() {
   const activateRate = useHrWrite();
   const [editing, setEditing] = useState<InsuranceEdit | null>(null);
   if (!canRead) return <Alert tone="danger">勞健保明細僅限全平台 HR 管理者查看。</Alert>;
+  if (employees.isPending || rates.isPending) return <HrPageSkeleton variant="table" />;
   return <div className="page">
     <PageHeader title="勞健保管理" description="在本頁查看全體員工投保狀態，並一次建立勞保與健保的加退保、級距與眷屬版本；歷史版本不可直接覆寫。" />
     {employees.error ? <Alert tone="danger">{employees.error.message}</Alert> : null}

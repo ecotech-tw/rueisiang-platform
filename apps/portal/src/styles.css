@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "react-loading-skeleton/dist/skeleton.css";
 
 /*
  * 元件樣式進 components 這一層，utility 才蓋得過它們。沒掛 layer 的話

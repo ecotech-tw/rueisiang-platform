@@ -3,6 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type PayrollRun, type PayrollEmployee, type PayrollLine, type PayrollRunSummary, type Profile } from "./api.js";
+import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface PayrollRunsResponse { runs: PayrollRunSummary[] }
 interface EmployeeListResponse { employees: Employee[] }
@@ -83,6 +84,7 @@ export function HrPayrollSettlement() {
   useEffect(() => { setAdjustmentEffectivePeriodKey(nextMonth(periodKey)); }, [periodKey]);
   const employeeOptions = useMemo(() => [{ label: "全部啟用員工", value: "__all__" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
+  if (runs.isPending) return <HrPageSkeleton variant="table" />;
   const sourceRange = monthRange(periodKey);
   const adjustmentEmployment = adjustmentProfile.data?.employments.find((employment) => employment.hiredOn < sourceRange.end && (!employment.endedOn || employment.endedOn > sourceRange.start));
 

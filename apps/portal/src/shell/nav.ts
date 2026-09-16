@@ -23,7 +23,7 @@ export interface NavItem {
 
 export interface NavSection {
   key: string;
-  /** 大項自己的首頁；目前只有 HRIS 概覽需要在沒有子頁 active 時保持展開。 */
+  /** 大項自己的首頁；單一入口的大項可用它在沒有子頁 active 時保持展開。 */
   homePath?: string;
   label: string;
   /** 大項自己也有圖示——收合成窄欄之後，那是唯一還看得到的線索。 */
@@ -96,20 +96,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Sandbox", to: "/assistant/sandbox", permission: "assistant:sandbox:read", icon: "science" },
       { label: "設定", to: "/assistant/settings", permission: "assistant:settings:read", icon: "tune" },
       { label: "LINE 前台", to: "/assistant/line", permission: "assistant:line:read", icon: "line" },
-    ],
-  },
-  {
-    key: "hr",
-    homePath: "/hr",
-    label: "HRIS",
-    icon: "analytics",
-    items: [
-      {
-        label: "HRIS",
-        to: "/hr",
-        permission: ["hr:employee:read", "hr:office:read", "hr:schedule:read", "hr:payroll:read", "hr:bonus:read"],
-        icon: "analytics",
-      },
     ],
   },
   {
