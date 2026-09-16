@@ -20,7 +20,7 @@ export {
   type HrFormRequestEventKind, type HrFormRequestInput, type HrFormRequestStatus,
 } from "./hr-requests.js";
 export {
-  activateHrInsuranceRateTable, createHrCompensationVersion, createHrInsuranceContributionRule, createHrInsuranceVersion, fetchHrInsuranceBrackets, HrInsuranceRateError, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables,
+  activateHrInsuranceRateTable, createHrCompensationVersion, createHrInsuranceContributionRule, createHrInsuranceVersions, fetchHrInsuranceBrackets, HrInsuranceRateError, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables,
   type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceContributionInput, type HrInsuranceInput, type HrInsuranceRateTableRecord, type HrInsuranceScheme,
 } from "./hr-payroll.js";
 export {

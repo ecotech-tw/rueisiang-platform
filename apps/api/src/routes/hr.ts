@@ -1,7 +1,7 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie } from "@rueisiang/auth";
 import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
-  createHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersion, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrAttendanceLocationSchedules, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
+  createHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrAttendanceLocationSchedules, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
   createHrInsuranceContributionRule, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, activateHrInsuranceRateTable, saveHrAttendanceLocationSchedules, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
@@ -157,7 +157,8 @@ function bonusScopeIds(input: Record<string, unknown>): string[] | undefined {
   return input.scopeIds as string[];
 }
 function noteValue(input: Record<string, unknown>) {
-  return input.note === undefined || input.note === null ? "" : text(input, "note", "備註", 1000);
+  // 表單的空欄位送出來是 ""；text() 會把空字串當成沒填而擋下，選填的備註要跟 undefined 一樣放行。
+  return nullableText(input, "note", "備註", 1000) ?? "";
 }
 function compensationItems(input: Record<string, unknown>) {
   if (input.items === undefined) return undefined;
@@ -731,7 +732,7 @@ export const hr = new Hono<AppEnv>()
     const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
     if (!HR_EMPLOYEE_PAGE_SIZES.includes(pageSize as (typeof HR_EMPLOYEE_PAGE_SIZES)[number])) throw new HTTPException(400, { message: "每頁筆數不正確。" });
     const status = c.req.query("status") ?? "all";
-    if (status !== "all" && status !== "active" && status !== "invited" && status !== "disabled") throw new HTTPException(400, { message: "員工狀態不正確。" });
+    if (status !== "all" && status !== "employable" && status !== "active" && status !== "invited" && status !== "disabled") throw new HTTPException(400, { message: "員工狀態不正確。" });
     const sortField = c.req.query("sortField") ?? "employeeNumber";
     if (sortField !== "employeeNumber" && sortField !== "name" && sortField !== "email" && sortField !== "status") throw new HTTPException(400, { message: "排序欄位不正確。" });
     const sortDirection = c.req.query("sortDirection") === "desc" ? "desc" : "asc";
@@ -775,20 +776,28 @@ export const hr = new Hono<AppEnv>()
   .post("/employments/:id/insurance", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理勞健保資料。" });
     const input = await body(c);
-    const scheme = insuranceScheme(input);
-    const status = insuranceStatus(input);
-    const validFrom = date(input, "validFrom")!;
-    const validTo = date(input, "validTo", true);
-    period(validFrom, validTo);
-    const sourceKind = input.sourceKind === "manual" ? "manual" : input.sourceKind === "official" ? "official" : null;
-    if (!sourceKind) throw new HTTPException(400, { message: "級距來源不正確。" });
-    const dependentCount = scheme === "health" ? integerValue(input, "dependentCount", "眷屬人數", 0, 3) : 0;
-    return c.json(await createHrInsuranceVersion(c.get("db"), {
-      employmentId: c.req.param("id"), scheme, status, validFrom, validTo,
-      insuredAmountMinor: status === "withdrawn" ? 0 : integerValue(input, "insuredAmountMinor", "投保金額（分）", 0, Number.MAX_SAFE_INTEGER),
-      dependentCount, rateYear: integerValue(input, "rateYear", "級距年度", 1900, 9999), sourceKind,
-      sourceUrl: input.sourceUrl === undefined || input.sourceUrl === null ? "" : text(input, "sourceUrl", "資料來源", 500), note: noteValue(input),
-    }, c.get("user")), 201);
+    // 勞保與健保在同一個 Dialog 編輯，一次送進來才能在同一個 batch 裡要嘛都寫、要嘛都不寫。
+    if (!Array.isArray(input.versions) || input.versions.length < 1 || input.versions.length > 2) throw new HTTPException(400, { message: "投保版本格式不正確。" });
+    const versions = input.versions.map((raw, index) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆投保版本格式不正確。` });
+      const item = raw as Record<string, unknown>;
+      const scheme = insuranceScheme(item);
+      const status = insuranceStatus(item);
+      const validFrom = date(item, "validFrom")!;
+      const validTo = date(item, "validTo", true);
+      period(validFrom, validTo);
+      const sourceKind: "manual" | "official" | null = item.sourceKind === "manual" ? "manual" : item.sourceKind === "official" ? "official" : null;
+      if (!sourceKind) throw new HTTPException(400, { message: "級距來源不正確。" });
+      return {
+        employmentId: c.req.param("id"), scheme, status, validFrom, validTo,
+        insuredAmountMinor: status === "withdrawn" ? 0 : integerValue(item, "insuredAmountMinor", "投保金額（分）", 0, Number.MAX_SAFE_INTEGER),
+        dependentCount: scheme === "health" ? integerValue(item, "dependentCount", "眷屬人數", 0, 3) : 0,
+        rateYear: integerValue(item, "rateYear", "級距年度", 1900, 9999), sourceKind,
+        // 人工覆寫與退保沒有官方來源，Dialog 送 ""；官方來源必填由 db 層檢查。
+        sourceUrl: nullableText(item, "sourceUrl", "資料來源", 500) ?? "", note: noteValue(item),
+      };
+    });
+    return c.json(await createHrInsuranceVersions(c.get("db"), versions, c.get("user")), 201);
   })
   .post("/employments", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);

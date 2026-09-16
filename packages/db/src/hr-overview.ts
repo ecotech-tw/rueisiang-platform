@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { countHrClockCalendarAnomalies } from "./hr-attendance.js";
+import { hrEmployableUser } from "./hr-people.js";
 import { hrPayrollPeriods, hrPayrollRuns } from "./schema/hr-payroll-runs.js";
 import { hrInsuranceVersions } from "./schema/hr-payroll.js";
 import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
@@ -42,7 +43,7 @@ export async function getHrOverview(db: Database): Promise<HrOverviewResult> {
   const employeeRows = await db.select({ userId: hrEmployees.userId, employmentId: hrEmployments.id, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployees)
     .innerJoin(users, eq(users.id, hrEmployees.userId))
     .innerJoin(hrEmployments, eq(hrEmployments.employeeUserId, hrEmployees.userId))
-    .where(eq(users.status, "active"));
+    .where(hrEmployableUser);
   const activeRows = employeeRows.filter((row) => row.hiredOn <= today && (row.endedOn === null || today < row.endedOn));
   const activeUserIds = [...new Set(activeRows.map((row) => row.userId))];
   const activeEmploymentIds = new Set(activeRows.map((row) => row.employmentId));

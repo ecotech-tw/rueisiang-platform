@@ -131,6 +131,18 @@ describe("HR 員工基礎", () => {
     await expect(created("/hr/employees", { userId: "invited", employeeNumber: "E002", hiredOn: "2026-01-01", seniorityStartOn: "2026-01-01" })).resolves.toBe("invited");
   });
 
+  it("管理頁名單包含還沒登入過的邀請中員工，只排除停用帳號", async () => {
+    await assign("self", "E001");
+    await assign("invited", "E002");
+    await assign("other", "E003");
+    await db.update(users).set({ status: "disabled" }).where(eq(users.id, "other"));
+    const list = async (status: string) => (await (await request(`/hr/employees?page=1&pageSize=100&status=${status}&sortField=employeeNumber&sortDirection=asc`)).json() as { employees: { userId: string }[]; total: number });
+    const roster = await list("employable");
+    expect(roster.employees.map((employee) => employee.userId)).toEqual(["self", "invited"]);
+    expect(roster.total).toBe(2);
+    expect((await list("active")).employees.map((employee) => employee.userId)).toEqual(["self"]);
+  });
+
   it("櫃點期間必須在任職內，關閉指派後才可離職；停用 scope 不可新增", async () => {
     await assign("self");
     const job = await firstEmployment("self");
