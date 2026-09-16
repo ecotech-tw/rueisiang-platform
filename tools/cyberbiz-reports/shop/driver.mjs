@@ -32,7 +32,7 @@ import {
   skillPath,
 } from "../lib/common.mjs";
 import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
-import { downloadStatement, listStatements, login, loginOptions, openStatementCenter } from "../lib/cyberbiz.mjs";
+import { confirmStatement, downloadStatement, listStatements, login, loginOptions, openStatementCenter } from "../lib/cyberbiz.mjs";
 import { accessToken, uploadXlsx } from "../lib/drive.mjs";
 import { parseShopReport } from "./parser.mjs";
 
@@ -203,6 +203,9 @@ async function main() {
       if (ingest) {
         entry.ingest = await ingestStatement({ ...ingest, report });
         log(`匯入平台：${entry.ingest.itemCount} 個 SKU、${entry.ingest.dailyPayoutCount ?? 0} 筆每日入帳、營業額 ${entry.ingest.salesAmount}`);
+        // 只有平台回報 D1 匯入成功後才確認 CYBERBIZ 帳款；前面的卡片／檔案金額交叉檢查
+        // 也必須先通過，避免確認一筆尚未完整落地或金額錯誤的帳款。
+        entry.accountConfirmation = await confirmStatement(page, statement, { log });
       }
       processed.push(entry);
     }
