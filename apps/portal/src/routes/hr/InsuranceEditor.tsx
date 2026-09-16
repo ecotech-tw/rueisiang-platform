@@ -6,7 +6,6 @@ const INSURANCE_LABEL: Record<"labor" | "health", string> = { labor: "勞保", h
 const SCHEMES = ["labor", "health"] as const;
 const ESTIMATE_DEBOUNCE_MS = 180;
 const AUTO_BRACKET = "__auto__";
-const CUSTOM_BRACKET = "__custom__";
 
 type InsuranceScheme = typeof SCHEMES[number];
 
@@ -32,10 +31,6 @@ function premiumLabel(amountMinor: number) {
   return `-NT$ ${Math.round(amountMinor / 100).toLocaleString("zh-TW")}`;
 }
 
-interface InsuranceDraft {
-  manualAmount: string;
-}
-
 /**
  * existing 決定生效日的預設值：新加保從到職日起算；已經有版本的人，同一個起日一定跟既有版本重疊，
  * 所以改從今天起算，存的時候由後端關閉前一個版本。
@@ -45,10 +40,6 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
   const [status, setStatus] = useState<"enrolled" | "withdrawn">("enrolled");
   const [validFrom, setValidFrom] = useState(existing ? taipeiToday() : employment.hiredOn);
   const [salary, setSalary] = useState(defaultSalary === undefined ? "" : String(defaultSalary));
-  const [drafts, setDrafts] = useState<Record<InsuranceScheme, InsuranceDraft>>({
-    labor: { manualAmount: "" },
-    health: { manualAmount: "" },
-  });
   const [bracketSelections, setBracketSelections] = useState<Record<InsuranceScheme, string>>({ labor: AUTO_BRACKET, health: AUTO_BRACKET });
   const [dependents, setDependents] = useState(String(defaultDependentCount ?? 0));
   const [note, setNote] = useState("");
@@ -66,22 +57,17 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
     health: bracketSelections.health === AUTO_BRACKET ? selected.health : activeTables.get("health")?.brackets.find((bracket) => String(bracket.level) === bracketSelections.health),
   }), [activeTables, bracketSelections.health, bracketSelections.labor, selected]);
 
-  useEffect(() => { setMessage(""); }, [status, validFrom, salary, bracketSelections, drafts, dependents, note]);
+  useEffect(() => { setMessage(""); }, [status, validFrom, salary, bracketSelections, dependents, note]);
 
-  const usesCustomAmount = (scheme: InsuranceScheme) => bracketSelections[scheme] === CUSTOM_BRACKET;
-  const usesManualSource = (scheme: InsuranceScheme) => usesCustomAmount(scheme) || activeTables.get(scheme)?.sourceKind === "manual";
-  const amount = (scheme: InsuranceScheme) => {
-    if (status === "withdrawn") return 0;
-    return usesCustomAmount(scheme) ? Number(drafts[scheme].manualAmount) : selectedBrackets[scheme]?.insuredAmount;
-  };
+  const usesManualSource = (scheme: InsuranceScheme) => activeTables.get(scheme)?.sourceKind === "manual";
+  const amount = (scheme: InsuranceScheme) => status === "withdrawn" ? 0 : selectedBrackets[scheme]?.insuredAmount;
 
-  const updateDraft = (scheme: InsuranceScheme, patch: Partial<InsuranceDraft>) => setDrafts((current) => ({ ...current, [scheme]: { ...current[scheme], ...patch } }));
   const updateBracketSelection = (scheme: InsuranceScheme, value: string) => setBracketSelections((current) => ({ ...current, [scheme]: value }));
   const dependentCount = Number(dependents);
   const estimateValues = useMemo<InsuranceEstimateRequest>(() => ({
     validFrom,
     versions: SCHEMES.map((scheme) => ({ scheme, status, insuredAmountMinor: (amount(scheme) ?? 0) * 100, dependentCount: scheme === "health" ? dependentCount : 0 })),
-  }), [activeTables, bracketSelections, dependentCount, drafts, selected, selectedBrackets, status, validFrom]);
+  }), [activeTables, bracketSelections, dependentCount, selected, selectedBrackets, status, validFrom]);
   const estimateSignature = JSON.stringify(estimateValues);
   const estimateReady = Boolean(validFrom) && Number.isSafeInteger(dependentCount) && dependentCount >= 0 && dependentCount <= 3 && (status === "withdrawn" || SCHEMES.every((scheme) => {
     const nextAmount = amount(scheme);
@@ -112,7 +98,7 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
     if (status === "enrolled") {
       for (const scheme of SCHEMES) {
         const nextAmount = amount(scheme);
-        if (!Number.isSafeInteger(nextAmount) || (nextAmount ?? 0) <= 0) { setMessage(usesCustomAmount(scheme) ? `請輸入${INSURANCE_LABEL[scheme]}人工投保金額。` : `請輸入實際月薪，讓系統依目前啟用的${INSURANCE_LABEL[scheme]}級距帶入投保金額。`); return; }
+        if (!Number.isSafeInteger(nextAmount) || (nextAmount ?? 0) <= 0) { setMessage(`請輸入實際月薪，讓系統依目前啟用的${INSURANCE_LABEL[scheme]}級距帶入投保金額。`); return; }
       }
       if (!Number.isSafeInteger(healthDependents) || healthDependents < 0 || healthDependents > 3) { setMessage("眷屬人數必須介於 0～3。"); return; }
       if (SCHEMES.some(usesManualSource) && !note.trim()) { setMessage("人工來源必須留下覆核備註。"); return; }
@@ -149,23 +135,18 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
         {SCHEMES.map((scheme) => {
           const activeTable = activeTables.get(scheme);
           const selection = bracketSelections[scheme];
-          const customAmount = usesCustomAmount(scheme);
           const selectedBracket = selectedBrackets[scheme];
           const nextAmount = amount(scheme);
           const estimate = estimateFor(scheme);
           const bracketOptions = [
             { value: AUTO_BRACKET, label: activeTable ? "依實際月薪自動帶入" : "依實際月薪自動帶入（尚未有級距）" },
             ...(activeTable?.brackets ?? []).map((bracket) => ({ value: String(bracket.level), label: `第 ${bracket.level} 級／${amountLabel(bracket.insuredAmount)}` })),
-            { value: CUSTOM_BRACKET, label: "其他（自行輸入）" },
           ];
           return <section className="hr-insurance-scheme-card" key={scheme}>
             <div><h3>{INSURANCE_LABEL[scheme]}</h3></div>
-            {customAmount ? <TextField label={`${INSURANCE_LABEL[scheme]}投保金額（元）`} placeholder="自行輸入投保金額" type="number" min="0" step="1" value={drafts[scheme].manualAmount} required onChange={(event) => updateDraft(scheme, { manualAmount: event.target.value })} hint="人工來源必須留下覆核備註。" /> : <>
-              <SelectField label={`${INSURANCE_LABEL[scheme]}投保級距`} value={selection} options={bracketOptions} onChange={(event) => updateBracketSelection(scheme, event.target.value)} hint={activeTable?.sourceKind === "manual" ? "目前套用人工維護級距，保存時會標示人工來源。" : "可依實際月薪自動帶入，或直接選擇其他級距。"} />
-              <p className="hr-insurance-bracket-summary">{selectedBracket ? `投保金額／${amountLabel(selectedBracket.insuredAmount)}` : activeTable ? "請輸入月薪以自動帶入級距。" : `尚未啟用${INSURANCE_LABEL[scheme]}級距。`}</p>
-            </>}
-            {customAmount && Number.isSafeInteger(nextAmount) && (nextAmount ?? 0) > 0 ? <p className="hr-insurance-bracket-summary">人工投保／{amountLabel(nextAmount)}</p> : null}
-            <div className="hr-insurance-estimate" aria-live="polite"><div className="hr-insurance-estimate-title">員工每月扣款試算</div>{calculationPending ? <span className="muted">試算中…</span> : calculationError ? <span className="muted">暫時無法取得試算</span> : estimateIsCurrent && estimate?.employeeAmountMinor !== null && estimate?.employeeAmountMinor !== undefined ? <><strong>{premiumLabel(estimate.employeeAmountMinor)}</strong><span className="muted">依員工負擔 {estimate.employeeRatePpm === null ? "—" : `${(estimate.employeeRatePpm / 10_000).toFixed(2)}%`}{scheme === "health" && dependentCount > 0 ? `・含 ${dependentCount} 位眷屬` : ""}</span></> : estimateIsCurrent && estimate ? <span className="muted">尚未設定此生效日的系統或公司負擔規則</span> : Number.isSafeInteger(nextAmount) && (nextAmount ?? 0) > 0 ? <span className="muted">輸入完整資料後自動計算</span> : <span className="muted">選擇級距或填入人工投保金額後即可計算</span>}</div>
+            <SelectField label={`${INSURANCE_LABEL[scheme]}投保級距`} value={selection} options={bracketOptions} onChange={(event) => updateBracketSelection(scheme, event.target.value)} hint={activeTable?.sourceKind === "manual" ? "目前套用人工維護級距，保存時會標示人工來源。" : "可依實際月薪自動帶入，或直接選擇其他級距。"} />
+            <p className="hr-insurance-bracket-summary">{selectedBracket ? `投保金額／${amountLabel(selectedBracket.insuredAmount)}` : activeTable ? "請輸入月薪以自動帶入級距。" : `尚未啟用${INSURANCE_LABEL[scheme]}級距。`}</p>
+            <div className="hr-insurance-estimate" aria-live="polite"><div className="hr-insurance-estimate-title">員工每月扣款試算</div>{calculationPending ? <span className="muted">試算中…</span> : calculationError ? <span className="muted">暫時無法取得試算</span> : estimateIsCurrent && estimate?.employeeAmountMinor !== null && estimate?.employeeAmountMinor !== undefined ? <><strong>{premiumLabel(estimate.employeeAmountMinor)}</strong><span className="muted">依員工負擔 {estimate.employeeRatePpm === null ? "—" : `${(estimate.employeeRatePpm / 10_000).toFixed(2)}%`}{scheme === "health" && dependentCount > 0 ? `・含 ${dependentCount} 位眷屬` : ""}</span></> : estimateIsCurrent && estimate ? <span className="muted">尚未設定此生效日的系統或公司負擔規則</span> : Number.isSafeInteger(nextAmount) && (nextAmount ?? 0) > 0 ? <span className="muted">輸入完整資料後自動計算</span> : <span className="muted">選擇級距後即可計算</span>}</div>
           </section>;
         })}
       </div>
@@ -173,8 +154,8 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
       {totalPremium !== undefined ? <div className="hr-insurance-estimate-total"><span>兩項合計每月扣款試算</span><strong>{premiumLabel(totalPremium)}</strong></div> : null}
     </> : <Alert tone="info">退保會同時建立勞保與健保退保版本，生效日之後不再列入薪資扣款計算。</Alert>}
     <TextField label="備註" required={SCHEMES.some(usesManualSource) && status === "enrolled"} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint={SCHEMES.some(usesManualSource) && status === "enrolled" ? "人工來源必須留下覆核備註。" : undefined} />
-    {table.error ? <Alert tone="danger">{table.error.message}；仍可選擇「其他（自行輸入）」並填入金額。</Alert> : null}
-    {status === "enrolled" && !table.isPending && SCHEMES.some((scheme) => !activeTables.get(scheme) && !usesCustomAmount(scheme)) ? <Alert tone="warning">目前年度尚未有完整已啟用的級距；請先按「取得級距」並啟用，或選擇「其他（自行輸入）」。</Alert> : null}
+    {table.error ? <Alert tone="danger">{table.error.message}；請取得並啟用級距後再保存。</Alert> : null}
+    {status === "enrolled" && !table.isPending && SCHEMES.some((scheme) => !activeTables.get(scheme)) ? <Alert tone="warning">目前年度尚未有完整已啟用的級距；請先按「取得級距」並啟用後再保存。</Alert> : null}
     {message || save.error || calculationError ? <Alert tone="danger">{message || save.error?.message || calculationError?.message}</Alert> : null}
   </Dialog>;
 }
