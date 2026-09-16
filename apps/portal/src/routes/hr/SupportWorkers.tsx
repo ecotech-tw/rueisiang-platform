@@ -32,13 +32,12 @@ function WorkerDialog({ worker, onClose }: { worker: ScheduleWorkerRecord | null
   const save = useHrWrite();
   const [displayName, setDisplayName] = useState(worker?.displayName ?? "");
   const [active, setActive] = useState(worker ? isActive(worker) : true);
-  const isEditing = Boolean(worker);
   return <Dialog title={worker ? `編輯支援人員 · ${worker.displayName}` : "新增支援人員"} onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     save.mutate({
-      path: isEditing ? `/schedule-workers/${encodeURIComponent(worker.id)}` : "/schedule-workers",
-      method: isEditing ? "PATCH" : "POST",
-      values: isEditing ? { displayName, active, revision: worker.revision } : { displayName },
+      path: worker ? `/schedule-workers/${encodeURIComponent(worker.id)}` : "/schedule-workers",
+      method: worker ? "PATCH" : "POST",
+      values: worker ? { displayName, active, revision: worker.revision } : { displayName },
     }, { onSuccess: onClose });
   } }} actions={<Button type="submit" loading={save.isPending}>儲存</Button>}>
     <TextField label="姓名" value={displayName} maxLength={100} required onChange={(event) => setDisplayName(event.target.value)} />
