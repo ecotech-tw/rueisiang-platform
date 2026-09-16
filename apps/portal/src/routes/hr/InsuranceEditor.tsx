@@ -85,7 +85,6 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
   const calculationPending = estimateReady && (!estimateIsCurrent || estimateQuery.isPending || estimateQuery.isFetching);
   const calculationError = estimateIsCurrent ? estimateQuery.error : undefined;
   const calculated = estimateIsCurrent ? estimateQuery.data?.estimates : undefined;
-  const estimateFor = (scheme: InsuranceScheme) => calculated?.find((estimate) => estimate.scheme === scheme);
   const laborEstimate = calculated?.find((estimate) => estimate.scheme === "labor");
   const healthEstimate = calculated?.find((estimate) => estimate.scheme === "health");
   const totalPremium = laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined && healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined
@@ -136,8 +135,6 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
           const activeTable = activeTables.get(scheme);
           const selection = bracketSelections[scheme];
           const selectedBracket = selectedBrackets[scheme];
-          const nextAmount = amount(scheme);
-          const estimate = estimateFor(scheme);
           const bracketOptions = [
             { value: "", label: activeTable ? "請輸入實際月薪" : "尚未有可用級距", disabled: true },
             ...(activeTable?.brackets ?? []).map((bracket) => ({ value: String(bracket.level), label: `第 ${bracket.level} 級／${amountLabel(bracket.insuredAmount)}` })),
@@ -145,12 +142,20 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
           const displayedSelection = selection === AUTO_BRACKET ? String(selectedBracket?.level ?? "") : selection;
           return <section className="hr-insurance-scheme-card" key={scheme}>
             <SelectField label={`${INSURANCE_LABEL[scheme]}級距`} value={displayedSelection} options={bracketOptions} onChange={(event) => updateBracketSelection(scheme, event.target.value)} />
-            <div className="hr-insurance-estimate" aria-live="polite"><div className="hr-insurance-estimate-title">員工每月扣款試算</div>{calculationPending ? <span className="muted">試算中…</span> : calculationError ? <span className="muted">暫時無法取得試算</span> : estimateIsCurrent && estimate?.employeeAmountMinor !== null && estimate?.employeeAmountMinor !== undefined ? <><strong>{premiumLabel(estimate.employeeAmountMinor)}</strong><span className="muted">依員工負擔 {estimate.employeeRatePpm === null ? "—" : `${(estimate.employeeRatePpm / 10_000).toFixed(2)}%`}{scheme === "health" && dependentCount > 0 ? `・含 ${dependentCount} 位眷屬` : ""}</span></> : estimateIsCurrent && estimate ? <span className="muted">尚未設定此生效日的系統或公司負擔規則</span> : Number.isSafeInteger(nextAmount) && (nextAmount ?? 0) > 0 ? <span className="muted">輸入完整資料後自動計算</span> : <span className="muted">選擇級距後即可計算</span>}</div>
           </section>;
         })}
       </div>
       <TextField label="健保眷屬人數（0～3）" type="number" min="0" max="3" step="1" value={dependents} onChange={(event) => setDependents(event.target.value)} />
-      {totalPremium !== undefined ? <div className="hr-insurance-estimate-total"><span>兩項合計每月扣款試算</span><strong>{premiumLabel(totalPremium)}</strong></div> : null}
+      <div className="hr-insurance-estimate hr-insurance-estimate-summary" aria-live="polite">
+        <div className="hr-insurance-estimate-title">員工每月扣款試算</div>
+        {calculationPending ? <span className="muted">試算中…</span> : calculationError ? <span className="muted">暫時無法取得試算</span> : calculated ? <>
+          <div className="hr-insurance-estimate-breakdown">
+            <div className="hr-insurance-estimate-row"><span>勞保<small className="muted">{laborEstimate?.employeeRatePpm === null || laborEstimate?.employeeRatePpm === undefined ? "—" : `員工負擔 ${(laborEstimate.employeeRatePpm / 10_000).toFixed(2)}%`}</small></span>{laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined ? <strong>{premiumLabel(laborEstimate.employeeAmountMinor)}</strong> : <span className="muted">尚未設定有效規則</span>}</div>
+            <div className="hr-insurance-estimate-row"><span>健保<small className="muted">{healthEstimate?.employeeRatePpm === null || healthEstimate?.employeeRatePpm === undefined ? "—" : `員工負擔 ${(healthEstimate.employeeRatePpm / 10_000).toFixed(2)}%${dependentCount > 0 ? `・含 ${dependentCount} 位眷屬` : ""}`}</small></span>{healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined ? <strong>{premiumLabel(healthEstimate.employeeAmountMinor)}</strong> : <span className="muted">尚未設定有效規則</span>}</div>
+          </div>
+          {totalPremium !== undefined ? <div className="hr-insurance-estimate-total"><span>合計</span><strong>{premiumLabel(totalPremium)}</strong></div> : null}
+        </> : Number.isSafeInteger(dependentCount) && dependentCount >= 0 && dependentCount <= 3 ? <span className="muted">選擇級距後即可計算</span> : <span className="muted">請輸入有效的眷屬人數</span>}
+      </div>
     </> : <Alert tone="info">退保會同時建立勞保與健保退保版本，生效日之後不再列入薪資扣款計算。</Alert>}
     <TextField label="備註" required={SCHEMES.some(usesManualSource) && status === "enrolled"} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint={SCHEMES.some(usesManualSource) && status === "enrolled" ? "人工來源必須留下覆核備註。" : undefined} />
     {table.error ? <Alert tone="danger">{table.error.message}；請取得並啟用級距後再保存。</Alert> : null}
