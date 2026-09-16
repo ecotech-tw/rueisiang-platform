@@ -131,24 +131,35 @@ describe("HR 薪資與勞健保", () => {
     ]));
   });
 
-  it("任一歷史敘薪版本都可以建立同期間修正版，並保留後續版本", async () => {
+  it("可以依序撤回最新版本直到第一版，再建立第一版修正版", async () => {
     await assign();
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
     const employmentId = profile.employments[0]!.id;
     const path = `/hr/employments/${employmentId}/compensation`;
     expect((await request(path, "POST", { validFrom: "2026-01-01", validTo: "2026-01-02", payBasis: "monthly", baseAmountMinor: 4000000 })).status).toBe(201);
-    expect((await request(path, "POST", { validFrom: "2026-01-02", payBasis: "monthly", baseAmountMinor: 4500000 })).status).toBe(201);
-    const before = await (await request("/hr/employees/employee")).json() as { compensation: Array<{ id: string; validFrom: string; validTo: string | null; baseAmountMinor: number; voidedAt: string | null }> };
-    const first = before.compensation.find((version) => version.validFrom === "2026-01-01")!;
-    const corrected = await request(`${path}/${first.id}/correct`, "POST", { validFrom: "2026-01-01", validTo: "2026-01-02", payBasis: "monthly", baseAmountMinor: 4200000 });
-    expect(corrected.status, await corrected.clone().text()).toBe(201);
+    expect((await request(path, "POST", { validFrom: "2026-01-02", validTo: "2026-01-03", payBasis: "monthly", baseAmountMinor: 4500000 })).status).toBe(201);
     expect((await request(path, "POST", { validFrom: "2026-01-03", payBasis: "monthly", baseAmountMinor: 4600000 })).status).toBe(201);
-    const after = await (await request("/hr/employees/employee")).json() as { compensation: Array<{ id: string; validFrom: string; validTo: string | null; baseAmountMinor: number; voidedAt: string | null }> };
-    expect(after.compensation).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: first.id, baseAmountMinor: 4000000, voidedAt: expect.any(String) }),
-      expect.objectContaining({ validFrom: "2026-01-01", validTo: "2026-01-02", baseAmountMinor: 4200000, voidedAt: null }),
-      expect.objectContaining({ validFrom: "2026-01-02", baseAmountMinor: 4500000, voidedAt: null }),
-      expect.objectContaining({ validFrom: "2026-01-03", baseAmountMinor: 4600000, voidedAt: null }),
+
+    const before = await (await request("/hr/employees/employee")).json() as { compensation: Array<{ id: string; validFrom: string; baseAmountMinor: number; voidedAt: string | null }> };
+    for (const amount of [4600000, 4500000, 4000000]) {
+      const version = before.compensation.find((item) => item.baseAmountMinor === amount)!;
+      const response = await request(`${path}/${version.id}/void`, "POST", {});
+      expect(response.status, await response.clone().text()).toBe(200);
+    }
+
+    const afterVoid = await (await request("/hr/employees/employee")).json() as { compensation: Array<{ id: string; validFrom: string; baseAmountMinor: number; voidedAt: string | null }> };
+    expect(afterVoid.compensation.filter((version) => version.voidedAt)).toHaveLength(3);
+    const first = afterVoid.compensation.find((version) => version.baseAmountMinor === 4000000)!;
+    expect((await request(`${path}/${first.id}/void`, "POST", {})).status).toBe(409);
+
+    expect((await request(path, "POST", { validFrom: "2026-01-03", payBasis: "monthly", baseAmountMinor: 4200000 })).status).toBe(400);
+    expect((await request(path, "POST", { validFrom: "2026-01-01", validTo: "2026-01-02", payBasis: "monthly", baseAmountMinor: 4200000 })).status).toBe(201);
+    expect((await request(path, "POST", { validFrom: "2026-01-02", validTo: "2026-01-03", payBasis: "monthly", baseAmountMinor: 4700000 })).status).toBe(201);
+    const afterReplacement = await (await request("/hr/employees/employee")).json() as { compensation: Array<{ validFrom: string; baseAmountMinor: number; voidedAt: string | null }> };
+    expect(afterReplacement.compensation).toEqual(expect.arrayContaining([
+      expect.objectContaining({ validFrom: "2026-01-01", baseAmountMinor: 4000000, voidedAt: expect.any(String) }),
+      expect.objectContaining({ validFrom: "2026-01-01", baseAmountMinor: 4200000, voidedAt: null }),
+      expect.objectContaining({ validFrom: "2026-01-02", baseAmountMinor: 4700000, voidedAt: null }),
     ]));
   });
 

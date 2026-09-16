@@ -1,4 +1,4 @@
-import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
@@ -168,32 +168,7 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
   return writeHrMutation(db, [...closePrevious, insert, ...compensationItemStatements(id, input.items, actor)], id, actor, "compensation_version_created", "任職不存在、敘薪更新日期不連續、薪資期間重疊或資料不合法，請重新整理。 ");
 }
 
-/** 修正任一未解除版本：保留原版本與薪資快照，讓新資料只取代同一有效期間。 */
-export async function correctHrCompensationVersion(db: Database, employmentId: string, versionId: string, input: HrCompensationInput, actor: HrActor) {
-  validateCompensationInput(input);
-  if (input.employmentId !== employmentId) throw new HrError(400, "敘薪任職資料不一致。 ");
-  const [target] = await db.select({ id: hrCompensationVersions.id, validFrom: hrCompensationVersions.validFrom, validTo: hrCompensationVersions.validTo, voidedAt: hrCompensationVersions.voidedAt }).from(hrCompensationVersions)
-    .where(and(eq(hrCompensationVersions.id, versionId), eq(hrCompensationVersions.employmentId, employmentId))).limit(1);
-  if (!target) throw new HrError(404, "找不到這個敘薪版本。 ");
-  if (target.voidedAt !== null) throw new HrError(409, "這個敘薪版本已經解除，不能重複修正。 ");
-  if (input.validFrom !== target.validFrom || input.validTo !== target.validTo) throw new HrError(400, "修正版只能修改薪資內容，不能修改原版本的有效期間。 ");
-  const id = crypto.randomUUID();
-  const voidTarget = sql`UPDATE hr_compensation_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
-    WHERE id=${versionId} AND employment_id=${employmentId} AND voided_at IS NULL RETURNING id`;
-  const insert = sql`INSERT INTO hr_compensation_versions
-    (id, employment_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, note, created_by)
-    SELECT ${id}, ${input.employmentId}, coalesce((SELECT max(version_number) + 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId}), 1),
-      ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${input.note}, ${actor.id}
-    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId}
-      AND hired_on <= ${input.validFrom} AND (ended_on IS NULL OR (${input.validTo} IS NOT NULL AND ${input.validTo} <= ended_on)))
-      AND NOT EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId} AND id <> ${versionId} AND voided_at IS NULL
-        AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
-    RETURNING id`;
-  await writeHrMutation(db, [voidTarget, insert, ...compensationItemStatements(id, input.items, actor)], id, actor, "compensation_version_corrected", "敘薪版本已被其他人變更、期間重疊或資料不合法，請重新整理。 ");
-  return { id, correctedVersionId: versionId, status: "corrected" as const };
-}
-
-/** 解除最新敘薪但不刪除資料，讓誤登版本可以被同日修正且不影響既有薪資快照。 */
+/** 解除最新敘薪但不刪除資料；重複呼叫可依序撤回到第一版，且不影響既有薪資快照。 */
 export async function voidHrCompensationVersion(db: Database, employmentId: string, versionId: string, actor: HrActor) {
   const [version] = await db.select({ id: hrCompensationVersions.id, versionNumber: hrCompensationVersions.versionNumber, voidedAt: hrCompensationVersions.voidedAt }).from(hrCompensationVersions)
     .where(and(eq(hrCompensationVersions.id, versionId), eq(hrCompensationVersions.employmentId, employmentId))).limit(1);
@@ -201,7 +176,7 @@ export async function voidHrCompensationVersion(db: Database, employmentId: stri
   if (version.voidedAt !== null) throw new HrError(409, "這個敘薪版本已經解除。 ");
   const [latest] = await db.select({ id: hrCompensationVersions.id }).from(hrCompensationVersions)
     .where(and(eq(hrCompensationVersions.employmentId, employmentId), sql`${hrCompensationVersions.voidedAt} IS NULL`)).orderBy(desc(hrCompensationVersions.validFrom), desc(hrCompensationVersions.versionNumber)).limit(1);
-  if (latest?.id !== version.id) throw new HrError(409, "只能解除最新的敘薪版本；歷史薪資請保留不變。若要修正此版本，請從版本紀錄選擇修正。 ");
+  if (latest?.id !== version.id) throw new HrError(409, "只能解除最新的敘薪版本；歷史薪資請保留不變。請先依序解除較新的版本。 ");
   await writeHrMutation(db, sql`UPDATE hr_compensation_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
     WHERE id=${versionId} AND employment_id=${employmentId} AND voided_at IS NULL RETURNING id`, versionId, actor, "compensation_version_voided", "敘薪版本已被其他人變更，請重新整理。 ");
   return { id: versionId, status: "voided" as const };
