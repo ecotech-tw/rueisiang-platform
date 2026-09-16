@@ -2454,27 +2454,37 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   padding: 22px 24px 14px;
 }
 .modal-head h2 { margin: 0; font-size: 20px; }
-.modal-body { display: grid; gap: 16px; padding: 0 24px 8px; overflow-y: auto; }
+.modal-form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.modal-body { display: grid; flex: 1 1 auto; gap: 16px; min-height: 0; padding: 0 24px 8px; overflow-y: auto; }
 /*
- * 底部的按鈕列。負的左右 margin 是用來抵銷 .modal-body 的 24px padding——
- * 讓上緣那條分隔線橫跨整張卡片，而不是縮在內容區裡面。
+ * 底部的按鈕列與可捲動內容分開：footer 永遠是 modal-card 的最後一層，不會跟著內容捲走，
+ * 也不會讓半透明內容穿透到按鈕下面。form footer 與非 form dialog 都使用實色 surface。
  */
 .modal-actions {
   display: flex;
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: 8px;
-  position: sticky;
-  bottom: 0;
+  position: relative;
+  z-index: 1;
   margin: 8px -24px 0;
-  padding: 16px 24px;
+  padding: 16px 24px 20px;
   background: var(--color-paper);
   border-top: 1px solid var(--color-soft-line);
+  box-shadow: 0 -10px 20px --alpha(var(--color-ink) / 8%);
 }
 /*
- * 但它也可以直接掛在卡片下面（表單不需要包住按鈕時就會這樣寫）。那裡沒有
- * padding 可以抵銷，負 margin 會把整條拉出卡片外，按鈕就貼死在右邊界上。
+ * footer 若直接掛在 card 或 form 下方，就不需要抵銷 body 的左右 padding；負 margin 會把它
+ * 拉出 card 邊界，靠 overflow hidden 裁掉圓角。
  */
-.modal-card > .modal-actions { margin-inline: 0; }
+.modal-card > .modal-actions,
+.modal-form > .modal-actions { margin-inline: 0; }
 
 /*
  * align-content: start 是必要的，不是裝飾。
@@ -3996,8 +4006,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   min-height: 0;
   overflow: hidden;
 }
-.manual-report-import-body > .modal-actions {
-  flex: 0 0 auto;
+.manual-report-import-dialog .modal-form > .modal-actions {
   position: static;
 }
 .manual-report-file-picker {
@@ -4073,9 +4082,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   }
   .manual-report-import-form { gap: 14px; }
   .manual-report-import-table-scroll { max-height: min(32dvh, 280px); }
-  .manual-report-import-body > .modal-actions {
-    margin-right: -16px;
-    margin-left: -16px;
+  .manual-report-import-dialog .modal-form > .modal-actions {
     padding-right: 16px;
     padding-left: 16px;
   }

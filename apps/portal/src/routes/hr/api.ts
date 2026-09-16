@@ -35,6 +35,7 @@ export interface InsuranceRateTableRecord { id: string; scheme: "labor" | "healt
 export interface InsuranceContributionRule { id: string; scheme: "labor" | "health"; validFrom: string; validTo: string | null; employeeRatePpm: number; employerRatePpm: number; dependentRatePpm: number; sourceKind: "official" | "manual"; note: string; sourceUrl?: string; isSystemDefault?: boolean }
 export interface InsuranceContributionEstimate { scheme: "labor" | "health"; status: "enrolled" | "withdrawn"; insuredAmountMinor: number; dependentCount: number; employeeAmountMinor: number | null; ruleId: string | null; employeeRatePpm: number | null; dependentRatePpm: number | null }
 export interface InsuranceEstimateResponse { estimates: InsuranceContributionEstimate[] }
+export interface InsuranceEstimateRequest { validFrom: string; versions: Array<{ scheme: "labor" | "health"; status: "enrolled" | "withdrawn"; insuredAmountMinor: number; dependentCount: number }> }
 export interface AttendanceLocation {
   id: string;
   name: string;
@@ -169,6 +170,18 @@ export const HR_ROSTER_PATH = "/employees?page=1&pageSize=100&status=employable&
 
 export function useHrQuery<T>(path: string, enabled = true) {
   return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false });
+}
+export function useHrInsuranceEstimate(employmentId: string, input: InsuranceEstimateRequest | null) {
+  const signature = input ? JSON.stringify(input) : "disabled";
+  return useQuery({
+    queryKey: ["hr", "insurance-estimate", employmentId, signature],
+    queryFn: ({ signal }) => {
+      if (!input) throw new Error("試算資料尚未準備完成。");
+      return request<InsuranceEstimateResponse>(`/employments/${encodeURIComponent(employmentId)}/insurance/estimate`, { method: "POST", body: JSON.stringify(input), signal });
+    },
+    enabled: input !== null,
+    retry: false,
+  });
 }
 export function useHrWrite<T = { id: string }>({ invalidate = true }: { invalidate?: boolean } = {}) {
   const client = useQueryClient();

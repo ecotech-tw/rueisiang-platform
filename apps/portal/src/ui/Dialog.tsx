@@ -53,12 +53,7 @@ export function Dialog({
   const inHrSystem = typeof document !== "undefined" && Boolean(document.querySelector(".hr-system"));
   const backdropClassNameValue = ["modal-backdrop", backdropClassName].filter(Boolean).join(" ");
   const bodyClassNameValue = ["modal-body", bodyClassName].filter(Boolean).join(" ");
-  const content = (
-    <>
-      {children}
-      {actions ? <div className="modal-actions">{actions}</div> : null}
-    </>
-  );
+  const actionFooter = actions ? <div className="modal-actions">{actions}</div> : null;
 
   const dialog = (
     <div
@@ -92,13 +87,14 @@ export function Dialog({
         </div>
 
         {formProps ? (
-          <form {...formProps} className={bodyClassNameValue}>
-            {content}
+          <form {...formProps} className="modal-form">
+            <div className={bodyClassNameValue}>{children}</div>
+            {actionFooter}
           </form>
         ) : (
           <div className={bodyClassNameValue}>{children}</div>
         )}
-        {!formProps && actions ? <div className="modal-actions">{actions}</div> : null}
+        {!formProps ? actionFooter : null}
       </div>
       </div>
     </div>
