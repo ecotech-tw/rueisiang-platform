@@ -56,13 +56,15 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(response.status, await response.clone().text()).toBe(200);
     const body = await response.json() as { run: { runId: string; status: string; warnings: string[]; employees: Array<{ employeeName: string; earningMinor: number; deductionMinor: number; netMinor: number; lines: Array<{ lineKey: string; amountMinor: number }> }> } };
     expect(body.run.status).toBe("ready");
-    expect(body.run.warnings).toContain("本版未計算勞健保扣款：需先設定公司採用的費率與負擔規則。");
+    expect(body.run.warnings).not.toContain("本版未計算勞健保扣款：員工尚未建立有效的加保版本。");
     expect(body.run.warnings.some((warning) => warning.includes("林瑞翔") && warning.includes("找不到當月業績快照"))).toBe(true);
-    expect(body.run.employees[0]).toMatchObject({ employeeUserId: "dev-eli-lin@ecotech.tw", employeeName: "林瑞翔", earningMinor: 6_316_665, deductionMinor: 200_000, netMinor: 6_116_665 });
+    expect(body.run.employees[0]).toMatchObject({ employeeUserId: "dev-eli-lin@ecotech.tw", employeeName: "林瑞翔", earningMinor: 6_316_665, deductionMinor: 385_535, netMinor: 5_931_130 });
     expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
       expect.objectContaining({ lineKey: "base_salary", amountMinor: 6_200_000 }),
       expect.objectContaining({ lineKey: "overtime", amountMinor: 116_665 }),
       expect.objectContaining({ lineKey: "unpaid_leave", amountMinor: 200_000 }),
+      expect.objectContaining({ lineKey: "labor_insurance", amountMinor: 114_500 }),
+      expect.objectContaining({ lineKey: "health_insurance", amountMinor: 71_035 }),
     ]));
     const repeat = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-2026-08-lin" });
     expect((await repeat.json() as { run: { runId: string } }).run.runId).toBe(body.run.runId);

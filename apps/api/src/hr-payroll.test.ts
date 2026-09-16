@@ -86,6 +86,45 @@ describe("HR 薪資與勞健保", () => {
     expect(body.tables.filter((table) => table.status === "draft")).toHaveLength(2);
   });
 
+  it("官方級距服務失敗時仍可人工建立、修改、啟用與刪除級距", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("service unavailable", { status: 503 }));
+    const syncFailure = await request("/hr/insurance-rates/sync", "POST", { year: 2026 });
+    expect(syncFailure.status, await syncFailure.clone().text()).toBe(502);
+    const brackets = [
+      { level: 1, lowerSalary: 0, upperSalary: 29500, insuredAmount: 29500 },
+      { level: 2, lowerSalary: 29501, upperSalary: null, insuredAmount: 30300 },
+    ];
+    const created = await request("/hr/insurance-rates", "POST", { scheme: "labor", year: 2026, sourceUrl: "勞保 2026 公告", note: "人工覆核：官方服務暫時無法取得", brackets });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const createdBody = await created.json() as { id: string };
+    const listed = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: Array<{ id: string; scheme: string; status: string; sourceKind: string; note: string; contentHash: string; brackets: typeof brackets }> };
+    const draft = listed.tables.find((table) => table.id === createdBody.id)!;
+    expect(draft).toMatchObject({ scheme: "labor", status: "draft", sourceKind: "manual", note: "人工覆核：官方服務暫時無法取得" });
+    expect(draft.brackets).toEqual(brackets);
+
+    const updated = await request(`/hr/insurance-rates/${createdBody.id}`, "PATCH", {
+      sourceUrl: "勞保 2026 公告（修訂）", note: "人工覆核：已確認修訂版", contentHash: draft.contentHash,
+      brackets: [brackets[0], { ...brackets[1], insuredAmount: 30400 }],
+    });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const afterUpdate = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: Array<{ id: string; contentHash: string; brackets: { insuredAmount: number }[] }> };
+    const updatedDraft = afterUpdate.tables.find((table) => table.id === createdBody.id)!;
+    expect(updatedDraft.brackets[1]?.insuredAmount).toBe(30400);
+    expect(updatedDraft.contentHash).not.toBe(draft.contentHash);
+    expect((await request(`/hr/insurance-rates/${createdBody.id}`, "PATCH", { sourceUrl: "過期版本", note: "過期", contentHash: draft.contentHash, brackets })).status).toBe(409);
+
+    expect((await request(`/hr/insurance-rates/${createdBody.id}/activate`, "POST", {})).status).toBe(200);
+    const active = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: Array<{ id: string; status: string; sourceKind: string }> };
+    expect(active.tables.find((table) => table.id === createdBody.id)).toMatchObject({ status: "active", sourceKind: "manual" });
+
+    const next = await request("/hr/insurance-rates", "POST", { scheme: "labor", year: 2026, sourceUrl: "第二版", note: "待審閱刪除測試", brackets });
+    expect(next.status, await next.clone().text()).toBe(201);
+    const nextBody = await next.json() as { id: string };
+    expect((await request(`/hr/insurance-rates/${nextBody.id}`, "DELETE", {})).status).toBe(200);
+    const afterDelete = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: Array<{ id: string }> };
+    expect(afterDelete.tables.some((table) => table.id === nextBody.id)).toBe(false);
+  });
+
   it("薪資與保險異動以版本保存，薪資更新必須從上一版次日銜接", async () => {
     await assign();
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
@@ -263,16 +302,32 @@ describe("HR 薪資與勞健保", () => {
   });
 
   it("公司負擔規則會進入薪資扣款，結帳後同員工月份改用薪資調整", async () => {
+    const systemRules = await request("/hr/insurance-contribution-rules");
+    expect(systemRules.status, await systemRules.clone().text()).toBe(200);
+    expect(await systemRules.json()).toMatchObject({ rules: expect.arrayContaining([
+      expect.objectContaining({ id: "system-insurance-contribution-labor-2026", scheme: "labor", employeeRatePpm: 25_000, isSystemDefault: true }),
+      expect.objectContaining({ id: "system-insurance-contribution-health-2026", scheme: "health", employeeRatePpm: 15_510, dependentRatePpm: 1_000_000, isSystemDefault: true }),
+    ]) });
     await assign();
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
     const employmentId = profile.employments[0]!.id;
     expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 4000000 })).status).toBe(201);
     expect((await request("/hr/insurance-contribution-rules", "POST", { scheme: "labor", validFrom: "2026-01-01", employeeRatePpm: 10000, employerRatePpm: 20000, dependentRatePpm: 1000000, sourceKind: "manual", note: "測試公司規則" })).status).toBe(201);
+    expect((await request("/hr/insurance-contribution-rules", "POST", { scheme: "health", validFrom: "2026-01-01", employeeRatePpm: 50000, employerRatePpm: 100000, dependentRatePpm: 100000, sourceKind: "manual", note: "測試健保規則" })).status).toBe(201);
+    const estimate = await request(`/hr/employments/${employmentId}/insurance/estimate`, "POST", { validFrom: "2026-01-01", versions: [
+      { scheme: "labor", status: "enrolled", insuredAmountMinor: 3000000, dependentCount: 0 },
+      { scheme: "health", status: "enrolled", insuredAmountMinor: 3000000, dependentCount: 1 },
+    ] });
+    expect(estimate.status, await estimate.clone().text()).toBe(200);
+    expect(await estimate.json()).toMatchObject({ estimates: expect.arrayContaining([
+      expect.objectContaining({ scheme: "labor", employeeAmountMinor: 30000, employeeRatePpm: 10000 }),
+      expect.objectContaining({ scheme: "health", employeeAmountMinor: 165000, employeeRatePpm: 50000, dependentRatePpm: 100000 }),
+    ]) });
     expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { versions: [{ scheme: "labor", status: "enrolled", validFrom: "2026-01-01", insuredAmountMinor: 3000000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "測試投保" }] })).status).toBe(201);
     const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], requestId: "close-test-2026-01" });
     expect(calculated.status, await calculated.clone().text()).toBe(200);
     const result = await calculated.json() as { run: { runId: string; warnings: string[]; employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
-    expect(result.run.warnings).not.toContain("本版未計算勞健保扣款：需先設定公司採用的費率與負擔規則。");
+    expect(result.run.warnings).not.toContain("本版未計算勞健保扣款：員工尚未建立有效的加保版本。");
     expect(result.run.employees[0]?.lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "labor_insurance", amountMinor: 30000 })]));
     const closed = await request(`/hr/payroll/runs/${result.run.runId}/close`, "POST", {});
     expect(closed.status, await closed.clone().text()).toBe(200);

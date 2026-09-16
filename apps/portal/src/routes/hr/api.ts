@@ -31,8 +31,10 @@ export interface NamedOption { id: string; name: string }
 export interface Candidate { userId: string; displayName: string; email: string; status: "invited" | "active" }
 export interface InsuranceBracket { level: number; lowerSalary: number; upperSalary: number | null; insuredAmount: number }
 export interface InsuranceBracketTable { scheme: "labor" | "health"; year: number; sourceUrl: string; fetchedAt: string; brackets: InsuranceBracket[] }
-export interface InsuranceRateTableRecord { id: string; scheme: "labor" | "health"; year: number; status: "draft" | "active" | "archived"; sourceUrl: string; fetchedAt: string; activatedAt: string | null; brackets: InsuranceBracket[] }
-export interface InsuranceContributionRule { id: string; scheme: "labor" | "health"; validFrom: string; validTo: string | null; employeeRatePpm: number; employerRatePpm: number; dependentRatePpm: number; sourceKind: "official" | "manual"; note: string }
+export interface InsuranceRateTableRecord { id: string; scheme: "labor" | "health"; year: number; status: "draft" | "active" | "archived"; sourceKind: "official" | "manual"; sourceUrl: string; fetchedAt: string; contentHash: string; note: string; activatedAt: string | null; brackets: InsuranceBracket[] }
+export interface InsuranceContributionRule { id: string; scheme: "labor" | "health"; validFrom: string; validTo: string | null; employeeRatePpm: number; employerRatePpm: number; dependentRatePpm: number; sourceKind: "official" | "manual"; note: string; sourceUrl?: string; isSystemDefault?: boolean }
+export interface InsuranceContributionEstimate { scheme: "labor" | "health"; status: "enrolled" | "withdrawn"; insuredAmountMinor: number; dependentCount: number; employeeAmountMinor: number | null; ruleId: string | null; employeeRatePpm: number | null; dependentRatePpm: number | null }
+export interface InsuranceEstimateResponse { estimates: InsuranceContributionEstimate[] }
 export interface AttendanceLocation {
   id: string;
   name: string;
@@ -168,10 +170,10 @@ export const HR_ROSTER_PATH = "/employees?page=1&pageSize=100&status=employable&
 export function useHrQuery<T>(path: string, enabled = true) {
   return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false });
 }
-export function useHrWrite<T = { id: string }>() {
+export function useHrWrite<T = { id: string }>({ invalidate = true }: { invalidate?: boolean } = {}) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: { path: string; method: string; values: Record<string, unknown> }) => request<T>(input.path, { method: input.method, body: JSON.stringify(input.values) }),
-    onSuccess: () => { void client.invalidateQueries({ queryKey: ["hr"] }); },
+    onSuccess: () => { if (invalidate) void client.invalidateQueries({ queryKey: ["hr"] }); },
   });
 }

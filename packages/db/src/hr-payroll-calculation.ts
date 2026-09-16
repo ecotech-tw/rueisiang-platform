@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
+import { listHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
 import { listHrSpecialWorkdaysForPayroll } from "./hr-special-workdays.js";
 import { HrError, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
@@ -26,7 +27,6 @@ import {
   hrWorkerCompensationVersions,
   hrMonthlyHourlyEntries,
   hrMonthlyLeaveEntries,
-  hrInsuranceContributionRules,
   hrInsuranceVersions,
   hrLeaveRequests,
 } from "./schema/hr-payroll.js";
@@ -50,7 +50,7 @@ import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
 import { scopes } from "./schema/reports.js";
 
 const PPM = 1_000_000;
-const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：需先設定公司採用的費率與負擔規則。";
+const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
 const BONUS_SOURCE_WARNING = "業績是此次請求明確帶入的快照；未自動套用出金表。";
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
 
@@ -319,7 +319,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrCompensationVersions).where(and(inArray(hrCompensationVersions.employmentId, employmentIds), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
     db.select().from(hrCompensationItems).where(sql`${hrCompensationItems.compensationVersionId} IN (SELECT id FROM hr_compensation_versions WHERE employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}) AND voided_at IS NULL AND valid_from < ${input.period.end} AND (valid_to IS NULL OR valid_to > ${input.period.start}))`),
     db.select().from(hrInsuranceVersions).where(and(inArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.validFrom} <= ${input.period.start}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} > ${input.period.start})`)),
-    db.select().from(hrInsuranceContributionRules).where(and(sql`${hrInsuranceContributionRules.validFrom} <= ${input.period.start}`, sql`(${hrInsuranceContributionRules.validTo} IS NULL OR ${hrInsuranceContributionRules.validTo} > ${input.period.start})`)),
+    listHrInsuranceContributionRules(db, input.period.start),
     db.select().from(hrLeaveRequests).where(and(eq(hrLeaveRequests.status, "approved"), inArray(hrLeaveRequests.employmentId, employmentIds), sql`${hrLeaveRequests.startsOn} < ${input.period.end}`, sql`${hrLeaveRequests.endsOn} > ${input.period.start}`)),
     db.select().from(hrMonthlyLeaveEntries).where(and(inArray(hrMonthlyLeaveEntries.employmentId, employmentIds), sql`${hrMonthlyLeaveEntries.leaveDate} >= ${input.period.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${input.period.end}`)),
     db.select().from(hrMonthlyHourlyEntries).where(and(inArray(hrMonthlyHourlyEntries.employmentId, employmentIds), sql`${hrMonthlyHourlyEntries.workDate} >= ${input.period.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${input.period.end}`)),
@@ -456,7 +456,7 @@ function calculateAssignedBonus(
 
 /**
  * 以明確輸入的示範規則試算薪資：月薪固定以 30 日制按在職日數計算、
- * 核准付薪加班、申請上凍結的給薪比例；勞健保只在有公司採用的負擔規則時計算。
+ * 核准付薪加班、申請上凍結的給薪比例；勞健保依系統預設或公司覆核的有效負擔規則計算。
  */
 export async function calculateHrPayroll(db: Database, input: HrPayrollCalculationInput, actor: HrActor): Promise<HrPayrollRunResult> {
   const period = periodFromKey(input.periodKey);
@@ -531,10 +531,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     sql`${hrInsuranceVersions.validFrom} < ${period.end}`,
     sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} > ${period.start})`,
   ));
-  const insuranceRules = await db.select().from(hrInsuranceContributionRules).where(and(
-    sql`${hrInsuranceContributionRules.validFrom} < ${period.end}`,
-    sql`(${hrInsuranceContributionRules.validTo} IS NULL OR ${hrInsuranceContributionRules.validTo} > ${period.start})`,
-  ));
+  const insuranceRules = await listHrInsuranceContributionRules(db, period.start);
   const workerCompensations = await db.select().from(hrWorkerCompensationVersions).where(and(
     sql`${hrWorkerCompensationVersions.validFrom} < ${period.end}`,
     sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${period.start})`,
