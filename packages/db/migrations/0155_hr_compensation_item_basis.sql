@@ -1,0 +1,1 @@
+ALTER TABLE `hr_compensation_items` ADD `amount_basis` text DEFAULT 'monthly' NOT NULL;

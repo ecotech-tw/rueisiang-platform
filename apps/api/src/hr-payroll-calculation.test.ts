@@ -229,7 +229,10 @@ describe("HR 薪資與櫃點獎金試算", () => {
   });
 
   it("日薪員工只按已發布排班日期計薪，沒有排班不把整月任職日當成出勤", async () => {
-    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "測試日薪" });
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "測試日薪", items: [
+      // 月給的職務津貼：日薪員工上幾天班都不該乘上天數，只能按月拆。
+      { itemName: "職務津貼", amountMinor: 300_000, itemKind: "fixed", amountBasis: "monthly", includeOvertime: true, includeInsurance: true, includeTax: true },
+    ] });
     expect(compensation.status, await compensation.clone().text()).toBe(201);
     const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
     expect(mode.status, await mode.clone().text()).toBe(200);
@@ -251,9 +254,11 @@ describe("HR 薪資與櫃點獎金試算", () => {
         warnings: string[];
       };
     };
-    expect(body.run.employees[0]).toMatchObject({ earningMinor: 360_000 });
+    // 本薪 1,800 × 2 天；職務津貼 3,000／月 只按 30 日制拆成 2 天份（100 × 2），不是 3,000 × 2。
+    expect(body.run.employees[0]).toMatchObject({ earningMinor: 380_000 });
     expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
       expect.objectContaining({ lineKey: "base_salary", amountMinor: 360_000, explanation: expect.objectContaining({ rule: "依已發布排班日期計算；特殊上班日依套用資料" }) }),
+      expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 20_000, explanation: expect.objectContaining({ itemName: "職務津貼", amountBasis: "monthly" }) }),
     ]));
     expect(body.run.warnings.some((warning) => warning.includes("日薪制但本期沒有已發布排班"))).toBe(false);
   });

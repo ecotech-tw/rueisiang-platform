@@ -21,7 +21,7 @@ export interface AttendanceAssignment {
   isPrimary?: boolean;
   revision: number;
 }
-export interface CompensationItem { id: string; compensationVersionId: string; itemName: string; amountMinor: number; itemKind: "fixed" | "variable"; includeOvertime: number; includeInsurance: number; includeTax: number }
+export interface CompensationItem { id: string; compensationVersionId: string; itemName: string; amountMinor: number; itemKind: "fixed" | "variable"; amountBasis: "monthly" | "daily" | "hourly"; includeOvertime: number; includeInsurance: number; includeTax: number }
 export interface CompensationVersion { id: string; employmentId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; note: string; items?: CompensationItem[]; createdAt: string; createdBy: string }
 export interface InsuranceVersion { id: string; employmentId: string; scheme: "labor" | "health"; versionNumber: number; status: "enrolled" | "withdrawn"; validFrom: string; validTo: string | null; insuredAmountMinor: number; dependentCount: number; rateYear: number; sourceKind: "official" | "manual"; sourceUrl: string; note: string; createdAt: string; createdBy: string }
 export interface LeaveRequest { id: string; employmentId: string; leaveType: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; startsOn: string; endsOn: string; durationMinutes: number; payRatePpm?: number; reason: string; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string | null; createdAt: string; createdBy: string }

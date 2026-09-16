@@ -705,9 +705,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         if (entry && !entry.noWork) baseMinor += Math.round(compensation.baseAmountMinor * entry.hoursHalfUnits / 2);
       }
       const entry = monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day);
-      const itemHours = compensation.payBasis === "hourly" ? (entry && !entry.noWork ? entry.hoursHalfUnits / 2 : 0) : 1;
+      const itemHours = entry && !entry.noWork ? entry.hoursHalfUnits / 2 : 0;
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === compensation.id)) {
-        const itemAmount = compensation.payBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays) : compensation.payBasis === "daily" ? item.amountMinor : Math.round(item.amountMinor * itemHours);
+        // 每一筆項目自己決定單位：月給的津貼不能因為員工是日薪就每個工作日再加一次。
+        const itemAmount = item.amountBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays) : item.amountBasis === "daily" ? item.amountMinor : Math.round(item.amountMinor * itemHours);
         compensationItemTotals.set(item.id, (compensationItemTotals.get(item.id) ?? 0) + itemAmount);
       }
     }
@@ -718,7 +719,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const fullMonthBase = Math.round(fullMonthComp.baseAmountMinor * employedDays / monthlyDivisorDays);
       const specialDailyBase = specialAssignments.filter((item) => employmentDays.includes(item.workDate)).reduce((sum) => sum + Math.floor(fullMonthComp.baseAmountMinor / monthlyDivisorDays), 0);
       baseMinor = Math.max(0, fullMonthBase - specialDailyBase);
-      for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === fullMonthComp.id)) {
+      // 只有月給的項目要跟著本薪一起用整月金額回推；日給與時給仍是上面逐日累加的結果。
+      for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === fullMonthComp.id && candidate.amountBasis === "monthly")) {
         compensationItemTotals.set(item.id, Math.round(item.amountMinor * employedDays / monthlyDivisorDays));
       }
     }
@@ -727,7 +729,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const item = compensationItems.find((candidate) => candidate.id === itemId);
       if (!item || amount <= 0) continue;
       compensationItemLineNumber += 1;
-      lines.push({ lineKey: `salary_item_${compensationItemLineNumber}`, direction: "earning", amountMinor: amount, explanation: { itemName: item.itemName, itemKind: item.itemKind, includeOvertime: Boolean(item.includeOvertime), includeInsurance: Boolean(item.includeInsurance), includeTax: Boolean(item.includeTax) } });
+      lines.push({ lineKey: `salary_item_${compensationItemLineNumber}`, direction: "earning", amountMinor: amount, explanation: { itemName: item.itemName, itemKind: item.itemKind, amountBasis: item.amountBasis, includeOvertime: Boolean(item.includeOvertime), includeInsurance: Boolean(item.includeInsurance), includeTax: Boolean(item.includeTax) } });
     }
     if (fullMonthComp?.payBasis === "hourly" && !monthlyData.hourly.some((item) => item.employmentId === employee.employmentId)) {
       calculationWarnings.add(`${employee.employeeName} 為時薪制但尚未登記本期工時；請登記工時或明確標記本期無工時。`);

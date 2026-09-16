@@ -2554,6 +2554,46 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * （.modal-body 的 16px 對「一組」來說不夠），多給 8px 把它推開。
  */
 .address-fields { display: grid; gap: 16px; margin-top: 8px; }
+/*
+ * 薪資組成：一列一個項目（名稱＋金額＋刪除），最後一列是總計。
+ *
+ * 只有第一列「基本薪資」不能刪，所以它留一格空位對齊其他列的刪除鈕；
+ * 少了那一格，金額欄會比下面幾列寬，一整排數字就對不齊。
+ */
+.salary-items { display: grid; gap: 10px; }
+.salary-items-label { color: var(--color-ink); font-size: 13px; font-weight: 600; }
+/* 欄位標題只寫一次；每一列再各寫一次「項目／金額」會讓整塊變成一堆重複的小字。 */
+.salary-items-head,
+.salary-item-row { display: grid; grid-template-columns: minmax(0, 1fr) 128px 130px 44px; align-items: center; gap: 10px; }
+.salary-items-head { color: var(--color-muted); font-size: 12px; font-weight: 600; }
+.salary-item-name {
+  display: flex;
+  align-items: center;
+  min-height: var(--size-field);
+  padding: 0 14px;
+  border-radius: var(--radius-field);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.salary-item-spacer { display: block; }
+.salary-items-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-soft-line); }
+.salary-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
+.salary-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) {
+  .salary-item-row { grid-template-columns: minmax(0, 1fr) 110px 44px; gap: 8px; }
+}
+/* 對話框移到 body 之後用來補回頁面的樣式範圍；display: contents 才不會多出一層版面。 */
+.modal-scope { display: contents; }
+/*
+ * 好幾個 HR 對話框用 form-grid／form-grid two 排兩欄，但這個 class 一直沒有定義，
+ * 所以那些欄位其實是一欄一欄疊著、標題與輸入框的間距看起來鬆掉。補上定義比逐一改頁面安全。
+ */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+.form-grid > .field { min-width: 0; }
+.form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 560px) { .form-grid.two { grid-template-columns: minmax(0, 1fr); } }
 .field.checkbox { grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; }
 .field.checkbox input { width: 18px; height: 18px; margin-top: 2px; }
 .field.checkbox small { display: block; margin-top: 2px; color: var(--color-muted); font-size: 12px; font-weight: 400; }
