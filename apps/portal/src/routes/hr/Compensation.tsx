@@ -162,7 +162,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
        * 不先擋的話使用者只會看到一句「任職不存在、薪資期間重疊或資料不合法」，不知道要改哪裡。
        */
       const newEnd = validTo || "9999-12-31";
-      const overlapping = employmentVersions.find((version) => {
+      const overlapping = employmentVersions.filter((version) => !version.voidedAt).find((version) => {
         // 後端會在同一批次收尾較早開始的開放版本，這種銜接不是重疊。
         if (version.validTo === null && version.validFrom < validFrom) return false;
         return version.validFrom < newEnd && (version.validTo === null || version.validTo > validFrom);
