@@ -62,7 +62,7 @@ beforeEach(async () => {
   }
   await db.insert(userRoleAssignments).values({ userId: "admin", roleId: "role-admin" });
   await db.insert(userPermissionGrants).values([
-    { userId: "manager", permission: "hr:schedule:read" },
+    { userId: "manager", permission: "hr:schedule:read" }, { userId: "manager", permission: "hr:office:read" },
     { userId: "writer", permission: "hr:employee:read" }, { userId: "writer", permission: "hr:employee:write" }, { userId: "writer", permission: "hr:request:review" },
   ]);
   await db.insert(scopes).values({ id: "scope", sourceType: "manual", scopeKind: "store", name: "測試櫃點", normalizedName: "測試櫃點" });
@@ -116,6 +116,13 @@ describe("HR 員工基礎", () => {
     expect((await request("/hr/employees", "GET", undefined, "self")).status).toBe(403);
     const authMe = await (await request("/auth/me", "GET", undefined, "self")).json() as { isEmployee: boolean };
     expect(authMe.isEmployee).toBe(true);
+  });
+
+  it("出勤範圍讀取權限可取得員工摘要與出勤設定，但不能修改員工資料", async () => {
+    await assign("self");
+    expect((await request("/hr/employees?page=1&pageSize=100", "GET", undefined, "manager")).status).toBe(200);
+    expect((await request("/hr/employees/self", "GET", undefined, "manager")).status).toBe(200);
+    expect((await request("/hr/employees/self", "PATCH", { employeeNumber: "NOPE", revision: 1 }, "manager")).status).toBe(403);
   });
 
   it("任職重疊會拒絕，結束後復職新增歷史；未知與邀請中的 user 有明確限制", async () => {

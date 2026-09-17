@@ -539,7 +539,6 @@ async function currentAttendanceAssignments(db: Database, employmentId: string, 
     longitudeE7: hrAttendanceLocations.longitudeE7,
     radiusMeters: hrAttendanceLocations.radiusMeters,
     isPrimary: sql<number>`CASE WHEN ${hrEmploymentAttendanceSettings.primaryAssignmentId} = ${hrEmployeeAttendanceLocations.id} THEN 1 ELSE 0 END`.as("attendance_is_primary"),
-    isScheduled: sql<number>`0`.as("attendance_is_scheduled"),
   }).from(hrEmployeeAttendanceLocations)
     .innerJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrEmployeeAttendanceLocations.locationId))
     .leftJoin(scopes, eq(scopes.id, hrAttendanceLocations.scopeId))
@@ -553,9 +552,9 @@ async function currentAttendanceAssignments(db: Database, employmentId: string, 
     .orderBy(desc(sql`CASE WHEN ${hrEmploymentAttendanceSettings.primaryAssignmentId} = ${hrEmployeeAttendanceLocations.id} THEN 1 ELSE 0 END`), desc(hrEmployeeAttendanceLocations.validFrom), asc(hrAttendanceLocations.name));
 }
 
-async function currentClockAssignments(db: Database, employmentId: string) {
+async function currentClockAssignments(db: Database, employmentId: string, today = taipeiToday()) {
   // 排班只決定當日工作時段，不授予或限制打卡位置；授權一律來自員工的有效辦公位置指派。
-  return currentAttendanceAssignments(db, employmentId);
+  return currentAttendanceAssignments(db, employmentId, today);
 }
 
 async function findClockEventByKey(db: Database, userId: string, idempotencyKey: string) {
@@ -723,7 +722,7 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   const serverNow = serverTaipeiNow();
   const employment = await currentEmployment(db, input.userId, serverNow.date);
   if (!employment) throw new HrError(400, "目前沒有有效任職，暫時無法打卡。");
-  const assignments = await currentClockAssignments(db, employment.id);
+  const assignments = await currentClockAssignments(db, employment.id, serverNow.date);
   if (!assignments.length) throw new HrError(400, "尚未指派目前辦公位置，暫時無法打卡。");
 
   const requiresLocation = geolocationRequired(assignments);
@@ -746,20 +745,10 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   const eventKind = latest?.eventKind === "clock_in" ? "clock_out" as const : "clock_in" as const;
   const schedule = await scheduleForClock(db, employment.id, serverNow.date, eventKind, serverNow.minute);
   const timeAnomalyKind = clockTimeAnomaly(schedule, eventKind, serverNow.minute);
-  const assignmentExists = assignment.isScheduled
-    ? sql`EXISTS (SELECT 1 FROM hr_schedule_entries AS schedule_entry
-        INNER JOIN hr_schedule_versions AS schedule_version ON schedule_version.id=schedule_entry.schedule_version_id
-        WHERE schedule_entry.id=${assignment.id} AND schedule_entry.employment_id=${employment.id}
-          AND schedule_entry.scope_id=${assignment.scopeId} AND schedule_version.status='published'
-          AND schedule_version.version_number = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version
-            WHERE latest_schedule_version.period_start = schedule_version.period_start
-              AND latest_schedule_version.period_end = schedule_version.period_end
-              AND latest_schedule_version.status = 'published')
-          AND (schedule_entry.work_date = ${serverNow.date} OR substr(schedule_entry.ends_at, 1, 10) = ${serverNow.date}))`
-    : sql`EXISTS (SELECT 1 FROM hr_employee_attendance_locations AS employee_assignment
-        WHERE employee_assignment.id=${assignment.id} AND employee_assignment.employment_id=${employment.id}
-          AND employee_assignment.valid_from <= ${serverNow.date}
-          AND (employee_assignment.valid_to IS NULL OR employee_assignment.valid_to > ${serverNow.date}))`;
+  const assignmentExists = sql`EXISTS (SELECT 1 FROM hr_employee_attendance_locations AS employee_assignment
+      WHERE employee_assignment.id=${assignment.id} AND employee_assignment.employment_id=${employment.id}
+        AND employee_assignment.valid_from <= ${serverNow.date}
+        AND (employee_assignment.valid_to IS NULL OR employee_assignment.valid_to > ${serverNow.date}))`;
 
   const id = crypto.randomUUID();
   try {

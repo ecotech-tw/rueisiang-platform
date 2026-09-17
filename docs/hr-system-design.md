@@ -247,7 +247,8 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `POST /api/hr/me/clock-events` | 僅需登入且必須有現行任職 | 伺服器產生事件時間與上下班 kind；使用 idempotency key；定位開啟時由伺服器檢查距離，網站不允許回填時間 |
 | `/api/hr/me/form-requests` | 僅需登入且必須是本人；審核路徑限指定審核者或 `hr:request:review` | 補打卡申請可存草稿、送出與查詢狀態；審核者填寫意見後核准或駁回 |
 | `/api/hr/me/leave-requests`、`/overtime-requests`、`/clock-corrections` | `hr:request:create` | 本人；申請可表達歷史時間但需審核 |
-| `GET /api/hr/employees`、`GET /api/hr/employees/:id`、`POST/PATCH /api/hr/employees` | `hr:employee:read/write` | 列表支援固定 page size、總數、搜尋、狀態篩選與白名單排序；內頁採單一互斥 accordion。此表記法代表各自 read、write 鍵；薪資、投保、請假與打卡明細另限全平台 HR 管理者 |
+| `GET /api/hr/employees`、`GET /api/hr/employees/:id` | `hr:employee:read`；出勤範圍管理另可用 `hr:office:read` | 列表支援固定 page size、總數、搜尋、狀態篩選與白名單排序；內頁採單一互斥 accordion。出勤權限只取得員工／任職／出勤設定資料；薪資、投保、請假與打卡明細另限全平台 HR 管理者 |
+| `POST/PATCH /api/hr/employees` | `hr:employee:write` | 新增與修改員工基礎資料；不因出勤範圍讀取權限取得寫入能力 |
 | `/api/hr/schedules`（目前提供排班資料模型與開發 fixture） | `hr:schedule:read/write` | 已發布班表才可供獎金試算；管理範圍與發布審核另切片，範圍授權模型另案定義 |
 | `/api/hr/attendance-settings/locations`、`/places`、`/employments/:id/attendance-scope`、`/employees/:id/supervisor` | `hr:office:read/write` 或 `hr:employee:write` | 出勤範圍管理以員工為主體，原子保存出勤方式、排班員工月休與多個可打卡辦公位置；辦公位置頁只管理 GPS／半徑；Places 搜尋與座標選取限管理權限；舊的單一指派 endpoint 僅供相容，不作為新 UI 入口 |
 | `/api/hr/attendance`、申請 `/:id/review` | `hr:attendance:read/approve` | 授權範圍及不可自審；請假私密附件不隨全櫃點可讀 |
