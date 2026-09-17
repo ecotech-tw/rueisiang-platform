@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
+import { Alert, Button, Dialog, PageHeader, Panel, SelectField } from "../../ui/index.js";
+import { shiftTimeRange, useHrQuery, useHrWrite, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 function taipeiMonthStart() {
@@ -16,8 +17,7 @@ function periodKey(date: Date) { return `${date.getUTCFullYear()}-${String(date.
 function daysInMonth(date: Date) { return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate(); }
 function weekday(date: Date) { return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).getUTCDay(); }
 function dateAt(month: Date, day: number) { return `${month.getUTCFullYear()}-${String(month.getUTCMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; }
-function timeOf(seconds: number) { return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}`; }
-function shiftLabel(shift: ScheduleShift) { return `${shift.name}（${timeOf(shift.startSecond)}–${timeOf(shift.endSecond)}${shift.endDayOffset ? " 次日" : ""}）`; }
+function shiftLabel(shift: ScheduleShift) { return `${shift.name}（${shiftTimeRange(shift)}）`; }
 
 /** 一次排班的四個條件。快速排班把它固定住，之後每點一天就套用同一組。 */
 interface QuickPick { personKind: "employee" | "worker"; personId: string; scopeId: string; shiftVersionId: string }
@@ -54,25 +54,6 @@ function samePick(entry: ScheduleEntry, pick: QuickPick) {
     && (pick.personKind === "employee" ? entry.employmentId === pick.personId : entry.workerId === pick.personId);
 }
 
-function ShiftDialog({ scopeId, onClose }: { scopeId: string; onClose: () => void }) {
-  const [code, setCode] = useState("");
-  const [name, setName] = useState("");
-  const [startTime, setStartTime] = useState("09:00");
-  const [endTime, setEndTime] = useState("18:00");
-  const [endDayOffset, setEndDayOffset] = useState("0");
-  const save = useHrWrite();
-  return <Dialog title="新增班別" onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
-    event.preventDefault();
-    save.mutate({ path: "/shift-templates", method: "POST", values: { scopeId, code, name, startTime, endTime, endDayOffset: Number(endDayOffset) } }, { onSuccess: onClose });
-  } }} actions={<Button type="submit" loading={save.isPending}>建立班別</Button>}>
-    <TextField label="班別代碼" required maxLength={40} value={code} onChange={(event) => setCode(event.target.value)} />
-    <TextField label="班別名稱" required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} />
-    <div className="form-grid two"><TextField label="開始時間" type="time" required value={startTime} onChange={(event) => setStartTime(event.target.value)} /><TextField label="結束時間" type="time" required value={endTime} onChange={(event) => setEndTime(event.target.value)} /></div>
-    <SelectField label="結束日" value={endDayOffset} options={[{ value: "0", label: "同日" }, { value: "1", label: "次日（跨午夜）" }]} onChange={(event) => setEndDayOffset(event.target.value)} />
-    {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
-  </Dialog>;
-}
-
 function ScheduleEntryDialog({ data, day, defaultScopeId, onAdd, onClose }: { data: HrScheduleResponse; day: string; defaultScopeId: string; onAdd: (entry: ScheduleEntry) => void; onClose: () => void }) {
   const [personKind, setPersonKind] = useState<"employee" | "worker">("employee");
   const [scopeId, setScopeId] = useState(defaultScopeId);
@@ -94,7 +75,7 @@ function ScheduleEntryDialog({ data, day, defaultScopeId, onAdd, onClose }: { da
     <SelectField label="人員" value={personId} options={personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber} ${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
     <SelectField label="營運據點" value={scopeId} options={data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => setScopeId(event.target.value)} />
     <SelectField label="班別" value={shiftVersionId} options={shifts.map((shift) => ({ value: shift.versionId, label: shiftLabel(shift) }))} onChange={(event) => setShiftVersionId(event.target.value)} />
-    {!shifts.length ? <Alert tone="info">這個營運據點尚未設定班別，請先新增班別。</Alert> : null}
+    {!shifts.length ? <Alert tone="info">這個營運據點尚未設定班別，請先到 <Link to="/hr/scheduling/shifts">班別管理</Link> 新增。</Alert> : null}
   </Dialog>;
 }
 
@@ -109,7 +90,6 @@ export function HrScheduling() {
   const [scopeId, setScopeId] = useState("all");
   const [draftEntries, setDraftEntries] = useState<ScheduleEntry[]>([]);
   const [addingDay, setAddingDay] = useState<string | null>(null);
-  const [newShift, setNewShift] = useState(false);
   const [quick, setQuick] = useState<QuickPick | null>(null);
   const toast = useToast();
   const save = useHrWrite();
@@ -160,7 +140,7 @@ export function HrScheduling() {
   const changed = JSON.stringify(draftEntries.map(({ id, scheduleVersionId, startsAt, endsAt, employeeNumber, personName, scopeName, shiftName, ...entry }) => entry)) !== JSON.stringify(data.entries.map(({ id, scheduleVersionId, startsAt, endsAt, employeeNumber, personName, scopeName, shiftName, ...entry }) => entry));
 
   return <div className="page fills hr-schedule-page">
-    <PageHeader title="排班月曆" description="排班儲存即直接發布；鎖定只禁止修改，不使用草稿或送審流程。正式員工依排班出勤，臨時支援排班會納入日薪且不套用獎金。" actions={canWrite ? <div className="button-row"><Button variant="secondary" disabled={!defaultScope} onClick={() => setNewShift(true)}>新增班別</Button><Button variant="secondary" disabled={quick ? false : !canEdit || !defaultScope} onClick={() => quick ? setQuick(null) : openQuick()}>{quick ? "結束快速排班" : "快速排班"}</Button>{version ?<Button variant="secondary" onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked)} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存並發布</Button></div> : undefined} />
+    <PageHeader title="排班月曆" description="排班儲存即直接發布；鎖定只禁止修改，不使用草稿或送審流程。正式員工依排班出勤，臨時支援排班會納入日薪且不套用獎金。" actions={canWrite ? <div className="button-row"><Button variant="secondary" disabled={quick ? false : !canEdit || !defaultScope} onClick={() => quick ? setQuick(null) : openQuick()}>{quick ? "結束快速排班" : "快速排班"}</Button>{version ?<Button variant="secondary" onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked)} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存並發布</Button></div> : undefined} />
     <div className="hr-schedule-toolbar"><Button variant="secondary" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() - 1, 1)))}>上個月</Button><strong>{month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月</strong><Button variant="secondary" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1)))}>下個月</Button><SelectField label="營運據點" value={scopeId} options={[...(quick ? [] : [{ value: "all", label: "全部營運據點" }]), ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => pickScope(event.target.value)} /></div>
     {quick ? <div className="hr-quick-bar">
       <SelectField label="人員類型" value={quick.personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援（納入日薪）" }]} onChange={(event) => {
@@ -169,7 +149,7 @@ export function HrScheduling() {
       }} />
       <SelectField label="人員" value={quick.personId} options={quick.personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber} ${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick({ ...quick, personId: event.target.value })} />
       <SelectField label="班別" value={quick.shiftVersionId} options={quickShifts.map((shift) => ({ value: shift.versionId, label: shiftLabel(shift) }))} onChange={(event) => setQuick({ ...quick, shiftVersionId: event.target.value })} />
-      <p className="muted hr-quick-hint">{quickShifts.length ? `點日期加入，再點一次取消。已選 ${quickDays} 天，記得按「儲存並發布」。` : "這個營運據點尚未設定班別，請先按「新增班別」建立早班或晚班。"}</p>
+      <p className="muted hr-quick-hint">{quickShifts.length ? `點日期加入，再點一次取消。已選 ${quickDays} 天，記得按「儲存並發布」。` : <>這個營運據點尚未設定班別，請先到 <Link to="/hr/scheduling/shifts">班別管理</Link> 新增早班或晚班。</>}</p>
     </div> : null}
     {data.version?.locked ? <Alert tone="info">此月份已鎖定；如需調整，先按「開鎖」，系統會留下操作紀錄。</Alert> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
@@ -196,6 +176,5 @@ export function HrScheduling() {
       </div>
     </Panel>
     {addingDay && defaultScope ? <ScheduleEntryDialog data={data} day={addingDay} defaultScopeId={defaultScope} onAdd={(entry) => setDraftEntries((current) => [...current, entry])} onClose={() => setAddingDay(null)} /> : null}
-    {newShift && defaultScope ? <ShiftDialog scopeId={defaultScope} onClose={() => { setNewShift(false); void schedule.refetch(); }} /> : null}
   </div>;
 }

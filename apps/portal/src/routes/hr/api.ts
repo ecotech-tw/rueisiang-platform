@@ -148,7 +148,14 @@ export interface HrOverview { periodKey: string; attendance: { anomalyCount: num
 export interface BonusAllocation { employmentId: string; employeeNumber: string; employeeName: string; weightUnits: number; scheduledDays: number; revenueMinor: number; amountMinor: number }
 export interface BonusPool { poolId: string; policyVersionId: string; policyName: string; scopeId: string; scopeName: string; scopeIds?: string[]; scopeNames?: string[]; periodKey: string; status: "calculated" | "approved" | "closed" | "failed"; poolAmountMinor: number; allocations: BonusAllocation[]; daily: Array<{ scopeId?: string; businessDate: string; revenueMinor: number; bonusMinor: number; scheduled: boolean }>; warnings: string[] }
 export interface ScheduleScope { id: string; name: string }
-export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; code: string; name: string; startSecond: number; endSecond: number; endDayOffset: number }
+export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; startSecond: number; endSecond: number; endDayOffset: number }
+export interface HrShiftsResponse { scopes: ScheduleScope[]; shifts: ScheduleShift[] }
+
+function clockOf(seconds: number) { return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}`; }
+/** 班別時間的唯一格式；排班月曆與班別管理都用這個，兩頁才不會一邊寫 9:00、一邊寫 09:00。 */
+export function shiftTimeRange(shift: Pick<ScheduleShift, "startSecond" | "endSecond" | "endDayOffset">) {
+  return `${clockOf(shift.startSecond)}–${clockOf(shift.endSecond)}${shift.endDayOffset ? " 次日" : ""}`;
+}
 export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string }
 export interface ScheduleWorker { id: string; name: string; active: boolean | number }
 export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; workDate: string; startsAt: string; endsAt: string; employeeNumber: string | null; personName: string; scopeName: string; shiftName: string }

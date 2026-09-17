@@ -189,13 +189,14 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
   return enriched;
 }
 
-export async function getHrSchedule(db: Database, periodKey: string, scopeId?: string) {
-  const period = periodFromKey(periodKey);
-  const version = await latestScheduleVersion(db, period);
-  const [scopeRows, workerRows, shiftRows] = await Promise.all([
-    db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(and(eq(scopes.scopeKind, "store"), eq(scopes.active, 1))).orderBy(asc(scopes.sortOrder), asc(scopes.name)),
-    db.select({ id: hrScheduleWorkers.id, name: hrScheduleWorkers.displayName, active: hrScheduleWorkers.active }).from(hrScheduleWorkers).where(eq(hrScheduleWorkers.active, 1)).orderBy(asc(hrScheduleWorkers.displayName)),
-    db.select({
+/** 可以排班的營運據點。排班月曆與班別管理共用，兩頁看到的店才會一致。 */
+function listHrScheduleScopes(db: Database) {
+  return db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(and(eq(scopes.scopeKind, "store"), eq(scopes.active, 1))).orderBy(asc(scopes.sortOrder), asc(scopes.name));
+}
+
+/** 每個據點掛的班別與所有版本；呼叫端再用 latestShiftVersions 取最新版。 */
+function listHrScopeShiftRows(db: Database) {
+  return db.select({
       versionId: sql<string>`${hrShiftVersions.id}`.as("schedule_shift_version_id"),
       templateId: sql<string>`${hrShiftTemplates.id}`.as("schedule_shift_template_id"),
       scopeId: sql<string>`${hrScopeShiftAssignments.scopeId}`.as("schedule_shift_scope_id"),
@@ -209,7 +210,22 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrScopeShiftAssignments.shiftTemplateId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.shiftTemplateId, hrShiftTemplates.id))
       .where(eq(hrShiftTemplates.active, 1))
-      .orderBy(asc(hrShiftTemplates.name), asc(hrShiftVersions.startSecond)), 
+      .orderBy(asc(hrShiftTemplates.name), asc(hrShiftVersions.startSecond));
+}
+
+/** 班別管理頁：店與每家店目前生效的班別。 */
+export async function listHrShifts(db: Database) {
+  const [scopeRows, shiftRows] = await Promise.all([listHrScheduleScopes(db), listHrScopeShiftRows(db)]);
+  return { scopes: scopeRows, shifts: latestShiftVersions(shiftRows).map(({ versionNumber: _versionNumber, code: _code, ...shift }) => shift) };
+}
+
+export async function getHrSchedule(db: Database, periodKey: string, scopeId?: string) {
+  const period = periodFromKey(periodKey);
+  const version = await latestScheduleVersion(db, period);
+  const [scopeRows, workerRows, shiftRows] = await Promise.all([
+    listHrScheduleScopes(db),
+    db.select({ id: hrScheduleWorkers.id, name: hrScheduleWorkers.displayName, active: hrScheduleWorkers.active }).from(hrScheduleWorkers).where(eq(hrScheduleWorkers.active, 1)).orderBy(asc(hrScheduleWorkers.displayName)),
+    listHrScopeShiftRows(db),
   ]);
   const selectedScopeId = scopeId && scopeId !== "all" ? scopeId : undefined;
   const [employeeEntries, workerEntries] = version ? await Promise.all([
@@ -273,17 +289,21 @@ export async function setHrScheduleLock(db: Database, periodKey: string, input: 
   return { id: version.id, revision: version.revision + 1, locked: input.locked };
 }
 
+/**
+ * 班別一律是當天上下班，不提供跨午夜；代碼由系統產生。
+ *
+ * 代碼在資料庫是全域唯一，但沒有任何地方拿它來查或顯示。讓人自己填的話，不同店各建一個
+ * 「AM 早班」就會撞號，而錯誤訊息講的是一個使用者根本不在乎的欄位。
+ */
 export interface HrShiftInput {
   scopeId: string;
-  code: string;
   name: string;
   startSecond: number;
   endSecond: number;
-  endDayOffset: 0 | 1;
 }
 
 export async function createHrShift(db: Database, input: HrShiftInput, actor: HrActor) {
-  if (!Number.isInteger(input.startSecond) || input.startSecond < 0 || input.startSecond > 86_399 || !Number.isInteger(input.endSecond) || input.endSecond < 0 || input.endSecond > 86_399 || (input.endDayOffset === 0 && input.endSecond <= input.startSecond)) throw new HrError(400, "班別時間不正確。 ");
+  if (!Number.isInteger(input.startSecond) || input.startSecond < 0 || input.startSecond > 86_399 || !Number.isInteger(input.endSecond) || input.endSecond < 0 || input.endSecond > 86_399 || input.endSecond <= input.startSecond) throw new HrError(400, "班別的結束時間必須晚於開始時間。 ");
   const [scope] = await db.select({ id: scopes.id }).from(scopes).where(and(eq(scopes.id, input.scopeId), eq(scopes.scopeKind, "store"), eq(scopes.active, 1))).limit(1);
   if (!scope) throw new HrError(404, "找不到有效的營運據點。 ");
   const templateId = crypto.randomUUID();
@@ -292,8 +312,8 @@ export async function createHrShift(db: Database, input: HrShiftInput, actor: Hr
   const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
   const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_created", summary: "班別已建立", actor });
   const statements = [
-    sql`INSERT INTO hr_shift_templates (id, code, name, active, created_by) VALUES (${templateId}, ${input.code.trim()}, ${input.name.trim()}, 1, ${actor.id}) RETURNING id`,
-    sql`INSERT INTO hr_shift_versions (id, shift_template_id, version_number, start_second, end_second, end_day_offset, pay_factor_ppm, created_by) VALUES (${versionId}, ${templateId}, 1, ${input.startSecond}, ${input.endSecond}, ${input.endDayOffset}, 1000000, ${actor.id}) RETURNING id`,
+    sql`INSERT INTO hr_shift_templates (id, code, name, active, created_by) VALUES (${templateId}, ${templateId}, ${input.name.trim()}, 1, ${actor.id}) RETURNING id`,
+    sql`INSERT INTO hr_shift_versions (id, shift_template_id, version_number, start_second, end_second, end_day_offset, pay_factor_ppm, created_by) VALUES (${versionId}, ${templateId}, 1, ${input.startSecond}, ${input.endSecond}, 0, 1000000, ${actor.id}) RETURNING id`,
     sql`INSERT INTO hr_scope_shift_assignments (scope_id, shift_template_id, is_default, created_by) VALUES (${input.scopeId}, ${templateId}, 0, ${actor.id}) RETURNING scope_id AS id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
   ].map((statement) => dialect.sqlToQuery(statement));

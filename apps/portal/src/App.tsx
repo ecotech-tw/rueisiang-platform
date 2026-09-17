@@ -21,6 +21,7 @@ import { HrInsuranceManagement } from "./routes/hr/InsuranceManagement.js";
 import { HrSpecialWorkdays } from "./routes/hr/SpecialWorkdays.js";
 import { HrAttendanceRecords } from "./routes/hr/AttendanceRecords.js";
 import { HrScheduling } from "./routes/hr/Scheduling.js";
+import { HrShifts } from "./routes/hr/Shifts.js";
 import { HrSupportWorkers } from "./routes/hr/SupportWorkers.js";
 import { HrCompensationManagement } from "./routes/hr/Compensation.js";
 import { HrBonusManagement } from "./routes/hr/BonusManagement.js";
@@ -173,6 +174,7 @@ export function App() {
           <Route path="attendance-records" element={<HrAttendanceRecords />} />
           <Route path="overtime" element={<HrOvertimeRequests />} />
           <Route path="scheduling" element={<HrScheduling />} />
+          <Route path="scheduling/shifts" element={<HrShifts />} />
           {/* 舊網址相容：辦公位置改由員工列表的管理入口維護。 */}
           <Route path="scheduling/locations" element={<Navigate to="/hr/employees" replace />} />
           <Route path="compensation" element={<HrCompensationManagement />} />
