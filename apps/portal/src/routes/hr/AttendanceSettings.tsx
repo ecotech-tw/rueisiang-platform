@@ -244,9 +244,6 @@ export function HrAttendanceSettings() {
         actions={(canWrite || canReviewOvertime) ? <div className="button-row">{canReviewOvertime ? <Button variant="secondary" onClick={() => navigate("/hr/overtime")}>加班審核</Button> : null}{canWrite ? <Button icon="plus" onClick={() => setEditor("new")}>新增辦公位置</Button> : null}</div> : undefined}
       />
       <Panel className="grows">
-        <div className="panel-head">
-          <div><h2>辦公位置</h2><p className="muted">同一營運據點目前可設定一個主要辦公位置；歷史打卡保留當時名稱快照。</p></div>
-        </div>
         <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
           <FilterInput label="搜尋辦公位置或據點" type="search" className="search-input" placeholder="搜尋辦公位置或營運據點" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
           <FilterSelect label="營運據點" value={scopeId} options={[{ value: "all", label: "全部營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => { setScopeId(event.target.value); setPage(1); }} />

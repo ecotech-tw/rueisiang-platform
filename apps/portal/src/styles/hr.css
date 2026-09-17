@@ -474,15 +474,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .primary-button:hover:not(:disabled) { background: --alpha(var(--color-info) / 92%); }
 .hr-system .primary-button.add-action:hover:not(:disabled) { background: --alpha(var(--color-ok) / 92%); }
 .hr-system .primary-button.danger:hover:not(:disabled) { background: var(--color-brand-dark); }
-.hr-system .hr-bonus-action-edit {
-  background: --alpha(var(--color-info) / 14%);
-  color: var(--color-info);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 56%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 22%) inset,
-    0 8px 20px --alpha(var(--color-info) / 10%);
-}
-.hr-system .hr-bonus-action-edit:hover:not(:disabled) { background: --alpha(var(--color-info) / 22%); color: var(--color-info); }
 .hr-system .hr-bonus-action-delete {
   background: --alpha(var(--color-brand) / 12%);
   color: var(--color-brand-dark);

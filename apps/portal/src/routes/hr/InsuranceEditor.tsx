@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useToast } from "../../shell/Toast.js";
 import { Alert, Button, Dialog, Field, SelectField, TextField } from "../../ui/index.js";
 import { useHrInsuranceEstimate, useHrQuery, useHrWrite, type Employment, type InsuranceBracket, type InsuranceEstimateRequest, type InsuranceRateTableRecord } from "./api.js";
 
@@ -46,6 +47,7 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
   const [message, setMessage] = useState("");
   const table = useHrQuery<{ tables: InsuranceRateTableRecord[] }>(`/insurance-rates?year=${encodeURIComponent(currentYear)}`);
   const save = useHrWrite<{ ids: string[] }>();
+  const toast = useToast();
   const activeTables = useMemo(() => new Map(table.data?.tables.filter((item) => item.status === "active").map((item) => [item.scheme, item])), [table.data?.tables]);
   const selected = useMemo(() => ({
     labor: bracketForSalary(activeTables.get("labor")?.brackets, salary),
@@ -120,7 +122,7 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
         note,
       };
     };
-    save.mutate({ path: `/employments/${employment.id}/insurance`, method: "POST", values: { versions: SCHEMES.map(valuesFor) } }, { onSuccess: onClose });
+    save.mutate({ path: `/employments/${employment.id}/insurance`, method: "POST", values: { versions: SCHEMES.map(valuesFor) } }, { onSuccess: () => { toast.show(existing ? "勞健保資料已更新" : "加保資料已建立"); onClose(); } });
   } }} actions={<Button type="submit" loading={save.isPending}>儲存</Button>}>
     <Field label="狀態"><div className="segmented-control" role="group" aria-label="勞健保狀態">
       <button type="button" className={status === "enrolled" ? "selected" : ""} onClick={() => setStatus("enrolled")}>加保／變更級距</button>
