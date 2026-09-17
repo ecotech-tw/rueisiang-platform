@@ -28,6 +28,7 @@ import {
   type Database,
   taipeiMidnightUtc,
   taipeiWallClockToUtc,
+  listItems,
 } from "@rueisiang/db";
 import type { ToolContract, ToolContext, ToolSurface } from "./contract.js";
 
@@ -46,6 +47,25 @@ function textInput(input: unknown, key: string): string {
   const value = objectInput(input)[key];
   if (typeof value === "string") return value.trim();
   return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function stringArrayInput(input: unknown, key: string): string[] {
+  const value = objectInput(input)[key];
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.trim().startsWith("[")
+        ? (() => {
+          try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : value.split(",");
+          } catch {
+            return value.split(",");
+          }
+        })()
+        : value.split(",")
+      : [];
+  return [...new Set(values.map((item) => String(item ?? "").trim()).filter(Boolean))];
 }
 
 function boundedNumber(input: unknown, key: string, fallback: number, max: number): number {
@@ -205,6 +225,7 @@ const platformOpenMeteoTool: PlatformToolDefinition = {
   surfaces: ["sandbox", "line", "mcp"],
 };
 
+export const LIST_ITEMS_TOOL_KEY = "list_items";
 export const WMS_LIST_INVENTORY_TOOL_KEY = "wms_list_inventory";
 export const WMS_SEARCH_WAREHOUSE_TOOL_KEY = "wms_search_warehouse";
 export const WMS_GET_INVENTORY_ITEM_TOOL_KEY = "wms_get_inventory_item";
@@ -217,6 +238,40 @@ export const CRM_GET_ORDERS_TOOL_KEY = "crm_get_orders";
 
 const wmsPermission = ["wms:inventory:read"] as const;
 const wmsMapPermission = ["wms:map:read"] as const;
+
+const listItemsTool: PlatformToolDefinition = {
+  key: LIST_ITEMS_TOOL_KEY,
+  label: "查詢品項主檔",
+  description: "用商品名稱、SKU 或分類搜尋平台品項主檔，回傳內部 itemId、SKU、品名、分類與是否有 WMS 庫存。查商品銷售、WMS 庫存或用料前，若使用者給的是自然語言商品名稱，先用這個工具解析 itemId；不要直接把自然語言商品名稱塞進 query_sales_report.productName。這個工具不是 WMS 清單，沒有倉儲紀錄的禮盒或銷售品項也會出現。只讀。",
+  defaultStatus: "enabled",
+  surfaces: ["sandbox", "line", "mcp"],
+  requiredPermissions: ["items:item:read"],
+  parameters: {
+    type: "object",
+    properties: {
+      search: { type: "string", description: "單一商品的名稱、SKU 或分類關鍵字；名稱含空格可一起傳，會同時符合各詞，例如 醬釀黑豆 500ml。多個商品請分開呼叫此工具。" },
+      source: { type: "string", description: "可選來源：all、cyberbiz 或 custom。預設 all。", enum: ["all", "cyberbiz", "custom"] },
+      kind: { type: "string", description: "可選品項類型：all、sellable 或 supply。查銷售通常用 sellable。預設 all。", enum: ["all", "sellable", "supply"] },
+      active: { type: "string", description: "可選 true、false 或 all。預設 all；查歷史銷售時不要排除已停用品項。" },
+      limit: { type: "string", description: "最多回傳幾筆，預設 20，最多 50。" },
+    },
+  },
+  async execute(input, context) {
+    const search = textInput(input, "search");
+    if (search.length > 160) throw new AssistantError("品項搜尋關鍵字不能超過 160 字。");
+    const source = textInput(input, "source").toLowerCase();
+    const kind = textInput(input, "kind").toLowerCase();
+    const active = textInput(input, "active").toLowerCase();
+    const items = await listItems(database(context), {
+      search,
+      source: source === "cyberbiz" || source === "custom" ? source : "all",
+      kind: kind === "sellable" || kind === "supply" ? kind : "all",
+      active: active === "false" || active === "true" || active === "all" ? active : "all",
+      limit: boundedNumber(input, "limit", 20, 50),
+    });
+    return json({ search, totalReturned: items.length, items });
+  },
+};
 
 const wmsListInventoryTool: PlatformToolDefinition = {
   key: WMS_LIST_INVENTORY_TOOL_KEY,
@@ -415,14 +470,14 @@ const wmsSearchWarehouseTool: PlatformToolDefinition = {
 const wmsGetInventoryItemTool: PlatformToolDefinition = {
   key: WMS_GET_INVENTORY_ITEM_TOOL_KEY,
   label: "WMS 讀取庫存明細",
-  description: "依 WMS 商品 ID 讀取單一庫存明細。只讀。",
+  description: "依內部 itemId 讀取單一 WMS 庫存明細；itemId 可由 list_items 取得。只讀。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: wmsPermission,
   parameters: {
     type: "object",
     properties: {
-      id: { type: "string", description: "WMS inventory item ID。" },
+      id: { type: "string", description: "內部 itemId（也是 WMS inventory item ID）。" },
     },
     required: ["id"],
   },
@@ -1186,7 +1241,7 @@ const listReportScopesTool: PlatformToolDefinition = {
 const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
   key: "query_sales_report",
   label: "查詢商品銷售報表",
-  description: "從已匯入 D1 的通路商品銷售月資料查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額；通路的 SKU 或蝦皮 Product ID 會先對應到系統 SKU，查詢時優先使用系統 SKU。這不是 CRM 訂單查詢；單一 scope 請傳 scopeName（例如誠品西門店3F或蝦皮），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store。支援月份與年份；自訂日期只能使用完整月份，否則會回傳 UNSUPPORTED_GRANULARITY。公司查詢由服務端完成所有據點的彙總，不需要逐店呼叫工具。",
+  description: "從已匯入 D1 的通路商品銷售月資料查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額。查特定商品時優先傳 list_items 回傳的 itemIds；組合商品的 parent itemId 會查原始組合銷售，元件 itemId 則維持查詢報表展開後的用料數量。通路的 SKU 或蝦皮 Product ID 仍可用 sku 相容查詢。productName 只是舊版關鍵字模糊搜尋 fallback，不適合拿自然語言商品名稱直接查。這不是 CRM 訂單查詢；單一 scope 請傳 scopeName（例如誠品西門店3F或蝦皮），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store。支援月份與年份；自訂日期只能使用完整月份，否則會回傳 UNSUPPORTED_GRANULARITY。公司查詢由服務端完成所有據點的彙總，不需要逐店呼叫工具。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],
@@ -1199,7 +1254,8 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
       scopeId: { type: "string", description: "相容既有呼叫的櫃位固定 ID；通常不需要填，優先使用 scopeName。" },
       startDate: { type: "string", description: "自訂完整月份起始日 YYYY-MM-01，需與 endDate 一起提供。" },
       endDate: { type: "string", description: "自訂完整月份結束日 YYYY-MM-DD，需與 startDate 一起提供。" },
-      groupBy: { type: "string", description: "可選分組，使用逗號分隔：month、scope、sku、category；例如 scope,month。" },
+      groupBy: { type: "string", description: "可選分組，使用逗號分隔：month、scope、sku、category；例如月銷量使用 month,sku。" },
+      itemIds: { type: "string", description: "可選內部 itemId 清單；使用逗號分隔或 JSON array 字串。查特定商品時優先使用 list_items 回傳的 itemId。" },
       sku: { type: "string", description: "可選系統 SKU，精確查詢單一商品；服務端也兼容通路 SKU 或蝦皮 Product ID。" },
       category: { type: "string", description: "可選商品分類，回傳該分類商品合計。" },
       productName: { type: "string", description: "可選商品名稱關鍵字。" },
@@ -1225,6 +1281,7 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
       ...(startDate ? { startDate } : {}),
       ...(endDate ? { endDate } : {}),
       ...(reportGroupByInput(input) ? { groupBy: reportGroupByInput(input) } : {}),
+      ...(stringArrayInput(input, "itemIds").length ? { itemIds: stringArrayInput(input, "itemIds") } : {}),
       ...(textInput(input, "sku") ? { sku: textInput(input, "sku") } : {}),
       ...(textInput(input, "category") ? { category: textInput(input, "category") } : {}),
       ...(textInput(input, "productName") ? { productName: textInput(input, "productName") } : {}),
@@ -1277,6 +1334,7 @@ const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
 
 export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   platformOpenMeteoTool,
+  listItemsTool,
   wmsListInventoryTool,
   wmsSearchWarehouseTool,
   wmsGetInventoryItemTool,

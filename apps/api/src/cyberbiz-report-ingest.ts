@@ -10,6 +10,7 @@ import {
   resolveIgnoredSkus,
   resolveProductSkus,
   type Database,
+  type NewReportBundleSalesMonthly,
   type ReportScopeKind,
 } from "@rueisiang/db";
 import { items as itemMasters } from "@rueisiang/db/schema";
@@ -195,13 +196,15 @@ async function normalizeSalesRows(
     salesAmount: number;
     updatedAt: string;
   }>;
+  /** 有 BOM 的外部商品原始銷售列；元件展開不能取代這份 parent 快照。 */
+  bundleSalesRows: NewReportBundleSalesMonthly[];
   /** 對不到任何對應，也沒被標記忽略——要人去補的。 */
   skippedSkus: string[];
   mappedProducts: Array<{ externalKey: string; externalName: string; systemSku: string }>;
   ignoredProducts: Array<{ externalKey: string; externalName: string; reason: string }>;
 }> {
   const parsed = preparsed ?? parseSalesRows(input);
-  if (!parsed.length) return { rows: [], skippedSkus: [], mappedProducts: [], ignoredProducts: [] };
+  if (!parsed.length) return { rows: [], bundleSalesRows: [], skippedSkus: [], mappedProducts: [], ignoredProducts: [] };
 
   const resolved = await resolveProductSkus(db, parsed.map((row) => row.externalSku), channel);
 
@@ -258,8 +261,21 @@ async function normalizeSalesRows(
     salesAmount: number;
     updatedAt: string;
   }>();
+  const bundleSalesRows: NewReportBundleSalesMonthly[] = [];
   for (const row of usable) {
     const item = resolved.get(row.externalSku)!;
+    if (item.isBundle) {
+      bundleSalesRows.push({
+        scopeId: input.scopeId,
+        reportMonth: row.reportMonth,
+        externalSku: row.externalSku,
+        itemId: item.itemId,
+        grossQuantity: row.grossQuantity,
+        returnQuantity: row.returnQuantity,
+        netQuantity: row.netQuantity,
+        salesAmount: row.salesAmount,
+      });
+    }
     /*
      * 每一筆對應都展開成用料，沒有例外。
      *
@@ -290,7 +306,7 @@ async function normalizeSalesRows(
     if (!resolvedItem || resolvedItem.components.length !== 1 || !resolvedItem.components[0]?.inventoryItemId) return [];
     return [{ externalKey, externalName: resolvedItem.externalName, systemSku: resolvedItem.components[0].sku }];
   });
-  return { rows: [...rows.values()], skippedSkus: skipped, mappedProducts, ignoredProducts };
+  return { rows: [...rows.values()], bundleSalesRows, skippedSkus: skipped, mappedProducts, ignoredProducts };
 }
 
 function payoutRows(input: CyberbizReportIngestInput) {
@@ -425,7 +441,7 @@ export function createCyberbizReportIngestor(db: Database) {
             replaceExisting: input.salesWriteMode !== "merge",
             ...(runId ? { reportRunId: runId } : {}),
           }
-          : undefined);
+          : undefined, sales.bundleSalesRows);
         if (runId) await db.update(reportRuns).set({ status: "succeeded", importedSalesRows: sales.rows.length, importedPayoutRows: payout.length, skippedRows: sales.skippedSkus.length, updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
         return {
           kind: input.kind,
@@ -449,7 +465,7 @@ export function createCyberbizReportIngestor(db: Database) {
             replaceExisting: input.salesWriteMode !== "merge",
             ...(runId ? { reportRunId: runId } : {}),
           }
-          : undefined);
+          : undefined, sales.bundleSalesRows);
         if (runId) await db.update(reportRuns).set({ status: "succeeded", importedSalesRows: sales.rows.length, skippedRows: sales.skippedSkus.length, updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
         return {
           kind: input.kind,

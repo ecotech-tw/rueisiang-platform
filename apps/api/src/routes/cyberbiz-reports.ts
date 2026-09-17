@@ -72,6 +72,12 @@ function groupBy(c: { req: { query(name: string): string | undefined } }): Repor
   return value.split(",").map((item) => item.trim()) as ReportGroupBy[];
 }
 
+function queryListValue(c: { req: { query(name: string): string | undefined } }, name: string): string[] | undefined {
+  const value = queryValue(c, name);
+  if (!value) return undefined;
+  return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+}
+
 /**
  * 帶著快取狀態回應。`X-Cache` 讓瀏覽器 devtools 直接看得出這一次是命中、沒命中、
  * 沒設定 Redis 還是 Redis 噴錯——不然快取有沒有在運作只能用 D1 用量反推。
@@ -927,6 +933,7 @@ export const cyberbizReports = new Hono<AppEnv>()
     try {
       const query = {
         ...commonQuery(c),
+        ...(queryListValue(c, "itemIds") ? { itemIds: queryListValue(c, "itemIds") } : {}),
         ...(queryValue(c, "sku") ? { sku: queryValue(c, "sku") } : {}),
         ...(queryValue(c, "category") ? { category: queryValue(c, "category") } : {}),
         ...(queryValue(c, "productName") ? { productName: queryValue(c, "productName") } : {}),
