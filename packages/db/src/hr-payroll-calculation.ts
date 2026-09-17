@@ -625,7 +625,12 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         ))
       : Promise.resolve([]),
   ]);
-  const payouts = new Map<string, number>(payoutRows.map((row) => [dayKey(row.scopeId, row.businessDate), row.payoutAmount]));
+  /*
+   * 出金表存的是**新臺幣元**，薪資一律是分。換算只能在這一個邊界做：listEffectiveDailyPayouts
+   * 也給報表用，報表要的是元。漏掉這個 ×100，獎金會安靜地少 100 倍——而且只要測試資料
+   * 也寫成分，測試會跟著一起錯而照樣是綠的。
+   */
+  const payouts = new Map<string, number>(payoutRows.map((row) => [dayKey(row.scopeId, row.businessDate), row.payoutAmount * 100]));
   const bonusScheduledDays = new Map<string, Set<string>>();
   for (const row of bonusScheduleRows) {
     const days = bonusScheduledDays.get(row.employmentId) ?? new Set<string>();

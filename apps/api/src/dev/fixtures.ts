@@ -251,7 +251,8 @@ async function seedDevPayrollScenario(
    */
   await db.insert(reportPayoutDaily).values(scheduledDays.map((day, index) => ({
     scopeId: ximenScopeId, businessDate: `${month}-${String(day).padStart(2, "0")}`, recordOrigin: "manual" as const,
-    reportRunId: null, payoutAmount: 18_000_000 + index * 1_500_000, updatedByEmail: "eli-lin@ecotech.tw",
+    // 出金表的單位是元，跟正式環境一樣；寫成分的話獎金換算錯了測試也看不出來。
+    reportRunId: null, payoutAmount: 180_000 + index * 15_000, updatedByEmail: "eli-lin@ecotech.tw",
   }))).onConflictDoNothing();
 }
 

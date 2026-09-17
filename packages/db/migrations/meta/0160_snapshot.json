@@ -1,8 +1,8 @@
 {
+  "id": "74126437-b5a5-4482-881d-1cc3821bf64b",
+  "prevId": "98e3b361-b4a6-4a8b-85d2-fbf569a7edb4",
   "version": "6",
   "dialect": "sqlite",
-  "id": "6c62602c-105e-44a0-8f96-bf9a5afb8eaa",
-  "prevId": "98e3b361-b4a6-4a8b-85d2-fbf569a7edb4",
   "tables": {
     "auth_device_sessions": {
       "name": "auth_device_sessions",
@@ -93,15 +93,15 @@
         "auth_device_sessions_user_id_users_id_fk": {
           "name": "auth_device_sessions_user_id_users_id_fk",
           "tableFrom": "auth_device_sessions",
-          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -202,15 +202,15 @@
         "cyberbiz_products_item_id_items_id_fk": {
           "name": "cyberbiz_products_item_id_items_id_fk",
           "tableFrom": "cyberbiz_products",
-          "tableTo": "items",
           "columnsFrom": [
             "item_id"
           ],
+          "tableTo": "items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -260,15 +260,15 @@
         "cyberbiz_sync_locks_item_id_items_id_fk": {
           "name": "cyberbiz_sync_locks_item_id_items_id_fk",
           "tableFrom": "cyberbiz_sync_locks",
-          "tableTo": "items",
           "columnsFrom": [
             "item_id"
           ],
+          "tableTo": "items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -369,8 +369,8 @@
           "columns": [
             "name"
           ],
-          "isUnique": true,
-          "where": "\"item_categories\".\"parent_id\" IS NULL"
+          "where": "\"item_categories\".\"parent_id\" IS NULL",
+          "isUnique": true
         },
         "idx_item_categories_child_name": {
           "name": "idx_item_categories_child_name",
@@ -378,8 +378,8 @@
             "parent_id",
             "name"
           ],
-          "isUnique": true,
-          "where": "\"item_categories\".\"parent_id\" IS NOT NULL"
+          "where": "\"item_categories\".\"parent_id\" IS NOT NULL",
+          "isUnique": true
         },
         "idx_item_categories_parent": {
           "name": "idx_item_categories_parent",
@@ -394,17 +394,17 @@
         "item_categories_parent_id_parent_depth_item_categories_id_depth_fk": {
           "name": "item_categories_parent_id_parent_depth_item_categories_id_depth_fk",
           "tableFrom": "item_categories",
-          "tableTo": "item_categories",
           "columnsFrom": [
             "parent_id",
             "parent_depth"
           ],
+          "tableTo": "item_categories",
           "columnsTo": [
             "id",
             "depth"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -478,28 +478,28 @@
         "item_components_parent_item_id_items_id_fk": {
           "name": "item_components_parent_item_id_items_id_fk",
           "tableFrom": "item_components",
-          "tableTo": "items",
           "columnsFrom": [
             "parent_item_id"
           ],
+          "tableTo": "items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "item_components_component_item_id_items_id_fk": {
           "name": "item_components_component_item_id_items_id_fk",
           "tableFrom": "item_components",
-          "tableTo": "items",
           "columnsFrom": [
             "component_item_id"
           ],
+          "tableTo": "items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -629,15 +629,15 @@
         "items_category_id_item_categories_id_fk": {
           "name": "items_category_id_item_categories_id_fk",
           "tableFrom": "items",
-          "tableTo": "item_categories",
           "columnsFrom": [
             "category_id"
           ],
+          "tableTo": "item_categories",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -717,28 +717,28 @@
         "role_permission_grants_role_id_roles_id_fk": {
           "name": "role_permission_grants_role_id_roles_id_fk",
           "tableFrom": "role_permission_grants",
-          "tableTo": "roles",
           "columnsFrom": [
             "role_id"
           ],
+          "tableTo": "roles",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "role_permission_grants_permission_permissions_permission_fk": {
           "name": "role_permission_grants_permission_permissions_permission_fk",
           "tableFrom": "role_permission_grants",
-          "tableTo": "permissions",
           "columnsFrom": [
             "permission"
           ],
+          "tableTo": "permissions",
           "columnsTo": [
             "permission"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -870,28 +870,28 @@
         "user_permission_grants_user_id_users_id_fk": {
           "name": "user_permission_grants_user_id_users_id_fk",
           "tableFrom": "user_permission_grants",
-          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "user_permission_grants_permission_permissions_permission_fk": {
           "name": "user_permission_grants_permission_permissions_permission_fk",
           "tableFrom": "user_permission_grants",
-          "tableTo": "permissions",
           "columnsFrom": [
             "permission"
           ],
+          "tableTo": "permissions",
           "columnsTo": [
             "permission"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -944,28 +944,28 @@
         "user_role_assignments_user_id_users_id_fk": {
           "name": "user_role_assignments_user_id_users_id_fk",
           "tableFrom": "user_role_assignments",
-          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "user_role_assignments_role_id_roles_id_fk": {
           "name": "user_role_assignments_role_id_roles_id_fk",
           "tableFrom": "user_role_assignments",
-          "tableTo": "roles",
           "columnsFrom": [
             "role_id"
           ],
+          "tableTo": "roles",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -1292,49 +1292,49 @@
           "columns": [
             "item_id"
           ],
-          "isUnique": false,
-          "where": "\"wms_items\".\"quantity\" < \"wms_items\".\"min_stock\""
+          "where": "\"wms_items\".\"quantity\" < \"wms_items\".\"min_stock\"",
+          "isUnique": false
         }
       },
       "foreignKeys": {
         "wms_items_item_id_items_id_fk": {
           "name": "wms_items_item_id_items_id_fk",
           "tableFrom": "wms_items",
-          "tableTo": "items",
           "columnsFrom": [
             "item_id"
           ],
+          "tableTo": "items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "wms_items_wms_category_id_wms_categories_id_fk": {
           "name": "wms_items_wms_category_id_wms_categories_id_fk",
           "tableFrom": "wms_items",
-          "tableTo": "wms_categories",
           "columnsFrom": [
             "wms_category_id"
           ],
+          "tableTo": "wms_categories",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "wms_items_shelf_id_wms_shelves_id_fk": {
           "name": "wms_items_shelf_id_wms_shelves_id_fk",
           "tableFrom": "wms_items",
-          "tableTo": "wms_shelves",
           "columnsFrom": [
             "shelf_id"
           ],
+          "tableTo": "wms_shelves",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -1462,28 +1462,28 @@
         "wms_layout_elements_layout_id_wms_layouts_id_fk": {
           "name": "wms_layout_elements_layout_id_wms_layouts_id_fk",
           "tableFrom": "wms_layout_elements",
-          "tableTo": "wms_layouts",
           "columnsFrom": [
             "layout_id"
           ],
+          "tableTo": "wms_layouts",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "wms_layout_elements_zone_id_wms_zones_id_fk": {
           "name": "wms_layout_elements_zone_id_wms_zones_id_fk",
           "tableFrom": "wms_layout_elements",
-          "tableTo": "wms_zones",
           "columnsFrom": [
             "zone_id"
           ],
+          "tableTo": "wms_zones",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1657,15 +1657,15 @@
         "wms_shelves_zone_id_wms_zones_id_fk": {
           "name": "wms_shelves_zone_id_wms_zones_id_fk",
           "tableFrom": "wms_shelves",
-          "tableTo": "wms_zones",
           "columnsFrom": [
             "zone_id"
           ],
+          "tableTo": "wms_zones",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -1720,28 +1720,28 @@
         "wms_zone_images_zone_id_wms_zones_id_fk": {
           "name": "wms_zone_images_zone_id_wms_zones_id_fk",
           "tableFrom": "wms_zone_images",
-          "tableTo": "wms_zones",
           "columnsFrom": [
             "zone_id"
           ],
+          "tableTo": "wms_zones",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "wms_zone_images_object_key_media_objects_object_key_fk": {
           "name": "wms_zone_images_object_key_media_objects_object_key_fk",
           "tableFrom": "wms_zone_images",
-          "tableTo": "media_objects",
           "columnsFrom": [
             "object_key"
           ],
+          "tableTo": "media_objects",
           "columnsTo": [
             "object_key"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -2058,15 +2058,15 @@
         "assistant_channel_tools_channel_key_assistant_line_channels_channel_key_fk": {
           "name": "assistant_channel_tools_channel_key_assistant_line_channels_channel_key_fk",
           "tableFrom": "assistant_channel_tools",
-          "tableTo": "assistant_line_channels",
           "columnsFrom": [
             "channel_key"
           ],
+          "tableTo": "assistant_line_channels",
           "columnsTo": [
             "channel_key"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2127,28 +2127,28 @@
         "assistant_chat_tools_group_id_assistant_line_groups_id_fk": {
           "name": "assistant_chat_tools_group_id_assistant_line_groups_id_fk",
           "tableFrom": "assistant_chat_tools",
-          "tableTo": "assistant_line_groups",
           "columnsFrom": [
             "group_id"
           ],
+          "tableTo": "assistant_line_groups",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "assistant_chat_tools_channel_tool_id_assistant_channel_tools_id_fk": {
           "name": "assistant_chat_tools_channel_tool_id_assistant_channel_tools_id_fk",
           "tableFrom": "assistant_chat_tools",
-          "tableTo": "assistant_channel_tools",
           "columnsFrom": [
             "channel_tool_id"
           ],
+          "tableTo": "assistant_channel_tools",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2429,15 +2429,15 @@
         "assistant_line_groups_channel_key_assistant_line_channels_channel_key_fk": {
           "name": "assistant_line_groups_channel_key_assistant_line_channels_channel_key_fk",
           "tableFrom": "assistant_line_groups",
-          "tableTo": "assistant_line_channels",
           "columnsFrom": [
             "channel_key"
           ],
+          "tableTo": "assistant_line_channels",
           "columnsTo": [
             "channel_key"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2734,15 +2734,15 @@
         "assistant_line_push_deliveries_group_id_assistant_line_groups_id_fk": {
           "name": "assistant_line_push_deliveries_group_id_assistant_line_groups_id_fk",
           "tableFrom": "assistant_line_push_deliveries",
-          "tableTo": "assistant_line_groups",
           "columnsFrom": [
             "group_id"
           ],
+          "tableTo": "assistant_line_groups",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2994,15 +2994,15 @@
         "assistant_line_reply_backups_group_id_assistant_line_groups_id_fk": {
           "name": "assistant_line_reply_backups_group_id_assistant_line_groups_id_fk",
           "tableFrom": "assistant_line_reply_backups",
-          "tableTo": "assistant_line_groups",
           "columnsFrom": [
             "group_id"
           ],
+          "tableTo": "assistant_line_groups",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3344,15 +3344,15 @@
         "assistant_sandbox_messages_session_id_assistant_sandbox_sessions_id_fk": {
           "name": "assistant_sandbox_messages_session_id_assistant_sandbox_sessions_id_fk",
           "tableFrom": "assistant_sandbox_messages",
-          "tableTo": "assistant_sandbox_sessions",
           "columnsFrom": [
             "session_id"
           ],
+          "tableTo": "assistant_sandbox_sessions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3617,28 +3617,28 @@
         "crm_customer_tags_customer_id_crm_customers_id_fk": {
           "name": "crm_customer_tags_customer_id_crm_customers_id_fk",
           "tableFrom": "crm_customer_tags",
-          "tableTo": "crm_customers",
           "columnsFrom": [
             "customer_id"
           ],
+          "tableTo": "crm_customers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "crm_customer_tags_crm_tag_id_crm_tags_id_fk": {
           "name": "crm_customer_tags_crm_tag_id_crm_tags_id_fk",
           "tableFrom": "crm_customer_tags",
-          "tableTo": "crm_tags",
           "columnsFrom": [
             "crm_tag_id"
           ],
+          "tableTo": "crm_tags",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -3819,8 +3819,8 @@
           "columns": [
             "id"
           ],
-          "isUnique": false,
-          "where": "\"crm_customers\".\"name\" = '' OR \"crm_customers\".\"address\" = ''"
+          "where": "\"crm_customers\".\"name\" = '' OR \"crm_customers\".\"address\" = ''",
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -4128,15 +4128,15 @@
         "cyberbiz_webhook_events_customer_id_crm_customers_id_fk": {
           "name": "cyberbiz_webhook_events_customer_id_crm_customers_id_fk",
           "tableFrom": "cyberbiz_webhook_events",
-          "tableTo": "crm_customers",
           "columnsFrom": [
             "customer_id"
           ],
+          "tableTo": "crm_customers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -4238,28 +4238,28 @@
         "hr_employee_scopes_employment_id_hr_employments_id_fk": {
           "name": "hr_employee_scopes_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_employee_scopes",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_employee_scopes_scope_id_scopes_id_fk": {
           "name": "hr_employee_scopes_scope_id_scopes_id_fk",
           "tableFrom": "hr_employee_scopes",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -4337,28 +4337,28 @@
         "hr_employees_user_id_users_id_fk": {
           "name": "hr_employees_user_id_users_id_fk",
           "tableFrom": "hr_employees",
-          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_employees_supervisor_user_id_users_id_fk": {
           "name": "hr_employees_supervisor_user_id_users_id_fk",
           "tableFrom": "hr_employees",
-          "tableTo": "users",
           "columnsFrom": [
             "supervisor_user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -4451,15 +4451,15 @@
         "hr_employments_employee_user_id_hr_employees_user_id_fk": {
           "name": "hr_employments_employee_user_id_hr_employees_user_id_fk",
           "tableFrom": "hr_employments",
-          "tableTo": "hr_employees",
           "columnsFrom": [
             "employee_user_id"
           ],
+          "tableTo": "hr_employees",
           "columnsTo": [
             "user_id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -4583,28 +4583,28 @@
         "hr_attendance_location_schedules_location_id_hr_attendance_locations_id_fk": {
           "name": "hr_attendance_location_schedules_location_id_hr_attendance_locations_id_fk",
           "tableFrom": "hr_attendance_location_schedules",
-          "tableTo": "hr_attendance_locations",
           "columnsFrom": [
             "location_id"
           ],
+          "tableTo": "hr_attendance_locations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_attendance_location_schedules_created_by_users_id_fk": {
           "name": "hr_attendance_location_schedules_created_by_users_id_fk",
           "tableFrom": "hr_attendance_location_schedules",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -4761,15 +4761,15 @@
         "hr_attendance_locations_scope_id_scopes_id_fk": {
           "name": "hr_attendance_locations_scope_id_scopes_id_fk",
           "tableFrom": "hr_attendance_locations",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -4997,67 +4997,67 @@
         "hr_clock_events_employee_user_id_hr_employees_user_id_fk": {
           "name": "hr_clock_events_employee_user_id_hr_employees_user_id_fk",
           "tableFrom": "hr_clock_events",
-          "tableTo": "hr_employees",
           "columnsFrom": [
             "employee_user_id"
           ],
+          "tableTo": "hr_employees",
           "columnsTo": [
             "user_id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_clock_events_employment_id_hr_employments_id_fk": {
           "name": "hr_clock_events_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_clock_events",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_clock_events_attendance_location_id_hr_attendance_locations_id_fk": {
           "name": "hr_clock_events_attendance_location_id_hr_attendance_locations_id_fk",
           "tableFrom": "hr_clock_events",
-          "tableTo": "hr_attendance_locations",
           "columnsFrom": [
             "attendance_location_id"
           ],
+          "tableTo": "hr_attendance_locations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_clock_events_scope_id_scopes_id_fk": {
           "name": "hr_clock_events_scope_id_scopes_id_fk",
           "tableFrom": "hr_clock_events",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_clock_events_recorded_by_users_id_fk": {
           "name": "hr_clock_events_recorded_by_users_id_fk",
           "tableFrom": "hr_clock_events",
-          "tableTo": "users",
           "columnsFrom": [
             "recorded_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -5191,28 +5191,28 @@
         "hr_employee_attendance_locations_employment_id_hr_employments_id_fk": {
           "name": "hr_employee_attendance_locations_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_employee_attendance_locations",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_employee_attendance_locations_location_id_hr_attendance_locations_id_fk": {
           "name": "hr_employee_attendance_locations_location_id_hr_attendance_locations_id_fk",
           "tableFrom": "hr_employee_attendance_locations",
-          "tableTo": "hr_attendance_locations",
           "columnsFrom": [
             "location_id"
           ],
+          "tableTo": "hr_attendance_locations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -5267,28 +5267,28 @@
         "hr_employment_attendance_settings_employment_id_hr_employments_id_fk": {
           "name": "hr_employment_attendance_settings_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_employment_attendance_settings",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_employment_attendance_settings_primary_assignment_id_hr_employee_attendance_locations_id_fk": {
           "name": "hr_employment_attendance_settings_primary_assignment_id_hr_employee_attendance_locations_id_fk",
           "tableFrom": "hr_employment_attendance_settings",
-          "tableTo": "hr_employee_attendance_locations",
           "columnsFrom": [
             "primary_assignment_id"
           ],
+          "tableTo": "hr_employee_attendance_locations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -5449,41 +5449,41 @@
         "hr_form_requests_employee_user_id_hr_employees_user_id_fk": {
           "name": "hr_form_requests_employee_user_id_hr_employees_user_id_fk",
           "tableFrom": "hr_form_requests",
-          "tableTo": "hr_employees",
           "columnsFrom": [
             "employee_user_id"
           ],
+          "tableTo": "hr_employees",
           "columnsTo": [
             "user_id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_form_requests_employment_id_hr_employments_id_fk": {
           "name": "hr_form_requests_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_form_requests",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_form_requests_approver_user_id_users_id_fk": {
           "name": "hr_form_requests_approver_user_id_users_id_fk",
           "tableFrom": "hr_form_requests",
-          "tableTo": "users",
           "columnsFrom": [
             "approver_user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -5610,28 +5610,28 @@
         "hr_compensation_items_compensation_version_id_hr_compensation_versions_id_fk": {
           "name": "hr_compensation_items_compensation_version_id_hr_compensation_versions_id_fk",
           "tableFrom": "hr_compensation_items",
-          "tableTo": "hr_compensation_versions",
           "columnsFrom": [
             "compensation_version_id"
           ],
+          "tableTo": "hr_compensation_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_compensation_items_created_by_users_id_fk": {
           "name": "hr_compensation_items_created_by_users_id_fk",
           "tableFrom": "hr_compensation_items",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -5767,41 +5767,41 @@
         "hr_compensation_versions_employment_id_hr_employments_id_fk": {
           "name": "hr_compensation_versions_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_compensation_versions",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_compensation_versions_voided_by_users_id_fk": {
           "name": "hr_compensation_versions_voided_by_users_id_fk",
           "tableFrom": "hr_compensation_versions",
-          "tableTo": "users",
           "columnsFrom": [
             "voided_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_compensation_versions_created_by_users_id_fk": {
           "name": "hr_compensation_versions_created_by_users_id_fk",
           "tableFrom": "hr_compensation_versions",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -5928,15 +5928,15 @@
         "hr_insurance_contribution_rules_created_by_users_id_fk": {
           "name": "hr_insurance_contribution_rules_created_by_users_id_fk",
           "tableFrom": "hr_insurance_contribution_rules",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -6050,8 +6050,8 @@
             "year",
             "status"
           ],
-          "isUnique": true,
-          "where": "\"hr_insurance_rate_tables\".\"status\" IN ('draft', 'active')"
+          "where": "\"hr_insurance_rate_tables\".\"status\" IN ('draft', 'active')",
+          "isUnique": true
         },
         "idx_hr_insurance_rate_tables_year": {
           "name": "idx_hr_insurance_rate_tables_year",
@@ -6066,28 +6066,28 @@
         "hr_insurance_rate_tables_created_by_users_id_fk": {
           "name": "hr_insurance_rate_tables_created_by_users_id_fk",
           "tableFrom": "hr_insurance_rate_tables",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_insurance_rate_tables_activated_by_users_id_fk": {
           "name": "hr_insurance_rate_tables_activated_by_users_id_fk",
           "tableFrom": "hr_insurance_rate_tables",
-          "tableTo": "users",
           "columnsFrom": [
             "activated_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -6248,28 +6248,28 @@
         "hr_insurance_versions_employment_id_hr_employments_id_fk": {
           "name": "hr_insurance_versions_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_insurance_versions",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_insurance_versions_created_by_users_id_fk": {
           "name": "hr_insurance_versions_created_by_users_id_fk",
           "tableFrom": "hr_insurance_versions",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -6436,41 +6436,41 @@
         "hr_leave_requests_employment_id_hr_employments_id_fk": {
           "name": "hr_leave_requests_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_leave_requests",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_leave_requests_reviewed_by_users_id_fk": {
           "name": "hr_leave_requests_reviewed_by_users_id_fk",
           "tableFrom": "hr_leave_requests",
-          "tableTo": "users",
           "columnsFrom": [
             "reviewed_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_leave_requests_created_by_users_id_fk": {
           "name": "hr_leave_requests_created_by_users_id_fk",
           "tableFrom": "hr_leave_requests",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -6572,15 +6572,15 @@
         "hr_leave_types_created_by_users_id_fk": {
           "name": "hr_leave_types_created_by_users_id_fk",
           "tableFrom": "hr_leave_types",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -6709,41 +6709,41 @@
         "hr_monthly_hourly_entries_employment_id_hr_employments_id_fk": {
           "name": "hr_monthly_hourly_entries_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_monthly_hourly_entries",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_monthly_hourly_entries_created_by_users_id_fk": {
           "name": "hr_monthly_hourly_entries_created_by_users_id_fk",
           "tableFrom": "hr_monthly_hourly_entries",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_monthly_hourly_entries_updated_by_users_id_fk": {
           "name": "hr_monthly_hourly_entries_updated_by_users_id_fk",
           "tableFrom": "hr_monthly_hourly_entries",
-          "tableTo": "users",
           "columnsFrom": [
             "updated_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -6897,54 +6897,54 @@
         "hr_monthly_leave_entries_employment_id_hr_employments_id_fk": {
           "name": "hr_monthly_leave_entries_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_monthly_leave_entries",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_monthly_leave_entries_leave_type_id_hr_leave_types_id_fk": {
           "name": "hr_monthly_leave_entries_leave_type_id_hr_leave_types_id_fk",
           "tableFrom": "hr_monthly_leave_entries",
-          "tableTo": "hr_leave_types",
           "columnsFrom": [
             "leave_type_id"
           ],
+          "tableTo": "hr_leave_types",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_monthly_leave_entries_created_by_users_id_fk": {
           "name": "hr_monthly_leave_entries_created_by_users_id_fk",
           "tableFrom": "hr_monthly_leave_entries",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_monthly_leave_entries_updated_by_users_id_fk": {
           "name": "hr_monthly_leave_entries_updated_by_users_id_fk",
           "tableFrom": "hr_monthly_leave_entries",
-          "tableTo": "users",
           "columnsFrom": [
             "updated_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -7074,28 +7074,28 @@
         "hr_worker_compensation_versions_worker_id_hr_schedule_workers_id_fk": {
           "name": "hr_worker_compensation_versions_worker_id_hr_schedule_workers_id_fk",
           "tableFrom": "hr_worker_compensation_versions",
-          "tableTo": "hr_schedule_workers",
           "columnsFrom": [
             "worker_id"
           ],
+          "tableTo": "hr_schedule_workers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_worker_compensation_versions_created_by_users_id_fk": {
           "name": "hr_worker_compensation_versions_created_by_users_id_fk",
           "tableFrom": "hr_worker_compensation_versions",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -7291,54 +7291,54 @@
         "hr_overtime_requests_employment_id_hr_employments_id_fk": {
           "name": "hr_overtime_requests_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_overtime_requests",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_overtime_requests_scope_id_scopes_id_fk": {
           "name": "hr_overtime_requests_scope_id_scopes_id_fk",
           "tableFrom": "hr_overtime_requests",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_overtime_requests_reviewed_by_users_id_fk": {
           "name": "hr_overtime_requests_reviewed_by_users_id_fk",
           "tableFrom": "hr_overtime_requests",
-          "tableTo": "users",
           "columnsFrom": [
             "reviewed_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_overtime_requests_created_by_users_id_fk": {
           "name": "hr_overtime_requests_created_by_users_id_fk",
           "tableFrom": "hr_overtime_requests",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -7485,67 +7485,67 @@
         "hr_schedule_entries_schedule_version_id_hr_schedule_versions_id_fk": {
           "name": "hr_schedule_entries_schedule_version_id_hr_schedule_versions_id_fk",
           "tableFrom": "hr_schedule_entries",
-          "tableTo": "hr_schedule_versions",
           "columnsFrom": [
             "schedule_version_id"
           ],
+          "tableTo": "hr_schedule_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_schedule_entries_employment_id_hr_employments_id_fk": {
           "name": "hr_schedule_entries_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_schedule_entries",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_schedule_entries_scope_id_scopes_id_fk": {
           "name": "hr_schedule_entries_scope_id_scopes_id_fk",
           "tableFrom": "hr_schedule_entries",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_schedule_entries_shift_version_id_hr_shift_versions_id_fk": {
           "name": "hr_schedule_entries_shift_version_id_hr_shift_versions_id_fk",
           "tableFrom": "hr_schedule_entries",
-          "tableTo": "hr_shift_versions",
           "columnsFrom": [
             "shift_version_id"
           ],
+          "tableTo": "hr_shift_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_schedule_entries_created_by_users_id_fk": {
           "name": "hr_schedule_entries_created_by_users_id_fk",
           "tableFrom": "hr_schedule_entries",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -7677,28 +7677,28 @@
         "hr_schedule_versions_submitted_by_users_id_fk": {
           "name": "hr_schedule_versions_submitted_by_users_id_fk",
           "tableFrom": "hr_schedule_versions",
-          "tableTo": "users",
           "columnsFrom": [
             "submitted_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_schedule_versions_approved_by_users_id_fk": {
           "name": "hr_schedule_versions_approved_by_users_id_fk",
           "tableFrom": "hr_schedule_versions",
-          "tableTo": "users",
           "columnsFrom": [
             "approved_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -7833,67 +7833,67 @@
         "hr_schedule_worker_entries_schedule_version_id_hr_schedule_versions_id_fk": {
           "name": "hr_schedule_worker_entries_schedule_version_id_hr_schedule_versions_id_fk",
           "tableFrom": "hr_schedule_worker_entries",
-          "tableTo": "hr_schedule_versions",
           "columnsFrom": [
             "schedule_version_id"
           ],
+          "tableTo": "hr_schedule_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_schedule_worker_entries_worker_id_hr_schedule_workers_id_fk": {
           "name": "hr_schedule_worker_entries_worker_id_hr_schedule_workers_id_fk",
           "tableFrom": "hr_schedule_worker_entries",
-          "tableTo": "hr_schedule_workers",
           "columnsFrom": [
             "worker_id"
           ],
+          "tableTo": "hr_schedule_workers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_schedule_worker_entries_scope_id_scopes_id_fk": {
           "name": "hr_schedule_worker_entries_scope_id_scopes_id_fk",
           "tableFrom": "hr_schedule_worker_entries",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_schedule_worker_entries_shift_version_id_hr_shift_versions_id_fk": {
           "name": "hr_schedule_worker_entries_shift_version_id_hr_shift_versions_id_fk",
           "tableFrom": "hr_schedule_worker_entries",
-          "tableTo": "hr_shift_versions",
           "columnsFrom": [
             "shift_version_id"
           ],
+          "tableTo": "hr_shift_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_schedule_worker_entries_created_by_users_id_fk": {
           "name": "hr_schedule_worker_entries_created_by_users_id_fk",
           "tableFrom": "hr_schedule_worker_entries",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -7980,15 +7980,15 @@
         "hr_schedule_workers_created_by_users_id_fk": {
           "name": "hr_schedule_workers_created_by_users_id_fk",
           "tableFrom": "hr_schedule_workers",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -8063,41 +8063,41 @@
         "hr_scope_shift_assignments_scope_id_scopes_id_fk": {
           "name": "hr_scope_shift_assignments_scope_id_scopes_id_fk",
           "tableFrom": "hr_scope_shift_assignments",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_scope_shift_assignments_shift_template_id_hr_shift_templates_id_fk": {
           "name": "hr_scope_shift_assignments_shift_template_id_hr_shift_templates_id_fk",
           "tableFrom": "hr_scope_shift_assignments",
-          "tableTo": "hr_shift_templates",
           "columnsFrom": [
             "shift_template_id"
           ],
+          "tableTo": "hr_shift_templates",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_scope_shift_assignments_created_by_users_id_fk": {
           "name": "hr_scope_shift_assignments_created_by_users_id_fk",
           "tableFrom": "hr_scope_shift_assignments",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -8194,15 +8194,15 @@
         "hr_shift_templates_created_by_users_id_fk": {
           "name": "hr_shift_templates_created_by_users_id_fk",
           "tableFrom": "hr_shift_templates",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -8318,28 +8318,28 @@
         "hr_shift_versions_shift_template_id_hr_shift_templates_id_fk": {
           "name": "hr_shift_versions_shift_template_id_hr_shift_templates_id_fk",
           "tableFrom": "hr_shift_versions",
-          "tableTo": "hr_shift_templates",
           "columnsFrom": [
             "shift_template_id"
           ],
+          "tableTo": "hr_shift_templates",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_shift_versions_created_by_users_id_fk": {
           "name": "hr_shift_versions_created_by_users_id_fk",
           "tableFrom": "hr_shift_versions",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -8424,15 +8424,15 @@
         "hr_special_workday_allowances_rule_version_id_hr_special_workday_rule_versions_id_fk": {
           "name": "hr_special_workday_allowances_rule_version_id_hr_special_workday_rule_versions_id_fk",
           "tableFrom": "hr_special_workday_allowances",
-          "tableTo": "hr_special_workday_rule_versions",
           "columnsFrom": [
             "rule_version_id"
           ],
+          "tableTo": "hr_special_workday_rule_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -8584,54 +8584,54 @@
         "hr_special_workday_assignments_rule_version_id_hr_special_workday_rule_versions_id_fk": {
           "name": "hr_special_workday_assignments_rule_version_id_hr_special_workday_rule_versions_id_fk",
           "tableFrom": "hr_special_workday_assignments",
-          "tableTo": "hr_special_workday_rule_versions",
           "columnsFrom": [
             "rule_version_id"
           ],
+          "tableTo": "hr_special_workday_rule_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_special_workday_assignments_employment_id_hr_employments_id_fk": {
           "name": "hr_special_workday_assignments_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_special_workday_assignments",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_special_workday_assignments_worker_id_hr_schedule_workers_id_fk": {
           "name": "hr_special_workday_assignments_worker_id_hr_schedule_workers_id_fk",
           "tableFrom": "hr_special_workday_assignments",
-          "tableTo": "hr_schedule_workers",
           "columnsFrom": [
             "worker_id"
           ],
+          "tableTo": "hr_schedule_workers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_special_workday_assignments_applied_by_users_id_fk": {
           "name": "hr_special_workday_assignments_applied_by_users_id_fk",
           "tableFrom": "hr_special_workday_assignments",
-          "tableTo": "users",
           "columnsFrom": [
             "applied_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -8770,28 +8770,28 @@
         "hr_special_workday_rule_versions_rule_id_hr_special_workday_rules_id_fk": {
           "name": "hr_special_workday_rule_versions_rule_id_hr_special_workday_rules_id_fk",
           "tableFrom": "hr_special_workday_rule_versions",
-          "tableTo": "hr_special_workday_rules",
           "columnsFrom": [
             "rule_id"
           ],
+          "tableTo": "hr_special_workday_rules",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_special_workday_rule_versions_created_by_users_id_fk": {
           "name": "hr_special_workday_rule_versions_created_by_users_id_fk",
           "tableFrom": "hr_special_workday_rule_versions",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -8881,15 +8881,15 @@
         "hr_special_workday_rules_created_by_users_id_fk": {
           "name": "hr_special_workday_rules_created_by_users_id_fk",
           "tableFrom": "hr_special_workday_rules",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -8906,6 +8906,329 @@
         "ck_hr_special_workday_rules_revision": {
           "name": "ck_hr_special_workday_rules_revision",
           "value": "\"hr_special_workday_rules\".\"revision\" > 0"
+        }
+      }
+    },
+    "hr_bonus_allocations": {
+      "name": "hr_bonus_allocations",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "bonus_pool_id": {
+          "name": "bonus_pool_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "employment_id": {
+          "name": "employment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "weight_units": {
+          "name": "weight_units",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scheduled_days": {
+          "name": "scheduled_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revenue_minor": {
+          "name": "revenue_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "amount_minor": {
+          "name": "amount_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rounding_adjustment_minor": {
+          "name": "rounding_adjustment_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "explanation_json": {
+          "name": "explanation_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        }
+      },
+      "indexes": {
+        "idx_hr_bonus_allocations_pool_employment": {
+          "name": "idx_hr_bonus_allocations_pool_employment",
+          "columns": [
+            "bonus_pool_id",
+            "employment_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "hr_bonus_allocations_bonus_pool_id_hr_bonus_pools_id_fk": {
+          "name": "hr_bonus_allocations_bonus_pool_id_hr_bonus_pools_id_fk",
+          "tableFrom": "hr_bonus_allocations",
+          "columnsFrom": [
+            "bonus_pool_id"
+          ],
+          "tableTo": "hr_bonus_pools",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "hr_bonus_allocations_employment_id_hr_employments_id_fk": {
+          "name": "hr_bonus_allocations_employment_id_hr_employments_id_fk",
+          "tableFrom": "hr_bonus_allocations",
+          "columnsFrom": [
+            "employment_id"
+          ],
+          "tableTo": "hr_employments",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_bonus_allocations_weight": {
+          "name": "ck_hr_bonus_allocations_weight",
+          "value": "\"hr_bonus_allocations\".\"weight_units\" > 0"
+        },
+        "ck_hr_bonus_allocations_days": {
+          "name": "ck_hr_bonus_allocations_days",
+          "value": "\"hr_bonus_allocations\".\"scheduled_days\" >= 0"
+        },
+        "ck_hr_bonus_allocations_revenue": {
+          "name": "ck_hr_bonus_allocations_revenue",
+          "value": "\"hr_bonus_allocations\".\"revenue_minor\" >= 0"
+        },
+        "ck_hr_bonus_allocations_amount": {
+          "name": "ck_hr_bonus_allocations_amount",
+          "value": "\"hr_bonus_allocations\".\"amount_minor\" >= 0"
+        }
+      }
+    },
+    "hr_bonus_performance_snapshots": {
+      "name": "hr_bonus_performance_snapshots",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "employment_id": {
+          "name": "employment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "period_start": {
+          "name": "period_start",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "period_end": {
+          "name": "period_end",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "amount_minor": {
+          "name": "amount_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_ref": {
+          "name": "source_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provenance_json": {
+          "name": "provenance_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_hr_bonus_performance_scope_period": {
+          "name": "idx_hr_bonus_performance_scope_period",
+          "columns": [
+            "scope_id",
+            "period_start",
+            "period_end"
+          ],
+          "isUnique": false
+        },
+        "idx_hr_bonus_performance_employment_period": {
+          "name": "idx_hr_bonus_performance_employment_period",
+          "columns": [
+            "employment_id",
+            "period_start",
+            "period_end"
+          ],
+          "isUnique": false
+        },
+        "idx_hr_bonus_performance_source": {
+          "name": "idx_hr_bonus_performance_source",
+          "columns": [
+            "scope_id",
+            "employment_id",
+            "period_start",
+            "period_end",
+            "source_ref"
+          ],
+          "isUnique": true
+        },
+        "idx_hr_bonus_performance_idempotency": {
+          "name": "idx_hr_bonus_performance_idempotency",
+          "columns": [
+            "idempotency_key"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "hr_bonus_performance_snapshots_scope_id_scopes_id_fk": {
+          "name": "hr_bonus_performance_snapshots_scope_id_scopes_id_fk",
+          "tableFrom": "hr_bonus_performance_snapshots",
+          "columnsFrom": [
+            "scope_id"
+          ],
+          "tableTo": "scopes",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "hr_bonus_performance_snapshots_employment_id_hr_employments_id_fk": {
+          "name": "hr_bonus_performance_snapshots_employment_id_hr_employments_id_fk",
+          "tableFrom": "hr_bonus_performance_snapshots",
+          "columnsFrom": [
+            "employment_id"
+          ],
+          "tableTo": "hr_employments",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "hr_bonus_performance_snapshots_created_by_users_id_fk": {
+          "name": "hr_bonus_performance_snapshots_created_by_users_id_fk",
+          "tableFrom": "hr_bonus_performance_snapshots",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "tableTo": "users",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_bonus_performance_period": {
+          "name": "ck_hr_bonus_performance_period",
+          "value": "\"hr_bonus_performance_snapshots\".\"period_end\" > \"hr_bonus_performance_snapshots\".\"period_start\""
+        },
+        "ck_hr_bonus_performance_amount": {
+          "name": "ck_hr_bonus_performance_amount",
+          "value": "\"hr_bonus_performance_snapshots\".\"amount_minor\" >= 0"
+        },
+        "ck_hr_bonus_performance_kind": {
+          "name": "ck_hr_bonus_performance_kind",
+          "value": "\"hr_bonus_performance_snapshots\".\"source_kind\" IN ('manual', 'report')"
+        },
+        "ck_hr_bonus_performance_idempotency": {
+          "name": "ck_hr_bonus_performance_idempotency",
+          "value": "length(trim(\"hr_bonus_performance_snapshots\".\"idempotency_key\")) > 0"
+        },
+        "ck_hr_bonus_performance_provenance": {
+          "name": "ck_hr_bonus_performance_provenance",
+          "value": "length(\"hr_bonus_performance_snapshots\".\"provenance_json\") <= 10000"
         }
       }
     },
@@ -8971,15 +9294,15 @@
         "hr_bonus_policies_created_by_users_id_fk": {
           "name": "hr_bonus_policies_created_by_users_id_fk",
           "tableFrom": "hr_bonus_policies",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -9083,41 +9406,41 @@
         "hr_bonus_policy_members_policy_version_id_hr_bonus_policy_versions_id_fk": {
           "name": "hr_bonus_policy_members_policy_version_id_hr_bonus_policy_versions_id_fk",
           "tableFrom": "hr_bonus_policy_members",
-          "tableTo": "hr_bonus_policy_versions",
           "columnsFrom": [
             "policy_version_id"
           ],
+          "tableTo": "hr_bonus_policy_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_bonus_policy_members_employment_id_hr_employments_id_fk": {
           "name": "hr_bonus_policy_members_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_bonus_policy_members",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_bonus_policy_members_created_by_users_id_fk": {
           "name": "hr_bonus_policy_members_created_by_users_id_fk",
           "tableFrom": "hr_bonus_policy_members",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -9180,41 +9503,41 @@
         "hr_bonus_policy_version_scopes_policy_version_id_hr_bonus_policy_versions_id_fk": {
           "name": "hr_bonus_policy_version_scopes_policy_version_id_hr_bonus_policy_versions_id_fk",
           "tableFrom": "hr_bonus_policy_version_scopes",
-          "tableTo": "hr_bonus_policy_versions",
           "columnsFrom": [
             "policy_version_id"
           ],
+          "tableTo": "hr_bonus_policy_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_bonus_policy_version_scopes_scope_id_scopes_id_fk": {
           "name": "hr_bonus_policy_version_scopes_scope_id_scopes_id_fk",
           "tableFrom": "hr_bonus_policy_version_scopes",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_bonus_policy_version_scopes_created_by_users_id_fk": {
           "name": "hr_bonus_policy_version_scopes_created_by_users_id_fk",
           "tableFrom": "hr_bonus_policy_version_scopes",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -9356,41 +9679,41 @@
         "hr_bonus_policy_versions_policy_id_hr_bonus_policies_id_fk": {
           "name": "hr_bonus_policy_versions_policy_id_hr_bonus_policies_id_fk",
           "tableFrom": "hr_bonus_policy_versions",
-          "tableTo": "hr_bonus_policies",
           "columnsFrom": [
             "policy_id"
           ],
+          "tableTo": "hr_bonus_policies",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_bonus_policy_versions_scope_id_scopes_id_fk": {
           "name": "hr_bonus_policy_versions_scope_id_scopes_id_fk",
           "tableFrom": "hr_bonus_policy_versions",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_bonus_policy_versions_created_by_users_id_fk": {
           "name": "hr_bonus_policy_versions_created_by_users_id_fk",
           "tableFrom": "hr_bonus_policy_versions",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -9529,28 +9852,28 @@
         "hr_bonus_pools_policy_version_id_hr_bonus_policy_versions_id_fk": {
           "name": "hr_bonus_pools_policy_version_id_hr_bonus_policy_versions_id_fk",
           "tableFrom": "hr_bonus_pools",
-          "tableTo": "hr_bonus_policy_versions",
           "columnsFrom": [
             "policy_version_id"
           ],
+          "tableTo": "hr_bonus_policy_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_bonus_pools_created_by_users_id_fk": {
           "name": "hr_bonus_pools_created_by_users_id_fk",
           "tableFrom": "hr_bonus_pools",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -9575,6 +9898,169 @@
         "ck_hr_bonus_pools_revision": {
           "name": "ck_hr_bonus_pools_revision",
           "value": "\"hr_bonus_pools\".\"revision\" > 0"
+        }
+      }
+    },
+    "hr_bonus_revenue_snapshots": {
+      "name": "hr_bonus_revenue_snapshots",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "bonus_pool_id": {
+          "name": "bonus_pool_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "employment_id": {
+          "name": "employment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_ref": {
+          "name": "source_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "source_start": {
+          "name": "source_start",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_end": {
+          "name": "source_end",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "amount_minor": {
+          "name": "amount_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "captured_at": {
+          "name": "captured_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "provenance_json": {
+          "name": "provenance_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        }
+      },
+      "indexes": {
+        "idx_hr_bonus_revenue_snapshots_source": {
+          "name": "idx_hr_bonus_revenue_snapshots_source",
+          "columns": [
+            "bonus_pool_id",
+            "scope_id",
+            "employment_id",
+            "source_start"
+          ],
+          "isUnique": true
+        },
+        "idx_hr_bonus_revenue_snapshots_period": {
+          "name": "idx_hr_bonus_revenue_snapshots_period",
+          "columns": [
+            "scope_id",
+            "source_start",
+            "source_end"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "hr_bonus_revenue_snapshots_bonus_pool_id_hr_bonus_pools_id_fk": {
+          "name": "hr_bonus_revenue_snapshots_bonus_pool_id_hr_bonus_pools_id_fk",
+          "tableFrom": "hr_bonus_revenue_snapshots",
+          "columnsFrom": [
+            "bonus_pool_id"
+          ],
+          "tableTo": "hr_bonus_pools",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "hr_bonus_revenue_snapshots_scope_id_scopes_id_fk": {
+          "name": "hr_bonus_revenue_snapshots_scope_id_scopes_id_fk",
+          "tableFrom": "hr_bonus_revenue_snapshots",
+          "columnsFrom": [
+            "scope_id"
+          ],
+          "tableTo": "scopes",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "hr_bonus_revenue_snapshots_employment_id_hr_employments_id_fk": {
+          "name": "hr_bonus_revenue_snapshots_employment_id_hr_employments_id_fk",
+          "tableFrom": "hr_bonus_revenue_snapshots",
+          "columnsFrom": [
+            "employment_id"
+          ],
+          "tableTo": "hr_employments",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_bonus_revenue_snapshots_kind": {
+          "name": "ck_hr_bonus_revenue_snapshots_kind",
+          "value": "\"hr_bonus_revenue_snapshots\".\"source_kind\" IN ('manual', 'report')"
+        },
+        "ck_hr_bonus_revenue_snapshots_period": {
+          "name": "ck_hr_bonus_revenue_snapshots_period",
+          "value": "\"hr_bonus_revenue_snapshots\".\"source_end\" > \"hr_bonus_revenue_snapshots\".\"source_start\""
+        },
+        "ck_hr_bonus_revenue_snapshots_provenance": {
+          "name": "ck_hr_bonus_revenue_snapshots_provenance",
+          "value": "length(\"hr_bonus_revenue_snapshots\".\"provenance_json\") <= 10000"
         }
       }
     },
@@ -9660,15 +10146,15 @@
         "hr_payroll_adjustment_items_adjustment_id_hr_payroll_adjustments_id_fk": {
           "name": "hr_payroll_adjustment_items_adjustment_id_hr_payroll_adjustments_id_fk",
           "tableFrom": "hr_payroll_adjustment_items",
-          "tableTo": "hr_payroll_adjustments",
           "columnsFrom": [
             "adjustment_id"
           ],
+          "tableTo": "hr_payroll_adjustments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -9771,41 +10257,41 @@
         "hr_payroll_adjustments_employment_id_hr_employments_id_fk": {
           "name": "hr_payroll_adjustments_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_payroll_adjustments",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payroll_adjustments_created_by_users_id_fk": {
           "name": "hr_payroll_adjustments_created_by_users_id_fk",
           "tableFrom": "hr_payroll_adjustments",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payroll_adjustments_updated_by_users_id_fk": {
           "name": "hr_payroll_adjustments_updated_by_users_id_fk",
           "tableFrom": "hr_payroll_adjustments",
-          "tableTo": "users",
           "columnsFrom": [
             "updated_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -9875,28 +10361,28 @@
         "hr_payroll_closed_employees_employment_id_hr_employments_id_fk": {
           "name": "hr_payroll_closed_employees_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_payroll_closed_employees",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payroll_closed_employees_payroll_run_id_hr_payroll_runs_id_fk": {
           "name": "hr_payroll_closed_employees_payroll_run_id_hr_payroll_runs_id_fk",
           "tableFrom": "hr_payroll_closed_employees",
-          "tableTo": "hr_payroll_runs",
           "columnsFrom": [
             "payroll_run_id"
           ],
+          "tableTo": "hr_payroll_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -10007,15 +10493,15 @@
         "hr_payroll_periods_created_by_users_id_fk": {
           "name": "hr_payroll_periods_created_by_users_id_fk",
           "tableFrom": "hr_payroll_periods",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -10094,28 +10580,28 @@
         "hr_payroll_run_employees_payroll_run_id_hr_payroll_runs_id_fk": {
           "name": "hr_payroll_run_employees_payroll_run_id_hr_payroll_runs_id_fk",
           "tableFrom": "hr_payroll_run_employees",
-          "tableTo": "hr_payroll_runs",
           "columnsFrom": [
             "payroll_run_id"
           ],
+          "tableTo": "hr_payroll_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payroll_run_employees_employment_id_hr_employments_id_fk": {
           "name": "hr_payroll_run_employees_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_payroll_run_employees",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -10303,41 +10789,41 @@
         "hr_payroll_runs_payroll_period_id_hr_payroll_periods_id_fk": {
           "name": "hr_payroll_runs_payroll_period_id_hr_payroll_periods_id_fk",
           "tableFrom": "hr_payroll_runs",
-          "tableTo": "hr_payroll_periods",
           "columnsFrom": [
             "payroll_period_id"
           ],
+          "tableTo": "hr_payroll_periods",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payroll_runs_approved_by_users_id_fk": {
           "name": "hr_payroll_runs_approved_by_users_id_fk",
           "tableFrom": "hr_payroll_runs",
-          "tableTo": "users",
           "columnsFrom": [
             "approved_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payroll_runs_created_by_users_id_fk": {
           "name": "hr_payroll_runs_created_by_users_id_fk",
           "tableFrom": "hr_payroll_runs",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -10467,41 +10953,41 @@
         "hr_payroll_worker_results_payroll_run_id_hr_payroll_runs_id_fk": {
           "name": "hr_payroll_worker_results_payroll_run_id_hr_payroll_runs_id_fk",
           "tableFrom": "hr_payroll_worker_results",
-          "tableTo": "hr_payroll_runs",
           "columnsFrom": [
             "payroll_run_id"
           ],
+          "tableTo": "hr_payroll_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payroll_worker_results_worker_id_hr_schedule_workers_id_fk": {
           "name": "hr_payroll_worker_results_worker_id_hr_schedule_workers_id_fk",
           "tableFrom": "hr_payroll_worker_results",
-          "tableTo": "hr_schedule_workers",
           "columnsFrom": [
             "worker_id"
           ],
+          "tableTo": "hr_schedule_workers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payroll_worker_results_compensation_version_id_hr_worker_compensation_versions_id_fk": {
           "name": "hr_payroll_worker_results_compensation_version_id_hr_worker_compensation_versions_id_fk",
           "tableFrom": "hr_payroll_worker_results",
-          "tableTo": "hr_worker_compensation_versions",
           "columnsFrom": [
             "compensation_version_id"
           ],
+          "tableTo": "hr_worker_compensation_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -10544,28 +11030,28 @@
         "hr_payslip_compensation_links_payslip_id_hr_payslips_id_fk": {
           "name": "hr_payslip_compensation_links_payslip_id_hr_payslips_id_fk",
           "tableFrom": "hr_payslip_compensation_links",
-          "tableTo": "hr_payslips",
           "columnsFrom": [
             "payslip_id"
           ],
+          "tableTo": "hr_payslips",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payslip_compensation_links_compensation_version_id_hr_compensation_versions_id_fk": {
           "name": "hr_payslip_compensation_links_compensation_version_id_hr_compensation_versions_id_fk",
           "tableFrom": "hr_payslip_compensation_links",
-          "tableTo": "hr_compensation_versions",
           "columnsFrom": [
             "compensation_version_id"
           ],
+          "tableTo": "hr_compensation_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -10603,28 +11089,28 @@
         "hr_payslip_insurance_links_payslip_id_hr_payslips_id_fk": {
           "name": "hr_payslip_insurance_links_payslip_id_hr_payslips_id_fk",
           "tableFrom": "hr_payslip_insurance_links",
-          "tableTo": "hr_payslips",
           "columnsFrom": [
             "payslip_id"
           ],
+          "tableTo": "hr_payslips",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payslip_insurance_links_insurance_version_id_hr_insurance_versions_id_fk": {
           "name": "hr_payslip_insurance_links_insurance_version_id_hr_insurance_versions_id_fk",
           "tableFrom": "hr_payslip_insurance_links",
-          "tableTo": "hr_insurance_versions",
           "columnsFrom": [
             "insurance_version_id"
           ],
+          "tableTo": "hr_insurance_versions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -10707,15 +11193,15 @@
         "hr_payslip_lines_payslip_id_hr_payslips_id_fk": {
           "name": "hr_payslip_lines_payslip_id_hr_payslips_id_fk",
           "tableFrom": "hr_payslip_lines",
-          "tableTo": "hr_payslips",
           "columnsFrom": [
             "payslip_id"
           ],
+          "tableTo": "hr_payslips",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -10840,28 +11326,28 @@
         "hr_payslips_payroll_run_id_hr_payroll_runs_id_fk": {
           "name": "hr_payslips_payroll_run_id_hr_payroll_runs_id_fk",
           "tableFrom": "hr_payslips",
-          "tableTo": "hr_payroll_runs",
           "columnsFrom": [
             "payroll_run_id"
           ],
+          "tableTo": "hr_payroll_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "hr_payslips_employment_id_hr_employments_id_fk": {
           "name": "hr_payslips_employment_id_hr_employments_id_fk",
           "tableFrom": "hr_payslips",
-          "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
           ],
+          "tableTo": "hr_employments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -10968,8 +11454,8 @@
           "columns": [
             "expires_at"
           ],
-          "isUnique": false,
-          "where": "\"media_objects\".\"expires_at\" IS NOT NULL"
+          "where": "\"media_objects\".\"expires_at\" IS NOT NULL",
+          "isUnique": false
         },
         "idx_media_objects_namespace_created_at": {
           "name": "idx_media_objects_namespace_created_at",
@@ -11102,41 +11588,41 @@
         "report_bundle_sales_monthly_scope_id_scopes_id_fk": {
           "name": "report_bundle_sales_monthly_scope_id_scopes_id_fk",
           "tableFrom": "report_bundle_sales_monthly",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "report_bundle_sales_monthly_item_id_items_id_fk": {
           "name": "report_bundle_sales_monthly_item_id_items_id_fk",
           "tableFrom": "report_bundle_sales_monthly",
-          "tableTo": "items",
           "columnsFrom": [
             "item_id"
           ],
+          "tableTo": "items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "report_bundle_sales_monthly_report_run_id_report_runs_id_fk": {
           "name": "report_bundle_sales_monthly_report_run_id_report_runs_id_fk",
           "tableFrom": "report_bundle_sales_monthly",
-          "tableTo": "report_runs",
           "columnsFrom": [
             "report_run_id"
           ],
+          "tableTo": "report_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -11246,23 +11732,23 @@
           "columns": [
             "item_id"
           ],
-          "isUnique": false,
-          "where": "\"report_external_products\".\"item_id\" IS NOT NULL"
+          "where": "\"report_external_products\".\"item_id\" IS NOT NULL",
+          "isUnique": false
         }
       },
       "foreignKeys": {
         "report_external_products_item_id_items_id_fk": {
           "name": "report_external_products_item_id_items_id_fk",
           "tableFrom": "report_external_products",
-          "tableTo": "items",
           "columnsFrom": [
             "item_id"
           ],
+          "tableTo": "items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -11361,15 +11847,15 @@
         "report_ingest_issues_report_run_id_report_runs_id_fk": {
           "name": "report_ingest_issues_report_run_id_report_runs_id_fk",
           "tableFrom": "report_ingest_issues",
-          "tableTo": "report_runs",
           "columnsFrom": [
             "report_run_id"
           ],
+          "tableTo": "report_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -11508,41 +11994,41 @@
         "report_item_sales_monthly_scope_id_scopes_id_fk": {
           "name": "report_item_sales_monthly_scope_id_scopes_id_fk",
           "tableFrom": "report_item_sales_monthly",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "report_item_sales_monthly_item_id_items_id_fk": {
           "name": "report_item_sales_monthly_item_id_items_id_fk",
           "tableFrom": "report_item_sales_monthly",
-          "tableTo": "items",
           "columnsFrom": [
             "item_id"
           ],
+          "tableTo": "items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "report_item_sales_monthly_report_run_id_report_runs_id_fk": {
           "name": "report_item_sales_monthly_report_run_id_report_runs_id_fk",
           "tableFrom": "report_item_sales_monthly",
-          "tableTo": "report_runs",
           "columnsFrom": [
             "report_run_id"
           ],
+          "tableTo": "report_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -11680,41 +12166,41 @@
         "report_item_sales_period_scope_id_scopes_id_fk": {
           "name": "report_item_sales_period_scope_id_scopes_id_fk",
           "tableFrom": "report_item_sales_period",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "report_item_sales_period_item_id_items_id_fk": {
           "name": "report_item_sales_period_item_id_items_id_fk",
           "tableFrom": "report_item_sales_period",
-          "tableTo": "items",
           "columnsFrom": [
             "item_id"
           ],
+          "tableTo": "items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "report_item_sales_period_report_run_id_report_runs_id_fk": {
           "name": "report_item_sales_period_report_run_id_report_runs_id_fk",
           "tableFrom": "report_item_sales_period",
-          "tableTo": "report_runs",
           "columnsFrom": [
             "report_run_id"
           ],
+          "tableTo": "report_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -11818,28 +12304,28 @@
         "report_payout_daily_scope_id_scopes_id_fk": {
           "name": "report_payout_daily_scope_id_scopes_id_fk",
           "tableFrom": "report_payout_daily",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "report_payout_daily_report_run_id_report_runs_id_fk": {
           "name": "report_payout_daily_report_run_id_report_runs_id_fk",
           "tableFrom": "report_payout_daily",
-          "tableTo": "report_runs",
           "columnsFrom": [
             "report_run_id"
           ],
+          "tableTo": "report_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -11892,15 +12378,15 @@
         "report_run_reports_report_run_id_report_runs_id_fk": {
           "name": "report_run_reports_report_run_id_report_runs_id_fk",
           "tableFrom": "report_run_reports",
-          "tableTo": "report_runs",
           "columnsFrom": [
             "report_run_id"
           ],
+          "tableTo": "report_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -11954,28 +12440,28 @@
         "report_run_scopes_report_run_id_report_runs_id_fk": {
           "name": "report_run_scopes_report_run_id_report_runs_id_fk",
           "tableFrom": "report_run_scopes",
-          "tableTo": "report_runs",
           "columnsFrom": [
             "report_run_id"
           ],
+          "tableTo": "report_runs",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "report_run_scopes_scope_id_scopes_id_fk": {
           "name": "report_run_scopes_scope_id_scopes_id_fk",
           "tableFrom": "report_run_scopes",
-          "tableTo": "scopes",
           "columnsFrom": [
             "scope_id"
           ],
+          "tableTo": "scopes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -12291,9 +12777,9 @@
   "views": {},
   "enums": {},
   "_meta": {
+    "columns": {},
     "schemas": {},
-    "tables": {},
-    "columns": {}
+    "tables": {}
   },
   "internal": {
     "indexes": {}

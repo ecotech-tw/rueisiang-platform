@@ -96,8 +96,8 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const employee = body.run.employees[0]!;
     expect(employee.employeeUserId).toBe("dev-wang@ecotech.tw");
     expect(employee.lines).toEqual(expect.arrayContaining([
-      // 假資料在西門排了 14 天，出金 18,000,000 起每天遞增 1,500,000，合計 388,500,000；
-      // 扣一次保底 15,000,000 之後乘 5%，就是這個數字。只有一位成員，池全歸他。
+      // 假資料在西門排了 14 天，出金 NT$180,000 起每天遞增 NT$15,000，合計 NT$3,885,000
+      // （= 388,500,000 分）；扣一次保底 15,000,000 分之後乘 5%，就是這個數字。只有一位成員，池全歸他。
       expect.objectContaining({ lineKey: "bonus_1", amountMinor: 18_675_000, explanation: expect.objectContaining({
         bonusKind: "team_performance", performancePeriod: "current_month", rounding: "nearest_ntd_dollar",
         revenueMinor: 388_500_000, poolAmountMinor: 18_675_000, scheduledDays: 14, weightUnits: 1, weightedTotal: 14,
@@ -115,7 +115,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
       { id: "test-multiscope-xinyi-2026-08-02", scheduleVersionId: "dev-schedule-2026-08-v1", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: "dev-shift-booth-day-v1", workDate: "2026-08-02", startsAt: "2026-08-02 02:00:00", endsAt: "2026-08-02 10:00:00", createdBy: "dev-eli-lin@ecotech.tw" },
     ]);
     await db.insert(reportPayoutDaily).values([
-      { scopeId: "cyberbiz:store:demo-xinyi", businessDate: "2026-08-02", recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 10_000_000, updatedByEmail: "eli-lin@ecotech.tw" },
+      { scopeId: "cyberbiz:store:demo-xinyi", businessDate: "2026-08-02", recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 100_000, updatedByEmail: "eli-lin@ecotech.tw" },
     ]);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-payroll-2026-08-wang-multiscope" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
@@ -329,8 +329,8 @@ describe("HR 薪資與櫃點獎金試算", () => {
     // 只留兩天的出金，其餘 12 天的排班就變成「有班但查不到業績」。
     await db.delete(reportPayoutDaily);
     await db.insert(reportPayoutDaily).values([
-      { scopeId: "cyberbiz:store:demo-ximen", businessDate: "2026-08-01", recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 18_000_000, updatedByEmail: "eli-lin@ecotech.tw" },
-      { scopeId: "cyberbiz:store:demo-ximen", businessDate: "2026-08-03", recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 19_500_000, updatedByEmail: "eli-lin@ecotech.tw" },
+      { scopeId: "cyberbiz:store:demo-ximen", businessDate: "2026-08-01", recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 180_000, updatedByEmail: "eli-lin@ecotech.tw" },
+      { scopeId: "cyberbiz:store:demo-ximen", businessDate: "2026-08-03", recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 195_000, updatedByEmail: "eli-lin@ecotech.tw" },
     ]);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-payroll-2026-08-wang-missing-payout" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
