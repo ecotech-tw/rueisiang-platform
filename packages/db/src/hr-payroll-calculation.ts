@@ -6,18 +6,14 @@ import { calculateHrInsuranceEmployeeAmount, listHrInsuranceContributionRules } 
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
 import { listHrSpecialWorkdaysForPayroll } from "./hr-special-workdays.js";
 import { HrError, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
+import { listEffectiveDailyPayouts } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrClockEvents } from "./schema/hr-attendance.js";
 import {
-  hrBonusAllocations,
   hrBonusPolicies,
   hrBonusPolicyMembers,
   hrBonusPolicyVersionScopes,
   hrBonusPolicyVersions,
-  hrBonusPerformanceSnapshots,
-  hrBonusPools,
-  hrBonusRevenueSnapshots,
-  type HrBonusPerformanceSnapshot,
   type HrBonusPolicyMember,
   type HrBonusPolicyVersion,
 } from "./schema/hr-bonus.js";
@@ -50,8 +46,9 @@ import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
 import { scopes } from "./schema/reports.js";
 
 const PPM = 1_000_000;
+/** 獎金規則明定以新臺幣元四捨五入，金額本身以分保存，所以先除 100 再乘回去。 */
+function roundToDollar(rawMinor: number) { return Math.max(0, Math.round(rawMinor / 100) * 100); }
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
-const BONUS_SOURCE_WARNING = "業績是此次請求明確帶入的快照；未自動套用出金表。";
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
 
 type HrPayrollEmployeeFilter = "all" | "general" | "scheduled";
@@ -64,7 +61,6 @@ export interface HrPayrollCalculationInput {
   requestId?: string;
   monthlyDivisorDays?: number;
   standardDailyHours?: number;
-  bonusPoolId?: string;
 }
 
 export interface HrPayrollLineResult {
@@ -102,48 +98,6 @@ export interface HrPayrollRunResult {
 export type HrBonusKind = "team_performance" | "individual_performance";
 export type HrBonusPerformancePeriod = "current_month" | "previous_month";
 
-export interface HrBonusRevenueInput {
-  /** 多 Scope policy 必填；單一 Scope 舊呼叫可省略。 */
-  scopeId?: string;
-  businessDate: string;
-  amountMinor: number;
-  sourceKind?: "manual" | "report";
-  sourceRef?: string;
-  provenance?: Record<string, unknown>;
-}
-
-export interface HrBonusCalculationInput {
-  policyVersionId: string;
-  periodKey: string;
-  revenue: HrBonusRevenueInput[];
-}
-
-interface HrBonusAllocationResult {
-  employmentId: string;
-  employeeNumber: string;
-  employeeName: string;
-  weightUnits: number;
-  scheduledDays: number;
-  revenueMinor: number;
-  amountMinor: number;
-}
-
-export interface HrBonusPoolResult {
-  poolId: string;
-  policyVersionId: string;
-  policyName: string;
-  scopeId: string;
-  scopeName: string;
-  periodKey: string;
-  status: "calculated" | "approved" | "closed" | "failed";
-  poolAmountMinor: number;
-  allocations: HrBonusAllocationResult[];
-  daily: Array<{ scopeId?: string; businessDate: string; revenueMinor: number; bonusMinor: number; scheduled: boolean }>;
-  scopeIds?: string[];
-  scopeNames?: string[];
-  warnings: string[];
-}
-
 function normalizeBonusKind(value: string): HrBonusKind {
   return value === "individual_performance" ? "individual_performance" : "team_performance";
 }
@@ -180,16 +134,6 @@ export interface AssignHrBonusPolicyInput {
   validFrom: string;
   validTo?: string | null;
   weightUnits?: number;
-}
-
-export interface CreateHrBonusPerformanceSnapshotInput {
-  scopeId: string;
-  employeeUserId?: string | null;
-  periodKey: string;
-  amountMinor: number;
-  sourceKind: "manual" | "report";
-  sourceRef: string;
-  provenance?: Record<string, unknown>;
 }
 
 function periodFromKey(periodKey: string): { periodKey: string; start: string; end: string; year: number; month: number } {
@@ -283,7 +227,6 @@ interface PayrollSourceSnapshotInput {
   period: { start: string; end: string; periodKey: string };
   employmentIds: string[];
   workerIds: string[];
-  bonusPoolId?: string;
 }
 
 /**
@@ -300,7 +243,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   const relevantBonusVersionIds = sql`SELECT member_version.policy_version_id FROM hr_bonus_policy_members AS member_version
     WHERE member_version.employment_id IN (${employmentValues})
       AND member_version.valid_from < ${input.period.end}
-      AND (member_version.valid_to IS NULL OR member_version.valid_to > ${input.period.start})${input.bonusPoolId ? sql` UNION SELECT policy_version_id FROM hr_bonus_pools WHERE id=${input.bonusPoolId}` : sql``}`;
+      AND (member_version.valid_to IS NULL OR member_version.valid_to > ${input.period.start})`;
   const relevantBonusScopeIds = sql`SELECT scope_id FROM hr_bonus_policy_versions WHERE id IN (${relevantBonusVersionIds}) UNION SELECT scope_id FROM hr_bonus_policy_version_scopes WHERE policy_version_id IN (${relevantBonusVersionIds})`;
   const sourcePeriod = previousPeriod({ year: Number(input.period.periodKey.slice(0, 4)), month: Number(input.period.periodKey.slice(5, 7)) });
   const periodStartUtc = taipeiMidnightUtc(input.period.start);
@@ -319,7 +262,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     OR EXISTS (SELECT 1 FROM hr_schedule_worker_entries AS selected_worker_entry
       WHERE selected_worker_entry.schedule_version_id = hr_schedule_versions.id
         AND selected_worker_entry.worker_id IN (${sql.join(workerIds.map((id) => sql`${id}`), sql`, `)}))`;
-  const [employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, performanceSnapshots, bonusPools, bonusRevenueSnapshots, bonusAllocations, adjustments, adjustmentItems] = await Promise.all([
+  const [employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployments).where(employmentFilter),
     db.select({ userId: hrEmployees.userId, employeeNumber: hrEmployees.employeeNumber, supervisorUserId: hrEmployees.supervisorUserId, revision: hrEmployees.revision, updatedAt: hrEmployees.updatedAt }).from(hrEmployees).where(sql`${hrEmployees.userId} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
     db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
@@ -347,14 +290,15 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrBonusPolicyVersions).where(sql`${hrBonusPolicyVersions.id} IN (${relevantBonusVersionIds})`),
     db.select().from(hrBonusPolicies).where(sql`${hrBonusPolicies.id} IN (SELECT policy_id FROM hr_bonus_policy_versions WHERE id IN (${relevantBonusVersionIds}))`),
     db.select().from(hrBonusPolicyVersionScopes).where(sql`${hrBonusPolicyVersionScopes.policyVersionId} IN (${relevantBonusVersionIds})`),
-    db.select().from(hrBonusPerformanceSnapshots).where(and(
-      sql`((${hrBonusPerformanceSnapshots.periodStart} = ${input.period.start} AND ${hrBonusPerformanceSnapshots.periodEnd} = ${input.period.end}) OR (${hrBonusPerformanceSnapshots.periodStart} = ${sourcePeriod.start} AND ${hrBonusPerformanceSnapshots.periodEnd} = ${sourcePeriod.end}))`,
-      or(sql`${hrBonusPerformanceSnapshots.employmentId} IS NULL`, inArray(hrBonusPerformanceSnapshots.employmentId, employmentIds)),
-      sql`${hrBonusPerformanceSnapshots.scopeId} IN (${relevantBonusScopeIds})`,
-    )),
-    input.bonusPoolId ? db.select().from(hrBonusPools).where(eq(hrBonusPools.id, input.bonusPoolId)) : Promise.resolve([]),
-    input.bonusPoolId ? db.select().from(hrBonusRevenueSnapshots).where(eq(hrBonusRevenueSnapshots.bonusPoolId, input.bonusPoolId)) : Promise.resolve([]),
-    input.bonusPoolId ? db.select().from(hrBonusAllocations).where(eq(hrBonusAllocations.bonusPoolId, input.bonusPoolId)) : Promise.resolve([]),
+    /*
+     * 獎金的來源是出金表與排班，兩者都要進快照：出金表事後重匯或被人工修訂時，結帳前
+     * 的比對才擋得下來。少了這一段，已試算的獎金會在來源悄悄改變之後照樣結出去。
+     */
+    db.all<{ scopeId: string; businessDate: string; recordOrigin: string; payoutAmount: number }>(sql`SELECT scope_id AS scopeId, business_date AS businessDate, record_origin AS recordOrigin, payout_amount AS payoutAmount FROM report_payout_daily WHERE scope_id IN (${relevantBonusScopeIds}) AND business_date >= ${sourcePeriod.start} AND business_date < ${input.period.end} ORDER BY scope_id, business_date, record_origin`),
+    db.select({ employmentId: hrScheduleEntries.employmentId, scopeId: hrScheduleEntries.scopeId, workDate: hrScheduleEntries.workDate }).from(hrScheduleEntries)
+      .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
+      .where(and(eq(hrScheduleVersions.status, "published"), sql`${hrScheduleEntries.employmentId} IN (SELECT employment_id FROM hr_bonus_policy_members WHERE policy_version_id IN (${relevantBonusVersionIds}))`, sql`${hrScheduleEntries.workDate} >= ${sourcePeriod.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`))
+      .orderBy(asc(hrScheduleEntries.employmentId), asc(hrScheduleEntries.workDate), asc(hrScheduleEntries.scopeId)),
     db.select().from(hrPayrollAdjustments).where(and(eq(hrPayrollAdjustments.effectivePeriodKey, input.period.periodKey), inArray(hrPayrollAdjustments.employmentId, employmentIds))),
     db.select().from(hrPayrollAdjustmentItems).where(sql`${hrPayrollAdjustmentItems.adjustmentId} IN (SELECT id FROM hr_payroll_adjustments WHERE effective_period_key=${input.period.periodKey} AND employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}))`),
   ]);
@@ -364,8 +308,8 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions,
     scheduleEntries: scheduleEntries.map(({ entry }) => entry),
     workerScheduleEntries: workerScheduleEntries.map(({ entry }) => entry),
-    workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, performanceSnapshots,
-    bonusPools, bonusRevenueSnapshots, bonusAllocations, adjustments, adjustmentItems,
+    workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes,
+    bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems,
   });
 }
 
@@ -414,51 +358,97 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
 
 interface AssignedBonusPolicy {
   version: Pick<HrBonusPolicyVersion, "id" | "scopeId" | "bonusKind" | "performancePeriod" | "ratePpm" | "guaranteeMinor"> & { scopeIds: string[] };
-  member: Pick<HrBonusPolicyMember, "id" | "employmentId">;
+  member: Pick<HrBonusPolicyMember, "id" | "employmentId" | "weightUnits">;
   policyName: string;
 }
 
 interface CalculatedAssignedBonus {
   amountMinor: number;
-  sourceAmountMinor: number | null;
-  performanceSnapshotIds: string[];
-  scopeAmounts: Array<{ scopeId: string; amountMinor: number; hasData: boolean }>;
+  poolAmountMinor: number;
+  revenueMinor: number;
+  scheduledDays: number;
+  weightedTotal: number;
+  /** 政策涵蓋的店在來源月份裡，完全沒有出金資料的日期；缺一天就少算一天。 */
+  missingPayoutDates: string[];
   formula: string;
 }
 
+/**
+ * `${scopeId}:${businessDate}`。出金與排班都用同一個鍵，兩邊才對得起來。
+ *
+ * 拆回來一定要用 lastIndexOf：scope id 自己就含冒號（`cyberbiz:store:demo-ximen`），
+ * 用 indexOf 會把店名切成 `cyberbiz`，比對永遠不成立而且獎金安靜地變成 0。
+ */
+function dayKey(scopeId: string, businessDate: string) {
+  return `${scopeId}:${businessDate}`;
+}
+function scopeOfKey(key: string) { return key.slice(0, key.lastIndexOf(":")); }
+function dateOfKey(key: string) { return key.slice(key.lastIndexOf(":") + 1); }
+
+/**
+ * 獎金一律從「出金表的每日金額 × 已發布排班」算出來，沒有第二條路。
+ *
+ * 團體績效：政策綁的那些店、當月**有人排班**的日子，出金加總扣一次保底再乘比例得到池；
+ * 池再按「自己的排班天數 × 權重 ÷ 全體加權天數」分給成員。
+ * 個人績效：只看**這個人自己**排到的 (店, 日期)，同樣扣保底乘比例，不需要分配。
+ *
+ * 兩者的輸入完全一樣，差別只在「算誰的日子」與「要不要分」。以前個人績效另外走一份
+ * 月結業績快照，權重與排班天數都不看，同一個政策從兩個入口算出來的金額不一樣——
+ * 那份已經整個移除。
+ */
 function calculateAssignedBonus(
   assignment: AssignedBonusPolicy,
-  employee: { employmentId: string },
   period: { start: string; end: string; year: number; month: number },
-  performanceSnapshots: HrBonusPerformanceSnapshot[],
+  payouts: ReadonlyMap<string, number>,
+  scheduledDaysByEmployment: ReadonlyMap<string, ReadonlySet<string>>,
+  policyMembers: ReadonlyArray<{ employmentId: string; weightUnits: number }>,
 ): CalculatedAssignedBonus {
   const version = assignment.version;
   const sourcePeriod = version.performancePeriod === "previous_month" ? previousPeriod(period) : { start: period.start, end: period.end };
-  const needsPerformance = true;
-  const targetEmploymentId = version.bonusKind === "individual_performance" ? employee.employmentId : null;
   const scopeIds = version.scopeIds.length ? version.scopeIds : [version.scopeId];
-  const scopeAmounts = scopeIds.map((scopeId) => {
-    const sources = needsPerformance ? performanceSnapshots.filter((snapshot) =>
-      snapshot.scopeId === scopeId && snapshot.employmentId === targetEmploymentId &&
-      snapshot.periodStart === sourcePeriod.start && snapshot.periodEnd === sourcePeriod.end,
-    ) : [];
-    return { scopeId, amountMinor: sources.reduce((sum, snapshot) => sum + snapshot.amountMinor, 0), hasData: sources.length > 0 };
-  });
-  const sources = needsPerformance ? performanceSnapshots.filter((snapshot) =>
-    scopeIds.includes(snapshot.scopeId) && snapshot.employmentId === targetEmploymentId &&
-    snapshot.periodStart === sourcePeriod.start && snapshot.periodEnd === sourcePeriod.end,
-  ) : [];
-  const sourceAmountMinor = needsPerformance && sources.length ? sources.reduce((sum, snapshot) => sum + snapshot.amountMinor, 0) : null;
-  const guaranteeMinor = version.guaranteeMinor;
-  const rawAmountMinor = Math.max(0, (sourceAmountMinor ?? 0) - guaranteeMinor) * version.ratePpm / PPM;
-  // 金額以分保存，但獎金規則明定以新臺幣元四捨五入，最後才回到分。
-  const amountMinor = Math.max(0, Math.round(rawAmountMinor / 100) * 100);
+  const inSourcePeriod = (key: string) => dateOfKey(key) >= sourcePeriod.start && dateOfKey(key) < sourcePeriod.end;
+  const ownDays = [...(scheduledDaysByEmployment.get(assignment.member.employmentId) ?? [])]
+    .filter((key) => inSourcePeriod(key) && scopeIds.includes(scopeOfKey(key)));
+
+  // 個人績效：業績就是自己站過的那些日子，不進池也不分配。
+  if (version.bonusKind === "individual_performance") {
+    const revenueMinor = ownDays.reduce((sum, key) => sum + (payouts.get(key) ?? 0), 0);
+    const amountMinor = roundToDollar(Math.max(0, revenueMinor - version.guaranteeMinor) * version.ratePpm / PPM);
+    return {
+      amountMinor, poolAmountMinor: amountMinor, revenueMinor, scheduledDays: ownDays.length, weightedTotal: assignment.member.weightUnits,
+      missingPayoutDates: ownDays.filter((key) => !payouts.has(key)).map(dateOfKey).sort(),
+      formula: "max(0, 本人排班日出金 - 保底) × 比例",
+    };
+  }
+
+  // 團體績效：合格日是「政策的店、當月有任何成員排班」的那些日子。
+  const eligibleDays = new Set<string>();
+  for (const member of policyMembers) {
+    for (const key of scheduledDaysByEmployment.get(member.employmentId) ?? []) {
+      if (inSourcePeriod(key) && scopeIds.includes(scopeOfKey(key))) eligibleDays.add(key);
+    }
+  }
+  const revenueMinor = [...eligibleDays].reduce((sum, key) => sum + (payouts.get(key) ?? 0), 0);
+  const poolAmountMinor = roundToDollar(Math.max(0, revenueMinor - version.guaranteeMinor) * version.ratePpm / PPM);
+  const weighted = policyMembers.map((member) => ({
+    employmentId: member.employmentId,
+    weightUnits: member.weightUnits,
+    days: [...(scheduledDaysByEmployment.get(member.employmentId) ?? [])].filter((key) => inSourcePeriod(key) && scopeIds.includes(scopeOfKey(key))).length,
+  }));
+  const weightedTotal = weighted.reduce((sum, item) => sum + item.days * item.weightUnits, 0);
+  const own = weighted.find((item) => item.employmentId === assignment.member.employmentId);
+  /*
+   * 餘數給加權最高的那一位，不是隨便挑第一個：Math.floor 之後全體加起來會比池少幾分，
+   * 那幾分必須有歸屬，否則池金額與實際發出去的錢對不起來。
+   */
+  const top = [...weighted].sort((a, b) => b.days * b.weightUnits - a.days * a.weightUnits || a.employmentId.localeCompare(b.employmentId))[0];
+  const shareMinor = weightedTotal && own ? Math.floor(poolAmountMinor * own.days * own.weightUnits / weightedTotal) : 0;
+  const remainder = weightedTotal ? poolAmountMinor - weighted.reduce((sum, item) => sum + Math.floor(poolAmountMinor * item.days * item.weightUnits / weightedTotal), 0) : 0;
   return {
-    amountMinor,
-    sourceAmountMinor,
-    performanceSnapshotIds: sources.map((source) => source.id),
-    scopeAmounts,
-    formula: "max(0, sum(selected scopes performance) - guarantee) × rate",
+    amountMinor: shareMinor + (top && own && top.employmentId === own.employmentId ? remainder : 0),
+    poolAmountMinor, revenueMinor, scheduledDays: own?.days ?? 0, weightedTotal,
+    missingPayoutDates: [...eligibleDays].filter((key) => !payouts.has(key)).map(dateOfKey).sort(),
+    formula: "max(0, 排班日出金 - 保底) × 比例 × 本人排班天數 × 權重 ÷ 全體加權天數",
   };
 }
 
@@ -576,18 +566,6 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`,
     sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`,
   ));
-  let bonusAllocations: Array<typeof hrBonusAllocations.$inferSelect> = [];
-  if (input.bonusPoolId) {
-    const [bonusPool] = await db.select({ periodStart: hrBonusPools.periodStart, periodEnd: hrBonusPools.periodEnd, status: hrBonusPools.status, policyActive: hrBonusPolicies.active, policyValidFrom: hrBonusPolicyVersions.validFrom, policyValidTo: hrBonusPolicyVersions.validTo })
-      .from(hrBonusPools).innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPools.policyVersionId)).innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
-      .where(eq(hrBonusPools.id, input.bonusPoolId)).limit(1);
-    if (!bonusPool) throw new HrError(404, "找不到獎金池。 ");
-    if (bonusPool.periodStart !== period.start || bonusPool.periodEnd !== period.end) throw new HrError(400, "獎金池期間必須與薪資月份完全一致。 ");
-    if (bonusPool.status === "failed") throw new HrError(409, "獎金池已失敗，不能套用到薪資。 ");
-    if (!bonusPool.policyActive) throw new HrError(409, "獎金池所引用的獎金已停用，請重新計算。 ");
-    if (bonusPool.policyValidFrom >= period.end || (bonusPool.policyValidTo !== null && bonusPool.policyValidTo <= period.start)) throw new HrError(400, "獎金池所引用的獎金不適用於指定月份。 ");
-    bonusAllocations = await db.select().from(hrBonusAllocations).where(eq(hrBonusAllocations.bonusPoolId, input.bonusPoolId));
-  }
   const bonusAssignmentRows = await db.select({
     versionId: sql<string>`${hrBonusPolicyVersions.id}`.as("bonus_assignment_version_id"),
     scopeId: sql<string>`${hrBonusPolicyVersions.scopeId}`.as("bonus_assignment_scope_id"),
@@ -596,6 +574,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ratePpm: sql<number>`${hrBonusPolicyVersions.ratePpm}`.as("bonus_assignment_rate"),
     guaranteeMinor: sql<number>`${hrBonusPolicyVersions.guaranteeMinor}`.as("bonus_assignment_guarantee"),
     memberId: sql<string>`${hrBonusPolicyMembers.id}`.as("bonus_assignment_member_id"),
+    weightUnits: sql<number>`${hrBonusPolicyMembers.weightUnits}`.as("bonus_assignment_weight"),
     employmentId: sql<string>`${hrBonusPolicyMembers.employmentId}`.as("bonus_assignment_employment_id"),
     policyName: sql<string>`${hrBonusPolicies.name}`.as("bonus_assignment_name"),
   }).from(hrBonusPolicyMembers)
@@ -613,7 +592,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   for (const row of bonusScopeRows) bonusScopesByVersion.set(row.policyVersionId, [...(bonusScopesByVersion.get(row.policyVersionId) ?? []), row.scopeId]);
   const bonusAssignments: AssignedBonusPolicy[] = bonusAssignmentRows.map((row) => ({
     version: { id: row.versionId, scopeId: row.scopeId, scopeIds: bonusScopesByVersion.get(row.versionId) ?? [row.scopeId], bonusKind: normalizeBonusKind(row.bonusKind), performancePeriod: row.performancePeriod, ratePpm: row.ratePpm, guaranteeMinor: row.guaranteeMinor },
-    member: { id: row.memberId, employmentId: row.employmentId },
+    member: { id: row.memberId, employmentId: row.employmentId, weightUnits: row.weightUnits },
     policyName: row.policyName,
   }));
   // D1 的多個讀取不是一個長交易；重新擷取來源並比對，避免試算讀到來源異動前後的混合版本。
@@ -621,13 +600,47 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     period,
     employmentIds: employees.map((employee) => employee.employmentId),
     workerIds: [...new Set(scheduledWorkerRows.map((row) => row.workerId))],
-    bonusPoolId: input.bonusPoolId,
   });
   const previous = previousPeriod(period);
-  const performanceSnapshots = await db.select().from(hrBonusPerformanceSnapshots).where(and(
-    sql`${hrBonusPerformanceSnapshots.periodStart} >= ${previous.start}`,
-    sql`${hrBonusPerformanceSnapshots.periodEnd} <= ${period.end}`,
-  ));
+  /*
+   * 獎金的兩個輸入：政策涵蓋的店在來源月份的每日出金，以及**全體成員**的已發布排班。
+   *
+   * 排班要撈全體成員，不能只撈這批要結算的員工：部分結算時同隊的人可能不在這一批，
+   * 少算他們的天數會把分母變小，留在批次裡的人就會分到比應得更多的錢。
+   * 出金與排班都涵蓋前一個月，因為政策可以設定以前月業績計算。
+   */
+  const bonusScopeIds = [...new Set(bonusAssignments.flatMap((item) => item.version.scopeIds.length ? item.version.scopeIds : [item.version.scopeId]))];
+  const bonusMemberIds = [...new Set(bonusAssignments.map((item) => item.member.employmentId))];
+  const [payoutRows, bonusScheduleRows] = await Promise.all([
+    listEffectiveDailyPayouts(db, { scopeIds: bonusScopeIds, start: previous.start, end: period.end }),
+    bonusMemberIds.length
+      ? db.select({ employmentId: hrScheduleEntries.employmentId, scopeId: hrScheduleEntries.scopeId, workDate: hrScheduleEntries.workDate }).from(hrScheduleEntries)
+        .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
+        .where(and(
+          eq(hrScheduleVersions.status, "published"),
+          // 一個月可能有多個已發布版本，只認每個月份編號最大的那一版。
+          sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest.version_number) FROM hr_schedule_versions AS latest WHERE latest.period_start = hr_schedule_versions.period_start AND latest.period_end = hr_schedule_versions.period_end AND latest.status = 'published')`,
+          inArray(hrScheduleEntries.employmentId, bonusMemberIds),
+          sql`${hrScheduleEntries.workDate} >= ${previous.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
+        ))
+      : Promise.resolve([]),
+  ]);
+  /*
+   * 出金表存的是**新臺幣元**，薪資一律是分。換算只能在這一個邊界做：listEffectiveDailyPayouts
+   * 也給報表用，報表要的是元。漏掉這個 ×100，獎金會安靜地少 100 倍——而且只要測試資料
+   * 也寫成分，測試會跟著一起錯而照樣是綠的。
+   */
+  const payouts = new Map<string, number>(payoutRows.map((row) => [dayKey(row.scopeId, row.businessDate), row.payoutAmount * 100]));
+  const bonusScheduledDays = new Map<string, Set<string>>();
+  for (const row of bonusScheduleRows) {
+    const days = bonusScheduledDays.get(row.employmentId) ?? new Set<string>();
+    days.add(dayKey(row.scopeId, row.workDate));
+    bonusScheduledDays.set(row.employmentId, days);
+  }
+  const membersByVersion = new Map<string, Array<{ employmentId: string; weightUnits: number }>>();
+  for (const item of bonusAssignments) {
+    membersByVersion.set(item.version.id, [...(membersByVersion.get(item.version.id) ?? []), { employmentId: item.member.employmentId, weightUnits: item.member.weightUnits }]);
+  }
   const calendarDays = dateRange(period.start, period.end);
   const statementRows: Array<{ employee: HrPayrollEmployeeResult; payslipId: string; lines: HrPayrollLineResult[]; compensationIds: string[]; insuranceIds: string[] }> = [];
   const calculationWarnings = new Set<string>();
@@ -761,12 +774,16 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
 
     let bonusLineNumber = 0;
     for (const assignment of bonusAssignments.filter((item) => item.member.employmentId === employee.employmentId)) {
-      const bonus = calculateAssignedBonus(assignment, employee, period, performanceSnapshots);
-      const missingScopes = bonus.scopeAmounts.filter((scope) => !scope.hasData).map((scope) => scope.scopeId);
-      if (bonus.sourceAmountMinor === null) {
-        calculationWarnings.add(`${employee.employeeName} 的「${assignment.policyName}」找不到${assignment.version.performancePeriod === "previous_month" ? "前月" : "當月"}業績快照，獎金為 0。`);
-      } else if (missingScopes.length) {
-        calculationWarnings.add(`${employee.employeeName} 的「${assignment.policyName}」有 ${missingScopes.length} 個 Scope 缺少${assignment.version.performancePeriod === "previous_month" ? "前月" : "當月"}業績，缺少部分按 0 計算。`);
+      const bonus = calculateAssignedBonus(assignment, period, payouts, bonusScheduledDays, membersByVersion.get(assignment.version.id) ?? []);
+      const monthLabel = assignment.version.performancePeriod === "previous_month" ? "前月" : "當月";
+      /*
+       * 缺出金資料不是「獎金剛好是 0」，是「算不出來」。這兩件事在薪資單上長得一樣，
+       * 所以一定要講出來——出金表還沒匯入就發薪，少的錢沒有人會主動回來補。
+       */
+      if (!bonus.scheduledDays) {
+        calculationWarnings.add(`${employee.employeeName} 的「${assignment.policyName}」在${monthLabel}沒有涵蓋通路的已發布排班，獎金為 0。`);
+      } else if (bonus.missingPayoutDates.length) {
+        calculationWarnings.add(`${employee.employeeName} 的「${assignment.policyName}」有 ${bonus.missingPayoutDates.length} 天缺少${monthLabel}出金資料（${bonus.missingPayoutDates.slice(0, 3).join("、")}${bonus.missingPayoutDates.length > 3 ? " 等" : ""}），這幾天按 0 計算。請先完成出金表匯入再重新試算。`);
       }
       if (bonus.amountMinor > 0) {
         bonusLineNumber += 1;
@@ -776,9 +793,12 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           policyMemberId: assignment.member.id,
           bonusKind: assignment.version.bonusKind,
           performancePeriod: assignment.version.performancePeriod,
-          performanceSnapshotIds: bonus.performanceSnapshotIds,
-          scopeAmounts: bonus.scopeAmounts,
-          sourceAmountMinor: bonus.sourceAmountMinor,
+          revenueMinor: bonus.revenueMinor,
+          poolAmountMinor: bonus.poolAmountMinor,
+          scheduledDays: bonus.scheduledDays,
+          weightUnits: assignment.member.weightUnits,
+          weightedTotal: bonus.weightedTotal,
+          missingPayoutDates: bonus.missingPayoutDates,
           guaranteeMinor: assignment.version.guaranteeMinor,
           ratePpm: assignment.version.ratePpm,
           formula: bonus.formula,
@@ -835,9 +855,6 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     }
     if (leaveDeduction > 0) lines.push({ lineKey: "unpaid_leave", direction: "deduction", amountMinor: leaveDeduction, explanation: { rule: monthlyLeaves.length ? "月度人工扣款（整數元）" : "使用請假提交時凍結的 payRatePpm", period: input.periodKey, entryCount: monthlyLeaves.length } });
 
-    const bonus = bonusAllocations.find((row) => row.employmentId === employee.employmentId);
-    if (bonus && bonus.amountMinor > 0) lines.push({ lineKey: "booth_bonus", direction: "earning", amountMinor: bonus.amountMinor, explanation: { bonusPoolId: input.bonusPoolId } });
-
     const employeeClocks = clocks.filter((row) => row.employmentId === employee.employmentId);
     const attendanceDays = new Set(employeeClocks.map((row) => taipeiDate(row.occurredAt)));
     const missingPunchDays = calendarDays.filter((day) => employeeClocks.filter((row) => taipeiDate(row.occurredAt) === day).length === 1);
@@ -877,7 +894,6 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     period,
     employmentIds: employees.map((employee) => employee.employmentId),
     workerIds: [...workerRowsById.keys()],
-    bonusPoolId: input.bonusPoolId,
   });
   if (sourceSnapshotJson !== sourceSnapshotBeforeCalculation) throw new HrError(409, "薪資來源在試算期間發生變更，請重新試算後再試。 ");
   const calculationInputJson = JSON.stringify({
@@ -887,7 +903,6 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     attendanceMode: input.attendanceMode ?? "all",
     monthlyDivisorDays,
     standardDailyHours,
-    bonusPoolId: input.bonusPoolId ?? null,
   });
   const [latest] = await db.select({ value: sql<number>`coalesce(max(${hrPayrollRuns.versionNumber}), 0)` }).from(hrPayrollRuns).where(eq(hrPayrollRuns.payrollPeriodId, `payroll-period-${period.periodKey}`));
   const runId = crypto.randomUUID();
@@ -1194,214 +1209,6 @@ export async function assignHrBonusPolicyMember(db: Database, input: AssignHrBon
   return { id: assignmentId, employmentId: employment.id };
 }
 
-export async function createHrBonusPerformanceSnapshot(db: Database, input: CreateHrBonusPerformanceSnapshotInput, actor: HrActor) {
-  const period = periodFromKey(input.periodKey);
-  await ensureBonusScopes(db, [input.scopeId]);
-  ensureMoney(input.amountMinor, "業績金額");
-  if (input.sourceRef.length > 200) throw new HrError(400, "業績來源識別碼不可超過 200 字。 ");
-  let employmentId: string | null = null;
-  if (input.employeeUserId) {
-    const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.employeeUserId, input.employeeUserId), sql`${hrEmployments.hiredOn} < ${period.end}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${period.start})`)).orderBy(desc(hrEmployments.hiredOn)).limit(1);
-    if (!employment) throw new HrError(404, "找不到業績所屬月份的任職紀錄。 ");
-    employmentId = employment.id;
-  }
-  const idempotencyKey = JSON.stringify([input.scopeId, employmentId ?? "team", period.start, period.end, input.sourceRef]);
-  const [duplicate] = await db.select({ id: hrBonusPerformanceSnapshots.id }).from(hrBonusPerformanceSnapshots)
-    .where(eq(hrBonusPerformanceSnapshots.idempotencyKey, idempotencyKey)).limit(1);
-  if (duplicate) throw new HrError(409, "相同通路、員工、月份與來源的業績快照已存在。 ");
-  const id = crypto.randomUUID();
-  try {
-    await db.batch(batchStatements([
-      db.insert(hrBonusPerformanceSnapshots).values({ id, scopeId: input.scopeId, employmentId, periodStart: period.start, periodEnd: period.end, amountMinor: input.amountMinor, sourceKind: input.sourceKind, sourceRef: input.sourceRef, idempotencyKey, provenanceJson: JSON.stringify(input.provenance ?? {}), createdBy: actor.id }),
-      db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: id, source: "hr", eventType: "bonus_performance_snapshot_created", summary: "業績快照建立", actor, payload: { scopeId: input.scopeId, employmentId, periodKey: input.periodKey, sourceKind: input.sourceKind } })),
-    ]));
-  } catch (error) {
-    if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "相同通路、員工、月份與來源的業績快照已存在。 ");
-    throw error;
-  }
-  return { id, scopeId: input.scopeId, employmentId, periodKey: input.periodKey };
-}
-
-export async function listHrBonusPerformanceSnapshots(db: Database, periodKey?: string) {
-  const period = periodKey ? periodFromKey(periodKey) : undefined;
-  const condition = period ? and(eq(hrBonusPerformanceSnapshots.periodStart, period.start), eq(hrBonusPerformanceSnapshots.periodEnd, period.end)) : undefined;
-  return db.select({ snapshot: hrBonusPerformanceSnapshots, scopeName: scopes.name, employeeUserId: hrEmployments.employeeUserId, employeeName: displayName }).from(hrBonusPerformanceSnapshots)
-    .innerJoin(scopes, eq(scopes.id, hrBonusPerformanceSnapshots.scopeId))
-    .leftJoin(hrEmployments, eq(hrEmployments.id, hrBonusPerformanceSnapshots.employmentId))
-    .leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(condition).orderBy(desc(hrBonusPerformanceSnapshots.periodStart), desc(hrBonusPerformanceSnapshots.createdAt));
-}
-
-async function getBonusPoolResult(db: Database, poolId: string, warnings: string[] = []): Promise<HrBonusPoolResult> {
-  const [row] = await db.select({
-    poolId: sql<string>`${hrBonusPools.id}`.as("bonus_pool_id"),
-    policyVersionId: sql<string>`${hrBonusPolicyVersions.id}`.as("policy_version_id"),
-    scopeId: sql<string>`${hrBonusPolicyVersions.scopeId}`.as("bonus_scope_id"),
-    policyName: sql<string>`${hrBonusPolicies.name}`.as("bonus_policy_name"),
-    scopeName: sql<string>`${scopes.name}`.as("bonus_scope_name"),
-    periodStart: sql<string>`${hrBonusPools.periodStart}`.as("bonus_period_start"),
-    periodEnd: sql<string>`${hrBonusPools.periodEnd}`.as("bonus_period_end"),
-    status: sql<string>`${hrBonusPools.status}`.as("bonus_status"),
-    poolAmountMinor: sql<number>`${hrBonusPools.poolAmountMinor}`.as("bonus_pool_amount_minor"),
-    guaranteeMinor: sql<number>`${hrBonusPolicyVersions.guaranteeMinor}`.as("bonus_guarantee_minor"),
-    ratePpm: sql<number>`${hrBonusPolicyVersions.ratePpm}`.as("bonus_rate_ppm"),
-  }).from(hrBonusPools)
-    .innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPools.policyVersionId))
-    .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
-    .innerJoin(scopes, eq(scopes.id, hrBonusPolicyVersions.scopeId))
-    .where(eq(hrBonusPools.id, poolId)).limit(1);
-  if (!row) throw new HrError(404, "找不到獎金池。 ");
-  const selectedScopeRows = await db.select({ scopeId: hrBonusPolicyVersionScopes.scopeId, scopeName: scopes.name }).from(hrBonusPolicyVersionScopes)
-    .innerJoin(scopes, eq(scopes.id, hrBonusPolicyVersionScopes.scopeId)).where(eq(hrBonusPolicyVersionScopes.policyVersionId, row.policyVersionId));
-  const selectedScopes = selectedScopeRows.length ? selectedScopeRows : [{ scopeId: row.scopeId, scopeName: row.scopeName }];
-  const allocations = await db.select({ allocation: hrBonusAllocations, employeeNumber: hrEmployees.employeeNumber, employeeName: displayName }).from(hrBonusAllocations)
-    .innerJoin(hrEmployments, eq(hrEmployments.id, hrBonusAllocations.employmentId))
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
-    .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(eq(hrBonusAllocations.bonusPoolId, poolId)).orderBy(asc(hrEmployees.employeeNumber));
-  const snapshots = await db.select().from(hrBonusRevenueSnapshots).where(eq(hrBonusRevenueSnapshots.bonusPoolId, poolId)).orderBy(asc(hrBonusRevenueSnapshots.sourceStart));
-  const entries = await db.select({ entry: hrScheduleEntries }).from(hrScheduleEntries)
-    .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
-    .where(and(eq(hrScheduleVersions.status, "published"), inArray(hrScheduleEntries.scopeId, selectedScopes.map((scope) => scope.scopeId)),
-      sql`${hrScheduleVersions.periodStart} = ${row.periodStart}`, sql`${hrScheduleVersions.periodEnd} = ${row.periodEnd}`,
-      sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${row.periodStart} AND latest_schedule_version.period_end = ${row.periodEnd} AND latest_schedule_version.status = 'published')`,
-      sql`${hrScheduleEntries.workDate} >= ${row.periodStart}`, sql`${hrScheduleEntries.workDate} < ${row.periodEnd}`));
-  const scheduledDates = new Set(entries.map(({ entry }) => `${entry.scopeId}:${entry.workDate}`));
-  const dailyRows = snapshots.map((snapshot) => ({ scopeId: snapshot.scopeId, businessDate: snapshot.sourceStart.slice(0, 10), revenueMinor: snapshot.amountMinor, scheduled: scheduledDates.has(`${snapshot.scopeId}:${snapshot.sourceStart.slice(0, 10)}`) }));
-  const eligibleDailyRows = dailyRows.filter((item) => item.scheduled);
-  const dailyRevenueTotal = eligibleDailyRows.reduce((sum, item) => sum + item.revenueMinor, 0);
-  const dailyBonusByKey = new Map<string, number>();
-  if (selectedScopes.length === 1) {
-    for (const item of dailyRows) dailyBonusByKey.set(`${item.scopeId}:${item.businessDate}`, item.scheduled ? dailyBonus(item.revenueMinor, row.guaranteeMinor, row.ratePpm) : 0);
-  } else if (dailyRevenueTotal > 0) {
-    let allocated = 0;
-    for (const [index, item] of eligibleDailyRows.entries()) {
-      const amount = index === eligibleDailyRows.length - 1 ? row.poolAmountMinor - allocated : Math.floor(row.poolAmountMinor * item.revenueMinor / dailyRevenueTotal);
-      dailyBonusByKey.set(`${item.scopeId}:${item.businessDate}`, amount); allocated += amount;
-    }
-  }
-  return {
-    poolId,
-    policyVersionId: row.policyVersionId,
-    policyName: row.policyName,
-    scopeId: row.scopeId,
-    scopeName: row.scopeName,
-    scopeIds: selectedScopes.map((scope) => scope.scopeId),
-    scopeNames: selectedScopes.map((scope) => scope.scopeName),
-    periodKey: row.periodStart.slice(0, 7),
-    status: row.status as HrBonusPoolResult["status"],
-    poolAmountMinor: row.poolAmountMinor,
-    allocations: allocations.map(({ allocation, employeeNumber, employeeName }) => ({ employmentId: allocation.employmentId, employeeNumber, employeeName, weightUnits: allocation.weightUnits, scheduledDays: allocation.scheduledDays, revenueMinor: allocation.revenueMinor, amountMinor: allocation.amountMinor })),
-    daily: dailyRows.map((item) => ({ ...item, bonusMinor: dailyBonusByKey.get(`${item.scopeId}:${item.businessDate}`) ?? 0 })),
-    warnings: [...new Set([BONUS_SOURCE_WARNING, ...warnings])],
-  };
-}
-
-function dailyBonus(revenueMinor: number, guaranteeMinor: number, ratePpm: number): number {
-  return Math.floor(Math.max(0, revenueMinor - guaranteeMinor) * ratePpm / PPM);
-}
-
-/**
- * 櫃點獎金規則：只有發布班表涵蓋的日期才有資格；每日營業額先扣保底，
- * 剩餘額乘固定百分比形成獎金池，再依「排班日 × 權重」分配。營業額只接受呼叫端
- * 明確帶入的核准來源，不把 report_payout_daily 當成營業額。
- */
-export async function calculateHrBonusPool(db: Database, input: HrBonusCalculationInput, actor: HrActor): Promise<HrBonusPoolResult> {
-  const period = periodFromKey(input.periodKey);
-  const [policy] = await db.select({ version: hrBonusPolicyVersions, policyName: sql<string>`${hrBonusPolicies.name}`.as("bonus_policy_name"), scopeName: sql<string>`${scopes.name}`.as("bonus_scope_name"), active: sql<number>`${hrBonusPolicies.active}`.as("bonus_policy_active") }).from(hrBonusPolicyVersions)
-    .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
-    .innerJoin(scopes, eq(scopes.id, hrBonusPolicyVersions.scopeId))
-    .where(eq(hrBonusPolicyVersions.id, input.policyVersionId)).limit(1);
-  if (!policy) throw new HrError(404, "找不到獎金。 ");
-  if (!policy.active) throw new HrError(409, "這個獎金 已停用，不能再計算。 ");
-  if (policy.version.bonusKind !== "team_performance") throw new HrError(400, "個人績效 policy 由薪資試算逐員工計算，不能建立櫃點獎金池。 ");
-  if (policy.version.validFrom >= period.end || (policy.version.validTo !== null && policy.version.validTo <= period.start)) throw new HrError(400, "獎金不適用於指定月份。 ");
-  const policyScopeRows = await db.select({ scopeId: hrBonusPolicyVersionScopes.scopeId }).from(hrBonusPolicyVersionScopes)
-    .where(eq(hrBonusPolicyVersionScopes.policyVersionId, input.policyVersionId));
-  const scopeIds = policyScopeRows.length ? policyScopeRows.map((row) => row.scopeId) : [policy.version.scopeId];
-  await ensureBonusScopes(db, scopeIds);
-  if (!Array.isArray(input.revenue)) throw new HrError(400, "獎金計算需要每日核准業績快照。 ");
-  if (input.revenue.some((item) => !isDateOnly(item.businessDate))) throw new HrError(400, "業績日期必須是有效的 YYYY-MM-DD 日期。 ");
-  const revenue = input.revenue.map((item) => {
-    const scopeId = item.scopeId ?? (scopeIds.length === 1 ? scopeIds[0] : undefined);
-    if (!scopeId || !scopeIds.includes(scopeId)) throw new HrError(400, "多 Scope policy 的每筆業績都必須指定所選 Scope。 ");
-    return { ...item, scopeId, amountMinor: ensureMoney(item.amountMinor, "業績金額") };
-  });
-  if (revenue.some((item) => item.businessDate < period.start || item.businessDate >= period.end)) throw new HrError(400, "業績日期必須全部位於指定薪資月份內。 ");
-  const revenueDates = new Set<string>();
-  for (const item of revenue) {
-    const key = `${item.scopeId}:${item.businessDate}`;
-    if (revenueDates.has(key)) throw new HrError(400, "同一 Scope 每日只能提交一筆核准業績快照。 ");
-    revenueDates.add(key);
-  }
-
-  const entries = await db.select({ entry: hrScheduleEntries }).from(hrScheduleEntries)
-    .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
-    .where(and(eq(hrScheduleVersions.status, "published"), eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end),
-      sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
-      inArray(hrScheduleEntries.scopeId, scopeIds), sql`${hrScheduleEntries.workDate} >= ${period.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`));
-  const members = await db.select({ member: hrBonusPolicyMembers, employmentId: hrBonusPolicyMembers.employmentId }).from(hrBonusPolicyMembers)
-    .where(and(eq(hrBonusPolicyMembers.policyVersionId, input.policyVersionId), sql`${hrBonusPolicyMembers.validFrom} < ${period.end}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${period.start})`));
-  if (!members.length) throw new HrError(400, "獎金沒有有效成員。 ");
-  const [finalPool] = await db.select({ id: hrBonusPools.id, status: hrBonusPools.status }).from(hrBonusPools)
-    .where(and(eq(hrBonusPools.policyVersionId, input.policyVersionId), eq(hrBonusPools.periodStart, period.start), eq(hrBonusPools.periodEnd, period.end), sql`${hrBonusPools.status} IN ('approved', 'closed')`)).limit(1);
-  if (finalPool) throw new HrError(409, "該月份的獎金池已核准或結算，不能覆寫；如需修正請建立新的薪資調整。 ");
-  const eligible = members.map(({ member }) => ({ member, scheduledDays: new Set(entries.filter(({ entry }) => entry.employmentId === member.employmentId).map(({ entry }) => entry.workDate)).size })).filter((item) => item.scheduledDays > 0);
-  if (!eligible.length) throw new HrError(400, "指定月份沒有符合獎金的已發布排班。 ");
-  const uniqueRevenue = new Map<string, HrBonusRevenueInput & { scopeId: string }>();
-  for (const item of revenue) uniqueRevenue.set(`${item.scopeId}:${item.businessDate}`, item);
-  const daily = [...uniqueRevenue.values()].sort((a, b) => a.businessDate.localeCompare(b.businessDate) || a.scopeId.localeCompare(b.scopeId));
-  const guaranteeMinor = policy.version.guaranteeMinor;
-  const scheduledDates = new Set(entries.map(({ entry }) => `${entry.scopeId}:${entry.workDate}`));
-  const dailyAmounts = daily.map((item) => ({ ...item, bonusMinor: scheduledDates.has(`${item.scopeId}:${item.businessDate}`) ? dailyBonus(item.amountMinor, guaranteeMinor, policy.version.ratePpm) : 0 }));
-  // 舊單一 Scope pool 維持逐日保底的歷史結果；多 Scope policy 依 PRD 合併所選 Scope 後只扣一次保底，並以新臺幣元四捨五入。
-  const poolAmountMinor = scopeIds.length === 1
-    ? dailyAmounts.reduce((sum, item) => sum + item.bonusMinor, 0)
-    : Math.max(0, Math.round((Math.max(0, daily.filter((item) => scheduledDates.has(`${item.scopeId}:${item.businessDate}`)).reduce((sum, item) => sum + item.amountMinor, 0) - guaranteeMinor) * policy.version.ratePpm / PPM) / 100) * 100);
-  const weightedTotal = eligible.reduce((sum, item) => sum + item.scheduledDays * item.member.weightUnits, 0);
-  const allocationAmounts = eligible.map((item) => ({ ...item, amountMinor: weightedTotal ? Math.floor(poolAmountMinor * item.scheduledDays * item.member.weightUnits / weightedTotal) : 0 }));
-  const remainder = poolAmountMinor - allocationAmounts.reduce((sum, item) => sum + item.amountMinor, 0);
-  if (remainder && allocationAmounts[0]) allocationAmounts[0].amountMinor += remainder;
-
-  const [latest] = await db.select({ value: sql<number>`coalesce(max(${hrBonusPools.calculationVersion}), 0)` }).from(hrBonusPools).where(and(eq(hrBonusPools.policyVersionId, input.policyVersionId), eq(hrBonusPools.periodStart, period.start), eq(hrBonusPools.periodEnd, period.end)));
-  const poolId = crypto.randomUUID();
-  const calculationVersion = Number(latest?.value ?? 0) + 1;
-  const statements = [
-    db.insert(hrBonusPools).values({ id: poolId, policyVersionId: input.policyVersionId, periodStart: period.start, periodEnd: period.end, calculationVersion, status: "calculated", poolAmountMinor, createdBy: actor.id }),
-    ...dailyAmounts.map((item) => db.insert(hrBonusRevenueSnapshots).values({ id: crypto.randomUUID(), bonusPoolId: poolId, scopeId: item.scopeId, sourceKind: item.sourceKind ?? "manual", sourceRef: item.sourceRef ?? "", sourceStart: `${item.businessDate} 00:00:00`, sourceEnd: `${nextDate(item.businessDate)} 00:00:00`, amountMinor: item.amountMinor, provenanceJson: JSON.stringify(item.provenance ?? {}) })),
-    ...allocationAmounts.map((item) => db.insert(hrBonusAllocations).values({ id: crypto.randomUUID(), bonusPoolId: poolId, employmentId: item.member.employmentId, weightUnits: item.member.weightUnits, scheduledDays: item.scheduledDays, revenueMinor: dailyAmounts.filter((revenueItem) => entries.some(({ entry }) => entry.employmentId === item.member.employmentId && entry.scopeId === revenueItem.scopeId && entry.workDate === revenueItem.businessDate)).reduce((sum, revenueItem) => sum + revenueItem.amountMinor, 0), amountMinor: item.amountMinor, roundingAdjustmentMinor: item.member === allocationAmounts[0]?.member ? remainder : 0, explanationJson: JSON.stringify({ formula: "max(0, revenue - guarantee) × rate × scheduledDays × weight / totalWeightedScheduledDays", guaranteeMinor, ratePpm: policy.version.ratePpm }) })),
-    db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: poolId, source: "hr", eventType: "bonus_pool_calculated", summary: "櫃點獎金試算完成", actor, payload: { periodKey: period.periodKey, policyVersionId: input.policyVersionId, scopeIds, poolAmountMinor } })),
-  ];
-  try {
-    await db.batch(batchStatements(statements));
-  } catch (error) {
-    if (error instanceof Error && /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed/.test(error.message)) throw new HrError(409, "獎金池版本已變更或資料不合法，請重新整理後再試。 ");
-    throw error;
-  }
-  const missingScopes = scopeIds.filter((scopeId) => !revenue.some((item) => item.scopeId === scopeId));
-  const warnings = missingScopes.length ? [`${missingScopes.length} 個所選 Scope 沒有業績資料，按 0 計算。`] : [];
-  return getBonusPoolResult(db, poolId, warnings);
-}
-
-function nextDate(date: string): string {
-  const next = new Date(`${date}T00:00:00Z`);
-  next.setUTCDate(next.getUTCDate() + 1);
-  return next.toISOString().slice(0, 10);
-}
-
-export async function listHrBonusPools(db: Database, periodKey?: string) {
-  const condition = periodKey ? eq(hrBonusPools.periodStart, periodFromKey(periodKey).start) : undefined;
-  return db.select({ pool: hrBonusPools, policyName: sql<string>`${hrBonusPolicies.name}`.as("bonus_policy_name"), scopeName: sql<string>`${scopes.name}`.as("bonus_scope_name") }).from(hrBonusPools)
-    .innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPools.policyVersionId))
-    .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
-    .innerJoin(scopes, eq(scopes.id, hrBonusPolicyVersions.scopeId))
-    .where(condition).orderBy(desc(hrBonusPools.createdAt));
-}
-
-export async function getHrBonusPool(db: Database, poolId: string) {
-  return getBonusPoolResult(db, poolId);
-}
-
 export async function listHrPayrollRuns(db: Database) {
   // D1/SQLite 對 join 後同名欄位的巢狀映射不可靠；明確別名才能避免期間 status 蓋掉批次 status。
   const rows = await db.select({
@@ -1455,15 +1262,8 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
   const payslipRows = await db.select({ employmentId: hrPayslips.employmentId }).from(hrPayslips).where(eq(hrPayslips.payrollRunId, runId));
   const employmentIds = payslipRows.map((row) => row.employmentId);
   const workerRows = await db.select({ workerId: hrPayrollWorkerResults.workerId }).from(hrPayrollWorkerResults).where(eq(hrPayrollWorkerResults.payrollRunId, runId));
-  let bonusPoolId: string | undefined;
-  try {
-    const parsed = JSON.parse(run.calculationInputJson) as { bonusPoolId?: unknown };
-    bonusPoolId = typeof parsed.bonusPoolId === "string" && parsed.bonusPoolId ? parsed.bonusPoolId : undefined;
-  } catch {
-    throw new HrError(409, "薪資試算輸入快照格式無法解析，請重新試算。 ");
-  }
   if (!run.sourceSnapshotJson || run.sourceSnapshotJson === "{}") throw new HrError(409, "此薪資批次沒有來源快照，請重新試算後再結帳。 ");
-  const currentSnapshot = await getPayrollSourceSnapshot(db, { period: periodFromKey(run.periodKey), employmentIds, workerIds: workerRows.map((row) => row.workerId), bonusPoolId });
+  const currentSnapshot = await getPayrollSourceSnapshot(db, { period: periodFromKey(run.periodKey), employmentIds, workerIds: workerRows.map((row) => row.workerId) });
   if (currentSnapshot !== run.sourceSnapshotJson) throw new HrError(409, "薪資試算來源已變更，請重新試算後再結帳。 ");
 
   // 部分結算保持期間 open，讓尚未結算的員工仍可建立另一張試算；每次 claim 都在同一

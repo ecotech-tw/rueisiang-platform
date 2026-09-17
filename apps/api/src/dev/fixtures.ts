@@ -1,6 +1,5 @@
 import { eq } from "drizzle-orm";
 import {
-  calculateHrBonusPool,
   createDatabase,
   ensureAssistantDefaults,
   formatCyberbizProductName,
@@ -16,11 +15,10 @@ import {
   crmCustomers,
   crmCustomerTags,
   hrAttendanceLocations,
-  hrBonusPools,
   hrBonusPolicies,
+  reportPayoutDaily,
   hrBonusPolicyMembers,
   hrBonusPolicyVersions,
-  hrBonusPerformanceSnapshots,
   hrClockEvents,
   hrCompensationVersions,
   hrEmployeeAttendanceLocations,
@@ -247,12 +245,15 @@ async function seedDevPayrollScenario(
   await db.insert(hrBonusPolicies).values({ id: "dev-bonus-ximen", name: "西門櫃點保底 5% 獎金", active: 1, createdBy: ids.linUserId }).onConflictDoNothing();
   await db.insert(hrBonusPolicyVersions).values({ id: "dev-bonus-ximen-2026-v1", policyId: "dev-bonus-ximen", versionNumber: 1, scopeId: ximenScopeId, performanceKind: "scheduled_daily", revenueKind: "sales_amount", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 50_000, guaranteeMinor: 15_000_000, validFrom: "2026-01-01", validTo: null, createdBy: ids.linUserId }).onConflictDoNothing();
   await db.insert(hrBonusPolicyMembers).values({ id: "dev-bonus-member-wang", policyVersionId: "dev-bonus-ximen-2026-v1", employmentId: boothEmploymentId, validFrom: "2026-01-01", validTo: null, weightUnits: 1, createdBy: ids.linUserId }).onConflictDoNothing();
-  await db.insert(hrBonusPerformanceSnapshots).values({ id: "dev-performance-ximen-team-2026-08", scopeId: ximenScopeId, employmentId: null, periodStart: `${month}-01`, periodEnd: "2026-09-01", amountMinor: 18_000_000, sourceKind: "manual", sourceRef: "demo-approved-team-performance-2026-08", idempotencyKey: JSON.stringify([ximenScopeId, "team", `${month}-01`, "2026-09-01", "demo-approved-team-performance-2026-08"]), provenanceJson: JSON.stringify({ note: "開發示範團體業績快照；非出金表" }), createdBy: ids.linUserId }).onConflictDoNothing();
-  const [existingPool] = await db.select({ id: hrBonusPools.id }).from(hrBonusPools).where(eq(hrBonusPools.policyVersionId, "dev-bonus-ximen-2026-v1")).limit(1);
-  if (!existingPool) {
-    const revenue = scheduledDays.map((day, index) => ({ businessDate: `${month}-${String(day).padStart(2, "0")}`, amountMinor: 18_000_000 + index * 1_500_000, sourceKind: "manual" as const, sourceRef: `demo-sales-${month}-${day}`, provenance: { note: "開發示範核准業績快照；非出金表" } }));
-    await calculateHrBonusPool(db, { policyVersionId: "dev-bonus-ximen-2026-v1", periodKey: month, revenue }, { id: ids.linUserId, email: "eli-lin@ecotech.tw" });
-  }
+  /*
+   * 獎金的業績來源就是出金表，所以示範資料也寫進 report_payout_daily，不再另外塞
+   * 業績快照——dev 走的路徑必須跟正式環境同一條，否則本機看得到的獎金在線上是 0。
+   */
+  await db.insert(reportPayoutDaily).values(scheduledDays.map((day, index) => ({
+    scopeId: ximenScopeId, businessDate: `${month}-${String(day).padStart(2, "0")}`, recordOrigin: "manual" as const,
+    // 出金表的單位是元，跟正式環境一樣；寫成分的話獎金換算錯了測試也看不出來。
+    reportRunId: null, payoutAmount: 180_000 + index * 15_000, updatedByEmail: "eli-lin@ecotech.tw",
+  }))).onConflictDoNothing();
 }
 
 const DEV_ANALYTICS_SCOPES = [

@@ -1,0 +1,1 @@
+DROP TABLE `hr_bonus_pools`;
