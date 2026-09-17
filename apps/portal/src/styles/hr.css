@@ -438,6 +438,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   -webkit-backdrop-filter: blur(6px) saturate(145%);
   backdrop-filter: blur(6px) saturate(145%);
 }
+.hr-system .row-actions { gap: 8px; }
 .hr-system .ghost-button,
 .hr-system .icon-button {
   border-color: transparent;
