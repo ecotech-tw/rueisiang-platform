@@ -19,9 +19,6 @@ export interface ListItemsRow {
   kind: "sellable" | "supply";
   active: boolean;
   inWarehouse: boolean;
-  quantity: number | null;
-  unit: string | null;
-  minStock: number | null;
 }
 
 export async function listItems(db: Database, query: ListItemsQuery = {}): Promise<ListItemsRow[]> {
@@ -49,9 +46,6 @@ export async function listItems(db: Database, query: ListItemsQuery = {}): Promi
     active: items.active,
     category: itemCategories.name,
     wmsItemId: wmsItems.itemId,
-    quantity: wmsItems.quantity,
-    unit: wmsItems.unit,
-    minStock: wmsItems.minStock,
   })
     .from(items)
     .leftJoin(itemCategories, sql`${itemCategories.id} = ${items.categoryId}`)
@@ -69,8 +63,5 @@ export async function listItems(db: Database, query: ListItemsQuery = {}): Promi
     kind: row.kind,
     active: row.active === 1,
     inWarehouse: Boolean(row.wmsItemId),
-    quantity: row.wmsItemId ? row.quantity : null,
-    unit: row.wmsItemId ? row.unit : null,
-    minStock: row.wmsItemId ? row.minStock : null,
   }));
 }

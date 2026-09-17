@@ -1092,9 +1092,11 @@ describe("AI 助理 Sandbox", () => {
       found: true,
       item: expect.objectContaining({ sku: "SOAP-001" }),
     });
-    expect(await execute("list_items", { search: "薰衣草", kind: "sellable" })).toMatchObject({
-      items: [expect.objectContaining({ itemId: "tool-item-1", sku: "SOAP-001", inWarehouse: true, quantity: 2 })],
+    const listedItems = await execute("list_items", { search: "薰衣草", kind: "sellable" });
+    expect(listedItems).toMatchObject({
+      items: [expect.objectContaining({ itemId: "tool-item-1", sku: "SOAP-001", inWarehouse: true })],
     });
+    expect(listedItems).not.toHaveProperty("items.0.quantity");
     expect(await execute("wms_list_low_stock_items")).toMatchObject({
       total: 1,
       items: [expect.objectContaining({ id: "tool-item-1", quantity: 2, minStock: 5 })],
