@@ -107,8 +107,11 @@ function fallbackFormula(line: PayrollLine): string {
         : `${base} = ${money(line.amountMinor)}`;
     }
   }
-  if (line.lineKey === "base_salary" || line.lineKey === "salary_item_1") {
+  if (line.lineKey === "base_salary") {
     return stringValue(explanation.rule) ?? "依敘薪與出勤資料計算";
+  }
+  if (line.lineKey.startsWith("salary_item_")) {
+    return stringValue(explanation.rule) ?? "依薪資項目設定與出勤資料計算";
   }
   return "此批次未保存詳細公式；請重新試算以取得完整計算依據。";
 }
