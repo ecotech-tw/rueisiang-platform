@@ -25,13 +25,14 @@ export interface ListItemsRow {
 }
 
 export async function listItems(db: Database, query: ListItemsQuery = {}): Promise<ListItemsRow[]> {
+  // 品項停用只代表不再做日常作業，不能讓歷史報表查不到它；呼叫端要排除停用品項時再明確傳 active。
   const search = query.search?.trim() ?? "";
   const terms = search.split(/[\s,，]+/u).map((term) => term.trim()).filter(Boolean);
   const limit = Math.min(50, Math.max(1, Math.floor(query.limit ?? 20)));
   const conditions = [
     ...(query.source === "cyberbiz" || query.source === "custom" ? [sql`${items.source} = ${query.source}`] : []),
     ...(query.kind === "sellable" || query.kind === "supply" ? [sql`${items.kind} = ${query.kind}`] : []),
-    ...(query.active === "all" ? [] : [sql`${items.active} = ${query.active === "false" ? 0 : 1}`]),
+    ...(query.active === undefined || query.active === "all" ? [] : [sql`${items.active} = ${query.active === "false" ? 0 : 1}`]),
     ...terms.map((term) => sql`(
       lower(${items.sku}) LIKE lower(${`%${term}%`})
       OR lower(${items.name}) LIKE lower(${`%${term}%`})

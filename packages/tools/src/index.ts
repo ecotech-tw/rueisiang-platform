@@ -249,10 +249,10 @@ const listItemsTool: PlatformToolDefinition = {
   parameters: {
     type: "object",
     properties: {
-      search: { type: "string", description: "商品名稱、SKU 或分類關鍵字；可留空列出最近同步的品項。多個關鍵字會同時符合，例如 醬釀黑豆 500ml。" },
+      search: { type: "string", description: "單一商品的名稱、SKU 或分類關鍵字；名稱含空格可一起傳，會同時符合各詞，例如 醬釀黑豆 500ml。多個商品請分開呼叫此工具。" },
       source: { type: "string", description: "可選來源：all、cyberbiz 或 custom。預設 all。", enum: ["all", "cyberbiz", "custom"] },
       kind: { type: "string", description: "可選品項類型：all、sellable 或 supply。查銷售通常用 sellable。預設 all。", enum: ["all", "sellable", "supply"] },
-      active: { type: "string", description: "可選 true、false 或 all。預設 true，只列啟用中的品項。" },
+      active: { type: "string", description: "可選 true、false 或 all。預設 all；查歷史銷售時不要排除已停用品項。" },
       limit: { type: "string", description: "最多回傳幾筆，預設 20，最多 50。" },
     },
   },
@@ -266,7 +266,7 @@ const listItemsTool: PlatformToolDefinition = {
       search,
       source: source === "cyberbiz" || source === "custom" ? source : "all",
       kind: kind === "sellable" || kind === "supply" ? kind : "all",
-      active: active === "false" || active === "all" ? active : "true",
+      active: active === "false" || active === "true" || active === "all" ? active : "all",
       limit: boundedNumber(input, "limit", 20, 50),
     });
     return json({ search, totalReturned: items.length, items });
