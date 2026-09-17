@@ -1,9 +1,7 @@
 import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { activityRow } from "./activity.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
-import { activityEvents } from "./schema/activity.js";
-import { hrAttendanceLocationSchedules, hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
+import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
 import { hrScheduleEntries, hrScheduleVersions } from "./schema/hr-scheduling.js";
@@ -18,47 +16,6 @@ export interface HrAttendanceLocationInput {
   latitudeE7: number | null;
   longitudeE7: number | null;
   radiusMeters: number;
-}
-
-export interface HrAttendanceLocationScheduleInput {
-  dayOfWeek: number;
-  isRestDay: boolean;
-  startMinute: number | null;
-  endMinute: number | null;
-  standardMinutes: number;
-  toleranceMinutes: number;
-}
-
-export async function getHrAttendanceLocationSchedules(db: Database, locationId: string) {
-  const [location] = await db.select({ id: hrAttendanceLocations.id }).from(hrAttendanceLocations).where(eq(hrAttendanceLocations.id, locationId)).limit(1);
-  if (!location) throw new HrError(404, "找不到這個辦公位置。 ");
-  const rows = await db.select().from(hrAttendanceLocationSchedules).where(eq(hrAttendanceLocationSchedules.locationId, locationId)).orderBy(asc(hrAttendanceLocationSchedules.dayOfWeek));
-  const byDay = new Map(rows.map((row) => [row.dayOfWeek, row]));
-  return Array.from({ length: 7 }, (_, dayOfWeek) => {
-    const row = byDay.get(dayOfWeek);
-    return row ?? { id: null, locationId, dayOfWeek, isRestDay: dayOfWeek === 0 ? 1 : 0, startMinute: dayOfWeek === 0 ? null : 540, endMinute: dayOfWeek === 0 ? null : 1080, standardMinutes: dayOfWeek === 0 ? 0 : 480, toleranceMinutes: 10, createdBy: null, createdAt: null, updatedAt: null, revision: 0 };
-  });
-}
-
-export async function saveHrAttendanceLocationSchedules(db: Database, locationId: string, schedules: HrAttendanceLocationScheduleInput[], actor: HrActor) {
-  const uniqueDays = new Set(schedules.map((schedule) => schedule.dayOfWeek));
-  if (schedules.length !== 7 || uniqueDays.size !== 7 || [...uniqueDays].some((day) => !Number.isInteger(day) || day < 0 || day > 6)) throw new HrError(400, "必須完整提供週一至週日的工時設定。 ");
-  for (const schedule of schedules) {
-    if (![0, 1].includes(Number(schedule.isRestDay)) || !Number.isInteger(schedule.standardMinutes) || schedule.standardMinutes < 0 || schedule.standardMinutes > 1440 || !Number.isInteger(schedule.toleranceMinutes) || schedule.toleranceMinutes < 0 || schedule.toleranceMinutes > 1440) throw new HrError(400, "工作地點工時設定不正確。 ");
-    if (schedule.isRestDay) {
-      if (schedule.startMinute !== null || schedule.endMinute !== null) throw new HrError(400, "休息日不可設定上下班時間。 ");
-    } else {
-      const startMinute = schedule.startMinute;
-      const endMinute = schedule.endMinute;
-      if (typeof startMinute !== "number" || typeof endMinute !== "number" || !Number.isInteger(startMinute) || !Number.isInteger(endMinute) || startMinute < 0 || startMinute > 1439 || endMinute < 0 || endMinute > 1439 || endMinute <= startMinute || schedule.standardMinutes <= 0) throw new HrError(400, "營業日必須設定有效上下班時間與標準工時。 ");
-    }
-  }
-  const [location] = await db.select({ id: hrAttendanceLocations.id }).from(hrAttendanceLocations).where(eq(hrAttendanceLocations.id, locationId)).limit(1);
-  if (!location) throw new HrError(404, "找不到這個辦公位置。 ");
-  const statements = schedules.map((schedule) => db.insert(hrAttendanceLocationSchedules).values({ id: crypto.randomUUID(), locationId, dayOfWeek: schedule.dayOfWeek, isRestDay: schedule.isRestDay ? 1 : 0, startMinute: schedule.startMinute, endMinute: schedule.endMinute, standardMinutes: schedule.standardMinutes, toleranceMinutes: schedule.toleranceMinutes, createdBy: actor.id }).onConflictDoUpdate({ target: [hrAttendanceLocationSchedules.locationId, hrAttendanceLocationSchedules.dayOfWeek], set: { isRestDay: schedule.isRestDay ? 1 : 0, startMinute: schedule.startMinute, endMinute: schedule.endMinute, standardMinutes: schedule.standardMinutes, toleranceMinutes: schedule.toleranceMinutes, updatedAt: sql`CURRENT_TIMESTAMP`, revision: sql`${hrAttendanceLocationSchedules.revision} + 1` } }));
-  statements.push(db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: locationId, source: "hr", eventType: "attendance_location_schedule_updated", summary: "辦公位置週期工時更新", actor, payload: { days: schedules.length } })) as never);
-  await db.batch(statements as never);
-  return { locationId, schedules: await getHrAttendanceLocationSchedules(db, locationId) };
 }
 
 export const HR_ATTENDANCE_LOCATION_PAGE_SIZES = [10, 25, 50, 100] as const;
@@ -224,10 +181,56 @@ export async function endHrAttendanceLocationAssignment(db: Database, id: string
     sql`${hrEmployeeAttendanceLocations.validFrom} < ${input.validTo} AND (${hrEmployeeAttendanceLocations.validTo} IS NULL OR ${hrEmployeeAttendanceLocations.validTo} > ${input.validTo})`,
   )).orderBy(asc(hrEmployeeAttendanceLocations.validFrom)).limit(1) : [];
   const mutations = [sql`UPDATE hr_employee_attendance_locations SET valid_to=${input.validTo}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
-    WHERE id=${id} AND revision=${input.revision} AND valid_to IS NULL AND valid_from < ${input.validTo} RETURNING id`];
+    WHERE id=${id} AND revision=${input.revision} AND (valid_to IS NULL OR valid_to > ${input.validTo}) AND valid_from < ${input.validTo} RETURNING id`];
   if (isPrimary) mutations.push(sql`UPDATE hr_employment_attendance_settings SET primary_assignment_id=${replacement?.id ?? null}, updated_at=CURRENT_TIMESTAMP
     WHERE employment_id=${assignment.employmentId} RETURNING employment_id AS id`);
   return writeHrMutation(db, mutations, id, actor, "attendance_location_unassigned", "辦公位置指派已變更或日期不合法，請重新整理。");
+}
+
+export interface HrAttendanceScopeUpdateInput {
+  employmentId: string;
+  attendanceMode: "general" | "scheduled";
+  monthlyRestDays: number | null;
+  revision: number;
+  validFrom: string;
+  validTo: string;
+  locationIds: string[];
+  assignmentsToEnd: Array<{ id: string; revision: number }>;
+}
+
+/** 出勤方式與多個辦公位置在同一批 mutation 更新，避免只完成一半。 */
+export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUpdateInput, actor: HrActor) {
+  const mutations = [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP
+    WHERE id=${input.employmentId} AND revision=${input.revision} RETURNING id`,
+    sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${input.monthlyRestDays}, updated_at=CURRENT_TIMESTAMP
+      WHERE employment_id=${input.employmentId} RETURNING employment_id AS id`];
+  for (const assignment of input.assignmentsToEnd) mutations.push(sql`UPDATE hr_employee_attendance_locations SET valid_to=${input.validTo}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
+    WHERE id=${assignment.id} AND employment_id=${input.employmentId} AND revision=${assignment.revision} AND (valid_to IS NULL OR valid_to > ${input.validTo}) AND valid_from < ${input.validTo} RETURNING id`);
+  for (const locationId of input.locationIds) {
+    const id = crypto.randomUUID();
+    mutations.push(sql`INSERT INTO hr_employee_attendance_locations (id, employment_id, location_id, valid_from, valid_to)
+      SELECT ${id}, ${input.employmentId}, ${locationId}, ${input.validFrom}, NULL
+      WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND hired_on <= ${input.validFrom}
+        AND (ended_on IS NULL OR ${input.validTo} <= ended_on))
+        AND EXISTS (SELECT 1 FROM hr_attendance_locations WHERE id=${locationId} AND active=1)
+        AND NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${input.employmentId} AND location_id=${locationId}
+          AND (valid_to IS NULL OR valid_to > ${input.validFrom})) RETURNING id`);
+  }
+  /*
+   * 主要位置的 pointer 要跟著同一批更新：這條路徑可以結束目前的主要位置，也可以替還沒有位置的人
+   * 加上第一筆。pointer 沒指到仍有效的指派時，改指最早生效的那一筆（與單筆結束時的遞補規則相同）；
+   * 原本的主要位置還有效就不動，所以這一步允許零列。
+   */
+  const primaryIndex = mutations.length;
+  mutations.push(sql`UPDATE hr_employment_attendance_settings
+    SET primary_assignment_id=(SELECT id FROM hr_employee_attendance_locations
+      WHERE employment_id=${input.employmentId} AND (valid_to IS NULL OR valid_to > ${input.validTo})
+      ORDER BY valid_from, rowid LIMIT 1), updated_at=CURRENT_TIMESTAMP
+    WHERE employment_id=${input.employmentId}
+      AND (primary_assignment_id IS NULL OR NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations
+        WHERE id=hr_employment_attendance_settings.primary_assignment_id AND (valid_to IS NULL OR valid_to > ${input.validTo})))
+    RETURNING employment_id AS id`);
+  return writeHrMutation(db, mutations, input.employmentId, actor, "attendance_scope_updated", "出勤設定或辦公位置已變更，請重新整理後再試。", { allowEmptyMutationIndexes: new Set([primaryIndex]) });
 }
 
 export interface HrClockEventInput {
@@ -550,33 +553,9 @@ async function currentAttendanceAssignments(db: Database, employmentId: string, 
     .orderBy(desc(sql`CASE WHEN ${hrEmploymentAttendanceSettings.primaryAssignmentId} = ${hrEmployeeAttendanceLocations.id} THEN 1 ELSE 0 END`), desc(hrEmployeeAttendanceLocations.validFrom), asc(hrAttendanceLocations.name));
 }
 
-async function currentClockAssignments(db: Database, employmentId: string, today = taipeiToday()) {
-  // 排班只補充當日可參考的地點，不取代員工有效辦公位置；沒有排班也能在有效位置打卡。
-  const assigned = await currentAttendanceAssignments(db, employmentId, today);
-  const scheduled = await db.selectDistinct({
-    id: sql<string>`${hrScheduleEntries.id}`.as("scheduled_entry_id"),
-    locationId: sql<string>`${hrAttendanceLocations.id}`.as("scheduled_location_id"),
-    locationName: sql<string>`${hrAttendanceLocations.name}`.as("scheduled_location_name"),
-    scopeId: hrAttendanceLocations.scopeId,
-    scopeName: sql<string | null>`${scopes.name}`.as("scheduled_scope_name"),
-    geolocationRequired: hrAttendanceLocations.geolocationRequired,
-    latitudeE7: hrAttendanceLocations.latitudeE7,
-    longitudeE7: hrAttendanceLocations.longitudeE7,
-    radiusMeters: hrAttendanceLocations.radiusMeters,
-    isPrimary: sql<number>`0`.as("scheduled_is_primary"),
-    isScheduled: sql<number>`1`.as("scheduled_is_scheduled"),
-  }).from(hrScheduleEntries)
-    .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
-    .innerJoin(hrAttendanceLocations, eq(hrAttendanceLocations.scopeId, hrScheduleEntries.scopeId))
-    .leftJoin(scopes, eq(scopes.id, hrAttendanceLocations.scopeId))
-    .where(and(
-      eq(hrScheduleEntries.employmentId, employmentId), eq(hrScheduleVersions.status, "published"),
-      sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
-      sql`${hrAttendanceLocations.active} = 1`,
-      sql`(${hrScheduleEntries.workDate} = ${today} OR substr(${hrScheduleEntries.endsAt}, 1, 10) = ${today})`,
-    )).orderBy(asc(hrAttendanceLocations.name));
-  const assignedLocationIds = new Set(assigned.map((item) => item.locationId));
-  return [...assigned, ...scheduled.filter((item) => !assignedLocationIds.has(item.locationId))];
+async function currentClockAssignments(db: Database, employmentId: string) {
+  // 排班只決定當日工作時段，不授予或限制打卡位置；授權一律來自員工的有效辦公位置指派。
+  return currentAttendanceAssignments(db, employmentId);
 }
 
 async function findClockEventByKey(db: Database, userId: string, idempotencyKey: string) {
@@ -692,10 +671,29 @@ export async function getHrClockStatus(db: Database, userId: string) {
   };
 }
 
-async function locationScheduleForDate(db: Database, locationId: string, date: string) {
-  const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
-  const [schedule] = await db.select().from(hrAttendanceLocationSchedules).where(and(eq(hrAttendanceLocationSchedules.locationId, locationId), eq(hrAttendanceLocationSchedules.dayOfWeek, dayOfWeek))).limit(1);
-  return schedule ?? null;
+/*
+ * 同一天可以排好幾段不重疊的班，所以不能只拿最早那一段：下午班的上下班打卡會被拿去跟上午班比，
+ * 遲到早退全部判錯。上班打卡找開始時間最接近的那段，下班打卡找結束時間最接近的那段。
+ * 先只看「當天開始」（上班）或「當天結束」（下班）的班，前一天跨午夜過來的班才不會搶走今天的上班打卡。
+ */
+async function scheduleForClock(db: Database, employmentId: string, date: string, eventKind: "clock_in" | "clock_out", minute: number) {
+  const rows = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt })
+    .from(hrScheduleEntries).innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
+    .where(and(eq(hrScheduleEntries.employmentId, employmentId), eq(hrScheduleVersions.status, "published"),
+      sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
+      sql`(${hrScheduleEntries.workDate} = ${date} OR substr(${hrScheduleEntries.endsAt}, 1, 10) = ${date})`))
+    .orderBy(asc(hrScheduleEntries.startsAt));
+  const shifts = rows.flatMap((row) => {
+    const startMinute = wallClockMinutes(row.startsAt);
+    const endMinute = wallClockMinutes(row.endsAt);
+    return startMinute === null || endMinute === null ? [] : [{ ...row, startMinute, endMinute }];
+  });
+  const anchorOf = (shift: (typeof shifts)[number]) => eventKind === "clock_in" ? { date: shift.startsAt.slice(0, 10), minute: shift.startMinute } : { date: shift.endsAt.slice(0, 10), minute: shift.endMinute };
+  const sameDay = shifts.filter((shift) => anchorOf(shift).date === date);
+  const candidates = sameDay.length ? sameDay : shifts;
+  // 距離相同時保留排序在前（開始較早）的那段，結果才固定。
+  const schedule = candidates.reduce<(typeof shifts)[number] | null>((best, shift) => !best || Math.abs(anchorOf(shift).minute - minute) < Math.abs(anchorOf(best).minute - minute) ? shift : best, null);
+  return schedule ? { isRestDay: 0, startMinute: schedule.startMinute, endMinute: schedule.endMinute, toleranceMinutes: 10 } : null;
 }
 
 function serverTaipeiNow() {
@@ -704,7 +702,7 @@ function serverTaipeiNow() {
   return { occurredAt, date: taipeiToday(now), minute: taipeiClockMinutes(occurredAt)! };
 }
 
-function clockTimeAnomaly(schedule: Awaited<ReturnType<typeof locationScheduleForDate>>, eventKind: "clock_in" | "clock_out", minute: number) {
+function clockTimeAnomaly(schedule: Awaited<ReturnType<typeof scheduleForClock>>, eventKind: "clock_in" | "clock_out", minute: number) {
   if (!schedule) return null;
   if (schedule.isRestDay) return "rest_day" as const;
   const tolerance = schedule.toleranceMinutes;
@@ -725,7 +723,7 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   const serverNow = serverTaipeiNow();
   const employment = await currentEmployment(db, input.userId, serverNow.date);
   if (!employment) throw new HrError(400, "目前沒有有效任職，暫時無法打卡。");
-  const assignments = await currentClockAssignments(db, employment.id, serverNow.date);
+  const assignments = await currentClockAssignments(db, employment.id);
   if (!assignments.length) throw new HrError(400, "尚未指派目前辦公位置，暫時無法打卡。");
 
   const requiresLocation = geolocationRequired(assignments);
@@ -744,9 +742,9 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   if (distance !== null && distance > assignment.radiusMeters) {
     throw new HrError(400, `目前位置不在可打卡辦公位置範圍內，最近的「${assignment.locationName}」約 ${distance} 公尺。`);
   }
-  const schedule = await locationScheduleForDate(db, assignment.locationId, serverNow.date);
   const latest = await latestClockEvent(db, input.userId);
   const eventKind = latest?.eventKind === "clock_in" ? "clock_out" as const : "clock_in" as const;
+  const schedule = await scheduleForClock(db, employment.id, serverNow.date, eventKind, serverNow.minute);
   const timeAnomalyKind = clockTimeAnomaly(schedule, eventKind, serverNow.minute);
   const assignmentExists = assignment.isScheduled
     ? sql`EXISTS (SELECT 1 FROM hr_schedule_entries AS schedule_entry

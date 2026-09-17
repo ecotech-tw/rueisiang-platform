@@ -36,7 +36,7 @@ export const hrAttendanceLocations = sqliteTable("hr_attendance_locations", {
   check("ck_hr_attendance_locations_geo_pair", sql`(${table.geolocationRequired} = 0) OR (${table.latitudeE7} IS NOT NULL AND ${table.longitudeE7} IS NOT NULL)`),
 ]);
 
-/** 辦公位置週期工時；星期日=0，休息日不保存上下班時間。 */
+/** 舊版辦公位置週期工時資料表；新資料改由班別與已發布排班保存，保留 schema 供歷史 migration 相容。 */
 export const hrAttendanceLocationSchedules = sqliteTable("hr_attendance_location_schedules", {
   id: text("id").primaryKey(),
   locationId: text("location_id").notNull().references(() => hrAttendanceLocations.id, { onDelete: "restrict" }),
@@ -78,14 +78,17 @@ export const hrEmployeeAttendanceLocations = sqliteTable("hr_employee_attendance
 ]);
 
 /** 打卡事件不可覆寫；按鈕只會新增事件，摘要再由事件 kind 判斷。 */
-/** 一段任職的出勤方式與主要辦公位置。主要位置用 assignment id 指向，避免在歷史指派列上覆寫狀態。 */
+/** 一段任職的出勤方式與月休設定；primaryAssignmentId 是既有歷史相容欄位，不作為授權規則。 */
 export const hrEmploymentAttendanceSettings = sqliteTable("hr_employment_attendance_settings", {
   employmentId: text("employment_id").primaryKey().references(() => hrEmployments.id, { onDelete: "restrict" }),
   attendanceMode: text("attendance_mode", { enum: ["general", "scheduled"] as const }).notNull().default("general"),
+  // 排班人員與公司約定的每月休假天數；一般辦公模式保持 NULL。
+  monthlyRestDays: integer("monthly_rest_days"),
   primaryAssignmentId: text("primary_assignment_id").references(() => hrEmployeeAttendanceLocations.id, { onDelete: "restrict" }),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   check("ck_hr_employment_attendance_settings_mode", sql`${table.attendanceMode} IN ('general', 'scheduled')`),
+  check("ck_hr_employment_attendance_settings_rest_days", sql`${table.monthlyRestDays} IS NULL OR ${table.monthlyRestDays} BETWEEN 0 AND 31`),
 ]);
 
 export const hrClockEvents = sqliteTable("hr_clock_events", {

@@ -76,7 +76,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 - `*_id` 明列對應表並建立 FK；可空者標 `?`。預設 NOT NULL；外鍵以 RESTRICT 為主。`created_by`／審核者指向 users 並保存必要名稱快照，歷史資料不可隨帳號刪除。
 - 有效日期採 `[valid_from, valid_to)`，`valid_to?`；CHECK 結束大於開始。班次區間採同樣半開規則，相鄰不重疊。
 - 工作日 `YYYY-MM-DD`、結算月份 `YYYY-MM`；事件時間使用一致 UTC ISO 格式與精度，禁止混用 `CURRENT_TIMESTAMP` 與 ISO 事件字串排序。共通紀錄時間可沿用現有 timestamp 慣例，但不得當作工作時間來源。
-- 薪資 `*_minor` 為新台幣分；報表整數金額先確認為元再乘 100 進 HR。工時保存整數秒，給薪分鐘的捨入另由核定規則處理。比例 `rate_ppm`：1,000,000 = 100%；權重 `weight_units` 為正整數。
+- 薪資 `*_minor` 為新台幣分；報表整數金額先確認為元再乘 100 進 HR。班別與排班快照的計薪／休息時間保存為整數分鐘；事件工作時間仍保存整數秒，給薪分鐘的捨入另由核定規則處理。比例 `rate_ppm`：1,000,000 = 100%；權重 `weight_units` 為正整數。
 - 乘除中間值用精確整數／有理運算，寫回需檢查安全整數範圍。明列項目捨入、薪資單整元處理及尾差，禁止每一步任意四捨五入。
 - JSON 僅用於不可變計算說明、外部來源摘要；員工、scope、金額、期間、狀態與關聯仍為正式欄位。不允許可執行任意公式字串或 eval。
 - 所有外鍵查詢路徑建立子表索引，含 RESTRICT 檢查；索引前綴 `idx_hr_`、CHECK 前綴 `ck_hr_`，避免全域撞名。下表列出業務唯一性與主要查詢索引，實作 review 仍逐一列出 FK 索引。
@@ -94,9 +94,9 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `hr_employees` | `user_id → users.id`、`employee_number`、`supervisor_user_id? → users.id` | user_id PK/FK；員工編號唯一、非空；主管由後台指派且不得為本人 |
 | `hr_employments` | `employee_user_id → hr_employees.user_id`、`hired_on, ended_on?, seniority_start_on` | 日期有效；同 user 的任職期間不可重疊；索引 user + hired_on |
 | `hr_employee_scopes` | `employment_id`、`scope_id → scopes.id`、`valid_from, valid_to?` | 報表／營運 scope 的任職歸屬；期間不可重疊；scope + valid_from 索引 |
-| `hr_attendance_locations` | `name, geolocation_required, latitude_e7?, longitude_e7?, radius_meters` | 辦公位置名稱唯一；定位開啟時座標成對且有效；半徑 1～10000 公尺 |
+| `hr_attendance_locations` | `name, geolocation_required, latitude_e7?, longitude_e7?, radius_meters` | 辦公位置名稱唯一；只保存 GPS 與打卡範圍，不保存工作時段 |
 | `hr_employee_attendance_locations` | `employment_id → hr_employments.id`、`location_id → hr_attendance_locations.id`、`valid_from, valid_to?` | RESTRICT 外鍵；期間半開；同一辦公位置的期間不可重疊，同一段任職可同時指派多個辦公位置 |
-| `hr_employment_attendance_settings` | `employment_id → hr_employments.id`、`attendance_mode`、`primary_assignment_id? → hr_employee_attendance_locations.id` | 每段任職一列；一般辦公／排班由受控值表示；主要位置用 pointer 保存，不改寫歷史指派 |
+| `hr_employment_attendance_settings` | `employment_id → hr_employments.id`、`attendance_mode`、`monthly_rest_days?`、`primary_assignment_id? → hr_employee_attendance_locations.id` | 每段任職一列；排班模式保存公司約定的每月休假天數；一般辦公模式為 NULL；主要位置 pointer 僅為既有歷史相容欄位，不作為可打卡授權 |
 
 出勤設定頁透過後端 Google Maps Places API（Text Search）搜尋地點，管理者直接選取結果後由系統帶入座標；本人打卡頁由 `apps/hr` 使用開源 MapLibre GL JS 搭配 OpenFreeMap 向量圖磚，套用品牌 style JSON，支援拖曳與手勢縮放且不顯示地圖工具按鈕。圖磚服務需保留 OpenFreeMap／OpenStreetMap attribution；MapLibre 本身不代表圖磚服務永久沒有流量限制。若向量圖磚載入失敗，才退回由 Worker 代理的 Static API 圖片。Worker 的 Places／Static 金鑰只放 secret；前端不需要 Google Maps JavaScript 瀏覽器金鑰。正式環境仍需設定 `GOOGLE_MAPS_API_KEY`、Places API (New) 與 Maps Static API；若改用自建 MapLibre style，只需覆寫 `VITE_MAPLIBRE_STYLE_URL`。
 
@@ -115,11 +115,11 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | 表 | 專屬欄位與關聯 | SQL 約束／主要索引 |
 |---|---|---|
 | `hr_shift_templates` | `employer_id, code, name, active` | 唯一 employer + code |
-| `hr_shift_versions` | `shift_template_id, version_number, start_second, end_second, end_day_offset, pay_factor_ppm` | 唯一 template + version；當日時刻 0～86399；跨日區間為正；係數非負但合法性另驗 |
+| `hr_shift_versions` | `shift_template_id, version_number, start_second, end_second, end_day_offset, standard_minutes, break_minutes, pay_factor_ppm` | 唯一 template + version；保存班別上下班、休息與計薪工時；同一據點可有早班、晚班與假日班 |
 | `hr_shift_breaks` | `shift_version_id, sequence, start_offset_seconds, end_offset_seconds, paid` | 唯一 version + sequence；區段為正、paid 0/1；服務層驗證位於班內且互不重疊 |
 | `hr_scope_shift_assignments` | `scope_id, shift_template_id, is_default` | 複合 PK；partial unique scope WHERE is_default=1 |
 | `hr_schedule_versions` | `employer_id, period_start, period_end, version_number, status, supersedes_id? → 同表, submitted_by?, approved_by?, decision_reason?` | 唯一 employer + period_start + period_end + version；狀態 CHECK |
-| `hr_schedule_entries` | `schedule_version_id, employment_id, scope_id, shift_version_id, work_date, starts_at, ends_at` | 結束大於開始；索引 employment + work_date、scope + work_date |
+| `hr_schedule_entries` | `schedule_version_id, employment_id, scope_id, shift_version_id, work_date, starts_at, ends_at, standard_minutes, break_minutes` | 結束大於開始；班別時間與計薪／休息分鐘保存排班快照；索引 employment + work_date、scope + work_date |
 | `hr_clock_sources` | `source_kind, source_key, active` | 唯一 kind + key；portal/rfid/line/manual |
 | `hr_clock_events` | `employee_user_id, employment_id, attendance_location_id?, source_kind, idempotency_key, event_kind, latitude_e7?, longitude_e7?, distance_meters?, occurred_at, received_at` | Portal idempotency key 唯一；索引 employee_user_id + occurred_at；事件不可覆寫；事件時間存 UTC，顯示轉 Asia/Taipei；定位開啟時保存當次距離 |
 | `hr_form_requests` | `employee_user_id, employment_id, form_kind, status, correction_date, requested_event_kind, requested_at, reason, approver_user_id?, submitted_at, reviewed_at, review_comment?` | 目前只開放補打卡；草稿／申請中／已核准／已駁回；審核者預設取員工主管；補打卡時間存 UTC；送出後不可由申請人修改 |
@@ -133,7 +133,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 
 班表版本不可只用「每 scope 最新」發布，否則跨櫃衝突會漏查；發布在 employer 範圍驗證相關員工所有有效班次。不同日期範圍的版本亦不可互相重疊生效。發布後整版不可變，修改產生新版本並保留被替代版本。
 
-一天可能多班，不設 employee + work_date 唯一。無班打卡顯示異常並保留事件，不直接丟棄或算零工時；經確認建立工作區段後再計算。每日最早／最晚只是摘要：分段休息、跨午夜、跨櫃、只有一次打卡均以班次與核准調整判定。晚離開不能直接等同加班，也不能僅因未申請而抹除實際工作事實。
+一天可能多班，不設 employee + work_date 唯一。排班發布時，已設定月休天數的排班員工必須剛好保留該月休假日數；一般辦公員工不套用此檢查。無班打卡顯示異常並保留事件，不直接丟棄或算零工時；經確認建立工作區段後再計算。每日最早／最晚只是摘要：分段休息、跨午夜、跨櫃、只有一次打卡均以班次與核准調整判定。晚離開不能直接等同加班，也不能僅因未申請而抹除實際工作事實。
 
 ### 4.3 假別、申請與特殊日
 
@@ -243,13 +243,13 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 |---|---|---|
 | `/api/hr/me`、`/me/clock-events`、`/me/schedule`、`/me/attendance` | 僅需登入／未來依功能要求 | 只由 session user 解析 employee，不接受代指定本人 ID |
 | `/api/hr/candidates`、`/employees` POST | `hr:employee:write` | 從既有 users 選取；不得任意建立第二個人員身分 |
-| `GET /api/hr/me/attendance-calendar`、`/attendance-location/check`、`/attendance-map/locations`、`/attendance-map` | 僅需登入且必須是本人 | 日曆依有效任職與目前週一至週五基準標示未打卡日；定位檢查由伺服器重新計算，任一指派辦公位置在半徑內即可打卡；地圖座標供 hr app 的 MapLibre／OpenFreeMap 使用，圖磚載入失敗時由 Worker 代理 Static API 圖片 |
+| `GET /api/hr/me/attendance-calendar`、`/attendance-location/check`、`/attendance-map/locations`、`/attendance-map` | 僅需登入且必須是本人 | 一般模式依有效任職與週一至週五基準標示未打卡日；排班模式依已發布排班；定位檢查由伺服器重新計算，任一指派辦公位置在半徑內即可打卡；地圖座標供 hr app 的 MapLibre／OpenFreeMap 使用，圖磚載入失敗時由 Worker 代理 Static API 圖片 |
 | `POST /api/hr/me/clock-events` | 僅需登入且必須有現行任職 | 伺服器產生事件時間與上下班 kind；使用 idempotency key；定位開啟時由伺服器檢查距離，網站不允許回填時間 |
 | `/api/hr/me/form-requests` | 僅需登入且必須是本人；審核路徑限指定審核者或 `hr:request:review` | 補打卡申請可存草稿、送出與查詢狀態；審核者填寫意見後核准或駁回 |
 | `/api/hr/me/leave-requests`、`/overtime-requests`、`/clock-corrections` | `hr:request:create` | 本人；申請可表達歷史時間但需審核 |
 | `GET /api/hr/employees`、`GET /api/hr/employees/:id`、`POST/PATCH /api/hr/employees` | `hr:employee:read/write` | 列表支援固定 page size、總數、搜尋、狀態篩選與白名單排序；內頁採單一互斥 accordion。此表記法代表各自 read、write 鍵；薪資、投保、請假與打卡明細另限全平台 HR 管理者 |
 | `/api/hr/schedules`（目前提供排班資料模型與開發 fixture） | `hr:schedule:read/write` | 已發布班表才可供獎金試算；管理範圍與發布審核另切片，範圍授權模型另案定義 |
-| `/api/hr/attendance-settings/locations`、`/places`、`/employments/:id/attendance-location`、`/employees/:id/supervisor` | `hr:office:read/write` 或 `hr:employee:write` | 管理出勤設定中的辦公位置與員工主管；Places 搜尋與座標選取限管理權限；員工辦公位置與主管都從員工管理建立，不因指派取得管理權限 |
+| `/api/hr/attendance-settings/locations`、`/places`、`/employments/:id/attendance-scope`、`/employees/:id/supervisor` | `hr:office:read/write` 或 `hr:employee:write` | 出勤範圍管理以員工為主體，原子保存出勤方式、排班員工月休與多個可打卡辦公位置；辦公位置頁只管理 GPS／半徑；Places 搜尋與座標選取限管理權限；舊的單一指派 endpoint 僅供相容，不作為新 UI 入口 |
 | `/api/hr/attendance`、申請 `/:id/review` | `hr:attendance:read/approve` | 授權範圍及不可自審；請假私密附件不隨全櫃點可讀 |
 | `GET/POST /api/hr/bonus/policies`、`PATCH/DELETE /api/hr/bonus/policies/:versionId`、`GET /api/hr/bonus/assignments`、`POST /api/hr/bonus/policies/:versionId/members` | `hr:bonus:read/write` 且限全平台 HR 管理者 | 管理團體／個人績效 policy、獨立保底門檻、必填百分比、員工多筆套用與權重；policy 編輯建立新版本、刪除採停用並保留歷史；業績一律來自出金表，計薪時自動計算 |
 | `POST /api/hr/employments/:id/compensation`、`/insurance`、`GET /api/hr/insurance-brackets` | `hr:employee:write/read` 且薪資／投保寫入限全平台 HR 管理者 | 版本期間不可重疊；薪資與勞健保明細限全平台 HR 管理者；官方級距即時由勞動部／健保署來源解析，人工覆寫需保存來源與年度 |

@@ -112,7 +112,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(created.status, await created.clone().text()).toBe(201);
     const db = createDatabase(d1 as never);
     await db.insert(hrScheduleEntries).values([
-      { id: "test-multiscope-xinyi-2026-08-02", scheduleVersionId: "dev-schedule-2026-08-v1", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: "dev-shift-booth-day-v1", workDate: "2026-08-02", startsAt: "2026-08-02 02:00:00", endsAt: "2026-08-02 10:00:00", createdBy: "dev-eli-lin@ecotech.tw" },
+      { id: "test-multiscope-xinyi-2026-08-02", scheduleVersionId: "dev-schedule-2026-08-v1", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: "dev-shift-booth-day-v1", workDate: "2026-08-02", startsAt: "2026-08-02 02:00:00", endsAt: "2026-08-02 10:00:00", standardMinutes: 480, breakMinutes: 0, createdBy: "dev-eli-lin@ecotech.tw" },
     ]);
     await db.insert(reportPayoutDaily).values([
       { scopeId: "cyberbiz:store:demo-xinyi", businessDate: "2026-08-02", recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 100_000, updatedByEmail: "eli-lin@ecotech.tw" },
@@ -230,7 +230,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
 
   it("日薪員工只按已發布排班日期計薪，沒有排班不把整月任職日當成出勤", async () => {
     const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "測試日薪", items: [
-      // 月給的職務津貼：日薪員工上幾天班都不該乘上天數，只能按月拆。
+      // 月給的職務津貼：日薪員工上幾天班都整月發一次。
       { itemName: "職務津貼", amountMinor: 300_000, itemKind: "fixed", amountBasis: "monthly", includeOvertime: true, includeInsurance: true, includeTax: true },
     ] });
     expect(compensation.status, await compensation.clone().text()).toBe(201);
@@ -254,13 +254,35 @@ describe("HR 薪資與櫃點獎金試算", () => {
         warnings: string[];
       };
     };
-    // 本薪 1,800 × 2 天；職務津貼 3,000／月 只按 30 日制拆成 2 天份（100 × 2），不是 3,000 × 2。
-    expect(body.run.employees[0]).toMatchObject({ earningMinor: 380_000 });
+    // 本薪 1,800 × 2 天；職務津貼 3,000／月整月照發一次，不按天數折算，也不是 3,000 × 2。
+    expect(body.run.employees[0]).toMatchObject({ earningMinor: 660_000 });
     expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
       expect.objectContaining({ lineKey: "base_salary", amountMinor: 360_000, explanation: expect.objectContaining({ rule: "依已發布排班日期計算；特殊上班日依套用資料" }) }),
-      expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 20_000, explanation: expect.objectContaining({ itemName: "職務津貼", amountBasis: "monthly" }) }),
+      expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 300_000, explanation: expect.objectContaining({ itemName: "職務津貼", amountBasis: "monthly" }) }),
     ]));
     expect(body.run.warnings.some((warning) => warning.includes("日薪制但本期沒有已發布排班"))).toBe(false);
+  });
+
+  it("日薪員工月中換敘薪版本時，同名的月給項目只發新版本一次", async () => {
+    const itemsWith = (amountMinor: number) => [{ itemName: "職務津貼", amountMinor, itemKind: "fixed", amountBasis: "monthly", includeOvertime: false, includeInsurance: false, includeTax: false }];
+    const first = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "月初日薪", items: itemsWith(300_000) });
+    expect(first.status, await first.clone().text()).toBe(201);
+    const second = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-02", payBasis: "daily", baseAmountMinor: 180_000, note: "月中調整津貼", items: itemsWith(500_000) });
+    expect(second.status, await second.clone().text()).toBe(201);
+    const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
+    expect(mode.status, await mode.clone().text()).toBe(200);
+    const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ versionId: string }> };
+    // 兩個版本各排一天，兩個版本的月給項目都會在逐日迴圈裡出現。
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-01" },
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-17" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-daily-monthly-item-versions" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const allowances = body.run.employees[0]!.lines.filter((line) => line.explanation.itemName === "職務津貼");
+    expect(allowances).toEqual([expect.objectContaining({ amountMinor: 500_000 })]);
   });
 
   it("月薪制的每日薪資項目只按工作日計算", async () => {

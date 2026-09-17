@@ -2,11 +2,11 @@ export { createDatabase, type Database } from "./client.js";
 export { formatTaipeiDate, taipeiDateFromUtcWallClock, taipeiMidnightUtc, taipeiWallClockToUtc } from "./taipei-time.js";
 export {
   checkHrClockLocation, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent, endHrAttendanceLocationAssignment, listHrAttendanceEvents, HR_ATTENDANCE_EVENT_PAGE_SIZES, type HrAttendanceEventListQuery,
-  getHrAttendanceLocation, getHrAttendanceLocationSchedules, saveHrAttendanceLocationSchedules, setHrAttendanceLocationPrimary, getHrClockCalendar, countHrClockCalendarAnomalies, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation, HR_ATTENDANCE_LOCATION_PAGE_SIZES, type HrAttendanceLocationListQuery, type HrAttendanceLocationScheduleInput,
+  getHrAttendanceLocation, setHrAttendanceLocationPrimary, updateHrAttendanceScope, getHrClockCalendar, countHrClockCalendarAnomalies, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation, HR_ATTENDANCE_LOCATION_PAGE_SIZES, type HrAttendanceLocationListQuery, type HrAttendanceScopeUpdateInput,
 } from "./hr-attendance.js";
 export { getHrOverview, type HrOverviewResult, type HrOverviewPayrollStatus } from "./hr-overview.js";
 export {
-  createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, listHrAttendanceLocationsForSchedule, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
+  createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
   type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";
 export {

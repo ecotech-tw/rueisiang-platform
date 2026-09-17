@@ -3,7 +3,7 @@ import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { HrError, type HrActor } from "./hr-people.js";
-import { hrAttendanceLocations } from "./schema/hr-attendance.js";
+import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments, hrEmployees } from "./schema/hr-people.js";
 import { hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
 import {
@@ -78,6 +78,10 @@ function latestShiftVersions<T extends { templateId: string; scopeId: string; ve
   return rows.filter((row) => latest.get(`${row.templateId}:${row.scopeId}`) === row);
 }
 
+function assertShiftMinutes(input: { standardMinutes: number; breakMinutes: number }, durationSeconds: number) {
+  if (!Number.isInteger(input.standardMinutes) || input.standardMinutes < 0 || input.standardMinutes > 1440 || !Number.isInteger(input.breakMinutes) || input.breakMinutes < 0 || input.breakMinutes > 1440 || (input.standardMinutes + input.breakMinutes) * 60 > durationSeconds) throw new HrError(400, "班別的計薪工時與休息時間不正確。 ");
+}
+
 async function latestScheduleVersion(db: Database, period: { start: string; end: string }) {
   const [version] = await db.select().from(hrScheduleVersions).where(and(
     eq(hrScheduleVersions.periodStart, period.start),
@@ -117,7 +121,7 @@ function compileStatements(statements: SQL[]) {
   return statements.map((statement) => dialect.sqlToQuery(statement));
 }
 
-async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: Array<ScheduleEntryInput & { startsAt: string; endsAt: string }>, actor: HrActor) {
+async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: Array<ScheduleEntryInput & { startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number }>, actor: HrActor) {
   const nextRevision = version.revision + 1;
   const guard = sql`EXISTS (SELECT 1 FROM hr_schedule_versions WHERE id=${version.id} AND revision=${nextRevision} AND locked_at IS NULL)`;
   const statements = [
@@ -125,10 +129,10 @@ async function saveEntriesAtomically(db: Database, version: { id: string; revisi
     sql`DELETE FROM hr_schedule_entries WHERE schedule_version_id=${version.id} AND ${guard}`,
     sql`DELETE FROM hr_schedule_worker_entries WHERE schedule_version_id=${version.id} AND ${guard}`,
     ...entries.map((entry) => entry.personKind === "employee"
-      ? sql`INSERT INTO hr_schedule_entries (id, schedule_version_id, employment_id, scope_id, shift_version_id, work_date, starts_at, ends_at, created_by)
-          SELECT ${crypto.randomUUID()}, ${version.id}, ${entry.employmentId!}, ${entry.scopeId}, ${entry.shiftVersionId}, ${entry.workDate}, ${entry.startsAt}, ${entry.endsAt}, ${actor.id} WHERE ${guard}`
-      : sql`INSERT INTO hr_schedule_worker_entries (id, schedule_version_id, worker_id, scope_id, shift_version_id, work_date, starts_at, ends_at, created_by)
-          SELECT ${crypto.randomUUID()}, ${version.id}, ${entry.workerId!}, ${entry.scopeId}, ${entry.shiftVersionId}, ${entry.workDate}, ${entry.startsAt}, ${entry.endsAt}, ${actor.id} WHERE ${guard}`),
+      ? sql`INSERT INTO hr_schedule_entries (id, schedule_version_id, employment_id, scope_id, shift_version_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, created_by)
+          SELECT ${crypto.randomUUID()}, ${version.id}, ${entry.employmentId!}, ${entry.scopeId}, ${entry.shiftVersionId}, ${entry.workDate}, ${entry.startsAt}, ${entry.endsAt}, ${entry.standardMinutes}, ${entry.breakMinutes}, ${actor.id} WHERE ${guard}`
+      : sql`INSERT INTO hr_schedule_worker_entries (id, schedule_version_id, worker_id, scope_id, shift_version_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, created_by)
+          SELECT ${crypto.randomUUID()}, ${version.id}, ${entry.workerId!}, ${entry.scopeId}, ${entry.shiftVersionId}, ${entry.workDate}, ${entry.startsAt}, ${entry.endsAt}, ${entry.standardMinutes}, ${entry.breakMinutes}, ${actor.id} WHERE ${guard}`),
     (() => {
       const row = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: "schedule_saved", summary: "排班已發布", actor });
       return sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
@@ -153,16 +157,21 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     startSecond: hrShiftVersions.startSecond,
     endSecond: hrShiftVersions.endSecond,
     endDayOffset: hrShiftVersions.endDayOffset,
+    standardMinutes: hrShiftVersions.standardMinutes,
+    breakMinutes: hrShiftVersions.breakMinutes,
   }).from(hrScopeShiftAssignments)
     .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrScopeShiftAssignments.shiftTemplateId))
     .innerJoin(hrShiftVersions, eq(hrShiftVersions.shiftTemplateId, hrShiftTemplates.id))
     .where(eq(hrShiftTemplates.active, 1));
   const shiftMap = new Map(latestShiftVersions(shiftRows).map((shift) => [`${shift.versionId}:${shift.scopeId}`, shift]));
-  const employmentRows = await db.select({ id: hrEmployments.id, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployments);
+  const employmentRows = await db.select({ id: hrEmployments.id, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn, employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` }).from(hrEmployments)
+    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId));
   const employmentMap = new Map(employmentRows.map((employment) => [employment.id, employment]));
+  const attendanceSettings = await db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmploymentAttendanceSettings);
+  const attendanceSettingMap = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting]));
   const workers = await db.select({ id: hrScheduleWorkers.id, active: hrScheduleWorkers.active }).from(hrScheduleWorkers);
   const workerMap = new Map(workers.map((worker) => [worker.id, worker]));
-  const enriched: Array<ScheduleEntryInput & { startsAt: string; endsAt: string }> = [];
+  const enriched: Array<ScheduleEntryInput & { startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number }> = [];
   const occupied = new Map<string, Array<{ start: number; end: number }>>();
   for (const entry of entries) {
     if (!datePeriodContains(entry.workDate, period)) throw new HrError(400, "排班日期必須位於指定月份。 ");
@@ -176,6 +185,10 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
       const worker = entry.workerId ? workerMap.get(entry.workerId) : undefined;
       if (!worker || !worker.active) throw new HrError(400, "臨時支援人員不存在或已停用。 ");
     }
+    const durationSeconds = shift.endDayOffset === 1
+      ? DAY_SECONDS - shift.startSecond + shift.endSecond
+      : shift.endSecond - shift.startSecond;
+    assertShiftMinutes(shift, durationSeconds);
     const startsAt = wallTime(entry.workDate, shift.startSecond);
     const endsAt = wallTime(addDays(entry.workDate, shift.endDayOffset), shift.endSecond);
     const personId = entry.personKind === "employee" ? `employee:${entry.employmentId}` : `worker:${entry.workerId}`;
@@ -184,7 +197,24 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     if (personIntervals.some((current) => interval.start < current.end && current.start < interval.end)) throw new HrError(409, "同一人員的排班時段重疊。 ");
     personIntervals.push(interval);
     occupied.set(personId, personIntervals);
-    enriched.push({ ...entry, startsAt, endsAt });
+    enriched.push({ ...entry, startsAt, endsAt, standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes });
+  }
+  const workDatesByEmployment = new Map<string, Set<string>>();
+  for (const entry of enriched) if (entry.personKind === "employee" && entry.employmentId) {
+    const dates = workDatesByEmployment.get(entry.employmentId) ?? new Set<string>();
+    dates.add(entry.workDate);
+    workDatesByEmployment.set(entry.employmentId, dates);
+  }
+  for (const employment of employmentRows) {
+    const setting = attendanceSettingMap.get(employment.id);
+    if (setting?.attendanceMode !== "scheduled" || setting.monthlyRestDays === null) continue;
+    const activeStart = employment.hiredOn > period.start ? employment.hiredOn : period.start;
+    const activeEnd = employment.endedOn && employment.endedOn < period.end ? employment.endedOn : period.end;
+    let activeDays = 0;
+    for (let day = activeStart; day < activeEnd; day = addDays(day, 1)) activeDays += 1;
+    const expectedRestDays = Math.min(setting.monthlyRestDays, activeDays);
+    const scheduledDays = workDatesByEmployment.get(employment.id)?.size ?? 0;
+    if (activeDays - scheduledDays !== expectedRestDays) throw new HrError(400, `排班人員 ${employment.employeeName} 本月應休 ${setting.monthlyRestDays} 天，目前排班無法符合月休設定。 `);
   }
   return enriched;
 }
@@ -207,6 +237,8 @@ function listHrScopeShiftRows(db: Database) {
       startSecond: hrShiftVersions.startSecond,
       endSecond: hrShiftVersions.endSecond,
       endDayOffset: hrShiftVersions.endDayOffset,
+      standardMinutes: hrShiftVersions.standardMinutes,
+      breakMinutes: hrShiftVersions.breakMinutes,
     }).from(hrScopeShiftAssignments)
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrScopeShiftAssignments.shiftTemplateId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.shiftTemplateId, hrShiftTemplates.id))
@@ -245,9 +277,10 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrShiftVersions.shiftTemplateId))
       .where(and(eq(hrScheduleWorkerEntries.scheduleVersionId, version.id), selectedScopeId ? eq(hrScheduleWorkerEntries.scopeId, selectedScopeId) : undefined)),
   ]) : [[], []];
-  const employees = await db.select({ employmentId: hrEmployments.id, userId: hrEmployments.employeeUserId, employeeNumber: hrEmployees.employeeNumber, name: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` }).from(hrEmployments)
+  const employees = await db.select({ employmentId: hrEmployments.id, userId: hrEmployments.employeeUserId, employeeNumber: hrEmployees.employeeNumber, name: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmployments)
     .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
     .where(and(
       sql`${hrEmployments.hiredOn} < ${period.end}`,
       sql`${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${period.start}`,
@@ -301,10 +334,13 @@ export interface HrShiftInput {
   name: string;
   startSecond: number;
   endSecond: number;
+  standardMinutes: number;
+  breakMinutes: number;
 }
 
-function assertSameDayShift(input: { startSecond: number; endSecond: number }) {
+function assertSameDayShift(input: { startSecond: number; endSecond: number; standardMinutes: number; breakMinutes: number }) {
   if (!Number.isInteger(input.startSecond) || input.startSecond < 0 || input.startSecond > 86_399 || !Number.isInteger(input.endSecond) || input.endSecond < 0 || input.endSecond > 86_399 || input.endSecond <= input.startSecond) throw new HrError(400, "班別的結束時間必須晚於開始時間。 ");
+  assertShiftMinutes(input, input.endSecond - input.startSecond);
 }
 
 export async function createHrShift(db: Database, input: HrShiftInput, actor: HrActor) {
@@ -318,7 +354,7 @@ export async function createHrShift(db: Database, input: HrShiftInput, actor: Hr
   const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_created", summary: "班別已建立", actor });
   const statements = [
     sql`INSERT INTO hr_shift_templates (id, code, name, active, created_by) VALUES (${templateId}, ${templateId}, ${input.name.trim()}, 1, ${actor.id}) RETURNING id`,
-    sql`INSERT INTO hr_shift_versions (id, shift_template_id, version_number, start_second, end_second, end_day_offset, pay_factor_ppm, created_by) VALUES (${versionId}, ${templateId}, 1, ${input.startSecond}, ${input.endSecond}, 0, 1000000, ${actor.id}) RETURNING id`,
+    sql`INSERT INTO hr_shift_versions (id, shift_template_id, version_number, start_second, end_second, end_day_offset, standard_minutes, break_minutes, pay_factor_ppm, created_by) VALUES (${versionId}, ${templateId}, 1, ${input.startSecond}, ${input.endSecond}, 0, ${input.standardMinutes}, ${input.breakMinutes}, 1000000, ${actor.id}) RETURNING id`,
     sql`INSERT INTO hr_scope_shift_assignments (scope_id, shift_template_id, is_default, created_by) VALUES (${input.scopeId}, ${templateId}, 0, ${actor.id}) RETURNING scope_id AS id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
   ].map((statement) => dialect.sqlToQuery(statement));
@@ -351,7 +387,7 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
   await assertShiftOwnedByScope(db, templateId, input.scopeId, "修改");
   const [latest] = await db.select({ id: hrShiftVersions.id }).from(hrShiftVersions).where(eq(hrShiftVersions.shiftTemplateId, templateId)).orderBy(desc(hrShiftVersions.versionNumber)).limit(1);
   if (!latest) throw new HrError(404, "找不到班別的時間設定。 ");
-  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), startSecond: input.startSecond, endSecond: input.endSecond } });
+  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), startSecond: input.startSecond, endSecond: input.endSecond, standardMinutes: input.standardMinutes, breakMinutes: input.breakMinutes } });
   await runRawBatch(db, compileStatements([
     sql`UPDATE hr_shift_templates SET name=${input.name.trim()}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${templateId} AND revision=${input.revision} RETURNING id`,
     /*
@@ -359,7 +395,7 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
      * 用「revision = 舊值 + 1」判斷會被併發騙過：別人先改成 2 之後，拿著舊值 1 的請求
      * 算出來的也是 2，條件照樣成立，名稱沒改到、時間卻被蓋掉。
      */
-    sql`UPDATE hr_shift_versions SET start_second=${input.startSecond}, end_second=${input.endSecond}, end_day_offset=0 WHERE id=${latest.id} AND changes() = 1`,
+    sql`UPDATE hr_shift_versions SET start_second=${input.startSecond}, end_second=${input.endSecond}, end_day_offset=0, standard_minutes=${input.standardMinutes}, break_minutes=${input.breakMinutes} WHERE id=${latest.id} AND changes() = 1`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
       SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson} WHERE changes() = 1`,
   ]), true, "班別已被其他人修改，請重新整理後再改。 ");
@@ -480,9 +516,4 @@ export async function createHrWorkerCompensation(db: Database, input: { workerId
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
   ]), false);
   return { id, versionNumber };
-}
-
-export async function listHrAttendanceLocationsForSchedule(db: Database) {
-  return db.select({ id: hrAttendanceLocations.id, name: hrAttendanceLocations.name, scopeId: hrAttendanceLocations.scopeId, scopeName: scopes.name }).from(hrAttendanceLocations)
-    .leftJoin(scopes, eq(scopes.id, hrAttendanceLocations.scopeId)).where(eq(hrAttendanceLocations.active, 1)).orderBy(asc(hrAttendanceLocations.name));
 }

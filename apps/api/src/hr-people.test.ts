@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, listActivity, syncSystemRoles, taipeiWallClockToUtc } from "@rueisiang/db";
-import { hrAttendanceLocations, hrClockEvents, hrScopeShiftAssignments, hrShiftTemplates, hrShiftVersions, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { activityEvents, hrAttendanceLocations, hrClockEvents, hrScheduleEntries, hrScopeShiftAssignments, hrShiftTemplates, hrShiftVersions, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -191,6 +191,32 @@ describe("HR 員工基礎", () => {
     expect((await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: "2026-02-01", revision: 1 })).status).toBe(200);
   });
 
+  it("出勤範圍更新會以單一交易保存方式與多個辦公位置", async () => {
+    await assign("self", "SCOPE-1");
+    const job = await firstEmployment("self");
+    const firstLocation = await created("/hr/attendance-settings/locations", { name: "範圍一", geolocationRequired: false, latitude: null, longitude: null, radiusMeters: 100, active: true });
+    const secondLocation = await created("/hr/attendance-settings/locations", { name: "範圍二", geolocationRequired: false, latitude: null, longitude: null, radiusMeters: 100, active: true });
+    const firstSave = await request(`/hr/employments/${job}/attendance-scope`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 8, revision: 1, locationIds: [firstLocation, secondLocation], assignmentsToEnd: [] });
+    expect(firstSave.status, await firstSave.clone().text()).toBe(200);
+    const firstProfile = await (await request("/hr/employees/self")).json() as { employments: Array<{ attendanceMode: string; monthlyRestDays: number | null }>; attendanceAssignments: Array<{ id: string; locationId: string; revision: number; isPrimary: boolean }> };
+    expect(firstProfile.employments[0]).toMatchObject({ attendanceMode: "scheduled", monthlyRestDays: 8 });
+    const firstAssignment = firstProfile.attendanceAssignments.find((assignment) => assignment.locationId === firstLocation);
+    expect(firstAssignment).toBeDefined();
+    // 第一次加位置就要有主要位置，不能等人另外去按「設為主要」。
+    expect(firstAssignment).toMatchObject({ isPrimary: true });
+    const secondSave = await request(`/hr/employments/${job}/attendance-scope`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 8, revision: 2, locationIds: [], assignmentsToEnd: [{ id: firstAssignment!.id, revision: firstAssignment!.revision }] });
+    expect(secondSave.status, await secondSave.clone().text()).toBe(200);
+    const secondProfile = await (await request("/hr/employees/self")).json() as { attendanceAssignments: Array<{ locationId: string; validTo: string | null; isPrimary: boolean }> };
+    expect(secondProfile.attendanceAssignments.find((assignment) => assignment.locationId === firstLocation)).toMatchObject({ validTo: expect.any(String), isPrimary: false });
+    // 結束的是主要位置時，主要位置改指還有效的那一筆。
+    expect(secondProfile.attendanceAssignments.find((assignment) => assignment.locationId === secondLocation)).toMatchObject({ validTo: null, isPrimary: true });
+
+    const failed = await request(`/hr/employments/${job}/attendance-scope`, "PATCH", { attendanceMode: "general", monthlyRestDays: null, revision: 3, locationIds: ["missing-location"], assignmentsToEnd: [] });
+    expect(failed.status).toBe(409);
+    const unchanged = await (await request("/hr/employees/self")).json() as { employments: Array<{ attendanceMode: string; monthlyRestDays: number | null }> };
+    expect(unchanged.employments[0]).toMatchObject({ attendanceMode: "scheduled", monthlyRestDays: 8 });
+  });
+
   it("Google Maps 搜尋結果會直接回傳可儲存的座標", async () => {
     const responseWithoutKey = await request("/hr/attendance-settings/places?query=台北辦公室");
     expect(responseWithoutKey.status).toBe(503);
@@ -272,7 +298,7 @@ describe("HR 員工基礎", () => {
     expect((await request("/hr/me/clock-events", "POST", { idempotencyKey: "clock-request-far", latitude: 0, longitude: 0 }, "self")).status).toBe(400);
   });
 
-  it("排班員工使用已發布排班據點打卡，且停用位置不再可用", async () => {
+  it("排班只決定工作時段，打卡位置仍需員工授權，且停用位置不再可用", async () => {
     const today = taipeiToday();
     await assign("self", "SCHEDULED-1");
     const job = await firstEmployment("self");
@@ -283,6 +309,8 @@ describe("HR 員工基礎", () => {
     const shiftId = (await shift.json() as { versionId: string }).versionId;
     const saved = await request("/hr/schedules", "POST", { periodKey: today.slice(0, 7), entries: [{ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: today }] });
     expect(saved.status, await saved.clone().text()).toBe(200);
+    expect((await (await request("/hr/me/clock-events", "GET", undefined, "self")).json() as { canClock: boolean; locationNames: string[] }).locationNames).not.toContain("排班打卡據點");
+    await created(`/hr/employments/${job}/attendance-location`, { locationId: location, validFrom: today, validTo: null });
     expect((await (await request("/hr/me/clock-events", "GET", undefined, "self")).json() as { canClock: boolean; locationNames: string[] }).locationNames).toContain("排班打卡據點");
     const clockedIn = await request("/hr/me/clock-events", "POST", { idempotencyKey: "scheduled-clock-in", latitude: null, longitude: null }, "self");
     expect(clockedIn.status, await clockedIn.clone().text()).toBe(201);
@@ -291,12 +319,99 @@ describe("HR 員工基礎", () => {
     expect((await (await request("/hr/me/clock-events", "GET", undefined, "self")).json() as { canClock: boolean }).canClock).toBe(false);
   });
 
+  it("同一天排兩段班時，打卡異常對照最接近的那一段", async () => {
+    /*
+     * 固定在台北時間 14:05 打卡。只假造 Date，並重新簽 session：beforeEach 用真實時間簽的 cookie
+     * 在假造的時間上可能已經過期。
+     */
+    vi.useFakeTimers({ now: new Date("2026-10-15T06:05:00.000Z"), toFake: ["Date"] });
+    try {
+      for (const id of ["admin", "self"]) {
+        const token = await signSession(newSessionClaims({ id, email: `${id}@example.test`, name: id, pictureUrl: "" }), SECRET);
+        cookies[id] = `${SESSION_COOKIE}=${encodeURIComponent(token)}`;
+      }
+      const today = "2026-10-15";
+      await assign("self", "SPLIT-1");
+      const job = await firstEmployment("self");
+      expect((await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", revision: 1 })).status).toBe(200);
+      const location = await created("/hr/attendance-settings/locations", { name: "兩段班據點", scopeId: "scope", geolocationRequired: false, latitude: null, longitude: null, radiusMeters: 100, active: true });
+      await created(`/hr/employments/${job}/attendance-location`, { locationId: location, validFrom: today, validTo: null });
+      const shiftVersion = async (name: string, startTime: string, endTime: string) => {
+        const response = await request("/hr/shift-templates", "POST", { scopeId: "scope", name, startTime, endTime, standardMinutes: 120, breakMinutes: 0 });
+        expect(response.status, await response.clone().text()).toBe(201);
+        return (await response.json() as { versionId: string }).versionId;
+      };
+      const morning = await shiftVersion("上午班", "09:00", "12:00");
+      const afternoon = await shiftVersion("下午班", "14:00", "18:00");
+      const saved = await request("/hr/schedules", "POST", { periodKey: "2026-10", entries: [
+        { personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: morning, workDate: today },
+        { personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: afternoon, workDate: today },
+      ] });
+      expect(saved.status, await saved.clone().text()).toBe(200);
+
+      const clockedIn = await request("/hr/me/clock-events", "POST", { idempotencyKey: "split-clock-in", latitude: null, longitude: null }, "self");
+      expect(clockedIn.status, await clockedIn.clone().text()).toBe(201);
+      // 14:05 上班對的是下午班（14:00 開始、寬限 10 分鐘），不是上午班的「遲到五小時」。
+      expect((await clockedIn.json() as { event: unknown }).event).toMatchObject({ eventKind: "clock_in", expectedStartMinute: 14 * 60, expectedEndMinute: 18 * 60, timeAnomalyKind: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("排班員工可以保存每月休假天數，班別保存計薪與休息時間", async () => {
+    await assign("self", "REST-1");
+    const job = await firstEmployment("self");
+    const updated = await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 10, revision: 1 });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const profile = await (await request("/hr/employees/self")).json() as { employments: Array<{ attendanceMode: string; monthlyRestDays: number | null }> };
+    expect(profile.employments[0]).toMatchObject({ attendanceMode: "scheduled", monthlyRestDays: 10 });
+    const invalid = await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 32, revision: 2 });
+    expect(invalid.status).toBe(400);
+    // 舊客戶端只送出勤方式：休假天數要留著，不然排班發布的休假檢查會被靜靜關掉。
+    const legacy = await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", revision: 2 });
+    expect(legacy.status, await legacy.clone().text()).toBe(200);
+    const kept = await (await request("/hr/employees/self")).json() as { employments: Array<{ monthlyRestDays: number | null }> };
+    expect(kept.employments[0]?.monthlyRestDays).toBe(10);
+
+    const shift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "假日晚班", startTime: "13:00", endTime: "22:00", standardMinutes: 480, breakMinutes: 60 });
+    expect(shift.status, await shift.clone().text()).toBe(201);
+    const listed = await (await request("/hr/shift-templates")).json() as { shifts: Array<{ name: string; standardMinutes: number; breakMinutes: number }> };
+    expect(listed.shifts.find((item) => item.name === "假日晚班")).toMatchObject({ standardMinutes: 480, breakMinutes: 60 });
+    const month = taipeiToday().slice(0, 7);
+    const year = Number(month.slice(0, 4));
+    const monthNumber = Number(month.slice(5, 7));
+    const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+    const shiftBody = await shift.json() as { id: string; versionId: string };
+    const shiftId = shiftBody.versionId;
+    const validEntries = Array.from({ length: lastDay - 10 }, (_, index) => {
+      const day = index + 11;
+      return { personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: `${month}-${String(day).padStart(2, "0")}` };
+    });
+    const published = await request("/hr/schedules", "POST", { periodKey: month, entries: validEntries });
+    expect(published.status, await published.clone().text()).toBe(200);
+    const publishedVersion = await published.json() as { id: string; revision: number };
+    const snapshot = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes }).from(hrScheduleEntries).where(eq(hrScheduleEntries.employmentId, job)).limit(1);
+    expect(snapshot[0]).toMatchObject({ startsAt: `${month}-11 13:00:00`, endsAt: `${month}-11 22:00:00`, standardMinutes: 480, breakMinutes: 60 });
+    const changedShift = await request(`/hr/shift-templates/${shiftBody.id}`, "PATCH", { scopeId: "scope", name: "假日晚班更新", startTime: "14:00", endTime: "22:00", standardMinutes: 420, breakMinutes: 60, revision: 1 });
+    expect(changedShift.status, await changedShift.clone().text()).toBe(200);
+    // 計薪工時與休息時間會改變薪資，稽核紀錄要看得出改成多少。
+    const [shiftAudit] = await db.select({ payloadJson: activityEvents.payloadJson }).from(activityEvents).where(eq(activityEvents.eventType, "shift_updated"));
+    expect(JSON.parse(shiftAudit?.payloadJson ?? "{}")).toMatchObject({ name: "假日晚班更新", standardMinutes: 420, breakMinutes: 60 });
+    const unchangedSnapshot = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes }).from(hrScheduleEntries).where(eq(hrScheduleEntries.employmentId, job)).limit(1);
+    expect(unchangedSnapshot[0]).toMatchObject({ startsAt: `${month}-11 13:00:00`, endsAt: `${month}-11 22:00:00`, standardMinutes: 480, breakMinutes: 60 });
+    const invalidSchedule = await request("/hr/schedules", "POST", { periodKey: month, scheduleVersionId: publishedVersion.id, revision: publishedVersion.revision, entries: Array.from({ length: lastDay }, (_, index) => ({ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: `${month}-${String(index + 1).padStart(2, "0")}` })) });
+    expect(invalidSchedule.status).toBe(400);
+  });
+
   it("班別只能當天上下班，代碼由系統產生，同一店可以建多個班別", async () => {
     // 以前代碼要人填且全域唯一，不同店各建一個「AM」就撞號；現在不問代碼，連建兩個都不該失敗。
     const morning = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "早班", startTime: "09:00", endTime: "14:00" });
     expect(morning.status, await morning.clone().text()).toBe(201);
     const evening = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "晚班", startTime: "14:00", endTime: "22:00" });
     expect(evening.status, await evening.clone().text()).toBe(201);
+    const invalidMinutes = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "工時超過班長", startTime: "09:00", endTime: "17:00", standardMinutes: 480, breakMinutes: 60 });
+    expect(invalidMinutes.status).toBe(400);
+    expect(await invalidMinutes.text()).toContain("計薪工時");
 
     const overnight = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "夜班", startTime: "23:00", endTime: "07:00" });
     expect(overnight.status).toBe(400);
@@ -375,13 +490,14 @@ describe("HR 員工基礎", () => {
     await assign("self", "OVERNIGHT-1");
     const job = await firstEmployment("self");
     expect((await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", revision: 1 })).status).toBe(200);
-    await created("/hr/attendance-settings/locations", { name: "跨午夜據點", scopeId: "scope", geolocationRequired: false, latitude: null, longitude: null, radiusMeters: 100, active: true });
+    const location = await created("/hr/attendance-settings/locations", { name: "跨午夜據點", scopeId: "scope", geolocationRequired: false, latitude: null, longitude: null, radiusMeters: 100, active: true });
+    await created(`/hr/employments/${job}/attendance-location`, { locationId: location, validFrom: previousDate, validTo: null });
     /*
      * 班別管理頁只建得出當天上下班的班別，但資料欄位與出勤的跨午夜判斷都還在；
      * 直接寫進資料庫，讓這段打卡邏輯在沒有 API 入口的情況下仍然有測試保護。
      */
     await db.insert(hrShiftTemplates).values({ id: "overnight-template", code: "overnight-template", name: "跨午夜班", active: 1, createdBy: "admin" });
-    await db.insert(hrShiftVersions).values({ id: "overnight-v1", shiftTemplateId: "overnight-template", versionNumber: 1, startSecond: 23 * 3600, endSecond: 7 * 3600, endDayOffset: 1, createdBy: "admin" });
+    await db.insert(hrShiftVersions).values({ id: "overnight-v1", shiftTemplateId: "overnight-template", versionNumber: 1, startSecond: 23 * 3600, endSecond: 7 * 3600, endDayOffset: 1, standardMinutes: 420, breakMinutes: 60, createdBy: "admin" });
     await db.insert(hrScopeShiftAssignments).values({ scopeId: "scope", shiftTemplateId: "overnight-template", createdBy: "admin" });
     const shiftId = "overnight-v1";
     const saved = await request("/hr/schedules", "POST", { periodKey: previousDate.slice(0, 7), entries: [{ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: previousDate }] });

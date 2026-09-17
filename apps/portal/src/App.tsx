@@ -175,8 +175,8 @@ export function App() {
           <Route path="overtime" element={<HrOvertimeRequests />} />
           <Route path="scheduling" element={<HrScheduling />} />
           <Route path="scheduling/shifts" element={<HrShifts />} />
-          {/* 舊網址相容：辦公位置改由員工列表的管理入口維護。 */}
-          <Route path="scheduling/locations" element={<Navigate to="/hr/employees" replace />} />
+          {/* 舊網址相容：員工可打卡辦公位置改由出勤範圍管理維護。 */}
+          <Route path="scheduling/locations" element={<Navigate to="/hr/attendance-scope" replace />} />
           <Route path="compensation" element={<HrCompensationManagement />} />
           <Route path="payroll-settings" element={<HrCompensationManagement settingsOnly />} />
           <Route path="payroll" element={<Navigate to="/hr/payroll-settlement" replace />} />
