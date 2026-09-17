@@ -188,9 +188,9 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await request(`/hr/bonus/policies/${createdBody.policyVersionId}/members`, "POST", { employeeUserId: "dev-wang@ecotech.tw", validFrom: "2026-03-01" })).status).toBe(400);
     const policies = await (await request("/hr/bonus/policies")).json() as { policies: Array<{ policyVersionId: string; policyName: string; versionNumber: number; bonusKind: string; performancePeriod: string; ratePpm: number; guaranteeMinor: number }> };
     expect(policies.policies).toEqual(expect.arrayContaining([
-      expect.objectContaining({ policyVersionId: createdBody.policyVersionId, versionNumber: 1 }),
       expect.objectContaining({ policyVersionId: updatedBody.policyVersionId, policyName: "已調整 policy", versionNumber: 2, bonusKind: "individual_performance", performancePeriod: "previous_month", ratePpm: 30_000, guaranteeMinor: 500_000 }),
     ]));
+    expect(policies.policies.some((policy) => policy.policyVersionId === createdBody.policyVersionId)).toBe(false);
     const filtered = await (await request("/hr/bonus/policies?page=1&pageSize=10&search=%E5%B7%B2%E8%AA%BF%E6%95%B4&bonusKind=individual_performance")).json() as { policies: Array<{ policyVersionId: string }>; total: number; page: number; pageSize: number };
     expect(filtered).toMatchObject({ total: 1, page: 1, pageSize: 10 });
     expect(filtered.policies).toEqual([expect.objectContaining({ policyVersionId: updatedBody.policyVersionId })]);
