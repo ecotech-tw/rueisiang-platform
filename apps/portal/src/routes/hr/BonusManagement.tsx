@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Alert, Button, Dialog, DropdownSelect, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Link } from "react-router";
 import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -179,6 +180,11 @@ export function HrBonusManagement() {
 
   return <div className="page fills">
     <PageHeader title="獎金管理" actions={canWrite ? <Button icon="plus" className="add-action" onClick={openCreate}>新增獎金</Button> : undefined} />
+    {/*
+      * 業績沒匯入時薪資試算會提醒，但那是算完才看得到。規則是在這一頁設定的，所以
+      * 先在這裡講清楚錢從哪裡來——不然設完規則的人不會知道還有一份出金表要先跑。
+      */}
+    <Alert tone="info">獎金的業績來源是<strong>出金表</strong>。某個月的出金還沒匯入，那幾天就會按 0 計算，薪資試算會逐項提醒。匯入請到 <Link to="/tools/reports">營運工具 → 報表執行</Link>。</Alert>
     {error ? <Alert tone="danger">{error}</Alert> : null}
 
     <Panel className="grows hr-bonus-panel">

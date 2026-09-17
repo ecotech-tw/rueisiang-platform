@@ -10,7 +10,8 @@ HR 提供員工入口、排班、打卡、請假／加班、績效分配、審�
 |---|---|
 | `packages/db/src/schema/auth.ts` 的 `users` | 平台使用者是員工身分來源；被指派後以 `user_id` 關聯，帳號停權即時禁止操作，離職與帳號停權不是同一狀態 |
 | `packages/db/src/schema/reports.ts` 的 `scopes` | 報表、排班與營運歸屬使用其 ID；HR 員工 scope 指派不改報表通路語意，出勤 geolocation 規則另由 HR 出勤設定中的辦公位置管理 |
-| `report_payout_daily`、`report_item_sales_monthly` | 僅為可選業績來源；出金不自動等於營業額，商品月報不能推出個人業績 |
+| `report_payout_daily` | **獎金業績的唯一來源**；人工修訂優先於匯入值，讀取一律經過 `listEffectiveDailyPayouts()` |
+| `report_item_sales_monthly` | 商品月報只到「期間 × 商品」，推不出每日業績，不用於獎金 |
 | `activityEvents`／`recordActivity()` | 沿用操作索引；擴充型別與 HR 可見性，敏感明細留在 HR 授權路徑 |
 | `packages/auth/src/permissions.ts` | 權限鍵唯一來源；DB permission 表仍只是鏡像 |
 | `apps/api/src/routes/cyberbiz-reports-mcp.ts` | 現有唯讀 MCP 不是 HR 寫入授權；未來另接具備員工身分的 adapter |
@@ -166,11 +167,20 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `hr_bonus_revenue_snapshots` | `bonus_pool_id, scope_id, employment_id?, source_kind, source_start, source_end, amount_minor, captured_at, provenance_json` | scope + source_start 索引；個人歸屬經服務層驗證 |
 | `hr_bonus_allocations` | `bonus_pool_id, employment_id, weight_units, scheduled_days, revenue_minor, amount_minor, rounding_adjustment_minor, explanation_json` | 唯一 pool + employment；權重、排班日與業績非負；保留公式與尾差說明 |
 
-櫃點獎金池仍採：已發布班表日期才有資格，`max(0, daily_revenue - threshold) × rate_ppm / 1000000` 形成每日池；再按 `scheduled_days × weight_units` 分配。薪資計算則讀取員工套用的 policy：依績效歸屬選團體或個人業績，先計算 `max(0, 業績 - 保底) × rate`；保底是獨立欄位，百分比是每筆 policy 的必填值，業績期間依 policy 選當月或前月。每筆政策獨立計算後加總，獎金最後四捨五入到新臺幣元。政策類型與公司實際分配公式仍需雇主確認，不能以示範預設取代制度。
+獎金只有一條算法，在薪資試算裡完成，輸入是**出金表的每日金額**與**已發布排班**：
+
+- **團體績效**：政策涵蓋的 scope、來源月份內**有任何成員排班**的日子，出金加總後扣**一次**保底再乘比例得到池；池按 `本人排班天數 × weight_units ÷ 全體加權天數` 分配，餘數歸加權最高者。
+- **個人績效**：只取**本人**排到的 `(scope, 日期)`，同樣 `max(0, 出金加總 - 保底) × 比例`，不進池也不分配。
+
+保底是獨立欄位，百分比是每筆 policy 的必填值，業績期間依 policy 選當月或前月（排班天數也取同一個月）。每筆政策獨立計算後加總，最後四捨五入到新臺幣元。
+
+排班要撈**全體成員**，不能只撈當次結算的員工：部分結算時同隊的人可能不在批次裡，少算他們的天數會把分母變小，留在批次裡的人就分到比應得更多的錢。
+
+政策類型與公司實際分配公式仍需雇主確認，不能以示範預設取代制度。
 
 個人績效依可信個人業績歸屬計算，不把團體數字直接當每人業績；多筆個人歸屬總額與來源總額需要對帳。缺業績與實際零業績不同。退貨、跨期調整、月中異動、門檻是否按人／按池為需核定規則。
 
-報表重匯可改變來源列，故核准時保留獎金池、業績及參與名單快照，不能只存 report_run_id 後回查現值。查報表期間也可能重匯：需在單一一致讀取取得來源，或以可驗證的來源版本／重算檢查完成擷取，不能多個分頁讀完就假設一致。明細分批擷取方案需在該 PR 以並行重匯測試證明。
+報表重匯可改變來源列，故 `hr_payroll_runs.source_snapshot_json` 必須同時涵蓋出金列與排班列，結帳前重算比對才擋得下來；不能只存 report_run_id 後回查現值。查報表期間也可能重匯：需在單一一致讀取取得來源，或以可驗證的來源版本／重算檢查完成擷取，不能多個分頁讀完就假設一致。明細分批擷取方案需在該 PR 以並行重匯測試證明。
 
 尾差以固定員工 ID 次序或核定最大餘數法處理，結果必須穩定且分配總和等於池額。修改核准結果產生新計算版本，歷史薪資仍指原版本。
 
@@ -194,7 +204,9 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `hr_payslip_adjustment_links` | `payslip_line_id, adjustment_id` | 複合 PK；正式採用不得重複 |
 | `hr_payroll_payments` | `payslip_id, amount_minor, paid_at, reference, idempotency_key` | key 唯一；允許分次支付；付款不是薪資結帳狀態 |
 
-目前計算切片提供 policy／員工套用／業績快照管理；`POST /api/hr/payroll/calculate` 以月薪日曆日比例、核准付薪加班、`pay_rate_ppm` 請假快照與員工套用的 bonus policy 建立 `hr_payroll_runs`／`hr_payslips`，不要求計薪者再次貼上業績。`POST /api/hr/bonus/pools/calculate` 仍可用已發布 `hr_schedule_versions` 和請求帶入的核准每日業績快照建立舊式櫃點獎金池。兩者都保存 engine／公式說明與操作紀錄，且不將 `report_payout_daily` 自動視為營業額。這是可驗證的開發／試算引擎，不是已核定的正式發薪規則。
+目前計算切片提供 policy 與員工套用管理；`POST /api/hr/payroll/calculate` 以月薪日曆日比例、核准付薪加班、`pay_rate_ppm` 請假快照與員工套用的 bonus policy 建立 `hr_payroll_runs`／`hr_payslips`，獎金直接由 `report_payout_daily` 與已發布 `hr_schedule_versions` 算出，不要求計薪者貼業績。保存 engine／公式說明與操作紀錄。這是可驗證的開發／試算引擎，不是已核定的正式發薪規則。
+
+**獎金不另外開一層「獎金池」。** 不可變快照與核准動線薪資試算已經各有一份（`source_snapshot_json` 與 `closeHrPayrollRun`）；再加一個核准閘門只會讓同一個政策從兩個入口算出不同金額，而且兩邊的結果會同時掛進薪資單。
 
 薪資結果須保存姓名／員工編號等必要顯示快照與所有實際輸入版本。現行 `hr-payroll-demo-v1` 已將月薪、核准付薪加班與請假快照寫成薪資單明細，並以固定 requestId 支援重讀原結果；勞健保扣款、出勤正式判定、覆核／結帳／調整仍不可由示範引擎自行推測。明細總和、付款總和、調整是否已採用由結帳服務原子驗證，不能只相信前端傳入 totals。雇主成本不進員工扣款。底薪、固定津貼、績效、加班、未出勤、保險、自提及扣繳分類分別計算；項目名稱不能自行決定是否屬工資或加班基礎。
 
@@ -239,8 +251,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `/api/hr/schedules`（目前提供排班資料模型與開發 fixture） | `hr:schedule:read/write` | 已發布班表才可供獎金試算；管理範圍與發布審核另切片，範圍授權模型另案定義 |
 | `/api/hr/attendance-settings/locations`、`/places`、`/employments/:id/attendance-location`、`/employees/:id/supervisor` | `hr:office:read/write` 或 `hr:employee:write` | 管理出勤設定中的辦公位置與員工主管；Places 搜尋與座標選取限管理權限；員工辦公位置與主管都從員工管理建立，不因指派取得管理權限 |
 | `/api/hr/attendance`、申請 `/:id/review` | `hr:attendance:read/approve` | 授權範圍及不可自審；請假私密附件不隨全櫃點可讀 |
-| `GET/POST /api/hr/bonus/policies`、`PATCH/DELETE /api/hr/bonus/policies/:versionId`、`GET /api/hr/bonus/assignments`、`POST /api/hr/bonus/policies/:versionId/members`、`GET/POST /api/hr/bonus/performance` | `hr:bonus:read/write` 且限全平台 HR 管理者 | 管理團體／個人績效 policy、獨立保底門檻、必填百分比、員工多筆套用；policy 編輯建立新版本、刪除採停用並保留歷史；業績由核准來源匯入快照，計薪時自動依套用設定計算 |
-| `GET /api/hr/bonus/pools`、`GET /api/hr/bonus/pools/:id`、`POST /api/hr/bonus/pools/calculate` | `hr:bonus:read/calculate` 且限全平台 HR 管理者 | 舊式櫃點池業績必須由請求明確帶入並複製成快照；不把出金表自動視為營業額；改政策／核准／結帳另切片 |
+| `GET/POST /api/hr/bonus/policies`、`PATCH/DELETE /api/hr/bonus/policies/:versionId`、`GET /api/hr/bonus/assignments`、`POST /api/hr/bonus/policies/:versionId/members` | `hr:bonus:read/write` 且限全平台 HR 管理者 | 管理團體／個人績效 policy、獨立保底門檻、必填百分比、員工多筆套用與權重；policy 編輯建立新版本、刪除採停用並保留歷史；業績一律來自出金表，計薪時自動計算 |
 | `POST /api/hr/employments/:id/compensation`、`/insurance`、`GET /api/hr/insurance-brackets` | `hr:employee:write/read` 且薪資／投保寫入限全平台 HR 管理者 | 版本期間不可重疊；薪資與勞健保明細限全平台 HR 管理者；官方級距即時由勞動部／健保署來源解析，人工覆寫需保存來源與年度 |
 | `POST /api/hr/payroll/calculate`、`GET /api/hr/payroll/runs`、`GET /api/hr/payroll/runs/:id` | `hr:payroll:read/calculate` 且限全平台 HR 管理者 | `hr-payroll-demo-v1` 依薪資設定與員工已套用 policy 自動計算；覆核、結帳、付款與私密下載另切片 |
 | `/api/hr/me/payslips` | `hr:payslip:read-self` | 僅本人已發布薪資單 |
