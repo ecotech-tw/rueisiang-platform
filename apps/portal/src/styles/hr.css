@@ -340,6 +340,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   overflow: hidden;
 }
 .hr-system-main > .page.fills { min-height: 0; }
+.hr-system .page-head .muted { display: none; }
 .hr-system-main > .hr-page-transition {
   position: relative;
   display: block;
@@ -424,6 +425,11 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 }
 .hr-system .table-scroll .data-table thead th:first-child { border-top-left-radius: 12px; }
 .hr-system .table-scroll .data-table thead th:last-child { border-top-right-radius: 12px; }
+.hr-system .panel:has(> .table-scroll) > .table-scroll { margin-inline: -22px; }
+.hr-system .panel:has(> .table-scroll) .data-table thead th:first-child { border-top-left-radius: 0; }
+.hr-system .panel:has(> .table-scroll) .data-table thead th:last-child { border-top-right-radius: 0; }
+.hr-system .panel:has(> .table-scroll)::before,
+.hr-system .panel:has(> .table-scroll)::after { content: none; }
 .hr-system .table-scroll { min-width: 0; }
 .hr-system .primary-button,
 .hr-system .ghost-button,
@@ -468,6 +474,24 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .primary-button:hover:not(:disabled) { background: --alpha(var(--color-info) / 92%); }
 .hr-system .primary-button.add-action:hover:not(:disabled) { background: --alpha(var(--color-ok) / 92%); }
 .hr-system .primary-button.danger:hover:not(:disabled) { background: var(--color-brand-dark); }
+.hr-system .hr-bonus-action-edit {
+  background: --alpha(var(--color-info) / 14%);
+  color: var(--color-info);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 56%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 22%) inset,
+    0 8px 20px --alpha(var(--color-info) / 10%);
+}
+.hr-system .hr-bonus-action-edit:hover:not(:disabled) { background: --alpha(var(--color-info) / 22%); color: var(--color-info); }
+.hr-system .hr-bonus-action-delete {
+  background: --alpha(var(--color-brand) / 12%);
+  color: var(--color-brand-dark);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 56%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 22%) inset,
+    0 8px 20px --alpha(var(--color-brand) / 10%);
+}
+.hr-system .hr-bonus-action-delete:hover:not(:disabled) { background: --alpha(var(--color-brand) / 20%); color: var(--color-brand-dark); }
 /* 敘薪列表的列操作用圖示呈現；顏色只表達動作類型，不取代 title／aria-label。 */
 .hr-system .compensation-action-update { color: var(--color-info); }
 .hr-system .compensation-action-update:hover:not(:disabled) { background: var(--color-info-soft); color: var(--color-info); }

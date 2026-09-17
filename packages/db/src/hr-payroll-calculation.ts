@@ -148,6 +148,11 @@ function normalizeBonusKind(value: string): HrBonusKind {
   return value === "individual_performance" ? "individual_performance" : "team_performance";
 }
 
+export interface HrBonusPolicyAssignmentInput {
+  employeeUserId: string;
+  weightUnits?: number;
+}
+
 export interface CreateHrBonusPolicyInput {
   name: string;
   /** 新 API 使用 scopeIds；scopeId 僅保留給既有客戶端。 */
@@ -157,7 +162,10 @@ export interface CreateHrBonusPolicyInput {
   performancePeriod: HrBonusPerformancePeriod;
   ratePpm: number;
   guaranteeMinor: number;
+  /** 舊 API：未提供 employeeAssignments 時一律以權重 1 建立。 */
   employeeUserIds?: string[];
+  /** 團體績效可逐員工指定分配權重；個人績效仍會保存權重 1 以符合既有資料形狀。 */
+  employeeAssignments?: HrBonusPolicyAssignmentInput[];
   assignmentValidFrom?: string;
 }
 
@@ -576,8 +584,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     if (!bonusPool) throw new HrError(404, "找不到獎金池。 ");
     if (bonusPool.periodStart !== period.start || bonusPool.periodEnd !== period.end) throw new HrError(400, "獎金池期間必須與薪資月份完全一致。 ");
     if (bonusPool.status === "failed") throw new HrError(409, "獎金池已失敗，不能套用到薪資。 ");
-    if (!bonusPool.policyActive) throw new HrError(409, "獎金池所引用的 policy 已停用，請重新計算。 ");
-    if (bonusPool.policyValidFrom >= period.end || (bonusPool.policyValidTo !== null && bonusPool.policyValidTo <= period.start)) throw new HrError(400, "獎金池所引用的 policy 不適用於指定月份。 ");
+    if (!bonusPool.policyActive) throw new HrError(409, "獎金池所引用的獎金已停用，請重新計算。 ");
+    if (bonusPool.policyValidFrom >= period.end || (bonusPool.policyValidTo !== null && bonusPool.policyValidTo <= period.start)) throw new HrError(400, "獎金池所引用的獎金不適用於指定月份。 ");
     bonusAllocations = await db.select().from(hrBonusAllocations).where(eq(hrBonusAllocations.bonusPoolId, input.bonusPoolId));
   }
   const bonusAssignmentRows = await db.select({
@@ -910,7 +918,7 @@ function employeeDaysForPeriod(employee: { hiredOn: string; endedOn: string | nu
   return overlapDays(period.start, period.end, employee.hiredOn, employee.endedOn).length;
 }
 
-/** 取得可選的獎金政策版本；來源與比例保留在 API，前端不另複製制度常數。 */
+/** 取得可選的獎金；來源與比例保留在 API，前端不另複製制度常數。 */
 export const HR_BONUS_POLICY_PAGE_SIZES = [10, 25, 50, 100] as const;
 export interface HrBonusPolicyListQuery {
   page: number;
@@ -926,6 +934,12 @@ export async function listHrBonusPolicies(db: Database, input: HrBonusPolicyList
   const search = input.search.trim();
   const where = and(
     eq(hrBonusPolicies.active, 1),
+    sql`NOT EXISTS (
+      SELECT 1 FROM hr_bonus_policy_versions AS newer_bonus_version
+      WHERE newer_bonus_version.policy_id = ${hrBonusPolicyVersions.policyId}
+        AND (newer_bonus_version.valid_from > ${hrBonusPolicyVersions.validFrom}
+          OR (newer_bonus_version.valid_from = ${hrBonusPolicyVersions.validFrom} AND newer_bonus_version.version_number > ${hrBonusPolicyVersions.versionNumber}))
+    )`,
     search ? or(
       like(hrBonusPolicies.name, `%${search}%`),
       like(scopes.name, `%${search}%`),
@@ -982,15 +996,24 @@ function bonusScopeIds(input: CreateHrBonusPolicyInput): string[] {
 }
 
 function validateBonusPolicy(input: CreateHrBonusPolicyInput) {
-  if (typeof input.name !== "string" || !input.name.trim() || input.name.trim().length > 100) throw new HrError(400, "政策名稱必須是 1～100 字。 ");
+  if (typeof input.name !== "string" || !input.name.trim() || input.name.trim().length > 100) throw new HrError(400, "獎金名稱必須是 1～100 字。 ");
   if (input.bonusKind !== "team_performance" && input.bonusKind !== "individual_performance") throw new HrError(400, "績效歸屬不正確。 ");
   if (input.performancePeriod !== "current_month" && input.performancePeriod !== "previous_month") throw new HrError(400, "業績期間不正確。 ");
   const scopeIds = bonusScopeIds(input);
   if (!Number.isSafeInteger(input.ratePpm) || input.ratePpm < 0 || input.ratePpm > PPM) throw new HrError(400, "獎金比例必須介於 0～100%。");
   ensureMoney(input.guaranteeMinor, "保底金額");
-  const employeeUserIds = input.employeeUserIds ?? [];
+  const employeeAssignments = input.employeeAssignments ?? [];
+  if (employeeAssignments.length > 80) throw new HrError(400, "指派員工一次最多指派 80 人。 ");
+  const assignedEmployeeUserIds = employeeAssignments.map((assignment) => assignment.employeeUserId);
+  if (assignedEmployeeUserIds.some((id) => typeof id !== "string" || !id.trim()) || new Set(assignedEmployeeUserIds).size !== assignedEmployeeUserIds.length) throw new HrError(400, "指派員工不可重複。 ");
+  for (const assignment of employeeAssignments) {
+    const weightUnits = assignment.weightUnits ?? 1;
+    if (!Number.isSafeInteger(weightUnits) || weightUnits < 1 || weightUnits > 1000) throw new HrError(400, "員工權重必須是 1～1000 的整數。 ");
+  }
+  const employeeUserIds = employeeAssignments.length ? assignedEmployeeUserIds : input.employeeUserIds ?? [];
+  const assignmentValidFrom = input.assignmentValidFrom ?? ("validFrom" in input && typeof input.validFrom === "string" ? input.validFrom : undefined);
   if (employeeUserIds.length > 80 || new Set(employeeUserIds).size !== employeeUserIds.length) throw new HrError(400, "指派員工不可重複，且一次最多指派 80 人。 ");
-  if (employeeUserIds.length && (!input.assignmentValidFrom || !isDateOnly(input.assignmentValidFrom))) throw new HrError(400, "員工套用生效日必須是有效日期。 ");
+  if (employeeUserIds.length && (!assignmentValidFrom || !isDateOnly(assignmentValidFrom))) throw new HrError(400, "員工套用生效日必須是有效日期。 ");
   return scopeIds;
 }
 
@@ -1017,7 +1040,11 @@ async function resolveBonusPolicyEmployments(db: Database, employeeUserIds: stri
 export async function createHrBonusPolicy(db: Database, input: CreateHrBonusPolicyInput, actor: HrActor) {
   const scopeIds = validateBonusPolicy(input);
   await ensureBonusScopes(db, scopeIds);
-  const employments = await resolveBonusPolicyEmployments(db, input.employeeUserIds, input.assignmentValidFrom);
+  const employeeAssignments = input.employeeAssignments?.length
+    ? input.employeeAssignments.map((assignment) => ({ employeeUserId: assignment.employeeUserId, weightUnits: assignment.weightUnits ?? 1 }))
+    : (input.employeeUserIds ?? []).map((employeeUserId) => ({ employeeUserId, weightUnits: 1 }));
+  const assignmentWeightByUser = new Map(employeeAssignments.map((assignment) => [assignment.employeeUserId, assignment.weightUnits]));
+  const employments = await resolveBonusPolicyEmployments(db, employeeAssignments.map((assignment) => assignment.employeeUserId), input.assignmentValidFrom);
   const policyId = crypto.randomUUID();
   const policyVersionId = crypto.randomUUID();
   try {
@@ -1025,11 +1052,11 @@ export async function createHrBonusPolicy(db: Database, input: CreateHrBonusPoli
       db.insert(hrBonusPolicies).values({ id: policyId, name: input.name, active: 1, createdBy: actor.id }),
       db.insert(hrBonusPolicyVersions).values({ id: policyVersionId, policyId, versionNumber: 1, scopeId: scopeIds[0]!, performanceKind: "scheduled_daily", revenueKind: "sales_amount", bonusKind: input.bonusKind, performancePeriod: input.performancePeriod, ratePpm: input.ratePpm, guaranteeMinor: input.guaranteeMinor, validFrom: "1900-01-01", validTo: null, createdBy: actor.id }),
       ...scopeIds.map((scopeId) => db.insert(hrBonusPolicyVersionScopes).values({ policyVersionId, scopeId, createdBy: actor.id })),
-      ...employments.map((employment) => db.insert(hrBonusPolicyMembers).values({ id: crypto.randomUUID(), policyVersionId, employmentId: employment.id, validFrom: input.assignmentValidFrom!, validTo: null, weightUnits: 1, createdBy: actor.id })),
-      db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policyVersionId, source: "hr", eventType: "bonus_policy_created", summary: "獎金政策建立", actor, payload: { policyId, policyVersionId, scopeIds, bonusKind: input.bonusKind, performancePeriod: input.performancePeriod, assignmentCount: employments.length } })),
+      ...employments.map((employment) => db.insert(hrBonusPolicyMembers).values({ id: crypto.randomUUID(), policyVersionId, employmentId: employment.id, validFrom: input.assignmentValidFrom!, validTo: null, weightUnits: assignmentWeightByUser.get(employment.employeeUserId) ?? 1, createdBy: actor.id })),
+      db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policyVersionId, source: "hr", eventType: "bonus_policy_created", summary: "獎金建立", actor, payload: { policyId, policyVersionId, scopeIds, bonusKind: input.bonusKind, performancePeriod: input.performancePeriod, assignmentCount: employments.length } })),
     ]));
   } catch (error) {
-    if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "獎金政策建立失敗，請重新整理後再試。 ");
+    if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "獎金建立失敗，請重新整理後再試。 ");
     throw error;
   }
   return { policyId, policyVersionId, scopeIds, assignmentCount: employments.length };
@@ -1039,34 +1066,44 @@ export async function createHrBonusPolicy(db: Database, input: CreateHrBonusPoli
 export async function updateHrBonusPolicy(db: Database, input: UpdateHrBonusPolicyInput, actor: HrActor) {
   const scopeIds = validateBonusPolicy(input);
   await ensureBonusScopes(db, scopeIds);
-  if (!isDateOnly(input.validFrom)) throw new HrError(400, "policy 新版本生效日必須是有效日期。 ");
+  if (!isDateOnly(input.validFrom)) throw new HrError(400, "變更生效日必須是有效日期。 ");
   const [current] = await db.select({ policyId: hrBonusPolicyVersions.policyId, versionNumber: hrBonusPolicyVersions.versionNumber, validFrom: hrBonusPolicyVersions.validFrom, active: hrBonusPolicies.active }).from(hrBonusPolicyVersions)
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .where(eq(hrBonusPolicyVersions.id, input.policyVersionId)).limit(1);
-  if (!current) throw new HrError(404, "找不到獎金政策版本。 ");
-  if (!current.active) throw new HrError(409, "這個 policy 已停用，不能建立新版本。 ");
+  if (!current) throw new HrError(404, "找不到獎金。 ");
+  if (!current.active) throw new HrError(409, "這個獎金已停用，不能編輯。 ");
   if (input.validFrom <= current.validFrom) throw new HrError(400, "新版本生效日必須晚於目前版本生效日。 ");
   const [latest] = await db.select({ id: hrBonusPolicyVersions.id, versionNumber: hrBonusPolicyVersions.versionNumber, validFrom: hrBonusPolicyVersions.validFrom }).from(hrBonusPolicyVersions)
     .where(eq(hrBonusPolicyVersions.policyId, current.policyId)).orderBy(desc(hrBonusPolicyVersions.validFrom), desc(hrBonusPolicyVersions.versionNumber)).limit(1);
-  if (latest && latest.id !== input.policyVersionId) throw new HrError(409, "只能從最新 policy 版本建立下一版，請重新整理後再試。 ");
+  if (latest && latest.id !== input.policyVersionId) throw new HrError(409, "獎金已變更，請重新整理後再試。 ");
   if (latest && input.validFrom <= latest.validFrom) throw new HrError(400, "新版本生效日必須晚於最新版本生效日。 ");
   const versionNumber = Number(latest?.versionNumber ?? 0) + 1;
-  const carriedMembers = await db.select({ member: hrBonusPolicyMembers }).from(hrBonusPolicyMembers)
+  const activeMembers = await db.select({ member: hrBonusPolicyMembers }).from(hrBonusPolicyMembers)
     .innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPolicyMembers.policyVersionId))
     .where(and(eq(hrBonusPolicyVersions.policyId, current.policyId), sql`${hrBonusPolicyVersions.validFrom} < ${input.validFrom}`, sql`(${hrBonusPolicyVersions.validTo} IS NULL OR ${hrBonusPolicyVersions.validTo} > ${input.validFrom})`, sql`${hrBonusPolicyMembers.validFrom} < ${input.validFrom}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.validFrom})`));
+  const specifiedAssignments = input.employeeAssignments !== undefined
+    ? input.employeeAssignments.map((assignment) => ({ employeeUserId: assignment.employeeUserId, weightUnits: assignment.weightUnits ?? 1 }))
+    : input.employeeUserIds !== undefined
+      ? input.employeeUserIds.map((employeeUserId) => ({ employeeUserId, weightUnits: 1 }))
+      : undefined;
+  const specifiedEmployments = specifiedAssignments === undefined ? [] : await resolveBonusPolicyEmployments(db, specifiedAssignments.map((assignment) => assignment.employeeUserId), input.validFrom);
+  const specifiedWeightByUser = new Map((specifiedAssignments ?? []).map((assignment) => [assignment.employeeUserId, assignment.weightUnits]));
+  const nextMembers = specifiedAssignments === undefined
+    ? activeMembers.map(({ member }) => ({ employmentId: member.employmentId, validTo: member.validTo, weightUnits: member.weightUnits }))
+    : specifiedEmployments.map((employment) => ({ employmentId: employment.id, validTo: null, weightUnits: specifiedWeightByUser.get(employment.employeeUserId) ?? 1 }));
   const policyVersionId = crypto.randomUUID();
   try {
     await db.batch(batchStatements([
       db.update(hrBonusPolicies).set({ name: input.name }).where(eq(hrBonusPolicies.id, current.policyId)),
       ...(latest ? [db.update(hrBonusPolicyVersions).set({ validTo: input.validFrom }).where(eq(hrBonusPolicyVersions.id, latest.id))] : []),
-      ...(carriedMembers.length ? [db.update(hrBonusPolicyMembers).set({ validTo: input.validFrom }).where(inArray(hrBonusPolicyMembers.id, carriedMembers.map(({ member }) => member.id)))] : []),
+      ...(activeMembers.length ? [db.update(hrBonusPolicyMembers).set({ validTo: input.validFrom }).where(inArray(hrBonusPolicyMembers.id, activeMembers.map(({ member }) => member.id)))] : []),
       db.insert(hrBonusPolicyVersions).values({ id: policyVersionId, policyId: current.policyId, versionNumber, scopeId: scopeIds[0]!, performanceKind: "scheduled_daily", revenueKind: "sales_amount", bonusKind: input.bonusKind, performancePeriod: input.performancePeriod, ratePpm: input.ratePpm, guaranteeMinor: input.guaranteeMinor, validFrom: input.validFrom, validTo: null, createdBy: actor.id }),
       ...scopeIds.map((scopeId) => db.insert(hrBonusPolicyVersionScopes).values({ policyVersionId, scopeId, createdBy: actor.id })),
-      ...carriedMembers.map(({ member }) => db.insert(hrBonusPolicyMembers).values({ id: crypto.randomUUID(), policyVersionId, employmentId: member.employmentId, validFrom: input.validFrom, validTo: member.validTo, weightUnits: member.weightUnits, createdBy: actor.id })),
-      db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policyVersionId, source: "hr", eventType: "bonus_policy_version_created", summary: "獎金政策版本更新", actor, payload: { policyId: current.policyId, previousPolicyVersionId: input.policyVersionId, policyVersionId, versionNumber, validFrom: input.validFrom, scopeIds, assignmentCount: carriedMembers.length } })),
+      ...nextMembers.map((member) => db.insert(hrBonusPolicyMembers).values({ id: crypto.randomUUID(), policyVersionId, employmentId: member.employmentId, validFrom: input.validFrom, validTo: member.validTo, weightUnits: member.weightUnits, createdBy: actor.id })),
+      db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policyVersionId, source: "hr", eventType: "bonus_policy_version_created", summary: "獎金更新", actor, payload: { policyId: current.policyId, previousPolicyVersionId: input.policyVersionId, policyVersionId, versionNumber, validFrom: input.validFrom, scopeIds, assignmentCount: nextMembers.length } })),
     ]));
   } catch (error) {
-    if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "獎金政策版本已建立，請重新整理。 ");
+    if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "獎金已建立，請重新整理。 ");
     throw error;
   }
   return { policyId: current.policyId, policyVersionId, versionNumber };
@@ -1077,11 +1114,11 @@ export async function deleteHrBonusPolicy(db: Database, policyVersionId: string,
   const [policy] = await db.select({ id: hrBonusPolicies.id, name: hrBonusPolicies.name, active: hrBonusPolicies.active }).from(hrBonusPolicyVersions)
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .where(eq(hrBonusPolicyVersions.id, policyVersionId)).limit(1);
-  if (!policy) throw new HrError(404, "找不到獎金政策版本。 ");
+  if (!policy) throw new HrError(404, "找不到獎金。 ");
   if (!policy.active) return { policyId: policy.id, deleted: false };
   await db.batch(batchStatements([
     db.update(hrBonusPolicies).set({ active: 0 }).where(eq(hrBonusPolicies.id, policy.id)),
-    db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policy.id, source: "hr", eventType: "bonus_policy_archived", summary: "獎金政策停用", actor, payload: { policyId: policy.id, policyVersionId, policyName: policy.name } })),
+    db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policy.id, source: "hr", eventType: "bonus_policy_archived", summary: "獎金停用", actor, payload: { policyId: policy.id, policyVersionId, policyName: policy.name } })),
   ]));
   return { policyId: policy.id, deleted: true };
 }
@@ -1115,28 +1152,28 @@ export async function listHrBonusAssignments(db: Database) {
 }
 
 export async function assignHrBonusPolicyMember(db: Database, input: AssignHrBonusPolicyInput, actor: HrActor) {
-  if (!isDateOnly(input.validFrom) || (input.validTo !== null && input.validTo !== undefined && !isDateOnly(input.validTo))) throw new HrError(400, "政策生效期間必須是有效日期。 ");
-  if (input.validTo !== null && input.validTo !== undefined && input.validTo <= input.validFrom) throw new HrError(400, "政策結束日必須晚於生效日。 ");
+  if (!isDateOnly(input.validFrom) || (input.validTo !== null && input.validTo !== undefined && !isDateOnly(input.validTo))) throw new HrError(400, "獎金生效期間必須是有效日期。 ");
+  if (input.validTo !== null && input.validTo !== undefined && input.validTo <= input.validFrom) throw new HrError(400, "獎金結束日必須晚於生效日。 ");
   const weightUnits = input.weightUnits ?? 1;
-  if (!Number.isSafeInteger(weightUnits) || weightUnits <= 0) throw new HrError(400, "政策權重必須是正整數。 ");
+  if (!Number.isSafeInteger(weightUnits) || weightUnits <= 0) throw new HrError(400, "權重必須是正整數。 ");
   const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
     .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .where(and(eq(hrEmployments.employeeUserId, input.employeeUserId), sql`${hrEmployments.hiredOn} <= ${input.validFrom}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${input.validFrom})`))
     .orderBy(desc(hrEmployments.hiredOn)).limit(1);
-  if (!employment) throw new HrError(404, "找不到該員工在政策生效日的任職紀錄。 ");
+  if (!employment) throw new HrError(404, "找不到該員工在生效日的任職紀錄。 ");
   const [policy] = await db.select({ id: hrBonusPolicyVersions.id, policyId: hrBonusPolicyVersions.policyId, versionValidFrom: hrBonusPolicyVersions.validFrom, versionValidTo: hrBonusPolicyVersions.validTo, active: hrBonusPolicies.active }).from(hrBonusPolicyVersions)
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .where(eq(hrBonusPolicyVersions.id, input.policyVersionId)).limit(1);
-  if (!policy) throw new HrError(404, "找不到獎金政策版本。 ");
-  if (!policy.active) throw new HrError(409, "這個 policy 已停用，不能再套用。 ");
-  if (input.validFrom < policy.versionValidFrom || (policy.versionValidTo !== null && input.validFrom >= policy.versionValidTo)) throw new HrError(400, "員工套用生效日不在 policy 版本有效期間內。 ");
-  if (input.validTo !== null && input.validTo !== undefined && policy.versionValidTo !== null && input.validTo > policy.versionValidTo) throw new HrError(400, "員工套用結束日不可超過 policy 版本有效期間。 ");
+  if (!policy) throw new HrError(404, "找不到獎金。 ");
+  if (!policy.active) throw new HrError(409, "這個獎金已停用，不能再套用。 ");
+  if (input.validFrom < policy.versionValidFrom || (policy.versionValidTo !== null && input.validFrom >= policy.versionValidTo)) throw new HrError(400, "員工套用生效日不在 獎金有效期間內。 ");
+  if (input.validTo !== null && input.validTo !== undefined && policy.versionValidTo !== null && input.validTo > policy.versionValidTo) throw new HrError(400, "員工套用結束日不可超過 獎金有效期間。 ");
   const assignmentEnd = input.validTo ?? "9999-12-31";
   const [duplicate] = await db.select({ id: hrBonusPolicyMembers.id }).from(hrBonusPolicyMembers)
     .innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPolicyMembers.policyVersionId))
     .where(and(eq(hrBonusPolicyVersions.policyId, policy.policyId), eq(hrBonusPolicyMembers.employmentId, employment.id), sql`${hrBonusPolicyMembers.validFrom} < ${assignmentEnd}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.validFrom})`))
     .limit(1);
-  if (duplicate) throw new HrError(409, "該員工已套用這個 policy，不能重複套用重疊期間。 ");
+  if (duplicate) throw new HrError(409, "該員工已套用這個獎金，不能重複套用重疊期間。 ");
   const assignmentId = crypto.randomUUID();
   try {
     await writeHrMutation(db, sql`INSERT INTO hr_bonus_policy_members
@@ -1149,9 +1186,9 @@ export async function assignHrBonusPolicyMember(db: Database, input: AssignHrBon
           AND existing_member.employment_id = ${employment.id}
           AND existing_member.valid_from < ${assignmentEnd}
           AND (existing_member.valid_to IS NULL OR existing_member.valid_to > ${input.validFrom})
-      ) RETURNING id`, assignmentId, actor, "bonus_policy_assigned", "該員工已套用這個 policy，不能重複套用重疊期間。 ");
+      ) RETURNING id`, assignmentId, actor, "bonus_policy_assigned", "該員工已套用這個獎金，不能重複套用重疊期間。 ");
   } catch (error) {
-    if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "該員工已套用這個 policy，不能重複套用相同生效日。 ");
+    if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "該員工已套用這個獎金，不能重複套用相同生效日。 ");
     throw error;
   }
   return { id: assignmentId, employmentId: employment.id };
@@ -1275,10 +1312,10 @@ export async function calculateHrBonusPool(db: Database, input: HrBonusCalculati
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .innerJoin(scopes, eq(scopes.id, hrBonusPolicyVersions.scopeId))
     .where(eq(hrBonusPolicyVersions.id, input.policyVersionId)).limit(1);
-  if (!policy) throw new HrError(404, "找不到獎金政策版本。 ");
-  if (!policy.active) throw new HrError(409, "這個 policy 已停用，不能再計算。 ");
+  if (!policy) throw new HrError(404, "找不到獎金。 ");
+  if (!policy.active) throw new HrError(409, "這個獎金 已停用，不能再計算。 ");
   if (policy.version.bonusKind !== "team_performance") throw new HrError(400, "個人績效 policy 由薪資試算逐員工計算，不能建立櫃點獎金池。 ");
-  if (policy.version.validFrom >= period.end || (policy.version.validTo !== null && policy.version.validTo <= period.start)) throw new HrError(400, "獎金政策版本不適用於指定月份。 ");
+  if (policy.version.validFrom >= period.end || (policy.version.validTo !== null && policy.version.validTo <= period.start)) throw new HrError(400, "獎金不適用於指定月份。 ");
   const policyScopeRows = await db.select({ scopeId: hrBonusPolicyVersionScopes.scopeId }).from(hrBonusPolicyVersionScopes)
     .where(eq(hrBonusPolicyVersionScopes.policyVersionId, input.policyVersionId));
   const scopeIds = policyScopeRows.length ? policyScopeRows.map((row) => row.scopeId) : [policy.version.scopeId];
@@ -1305,12 +1342,12 @@ export async function calculateHrBonusPool(db: Database, input: HrBonusCalculati
       inArray(hrScheduleEntries.scopeId, scopeIds), sql`${hrScheduleEntries.workDate} >= ${period.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`));
   const members = await db.select({ member: hrBonusPolicyMembers, employmentId: hrBonusPolicyMembers.employmentId }).from(hrBonusPolicyMembers)
     .where(and(eq(hrBonusPolicyMembers.policyVersionId, input.policyVersionId), sql`${hrBonusPolicyMembers.validFrom} < ${period.end}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${period.start})`));
-  if (!members.length) throw new HrError(400, "獎金政策沒有有效成員。 ");
+  if (!members.length) throw new HrError(400, "獎金沒有有效成員。 ");
   const [finalPool] = await db.select({ id: hrBonusPools.id, status: hrBonusPools.status }).from(hrBonusPools)
     .where(and(eq(hrBonusPools.policyVersionId, input.policyVersionId), eq(hrBonusPools.periodStart, period.start), eq(hrBonusPools.periodEnd, period.end), sql`${hrBonusPools.status} IN ('approved', 'closed')`)).limit(1);
   if (finalPool) throw new HrError(409, "該月份的獎金池已核准或結算，不能覆寫；如需修正請建立新的薪資調整。 ");
   const eligible = members.map(({ member }) => ({ member, scheduledDays: new Set(entries.filter(({ entry }) => entry.employmentId === member.employmentId).map(({ entry }) => entry.workDate)).size })).filter((item) => item.scheduledDays > 0);
-  if (!eligible.length) throw new HrError(400, "指定月份沒有符合獎金政策的已發布排班。 ");
+  if (!eligible.length) throw new HrError(400, "指定月份沒有符合獎金的已發布排班。 ");
   const uniqueRevenue = new Map<string, HrBonusRevenueInput & { scopeId: string }>();
   for (const item of revenue) uniqueRevenue.set(`${item.scopeId}:${item.businessDate}`, item);
   const daily = [...uniqueRevenue.values()].sort((a, b) => a.businessDate.localeCompare(b.businessDate) || a.scopeId.localeCompare(b.scopeId));
