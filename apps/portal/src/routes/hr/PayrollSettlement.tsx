@@ -1,16 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useSession } from "../../auth/session.js";
+import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
-import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type PayrollRun, type PayrollEmployee, type PayrollLine, type PayrollRunSummary, type Profile } from "./api.js";
+import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type PayrollEmployee, type PayrollLine, type PayrollLineCalculationPart, type PayrollRun, type PayrollRunSummary, type Profile } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface PayrollRunsResponse { runs: PayrollRunSummary[] }
 interface EmployeeListResponse { employees: Employee[] }
+interface PayrollLineDetail { label: string; value: string }
+interface PayrollDisclosureProps { className: string; summaryClassName?: string; summary: ReactNode; children: ReactNode; defaultOpen?: boolean }
+type PayrollDisclosureState = "closed" | "opening" | "open" | "closing";
 
+const PAYROLL_DISCLOSURE_DURATION_MS = 220;
 const RUN_STATUS: Record<string, string> = { calculating: "計算中", ready: "待覆核", approved: "已核准", closed: "已結帳", failed: "失敗" };
 const PERIOD_STATUS: Record<string, string> = { open: "開放中", closed: "已關閉" };
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪" };
+const ITEM_BASIS_LABEL: Record<string, string> = { monthly: "月給", daily: "每日", hourly: "每小時" };
 const LINE_LABELS: Record<string, string> = {
   base_salary: "本薪", overtime: "核准付薪加班", unpaid_leave: "無薪假扣款", booth_bonus: "櫃點獎金", attendance_summary: "出勤摘要",
   labor_insurance: "勞保員工負擔", health_insurance: "健保員工負擔", special_workday: "特殊上班日薪資",
@@ -19,8 +25,26 @@ const LINE_LABELS: Record<string, string> = {
 function money(minor: number): string {
   return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`;
 }
+function formulaMoney(minor: number): string {
+  const absoluteMinor = Math.abs(minor);
+  const whole = Math.floor(absoluteMinor / 100).toLocaleString("zh-TW");
+  const cents = absoluteMinor % 100;
+  return `NT$ ${minor < 0 ? "−" : ""}${whole}${cents ? `.${String(cents).padStart(2, "0")}` : ""}`;
+}
 function deductionMoney(minor: number): string {
   return `-NT$ ${Math.abs(Math.round(minor / 100)).toLocaleString("zh-TW")}`;
+}
+function percentage(ppm: number): string {
+  return `${(ppm / 10_000).toFixed(4).replace(/\.?0+$/, "")}%`;
+}
+function hours(value: number): string {
+  return value.toFixed(2).replace(/\.?0+$/, "");
+}
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
 }
 function taipeiMonth() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -41,15 +65,218 @@ function monthRange(value: string) {
 }
 
 function readableLine(line: PayrollLine): string {
-  if (line.lineKey.startsWith("bonus_")) return `業績獎金${typeof line.explanation.policyName === "string" ? `｜${line.explanation.policyName}` : ""}`;
-  if (line.lineKey.startsWith("salary_item_")) return typeof line.explanation.itemName === "string" && line.explanation.itemName ? line.explanation.itemName : "薪資項目";
-  if (line.lineKey.startsWith("special_allowance_")) return `特殊上班日補貼${typeof line.explanation.rule === "string" ? `｜${line.explanation.rule}` : ""}`;
+  if (line.lineKey.startsWith("bonus_")) return `業績獎金${stringValue(line.explanation.policyName) ? `｜${line.explanation.policyName}` : ""}`;
+  if (line.lineKey.startsWith("salary_item_")) return stringValue(line.explanation.itemName) ?? "薪資項目";
+  if (line.lineKey.startsWith("special_allowance_")) return `特殊上班日補貼${stringValue(line.explanation.rule) ? `｜${line.explanation.rule}` : ""}`;
   return LINE_LABELS[line.lineKey] ?? line.lineKey;
 }
 
 function payBasis(employee: PayrollEmployee): string {
   const basis = employee.lines.find((line) => line.lineKey === "base_salary")?.explanation.payBasis;
   return typeof basis === "string" ? PAY_BASIS_LABEL[basis] ?? basis : "—";
+}
+
+function fallbackFormula(line: PayrollLine): string {
+  const explanation = line.explanation;
+  const savedDetail = stringValue(explanation.formulaDetail);
+  if (savedDetail) return savedDetail;
+  const savedFormula = stringValue(explanation.formula);
+  if (savedFormula) return savedFormula;
+  if (line.lineKey === "health_insurance" || line.lineKey === "labor_insurance") {
+    const insured = numberValue(explanation.insuredAmountMinor);
+    const employeeRate = numberValue(explanation.employeeRatePpm);
+    if (insured !== null && employeeRate !== null) {
+      const baseMinor = Math.floor(insured * employeeRate / 1_000_000);
+      const baseYuan = Math.round(baseMinor / 100);
+      if (line.lineKey === "health_insurance") {
+        const dependentCount = numberValue(explanation.dependentCount) ?? 0;
+        const dependentRate = numberValue(explanation.dependentRatePpm) ?? 1_000_000;
+        return `本人保費 ${formulaMoney(baseYuan * 100)} × (1 + ${dependentCount} 位親屬 × ${percentage(dependentRate)}) = ${deductionMoney(line.amountMinor)}`;
+      }
+      return `本人保費 ${formulaMoney(baseYuan * 100)} = ${deductionMoney(line.amountMinor)}`;
+    }
+  }
+  if (line.lineKey.startsWith("bonus_")) {
+    const revenue = numberValue(explanation.revenueMinor);
+    const guarantee = numberValue(explanation.guaranteeMinor);
+    const rate = numberValue(explanation.ratePpm);
+    if (revenue !== null && guarantee !== null && rate !== null) {
+      const base = `max(0, ${formulaMoney(revenue)} − ${formulaMoney(guarantee)}) × ${percentage(rate)}`;
+      return explanation.bonusKind === "team_performance"
+        ? `${base} → 獎金池，再按本人權重分配 = ${money(line.amountMinor)}`
+        : `${base} = ${money(line.amountMinor)}`;
+    }
+  }
+  if (line.lineKey === "base_salary") {
+    return stringValue(explanation.rule) ?? "依敘薪與出勤資料計算";
+  }
+  if (line.lineKey.startsWith("salary_item_")) {
+    return stringValue(explanation.rule) ?? "依薪資項目設定與出勤資料計算";
+  }
+  return "此批次未保存詳細公式；請重新試算以取得完整計算依據。";
+}
+
+function displayFormula(line: PayrollLine): string {
+  const formula = fallbackFormula(line);
+  return line.direction === "deduction" ? `扣款：${formula}` : formula;
+}
+
+function calculationParts(line: PayrollLine): PayrollLineCalculationPart[] {
+  const value = line.explanation.calculationParts;
+  if (!Array.isArray(value)) return [];
+  return value.filter((part): part is PayrollLineCalculationPart => Boolean(part) && typeof part === "object" && typeof (part as Record<string, unknown>).formula === "string" && typeof (part as Record<string, unknown>).amountMinor === "number");
+}
+
+function PayrollDisclosure({ className, summaryClassName, summary, children, defaultOpen = false }: PayrollDisclosureProps) {
+  const initialState: PayrollDisclosureState = defaultOpen ? "open" : "closed";
+  const [state, setState] = useState<PayrollDisclosureState>(initialState);
+  const stateRef = useRef(state);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setDisclosureState = (next: PayrollDisclosureState) => {
+    stateRef.current = next;
+    setState(next);
+  };
+  const clearTimer = () => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  useEffect(() => () => clearTimer(), []);
+  function finishTransition(next: "open" | "closed") {
+    const expected: PayrollDisclosureState = next === "open" ? "opening" : "closing";
+    if (stateRef.current !== expected) return;
+    clearTimer();
+    setDisclosureState(next);
+  }
+  function toggle(event: MouseEvent<HTMLElement>) {
+    // 原生 details 收合會立刻把內容拿出 layout；先攔住預設行為，等 0fr 動畫完成才關閉 open。
+    event.preventDefault();
+    clearTimer();
+    const reduceMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const opening = stateRef.current === "closed" || stateRef.current === "closing";
+    if (reduceMotion) {
+      setDisclosureState(opening ? "open" : "closed");
+      return;
+    }
+    const next = opening ? "opening" : "closing";
+    setDisclosureState(next);
+    timerRef.current = setTimeout(() => finishTransition(opening ? "open" : "closed"), PAYROLL_DISCLOSURE_DURATION_MS + 50);
+  }
+  const contentHidden = state === "closed" || state === "closing";
+  return <details className={`hr-payroll-disclosure ${className}`} data-disclosure-state={state} open={state !== "closed"}>
+    <summary className={summaryClassName} onClick={toggle}>{summary}</summary>
+    <div className="hr-payroll-disclosure-content" aria-hidden={contentHidden} inert={contentHidden}>
+      <div className="hr-payroll-disclosure-content-inner">{children}</div>
+    </div>
+  </details>;
+}
+
+function PayrollDisclosureMarker({ className }: { className: string }) {
+  return <span className={`hr-payroll-disclosure-marker ${className}`} aria-hidden="true"><Icon name="chevronDown" /></span>;
+}
+
+function lineDetails(line: PayrollLine): PayrollLineDetail[] {
+  const explanation = line.explanation;
+  const details: PayrollLineDetail[] = [];
+  if (line.lineKey === "base_salary") {
+    const basis = stringValue(explanation.payBasis);
+    if (basis) details.push({ label: "計薪方式", value: PAY_BASIS_LABEL[basis] ?? basis });
+    if (stringValue(explanation.period)) details.push({ label: "計算月份", value: explanation.period as string });
+  }
+  if (line.lineKey.startsWith("salary_item_")) {
+    const basis = stringValue(explanation.amountBasis);
+    if (basis) details.push({ label: "給付單位", value: ITEM_BASIS_LABEL[basis] ?? basis });
+    if (stringValue(explanation.itemKind)) details.push({ label: "項目類型", value: explanation.itemKind === "variable" ? "變動" : "固定" });
+    details.push({ label: "計入加班基礎", value: explanation.includeOvertime ? "是" : "否" });
+    details.push({ label: "計入投保基數", value: explanation.includeInsurance ? "是" : "否" });
+    details.push({ label: "計入扣繳", value: explanation.includeTax ? "是" : "否" });
+  }
+  if (line.lineKey.startsWith("bonus_")) {
+    if (stringValue(explanation.policyName)) details.push({ label: "適用政策", value: explanation.policyName as string });
+    if (explanation.bonusKind) details.push({ label: "績效歸屬", value: explanation.bonusKind === "team_performance" ? "團體績效" : "個人績效" });
+    if (explanation.performancePeriod) details.push({ label: "業績期間", value: explanation.performancePeriod === "previous_month" ? "前月" : "當月" });
+    const revenue = numberValue(explanation.revenueMinor);
+    const guarantee = numberValue(explanation.guaranteeMinor);
+    const rate = numberValue(explanation.ratePpm);
+    if (revenue !== null) details.push({ label: "業績", value: money(revenue) });
+    if (guarantee !== null) details.push({ label: "保底", value: money(guarantee) });
+    if (rate !== null) details.push({ label: "獎金比例", value: percentage(rate) });
+    const weight = numberValue(explanation.weightUnits);
+    const weightedTotal = numberValue(explanation.weightedTotal);
+    if (weight !== null && weightedTotal !== null && explanation.bonusKind === "team_performance") details.push({ label: "分配權重", value: `${weight} ÷ ${weightedTotal}` });
+    const scheduledDays = numberValue(explanation.scheduledDays);
+    if (scheduledDays !== null) details.push({ label: "本人排班日", value: `${scheduledDays} 天` });
+  }
+  if (line.lineKey === "labor_insurance" || line.lineKey === "health_insurance") {
+    const insured = numberValue(explanation.insuredAmountMinor);
+    const dependentCount = numberValue(explanation.dependentCount);
+    const employeeRate = numberValue(explanation.employeeRatePpm);
+    const dependentRate = numberValue(explanation.dependentRatePpm);
+    if (insured !== null) details.push({ label: "投保金額", value: money(insured) });
+    if (employeeRate !== null) details.push({ label: "本人負擔比例", value: percentage(employeeRate) });
+    if (line.lineKey === "health_insurance" && dependentCount !== null) details.push({ label: "親屬人數", value: `${dependentCount} 人` });
+    if (line.lineKey === "health_insurance" && dependentRate !== null) details.push({ label: "親屬負擔比例", value: percentage(dependentRate) });
+    if (stringValue(explanation.sourceKind)) details.push({ label: "規則來源", value: explanation.sourceKind === "official" ? "官方" : "人工覆核" });
+  }
+  if (line.lineKey === "overtime") {
+    const approvedRequests = numberValue(explanation.approvedRequests);
+    const standardDailyHours = numberValue(explanation.standardDailyHours);
+    if (approvedRequests !== null) details.push({ label: "核准筆數", value: `${approvedRequests} 筆` });
+    if (line.quantitySeconds !== undefined) details.push({ label: "加班時數", value: `${hours(line.quantitySeconds / 3600)} 小時` });
+    if (standardDailyHours !== null) details.push({ label: "每日標準工時", value: `${hours(standardDailyHours)} 小時` });
+  }
+  if (line.lineKey === "unpaid_leave") {
+    if (stringValue(explanation.period)) details.push({ label: "計算月份", value: explanation.period as string });
+    const entryCount = numberValue(explanation.entryCount);
+    if (entryCount !== null) details.push({ label: "登記／申請筆數", value: `${entryCount} 筆` });
+  }
+  if (line.lineKey === "special_workday" || line.lineKey.startsWith("special_allowance_")) {
+    if (stringValue(explanation.rule)) details.push({ label: "套用規則", value: explanation.rule as string });
+    const quantity = numberValue(explanation.quantity);
+    if (quantity !== null) details.push({ label: "套用次數", value: `${quantity} 次` });
+  }
+  if (line.lineKey.startsWith("adjustment_")) {
+    if (stringValue(explanation.sourcePeriodKey)) details.push({ label: "來源月份", value: explanation.sourcePeriodKey as string });
+    if (stringValue(explanation.reason)) details.push({ label: "調整原因", value: explanation.reason as string });
+  }
+  return details;
+}
+
+function PayrollLineDetail({ line }: { line: PayrollLine }) {
+  const parts = calculationParts(line);
+  const details = lineDetails(line);
+  return <PayrollDisclosure
+    className={`hr-payroll-line hr-payroll-line-${line.direction}`}
+    summaryClassName="hr-payroll-line-summary"
+    summary={<>
+      <span className="hr-payroll-line-head">
+        <span className="hr-payroll-line-title"><strong>{readableLine(line)}</strong><span className="hr-payroll-line-direction">{line.direction === "earning" ? "應發" : "扣款"}</span></span>
+        <strong className="hr-payroll-line-amount">{line.direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</strong>
+      </span>
+      <PayrollDisclosureMarker className="hr-payroll-line-marker" />
+    </>}
+  >
+    <div className="hr-payroll-line-content">
+      <div className="hr-payroll-line-formula">
+        <span>計算公式</span>
+        <p>{displayFormula(line)}</p>
+      </div>
+      {details.length ? <dl className="hr-payroll-line-details">{details.map((detail) => <div key={detail.label}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}</dl> : null}
+      {parts.length > 1 ? <PayrollDisclosure
+        className="hr-payroll-line-steps"
+        summaryClassName="hr-payroll-line-steps-summary"
+        summary={<><span>查看 {parts.length} 段計算</span><PayrollDisclosureMarker className="hr-payroll-line-steps-marker" /></>}
+      >
+        <ol>{parts.map((part, index) => <li key={`${part.formula}-${index}`}><span>{part.formula}</span><strong>{money(part.amountMinor)}</strong></li>)}</ol>
+      </PayrollDisclosure> : null}
+    </div>
+  </PayrollDisclosure>;
+}
+
+function workerFormula(worker: PayrollRun["workers"][number]): string {
+  const basis = worker.payBasis === "monthly" ? "月薪 ÷ 30 天" : worker.payBasis === "hourly" ? "時薪 × 班表工時" : worker.payBasis === "mixed" ? "各敘薪版本分段計算" : "日薪 × 天數";
+  return `${basis}，依已發布排班 ${worker.scheduledDays} 天與有效敘薪計算 = ${money(worker.amountMinor)}`;
 }
 
 export function HrPayrollSettlement() {
@@ -86,6 +313,7 @@ export function HrPayrollSettlement() {
   }, [selectedRun.data]);
   useEffect(() => { setAdjustmentEffectivePeriodKey(nextMonth(periodKey)); }, [periodKey]);
   const employeeOptions = useMemo(() => [{ label: "全部啟用員工", value: "__all__" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
+  const payrollTotals = useMemo(() => payrollResult?.employees.reduce((totals, employee) => ({ earningMinor: totals.earningMinor + employee.earningMinor, deductionMinor: totals.deductionMinor + employee.deductionMinor, netMinor: totals.netMinor + employee.netMinor }), { earningMinor: 0, deductionMinor: 0, netMinor: 0 }) ?? { earningMinor: 0, deductionMinor: 0, netMinor: 0 }, [payrollResult]);
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (runs.isPending) return <HrPageSkeleton variant="table" />;
   const sourceRange = monthRange(periodKey);
@@ -99,46 +327,74 @@ export function HrPayrollSettlement() {
     });
   }
 
-  return <div className="page">
-    <PageHeader title="薪資結算" description="從敘薪管理、假勤資料與員工已套用的獎金 policy 建立指定月份薪資試算批次；計算完成後再進行覆核與結帳。" />
-    <Alert tone="info">流程：先在「敘薪管理」設定員工薪資，再到「獎金管理」套用 policy 與保存業績快照，最後在此按下計算薪資。業績不需在這裡重複輸入。</Alert>
+  return <div className="page hr-payroll-page">
+    <PageHeader title="薪資結算" description="選擇月份試算，逐位確認薪資明細與計算公式，再進行結帳。" />
+    <Alert tone="info">先選月份試算；展開員工即可查看每一筆應發、扣款與公式。敘薪、月度資料與獎金政策請在各自的管理頁維護。</Alert>
     {error ? <Alert tone="danger">{error}</Alert> : null}
     {closePayroll.error ? <Alert tone="danger">{closePayroll.error.message}</Alert> : null}
     {selectedRun.error ? <Alert tone="danger">{selectedRun.error.message}</Alert> : null}
+    {runs.error ? <Alert tone="danger">{runs.error.message}</Alert> : null}
 
-    <Panel>
-      <div className="panel-head"><div><h2>結帳後薪資調整</h2><p>系統標準規則會自動計算；特殊身分或法定資料缺漏時，可保存具名調整。來源月份必須已有結帳結果，調整會在生效月份試算成為獨立明細，且生效月份結帳後不可修改。</p></div></div>
-      <div className="admin-form toolbar"><SelectField label="員工" value={adjustmentUserId} options={[{ label: "請選擇員工", value: "" }, ...employeeOptions.slice(1)]} onChange={(event) => setAdjustmentUserId(event.target.value)} /><TextField label="來源薪資月份" type="month" value={periodKey} onChange={(event) => setPeriodKey(event.target.value)} /><TextField label="生效薪資月份" type="month" value={adjustmentEffectivePeriodKey} onChange={(event) => setAdjustmentEffectivePeriodKey(event.target.value)} /><TextField label="扣款金額（元）" type="number" min="0" step="1" value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} /><TextField label="調整原因" value={adjustmentReason} maxLength={1000} onChange={(event) => setAdjustmentReason(event.target.value)} />{canCalculate ? <Button icon="plus" loading={createAdjustment.isPending} disabled={!adjustmentEmployment || adjustmentEffectivePeriodKey === periodKey || !Number.isSafeInteger(Number(adjustmentAmount)) || Number(adjustmentAmount) <= 0 || !adjustmentReason.trim()} onClick={() => createAdjustment.mutate({ path: "/payroll/adjustments", method: "POST", values: { employmentId: adjustmentEmployment?.id, sourcePeriodKey: periodKey, effectivePeriodKey: adjustmentEffectivePeriodKey, reason: adjustmentReason, items: [{ itemName: "勞健保員工負擔", amountMinor: -Math.round(Number(adjustmentAmount) * 100) }] } }, { onSuccess: () => { setAdjustmentAmount(""); void adjustments.refetch(); } })}>保存扣款</Button> : null}</div>
-      {adjustments.error ? <Alert tone="danger">{adjustments.error.message}</Alert> : null}
-      {adjustments.data?.adjustments.length ? <div className="table-scroll"><table className="data-table compact"><thead><tr><th>員工</th><th>原因</th><th className="numeric">調整</th></tr></thead><tbody>{adjustments.data.adjustments.map((item) => <tr key={item.id}><td>{item.employeeName}</td><td>{item.reason}</td><td className="numeric">{item.items.map((line) => deductionMoney(line.amountMinor)).join("、")}</td></tr>)}</tbody></table></div> : <p className="form-hint">本月尚無人工薪資調整。</p>}
-    </Panel>
-
-    <Panel>
-      <div className="panel-head"><div><h2>計算薪資</h2><p>每次計算會建立新的版本化批次；同月份可保留多次試算，適合覆核前比對。</p></div></div>
-      <div className="admin-form">
+    <Panel className="hr-payroll-main-panel" title="試算薪資" description="每次試算會建立新的版本；完成後可在下方逐筆覆核。">
+      <div className="admin-form hr-payroll-calculate-form">
         <TextField type="month" label="計算月份" value={periodKey} required onChange={(event) => setPeriodKey(event.target.value)} />
         <TextField type="date" label="發薪日（選填）" value={payDate} onChange={(event) => setPayDate(event.target.value)} />
         <SelectField label="員工" value={employeeUserId} options={employeeOptions} onChange={(event) => setEmployeeUserId(event.target.value)} />
         {canCalculate ? <Button icon="payments" loading={calculatePayroll.isPending} disabled={!periodKey} onClick={calculate}>計算薪資</Button> : <p className="form-hint">目前帳號沒有執行薪資試算的權限。</p>}
       </div>
-      {payrollResult ? <>
-        <div className="hr-payroll-result-toolbar"><strong>{payrollResult.periodKey}・{payrollResult.status === "closed" ? "已結帳" : "待覆核"}{payrollResult.payDate ? `・發薪日 ${payrollResult.payDate}` : ""}</strong>{canCalculate && payrollResult.status === "ready" ? <Button icon="check" loading={closePayroll.isPending} onClick={() => closePayroll.mutate({ path: `/payroll/runs/${payrollResult.runId}/close`, method: "POST", values: {} }, { onSuccess: (result) => setPayrollResult(result.run) })}>結帳此批次</Button> : null}</div>
+      {payrollResult ? <div className="hr-payroll-result">
+        <div className="hr-payroll-result-toolbar">
+          <div><strong>{payrollResult.periodKey}</strong><span>{payrollResult.status === "closed" ? "已結帳" : "待覆核"}{payrollResult.payDate ? `・發薪日 ${payrollResult.payDate}` : ""}</span></div>
+          {canCalculate && payrollResult.status === "ready" ? <Button icon="check" loading={closePayroll.isPending} onClick={() => closePayroll.mutate({ path: `/payroll/runs/${payrollResult.runId}/close`, method: "POST", values: {} }, { onSuccess: (result) => setPayrollResult(result.run) })}>結帳此批次</Button> : null}
+        </div>
+        <div className="hr-payroll-overview" aria-label="薪資合計">
+          <div><span>員工薪資單</span><strong>{payrollResult.employees.length} 人</strong></div>
+          <div><span>應發合計</span><strong>{money(payrollTotals.earningMinor)}</strong></div>
+          <div><span>扣款合計</span><strong>{deductionMoney(payrollTotals.deductionMinor)}</strong></div>
+          <div className="hr-payroll-overview-net"><span>實領合計</span><strong>{money(payrollTotals.netMinor)}</strong></div>
+        </div>
         {payrollResult.warnings.length ? <Alert tone="warning"><strong>試算提醒</strong><ul className="hr-payroll-warning-list">{payrollResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></Alert> : null}
-        {payrollResult.employees.length ? <div className="table-scroll hr-payroll-summary"><table className="data-table compact"><thead><tr><th>員工</th><th>方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">淨額</th><th className="numeric">出勤／缺卡</th></tr></thead><tbody>{payrollResult.employees.map((employee) => <tr key={employee.employmentId}><td><strong>{employee.employeeName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td><td>{payBasis(employee)}</td><td className="numeric">{money(employee.earningMinor)}</td><td className="numeric">{deductionMoney(employee.deductionMinor)}</td><td className="numeric"><strong>{money(employee.netMinor)}</strong></td><td className="numeric">{employee.attendanceDays}／{employee.missingPunchDays}</td></tr>)}</tbody></table></div> : null}
-        <div className="hr-payroll-details">{payrollResult.employees.map((employee, index) => <details className="hr-payroll-employee" key={employee.employmentId} open={index === 0}>
-          <summary className="hr-payroll-result-head"><span className="hr-payroll-result-person"><strong>{employee.employeeName}（{employee.employeeNumber}）</strong><span className="form-hint">{payBasis(employee)}・出勤 {employee.attendanceDays} 天・缺卡 {employee.missingPunchDays} 天</span></span><b>{money(employee.netMinor)}</b></summary>
-          <div className="hr-payroll-result-body"><div className="table-scroll"><table className="data-table compact"><thead><tr><th>項目</th><th>方向</th><th className="numeric">金額</th></tr></thead><tbody>{employee.lines.map((line) => <tr key={line.lineKey}><td>{readableLine(line)}</td><td>{line.direction === "earning" ? "應發" : "扣款"}</td><td className="numeric">{line.direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</td></tr>)}</tbody></table></div><p className="form-hint">應發 {money(employee.earningMinor)}・扣款 {deductionMoney(employee.deductionMinor)}・淨額 {money(employee.netMinor)}</p></div>
-        </details>)}</div>
-        {payrollResult.workers.length ? <div className="hr-payroll-worker-results"><h3>排班支援人員</h3>{payrollResult.workers.map((worker) => <div className="hr-payroll-result" key={`worker-${worker.workerId}`}><div className="hr-payroll-result-head"><strong>{worker.workerName}（排班支援）</strong><b>{money(worker.amountMinor)}</b></div><p className="form-hint">{worker.payBasis === "daily" ? "日薪" : worker.payBasis === "monthly" ? "月薪" : worker.payBasis === "mixed" ? "混合薪資方式" : "時薪"}・已發布排班 {worker.scheduledDays} 天{worker.compensationVersionId ? "" : worker.payBasis === "mixed" ? "・套用多個敘薪版本" : "・尚未設定敘薪"}</p></div>)}</div> : null}
-      </> : <p className="empty-state">尚未執行本月份試算。</p>}
+        {payrollResult.employees.length ? <div className="hr-payroll-details">{payrollResult.employees.map((employee, index) => <PayrollDisclosure
+          className="hr-payroll-employee"
+          summaryClassName="hr-payroll-employee-summary"
+          defaultOpen={index === 0}
+          key={employee.employmentId}
+          summary={<>
+            <span className="hr-payroll-employee-summary-main"><strong>{employee.employeeName}</strong><small>{employee.employeeNumber}・{payBasis(employee)}・出勤 {employee.attendanceDays} 天・缺卡 {employee.missingPunchDays} 天</small></span>
+            <span className="hr-payroll-employee-summary-total"><strong>{money(employee.netMinor)}</strong><span>實領</span></span>
+            <PayrollDisclosureMarker className="hr-payroll-summary-marker" />
+          </>}
+        >
+          <div className="hr-payroll-result-body">
+            <div className="hr-payroll-line-list">{employee.lines.map((line) => <PayrollLineDetail key={line.lineKey} line={line} />)}</div>
+            <div className="hr-payroll-employee-totals"><span>應發 <strong>{money(employee.earningMinor)}</strong></span><span>扣款 <strong>{deductionMoney(employee.deductionMinor)}</strong></span><span>實領 <strong>{money(employee.netMinor)}</strong></span></div>
+          </div>
+        </PayrollDisclosure>)}</div> : <p className="empty-state">本批次沒有員工薪資單。</p>}
+        {payrollResult.workers.length ? <div className="hr-payroll-worker-results"><h3>排班支援人員</h3>{payrollResult.workers.map((worker) => <article className="hr-payroll-worker-result" key={`worker-${worker.workerId}`}><div className="hr-payroll-worker-result-head"><div><strong>{worker.workerName}</strong><small>排班支援・{PAY_BASIS_LABEL[worker.payBasis] ?? "混合薪資方式"}</small></div><strong>{money(worker.amountMinor)}</strong></div><p>{workerFormula(worker)}</p></article>)}</div> : null}
+      </div> : <p className="empty-state">尚未執行本月份試算。</p>}
     </Panel>
 
-    <Panel>
-      {runs.error ? <Alert tone="danger">{runs.error.message}</Alert> : null}
-      <div className="panel-head"><div><h2>薪資計算批次</h2><p>查看每一版批次與結算狀態；核准、關帳與付款按鈕將在制度確認後接續開放。</p></div></div>
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>月份</th><th>批次版本</th><th>狀態</th><th>期間</th><th>完成</th><th>引擎</th><th>建立時間</th><th>操作</th></tr></thead><tbody>{(runs.data?.runs ?? []).map((item) => <tr key={item.run.id}><td><strong>{item.periodKey}</strong></td><td>v{item.run.versionNumber}</td><td>{RUN_STATUS[item.run.status] ?? item.run.status}</td><td>{PERIOD_STATUS[item.periodStatus] ?? item.periodStatus}</td><td>{item.run.completedCount} / {item.run.expectedCount}</td><td>{item.run.engineVersion}</td><td>{item.run.createdAt}</td><td><Button variant="secondary" onClick={() => setSelectedRunId(item.run.id)}>載入結果</Button></td></tr>)}</tbody></table></div>
-      {!runs.data?.runs.length ? <p className="empty-state">尚未產生薪資計算批次。</p> : null}
-    </Panel>
-    <p className="form-hint">試算引擎版本固定記錄在批次中；勞健保會優先使用系統提供的一般受僱者標準規則，若公司有特殊身分類別則以已覆核的公司版本為準。</p>
+    <PayrollDisclosure
+      className="panel hr-payroll-secondary"
+      summaryClassName="hr-payroll-secondary-summary"
+      summary={<><span><strong>結帳後薪資調整</strong><small>只有補發、扣回或特殊身分覆核時才需要使用</small></span><PayrollDisclosureMarker className="hr-payroll-secondary-marker" /></>}
+    >
+      <div className="hr-payroll-secondary-content">
+        <p className="muted">來源月份必須已有結帳結果；調整會在生效月份試算成為獨立明細，生效月份結帳後不可修改。</p>
+        <div className="admin-form toolbar hr-payroll-adjustment-form"><SelectField label="員工" value={adjustmentUserId} options={[{ label: "請選擇員工", value: "" }, ...employeeOptions.slice(1)]} onChange={(event) => setAdjustmentUserId(event.target.value)} /><TextField label="來源薪資月份" type="month" value={periodKey} onChange={(event) => setPeriodKey(event.target.value)} /><TextField label="生效薪資月份" type="month" value={adjustmentEffectivePeriodKey} onChange={(event) => setAdjustmentEffectivePeriodKey(event.target.value)} /><TextField label="扣款金額（元）" type="number" min="0" step="1" value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} /><TextField label="調整原因" value={adjustmentReason} maxLength={1000} onChange={(event) => setAdjustmentReason(event.target.value)} />{canCalculate ? <Button icon="plus" loading={createAdjustment.isPending} disabled={!adjustmentEmployment || adjustmentEffectivePeriodKey === periodKey || !Number.isSafeInteger(Number(adjustmentAmount)) || Number(adjustmentAmount) <= 0 || !adjustmentReason.trim()} onClick={() => createAdjustment.mutate({ path: "/payroll/adjustments", method: "POST", values: { employmentId: adjustmentEmployment?.id, sourcePeriodKey: periodKey, effectivePeriodKey: adjustmentEffectivePeriodKey, reason: adjustmentReason, items: [{ itemName: "勞健保員工負擔", amountMinor: -Math.round(Number(adjustmentAmount) * 100) }] } }, { onSuccess: () => { setAdjustmentAmount(""); void adjustments.refetch(); } })}>保存扣款</Button> : null}</div>
+        {createAdjustment.error ? <Alert tone="danger">{createAdjustment.error.message}</Alert> : null}
+        {adjustments.error ? <Alert tone="danger">{adjustments.error.message}</Alert> : null}
+        {adjustments.data?.adjustments.length ? <div className="table-scroll"><table className="data-table compact"><thead><tr><th>員工</th><th>原因</th><th className="numeric">調整</th></tr></thead><tbody>{adjustments.data.adjustments.map((item) => <tr key={item.id}><td>{item.employeeName}</td><td>{item.reason}</td><td className="numeric">{item.items.map((line) => deductionMoney(line.amountMinor)).join("、")}</td></tr>)}</tbody></table></div> : <p className="form-hint">本月尚無人工薪資調整。</p>}
+      </div>
+    </PayrollDisclosure>
+
+    <PayrollDisclosure
+      className="panel hr-payroll-secondary"
+      summaryClassName="hr-payroll-secondary-summary"
+      summary={<><span><strong>歷史試算批次</strong><small>{runs.data?.runs.length ? `${runs.data.runs.length} 個版本可供載入` : "查看過往月份與版本"}</small></span><PayrollDisclosureMarker className="hr-payroll-secondary-marker" /></>}
+    >
+      <div className="hr-payroll-secondary-content"><div className="table-scroll"><table className="data-table"><thead><tr><th>月份</th><th>批次版本</th><th>狀態</th><th>期間</th><th>完成</th><th>引擎</th><th>建立時間</th><th>操作</th></tr></thead><tbody>{(runs.data?.runs ?? []).map((item) => <tr key={item.run.id}><td><strong>{item.periodKey}</strong></td><td>v{item.run.versionNumber}</td><td>{RUN_STATUS[item.run.status] ?? item.run.status}</td><td>{PERIOD_STATUS[item.periodStatus] ?? item.periodStatus}</td><td>{item.run.completedCount} / {item.run.expectedCount}</td><td>{item.run.engineVersion}</td><td>{item.run.createdAt}</td><td><Button variant="secondary" onClick={() => setSelectedRunId(item.run.id)}>載入結果</Button></td></tr>)}</tbody></table></div>{!runs.data?.runs.length ? <p className="empty-state">尚未產生薪資計算批次。</p> : null}</div>
+    </PayrollDisclosure>
+    <p className="form-hint">公式與輸入會隨試算批次保存；勞健保優先使用系統標準規則，特殊身分類別則以已覆核的公司版本為準。</p>
   </div>;
 }

@@ -56,7 +56,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
       requestId: "test-payroll-2026-08-lin",
     });
     expect(response.status, await response.clone().text()).toBe(200);
-    const body = await response.json() as { run: { runId: string; status: string; warnings: string[]; employees: Array<{ employeeName: string; earningMinor: number; deductionMinor: number; netMinor: number; lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    const body = await response.json() as { run: { runId: string; status: string; warnings: string[]; employees: Array<{ employeeName: string; earningMinor: number; deductionMinor: number; netMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
     expect(body.run.status).toBe("ready");
     expect(body.run.warnings).not.toContain("本版未計算勞健保扣款：員工尚未建立有效的加保版本。");
     expect(body.run.warnings.some((warning) => warning.includes("林瑞翔") && warning.includes("31 天缺少當月出金資料"))).toBe(true);
@@ -71,6 +71,20 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
     const repeat = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-2026-08-lin" });
     expect((await repeat.json() as { run: { runId: string } }).run.runId).toBe(body.run.runId);
+  });
+
+  it("保存健保眷屬倍數與每筆薪資公式", async () => {
+    d1.sqlite.exec("UPDATE hr_insurance_versions SET dependent_count = 2 WHERE id = 'dev-insurance-lin-health-2026'");
+    const response = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-formula-snapshot" });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; explanation: Record<string, unknown>; amountMinor: number }> }> } };
+    const lines = body.run.employees[0]!.lines;
+    const health = lines.find((line) => line.lineKey === "health_insurance");
+    expect(health).toMatchObject({ amountMinor: 213_000, explanation: expect.objectContaining({ dependentCount: 2, formulaDetail: expect.stringContaining("2 位親屬 × 100%") }) });
+    const base = lines.find((line) => line.lineKey === "base_salary");
+    expect(base?.explanation.formulaDetail).toEqual(expect.stringContaining("月薪"));
+    const overtime = lines.find((line) => line.lineKey === "overtime");
+    expect(overtime?.explanation.formulaDetail).toEqual(expect.stringContaining("小時"));
   });
 
   it("薪資批次列表分開保留批次狀態與薪資期間狀態", async () => {
@@ -109,6 +123,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
       expect.objectContaining({ lineKey: "bonus_1", amountMinor: 1_192_500, explanation: expect.objectContaining({
         bonusKind: "team_performance", performancePeriod: "current_month", rounding: "nearest_ntd_dollar",
         revenueMinor: 38_850_000, poolAmountMinor: 1_192_500, scheduledDays: null, weightUnits: 1, weightedTotal: 1,
+        formulaDetail: expect.stringContaining("max(0, NT$ 388,500 − NT$ 150,000) × 5%"),
       }) }),
     ]));
   });

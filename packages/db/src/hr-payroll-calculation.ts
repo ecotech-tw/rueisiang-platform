@@ -50,6 +50,30 @@ const PPM = 1_000_000;
 function roundToDollar(rawMinor: number) { return Math.max(0, Math.round(rawMinor / 100) * 100); }
 /** 非負整數除法四捨五入（.5 進位）。 */
 function roundHalfUpDiv(numerator: bigint, denominator: bigint) { return (numerator * 2n + denominator) / (denominator * 2n); }
+
+type PayrollCalculationPart = { formula: string; amountMinor: number };
+
+/*
+ * 薪資明細會被保存成歷史快照；公式文字也在這裡一起生成，前端只負責呈現，
+ * 不在另一個地方重複一份可能和試算引擎走歪的算法。公式保留到分，讓顯示的乘法不會因為先四捨五入成整元而失真；
+ * 實際加總仍然只用分，薪資頁的主金額則沿用整元顯示。
+ */
+function payrollFormulaMoney(amountMinor: number) {
+  const absoluteMinor = Math.abs(amountMinor);
+  const whole = Math.floor(absoluteMinor / 100).toLocaleString("zh-TW");
+  const cents = absoluteMinor % 100;
+  return `NT$ ${amountMinor < 0 ? "−" : ""}${whole}${cents ? `.${String(cents).padStart(2, "0")}` : ""}`;
+}
+function payrollFormulaPercent(ratePpm: number) {
+  return `${(ratePpm / 10_000).toFixed(4).replace(/\.?0+$/, "")}%`;
+}
+function payrollFormulaHours(hours: number) {
+  return hours.toFixed(2).replace(/\.?0+$/, "");
+}
+function payrollFormulaTotal(parts: PayrollCalculationPart[], totalMinor: number) {
+  const expression = parts.map((part) => part.formula).join(" + ");
+  return `${expression || "依薪資規則計算"} = ${payrollFormulaMoney(totalMinor)}`;
+}
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
 
@@ -693,7 +717,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const lines: HrPayrollLineResult[] = [];
     let baseMinor = 0;
     let specialMinor = 0;
+    const baseCalculationParts = new Map<string, { payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; dayCount: number; hours: number; amountMinor: number; fullMonth: boolean; specialDailyBaseMinor: number }>();
+    const specialCalculationParts: PayrollCalculationPart[] = [];
     const compensationItemTotals = new Map<string, number>();
+    const itemCalculationParts = new Map<string, { amountBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; quantity: number; quantityUnit: "個月" | "天" | "小時"; amountMinor: number; fullMonth: boolean }>();
     const dailyMonthlyItems = new Map<string, (typeof compensationItems)[number]>();
     const specialAssignments = specialWorkdays.filter((item) => item.employmentId === employee.employmentId);
     const scheduledDates = scheduledDatesByEmployment.get(employee.employmentId) ?? new Set<string>();
@@ -719,16 +746,41 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           hours = scheduleRows.reduce((sum, row) => sum + scheduledHours(row), 0);
         }
         if (hours <= 0) calculationWarnings.add(`${employee.employeeName} 的特殊上班日 ${day} 缺少工時資料，薪資列為異常且不自動補 0。`);
-        else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) specialMinor += Math.round(special.fixedAmountMinorSnapshot * hours);
-        else if (special.multiplierPpmSnapshot !== null) {
+        else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) {
+          const amount = Math.round(special.fixedAmountMinorSnapshot * hours);
+          specialMinor += amount;
+          specialCalculationParts.push({ formula: `${day}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時)`, amountMinor: amount });
+        } else if (special.multiplierPpmSnapshot !== null) {
           const dailyBase = compensation.payBasis === "monthly" ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays) : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * hours);
-          specialMinor += Math.floor(dailyBase * special.multiplierPpmSnapshot / PPM);
+          const amount = Math.floor(dailyBase * special.multiplierPpmSnapshot / PPM);
+          specialMinor += amount;
+          specialCalculationParts.push({ formula: `${day}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)})`, amountMinor: amount });
         }
-      } else if (compensation.payBasis === "monthly") baseMinor += Math.floor(compensation.baseAmountMinor / monthlyDivisorDays);
-      else if (compensation.payBasis === "daily") baseMinor += compensation.baseAmountMinor;
-      else {
+      } else if (compensation.payBasis === "monthly") {
+        const amount = Math.floor(compensation.baseAmountMinor / monthlyDivisorDays);
+        baseMinor += amount;
+        const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+        current.dayCount += 1;
+        current.amountMinor += amount;
+        baseCalculationParts.set(compensation.id, current);
+      } else if (compensation.payBasis === "daily") {
+        baseMinor += compensation.baseAmountMinor;
+        const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+        current.dayCount += 1;
+        current.amountMinor += compensation.baseAmountMinor;
+        baseCalculationParts.set(compensation.id, current);
+      } else {
         const entry = monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day);
-        if (entry && !entry.noWork) baseMinor += Math.round(compensation.baseAmountMinor * entry.hoursHalfUnits / 2);
+        if (entry && !entry.noWork) {
+          const hours = entry.hoursHalfUnits / 2;
+          const amount = Math.round(compensation.baseAmountMinor * hours);
+          baseMinor += amount;
+          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+          current.dayCount += 1;
+          current.hours += hours;
+          current.amountMinor += amount;
+          baseCalculationParts.set(compensation.id, current);
+        }
       }
       const entry = monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day);
       const itemHours = entry && !entry.noWork ? entry.hoursHalfUnits / 2 : 0;
@@ -749,9 +801,19 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
             ? dailyItemAppliesOnWorkday(employee.attendanceMode, compensation.payBasis, day, scheduledDates, specialDates) ? item.amountMinor : 0
             : Math.round(item.amountMinor * itemHours);
         compensationItemTotals.set(item.id, (compensationItemTotals.get(item.id) ?? 0) + itemAmount);
+        if (itemAmount > 0) {
+          const quantity = item.amountBasis === "hourly" ? itemHours : 1;
+          const current = itemCalculationParts.get(item.id) ?? { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: 0, quantityUnit: item.amountBasis === "hourly" ? "小時" : "天", amountMinor: 0, fullMonth: false };
+          current.quantity += quantity;
+          current.amountMinor += itemAmount;
+          itemCalculationParts.set(item.id, current);
+        }
       }
     }
-    for (const item of dailyMonthlyItems.values()) compensationItemTotals.set(item.id, item.amountMinor);
+    for (const item of dailyMonthlyItems.values()) {
+      compensationItemTotals.set(item.id, item.amountMinor);
+      itemCalculationParts.set(item.id, { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: 1, quantityUnit: "個月", amountMinor: item.amountMinor, fullMonth: false });
+    }
     // 避免每一天 floor 造成完整月份少幾分：完整月份同一版月薪直接保留原額。
     const fullMonthComp = covering(employeeCompensations, period.start);
     if (fullMonthComp?.payBasis === "monthly" && fullMonthComp.validFrom <= period.start && (fullMonthComp.validTo === null || fullMonthComp.validTo >= period.end)) {
@@ -759,9 +821,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const fullMonthBase = Math.round(fullMonthComp.baseAmountMinor * employedDays / monthlyDivisorDays);
       const specialDailyBase = specialAssignments.filter((item) => employmentDays.includes(item.workDate)).reduce((sum) => sum + Math.floor(fullMonthComp.baseAmountMinor / monthlyDivisorDays), 0);
       baseMinor = Math.max(0, fullMonthBase - specialDailyBase);
+      baseCalculationParts.clear();
+      baseCalculationParts.set(fullMonthComp.id, { payBasis: "monthly", baseAmountMinor: fullMonthComp.baseAmountMinor, dayCount: employedDays, hours: 0, amountMinor: baseMinor, fullMonth: true, specialDailyBaseMinor: specialDailyBase });
       // 只有月給的項目要跟著本薪一起用整月金額回推；日給與時給仍是上面逐日累加的結果。
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === fullMonthComp.id && candidate.amountBasis === "monthly")) {
-        compensationItemTotals.set(item.id, Math.round(item.amountMinor * employedDays / monthlyDivisorDays));
+        const amount = Math.round(item.amountMinor * employedDays / monthlyDivisorDays);
+        compensationItemTotals.set(item.id, amount);
+        itemCalculationParts.set(item.id, { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: employedDays, quantityUnit: "天", amountMinor: amount, fullMonth: true });
       }
     }
     let compensationItemLineNumber = 0;
@@ -769,17 +835,63 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const item = compensationItems.find((candidate) => candidate.id === itemId);
       if (!item || amount <= 0) continue;
       compensationItemLineNumber += 1;
-      lines.push({ lineKey: `salary_item_${compensationItemLineNumber}`, direction: "earning", amountMinor: amount, explanation: { itemName: item.itemName, itemKind: item.itemKind, amountBasis: item.amountBasis, includeOvertime: Boolean(item.includeOvertime), includeInsurance: Boolean(item.includeInsurance), includeTax: Boolean(item.includeTax) } });
+      const calculation = itemCalculationParts.get(item.id);
+      const itemParts: PayrollCalculationPart[] = calculation ? [{
+        formula: calculation.fullMonth
+          ? `round(月給 ${payrollFormulaMoney(calculation.baseAmountMinor)} × ${calculation.quantity} 天 ÷ ${monthlyDivisorDays} 天)`
+          : calculation.quantityUnit === "個月"
+            ? `月給 ${payrollFormulaMoney(calculation.baseAmountMinor)} × 1 個月`
+            : item.amountBasis === "monthly"
+              ? `每日 floor(${payrollFormulaMoney(calculation.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天) × ${calculation.quantity} 天`
+              : item.amountBasis === "daily"
+                ? `每日項目 ${payrollFormulaMoney(calculation.baseAmountMinor)} × ${calculation.quantity} 天`
+                : `Σ round(時薪項目 ${payrollFormulaMoney(calculation.baseAmountMinor)} × 每日工時)（合計 ${payrollFormulaHours(calculation.quantity)} 小時）`,
+        amountMinor: calculation.amountMinor,
+      }] : [];
+      lines.push({ lineKey: `salary_item_${compensationItemLineNumber}`, direction: "earning", amountMinor: amount, explanation: {
+        itemName: item.itemName, itemKind: item.itemKind, amountBasis: item.amountBasis,
+        includeOvertime: Boolean(item.includeOvertime), includeInsurance: Boolean(item.includeInsurance), includeTax: Boolean(item.includeTax),
+        calculationParts: itemParts, formulaDetail: payrollFormulaTotal(itemParts, amount),
+      } });
     }
     if (fullMonthComp?.payBasis === "hourly" && !monthlyData.hourly.some((item) => item.employmentId === employee.employmentId)) {
       calculationWarnings.add(`${employee.employeeName} 為時薪制但尚未登記本期工時；請登記工時或明確標記本期無工時。`);
     }
-    if (baseMinor > 0) lines.push({ lineKey: "base_salary", direction: "earning", amountMinor: baseMinor, explanation: { payBasis: fullMonthComp?.payBasis ?? "unknown", period: input.periodKey, rule: fullMonthComp?.payBasis === "hourly" ? "依月度人工工時登記（0.5 小時單位）" : fullMonthComp?.payBasis === "daily" ? "依已發布排班日期計算；特殊上班日依套用資料" : "月薪固定以 30 日制按在職日數計算" } });
-    if (specialMinor > 0) lines.push({ lineKey: "special_workday", direction: "earning", amountMinor: specialMinor, explanation: { rule: "特殊上班日取代當日基本薪資", assignmentIds: specialAssignments.map((item) => item.id) } });
+    if (baseMinor > 0) {
+      const baseParts: PayrollCalculationPart[] = [...baseCalculationParts.values()]
+        .filter((part) => part.amountMinor > 0)
+        .map((part) => ({
+          formula: part.fullMonth
+            ? `round(月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × ${part.dayCount} 天 ÷ ${monthlyDivisorDays} 天)${part.specialDailyBaseMinor ? ` − 特殊日替代基薪 ${payrollFormulaMoney(part.specialDailyBaseMinor)}` : ""}`
+            : part.payBasis === "monthly"
+              ? `每日 floor(${payrollFormulaMoney(part.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天) × ${part.dayCount} 天`
+              : part.payBasis === "daily"
+                ? `日薪 ${payrollFormulaMoney(part.baseAmountMinor)} × ${part.dayCount} 天`
+                : `Σ round(時薪 ${payrollFormulaMoney(part.baseAmountMinor)} × 每日工時)（合計 ${payrollFormulaHours(part.hours)} 小時）`,
+          amountMinor: part.amountMinor,
+        }));
+      lines.push({ lineKey: "base_salary", direction: "earning", amountMinor: baseMinor, explanation: {
+        payBasis: fullMonthComp?.payBasis ?? "unknown", period: input.periodKey,
+        rule: fullMonthComp?.payBasis === "hourly" ? "依月度人工工時登記（0.5 小時單位）" : fullMonthComp?.payBasis === "daily" ? "依已發布排班日期計算；特殊上班日依套用資料" : "月薪固定以 30 日制按在職日數計算",
+        calculationParts: baseParts, formulaDetail: payrollFormulaTotal(baseParts, baseMinor),
+      } });
+    }
+    if (specialMinor > 0) lines.push({ lineKey: "special_workday", direction: "earning", amountMinor: specialMinor, explanation: {
+      rule: "特殊上班日取代當日基本薪資", assignmentIds: specialAssignments.map((item) => item.id),
+      calculationParts: specialCalculationParts, formulaDetail: payrollFormulaTotal(specialCalculationParts, specialMinor),
+    } });
     for (const [index, special] of specialAssignments.entries()) {
       if (!special.allowanceQuantity) continue;
-      const allowanceTotal = (JSON.parse(special.allowanceSnapshotJson) as Array<{ itemName: string; unitAmountMinor: number }>).reduce((sum, item) => sum + item.unitAmountMinor * special.allowanceQuantity, 0);
-      if (allowanceTotal > 0) lines.push({ lineKey: `special_allowance_${index + 1}`, direction: "earning", amountMinor: allowanceTotal, explanation: { rule: special.ruleNameSnapshot, quantity: special.allowanceQuantity, allowances: special.allowanceSnapshotJson } });
+      const allowances = JSON.parse(special.allowanceSnapshotJson) as Array<{ itemName: string; unitAmountMinor: number }>;
+      const allowanceTotal = allowances.reduce((sum, item) => sum + item.unitAmountMinor * special.allowanceQuantity, 0);
+      if (allowanceTotal > 0) {
+        const unitFormula = allowances.map((item) => `${item.itemName} ${payrollFormulaMoney(item.unitAmountMinor)}`).join(" + ");
+        const allowancePart = { formula: `${special.workDate}：(${unitFormula}) × ${special.allowanceQuantity} 次`, amountMinor: allowanceTotal };
+        lines.push({ lineKey: `special_allowance_${index + 1}`, direction: "earning", amountMinor: allowanceTotal, explanation: {
+          rule: special.ruleNameSnapshot, quantity: special.allowanceQuantity, allowances: special.allowanceSnapshotJson,
+          calculationParts: [allowancePart], formulaDetail: payrollFormulaTotal([allowancePart], allowanceTotal),
+        } });
+      }
     }
 
     let bonusLineNumber = 0;
@@ -798,6 +910,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       }
       if (bonus.amountMinor > 0) {
         bonusLineNumber += 1;
+        const bonusBaseFormula = `max(0, ${payrollFormulaMoney(bonus.revenueMinor)} − ${payrollFormulaMoney(assignment.version.guaranteeMinor)}) × ${payrollFormulaPercent(assignment.version.ratePpm)}`;
+        const bonusFormulaDetail = assignment.version.bonusKind === "individual_performance"
+          ? `${bonusBaseFormula} = ${payrollFormulaMoney(bonus.amountMinor)}（四捨五入至元）`
+          : `${bonusBaseFormula} × 本人權重 ${assignment.member.weightUnits} ÷ 全體權重 ${bonus.weightedTotal} = ${payrollFormulaMoney(bonus.amountMinor)}（每人最後四捨五入至元；顯示獎金池 ${payrollFormulaMoney(bonus.poolAmountMinor)}）`;
         lines.push({ lineKey: `bonus_${bonusLineNumber}`, direction: "earning", amountMinor: bonus.amountMinor, explanation: {
           policyName: assignment.policyName,
           policyVersionId: assignment.version.id,
@@ -813,6 +929,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           guaranteeMinor: assignment.version.guaranteeMinor,
           ratePpm: assignment.version.ratePpm,
           formula: bonus.formula,
+          formulaDetail: bonusFormulaDetail,
           rounding: "nearest_ntd_dollar",
         } });
       }
@@ -822,12 +939,16 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     adjustmentRows.forEach(({ adjustment, item }, index) => {
       const amount = Math.abs(item.amountMinor);
       if (!amount) return;
-      lines.push({ lineKey: `adjustment_${index + 1}`, direction: item.amountMinor >= 0 ? "earning" : "deduction", amountMinor: amount, explanation: { adjustmentId: adjustment.id, itemName: item.itemName, sourcePeriodKey: adjustment.sourcePeriodKey, reason: adjustment.reason } });
+      lines.push({ lineKey: `adjustment_${index + 1}`, direction: item.amountMinor >= 0 ? "earning" : "deduction", amountMinor: amount, explanation: {
+        adjustmentId: adjustment.id, itemName: item.itemName, sourcePeriodKey: adjustment.sourcePeriodKey, reason: adjustment.reason,
+        formulaDetail: `人工調整（來源 ${adjustment.sourcePeriodKey}） = ${payrollFormulaMoney(amount)}`,
+      } });
     });
 
     const employeeOvertime = overtime.filter((row) => row.employmentId === employee.employmentId);
     let overtimeMinor = 0;
     let overtimeSeconds = 0;
+    const overtimeCalculationParts: PayrollCalculationPart[] = [];
     for (const row of employeeOvertime) {
       const start = row.actualStart ?? row.requestedStart;
       const end = row.actualEnd ?? row.requestedEnd;
@@ -840,16 +961,29 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays / standardDailyHours)
         : compensation?.payBasis === "daily" ? Math.floor(compensation.baseAmountMinor / standardDailyHours) : compensation?.baseAmountMinor ?? 0;
       const itemHourly = compensation ? compensationItems.filter((item) => item.compensationVersionId === compensation.id && item.includeOvertime).reduce((sum, item) => sum + (item.amountBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays / standardDailyHours) : item.amountBasis === "daily" ? Math.floor(item.amountMinor / standardDailyHours) : item.amountMinor), 0) : 0;
-      overtimeMinor += Math.floor((hourly + itemHourly) * seconds / 3600 * row.ratePpm / PPM);
+      const overtimeAmount = Math.floor((hourly + itemHourly) * seconds / 3600 * row.ratePpm / PPM);
+      overtimeMinor += overtimeAmount;
       overtimeSeconds += seconds;
+      if (overtimeAmount > 0) overtimeCalculationParts.push({
+        formula: `${taipeiDate(clippedStart)}：floor((${payrollFormulaMoney(hourly)}${itemHourly ? ` + ${payrollFormulaMoney(itemHourly)}` : ""}) × ${payrollFormulaHours(seconds / 3600)} 小時 × ${payrollFormulaPercent(row.ratePpm)})`,
+        amountMinor: overtimeAmount,
+      });
     }
-    if (overtimeMinor > 0) lines.push({ lineKey: "overtime", direction: "earning", amountMinor: overtimeMinor, quantitySeconds: overtimeSeconds, explanation: { approvedRequests: employeeOvertime.length, monthlyDivisorDays, standardDailyHours } });
+    if (overtimeMinor > 0) lines.push({ lineKey: "overtime", direction: "earning", amountMinor: overtimeMinor, quantitySeconds: overtimeSeconds, explanation: {
+      approvedRequests: employeeOvertime.length, monthlyDivisorDays, standardDailyHours,
+      calculationParts: overtimeCalculationParts, formulaDetail: payrollFormulaTotal(overtimeCalculationParts, overtimeMinor),
+    } });
 
     const monthlyLeaves = monthlyData.leaves.filter((row) => row.employmentId === employee.employmentId);
     let leaveDeduction = 0;
+    const leaveCalculationParts: PayrollCalculationPart[] = [];
     if (monthlyLeaves.length) {
       // 月度人工登記的扣款以整數元保存，直接轉成薪資內部的分；給薪比例只作核對資訊。
-      leaveDeduction = monthlyLeaves.reduce((sum, leave) => sum + leave.deductionAmount * 100, 0);
+      for (const leave of monthlyLeaves) {
+        const amount = leave.deductionAmount * 100;
+        leaveDeduction += amount;
+        if (amount > 0) leaveCalculationParts.push({ formula: `${leave.leaveDate} 月度登記扣款`, amountMinor: amount });
+      }
     } else {
       // 舊 hr_leave_requests 只作歷史相容；新月份資料存在時不與人工登記重複扣款。
       for (const leave of leaves.filter((row) => row.employmentId === employee.employmentId)) {
@@ -860,11 +994,16 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           const daily = compensation.payBasis === "monthly"
             ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
             : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * standardDailyHours);
-          leaveDeduction += Math.floor(daily * (PPM - leave.payRatePpm) / PPM);
+          const amount = Math.floor(daily * (PPM - leave.payRatePpm) / PPM);
+          leaveDeduction += amount;
+          if (amount > 0) leaveCalculationParts.push({ formula: `floor(${leave.leaveType} ${day}：${payrollFormulaMoney(daily)} × ${payrollFormulaPercent(PPM - leave.payRatePpm)})`, amountMinor: amount });
         }
       }
     }
-    if (leaveDeduction > 0) lines.push({ lineKey: "unpaid_leave", direction: "deduction", amountMinor: leaveDeduction, explanation: { rule: monthlyLeaves.length ? "月度人工扣款（整數元）" : "使用請假提交時凍結的 payRatePpm", period: input.periodKey, entryCount: monthlyLeaves.length } });
+    if (leaveDeduction > 0) lines.push({ lineKey: "unpaid_leave", direction: "deduction", amountMinor: leaveDeduction, explanation: {
+      rule: monthlyLeaves.length ? "月度人工扣款（整數元）" : "使用請假提交時凍結的 payRatePpm", period: input.periodKey, entryCount: monthlyLeaves.length,
+      calculationParts: leaveCalculationParts, formulaDetail: payrollFormulaTotal(leaveCalculationParts, leaveDeduction),
+    } });
 
     const employeeClocks = clocks.filter((row) => row.employmentId === employee.employmentId);
     const attendanceDays = new Set(employeeClocks.map((row) => taipeiDate(row.occurredAt)));
@@ -887,7 +1026,22 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         dependentRatePpm: contributionRule.dependentRatePpm,
         dependentCount: insuranceVersion.dependentCount,
       });
-      if (employeeShare > 0) lines.push({ lineKey: `${scheme}_insurance`, direction: "deduction", amountMinor: employeeShare, explanation: { scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount, employeeRatePpm: contributionRule.employeeRatePpm, dependentRatePpm: contributionRule.dependentRatePpm, ruleId: contributionRule.id, sourceKind: contributionRule.sourceKind } });
+      if (employeeShare > 0) {
+        const baseEmployeeAmountMinor = Math.floor(insuranceVersion.insuredAmountMinor * contributionRule.employeeRatePpm / PPM);
+        const baseEmployeeAmountYuan = Math.round(baseEmployeeAmountMinor / 100);
+        const dependentMultiplier = scheme === "health" ? 1 + insuranceVersion.dependentCount * contributionRule.dependentRatePpm / PPM : 1;
+        const baseFormula = `floor(${payrollFormulaMoney(insuranceVersion.insuredAmountMinor)} × ${payrollFormulaPercent(contributionRule.employeeRatePpm)}) 先四捨五入至元 = ${payrollFormulaMoney(baseEmployeeAmountYuan * 100)}`;
+        const dependentMultiplierLabel = dependentMultiplier.toFixed(4).replace(/\.?0+$/, "");
+        const formulaDetail = scheme === "health"
+          ? `${baseFormula} × ${dependentMultiplierLabel}（本人 1 + ${insuranceVersion.dependentCount} 位親屬 × ${payrollFormulaPercent(contributionRule.dependentRatePpm)}） = ${payrollFormulaMoney(employeeShare)}`
+          : `${baseFormula} = ${payrollFormulaMoney(employeeShare)}`;
+        lines.push({ lineKey: `${scheme}_insurance`, direction: "deduction", amountMinor: employeeShare, explanation: {
+          scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount,
+          employeeRatePpm: contributionRule.employeeRatePpm, dependentRatePpm: contributionRule.dependentRatePpm,
+          baseEmployeeAmountMinor, baseEmployeeAmountYuan, dependentMultiplier, ruleId: contributionRule.id, sourceKind: contributionRule.sourceKind,
+          formulaDetail,
+        } });
+      }
     }
     lines.push({ lineKey: "attendance_summary", direction: "earning", amountMinor: 0, explanation: { attendanceDays: attendanceDays.size, missingPunchDays: missingPunchDays.length } });
     const earningMinor = lines.filter((line) => line.direction === "earning").reduce((sum, line) => sum + line.amountMinor, 0);

@@ -133,6 +133,7 @@ export interface FormRequest {
 export interface FormApprover { id: string; name: string }
 export interface HrOvertimeRequest { request: { id: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; decisionReason: string; createdAt: string }; employeeName: string | null; employeeNumber: string | null }
 export interface FormApproversResponse { approvers: FormApprover[]; defaultApproverUserId: string | null }
+export interface PayrollLineCalculationPart { formula: string; amountMinor: number }
 export interface PayrollLine { lineKey: string; direction: "earning" | "deduction"; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }
 export interface PayrollEmployee { employmentId: string; employeeUserId: string; employeeNumber: string; employeeName: string; lines: PayrollLine[]; earningMinor: number; deductionMinor: number; netMinor: number; attendanceDays: number; missingPunchDays: number }
 export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }
