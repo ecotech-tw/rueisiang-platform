@@ -695,6 +695,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     let baseMinor = 0;
     let specialMinor = 0;
     const compensationItemTotals = new Map<string, number>();
+    const dailyMonthlyItems = new Map<string, (typeof compensationItems)[number]>();
     const specialAssignments = specialWorkdays.filter((item) => item.employmentId === employee.employmentId);
     const scheduledDates = scheduledDatesByEmployment.get(employee.employmentId) ?? new Set<string>();
     const specialDates = new Set(specialAssignments.map((item) => item.workDate));
@@ -733,6 +734,15 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const entry = monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day);
       const itemHours = entry && !entry.noWork ? entry.hoursHalfUnits / 2 : 0;
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === compensation.id)) {
+        /*
+         * 日薪人員的月給項目整月照發，不按上班天數比例折算：日薪人員本來就只有排班日才進這個迴圈，
+         * 按比例等於每個月都被扣一大截。以項目名稱為鍵、後面的版本覆蓋前面的，月中換敘薪版本
+         * 才不會同一個津貼發兩次；一天都沒排班的月份不會進到這裡，也就不發。
+         */
+        if (compensation.payBasis === "daily" && item.amountBasis === "monthly") {
+          dailyMonthlyItems.set(item.itemName, item);
+          continue;
+        }
         // 每一筆項目自己決定單位：月給的津貼不能因為員工是日薪就每個工作日再加一次。
         const itemAmount = item.amountBasis === "monthly"
           ? Math.floor(item.amountMinor / monthlyDivisorDays)
@@ -742,6 +752,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         compensationItemTotals.set(item.id, (compensationItemTotals.get(item.id) ?? 0) + itemAmount);
       }
     }
+    for (const item of dailyMonthlyItems.values()) compensationItemTotals.set(item.id, item.amountMinor);
     // 避免每一天 floor 造成完整月份少幾分：完整月份同一版月薪直接保留原額。
     const fullMonthComp = covering(employeeCompensations, period.start);
     if (fullMonthComp?.payBasis === "monthly" && fullMonthComp.validFrom <= period.start && (fullMonthComp.validTo === null || fullMonthComp.validTo >= period.end)) {
