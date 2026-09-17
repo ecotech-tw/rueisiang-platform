@@ -18,6 +18,17 @@ interface LocationDraft {
   revision?: number;
 }
 
+/**
+ * 送出時的半徑。關閉定位判斷時半徑欄位會被藏起來，但 API 永遠要求 1–10000 的半徑；
+ * 使用者若先清空半徑再關閉定位，送出的無效值會讓儲存失敗，而錯的欄位已經看不到、改不了。
+ * 所以關閉定位時半徑無效就改用原本存著的值（新增時是預設 50），開著定位時照填的送，讓 API 擋。
+ */
+export function radiusForSave(draft: Pick<LocationDraft, "geolocationRequired" | "radiusMeters">, savedRadius = 50) {
+  const radius = Number(draft.radiusMeters);
+  if (draft.geolocationRequired) return radius;
+  return draft.radiusMeters.trim() && Number.isInteger(radius) && radius >= 1 && radius <= 10_000 ? radius : savedRadius;
+}
+
 function draftOf(location?: AttendanceLocationDetail): LocationDraft {
   return {
     name: location?.name ?? "",
@@ -94,7 +105,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       geolocationRequired: draft.geolocationRequired,
       latitude: draft.latitude,
       longitude: draft.longitude,
-      radiusMeters: Number(draft.radiusMeters),
+      radiusMeters: radiusForSave(draft, source?.radiusMeters),
     };
     if (draft.revision !== undefined) values.revision = draft.revision;
     save.mutate({ path, method: editing ? "PATCH" : "POST", values }, { onSuccess: onClose });
@@ -109,77 +120,92 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       formProps={{ onSubmit: submit }}
       actions={<Button type="submit" loading={save.isPending}>儲存</Button>}
     >
-      <SelectField label="營運據點" value={draft.scopeId ?? ""} options={[{ value: "", label: "請選擇營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => setDraft({ ...draft, scopeId: event.target.value || null })} />
-      <TextField
-        label="辦公位置名稱"
-        required
-        maxLength={100}
-        value={draft.name}
-        onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-        hint="例如：台北辦公室。名稱不可重複。"
-      />
-      <div className="hr-location-map-search">
-        <TextField
-          label="Google Maps 搜尋地點"
-          value={mapQuery}
-          onChange={(event) => setMapQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              searchPlaces();
-            }
-          }}
-          hint="輸入地址或地標，從搜尋結果選取後會自動帶入座標。"
-        />
-        <Button type="button" variant="secondary" disabled={!mapQuery.trim() || places.isFetching} onClick={searchPlaces}>搜尋</Button>
-      </div>
-      {places.isFetching ? <p className="form-hint">搜尋 Google Maps 地點…</p> : null}
-      {places.error ? <Alert tone="danger">{places.error.message}</Alert> : null}
-      {searchQuery && places.data && !placeResults.length ? <p className="muted">找不到地點，請換個關鍵字。</p> : null}
-      {placeResults.length ? (
-        <div className="hr-location-place-results" role="listbox" aria-label="Google Maps 搜尋結果">
-          <p className="form-hint">搜尋結果（{placeResults.length} 筆），請選取正確的辦公位置：</p>
-          {placeResults.map((place) => (
-            <button type="button" role="option" className="hr-location-place-result" key={place.id} onClick={() => selectPlace(place)}>
-              <strong>{place.name}</strong>
-              <small>{place.address}</small>
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <Field label="已選辦公位置" required={draft.geolocationRequired} hint={draft.geolocationRequired ? "請先從 Google Maps 搜尋結果選取辦公位置。" : "關閉定位判斷時可不選位置座標。"}>
-        {selectedPlace ? (
-          <div className="hr-location-selected-place">
-            <strong>{selectedPlace.name}</strong>
-            <small>{selectedPlace.address}</small>
-          </div>
-        ) : <p className="field-static">尚未選取辦公位置</p>}
-      </Field>
-      <Field label="定位判斷" hint="開啟時，正式出勤流程會以伺服器重新計算距離；拒絕定位不可完成出勤。">
-        <div className="hr-location-toggle">
-          <input
-            type="checkbox"
-            role="switch"
-            checked={draft.geolocationRequired}
-            aria-label="定位判斷"
-            onChange={(event) => setDraft({ ...draft, geolocationRequired: event.target.checked })}
+      <section className="hr-location-section">
+        <div className="hr-location-section-heading"><h3>基本資料</h3></div>
+        <div className="hr-location-form-grid">
+          <SelectField label="營運據點" value={draft.scopeId ?? ""} options={[{ value: "", label: "請選擇營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => setDraft({ ...draft, scopeId: event.target.value || null })} />
+          <TextField
+            label="辦公位置名稱"
+            required
+            maxLength={100}
+            value={draft.name}
+            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
           />
-          <span className="hr-location-toggle-track" aria-hidden="true"><span /></span>
-          <strong>{draft.geolocationRequired ? "啟用" : "關閉"}</strong>
         </div>
-      </Field>
-      {coordinateQuery ? <a className="hr-location-map-link" href={mapsSearch(coordinateQuery)} target="_blank" rel="noreferrer">在 Google Maps 檢視已選辦公位置</a> : null}
-      <TextField
-        label="出勤判斷半徑（公尺）"
-        required
-        type="number"
-        min="1"
-        max="10000"
-        step="1"
-        value={draft.radiusMeters}
-        onChange={(event) => setDraft({ ...draft, radiusMeters: event.target.value })}
-        hint="例如 50 代表距離辦公位置中心 50 公尺內。定位關閉時不會使用此值。"
-      />
+      </section>
+      <section className="hr-location-section">
+        <div className="hr-location-section-heading"><h3>位置座標</h3></div>
+        <div className="hr-location-map-search">
+          <TextField
+            label="Google Maps 搜尋地點"
+            value={mapQuery}
+            onChange={(event) => setMapQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                searchPlaces();
+              }
+            }}
+          />
+          <Button type="button" variant="primary" icon="search" disabled={!mapQuery.trim() || places.isFetching} onClick={searchPlaces}>搜尋</Button>
+        </div>
+        {places.isFetching ? <p className="form-hint">搜尋 Google Maps 地點…</p> : null}
+        {places.error ? <Alert tone="danger">{places.error.message}</Alert> : null}
+        {searchQuery && places.data && !placeResults.length ? <p className="muted">找不到地點，請換個關鍵字。</p> : null}
+        {placeResults.length ? (
+          <div className="hr-location-place-results" role="listbox" aria-label="Google Maps 搜尋結果">
+            <p className="form-hint">搜尋結果（{placeResults.length} 筆），請選取正確的辦公位置：</p>
+            {placeResults.map((place) => (
+              <button type="button" role="option" className="hr-location-place-result" key={place.id} onClick={() => selectPlace(place)}>
+                <strong>{place.name}</strong>
+                <small>{place.address}</small>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <Field label="已選辦公位置" required={draft.geolocationRequired}>
+          {selectedPlace ? (
+            <div className="hr-location-selected-place">
+              <strong>{selectedPlace.name}</strong>
+              <small>{selectedPlace.address}</small>
+            </div>
+          ) : <p className="field-static">尚未選取辦公位置</p>}
+        </Field>
+        {coordinateQuery ? <a className="hr-location-map-link" href={mapsSearch(coordinateQuery)} target="_blank" rel="noreferrer">在 Google Maps 檢視已選辦公位置</a> : null}
+      </section>
+      <section className="hr-location-section">
+        <div className="hr-location-section-heading"><h3>打卡規則</h3></div>
+        <div className="hr-location-rule-card">
+          <Field label="定位判斷">
+            <div className="hr-location-toggle">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={draft.geolocationRequired}
+                aria-label="定位判斷"
+                onChange={(event) => setDraft({ ...draft, geolocationRequired: event.target.checked })}
+              />
+              <span className="hr-location-toggle-track" aria-hidden="true"><span /></span>
+              <strong>{draft.geolocationRequired ? "啟用" : "關閉"}</strong>
+            </div>
+          </Field>
+          {draft.geolocationRequired ? (
+            <div className="hr-location-radius-field">
+              <TextField
+                label="出勤判斷半徑（公尺）"
+                required
+                type="number"
+                min="1"
+                max="10000"
+                step="1"
+                value={draft.radiusMeters}
+                onChange={(event) => setDraft({ ...draft, radiusMeters: event.target.value })}
+                hint="例如 50 代表距離辦公位置中心 50 公尺內。"
+              />
+            </div>
+          ) : null}
+        </div>
+      </section>
       {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
     </Dialog>
   );
