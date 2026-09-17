@@ -170,7 +170,6 @@ export function HrScheduling() {
     {data.version?.locked ? <Alert tone="info">此月份已鎖定；如需調整，先按「開鎖」，系統會留下操作紀錄。</Alert> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
     <Panel className="grows">
-      <div className="panel-head"><div><h2>排班月曆</h2><p className="muted">點選日期快速加入人員與班別；同一人員重疊時後端會拒絕儲存。</p></div></div>
       <div className="hr-calendar weekdays">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <strong key={day}>{day}</strong>)}</div>
       <div className="hr-calendar">
         {Array.from({ length: weekday(month) }, (_, index) => <div className="hr-calendar-cell empty" key={`empty-${index}`} />)}
