@@ -351,7 +351,8 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 }
 .hr-system-main:has(.page.fills) > .hr-page-transition {
   height: 100%;
-  overflow: hidden;
+  /* 頁面轉場不應裁掉頁首按鈕的外陰影；外層 main 仍負責限制整個內容區。 */
+  overflow: visible;
 }
 .hr-page-transition > .page,
 .hr-page-transition > .page.fills { width: 100%; min-width: 0; }
@@ -437,6 +438,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   -webkit-backdrop-filter: blur(6px) saturate(145%);
   backdrop-filter: blur(6px) saturate(145%);
 }
+.hr-system .row-actions { gap: 8px; }
 .hr-system .ghost-button,
 .hr-system .icon-button {
   border-color: transparent;
@@ -614,7 +616,8 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-system-nav-link { justify-content: center; padding-inline: 12px; }
   .hr-system-submenu { left: 0; transform: translate(0, -6px); }
   .hr-system-nav-item.open .hr-system-submenu { transform: translate(0, 0); }
-  .hr-system-main { padding: 20px 16px 28px; }
+  /* 讓頁首按鈕的 24px 陰影在小螢幕右側也有完整的繪製空間。 */
+  .hr-system-main { padding: 20px 24px 28px; }
 }
 
 /*
