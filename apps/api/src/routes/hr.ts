@@ -461,7 +461,7 @@ export const hr = new Hono<AppEnv>()
   })
   .get("/attendance-settings/locations", requirePermission("hr:office:read"), async (c) => {
     const rawPage = c.req.query("page");
-    if (rawPage === undefined && !c.req.query("search") && !c.req.query("scopeId") && !c.req.query("sortField")) return c.json(await listHrAttendanceLocations(c.get("db")));
+    if (rawPage === undefined && !c.req.query("search") && !c.req.query("scopeId") && !c.req.query("sortField")) return c.json(await listHrAttendanceLocations(c.get("db"), undefined, { activeOnly: c.req.query("active") === "1" }));
     const page = calendarNumber(rawPage, 1, "頁碼", 1, 10000);
     const rawPageSize = c.req.query("pageSize");
     const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
@@ -812,6 +812,8 @@ export const hr = new Hono<AppEnv>()
   .get("/employees/:id", requireAnyPermission("hr:employee:read", "hr:office:read"), async (c) => {
     const fullAccess = await isHrAdministrator(c.get("db"), c.get("user").id);
     return c.json(await getHrEmployee(c.get("db"), c.req.param("id"), {
+      // 只靠 hr:office:read 進來的人只拿員工、任職與出勤設定，營運 scope 歷史不給。
+      includeScopeAssignments: can(c.get("user"), "hr:employee:read"),
       includeCompensation: fullAccess, includeInsurance: fullAccess, includeLeave: fullAccess, includeAttendanceEvents: fullAccess,
     }));
   })

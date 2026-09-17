@@ -28,12 +28,16 @@ export interface HrAttendanceLocationListQuery {
   sortDirection: "asc" | "desc";
 }
 
-export async function listHrAttendanceLocations(db: Database, input?: HrAttendanceLocationListQuery) {
+/**
+ * 不帶 input 是完整清單（單筆編輯要找得到停用的位置）；`activeOnly` 給選單用：
+ * 出勤範圍對話框要列出**所有**可指派的位置，分頁會讓第 101 筆之後永遠選不到。
+ */
+export async function listHrAttendanceLocations(db: Database, input?: HrAttendanceLocationListQuery, options: { activeOnly?: boolean } = {}) {
   const where = input ? and(
     eq(hrAttendanceLocations.active, 1),
     input.search ? or(like(hrAttendanceLocations.name, `%${input.search}%`), like(scopes.name, `%${input.search}%`)) : undefined,
     input.scopeId !== "all" ? eq(hrAttendanceLocations.scopeId, input.scopeId) : undefined,
-  ) : undefined;
+  ) : options.activeOnly ? eq(hrAttendanceLocations.active, 1) : undefined;
   const sortColumn = input?.sortField === "scope" ? scopes.name : input?.sortField === "radius" ? hrAttendanceLocations.radiusMeters : hrAttendanceLocations.name;
   const order = input?.sortDirection === "desc" ? desc(sortColumn) : asc(sortColumn);
   const locationQuery = db.select({ location: hrAttendanceLocations, scopeName: sql<string | null>`${scopes.name}`.as("attendance_scope_name") }).from(hrAttendanceLocations)
