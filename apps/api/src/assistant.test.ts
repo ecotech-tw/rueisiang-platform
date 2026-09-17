@@ -506,6 +506,7 @@ describe("AI 助理 Sandbox", () => {
     ]));
     expect(result.tools.map((tool) => tool.key)).toEqual([
       "weather_open_meteo",
+      "list_items",
       "wms_list_inventory",
       "wms_search_warehouse",
       "wms_get_inventory_item",
