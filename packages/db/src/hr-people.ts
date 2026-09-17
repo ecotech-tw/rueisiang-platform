@@ -254,10 +254,10 @@ export function createHrEmployment(db: Database, input: { userId: string; hiredO
       VALUES (${id}, ${input.attendanceMode}) RETURNING employment_id AS id`,
   ], id, actor, "employment_created");
 }
-export function updateHrEmploymentAttendanceMode(db: Database, id: string, input: { attendanceMode: "general" | "scheduled"; monthlyRestDays: number | null; revision: number }, actor: HrActor) {
+export function updateHrEmploymentAttendanceMode(db: Database, id: string, input: { attendanceMode: "general" | "scheduled"; /** undefined 表示保留原值。 */ monthlyRestDays: number | null | undefined; revision: number }, actor: HrActor) {
   return write(db, [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP
     WHERE id=${id} AND revision=${input.revision} RETURNING id`,
-    sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${input.monthlyRestDays}, updated_at=CURRENT_TIMESTAMP
+    sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${input.monthlyRestDays === undefined ? sql`monthly_rest_days` : input.monthlyRestDays}, updated_at=CURRENT_TIMESTAMP
       WHERE employment_id=${id} RETURNING employment_id AS id`], id, actor, "employment_attendance_mode_updated", "任職資料已變更，請重新整理後再試。");
 }
 export function endHrEmployment(db: Database, id: string, input: { endedOn: string; revision: number }, actor: HrActor) {

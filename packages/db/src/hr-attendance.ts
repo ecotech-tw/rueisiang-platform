@@ -216,7 +216,21 @@ export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUp
         AND NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${input.employmentId} AND location_id=${locationId}
           AND (valid_to IS NULL OR valid_to > ${input.validFrom})) RETURNING id`);
   }
-  return writeHrMutation(db, mutations, input.employmentId, actor, "attendance_scope_updated", "出勤設定或辦公位置已變更，請重新整理後再試。");
+  /*
+   * 主要位置的 pointer 要跟著同一批更新：這條路徑可以結束目前的主要位置，也可以替還沒有位置的人
+   * 加上第一筆。pointer 沒指到仍有效的指派時，改指最早生效的那一筆（與單筆結束時的遞補規則相同）；
+   * 原本的主要位置還有效就不動，所以這一步允許零列。
+   */
+  const primaryIndex = mutations.length;
+  mutations.push(sql`UPDATE hr_employment_attendance_settings
+    SET primary_assignment_id=(SELECT id FROM hr_employee_attendance_locations
+      WHERE employment_id=${input.employmentId} AND (valid_to IS NULL OR valid_to > ${input.validTo})
+      ORDER BY valid_from, rowid LIMIT 1), updated_at=CURRENT_TIMESTAMP
+    WHERE employment_id=${input.employmentId}
+      AND (primary_assignment_id IS NULL OR NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations
+        WHERE id=hr_employment_attendance_settings.primary_assignment_id AND (valid_to IS NULL OR valid_to > ${input.validTo})))
+    RETURNING employment_id AS id`);
+  return writeHrMutation(db, mutations, input.employmentId, actor, "attendance_scope_updated", "出勤設定或辦公位置已變更，請重新整理後再試。", { allowEmptyMutationIndexes: new Set([primaryIndex]) });
 }
 
 export interface HrClockEventInput {
@@ -657,17 +671,29 @@ export async function getHrClockStatus(db: Database, userId: string) {
   };
 }
 
-async function scheduleForClock(db: Database, employmentId: string, date: string) {
-  const [schedule] = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt })
+/*
+ * 同一天可以排好幾段不重疊的班，所以不能只拿最早那一段：下午班的上下班打卡會被拿去跟上午班比，
+ * 遲到早退全部判錯。上班打卡找開始時間最接近的那段，下班打卡找結束時間最接近的那段。
+ * 先只看「當天開始」（上班）或「當天結束」（下班）的班，前一天跨午夜過來的班才不會搶走今天的上班打卡。
+ */
+async function scheduleForClock(db: Database, employmentId: string, date: string, eventKind: "clock_in" | "clock_out", minute: number) {
+  const rows = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt })
     .from(hrScheduleEntries).innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
     .where(and(eq(hrScheduleEntries.employmentId, employmentId), eq(hrScheduleVersions.status, "published"),
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
       sql`(${hrScheduleEntries.workDate} = ${date} OR substr(${hrScheduleEntries.endsAt}, 1, 10) = ${date})`))
-    .orderBy(asc(hrScheduleEntries.startsAt)).limit(1);
-  if (!schedule) return null;
-  const startMinute = wallClockMinutes(schedule.startsAt);
-  const endMinute = wallClockMinutes(schedule.endsAt);
-  return startMinute === null || endMinute === null ? null : { isRestDay: 0, startMinute, endMinute, toleranceMinutes: 10 };
+    .orderBy(asc(hrScheduleEntries.startsAt));
+  const shifts = rows.flatMap((row) => {
+    const startMinute = wallClockMinutes(row.startsAt);
+    const endMinute = wallClockMinutes(row.endsAt);
+    return startMinute === null || endMinute === null ? [] : [{ ...row, startMinute, endMinute }];
+  });
+  const anchorOf = (shift: (typeof shifts)[number]) => eventKind === "clock_in" ? { date: shift.startsAt.slice(0, 10), minute: shift.startMinute } : { date: shift.endsAt.slice(0, 10), minute: shift.endMinute };
+  const sameDay = shifts.filter((shift) => anchorOf(shift).date === date);
+  const candidates = sameDay.length ? sameDay : shifts;
+  // 距離相同時保留排序在前（開始較早）的那段，結果才固定。
+  const schedule = candidates.reduce<(typeof shifts)[number] | null>((best, shift) => !best || Math.abs(anchorOf(shift).minute - minute) < Math.abs(anchorOf(best).minute - minute) ? shift : best, null);
+  return schedule ? { isRestDay: 0, startMinute: schedule.startMinute, endMinute: schedule.endMinute, toleranceMinutes: 10 } : null;
 }
 
 function serverTaipeiNow() {
@@ -716,9 +742,9 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   if (distance !== null && distance > assignment.radiusMeters) {
     throw new HrError(400, `目前位置不在可打卡辦公位置範圍內，最近的「${assignment.locationName}」約 ${distance} 公尺。`);
   }
-  const schedule = await scheduleForClock(db, employment.id, serverNow.date);
   const latest = await latestClockEvent(db, input.userId);
   const eventKind = latest?.eventKind === "clock_in" ? "clock_out" as const : "clock_in" as const;
+  const schedule = await scheduleForClock(db, employment.id, serverNow.date, eventKind, serverNow.minute);
   const timeAnomalyKind = clockTimeAnomaly(schedule, eventKind, serverNow.minute);
   const assignmentExists = assignment.isScheduled
     ? sql`EXISTS (SELECT 1 FROM hr_schedule_entries AS schedule_entry
