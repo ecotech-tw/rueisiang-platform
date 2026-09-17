@@ -827,10 +827,20 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   font-weight: 900;
   letter-spacing: .08em;
 }
-.hr-system .hr-calendar:not(.weekdays) { gap: 8px; padding: 2px 0 0; }
+/*
+ * flex: none 是必要的。月曆是 .panel.grows（flex 欄）的子項，預設會被壓到比內容矮，
+ * 被壓過的 grid 會把每一列鎖在 min-height，一格放兩筆班時第二筆就切在格線外。
+ * 捲動本來就由 panel 負責，月曆不需要縮。
+ */
+.hr-system .hr-calendar:not(.weekdays) { flex: none; gap: 8px; padding: 2px 0 0; }
 .hr-system .hr-calendar-cell {
   position: relative;
   isolation: isolate;
+  /*
+   * 基底的 overflow: hidden 會把第二筆之後的排班切掉。同一天早班加晚班正是快速排班
+   * 要處理的情況，所以讓格子隨內容長高；圓角由 ::before 的 inset 負責，不靠裁切。
+   */
+  overflow: visible;
   min-height: 138px;
   padding: 10px;
   border: 1px solid transparent;
@@ -1054,4 +1064,71 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-skeleton-block-container.is-action { width: 112px; }
   .hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container:last-child { margin-left: 0; }
   .hr-skeleton-calendar { grid-template-columns: repeat(7, minmax(76px, 1fr)); }
+}
+
+/*
+ * 快速排班。選一次人＋班別，再點日期加入或取消。
+ *
+ * 整格就是那顆按鈕，所以日期鍵長得跟平常的日期一模一樣——沒有底色、沒有圖示。
+ * 它存在只為了鍵盤：格子本身不能做成 <button>（裡面有每筆排班的「×」，巢狀按鈕
+ * 在鍵盤與讀螢幕上是壞的），少了這顆就只有滑鼠排得了班。
+ * 選中與否看格子的底色與框線，不靠這裡再標一次。
+ */
+.hr-system .hr-quick-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 22px;
+  background: --alpha(var(--color-brand) / 7%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 58%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
+}
+.hr-system .hr-quick-hint { flex: 1 1 260px; min-height: 42px; margin: 0; align-content: center; }
+.hr-system .hr-calendar-date button.hr-quick-day {
+  display: inline-grid;
+  min-width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 999px;
+  background: none;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 900;
+  transition-property: color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="true"] { color: var(--color-brand-dark); }
+.hr-system .hr-calendar-date button.hr-quick-day:disabled { opacity: .45; }
+/*
+ * 快速排班進行中：整格可點，所以整格也要有 hover 的 state layer，不是只有日期鍵會亮。
+ */
+.hr-system .hr-calendar.quick .hr-calendar-cell:not(.empty) {
+  cursor: pointer;
+  transition-property: background-color, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system .hr-calendar.quick .hr-calendar-cell:not(.empty):hover { background: --alpha(var(--color-brand) / 11%); }
+/* 選中的整格要一眼掃得到，否則一整月看下來只能一格一格找那個小勾。 */
+.hr-system .hr-calendar-cell.picked {
+  border-color: --alpha(var(--color-brand) / 45%);
+  background: --alpha(var(--color-brand) / 10%);
+}
+.hr-system .hr-calendar.quick .hr-calendar-cell.picked:hover { background: --alpha(var(--color-brand) / 16%); }
+/*
+ * 正在編排的那個人用品牌色調容器站出來，左側再加一條實心色帶；其他人的班退成中性底。
+ * 沒有這個區別的話，一格裡兩三筆排班長得一樣，看不出哪一筆是這次點出來的。
+ */
+.hr-system .hr-calendar-entry.current {
+  background: var(--color-brand-soft);
+  box-shadow: inset 3px 0 0 var(--color-brand), 0 1px 0 --alpha(var(--color-paper) / 44%);
+}
+.hr-system .hr-calendar-entry.current span { color: var(--color-brand-dark); }
+.hr-system .hr-calendar.quick .hr-calendar-entry:not(.current) {
+  background: --alpha(var(--color-ink) / 6%);
+  opacity: .72;
 }
