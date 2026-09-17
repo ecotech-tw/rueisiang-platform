@@ -119,7 +119,6 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
             maxLength={100}
             value={draft.name}
             onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-            hint="例如：台北辦公室。名稱不可重複。"
           />
         </div>
       </section>
@@ -136,9 +135,8 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
                 searchPlaces();
               }
             }}
-            hint="輸入地址或地標，從搜尋結果選取後會自動帶入座標。"
           />
-          <Button type="button" variant="secondary" icon="search" disabled={!mapQuery.trim() || places.isFetching} onClick={searchPlaces}>搜尋</Button>
+          <Button type="button" variant="primary" icon="search" disabled={!mapQuery.trim() || places.isFetching} onClick={searchPlaces}>搜尋</Button>
         </div>
         {places.isFetching ? <p className="form-hint">搜尋 Google Maps 地點…</p> : null}
         {places.error ? <Alert tone="danger">{places.error.message}</Alert> : null}
@@ -154,7 +152,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
             ))}
           </div>
         ) : null}
-        <Field label="已選辦公位置" required={draft.geolocationRequired} hint={draft.geolocationRequired ? "請先從 Google Maps 搜尋結果選取辦公位置。" : "關閉定位判斷時可不選位置座標。"}>
+        <Field label="已選辦公位置" required={draft.geolocationRequired}>
           {selectedPlace ? (
             <div className="hr-location-selected-place">
               <strong>{selectedPlace.name}</strong>
