@@ -489,8 +489,9 @@
 .hr-weekly-schedule-row .field { margin: 0; }
 .hr-weekly-schedule-row .field > span:first-child { font-size: 0.75rem; }
 @media (max-width: 900px) { .hr-weekly-schedule-row { grid-template-columns: 1fr 1fr; } }
-.hr-location-map-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
-.hr-location-map-search .field { min-width: 0; }
+.hr-location-map-search { display: flex; align-items: end; gap: 10px; min-width: 0; }
+.hr-location-map-search .field { min-width: 0; flex: 1 1 auto; }
+.hr-location-map-search > .ghost-button { flex: 0 0 auto; min-height: var(--size-field); }
 .hr-location-map-link { color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
 .hr-location-place-results { display: grid; gap: 6px; max-height: 240px; overflow-y: auto; }
 .hr-location-place-result { display: grid; gap: 3px; width: 100%; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; }
@@ -4174,7 +4175,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .hr-personal-bottom-link.center .hr-personal-nav-icon svg { width: 29px; height: 29px; }
   .hr-personal-bottom-link.center.active .hr-personal-nav-icon { background: var(--color-brand-dark); }
   .hr-personal-bottom-link.center.active { color: var(--color-brand-dark); }
-  .hr-location-map-search { grid-template-columns: 1fr; }
+  .hr-location-map-search { align-items: stretch; flex-direction: column; }
+  .hr-location-map-search > .ghost-button { width: 100%; }
   .hr-clock-map-stage { border-radius: 18px; }
   .hr-clock-now { font-size: 28px; }
   .hr-clock-location-card { padding: 12px; }
