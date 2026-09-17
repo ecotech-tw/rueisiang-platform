@@ -186,7 +186,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit }: { employee: Emp
   const activeEmployment = data.employments.find((job) => !job.endedOn);
   const openEditor = (editor: Editor) => { onClose(); onEdit(editor); };
   return <Dialog title={`管理 ${employee.employeeNumber} · ${employee.displayName}`} onClose={onClose} className="hr-employee-management-dialog">
-    <p className="muted">員工內頁只供查看；員工編號、主管、任職、櫃點與辦公位置請從員工管理功能維護。</p>
+    <p className="muted">員工內頁只供查看；員工編號、主管、任職與櫃點請從員工管理功能維護，辦公位置與出勤方式請到出勤範圍管理。</p>
     <div className="hr-management-group">
       <h3>員工資料</h3>
       <div className="flex flex-wrap gap-3">
@@ -199,7 +199,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit }: { employee: Emp
       <h3>任職與櫃點</h3>
       <div className="flex flex-wrap gap-3">
         <Button variant="secondary" disabled={!activeEmployment || !scopes.data?.scopes.length} onClick={() => openEditor({ title: "新增櫃點歸屬", path: "/assignments", method: "POST", initial: { employmentId: activeEmployment?.id, validFrom: activeEmployment?.hiredOn }, description: "營運櫃點歸屬期間需在任職期間內。", fields: [{ key: "scopeId", label: "櫃點", options: scopes.data?.scopes ?? [] }, { key: "validFrom", label: "起日", type: "date" }, { key: "validTo", label: "迄日（不含，可留空）", type: "date", optional: true }] })}>新增櫃點歸屬</Button>
-        <Button onClick={() => openEditor({ title: "新增任職／復職紀錄", path: "/employments", method: "POST", initial: { userId: data.employee.userId }, description: "同一使用者的任職期間不可重疊；復職新增紀錄，不修改舊任職。", fields: [{ key: "userId", label: "使用者", options: [{ id: data.employee.userId, name: `${data.employee.displayName}（${data.employee.email}）` }] }, { key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }, { key: "endedOn", label: "不再任職首日（可留空）", type: "date", optional: true }, { key: "attendanceMode", label: "出勤方式", options: [{ id: "general", name: "一般辦公" }, { id: "scheduled", name: "排班" }] }] })}>新增任職／復職</Button>
+        <Button onClick={() => openEditor({ title: "新增任職／復職紀錄", path: "/employments", method: "POST", initial: { userId: data.employee.userId }, description: "同一使用者的任職期間不可重疊；復職新增紀錄，不修改舊任職。", fields: [{ key: "userId", label: "使用者", options: [{ id: data.employee.userId, name: `${data.employee.displayName}（${data.employee.email}）` }] }, { key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }, { key: "endedOn", label: "不再任職首日（可留空）", type: "date", optional: true }] })}>新增任職／復職</Button>
       </div>
       {!data.employments.length ? <p className="muted">尚無任職紀錄。</p> : data.employments.map((job) => <div className="hr-management-job" key={job.id}>
         <p><strong>{job.hiredOn}{job.endedOn ? `～${job.endedOn}` : "～目前"}</strong> · {job.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</p>
@@ -233,7 +233,7 @@ export function HrEmployees() {
   const candidateOptions: NamedOption[] = (candidates.data?.users ?? []).map((candidate) => ({ id: candidate.userId, name: `${candidate.displayName}（${candidate.email}）` }));
   const statusOptions = [{ value: "all", label: "全部狀態" }, { value: "active", label: "啟用中" }, { value: "invited", label: "待啟用" }, { value: "disabled", label: "已停用" }];
   return <div className="page fills">
-    <PageHeader title="員工列表" description="搜尋、篩選與排序員工；點選整列查看內頁，使用列上的「管理」入口進行員工與任職異動。" actions={canWrite ? <Button icon="plus" className="add-action" onClick={() => setEditor({ title: "指派員工", path: "/employees", method: "POST", description: "員工必須先存在於平台使用者名單。", fields: [{ key: "userId", label: "使用者", options: candidateOptions }, { key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }, { key: "attendanceMode", label: "出勤方式", options: [{ id: "general", name: "一般辦公" }, { id: "scheduled", name: "排班" }] }] })}>指派員工</Button> : null} />
+    <PageHeader title="員工列表" description="搜尋、篩選與排序員工；點選整列查看內頁，使用列上的「管理」入口進行員工與任職異動。" actions={canWrite ? <Button icon="plus" className="add-action" onClick={() => setEditor({ title: "指派員工", path: "/employees", method: "POST", description: "員工必須先存在於平台使用者名單。", fields: [{ key: "userId", label: "使用者", options: candidateOptions }, { key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }] })}>指派員工</Button> : null} />
     <Panel className="grows">
       <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
         <SearchFilterInput label="搜尋" placeholder="搜尋員工編號、姓名或 Email" value={filters.search} onSearch={(search) => update({ search })} />

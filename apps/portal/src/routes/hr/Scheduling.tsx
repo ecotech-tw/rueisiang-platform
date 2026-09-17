@@ -17,7 +17,7 @@ function periodKey(date: Date) { return `${date.getUTCFullYear()}-${String(date.
 function daysInMonth(date: Date) { return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate(); }
 function weekday(date: Date) { return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).getUTCDay(); }
 function dateAt(month: Date, day: number) { return `${month.getUTCFullYear()}-${String(month.getUTCMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`; }
-function shiftLabel(shift: ScheduleShift) { return `${shift.name}（${shiftTimeRange(shift)}）`; }
+function shiftLabel(shift: ScheduleShift) { return `${shift.name}（${shiftTimeRange(shift)}，計薪 ${(shift.standardMinutes / 60).toFixed(1)} 小時／休息 ${shift.breakMinutes} 分鐘）`; }
 
 /** 一次排班的四個條件。快速排班把它固定住，之後每點一天就套用同一組。 */
 interface QuickPick { personKind: "employee" | "worker"; personId: string; scopeId: string; shiftVersionId: string }
@@ -36,7 +36,7 @@ function makeEntry(data: HrScheduleResponse, pick: QuickPick, workDate: string):
   return {
     id: `local-${crypto.randomUUID()}`, scheduleVersionId: data.version?.id ?? "", personKind: pick.personKind,
     employmentId: pick.personKind === "employee" ? pick.personId : null, workerId: pick.personKind === "worker" ? pick.personId : null,
-    scopeId: pick.scopeId, shiftVersionId: pick.shiftVersionId, workDate, startsAt: "", endsAt: "",
+    scopeId: pick.scopeId, shiftVersionId: pick.shiftVersionId, workDate, startsAt: "", endsAt: "", standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes,
     employeeNumber: pick.personKind === "employee" ? employee?.employeeNumber ?? null : null,
     personName: pick.personKind === "employee" ? employee?.name ?? "" : worker?.name ?? "",
     scopeName: data.scopes.find((scope) => scope.id === pick.scopeId)?.name ?? "", shiftName: shift.name,
@@ -63,14 +63,13 @@ function ScheduleEntryDialog({ data, day, defaultScopeId, onAdd, onClose }: { da
   useEffect(() => { setShiftVersionId(shifts[0]?.versionId ?? ""); }, [scopeId, data.shifts]);
   useEffect(() => { setPersonId(personKind === "employee" ? data.employees[0]?.employmentId ?? "" : data.workers[0]?.id ?? ""); }, [personKind, data.employees, data.workers]);
   const selectedShift = shifts.find((shift) => shift.versionId === shiftVersionId);
-  const save = useHrWrite();
-  return <Dialog title={`${day} 新增排班`} onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
+  return <Dialog title={`${day} 新增排班`} onClose={onClose} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     const entry = makeEntry(data, { personKind, personId, scopeId, shiftVersionId }, day);
     if (!entry) return;
     onAdd(entry);
     onClose();
-  } }} actions={<Button type="submit" disabled={!selectedShift || !personId}>加入排班</Button>}>
+  } }} actions={<Button type="submit" icon="check" disabled={!selectedShift || !personId}>加入排班</Button>}>
     <SelectField label="人員類型" value={personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援（納入日薪）" }]} onChange={(event) => setPersonKind(event.target.value as "employee" | "worker")} />
     <SelectField label="人員" value={personId} options={personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber} ${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
     <SelectField label="營運據點" value={scopeId} options={data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => setScopeId(event.target.value)} />
@@ -110,8 +109,21 @@ export function HrScheduling() {
   const version = data.version;
   const defaultScope = scopeId === "all" ? data.scopes[0]?.id ?? "" : scopeId;
   const canEdit = canWrite && !version?.locked;
+  const scheduledDatesByEmployment = new Map<string, Set<string>>();
+  for (const entry of draftEntries) if (entry.personKind === "employee" && entry.employmentId) {
+    const datesForEmployee = scheduledDatesByEmployment.get(entry.employmentId) ?? new Set<string>();
+    datesForEmployee.add(entry.workDate);
+    scheduledDatesByEmployment.set(entry.employmentId, datesForEmployee);
+  }
+  const restSummaries = data.employees.filter((employee) => employee.attendanceMode === "scheduled" && employee.monthlyRestDays !== null && employee.monthlyRestDays !== undefined).map((employee) => {
+    const activeDays = dates.filter((day) => employee.hiredOn <= day && (!employee.endedOn || day < employee.endedOn)).length;
+    const scheduledDays = scheduledDatesByEmployment.get(employee.employmentId)?.size ?? 0;
+    const restDays = Math.max(0, activeDays - scheduledDays);
+    return { employee, activeDays, scheduledDays, restDays, matches: restDays === Math.min(employee.monthlyRestDays!, activeDays) };
+  });
   const quickShifts = quick ? data.shifts.filter((shift) => shift.scopeId === quick.scopeId) : [];
-  const quickDays = quick ? draftEntries.filter((entry) => samePick(entry, quick)).length : 0;
+  const quickDays = quick ? new Set(draftEntries.filter((entry) => samePick(entry, quick)).map((entry) => entry.workDate)).size : 0;
+  const quickEmployee = quick?.personKind === "employee" ? data.employees.find((employee) => employee.employmentId === quick.personId) : undefined;
   const quickPicked = (day: string) => Boolean(quick && draftEntries.some((entry) => entry.workDate === day && samePick(entry, quick)));
   /*
    * 據點只有上方篩選器這一個來源。快速排班自己再放一個下拉的話，兩邊會各自記一個值：
@@ -140,8 +152,9 @@ export function HrScheduling() {
   const changed = JSON.stringify(draftEntries.map(({ id, scheduleVersionId, startsAt, endsAt, employeeNumber, personName, scopeName, shiftName, ...entry }) => entry)) !== JSON.stringify(data.entries.map(({ id, scheduleVersionId, startsAt, endsAt, employeeNumber, personName, scopeName, shiftName, ...entry }) => entry));
 
   return <div className="page fills hr-schedule-page">
-    <PageHeader title="排班月曆" description="排班儲存即直接發布；鎖定只禁止修改，不使用草稿或送審流程。正式員工依排班出勤，臨時支援排班會納入日薪且不套用獎金。" actions={canWrite ? <div className="button-row"><Button variant="secondary" disabled={quick ? false : !canEdit || !defaultScope} onClick={() => quick ? setQuick(null) : openQuick()}>{quick ? "結束快速排班" : "快速排班"}</Button>{version ?<Button variant="secondary" onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked)} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存並發布</Button></div> : undefined} />
+    <PageHeader title="排班月曆" description="排班儲存即直接發布；鎖定只禁止修改，不使用草稿或送審流程。正式員工依排班出勤，臨時支援排班會納入日薪且不套用獎金。" actions={canWrite ? <div className="button-row"><Button variant="secondary" disabled={quick ? false : !canEdit || !defaultScope} onClick={() => quick ? setQuick(null) : openQuick()}>{quick ? "結束快速排班" : "快速排班"}</Button>{version ?<Button variant="secondary" onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked)} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
     <div className="hr-schedule-toolbar"><Button variant="secondary" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() - 1, 1)))}>上個月</Button><strong>{month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月</strong><Button variant="secondary" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1)))}>下個月</Button><SelectField label="營運據點" value={scopeId} options={[...(quick ? [] : [{ value: "all", label: "全部營運據點" }]), ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => pickScope(event.target.value)} /></div>
+    {restSummaries.length ? <div className="hr-schedule-rest-summary" aria-label="月休統計"><strong>月休統計</strong><div>{restSummaries.map(({ employee, activeDays, scheduledDays, restDays, matches }) => <span className={matches ? "ok" : "warning"} key={employee.employmentId}><b>{employee.name}</b> 休 {restDays}／約定 {employee.monthlyRestDays} 天<span className="muted">（{scheduledDays}／{activeDays} 日）</span></span>)}</div></div> : null}
     {quick ? <div className="hr-quick-bar">
       <SelectField label="人員類型" value={quick.personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援（納入日薪）" }]} onChange={(event) => {
         const personKind = event.target.value as "employee" | "worker";
@@ -149,7 +162,7 @@ export function HrScheduling() {
       }} />
       <SelectField label="人員" value={quick.personId} options={quick.personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber} ${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick({ ...quick, personId: event.target.value })} />
       <SelectField label="班別" value={quick.shiftVersionId} options={quickShifts.map((shift) => ({ value: shift.versionId, label: shiftLabel(shift) }))} onChange={(event) => setQuick({ ...quick, shiftVersionId: event.target.value })} />
-      <p className="muted hr-quick-hint">{quickShifts.length ? `點日期加入，再點一次取消。已選 ${quickDays} 天，記得按「儲存並發布」。` : <>這個營運據點尚未設定班別，請先到 <Link to="/hr/scheduling/shifts">班別管理</Link> 新增早班或晚班。</>}</p>
+      <p className="muted hr-quick-hint">{quickShifts.length ? <>點日期加入，再點一次取消。已選 {quickDays} 個工作日{quickEmployee?.monthlyRestDays !== null && quickEmployee?.monthlyRestDays !== undefined ? `，本月約定休 ${quickEmployee.monthlyRestDays} 天` : ""}，記得按「儲存」。</> : <>這個營運據點尚未設定班別，請先到 <Link to="/hr/scheduling/shifts">班別管理</Link> 新增早班或晚班。</>}</p>
     </div> : null}
     {data.version?.locked ? <Alert tone="info">此月份已鎖定；如需調整，先按「開鎖」，系統會留下操作紀錄。</Alert> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}

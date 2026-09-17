@@ -10,7 +10,7 @@ export interface Employee {
   userStatus: "invited" | "active" | "disabled";
   revision: number;
 }
-export interface Employment { id: string; employeeUserId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string; attendanceMode?: "general" | "scheduled"; revision: number }
+export interface Employment { id: string; employeeUserId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null; revision: number }
 export interface Assignment { id: string; employmentId: string; scopeName: string; validFrom: string; validTo: string | null; revision: number }
 export interface AttendanceAssignment {
   id: string;
@@ -51,7 +51,6 @@ export interface AttendanceLocationDetail extends AttendanceLocation {
   latitude: number | null;
   longitude: number | null;
 }
-export interface AttendanceLocationSchedule { id: string | null; locationId: string; dayOfWeek: number; isRestDay: number | boolean; startMinute: number | null; endMinute: number | null; standardMinutes: number; toleranceMinutes: number; revision: number }
 export interface SpecialWorkdayAllowance { id: string; ruleVersionId: string; itemName: string; unitAmountMinor: number }
 export interface SpecialWorkdayRuleVersion { id: string; ruleId: string; versionNumber: number; validFrom: string; validTo: string | null; wageKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null; overtimeRule: string; workSource: "schedule" | "hourly" | "manual"; note: string; allowances: SpecialWorkdayAllowance[] }
 export interface SpecialWorkdayRule { rule: { id: string; name: string; active: number; revision: number }; versions: SpecialWorkdayRuleVersion[] }
@@ -148,7 +147,7 @@ export interface HrOverview { periodKey: string; attendance: { anomalyCount: num
 export interface BonusAllocation { employmentId: string; employeeNumber: string; employeeName: string; weightUnits: number; scheduledDays: number; revenueMinor: number; amountMinor: number }
 export interface BonusPool { poolId: string; policyVersionId: string; policyName: string; scopeId: string; scopeName: string; scopeIds?: string[]; scopeNames?: string[]; periodKey: string; status: "calculated" | "approved" | "closed" | "failed"; poolAmountMinor: number; allocations: BonusAllocation[]; daily: Array<{ scopeId?: string; businessDate: string; revenueMinor: number; bonusMinor: number; scheduled: boolean }>; warnings: string[] }
 export interface ScheduleScope { id: string; name: string }
-export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; revision: number; startSecond: number; endSecond: number; endDayOffset: number }
+export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number }
 export interface HrShiftsResponse { scopes: ScheduleScope[]; shifts: ScheduleShift[] }
 
 function clockOf(seconds: number) { return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}`; }
@@ -156,9 +155,9 @@ function clockOf(seconds: number) { return `${String(Math.floor(seconds / 3600))
 export function shiftTimeRange(shift: Pick<ScheduleShift, "startSecond" | "endSecond" | "endDayOffset">) {
   return `${clockOf(shift.startSecond)}–${clockOf(shift.endSecond)}${shift.endDayOffset ? " 次日" : ""}`;
 }
-export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string }
+export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string; hiredOn: string; endedOn: string | null; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null }
 export interface ScheduleWorker { id: string; name: string; active: boolean | number }
-export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; workDate: string; startsAt: string; endsAt: string; employeeNumber: string | null; personName: string; scopeName: string; shiftName: string }
+export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; workDate: string; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; employeeNumber: string | null; personName: string; scopeName: string; shiftName: string }
 export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
 export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; note: string }
 export interface ScheduleWorkerRecord { id: string; displayName: string; active: boolean | number; revision: number; compensation: WorkerCompensation[] }

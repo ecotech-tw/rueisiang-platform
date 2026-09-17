@@ -187,6 +187,9 @@ function secondsBetween(start: string, end: string): number {
   const seconds = Math.round((Date.parse(end.replace(" ", "T") + (end.endsWith("Z") ? "" : "Z")) - Date.parse(start.replace(" ", "T") + (start.endsWith("Z") ? "" : "Z"))) / 1000);
   return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : 0;
 }
+function scheduledHours(row: { standardMinutes?: number | null; startsAt: string; endsAt: string }) {
+  return Number.isInteger(row.standardMinutes) ? (row.standardMinutes as number) / 60 : secondsBetween(row.startsAt, row.endsAt) / 3600;
+}
 
 function taipeiDate(value: string): string {
   const normalized = value.replace(" ", "T");
@@ -502,7 +505,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleEntries.workDate} >= ${period.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
     ));
-  const scheduledWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt }).from(hrScheduleWorkerEntries)
+  const scheduledWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes }).from(hrScheduleWorkerEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
     .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
     .where(and(
@@ -667,7 +670,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       payBases.add(compensation.payBasis);
       const special = specialWorkdays.find((item) => item.workerId === workerId && item.workDate === date);
       if (special) {
-        const hours = dateRows.reduce((sum, row) => sum + secondsBetween(row.startsAt, row.endsAt) / 3600, 0);
+        const hours = dateRows.reduce((sum, row) => sum + scheduledHours(row), 0);
         if (!hours) calculationWarnings.add(`${workerName} 的特殊上班日 ${date} 缺少工時資料，薪資列為異常且不自動補 0。`);
         else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) amountMinor += Math.round(special.fixedAmountMinorSnapshot * hours);
         else if (special.multiplierPpmSnapshot !== null) amountMinor += Math.floor((compensation.payBasis === "monthly" ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays) : compensation.baseAmountMinor) * special.multiplierPpmSnapshot / PPM);
@@ -677,7 +680,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       } else if (compensation.payBasis === "daily") {
         amountMinor += compensation.baseAmountMinor;
       } else {
-        amountMinor += dateRows.reduce((sum, row) => sum + Math.round(compensation.baseAmountMinor * secondsBetween(row.startsAt, row.endsAt) / 3600), 0);
+        amountMinor += dateRows.reduce((sum, row) => sum + Math.round(compensation.baseAmountMinor * scheduledHours(row)), 0);
       }
     }
     if (missingCompensation) calculationWarnings.add(`${workerName} 有排班日期找不到有效的支援人員敘薪，該日期薪資為 0。`);
@@ -714,10 +717,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           const entry = monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day);
           hours = entry && !entry.noWork ? entry.hoursHalfUnits / 2 : 0;
         } else if (special.workSourceSnapshot === "schedule") {
-          const scheduleRows = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt }).from(hrScheduleEntries)
+          const scheduleRows = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes }).from(hrScheduleEntries)
             .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
             .where(and(eq(hrScheduleEntries.employmentId, employee.employmentId), eq(hrScheduleEntries.workDate, day), eq(hrScheduleVersions.status, "published"), eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end), sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`));
-          hours = scheduleRows.reduce((sum, row) => sum + secondsBetween(row.startsAt, row.endsAt) / 3600, 0);
+          hours = scheduleRows.reduce((sum, row) => sum + scheduledHours(row), 0);
         }
         if (hours <= 0) calculationWarnings.add(`${employee.employeeName} 的特殊上班日 ${day} 缺少工時資料，薪資列為異常且不自動補 0。`);
         else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) specialMinor += Math.round(special.fixedAmountMinorSnapshot * hours);

@@ -10,7 +10,7 @@ const timestamps = () => ({
   revision: integer("revision").notNull().default(1),
 });
 
-/** 班次先做成版本；已發布的班表只引用固定版本，不會因為改名稱而改歷史。 */
+/** 班次先做成版本；已發布的班表引用固定版本並保存工時快照，不會因為改名稱或工時而改歷史。 */
 export const hrShiftTemplates = sqliteTable("hr_shift_templates", {
   id: text("id").primaryKey(),
   code: text("code").notNull(),
@@ -46,6 +46,8 @@ export const hrShiftVersions = sqliteTable("hr_shift_versions", {
   startSecond: integer("start_second").notNull(),
   endSecond: integer("end_second").notNull(),
   endDayOffset: integer("end_day_offset").notNull().default(0),
+  standardMinutes: integer("standard_minutes").notNull().default(480),
+  breakMinutes: integer("break_minutes").notNull().default(60),
   payFactorPpm: integer("pay_factor_ppm").notNull().default(1_000_000),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -57,6 +59,8 @@ export const hrShiftVersions = sqliteTable("hr_shift_versions", {
   check("ck_hr_shift_versions_end", sql`${table.endSecond} BETWEEN 0 AND 86399`),
   check("ck_hr_shift_versions_day_offset", sql`${table.endDayOffset} BETWEEN 0 AND 1`),
   check("ck_hr_shift_versions_period", sql`${table.endDayOffset} = 1 OR ${table.endSecond} > ${table.startSecond}`),
+  check("ck_hr_shift_versions_standard", sql`${table.standardMinutes} BETWEEN 0 AND 1440`),
+  check("ck_hr_shift_versions_break", sql`${table.breakMinutes} BETWEEN 0 AND 1440`),
   check("ck_hr_shift_versions_factor", sql`${table.payFactorPpm} BETWEEN 0 AND 10000000`),
 ]);
 
@@ -97,6 +101,7 @@ export const hrScheduleWorkers = sqliteTable("hr_schedule_workers", {
   check("ck_hr_schedule_workers_revision", sql`${table.revision} > 0`),
 ]);
 
+/** 正式員工的已發布排班；starts／ends 與計薪／休息分鐘都是發布當下的快照。 */
 export const hrScheduleEntries = sqliteTable("hr_schedule_entries", {
   id: text("id").primaryKey(),
   scheduleVersionId: text("schedule_version_id").notNull().references(() => hrScheduleVersions.id, { onDelete: "restrict" }),
@@ -106,6 +111,8 @@ export const hrScheduleEntries = sqliteTable("hr_schedule_entries", {
   workDate: text("work_date").notNull(),
   startsAt: text("starts_at").notNull(),
   endsAt: text("ends_at").notNull(),
+  standardMinutes: integer("standard_minutes").notNull().default(480),
+  breakMinutes: integer("break_minutes").notNull().default(60),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
@@ -114,9 +121,11 @@ export const hrScheduleEntries = sqliteTable("hr_schedule_entries", {
   index("idx_hr_schedule_entries_scope_date").on(table.scopeId, table.workDate),
   check("ck_hr_schedule_entries_date", sql`length(${table.workDate}) = 10`),
   check("ck_hr_schedule_entries_period", sql`${table.endsAt} > ${table.startsAt}`),
+  check("ck_hr_schedule_entries_standard", sql`${table.standardMinutes} BETWEEN 0 AND 1440`),
+  check("ck_hr_schedule_entries_break", sql`${table.breakMinutes} BETWEEN 0 AND 1440`),
 ]);
 
-/** 加班申請與核定時段分開保存；只有 approved + pay 才會進入薪資試算。 */
+/** 支援人員的已發布排班；同樣保存班別工時快照。 */
 export const hrScheduleWorkerEntries = sqliteTable("hr_schedule_worker_entries", {
   id: text("id").primaryKey(),
   scheduleVersionId: text("schedule_version_id").notNull().references(() => hrScheduleVersions.id, { onDelete: "restrict" }),
@@ -126,6 +135,8 @@ export const hrScheduleWorkerEntries = sqliteTable("hr_schedule_worker_entries",
   workDate: text("work_date").notNull(),
   startsAt: text("starts_at").notNull(),
   endsAt: text("ends_at").notNull(),
+  standardMinutes: integer("standard_minutes").notNull().default(480),
+  breakMinutes: integer("break_minutes").notNull().default(60),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
@@ -134,6 +145,8 @@ export const hrScheduleWorkerEntries = sqliteTable("hr_schedule_worker_entries",
   index("idx_hr_schedule_worker_entries_scope_date").on(table.scopeId, table.workDate),
   check("ck_hr_schedule_worker_entries_date", sql`length(${table.workDate}) = 10`),
   check("ck_hr_schedule_worker_entries_period", sql`${table.endsAt} > ${table.startsAt}`),
+  check("ck_hr_schedule_worker_entries_standard", sql`${table.standardMinutes} BETWEEN 0 AND 1440`),
+  check("ck_hr_schedule_worker_entries_break", sql`${table.breakMinutes} BETWEEN 0 AND 1440`),
 ]);
 
 export const hrSpecialWorkdayRules = sqliteTable("hr_special_workday_rules", {

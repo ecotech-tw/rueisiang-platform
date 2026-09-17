@@ -1,19 +1,19 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie } from "@rueisiang/auth";
 import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
-  createHrCompensationVersion, voidHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrAttendanceLocationSchedules, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
-  createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, saveHrAttendanceLocationSchedules, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
+  createHrCompensationVersion, voidHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
+  createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest,
   assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
-  updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest,
+  updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
-  taipeiWallClockToUtc,
+  formatTaipeiDate, taipeiWallClockToUtc,
   createDeviceSession, revokeDeviceSession,
 } from "@rueisiang/db";
 import { Hono } from "hono";
@@ -251,17 +251,6 @@ function scheduleEntries(input: Record<string, unknown>) {
     return { personKind, employmentId, workerId, scopeId: text(value, "scopeId", "營運據點"), shiftVersionId: text(value, "shiftVersionId", "班別版本"), workDate } as const;
   });
 }
-function locationSchedules(input: Record<string, unknown>) {
-  if (!Array.isArray(input.schedules) || input.schedules.length !== 7) throw new HTTPException(400, { message: "請完整提供週一至週日工時設定。" });
-  return input.schedules.map((raw, index) => {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 天工時設定不正確。` });
-    const value = raw as Record<string, unknown>;
-    const isRestDay = value.isRestDay === true || value.isRestDay === "true" || value.isRestDay === 1;
-    const startMinute = value.startMinute === null || value.startMinute === undefined || value.startMinute === "" ? null : integerValue(value, "startMinute", "上班分鐘", 0, 1439);
-    const endMinute = value.endMinute === null || value.endMinute === undefined || value.endMinute === "" ? null : integerValue(value, "endMinute", "下班分鐘", 0, 1439);
-    return { dayOfWeek: integerValue(value, "dayOfWeek", "星期", 0, 6), isRestDay, startMinute, endMinute, standardMinutes: integerValue(value, "standardMinutes", "標準工時（分鐘）", 0, 1440), toleranceMinutes: integerValue(value, "toleranceMinutes", "容許範圍（分鐘）", 0, 1440) };
-  });
-}
 function specialWorkdayRule(input: Record<string, unknown>) {
   const wageKind = input.wageKind === "fixed_hourly" || input.wageKind === "multiplier" ? input.wageKind : null;
   if (!wageKind) throw new HTTPException(400, { message: "特殊上班日薪資方式不正確。" });
@@ -310,6 +299,29 @@ function secondsFromTime(input: Record<string, unknown>, key: string) {
   const hour = Number(value.slice(0, 2));
   const minute = Number(value.slice(3, 5));
   return hour * 3600 + minute * 60;
+}
+function defaultShiftMinutes(input: Record<string, unknown>) {
+  const start = secondsFromTime(input, "startTime");
+  const end = secondsFromTime(input, "endTime");
+  const duration = (end - start) / 60;
+  return { start, end, standardMinutes: Math.min(480, duration), breakMinutes: Math.min(60, Math.max(0, duration - Math.min(480, duration))) };
+}
+function stringArray(input: Record<string, unknown>, key: string, label: string, maxItems = 100) {
+  const value = input[key];
+  if (!Array.isArray(value) || value.length > maxItems || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 100)) throw new HTTPException(400, { message: `${label}格式不正確。` });
+  return value as string[];
+}
+function attendanceAssignmentsToEnd(input: Record<string, unknown>) {
+  const value = input.assignmentsToEnd;
+  if (!Array.isArray(value) || value.length > 100) throw new HTTPException(400, { message: "要結束的辦公位置指派格式不正確。" });
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new HTTPException(400, { message: "要結束的辦公位置指派格式不正確。" });
+    const assignment = item as Record<string, unknown>;
+    return { id: text(assignment, "id", "辦公位置指派"), revision: integerValue(assignment, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) };
+  });
+}
+function nextTaipeiDate(value: string) {
+  return formatTaipeiDate(new Date(`${value}T00:00:00.000Z`).getTime() + 86_400_000);
 }
 
 function isSelfServicePath(path: string) {
@@ -462,8 +474,6 @@ export const hr = new Hono<AppEnv>()
     return c.json(await listHrAttendanceLocations(c.get("db"), { page, pageSize, search, scopeId: c.req.query("scopeId") ?? "all", sortField, sortDirection }));
   })
   .get("/attendance-settings/locations/:id", requirePermission("hr:office:write"), async (c) => c.json(await getHrAttendanceLocation(c.get("db"), c.req.param("id"))))
-  .get("/attendance-settings/locations/:id/schedules", requirePermission("hr:office:read"), async (c) => c.json({ schedules: await getHrAttendanceLocationSchedules(c.get("db"), c.req.param("id")) }))
-  .put("/attendance-settings/locations/:id/schedules", requirePermission("hr:office:write"), async (c) => c.json(await saveHrAttendanceLocationSchedules(c.get("db"), c.req.param("id"), locationSchedules(await body(c)), c.get("user"))))
   .post("/attendance-settings/locations", requirePermission("hr:office:write"), async (c) => {
     const input = attendanceLocation(await body(c));
     return c.json(await createHrAttendanceLocation(c.get("db"), input, c.get("user")), 201);
@@ -549,7 +559,8 @@ export const hr = new Hono<AppEnv>()
   .get("/shift-templates", requirePermission("hr:schedule:read"), async (c) => c.json(await listHrShifts(c.get("db"))))
   .patch("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: secondsFromTime(input, "startTime"), endSecond: secondsFromTime(input, "endTime"), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
+    const defaults = defaultShiftMinutes(input);
+    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: defaults.start, endSecond: defaults.end, standardMinutes: input.standardMinutes === undefined ? defaults.standardMinutes : integerValue(input, "standardMinutes", "計薪工時", 0, 1440), breakMinutes: input.breakMinutes === undefined ? defaults.breakMinutes : integerValue(input, "breakMinutes", "休息時間", 0, 1440), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
   })
   .delete("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
@@ -557,7 +568,21 @@ export const hr = new Hono<AppEnv>()
   })
   .post("/shift-templates", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: secondsFromTime(input, "startTime"), endSecond: secondsFromTime(input, "endTime") }, c.get("user")), 201);
+    const defaults = defaultShiftMinutes(input);
+    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: defaults.start, endSecond: defaults.end, standardMinutes: input.standardMinutes === undefined ? defaults.standardMinutes : integerValue(input, "standardMinutes", "計薪工時", 0, 1440), breakMinutes: input.breakMinutes === undefined ? defaults.breakMinutes : integerValue(input, "breakMinutes", "休息時間", 0, 1440) }, c.get("user")), 201);
+  })
+  .patch("/employments/:id/attendance-scope", requirePermission("hr:office:write"), async (c) => {
+    const input = await body(c);
+    const selectedMode = attendanceMode(input);
+    const monthlyRestDays = selectedMode === "scheduled" ? integerValue(input, "monthlyRestDays", "每月休假天數", 0, 31) : null;
+    const validFrom = formatTaipeiDate(new Date());
+    const validTo = nextTaipeiDate(validFrom);
+    const locationIds = stringArray(input, "locationIds", "新增辦公位置");
+    if (new Set(locationIds).size !== locationIds.length) throw new HTTPException(400, { message: "新增辦公位置不可重複。" });
+    return c.json(await updateHrAttendanceScope(c.get("db"), {
+      employmentId: c.req.param("id"), attendanceMode: selectedMode, monthlyRestDays, revision: revision(input), validFrom, validTo,
+      locationIds, assignmentsToEnd: attendanceAssignmentsToEnd(input),
+    }, c.get("user")));
   })
   .post("/employments/:id/attendance-location", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);
@@ -875,7 +900,9 @@ export const hr = new Hono<AppEnv>()
   })
   .patch("/employments/:id/attendance-mode", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);
-    return c.json(await updateHrEmploymentAttendanceMode(c.get("db"), c.req.param("id"), { attendanceMode: attendanceMode(input), revision: revision(input) }, c.get("user")));
+    const selectedMode = attendanceMode(input);
+    const monthlyRestDays = selectedMode === "scheduled" && input.monthlyRestDays !== undefined ? integerValue(input, "monthlyRestDays", "每月休假天數", 0, 31) : null;
+    return c.json(await updateHrEmploymentAttendanceMode(c.get("db"), c.req.param("id"), { attendanceMode: selectedMode, monthlyRestDays, revision: revision(input) }, c.get("user")));
   })
   .patch("/employments/:id/end", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);

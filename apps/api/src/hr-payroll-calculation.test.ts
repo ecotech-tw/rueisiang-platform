@@ -112,7 +112,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(created.status, await created.clone().text()).toBe(201);
     const db = createDatabase(d1 as never);
     await db.insert(hrScheduleEntries).values([
-      { id: "test-multiscope-xinyi-2026-08-02", scheduleVersionId: "dev-schedule-2026-08-v1", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: "dev-shift-booth-day-v1", workDate: "2026-08-02", startsAt: "2026-08-02 02:00:00", endsAt: "2026-08-02 10:00:00", createdBy: "dev-eli-lin@ecotech.tw" },
+      { id: "test-multiscope-xinyi-2026-08-02", scheduleVersionId: "dev-schedule-2026-08-v1", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: "dev-shift-booth-day-v1", workDate: "2026-08-02", startsAt: "2026-08-02 02:00:00", endsAt: "2026-08-02 10:00:00", standardMinutes: 480, breakMinutes: 0, createdBy: "dev-eli-lin@ecotech.tw" },
     ]);
     await db.insert(reportPayoutDaily).values([
       { scopeId: "cyberbiz:store:demo-xinyi", businessDate: "2026-08-02", recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 100_000, updatedByEmail: "eli-lin@ecotech.tw" },

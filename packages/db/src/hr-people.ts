@@ -143,10 +143,10 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   const [supervisor] = employee.supervisorUserId
     ? await db.select({ displayName }).from(users).where(eq(users.id, employee.supervisorUserId)).limit(1)
     : [];
-  const employmentRows = await db.select({ employment: hrEmployments, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode })
+  const employmentRows = await db.select({ employment: hrEmployments, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays })
     .from(hrEmployments).leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployments.hiredOn));
-  const employments = employmentRows.map(({ employment, attendanceMode: mode }) => ({ ...employment, attendanceMode: mode ?? "general" }));
+  const employments = employmentRows.map(({ employment, attendanceMode: mode, monthlyRestDays }) => ({ ...employment, attendanceMode: mode ?? "general", monthlyRestDays }));
   const assignments = await db.select({
     id: hrEmployeeScopes.id, employmentId: hrEmployeeScopes.employmentId, scopeId: hrEmployeeScopes.scopeId,
     scopeName: scopes.name, validFrom: hrEmployeeScopes.validFrom, validTo: hrEmployeeScopes.validTo, revision: hrEmployeeScopes.revision,
@@ -254,10 +254,10 @@ export function createHrEmployment(db: Database, input: { userId: string; hiredO
       VALUES (${id}, ${input.attendanceMode}) RETURNING employment_id AS id`,
   ], id, actor, "employment_created");
 }
-export function updateHrEmploymentAttendanceMode(db: Database, id: string, input: { attendanceMode: "general" | "scheduled"; revision: number }, actor: HrActor) {
+export function updateHrEmploymentAttendanceMode(db: Database, id: string, input: { attendanceMode: "general" | "scheduled"; monthlyRestDays: number | null; revision: number }, actor: HrActor) {
   return write(db, [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP
     WHERE id=${id} AND revision=${input.revision} RETURNING id`,
-    sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, updated_at=CURRENT_TIMESTAMP
+    sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${input.monthlyRestDays}, updated_at=CURRENT_TIMESTAMP
       WHERE employment_id=${id} RETURNING employment_id AS id`], id, actor, "employment_attendance_mode_updated", "任職資料已變更，請重新整理後再試。");
 }
 export function endHrEmployment(db: Database, id: string, input: { endedOn: string; revision: number }, actor: HrActor) {
