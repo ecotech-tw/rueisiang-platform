@@ -1064,3 +1064,50 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container:last-child { margin-left: 0; }
   .hr-skeleton-calendar { grid-template-columns: repeat(7, minmax(76px, 1fr)); }
 }
+
+/*
+ * 快速排班。選一次人＋班別，再點日期加入或取消。
+ *
+ * 用日期那一列整條當按鈕，不是把整格做成可點區域：格子裡本來就有每筆排班的
+ * 「×」，巢狀按鈕在鍵盤與讀螢幕上都是壞的。
+ */
+.hr-system .hr-quick-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 22px;
+  background: --alpha(var(--color-brand) / 7%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 58%) inset,
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
+}
+.hr-system .hr-quick-hint { flex: 1 1 260px; min-height: 42px; margin: 0; align-content: center; }
+/* 權重要壓過上面的 .hr-calendar-date button（它把按鈕鎖成 30px 的圓形＋）。 */
+.hr-system .hr-calendar-date button.hr-quick-day {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  border-radius: 999px;
+  background: --alpha(var(--color-paper) / 36%);
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 900;
+  transition-property: background-color, color, scale;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-system .hr-calendar-date button.hr-quick-day:hover:not(:disabled) { background: --alpha(var(--color-brand) / 7%); }
+.hr-system .hr-calendar-date button.hr-quick-day:active:not(:disabled) { scale: .96; }
+.hr-system .hr-calendar-date button.hr-quick-day:disabled { opacity: .45; }
+/* 選中是 Material 的色調容器：淡底深字，安靜地成立，不搶視線。 */
+.hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="true"] { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.hr-system .hr-calendar-date button.hr-quick-day svg { width: 18px; height: 18px; }
+.hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="false"] svg { color: var(--color-muted); }
+/* 選中的整格也要看得出來，否則一整月掃過去只能一格一格找那個小勾。 */
+.hr-system .hr-calendar-cell.picked { border-color: --alpha(var(--color-brand) / 34%); }
