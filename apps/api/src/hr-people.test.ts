@@ -341,6 +341,31 @@ describe("HR 員工基礎", () => {
     expect(await shared.text()).toContain("同時用在多家店");
   });
 
+  it("刪除班別：沒排過就刪掉；已排進排班或版本過期都擋下，資料不動", async () => {
+    const listShifts = async () => ((await (await request("/hr/shift-templates")).json()) as { shifts: Array<{ templateId: string; revision: number; versionId: string }> }).shifts;
+    const create = async (name: string) => (await (await request("/hr/shift-templates", "POST", { scopeId: "scope", name, startTime: "09:00", endTime: "14:00" })).json() as { id: string; versionId: string });
+
+    const unused = await create("沒排過的班");
+    const stale = await request(`/hr/shift-templates/${unused.id}`, "DELETE", { scopeId: "scope", revision: 999 });
+    expect(stale.status).toBe(409);
+    expect((await listShifts()).some((shift) => shift.templateId === unused.id)).toBe(true);
+    const removed = await request(`/hr/shift-templates/${unused.id}`, "DELETE", { scopeId: "scope", revision: 1 });
+    expect(removed.status, await removed.clone().text()).toBe(200);
+    expect((await listShifts()).some((shift) => shift.templateId === unused.id)).toBe(false);
+
+    // 排班表以外鍵指著班別；刪了那個月份就存不回去，所以要講清楚排在哪、請人先移除。
+    await assign("self");
+    const job = await firstEmployment("self");
+    const used = await create("排過的班");
+    const today = taipeiToday();
+    const saved = await request("/hr/schedules", "POST", { periodKey: today.slice(0, 7), entries: [{ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: used.versionId, workDate: today }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const blocked = await request(`/hr/shift-templates/${used.id}`, "DELETE", { scopeId: "scope", revision: 1 });
+    expect(blocked.status).toBe(409);
+    expect(await blocked.text()).toContain(`已經排進 1 筆排班（最早 ${today}）`);
+    expect((await listShifts()).some((shift) => shift.templateId === used.id)).toBe(true);
+  });
+
   it("跨午夜排班在隔日仍可完成下班打卡，日曆不重複報異常", async () => {
     const today = taipeiToday();
     const previous = new Date(`${today}T00:00:00Z`);

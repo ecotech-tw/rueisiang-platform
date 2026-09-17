@@ -327,6 +327,17 @@ export async function createHrShift(db: Database, input: HrShiftInput, actor: Hr
 }
 
 /**
+ * 修改與刪除之前都要確認：這個班別屬於這家店，而且**只**屬於這家店。
+ *
+ * 同一個班別掛在多家店時，改或刪一家會連另一家一起動到，而操作的人只看得到自己點開的那家。
+ */
+async function assertShiftOwnedByScope(db: Database, templateId: string, scopeId: string, action: "修改" | "刪除") {
+  const assignments = await db.select({ scopeId: hrScopeShiftAssignments.scopeId }).from(hrScopeShiftAssignments).where(eq(hrScopeShiftAssignments.shiftTemplateId, templateId));
+  if (!assignments.some((item) => item.scopeId === scopeId)) throw new HrError(404, "找不到這家店的這個班別。 ");
+  if (assignments.length > 1) throw new HrError(409, `這個班別同時用在多家店，直接${action}會連其他店一起${action === "修改" ? "改" : "刪"}掉；請改為在這家店新增一個班別。 `);
+}
+
+/**
  * 直接改班別的名稱與時間，不開新版本。
  *
  * 這是刻意的取捨：已存下的排班各自存了 starts_at／ends_at，不會因為這裡改了就變；但之後
@@ -337,9 +348,7 @@ export async function createHrShift(db: Database, input: HrShiftInput, actor: Hr
  */
 export async function updateHrShift(db: Database, templateId: string, input: HrShiftInput & { revision: number }, actor: HrActor) {
   assertSameDayShift(input);
-  const assignments = await db.select({ scopeId: hrScopeShiftAssignments.scopeId }).from(hrScopeShiftAssignments).where(eq(hrScopeShiftAssignments.shiftTemplateId, templateId));
-  if (!assignments.some((item) => item.scopeId === input.scopeId)) throw new HrError(404, "找不到這家店的這個班別。 ");
-  if (assignments.length > 1) throw new HrError(409, "這個班別同時用在多家店，直接修改會連其他店一起改掉；請改為在這家店新增一個班別。 ");
+  await assertShiftOwnedByScope(db, templateId, input.scopeId, "修改");
   const [latest] = await db.select({ id: hrShiftVersions.id }).from(hrShiftVersions).where(eq(hrShiftVersions.shiftTemplateId, templateId)).orderBy(desc(hrShiftVersions.versionNumber)).limit(1);
   if (!latest) throw new HrError(404, "找不到班別的時間設定。 ");
   const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), startSecond: input.startSecond, endSecond: input.endSecond } });
@@ -355,6 +364,38 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
       SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson} WHERE changes() = 1`,
   ]), true, "班別已被其他人修改，請重新整理後再改。 ");
   return { id: templateId, revision: input.revision + 1 };
+}
+
+/**
+ * 刪除班別。只有**從沒被排進任何排班**的班別能刪。
+ *
+ * 排班表以外鍵指著班別版本，已排過的班別刪不掉；就算改成停用，那個月份之後重新儲存時
+ * 也會因為找不到班別而存不進去。所以直接擋下並講清楚排在哪裡，讓人先到排班月曆移除。
+ */
+export async function deleteHrShift(db: Database, templateId: string, input: { scopeId: string; revision: number }, actor: HrActor) {
+  await assertShiftOwnedByScope(db, templateId, input.scopeId, "刪除");
+  const usage = sql`SELECT work_date FROM hr_schedule_entries WHERE shift_version_id IN (SELECT id FROM hr_shift_versions WHERE shift_template_id=${templateId})
+    UNION ALL SELECT work_date FROM hr_schedule_worker_entries WHERE shift_version_id IN (SELECT id FROM hr_shift_versions WHERE shift_template_id=${templateId})`;
+  const [used] = await db.all<{ total: number; earliest: string | null }>(sql`SELECT count(*) AS total, min(work_date) AS earliest FROM (${usage})`);
+  if (used && Number(used.total) > 0) throw new HrError(409, `這個班別已經排進 ${used.total} 筆排班（最早 ${used.earliest}），請先到排班月曆移除後再刪除。 `);
+  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_deleted", summary: "班別已刪除", actor, payload: { scopeId: input.scopeId } });
+  // 每一句都帶同一個 revision 條件：revision 在這一批裡不會被改，所以不會有修改那邊「舊值 + 1」的問題。
+  const current = sql`EXISTS (SELECT 1 FROM hr_shift_templates WHERE id=${templateId} AND revision=${input.revision})`;
+  try {
+    await runRawBatch(db, compileStatements([
+      sql`SELECT id FROM hr_shift_templates WHERE id=${templateId} AND revision=${input.revision}`,
+      sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
+        SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson} WHERE ${current}`,
+      sql`DELETE FROM hr_scope_shift_assignments WHERE shift_template_id=${templateId} AND ${current}`,
+      sql`DELETE FROM hr_shift_versions WHERE shift_template_id=${templateId} AND ${current}`,
+      sql`DELETE FROM hr_shift_templates WHERE id=${templateId} AND revision=${input.revision}`,
+    ]), true, "班別已被其他人修改，請重新整理後再刪除。 ");
+  } catch (error) {
+    // 檢查完到真正刪除之間，有人剛好把這個班別排進去：外鍵會擋下整批，換成看得懂的訊息。
+    if (error instanceof Error && /FOREIGN KEY/i.test(error.message)) throw new HrError(409, "這個班別剛被排進排班，請重新整理後再確認。 ");
+    throw error;
+  }
+  return { id: templateId };
 }
 
 export const HR_SCHEDULE_WORKER_PAGE_SIZES = [10, 25, 50, 100] as const;

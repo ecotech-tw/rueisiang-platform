@@ -15,13 +15,13 @@ function clock(seconds: number) {
   return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}`;
 }
 
-/** 視窗裡目前在看什麼：班別清單，或新增／修改某一個班別的表單。 */
-type View = { kind: "list" } | { kind: "create" } | { kind: "edit"; shift: ScheduleShift };
+/** 視窗裡目前在看什麼：班別清單、新增／修改的表單，或刪除確認。 */
+type View = { kind: "list" } | { kind: "create" } | { kind: "edit"; shift: ScheduleShift } | { kind: "delete"; shift: ScheduleShift };
 
 /**
  * 一家店的班別，全部在同一個視窗裡完成。
  *
- * 新增與修改不再開第二層視窗，而是把同一個視窗的內容換成表單：視窗疊視窗時，
+ * 新增、修改、刪除確認都不開第二層視窗，而是換掉同一個視窗的內容：視窗疊視窗時，
  * 按 Esc 或點遮罩到底關哪一層沒人說得準，存完也不容易回到原本那張清單。
  */
 function StoreShiftsDialog({ scope, shifts, canWrite, onClose, onSaved }: { scope: ScheduleScope; shifts: ScheduleShift[]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
@@ -49,9 +49,30 @@ function StoreShiftsDialog({ scope, shifts, canWrite, onClose, onSaved }: { scop
         {shifts.map((shift) => <tr key={shift.versionId}>
           <td data-label="班別"><span className="cell-strong">{shift.name}</span></td>
           <td data-label="上班時間" className="numeric">{shiftTimeRange(shift)}</td>
-          {canWrite ? <td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" title={`修改 ${shift.name}`} aria-label={`修改 ${shift.name}`} onClick={() => openForm({ kind: "edit", shift })} /></div></td> : null}
+          {canWrite ? <td data-label="操作"><div className="row-actions">
+            <Button variant="icon" icon="edit" className="compensation-action-update" title={`修改 ${shift.name}`} aria-label={`修改 ${shift.name}`} onClick={() => openForm({ kind: "edit", shift })} />
+            <Button variant="icon" icon="trash" className="danger hr-bonus-action-delete" title={`刪除 ${shift.name}`} aria-label={`刪除 ${shift.name}`} onClick={() => { save.reset(); setView({ kind: "delete", shift }); }} />
+          </div></td> : null}
         </tr>)}
       </tbody></table></div> : <p className="muted">這家店還沒有班別。新增之後，排班月曆才選得到。</p>}
+    </Dialog>;
+  }
+
+  if (view.kind === "delete") {
+    const target = view.shift;
+    return <Dialog
+      title={`刪除班別 · ${scope.name}`}
+      role="alertdialog"
+      onClose={onClose}
+      closeDisabled={save.isPending}
+      actions={<><Button variant="secondary" disabled={save.isPending} onClick={() => { save.reset(); setView({ kind: "list" }); }}>取消</Button><Button variant="danger" icon="trash" loading={save.isPending} onClick={() => save.mutate(
+        { path: `/shift-templates/${encodeURIComponent(target.templateId)}`, method: "DELETE", values: { scopeId: scope.id, revision: target.revision } },
+        { onSuccess: async () => { toast.show(`已刪除班別「${target.name}」。`); await onSaved(); setView({ kind: "list" }); } },
+      )}>刪除班別</Button></>}
+    >
+      <p>確定刪除「{target.name}」（{shiftTimeRange(target)}）？</p>
+      {/* 已排進排班的班別刪不掉；錯誤留在畫面上說明排在哪，讓人知道要先去排班月曆處理，而不是只閃一下提示。 */}
+      {save.error ? <Alert tone="danger">{save.error.message}</Alert> : <p className="muted">只有還沒排進任何排班的班別可以刪除。</p>}
     </Dialog>;
   }
 
@@ -85,7 +106,7 @@ function StoreShiftsDialog({ scope, shifts, canWrite, onClose, onSaved }: { scop
       <TextField label="結束時間" type="time" required value={endTime} onChange={(event) => setEndTime(event.target.value)} />
     </div>
     {/* 修改是直接改在原本的班別上：已經排出去的班存著自己的時間，但那個月重新按儲存就會套用新時間。這句要在按下去之前讀得到。 */}
-    {editing ? <p className="form-hint">修改會直接套用到這個班別。已排好的班維持原本時間，但該月份重新儲存排班時會改用新時間；已結算的月份請先鎖定。</p> : null}
+    {editing ? <p className="muted">修改會直接套用到這個班別。已排好的班維持原本時間，但該月份重新儲存排班時會改用新時間；已結算的月份請先鎖定。</p> : null}
     {invalidRange ? <Alert tone="danger">結束時間必須晚於開始時間。</Alert> : null}
     {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
   </Dialog>;
