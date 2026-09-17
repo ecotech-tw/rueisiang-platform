@@ -16,8 +16,8 @@ import { Profile } from "./routes/me/Profile.js";
 import { HrEmployeeDetail, HrEmployees } from "./routes/hr/Employees.js";
 import { HrLanding, HrLayout } from "./routes/hr/HrLayout.js";
 import { HrAttendanceSettings } from "./routes/hr/AttendanceSettings.js";
+import { HrAttendanceScopeManagement } from "./routes/hr/Locations.js";
 import { HrInsuranceManagement } from "./routes/hr/InsuranceManagement.js";
-import { HrLocationAssignments } from "./routes/hr/Locations.js";
 import { HrSpecialWorkdays } from "./routes/hr/SpecialWorkdays.js";
 import { HrAttendanceRecords } from "./routes/hr/AttendanceRecords.js";
 import { HrScheduling } from "./routes/hr/Scheduling.js";
@@ -168,11 +168,13 @@ export function App() {
           <Route path="support-workers" element={<HrSupportWorkers />} />
           <Route path="insurance" element={<HrInsuranceManagement />} />
           <Route path="attendance-settings" element={<HrAttendanceSettings />} />
+          <Route path="attendance-scope" element={<HrAttendanceScopeManagement />} />
           <Route path="special-workdays" element={<HrSpecialWorkdays />} />
           <Route path="attendance-records" element={<HrAttendanceRecords />} />
           <Route path="overtime" element={<HrOvertimeRequests />} />
           <Route path="scheduling" element={<HrScheduling />} />
-          <Route path="scheduling/locations" element={<HrLocationAssignments />} />
+          {/* 舊網址相容：辦公位置改由員工列表的管理入口維護。 */}
+          <Route path="scheduling/locations" element={<Navigate to="/hr/employees" replace />} />
           <Route path="compensation" element={<HrCompensationManagement />} />
           <Route path="payroll-settings" element={<HrCompensationManagement settingsOnly />} />
           <Route path="payroll" element={<Navigate to="/hr/payroll-settlement" replace />} />

@@ -213,7 +213,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
 }
 
 export function HrAttendanceSettings() {
-  const pageTitle = "出勤設定";
+  const pageTitle = "據點管理";
   usePageTitle(pageTitle);
   const navigate = useNavigate();
   const { permissions } = useSession();
@@ -233,7 +233,7 @@ export function HrAttendanceSettings() {
   const total = locations.data?.total ?? rows.length;
   const updateSort = (field: string, direction: "asc" | "desc") => { setSortField(field); setSortDirection(direction); setPage(1); };
 
-  if (!canRead) return <Alert tone="danger">你沒有檢視出勤設定的權限。</Alert>;
+  if (!canRead) return <Alert tone="danger">你沒有檢視據點管理的權限。</Alert>;
   if (locations.isPending) return <HrPageSkeleton variant="table" />;
   if (locations.error) return <div className="page"><Alert tone="danger">{locations.error.message}</Alert></div>;
   return (
