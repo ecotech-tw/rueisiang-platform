@@ -105,10 +105,10 @@ async function getOrCreateScheduleVersion(db: Database, period: { start: string;
   return created;
 }
 
-async function runRawBatch(db: Database, statements: Array<{ sql: string; params: unknown[] }>, expectedUpdate: boolean) {
+async function runRawBatch(db: Database, statements: Array<{ sql: string; params: unknown[] }>, expectedUpdate: boolean, conflictMessage = "排班已被其他人修改或目前已鎖定，請重新整理。 ") {
   const prepared = statements.map((compiled) => db.$client.prepare(compiled.sql).bind(...compiled.params));
   const results = await db.$client.batch(prepared);
-  if (expectedUpdate && !results[0]?.results?.length) throw new HrError(409, "排班已被其他人修改或目前已鎖定，請重新整理。 ");
+  if (expectedUpdate && !results[0]?.results?.length) throw new HrError(409, conflictMessage);
   return results;
 }
 
@@ -202,6 +202,7 @@ function listHrScopeShiftRows(db: Database) {
       scopeId: sql<string>`${hrScopeShiftAssignments.scopeId}`.as("schedule_shift_scope_id"),
       code: sql<string>`${hrShiftTemplates.code}`.as("schedule_shift_code"),
       name: sql<string>`${hrShiftTemplates.name}`.as("schedule_shift_name"),
+      revision: sql<number>`${hrShiftTemplates.revision}`.as("schedule_shift_revision"),
       versionNumber: sql<number>`${hrShiftVersions.versionNumber}`.as("schedule_shift_version_number"),
       startSecond: hrShiftVersions.startSecond,
       endSecond: hrShiftVersions.endSecond,
@@ -302,8 +303,12 @@ export interface HrShiftInput {
   endSecond: number;
 }
 
-export async function createHrShift(db: Database, input: HrShiftInput, actor: HrActor) {
+function assertSameDayShift(input: { startSecond: number; endSecond: number }) {
   if (!Number.isInteger(input.startSecond) || input.startSecond < 0 || input.startSecond > 86_399 || !Number.isInteger(input.endSecond) || input.endSecond < 0 || input.endSecond > 86_399 || input.endSecond <= input.startSecond) throw new HrError(400, "班別的結束時間必須晚於開始時間。 ");
+}
+
+export async function createHrShift(db: Database, input: HrShiftInput, actor: HrActor) {
+  assertSameDayShift(input);
   const [scope] = await db.select({ id: scopes.id }).from(scopes).where(and(eq(scopes.id, input.scopeId), eq(scopes.scopeKind, "store"), eq(scopes.active, 1))).limit(1);
   if (!scope) throw new HrError(404, "找不到有效的營運據點。 ");
   const templateId = crypto.randomUUID();
@@ -319,6 +324,37 @@ export async function createHrShift(db: Database, input: HrShiftInput, actor: Hr
   ].map((statement) => dialect.sqlToQuery(statement));
   await runRawBatch(db, statements, false);
   return { id: templateId, versionId, assignmentId };
+}
+
+/**
+ * 直接改班別的名稱與時間，不開新版本。
+ *
+ * 這是刻意的取捨：已存下的排班各自存了 starts_at／ends_at，不會因為這裡改了就變；但之後
+ * 有人對那個月份重新按儲存，會用新時間重算。鎖定的月份存不了，所以已結算的月份請先鎖定。
+ *
+ * 班別若同時掛在多家店就拒絕：改一家店的早班，另一家店的早班也會跟著變，而畫面上操作的
+ * 人只看得到自己點進來的那一家。從班別管理頁建立的班別一定只屬於一家店。
+ */
+export async function updateHrShift(db: Database, templateId: string, input: HrShiftInput & { revision: number }, actor: HrActor) {
+  assertSameDayShift(input);
+  const assignments = await db.select({ scopeId: hrScopeShiftAssignments.scopeId }).from(hrScopeShiftAssignments).where(eq(hrScopeShiftAssignments.shiftTemplateId, templateId));
+  if (!assignments.some((item) => item.scopeId === input.scopeId)) throw new HrError(404, "找不到這家店的這個班別。 ");
+  if (assignments.length > 1) throw new HrError(409, "這個班別同時用在多家店，直接修改會連其他店一起改掉；請改為在這家店新增一個班別。 ");
+  const [latest] = await db.select({ id: hrShiftVersions.id }).from(hrShiftVersions).where(eq(hrShiftVersions.shiftTemplateId, templateId)).orderBy(desc(hrShiftVersions.versionNumber)).limit(1);
+  if (!latest) throw new HrError(404, "找不到班別的時間設定。 ");
+  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), startSecond: input.startSecond, endSecond: input.endSecond } });
+  await runRawBatch(db, compileStatements([
+    sql`UPDATE hr_shift_templates SET name=${input.name.trim()}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${templateId} AND revision=${input.revision} RETURNING id`,
+    /*
+     * 只有上一句真的改到一列，才動時間與寫紀錄；用 changes() 而不是再查一次 revision。
+     * 用「revision = 舊值 + 1」判斷會被併發騙過：別人先改成 2 之後，拿著舊值 1 的請求
+     * 算出來的也是 2，條件照樣成立，名稱沒改到、時間卻被蓋掉。
+     */
+    sql`UPDATE hr_shift_versions SET start_second=${input.startSecond}, end_second=${input.endSecond}, end_day_offset=0 WHERE id=${latest.id} AND changes() = 1`,
+    sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
+      SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson} WHERE changes() = 1`,
+  ]), true, "班別已被其他人修改，請重新整理後再改。 ");
+  return { id: templateId, revision: input.revision + 1 };
 }
 
 export const HR_SCHEDULE_WORKER_PAGE_SIZES = [10, 25, 50, 100] as const;

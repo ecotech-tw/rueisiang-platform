@@ -148,7 +148,7 @@ export interface HrOverview { periodKey: string; attendance: { anomalyCount: num
 export interface BonusAllocation { employmentId: string; employeeNumber: string; employeeName: string; weightUnits: number; scheduledDays: number; revenueMinor: number; amountMinor: number }
 export interface BonusPool { poolId: string; policyVersionId: string; policyName: string; scopeId: string; scopeName: string; scopeIds?: string[]; scopeNames?: string[]; periodKey: string; status: "calculated" | "approved" | "closed" | "failed"; poolAmountMinor: number; allocations: BonusAllocation[]; daily: Array<{ scopeId?: string; businessDate: string; revenueMinor: number; bonusMinor: number; scheduled: boolean }>; warnings: string[] }
 export interface ScheduleScope { id: string; name: string }
-export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; startSecond: number; endSecond: number; endDayOffset: number }
+export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; revision: number; startSecond: number; endSecond: number; endDayOffset: number }
 export interface HrShiftsResponse { scopes: ScheduleScope[]; shifts: ScheduleShift[] }
 
 function clockOf(seconds: number) { return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}`; }

@@ -439,6 +439,11 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   backdrop-filter: blur(6px) saturate(145%);
 }
 .hr-system .row-actions { gap: 8px; }
+/*
+ * 頁首並排的操作鍵。沒有這條時 .button-row 是 block，按鈕靠文字基線排：次要鍵與主要鍵
+ * 高度差 1–2px，底邊就錯開好幾 px，而且兩顆幾乎貼在一起。間距跟表格列的操作鍵一致。
+ */
+.hr-system .button-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .hr-system .ghost-button,
 .hr-system .icon-button {
   border-color: transparent;

@@ -315,6 +315,32 @@ describe("HR 員工基礎", () => {
     expect(body.shifts.every((shift) => !("code" in shift))).toBe(true);
   });
 
+  it("班別直接修改名稱與時間；過期的版本、錯的時間、多店共用的班別都擋下", async () => {
+    const created = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "早班", startTime: "09:00", endTime: "14:00" });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { id } = await created.json() as { id: string };
+    const find = async () => ((await (await request("/hr/shift-templates")).json()) as { shifts: Array<{ templateId: string; name: string; startSecond: number; endSecond: number; revision: number }> }).shifts.find((shift) => shift.templateId === id)!;
+
+    const before = await find();
+    const updated = await request(`/hr/shift-templates/${id}`, "PATCH", { scopeId: "scope", name: "早午班", startTime: "10:00", endTime: "15:00", revision: before.revision });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect(await find()).toMatchObject({ name: "早午班", startSecond: 10 * 3600, endSecond: 15 * 3600, revision: before.revision + 1 });
+
+    // 兩個人同時開著視窗：後按儲存的人手上是舊版本，不能把前一個人的修改蓋掉。
+    const stale = await request(`/hr/shift-templates/${id}`, "PATCH", { scopeId: "scope", name: "被蓋掉", startTime: "08:00", endTime: "12:00", revision: before.revision });
+    expect(stale.status).toBe(409);
+    expect(await find()).toMatchObject({ name: "早午班", startSecond: 10 * 3600 });
+
+    expect((await request(`/hr/shift-templates/${id}`, "PATCH", { scopeId: "scope", name: "早午班", startTime: "15:00", endTime: "10:00", revision: before.revision + 1 })).status).toBe(400);
+
+    // 同一個班別掛在兩家店時，改一家會連另一家一起改；寧可擋下來。
+    await db.insert(scopes).values({ id: "scope-2", sourceType: "manual", scopeKind: "store", name: "第二家店", normalizedName: "第二家店" });
+    await db.insert(hrScopeShiftAssignments).values({ scopeId: "scope-2", shiftTemplateId: id, createdBy: "admin" });
+    const shared = await request(`/hr/shift-templates/${id}`, "PATCH", { scopeId: "scope", name: "改不了", startTime: "10:00", endTime: "15:00", revision: before.revision + 1 });
+    expect(shared.status).toBe(409);
+    expect(await shared.text()).toContain("同時用在多家店");
+  });
+
   it("跨午夜排班在隔日仍可完成下班打卡，日曆不重複報異常", async () => {
     const today = taipeiToday();
     const previous = new Date(`${today}T00:00:00Z`);
