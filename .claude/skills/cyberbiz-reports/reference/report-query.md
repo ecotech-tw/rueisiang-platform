@@ -12,14 +12,16 @@
 
 ```text
 GET /api/reports/cyberbiz/sales?period=2026-07&scopeType=store&scopeName=誠品西門店3F
+GET /api/reports/cyberbiz/sales?period=2026-08&scopeType=channel&scopeName=官網&groupBy=month,sku
 GET /api/reports/cyberbiz/sales?period=2026&scopeType=company&category=沐浴
 GET /api/reports/cyberbiz/payout?startDate=2026-07-01&endDate=2026-07-31&scopeType=company
 ```
 
 `period` 支援 `YYYY` 與 `YYYY-MM`。自訂日期區間可改用同時存在的
 `startDate=YYYY-MM-DD`、`endDate=YYYY-MM-DD`；商品銷售的自訂區間必須涵蓋完整月份，部分月份會回傳
-`UNSUPPORTED_GRANULARITY`。查詢單一據點時使用者只要提供 `scopeName`，服務端會以
-`report_scopes.normalized_name` 對應固定 `scopeId`。
+`UNSUPPORTED_GRANULARITY`。`scopeType` 可用 `company`、`store` 或 `channel`：蝦皮是
+`store`，CYBERBIZ 官網是 `channel`。查詢單一 scope 時使用者只要提供 `scopeName`，服務端會以
+`report_scopes.normalized_name` 與 scope kind 對應固定 `scopeId`，不會把官網當成公司總表。
 
 商品銷售可再傳：
 
@@ -39,6 +41,7 @@ GET /api/reports/cyberbiz/payout?startDate=2026-07-01&endDate=2026-07-31&scopeTy
 | id | scope_kind | name | normalized_name | active |
 | --- | --- | --- | --- | ---: |
 | `cyberbiz:store:...` | `store` | 誠品西門店 3F | 誠品西門店3f | 1 |
+| `cyberbiz:channel:...` | `channel` | 官網 | 官網 | 1 |
 | `company` | `company` | 公司整體 | 公司整體 | 1 |
 
 ### `report_sales_monthly`
@@ -75,8 +78,9 @@ GET /api/reports/cyberbiz/payout?startDate=2026-07-01&endDate=2026-07-31&scopeTy
 
 ## 聚合規則
 
-不建立月、年或公司 aggregate 檔案。公司查詢會在 D1 直接聚合所有 `active=1` 且屬於 CYBERBIZ 的 store scope；
-月份與年份只是 `report_month` 的範圍條件：
+不建立月、年或公司 aggregate 檔案。公司查詢會在 D1 直接聚合所有非 `company` 的 report scope，包含
+CYBERBIZ store、蝦皮 store 與官網 channel；歷史查詢也不會因 scope 停用而排除資料。單一 scope 則由
+`scopeType` 限定 kind 後再解析名稱。月份與年份只是 `report_month` 的範圍條件：
 
 ```sql
 SELECT report_month,
@@ -91,8 +95,10 @@ GROUP BY report_month;
 
 ## AI tools
 
-- `query_sales_report`：商品數量、銷售額、SKU、分類、據點與公司聚合；銷售分組不支援 `day`。
-- `query_payout_report`：據點與公司每日／月份／年份出金聚合。
+- `list_report_scopes`：列出啟用的 `store`／`channel` scope，每筆包含 `scopeId`、`scopeName` 與 `scopeType`；查詢蝦皮或官網時沿用同一筆的 scopeType。例如：
+  `{"status":"ok","scopes":[{"scopeId":"shopee:store:default","scopeName":"蝦皮","scopeType":"store"},{"scopeId":"cyberbiz:channel:shop","scopeName":"官網","scopeType":"channel"}]}`。
+- `query_sales_report`：商品數量、銷售額、SKU、分類、單一 store、單一 channel 與公司聚合；銷售分組不支援 `day`。
+- `query_payout_report`：單一 store、單一 channel 與公司每日／月份／年份出金聚合。
 
 兩個 tool 都要求 `reports:cyberbiz:read`。沒有資料時回傳 `status=NO_DATA_FOR_RANGE` 與
 `nextStep.type=open_backend_report_runner`；不支援部分月份時回傳 `UNSUPPORTED_GRANULARITY`。

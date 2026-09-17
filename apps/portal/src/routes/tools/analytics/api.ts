@@ -3,6 +3,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 interface ReportScopeOption {
   id: string;
   name: string;
+  scopeType: "store" | "channel";
   latestSalesPeriod: string | null;
 }
 
@@ -126,7 +127,7 @@ export interface SalesSummary {
 }
 
 export interface AnalyticsQuery {
-  scopeType: "company" | "store";
+  scopeType: "company" | "store" | "channel";
   scopeId?: string;
   period?: string;
   startDate?: string;

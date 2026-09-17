@@ -14,6 +14,7 @@ import {
   type ReportRange,
   type ReportSalesSummary,
   type ReportSalesQueryResult,
+  type ReportScopeKind,
 } from "@rueisiang/db";
 
 export class CyberbizReportQueryError extends Error {
@@ -58,7 +59,7 @@ function translateScopeError(error: unknown): never {
   throw error;
 }
 
-function noSalesData(range: ReportRange, scopeType: "store" | "company"): ReportSalesQueryResult {
+function noSalesData(range: ReportRange, scopeType: ReportScopeKind): ReportSalesQueryResult {
   return {
     status: "NO_DATA_FOR_RANGE",
     period: range.period,
@@ -71,7 +72,7 @@ function noSalesData(range: ReportRange, scopeType: "store" | "company"): Report
   };
 }
 
-function noPayoutData(range: ReportRange, scopeType: "store" | "company"): ReportPayoutQueryResult {
+function noPayoutData(range: ReportRange, scopeType: ReportScopeKind): ReportPayoutQueryResult {
   return {
     status: "NO_DATA_FOR_RANGE",
     period: range.period,
@@ -87,8 +88,8 @@ function noPayoutData(range: ReportRange, scopeType: "store" | "company"): Repor
 export function createCyberbizReportService(db: Database) {
   return {
     async querySales(input: CyberbizSalesQuery): Promise<ReportSalesQueryResult> {
-      if (input.scopeType === "store" && !input.scopeId && !input.scopeName) {
-        throw new CyberbizReportQueryError(400, "missing_scope_name", "查詢單一櫃位時需要店面名稱。");
+      if (input.scopeType !== "company" && !input.scopeId && !input.scopeName) {
+        throw new CyberbizReportQueryError(400, "missing_scope_name", input.scopeType === "channel" ? "查詢單一通路時需要通路名稱。" : "查詢單一櫃位時需要店面名稱。");
       }
       const range = rangeOf(input);
       const groups = groupByOf(input.groupBy, "sales");
@@ -111,8 +112,8 @@ export function createCyberbizReportService(db: Database) {
       }
     },
     async queryPayout(input: CyberbizPayoutQuery): Promise<ReportPayoutQueryResult> {
-      if (input.scopeType === "store" && !input.scopeId && !input.scopeName) {
-        throw new CyberbizReportQueryError(400, "missing_scope_name", "查詢單一櫃位時需要店面名稱。");
+      if (input.scopeType !== "company" && !input.scopeId && !input.scopeName) {
+        throw new CyberbizReportQueryError(400, "missing_scope_name", input.scopeType === "channel" ? "查詢單一通路時需要通路名稱。" : "查詢單一櫃位時需要店面名稱。");
       }
       const range = rangeOf(input);
       const groups = groupByOf(input.groupBy, "payout");
@@ -130,8 +131,8 @@ export function createCyberbizReportService(db: Database) {
       }
     },
     async queryPayoutSummary(input: CyberbizPayoutQuery): Promise<ReportPayoutSummary> {
-      if (input.scopeType === "store" && !input.scopeId && !input.scopeName) {
-        throw new CyberbizReportQueryError(400, "missing_scope_name", "查詢單一櫃位時需要店面名稱。");
+      if (input.scopeType !== "company" && !input.scopeId && !input.scopeName) {
+        throw new CyberbizReportQueryError(400, "missing_scope_name", input.scopeType === "channel" ? "查詢單一通路時需要通路名稱。" : "查詢單一櫃位時需要店面名稱。");
       }
       const range = rangeOf(input);
       try {
@@ -146,8 +147,8 @@ export function createCyberbizReportService(db: Database) {
       }
     },
     async querySalesSummary(input: CyberbizSalesQuery): Promise<ReportSalesSummary> {
-      if (input.scopeType === "store" && !input.scopeId && !input.scopeName) {
-        throw new CyberbizReportQueryError(400, "missing_scope_name", "查詢單一櫃位時需要店面名稱。");
+      if (input.scopeType !== "company" && !input.scopeId && !input.scopeName) {
+        throw new CyberbizReportQueryError(400, "missing_scope_name", input.scopeType === "channel" ? "查詢單一通路時需要通路名稱。" : "查詢單一櫃位時需要店面名稱。");
       }
       const range = rangeOf(input);
       try {

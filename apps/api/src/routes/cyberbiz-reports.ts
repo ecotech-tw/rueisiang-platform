@@ -131,13 +131,15 @@ function topSkuBy(c: { req: { query(name: string): string | undefined } }): "sal
 
 function commonQuery(c: { req: { query(name: string): string | undefined } }) {
   const scopeType = queryValue(c, "scopeType") ?? "company";
-  if (scopeType !== "company" && scopeType !== "store") {
-    throw new HTTPException(400, { message: "scopeType 必須是 company 或 store。" });
+  if (scopeType !== "company" && scopeType !== "store" && scopeType !== "channel") {
+    throw new HTTPException(400, { message: "scopeType 必須是 company、store 或 channel。" });
   }
   const scopeId = queryValue(c, "scopeId");
   const scopeName = queryValue(c, "scopeName");
   const groups = groupBy(c);
-  if (scopeType === "store" && !scopeId && !scopeName) throw new HTTPException(400, { message: "查詢單一櫃位時需要店面名稱。" });
+  if (scopeType !== "company" && !scopeId && !scopeName) {
+    throw new HTTPException(400, { message: scopeType === "channel" ? "查詢單一通路時需要通路名稱。" : "查詢單一櫃位時需要店面名稱。" });
+  }
   return {
     period: queryValue(c, "period"),
     startDate: queryValue(c, "startDate"),
@@ -595,7 +597,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export const cyberbizReports = new Hono<AppEnv>()
   .use("*", requireAuth)
   .get("/scopes", requirePermission("reports:analytics:read"), async (c) => {
-    const result = await cachedReportAnalytics(cacheClient(c.env), "scopes", async () => {
+    const result = await cachedReportAnalytics(cacheClient(c.env), "scopes:v2", async () => {
       // 含停用：統計看的是歷史，一家店收掉之後它過去的數字仍然要篩得出來。
       const reportScopes = await listAllReportScopes(c.get("db"));
       const scopes = canonicalReportStoreScopes(reportScopes);
@@ -605,6 +607,7 @@ export const cyberbizReports = new Hono<AppEnv>()
         scopes: scopes.map((scope) => ({
           id: scope.id,
           name: scope.name,
+          scopeType: scope.scopeKind,
           latestSalesPeriod: latest.byScope[scope.id] ?? null,
         })),
       };

@@ -14,10 +14,11 @@ import { itemCategories, items as itemMasters } from "./schema/items.js";
 import { dataChannelFromScopeId, shopeeBaseExternalSku } from "./product-sku-mappings.js";
 
 /**
- * 查詢的維度：一個通路，還是全公司。**不是** scopes.scope_kind——那一欄是這個
- * 通路本身是什麼（store／channel／company），兩者剛好有兩個同名的值而已。
+ * 查詢的範圍：單一 store、官網等 channel，或全公司彙總。
+ * 這會對應到 `scopes.scope_kind`，但 company 是服務端的跨 scope 彙總，不是
+ * 一筆應該被直接選取的報表資料。
  */
-export type ReportScopeKind = "store" | "company";
+export type ReportScopeKind = ScopeKind;
 export type ReportManualSkuSource = "custom" | "cyberbiz";
 export interface ReportScope {
   id: string;
@@ -156,11 +157,8 @@ export interface ReportRange {
 
 export interface ReportScopeInput {
   id: string;
-  /**
-   * 這個欄位直接寫進 `scopes.scope_kind`，所以型別是 `ScopeKind`（含 channel），
-   * 不是上面那個查詢維度的 `ReportScopeKind`。官網就是 channel。
-   */
-  scopeKind: ScopeKind;
+  /** 直接寫進 `scopes.scope_kind`；CYBERBIZ 官網使用 channel。 */
+  scopeKind: ReportScopeKind;
   name: string;
   active?: boolean;
   /** 自動匯入可指定通路，避免不同通路的同名據點互相衝突。 */
@@ -224,7 +222,7 @@ export class ReportScopeAmbiguousError extends Error {
   readonly code = "ambiguous_report_scope";
 
   constructor(scopeKind: ReportScopeKind, name: string) {
-    super(`報表 ${scopeKind} scope 名稱「${name}」對應到多個啟用中的據點，請改用 scopeId。`);
+    super(`報表 ${scopeKind} scope 名稱「${name}」對應到多個 scope，請改用 scopeId。`);
     this.name = "ReportScopeAmbiguousError";
   }
 }
@@ -328,7 +326,7 @@ export function canonicalReportStoreScopes(scopes: readonly ReportScope[]): Repo
   const canonical = new Map<string, ReportScope>();
   for (const scope of scopes) {
     if (scope.scopeKind === "company") continue;
-    const key = `${dataChannelFromScopeId(scope.id)}:${scope.normalizedName || scope.name}`;
+    const key = `${dataChannelFromScopeId(scope.id)}:${scope.scopeKind}:${scope.normalizedName || scope.name}`;
     const current = canonical.get(key);
     if (
       !current
@@ -350,9 +348,10 @@ export function canonicalReportStoreScopes(scopes: readonly ReportScope[]): Repo
  * 新增店別下一個請求就要看得到。
  */
 export interface ReportScopeDirectory {
+  /** 一次請求內可查詢的歷史 scope；排除 company 彙總容器。 */
   stores(): Promise<ReportScope[]>;
-  /** 指定店別時走這裡；同一組條件在一次請求內只查一次。 */
-  store(lookup: { id?: string; name?: string }): Promise<ReportScope | null>;
+  /** 指定 store 或 channel 時走這裡；同一組條件在一次請求內只查一次。 */
+  store(lookup: { id?: string; name?: string }, scopeKind?: Exclude<ReportScopeKind, "company">): Promise<ReportScope | null>;
 }
 
 export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
@@ -360,7 +359,7 @@ export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
 
   function stores(): Promise<ReportScope[]> {
     // 失敗的 promise 不能留下來，不然同一次請求後續的呼叫拿到的都是同一個錯誤，連重試都沒有。
-    return (all ??= listAllReportScopes(db).catch((error) => {
+    return (all ??= listAllReportScopes(db).then((scopes) => scopes.filter((scope) => scope.scopeKind !== "company")).catch((error) => {
       all = undefined;
       throw error;
     }));
@@ -369,17 +368,17 @@ export function createReportScopeDirectory(db: Database): ReportScopeDirectory {
   return {
     stores,
     /*
-     * 從同一份名冊推導，不另外查一次。名冊沒有任何篩選，所以跟 findReportScope
-     * 的 id 分支完全等價，name 分支也只是比對 normalizedName
-     * 再加上「超過一筆就是同名」，所以指定店別的下限是一次查詢而不是兩次。
+     * 從同一份名冊推導，不另外查一次。名冊沒有任何 active 篩選，所以歷史查詢
+     * 不會因停用而失效；id 分支也會檢查 kind，避免把 channel 當成 store。
+     * name 分支比對 normalizedName，再加上「超過一筆就是同名」。
      */
-    async store(lookup) {
-      const scopes = await stores();
+    async store(lookup, scopeKind = "store") {
+      const scopes = (await stores()).filter((scope) => scope.scopeKind === scopeKind);
       if (lookup.id) return scopes.find((scope) => scope.id === lookup.id) ?? null;
       if (!lookup.name) return null;
       const normalized = normalizeReportScopeName(lookup.name);
       const matched = scopes.filter((scope) => scope.normalizedName === normalized);
-      if (matched.length > 1) throw new ReportScopeAmbiguousError("store", lookup.name);
+      if (matched.length > 1) throw new ReportScopeAmbiguousError(scopeKind, lookup.name);
       return matched[0] ?? null;
     },
   };
@@ -968,12 +967,12 @@ export async function scopeIdsForQuery(
   query: { scopeType: ReportScopeKind; scopeId?: string; scopeName?: string },
   directory: ReportScopeDirectory = createReportScopeDirectory(db),
 ): Promise<{ ids: string[]; scope?: ReportScope }> {
-  if (query.scopeType === "store") {
-    const scope = await directory.store({ id: query.scopeId, name: query.scopeName });
+  if (query.scopeType !== "company") {
+    const scope = await directory.store({ id: query.scopeId, name: query.scopeName }, query.scopeType);
     if (!scope) return { ids: [] };
     // 同一店別可能同時有 CYBERBIZ 與 payout 的 scope ID；查單店時兩邊資料要一起算。
-    // 同名才合併，而且限定同一個 source：這裡要處理的是「同一家店在 migration
-    // 期間留下 CYBERBIZ 與 payout 兩個 ID」，不是把同名的蝦皮賣場也算進實體店。
+    // 同名才合併，而且限定同一個 source 與 scope kind：這裡要處理的是「同一家店
+    // 在 migration 期間留下兩個 ID」，不是把同名的蝦皮賣場或官網混進來。
     const aliases = (await directory.stores())
       .filter((candidate) => candidate.sourceType === scope.sourceType
         && candidate.scopeKind === scope.scopeKind

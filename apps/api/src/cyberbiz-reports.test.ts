@@ -79,6 +79,25 @@ describe("報表月資料查詢", () => {
     expect(result.totals).toEqual({ grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 380 });
   });
 
+  it("可以用 channel scope 名稱分開查官網銷售與出金，不會落到 store 或 company", async () => {
+    const website = "cyberbiz:channel:shop";
+    await upsertReportScope(db(), { id: website, scopeKind: "channel", name: "官網" });
+    await insertReportSalesMonthly(db(), [{
+      scopeId: website, reportMonth: "2026-07", sku: "SKU-WEB", productName: "官網商品", category: "沐浴",
+      grossQuantity: 8, returnQuantity: 2, netQuantity: 6, salesAmount: 720,
+    }]);
+    await insertReportPayoutDaily(db(), [{ scopeId: website, businessDate: "2026-07-01", payoutAmount: 900 }]);
+
+    const service = createCyberbizReportService(db());
+    const sales = await service.querySales({ period: "2026-07", scopeType: "channel", scopeName: "官網", groupBy: ["month", "sku"] });
+    expect(sales).toMatchObject({ status: "ok", scopeType: "channel", scopeId: website, scopeName: "官網" });
+    expect(sales.totals).toEqual({ grossQuantity: 8, returnQuantity: 2, netQuantity: 6, salesAmount: 720 });
+
+    const payout = await service.queryPayout({ period: "2026-07", scopeType: "channel", scopeName: "官網" });
+    expect(payout).toMatchObject({ status: "ok", scopeType: "channel", scopeId: website, scopeName: "官網" });
+    expect(payout.totals).toEqual({ payoutAmount: 900 });
+  });
+
   // 公司總額不看 ID 長什麼樣：每個通路都會有自己的銷售與金額，只是顆粒度不同。
   it("公司查詢會把每一個通路一起加總，不論 ID 格式", async () => {
     const shopeeScope = "shopee:store:mall";

@@ -264,9 +264,9 @@ describe("報表統計 API", () => {
     expect(await scopes.json()).toEqual({
       latestSalesPeriod: "2026-08",
       scopes: [
-        { id: "cyberbiz:store:disabled", name: "停用店", latestSalesPeriod: null },
-        { id: "cyberbiz:store:active", name: "啟用店", latestSalesPeriod: "2026-08" },
-        { id: "shopee:store:default", name: "蝦皮", latestSalesPeriod: "2026-08" },
+        { id: "cyberbiz:store:disabled", name: "停用店", scopeType: "store", latestSalesPeriod: null },
+        { id: "cyberbiz:store:active", name: "啟用店", scopeType: "store", latestSalesPeriod: "2026-08" },
+        { id: "shopee:store:default", name: "蝦皮", scopeType: "store", latestSalesPeriod: "2026-08" },
       ],
     });
 
@@ -277,6 +277,31 @@ describe("報表統計 API", () => {
       current: { total: 2040 },
       breakdown: [{ scopeId: "cyberbiz:store:active", value: 2040, channel: "cyberbiz" }],
     });
+  });
+
+  it("HTTP API 可以用 channel scope 查官網，而不是把它當成 company", async () => {
+    const admin = await seedUser("admin-channel@ecotech.tw", "role-admin");
+    const website = "cyberbiz:channel:shop";
+    await upsertReportScope(db(), { id: website, scopeKind: "channel", name: "官網" });
+    await insertReportSalesMonthly(db(), [{
+      scopeId: website, reportMonth: "2026-08", sku: "WEB-001", productName: "官網商品", grossQuantity: 5, returnQuantity: 1, netQuantity: 4, salesAmount: 500,
+    }]);
+    await insertReportPayoutDaily(db(), [{ scopeId: website, businessDate: "2026-08-01", payoutAmount: 600 }]);
+
+    const scopeList = await call("/api/reports/cyberbiz/scopes", admin, "admin-channel@ecotech.tw");
+    expect(scopeList.status).toBe(200);
+    expect(await scopeList.json()).toMatchObject({
+      scopes: expect.arrayContaining([{ id: website, name: "官網", scopeType: "channel", latestSalesPeriod: "2026-08" }]),
+    });
+
+    const encodedWebsite = encodeURIComponent("官網");
+    const sales = await call(`/api/reports/cyberbiz/sales?period=2026-08&scopeType=channel&scopeName=${encodedWebsite}&groupBy=month%2Csku`, admin, "admin-channel@ecotech.tw");
+    expect(sales.status).toBe(200);
+    expect(await sales.json()).toMatchObject({ status: "ok", scopeType: "channel", scopeId: website, totals: { netQuantity: 4, salesAmount: 500 } });
+
+    const payout = await call(`/api/reports/cyberbiz/payout?period=2026-08&scopeType=channel&scopeName=${encodedWebsite}`, admin, "admin-channel@ecotech.tw");
+    expect(payout.status).toBe(200);
+    expect(await payout.json()).toMatchObject({ status: "ok", scopeType: "channel", scopeId: website, totals: { payoutAmount: 600 } });
   });
 
   it("商品 summary 的非整月查詢回傳明確狀態，且可拒絕未知 Top SKU 排序", async () => {
