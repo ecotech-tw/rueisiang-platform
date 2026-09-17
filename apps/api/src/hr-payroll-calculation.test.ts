@@ -127,10 +127,12 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { employees: Array<{ employeeUserId: string; lines: Array<{ amountMinor: number; explanation: Record<string, unknown> }> }>; warnings: string[] } };
     const share = (userId: string) => body.run.employees.find((employee) => employee.employeeUserId === userId)?.lines.find((line) => line.explanation.policyName === "權重分配");
-    // 池 = (747,665 − 300,000) × 1.5% = 6,714.975，四捨五入到 6,715 元；權重 2 拿一半。
-    expect(share("dev-wang@ecotech.tw")).toMatchObject({ amountMinor: 335_750, explanation: expect.objectContaining({ poolAmountMinor: 671_500, weightUnits: 2, weightedTotal: 4, scheduledDays: null }) });
+    // (747,665 − 300,000) × 1.5% ÷ 4 × 2 = 3,357.4875，每個人最後才四捨五入到元 → 3,357。
+    // 先把池捨入成 6,715 再分會變成 3,357.50，那是舊的錯誤算法。
+    expect(share("dev-wang@ecotech.tw")).toMatchObject({ amountMinor: 335_700, explanation: expect.objectContaining({ poolAmountMinor: 671_500, weightUnits: 2, weightedTotal: 4, scheduledDays: null }) });
     // 林瑞翔是一般制，7 月一天班都沒排，照樣按權重 1 分到四分之一；陳不在這批也要算進分母。
-    expect(share("dev-eli-lin@ecotech.tw")).toMatchObject({ amountMinor: 167_875 });
+    // 1,678.74375 → 1,679。
+    expect(share("dev-eli-lin@ecotech.tw")).toMatchObject({ amountMinor: 167_900 });
     expect(body.run.warnings.some((warning) => warning.includes("權重分配") && warning.includes("沒有涵蓋通路的已發布排班"))).toBe(false);
   });
 

@@ -48,6 +48,8 @@ import { scopes } from "./schema/reports.js";
 const PPM = 1_000_000;
 /** 獎金規則明定以新臺幣元四捨五入，金額本身以分保存，所以先除 100 再乘回去。 */
 function roundToDollar(rawMinor: number) { return Math.max(0, Math.round(rawMinor / 100) * 100); }
+/** 非負整數除法四捨五入（.5 進位）。 */
+function roundHalfUpDiv(numerator: bigint, denominator: bigint) { return (numerator * 2n + denominator) / (denominator * 2n); }
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
 
@@ -428,22 +430,26 @@ function calculateAssignedBonus(
   // 團體績效：政策的店在來源月份的每一天都算，跟誰有沒有排班無關。
   const eligibleDays = scopeIds.flatMap((scopeId) => dateRange(sourcePeriod.start, sourcePeriod.end).map((date) => dayKey(scopeId, date)));
   const revenueMinor = eligibleDays.reduce((sum, key) => sum + (payouts.get(key) ?? 0), 0);
-  const poolAmountMinor = roundToDollar(Math.max(0, revenueMinor - version.guaranteeMinor) * version.ratePpm / PPM);
+  const netRevenueMinor = Math.max(0, revenueMinor - version.guaranteeMinor);
+  // 池只是給人核對的顯示值；每個人的金額不從這個四捨五入過的數字分，而是從精確的池分。
+  const poolAmountMinor = roundToDollar(netRevenueMinor * version.ratePpm / PPM);
   const weightedTotal = policyMembers.reduce((sum, item) => sum + item.weightUnits, 0);
   const own = policyMembers.find((item) => item.employmentId === assignment.member.employmentId);
   /*
-   * 餘數給權重最高的那一位，不是隨便挑第一個：Math.floor 之後全體加起來會比池少幾分，
-   * 那幾分必須有歸屬，否則池金額與實際發出去的錢對不起來。
+   * 業主定的規則是「每個人的獎金四捨五入到元」：精確池 × 本人權重 ÷ 全體權重，最後才捨入一次。
+   * 先把池捨入再分，會分出 3,357.50 這種帶角的金額，而且跟手算的 3,357.4875 對不起來。
+   * 各自捨入後加總可能跟池差一兩元，這是接受的結果，不再把尾差塞給某一個人。
+   * 用 BigInt 做整數運算：出金（分）× 比例（ppm）× 權重會超過 2^53，浮點數在 .5 邊界會捨錯方向。
    */
-  const top = [...policyMembers].sort((a, b) => b.weightUnits - a.weightUnits || a.employmentId.localeCompare(b.employmentId))[0];
-  const shareMinor = weightedTotal && own ? Math.floor(poolAmountMinor * own.weightUnits / weightedTotal) : 0;
-  const remainder = weightedTotal ? poolAmountMinor - policyMembers.reduce((sum, item) => sum + Math.floor(poolAmountMinor * item.weightUnits / weightedTotal), 0) : 0;
+  const amountMinor = weightedTotal && own
+    ? Number(roundHalfUpDiv(BigInt(netRevenueMinor) * BigInt(version.ratePpm) * BigInt(own.weightUnits), BigInt(PPM) * BigInt(weightedTotal) * 100n)) * 100
+    : 0;
   return {
-    amountMinor: shareMinor + (top && own && top.employmentId === own.employmentId ? remainder : 0),
+    amountMinor,
     poolAmountMinor, revenueMinor, scheduledDays: null, weightedTotal,
     // 多店時同一天可能好幾家店都缺；提醒只需要日期。
     missingPayoutDates: [...new Set(eligibleDays.filter((key) => !payouts.has(key)).map(dateOfKey))].sort(),
-    formula: "max(0, 期間出金 - 保底) × 比例 × 本人權重 ÷ 全體權重",
+    formula: "max(0, 期間出金 - 保底) × 比例 × 本人權重 ÷ 全體權重，四捨五入到元",
   };
 }
 
