@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, listActivity, syncSystemRoles, taipeiWallClockToUtc } from "@rueisiang/db";
-import { hrAttendanceLocations, hrClockEvents, hrScheduleEntries, hrScopeShiftAssignments, hrShiftTemplates, hrShiftVersions, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { activityEvents, hrAttendanceLocations, hrClockEvents, hrScheduleEntries, hrScopeShiftAssignments, hrShiftTemplates, hrShiftVersions, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -394,6 +394,9 @@ describe("HR 員工基礎", () => {
     expect(snapshot[0]).toMatchObject({ startsAt: `${month}-11 13:00:00`, endsAt: `${month}-11 22:00:00`, standardMinutes: 480, breakMinutes: 60 });
     const changedShift = await request(`/hr/shift-templates/${shiftBody.id}`, "PATCH", { scopeId: "scope", name: "假日晚班更新", startTime: "14:00", endTime: "22:00", standardMinutes: 420, breakMinutes: 60, revision: 1 });
     expect(changedShift.status, await changedShift.clone().text()).toBe(200);
+    // 計薪工時與休息時間會改變薪資，稽核紀錄要看得出改成多少。
+    const [shiftAudit] = await db.select({ payloadJson: activityEvents.payloadJson }).from(activityEvents).where(eq(activityEvents.eventType, "shift_updated"));
+    expect(JSON.parse(shiftAudit?.payloadJson ?? "{}")).toMatchObject({ name: "假日晚班更新", standardMinutes: 420, breakMinutes: 60 });
     const unchangedSnapshot = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes }).from(hrScheduleEntries).where(eq(hrScheduleEntries.employmentId, job)).limit(1);
     expect(unchangedSnapshot[0]).toMatchObject({ startsAt: `${month}-11 13:00:00`, endsAt: `${month}-11 22:00:00`, standardMinutes: 480, breakMinutes: 60 });
     const invalidSchedule = await request("/hr/schedules", "POST", { periodKey: month, scheduleVersionId: publishedVersion.id, revision: publishedVersion.revision, entries: Array.from({ length: lastDay }, (_, index) => ({ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: `${month}-${String(index + 1).padStart(2, "0")}` })) });
