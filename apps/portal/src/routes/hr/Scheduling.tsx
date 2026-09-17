@@ -171,13 +171,22 @@ export function HrScheduling() {
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
     <Panel className="grows">
       <div className="hr-calendar weekdays">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <strong key={day}>{day}</strong>)}</div>
-      <div className="hr-calendar">
+      <div className={`hr-calendar${quick ? " quick" : ""}`}>
         {Array.from({ length: weekday(month) }, (_, index) => <div className="hr-calendar-cell empty" key={`empty-${index}`} />)}
-        {dates.map((day, index) => <div className={`hr-calendar-cell${quick && quickPicked(day) ? " picked" : ""}`} key={day}>
+        {dates.map((day, index) => <div
+          className={`hr-calendar-cell${quick && quickPicked(day) ? " picked" : ""}`}
+          key={day}
+          /*
+           * 整格可點，但格子本身不是 <button>：裡面已經有每筆排班的「×」與日期鍵，
+           * 巢狀按鈕在鍵盤與讀螢幕上都是壞的。改成點空白處才 toggle，按鈕留給自己的動作，
+           * 鍵盤仍然走日期鍵那顆真的 button。
+           */
+          onClick={quick ? (event) => { if (!(event.target as HTMLElement).closest("button")) toggleQuickDay(day); } : undefined}
+        >
           <div className="hr-calendar-date">{quick
             ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!quick.shiftVersionId || !quick.personId} onClick={() => toggleQuickDay(day)}><span>{index + 1}</span><Icon name={quickPicked(day) ? "check" : "plus"} /></button>
             : <><strong>{index + 1}</strong>{canEdit ? <button type="button" onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
-          <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}`} key={entry.id}><span>{entry.personName}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
+          <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${quick && samePick(entry, quick) ? " current" : ""}`} key={entry.id}><span>{entry.personName}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
         </div>)}
       </div>
     </Panel>
