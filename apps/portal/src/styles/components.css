@@ -489,11 +489,12 @@
 .hr-weekly-schedule-row .field { margin: 0; }
 .hr-weekly-schedule-row .field > span:first-child { font-size: 0.75rem; }
 @media (max-width: 900px) { .hr-weekly-schedule-row { grid-template-columns: 1fr 1fr; } }
+.modal-body.hr-location-dialog-body { display: flex; flex-direction: column; }
 .hr-location-map-search { display: flex; align-items: end; gap: 10px; min-width: 0; }
 .hr-location-map-search .field { min-width: 0; flex: 1 1 auto; }
 .hr-location-map-search > .ghost-button { flex: 0 0 auto; min-height: var(--size-field); }
 .hr-location-map-link { color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
-.hr-location-place-results { display: grid; gap: 6px; max-height: 240px; overflow-y: auto; }
+.hr-location-place-results { display: grid; flex: 0 0 auto; gap: 6px; max-height: 240px; overflow-y: auto; }
 .hr-location-place-result { display: grid; gap: 3px; width: 100%; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; }
 .hr-location-place-result:hover { background: --alpha(var(--color-brand) / 7%); }
 .hr-location-place-result:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }

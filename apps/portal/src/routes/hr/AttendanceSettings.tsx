@@ -126,6 +126,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       title={editing ? "編輯辦公位置" : "新增辦公位置"}
       onClose={onClose}
       closeDisabled={save.isPending || saveSchedule.isPending}
+      bodyClassName="hr-location-dialog-body"
       formProps={{ onSubmit: submit }}
       actions={<Button type="submit" loading={save.isPending || saveSchedule.isPending}>儲存</Button>}
     >
