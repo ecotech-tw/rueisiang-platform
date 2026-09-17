@@ -128,6 +128,7 @@ export {
   type StoredMediaAttachment,
 } from "./assistant.js";
 export * as schema from "./schema/index.js";
+export { listItems, type ListItemsQuery, type ListItemsRow } from "./items-catalog.js";
 export {
   addProductSkuMapping,
   addReportSkuIgnore,

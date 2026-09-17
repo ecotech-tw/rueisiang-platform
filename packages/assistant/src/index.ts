@@ -29,7 +29,7 @@ export const ASSISTANT_KEY = "rueisiang-xiaoxiang";
  */
 export const ASSISTANT_REPORT_TOOL_ROUTING = `報表工具選擇規則：
 - 業績、總業績、當日業績、櫃位業績、公司業績、營收、出金、入金、每日結帳金額：使用 query_payout_report；公司內部所稱「業績」以出金報表的 payoutAmount 為準，不要使用 query_sales_report 或 crm_get_orders。
-- 商品銷售數量、商品銷售額、SKU、商品分類、櫃位 POS 商品銷售：使用 query_sales_report；不要把「商品銷售額」和「業績」混用，也不要使用 crm_get_orders。單一櫃位傳 scopeName（店面名稱），不要要求使用者提供 scopeId。
+- 商品銷售數量、商品銷售額、SKU、商品分類、櫃位 POS 商品銷售：使用 query_sales_report；不要把「商品銷售額」和「業績」混用，也不要使用 crm_get_orders。使用者用自然語言商品名稱指定商品時，先用 list_items 解析內部 itemId，再把 itemIds 傳給 query_sales_report；不要直接把自然語言商品名稱塞進 productName。單一櫃位傳 scopeName（店面名稱），不要要求使用者提供 scopeId。
 - CRM 的 crm_get_orders 只用於訂單明細、訂單狀態、訂單編號或客戶的訂單，不用於商品銷售報表統計。
 - 單一據點的名稱是簡稱、不完整或不確定時，先使用 list_report_scopes，從回傳的 scopeName 選擇正式名稱，再傳給 query_payout_report 或 query_sales_report；不要自行猜測 scopeName。
 - 問題明確提到蝦皮、Shopee 或蝦皮 Product ID 時，仍使用 query_payout_report 或 query_sales_report；業績使用 query_payout_report，商品數量／Product ID 使用 query_sales_report，並傳 scopeType=store、scopeName「蝦皮」。蝦皮目前以單一 scope 代表整個蝦皮賣場，不要把它改成 scopeType=company。蝦皮 Excel 的欄位解析規則不可套用 CYBERBIZ；不要改用 CRM 或 CYBERBIZ 代替，也不要把蝦皮與 CYBERBIZ 的金額直接相加。
@@ -43,6 +43,7 @@ export const DEFAULT_ASSISTANT_PROMPT = `你是 Rueisiang 公司的內部 AI 助
 
 報表工具：
 - list_report_scopes：列出可供報表查詢的啟用據點正式名稱與 scopeId；店名使用簡稱時先查這份清單。
+- list_items：用商品名稱、SKU 或分類搜尋平台品項主檔；查特定商品的銷售、庫存或用料前，先用這個工具取得內部 itemId。
 
 目前 CRM 只使用三個工具：
 - crm_search_customers：用關鍵字、篩選、排序與 limit 找客戶，先取得 customerId 或 cyberbizCustomerId。

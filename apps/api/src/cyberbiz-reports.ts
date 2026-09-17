@@ -99,6 +99,7 @@ export function createCyberbizReportService(db: Database) {
           ...(input.scopeId ? { scopeId: input.scopeId } : {}),
           ...(input.scopeName ? { scopeName: input.scopeName } : {}),
           ...(groups ? { groupBy: groups } : {}),
+          ...(input.itemIds ? { itemIds: input.itemIds } : {}),
           ...(input.sku ? { sku: input.sku } : {}),
           ...(input.category ? { category: input.category } : {}),
           ...(input.productName ? { productName: input.productName } : {}),

@@ -160,6 +160,7 @@ export interface ReportSalesQuery {
   scopeId?: string;
   scopeName?: string;
   groupBy?: ReportGroupBy[];
+  itemIds?: string[];
   sku?: string;
   category?: string;
   productName?: string;
@@ -375,6 +376,7 @@ const TARGET_EFFECTIVE_SALES_SOURCE = sql`(
   SELECT
     sales.scope_id,
     sales.report_month,
+    item.id AS item_id,
     item.sku,
     item.name AS product_name,
     COALESCE(category.name, '未分類') AS category,
@@ -401,6 +403,7 @@ const TARGET_EFFECTIVE_SALES_SOURCE = sql`(
 const EFFECTIVE_SALES_COLUMNS = {
   scopeId: sql.raw("report_sales_effective.scope_id"),
   reportMonth: sql.raw("report_sales_effective.report_month"),
+  itemId: sql.raw("report_sales_effective.item_id"),
   sku: sql.raw("report_sales_effective.sku"),
   productName: sql.raw("report_sales_effective.product_name"),
   category: sql.raw("report_sales_effective.category"),
@@ -900,6 +903,7 @@ export async function queryReportSales(
   const dimensions = groups.map((group) => SALES_GROUPS[group]);
   const effectiveSalesSource = TARGET_EFFECTIVE_SALES_SOURCE;
   const requestedSku = query.sku?.trim();
+  const requestedItemIds = [...new Set(query.itemIds?.map((id) => id.trim()).filter(Boolean) ?? [])];
   const productQuery = query.productQuery?.trim();
   // 這次查詢涵蓋的通路；未指定通路的歷史 mapping 仍保留相容查詢。
   const aliasChannels = [...new Set(ids.map(dataChannelFromScopeId))];
@@ -927,6 +931,9 @@ export async function queryReportSales(
      * 蝦皮的基礎鍵另外吃 shopeeBaseExternalSku：匯入端允許「商品ID_規格ID」回退到只有
      * 商品 ID 的舊 mapping，查詢端沒有跟上的話同一個值查得到匯入卻查不到報表。
      */
+    ...(requestedItemIds.length ? [requestedItemIds.length === 1
+      ? sql`${EFFECTIVE_SALES_COLUMNS.itemId} = ${requestedItemIds[0]}`
+      : sql`${EFFECTIVE_SALES_COLUMNS.itemId} IN (${sql.join(requestedItemIds.map((id) => sql`${id}`), sql`, `)})`] : []),
     ...(requestedSku ? [sql`(
       lower(${EFFECTIVE_SALES_COLUMNS.sku}) = lower(${requestedSku})
       OR (

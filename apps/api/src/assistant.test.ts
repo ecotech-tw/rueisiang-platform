@@ -401,6 +401,7 @@ describe("只有 LINE 權限的人", () => {
       "crm_get_customer",
       "crm_get_orders",
       "crm_search_customers",
+      "list_items",
       "list_report_scopes",
       "query_payout_report",
       "query_sales_report",
@@ -1090,6 +1091,9 @@ describe("AI 助理 Sandbox", () => {
       found: true,
       item: expect.objectContaining({ sku: "SOAP-001" }),
     });
+    expect(await execute("list_items", { search: "薰衣草", kind: "sellable" })).toMatchObject({
+      items: [expect.objectContaining({ itemId: "tool-item-1", sku: "SOAP-001", inWarehouse: true, quantity: 2 })],
+    });
     expect(await execute("wms_list_low_stock_items")).toMatchObject({
       total: 1,
       items: [expect.objectContaining({ id: "tool-item-1", quantity: 2, minStock: 5 })],
@@ -1115,8 +1119,9 @@ describe("AI 助理 Sandbox", () => {
     expect(JSON.stringify(customer)).not.toContain("inCatalog");
     expect(JSON.stringify(customer)).not.toContain("不應暴露");
 
-    expect(await execute("query_sales_report", { period: "2026-08", scopeType: "store", scopeName: "示範門市" })).toMatchObject({
+    expect(await execute("query_sales_report", { period: "2026-08", scopeType: "store", scopeName: "示範門市", itemIds: "tool-item-1" })).toMatchObject({
       status: "ok",
+      rows: [expect.objectContaining({ sku: "SOAP-001" })],
       totals: expect.objectContaining({ netQuantity: 2, salesAmount: 640 }),
     });
     expect(await execute("query_payout_report", { period: "2026-08", scopeType: "store", scopeName: "示範門市" })).toMatchObject({
