@@ -15,13 +15,13 @@ const EMPLOYEE_TABS = [
 
 const ATTENDANCE_TABS = [
   { label: "出勤紀錄", to: "/hr/attendance-records", permission: "hr:office:read" as const, icon: "calendar" as const, adminOnly: false },
-  { label: "出勤設定", to: "/hr/attendance-settings", permission: "hr:office:read" as const, icon: "tune" as const, adminOnly: false, activePaths: ["/hr/overtime"] },
+  { label: "出勤範圍管理", to: "/hr/attendance-scope", permission: "hr:office:read" as const, icon: "people" as const, adminOnly: false },
+  { label: "據點管理", to: "/hr/attendance-settings", permission: "hr:office:read" as const, icon: "tune" as const, adminOnly: false, activePaths: ["/hr/overtime"] },
   { label: "特殊上班日", to: "/hr/special-workdays", permission: "hr:office:read" as const, icon: "calendar" as const, adminOnly: false },
 ];
 
 const SCHEDULING_TABS = [
   { label: "排班月曆", to: "/hr/scheduling", permission: "hr:schedule:read" as const, icon: "calendar" as const, adminOnly: false },
-  { label: "辦公地點指派", to: "/hr/scheduling/locations", permission: "hr:office:read" as const, icon: "storefront" as const, adminOnly: false },
 ];
 
 const PAYROLL_TABS = [

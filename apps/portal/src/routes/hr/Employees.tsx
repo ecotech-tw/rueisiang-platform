@@ -81,8 +81,8 @@ function CompensationTable({ rows, heading = true }: { rows: CompensationVersion
 function AssignmentTable({ assignments, heading = true }: { assignments: AttendanceAssignment[]; heading?: boolean }) {
   return <>
     {heading ? <h3>辦公位置摘要（唯讀）</h3> : null}
-    <table className="data-table"><thead><tr><th>辦公位置</th><th>主要位置</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
-      {assignments.map((assignment) => <tr key={assignment.id}><td>{assignment.locationName}</td><td>{assignment.isPrimary ? "主要" : "其他"}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}
+    <table className="data-table"><thead><tr><th>辦公位置</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
+      {assignments.map((assignment) => <tr key={assignment.id}><td>{assignment.locationName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}
     </tbody></table>
     {!assignments.length ? <p>尚未指派辦公位置。</p> : null}
   </>;
@@ -186,7 +186,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit }: { employee: Emp
   const activeEmployment = data.employments.find((job) => !job.endedOn);
   const openEditor = (editor: Editor) => { onClose(); onEdit(editor); };
   return <Dialog title={`管理 ${employee.employeeNumber} · ${employee.displayName}`} onClose={onClose} className="hr-employee-management-dialog">
-    <p className="muted">員工內頁只供查看；員工編號、主管、任職與櫃點異動集中在這個管理入口。</p>
+    <p className="muted">員工內頁只供查看；員工編號、主管、任職、櫃點與辦公位置請從員工管理功能維護。</p>
     <div className="hr-management-group">
       <h3>員工資料</h3>
       <div className="flex flex-wrap gap-3">
@@ -204,13 +204,13 @@ function EmployeeManagementDialog({ employee, onClose, onEdit }: { employee: Emp
       {!data.employments.length ? <p className="muted">尚無任職紀錄。</p> : data.employments.map((job) => <div className="hr-management-job" key={job.id}>
         <p><strong>{job.hiredOn}{job.endedOn ? `～${job.endedOn}` : "～目前"}</strong> · {job.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</p>
         <div className="flex flex-wrap gap-3">
-          {!job.endedOn ? <Button variant="secondary" onClick={() => openEditor({ title: "結束任職", path: `/employments/${job.id}/end`, method: "PATCH", initial: { revision: job.revision }, description: "請先在排班管理結束超過離職日期的辦公位置指派，再結束任職。", fields: [{ key: "endedOn", label: "不再任職首日", type: "date" }] })}>結束任職</Button> : null}
+          {!job.endedOn ? <Button variant="secondary" onClick={() => openEditor({ title: "結束任職", path: `/employments/${job.id}/end`, method: "PATCH", initial: { revision: job.revision }, description: "請先在此員工的管理入口結束超過離職日期的辦公位置，再結束任職。", fields: [{ key: "endedOn", label: "不再任職首日", type: "date" }] })}>結束任職</Button> : null}
           {data.assignments.filter((assignment) => assignment.employmentId === job.id && !assignment.validTo).map((assignment) => <Button key={assignment.id} variant="secondary" onClick={() => openEditor({ title: `結束 ${assignment.scopeName} 歸屬`, path: `/assignments/${assignment.id}/end`, method: "PATCH", initial: { revision: assignment.revision }, fields: [{ key: "validTo", label: "迄日（不含）", type: "date" }] })}>結束 {assignment.scopeName} 歸屬</Button>)}
         </div>
       </div>)}
       {scopes.error ? <p className="form-hint">櫃點清單載入失敗：{scopes.error.message}</p> : null}
     </div>
-    <p className="form-hint">辦公位置與出勤方式請到「排班管理／辦公地點指派」；薪資與勞健保請到各自的管理頁。</p>
+    <p className="form-hint">辦公位置與出勤方式請到「出勤／出勤範圍管理」；薪資與勞健保請到各自的管理頁。</p>
   </Dialog>;
 }
 
