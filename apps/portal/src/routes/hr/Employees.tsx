@@ -145,9 +145,9 @@ export function HrProfileDetails({ profile, collapsible = false }: { profile: Pr
     <EmploymentTable employments={profile.employments} />
     <h3>營運櫃點歸屬</h3>
     <table className="data-table"><thead><tr><th>櫃點</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
-      {profile.assignments.map((assignment) => <tr key={assignment.id}><td>{assignment.scopeName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}
+      {(profile.assignments ?? []).map((assignment) => <tr key={assignment.id}><td>{assignment.scopeName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}
     </tbody></table>
-    {!profile.assignments.length ? <p>尚無營運櫃點歸屬。</p> : null}
+    {!profile.assignments?.length ? <p>尚無營運櫃點歸屬。</p> : null}
     <AssignmentTable assignments={profile.attendanceAssignments ?? []} />
     {profile.compensation ? <CompensationTable rows={profile.compensation} /> : null}
     {profile.insurance ? <InsuranceTable rows={profile.insurance} /> : null}
@@ -205,7 +205,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit }: { employee: Emp
         <p><strong>{job.hiredOn}{job.endedOn ? `～${job.endedOn}` : "～目前"}</strong> · {job.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</p>
         <div className="flex flex-wrap gap-3">
           {!job.endedOn ? <Button variant="secondary" onClick={() => openEditor({ title: "結束任職", path: `/employments/${job.id}/end`, method: "PATCH", initial: { revision: job.revision }, description: "請先在此員工的管理入口結束超過離職日期的辦公位置，再結束任職。", fields: [{ key: "endedOn", label: "不再任職首日", type: "date" }] })}>結束任職</Button> : null}
-          {data.assignments.filter((assignment) => assignment.employmentId === job.id && !assignment.validTo).map((assignment) => <Button key={assignment.id} variant="secondary" onClick={() => openEditor({ title: `結束 ${assignment.scopeName} 歸屬`, path: `/assignments/${assignment.id}/end`, method: "PATCH", initial: { revision: assignment.revision }, fields: [{ key: "validTo", label: "迄日（不含）", type: "date" }] })}>結束 {assignment.scopeName} 歸屬</Button>)}
+          {(data.assignments ?? []).filter((assignment) => assignment.employmentId === job.id && !assignment.validTo).map((assignment) => <Button key={assignment.id} variant="secondary" onClick={() => openEditor({ title: `結束 ${assignment.scopeName} 歸屬`, path: `/assignments/${assignment.id}/end`, method: "PATCH", initial: { revision: assignment.revision }, fields: [{ key: "validTo", label: "迄日（不含）", type: "date" }] })}>結束 {assignment.scopeName} 歸屬</Button>)}
         </div>
       </div>)}
       {scopes.error ? <p className="form-hint">櫃點清單載入失敗：{scopes.error.message}</p> : null}

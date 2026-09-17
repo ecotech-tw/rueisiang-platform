@@ -131,6 +131,8 @@ export async function listHrSupervisorCandidates(db: Database, userId: string) {
     .orderBy(asc(displayName));
 }
 export interface HrEmployeeDetailOptions {
+  /** 營運 scope 歸屬屬於員工資料；只有出勤權限的人（出勤範圍管理）不該拿到。預設回傳。 */
+  includeScopeAssignments?: boolean;
   includeCompensation?: boolean;
   includeInsurance?: boolean;
   includeLeave?: boolean;
@@ -147,7 +149,7 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     .from(hrEmployments).leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(asc(hrEmployments.hiredOn));
   const employments = employmentRows.map(({ employment, attendanceMode: mode, monthlyRestDays }) => ({ ...employment, attendanceMode: mode ?? "general", monthlyRestDays }));
-  const assignments = await db.select({
+  const assignments = options.includeScopeAssignments === false ? undefined : await db.select({
     id: hrEmployeeScopes.id, employmentId: hrEmployeeScopes.employmentId, scopeId: hrEmployeeScopes.scopeId,
     scopeName: scopes.name, validFrom: hrEmployeeScopes.validFrom, validTo: hrEmployeeScopes.validTo, revision: hrEmployeeScopes.revision,
   }).from(hrEmployeeScopes).innerJoin(hrEmployments, eq(hrEmployments.id, hrEmployeeScopes.employmentId))
@@ -197,7 +199,7 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   }).from(hrClockEvents).leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
     .where(eq(hrClockEvents.employeeUserId, userId)).orderBy(desc(hrClockEvents.occurredAt)).limit(200) : undefined;
   return {
-    employee: { ...employee, supervisorName: supervisor?.displayName ?? null }, employments, assignments, attendanceAssignments: withPrimary,
+    employee: { ...employee, supervisorName: supervisor?.displayName ?? null }, employments, ...(assignments ? { assignments } : {}), attendanceAssignments: withPrimary,
     ...(compensation ? { compensation } : {}), ...(insurance ? { insurance } : {}), ...(leave ? { leave } : {}), ...(attendanceEvents ? { attendanceEvents } : {}),
   };
 }

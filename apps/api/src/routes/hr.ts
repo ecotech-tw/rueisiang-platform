@@ -20,7 +20,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { GoogleMapsSearchError, searchGooglePlaces } from "../google-maps.js";
-import { DEVICE_COOKIE_PATH, clearDeviceCookie, deviceCookie, requireAuth, requirePermission, requireSelfAuth } from "../middleware/auth.js";
+import { DEVICE_COOKIE_PATH, clearDeviceCookie, deviceCookie, requireAnyPermission, requireAuth, requirePermission, requireSelfAuth } from "../middleware/auth.js";
 import { sessionUserPayload } from "./auth.js";
 import { body, requireString } from "../request.js";
 
@@ -461,7 +461,7 @@ export const hr = new Hono<AppEnv>()
   })
   .get("/attendance-settings/locations", requirePermission("hr:office:read"), async (c) => {
     const rawPage = c.req.query("page");
-    if (rawPage === undefined && !c.req.query("search") && !c.req.query("scopeId") && !c.req.query("sortField")) return c.json(await listHrAttendanceLocations(c.get("db")));
+    if (rawPage === undefined && !c.req.query("search") && !c.req.query("scopeId") && !c.req.query("sortField")) return c.json(await listHrAttendanceLocations(c.get("db"), undefined, { activeOnly: c.req.query("active") === "1" }));
     const page = calendarNumber(rawPage, 1, "頁碼", 1, 10000);
     const rawPageSize = c.req.query("pageSize");
     const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
@@ -794,7 +794,7 @@ export const hr = new Hono<AppEnv>()
       policyVersionId: c.req.param("versionId"), employeeUserId: text(input, "employeeUserId", "員工"), validFrom: date(input, "validFrom")!, validTo: date(input, "validTo", true), weightUnits: input.weightUnits === undefined ? undefined : integerValue(input, "weightUnits", "權重", 1, 1000),
     }, c.get("user")), 201);
   })
-  .get("/employees", requirePermission("hr:employee:read"), async (c) => {
+  .get("/employees", requireAnyPermission("hr:employee:read", "hr:office:read"), async (c) => {
     const page = calendarNumber(c.req.query("page"), 1, "頁碼", 1, 10000);
     const rawPageSize = c.req.query("pageSize");
     const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
@@ -809,9 +809,11 @@ export const hr = new Hono<AppEnv>()
     return c.json(await listHrEmployees(c.get("db"), { page, pageSize, search, status, sortField, sortDirection }));
   })
   .get("/supervisor-candidates", requirePermission("hr:employee:write"), async (c) => c.json({ users: await listHrSupervisorCandidates(c.get("db"), c.req.query("exclude") ?? c.get("user").id) }))
-  .get("/employees/:id", requirePermission("hr:employee:read"), async (c) => {
+  .get("/employees/:id", requireAnyPermission("hr:employee:read", "hr:office:read"), async (c) => {
     const fullAccess = await isHrAdministrator(c.get("db"), c.get("user").id);
     return c.json(await getHrEmployee(c.get("db"), c.req.param("id"), {
+      // 只靠 hr:office:read 進來的人只拿員工、任職與出勤設定，營運 scope 歷史不給。
+      includeScopeAssignments: can(c.get("user"), "hr:employee:read"),
       includeCompensation: fullAccess, includeInsurance: fullAccess, includeLeave: fullAccess, includeAttendanceEvents: fullAccess,
     }));
   })

@@ -62,7 +62,7 @@ beforeEach(async () => {
   }
   await db.insert(userRoleAssignments).values({ userId: "admin", roleId: "role-admin" });
   await db.insert(userPermissionGrants).values([
-    { userId: "manager", permission: "hr:schedule:read" },
+    { userId: "manager", permission: "hr:schedule:read" }, { userId: "manager", permission: "hr:office:read" },
     { userId: "writer", permission: "hr:employee:read" }, { userId: "writer", permission: "hr:employee:write" }, { userId: "writer", permission: "hr:request:review" },
   ]);
   await db.insert(scopes).values({ id: "scope", sourceType: "manual", scopeKind: "store", name: "測試櫃點", normalizedName: "測試櫃點" });
@@ -116,6 +116,31 @@ describe("HR 員工基礎", () => {
     expect((await request("/hr/employees", "GET", undefined, "self")).status).toBe(403);
     const authMe = await (await request("/auth/me", "GET", undefined, "self")).json() as { isEmployee: boolean };
     expect(authMe.isEmployee).toBe(true);
+  });
+
+  it("出勤範圍讀取權限可取得員工摘要與出勤設定，但不能修改員工資料", async () => {
+    await assign("self");
+    expect((await request("/hr/employees?page=1&pageSize=100", "GET", undefined, "manager")).status).toBe(200);
+    const officeOnly = await request("/hr/employees/self", "GET", undefined, "manager");
+    expect(officeOnly.status).toBe(200);
+    // 出勤權限只拿員工／任職／出勤設定，營運 scope 歷史不外流。
+    const officeProfile = await officeOnly.json() as Record<string, unknown>;
+    expect(officeProfile).toHaveProperty("employments");
+    expect(officeProfile).toHaveProperty("attendanceAssignments");
+    expect(officeProfile).not.toHaveProperty("assignments");
+    expect(await (await request("/hr/employees/self")).json()).toHaveProperty("assignments");
+    expect((await request("/hr/employees/self", "PATCH", { employeeNumber: "NOPE", revision: 1 }, "manager")).status).toBe(403);
+  });
+
+  it("出勤範圍的辦公位置選單回傳全部啟用中的位置，不受分頁上限影響", async () => {
+    await db.insert(hrAttendanceLocations).values(Array.from({ length: 101 }, (_, index) => ({ id: `bulk-location-${index}`, name: `大量位置 ${String(index).padStart(3, "0")}`, geolocationRequired: 0, radiusMeters: 100 })));
+    await db.insert(hrAttendanceLocations).values({ id: "inactive-location", name: "已停用位置", geolocationRequired: 0, radiusMeters: 100, active: 0 });
+    const response = await request("/hr/attendance-settings/locations?active=1", "GET", undefined, "manager");
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { locations: Array<{ id: string }>; hasMore?: boolean };
+    expect(body.locations).toHaveLength(101);
+    expect(body.locations.some((location) => location.id === "inactive-location")).toBe(false);
+    expect(body).not.toHaveProperty("hasMore");
   });
 
   it("任職重疊會拒絕，結束後復職新增歷史；未知與邀請中的 user 有明確限制", async () => {
