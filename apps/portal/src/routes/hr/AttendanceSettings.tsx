@@ -63,8 +63,6 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
   const [selectedPlace, setSelectedPlace] = useState<GoogleMapPlace | null>(() => savedPlace(source));
   const [weeklySchedules, setWeeklySchedules] = useState<AttendanceLocationSchedule[]>(() => defaultSchedules(location?.id ?? ""));
   const places = useHrQuery<{ places: GoogleMapPlace[] }>(`/attendance-settings/places?query=${encodeURIComponent(searchQuery)}`, Boolean(searchQuery));
-  // 搜尋請求完成後，結果仍由最後一次送出的 query 控制；不要用輸入框目前的內容判斷是否顯示，
-  // 否則使用者在請求期間繼續修改文字時，回來的結果會被誤判成沒有結果。
   const placeResults = places.data?.places ?? [];
   const save = useHrWrite<{ id?: string }>();
   const saveSchedule = useHrWrite();
