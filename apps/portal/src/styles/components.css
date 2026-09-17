@@ -3858,6 +3858,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  */
 .tooltip-anchor { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
 .tooltip-anchor:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; border-radius: 6px; }
+/*
+ * 停用的按鈕不會收到滑鼠事件，事件也就傳不到外層的 anchor，提示永遠不出現——
+ * 偏偏停用的按鈕最需要一句「為什麼不能按」。讓指標穿過它，落在 anchor 上。
+ */
+.tooltip-anchor > :disabled { pointer-events: none; }
 .tooltip {
   position: fixed;
   z-index: 90;

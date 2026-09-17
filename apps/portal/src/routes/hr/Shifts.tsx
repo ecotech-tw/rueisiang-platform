@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel, TextField, Tooltip } from "../../ui/index.js";
 import { shiftTimeRange, useHrQuery, useHrWrite, type HrShiftsResponse, type ScheduleScope, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -48,10 +48,22 @@ function StoreShiftsDialog({ scope, shifts, canWrite, onClose, onSaved }: { scop
       </tr></thead><tbody>
         {shifts.map((shift) => <tr key={shift.versionId}>
           <td data-label="班別"><span className="cell-strong">{shift.name}</span></td>
-          <td data-label="上班時間" className="numeric">{shiftTimeRange(shift)}</td>
+          <td data-label="上班時間" className="numeric">
+            {shiftTimeRange(shift)}
+            {/*
+              * 班別管理只建得出當天上下班的班別，但舊資料可能還有跨午夜的。表單帶入 23:00–07:00
+              * 會被判定時間錯誤而存不了，連名稱都改不動；所以直接停用修改，原因寫在畫面上，
+              * 不只放在提示框裡——觸控裝置看不到提示框。
+              */}
+            {shift.endDayOffset ? <span className="cell-sub block">跨午夜的舊班別，無法修改</span> : null}
+          </td>
           {canWrite ? <td data-label="操作"><div className="row-actions">
-            <Button variant="icon" icon="edit" className="compensation-action-update" title={`修改 ${shift.name}`} aria-label={`修改 ${shift.name}`} onClick={() => openForm({ kind: "edit", shift })} />
-            <Button variant="icon" icon="trash" className="danger hr-bonus-action-delete" title={`刪除 ${shift.name}`} aria-label={`刪除 ${shift.name}`} onClick={() => { save.reset(); setView({ kind: "delete", shift }); }} />
+            <Tooltip label={shift.endDayOffset ? "跨午夜的舊班別無法修改，可刪除後重建" : `修改 ${shift.name}`} focusable={false}>
+              <Button variant="icon" icon="edit" className="compensation-action-update" aria-label={`修改 ${shift.name}`} disabled={Boolean(shift.endDayOffset)} onClick={() => openForm({ kind: "edit", shift })} />
+            </Tooltip>
+            <Tooltip label={`刪除 ${shift.name}`} focusable={false}>
+              <Button variant="icon" icon="trash" className="danger hr-bonus-action-delete" aria-label={`刪除 ${shift.name}`} onClick={() => { save.reset(); setView({ kind: "delete", shift }); }} />
+            </Tooltip>
           </div></td> : null}
         </tr>)}
       </tbody></table></div> : <p className="muted">這家店還沒有班別。新增之後，排班月曆才選得到。</p>}
