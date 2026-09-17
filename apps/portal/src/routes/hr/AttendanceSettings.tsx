@@ -165,7 +165,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       <section className="hr-location-section">
         <div className="hr-location-section-heading"><h3>打卡規則</h3></div>
         <div className="hr-location-rule-card">
-          <Field label="定位判斷" hint="開啟時，正式出勤流程會以伺服器重新計算距離；拒絕定位不可完成出勤。">
+          <Field label="定位判斷">
             <div className="hr-location-toggle">
               <input
                 type="checkbox"
@@ -192,7 +192,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
                 hint="例如 50 代表距離辦公位置中心 50 公尺內。"
               />
             </div>
-          ) : <p className="hr-location-rule-note">關閉定位判斷後不會檢查距離；再次啟用時會沿用上次設定的半徑。</p>}
+          ) : null}
         </div>
       </section>
       {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
