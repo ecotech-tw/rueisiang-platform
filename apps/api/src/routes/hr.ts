@@ -6,7 +6,7 @@ import {
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest,
-  assignHrBonusPolicyMember, calculateHrBonusPool, calculateHrPayroll, closeHrPayrollRun, createHrBonusPerformanceSnapshot, createHrBonusPolicy, deleteHrBonusPolicy, getHrBonusPool, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, getHrPayrollRun, listHrBonusAssignments, listHrBonusPerformanceSnapshots, listHrBonusPolicies, listHrBonusPools, listHrPayrollRuns,
+  assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest,
   createHrScheduleWorker, createHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
@@ -715,7 +715,6 @@ export const hr = new Hono<AppEnv>()
       attendanceMode: mode, requestId: input.requestId === undefined ? undefined : text(input, "requestId", "請求識別碼", 200),
       monthlyDivisorDays: optionalInteger(input, "monthlyDivisorDays", "月薪除數", 1, 366),
       standardDailyHours: input.standardDailyHours === undefined ? undefined : Number(input.standardDailyHours),
-      bonusPoolId: input.bonusPoolId === undefined ? undefined : text(input, "bonusPoolId", "獎金池"),
     }, c.get("user")) });
   })
   .get("/bonus/policies", requirePermission("hr:bonus:read"), async (c) => {
@@ -761,50 +760,6 @@ export const hr = new Hono<AppEnv>()
     return c.json(await assignHrBonusPolicyMember(c.get("db"), {
       policyVersionId: c.req.param("versionId"), employeeUserId: text(input, "employeeUserId", "員工"), validFrom: date(input, "validFrom")!, validTo: date(input, "validTo", true), weightUnits: input.weightUnits === undefined ? undefined : integerValue(input, "weightUnits", "權重", 1, 1000),
     }, c.get("user")), 201);
-  })
-  .get("/bonus/performance", requirePermission("hr:bonus:read"), async (c) => {
-    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
-    const raw = c.req.query("periodKey");
-    if (raw !== undefined && !/^\d{4}-(0[1-9]|1[0-2])$/.test(raw)) throw new HTTPException(400, { message: "業績月份必須是 YYYY-MM。" });
-    return c.json({ snapshots: await listHrBonusPerformanceSnapshots(c.get("db"), raw) });
-  })
-  .post("/bonus/performance", requirePermission("hr:bonus:write"), async (c) => {
-    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
-    const input = await body(c);
-    const sourceKind = input.sourceKind === undefined || input.sourceKind === "manual" || input.sourceKind === "report" ? input.sourceKind ?? "manual" : null;
-    if (!sourceKind) throw new HTTPException(400, { message: "業績來源不正確。" });
-    return c.json(await createHrBonusPerformanceSnapshot(c.get("db"), {
-      scopeId: text(input, "scopeId", "適用通路"), employeeUserId: nullableText(input, "employeeUserId", "個人員工"), periodKey: periodKey(input), amountMinor: integerValue(input, "amountMinor", "業績金額（分）", 0, Number.MAX_SAFE_INTEGER), sourceKind, sourceRef: input.sourceRef === undefined ? "" : text(input, "sourceRef", "來源識別碼", 200),
-    }, c.get("user")), 201);
-  })
-  .get("/bonus/pools", requirePermission("hr:bonus:read"), async (c) => {
-    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
-    const raw = c.req.query("periodKey");
-    if (raw !== undefined && !/^\d{4}-(0[1-9]|1[0-2])$/.test(raw)) throw new HTTPException(400, { message: "計算月份必須是 YYYY-MM。" });
-    return c.json({ pools: await listHrBonusPools(c.get("db"), raw) });
-  })
-  .get("/bonus/pools/:id", requirePermission("hr:bonus:read"), async (c) => {
-    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
-    return c.json({ pool: await getHrBonusPool(c.get("db"), c.req.param("id")) });
-  })
-  .post("/bonus/pools/calculate", requirePermission("hr:bonus:calculate"), async (c) => {
-    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
-    const input = await body(c);
-    // 多 Scope policy 每個 Scope 每天各一筆；上限為 100 個 Scope × 閏年最長月份 366 天。
-    if (!Array.isArray(input.revenue) || input.revenue.length > 36_600) throw new HTTPException(400, { message: "指定月份的核准業績快照筆數不正確。" });
-    const revenue = input.revenue.map((raw, index) => {
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆業績格式不正確。` });
-      const item = raw as Record<string, unknown>;
-      const sourceKind = item.sourceKind === undefined || item.sourceKind === "manual" || item.sourceKind === "report" ? item.sourceKind : null;
-      if (sourceKind === null) throw new HTTPException(400, { message: `第 ${index + 1} 筆業績來源不正確。` });
-      const provenance = item.provenance && typeof item.provenance === "object" && !Array.isArray(item.provenance) ? item.provenance as Record<string, unknown> : {};
-      return {
-        scopeId: item.scopeId === undefined ? undefined : text(item, "scopeId", "適用 Scope", 200),
-        businessDate: date(item, "businessDate")!, amountMinor: integerValue(item, "amountMinor", "業績金額（分）", 0, Number.MAX_SAFE_INTEGER),
-        sourceKind, sourceRef: item.sourceRef === undefined ? undefined : text(item, "sourceRef", "來源識別碼", 200), provenance,
-      } as const;
-    });
-    return c.json({ pool: await calculateHrBonusPool(c.get("db"), { policyVersionId: text(input, "policyVersionId", "獎金"), periodKey: periodKey(input), revenue }, c.get("user")) }, 201);
   })
   .get("/employees", requirePermission("hr:employee:read"), async (c) => {
     const page = calendarNumber(c.req.query("page"), 1, "頁碼", 1, 10000);

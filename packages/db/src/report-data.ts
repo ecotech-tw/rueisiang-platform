@@ -546,6 +546,20 @@ const EFFECTIVE_PAYOUT_COLUMNS = {
   payoutAmount: sql.raw("report_payout_effective.payout_amount"),
 };
 
+/**
+ * 有效的每日出金：同一店同一天有人工修訂就以人工為準，其餘用匯入值。
+ *
+ * 獎金試算與報表查詢必須共用同一份「有效出金」的定義。各寫一份的話，報表上看到的
+ * 金額跟薪資單上算出來的獎金會對不起來，而且沒有人查得出是哪一邊錯——薪資是先發出去
+ * 才有人核對的。
+ */
+export async function listEffectiveDailyPayouts(db: Database, input: { scopeIds: readonly string[]; start: string; end: string }) {
+  if (!input.scopeIds.length) return [];
+  const ids = sql.join(input.scopeIds.map((id) => sql`${id}`), sql`, `);
+  const rows = await db.all<{ scopeId: string; businessDate: string; payoutAmount: number | null }>(sql`SELECT ${EFFECTIVE_PAYOUT_COLUMNS.scopeId} AS scopeId, ${EFFECTIVE_PAYOUT_COLUMNS.businessDate} AS businessDate, ${EFFECTIVE_PAYOUT_COLUMNS.payoutAmount} AS payoutAmount FROM ${TARGET_EFFECTIVE_PAYOUT_SOURCE} WHERE ${EFFECTIVE_PAYOUT_COLUMNS.scopeId} IN (${ids}) AND ${EFFECTIVE_PAYOUT_COLUMNS.businessDate} >= ${input.start} AND ${EFFECTIVE_PAYOUT_COLUMNS.businessDate} < ${input.end}`);
+  return rows.map((row) => ({ scopeId: row.scopeId, businessDate: row.businessDate, payoutAmount: Number(row.payoutAmount ?? 0) }));
+}
+
 export interface LatestReportSalesPeriods {
   latestPeriod: string | null;
   byScope: Record<string, string>;
