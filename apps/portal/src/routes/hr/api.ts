@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "../../shell/Toast.js";
 
 export interface Employee {
   userId: string;
@@ -185,8 +186,10 @@ export function useHrInsuranceEstimate(employmentId: string, input: InsuranceEst
 }
 export function useHrWrite<T = { id: string }>({ invalidate = true }: { invalidate?: boolean } = {}) {
   const client = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (input: { path: string; method: string; values: Record<string, unknown> }) => request<T>(input.path, { method: input.method, body: JSON.stringify(input.values) }),
     onSuccess: () => { if (invalidate) void client.invalidateQueries({ queryKey: ["hr"] }); },
+    onError: (error) => toast.show(error instanceof Error ? error.message : "HR 操作失敗，請稍後再試。", "danger"),
   });
 }

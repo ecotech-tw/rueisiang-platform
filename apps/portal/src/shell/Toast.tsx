@@ -8,11 +8,11 @@ import { Icon } from "./icons.js";
  * 只有資料默默變了一下。改的是自己那一列還看得出來，改別人的、或是在對話框裡
  * 按完就關掉的，等於什麼回饋都沒有——人會不確定到底有沒有成功，於是再按一次。
  *
- * 失敗本來就有紅色的 form-error 訊息留在原地，那是要人讀完處理的東西，所以
- * **失敗不做成會自己消失的浮動提示**。這裡只負責「成功了」與「這件事你要知道」。
+ * 失敗仍要在表單原地留下可處理的錯誤訊息；浮動提示只負責補一個即時回饋，
+ * 讓使用者知道剛剛那次操作已經被系統拒絕，不必猜是不是沒有按到。
  */
 
-export type ToastTone = "success" | "info";
+export type ToastTone = "success" | "info" | "danger";
 
 interface Toast {
   id: number;
@@ -63,7 +63,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       <div className="toast-stack" role="status" aria-live="polite">
         {toasts.map((toast) => (
           <div className={`toast toast-${toast.tone}`} key={toast.id}>
-            <Icon name={toast.tone === "success" ? "check" : "info"} />
+            <Icon name={toast.tone === "success" ? "check" : toast.tone === "danger" ? "block" : "info"} />
             <span>{toast.message}</span>
             <button type="button" onClick={() => dismiss(toast.id)} aria-label="關閉提示">
               <Icon name="close" />
