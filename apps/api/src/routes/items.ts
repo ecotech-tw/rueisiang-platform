@@ -17,6 +17,7 @@ import {
   wmsCategories,
   wmsShelves,
   wmsZones,
+  reportBundleSalesMonthly,
   reportItemSalesMonthly,
 } from "@rueisiang/db/schema";
 
@@ -330,7 +331,8 @@ export const items = new Hono<AppEnv>()
     const [component] = await db.select({ parentItemId: itemComponents.parentItemId }).from(itemComponents).where(eq(itemComponents.componentItemId, id)).limit(1);
     if (component) throw new HTTPException(409, { message: "品項仍是 BOM 用料，請先移除組成。" });
     const [sales] = await db.select({ scopeId: reportItemSalesMonthly.scopeId }).from(reportItemSalesMonthly).where(eq(reportItemSalesMonthly.itemId, id)).limit(1);
-    if (sales) throw new HTTPException(409, { message: "品項已有報表紀錄，請停用品項，不要刪除主檔。" });
+    const [bundleSales] = await db.select({ scopeId: reportBundleSalesMonthly.scopeId }).from(reportBundleSalesMonthly).where(eq(reportBundleSalesMonthly.itemId, id)).limit(1);
+    if (sales || bundleSales) throw new HTTPException(409, { message: "品項已有報表紀錄，請停用品項，不要刪除主檔。" });
     await db.delete(itemMasters).where(eq(itemMasters.id, id));
     return c.json({ ok: true });
   })

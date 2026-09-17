@@ -162,6 +162,31 @@ export const reportItemSalesMonthly = sqliteTable("report_item_sales_monthly", {
   check("ck_item_sales_actor", sql`${table.recordOrigin} = 'manual' OR ${table.updatedByEmail} = ''`),
 ]);
 
+/**
+ * 原始通路商品的月銷售快照；只保存有 BOM 的組合商品。
+ *
+ * report_item_sales_monthly 為了庫存分析會把組合展開成用料，展開後就無法從元件數量
+ * 反推出原本賣了幾組（元件也可能有自己的直接銷售）。這張表保留外部 SKU 對應到的
+ * parent item 與原始數字，讓用 itemId 查詢時仍能得到真正的組合商品銷售量。
+ */
+export const reportBundleSalesMonthly = sqliteTable("report_bundle_sales_monthly", {
+  scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  reportMonth: text("report_month").notNull(),
+  externalSku: text("external_sku").notNull(),
+  itemId: text("item_id").notNull().references(() => items.id, { onDelete: "restrict" }),
+  reportRunId: text("report_run_id").notNull().references(() => reportRuns.id, { onDelete: "restrict" }),
+  grossQuantity: integer("gross_quantity").notNull().default(0),
+  returnQuantity: integer("return_quantity").notNull().default(0),
+  netQuantity: integer("net_quantity").notNull().default(0),
+  salesAmount: integer("sales_amount").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.scopeId, table.reportMonth, table.externalSku] }),
+  index("idx_bundle_sales_item").on(table.itemId, table.reportMonth),
+  index("idx_bundle_sales_month").on(table.reportMonth, table.scopeId),
+]);
+
 /** 每日出金；匯入與人工修訂合併在 record_origin。 */
 export const reportPayoutDaily = sqliteTable("report_payout_daily", {
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
@@ -200,5 +225,6 @@ export type Scope = typeof scopes.$inferSelect;
 export type ReportExternalProduct = typeof reportExternalProducts.$inferSelect;
 export type ReportRun = typeof reportRuns.$inferSelect;
 export type ReportItemSalesMonthly = typeof reportItemSalesMonthly.$inferSelect;
+export type ReportBundleSalesMonthly = typeof reportBundleSalesMonthly.$inferSelect;
 export type ReportPayoutDaily = typeof reportPayoutDaily.$inferSelect;
 export type ReportIngestIssue = typeof reportIngestIssues.$inferSelect;

@@ -1,5 +1,6 @@
 import {
   createDatabase,
+  deleteProductSkuMapping,
   syncCyberbizProducts,
   upsertReportScope,
 } from "@rueisiang/db";
@@ -7,6 +8,7 @@ import {
   itemCategories,
   itemComponents,
   items,
+  reportBundleSalesMonthly,
   reportExternalProducts,
   reportIngestIssues,
   reportItemSalesMonthly,
@@ -18,6 +20,7 @@ import {
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
+import { createCyberbizReportService } from "./cyberbiz-reports.js";
 import { createTargetOnlyD1 } from "./local-d1/d1.js";
 
 const TOKEN = "report-ingest-secret";
@@ -122,21 +125,44 @@ describe("target 報表月資料匯入", () => {
   it("target BOM 會依輸入順序展開用料，銷售額只計一次", async () => {
     const componentNet = await seedWmsItem("component-net", "NET-001", "起泡網");
     const componentSoap = await seedWmsItem("component-soap", "SOAP-001", "香皂");
-    await db().insert(items).values({ id: "bundle-parent", source: "custom", kind: "sellable", sku: "BUNDLE-001", name: "洗沐組", categoryId: null, active: 1 });
+    const bundleParentId = "report-bundle:map-bundle";
+    await db().insert(items).values({ id: bundleParentId, source: "custom", kind: "sellable", sku: "BUNDLE-001", name: "洗沐組", categoryId: null, active: 1 });
     await db().insert(itemComponents).values([
-      { parentItemId: "bundle-parent", componentItemId: componentNet, quantity: 1 },
-      { parentItemId: "bundle-parent", componentItemId: componentSoap, quantity: 2 },
+      { parentItemId: bundleParentId, componentItemId: componentNet, quantity: 1 },
+      { parentItemId: bundleParentId, componentItemId: componentSoap, quantity: 2 },
     ]);
-    await seedMapping("map-bundle", "shopee", "SET-001", "bundle-parent", "洗沐組");
+    await seedMapping("map-bundle", "shopee", "SET-001", bundleParentId, "洗沐組");
 
-    const response = await request(salesBody([salesRow("SET-001", 500, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 })], "2026-07", "shopee:store:default", "蝦皮"));
+    const response = await request(salesBody([
+      salesRow("SET-001", 500, { grossQuantity: 3, returnQuantity: 1, netQuantity: 2 }),
+      salesRow("SOAP-001", 100, { grossQuantity: 4, netQuantity: 4 }),
+    ], "2026-07", "shopee:store:default", "蝦皮"));
     expect(response.status).toBe(200);
     const rows = await db().select({ sku: items.sku, grossQuantity: reportItemSalesMonthly.grossQuantity, salesAmount: reportItemSalesMonthly.salesAmount })
       .from(reportItemSalesMonthly).innerJoin(items, eq(items.id, reportItemSalesMonthly.itemId));
     expect(rows).toEqual([
       { sku: "NET-001", grossQuantity: 3, salesAmount: 500 },
-      { sku: "SOAP-001", grossQuantity: 6, salesAmount: 0 },
+      { sku: "SOAP-001", grossQuantity: 10, salesAmount: 100 },
     ]);
+    expect(await db().select({ externalSku: reportBundleSalesMonthly.externalSku, itemId: reportBundleSalesMonthly.itemId, grossQuantity: reportBundleSalesMonthly.grossQuantity, netQuantity: reportBundleSalesMonthly.netQuantity, salesAmount: reportBundleSalesMonthly.salesAmount }).from(reportBundleSalesMonthly))
+      .toEqual([{ externalSku: "SET-001", itemId: bundleParentId, grossQuantity: 3, netQuantity: 2, salesAmount: 500 }]);
+
+    const parentSales = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "store", scopeName: "蝦皮", itemIds: [bundleParentId], groupBy: ["month", "sku"],
+    });
+    expect(parentSales).toMatchObject({ status: "ok", totals: { grossQuantity: 3, netQuantity: 2, salesAmount: 500 } });
+    expect(parentSales.rows).toEqual([{ reportMonth: "2026-07", sku: "BUNDLE-001", productName: "洗沐組", grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 500 }]);
+
+    // 歷史 parent 有報表快照時不能被 mapping 刪除連帶刪掉，否則新的 itemId 查詢會失效。
+    await deleteProductSkuMapping(db(), "map-bundle", { id: "test-manager", email: "manager@example.com" });
+    expect(await db().select({ active: items.active }).from(items).where(eq(items.id, bundleParentId)))
+      .toEqual([{ active: 0 }]);
+    expect(await db().select().from(itemComponents).where(eq(itemComponents.parentItemId, bundleParentId))).toEqual([]);
+    expect(await db().select().from(reportBundleSalesMonthly)).toHaveLength(1);
+    const retainedSales = await createCyberbizReportService(db()).querySales({
+      period: "2026-07", scopeType: "store", scopeName: "蝦皮", itemIds: [bundleParentId], groupBy: ["month", "sku"],
+    });
+    expect(retainedSales.totals).toMatchObject({ grossQuantity: 3, netQuantity: 2, salesAmount: 500 });
   });
 
   it("未對應 SKU 只建立 ingest issue，不會讓同月已對應資料消失", async () => {

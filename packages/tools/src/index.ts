@@ -1241,7 +1241,7 @@ const listReportScopesTool: PlatformToolDefinition = {
 const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
   key: "query_sales_report",
   label: "查詢商品銷售報表",
-  description: "從已匯入 D1 的通路商品銷售月資料查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額。查特定商品時優先傳 list_items 回傳的 itemIds；通路的 SKU 或蝦皮 Product ID 仍可用 sku 相容查詢。productName 只是舊版關鍵字模糊搜尋 fallback，不適合拿自然語言商品名稱直接查。這不是 CRM 訂單查詢；單一 scope 請傳 scopeName（例如誠品西門店3F或蝦皮），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store。支援月份與年份；自訂日期只能使用完整月份，否則會回傳 UNSUPPORTED_GRANULARITY。公司查詢由服務端完成所有據點的彙總，不需要逐店呼叫工具。",
+  description: "從已匯入 D1 的通路商品銷售月資料查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額。查特定商品時優先傳 list_items 回傳的 itemIds；組合商品的 parent itemId 會查原始組合銷售，元件 itemId 則維持查詢報表展開後的用料數量。通路的 SKU 或蝦皮 Product ID 仍可用 sku 相容查詢。productName 只是舊版關鍵字模糊搜尋 fallback，不適合拿自然語言商品名稱直接查。這不是 CRM 訂單查詢；單一 scope 請傳 scopeName（例如誠品西門店3F或蝦皮），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store。支援月份與年份；自訂日期只能使用完整月份，否則會回傳 UNSUPPORTED_GRANULARITY。公司查詢由服務端完成所有據點的彙總，不需要逐店呼叫工具。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],

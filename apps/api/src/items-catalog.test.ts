@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, createReportManualSales, syncCyberbizProducts, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, cyberbizProducts, itemCategories, items, scopes, users, userRoleAssignments } from "@rueisiang/db/schema";
+import { activityEvents, cyberbizProducts, itemCategories, items, reportBundleSalesMonthly, reportRuns, scopes, users, userRoleAssignments } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -41,6 +41,15 @@ async function createItem(payload: Record<string, unknown>) {
   }), env() as never);
 }
 
+async function deleteItem(itemId: string) {
+  const admin = await seedAdmin(`delete-${crypto.randomUUID()}@ecotech.tw`);
+  const token = await signSession(newSessionClaims({ id: admin.id, email: admin.email, name: admin.email, pictureUrl: "" }), SECRET);
+  return app.fetch(new Request(`https://test.local/api/items/catalog/${itemId}`, {
+    method: "DELETE",
+    headers: { Cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}` },
+  }), env() as never);
+}
+
 describe("新增自訂品項", () => {
   it("SKU 留白時自動編號並記成 supply——包材與半成品本來就沒有 SKU", async () => {
     const response = await createItem({ name: "淋膜紙", categoryId: "cat-1" });
@@ -60,6 +69,24 @@ describe("新增自訂品項", () => {
 
     const [row] = await db.select().from(items).where(eq(items.id, created.id));
     expect(row).toMatchObject({ kind: "sellable", sku: "BOX-M" });
+  });
+
+  it("有組合銷售快照的品項不能刪除，避免歷史報表失去 parent", async () => {
+    const response = await createItem({ name: "歷史禮盒", sku: "BOX-HISTORY", categoryId: "cat-1" });
+    const created = await response.json() as { id: string };
+    await db.insert(scopes).values({ id: "history-scope", sourceType: "cyberbiz", scopeKind: "store", name: "歷史店", normalizedName: "歷史店" });
+    await db.insert(reportRuns).values({
+      id: "history-run", requestId: "history-request", sourceType: "cyberbiz", importsSales: 1,
+      periodKind: "month", startDate: "2026-07-01", endDate: "2026-07-31", status: "succeeded", actorEmail: "test@example.com",
+    });
+    await db.insert(reportBundleSalesMonthly).values({
+      scopeId: "history-scope", reportMonth: "2026-07", externalSku: "BOX-HISTORY", itemId: created.id, reportRunId: "history-run",
+      grossQuantity: 2, returnQuantity: 0, netQuantity: 2, salesAmount: 200,
+    });
+
+    const deleted = await deleteItem(created.id);
+    expect(deleted.status).toBe(409);
+    expect((await deleted.json() as { error: string }).error).toContain("報表紀錄");
   });
 
   it("SKU 撞到既有的 CYBERBIZ 品項會回 409，而不是撞在唯一索引上", async () => {

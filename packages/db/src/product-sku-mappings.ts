@@ -4,7 +4,7 @@ import type { Database } from "./client.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { activityEvents } from "./schema/activity.js";
 import { itemCategories, itemComponents, cyberbizProducts, items as itemMasters } from "./schema/items.js";
-import { reportExternalProducts, reportIngestIssues, reportRuns } from "./schema/reports.js";
+import { reportBundleSalesMonthly, reportExternalProducts, reportIngestIssues, reportRuns } from "./schema/reports.js";
 import { wmsItems } from "./schema/wms.js";
 import { WmsError, type Actor } from "./wms.js";
 
@@ -90,6 +90,10 @@ export interface ProductSkuMappingManagementData {
 
 export interface ResolvedProductSku {
   externalName: string;
+  /** 外部商品對應的原始平台品項；組合報表會用它保留 parent 銷售快照。 */
+  itemId: string;
+  /** true 代表這個 item 是有 BOM 的組合 parent，而不是單一用料。 */
+  isBundle: boolean;
   components: ResolvedProductSkuComponent[];
 }
 
@@ -439,7 +443,7 @@ async function ensureTargetBundleItem(db: Database, mappingId: string, name: str
     active: 1,
     createdAt: now,
     updatedAt: now,
-  }).onConflictDoUpdate({ target: itemMasters.id, set: { name, updatedAt: now } });
+  }).onConflictDoUpdate({ target: itemMasters.id, set: { name, active: 1, updatedAt: now } });
   return id;
 }
 
@@ -533,11 +537,19 @@ async function updateTargetProductSkuMapping(
     updatedAt: now,
   })) : [];
   const oldBundle = mapping.itemId === targetBundleItemId(input.id);
+  const [bundleHistory] = oldBundle
+    ? await db.select({ externalSku: reportBundleSalesMonthly.externalSku })
+      .from(reportBundleSalesMonthly)
+      .where(eq(reportBundleSalesMonthly.itemId, targetBundleItemId(input.id)))
+      .limit(1)
+    : [];
+  const preserveOldBundle = oldBundle && Boolean(bundleHistory);
   await db.batch([
     db.update(reportExternalProducts).set({ sourceType: channel, externalKey: externalSku, externalName, itemId, updatedAt: now }).where(eq(reportExternalProducts.id, input.id)),
     db.delete(itemComponents).where(eq(itemComponents.parentItemId, targetBundleItemId(input.id))),
     ...(bundleRows.length ? [db.insert(itemComponents).values(bundleRows)] : []),
-    ...(!useBundle && oldBundle ? [db.delete(itemMasters).where(eq(itemMasters.id, targetBundleItemId(input.id)))] : []),
+    ...(!useBundle && oldBundle && !preserveOldBundle ? [db.delete(itemMasters).where(eq(itemMasters.id, targetBundleItemId(input.id)))] : []),
+    ...(!useBundle && preserveOldBundle ? [db.update(itemMasters).set({ active: 0, updatedAt: now }).where(eq(itemMasters.id, targetBundleItemId(input.id)))] : []),
     db.insert(activityEvents).values(activityRow({
       entityType: "product_sku_mapping", entityId: input.id, entityLabel: externalName,
       eventType: "product_sku_mapping_updated", summary: `更新${channel} 外部 SKU 對應：${externalSku}（${components.length} 個組合用料）`,
@@ -559,9 +571,20 @@ export async function deleteProductSkuMapping(db: Database, id: string, actor: A
   if (!mapping || mapping.resolution !== "mapped") throw new WmsError("not_found", "找不到這筆外部 SKU 對應。");
   const bundleId = targetBundleItemId(id);
   const [bundle] = await db.select({ id: itemMasters.id }).from(itemMasters).where(eq(itemMasters.id, bundleId)).limit(1);
+  const [bundleHistory] = bundle
+    ? await db.select({ externalSku: reportBundleSalesMonthly.externalSku })
+      .from(reportBundleSalesMonthly)
+      .where(eq(reportBundleSalesMonthly.itemId, bundleId))
+      .limit(1)
+    : [];
   await db.batch([
     db.delete(reportExternalProducts).where(eq(reportExternalProducts.id, id)),
-    ...(bundle ? [db.delete(itemMasters).where(eq(itemMasters.id, bundleId))] : []),
+    ...(bundle && bundleHistory
+      ? [
+        db.delete(itemComponents).where(eq(itemComponents.parentItemId, bundleId)),
+        db.update(itemMasters).set({ active: 0, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, bundleId)),
+      ]
+      : bundle ? [db.delete(itemMasters).where(eq(itemMasters.id, bundleId))] : []),
     db.insert(activityEvents).values(activityRow({
       entityType: "product_sku_mapping", entityId: id, entityLabel: mapping.externalName || mapping.externalKey,
       eventType: "product_sku_mapping_deleted", summary: `移除${mapping.sourceType} 外部 SKU 對應：${mapping.externalKey}`,
@@ -645,6 +668,7 @@ async function resolveTargetProductSkus(db: Database, externalSkus: string[], ch
       .filter((row): row is ResolvedProductSkuComponent => row !== null);
     return children.length ? children : [targetComponent(parent, 1)];
   };
+  const isBundle = (parent: TargetItemRow): boolean => (componentsByParent.get(parent.id)?.length ?? 0) > 0;
   const directWms = new Map<string, TargetItemRow>();
   for (const row of directRows) {
     const key = normalizeExternalSku(row.sku);
@@ -675,16 +699,21 @@ async function resolveTargetProductSkus(db: Database, externalSkus: string[], ch
     // WMS SKU 本身優先於外部 mapping；但 CYBERBIZ 目錄只是報表商品的
     // fallback，若有人明確建立 mapping，仍應依 mapping 的 target item 解析。
     if (direct) {
-      resolved.set(key, { externalName: direct.name, components: [targetComponent(direct, 1)] });
+      resolved.set(key, { externalName: direct.name, itemId: direct.id, isBundle: false, components: [targetComponent(direct, 1)] });
       continue;
     }
     const explicit = mapped.get(key);
     if (explicit) {
-      resolved.set(key, { externalName: explicit.externalName || explicit.item.name, components: componentsFor(explicit.item) });
+      resolved.set(key, {
+        externalName: explicit.externalName || explicit.item.name,
+        itemId: explicit.item.id,
+        isBundle: isBundle(explicit.item),
+        components: componentsFor(explicit.item),
+      });
       continue;
     }
     const catalog = directCatalog.get(key);
-    if (catalog) resolved.set(key, { externalName: catalog.name, components: [targetComponent(catalog, 1)] });
+    if (catalog) resolved.set(key, { externalName: catalog.name, itemId: catalog.id, isBundle: false, components: [targetComponent(catalog, 1)] });
   }
   if (normalizedChannel === "shopee") {
     for (const key of wanted) {

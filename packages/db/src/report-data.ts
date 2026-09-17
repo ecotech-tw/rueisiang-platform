@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, sql, sum } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
+  reportBundleSalesMonthly,
   reportItemSalesMonthly,
   reportItemSalesPeriod,
   reportRuns,
@@ -36,6 +37,18 @@ export interface NewReportSalesMonthly {
   sku: string;
   productName?: string;
   category?: string;
+  grossQuantity: number;
+  returnQuantity?: number;
+  netQuantity: number;
+  salesAmount: number;
+}
+
+/** 匯入前保留的組合商品原始銷售列；一般 item 不需要另外保存。 */
+export interface NewReportBundleSalesMonthly {
+  scopeId: string;
+  reportMonth: string;
+  externalSku: string;
+  itemId: string;
   grossQuantity: number;
   returnQuantity?: number;
   netQuantity: number;
@@ -389,7 +402,8 @@ const TARGET_EFFECTIVE_SALES_SOURCE = sql`(
   JOIN items AS item ON item.id = sales.item_id
   LEFT JOIN item_categories AS category ON category.id = item.category_id
   LEFT JOIN item_categories AS parent_category ON parent_category.id = category.parent_id
-  WHERE sales.record_origin = 'manual'
+  WHERE (
+    sales.record_origin = 'manual'
     OR (sales.record_origin = 'imported' AND NOT EXISTS (
       SELECT 1
       FROM report_item_sales_monthly AS manual
@@ -398,6 +412,102 @@ const TARGET_EFFECTIVE_SALES_SOURCE = sql`(
         AND manual.item_id = sales.item_id
         AND manual.record_origin = 'manual'
     ))
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM report_bundle_sales_monthly AS bundle
+    WHERE bundle.scope_id = sales.scope_id
+      AND bundle.report_month = sales.report_month
+      AND bundle.item_id = sales.item_id
+  )
+) AS report_sales_effective`;
+
+const TARGET_EFFECTIVE_ITEM_SALES_SOURCE = sql`(
+  /* 一般 item 維持原本的用料報表；有原始組合快照的 parent 改讀未展開銷售。 */
+  SELECT
+    sales.scope_id,
+    sales.report_month,
+    item.id AS item_id,
+    item.sku,
+    item.name AS product_name,
+    COALESCE(category.name, '未分類') AS category,
+    parent_category.name AS category_parent,
+    sales.gross_quantity,
+    sales.return_quantity,
+    sales.net_quantity,
+    sales.sales_amount
+  FROM report_item_sales_monthly AS sales
+  JOIN items AS item ON item.id = sales.item_id
+  LEFT JOIN item_categories AS category ON category.id = item.category_id
+  LEFT JOIN item_categories AS parent_category ON parent_category.id = category.parent_id
+  WHERE (
+    sales.record_origin = 'manual'
+    OR (sales.record_origin = 'imported' AND NOT EXISTS (
+      SELECT 1
+      FROM report_item_sales_monthly AS manual
+      WHERE manual.scope_id = sales.scope_id
+        AND manual.report_month = sales.report_month
+        AND manual.item_id = sales.item_id
+        AND manual.record_origin = 'manual'
+    ))
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM report_bundle_sales_monthly AS bundle
+    WHERE bundle.scope_id = sales.scope_id
+      AND bundle.report_month = sales.report_month
+      AND bundle.item_id = sales.item_id
+  )
+  UNION ALL
+  SELECT
+    bundle.scope_id,
+    bundle.report_month,
+    item.id AS item_id,
+    item.sku,
+    item.name AS product_name,
+    COALESCE(category.name, '未分類') AS category,
+    parent_category.name AS category_parent,
+    bundle.gross_quantity,
+    bundle.return_quantity,
+    bundle.net_quantity,
+    bundle.sales_amount
+  FROM report_bundle_sales_monthly AS bundle
+  JOIN items AS item ON item.id = bundle.item_id
+  LEFT JOIN item_categories AS category ON category.id = item.category_id
+  LEFT JOIN item_categories AS parent_category ON parent_category.id = category.parent_id
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM report_item_sales_monthly AS manual
+    WHERE manual.scope_id = bundle.scope_id
+      AND manual.report_month = bundle.report_month
+      AND manual.item_id = bundle.item_id
+      AND manual.record_origin = 'manual'
+  )
+  UNION ALL
+  SELECT
+    manual.scope_id,
+    manual.report_month,
+    item.id AS item_id,
+    item.sku,
+    item.name AS product_name,
+    COALESCE(category.name, '未分類') AS category,
+    parent_category.name AS category_parent,
+    manual.gross_quantity,
+    manual.return_quantity,
+    manual.net_quantity,
+    manual.sales_amount
+  FROM report_item_sales_monthly AS manual
+  JOIN items AS item ON item.id = manual.item_id
+  LEFT JOIN item_categories AS category ON category.id = item.category_id
+  LEFT JOIN item_categories AS parent_category ON parent_category.id = category.parent_id
+  WHERE manual.record_origin = 'manual'
+    AND EXISTS (
+      SELECT 1
+      FROM report_bundle_sales_monthly AS bundle
+      WHERE bundle.scope_id = manual.scope_id
+        AND bundle.report_month = manual.report_month
+        AND bundle.item_id = manual.item_id
+    )
 ) AS report_sales_effective`;
 
 const EFFECTIVE_SALES_COLUMNS = {
@@ -535,7 +645,14 @@ export async function findReportScope(
 export async function insertReportSalesMonthly(
   db: Database,
   rows: readonly NewReportSalesMonthly[],
-  target?: { scopeId: string; reportMonth: string; replaceExisting?: boolean; reportRunId?: string },
+  target?: {
+    scopeId: string;
+    reportMonth: string;
+    replaceExisting?: boolean;
+    reportRunId?: string;
+  },
+  /** 正規化報表另存的組合 parent 原始銷售列；未傳代表呼叫端沒有這份快照。 */
+  bundleSalesRows?: readonly NewReportBundleSalesMonthly[],
 ): Promise<void> {
   type Statement = Parameters<Database["batch"]>[0][number];
   const months = new Map<string, {
@@ -583,6 +700,22 @@ export async function insertReportSalesMonthly(
       })() : "1970-01-01",
     });
     const itemsBySku = await ensureTargetSalesItems(db, targetInputRows, true);
+    const hasBundleSnapshot = bundleSalesRows !== undefined;
+    const bundleSalesRowsByKey = new Map<string, NewReportBundleSalesMonthly>();
+    for (const row of bundleSalesRows ?? []) {
+      const externalSku = row.externalSku.trim();
+      const key = `${row.scopeId}\u0000${row.reportMonth}\u0000${externalSku.toLowerCase()}`;
+      const previous = bundleSalesRowsByKey.get(key);
+      if (!previous) {
+        bundleSalesRowsByKey.set(key, { ...row, externalSku, returnQuantity: row.returnQuantity ?? 0 });
+        continue;
+      }
+      if (previous.itemId !== row.itemId) throw new Error(`同一組合 SKU 對應到不同品項：${externalSku}`);
+      previous.grossQuantity += row.grossQuantity;
+      previous.returnQuantity = (previous.returnQuantity ?? 0) + (row.returnQuantity ?? 0);
+      previous.netQuantity += row.netQuantity;
+      previous.salesAmount += row.salesAmount;
+    }
     for (const entry of targetEntries) {
       const mappedRows = entry.rows.flatMap((row) => {
         const itemId = itemsBySku.get(row.sku.trim().toLowerCase());
@@ -590,12 +723,21 @@ export async function insertReportSalesMonthly(
           ? [{ scopeId: row.scopeId, reportMonth: row.reportMonth, itemId, recordOrigin: "imported" as const, reportRunId: targetRunId, grossQuantity: row.grossQuantity, returnQuantity: row.returnQuantity ?? 0, netQuantity: row.netQuantity, salesAmount: row.salesAmount }]
           : [];
       });
+      const bundleRows = [...bundleSalesRowsByKey.values()]
+        .filter((row) => row.scopeId === entry.scopeId && row.reportMonth === entry.reportMonth)
+        .flatMap((row) => targetRunId
+          ? [{ scopeId: row.scopeId, reportMonth: row.reportMonth, externalSku: row.externalSku, itemId: row.itemId, reportRunId: targetRunId, grossQuantity: row.grossQuantity, returnQuantity: row.returnQuantity ?? 0, netQuantity: row.netQuantity, salesAmount: row.salesAmount }]
+          : []);
       const targetStatements: Statement[] = [];
       if (entry.replaceExisting) {
         targetStatements.push(db.delete(reportItemSalesMonthly).where(and(eq(reportItemSalesMonthly.scopeId, entry.scopeId), eq(reportItemSalesMonthly.reportMonth, entry.reportMonth), eq(reportItemSalesMonthly.recordOrigin, "imported"))));
+        if (hasBundleSnapshot) targetStatements.push(db.delete(reportBundleSalesMonthly).where(and(eq(reportBundleSalesMonthly.scopeId, entry.scopeId), eq(reportBundleSalesMonthly.reportMonth, entry.reportMonth))));
       }
       for (const chunk of chunks(mappedRows, REPORT_SALES_WRITE_BATCH_SIZE)) {
         if (chunk.length) targetStatements.push(db.insert(reportItemSalesMonthly).values(chunk).onConflictDoUpdate({ target: [reportItemSalesMonthly.scopeId, reportItemSalesMonthly.reportMonth, reportItemSalesMonthly.itemId, reportItemSalesMonthly.recordOrigin], set: { reportRunId: targetRunId, grossQuantity: sql`excluded.gross_quantity`, returnQuantity: sql`excluded.return_quantity`, netQuantity: sql`excluded.net_quantity`, salesAmount: sql`excluded.sales_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } }));
+      }
+      for (const chunk of chunks(bundleRows, REPORT_SALES_WRITE_BATCH_SIZE)) {
+        if (chunk.length) targetStatements.push(db.insert(reportBundleSalesMonthly).values(chunk).onConflictDoUpdate({ target: [reportBundleSalesMonthly.scopeId, reportBundleSalesMonthly.reportMonth, reportBundleSalesMonthly.externalSku], set: { itemId: sql`excluded.item_id`, reportRunId: targetRunId, grossQuantity: sql`excluded.gross_quantity`, returnQuantity: sql`excluded.return_quantity`, netQuantity: sql`excluded.net_quantity`, salesAmount: sql`excluded.sales_amount`, updatedAt: sql`CURRENT_TIMESTAMP` } }));
       }
       if (targetStatements.length) await db.batch(targetStatements as [Statement, ...Statement[]]);
     }
@@ -901,9 +1043,11 @@ export async function queryReportSales(
   if (!ids.length) return null;
   const groups = selectedGroups(query.groupBy?.length ? query.groupBy : ["sku"]);
   const dimensions = groups.map((group) => SALES_GROUPS[group]);
-  const effectiveSalesSource = TARGET_EFFECTIVE_SALES_SOURCE;
   const requestedSku = query.sku?.trim();
   const requestedItemIds = [...new Set(query.itemIds?.map((id) => id.trim()).filter(Boolean) ?? [])];
+  const effectiveSalesSource = requestedItemIds.length
+    ? TARGET_EFFECTIVE_ITEM_SALES_SOURCE
+    : TARGET_EFFECTIVE_SALES_SOURCE;
   const productQuery = query.productQuery?.trim();
   // 這次查詢涵蓋的通路；未指定通路的歷史 mapping 仍保留相容查詢。
   const aliasChannels = [...new Set(ids.map(dataChannelFromScopeId))];

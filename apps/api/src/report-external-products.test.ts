@@ -52,6 +52,27 @@ describe("報表外部商品管理", () => {
   // 分類的建立、改名與刪除改由 /api/items/categories 那一組負責（見
   // items-catalog.test.ts 的「品項分類」）。這裡只留下報表這一側真正在用的東西：
   // 分類選項的計數。
+  it("忽略已有 parent 快照的組合商品時保留停用 parent", async () => {
+    const created = await addProductSkuMapping(db(), {
+      channel: "Shopee", externalName: "有歷史的組合", externalSku: "HISTORICAL-BUNDLE",
+      components: [{ customSku: "HISTORICAL-COMPONENT", customName: "歷史用料", customCategory: "未分類", quantity: 2 }], actor: ACTOR,
+    });
+    const parentId = `report-bundle:${created.id}`;
+    await db().insert(schema.scopes).values({ id: "bundle-history-scope", sourceType: "shopee", scopeKind: "store", name: "歷史蝦皮", normalizedName: "歷史蝦皮" });
+    await db().insert(schema.reportRuns).values({
+      id: "bundle-history-run", requestId: "bundle-history-request", sourceType: "shopee", importsSales: 1,
+      periodKind: "month", startDate: "2026-07-01", endDate: "2026-07-31", status: "succeeded", actorEmail: ACTOR.email,
+    });
+    await db().insert(schema.reportBundleSalesMonthly).values({
+      scopeId: "bundle-history-scope", reportMonth: "2026-07", externalSku: "HISTORICAL-BUNDLE", itemId: parentId, reportRunId: "bundle-history-run",
+      grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 100,
+    });
+
+    await ignoreReportExternalProduct(db(), { id: created.id, reason: "停用", actor: ACTOR });
+    expect(await db().select({ active: schema.items.active }).from(schema.items).where(eq(schema.items.id, parentId))).toEqual([{ active: 0 }]);
+    expect(await db().select().from(schema.itemComponents).where(eq(schema.itemComponents.parentItemId, parentId))).toEqual([]);
+  });
+
   it("刪除 legacy 分類表後仍能算出 target CYBERBIZ 商品的分類選項", async () => {
     const itemId = "target-cyberbiz-item";
     await db().insert(schema.itemCategories).values({ id: "target-category", depth: 0, name: "Target 分類", color: "teal" });
