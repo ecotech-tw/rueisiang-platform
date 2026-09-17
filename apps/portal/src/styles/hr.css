@@ -1078,8 +1078,10 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 /*
  * 快速排班。選一次人＋班別，再點日期加入或取消。
  *
- * 用日期那一列整條當按鈕，不是把整格做成可點區域：格子裡本來就有每筆排班的
- * 「×」，巢狀按鈕在鍵盤與讀螢幕上都是壞的。
+ * 整格就是那顆按鈕，所以日期鍵長得跟平常的日期一模一樣——沒有底色、沒有圖示。
+ * 它存在只為了鍵盤：格子本身不能做成 <button>（裡面有每筆排班的「×」，巢狀按鈕
+ * 在鍵盤與讀螢幕上是壞的），少了這顆就只有滑鼠排得了班。
+ * 選中與否看格子的底色與框線，不靠這裡再標一次。
  */
 .hr-system .hr-quick-bar {
   display: flex;
@@ -1094,48 +1096,22 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
     0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
 }
 .hr-system .hr-quick-hint { flex: 1 1 260px; min-height: 42px; margin: 0; align-content: center; }
-/* 權重要壓過上面的 .hr-calendar-date button（它把按鈕鎖成 30px 的圓形＋）。 */
 .hr-system .hr-calendar-date button.hr-quick-day {
-  display: flex;
-  width: 100%;
-  min-height: 30px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 0 6px 0 10px;
+  display: inline-grid;
+  min-width: 30px;
+  height: 30px;
+  place-items: center;
   border-radius: 999px;
-  background: --alpha(var(--color-paper) / 36%);
+  background: none;
   color: var(--color-ink);
   font-size: 15px;
   font-weight: 900;
-  transition-property: background-color, color, scale;
+  transition-property: color;
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
-.hr-system .hr-calendar-date button.hr-quick-day:hover:not(:disabled) { background: --alpha(var(--color-brand) / 7%); }
-.hr-system .hr-calendar-date button.hr-quick-day:active:not(:disabled) { scale: .96; }
+.hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="true"] { color: var(--color-brand-dark); }
 .hr-system .hr-calendar-date button.hr-quick-day:disabled { opacity: .45; }
-/* 選中是 Material 的色調容器：淡底深字，安靜地成立，不搶視線。 */
-.hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="true"] { background: var(--color-brand-soft); color: var(--color-brand-dark); }
-/*
- * 打勾只在選中時出現。整格都能點之後，沒選中還擺一個「＋」是多餘的提示，
- * 但位置要先佔著，否則打勾進場會把日期推一下。
- */
-.hr-system .hr-calendar-date button.hr-quick-day svg {
-  width: 18px;
-  height: 18px;
-  opacity: 0;
-  scale: .25;
-  filter: blur(4px);
-  transition-property: opacity, scale, filter;
-  transition-duration: 200ms;
-  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
-}
-.hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="true"] svg {
-  opacity: 1;
-  scale: 1;
-  filter: blur(0px);
-}
 /*
  * 快速排班進行中：整格可點，所以整格也要有 hover 的 state layer，不是只有日期鍵會亮。
  */

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
-import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
@@ -184,7 +183,7 @@ export function HrScheduling() {
           onClick={quick ? (event) => { if (!(event.target as HTMLElement).closest("button")) toggleQuickDay(day); } : undefined}
         >
           <div className="hr-calendar-date">{quick
-            ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!quick.shiftVersionId || !quick.personId} onClick={() => toggleQuickDay(day)}><span>{index + 1}</span><Icon name="check" /></button>
+            ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!quick.shiftVersionId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
             : <><strong>{index + 1}</strong>{canEdit ? <button type="button" onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
           <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${quick && samePick(entry, quick) ? " current" : ""}`} key={entry.id}><span>{entry.personName}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
         </div>)}
