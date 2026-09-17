@@ -1117,8 +1117,25 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .hr-calendar-date button.hr-quick-day:disabled { opacity: .45; }
 /* 選中是 Material 的色調容器：淡底深字，安靜地成立，不搶視線。 */
 .hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="true"] { background: var(--color-brand-soft); color: var(--color-brand-dark); }
-.hr-system .hr-calendar-date button.hr-quick-day svg { width: 18px; height: 18px; }
-.hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="false"] svg { color: var(--color-muted); }
+/*
+ * 打勾只在選中時出現。整格都能點之後，沒選中還擺一個「＋」是多餘的提示，
+ * 但位置要先佔著，否則打勾進場會把日期推一下。
+ */
+.hr-system .hr-calendar-date button.hr-quick-day svg {
+  width: 18px;
+  height: 18px;
+  opacity: 0;
+  scale: .25;
+  filter: blur(4px);
+  transition-property: opacity, scale, filter;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+.hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="true"] svg {
+  opacity: 1;
+  scale: 1;
+  filter: blur(0px);
+}
 /*
  * 快速排班進行中：整格可點，所以整格也要有 hover 的 state layer，不是只有日期鍵會亮。
  */
