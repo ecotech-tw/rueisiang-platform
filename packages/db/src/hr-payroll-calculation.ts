@@ -369,9 +369,10 @@ interface CalculatedAssignedBonus {
   amountMinor: number;
   poolAmountMinor: number;
   revenueMinor: number;
-  scheduledDays: number;
+  /** 個人績效才有意義；團體績效不看排班，固定為 null。 */
+  scheduledDays: number | null;
   weightedTotal: number;
-  /** 政策涵蓋的店在來源月份裡，完全沒有出金資料的日期；缺一天就少算一天。 */
+  /** 計入業績的日期中完全沒有出金資料的日期；缺一天就少算一天。 */
   missingPayoutDates: string[];
   formula: string;
 }
@@ -389,14 +390,14 @@ function scopeOfKey(key: string) { return key.slice(0, key.lastIndexOf(":")); }
 function dateOfKey(key: string) { return key.slice(key.lastIndexOf(":") + 1); }
 
 /**
- * 獎金一律從「出金表的每日金額 × 已發布排班」算出來，沒有第二條路。
+ * 獎金一律從出金表的每日金額算出來，沒有第二條路。
  *
- * 團體績效：政策綁的那些店、當月**有人排班**的日子，出金加總扣一次保底再乘比例得到池；
- * 池再按「自己的排班天數 × 權重 ÷ 全體加權天數」分給成員。
+ * 團體績效：政策綁的那些店在來源月份**每一天**的出金加總，扣一次保底再乘比例得到池；
+ * 池只按權重分給成員（自己的權重 ÷ 全體權重）。**不看排班、不看出勤天數**：只要在獎金
+ * 名單裡就照權重分，這是業主明確定下的規則，不要再把排班天數乘回去。
  * 個人績效：只看**這個人自己**排到的 (店, 日期)，同樣扣保底乘比例，不需要分配。
  *
- * 兩者的輸入完全一樣，差別只在「算誰的日子」與「要不要分」。以前個人績效另外走一份
- * 月結業績快照，權重與排班天數都不看，同一個政策從兩個入口算出來的金額不一樣——
+ * 以前個人績效另外走一份月結業績快照，同一個政策從兩個入口算出來的金額不一樣——
  * 那份已經整個移除。
  */
 function calculateAssignedBonus(
@@ -424,34 +425,25 @@ function calculateAssignedBonus(
     };
   }
 
-  // 團體績效：合格日是「政策的店、當月有任何成員排班」的那些日子。
-  const eligibleDays = new Set<string>();
-  for (const member of policyMembers) {
-    for (const key of scheduledDaysByEmployment.get(member.employmentId) ?? []) {
-      if (inSourcePeriod(key) && scopeIds.includes(scopeOfKey(key))) eligibleDays.add(key);
-    }
-  }
-  const revenueMinor = [...eligibleDays].reduce((sum, key) => sum + (payouts.get(key) ?? 0), 0);
+  // 團體績效：政策的店在來源月份的每一天都算，跟誰有沒有排班無關。
+  const eligibleDays = scopeIds.flatMap((scopeId) => dateRange(sourcePeriod.start, sourcePeriod.end).map((date) => dayKey(scopeId, date)));
+  const revenueMinor = eligibleDays.reduce((sum, key) => sum + (payouts.get(key) ?? 0), 0);
   const poolAmountMinor = roundToDollar(Math.max(0, revenueMinor - version.guaranteeMinor) * version.ratePpm / PPM);
-  const weighted = policyMembers.map((member) => ({
-    employmentId: member.employmentId,
-    weightUnits: member.weightUnits,
-    days: [...(scheduledDaysByEmployment.get(member.employmentId) ?? [])].filter((key) => inSourcePeriod(key) && scopeIds.includes(scopeOfKey(key))).length,
-  }));
-  const weightedTotal = weighted.reduce((sum, item) => sum + item.days * item.weightUnits, 0);
-  const own = weighted.find((item) => item.employmentId === assignment.member.employmentId);
+  const weightedTotal = policyMembers.reduce((sum, item) => sum + item.weightUnits, 0);
+  const own = policyMembers.find((item) => item.employmentId === assignment.member.employmentId);
   /*
-   * 餘數給加權最高的那一位，不是隨便挑第一個：Math.floor 之後全體加起來會比池少幾分，
+   * 餘數給權重最高的那一位，不是隨便挑第一個：Math.floor 之後全體加起來會比池少幾分，
    * 那幾分必須有歸屬，否則池金額與實際發出去的錢對不起來。
    */
-  const top = [...weighted].sort((a, b) => b.days * b.weightUnits - a.days * a.weightUnits || a.employmentId.localeCompare(b.employmentId))[0];
-  const shareMinor = weightedTotal && own ? Math.floor(poolAmountMinor * own.days * own.weightUnits / weightedTotal) : 0;
-  const remainder = weightedTotal ? poolAmountMinor - weighted.reduce((sum, item) => sum + Math.floor(poolAmountMinor * item.days * item.weightUnits / weightedTotal), 0) : 0;
+  const top = [...policyMembers].sort((a, b) => b.weightUnits - a.weightUnits || a.employmentId.localeCompare(b.employmentId))[0];
+  const shareMinor = weightedTotal && own ? Math.floor(poolAmountMinor * own.weightUnits / weightedTotal) : 0;
+  const remainder = weightedTotal ? poolAmountMinor - policyMembers.reduce((sum, item) => sum + Math.floor(poolAmountMinor * item.weightUnits / weightedTotal), 0) : 0;
   return {
     amountMinor: shareMinor + (top && own && top.employmentId === own.employmentId ? remainder : 0),
-    poolAmountMinor, revenueMinor, scheduledDays: own?.days ?? 0, weightedTotal,
-    missingPayoutDates: [...eligibleDays].filter((key) => !payouts.has(key)).map(dateOfKey).sort(),
-    formula: "max(0, 排班日出金 - 保底) × 比例 × 本人排班天數 × 權重 ÷ 全體加權天數",
+    poolAmountMinor, revenueMinor, scheduledDays: null, weightedTotal,
+    // 多店時同一天可能好幾家店都缺；提醒只需要日期。
+    missingPayoutDates: [...new Set(eligibleDays.filter((key) => !payouts.has(key)).map(dateOfKey))].sort(),
+    formula: "max(0, 期間出金 - 保底) × 比例 × 本人權重 ÷ 全體權重",
   };
 }
 
@@ -606,10 +598,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   });
   const previous = previousPeriod(period);
   /*
-   * 獎金的兩個輸入：政策涵蓋的店在來源月份的每日出金，以及**全體成員**的已發布排班。
-   *
-   * 排班要撈全體成員，不能只撈這批要結算的員工：部分結算時同隊的人可能不在這一批，
-   * 少算他們的天數會把分母變小，留在批次裡的人就會分到比應得更多的錢。
+   * 獎金的兩個輸入：政策涵蓋的店在來源月份的每日出金，以及成員的已發布排班。
+   * 排班只有個人績效用得到（業績只算本人排到的日子）；團體績效只看出金與權重。
    * 出金與排班都涵蓋前一個月，因為政策可以設定以前月業績計算。
    */
   const bonusScopeIds = [...new Set(bonusAssignments.flatMap((item) => item.version.scopeIds.length ? item.version.scopeIds : [item.version.scopeId]))];
@@ -794,7 +784,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
        * 缺出金資料不是「獎金剛好是 0」，是「算不出來」。這兩件事在薪資單上長得一樣，
        * 所以一定要講出來——出金表還沒匯入就發薪，少的錢沒有人會主動回來補。
        */
-      if (!bonus.scheduledDays) {
+      // scheduledDays 只有個人績效會是數字；團體績效不看排班，不該因為沒排班而提醒。
+      if (bonus.scheduledDays === 0) {
         calculationWarnings.add(`${employee.employeeName} 的「${assignment.policyName}」在${monthLabel}沒有涵蓋通路的已發布排班，獎金為 0。`);
       } else if (bonus.missingPayoutDates.length) {
         calculationWarnings.add(`${employee.employeeName} 的「${assignment.policyName}」有 ${bonus.missingPayoutDates.length} 天缺少${monthLabel}出金資料（${bonus.missingPayoutDates.slice(0, 3).join("、")}${bonus.missingPayoutDates.length > 3 ? " 等" : ""}），這幾天按 0 計算。請先完成出金表匯入再重新試算。`);

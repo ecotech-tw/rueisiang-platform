@@ -167,12 +167,12 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `hr_bonus_revenue_snapshots` | `bonus_pool_id, scope_id, employment_id?, source_kind, source_start, source_end, amount_minor, captured_at, provenance_json` | scope + source_start 索引；個人歸屬經服務層驗證 |
 | `hr_bonus_allocations` | `bonus_pool_id, employment_id, weight_units, scheduled_days, revenue_minor, amount_minor, rounding_adjustment_minor, explanation_json` | 唯一 pool + employment；權重、排班日與業績非負；保留公式與尾差說明 |
 
-獎金只有一條算法，在薪資試算裡完成，輸入是**出金表的每日金額**與**已發布排班**：
+獎金只有一條算法，在薪資試算裡完成，輸入是**出金表的每日金額**，個人績效另外看**已發布排班**：
 
-- **團體績效**：政策涵蓋的 scope、來源月份內**有任何成員排班**的日子，出金加總後扣**一次**保底再乘比例得到池；池按 `本人排班天數 × weight_units ÷ 全體加權天數` 分配，餘數歸加權最高者。
+- **團體績效**：政策涵蓋的 scope 在來源月份**每一天**的出金加總後扣**一次**保底再乘比例得到池；池按 `本人 weight_units ÷ 全體 weight_units` 分配，不看排班天數，餘數歸權重最高者。
 - **個人績效**：只取**本人**排到的 `(scope, 日期)`，同樣 `max(0, 出金加總 - 保底) × 比例`，不進池也不分配。
 
-保底是獨立欄位，百分比是每筆 policy 的必填值，業績期間依 policy 選當月或前月（排班天數也取同一個月）。每筆政策獨立計算後加總，最後四捨五入到新臺幣元。
+保底是獨立欄位，百分比是每筆 policy 的必填值，業績期間依 policy 選當月或前月（個人績效的排班也取同一個月）。每筆政策獨立計算後加總，最後四捨五入到新臺幣元。
 
 排班要撈**全體成員**，不能只撈當次結算的員工：部分結算時同隊的人可能不在批次裡，少算他們的天數會把分母變小，留在批次裡的人就分到比應得更多的錢。
 
