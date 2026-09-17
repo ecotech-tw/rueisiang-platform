@@ -15,112 +15,120 @@ function clock(seconds: number) {
   return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}`;
 }
 
-/** 視窗裡目前在看什麼：班別清單、新增／修改的表單，或刪除確認。 */
-type View = { kind: "list" } | { kind: "create" } | { kind: "edit"; shift: ScheduleShift } | { kind: "delete"; shift: ScheduleShift };
+interface ShiftRowDraft {
+  key: string;
+  original: ScheduleShift | null;
+  name: string;
+  startTime: string;
+  endTime: string;
+}
+
+function rowsFromShifts(shifts: ScheduleShift[]): ShiftRowDraft[] {
+  return shifts.map((shift) => ({ key: shift.versionId, original: shift, name: shift.name, startTime: clock(shift.startSecond), endTime: clock(shift.endSecond) }));
+}
+
+function rowChanged(row: ShiftRowDraft) {
+  if (!row.original) return true;
+  if (row.original.endDayOffset) return false;
+  return row.name.trim() !== row.original.name || row.startTime !== clock(row.original.startSecond) || row.endTime !== clock(row.original.endSecond);
+}
 
 /**
  * 一家店的班別，全部在同一個視窗裡完成。
  *
- * 新增、修改、刪除確認都不開第二層視窗，而是換掉同一個視窗的內容：視窗疊視窗時，
- * 按 Esc 或點遮罩到底關哪一層沒人說得準，存完也不容易回到原本那張清單。
+ * 每列都是可直接編輯的草稿；新增、修改與刪除一起在右下角「儲存」時送出，
+ * 和敘薪的項目編輯保持同一種操作節奏，不需要先找一顆編輯按鈕再跳到另一張表單。
  */
 function StoreShiftsDialog({ scope, shifts, canWrite, onClose, onSaved }: { scope: ScheduleScope; shifts: ScheduleShift[]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
-  const [view, setView] = useState<View>({ kind: "list" });
-  const [name, setName] = useState("");
-  const [startTime, setStartTime] = useState("09:00");
-  const [endTime, setEndTime] = useState("18:00");
+  const [rows, setRows] = useState(() => rowsFromShifts(shifts));
+  const [removedRows, setRemovedRows] = useState<ScheduleShift[]>([]);
+  const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
   const toast = useToast();
+  const hasChanges = removedRows.length > 0 || rows.length !== shifts.length || rows.some(rowChanged);
 
-  const openForm = (next: View) => {
-    save.reset();
-    const shift = next.kind === "edit" ? next.shift : null;
-    setName(shift?.name ?? "");
-    setStartTime(shift ? clock(shift.startSecond) : "09:00");
-    setEndTime(shift ? clock(shift.endSecond) : "18:00");
-    setView(next);
+  const updateRow = (key: string, patch: Partial<Pick<ShiftRowDraft, "name" | "startTime" | "endTime">>) => {
+    setRows((current) => current.map((row) => row.key === key ? { ...row, ...patch } : row));
+    setMessage(null);
   };
 
-  if (view.kind === "list") {
-    return <Dialog title={scope.name} onClose={onClose} actions={canWrite ? <Button icon="plus" className="add-action" onClick={() => openForm({ kind: "create" })}>新增班別</Button> : undefined}>
-      {shifts.length ? <div className="table-scroll"><table className="data-table"><thead><tr>
-        <th>班別</th><th className="numeric">上班時間</th>{canWrite ? <th><span className="sr-only">操作</span></th> : null}
-      </tr></thead><tbody>
-        {shifts.map((shift) => <tr key={shift.versionId}>
-          <td data-label="班別"><span className="cell-strong">{shift.name}</span></td>
-          <td data-label="上班時間" className="numeric">
-            {shiftTimeRange(shift)}
-            {/*
-              * 班別管理只建得出當天上下班的班別，但舊資料可能還有跨午夜的。表單帶入 23:00–07:00
-              * 會被判定時間錯誤而存不了，連名稱都改不動；所以直接停用修改，原因寫在畫面上，
-              * 不只放在提示框裡——觸控裝置看不到提示框。
-              */}
-            {shift.endDayOffset ? <span className="cell-sub block">跨午夜的舊班別，無法修改</span> : null}
-          </td>
-          {canWrite ? <td data-label="操作"><div className="row-actions">
-            <Tooltip label={shift.endDayOffset ? "跨午夜的舊班別無法修改，可刪除後重建" : `修改 ${shift.name}`} focusable={false}>
-              <Button variant="icon" icon="edit" className="compensation-action-update" aria-label={`修改 ${shift.name}`} disabled={Boolean(shift.endDayOffset)} onClick={() => openForm({ kind: "edit", shift })} />
-            </Tooltip>
-            <Tooltip label={`刪除 ${shift.name}`} focusable={false}>
-              <Button variant="icon" icon="trash" className="danger hr-bonus-action-delete" aria-label={`刪除 ${shift.name}`} onClick={() => { save.reset(); setView({ kind: "delete", shift }); }} />
-            </Tooltip>
-          </div></td> : null}
-        </tr>)}
-      </tbody></table></div> : <p className="muted">這家店還沒有班別。新增之後，排班月曆才選得到。</p>}
-    </Dialog>;
-  }
+  const addNewRow = () => {
+    setRows((current) => [...current, { key: `new-${crypto.randomUUID()}`, original: null, name: "", startTime: "09:00", endTime: "18:00" }]);
+    setMessage(null);
+  };
 
-  if (view.kind === "delete") {
-    const target = view.shift;
-    return <Dialog
-      title={`刪除班別 · ${scope.name}`}
-      role="alertdialog"
-      onClose={onClose}
-      closeDisabled={save.isPending}
-      actions={<><Button variant="secondary" disabled={save.isPending} onClick={() => { save.reset(); setView({ kind: "list" }); }}>取消</Button><Button variant="danger" icon="trash" loading={save.isPending} onClick={() => save.mutate(
-        { path: `/shift-templates/${encodeURIComponent(target.templateId)}`, method: "DELETE", values: { scopeId: scope.id, revision: target.revision } },
-        { onSuccess: async () => { toast.show(`已刪除班別「${target.name}」。`); await onSaved(); setView({ kind: "list" }); } },
-      )}>刪除班別</Button></>}
-    >
-      <p>確定刪除「{target.name}」（{shiftTimeRange(target)}）？</p>
-      {/* 已排進排班的班別刪不掉；錯誤留在畫面上說明排在哪，讓人知道要先去排班月曆處理，而不是只閃一下提示。 */}
-      {save.error ? <Alert tone="danger">{save.error.message}</Alert> : <p className="muted">只有還沒排進任何排班的班別可以刪除。</p>}
-    </Dialog>;
-  }
+  const removeRow = (row: ShiftRowDraft) => {
+    if (save.isPending) return;
+    if (row.original) setRemovedRows((current) => [...current, row.original!]);
+    setRows((current) => current.filter((candidate) => candidate.key !== row.key));
+    setMessage(null);
+  };
 
-  const editing = view.kind === "edit" ? view.shift : null;
-  // 班別一律當天上下班；結束早於開始多半是打錯，送出前就擋，不必等後端回一句看不出錯在哪的訊息。
-  const invalidRange = Boolean(startTime && endTime && endTime <= startTime);
-  const back = () => { save.reset(); setView({ kind: "list" }); };
+  const saveAll = async () => {
+    if (!hasChanges || save.isPending) return;
+    save.reset();
+    setMessage(null);
+
+    const names = new Set<string>();
+    for (const row of rows) {
+      const name = row.name.trim();
+      if (!name) { setMessage("每個班別都要有名稱，未完成的列請先刪除。"); return; }
+      if (names.has(name)) { setMessage(`班別名稱「${name}」重複了，請改成不同名稱。`); return; }
+      names.add(name);
+      if (row.original?.endDayOffset) continue;
+      if (!row.startTime || !row.endTime) { setMessage(`「${name}」請填寫開始與結束時間。`); return; }
+      if (row.endTime <= row.startTime) { setMessage(`「${name}」的結束時間必須晚於開始時間。`); return; }
+    }
+
+    try {
+      for (const row of removedRows) {
+        await save.mutateAsync({ path: `/shift-templates/${encodeURIComponent(row.templateId)}`, method: "DELETE", values: { scopeId: scope.id, revision: row.revision } });
+      }
+      for (const row of rows) {
+        const name = row.name.trim();
+        if (row.original) {
+          if (!rowChanged(row)) continue;
+          await save.mutateAsync({ path: `/shift-templates/${encodeURIComponent(row.original.templateId)}`, method: "PATCH", values: { scopeId: scope.id, name, startTime: row.startTime, endTime: row.endTime, revision: row.original.revision } });
+        } else {
+          await save.mutateAsync({ path: "/shift-templates", method: "POST", values: { scopeId: scope.id, name, startTime: row.startTime, endTime: row.endTime } });
+        }
+      }
+      await onSaved();
+      toast.show("班別設定已儲存。");
+      onClose();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "班別設定儲存失敗，請稍後再試。");
+    }
+  };
+
   return <Dialog
-    title={editing ? `修改班別 · ${scope.name}` : `新增班別 · ${scope.name}`}
+    title={scope.name}
     onClose={onClose}
     closeDisabled={save.isPending}
-    formProps={{ onSubmit: (event) => {
-      event.preventDefault();
-      if (invalidRange) return;
-      const values = { scopeId: scope.id, name, startTime, endTime };
-      save.mutate(editing
-        ? { path: `/shift-templates/${encodeURIComponent(editing.templateId)}`, method: "PATCH", values: { ...values, revision: editing.revision } }
-        : { path: "/shift-templates", method: "POST", values }, {
-        onSuccess: async () => {
-          toast.show(editing ? `已修改班別「${name.trim()}」。` : `已新增班別「${name.trim()}」。`);
-          await onSaved();
-          setView({ kind: "list" });
-        },
-      });
-    } }}
-    actions={<><Button type="button" variant="secondary" disabled={save.isPending} onClick={back}>返回</Button><Button type="submit" loading={save.isPending} disabled={invalidRange}>{editing ? "儲存修改" : "建立班別"}</Button></>}
+    actions={canWrite ? <Button loading={save.isPending} disabled={!hasChanges} onClick={() => { void saveAll(); }}>儲存</Button> : undefined}
   >
-    <TextField label="班別名稱" required maxLength={100} placeholder="例如：早班" value={name} onChange={(event) => setName(event.target.value)} />
-    <div className="form-grid two">
-      <TextField label="開始時間" type="time" required value={startTime} onChange={(event) => setStartTime(event.target.value)} />
-      <TextField label="結束時間" type="time" required value={endTime} onChange={(event) => setEndTime(event.target.value)} />
+    <div className="shift-items">
+      <span className="shift-items-label">班別時段</span>
+      <div className="shift-items-head" aria-hidden="true"><span>班別</span><span>開始時間</span><span>結束時間</span><span className="shift-item-spacer" /></div>
+      {rows.map((row) => {
+        const legacyOvernight = Boolean(row.original?.endDayOffset);
+        return <div key={row.key} className={`shift-item-row${row.original ? "" : " shift-item-row-draft"}`}>
+          <TextField label="班別" aria-label={`${row.name || "班別"}名稱`} required maxLength={100} placeholder="例如：早班" value={row.name} disabled={legacyOvernight || save.isPending} onChange={(event) => updateRow(row.key, { name: event.target.value })} />
+          <TextField label="開始時間" aria-label={`${row.name || "班別"}開始時間`} type="time" required value={row.startTime} disabled={legacyOvernight || save.isPending} onChange={(event) => updateRow(row.key, { startTime: event.target.value })} />
+          <TextField label="結束時間" aria-label={`${row.name || "班別"}結束時間`} type="time" required value={row.endTime} disabled={legacyOvernight || save.isPending} onChange={(event) => updateRow(row.key, { endTime: event.target.value })} />
+          <Tooltip label={`刪除${row.name ? ` ${row.name}` : "這個班別"}`} focusable={false}>
+            <Button variant="icon" icon="trash" className="danger hr-bonus-action-delete" aria-label={`刪除${row.name || "這個班別"}`} disabled={save.isPending} onClick={() => removeRow(row)} />
+          </Tooltip>
+          {legacyOvernight ? <small className="shift-item-note">跨午夜的舊班別，請刪除後重新建立。</small> : null}
+        </div>;
+      })}
+      {!rows.length ? <p className="muted shift-items-empty">尚未設定班別，按下「新增班別」後會直接出現可編輯的列。</p> : null}
+      {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
+      <div className="shift-items-foot">
+        {canWrite ? <Button variant="secondary" icon="plus" disabled={save.isPending} onClick={addNewRow}>新增班別</Button> : <span />}
+        <p className="shift-items-total">共 <strong>{rows.length}</strong> 個班別</p>
+      </div>
     </div>
-    {/* 修改是直接改在原本的班別上：已經排出去的班存著自己的時間，但那個月重新按儲存就會套用新時間。這句要在按下去之前讀得到。 */}
-    {editing ? <p className="muted">修改會直接套用到這個班別。已排好的班維持原本時間，但該月份重新儲存排班時會改用新時間；已結算的月份請先鎖定。</p> : null}
-    {invalidRange ? <Alert tone="danger">結束時間必須晚於開始時間。</Alert> : null}
-    {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
   </Dialog>;
 }
 
