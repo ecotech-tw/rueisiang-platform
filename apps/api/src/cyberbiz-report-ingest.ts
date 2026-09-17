@@ -11,7 +11,6 @@ import {
   resolveProductSkus,
   type Database,
   type NewReportBundleSalesMonthly,
-  type ReportScopeKind,
 } from "@rueisiang/db";
 import { items as itemMasters } from "@rueisiang/db/schema";
 import { reportExternalProducts, reportIngestIssues, reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
@@ -20,7 +19,7 @@ export type CyberbizReportIngestKind = "sales" | "payout" | "sales_and_payout";
 
 export interface CyberbizReportIngestInput {
   kind: CyberbizReportIngestKind;
-  scopeType: ReportScopeKind;
+  scopeType: "store";
   scopeId: string;
   scopeName: string;
   rows?: unknown[];

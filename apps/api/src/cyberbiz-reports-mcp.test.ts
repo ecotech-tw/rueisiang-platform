@@ -32,10 +32,14 @@ beforeEach(async () => {
   d1 = createTargetOnlyD1();
   const db = createDatabase(d1 as never);
   await upsertReportScope(db, { id: "cyberbiz:store:test", scopeKind: "store", name: "測試店" });
+  await upsertReportScope(db, { id: "cyberbiz:channel:shop", scopeKind: "channel", name: "官網" });
   await db.insert(itemCategories).values({ id: "mcp-bath", depth: 0, parentId: null, parentDepth: null, name: "沐浴", color: "rose", sortOrder: 0, active: 1 });
   await insertReportSalesMonthly(db, [{
     scopeId: "cyberbiz:store:test", reportMonth: "2026-07", sku: "SKU-1", productName: "商品一", category: "沐浴",
     grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 180,
+  }, {
+    scopeId: "cyberbiz:channel:shop", reportMonth: "2026-07", sku: "SKU-1", productName: "商品一", category: "沐浴",
+    grossQuantity: 4, returnQuantity: 0, netQuantity: 4, salesAmount: 360,
   }]);
 });
 
@@ -57,12 +61,14 @@ describe("報表 MCP endpoint", () => {
       name: "list_report_scopes",
       arguments: {},
     }, { "MCP-Protocol-Version": "2025-06-18" });
-    const scopesBody = await scopes.json() as { result: { isError: boolean; structuredContent: { scopes: Array<{ scopeName: string }> } } };
+    const scopesBody = await scopes.json() as { result: { isError: boolean; structuredContent: { scopes: Array<{ scopeId: string; scopeName: string; scopeType: string }> } } };
     expect(scopesBody.result.isError).toBe(false);
-    expect(scopesBody.result.structuredContent.scopes).toEqual([
-      { scopeId: "cyberbiz:store:test", scopeName: "測試店" },
-      { scopeId: "shopee:store:default", scopeName: "蝦皮" },
-    ]);
+    expect(scopesBody.result.structuredContent.scopes).toHaveLength(3);
+    expect(scopesBody.result.structuredContent.scopes).toEqual(expect.arrayContaining([
+      { scopeId: "cyberbiz:store:test", scopeName: "測試店", scopeType: "store" },
+      { scopeId: "shopee:store:default", scopeName: "蝦皮", scopeType: "store" },
+      { scopeId: "cyberbiz:channel:shop", scopeName: "官網", scopeType: "channel" },
+    ]));
 
     const queried = await call("tools/call", 4, {
       name: "query_sales_report",
@@ -71,6 +77,14 @@ describe("報表 MCP endpoint", () => {
     const queryBody = await queried.json() as { result: { isError: boolean; structuredContent: { status: string; totals: { salesAmount: number } } } };
     expect(queryBody.result.isError).toBe(false);
     expect(queryBody.result.structuredContent).toMatchObject({ status: "ok", totals: { salesAmount: 180 } });
+
+    const websiteQuery = await call("tools/call", 5, {
+      name: "query_sales_report",
+      arguments: { period: "2026-07", scopeType: "channel", scopeName: "官網" },
+    }, { "MCP-Protocol-Version": "2025-06-18" });
+    const websiteBody = await websiteQuery.json() as { result: { isError: boolean; structuredContent: { status: string; scopeType: string; totals: { salesAmount: number } } } };
+    expect(websiteBody.result.isError).toBe(false);
+    expect(websiteBody.result.structuredContent).toMatchObject({ status: "ok", scopeType: "channel", totals: { salesAmount: 360 } });
   });
 
   it("仍然驗證 bearer、Origin、Accept 與 protocol header", async () => {

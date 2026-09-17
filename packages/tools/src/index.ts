@@ -1219,8 +1219,8 @@ export const LIST_REPORT_SCOPES_TOOL_KEY = "list_report_scopes";
 
 const listReportScopesTool: PlatformToolDefinition = {
   key: LIST_REPORT_SCOPES_TOOL_KEY,
-  label: "列出報表據點",
-  description: "列出目前可供報表查詢的啟用據點正式名稱與 scopeId。當使用者用簡稱或不確定店名時，先呼叫這個工具，再把回傳的 scopeName 原樣傳給 query_payout_report 或 query_sales_report；不要自行猜測店名。",
+  label: "列出報表範圍",
+  description: "列出目前可供報表查詢的啟用 scope 正式名稱、scopeId 與 scopeType（store 或 channel）。當使用者用簡稱或不確定店名，或要分辨蝦皮與官網時，先呼叫這個工具；再把同一筆回傳的 scopeName 與 scopeType 原樣傳給 query_payout_report 或 query_sales_report，不要自行猜測。company 是彙總範圍，不會列在清單中。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],
@@ -1229,11 +1229,10 @@ const listReportScopesTool: PlatformToolDefinition = {
     properties: {},
   },
   async execute(_input, context) {
-    const scopes = canonicalReportStoreScopes(await listReportScopes(database(context), "store"));
+    const scopes = canonicalReportStoreScopes(await listReportScopes(database(context)));
     return json({
       status: "ok",
-      scopeType: "store",
-      scopes: scopes.map((scope) => ({ scopeId: scope.id, scopeName: scope.name })),
+      scopes: scopes.map((scope) => ({ scopeId: scope.id, scopeName: scope.name, scopeType: scope.scopeKind })),
     });
   },
 };
@@ -1241,7 +1240,7 @@ const listReportScopesTool: PlatformToolDefinition = {
 const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
   key: "query_sales_report",
   label: "查詢商品銷售報表",
-  description: "從已匯入 D1 的通路商品銷售月資料查詢單一商品、分類、單一櫃位或公司整體的銷售數與售額。查特定商品時優先傳 list_items 回傳的 itemIds；組合商品的 parent itemId 會查原始組合銷售，元件 itemId 則維持查詢報表展開後的用料數量。通路的 SKU 或蝦皮 Product ID 仍可用 sku 相容查詢。productName 只是舊版關鍵字模糊搜尋 fallback，不適合拿自然語言商品名稱直接查。這不是 CRM 訂單查詢；單一 scope 請傳 scopeName（例如誠品西門店3F或蝦皮），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store。支援月份與年份；自訂日期只能使用完整月份，否則會回傳 UNSUPPORTED_GRANULARITY。公司查詢由服務端完成所有據點的彙總，不需要逐店呼叫工具。",
+  description: "從已匯入 D1 的通路商品銷售月資料查詢單一商品、分類、單一櫃位、官網通路或公司整體的銷售數與售額。查特定商品時優先傳 list_items 回傳的 itemIds；組合商品的 parent itemId 會查原始組合銷售，元件 itemId 則維持查詢報表展開後的用料數量。通路的 SKU 或蝦皮 Product ID 仍可用 sku 相容查詢。productName 只是舊版關鍵字模糊搜尋 fallback，不適合拿自然語言商品名稱直接查。這不是 CRM 訂單查詢；單一 scope 請傳 scopeName（例如誠品西門店3F、蝦皮或官網），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store；CYBERBIZ 官網請使用 scopeType=channel。支援月份與年份；自訂日期只能使用完整月份，否則會回傳 UNSUPPORTED_GRANULARITY。公司查詢由服務端完成所有據點的彙總，不需要逐店呼叫工具。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],
@@ -1249,9 +1248,9 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
     type: "object",
     properties: {
       period: { type: "string", description: "報表期間，YYYY 代表全年、YYYY-MM 代表整月；也可改用 startDate 與 endDate。" },
-      scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位。", enum: ["company", "store"] },
-      scopeName: { type: "string", description: "scopeType=store 時的 scope 名稱，例如 誠品西門店3F 或 蝦皮；由服務端解析固定 scopeId。" },
-      scopeId: { type: "string", description: "相容既有呼叫的櫃位固定 ID；通常不需要填，優先使用 scopeName。" },
+      scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位；channel 為官網等單一通路。", enum: ["company", "store", "channel"] },
+      scopeName: { type: "string", description: "scopeType=store 或 channel 時的 scope 名稱，例如 誠品西門店3F、蝦皮或官網；由服務端解析固定 scopeId。" },
+      scopeId: { type: "string", description: "相容既有呼叫的固定 scope ID；通常不需要填，優先使用 scopeName。" },
       startDate: { type: "string", description: "自訂完整月份起始日 YYYY-MM-01，需與 endDate 一起提供。" },
       endDate: { type: "string", description: "自訂完整月份結束日 YYYY-MM-DD，需與 startDate 一起提供。" },
       groupBy: { type: "string", description: "可選分組，使用逗號分隔：month、scope、sku、category；例如月銷量使用 month,sku。" },
@@ -1267,12 +1266,12 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
     const scopeType = textInput(input, "scopeType");
     const startDate = textInput(input, "startDate");
     const endDate = textInput(input, "endDate");
-    if ((!period && (!startDate || !endDate)) || (startDate && !endDate) || (!startDate && endDate) || !["company", "store"].includes(scopeType)) {
+    if ((!period && (!startDate || !endDate)) || (startDate && !endDate) || (!startDate && endDate) || !["company", "store", "channel"].includes(scopeType)) {
       throw new AssistantError("商品銷售報表查詢需要正確的 period 或完整日期區間，以及 scopeType。");
     }
     const scopeId = textInput(input, "scopeId");
     const scopeName = textInput(input, "scopeName");
-    if (scopeType === "store" && !scopeId && !scopeName) throw new AssistantError("查詢單一櫃位時需要店面名稱。");
+    if (scopeType !== "company" && !scopeId && !scopeName) throw new AssistantError(scopeType === "channel" ? "查詢單一通路時需要通路名稱。" : "查詢單一櫃位時需要店面名稱。");
     return cyberbizReportToolResult(await cyberbizReportService(context).querySales({
       ...(period ? { period } : {}),
       scopeType: scopeType as CyberbizSalesQuery["scopeType"],
@@ -1292,7 +1291,7 @@ const cyberbizQuerySalesReportTool: PlatformToolDefinition = {
 const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
   key: "query_payout_report",
   label: "查詢業績／出金報表",
-  description: "從已解析的通路每日 payout／出金資料查詢單一 scope 或公司整體的業績合計與明細；公司內部使用者說「業績」時，以這裡的 payoutAmount 回答。這不是商品銷售報表，也不是 CRM 訂單查詢；商品數量、SKU、分類或商品銷售額請使用 query_sales_report。單一 scope 請傳 scopeName（例如誠品西門店3F或蝦皮），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store。服務端會先檢查指定區間是否完整涵蓋，再一次完成查詢。",
+  description: "從已解析的通路每日 payout／出金資料查詢單一 scope（包含官網 channel）或公司整體的業績合計與明細；公司內部使用者說「業績」時，以這裡的 payoutAmount 回答。這不是商品銷售報表，也不是 CRM 訂單查詢；商品數量、SKU、分類或商品銷售額請使用 query_sales_report。單一 scope 請傳 scopeName（例如誠品西門店3F、蝦皮或官網），不需要使用者知道 scopeId。蝦皮目前以 scopeName=蝦皮代表整個蝦皮賣場，請使用 scopeType=store；CYBERBIZ 官網請使用 scopeType=channel。服務端會先檢查指定區間是否完整涵蓋，再一次完成查詢。",
   defaultStatus: "enabled",
   surfaces: ["sandbox", "line", "mcp"],
   requiredPermissions: ["reports:cyberbiz:read"],
@@ -1300,9 +1299,9 @@ const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
     type: "object",
     properties: {
       period: { type: "string", description: "報表期間，YYYY 代表全年、YYYY-MM 代表整月；也可改用 startDate 與 endDate。" },
-      scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位。", enum: ["company", "store"] },
-      scopeName: { type: "string", description: "scopeType=store 時的 scope 名稱，例如 誠品西門店3F 或 蝦皮；由服務端解析固定 scopeId。" },
-      scopeId: { type: "string", description: "相容既有呼叫的櫃位固定 ID；通常不需要填，優先使用 scopeName。" },
+      scopeType: { type: "string", description: "查詢範圍：company 為公司整體；store 為單一櫃位；channel 為官網等單一通路。", enum: ["company", "store", "channel"] },
+      scopeName: { type: "string", description: "scopeType=store 或 channel 時的 scope 名稱，例如 誠品西門店3F、蝦皮或官網；由服務端解析固定 scopeId。" },
+      scopeId: { type: "string", description: "相容既有呼叫的固定 scope ID；通常不需要填，優先使用 scopeName。" },
       startDate: { type: "string", description: "自訂區間起始日 YYYY-MM-DD，需與 endDate 一起提供。" },
       endDate: { type: "string", description: "自訂區間結束日 YYYY-MM-DD，需與 startDate 一起提供。" },
       groupBy: { type: "string", description: "可選分組，使用逗號分隔：day、month、scope；例如 scope,month。" },
@@ -1314,12 +1313,12 @@ const cyberbizQueryPayoutReportTool: PlatformToolDefinition = {
     const scopeType = textInput(input, "scopeType");
     const startDate = textInput(input, "startDate");
     const endDate = textInput(input, "endDate");
-    if ((!period && (!startDate || !endDate)) || (startDate && !endDate) || (!startDate && endDate) || !["company", "store"].includes(scopeType)) {
+    if ((!period && (!startDate || !endDate)) || (startDate && !endDate) || (!startDate && endDate) || !["company", "store", "channel"].includes(scopeType)) {
       throw new AssistantError("出金報表查詢需要正確的 period 或完整日期區間，以及 scopeType。");
     }
     const scopeId = textInput(input, "scopeId");
     const scopeName = textInput(input, "scopeName");
-    if (scopeType === "store" && !scopeId && !scopeName) throw new AssistantError("查詢單一櫃位時需要店面名稱。");
+    if (scopeType !== "company" && !scopeId && !scopeName) throw new AssistantError(scopeType === "channel" ? "查詢單一通路時需要通路名稱。" : "查詢單一櫃位時需要店面名稱。");
     return cyberbizReportToolResult(await cyberbizReportService(context).queryPayout({
       ...(period ? { period } : {}),
       scopeType: scopeType as CyberbizPayoutQuery["scopeType"],

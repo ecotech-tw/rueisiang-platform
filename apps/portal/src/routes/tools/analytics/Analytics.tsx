@@ -94,9 +94,11 @@ export function Analytics() {
   const [productDraft, setProductDraft] = useState(productParam);
   const custom = Boolean(startDate || endDate);
   const selectedScope = params.get("scopeId") ?? "";
-  const scopeType: "company" | "store" = selectedScope ? "store" : "company";
-  const tab = params.get("tab") === "sales" ? "sales" : "payout";
   const selectedScopeOption = scopes.data?.scopes.find((scope) => scope.id === selectedScope);
+  const scopeType: "company" | "store" | "channel" = selectedScope
+    ? selectedScopeOption?.scopeType ?? "store"
+    : "company";
+  const tab = params.get("tab") === "sales" ? "sales" : "payout";
   const latestSalesPeriod = tab === "sales"
     ? selectedScope
       ? selectedScopeOption?.latestSalesPeriod ?? null
@@ -107,7 +109,8 @@ export function Analytics() {
   const period = periodParam && periodParam !== currentPeriod ? periodParam : fallbackPeriod;
   const dateError = custom && startDate && endDate && startDate > endDate;
   const salesPeriodPending = tab === "sales" && !custom && !periodParam && scopes.isPending;
-  const ready = (!custom || Boolean(startDate && endDate && !dateError)) && !salesPeriodPending;
+  const scopeSelectionPending = Boolean(selectedScope) && scopes.isPending && !selectedScopeOption;
+  const ready = (!custom || Boolean(startDate && endDate && !dateError)) && !salesPeriodPending && !scopeSelectionPending;
   const query = custom
     ? {
       scopeType,
@@ -123,14 +126,19 @@ export function Analytics() {
       ...(tab === "sales" && productParam ? { productQuery: productParam } : {}),
     };
   const scopeLabel = selectedScope
-    ? scopes.data?.scopes.find((scope) => scope.id === selectedScope)?.name ?? "指定店別"
+    ? selectedScopeOption?.scopeType === "channel"
+      ? `${selectedScopeOption.name}（通路）`
+      : selectedScopeOption?.name ?? "指定範圍"
     : "公司整體";
   const options = useMemo(
     () => periodOptions(usableLatestSalesPeriod),
     [usableLatestSalesPeriod],
   );
   const scopeOptions = useMemo(
-    () => [{ value: "", label: "公司整體" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))],
+    () => [{ value: "", label: "公司整體" }, ...(scopes.data?.scopes ?? []).map((scope) => ({
+      value: scope.id,
+      label: scope.scopeType === "channel" ? `${scope.name}（通路）` : scope.name,
+    }))],
     [scopes.data?.scopes],
   );
   const periodSelectOptions = useMemo(
@@ -173,7 +181,7 @@ export function Analytics() {
     <div className="page analytics-page">
       <PageHeader
         title="營運統計"
-        description="比較商品銷量、通路與出金表現；先看整體，再下鑽到單一店別或商品。"
+        description="比較商品銷量、通路與出金表現；先看整體，再下鑽到單一店別、通路或商品。"
       />
 
       <section className="panel analytics-filters" aria-label="報表篩選條件">
@@ -181,7 +189,7 @@ export function Analytics() {
           <span className="analytics-filter-icon"><Icon name="calendar" /></span>
           <div>
             <strong>分析範圍</strong>
-            <p>選擇店別與期間；切換分析類型時會保留這裡的條件。</p>
+            <p>選擇店別／通路與期間；切換分析類型時會保留這裡的條件。</p>
           </div>
           <div className="analytics-tabs" role="tablist" aria-label="統計類型">
             <button
@@ -206,13 +214,13 @@ export function Analytics() {
         </div>
         <div className="analytics-filter-fields">
           <label className="analytics-filter-field">
-            <span>店別</span>
+            <span>店別／通路</span>
             <DropdownSelect
               options={scopeOptions}
               value={selectedScope}
               onChange={(event) => setFilter({ scopeId: event.target.value || null })}
               disabled={scopes.isPending}
-              aria-label="店別"
+              aria-label="店別／通路"
             />
           </label>
           <label className="analytics-filter-field">
