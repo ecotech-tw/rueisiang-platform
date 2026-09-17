@@ -79,5 +79,3 @@ export const hrBonusPolicyMembers = sqliteTable("hr_bonus_policy_members", {
 export type HrBonusPolicyVersion = typeof hrBonusPolicyVersions.$inferSelect;
 export type HrBonusPolicyVersionScope = typeof hrBonusPolicyVersionScopes.$inferSelect;
 export type HrBonusPolicyMember = typeof hrBonusPolicyMembers.$inferSelect;
-
-
