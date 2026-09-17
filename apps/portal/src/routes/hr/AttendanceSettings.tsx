@@ -63,6 +63,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
   const [selectedPlace, setSelectedPlace] = useState<GoogleMapPlace | null>(() => savedPlace(source));
   const [weeklySchedules, setWeeklySchedules] = useState<AttendanceLocationSchedule[]>(() => defaultSchedules(location?.id ?? ""));
   const places = useHrQuery<{ places: GoogleMapPlace[] }>(`/attendance-settings/places?query=${encodeURIComponent(searchQuery)}`, Boolean(searchQuery));
+  const placeResults = places.data?.places ?? [];
   const save = useHrWrite<{ id?: string }>();
   const saveSchedule = useHrWrite();
   const editing = Boolean(location);
@@ -154,12 +155,12 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       </div>
       {places.isFetching ? <p className="form-hint">搜尋 Google Maps 地點…</p> : null}
       {places.error ? <Alert tone="danger">{places.error.message}</Alert> : null}
-      {searchQuery && places.data && !places.data.places.length ? <p className="muted">找不到地點，請換個關鍵字。</p> : null}
-      {places.data?.places.length ? (
-        <div className="hr-location-place-results" aria-label="Google Maps 搜尋結果">
-          <p className="form-hint">搜尋結果（{places.data.places.length} 筆），請選取正確的辦公位置：</p>
-          {places.data.places.map((place) => (
-            <button type="button" className="hr-location-place-result" key={place.id} onClick={() => selectPlace(place)}>
+      {searchQuery && places.data && !placeResults.length ? <p className="muted">找不到地點，請換個關鍵字。</p> : null}
+      {placeResults.length ? (
+        <div className="hr-location-place-results" role="listbox" aria-label="Google Maps 搜尋結果">
+          <p className="form-hint">搜尋結果（{placeResults.length} 筆），請選取正確的辦公位置：</p>
+          {placeResults.map((place) => (
+            <button type="button" role="option" className="hr-location-place-result" key={place.id} onClick={() => selectPlace(place)}>
               <strong>{place.name}</strong>
               <small>{place.address}</small>
             </button>
