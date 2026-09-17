@@ -190,11 +190,21 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       </Field>
       {coordinateQuery ? <a className="hr-location-map-link" href={mapsSearch(coordinateQuery)} target="_blank" rel="noreferrer">在 Google Maps 檢視已選辦公位置</a> : null}
       <Field label="每週工作時段" hint="排班制員工會使用當日排班；未排班時仍可依有效辦公位置打卡。跨午夜時段請由排班資料指定。">
-        <div className="hr-weekly-schedule-editor">{WEEKDAYS.map((label, dayOfWeek) => {
-          const schedule = weeklySchedules.find((item) => item.dayOfWeek === dayOfWeek) ?? defaultSchedules().find((item) => item.dayOfWeek === dayOfWeek)!;
-          const restDay = Boolean(schedule.isRestDay);
-          return <div className="hr-weekly-schedule-row" key={dayOfWeek}><strong>{label}</strong><label className="checkbox-field"><input type="checkbox" checked={restDay} onChange={(event) => updateSchedule(dayOfWeek, { isRestDay: event.target.checked, startMinute: event.target.checked ? null : (schedule.startMinute ?? 540), endMinute: event.target.checked ? null : (schedule.endMinute ?? 1080), standardMinutes: event.target.checked ? 0 : (schedule.standardMinutes || 480) })} /> 休息日</label><TextField label="開始" type="time" value={timeValue(schedule.startMinute)} disabled={restDay} onChange={(event) => updateSchedule(dayOfWeek, { startMinute: timeMinutes(event.target.value) })} /><TextField label="結束" type="time" value={timeValue(schedule.endMinute)} disabled={restDay} onChange={(event) => updateSchedule(dayOfWeek, { endMinute: timeMinutes(event.target.value) })} /><TextField label="標準分鐘" type="number" min="0" max="1440" step="1" value={schedule.standardMinutes} disabled={restDay} onChange={(event) => updateSchedule(dayOfWeek, { standardMinutes: Number(event.target.value) })} /><TextField label="寬限分鐘" type="number" min="0" max="180" step="1" value={schedule.toleranceMinutes} onChange={(event) => updateSchedule(dayOfWeek, { toleranceMinutes: Number(event.target.value) })} /></div>;
-        })}</div>
+        <div className="hr-weekly-schedule-editor">
+          <div className="hr-weekly-schedule-head" aria-hidden="true"><span>星期</span><span>工作日設定</span><span>開始</span><span>結束</span><span>標準工時（分鐘）</span><span>寬限（分鐘）</span></div>
+          {WEEKDAYS.map((label, dayOfWeek) => {
+            const schedule = weeklySchedules.find((item) => item.dayOfWeek === dayOfWeek) ?? defaultSchedules().find((item) => item.dayOfWeek === dayOfWeek)!;
+            const restDay = Boolean(schedule.isRestDay);
+            return <div className="hr-weekly-schedule-row" key={dayOfWeek}>
+              <strong>{label}</strong>
+              <label className="checkbox-field"><input type="checkbox" checked={restDay} aria-label={`${label}設為休息日`} onChange={(event) => updateSchedule(dayOfWeek, { isRestDay: event.target.checked, startMinute: event.target.checked ? null : (schedule.startMinute ?? 540), endMinute: event.target.checked ? null : (schedule.endMinute ?? 1080), standardMinutes: event.target.checked ? 0 : (schedule.standardMinutes || 480) })} /> 休息日</label>
+              <TextField label="開始" aria-label={`${label}開始時間`} type="time" value={timeValue(schedule.startMinute)} disabled={restDay} onChange={(event) => updateSchedule(dayOfWeek, { startMinute: timeMinutes(event.target.value) })} />
+              <TextField label="結束" aria-label={`${label}結束時間`} type="time" value={timeValue(schedule.endMinute)} disabled={restDay} onChange={(event) => updateSchedule(dayOfWeek, { endMinute: timeMinutes(event.target.value) })} />
+              <TextField label="標準工時（分鐘）" aria-label={`${label}標準工時（分鐘）`} type="number" min="0" max="1440" step="1" value={schedule.standardMinutes} disabled={restDay} onChange={(event) => updateSchedule(dayOfWeek, { standardMinutes: Number(event.target.value) })} />
+              <TextField label="寬限（分鐘）" aria-label={`${label}寬限分鐘`} type="number" min="0" max="180" step="1" value={schedule.toleranceMinutes} onChange={(event) => updateSchedule(dayOfWeek, { toleranceMinutes: Number(event.target.value) })} />
+            </div>;
+          })}
+        </div>
       </Field>
       <TextField
         label="出勤判斷半徑（公尺）"

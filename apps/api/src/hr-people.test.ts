@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, listActivity, syncSystemRoles, taipeiWallClockToUtc } from "@rueisiang/db";
-import { hrAttendanceLocations, hrClockEvents, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { hrAttendanceLocations, hrClockEvents, hrScopeShiftAssignments, hrShiftTemplates, hrShiftVersions, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -278,7 +278,7 @@ describe("HR 員工基礎", () => {
     const job = await firstEmployment("self");
     expect((await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", revision: 1 })).status).toBe(200);
     const location = await created("/hr/attendance-settings/locations", { name: "排班打卡據點", scopeId: "scope", geolocationRequired: false, latitude: null, longitude: null, radiusMeters: 100, active: true });
-    const shift = await request("/hr/shift-templates", "POST", { scopeId: "scope", code: "SCHEDULED-1", name: "日班", startTime: "09:00", endTime: "17:00", endDayOffset: 0 });
+    const shift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "日班", startTime: "09:00", endTime: "17:00" });
     expect(shift.status, await shift.clone().text()).toBe(201);
     const shiftId = (await shift.json() as { versionId: string }).versionId;
     const saved = await request("/hr/schedules", "POST", { periodKey: today.slice(0, 7), entries: [{ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: today }] });
@@ -291,6 +291,81 @@ describe("HR 員工基礎", () => {
     expect((await (await request("/hr/me/clock-events", "GET", undefined, "self")).json() as { canClock: boolean }).canClock).toBe(false);
   });
 
+  it("班別只能當天上下班，代碼由系統產生，同一店可以建多個班別", async () => {
+    // 以前代碼要人填且全域唯一，不同店各建一個「AM」就撞號；現在不問代碼，連建兩個都不該失敗。
+    const morning = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "早班", startTime: "09:00", endTime: "14:00" });
+    expect(morning.status, await morning.clone().text()).toBe(201);
+    const evening = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "晚班", startTime: "14:00", endTime: "22:00" });
+    expect(evening.status, await evening.clone().text()).toBe(201);
+
+    const overnight = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "夜班", startTime: "23:00", endTime: "07:00" });
+    expect(overnight.status).toBe(400);
+    expect(await overnight.text()).toContain("結束時間必須晚於開始時間");
+
+    const listed = await request("/hr/shift-templates");
+    expect(listed.status, await listed.clone().text()).toBe(200);
+    const body = await listed.json() as { scopes: Array<{ id: string }>; shifts: Array<Record<string, unknown>> };
+    expect(body.scopes.map((scope) => scope.id)).toContain("scope");
+    expect(body.shifts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scopeId: "scope", name: "早班", startSecond: 9 * 3600, endSecond: 14 * 3600 }),
+      expect.objectContaining({ scopeId: "scope", name: "晚班", startSecond: 14 * 3600, endSecond: 22 * 3600 }),
+    ]));
+    expect(body.shifts.some((shift) => shift.name === "夜班")).toBe(false);
+    // 代碼沒有任何畫面在用，不該再往外給，免得又有人拿去顯示或當成使用者要填的欄位。
+    expect(body.shifts.every((shift) => !("code" in shift))).toBe(true);
+  });
+
+  it("班別直接修改名稱與時間；過期的版本、錯的時間、多店共用的班別都擋下", async () => {
+    const created = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "早班", startTime: "09:00", endTime: "14:00" });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { id } = await created.json() as { id: string };
+    const find = async () => ((await (await request("/hr/shift-templates")).json()) as { shifts: Array<{ templateId: string; name: string; startSecond: number; endSecond: number; revision: number }> }).shifts.find((shift) => shift.templateId === id)!;
+
+    const before = await find();
+    const updated = await request(`/hr/shift-templates/${id}`, "PATCH", { scopeId: "scope", name: "早午班", startTime: "10:00", endTime: "15:00", revision: before.revision });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect(await find()).toMatchObject({ name: "早午班", startSecond: 10 * 3600, endSecond: 15 * 3600, revision: before.revision + 1 });
+
+    // 兩個人同時開著視窗：後按儲存的人手上是舊版本，不能把前一個人的修改蓋掉。
+    const stale = await request(`/hr/shift-templates/${id}`, "PATCH", { scopeId: "scope", name: "被蓋掉", startTime: "08:00", endTime: "12:00", revision: before.revision });
+    expect(stale.status).toBe(409);
+    expect(await find()).toMatchObject({ name: "早午班", startSecond: 10 * 3600 });
+
+    expect((await request(`/hr/shift-templates/${id}`, "PATCH", { scopeId: "scope", name: "早午班", startTime: "15:00", endTime: "10:00", revision: before.revision + 1 })).status).toBe(400);
+
+    // 同一個班別掛在兩家店時，改一家會連另一家一起改；寧可擋下來。
+    await db.insert(scopes).values({ id: "scope-2", sourceType: "manual", scopeKind: "store", name: "第二家店", normalizedName: "第二家店" });
+    await db.insert(hrScopeShiftAssignments).values({ scopeId: "scope-2", shiftTemplateId: id, createdBy: "admin" });
+    const shared = await request(`/hr/shift-templates/${id}`, "PATCH", { scopeId: "scope", name: "改不了", startTime: "10:00", endTime: "15:00", revision: before.revision + 1 });
+    expect(shared.status).toBe(409);
+    expect(await shared.text()).toContain("同時用在多家店");
+  });
+
+  it("刪除班別：沒排過就刪掉；已排進排班或版本過期都擋下，資料不動", async () => {
+    const listShifts = async () => ((await (await request("/hr/shift-templates")).json()) as { shifts: Array<{ templateId: string; revision: number; versionId: string }> }).shifts;
+    const create = async (name: string) => (await (await request("/hr/shift-templates", "POST", { scopeId: "scope", name, startTime: "09:00", endTime: "14:00" })).json() as { id: string; versionId: string });
+
+    const unused = await create("沒排過的班");
+    const stale = await request(`/hr/shift-templates/${unused.id}`, "DELETE", { scopeId: "scope", revision: 999 });
+    expect(stale.status).toBe(409);
+    expect((await listShifts()).some((shift) => shift.templateId === unused.id)).toBe(true);
+    const removed = await request(`/hr/shift-templates/${unused.id}`, "DELETE", { scopeId: "scope", revision: 1 });
+    expect(removed.status, await removed.clone().text()).toBe(200);
+    expect((await listShifts()).some((shift) => shift.templateId === unused.id)).toBe(false);
+
+    // 排班表以外鍵指著班別；刪了那個月份就存不回去，所以要講清楚排在哪、請人先移除。
+    await assign("self");
+    const job = await firstEmployment("self");
+    const used = await create("排過的班");
+    const today = taipeiToday();
+    const saved = await request("/hr/schedules", "POST", { periodKey: today.slice(0, 7), entries: [{ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: used.versionId, workDate: today }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const blocked = await request(`/hr/shift-templates/${used.id}`, "DELETE", { scopeId: "scope", revision: 1 });
+    expect(blocked.status).toBe(409);
+    expect(await blocked.text()).toContain(`已經排進 1 筆排班（最早 ${today}）`);
+    expect((await listShifts()).some((shift) => shift.templateId === used.id)).toBe(true);
+  });
+
   it("跨午夜排班在隔日仍可完成下班打卡，日曆不重複報異常", async () => {
     const today = taipeiToday();
     const previous = new Date(`${today}T00:00:00Z`);
@@ -301,9 +376,14 @@ describe("HR 員工基礎", () => {
     const job = await firstEmployment("self");
     expect((await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", revision: 1 })).status).toBe(200);
     await created("/hr/attendance-settings/locations", { name: "跨午夜據點", scopeId: "scope", geolocationRequired: false, latitude: null, longitude: null, radiusMeters: 100, active: true });
-    const shift = await request("/hr/shift-templates", "POST", { scopeId: "scope", code: "OVERNIGHT-1", name: "跨午夜班", startTime: "23:00", endTime: "07:00", endDayOffset: 1 });
-    expect(shift.status, await shift.clone().text()).toBe(201);
-    const shiftId = (await shift.json() as { versionId: string }).versionId;
+    /*
+     * 班別管理頁只建得出當天上下班的班別，但資料欄位與出勤的跨午夜判斷都還在；
+     * 直接寫進資料庫，讓這段打卡邏輯在沒有 API 入口的情況下仍然有測試保護。
+     */
+    await db.insert(hrShiftTemplates).values({ id: "overnight-template", code: "overnight-template", name: "跨午夜班", active: 1, createdBy: "admin" });
+    await db.insert(hrShiftVersions).values({ id: "overnight-v1", shiftTemplateId: "overnight-template", versionNumber: 1, startSecond: 23 * 3600, endSecond: 7 * 3600, endDayOffset: 1, createdBy: "admin" });
+    await db.insert(hrScopeShiftAssignments).values({ scopeId: "scope", shiftTemplateId: "overnight-template", createdBy: "admin" });
+    const shiftId = "overnight-v1";
     const saved = await request("/hr/schedules", "POST", { periodKey: previousDate.slice(0, 7), entries: [{ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: previousDate }] });
     expect(saved.status, await saved.clone().text()).toBe(200);
     const clockInAt = utcAt(previousDate, "23:00:00");

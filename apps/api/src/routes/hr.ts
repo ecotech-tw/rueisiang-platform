@@ -9,7 +9,7 @@ import {
   assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest,
-  createHrScheduleWorker, createHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
+  createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
@@ -546,10 +546,18 @@ export const hr = new Hono<AppEnv>()
     period(validFrom, validTo);
     return c.json(await createHrWorkerCompensation(c.get("db"), { workerId: c.req.param("id"), validFrom, validTo, payBasis: payBasis(input), baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input) }, c.get("user")), 201);
   })
+  .get("/shift-templates", requirePermission("hr:schedule:read"), async (c) => c.json(await listHrShifts(c.get("db"))))
+  .patch("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: secondsFromTime(input, "startTime"), endSecond: secondsFromTime(input, "endTime"), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
+  })
+  .delete("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await deleteHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
+  })
   .post("/shift-templates", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    const endDayOffset = integerValue(input, "endDayOffset", "跨日設定", 0, 1) as 0 | 1;
-    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), code: text(input, "code", "班別代碼", 40), name: text(input, "name", "班別名稱", 100), startSecond: secondsFromTime(input, "startTime"), endSecond: secondsFromTime(input, "endTime"), endDayOffset }, c.get("user")), 201);
+    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: secondsFromTime(input, "startTime"), endSecond: secondsFromTime(input, "endTime") }, c.get("user")), 201);
   })
   .post("/employments/:id/attendance-location", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);

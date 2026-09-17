@@ -5,6 +5,13 @@ interface TooltipProps {
   label: string;
   children: ReactNode;
   className?: string;
+  /**
+   * 錨點本身已經拿得到焦點（`<button>`、`<a>`）時設成 false。
+   *
+   * 否則外層 span 與裡面的按鈕各是一個 Tab 停留點，鍵盤使用者每顆按鈕要按兩次才過得去。
+   * 內層元素 focus 時事件會冒泡到外層，所以提示照樣出現。
+   */
+  focusable?: boolean;
 }
 
 /** 與錨點的間距，以及貼齊視窗邊界時保留的留白。 */
@@ -33,7 +40,7 @@ interface Placement {
  * 位置用 `position: fixed` 加 getBoundingClientRect 算，不是相對定位——
  * KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的提示會被裁掉。
  */
-export function Tooltip({ label, children, className = "" }: TooltipProps) {
+export function Tooltip({ label, children, className = "", focusable = true }: TooltipProps) {
   const [anchor, setAnchor] = useState<AnchorRect | null>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
   const tipRef = useRef<HTMLSpanElement>(null);
@@ -91,7 +98,7 @@ export function Tooltip({ label, children, className = "" }: TooltipProps) {
   return (
     <span
       className={`tooltip-anchor ${className}`.trim()}
-      tabIndex={0}
+      tabIndex={focusable ? 0 : undefined}
       aria-describedby={anchor ? id : undefined}
       onMouseEnter={show}
       onMouseLeave={hide}

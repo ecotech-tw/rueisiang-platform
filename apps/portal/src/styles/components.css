@@ -485,10 +485,20 @@
 .attendance-records-toolbar .attendance-date-filter { min-width: 150px; }
 .attendance-event-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hr-weekly-schedule-editor { display: grid; gap: 0.55rem; }
-.hr-weekly-schedule-row { display: grid; grid-template-columns: 4rem 8rem repeat(4, minmax(7rem, 1fr)); align-items: end; gap: 0.55rem; padding: 0.6rem; border: 1px solid var(--outline-variant); border-radius: 0.65rem; }
+.hr-weekly-schedule-head,
+.hr-weekly-schedule-row { display: grid; grid-template-columns: 4rem 8rem repeat(4, minmax(7rem, 1fr)); align-items: center; gap: 0.55rem; }
+.hr-weekly-schedule-head { padding: 0 0.8rem; color: var(--color-muted); font-size: 0.75rem; font-weight: 700; }
+.hr-weekly-schedule-row { min-height: 3.4rem; padding: 0.6rem 0.8rem; border-radius: 0.65rem; background: --alpha(var(--color-paper) / 34%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 52%) inset; }
 .hr-weekly-schedule-row .field { margin: 0; }
-.hr-weekly-schedule-row .field > span:first-child { font-size: 0.75rem; }
-@media (max-width: 900px) { .hr-weekly-schedule-row { grid-template-columns: 1fr 1fr; } }
+.hr-weekly-schedule-row .field > span:first-child { display: none; }
+.hr-weekly-schedule-row > strong { color: var(--color-ink); }
+.hr-weekly-schedule-row:has(input[type="checkbox"]:checked) { background: --alpha(var(--color-brand) / 7%); }
+@media (max-width: 900px) {
+  .hr-weekly-schedule-head { display: none; }
+  .hr-weekly-schedule-row { grid-template-columns: 4rem 1fr 1fr; align-items: end; }
+  .hr-weekly-schedule-row .field > span:first-child { display: block; font-size: 0.75rem; }
+  .hr-weekly-schedule-row > strong { align-self: center; }
+}
 .hr-location-map-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
 .hr-location-map-search .field { min-width: 0; }
 .hr-location-map-link { color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
@@ -2680,6 +2690,21 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .salary-items-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-soft-line); }
 .salary-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
 .salary-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
+/* 班別清單沿用敘薪的「欄位標題／逐列編輯／底部新增與儲存」結構。 */
+.shift-items { display: grid; gap: 10px; }
+.shift-items-label { color: var(--color-ink); font-size: 13px; font-weight: 600; }
+.shift-items-head,
+.shift-item-row { display: grid; grid-template-columns: minmax(0, 1fr) 128px 128px 44px; align-items: center; gap: 10px; }
+.shift-items-head { color: var(--color-muted); font-size: 12px; font-weight: 600; }
+.shift-item-row > .field { min-width: 0; margin: 0; }
+.shift-item-row > .field > span:first-child { display: none; }
+.shift-item-row > .icon-button { align-self: center; }
+.shift-item-spacer { display: block; }
+.shift-item-note { grid-column: 1 / -1; margin-top: -4px; color: var(--color-muted); font-size: 12px; }
+.shift-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
+.shift-items-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-soft-line); }
+.shift-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
+.shift-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
 @media (max-width: 560px) {
   .salary-items-head { display: none; }
   .salary-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 8px; }
@@ -2689,6 +2714,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .salary-item-row > .field:nth-child(2)::before { content: "計算單位"; }
   .salary-item-row > .field:nth-child(3)::before { content: "金額（元）"; }
   .salary-item-row > .icon-button { align-self: end; margin-bottom: 2px; }
+  .shift-items-head { display: none; }
+  .shift-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 8px; }
+  .shift-item-row > .field:first-child { grid-column: 1 / -1; }
+  .shift-item-row > .field > span:first-child { display: block; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
+  .shift-item-row > .icon-button { align-self: end; margin-bottom: 2px; }
 }
 /* 對話框移到 body 之後用來補回頁面的樣式範圍；display: contents 才不會多出一層版面。 */
 .modal-scope { display: contents; }
@@ -3858,6 +3888,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  */
 .tooltip-anchor { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
 .tooltip-anchor:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; border-radius: 6px; }
+/*
+ * 停用的按鈕不會收到滑鼠事件，事件也就傳不到外層的 anchor，提示永遠不出現——
+ * 偏偏停用的按鈕最需要一句「為什麼不能按」。讓指標穿過它，落在 anchor 上。
+ */
+.tooltip-anchor > :disabled { pointer-events: none; }
 .tooltip {
   position: fixed;
   z-index: 90;
