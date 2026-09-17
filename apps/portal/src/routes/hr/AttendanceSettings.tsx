@@ -18,6 +18,17 @@ interface LocationDraft {
   revision?: number;
 }
 
+/**
+ * 送出時的半徑。關閉定位判斷時半徑欄位會被藏起來，但 API 永遠要求 1–10000 的半徑；
+ * 使用者若先清空半徑再關閉定位，送出的無效值會讓儲存失敗，而錯的欄位已經看不到、改不了。
+ * 所以關閉定位時半徑無效就改用原本存著的值（新增時是預設 50），開著定位時照填的送，讓 API 擋。
+ */
+export function radiusForSave(draft: Pick<LocationDraft, "geolocationRequired" | "radiusMeters">, savedRadius = 50) {
+  const radius = Number(draft.radiusMeters);
+  if (draft.geolocationRequired) return radius;
+  return draft.radiusMeters.trim() && Number.isInteger(radius) && radius >= 1 && radius <= 10_000 ? radius : savedRadius;
+}
+
 function draftOf(location?: AttendanceLocationDetail): LocationDraft {
   return {
     name: location?.name ?? "",
@@ -94,7 +105,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       geolocationRequired: draft.geolocationRequired,
       latitude: draft.latitude,
       longitude: draft.longitude,
-      radiusMeters: Number(draft.radiusMeters),
+      radiusMeters: radiusForSave(draft, source?.radiusMeters),
     };
     if (draft.revision !== undefined) values.revision = draft.revision;
     save.mutate({ path, method: editing ? "PATCH" : "POST", values }, { onSuccess: onClose });
