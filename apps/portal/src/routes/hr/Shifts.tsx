@@ -113,12 +113,12 @@ function StoreShiftsDialog({ scope, shifts, canWrite, onClose, onSaved }: { scop
       {rows.map((row) => {
         const legacyOvernight = Boolean(row.original?.endDayOffset);
         return <div key={row.key} className={`shift-item-row${row.original ? "" : " shift-item-row-draft"}`}>
-          <TextField label="班別" aria-label={`${row.name || "班別"}名稱`} required maxLength={100} placeholder="例如：早班" value={row.name} disabled={legacyOvernight || save.isPending} onChange={(event) => updateRow(row.key, { name: event.target.value })} />
-          <TextField label="開始時間" aria-label={`${row.name || "班別"}開始時間`} type="time" required value={row.startTime} disabled={legacyOvernight || save.isPending} onChange={(event) => updateRow(row.key, { startTime: event.target.value })} />
-          <TextField label="結束時間" aria-label={`${row.name || "班別"}結束時間`} type="time" required value={row.endTime} disabled={legacyOvernight || save.isPending} onChange={(event) => updateRow(row.key, { endTime: event.target.value })} />
-          <Tooltip label={`刪除${row.name ? ` ${row.name}` : "這個班別"}`} focusable={false}>
+          <TextField label="班別" aria-label={`${row.name || "班別"}名稱`} required maxLength={100} placeholder="例如：早班" value={row.name} disabled={!canWrite || legacyOvernight || save.isPending} onChange={(event) => updateRow(row.key, { name: event.target.value })} />
+          <TextField label="開始時間" aria-label={`${row.name || "班別"}開始時間`} type="time" required value={row.startTime} disabled={!canWrite || legacyOvernight || save.isPending} onChange={(event) => updateRow(row.key, { startTime: event.target.value })} />
+          <TextField label="結束時間" aria-label={`${row.name || "班別"}結束時間`} type="time" required value={row.endTime} disabled={!canWrite || legacyOvernight || save.isPending} onChange={(event) => updateRow(row.key, { endTime: event.target.value })} />
+          {canWrite ? <Tooltip label={`刪除${row.name ? ` ${row.name}` : "這個班別"}`} focusable={false}>
             <Button variant="icon" icon="trash" className="danger hr-bonus-action-delete" aria-label={`刪除${row.name || "這個班別"}`} disabled={save.isPending} onClick={() => removeRow(row)} />
-          </Tooltip>
+          </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
           {legacyOvernight ? <small className="shift-item-note">跨午夜的舊班別，請刪除後重新建立。</small> : null}
         </div>;
       })}
