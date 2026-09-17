@@ -63,6 +63,9 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
   const [selectedPlace, setSelectedPlace] = useState<GoogleMapPlace | null>(() => savedPlace(source));
   const [weeklySchedules, setWeeklySchedules] = useState<AttendanceLocationSchedule[]>(() => defaultSchedules(location?.id ?? ""));
   const places = useHrQuery<{ places: GoogleMapPlace[] }>(`/attendance-settings/places?query=${encodeURIComponent(searchQuery)}`, Boolean(searchQuery));
+  // 搜尋請求完成後，結果仍由最後一次送出的 query 控制；不要用輸入框目前的內容判斷是否顯示，
+  // 否則使用者在請求期間繼續修改文字時，回來的結果會被誤判成沒有結果。
+  const placeResults = places.data?.places ?? [];
   const save = useHrWrite<{ id?: string }>();
   const saveSchedule = useHrWrite();
   const editing = Boolean(location);
@@ -154,12 +157,12 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       </div>
       {places.isFetching ? <p className="form-hint">搜尋 Google Maps 地點…</p> : null}
       {places.error ? <Alert tone="danger">{places.error.message}</Alert> : null}
-      {searchQuery && places.data && !places.data.places.length ? <p className="muted">找不到地點，請換個關鍵字。</p> : null}
-      {places.data?.places.length ? (
-        <div className="hr-location-place-results" aria-label="Google Maps 搜尋結果">
-          <p className="form-hint">搜尋結果（{places.data.places.length} 筆），請選取正確的辦公位置：</p>
-          {places.data.places.map((place) => (
-            <button type="button" className="hr-location-place-result" key={place.id} onClick={() => selectPlace(place)}>
+      {searchQuery && places.data && !placeResults.length ? <p className="muted">找不到地點，請換個關鍵字。</p> : null}
+      {placeResults.length ? (
+        <div className="hr-location-place-results" role="listbox" aria-label="Google Maps 搜尋結果">
+          <p className="form-hint">搜尋結果（{placeResults.length} 筆），請選取正確的辦公位置：</p>
+          {placeResults.map((place) => (
+            <button type="button" role="option" className="hr-location-place-result" key={place.id} onClick={() => selectPlace(place)}>
               <strong>{place.name}</strong>
               <small>{place.address}</small>
             </button>
