@@ -57,7 +57,7 @@ function savedPlace(location?: AttendanceLocationDetail): GoogleMapPlace | null 
 }
 
 function LocationDialog({ location, onClose }: { location?: AttendanceLocation; onClose: () => void }) {
-  const detail = useHrQuery<{ location: AttendanceLocationDetail }>(location ? `/attendance-settings/locations/${location.id}` : "/attendance-settings/locations/new", Boolean(location));
+  const detail = useHrQuery<{ location: AttendanceLocationDetail }>(location ? `/attendance-settings/locations/${location.id}` : "/attendance-settings/locations/new", Boolean(location), { keepPreviousData: false });
   const source = detail.data?.location;
   const [draft, setDraft] = useState(() => draftOf(source));
   const scopes = useHrQuery<{ scopes: NamedOption[] }>("/scopes");

@@ -584,6 +584,9 @@
   box-shadow: var(--shadow-panel);
 }
 
+/* useHrQuery 換條件時畫面上還是舊資料；變淡並擋掉點擊，免得對著舊資料操作。 */
+.is-refreshing { opacity: .55; pointer-events: none; transition: opacity 150ms ease-out; }
+
 /* 間距改由 .page 統一負責，見上面的說明；這裡只保留非 .page 容器內的相鄰 Panel。 */
 .panel + .panel { margin-top: 20px; }
 .page > .panel + .panel { margin-top: 20px; }

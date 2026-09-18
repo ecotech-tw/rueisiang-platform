@@ -15,7 +15,7 @@ function statusLabel(table: InsuranceRateTableRecord | null) {
 export function InsuranceRateManagementDialog({ year, onClose }: { year: number; onClose: () => void }) {
   const [scheme, setScheme] = useState<InsuranceScheme>("labor");
   const [editorBusy, setEditorBusy] = useState(false);
-  const rates = useHrQuery<{ tables: InsuranceRateTableRecord[] }>(`/insurance-rates?year=${year}`);
+  const rates = useHrQuery<{ tables: InsuranceRateTableRecord[] }>(`/insurance-rates?year=${year}`, true, { keepPreviousData: false });
   const getRates = useHrWrite<{ tables: InsuranceRateTableRecord[] }>();
   const activateRate = useHrWrite();
   const tables = rates.data?.tables ?? [];

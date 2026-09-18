@@ -164,7 +164,7 @@ export function HrEmployeeDetail() {
   const navigate = useNavigate();
   const { permissions } = useSession();
   const canRead = permissions.has("hr:employee:read");
-  const detail = useHrQuery<Profile>(`/employees/${encodeURIComponent(id)}`, canRead && Boolean(id));
+  const detail = useHrQuery<Profile>(`/employees/${encodeURIComponent(id)}`, canRead && Boolean(id), { keepPreviousData: false });
   usePageTitle(detail.data ? `${detail.data.employee.employeeNumber} ${detail.data.employee.displayName}` : "員工內頁");
   if (!canRead) return <Alert tone="danger">你沒有檢視員工資料的權限。</Alert>;
   if (detail.isPending) return <HrPageSkeleton variant="detail" />;
@@ -177,8 +177,8 @@ export function HrEmployeeDetail() {
 }
 
 function EmployeeManagementDialog({ employee, onClose, onEdit }: { employee: Employee; onClose: () => void; onEdit: (editor: Editor) => void }) {
-  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`);
-  const supervisors = useHrQuery<{ users: NamedOption[] }>(`/supervisor-candidates?exclude=${encodeURIComponent(employee.userId)}`);
+  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
+  const supervisors = useHrQuery<{ users: NamedOption[] }>(`/supervisor-candidates?exclude=${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   const scopes = useHrQuery<{ scopes: NamedOption[] }>("/scopes");
   if (profile.isPending) return <Dialog title={`管理 ${employee.displayName}`} onClose={onClose}><p className="muted">載入員工管理資料…</p></Dialog>;
   if (profile.error || !profile.data) return <Dialog title={`管理 ${employee.displayName}`} onClose={onClose}><Alert tone="danger">{profile.error?.message ?? "員工資料載入失敗。"}</Alert></Dialog>;
@@ -250,7 +250,7 @@ export function HrEmployees() {
       </tr></thead><tbody>
         {data?.employees.map((employee) => <tr key={employee.userId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(`/hr/employees/${encodeURIComponent(employee.userId)}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(`/hr/employees/${encodeURIComponent(employee.userId)}`); } }}><td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.displayName}</td><td data-label="帳號" className="cell-sub">{employee.email}</td><td data-label="狀態">{statusLabel(employee.userStatus)}</td>{canWrite ? <td data-label="操作"><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setManageEmployee(employee); }}>管理</Button></td> : null}</tr>)}
       </tbody></table></div>
-      {employees.isPending ? <p className="muted table-note">載入中…</p> : null}
+      {employees.isPlaceholderData ? <p className="muted table-note">載入中…</p> : null}
       {data && !data.employees.length ? <p className="muted table-note">{data.total ? "沒有符合條件的員工，調整一下搜尋或篩選看看。" : "尚無員工資料，請先邀請使用者，再指派員工。"}</p> : null}
       {data && data.total > 0 ? <Pager page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}
     </Panel>

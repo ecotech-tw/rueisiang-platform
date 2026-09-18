@@ -138,7 +138,9 @@ export function HrScheduling() {
   if (schedule.error || !data) return <div className="page"><Alert tone="danger">{schedule.error?.message ?? "排班資料載入失敗。"}</Alert></div>;
   const version = data.version;
   const defaultScope = scopeId === "all" ? data.scopes[0]?.id ?? "" : scopeId;
-  const canEdit = canWrite && !version?.locked;
+  // 換月份時 data 仍是上個月的，version 跟 key 對不上；這時點日期或按鎖定都會寫到錯的月份。
+  const loading = schedule.isPlaceholderData;
+  const canEdit = canWrite && !version?.locked && !loading;
   const scheduledDatesByEmployment = new Map<string, Set<string>>();
   for (const entry of draftEntries) if (entry.personKind === "employee" && entry.employmentId) {
     const datesForEmployee = scheduledDatesByEmployment.get(entry.employmentId) ?? new Set<string>();
@@ -185,7 +187,9 @@ export function HrScheduling() {
    * 排班沒有草稿與送審：按下儲存就是發布，發布之後隨時可以再改。狀態列就是在講這件事——
    * 只看「儲存」鈕是亮是灰的話，使用者不知道這個月到底發布出去了沒有。
    */
-  const status = version?.locked
+  const status = loading
+    ? { tone: "neutral" as const, label: "載入中", detail: "" }
+    : version?.locked
     ? { tone: "neutral" as const, label: "已鎖定", detail: "先按「開鎖」才能修改，系統會留下操作紀錄。" }
     : changed
       ? { tone: "warning" as const, label: "尚未儲存", detail: `按「儲存」即發布${added ? `，新增 ${added} 筆` : ""}${removed ? `，移除 ${removed} 筆` : ""}。` }
@@ -195,7 +199,7 @@ export function HrScheduling() {
   const today = taipeiToday();
 
   return <div className="page fills hr-schedule-page">
-    <PageHeader title="排班月曆" description="正式員工依排班出勤；臨時支援排班會納入日薪，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}{version ?<Button variant="secondary" onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked)} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
+    <PageHeader title="排班月曆" description="正式員工依排班出勤；臨時支援排班會納入日薪，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
     <div className="hr-schedule-toolbar">
       <div className="hr-schedule-month"><Button variant="secondary" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() - 1, 1)))}>上個月</Button><strong>{month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月</strong><Button variant="secondary" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1)))}>下個月</Button></div>
       <SelectField label="營運據點" value={scopeId} options={[...(quick ? [] : [{ value: "all", label: "全部營運據點" }]), ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => pickScope(event.target.value)} />
@@ -222,7 +226,7 @@ export function HrScheduling() {
       {quickShifts.length ? null : <Alert tone="info">這個營運據點尚未設定班別，請先到 <Link to="/hr/scheduling/shifts">班別管理</Link> 新增早班或晚班。</Alert>}
     </div> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
-    <Panel className="grows">
+    <Panel className={`grows${loading ? " is-refreshing" : ""}`}>
       <div className="hr-calendar weekdays">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <strong key={day}>{day}</strong>)}</div>
       <div className={`hr-calendar${quick ? " quick" : ""}`}>
         {Array.from({ length: weekday(month) }, (_, index) => <div className="hr-calendar-cell empty" key={`empty-${index}`} />)}
