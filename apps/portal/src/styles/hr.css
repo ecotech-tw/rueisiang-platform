@@ -799,7 +799,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   -webkit-backdrop-filter: blur(7px) saturate(150%);
   backdrop-filter: blur(7px) saturate(150%);
 }
-.hr-system .hr-schedule-toolbar > strong {
+.hr-system .hr-schedule-month > strong {
   display: inline-grid;
   min-height: 42px;
   min-width: 132px;
@@ -808,6 +808,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   font-size: 17px;
   letter-spacing: .02em;
 }
+.hr-system .hr-schedule-status { min-height: 42px; padding-right: 4px; }
 .hr-system .hr-calendar.weekdays {
   position: sticky;
   /*
@@ -881,6 +882,13 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   color: var(--color-ink);
   font-size: 15px;
   font-weight: 900;
+}
+/* aria-pressed 那條特異度更高，不一起寫死的話今天被選中時會變成深色字落在品牌色底上。 */
+.hr-system .hr-calendar-cell.today .hr-calendar-date strong,
+.hr-system .hr-calendar-cell.today .hr-calendar-date button.hr-quick-day,
+.hr-system .hr-calendar-cell.today .hr-calendar-date button.hr-quick-day[aria-pressed="true"] {
+  background: var(--color-brand);
+  color: var(--color-canvas);
 }
 .hr-system .hr-calendar-date button {
   display: inline-grid;
@@ -1083,18 +1091,20 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
  * 選中與否看格子的底色與框線，不靠這裡再標一次。
  */
 .hr-system .hr-quick-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 12px 14px;
+  border: 0;
   border-radius: 22px;
   background: --alpha(var(--color-brand) / 7%);
   box-shadow:
     0 1px 0 --alpha(var(--color-paper) / 58%) inset,
     0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
 }
-.hr-system .hr-quick-hint { flex: 1 1 260px; min-height: 42px; margin: 0; align-content: center; }
+.hr-system .hr-quick-bar-head > strong { font-size: 15px; letter-spacing: .02em; }
+.hr-system .hr-quick-bar-count,
+.hr-system .hr-quick-bar-rest { background: --alpha(var(--color-paper) / 62%); }
+.hr-system .hr-quick-bar-rest.ok { background: var(--color-ok-soft); }
+.hr-system .hr-quick-bar-rest.warning { background: var(--color-warn-soft); }
 .hr-system .hr-calendar-date button.hr-quick-day {
   display: inline-grid;
   min-width: 30px;

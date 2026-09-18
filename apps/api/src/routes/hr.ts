@@ -300,11 +300,11 @@ function secondsFromTime(input: Record<string, unknown>, key: string) {
   const minute = Number(value.slice(3, 5));
   return hour * 3600 + minute * 60;
 }
+/** 班別的計薪工時就是它的長度，休息一律 0；這裡是唯一的來源。 */
 function defaultShiftMinutes(input: Record<string, unknown>) {
   const start = secondsFromTime(input, "startTime");
   const end = secondsFromTime(input, "endTime");
-  const duration = (end - start) / 60;
-  return { start, end, standardMinutes: Math.min(480, duration), breakMinutes: Math.min(60, Math.max(0, duration - Math.min(480, duration))) };
+  return { start, end, standardMinutes: (end - start) / 60, breakMinutes: 0 };
 }
 function stringArray(input: Record<string, unknown>, key: string, label: string, maxItems = 100) {
   const value = input[key];
@@ -560,7 +560,7 @@ export const hr = new Hono<AppEnv>()
   .patch("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
     const defaults = defaultShiftMinutes(input);
-    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: defaults.start, endSecond: defaults.end, standardMinutes: input.standardMinutes === undefined ? defaults.standardMinutes : integerValue(input, "standardMinutes", "計薪工時", 0, 1440), breakMinutes: input.breakMinutes === undefined ? defaults.breakMinutes : integerValue(input, "breakMinutes", "休息時間", 0, 1440), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
+    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes, revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
   })
   .delete("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
@@ -569,7 +569,7 @@ export const hr = new Hono<AppEnv>()
   .post("/shift-templates", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
     const defaults = defaultShiftMinutes(input);
-    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: defaults.start, endSecond: defaults.end, standardMinutes: input.standardMinutes === undefined ? defaults.standardMinutes : integerValue(input, "standardMinutes", "計薪工時", 0, 1440), breakMinutes: input.breakMinutes === undefined ? defaults.breakMinutes : integerValue(input, "breakMinutes", "休息時間", 0, 1440) }, c.get("user")), 201);
+    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes }, c.get("user")), 201);
   })
   .patch("/employments/:id/attendance-scope", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);
