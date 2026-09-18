@@ -86,7 +86,7 @@ function draftAmountMinor(amount: string): number | null {
  */
 function CompensationEditor({ employees, initialUserId, onClose }: { employees: Employee[]; initialUserId: string | null; onClose: () => void }) {
   const [userId, setUserId] = useState(initialUserId ?? "");
-  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(userId)}`, Boolean(userId));
+  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(userId)}`, Boolean(userId), { keepPreviousData: false });
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
   const employmentVersions = useMemo(() => (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id), [profile.data?.compensation, employment?.id]);
   const latestVersion = useMemo(() => latestCompensationVersion(employmentVersions), [employmentVersions]);
@@ -288,7 +288,7 @@ function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerR
 }
 
 function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (userId: string) => void }) {
-  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`);
+  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
   const compensationVersions = (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id);
   const current = currentVersion(compensationVersions);

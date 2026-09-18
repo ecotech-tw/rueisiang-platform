@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../../shell/Toast.js";
 
 export interface Employee {
@@ -176,8 +176,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  */
 export const HR_ROSTER_PATH = "/employees?page=1&pageSize=100&status=employable&sortField=name&sortDirection=asc";
 
-export function useHrQuery<T>(path: string, enabled = true) {
-  return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false });
+/**
+ * 換條件（月份、分頁、篩選）時留著上一次的資料，頁面才不會整頁換成骨架再長回來；
+ * 這段期間 isPlaceholderData 為 true。
+ *
+ * 查的是「某一筆紀錄」（某個人、某個批次）時要傳 keepPreviousData: false：
+ * 那種查詢的舊資料是另一個人的，會被填進表單或顯示在新名字底下。
+ */
+export function useHrQuery<T>(path: string, enabled = true, options: { keepPreviousData?: boolean } = {}) {
+  return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false, placeholderData: options.keepPreviousData === false ? undefined : keepPreviousData });
 }
 export function useHrInsuranceEstimate(employmentId: string, input: InsuranceEstimateRequest | null) {
   const signature = input ? JSON.stringify(input) : "disabled";

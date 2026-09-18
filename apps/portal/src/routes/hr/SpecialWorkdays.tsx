@@ -64,7 +64,7 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
   const [quantity, setQuantity] = useState("0");
   const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH);
   const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers");
-  const profile = useHrQuery<Profile>(employeeUserId ? `/employees/${encodeURIComponent(employeeUserId)}` : "/employees/__none__", Boolean(employeeUserId));
+  const profile = useHrQuery<Profile>(employeeUserId ? `/employees/${encodeURIComponent(employeeUserId)}` : "/employees/__none__", Boolean(employeeUserId), { keepPreviousData: false });
   const save = useHrWrite();
   const employmentId = profile.data?.employments.find((item) => !item.endedOn || item.endedOn > workDate)?.id;
   const versionOptions = rules.flatMap((item) => item.versions.map((version) => ({ value: version.id, label: `${item.rule.name} v${version.versionNumber}` })));

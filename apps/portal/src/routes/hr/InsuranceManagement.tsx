@@ -37,7 +37,7 @@ function money(minor: number) {
 }
 
 function InsuranceRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (edit: InsuranceEdit) => void }) {
-  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`);
+  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   if (profile.isPending) return <HrSkeletonTableRow columns={7} />;
   if (profile.error || !profile.data) return <tr><td data-label="員工">{employee.displayName}</td><td data-label="狀態" colSpan={6}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
   const insurance = profile.data.insurance ?? [];

@@ -39,8 +39,8 @@ export function HrMonthlyData() {
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, canRead);
-  const profile = useHrQuery<{ employee: Employee; employments: Profile["employments"] }>(employeeUserId ? `/employees/${encodeURIComponent(employeeUserId)}` : "/employees/__none__", canRead && Boolean(employeeUserId));
-  const data = useHrQuery<MonthlyResponse>(`/payroll/monthly-data?periodKey=${encodeURIComponent(periodKey)}${employeeUserId ? `&employeeUserId=${encodeURIComponent(employeeUserId)}` : ""}`, canRead && Boolean(periodKey));
+  const profile = useHrQuery<{ employee: Employee; employments: Profile["employments"] }>(employeeUserId ? `/employees/${encodeURIComponent(employeeUserId)}` : "/employees/__none__", canRead && Boolean(employeeUserId), { keepPreviousData: false });
+  const data = useHrQuery<MonthlyResponse>(`/payroll/monthly-data?periodKey=${encodeURIComponent(periodKey)}${employeeUserId ? `&employeeUserId=${encodeURIComponent(employeeUserId)}` : ""}`, canRead && Boolean(periodKey), { keepPreviousData: false });
   const write = useHrWrite();
   const selectedEmployment = profile.data?.employments.find((employment) => employment.hiredOn <= `${periodKey}-31` && (!employment.endedOn || employment.endedOn >= `${periodKey}-01`));
   const employeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);

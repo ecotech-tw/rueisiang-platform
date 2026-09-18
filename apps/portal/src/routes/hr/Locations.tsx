@@ -63,7 +63,7 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
 }
 
 function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (edit: LocationEdit) => void }) {
-  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`);
+  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   if (profile.isPending) return <HrSkeletonTableRow columns={5} />;
   if (profile.error || !profile.data) return <tr><td>{employee.displayName}</td><td colSpan={5}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
   const data = profile.data;

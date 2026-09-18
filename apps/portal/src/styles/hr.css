@@ -732,11 +732,13 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-skeleton-block-container.is-card-description { width: 86%; margin-top: 10px; }
 .hr-skeleton-block-container.is-card-action { width: 120px; margin-top: auto; }
 .hr-skeleton-toolbar.is-calendar { align-items: center; }
-.hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container.is-month { width: 144px; }
+.hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container.is-nav { width: 40px; }
+.hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container.is-nav .hr-skeleton-block { height: 40px; border-radius: 999px; }
+.hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container.is-month { width: 112px; }
 .hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container.is-month .hr-skeleton-block { height: 24px; border-radius: 8px; }
 .hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container:last-child { margin-left: auto; }
 .hr-skeleton-calendar { display: grid; width: 100%; min-width: 0; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; overflow-x: auto; }
-.hr-skeleton-calendar .hr-skeleton-panel { min-height: 138px; gap: 12px; padding: 10px; border-radius: 18px; box-shadow: 0 1px 0 --alpha(var(--color-paper) / 54%) inset; }
+.hr-skeleton-calendar .hr-skeleton-panel { min-height: 104px; gap: 12px; padding: 10px; border-radius: 18px; box-shadow: 0 1px 0 --alpha(var(--color-paper) / 54%) inset; }
 .hr-skeleton-block-container.is-calendar-date { width: 30px; }
 .hr-skeleton-block-container.is-calendar-date .hr-skeleton-block { height: 30px; border-radius: 999px; }
 .hr-skeleton-block-container.is-calendar-entry { width: 100%; }
@@ -762,73 +764,16 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .hr-overview-card { display: grid; gap: 13px; min-height: 190px; padding: 18px; border-radius: 18px; color: var(--color-ink); text-decoration: none; transition-property: background-color, box-shadow, transform; transition-duration: 150ms; transition-timing-function: ease-out; }
 .hr-overview-card:hover { background-color: --alpha(var(--color-paper) / 42%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 62%) inset, 0 18px 42px --alpha(var(--color-ink) / 11%); transform: translateY(-2px); }
-/*
- * 排班月曆是 panel 自己捲，不是裡面的表格捲。玻璃光澤若留在 ::before / ::after，
- * 絕對定位的高度只有 panel 的可視高度、又會跟著內容捲走，往下捲時光澤停在半路切出一條硬邊，
- * 格子的 backdrop-filter 還會照出那條邊。改畫在 panel 本身：元素自己的背景與內陰影不隨內容捲動。
- */
-.hr-system .hr-schedule-page > .panel.grows {
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  background:
-    radial-gradient(circle at 16% 0%, --alpha(var(--color-paper) / 20%), transparent 34%),
-    radial-gradient(circle at 90% 100%, --alpha(var(--color-brand) / 6%), transparent 38%),
-    linear-gradient(135deg, --alpha(var(--color-paper) / 13%) 0%, transparent 30%, --alpha(var(--color-paper) / 6%) 68%, transparent 100%),
-    --alpha(var(--color-paper) / 24%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 20%) inset,
-    0 -16px 34px --alpha(var(--color-brand) / 5%) inset,
-    0 0 16px --alpha(var(--color-paper) / 20%) inset,
-    0 0 30px --alpha(var(--color-brand) / 4%) inset,
-    0 16px 38px --alpha(var(--color-ink) / 9%);
-}
-.hr-system .hr-schedule-page > .panel.grows::before,
-.hr-system .hr-schedule-page > .panel.grows::after { content: none; }
-.hr-system .hr-schedule-toolbar {
-  align-items: end;
-  gap: 12px;
-  padding: 10px;
-  border-radius: 22px;
-  background: --alpha(var(--color-paper) / 24%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 58%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
-    0 12px 30px --alpha(var(--color-ink) / 7%);
-  -webkit-backdrop-filter: blur(7px) saturate(150%);
-  backdrop-filter: blur(7px) saturate(150%);
-}
 .hr-system .hr-schedule-month > strong {
   display: inline-grid;
-  min-height: 42px;
-  min-width: 132px;
+  min-height: 36px;
+  min-width: 112px;
   place-items: center;
   color: var(--color-ink);
   font-size: 17px;
   letter-spacing: .02em;
 }
-.hr-system .hr-schedule-status { min-height: 42px; padding-right: 4px; }
-.hr-system .hr-calendar.weekdays {
-  position: sticky;
-  /*
-   * sticky 的 top 從捲動容器的內距下緣算起。top: 0 會在上方留一條 panel 的 padding（20px），
-   * 捲上去的日期格從那條縫露出來、疊在星期列上面。抵掉那段 padding，星期列才貼齊 panel 頂端。
-   */
-  top: -20px;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 8px;
-  margin: 2px 0 8px;
-  padding: 8px 10px;
-  border-radius: 16px;
-  /* 日期格會從底下捲過；52% 時數字直接透出來疊在星期字上，調到跟子選單同一個不透明度。 */
-  background: --alpha(var(--color-paper) / 84%);
-  box-shadow: 0 1px 0 --alpha(var(--color-paper) / 70%) inset;
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  backdrop-filter: blur(20px) saturate(160%);
-}
+.hr-system .hr-calendar.weekdays { gap: 8px; border-bottom-color: --alpha(var(--color-ink) / 8%); }
 .hr-system .hr-calendar.weekdays strong {
   min-height: 26px;
   color: var(--color-muted);
@@ -836,12 +781,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   font-weight: 900;
   letter-spacing: .08em;
 }
-/*
- * flex: none 是必要的。月曆是 .panel.grows（flex 欄）的子項，預設會被壓到比內容矮，
- * 被壓過的 grid 會把每一列鎖在 min-height，一格放兩筆班時第二筆就切在格線外。
- * 捲動本來就由 panel 負責，月曆不需要縮。
- */
-.hr-system .hr-calendar:not(.weekdays) { flex: none; gap: 8px; padding: 2px 0 0; }
+.hr-system .hr-calendar:not(.weekdays) { gap: 8px; }
 .hr-system .hr-calendar-cell {
   position: relative;
   isolation: isolate;
@@ -850,7 +790,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
    * 要處理的情況，所以讓格子隨內容長高；圓角由 ::before 的 inset 負責，不靠裁切。
    */
   overflow: visible;
-  min-height: 138px;
+  min-height: 104px;
   padding: 10px;
   border: 1px solid transparent;
   border-radius: 18px;
@@ -1091,16 +1031,13 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
  * 選中與否看格子的底色與框線，不靠這裡再標一次。
  */
 .hr-system .hr-quick-bar {
-  gap: 12px;
-  padding: 12px 14px;
-  border: 0;
-  border-radius: 22px;
+  border-radius: 14px;
   background: --alpha(var(--color-brand) / 7%);
   box-shadow:
     0 1px 0 --alpha(var(--color-paper) / 58%) inset,
     0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
 }
-.hr-system .hr-quick-bar-head > strong { font-size: 15px; letter-spacing: .02em; }
+.hr-system .hr-quick-bar > strong { font-size: 15px; letter-spacing: .02em; }
 .hr-system .hr-quick-bar-count,
 .hr-system .hr-quick-bar-rest { background: --alpha(var(--color-paper) / 62%); }
 .hr-system .hr-quick-bar-rest.ok { background: var(--color-ok-soft); }
