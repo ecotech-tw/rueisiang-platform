@@ -15,12 +15,6 @@ function clock(seconds: number) {
   return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}`;
 }
 
-/*
- * 一列班別就是「名稱＋開始＋結束」，沒有計薪工時與休息。
- *
- * 計薪時數＝班別長度，由後端的 defaultShiftMinutes 算，這裡不重複一份；
- * 讓人手填的話，只改名稱那一次忘了把工時一起送出就會把值洗掉，而薪資的時數是從那裡來的。
- */
 interface ShiftRowDraft {
   key: string;
   original: ScheduleShift | null;

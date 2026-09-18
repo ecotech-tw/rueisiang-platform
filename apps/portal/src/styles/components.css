@@ -4235,10 +4235,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-schedule-month { display: flex; align-items: center; gap: 8px; }
 .hr-schedule-month > strong { min-width: 132px; text-align: center; }
 .hr-schedule-toolbar .field { margin: 0; min-width: 190px; }
-/*
- * 排班沒有送審流程，儲存就是發布，所以「現在發布了沒有」只能靠這一行講。
- * margin-left: auto 把它推到工具列尾端，跟月份與據點分開成兩區。
- */
 .hr-schedule-status { display: flex; align-items: center; align-self: center; gap: 8px; margin: 0 0 0 auto; color: var(--color-muted); font-size: 13px; }
 .hr-schedule-status .status { flex: none; }
 .hr-schedule-rest-summary { display: flex; align-items: flex-start; gap: 12px; margin-top: 14px; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-paper); }
@@ -4262,18 +4258,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-calendar-entry span, .hr-calendar-entry small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hr-calendar-entry small { color: var(--color-muted); font-size: 10px; }
 .hr-calendar-entry button { position: absolute; top: 2px; right: 3px; padding: 0 3px; font-size: 14px; }
-/*
- * 今天。沒有這個標記的話，整個月份長得一模一樣，要對照日曆才知道捲到哪裡了。
- * 用實心膠囊而不是整格底色：快速排班選中的格子已經是品牌色底，兩個疊在一起會分不出來。
- */
 .hr-calendar-date strong,
 .hr-calendar-date .hr-quick-day { display: inline-grid; min-width: 28px; height: 28px; place-items: center; border-radius: 999px; }
 .hr-calendar-cell.today .hr-calendar-date strong,
 .hr-calendar-cell.today .hr-calendar-date .hr-quick-day { background: var(--color-brand); color: var(--color-canvas); }
-/*
- * 快速排班條。條件（人＋班別）與進度（已選幾天、離約定月休差多少）分成上下兩排：
- * 擠在同一排時，三個下拉跟一段說明會互相搶寬度，換行之後誰配誰就看不出來了。
- */
 .hr-quick-bar { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-paper); }
 .hr-quick-bar-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .hr-quick-bar-head > strong { color: var(--color-brand-dark); }

@@ -300,15 +300,7 @@ function secondsFromTime(input: Record<string, unknown>, key: string) {
   const minute = Number(value.slice(3, 5));
   return hour * 3600 + minute * 60;
 }
-/*
- * 班別的計薪工時就是它的長度，休息一律 0——這裡是唯一的來源，前端不再讓人另外填。
- *
- * 舊版讓人手動輸入「計薪工時」與「休息」，但實際上沒有任何一家店的班需要跟時段不一樣，
- * 而休息那個值從頭到尾沒有被任何計算讀過（只有存起來跟顯示）。多兩個欄位的結果是每次
- * 改班別名稱都要一起重送，忘了送就被預設值洗掉——而薪資的時數正是從這裡來的。
- *
- * 舊的預設值還會寫死 Math.min(480, duration)：10 小時的班會被算成 8 小時，少給兩小時。
- */
+/** 班別的計薪工時就是它的長度，休息一律 0；這裡是唯一的來源。 */
 function defaultShiftMinutes(input: Record<string, unknown>) {
   const start = secondsFromTime(input, "startTime");
   const end = secondsFromTime(input, "endTime");

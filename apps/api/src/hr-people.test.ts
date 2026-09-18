@@ -398,7 +398,6 @@ describe("HR 員工基礎", () => {
     const kept = await (await request("/hr/employees/self")).json() as { employments: Array<{ monthlyRestDays: number | null }> };
     expect(kept.employments[0]?.monthlyRestDays).toBe(10);
 
-    // 13:00–22:00 是 9 小時：計薪工時照時段算成 540，休息固定 0，客戶端送來的 480／60 一律不採用。
     const shift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "假日晚班", startTime: "13:00", endTime: "22:00", standardMinutes: 480, breakMinutes: 60 });
     expect(shift.status, await shift.clone().text()).toBe(201);
     const listed = await (await request("/hr/shift-templates")).json() as { shifts: Array<{ name: string; standardMinutes: number; breakMinutes: number }> };
@@ -418,13 +417,10 @@ describe("HR 員工基礎", () => {
     const publishedVersion = await published.json() as { id: string; revision: number };
     const snapshot = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes }).from(hrScheduleEntries).where(eq(hrScheduleEntries.employmentId, job)).limit(1);
     expect(snapshot[0]).toMatchObject({ startsAt: `${month}-11 13:00:00`, endsAt: `${month}-11 22:00:00`, standardMinutes: 540, breakMinutes: 0 });
-    // 改成 14:00–22:00（8 小時）：計薪工時要跟著時段變成 480，不是沿用舊值、也不是客戶端送的 420。
     const changedShift = await request(`/hr/shift-templates/${shiftBody.id}`, "PATCH", { scopeId: "scope", name: "假日晚班更新", startTime: "14:00", endTime: "22:00", standardMinutes: 420, breakMinutes: 60, revision: 1 });
     expect(changedShift.status, await changedShift.clone().text()).toBe(200);
-    // 計薪工時會改變薪資，稽核紀錄要看得出改成多少。
     const [shiftAudit] = await db.select({ payloadJson: activityEvents.payloadJson }).from(activityEvents).where(eq(activityEvents.eventType, "shift_updated"));
     expect(JSON.parse(shiftAudit?.payloadJson ?? "{}")).toMatchObject({ name: "假日晚班更新", standardMinutes: 480, breakMinutes: 0 });
-    // 已經排出去的班是當下的快照：改班別不會回頭改動已發布的排班，否則等於改到已經發過的薪水。
     const unchangedSnapshot = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes }).from(hrScheduleEntries).where(eq(hrScheduleEntries.employmentId, job)).limit(1);
     expect(unchangedSnapshot[0]).toMatchObject({ startsAt: `${month}-11 13:00:00`, endsAt: `${month}-11 22:00:00`, standardMinutes: 540, breakMinutes: 0 });
     const invalidSchedule = await request("/hr/schedules", "POST", { periodKey: month, scheduleVersionId: publishedVersion.id, revision: publishedVersion.revision, entries: Array.from({ length: lastDay }, (_, index) => ({ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: `${month}-${String(index + 1).padStart(2, "0")}` })) });
@@ -437,7 +433,6 @@ describe("HR 員工基礎", () => {
     expect(morning.status, await morning.clone().text()).toBe(201);
     const evening = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "晚班", startTime: "14:00", endTime: "22:00" });
     expect(evening.status, await evening.clone().text()).toBe(201);
-    // 超過 8 小時的班以前會被 Math.min(480, duration) 砍成 480，等於每天少算工時；現在照實際時段算。
     const long = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "十小時班", startTime: "08:00", endTime: "18:00" });
     expect(long.status, await long.clone().text()).toBe(201);
     const longListed = await (await request("/hr/shift-templates")).json() as { shifts: Array<{ name: string; standardMinutes: number; breakMinutes: number }> };
