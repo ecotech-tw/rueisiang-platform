@@ -200,34 +200,36 @@ export function HrScheduling() {
 
   return <div className="page fills hr-schedule-page">
     <PageHeader title="排班月曆" description="正式員工依排班出勤；臨時支援排班會納入日薪，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
-    <div className="hr-schedule-toolbar">
-      <div className="hr-schedule-month"><Button variant="secondary" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() - 1, 1)))}>上個月</Button><strong>{month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月</strong><Button variant="secondary" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1)))}>下個月</Button></div>
-      <SelectField label="營運據點" value={scopeId} options={[...(quick ? [] : [{ value: "all", label: "全部營運據點" }]), ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => pickScope(event.target.value)} />
-      {/* 不掛 role="status"：快速排班每點一天就會改「新增 N 筆」，做成 live region 等於整月被念一遍。 */}
-      <p className="hr-schedule-status"><StatusBadge tone={status.tone}>{status.label}</StatusBadge><span>{status.detail}</span></p>
-    </div>
     {restSummaries.length ? <div className="hr-schedule-rest-summary" aria-label="月休統計"><strong>月休統計</strong><div>{restSummaries.map(({ employee, activeDays, scheduledDays, restDays, matches }) => <span className={matches ? "ok" : "warning"} key={employee.employmentId}><b>{employee.name}</b> 休 {restDays}／約定 {employee.monthlyRestDays} 天<span className="muted">（{scheduledDays}／{activeDays} 日）</span></span>)}</div></div> : null}
-    {quick ? <div className="hr-quick-bar">
-      <div className="hr-quick-bar-head">
-        <strong>快速排班</strong>
-        <span className="hr-quick-bar-hint">點日期加入，再點一次取消。</span>
-        <span className="hr-quick-bar-count">已選 <b>{quickDays}</b> 天</span>
-        {quickRest ? <span className={`hr-quick-bar-rest ${quickRest.matches ? "ok" : "warning"}`}>休 {quickRest.restDays}／約定 {quickRest.employee.monthlyRestDays} 天</span> : null}
-        <Button variant="secondary" onClick={() => setQuick(null)}>結束</Button>
+    {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
+    <Panel className="grows hr-calendar-panel">
+      <div className="hr-calendar-head">
+        <div className="hr-schedule-month">
+          <Button variant="icon" icon="chevronLeft" aria-label="上個月" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() - 1, 1)))} />
+          <strong>{month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月</strong>
+          <Button variant="icon" icon="chevronRight" aria-label="下個月" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1)))} />
+        </div>
+        <SelectField aria-label="營運據點" value={scopeId} options={[...(quick ? [] : [{ value: "all", label: "全部營運據點" }]), ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => pickScope(event.target.value)} />
+        {/* 不掛 role="status"：快速排班每點一天就會改「新增 N 筆」，做成 live region 等於整月被念一遍。 */}
+        <p className="hr-schedule-status"><StatusBadge tone={status.tone}>{status.label}</StatusBadge><span>{status.detail}</span></p>
       </div>
-      <div className="hr-quick-bar-fields">
-        <SelectField label="人員類型" value={quick.personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援（納入日薪）" }]} onChange={(event) => {
+      {quick ? <div className="hr-quick-bar">
+        <strong>快速排班</strong>
+        <SelectField aria-label="人員類型" value={quick.personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援（納入日薪）" }]} onChange={(event) => {
           const personKind = event.target.value as "employee" | "worker";
           setQuick({ ...quick, personKind, personId: (personKind === "employee" ? data.employees[0]?.employmentId : data.workers[0]?.id) ?? "" });
         }} />
-        <SelectField label="人員" value={quick.personId} options={quick.personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber} ${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick({ ...quick, personId: event.target.value })} />
-        <SelectField label="班別" value={quick.shiftVersionId} options={quickShifts.map((shift) => ({ value: shift.versionId, label: shiftLabel(shift) }))} onChange={(event) => setQuick({ ...quick, shiftVersionId: event.target.value })} />
-      </div>
-      {quickShifts.length ? null : <Alert tone="info">這個營運據點尚未設定班別，請先到 <Link to="/hr/scheduling/shifts">班別管理</Link> 新增早班或晚班。</Alert>}
-    </div> : null}
-    {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
-    <Panel className={`grows${loading ? " is-refreshing" : ""}`}>
+        <SelectField aria-label="人員" value={quick.personId} options={quick.personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.name} ${employee.employeeNumber}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick({ ...quick, personId: event.target.value })} />
+        {quickShifts.length
+          ? <SelectField aria-label="班別" value={quick.shiftVersionId} options={quickShifts.map((shift) => ({ value: shift.versionId, label: shiftLabel(shift) }))} onChange={(event) => setQuick({ ...quick, shiftVersionId: event.target.value })} />
+          : <span className="hr-quick-bar-empty">這個據點還沒有班別，<Link to="/hr/scheduling/shifts">前往班別管理</Link></span>}
+        <span className="hr-quick-bar-hint">點日期排入或取消</span>
+        <span className="hr-quick-bar-count">已選 <b>{quickDays}</b> 天</span>
+        {quickRest ? <span className={`hr-quick-bar-rest ${quickRest.matches ? "ok" : "warning"}`}>休 {quickRest.restDays}／約定 {quickRest.employee.monthlyRestDays} 天</span> : null}
+        <Button variant="secondary" onClick={() => setQuick(null)}>結束</Button>
+      </div> : null}
       <div className="hr-calendar weekdays">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <strong key={day}>{day}</strong>)}</div>
+      <div className={`hr-calendar-scroll${loading ? " is-refreshing" : ""}`}>
       <div className={`hr-calendar${quick ? " quick" : ""}`}>
         {Array.from({ length: weekday(month) }, (_, index) => <div className="hr-calendar-cell empty" key={`empty-${index}`} />)}
         {dates.map((day, index) => <div
@@ -247,6 +249,7 @@ export function HrScheduling() {
             : <><strong>{index + 1}</strong>{canEdit ? <button type="button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
           <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${quick && samePick(entry, quick) ? " current" : ""}`} key={entry.id}><span>{entry.personName}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
         </div>)}
+      </div>
       </div>
     </Panel>
     {addingDay && defaultScope ? <ScheduleEntryDialog data={data} day={addingDay} defaultScopeId={defaultScope} onAdd={(entry) => setDraftEntries((current) => [...current, entry])} onClose={() => setAddingDay(null)} /> : null}

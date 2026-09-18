@@ -62,7 +62,7 @@ function DashboardSkeleton() {
 
 function CalendarSkeleton() {
   return <SkeletonPanel>
-    <div className="hr-skeleton-toolbar is-calendar" aria-hidden="true"><SkeletonBlock className="is-short" /><SkeletonBlock className="is-month" /><SkeletonBlock className="is-short" /><SkeletonBlock /></div>
+    <div className="hr-skeleton-toolbar is-calendar" aria-hidden="true"><SkeletonBlock className="is-nav" /><SkeletonBlock className="is-month" /><SkeletonBlock className="is-nav" /><SkeletonBlock /><SkeletonBlock /></div>
     <div className="hr-skeleton-calendar" aria-hidden="true">{Array.from({ length: 35 }, (_, index) => <SkeletonPanel key={index}><SkeletonBlock className="is-calendar-date" /><SkeletonBlock className="is-calendar-entry" /><SkeletonBlock className="is-calendar-entry is-short" /></SkeletonPanel>)}</div>
   </SkeletonPanel>;
 }
