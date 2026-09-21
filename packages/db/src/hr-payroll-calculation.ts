@@ -1356,15 +1356,27 @@ export async function updateHrBonusPolicy(db: Database, input: UpdateHrBonusPoli
   try {
     await db.batch(batchStatements([
       db.update(hrBonusPolicies).set({ name: input.name }).where(eq(hrBonusPolicies.id, current.policyId)),
-      ...(latest ? [db.update(hrBonusPolicyVersions).set({ validTo: input.validFrom }).where(eq(hrBonusPolicyVersions.id, latest.id))] : []),
-      ...(activeMembers.length ? [db.update(hrBonusPolicyMembers).set({ validTo: input.validFrom }).where(inArray(hrBonusPolicyMembers.id, activeMembers.map(({ member }) => member.id)))] : []),
-      db.insert(hrBonusPolicyVersions).values({ id: policyVersionId, policyId: current.policyId, versionNumber, scopeId: scopeIds[0]!, performanceKind: "scheduled_daily", revenueKind: "sales_amount", bonusKind: input.bonusKind, performancePeriod: input.performancePeriod, ratePpm: input.ratePpm, guaranteeMinor: input.guaranteeMinor, validFrom: input.validFrom, validTo: null, createdBy: actor.id }),
+      ...(latest ? [db.update(hrBonusPolicyVersions).set({ validTo: input.validFrom }).where(and(eq(hrBonusPolicyVersions.id, latest.id), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`))] : []),
+      /*
+       * policy_id 取自「這一版還沒被解除」的子查詢，而不是上面讀到的值：讀取與寫入之間
+       * 別人可能剛解除了這一版，只靠 JS 的檢查攔不到。被解除時子查詢是 NULL，NOT NULL
+       * 直接讓整個 batch 回滾——否則上一版已被解除還原成有效，新版本又插進來，會有兩個
+       * 同時有效的版本，獎金發兩次。
+       * 「有人搶先建立了更新的版本」則仍由 (policy_id, version_number) 的唯一索引擋下。
+       */
+      db.insert(hrBonusPolicyVersions).values({ id: policyVersionId, policyId: sql`(SELECT policy_id FROM hr_bonus_policy_versions WHERE id=${input.policyVersionId} AND voided_at IS NULL)`, versionNumber, scopeId: scopeIds[0]!, performanceKind: "scheduled_daily", revenueKind: "sales_amount", bonusKind: input.bonusKind, performancePeriod: input.performancePeriod, ratePpm: input.ratePpm, guaranteeMinor: input.guaranteeMinor, validFrom: input.validFrom, validTo: null, createdBy: actor.id }),
       ...scopeIds.map((scopeId) => db.insert(hrBonusPolicyVersionScopes).values({ policyVersionId, scopeId, createdBy: actor.id })),
+      /*
+       * 關成員時把原本的迄日與關它的版本留著，解除版本才還原得回來（見 schema 的註解）。
+       * 必須排在新版本插入之後：superseded_by_version_id 指著那一列。
+       */
+      ...(activeMembers.length ? [db.update(hrBonusPolicyMembers).set({ validTo: input.validFrom, supersededValidTo: sql`valid_to`, supersededByVersionId: policyVersionId }).where(inArray(hrBonusPolicyMembers.id, activeMembers.map(({ member }) => member.id)))] : []),
       ...nextMembers.map((member) => db.insert(hrBonusPolicyMembers).values({ id: crypto.randomUUID(), policyVersionId, employmentId: member.employmentId, validFrom: input.validFrom, validTo: member.validTo, weightUnits: member.weightUnits, createdBy: actor.id })),
       db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policyVersionId, source: "hr", eventType: "bonus_policy_version_created", summary: "獎金更新", actor, payload: { policyId: current.policyId, previousPolicyVersionId: input.policyVersionId, policyVersionId, versionNumber, validFrom: input.validFrom, scopeIds, assignmentCount: nextMembers.length } })),
     ]));
   } catch (error) {
-    if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "獎金已建立，請重新整理。 ");
+    // NOT NULL 是上面那句 policy_id 子查詢落空的訊號：這一版剛被別人解除了。
+    if (error instanceof Error && /UNIQUE constraint failed|NOT NULL constraint failed/.test(error.message)) throw new HrError(409, "獎金已變更，請重新整理後再試。 ");
     throw error;
   }
   return { policyId: current.policyId, policyVersionId, versionNumber };
@@ -1418,15 +1430,9 @@ export async function voidHrBonusPolicyVersion(db: Database, policyVersionId: st
     // 上一版當初是被這一版的生效日關起來的，還原成它被關之前的迄日（最新版一定是 NULL）。
     sql`UPDATE hr_bonus_policy_versions SET valid_to=${version.validTo}
       WHERE id=${previous.id} AND valid_to=${version.validFrom} RETURNING id`,
-    /*
-     * 成員的迄日同理，但不能一律還原成 NULL：更新時既有成員的迄日會原封不動搬到新版本，
-     * 所以回填的來源就是被解除版本上同一位員工的迄日；新版本沒有那個人（這次更新把他移除）
-     * 時子查詢回傳 NULL，正好是「他本來還在」的狀態。
-     */
-    sql`UPDATE hr_bonus_policy_members SET valid_to=(
-        SELECT voided_member.valid_to FROM hr_bonus_policy_members AS voided_member
-        WHERE voided_member.policy_version_id=${policyVersionId} AND voided_member.employment_id=hr_bonus_policy_members.employment_id)
-      WHERE policy_version_id=${previous.id} AND valid_to=${version.validFrom} RETURNING id`,
+    // 成員還原成被這一版關起來之前的原值；來源是關它的時候留下的 superseded_*，不是推算的。
+    sql`UPDATE hr_bonus_policy_members SET valid_to=superseded_valid_to, superseded_valid_to=NULL, superseded_by_version_id=NULL
+      WHERE superseded_by_version_id=${policyVersionId} RETURNING id`,
   ], policyVersionId, actor, "bonus_policy_version_voided", "獎金版本已被其他人變更，請重新整理。 ", { allowEmptyMutationIndexes: new Set([1, 2]) });
   return { policyId: version.policyId, policyVersionId, previousPolicyVersionId: previous.id, status: "voided" as const };
 }
@@ -1481,7 +1487,8 @@ export async function assignHrBonusPolicyMember(db: Database, input: AssignHrBon
   const assignmentEnd = input.validTo ?? "9999-12-31";
   const [duplicate] = await db.select({ id: hrBonusPolicyMembers.id }).from(hrBonusPolicyMembers)
     .innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPolicyMembers.policyVersionId))
-    .where(and(eq(hrBonusPolicyVersions.policyId, policy.policyId), eq(hrBonusPolicyMembers.employmentId, employment.id), sql`${hrBonusPolicyMembers.validFrom} < ${assignmentEnd}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.validFrom})`))
+    // 已解除版本的成員還留在資料庫，但它們不算數；不排除的話解除回上一版之後就再也套用不了同一個人。
+    .where(and(eq(hrBonusPolicyVersions.policyId, policy.policyId), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`, eq(hrBonusPolicyMembers.employmentId, employment.id), sql`${hrBonusPolicyMembers.validFrom} < ${assignmentEnd}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.validFrom})`))
     .limit(1);
   if (duplicate) throw new HrError(409, "該員工已套用這個獎金，不能重複套用重疊期間。 ");
   const assignmentId = crypto.randomUUID();
@@ -1493,6 +1500,7 @@ export async function assignHrBonusPolicyMember(db: Database, input: AssignHrBon
         SELECT 1 FROM hr_bonus_policy_members AS existing_member
         INNER JOIN hr_bonus_policy_versions AS existing_version ON existing_version.id = existing_member.policy_version_id
         WHERE existing_version.policy_id = ${policy.policyId}
+          AND existing_version.voided_at IS NULL
           AND existing_member.employment_id = ${employment.id}
           AND existing_member.valid_from < ${assignmentEnd}
           AND (existing_member.valid_to IS NULL OR existing_member.valid_to > ${input.validFrom})

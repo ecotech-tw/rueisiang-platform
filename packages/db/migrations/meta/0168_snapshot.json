@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c36611ba-22d7-4797-ab36-6f1a88f94e8a",
-  "prevId": "e6c0dca6-8d37-477b-bcc8-1936a86f8509",
+  "id": "960bc99a-3894-43bf-b3c7-3d681a23def0",
+  "prevId": "33f92c19-95f1-40b7-9fd6-61f5f90b8ef6",
   "tables": {
     "auth_device_sessions": {
       "name": "auth_device_sessions",
@@ -8734,6 +8734,112 @@
         }
       }
     },
+    "hr_special_workday_overtime_rules": {
+      "name": "hr_special_workday_overtime_rules",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rule_version_id": {
+          "name": "rule_version_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "from_half_hours": {
+          "name": "from_half_hours",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "to_half_hours": {
+          "name": "to_half_hours",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rate_kind": {
+          "name": "rate_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fixed_amount_minor": {
+          "name": "fixed_amount_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "multiplier_ppm": {
+          "name": "multiplier_ppm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_hr_special_workday_overtime_rules_version_from": {
+          "name": "idx_hr_special_workday_overtime_rules_version_from",
+          "columns": [
+            "rule_version_id",
+            "from_half_hours"
+          ],
+          "isUnique": true
+        },
+        "idx_hr_special_workday_overtime_rules_version": {
+          "name": "idx_hr_special_workday_overtime_rules_version",
+          "columns": [
+            "rule_version_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "hr_special_workday_overtime_rules_rule_version_id_hr_special_workday_rule_versions_id_fk": {
+          "name": "hr_special_workday_overtime_rules_rule_version_id_hr_special_workday_rule_versions_id_fk",
+          "tableFrom": "hr_special_workday_overtime_rules",
+          "tableTo": "hr_special_workday_rule_versions",
+          "columnsFrom": [
+            "rule_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_special_workday_overtime_rules_range": {
+          "name": "ck_hr_special_workday_overtime_rules_range",
+          "value": "\"hr_special_workday_overtime_rules\".\"from_half_hours\" >= 1 AND (\"hr_special_workday_overtime_rules\".\"to_half_hours\" IS NULL OR \"hr_special_workday_overtime_rules\".\"to_half_hours\" >= \"hr_special_workday_overtime_rules\".\"from_half_hours\")"
+        },
+        "ck_hr_special_workday_overtime_rules_rate": {
+          "name": "ck_hr_special_workday_overtime_rules_rate",
+          "value": "(\"hr_special_workday_overtime_rules\".\"rate_kind\" = 'fixed_hourly' AND \"hr_special_workday_overtime_rules\".\"fixed_amount_minor\" IS NOT NULL AND \"hr_special_workday_overtime_rules\".\"fixed_amount_minor\" >= 0 AND \"hr_special_workday_overtime_rules\".\"multiplier_ppm\" IS NULL) OR (\"hr_special_workday_overtime_rules\".\"rate_kind\" = 'multiplier' AND \"hr_special_workday_overtime_rules\".\"fixed_amount_minor\" IS NULL AND \"hr_special_workday_overtime_rules\".\"multiplier_ppm\" IS NOT NULL AND \"hr_special_workday_overtime_rules\".\"multiplier_ppm\" >= 0)"
+        }
+      }
+    },
     "hr_special_workday_rule_versions": {
       "name": "hr_special_workday_rule_versions",
       "columns": {
@@ -9127,6 +9233,20 @@
           "notNull": true,
           "autoincrement": false
         },
+        "superseded_valid_to": {
+          "name": "superseded_valid_to",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "superseded_by_version_id": {
+          "name": "superseded_by_version_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_by": {
           "name": "created_by",
           "type": "text",
@@ -9182,6 +9302,19 @@
           "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "hr_bonus_policy_members_superseded_by_version_id_hr_bonus_policy_versions_id_fk": {
+          "name": "hr_bonus_policy_members_superseded_by_version_id_hr_bonus_policy_versions_id_fk",
+          "tableFrom": "hr_bonus_policy_members",
+          "tableTo": "hr_bonus_policy_versions",
+          "columnsFrom": [
+            "superseded_by_version_id"
           ],
           "columnsTo": [
             "id"

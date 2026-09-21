@@ -74,6 +74,17 @@ export const hrBonusPolicyMembers = sqliteTable("hr_bonus_policy_members", {
   validFrom: text("valid_from").notNull(),
   validTo: text("valid_to"),
   weightUnits: integer("weight_units").notNull(),
+  /*
+   * 更新政策時，上一版的成員會被新版本的生效日關起來，原本的迄日就被蓋掉了。
+   * 解除版本要把成員還原成被關之前的樣子，所以關的當下要把原值留著——不能事後從
+   * 新版本的成員推回去：新版本可能根本沒有那個人（這次更新把他移除），也可能把
+   * 迄日改成了 NULL，兩種情況推出來的都是錯的。
+   *
+   * superseded_by_version_id 同時是「這列是被關的」的唯一判準。只看
+   * valid_to 是否等於某個日期會誤判本來就填了那天的成員。
+   */
+  supersededValidTo: text("superseded_valid_to"),
+  supersededByVersionId: text("superseded_by_version_id").references(() => hrBonusPolicyVersions.id, { onDelete: "restrict" }),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
