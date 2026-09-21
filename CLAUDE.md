@@ -120,12 +120,15 @@ Actions secrets。平台觸發 workflow 時會把 D1 的店別、scope ID 與 Dr
 
 ## 多 agent 協作：Git worktree（v1）
 
-worktree 的建立指令、目錄配置、port 對照、branch 生命週期與 review 規則集中放在
+worktree 的建立指令、目錄配置、port 規則、branch 生命週期與 review 規則集中放在
 [`docs/development-workflow.md`](./docs/development-workflow.md)；本節只保留不可違反的邊界。
 
-同一個 working directory 同時只能有一個主人。主資料夾 `rueisiang-platform` 預設是人類的，
-人類當次明講之後 agent 也可以借用。交叉 review 唯讀，在自己的 worktree 做，不要進對方的
-目錄。具體的目錄配置與 agent 規則請以上面的 workflow 文件為準。
+同一個 working directory 同時只能有一個主人。**一個 session 一個 worktree**——不是一個
+agent 一個，因為同一個 agent 會同時開好幾個 session 做不同的需求。用需求命名、開在
+`Rueisiang\` 底下（不可以開在 `rueisiang-platform\` 裡面），**PR 合併後由開它的 session
+負責拆掉**。主資料夾 `rueisiang-platform` 預設是人類的，人類當次明講之後 agent 也可以
+借用。交叉 review 唯讀，在自己的 worktree 做，不要進別人的目錄。具體的目錄配置與 agent
+規則請以上面的 workflow 文件為準。
 
 `CLAUDE.md`、`AGENTS.md`、`docs/development-workflow.md` 與 `.claude/skills/` 是三方共用的
 規格：**要改就開一個只做這件事的 PR，不可以夾在功能 PR 裡順手改。** 夾在大 diff 裡的一句
@@ -297,9 +300,9 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
 
 ```bash
 pnpm install
-pnpm dev          # portal（Vite）5173 + API 8787，同時起
-# Codex worktree：$env:API_PORT="8788"; $env:PORTAL_PORT="5174"; pnpm dev
-# Claude worktree：$env:API_PORT="8789"; $env:PORTAL_PORT="5175"; pnpm dev
+pnpm dev          # portal（Vite）＋ HR ＋ API 同時起；port 自動挑，啟動時印出來
+# 要指定就設環境變數，有設的不會被蓋掉：
+# $env:API_PORT="8788"; $env:PORTAL_PORT="5174"; $env:HR_PORT="5177"; pnpm dev
 pnpm build        # portal 產 dist；api 只做型別檢查
 pnpm typecheck    # Worker 與測試兩份 tsconfig 都跑，兩份都要過
 pnpm test
@@ -320,4 +323,4 @@ pnpm --filter @rueisiang/api exec vitest run src/crm.test.ts -t "封鎖"
 cd packages/db && pnpm generate
 ```
 
-本機開發：打開 <http://localhost:5173/dev> 選身分直接登入（六種帳號涵蓋管理者到已停用），跳過 Google OAuth。Codex worktree 使用 <http://localhost:5174/dev>，Claude worktree 使用 <http://localhost:5175/dev>。資料在各自 worktree 的 `apps/api/local.sqlite`，想重來就刪檔。需要金鑰的功能（CYBERBIZ）從 `apps/api/.dev.vars` 讀，格式同 wrangler。
+本機開發：打開啟動訊息印出來的那個「假登入」網址（第一個 session 是 <http://localhost:5173/dev>）選身分直接登入（六種帳號涵蓋管理者到已停用），跳過 Google OAuth。資料在各自 worktree 的 `apps/api/local.sqlite`，想重來就刪檔。需要金鑰的功能（CYBERBIZ）從 `apps/api/.dev.vars` 讀，格式同 wrangler。
