@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { users } from "./auth.js";
 import { hrEmployments } from "./hr-people.js";
 import { scopes } from "./reports.js";
@@ -176,6 +177,15 @@ export const hrSpecialWorkdayRuleVersions = sqliteTable("hr_special_workday_rule
   overtimeRule: text("overtime_rule").notNull(),
   workSource: text("work_source", { enum: ["schedule", "hourly", "manual"] as const }).notNull(),
   note: text("note").notNull().default(""),
+  /** 誤設版本以解除保留，不能物理刪除，避免歷史套用與薪資快照失去來源。 */
+  voidedAt: text("voided_at"),
+  voidedBy: text("voided_by").references(() => users.id, { onDelete: "restrict" }),
+  /*
+   * 建立新版本時會先把上一版的 valid_to 收尾；原值放在上一版自己的欄位，
+   * 解除最新版本時才能準確還原，而不是猜它原本是不是不限期。
+   */
+  supersededValidTo: text("superseded_valid_to"),
+  supersededByVersionId: text("superseded_by_version_id").references((): AnySQLiteColumn => hrSpecialWorkdayRuleVersions.id, { onDelete: "restrict" }),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [

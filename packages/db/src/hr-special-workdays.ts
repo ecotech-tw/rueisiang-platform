@@ -1,7 +1,7 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
-import { HrError, type HrActor } from "./hr-people.js";
+import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
 import { hrScheduleWorkers, hrSpecialWorkdayAllowances, hrSpecialWorkdayAssignments, hrSpecialWorkdayOvertimeRules, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
@@ -60,7 +60,7 @@ export async function listHrSpecialWorkdayRules(db: Database) {
   // 分開讀三張表；SQLite/D1 的 joined select 在多個表有同名欄位時容易覆蓋 id。
   const [rules, versions, allowances, overtimeRules] = await Promise.all([
     db.select().from(hrSpecialWorkdayRules).orderBy(asc(hrSpecialWorkdayRules.name)),
-    db.select().from(hrSpecialWorkdayRuleVersions).orderBy(asc(hrSpecialWorkdayRuleVersions.versionNumber)),
+    db.select().from(hrSpecialWorkdayRuleVersions).orderBy(asc(hrSpecialWorkdayRuleVersions.ruleId), asc(hrSpecialWorkdayRuleVersions.versionNumber)),
     db.select().from(hrSpecialWorkdayAllowances),
     db.select().from(hrSpecialWorkdayOvertimeRules).orderBy(asc(hrSpecialWorkdayOvertimeRules.fromHalfHours)),
   ]);
@@ -71,8 +71,8 @@ export async function listHrSpecialWorkdayRules(db: Database) {
 }
 
 export async function listHrSpecialWorkdayAssignments(db: Database, periodStart?: string, periodEnd?: string) {
-  const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, employeeNumber: hrEmployees.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: hrScheduleWorkers.displayName }).from(hrSpecialWorkdayAssignments)
-    .leftJoin(hrEmployments, eq(hrEmployments.id, hrSpecialWorkdayAssignments.employmentId)).leftJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).leftJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrSpecialWorkdayAssignments.workerId))
+  const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleVersionNumber: hrSpecialWorkdayRuleVersions.versionNumber, ruleVersionVoidedAt: hrSpecialWorkdayRuleVersions.voidedAt, employeeNumber: hrEmployees.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: hrScheduleWorkers.displayName }).from(hrSpecialWorkdayAssignments)
+    .innerJoin(hrSpecialWorkdayRuleVersions, eq(hrSpecialWorkdayRuleVersions.id, hrSpecialWorkdayAssignments.ruleVersionId)).leftJoin(hrEmployments, eq(hrEmployments.id, hrSpecialWorkdayAssignments.employmentId)).leftJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).leftJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrSpecialWorkdayAssignments.workerId))
     .where(and(periodStart ? sql`${hrSpecialWorkdayAssignments.workDate} >= ${periodStart}` : undefined, periodEnd ? sql`${hrSpecialWorkdayAssignments.workDate} < ${periodEnd}` : undefined)).orderBy(asc(hrSpecialWorkdayAssignments.workDate));
   return rows;
 }
@@ -84,15 +84,73 @@ export async function createHrSpecialWorkdayRule(db: Database, input: SpecialWor
 }
 
 export async function createHrSpecialWorkdayRuleVersion(db: Database, ruleId: string, input: SpecialWorkdayRuleInput, actor: HrActor) {
-  validate(input); const overtimeRules = normalizeOvertimeRules(input.overtimeRules); const [rule] = await db.select({ id: hrSpecialWorkdayRules.id, active: hrSpecialWorkdayRules.active }).from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, ruleId)).limit(1);
-  if (!rule) throw new HrError(404, "找不到特殊上班日規則。 "); if (!rule.active) throw new HrError(409, "規則已停用，不能建立新版本。 ");
-  const [latest] = await db.select({ id: hrSpecialWorkdayRuleVersions.id, versionNumber: hrSpecialWorkdayRuleVersions.versionNumber, validFrom: hrSpecialWorkdayRuleVersions.validFrom }).from(hrSpecialWorkdayRuleVersions).where(eq(hrSpecialWorkdayRuleVersions.ruleId, ruleId)).orderBy(sql`${hrSpecialWorkdayRuleVersions.versionNumber} DESC`).limit(1);
+  validate(input);
+  const overtimeRules = normalizeOvertimeRules(input.overtimeRules);
+  const [rule] = await db.select({ id: hrSpecialWorkdayRules.id, active: hrSpecialWorkdayRules.active }).from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, ruleId)).limit(1);
+  if (!rule) throw new HrError(404, "找不到特殊上班日規則。 ");
+  if (!rule.active) throw new HrError(409, "規則已停用，不能建立新版本。 ");
+  // 解除後要能在原生效日建立修正版，所以生效日只和仍有效的最新版本比較；編號則永遠取所有版本最大值。
+  const [latest] = await db.select({ id: hrSpecialWorkdayRuleVersions.id, versionNumber: hrSpecialWorkdayRuleVersions.versionNumber, validFrom: hrSpecialWorkdayRuleVersions.validFrom, validTo: hrSpecialWorkdayRuleVersions.validTo }).from(hrSpecialWorkdayRuleVersions)
+    .where(and(eq(hrSpecialWorkdayRuleVersions.ruleId, ruleId), sql`${hrSpecialWorkdayRuleVersions.voidedAt} IS NULL`)).orderBy(desc(hrSpecialWorkdayRuleVersions.versionNumber)).limit(1);
   if (latest && input.validFrom <= latest.validFrom) throw new HrError(400, "新規則版本生效日必須晚於既有版本。 ");
-  const versionId = crypto.randomUUID(); const number = (latest?.versionNumber ?? 0) + 1;
+  const [maxVersion] = await db.select({ versionNumber: sql<number>`coalesce(max(${hrSpecialWorkdayRuleVersions.versionNumber}), 0)`.as("special_workday_max_version_number") }).from(hrSpecialWorkdayRuleVersions).where(eq(hrSpecialWorkdayRuleVersions.ruleId, ruleId));
+  const versionId = crypto.randomUUID();
+  const number = Number(maxVersion?.versionNumber ?? 0) + 1;
+  const versionInsertValues = {
+    ...versionValues(ruleId, number, input, actor, versionId),
+    // 讀取與寫入之間若最新版本剛被解除，子查詢會變成 NULL，讓整批寫入回滾，不留下兩個有效期間。
+    ruleId: latest
+      ? sql<string>`(SELECT version.rule_id FROM hr_special_workday_rule_versions AS version INNER JOIN hr_special_workday_rules AS rule ON rule.id=version.rule_id WHERE version.id=${latest.id} AND version.voided_at IS NULL AND rule.active=1)`
+      : sql<string>`(SELECT id FROM hr_special_workday_rules WHERE id=${ruleId} AND active=1)`,
+  };
   const statements = [
-    ...(latest ? [db.update(hrSpecialWorkdayRuleVersions).set({ validTo: input.validFrom }).where(and(eq(hrSpecialWorkdayRuleVersions.id, latest.id), sql`(${hrSpecialWorkdayRuleVersions.validTo} IS NULL OR ${hrSpecialWorkdayRuleVersions.validTo} > ${input.validFrom})`))] : []),
-    db.insert(hrSpecialWorkdayRuleVersions).values(versionValues(ruleId, number, input, actor, versionId)), ...overtimeRules.map((rule) => db.insert(hrSpecialWorkdayOvertimeRules).values({ id: crypto.randomUUID(), ruleVersionId: versionId, fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.rateKind === "fixed_hourly" ? rule.fixedAmountMinor! : null, multiplierPpm: rule.rateKind === "multiplier" ? rule.multiplierPpm! : null })), ...input.allowances.map((item) => db.insert(hrSpecialWorkdayAllowances).values({ id: crypto.randomUUID(), ruleVersionId: versionId, itemName: item.itemName.trim(), unitAmountMinor: item.unitAmountMinor })), db.update(hrSpecialWorkdayRules).set({ updatedAt: sql`CURRENT_TIMESTAMP`, revision: sql`${hrSpecialWorkdayRules.revision} + 1` }).where(eq(hrSpecialWorkdayRules.id, ruleId)), db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_rule_version_created", summary: "特殊上班日規則版本建立", actor }))];
-  await db.batch(statements as never); return { id: ruleId, versionId, versionNumber: number };
+    // 先插入版本再留下 supersededByVersionId，該欄位才有可追蹤的來源版本。
+    db.insert(hrSpecialWorkdayRuleVersions).values(versionInsertValues),
+    ...overtimeRules.map((overtimeRule) => db.insert(hrSpecialWorkdayOvertimeRules).values({ id: crypto.randomUUID(), ruleVersionId: versionId, fromHalfHours: overtimeRule.fromHalfHours, toHalfHours: overtimeRule.toHalfHours, rateKind: overtimeRule.rateKind, fixedAmountMinor: overtimeRule.rateKind === "fixed_hourly" ? overtimeRule.fixedAmountMinor! : null, multiplierPpm: overtimeRule.rateKind === "multiplier" ? overtimeRule.multiplierPpm! : null })),
+    ...input.allowances.map((item) => db.insert(hrSpecialWorkdayAllowances).values({ id: crypto.randomUUID(), ruleVersionId: versionId, itemName: item.itemName.trim(), unitAmountMinor: item.unitAmountMinor })),
+    ...(latest ? [db.update(hrSpecialWorkdayRuleVersions).set({
+      validTo: latest.validTo === null || latest.validTo > input.validFrom ? input.validFrom : latest.validTo,
+      supersededValidTo: latest.validTo,
+      supersededByVersionId: versionId,
+    }).where(and(eq(hrSpecialWorkdayRuleVersions.id, latest.id), sql`${hrSpecialWorkdayRuleVersions.voidedAt} IS NULL`))] : []),
+    db.update(hrSpecialWorkdayRules).set({ updatedAt: sql`CURRENT_TIMESTAMP`, revision: sql`${hrSpecialWorkdayRules.revision} + 1` }).where(eq(hrSpecialWorkdayRules.id, ruleId)),
+    db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_rule_version_created", summary: "特殊上班日規則版本建立", actor })),
+  ];
+  try {
+    await db.batch(statements as never);
+  } catch (error) {
+    if (error instanceof Error && /UNIQUE constraint failed|NOT NULL constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed/.test(error.message)) throw new HrError(409, "特殊上班日規則已變更，請重新整理後再試。 ");
+    throw error;
+  }
+  return { id: ruleId, versionId, versionNumber: number };
+}
+
+/** 解除最新版本但不刪除資料；已套用日期仍保留原本的規則與快照。 */
+export async function voidHrSpecialWorkdayRuleVersion(db: Database, ruleId: string, versionId: string, actor: HrActor) {
+  const [version] = await db.select({ id: hrSpecialWorkdayRuleVersions.id, ruleId: hrSpecialWorkdayRuleVersions.ruleId, versionNumber: hrSpecialWorkdayRuleVersions.versionNumber, validFrom: hrSpecialWorkdayRuleVersions.validFrom, voidedAt: hrSpecialWorkdayRuleVersions.voidedAt, active: hrSpecialWorkdayRules.active }).from(hrSpecialWorkdayRuleVersions)
+    .innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayRuleVersions.ruleId)).where(and(eq(hrSpecialWorkdayRuleVersions.id, versionId), eq(hrSpecialWorkdayRuleVersions.ruleId, ruleId))).limit(1);
+  if (!version) throw new HrError(404, "找不到特殊上班日規則版本。 ");
+  if (version.voidedAt !== null) throw new HrError(409, "這個特殊上班日規則版本已經解除。 ");
+  if (!version.active) throw new HrError(409, "特殊上班日規則已停用，不能解除版本。 ");
+  const activeVersions = await db.select({ id: hrSpecialWorkdayRuleVersions.id, versionNumber: hrSpecialWorkdayRuleVersions.versionNumber }).from(hrSpecialWorkdayRuleVersions)
+    .where(and(eq(hrSpecialWorkdayRuleVersions.ruleId, ruleId), sql`${hrSpecialWorkdayRuleVersions.voidedAt} IS NULL`)).orderBy(desc(hrSpecialWorkdayRuleVersions.versionNumber));
+  if (activeVersions[0]?.id !== versionId) throw new HrError(409, "只能解除最新的特殊上班日規則版本；請先依序解除較新的版本。 ");
+  const previous = activeVersions[1];
+  if (!previous) throw new HrError(409, "這是第一個版本，沒有可以回到的上一版；整個規則設錯請改用停用。 ");
+  await writeHrMutation(db, [
+    sql`UPDATE hr_special_workday_rule_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
+      WHERE id=${versionId} AND rule_id=${ruleId} AND voided_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM hr_special_workday_rule_versions AS newer
+          WHERE newer.rule_id=${ruleId} AND newer.voided_at IS NULL
+            AND newer.version_number > ${version.versionNumber})
+      RETURNING id`,
+    // 新版建立時留下的原迄日優先；舊 migration 建立的版本才用 NULL 收尾的相容判斷。
+    sql`UPDATE hr_special_workday_rule_versions SET valid_to=COALESCE(superseded_valid_to, CASE WHEN valid_to=${version.validFrom} THEN NULL ELSE valid_to END), superseded_valid_to=NULL, superseded_by_version_id=NULL
+      WHERE id=${previous.id} AND (superseded_by_version_id=${versionId} OR (superseded_by_version_id IS NULL AND valid_to=${version.validFrom}))
+      RETURNING id`,
+    sql`UPDATE hr_special_workday_rules SET updated_at=CURRENT_TIMESTAMP, revision=revision + 1 WHERE id=${ruleId} RETURNING id`,
+  ], ruleId, actor, "special_workday_rule_version_voided", "特殊上班日規則版本已被其他人變更，請重新整理後再試。 ", { allowEmptyMutationIndexes: new Set([1]) });
+  return { ruleId, versionId, previousVersionId: previous.id, status: "voided" as const };
 }
 
 export async function setHrSpecialWorkdayRuleActive(db: Database, ruleId: string, active: boolean, actor: HrActor) {
@@ -105,7 +163,7 @@ export async function setHrSpecialWorkdayRuleActive(db: Database, ruleId: string
 export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkdayAssignmentInput, actor: HrActor) {
   if (!Array.isArray(input.assignments) || !input.assignments.length || input.assignments.length > 1000) throw new HrError(400, "請提供要套用的員工日期。 ");
   const inputKeys = new Set<string>();
-  const [source] = await db.select({ version: hrSpecialWorkdayRuleVersions, ruleName: hrSpecialWorkdayRules.name }).from(hrSpecialWorkdayRuleVersions).innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayRuleVersions.ruleId)).where(and(eq(hrSpecialWorkdayRuleVersions.id, input.ruleVersionId), eq(hrSpecialWorkdayRules.active, 1))).limit(1);
+  const [source] = await db.select({ version: hrSpecialWorkdayRuleVersions, ruleName: hrSpecialWorkdayRules.name }).from(hrSpecialWorkdayRuleVersions).innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayRuleVersions.ruleId)).where(and(eq(hrSpecialWorkdayRuleVersions.id, input.ruleVersionId), eq(hrSpecialWorkdayRules.active, 1), sql`${hrSpecialWorkdayRuleVersions.voidedAt} IS NULL`)).limit(1);
   if (!source) throw new HrError(404, "找不到啟用中的特殊上班日規則版本。 ");
   const allowanceRows = await db.select().from(hrSpecialWorkdayAllowances).where(eq(hrSpecialWorkdayAllowances.ruleVersionId, input.ruleVersionId));
   const allowanceSnapshot = allowanceRows.map(({ id: _id, ruleVersionId: _version, createdAt: _created, ...item }) => item);
