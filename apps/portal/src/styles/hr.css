@@ -1133,3 +1133,21 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-leave-types-page { gap: 14px; }
   .hr-leave-types-page .data-table td:last-child { min-width: 0; }
 }
+
+/* 週年制特休摘要與級距使用輕量資訊列，不把政策細節塞進表格每一列。 */
+.hr-annual-leave-page { gap: 18px; }
+.hr-annual-leave-page .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.hr-annual-leave-page .summary-grid > div { display: grid; gap: 4px; padding: 14px 16px; border-radius: 16px; background: --alpha(var(--color-brand) / 6%); }
+.hr-annual-leave-page .summary-grid span { color: var(--color-muted); font-size: 12px; }
+.hr-annual-leave-page .summary-grid strong { font-size: 15px; }
+.hr-annual-brackets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.hr-annual-brackets span { padding: 6px 10px; border-radius: 999px; background: --alpha(var(--color-paper) / 56%); color: var(--color-muted); font-size: 12px; }
+.hr-annual-leave-page .data-table td:first-child { min-width: 140px; }
+.hr-annual-leave-page .data-table td small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 12px; }
+@media (max-width: 900px) {
+  .hr-annual-leave-page .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .hr-annual-leave-page { gap: 14px; }
+  .hr-annual-leave-page .summary-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -158,6 +158,8 @@ export const hrInsuranceRateTables = sqliteTable("hr_insurance_rate_tables", {
 export const hrLeaveTypes = sqliteTable("hr_leave_types", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  /** 特休額度由週年制台帳扣除；其他假別維持獨立規則與額度。 */
+  leaveKind: text("leave_kind", { enum: ["annual", "other"] as const }).notNull().default("other"),
   defaultPayRatePpm: integer("default_pay_rate_ppm").notNull().default(1_000_000),
   active: integer("active").notNull().default(1),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
@@ -166,6 +168,7 @@ export const hrLeaveTypes = sqliteTable("hr_leave_types", {
 }, (table) => [
   uniqueIndex("idx_hr_leave_types_name").on(table.name),
   check("ck_hr_leave_types_name", sql`length(trim(${table.name})) BETWEEN 1 AND 80`),
+  // leave_kind 是新增欄位；避免重建既有假別表造成歷史資料搬移風險，值域由 API 與 TypeScript enum 把關。
   check("ck_hr_leave_types_rate", sql`${table.defaultPayRatePpm} BETWEEN 0 AND 1000000`),
   check("ck_hr_leave_types_active", sql`${table.active} IN (0, 1)`),
 ]);
@@ -223,6 +226,8 @@ export const hrMonthlyHourlyEntries = sqliteTable("hr_monthly_hourly_entries", {
 export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   id: text("id").primaryKey(),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
+  /** 新申請保存假別主檔關聯；舊資料仍保留 leaveType snapshot。 */
+  leaveTypeId: text("leave_type_id").references(() => hrLeaveTypes.id, { onDelete: "restrict" }),
   leaveType: text("leave_type").notNull(),
   status: text("status", { enum: ["draft", "pending", "approved", "rejected", "cancelled"] as const }).notNull(),
   startsOn: text("starts_on").notNull(),
@@ -237,12 +242,96 @@ export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   ...historyTimestamps(),
 }, (table) => [
   index("idx_hr_leave_requests_employment_period").on(table.employmentId, table.startsOn),
+  index("idx_hr_leave_requests_leave_type").on(table.leaveTypeId),
   check("ck_hr_leave_requests_type", sql`length(trim(${table.leaveType})) BETWEEN 1 AND 80`),
   check("ck_hr_leave_requests_status", sql`${table.status} IN ('draft', 'pending', 'approved', 'rejected', 'cancelled')`),
   check("ck_hr_leave_requests_dates", sql`length(${table.startsOn}) = 10 AND length(${table.endsOn}) = 10 AND ${table.endsOn} > ${table.startsOn}`),
   check("ck_hr_leave_requests_duration", sql`${table.durationMinutes} > 0`),
   check("ck_hr_leave_requests_pay_rate", sql`${table.payRatePpm} BETWEEN 0 AND 1000000`),
   check("ck_hr_leave_requests_reason", sql`length(${table.reason}) <= 1000`),
+]);
+
+/** 公司共用的特休政策版本；法定級距是資料，不散落在計算程式裡。 */
+export const hrAnnualLeavePolicyVersions = sqliteTable("hr_annual_leave_policy_versions", {
+  id: text("id").primaryKey(),
+  policyKey: text("policy_key").notNull().default("annual_leave"),
+  versionNumber: integer("version_number").notNull(),
+  validFrom: text("valid_from").notNull(),
+  validTo: text("valid_to"),
+  basis: text("basis", { enum: ["anniversary"] as const }).notNull().default("anniversary"),
+  dailyMinutes: integer("daily_minutes").notNull().default(480),
+  minimumUnitMinutes: integer("minimum_unit_minutes").notNull().default(30),
+  carryoverAllowed: integer("carryover_allowed").notNull().default(0),
+  note: text("note").notNull().default(""),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_annual_leave_policy_version").on(table.policyKey, table.versionNumber),
+  index("idx_hr_annual_leave_policy_period").on(table.policyKey, table.validFrom),
+  check("ck_hr_annual_leave_policy_dates", sql`length(${table.validFrom}) = 10 AND (${table.validTo} IS NULL OR (length(${table.validTo}) = 10 AND ${table.validTo} > ${table.validFrom}))`),
+  check("ck_hr_annual_leave_policy_basis", sql`${table.basis} = 'anniversary'`),
+  check("ck_hr_annual_leave_policy_minutes", sql`${table.dailyMinutes} > 0 AND ${table.dailyMinutes} % ${table.minimumUnitMinutes} = 0 AND ${table.minimumUnitMinutes} = 30`),
+  check("ck_hr_annual_leave_policy_carryover", sql`${table.carryoverAllowed} IN (0, 1)`),
+  check("ck_hr_annual_leave_policy_note", sql`length(${table.note}) <= 1000`),
+]);
+
+/** 特休年資級距；10 年以上的上限也以版本資料列表示。 */
+export const hrAnnualLeaveBrackets = sqliteTable("hr_annual_leave_brackets", {
+  id: text("id").primaryKey(),
+  policyVersionId: text("policy_version_id").notNull().references(() => hrAnnualLeavePolicyVersions.id, { onDelete: "restrict" }),
+  minServiceMonths: integer("min_service_months").notNull(),
+  maxServiceMonths: integer("max_service_months"),
+  entitledDays: integer("entitled_days").notNull(),
+  label: text("label").notNull().default(""),
+}, (table) => [
+  uniqueIndex("idx_hr_annual_leave_bracket_start").on(table.policyVersionId, table.minServiceMonths),
+  index("idx_hr_annual_leave_bracket_policy").on(table.policyVersionId, table.minServiceMonths),
+  check("ck_hr_annual_leave_bracket_range", sql`${table.minServiceMonths} >= 6 AND (${table.maxServiceMonths} IS NULL OR ${table.maxServiceMonths} > ${table.minServiceMonths})`),
+  check("ck_hr_annual_leave_bracket_days", sql`${table.entitledDays} > 0 AND ${table.entitledDays} <= 30`),
+  check("ck_hr_annual_leave_bracket_label", sql`length(${table.label}) <= 100`),
+]);
+
+/** 每個 employment 的週年特休額度；periodEnd 採半開區間，等於下一個週年生效日。 */
+export const hrAnnualLeaveEntitlements = sqliteTable("hr_annual_leave_entitlements", {
+  id: text("id").primaryKey(),
+  employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
+  policyVersionId: text("policy_version_id").notNull().references(() => hrAnnualLeavePolicyVersions.id, { onDelete: "restrict" }),
+  bracketId: text("bracket_id").notNull().references(() => hrAnnualLeaveBrackets.id, { onDelete: "restrict" }),
+  serviceMonths: integer("service_months").notNull(),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  entitledHalfHours: integer("entitled_half_hours").notNull(),
+  status: text("status", { enum: ["open", "settled"] as const }).notNull().default("open"),
+  settledAt: text("settled_at"),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_annual_leave_entitlement_period").on(table.employmentId, table.periodStart),
+  index("idx_hr_annual_leave_entitlement_employee").on(table.employmentId, table.periodEnd),
+  check("ck_hr_annual_leave_entitlement_dates", sql`length(${table.periodStart}) = 10 AND length(${table.periodEnd}) = 10 AND ${table.periodEnd} > ${table.periodStart}`),
+  check("ck_hr_annual_leave_entitlement_service", sql`${table.serviceMonths} >= 6`),
+  check("ck_hr_annual_leave_entitlement_amount", sql`${table.entitledHalfHours} > 0`),
+  check("ck_hr_annual_leave_entitlement_status", sql`${table.status} IN ('open', 'settled')`),
+]);
+
+/** 特休額度 append-only 台帳；未休結算與人工調整也不覆寫原始 grant。 */
+export const hrAnnualLeaveLedger = sqliteTable("hr_annual_leave_ledger", {
+  id: text("id").primaryKey(),
+  entitlementId: text("entitlement_id").notNull().references(() => hrAnnualLeaveEntitlements.id, { onDelete: "restrict" }),
+  /** settlement_reversal 也承載已核准請假取消的反向紀錄；ledger 永遠不覆寫。 */
+  entryKind: text("entry_kind", { enum: ["grant", "leave_request", "manual_adjustment", "settlement", "settlement_reversal"] as const }).notNull(),
+  deltaHalfHours: integer("delta_half_hours").notNull(),
+  sourceKey: text("source_key").notNull(),
+  leaveRequestId: text("leave_request_id").references(() => hrLeaveRequests.id, { onDelete: "restrict" }),
+  note: text("note").notNull().default(""),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_annual_leave_ledger_source").on(table.sourceKey),
+  index("idx_hr_annual_leave_ledger_entitlement").on(table.entitlementId, table.createdAt),
+  check("ck_hr_annual_leave_ledger_kind", sql`${table.entryKind} IN ('grant', 'leave_request', 'manual_adjustment', 'settlement', 'settlement_reversal')`),
+  check("ck_hr_annual_leave_ledger_delta", sql`${table.deltaHalfHours} <> 0`),
+  check("ck_hr_annual_leave_ledger_note", sql`length(${table.note}) <= 1000`),
 ]);
 
 export type HrCompensationItem = typeof hrCompensationItems.$inferSelect;

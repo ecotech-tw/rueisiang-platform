@@ -1,7 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
-import { hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries } from "./schema/hr-payroll.js";
+import { hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries } from "./schema/hr-payroll.js";
 import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
 import { hrPayrollPeriods, hrPayrollRuns, hrPayslips } from "./schema/hr-payroll-runs.js";
 import { users } from "./schema/auth.js";
@@ -25,6 +25,8 @@ export interface MonthlyHourlyInput {
   noWork?: boolean;
   note?: string;
 }
+
+export type HrLeaveKind = "annual" | "other";
 
 function period(periodKey: string) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periodKey)) throw new HrError(400, "月份必須是 YYYY-MM。 ");
@@ -78,28 +80,40 @@ async function ensureDailyLeaveCapacity(db: Database, input: { employmentId: str
   if (Number(row?.hoursHalfUnits ?? 0) + input.hoursHalfUnits > 48) throw new HrError(400, "同一員工同一天的假勤時數合計不可超過 24 小時。 ");
 }
 
-export async function listHrLeaveTypes(db: Database, includeInactive = false) {
-  return db.select().from(hrLeaveTypes).where(includeInactive ? undefined : eq(hrLeaveTypes.active, 1)).orderBy(asc(hrLeaveTypes.name));
+export async function listHrLeaveTypes(db: Database, includeInactive = false, leaveKind?: HrLeaveKind) {
+  return db.select().from(hrLeaveTypes).where(and(
+    includeInactive ? undefined : eq(hrLeaveTypes.active, 1),
+    leaveKind ? eq(hrLeaveTypes.leaveKind, leaveKind) : undefined,
+  )).orderBy(asc(hrLeaveTypes.name));
 }
 
-function validateLeaveTypeInput(input: { name: string; defaultPayRatePpm: number }) {
+function validateLeaveTypeInput(input: { name: string; defaultPayRatePpm: number; leaveKind?: HrLeaveKind }) {
   const name = input.name.trim();
   if (!name || name.length > 80) throw new HrError(400, "假別名稱必須是 1～80 字。 ");
   if (!Number.isSafeInteger(input.defaultPayRatePpm) || input.defaultPayRatePpm < 0 || input.defaultPayRatePpm > PPM) throw new HrError(400, "預設給薪比例必須介於 0～100%。 ");
-  return { name, defaultPayRatePpm: input.defaultPayRatePpm };
+  const leaveKind = input.leaveKind ?? "other";
+  if (leaveKind !== "annual" && leaveKind !== "other") throw new HrError(400, "假別類型不正確。 ");
+  return { name, defaultPayRatePpm: input.defaultPayRatePpm, leaveKind };
 }
 
-export async function createHrLeaveType(db: Database, input: { name: string; defaultPayRatePpm: number }, actor: HrActor) {
+export async function createHrLeaveType(db: Database, input: { name: string; defaultPayRatePpm: number; leaveKind?: HrLeaveKind }, actor: HrActor) {
   const validated = validateLeaveTypeInput(input);
   const id = crypto.randomUUID();
-  return writeHrMutation(db, sql`INSERT INTO hr_leave_types (id, name, default_pay_rate_ppm, active, created_by)
-    VALUES (${id}, ${validated.name}, ${validated.defaultPayRatePpm}, 1, ${actor.id}) RETURNING id`, id, actor, "monthly_leave_type_created", "假別名稱已存在或資料不合法。 ");
+  return writeHrMutation(db, sql`INSERT INTO hr_leave_types (id, name, leave_kind, default_pay_rate_ppm, active, created_by)
+    VALUES (${id}, ${validated.name}, ${validated.leaveKind}, ${validated.defaultPayRatePpm}, 1, ${actor.id}) RETURNING id`, id, actor, "monthly_leave_type_created", "假別名稱已存在或資料不合法。 ");
 }
 
-export async function updateHrLeaveType(db: Database, id: string, input: { name: string; defaultPayRatePpm: number }, actor: HrActor) {
+export async function updateHrLeaveType(db: Database, id: string, input: { name: string; defaultPayRatePpm: number; leaveKind?: HrLeaveKind }, actor: HrActor) {
   const validated = validateLeaveTypeInput(input);
+  const [current] = await db.select({ leaveKind: hrLeaveTypes.leaveKind }).from(hrLeaveTypes).where(eq(hrLeaveTypes.id, id)).limit(1);
+  if (!current) throw new HrError(404, "找不到假別。 ");
+  if (current.leaveKind !== validated.leaveKind) {
+    // 類型一旦被申請使用就不能改寫，避免已扣額度的歷史申請失去語意。
+    const [request] = await db.select({ id: hrLeaveRequests.id }).from(hrLeaveRequests).where(eq(hrLeaveRequests.leaveTypeId, id)).limit(1);
+    if (request) throw new HrError(409, "已有請假申請使用此假別，不能變更特休／其他假別類型。 ");
+  }
   return writeHrMutation(db, sql`UPDATE hr_leave_types SET
-    name=${validated.name}, default_pay_rate_ppm=${validated.defaultPayRatePpm}, updated_at=CURRENT_TIMESTAMP
+    name=${validated.name}, leave_kind=${validated.leaveKind}, default_pay_rate_ppm=${validated.defaultPayRatePpm}, updated_at=CURRENT_TIMESTAMP
     WHERE id=${id} RETURNING id`, id, actor, "monthly_leave_type_updated", "找不到假別、名稱已存在或資料不合法。 ");
 }
 
@@ -142,7 +156,7 @@ export async function listHrMonthlyData(db: Database, periodKey: string, employe
   }
   return {
     periodKey,
-    leaveTypes: await listHrLeaveTypes(db),
+    leaveTypes: await listHrLeaveTypes(db, false, "other"),
     leaves: leaves.map(({ entry, leaveTypeName, employeeUserId: _employeeUserId, employeeNumber, employeeName }) => ({ ...entry, leaveTypeName, employeeNumber, employeeName, hours: entry.hoursHalfUnits / 2 })),
     hourly: hourly.map(({ entry, employeeUserId: _employeeUserId, employeeNumber, employeeName }) => ({ ...entry, employeeNumber, employeeName, hours: entry.hoursHalfUnits / 2 })),
     leaveSummary: [...leaveSummary.values()].map((item) => ({ ...item, dateCount: item.dateSet.size, hours: item.hoursHalfUnits / 2, averagePayRatePpm: Math.round(item.payRatePpmTotal / item.entryCount), dateSet: undefined })),
@@ -158,8 +172,9 @@ export async function createHrMonthlyLeave(db: Database, input: MonthlyLeaveInpu
   await ensureOpenPeriod(db, input.leaveDate, input.employmentId);
   await ensureEmploymentOnDate(db, input.employmentId, input.leaveDate);
   await ensureDailyLeaveCapacity(db, input);
-  const [leaveType] = await db.select({ id: hrLeaveTypes.id }).from(hrLeaveTypes).where(and(eq(hrLeaveTypes.id, input.leaveTypeId), eq(hrLeaveTypes.active, 1))).limit(1);
+  const [leaveType] = await db.select({ id: hrLeaveTypes.id, leaveKind: hrLeaveTypes.leaveKind }).from(hrLeaveTypes).where(and(eq(hrLeaveTypes.id, input.leaveTypeId), eq(hrLeaveTypes.active, 1))).limit(1);
   if (!leaveType) throw new HrError(404, "找不到啟用中的假別。 ");
+  if (leaveType.leaveKind === "annual") throw new HrError(409, "特休請透過申請與審核及特休額度管理，不可在月度人工假勤重複登記。 ");
   const id = crypto.randomUUID();
   try {
     return await writeHrMutation(db, sql`INSERT INTO hr_monthly_leave_entries
@@ -180,8 +195,9 @@ export async function updateHrMonthlyLeave(db: Database, id: string, input: Omit
   await ensureOpenPeriod(db, input.leaveDate, input.employmentId);
   await ensureEmploymentOnDate(db, input.employmentId, input.leaveDate);
   await ensureDailyLeaveCapacity(db, input, id);
-  const [type] = await db.select({ id: hrLeaveTypes.id }).from(hrLeaveTypes).where(and(eq(hrLeaveTypes.id, input.leaveTypeId), eq(hrLeaveTypes.active, 1))).limit(1);
+  const [type] = await db.select({ id: hrLeaveTypes.id, leaveKind: hrLeaveTypes.leaveKind }).from(hrLeaveTypes).where(and(eq(hrLeaveTypes.id, input.leaveTypeId), eq(hrLeaveTypes.active, 1))).limit(1);
   if (!type) throw new HrError(404, "找不到假別。 ");
+  if (type.leaveKind === "annual") throw new HrError(409, "特休請透過申請與審核及特休額度管理，不可在月度人工假勤重複登記。 ");
   return writeHrMutation(db, sql`UPDATE hr_monthly_leave_entries SET
     employment_id=${input.employmentId}, leave_type_id=${input.leaveTypeId}, leave_date=${input.leaveDate}, hours_half_units=${input.hoursHalfUnits}, pay_rate_ppm=${input.payRatePpm}, deduction_amount=${input.deductionAmount}, note=${input.note ?? ""}, updated_by=${actor.id}, updated_at=CURRENT_TIMESTAMP, revision=revision+1
     WHERE id=${id} AND revision=${input.revision} RETURNING id`, id, actor, "monthly_leave_updated", "假勤資料已變更、月份已結帳或版本過期，請重新整理。 ");

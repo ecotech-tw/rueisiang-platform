@@ -11,7 +11,7 @@ type RequestStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled"
 type HistoryKind = "all" | RequestKind;
 
 interface EmployeePageResponse { employees: Employee[] }
-interface LeaveType { id: string; name: string; defaultPayRatePpm: number }
+interface LeaveType { id: string; name: string; leaveKind: "annual" | "other"; defaultPayRatePpm: number }
 
 interface RequestRow {
   id: string;
@@ -109,24 +109,24 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
   const [actualStart, setActualStart] = useState(() => row.kind === "overtime" ? taipeiInputValue(row.requestedStart ?? "") : "");
   const [actualEnd, setActualEnd] = useState(() => row.kind === "overtime" ? taipeiInputValue(row.requestedEnd ?? "") : "");
   const review = useHrWrite();
-  const canCancel = row.kind !== "clock_correction";
+  const isApprovedLeave = row.kind === "leave" && row.status === "approved";
+  const canCancel = row.kind !== "clock_correction" && (row.status === "pending" || isApprovedLeave);
   function decide(decision: "approved" | "rejected" | "cancelled") {
     if (decision === "rejected" && !comment.trim()) return;
-    const path = row.kind === "leave" ? `/requests/leave/${row.id}/review` : row.kind === "overtime" ? `/overtime/${row.id}/review` : `/me/form-requests/${row.id}/review`;
-    const values: Record<string, unknown> = { decision, comment };
+    const path = isApprovedLeave ? `/requests/leave/${row.id}/cancel` : row.kind === "leave" ? `/requests/leave/${row.id}/review` : row.kind === "overtime" ? `/overtime/${row.id}/review` : `/me/form-requests/${row.id}/review`;
+    const values: Record<string, unknown> = isApprovedLeave ? {} : { decision, comment };
     if (row.kind === "overtime" && decision === "approved") { values.actualStart = actualStart; values.actualEnd = actualEnd; }
     review.mutate({ path, method: "POST", values }, { onSuccess: () => { onDone(); onClose(); } });
   }
   return <Dialog
-    title={`審核${REQUEST_KIND_LABEL[row.kind]}申請`}
+    title={isApprovedLeave ? "取消已核准請假" : `審核${REQUEST_KIND_LABEL[row.kind]}申請`}
     titleMeta={`${row.employeeName}・${row.employeeNumber}`}
     onClose={onClose}
     closeDisabled={review.isPending}
     actions={<>
-      <Button variant="secondary" onClick={onClose}>取消</Button>
-      {canCancel ? <Button variant="secondary" loading={review.isPending} onClick={() => decide("cancelled")}>取消申請</Button> : null}
-      <Button variant="danger" loading={review.isPending} onClick={() => decide("rejected")} disabled={!comment.trim()}>駁回</Button>
-      <Button loading={review.isPending} onClick={() => decide("approved")}>核准</Button>
+      <Button variant="secondary" onClick={onClose}>關閉</Button>
+      {canCancel ? <Button variant="secondary" loading={review.isPending} onClick={() => decide("cancelled")}>{isApprovedLeave ? "取消已核准請假" : "取消申請"}</Button> : null}
+      {row.status === "pending" ? <><Button variant="danger" loading={review.isPending} onClick={() => decide("rejected")} disabled={!comment.trim()}>駁回</Button><Button loading={review.isPending} onClick={() => decide("approved")}>核准</Button></> : null}
     </>}
   >
     <dl><dt>申請期間</dt><dd>{row.period}</dd><dt>申請內容</dt><dd>{row.detail}</dd><dt>原因</dt><dd>{row.reason}</dd></dl>
@@ -146,7 +146,7 @@ function LeaveForm({ employees, leaveTypes, onDone }: { employees: Employee[]; l
   const [reason, setReason] = useState("");
   const write = useHrWrite();
   const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.displayName}（${employee.employeeNumber}）` }))];
-  const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: type.name }))];
+  const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : ""}` }))];
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const durationMinutes = Math.round(Number(hours) * 60);
@@ -226,7 +226,7 @@ export function HrRequestCenter() {
       </Panel>
     </div> : <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可在此處理。" actions={<div className="hr-request-history-filter" role="group" aria-label="申請類型篩選">{(["all", "leave", "overtime", "clock_correction"] as const).map((value) => <button type="button" key={value} className={historyKind === value ? "selected" : ""} aria-pressed={historyKind === value} onClick={() => setHistoryKind(value)}>{value === "all" ? "全部" : REQUEST_KIND_LABEL[value]}</button>)}</div>}>
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工">{row.employeeName}<small className="muted">{row.employeeNumber}</small></td><td data-label="期間">{row.period}</td><td data-label="內容">{row.detail}</td><td data-label="原因">{row.reason}</td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : "—"}</td></tr>)}</tbody></table></div>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工">{row.employeeName}<small className="muted">{row.employeeNumber}</small></td><td data-label="期間">{row.period}</td><td data-label="內容">{row.detail}</td><td data-label="原因">{row.reason}</td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : row.kind === "leave" && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消請假</Button> : "—"}</td></tr>)}</tbody></table></div>
       {!filteredRows.length ? <p className="empty-state">目前沒有符合條件的申請紀錄。</p> : null}
     </Panel>}
     {reviewing ? <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}

@@ -12,7 +12,8 @@ import {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
-  createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
+  cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
+  createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
   createDeviceSession, revokeDeviceSession,
@@ -328,8 +329,11 @@ function leaveRequestInput(input: Record<string, unknown>, employeeUserId: strin
   } as const;
 }
 function leaveTypeInput(input: Record<string, unknown>) {
+  const leaveKind = input.leaveKind === undefined ? "other" : input.leaveKind === "annual" ? "annual" : input.leaveKind === "other" ? "other" : null;
+  if (!leaveKind) throw new HTTPException(400, { message: "假別類型不正確。" });
   return {
     name: text(input, "name", "假別名稱", 80),
+    leaveKind,
     defaultPayRatePpm: integerValue(input, "defaultPayRatePpm", "預設給薪比例（ppm）", 0, 1_000_000),
   } as const;
 }
@@ -451,6 +455,7 @@ export const hr = new Hono<AppEnv>()
   .post("/me/overtime", async (c) => c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(await body(c), c.get("user").id), c.get("user")), 201))
   .get("/me/leave-requests", async (c) => c.json({ requests: await listHrLeaveRequests(c.get("db"), c.get("user").id) }))
   .post("/me/leave-requests", async (c) => c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(await body(c), c.get("user").id), c.get("user")), 201))
+  .post("/me/leave-requests/:id/cancel", async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"))))
   .get("/leave-types", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db"), true) });
@@ -467,6 +472,27 @@ export const hr = new Hono<AppEnv>()
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
     return c.json(await setHrLeaveTypeActive(c.get("db"), c.req.param("id"), booleanValue(input, "active", "啟用狀態"), c.get("user")));
+  })
+  .get("/annual-leave/policy", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await getHrAnnualLeavePolicy(c.get("db")));
+  })
+  .get("/annual-leave/entitlements", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ entitlements: await listHrAnnualLeaveEntitlements(c.get("db"), { employeeUserId: c.req.query("employeeUserId") || undefined }) });
+  })
+  .post("/annual-leave/backfill", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await ensureHrAnnualLeaveEntitlements(c.get("db"), { createdBy: c.get("user").id }));
+  })
+  .post("/annual-leave/adjustments", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await createHrAnnualLeaveAdjustment(c.get("db"), {
+      entitlementId: text(input, "entitlementId", "特休額度"),
+      deltaHalfHours: integerValue(input, "deltaHalfHours", "調整時數（半小時）", -100_000, 100_000),
+      reason: text(input, "reason", "調整原因", 1000),
+    }, c.get("user")));
   })
   /* 管理端申請中心是獨立入口；目前代登直接核准，但資料仍使用 pending／approved 審核狀態。 */
   .get("/requests", requirePermission("hr:request:review"), async (c) => {
@@ -497,6 +523,7 @@ export const hr = new Hono<AppEnv>()
     const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
     return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user")));
   })
+  .post("/requests/leave/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true })))
   .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db")) }))
   .post("/overtime/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
@@ -749,7 +776,7 @@ export const hr = new Hono<AppEnv>()
   })
   .get("/payroll/monthly-data/leave-types", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
-    return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db")) });
+    return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db"), false, "other") });
   })
   .post("/payroll/monthly-data/leave-types", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

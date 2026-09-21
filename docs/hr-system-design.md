@@ -58,7 +58,11 @@ erDiagram
   hr_attendance_runs ||--o{ hr_attendance_results : results
   hr_schedule_entries ||--o{ hr_attendance_results : evaluated
   hr_employments ||--o{ hr_leave_requests : requests
-  hr_leave_requests ||--o{ hr_leave_ledger : movements
+  hr_leave_types ||--o{ hr_leave_requests : type
+  hr_annual_leave_policy_versions ||--o{ hr_annual_leave_brackets : brackets
+  hr_employments ||--o{ hr_annual_leave_entitlements : annual_quota
+  hr_annual_leave_entitlements ||--o{ hr_annual_leave_ledger : movements
+  hr_leave_requests ||--o{ hr_annual_leave_ledger : usage
   hr_bonus_policy_versions ||--o{ hr_bonus_pools : policy
   hr_bonus_pools ||--o{ hr_bonus_allocations : allocation
   hr_payroll_periods ||--o{ hr_payroll_runs : calculations
@@ -76,7 +80,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 - `*_id` 明列對應表並建立 FK；可空者標 `?`。預設 NOT NULL；外鍵以 RESTRICT 為主。`created_by`／審核者指向 users 並保存必要名稱快照，歷史資料不可隨帳號刪除。
 - 有效日期採 `[valid_from, valid_to)`，`valid_to?`；CHECK 結束大於開始。班次區間採同樣半開規則，相鄰不重疊。
 - 工作日 `YYYY-MM-DD`、結算月份 `YYYY-MM`；事件時間使用一致 UTC ISO 格式與精度，禁止混用 `CURRENT_TIMESTAMP` 與 ISO 事件字串排序。共通紀錄時間可沿用現有 timestamp 慣例，但不得當作工作時間來源。
-- 薪資 `*_minor` 為新台幣分；報表整數金額先確認為元再乘 100 進 HR。班別與排班快照的計薪／休息時間保存為整數分鐘；事件工作時間仍保存整數秒，給薪分鐘的捨入另由核定規則處理。比例 `rate_ppm`：1,000,000 = 100%；權重 `weight_units` 為正整數。
+- 薪資 `*_minor` 為新台幣分；報表整數金額先確認為元再乘 100 進 HR。班別與排班快照的計薪／休息時間保存為整數分鐘；事件工作時間仍保存整數秒，給薪分鐘的捨入另由核定規則處理。假勤與特休額度使用整數 `*_half_hours`，1 單位等於 30 分鐘。比例 `rate_ppm`：1,000,000 = 100%；權重 `weight_units` 為正整數。
 - 乘除中間值用精確整數／有理運算，寫回需檢查安全整數範圍。明列項目捨入、薪資單整元處理及尾差，禁止每一步任意四捨五入。
 - JSON 僅用於不可變計算說明、外部來源摘要；員工、scope、金額、期間、狀態與關聯仍為正式欄位。不允許可執行任意公式字串或 eval。
 - 所有外鍵查詢路徑建立子表索引，含 RESTRICT 檢查；索引前綴 `idx_hr_`、CHECK 前綴 `ck_hr_`，避免全域撞名。下表列出業務唯一性與主要查詢索引，實作 review 仍逐一列出 FK 索引。
@@ -139,11 +143,13 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 
 | 表 | 專屬欄位與關聯 | SQL 約束／主要索引 |
 |---|---|---|
-| `hr_leave_policy_versions` | `employer_id, leave_code, version_number, valid_from, valid_to?, unit_kind, pay_rate_ppm, entitlement_rule_code, source_url` | 唯一 employer + code + version；受控假別規則 |
-| `hr_leave_accounts` | `employment_id, leave_policy_version_id, entitlement_start, entitlement_end, revision` | 唯一 employment + policy + entitlement_start；作為額度並行控制根 |
-| `hr_leave_requests` | `employment_id → hr_employments.id`、`leave_type, status, starts_on, ends_on, duration_minutes, pay_rate_ppm, reason, reviewed_by?, reviewed_at?, review_comment?, created_by` | 草稿／待審核／核准／駁回／取消狀態 CHECK；期間、時數與給薪比例受控；pay_rate_ppm 是申請時快照，不靠假別名稱推測扣薪；employment + starts_on 索引 |
-| `hr_leave_request_segments` | `leave_request_id, sequence, starts_at, ends_at, requested_seconds` | 唯一 request + sequence；區段及秒數正值 |
-| `hr_leave_ledger` | `leave_account_id, leave_request_id?, movement_kind, quantity_seconds, expires_on?, idempotency_key` | idempotency 唯一；取得／保留／使用／釋放／到期／結清等種類 CHECK |
+| `hr_leave_types` | `name, leave_kind, default_pay_rate_ppm, active` | `leave_kind=annual` 才連動週年制特休；`other` 假別保留獨立規則；停用不刪歷史 |
+| `hr_annual_leave_policy_versions` | `policy_key, version_number, valid_from, valid_to?, basis, daily_minutes, minimum_unit_minutes, carryover_allowed` | 公司共用政策有效日期版本；目前 basis 固定 anniversary、最小單位固定 30 分鐘、未休不自動遞延 |
+| `hr_annual_leave_brackets` | `policy_version_id, min_service_months, max_service_months?, entitled_days` | 法定年資級距是版本資料列；10 年以上每年增加 1 日至 30 日，不寫死在 UI 或請假服務 |
+| `hr_annual_leave_entitlements` | `employment_id, policy_version_id, bracket_id, service_months, period_start, period_end, entitled_half_hours` | `period_end` 為半開區間；唯一 employment + period_start；週期額度以整數 half-hours 保存，不刪除歷史 |
+| `hr_annual_leave_ledger` | `entitlement_id, entry_kind, delta_half_hours, source_key, leave_request_id?, note, created_by` | append-only；grant、核准 usage、人工 adjustment、settlement 與 reversal 各自留列；source key 唯一，核准才扣額度 |
+| `hr_leave_request_segments` | `leave_request_id, sequence, starts_at, ends_at, requested_seconds` | 未來若需要分段請假再新增；目前請假請求以日期半開區間與 0.5 小時為單位保存 |
+| `hr_leave_requests` | `employment_id → hr_employments.id`、`leave_type_id? → hr_leave_types.id`、`leave_type` snapshot、`status, starts_on, ends_on, duration_minutes, pay_rate_ppm, reason, reviewed_by?, reviewed_at?, review_comment?, created_by` | 草稿／待審核／核准／駁回／取消狀態 CHECK；期間、時數與給薪比例受控；pay_rate_ppm 是申請時快照；特休申請需完整落在單一期別；employment + starts_on 索引 |
 | `hr_overtime_requests` | `employment_id, scope_id?, requested_start, requested_end, actual_start?, actual_end?, settlement_kind, status, rate_ppm, reason, reviewed_by?, reviewed_at?, decision_reason?, created_by` | 申請／實際區段 CHECK；核准且 pay 才能進薪資試算；比例與狀態受控；employment + requested_start 索引；pay/compensatory 類型 |
 | `hr_special_day_events` | `employer_id, starts_at, ends_at, event_kind, pay_rule_code, reason, status` | 區段與狀態 CHECK |
 | `hr_special_day_scopes` | `event_id, scope_id` | 複合 PK |
@@ -246,9 +252,10 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `GET /api/hr/me/attendance-calendar`、`/attendance-location/check`、`/attendance-map/locations`、`/attendance-map` | 僅需登入且必須是本人 | 一般模式依有效任職與週一至週五基準標示未打卡日；排班模式依已發布排班；定位檢查由伺服器重新計算，任一指派辦公位置在半徑內即可打卡；地圖座標供 hr app 的 MapLibre／OpenFreeMap 使用，圖磚載入失敗時由 Worker 代理 Static API 圖片 |
 | `POST /api/hr/me/clock-events` | 僅需登入且必須有現行任職 | 伺服器產生事件時間與上下班 kind；使用 idempotency key；定位開啟時由伺服器檢查距離，網站不允許回填時間 |
 | `/api/hr/me/form-requests` | 僅需登入且必須是本人；審核路徑限指定審核者或 `hr:request:review` | 補打卡申請可存草稿、送出與查詢狀態；審核者填寫意見後核准或駁回 |
-| `/api/hr/me/leave-requests`、`/me/overtime`、`/me/form-requests` | 僅需登入／本人 | 本人建立後進入 pending；不接受前端代指定其他員工 |
-| `/api/hr/leave-types` | `hr:payroll:read/calculate` 且限全平台 HR 管理者 | 出勤／假別管理；可建立、修改與停用假別，停用不刪歷史資料 |
-| `/api/hr/requests`、`/requests/leave`、`/requests/overtime`、各類 `review` | `hr:request:review` | 管理端申請中心；目前 HR 代登直接建立 approved，仍保留 pending／審核狀態契約 |
+| `/api/hr/me/leave-requests`、`/me/overtime`、`/me/form-requests` | 僅需登入／本人 | 本人建立後進入 pending；不接受前端代指定其他員工；本人可取消尚未完成或已核准的請假，特休已核准取消追加反向 ledger |
+| `/api/hr/leave-types` | `hr:payroll:read/calculate` 且限全平台 HR 管理者 | 出勤／假別管理；以 `leaveKind` 區分週年制特休與其他假別，可建立、修改與停用，停用不刪歷史資料 |
+| `/api/hr/annual-leave/policy`、`/annual-leave/entitlements`、`/annual-leave/backfill`、`/annual-leave/adjustments` | `hr:payroll:read/calculate` 且限全平台 HR 管理者 | 檢視公司政策與每個 employment 週期額度；回溯／補建使用唯一 grant key；人工調整只能 append ledger 並必填原因 |
+| `/api/hr/requests`、`/requests/leave`、`/requests/overtime`、各類 `review`／`cancel` | `hr:request:review` 或本人登入 | 管理端申請中心；目前 HR 代登直接建立 approved，仍保留 pending／審核狀態契約；已核准特休取消以 append-only 反向紀錄返還額度 |
 | `GET /api/hr/employees`、`GET /api/hr/employees/:id` | `hr:employee:read`；出勤範圍管理另可用 `hr:office:read` | 列表支援固定 page size、總數、搜尋、狀態篩選與白名單排序；內頁採單一互斥 accordion。出勤權限只取得員工／任職／出勤設定資料；薪資、投保、請假與打卡明細另限全平台 HR 管理者 |
 | `POST/PATCH /api/hr/employees` | `hr:employee:write` | 新增與修改員工基礎資料；不因出勤範圍讀取權限取得寫入能力 |
 | `/api/hr/schedules`（目前提供排班資料模型與開發 fixture） | `hr:schedule:read/write` | 已發布班表才可供獎金試算；管理範圍與發布審核另切片，範圍授權模型另案定義 |

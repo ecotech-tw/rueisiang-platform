@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrLeaveType } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -16,6 +16,7 @@ function timestampLabel(value: string) {
 function LeaveTypeDialog({ leaveType, onClose }: { leaveType?: HrLeaveType; onClose: () => void }) {
   const [name, setName] = useState(leaveType?.name ?? "");
   const [payRate, setPayRate] = useState(String((leaveType?.defaultPayRatePpm ?? 1_000_000) / 10_000));
+  const [leaveKind, setLeaveKind] = useState<"annual" | "other">(leaveType?.leaveKind ?? "other");
   const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
 
@@ -28,7 +29,7 @@ function LeaveTypeDialog({ leaveType, onClose }: { leaveType?: HrLeaveType; onCl
     save.mutate({
       path: leaveType ? `/leave-types/${leaveType.id}` : "/leave-types",
       method: leaveType ? "PATCH" : "POST",
-      values: { name: name.trim(), defaultPayRatePpm: Math.round(parsedPayRate * 10_000) },
+      values: { name: name.trim(), leaveKind, defaultPayRatePpm: Math.round(parsedPayRate * 10_000) },
     }, { onSuccess: onClose });
   }
 
@@ -40,6 +41,7 @@ function LeaveTypeDialog({ leaveType, onClose }: { leaveType?: HrLeaveType; onCl
     actions={<><Button type="button" variant="secondary" onClick={onClose}>取消</Button><Button type="submit" loading={save.isPending}>保存假別</Button></>}
   >
     <TextField label="假別名稱" hint="例如：特休、病假、事假；停用只會停止新申請，不刪除歷史資料。" required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
+    <SelectField label="額度規則" value={leaveKind} options={[{ value: "annual", label: "特休（使用週年制額度）" }, { value: "other", label: "其他假別（獨立規則）" }]} onChange={(event) => setLeaveKind(event.target.value as "annual" | "other")} hint="特休由公司共用政策自動給予；其他假別不會扣特休台帳。" />
     <TextField label="預設給薪比例（%）" type="number" min="0" max="100" step="0.01" required value={payRate} onChange={(event) => setPayRate(event.target.value)} />
     {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
   </Dialog>;
@@ -64,12 +66,13 @@ export function HrLeaveTypes() {
       description="管理請假申請與月度假勤登記共用的假別主檔；停用假別會保留歷史資料，不再出現在新的申請與登記中。"
       actions={canWrite ? <Button icon="plus" onClick={() => setEditor("new")}>新增假別</Button> : undefined}
     />
-    <Alert tone="info">請假申請在「申請與審核」處理；本頁只管理假別名稱與預設給薪比例。個別申請仍可保存當次核定比例。</Alert>
+    <Alert tone="info">請假申請在「申請與審核」處理；特休假別會扣除週年制額度，其他假別維持獨立規則。個別申請仍可保存當次核定比例。</Alert>
     {leaveTypes.error || toggle.error ? <Alert tone="danger">{leaveTypes.error?.message ?? toggle.error?.message}</Alert> : null}
     <Panel className="grows" title="假別主檔" description="停用取代刪除，避免破壞既有月度假勤與申請紀錄。">
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>假別</th><th>預設給薪比例</th><th>狀態</th><th>最近更新</th><th>操作</th></tr></thead><tbody>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>假別</th><th>額度規則</th><th>預設給薪比例</th><th>狀態</th><th>最近更新</th><th>操作</th></tr></thead><tbody>
         {rows.map((leaveType) => <tr key={leaveType.id}>
           <td data-label="假別"><strong>{leaveType.name}</strong></td>
+          <td data-label="額度規則">{leaveType.leaveKind === "annual" ? "週年制特休" : "其他假別"}</td>
           <td data-label="預設給薪比例">{payRateLabel(leaveType.defaultPayRatePpm)}</td>
           <td data-label="狀態"><StatusBadge tone={leaveType.active ? "success" : "neutral"}>{leaveType.active ? "啟用" : "停用"}</StatusBadge></td>
           <td data-label="最近更新">{timestampLabel(leaveType.updatedAt)}</td>
