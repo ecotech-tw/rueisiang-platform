@@ -37,6 +37,13 @@ export const hrBonusPolicyVersions = sqliteTable("hr_bonus_policy_versions", {
   guaranteeMinor: integer("threshold_minor").notNull(),
   validFrom: text("valid_from").notNull(),
   validTo: text("valid_to"),
+  /*
+   * 誤設的版本以 voided_at 解除而不刪列：新版本的生效日必須晚於目前版本，當天改錯的話
+   * 沒有解除就得等到隔天才改得動。解除只作用在最新版本，成員隨版本一起失效（成員查詢
+   * 一律 join 版本，所以不另外在成員上標記）。
+   */
+  voidedAt: text("voided_at"),
+  voidedBy: text("voided_by").references(() => users.id, { onDelete: "restrict" }),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
