@@ -396,13 +396,16 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: versionId, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-03", allowanceQuantity: 0 }] });
     expect(assigned.status, await assigned.clone().text()).toBe(201);
     const adminCookie = cookie;
-    cookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
-    const overtime = await request("/hr/me/overtime", "POST", { requestedStart: "2026-09-03 18:00", requestedEnd: "2026-09-03 21:00", settlementKind: "pay", reason: "特殊日加班級距測試" });
-    expect(overtime.status, await overtime.clone().text()).toBe(201);
-    const overtimeId = (await overtime.json() as { id: string }).id;
-    cookie = adminCookie;
-    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
-    expect(reviewed.status, await reviewed.clone().text()).toBe(200);
+    const employeeCookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
+    for (const [requestedStart, requestedEnd] of [["2026-09-03 18:00", "2026-09-03 19:00"], ["2026-09-03 19:00", "2026-09-03 21:00"]]) {
+      cookie = employeeCookie;
+      const overtime = await request("/hr/me/overtime", "POST", { requestedStart, requestedEnd, settlementKind: "pay", reason: "特殊日加班級距測試" });
+      expect(overtime.status, await overtime.clone().text()).toBe(201);
+      const overtimeId = (await overtime.json() as { id: string }).id;
+      cookie = adminCookie;
+      const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+      expect(reviewed.status, await reviewed.clone().text()).toBe(200);
+    }
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-overtime-rules" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
@@ -410,6 +413,37 @@ describe("HR 薪資與櫃點獎金試算", () => {
       // 日薪 NT$1,800／日 ÷ 8 小時：前 2 小時 × 150%（NT$675）＋第 3 小時固定 NT$350。
       expect.objectContaining({ lineKey: "overtime", amountMinor: 102_500, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("特殊日固定時薪"), specialWorkdayRuleSnapshots: [expect.objectContaining({ workDate: "2026-09-03", overtimeRules: expect.arrayContaining([expect.objectContaining({ rateKind: "fixed_hourly", fixedAmountMinor: 35000 })]) })] }) }),
     ]));
+  });
+
+  it("特殊日零元級距仍保存加班規則快照", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "特殊日零元級距測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const ruleResponse = await request("/hr/special-workdays/rules", "POST", { name: "特殊日零元加班", validFrom: "2026-09-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [
+      { fromHalfHours: 1, toHalfHours: null, rateKind: "fixed_hourly", fixedAmountMinor: 0 },
+    ], allowances: [] });
+    expect(ruleResponse.status, await ruleResponse.clone().text()).toBe(201);
+    const versionId = (await ruleResponse.json() as { versionId: string }).versionId;
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: versionId, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-04", allowanceQuantity: 0 }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const adminCookie = cookie;
+    cookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
+    const overtime = await request("/hr/me/overtime", "POST", { requestedStart: "2026-09-04 18:00", requestedEnd: "2026-09-04 18:30", settlementKind: "pay", reason: "特殊日零元級距測試" });
+    expect(overtime.status, await overtime.clone().text()).toBe(201);
+    const overtimeId = (await overtime.json() as { id: string }).id;
+    cookie = adminCookie;
+    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+    expect(reviewed.status, await reviewed.clone().text()).toBe(200);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-overtime-zero" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }> }> } };
+    const overtimeLine = body.run.employees[0]!.lines.find((line) => line.lineKey === "overtime");
+    expect(overtimeLine).toMatchObject({
+      amountMinor: 0,
+      quantitySeconds: 1800,
+      explanation: expect.objectContaining({
+        specialWorkdayRuleSnapshots: [expect.objectContaining({ workDate: "2026-09-04", ruleVersionId: versionId, overtimeRules: [expect.objectContaining({ rateKind: "fixed_hourly", fixedAmountMinor: 0 })] })],
+      }),
+    });
   });
 
   it("後端拒絕同一敘薪版本的重複薪資項目名稱", async () => {

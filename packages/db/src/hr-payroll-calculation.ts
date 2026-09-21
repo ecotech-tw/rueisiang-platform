@@ -226,19 +226,20 @@ function nextDateOnly(date: string): string {
 }
 type SpecialWorkdayOvertimeRule = { fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null };
 type OvertimeRuleChunk = { seconds: number; rule: SpecialWorkdayOvertimeRule | null };
-function splitOvertimeBySpecialRules(seconds: number, rules: readonly SpecialWorkdayOvertimeRule[]): OvertimeRuleChunk[] {
+function splitOvertimeBySpecialRules(seconds: number, rules: readonly SpecialWorkdayOvertimeRule[], elapsedSeconds = 0): OvertimeRuleChunk[] {
   if (!rules.length) return [{ seconds, rule: null }];
   const chunks: OvertimeRuleChunk[] = [];
-  let elapsedSeconds = 0;
-  while (elapsedSeconds < seconds) {
-    const halfHourIndex = Math.floor(elapsedSeconds / (30 * 60)) + 1;
+  let consumedSeconds = 0;
+  while (consumedSeconds < seconds) {
+    const positionSeconds = elapsedSeconds + consumedSeconds;
+    const halfHourIndex = Math.floor(positionSeconds / (30 * 60)) + 1;
     const rule = rules.find((item) => halfHourIndex >= item.fromHalfHours && (item.toHalfHours === null || halfHourIndex <= item.toHalfHours)) ?? null;
     const nextRule = rules.find((item) => item.fromHalfHours > halfHourIndex);
     const boundaryHalfHours = rule?.toHalfHours ?? (nextRule ? nextRule.fromHalfHours - 1 : null);
-    const boundarySeconds = boundaryHalfHours === null ? seconds : boundaryHalfHours * 30 * 60;
-    const chunkSeconds = Math.min(seconds - elapsedSeconds, Math.max(1, boundarySeconds - elapsedSeconds));
+    const boundarySeconds = boundaryHalfHours === null ? Number.POSITIVE_INFINITY : boundaryHalfHours * 30 * 60;
+    const chunkSeconds = Math.min(seconds - consumedSeconds, Math.max(1, boundarySeconds - positionSeconds));
     chunks.push({ seconds: chunkSeconds, rule });
-    elapsedSeconds += chunkSeconds;
+    consumedSeconds += chunkSeconds;
   }
   return chunks;
 }
@@ -990,10 +991,15 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       } });
     });
 
-    const employeeOvertime = overtime.filter((row) => row.employmentId === employee.employmentId);
+    const employeeOvertime = overtime.filter((row) => row.employmentId === employee.employmentId).sort((left, right) => {
+      const leftStart = left.actualStart ?? left.requestedStart;
+      const rightStart = right.actualStart ?? right.requestedStart;
+      return leftStart.localeCompare(rightStart) || (left.actualEnd ?? left.requestedEnd).localeCompare(right.actualEnd ?? right.requestedEnd);
+    });
     let overtimeMinor = 0;
     let overtimeSeconds = 0;
     const overtimeCalculationParts: PayrollCalculationPart[] = [];
+    const overtimeElapsedByDate = new Map<string, number>();
     const specialWorkdayRuleSnapshots = new Map<string, { workDate: string; ruleVersionId: string; overtimeRules: Array<{ fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null }> }>();
     for (const row of employeeOvertime) {
       const start = row.actualStart ?? row.requestedStart;
@@ -1008,7 +1014,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           ruleVersionId: special.ruleVersionId,
           overtimeRules: special.overtimeRules.map((rule) => ({ fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.fixedAmountMinor, multiplierPpm: rule.multiplierPpm })),
         });
-        const chunks = splitOvertimeBySpecialRules(segment.seconds, special?.overtimeRules ?? []);
+        // 級距以同一台北工作日的累計核准加班時數套用，不能每筆申請都重新從第一級開始。
+        const elapsedSeconds = overtimeElapsedByDate.get(segment.date) ?? 0;
+        const chunks = splitOvertimeBySpecialRules(segment.seconds, special?.overtimeRules ?? [], elapsedSeconds);
+        overtimeElapsedByDate.set(segment.date, elapsedSeconds + segment.seconds);
         for (const chunk of chunks) {
           const compensation = covering(employeeCompensations, segment.date) ?? fullMonthComp;
           const hourly = compensation?.payBasis === "monthly"
@@ -1030,7 +1039,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         }
       }
     }
-    if (overtimeMinor > 0) lines.push({ lineKey: "overtime", direction: "earning", amountMinor: overtimeMinor, quantitySeconds: overtimeSeconds, explanation: {
+    if (overtimeSeconds > 0) lines.push({ lineKey: "overtime", direction: "earning", amountMinor: overtimeMinor, quantitySeconds: overtimeSeconds, explanation: {
       approvedRequests: employeeOvertime.length, monthlyDivisorDays, standardDailyHours,
       specialWorkdayRuleSnapshots: [...specialWorkdayRuleSnapshots.values()],
       calculationParts: overtimeCalculationParts, formulaDetail: payrollFormulaTotal(overtimeCalculationParts, overtimeMinor),
