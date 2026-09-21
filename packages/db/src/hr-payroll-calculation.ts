@@ -315,10 +315,16 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   const employmentFilter = inArray(hrEmployments.id, employmentIds);
   const workerFilter = inArray(hrScheduleWorkers.id, workerIds);
   const employmentValues = sql.join(employmentIds.map((id) => sql`${id}`), sql`, `);
+  /*
+   * 已解除的版本不是薪資的來源，它的店與排班也不該進快照：那些 Scope 的出金事後變動時，
+   * 會把一個跟這次薪資無關的異動當成「來源已變更」，擋住結帳並逼人重新試算。
+   */
   const relevantBonusVersionIds = sql`SELECT member_version.policy_version_id FROM hr_bonus_policy_members AS member_version
     WHERE member_version.employment_id IN (${employmentValues})
       AND member_version.valid_from < ${input.period.end}
-      AND (member_version.valid_to IS NULL OR member_version.valid_to > ${input.period.start})`;
+      AND (member_version.valid_to IS NULL OR member_version.valid_to > ${input.period.start})
+      AND EXISTS (SELECT 1 FROM hr_bonus_policy_versions AS member_policy_version
+        WHERE member_policy_version.id = member_version.policy_version_id AND member_policy_version.voided_at IS NULL)`;
   const relevantBonusScopeIds = sql`SELECT scope_id FROM hr_bonus_policy_versions WHERE id IN (${relevantBonusVersionIds}) UNION SELECT scope_id FROM hr_bonus_policy_version_scopes WHERE policy_version_id IN (${relevantBonusVersionIds})`;
   const sourcePeriod = previousPeriod({ year: Number(input.period.periodKey.slice(0, 4)), month: Number(input.period.periodKey.slice(5, 7)) });
   const periodStartUtc = taipeiMidnightUtc(input.period.start);
