@@ -10,14 +10,21 @@
 
 ## 一、Worktree：一個工作目錄同時只有一個主人
 
-Codex、Claude 與人類不同時共用一個 working directory。兩個 agent 即使同時開發，
-也不會因為其中一方切 branch 而讓另一方的檔案突然改變。
+人類與 agent 不同時共用一個 working directory。即使同時開發，也不會因為其中一方切
+branch 而讓另一方的檔案突然改變。
+
+**一個 session 一個 worktree，不是一個 agent 一個。** 這裡以前寫的是兩個常駐目錄
+（`-codex`、`-claude`），那個模型假設同時只有兩個 agent 在跑。實際上同一個 agent 會同時
+開好幾個 session，各自在做不同的需求；共用一個目錄就是回到「兩個人同時在同一個目錄切
+branch」——那正是 worktree 本來要解決的問題。
+
+所以每輪需求自己開一個，用需求命名，不要用 agent 命名：
 
 ```text
 Rueisiang/
-├─ rueisiang-platform/          # 人類整合或現有工作
-├─ rueisiang-platform-codex/    # Codex
-└─ rueisiang-platform-claude/   # Claude
+├─ rueisiang-platform/                 # 人類整合或現有工作
+├─ rueisiang-platform-dev-ports/       # 某個 session：feat/dev-ports-claude
+└─ rueisiang-platform-hr-payroll/      # 另一個 session：feat/hr-payroll-codex
 ```
 
 建立 worktree：
@@ -26,13 +33,17 @@ Rueisiang/
 # 先切到包含 rueisiang-platform 的父資料夾
 cd C:\path\to\Rueisiang
 cd .\rueisiang-platform
-git fetch origin
-git worktree add -b feat/<需求名稱>-codex ..\rueisiang-platform-codex origin/main
-git worktree add -b feat/<需求名稱>-claude ..\rueisiang-platform-claude origin/main
+git fetch origin main --prune
+git worktree add -b feat/<需求名稱>-<agent> ..\rueisiang-platform-<需求名稱> origin/main
 git worktree list
 ```
 
-`<需求名稱>` 由當次需求決定；不要讓兩個 worktree 使用同一個 branch。
+**路徑一定要 `..\`，開在 `Rueisiang\` 底下，不可以開在 `rueisiang-platform\` 裡面。**
+巢狀的 worktree 等於在主 repo 的工作目錄裡放一份完整副本：它會被 glob、build 與各種
+遞迴搜尋掃到，而主 repo 的 `git status` 不會提醒你它在那裡。這個坑已經踩過三次。
+
+`<需求名稱>` 由當次需求決定；兩個 worktree 不可以使用同一個 branch（Git 本來就會擋，
+但錯誤訊息出現時通常已經浪費了一輪）。
 
 `rueisiang-platform` 預設是人類的整合目錄，但不是保留區：**人類在當次對話明講之後，
 Codex 或 Claude 也可以在上面作業。** 要守住的不是「這個目錄屬於誰」，而是「一個工作
@@ -51,10 +62,27 @@ git switch <原本那個 branch>       # 還之前切回去，並回報自己做
 `main` 會讓人類下一次進來站在錯的分支；那時若還有未提交的修改，甚至切不回去。工作區
 不乾淨就先問，不要自己 stash 或 reset（stash stack 是共用的，見下面）。
 
-常駐 worktree 建立後，每個 agent 只在自己的路徑切換到下一個需求 branch。
+### 做完要拆掉
+
+**PR 合併之後，開這個 worktree 的 session 負責拆掉它。** 沒有人收尾的話資料夾只會一路
+累積——清點時已經到過 24 個，其中大半的分支早就合併了，卻沒有人敢刪，因為從外面看不出
+哪些還有人在用。
+
+```powershell
+cd C:\path\to\Rueisiang\rueisiang-platform
+git worktree remove ..\rueisiang-platform-<需求名稱>
+git worktree prune
+git push origin --delete feat/<需求名稱>-<agent>
+```
+
+`git worktree remove` 在工作區不乾淨時會拒絕。那是保護不是阻礙：先確認那些修改真的
+不要了，不要直接加 `--force`。
+
+做完一輪就拆掉，不要留著切到下一個需求 branch。留著的話，過幾天就沒有人記得它當初是
+為什麼開的，也就沒有人知道什麼時候可以刪。
 
 **交叉 review 要做**（Codex review Claude 的分支，反之亦然），但**唯讀，而且在自己的
-worktree 或 detached review worktree 做，不要進對方的目錄**。看一個分支不需要站到對方
+worktree 或 detached review worktree 做，不要進別人的目錄**。看一個分支不需要站到對方
 的資料夾裡：
 
 ```powershell
@@ -97,11 +125,23 @@ git rebase origin/main
 
 ### 本機 port
 
-| worktree | Portal | HR | API |
-|---|---|---|---|
-| 預設（人類） | `5173` | `5176` | `8787` |
-| Codex | `5174` | `5177` | `8788` |
-| Claude | `5175` | `5178` | `8789` |
+**不用分配，`pnpm dev` 自己挑。** 啟動前會先探測，挑三個沒被占用的 port，再把 API、
+Portal 與 HR 一起帶起來；實際號碼印在啟動訊息的最前面：
+
+```text
+API      http://localhost:8790
+Portal   http://localhost:5178
+HR       http://localhost:5179
+假登入   http://localhost:5178/dev
+```
+
+第一個起來的 session 會拿到 `8787`／`5173`／`5176`，之後的往上遞補。
+
+這裡以前是一張固定對照表（Codex `8788`、Claude `8789`）。一個 session 一個 worktree 之後
+session 數量不固定，表格就不夠用了——清點時 `8787`／`8788`／`8789` 已經同時被占滿，
+第四個 session 沒有號碼可寫。
+
+要指定就照舊設環境變數，有設的一律不會被蓋掉：
 
 ```powershell
 $env:API_PORT = "8788"
@@ -110,7 +150,9 @@ $env:HR_PORT = "5177"
 pnpm dev
 ```
 
-Portal 的 Vite proxy 會使用同一個 `API_PORT`，所以不會把 Codex 的請求送到另一個 worktree。
+三個 port 由同一個行程決定，不是三個 app 各自去找。Portal 與 HR 的 Vite proxy 必須知道
+API 停在哪個 port；各自挑會挑出不同答案，proxy 就會轉到空的地方，或更糟，轉到另一個
+worktree 的 API 上。實作與 Windows 上的 port 探測陷阱見 `scripts/dev.mjs` 的註解。
 
 ### 本機資料與 secrets
 

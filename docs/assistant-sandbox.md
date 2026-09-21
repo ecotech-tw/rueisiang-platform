@@ -26,15 +26,13 @@ LINE_CHANNEL_ACCESS_TOKEN=你的_LINE_Channel_Access_Token
 
 The LINE Channel Secret and Channel Access Token can also be entered in the LINE settings page. Both values are encrypted before they are stored; the existing `LINE_CHANNEL_SECRET` and `LINE_CHANNEL_ACCESS_TOKEN` Worker variables remain fallback options.
 
-啟動本機環境（Codex worktree）：
+啟動本機環境：
 
 ```powershell
-$env:API_PORT = "8788"
-$env:PORTAL_PORT = "5174"
 pnpm dev
 ```
 
-開啟 `http://localhost:5174/dev`，選擇「林瑞翔」的假登入帳號，再進入「小香助理 → Sandbox」或「LINE 前台」。API 在 `http://localhost:8788`。第一次啟動會自動套用 D1 migration，並建立預設 prompt revision、Open-Meteo tool 與 LINE channel 設定。
+開啟啟動訊息印出來的「假登入」網址，選擇「林瑞翔」的假登入帳號，再進入「小香助理 → Sandbox」或「LINE 前台」。port 由 `pnpm dev` 自動挑並印在最前面（見 [`development-workflow.md`](./development-workflow.md) 的「本機 port」）。第一次啟動會自動套用 D1 migration，並建立預設 prompt revision、Open-Meteo tool 與 LINE channel 設定。
 
 ## 第一階段提供的功能
 
