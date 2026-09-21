@@ -78,8 +78,8 @@ git push origin --delete feat/<需求名稱>-<agent>
 `git worktree remove` 在工作區不乾淨時會拒絕。那是保護不是阻礙：先確認那些修改真的
 不要了，不要直接加 `--force`。
 
-**先清掉 `node_modules` 再 remove，順序不能反。** `pnpm` 的 `node_modules` 巢狀很深，
-超過 Windows 的路徑長度上限，`git worktree remove` 會刪到一半失敗：
+**這個 repo 必須開著 `core.longpaths`，否則刪不掉。** pnpm 的 `node_modules` 巢狀很深，
+超過 Windows 的 260 字元上限，沒開的話 `git worktree remove` 會刪到一半失敗：
 
 ```text
 error: failed to delete '…/rueisiang-platform-<需求名稱>': Filename too long
@@ -89,18 +89,20 @@ error: failed to delete '…/rueisiang-platform-<需求名稱>': Filename too lo
 worktree 已經不在 `git worktree list` 裡了，只剩一個半殘的資料夾，`git worktree remove`
 再跑一次只會回「is not a working tree」。看起來像壞掉，其實只是檔案還沒刪完。
 
-`robocopy` 的鏡像技巧不受路徑長度限制，拿一個空資料夾去覆蓋就會清乾淨：
+設定一次就好，它存在共用的 `.git` 裡，所有 worktree 都吃得到（重新 clone 才要再設）：
 
 ```powershell
-$empty = Join-Path $env:TEMP "empty-for-purge"
-New-Item -ItemType Directory $empty -Force | Out-Null
-robocopy $empty ..\rueisiang-platform-<需求名稱>\node_modules /MIR | Out-Null
-git worktree remove ..\rueisiang-platform-<需求名稱>
+git config core.longpaths true
 ```
 
-（`robocopy` 成功時的 exit code 是 1 或 2，不是 0——別把它當成失敗。）
+開了之後 `git worktree remove` 就能直接刪掉含 `node_modules` 的 worktree，不需要任何
+額外步驟。
 
-已經卡成半殘的，就用同一招把整個資料夾清空再 `Remove-Item`，然後 `git worktree prune`。
+**不要用 `robocopy /MIR` 清 `node_modules`。** 這是很容易查到的「繞過長路徑」技巧，
+但它會**跟著 symlink 走進去刪**，而 pnpm 的 `node_modules` 裡全是指向 workspace 套件的
+symlink——結果是把 `apps/`、`packages/` 底下的原始碼一起刪掉。`/XJ` 擋不住（那只排除
+junction，不含 symbolic link），實測過。半殘的資料夾要手動清時用 `cmd /c rd /s /q`：
+它遇到目錄連結只會刪掉連結本身，不會穿透，同樣實測過。清完記得 `git worktree prune`。
 
 做完一輪就拆掉，不要留著切到下一個需求 branch。留著的話，過幾天就沒有人記得它當初是
 為什麼開的，也就沒有人知道什麼時候可以刪。
