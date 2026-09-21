@@ -315,10 +315,16 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   const employmentFilter = inArray(hrEmployments.id, employmentIds);
   const workerFilter = inArray(hrScheduleWorkers.id, workerIds);
   const employmentValues = sql.join(employmentIds.map((id) => sql`${id}`), sql`, `);
+  /*
+   * 已解除的版本不是薪資的來源，它的店與排班也不該進快照：那些 Scope 的出金事後變動時，
+   * 會把一個跟這次薪資無關的異動當成「來源已變更」，擋住結帳並逼人重新試算。
+   */
   const relevantBonusVersionIds = sql`SELECT member_version.policy_version_id FROM hr_bonus_policy_members AS member_version
     WHERE member_version.employment_id IN (${employmentValues})
       AND member_version.valid_from < ${input.period.end}
-      AND (member_version.valid_to IS NULL OR member_version.valid_to > ${input.period.start})`;
+      AND (member_version.valid_to IS NULL OR member_version.valid_to > ${input.period.start})
+      AND EXISTS (SELECT 1 FROM hr_bonus_policy_versions AS member_policy_version
+        WHERE member_policy_version.id = member_version.policy_version_id AND member_policy_version.voided_at IS NULL)`;
   const relevantBonusScopeIds = sql`SELECT scope_id FROM hr_bonus_policy_versions WHERE id IN (${relevantBonusVersionIds}) UNION SELECT scope_id FROM hr_bonus_policy_version_scopes WHERE policy_version_id IN (${relevantBonusVersionIds})`;
   const sourcePeriod = previousPeriod({ year: Number(input.period.periodKey.slice(0, 4)), month: Number(input.period.periodKey.slice(5, 7)) });
   const periodStartUtc = taipeiMidnightUtc(input.period.start);
@@ -653,6 +659,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .where(and(
       eq(hrBonusPolicies.active, 1),
+      sql`${hrBonusPolicyVersions.voidedAt} IS NULL`,
       sql`${hrBonusPolicyVersions.validFrom} < ${period.end}`,
       sql`(${hrBonusPolicyVersions.validTo} IS NULL OR ${hrBonusPolicyVersions.validTo} > ${period.start})`,
       sql`${hrBonusPolicyMembers.validFrom} < ${period.end}`,
@@ -1185,9 +1192,11 @@ export async function listHrBonusPolicies(db: Database, input: HrBonusPolicyList
   const search = input.search.trim();
   const where = and(
     eq(hrBonusPolicies.active, 1),
+    sql`${hrBonusPolicyVersions.voidedAt} IS NULL`,
     sql`NOT EXISTS (
       SELECT 1 FROM hr_bonus_policy_versions AS newer_bonus_version
       WHERE newer_bonus_version.policy_id = ${hrBonusPolicyVersions.policyId}
+        AND newer_bonus_version.voided_at IS NULL
         AND (newer_bonus_version.valid_from > ${hrBonusPolicyVersions.validFrom}
           OR (newer_bonus_version.valid_from = ${hrBonusPolicyVersions.validFrom} AND newer_bonus_version.version_number > ${hrBonusPolicyVersions.versionNumber}))
     )`,
@@ -1226,7 +1235,7 @@ export async function listHrBonusPolicies(db: Database, input: HrBonusPolicyList
   const total = totalRow?.value ?? 0;
   const policyIds = [...new Set(rows.map((row) => row.policyId))];
   const latestRows = policyIds.length ? await db.select({ policyId: hrBonusPolicyVersions.policyId, versionId: hrBonusPolicyVersions.id }).from(hrBonusPolicyVersions)
-    .where(inArray(hrBonusPolicyVersions.policyId, policyIds)).orderBy(desc(hrBonusPolicyVersions.validFrom), desc(hrBonusPolicyVersions.versionNumber)) : [];
+    .where(and(inArray(hrBonusPolicyVersions.policyId, policyIds), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`)).orderBy(desc(hrBonusPolicyVersions.validFrom), desc(hrBonusPolicyVersions.versionNumber)) : [];
   const latestByPolicy = new Map<string, string>();
   for (const row of latestRows) if (!latestByPolicy.has(row.policyId)) latestByPolicy.set(row.policyId, row.versionId);
   const versionIds = rows.map((row) => row.policyVersionId);
@@ -1318,20 +1327,27 @@ export async function updateHrBonusPolicy(db: Database, input: UpdateHrBonusPoli
   const scopeIds = validateBonusPolicy(input);
   await ensureBonusScopes(db, scopeIds);
   if (!isDateOnly(input.validFrom)) throw new HrError(400, "變更生效日必須是有效日期。 ");
-  const [current] = await db.select({ policyId: hrBonusPolicyVersions.policyId, versionNumber: hrBonusPolicyVersions.versionNumber, validFrom: hrBonusPolicyVersions.validFrom, active: hrBonusPolicies.active }).from(hrBonusPolicyVersions)
+  const [current] = await db.select({ policyId: hrBonusPolicyVersions.policyId, versionNumber: hrBonusPolicyVersions.versionNumber, validFrom: hrBonusPolicyVersions.validFrom, voidedAt: hrBonusPolicyVersions.voidedAt, active: hrBonusPolicies.active }).from(hrBonusPolicyVersions)
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .where(eq(hrBonusPolicyVersions.id, input.policyVersionId)).limit(1);
   if (!current) throw new HrError(404, "找不到獎金。 ");
   if (!current.active) throw new HrError(409, "這個獎金已停用，不能編輯。 ");
+  if (current.voidedAt !== null) throw new HrError(409, "這個獎金版本已解除，請重新整理後改用目前生效的版本。 ");
   if (input.validFrom <= current.validFrom) throw new HrError(400, "新版本生效日必須晚於目前版本生效日。 ");
   const [latest] = await db.select({ id: hrBonusPolicyVersions.id, versionNumber: hrBonusPolicyVersions.versionNumber, validFrom: hrBonusPolicyVersions.validFrom }).from(hrBonusPolicyVersions)
-    .where(eq(hrBonusPolicyVersions.policyId, current.policyId)).orderBy(desc(hrBonusPolicyVersions.validFrom), desc(hrBonusPolicyVersions.versionNumber)).limit(1);
+    .where(and(eq(hrBonusPolicyVersions.policyId, current.policyId), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`)).orderBy(desc(hrBonusPolicyVersions.validFrom), desc(hrBonusPolicyVersions.versionNumber)).limit(1);
   if (latest && latest.id !== input.policyVersionId) throw new HrError(409, "獎金已變更，請重新整理後再試。 ");
   if (latest && input.validFrom <= latest.validFrom) throw new HrError(400, "新版本生效日必須晚於最新版本生效日。 ");
-  const versionNumber = Number(latest?.versionNumber ?? 0) + 1;
+  /*
+   * 編號取所有版本的最大值，已解除的也算：解除不刪列，(policy_id, version_number) 仍是唯一索引，
+   * 用「目前最新版 + 1」的話，解除第 2 版之後再建一版就會撞回第 2 版。
+   */
+  const [maxVersion] = await db.select({ versionNumber: sql<number>`coalesce(max(${hrBonusPolicyVersions.versionNumber}), 0)`.as("bonus_max_version_number") })
+    .from(hrBonusPolicyVersions).where(eq(hrBonusPolicyVersions.policyId, current.policyId));
+  const versionNumber = Number(maxVersion?.versionNumber ?? 0) + 1;
   const activeMembers = await db.select({ member: hrBonusPolicyMembers }).from(hrBonusPolicyMembers)
     .innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPolicyMembers.policyVersionId))
-    .where(and(eq(hrBonusPolicyVersions.policyId, current.policyId), sql`${hrBonusPolicyVersions.validFrom} < ${input.validFrom}`, sql`(${hrBonusPolicyVersions.validTo} IS NULL OR ${hrBonusPolicyVersions.validTo} > ${input.validFrom})`, sql`${hrBonusPolicyMembers.validFrom} < ${input.validFrom}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.validFrom})`));
+    .where(and(eq(hrBonusPolicyVersions.policyId, current.policyId), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`, sql`${hrBonusPolicyVersions.validFrom} < ${input.validFrom}`, sql`(${hrBonusPolicyVersions.validTo} IS NULL OR ${hrBonusPolicyVersions.validTo} > ${input.validFrom})`, sql`${hrBonusPolicyMembers.validFrom} < ${input.validFrom}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.validFrom})`));
   const specifiedAssignments = input.employeeAssignments !== undefined
     ? input.employeeAssignments.map((assignment) => ({ employeeUserId: assignment.employeeUserId, weightUnits: assignment.weightUnits ?? 1 }))
     : input.employeeUserIds !== undefined
@@ -1346,15 +1362,27 @@ export async function updateHrBonusPolicy(db: Database, input: UpdateHrBonusPoli
   try {
     await db.batch(batchStatements([
       db.update(hrBonusPolicies).set({ name: input.name }).where(eq(hrBonusPolicies.id, current.policyId)),
-      ...(latest ? [db.update(hrBonusPolicyVersions).set({ validTo: input.validFrom }).where(eq(hrBonusPolicyVersions.id, latest.id))] : []),
-      ...(activeMembers.length ? [db.update(hrBonusPolicyMembers).set({ validTo: input.validFrom }).where(inArray(hrBonusPolicyMembers.id, activeMembers.map(({ member }) => member.id)))] : []),
-      db.insert(hrBonusPolicyVersions).values({ id: policyVersionId, policyId: current.policyId, versionNumber, scopeId: scopeIds[0]!, performanceKind: "scheduled_daily", revenueKind: "sales_amount", bonusKind: input.bonusKind, performancePeriod: input.performancePeriod, ratePpm: input.ratePpm, guaranteeMinor: input.guaranteeMinor, validFrom: input.validFrom, validTo: null, createdBy: actor.id }),
+      ...(latest ? [db.update(hrBonusPolicyVersions).set({ validTo: input.validFrom }).where(and(eq(hrBonusPolicyVersions.id, latest.id), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`))] : []),
+      /*
+       * policy_id 取自「這一版還沒被解除」的子查詢，而不是上面讀到的值：讀取與寫入之間
+       * 別人可能剛解除了這一版，只靠 JS 的檢查攔不到。被解除時子查詢是 NULL，NOT NULL
+       * 直接讓整個 batch 回滾——否則上一版已被解除還原成有效，新版本又插進來，會有兩個
+       * 同時有效的版本，獎金發兩次。
+       * 「有人搶先建立了更新的版本」則仍由 (policy_id, version_number) 的唯一索引擋下。
+       */
+      db.insert(hrBonusPolicyVersions).values({ id: policyVersionId, policyId: sql`(SELECT policy_id FROM hr_bonus_policy_versions WHERE id=${input.policyVersionId} AND voided_at IS NULL)`, versionNumber, scopeId: scopeIds[0]!, performanceKind: "scheduled_daily", revenueKind: "sales_amount", bonusKind: input.bonusKind, performancePeriod: input.performancePeriod, ratePpm: input.ratePpm, guaranteeMinor: input.guaranteeMinor, validFrom: input.validFrom, validTo: null, createdBy: actor.id }),
       ...scopeIds.map((scopeId) => db.insert(hrBonusPolicyVersionScopes).values({ policyVersionId, scopeId, createdBy: actor.id })),
+      /*
+       * 關成員時把原本的迄日與關它的版本留著，解除版本才還原得回來（見 schema 的註解）。
+       * 必須排在新版本插入之後：superseded_by_version_id 指著那一列。
+       */
+      ...(activeMembers.length ? [db.update(hrBonusPolicyMembers).set({ validTo: input.validFrom, supersededValidTo: sql`valid_to`, supersededByVersionId: policyVersionId }).where(inArray(hrBonusPolicyMembers.id, activeMembers.map(({ member }) => member.id)))] : []),
       ...nextMembers.map((member) => db.insert(hrBonusPolicyMembers).values({ id: crypto.randomUUID(), policyVersionId, employmentId: member.employmentId, validFrom: input.validFrom, validTo: member.validTo, weightUnits: member.weightUnits, createdBy: actor.id })),
       db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policyVersionId, source: "hr", eventType: "bonus_policy_version_created", summary: "獎金更新", actor, payload: { policyId: current.policyId, previousPolicyVersionId: input.policyVersionId, policyVersionId, versionNumber, validFrom: input.validFrom, scopeIds, assignmentCount: nextMembers.length } })),
     ]));
   } catch (error) {
-    if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "獎金已建立，請重新整理。 ");
+    // NOT NULL 是上面那句 policy_id 子查詢落空的訊號：這一版剛被別人解除了。
+    if (error instanceof Error && /UNIQUE constraint failed|NOT NULL constraint failed/.test(error.message)) throw new HrError(409, "獎金已變更，請重新整理後再試。 ");
     throw error;
   }
   return { policyId: current.policyId, policyVersionId, versionNumber };
@@ -1372,6 +1400,47 @@ export async function deleteHrBonusPolicy(db: Database, policyVersionId: string,
     db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policy.id, source: "hr", eventType: "bonus_policy_archived", summary: "獎金停用", actor, payload: { policyId: policy.id, policyVersionId, policyName: policy.name } })),
   ]));
   return { policyId: policy.id, deleted: true };
+}
+
+/**
+ * 解除最新的獎金版本但不刪除資料；重複呼叫可依序撤回到第一版。
+ *
+ * 沒有這條路的話，改錯的公式要等到隔天才改得回來：新版本的生效日必須晚於目前版本，
+ * 當天再改一次就會被擋下。解除會把上一版連同它的成員期間還原成解除前的狀態，
+ * 已結算的薪資快照不受影響——那是當期薪資自己的凍結資料。
+ */
+export async function voidHrBonusPolicyVersion(db: Database, policyVersionId: string, actor: HrActor) {
+  const [version] = await db.select({
+    policyId: hrBonusPolicyVersions.policyId, versionNumber: hrBonusPolicyVersions.versionNumber,
+    validFrom: hrBonusPolicyVersions.validFrom, validTo: hrBonusPolicyVersions.validTo, voidedAt: hrBonusPolicyVersions.voidedAt,
+    active: hrBonusPolicies.active,
+  }).from(hrBonusPolicyVersions)
+    .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
+    .where(eq(hrBonusPolicyVersions.id, policyVersionId)).limit(1);
+  if (!version) throw new HrError(404, "找不到獎金版本。 ");
+  if (version.voidedAt !== null) throw new HrError(409, "這個獎金版本已經解除。 ");
+  if (!version.active) throw new HrError(409, "這個獎金已停用，不能解除版本。 ");
+  const openVersions = await db.select({ id: hrBonusPolicyVersions.id, versionNumber: hrBonusPolicyVersions.versionNumber, validFrom: hrBonusPolicyVersions.validFrom }).from(hrBonusPolicyVersions)
+    .where(and(eq(hrBonusPolicyVersions.policyId, version.policyId), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`))
+    .orderBy(desc(hrBonusPolicyVersions.validFrom), desc(hrBonusPolicyVersions.versionNumber));
+  if (openVersions[0]?.id !== policyVersionId) throw new HrError(409, "只能解除最新的獎金版本；請先依序解除較新的版本。 ");
+  const previous = openVersions[1];
+  if (!previous) throw new HrError(409, "這是第一個版本，沒有可以回到的上一版；整個獎金設錯請改用刪除。 ");
+  await writeHrMutation(db, [
+    sql`UPDATE hr_bonus_policy_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
+      WHERE id=${policyVersionId} AND voided_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM hr_bonus_policy_versions AS newer
+          WHERE newer.policy_id=${version.policyId} AND newer.voided_at IS NULL
+            AND (newer.valid_from > ${version.validFrom} OR (newer.valid_from = ${version.validFrom} AND newer.version_number > ${version.versionNumber})))
+      RETURNING id`,
+    // 上一版當初是被這一版的生效日關起來的，還原成它被關之前的迄日（最新版一定是 NULL）。
+    sql`UPDATE hr_bonus_policy_versions SET valid_to=${version.validTo}
+      WHERE id=${previous.id} AND valid_to=${version.validFrom} RETURNING id`,
+    // 成員還原成被這一版關起來之前的原值；來源是關它的時候留下的 superseded_*，不是推算的。
+    sql`UPDATE hr_bonus_policy_members SET valid_to=superseded_valid_to, superseded_valid_to=NULL, superseded_by_version_id=NULL
+      WHERE superseded_by_version_id=${policyVersionId} RETURNING id`,
+  ], policyVersionId, actor, "bonus_policy_version_voided", "獎金版本已被其他人變更，請重新整理。 ", { allowEmptyMutationIndexes: new Set([1, 2]) });
+  return { policyId: version.policyId, policyVersionId, previousPolicyVersionId: previous.id, status: "voided" as const };
 }
 
 export async function listHrBonusAssignments(db: Database) {
@@ -1394,6 +1463,7 @@ export async function listHrBonusAssignments(db: Database) {
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrBonusPolicyMembers.employmentId))
     .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .where(sql`${hrBonusPolicyVersions.voidedAt} IS NULL`)
     .orderBy(desc(hrBonusPolicyMembers.createdAt));
   return rows.map((row) => ({
     assignment: { id: row.assignmentId, employmentId: row.assignmentEmploymentId, validFrom: row.validFrom, validTo: row.validTo, weightUnits: row.weightUnits },
@@ -1412,17 +1482,19 @@ export async function assignHrBonusPolicyMember(db: Database, input: AssignHrBon
     .where(and(eq(hrEmployments.employeeUserId, input.employeeUserId), sql`${hrEmployments.hiredOn} <= ${input.validFrom}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${input.validFrom})`))
     .orderBy(desc(hrEmployments.hiredOn)).limit(1);
   if (!employment) throw new HrError(404, "找不到該員工在生效日的任職紀錄。 ");
-  const [policy] = await db.select({ id: hrBonusPolicyVersions.id, policyId: hrBonusPolicyVersions.policyId, versionValidFrom: hrBonusPolicyVersions.validFrom, versionValidTo: hrBonusPolicyVersions.validTo, active: hrBonusPolicies.active }).from(hrBonusPolicyVersions)
+  const [policy] = await db.select({ id: hrBonusPolicyVersions.id, policyId: hrBonusPolicyVersions.policyId, versionValidFrom: hrBonusPolicyVersions.validFrom, versionValidTo: hrBonusPolicyVersions.validTo, voidedAt: hrBonusPolicyVersions.voidedAt, active: hrBonusPolicies.active }).from(hrBonusPolicyVersions)
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .where(eq(hrBonusPolicyVersions.id, input.policyVersionId)).limit(1);
   if (!policy) throw new HrError(404, "找不到獎金。 ");
   if (!policy.active) throw new HrError(409, "這個獎金已停用，不能再套用。 ");
+  if (policy.voidedAt !== null) throw new HrError(409, "這個獎金版本已解除，請套用到目前生效的版本。 ");
   if (input.validFrom < policy.versionValidFrom || (policy.versionValidTo !== null && input.validFrom >= policy.versionValidTo)) throw new HrError(400, "員工套用生效日不在 獎金有效期間內。 ");
   if (input.validTo !== null && input.validTo !== undefined && policy.versionValidTo !== null && input.validTo > policy.versionValidTo) throw new HrError(400, "員工套用結束日不可超過 獎金有效期間。 ");
   const assignmentEnd = input.validTo ?? "9999-12-31";
   const [duplicate] = await db.select({ id: hrBonusPolicyMembers.id }).from(hrBonusPolicyMembers)
     .innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPolicyMembers.policyVersionId))
-    .where(and(eq(hrBonusPolicyVersions.policyId, policy.policyId), eq(hrBonusPolicyMembers.employmentId, employment.id), sql`${hrBonusPolicyMembers.validFrom} < ${assignmentEnd}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.validFrom})`))
+    // 已解除版本的成員還留在資料庫，但它們不算數；不排除的話解除回上一版之後就再也套用不了同一個人。
+    .where(and(eq(hrBonusPolicyVersions.policyId, policy.policyId), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`, eq(hrBonusPolicyMembers.employmentId, employment.id), sql`${hrBonusPolicyMembers.validFrom} < ${assignmentEnd}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.validFrom})`))
     .limit(1);
   if (duplicate) throw new HrError(409, "該員工已套用這個獎金，不能重複套用重疊期間。 ");
   const assignmentId = crypto.randomUUID();
@@ -1434,6 +1506,7 @@ export async function assignHrBonusPolicyMember(db: Database, input: AssignHrBon
         SELECT 1 FROM hr_bonus_policy_members AS existing_member
         INNER JOIN hr_bonus_policy_versions AS existing_version ON existing_version.id = existing_member.policy_version_id
         WHERE existing_version.policy_id = ${policy.policyId}
+          AND existing_version.voided_at IS NULL
           AND existing_member.employment_id = ${employment.id}
           AND existing_member.valid_from < ${assignmentEnd}
           AND (existing_member.valid_to IS NULL OR existing_member.valid_to > ${input.validFrom})

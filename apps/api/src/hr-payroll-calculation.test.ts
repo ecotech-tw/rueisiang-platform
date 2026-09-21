@@ -255,6 +255,128 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(activePolicies.policies.some((policy) => policy.policyVersionId === createdBody.policyVersionId || policy.policyVersionId === updatedBody.policyVersionId)).toBe(false);
   });
 
+  it("解除最新 policy 版本會回到上一版，成員期間一併還原", async () => {
+    const created = await request("/hr/bonus/policies", "POST", { name: "可解除 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0, employeeUserIds: ["dev-wang@ecotech.tw"], assignmentValidFrom: "2026-01-01" });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const first = await created.json() as { policyVersionId: string };
+    const updated = await request(`/hr/bonus/policies/${first.policyVersionId}`, "PATCH", { name: "設錯的 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 90_000, guaranteeMinor: 0, validFrom: "2026-02-01" });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const second = await updated.json() as { policyVersionId: string };
+
+    const voided = await request(`/hr/bonus/policies/${second.policyVersionId}/void`, "POST", {});
+    expect(voided.status, await voided.clone().text()).toBe(200);
+    expect(await voided.json()).toMatchObject({ policyVersionId: second.policyVersionId, previousPolicyVersionId: first.policyVersionId, status: "voided" });
+
+    const policies = await (await request("/hr/bonus/policies")).json() as { policies: Array<{ policyVersionId: string; versionNumber: number; ratePpm: number }> };
+    expect(policies.policies).toEqual(expect.arrayContaining([expect.objectContaining({ policyVersionId: first.policyVersionId, versionNumber: 1, ratePpm: 20_000 })]));
+    expect(policies.policies.some((policy) => policy.policyVersionId === second.policyVersionId)).toBe(false);
+
+    // 上一版的成員在更新時被關到 2026-02-01；解除後要回到「還在套用」，而不是停在那天。
+    const assignments = await (await request("/hr/bonus/assignments")).json() as { assignments: Array<{ policyVersionId: string; assignment: { validFrom: string; validTo: string | null } }> };
+    expect(assignments.assignments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ policyVersionId: first.policyVersionId, assignment: expect.objectContaining({ validFrom: "2026-01-01", validTo: null }) }),
+    ]));
+    expect(assignments.assignments.some((item) => item.policyVersionId === second.policyVersionId)).toBe(false);
+
+    // 只剩第一版時沒有可以回去的上一版；重複解除也要擋下來。
+    expect((await request(`/hr/bonus/policies/${first.policyVersionId}/void`, "POST", {})).status).toBe(409);
+    expect((await request(`/hr/bonus/policies/${second.policyVersionId}/void`, "POST", {})).status).toBe(409);
+
+    // 編號取所有版本的最大值：已解除的第 2 版還佔著編號，重建時不能撞回去。
+    const rebuilt = await request(`/hr/bonus/policies/${first.policyVersionId}`, "PATCH", { name: "改對的 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 30_000, guaranteeMinor: 0, validFrom: "2026-02-01" });
+    expect(rebuilt.status, await rebuilt.clone().text()).toBe(200);
+    expect(await rebuilt.json()).toMatchObject({ versionNumber: 3 });
+  });
+
+  it("解除會還原成員原本的結束日，被移除的成員也回得來", async () => {
+    const created = await request("/hr/bonus/policies", "POST", { name: "成員期間 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0 });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const first = await created.json() as { policyVersionId: string };
+    // 這位成員本來就只套用到 2026-06-30；解除不可以把他變成無限期。
+    const member = await request(`/hr/bonus/policies/${first.policyVersionId}/members`, "POST", { employeeUserId: "dev-wang@ecotech.tw", validFrom: "2026-01-01", validTo: "2026-06-30" });
+    expect(member.status, await member.clone().text()).toBe(201);
+
+    // 更新時把他從清單拿掉：上一版的成員被關在 2026-02-01，新版本沒有他。
+    const updated = await request(`/hr/bonus/policies/${first.policyVersionId}`, "PATCH", { name: "成員期間 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0, validFrom: "2026-02-01", employeeAssignments: [] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const second = await updated.json() as { policyVersionId: string };
+    const closed = await (await request("/hr/bonus/assignments")).json() as { assignments: Array<{ policyVersionId: string; assignment: { validTo: string | null } }> };
+    expect(closed.assignments.find((item) => item.policyVersionId === first.policyVersionId)?.assignment.validTo).toBe("2026-02-01");
+
+    expect((await request(`/hr/bonus/policies/${second.policyVersionId}/void`, "POST", {})).status).toBe(200);
+    const restored = await (await request("/hr/bonus/assignments")).json() as { assignments: Array<{ policyVersionId: string; assignment: { validFrom: string; validTo: string | null } }> };
+    expect(restored.assignments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ policyVersionId: first.policyVersionId, assignment: expect.objectContaining({ validFrom: "2026-01-01", validTo: "2026-06-30" }) }),
+    ]));
+  });
+
+  it("解除之後可以把同一位員工重新套用到回復的版本", async () => {
+    const created = await request("/hr/bonus/policies", "POST", { name: "重新套用 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0 });
+    const first = await created.json() as { policyVersionId: string };
+    const updated = await request(`/hr/bonus/policies/${first.policyVersionId}`, "PATCH", { name: "重新套用 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0, validFrom: "2026-02-01", employeeAssignments: [{ employeeUserId: "dev-wang@ecotech.tw", weightUnits: 1 }] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const second = await updated.json() as { policyVersionId: string };
+    expect((await request(`/hr/bonus/policies/${second.policyVersionId}/void`, "POST", {})).status).toBe(200);
+    // 已解除版本上那筆成員還留著，但不該擋住重新套用。
+    const reassigned = await request(`/hr/bonus/policies/${first.policyVersionId}/members`, "POST", { employeeUserId: "dev-wang@ecotech.tw", validFrom: "2026-02-01" });
+    expect(reassigned.status, await reassigned.clone().text()).toBe(201);
+  });
+
+  it("解除與同一版本的並行編輯只有一邊成功，不會留下兩個有效版本", async () => {
+    const created = await request("/hr/bonus/policies", "POST", { name: "並行解除 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0 });
+    const first = await created.json() as { policyVersionId: string };
+    const second = await (await request(`/hr/bonus/policies/${first.policyVersionId}`, "PATCH", { name: "並行解除 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 40_000, guaranteeMinor: 0, validFrom: "2026-02-01" })).json() as { policyVersionId: string };
+    const [voided, patched] = await Promise.all([
+      request(`/hr/bonus/policies/${second.policyVersionId}/void`, "POST", {}),
+      request(`/hr/bonus/policies/${second.policyVersionId}`, "PATCH", { name: "並行解除 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 50_000, guaranteeMinor: 0, validFrom: "2026-03-01" }),
+    ]);
+    expect([voided.status, patched.status].filter((status) => status === 200)).toHaveLength(1);
+    // 列表只列每個 policy 目前生效的那一版；有兩個有效版本的話這裡會變成兩列，獎金就會發兩次。
+    const policies = await (await request("/hr/bonus/policies?page=1&pageSize=50&search=%E4%B8%A6%E8%A1%8C%E8%A7%A3%E9%99%A4")).json() as { policies: Array<{ policyVersionId: string }> };
+    expect(policies.policies).toHaveLength(1);
+  });
+
+  it("解除獎金版本之後，已試算的批次要重算才能結帳", async () => {
+    const created = await request("/hr/bonus/policies", "POST", { name: "結帳前解除 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0, employeeUserIds: ["dev-wang@ecotech.tw"], assignmentValidFrom: "2026-01-01" });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const first = await created.json() as { policyVersionId: string };
+    const updated = await request(`/hr/bonus/policies/${first.policyVersionId}`, "PATCH", { name: "結帳前解除 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 90_000, guaranteeMinor: 0, validFrom: "2026-02-01" });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const second = await updated.json() as { policyVersionId: string };
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-payroll-void-before-close" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+
+    expect((await request(`/hr/bonus/policies/${second.policyVersionId}/void`, "POST", {})).status).toBe(200);
+    /*
+     * 試算是按解除前的獎金算的，直接結帳等於用已經作廢的規則發錢。解除會動到版本與
+     * 成員的來源快照，所以這裡必須被既有的「來源已變更」比對擋下，逼使用者重新試算。
+     */
+    const close = await request(`/hr/payroll/runs/${runId}/close`, "POST", {});
+    expect(close.status, await close.clone().text()).toBe(409);
+  });
+
+  it("只有已解除版本涵蓋的通路出金變動，不會擋住結帳", async () => {
+    const db = createDatabase(d1 as never);
+    const created = await request("/hr/bonus/policies", "POST", { name: "已解除通路 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0, employeeUserIds: ["dev-wang@ecotech.tw"], assignmentValidFrom: "2026-01-01" });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const first = await created.json() as { policyVersionId: string };
+    // 第二版換到信義店，解除之後信義店就跟這次薪資無關了。
+    const updated = await request(`/hr/bonus/policies/${first.policyVersionId}`, "PATCH", { name: "已解除通路 policy", scopeId: "cyberbiz:store:demo-xinyi", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0, validFrom: "2026-02-01" });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const second = await updated.json() as { policyVersionId: string };
+    expect((await request(`/hr/bonus/policies/${second.policyVersionId}/void`, "POST", {})).status).toBe(200);
+
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-payroll-voided-scope-close" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+    await db.insert(reportPayoutDaily).values([
+      { scopeId: "cyberbiz:store:demo-xinyi", businessDate: "2026-08-03", recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 999_000, updatedByEmail: "eli-lin@ecotech.tw" },
+    ]);
+    const close = await request(`/hr/payroll/runs/${runId}/close`, "POST", {});
+    expect(close.status, await close.clone().text()).toBe(200);
+  });
+
   it("已發布支援人員排班會在薪資結果中獨立列出，且依有效日薪計算", async () => {
     const worker = await request("/hr/schedule-workers", "POST", { displayName: "測試支援人員" });
     expect(worker.status, await worker.clone().text()).toBe(201);

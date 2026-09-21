@@ -24,7 +24,7 @@ export {
   type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceContributionEstimate, type HrInsuranceContributionInput, type HrInsuranceContributionRuleRecord, type HrInsuranceEstimateVersionInput, type HrInsuranceInput, type HrInsuranceRateTableRecord, type HrInsuranceRateTableSourceKind, type HrInsuranceRateTableUpdateInput, type HrManualInsuranceRateTableInput, type HrInsuranceScheme,
 } from "./hr-payroll.js";
 export {
-  assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, updateHrBonusPolicy,
+  assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, updateHrBonusPolicy, voidHrBonusPolicyVersion,
   getHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
   type AssignHrBonusPolicyInput, type CreateHrBonusPolicyInput, type HrBonusKind, type HrBonusPerformancePeriod, type HrPayrollCalculationInput, type HrPayrollEmployeeResult, type UpdateHrBonusPolicyInput,
   type HrPayrollLineResult, type HrPayrollRunResult,
