@@ -251,6 +251,25 @@ function scheduleEntries(input: Record<string, unknown>) {
     return { personKind, employmentId, workerId, scopeId: text(value, "scopeId", "營運據點"), shiftVersionId: text(value, "shiftVersionId", "班別版本"), workDate } as const;
   });
 }
+function specialWorkdayOvertimeRules(input: Record<string, unknown>) {
+  const rawRules = input.overtimeRules;
+  if (rawRules === undefined) return [];
+  if (!Array.isArray(rawRules) || rawRules.length > 50) throw new HTTPException(400, { message: "特殊上班日加班規則格式不正確。" });
+  return rawRules.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆特殊上班日加班規則格式不正確。` });
+    const item = raw as Record<string, unknown>;
+    const rateKind = item.rateKind === "fixed_hourly" || item.rateKind === "multiplier" ? item.rateKind : null;
+    if (!rateKind) throw new HTTPException(400, { message: `第 ${index + 1} 筆特殊上班日加班計算方式不正確。` });
+    const toHalfHours = item.toHalfHours === undefined || item.toHalfHours === null || item.toHalfHours === "" ? null : integerValue(item, "toHalfHours", "加班級距迄（半小時）", 1, 20_000);
+    return {
+      fromHalfHours: integerValue(item, "fromHalfHours", "加班級距起（半小時）", 1, 20_000),
+      toHalfHours,
+      rateKind,
+      fixedAmountMinor: rateKind === "fixed_hourly" ? integerValue(item, "fixedAmountMinor", "固定加班時薪（分）", 0, Number.MAX_SAFE_INTEGER) : null,
+      multiplierPpm: rateKind === "multiplier" ? integerValue(item, "multiplierPpm", "加班倍率（ppm）", 0, 10_000_000) : null,
+    } as const;
+  });
+}
 function specialWorkdayRule(input: Record<string, unknown>) {
   const wageKind = input.wageKind === "fixed_hourly" || input.wageKind === "multiplier" ? input.wageKind : null;
   if (!wageKind) throw new HTTPException(400, { message: "特殊上班日薪資方式不正確。" });
@@ -262,7 +281,7 @@ function specialWorkdayRule(input: Record<string, unknown>) {
     return { itemName: text(item, "itemName", "補貼項目", 100), unitAmountMinor: integerValue(item, "unitAmountMinor", "補貼單價（分）", 0, Number.MAX_SAFE_INTEGER) };
   });
   if (input.workSource !== undefined) throw new HTTPException(400, { message: "特殊上班日工時來源由系統依人員類型決定，不可由請求指定。" });
-  return { name: text(input, "name", "規則名稱", 100), validFrom: date(input, "validFrom")!, validTo: date(input, "validTo", true), wageKind, fixedAmountMinor: wageKind === "fixed_hourly" ? integerValue(input, "fixedAmountMinor", "固定每小時金額（分）", 0, Number.MAX_SAFE_INTEGER) : null, multiplierPpm: wageKind === "multiplier" ? integerValue(input, "multiplierPpm", "薪資倍率（ppm）", 0, 10_000_000) : null, overtimeRule: text(input, "overtimeRule", "加班規則", 100), note: noteValue(input), allowances } as const;
+  return { name: text(input, "name", "規則名稱", 100), validFrom: date(input, "validFrom")!, validTo: date(input, "validTo", true), wageKind, fixedAmountMinor: wageKind === "fixed_hourly" ? integerValue(input, "fixedAmountMinor", "固定每小時金額（分）", 0, Number.MAX_SAFE_INTEGER) : null, multiplierPpm: wageKind === "multiplier" ? integerValue(input, "multiplierPpm", "薪資倍率（ppm）", 0, 10_000_000) : null, note: noteValue(input), allowances, overtimeRules: specialWorkdayOvertimeRules(input) } as const;
 }
 function specialAssignments(input: Record<string, unknown>) {
   if (!Array.isArray(input.assignments) || !input.assignments.length || input.assignments.length > 1000) throw new HTTPException(400, { message: "特殊上班日套用清單格式不正確。" });

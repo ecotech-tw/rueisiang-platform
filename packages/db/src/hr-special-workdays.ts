@@ -4,14 +4,18 @@ import { activityRow } from "./activity.js";
 import { HrError, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
-import { hrScheduleWorkers, hrSpecialWorkdayAllowances, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
+import { hrScheduleWorkers, hrSpecialWorkdayAllowances, hrSpecialWorkdayAssignments, hrSpecialWorkdayOvertimeRules, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 
 export type SpecialWorkdayWageKind = "fixed_hourly" | "multiplier";
 export type SpecialWorkdaySource = "schedule" | "hourly" | "manual";
+export type SpecialWorkdayOvertimeRateKind = "fixed_hourly" | "multiplier";
 const DEFAULT_SPECIAL_WORKDAY_SOURCE: SpecialWorkdaySource = "hourly";
+// 版本表的文字欄位是 0146 舊 schema；實際特殊日加班規則已改由 normalized 級距表保存。
+const DEFAULT_SPECIAL_WORKDAY_OVERTIME_RULE = "依員工核准加班規則另計";
 export interface SpecialWorkdayAllowanceInput { itemName: string; unitAmountMinor: number }
-export interface SpecialWorkdayRuleInput { name: string; validFrom: string; validTo: string | null; wageKind: SpecialWorkdayWageKind; fixedAmountMinor?: number | null; multiplierPpm?: number | null; overtimeRule: string; workSource?: SpecialWorkdaySource; note?: string; allowances: SpecialWorkdayAllowanceInput[] }
+export interface SpecialWorkdayOvertimeRuleInput { fromHalfHours: number; toHalfHours: number | null; rateKind: SpecialWorkdayOvertimeRateKind; fixedAmountMinor?: number | null; multiplierPpm?: number | null }
+export interface SpecialWorkdayRuleInput { name: string; validFrom: string; validTo: string | null; wageKind: SpecialWorkdayWageKind; fixedAmountMinor?: number | null; multiplierPpm?: number | null; workSource?: SpecialWorkdaySource; note?: string; allowances: SpecialWorkdayAllowanceInput[]; overtimeRules: SpecialWorkdayOvertimeRuleInput[] }
 export interface SpecialWorkdayAssignmentInput { ruleVersionId: string; assignments: Array<{ employmentId?: string; workerId?: string; workDate: string; allowanceQuantity: number }> }
 
 function validDate(value: string) {
@@ -19,31 +23,50 @@ function validDate(value: string) {
   const parsed = new Date(`${value}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new HrError(400, "日期不是有效日期。 ");
 }
+function normalizeOvertimeRules(rules: SpecialWorkdayOvertimeRuleInput[]) {
+  if (rules.length > 50) throw new HrError(400, "特殊上班日加班規則最多 50 筆。 ");
+  const sorted = rules.slice().sort((left, right) => left.fromHalfHours - right.fromHalfHours);
+  for (const rule of sorted) {
+    if (!Number.isSafeInteger(rule.fromHalfHours) || rule.fromHalfHours < 1 || (rule.toHalfHours !== null && (!Number.isSafeInteger(rule.toHalfHours) || rule.toHalfHours < rule.fromHalfHours))) throw new HrError(400, "特殊上班日加班時數級距不正確。 ");
+    if (rule.rateKind === "fixed_hourly" && (!Number.isSafeInteger(rule.fixedAmountMinor) || rule.fixedAmountMinor! < 0 || rule.multiplierPpm !== null && rule.multiplierPpm !== undefined)) throw new HrError(400, "特殊上班日固定加班時薪不正確。 ");
+    if (rule.rateKind === "multiplier" && (!Number.isSafeInteger(rule.multiplierPpm) || rule.multiplierPpm! < 0 || rule.fixedAmountMinor !== null && rule.fixedAmountMinor !== undefined)) throw new HrError(400, "特殊上班日加班倍率不正確。 ");
+    if (rule.rateKind !== "fixed_hourly" && rule.rateKind !== "multiplier") throw new HrError(400, "特殊上班日加班計算方式不正確。 ");
+  }
+  if (sorted.length && sorted[0]!.fromHalfHours !== 1) throw new HrError(400, "特殊上班日加班級距必須從第 0.5 小時開始。 ");
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1]!;
+    const current = sorted[index]!;
+    if (previous.toHalfHours === null || current.fromHalfHours !== previous.toHalfHours + 1) throw new HrError(400, "特殊上班日加班級距不可重疊或留空段。 ");
+  }
+  return sorted;
+}
 function validate(input: SpecialWorkdayRuleInput) {
   if (input.workSource !== undefined) throw new HrError(400, "特殊上班日工時來源由系統決定，不可由請求指定。 ");
   const workSource = DEFAULT_SPECIAL_WORKDAY_SOURCE;
   const note = input.note ?? "";
   validDate(input.validFrom); if (input.validTo) { validDate(input.validTo); if (input.validTo <= input.validFrom) throw new HrError(400, "規則迄日必須晚於生效日。 "); }
-  if (!input.name.trim() || input.name.length > 100 || !input.overtimeRule.trim() || input.overtimeRule.length > 100) throw new HrError(400, "特殊上班日規則名稱與加班規則必填。 ");
+  if (!input.name.trim() || input.name.length > 100) throw new HrError(400, "特殊上班日規則名稱必填。 ");
   if (input.wageKind === "fixed_hourly" && (!Number.isSafeInteger(input.fixedAmountMinor) || input.fixedAmountMinor! < 0)) throw new HrError(400, "固定每小時金額不正確。 ");
   if (input.wageKind === "multiplier" && (!Number.isSafeInteger(input.multiplierPpm) || input.multiplierPpm! < 0)) throw new HrError(400, "薪資倍率不正確。 ");
   if (input.wageKind !== "fixed_hourly" && input.wageKind !== "multiplier" || workSource !== "schedule" && workSource !== "hourly" && workSource !== "manual") throw new HrError(400, "特殊上班日計算方式不正確。 ");
   if (note.length > 1000 || input.allowances.length > 50 || input.allowances.some((item) => !item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.unitAmountMinor) || item.unitAmountMinor < 0)) throw new HrError(400, "補貼項目不正確。 ");
+  normalizeOvertimeRules(input.overtimeRules);
 }
 function versionValues(ruleId: string, versionNumber: number, input: SpecialWorkdayRuleInput, actor: HrActor, versionId: string) {
-  return { id: versionId, ruleId, versionNumber, validFrom: input.validFrom, validTo: input.validTo, wageKind: input.wageKind, fixedAmountMinor: input.wageKind === "fixed_hourly" ? input.fixedAmountMinor! : null, multiplierPpm: input.wageKind === "multiplier" ? input.multiplierPpm! : null, overtimeRule: input.overtimeRule.trim(), workSource: input.workSource ?? DEFAULT_SPECIAL_WORKDAY_SOURCE, note: (input.note ?? "").trim(), createdBy: actor.id } as const;
+  return { id: versionId, ruleId, versionNumber, validFrom: input.validFrom, validTo: input.validTo, wageKind: input.wageKind, fixedAmountMinor: input.wageKind === "fixed_hourly" ? input.fixedAmountMinor! : null, multiplierPpm: input.wageKind === "multiplier" ? input.multiplierPpm! : null, overtimeRule: DEFAULT_SPECIAL_WORKDAY_OVERTIME_RULE, workSource: input.workSource ?? DEFAULT_SPECIAL_WORKDAY_SOURCE, note: (input.note ?? "").trim(), createdBy: actor.id } as const;
 }
 
 export async function listHrSpecialWorkdayRules(db: Database) {
   // 分開讀三張表；SQLite/D1 的 joined select 在多個表有同名欄位時容易覆蓋 id。
-  const [rules, versions, allowances] = await Promise.all([
+  const [rules, versions, allowances, overtimeRules] = await Promise.all([
     db.select().from(hrSpecialWorkdayRules).orderBy(asc(hrSpecialWorkdayRules.name)),
     db.select().from(hrSpecialWorkdayRuleVersions).orderBy(asc(hrSpecialWorkdayRuleVersions.versionNumber)),
     db.select().from(hrSpecialWorkdayAllowances),
+    db.select().from(hrSpecialWorkdayOvertimeRules).orderBy(asc(hrSpecialWorkdayOvertimeRules.fromHalfHours)),
   ]);
   return rules.map((rule) => ({
     rule,
-    versions: versions.filter((version) => version.ruleId === rule.id).map((version) => ({ ...version, allowances: allowances.filter((allowance) => allowance.ruleVersionId === version.id) })),
+    versions: versions.filter((version) => version.ruleId === rule.id).map((version) => ({ ...version, allowances: allowances.filter((allowance) => allowance.ruleVersionId === version.id), overtimeRules: overtimeRules.filter((overtimeRule) => overtimeRule.ruleVersionId === version.id) })),
   }));
 }
 
@@ -55,20 +78,20 @@ export async function listHrSpecialWorkdayAssignments(db: Database, periodStart?
 }
 
 export async function createHrSpecialWorkdayRule(db: Database, input: SpecialWorkdayRuleInput, actor: HrActor) {
-  validate(input); const ruleId = crypto.randomUUID(); const versionId = crypto.randomUUID();
-  const statements = [db.insert(hrSpecialWorkdayRules).values({ id: ruleId, name: input.name.trim(), createdBy: actor.id }), db.insert(hrSpecialWorkdayRuleVersions).values(versionValues(ruleId, 1, input, actor, versionId)), ...input.allowances.map((item) => db.insert(hrSpecialWorkdayAllowances).values({ id: crypto.randomUUID(), ruleVersionId: versionId, itemName: item.itemName.trim(), unitAmountMinor: item.unitAmountMinor })), db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_rule_created", summary: "特殊上班日規則建立", actor }))];
+  validate(input); const ruleId = crypto.randomUUID(); const versionId = crypto.randomUUID(); const overtimeRules = normalizeOvertimeRules(input.overtimeRules);
+  const statements = [db.insert(hrSpecialWorkdayRules).values({ id: ruleId, name: input.name.trim(), createdBy: actor.id }), db.insert(hrSpecialWorkdayRuleVersions).values(versionValues(ruleId, 1, input, actor, versionId)), ...overtimeRules.map((rule) => db.insert(hrSpecialWorkdayOvertimeRules).values({ id: crypto.randomUUID(), ruleVersionId: versionId, fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.rateKind === "fixed_hourly" ? rule.fixedAmountMinor! : null, multiplierPpm: rule.rateKind === "multiplier" ? rule.multiplierPpm! : null })), ...input.allowances.map((item) => db.insert(hrSpecialWorkdayAllowances).values({ id: crypto.randomUUID(), ruleVersionId: versionId, itemName: item.itemName.trim(), unitAmountMinor: item.unitAmountMinor })), db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_rule_created", summary: "特殊上班日規則建立", actor }))];
   await db.batch(statements as never); return { id: ruleId, versionId };
 }
 
 export async function createHrSpecialWorkdayRuleVersion(db: Database, ruleId: string, input: SpecialWorkdayRuleInput, actor: HrActor) {
-  validate(input); const [rule] = await db.select({ id: hrSpecialWorkdayRules.id, active: hrSpecialWorkdayRules.active }).from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, ruleId)).limit(1);
+  validate(input); const overtimeRules = normalizeOvertimeRules(input.overtimeRules); const [rule] = await db.select({ id: hrSpecialWorkdayRules.id, active: hrSpecialWorkdayRules.active }).from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, ruleId)).limit(1);
   if (!rule) throw new HrError(404, "找不到特殊上班日規則。 "); if (!rule.active) throw new HrError(409, "規則已停用，不能建立新版本。 ");
   const [latest] = await db.select({ id: hrSpecialWorkdayRuleVersions.id, versionNumber: hrSpecialWorkdayRuleVersions.versionNumber, validFrom: hrSpecialWorkdayRuleVersions.validFrom }).from(hrSpecialWorkdayRuleVersions).where(eq(hrSpecialWorkdayRuleVersions.ruleId, ruleId)).orderBy(sql`${hrSpecialWorkdayRuleVersions.versionNumber} DESC`).limit(1);
   if (latest && input.validFrom <= latest.validFrom) throw new HrError(400, "新規則版本生效日必須晚於既有版本。 ");
   const versionId = crypto.randomUUID(); const number = (latest?.versionNumber ?? 0) + 1;
   const statements = [
     ...(latest ? [db.update(hrSpecialWorkdayRuleVersions).set({ validTo: input.validFrom }).where(and(eq(hrSpecialWorkdayRuleVersions.id, latest.id), sql`(${hrSpecialWorkdayRuleVersions.validTo} IS NULL OR ${hrSpecialWorkdayRuleVersions.validTo} > ${input.validFrom})`))] : []),
-    db.insert(hrSpecialWorkdayRuleVersions).values(versionValues(ruleId, number, input, actor, versionId)), ...input.allowances.map((item) => db.insert(hrSpecialWorkdayAllowances).values({ id: crypto.randomUUID(), ruleVersionId: versionId, itemName: item.itemName.trim(), unitAmountMinor: item.unitAmountMinor })), db.update(hrSpecialWorkdayRules).set({ updatedAt: sql`CURRENT_TIMESTAMP`, revision: sql`${hrSpecialWorkdayRules.revision} + 1` }).where(eq(hrSpecialWorkdayRules.id, ruleId)), db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_rule_version_created", summary: "特殊上班日規則版本建立", actor }))];
+    db.insert(hrSpecialWorkdayRuleVersions).values(versionValues(ruleId, number, input, actor, versionId)), ...overtimeRules.map((rule) => db.insert(hrSpecialWorkdayOvertimeRules).values({ id: crypto.randomUUID(), ruleVersionId: versionId, fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.rateKind === "fixed_hourly" ? rule.fixedAmountMinor! : null, multiplierPpm: rule.rateKind === "multiplier" ? rule.multiplierPpm! : null })), ...input.allowances.map((item) => db.insert(hrSpecialWorkdayAllowances).values({ id: crypto.randomUUID(), ruleVersionId: versionId, itemName: item.itemName.trim(), unitAmountMinor: item.unitAmountMinor })), db.update(hrSpecialWorkdayRules).set({ updatedAt: sql`CURRENT_TIMESTAMP`, revision: sql`${hrSpecialWorkdayRules.revision} + 1` }).where(eq(hrSpecialWorkdayRules.id, ruleId)), db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_rule_version_created", summary: "特殊上班日規則版本建立", actor }))];
   await db.batch(statements as never); return { id: ruleId, versionId, versionNumber: number };
 }
 
@@ -116,5 +139,7 @@ export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkda
 }
 
 export async function listHrSpecialWorkdaysForPayroll(db: Database, periodStart: string, periodEnd: string) {
-  return db.select().from(hrSpecialWorkdayAssignments).where(and(sql`${hrSpecialWorkdayAssignments.workDate} >= ${periodStart}`, sql`${hrSpecialWorkdayAssignments.workDate} < ${periodEnd}`));
+  const assignments = await db.select().from(hrSpecialWorkdayAssignments).where(and(sql`${hrSpecialWorkdayAssignments.workDate} >= ${periodStart}`, sql`${hrSpecialWorkdayAssignments.workDate} < ${periodEnd}`));
+  const overtimeRules = assignments.length ? await db.select().from(hrSpecialWorkdayOvertimeRules).where(sql`${hrSpecialWorkdayOvertimeRules.ruleVersionId} IN (SELECT rule_version_id FROM hr_special_workday_assignments WHERE work_date >= ${periodStart} AND work_date < ${periodEnd})`).orderBy(asc(hrSpecialWorkdayOvertimeRules.fromHalfHours)) : [];
+  return assignments.map((assignment) => ({ ...assignment, overtimeRules: overtimeRules.filter((rule) => rule.ruleVersionId === assignment.ruleVersionId) }));
 }

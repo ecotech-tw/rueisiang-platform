@@ -11,7 +11,7 @@ export {
 } from "./hr-scheduling.js";
 export {
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive,
-  type SpecialWorkdayAllowanceInput, type SpecialWorkdayAssignmentInput, type SpecialWorkdayRuleInput,
+  type SpecialWorkdayAllowanceInput, type SpecialWorkdayAssignmentInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,
 } from "./hr-special-workdays.js";
 export { createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, type HrOvertimeInput } from "./hr-overtime.js";
 export {

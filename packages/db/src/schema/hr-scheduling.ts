@@ -172,6 +172,7 @@ export const hrSpecialWorkdayRuleVersions = sqliteTable("hr_special_workday_rule
   wageKind: text("wage_kind", { enum: ["fixed_hourly", "multiplier"] as const }).notNull(),
   fixedAmountMinor: integer("fixed_amount_minor"),
   multiplierPpm: integer("multiplier_ppm"),
+  // 0146 的舊欄位保留供既有資料相容；新版本的特殊日加班設定存於下方級距表。
   overtimeRule: text("overtime_rule").notNull(),
   workSource: text("work_source", { enum: ["schedule", "hourly", "manual"] as const }).notNull(),
   note: text("note").notNull().default(""),
@@ -185,6 +186,23 @@ export const hrSpecialWorkdayRuleVersions = sqliteTable("hr_special_workday_rule
   check("ck_hr_special_workday_versions_overtime", sql`length(trim(${table.overtimeRule})) BETWEEN 1 AND 100`),
   check("ck_hr_special_workday_versions_source", sql`${table.workSource} IN ('schedule', 'hourly', 'manual')`),
   check("ck_hr_special_workday_versions_note", sql`length(${table.note}) <= 1000`),
+]);
+
+/** 特殊上班日的加班級距；同一版本的級距必須從第 0.5 小時連續覆蓋到最後一級。 */
+export const hrSpecialWorkdayOvertimeRules = sqliteTable("hr_special_workday_overtime_rules", {
+  id: text("id").primaryKey(),
+  ruleVersionId: text("rule_version_id").notNull().references(() => hrSpecialWorkdayRuleVersions.id, { onDelete: "restrict" }),
+  fromHalfHours: integer("from_half_hours").notNull(),
+  toHalfHours: integer("to_half_hours"),
+  rateKind: text("rate_kind", { enum: ["fixed_hourly", "multiplier"] as const }).notNull(),
+  fixedAmountMinor: integer("fixed_amount_minor"),
+  multiplierPpm: integer("multiplier_ppm"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_special_workday_overtime_rules_version_from").on(table.ruleVersionId, table.fromHalfHours),
+  index("idx_hr_special_workday_overtime_rules_version").on(table.ruleVersionId),
+  check("ck_hr_special_workday_overtime_rules_range", sql`${table.fromHalfHours} >= 1 AND (${table.toHalfHours} IS NULL OR ${table.toHalfHours} >= ${table.fromHalfHours})`),
+  check("ck_hr_special_workday_overtime_rules_rate", sql`(${table.rateKind} = 'fixed_hourly' AND ${table.fixedAmountMinor} IS NOT NULL AND ${table.fixedAmountMinor} >= 0 AND ${table.multiplierPpm} IS NULL) OR (${table.rateKind} = 'multiplier' AND ${table.fixedAmountMinor} IS NULL AND ${table.multiplierPpm} IS NOT NULL AND ${table.multiplierPpm} >= 0)`),
 ]);
 
 export const hrSpecialWorkdayAllowances = sqliteTable("hr_special_workday_allowances", {

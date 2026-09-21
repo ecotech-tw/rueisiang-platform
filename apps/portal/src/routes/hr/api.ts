@@ -52,7 +52,8 @@ export interface AttendanceLocationDetail extends AttendanceLocation {
   longitude: number | null;
 }
 export interface SpecialWorkdayAllowance { id: string; ruleVersionId: string; itemName: string; unitAmountMinor: number }
-export interface SpecialWorkdayRuleVersion { id: string; ruleId: string; versionNumber: number; validFrom: string; validTo: string | null; wageKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null; overtimeRule: string; workSource: "schedule" | "hourly" | "manual"; note: string; allowances: SpecialWorkdayAllowance[] }
+export interface SpecialWorkdayOvertimeRule { id: string; ruleVersionId: string; fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null }
+export interface SpecialWorkdayRuleVersion { id: string; ruleId: string; versionNumber: number; validFrom: string; validTo: string | null; wageKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null; workSource: "schedule" | "hourly" | "manual"; note: string; allowances: SpecialWorkdayAllowance[]; overtimeRules: SpecialWorkdayOvertimeRule[] }
 export interface SpecialWorkdayRule { rule: { id: string; name: string; active: number; revision: number }; versions: SpecialWorkdayRuleVersion[] }
 export interface SpecialWorkdayAssignment { assignment: { id: string; ruleVersionId: string; employmentId: string | null; workerId: string | null; workDate: string; ruleNameSnapshot: string; wageKindSnapshot: string; fixedAmountMinorSnapshot: number | null; multiplierPpmSnapshot: number | null; allowanceQuantity: number; appliedAt: string }; employeeNumber: string | null; employeeName: string | null; workerName: string | null }
 export interface GoogleMapPlace {

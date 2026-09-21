@@ -2506,7 +2506,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   min-width: 0;
   min-height: 0;
 }
-.modal-body { display: grid; flex: 1 1 auto; gap: 16px; min-height: 0; padding: 0 24px 8px; overflow-y: auto; }
+.modal-body { display: grid; flex: 1 1 auto; gap: 16px; min-width: 0; min-height: 0; padding: 0 24px 8px; overflow-x: hidden; overflow-y: auto; }
+.modal-body > * { min-width: 0; }
 /*
  * 底部的按鈕列與可捲動內容分開：footer 永遠是 modal-card 的最後一層，不會跟著內容捲走，
  * 也不會讓半透明內容穿透到按鈕下面。form footer 與非 form dialog 都使用實色 surface。
@@ -2684,6 +2685,24 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-weight: 600;
 }
 .salary-item-spacer { display: block; }
+/* 特殊上班日補貼沿用敘薪的「欄位標題／逐列編輯／底部新增」結構，但只有單價欄。 */
+.special-allowance-items .salary-items-head,
+.special-allowance-items .salary-item-row { grid-template-columns: minmax(0, 1fr) 130px 44px; }
+.special-allowance-items .salary-item-row > .field { min-width: 0; margin: 0; }
+.special-allowance-items .salary-item-row > .icon-button { align-self: center; }
+.special-allowance-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
+/* 特殊日加班費級距拆成兩行，讓欄位標籤與輸入框在窄 Modal 裡仍有呼吸空間。 */
+.special-overtime-items,
+.special-allowance-items { min-width: 0; }
+.special-overtime-item-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 10px; }
+.special-overtime-item-row > .field { min-width: 0; margin: 0; }
+.special-overtime-item-row > .field:nth-child(1) { grid-column: 1; grid-row: 1; }
+.special-overtime-item-row > .field:nth-child(2) { grid-column: 2; grid-row: 1; }
+.special-overtime-item-row > .field:nth-child(3) { grid-column: 1; grid-row: 2; }
+.special-overtime-item-row > .field:nth-child(4) { grid-column: 2; grid-row: 2; }
+.special-overtime-item-row > .icon-button { grid-column: 3; grid-row: 2; align-self: end; margin-bottom: 2px; }
+.special-overtime-item-row + .special-overtime-item-row { padding-top: 14px; border-top: 1px solid var(--color-soft-line); }
+.special-overtime-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 .salary-items-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-soft-line); }
 .salary-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
 .salary-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
@@ -2702,7 +2721,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .shift-items-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-soft-line); }
 .shift-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
 .shift-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
-@media (max-width: 560px) {
+@media (max-width: 640px) {
   .salary-items-head { display: none; }
   .salary-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 8px; }
   .salary-item-row > :first-child { grid-column: 1 / -1; }
@@ -2711,6 +2730,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .salary-item-row > .field:nth-child(2)::before { content: "計算單位"; }
   .salary-item-row > .field:nth-child(3)::before { content: "金額（元）"; }
   .salary-item-row > .icon-button { align-self: end; margin-bottom: 2px; }
+  .special-allowance-items .salary-item-row { grid-template-columns: minmax(0, 1fr) 44px; }
+  .special-allowance-items .salary-item-row > .field:nth-child(2)::before { content: "補貼單價（元）"; }
+  .special-allowance-items .salary-item-row > .icon-button { grid-column: 2; }
   .shift-items-head { display: none; }
   .shift-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 8px; }
   .shift-item-row > .field:first-child { grid-column: 1 / -1; }

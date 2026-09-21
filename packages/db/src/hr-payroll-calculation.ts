@@ -213,6 +213,52 @@ function secondsBetween(start: string, end: string): number {
   const seconds = Math.round((Date.parse(end.replace(" ", "T") + (end.endsWith("Z") ? "" : "Z")) - Date.parse(start.replace(" ", "T") + (start.endsWith("Z") ? "" : "Z"))) / 1000);
   return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : 0;
 }
+function utcWallClockMilliseconds(value: string): number {
+  return Date.parse(value.replace(" ", "T") + (value.endsWith("Z") ? "" : "Z"));
+}
+function canonicalUtcWallClock(milliseconds: number): string {
+  return new Date(milliseconds).toISOString().slice(0, 19).replace("T", " ");
+}
+function nextDateOnly(date: string): string {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10);
+}
+type SpecialWorkdayOvertimeRule = { fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null };
+type OvertimeRuleChunk = { seconds: number; rule: SpecialWorkdayOvertimeRule | null };
+function splitOvertimeBySpecialRules(seconds: number, rules: readonly SpecialWorkdayOvertimeRule[], elapsedSeconds = 0): OvertimeRuleChunk[] {
+  if (!rules.length) return [{ seconds, rule: null }];
+  const chunks: OvertimeRuleChunk[] = [];
+  let consumedSeconds = 0;
+  while (consumedSeconds < seconds) {
+    const positionSeconds = elapsedSeconds + consumedSeconds;
+    const halfHourIndex = Math.floor(positionSeconds / (30 * 60)) + 1;
+    const rule = rules.find((item) => halfHourIndex >= item.fromHalfHours && (item.toHalfHours === null || halfHourIndex <= item.toHalfHours)) ?? null;
+    const nextRule = rules.find((item) => item.fromHalfHours > halfHourIndex);
+    const boundaryHalfHours = rule?.toHalfHours ?? (nextRule ? nextRule.fromHalfHours - 1 : null);
+    const boundarySeconds = boundaryHalfHours === null ? Number.POSITIVE_INFINITY : boundaryHalfHours * 30 * 60;
+    const chunkSeconds = Math.min(seconds - consumedSeconds, Math.max(1, boundarySeconds - positionSeconds));
+    chunks.push({ seconds: chunkSeconds, rule });
+    consumedSeconds += chunkSeconds;
+  }
+  return chunks;
+}
+function splitOvertimeByTaipeiDate(start: string, end: string): Array<{ date: string; seconds: number }> {
+  const startMilliseconds = utcWallClockMilliseconds(start);
+  const endMilliseconds = utcWallClockMilliseconds(end);
+  if (!Number.isFinite(startMilliseconds) || !Number.isFinite(endMilliseconds) || endMilliseconds <= startMilliseconds) return [];
+  const result: Array<{ date: string; seconds: number }> = [];
+  let cursor = startMilliseconds;
+  while (cursor < endMilliseconds) {
+    const cursorValue = canonicalUtcWallClock(cursor);
+    const date = taipeiDate(cursorValue);
+    const nextMidnight = utcWallClockMilliseconds(taipeiMidnightUtc(nextDateOnly(date)));
+    const segmentEnd = Math.min(endMilliseconds, Number.isFinite(nextMidnight) && nextMidnight > cursor ? nextMidnight : endMilliseconds);
+    result.push({ date, seconds: Math.round((segmentEnd - cursor) / 1000) });
+    cursor = segmentEnd;
+  }
+  return result;
+}
 function scheduledHours(row: { standardMinutes?: number | null; startsAt: string; endsAt: string }) {
   return Number.isInteger(row.standardMinutes) ? (row.standardMinutes as number) / 60 : secondsBetween(row.startsAt, row.endsAt) / 3600;
 }
@@ -945,32 +991,57 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       } });
     });
 
-    const employeeOvertime = overtime.filter((row) => row.employmentId === employee.employmentId);
+    const employeeOvertime = overtime.filter((row) => row.employmentId === employee.employmentId).sort((left, right) => {
+      const leftStart = left.actualStart ?? left.requestedStart;
+      const rightStart = right.actualStart ?? right.requestedStart;
+      return leftStart.localeCompare(rightStart) || (left.actualEnd ?? left.requestedEnd).localeCompare(right.actualEnd ?? right.requestedEnd);
+    });
     let overtimeMinor = 0;
     let overtimeSeconds = 0;
     const overtimeCalculationParts: PayrollCalculationPart[] = [];
+    const overtimeElapsedByDate = new Map<string, number>();
+    const specialWorkdayRuleSnapshots = new Map<string, { workDate: string; ruleVersionId: string; overtimeRules: Array<{ fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null }> }>();
     for (const row of employeeOvertime) {
       const start = row.actualStart ?? row.requestedStart;
       const end = row.actualEnd ?? row.requestedEnd;
       const clippedStart = start > periodStartUtc ? start : periodStartUtc;
       const clippedEnd = end < periodEndUtc ? end : periodEndUtc;
-      const seconds = secondsBetween(clippedStart, clippedEnd);
-      if (!seconds) continue;
-      const compensation = covering(employeeCompensations, taipeiDate(clippedStart)) ?? fullMonthComp;
-      const hourly = compensation?.payBasis === "monthly"
-        ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays / standardDailyHours)
-        : compensation?.payBasis === "daily" ? Math.floor(compensation.baseAmountMinor / standardDailyHours) : compensation?.baseAmountMinor ?? 0;
-      const itemHourly = compensation ? compensationItems.filter((item) => item.compensationVersionId === compensation.id && item.includeOvertime).reduce((sum, item) => sum + (item.amountBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays / standardDailyHours) : item.amountBasis === "daily" ? Math.floor(item.amountMinor / standardDailyHours) : item.amountMinor), 0) : 0;
-      const overtimeAmount = Math.floor((hourly + itemHourly) * seconds / 3600 * row.ratePpm / PPM);
-      overtimeMinor += overtimeAmount;
-      overtimeSeconds += seconds;
-      if (overtimeAmount > 0) overtimeCalculationParts.push({
-        formula: `${taipeiDate(clippedStart)}：floor((${payrollFormulaMoney(hourly)}${itemHourly ? ` + ${payrollFormulaMoney(itemHourly)}` : ""}) × ${payrollFormulaHours(seconds / 3600)} 小時 × ${payrollFormulaPercent(row.ratePpm)})`,
-        amountMinor: overtimeAmount,
-      });
+      if (!secondsBetween(clippedStart, clippedEnd)) continue;
+      for (const segment of splitOvertimeByTaipeiDate(clippedStart, clippedEnd)) {
+        const special = specialAssignments.find((item) => item.workDate === segment.date);
+        if (special) specialWorkdayRuleSnapshots.set(`${segment.date}:${special.ruleVersionId}`, {
+          workDate: segment.date,
+          ruleVersionId: special.ruleVersionId,
+          overtimeRules: special.overtimeRules.map((rule) => ({ fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.fixedAmountMinor, multiplierPpm: rule.multiplierPpm })),
+        });
+        // 級距以同一台北工作日的累計核准加班時數套用，不能每筆申請都重新從第一級開始。
+        const elapsedSeconds = overtimeElapsedByDate.get(segment.date) ?? 0;
+        const chunks = splitOvertimeBySpecialRules(segment.seconds, special?.overtimeRules ?? [], elapsedSeconds);
+        overtimeElapsedByDate.set(segment.date, elapsedSeconds + segment.seconds);
+        for (const chunk of chunks) {
+          const compensation = covering(employeeCompensations, segment.date) ?? fullMonthComp;
+          const hourly = compensation?.payBasis === "monthly"
+            ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays / standardDailyHours)
+            : compensation?.payBasis === "daily" ? Math.floor(compensation.baseAmountMinor / standardDailyHours) : compensation?.baseAmountMinor ?? 0;
+          const itemHourly = compensation ? compensationItems.filter((item) => item.compensationVersionId === compensation.id && item.includeOvertime).reduce((sum, item) => sum + (item.amountBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays / standardDailyHours) : item.amountBasis === "daily" ? Math.floor(item.amountMinor / standardDailyHours) : item.amountMinor), 0) : 0;
+          const ratePpm = chunk.rule?.rateKind === "multiplier" ? chunk.rule.multiplierPpm! : row.ratePpm;
+          const overtimeAmount = chunk.rule?.rateKind === "fixed_hourly"
+            ? Math.floor(chunk.rule.fixedAmountMinor! * chunk.seconds / 3600)
+            : Math.floor((hourly + itemHourly) * chunk.seconds / 3600 * ratePpm / PPM);
+          overtimeMinor += overtimeAmount;
+          overtimeSeconds += chunk.seconds;
+          if (overtimeAmount > 0) overtimeCalculationParts.push({
+            formula: chunk.rule?.rateKind === "fixed_hourly"
+              ? `${segment.date}：特殊日固定時薪 ${payrollFormulaMoney(chunk.rule.fixedAmountMinor!)} × ${payrollFormulaHours(chunk.seconds / 3600)} 小時`
+              : `${segment.date}：floor((${payrollFormulaMoney(hourly)}${itemHourly ? ` + ${payrollFormulaMoney(itemHourly)}` : ""}) × ${payrollFormulaHours(chunk.seconds / 3600)} 小時 × ${payrollFormulaPercent(ratePpm)})`,
+            amountMinor: overtimeAmount,
+          });
+        }
+      }
     }
-    if (overtimeMinor > 0) lines.push({ lineKey: "overtime", direction: "earning", amountMinor: overtimeMinor, quantitySeconds: overtimeSeconds, explanation: {
+    if (overtimeSeconds > 0) lines.push({ lineKey: "overtime", direction: "earning", amountMinor: overtimeMinor, quantitySeconds: overtimeSeconds, explanation: {
       approvedRequests: employeeOvertime.length, monthlyDivisorDays, standardDailyHours,
+      specialWorkdayRuleSnapshots: [...specialWorkdayRuleSnapshots.values()],
       calculationParts: overtimeCalculationParts, formulaDetail: payrollFormulaTotal(overtimeCalculationParts, overtimeMinor),
     } });
 
