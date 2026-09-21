@@ -7,22 +7,29 @@ import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[] }
 interface AllowanceDraft { itemName: string; amount: string }
-interface OvertimeRuleDraft { fromHours: string; toHours: string; rateKind: "fixed_hourly" | "multiplier"; amount: string }
+export interface OvertimeRuleDraft { fromHours: string; toHours: string; rateKind: "fixed_hourly" | "multiplier"; amount: string }
 function today() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
   const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 function money(minor: number) { return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`; }
-function parseHalfHours(value: string) {
+function parseHours(value: string, minimumHours: number) {
+  if (!value.trim()) return null;
   const hours = Number(value);
-  return Number.isFinite(hours) && hours >= 0.5 && Number.isSafeInteger(hours * 2) ? hours * 2 : null;
+  return Number.isFinite(hours) && hours >= minimumHours && Number.isSafeInteger(hours * 2) ? hours * 2 : null;
 }
-function hoursText(halfHours: number) { return String(halfHours / 2); }
-function nextOvertimeRule(rules: OvertimeRuleDraft[]): OvertimeRuleDraft {
+export function parseFromHours(value: string) {
+  const halfHours = parseHours(value, 0);
+  return halfHours === null ? null : halfHours + 1;
+}
+export function parseToHours(value: string) { return parseHours(value, 0.5); }
+export function fromHoursText(halfHours: number) { return ((halfHours - 1) / 2).toFixed(1); }
+export function toHoursText(halfHours: number) { return (halfHours / 2).toFixed(1); }
+export function nextOvertimeRule(rules: OvertimeRuleDraft[]): OvertimeRuleDraft {
   const last = rules.at(-1);
-  const nextStart = last?.toHours.trim() && Number.isFinite(Number(last.toHours)) ? Number(last.toHours) + 0.5 : 0.5;
-  return { fromHours: String(nextStart), toHours: "", rateKind: "multiplier", amount: "133.33" };
+  const nextStart = last?.toHours.trim() && Number.isFinite(Number(last.toHours)) ? Number(last.toHours).toFixed(1) : "0.0";
+  return { fromHours: nextStart, toHours: "", rateKind: "multiplier", amount: "133.33" };
 }
 
 function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () => void }) {
@@ -33,7 +40,7 @@ function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () 
   const [wageKind, setWageKind] = useState<"fixed_hourly" | "multiplier">(current?.wageKind ?? "fixed_hourly");
   const [amount, setAmount] = useState(current ? String((current.fixedAmountMinor ?? 0) / 100) : "");
   const [multiplier, setMultiplier] = useState(current ? String((current.multiplierPpm ?? 1_000_000) / 10_000) : "100");
-  const [overtimeRules, setOvertimeRules] = useState<OvertimeRuleDraft[]>(() => (current?.overtimeRules ?? []).map((overtimeRule) => ({ fromHours: hoursText(overtimeRule.fromHalfHours), toHours: overtimeRule.toHalfHours === null ? "" : hoursText(overtimeRule.toHalfHours), rateKind: overtimeRule.rateKind, amount: overtimeRule.rateKind === "fixed_hourly" ? String((overtimeRule.fixedAmountMinor ?? 0) / 100) : String((overtimeRule.multiplierPpm ?? 1_000_000) / 10_000) })));
+  const [overtimeRules, setOvertimeRules] = useState<OvertimeRuleDraft[]>(() => (current?.overtimeRules ?? []).map((overtimeRule) => ({ fromHours: fromHoursText(overtimeRule.fromHalfHours), toHours: overtimeRule.toHalfHours === null ? "" : toHoursText(overtimeRule.toHalfHours), rateKind: overtimeRule.rateKind, amount: overtimeRule.rateKind === "fixed_hourly" ? String((overtimeRule.fixedAmountMinor ?? 0) / 100) : String((overtimeRule.multiplierPpm ?? 1_000_000) / 10_000) })));
   const [allowances, setAllowances] = useState<AllowanceDraft[]>(() => (current?.allowances ?? []).map((allowance) => ({ itemName: allowance.itemName, amount: String(allowance.unitAmountMinor / 100) })));
   const [note, setNote] = useState(current?.note ?? "");
   const [message, setMessage] = useState<string | null>(null);
@@ -45,15 +52,15 @@ function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () 
     const filledOvertimeRules = overtimeRules.filter((overtimeRule) => overtimeRule.fromHours.trim() || overtimeRule.toHours.trim() || overtimeRule.amount.trim());
     const parsedOvertimeRules = [] as Array<{ fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null }>;
     for (const [index, overtimeRule] of filledOvertimeRules.entries()) {
-      const fromHalfHours = parseHalfHours(overtimeRule.fromHours);
-      const toHalfHours = overtimeRule.toHours.trim() ? parseHalfHours(overtimeRule.toHours) : null;
+      const fromHalfHours = parseFromHours(overtimeRule.fromHours);
+      const toHalfHours = overtimeRule.toHours.trim() ? parseToHours(overtimeRule.toHours) : null;
       const amount = Number(overtimeRule.amount);
       if (fromHalfHours === null || overtimeRule.toHours.trim() && toHalfHours === null || toHalfHours !== null && toHalfHours < fromHalfHours) { setMessage(`第 ${index + 1} 筆加班級距的時數範圍不正確，請以 0.5 小時為單位填寫。`); return; }
       if (!Number.isFinite(amount) || amount < 0 || overtimeRule.rateKind === "fixed_hourly" && (!Number.isSafeInteger(amount) || !Number.isSafeInteger(amount * 100)) || overtimeRule.rateKind === "multiplier" && !Number.isSafeInteger(Math.round(amount * 10_000))) { setMessage(`第 ${index + 1} 筆加班規則的金額或倍率不正確。`); return; }
       parsedOvertimeRules.push({ fromHalfHours, toHalfHours, rateKind: overtimeRule.rateKind, fixedAmountMinor: overtimeRule.rateKind === "fixed_hourly" ? amount * 100 : null, multiplierPpm: overtimeRule.rateKind === "multiplier" ? Math.round(amount * 10_000) : null });
     }
     const sortedOvertimeRules = parsedOvertimeRules.slice().sort((left, right) => left.fromHalfHours - right.fromHalfHours);
-    if (sortedOvertimeRules.length && sortedOvertimeRules[0]!.fromHalfHours !== 1) { setMessage("特殊日加班級距要從第 0.5 小時開始。若不需要特殊加班規則，請不要新增級距。"); return; }
+    if (sortedOvertimeRules.length && sortedOvertimeRules[0]!.fromHalfHours !== 1) { setMessage("特殊日加班級距要從 0.0 小時起算。若不需要特殊加班規則，請不要新增級距。"); return; }
     for (let index = 1; index < sortedOvertimeRules.length; index += 1) {
       const previous = sortedOvertimeRules[index - 1]!;
       if (previous.toHalfHours === null || sortedOvertimeRules[index]!.fromHalfHours !== previous.toHalfHours + 1) { setMessage("特殊日加班級距不可重疊或留空段，請調整起訖時數。 "); return; }
@@ -75,9 +82,10 @@ function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () 
     <div className="form-grid two"><SelectField label="薪資方式" value={wageKind} options={[{ value: "fixed_hourly", label: "固定每小時金額" }, { value: "multiplier", label: "依底薪總倍率" }]} onChange={(event) => setWageKind(event.target.value as "fixed_hourly" | "multiplier")} />{wageKind === "fixed_hourly" ? <TextField label="固定每小時（元）" type="number" min="0" step="1" required value={amount} onChange={(event) => setAmount(event.target.value)} /> : <TextField label="總倍率（%）" type="number" min="0" step="0.01" required value={multiplier} onChange={(event) => setMultiplier(event.target.value)} />}</div>
     <div className="salary-items special-overtime-items">
       <span className="salary-items-label">特殊日加班費規則</span>
+      <p className="form-hint">以累計加班時數設定半開區間：起始含、迄止不含；第一段從 0.0 小時起算，例如 0.0～2.0、2.0～不限。</p>
       {overtimeRules.map((overtimeRule, index) => <div className="special-overtime-item-row" key={`overtime-rule-${index}`}>
-        <TextField label="起始（小時）" aria-label={`第 ${index + 1} 筆加班規則起始時數`} type="number" min="0.5" step="0.5" value={overtimeRule.fromHours} onChange={(event) => updateOvertimeRule(index, { fromHours: event.target.value })} />
-        <TextField label="迄止（小時，可留空）" aria-label={`第 ${index + 1} 筆加班規則迄止時數`} type="number" min="0.5" step="0.5" value={overtimeRule.toHours} onChange={(event) => updateOvertimeRule(index, { toHours: event.target.value })} />
+        <TextField label="起始（含，小時）" aria-label={`第 ${index + 1} 筆加班規則起始時數`} type="number" min="0" step="0.5" value={overtimeRule.fromHours} onChange={(event) => updateOvertimeRule(index, { fromHours: event.target.value })} />
+        <TextField label="迄止（不含，可留空）" aria-label={`第 ${index + 1} 筆加班規則迄止時數`} type="number" min="0.5" step="0.5" value={overtimeRule.toHours} onChange={(event) => updateOvertimeRule(index, { toHours: event.target.value })} />
         <SelectField label="計算方式" aria-label={`第 ${index + 1} 筆加班規則計算方式`} value={overtimeRule.rateKind} options={[{ value: "multiplier", label: "依底薪總倍率" }, { value: "fixed_hourly", label: "固定每小時" }]} onChange={(event) => updateOvertimeRule(index, { rateKind: event.target.value as OvertimeRuleDraft["rateKind"], amount: "" })} />
         <TextField label="總倍率／每小時（元）" aria-label={`第 ${index + 1} 筆加班規則${overtimeRule.rateKind === "multiplier" ? "總倍率" : "每小時金額"}`} type="number" min="0" step={overtimeRule.rateKind === "multiplier" ? "0.01" : "1"} value={overtimeRule.amount} onChange={(event) => updateOvertimeRule(index, { amount: event.target.value })} />
         <Button variant="icon" icon="trash" aria-label={`刪除第 ${index + 1} 筆特殊日加班規則`} onClick={() => setOvertimeRules((items) => items.filter((_, itemIndex) => itemIndex !== index))} />
