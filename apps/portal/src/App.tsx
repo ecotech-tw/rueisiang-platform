@@ -27,7 +27,8 @@ import { HrCompensationManagement } from "./routes/hr/Compensation.js";
 import { HrBonusManagement } from "./routes/hr/BonusManagement.js";
 import { HrPayrollSettlement } from "./routes/hr/PayrollSettlement.js";
 import { HrMonthlyData } from "./routes/hr/MonthlyData.js";
-import { HrOvertimeRequests } from "./routes/hr/OvertimeRequests.js";
+import { HrRequestCenter } from "./routes/hr/Requests.js";
+import { HrLeaveTypes } from "./routes/hr/LeaveTypes.js";
 import { ItemCategories } from "./routes/items/Categories.js";
 import { Items } from "./routes/items/Items.js";
 import { Payout } from "./routes/tools/Payout.js";
@@ -167,12 +168,15 @@ export function App() {
           <Route path="employees" element={<HrEmployees />} />
           <Route path="employees/:id" element={<HrEmployeeDetail />} />
           <Route path="support-workers" element={<HrSupportWorkers />} />
+          <Route path="requests" element={<HrRequestCenter />} />
+          <Route path="leave-types" element={<HrLeaveTypes />} />
           <Route path="insurance" element={<HrInsuranceManagement />} />
           <Route path="attendance-settings" element={<HrAttendanceSettings />} />
           <Route path="attendance-scope" element={<HrAttendanceScopeManagement />} />
           <Route path="special-workdays" element={<HrSpecialWorkdays />} />
           <Route path="attendance-records" element={<HrAttendanceRecords />} />
-          <Route path="overtime" element={<HrOvertimeRequests />} />
+          {/* 舊網址相容：申請與審核已從出勤管理移到獨立工作區。 */}
+          <Route path="overtime" element={<Navigate to="/hr/requests?type=overtime" replace />} />
           <Route path="scheduling" element={<HrScheduling />} />
           <Route path="scheduling/shifts" element={<HrShifts />} />
           {/* 舊網址相容：員工可打卡辦公位置改由出勤範圍管理維護。 */}

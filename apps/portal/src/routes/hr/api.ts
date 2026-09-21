@@ -132,7 +132,10 @@ export interface FormRequest {
   updatedAt: string;
 }
 export interface FormApprover { id: string; name: string }
-export interface HrOvertimeRequest { request: { id: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; decisionReason: string; createdAt: string }; employeeName: string | null; employeeNumber: string | null }
+export interface HrOvertimeRequest { request: { id: string; employmentId: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; reviewedBy?: string | null; reviewedAt?: string | null; decisionReason: string; createdBy?: string; createdAt: string }; employeeUserId?: string; employeeName: string | null; employeeNumber: string | null }
+export interface HrLeaveType { id: string; name: string; defaultPayRatePpm: number; active: number; createdBy: string; createdAt: string; updatedAt: string }
+export interface HrLeaveRequest { request: { id: string; employmentId: string; leaveType: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; startsOn: string; endsOn: string; durationMinutes: number; payRatePpm: number; reason: string; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string | null; createdBy: string; createdAt: string }; employeeUserId: string; employeeName: string | null; employeeNumber: string | null }
+export interface HrRequestCenterResponse { leaves: HrLeaveRequest[]; overtime: HrOvertimeRequest[]; clockCorrections: FormRequest[] }
 export interface FormApproversResponse { approvers: FormApprover[]; defaultApproverUserId: string | null }
 export interface PayrollLineCalculationPart { formula: string; amountMinor: number }
 export interface PayrollLine { lineKey: string; direction: "earning" | "deduction"; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }

@@ -13,9 +13,10 @@ export {
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   type SpecialWorkdayAllowanceInput, type SpecialWorkdayAssignmentInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,
 } from "./hr-special-workdays.js";
-export { createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, type HrOvertimeInput } from "./hr-overtime.js";
+export { createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";
+export { createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest, type HrLeaveRequestCreateOptions, type HrLeaveRequestInput } from "./hr-leave.js";
 export {
-  createHrFormRequest, getHrFormRequest, listHrFormApprovers, listHrFormRequests, reviewHrFormRequest,
+  createHrFormRequest, getHrFormRequest, listHrFormApprovers, listHrFormRequests, listHrFormRequestsForHr, reviewHrFormRequest,
   submitHrFormRequest, updateHrFormRequest,
   type HrFormRequestEventKind, type HrFormRequestInput, type HrFormRequestStatus,
 } from "./hr-requests.js";
@@ -30,7 +31,7 @@ export {
   type HrPayrollLineResult, type HrPayrollRunResult,
 } from "./hr-payroll-calculation.js";
 export {
-  createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, listHrLeaveTypes, listHrMonthlyData, updateHrMonthlyHourly, updateHrMonthlyLeave,
+  createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, listHrLeaveTypes, listHrMonthlyData, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave,
   listHrMonthlyEntriesForPayroll,
   type MonthlyHourlyInput, type MonthlyLeaveInput,
 } from "./hr-monthly-data.js";

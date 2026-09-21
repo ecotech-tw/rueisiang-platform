@@ -82,12 +82,30 @@ export async function listHrLeaveTypes(db: Database, includeInactive = false) {
   return db.select().from(hrLeaveTypes).where(includeInactive ? undefined : eq(hrLeaveTypes.active, 1)).orderBy(asc(hrLeaveTypes.name));
 }
 
-export async function createHrLeaveType(db: Database, input: { name: string; defaultPayRatePpm: number }, actor: HrActor) {
-  if (!input.name.trim() || input.name.trim().length > 80) throw new HrError(400, "假別名稱必須是 1～80 字。 ");
+function validateLeaveTypeInput(input: { name: string; defaultPayRatePpm: number }) {
+  const name = input.name.trim();
+  if (!name || name.length > 80) throw new HrError(400, "假別名稱必須是 1～80 字。 ");
   if (!Number.isSafeInteger(input.defaultPayRatePpm) || input.defaultPayRatePpm < 0 || input.defaultPayRatePpm > PPM) throw new HrError(400, "預設給薪比例必須介於 0～100%。 ");
+  return { name, defaultPayRatePpm: input.defaultPayRatePpm };
+}
+
+export async function createHrLeaveType(db: Database, input: { name: string; defaultPayRatePpm: number }, actor: HrActor) {
+  const validated = validateLeaveTypeInput(input);
   const id = crypto.randomUUID();
   return writeHrMutation(db, sql`INSERT INTO hr_leave_types (id, name, default_pay_rate_ppm, active, created_by)
-    VALUES (${id}, ${input.name.trim()}, ${input.defaultPayRatePpm}, 1, ${actor.id}) RETURNING id`, id, actor, "monthly_leave_type_created", "假別名稱已存在或資料不合法。 ");
+    VALUES (${id}, ${validated.name}, ${validated.defaultPayRatePpm}, 1, ${actor.id}) RETURNING id`, id, actor, "monthly_leave_type_created", "假別名稱已存在或資料不合法。 ");
+}
+
+export async function updateHrLeaveType(db: Database, id: string, input: { name: string; defaultPayRatePpm: number }, actor: HrActor) {
+  const validated = validateLeaveTypeInput(input);
+  return writeHrMutation(db, sql`UPDATE hr_leave_types SET
+    name=${validated.name}, default_pay_rate_ppm=${validated.defaultPayRatePpm}, updated_at=CURRENT_TIMESTAMP
+    WHERE id=${id} RETURNING id`, id, actor, "monthly_leave_type_updated", "找不到假別、名稱已存在或資料不合法。 ");
+}
+
+export async function setHrLeaveTypeActive(db: Database, id: string, active: boolean, actor: HrActor) {
+  return writeHrMutation(db, sql`UPDATE hr_leave_types SET active=${active ? 1 : 0}, updated_at=CURRENT_TIMESTAMP
+    WHERE id=${id} RETURNING id`, id, actor, active ? "monthly_leave_type_activated" : "monthly_leave_type_deactivated", "找不到假別或資料不合法。 ");
 }
 
 const leaveListFields = {

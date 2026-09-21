@@ -216,7 +216,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 
 | 領域 | 允許流程 |
 |---|---|
-| 申請 | draft → submitted → approved/rejected；submitted 可撤回，核准後撤銷以反向紀錄處理 |
+| 申請 | draft → pending → approved/rejected；pending 可取消，核准後取消以反向紀錄處理；HR 管理端代登目前直接建立 approved 並保存核准原因 |
 | 班表 | draft → submitted → published/rejected；published 不原地修改，以新版本取代 |
 | 出勤／獎金試算 | queued → running → succeeded/failed；核准的結果另存批准資訊，不覆寫 |
 | 薪資 | queued → running → ready/failed → approved → closed；付款獨立記錄 |
@@ -246,7 +246,9 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `GET /api/hr/me/attendance-calendar`、`/attendance-location/check`、`/attendance-map/locations`、`/attendance-map` | 僅需登入且必須是本人 | 一般模式依有效任職與週一至週五基準標示未打卡日；排班模式依已發布排班；定位檢查由伺服器重新計算，任一指派辦公位置在半徑內即可打卡；地圖座標供 hr app 的 MapLibre／OpenFreeMap 使用，圖磚載入失敗時由 Worker 代理 Static API 圖片 |
 | `POST /api/hr/me/clock-events` | 僅需登入且必須有現行任職 | 伺服器產生事件時間與上下班 kind；使用 idempotency key；定位開啟時由伺服器檢查距離，網站不允許回填時間 |
 | `/api/hr/me/form-requests` | 僅需登入且必須是本人；審核路徑限指定審核者或 `hr:request:review` | 補打卡申請可存草稿、送出與查詢狀態；審核者填寫意見後核准或駁回 |
-| `/api/hr/me/leave-requests`、`/overtime-requests`、`/clock-corrections` | `hr:request:create` | 本人；申請可表達歷史時間但需審核 |
+| `/api/hr/me/leave-requests`、`/me/overtime`、`/me/form-requests` | 僅需登入／本人 | 本人建立後進入 pending；不接受前端代指定其他員工 |
+| `/api/hr/leave-types` | `hr:payroll:read/calculate` 且限全平台 HR 管理者 | 出勤／假別管理；可建立、修改與停用假別，停用不刪歷史資料 |
+| `/api/hr/requests`、`/requests/leave`、`/requests/overtime`、各類 `review` | `hr:request:review` | 管理端申請中心；目前 HR 代登直接建立 approved，仍保留 pending／審核狀態契約 |
 | `GET /api/hr/employees`、`GET /api/hr/employees/:id` | `hr:employee:read`；出勤範圍管理另可用 `hr:office:read` | 列表支援固定 page size、總數、搜尋、狀態篩選與白名單排序；內頁採單一互斥 accordion。出勤權限只取得員工／任職／出勤設定資料；薪資、投保、請假與打卡明細另限全平台 HR 管理者 |
 | `POST/PATCH /api/hr/employees` | `hr:employee:write` | 新增與修改員工基礎資料；不因出勤範圍讀取權限取得寫入能力 |
 | `/api/hr/schedules`（目前提供排班資料模型與開發 fixture） | `hr:schedule:read/write` | 已發布班表才可供獎金試算；管理範圍與發布審核另切片，範圍授權模型另案定義 |

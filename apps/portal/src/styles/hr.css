@@ -1087,3 +1087,49 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   background: --alpha(var(--color-ink) / 6%);
   opacity: .72;
 }
+
+/* 申請中心是跨出勤／薪資的獨立工作區；表單與紀錄並列，避免再塞回員工內頁。 */
+.hr-request-page { gap: 18px; }
+.hr-request-view-tabs { width: min(100%, 420px); }
+.hr-request-layout { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(0, 1.1fr); align-items: start; gap: 18px; }
+.hr-request-form { display: grid; gap: 16px; }
+.hr-request-form .button-row { justify-content: flex-start; padding-top: 2px; }
+.hr-request-form textarea { min-height: 96px; resize: vertical; }
+.hr-request-kind-tabs { margin-bottom: 18px; }
+.hr-request-kind-tabs button { min-height: 40px; }
+.hr-request-process-panel { min-height: 100%; }
+.hr-request-process { display: grid; gap: 18px; margin: 0; padding: 4px 0 4px 22px; }
+.hr-request-process li { padding-left: 6px; color: var(--color-muted); }
+.hr-request-process li::marker { color: var(--color-brand); font-weight: 900; }
+.hr-request-process strong { display: block; margin-bottom: 3px; color: var(--color-ink); font-size: 14px; }
+.hr-request-process span { display: block; font-size: 13px; line-height: 1.65; }
+.hr-request-history-filter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.hr-request-history-filter button { min-height: 34px; padding: 0 10px; border: 0; border-radius: 999px; background: transparent; color: var(--color-muted); font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; transition-property: background-color, color, scale; transition-duration: 150ms; transition-timing-function: ease-out; }
+.hr-request-history-filter button:hover { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
+.hr-request-history-filter button.selected { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.hr-request-history-filter button:active { scale: .96; }
+.hr-request-history-filter button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-request-history-panel > .table-scroll { min-height: 0; }
+.hr-request-history-panel .data-table td:nth-child(5) { max-width: 240px; white-space: normal; }
+
+@media (max-width: 900px) {
+  .hr-request-layout { grid-template-columns: minmax(0, 1fr); }
+  .hr-request-history-panel > .panel-head { align-items: stretch; flex-direction: column; gap: 12px; }
+  .hr-request-history-filter { justify-content: flex-start; }
+}
+@media (max-width: 620px) {
+  .hr-request-page { gap: 14px; }
+  .hr-request-layout { gap: 14px; }
+  .hr-request-history-filter { overflow-x: auto; flex-wrap: nowrap; justify-content: flex-start; padding-bottom: 2px; }
+  .hr-request-history-filter button { flex: none; }
+}
+
+/* 假別是出勤主檔；保留足夠留白讓狀態與操作在窄螢幕仍可辨識。 */
+.hr-leave-types-page { gap: 18px; }
+.hr-leave-types-page .data-table td:first-child { min-width: 180px; }
+.hr-leave-types-page .data-table td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hr-leave-types-page .data-table td:last-child { min-width: 190px; }
+@media (max-width: 620px) {
+  .hr-leave-types-page { gap: 14px; }
+  .hr-leave-types-page .data-table td:last-child { min-width: 0; }
+}

@@ -15,8 +15,9 @@ const EMPLOYEE_TABS = [
 
 const ATTENDANCE_TABS = [
   { label: "出勤紀錄", to: "/hr/attendance-records", permission: "hr:office:read" as const, icon: "calendar" as const, adminOnly: false },
+  { label: "假別管理", to: "/hr/leave-types", permission: "hr:payroll:read" as const, icon: "tag" as const, adminOnly: true },
   { label: "出勤範圍管理", to: "/hr/attendance-scope", permission: "hr:office:read" as const, icon: "people" as const, adminOnly: false },
-  { label: "據點管理", to: "/hr/attendance-settings", permission: "hr:office:read" as const, icon: "tune" as const, adminOnly: false, activePaths: ["/hr/overtime"] },
+  { label: "據點管理", to: "/hr/attendance-settings", permission: "hr:office:read" as const, icon: "tune" as const, adminOnly: false },
   { label: "特殊上班日", to: "/hr/special-workdays", permission: "hr:office:read" as const, icon: "calendar" as const, adminOnly: false },
 ];
 
@@ -57,8 +58,9 @@ type HrNavGroup = {
 
 const HR_PRIMARY_NAV: HrNavGroup[] = [
   { label: "儀表板", to: "/hr", icon: "analytics", permissions: OVERVIEW_PERMISSIONS, adminOnly: true, activePaths: ["/hr"] },
+  { label: "申請與審核", to: "/hr/requests", icon: "edit", permissions: ["hr:request:review"], activePaths: ["/hr/requests"] },
   { label: "員工", to: "/hr/employees", icon: "list", permissions: ["hr:employee:read"], activePaths: ["/hr/employees", "/hr/support-workers"], children: EMPLOYEE_TABS },
-  { label: "出勤", to: "/hr/attendance-records", icon: "clock", permissions: ["hr:office:read"], activePaths: ["/hr/attendance-records", "/hr/attendance-scope", "/hr/attendance-settings", "/hr/special-workdays", "/hr/overtime"], children: ATTENDANCE_TABS },
+  { label: "出勤", to: "/hr/attendance-records", icon: "clock", permissions: ["hr:office:read", "hr:payroll:read"], activePaths: ["/hr/attendance-records", "/hr/attendance-scope", "/hr/attendance-settings", "/hr/special-workdays", "/hr/leave-types"], children: ATTENDANCE_TABS },
   { label: "排班", to: "/hr/scheduling", icon: "calendar", permissions: ["hr:schedule:read", "hr:office:read"], activePaths: ["/hr/scheduling"], children: SCHEDULING_TABS },
   { label: "薪資", to: "/hr/compensation", icon: "payments", permissions: ["hr:payroll:read", "hr:bonus:read", "hr:employee:read"], adminOnly: true, activePaths: ["/hr/compensation", "/hr/insurance", "/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/monthly-data"], children: PAYROLL_TABS },
 ];
@@ -96,12 +98,13 @@ export function HrLayout() {
   const { permissions, user } = useSession();
   const isHrAdministrator = user?.isHrAdministrator ?? false;
   // HRIS 是一套獨立管理系統：進到 /hr 後不再借用平台側欄，避免 CRM/WMS 導覽干擾人資流程。
+  const isRequests = pathname.includes("/requests");
   const isEmployee = pathname.includes("/employees") || pathname.includes("/support-workers");
-  const isAttendance = pathname.includes("/attendance-settings") || pathname.includes("/attendance-scope") || pathname.includes("/attendance-records") || pathname.includes("/special-workdays") || pathname.includes("/overtime");
+  const isAttendance = pathname.includes("/attendance-settings") || pathname.includes("/attendance-scope") || pathname.includes("/attendance-records") || pathname.includes("/special-workdays") || pathname.includes("/leave-types");
   const isScheduling = pathname.includes("/scheduling");
   const isPayroll = pathname.includes("/compensation") || pathname.includes("/insurance") || pathname.includes("/bonus") || pathname.includes("/payroll-settlement") || pathname.includes("/monthly-data") || pathname.includes("/payroll-settings");
   const isOverview = pathname === "/hr" || pathname === "/hr/";
-  const current = isOverview ? "儀表板" : isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "薪資" : "員工管理";
+  const current = isOverview ? "儀表板" : isRequests ? "申請與審核" : isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "薪資" : "員工管理";
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const visiblePrimaryNav = HR_PRIMARY_NAV
     .map((item) => {
@@ -235,7 +238,7 @@ export function HrLayout() {
 export function HrLanding() {
   const { permissions, user } = useSession();
   const isHrAdministrator = user?.isHrAdministrator ?? false;
-  const target = permissions.has("hr:employee:read") ? "/hr/employees" : permissions.has("hr:office:read") ? "/hr/attendance-records" : permissions.has("hr:schedule:read") ? "/hr/scheduling" : isHrAdministrator && permissions.has("hr:payroll:read") ? "/hr/compensation" : isHrAdministrator && permissions.has("hr:bonus:read") ? "/hr/bonus" : "/";
+  const target = permissions.has("hr:employee:read") ? "/hr/employees" : permissions.has("hr:office:read") ? "/hr/attendance-records" : permissions.has("hr:schedule:read") ? "/hr/scheduling" : permissions.has("hr:request:review") ? "/hr/requests" : isHrAdministrator && permissions.has("hr:payroll:read") ? "/hr/compensation" : isHrAdministrator && permissions.has("hr:bonus:read") ? "/hr/bonus" : "/";
   if (isHrAdministrator && OVERVIEW_PERMISSIONS.some((permission) => permissions.has(permission))) return <HrOverview />;
   return <Navigate to={target} replace />;
 }
