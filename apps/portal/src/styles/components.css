@@ -2684,6 +2684,12 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-weight: 600;
 }
 .salary-item-spacer { display: block; }
+/* 特殊上班日補貼沿用敘薪的「欄位標題／逐列編輯／底部新增」結構，但只有單價欄。 */
+.special-allowance-items .salary-items-head,
+.special-allowance-items .salary-item-row { grid-template-columns: minmax(0, 1fr) 130px 44px; }
+.special-allowance-items .salary-item-row > .field { min-width: 0; margin: 0; }
+.special-allowance-items .salary-item-row > .icon-button { align-self: center; }
+.special-allowance-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 .salary-items-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-soft-line); }
 .salary-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
 .salary-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
@@ -2711,6 +2717,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .salary-item-row > .field:nth-child(2)::before { content: "計算單位"; }
   .salary-item-row > .field:nth-child(3)::before { content: "金額（元）"; }
   .salary-item-row > .icon-button { align-self: end; margin-bottom: 2px; }
+  .special-allowance-items .salary-item-row { grid-template-columns: minmax(0, 1fr) 44px; }
+  .special-allowance-items .salary-item-row > .field:nth-child(2)::before { content: "補貼單價（元）"; }
+  .special-allowance-items .salary-item-row > .icon-button { grid-column: 2; }
   .shift-items-head { display: none; }
   .shift-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 8px; }
   .shift-item-row > .field:first-child { grid-column: 1 / -1; }
