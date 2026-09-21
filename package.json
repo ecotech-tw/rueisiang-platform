@@ -9,7 +9,7 @@
   "packageManager": "pnpm@11.21.0",
   "scripts": {
     "build": "turbo build",
-    "dev": "turbo dev",
+    "dev": "node scripts/dev.mjs",
     "typecheck": "turbo typecheck",
     "lint": "turbo lint",
     "test": "turbo test"
