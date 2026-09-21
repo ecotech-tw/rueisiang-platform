@@ -336,6 +336,26 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(policies.policies).toHaveLength(1);
   });
 
+  it("解除獎金版本之後，已試算的批次要重算才能結帳", async () => {
+    const created = await request("/hr/bonus/policies", "POST", { name: "結帳前解除 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0, employeeUserIds: ["dev-wang@ecotech.tw"], assignmentValidFrom: "2026-01-01" });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const first = await created.json() as { policyVersionId: string };
+    const updated = await request(`/hr/bonus/policies/${first.policyVersionId}`, "PATCH", { name: "結帳前解除 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 90_000, guaranteeMinor: 0, validFrom: "2026-02-01" });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const second = await updated.json() as { policyVersionId: string };
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-payroll-void-before-close" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+
+    expect((await request(`/hr/bonus/policies/${second.policyVersionId}/void`, "POST", {})).status).toBe(200);
+    /*
+     * 試算是按解除前的獎金算的，直接結帳等於用已經作廢的規則發錢。解除會動到版本與
+     * 成員的來源快照，所以這裡必須被既有的「來源已變更」比對擋下，逼使用者重新試算。
+     */
+    const close = await request(`/hr/payroll/runs/${runId}/close`, "POST", {});
+    expect(close.status, await close.clone().text()).toBe(409);
+  });
+
   it("已發布支援人員排班會在薪資結果中獨立列出，且依有效日薪計算", async () => {
     const worker = await request("/hr/schedule-workers", "POST", { displayName: "測試支援人員" });
     expect(worker.status, await worker.clone().text()).toBe(201);
