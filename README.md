@@ -30,7 +30,7 @@ tools/        跑在 GitHub Actions runner 上的東西，刻意不在 pnpm work
 
 ```bash
 pnpm install
-pnpm dev          # portal 在 5173、hr 在 5176，API 在 8787
+pnpm dev          # port 自動挑，啟動時會印出來
 pnpm build
 pnpm typecheck
 pnpm test
@@ -40,8 +40,10 @@ pnpm test
 （把 Hono app 接上 node:http，配 node:sqlite 當 D1）。**這裡不用 `wrangler dev`**，
 理由見下面那節——這台開發機起不了 workerd。
 
-Codex 與 Claude 同時開發時，請使用各自的 worktree 與 port：Codex 是 Portal `5174`、HR `5177`、
-API `8788`；Claude 是 Portal `5175`、HR `5178`、API `8789`。完整規則見
+`pnpm dev` 會先挑好三個沒被占用的 port 再把服務起起來，所以同一台機器可以同時跑很多個
+worktree，不必先講好誰用哪一號。第一個起來的會拿到 Portal `5173`、HR `5176`、API `8787`，
+之後的往上遞補；實際號碼印在啟動訊息的最前面。要指定就照舊設 `API_PORT`／`PORTAL_PORT`／
+`HR_PORT`，有設的一律不會被蓋掉。完整規則見
 [`docs/development-workflow.md`](./docs/development-workflow.md)。
 
 **文件寫在哪**：要照著做的步驟在 [`.claude/skills/`](./.claude/skills/)（開通與部署看
@@ -49,7 +51,7 @@ API `8788`；Claude 是 Portal `5175`、HR `5178`、API `8789`。完整規則見
 [`docs/`](./docs/)；還沒做的事在下面的「下一步」。分類規則見
 [`docs/development-workflow.md`](./docs/development-workflow.md)。
 
-開 <http://localhost:5173/dev>（platform）或 <http://localhost:5176/dev>（hr app）選一個身分直接進去，跳過 Google OAuth。種子帳號
+開啟動訊息印出來的那個「假登入」網址（第一個 session 是 <http://localhost:5173/dev>），選一個身分直接進去，跳過 Google OAuth。hr app 換成 HR 那個 port。種子帳號
 涵蓋管理者、主管、一般同仁、檢視者、沒有角色、已停用六種，方便直接比對
 不同權限看到的畫面。
 
