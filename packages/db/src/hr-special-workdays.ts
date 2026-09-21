@@ -32,7 +32,7 @@ function normalizeOvertimeRules(rules: SpecialWorkdayOvertimeRuleInput[]) {
     if (rule.rateKind === "multiplier" && (!Number.isSafeInteger(rule.multiplierPpm) || rule.multiplierPpm! < 0 || rule.fixedAmountMinor !== null && rule.fixedAmountMinor !== undefined)) throw new HrError(400, "特殊上班日加班倍率不正確。 ");
     if (rule.rateKind !== "fixed_hourly" && rule.rateKind !== "multiplier") throw new HrError(400, "特殊上班日加班計算方式不正確。 ");
   }
-  if (sorted.length && sorted[0]!.fromHalfHours !== 1) throw new HrError(400, "特殊上班日加班級距必須從第 0.5 小時開始。 ");
+  if (sorted.length && sorted[0]!.fromHalfHours !== 1) throw new HrError(400, "特殊上班日加班級距必須從 0.0 小時起算。 ");
   for (let index = 1; index < sorted.length; index += 1) {
     const previous = sorted[index - 1]!;
     const current = sorted[index]!;

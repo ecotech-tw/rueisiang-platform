@@ -260,9 +260,9 @@ function specialWorkdayOvertimeRules(input: Record<string, unknown>) {
     const item = raw as Record<string, unknown>;
     const rateKind = item.rateKind === "fixed_hourly" || item.rateKind === "multiplier" ? item.rateKind : null;
     if (!rateKind) throw new HTTPException(400, { message: `第 ${index + 1} 筆特殊上班日加班計算方式不正確。` });
-    const toHalfHours = item.toHalfHours === undefined || item.toHalfHours === null || item.toHalfHours === "" ? null : integerValue(item, "toHalfHours", "加班級距迄（半小時）", 1, 20_000);
+    const toHalfHours = item.toHalfHours === undefined || item.toHalfHours === null || item.toHalfHours === "" ? null : integerValue(item, "toHalfHours", "加班級距迄（半小時單位索引）", 1, 20_000);
     return {
-      fromHalfHours: integerValue(item, "fromHalfHours", "加班級距起（半小時）", 1, 20_000),
+      fromHalfHours: integerValue(item, "fromHalfHours", "加班級距起（半小時單位索引）", 1, 20_000),
       toHalfHours,
       rateKind,
       fixedAmountMinor: rateKind === "fixed_hourly" ? integerValue(item, "fixedAmountMinor", "固定加班時薪（分）", 0, Number.MAX_SAFE_INTEGER) : null,

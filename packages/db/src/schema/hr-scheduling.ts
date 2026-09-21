@@ -188,7 +188,7 @@ export const hrSpecialWorkdayRuleVersions = sqliteTable("hr_special_workday_rule
   check("ck_hr_special_workday_versions_note", sql`length(${table.note}) <= 1000`),
 ]);
 
-/** 特殊上班日的加班級距；同一版本的級距必須從第 0.5 小時連續覆蓋到最後一級。 */
+/** 特殊上班日的加班級距；fromHalfHours 是 1-based 半小時單位索引，前端以 0.0 小時起算的半開區間呈現。 */
 export const hrSpecialWorkdayOvertimeRules = sqliteTable("hr_special_workday_overtime_rules", {
   id: text("id").primaryKey(),
   ruleVersionId: text("rule_version_id").notNull().references(() => hrSpecialWorkdayRuleVersions.id, { onDelete: "restrict" }),
