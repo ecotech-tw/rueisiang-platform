@@ -79,12 +79,6 @@ function timesPayload(row: ShiftRowDraft) {
   });
 }
 
-function defaultBreakMinutes(startTime: string, endTime: string) {
-  const [startHour = 0, startMinute = 0] = startTime.split(":").map(Number);
-  const [endHour = 0, endMinute = 0] = endTime.split(":").map(Number);
-  return (endHour * 60 + endMinute) - (startHour * 60 + startMinute) >= 360 ? 60 : 0;
-}
-
 /**
  * 一家店的班別，全部在同一個視窗裡完成。
  *
@@ -111,7 +105,7 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
     setRows((current) => current.map((row) => {
       if (row.key !== key) return row;
       const weekday = row.times.weekday ?? { startTime: "09:00", endTime: "18:00", breakMinutes: 60 };
-      const base = row.times[dayType] ?? { startTime: weekday.startTime, endTime: weekday.endTime, breakMinutes: defaultBreakMinutes(weekday.startTime, weekday.endTime) };
+      const base = row.times[dayType] ?? { startTime: weekday.startTime, endTime: weekday.endTime, breakMinutes: weekday.breakMinutes };
       return { ...row, times: { ...row.times, [dayType]: patch === null ? null : { ...base, ...patch } } };
     }));
     setMessage(null);

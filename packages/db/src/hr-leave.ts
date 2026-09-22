@@ -152,15 +152,20 @@ function scheduleOverlapMinutes(row: LeaveScheduleRow, startsAt: number, endsAt:
   const spanMinutes = (scheduleEnd - scheduleStart) / 60_000;
   const standardMinutes = Math.max(0, Math.min(spanMinutes, row.standardMinutes));
   const breakMinutes = Math.max(0, Math.min(spanMinutes, row.breakMinutes));
-  // 目前排班快照只有休息總分鐘數，沒有休息起訖；以班中置中的非計薪區段計算部分請假。
   const unpaidMinutes = Math.max(breakMinutes, spanMinutes - standardMinutes);
-  const unpaidStart = scheduleStart + ((spanMinutes - unpaidMinutes) * 60_000) / 2;
+  let unpaidStart = scheduleStart + ((spanMinutes - unpaidMinutes) * 60_000) / 2;
+  if (unpaidMinutes > 0) {
+    const [workDate] = row.startsAt.split(" ");
+    if (workDate) {
+      const lunchStart = canonicalTaipeiTime(workDate, STANDARD_LUNCH_START, "排班午休開始時間");
+      if (lunchStart >= scheduleStart && lunchStart + unpaidMinutes * 60_000 <= scheduleEnd) unpaidStart = lunchStart;
+    }
+  }
   const unpaidEnd = unpaidStart + unpaidMinutes * 60_000;
   return overlapMinutes(startsAt, endsAt, scheduleStart, scheduleEnd) - overlapMinutes(startsAt, endsAt, unpaidStart, unpaidEnd);
 }
 
-async function calculateScheduledWorkMinutes(db: Database, employmentId: string, startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
-  const rows = await listPublishedLeaveSchedules(db, employmentId, startsOn, endsOn);
+function calculateScheduledWorkMinutes(rows: LeaveScheduleRow[], startsAt: number, endsAt: number) {
   return rows.reduce((total, row) => total + scheduleOverlapMinutes(row, startsAt, endsAt), 0);
 }
 
@@ -169,9 +174,9 @@ async function calculateLeaveWorkMinutes(db: Database, employmentId: string, sta
     .from(hrEmploymentAttendanceSettings)
     .where(eq(hrEmploymentAttendanceSettings.employmentId, employmentId))
     .limit(1);
-  return setting?.attendanceMode === "scheduled"
-    ? calculateScheduledWorkMinutes(db, employmentId, startsAt, endsAt, startsOn, endsOn)
-    : calculateStandardWorkMinutes(startsAt, endsAt, startsOn, endsOn);
+  const schedules = await listPublishedLeaveSchedules(db, employmentId, startsOn, endsOn);
+  if (schedules.length || setting?.attendanceMode === "scheduled") return calculateScheduledWorkMinutes(schedules, startsAt, endsAt);
+  return calculateStandardWorkMinutes(startsAt, endsAt, startsOn, endsOn);
 }
 
 function normalizeInterval(startsAt: string, endsAt: string): NormalizedLeaveInterval {

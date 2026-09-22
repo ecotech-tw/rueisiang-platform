@@ -349,12 +349,12 @@ function secondsFromTime(input: Record<string, unknown>, key: string) {
   const minute = Number(value.slice(3, 5));
   return hour * 3600 + minute * 60;
 }
-/** 班別未指定休息時，長度達 6 小時的班別預設扣 1 小時午休；使用者可用 breakMinutes 覆寫。 */
+/** 未指定休息時維持歷史相容值 0；管理端班別表單會明確送出休息分鐘，避免偷偷改變既有計薪規則。 */
 function defaultShiftMinutes(input: Record<string, unknown>) {
   const start = secondsFromTime(input, "startTime");
   const end = secondsFromTime(input, "endTime");
   const durationMinutes = (end - start) / 60;
-  const breakMinutes = input.breakMinutes === undefined ? (durationMinutes >= 360 ? 60 : 0) : integerValue(input, "breakMinutes", "休息時間", 0, durationMinutes);
+  const breakMinutes = input.breakMinutes === undefined ? 0 : integerValue(input, "breakMinutes", "休息時間", 0, durationMinutes);
   const standardMinutes = input.standardMinutes === undefined ? durationMinutes - breakMinutes : integerValue(input, "standardMinutes", "計薪工時", 0, durationMinutes - breakMinutes);
   return { start, end, standardMinutes, breakMinutes };
 }
