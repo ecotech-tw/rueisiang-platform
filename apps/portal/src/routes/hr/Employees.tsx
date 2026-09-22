@@ -205,6 +205,13 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onUndo, canOffice
     description: "這不是刪除資料；填寫該辦公位置不再可打卡的第一天，系統會保留歷史。若要結束這段任職，通常填與離職生效日相同的日期。",
     fields: [{ key: "validTo", label: "指派結束日（不含當日）", type: "date" }],
   });
+  const editEmploymentDates = (job: Employment) => openEditor({
+    title: "編輯任職日期", path: `/employments/${job.id}`, method: "PATCH",
+    successMessage: `已更新 ${data.employee.displayName} 的任職日期`,
+    initial: { hiredOn: job.hiredOn, seniorityStartOn: job.seniorityStartOn, revision: job.revision },
+    description: "可修正到職日與年資認列日；不再任職首日請使用「結束任職」。新的到職日必須涵蓋既有指派、出勤與薪資歷史，不能把任職起點改到既有資料之後。",
+    fields: [{ key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }],
+  });
   return <Dialog title={`管理任職｜${data.employee.employeeNumber} · ${data.employee.displayName}`} onClose={onClose} className="hr-employee-management-dialog">
     <div className="hr-management-identity">
       <div><strong>{data.employee.displayName}</strong><span>{data.employee.email}</span></div>
@@ -230,7 +237,12 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onUndo, canOffice
               {locationAssignments.map((assignment) => <div className="hr-management-assignment" key={assignment.id}><span>辦公位置：{assignment.locationName}</span>{canOfficeWrite ? <Button variant="secondary" onClick={() => endLocationAssignment(assignment, job)}>結束指派</Button> : <span className="muted">請到出勤範圍管理處理</span>}</div>)}
             </div> : null}
           </div>
-          {!job.revokedAt ? <Button variant="secondary" onClick={() => openEditor({ title: "撤銷錯誤任職", path: `/employments/${job.id}/revoke`, method: "POST", submitLabel: "確認撤銷", submitVariant: "danger", successMessage: `已撤銷 ${data.employee.displayName} 的錯誤任職`, initial: { revision: job.revision }, description: "撤銷會保留任職列、employmentId 與稽核紀錄。撤銷只適用於完全沒有下游或歷史關聯的錯誤任職；已有薪資、出勤、假勤、營運據點歸屬或辦公位置資料時，即使先結束關聯也不能撤銷。若需更正，請保留這段任職並建立正確的後續任職。", fields: [] })}>撤銷這段任職</Button> : <span className="status status-disabled">已撤銷</span>}
+          <div className="hr-management-job-actions">
+            {!job.revokedAt ? <>
+              <Button variant="secondary" onClick={() => editEmploymentDates(job)}>編輯任職日期</Button>
+              <Button variant="secondary" onClick={() => openEditor({ title: "撤銷錯誤任職", path: `/employments/${job.id}/revoke`, method: "POST", submitLabel: "確認撤銷", submitVariant: "danger", successMessage: `已撤銷 ${data.employee.displayName} 的錯誤任職`, initial: { revision: job.revision }, description: "撤銷會保留任職列、employmentId 與稽核紀錄。撤銷只適用於完全沒有下游或歷史關聯的錯誤任職；已有薪資、出勤、假勤、營運據點歸屬或辦公位置資料時，即使先結束關聯也不能撤銷。若需更正，請保留這段任職並建立正確的後續任職。", fields: [] })}>撤銷這段任職</Button>
+            </> : <span className="status status-disabled">已撤銷</span>}
+          </div>
         </div>;
       })}</div>}
     </div>

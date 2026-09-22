@@ -225,11 +225,16 @@ function assignmentSnapshots(value: string): EmploymentAssignmentSnapshot[] {
 }
 
 async function latestHrEmploymentAction(db: Database, userId: string): Promise<HrEmploymentAction | null> {
-  const [row] = await db.select(employmentActionFields).from(hrEmploymentActions)
+  const [row] = await db.select({ ...employmentActionFields, employmentRevision: hrEmployments.revision }).from(hrEmploymentActions)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrEmploymentActions.employmentId))
     .where(and(eq(hrEmploymentActions.employeeUserId, userId), sql`${hrEmployments.revokedAt} IS NULL`)).orderBy(desc(sql`hr_employment_actions.rowid`)).limit(1);
-  if (!row || row.undoneAt) return null;
-  return { ...row, actionKind: row.actionKind as HrEmploymentActionKind };
+  if (!row || row.undoneAt || row.expectedRevision !== row.employmentRevision) return null;
+  const action: HrEmploymentAction = {
+    id: row.id, employeeUserId: row.employeeUserId, employmentId: row.employmentId, actionKind: row.actionKind as HrEmploymentActionKind,
+    beforeEndedOn: row.beforeEndedOn, afterEndedOn: row.afterEndedOn, expectedRevision: row.expectedRevision,
+    createdAt: row.createdAt, undoneAt: row.undoneAt,
+  };
+  return action;
 }
 
 export async function getHrEmployee(db: Database, userId: string, options: HrEmployeeDetailOptions = {}) {
@@ -454,6 +459,98 @@ async function firstEmploymentDependency(db: Database, id: string) {
   return db.$client.prepare(compiled.sql).bind(...compiled.params).first<{ dependency: string }>();
 }
 
+function employmentDateBeforeCondition(id: string, hiredOn: string) {
+  return sql`EXISTS (SELECT 1 FROM hr_employee_scopes WHERE employment_id=${id} AND valid_from < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${id} AND valid_from < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_clock_events WHERE employment_id=${id} AND substr(occurred_at, 1, 10) < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${id} AND valid_from < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_insurance_versions WHERE employment_id=${id} AND valid_from < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_monthly_leave_entries WHERE employment_id=${id} AND leave_date < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_monthly_hourly_entries WHERE employment_id=${id} AND work_date < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_leave_requests WHERE employment_id=${id} AND starts_on < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_form_requests WHERE employment_id=${id} AND correction_date < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_overtime_requests WHERE employment_id=${id} AND substr(requested_start, 1, 10) < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_bonus_policy_members WHERE employment_id=${id} AND valid_from < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_schedule_entries WHERE employment_id=${id} AND work_date < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_special_workday_assignments WHERE employment_id=${id} AND work_date < ${hiredOn})
+    OR EXISTS (SELECT 1 FROM hr_payroll_adjustments WHERE employment_id=${id} AND (source_period_key < substr(${hiredOn}, 1, 7) OR effective_period_key < substr(${hiredOn}, 1, 7)))
+    OR EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE employment_id=${id} AND period_key < substr(${hiredOn}, 1, 7))
+    OR EXISTS (SELECT 1 FROM hr_payroll_run_employees AS employee_run
+      INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=employee_run.payroll_run_id
+      INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
+      WHERE employee_run.employment_id=${id} AND payroll_period.period_key < substr(${hiredOn}, 1, 7))
+    OR EXISTS (SELECT 1 FROM hr_payslips AS payslip
+      INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=payslip.payroll_run_id
+      INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
+      WHERE payslip.employment_id=${id} AND payroll_period.period_key < substr(${hiredOn}, 1, 7))`;
+}
+
+async function firstEmploymentDateBefore(db: Database, id: string, hiredOn: string) {
+  const query = sql`SELECT dependency FROM (
+    SELECT '營運據點歸屬' AS dependency WHERE EXISTS (SELECT 1 FROM hr_employee_scopes WHERE employment_id=${id} AND valid_from < ${hiredOn})
+    UNION ALL SELECT '辦公位置指派' WHERE EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${id} AND valid_from < ${hiredOn})
+    UNION ALL SELECT '打卡紀錄' WHERE EXISTS (SELECT 1 FROM hr_clock_events WHERE employment_id=${id} AND substr(occurred_at, 1, 10) < ${hiredOn})
+    UNION ALL SELECT '薪資資料' WHERE EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${id} AND valid_from < ${hiredOn})
+    UNION ALL SELECT '勞健保資料' WHERE EXISTS (SELECT 1 FROM hr_insurance_versions WHERE employment_id=${id} AND valid_from < ${hiredOn})
+    UNION ALL SELECT '假勤資料' WHERE EXISTS (SELECT 1 FROM hr_monthly_leave_entries WHERE employment_id=${id} AND leave_date < ${hiredOn})
+    UNION ALL SELECT '工時資料' WHERE EXISTS (SELECT 1 FROM hr_monthly_hourly_entries WHERE employment_id=${id} AND work_date < ${hiredOn})
+    UNION ALL SELECT '請假申請' WHERE EXISTS (SELECT 1 FROM hr_leave_requests WHERE employment_id=${id} AND starts_on < ${hiredOn})
+    UNION ALL SELECT '補打卡申請' WHERE EXISTS (SELECT 1 FROM hr_form_requests WHERE employment_id=${id} AND correction_date < ${hiredOn})
+    UNION ALL SELECT '加班申請' WHERE EXISTS (SELECT 1 FROM hr_overtime_requests WHERE employment_id=${id} AND substr(requested_start, 1, 10) < ${hiredOn})
+    UNION ALL SELECT '獎金指派' WHERE EXISTS (SELECT 1 FROM hr_bonus_policy_members WHERE employment_id=${id} AND valid_from < ${hiredOn})
+    UNION ALL SELECT '排班資料' WHERE EXISTS (SELECT 1 FROM hr_schedule_entries WHERE employment_id=${id} AND work_date < ${hiredOn})
+    UNION ALL SELECT '特殊上班日資料' WHERE EXISTS (SELECT 1 FROM hr_special_workday_assignments WHERE employment_id=${id} AND work_date < ${hiredOn})
+    UNION ALL SELECT '薪資結算資料' WHERE EXISTS (SELECT 1 FROM hr_payroll_adjustments WHERE employment_id=${id} AND (source_period_key < substr(${hiredOn}, 1, 7) OR effective_period_key < substr(${hiredOn}, 1, 7)))
+      OR EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE employment_id=${id} AND period_key < substr(${hiredOn}, 1, 7))
+      OR EXISTS (SELECT 1 FROM hr_payroll_run_employees AS employee_run
+        INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=employee_run.payroll_run_id
+        INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
+        WHERE employee_run.employment_id=${id} AND payroll_period.period_key < substr(${hiredOn}, 1, 7))
+      OR EXISTS (SELECT 1 FROM hr_payslips AS payslip
+        INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=payslip.payroll_run_id
+        INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
+        WHERE payslip.employment_id=${id} AND payroll_period.period_key < substr(${hiredOn}, 1, 7))
+  ) LIMIT 1`;
+  const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
+  const compiled = dialect.sqlToQuery(query);
+  return db.$client.prepare(compiled.sql).bind(...compiled.params).first<{ dependency: string }>();
+}
+
+/** 修改任職日期時保留 revision 與稽核；新到職日前已有資料時不改寫期間。 */
+export async function updateHrEmploymentDates(db: Database, id: string, input: { hiredOn: string; seniorityStartOn: string; revision: number }, actor: HrActor) {
+  const [current] = await db.select({
+    employeeUserId: hrEmployments.employeeUserId,
+    hiredOn: hrEmployments.hiredOn,
+    endedOn: hrEmployments.endedOn,
+    seniorityStartOn: hrEmployments.seniorityStartOn,
+    revokedAt: hrEmployments.revokedAt,
+    revision: hrEmployments.revision,
+  }).from(hrEmployments).where(eq(hrEmployments.id, id)).limit(1);
+  if (!current || current.revokedAt !== null) throw new HrError(409, "這段任職已被撤銷或不存在，請重新整理後再試。");
+  if (current.revision !== input.revision) throw new HrError(409, "這段任職資料已被其他人修改，請重新整理後再試。");
+  if (input.seniorityStartOn > input.hiredOn) throw new HrError(400, "年資認列日不得晚於到職日。");
+  if (current.endedOn !== null && input.hiredOn >= current.endedOn) throw new HrError(400, "到職日必須早於不再任職首日。");
+  if (input.hiredOn === current.hiredOn && input.seniorityStartOn === current.seniorityStartOn) throw new HrError(400, "任職日期沒有變更。");
+
+  const hiredOnChanged = input.hiredOn !== current.hiredOn;
+  if (hiredOnChanged) {
+    const dependency = await firstEmploymentDateBefore(db, id, input.hiredOn);
+    if (dependency) throw new HrError(409, `這段任職已有${dependency.dependency}落在新的到職日前，為保留歷史不能改寫任職期間；請改用涵蓋既有歷史的日期。`);
+  }
+  const dependencyGuard = hiredOnChanged ? sql`AND NOT (${employmentDateBeforeCondition(id, input.hiredOn)})` : sql``;
+  return write(db, sql`UPDATE hr_employments SET hired_on=${input.hiredOn}, seniority_start_on=${input.seniorityStartOn}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
+    WHERE id=${id} AND employee_user_id=${current.employeeUserId} AND revision=${input.revision} AND revoked_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM hr_employments AS other
+        WHERE other.employee_user_id=${current.employeeUserId} AND other.id <> ${id} AND other.revoked_at IS NULL
+          AND (${current.endedOn} IS NULL OR other.hired_on < ${current.endedOn})
+          AND (other.ended_on IS NULL OR other.ended_on > ${input.hiredOn}))
+      ${dependencyGuard} RETURNING id`, id, actor, "employment_dates_updated", "任職日期與其他任職重疊、已有歷史關聯或資料已變更，請重新整理後再試。", { activity: { payload: {
+    employmentId: id,
+    beforeHiredOn: current.hiredOn, afterHiredOn: input.hiredOn,
+    beforeSeniorityStartOn: current.seniorityStartOn, afterSeniorityStartOn: input.seniorityStartOn,
+  }, summary: "任職日期已更新" } });
+}
+
 /** 撤銷輸入錯誤的任職，但保留任職列與 employmentId；只允許沒有下游資料的任職。 */
 export async function revokeHrEmployment(db: Database, id: string, input: { revision: number }, actor: HrActor) {
   const [current] = await db.select({ employeeUserId: hrEmployments.employeeUserId, revokedAt: hrEmployments.revokedAt, revision: hrEmployments.revision }).from(hrEmployments).where(eq(hrEmployments.id, id)).limit(1);
@@ -475,6 +572,9 @@ export async function undoHrEmploymentAction(db: Database, operationId: string, 
   const [action] = await db.select({ ...employmentActionUndoFields, rowId: sql<number>`rowid` }).from(hrEmploymentActions)
     .where(eq(hrEmploymentActions.id, operationId)).limit(1);
   if (!action || action.undoneAt) throw new HrError(409, "這筆異動已復原或已無法復原，請重新整理後確認。");
+  const [currentEmployment] = await db.select({ revision: hrEmployments.revision, revokedAt: hrEmployments.revokedAt }).from(hrEmployments)
+    .where(eq(hrEmployments.id, action.employmentId)).limit(1);
+  if (!currentEmployment || currentEmployment.revokedAt !== null || currentEmployment.revision !== action.expectedRevision) throw new HrError(409, "這筆任職資料在復原前已被其他人修改，請重新整理後確認。");
   const [latest] = await db.select({ id: hrEmploymentActions.id }).from(hrEmploymentActions)
     .where(eq(hrEmploymentActions.employeeUserId, action.employeeUserId)).orderBy(desc(sql`rowid`)).limit(1);
   if (!latest || latest.id !== operationId) throw new HrError(409, "這不是該員工最近一次任職異動，請重新整理後確認。");

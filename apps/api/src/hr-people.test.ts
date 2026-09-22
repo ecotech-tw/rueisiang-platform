@@ -216,6 +216,22 @@ describe("HR 員工基礎", () => {
     expect((await (await request("/hr/candidates?search=self")).json() as { users: { userId: string }[] }).users).toEqual([expect.objectContaining({ userId: "self" })]);
   });
 
+  it("可以修正任職到職日與年資認列日，並在新增歷史關聯後阻擋到職日改寫", async () => {
+    await assign("self");
+    const job = await firstEmployment("self");
+    const updated = await request(`/hr/employments/${job}`, "PATCH", { hiredOn: "2025-12-01", seniorityStartOn: "2025-11-01", revision: 1 });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const changed = await (await request("/hr/employees/self")).json() as { employments: { hiredOn: string; seniorityStartOn: string; revision: number }[]; lastEmploymentAction: unknown };
+    expect(changed.employments[0]).toMatchObject({ hiredOn: "2025-12-01", seniorityStartOn: "2025-11-01", revision: 2 });
+    // 日期修正會遞增任職 revision，前一筆「新增任職」復原索引因此失效，避免改日期後又誤復原舊操作。
+    expect(changed.lastEmploymentAction).toBeNull();
+
+    await created("/hr/assignments", { employmentId: job, scopeId: "scope", validFrom: "2026-01-01" });
+    const blocked = await request(`/hr/employments/${job}`, "PATCH", { hiredOn: "2026-02-01", seniorityStartOn: "2026-01-01", revision: 2 });
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({ error: expect.stringContaining("新的到職日前") });
+  });
+
   it("輸入錯誤的任職可以撤銷並保留歷史，之後能重新建立正確任職", async () => {
     await assign("self");
     const job = await firstEmployment("self");
