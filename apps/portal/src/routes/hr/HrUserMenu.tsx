@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router";
 import { logout, useSession } from "../../auth/session.js";
 import { UserAvatar, useDismiss } from "../../shell/AccountPanel.js";
 import { navigateAcrossHr } from "../../shell/hr-transition.js";
-import { useGuardedClick } from "../../shell/UnsavedChanges.js";
+import { useGuardedAction, useGuardedClick } from "../../shell/UnsavedChanges.js";
 import { Icon } from "../../shell/icons.js";
 
 /**
@@ -17,6 +17,7 @@ export function HrUserMenu() {
   const { user } = useSession();
   const navigate = useNavigate();
   const guardedClick = useGuardedClick();
+  const guardedAction = useGuardedAction();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -68,7 +69,7 @@ export function HrUserMenu() {
           <Icon name="apps" />
           <span>Ruei Siang 平台</span>
         </Link>
-        <button type="button" role="menuitem" className="hr-system-submenu-link danger" onClick={() => void logout()}>
+        <button type="button" role="menuitem" className="hr-system-submenu-link danger" onClick={() => { void guardedAction(() => logout()); }}>
           <Icon name="logout" />
           <span>登出</span>
         </button>

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { NavLink, useNavigate, type NavLinkProps } from "react-router";
+import { NavLink, useLocation, useNavigate, useResolvedPath, type NavLinkProps } from "react-router";
 import { Button, Dialog } from "../ui/index.js";
 
 /**
@@ -10,13 +10,22 @@ import { Button, Dialog } from "../ui/index.js";
  * 換成 data router 要把 App.tsx 那七十幾條 `<Route>` 全部改寫成路由物件——為了一個提示
  * 去動路由地基不划算。
  *
- * 改成攔在導覽的入口。頁面自己不做導覽，能離開的路全部集中在 shell 的那幾個
- * NavLink 與 useNavigate，所以只要那裡換成 GuardedNavLink／useGuardedNavigate 就涵蓋得到。
- * 漏掉的只有「自己改網址列」，而那本來就是刻意要離開。
+ * 改成攔在導覽的入口：shell 的 NavLink／Link 換成 GuardedNavLink，自己處理點擊的
+ * （進出 HRIS、登出）改用 useGuardedClick／useGuardedAction，頁面內會換掉草稿的操作
+ * （切月、切年）自己呼叫 confirmLeave。
+ *
+ * **擋不住瀏覽器的上一頁／下一頁。** 那走的是 popstate，react-router 直接重繪，
+ * document 沒有 unload 所以 beforeunload 也不會觸發。要擋得住只能換 data router。
+ * 這是已知限制，不要在註解或 PR 裡宣稱涵蓋到它。
  */
+interface Pending {
+  resolve: (allow: boolean) => void;
+  /** 開啟當下的訊息快照。不在 render 期間讀 ref：那在 concurrent 下不安全，而且開啟後就不會更新。 */
+  message: string;
+}
+
 interface UnsavedChangesValue {
-  /** 目前有沒有未儲存的變更。導覽元件用它決定要不要先問。 */
-  dirtyRef: { current: string | null };
+  isDirty: () => boolean;
   setDirty: (key: string, message: string | null) => void;
   /** 想離開時呼叫；回傳 true 代表可以走。沒有未儲存的變更就直接放行，不彈視窗。 */
   confirmLeave: () => Promise<boolean>;
@@ -27,12 +36,12 @@ const UnsavedChangesContext = createContext<UnsavedChangesValue | null>(null);
 export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   /*
    * 用 ref 存狀態而不是 useState：導覽攔截是在事件處理器裡「當下」讀這個值，
-   * 用 state 的話 GuardedNavLink 每次髒／乾淨切換都要跟著重繪一次，而它掛在側邊欄，
-   * 等於每改一個欄位整個選單重畫。彈不彈視窗另外用 pending 這個 state 控制。
+   * 用 state 的話每次髒／乾淨切換都要讓整個側邊欄跟著重繪一次。
+   * 彈不彈視窗另外用 pending 這個 state 控制。
    */
   const dirtyRef = useRef<string | null>(null);
   const keysRef = useRef(new Map<string, string>());
-  const [pending, setPending] = useState<((allow: boolean) => void) | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
 
   const setDirty = useCallback((key: string, message: string | null) => {
     if (message === null) keysRef.current.delete(key);
@@ -41,30 +50,47 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     dirtyRef.current = keysRef.current.values().next().value ?? null;
   }, []);
 
+  const isDirty = useCallback(() => dirtyRef.current !== null, []);
+
   const confirmLeave = useCallback(() => {
-    if (!dirtyRef.current) return Promise.resolve(true);
-    return new Promise<boolean>((resolve) => { setPending(() => resolve); });
+    const message = dirtyRef.current;
+    if (!message) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      setPending((current) => {
+        /*
+         * 已經有一個在等了就先讓它以「不要走」收掉。
+         *
+         * 直接覆蓋的話前一個 resolve 會遺失，它的 .then 永遠不跑——而 Dialog 沒有
+         * focus trap，遮罩只擋指標事件，鍵盤使用者可以在對話框開著時 Tab 到後面的
+         * 連結按 Enter，所以這條路真的走得到。
+         */
+        current?.resolve(false);
+        return { resolve, message };
+      });
+    });
   }, []);
 
   /*
-   * 關分頁、重新整理與瀏覽器的上一頁走不到上面的攔截，只能靠 beforeunload。
-   * 它的提示文字由瀏覽器決定，我們給不了自己的句子——所以它是補網，不是主要手段。
+   * 關分頁與重新整理走不到上面的攔截，只能靠 beforeunload；它的提示文字由瀏覽器決定。
+   * preventDefault 與 returnValue 兩個都要設：只設前者的話，在仍然只認舊訊號的瀏覽器上
+   * 這張補網會安靜地不生效，而那正是它唯一存在的理由。
    */
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
       if (!dirtyRef.current) return;
       event.preventDefault();
+      event.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
   const answer = (allow: boolean) => {
-    pending?.(allow);
+    pending?.resolve(allow);
     setPending(null);
   };
 
-  return <UnsavedChangesContext.Provider value={{ dirtyRef, setDirty, confirmLeave }}>
+  return <UnsavedChangesContext.Provider value={{ isDirty, setDirty, confirmLeave }}>
     {children}
     {pending ? <Dialog
       title="還有未儲存的變更"
@@ -76,7 +102,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
       </>}
     >
       {/* 講清楚捨棄的是什麼，不要只說「有未儲存的變更」——那句話沒有幫使用者做決定。 */}
-      <p>{dirtyRef.current}</p>
+      <p>{pending.message}</p>
       <p className="muted">離開之後這些變更就找不回來了。</p>
     </Dialog> : null}
   </UnsavedChangesContext.Provider>;
@@ -103,35 +129,47 @@ export function useUnsavedChanges(dirty: boolean, message: string) {
   }, [dirty, message, key, setDirty]);
 }
 
-/** 導覽元件用這一支問「可以走嗎」。 */
+/**
+ * 想離開時先問一聲；沒有未儲存的東西就直接放行。
+ *
+ * 頁面內會把草稿換掉的操作（切月、切年）也要用它——那些不經過導覽，但結果一樣是
+ * 草稿沒了，而且月份箭頭就在月曆正上方，比側邊選單更容易誤觸。
+ */
 export function useConfirmLeave() {
   return useUnsavedContext().confirmLeave;
 }
 
-/**
- * 「現在有沒有未儲存的東西」的同步版本。
- *
- * 導覽要先用它判斷該不該介入：沒有未儲存的東西就完全不碰那次點擊，讓原本的行為
- * （NavLink 的預設導覽、進出 HRIS 的 View Transition）照舊跑。無條件 preventDefault
- * 再自己 navigate 的話，轉場會因為 defaultPrevented 而整個不播。
- */
+/** 「現在有沒有未儲存的東西」的同步版本，給需要在事件處理器裡當下判斷的地方用。 */
 export function useIsDirty() {
-  const { dirtyRef } = useUnsavedContext();
-  return useCallback(() => dirtyRef.current !== null, [dirtyRef]);
+  return useUnsavedContext().isDirty;
+}
+
+/**
+ * 這一次點擊該不該由我們接手。
+ *
+ * 修飾鍵與中鍵是開新分頁：原本那一頁還在，沒有任何東西會消失，攔下來反而把使用者
+ * 想保住的那份草稿弄丟——他按 Ctrl 就是為了不要離開。
+ */
+function shouldIntercept(event: MouseEvent<HTMLAnchorElement>, dirty: boolean) {
+  return dirty && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.button === 0;
 }
 
 /**
  * 會先問過再走的 NavLink。shell 裡的導覽一律用這個，不要直接用 NavLink。
  *
- * 只攔一般的左鍵點擊：Ctrl／Cmd／中鍵是開新分頁，原本那一頁還在，沒有東西會消失。
+ * 乾淨時完全不介入：連 preventDefault 都不做，原本怎麼走就怎麼走。無條件攔下來再自己
+ * navigate 的話，進出 HRIS 的 View Transition 會因為 defaultPrevented 而整個不播。
  */
 export function GuardedNavLink({ onClick, ...props }: NavLinkProps) {
   const confirmLeave = useConfirmLeave();
   const isDirty = useIsDirty();
   const navigate = useNavigate();
+  const location = useLocation();
+  const resolved = useResolvedPath(props.to, { relative: props.relative });
+  // 點的就是現在這一頁時不必問：沒有東西會卸載，也沒有任何東西被捨棄，問了等於說謊。
+  const samePage = resolved.pathname === location.pathname;
   return <NavLink {...props} onClick={(event) => {
-    // 乾淨的時候完全不介入：連 preventDefault 都不做，原本怎麼走就怎麼走。
-    if (!isDirty() || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
+    if (samePage || !shouldIntercept(event, isDirty())) {
       onClick?.(event);
       return;
     }
@@ -139,25 +177,45 @@ export function GuardedNavLink({ onClick, ...props }: NavLinkProps) {
     void confirmLeave().then((allow) => {
       if (!allow) return;
       onClick?.(event);
-      // 走 react-router 自己的導覽；手動動 history 的話 BrowserRouter 不一定收得到。
-      void navigate(props.to);
+      // 走 react-router 自己的導覽，並把呼叫端給的導覽選項一起帶過去。
+      void navigate(props.to, { replace: props.replace, state: props.state, relative: props.relative, preventScrollReset: props.preventScrollReset });
     });
   }} />;
 }
 
 /**
- * 自己處理點擊的導覽（進出 HRIS 那兩處有 View Transition）用這一支包住原本的邏輯。
+ * 自己處理點擊的導覽（進出 HRIS 有 View Transition）用這一支包住原本的邏輯。
  *
- * 乾淨時直接跑 run()，轉場照舊；髒的時候才擋下來問，確認離開後才補跑導覽——
- * 但那一次沒有轉場，因為 View Transition 必須在使用者手勢的同一個 tick 裡啟動。
+ * 乾淨時直接跑 run()，行為完全不變；髒的時候先問，確認離開後才跑 run()——
+ * run 裡面通常還包含關選單之類的收尾，不跑的話選單會開著疊在對話框底下。
  */
 export function useGuardedClick() {
   const confirmLeave = useConfirmLeave();
   const isDirty = useIsDirty();
   const navigate = useNavigate();
   return useCallback((event: MouseEvent<HTMLAnchorElement>, to: string, run: () => void) => {
-    if (!isDirty()) { run(); return; }
+    if (!shouldIntercept(event, isDirty())) { run(); return; }
     event.preventDefault();
-    void confirmLeave().then((allow) => { if (allow) void navigate(to); });
+    void confirmLeave().then((allow) => {
+      if (!allow) return;
+      run();
+      void navigate(to);
+    });
   }, [confirmLeave, isDirty, navigate]);
+}
+
+/**
+ * 不是由點擊導覽觸發的離開（登出那顆按鈕）用這一支。
+ *
+ * 登出特別要在**打 API 之前**問：logout() 是先 POST 再換 document.location，
+ * 等到 beforeunload 跳出來時 session 已經被砍掉了，使用者選「留下」只會停在一個
+ * cookie 已死的頁面上，草稿還在畫面上但按儲存會 401，而且救不回來。
+ */
+export function useGuardedAction() {
+  const confirmLeave = useConfirmLeave();
+  return useCallback(async (run: () => void | Promise<void>) => {
+    if (!(await confirmLeave())) return false;
+    await run();
+    return true;
+  }, [confirmLeave]);
 }

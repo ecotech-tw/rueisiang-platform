@@ -6,7 +6,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { groupShiftsByTemplate, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
-import { useUnsavedChanges } from "../../shell/UnsavedChanges.js";
+import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 
 function taipeiMonthStart() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -189,6 +189,7 @@ export function HrScheduling() {
   const [quick, setQuick] = useState<QuickPick | null>(null);
   const [editingCalendar, setEditingCalendar] = useState(false);
   const toast = useToast();
+  const confirmLeave = useConfirmLeave();
   const save = useHrWrite();
   const lock = useHrWrite();
   const data = schedule.data;
@@ -225,8 +226,17 @@ export function HrScheduling() {
    * hook 數量就對不上，React 直接拋。所以這裡用 data?.entries ?? [] 而不是 data.entries。
    */
   const { added, removed, changed } = diffEntries(draftEntries, data?.entries ?? []);
-  // 排一個月的班可能累積上百筆，所以訊息要把增減筆數講出來，不是只說「有變更」。
-  useUnsavedChanges(changed, `${key} 的排班還沒儲存${added ? `，新增 ${added} 筆` : ""}${removed ? `，移除 ${removed} 筆` : ""}。`);
+  const switchMonth = async (delta: number) => {
+    if (!(await confirmLeave())) return;
+    setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + delta, 1)));
+  };
+  /*
+   * 排一個月的班可能累積上百筆，所以訊息要把增減筆數講出來，不是只說「有變更」。
+   *
+   * 月份取自 data 而不是 key：key 跟著月份箭頭當下就變，但草稿仍然屬於上一個月，
+   * 中間那一段會說成「2026-10 新增 2 筆」而那 2 筆其實是 2026-09 的。
+   */
+  useUnsavedChanges(changed, `${data?.periodKey ?? key} 的排班還沒儲存${added ? `，新增 ${added} 筆` : ""}${removed ? `，移除 ${removed} 筆` : ""}。`);
 
   if (!canRead) return <Alert tone="danger">你沒有檢視排班的權限。</Alert>;
   if (schedule.isPending) return <HrPageSkeleton variant="calendar" />;
@@ -300,9 +310,13 @@ export function HrScheduling() {
     <Panel className="grows hr-calendar-panel">
       <div className="hr-calendar-head">
         <div className="hr-schedule-month">
-          <Button variant="icon" icon="chevronLeft" aria-label="上個月" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() - 1, 1)))} />
+          {/*
+            * 換月份也要先問：它不經過導覽，但新資料一到就會把草稿洗掉，結果一樣是
+            * 白做工，而且箭頭就在月曆正上方，比側邊選單更容易誤觸。
+            */}
+          <Button variant="icon" icon="chevronLeft" aria-label="上個月" onClick={() => void switchMonth(-1)} />
           <strong>{month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月</strong>
-          <Button variant="icon" icon="chevronRight" aria-label="下個月" onClick={() => setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1)))} />
+          <Button variant="icon" icon="chevronRight" aria-label="下個月" onClick={() => void switchMonth(1)} />
         </div>
         <SelectField aria-label="營運據點" value={scopeId} options={[...(quick ? [] : [{ value: "all", label: "全部營運據點" }]), ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => pickScope(event.target.value)} />
         {/* 不掛 role="status"：快速排班每點一天就會改「新增 N 筆」，做成 live region 等於整月被念一遍。 */}
