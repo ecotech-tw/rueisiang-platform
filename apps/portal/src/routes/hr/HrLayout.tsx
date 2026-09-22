@@ -193,8 +193,9 @@ export function HrLayout() {
           return <div
             className={`hr-system-nav-item${active ? " active" : ""}${open ? " open" : ""}`}
             key={item.label}
-            onMouseEnter={() => { if (hasChildren) setOpenMenu(item.label); }}
-            onMouseLeave={() => { if (hasChildren) setOpenMenu((current) => current === item.label ? null : current); }}
+            // 觸控裝置不應把合成 mouse 事件當成 hover，否則展開後可能立刻被離開事件收合。
+            onPointerEnter={(event) => { if (hasChildren && event.pointerType === "mouse") setOpenMenu(item.label); }}
+            onPointerLeave={(event) => { if (hasChildren && event.pointerType === "mouse") setOpenMenu((current) => current === item.label ? null : current); }}
             onFocus={() => { if (hasChildren) setOpenMenu(item.label); }}
             onBlur={(event) => {
               if (hasChildren && !event.currentTarget.contains(event.relatedTarget)) setOpenMenu((current) => current === item.label ? null : current);
