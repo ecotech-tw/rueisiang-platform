@@ -29,6 +29,8 @@ interface UnsavedChangesValue {
   setDirty: (key: string, message: string | null) => void;
   /** 想離開時呼叫；回傳 true 代表可以走。沒有未儲存的變更就直接放行，不彈視窗。 */
   confirmLeave: () => Promise<boolean>;
+  /** 使用者已經確認要走了：接下來那一次 document unload 不要再攔。 */
+  beginLeaving: () => void;
 }
 
 const UnsavedChangesContext = createContext<UnsavedChangesValue | null>(null);
@@ -42,6 +44,17 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   const dirtyRef = useRef<string | null>(null);
   const keysRef = useRef(new Map<string, string>());
   const [pending, setPending] = useState<Pending | null>(null);
+  /** 與 pending 同步的 ref，讓「收掉上一個」這件事不必寫在 state updater 裡。 */
+  const pendingRef = useRef<Pending | null>(null);
+  /*
+   * 正在照使用者的意思離開，beforeunload 這一趟要放行。
+   *
+   * 登出是 await fetch(POST) 之後換 document.location，那一行會再觸發一次我們自己掛的
+   * beforeunload。使用者明明已經選過「離開並捨棄」，卻又被瀏覽器問一次——這次按「取消」
+   * 的話 POST 早就成功了，結果正是 useGuardedAction 要防的那個狀態：cookie 已死、
+   * 草稿還在畫面上、按儲存 401。
+   */
+  const leavingRef = useRef(false);
 
   const setDirty = useCallback((key: string, message: string | null) => {
     if (message === null) keysRef.current.delete(key);
@@ -51,22 +64,26 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isDirty = useCallback(() => dirtyRef.current !== null, []);
+  const beginLeaving = useCallback(() => { leavingRef.current = true; }, []);
 
   const confirmLeave = useCallback(() => {
     const message = dirtyRef.current;
     if (!message) return Promise.resolve(true);
+    /*
+     * 已經有一個在等了就先讓它以「不要走」收掉。
+     *
+     * 直接覆蓋的話前一個 resolve 會遺失，它的 .then 永遠不跑——而 Dialog 沒有
+     * focus trap，遮罩只擋指標事件，鍵盤使用者可以在對話框開著時 Tab 到後面的
+     * 連結按 Enter，所以這條路真的走得到。
+     *
+     * 收尾寫在 updater 外面：StrictMode 下 React 會把 updater 呼叫兩次，副作用放進去
+     * 現在只是僥倖沒事（resolve 第二次是 no-op），之後多一件不冪等的事就會跑兩次。
+     */
     return new Promise<boolean>((resolve) => {
-      setPending((current) => {
-        /*
-         * 已經有一個在等了就先讓它以「不要走」收掉。
-         *
-         * 直接覆蓋的話前一個 resolve 會遺失，它的 .then 永遠不跑——而 Dialog 沒有
-         * focus trap，遮罩只擋指標事件，鍵盤使用者可以在對話框開著時 Tab 到後面的
-         * 連結按 Enter，所以這條路真的走得到。
-         */
-        current?.resolve(false);
-        return { resolve, message };
-      });
+      pendingRef.current?.resolve(false);
+      const next = { resolve, message };
+      pendingRef.current = next;
+      setPending(next);
     });
   }, []);
 
@@ -77,7 +94,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
    */
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
-      if (!dirtyRef.current) return;
+      if (leavingRef.current || !dirtyRef.current) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -85,12 +102,27 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
+  /*
+   * 換頁之後還開著的視窗要收掉。
+   *
+   * Dialog 由 provider 持有、掛在路由外，pathname 變了它不會自己消失。配上「擋不住
+   * 瀏覽器上一頁」那條限制就有一條路：跳出視窗 → 按上一頁 → 頁面換了、dirty 也清了，
+   * 但視窗還蓋在新頁面上講著舊訊息，按「離開並捨棄」還會把人 navigate 到當初那個連結。
+   */
+  const location = useLocation();
+  useEffect(() => {
+    pendingRef.current?.resolve(false);
+    pendingRef.current = null;
+    setPending(null);
+  }, [location.pathname]);
+
   const answer = (allow: boolean) => {
     pending?.resolve(allow);
+    pendingRef.current = null;
     setPending(null);
   };
 
-  return <UnsavedChangesContext.Provider value={{ isDirty, setDirty, confirmLeave }}>
+  return <UnsavedChangesContext.Provider value={{ isDirty, setDirty, confirmLeave, beginLeaving }}>
     {children}
     {pending ? <Dialog
       title="還有未儲存的變更"
@@ -212,10 +244,12 @@ export function useGuardedClick() {
  * cookie 已死的頁面上，草稿還在畫面上但按儲存會 401，而且救不回來。
  */
 export function useGuardedAction() {
-  const confirmLeave = useConfirmLeave();
+  const { confirmLeave, beginLeaving } = useUnsavedContext();
   return useCallback(async (run: () => void | Promise<void>) => {
     if (!(await confirmLeave())) return false;
+    // 確認過了才標記：這一趟換 document.location 不要再被 beforeunload 攔第二次。
+    beginLeaving();
     await run();
     return true;
-  }, [confirmLeave]);
+  }, [confirmLeave, beginLeaving]);
 }

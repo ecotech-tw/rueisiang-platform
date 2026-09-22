@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { groupShiftsByTemplate, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
-import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
+import { GuardedNavLink, useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 
 function taipeiMonthStart() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -128,7 +127,7 @@ function ScheduleEntryDialog({ data, day, dayType, defaultScopeId, onAdd, onClos
       return shift ? [{ value: shift.versionId, label: shiftLabel(shift) }] : [];
     })} onChange={(event) => setShiftVersionId(event.target.value)} />
     {selectedShift && selectedShift.dayType !== "weekday" ? <p className="muted field-note">這天是{HR_DAY_TYPE_LABELS[dayType]}，已套用{HR_DAY_TYPE_LABELS[selectedShift.dayType]}時間。</p> : null}
-    {!shifts.length ? <Alert tone="info">這個營運據點尚未設定班別，請先到 <Link to="/hr/scheduling/shifts">班別管理</Link> 新增。</Alert> : null}
+    {!shifts.length ? <Alert tone="info">這個營運據點尚未設定班別，請先到 <GuardedNavLink to="/hr/scheduling/shifts">班別管理</GuardedNavLink> 新增。</Alert> : null}
   </Dialog>;
 }
 
@@ -236,7 +235,13 @@ export function HrScheduling() {
    * 月份取自 data 而不是 key：key 跟著月份箭頭當下就變，但草稿仍然屬於上一個月，
    * 中間那一段會說成「2026-10 新增 2 筆」而那 2 筆其實是 2026-09 的。
    */
-  useUnsavedChanges(changed, `${data?.periodKey ?? key} 的排班還沒儲存${added ? `，新增 ${added} 筆` : ""}${removed ? `，移除 ${removed} 筆` : ""}。`);
+  /*
+   * 沒有 data 就不算數。data 是 undefined 時 diffEntries 會把整份 draftEntries 當成
+   * 「新增 N 筆」——切到沒抓過的月份而請求失敗時（斷線、401、500），畫面跑到錯誤 Alert，
+   * 卻同時註冊成「新月份、舊筆數」的未儲存，而使用者一個字都沒改。他只想離開那個錯誤頁，
+   * 每點一次導覽卻被攔一次。
+   */
+  useUnsavedChanges(Boolean(data) && changed, `${data?.periodKey ?? key} 的排班還沒儲存${added ? `，新增 ${added} 筆` : ""}${removed ? `，移除 ${removed} 筆` : ""}。`);
 
   if (!canRead) return <Alert tone="danger">你沒有檢視排班的權限。</Alert>;
   if (schedule.isPending) return <HrPageSkeleton variant="calendar" />;
@@ -340,7 +345,7 @@ export function HrScheduling() {
               const extras = versions.filter((shift) => shift.dayType !== "weekday").map((shift) => HR_DAY_TYPE_LABELS[shift.dayType]);
               return [{ value: weekday.templateId, label: `${shiftLabel(weekday)}${extras.length ? ` 另設${extras.join("、")}` : ""}` }];
             })} onChange={(event) => setQuick({ ...quick, shiftTemplateId: event.target.value })} />
-          : <span className="hr-quick-bar-empty">這個據點還沒有班別，<Link to="/hr/scheduling/shifts">前往班別管理</Link></span>}
+          : <span className="hr-quick-bar-empty">這個據點還沒有班別，<GuardedNavLink to="/hr/scheduling/shifts">前往班別管理</GuardedNavLink></span>}
         <span className="hr-quick-bar-hint">點日期排入或取消</span>
         <span className="hr-quick-bar-count">已選 <b>{quickDays}</b> 天</span>
         {quickRest ? <span className={`hr-quick-bar-rest ${quickRest.matches ? "ok" : "warning"}`}>休 {quickRest.restDays}／約定 {quickRest.employee.monthlyRestDays} 天</span> : null}
