@@ -39,10 +39,14 @@ export function nextOvertimeRule(rules: OvertimeRuleDraft[]): OvertimeRuleDraft 
 }
 
 function latestActiveVersion(rule?: SpecialWorkdayRule): SpecialWorkdayRuleVersion | undefined {
-  return rule?.versions.filter((version) => !version.voidedAt).at(-1);
+  return rule?.versions.filter((version) => !version.voidedAt).slice().sort((left, right) => right.versionNumber - left.versionNumber)[0];
 }
 function activeVersionOptions(rules: SpecialWorkdayRule[]) {
   return rules.flatMap((item) => item.rule.active ? item.versions.filter((version) => !version.voidedAt).map((version) => ({ value: version.id, label: `${item.rule.name} v${version.versionNumber}` })) : []);
+}
+export function defaultActiveVersionId(rules: SpecialWorkdayRule[]) {
+  const firstActiveRule = rules.find((item) => item.rule.active);
+  return latestActiveVersion(firstActiveRule)?.id ?? activeVersionOptions(rules)[0]?.value ?? "";
 }
 
 function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () => void }) {
@@ -153,7 +157,7 @@ function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () 
 
 function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose: () => void }) {
   const versionOptions = activeVersionOptions(rules);
-  const [versionId, setVersionId] = useState(versionOptions[0]?.value ?? "");
+  const [versionId, setVersionId] = useState(() => defaultActiveVersionId(rules));
   const [employeeUserId, setEmployeeUserId] = useState("");
   const [workerId, setWorkerId] = useState("");
   const [workDate, setWorkDate] = useState(today());
