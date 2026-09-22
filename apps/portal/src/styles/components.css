@@ -3621,21 +3621,17 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-employment-tabs button span { min-width: 22px; padding: 2px 6px; border-radius: 999px; background: --alpha(var(--color-ink) / 7%); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
 .hr-employment-tabs button.active span { background: --alpha(var(--color-brand) / 12%); }
 .hr-management-identity,
-.hr-management-current,
-.hr-management-undo { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.hr-management-current { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .hr-management-identity { padding: 12px 14px; border-radius: 12px; background: var(--color-canvas); }
 .hr-management-description { margin: 0; color: var(--color-muted); line-height: 1.65; }
 .hr-management-identity > div,
-.hr-management-current > div,
-.hr-management-undo > div { display: grid; gap: 4px; min-width: 0; }
+.hr-management-current > div { display: grid; gap: 4px; min-width: 0; }
 .hr-management-identity strong { font-size: 16px; }
 .hr-management-identity span:not(.status),
-.hr-management-current span,
-.hr-management-undo span { color: var(--color-muted); font-size: 12px; }
+.hr-management-current span { color: var(--color-muted); font-size: 12px; }
 .hr-management-current { margin-top: 16px; padding: 16px; border: 1px solid var(--color-soft-line); border-radius: 14px; background: --alpha(var(--color-paper) / 56%); }
 .hr-management-current.is-empty { border-style: dashed; }
-.hr-management-current strong,
-.hr-management-undo strong { color: var(--color-ink); font-size: 15px; }
+.hr-management-current strong { color: var(--color-ink); font-size: 15px; }
 .eyebrow { color: var(--color-muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .hr-management-group { padding-top: 18px; border-top: 1px solid var(--color-soft-line); }
 .hr-management-group:first-of-type { padding-top: 0; border-top: 0; }
@@ -3650,15 +3646,12 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-management-assignment { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .hr-management-assignment > span:first-child { color: var(--color-ink); font-size: 12px; }
 .hr-management-assignment > button { min-height: 28px; padding: 4px 9px; font-size: 12px; }
-.hr-management-undo { margin-top: 18px; padding: 12px 14px; border-radius: 12px; background: var(--color-brand-soft); }
 @media (max-width: 560px) {
   .hr-employment-tabs { width: 100%; }
   .hr-employment-tabs button { flex: 1; justify-content: center; }
   .hr-management-current,
-  .hr-management-undo,
   .hr-management-job { align-items: stretch; flex-direction: column; }
   .hr-management-current > button,
-  .hr-management-undo > button,
   .hr-management-job-actions { align-self: flex-start; justify-content: flex-start; flex-wrap: wrap; }
   .hr-management-assignment { align-items: flex-start; flex-direction: column; }
 }

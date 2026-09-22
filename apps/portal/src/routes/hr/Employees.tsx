@@ -179,15 +179,11 @@ export function HrEmployeeDetail() {
   </div>;
 }
 
-function employmentActionLabel(actionKind: NonNullable<Profile["lastEmploymentAction"]>["actionKind"]): string {
-  return actionKind === "employee_assigned" ? "指派員工" : actionKind === "employment_created" ? "新增任職" : "結束任職";
-}
-
 function assignmentNeedsEnd(validTo: string | null, employmentEndedOn: string | null): boolean {
   return validTo === null || (employmentEndedOn !== null && validTo > employmentEndedOn);
 }
 
-function EmployeeManagementDialog({ employee, onClose, onEdit, onUndo, onDeleted, canOfficeWrite }: { employee: Employee; onClose: () => void; onEdit: (editor: Editor) => void; onUndo: (operationId: string) => void; onDeleted: () => void; canOfficeWrite: boolean }) {
+function EmployeeManagementDialog({ employee, onClose, onEdit, onDeleted, canOfficeWrite }: { employee: Employee; onClose: () => void; onEdit: (editor: Editor) => void; onDeleted: () => void; canOfficeWrite: boolean }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   const [deleteTarget, setDeleteTarget] = useState<Employment | null>(null);
   const deleteMutation = useHrWrite();
@@ -274,10 +270,6 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onUndo, onDeleted
         </div>;
       })}</div>}
     </div>
-    {data.lastEmploymentAction ? <div className="hr-management-undo">
-      <div><span className="eyebrow">最近異動</span><strong>{employmentActionLabel(data.lastEmploymentAction.actionKind)}</strong><span>{dateTime(data.lastEmploymentAction.createdAt)}</span></div>
-      <Button variant="secondary" onClick={() => onUndo(data.lastEmploymentAction!.id)}>復原上一動</Button>
-    </div> : null}
   </Dialog>
   {deleteTarget ? <ConfirmDialog
     title="刪除這段任職？"
@@ -341,7 +333,7 @@ export function HrEmployees() {
       {data && !data.employees.length ? <p className="muted table-note">{data.total ? "沒有符合條件的員工，調整一下搜尋或篩選看看。" : filters.employmentStatus === "active" ? "目前沒有在職員工。" : "目前沒有未在職員工。"}</p> : null}
       {data && data.total > 0 ? <Pager page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}
     </Panel>
-    {manageEmployee ? <EmployeeManagementDialog employee={manageEmployee} onClose={() => setManageEmployee(null)} onEdit={(nextEditor) => { setManageEmployee(null); setEditor(nextEditor); }} onUndo={undoEmployment} onDeleted={() => { setManageEmployee(null); toast.show("任職資料已刪除。", "success"); void employees.refetch(); }} canOfficeWrite={permissions.has("hr:office:write")} /> : null}
+    {manageEmployee ? <EmployeeManagementDialog employee={manageEmployee} onClose={() => setManageEmployee(null)} onEdit={(nextEditor) => { setManageEmployee(null); setEditor(nextEditor); }} onDeleted={() => { setManageEmployee(null); toast.show("任職資料已刪除。", "success"); void employees.refetch(); }} canOfficeWrite={permissions.has("hr:office:write")} /> : null}
     {editor ? <EditorDialog editor={editor} onClose={() => { setEditor(null); void employees.refetch(); if (canWrite) void candidates.refetch(); }} onSuccess={(result) => { if (editor.undoable && result.operationId) showUndo(editor.successMessage ?? "任職異動已完成", result.operationId); else if (editor.successMessage) toast.show(editor.successMessage, "success"); }} /> : null}
   </div>;
 }
