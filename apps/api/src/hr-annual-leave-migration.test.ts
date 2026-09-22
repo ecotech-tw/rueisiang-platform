@@ -40,6 +40,10 @@ describe("既有特休資料回填 migration", () => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run("legacy-leave-request", "legacy-employment", null, "特休", "approved", "2025-02-28", "2025-03-01", 30, 1_000_000, "既有核准特休", "legacy-user");
 
+    applyMigration("0175_backfill_hr_leave_request_times.sql");
+    expect(d1.sqlite.prepare("SELECT starts_at, ends_at FROM hr_leave_requests WHERE id=?").get("legacy-leave-request")).toEqual({
+      starts_at: "2025-02-27 16:00:00", ends_at: "2025-02-28 16:00:00",
+    });
     applyMigration("0172_seed_annual_leave_policy.sql");
     applyMigration("0173_backfill_annual_leave_entitlements.sql");
     applyMigration("0172_seed_annual_leave_policy.sql");

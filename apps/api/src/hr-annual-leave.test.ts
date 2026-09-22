@@ -113,7 +113,7 @@ describe("週年制特休額度", () => {
     const employmentId = profile.employments[0]!.id;
     const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "測試月薪" });
     expect(compensation.status, await compensation.clone().text()).toBe(201);
-    const approved = await request("/hr/requests/leave", "POST", { employeeUserId: "employee", leaveTypeId, startDate: "2025-09-01", endDate: "2025-09-01", durationMinutes: 30, reason: "先扣一筆再結算" });
+    const approved = await request("/hr/requests/leave", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: "2025-09-01T09:00", endsAt: "2025-09-01T09:30", reason: "先扣一筆再結算" });
     expect(approved.status, await approved.clone().text()).toBe(201);
     const requestId = (await approved.json() as { id: string }).id;
     const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-02", employeeUserIds: ["employee"], requestId: "annual-settlement-cancel-after-close" });
@@ -132,7 +132,7 @@ describe("週年制特休額度", () => {
     const leaveType = await request("/hr/leave-types", "POST", { name: "任職邊界測試假", defaultPayRatePpm: 1_000_000 });
     expect(leaveType.status, await leaveType.clone().text()).toBe(201);
     const leaveTypeId = (await leaveType.json() as { id: string }).id;
-    const pending = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startDate: "2026-02-10", endDate: "2026-02-10", durationMinutes: 30, reason: "離職邊界" }, employeeCookie);
+    const pending = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: "2026-02-10T09:00", endsAt: "2026-02-10T09:30", reason: "離職邊界" }, employeeCookie);
     expect(pending.status, await pending.clone().text()).toBe(201);
     const requestId = (await pending.json() as { id: string }).id;
     const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string; revision: number }> };
@@ -190,13 +190,13 @@ describe("週年制特休額度", () => {
     await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
 
     const approved = await request("/hr/requests/leave", "POST", {
-      employeeUserId: "employee", leaveTypeId, startDate: "2025-09-01", endDate: "2025-09-01", durationMinutes: 30, reason: "半小時特休",
+      employeeUserId: "employee", leaveTypeId, startsAt: "2025-09-01T09:00", endsAt: "2025-09-01T09:30", reason: "半小時特休",
     });
     expect(approved.status, await approved.clone().text()).toBe(201);
     const approvedId = (await approved.json() as { id: string }).id;
 
     const pending = await request("/hr/me/leave-requests", "POST", {
-      leaveTypeId, startDate: "2026-03-01", endDate: "2026-03-01", durationMinutes: 30, reason: "週年後特休",
+      leaveTypeId, startsAt: "2026-03-01T09:00", endsAt: "2026-03-01T09:30", reason: "週年後特休",
     }, employeeCookie);
     expect(pending.status, await pending.clone().text()).toBe(201);
     const pendingId = (await pending.json() as { id: string }).id;
@@ -218,7 +218,7 @@ describe("週年制特休額度", () => {
     expect(Number(reversals[0]?.count)).toBe(1);
 
     const raced = await request("/hr/requests/leave", "POST", {
-      employeeUserId: "employee", leaveTypeId, startDate: "2025-09-02", endDate: "2025-09-02", durationMinutes: 30, reason: "結算競態測試",
+      employeeUserId: "employee", leaveTypeId, startsAt: "2025-09-02T09:00", endsAt: "2025-09-02T09:30", reason: "結算競態測試",
     });
     expect(raced.status, await raced.clone().text()).toBe(201);
     const racedId = (await raced.json() as { id: string }).id;
@@ -235,7 +235,7 @@ describe("週年制特休額度", () => {
     expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_ledger WHERE source_key=?").get(`leave-request-cancel:${racedId}`)).toEqual({ count: 0 });
 
     const overbooked = await request("/hr/requests/leave", "POST", {
-      employeeUserId: "employee", leaveTypeId, startDate: "2026-03-02", endDate: "2026-03-08", durationMinutes: 3_360, reason: "不可挪用上一期餘額",
+      employeeUserId: "employee", leaveTypeId, startsAt: "2026-03-02T09:00", endsAt: "2026-03-04T17:00", reason: "不可挪用上一期餘額",
     });
     expect(overbooked.status, await overbooked.clone().text()).toBe(409);
   });

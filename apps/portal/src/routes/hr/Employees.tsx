@@ -28,6 +28,9 @@ function dateTime(value: string): string {
   const parsed = new Date(normalized);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" });
 }
+function leaveDateTime(value: string, fallbackDate: string): string {
+  return value ? dateTime(value) : `${fallbackDate} 00:00`;
+}
 
 function EditorDialog({ editor, onClose }: { editor: Editor; onClose: () => void }) {
   const [values, setValues] = useState<Record<string, unknown>>(editor.initial ?? {});
@@ -113,7 +116,7 @@ function LeaveTable({ rows }: { rows: LeaveRequest[] }) {
   return <>
     <h3>請假紀錄</h3>
     <table className="data-table"><thead><tr><th>假別</th><th>狀態</th><th>期間</th><th>時數</th><th>原因</th></tr></thead><tbody>
-      {rows.map((row) => <tr key={row.id}><td>{row.leaveType}</td><td>{LEAVE_STATUS_LABEL[row.status]}</td><td>{row.startsOn}～{row.endsOn}</td><td>{Math.floor(row.durationMinutes / 60)} 小時 {row.durationMinutes % 60 ? `${row.durationMinutes % 60} 分` : ""}</td><td>{row.reason || "—"}</td></tr>)}
+      {rows.map((row) => <tr key={row.id}><td>{row.leaveType}</td><td>{LEAVE_STATUS_LABEL[row.status]}</td><td>{leaveDateTime(row.startsAt, row.startsOn)}～{leaveDateTime(row.endsAt, row.endsOn)}</td><td>{Math.floor(row.durationMinutes / 60)} 小時 {row.durationMinutes % 60 ? `${row.durationMinutes % 60} 分` : ""}</td><td>{row.reason || "—"}</td></tr>)}
     </tbody></table>
     {!rows.length ? <p>尚無請假紀錄。</p> : null}
   </>;

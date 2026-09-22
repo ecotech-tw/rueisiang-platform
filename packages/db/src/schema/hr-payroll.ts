@@ -230,10 +230,13 @@ export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   leaveTypeId: text("leave_type_id").references(() => hrLeaveTypes.id, { onDelete: "restrict" }),
   leaveType: text("leave_type").notNull(),
   status: text("status", { enum: ["draft", "pending", "approved", "rejected", "cancelled"] as const }).notNull(),
+  /** 台北時間轉成 canonical UTC wall-clock 保存；startsOn／endsOn 是相容用的日期覆蓋範圍。 */
+  startsAt: text("starts_at").notNull().default(""),
+  endsAt: text("ends_at").notNull().default(""),
   startsOn: text("starts_on").notNull(),
   endsOn: text("ends_on").notNull(),
   durationMinutes: integer("duration_minutes").notNull(),
-  /** 請假提交時凍結給薪比例；不靠 leaveType 名稱猜測是否扣薪。 */
+  /** 請假提交時由所選假別凍結；不接受申請人自訂給薪比例。 */
   payRatePpm: integer("pay_rate_ppm").notNull().default(1_000_000),
   reason: text("reason").notNull().default(""),
   reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
@@ -242,6 +245,7 @@ export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   ...historyTimestamps(),
 }, (table) => [
   index("idx_hr_leave_requests_employment_period").on(table.employmentId, table.startsOn),
+  index("idx_hr_leave_requests_employment_time").on(table.employmentId, table.startsAt),
   index("idx_hr_leave_requests_leave_type").on(table.leaveTypeId),
   check("ck_hr_leave_requests_type", sql`length(trim(${table.leaveType})) BETWEEN 1 AND 80`),
   check("ck_hr_leave_requests_status", sql`${table.status} IN ('draft', 'pending', 'approved', 'rejected', 'cancelled')`),

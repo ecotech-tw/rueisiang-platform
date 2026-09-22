@@ -229,8 +229,8 @@ async function seedDevPayrollScenario(
 
   // 兩筆核准假勤：一天給薪、一日無薪；payRatePpm 是申請時快照。
   await db.insert(hrLeaveRequests).values([
-    { id: "dev-leave-lin-paid", employmentId: linEmploymentId, leaveTypeId: annualLeaveType.id, leaveType: "特休", status: "approved", startsOn: `${month}-08`, endsOn: `${month}-09`, durationMinutes: 480, payRatePpm: 1_000_000, reason: "開發示範特休", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-07-20 09:00:00", createdBy: ids.linUserId },
-    { id: "dev-leave-lin-unpaid", employmentId: linEmploymentId, leaveTypeId: unpaidLeaveType.id, leaveType: "無薪假", status: "approved", startsOn: `${month}-20`, endsOn: `${month}-21`, durationMinutes: 480, payRatePpm: 0, reason: "開發示範無薪假", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-07-20 09:01:00", createdBy: ids.linUserId },
+    { id: "dev-leave-lin-paid", employmentId: linEmploymentId, leaveTypeId: annualLeaveType.id, leaveType: "特休", status: "approved", startsAt: `${month}-07 16:00:00`, endsAt: `${month}-08 16:00:00`, startsOn: `${month}-08`, endsOn: `${month}-09`, durationMinutes: 480, payRatePpm: 1_000_000, reason: "開發示範特休", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-07-20 09:00:00", createdBy: ids.linUserId },
+    { id: "dev-leave-lin-unpaid", employmentId: linEmploymentId, leaveTypeId: unpaidLeaveType.id, leaveType: "無薪假", status: "approved", startsAt: `${month}-19 16:00:00`, endsAt: `${month}-20 16:00:00`, startsOn: `${month}-20`, endsOn: `${month}-21`, durationMinutes: 480, payRatePpm: 0, reason: "開發示範無薪假", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-07-20 09:01:00", createdBy: ids.linUserId },
   ]).onConflictDoNothing();
   await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2026-09-30", createdBy: ids.linUserId });
   const [linEntitlement] = await db.select({ id: hrAnnualLeaveEntitlements.id }).from(hrAnnualLeaveEntitlements)
