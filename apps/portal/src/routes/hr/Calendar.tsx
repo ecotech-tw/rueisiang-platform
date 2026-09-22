@@ -5,6 +5,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrCalendarResponse, type HrDayType } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
+import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 
 const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
 
@@ -105,6 +106,7 @@ export function HrCalendar() {
   const calendar = useHrQuery<HrCalendarResponse>(`/calendar/years/${year}`, canRead);
   const save = useHrWrite();
   const toast = useToast();
+  const confirmLeave = useConfirmLeave();
   const saved = useMemo(() => sortByDate(calendar.data?.days ?? []), [calendar.data?.days]);
   /*
    * 切年份時留著上一年的資料——但要標成 loading，不能當成新年份的。
@@ -122,6 +124,8 @@ export function HrCalendar() {
 
   const days = draft ?? saved;
   const changed = draft !== null && !sameDays(draft, saved);
+  // 講得出「哪一年、現在有幾天」，使用者才知道按下「離開並捨棄」會丟掉什麼。
+  useUnsavedChanges(changed, `${year} 年的行事曆改過了還沒儲存，目前有 ${days.length} 天登記。`);
   const update = (date: string, patch: Partial<HrCalendarDay>) => {
     setDraft(sortByDate((draft ?? saved).map((day) => day.date === date ? { ...day, ...patch } : day)));
     setMessage(null);
@@ -129,6 +133,10 @@ export function HrCalendar() {
   const remove = (date: string) => {
     setDraft(sortByDate((draft ?? saved).filter((day) => day.date !== date)));
     setMessage(null);
+  };
+  const switchYear = async (delta: number) => {
+    if (!(await confirmLeave())) return;
+    setYear((current) => current + delta);
   };
   const submit = async () => {
     try {
@@ -162,9 +170,10 @@ export function HrCalendar() {
     <Panel className="grows">
       <div className="hr-calendar-year-bar">
         <div className="hr-schedule-month">
-          <Button variant="icon" icon="chevronLeft" aria-label="上一年" onClick={() => setYear((current) => current - 1)} />
+          {/* 換年份跟換月份一樣要先問：草稿會被新資料洗掉，而切換鈕就在清單正上方。 */}
+          <Button variant="icon" icon="chevronLeft" aria-label="上一年" onClick={() => void switchYear(-1)} />
           <strong>{year} 年</strong>
-          <Button variant="icon" icon="chevronRight" aria-label="下一年" onClick={() => setYear((current) => current + 1)} />
+          <Button variant="icon" icon="chevronRight" aria-label="下一年" onClick={() => void switchYear(1)} />
         </div>
         {/*
           * 兩個數字分開講：假日有幾天是常識，補班日有沒有漏登才是每年真正會出錯的地方。

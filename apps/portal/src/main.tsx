@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { App } from "./App.js";
+import { UnsavedChangesProvider } from "./shell/UnsavedChanges.js";
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -18,7 +19,10 @@ createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <App />
+        {/* 要在 Router 裡面：攔截之後是用 react-router 的 navigate 真的走過去。 */}
+        <UnsavedChangesProvider>
+          <App />
+        </UnsavedChangesProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,
