@@ -102,7 +102,12 @@ export function HrCalendar() {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const calendar = useHrQuery<HrCalendarResponse>(`/calendar/years/${year}`, canRead);
+  /*
+   * keepPreviousData: false——切年份時留著上一年的資料，畫面會在「2026 年」的標題底下
+   * 顯示 2025 的假日，連帶統計、重複檢查與匯入警告全是錯的。api.ts 的註解本來就寫了
+   * 「查的是某一筆紀錄時要傳 false」，一個年份就是那種查詢。
+   */
+  const calendar = useHrQuery<HrCalendarResponse>(`/calendar/years/${year}`, canRead, { keepPreviousData: false });
   const save = useHrWrite();
   const toast = useToast();
   const saved = useMemo(() => sortByDate(calendar.data?.days ?? []), [calendar.data?.days]);
@@ -123,7 +128,8 @@ export function HrCalendar() {
   };
   const submit = async () => {
     try {
-      await save.mutateAsync({ path: `/calendar/years/${year}`, method: "PUT", values: { days: days.map(({ date, dayType, name }) => ({ date, dayType, name })) } });
+      // knownDates 是這次載入時伺服器給的那幾天；中間有人改過就會擋下來，不會把對方的修改沖掉。
+      await save.mutateAsync({ path: `/calendar/years/${year}`, method: "PUT", values: { days: days.map(({ date, dayType, name }) => ({ date, dayType, name })), knownDates: saved.map((day) => day.date) } });
       await calendar.refetch();
       setDraft(null);
       toast.show(`${year} 年行事曆已儲存。`);

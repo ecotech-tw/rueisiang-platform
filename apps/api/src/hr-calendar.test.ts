@@ -277,3 +277,75 @@ describe("政府行事曆轉換", () => {
     expect(listed.days.map((day) => day.date)).toEqual(["2021-06-01"]);
   });
 });
+
+describe("review 修正", () => {
+  it("整年可以存超過 31 天的例外——匯入一年就可能破 31", async () => {
+    // 2021 年的一月有 31 天，全部標成假日再加一天，就是 32 筆。
+    const days = Array.from({ length: 32 }, (_, index) => {
+      const date = new Date(Date.UTC(2021, 0, index + 1)).toISOString().slice(0, 10);
+      return { date, dayType: "holiday", name: `假日${index + 1}` };
+    });
+    const saved = await request("/hr/calendar/years/2021", "PUT", { days });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    expect(await saved.json()).toMatchObject({ days: 32 });
+  });
+
+  it("月份那條路仍然只收一個月，不會因為年的上限被放寬", async () => {
+    const days = Array.from({ length: 32 }, (_, index) => ({ date: `2021-01-${String(index + 1).padStart(2, "0")}`, dayType: "holiday", name: "" }));
+    expect((await request("/hr/calendar/2021-01", "PUT", { days })).status).toBe(400);
+  });
+
+  it("別人先改過就擋下來，不會把對方的修改沖掉", async () => {
+    await request("/hr/calendar/years/2021", "PUT", { days: [{ date: "2021-02-11", dayType: "holiday", name: "春節" }] });
+    // 另一個人加了一天。
+    await request("/hr/calendar/years/2021", "PUT", { days: [
+      { date: "2021-02-11", dayType: "holiday", name: "春節" },
+      { date: "2021-10-10", dayType: "holiday", name: "國慶日" },
+    ], knownDates: ["2021-02-11"] });
+    // 我拿著只有一筆的舊清單要存，應該被擋。
+    const stale = await request("/hr/calendar/years/2021", "PUT", { days: [{ date: "2021-04-04", dayType: "holiday", name: "兒童節" }], knownDates: ["2021-02-11"] });
+    expect(stale.status).toBe(409);
+    expect(await stale.text()).toContain("重新整理");
+    const listed = await (await request("/hr/calendar/years/2021")).json() as { days: Array<{ date: string }> };
+    expect(listed.days.map((day) => day.date)).toEqual(["2021-02-11", "2021-10-10"]);
+  });
+
+  it("沒送 knownDates 就不檢查，匯入才不用先讀一次", async () => {
+    await request("/hr/calendar/years/2021", "PUT", { days: [{ date: "2021-02-11", dayType: "holiday", name: "春節" }] });
+    const overwrite = await request("/hr/calendar/years/2021", "PUT", { days: [{ date: "2021-10-10", dayType: "holiday", name: "國慶日" }] });
+    expect(overwrite.status).toBe(200);
+  });
+
+  it("isHoliday 不是布林值就跳過，壞掉的來源不會把整年寫成假日", () => {
+    const overrides = overridesFromGovCalendar(2021, [
+      { date: "20210211", isHoliday: "false" as never, description: "壞掉的型別" },
+      { date: "20210212", isHoliday: 1 as never, description: "也是壞的" },
+      { date: "20210215", isHoliday: true, description: "正常的" },
+    ]);
+    expect(overrides).toEqual([{ date: "2021-02-15", dayType: "holiday", name: "正常的" }]);
+  });
+
+  it("來源有重複日期時只留第一筆，不會讓整批 INSERT 撞主鍵", async () => {
+    const overrides = overridesFromGovCalendar(2021, [
+      { date: "20210211", isHoliday: true, description: "農曆除夕" },
+      { date: "20210211", isHoliday: true, description: "重複的一筆" },
+    ]);
+    expect(overrides).toEqual([{ date: "2021-02-11", dayType: "holiday", name: "農曆除夕" }]);
+    // 真的寫進去也不會炸。
+    const result = await importHrCalendarYear(db, 2021, { id: "admin", email: "admin@example.test" }, async () => [
+      { date: "20210211", isHoliday: true, description: "農曆除夕" },
+      { date: "20210211", isHoliday: true, description: "重複的一筆" },
+    ]);
+    expect(result).toMatchObject({ days: 1 });
+  });
+
+  it("resolveDayTypes 的區間含頭也含尾", async () => {
+    await request("/hr/calendar/years/2021", "PUT", { days: [
+      { date: "2021-02-01", dayType: "holiday", name: "頭" },
+      { date: "2021-02-28", dayType: "weekday", name: "尾" },
+    ] });
+    const days = await (await request("/hr/calendar/2021-02")).json() as { days: Array<{ date: string; dayType: string }> };
+    expect(days.days.find((day) => day.date === "2021-02-01")).toMatchObject({ dayType: "holiday" });
+    expect(days.days.find((day) => day.date === "2021-02-28")).toMatchObject({ dayType: "weekday" });
+  });
+});

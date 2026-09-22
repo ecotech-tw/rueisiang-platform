@@ -10,7 +10,7 @@ import {
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
-  isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, periodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
+  isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
@@ -338,15 +338,32 @@ function shiftTimes(input: Record<string, unknown>): HrShiftTime[] {
     return { dayType: entry.dayType, startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes };
   });
 }
+/**
+ * 前端讀到的那幾天。伺服器拿它跟 DB 現況比對，對不上就是中間有人改過。
+ *
+ * 沒送就是不檢查：匯入本來就打算整年換掉，硬要它先讀一次只是多一趟。
+ */
+function knownDates(input: Record<string, unknown>): string[] | undefined {
+  const value = input.knownDates;
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 366 || value.some((item) => typeof item !== "string")) throw new HTTPException(400, { message: "行事曆格式不正確。" });
+  return value as string[];
+}
 function calendarYear(value: string) {
   const year = Number(value);
   if (!/^\d{4}$/.test(value) || !Number.isInteger(year)) throw new HTTPException(400, { message: "行事曆年份不正確。" });
   return year;
 }
-/** 行事曆送上來的是一整個月的日子；這裡只檢查形狀，哪些要寫成列由 saveHrCalendarMonth 決定。 */
-function calendarDays(input: Record<string, unknown>): HrCalendarDayInput[] {
+/**
+ * 行事曆送上來的日子；這裡只檢查形狀，哪些要寫成列由 packages/db 決定。
+ *
+ * 上限跟著路由走：月是 31，年是 366。寫死 31 的話整年那條路會在例外累積到 32 天時
+ * 永遠存不起來——光 2026 年匯入就有 16 筆，再加颱風假與公司自訂假很快就破——
+ * 而且匯入本身繞過這個檢查，等於做得出一個畫面自己救不回來的狀態。
+ */
+function calendarDays(input: Record<string, unknown>, maxDays: number): HrCalendarDayInput[] {
   const value = input.days;
-  if (!Array.isArray(value) || value.length > 31) throw new HTTPException(400, { message: "行事曆格式不正確。" });
+  if (!Array.isArray(value) || value.length > maxDays) throw new HTTPException(400, { message: "行事曆格式不正確。" });
   return value.map((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) throw new HTTPException(400, { message: "行事曆格式不正確。" });
     const entry = item as Record<string, unknown>;
@@ -609,13 +626,13 @@ export const hr = new Hono<AppEnv>()
   .get("/calendar/years/:year", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarYear(c.get("db"), calendarYear(c.req.param("year"))) }))
   .put("/calendar/years/:year", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    return c.json(await saveHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), calendarDays(input), c.get("user")));
+    return c.json(await saveHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), calendarDays(input, 366), knownDates(input), c.get("user")));
   })
   .post("/calendar/years/:year/import", requirePermission("hr:schedule:write"), async (c) => c.json(await importHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), c.get("user"))))
-  .get("/calendar/:periodKey", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarMonth(c.get("db"), periodFromKey(c.req.param("periodKey"))) }))
+  .get("/calendar/:periodKey", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarMonth(c.get("db"), monthPeriodFromKey(c.req.param("periodKey"))) }))
   .put("/calendar/:periodKey", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    return c.json(await saveHrCalendarMonth(c.get("db"), periodFromKey(c.req.param("periodKey")), calendarDays(input), c.get("user")));
+    return c.json(await saveHrCalendarMonth(c.get("db"), monthPeriodFromKey(c.req.param("periodKey")), calendarDays(input, 31), knownDates(input), c.get("user")));
   })
   .get("/shift-templates", requirePermission("hr:schedule:read"), async (c) => c.json(await listHrShifts(c.get("db"))))
   .patch("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {

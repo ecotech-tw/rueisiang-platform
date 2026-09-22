@@ -7,7 +7,7 @@ export {
 export { getHrOverview, type HrOverviewResult, type HrOverviewPayrollStatus } from "./hr-overview.js";
 export {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
-  periodFromKey,
+  monthPeriodFromKey,
   type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type HrShiftTime, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";
 export {

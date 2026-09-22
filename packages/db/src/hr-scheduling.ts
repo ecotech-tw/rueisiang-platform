@@ -40,8 +40,14 @@ export interface SaveHrScheduleInput {
   entries: ScheduleEntryInput[];
 }
 
-/** 月份字串轉成半開區間。排班、行事曆與各自的路由共用，三邊的「一個月」才是同一個定義。 */
-export function periodFromKey(periodKey: string) {
+/*
+ * 月份字串轉成半開區間。排班、行事曆與各自的路由共用，三邊的「一個月」才是同一個定義。
+ *
+ * 名字帶 month 是因為 hr-payroll-calculation.ts 另有一個私有的 periodFromKey，形狀不同
+ * （多回 year 與 month）。兩份都私有時相安無事，但這一份要 export 出去給路由用，
+ * 同名同輸入卻回不同東西的公開 API 遲早會被拿錯一個。
+ */
+export function monthPeriodFromKey(periodKey: string) {
   if (!PERIOD_KEY.test(periodKey)) throw new HrError(400, "排班月份格式不正確。 ");
   const [yearText, monthText] = periodKey.split("-");
   const year = Number(yearText);
@@ -259,7 +265,7 @@ export async function listHrShifts(db: Database) {
 }
 
 export async function getHrSchedule(db: Database, periodKey: string, scopeId?: string) {
-  const period = periodFromKey(periodKey);
+  const period = monthPeriodFromKey(periodKey);
   const version = await latestScheduleVersion(db, period);
   const [scopeRows, workerRows, shiftRows, calendar] = await Promise.all([
     listHrScheduleScopes(db),
@@ -310,7 +316,7 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
 }
 
 export async function saveHrSchedule(db: Database, input: SaveHrScheduleInput, actor: HrActor) {
-  const period = periodFromKey(input.periodKey);
+  const period = monthPeriodFromKey(input.periodKey);
   const entries = await validateAndEnrichEntries(db, period, input.entries);
   let version = input.scheduleVersionId ? (await db.select().from(hrScheduleVersions).where(eq(hrScheduleVersions.id, input.scheduleVersionId)).limit(1))[0] : await getOrCreateScheduleVersion(db, period, actor);
   if (!version || version.periodStart !== period.start || version.periodEnd !== period.end || version.status !== "published") throw new HrError(404, "找不到指定月份的排班版本。 ");
@@ -319,7 +325,7 @@ export async function saveHrSchedule(db: Database, input: SaveHrScheduleInput, a
 }
 
 export async function setHrScheduleLock(db: Database, periodKey: string, input: { revision: number; locked: boolean }, actor: HrActor) {
-  const period = periodFromKey(periodKey);
+  const period = monthPeriodFromKey(periodKey);
   const version = await latestScheduleVersion(db, period);
   if (!version) throw new HrError(404, "指定月份尚未建立排班。 ");
   const row = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: input.locked ? "schedule_locked" : "schedule_unlocked", summary: input.locked ? "排班已鎖定" : "排班已開鎖", actor });

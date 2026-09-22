@@ -148,7 +148,7 @@ function CalendarDialog({ periodKey: key, days: initial, canWrite, onClose, onSa
   };
   const submit = async () => {
     try {
-      await save.mutateAsync({ path: `/calendar/${key}`, method: "PUT", values: { days: days.map(({ date, dayType, name }) => ({ date, dayType, name })) } });
+      await save.mutateAsync({ path: `/calendar/${key}`, method: "PUT", values: { days: days.map(({ date, dayType, name }) => ({ date, dayType, name })), knownDates: initial.filter((day) => day.overridden).map((day) => day.date) } });
       await onSaved();
       toast.show("行事曆已儲存。");
       onClose();
@@ -192,7 +192,15 @@ export function HrScheduling() {
   const lock = useHrWrite();
   const data = schedule.data;
 
-  useEffect(() => { if (data) setDraftEntries(data.entries); }, [data?.version?.revision, data?.entries]);
+  /*
+   * 只在「換了月份」或「排班版本真的動了」時才用伺服器版本重設草稿。
+   *
+   * 依賴一度掛的是 data.entries 這個陣列本身，於是任何一次 refetch 都會把未儲存的草稿
+   * 蓋掉。行事曆就是踩到這個：在排班頁標一個國定假日會 invalidate 整個 hr query，
+   * 回來的新陣列直接吃掉剛排好、還沒按儲存的那二十天，而且畫面上不會有任何提示。
+   * 存排班時 revision 一定會 +1，所以該更新的情境靠 revision 就夠。
+   */
+  useEffect(() => { if (data) setDraftEntries(data.entries); }, [data?.periodKey, data?.version?.id, data?.version?.revision]);
   // 換月份時的選擇留著只會誤導：日期格換了一批，畫面上的「已選 N 天」卻還是上個月的數字。
   useEffect(() => { setQuick(null); }, [key]);
   // 鎖定之後點日期不會有反應，快速排班條留在畫面上等於擺一個按了沒用的東西。

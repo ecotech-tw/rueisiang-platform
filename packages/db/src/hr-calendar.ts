@@ -1,4 +1,4 @@
-import { and, asc, gte, lt, sql } from "drizzle-orm";
+import { and, asc, gte, lt, lte, sql } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
@@ -40,10 +40,20 @@ function toView(date: string, override: { dayType: HrDayType; name: string } | u
     : { date, dayType: defaultDayType(date), name: "", overridden: false };
 }
 
+/** 半開區間 [start, endExclusive)，與 periodFromKey 的期間定義一致。 */
 async function loadOverrides(db: Database, start: string, endExclusive: string) {
+  return selectOverrides(db, and(gte(hrCalendarDays.date, start), lt(hrCalendarDays.date, endExclusive)));
+}
+
+/** 閉區間 [first, last]，給「這幾天各是什麼」這種問法用。 */
+async function loadOverridesInclusive(db: Database, first: string, last: string) {
+  return selectOverrides(db, and(gte(hrCalendarDays.date, first), lte(hrCalendarDays.date, last)));
+}
+
+async function selectOverrides(db: Database, where: ReturnType<typeof and>) {
   const rows = await db.select({ date: hrCalendarDays.date, dayType: hrCalendarDays.dayType, name: hrCalendarDays.name })
     .from(hrCalendarDays)
-    .where(and(gte(hrCalendarDays.date, start), lt(hrCalendarDays.date, endExclusive)))
+    .where(where)
     .orderBy(asc(hrCalendarDays.date));
   return new Map(rows.map((row) => [row.date, { dayType: row.dayType, name: row.name }]));
 }
@@ -59,7 +69,7 @@ export async function resolveDayTypes(db: Database, dates: string[]): Promise<Ma
   const first = wanted[0];
   const last = wanted[wanted.length - 1];
   if (!first || !last) return new Map();
-  const overrides = await loadOverrides(db, first, `${last}￿`);
+  const overrides = await loadOverridesInclusive(db, first, last);
   return new Map(wanted.map((date) => [date, overrides.get(date)?.dayType ?? defaultDayType(date)]));
 }
 
@@ -106,12 +116,32 @@ function toOverrides(days: HrCalendarDayInput[], range: { start: string; end: st
 }
 
 /**
+ * 儲存前先確認這段期間還是呼叫端當初讀到的樣子。
+ *
+ * 這張表沒有單一一列可以掛 revision，所以拿「例外日期的清單」當版本：前端讀到哪幾天，
+ * 存的時候就把那幾天送回來。清單對不上就代表中間有人改過。
+ *
+ * 需要這道關卡是因為這裡的語意是「刪掉整段再寫回去」——lost update 賠掉的不是一個欄位
+ * 而是一整年：A 打開 2026 加了三天，B 拿著舊的清單刪掉一天後才存，A 那三天會無聲消失。
+ * 沒送 knownDates 的呼叫端（匯入）本來就打算整段換掉，不套用這個檢查。
+ */
+async function assertCalendarUnchanged(db: Database, range: { start: string; end: string }, knownDates?: string[]) {
+  if (!knownDates) return;
+  const current = [...(await loadOverrides(db, range.start, range.end)).keys()].sort();
+  const known = [...new Set(knownDates)].sort();
+  if (current.length !== known.length || current.some((date, index) => date !== known[index])) {
+    throw new HrError(409, "行事曆已被其他人修改，請重新整理後再存。 ");
+  }
+}
+
+/**
  * 一段期間的行事曆整段換掉：先刪乾淨再寫進例外。月儲存與整年匯入共用這一支。
  *
  * 刪掉整段而不是逐日比對，是因為「取消一個假日」跟「沒送這一天」在資料上要是同一件事；
  * 兩種語意分開的話，前端少送一天就會留下一列刪不掉的舊假日。
  */
-async function replaceCalendarRange(db: Database, range: { start: string; end: string }, overrides: HrCalendarDayInput[], actor: HrActor, summary: string, payload: Record<string, unknown>) {
+async function replaceCalendarRange(db: Database, range: { start: string; end: string }, overrides: HrCalendarDayInput[], actor: HrActor, summary: string, payload: Record<string, unknown>, knownDates?: string[]) {
+  await assertCalendarUnchanged(db, range, knownDates);
   const row = activityRow({ entityType: "hr_schedule", entityId: range.start, source: "hr", eventType: "calendar_saved", summary, actor, payload });
   const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
   const statements = [
@@ -124,10 +154,10 @@ async function replaceCalendarRange(db: Database, range: { start: string; end: s
 }
 
 /** 存一整個月的行事曆。送進來的是該月的完整清單。 */
-export async function saveHrCalendarMonth(db: Database, period: { start: string; end: string }, days: HrCalendarDayInput[], actor: HrActor) {
+export async function saveHrCalendarMonth(db: Database, period: { start: string; end: string }, days: HrCalendarDayInput[], knownDates: string[] | undefined, actor: HrActor) {
   if (days.length > 31) throw new HrError(400, "行事曆一次只能儲存一個月。 ");
   const overrides = toOverrides(days, period);
-  await replaceCalendarRange(db, period, overrides, actor, `${period.start.slice(0, 7)} 行事曆已更新`, { days: overrides.length });
+  await replaceCalendarRange(db, period, overrides, actor, `${period.start.slice(0, 7)} 行事曆已更新`, { days: overrides.length }, knownDates);
   return { periodStart: period.start, days: overrides.length };
 }
 
@@ -149,11 +179,11 @@ export async function listHrCalendarYear(db: Database, year: number): Promise<Hr
 }
 
 /** 存一整年的例外。送進來的是該年的完整例外清單，沒送的日子就是回到預設值。 */
-export async function saveHrCalendarYear(db: Database, year: number, days: HrCalendarDayInput[], actor: HrActor) {
+export async function saveHrCalendarYear(db: Database, year: number, days: HrCalendarDayInput[], knownDates: string[] | undefined, actor: HrActor) {
   const range = yearRange(year);
   if (days.length > 366) throw new HrError(400, "行事曆一次只能儲存一年。 ");
   const overrides = toOverrides(days, range);
-  await replaceCalendarRange(db, range, overrides, actor, `${year} 年行事曆已更新`, { year, days: overrides.length });
+  await replaceCalendarRange(db, range, overrides, actor, `${year} 年行事曆已更新`, { year, days: overrides.length }, knownDates);
   return { year, days: overrides.length };
 }
 
@@ -178,17 +208,27 @@ export const HR_CALENDAR_SOURCE_URL = "https://cdn.jsdelivr.net/gh/ruyut/TaiwanC
  */
 export function overridesFromGovCalendar(year: number, source: readonly GovCalendarDay[]): HrCalendarDayInput[] {
   const range = yearRange(year);
+  // 同一天出現兩次就是兩筆撞主鍵的 INSERT，整個 D1 batch 會失敗，使用者拿到的是
+  // raw 的 UNIQUE constraint 500；手動儲存那條路早就在 toOverrides 擋掉重複了。
+  const seen = new Set<string>();
   const overrides: HrCalendarDayInput[] = [];
   for (const day of source) {
+    /*
+     * isHoliday 也要驗型別，不能只看 truthiness。來源是第三方鏡像，萬一哪天變成字串
+     * "false"，每一天都 truthy，整年非週末的日子全會被寫成國定假日（約 250 列）——
+     * 之後全公司整年的出勤讀成「休息」、日支項目整年不發，而且哪裡都不會報錯。
+     */
     if (typeof day?.date !== "string" || !/^\d{8}$/.test(day.date)) continue;
+    if (typeof day.isHoliday !== "boolean") continue;
     const date = `${day.date.slice(0, 4)}-${day.date.slice(4, 6)}-${day.date.slice(6, 8)}`;
-    if (date < range.start || date >= range.end) continue;
+    if (date < range.start || date >= range.end || seen.has(date)) continue;
     const fallback = defaultDayType(date);
     const dayType: HrDayType = day.isHoliday ? "holiday" : "weekday";
     // 放假的週六日、上班的平日都跟預設值一樣，存下去只會把這張表撐成 365 列。
     if (day.isHoliday && fallback === "weekend") continue;
     if (!day.isHoliday && fallback === "weekday") continue;
     const name = typeof day.description === "string" ? day.description.trim().slice(0, 100) : "";
+    seen.add(date);
     overrides.push({ date, dayType, name: name || (dayType === "weekday" ? "補行上班" : "放假") });
   }
   return overrides.sort((a, b) => a.date.localeCompare(b.date));
