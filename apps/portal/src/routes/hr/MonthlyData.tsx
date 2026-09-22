@@ -42,7 +42,7 @@ export function HrMonthlyData() {
   const profile = useHrQuery<{ employee: Employee; employments: Profile["employments"] }>(employeeUserId ? `/employees/${encodeURIComponent(employeeUserId)}` : "/employees/__none__", canRead && Boolean(employeeUserId), { keepPreviousData: false });
   const data = useHrQuery<MonthlyResponse>(`/payroll/monthly-data?periodKey=${encodeURIComponent(periodKey)}${employeeUserId ? `&employeeUserId=${encodeURIComponent(employeeUserId)}` : ""}`, canRead && Boolean(periodKey), { keepPreviousData: false });
   const write = useHrWrite();
-  const selectedEmployment = profile.data?.employments.find((employment) => !employment.revokedAt && employment.hiredOn <= `${periodKey}-31` && (!employment.endedOn || employment.endedOn >= `${periodKey}-01`));
+  const selectedEmployment = profile.data?.employments.find((employment) => !employment.archivedAt);
   const employeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
   const leaveTypeOptions = [{ label: "請選擇假別", value: "" }, ...(data.data?.leaveTypes ?? []).map((leaveType) => ({ label: leaveType.name, value: leaveType.id }))];
 
@@ -50,7 +50,7 @@ export function HrMonthlyData() {
   if (employees.isPending || (Boolean(periodKey) && data.isPending)) return <HrPageSkeleton variant="table" />;
   function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!selectedEmployment) { setError("請先選擇指定月份有效的任職紀錄。"); return; }
+    if (!selectedEmployment) { setError("請先指派為目前有效的員工。"); return; }
     setError(null);
     const values = mode === "leave"
       ? { employmentId: selectedEmployment.id, leaveTypeId, leaveDate, hoursHalfUnits: Math.round(Number(leaveHours) * 2), payRatePpm: Math.round(Number(payRate) * 10_000), deductionAmount: Number(deduction), note }
@@ -65,7 +65,7 @@ export function HrMonthlyData() {
     <Panel>
       <div className="admin-form toolbar"><TextField label="薪資月份" type="month" value={periodKey} onChange={(event) => { setPeriodKey(event.target.value); setLeaveDate(`${event.target.value}-01`); setWorkDate(`${event.target.value}-01`); }} /><SelectField label="員工" value={employeeUserId} options={employeeOptions} onChange={(event) => setEmployeeUserId(event.target.value)} /><SelectField label="資料類型" value={mode} options={[{ value: "leave", label: "假勤紀錄" }, { value: "hourly", label: "時薪工時" }]} onChange={(event) => setMode(event.target.value as "leave" | "hourly")} /></div>
       <form className="admin-form" onSubmit={submit}>
-        {!selectedEmployment && employeeUserId ? <p className="form-hint">此員工在本月份沒有有效任職。</p> : null}
+        {!selectedEmployment && employeeUserId ? <p className="form-hint">此員工目前沒有活動員工資料。</p> : null}
         {mode === "leave" ? <><SelectField label="假別" value={leaveTypeId} options={leaveTypeOptions} required onChange={(event) => setLeaveTypeId(event.target.value)} /><TextField label="日期" type="date" value={leaveDate} required onChange={(event) => setLeaveDate(event.target.value)} /><TextField label="時數" type="number" min="0.5" step="0.5" value={leaveHours} required onChange={(event) => setLeaveHours(event.target.value)} /><TextField label="給薪比例（%）" type="number" min="0" max="100" step="0.01" value={payRate} required onChange={(event) => setPayRate(event.target.value)} /><TextField label="扣款金額（元）" type="number" min="0" step="1" value={deduction} required onChange={(event) => setDeduction(event.target.value)} /></> : <><TextField label="工作日期" type="date" value={workDate} required onChange={(event) => setWorkDate(event.target.value)} /><TextField label="工時" type="number" min="0.5" step="0.5" value={workHours} disabled={noWork} required={!noWork} onChange={(event) => setWorkHours(event.target.value)} /><label className="field"><span>本期無工時</span><span className="checkbox-field"><input type="checkbox" checked={noWork} onChange={(event) => setNoWork(event.target.checked)} /> 明確標記本期無工時</span></label></>}
         <TextField label="備註" value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} />
         {canWrite ? <Button type="submit" icon="plus" loading={write.isPending} disabled={!selectedEmployment}>新增登記</Button> : null}

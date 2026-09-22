@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { hrEmployees, hrEmployments } from "./hr-people.js";
+import { hrEmployments } from "./hr-people.js";
 import { users } from "./auth.js";
 
 const timestamps = () => ({
@@ -11,7 +11,7 @@ const timestamps = () => ({
 /** 申請保存具體欄位而非任意 JSON，讓補打卡審核與後續出勤計算能沿用同一份資料。 */
 export const hrFormRequests = sqliteTable("hr_form_requests", {
   id: text("id").primaryKey(),
-  employeeUserId: text("employee_user_id").notNull().references(() => hrEmployees.userId, { onDelete: "restrict" }),
+  employeeUserId: text("employee_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   formKind: text("form_kind", { enum: ["clock_correction"] as const }).notNull().default("clock_correction"),
   status: text("status", { enum: ["draft", "pending", "approved", "rejected"] as const }).notNull().default("draft"),

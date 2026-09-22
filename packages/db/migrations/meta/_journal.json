@@ -1051,6 +1051,55 @@
       "when": 1790066922570,
       "tag": "0173_fair_fabian_cortez",
       "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "6",
+      "when": 1790091444288,
+      "tag": "0174_hot_yellow_claw",
+      "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "6",
+      "when": 1790091490554,
+      "tag": "0175_flatten_hr_employments",
+      "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "6",
+      "when": 1790091782768,
+      "tag": "0176_clammy_hex",
+      "breakpoints": true
+    },
+    {
+      "idx": 177,
+      "version": "6",
+      "when": 1790091853181,
+      "tag": "0177_copy_hr_employments",
+      "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "6",
+      "when": 1790091855087,
+      "tag": "0178_lush_metal_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "6",
+      "when": 1790092260480,
+      "tag": "0179_swap_hr_employments",
+      "breakpoints": true
+    },
+    {
+      "idx": 180,
+      "version": "6",
+      "when": 1790092260480,
+      "tag": "0180_drop_legacy_hr_employees",
+      "breakpoints": true
     }
   ]
 }

@@ -43,12 +43,12 @@ function InsuranceRow({ employee, canWrite, onEdit }: { employee: Employee; canW
   const insurance = profile.data.insurance ?? [];
   const labor = currentInsurance(insurance, "labor");
   const health = currentInsurance(insurance, "health");
-  const employment = profile.data.employments.find((item) => !item.revokedAt && !item.endedOn) ?? profile.data.employments.find((item) => !item.revokedAt);
+  const employment = profile.data.employments.find((item) => !item.archivedAt);
   const defaultSalary = employment ? currentSalary(profile.data, employment) : undefined;
   const hasInsurance = Boolean(labor || health);
   return <tr>
     <td data-label="員工"><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
-    <td data-label="目前任職">{employment ? `${employment.hiredOn}～${employment.endedOn ?? "目前"}` : "尚無任職"}</td>
+    <td data-label="目前職位">{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td data-label="勞保">{labor ? `${labor.status === "enrolled" ? "加保中" : "已退保"}／${money(labor.insuredAmountMinor)}` : "未設定"}</td>
     <td data-label="健保">{health ? `${health.status === "enrolled" ? "加保中" : "已退保"}／${money(health.insuredAmountMinor)}` : "未設定"}</td>
     <td data-label="眷屬">{health?.status === "enrolled" ? health.dependentCount : "—"}</td>

@@ -148,7 +148,7 @@ export function HrScheduling() {
     scheduledDatesByEmployment.set(entry.employmentId, datesForEmployee);
   }
   const restSummaries = data.employees.filter((employee) => employee.attendanceMode === "scheduled" && employee.monthlyRestDays !== null && employee.monthlyRestDays !== undefined).map((employee) => {
-    const activeDays = dates.filter((day) => employee.hiredOn <= day && (!employee.endedOn || day < employee.endedOn)).length;
+    const activeDays = dates.length;
     const scheduledDays = scheduledDatesByEmployment.get(employee.employmentId)?.size ?? 0;
     const restDays = Math.max(0, activeDays - scheduledDays);
     return { employee, activeDays, scheduledDays, restDays, matches: restDays === Math.min(employee.monthlyRestDays!, activeDays) };

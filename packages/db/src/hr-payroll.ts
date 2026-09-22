@@ -160,12 +160,11 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
     (id, employment_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, note, created_by)
     SELECT ${id}, ${input.employmentId}, coalesce((SELECT max(version_number) + 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId}), 1),
       ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${input.note}, ${actor.id}
-    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND revoked_at IS NULL
-      AND hired_on <= ${input.validFrom} AND (ended_on IS NULL OR (${input.validTo} IS NOT NULL AND ${input.validTo} <= ended_on)))
+    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
       AND NOT EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId} AND voided_at IS NULL
         AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
     RETURNING id`;
-  return writeHrMutation(db, [...closePrevious, insert, ...compensationItemStatements(id, input.items, actor)], id, actor, "compensation_version_created", "任職不存在、敘薪更新日期不連續、薪資期間重疊或資料不合法，請重新整理。 ");
+  return writeHrMutation(db, [...closePrevious, insert, ...compensationItemStatements(id, input.items, actor)], id, actor, "compensation_version_created", "員工主檔不存在、敘薪更新日期不連續、薪資期間重疊或資料不合法，請重新整理。 ");
 }
 
 /** 解除最新敘薪但不刪除資料；重複呼叫可依序撤回到第一版，且不影響既有薪資快照。 */
@@ -484,7 +483,7 @@ function nextDate(value: string) {
  */
 export async function createHrInsuranceVersions(db: Database, inputs: HrInsuranceInput[], actor: HrActor) {
   if (!inputs.length || inputs.length > 2 || new Set(inputs.map((input) => input.scheme)).size !== inputs.length || new Set(inputs.map((input) => input.employmentId)).size !== 1) {
-    throw new HrError(400, "一次只能為同一段任職各建立一筆勞保、健保版本。 ");
+    throw new HrError(400, "一次只能為同一位員工各建立一筆勞保、健保版本。 ");
   }
   const mutations: SQL[] = [];
   // 沒有上一個開放版本時，關閉舊版本這一步不存在是合法情況；新版本 INSERT 仍必須成功。
@@ -538,8 +537,7 @@ async function insuranceVersionStatements(db: Database, input: HrInsuranceInput,
     (id, employment_id, scheme, version_number, status, valid_from, valid_to, insured_amount_minor, dependent_count, rate_year, source_kind, source_url, note, created_by)
     SELECT ${id}, ${input.employmentId}, ${input.scheme}, coalesce((SELECT max(version_number) + 1 FROM hr_insurance_versions WHERE employment_id=${input.employmentId} AND scheme=${input.scheme}), 1),
       ${input.status}, ${input.validFrom}, ${input.validTo}, ${input.insuredAmountMinor}, ${input.dependentCount}, ${input.rateYear}, ${input.sourceKind}, ${input.sourceUrl}, ${input.note}, ${actor.id}
-    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND revoked_at IS NULL
-      AND hired_on <= ${input.validFrom} AND (ended_on IS NULL OR (${input.validTo} IS NOT NULL AND ${input.validTo} <= ended_on)))
+    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
       -- 跟上面的 JS 檢查一致：只有加保要對得上官方級距。退保金額固定是 0，永遠對不上任何一級。
       AND (${input.sourceKind} <> 'official' OR ${input.status} = 'withdrawn' OR EXISTS (
         SELECT 1 FROM hr_insurance_rate_tables AS official_table

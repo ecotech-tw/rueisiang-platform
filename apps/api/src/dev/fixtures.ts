@@ -23,7 +23,6 @@ import {
   hrCompensationVersions,
   hrEmployeeAttendanceLocations,
   hrEmployeeScopes,
-  hrEmployees,
   hrEmployments,
   hrEmploymentAttendanceSettings,
   hrInsuranceVersions,
@@ -120,28 +119,20 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
   // 示範主管也要有 HR 員工紀錄，否則員工雖看得到預設主管，送出申請時會被
   // ensureApprover 正確地擋下（審核者必須是啟用中的員工）。
   if (supervisor) {
-    await db.insert(hrEmployees).values({
-      userId: supervisor.id,
-      employeeNumber: "DEMO-WANG",
-    }).onConflictDoNothing();
     await db.insert(hrEmployments).values({
       id: "dev-employment-wang",
       employeeUserId: supervisor.id,
-      hiredOn: "2026-01-01",
-      seniorityStartOn: "2026-01-01",
+      employeeNumber: "DEMO-WANG",
+      position: "門市主管",
     }).onConflictDoNothing();
   }
 
-  await db.insert(hrEmployees).values({
-    userId: employeeUserId,
-    employeeNumber: "DEMO-CHEN",
-    supervisorUserId: supervisor?.id ?? null,
-  }).onConflictDoNothing();
   await db.insert(hrEmployments).values({
     id: employmentId,
-    employeeUserId: employeeUserId,
-    hiredOn: "2026-01-01",
-    seniorityStartOn: "2026-01-01",
+    employeeUserId,
+    employeeNumber: "DEMO-CHEN",
+    position: "一般職員",
+    supervisorUserId: supervisor?.id ?? null,
   }).onConflictDoNothing();
   await db.insert(hrAttendanceLocations).values({
     id: locationId,
@@ -187,11 +178,7 @@ async function seedDevPayrollScenario(
   const ximenScopeId = DEV_ANALYTICS_SCOPES[0].id;
   const month = "2026-08";
 
-  await db.insert(hrEmployees).values({ userId: ids.linUserId, employeeNumber: "DEMO-LIN", supervisorUserId: ids.supervisorUserId }).onConflictDoUpdate({
-    target: hrEmployees.userId,
-    set: { employeeNumber: "DEMO-LIN", supervisorUserId: ids.supervisorUserId },
-  });
-  await db.insert(hrEmployments).values({ id: linEmploymentId, employeeUserId: ids.linUserId, hiredOn: "2026-01-01", seniorityStartOn: "2026-01-01" }).onConflictDoNothing();
+  await db.insert(hrEmployments).values({ id: linEmploymentId, employeeUserId: ids.linUserId, employeeNumber: "DEMO-LIN", position: "一般職員", supervisorUserId: ids.supervisorUserId }).onConflictDoNothing();
   await db.insert(hrEmployeeAttendanceLocations).values({ id: "dev-attendance-lin-office", employmentId: linEmploymentId, locationId: ids.locationId, validFrom: "2026-01-01" }).onConflictDoNothing();
   await db.insert(hrEmploymentAttendanceSettings).values({ employmentId: linEmploymentId, attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" })
     .onConflictDoUpdate({ target: hrEmploymentAttendanceSettings.employmentId, set: { attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" } });

@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { users } from "./auth.js";
-import { hrEmployees, hrEmployments } from "./hr-people.js";
+import { hrEmployments } from "./hr-people.js";
 import { scopes } from "./reports.js";
 
 const timestamps = () => ({
@@ -62,7 +62,7 @@ export const hrAttendanceLocationSchedules = sqliteTable("hr_attendance_location
   check("ck_hr_attendance_location_schedules_revision", sql`${table.revision} > 0`),
 ]);
 
-/** 同一段任職可同時指派多個辦公位置；每個位置各自用期間資料保留指派歷史。 */
+/** 同一位員工可同時指派多個辦公位置；每個位置各自用期間資料保留指派歷史。 */
 export const hrEmployeeAttendanceLocations = sqliteTable("hr_employee_attendance_locations", {
   id: text("id").primaryKey(),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
@@ -93,7 +93,7 @@ export const hrEmploymentAttendanceSettings = sqliteTable("hr_employment_attenda
 
 export const hrClockEvents = sqliteTable("hr_clock_events", {
   id: text("id").primaryKey(),
-  employeeUserId: text("employee_user_id").notNull().references(() => hrEmployees.userId, { onDelete: "restrict" }),
+  employeeUserId: text("employee_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   attendanceLocationId: text("attendance_location_id").references(() => hrAttendanceLocations.id, { onDelete: "restrict" }),
   scopeId: text("scope_id").references(() => scopes.id, { onDelete: "restrict" }),

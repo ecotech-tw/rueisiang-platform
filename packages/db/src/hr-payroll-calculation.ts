@@ -38,7 +38,7 @@ import {
   hrPayrollAdjustmentItems,
   hrPayrollAdjustments,
 } from "./schema/hr-payroll-runs.js";
-import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
+import { hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
@@ -312,7 +312,7 @@ interface PayrollSourceSnapshotInput {
 async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapshotInput) {
   const employmentIds = input.employmentIds.length ? input.employmentIds : ["__none__"];
   const workerIds = input.workerIds.length ? input.workerIds : ["__none__"];
-  const employmentFilter = and(inArray(hrEmployments.id, employmentIds), sql`${hrEmployments.revokedAt} IS NULL`);
+  const employmentFilter = and(inArray(hrEmployments.id, employmentIds), sql`${hrEmployments.archivedAt} IS NULL`);
   const workerFilter = inArray(hrScheduleWorkers.id, workerIds);
   const employmentValues = sql.join(employmentIds.map((id) => sql`${id}`), sql`, `);
   /*
@@ -344,9 +344,9 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
       WHERE selected_worker_entry.schedule_version_id = hr_schedule_versions.id
         AND selected_worker_entry.worker_id IN (${sql.join(workerIds.map((id) => sql`${id}`), sql`, `)}))`;
   const [employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
-    db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployments).where(employmentFilter),
-    db.select({ userId: hrEmployees.userId, employeeNumber: hrEmployees.employeeNumber, supervisorUserId: hrEmployees.supervisorUserId, revision: hrEmployees.revision, updatedAt: hrEmployees.updatedAt }).from(hrEmployees).where(sql`${hrEmployees.userId} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}) AND revoked_at IS NULL)`),
-    db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}) AND revoked_at IS NULL)`),
+    db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId }).from(hrEmployments).where(employmentFilter),
+    db.select({ userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, supervisorUserId: hrEmployments.supervisorUserId, revision: hrEmployments.revision, updatedAt: hrEmployments.updatedAt }).from(hrEmployments).where(sql`${hrEmployments.id} IN (${employmentValues}) AND ${hrEmployments.archivedAt} IS NULL`),
+    db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}) AND archived_at IS NULL)`),
     db.select().from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, employmentIds)),
     db.select().from(hrCompensationVersions).where(and(inArray(hrCompensationVersions.employmentId, employmentIds), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
     db.select().from(hrCompensationItems).where(sql`${hrCompensationItems.compensationVersionId} IN (SELECT id FROM hr_compensation_versions WHERE employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}) AND voided_at IS NULL AND valid_from < ${input.period.end} AND (valid_to IS NULL OR valid_to > ${input.period.start}))`),
@@ -551,21 +551,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const employeeRows = await db.select({
     employmentId: hrEmployments.id,
     employeeUserId: hrEmployments.employeeUserId,
-    employeeNumber: hrEmployees.employeeNumber,
+    employeeNumber: hrEmployments.employeeNumber,
     employeeName: displayName,
-    hiredOn: hrEmployments.hiredOn,
-    endedOn: hrEmployments.endedOn,
     attendanceMode: sql<string>`coalesce((SELECT attendance_mode FROM hr_employment_attendance_settings WHERE employment_id = ${hrEmployments.id}), 'general')`,
-    employeeRevision: hrEmployees.revision,
+    employeeRevision: hrEmployments.revision,
   }).from(hrEmployments)
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(and(
-      sql`${hrEmployments.revokedAt} IS NULL`,
-      sql`${hrEmployments.hiredOn} < ${period.end}`,
-      sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${period.start})`,
-      hrEmployableUser,
-    ));
+    .where(and(sql`${hrEmployments.archivedAt} IS NULL`, hrEmployableUser));
   const employees = employeeRows.filter((row) => employeeSelected(row, input));
   const closedEmploymentIds = employees.length ? await db.select({ employmentId: hrPayslips.employmentId }).from(hrPayslips)
     .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId)).innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
@@ -618,13 +610,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     sql`${hrLeaveRequests.endsOn} > ${period.start}`,
   ));
   const monthlyData = await listHrMonthlyEntriesForPayroll(db, period.start, period.end);
-  const missingCompensation = employees.flatMap((employee) => overlapDays(period.start, period.end, employee.hiredOn, employee.endedOn)
+  const missingCompensation = employees.flatMap((employee) => overlapDays(period.start, period.end, period.start, null)
     .filter((day) => !covering(compensations.filter((row) => row.employmentId === employee.employmentId), day))
     .map((day) => `${employee.employeeName}（${day}）`));
-  if (missingCompensation.length) throw new HrError(400, `以下員工在部分任職日沒有有效薪資基準：${missingCompensation.slice(0, 10).join("、")}${missingCompensation.length > 10 ? "…" : ""}。`);
+  if (missingCompensation.length) throw new HrError(400, `以下員工在部分計算日沒有有效薪資基準：${missingCompensation.slice(0, 10).join("、")}${missingCompensation.length > 10 ? "…" : ""}。`);
   const hourlyMissing = employees.flatMap((employee) => {
     const rows = compensations.filter((row) => row.employmentId === employee.employmentId);
-    return overlapDays(period.start, period.end, employee.hiredOn, employee.endedOn)
+    return overlapDays(period.start, period.end, period.start, null)
       .filter((day) => covering(rows, day)?.payBasis === "hourly" && !monthlyData.hourly.some((entry) => entry.employmentId === employee.employmentId && entry.workDate === day))
       .map((day) => `${employee.employeeName}（${day}）`);
   });
@@ -766,7 +758,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   }
 
   for (const employee of employees) {
-    const employmentDays = overlapDays(period.start, period.end, employee.hiredOn, employee.endedOn);
+    const employmentDays = overlapDays(period.start, period.end, period.start, null);
     const employeeCompensations = compensations.filter((row) => row.employmentId === employee.employmentId);
     const lines: HrPayrollLineResult[] = [];
     let baseMinor = 0;
@@ -785,7 +777,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     for (const day of employmentDays) {
       const compensation = covering(employeeCompensations, day);
       if (!compensation) continue;
-      // 日薪是買「已發布的工作日」，不能把整段任職期間誤當成出勤日；特殊上班日則由明確套用資料保留計薪機會。
+      // 日薪是買「已發布的工作日」，不能把整個計算期間誤當成出勤日；特殊上班日則由明確套用資料保留計薪機會。
       if (compensation.payBasis === "daily" && !scheduledDates.has(day) && !specialDates.has(day)) continue;
       const special = specialAssignments.find((item) => item.workDate === day);
       if (special) {
@@ -871,7 +863,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     // 避免每一天 floor 造成完整月份少幾分：完整月份同一版月薪直接保留原額。
     const fullMonthComp = covering(employeeCompensations, period.start);
     if (fullMonthComp?.payBasis === "monthly" && fullMonthComp.validFrom <= period.start && (fullMonthComp.validTo === null || fullMonthComp.validTo >= period.end)) {
-      const employedDays = employeeDaysForPeriod(employee, period);
+      const employedDays = employeeDaysForPeriod(period);
       const fullMonthBase = Math.round(fullMonthComp.baseAmountMinor * employedDays / monthlyDivisorDays);
       const specialDailyBase = specialAssignments.filter((item) => employmentDays.includes(item.workDate)).reduce((sum) => sum + Math.floor(fullMonthComp.baseAmountMinor / monthlyDivisorDays), 0);
       baseMinor = Math.max(0, fullMonthBase - specialDailyBase);
@@ -1173,8 +1165,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   return getPayrollRunResult(db, runId, [...calculationWarnings]);
 }
 
-function employeeDaysForPeriod(employee: { hiredOn: string; endedOn: string | null }, period: { start: string; end: string }): number {
-  return overlapDays(period.start, period.end, employee.hiredOn, employee.endedOn).length;
+function employeeDaysForPeriod(period: { start: string; end: string }): number {
+  return overlapDays(period.start, period.end, period.start, null).length;
 }
 
 /** 取得可選的獎金；來源與比例保留在 API，前端不另複製制度常數。 */
@@ -1285,16 +1277,14 @@ async function ensureBonusScopes(db: Database, scopeIds: string[]) {
   if (found.length !== scopeIds.length) throw new HrError(404, "找不到一個或多個啟用中的營運 Scope。 ");
 }
 
-async function resolveBonusPolicyEmployments(db: Database, employeeUserIds: string[] | undefined, validFrom: string | undefined) {
+async function resolveBonusPolicyEmployments(db: Database, employeeUserIds: string[] | undefined) {
   if (!employeeUserIds?.length) return [];
   const rows = await db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId }).from(hrEmployments)
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
-    .where(and(inArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.revokedAt} IS NULL`, sql`${hrEmployments.hiredOn} <= ${validFrom}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${validFrom})`))
-    .orderBy(desc(hrEmployments.hiredOn));
+    .where(and(inArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.archivedAt} IS NULL`));
   const employmentByUser = new Map<string, { id: string; employeeUserId: string }>();
-  for (const row of rows) if (!employmentByUser.has(row.employeeUserId)) employmentByUser.set(row.employeeUserId, row);
+  for (const row of rows) employmentByUser.set(row.employeeUserId, row);
   const missing = employeeUserIds.filter((employeeUserId) => !employmentByUser.has(employeeUserId));
-  if (missing.length) throw new HrError(404, "有員工在套用生效日沒有有效任職紀錄。 ");
+  if (missing.length) throw new HrError(404, "有員工目前不是有效員工。 ");
   return employeeUserIds.map((employeeUserId) => employmentByUser.get(employeeUserId)!);
 }
 
@@ -1305,7 +1295,7 @@ export async function createHrBonusPolicy(db: Database, input: CreateHrBonusPoli
     ? input.employeeAssignments.map((assignment) => ({ employeeUserId: assignment.employeeUserId, weightUnits: assignment.weightUnits ?? 1 }))
     : (input.employeeUserIds ?? []).map((employeeUserId) => ({ employeeUserId, weightUnits: 1 }));
   const assignmentWeightByUser = new Map(employeeAssignments.map((assignment) => [assignment.employeeUserId, assignment.weightUnits]));
-  const employments = await resolveBonusPolicyEmployments(db, employeeAssignments.map((assignment) => assignment.employeeUserId), input.assignmentValidFrom);
+  const employments = await resolveBonusPolicyEmployments(db, employeeAssignments.map((assignment) => assignment.employeeUserId));
   const policyId = crypto.randomUUID();
   const policyVersionId = crypto.randomUUID();
   try {
@@ -1354,7 +1344,7 @@ export async function updateHrBonusPolicy(db: Database, input: UpdateHrBonusPoli
     : input.employeeUserIds !== undefined
       ? input.employeeUserIds.map((employeeUserId) => ({ employeeUserId, weightUnits: 1 }))
       : undefined;
-  const specifiedEmployments = specifiedAssignments === undefined ? [] : await resolveBonusPolicyEmployments(db, specifiedAssignments.map((assignment) => assignment.employeeUserId), input.validFrom);
+  const specifiedEmployments = specifiedAssignments === undefined ? [] : await resolveBonusPolicyEmployments(db, specifiedAssignments.map((assignment) => assignment.employeeUserId));
   const specifiedWeightByUser = new Map((specifiedAssignments ?? []).map((assignment) => [assignment.employeeUserId, assignment.weightUnits]));
   const nextMembers = specifiedAssignments === undefined
     ? activeMembers.map(({ member }) => ({ employmentId: member.employmentId, validTo: member.validTo, weightUnits: member.weightUnits }))
@@ -1456,15 +1446,14 @@ export async function listHrBonusAssignments(db: Database) {
     bonusKind: sql<HrBonusKind>`${hrBonusPolicyVersions.bonusKind}`.as("bonus_assignment_kind"),
     performancePeriod: sql<HrBonusPerformancePeriod>`${hrBonusPolicyVersions.performancePeriod}`.as("bonus_assignment_period"),
     employeeUserId: sql<string>`${hrEmployments.employeeUserId}`.as("bonus_assignment_employee_user_id"),
-    employeeNumber: sql<string>`${hrEmployees.employeeNumber}`.as("bonus_assignment_employee_number"),
+    employeeNumber: sql<string>`${hrEmployments.employeeNumber}`.as("bonus_assignment_employee_number"),
     employeeName: displayName,
   }).from(hrBonusPolicyMembers)
     .innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPolicyMembers.policyVersionId))
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrBonusPolicyMembers.employmentId))
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(and(sql`${hrEmployments.revokedAt} IS NULL`, sql`${hrBonusPolicyVersions.voidedAt} IS NULL`))
+    .where(and(sql`${hrEmployments.archivedAt} IS NULL`, sql`${hrBonusPolicyVersions.voidedAt} IS NULL`))
     .orderBy(desc(hrBonusPolicyMembers.createdAt));
   return rows.map((row) => ({
     assignment: { id: row.assignmentId, employmentId: row.assignmentEmploymentId, validFrom: row.validFrom, validTo: row.validTo, weightUnits: row.weightUnits },
@@ -1479,10 +1468,8 @@ export async function assignHrBonusPolicyMember(db: Database, input: AssignHrBon
   const weightUnits = input.weightUnits ?? 1;
   if (!Number.isSafeInteger(weightUnits) || weightUnits <= 0) throw new HrError(400, "權重必須是正整數。 ");
   const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
-    .where(and(eq(hrEmployments.employeeUserId, input.employeeUserId), sql`${hrEmployments.revokedAt} IS NULL`, sql`${hrEmployments.hiredOn} <= ${input.validFrom}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${input.validFrom})`))
-    .orderBy(desc(hrEmployments.hiredOn)).limit(1);
-  if (!employment) throw new HrError(404, "找不到該員工在生效日的任職紀錄。 ");
+    .where(and(eq(hrEmployments.employeeUserId, input.employeeUserId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
+  if (!employment) throw new HrError(404, "找不到目前有效的員工紀錄。 ");
   const [policy] = await db.select({ id: hrBonusPolicyVersions.id, policyId: hrBonusPolicyVersions.policyId, versionValidFrom: hrBonusPolicyVersions.validFrom, versionValidTo: hrBonusPolicyVersions.validTo, voidedAt: hrBonusPolicyVersions.voidedAt, active: hrBonusPolicies.active }).from(hrBonusPolicyVersions)
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .where(eq(hrBonusPolicyVersions.id, input.policyVersionId)).limit(1);
@@ -1579,7 +1566,6 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
   // 部分結算保持期間 open，讓尚未結算的員工仍可建立另一張試算；每次 claim 都在同一
   // D1 batch 內完成，並以「所有當期 active 任職都已 claim」決定是否關閉期間，避免
   // 只拿本次 payslip 數量和 active 人數比較而提早結帳。
-  const period = periodFromKey(run.periodKey);
   const mutations = [
     sql`INSERT INTO hr_payroll_closed_employees (period_key, employment_id, payroll_run_id)
       SELECT ${run.periodKey}, payslip.employment_id, ${runId}
@@ -1596,10 +1582,8 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
       WHERE id=${run.payrollPeriodId} AND status='open'
         AND NOT EXISTS (
           SELECT 1 FROM hr_employments AS employment
-          INNER JOIN hr_employees AS employee ON employee.user_id=employment.employee_user_id
           INNER JOIN users AS account ON account.id=employment.employee_user_id
-          WHERE account.status='active' AND employment.revoked_at IS NULL AND employment.hired_on < ${period.end}
-            AND (employment.ended_on IS NULL OR employment.ended_on > ${period.start})
+          WHERE account.status='active' AND employment.archived_at IS NULL
             AND NOT EXISTS (
               SELECT 1 FROM hr_payroll_closed_employees AS claim
               WHERE claim.period_key=${run.periodKey} AND claim.employment_id=employment.id

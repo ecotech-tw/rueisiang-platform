@@ -1,14 +1,14 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie } from "@rueisiang/auth";
 import {
-  HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
-  createHrCompensationVersion, voidHrCompensationVersion, createHrEmployment, createHrFormRequest, createHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, endHrEmployment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
+  HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, archiveHrEmployment, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
+  createHrCompensationVersion, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
   createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest,
   assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
-  withdrawHrEmployment, updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope, undoHrEmploymentAction,
+  updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
@@ -601,7 +601,7 @@ export const hr = new Hono<AppEnv>()
     if (new Set(locationIds).size !== locationIds.length) throw new HTTPException(400, { message: "新增辦公位置不可重複。" });
     return c.json(await updateHrAttendanceScope(c.get("db"), {
       employmentId: c.req.param("id"), attendanceMode: selectedMode, monthlyRestDays, revision: revision(input), validFrom, validTo,
-      // Removing a location takes effect today; validTo remains tomorrow so newly added locations still pass the employment-period check.
+      // Removing a location takes effect today; validTo remains tomorrow so newly added locations stay within the same assignment day.
       assignmentValidTo: validFrom,
       locationIds, assignmentsToEnd: attendanceAssignmentsToEnd(input),
     }, c.get("user")));
@@ -848,14 +848,16 @@ export const hr = new Hono<AppEnv>()
   })
   .post("/employees", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
-    const hiredOn = date(input, "hiredOn")!;
-    const seniorityStartOn = date(input, "seniorityStartOn")!;
-    if (seniorityStartOn > hiredOn) throw new HTTPException(400, { message: "年資認列日起不得晚於到職日。" });
-    return c.json(await assignHrEmployee(c.get("db"), { userId: text(input, "userId", "使用者"), employeeNumber: text(input, "employeeNumber", "員工編號", 40), hiredOn, seniorityStartOn, attendanceMode: attendanceMode(input, true) }, c.get("user")), 201);
+    return c.json(await assignHrEmployee(c.get("db"), {
+      userId: text(input, "userId", "使用者"), employeeNumber: text(input, "employeeNumber", "員工編號", 40),
+      position: text(input, "position", "職位", 100), attendanceMode: attendanceMode(input, true), revision: input.revision === undefined ? undefined : revision(input),
+    }, c.get("user")), 201);
   })
   .patch("/employees/:id", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
-    return c.json(await updateHrEmployee(c.get("db"), c.req.param("id"), { employeeNumber: text(input, "employeeNumber", "員工編號", 40), revision: revision(input) }, c.get("user")));
+    return c.json(await updateHrEmployee(c.get("db"), c.req.param("id"), {
+      employeeNumber: text(input, "employeeNumber", "員工編號", 40), position: text(input, "position", "職位", 100), revision: revision(input),
+    }, c.get("user")));
   })
   .patch("/employees/:id/supervisor", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
@@ -922,12 +924,10 @@ export const hr = new Hono<AppEnv>()
   })
   .post("/employments", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
-    const hiredOn = date(input, "hiredOn")!;
-    const endedOn = date(input, "endedOn", true);
-    const seniorityStartOn = date(input, "seniorityStartOn")!;
-    period(hiredOn, endedOn);
-    if (seniorityStartOn > hiredOn) throw new HTTPException(400, { message: "年資認列日起不得晚於到職日。" });
-    return c.json(await createHrEmployment(c.get("db"), { userId: text(input, "userId", "員工"), hiredOn, endedOn, seniorityStartOn, attendanceMode: attendanceMode(input, true) }, c.get("user")), 201);
+    return c.json(await assignHrEmployee(c.get("db"), {
+      userId: text(input, "userId", "員工"), employeeNumber: text(input, "employeeNumber", "員工編號", 40),
+      position: text(input, "position", "職位", 100), attendanceMode: attendanceMode(input, true), revision: input.revision === undefined ? undefined : revision(input),
+    }, c.get("user")), 201);
   })
   .patch("/employments/:id/attendance-mode", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);
@@ -938,13 +938,16 @@ export const hr = new Hono<AppEnv>()
   })
   .patch("/employments/:id/end", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
-    return c.json(await endHrEmployment(c.get("db"), c.req.param("id"), { endedOn: date(input, "endedOn")!, revision: revision(input) }, c.get("user")));
+    return c.json(await archiveHrEmployment(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
+  })
+  .post("/employments/:id/archive", requirePermission("hr:employee:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await archiveHrEmployment(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
   })
   .post("/employments/:id/withdraw", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
-    return c.json(await withdrawHrEmployment(c.get("db"), c.req.param("id"), { revision: revision(input) }, c.get("user")));
+    return c.json(await archiveHrEmployment(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
   })
-  .post("/employment-actions/:id/undo",  requirePermission("hr:employee:write"), async (c) => c.json(await undoHrEmploymentAction(c.get("db"), c.req.param("id"), c.get("user"))))
   .post("/assignments", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
     const validFrom = date(input, "validFrom")!;

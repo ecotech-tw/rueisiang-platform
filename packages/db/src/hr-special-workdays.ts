@@ -3,7 +3,7 @@ import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
-import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
+import { hrEmployments } from "./schema/hr-people.js";
 import { hrScheduleWorkers, hrSpecialWorkdayAllowances, hrSpecialWorkdayAssignments, hrSpecialWorkdayOvertimeRules, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 
@@ -71,8 +71,8 @@ export async function listHrSpecialWorkdayRules(db: Database) {
 }
 
 export async function listHrSpecialWorkdayAssignments(db: Database, periodStart?: string, periodEnd?: string) {
-  const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleVersionNumber: hrSpecialWorkdayRuleVersions.versionNumber, ruleVersionVoidedAt: hrSpecialWorkdayRuleVersions.voidedAt, employeeNumber: hrEmployees.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: hrScheduleWorkers.displayName }).from(hrSpecialWorkdayAssignments)
-    .innerJoin(hrSpecialWorkdayRuleVersions, eq(hrSpecialWorkdayRuleVersions.id, hrSpecialWorkdayAssignments.ruleVersionId)).leftJoin(hrEmployments, eq(hrEmployments.id, hrSpecialWorkdayAssignments.employmentId)).leftJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).leftJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrSpecialWorkdayAssignments.workerId))
+  const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleVersionNumber: hrSpecialWorkdayRuleVersions.versionNumber, ruleVersionVoidedAt: hrSpecialWorkdayRuleVersions.voidedAt, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: hrScheduleWorkers.displayName }).from(hrSpecialWorkdayAssignments)
+    .innerJoin(hrSpecialWorkdayRuleVersions, eq(hrSpecialWorkdayRuleVersions.id, hrSpecialWorkdayAssignments.ruleVersionId)).leftJoin(hrEmployments, eq(hrEmployments.id, hrSpecialWorkdayAssignments.employmentId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).leftJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrSpecialWorkdayAssignments.workerId))
     .where(and(periodStart ? sql`${hrSpecialWorkdayAssignments.workDate} >= ${periodStart}` : undefined, periodEnd ? sql`${hrSpecialWorkdayAssignments.workDate} < ${periodEnd}` : undefined)).orderBy(asc(hrSpecialWorkdayAssignments.workDate));
   return rows;
 }
@@ -176,8 +176,8 @@ export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkda
     if (inputKeys.has(inputKey)) throw new HrError(409, "同一批次不可重複套用同一人員同一天。 ");
     inputKeys.add(inputKey);
     if (item.employmentId) {
-      const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, item.employmentId), sql`${hrEmployments.revokedAt} IS NULL`, sql`${hrEmployments.hiredOn} <= ${item.workDate}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${item.workDate})`)).limit(1);
-      if (!employment) throw new HrError(400, "員工在套用日期沒有有效任職。 ");
+      const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, item.employmentId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
+      if (!employment) throw new HrError(400, "員工目前不是有效員工。 ");
     } else {
       const [worker] = await db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(eq(hrScheduleWorkers.id, item.workerId!), eq(hrScheduleWorkers.active, 1))).limit(1);
       if (!worker) throw new HrError(400, "支援人員在套用日期不是啟用狀態。 ");

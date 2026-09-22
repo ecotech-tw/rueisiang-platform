@@ -11,7 +11,7 @@ import {
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { revokeUserDeviceSessions } from "./device-sessions.js";
-import { hrEmployees } from "./schema/hr-people.js";
+import { hrEmployments } from "./schema/hr-people.js";
 import { rolePermissionGrants, roles, userPermissionGrants, userRoleAssignments, users } from "./schema/auth.js";
 
 /**
@@ -488,7 +488,7 @@ export async function deleteUser(db: Database, id: string): Promise<DeleteUserRe
   if (!row) return "not-found";
   if (row.status === "active") return "still-active";
 
-  const [employee] = await db.select({ userId: hrEmployees.userId }).from(hrEmployees).where(eq(hrEmployees.userId, id)).limit(1);
+  const [employee] = await db.select({ userId: hrEmployments.employeeUserId }).from(hrEmployments).where(eq(hrEmployments.employeeUserId, id)).limit(1);
   if (employee) return "employee-linked";
 
   await db.delete(users).where(eq(users.id, id));

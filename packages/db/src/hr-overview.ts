@@ -4,7 +4,7 @@ import { countHrClockCalendarAnomalies } from "./hr-attendance.js";
 import { hrEmployableUser } from "./hr-people.js";
 import { hrPayrollPeriods, hrPayrollRuns } from "./schema/hr-payroll-runs.js";
 import { hrInsuranceVersions } from "./schema/hr-payroll.js";
-import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
+import { hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrScheduleEntries, hrScheduleVersions } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
@@ -40,11 +40,10 @@ export async function getHrOverview(db: Database): Promise<HrOverviewResult> {
   const periodStart = `${periodKey}-01`;
   const nextPeriodStart = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, "0")}-01`;
 
-  const employeeRows = await db.select({ userId: hrEmployees.userId, employmentId: hrEmployments.id, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployees)
-    .innerJoin(users, eq(users.id, hrEmployees.userId))
-    .innerJoin(hrEmployments, eq(hrEmployments.employeeUserId, hrEmployees.userId))
-    .where(and(hrEmployableUser, sql`${hrEmployments.revokedAt} IS NULL`));
-  const activeRows = employeeRows.filter((row) => row.hiredOn <= today && (row.endedOn === null || today < row.endedOn));
+  const employeeRows = await db.select({ userId: hrEmployments.employeeUserId, employmentId: hrEmployments.id }).from(hrEmployments)
+    .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .where(and(hrEmployableUser, sql`${hrEmployments.archivedAt} IS NULL`));
+  const activeRows = employeeRows;
   const activeUserIds = [...new Set(activeRows.map((row) => row.userId))];
   const activeEmploymentIds = new Set(activeRows.map((row) => row.employmentId));
 

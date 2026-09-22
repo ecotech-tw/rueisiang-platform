@@ -240,7 +240,7 @@ function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendar
     <div className="hr-clock-calendar-details-head"><strong>{dayLabel}</strong><span>{["日", "一", "二", "三", "四", "五", "六"][day.weekday]}曜日</span></div>
     {day.status === "leave" ? <p className="hr-clock-calendar-empty-detail">已核准請假，這天沒有預期出勤。</p> : day.events.length ? <ul className="hr-clock-calendar-events">
       {day.events.map((event) => <li key={event.id}><span>{event.eventKind === "clock_in" ? "上班" : "下班"}</span><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}</small></li>)}
-    </ul> : day.anomaly ? null : <p className="hr-clock-calendar-empty-detail">{day.status === "rest" ? "休息日，沒有預期出勤。" : day.status === "future" ? "尚未到這一天。" : day.status === "not-employed" ? "這天不在任職期間。" : "這天尚未有打卡紀錄。"}</p>}
+    </ul> : day.anomaly ? null : <p className="hr-clock-calendar-empty-detail">{day.status === "rest" ? "休息日，沒有預期出勤。" : day.status === "future" ? "尚未到這一天。" : day.status === "not-employed" ? "目前不是活動員工。" : "這天尚未有打卡紀錄。"}</p>}
     {day.anomaly ? <div className="hr-clock-calendar-anomaly"><strong>{anomalyTitle}</strong><span>{day.anomalyMessage ?? "請確認當日出勤紀錄。"}</span><div className="hr-clock-calendar-actions"><Button onClick={() => onCorrection(day.date, correctionKind)}>申請忘刷</Button><Button variant="secondary" onClick={() => onLeave(day.date)}>請假申請</Button></div></div> : null}
   </section>;
 }
