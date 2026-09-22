@@ -213,18 +213,35 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onUndo, canOffice
     description: "可修正到職日與年資認列日；不再任職首日請使用「結束任職」。新的到職日必須涵蓋既有指派、出勤與薪資歷史，不能把任職起點改到既有資料之後。",
     fields: [{ key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }],
   });
-  return <Dialog title={`管理任職｜${data.employee.employeeNumber} · ${data.employee.displayName}`} onClose={onClose} className="hr-employee-management-dialog">
+  const endEmployment = (job: Employment) => openEditor({
+    title: "結束任職", path: `/employments/${job.id}/end`, method: "PATCH", undoable: true,
+    successMessage: `已結束 ${data.employee.displayName} 的任職`, initial: { revision: job.revision },
+    description: "離職生效日是不再任職的第一天；系統會自動把仍有效的營運據點歸屬與辦公位置指派結束在同一天，並保留任職與相關歷史。若只是任職中途調整據點或辦公位置，才需要在任職歷史下方個別結束。",
+    fields: [{ key: "endedOn", label: "離職生效日（不含當日）", type: "date" }],
+  });
+  const createEmployment = () => openEditor({
+    title: hasRevokedEmployment ? "重新指派員工" : data.employments.length ? "新增復職任職" : "新增任職", path: "/employments", method: "POST", undoable: true,
+    successMessage: hasRevokedEmployment ? `已重新指派 ${data.employee.displayName}` : `已新增 ${data.employee.displayName} 的任職`,
+    initial: { userId: data.employee.userId },
+    description: hasRevokedEmployment ? "這會建立一段全新的任職，沿用原員工帳號與編號；原本已撤銷的任職、據點與其他下游歷史不會被改寫。這和敘薪解除後建立修正版相同，請填寫新的到職日。" : "復職會建立新的任職期間，不會修改既有歷史；到職後可再從此處結束任職。",
+    fields: [{ key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }],
+  });
+  const revokeEmployment = (job: Employment) => openEditor({
+    title: "撤銷錯誤任職", path: `/employments/${job.id}/revoke`, method: "POST", submitLabel: "確認撤銷", submitVariant: "danger",
+    successMessage: `已撤銷 ${data.employee.displayName} 的錯誤任職`, initial: { revision: job.revision },
+    description: "撤銷會保留任職列、employmentId 與所有下游歷史，不會 cascade 刪除或改寫資料。這段任職撤銷後不再視為在職，也不能再新增指派、薪資或其他關聯；若要重新加入，請到未在職列表按「重新指派」。若只是正常離職，請使用「結束任職」。",
+    fields: [],
+  });
+  return <Dialog title={`管理任職｜${data.employee.employeeNumber} · ${data.employee.displayName}`} onClose={onClose} className="hr-employee-management-dialog" actions={activeEmployment ? <Button variant="danger" onClick={() => endEmployment(activeEmployment)}>結束任職</Button> : <Button onClick={createEmployment}>{hasRevokedEmployment ? "重新指派" : data.employments.length ? "新增復職任職" : "新增任職"}</Button>}>
     <div className="hr-management-identity">
       <div><strong>{data.employee.displayName}</strong><span>{data.employee.email}</span></div>
       <span className={`status ${data.employee.employmentStatus === "active" ? "status-active" : "status-invited"}`}>{data.employee.employmentStatus === "active" ? "在職" : "未在職"}</span>
     </div>
-    <p className="muted">這裡管理任職期間，也可以在任職中途結束營運據點歸屬與辦公位置指派；結束任職時，仍有效的兩種指派會自動在離職生效日結束並保留歷史。薪資、員工編號、主管與出勤方式請到各自的 HR 管理頁維護。</p>
+    <p className="hr-management-description">這裡管理任職期間，也可以在任職中途結束營運據點歸屬與辦公位置指派；結束任職時，仍有效的兩種指派會自動在離職生效日結束並保留歷史。薪資、員工編號、主管與出勤方式請到各自的 HR 管理頁維護。</p>
     {activeEmployment ? <div className="hr-management-current">
       <div><span className="eyebrow">目前任職</span><strong>{activeEmployment.hiredOn}～目前</strong><span>年資認列日：{activeEmployment.seniorityStartOn}</span></div>
-      <Button variant="danger" onClick={() => openEditor({ title: "結束任職", path: `/employments/${activeEmployment.id}/end`, method: "PATCH", undoable: true, successMessage: `已結束 ${data.employee.displayName} 的任職`, initial: { revision: activeEmployment.revision }, description: "離職生效日是不再任職的第一天；系統會自動把仍有效的營運據點歸屬與辦公位置指派結束在同一天，並保留任職與相關歷史。若只是任職中途調整據點或辦公位置，才需要在任職歷史下方個別結束。", fields: [{ key: "endedOn", label: "離職生效日（不含當日）", type: "date" }] })}>結束任職</Button>
     </div> : <div className="hr-management-current is-empty">
-      <div><span className="eyebrow">目前任職</span><strong>{hasRevokedEmployment ? "任職已撤銷，可重新指派" : "目前沒有有效任職"}</strong><span>{hasRevokedEmployment ? "建立新的任職版本；原撤銷任職與下游歷史會保留不變。" : "可以新增任職或建立復職紀錄。"}</span></div>
-      <Button onClick={() => openEditor({ title: hasRevokedEmployment ? "重新指派員工" : data.employments.length ? "新增復職任職" : "新增任職", path: "/employments", method: "POST", undoable: true, successMessage: hasRevokedEmployment ? `已重新指派 ${data.employee.displayName}` : `已新增 ${data.employee.displayName} 的任職`, initial: { userId: data.employee.userId }, description: hasRevokedEmployment ? "這會建立一段全新的任職，沿用原員工帳號與編號；原本已撤銷的任職、據點與其他下游歷史不會被改寫。這和敘薪解除後建立修正版相同，請填寫新的到職日。" : "復職會建立新的任職期間，不會修改既有歷史；到職後可再從此處結束任職。", fields: [{ key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }] })}>{hasRevokedEmployment ? "重新指派" : data.employments.length ? "新增復職任職" : "新增任職"}</Button>
+      <div><span className="eyebrow">目前任職</span><strong>{hasRevokedEmployment ? "任職已撤銷，可重新指派" : "目前沒有有效任職"}</strong><span>{hasRevokedEmployment ? "建立新的任職版本；原撤銷任職與下游歷史會保留不變。" : "請從下方操作列新增任職或建立復職紀錄。"}</span></div>
     </div>}
     <div className="hr-management-group">
       <h3>任職歷史</h3>
@@ -241,7 +258,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onUndo, canOffice
           <div className="hr-management-job-actions">
             {!job.revokedAt ? <>
               <Button variant="secondary" onClick={() => editEmploymentDates(job)}>編輯任職日期</Button>
-              <Button variant="secondary" onClick={() => openEditor({ title: "撤銷錯誤任職", path: `/employments/${job.id}/revoke`, method: "POST", submitLabel: "確認撤銷", submitVariant: "danger", successMessage: `已撤銷 ${data.employee.displayName} 的錯誤任職`, initial: { revision: job.revision }, description: "撤銷會保留任職列、employmentId 與所有下游歷史，不會 cascade 刪除或改寫資料。這段任職撤銷後不再視為在職，也不能再新增指派、薪資或其他關聯；若要重新加入，請到未在職列表按「重新指派」。若只是正常離職，請使用「結束任職」。", fields: [] })}>撤銷這段任職</Button>
+              <Button variant="secondary" onClick={() => revokeEmployment(job)}>撤銷這段任職</Button>
             </> : <span className="status status-disabled">已撤銷</span>}
           </div>
         </div>;
