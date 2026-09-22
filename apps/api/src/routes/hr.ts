@@ -315,17 +315,16 @@ function overtimeInput(input: Record<string, unknown>, employeeUserId: string) {
   if (!settlementKind) throw new HTTPException(400, { message: "加班結算方式不正確。" });
   return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), reason: text(input, "reason", "加班原因", 1000) } as const;
 }
+function leaveDateTimeValue(input: Record<string, unknown>, key: "startsAt" | "endsAt", alias: "startAt" | "endAt", label: string) {
+  const raw = input[key] ?? input[alias];
+  return dateTimeValue({ [key]: raw }, key, label);
+}
 function leaveRequestInput(input: Record<string, unknown>, employeeUserId: string) {
-  const startsOn = date(input, "startDate")!;
-  const endDate = date(input, "endDate")!;
-  if (endDate < startsOn) throw new HTTPException(400, { message: "結束日期不可早於開始日期。" });
   return {
     employeeUserId,
     leaveTypeId: text(input, "leaveTypeId", "假別"),
-    startsOn,
-    endsOn: nextTaipeiDate(endDate),
-    durationMinutes: integerValue(input, "durationMinutes", "請假時數（分鐘）", 30, 44_640),
-    payRatePpm: input.payRatePpm === undefined ? undefined : integerValue(input, "payRatePpm", "給薪比例（ppm）", 0, 1_000_000),
+    startsAt: leaveDateTimeValue(input, "startsAt", "startAt", "請假開始時間"),
+    endsAt: leaveDateTimeValue(input, "endsAt", "endAt", "請假結束時間"),
     reason: nullableText(input, "reason", "請假原因", 1000) ?? "",
   } as const;
 }

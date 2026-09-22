@@ -185,11 +185,11 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
   const leaveRows = options.includeLeave ? await db.select({
     id: hrLeaveRequests.id, employmentId: hrLeaveRequests.employmentId, leaveType: hrLeaveRequests.leaveType, status: hrLeaveRequests.status,
-    startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn, durationMinutes: hrLeaveRequests.durationMinutes, payRatePpm: hrLeaveRequests.payRatePpm,
+    startsAt: hrLeaveRequests.startsAt, endsAt: hrLeaveRequests.endsAt, startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn, durationMinutes: hrLeaveRequests.durationMinutes, payRatePpm: hrLeaveRequests.payRatePpm,
     reason: hrLeaveRequests.reason, reviewedBy: hrLeaveRequests.reviewedBy, reviewedAt: hrLeaveRequests.reviewedAt,
     reviewComment: hrLeaveRequests.reviewComment, createdAt: hrLeaveRequests.createdAt, createdBy: hrLeaveRequests.createdBy,
   }).from(hrLeaveRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
-    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
+    .where(eq(hrEmployments.employeeUserId, userId)).orderBy(desc(hrLeaveRequests.startsAt)) : undefined;
   const compensation = compensationRows?.map((row) => ({ ...row, items: compensationItems.filter((item) => item.compensationVersionId === row.id) }));
   const insurance = insuranceRows;
   const leave = leaveRows;

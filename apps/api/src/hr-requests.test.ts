@@ -69,7 +69,7 @@ describe("HR 申請中心", () => {
     const leaveTypeBody = await leaveType.json() as { id: string };
 
     const leave = await request("/hr/requests/leave", "POST", {
-      employeeUserId: "employee", leaveTypeId: leaveTypeBody.id, startDate: "2026-01-05", endDate: "2026-01-05", durationMinutes: 480, payRatePpm: 1_000_000, reason: "後台代登測試",
+      employeeUserId: "employee", leaveTypeId: leaveTypeBody.id, startsAt: "2026-01-05T09:00", endsAt: "2026-01-05T17:00", reason: "後台代登測試",
     });
     expect(leave.status, await leave.clone().text()).toBe(201);
     const overtime = await request("/hr/requests/overtime", "POST", {
@@ -84,11 +84,41 @@ describe("HR 申請中心", () => {
     expect(body.overtime[0]?.request).toMatchObject({ status: "approved", actualStart: expect.any(String), actualEnd: expect.any(String) });
   });
 
+  it("請假時數由端點計算，給薪比例固定採用假別預設值並以實際時段防重疊", async () => {
+    await assignEmployee();
+    const leaveType = await request("/hr/leave-types", "POST", { name: "自動計算測試假", defaultPayRatePpm: 500_000 });
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+
+    const first = await request("/hr/requests/leave", "POST", {
+      employeeUserId: "employee", leaveTypeId, startsAt: "2026-01-05T09:00", endsAt: "2026-01-05T17:00", durationMinutes: 30, payRatePpm: 0, reason: "端點計算",
+    });
+    expect(first.status, await first.clone().text()).toBe(201);
+    const firstId = (await first.json() as { id: string }).id;
+    const center = await (await request("/hr/requests")).json() as { leaves: Array<{ request: { id: string; startsAt: string; endsAt: string; durationMinutes: number; payRatePpm: number } }> };
+    expect(center.leaves.find((item) => item.request.id === firstId)?.request).toMatchObject({
+      startsAt: "2026-01-05 01:00:00", endsAt: "2026-01-05 09:00:00", durationMinutes: 480, payRatePpm: 500_000,
+    });
+
+    const adjacent = await request("/hr/requests/leave", "POST", {
+      employeeUserId: "employee", leaveTypeId, startsAt: "2026-01-05T17:00", endsAt: "2026-01-05T18:00", reason: "相鄰時段",
+    });
+    expect(adjacent.status, await adjacent.clone().text()).toBe(201);
+    const overlap = await request("/hr/requests/leave", "POST", {
+      employeeUserId: "employee", leaveTypeId, startsAt: "2026-01-05T16:00", endsAt: "2026-01-05T17:00", reason: "重疊時段",
+    });
+    expect(overlap.status).toBe(409);
+
+    const tooLong = await request("/hr/requests/leave", "POST", {
+      employeeUserId: "employee", leaveTypeId, startsAt: "2026-02-01T09:00", endsAt: "2026-03-04T09:30", reason: "超過最長期間",
+    });
+    expect(tooLong.status).toBe(400);
+  });
+
   it("HR 代登不允許申請人直接核准自己的請假與加班", async () => {
     await request("/hr/employees", "POST", { userId: "admin", employeeNumber: "E-ADMIN", hiredOn: "2026-01-01", seniorityStartOn: "2026-01-01" });
     const leaveType = await request("/hr/leave-types", "POST", { name: "自審測試假", defaultPayRatePpm: 1_000_000 });
     const leaveTypeId = (await leaveType.json() as { id: string }).id;
-    const leave = await request("/hr/requests/leave", "POST", { employeeUserId: "admin", leaveTypeId, startDate: "2026-01-05", endDate: "2026-01-05", durationMinutes: 30, reason: "自審測試" });
+    const leave = await request("/hr/requests/leave", "POST", { employeeUserId: "admin", leaveTypeId, startsAt: "2026-01-05T09:00", endsAt: "2026-01-05T09:30", reason: "自審測試" });
     expect(leave.status).toBe(409);
     const overtime = await request("/hr/requests/overtime", "POST", { employeeUserId: "admin", requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T20:00", settlementKind: "pay", reason: "自審測試" });
     expect(overtime.status).toBe(409);
@@ -111,7 +141,7 @@ describe("HR 申請中心", () => {
     const leaveTypeBody = await leaveType.json() as { id: string };
 
     const pendingLeave = await request("/hr/me/leave-requests", "POST", {
-      leaveTypeId: leaveTypeBody.id, startDate: "2026-02-05", endDate: "2026-02-05", durationMinutes: 240, reason: "本人請假測試",
+      leaveTypeId: leaveTypeBody.id, startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00", reason: "本人請假測試",
     }, employeeCookie);
     expect(pendingLeave.status, await pendingLeave.clone().text()).toBe(201);
     const pendingLeaveBody = await pendingLeave.json() as { id: string };

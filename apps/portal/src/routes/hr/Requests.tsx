@@ -11,7 +11,7 @@ type RequestStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled"
 type HistoryKind = "all" | RequestKind;
 
 interface EmployeePageResponse { employees: Employee[] }
-interface LeaveType { id: string; name: string; leaveKind: "annual" | "other"; defaultPayRatePpm: number }
+interface LeaveType { id: string; name: string; leaveKind: "annual" | "other" }
 
 interface RequestRow {
   id: string;
@@ -47,11 +47,6 @@ function taipeiToday() {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-function previousDate(value: string) {
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return Number.isNaN(parsed.getTime()) ? value : new Date(parsed.getTime() - 86_400_000).toISOString().slice(0, 10);
-}
-
 function taipeiDisplayValue(value: string) {
   const parsed = new Date(`${value.replace(" ", "T")}Z`);
   if (Number.isNaN(parsed.getTime())) return value;
@@ -65,14 +60,34 @@ function taipeiInputValue(value: string) {
   return display.includes(" ") ? display.replace(" ", "T") : "";
 }
 
+function leaveDisplayValue(value: string, fallbackDate: string) {
+  return value ? taipeiDisplayValue(value) : `${fallbackDate} 00:00`;
+}
+
+function leaveInputMillis(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  return match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5])) : Number.NaN;
+}
+
+const LEAVE_UNIT_MINUTES = 30;
+const MAX_LEAVE_MINUTES = 31 * 24 * 60;
+
+function leaveDurationMinutes(startsAt: string, endsAt: string) {
+  const start = leaveInputMillis(startsAt);
+  const end = leaveInputMillis(endsAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  const minutes = (end - start) / 60_000;
+  return Number.isSafeInteger(minutes) ? minutes : null;
+}
+
 function toRequestRows(data: HrRequestCenterResponse | undefined): RequestRow[] {
   const leaves = (data?.leaves ?? []).map(({ request, employeeName, employeeNumber }: HrLeaveRequest) => ({
     id: request.id,
     kind: "leave" as const,
     employeeName: employeeName ?? "未命名員工",
     employeeNumber: employeeNumber ?? "—",
-    period: `${request.startsOn}～${previousDate(request.endsOn)}`,
-    detail: `${request.leaveType}・${(request.durationMinutes / 60).toFixed(1)} 小時・給薪 ${(request.payRatePpm / 10_000).toFixed(2)}%`,
+    period: `${leaveDisplayValue(request.startsAt, request.startsOn)}～${leaveDisplayValue(request.endsAt, request.endsOn)}`,
+    detail: `${request.leaveType}・${(request.durationMinutes / 60).toFixed(1)} 小時`,
     reason: request.reason || "—",
     status: request.status,
     createdAt: request.createdAt,
@@ -139,27 +154,26 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
 function LeaveForm({ employees, leaveTypes, onDone }: { employees: Employee[]; leaveTypes: LeaveType[]; onDone: () => void }) {
   const [employeeUserId, setEmployeeUserId] = useState("");
   const [leaveTypeId, setLeaveTypeId] = useState("");
-  const [startDate, setStartDate] = useState(taipeiToday);
-  const [endDate, setEndDate] = useState(taipeiToday);
-  const [hours, setHours] = useState("8");
-  const [payRate, setPayRate] = useState("100");
+  const [startsAt, setStartsAt] = useState(() => `${taipeiToday()}T09:00`);
+  const [endsAt, setEndsAt] = useState(() => `${taipeiToday()}T18:00`);
   const [reason, setReason] = useState("");
   const write = useHrWrite();
   const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.displayName}（${employee.employeeNumber}）` }))];
   const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : ""}` }))];
+  const durationMinutes = leaveDurationMinutes(startsAt, endsAt);
+  const durationValid = durationMinutes !== null && durationMinutes >= LEAVE_UNIT_MINUTES && durationMinutes % LEAVE_UNIT_MINUTES === 0 && durationMinutes <= MAX_LEAVE_MINUTES;
   function submit(event: React.FormEvent) {
     event.preventDefault();
-    const durationMinutes = Math.round(Number(hours) * 60);
-    if (!employeeUserId || !leaveTypeId || !Number.isFinite(durationMinutes) || durationMinutes < 30 || durationMinutes % 30 !== 0 || endDate < startDate) return;
-    write.mutate({ path: "/requests/leave", method: "POST", values: { employeeUserId, leaveTypeId, startDate, endDate, durationMinutes, payRatePpm: Math.round(Number(payRate) * 10_000), reason } }, { onSuccess: () => { setReason(""); onDone(); } });
+    if (!employeeUserId || !leaveTypeId || !durationValid) return;
+    write.mutate({ path: "/requests/leave", method: "POST", values: { employeeUserId, leaveTypeId, startsAt, endsAt, reason } }, { onSuccess: () => { setReason(""); onDone(); } });
   }
   return <form className="hr-request-form" onSubmit={submit}>
     <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} onChange={(event) => setEmployeeUserId(event.target.value)} />
-    <SelectField label="假別" required value={leaveTypeId} options={leaveTypeOptions} disabled={!leaveTypes.length} onChange={(event) => { const value = event.target.value; setLeaveTypeId(value); const type = leaveTypes.find((item) => item.id === value); if (type) setPayRate(String(type.defaultPayRatePpm / 10_000)); }} />
-    <div className="form-grid two"><TextField label="開始日期" type="date" required value={startDate} onChange={(event) => { setStartDate(event.target.value); if (endDate < event.target.value) setEndDate(event.target.value); }} /><TextField label="結束日期" type="date" required value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} /></div>
-    <div className="form-grid two"><TextField label="請假時數" hint="以 0.5 小時為單位" type="number" min="0.5" step="0.5" required value={hours} onChange={(event) => setHours(event.target.value)} /><TextField label="給薪比例（%）" type="number" min="0" max="100" step="0.01" required value={payRate} onChange={(event) => setPayRate(event.target.value)} /></div>
+    <SelectField label="假別" required value={leaveTypeId} options={leaveTypeOptions} disabled={!leaveTypes.length} onChange={(event) => setLeaveTypeId(event.target.value)} />
+    <div className="form-grid two"><TextField label="開始日期與時間（台北）" type="datetime-local" step="1800" required value={startsAt} onChange={(event) => { const value = event.target.value; setStartsAt(value); if (endsAt && endsAt <= value) setEndsAt(""); }} /><TextField label="結束日期與時間（台北）" type="datetime-local" step="1800" required value={endsAt} min={startsAt} onChange={(event) => setEndsAt(event.target.value)} /></div>
+    <p className="muted field-note">系統計算請假時數：{durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請選擇晚於開始時間的結束時間，且時數須為 0.5 小時的倍數。"}</p>
     <Field label="請假原因"><textarea rows={4} maxLength={1000} value={reason} onChange={(event) => setReason(event.target.value)} /></Field>
-    <div className="button-row"><Button type="submit" icon="plus" loading={write.isPending} disabled={!employees.length || !leaveTypes.length}>建立請假申請</Button></div>
+    <div className="button-row"><Button type="submit" icon="plus" loading={write.isPending} disabled={!employees.length || !leaveTypes.length || !durationValid}>建立請假申請</Button></div>
     {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
   </form>;
 }
