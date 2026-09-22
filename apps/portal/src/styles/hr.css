@@ -181,6 +181,13 @@
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
+button.hr-system-nav-link {
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
 /* 選中那一格已經有 thumb 當底，不再疊 hover 的 state layer，否則玻璃會被染成一塊色。 */
 .hr-system-nav-item:not(.active) > .hr-system-nav-link:hover,
 .hr-system-nav-item.open:not(.active) > .hr-system-nav-link { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
@@ -228,15 +235,17 @@
     0 6px 18px --alpha(var(--color-brand) / 13%);
   -webkit-backdrop-filter: blur(28px) saturate(205%) contrast(110%);
   backdrop-filter: blur(28px) saturate(205%) contrast(110%);
+  visibility: hidden;
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, -6px);
-  transition-property: opacity, transform;
+  transition-property: opacity, transform, visibility;
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
 .hr-system-submenu { left: 50%; }
 .hr-system-nav-item.open .hr-system-submenu {
+  visibility: visible;
   opacity: 1;
   pointer-events: auto;
   transform: translate(-50%, 0);
@@ -614,13 +623,18 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-system-nav {
     grid-column: 1 / -1;
     justify-self: stretch;
-    overflow-x: auto;
-    overflow-y: visible;
+    flex-wrap: wrap;
+    align-content: start;
+    overflow: visible;
   }
-  .hr-system-nav-item { flex: 1 0 auto; }
-  .hr-system-nav-link { justify-content: center; padding-inline: 12px; }
-  .hr-system-submenu { left: 0; transform: translate(0, -6px); }
-  .hr-system-nav-item.open .hr-system-submenu { transform: translate(0, 0); }
+  /* 手機不靠 hover：大項分欄排列，展開後把子選單放回流程，避免被橫向捲動容器裁掉。 */
+  .hr-system-nav-thumb { display: none; }
+  .hr-system-nav-item { flex: 1 1 calc(50% - 4px); min-width: 0; }
+  .hr-system-nav-item.open { flex-basis: 100%; }
+  .hr-system-nav-item.active > .hr-system-nav-link { background: --alpha(var(--color-paper) / 30%); box-shadow: var(--hr-glass-thumb-rim); }
+  .hr-system-nav-link { width: 100%; justify-content: center; padding-inline: 12px; }
+  .hr-system-submenu { left: 0; min-width: 0; width: 100%; transform: translate(0, -6px); }
+  .hr-system-nav-item.open .hr-system-submenu { position: static; margin-top: 4px; transform: translate(0, 0); }
   /* 讓頁首按鈕的 24px 陰影在小螢幕右側也有完整的繪製空間。 */
   .hr-system-main { padding: 20px 24px 28px; }
 }
