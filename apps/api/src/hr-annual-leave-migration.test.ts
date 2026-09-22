@@ -34,7 +34,7 @@ describe("既有特休資料回填 migration", () => {
     await db.insert(users).values({ id: "legacy-user", email: "legacy@example.test", displayName: "既有員工", status: "active" });
     d1.sqlite.prepare("INSERT INTO hr_employees(user_id, employee_number) VALUES (?, ?)").run("legacy-user", "LEGACY-1");
     d1.sqlite.prepare("INSERT INTO hr_employments(id, employee_user_id, hired_on, seniority_start_on) VALUES (?, ?, ?, ?)").run("legacy-employment", "legacy-user", "2024-02-29", "2024-02-29");
-    d1.sqlite.prepare("INSERT INTO hr_leave_types(id, name, leave_kind, created_by) VALUES (?, ?, ?, ?)").run("legacy-leave-type", "特休", "other", "legacy-user");
+    d1.sqlite.prepare("INSERT INTO hr_leave_types(id, name, leave_kind, created_by) VALUES (?, ?, ?, ?)").run("legacy-leave-type", "特休　", "other", "legacy-user");
     d1.sqlite.prepare(`INSERT INTO hr_leave_requests
       (id, employment_id, leave_type_id, leave_type, status, starts_on, ends_on, duration_minutes, pay_rate_ppm, reason, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -54,5 +54,29 @@ describe("既有特休資料回填 migration", () => {
       { entry_kind: "leave_request", delta_half_hours: -1, source_key: "leave-request:legacy-leave-request" },
     ]);
     expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_ledger WHERE source_key=?").get("annual-grant:legacy-employment:2025-02-28")).toEqual({ count: 1 });
+  });
+
+  it("無法安全分配到單一期別的既有使用會留下稽核問題且不製造負餘額", async () => {
+    d1 = createTargetOnlyD1();
+    const db = createDatabase(d1 as never);
+    await db.insert(users).values({ id: "cross-user", email: "cross@example.test", displayName: "跨期員工", status: "active" });
+    d1.sqlite.prepare("INSERT INTO hr_employees(user_id, employee_number) VALUES (?, ?)").run("cross-user", "LEGACY-CROSS");
+    d1.sqlite.prepare("INSERT INTO hr_employments(id, employee_user_id, hired_on, seniority_start_on) VALUES (?, ?, ?, ?)").run("cross-employment", "cross-user", "2024-02-29", "2024-02-29");
+    d1.sqlite.prepare("INSERT INTO hr_leave_types(id, name, leave_kind, created_by) VALUES (?, ?, ?, ?)").run("cross-leave-type", "特休", "other", "cross-user");
+    d1.sqlite.prepare(`INSERT INTO hr_leave_requests
+      (id, employment_id, leave_type_id, leave_type, status, starts_on, ends_on, duration_minutes, pay_rate_ppm, reason, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("cross-leave-request", "cross-employment", null, "特休", "approved", "2026-02-27", "2026-03-02", 30, 1_000_000, "跨週期既有核准特休", "cross-user");
+
+    applyMigration("0171_seed_annual_leave_policy.sql");
+    applyMigration("0172_backfill_annual_leave_entitlements.sql");
+    applyMigration("0172_backfill_annual_leave_entitlements.sql");
+
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_ledger WHERE leave_request_id=?").get("cross-leave-request")).toEqual({ count: 0 });
+    expect(d1.sqlite.prepare("SELECT event_type, status, error FROM activity_events WHERE id=?").get("annual-leave-backfill-issue:cross-leave-request")).toEqual({
+      event_type: "annual_leave_backfill_unmatched",
+      status: "failed",
+      error: "cross_period_or_missing_entitlement",
+    });
   });
 });

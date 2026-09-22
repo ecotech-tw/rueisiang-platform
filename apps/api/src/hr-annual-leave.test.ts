@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveEntitlements, syncSystemRoles } from "@rueisiang/db";
-import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrEmployments, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -52,6 +52,25 @@ describe("週年制特休額度", () => {
     ]);
     const grants = await db.select({ count: sql<number>`count(*)` }).from(hrAnnualLeaveLedger).where(eq(hrAnnualLeaveLedger.entryKind, "grant"));
     expect(Number(grants[0]?.count)).toBe(3);
+  });
+
+  it("漏跑前一個月份時，下一次結帳會補算已到期的特休週期", async () => {
+    const db = createDatabase(d1 as never);
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
+    const employmentId = profile.employments[0]!.id;
+    const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "補算測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-03", employeeUserIds: ["employee"], requestId: "annual-settlement-catch-up" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const calculatedBody = await calculated.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    expect(calculatedBody.run.employees[0]?.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "annual_leave_settlement", amountMinor: 300_000, explanation: expect.objectContaining({ settlementItems: expect.arrayContaining([expect.objectContaining({ settlementDate: "2026-03-31", settlementReason: "period_end" })]) }) }),
+    ]));
+
+    const entitlement = await db.select({ status: hrAnnualLeaveEntitlements.status }).from(hrAnnualLeaveEntitlements)
+      .where(eq(hrAnnualLeaveEntitlements.periodStart, "2025-09-01")).limit(1);
+    expect(entitlement[0]?.status).toBe("open");
   });
 
   it("週期終結結帳將未休特休折現並標記額度已結算", async () => {
@@ -106,6 +125,36 @@ describe("週年制特休額度", () => {
     const cancelled = await request(`/hr/requests/leave/${requestId}/cancel`, "POST", {});
     expect(cancelled.status).toBe(409);
     expect(await cancelled.json()).toMatchObject({ error: "特休已隨薪資結算，請使用薪資調整處理取消或更正。 " });
+  });
+
+  it("核准待審請假前重新檢查任職期間，避免離職後仍生效", async () => {
+    const db = createDatabase(d1 as never);
+    const leaveType = await request("/hr/leave-types", "POST", { name: "任職邊界測試假", defaultPayRatePpm: 1_000_000 });
+    expect(leaveType.status, await leaveType.clone().text()).toBe(201);
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+    const pending = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startDate: "2026-02-10", endDate: "2026-02-10", durationMinutes: 30, reason: "離職邊界" }, employeeCookie);
+    expect(pending.status, await pending.clone().text()).toBe(201);
+    const requestId = (await pending.json() as { id: string }).id;
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string; revision: number }> };
+    const employmentId = profile.employments[0]!.id;
+    const end = await request(`/hr/employments/${employmentId}/end`, "PATCH", { endedOn: "2026-02-01", revision: 1 });
+    expect(end.status).toBe(409);
+
+    await db.update(hrEmployments).set({ endedOn: "2026-02-01" }).where(eq(hrEmployments.id, employmentId));
+    const reviewed = await request(`/hr/requests/leave/${requestId}/review`, "POST", { decision: "approved", comment: "核准" });
+    expect(reviewed.status).toBe(400);
+    expect((await reviewed.json() as { error: string }).error).toContain("請假日期不在有效任職期間內");
+  });
+
+  it("離職日當天不會再建立新的特休週期", async () => {
+    const db = createDatabase(d1 as never);
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
+    const employmentId = profile.employments[0]!.id;
+    await db.update(hrEmployments).set({ endedOn: "2026-09-01" }).where(eq(hrEmployments.id, employmentId));
+    await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2026-09-01" });
+    const rows = await db.select({ periodStart: hrAnnualLeaveEntitlements.periodStart }).from(hrAnnualLeaveEntitlements)
+      .where(eq(hrAnnualLeaveEntitlements.employmentId, employmentId));
+    expect(rows.some((row) => row.periodStart === "2026-09-01")).toBe(false);
   });
 
   it("離職薪資期間用同一條折現流程結算未休特休", async () => {
@@ -167,6 +216,23 @@ describe("週年制特休額度", () => {
     expect(afterCancel.find((row) => row.periodStart === "2025-09-01")?.balanceHalfHours).toBe(48);
     const reversals = await db.select({ count: sql<number>`count(*)` }).from(hrAnnualLeaveLedger).where(eq(hrAnnualLeaveLedger.entryKind, "settlement_reversal"));
     expect(Number(reversals[0]?.count)).toBe(1);
+
+    const raced = await request("/hr/requests/leave", "POST", {
+      employeeUserId: "employee", leaveTypeId, startDate: "2025-09-02", endDate: "2025-09-02", durationMinutes: 30, reason: "結算競態測試",
+    });
+    expect(raced.status, await raced.clone().text()).toBe(201);
+    const racedId = (await raced.json() as { id: string }).id;
+    d1.sqlite.exec(`CREATE TRIGGER settle_before_leave_reversal
+      AFTER UPDATE OF status ON hr_leave_requests
+      WHEN NEW.status='cancelled'
+      BEGIN
+        UPDATE hr_annual_leave_entitlements SET status='settled', settled_at=CURRENT_TIMESTAMP
+        WHERE id=(SELECT entitlement_id FROM hr_annual_leave_ledger WHERE leave_request_id=NEW.id AND entry_kind='leave_request');
+      END`);
+    const racedCancel = await request(`/hr/requests/leave/${racedId}/cancel`, "POST", {});
+    expect(racedCancel.status).toBe(409);
+    expect(d1.sqlite.prepare("SELECT status FROM hr_leave_requests WHERE id=?").get(racedId)).toEqual({ status: "approved" });
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_ledger WHERE source_key=?").get(`leave-request-cancel:${racedId}`)).toEqual({ count: 0 });
 
     const overbooked = await request("/hr/requests/leave", "POST", {
       employeeUserId: "employee", leaveTypeId, startDate: "2026-03-02", endDate: "2026-03-08", durationMinutes: 3_360, reason: "不可挪用上一期餘額",

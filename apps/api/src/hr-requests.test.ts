@@ -84,6 +84,27 @@ describe("HR 申請中心", () => {
     expect(body.overtime[0]?.request).toMatchObject({ status: "approved", actualStart: expect.any(String), actualEnd: expect.any(String) });
   });
 
+  it("HR 代登不允許申請人直接核准自己的請假與加班", async () => {
+    await request("/hr/employees", "POST", { userId: "admin", employeeNumber: "E-ADMIN", hiredOn: "2026-01-01", seniorityStartOn: "2026-01-01" });
+    const leaveType = await request("/hr/leave-types", "POST", { name: "自審測試假", defaultPayRatePpm: 1_000_000 });
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+    const leave = await request("/hr/requests/leave", "POST", { employeeUserId: "admin", leaveTypeId, startDate: "2026-01-05", endDate: "2026-01-05", durationMinutes: 30, reason: "自審測試" });
+    expect(leave.status).toBe(409);
+    const overtime = await request("/hr/requests/overtime", "POST", { employeeUserId: "admin", requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T20:00", settlementKind: "pay", reason: "自審測試" });
+    expect(overtime.status).toBe(409);
+  });
+
+  it("已被月度人工假勤使用的假別不可重新分類為特休", async () => {
+    await assignEmployee();
+    const leaveType = await request("/hr/payroll/monthly-data/leave-types", "POST", { name: "月度分類測試假", defaultPayRatePpm: 1_000_000 });
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
+    const entry = await request("/hr/payroll/monthly-data/leave", "POST", { employmentId: profile.employments[0]!.id, leaveTypeId, leaveDate: "2026-01-05", hoursHalfUnits: 2, payRatePpm: 1_000_000, deductionAmount: 0, note: "分類保護" });
+    expect(entry.status, await entry.clone().text()).toBe(201);
+    const updated = await request(`/hr/leave-types/${leaveTypeId}`, "PATCH", { name: "月度分類測試假", defaultPayRatePpm: 1_000_000, leaveKind: "annual" });
+    expect(updated.status).toBe(409);
+  });
+
   it("本人入口仍會進入待審核，管理端可以走同一個審核階段", async () => {
     await assignEmployee();
     const leaveType = await request("/hr/leave-types", "POST", { name: "測試病假", defaultPayRatePpm: 500_000 });

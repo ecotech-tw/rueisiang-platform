@@ -107,14 +107,21 @@ export async function updateHrLeaveType(db: Database, id: string, input: { name:
   const validated = validateLeaveTypeInput(input);
   const [current] = await db.select({ leaveKind: hrLeaveTypes.leaveKind }).from(hrLeaveTypes).where(eq(hrLeaveTypes.id, id)).limit(1);
   if (!current) throw new HrError(404, "找不到假別。 ");
-  if (current.leaveKind !== validated.leaveKind) {
-    // 類型一旦被申請使用就不能改寫，避免已扣額度的歷史申請失去語意。
-    const [request] = await db.select({ id: hrLeaveRequests.id }).from(hrLeaveRequests).where(eq(hrLeaveRequests.leaveTypeId, id)).limit(1);
-    if (request) throw new HrError(409, "已有請假申請使用此假別，不能變更特休／其他假別類型。 ");
+  const kindChanged = current.leaveKind !== validated.leaveKind;
+  if (kindChanged) {
+    // 類型一旦被申請或月度人工資料使用就不能改寫，避免歷史資料失去語意。
+    const [[request], [entry]] = await Promise.all([
+      db.select({ id: hrLeaveRequests.id }).from(hrLeaveRequests).where(eq(hrLeaveRequests.leaveTypeId, id)).limit(1),
+      db.select({ id: hrMonthlyLeaveEntries.id }).from(hrMonthlyLeaveEntries).where(eq(hrMonthlyLeaveEntries.leaveTypeId, id)).limit(1),
+    ]);
+    if (request || entry) throw new HrError(409, "已有請假申請或月度假勤資料使用此假別，不能變更特休／其他假別類型。 ");
   }
+  const usageGuard = kindChanged ? sql`
+      AND NOT EXISTS (SELECT 1 FROM hr_leave_requests WHERE leave_type_id=${id})
+      AND NOT EXISTS (SELECT 1 FROM hr_monthly_leave_entries WHERE leave_type_id=${id})` : sql``;
   return writeHrMutation(db, sql`UPDATE hr_leave_types SET
     name=${validated.name}, leave_kind=${validated.leaveKind}, default_pay_rate_ppm=${validated.defaultPayRatePpm}, updated_at=CURRENT_TIMESTAMP
-    WHERE id=${id} RETURNING id`, id, actor, "monthly_leave_type_updated", "找不到假別、名稱已存在或資料不合法。 ");
+    WHERE id=${id}${usageGuard} RETURNING id`, id, actor, "monthly_leave_type_updated", "找不到假別、名稱已存在或資料不合法。 ");
 }
 
 export async function setHrLeaveTypeActive(db: Database, id: string, active: boolean, actor: HrActor) {

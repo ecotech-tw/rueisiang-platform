@@ -51,14 +51,18 @@ function validateInput(input: HrLeaveRequestInput) {
   if (input.reason.length > 1000) throw new HrError(400, "請假原因不可超過 1000 字。 ");
 }
 
-async function ensureEmployment(db: Database, input: HrLeaveRequestInput) {
+async function ensureEmploymentForPeriod(db: Database, employeeUserId: string, startsOn: string, endsOn: string) {
   const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(
-    eq(hrEmployments.employeeUserId, input.employeeUserId),
-    sql`${hrEmployments.hiredOn} <= ${input.startsOn}`,
-    sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} >= ${input.endsOn})`,
+    eq(hrEmployments.employeeUserId, employeeUserId),
+    sql`${hrEmployments.hiredOn} <= ${startsOn}`,
+    sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} >= ${endsOn})`,
   )).orderBy(desc(hrEmployments.hiredOn)).limit(1);
   if (!employment) throw new HrError(400, "請假日期不在有效任職期間內。 ");
   return employment.id;
+}
+
+async function ensureEmployment(db: Database, input: HrLeaveRequestInput) {
+  return ensureEmploymentForPeriod(db, input.employeeUserId, input.startsOn, input.endsOn);
 }
 
 export async function listHrLeaveRequests(db: Database, employeeUserId?: string) {
@@ -83,6 +87,7 @@ export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestIn
   if (!leaveType) throw new HrError(404, "找不到啟用中的假別。 ");
   const id = crypto.randomUUID();
   const autoApprove = options.autoApprove === true;
+  if (autoApprove && input.employeeUserId === actor.id) throw new HrError(409, "申請人不可透過後台直接核准自己的請假申請。 ");
   const status = autoApprove ? "approved" : "pending";
   const payRatePpm = input.payRatePpm ?? leaveType.defaultPayRatePpm;
   const reviewComment = autoApprove ? "HR 後台建立後直接核准" : null;
@@ -93,7 +98,14 @@ export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestIn
   const requestStatement = sql`INSERT INTO hr_leave_requests
       (id, employment_id, leave_type_id, leave_type, status, starts_on, ends_on, duration_minutes, pay_rate_ppm, reason, reviewed_by, reviewed_at, review_comment, created_by)
       SELECT ${id}, ${employmentId}, ${leaveType.id}, ${leaveType.name}, ${status}, ${input.startsOn}, ${input.endsOn}, ${input.durationMinutes}, ${payRatePpm}, ${input.reason.trim()}, ${autoApprove ? actor.id : null}, ${autoApprove ? sql`CURRENT_TIMESTAMP` : sql`NULL`}, ${reviewComment}, ${actor.id}
-      WHERE NOT EXISTS (
+      WHERE EXISTS (
+        SELECT 1 FROM hr_employments AS current_employment
+        WHERE current_employment.id=${employmentId}
+          AND current_employment.employee_user_id=${input.employeeUserId}
+          AND current_employment.hired_on <= ${input.startsOn}
+          AND (current_employment.ended_on IS NULL OR current_employment.ended_on >= ${input.endsOn})
+      )
+        AND NOT EXISTS (
         SELECT 1 FROM hr_leave_requests AS existing_request
         WHERE existing_request.employment_id=${employmentId}
           AND existing_request.status IN ('pending', 'approved')
@@ -151,12 +163,13 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
     .where(eq(hrAnnualLeaveLedger.sourceKey, `leave-request-cancel:${id}`)).limit(1);
   if (!usage || reversal) return writeHrMutation(db, update, id, actor, "leave_request_cancelled", "請假申請已變更或完成處理，請重新整理。 ");
 
-  return writeHrMutation(db, [sql`INSERT INTO hr_annual_leave_ledger
+  return writeHrMutation(db, [update, sql`INSERT INTO hr_annual_leave_ledger
     (id, entitlement_id, entry_kind, delta_half_hours, source_key, leave_request_id, note, created_by)
     SELECT ${crypto.randomUUID()}, ${usage.entitlementId}, 'settlement_reversal', ${-usage.deltaHalfHours}, ${`leave-request-cancel:${id}`}, ${id}, '取消已核准特休，返還原扣除額度', ${actor.id}
-    WHERE EXISTS (SELECT 1 FROM hr_leave_requests WHERE id=${id} AND status='approved')
+    WHERE EXISTS (SELECT 1 FROM hr_leave_requests WHERE id=${id} AND status='cancelled')
+      AND EXISTS (SELECT 1 FROM hr_annual_leave_entitlements WHERE id=${usage.entitlementId} AND status='open' AND settled_at IS NULL)
       AND NOT EXISTS (SELECT 1 FROM hr_annual_leave_ledger WHERE source_key=${`leave-request-cancel:${id}`})
-    RETURNING id`, update], id, actor, "leave_request_cancelled", "請假申請已變更、額度反向紀錄已存在或無法取消，請重新整理。 ");
+    RETURNING id`], id, actor, "leave_request_cancelled", "請假申請已變更、額度反向紀錄已存在或無法取消，請重新整理。 ");
 }
 
 export async function reviewHrLeaveRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor) {
@@ -177,6 +190,7 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
   if (!current) throw new HrError(404, "找不到請假申請。 ");
   if (current.employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的請假申請。 ");
   if (current.status !== "pending") throw new HrError(409, "請假申請不存在或已完成處理。 ");
+  if (decision === "approved") await ensureEmploymentForPeriod(db, current.employeeUserId, current.startsOn, current.endsOn);
   const annualAllocation = decision === "approved" && current.leaveKind === "annual"
     ? await allocateHrAnnualLeave(db, {
       employmentId: current.employmentId,
@@ -188,12 +202,26 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
   const updateStatement = sql`UPDATE hr_leave_requests SET
     status=${decision}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, review_comment=${comment.trim()}
     WHERE id=${id} AND status='pending'
-      AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_leave_requests.employment_id AND employee_user_id <> ${actor.id})
+      AND EXISTS (
+        SELECT 1 FROM hr_employments
+        WHERE id=hr_leave_requests.employment_id
+          AND employee_user_id <> ${actor.id}
+          AND hired_on <= ${current.startsOn}
+          AND (ended_on IS NULL OR ended_on >= ${current.endsOn})
+      )
     RETURNING id`;
   const statements = annualAllocation ? [sql`INSERT INTO hr_annual_leave_ledger
     (id, entitlement_id, entry_kind, delta_half_hours, source_key, leave_request_id, note, created_by)
     SELECT ${crypto.randomUUID()}, ${annualAllocation.entitlementId}, 'leave_request', ${-annualAllocation.durationHalfHours}, ${`leave-request:${id}`}, ${id}, '特休申請核准扣除', ${actor.id}
-    WHERE EXISTS (SELECT 1 FROM hr_leave_requests WHERE id=${id} AND status='pending')
+    WHERE EXISTS (
+        SELECT 1 FROM hr_leave_requests AS request
+        INNER JOIN hr_employments AS employment ON employment.id=request.employment_id
+        WHERE request.id=${id}
+          AND request.status='pending'
+          AND employment.employee_user_id <> ${actor.id}
+          AND employment.hired_on <= ${current.startsOn}
+          AND (employment.ended_on IS NULL OR employment.ended_on >= ${current.endsOn})
+      )
       AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${annualAllocation.entitlementId}), 0) >= ${annualAllocation.durationHalfHours}
     RETURNING id`, updateStatement] : updateStatement;
   return writeHrMutation(db, statements, id, actor, "leave_request_reviewed", "請假申請不存在、申請人不可自審、特休額度不足或已完成處理。 ");

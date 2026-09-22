@@ -145,7 +145,7 @@ export async function ensureHrAnnualLeaveEntitlements(db: Database, options: HrA
   for (const employment of employments) {
     let serviceMonths = 6;
     let periodStart = addCalendarMonths(employment.seniorityStartOn, serviceMonths);
-    const employmentEnd = employment.endedOn && employment.endedOn < asOfDate ? employment.endedOn : null;
+    const employmentEnd = employment.endedOn;
     while (isBeforeOrEqual(periodStart, asOfDate) && (!employmentEnd || periodStart < employmentEnd)) {
       const nextMonths = nextServiceMonths(serviceMonths);
       const periodEnd = addCalendarMonths(employment.seniorityStartOn, nextMonths);
@@ -367,9 +367,9 @@ async function monthlyCompensationAt(db: Database, employmentId: string, date: s
 }
 
 /**
- * 找出本次薪資期間需要折現的未休特休。週期結束與離職共用這個候選清單，
- * periodStart 讓補算其他月份時不會把更早期別誤掛到目前薪資；只把折現的最終寫入留在
- * 薪資結帳交易，避免試算尚未結帳就消滅額度。
+ * 找出本次薪資期間需要折現的未休特休。periodStart 讓正常薪資結算不會把歷史
+ * 尚未對帳的期別一次掛進當期；週期剛好落在 periodStart 時仍要納入，才能補算
+ * 漏跑的前一個月份。只把折現的最終寫入留在薪資結帳交易，避免試算尚未結帳就消滅額度。
  */
 export async function listHrAnnualLeaveSettlementCandidates(db: Database, options: { asOfDate: string; periodStart?: string; employmentIds?: string[] }) {
   assertDateOnly(options.asOfDate, "特休結算基準日");
@@ -395,10 +395,10 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
       or(
         options.periodStart === undefined
           ? lte(hrAnnualLeaveEntitlements.periodEnd, options.asOfDate)
-          : and(gt(hrAnnualLeaveEntitlements.periodEnd, options.periodStart), lte(hrAnnualLeaveEntitlements.periodEnd, options.asOfDate)),
+          : and(gte(hrAnnualLeaveEntitlements.periodEnd, options.periodStart), lte(hrAnnualLeaveEntitlements.periodEnd, options.asOfDate)),
         options.periodStart === undefined
           ? sql`${hrEmployments.endedOn} IS NOT NULL AND ${hrEmployments.endedOn} <= ${options.asOfDate}`
-          : sql`${hrEmployments.endedOn} IS NOT NULL AND ${hrEmployments.endedOn} > ${options.periodStart} AND ${hrEmployments.endedOn} <= ${options.asOfDate}`,
+          : sql`${hrEmployments.endedOn} IS NOT NULL AND ${hrEmployments.endedOn} >= ${options.periodStart} AND ${hrEmployments.endedOn} <= ${options.asOfDate}`,
       ),
       options.employmentIds ? inArray(hrAnnualLeaveEntitlements.employmentId, options.employmentIds) : undefined,
     ))
@@ -416,7 +416,7 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
     const unusedHalfHours = balanceById.get(row.entitlementId) ?? 0;
     if (unusedHalfHours < 0) throw new HrError(409, `${row.employeeName} 的特休台帳餘額低於 0，無法進行未休折現。`);
     const settlementReason: "period_end" | "termination" = row.endedOn !== null && row.endedOn < row.periodEnd && row.endedOn <= options.asOfDate ? "termination" : "period_end";
-    const settlementDate = settlementReason === "period_end" ? previousDate(row.periodEnd) : previousDate(row.endedOn!);
+    const settlementDate = settlementReason === "period_end" ? previousDate(options.asOfDate) : previousDate(row.endedOn!);
     const compensation = unusedHalfHours > 0 ? await monthlyCompensationAt(db, row.employmentId, settlementDate) : undefined;
     if (unusedHalfHours > 0 && !compensation) throw new HrError(409, `${row.employeeName} 的特休未休折現找不到 ${settlementDate} 適用的月薪版本，請先補齊薪資設定。`);
     const amountMinor = compensation ? Math.round(compensation.baseAmountMinor * unusedHalfHours / row.dailyMinutes) : 0;
