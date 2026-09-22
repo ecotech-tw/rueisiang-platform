@@ -55,7 +55,7 @@ function AddDayDialog({ year, existing, onAdd, onClose }: { year: number; existi
     onClose();
   } }} actions={<Button type="submit" icon="check">加入</Button>}>
     <TextField label="日期" type="date" required min={`${year}-01-01`} max={`${year}-12-31`} value={date} onChange={(event) => setDate(event.target.value)} />
-    <SelectField label="這天算哪一種" value={dayType} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => setDayType(event.target.value as HrDayType)} />
+    <SelectField label="類型" value={dayType} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => setDayType(event.target.value as HrDayType)} />
     <TextField label="名稱" maxLength={100} placeholder="例如：中秋節、補行上班" value={name} onChange={(event) => setName(event.target.value)} />
     {isWeekendDate(date) && dayType === "weekday" ? <p className="muted field-note">這是星期{weekdayOf(date)}，設成平日之後當天沒打卡會算缺勤。</p> : null}
     {!isWeekendDate(date) && dayType === "weekend" ? <p className="muted field-note">這是星期{weekdayOf(date)}，設成週末之後當天不排班也不會算缺勤。</p> : null}
@@ -102,15 +102,19 @@ export function HrCalendar() {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  /*
-   * keepPreviousData: false——切年份時留著上一年的資料，畫面會在「2026 年」的標題底下
-   * 顯示 2025 的假日，連帶統計、重複檢查與匯入警告全是錯的。api.ts 的註解本來就寫了
-   * 「查的是某一筆紀錄時要傳 false」，一個年份就是那種查詢。
-   */
-  const calendar = useHrQuery<HrCalendarResponse>(`/calendar/years/${year}`, canRead, { keepPreviousData: false });
+  const calendar = useHrQuery<HrCalendarResponse>(`/calendar/years/${year}`, canRead);
   const save = useHrWrite();
   const toast = useToast();
   const saved = useMemo(() => sortByDate(calendar.data?.days ?? []), [calendar.data?.days]);
+  /*
+   * 切年份時留著上一年的資料——但要標成 loading，不能當成新年份的。
+   *
+   * 不用 keepPreviousData: false 把資料清掉：那會讓 isPending 變回 true，整頁換成
+   * skeleton。切一次年份就閃掉整個版面，連年份切換鈕自己都跟著消失，想連按兩下
+   * 往回翻根本按不到。改成版面留著、表格淡化並停用（.is-refreshing），跟排班月曆
+   * 換月份同一種手感；這段期間會讀錯的數字與按鈕全部擋掉。
+   */
+  const loading = calendar.isPlaceholderData;
 
   // 換年份時丟掉草稿：留著的話下一年的畫面會顯示上一年的假日，按儲存就寫到錯的年份。
   useEffect(() => { setDraft(null); setMessage(null); }, [year]);
@@ -148,10 +152,11 @@ export function HrCalendar() {
     <PageHeader
       title="行事曆"
       description="只需要登記國定假日與補班日。沒有登記的日子一律照星期幾算：週六日休息、其他上班。"
+      /* 還在載入新年份時一律停用：這三顆的行為都依賴 saved，而 saved 還是上一年的。 */
       actions={canWrite ? <div className="button-row">
-        <Button variant="secondary" icon="cloudSync" disabled={save.isPending} onClick={() => setImporting(true)}>匯入政府行事曆</Button>
-        <Button variant="secondary" icon="plus" disabled={save.isPending} onClick={() => setAdding(true)}>新增日期</Button>
-        <Button loading={save.isPending} disabled={!changed} onClick={() => { void submit(); }}>儲存</Button>
+        <Button variant="secondary" icon="cloudSync" disabled={save.isPending || loading} onClick={() => setImporting(true)}>匯入政府行事曆</Button>
+        <Button variant="secondary" icon="plus" disabled={save.isPending || loading} onClick={() => setAdding(true)}>新增日期</Button>
+        <Button loading={save.isPending} disabled={!changed || loading} onClick={() => { void submit(); }}>儲存</Button>
       </div> : undefined}
     />
     <Panel className="grows">
@@ -161,39 +166,43 @@ export function HrCalendar() {
           <strong>{year} 年</strong>
           <Button variant="icon" icon="chevronRight" aria-label="下一年" onClick={() => setYear((current) => current + 1)} />
         </div>
-        {/* 兩個數字分開講：假日有幾天是常識，補班日有沒有漏登才是每年真正會出錯的地方。 */}
-        <p className="hr-calendar-year-count">國定假日 <strong>{holidays}</strong> 天 · 補班日 <strong>{makeups}</strong> 天</p>
+        {/*
+          * 兩個數字分開講：假日有幾天是常識，補班日有沒有漏登才是每年真正會出錯的地方。
+          * 載入中時改成破折號而不是繼續顯示舊數字：位置跟寬度都在，版面不會跳，
+          * 但不會把上一年的 16 天講成這一年的。
+          */}
+        <p className="hr-calendar-year-count">國定假日 <strong>{loading ? "—" : holidays}</strong> 天 · 補班日 <strong>{loading ? "—" : makeups}</strong> 天</p>
         {changed ? <p className="hr-schedule-status"><StatusBadge tone="warning">尚未儲存</StatusBadge><span>按「儲存」才會生效。</span></p> : null}
       </div>
       {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
-      <div className="table-scroll"><table className="data-table"><thead><tr>
-        <th>日期</th><th>星期</th><th>算哪一種</th><th>名稱</th><th className="numeric">操作</th>
+      <div className={`table-scroll${loading ? " is-refreshing" : ""}`}><table className="data-table"><thead><tr>
+        <th>日期</th><th>星期</th><th>類型</th><th>名稱</th><th className="numeric">操作</th>
       </tr></thead><tbody>
         {days.map((day) => {
           const kind = rowKind(day);
           return <tr key={day.date}>
             <td data-label="日期"><span className="cell-strong numeric">{day.date}</span></td>
             <td data-label="星期">{weekdayOf(day.date)}</td>
-            <td data-label="算哪一種">
+            <td data-label="類型">
               {canWrite
-                ? <SelectField aria-label={`${day.date} 算哪一種`} value={day.dayType} disabled={save.isPending} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => update(day.date, { dayType: event.target.value as HrDayType })} />
+                ? <SelectField aria-label={`${day.date} 類型`} value={day.dayType} disabled={save.isPending || loading} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => update(day.date, { dayType: event.target.value as HrDayType })} />
                 : <StatusBadge tone={kind.tone}>{kind.label}</StatusBadge>}
               {canWrite && kind.label === "補班日" ? <StatusBadge tone="warning">補班日</StatusBadge> : null}
             </td>
             <td data-label="名稱">
               {canWrite
-                ? <TextField aria-label={`${day.date} 名稱`} maxLength={100} placeholder="未命名" value={day.name} disabled={save.isPending} onChange={(event) => update(day.date, { name: event.target.value })} />
+                ? <TextField aria-label={`${day.date} 名稱`} maxLength={100} placeholder="未命名" value={day.name} disabled={save.isPending || loading} onChange={(event) => update(day.date, { name: event.target.value })} />
                 : day.name || <span className="muted">未命名</span>}
             </td>
             <td data-label="操作" className="numeric">
               {canWrite ? <Tooltip label={`移除 ${day.date}`} focusable={false}>
-                <Button variant="icon" icon="trash" className="danger" aria-label={`移除 ${day.date}`} disabled={save.isPending} onClick={() => remove(day.date)} />
+                <Button variant="icon" icon="trash" className="danger" aria-label={`移除 ${day.date}`} disabled={save.isPending || loading} onClick={() => remove(day.date)} />
               </Tooltip> : null}
             </td>
           </tr>;
         })}
       </tbody></table></div>
-      {!days.length ? <p className="muted table-note">{year} 年還沒有登記任何假日。可以按「匯入政府行事曆」一次帶進來。</p> : null}
+      {!days.length && !loading ? <p className="muted table-note">{year} 年還沒有登記任何假日。可以按「匯入政府行事曆」一次帶進來。</p> : null}
     </Panel>
     {adding ? <AddDayDialog year={year} existing={days} onAdd={(day) => setDraft(sortByDate([...days, day]))} onClose={() => setAdding(false)} /> : null}
     {importing ? <ImportDialog year={year} currentCount={saved.length} onClose={() => setImporting(false)} onDone={() => calendar.refetch()} /> : null}
