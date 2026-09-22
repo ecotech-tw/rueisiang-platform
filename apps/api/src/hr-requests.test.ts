@@ -107,6 +107,11 @@ describe("HR 申請中心", () => {
       employeeUserId: "employee", leaveTypeId, startsAt: "2026-01-05T16:00", endsAt: "2026-01-05T17:00", reason: "重疊時段",
     });
     expect(overlap.status).toBe(409);
+
+    const tooLong = await request("/hr/requests/leave", "POST", {
+      employeeUserId: "employee", leaveTypeId, startsAt: "2026-02-01T09:00", endsAt: "2026-03-04T09:30", reason: "超過最長期間",
+    });
+    expect(tooLong.status).toBe(400);
   });
 
   it("HR 代登不允許申請人直接核准自己的請假與加班", async () => {
