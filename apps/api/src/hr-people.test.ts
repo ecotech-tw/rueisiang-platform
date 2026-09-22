@@ -383,7 +383,7 @@ describe("HR 員工基礎", () => {
     }
   });
 
-  it("排班員工可以保存每月休假天數，班別的計薪工時等於班別長度", async () => {
+  it("排班員工可以保存每月休假天數，班別預設扣除一小時休息", async () => {
     await assign("self", "REST-1");
     const job = await firstEmployment("self");
     const updated = await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 10, revision: 1 });
@@ -401,7 +401,7 @@ describe("HR 員工基礎", () => {
     const shift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "假日晚班", times: [{ dayType: "weekday", startTime: "13:00", endTime: "22:00" }] });
     expect(shift.status, await shift.clone().text()).toBe(201);
     const listed = await (await request("/hr/shift-templates")).json() as { shifts: Array<{ name: string; standardMinutes: number; breakMinutes: number }> };
-    expect(listed.shifts.find((item) => item.name === "假日晚班")).toMatchObject({ standardMinutes: 540, breakMinutes: 0 });
+    expect(listed.shifts.find((item) => item.name === "假日晚班")).toMatchObject({ standardMinutes: 480, breakMinutes: 60 });
     const month = taipeiToday().slice(0, 7);
     const year = Number(month.slice(0, 4));
     const monthNumber = Number(month.slice(5, 7));
@@ -416,15 +416,47 @@ describe("HR 員工基礎", () => {
     expect(published.status, await published.clone().text()).toBe(200);
     const publishedVersion = await published.json() as { id: string; revision: number };
     const snapshot = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes }).from(hrScheduleEntries).where(eq(hrScheduleEntries.employmentId, job)).limit(1);
-    expect(snapshot[0]).toMatchObject({ startsAt: `${month}-11 13:00:00`, endsAt: `${month}-11 22:00:00`, standardMinutes: 540, breakMinutes: 0 });
+    expect(snapshot[0]).toMatchObject({ startsAt: `${month}-11 13:00:00`, endsAt: `${month}-11 22:00:00`, standardMinutes: 480, breakMinutes: 60 });
     const changedShift = await request(`/hr/shift-templates/${shiftBody.id}`, "PATCH", { scopeId: "scope", name: "假日晚班更新", times: [{ dayType: "weekday", startTime: "14:00", endTime: "22:00" }], revision: 1 });
     expect(changedShift.status, await changedShift.clone().text()).toBe(200);
     const [shiftAudit] = await db.select({ payloadJson: activityEvents.payloadJson }).from(activityEvents).where(eq(activityEvents.eventType, "shift_updated"));
-    expect(JSON.parse(shiftAudit?.payloadJson ?? "{}")).toMatchObject({ name: "假日晚班更新", times: [{ dayType: "weekday", standardMinutes: 480, breakMinutes: 0 }] });
+    expect(JSON.parse(shiftAudit?.payloadJson ?? "{}")).toMatchObject({ name: "假日晚班更新", times: [{ dayType: "weekday", standardMinutes: 420, breakMinutes: 60 }] });
     const unchangedSnapshot = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes }).from(hrScheduleEntries).where(eq(hrScheduleEntries.employmentId, job)).limit(1);
-    expect(unchangedSnapshot[0]).toMatchObject({ startsAt: `${month}-11 13:00:00`, endsAt: `${month}-11 22:00:00`, standardMinutes: 540, breakMinutes: 0 });
+    expect(unchangedSnapshot[0]).toMatchObject({ startsAt: `${month}-11 13:00:00`, endsAt: `${month}-11 22:00:00`, standardMinutes: 480, breakMinutes: 60 });
     const invalidSchedule = await request("/hr/schedules", "POST", { periodKey: month, scheduleVersionId: publishedVersion.id, revision: publishedVersion.revision, entries: Array.from({ length: lastDay }, (_, index) => ({ personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shiftId, workDate: `${month}-${String(index + 1).padStart(2, "0")}` })) });
     expect(invalidSchedule.status).toBe(400);
+  });
+
+  it("請假時數依已發布班表逐日計算，並扣除各日休息時間", async () => {
+    await assign("self", "LEAVE-SCHEDULED-1");
+    const job = await firstEmployment("self");
+    const mode = await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 27, revision: 1 });
+    expect(mode.status, await mode.clone().text()).toBe(200);
+    const longShift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "請假測試九小時班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
+    expect(longShift.status, await longShift.clone().text()).toBe(201);
+    const shortShift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "請假測試八小時班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "17:00" }] });
+    expect(shortShift.status, await shortShift.clone().text()).toBe(201);
+    const shortBreakShift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "請假測試短休息班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "17:00", breakMinutes: 30 }] });
+    expect(shortBreakShift.status, await shortBreakShift.clone().text()).toBe(201);
+    const longShiftId = (await longShift.json() as { versionId: string }).versionId;
+    const shortShiftId = (await shortShift.json() as { versionId: string }).versionId;
+    const shortBreakShiftId = (await shortBreakShift.json() as { versionId: string }).versionId;
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: longShiftId, workDate: "2026-09-22" },
+      { personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shortShiftId, workDate: "2026-09-23" },
+      { personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shortBreakShiftId, workDate: "2026-09-24" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+
+    const estimate = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "self", startsAt: "2026-09-22T09:00", endsAt: "2026-09-23T17:00" });
+    expect(estimate.status, await estimate.clone().text()).toBe(200);
+    expect((await estimate.json() as { durationMinutes: number }).durationMinutes).toBe(900);
+    const partial = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "self", startsAt: "2026-09-22T11:00", endsAt: "2026-09-22T14:00" });
+    expect(partial.status, await partial.clone().text()).toBe(200);
+    expect((await partial.json() as { durationMinutes: number }).durationMinutes).toBe(120);
+    const differentBreak = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "self", startsAt: "2026-09-24T09:00", endsAt: "2026-09-24T17:00" });
+    expect(differentBreak.status, await differentBreak.clone().text()).toBe(200);
+    expect((await differentBreak.json() as { durationMinutes: number }).durationMinutes).toBe(450);
   });
 
   it("班別只能當天上下班，代碼由系統產生，同一店可以建多個班別", async () => {
@@ -436,7 +468,7 @@ describe("HR 員工基礎", () => {
     const long = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "十小時班", times: [{ dayType: "weekday", startTime: "08:00", endTime: "18:00" }] });
     expect(long.status, await long.clone().text()).toBe(201);
     const longListed = await (await request("/hr/shift-templates")).json() as { shifts: Array<{ name: string; standardMinutes: number; breakMinutes: number }> };
-    expect(longListed.shifts.find((item) => item.name === "十小時班")).toMatchObject({ standardMinutes: 600, breakMinutes: 0 });
+    expect(longListed.shifts.find((item) => item.name === "十小時班")).toMatchObject({ standardMinutes: 540, breakMinutes: 60 });
 
     const overnight = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "夜班", times: [{ dayType: "weekday", startTime: "23:00", endTime: "07:00" }] });
     expect(overnight.status).toBe(400);

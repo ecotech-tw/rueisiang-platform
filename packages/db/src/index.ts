@@ -21,7 +21,7 @@ export {
   type SpecialWorkdayAllowanceInput, type SpecialWorkdayAssignmentInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,
 } from "./hr-special-workdays.js";
 export { createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";
-export { cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest, type HrLeaveCancellationOptions, type HrLeaveRequestCreateOptions, type HrLeaveRequestInput } from "./hr-leave.js";
+export { calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest, type HrLeaveCancellationOptions, type HrLeaveDurationInput, type HrLeaveRequestCreateOptions, type HrLeaveRequestInput } from "./hr-leave.js";
 export {
   addCalendarMonths, allocateHrAnnualLeave, buildHrAnnualLeaveSettlementMutations, createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements,
   getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates,

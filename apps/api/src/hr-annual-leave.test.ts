@@ -235,7 +235,7 @@ describe("週年制特休額度", () => {
     expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_ledger WHERE source_key=?").get(`leave-request-cancel:${racedId}`)).toEqual({ count: 0 });
 
     const overbooked = await request("/hr/requests/leave", "POST", {
-      employeeUserId: "employee", leaveTypeId, startsAt: "2026-03-02T09:00", endsAt: "2026-03-04T17:00", reason: "不可挪用上一期餘額",
+      employeeUserId: "employee", leaveTypeId, startsAt: "2026-03-02T09:00", endsAt: "2026-03-16T17:00", reason: "不可挪用上一期餘額",
     });
     expect(overbooked.status, await overbooked.clone().text()).toBe(409);
   });

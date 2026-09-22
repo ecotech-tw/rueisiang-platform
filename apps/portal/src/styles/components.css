@@ -2712,7 +2712,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /* 內距 5px ＋ 欄位 9px 圓角 = 卡片 14px：巢狀圓角同心，邊角才不會看起來歪一塊。 */
 .shift-group { display: grid; gap: 6px; padding: 5px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-paper); }
 .shift-group-head { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
-.shift-day-row { display: grid; grid-template-columns: 62px 118px 118px 44px; align-items: center; gap: 8px; }
+.shift-day-row { display: grid; grid-template-columns: 62px 108px 108px 100px 44px; align-items: center; gap: 8px; }
 .shift-day-row-empty { grid-template-columns: 62px minmax(0, 1fr) auto; }
 .shift-day-label { padding-left: 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; }
 .shift-group .field { min-width: 0; margin: 0; }
@@ -2737,7 +2737,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .special-allowance-items .salary-item-row > .field:nth-child(2)::before { content: "補貼單價（元）"; }
   .special-allowance-items .salary-item-row > .icon-button { grid-column: 2; }
   /* 窄螢幕放不下「標籤＋兩個時間＋按鈕」一橫排；日型標籤獨占一行，時間兩欄對半。 */
-  .shift-day-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: center; gap: 6px 8px; }
+  .shift-day-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: center; gap: 6px 8px; }
   .shift-day-label { grid-column: 1 / -1; padding-left: 2px; }
   .shift-day-row-empty { grid-template-columns: minmax(0, 1fr) auto; }
 }

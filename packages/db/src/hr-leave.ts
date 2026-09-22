@@ -4,19 +4,28 @@ import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { allocateHrAnnualLeave } from "./hr-annual-leave.js";
 import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
-import { formatTaipeiDate } from "./taipei-time.js";
+import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
+import { hrScheduleEntries, hrScheduleVersions } from "./schema/hr-scheduling.js";
+import { formatTaipeiDate, taipeiWallClockToUtc } from "./taipei-time.js";
 import { users } from "./schema/auth.js";
 
 const HALF_HOUR_MINUTES = 30;
 const MAX_LEAVE_MINUTES = 44_640;
+const STANDARD_WORKDAY_START = "09:00:00";
+const STANDARD_WORKDAY_END = "18:00:00";
+const STANDARD_LUNCH_START = "12:00:00";
+const STANDARD_LUNCH_END = "13:00:00";
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
 
-export interface HrLeaveRequestInput {
+export interface HrLeaveDurationInput {
   employeeUserId: string;
-  leaveTypeId: string;
   /** API 已將使用者選的台北時間轉成 canonical UTC wall-clock。 */
   startsAt: string;
   endsAt: string;
+}
+
+export interface HrLeaveRequestInput extends HrLeaveDurationInput {
+  leaveTypeId: string;
   reason: string;
 }
 
@@ -48,9 +57,121 @@ function stamp(value: string, label: string) {
   return parsed.getTime();
 }
 
-function nextTaipeiDate(value: string) {
+function shiftTaipeiDate(value: string, amount: number) {
   const parsed = new Date(`${value}T00:00:00.000Z`);
-  return formatTaipeiDate(parsed.getTime() + 86_400_000);
+  parsed.setUTCDate(parsed.getUTCDate() + amount);
+  return formatTaipeiDate(parsed.getTime());
+}
+
+function nextTaipeiDate(value: string) {
+  return shiftTaipeiDate(value, 1);
+}
+
+function datesBetween(startsOn: string, endsOn: string) {
+  const dates: string[] = [];
+  for (let date = startsOn; date < endsOn; date = nextTaipeiDate(date)) dates.push(date);
+  return dates;
+}
+
+function canonicalTaipeiTime(date: string, time: string, label: string) {
+  try {
+    return stamp(taipeiWallClockToUtc(`${date} ${time}`), label);
+  } catch {
+    throw new HrError(409, `${label}不正確，請先確認工作時間設定。 `);
+  }
+}
+
+function canonicalStoredTaipeiTime(value: string, label: string) {
+  const [date, time] = value.split(" ");
+  if (!date || !time) throw new HrError(409, `${label}不正確，請先確認排班資料。 `);
+  return canonicalTaipeiTime(date, time, label);
+}
+
+function overlapMinutes(startsAt: number, endsAt: number, rangeStart: number, rangeEnd: number) {
+  const start = Math.max(startsAt, rangeStart);
+  const end = Math.min(endsAt, rangeEnd);
+  return end > start ? (end - start) / 60_000 : 0;
+}
+
+/** 一般辦公沒有逐日班表時，以公司標準工作時段計算。 */
+function calculateStandardWorkMinutes(startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
+  const dates = datesBetween(startsOn, endsOn);
+  let durationMinutes = 0;
+  for (const date of dates) {
+    const workStart = canonicalTaipeiTime(date, STANDARD_WORKDAY_START, "一般辦公開始時間");
+    const workEnd = canonicalTaipeiTime(date, STANDARD_WORKDAY_END, "一般辦公結束時間");
+    const lunchStart = canonicalTaipeiTime(date, STANDARD_LUNCH_START, "一般辦公午休開始時間");
+    const lunchEnd = canonicalTaipeiTime(date, STANDARD_LUNCH_END, "一般辦公午休結束時間");
+    durationMinutes += overlapMinutes(startsAt, endsAt, workStart, workEnd);
+    durationMinutes -= overlapMinutes(startsAt, endsAt, lunchStart, lunchEnd);
+  }
+  return durationMinutes;
+}
+
+type LeaveScheduleRow = {
+  periodStart: string;
+  periodEnd: string;
+  versionNumber: number;
+  workDate: string;
+  startsAt: string;
+  endsAt: string;
+  standardMinutes: number;
+  breakMinutes: number;
+};
+
+async function listPublishedLeaveSchedules(db: Database, employmentId: string, startsOn: string, endsOn: string) {
+  const rows = await db.select({
+    periodStart: hrScheduleVersions.periodStart,
+    periodEnd: hrScheduleVersions.periodEnd,
+    versionNumber: hrScheduleVersions.versionNumber,
+    workDate: hrScheduleEntries.workDate,
+    startsAt: hrScheduleEntries.startsAt,
+    endsAt: hrScheduleEntries.endsAt,
+    standardMinutes: hrScheduleEntries.standardMinutes,
+    breakMinutes: hrScheduleEntries.breakMinutes,
+  }).from(hrScheduleEntries)
+    .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
+    .where(and(
+      eq(hrScheduleEntries.employmentId, employmentId),
+      eq(hrScheduleVersions.status, "published"),
+      sql`${hrScheduleEntries.workDate} >= ${shiftTaipeiDate(startsOn, -1)}`,
+      sql`${hrScheduleEntries.workDate} <= ${endsOn}`,
+    ));
+  const latestVersion = new Map<string, number>();
+  for (const row of rows) {
+    const key = `${row.periodStart}:${row.periodEnd}`;
+    latestVersion.set(key, Math.max(latestVersion.get(key) ?? 0, row.versionNumber));
+  }
+  return rows.filter((row) => latestVersion.get(`${row.periodStart}:${row.periodEnd}`) === row.versionNumber) as LeaveScheduleRow[];
+}
+
+function scheduleOverlapMinutes(row: LeaveScheduleRow, startsAt: number, endsAt: number) {
+  const scheduleStart = canonicalStoredTaipeiTime(row.startsAt, "排班開始時間");
+  const scheduleEnd = canonicalStoredTaipeiTime(row.endsAt, "排班結束時間");
+  if (scheduleEnd <= scheduleStart) throw new HrError(409, "排班結束時間必須晚於開始時間。 ");
+  const spanMinutes = (scheduleEnd - scheduleStart) / 60_000;
+  const standardMinutes = Math.max(0, Math.min(spanMinutes, row.standardMinutes));
+  const breakMinutes = Math.max(0, Math.min(spanMinutes, row.breakMinutes));
+  // 目前排班快照只有休息總分鐘數，沒有休息起訖；以班中置中的非計薪區段計算部分請假。
+  const unpaidMinutes = Math.max(breakMinutes, spanMinutes - standardMinutes);
+  const unpaidStart = scheduleStart + ((spanMinutes - unpaidMinutes) * 60_000) / 2;
+  const unpaidEnd = unpaidStart + unpaidMinutes * 60_000;
+  return overlapMinutes(startsAt, endsAt, scheduleStart, scheduleEnd) - overlapMinutes(startsAt, endsAt, unpaidStart, unpaidEnd);
+}
+
+async function calculateScheduledWorkMinutes(db: Database, employmentId: string, startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
+  const rows = await listPublishedLeaveSchedules(db, employmentId, startsOn, endsOn);
+  return rows.reduce((total, row) => total + scheduleOverlapMinutes(row, startsAt, endsAt), 0);
+}
+
+async function calculateLeaveWorkMinutes(db: Database, employmentId: string, startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
+  const [setting] = await db.select({ attendanceMode: hrEmploymentAttendanceSettings.attendanceMode })
+    .from(hrEmploymentAttendanceSettings)
+    .where(eq(hrEmploymentAttendanceSettings.employmentId, employmentId))
+    .limit(1);
+  return setting?.attendanceMode === "scheduled"
+    ? calculateScheduledWorkMinutes(db, employmentId, startsAt, endsAt, startsOn, endsOn)
+    : calculateStandardWorkMinutes(startsAt, endsAt, startsOn, endsOn);
 }
 
 function normalizeInterval(startsAt: string, endsAt: string): NormalizedLeaveInterval {
@@ -58,13 +179,13 @@ function normalizeInterval(startsAt: string, endsAt: string): NormalizedLeaveInt
   const endMs = stamp(endsAt, "請假結束時間");
   if (endMs <= startMs) throw new HrError(400, "請假結束時間必須晚於開始時間。 ");
   const elapsedMs = endMs - startMs;
-  const durationMinutes = elapsedMs / 60_000;
-  if (!Number.isSafeInteger(durationMinutes) || durationMinutes < HALF_HOUR_MINUTES || durationMinutes % HALF_HOUR_MINUTES !== 0 || durationMinutes > MAX_LEAVE_MINUTES) {
-    throw new HrError(400, "請假時數必須由時間計算為 0.5 小時的倍數，且不可超過 31 天。 ");
+  const elapsedMinutes = elapsedMs / 60_000;
+  if (!Number.isSafeInteger(elapsedMinutes) || elapsedMinutes > MAX_LEAVE_MINUTES) {
+    throw new HrError(400, "請假期間不可超過 31 天。 ");
   }
   const startsOn = formatTaipeiDate(startMs);
   const lastDate = formatTaipeiDate(endMs - 1_000);
-  return { startsAt, endsAt, startsOn, endsOn: nextTaipeiDate(lastDate), durationMinutes };
+  return { startsAt, endsAt, startsOn, endsOn: nextTaipeiDate(lastDate), durationMinutes: elapsedMinutes };
 }
 
 async function ensureEmploymentForPeriod(db: Database, employeeUserId: string, startsOn: string, endsOn: string) {
@@ -75,6 +196,27 @@ async function ensureEmploymentForPeriod(db: Database, employeeUserId: string, s
   )).orderBy(desc(hrEmployments.hiredOn)).limit(1);
   if (!employment) throw new HrError(400, "請假日期不在有效任職期間內。 ");
   return employment.id;
+}
+
+async function resolveLeaveInterval(db: Database, input: HrLeaveDurationInput) {
+  const normalized = normalizeInterval(input.startsAt, input.endsAt);
+  const employmentId = await ensureEmploymentForPeriod(db, input.employeeUserId, normalized.startsOn, normalized.endsOn);
+  const durationMinutes = await calculateLeaveWorkMinutes(db, employmentId, stamp(normalized.startsAt, "請假開始時間"), stamp(normalized.endsAt, "請假結束時間"), normalized.startsOn, normalized.endsOn);
+  if (!Number.isSafeInteger(durationMinutes) || durationMinutes < HALF_HOUR_MINUTES || durationMinutes % HALF_HOUR_MINUTES !== 0) {
+    throw new HrError(400, "請假時數必須依工作日、班表與休息時間計算為 0.5 小時的倍數，且至少 0.5 小時。 ");
+  }
+  return { employmentId, interval: { ...normalized, durationMinutes } };
+}
+
+export async function calculateHrLeaveDuration(db: Database, input: HrLeaveDurationInput) {
+  const { interval } = await resolveLeaveInterval(db, input);
+  return {
+    startsAt: interval.startsAt,
+    endsAt: interval.endsAt,
+    startsOn: interval.startsOn,
+    endsOn: interval.endsOn,
+    durationMinutes: interval.durationMinutes,
+  };
 }
 
 export async function listHrLeaveRequests(db: Database, employeeUserId?: string) {
@@ -89,8 +231,7 @@ export async function listHrLeaveRequests(db: Database, employeeUserId?: string)
 
 export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestInput, actor: HrActor, options: HrLeaveRequestCreateOptions = {}) {
   if (input.reason.length > 1000) throw new HrError(400, "請假原因不可超過 1000 字。 ");
-  const interval = normalizeInterval(input.startsAt, input.endsAt);
-  const employmentId = await ensureEmploymentForPeriod(db, input.employeeUserId, interval.startsOn, interval.endsOn);
+  const { employmentId, interval } = await resolveLeaveInterval(db, input);
   const [leaveType] = await db.select({
     id: hrLeaveTypes.id,
     name: hrLeaveTypes.name,
