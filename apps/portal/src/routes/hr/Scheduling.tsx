@@ -3,8 +3,8 @@ import { Link } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge } from "../../ui/index.js";
-import { shiftTimeRange, useHrQuery, useHrWrite, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
+import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { groupShiftsByTemplate, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 function taipeiMonthStart() {
@@ -22,8 +22,14 @@ function dateAt(month: Date, day: number) { return `${month.getUTCFullYear()}-${
 // 計薪時數就是班別長度，時段本身已經說完了，不必再括號補一次「計薪 8.0 小時」。
 function shiftLabel(shift: ScheduleShift) { return `${shift.name}（${shiftTimeRange(shift)}）`; }
 
-/** 一次排班的四個條件。快速排班把它固定住，之後每點一天就套用同一組。 */
-interface QuickPick { personKind: "employee" | "worker"; personId: string; scopeId: string; shiftVersionId: string }
+/**
+ * 一次排班的四個條件。快速排班把它固定住，之後每點一天就套用同一組。
+ *
+ * 這裡記的是**班別**而不是某一組時間：同一個「早班」在平日與國定假日是兩個版本 ID，
+ * 記版本的話一路點下去會把假日那幾天也排成平日的時間，而畫面上選的明明是同一個早班。
+ * 真正要寫進班表的版本由 makeEntry 依那天的日型挑。
+ */
+interface QuickPick { personKind: "employee" | "worker"; personId: string; scopeId: string; shiftTemplateId: string }
 
 /**
  * 把「人＋據點＋班別＋日期」組成月曆上的一筆排班。
@@ -31,15 +37,15 @@ interface QuickPick { personKind: "employee" | "worker"; personId: string; scope
  * 對話框與快速排班都要產同一種東西，寫兩份的話遲早只改到一邊——那種 bug 會長成
  * 「用對話框加的會顯示班別名稱，用快速排班加的空白」。
  */
-function makeEntry(data: HrScheduleResponse, pick: QuickPick, workDate: string): ScheduleEntry | null {
-  const shift = data.shifts.find((item) => item.versionId === pick.shiftVersionId && item.scopeId === pick.scopeId);
+function makeEntry(data: HrScheduleResponse, pick: QuickPick, workDate: string, dayType: HrDayType): ScheduleEntry | null {
+  const shift = pickShiftForDay(data.shifts.filter((item) => item.templateId === pick.shiftTemplateId && item.scopeId === pick.scopeId), dayType);
   if (!shift || !pick.personId) return null;
   const employee = data.employees.find((item) => item.employmentId === pick.personId);
   const worker = data.workers.find((item) => item.id === pick.personId);
   return {
     id: `local-${crypto.randomUUID()}`, scheduleVersionId: data.version?.id ?? "", personKind: pick.personKind,
     employmentId: pick.personKind === "employee" ? pick.personId : null, workerId: pick.personKind === "worker" ? pick.personId : null,
-    scopeId: pick.scopeId, shiftVersionId: pick.shiftVersionId, workDate, startsAt: "", endsAt: "", standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes,
+    scopeId: pick.scopeId, shiftVersionId: shift.versionId, workDate, startsAt: "", endsAt: "", standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes,
     employeeNumber: pick.personKind === "employee" ? employee?.employeeNumber ?? null : null,
     personName: pick.personKind === "employee" ? employee?.name ?? "" : worker?.name ?? "",
     scopeName: data.scopes.find((scope) => scope.id === pick.scopeId)?.name ?? "", shiftName: shift.name,
@@ -51,9 +57,12 @@ function makeEntry(data: HrScheduleResponse, pick: QuickPick, workDate: string):
  *
  * 班別也要比對，否則早班已排的人再點一次要排晚班時會被當成重複而被取消掉——
  * 早晚班本來就不重疊，兩筆同時存在是合法的。
+ *
+ * 比的是班別而不是版本 ID：平日排的早班與假日排的早班版本不同，比版本的話假日那天
+ * 會被當成別的班，快速排班再點一次取消不掉。
  */
-function samePick(entry: ScheduleEntry, pick: QuickPick) {
-  return entry.scopeId === pick.scopeId && entry.shiftVersionId === pick.shiftVersionId
+function samePick(entry: ScheduleEntry, pick: QuickPick, templateOf: (versionId: string) => string | undefined) {
+  return entry.scopeId === pick.scopeId && templateOf(entry.shiftVersionId) === pick.shiftTemplateId
     && (pick.personKind === "employee" ? entry.employmentId === pick.personId : entry.workerId === pick.personId);
 }
 
@@ -82,18 +91,29 @@ function diffEntries(draft: ScheduleEntry[], saved: ScheduleEntry[]) {
   return { added, removed, changed: added > 0 || removed > 0 };
 }
 
-function ScheduleEntryDialog({ data, day, defaultScopeId, onAdd, onClose }: { data: HrScheduleResponse; day: string; defaultScopeId: string; onAdd: (entry: ScheduleEntry) => void; onClose: () => void }) {
+/**
+ * 單日新增排班。班別選的是班別本身，帶出來的時間依當天日型而定。
+ *
+ * 使用者仍然改得動：在國定假日排一個平日時間的班是合理的需求，
+ * 系統不該因為那天被標成假日就不給選。
+ */
+function ScheduleEntryDialog({ data, day, dayType, defaultScopeId, onAdd, onClose }: { data: HrScheduleResponse; day: string; dayType: HrDayType; defaultScopeId: string; onAdd: (entry: ScheduleEntry) => void; onClose: () => void }) {
   const [personKind, setPersonKind] = useState<"employee" | "worker">("employee");
   const [scopeId, setScopeId] = useState(defaultScopeId);
   const [personId, setPersonId] = useState(data.employees[0]?.employmentId ?? data.workers[0]?.id ?? "");
   const [shiftVersionId, setShiftVersionId] = useState("");
-  const shifts = data.shifts.filter((shift) => shift.scopeId === scopeId);
-  useEffect(() => { setShiftVersionId(shifts[0]?.versionId ?? ""); }, [scopeId, data.shifts]);
+  const shifts = useMemo(() => data.shifts.filter((shift) => shift.scopeId === scopeId), [data.shifts, scopeId]);
+  const templates = useMemo(() => [...groupShiftsByTemplate(shifts).values()], [shifts]);
+  useEffect(() => {
+    const first = templates[0];
+    setShiftVersionId(first ? pickShiftForDay(first, dayType)?.versionId ?? "" : "");
+  }, [templates, dayType]);
   useEffect(() => { setPersonId(personKind === "employee" ? data.employees[0]?.employmentId ?? "" : data.workers[0]?.id ?? ""); }, [personKind, data.employees, data.workers]);
   const selectedShift = shifts.find((shift) => shift.versionId === shiftVersionId);
   return <Dialog title={`${day} 新增排班`} onClose={onClose} formProps={{ onSubmit: (event) => {
     event.preventDefault();
-    const entry = makeEntry(data, { personKind, personId, scopeId, shiftVersionId }, day);
+    if (!selectedShift) return;
+    const entry = makeEntry(data, { personKind, personId, scopeId, shiftTemplateId: selectedShift.templateId }, day, selectedShift.dayType);
     if (!entry) return;
     onAdd(entry);
     onClose();
@@ -101,8 +121,56 @@ function ScheduleEntryDialog({ data, day, defaultScopeId, onAdd, onClose }: { da
     <SelectField label="人員類型" value={personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援（納入日薪）" }]} onChange={(event) => setPersonKind(event.target.value as "employee" | "worker")} />
     <SelectField label="人員" value={personId} options={personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber} ${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
     <SelectField label="營運據點" value={scopeId} options={data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => setScopeId(event.target.value)} />
-    <SelectField label="班別" value={shiftVersionId} options={shifts.map((shift) => ({ value: shift.versionId, label: shiftLabel(shift) }))} onChange={(event) => setShiftVersionId(event.target.value)} />
+    {/* 一個班別一個選項，label 直接寫出那天會用到的時間，使用者不必自己推今天算哪一型。 */}
+    <SelectField label="班別" value={shiftVersionId} options={templates.flatMap((versions) => {
+      const shift = pickShiftForDay(versions, dayType);
+      return shift ? [{ value: shift.versionId, label: shiftLabel(shift) }] : [];
+    })} onChange={(event) => setShiftVersionId(event.target.value)} />
+    {selectedShift && selectedShift.dayType !== "weekday" ? <p className="muted field-note">這天是{HR_DAY_TYPE_LABELS[dayType]}，已套用{HR_DAY_TYPE_LABELS[selectedShift.dayType]}時間。</p> : null}
     {!shifts.length ? <Alert tone="info">這個營運據點尚未設定班別，請先到 <Link to="/hr/scheduling/shifts">班別管理</Link> 新增。</Alert> : null}
+  </Dialog>;
+}
+
+/**
+ * 一個月的行事曆。只有被標成跟預設值不同的日子會存下來，其餘由星期幾推算。
+ *
+ * 放在排班月曆而不是另開一頁：會想到要標國定假日的時機，就是正在排那個月的班的時候。
+ */
+function CalendarDialog({ periodKey: key, days: initial, canWrite, onClose, onSaved }: { periodKey: string; days: HrCalendarDay[]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
+  const [days, setDays] = useState(initial);
+  const [message, setMessage] = useState<string | null>(null);
+  const save = useHrWrite();
+  const toast = useToast();
+  const changed = days.some((day, index) => day.dayType !== initial[index]?.dayType || day.name !== initial[index]?.name);
+  const update = (date: string, patch: Partial<HrCalendarDay>) => {
+    setDays((current) => current.map((day) => day.date === date ? { ...day, ...patch } : day));
+    setMessage(null);
+  };
+  const submit = async () => {
+    try {
+      await save.mutateAsync({ path: `/calendar/${key}`, method: "PUT", values: { days: days.map(({ date, dayType, name }) => ({ date, dayType, name })) } });
+      await onSaved();
+      toast.show("行事曆已儲存。");
+      onClose();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "行事曆儲存失敗，請稍後再試。");
+    }
+  };
+  return <Dialog
+    title={`${key} 行事曆`}
+    onClose={onClose}
+    closeDisabled={save.isPending}
+    actions={canWrite ? <Button loading={save.isPending} disabled={!changed} onClick={() => { void submit(); }}>儲存</Button> : undefined}
+  >
+    <p className="muted field-note">週六日預設就是週末，不用特別標。這裡只需要標出國定假日與補班日。</p>
+    <div className="hr-calendar-editor">
+      {days.map((day) => <div className={`hr-calendar-editor-row day-${day.dayType}`} key={day.date}>
+        <span className="hr-calendar-editor-date">{Number(day.date.slice(8))}<small>{["日", "一", "二", "三", "四", "五", "六"][new Date(`${day.date}T00:00:00Z`).getUTCDay()]}</small></span>
+        <SelectField aria-label={`${day.date} 日期類型`} value={day.dayType} disabled={!canWrite || save.isPending} options={HR_DAY_TYPES.map((dayType) => ({ value: dayType, label: HR_DAY_TYPE_LABELS[dayType] }))} onChange={(event) => update(day.date, { dayType: event.target.value as HrDayType })} />
+        <TextField aria-label={`${day.date} 名稱`} maxLength={100} placeholder="例如：中秋節、補班日" value={day.name} disabled={!canWrite || save.isPending} onChange={(event) => update(day.date, { name: event.target.value })} />
+      </div>)}
+    </div>
+    {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
   </Dialog>;
 }
 
@@ -118,6 +186,7 @@ export function HrScheduling() {
   const [draftEntries, setDraftEntries] = useState<ScheduleEntry[]>([]);
   const [addingDay, setAddingDay] = useState<string | null>(null);
   const [quick, setQuick] = useState<QuickPick | null>(null);
+  const [editingCalendar, setEditingCalendar] = useState(false);
   const toast = useToast();
   const save = useHrWrite();
   const lock = useHrWrite();
@@ -130,6 +199,14 @@ export function HrScheduling() {
   useEffect(() => { if (data?.version?.locked) setQuick(null); }, [data?.version?.locked]);
   useEffect(() => { if (scopeId !== "all" && !data?.scopes.some((scope) => scope.id === scopeId)) setScopeId("all"); }, [data?.scopes, scopeId]);
   const visibleEntries = useMemo(() => scopeId === "all" ? draftEntries : draftEntries.filter((entry) => entry.scopeId === scopeId), [draftEntries, scopeId]);
+  /*
+   * 日型跟班別版本的對照表。兩張都由後端的回應直接產生：
+   * 日型不在這裡再推一次星期幾，否則補班日這種算不出來的日子會跟後端對不起來。
+   */
+  const dayTypeByDate = useMemo(() => new Map((data?.calendar ?? []).map((day) => [day.date, day])), [data?.calendar]);
+  const templateByVersion = useMemo(() => new Map((data?.shifts ?? []).map((shift) => [shift.versionId, shift.templateId])), [data?.shifts]);
+  const dayTypeOf = (date: string): HrDayType => dayTypeByDate.get(date)?.dayType ?? "weekday";
+  const templateOf = (versionId: string) => templateByVersion.get(versionId);
   const dates = Array.from({ length: daysInMonth(month) }, (_, index) => dateAt(month, index + 1));
   const entriesOn = (day: string) => visibleEntries.filter((entry) => entry.workDate === day);
 
@@ -153,11 +230,12 @@ export function HrScheduling() {
     const restDays = Math.max(0, activeDays - scheduledDays);
     return { employee, activeDays, scheduledDays, restDays, matches: restDays === Math.min(employee.monthlyRestDays!, activeDays) };
   });
-  const quickShifts = quick ? data.shifts.filter((shift) => shift.scopeId === quick.scopeId) : [];
-  const quickDays = quick ? new Set(draftEntries.filter((entry) => samePick(entry, quick)).map((entry) => entry.workDate)).size : 0;
+  const quickTemplates = quick ? [...groupShiftsByTemplate(data.shifts.filter((shift) => shift.scopeId === quick.scopeId)).values()] : [];
+  const quickDays = quick ? new Set(draftEntries.filter((entry) => samePick(entry, quick, templateOf)).map((entry) => entry.workDate)).size : 0;
   // 正在排的那個人的月休進度直接放在快速排班條上；否則要回頭在月休統計那一排裡找名字。
   const quickRest = quick?.personKind === "employee" ? restSummaries.find((summary) => summary.employee.employmentId === quick.personId) : undefined;
-  const quickPicked = (day: string) => Boolean(quick && draftEntries.some((entry) => entry.workDate === day && samePick(entry, quick)));
+  const quickPicked = (day: string) => Boolean(quick && draftEntries.some((entry) => entry.workDate === day && samePick(entry, quick, templateOf)));
+  const firstTemplateId = (forScopeId: string) => data.shifts.find((shift) => shift.scopeId === forScopeId)?.templateId ?? "";
   /*
    * 據點只有上方篩選器這一個來源。快速排班自己再放一個下拉的話，兩邊會各自記一個值：
    * 篩選器切到 B 店、月曆顯示 B 店，點下去的排班卻還是寫進 A 店，而且因為篩選器已經
@@ -165,20 +243,20 @@ export function HrScheduling() {
    */
   const pickScope = (nextScopeId: string) => {
     setScopeId(nextScopeId);
-    if (quick) setQuick({ ...quick, scopeId: nextScopeId, shiftVersionId: data.shifts.find((shift) => shift.scopeId === nextScopeId)?.versionId ?? "" });
+    if (quick) setQuick({ ...quick, scopeId: nextScopeId, shiftTemplateId: firstTemplateId(nextScopeId) });
   };
   const openQuick = () => {
     const scope = defaultScope;
     setScopeId(scope);
-    setQuick({ personKind: "employee", personId: data.employees[0]?.employmentId ?? "", scopeId: scope, shiftVersionId: data.shifts.find((shift) => shift.scopeId === scope)?.versionId ?? "" });
+    setQuick({ personKind: "employee", personId: data.employees[0]?.employmentId ?? "", scopeId: scope, shiftTemplateId: firstTemplateId(scope) });
   };
   const toggleQuickDay = (day: string) => {
     // 鎖定的月份不能改草稿：畫面說已鎖定，草稿卻默默變了，解鎖後一按儲存就發布出去。
     if (!quick || !canEdit) return;
     setDraftEntries((current) => {
-      const match = current.find((entry) => entry.workDate === day && samePick(entry, quick));
+      const match = current.find((entry) => entry.workDate === day && samePick(entry, quick, templateOf));
       if (match) return current.filter((entry) => entry.id !== match.id);
-      const entry = makeEntry(data, quick, day);
+      const entry = makeEntry(data, quick, day, dayTypeOf(day));
       return entry ? [...current, entry] : current;
     });
   };
@@ -199,7 +277,7 @@ export function HrScheduling() {
   const today = taipeiToday();
 
   return <div className="page fills hr-schedule-page">
-    <PageHeader title="排班月曆" description="正式員工依排班出勤；臨時支援排班會納入日薪，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
+    <PageHeader title="排班月曆" description="正式員工依排班出勤；臨時支援排班會納入日薪，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}<Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
     {restSummaries.length ? <div className="hr-schedule-rest-summary" aria-label="月休統計"><strong>月休統計</strong><div>{restSummaries.map(({ employee, activeDays, scheduledDays, restDays, matches }) => <span className={matches ? "ok" : "warning"} key={employee.employmentId}><b>{employee.name}</b> 休 {restDays}／約定 {employee.monthlyRestDays} 天<span className="muted">（{scheduledDays}／{activeDays} 日）</span></span>)}</div></div> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
     <Panel className="grows hr-calendar-panel">
@@ -220,8 +298,17 @@ export function HrScheduling() {
           setQuick({ ...quick, personKind, personId: (personKind === "employee" ? data.employees[0]?.employmentId : data.workers[0]?.id) ?? "" });
         }} />
         <SelectField aria-label="人員" value={quick.personId} options={quick.personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.name} ${employee.employeeNumber}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick({ ...quick, personId: event.target.value })} />
-        {quickShifts.length
-          ? <SelectField aria-label="班別" value={quick.shiftVersionId} options={quickShifts.map((shift) => ({ value: shift.versionId, label: shiftLabel(shift) }))} onChange={(event) => setQuick({ ...quick, shiftVersionId: event.target.value })} />
+        {/*
+          * 選班別而不是選某一組時間：點到哪一天就用那天的日型挑。所以 label
+          * 只寫平日的時間做代表，後面再註明還有哪些日型有自己的時間。
+          */}
+        {quickTemplates.length
+          ? <SelectField aria-label="班別" value={quick.shiftTemplateId} options={quickTemplates.flatMap((versions) => {
+              const weekday = pickShiftForDay(versions, "weekday");
+              if (!weekday) return [];
+              const extras = versions.filter((shift) => shift.dayType !== "weekday").map((shift) => HR_DAY_TYPE_LABELS[shift.dayType]);
+              return [{ value: weekday.templateId, label: `${shiftLabel(weekday)}${extras.length ? ` 另設${extras.join("、")}` : ""}` }];
+            })} onChange={(event) => setQuick({ ...quick, shiftTemplateId: event.target.value })} />
           : <span className="hr-quick-bar-empty">這個據點還沒有班別，<Link to="/hr/scheduling/shifts">前往班別管理</Link></span>}
         <span className="hr-quick-bar-hint">點日期排入或取消</span>
         <span className="hr-quick-bar-count">已選 <b>{quickDays}</b> 天</span>
@@ -233,7 +320,7 @@ export function HrScheduling() {
       <div className={`hr-calendar${quick ? " quick" : ""}`}>
         {Array.from({ length: weekday(month) }, (_, index) => <div className="hr-calendar-cell empty" key={`empty-${index}`} />)}
         {dates.map((day, index) => <div
-          className={`hr-calendar-cell${quick && quickPicked(day) ? " picked" : ""}${day === today ? " today" : ""}`}
+          className={`hr-calendar-cell day-${dayTypeOf(day)}${quick && quickPicked(day) ? " picked" : ""}${day === today ? " today" : ""}`}
           key={day}
           /*
            * 整格可點，但格子本身不是 <button>：裡面已經有每筆排班的「×」與日期鍵，
@@ -244,14 +331,20 @@ export function HrScheduling() {
           onClick={quick ? (event) => { if (!(event.target as HTMLElement).closest("button, .hr-calendar-entry")) toggleQuickDay(day); } : undefined}
         >
           {/* aria-current 讓讀螢幕也聽得到今天；視覺上是日期數字那顆實心膠囊。 */}
+          {/*
+            * 假日名稱是文字，不是只用底色：顏色一旦成為唯一的訊號，色弱的人就看不出
+            * 這天跟旁邊差在哪裡，而「今天是不是國定假日」正是排班時最需要看清楚的事。
+            */}
+          {dayTypeByDate.get(day)?.name ? <span className="hr-calendar-holiday">{dayTypeByDate.get(day)!.name}</span> : null}
           <div className="hr-calendar-date" {...(day === today ? { "aria-current": "date" as const } : {})}>{quick
-            ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftVersionId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
+            ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftTemplateId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
             : <><strong>{index + 1}</strong>{canEdit ? <button type="button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
-          <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${quick && samePick(entry, quick) ? " current" : ""}`} key={entry.id}><span>{entry.personName}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
+          <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${quick && samePick(entry, quick, templateOf) ? " current" : ""}`} key={entry.id}><span>{entry.personName}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
         </div>)}
       </div>
       </div>
     </Panel>
-    {addingDay && defaultScope ? <ScheduleEntryDialog data={data} day={addingDay} defaultScopeId={defaultScope} onAdd={(entry) => setDraftEntries((current) => [...current, entry])} onClose={() => setAddingDay(null)} /> : null}
+    {addingDay && defaultScope ? <ScheduleEntryDialog data={data} day={addingDay} dayType={dayTypeOf(addingDay)} defaultScopeId={defaultScope} onAdd={(entry) => setDraftEntries((current) => [...current, entry])} onClose={() => setAddingDay(null)} /> : null}
+    {editingCalendar ? <CalendarDialog periodKey={key} days={data.calendar} canWrite={canWrite} onClose={() => setEditingCalendar(false)} onSaved={() => schedule.refetch()} /> : null}
   </div>;
 }

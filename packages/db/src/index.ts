@@ -7,8 +7,14 @@ export {
 export { getHrOverview, type HrOverviewResult, type HrOverviewPayrollStatus } from "./hr-overview.js";
 export {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
-  type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type SaveHrScheduleInput, type ScheduleEntryInput,
+  periodFromKey,
+  type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type HrShiftTime, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";
+export {
+  defaultDayType, isHrDayType, listHrCalendarMonth, resolveDayTypes, saveHrCalendarMonth, HR_DAY_TYPE_LABELS,
+  type HrCalendarDayInput, type HrCalendarDayView,
+} from "./hr-calendar.js";
+export type { HrDayType } from "./schema/hr-scheduling.js";
 export {
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   type SpecialWorkdayAllowanceInput, type SpecialWorkdayAssignmentInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,

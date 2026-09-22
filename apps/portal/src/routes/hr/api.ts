@@ -149,8 +149,34 @@ export interface HrOverview { periodKey: string; attendance: { anomalyCount: num
 export interface BonusAllocation { employmentId: string; employeeNumber: string; employeeName: string; weightUnits: number; scheduledDays: number; revenueMinor: number; amountMinor: number }
 export interface BonusPool { poolId: string; policyVersionId: string; policyName: string; scopeId: string; scopeName: string; scopeIds?: string[]; scopeNames?: string[]; periodKey: string; status: "calculated" | "approved" | "closed" | "failed"; poolAmountMinor: number; allocations: BonusAllocation[]; daily: Array<{ scopeId?: string; businessDate: string; revenueMinor: number; bonusMinor: number; scheduled: boolean }>; warnings: string[] }
 export interface ScheduleScope { id: string; name: string }
-export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number }
+/** 平日／週末／國定假日。與 packages/db 的 HrDayType 同一組值，行事曆與班別時間共用。 */
+export type HrDayType = "weekday" | "weekend" | "holiday";
+export const HR_DAY_TYPE_LABELS: Record<HrDayType, string> = { weekday: "平日", weekend: "週末", holiday: "國定假日" };
+export const HR_DAY_TYPES: HrDayType[] = ["weekday", "weekend", "holiday"];
+
+export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; dayType: HrDayType; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number }
 export interface HrShiftsResponse { scopes: ScheduleScope[]; shifts: ScheduleShift[] }
+export interface HrCalendarDay { date: string; dayType: HrDayType; name: string; overridden: boolean }
+export interface HrCalendarResponse { days: HrCalendarDay[] }
+
+/**
+ * 一個班別在某個日型該用哪一組時間；沒設定該日型就退回平日。
+ *
+ * 後端之所以規定平日那組必填（assertShiftTimes），就是為了這條退路一定找得到東西。
+ * 挑選發生在前端是因為「預設帶哪一組」純粹是輸入時的預設值——存進班表的是使用者最後
+ * 選定的版本 ID，後端只驗證它屬於這家店，不會再推算一次，使用者才改得動。
+ */
+export function pickShiftForDay(versions: ScheduleShift[], dayType: HrDayType) {
+  return versions.find((shift) => shift.dayType === dayType) ?? versions.find((shift) => shift.dayType === "weekday");
+}
+
+/** 把同一個班別的多組時間收成一筆，順序照平日、週末、國定假日。 */
+export function groupShiftsByTemplate(shifts: ScheduleShift[]) {
+  const grouped = new Map<string, ScheduleShift[]>();
+  for (const shift of shifts) grouped.set(shift.templateId, [...(grouped.get(shift.templateId) ?? []), shift]);
+  for (const versions of grouped.values()) versions.sort((a, b) => HR_DAY_TYPES.indexOf(a.dayType) - HR_DAY_TYPES.indexOf(b.dayType));
+  return grouped;
+}
 
 function clockOf(seconds: number) { return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}`; }
 /** 班別時間的唯一格式；排班月曆與班別管理都用這個，兩頁才不會一邊寫 9:00、一邊寫 09:00。 */
@@ -160,7 +186,7 @@ export function shiftTimeRange(shift: Pick<ScheduleShift, "startSecond" | "endSe
 export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string; hiredOn: string; endedOn: string | null; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null }
 export interface ScheduleWorker { id: string; name: string; active: boolean | number }
 export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; workDate: string; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; employeeNumber: string | null; personName: string; scopeName: string; shiftName: string }
-export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
+export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; calendar: HrCalendarDay[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
 export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; note: string }
 export interface ScheduleWorkerRecord { id: string; displayName: string; active: boolean | number; revision: number; compensation: WorkerCompensation[] }
 export interface ScheduleWorkerPageResponse { workers: ScheduleWorkerRecord[]; total: number; page: number; pageSize: number; hasMore: boolean }
