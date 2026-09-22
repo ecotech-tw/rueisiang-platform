@@ -1,6 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
+import { desc, eq } from "drizzle-orm";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { userRoleAssignments, users } from "@rueisiang/db/schema";
+import { activityEvents, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -355,6 +356,10 @@ describe("HR 薪資與勞健保", () => {
     expect(await deleted.json()).toMatchObject({ id: unusedBody.id, deleted: true });
     const afterDelete = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string } }> };
     expect(afterDelete.rules.some((item) => item.rule.id === unusedBody.id)).toBe(false);
+    const db = createDatabase(d1 as never);
+    const [deleteEvent] = await db.select({ entityLabel: activityEvents.entityLabel, summary: activityEvents.summary, payloadJson: activityEvents.payloadJson })
+      .from(activityEvents).where(eq(activityEvents.eventType, "special_workday_rule_deleted")).orderBy(desc(activityEvents.createdAt)).limit(1);
+    expect(deleteEvent).toMatchObject({ entityLabel: "未套用可刪除", summary: "特殊上班日規則刪除", payloadJson: JSON.stringify({ ruleName: "未套用可刪除" }) });
 
     const used = await request("/hr/special-workdays/rules", "POST", { name: "已有套用不可刪除", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, allowances: [], overtimeRules: [] });
     expect(used.status, await used.clone().text()).toBe(201);

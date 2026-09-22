@@ -13,9 +13,14 @@ export class HrError extends Error {
 }
 export interface HrActor { id: string; email: string }
 
-/** 共用稽核只放操作種類與 ID，不放姓名、任職日期等人事內容。 */
-async function write(db: Database, statement: SQL | SQL[], id: string, actor: HrActor, action: string, conflictMessage = "此使用者已是員工、員工編號已使用，或關聯資料不存在。", options: { allowEmptyMutationIndexes?: ReadonlySet<number> } = {}) {
-  const row = activityRow({ entityType: "hr_personnel", entityId: id, source: "hr", eventType: action, summary: "人事資料異動", actor });
+/** 共用 HR 稽核預設只放操作種類與 ID；物理刪除需要保留名稱快照時由呼叫端顯式提供。 */
+interface HrMutationOptions {
+  allowEmptyMutationIndexes?: ReadonlySet<number>;
+  activity?: { entityLabel?: string; payload?: unknown; summary?: string };
+}
+
+async function write(db: Database, statement: SQL | SQL[], id: string, actor: HrActor, action: string, conflictMessage = "此使用者已是員工、員工編號已使用，或關聯資料不存在。", options: HrMutationOptions = {}) {
+  const row = activityRow({ entityType: "hr_personnel", entityId: id, entityLabel: options.activity?.entityLabel, payload: options.activity?.payload, source: "hr", eventType: action, summary: options.activity?.summary ?? "人事資料異動", actor });
   try {
     // 零列寫入不是 SQL 失敗。後續依賴寫入與稽核都必須跟著 changes() guard。
     const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
@@ -26,8 +31,8 @@ async function write(db: Database, statement: SQL | SQL[], id: string, actor: Hr
       // 將零列 mutation 轉成 rollback，避免後續步驟留下 partial write。
       sql`INSERT INTO hr_mutation_guards (id, ok) VALUES (${crypto.randomUUID()}, CASE WHEN changes() > 0 OR ${options.allowEmptyMutationIndexes?.has(index) ? 1 : 0} = 1 THEN 1 ELSE 0 END)`,
     ]);
-    const statements = [...guardStatements, sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
-        VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
+    const statements = [...guardStatements, sql`INSERT INTO activity_events (id, entity_type, entity_id, entity_label, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
+        VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.entityLabel}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson})`,
       sql`DELETE FROM hr_mutation_guards`].map((query) => {
       const compiled = dialect.sqlToQuery(query);
       return db.$client.prepare(compiled.sql).bind(...compiled.params);
