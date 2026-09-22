@@ -83,6 +83,25 @@ export async function createHrSpecialWorkdayRule(db: Database, input: SpecialWor
   await db.batch(statements as never); return { id: ruleId, versionId };
 }
 
+/** 只有從未套用過日期的規則才能物理刪除；已有套用紀錄時必須保留來源與快照。 */
+export async function deleteHrSpecialWorkdayRule(db: Database, ruleId: string, actor: HrActor) {
+  const [rule] = await db.select({ id: hrSpecialWorkdayRules.id }).from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, ruleId)).limit(1);
+  if (!rule) throw new HrError(404, "找不到特殊上班日規則。 ");
+  const [assignment] = await db.select({ id: hrSpecialWorkdayAssignments.id }).from(hrSpecialWorkdayAssignments)
+    .innerJoin(hrSpecialWorkdayRuleVersions, eq(hrSpecialWorkdayRuleVersions.id, hrSpecialWorkdayAssignments.ruleVersionId))
+    .where(eq(hrSpecialWorkdayRuleVersions.ruleId, ruleId)).limit(1);
+  if (assignment) throw new HrError(409, "特殊上班日規則已有日期套用紀錄，不能刪除；請改用停用。 ");
+  await writeHrMutation(db, [
+    // 版本彼此有自我外鍵；刪除前先清掉 superseded_by_version_id，才不會被 ON DELETE RESTRICT 擋住。
+    sql`UPDATE hr_special_workday_rule_versions SET superseded_by_version_id=NULL WHERE rule_id=${ruleId} RETURNING id`,
+    sql`DELETE FROM hr_special_workday_overtime_rules WHERE rule_version_id IN (SELECT id FROM hr_special_workday_rule_versions WHERE rule_id=${ruleId}) RETURNING id`,
+    sql`DELETE FROM hr_special_workday_allowances WHERE rule_version_id IN (SELECT id FROM hr_special_workday_rule_versions WHERE rule_id=${ruleId}) RETURNING id`,
+    sql`DELETE FROM hr_special_workday_rule_versions WHERE rule_id=${ruleId} RETURNING id`,
+    sql`DELETE FROM hr_special_workday_rules WHERE id=${ruleId} RETURNING id`,
+  ], ruleId, actor, "special_workday_rule_deleted", "特殊上班日規則已被套用或已變更，不能刪除；請重新整理後再試。 ", { allowEmptyMutationIndexes: new Set([0, 1, 2]) });
+  return { id: ruleId, deleted: true };
+}
+
 export async function createHrSpecialWorkdayRuleVersion(db: Database, ruleId: string, input: SpecialWorkdayRuleInput, actor: HrActor) {
   validate(input);
   const overtimeRules = normalizeOvertimeRules(input.overtimeRules);

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Panel, PageHeader, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Panel, PageHeader, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type Profile, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment, type SpecialWorkdayRuleVersion } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -179,19 +179,32 @@ export function HrSpecialWorkdays() {
   const rules = useHrQuery<{ rules: SpecialWorkdayRule[] }>("/special-workdays/rules", canRead);
   const assignments = useHrQuery<{ assignments: SpecialWorkdayAssignment[] }>("/special-workdays/assignments", canRead);
   const toggleRule = useHrWrite();
+  const deleteRule = useHrWrite<{ id: string; deleted: boolean }>();
   const [editor, setEditor] = useState<"new" | SpecialWorkdayRule | "assign" | null>(null);
+  const [deletingRule, setDeletingRule] = useState<SpecialWorkdayRule | null>(null);
   const rows = useMemo(() => rules.data?.rules ?? [], [rules.data]);
   const assignableRules = useMemo(() => rows.filter((item) => item.rule.active && item.versions.some((version) => !version.voidedAt)), [rows]);
+  const confirmDelete = () => {
+    if (!deletingRule) return;
+    deleteRule.mutate({ path: `/special-workdays/rules/${deletingRule.rule.id}`, method: "DELETE", values: {} }, {
+      onSuccess: () => { setDeletingRule(null); void rules.refetch(); },
+    });
+  };
   if (!canRead) return <Alert tone="danger">你沒有檢視特殊上班日規則的權限。</Alert>;
   if (rules.isPending || assignments.isPending) return <HrPageSkeleton variant="table" />;
   return <div className="page fills"><PageHeader title="特殊上班日" description="先建立可重複使用的規則，再按需要套用到員工或支援人員日期；套用不等於打卡，也不等於加班核准。" actions={canWrite ? <div className="button-row"><Button variant="secondary" onClick={() => setEditor("assign")} disabled={!assignableRules.length}>套用到員工日期</Button><Button icon="plus" onClick={() => setEditor("new")}>新增規則</Button></div> : undefined} />
     {rules.error || assignments.error || toggleRule.error ? <Alert tone="danger">{rules.error?.message ?? assignments.error?.message ?? toggleRule.error?.message}</Alert> : null}<Alert tone="info">固定特殊薪資取代當日底薪；特殊上班日缺少月度工時資料時，薪資試算會列異常而不自行補 0。加班仍須另行申請與核准，核准後依特殊日級距或一般加班規則計算。</Alert>
-    <Panel><div className="panel-head"><div><h2>規則主檔</h2><p className="muted">建立新版本不覆寫歷史；解除最新版本會回到上一版；停用後不可新增日期套用。</p></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>規則</th><th>版本／期間</th><th>薪資方式</th><th>特殊日加班</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map((item) => {
+    <Panel><div className="panel-head"><div><h2>規則主檔</h2><p className="muted">建立新版本不覆寫歷史；解除最新版本會回到上一版；未套用過的規則可刪除，已有歷史套用時請停用。</p></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>規則</th><th>版本／期間</th><th>薪資方式</th><th>特殊日加班</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map((item) => {
       const version = latestActiveVersion(item);
       const allVoided = item.versions.length > 0 && !version;
-      return <tr key={item.rule.id}><td><strong>{item.rule.name}</strong><br /><span className="muted">{item.versions.length} 個版本</span></td><td>{version ? <>v{version.versionNumber}・{version.validFrom}～{version.validTo ?? "目前"}</> : <span className="status quiet">所有版本已解除</span>}</td><td>{version ? version.wageKind === "fixed_hourly" ? `每小時 ${money(version.fixedAmountMinor ?? 0)}` : `總倍率 ${((version.multiplierPpm ?? 0) / 10_000).toFixed(2)}%` : "—"}</td><td>{version ? version.overtimeRules.length ? `${version.overtimeRules.length} 個級距` : "沿用一般規則" : "—"}</td><td><span className={`status ${item.rule.active ? "status-active" : "status-disabled"}`}>{item.rule.active ? "啟用" : "停用"}</span>{allVoided ? <span className="status quiet">版本已解除</span> : null}</td><td>{canWrite ? <div className="row-actions"><Button variant="icon" icon="edit" className="compensation-action-update" aria-label={`為${item.rule.name}建立新版本`} disabled={!item.rule.active} onClick={() => setEditor(item)} /><Button variant="secondary" onClick={() => toggleRule.mutate({ path: `/special-workdays/rules/${item.rule.id}/status`, method: "POST", values: { active: !item.rule.active } }, { onSuccess: () => void rules.refetch() })}>{item.rule.active ? "停用" : "啟用"}</Button></div> : <span className="muted">—</span>}</td></tr>;
+      return <tr key={item.rule.id}><td><strong>{item.rule.name}</strong><br /><span className="muted">{item.versions.length} 個版本</span></td><td>{version ? <>v{version.versionNumber}・{version.validFrom}～{version.validTo ?? "目前"}</> : <span className="status quiet">所有版本已解除</span>}</td><td>{version ? version.wageKind === "fixed_hourly" ? `每小時 ${money(version.fixedAmountMinor ?? 0)}` : `總倍率 ${((version.multiplierPpm ?? 0) / 10_000).toFixed(2)}%` : "—"}</td><td>{version ? version.overtimeRules.length ? `${version.overtimeRules.length} 個級距` : "沿用一般規則" : "—"}</td><td><span className={`status ${item.rule.active ? "status-active" : "status-disabled"}`}>{item.rule.active ? "啟用" : "停用"}</span>{allVoided ? <span className="status quiet">版本已解除</span> : null}</td><td>{canWrite ? <div className="row-actions"><Button variant="icon" icon="edit" className="compensation-action-update" aria-label={`為${item.rule.name}建立新版本`} disabled={!item.rule.active} onClick={() => setEditor(item)} /><Tooltip label={`刪除 ${item.rule.name}`} focusable={false}><Button variant="icon" icon="trash" className="danger special-workday-action-delete" aria-label={`刪除${item.rule.name}`} disabled={deleteRule.isPending} onClick={() => { deleteRule.reset(); setDeletingRule(item); }} /></Tooltip><Button variant="secondary" onClick={() => toggleRule.mutate({ path: `/special-workdays/rules/${item.rule.id}/status`, method: "POST", values: { active: !item.rule.active } }, { onSuccess: () => void rules.refetch() })}>{item.rule.active ? "停用" : "啟用"}</Button></div> : <span className="muted">—</span>}</td></tr>;
     })}</tbody></table></div>{!rows.length ? <p className="empty-state">尚未建立特殊上班日規則。</p> : null}</Panel>
     <Panel className="grows"><div className="panel-head"><div><h2>日期套用紀錄</h2><p className="muted">套用時保存規則名稱、版本、薪資設定與補貼數量快照。</p></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>人員</th><th>日期</th><th>規則／版本</th><th>薪資方式</th><th>補貼數量</th><th>套用時間</th></tr></thead><tbody>{(assignments.data?.assignments ?? []).map((item) => <tr key={item.assignment.id}><td>{item.employeeName ?? item.workerName ?? "—"}</td><td>{item.assignment.workDate}</td><td>{item.assignment.ruleNameSnapshot}<br /><span className="muted">v{item.ruleVersionNumber}{item.ruleVersionVoidedAt ? "（已解除）" : ""}</span></td><td>{item.assignment.wageKindSnapshot === "fixed_hourly" ? "固定每小時" : "總倍率"}</td><td>{item.assignment.allowanceQuantity}</td><td>{item.assignment.appliedAt}</td></tr>)}</tbody></table></div>{!assignments.data?.assignments.length ? <p className="empty-state">尚未有日期套用紀錄。</p> : null}</Panel>
     {editor === "new" ? <RuleDialog onClose={() => { setEditor(null); void rules.refetch(); }} /> : null}{editor && editor !== "new" && editor !== "assign" ? <RuleDialog rule={editor} onClose={() => { setEditor(null); void rules.refetch(); }} /> : null}{editor === "assign" ? <AssignDialog rules={assignableRules} onClose={() => { setEditor(null); void assignments.refetch(); }} /> : null}
+    {deletingRule ? <Dialog title="刪除特殊上班日規則？" role="alertdialog" onClose={() => { if (!deleteRule.isPending) { deleteRule.reset(); setDeletingRule(null); } }} closeDisabled={deleteRule.isPending} actions={<><Button type="button" variant="secondary" onClick={() => { deleteRule.reset(); setDeletingRule(null); }} disabled={deleteRule.isPending}>取消</Button><Button type="button" variant="danger" icon="trash" loading={deleteRule.isPending} onClick={confirmDelete}>刪除規則</Button></>}>
+      <p>「<strong>{deletingRule.rule.name}</strong>」及其尚未套用的規則版本會被永久刪除，這個操作無法復原。</p>
+      <p className="muted">已有日期套用紀錄時，為保留歷史快照，刪除會被拒絕；請改用停用。</p>
+      {deleteRule.error ? <Alert tone="danger">{deleteRule.error.message}</Alert> : null}
+    </Dialog> : null}
   </div>;
 }

@@ -341,6 +341,32 @@ describe("HR 薪資與勞健保", () => {
     expect(await rebuilt.json()).toMatchObject({ versionNumber: 3 });
   });
 
+  it("未套用的特殊上班日規則可以刪除，已有套用紀錄的規則只能停用", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const unused = await request("/hr/special-workdays/rules", "POST", { name: "未套用可刪除", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, allowances: [{ itemName: "餐費", unitAmountMinor: 10000 }], overtimeRules: [] });
+    expect(unused.status, await unused.clone().text()).toBe(201);
+    const unusedBody = await unused.json() as { id: string };
+    const unusedVersion = await request(`/hr/special-workdays/rules/${unusedBody.id}/versions`, "POST", { name: "未套用可刪除", validFrom: "2026-02-01", wageKind: "fixed_hourly", fixedAmountMinor: 30000, allowances: [], overtimeRules: [] });
+    expect(unusedVersion.status, await unusedVersion.clone().text()).toBe(201);
+    const deleted = await request(`/hr/special-workdays/rules/${unusedBody.id}`, "DELETE", {});
+    expect(deleted.status, await deleted.clone().text()).toBe(200);
+    expect(await deleted.json()).toMatchObject({ id: unusedBody.id, deleted: true });
+    const afterDelete = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string } }> };
+    expect(afterDelete.rules.some((item) => item.rule.id === unusedBody.id)).toBe(false);
+
+    const used = await request("/hr/special-workdays/rules", "POST", { name: "已有套用不可刪除", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, allowances: [], overtimeRules: [] });
+    expect(used.status, await used.clone().text()).toBe(201);
+    const usedBody = await used.json() as { id: string; versionId: string };
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: usedBody.versionId, assignments: [{ employmentId, workDate: "2026-01-15", allowanceQuantity: 0 }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const rejected = await request(`/hr/special-workdays/rules/${usedBody.id}`, "DELETE", {});
+    expect(rejected.status, await rejected.clone().text()).toBe(409);
+    const stillListed = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; active: number } }> };
+    expect(stillListed.rules).toEqual(expect.arrayContaining([expect.objectContaining({ rule: expect.objectContaining({ id: usedBody.id, active: 1 }) })]));
+  });
+
   it("公司負擔規則會進入薪資扣款，結帳後同員工月份改用薪資調整", async () => {
     const systemRules = await request("/hr/insurance-contribution-rules");
     expect(systemRules.status, await systemRules.clone().text()).toBe(200);
