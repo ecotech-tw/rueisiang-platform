@@ -13,7 +13,7 @@ import {
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
   cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
-  createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
+  createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
   createDeviceSession, revokeDeviceSession,
@@ -480,6 +480,10 @@ export const hr = new Hono<AppEnv>()
   .get("/annual-leave/entitlements", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ entitlements: await listHrAnnualLeaveEntitlements(c.get("db"), { employeeUserId: c.req.query("employeeUserId") || undefined }) });
+  })
+  .get("/annual-leave/entitlements/:id", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ entitlement: await getHrAnnualLeaveEntitlementDetail(c.get("db"), c.req.param("id")) });
   })
   .post("/annual-leave/backfill", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

@@ -16,10 +16,10 @@ export {
 export { createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";
 export { cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest, type HrLeaveCancellationOptions, type HrLeaveRequestCreateOptions, type HrLeaveRequestInput } from "./hr-leave.js";
 export {
-  addCalendarMonths, allocateHrAnnualLeave, createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements,
-  getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
+  addCalendarMonths, allocateHrAnnualLeave, buildHrAnnualLeaveSettlementMutations, createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements,
+  getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates,
   ANNUAL_LEAVE_HALF_HOUR_MINUTES, ANNUAL_LEAVE_POLICY_KEY,
-  type HrAnnualLeaveAdjustmentInput, type HrAnnualLeaveAllocation, type HrAnnualLeaveAllocationInput, type HrAnnualLeaveBackfillOptions,
+  type HrAnnualLeaveAdjustmentInput, type HrAnnualLeaveAllocation, type HrAnnualLeaveAllocationInput, type HrAnnualLeaveBackfillOptions, type HrAnnualLeaveSettlementCandidate,
 } from "./hr-annual-leave.js";
 export {
   createHrFormRequest, getHrFormRequest, listHrFormApprovers, listHrFormRequests, listHrFormRequestsForHr, reviewHrFormRequest,

@@ -1,8 +1,8 @@
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
-import { hrAnnualLeaveBrackets, hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrAnnualLeavePolicyVersions, hrLeaveTypes } from "./schema/hr-payroll.js";
+import { hrAnnualLeaveBrackets, hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrAnnualLeavePolicyVersions, hrCompensationVersions, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { users } from "./schema/auth.js";
 
 export const ANNUAL_LEAVE_HALF_HOUR_MINUTES = 30;
@@ -27,6 +27,22 @@ export interface HrAnnualLeaveAllocation {
   periodStart: string;
   periodEnd: string;
   balanceHalfHours: number;
+}
+
+export interface HrAnnualLeaveSettlementCandidate {
+  entitlementId: string;
+  employmentId: string;
+  employeeName: string;
+  periodStart: string;
+  periodEnd: string;
+  settlementDate: string;
+  settlementReason: "period_end" | "termination";
+  unusedHalfHours: number;
+  dailyMinutes: number;
+  baseAmountMinor: number | null;
+  compensationVersionId: string | null;
+  amountMinor: number;
+  sourceKey: string;
 }
 
 export interface HrAnnualLeaveAdjustmentInput {
@@ -55,6 +71,12 @@ function dateParts(value: string) {
 
 function formatDate(year: number, month: number, day: number) {
   return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function previousDate(value: string) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
 }
 
 /** 日期加月數時保留週年日；2 月 29 日在非閏年落在 2 月最後一天。 */
@@ -173,7 +195,7 @@ export async function ensureHrAnnualLeaveEntitlements(db: Database, options: HrA
           entryKind: "grant",
           deltaHalfHours: entitlement.entitledHalfHours,
           sourceKey,
-          note: `週年制特休自動給予（${periodStart}～${periodEnd}）`,
+          note: `週年制特休自動給予（${periodStart}～${previousDate(periodEnd)}）`,
           createdBy: options.createdBy ?? null,
         }).onConflictDoNothing({ target: hrAnnualLeaveLedger.sourceKey });
         grants += 1;
@@ -269,6 +291,177 @@ export async function listHrAnnualLeaveEntitlements(db: Database, options: { emp
       debitHalfHours: balance.debitHalfHours,
     };
   });
+}
+
+export async function getHrAnnualLeaveEntitlementDetail(db: Database, entitlementId: string) {
+  if (!entitlementId.trim()) throw new HrError(400, "特休額度識別碼不正確。");
+  const [row] = await db.select({
+    id: hrAnnualLeaveEntitlements.id,
+    employmentId: hrAnnualLeaveEntitlements.employmentId,
+    employeeUserId: hrEmployments.employeeUserId,
+    employeeNumber: hrEmployees.employeeNumber,
+    employeeName,
+    seniorityStartOn: hrEmployments.seniorityStartOn,
+    serviceMonths: hrAnnualLeaveEntitlements.serviceMonths,
+    periodStart: hrAnnualLeaveEntitlements.periodStart,
+    periodEnd: hrAnnualLeaveEntitlements.periodEnd,
+    entitledHalfHours: hrAnnualLeaveEntitlements.entitledHalfHours,
+    status: hrAnnualLeaveEntitlements.status,
+    settledAt: hrAnnualLeaveEntitlements.settledAt,
+    policyVersionNumber: hrAnnualLeavePolicyVersions.versionNumber,
+    policyValidFrom: hrAnnualLeavePolicyVersions.validFrom,
+    policyValidTo: hrAnnualLeavePolicyVersions.validTo,
+    policyBasis: hrAnnualLeavePolicyVersions.basis,
+    policyDailyMinutes: hrAnnualLeavePolicyVersions.dailyMinutes,
+    policyMinimumUnitMinutes: hrAnnualLeavePolicyVersions.minimumUnitMinutes,
+    policyCarryoverAllowed: hrAnnualLeavePolicyVersions.carryoverAllowed,
+    policyNote: hrAnnualLeavePolicyVersions.note,
+    bracketMinServiceMonths: hrAnnualLeaveBrackets.minServiceMonths,
+    bracketMaxServiceMonths: hrAnnualLeaveBrackets.maxServiceMonths,
+    bracketEntitledDays: hrAnnualLeaveBrackets.entitledDays,
+    bracketLabel: hrAnnualLeaveBrackets.label,
+  }).from(hrAnnualLeaveEntitlements)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
+    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
+    .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .innerJoin(hrAnnualLeavePolicyVersions, eq(hrAnnualLeavePolicyVersions.id, hrAnnualLeaveEntitlements.policyVersionId))
+    .innerJoin(hrAnnualLeaveBrackets, eq(hrAnnualLeaveBrackets.id, hrAnnualLeaveEntitlements.bracketId))
+    .where(eq(hrAnnualLeaveEntitlements.id, entitlementId)).limit(1);
+  if (!row) throw new HrError(404, "找不到特休額度週期。");
+
+  const ledger = await db.select({
+    id: hrAnnualLeaveLedger.id,
+    entryKind: hrAnnualLeaveLedger.entryKind,
+    deltaHalfHours: hrAnnualLeaveLedger.deltaHalfHours,
+    sourceKey: hrAnnualLeaveLedger.sourceKey,
+    leaveRequestId: hrAnnualLeaveLedger.leaveRequestId,
+    note: hrAnnualLeaveLedger.note,
+    createdBy: hrAnnualLeaveLedger.createdBy,
+    createdAt: hrAnnualLeaveLedger.createdAt,
+  }).from(hrAnnualLeaveLedger)
+    .where(eq(hrAnnualLeaveLedger.entitlementId, entitlementId))
+    .orderBy(asc(hrAnnualLeaveLedger.createdAt), asc(hrAnnualLeaveLedger.id));
+  const balanceHalfHours = ledger.reduce((total, entry) => total + entry.deltaHalfHours, 0);
+  const debitHalfHours = ledger.reduce((total, entry) => total + (entry.deltaHalfHours < 0 ? -entry.deltaHalfHours : 0), 0);
+  return {
+    ...row,
+    balanceHalfHours,
+    usedHalfHours: Math.max(0, row.entitledHalfHours - balanceHalfHours),
+    debitHalfHours,
+    ledger,
+  };
+}
+
+async function monthlyCompensationAt(db: Database, employmentId: string, date: string) {
+  const [compensation] = await db.select({
+    id: hrCompensationVersions.id,
+    baseAmountMinor: hrCompensationVersions.baseAmountMinor,
+  }).from(hrCompensationVersions).where(and(
+    eq(hrCompensationVersions.employmentId, employmentId),
+    eq(hrCompensationVersions.payBasis, "monthly"),
+    lte(hrCompensationVersions.validFrom, date),
+    or(isNull(hrCompensationVersions.validTo), gt(hrCompensationVersions.validTo, date)),
+    isNull(hrCompensationVersions.voidedAt),
+  )).orderBy(desc(hrCompensationVersions.validFrom), desc(hrCompensationVersions.versionNumber)).limit(1);
+  return compensation;
+}
+
+/**
+ * 找出本次薪資期間需要折現的未休特休。週期結束與離職共用這個候選清單，
+ * periodStart 讓補算其他月份時不會把更早期別誤掛到目前薪資；只把折現的最終寫入留在
+ * 薪資結帳交易，避免試算尚未結帳就消滅額度。
+ */
+export async function listHrAnnualLeaveSettlementCandidates(db: Database, options: { asOfDate: string; periodStart?: string; employmentIds?: string[] }) {
+  assertDateOnly(options.asOfDate, "特休結算基準日");
+  if (options.periodStart !== undefined) assertDateOnly(options.periodStart, "特休結算期間起日");
+  if (options.periodStart !== undefined && options.periodStart >= options.asOfDate) throw new HrError(400, "特休結算期間不正確。");
+  if (options.employmentIds?.length === 0) return [];
+  const rows = await db.select({
+    entitlementId: hrAnnualLeaveEntitlements.id,
+    employmentId: hrAnnualLeaveEntitlements.employmentId,
+    employeeName,
+    periodStart: hrAnnualLeaveEntitlements.periodStart,
+    periodEnd: hrAnnualLeaveEntitlements.periodEnd,
+    endedOn: hrEmployments.endedOn,
+    dailyMinutes: hrAnnualLeavePolicyVersions.dailyMinutes,
+  }).from(hrAnnualLeaveEntitlements)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
+    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
+    .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .innerJoin(hrAnnualLeavePolicyVersions, eq(hrAnnualLeavePolicyVersions.id, hrAnnualLeaveEntitlements.policyVersionId))
+    .where(and(
+      eq(hrAnnualLeaveEntitlements.status, "open"),
+      isNull(hrAnnualLeaveEntitlements.settledAt),
+      or(
+        options.periodStart === undefined
+          ? lte(hrAnnualLeaveEntitlements.periodEnd, options.asOfDate)
+          : and(gt(hrAnnualLeaveEntitlements.periodEnd, options.periodStart), lte(hrAnnualLeaveEntitlements.periodEnd, options.asOfDate)),
+        options.periodStart === undefined
+          ? sql`${hrEmployments.endedOn} IS NOT NULL AND ${hrEmployments.endedOn} <= ${options.asOfDate}`
+          : sql`${hrEmployments.endedOn} IS NOT NULL AND ${hrEmployments.endedOn} > ${options.periodStart} AND ${hrEmployments.endedOn} <= ${options.asOfDate}`,
+      ),
+      options.employmentIds ? inArray(hrAnnualLeaveEntitlements.employmentId, options.employmentIds) : undefined,
+    ))
+    .orderBy(asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
+  if (!rows.length) return [];
+
+  const balances = await db.select({
+    entitlementId: hrAnnualLeaveLedger.entitlementId,
+    balanceHalfHours: sql<number>`coalesce(sum(${hrAnnualLeaveLedger.deltaHalfHours}), 0)`,
+  }).from(hrAnnualLeaveLedger).where(inArray(hrAnnualLeaveLedger.entitlementId, rows.map((row) => row.entitlementId)))
+    .groupBy(hrAnnualLeaveLedger.entitlementId);
+  const balanceById = new Map(balances.map((row) => [row.entitlementId, Number(row.balanceHalfHours ?? 0)]));
+
+  return Promise.all(rows.map(async (row): Promise<HrAnnualLeaveSettlementCandidate> => {
+    const unusedHalfHours = balanceById.get(row.entitlementId) ?? 0;
+    if (unusedHalfHours < 0) throw new HrError(409, `${row.employeeName} 的特休台帳餘額低於 0，無法進行未休折現。`);
+    const settlementReason: "period_end" | "termination" = row.endedOn !== null && row.endedOn < row.periodEnd && row.endedOn <= options.asOfDate ? "termination" : "period_end";
+    const settlementDate = settlementReason === "period_end" ? previousDate(row.periodEnd) : previousDate(row.endedOn!);
+    const compensation = unusedHalfHours > 0 ? await monthlyCompensationAt(db, row.employmentId, settlementDate) : undefined;
+    if (unusedHalfHours > 0 && !compensation) throw new HrError(409, `${row.employeeName} 的特休未休折現找不到 ${settlementDate} 適用的月薪版本，請先補齊薪資設定。`);
+    const amountMinor = compensation ? Math.round(compensation.baseAmountMinor * unusedHalfHours / row.dailyMinutes) : 0;
+    return {
+      entitlementId: row.entitlementId,
+      employmentId: row.employmentId,
+      employeeName: row.employeeName,
+      periodStart: row.periodStart,
+      periodEnd: row.periodEnd,
+      settlementDate,
+      settlementReason,
+      unusedHalfHours,
+      dailyMinutes: row.dailyMinutes,
+      baseAmountMinor: compensation?.baseAmountMinor ?? null,
+      compensationVersionId: compensation?.id ?? null,
+      amountMinor,
+      sourceKey: `annual-settlement:${row.entitlementId}`,
+    };
+  }));
+}
+
+/** 由薪資結帳把候選額度以負數 settlement 消耗，並原子地標記為 settled。 */
+export function buildHrAnnualLeaveSettlementMutations(candidates: readonly HrAnnualLeaveSettlementCandidate[], actor: HrActor): SQL[] {
+  const statements: SQL[] = [];
+  for (const candidate of candidates) {
+    if (candidate.unusedHalfHours > 0) {
+      statements.push(sql`INSERT INTO hr_annual_leave_ledger
+        (id, entitlement_id, entry_kind, delta_half_hours, source_key, leave_request_id, note, created_by)
+        SELECT ${crypto.randomUUID()}, ${candidate.entitlementId}, 'settlement', ${-candidate.unusedHalfHours}, ${candidate.sourceKey}, NULL,
+          ${candidate.settlementReason === "termination" ? `離職未休特休折現（${candidate.settlementDate}）` : `年度終結未休特休折現（${candidate.settlementDate}）`}, ${actor.id}
+        WHERE EXISTS (SELECT 1 FROM hr_annual_leave_entitlements WHERE id=${candidate.entitlementId} AND status='open' AND settled_at IS NULL)
+          AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${candidate.entitlementId}), 0) = ${candidate.unusedHalfHours}
+          AND NOT EXISTS (SELECT 1 FROM hr_annual_leave_ledger WHERE source_key=${candidate.sourceKey})
+        RETURNING id`);
+    }
+    const balanceGuard = candidate.unusedHalfHours > 0
+      ? sql`AND EXISTS (SELECT 1 FROM hr_annual_leave_ledger WHERE source_key=${candidate.sourceKey})
+          AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${candidate.entitlementId}), 0) = 0`
+      : sql`AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${candidate.entitlementId}), 0) = 0`;
+    statements.push(sql`UPDATE hr_annual_leave_entitlements
+      SET status='settled', settled_at=CURRENT_TIMESTAMP
+      WHERE id=${candidate.entitlementId} AND status='open' AND settled_at IS NULL ${balanceGuard}
+      RETURNING id`);
+  }
+  return statements;
 }
 
 export async function createHrAnnualLeaveAdjustment(db: Database, input: HrAnnualLeaveAdjustmentInput, actor: HrActor) {

@@ -17,6 +17,7 @@ const ATTENDANCE_TABS = [
   { label: "出勤紀錄", to: "/hr/attendance-records", permission: "hr:office:read" as const, icon: "calendar" as const, adminOnly: false },
   { label: "假別管理", to: "/hr/leave-types", permission: "hr:payroll:read" as const, icon: "tag" as const, adminOnly: true },
   { label: "特休額度", to: "/hr/annual-leave", permission: "hr:payroll:read" as const, icon: "calendar" as const, adminOnly: true },
+  { label: "特休政策", to: "/hr/annual-leave/settings", permission: "hr:payroll:read" as const, icon: "tune" as const, adminOnly: true },
   { label: "出勤範圍管理", to: "/hr/attendance-scope", permission: "hr:office:read" as const, icon: "people" as const, adminOnly: false },
   { label: "據點管理", to: "/hr/attendance-settings", permission: "hr:office:read" as const, icon: "tune" as const, adminOnly: false },
   { label: "特殊上班日", to: "/hr/special-workdays", permission: "hr:office:read" as const, icon: "calendar" as const, adminOnly: false },

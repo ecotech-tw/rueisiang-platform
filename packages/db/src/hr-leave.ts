@@ -2,7 +2,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { allocateHrAnnualLeave } from "./hr-annual-leave.js";
-import { hrAnnualLeaveLedger, hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
+import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
 
@@ -139,10 +139,14 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
   const [usage] = await db.select({
     entitlementId: hrAnnualLeaveLedger.entitlementId,
     deltaHalfHours: hrAnnualLeaveLedger.deltaHalfHours,
-  }).from(hrAnnualLeaveLedger).where(and(
-    eq(hrAnnualLeaveLedger.leaveRequestId, id),
-    eq(hrAnnualLeaveLedger.entryKind, "leave_request"),
-  )).limit(1);
+    entitlementStatus: hrAnnualLeaveEntitlements.status,
+  }).from(hrAnnualLeaveLedger)
+    .innerJoin(hrAnnualLeaveEntitlements, eq(hrAnnualLeaveEntitlements.id, hrAnnualLeaveLedger.entitlementId))
+    .where(and(
+      eq(hrAnnualLeaveLedger.leaveRequestId, id),
+      eq(hrAnnualLeaveLedger.entryKind, "leave_request"),
+    )).limit(1);
+  if (usage?.entitlementStatus === "settled") throw new HrError(409, "特休已隨薪資結算，請使用薪資調整處理取消或更正。 ");
   const [reversal] = await db.select({ id: hrAnnualLeaveLedger.id }).from(hrAnnualLeaveLedger)
     .where(eq(hrAnnualLeaveLedger.sourceKey, `leave-request-cancel:${id}`)).limit(1);
   if (!usage || reversal) return writeHrMutation(db, update, id, actor, "leave_request_cancelled", "請假申請已變更或完成處理，請重新整理。 ");

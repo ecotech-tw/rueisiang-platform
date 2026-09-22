@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveEntitlements, syncSystemRoles } from "@rueisiang/db";
-import { hrAnnualLeaveLedger, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -52,6 +52,85 @@ describe("週年制特休額度", () => {
     ]);
     const grants = await db.select({ count: sql<number>`count(*)` }).from(hrAnnualLeaveLedger).where(eq(hrAnnualLeaveLedger.entryKind, "grant"));
     expect(Number(grants[0]?.count)).toBe(3);
+  });
+
+  it("週期終結結帳將未休特休折現並標記額度已結算", async () => {
+    const db = createDatabase(d1 as never);
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string; revision: number }> };
+    const employmentId = profile.employments[0]!.id;
+    const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-02", employeeUserIds: ["employee"], requestId: "annual-settlement-period-end" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const calculatedBody = await calculated.json() as { run: { runId: string; employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    expect(calculatedBody.run.employees[0]?.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "annual_leave_settlement", amountMinor: 300_000, explanation: expect.objectContaining({ basis: "current_monthly_salary_div_30" }) }),
+    ]));
+    const beforeClose = await db.select({ status: hrAnnualLeaveEntitlements.status, settledAt: hrAnnualLeaveEntitlements.settledAt }).from(hrAnnualLeaveEntitlements)
+      .where(eq(hrAnnualLeaveEntitlements.periodStart, "2025-09-01")).limit(1);
+    expect(beforeClose[0]).toEqual({ status: "open", settledAt: null });
+
+    const closed = await request(`/hr/payroll/runs/${calculatedBody.run.runId}/close`, "POST", {});
+    expect(closed.status, await closed.clone().text()).toBe(200);
+    const closedBody = await closed.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    expect(closedBody.run.employees[0]?.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "annual_leave_settlement", amountMinor: 300_000 }),
+    ]));
+    const afterClose = await db.select({ id: hrAnnualLeaveEntitlements.id, status: hrAnnualLeaveEntitlements.status, settledAt: hrAnnualLeaveEntitlements.settledAt }).from(hrAnnualLeaveEntitlements)
+      .where(eq(hrAnnualLeaveEntitlements.periodStart, "2025-09-01")).limit(1);
+    expect(afterClose[0]?.status).toBe("settled");
+    expect(afterClose[0]?.settledAt).not.toBeNull();
+    const settlement = await db.select({ deltaHalfHours: hrAnnualLeaveLedger.deltaHalfHours, entryKind: hrAnnualLeaveLedger.entryKind, sourceKey: hrAnnualLeaveLedger.sourceKey }).from(hrAnnualLeaveLedger)
+      .where(eq(hrAnnualLeaveLedger.sourceKey, `annual-settlement:${afterClose[0]!.id}`)).limit(1);
+    expect(settlement).toEqual([{ deltaHalfHours: -48, entryKind: "settlement", sourceKey: `annual-settlement:${afterClose[0]!.id}` }]);
+  });
+
+  it("折現結帳後的特休取消改走薪資調整，不直接改動已結算台帳", async () => {
+    const created = await request("/hr/leave-types", "POST", { name: "特休", leaveKind: "annual", defaultPayRatePpm: 1_000_000 });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const leaveTypeId = (await created.json() as { id: string }).id;
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
+    const employmentId = profile.employments[0]!.id;
+    const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const approved = await request("/hr/requests/leave", "POST", { employeeUserId: "employee", leaveTypeId, startDate: "2025-09-01", endDate: "2025-09-01", durationMinutes: 30, reason: "先扣一筆再結算" });
+    expect(approved.status, await approved.clone().text()).toBe(201);
+    const requestId = (await approved.json() as { id: string }).id;
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-02", employeeUserIds: ["employee"], requestId: "annual-settlement-cancel-after-close" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const calculatedBody = await calculated.json() as { run: { runId: string } };
+    const closed = await request(`/hr/payroll/runs/${calculatedBody.run.runId}/close`, "POST", {});
+    expect(closed.status, await closed.clone().text()).toBe(200);
+
+    const cancelled = await request(`/hr/requests/leave/${requestId}/cancel`, "POST", {});
+    expect(cancelled.status).toBe(409);
+    expect(await cancelled.json()).toMatchObject({ error: "特休已隨薪資結算，請使用薪資調整處理取消或更正。 " });
+  });
+
+  it("離職薪資期間用同一條折現流程結算未休特休", async () => {
+    const db = createDatabase(d1 as never);
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string; revision: number }> };
+    const employmentId = profile.employments[0]!.id;
+    const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const ended = await request(`/hr/employments/${employmentId}/end`, "PATCH", { endedOn: "2026-01-15", revision: 1 });
+    expect(ended.status, await ended.clone().text()).toBe(200);
+
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], requestId: "annual-settlement-termination" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const calculatedBody = await calculated.json() as { run: { runId: string; employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const settlementLine = calculatedBody.run.employees[0]?.lines.find((line) => line.lineKey === "annual_leave_settlement");
+    expect(settlementLine).toMatchObject({ amountMinor: 300_000, explanation: expect.objectContaining({ settlementItems: expect.arrayContaining([expect.objectContaining({ settlementReason: "termination", settlementDate: "2026-01-14" })]) }) });
+
+    const closed = await request(`/hr/payroll/runs/${calculatedBody.run.runId}/close`, "POST", {});
+    expect(closed.status, await closed.clone().text()).toBe(200);
+    const entitlement = await db.select({ id: hrAnnualLeaveEntitlements.id, status: hrAnnualLeaveEntitlements.status }).from(hrAnnualLeaveEntitlements)
+      .where(eq(hrAnnualLeaveEntitlements.periodStart, "2025-09-01")).limit(1);
+    const settlement = await db.select({ entryKind: hrAnnualLeaveLedger.entryKind, deltaHalfHours: hrAnnualLeaveLedger.deltaHalfHours }).from(hrAnnualLeaveLedger)
+      .where(eq(hrAnnualLeaveLedger.sourceKey, `annual-settlement:${entitlement[0]!.id}`)).limit(1);
+    expect(entitlement[0]?.status).toBe("settled");
+    expect(settlement).toEqual([{ entryKind: "settlement", deltaHalfHours: -48 }]);
   });
 
   it("核准才扣額度、每期不互相遞延，並接受 0.5 小時單位", async () => {

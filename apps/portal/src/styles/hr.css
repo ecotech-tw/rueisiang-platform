@@ -334,6 +334,9 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   min-width: 0;
   min-height: 0;
   padding: 28px 36px 36px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
 }
 .hr-system-main:has(.page.fills) {
   height: 100%;
@@ -1134,20 +1137,64 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-leave-types-page .data-table td:last-child { min-width: 0; }
 }
 
-/* 週年制特休摘要與級距使用輕量資訊列，不把政策細節塞進表格每一列。 */
-.hr-annual-leave-page { gap: 18px; }
-.hr-annual-leave-page .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.hr-annual-leave-page .summary-grid > div { display: grid; gap: 4px; padding: 14px 16px; border-radius: 16px; background: --alpha(var(--color-brand) / 6%); }
-.hr-annual-leave-page .summary-grid span { color: var(--color-muted); font-size: 12px; }
-.hr-annual-leave-page .summary-grid strong { font-size: 15px; }
-.hr-annual-brackets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-.hr-annual-brackets span { padding: 6px 10px; border-radius: 999px; background: --alpha(var(--color-paper) / 56%); color: var(--color-muted); font-size: 12px; }
-.hr-annual-leave-page .data-table td:first-child { min-width: 140px; }
-.hr-annual-leave-page .data-table td small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 12px; }
+/* 特休額度先呈現員工目前可用資料；政策級距移至獨立的特休政策頁。 */
+.hr-annual-leave-page,
+.hr-annual-settings-page { gap: 18px; }
+.hr-annual-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.hr-annual-leave-page .data-table small,
+.hr-annual-settings-page small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 12px; line-height: 1.45; }
+.hr-annual-list-panel > .panel-head { align-items: center; }
+.hr-annual-view-tabs { width: 214px !important; }
+.hr-annual-leave-page .data-table th,
+.hr-annual-leave-page .data-table td { vertical-align: middle; }
+.hr-annual-leave-page .data-table td:first-child { min-width: 160px; }
+.hr-annual-leave-page .data-table td:nth-child(2) { min-width: 145px; }
+.hr-annual-leave-page .data-table td:nth-child(4) { min-width: 112px; white-space: nowrap; }
+.hr-annual-leave-page .data-table td:nth-child(5) { min-width: 168px; white-space: nowrap; }
+.hr-annual-balance { display: grid; gap: 2px; min-width: 118px; }
+.hr-annual-balance > strong { color: var(--color-brand-dark); font-size: 16px; font-variant-numeric: tabular-nums; }
+.hr-annual-progress { display: block; width: 100%; height: 5px; margin-top: 5px; overflow: hidden; border-radius: 999px; background: --alpha(var(--color-ink) / 10%); }
+.hr-annual-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--color-brand); }
+.hr-annual-row-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 190px; }
+.hr-annual-detail-dialog { width: min(760px, calc(100vw - 32px)); }
+.hr-annual-detail-dialog .modal-body { display: grid; gap: 18px; }
+.hr-annual-detail-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.hr-annual-detail-overview > div { display: grid; gap: 4px; padding: 13px 14px; border-radius: 14px; background: --alpha(var(--color-brand) / 7%); }
+.hr-annual-detail-overview span { color: var(--color-muted); font-size: 12px; }
+.hr-annual-detail-overview strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.hr-annual-detail-section { display: grid; gap: 10px; }
+.hr-annual-detail-section h3 { margin: 0; font-size: 15px; }
+.hr-annual-detail-section p { margin: 0; line-height: 1.7; }
+.hr-annual-detail-list { display: grid; gap: 8px; margin: 0; }
+.hr-annual-detail-list > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; padding-bottom: 8px; border-bottom: 1px solid --alpha(var(--color-ink) / 8%); }
+.hr-annual-detail-list dt { color: var(--color-muted); font-size: 13px; }
+.hr-annual-detail-list dd { margin: 0; overflow-wrap: anywhere; }
+.hr-annual-ledger-table th,
+.hr-annual-ledger-table td { white-space: nowrap; }
+.hr-annual-ledger-table td:last-child { white-space: normal; min-width: 220px; }
+.hr-annual-ledger-table code { color: var(--color-muted); font-size: 11px; }
+.hr-annual-ledger-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.hr-annual-settings-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.hr-annual-settings-overview > div { display: grid; gap: 4px; padding: 15px 16px; border-radius: 16px; background: --alpha(var(--color-brand) / 6%); }
+.hr-annual-settings-overview span { color: var(--color-muted); font-size: 12px; }
+.hr-annual-settings-overview strong { font-size: 17px; }
+.hr-annual-policy-table td:nth-child(2),
+.hr-annual-policy-table td:nth-child(3) { font-variant-numeric: tabular-nums; }
+.hr-annual-principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.hr-annual-principles > div { display: grid; gap: 6px; padding: 15px 16px; border-radius: 16px; background: --alpha(var(--color-paper) / 42%); box-shadow: 0 0 0 1px --alpha(var(--color-ink) / 6%) inset; }
+.hr-annual-principles strong { font-size: 14px; }
+.hr-annual-principles span { color: var(--color-muted); font-size: 13px; line-height: 1.6; }
 @media (max-width: 900px) {
-  .hr-annual-leave-page .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hr-annual-settings-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hr-annual-principles { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 620px) {
-  .hr-annual-leave-page { gap: 14px; }
-  .hr-annual-leave-page .summary-grid { grid-template-columns: minmax(0, 1fr); }
+  .hr-annual-leave-page,
+  .hr-annual-settings-page { gap: 14px; }
+  .hr-annual-settings-overview { grid-template-columns: minmax(0, 1fr); }
+  .hr-annual-header-actions { justify-content: flex-start; }
+  .hr-annual-list-panel > .panel-head { align-items: stretch; flex-direction: column; gap: 12px; }
+  .hr-annual-view-tabs { width: 100% !important; }
+  .hr-annual-detail-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hr-annual-detail-list > div { grid-template-columns: minmax(100px, 0.35fr) minmax(0, 1fr); }
 }

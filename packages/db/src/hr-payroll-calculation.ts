@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
+import { buildHrAnnualLeaveSettlementMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { calculateHrInsuranceEmployeeAmount, listHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
@@ -18,6 +19,8 @@ import {
   type HrBonusPolicyVersion,
 } from "./schema/hr-bonus.js";
 import {
+  hrAnnualLeaveEntitlements,
+  hrAnnualLeaveLedger,
   hrCompensationItems,
   hrCompensationVersions,
   hrWorkerCompensationVersions,
@@ -343,7 +346,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     OR EXISTS (SELECT 1 FROM hr_schedule_worker_entries AS selected_worker_entry
       WHERE selected_worker_entry.schedule_version_id = hr_schedule_versions.id
         AND selected_worker_entry.worker_id IN (${sql.join(workerIds.map((id) => sql`${id}`), sql`, `)}))`;
-  const [employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
+  const [employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployments).where(employmentFilter),
     db.select({ userId: hrEmployees.userId, employeeNumber: hrEmployees.employeeNumber, supervisorUserId: hrEmployees.supervisorUserId, revision: hrEmployees.revision, updatedAt: hrEmployees.updatedAt }).from(hrEmployees).where(sql`${hrEmployees.userId} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
     db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
@@ -353,6 +356,8 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrInsuranceVersions).where(and(inArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.validFrom} <= ${input.period.start}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} > ${input.period.start})`)),
     listHrInsuranceContributionRules(db, input.period.start),
     db.select().from(hrLeaveRequests).where(and(eq(hrLeaveRequests.status, "approved"), inArray(hrLeaveRequests.employmentId, employmentIds), sql`${hrLeaveRequests.startsOn} < ${input.period.end}`, sql`${hrLeaveRequests.endsOn} > ${input.period.start}`)),
+    db.select().from(hrAnnualLeaveEntitlements).where(sql`${hrAnnualLeaveEntitlements.employmentId} IN (${employmentValues})`),
+    db.select().from(hrAnnualLeaveLedger).where(sql`${hrAnnualLeaveLedger.entitlementId} IN (SELECT id FROM hr_annual_leave_entitlements WHERE employment_id IN (${employmentValues}))`),
     db.select().from(hrMonthlyLeaveEntries).where(and(inArray(hrMonthlyLeaveEntries.employmentId, employmentIds), sql`${hrMonthlyLeaveEntries.leaveDate} >= ${input.period.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${input.period.end}`)),
     db.select().from(hrMonthlyHourlyEntries).where(and(inArray(hrMonthlyHourlyEntries.employmentId, employmentIds), sql`${hrMonthlyHourlyEntries.workDate} >= ${input.period.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${input.period.end}`)),
     db.select().from(hrOvertimeRequests).where(and(eq(hrOvertimeRequests.status, "approved"), eq(hrOvertimeRequests.settlementKind, "pay"), inArray(hrOvertimeRequests.employmentId, employmentIds), sql`(${hrOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
@@ -386,7 +391,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   return stableJson({
     periodKey: input.period.periodKey,
     employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves,
-    monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions,
+    annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions,
     scheduleEntries: scheduleEntries.map(({ entry }) => entry),
     workerScheduleEntries: workerScheduleEntries.map(({ entry }) => entry),
     workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes,
@@ -570,6 +575,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId)).innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
     .where(and(eq(hrPayrollPeriods.periodKey, period.periodKey), eq(hrPayrollRuns.status, "closed"), inArray(hrPayslips.employmentId, employees.map((employee) => employee.employmentId)))) : [];
   if (closedEmploymentIds.length) throw new HrError(409, "同一員工同一月份已有已結帳結果，請改用薪資調整。 ");
+  await ensureHrAnnualLeaveEntitlements(db, { asOfDate: period.end, createdBy: actor.id });
+  const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds: employees.map((employee) => employee.employmentId) });
   // 臨時支援人員沒有 users／hr_employments，薪資資格來自已發布班表；不套用獎金 policy。
   const scheduledEmployeeRows = await db.select({ employmentId: hrScheduleEntries.employmentId, workDate: hrScheduleEntries.workDate }).from(hrScheduleEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
@@ -767,6 +774,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   for (const employee of employees) {
     const employmentDays = overlapDays(period.start, period.end, employee.hiredOn, employee.endedOn);
     const employeeCompensations = compensations.filter((row) => row.employmentId === employee.employmentId);
+    const employeeAnnualLeaveSettlements = annualLeaveSettlements.filter((settlement) => settlement.employmentId === employee.employmentId);
     const lines: HrPayrollLineResult[] = [];
     let baseMinor = 0;
     let specialMinor = 0;
@@ -929,6 +937,27 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         calculationParts: baseParts, formulaDetail: payrollFormulaTotal(baseParts, baseMinor),
       } });
     }
+    const annualLeaveSettlementParts: PayrollCalculationPart[] = employeeAnnualLeaveSettlements
+      .filter((settlement) => settlement.unusedHalfHours > 0 && settlement.baseAmountMinor !== null)
+      .map((settlement) => ({
+        formula: `${settlement.settlementReason === "termination" ? "離職" : "年度終結"}（${settlement.settlementDate}）：round(${payrollFormulaMoney(settlement.baseAmountMinor!)} ÷ 30 × ${payrollFormulaHours(settlement.unusedHalfHours * 0.5)} 小時 ÷ ${payrollFormulaHours(settlement.dailyMinutes / 60)} 小時)`,
+        amountMinor: settlement.amountMinor,
+      }));
+    const annualLeaveSettlementMinor = annualLeaveSettlementParts.reduce((sum, part) => sum + part.amountMinor, 0);
+    if (annualLeaveSettlementParts.length > 0) lines.push({ lineKey: "annual_leave_settlement", direction: "earning", amountMinor: annualLeaveSettlementMinor, explanation: {
+      rule: "未休特休折現：當期月薪 ÷ 30",
+      basis: "current_monthly_salary_div_30",
+      monthlyDivisorDays: 30,
+      settlementItems: employeeAnnualLeaveSettlements.filter((settlement) => settlement.unusedHalfHours > 0).map((settlement) => ({
+        entitlementId: settlement.entitlementId, periodStart: settlement.periodStart, periodEnd: settlement.periodEnd,
+        settlementDate: settlement.settlementDate, settlementReason: settlement.settlementReason,
+        unusedHalfHours: settlement.unusedHalfHours, dailyMinutes: settlement.dailyMinutes,
+        baseAmountMinor: settlement.baseAmountMinor, compensationVersionId: settlement.compensationVersionId,
+        amountMinor: settlement.amountMinor, sourceKey: settlement.sourceKey,
+      })),
+      calculationParts: annualLeaveSettlementParts,
+      formulaDetail: payrollFormulaTotal(annualLeaveSettlementParts, annualLeaveSettlementMinor),
+    } });
     if (specialMinor > 0) lines.push({ lineKey: "special_workday", direction: "earning", amountMinor: specialMinor, explanation: {
       rule: "特殊上班日取代當日基本薪資", assignmentIds: specialAssignments.map((item) => item.id),
       calculationParts: specialCalculationParts, formulaDetail: payrollFormulaTotal(specialCalculationParts, specialMinor),
@@ -1572,14 +1601,18 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
   const employmentIds = payslipRows.map((row) => row.employmentId);
   const workerRows = await db.select({ workerId: hrPayrollWorkerResults.workerId }).from(hrPayrollWorkerResults).where(eq(hrPayrollWorkerResults.payrollRunId, runId));
   if (!run.sourceSnapshotJson || run.sourceSnapshotJson === "{}") throw new HrError(409, "此薪資批次沒有來源快照，請重新試算後再結帳。 ");
-  const currentSnapshot = await getPayrollSourceSnapshot(db, { period: periodFromKey(run.periodKey), employmentIds, workerIds: workerRows.map((row) => row.workerId) });
+  const period = periodFromKey(run.periodKey);
+  const currentSnapshot = await getPayrollSourceSnapshot(db, { period, employmentIds, workerIds: workerRows.map((row) => row.workerId) });
   if (currentSnapshot !== run.sourceSnapshotJson) throw new HrError(409, "薪資試算來源已變更，請重新試算後再結帳。 ");
+  const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds });
+  const annualLeaveSettlementMutations = buildHrAnnualLeaveSettlementMutations(annualLeaveSettlements, actor);
 
   // 部分結算保持期間 open，讓尚未結算的員工仍可建立另一張試算；每次 claim 都在同一
   // D1 batch 內完成，並以「所有當期 active 任職都已 claim」決定是否關閉期間，避免
   // 只拿本次 payslip 數量和 active 人數比較而提早結帳。
-  const period = periodFromKey(run.periodKey);
+  const settlementMutationCount = annualLeaveSettlementMutations.length;
   const mutations = [
+    ...annualLeaveSettlementMutations,
     sql`INSERT INTO hr_payroll_closed_employees (period_key, employment_id, payroll_run_id)
       SELECT ${run.periodKey}, payslip.employment_id, ${runId}
       FROM hr_payslips AS payslip
@@ -1606,7 +1639,7 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
         )
       RETURNING id`,
   ];
-  await writeHrMutation(db, mutations, runId, actor, "payroll_run_closed", "薪資批次已結帳、來源已變更或同一員工同一月份已有結帳結果，請重新整理。 ", { allowEmptyMutationIndexes: new Set([0, 2]) });
+  await writeHrMutation(db, mutations, runId, actor, "payroll_run_closed", "薪資批次已結帳、來源已變更或同一員工同一月份已有結帳結果，請重新整理。 ", { allowEmptyMutationIndexes: new Set([settlementMutationCount, settlementMutationCount + 2]) });
   return getPayrollRunResult(db, runId);
 }
 
