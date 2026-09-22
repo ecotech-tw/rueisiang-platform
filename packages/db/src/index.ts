@@ -10,7 +10,7 @@ export {
   type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";
 export {
-  assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive,
+  assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   type SpecialWorkdayAllowanceInput, type SpecialWorkdayAssignmentInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,
 } from "./hr-special-workdays.js";
 export { createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, type HrOvertimeInput } from "./hr-overtime.js";
