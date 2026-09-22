@@ -8,7 +8,7 @@ import {
   listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest,
   assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
-  updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentDates, updateHrFormRequest, updateHrAttendanceScope, revokeHrEmployment, undoHrEmploymentAction,
+  deleteHrEmployment, updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentDates, updateHrFormRequest, updateHrAttendanceScope, undoHrEmploymentAction,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
@@ -946,9 +946,9 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await endHrEmployment(c.get("db"), c.req.param("id"), { endedOn: date(input, "endedOn")!, revision: revision(input) }, c.get("user")));
   })
-  .post("/employments/:id/revoke", requirePermission("hr:employee:write"), async (c) => {
+  .delete("/employments/:id", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
-    return c.json(await revokeHrEmployment(c.get("db"), c.req.param("id"), { revision: revision(input) }, c.get("user")));
+    return c.json(await deleteHrEmployment(c.get("db"), c.req.param("id"), { revision: revision(input) }, c.get("user")));
   })
   .post("/employment-actions/:id/undo",  requirePermission("hr:employee:write"), async (c) => c.json(await undoHrEmploymentAction(c.get("db"), c.req.param("id"), c.get("user"))))
   .post("/assignments", requirePermission("hr:employee:write"), async (c) => {

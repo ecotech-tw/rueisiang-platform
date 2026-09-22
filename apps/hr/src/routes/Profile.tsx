@@ -10,7 +10,7 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
     <p className="muted">期間結束日不含當日；停用帳號不會刪除任職歷史。</p>
     <p className="hr-employee-supervisor">主管：<strong>{profile.employee.supervisorName ?? "尚未設定"}</strong></p>
     <table className="data-table"><thead><tr><th>到職日</th><th>不再任職首日</th><th>年資認列日</th></tr></thead>
-      <tbody>{profile.employments.map((job) => <tr key={job.id}><td>{job.hiredOn}</td><td>{job.revokedAt ? "已撤銷" : job.endedOn ?? "未設定"}</td><td>{job.seniorityStartOn}</td></tr>)}</tbody></table>
+      <tbody>{profile.employments.filter((job) => !job.revokedAt).map((job) => <tr key={job.id}><td>{job.hiredOn}</td><td>{job.endedOn ?? "未設定"}</td><td>{job.seniorityStartOn}</td></tr>)}</tbody></table>
     {!profile.employments.length ? <p>尚無任職紀錄。</p> : null}
     <h3>營運櫃點歸屬</h3>
     <table className="data-table"><thead><tr><th>櫃點</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>

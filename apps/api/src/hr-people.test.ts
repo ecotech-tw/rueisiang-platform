@@ -232,32 +232,35 @@ describe("HR 員工基礎", () => {
     expect(await blocked.json()).toMatchObject({ error: expect.stringContaining("新的到職日前") });
   });
 
-  it("輸入錯誤的任職可以撤銷並保留歷史，之後能重新建立正確任職", async () => {
+  it("輸入錯誤的任職可以刪除並保留稽核資料，之後能重新建立正確任職", async () => {
     await assign("self");
     const job = await firstEmployment("self");
-    const revoked = await request(`/hr/employments/${job}/revoke`, "POST", { revision: 1 });
-    expect(revoked.status, await revoked.clone().text()).toBe(200);
-    const detail = await (await request("/hr/employees/self")).json() as { employee: { employmentStatus: string }; employments: { id: string; revokedAt: string | null }[]; lastEmploymentAction: unknown };
+    const deleted = await request(`/hr/employments/${job}`, "DELETE", { revision: 1 });
+    expect(deleted.status, await deleted.clone().text()).toBe(200);
+    const detail = await (await request("/hr/employees/self")).json() as { employee: { employmentStatus: string }; employments: unknown[]; lastEmploymentAction: unknown };
     expect(detail.employee.employmentStatus).toBe("inactive");
-    expect(detail.employments).toEqual([expect.objectContaining({ id: job, revokedAt: expect.any(String) })]);
+    expect(detail.employments).toEqual([]);
     expect(detail.lastEmploymentAction).toBeNull();
+    expect(d1.sqlite.prepare("SELECT revoked_at, revoked_by FROM hr_employments WHERE id=?").get(job)).toEqual({ revoked_at: expect.any(String), revoked_by: "admin" });
+    expect((d1.sqlite.prepare("SELECT event_type, summary FROM activity_events WHERE entity_id=? ORDER BY rowid DESC LIMIT 1").get(job) as { event_type: string; summary: string })).toEqual({ event_type: "employment_deleted", summary: "任職資料已刪除" });
     await expect(employment("self", { hiredOn: "2026-01-01" })).resolves.toBeDefined();
   });
 
-  it("有營運據點歸屬歷史的錯誤任職仍可撤銷，但保留下游歷史且禁止新增關聯", async () => {
+  it("有營運據點歸屬歷史的任職仍可刪除，但保留下游歷史且禁止新增關聯", async () => {
     await assign("self");
     const job = await firstEmployment("self");
     const assignment = await created("/hr/assignments", { employmentId: job, scopeId: "scope", validFrom: "2026-01-01" });
-    const revoked = await request(`/hr/employments/${job}/revoke`, "POST", { revision: 1 });
-    expect(revoked.status, await revoked.clone().text()).toBe(200);
+    const deleted = await request(`/hr/employments/${job}`, "DELETE", { revision: 1 });
+    expect(deleted.status, await deleted.clone().text()).toBe(200);
     const detail = await (await request("/hr/employees/self")).json() as {
       employee: { employmentStatus: string };
-      employments: { id: string; revokedAt: string | null }[];
-      assignments: { id: string; employmentId: string; validTo: string | null }[];
+      employments: unknown[];
+      assignments: unknown[];
     };
     expect(detail.employee.employmentStatus).toBe("inactive");
-    expect(detail.employments[0]).toMatchObject({ id: job, revokedAt: expect.any(String) });
-    expect(detail.assignments).toEqual([expect.objectContaining({ id: assignment, employmentId: job, validTo: null })]);
+    expect(detail.employments).toEqual([]);
+    expect(detail.assignments).toEqual([]);
+    expect(d1.sqlite.prepare("SELECT id, employment_id, valid_to FROM hr_employee_scopes WHERE id=?").get(assignment)).toEqual({ id: assignment, employment_id: job, valid_to: null });
     expect((await request("/hr/assignments", "POST", { employmentId: job, scopeId: "scope", validFrom: "2026-02-01" })).status).toBe(409);
   });
 
