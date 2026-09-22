@@ -183,24 +183,24 @@ function assignmentNeedsEnd(validTo: string | null, employmentEndedOn: string | 
   return validTo === null || (employmentEndedOn !== null && validTo > employmentEndedOn);
 }
 
-function EmployeeManagementDialog({ employee, onClose, onEdit, onDeleted, canOfficeWrite }: { employee: Employee; onClose: () => void; onEdit: (editor: Editor) => void; onDeleted: () => void; canOfficeWrite: boolean }) {
+function EmployeeManagementDialog({ employee, onClose, onEdit, onWithdrawn, canOfficeWrite }: { employee: Employee; onClose: () => void; onEdit: (editor: Editor) => void; onWithdrawn: () => void; canOfficeWrite: boolean }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
-  const [deleteTarget, setDeleteTarget] = useState<Employment | null>(null);
-  const deleteMutation = useHrWrite();
+  const [withdrawTarget, setWithdrawTarget] = useState<Employment | null>(null);
+  const withdrawMutation = useHrWrite();
   if (profile.isPending) return <Dialog title="管理任職" titleMeta={`${employee.employeeNumber}／${employee.displayName}`} onClose={onClose}><p className="muted">載入任職資料…</p></Dialog>;
   if (profile.error || !profile.data) return <Dialog title="管理任職" titleMeta={`${employee.employeeNumber}／${employee.displayName}`} onClose={onClose}><Alert tone="danger">{profile.error?.message ?? "員工資料載入失敗。"}</Alert></Dialog>;
   const data = profile.data;
   const visibleEmployments = data.employments.filter((job) => !job.revokedAt);
   const activeEmployment = data.employee.employmentStatus === "active" ? [...visibleEmployments].reverse().find((job) => !job.endedOn) : undefined;
   const openEditor = (editor: Editor) => { onClose(); onEdit(editor); };
-  const requestDelete = (job: Employment) => {
-    deleteMutation.reset();
-    setDeleteTarget(job);
+  const requestWithdraw = (job: Employment) => {
+    withdrawMutation.reset();
+    setWithdrawTarget(job);
   };
-  const confirmDelete = () => {
-    if (!deleteTarget) return;
-    deleteMutation.mutate({ path: `/employments/${deleteTarget.id}`, method: "DELETE", values: { revision: deleteTarget.revision } }, {
-      onSuccess: () => { setDeleteTarget(null); onDeleted(); },
+  const confirmWithdraw = () => {
+    if (!withdrawTarget) return;
+    withdrawMutation.mutate({ path: `/employments/${withdrawTarget.id}/withdraw`, method: "POST", values: { revision: withdrawTarget.revision } }, {
+      onSuccess: () => { setWithdrawTarget(null); onWithdrawn(); },
     });
   };
   const endDateFor = (validTo: string | null, endedOn: string | null) => endedOn && (validTo === null || validTo > endedOn) ? endedOn : "";
@@ -216,13 +216,6 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onDeleted, canOff
     description: "這不是刪除資料；填寫該辦公位置不再可打卡的第一天，系統會保留歷史。若要結束這段任職，通常填與離職生效日相同的日期。",
     fields: [{ key: "validTo", label: "指派結束日（不含當日）", type: "date" }],
   });
-  const editEmploymentDates = (job: Employment) => openEditor({
-    title: "編輯任職日期", path: `/employments/${job.id}`, method: "PATCH",
-    successMessage: `已更新 ${data.employee.displayName} 的任職日期`,
-    initial: { hiredOn: job.hiredOn, seniorityStartOn: job.seniorityStartOn, revision: job.revision },
-    description: "可修正到職日與年資認列日；不再任職首日請使用「結束任職」。新的到職日必須涵蓋既有指派、出勤與薪資歷史，不能把任職起點改到既有資料之後。",
-    fields: [{ key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }],
-  });
   const endEmployment = (job: Employment) => openEditor({
     title: "結束任職", path: `/employments/${job.id}/end`, method: "PATCH", undoable: true,
     successMessage: `已結束 ${data.employee.displayName} 的任職`, initial: { revision: job.revision },
@@ -230,16 +223,16 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onDeleted, canOff
     fields: [{ key: "endedOn", label: "離職生效日（不含當日）", type: "date" }],
   });
   const createEmployment = () => openEditor({
-    title: data.employments.length ? "新增復職任職" : "新增任職", path: "/employments", method: "POST", undoable: true,
+    title: data.employments.length ? "新增復職任職" : "重新指派員工", path: "/employments", method: "POST", undoable: true,
     successMessage: `已新增 ${data.employee.displayName} 的任職`,
     initial: { userId: data.employee.userId },
-    description: data.employments.length ? "復職會建立新的任職期間，不會修改既有歷史；到職後可再從此處結束任職。" : "這會建立第一段任職；員工主檔與帳號會保留為同一個人。",
+    description: data.employments.length ? "復職會建立新的任職期間，不會修改既有歷史；到職後可再從此處結束任職。" : "錯誤任職應先撤回，再建立新的任職期間；員工主檔與帳號會保留為同一個人。",
     fields: [{ key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }],
   });
   return <>
   <Dialog title="管理任職" titleMeta={`${data.employee.employeeNumber}／${data.employee.displayName}`} onClose={onClose} className="hr-employee-management-dialog" actions={<>
-    {activeEmployment ? <Button variant="danger" icon="trash" className="delete-action" onClick={() => requestDelete(activeEmployment)}>刪除任職</Button> : null}
-    {activeEmployment ? <Button onClick={() => endEmployment(activeEmployment)}>結束任職</Button> : <Button onClick={createEmployment}>{data.employments.length ? "新增復職任職" : "新增任職"}</Button>}
+    {activeEmployment ? <Button variant="danger" icon="archive" className="delete-action" onClick={() => requestWithdraw(activeEmployment)}>撤回任職</Button> : null}
+    {activeEmployment ? <Button icon="logout" onClick={() => endEmployment(activeEmployment)}>結束任職</Button> : <Button icon="plus" onClick={createEmployment}>{data.employments.length ? "新增復職任職" : "重新指派員工"}</Button>}
   </>}>
     <div className="hr-management-identity">
       <div><strong>{data.employee.displayName}</strong><span>{data.employee.email}</span></div>
@@ -263,24 +256,21 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onDeleted, canOff
               {locationAssignments.map((assignment) => <div className="hr-management-assignment" key={assignment.id}><span>辦公位置：{assignment.locationName}</span>{canOfficeWrite ? <Button variant="secondary" onClick={() => endLocationAssignment(assignment, job)}>結束指派</Button> : <span className="muted">請到出勤範圍管理處理</span>}</div>)}
             </div> : null}
           </div>
-          <div className="hr-management-job-actions">
-            <Button variant="secondary" onClick={() => editEmploymentDates(job)}>編輯任職日期</Button>
-            {activeEmployment?.id !== job.id ? <Button variant="danger" onClick={() => requestDelete(job)}>刪除任職</Button> : null}
-          </div>
+          {activeEmployment?.id !== job.id ? <div className="hr-management-job-actions"><Button variant="danger" icon="archive" onClick={() => requestWithdraw(job)}>撤回任職</Button></div> : null}
         </div>;
       })}</div>}
     </div>
   </Dialog>
-  {deleteTarget ? <ConfirmDialog
-    title="刪除這段任職？"
-    confirmLabel="刪除任職"
-    pending={deleteMutation.isPending}
-    onCancel={() => { if (!deleteMutation.isPending) setDeleteTarget(null); }}
-    onConfirm={confirmDelete}
+  {withdrawTarget ? <ConfirmDialog
+    title="撤回這段任職？"
+    confirmLabel="撤回任職"
+    pending={withdrawMutation.isPending}
+    onCancel={() => { if (!withdrawMutation.isPending) setWithdrawTarget(null); }}
+    onConfirm={confirmWithdraw}
   >
-    <p>這會把 <strong>{deleteTarget.hiredOn}～{deleteTarget.endedOn ?? "目前／待到職"}</strong> 從一般任職畫面移除。</p>
-    <p className="muted">既有的據點、出勤、薪資與其他下游歷史不會被刪除；這筆刪除會留下稽核紀錄。若要重新加入，請建立新的任職；正常離職請使用「結束任職」。</p>
-    {deleteMutation.error ? <Alert tone="danger">{deleteMutation.error.message}</Alert> : null}
+    <p>這會把 <strong>{withdrawTarget.hiredOn}～{withdrawTarget.endedOn ?? "目前／待到職"}</strong> 從一般任職畫面撤回。</p>
+    <p className="muted">既有的據點、出勤、薪資與其他下游歷史不會被刪除；這次撤回會留下稽核紀錄。若要重新加入，請建立新的任職；正常離職請使用「結束任職」。</p>
+    {withdrawMutation.error ? <Alert tone="danger">{withdrawMutation.error.message}</Alert> : null}
   </ConfirmDialog> : null}
   </>;
 }
@@ -333,7 +323,7 @@ export function HrEmployees() {
       {data && !data.employees.length ? <p className="muted table-note">{data.total ? "沒有符合條件的員工，調整一下搜尋或篩選看看。" : filters.employmentStatus === "active" ? "目前沒有在職員工。" : "目前沒有未在職員工。"}</p> : null}
       {data && data.total > 0 ? <Pager page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}
     </Panel>
-    {manageEmployee ? <EmployeeManagementDialog employee={manageEmployee} onClose={() => setManageEmployee(null)} onEdit={(nextEditor) => { setManageEmployee(null); setEditor(nextEditor); }} onDeleted={() => { setManageEmployee(null); toast.show("任職資料已刪除。", "success"); void employees.refetch(); }} canOfficeWrite={permissions.has("hr:office:write")} /> : null}
+    {manageEmployee ? <EmployeeManagementDialog employee={manageEmployee} onClose={() => setManageEmployee(null)} onEdit={(nextEditor) => { setManageEmployee(null); setEditor(nextEditor); }} onWithdrawn={() => { setManageEmployee(null); toast.show("任職已撤回。", "success"); void employees.refetch(); }} canOfficeWrite={permissions.has("hr:office:write")} /> : null}
     {editor ? <EditorDialog editor={editor} onClose={() => { setEditor(null); void employees.refetch(); if (canWrite) void candidates.refetch(); }} onSuccess={(result) => { if (editor.undoable && result.operationId) showUndo(editor.successMessage ?? "任職異動已完成", result.operationId); else if (editor.successMessage) toast.show(editor.successMessage, "success"); }} /> : null}
   </div>;
 }

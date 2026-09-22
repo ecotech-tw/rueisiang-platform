@@ -216,42 +216,26 @@ describe("HR 員工基礎", () => {
     expect((await (await request("/hr/candidates?search=self")).json() as { users: { userId: string }[] }).users).toEqual([expect.objectContaining({ userId: "self" })]);
   });
 
-  it("可以修正任職到職日與年資認列日，並在新增歷史關聯後阻擋到職日改寫", async () => {
+  it("輸入錯誤的任職可以撤回並保留稽核資料，之後能重新建立正確任職", async () => {
     await assign("self");
     const job = await firstEmployment("self");
-    const updated = await request(`/hr/employments/${job}`, "PATCH", { hiredOn: "2025-12-01", seniorityStartOn: "2025-11-01", revision: 1 });
-    expect(updated.status, await updated.clone().text()).toBe(200);
-    const changed = await (await request("/hr/employees/self")).json() as { employments: { hiredOn: string; seniorityStartOn: string; revision: number }[]; lastEmploymentAction: unknown };
-    expect(changed.employments[0]).toMatchObject({ hiredOn: "2025-12-01", seniorityStartOn: "2025-11-01", revision: 2 });
-    // 日期修正會遞增任職 revision，前一筆「新增任職」復原索引因此失效，避免改日期後又誤復原舊操作。
-    expect(changed.lastEmploymentAction).toBeNull();
-
-    await created("/hr/assignments", { employmentId: job, scopeId: "scope", validFrom: "2026-01-01" });
-    const blocked = await request(`/hr/employments/${job}`, "PATCH", { hiredOn: "2026-02-01", seniorityStartOn: "2026-01-01", revision: 2 });
-    expect(blocked.status).toBe(409);
-    expect(await blocked.json()).toMatchObject({ error: expect.stringContaining("新的到職日前") });
-  });
-
-  it("輸入錯誤的任職可以刪除並保留稽核資料，之後能重新建立正確任職", async () => {
-    await assign("self");
-    const job = await firstEmployment("self");
-    const deleted = await request(`/hr/employments/${job}`, "DELETE", { revision: 1 });
-    expect(deleted.status, await deleted.clone().text()).toBe(200);
+    const withdrawn = await request(`/hr/employments/${job}/withdraw`, "POST", { revision: 1 });
+    expect(withdrawn.status, await withdrawn.clone().text()).toBe(200);
     const detail = await (await request("/hr/employees/self")).json() as { employee: { employmentStatus: string }; employments: unknown[]; lastEmploymentAction: unknown };
     expect(detail.employee.employmentStatus).toBe("inactive");
     expect(detail.employments).toEqual([]);
     expect(detail.lastEmploymentAction).toBeNull();
     expect(d1.sqlite.prepare("SELECT revoked_at, revoked_by FROM hr_employments WHERE id=?").get(job)).toEqual({ revoked_at: expect.any(String), revoked_by: "admin" });
-    expect((d1.sqlite.prepare("SELECT event_type, summary FROM activity_events WHERE entity_id=? ORDER BY rowid DESC LIMIT 1").get(job) as { event_type: string; summary: string })).toEqual({ event_type: "employment_deleted", summary: "任職資料已刪除" });
+    expect((d1.sqlite.prepare("SELECT event_type, summary FROM activity_events WHERE entity_id=? ORDER BY rowid DESC LIMIT 1").get(job) as { event_type: string; summary: string })).toEqual({ event_type: "employment_withdrawn", summary: "任職已撤回" });
     await expect(employment("self", { hiredOn: "2026-01-01" })).resolves.toBeDefined();
   });
 
-  it("有營運據點歸屬歷史的任職仍可刪除，但保留下游歷史且禁止新增關聯", async () => {
+  it("有營運據點歸屬歷史的任職仍可撤回，但保留下游歷史且禁止新增關聯", async () => {
     await assign("self");
     const job = await firstEmployment("self");
     const assignment = await created("/hr/assignments", { employmentId: job, scopeId: "scope", validFrom: "2026-01-01" });
-    const deleted = await request(`/hr/employments/${job}`, "DELETE", { revision: 1 });
-    expect(deleted.status, await deleted.clone().text()).toBe(200);
+    const withdrawn = await request(`/hr/employments/${job}/withdraw`, "POST", { revision: 1 });
+    expect(withdrawn.status, await withdrawn.clone().text()).toBe(200);
     const detail = await (await request("/hr/employees/self")).json() as {
       employee: { employmentStatus: string };
       employments: unknown[];

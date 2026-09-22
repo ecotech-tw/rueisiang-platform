@@ -25,10 +25,10 @@ describe("人事資料呈現", () => {
     expect(html).not.toContain("設為主要");
   });
 
-  it("一般任職畫面不顯示已刪除的任職資料", () => {
+  it("一般任職畫面不顯示已撤回的任職資料", () => {
     const html = renderToStaticMarkup(<HrProfileDetails profile={{ employee: { ...employee, employmentStatus: "inactive" }, employments: [{ id: "deleted", employeeUserId: "e", hiredOn: "2026-01-01", endedOn: null, seniorityStartOn: "2026-01-01", revokedAt: "2026-01-02 00:00:00", revision: 2 }], assignments: [] }} />);
     expect(html).toContain("尚無任職紀錄");
-    expect(html).not.toContain("已撤銷");
+    expect(html).not.toContain("已撤回");
     expect(html).not.toContain("<td>未設定</td>");
   });
 
