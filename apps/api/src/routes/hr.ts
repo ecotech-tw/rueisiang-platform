@@ -10,6 +10,7 @@ import {
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
+  isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
   cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
@@ -350,6 +351,52 @@ function defaultShiftMinutes(input: Record<string, unknown>) {
   const end = secondsFromTime(input, "endTime");
   return { start, end, standardMinutes: (end - start) / 60, breakMinutes: 0 };
 }
+/** 一個班別的平日／週末／國定假日三組時間；值域與「平日必填」由 packages/db 的 assertShiftTimes 把關。 */
+function shiftTimes(input: Record<string, unknown>): HrShiftTime[] {
+  const value = input.times;
+  if (!Array.isArray(value) || !value.length || value.length > 3) throw new HTTPException(400, { message: "班別時間格式不正確。" });
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new HTTPException(400, { message: "班別時間格式不正確。" });
+    const entry = item as Record<string, unknown>;
+    if (!isHrDayType(entry.dayType)) throw new HTTPException(400, { message: "班別的日期類型不正確。" });
+    const defaults = defaultShiftMinutes(entry);
+    return { dayType: entry.dayType, startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes };
+  });
+}
+/**
+ * 前端讀到的那幾天。伺服器拿它跟 DB 現況比對，對不上就是中間有人改過。
+ *
+ * 沒送就是不檢查：匯入本來就打算整年換掉，硬要它先讀一次只是多一趟。
+ */
+function knownDates(input: Record<string, unknown>): string[] | undefined {
+  const value = input.knownDates;
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 366 || value.some((item) => typeof item !== "string")) throw new HTTPException(400, { message: "行事曆格式不正確。" });
+  return value as string[];
+}
+function calendarYear(value: string) {
+  const year = Number(value);
+  if (!/^\d{4}$/.test(value) || !Number.isInteger(year)) throw new HTTPException(400, { message: "行事曆年份不正確。" });
+  return year;
+}
+/**
+ * 行事曆送上來的日子；這裡只檢查形狀，哪些要寫成列由 packages/db 決定。
+ *
+ * 上限跟著路由走：月是 31，年是 366。寫死 31 的話整年那條路會在例外累積到 32 天時
+ * 永遠存不起來——光 2026 年匯入就有 16 筆，再加颱風假與公司自訂假很快就破——
+ * 而且匯入本身繞過這個檢查，等於做得出一個畫面自己救不回來的狀態。
+ */
+function calendarDays(input: Record<string, unknown>, maxDays: number): HrCalendarDayInput[] {
+  const value = input.days;
+  if (!Array.isArray(value) || value.length > maxDays) throw new HTTPException(400, { message: "行事曆格式不正確。" });
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new HTTPException(400, { message: "行事曆格式不正確。" });
+    const entry = item as Record<string, unknown>;
+    if (!isHrDayType(entry.dayType)) throw new HTTPException(400, { message: "行事曆的日期類型不正確。" });
+    if (typeof entry.date !== "string" || typeof entry.name !== "string") throw new HTTPException(400, { message: "行事曆格式不正確。" });
+    return { date: entry.date, dayType: entry.dayType, name: entry.name };
+  });
+}
 function stringArray(input: Record<string, unknown>, key: string, label: string, maxItems = 100) {
   const value = input[key];
   if (!Array.isArray(value) || value.length > maxItems || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 100)) throw new HTTPException(400, { message: `${label}格式不正確。` });
@@ -676,11 +723,21 @@ export const hr = new Hono<AppEnv>()
     period(validFrom, validTo);
     return c.json(await createHrWorkerCompensation(c.get("db"), { workerId: c.req.param("id"), validFrom, validTo, payBasis: payBasis(input), baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input) }, c.get("user")), 201);
   })
+  .get("/calendar/years/:year", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarYear(c.get("db"), calendarYear(c.req.param("year"))) }))
+  .put("/calendar/years/:year", requirePermission("hr:schedule:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await saveHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), calendarDays(input, 366), knownDates(input), c.get("user")));
+  })
+  .post("/calendar/years/:year/import", requirePermission("hr:schedule:write"), async (c) => c.json(await importHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), c.get("user"))))
+  .get("/calendar/:periodKey", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarMonth(c.get("db"), monthPeriodFromKey(c.req.param("periodKey"))) }))
+  .put("/calendar/:periodKey", requirePermission("hr:schedule:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await saveHrCalendarMonth(c.get("db"), monthPeriodFromKey(c.req.param("periodKey")), calendarDays(input, 31), knownDates(input), c.get("user")));
+  })
   .get("/shift-templates", requirePermission("hr:schedule:read"), async (c) => c.json(await listHrShifts(c.get("db"))))
   .patch("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    const defaults = defaultShiftMinutes(input);
-    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes, revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
+    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), times: shiftTimes(input), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
   })
   .delete("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
@@ -688,8 +745,7 @@ export const hr = new Hono<AppEnv>()
   })
   .post("/shift-templates", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    const defaults = defaultShiftMinutes(input);
-    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes }, c.get("user")), 201);
+    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), times: shiftTimes(input) }, c.get("user")), 201);
   })
   .patch("/employments/:id/attendance-scope", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);

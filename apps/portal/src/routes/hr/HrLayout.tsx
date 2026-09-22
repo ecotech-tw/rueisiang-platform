@@ -26,6 +26,7 @@ const ATTENDANCE_TABS = [
 const SCHEDULING_TABS = [
   { label: "排班月曆", to: "/hr/scheduling", permission: "hr:schedule:read" as const, icon: "calendar" as const, adminOnly: false },
   { label: "班別管理", to: "/hr/scheduling/shifts", permission: "hr:schedule:read" as const, icon: "clock" as const, adminOnly: false },
+  { label: "行事曆", to: "/hr/scheduling/calendar", permission: "hr:schedule:read" as const, icon: "calendar" as const, adminOnly: false },
 ];
 
 const PAYROLL_TABS = [
@@ -109,11 +110,11 @@ export function HrLayout() {
   const current = isOverview ? "儀表板" : isRequests ? "申請與審核" : isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "薪資" : "員工管理";
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const visiblePrimaryNav = HR_PRIMARY_NAV
-    .map((item) => {
-      const children = visibleChildren(item.children, permissions, isHrAdministrator);
-      const fallbackTo = children[0]?.to ?? item.to;
-      return { ...item, to: fallbackTo, children };
-    })
+    .map((item) => ({
+      ...item,
+      // 有子選單的項目只負責展開選單，不把第一個子頁當成預設轉址。
+      children: visibleChildren(item.children, permissions, isHrAdministrator),
+    }))
     .filter((item) => (item.permissions.some((permission) => permissions.has(permission)) || item.children.length > 0) && (!item.adminOnly || isHrAdministrator));
   const activeLabel = visiblePrimaryNav.find((item) => isActive(item.activePaths ?? [item.to], pathname))?.label ?? null;
 
@@ -191,18 +192,32 @@ export function HrLayout() {
         <span className="hr-system-nav-thumb" ref={thumbRef} aria-hidden="true" />
         {visiblePrimaryNav.map((item) => {
           const active = isActive(item.activePaths ?? [item.to], pathname);
+          const hasChildren = item.children.length > 0;
           const open = openMenu === item.label;
+          const submenuId = `hr-system-submenu-${item.to.replace(/^\/+/, "").replaceAll("/", "-")}`;
           return <div
             className={`hr-system-nav-item${active ? " active" : ""}${open ? " open" : ""}`}
             key={item.label}
-            onMouseEnter={() => setOpenMenu(item.label)}
-            onMouseLeave={() => setOpenMenu((current) => current === item.label ? null : current)}
-            onFocus={() => setOpenMenu(item.label)}
+            // 觸控裝置不應把合成 mouse 事件當成 hover，否則展開後可能立刻被離開事件收合。
+            onPointerEnter={(event) => { if (hasChildren && event.pointerType === "mouse") setOpenMenu(item.label); }}
+            onPointerLeave={(event) => { if (hasChildren && event.pointerType === "mouse") setOpenMenu((current) => current === item.label ? null : current); }}
+            onFocus={() => { if (hasChildren) setOpenMenu(item.label); }}
             onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) setOpenMenu((current) => current === item.label ? null : current);
+              if (hasChildren && !event.currentTarget.contains(event.relatedTarget)) setOpenMenu((current) => current === item.label ? null : current);
             }}
           >
-            <NavLink
+            {hasChildren ? <button
+              type="button"
+              className="hr-system-nav-link"
+              aria-haspopup="menu"
+              aria-expanded={open}
+              aria-controls={submenuId}
+              onClick={() => setOpenMenu(item.label)}
+            >
+              <Icon name={item.icon} />
+              <span>{item.label}</span>
+              <Icon name="chevronDown" className="hr-system-nav-chevron" />
+            </button> : <NavLink
               to={item.to}
               end={item.to === "/hr"}
               className="hr-system-nav-link"
@@ -210,9 +225,8 @@ export function HrLayout() {
             >
               <Icon name={item.icon} />
               <span>{item.label}</span>
-              {item.children.length ? <Icon name="chevronDown" className="hr-system-nav-chevron" /> : null}
-            </NavLink>
-            {item.children.length ? <div className="hr-system-submenu" role="menu" aria-label={`${item.label}子選單`}>
+            </NavLink>}
+            {hasChildren ? <div id={submenuId} className="hr-system-submenu" role="menu" aria-label={`${item.label}子選單`} aria-hidden={!open}>
               {item.children.map((child) => <NavLink
                 key={child.to}
                 to={child.to}

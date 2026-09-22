@@ -13,12 +13,14 @@ function dateMinusOne(value: string) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 function taipeiDateTime(value: string) {
   const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const parsed = new Date(/[zZ]|[+-]\\d{2}:\\d{2}$/.test(normalized) ? normalized : `${normalized}Z`);
+  const parsed = new Date(/[zZ]|[+-]\d{2}:\d{2}$/.test(normalized) ? normalized : `${normalized}Z`);
   if (Number.isNaN(parsed.getTime())) return value;
   const parts = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(parsed);
   const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";

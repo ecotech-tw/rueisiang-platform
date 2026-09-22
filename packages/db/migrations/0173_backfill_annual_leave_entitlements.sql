@@ -113,35 +113,56 @@ WHERE leave_type_id IS NULL
       AND replace(replace(trim(t.name), ' ', ''), '　', '') = replace(replace(trim(hr_leave_requests.leave_type), ' ', ''), '　', '')
   );
 --> statement-breakpoint
+-- 同一期別的多筆歷史申請必須以同一個穩定順序累計檢查；只用單筆目前餘額會讓同批申請各自通過，最後留下負餘額。
+WITH eligible_annual_leave_usage AS (
+  SELECT
+    r.id AS request_id,
+    r.starts_on,
+    r.ends_on,
+    r.created_by,
+    e.id AS entitlement_id,
+    r.duration_minutes / 30 AS required_half_hours,
+    coalesce((
+      SELECT sum(l.delta_half_hours) FROM hr_annual_leave_ledger AS l
+      WHERE l.entitlement_id = e.id
+    ), 0) AS balance_half_hours
+  FROM hr_leave_requests AS r
+  INNER JOIN hr_leave_types AS t ON t.id = r.leave_type_id AND t.leave_kind = 'annual'
+  INNER JOIN hr_annual_leave_entitlements AS e
+    ON e.employment_id = r.employment_id
+    AND r.starts_on >= e.period_start
+    AND r.ends_on <= e.period_end
+  WHERE r.status = 'approved'
+    AND r.duration_minutes >= 30
+    AND r.duration_minutes % 30 = 0
+    AND NOT EXISTS (
+      SELECT 1 FROM hr_annual_leave_ledger AS l
+      WHERE l.source_key = 'leave-request:' || r.id
+    )
+), usage_with_running_total AS (
+  SELECT
+    usage.*,
+    coalesce(sum(usage.required_half_hours) OVER (
+      PARTITION BY usage.entitlement_id
+      ORDER BY usage.starts_on, usage.ends_on, usage.request_id
+      ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    ), 0) AS prior_required_half_hours
+  FROM eligible_annual_leave_usage AS usage
+)
 INSERT OR IGNORE INTO hr_annual_leave_ledger (
   id, entitlement_id, entry_kind, delta_half_hours, source_key, leave_request_id, note, created_by
 )
 SELECT
-  'annual-usage:' || r.id,
-  e.id,
+  'annual-usage:' || request_id,
+  entitlement_id,
   'leave_request',
-  -(r.duration_minutes / 30),
-  'leave-request:' || r.id,
-  r.id,
+  -required_half_hours,
+  'leave-request:' || request_id,
+  request_id,
   '既有核准特休使用回填',
-  r.created_by
-FROM hr_leave_requests AS r
-INNER JOIN hr_leave_types AS t ON t.id = r.leave_type_id AND t.leave_kind = 'annual'
-INNER JOIN hr_annual_leave_entitlements AS e
-  ON e.employment_id = r.employment_id
-  AND r.starts_on >= e.period_start
-  AND r.ends_on <= e.period_end
-WHERE r.status = 'approved'
-  AND r.duration_minutes >= 30
-  AND r.duration_minutes % 30 = 0
-  AND coalesce((
-    SELECT sum(l.delta_half_hours) FROM hr_annual_leave_ledger AS l
-    WHERE l.entitlement_id = e.id
-  ), 0) >= (r.duration_minutes / 30)
-  AND NOT EXISTS (
-    SELECT 1 FROM hr_annual_leave_ledger AS l
-    WHERE l.source_key = 'leave-request:' || r.id
-  );
+  created_by
+FROM usage_with_running_total
+WHERE balance_half_hours - prior_required_half_hours >= required_half_hours;
 --> statement-breakpoint
 -- 無法完整對應單一期別、時數格式不合法或歷史餘額不足的資料不能靜默略過；
 -- 留一筆系統稽核，讓 HR 能從操作紀錄找到需要人工調整的申請。

@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { buildHrAnnualLeaveSettlementMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
+import { resolveDayTypes } from "./hr-calendar.js";
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { calculateHrInsuranceEmployeeAmount, listHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
@@ -199,11 +200,17 @@ function dateRange(start: string, end: string): string[] {
   return result;
 }
 
-function dailyItemAppliesOnWorkday(attendanceMode: string, payBasis: "monthly" | "daily" | "hourly", date: string, scheduledDates: ReadonlySet<string>, specialDates: ReadonlySet<string>): boolean {
+/**
+ * 日支項目（餐費、交通補貼那類）這一天發不發。
+ *
+ * 一般辦公模式原本寫死「星期一到五」，跟打卡出缺勤那邊是同一條規則的第二份實作。
+ * 兩邊分開維護的下場是補班日打卡說要上班、薪資卻不給那天的餐費，而且對不起來的
+ * 只有那一天，月底才會被發現。現在兩邊都讀行事曆的日型。
+ */
+function dailyItemAppliesOnWorkday(attendanceMode: string, payBasis: "monthly" | "daily" | "hourly", date: string, scheduledDates: ReadonlySet<string>, specialDates: ReadonlySet<string>, workdayDates: ReadonlySet<string>): boolean {
   if (specialDates.has(date)) return true;
   if (payBasis === "daily" || attendanceMode === "scheduled") return scheduledDates.has(date);
-  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-  return weekday !== 0 && weekday !== 6;
+  return workdayDates.has(date);
 }
 
 function overlapDays(start: string, end: string, from: string, to: string | null): string[] {
@@ -725,6 +732,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     membersByVersion.set(item.version.id, [...(membersByVersion.get(item.version.id) ?? []), { employmentId: item.member.employmentId, weightUnits: item.member.weightUnits }]);
   }
   const calendarDays = dateRange(period.start, period.end);
+  // 一般辦公模式的日支項目看的是這一份：行事曆說是平日的才算上班日，補班日在裡面、國定假日不在。
+  const dayTypes = await resolveDayTypes(db, calendarDays);
+  const workdayDates = new Set(calendarDays.filter((date) => dayTypes.get(date) === "weekday"));
   const statementRows: Array<{ employee: HrPayrollEmployeeResult; payslipId: string; lines: HrPayrollLineResult[]; compensationIds: string[]; insuranceIds: string[] }> = [];
   const calculationWarnings = new Set<string>();
   type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null };
@@ -859,7 +869,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const itemAmount = item.amountBasis === "monthly"
           ? Math.floor(item.amountMinor / monthlyDivisorDays)
           : item.amountBasis === "daily"
-            ? dailyItemAppliesOnWorkday(employee.attendanceMode, compensation.payBasis, day, scheduledDates, specialDates) ? item.amountMinor : 0
+            ? dailyItemAppliesOnWorkday(employee.attendanceMode, compensation.payBasis, day, scheduledDates, specialDates, workdayDates) ? item.amountMinor : 0
             : Math.round(item.amountMinor * itemHours);
         compensationItemTotals.set(item.id, (compensationItemTotals.get(item.id) ?? 0) + itemAmount);
         if (itemAmount > 0) {

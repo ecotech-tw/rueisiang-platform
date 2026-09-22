@@ -21,6 +21,7 @@ import { HrInsuranceManagement } from "./routes/hr/InsuranceManagement.js";
 import { HrSpecialWorkdays } from "./routes/hr/SpecialWorkdays.js";
 import { HrAttendanceRecords } from "./routes/hr/AttendanceRecords.js";
 import { HrScheduling } from "./routes/hr/Scheduling.js";
+import { HrCalendar } from "./routes/hr/Calendar.js";
 import { HrShifts } from "./routes/hr/Shifts.js";
 import { HrSupportWorkers } from "./routes/hr/SupportWorkers.js";
 import { HrCompensationManagement } from "./routes/hr/Compensation.js";
@@ -183,6 +184,7 @@ export function App() {
           <Route path="overtime" element={<Navigate to="/hr/requests?type=overtime" replace />} />
           <Route path="scheduling" element={<HrScheduling />} />
           <Route path="scheduling/shifts" element={<HrShifts />} />
+          <Route path="scheduling/calendar" element={<HrCalendar />} />
           {/* 舊網址相容：員工可打卡辦公位置改由出勤範圍管理維護。 */}
           <Route path="scheduling/locations" element={<Navigate to="/hr/attendance-scope" replace />} />
           <Route path="compensation" element={<HrCompensationManagement />} />
