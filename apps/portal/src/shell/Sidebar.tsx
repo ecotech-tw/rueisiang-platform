@@ -1,6 +1,7 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NavLink, useLocation } from "react-router";
+import { useLocation } from "react-router";
+import { GuardedNavLink } from "./UnsavedChanges.js";
 import type { SessionUser } from "../auth/session.js";
 import { AccountPanel } from "./AccountPanel.js";
 import { SystemSwitcher } from "./SystemSwitcher.js";
@@ -38,7 +39,7 @@ function Item({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
 
   return (
     <div className="nav-node">
-      <NavLink
+      <GuardedNavLink
         to={item.to}
         end
         onClick={onNavigate}
@@ -47,7 +48,7 @@ function Item({ item, onNavigate }: { item: NavItem; onNavigate: () => void }) {
       >
         <Icon name={item.icon} className="nav-icon" />
         <span className="nav-label">{item.label}</span>
-      </NavLink>
+      </GuardedNavLink>
 
       {expanded ? (
         <div className="nav-children">
@@ -81,7 +82,7 @@ function Section({
     const item = items[0]!;
     return (
       <div className="nav-section single">
-        <NavLink
+        <GuardedNavLink
           to={item.to}
           end
           onClick={onNavigate}
@@ -90,7 +91,7 @@ function Section({
         >
           <Icon name={section.icon} className="nav-icon" />
           <span className="nav-label">{section.label}</span>
-        </NavLink>
+        </GuardedNavLink>
       </div>
     );
   }

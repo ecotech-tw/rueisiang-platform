@@ -1,6 +1,7 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Navigate, NavLink, Outlet, useLocation } from "react-router";
+import { Navigate, Outlet, useLocation } from "react-router";
+import { GuardedNavLink } from "../../shell/UnsavedChanges.js";
 import { useSession } from "../../auth/session.js";
 import { Icon, type IconName } from "../../shell/icons.js";
 import { HrOverview } from "./Overview.js";
@@ -217,7 +218,7 @@ export function HrLayout() {
               <Icon name={item.icon} />
               <span>{item.label}</span>
               <Icon name="chevronDown" className="hr-system-nav-chevron" />
-            </button> : <NavLink
+            </button> : <GuardedNavLink
               to={item.to}
               end={item.to === "/hr"}
               className="hr-system-nav-link"
@@ -225,9 +226,9 @@ export function HrLayout() {
             >
               <Icon name={item.icon} />
               <span>{item.label}</span>
-            </NavLink>}
+            </GuardedNavLink>}
             {hasChildren ? <div id={submenuId} className="hr-system-submenu" role="menu" aria-label={`${item.label}子選單`} aria-hidden={!open}>
-              {item.children.map((child) => <NavLink
+              {item.children.map((child) => <GuardedNavLink
                 key={child.to}
                 to={child.to}
                 className={() => `hr-system-submenu-link${isActiveChild(item.children, child, pathname) ? " active" : ""}`}
@@ -237,7 +238,7 @@ export function HrLayout() {
               >
                 <Icon name={child.icon} />
                 <span>{child.label}</span>
-              </NavLink>)}
+              </GuardedNavLink>)}
             </div> : null}
           </div>;
         })}

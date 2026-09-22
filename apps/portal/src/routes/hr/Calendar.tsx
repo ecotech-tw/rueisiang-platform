@@ -5,6 +5,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrCalendarResponse, type HrDayType } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
+import { useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 
 const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
 
@@ -122,6 +123,8 @@ export function HrCalendar() {
 
   const days = draft ?? saved;
   const changed = draft !== null && !sameDays(draft, saved);
+  // 講得出「哪一年、現在有幾天」，使用者才知道按下「離開並捨棄」會丟掉什麼。
+  useUnsavedChanges(changed, `${year} 年的行事曆改過了還沒儲存，目前有 ${days.length} 天登記。`);
   const update = (date: string, patch: Partial<HrCalendarDay>) => {
     setDraft(sortByDate((draft ?? saved).map((day) => day.date === date ? { ...day, ...patch } : day)));
     setMessage(null);
