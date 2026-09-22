@@ -244,14 +244,21 @@ describe("HR 員工基礎", () => {
     await expect(employment("self", { hiredOn: "2026-01-01" })).resolves.toBeDefined();
   });
 
-  it("有營運據點歸屬歷史的任職不能撤銷，錯誤訊息說明不能靠結束關聯繞過", async () => {
+  it("有營運據點歸屬歷史的錯誤任職仍可撤銷，但保留下游歷史且禁止新增關聯", async () => {
     await assign("self");
     const job = await firstEmployment("self");
-    await created("/hr/assignments", { employmentId: job, scopeId: "scope", validFrom: "2026-01-01" });
+    const assignment = await created("/hr/assignments", { employmentId: job, scopeId: "scope", validFrom: "2026-01-01" });
     const revoked = await request(`/hr/employments/${job}/revoke`, "POST", { revision: 1 });
-    expect(revoked.status).toBe(409);
-    expect(await revoked.json()).toMatchObject({ error: "這段任職已有營運據點歸屬歷史，為保留歷史不能撤銷；即使結束關聯也不能繞過撤銷限制。若需更正，請保留此任職並建立正確的後續任職。" });
-    expect((await (await request("/hr/employees/self")).json() as { employments: { revokedAt: string | null }[] }).employments[0]?.revokedAt).toBeNull();
+    expect(revoked.status, await revoked.clone().text()).toBe(200);
+    const detail = await (await request("/hr/employees/self")).json() as {
+      employee: { employmentStatus: string };
+      employments: { id: string; revokedAt: string | null }[];
+      assignments: { id: string; employmentId: string; validTo: string | null }[];
+    };
+    expect(detail.employee.employmentStatus).toBe("inactive");
+    expect(detail.employments[0]).toMatchObject({ id: job, revokedAt: expect.any(String) });
+    expect(detail.assignments).toEqual([expect.objectContaining({ id: assignment, employmentId: job, validTo: null })]);
+    expect((await request("/hr/assignments", "POST", { employmentId: job, scopeId: "scope", validFrom: "2026-02-01" })).status).toBe(409);
   });
 
   it("任職最近一次異動被後續修改後不能復原", async () => {

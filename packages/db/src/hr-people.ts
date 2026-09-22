@@ -414,51 +414,6 @@ export async function endHrEmployment(db: Database, id: string, input: { endedOn
   return { id, operationId };
 }
 
-function employmentDependencyCondition(id: string) {
-  return sql`EXISTS (SELECT 1 FROM hr_employee_scopes WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_clock_events WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_insurance_versions WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_monthly_leave_entries WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_monthly_hourly_entries WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_leave_requests WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_form_requests WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_overtime_requests WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_bonus_policy_members WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_schedule_entries WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_special_workday_assignments WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_payroll_adjustments WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_payroll_run_employees WHERE employment_id=${id})
-    OR EXISTS (SELECT 1 FROM hr_payslips WHERE employment_id=${id})`;
-}
-
-async function firstEmploymentDependency(db: Database, id: string) {
-  const query = sql`SELECT dependency FROM (
-    SELECT '營運據點歸屬' AS dependency WHERE EXISTS (SELECT 1 FROM hr_employee_scopes WHERE employment_id=${id})
-    UNION ALL SELECT '辦公位置指派' WHERE EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${id})
-    UNION ALL SELECT '打卡紀錄' WHERE EXISTS (SELECT 1 FROM hr_clock_events WHERE employment_id=${id})
-    UNION ALL SELECT '薪資資料' WHERE EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${id})
-    UNION ALL SELECT '勞健保資料' WHERE EXISTS (SELECT 1 FROM hr_insurance_versions WHERE employment_id=${id})
-    UNION ALL SELECT '假勤資料' WHERE EXISTS (SELECT 1 FROM hr_monthly_leave_entries WHERE employment_id=${id})
-    UNION ALL SELECT '工時資料' WHERE EXISTS (SELECT 1 FROM hr_monthly_hourly_entries WHERE employment_id=${id})
-    UNION ALL SELECT '請假申請' WHERE EXISTS (SELECT 1 FROM hr_leave_requests WHERE employment_id=${id})
-    UNION ALL SELECT '補打卡申請' WHERE EXISTS (SELECT 1 FROM hr_form_requests WHERE employment_id=${id})
-    UNION ALL SELECT '加班申請' WHERE EXISTS (SELECT 1 FROM hr_overtime_requests WHERE employment_id=${id})
-    UNION ALL SELECT '獎金指派' WHERE EXISTS (SELECT 1 FROM hr_bonus_policy_members WHERE employment_id=${id})
-    UNION ALL SELECT '排班資料' WHERE EXISTS (SELECT 1 FROM hr_schedule_entries WHERE employment_id=${id})
-    UNION ALL SELECT '特殊上班日資料' WHERE EXISTS (SELECT 1 FROM hr_special_workday_assignments WHERE employment_id=${id})
-    UNION ALL SELECT '薪資結算資料' WHERE EXISTS (SELECT 1 FROM hr_payroll_adjustments WHERE employment_id=${id}
-      OR employment_id IN (SELECT employment_id FROM hr_payroll_closed_employees WHERE employment_id=${id})
-      OR employment_id IN (SELECT employment_id FROM hr_payroll_run_employees WHERE employment_id=${id})
-      OR employment_id IN (SELECT employment_id FROM hr_payslips WHERE employment_id=${id}))
-  ) LIMIT 1`;
-  const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
-  const compiled = dialect.sqlToQuery(query);
-  return db.$client.prepare(compiled.sql).bind(...compiled.params).first<{ dependency: string }>();
-}
-
 function employmentDateBeforeCondition(id: string, hiredOn: string) {
   return sql`EXISTS (SELECT 1 FROM hr_employee_scopes WHERE employment_id=${id} AND valid_from < ${hiredOn})
     OR EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${id} AND valid_from < ${hiredOn})
@@ -551,16 +506,14 @@ export async function updateHrEmploymentDates(db: Database, id: string, input: {
   }, summary: "任職日期已更新" } });
 }
 
-/** 撤銷輸入錯誤的任職，但保留任職列與 employmentId；只允許沒有下游資料的任職。 */
+/** 撤銷輸入錯誤的任職；保留任職列與所有下游歷史，不 cascade 刪除或改寫關聯資料。 */
 export async function revokeHrEmployment(db: Database, id: string, input: { revision: number }, actor: HrActor) {
   const [current] = await db.select({ employeeUserId: hrEmployments.employeeUserId, revokedAt: hrEmployments.revokedAt, revision: hrEmployments.revision }).from(hrEmployments).where(eq(hrEmployments.id, id)).limit(1);
   if (!current || current.revokedAt !== null) throw new HrError(409, "這段任職已被撤銷或不存在，請重新整理後再試。");
   if (current.revision !== input.revision) throw new HrError(409, "這段任職資料已被其他人修改，請重新整理後再試。");
-  const dependency = await firstEmploymentDependency(db, id);
-  if (dependency) throw new HrError(409, `這段任職已有${dependency.dependency}歷史，為保留歷史不能撤銷；即使結束關聯也不能繞過撤銷限制。若需更正，請保留此任職並建立正確的後續任職。`);
   await write(db, sql`UPDATE hr_employments SET revoked_at=CURRENT_TIMESTAMP, revoked_by=${actor.id}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
-    WHERE id=${id} AND revision=${input.revision} AND revoked_at IS NULL AND NOT (${employmentDependencyCondition(id)})
-    RETURNING id`, id, actor, "employment_revoked", "任職已被其他人修改或新增關聯，請重新整理後再試。", { activity: { payload: { employmentId: id }, summary: "任職已撤銷" } });
+    WHERE id=${id} AND revision=${input.revision} AND revoked_at IS NULL
+    RETURNING id`, id, actor, "employment_revoked", "任職已被其他人修改，請重新整理後再試。", { activity: { payload: { employmentId: id }, summary: "任職已撤銷" } });
   return { id };
 }
 

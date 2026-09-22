@@ -249,7 +249,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `/api/hr/me/leave-requests`、`/overtime-requests`、`/clock-corrections` | `hr:request:create` | 本人；申請可表達歷史時間但需審核 |
 | `GET /api/hr/employees`、`GET /api/hr/employees/:id` | `hr:employee:read`；出勤範圍管理另可用 `hr:office:read` | 列表支援固定 page size、總數、搜尋、狀態篩選與白名單排序；內頁採單一互斥 accordion。出勤權限只取得員工／任職／出勤設定資料；薪資、投保、請假與打卡明細另限全平台 HR 管理者 |
 | `POST/PATCH /api/hr/employees` | `hr:employee:write` | 新增與修改員工基礎資料；不因出勤範圍讀取權限取得寫入能力 |
-| `POST /api/hr/employments`、`PATCH /api/hr/employments/:id`、`PATCH /api/hr/employments/:id/end`、`POST /api/hr/employments/:id/revoke`、`POST /api/hr/employment-actions/:id/undo` | `hr:employee:write` | 新增／修正日期／結束／復原任職；錯誤任職採保留 `employmentId` 的 soft revoke，已有下游關聯時回傳具體阻擋原因，不 cascade 刪除 |
+| `POST /api/hr/employments`、`PATCH /api/hr/employments/:id`、`PATCH /api/hr/employments/:id/end`、`POST /api/hr/employments/:id/revoke`、`POST /api/hr/employment-actions/:id/undo` | `hr:employee:write` | 新增／修正日期／結束／復原任職；錯誤任職採保留 `employmentId` 與下游歷史的 soft revoke，不 cascade 刪除或改寫，撤銷後禁止新增關聯 |
 | `/api/hr/schedules`（目前提供排班資料模型與開發 fixture） | `hr:schedule:read/write` | 已發布班表才可供獎金試算；管理範圍與發布審核另切片，範圍授權模型另案定義 |
 | `/api/hr/attendance-settings/locations`、`/places`、`/employments/:id/attendance-scope`、`/employees/:id/supervisor` | `hr:office:read/write` 或 `hr:employee:write` | 出勤範圍管理以員工為主體，原子保存出勤方式、排班員工月休與多個可打卡辦公位置；辦公位置頁只管理 GPS／半徑；Places 搜尋與座標選取限管理權限；舊的單一指派 endpoint 僅供相容，不作為新 UI 入口 |
 | `/api/hr/attendance`、申請 `/:id/review` | `hr:attendance:read/approve` | 授權範圍及不可自審；請假私密附件不隨全營運據點可讀 |

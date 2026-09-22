@@ -21,7 +21,7 @@ export const hrEmployees = sqliteTable("hr_employees", {
   check("ck_hr_employees_revision", sql`${t.revision} > 0`),
 ]);
 
-/** endedOn 是不再任職的第一天；revokedAt 只用於撤銷輸入錯誤且沒有下游資料的任職。 */
+/** endedOn 是不再任職的第一天；revokedAt 用於撤銷輸入錯誤的任職，保留下游歷史且不再接受新的關聯。 */
 export const hrEmployments = sqliteTable("hr_employments", {
   id: text("id").primaryKey(),
   employeeUserId: text("employee_user_id").notNull().references(() => hrEmployees.userId, { onDelete: "restrict" }),
