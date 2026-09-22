@@ -11,7 +11,8 @@ export {
   type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type HrShiftTime, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";
 export {
-  defaultDayType, isHrDayType, listHrCalendarMonth, resolveDayTypes, saveHrCalendarMonth, HR_DAY_TYPE_LABELS,
+  defaultDayType, importHrCalendarYear, isHrDayType, listHrCalendarMonth, listHrCalendarYear, overridesFromGovCalendar,
+  resolveDayTypes, saveHrCalendarMonth, saveHrCalendarYear, HR_CALENDAR_SOURCE_URL, HR_DAY_TYPE_LABELS,
   type HrCalendarDayInput, type HrCalendarDayView,
 } from "./hr-calendar.js";
 export type { HrDayType } from "./schema/hr-scheduling.js";

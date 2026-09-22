@@ -4533,3 +4533,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .hr-payroll-line-content { padding-inline: 12px; }
   .hr-payroll-result-body { padding-inline: 12px; }
 }
+/* 行事曆管理頁：年份切換與統計放同一條，跟排班月曆的月份切換用同一組元件。 */
+.hr-calendar-year-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-bottom: 12px; border-bottom: 1px solid var(--color-soft-line); }
+.hr-calendar-year-count { margin: 0; margin-inline-start: auto; color: var(--color-muted); font-size: 13px; }
+.hr-calendar-year-count strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
+.hr-calendar-year-bar .hr-schedule-status { margin: 0; }
+/* 表格裡的欄位不該撐出一格高度；拿掉標籤與外距，列高才跟其他資料表一致。 */
+.data-table .field { margin: 0; min-width: 0; }
+.data-table .field > span:first-child { display: none; }

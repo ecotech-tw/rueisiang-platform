@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, importHrCalendarYear, overridesFromGovCalendar, syncSystemRoles } from "@rueisiang/db";
 import { hrCalendarDays, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -165,5 +165,115 @@ describe("HR 行事曆與班別日型", () => {
   it("沒有 hr:schedule:write 的人改不了行事曆", async () => {
     await db.delete(userRoleAssignments);
     expect((await request("/hr/calendar/2026-02", "PUT", { days: [] })).status).toBe(403);
+  });
+});
+
+describe("行事曆整年管理與出缺勤", () => {
+  /** 讓「自己」這個帳號成為一般辦公模式的在職員工，出缺勤才有東西可以判。 */
+  async function officeEmployee() {
+    await db.insert(users).values({ id: "self", email: "self@example.test", displayName: "本人", status: "active" });
+    expect((await request("/hr/employees", "POST", { userId: "self", employeeNumber: "E-CAL2", hiredOn: "2020-01-01", seniorityStartOn: "2020-01-01" })).status).toBe(201);
+    return `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "self", email: "self@example.test", name: "本人", pictureUrl: "" }), SECRET))}`;
+  }
+  async function calendarOf(selfCookie: string, year: number, month: number) {
+    const previous = cookie;
+    cookie = selfCookie;
+    const response = await request(`/hr/me/attendance-calendar?year=${year}&month=${month}`);
+    cookie = previous;
+    return (await response.json() as { days: Array<{ date: string; dayType: string; status: string }> }).days;
+  }
+
+  it("國定假日沒打卡算休息，補班日沒打卡算缺勤", async () => {
+    const selfCookie = await officeEmployee();
+    // 2021-02-20 是星期六卻要補班；2021-02-11 是星期四的春節假期。
+    const saved = await request("/hr/calendar/years/2021", "PUT", { days: [
+      { date: "2021-02-11", dayType: "holiday", name: "春節" },
+      { date: "2021-02-20", dayType: "weekday", name: "補行上班" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+
+    const days = await calendarOf(selfCookie, 2021, 2);
+    const holiday = days.find((day) => day.date === "2021-02-11");
+    const makeup = days.find((day) => day.date === "2021-02-20");
+    const plainSaturday = days.find((day) => day.date === "2021-02-27");
+    const plainWeekday = days.find((day) => day.date === "2021-02-25");
+    expect(holiday).toMatchObject({ dayType: "holiday", status: "rest" });
+    expect(makeup).toMatchObject({ dayType: "weekday", status: "missing" });
+    // 沒被標記的日子仍照星期幾走，行事曆不會把整個月都變成上班日。
+    expect(plainSaturday).toMatchObject({ dayType: "weekend", status: "rest" });
+    expect(plainWeekday).toMatchObject({ dayType: "weekday", status: "missing" });
+  });
+
+  it("整年清單只回例外，一年不是 365 列", async () => {
+    await request("/hr/calendar/years/2021", "PUT", { days: [
+      { date: "2021-02-11", dayType: "holiday", name: "春節" },
+      { date: "2021-02-20", dayType: "weekday", name: "補行上班" },
+      { date: "2021-03-08", dayType: "weekday", name: "" },
+    ] });
+    const listed = await (await request("/hr/calendar/years/2021")).json() as { days: Array<{ date: string; dayType: string; name: string }> };
+    // 2021-03-08 是星期一、送的也是 weekday，跟預設一樣所以不存。
+    expect(listed.days).toEqual([
+      expect.objectContaining({ date: "2021-02-11", dayType: "holiday", name: "春節" }),
+      expect.objectContaining({ date: "2021-02-20", dayType: "weekday", name: "補行上班" }),
+    ]);
+  });
+
+  it("整年儲存會換掉整年，但不動到別的年份", async () => {
+    await request("/hr/calendar/years/2021", "PUT", { days: [{ date: "2021-02-11", dayType: "holiday", name: "春節" }] });
+    await request("/hr/calendar/years/2022", "PUT", { days: [{ date: "2022-01-01", dayType: "holiday", name: "元旦" }] });
+    await request("/hr/calendar/years/2021", "PUT", { days: [{ date: "2021-10-10", dayType: "holiday", name: "國慶日" }] });
+    const twentyOne = await (await request("/hr/calendar/years/2021")).json() as { days: Array<{ date: string }> };
+    const twentyTwo = await (await request("/hr/calendar/years/2022")).json() as { days: Array<{ date: string }> };
+    expect(twentyOne.days.map((day) => day.date)).toEqual(["2021-10-10"]);
+    expect(twentyTwo.days.map((day) => day.date)).toEqual(["2022-01-01"]);
+  });
+
+  it("拒絕不是四位數的年份", async () => {
+    expect((await request("/hr/calendar/years/21")).status).toBe(400);
+    expect((await request("/hr/calendar/years/abcd")).status).toBe(400);
+  });
+});
+
+describe("政府行事曆轉換", () => {
+  it("只挑出跟星期幾推算不同的日子：平日放假與週末補班", () => {
+    const overrides = overridesFromGovCalendar(2021, [
+      { date: "20210211", isHoliday: true, description: "農曆除夕" },   // 星期四放假 → holiday
+      { date: "20210213", isHoliday: true, description: "春節" },       // 星期六放假 → 跟預設一樣，不存
+      { date: "20210220", isHoliday: false, description: "補行上班" },  // 星期六上班 → weekday
+      { date: "20210222", isHoliday: false, description: "" },          // 星期一上班 → 跟預設一樣，不存
+      { date: "20220101", isHoliday: true, description: "跨年度" },      // 不在這一年，丟掉
+      { date: "壞掉的日期", isHoliday: true, description: "" },
+    ]);
+    expect(overrides).toEqual([
+      { date: "2021-02-11", dayType: "holiday", name: "農曆除夕" },
+      { date: "2021-02-20", dayType: "weekday", name: "補行上班" },
+    ]);
+  });
+
+  it("沒有名稱時補一個講得出口的預設名，畫面上才不會出現空白的一列", () => {
+    const overrides = overridesFromGovCalendar(2021, [
+      { date: "20210211", isHoliday: true, description: "" },
+      { date: "20210220", isHoliday: false, description: "" },
+    ]);
+    expect(overrides.map((day) => day.name)).toEqual(["放假", "補行上班"]);
+  });
+
+  it("匯入會整年換掉，並回報假日與補班日各幾天", async () => {
+    await db.insert(users).values({ id: "importer", email: "importer@example.test", displayName: "匯入者", status: "active" });
+    await request("/hr/calendar/years/2021", "PUT", { days: [{ date: "2021-06-01", dayType: "holiday", name: "舊的假日" }] });
+    const result = await importHrCalendarYear(db, 2021, { id: "admin", email: "admin@example.test" }, async () => [
+      { date: "20210211", isHoliday: true, description: "農曆除夕" },
+      { date: "20210220", isHoliday: false, description: "補行上班" },
+    ]);
+    expect(result).toMatchObject({ year: 2021, days: 2, holidays: 1, makeupWorkdays: 1 });
+    const listed = await (await request("/hr/calendar/years/2021")).json() as { days: Array<{ date: string }> };
+    expect(listed.days.map((day) => day.date)).toEqual(["2021-02-11", "2021-02-20"]);
+  });
+
+  it("來源拿不到資料時擋下來，不會把整年的行事曆清空", async () => {
+    await request("/hr/calendar/years/2021", "PUT", { days: [{ date: "2021-06-01", dayType: "holiday", name: "要保住的假日" }] });
+    await expect(importHrCalendarYear(db, 2021, { id: "admin", email: "admin@example.test" }, async () => [])).rejects.toThrow(/政府行事曆/);
+    const listed = await (await request("/hr/calendar/years/2021")).json() as { days: Array<{ date: string }> };
+    expect(listed.days.map((day) => day.date)).toEqual(["2021-06-01"]);
   });
 });

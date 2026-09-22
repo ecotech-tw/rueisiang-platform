@@ -23,6 +23,7 @@ const ATTENDANCE_TABS = [
 const SCHEDULING_TABS = [
   { label: "排班月曆", to: "/hr/scheduling", permission: "hr:schedule:read" as const, icon: "calendar" as const, adminOnly: false },
   { label: "班別管理", to: "/hr/scheduling/shifts", permission: "hr:schedule:read" as const, icon: "clock" as const, adminOnly: false },
+  { label: "行事曆", to: "/hr/scheduling/calendar", permission: "hr:schedule:read" as const, icon: "calendar" as const, adminOnly: false },
 ];
 
 const PAYROLL_TABS = [

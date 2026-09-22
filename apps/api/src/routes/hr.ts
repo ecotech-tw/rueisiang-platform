@@ -10,7 +10,7 @@ import {
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
-  isHrDayType, listHrCalendarMonth, periodFromKey, saveHrCalendarMonth, type HrCalendarDayInput, type HrShiftTime,
+  isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, periodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
@@ -338,6 +338,11 @@ function shiftTimes(input: Record<string, unknown>): HrShiftTime[] {
     return { dayType: entry.dayType, startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes };
   });
 }
+function calendarYear(value: string) {
+  const year = Number(value);
+  if (!/^\d{4}$/.test(value) || !Number.isInteger(year)) throw new HTTPException(400, { message: "行事曆年份不正確。" });
+  return year;
+}
 /** 行事曆送上來的是一整個月的日子；這裡只檢查形狀，哪些要寫成列由 saveHrCalendarMonth 決定。 */
 function calendarDays(input: Record<string, unknown>): HrCalendarDayInput[] {
   const value = input.days;
@@ -601,6 +606,12 @@ export const hr = new Hono<AppEnv>()
     period(validFrom, validTo);
     return c.json(await createHrWorkerCompensation(c.get("db"), { workerId: c.req.param("id"), validFrom, validTo, payBasis: payBasis(input), baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input) }, c.get("user")), 201);
   })
+  .get("/calendar/years/:year", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarYear(c.get("db"), calendarYear(c.req.param("year"))) }))
+  .put("/calendar/years/:year", requirePermission("hr:schedule:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await saveHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), calendarDays(input), c.get("user")));
+  })
+  .post("/calendar/years/:year/import", requirePermission("hr:schedule:write"), async (c) => c.json(await importHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), c.get("user"))))
   .get("/calendar/:periodKey", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarMonth(c.get("db"), periodFromKey(c.req.param("periodKey"))) }))
   .put("/calendar/:periodKey", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
