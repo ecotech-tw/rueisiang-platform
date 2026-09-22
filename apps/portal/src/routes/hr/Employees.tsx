@@ -191,6 +191,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onUndo, canOffice
   if (profile.error || !profile.data) return <Dialog title={`管理 ${employee.displayName}`} onClose={onClose}><Alert tone="danger">{profile.error?.message ?? "員工資料載入失敗。"}</Alert></Dialog>;
   const data = profile.data;
   const activeEmployment = data.employee.employmentStatus === "active" ? [...data.employments].reverse().find((job) => !job.endedOn && !job.revokedAt) : undefined;
+  const hasRevokedEmployment = data.employments.some((job) => Boolean(job.revokedAt));
   const openEditor = (editor: Editor) => { onClose(); onEdit(editor); };
   const endDateFor = (validTo: string | null, endedOn: string | null) => endedOn && (validTo === null || validTo > endedOn) ? endedOn : "";
   const endScopeAssignment = (assignment: Assignment, job: Employment) => openEditor({
@@ -222,8 +223,8 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onUndo, canOffice
       <div><span className="eyebrow">目前任職</span><strong>{activeEmployment.hiredOn}～目前</strong><span>年資認列日：{activeEmployment.seniorityStartOn}</span></div>
       <Button variant="danger" onClick={() => openEditor({ title: "結束任職", path: `/employments/${activeEmployment.id}/end`, method: "PATCH", undoable: true, successMessage: `已結束 ${data.employee.displayName} 的任職`, initial: { revision: activeEmployment.revision }, description: "離職生效日是不再任職的第一天；系統會自動把仍有效的營運據點歸屬與辦公位置指派結束在同一天，並保留任職與相關歷史。若只是任職中途調整據點或辦公位置，才需要在任職歷史下方個別結束。", fields: [{ key: "endedOn", label: "離職生效日（不含當日）", type: "date" }] })}>結束任職</Button>
     </div> : <div className="hr-management-current is-empty">
-      <div><span className="eyebrow">目前任職</span><strong>目前沒有有效任職</strong><span>可以新增任職或建立復職紀錄。</span></div>
-      <Button onClick={() => openEditor({ title: data.employments.length ? "新增復職任職" : "新增任職", path: "/employments", method: "POST", undoable: true, successMessage: `已新增 ${data.employee.displayName} 的任職`, initial: { userId: data.employee.userId }, description: "復職會建立新的任職期間，不會修改既有歷史；到職後可再從此處結束任職。", fields: [{ key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }] })}>{data.employments.length ? "新增復職任職" : "新增任職"}</Button>
+      <div><span className="eyebrow">目前任職</span><strong>{hasRevokedEmployment ? "任職已撤銷，可重新指派" : "目前沒有有效任職"}</strong><span>{hasRevokedEmployment ? "建立新的任職版本；原撤銷任職與下游歷史會保留不變。" : "可以新增任職或建立復職紀錄。"}</span></div>
+      <Button onClick={() => openEditor({ title: hasRevokedEmployment ? "重新指派員工" : data.employments.length ? "新增復職任職" : "新增任職", path: "/employments", method: "POST", undoable: true, successMessage: hasRevokedEmployment ? `已重新指派 ${data.employee.displayName}` : `已新增 ${data.employee.displayName} 的任職`, initial: { userId: data.employee.userId }, description: hasRevokedEmployment ? "這會建立一段全新的任職，沿用原員工帳號與編號；原本已撤銷的任職、據點與其他下游歷史不會被改寫。這和敘薪解除後建立修正版相同，請填寫新的到職日。" : "復職會建立新的任職期間，不會修改既有歷史；到職後可再從此處結束任職。", fields: [{ key: "hiredOn", label: "到職日", type: "date" }, { key: "seniorityStartOn", label: "年資認列日", type: "date" }] })}>{hasRevokedEmployment ? "重新指派" : data.employments.length ? "新增復職任職" : "新增任職"}</Button>
     </div>}
     <div className="hr-management-group">
       <h3>任職歷史</h3>
@@ -240,7 +241,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onUndo, canOffice
           <div className="hr-management-job-actions">
             {!job.revokedAt ? <>
               <Button variant="secondary" onClick={() => editEmploymentDates(job)}>編輯任職日期</Button>
-              <Button variant="secondary" onClick={() => openEditor({ title: "撤銷錯誤任職", path: `/employments/${job.id}/revoke`, method: "POST", submitLabel: "確認撤銷", submitVariant: "danger", successMessage: `已撤銷 ${data.employee.displayName} 的錯誤任職`, initial: { revision: job.revision }, description: "撤銷會保留任職列、employmentId 與所有下游歷史，不會 cascade 刪除或改寫資料。撤銷後不再視為在職，也不能新增指派、薪資或其他任職關聯；若只是正常離職，請使用「結束任職」。", fields: [] })}>撤銷這段任職</Button>
+              <Button variant="secondary" onClick={() => openEditor({ title: "撤銷錯誤任職", path: `/employments/${job.id}/revoke`, method: "POST", submitLabel: "確認撤銷", submitVariant: "danger", successMessage: `已撤銷 ${data.employee.displayName} 的錯誤任職`, initial: { revision: job.revision }, description: "撤銷會保留任職列、employmentId 與所有下游歷史，不會 cascade 刪除或改寫資料。這段任職撤銷後不再視為在職，也不能再新增指派、薪資或其他關聯；若要重新加入，請到未在職列表按「重新指派」。若只是正常離職，請使用「結束任職」。", fields: [] })}>撤銷這段任職</Button>
             </> : <span className="status status-disabled">已撤銷</span>}
           </div>
         </div>;
