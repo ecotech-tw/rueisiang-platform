@@ -49,6 +49,11 @@ function taipeiToday() {
   const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
+function dateOffset(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
 
 beforeEach(async () => {
   d1 = createTargetOnlyD1();
@@ -168,14 +173,100 @@ describe("HR 員工基礎", () => {
     expect((await list("active")).employees.map((employee) => employee.userId)).toEqual(["self"]);
   });
 
-  it("櫃點期間必須在任職內，關閉指派後才可離職；停用 scope 不可新增", async () => {
+  it("任職分頁分開計算在職與未在職，且最近一次任職操作可復原", async () => {
+    const today = taipeiToday();
+    await created("/hr/employees", { userId: "self", employeeNumber: "E001", hiredOn: dateOffset(today, -1), seniorityStartOn: dateOffset(today, -1) });
+    await created("/hr/employees", { userId: "other", employeeNumber: "E002", hiredOn: dateOffset(today, 1), seniorityStartOn: dateOffset(today, 1) });
+
+    const active = await (await request("/hr/employees?page=1&pageSize=100&employmentStatus=active")).json() as { employees: { userId: string }[]; counts: { active: number; inactive: number } };
+    expect(active.employees.map((employee) => employee.userId)).toEqual(["self"]);
+    expect(active.counts).toEqual({ active: 1, inactive: 1 });
+    const inactive = await (await request("/hr/employees?page=1&pageSize=100&employmentStatus=inactive")).json() as { employees: { userId: string }[] };
+    expect(inactive.employees.map((employee) => employee.userId)).toEqual(["other"]);
+
+    const job = await firstEmployment("self");
+    const ended = await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: today, revision: 1 });
+    expect(ended.status, await ended.clone().text()).toBe(200);
+    const endOperation = await ended.json() as { operationId: string };
+    const endedDetail = await (await request("/hr/employees/self")).json() as { employee: { employmentStatus: string }; employments: { endedOn: string | null }[]; lastEmploymentAction: { id: string } };
+    expect(endedDetail.employee.employmentStatus).toBe("inactive");
+    expect(endedDetail.employments[0]?.endedOn).toBe(today);
+    expect(endedDetail.lastEmploymentAction.id).toBe(endOperation.operationId);
+
+    const undoneEnd = await request(`/hr/employment-actions/${endOperation.operationId}/undo`, "POST", {});
+    expect(undoneEnd.status, await undoneEnd.clone().text()).toBe(200);
+    const restored = await (await request("/hr/employees/self")).json() as { employee: { employmentStatus: string }; employments: { endedOn: string | null }[] };
+    expect(restored.employee.employmentStatus).toBe("active");
+    expect(restored.employments[0]?.endedOn).toBeNull();
+
+    expect((await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: today, revision: 3 })).status).toBe(200);
+    const rehired = await request("/hr/employments", "POST", { userId: "self", hiredOn: today, seniorityStartOn: today });
+    expect(rehired.status, await rehired.clone().text()).toBe(201);
+    const rehireOperation = await rehired.json() as { operationId: string; id: string };
+    expect((await request(`/hr/employment-actions/${rehireOperation.operationId}/undo`, "POST", {})).status).toBe(200);
+    expect((await (await request("/hr/employees/self")).json() as { employments: unknown[] }).employments).toHaveLength(1);
+  });
+
+  it("初次指派也能復原，且會恢復候選人狀態", async () => {
+    const response = await request("/hr/employees", "POST", { userId: "self", employeeNumber: "E001", hiredOn: "2026-01-01", seniorityStartOn: "2026-01-01" });
+    expect(response.status, await response.clone().text()).toBe(201);
+    const operationId = (await response.json() as { operationId: string }).operationId;
+    expect((await request(`/hr/employment-actions/${operationId}/undo`, "POST", {})).status).toBe(200);
+    expect((await request("/hr/employees/self")).status).toBe(404);
+    expect((await (await request("/hr/candidates?search=self")).json() as { users: { userId: string }[] }).users).toEqual([expect.objectContaining({ userId: "self" })]);
+  });
+
+  it("輸入錯誤的任職可以撤銷並保留歷史，之後能重新建立正確任職", async () => {
     await assign("self");
     const job = await firstEmployment("self");
-    const assignment = await created("/hr/assignments", { employmentId: job, scopeId: "scope", validFrom: "2026-01-01" });
+    const revoked = await request(`/hr/employments/${job}/revoke`, "POST", { revision: 1 });
+    expect(revoked.status, await revoked.clone().text()).toBe(200);
+    const detail = await (await request("/hr/employees/self")).json() as { employee: { employmentStatus: string }; employments: { id: string; revokedAt: string | null }[]; lastEmploymentAction: unknown };
+    expect(detail.employee.employmentStatus).toBe("inactive");
+    expect(detail.employments).toEqual([expect.objectContaining({ id: job, revokedAt: expect.any(String) })]);
+    expect(detail.lastEmploymentAction).toBeNull();
+    await expect(employment("self", { hiredOn: "2026-01-01" })).resolves.toBeDefined();
+  });
+
+  it("有營運據點歸屬歷史的任職不能撤銷，錯誤訊息說明不能靠結束關聯繞過", async () => {
+    await assign("self");
+    const job = await firstEmployment("self");
+    await created("/hr/assignments", { employmentId: job, scopeId: "scope", validFrom: "2026-01-01" });
+    const revoked = await request(`/hr/employments/${job}/revoke`, "POST", { revision: 1 });
+    expect(revoked.status).toBe(409);
+    expect(await revoked.json()).toMatchObject({ error: "這段任職已有營運據點歸屬歷史，為保留歷史不能撤銷；即使結束關聯也不能繞過撤銷限制。若需更正，請保留此任職並建立正確的後續任職。" });
+    expect((await (await request("/hr/employees/self")).json() as { employments: { revokedAt: string | null }[] }).employments[0]?.revokedAt).toBeNull();
+  });
+
+  it("任職最近一次異動被後續修改後不能復原", async () => {
+    const today = taipeiToday();
+    await created("/hr/employees", { userId: "self", employeeNumber: "E001", hiredOn: dateOffset(today, -1), seniorityStartOn: dateOffset(today, -1) });
+    const job = await firstEmployment("self");
+    const ended = await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: today, revision: 1 });
+    const operationId = (await ended.json() as { operationId: string }).operationId;
+    expect((await request(`/hr/employments/${job}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 8, revision: 2 })).status).toBe(200);
+    const undo = await request(`/hr/employment-actions/${operationId}/undo`, "POST", {});
+    expect(undo.status).toBe(409);
+    expect(await undo.json()).toMatchObject({ error: "這筆任職資料在復原前已被其他人修改，請重新整理後確認。" });
+  });
+
+  it("營運據點歸屬會隨任職結束自動收合；停用據點不可新增", async () => {
+    await assign("self");
+    const job = await firstEmployment("self");
+    const assignment = await created("/hr/assignments", { employmentId: job, scopeId: "scope", validFrom: "2026-01-01", validTo: "2026-03-01" });
     expect((await request("/hr/assignments", "POST", { employmentId: job, scopeId: "scope", validFrom: "2026-02-01" })).status).toBe(409);
-    expect((await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: "2026-02-01", revision: 1 })).status).toBe(409);
-    expect((await request(`/hr/assignments/${assignment}/end`, "PATCH", { validTo: "2026-02-01", revision: 1 })).status).toBe(200);
-    expect((await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: "2026-02-01", revision: 1 })).status).toBe(200);
+    const ended = await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: "2026-02-01", revision: 1 });
+    expect(ended.status, await ended.clone().text()).toBe(200);
+    const operationId = (await ended.json() as { operationId: string }).operationId;
+    const endedDetail = await (await request("/hr/employees/self")).json() as { assignments: { id: string; validTo: string | null }[]; employments: { endedOn: string | null }[] };
+    expect(endedDetail.employments[0]?.endedOn).toBe("2026-02-01");
+    expect(endedDetail.assignments.find((row) => row.id === assignment)).toMatchObject({ validTo: "2026-02-01" });
+    expect((await request(`/hr/employment-actions/${operationId}/undo`, "POST", {})).status).toBe(200);
+    const restored = await (await request("/hr/employees/self")).json() as { assignments: { id: string; validTo: string | null }[]; employments: { endedOn: string | null }[] };
+    expect(restored.employments[0]?.endedOn).toBeNull();
+    expect(restored.assignments.find((row) => row.id === assignment)).toMatchObject({ validTo: "2026-03-01" });
+    const endedAgain = await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: "2026-02-01", revision: 3 });
+    expect(endedAgain.status, await endedAgain.clone().text()).toBe(200);
     await db.update(scopes).set({ active: 0 }).where(eq(scopes.id, "scope"));
     expect((await (await request("/hr/scopes")).json() as { scopes: { id: string }[] }).scopes).toEqual([]);
     expect((await request("/hr/assignments", "POST", { employmentId: job, scopeId: "scope", validFrom: "2026-02-01" })).status).toBe(409);
@@ -209,11 +300,12 @@ describe("HR 員工基礎", () => {
     expect((await request(`/hr/employments/${job}/attendance-location`, "POST", { locationId: location, validFrom: "2026-01-01", validTo: null })).status).toBe(409);
     expect((await request(`/hr/attendance-settings/locations/${location}`, "PATCH", { name: "台北櫃更新", geolocationRequired: true, latitude: 25.033, longitude: 121.5654, radiusMeters: 100, active: true, revision: 1 })).status).toBe(200);
     expect((await request(`/hr/attendance-settings/locations/${location}`, "PATCH", { name: "過期版本", geolocationRequired: true, latitude: 25.033, longitude: 121.5654, radiusMeters: 100, active: true, revision: 1 })).status).toBe(409);
-    expect((await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: "2026-02-01", revision: 1 })).status).toBe(409);
     expect((await request("/hr/attendance-settings/locations", "POST", { name: "writer 不可新增", geolocationRequired: false, latitude: null, longitude: null, radiusMeters: 50, active: true }, "writer")).status).toBe(403);
-    expect((await request(`/hr/attendance-location-assignments/${assignment}/end`, "PATCH", { validTo: "2026-02-01", revision: 1 })).status).toBe(200);
-    expect((await request(`/hr/attendance-location-assignments/${secondAssignment}/end`, "PATCH", { validTo: "2026-02-01", revision: 1 })).status).toBe(200);
-    expect((await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: "2026-02-01", revision: 1 })).status).toBe(200);
+    const ended = await request(`/hr/employments/${job}/end`, "PATCH", { endedOn: "2026-02-01", revision: 1 });
+    expect(ended.status, await ended.clone().text()).toBe(200);
+    const endedDetail = await (await request("/hr/employees/self")).json() as { attendanceAssignments: { id: string; validTo: string | null; isPrimary: boolean }[] };
+    expect(endedDetail.attendanceAssignments.find((row) => row.id === assignment)).toMatchObject({ validTo: "2026-02-01", isPrimary: false });
+    expect(endedDetail.attendanceAssignments.find((assignment) => assignment.id === secondAssignment)).toMatchObject({ validTo: "2026-02-01", isPrimary: false });
   });
 
   it("出勤範圍更新會以單一交易保存方式與多個辦公位置", async () => {
@@ -232,7 +324,7 @@ describe("HR 員工基礎", () => {
     const secondSave = await request(`/hr/employments/${job}/attendance-scope`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 8, revision: 2, locationIds: [], assignmentsToEnd: [{ id: firstAssignment!.id, revision: firstAssignment!.revision }] });
     expect(secondSave.status, await secondSave.clone().text()).toBe(200);
     const secondProfile = await (await request("/hr/employees/self")).json() as { attendanceAssignments: Array<{ locationId: string; validTo: string | null; isPrimary: boolean }> };
-    expect(secondProfile.attendanceAssignments.find((assignment) => assignment.locationId === firstLocation)).toMatchObject({ validTo: expect.any(String), isPrimary: false });
+    expect(secondProfile.attendanceAssignments.find((assignment) => assignment.locationId === firstLocation)).toMatchObject({ validTo: dateOffset(taipeiToday(), 1), isPrimary: false });
     // 結束的是主要位置時，主要位置改指還有效的那一筆。
     expect(secondProfile.attendanceAssignments.find((assignment) => assignment.locationId === secondLocation)).toMatchObject({ validTo: null, isPrimary: true });
 

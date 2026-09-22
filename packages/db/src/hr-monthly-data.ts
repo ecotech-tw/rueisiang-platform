@@ -61,7 +61,7 @@ async function ensureOpenPeriod(db: Database, date: string, employmentId?: strin
 
 async function ensureEmploymentOnDate(db: Database, employmentId: string, date: string) {
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
-    .where(and(eq(hrEmployments.id, employmentId), sql`${hrEmployments.hiredOn} <= ${date}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${date})`)).limit(1);
+    .where(and(eq(hrEmployments.id, employmentId), sql`${hrEmployments.revokedAt} IS NULL`, sql`${hrEmployments.hiredOn} <= ${date}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${date})`)).limit(1);
   if (!row) throw new HrError(404, "找不到該日期有效的任職紀錄。 ");
 }
 

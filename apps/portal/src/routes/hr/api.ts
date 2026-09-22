@@ -8,9 +8,11 @@ export interface Employee {
   email: string;
   supervisorUserId?: string | null;
   userStatus: "invited" | "active" | "disabled";
+  employmentStatus: "active" | "inactive";
   revision: number;
 }
-export interface Employment { id: string; employeeUserId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null; revision: number }
+export interface Employment { id: string; employeeUserId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string; revokedAt?: string | null; revokedBy?: string | null; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null; revision: number }
+export interface EmploymentAction { id: string; employeeUserId: string; employmentId: string; actionKind: "employee_assigned" | "employment_created" | "employment_ended"; beforeEndedOn: string | null; afterEndedOn: string | null; expectedRevision: number; createdAt: string; undoneAt: string | null }
 export interface Assignment { id: string; employmentId: string; scopeName: string; validFrom: string; validTo: string | null; revision: number }
 export interface AttendanceAssignment {
   id: string;
@@ -27,7 +29,7 @@ export interface CompensationVersion { id: string; employmentId: string; version
 export interface InsuranceVersion { id: string; employmentId: string; scheme: "labor" | "health"; versionNumber: number; status: "enrolled" | "withdrawn"; validFrom: string; validTo: string | null; insuredAmountMinor: number; dependentCount: number; rateYear: number; sourceKind: "official" | "manual"; sourceUrl: string; note: string; createdAt: string; createdBy: string }
 export interface LeaveRequest { id: string; employmentId: string; leaveType: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; startsOn: string; endsOn: string; durationMinutes: number; payRatePpm?: number; reason: string; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string | null; createdAt: string; createdBy: string }
 export interface AttendanceEvent { id: string; eventKind: "clock_in" | "clock_out"; occurredAt: string; locationName: string | null; scopeName?: string | null; distanceMeters: number | null; sourceKind?: string; manualReason?: string; recordedBy?: string | null }
-export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; /** 只有出勤讀取權限時不回傳。 */ assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[]; compensation?: CompensationVersion[]; insurance?: InsuranceVersion[]; leave?: LeaveRequest[]; attendanceEvents?: AttendanceEvent[] }
+export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; lastEmploymentAction?: EmploymentAction | null; /** 只有出勤讀取權限時不回傳。 */ assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[]; compensation?: CompensationVersion[]; insurance?: InsuranceVersion[]; leave?: LeaveRequest[]; attendanceEvents?: AttendanceEvent[] }
 export interface NamedOption { id: string; name: string }
 export interface Candidate { userId: string; displayName: string; email: string; status: "invited" | "active" }
 export interface InsuranceBracket { level: number; lowerSalary: number; upperSalary: number | null; insuredAmount: number }

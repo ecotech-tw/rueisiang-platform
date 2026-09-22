@@ -312,7 +312,7 @@ interface PayrollSourceSnapshotInput {
 async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapshotInput) {
   const employmentIds = input.employmentIds.length ? input.employmentIds : ["__none__"];
   const workerIds = input.workerIds.length ? input.workerIds : ["__none__"];
-  const employmentFilter = inArray(hrEmployments.id, employmentIds);
+  const employmentFilter = and(inArray(hrEmployments.id, employmentIds), sql`${hrEmployments.revokedAt} IS NULL`);
   const workerFilter = inArray(hrScheduleWorkers.id, workerIds);
   const employmentValues = sql.join(employmentIds.map((id) => sql`${id}`), sql`, `);
   /*
@@ -345,8 +345,8 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
         AND selected_worker_entry.worker_id IN (${sql.join(workerIds.map((id) => sql`${id}`), sql`, `)}))`;
   const [employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn }).from(hrEmployments).where(employmentFilter),
-    db.select({ userId: hrEmployees.userId, employeeNumber: hrEmployees.employeeNumber, supervisorUserId: hrEmployees.supervisorUserId, revision: hrEmployees.revision, updatedAt: hrEmployees.updatedAt }).from(hrEmployees).where(sql`${hrEmployees.userId} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
-    db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
+    db.select({ userId: hrEmployees.userId, employeeNumber: hrEmployees.employeeNumber, supervisorUserId: hrEmployees.supervisorUserId, revision: hrEmployees.revision, updatedAt: hrEmployees.updatedAt }).from(hrEmployees).where(sql`${hrEmployees.userId} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}) AND revoked_at IS NULL)`),
+    db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}) AND revoked_at IS NULL)`),
     db.select().from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, employmentIds)),
     db.select().from(hrCompensationVersions).where(and(inArray(hrCompensationVersions.employmentId, employmentIds), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
     db.select().from(hrCompensationItems).where(sql`${hrCompensationItems.compensationVersionId} IN (SELECT id FROM hr_compensation_versions WHERE employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}) AND voided_at IS NULL AND valid_from < ${input.period.end} AND (valid_to IS NULL OR valid_to > ${input.period.start}))`),
@@ -561,6 +561,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(and(
+      sql`${hrEmployments.revokedAt} IS NULL`,
       sql`${hrEmployments.hiredOn} < ${period.end}`,
       sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${period.start})`,
       hrEmployableUser,
@@ -1288,7 +1289,7 @@ async function resolveBonusPolicyEmployments(db: Database, employeeUserIds: stri
   if (!employeeUserIds?.length) return [];
   const rows = await db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId }).from(hrEmployments)
     .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
-    .where(and(inArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.hiredOn} <= ${validFrom}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${validFrom})`))
+    .where(and(inArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.revokedAt} IS NULL`, sql`${hrEmployments.hiredOn} <= ${validFrom}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${validFrom})`))
     .orderBy(desc(hrEmployments.hiredOn));
   const employmentByUser = new Map<string, { id: string; employeeUserId: string }>();
   for (const row of rows) if (!employmentByUser.has(row.employeeUserId)) employmentByUser.set(row.employeeUserId, row);
@@ -1463,7 +1464,7 @@ export async function listHrBonusAssignments(db: Database) {
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrBonusPolicyMembers.employmentId))
     .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(sql`${hrBonusPolicyVersions.voidedAt} IS NULL`)
+    .where(and(sql`${hrEmployments.revokedAt} IS NULL`, sql`${hrBonusPolicyVersions.voidedAt} IS NULL`))
     .orderBy(desc(hrBonusPolicyMembers.createdAt));
   return rows.map((row) => ({
     assignment: { id: row.assignmentId, employmentId: row.assignmentEmploymentId, validFrom: row.validFrom, validTo: row.validTo, weightUnits: row.weightUnits },
@@ -1479,7 +1480,7 @@ export async function assignHrBonusPolicyMember(db: Database, input: AssignHrBon
   if (!Number.isSafeInteger(weightUnits) || weightUnits <= 0) throw new HrError(400, "權重必須是正整數。 ");
   const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
     .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
-    .where(and(eq(hrEmployments.employeeUserId, input.employeeUserId), sql`${hrEmployments.hiredOn} <= ${input.validFrom}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${input.validFrom})`))
+    .where(and(eq(hrEmployments.employeeUserId, input.employeeUserId), sql`${hrEmployments.revokedAt} IS NULL`, sql`${hrEmployments.hiredOn} <= ${input.validFrom}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${input.validFrom})`))
     .orderBy(desc(hrEmployments.hiredOn)).limit(1);
   if (!employment) throw new HrError(404, "找不到該員工在生效日的任職紀錄。 ");
   const [policy] = await db.select({ id: hrBonusPolicyVersions.id, policyId: hrBonusPolicyVersions.policyId, versionValidFrom: hrBonusPolicyVersions.validFrom, versionValidTo: hrBonusPolicyVersions.validTo, voidedAt: hrBonusPolicyVersions.voidedAt, active: hrBonusPolicies.active }).from(hrBonusPolicyVersions)
@@ -1597,7 +1598,7 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
           SELECT 1 FROM hr_employments AS employment
           INNER JOIN hr_employees AS employee ON employee.user_id=employment.employee_user_id
           INNER JOIN users AS account ON account.id=employment.employee_user_id
-          WHERE account.status='active' AND employment.hired_on < ${period.end}
+          WHERE account.status='active' AND employment.revoked_at IS NULL AND employment.hired_on < ${period.end}
             AND (employment.ended_on IS NULL OR employment.ended_on > ${period.start})
             AND NOT EXISTS (
               SELECT 1 FROM hr_payroll_closed_employees AS claim

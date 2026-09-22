@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { HrProfileDetails } from "./Employees.js";
 import type { Profile } from "./api.js";
 
-const employee: Profile["employee"] = { userId: "e", employeeNumber: "E001", displayName: "測試員工", email: "e@example.test", userStatus: "active", revision: 1 };
+const employee: Profile["employee"] = { userId: "e", employeeNumber: "E001", displayName: "測試員工", email: "e@example.test", userStatus: "active", employmentStatus: "active", revision: 1 };
 
 describe("人事資料呈現", () => {
   it("未任職與未指派都呈現明確空狀態", () => {
@@ -23,6 +23,12 @@ describe("人事資料呈現", () => {
     expect(html).toContain(">打卡紀錄</span>");
     expect(html).not.toContain("資料管理");
     expect(html).not.toContain("設為主要");
+  });
+
+  it("顯示已撤銷任職而不把它誤當成離職日期", () => {
+    const html = renderToStaticMarkup(<HrProfileDetails profile={{ employee: { ...employee, employmentStatus: "inactive" }, employments: [{ id: "revoked", employeeUserId: "e", hiredOn: "2026-01-01", endedOn: null, seniorityStartOn: "2026-01-01", revokedAt: "2026-01-02 00:00:00", revision: 2 }], assignments: [] }} />);
+    expect(html).toContain("已撤銷");
+    expect(html).not.toContain("<td>未設定</td>");
   });
 
   it("呈現復職歷史與半開期間，姓名不解析為 HTML", () => {

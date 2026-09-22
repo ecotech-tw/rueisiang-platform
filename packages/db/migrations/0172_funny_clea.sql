@@ -1,0 +1,2 @@
+DROP INDEX `idx_hr_employments_start`;--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_hr_employments_start` ON `hr_employments` (`employee_user_id`,`hired_on`) WHERE "hr_employments"."revoked_at" IS NULL;

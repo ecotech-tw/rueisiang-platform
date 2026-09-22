@@ -40,10 +40,10 @@ export {
 } from "./hr-payroll-adjustments.js";
 export {
   HrError, assignHrEmployee, createHrAssignment, createHrEmployment,
-  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, updateHrEmploymentAttendanceMode,
+  endHrAssignment, endHrEmployment, getHrEmployee, getHrSelf, revokeHrEmployment, undoHrEmploymentAction, updateHrEmploymentAttendanceMode,
   isHrAdministrator, isHrEmployee,
   listHrCandidates, listHrEmployees, listHrScopes, listHrSupervisorCandidates, updateHrEmployee, updateHrEmployeeSupervisor,
-  HR_EMPLOYEE_PAGE_SIZES, type HrEmployeeDetailOptions, type HrEmployeeListQuery, type HrEmployeeSortField,
+  HR_EMPLOYEE_PAGE_SIZES, type HrEmployeeDetailOptions, type HrEmployeeListQuery, type HrEmployeeSortField, type HrEmploymentAction, type HrEmploymentActionKind, type HrEmploymentStatus,
 } from "./hr-people.js";
 export {
   createAssistantPromptRevision,

@@ -48,7 +48,7 @@ function nextDay(date: string): string {
 
 function currentEmployment(employments: Employment[]): Employment | undefined {
   const today = taipeiToday();
-  return employments.find((employment) => employment.hiredOn <= today && (employment.endedOn === null || today < employment.endedOn)) ?? employments[0];
+  return employments.find((employment) => !employment.revokedAt && employment.hiredOn <= today && (employment.endedOn === null || today < employment.endedOn)) ?? employments.find((employment) => !employment.revokedAt);
 }
 
 /**

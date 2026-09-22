@@ -62,6 +62,7 @@ async function employmentForDate(db: Database, userId: string, correctionDate: s
   const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
     .where(and(
       eq(hrEmployments.employeeUserId, userId),
+      sql`${hrEmployments.revokedAt} IS NULL`,
       sql`${hrEmployments.hiredOn} <= ${correctionDate}`,
       sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${correctionDate})`,
     )).orderBy(desc(hrEmployments.hiredOn)).limit(1);
@@ -159,7 +160,7 @@ export async function reviewHrFormRequest(db: Database, id: string, reviewerUser
   if (current.employeeUserId === reviewerUserId) throw new HrError(409, "申請人不可審核自己的申請單。");
   if (!allowAny && current.approverUserId !== reviewerUserId) throw new HrError(404, "找不到這份待審核申請單。");
   if (current.status !== "pending") throw new HrError(409, "這份申請單已經完成審核。");
-  const reviewWhere = sql`id=${id} AND status='pending' ${allowAny ? sql`` : sql`AND approver_user_id=${reviewerUserId}`}`;
+  const reviewWhere = sql`id=${id} AND status='pending' AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_form_requests.employment_id AND revoked_at IS NULL) ${allowAny ? sql`` : sql`AND approver_user_id=${reviewerUserId}`}`;
   if (decision === "approved") {
     const eventId = crypto.randomUUID();
     await writeHrMutation(db, [

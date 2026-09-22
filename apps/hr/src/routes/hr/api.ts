@@ -8,9 +8,10 @@ export interface Employee {
   email: string;
   supervisorUserId?: string | null;
   userStatus: "invited" | "active" | "disabled";
+  employmentStatus: "active" | "inactive";
   revision: number;
 }
-export interface Employment { id: string; employeeUserId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string; revision: number }
+export interface Employment { id: string; employeeUserId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string; revokedAt?: string | null; revokedBy?: string | null; revision: number }
 export interface Assignment { id: string; employmentId: string; scopeName: string; validFrom: string; validTo: string | null; revision: number }
 export interface AttendanceAssignment {
   id: string;

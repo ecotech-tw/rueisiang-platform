@@ -165,7 +165,8 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     .where(eq(hrShiftTemplates.active, 1));
   const shiftMap = new Map(latestShiftVersions(shiftRows).map((shift) => [`${shift.versionId}:${shift.scopeId}`, shift]));
   const employmentRows = await db.select({ id: hrEmployments.id, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn, employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` }).from(hrEmployments)
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId));
+    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .where(sql`${hrEmployments.revokedAt} IS NULL`);
   const employmentMap = new Map(employmentRows.map((employment) => [employment.id, employment]));
   const attendanceSettings = await db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmploymentAttendanceSettings);
   const attendanceSettingMap = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting]));
@@ -269,7 +270,7 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
       .innerJoin(scopes, eq(scopes.id, hrScheduleEntries.scopeId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleEntries.shiftVersionId))
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrShiftVersions.shiftTemplateId))
-      .where(and(eq(hrScheduleEntries.scheduleVersionId, version.id), selectedScopeId ? eq(hrScheduleEntries.scopeId, selectedScopeId) : undefined)),
+      .where(and(eq(hrScheduleEntries.scheduleVersionId, version.id), sql`${hrEmployments.revokedAt} IS NULL`, selectedScopeId ? eq(hrScheduleEntries.scopeId, selectedScopeId) : undefined)),
     db.select({ entry: hrScheduleWorkerEntries, workerName: hrScheduleWorkers.displayName, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleWorkerEntries)
       .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
       .innerJoin(scopes, eq(scopes.id, hrScheduleWorkerEntries.scopeId))
@@ -282,6 +283,7 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
     .where(and(
+      sql`${hrEmployments.revokedAt} IS NULL`,
       sql`${hrEmployments.hiredOn} < ${period.end}`,
       sql`${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${period.start}`,
     ))

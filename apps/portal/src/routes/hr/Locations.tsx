@@ -16,17 +16,11 @@ function today(): string {
 
 function currentEmployment(employments: Employment[]): Employment | undefined {
   const date = today();
-  return employments.find((employment) => employment.hiredOn <= date && (employment.endedOn === null || date < employment.endedOn));
+  return employments.find((employment) => !employment.revokedAt && employment.hiredOn <= date && (employment.endedOn === null || date < employment.endedOn));
 }
 
 function activeAssignment(assignment: AttendanceAssignment, date: string) {
   return assignment.validFrom <= date && (assignment.validTo === null || date < assignment.validTo);
-}
-
-function nextDate(value: string) {
-  const date = new Date(`${value}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + 1);
-  return date.toISOString().slice(0, 10);
 }
 
 function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profile; locations: AttendanceLocation[]; onClose: () => void }) {
@@ -47,13 +41,14 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
     const currentAssignments = (profile.attendanceAssignments ?? []).filter((assignment) => assignment.employmentId === employment.id && activeAssignment(assignment, today()));
     const currentByLocation = new Map(currentAssignments.map((assignment) => [assignment.locationId, assignment]));
     const toAdd = selectedLocationIds.filter((locationId) => !currentByLocation.has(locationId));
-    const toEnd = currentAssignments.filter((assignment) => !selectedLocationIds.includes(assignment.locationId) && (assignment.validTo === null || assignment.validTo > nextDate(today())));
+    const validTo = today();
+    const toEnd = currentAssignments.filter((assignment) => !selectedLocationIds.includes(assignment.locationId) && (assignment.validTo === null || assignment.validTo > validTo));
     save.mutate({ path: `/employments/${employment.id}/attendance-scope`, method: "PATCH", values: {
       attendanceMode: mode, monthlyRestDays: mode === "scheduled" ? Number(monthlyRestDays) : null, revision: employment.revision,
       locationIds: toAdd, assignmentsToEnd: toEnd.map((assignment) => ({ id: assignment.id, revision: assignment.revision })),
     } }, { onSuccess: onClose });
   } }} actions={<Button type="submit" icon="check" disabled={!employment} loading={save.isPending}>儲存</Button>}>
-    <p>出勤範圍決定員工可在哪些辦公位置打卡；排班不會限制員工只能在當日排班位置打卡。</p>
+    <p>出勤範圍決定員工可在哪些辦公位置打卡；排班不會限制員工只能在當日排班位置打卡。移除辦公位置並儲存後，今天起停止可打卡，歷史資料仍會保留。</p>
     {!employment ? <Alert tone="danger">目前沒有有效任職，無法設定出勤範圍。</Alert> : null}
     <SelectField label="出勤方式" value={mode} required options={[{ value: "general", label: "一般辦公" }, { value: "scheduled", label: "排班" }]} onChange={(event) => setMode(event.target.value as "general" | "scheduled")} />
     {mode === "scheduled" ? <TextField label="每月休假天數" type="number" min="0" max="31" step="1" required value={monthlyRestDays} onChange={(event) => setMonthlyRestDays(event.target.value)} hint="排班發布時檢查本月應休天數。" /> : null}
@@ -74,7 +69,7 @@ function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: Employe
     <td>{employment ? `${employment.hiredOn}～${employment.endedOn ?? "目前"}` : "尚無任職"}</td>
     <td>{employment?.attendanceMode === "scheduled" ? "排班" : employment ? "一般辦公" : "—"}</td>
     <td><div className="hr-location-assignment-list">{assignments.length ? assignments.map((assignment) => <span className="hr-location-assignment" key={assignment.id}><span>{assignment.locationName}</span></span>) : <span className="muted">尚未指派</span>}</div></td>
-    <td>{canWrite ? <div className="row-actions"><Tooltip label={`編輯 ${employee.displayName} 的出勤範圍`}><Button variant="icon" icon="edit" aria-label={`編輯 ${employee.displayName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></div> : null}</td>
+    <td>{canWrite ? <div className="row-actions"><Tooltip label={`編輯 ${employee.displayName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" aria-label={`編輯 ${employee.displayName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></div> : null}</td>
   </tr>;
 }
 

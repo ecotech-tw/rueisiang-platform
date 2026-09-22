@@ -83,9 +83,9 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 
 ### 4.1 人事與規則
 
-人事基礎使用 `users.id` 作為 `hr_employees.user_id` 的主鍵與外鍵，不再複製姓名，也不新增雇主或帳號綁定表。其他實體使用 text ID、RESTRICT 外鍵、revision 與半開日期區間。`ended_on` 表示不再任職的第一天，不是最後出勤日。復職新增任職，結束任職前先結束超出期間的櫃點與辦公位置指派；同一使用者的任職期間不可重疊。
+人事基礎使用 `users.id` 作為 `hr_employees.user_id` 的主鍵與外鍵，不再複製姓名，也不新增雇主或帳號綁定表。其他實體使用 text ID、RESTRICT 外鍵、revision 與半開日期區間。`ended_on` 表示不再任職的第一天，不是最後出勤日。復職新增任職，結束任職時同一交易自動把超出離職日期的營運據點歸屬與辦公位置指派收合至 `ended_on`；同一使用者的任職期間不可重疊。
 
-員工指派與全平台人事讀寫是獨立明確權限，不預設授予現有主管／同仁角色；員工指派直接選現有 user，完成後該 user 由 session 身分取得本人入口，不需要另一個本人讀取權限。櫃點指派只是工作歸屬，不能當作管理授權。不存在或已是員工的 user 不可重複指派；離職不自動停權，帳號停權也不刪歷史。
+員工指派與全平台人事讀寫是獨立明確權限，不預設授予現有主管／同仁角色；員工指派直接選現有 user，完成後該 user 由 session 身分取得本人入口，不需要另一個本人讀取權限。營運據點歸屬是工作範圍資料，不能當作管理授權；它表示員工在哪個門市／營運單位工作，不是權限 scope。不存在或已是員工的 user 不可重複指派；離職不自動停權，帳號停權也不刪歷史。
 
 基礎指派與結束入口不提供刪除或覆寫已結束期間；正式審核修訂與未來法人／薪資設定依下列擴充設計處理。platform 的 `/hr/employees` 不提供打卡、排班或薪資計算；hr app 的 `/clock` 提供本人打卡日曆與打卡入口，`/forms` 提供補打卡申請，`/profile` 顯示本人資料，打卡事件仍由後端依伺服器時間與辦公位置規則判定。主管審核與其他管理入口留在 platform。
 
@@ -93,7 +93,7 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 |---|---|---|
 | `hr_employees` | `user_id → users.id`、`employee_number`、`supervisor_user_id? → users.id` | user_id PK/FK；員工編號唯一、非空；主管由後台指派且不得為本人 |
 | `hr_employments` | `employee_user_id → hr_employees.user_id`、`hired_on, ended_on?, seniority_start_on` | 日期有效；同 user 的任職期間不可重疊；索引 user + hired_on |
-| `hr_employee_scopes` | `employment_id`、`scope_id → scopes.id`、`valid_from, valid_to?` | 報表／營運 scope 的任職歸屬；期間不可重疊；scope + valid_from 索引 |
+| `hr_employee_scopes` | `employment_id`、`scope_id → scopes.id`、`valid_from, valid_to?` | 員工的營運據點歸屬（門市／工作單位）；期間不可重疊；scope + valid_from 索引 |
 | `hr_attendance_locations` | `name, geolocation_required, latitude_e7?, longitude_e7?, radius_meters` | 辦公位置名稱唯一；只保存 GPS 與打卡範圍，不保存工作時段 |
 | `hr_employee_attendance_locations` | `employment_id → hr_employments.id`、`location_id → hr_attendance_locations.id`、`valid_from, valid_to?` | RESTRICT 外鍵；期間半開；同一辦公位置的期間不可重疊，同一段任職可同時指派多個辦公位置 |
 | `hr_employment_attendance_settings` | `employment_id → hr_employments.id`、`attendance_mode`、`monthly_rest_days?`、`primary_assignment_id? → hr_employee_attendance_locations.id` | 每段任職一列；排班模式保存公司約定的每月休假天數；一般辦公模式為 NULL；主要位置 pointer 僅為既有歷史相容欄位，不作為可打卡授權 |
@@ -249,9 +249,10 @@ ERD 省略審核、附件與快照明細關係；以下資料字典描述後續�
 | `/api/hr/me/leave-requests`、`/overtime-requests`、`/clock-corrections` | `hr:request:create` | 本人；申請可表達歷史時間但需審核 |
 | `GET /api/hr/employees`、`GET /api/hr/employees/:id` | `hr:employee:read`；出勤範圍管理另可用 `hr:office:read` | 列表支援固定 page size、總數、搜尋、狀態篩選與白名單排序；內頁採單一互斥 accordion。出勤權限只取得員工／任職／出勤設定資料；薪資、投保、請假與打卡明細另限全平台 HR 管理者 |
 | `POST/PATCH /api/hr/employees` | `hr:employee:write` | 新增與修改員工基礎資料；不因出勤範圍讀取權限取得寫入能力 |
+| `POST /api/hr/employments`、`PATCH /api/hr/employments/:id/end`、`POST /api/hr/employments/:id/revoke`、`POST /api/hr/employment-actions/:id/undo` | `hr:employee:write` | 新增／結束／復原任職；錯誤任職採保留 `employmentId` 的 soft revoke，已有下游關聯時回傳具體阻擋原因，不 cascade 刪除 |
 | `/api/hr/schedules`（目前提供排班資料模型與開發 fixture） | `hr:schedule:read/write` | 已發布班表才可供獎金試算；管理範圍與發布審核另切片，範圍授權模型另案定義 |
 | `/api/hr/attendance-settings/locations`、`/places`、`/employments/:id/attendance-scope`、`/employees/:id/supervisor` | `hr:office:read/write` 或 `hr:employee:write` | 出勤範圍管理以員工為主體，原子保存出勤方式、排班員工月休與多個可打卡辦公位置；辦公位置頁只管理 GPS／半徑；Places 搜尋與座標選取限管理權限；舊的單一指派 endpoint 僅供相容，不作為新 UI 入口 |
-| `/api/hr/attendance`、申請 `/:id/review` | `hr:attendance:read/approve` | 授權範圍及不可自審；請假私密附件不隨全櫃點可讀 |
+| `/api/hr/attendance`、申請 `/:id/review` | `hr:attendance:read/approve` | 授權範圍及不可自審；請假私密附件不隨全營運據點可讀 |
 | `GET/POST /api/hr/bonus/policies`、`PATCH/DELETE /api/hr/bonus/policies/:versionId`、`GET /api/hr/bonus/assignments`、`POST /api/hr/bonus/policies/:versionId/members` | `hr:bonus:read/write` 且限全平台 HR 管理者 | 管理團體／個人績效 policy、獨立保底門檻、必填百分比、員工多筆套用與權重；policy 編輯建立新版本、刪除採停用並保留歷史；業績一律來自出金表，計薪時自動計算 |
 | `POST /api/hr/employments/:id/compensation`、`/insurance`、`GET /api/hr/insurance-brackets` | `hr:employee:write/read` 且薪資／投保寫入限全平台 HR 管理者 | 版本期間不可重疊；薪資與勞健保明細限全平台 HR 管理者；官方級距即時由勞動部／健保署來源解析，人工覆寫需保存來源與年度 |
 | `POST /api/hr/payroll/calculate`、`GET /api/hr/payroll/runs`、`GET /api/hr/payroll/runs/:id` | `hr:payroll:read/calculate` 且限全平台 HR 管理者 | `hr-payroll-demo-v1` 依薪資設定與員工已套用 policy 自動計算；覆核、結帳、付款與私密下載另切片 |
@@ -273,7 +274,7 @@ RFID 簽章、防重送、設備綁定與撤銷；LINE 透過可信 channel 身�
 | 切片 | 交付邊界 | 進入下一階段的證據 |
 |---|---|---|
 | 設計 | ERD、資料字典、權限、制度問題與案例 | 人類確認制度、schema review 找出不變量與關鍵 query |
-| 員工基礎 | 從既有 users 指派員工、任職／復職、櫃點歸屬與本人入口 | 不重複指派、任職不重疊、停用保留歷史、本人只能看 session 對應資料 |
+| 員工基礎 | 從既有 users 指派員工、任職／復職、營運據點歸屬與本人入口 | 不重複指派、任職不重疊、停用保留歷史、本人只能看 session 對應資料 |
 | 排班 | 班次版本、快速排班、送審／發布 | 跨櫃衝突、分段／跨夜、同時發布、已發布不可覆寫 |
 | 打卡出勤 | 網站事件、補卡、異常、出勤計算 | 單卡、重送、跨夜歸屬、休息、無班打卡、補卡後重算 |
 | 假別加班 | 申請、額度、補休、特殊日 | 並行超用、撤回退額度、法定案例、颱風排班資格凍結 |

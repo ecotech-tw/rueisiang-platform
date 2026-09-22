@@ -317,7 +317,7 @@ export function HrPayrollSettlement() {
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (runs.isPending) return <HrPageSkeleton variant="table" />;
   const sourceRange = monthRange(periodKey);
-  const adjustmentEmployment = adjustmentProfile.data?.employments.find((employment) => employment.hiredOn < sourceRange.end && (!employment.endedOn || employment.endedOn > sourceRange.start));
+  const adjustmentEmployment = adjustmentProfile.data?.employments.find((employment) => !employment.revokedAt && employment.hiredOn < sourceRange.end && (!employment.endedOn || employment.endedOn > sourceRange.start));
 
   function calculate() {
     setError(null);

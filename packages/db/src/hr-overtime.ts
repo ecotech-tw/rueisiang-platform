@@ -41,6 +41,7 @@ async function employmentForInterval(db: Database, userId: string, start: string
   const endDate = taipeiDate(endMs - 1000);
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(
     eq(hrEmployments.employeeUserId, userId),
+    sql`${hrEmployments.revokedAt} IS NULL`,
     sql`${hrEmployments.hiredOn} <= ${taipeiDate(startMs)}`,
     sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${endDate})`,
   )).orderBy(desc(hrEmployments.hiredOn)).limit(1);
@@ -66,7 +67,7 @@ async function ensureScope(db: Database, employmentId: string, scopeId: string |
 const fields = { request: hrOvertimeRequests, employeeNumber: hrEmployees.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` };
 
 export async function listHrOvertimeRequests(db: Database, employeeUserId?: string) {
-  return db.select(fields).from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(employeeUserId ? eq(hrEmployments.employeeUserId, employeeUserId) : undefined).orderBy(desc(hrOvertimeRequests.requestedStart));
+  return db.select(fields).from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(and(sql`${hrEmployments.revokedAt} IS NULL`, employeeUserId ? eq(hrEmployments.employeeUserId, employeeUserId) : undefined)).orderBy(desc(hrOvertimeRequests.requestedStart));
 }
 
 export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInput, actor: HrActor) {
@@ -106,7 +107,7 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
   if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
   if (decision === "rejected" && !comment.trim()) throw new HrError(400, "駁回加班申請時必須填寫審核意見。 ");
   const [current] = await db.select({ employeeUserId: hrEmployments.employeeUserId, employmentId: hrOvertimeRequests.employmentId, scopeId: hrOvertimeRequests.scopeId, status: hrOvertimeRequests.status, requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd })
-    .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(eq(hrOvertimeRequests.id, id)).limit(1);
+    .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(and(eq(hrOvertimeRequests.id, id), sql`${hrEmployments.revokedAt} IS NULL`)).limit(1);
   if (!current) throw new HrError(404, "找不到加班申請。 ");
   if (current.employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的加班申請。 ");
   if (current.status !== "pending") throw new HrError(409, "加班申請不存在或已完成處理。 ");
@@ -125,6 +126,6 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
   }
   await writeHrMutation(db, sql`UPDATE hr_overtime_requests SET
     status=${decision}, actual_start=${actualStart}, actual_end=${actualEnd}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, decision_reason=${comment.trim()}
-    WHERE id=${id} AND status='pending' AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_overtime_requests.employment_id AND employee_user_id <> ${actor.id}) RETURNING id`, id, actor, "overtime_request_reviewed", "加班申請不存在、申請人不可自審或已完成處理。 ");
+    WHERE id=${id} AND status='pending' AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_overtime_requests.employment_id AND revoked_at IS NULL AND employee_user_id <> ${actor.id}) RETURNING id`, id, actor, "overtime_request_reviewed", "加班申請不存在、申請人不可自審或已完成處理。 ");
   return { id, status: decision };
 }

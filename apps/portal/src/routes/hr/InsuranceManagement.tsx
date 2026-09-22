@@ -43,7 +43,7 @@ function InsuranceRow({ employee, canWrite, onEdit }: { employee: Employee; canW
   const insurance = profile.data.insurance ?? [];
   const labor = currentInsurance(insurance, "labor");
   const health = currentInsurance(insurance, "health");
-  const employment = profile.data.employments.find((item) => !item.endedOn) ?? profile.data.employments[0];
+  const employment = profile.data.employments.find((item) => !item.revokedAt && !item.endedOn) ?? profile.data.employments.find((item) => !item.revokedAt);
   const defaultSalary = employment ? currentSalary(profile.data, employment) : undefined;
   const hasInsurance = Boolean(labor || health);
   return <tr>

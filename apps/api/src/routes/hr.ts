@@ -8,7 +8,7 @@ import {
   listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest,
   assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
-  updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope,
+  updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope, revokeHrEmployment, undoHrEmploymentAction,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
@@ -601,6 +601,8 @@ export const hr = new Hono<AppEnv>()
     if (new Set(locationIds).size !== locationIds.length) throw new HTTPException(400, { message: "新增辦公位置不可重複。" });
     return c.json(await updateHrAttendanceScope(c.get("db"), {
       employmentId: c.req.param("id"), attendanceMode: selectedMode, monthlyRestDays, revision: revision(input), validFrom, validTo,
+      // Removing a location takes effect today; validTo remains tomorrow so newly added locations still pass the employment-period check.
+      assignmentValidTo: validFrom,
       locationIds, assignmentsToEnd: attendanceAssignmentsToEnd(input),
     }, c.get("user")));
   })
@@ -824,13 +826,15 @@ export const hr = new Hono<AppEnv>()
     const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
     if (!HR_EMPLOYEE_PAGE_SIZES.includes(pageSize as (typeof HR_EMPLOYEE_PAGE_SIZES)[number])) throw new HTTPException(400, { message: "每頁筆數不正確。" });
     const status = c.req.query("status") ?? "all";
-    if (status !== "all" && status !== "employable" && status !== "active" && status !== "invited" && status !== "disabled") throw new HTTPException(400, { message: "員工狀態不正確。" });
+    if (status !== "all" && status !== "employable" && status !== "active" && status !== "invited" && status !== "disabled") throw new HTTPException(400, { message: "帳號狀態不正確。" });
+    const employmentStatus = c.req.query("employmentStatus");
+    if (employmentStatus !== undefined && employmentStatus !== "active" && employmentStatus !== "inactive") throw new HTTPException(400, { message: "任職狀態不正確。" });
     const sortField = c.req.query("sortField") ?? "employeeNumber";
     if (sortField !== "employeeNumber" && sortField !== "name" && sortField !== "email" && sortField !== "status") throw new HTTPException(400, { message: "排序欄位不正確。" });
     const sortDirection = c.req.query("sortDirection") === "desc" ? "desc" : "asc";
     const search = c.req.query("search")?.trim() ?? "";
     if (search.length > 100) throw new HTTPException(400, { message: "搜尋條件不正確。" });
-    return c.json(await listHrEmployees(c.get("db"), { page, pageSize, search, status, sortField, sortDirection }));
+    return c.json(await listHrEmployees(c.get("db"), { page, pageSize, search, status, employmentStatus, today: formatTaipeiDate(new Date()), sortField, sortDirection }));
   })
   .get("/supervisor-candidates", requirePermission("hr:employee:write"), async (c) => c.json({ users: await listHrSupervisorCandidates(c.get("db"), c.req.query("exclude") ?? c.get("user").id) }))
   .get("/employees/:id", requireAnyPermission("hr:employee:read", "hr:office:read"), async (c) => {
@@ -839,6 +843,7 @@ export const hr = new Hono<AppEnv>()
       // 只靠 hr:office:read 進來的人只拿員工、任職與出勤設定，營運 scope 歷史不給。
       includeScopeAssignments: can(c.get("user"), "hr:employee:read"),
       includeCompensation: fullAccess, includeInsurance: fullAccess, includeLeave: fullAccess, includeAttendanceEvents: fullAccess,
+      includeEmploymentActions: can(c.get("user"), "hr:employee:write"),
     }));
   })
   .post("/employees", requirePermission("hr:employee:write"), async (c) => {
@@ -935,12 +940,17 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await endHrEmployment(c.get("db"), c.req.param("id"), { endedOn: date(input, "endedOn")!, revision: revision(input) }, c.get("user")));
   })
+  .post("/employments/:id/revoke", requirePermission("hr:employee:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await revokeHrEmployment(c.get("db"), c.req.param("id"), { revision: revision(input) }, c.get("user")));
+  })
+  .post("/employment-actions/:id/undo",  requirePermission("hr:employee:write"), async (c) => c.json(await undoHrEmploymentAction(c.get("db"), c.req.param("id"), c.get("user"))))
   .post("/assignments", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
     const validFrom = date(input, "validFrom")!;
     const validTo = date(input, "validTo", true);
     period(validFrom, validTo);
-    return c.json(await createHrAssignment(c.get("db"), { employmentId: text(input, "employmentId", "任職紀錄"), scopeId: text(input, "scopeId", "櫃點"), validFrom, validTo }, c.get("user")), 201);
+    return c.json(await createHrAssignment(c.get("db"), { employmentId: text(input, "employmentId", "任職紀錄"), scopeId: text(input, "scopeId", "營運據點"), validFrom, validTo }, c.get("user")), 201);
   })
   .patch("/assignments/:id/end", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);

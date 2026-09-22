@@ -42,7 +42,7 @@ export function HrMonthlyData() {
   const profile = useHrQuery<{ employee: Employee; employments: Profile["employments"] }>(employeeUserId ? `/employees/${encodeURIComponent(employeeUserId)}` : "/employees/__none__", canRead && Boolean(employeeUserId), { keepPreviousData: false });
   const data = useHrQuery<MonthlyResponse>(`/payroll/monthly-data?periodKey=${encodeURIComponent(periodKey)}${employeeUserId ? `&employeeUserId=${encodeURIComponent(employeeUserId)}` : ""}`, canRead && Boolean(periodKey), { keepPreviousData: false });
   const write = useHrWrite();
-  const selectedEmployment = profile.data?.employments.find((employment) => employment.hiredOn <= `${periodKey}-31` && (!employment.endedOn || employment.endedOn >= `${periodKey}-01`));
+  const selectedEmployment = profile.data?.employments.find((employment) => !employment.revokedAt && employment.hiredOn <= `${periodKey}-31` && (!employment.endedOn || employment.endedOn >= `${periodKey}-01`));
   const employeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
   const leaveTypeOptions = [{ label: "請選擇假別", value: "" }, ...(data.data?.leaveTypes ?? []).map((leaveType) => ({ label: leaveType.name, value: leaveType.id }))];
 

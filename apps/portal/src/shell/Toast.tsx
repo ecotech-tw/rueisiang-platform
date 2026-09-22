@@ -14,15 +14,21 @@ import { Icon } from "./icons.js";
 
 export type ToastTone = "success" | "info" | "danger";
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface Toast {
   id: number;
   tone: ToastTone;
   message: string;
+  action?: ToastAction;
 }
 
 interface ToastApi {
   /** 顯示一則提示。同一句話連續送出時會取代前一則，不會疊成一整排。 */
-  show: (message: string, tone?: ToastTone) => void;
+  show: (message: string, tone?: ToastTone, action?: ToastAction) => void;
 }
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -39,12 +45,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const show = useCallback(
-    (message: string, tone: ToastTone = "success") => {
+    (message: string, tone: ToastTone = "success", action?: ToastAction) => {
       const id = nextId.current++;
       setToasts((list) => [
         // 同一句話取代前一則：連按三次「儲存」不該疊出三張一模一樣的提示。
         ...list.filter((toast) => toast.message !== message),
-        { id, tone, message },
+        { id, tone, message, action },
       ]);
       setTimeout(() => dismiss(id), DISMISS_AFTER_MS);
     },
@@ -65,7 +71,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           <div className={`toast toast-${toast.tone}`} key={toast.id}>
             <Icon name={toast.tone === "success" ? "check" : toast.tone === "danger" ? "block" : "info"} />
             <span>{toast.message}</span>
-            <button type="button" onClick={() => dismiss(toast.id)} aria-label="關閉提示">
+            {toast.action ? <button type="button" className="toast-action" onClick={() => { toast.action?.onClick(); dismiss(toast.id); }}>{toast.action.label}</button> : null}
+            <button type="button" className="toast-close" onClick={() => dismiss(toast.id)} aria-label="關閉提示">
               <Icon name="close" />
             </button>
           </div>

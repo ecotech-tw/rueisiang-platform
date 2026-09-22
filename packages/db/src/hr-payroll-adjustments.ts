@@ -39,7 +39,7 @@ async function ensureEditable(db: Database, employmentId: string, effectivePerio
   if (periodRow?.status === "closed" || closed) throw new HrError(409, "調整生效月份已結帳，請建立下一個月份的新調整。 ");
 }
 async function ensureEmployment(db: Database, employmentId: string) {
-  const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(eq(hrEmployments.id, employmentId)).limit(1);
+  const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, employmentId), sql`${hrEmployments.revokedAt} IS NULL`)).limit(1);
   if (!row) throw new HrError(404, "找不到任職紀錄。 ");
 }
 
