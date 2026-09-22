@@ -68,7 +68,7 @@ export const PERMISSIONS = {
   "hr:bonus:read": "檢視獎金政策與業績",
   "hr:bonus:write": "管理獎金政策與員工套用",
   "hr:bonus:calculate": "執行獎金試算",
-  "hr:request:review": "審核 HR 表單",
+  "hr:request:review": "審核 HR 申請",
 
   // 系統
   "admin:user:read": "檢視帳號",

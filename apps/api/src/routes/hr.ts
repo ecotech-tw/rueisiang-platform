@@ -5,7 +5,7 @@ import {
   createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
-  listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest,
+  listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
   assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope,
@@ -13,7 +13,9 @@ import {
   isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
-  createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
+  cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
+  createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
+  createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
   createDeviceSession, revokeDeviceSession,
 } from "@rueisiang/db";
@@ -313,6 +315,29 @@ function overtimeInput(input: Record<string, unknown>, employeeUserId: string) {
   if (!settlementKind) throw new HTTPException(400, { message: "加班結算方式不正確。" });
   return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), reason: text(input, "reason", "加班原因", 1000) } as const;
 }
+function leaveRequestInput(input: Record<string, unknown>, employeeUserId: string) {
+  const startsOn = date(input, "startDate")!;
+  const endDate = date(input, "endDate")!;
+  if (endDate < startsOn) throw new HTTPException(400, { message: "結束日期不可早於開始日期。" });
+  return {
+    employeeUserId,
+    leaveTypeId: text(input, "leaveTypeId", "假別"),
+    startsOn,
+    endsOn: nextTaipeiDate(endDate),
+    durationMinutes: integerValue(input, "durationMinutes", "請假時數（分鐘）", 30, 44_640),
+    payRatePpm: input.payRatePpm === undefined ? undefined : integerValue(input, "payRatePpm", "給薪比例（ppm）", 0, 1_000_000),
+    reason: nullableText(input, "reason", "請假原因", 1000) ?? "",
+  } as const;
+}
+function leaveTypeInput(input: Record<string, unknown>) {
+  const leaveKind = input.leaveKind === undefined ? "other" : input.leaveKind === "annual" ? "annual" : input.leaveKind === "other" ? "other" : null;
+  if (!leaveKind) throw new HTTPException(400, { message: "假別類型不正確。" });
+  return {
+    name: text(input, "name", "假別名稱", 80),
+    leaveKind,
+    defaultPayRatePpm: integerValue(input, "defaultPayRatePpm", "預設給薪比例（ppm）", 0, 1_000_000),
+  } as const;
+}
 function secondsFromTime(input: Record<string, unknown>, key: string) {
   const value = text(input, key, key === "startTime" ? "開始時間" : "結束時間", 5);
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) throw new HTTPException(400, { message: "班別時間必須是有效的 HH:mm。" });
@@ -475,6 +500,81 @@ export const hr = new Hono<AppEnv>()
   })
   .get("/me/overtime", async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), c.get("user").id) }))
   .post("/me/overtime", async (c) => c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(await body(c), c.get("user").id), c.get("user")), 201))
+  .get("/me/leave-requests", async (c) => c.json({ requests: await listHrLeaveRequests(c.get("db"), c.get("user").id) }))
+  .post("/me/leave-requests", async (c) => c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(await body(c), c.get("user").id), c.get("user")), 201))
+  .post("/me/leave-requests/:id/cancel", async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"))))
+  .get("/leave-types", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db"), true) });
+  })
+  .post("/leave-types", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await createHrLeaveType(c.get("db"), leaveTypeInput(await body(c)), c.get("user")), 201);
+  })
+  .patch("/leave-types/:id", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await updateHrLeaveType(c.get("db"), c.req.param("id"), leaveTypeInput(await body(c)), c.get("user")));
+  })
+  .post("/leave-types/:id/status", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await setHrLeaveTypeActive(c.get("db"), c.req.param("id"), booleanValue(input, "active", "啟用狀態"), c.get("user")));
+  })
+  .get("/annual-leave/policy", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await getHrAnnualLeavePolicy(c.get("db")));
+  })
+  .get("/annual-leave/entitlements", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ entitlements: await listHrAnnualLeaveEntitlements(c.get("db"), { employeeUserId: c.req.query("employeeUserId") || undefined }) });
+  })
+  .get("/annual-leave/entitlements/:id", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ entitlement: await getHrAnnualLeaveEntitlementDetail(c.get("db"), c.req.param("id")) });
+  })
+  .post("/annual-leave/backfill", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await ensureHrAnnualLeaveEntitlements(c.get("db"), { createdBy: c.get("user").id }));
+  })
+  .post("/annual-leave/adjustments", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await createHrAnnualLeaveAdjustment(c.get("db"), {
+      entitlementId: text(input, "entitlementId", "特休額度"),
+      deltaHalfHours: integerValue(input, "deltaHalfHours", "調整時數（半小時）", -100_000, 100_000),
+      reason: text(input, "reason", "調整原因", 1000),
+    }, c.get("user")));
+  })
+  /* 管理端申請中心是獨立入口；目前代登直接核准，但資料仍使用 pending／approved 審核狀態。 */
+  .get("/requests", requirePermission("hr:request:review"), async (c) => {
+    const [leaves, overtime, formRequests] = await Promise.all([
+      listHrLeaveRequests(c.get("db")),
+      listHrOvertimeRequests(c.get("db")),
+      listHrFormRequestsForHr(c.get("db")),
+    ]);
+    return c.json({ leaves, overtime, clockCorrections: formRequests });
+  })
+  .get("/requests/employees", requirePermission("hr:request:review"), async (c) => c.json(await listHrEmployees(c.get("db"), {
+    page: 1, pageSize: 100, search: "", status: "employable", sortField: "name", sortDirection: "asc",
+  })))
+  .get("/requests/leave-types", requirePermission("hr:request:review"), async (c) => c.json({ leaveTypes: await listHrLeaveTypes(c.get("db")) }))
+  .post("/requests/leave", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    return c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(input, text(input, "employeeUserId", "員工")), c.get("user"), { autoApprove: true }), 201);
+  })
+  .post("/requests/overtime", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    const employeeUserId = text(input, "employeeUserId", "員工");
+    return c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(input, employeeUserId), c.get("user"), { autoApprove: true }), 201);
+  })
+  .post("/requests/leave/:id/review", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
+    if (!decision) throw new HTTPException(400, { message: "請假審核結果不正確。" });
+    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user")));
+  })
+  .post("/requests/leave/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true })))
   .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db")) }))
   .post("/overtime/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
@@ -736,7 +836,7 @@ export const hr = new Hono<AppEnv>()
   })
   .get("/payroll/monthly-data/leave-types", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
-    return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db")) });
+    return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db"), false, "other") });
   })
   .post("/payroll/monthly-data/leave-types", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

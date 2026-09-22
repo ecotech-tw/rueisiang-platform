@@ -24,6 +24,11 @@ export interface HrOvertimeInput {
 
 export interface HrOvertimeActualInterval { start: string; end: string }
 
+export interface HrOvertimeRequestCreateOptions {
+  /** 後台代登目前直接核准；本人入口省略此選項則保留待審核狀態。 */
+  autoApprove?: boolean;
+}
+
 function stamp(value: string) {
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) throw new HrError(400, "加班時間必須是 YYYY-MM-DD HH:mm:ss。 ");
   const parsed = new Date(`${value.replace(" ", "T")}Z`);
@@ -69,7 +74,7 @@ export async function listHrOvertimeRequests(db: Database, employeeUserId?: stri
   return db.select(fields).from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(employeeUserId ? eq(hrEmployments.employeeUserId, employeeUserId) : undefined).orderBy(desc(hrOvertimeRequests.requestedStart));
 }
 
-export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInput, actor: HrActor) {
+export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInput, actor: HrActor, options: HrOvertimeRequestCreateOptions = {}) {
   const startMs = stamp(input.requestedStart);
   const endMs = stamp(input.requestedEnd);
   if (endMs <= startMs) throw new HrError(400, "加班結束時間必須晚於開始時間。 ");
@@ -79,14 +84,31 @@ export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInp
   if (!input.reason.trim() || input.reason.length > 1000) throw new HrError(400, "加班原因必填。 ");
   const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd);
   await ensureScope(db, employmentId, input.scopeId ?? null, input.requestedStart, input.requestedEnd);
+  const startDate = taipeiDate(startMs);
+  const endDate = taipeiDate(endMs - 1000);
   const id = crypto.randomUUID();
+  const autoApprove = options.autoApprove === true;
+  if (autoApprove && input.employeeUserId === actor.id) throw new HrError(409, "申請人不可透過後台直接核准自己的加班申請。 ");
+  const status = autoApprove ? "approved" : "pending";
+  const actualStart = autoApprove ? input.requestedStart : null;
+  const actualEnd = autoApprove ? input.requestedEnd : null;
+  const reviewedBy = autoApprove ? actor.id : null;
+  const decisionReason = autoApprove ? "HR 後台建立後直接核准" : "";
   try {
     // overlap guard 放在 INSERT ... SELECT 內，和唯一鍵一起由同一個 D1 batch 仲裁，
-    // 不讓兩個同時送出的申請都通過先查後寫的 race。
+    // 不讓兩個同時送出的申請都通過先查後寫的 race。後台代登雖直接核准，仍保留
+    // approved／reviewed 欄位，讓未來本人入口切回 pending 時不必換資料模型。
     await writeHrMutation(db, sql`INSERT INTO hr_overtime_requests
-      (id, employment_id, scope_id, requested_start, requested_end, settlement_kind, status, rate_ppm, reason, created_by)
-      SELECT ${id}, ${employmentId}, ${input.scopeId ?? null}, ${input.requestedStart}, ${input.requestedEnd}, ${input.settlementKind}, 'pending', ${DEFAULT_OVERTIME_RATE_PPM}, ${input.reason.trim()}, ${actor.id}
-      WHERE NOT EXISTS (
+      (id, employment_id, scope_id, requested_start, requested_end, actual_start, actual_end, settlement_kind, status, rate_ppm, reason, reviewed_by, reviewed_at, decision_reason, created_by)
+      SELECT ${id}, ${employmentId}, ${input.scopeId ?? null}, ${input.requestedStart}, ${input.requestedEnd}, ${actualStart}, ${actualEnd}, ${input.settlementKind}, ${status}, ${DEFAULT_OVERTIME_RATE_PPM}, ${input.reason.trim()}, ${reviewedBy}, ${autoApprove ? sql`CURRENT_TIMESTAMP` : sql`NULL`}, ${decisionReason}, ${actor.id}
+      WHERE EXISTS (
+        SELECT 1 FROM hr_employments AS current_employment
+        WHERE current_employment.id=${employmentId}
+          AND current_employment.employee_user_id=${input.employeeUserId}
+          AND current_employment.hired_on <= ${startDate}
+          AND (current_employment.ended_on IS NULL OR current_employment.ended_on > ${endDate})
+      )
+        AND NOT EXISTS (
         SELECT 1 FROM hr_overtime_requests AS existing_request
         WHERE existing_request.employment_id=${employmentId}
           AND existing_request.status IN ('draft', 'pending', 'approved')
@@ -113,18 +135,30 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
 
   let actualStart: string | null = null;
   let actualEnd: string | null = null;
+  let actualStartDate: string | null = null;
+  let actualEndDate: string | null = null;
   if (decision === "approved") {
     actualStart = actual?.start ?? current.requestedStart;
     actualEnd = actual?.end ?? current.requestedEnd;
     const actualStartMs = stamp(actualStart);
     const actualEndMs = stamp(actualEnd);
     if (actualEndMs <= actualStartMs || (actualEndMs - actualStartMs) % (30 * 60 * 1000) !== 0 || actualStart < current.requestedStart || actualEnd > current.requestedEnd) throw new HrError(400, "核定加班實際時段必須以 0.5 小時為單位，且是申請時段內的完整區間。 ");
+    actualStartDate = taipeiDate(actualStartMs);
+    actualEndDate = taipeiDate(actualEndMs - 1000);
     const actualEmploymentId = await employmentForInterval(db, current.employeeUserId, actualStart, actualEnd);
     if (actualEmploymentId !== current.employmentId) throw new HrError(400, "核定加班實際時段不可跨越任職紀錄。 ");
     await ensureScope(db, current.employmentId, current.scopeId, actualStart, actualEnd);
   }
+  const approvalEmploymentGuard = decision === "approved" ? sql`
+      AND EXISTS (
+        SELECT 1 FROM hr_employments
+        WHERE id=hr_overtime_requests.employment_id
+          AND employee_user_id <> ${actor.id}
+          AND hired_on <= ${actualStartDate}
+          AND (ended_on IS NULL OR ended_on > ${actualEndDate})
+      )` : sql``;
   await writeHrMutation(db, sql`UPDATE hr_overtime_requests SET
     status=${decision}, actual_start=${actualStart}, actual_end=${actualEnd}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, decision_reason=${comment.trim()}
-    WHERE id=${id} AND status='pending' AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_overtime_requests.employment_id AND employee_user_id <> ${actor.id}) RETURNING id`, id, actor, "overtime_request_reviewed", "加班申請不存在、申請人不可自審或已完成處理。 ");
+    WHERE id=${id} AND status='pending' AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_overtime_requests.employment_id AND employee_user_id <> ${actor.id})${approvalEmploymentGuard} RETURNING id`, id, actor, "overtime_request_reviewed", "加班申請不存在、申請人不可自審、任職期間無效或已完成處理。 ");
   return { id, status: decision };
 }

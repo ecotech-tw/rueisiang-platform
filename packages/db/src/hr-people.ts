@@ -267,6 +267,7 @@ export function endHrEmployment(db: Database, id: string, input: { endedOn: stri
     WHERE id=${id} AND revision=${input.revision} AND ended_on IS NULL AND hired_on < ${input.endedOn}
       AND NOT EXISTS (SELECT 1 FROM hr_employee_scopes WHERE employment_id=${id} AND (valid_to IS NULL OR valid_to > ${input.endedOn}))
       AND NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${id} AND (valid_to IS NULL OR valid_to > ${input.endedOn}))
+      AND NOT EXISTS (SELECT 1 FROM hr_leave_requests WHERE employment_id=${id} AND status IN ('pending', 'approved') AND ends_on > ${input.endedOn})
     RETURNING id`, id, actor, "employment_ended");
 }
 export function createHrAssignment(db: Database, input: { employmentId: string; scopeId: string; validFrom: string; validTo: string | null }, actor: HrActor) {
