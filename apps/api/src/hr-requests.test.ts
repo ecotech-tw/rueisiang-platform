@@ -84,7 +84,7 @@ describe("HR 申請中心", () => {
     expect(body.overtime[0]?.request).toMatchObject({ status: "approved", actualStart: expect.any(String), actualEnd: expect.any(String) });
   });
 
-  it("請假時數由端點計算，給薪比例固定採用假別預設值並以實際時段防重疊", async () => {
+  it("請假時數依工作時段計算，給薪比例固定採用假別預設值並以實際時段防重疊", async () => {
     await assignEmployee();
     const leaveType = await request("/hr/leave-types", "POST", { name: "自動計算測試假", defaultPayRatePpm: 500_000 });
     const leaveTypeId = (await leaveType.json() as { id: string }).id;
@@ -96,7 +96,7 @@ describe("HR 申請中心", () => {
     const firstId = (await first.json() as { id: string }).id;
     const center = await (await request("/hr/requests")).json() as { leaves: Array<{ request: { id: string; startsAt: string; endsAt: string; durationMinutes: number; payRatePpm: number } }> };
     expect(center.leaves.find((item) => item.request.id === firstId)?.request).toMatchObject({
-      startsAt: "2026-01-05 01:00:00", endsAt: "2026-01-05 09:00:00", durationMinutes: 480, payRatePpm: 500_000,
+      startsAt: "2026-01-05 01:00:00", endsAt: "2026-01-05 09:00:00", durationMinutes: 420, payRatePpm: 500_000,
     });
 
     const adjacent = await request("/hr/requests/leave", "POST", {
@@ -112,6 +112,20 @@ describe("HR 申請中心", () => {
       employeeUserId: "employee", leaveTypeId, startsAt: "2026-02-01T09:00", endsAt: "2026-03-04T09:30", reason: "超過最長期間",
     });
     expect(tooLong.status).toBe(400);
+
+    const estimate = await request("/hr/requests/leave-duration", "POST", {
+      employeeUserId: "employee", startsAt: "2026-09-22T09:00", endsAt: "2026-09-23T17:00",
+    });
+    expect(estimate.status, await estimate.clone().text()).toBe(200);
+    expect((await estimate.json() as { durationMinutes: number }).durationMinutes).toBe(900);
+
+    const screenshotCase = await request("/hr/requests/leave", "POST", {
+      employeeUserId: "employee", leaveTypeId, startsAt: "2026-09-22T09:00", endsAt: "2026-09-23T17:00", reason: "跨工作日計算",
+    });
+    expect(screenshotCase.status, await screenshotCase.clone().text()).toBe(201);
+    const screenshotId = (await screenshotCase.json() as { id: string }).id;
+    const afterScheduleCalculation = await (await request("/hr/requests")).json() as { leaves: Array<{ request: { id: string; durationMinutes: number } }> };
+    expect(afterScheduleCalculation.leaves.find((item) => item.request.id === screenshotId)?.request.durationMinutes).toBe(900);
   });
 
   it("HR 代登不允許申請人直接核准自己的請假與加班", async () => {

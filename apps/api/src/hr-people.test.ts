@@ -427,6 +427,43 @@ describe("HR 員工基礎", () => {
     expect(invalidSchedule.status).toBe(400);
   });
 
+  it("一般員工有已發布班表時，請假時數依各日工時與午休計算", async () => {
+    await assign("self", "LEAVE-SCHEDULED-1");
+    const job = await firstEmployment("self");
+    const longShift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "請假測試九小時班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00", breakMinutes: 60 }] });
+    expect(longShift.status, await longShift.clone().text()).toBe(201);
+    const shortShift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "請假測試八小時班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "17:00", breakMinutes: 60 }] });
+    expect(shortShift.status, await shortShift.clone().text()).toBe(201);
+    const shortBreakShift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "請假測試短休息班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "17:00", breakMinutes: 30 }] });
+    expect(shortBreakShift.status, await shortBreakShift.clone().text()).toBe(201);
+    const lateLunchShift = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "請假測試晚開始班", times: [{ dayType: "weekday", startTime: "10:00", endTime: "18:00", breakMinutes: 60 }] });
+    expect(lateLunchShift.status, await lateLunchShift.clone().text()).toBe(201);
+    const longShiftId = (await longShift.json() as { versionId: string }).versionId;
+    const shortShiftId = (await shortShift.json() as { versionId: string }).versionId;
+    const shortBreakShiftId = (await shortBreakShift.json() as { versionId: string }).versionId;
+    const lateLunchShiftId = (await lateLunchShift.json() as { versionId: string }).versionId;
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: longShiftId, workDate: "2026-09-22" },
+      { personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shortShiftId, workDate: "2026-09-23" },
+      { personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: shortBreakShiftId, workDate: "2026-09-24" },
+      { personKind: "employee", employmentId: job, scopeId: "scope", shiftVersionId: lateLunchShiftId, workDate: "2026-09-25" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+
+    const estimate = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "self", startsAt: "2026-09-22T09:00", endsAt: "2026-09-23T17:00" });
+    expect(estimate.status, await estimate.clone().text()).toBe(200);
+    expect((await estimate.json() as { durationMinutes: number }).durationMinutes).toBe(900);
+    const partial = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "self", startsAt: "2026-09-22T11:00", endsAt: "2026-09-22T14:00" });
+    expect(partial.status, await partial.clone().text()).toBe(200);
+    expect((await partial.json() as { durationMinutes: number }).durationMinutes).toBe(120);
+    const differentBreak = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "self", startsAt: "2026-09-24T09:00", endsAt: "2026-09-24T17:00" });
+    expect(differentBreak.status, await differentBreak.clone().text()).toBe(200);
+    expect((await differentBreak.json() as { durationMinutes: number }).durationMinutes).toBe(450);
+    const anchoredLunch = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "self", startsAt: "2026-09-25T11:00", endsAt: "2026-09-25T13:30" });
+    expect(anchoredLunch.status, await anchoredLunch.clone().text()).toBe(200);
+    expect((await anchoredLunch.json() as { durationMinutes: number }).durationMinutes).toBe(90);
+  });
+
   it("班別只能當天上下班，代碼由系統產生，同一店可以建多個班別", async () => {
     // 以前代碼要人填且全域唯一，不同店各建一個「AM」就撞號；現在不問代碼，連建兩個都不該失敗。
     const morning = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "早班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "14:00" }] });

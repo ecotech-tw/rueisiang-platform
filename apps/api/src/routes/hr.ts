@@ -13,7 +13,7 @@ import {
   isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
-  cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
+  calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
@@ -319,12 +319,17 @@ function leaveDateTimeValue(input: Record<string, unknown>, key: "startsAt" | "e
   const raw = input[key] ?? input[alias];
   return dateTimeValue({ [key]: raw }, key, label);
 }
-function leaveRequestInput(input: Record<string, unknown>, employeeUserId: string) {
+function leaveDurationInput(input: Record<string, unknown>, employeeUserId: string) {
   return {
     employeeUserId,
-    leaveTypeId: text(input, "leaveTypeId", "假別"),
     startsAt: leaveDateTimeValue(input, "startsAt", "startAt", "請假開始時間"),
     endsAt: leaveDateTimeValue(input, "endsAt", "endAt", "請假結束時間"),
+  } as const;
+}
+function leaveRequestInput(input: Record<string, unknown>, employeeUserId: string) {
+  return {
+    ...leaveDurationInput(input, employeeUserId),
+    leaveTypeId: text(input, "leaveTypeId", "假別"),
     reason: nullableText(input, "reason", "請假原因", 1000) ?? "",
   } as const;
 }
@@ -344,11 +349,14 @@ function secondsFromTime(input: Record<string, unknown>, key: string) {
   const minute = Number(value.slice(3, 5));
   return hour * 3600 + minute * 60;
 }
-/** 班別的計薪工時就是它的長度，休息一律 0；這裡是唯一的來源。 */
+/** 未指定休息時維持歷史相容值 0；管理端班別表單會明確送出休息分鐘，避免偷偷改變既有計薪規則。 */
 function defaultShiftMinutes(input: Record<string, unknown>) {
   const start = secondsFromTime(input, "startTime");
   const end = secondsFromTime(input, "endTime");
-  return { start, end, standardMinutes: (end - start) / 60, breakMinutes: 0 };
+  const durationMinutes = (end - start) / 60;
+  const breakMinutes = input.breakMinutes === undefined ? 0 : integerValue(input, "breakMinutes", "休息時間", 0, durationMinutes);
+  const standardMinutes = input.standardMinutes === undefined ? durationMinutes - breakMinutes : integerValue(input, "standardMinutes", "計薪工時", 0, durationMinutes - breakMinutes);
+  return { start, end, standardMinutes, breakMinutes };
 }
 /** 一個班別的平日／週末／國定假日三組時間；值域與「平日必填」由 packages/db 的 assertShiftTimes 把關。 */
 function shiftTimes(input: Record<string, unknown>): HrShiftTime[] {
@@ -500,6 +508,7 @@ export const hr = new Hono<AppEnv>()
   .get("/me/overtime", async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), c.get("user").id) }))
   .post("/me/overtime", async (c) => c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(await body(c), c.get("user").id), c.get("user")), 201))
   .get("/me/leave-requests", async (c) => c.json({ requests: await listHrLeaveRequests(c.get("db"), c.get("user").id) }))
+  .post("/me/leave-duration", async (c) => c.json(await calculateHrLeaveDuration(c.get("db"), leaveDurationInput(await body(c), c.get("user").id))))
   .post("/me/leave-requests", async (c) => c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(await body(c), c.get("user").id), c.get("user")), 201))
   .post("/me/leave-requests/:id/cancel", async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"))))
   .get("/leave-types", requirePermission("hr:payroll:read"), async (c) => {
@@ -557,6 +566,10 @@ export const hr = new Hono<AppEnv>()
     page: 1, pageSize: 100, search: "", status: "employable", sortField: "name", sortDirection: "asc",
   })))
   .get("/requests/leave-types", requirePermission("hr:request:review"), async (c) => c.json({ leaveTypes: await listHrLeaveTypes(c.get("db")) }))
+  .post("/requests/leave-duration", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    return c.json(await calculateHrLeaveDuration(c.get("db"), leaveDurationInput(input, text(input, "employeeUserId", "員工"))));
+  })
   .post("/requests/leave", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     return c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(input, text(input, "employeeUserId", "員工")), c.get("user"), { autoApprove: true }), 201);

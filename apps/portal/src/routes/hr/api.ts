@@ -134,6 +134,7 @@ export interface FormRequest {
 export interface FormApprover { id: string; name: string }
 export interface HrOvertimeRequest { request: { id: string; employmentId: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; reviewedBy?: string | null; reviewedAt?: string | null; decisionReason: string; createdBy?: string; createdAt: string }; employeeUserId?: string; employeeName: string | null; employeeNumber: string | null }
 export interface HrLeaveType { id: string; name: string; leaveKind: "annual" | "other"; defaultPayRatePpm: number; active: number; createdBy: string; createdAt: string; updatedAt: string }
+export interface HrLeaveDurationResponse { startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number }
 export interface HrLeaveRequest { request: { id: string; employmentId: string; leaveTypeId?: string | null; leaveType: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number; payRatePpm: number; reason: string; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string | null; createdBy: string; createdAt: string }; employeeUserId: string; employeeName: string | null; employeeNumber: string | null; leaveTypeKind?: "annual" | "other" | null }
 export interface HrAnnualLeavePolicy { id: string; policyKey: string; versionNumber: number; validFrom: string; validTo: string | null; basis: "anniversary"; dailyMinutes: number; minimumUnitMinutes: number; carryoverAllowed: number; note: string; createdBy: string | null; createdAt: string }
 export interface HrAnnualLeaveBracket { id: string; policyVersionId: string; minServiceMonths: number; maxServiceMonths: number | null; entitledDays: number; label: string }
@@ -232,6 +233,16 @@ export function useHrInsuranceEstimate(employmentId: string, input: InsuranceEst
     },
     enabled: input !== null,
     retry: false,
+  });
+}
+export function useHrLeaveDuration(input: { employeeUserId: string; startsAt: string; endsAt: string } | null) {
+  const signature = input ? JSON.stringify(input) : "disabled";
+  return useQuery({
+    queryKey: ["hr", "leave-duration", signature],
+    queryFn: ({ signal }) => request<HrLeaveDurationResponse>("/requests/leave-duration", { method: "POST", body: JSON.stringify(input), signal }),
+    enabled: input !== null,
+    retry: false,
+    placeholderData: undefined,
   });
 }
 export function useHrWrite<T = { id: string }>({ invalidate = true }: { invalidate?: boolean } = {}) {

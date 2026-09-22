@@ -36,7 +36,7 @@ function toGroups(shifts: ScheduleShift[]): ShiftGroup[] {
 }
 
 /** 草稿裡「沒設定這個日型」就是 null；送出時不放進 times，後端會把那一組刪掉。 */
-type TimeDraft = { startTime: string; endTime: string } | null;
+type TimeDraft = { startTime: string; endTime: string; breakMinutes: number } | null;
 
 interface ShiftRowDraft {
   key: string;
@@ -52,7 +52,7 @@ function rowsFromGroups(groups: ShiftGroup[]): ShiftRowDraft[] {
     name: group.name,
     times: Object.fromEntries(HR_DAY_TYPES.map((dayType) => {
       const version = group.versions.find((shift) => shift.dayType === dayType);
-      return [dayType, version ? { startTime: clock(version.startSecond), endTime: clock(version.endSecond) } : null];
+      return [dayType, version ? { startTime: clock(version.startSecond), endTime: clock(version.endSecond), breakMinutes: version.breakMinutes } : null];
     })) as Record<HrDayType, TimeDraft>,
   }));
 }
@@ -62,7 +62,7 @@ function sameTimes(row: ShiftRowDraft, group: ShiftGroup) {
     const draft = row.times[dayType];
     const version = group.versions.find((shift) => shift.dayType === dayType);
     if (!draft || !version) return !draft && !version;
-    return draft.startTime === clock(version.startSecond) && draft.endTime === clock(version.endSecond);
+    return draft.startTime === clock(version.startSecond) && draft.endTime === clock(version.endSecond) && draft.breakMinutes === version.breakMinutes;
   });
 }
 
@@ -75,7 +75,7 @@ function rowChanged(row: ShiftRowDraft) {
 function timesPayload(row: ShiftRowDraft) {
   return HR_DAY_TYPES.flatMap((dayType) => {
     const draft = row.times[dayType];
-    return draft ? [{ dayType, startTime: draft.startTime, endTime: draft.endTime }] : [];
+    return draft ? [{ dayType, startTime: draft.startTime, endTime: draft.endTime, breakMinutes: draft.breakMinutes }] : [];
   });
 }
 
@@ -101,17 +101,18 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
     setMessage(null);
   };
 
-  const updateTime = (key: string, dayType: HrDayType, patch: Partial<{ startTime: string; endTime: string }> | null) => {
+  const updateTime = (key: string, dayType: HrDayType, patch: Partial<{ startTime: string; endTime: string; breakMinutes: number }> | null) => {
     setRows((current) => current.map((row) => {
       if (row.key !== key) return row;
-      const base = row.times[dayType] ?? { startTime: row.times.weekday?.startTime ?? "09:00", endTime: row.times.weekday?.endTime ?? "18:00" };
+      const weekday = row.times.weekday ?? { startTime: "09:00", endTime: "18:00", breakMinutes: 60 };
+      const base = row.times[dayType] ?? { startTime: weekday.startTime, endTime: weekday.endTime, breakMinutes: weekday.breakMinutes };
       return { ...row, times: { ...row.times, [dayType]: patch === null ? null : { ...base, ...patch } } };
     }));
     setMessage(null);
   };
 
   const addNewRow = () => {
-    setRows((current) => [...current, { key: `new-${crypto.randomUUID()}`, original: null, name: "", times: { weekday: { startTime: "09:00", endTime: "18:00" }, weekend: null, holiday: null } }]);
+    setRows((current) => [...current, { key: `new-${crypto.randomUUID()}`, original: null, name: "", times: { weekday: { startTime: "09:00", endTime: "18:00", breakMinutes: 60 }, weekend: null, holiday: null } }]);
     setMessage(null);
   };
 
@@ -140,6 +141,10 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
         const label = HR_DAY_TYPE_LABELS[dayType];
         if (!draft.startTime || !draft.endTime) { setMessage(`「${name}」的${label}時間請填寫開始與結束。`); return; }
         if (draft.endTime <= draft.startTime) { setMessage(`「${name}」的${label}結束時間必須晚於開始時間。`); return; }
+        const [startHour = 0, startMinute = 0] = draft.startTime.split(":").map(Number);
+        const [endHour = 0, endMinute = 0] = draft.endTime.split(":").map(Number);
+        const durationMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+        if (!Number.isInteger(draft.breakMinutes) || draft.breakMinutes < 0 || draft.breakMinutes > durationMinutes) { setMessage(`「${name}」的${label}休息時間必須介於 0 與班別長度之間。`); return; }
       }
     }
 
@@ -194,6 +199,7 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
               <span className="shift-day-label">{label}</span>
               <TextField label="開始時間" aria-label={`${row.name || "班別"}${label}開始時間`} type="time" required value={draft.startTime} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { startTime: event.target.value })} />
               <TextField label="結束時間" aria-label={`${row.name || "班別"}${label}結束時間`} type="time" required value={draft.endTime} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { endTime: event.target.value })} />
+              <TextField label="休息分鐘" aria-label={`${row.name || "班別"}${label}休息分鐘`} type="number" min="0" step="30" value={draft.breakMinutes} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { breakMinutes: Number(event.target.value) })} />
               {/* 平日是其他日型的退路，拿掉就沒有東西可退；所以只有另外兩個日型能取消。 */}
               {canWrite && dayType !== "weekday" ? <Tooltip label={`改回同平日`} focusable={false}>
                 <Button variant="icon" icon="close" aria-label={`${label}改回同平日`} disabled={disabled} onClick={() => updateTime(row.key, dayType, null)} />
