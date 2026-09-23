@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -94,6 +94,7 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
   const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
   const toast = useToast();
+  const closeRequestRef = useRef<(() => void) | null>(null);
   const hasChanges = removedRows.length > 0 || rows.length !== groups.length || rows.some(rowChanged);
 
   const updateRow = (key: string, patch: Partial<Pick<ShiftRowDraft, "name">>) => {
@@ -163,7 +164,7 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
       }
       await onSaved();
       toast.show("班別設定已儲存。");
-      onClose();
+      (closeRequestRef.current ?? onClose)();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "班別設定儲存失敗，請稍後再試。");
     }
@@ -172,6 +173,7 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
   return <Dialog
     title={scope.name}
     onClose={onClose}
+    closeRequestRef={closeRequestRef}
     closeDisabled={save.isPending}
     actions={canWrite ? <Button loading={save.isPending} disabled={!hasChanges} onClick={() => { void saveAll(); }}>儲存</Button> : undefined}
   >

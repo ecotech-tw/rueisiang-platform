@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
@@ -19,6 +19,7 @@ function LeaveTypeDialog({ leaveType, onClose }: { leaveType?: HrLeaveType; onCl
   const [leaveKind, setLeaveKind] = useState<"annual" | "other">(leaveType?.leaveKind ?? "other");
   const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
+  const closeRequestRef = useRef<(() => void) | null>(null);
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -30,12 +31,13 @@ function LeaveTypeDialog({ leaveType, onClose }: { leaveType?: HrLeaveType; onCl
       path: leaveType ? `/leave-types/${leaveType.id}` : "/leave-types",
       method: leaveType ? "PATCH" : "POST",
       values: { name: name.trim(), leaveKind, defaultPayRatePpm: Math.round(parsedPayRate * 10_000) },
-    }, { onSuccess: onClose });
+    }, { onSuccess: () => { (closeRequestRef.current ?? onClose)(); } });
   }
 
   return <Dialog
     title={leaveType ? "編輯假別" : "新增假別"}
     onClose={onClose}
+    closeRequestRef={closeRequestRef}
     closeDisabled={save.isPending}
     formProps={{ onSubmit: submit }}
     actions={<><Button type="button" variant="secondary" onClick={onClose}>取消</Button><Button type="submit" loading={save.isPending}>保存假別</Button></>}

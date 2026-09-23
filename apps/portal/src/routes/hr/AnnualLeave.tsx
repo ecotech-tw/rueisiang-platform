@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -80,6 +80,7 @@ function EntitlementAdjustmentDialog({ row, onClose }: { row: HrAnnualLeaveEntit
   const [deltaHours, setDeltaHours] = useState("");
   const [reason, setReason] = useState("");
   const save = useHrWrite();
+  const closeRequestRef = useRef<(() => void) | null>(null);
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -90,12 +91,13 @@ function EntitlementAdjustmentDialog({ row, onClose }: { row: HrAnnualLeaveEntit
       path: "/annual-leave/adjustments",
       method: "POST",
       values: { entitlementId: row.id, deltaHalfHours: Math.round(parsed * 2), reason: reason.trim() },
-    }, { onSuccess: onClose });
+    }, { onSuccess: () => { (closeRequestRef.current ?? onClose)(); } });
   }
 
   return <Dialog
     title="人工調整特休額度"
     onClose={onClose}
+    closeRequestRef={closeRequestRef}
     closeDisabled={save.isPending}
     formProps={{ onSubmit: submit }}
     actions={<><Button type="button" variant="secondary" onClick={onClose}>取消</Button><Button type="submit" loading={save.isPending}>保存調整</Button></>}

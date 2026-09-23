@@ -1,5 +1,6 @@
-import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
+import { useContext, type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
 import { Icon, type IconName } from "../shell/icons.js";
+import { DialogContext } from "./dialog-context.js";
 
 type ButtonVariant =
   | "primary"
@@ -62,10 +63,15 @@ export function Button({
     icon && variant !== "icon" ? "with-icon" : "",
     className,
   ].filter(Boolean).join(" ");
+  const dialog = useContext(DialogContext);
+  const resolvedOnClick = dialog?.onClose && props.onClick === dialog.onClose
+    ? dialog.requestClose
+    : props.onClick;
 
   return (
     <button
       {...props}
+      onClick={resolvedOnClick}
       ref={ref}
       type={type}
       className={classes}

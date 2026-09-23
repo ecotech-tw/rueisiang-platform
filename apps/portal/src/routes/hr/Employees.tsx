@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
@@ -37,11 +37,12 @@ function leaveDateTime(value: string, fallbackDate: string): string {
 function EditorDialog({ editor, onClose, onSuccess }: { editor: Editor; onClose: () => void; onSuccess?: (result: { id: string; operationId?: string }) => void }) {
   const [values, setValues] = useState<Record<string, unknown>>(editor.initial ?? {});
   const save = useHrWrite<{ id: string; operationId?: string }>();
-  return <Dialog title={editor.title} onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
+  const closeRequestRef = useRef<(() => void) | null>(null);
+  return <Dialog title={editor.title} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     const payload = { ...values };
     for (const field of editor.fields) if (field.optional && !payload[field.key]) payload[field.key] = null;
-    save.mutate({ path: editor.path, method: editor.method, values: payload }, { onSuccess: (result) => { onSuccess?.(result); onClose(); } });
+    save.mutate({ path: editor.path, method: editor.method, values: payload }, { onSuccess: (result) => { onSuccess?.(result); (closeRequestRef.current ?? onClose)(); } });
   } }} actions={<Button type="submit" variant={editor.submitVariant} loading={save.isPending}>{editor.submitLabel ?? "儲存"}</Button>}>
     {editor.description ? <p>{editor.description}</p> : null}
     {editor.fields.map((field) => field.options ? <SelectField key={field.key} label={field.label} value={String(values[field.key] ?? "")} options={[{ value: "", label: field.optional ? "未指定" : "請選擇" }, ...field.options.map((option) => ({ value: option.id, label: option.name }))]} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} required={!field.optional} /> :
@@ -191,16 +192,24 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onArchived, canOf
   const supervisorCandidates = useHrQuery<{ users: NamedOption[] }>(`/supervisor-candidates?exclude=${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   const [archiveTarget, setArchiveTarget] = useState<Employment | null>(null);
   const archiveMutation = useHrWrite();
+  const closeRequestRef = useRef<((afterClose?: () => void) => void) | null>(null);
+  const archiveCloseRequestRef = useRef<((afterClose?: () => void) => void) | null>(null);
   if (profile.isPending) return <Dialog title="管理員工" titleMeta={`${employee.employeeNumber}／${employee.displayName}`} onClose={onClose}><p className="muted">載入員工資料…</p></Dialog>;
   if (profile.error || !profile.data) return <Dialog title="管理員工" titleMeta={`${employee.employeeNumber}／${employee.displayName}`} onClose={onClose}><Alert tone="danger">{profile.error?.message ?? "員工資料載入失敗。"}</Alert></Dialog>;
   const data = profile.data;
   const visibleEmployments = data.employments;
   const activeEmployment = visibleEmployments.find((job) => !job.archivedAt);
-  const openEditor = (editor: Editor) => { onClose(); onEdit(editor); };
+  const openEditor = (editor: Editor) => {
+    if (closeRequestRef.current) closeRequestRef.current(() => onEdit(editor));
+    else { onClose(); onEdit(editor); }
+  };
   const requestArchive = (job: Employment) => { archiveMutation.reset(); setArchiveTarget(job); };
   const confirmArchive = () => {
     if (!archiveTarget) return;
-    archiveMutation.mutate({ path: `/employments/${archiveTarget.id}/archive`, method: "POST", values: { revision: archiveTarget.revision } }, { onSuccess: () => { setArchiveTarget(null); onArchived(); } });
+    archiveMutation.mutate({ path: `/employments/${archiveTarget.id}/archive`, method: "POST", values: { revision: archiveTarget.revision } }, { onSuccess: () => {
+      if (archiveCloseRequestRef.current) archiveCloseRequestRef.current(onArchived);
+      else { setArchiveTarget(null); onArchived(); }
+    } });
   };
   const endScopeAssignment = (assignment: Assignment) => openEditor({
     title: `結束 ${assignment.scopeName} 的營運據點歸屬`, path: `/assignments/${assignment.id}/end`, method: "PATCH",
@@ -238,7 +247,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onArchived, canOf
     fields: [{ key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }, { key: "attendanceMode", label: "出勤方式", options: [{ id: "general", name: "一般辦公" }, { id: "scheduled", name: "排班" }] }],
   });
   return <>
-  <Dialog title="管理員工" titleMeta={`${data.employee.employeeNumber}／${data.employee.displayName}`} onClose={onClose} className="hr-employee-management-dialog" actions={<>
+  <Dialog title="管理員工" titleMeta={`${data.employee.employeeNumber}／${data.employee.displayName}`} onClose={onClose} closeRequestRef={closeRequestRef} className="hr-employee-management-dialog" actions={<>
     {activeEmployment ? <Button variant="danger" icon="archive" className="delete-action" onClick={() => requestArchive(activeEmployment)}>封存員工</Button> : <Button icon="plus" onClick={reactivateEmployee}>重新啟用</Button>}
     {activeEmployment ? <Button variant="secondary" icon="edit" onClick={editEmployee}>編輯資料</Button> : null}
     {activeEmployment ? <Button variant="secondary" icon="people" onClick={editSupervisor}>設定主管</Button> : null}
@@ -261,7 +270,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onArchived, canOf
       {(data.attendanceAssignments ?? []).filter((assignment) => assignment.employmentId === activeEmployment?.id && assignmentNeedsEnd(assignment.validTo)).map((assignment) => <div className="hr-management-assignment" key={assignment.id}><span>辦公位置：{assignment.locationName}</span>{canOfficeWrite ? <Button variant="secondary" onClick={() => endLocationAssignment(assignment)}>結束指派</Button> : <span className="muted">請到出勤範圍管理處理</span>}</div>)}
     </div>
   </Dialog>
-  {archiveTarget ? <ConfirmDialog title="封存這位員工？" confirmLabel="封存員工" pending={archiveMutation.isPending} onCancel={() => { if (!archiveMutation.isPending) setArchiveTarget(null); }} onConfirm={confirmArchive}>
+  {archiveTarget ? <ConfirmDialog title="封存這位員工？" confirmLabel="封存員工" pending={archiveMutation.isPending} closeRequestRef={archiveCloseRequestRef} onCancel={() => { if (!archiveMutation.isPending) setArchiveTarget(null); }} onConfirm={confirmArchive}>
     <p>這會將 <strong>{data.employee.displayName}</strong> 的員工主檔填入封存時間，從目前員工名單移除。</p>
     <p className="muted">薪資、出勤、保險、請假、排班與其他下游歷史不會被刪除；升遷或調職請直接編輯職位。</p>
     {archiveMutation.error ? <Alert tone="danger">{archiveMutation.error.message}</Alert> : null}

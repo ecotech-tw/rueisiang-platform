@@ -329,6 +329,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   const [nameCustomized, setNameCustomized] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const calculatePayroll = useHrWrite<{ run: PayrollRun }>();
+  const closeRequestRef = useRef<(() => void) | null>(null);
   const supportWorkers = useHrQuery<{ workers: PayrollWorkerCandidate[] }>(periodKey ? `/payroll/workers?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/workers?periodKey=", Boolean(periodKey), { keepPreviousData: false });
   const workerOptions = supportWorkers.data?.workers ?? [];
   const peopleCount = employees.length + workerOptions.length;
@@ -403,7 +404,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
         workerIds: selectionMode === "all" ? undefined : selectedWorkerIds,
         requestId: `portal-${crypto.randomUUID()}`,
       },
-    }, { onSuccess: (result) => { onSuccess(result.run); onClose(); } });
+    }, { onSuccess: (result) => { onSuccess(result.run); (closeRequestRef.current ?? onClose)(); } });
   }
 
   return <Dialog
@@ -411,6 +412,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     title="新增薪資試算"
     titleMeta={`${periodKey || "尚未選擇月份"}・已選 ${selectedCount} 位人員`}
     onClose={onClose}
+    closeRequestRef={closeRequestRef}
     closeDisabled={calculatePayroll.isPending}
     formProps={{ onSubmit: submit }}
     actions={<><Button variant="secondary" onClick={onClose} disabled={calculatePayroll.isPending}>取消</Button><Button type="submit" icon="payments" loading={calculatePayroll.isPending} disabled={supportWorkers.isPending || Boolean(supportWorkers.error)}>開始試算</Button></>}

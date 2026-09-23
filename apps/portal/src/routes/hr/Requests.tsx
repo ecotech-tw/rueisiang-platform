@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
@@ -112,6 +112,7 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
   const [actualStart, setActualStart] = useState(() => row.kind === "overtime" ? taipeiInputValue(row.requestedStart ?? "") : "");
   const [actualEnd, setActualEnd] = useState(() => row.kind === "overtime" ? taipeiInputValue(row.requestedEnd ?? "") : "");
   const review = useHrWrite();
+  const closeRequestRef = useRef<(() => void) | null>(null);
   const isApprovedLeave = row.kind === "leave" && row.status === "approved";
   const canCancel = row.kind !== "clock_correction" && (row.status === "pending" || isApprovedLeave);
   function decide(decision: "approved" | "rejected" | "cancelled") {
@@ -119,12 +120,13 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
     const path = isApprovedLeave ? `/requests/leave/${row.id}/cancel` : row.kind === "leave" ? `/requests/leave/${row.id}/review` : row.kind === "overtime" ? `/overtime/${row.id}/review` : `/me/form-requests/${row.id}/review`;
     const values: Record<string, unknown> = isApprovedLeave ? {} : { decision, comment };
     if (row.kind === "overtime" && decision === "approved") { values.actualStart = actualStart; values.actualEnd = actualEnd; }
-    review.mutate({ path, method: "POST", values }, { onSuccess: () => { onDone(); onClose(); } });
+    review.mutate({ path, method: "POST", values }, { onSuccess: () => { onDone(); (closeRequestRef.current ?? onClose)(); } });
   }
   return <Dialog
     title={isApprovedLeave ? "取消已核准請假" : `審核${REQUEST_KIND_LABEL[row.kind]}申請`}
     titleMeta={`${row.employeeName}・${row.employeeNumber}`}
     onClose={onClose}
+    closeRequestRef={closeRequestRef}
     closeDisabled={review.isPending}
     actions={<>
       <Button variant="secondary" onClick={onClose}>關閉</Button>

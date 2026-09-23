@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
@@ -55,25 +55,31 @@ function ReviewDialog({ request, onClose }: { request: FormRequest; onClose: () 
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const review = useHrWrite();
+  const closeRequestRef = useRef<(() => void) | null>(null);
 
-  async function submit(decision: "approved" | "rejected") {
+  async function submit(decision: "approved" | "rejected"): Promise<boolean> {
     if (decision === "rejected" && !comment.trim()) {
       setError("駁回時請填寫審核意見。");
-      return;
+      return false;
     }
     setError("");
     try {
       await review.mutateAsync({ path: `/me/form-requests/${request.id}/review`, method: "POST", values: { decision, comment: comment.trim() } });
-      onClose();
+      return true;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "審核失敗，請稍後再試。");
+      return false;
     }
   }
 
-  return <Dialog title="審核補打卡申請" titleMeta={request.requesterName ?? request.employeeUserId} onClose={onClose} closeDisabled={review.isPending} actions={<>
+  async function submitAndClose(decision: "approved" | "rejected") {
+    if (await submit(decision)) (closeRequestRef.current ?? onClose)();
+  }
+
+  return <Dialog title="審核補打卡申請" titleMeta={request.requesterName ?? request.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={review.isPending} actions={<>
     <Button variant="secondary" disabled={review.isPending} onClick={onClose}>取消</Button>
-    <Button variant="danger" disabled={review.isPending} onClick={() => { void submit("rejected"); }}>駁回</Button>
-    <Button loading={review.isPending} loadingLabel="核准中…" onClick={() => { void submit("approved"); }}>核准</Button>
+    <Button variant="danger" disabled={review.isPending} onClick={() => { void submitAndClose("rejected"); }}>駁回</Button>
+    <Button loading={review.isPending} loadingLabel="核准中…" onClick={() => { void submitAndClose("approved"); }}>核准</Button>
   </>}>
     <RequestSummary request={request} reviewer />
     <Field label="審核意見" hint="駁回時必填；核准時可留空。">
