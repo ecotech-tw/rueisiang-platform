@@ -1,4 +1,8 @@
--- 0179 早於 0184 執行；全新資料庫先建立特休表所需的父表，避免
+-- 0179 早於 0184 執行；全新資料庫先完成班別日型欄位與特休表所需的父表。
+-- 正式庫的 hr_shift_versions 已在舊部署路徑完成這個日型切換，0183 只需補 calendar table。
+DROP INDEX `idx_hr_shift_versions_number`;--> statement-breakpoint
+ALTER TABLE `hr_shift_versions` ADD `day_type` text DEFAULT 'weekday' NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_hr_shift_versions_number` ON `hr_shift_versions` (`shift_template_id`,`day_type`,`version_number`);--> statement-breakpoint
 -- SQLite 在移除舊 hr_employments 時解析到尚未存在的 foreign-key parent。
 CREATE TABLE IF NOT EXISTS `hr_annual_leave_policy_versions` (
 	`id` text PRIMARY KEY NOT NULL,

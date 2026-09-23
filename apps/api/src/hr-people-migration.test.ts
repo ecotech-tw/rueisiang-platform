@@ -108,4 +108,18 @@ describe("HR 新增式 migration", () => {
       expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     } finally { sqlite.close(); }
   });
+
+  it("既有 calendar table 時，0183 仍可冪等完成後續 migration", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    try {
+      sqlite.exec("PRAGMA foreign_keys=ON");
+      for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file < "0183_").sort()) apply(sqlite, file);
+      sqlite.exec("CREATE TABLE hr_calendar_days (date text PRIMARY KEY NOT NULL, day_type text NOT NULL, name text DEFAULT '' NOT NULL, updated_by text NOT NULL, created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL, updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL, FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE restrict); CREATE INDEX idx_hr_calendar_days_type ON hr_calendar_days(day_type, date);");
+      for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file >= "0183_").sort()) apply(sqlite, file);
+
+      expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hr_calendar_days'").get()).toEqual({ name: "hr_calendar_days" });
+      expect(sqlite.prepare("SELECT name FROM pragma_table_info('hr_shift_versions') WHERE name='day_type'").get()).toEqual({ name: "day_type" });
+      expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally { sqlite.close(); }
+  });
 });
