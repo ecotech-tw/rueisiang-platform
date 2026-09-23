@@ -148,6 +148,8 @@ export const hrPayrollWorkerResults = sqliteTable("hr_payroll_worker_results", {
   payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly", "mixed"] as const }).notNull(),
   scheduledDays: integer("scheduled_days").notNull(),
   amountMinor: integer("amount_minor").notNull(),
+  typhoonStopDays: integer("typhoon_stop_days").notNull().default(0),
+  typhoonStopPayMinor: integer("typhoon_stop_pay_minor").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_hr_payroll_worker_results_run_worker").on(table.payrollRunId, table.workerId),
@@ -155,6 +157,8 @@ export const hrPayrollWorkerResults = sqliteTable("hr_payroll_worker_results", {
   check("ck_hr_payroll_worker_results_name", sql`length(trim(${table.workerName})) BETWEEN 1 AND 100`),
   check("ck_hr_payroll_worker_results_days", sql`${table.scheduledDays} >= 0`),
   check("ck_hr_payroll_worker_results_amount", sql`${table.amountMinor} >= 0`),
+  check("ck_hr_payroll_worker_results_typhoon_days", sql`${table.typhoonStopDays} >= 0 AND ${table.typhoonStopDays} <= ${table.scheduledDays}`),
+  check("ck_hr_payroll_worker_results_typhoon_amount", sql`${table.typhoonStopPayMinor} >= 0`),
 ]);
 
 export const hrPayslipLines = sqliteTable("hr_payslip_lines", {

@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
 import { createDatabase } from "@rueisiang/db";
-import { hrLeaveRequests, hrLeaveTypes, hrMonthlyLeaveEntries, hrOvertimeRequests, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
+import { hrCalendarDayScopes, hrCalendarDays, hrLeaveRequests, hrLeaveTypes, hrMonthlyLeaveEntries, hrOvertimeRequests, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -578,10 +578,12 @@ describe("HR 薪資與櫃點獎金試算", () => {
       { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-16" },
     ] });
     expect(updated.status, await updated.clone().text()).toBe(200);
+    const db = createDatabase(d1 as never);
+    await db.insert(hrCalendarDays).values({ date: "2026-09-03", dayType: "weekday", name: "颱風停班", specialKind: "typhoon_stop", updatedBy: "dev-eli-lin@ecotech.tw" });
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], requestId: "test-payroll-worker-2026-09" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
-    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; workerName: string; payBasis: string; scheduledDays: number; amountMinor: number }> } };
-    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "測試支援人員", payBasis: "daily", scheduledDays: 2, amountMinor: 960_000 })]));
+    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; workerName: string; payBasis: string; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number }> } };
+    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "測試支援人員", payBasis: "daily", scheduledDays: 2, amountMinor: 960_000, typhoonStopDays: 1, typhoonStopPayMinor: 320_000 })]));
   });
 
   it("薪資結算可只選指定的支援人員，並保存支援人員選取範圍", async () => {
@@ -732,6 +734,41 @@ describe("HR 薪資與櫃點獎金試算", () => {
       expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 300_000, explanation: expect.objectContaining({ itemName: "職務津貼", amountBasis: "monthly" }) }),
     ]));
     expect(body.run.warnings.some((warning) => warning.includes("日薪制但本期沒有已發布排班"))).toBe(false);
+  });
+
+  it("颱風停班保留原排班並建立可追溯的給薪明細", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "颱風停班測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
+    expect(mode.status, await mode.clone().text()).toBe(200);
+    const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ versionId: string }> };
+    const otherShiftResponse = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-xinyi", name: "颱風範圍測試班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
+    expect(otherShiftResponse.status, await otherShiftResponse.clone().text()).toBe(201);
+    const otherShift = await otherShiftResponse.json() as { versionId: string };
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: otherShift.versionId, workDate: "2026-09-04" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const db = createDatabase(d1 as never);
+    await db.insert(hrCalendarDays).values({ date: "2026-09-03", dayType: "weekday", name: "颱風停班", specialKind: "typhoon_stop", updatedBy: "dev-eli-lin@ecotech.tw" });
+    await db.insert(hrCalendarDayScopes).values({ date: "2026-09-03", scopeId: "cyberbiz:store:demo-ximen" });
+
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-typhoon-stop-employee" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const employee = body.run.employees[0]!;
+    expect(employee.earningMinor).toBe(360_000);
+    expect(employee.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "typhoon_stop_pay", amountMinor: 180_000, explanation: expect.objectContaining({ dates: ["2026-09-03"], rule: expect.stringContaining("不刪除排班資料") }) }),
+      expect.objectContaining({ lineKey: "base_salary", amountMinor: 180_000 }),
+    ]));
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_schedule_entries WHERE employment_id=? AND work_date=?").get("dev-employment-chen", "2026-09-03")).toEqual({ count: 1 });
+
+    const snapshot = d1.sqlite.prepare("SELECT source_snapshot_json AS snapshot FROM hr_payroll_runs WHERE request_id=?").get("test-payroll-typhoon-stop-employee") as { snapshot: string };
+    const source = JSON.parse(snapshot.snapshot) as { calendarDays: Array<{ date: string; specialKind: string }>; calendarDayScopes: Array<{ date: string; scopeId: string }> };
+    expect(source.calendarDays).toEqual(expect.arrayContaining([expect.objectContaining({ date: "2026-09-03", specialKind: "typhoon_stop" })]));
+    expect(source.calendarDayScopes).toEqual(expect.arrayContaining([expect.objectContaining({ date: "2026-09-03", scopeId: "cyberbiz:store:demo-ximen" })]));
   });
 
   it("日薪員工月中換敘薪版本時，同名的月給項目只發新版本一次", async () => {

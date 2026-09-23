@@ -11,11 +11,12 @@ export {
   type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type HrShiftTime, type HrWorkerPayBasis, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";
 export {
-  defaultDayType, importHrCalendarYear, isHrDayType, listHrCalendarMonth, listHrCalendarYear, overridesFromGovCalendar,
-  resolveDayTypes, saveHrCalendarMonth, saveHrCalendarYear, HR_CALENDAR_SOURCE_URL, HR_DAY_TYPE_LABELS,
-  type HrCalendarDayInput, type HrCalendarDayView,
+  calendarSpecialAppliesToScope, defaultDayType, importHrCalendarYear, isHrCalendarSpecialKind, isHrDayType, listHrCalendarMonth, listHrCalendarYear, overridesFromGovCalendar,
+  resolveCalendarSpecialKinds, resolveCalendarSpecials, resolveDayTypes, saveHrCalendarMonth, saveHrCalendarYear, HR_CALENDAR_SOURCE_URL, HR_DAY_TYPE_LABELS,
+  type HrCalendarDayInput, type HrCalendarDayView, type HrCalendarSpecial,
 } from "./hr-calendar.js";
-export type { HrDayType } from "./schema/hr-scheduling.js";
+export { HR_CALENDAR_SPECIAL_KINDS } from "./schema/hr-scheduling.js";
+export type { HrCalendarSpecialKind, HrDayType } from "./schema/hr-scheduling.js";
 export {
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   type SpecialWorkdayAllowanceInput, type SpecialWorkdayAssignmentInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,

@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, importHrCalendarYear, overridesFromGovCalendar, syncSystemRoles } from "@rueisiang/db";
-import { hrCalendarDays, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { hrCalendarDayScopes, hrCalendarDays, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -63,6 +63,20 @@ describe("HR 行事曆與班別日型", () => {
     expect(listed.days.find((day) => day.date === "2026-02-07")).toMatchObject({ dayType: "weekend", overridden: false });
     expect(listed.days.find((day) => day.date === "2026-02-17")).toMatchObject({ dayType: "holiday", name: "春節", overridden: true });
     expect(listed.days.find((day) => day.date === "2026-02-21")).toMatchObject({ dayType: "weekday", name: "補班日", overridden: true });
+  });
+
+  it("颱風停班是保留排班的特殊標記，不改寫原本日型，且可限制適用門市", async () => {
+    await db.insert(scopes).values({ id: "scope-other", sourceType: "manual", scopeKind: "store", name: "其他櫃點", normalizedName: "其他櫃點" });
+    const saved = await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-17", dayType: "holiday", name: "颱風停班", specialKind: "typhoon_stop", specialScopeIds: ["scope"] }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    expect(await db.select({ date: hrCalendarDays.date, dayType: hrCalendarDays.dayType, specialKind: hrCalendarDays.specialKind }).from(hrCalendarDays)).toEqual([
+      { date: "2026-02-17", dayType: "holiday", specialKind: "typhoon_stop" },
+    ]);
+    expect(await db.select({ date: hrCalendarDayScopes.date, scopeId: hrCalendarDayScopes.scopeId }).from(hrCalendarDayScopes)).toEqual([{ date: "2026-02-17", scopeId: "scope" }]);
+    const listed = await (await request("/hr/calendar/2026-02")).json() as { days: Array<{ date: string; dayType: string; specialKind: string; name: string; specialScopeIds: string[] }> };
+    expect(listed.days.find((day) => day.date === "2026-02-17")).toMatchObject({ dayType: "holiday", specialKind: "typhoon_stop", name: "颱風停班", specialScopeIds: ["scope"] });
+    expect((await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "holiday", name: "", specialKind: "storm" }] })).status).toBe(400);
+    expect((await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "holiday", name: "颱風停班", specialKind: "typhoon_stop", specialScopeIds: ["missing-scope"] }] })).status).toBe(400);
   });
 
   it("重存一個月會整個換掉，取消掉的例外不會留下來", async () => {
@@ -188,16 +202,19 @@ describe("行事曆整年管理與出缺勤", () => {
     // 2021-02-20 是星期六卻要補班；2021-02-11 是星期四的春節假期。
     const saved = await request("/hr/calendar/years/2021", "PUT", { days: [
       { date: "2021-02-11", dayType: "holiday", name: "春節" },
+      { date: "2021-02-19", dayType: "weekday", name: "颱風停班", specialKind: "typhoon_stop" },
       { date: "2021-02-20", dayType: "weekday", name: "補行上班" },
     ] });
     expect(saved.status, await saved.clone().text()).toBe(200);
 
     const days = await calendarOf(selfCookie, 2021, 2);
     const holiday = days.find((day) => day.date === "2021-02-11");
+    const typhoon = days.find((day) => day.date === "2021-02-19");
     const makeup = days.find((day) => day.date === "2021-02-20");
     const plainSaturday = days.find((day) => day.date === "2021-02-27");
     const plainWeekday = days.find((day) => day.date === "2021-02-25");
     expect(holiday).toMatchObject({ dayType: "holiday", status: "rest" });
+    expect(typhoon).toMatchObject({ dayType: "weekday", specialKind: "typhoon_stop", status: "rest" });
     expect(makeup).toMatchObject({ dayType: "weekday", status: "missing" });
     // 沒被標記的日子仍照星期幾走，行事曆不會把整個月都變成上班日。
     expect(plainSaturday).toMatchObject({ dayType: "weekend", status: "rest" });
