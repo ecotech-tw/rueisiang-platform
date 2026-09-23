@@ -81,6 +81,20 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await repeat.json() as { run: { runId: string } }).run.runId).toBe(body.run.runId);
   });
 
+  it("依核准請假的實際工作時數按比例計算扣款", async () => {
+    d1.sqlite.exec("UPDATE hr_leave_requests SET starts_at='2026-08-10 03:30:00', ends_at='2026-08-10 04:00:00', starts_on='2026-08-10', ends_on='2026-08-11', duration_minutes=30 WHERE id='dev-leave-lin-unpaid'");
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-partial-leave-2026-08",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const leaveLine = body.run.employees[0]!.lines.find((line) => line.lineKey === "unpaid_leave");
+    expect(leaveLine).toMatchObject({
+      amountMinor: 12_500,
+      explanation: expect.objectContaining({ entryCount: 1, formulaDetail: expect.stringContaining("0.5 小時 ÷ 8 小時") }),
+    });
+  });
+
   it("31 日月份整月月薪與月給項目不按 31／30 放大", async () => {
     const compensation = await request("/hr/employments/dev-employment-sixmonth/compensation", "POST", {
       validFrom: "2026-03-02", payBasis: "monthly", baseAmountMinor: 3_600_000, note: "31 日月份整月月薪測試", items: [
