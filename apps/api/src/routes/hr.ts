@@ -404,7 +404,7 @@ function calendarYear(value: string) {
  * 行事曆送上來的日子；這裡只檢查形狀，哪些要寫成列由 packages/db 決定。
  *
  * 上限跟著路由走：月是 31，年是 366。寫死 31 的話整年那條路會在例外累積到 32 天時
- * 永遠存不起來——光 2026 年匯入就有 16 筆，再加颱風假與公司自訂假很快就破——
+ * 永遠存不起來——光 2026 年匯入就有 16 筆，再加災防停班與公司自訂假很快就破——
  * 而且匯入本身繞過這個檢查，等於做得出一個畫面自己救不回來的狀態。
  */
 function calendarDays(input: Record<string, unknown>, maxDays: number): HrCalendarDayInput[] {
@@ -418,7 +418,7 @@ function calendarDays(input: Record<string, unknown>, maxDays: number): HrCalend
     const specialKind = entry.specialKind === undefined || entry.specialKind === null || entry.specialKind === "" ? "none" : entry.specialKind;
     if (!isHrCalendarSpecialKind(specialKind)) throw new HTTPException(400, { message: "行事曆的特殊標記不正確。" });
     const specialScopeIds = entry.specialScopeIds === undefined || entry.specialScopeIds === null ? [] : entry.specialScopeIds;
-    if (!Array.isArray(specialScopeIds) || specialScopeIds.length > 100 || specialScopeIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(specialScopeIds).size !== specialScopeIds.length) throw new HTTPException(400, { message: "颱風停班的適用門市／地區不正確。" });
+    if (!Array.isArray(specialScopeIds) || specialScopeIds.length > 100 || specialScopeIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(specialScopeIds).size !== specialScopeIds.length) throw new HTTPException(400, { message: "災防停班的適用門市／地區不正確。" });
     return { date: entry.date, dayType: entry.dayType, name: entry.name, specialKind, specialScopeIds };
   });
 }

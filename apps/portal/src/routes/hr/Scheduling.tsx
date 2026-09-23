@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
-import { groupShiftsByTemplate, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
+import { groupShiftsByTemplate, isDefaultHrCalendarSpecialName, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { GuardedNavLink, useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 import { CalendarScopePicker } from "./Calendar.js";
@@ -154,6 +154,11 @@ function CalendarDialog({ periodKey: key, days: initial, scopes, canWrite, onClo
     setDays((current) => current.map((day) => day.date === date ? { ...day, ...patch } : day));
     setMessage(null);
   };
+  const updateDayType = (day: HrCalendarDay, dayType: HrDayType) => {
+    update(day.date, dayType === "weekday"
+      ? { dayType }
+      : { dayType, specialKind: "none", specialScopeIds: [], ...(isDefaultHrCalendarSpecialName(day.name) ? { name: "" } : {}) });
+  };
   const submit = async () => {
     try {
       await save.mutateAsync({ path: `/calendar/${key}`, method: "PUT", values: { days: days.map(({ date, dayType, name, specialKind, specialScopeIds }) => ({ date, dayType, name, specialKind, specialScopeIds })), knownDates: initial.filter((day) => day.overridden).map((day) => day.date) } });
@@ -171,13 +176,13 @@ function CalendarDialog({ periodKey: key, days: initial, scopes, canWrite, onClo
     closeDisabled={save.isPending}
     actions={canWrite ? <Button loading={save.isPending} disabled={!changed} onClick={() => { void submit(); }}>儲存</Button> : undefined}
   >
-    <p className="muted field-note">週六日預設就是週末，不用特別標。颱風停班不會刪除原排班，結算時會保留給薪紀錄。</p>
+    <p className="muted field-note">週六日預設就是週末，不用特別標。災防停班只適用平日，不會刪除原排班，結算時會保留給薪紀錄。</p>
     <div className="hr-calendar-editor">
       {days.map((day) => <div className={`hr-calendar-editor-row day-${day.dayType}`} key={day.date}>
         <span className="hr-calendar-editor-date">{Number(day.date.slice(8))}<small>{["日", "一", "二", "三", "四", "五", "六"][new Date(`${day.date}T00:00:00Z`).getUTCDay()]}</small></span>
-        <SelectField aria-label={`${day.date} 日期類型`} value={day.dayType} disabled={!canWrite || save.isPending} options={HR_DAY_TYPES.map((dayType) => ({ value: dayType, label: HR_DAY_TYPE_LABELS[dayType] }))} onChange={(event) => update(day.date, { dayType: event.target.value as HrDayType })} />
-        <SelectField aria-label={`${day.date} 特殊標記`} value={day.specialKind} disabled={!canWrite || save.isPending} options={HR_CALENDAR_SPECIAL_KINDS.map((kind) => ({ value: kind, label: HR_CALENDAR_SPECIAL_KIND_LABELS[kind] }))} onChange={(event) => { const specialKind = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind, specialScopeIds: specialKind === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(specialKind === "typhoon_stop" && !day.name.trim() ? { name: "颱風停班" } : {}), ...(specialKind !== "typhoon_stop" && day.name.trim() === "颱風停班" ? { name: "" } : {}) }); }} />
-        {day.specialKind === "typhoon_stop" ? <CalendarScopePicker scopeIds={day.specialScopeIds ?? []} scopes={scopes} disabled={!canWrite || save.isPending} onChange={(specialScopeIds) => update(day.date, { specialScopeIds })} /> : <span className="muted">—</span>}
+        <SelectField aria-label={`${day.date} 日期類型`} value={day.dayType} disabled={!canWrite || save.isPending} options={HR_DAY_TYPES.map((dayType) => ({ value: dayType, label: HR_DAY_TYPE_LABELS[dayType] }))} onChange={(event) => updateDayType(day, event.target.value as HrDayType)} />
+        {day.dayType === "weekday" ? <SelectField aria-label={`${day.date} 災防標記`} value={day.specialKind} disabled={!canWrite || save.isPending} options={HR_CALENDAR_SPECIAL_KINDS.map((kind) => ({ value: kind, label: HR_CALENDAR_SPECIAL_KIND_LABELS[kind] }))} onChange={(event) => { const specialKind = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind, specialScopeIds: specialKind === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(specialKind === "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "災防停班" } : {}), ...(specialKind !== "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "" } : {}) }); }} /> : <span className="muted hr-calendar-special-empty">—</span>}
+        {day.dayType === "weekday" && day.specialKind === "typhoon_stop" ? <CalendarScopePicker scopeIds={day.specialScopeIds ?? []} scopes={scopes} disabled={!canWrite || save.isPending} onChange={(specialScopeIds) => update(day.date, { specialScopeIds })} /> : <span className="muted">—</span>}
         <TextField aria-label={`${day.date} 名稱`} maxLength={100} placeholder="例如：中秋節、補班日" value={day.name} disabled={!canWrite || save.isPending} onChange={(event) => update(day.date, { name: event.target.value })} />
       </div>)}
     </div>
@@ -387,8 +392,8 @@ export function HrScheduling() {
           <div className="hr-calendar-date" {...(day === today ? { "aria-current": "date" as const } : {})}>{quick
             ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftTemplateId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
             : <><strong>{index + 1}</strong>{canEdit ? <button type="button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
-          {typhoonForScope ? <span className="hr-calendar-holiday hr-calendar-typhoon">颱風停班</span> : null}
-          {calendarDay?.name && !(typhoonForScope && calendarDay.name === "颱風停班") ? <span className="hr-calendar-holiday">{calendarDay.name}</span> : null}
+          {typhoonForScope ? <span className="hr-calendar-holiday hr-calendar-typhoon">災防停班</span> : null}
+          {calendarDay?.name && !(typhoonForScope && isDefaultHrCalendarSpecialName(calendarDay.name)) ? <span className="hr-calendar-holiday">{calendarDay.name}</span> : null}
           <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${entry.archivedAt ? " archived" : ""}${quick && !entry.archivedAt && samePick(entry, quick, templateOf) ? " current" : ""}`} key={entry.id}><span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit && !entry.archivedAt ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
         </div>;
         })}

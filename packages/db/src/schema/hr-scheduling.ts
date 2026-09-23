@@ -40,7 +40,7 @@ export const hrCalendarDays = sqliteTable("hr_calendar_days", {
   check("ck_hr_calendar_days_name", sql`length(${table.name}) <= 100`),
 ]);
 
-/** 颱風停班可只套用到部分門市；沒有子列代表所有門市／地區。 */
+/** 災防停班可只套用到部分門市；沒有子列代表所有門市／地區。 */
 export const hrCalendarDayScopes = sqliteTable("hr_calendar_day_scopes", {
   date: text("date").notNull().references(() => hrCalendarDays.date, { onDelete: "cascade" }),
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),

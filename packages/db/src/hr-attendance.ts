@@ -419,7 +419,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
     const scheduleRows = scheduledEmployment ? scheduleByEmployment.get(scheduledEmployment.id) ?? [] : [];
     const special = calendarSpecials.get(date);
     const rowsForDate = scheduleRows.filter((row) => row.workDate === date);
-    // 同一天若有多個據點，只排除颱風停班適用的那些班；其他據點仍照原排班判斷出勤。
+    // 同一天若有多個據點，只排除災防停班適用的那些班；其他據點仍照原排班判斷出勤。
     const activeRowsForDate = rowsForDate.filter((row) => !calendarSpecialAppliesToScope(special, row.scopeId));
     const schedule = scheduledEmployment ? scheduleForDate(activeRowsForDate, date) : null;
     const previousOvernight = scheduledEmployment ? overnightScheduleForDate(scheduleRows, date) : null;
@@ -431,7 +431,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
       : calendarSpecialAppliesToScope(special, null);
     const specialKind = specialApplies ? special?.kind ?? "none" : "none";
     const specialScopeIds = specialApplies ? special?.scopeIds ?? [] : [];
-    // 颱風停班日仍保留排班，但不把適用停班據點的打卡當成其他據點的出勤證明。
+    // 災防停班日仍保留排班，但不把適用停班據點的打卡當成其他據點的出勤證明。
     const typhoonStop = scheduledEmployment
       ? rowsForDate.length > 0 && activeRowsForDate.length === 0
       : calendarSpecialAppliesToScope(special, null);

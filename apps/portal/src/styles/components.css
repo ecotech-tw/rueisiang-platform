@@ -4670,3 +4670,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /* 表格裡的欄位不該撐出一格高度；拿掉標籤與外距，列高才跟其他資料表一致。 */
 .data-table .field { margin: 0; min-width: 0; }
 .data-table .field > span:first-child { display: none; }
+.hr-calendar-type-fields { display: grid; gap: 6px; min-width: 0; }
+.hr-calendar-type-fields .dropdown-control { width: 100%; max-width: 100%; }
+.data-table .hr-calendar-scope-picker { max-width: 240px; }
+.data-table .hr-calendar-scope-picker > button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

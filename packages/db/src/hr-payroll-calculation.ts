@@ -1018,10 +1018,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         typhoonStopMinor += amount;
         typhoonStopCalculationParts.push({
           formula: compensation.payBasis === "monthly"
-            ? `${day}：颱風停班，floor(月薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天)`
+            ? `${day}：災防停班，floor(月薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天)`
             : compensation.payBasis === "daily"
-              ? `${day}：颱風停班，日薪 ${payrollFormulaMoney(compensation.baseAmountMinor)}`
-              : `${day}：颱風停班適用排班，時薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × ${payrollFormulaHours(hours)} 小時`,
+              ? `${day}：災防停班，日薪 ${payrollFormulaMoney(compensation.baseAmountMinor)}`
+              : `${day}：災防停班適用排班，時薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × ${payrollFormulaHours(hours)} 小時`,
           amountMinor: amount,
         });
       } else if (compensation.payBasis === "monthly") {
@@ -1159,7 +1159,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       } });
     }
     if (typhoonStopDatesForEmployee.length > 0) lines.push({ lineKey: "typhoon_stop_pay", direction: "earning", amountMinor: typhoonStopMinor, explanation: {
-      rule: "颱風停班日保留原已發布排班，未打卡仍依排班薪資給付；不刪除排班資料。",
+      rule: "災防停班日保留原已發布排班，未打卡仍依排班薪資給付；不刪除排班資料。",
       dates: typhoonStopDatesForEmployee,
       specialScopeIdsByDate: Object.fromEntries(typhoonStopDatesForEmployee.map((day) => [day, calendarSpecials.get(day)?.scopeIds ?? []])),
       scheduledAssignmentCount: typhoonStopDatesForEmployee.reduce((sum, day) => sum + (scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? []).filter((row) => calendarSpecialAppliesToScope(calendarSpecials.get(day), row.scopeId)).length, 0),

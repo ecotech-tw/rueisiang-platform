@@ -43,9 +43,10 @@ export interface HrCalendarDayView {
 }
 
 function toView(date: string, override: { dayType: HrDayType; name: string; specialKind: HrCalendarSpecialKind; specialScopeIds: string[] } | undefined): HrCalendarDayView {
-  return override
-    ? { date, dayType: override.dayType, name: override.name, specialKind: override.specialKind, specialScopeIds: override.specialScopeIds, overridden: true }
-    : { date, dayType: defaultDayType(date), name: "", specialKind: "none", specialScopeIds: [], overridden: false };
+  if (!override) return { date, dayType: defaultDayType(date), name: "", specialKind: "none", specialScopeIds: [], overridden: false };
+  // 舊資料若曾把特殊標記存到非平日，讀取時也不能讓它繼續影響排班、出勤或薪資。
+  const specialKind = override.dayType === "weekday" ? override.specialKind : "none";
+  return { date, dayType: override.dayType, name: override.name, specialKind, specialScopeIds: specialKind === "none" ? [] : override.specialScopeIds, overridden: true };
 }
 
 /** 半開區間 [start, endExclusive)，與 periodFromKey 的期間定義一致。 */
@@ -89,7 +90,7 @@ export async function resolveDayTypes(db: Database, dates: string[]): Promise<Ma
   return new Map(wanted.map((date) => [date, overrides.get(date)?.dayType ?? defaultDayType(date)]));
 }
 
-/** 颱風停班是行事曆的薪資標記，不改變「這天是平日／週末／國定假日」的日型。 */
+/** 災防停班是行事曆的薪資標記，不改變「這天是平日／週末／國定假日」的日型。 */
 export interface HrCalendarSpecial {
   kind: HrCalendarSpecialKind;
   /** 空陣列代表全域；有值時只適用指定門市／地區。 */
@@ -102,10 +103,11 @@ export async function resolveCalendarSpecials(db: Database, dates: string[]): Pr
   const last = wanted[wanted.length - 1];
   if (!first || !last) return new Map();
   const overrides = await loadOverridesInclusive(db, first, last);
-  return new Map(wanted.map((date) => [date, {
-    kind: overrides.get(date)?.specialKind ?? "none",
-    scopeIds: overrides.get(date)?.specialScopeIds ?? [],
-  }]));
+  return new Map(wanted.map((date) => {
+    const override = overrides.get(date);
+    const kind = override?.dayType === "weekday" ? override.specialKind : "none";
+    return [date, { kind, scopeIds: kind === "none" ? [] : (override?.specialScopeIds ?? []) }];
+  }));
 }
 
 export async function resolveCalendarSpecialKinds(db: Database, dates: string[]): Promise<Map<string, HrCalendarSpecialKind>> {
@@ -155,11 +157,12 @@ function toOverrides(days: HrCalendarDayInput[], range: { start: string; end: st
     if (!isHrDayType(day.dayType)) throw new HrError(400, "行事曆的日期類型不正確。 ");
     const specialKind = day.specialKind ?? "none";
     if (!isHrCalendarSpecialKind(specialKind)) throw new HrError(400, "行事曆的特殊標記不正確。 ");
+    if (specialKind !== "none" && day.dayType !== "weekday") throw new HrError(400, "災防停班只能套用於平日。 ");
     const rawSpecialScopeIds = day.specialScopeIds ?? [];
-    if (!Array.isArray(rawSpecialScopeIds)) throw new HrError(400, "颱風停班的適用門市／地區不正確。 ");
+    if (!Array.isArray(rawSpecialScopeIds)) throw new HrError(400, "災防停班的適用門市／地區不正確。 ");
     const specialScopeIds = [...new Set(rawSpecialScopeIds)].sort();
-    if (specialScopeIds.length > 100 || specialScopeIds.some((scopeId) => typeof scopeId !== "string" || scopeId.trim() === "" || scopeId.length > 200)) throw new HrError(400, "颱風停班的適用門市／地區不正確。 ");
-    if (specialKind !== "typhoon_stop" && specialScopeIds.length) throw new HrError(400, "適用門市／地區只能套用於颱風停班。 ");
+    if (specialScopeIds.length > 100 || specialScopeIds.some((scopeId) => typeof scopeId !== "string" || scopeId.trim() === "" || scopeId.length > 200)) throw new HrError(400, "災防停班的適用門市／地區不正確。 ");
+    if (specialKind !== "typhoon_stop" && specialScopeIds.length) throw new HrError(400, "適用門市／地區只能套用於災防停班。 ");
     const name = day.name.trim();
     if (name.length > 100) throw new HrError(400, "行事曆的名稱過長。 ");
     if (day.dayType === defaultDayType(day.date) && !name && specialKind === "none") continue;
@@ -197,7 +200,7 @@ async function assertCalendarScopesExist(db: Database, overrides: HrCalendarDayI
   const scopeIds = [...new Set(overrides.flatMap((day) => day.specialScopeIds ?? []))];
   if (!scopeIds.length) return;
   const existing = await db.select({ id: scopes.id }).from(scopes).where(and(inArray(scopes.id, scopeIds), eq(scopes.scopeKind, "store")));
-  if (existing.length !== scopeIds.length) throw new HrError(400, "颱風停班的適用門市／地區不存在。 ");
+  if (existing.length !== scopeIds.length) throw new HrError(400, "災防停班的適用門市／地區不存在。 ");
 }
 
 async function replaceCalendarRange(db: Database, range: { start: string; end: string }, overrides: HrCalendarDayInput[], actor: HrActor, summary: string, payload: Record<string, unknown>, knownDates?: string[]) {
