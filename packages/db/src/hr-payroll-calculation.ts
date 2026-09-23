@@ -1460,13 +1460,40 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           const insuranceVersion = covering(schemeVersions, start);
           if (!insuranceVersion || insuranceVersion.status !== "enrolled") continue;
           const withdrawalOnBoundary = end !== period.end && covering(schemeVersions, end)?.status === "withdrawn" && insuranceVersion.validTo === end;
-          const coverageDays = laborInsuranceCoverageDays(start, end, period.end, withdrawalOnBoundary);
-          if (!coverageDays) continue;
           const contributionRules = resolveHrInsuranceContributionRules(insuranceRules, scheme, start);
           if (!hasCompleteHrInsuranceContributionRules(scheme, contributionRules)) {
             calculationWarnings.add(`${employee.employeeName} 的勞保缺少完整有效負擔規則，請在保險設定完成審閱。`);
             continue;
           }
+          // 退保日也要計入勞保；若當日同時是費率邊界，不能把該日留在舊費率區段。
+          const withdrawalRules = withdrawalOnBoundary ? resolveHrInsuranceContributionRules(insuranceRules, scheme, end) : contributionRules;
+          const rulesChangeOnWithdrawalDate = withdrawalOnBoundary && (
+            withdrawalRules.length !== contributionRules.length
+            || withdrawalRules.some((rule, ruleIndex) => rule.id !== contributionRules[ruleIndex]?.id)
+          );
+          if (rulesChangeOnWithdrawalDate) {
+            const priorCoverageDays = laborInsuranceCoverageDays(start, end, period.end);
+            if (priorCoverageDays > 0) {
+              insuranceEntries.push({
+                version: insuranceVersion, contributionRules,
+                breakdown: calculateHrInsuranceEmployeeBreakdown({ scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount, coverageDays: priorCoverageDays, rules: contributionRules }),
+                coverageDays: priorCoverageDays, start, end,
+              });
+            }
+            if (!hasCompleteHrInsuranceContributionRules(scheme, withdrawalRules)) {
+              calculationWarnings.add(`${employee.employeeName} 的勞保缺少完整有效負擔規則，請在保險設定完成審閱。`);
+              continue;
+            }
+            const withdrawalCoverageDays = 1;
+            insuranceEntries.push({
+              version: insuranceVersion, contributionRules: withdrawalRules,
+              breakdown: calculateHrInsuranceEmployeeBreakdown({ scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount, coverageDays: withdrawalCoverageDays, rules: withdrawalRules }),
+              coverageDays: withdrawalCoverageDays, start: end, end: nextDateOnly(end),
+            });
+            continue;
+          }
+          const coverageDays = laborInsuranceCoverageDays(start, end, period.end, withdrawalOnBoundary);
+          if (!coverageDays) continue;
           insuranceEntries.push({
             version: insuranceVersion, contributionRules,
             breakdown: calculateHrInsuranceEmployeeBreakdown({ scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount, coverageDays, rules: contributionRules }),

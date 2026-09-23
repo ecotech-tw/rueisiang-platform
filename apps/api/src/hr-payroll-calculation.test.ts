@@ -155,6 +155,21 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(lines.some((line) => line.lineKey === "health_insurance")).toBe(false);
   });
 
+  it("退保日與勞保費率同日切換時，退保日套用新費率", async () => {
+    const rulePath = "/hr/insurance-contribution-rules";
+    expect((await request(rulePath, "POST", { scheme: "labor", component: "ordinary_accident", validFrom: "2026-02-20", employeeRatePpm: 10000, employerRatePpm: 0, dependentRatePpm: 0, sourceKind: "manual", note: "退保日費率切換測試" })).status).toBe(201);
+    expect((await request(rulePath, "POST", { scheme: "labor", component: "employment", validFrom: "2026-02-20", employeeRatePpm: 1000, employerRatePpm: 0, dependentRatePpm: 0, sourceKind: "manual", note: "退保日費率切換測試" })).status).toBe(201);
+    const path = "/hr/employments/dev-employment-lin/insurance";
+    expect((await request(path, "POST", { versions: [{ scheme: "labor", status: "enrolled", validFrom: "2026-02-10", insuredAmountMinor: 4_580_000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "退保日費率切換測試" }] })).status).toBe(201);
+    expect((await request(path, "POST", { versions: [{ scheme: "labor", status: "withdrawn", validFrom: "2026-02-20", insuredAmountMinor: 0, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "" }] })).status).toBe(201);
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-02", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-insurance-withdrawn-rate-change-2026-02",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "labor_insurance", amountMinor: 74_200 })]));
+  });
+
   it("依核准請假的實際工作時數按比例計算扣款", async () => {
     d1.sqlite.exec("UPDATE hr_leave_requests SET starts_at='2026-08-10 03:30:00', ends_at='2026-08-10 04:00:00', starts_on='2026-08-10', ends_on='2026-08-11', duration_minutes=30 WHERE id='dev-leave-lin-unpaid'");
     const response = await request("/hr/payroll/calculate", "POST", {
