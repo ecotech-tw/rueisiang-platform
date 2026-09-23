@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
+import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { Pager } from "../../shell/Pager.js";
@@ -67,6 +68,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
   const places = useHrQuery<{ places: GoogleMapPlace[] }>(`/attendance-settings/places?query=${encodeURIComponent(searchQuery)}`, Boolean(searchQuery));
   const placeResults = places.data?.places ?? [];
   const save = useHrWrite<{ id?: string }>();
+  const toast = useToast();
   const editing = Boolean(location);
   const path = editing ? `/attendance-settings/locations/${location?.id}` : "/attendance-settings/locations";
 
@@ -108,7 +110,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       radiusMeters: radiusForSave(draft, source?.radiusMeters),
     };
     if (draft.revision !== undefined) values.revision = draft.revision;
-    save.mutate({ path, method: editing ? "PATCH" : "POST", values }, { onSuccess: onClose });
+    save.mutate({ path, method: editing ? "PATCH" : "POST", values }, { onSuccess: () => { toast.show(editing ? `辦公位置「${draft.name.trim()}」已更新。` : `辦公位置「${draft.name.trim()}」已新增。`); onClose(); } });
   }
   const coordinateQuery = draft.latitude !== null && draft.longitude !== null ? `${draft.latitude}, ${draft.longitude}` : "";
   return (
