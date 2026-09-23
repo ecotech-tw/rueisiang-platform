@@ -28,6 +28,10 @@ function changeEvent(value: string): Parameters<ChangeEventHandler<HTMLSelectEle
   return { target: { value }, currentTarget: { value } } as unknown as Parameters<ChangeEventHandler<HTMLSelectElement>>[0];
 }
 
+function sameOption(left: DropdownSelectOption, right: DropdownSelectOption): boolean {
+  return left.value === right.value;
+}
+
 /**
  * 只選擇、不輸入的下拉選單。
  *
@@ -59,6 +63,7 @@ export function DropdownSelect({
       value={selectedOption}
       defaultValue={initialOption}
       onValueChange={(nextValue) => onChange?.(changeEvent(nextValue?.value ?? ""))}
+      isItemEqualToValue={sameOption}
       disabled={disabled}
       modal={false}
       required={required}
