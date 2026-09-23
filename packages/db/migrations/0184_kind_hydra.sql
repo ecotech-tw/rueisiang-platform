@@ -1,4 +1,4 @@
-CREATE TABLE `hr_annual_leave_brackets` (
+CREATE TABLE IF NOT EXISTS `hr_annual_leave_brackets` (
 	`id` text PRIMARY KEY NOT NULL,
 	`policy_version_id` text NOT NULL,
 	`min_service_months` integer NOT NULL,
@@ -11,9 +11,9 @@ CREATE TABLE `hr_annual_leave_brackets` (
 	CONSTRAINT "ck_hr_annual_leave_bracket_label" CHECK(length("hr_annual_leave_brackets"."label") <= 100)
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `idx_hr_annual_leave_bracket_start` ON `hr_annual_leave_brackets` (`policy_version_id`,`min_service_months`);--> statement-breakpoint
-CREATE INDEX `idx_hr_annual_leave_bracket_policy` ON `hr_annual_leave_brackets` (`policy_version_id`,`min_service_months`);--> statement-breakpoint
-CREATE TABLE `hr_annual_leave_entitlements` (
+CREATE UNIQUE INDEX IF NOT EXISTS `idx_hr_annual_leave_bracket_start` ON `hr_annual_leave_brackets` (`policy_version_id`,`min_service_months`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_hr_annual_leave_bracket_policy` ON `hr_annual_leave_brackets` (`policy_version_id`,`min_service_months`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `hr_annual_leave_entitlements` (
 	`id` text PRIMARY KEY NOT NULL,
 	`employment_id` text NOT NULL,
 	`policy_version_id` text NOT NULL,
@@ -36,9 +36,9 @@ CREATE TABLE `hr_annual_leave_entitlements` (
 	CONSTRAINT "ck_hr_annual_leave_entitlement_status" CHECK("hr_annual_leave_entitlements"."status" IN ('open', 'settled'))
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `idx_hr_annual_leave_entitlement_period` ON `hr_annual_leave_entitlements` (`employment_id`,`period_start`);--> statement-breakpoint
-CREATE INDEX `idx_hr_annual_leave_entitlement_employee` ON `hr_annual_leave_entitlements` (`employment_id`,`period_end`);--> statement-breakpoint
-CREATE TABLE `hr_annual_leave_ledger` (
+CREATE UNIQUE INDEX IF NOT EXISTS `idx_hr_annual_leave_entitlement_period` ON `hr_annual_leave_entitlements` (`employment_id`,`period_start`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_hr_annual_leave_entitlement_employee` ON `hr_annual_leave_entitlements` (`employment_id`,`period_end`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `hr_annual_leave_ledger` (
 	`id` text PRIMARY KEY NOT NULL,
 	`entitlement_id` text NOT NULL,
 	`entry_kind` text NOT NULL,
@@ -56,9 +56,9 @@ CREATE TABLE `hr_annual_leave_ledger` (
 	CONSTRAINT "ck_hr_annual_leave_ledger_note" CHECK(length("hr_annual_leave_ledger"."note") <= 1000)
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `idx_hr_annual_leave_ledger_source` ON `hr_annual_leave_ledger` (`source_key`);--> statement-breakpoint
-CREATE INDEX `idx_hr_annual_leave_ledger_entitlement` ON `hr_annual_leave_ledger` (`entitlement_id`,`created_at`);--> statement-breakpoint
-CREATE TABLE `hr_annual_leave_policy_versions` (
+CREATE UNIQUE INDEX IF NOT EXISTS `idx_hr_annual_leave_ledger_source` ON `hr_annual_leave_ledger` (`source_key`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_hr_annual_leave_ledger_entitlement` ON `hr_annual_leave_ledger` (`entitlement_id`,`created_at`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `hr_annual_leave_policy_versions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`policy_key` text DEFAULT 'annual_leave' NOT NULL,
 	`version_number` integer NOT NULL,
@@ -79,8 +79,8 @@ CREATE TABLE `hr_annual_leave_policy_versions` (
 	CONSTRAINT "ck_hr_annual_leave_policy_note" CHECK(length("hr_annual_leave_policy_versions"."note") <= 1000)
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `idx_hr_annual_leave_policy_version` ON `hr_annual_leave_policy_versions` (`policy_key`,`version_number`);--> statement-breakpoint
-CREATE INDEX `idx_hr_annual_leave_policy_period` ON `hr_annual_leave_policy_versions` (`policy_key`,`valid_from`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `idx_hr_annual_leave_policy_version` ON `hr_annual_leave_policy_versions` (`policy_key`,`version_number`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_hr_annual_leave_policy_period` ON `hr_annual_leave_policy_versions` (`policy_key`,`valid_from`);--> statement-breakpoint
 ALTER TABLE `hr_leave_requests` ADD `leave_type_id` text REFERENCES hr_leave_types(id);--> statement-breakpoint
 CREATE INDEX `idx_hr_leave_requests_leave_type` ON `hr_leave_requests` (`leave_type_id`);--> statement-breakpoint
 ALTER TABLE `hr_leave_types` ADD `leave_kind` text DEFAULT 'other' NOT NULL;
