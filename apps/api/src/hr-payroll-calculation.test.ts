@@ -1,6 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
+import { eq } from "drizzle-orm";
 import { createDatabase } from "@rueisiang/db";
-import { reportPayoutDaily } from "@rueisiang/db/schema";
+import { hrLeaveRequests, hrLeaveTypes, hrMonthlyLeaveEntries, hrOvertimeRequests, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -94,6 +95,51 @@ describe("HR 薪資與櫃點獎金試算", () => {
     });
     expect(noEmploymentPeriod.status, await noEmploymentPeriod.clone().text()).toBe(400);
     expect((await noEmploymentPeriod.json() as { error: string }).error).toContain("沒有在職區間");
+  });
+
+  it("不把到職日前的加班、請假與特殊日補貼帶進薪資", async () => {
+    const db = createDatabase(d1 as never);
+    const employmentId = "dev-employment-newhire";
+    const actor = "dev-eli-lin@ecotech.tw";
+    const [unpaidLeave] = await db.select({ id: hrLeaveTypes.id }).from(hrLeaveTypes).where(eq(hrLeaveTypes.name, "無薪假")).limit(1);
+    expect(unpaidLeave).toBeDefined();
+    await db.insert(hrOvertimeRequests).values({
+      id: "test-newhire-prestart-overtime", employmentId, scopeId: null,
+      requestedStart: "2026-08-01 10:00:00", requestedEnd: "2026-08-01 12:00:00",
+      actualStart: "2026-08-01 10:00:00", actualEnd: "2026-08-01 12:00:00",
+      settlementKind: "pay", status: "approved", ratePpm: 1_333_333, reason: "到職前加班測試",
+      reviewedBy: actor, reviewedAt: "2026-08-02 09:00:00", createdBy: actor,
+    });
+    await db.insert(hrLeaveRequests).values({
+      id: "test-newhire-prestart-leave", employmentId, leaveTypeId: unpaidLeave!.id, leaveType: "無薪假",
+      status: "approved", startsAt: "2026-08-01 01:00:00", endsAt: "2026-08-02 01:00:00", startsOn: "2026-08-01", endsOn: "2026-08-02",
+      durationMinutes: 480, payRatePpm: 0, reason: "到職前請假測試", reviewedBy: actor, reviewedAt: "2026-08-02 09:00:00", createdBy: actor,
+    });
+    await db.insert(hrMonthlyLeaveEntries).values({
+      id: "test-newhire-prestart-monthly-leave", employmentId, leaveTypeId: unpaidLeave!.id, leaveDate: "2026-08-01",
+      hoursHalfUnits: 16, payRatePpm: 0, deductionAmount: 10_000, note: "到職前月度扣款測試", createdBy: actor, updatedBy: actor,
+    });
+    await db.insert(hrSpecialWorkdayRules).values({ id: "test-newhire-prestart-special-rule", name: "到職前特殊日測試", active: 1, createdBy: actor });
+    await db.insert(hrSpecialWorkdayRuleVersions).values({
+      id: "test-newhire-prestart-special-version", ruleId: "test-newhire-prestart-special-rule", versionNumber: 1,
+      validFrom: "2026-01-01", validTo: null, wageKind: "fixed_hourly", fixedAmountMinor: 10_000, multiplierPpm: null,
+      overtimeRule: "測試級距", workSource: "hourly", note: "", createdBy: actor,
+    });
+    await db.insert(hrSpecialWorkdayAssignments).values({
+      id: "test-newhire-prestart-special-assignment", ruleVersionId: "test-newhire-prestart-special-version", employmentId, workerId: null,
+      workDate: "2026-08-01", ruleNameSnapshot: "到職前特殊日測試", wageKindSnapshot: "fixed_hourly", fixedAmountMinorSnapshot: 10_000,
+      multiplierPpmSnapshot: null, workSourceSnapshot: "hourly", allowanceSnapshotJson: JSON.stringify([{ itemName: "特殊日補貼", unitAmountMinor: 5_000 }]),
+      allowanceQuantity: 1, appliedBy: actor,
+    });
+    d1.sqlite.exec("UPDATE hr_employment_service_periods SET service_start_on='2026-08-03' WHERE employment_id='dev-employment-newhire'");
+    const response = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", employeeUserIds: ["dev-newhire@ecotech.tw"], requestId: "test-newhire-prestart-inputs" });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string }> }> } };
+    const lineKeys = body.run.employees[0]!.lines.map((line) => line.lineKey);
+    expect(lineKeys).not.toContain("overtime");
+    expect(lineKeys).not.toContain("unpaid_leave");
+    expect(lineKeys).not.toContain("special_workday");
+    expect(lineKeys).not.toContain("special_allowance_1");
   });
 
   it("保存健保眷屬倍數與每筆薪資公式", async () => {

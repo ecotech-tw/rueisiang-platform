@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, inArray, isNull, like, ne, notExists, or, sq
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
-import { hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
+import { hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
@@ -187,8 +187,8 @@ export interface HrEmployeeDetailOptions {
 }
 
 async function employmentRows(db: Database, userId: string) {
-  return db.select({ employment: hrEmployments, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays })
-    .from(hrEmployments).leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
+  return db.select({ employment: hrEmployments, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays, serviceStartOn: hrEmploymentServicePeriods.serviceStartOn })
+    .from(hrEmployments).leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id)).leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
     .where(eq(hrEmployments.employeeUserId, userId))
     .orderBy(sql`${hrEmployments.archivedAt} IS NULL DESC`, desc(hrEmployments.archivedAt), desc(hrEmployments.updatedAt), desc(hrEmployments.id));
 }
@@ -203,11 +203,12 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   const supervisorRows = supervisorIds.length ? await db.select({ id: users.id, name: displayName }).from(users).where(inArray(users.id, supervisorIds)) : [];
   const supervisorNames = new Map(supervisorRows.map((supervisor) => [supervisor.id, supervisor.name]));
   const [account] = await db.select({ displayName, email: users.email, userStatus: users.status }).from(users).where(eq(users.id, userId)).limit(1);
-  const employments = rows.map(({ employment, attendanceMode, monthlyRestDays }) => ({
+  const employments = rows.map(({ employment, attendanceMode, monthlyRestDays, serviceStartOn }) => ({
     ...employment,
     supervisorName: employment.supervisorUserId ? supervisorNames.get(employment.supervisorUserId) ?? null : null,
     attendanceMode: attendanceMode ?? "general" as const,
     monthlyRestDays,
+    serviceStartOn,
   }));
   const assignments = options.includeScopeAssignments === false ? undefined : await db.select({
     id: hrEmployeeScopes.id, employmentId: hrEmployeeScopes.employmentId, scopeId: hrEmployeeScopes.scopeId,
