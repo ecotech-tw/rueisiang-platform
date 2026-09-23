@@ -202,6 +202,41 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.runs.find((item) => item.run.requestId === "test-payroll-run-list-status")).toMatchObject({ run: { status: "ready" }, periodStatus: "open" });
   });
 
+  it("可查看員工已結帳歷史，未結帳試算可刪除但已結帳不可刪除", async () => {
+    const draft = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], runName: "待刪除八月試算", requestId: "test-payroll-history-draft",
+    });
+    expect(draft.status, await draft.clone().text()).toBe(200);
+    const draftBody = await draft.json() as { run: { runId: string } };
+
+    const beforeClose = await request("/hr/payroll/employee-history?employeeUserId=dev-eli-lin%40ecotech.tw");
+    expect(beforeClose.status, await beforeClose.clone().text()).toBe(200);
+    expect((await beforeClose.json() as { records: unknown[] }).records).toHaveLength(0);
+
+    const deleted = await request(`/hr/payroll/runs/${draftBody.run.runId}`, "DELETE", {});
+    expect(deleted.status, await deleted.clone().text()).toBe(200);
+    expect((await deleted.json()) as { id: string; deleted: boolean }).toMatchObject({ id: draftBody.run.runId, deleted: true });
+    expect((await request(`/hr/payroll/runs/${draftBody.run.runId}`)).status).toBe(404);
+
+    const calculated = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], runName: "八月歷史發放", requestId: "test-payroll-history-closed",
+    });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const calculatedBody = await calculated.json() as { run: { runId: string } };
+    const closed = await request(`/hr/payroll/runs/${calculatedBody.run.runId}/close`, "POST", {});
+    expect(closed.status, await closed.clone().text()).toBe(200);
+
+    const history = await request("/hr/payroll/employee-history?employeeUserId=dev-eli-lin%40ecotech.tw");
+    expect(history.status, await history.clone().text()).toBe(200);
+    expect((await history.json() as { records: Array<{ runId: string; runName: string; periodKey: string; netMinor: number; closedAt: string }> }).records).toEqual([
+      expect.objectContaining({ runId: calculatedBody.run.runId, runName: "八月歷史發放", periodKey: "2026-08", netMinor: expect.any(Number), closedAt: expect.any(String) }),
+    ]);
+
+    const deleteClosed = await request(`/hr/payroll/runs/${calculatedBody.run.runId}`, "DELETE", {});
+    expect(deleteClosed.status, await deleteClosed.clone().text()).toBe(409);
+    expect((await deleteClosed.json() as { error: string }).error).toContain("已結帳");
+  });
+
   it("保存結算名稱、為指定員工產生預設名稱並限制名稱長度", async () => {
     const selected = await request("/hr/payroll/calculate", "POST", {
       periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-run-name-default",
@@ -841,6 +876,8 @@ describe("HR 薪資與櫃點獎金試算", () => {
     cookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
     expect((await request("/hr/bonus/policies")).status).toBe(403);
     expect((await request("/hr/payroll/runs/not-for-staff")).status).toBe(403);
+    expect((await request("/hr/payroll/employee-history?employeeUserId=dev-eli-lin%40ecotech.tw")).status).toBe(403);
+    expect((await request("/hr/payroll/runs/not-for-staff", "DELETE", {})).status).toBe(403);
     expect((await request("/hr/overview")).status).toBe(403);
   });
 

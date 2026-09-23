@@ -6,7 +6,7 @@ import {
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
-  assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns, listHrPayrollWorkerCandidates,
+  assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollEmployeeHistory, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
@@ -939,6 +939,12 @@ export const hr = new Hono<AppEnv>()
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ runs: await listHrPayrollRuns(c.get("db")) });
   })
+  .get("/payroll/employee-history", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const employeeUserId = c.req.query("employeeUserId")?.trim() ?? "";
+    if (!employeeUserId || employeeUserId.length > 200) throw new HTTPException(400, { message: "員工識別碼不正確。" });
+    return c.json({ records: await listHrPayrollEmployeeHistory(c.get("db"), employeeUserId) });
+  })
   .get("/payroll/runs/:id", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ run: await getHrPayrollRun(c.get("db"), c.req.param("id")) });
@@ -946,6 +952,10 @@ export const hr = new Hono<AppEnv>()
   .post("/payroll/runs/:id/close", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ run: await closeHrPayrollRun(c.get("db"), c.req.param("id"), c.get("user")) });
+  })
+  .delete("/payroll/runs/:id", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await deleteHrPayrollRun(c.get("db"), c.req.param("id"), c.get("user")));
   })
   .post("/payroll/calculate",  requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

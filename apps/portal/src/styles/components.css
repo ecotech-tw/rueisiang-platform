@@ -4450,6 +4450,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-payroll-result-toolbar > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
 .hr-payroll-result-toolbar strong { color: var(--color-brand-dark); font-size: 16px; }
 .hr-payroll-result-toolbar span { color: var(--color-muted); font-size: 13px; }
+.hr-payroll-result-actions,
+.hr-payroll-run-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.hr-payroll-history-filter { align-items: flex-end; }
+.hr-payroll-history-filter > .field { flex: 1 1 240px; min-width: 220px; }
+.hr-payroll-history-filter > .form-hint { flex: 1 1 280px; margin: 0 0 8px; }
 .hr-payroll-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .hr-payroll-overview > div { display: grid; gap: 4px; min-width: 0; padding: 11px 13px; border-radius: 12px; background: --alpha(var(--color-paper) / 52%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 64%) inset, 0 0 0 1px --alpha(var(--color-ink) / 5%) inset; }
 .hr-payroll-overview span { color: var(--color-muted); font-size: 11px; font-weight: 700; }
@@ -4644,6 +4649,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 @media (max-width: 620px) {
   .hr-payroll-result-toolbar { align-items: flex-start; flex-direction: column; }
+  .hr-payroll-result-actions { width: 100%; }
   .hr-payroll-line-details { grid-template-columns: 1fr; }
   .hr-payroll-employee > summary { gap: 8px; padding-inline: 12px; }
   .hr-payroll-line-content { padding-inline: 12px; }

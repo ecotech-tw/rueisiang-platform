@@ -31,6 +31,7 @@ import {
   hrLeaveRequests,
 } from "./schema/hr-payroll.js";
 import {
+  hrPayrollClosedEmployees,
   hrPayrollPeriods,
   hrPayrollRunEmployees,
   hrPayrollRuns,
@@ -175,6 +176,21 @@ export interface HrPayrollRunResult {
   employees: HrPayrollEmployeeResult[];
   workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }>;
   warnings: string[];
+}
+
+export interface HrPayrollEmployeeHistory {
+  runId: string;
+  runName: string;
+  periodKey: string;
+  versionNumber: number;
+  payDate: string | null;
+  employmentId: string;
+  employeeNumber: string;
+  employeeName: string;
+  earningMinor: number;
+  deductionMinor: number;
+  netMinor: number;
+  closedAt: string;
 }
 
 export type HrBonusKind = "team_performance" | "individual_performance";
@@ -1759,6 +1775,75 @@ export async function listHrPayrollRuns(db: Database) {
       periodStatus: row.periodStatus,
     };
   });
+}
+
+export async function listHrPayrollEmployeeHistory(db: Database, employeeUserId: string): Promise<HrPayrollEmployeeHistory[]> {
+  const rows = await db.select({
+    runId: hrPayrollRuns.id,
+    runNameInput: hrPayrollRuns.calculationInputJson,
+    periodKey: hrPayrollPeriods.periodKey,
+    versionNumber: hrPayrollRuns.versionNumber,
+    payDate: hrPayrollRuns.payDate,
+    employmentId: hrPayslips.employmentId,
+    employeeNumber: hrPayslips.employeeNumber,
+    employeeName: hrPayslips.employeeName,
+    earningMinor: hrPayslips.earningMinor,
+    deductionMinor: hrPayslips.deductionMinor,
+    netMinor: hrPayslips.netMinor,
+    closedAt: sql<string>`coalesce(${hrPayrollClosedEmployees.closedAt}, ${hrPayrollRuns.updatedAt})`,
+  }).from(hrPayslips)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrPayslips.employmentId))
+    .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId))
+    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
+    .leftJoin(hrPayrollClosedEmployees, and(
+      eq(hrPayrollClosedEmployees.payrollRunId, hrPayrollRuns.id),
+      eq(hrPayrollClosedEmployees.employmentId, hrPayslips.employmentId),
+    ))
+    .where(and(eq(hrEmployments.employeeUserId, employeeUserId), eq(hrPayrollRuns.status, "closed")))
+    .orderBy(desc(hrPayrollPeriods.periodKey), desc(hrPayrollRuns.versionNumber), desc(hrPayrollRuns.createdAt));
+  return rows.map((row) => ({
+    runId: row.runId,
+    runName: payrollRunNameFromInput(row.runNameInput, [row.employeeName]),
+    periodKey: row.periodKey,
+    versionNumber: row.versionNumber,
+    payDate: row.payDate,
+    employmentId: row.employmentId,
+    employeeNumber: row.employeeNumber,
+    employeeName: row.employeeName,
+    earningMinor: row.earningMinor,
+    deductionMinor: row.deductionMinor,
+    netMinor: row.netMinor,
+    closedAt: row.closedAt,
+  }));
+}
+
+/** 只有未結帳的試算可以刪除；已結帳薪資單與其明細是歷史文件，不提供物理刪除。 */
+export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrActor) {
+  const [run] = await db.select({ id: hrPayrollRuns.id, status: hrPayrollRuns.status, periodKey: hrPayrollPeriods.periodKey, calculationInputJson: hrPayrollRuns.calculationInputJson }).from(hrPayrollRuns)
+    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
+    .where(eq(hrPayrollRuns.id, runId)).limit(1);
+  if (!run) throw new HrError(404, "找不到薪資試算批次。 ");
+  if (run.status === "closed") throw new HrError(409, "已結帳的薪資批次不可刪除，請使用薪資調整。 ");
+
+  const mutations = [
+    sql`DELETE FROM hr_payslip_lines WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING id`,
+    sql`DELETE FROM hr_payslip_compensation_links WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING payslip_id`,
+    sql`DELETE FROM hr_payslip_insurance_links WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING payslip_id`,
+    sql`DELETE FROM hr_payslips WHERE payroll_run_id=${runId} RETURNING id`,
+    sql`DELETE FROM hr_payroll_run_employees WHERE payroll_run_id=${runId} RETURNING payroll_run_id`,
+    sql`DELETE FROM hr_payroll_worker_results WHERE payroll_run_id=${runId} RETURNING id`,
+    sql`DELETE FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId} RETURNING payroll_run_id`,
+    sql`DELETE FROM hr_payroll_runs WHERE id=${runId} AND status <> 'closed' RETURNING id`,
+  ];
+  await writeHrMutation(db, mutations, runId, actor, "payroll_run_deleted", "薪資試算批次已結帳或已被其他人變更，請重新整理。", {
+    allowEmptyMutationIndexes: new Set([0, 1, 2, 3, 4, 5, 6]),
+    activity: {
+      entityLabel: payrollRunNameFromInput(run.calculationInputJson),
+      summary: "薪資試算批次已刪除",
+      payload: { periodKey: run.periodKey },
+    },
+  });
+  return { id: runId, deleted: true as const };
 }
 
 export async function closeHrPayrollRun(db: Database, runId: string, actor: HrActor) {
