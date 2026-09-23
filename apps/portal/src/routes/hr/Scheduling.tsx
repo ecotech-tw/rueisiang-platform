@@ -372,10 +372,10 @@ export function HrScheduling() {
             * 假日名稱是文字，不是只用底色：顏色一旦成為唯一的訊號，色弱的人就看不出
             * 這天跟旁邊差在哪裡，而「今天是不是國定假日」正是排班時最需要看清楚的事。
             */}
-          {dayTypeByDate.get(day)?.name ? <span className="hr-calendar-holiday">{dayTypeByDate.get(day)!.name}</span> : null}
           <div className="hr-calendar-date" {...(day === today ? { "aria-current": "date" as const } : {})}>{quick
             ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftTemplateId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
             : <><strong>{index + 1}</strong>{canEdit ? <button type="button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
+          {dayTypeByDate.get(day)?.name ? <span className="hr-calendar-holiday">{dayTypeByDate.get(day)!.name}</span> : null}
           <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${entry.archivedAt ? " archived" : ""}${quick && !entry.archivedAt && samePick(entry, quick, templateOf) ? " current" : ""}`} key={entry.id}><span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit && !entry.archivedAt ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
         </div>)}
       </div>
