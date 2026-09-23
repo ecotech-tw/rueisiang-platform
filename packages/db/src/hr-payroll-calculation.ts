@@ -801,6 +801,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
 
   for (const employee of employees) {
     const employmentDays = employmentDaysForPeriod(employee, period);
+    const employmentDaySet = new Set(employmentDays);
     const employeeCompensations = compensations.filter((row) => row.employmentId === employee.employmentId);
     const employeeAnnualLeaveSettlements = annualLeaveSettlements.filter((settlement) => settlement.employmentId === employee.employmentId);
     const lines: HrPayrollLineResult[] = [];
@@ -811,7 +812,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const compensationItemTotals = new Map<string, number>();
     const itemCalculationParts = new Map<string, { amountBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; quantity: number; quantityUnit: "個月" | "天" | "小時"; amountMinor: number; fullMonth: boolean }>();
     const dailyMonthlyItems = new Map<string, (typeof compensationItems)[number]>();
-    const specialAssignments = specialWorkdays.filter((item) => item.employmentId === employee.employmentId);
+    const specialAssignments = specialWorkdays.filter((item) => item.employmentId === employee.employmentId && employmentDaySet.has(item.workDate));
     const scheduledDates = scheduledDatesByEmployment.get(employee.employmentId) ?? new Set<string>();
     const specialDates = new Set(specialAssignments.map((item) => item.workDate));
     if (employeeCompensations.some((item) => item.payBasis === "daily") && scheduledDates.size === 0) {
@@ -1072,6 +1073,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const clippedEnd = end < periodEndUtc ? end : periodEndUtc;
       if (!secondsBetween(clippedStart, clippedEnd)) continue;
       for (const segment of splitOvertimeByTaipeiDate(clippedStart, clippedEnd)) {
+        if (!employmentDaySet.has(segment.date)) continue;
         const special = specialAssignments.find((item) => item.workDate === segment.date);
         if (special) specialWorkdayRuleSnapshots.set(`${segment.date}:${special.ruleVersionId}`, {
           workDate: segment.date,
@@ -1109,10 +1111,11 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       calculationParts: overtimeCalculationParts, formulaDetail: payrollFormulaTotal(overtimeCalculationParts, overtimeMinor),
     } });
 
-    const monthlyLeaves = monthlyData.leaves.filter((row) => row.employmentId === employee.employmentId);
+    const hasMonthlyLeaves = monthlyData.leaves.some((row) => row.employmentId === employee.employmentId);
+    const monthlyLeaves = monthlyData.leaves.filter((row) => row.employmentId === employee.employmentId && employmentDaySet.has(row.leaveDate));
     let leaveDeduction = 0;
     const leaveCalculationParts: PayrollCalculationPart[] = [];
-    if (monthlyLeaves.length) {
+    if (hasMonthlyLeaves) {
       // 月度人工登記的扣款以整數元保存，直接轉成薪資內部的分；給薪比例只作核對資訊。
       for (const leave of monthlyLeaves) {
         const amount = leave.deductionAmount * 100;
@@ -1124,6 +1127,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       for (const leave of leaves.filter((row) => row.employmentId === employee.employmentId)) {
         if (leave.payRatePpm >= PPM) continue;
         for (const day of overlapDays(period.start, period.end, leave.startsOn, leave.endsOn)) {
+          if (!employmentDaySet.has(day)) continue;
           const compensation = covering(employeeCompensations, day);
           if (!compensation) continue;
           const daily = compensation.payBasis === "monthly"
@@ -1136,12 +1140,11 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       }
     }
     if (leaveDeduction > 0) lines.push({ lineKey: "unpaid_leave", direction: "deduction", amountMinor: leaveDeduction, explanation: {
-      rule: monthlyLeaves.length ? "月度人工扣款（整數元）" : "使用請假提交時凍結的 payRatePpm", period: input.periodKey, entryCount: monthlyLeaves.length,
+      rule: hasMonthlyLeaves ? "月度人工扣款（整數元）" : "使用請假提交時凍結的 payRatePpm", period: input.periodKey, entryCount: monthlyLeaves.length,
       calculationParts: leaveCalculationParts, formulaDetail: payrollFormulaTotal(leaveCalculationParts, leaveDeduction),
     } });
 
     const employeeClocks = clocks.filter((row) => row.employmentId === employee.employmentId);
-    const employmentDaySet = new Set(employmentDays);
     const attendanceDays = new Set(employeeClocks.map((row) => taipeiDate(row.occurredAt)).filter((day) => employmentDaySet.has(day)));
     const missingPunchDays = employmentDays.filter((day) => employeeClocks.filter((row) => taipeiDate(row.occurredAt) === day).length === 1);
     const compensationIds = employeeCompensations.filter((row) => row.validFrom < period.end && (row.validTo === null || row.validTo > period.start)).map((row) => row.id);
@@ -1633,8 +1636,8 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
   const settlementMutationCount = annualLeaveSettlementMutations.length;
 
   // 部分結算保持期間 open，讓尚未結算的員工仍可建立另一張試算；每次 claim 都在同一
-  // D1 batch 內完成，並以「所有當期 active 任職都已 claim」決定是否關閉期間，避免
-  // 只拿本次 payslip 數量和 active 人數比較而提早結帳。
+  // D1 batch 內完成，並以「所有當期可計薪的 active／invited 任職都已 claim」決定是否關閉期間，避免
+  // 只拿本次 payslip 數量和可計薪人數比較而提早結帳。
   const mutations = [
     ...annualLeaveSettlementMutations,
     sql`INSERT INTO hr_payroll_closed_employees (period_key, employment_id, payroll_run_id)
@@ -1653,7 +1656,7 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
         AND NOT EXISTS (
           SELECT 1 FROM hr_employments AS employment
           INNER JOIN users AS account ON account.id=employment.employee_user_id
-          WHERE account.status='active' AND employment.archived_at IS NULL
+          WHERE account.status IN ('active', 'invited') AND employment.archived_at IS NULL
             AND coalesce((SELECT service_start_on FROM hr_employment_service_periods WHERE employment_id=employment.id), ${period.start}) < ${period.end}
             AND NOT EXISTS (
               SELECT 1 FROM hr_payroll_closed_employees AS claim

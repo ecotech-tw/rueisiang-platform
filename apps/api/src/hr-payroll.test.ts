@@ -244,6 +244,39 @@ describe("HR 薪資與勞健保", () => {
     expect((await calculated.json() as { run: { employees: unknown[] } }).run.employees).toHaveLength(1);
   });
 
+  it("尚未到職的員工不會阻擋薪資期間結帳", async () => {
+    const db = createDatabase(d1 as never);
+    await db.insert(users).values({ id: "future-employee", email: "future-employee@example.test", displayName: "未到職員工", status: "active" });
+    await assign("2026-01-01");
+    await assignUser("future-employee", "E-FUTURE", "2026-02-01");
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    expect((await request(`/hr/employments/${profile.employments[0]!.id}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 3_000_000 })).status).toBe(201);
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], requestId: "future-employee-does-not-block" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+    expect((await request(`/hr/payroll/runs/${runId}/close`, "POST", {})).status).toBe(200);
+  });
+
+  it("待啟用員工也必須 claim 後才能關閉薪資期間", async () => {
+    const db = createDatabase(d1 as never);
+    await db.insert(users).values({ id: "invited-claim", email: "invited-claim@example.test", displayName: "待啟用員工", status: "invited" });
+    await assign("2026-01-01");
+    await assignUser("invited-claim", "E-INVITED-CLAIM", "2026-01-01");
+    const firstProfile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const secondProfile = await (await request("/hr/employees/invited-claim")).json() as { employments: { id: string }[] };
+    for (const employmentId of [firstProfile.employments[0]!.id, secondProfile.employments[0]!.id]) {
+      expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 3_000_000 })).status).toBe(201);
+    }
+    const first = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], requestId: "invited-claim-first" });
+    expect(first.status, await first.clone().text()).toBe(200);
+    const firstRunId = (await first.json() as { run: { runId: string } }).run.runId;
+    expect((await request(`/hr/payroll/runs/${firstRunId}/close`, "POST", {})).status).toBe(200);
+    const second = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["invited-claim"], requestId: "invited-claim-second" });
+    expect(second.status, await second.clone().text()).toBe(200);
+    const secondRunId = (await second.json() as { run: { runId: string } }).run.runId;
+    expect((await request(`/hr/payroll/runs/${secondRunId}/close`, "POST", {})).status).toBe(200);
+  });
+
   it("部分結算只在所有啟用員工 claim 完成後關閉薪資期間", async () => {
     const db = createDatabase(d1 as never);
     await db.insert(users).values({ id: "employee-two", email: "employee-two@example.test", displayName: "第二位員工", status: "active" });

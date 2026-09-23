@@ -68,8 +68,8 @@ function BasicSection({ profile }: { profile: Profile }) {
 
 function EmploymentTable({ employments }: { employments: Employment[] }) {
   return <>
-    <table className="data-table"><thead><tr><th>員工編號</th><th>職位</th><th>主管</th><th>出勤方式</th><th>狀態</th></tr></thead>
-      <tbody>{employments.map((job) => <tr key={job.id}><td>{job.employeeNumber}</td><td>{job.position}</td><td>{job.supervisorName ?? job.supervisorUserId ?? "未設定"}</td><td>{job.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</td><td>{job.archivedAt ? `已封存（${dateTime(job.archivedAt)}）` : "在職"}</td></tr>)}</tbody></table>
+    <table className="data-table"><thead><tr><th>員工編號</th><th>職位</th><th>主管</th><th>服務年資起算日</th><th>出勤方式</th><th>狀態</th></tr></thead>
+      <tbody>{employments.map((job) => <tr key={job.id}><td>{job.employeeNumber}</td><td>{job.position}</td><td>{job.supervisorName ?? job.supervisorUserId ?? "未設定"}</td><td>{job.serviceStartOn ?? "未設定"}</td><td>{job.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</td><td>{job.archivedAt ? `已封存（${dateTime(job.archivedAt)}）` : "在職"}</td></tr>)}</tbody></table>
     {!employments.length ? <p>尚未建立員工資料。</p> : null}
   </>;
 }
@@ -228,7 +228,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onArchived, canOf
   const reactivateEmployee = () => openEditor({
     title: "重新啟用員工", path: "/employees", method: "POST", successMessage: `已重新啟用 ${data.employee.displayName}`,
     initial: { userId: data.employee.userId, employeeNumber: data.employee.employeeNumber, position: data.employee.position, attendanceMode: "general", revision: data.employee.revision },
-    description: "同一位員工只會保留一筆 hr_employments；重新啟用只會清除 archivedAt，不會建立新的任職版本。",
+    description: "同一位員工只會保留一筆 hr_employments；重新啟用只會清除 archivedAt，服務起算日沿用既有資料。",
     fields: [{ key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }, { key: "attendanceMode", label: "出勤方式", options: [{ id: "general", name: "一般辦公" }, { id: "scheduled", name: "排班" }] }],
   });
   return <>
@@ -281,7 +281,7 @@ export function HrEmployees() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const candidateOptions: NamedOption[] = (candidates.data?.users ?? []).map((candidate) => ({ id: candidate.userId, name: `${candidate.displayName}（${candidate.email}）` }));
   return <div className="page fills">
-    <PageHeader title="員工列表" description="搜尋、篩選與排序員工；升遷與調職直接更新職位，封存只更新 archivedAt 並保留下游歷史。" actions={canWrite ? <Button icon="plus" className="add-action" onClick={() => setEditor({ title: "指派新員工", path: "/employees", method: "POST", successMessage: "已指派新員工", description: "員工必須先存在於平台使用者名單；這會建立唯一的員工主檔與目前職位。", fields: [{ key: "userId", label: "使用者", options: candidateOptions }, { key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }, { key: "attendanceMode", label: "出勤方式", options: [{ id: "general", name: "一般辦公" }, { id: "scheduled", name: "排班" }] }] })}>指派新員工</Button> : null} />
+    <PageHeader title="員工列表" description="搜尋、篩選與排序員工；升遷與調職直接更新職位，封存只更新 archivedAt 並保留下游歷史。" actions={canWrite ? <Button icon="plus" className="add-action" onClick={() => setEditor({ title: "指派新員工", path: "/employees", method: "POST", successMessage: "已指派新員工", description: "員工必須先存在於平台使用者名單；服務年資起算日也會決定薪資計算在職日的下限。", fields: [{ key: "userId", label: "使用者", options: candidateOptions }, { key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }, { key: "serviceStartOn", label: "服務年資起算日", type: "date" }, { key: "attendanceMode", label: "出勤方式", options: [{ id: "general", name: "一般辦公" }, { id: "scheduled", name: "排班" }] }] })}>指派新員工</Button> : null} />
     <Panel className="grows">
       <div className="hr-employment-tabs" role="tablist" aria-label="任職狀態">
         <button type="button" role="tab" aria-selected={filters.employmentStatus === "active"} className={filters.employmentStatus === "active" ? "active" : ""} onClick={() => update({ employmentStatus: "active" })}>在職 <span>{data?.counts.active ?? "—"}</span></button>

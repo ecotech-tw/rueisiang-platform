@@ -5,10 +5,10 @@
 HR 員工是既有平台使用者（`users`）的人事延伸；帳號狀態與員工封存狀態分開管理。
 
 ```text
-users 1 ─── 0..1 hr_employments
+users 1 ─── 0..1 hr_employments 1 ─── 0..1 hr_employment_service_periods
 ```
 
-`hr_employments` 是唯一的員工主檔，也是目前職位的唯一來源：
+`hr_employments` 是唯一的員工主檔，也是目前職位的唯一來源；服務年資起算日另存於 `hr_employment_service_periods.service_start_on`，封存／重新啟用沿用同一筆資料：
 
 | 欄位 | 語意 |
 |---|---|
@@ -20,7 +20,7 @@ users 1 ─── 0..1 hr_employments
 | `id` | 穩定的 `employmentId`，供薪資、出勤、保險、假勤、排班與稽核歷史使用 |
 | `revision` | 一般員工資料異動的競態控制版本 |
 
-升遷、調職不建立任職版本；`hr_compensation_versions` 仍保留自己的敘薪版本控制。封存不物理刪除列，也不刪除任何下游資料。
+服務年資起算日是薪資計算在職日與週年制特休年資的起點，不用來推導目前是否活動；活動條件仍只看 `hr_employments.archived_at IS NULL`。升遷、調職不建立任職版本；`hr_compensation_versions` 仍保留自己的敘薪版本控制。封存不物理刪除列，也不刪除任何下游資料。
 
 ## 2. 核心決策
 
@@ -81,9 +81,10 @@ HRIS
 | 使用者 | 是 | 只能選尚未有活動 `hr_employments` 的 `active`／`invited` User |
 | 員工編號 | 是 | 1～40 字元；活動員工全平台唯一 |
 | 職位 | 是 | 1～100 字元 |
+| 服務年資起算日 | 指派時是 | `YYYY-MM-DD`；薪資月份與此日期有交集才計算薪資 |
 | 出勤方式 | 否 | 未提供時為 `general`；排班與月休另在出勤設定維護 |
 
-重新啟用已封存員工時沿用原列與原 `employmentId`，只清除封存狀態並套用新的員工編號／職位／出勤方式；既有列必須帶目前 `revision`，避免無版本的舊請求覆寫重新啟用資料。
+重新啟用已封存員工時沿用原列、原 `employmentId` 與原服務年資起算日，只清除封存狀態並套用新的員工編號／職位／出勤方式；既有列必須帶目前 `revision`，避免無版本的舊請求覆寫重新啟用資料。
 
 ### 員工內頁
 

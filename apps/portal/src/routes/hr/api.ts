@@ -13,7 +13,7 @@ export interface Employee {
   employmentStatus: "active" | "inactive";
   revision: number;
 }
-export interface Employment { id: string; employeeUserId: string; employeeNumber: string; position: string; supervisorUserId: string | null; supervisorName?: string | null; archivedAt: string | null; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null; revision: number }
+export interface Employment { id: string; employeeUserId: string; employeeNumber: string; position: string; supervisorUserId: string | null; supervisorName?: string | null; serviceStartOn?: string | null; archivedAt: string | null; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null; revision: number }
 export interface Assignment { id: string; employmentId: string; scopeName: string; validFrom: string; validTo: string | null; revision: number }
 export interface AttendanceAssignment {
   id: string;
