@@ -1100,6 +1100,13 @@
       "when": 1790092260480,
       "tag": "0180_drop_legacy_hr_employees",
       "breakpoints": true
+    },
+    {
+      "idx": 181,
+      "version": "6",
+      "when": 1790130753817,
+      "tag": "0181_backfill_hr_employment_attendance_settings",
+      "breakpoints": true
     }
   ]
 }

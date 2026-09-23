@@ -428,7 +428,7 @@ export const hr = new Hono<AppEnv>()
   })
   .get("/me/overtime", async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), c.get("user").id) }))
   .post("/me/overtime", async (c) => c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(await body(c), c.get("user").id), c.get("user")), 201))
-  .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db")) }))
+  .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), undefined, true) }))
   .post("/overtime/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;

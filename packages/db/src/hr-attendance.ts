@@ -205,9 +205,10 @@ export interface HrAttendanceScopeUpdateInput {
 
 /** 出勤方式與多個辦公位置在同一批 mutation 更新，避免只完成一半。 */
 export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUpdateInput, actor: HrActor) {
+  const monthlyRestDays = input.attendanceMode === "general" ? sql`NULL` : sql`${input.monthlyRestDays}`;
   const mutations = [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP
     WHERE id=${input.employmentId} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`,
-    sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${input.monthlyRestDays}, updated_at=CURRENT_TIMESTAMP
+    sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${monthlyRestDays}, updated_at=CURRENT_TIMESTAMP
       WHERE employment_id=${input.employmentId} RETURNING employment_id AS id`];
   const endingAssignmentIds = input.assignmentsToEnd.map((assignment) => assignment.id);
   const endingIdList = endingAssignmentIds.length ? sql`AND id NOT IN (${sql.join(endingAssignmentIds.map((id) => sql`${id}`), sql`, `)})` : sql``;

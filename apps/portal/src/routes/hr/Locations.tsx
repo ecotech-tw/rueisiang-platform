@@ -79,7 +79,7 @@ export function HrAttendanceScopeManagement() {
   const canWrite = permissions.has("hr:office:write");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<LocationEdit | null>(null);
-  const employees = useHrQuery<EmployeeListResponse>(`/employees?page=1&pageSize=100&status=all&search=${encodeURIComponent(search)}&sortField=name&sortDirection=asc`, canRead);
+  const employees = useHrQuery<EmployeeListResponse>(`/employees?page=1&pageSize=100&status=all&employmentStatus=active&search=${encodeURIComponent(search)}&sortField=name&sortDirection=asc`, canRead);
   const locations = useHrQuery<{ locations: AttendanceLocation[] }>("/attendance-settings/locations?active=1", canRead);
   if (!canRead) return <Alert tone="danger">你沒有檢視出勤範圍管理的權限。</Alert>;
   if (employees.isPending || locations.isPending) return <HrPageSkeleton variant="table" />;

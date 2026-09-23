@@ -4,6 +4,7 @@ import { Alert, Button, PageHeader } from "../ui/index.js";
 import { useHrQuery, type Profile as HrProfile } from "./hr/api.js";
 
 function ProfileDetails({ profile }: { profile: HrProfile }) {
+  const assignments = profile.assignments ?? [];
   return <>
     <h2>{profile.employee.employeeNumber} · {profile.employee.displayName}</h2>
     <p className="muted">帳號：{profile.employee.email}；登入狀態：{profile.employee.userStatus === "active" ? "啟用中" : profile.employee.userStatus === "invited" ? "待啟用" : "已停用"}</p>
@@ -14,9 +15,9 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
     {!profile.employments.length ? <p>尚未建立員工資料。</p> : null}
     <h3>營運櫃點歸屬</h3>
     <table className="data-table"><thead><tr><th>櫃點</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
-      {profile.assignments.map((assignment) => <tr key={assignment.id}><td>{assignment.scopeName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}
+      {assignments.map((assignment) => <tr key={assignment.id}><td>{assignment.scopeName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}
     </tbody></table>
-    {!profile.assignments.length ? <p>尚無營運櫃點歸屬。</p> : null}
+    {!assignments.length ? <p>尚無營運櫃點歸屬。</p> : null}
     <h3>辦公位置指派</h3>
     <table className="data-table"><thead><tr><th>辦公位置</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
       {(profile.attendanceAssignments ?? []).map((assignment) => <tr key={assignment.id}><td>{assignment.locationName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}

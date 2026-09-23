@@ -69,6 +69,7 @@ describe("HR 新增式 migration", () => {
       expect(sqlite.prepare("SELECT employee_number, supervisor_user_id, archived_at FROM hr_employments WHERE id='current'").get()).toMatchObject({ employee_number: "E1", supervisor_user_id: "sup", archived_at: null });
       expect(sqlite.prepare("SELECT employee_number, archived_at FROM hr_employments WHERE id='old'").get()).toMatchObject({ employee_number: "E1", archived_at: "2025-12-31" });
       expect(sqlite.prepare("SELECT id, employee_number, archived_at FROM hr_employments WHERE employee_user_id='other'").get()).toMatchObject({ id: "legacy-employment-other", employee_number: "E2", archived_at: null });
+      expect(sqlite.prepare("SELECT employment_id, attendance_mode, monthly_rest_days FROM hr_employment_attendance_settings WHERE employment_id='legacy-employment-other'").get()).toEqual({ employment_id: "legacy-employment-other", attendance_mode: "general", monthly_rest_days: null });
       expect(sqlite.prepare("SELECT employment_id FROM hr_clock_events WHERE id='clock-1'").get()).toEqual({ employment_id: "old" });
       expect(sqlite.prepare("SELECT employment_id FROM hr_payroll_run_employees WHERE payroll_run_id='run-1'").get()).toEqual({ employment_id: "old" });
       expect(sqlite.prepare("SELECT compensation_version_id, amount_basis FROM hr_compensation_items WHERE id='item-1'").get()).toEqual({ compensation_version_id: "comp-1", amount_basis: "monthly" });

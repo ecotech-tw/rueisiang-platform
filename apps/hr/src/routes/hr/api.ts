@@ -23,7 +23,7 @@ export interface AttendanceAssignment {
   validTo: string | null;
   revision: number;
 }
-export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; assignments: Assignment[]; attendanceAssignments?: AttendanceAssignment[] }
+export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[] }
 export interface NamedOption { id: string; name: string }
 export interface Candidate { userId: string; displayName: string; email: string; status: "invited" | "active" }
 export interface AttendanceLocation {

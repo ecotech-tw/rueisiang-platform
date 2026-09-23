@@ -126,7 +126,11 @@ async function saveEntriesAtomically(db: Database, version: { id: string; revisi
   const guard = sql`EXISTS (SELECT 1 FROM hr_schedule_versions WHERE id=${version.id} AND revision=${nextRevision} AND locked_at IS NULL)`;
   const statements = [
     sql`UPDATE hr_schedule_versions SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${version.id} AND revision=${version.revision} AND locked_at IS NULL RETURNING id`,
-    sql`DELETE FROM hr_schedule_entries WHERE schedule_version_id=${version.id} AND ${guard}`,
+    // 已封存員工的排班是歷史快照；只替換仍可編輯的活動員工，避免儲存其他人時連帶刪除歷史。
+    sql`DELETE FROM hr_schedule_entries
+      WHERE schedule_version_id=${version.id}
+        AND EXISTS (SELECT 1 FROM hr_employments AS employment WHERE employment.id=hr_schedule_entries.employment_id AND employment.archived_at IS NULL)
+        AND ${guard}`,
     sql`DELETE FROM hr_schedule_worker_entries WHERE schedule_version_id=${version.id} AND ${guard}`,
     ...entries.map((entry) => entry.personKind === "employee"
       ? sql`INSERT INTO hr_schedule_entries (id, schedule_version_id, employment_id, scope_id, shift_version_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, created_by)
@@ -263,13 +267,13 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
   ]);
   const selectedScopeId = scopeId && scopeId !== "all" ? scopeId : undefined;
   const [employeeEntries, workerEntries] = version ? await Promise.all([
-    db.select({ entry: hrScheduleEntries, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleEntries)
+    db.select({ entry: hrScheduleEntries, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleEntries)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleEntries.employmentId))
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .innerJoin(scopes, eq(scopes.id, hrScheduleEntries.scopeId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleEntries.shiftVersionId))
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrShiftVersions.shiftTemplateId))
-      .where(and(eq(hrScheduleEntries.scheduleVersionId, version.id), sql`${hrEmployments.archivedAt} IS NULL`, selectedScopeId ? eq(hrScheduleEntries.scopeId, selectedScopeId) : undefined)),
+      .where(and(eq(hrScheduleEntries.scheduleVersionId, version.id), selectedScopeId ? eq(hrScheduleEntries.scopeId, selectedScopeId) : undefined)),
     db.select({ entry: hrScheduleWorkerEntries, workerName: hrScheduleWorkers.displayName, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleWorkerEntries)
       .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
       .innerJoin(scopes, eq(scopes.id, hrScheduleWorkerEntries.scopeId))
@@ -291,8 +295,8 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
     employees,
     workers: workerRows,
     entries: [
-      ...employeeEntries.map(({ entry, employeeNumber, employeeName, scopeName, shiftName }) => ({ ...entry, personKind: "employee" as const, employeeNumber, personName: employeeName, scopeName, shiftName })),
-      ...workerEntries.map(({ entry, workerName, scopeName, shiftName }) => ({ ...entry, personKind: "worker" as const, employeeNumber: null, personName: workerName, scopeName, shiftName })),
+      ...employeeEntries.map(({ entry, employeeNumber, employeeName, archivedAt, scopeName, shiftName }) => ({ ...entry, personKind: "employee" as const, employeeNumber, personName: employeeName, archivedAt, scopeName, shiftName })),
+      ...workerEntries.map(({ entry, workerName, scopeName, shiftName }) => ({ ...entry, personKind: "worker" as const, employeeNumber: null, personName: workerName, archivedAt: null, scopeName, shiftName })),
     ],
   };
 }

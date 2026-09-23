@@ -403,6 +403,24 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "測試支援人員", payBasis: "daily", scheduledDays: 2, amountMinor: 960_000 })]));
   });
 
+  it("封存員工的已發布排班可查且不會在儲存其他排班時被刪除", async () => {
+    const scheduleResponse = await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen");
+    expect(scheduleResponse.status, await scheduleResponse.clone().text()).toBe(200);
+    const schedule = await scheduleResponse.json() as { shifts: Array<{ versionId: string }>; version: { id: string; revision: number } | null };
+    expect(schedule.shifts.length).toBeGreaterThan(0);
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [{ personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const savedBody = await saved.json() as { id: string; revision: number };
+    const profile = await (await request("/hr/employees/dev-chen@ecotech.tw")).json() as { employee: { revision: number } };
+    const archived = await request("/hr/employments/dev-employment-chen/archive", "POST", { revision: profile.employee.revision });
+    expect(archived.status, await archived.clone().text()).toBe(200);
+    const history = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { entries: Array<{ employmentId: string; archivedAt: string | null }> };
+    expect(history.entries).toEqual(expect.arrayContaining([expect.objectContaining({ employmentId: "dev-employment-chen", archivedAt: expect.any(String) })]));
+    const updated = await request("/hr/schedules", "POST", { periodKey: "2026-09", scheduleVersionId: savedBody.id, revision: savedBody.revision, entries: [] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_schedule_entries WHERE schedule_version_id=? AND employment_id=?").get(savedBody.id, "dev-employment-chen")).toEqual({ count: 1 });
+  });
+
   it("日薪員工只按已發布排班日期計薪，沒有排班不把整月任職日當成出勤", async () => {
     const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "測試日薪", items: [
       // 月給的職務津貼：日薪員工上幾天班都整月發一次。

@@ -155,7 +155,8 @@ export async function reviewHrFormRequest(db: Database, id: string, reviewerUser
   if (current.employeeUserId === reviewerUserId) throw new HrError(409, "申請人不可審核自己的申請單。");
   if (!allowAny && current.approverUserId !== reviewerUserId) throw new HrError(404, "找不到這份待審核申請單。");
   if (current.status !== "pending") throw new HrError(409, "這份申請單已經完成審核。");
-  const reviewWhere = sql`id=${id} AND status='pending' AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_form_requests.employment_id AND archived_at IS NULL) ${allowAny ? sql`` : sql`AND approver_user_id=${reviewerUserId}`}`;
+  // 封存只阻止新的申請，不阻止核准既有的補打卡歷史；事件仍指向原 employmentId。
+  const reviewWhere = sql`id=${id} AND status='pending' ${allowAny ? sql`` : sql`AND approver_user_id=${reviewerUserId}`}`;
   if (decision === "approved") {
     const eventId = crypto.randomUUID();
     await writeHrMutation(db, [

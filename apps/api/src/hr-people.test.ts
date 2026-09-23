@@ -102,6 +102,42 @@ describe("HR 扁平員工主檔", () => {
     expect(detail.employments[0]).toMatchObject({ id: first.employmentId, employeeNumber: "E002", position: "新職位", archivedAt: null });
   });
 
+  it("活動員工不能透過重新指派路徑改寫，重新啟用一般辦公會清除月休設定", async () => {
+    const first = await assign("self", "E001");
+    expect((await request("/hr/employees", "POST", { userId: "self", employeeNumber: "STALE", position: "不應覆寫", attendanceMode: "general", revision: 1 })).status).toBe(409);
+    const scheduled = await request(`/hr/employments/${first.employmentId}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 8, revision: 1 });
+    expect(scheduled.status, await scheduled.clone().text()).toBe(200);
+    const scheduledProfile = await profile("self");
+    expect((await request(`/hr/employments/${first.employmentId}/archive`, "POST", { revision: scheduledProfile.employments[0]!.revision })).status).toBe(200);
+    const archived = await profile("self");
+    const reactivated = await request("/hr/employees", "POST", { userId: "self", employeeNumber: "E002", position: "新職位", attendanceMode: "general", revision: archived.employments[0]!.revision });
+    expect(reactivated.status, await reactivated.clone().text()).toBe(201);
+    const setting = d1.sqlite.prepare("SELECT attendance_mode, monthly_rest_days FROM hr_employment_attendance_settings WHERE employment_id=?").get(first.employmentId);
+    expect(setting).toEqual({ attendance_mode: "general", monthly_rest_days: null });
+  });
+
+  it("多筆封存任職只出現在一筆員工列，但內頁仍回傳全部歷史", async () => {
+    const first = await assign("self", "E001");
+    const archived = await profile("self");
+    expect((await request(`/hr/employments/${first.employmentId}/archive`, "POST", { revision: archived.employments[0]!.revision })).status).toBe(200);
+    d1.sqlite.prepare("INSERT INTO hr_employments (id, employee_user_id, employee_number, position, archived_at, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run("older", "self", "E000", "舊職位", "2025-01-01 00:00:00", 1, "2025-01-01 00:00:00", "2025-01-01 00:00:00");
+    d1.sqlite.prepare("INSERT INTO hr_clock_events (id, employee_user_id, employment_id, idempotency_key, event_kind, occurred_at) VALUES (?, ?, ?, ?, ?, ?)").run("old-clock", "self", "older", "old-clock-key", "clock_in", "2025-01-02 01:00:00");
+    const listed = await (await request("/hr/employees?employmentStatus=inactive")).json() as { total: number; employees: Array<{ employeeNumber: string }> };
+    expect(listed.total).toBe(1);
+    expect(listed.employees).toHaveLength(1);
+    const detail = await (await request("/hr/employees/self")).json() as { employments: Array<{ id: string }>; attendanceEvents: Array<{ id: string }> };
+    expect(detail.employments.map((employment) => employment.id)).toEqual(expect.arrayContaining([first.employmentId, "older"]));
+    expect(detail.attendanceEvents.map((event) => event.id)).toContain("old-clock");
+  });
+
+  it("主管候選人依明確 exclude 排除目標員工", async () => {
+    await assign("self");
+    await assign("other", "E002", "主管");
+    const candidates = await (await request("/hr/supervisor-candidates?exclude=other")).json() as { users: Array<{ id: string }> };
+    expect(candidates.users.map((candidate) => candidate.id)).toContain("self");
+    expect(candidates.users.map((candidate) => candidate.id)).not.toContain("other");
+  });
+
   it("目前員工編號不可重複，封存後可由另一位員工使用", async () => {
     await assign("self", "DUP-1");
     const duplicate = await request("/hr/employees", "POST", { userId: "other", employeeNumber: "DUP-1", position: "一般職員" });
@@ -124,6 +160,20 @@ describe("HR 扁平員工主檔", () => {
     expect(update.status, await update.clone().text()).toBe(200);
     expect((await profile("self")).employee.supervisorUserId).toBe("other");
     expect((await request("/hr/employees/self/supervisor", "PATCH", { supervisorUserId: "self", revision: (await profile("self")).employments[0]!.revision })).status).toBe(409);
+  });
+
+  it("封存後仍可查看並處理加班與補打卡歷史", async () => {
+    const first = await assign("self", "E001");
+    d1.sqlite.prepare("INSERT INTO hr_overtime_requests (id, employment_id, requested_start, requested_end, settlement_kind, status, rate_ppm, reason, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run("archived-overtime", first.employmentId, "2026-01-02 10:00:00", "2026-01-02 11:00:00", "pay", "pending", 1_333_333, "封存前加班", "self");
+    d1.sqlite.prepare("INSERT INTO hr_form_requests (id, employee_user_id, employment_id, form_kind, status, correction_date, requested_event_kind, requested_at, reason, approver_user_id, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run("archived-form", "self", first.employmentId, "clock_correction", "pending", "2026-01-02", "clock_in", "2026-01-02 01:00:00", "封存前補打卡", "other", "2026-01-02 02:00:00");
+    const beforeArchive = await profile("self");
+    expect((await request(`/hr/employments/${first.employmentId}/archive`, "POST", { revision: beforeArchive.employments[0]!.revision })).status).toBe(200);
+    const overtime = await (await request("/hr/overtime")).json() as { requests: Array<{ request: { id: string } }> };
+    expect(overtime.requests.map(({ request: item }) => item.id)).toContain("archived-overtime");
+    expect((await request("/hr/overtime/archived-overtime/review", "POST", { decision: "rejected", comment: "封存後仍完成審核" })).status).toBe(200);
+    const formRequests = await (await request("/hr/me/form-requests")).json() as { reviewRequests: Array<{ id: string }> };
+    expect(formRequests.reviewRequests.map((item) => item.id)).toContain("archived-form");
+    expect((await request("/hr/me/form-requests/archived-form/review", "POST", { decision: "rejected", comment: "封存後仍完成審核" })).status).toBe(200);
   });
 
   it("非 HR 讀取權限不能讀取員工列表", async () => {

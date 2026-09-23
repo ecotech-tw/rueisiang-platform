@@ -42,6 +42,7 @@ function makeEntry(data: HrScheduleResponse, pick: QuickPick, workDate: string):
     scopeId: pick.scopeId, shiftVersionId: pick.shiftVersionId, workDate, startsAt: "", endsAt: "", standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes,
     employeeNumber: pick.personKind === "employee" ? employee?.employeeNumber ?? null : null,
     personName: pick.personKind === "employee" ? employee?.name ?? "" : worker?.name ?? "",
+    archivedAt: null,
     scopeName: data.scopes.find((scope) => scope.id === pick.scopeId)?.name ?? "", shiftName: shift.name,
   };
 }
@@ -154,10 +155,10 @@ export function HrScheduling() {
     return { employee, activeDays, scheduledDays, restDays, matches: restDays === Math.min(employee.monthlyRestDays!, activeDays) };
   });
   const quickShifts = quick ? data.shifts.filter((shift) => shift.scopeId === quick.scopeId) : [];
-  const quickDays = quick ? new Set(draftEntries.filter((entry) => samePick(entry, quick)).map((entry) => entry.workDate)).size : 0;
+  const quickDays = quick ? new Set(draftEntries.filter((entry) => !entry.archivedAt && samePick(entry, quick)).map((entry) => entry.workDate)).size : 0;
   // 正在排的那個人的月休進度直接放在快速排班條上；否則要回頭在月休統計那一排裡找名字。
   const quickRest = quick?.personKind === "employee" ? restSummaries.find((summary) => summary.employee.employmentId === quick.personId) : undefined;
-  const quickPicked = (day: string) => Boolean(quick && draftEntries.some((entry) => entry.workDate === day && samePick(entry, quick)));
+  const quickPicked = (day: string) => Boolean(quick && draftEntries.some((entry) => !entry.archivedAt && entry.workDate === day && samePick(entry, quick)));
   /*
    * 據點只有上方篩選器這一個來源。快速排班自己再放一個下拉的話，兩邊會各自記一個值：
    * 篩選器切到 B 店、月曆顯示 B 店，點下去的排班卻還是寫進 A 店，而且因為篩選器已經
@@ -176,7 +177,7 @@ export function HrScheduling() {
     // 鎖定的月份不能改草稿：畫面說已鎖定，草稿卻默默變了，解鎖後一按儲存就發布出去。
     if (!quick || !canEdit) return;
     setDraftEntries((current) => {
-      const match = current.find((entry) => entry.workDate === day && samePick(entry, quick));
+      const match = current.find((entry) => !entry.archivedAt && entry.workDate === day && samePick(entry, quick));
       if (match) return current.filter((entry) => entry.id !== match.id);
       const entry = makeEntry(data, quick, day);
       return entry ? [...current, entry] : current;
@@ -199,7 +200,7 @@ export function HrScheduling() {
   const today = taipeiToday();
 
   return <div className="page fills hr-schedule-page">
-    <PageHeader title="排班月曆" description="正式員工依排班出勤；臨時支援排班會納入日薪，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
+    <PageHeader title="排班月曆" description="正式員工依排班出勤；臨時支援排班會納入日薪，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.filter((entry) => !entry.archivedAt).map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
     {restSummaries.length ? <div className="hr-schedule-rest-summary" aria-label="月休統計"><strong>月休統計</strong><div>{restSummaries.map(({ employee, activeDays, scheduledDays, restDays, matches }) => <span className={matches ? "ok" : "warning"} key={employee.employmentId}><b>{employee.name}</b> 休 {restDays}／約定 {employee.monthlyRestDays} 天<span className="muted">（{scheduledDays}／{activeDays} 日）</span></span>)}</div></div> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
     <Panel className="grows hr-calendar-panel">
@@ -247,7 +248,7 @@ export function HrScheduling() {
           <div className="hr-calendar-date" {...(day === today ? { "aria-current": "date" as const } : {})}>{quick
             ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftVersionId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
             : <><strong>{index + 1}</strong>{canEdit ? <button type="button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
-          <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${quick && samePick(entry, quick) ? " current" : ""}`} key={entry.id}><span>{entry.personName}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
+          <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${entry.archivedAt ? " archived" : ""}${quick && !entry.archivedAt && samePick(entry, quick) ? " current" : ""}`} key={entry.id}><span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit && !entry.archivedAt ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
         </div>)}
       </div>
       </div>

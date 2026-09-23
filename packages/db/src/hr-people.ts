@@ -43,7 +43,7 @@ async function write(db: Database, statement: SQL | SQL[], id: string, actor: Hr
     const messages: string[] = [];
     let cause: unknown = error;
     for (let depth = 0; depth < 5 && cause instanceof Error; depth += 1) { messages.push(cause.message); cause = cause.cause; }
-    if (messages.some((message) => /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed|daily_leave_capacity_exceeded|monthly_leave_validation_failed|monthly_hourly_validation_failed|payroll_period_closed|payroll_period_not_ready|payroll_run_closed|payroll_run_snapshot_invalid|bonus_performance_idempotency_required|special_workday_source_server_determined|overtime_rate_server_determined/.test(message))) {
+    if (messages.some((message) => /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed|attendance_monthly_rest_days_invalid|daily_leave_capacity_exceeded|monthly_leave_validation_failed|monthly_hourly_validation_failed|payroll_period_closed|payroll_period_not_ready|payroll_run_closed|payroll_run_snapshot_invalid|bonus_performance_idempotency_required|special_workday_source_server_determined|overtime_rate_server_determined/.test(message))) {
       throw new HrError(409, conflictMessage);
     }
     throw error;
@@ -61,6 +61,11 @@ export async function isHrAdministrator(db: Database, userId: string): Promise<b
 }
 
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
+const supervisorName = sql<string | null>`(
+  SELECT coalesce(nullif(supervisor.display_name, ''), nullif(supervisor.google_name, ''), supervisor.email)
+  FROM users AS supervisor
+  WHERE supervisor.id = ${hrEmployments.supervisorUserId}
+)`;
 
 /** 啟用中或邀請中的帳號可以成為員工；封存狀態則由 hr_employments.archived_at 判定。 */
 export const hrEmployableUser = sql`${users.status} IN ('active', 'invited')`;
@@ -70,6 +75,7 @@ const employeeFields = {
   employeeNumber: hrEmployments.employeeNumber,
   position: hrEmployments.position,
   supervisorUserId: hrEmployments.supervisorUserId,
+  supervisorName,
   archivedAt: hrEmployments.archivedAt,
   displayName,
   email: users.email,
@@ -118,10 +124,22 @@ function employmentStatusExpression() {
   return sql<HrEmploymentStatus>`CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 'active' ELSE 'inactive' END`;
 }
 
+/** 列表以每位 User 的目前列為準；沒有目前列時才退回最近一筆封存歷史。 */
+function canonicalEmploymentCondition() {
+  return sql`${hrEmployments.id} = (
+    SELECT candidate.id
+    FROM hr_employments AS candidate
+    WHERE candidate.employee_user_id = ${hrEmployments.employeeUserId}
+    ORDER BY candidate.archived_at IS NULL DESC, candidate.archived_at DESC, candidate.updated_at DESC, candidate.id DESC
+    LIMIT 1
+  )`;
+}
+
 export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) {
   const activeCondition = employmentActiveCondition();
   const employmentStatusCondition = query.employmentStatus === "active" ? activeCondition : query.employmentStatus === "inactive" ? sql`NOT (${activeCondition})` : undefined;
   const conditions = [
+    canonicalEmploymentCondition(),
     query.status === "all" ? undefined : query.status === "employable" ? hrEmployableUser : eq(users.status, query.status),
     employmentStatusCondition,
     query.search ? or(
@@ -136,8 +154,9 @@ export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) 
   const sortColumn = EMPLOYEE_SORT_COLUMNS[query.sortField];
   const orderColumn = query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn);
   const selectFields = { ...employeeFields, employmentStatus: employmentStatusExpression() };
-  const activeWhere = and(...conditions.filter((condition) => condition !== employmentStatusCondition), activeCondition);
-  const inactiveWhere = and(...conditions.filter((condition) => condition !== employmentStatusCondition), sql`NOT (${activeCondition})`);
+  const baseConditions = conditions.filter((condition) => condition !== employmentStatusCondition);
+  const activeWhere = and(...baseConditions, activeCondition);
+  const inactiveWhere = and(...baseConditions, sql`NOT (${activeCondition})`);
   const [employees, [totalRow], [activeRow], [inactiveRow]] = await Promise.all([
     db.select(selectFields).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .where(where).orderBy(orderColumn, asc(hrEmployments.employeeNumber), asc(hrEmployments.employeeUserId))
@@ -166,39 +185,33 @@ export interface HrEmployeeDetailOptions {
   includeEmploymentActions?: boolean;
 }
 
-async function currentEmployment(db: Database, userId: string) {
-  const [row] = await db.select({ employment: hrEmployments, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays })
+async function employmentRows(db: Database, userId: string) {
+  return db.select({ employment: hrEmployments, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays })
     .from(hrEmployments).leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
     .where(eq(hrEmployments.employeeUserId, userId))
-    .orderBy(sql`${hrEmployments.archivedAt} IS NULL DESC`, desc(hrEmployments.updatedAt))
-    .limit(1);
-  return row;
+    .orderBy(sql`${hrEmployments.archivedAt} IS NULL DESC`, desc(hrEmployments.archivedAt), desc(hrEmployments.updatedAt), desc(hrEmployments.id));
 }
 
 export async function getHrEmployee(db: Database, userId: string, options: HrEmployeeDetailOptions = {}) {
-  const row = await currentEmployment(db, userId);
+  const rows = await employmentRows(db, userId);
+  const row = rows[0];
   if (!row) throw new HrError(404, "此使用者尚未被指派為員工。");
-  const employee = {
-    ...employeeFields,
-    userId: row.employment.employeeUserId,
-    employeeNumber: row.employment.employeeNumber,
-    position: row.employment.position,
-    supervisorUserId: row.employment.supervisorUserId,
-    archivedAt: row.employment.archivedAt,
-    displayName: undefined as unknown as string,
-    email: "",
-    userStatus: "active" as string,
-  };
+  const current = row.employment;
+  const employmentIds = rows.map(({ employment }) => employment.id);
+  const supervisorIds = [...new Set(rows.map(({ employment }) => employment.supervisorUserId).filter((id): id is string => Boolean(id)))];
+  const supervisorRows = supervisorIds.length ? await db.select({ id: users.id, name: displayName }).from(users).where(inArray(users.id, supervisorIds)) : [];
+  const supervisorNames = new Map(supervisorRows.map((supervisor) => [supervisor.id, supervisor.name]));
   const [account] = await db.select({ displayName, email: users.email, userStatus: users.status }).from(users).where(eq(users.id, userId)).limit(1);
-  const [supervisor] = row.employment.supervisorUserId
-    ? await db.select({ displayName }).from(users).where(eq(users.id, row.employment.supervisorUserId)).limit(1)
-    : [];
-  const employment = { ...row.employment, attendanceMode: row.attendanceMode ?? "general", monthlyRestDays: row.monthlyRestDays };
-  const employmentId = row.employment.id;
+  const employments = rows.map(({ employment, attendanceMode, monthlyRestDays }) => ({
+    ...employment,
+    supervisorName: employment.supervisorUserId ? supervisorNames.get(employment.supervisorUserId) ?? null : null,
+    attendanceMode: attendanceMode ?? "general" as const,
+    monthlyRestDays,
+  }));
   const assignments = options.includeScopeAssignments === false ? undefined : await db.select({
     id: hrEmployeeScopes.id, employmentId: hrEmployeeScopes.employmentId, scopeId: hrEmployeeScopes.scopeId,
     scopeName: scopes.name, validFrom: hrEmployeeScopes.validFrom, validTo: hrEmployeeScopes.validTo, revision: hrEmployeeScopes.revision,
-  }).from(hrEmployeeScopes).innerJoin(scopes, eq(scopes.id, hrEmployeeScopes.scopeId)).where(eq(hrEmployeeScopes.employmentId, employmentId)).orderBy(asc(hrEmployeeScopes.validFrom));
+  }).from(hrEmployeeScopes).innerJoin(scopes, eq(scopes.id, hrEmployeeScopes.scopeId)).where(inArray(hrEmployeeScopes.employmentId, employmentIds)).orderBy(asc(hrEmployeeScopes.validFrom), asc(hrEmployeeScopes.employmentId));
   const attendanceAssignments = await db.select({
     id: hrEmployeeAttendanceLocations.id, employmentId: hrEmployeeAttendanceLocations.employmentId,
     locationId: hrEmployeeAttendanceLocations.locationId, locationName: hrAttendanceLocations.name,
@@ -206,46 +219,46 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     revision: hrEmployeeAttendanceLocations.revision,
   }).from(hrEmployeeAttendanceLocations)
     .innerJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrEmployeeAttendanceLocations.locationId))
-    .where(eq(hrEmployeeAttendanceLocations.employmentId, employmentId)).orderBy(asc(hrEmployeeAttendanceLocations.validFrom));
-  const [attendanceSettings] = await db.select({ primaryAssignmentId: hrEmploymentAttendanceSettings.primaryAssignmentId })
-    .from(hrEmploymentAttendanceSettings).where(eq(hrEmploymentAttendanceSettings.employmentId, employmentId)).limit(1);
-  const primaryByEmployment = attendanceSettings?.primaryAssignmentId ?? null;
-  const withPrimary = attendanceAssignments.map((assignment) => ({ ...assignment, isPrimary: primaryByEmployment === assignment.id }));
+    .where(inArray(hrEmployeeAttendanceLocations.employmentId, employmentIds)).orderBy(asc(hrEmployeeAttendanceLocations.validFrom), asc(hrEmployeeAttendanceLocations.employmentId));
+  const attendanceSettings = await db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, primaryAssignmentId: hrEmploymentAttendanceSettings.primaryAssignmentId })
+    .from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, employmentIds));
+  const primaryAssignmentIds = new Set(attendanceSettings.map(({ primaryAssignmentId }) => primaryAssignmentId).filter((id): id is string => Boolean(id)));
+  const withPrimary = attendanceAssignments.map((assignment) => ({ ...assignment, isPrimary: primaryAssignmentIds.has(assignment.id) }));
   const compensationRows = options.includeCompensation ? await db.select({
     id: hrCompensationVersions.id, employmentId: hrCompensationVersions.employmentId, versionNumber: hrCompensationVersions.versionNumber,
     validFrom: hrCompensationVersions.validFrom, validTo: hrCompensationVersions.validTo, payBasis: hrCompensationVersions.payBasis,
     baseAmountMinor: hrCompensationVersions.baseAmountMinor, note: hrCompensationVersions.note, voidedAt: hrCompensationVersions.voidedAt, voidedBy: hrCompensationVersions.voidedBy,
     createdAt: hrCompensationVersions.createdAt, createdBy: hrCompensationVersions.createdBy,
-  }).from(hrCompensationVersions).where(eq(hrCompensationVersions.employmentId, employmentId)).orderBy(desc(hrCompensationVersions.validFrom)) : undefined;
+  }).from(hrCompensationVersions).where(inArray(hrCompensationVersions.employmentId, employmentIds)).orderBy(desc(hrCompensationVersions.validFrom)) : undefined;
   const compensationItems = compensationRows?.length ? await db.select().from(hrCompensationItems).where(inArray(hrCompensationItems.compensationVersionId, compensationRows.map((item) => item.id))) : [];
   const insuranceRows = options.includeInsurance ? await db.select({
     id: hrInsuranceVersions.id, employmentId: hrInsuranceVersions.employmentId, scheme: hrInsuranceVersions.scheme, versionNumber: hrInsuranceVersions.versionNumber,
     status: hrInsuranceVersions.status, validFrom: hrInsuranceVersions.validFrom, validTo: hrInsuranceVersions.validTo, insuredAmountMinor: hrInsuranceVersions.insuredAmountMinor,
     dependentCount: hrInsuranceVersions.dependentCount, rateYear: hrInsuranceVersions.rateYear, sourceKind: hrInsuranceVersions.sourceKind, sourceUrl: hrInsuranceVersions.sourceUrl,
     note: hrInsuranceVersions.note, createdAt: hrInsuranceVersions.createdAt, createdBy: hrInsuranceVersions.createdBy,
-  }).from(hrInsuranceVersions).where(eq(hrInsuranceVersions.employmentId, employmentId)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
+  }).from(hrInsuranceVersions).where(inArray(hrInsuranceVersions.employmentId, employmentIds)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
   const leaveRows = options.includeLeave ? await db.select({
     id: hrLeaveRequests.id, employmentId: hrLeaveRequests.employmentId, leaveType: hrLeaveRequests.leaveType, status: hrLeaveRequests.status,
     startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn, durationMinutes: hrLeaveRequests.durationMinutes, payRatePpm: hrLeaveRequests.payRatePpm,
     reason: hrLeaveRequests.reason, reviewedBy: hrLeaveRequests.reviewedBy, reviewedAt: hrLeaveRequests.reviewedAt,
     reviewComment: hrLeaveRequests.reviewComment, createdAt: hrLeaveRequests.createdAt, createdBy: hrLeaveRequests.createdBy,
-  }).from(hrLeaveRequests).where(eq(hrLeaveRequests.employmentId, employmentId)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
+  }).from(hrLeaveRequests).where(inArray(hrLeaveRequests.employmentId, employmentIds)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
   const compensation = compensationRows?.map((item) => ({ ...item, items: compensationItems.filter((child) => child.compensationVersionId === item.id) }));
   const attendanceEvents = options.includeAttendanceEvents ? await db.select({
     id: hrClockEvents.id, eventKind: hrClockEvents.eventKind, occurredAt: hrClockEvents.occurredAt,
     locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`, distanceMeters: hrClockEvents.distanceMeters,
   }).from(hrClockEvents)
     .leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
-    .where(eq(hrClockEvents.employmentId, employmentId)).orderBy(desc(hrClockEvents.occurredAt)).limit(200) : undefined;
+    .where(inArray(hrClockEvents.employmentId, employmentIds)).orderBy(desc(hrClockEvents.occurredAt)).limit(200) : undefined;
   const employeeRecord = {
-    userId: employee.userId, employeeNumber: employee.employeeNumber, position: employee.position, supervisorUserId: employee.supervisorUserId,
-    archivedAt: employee.archivedAt, revision: row.employment.revision, displayName: account?.displayName ?? userId, email: account?.email ?? "", userStatus: account?.userStatus ?? "disabled",
-    employmentStatus: employee.archivedAt === null ? "active" as const : "inactive" as const,
-    supervisorName: supervisor?.displayName ?? null,
+    userId: current.employeeUserId, employeeNumber: current.employeeNumber, position: current.position, supervisorUserId: current.supervisorUserId,
+    archivedAt: current.archivedAt, revision: current.revision, displayName: account?.displayName ?? userId, email: account?.email ?? "", userStatus: account?.userStatus ?? "disabled",
+    employmentStatus: current.archivedAt === null ? "active" as const : "inactive" as const,
+    supervisorName: current.supervisorUserId ? supervisorNames.get(current.supervisorUserId) ?? null : null,
   };
   return {
     employee: employeeRecord,
-    employments: [employment],
+    employments,
     ...(assignments ? { assignments } : {}), attendanceAssignments: withPrimary,
     ...(compensation ? { compensation } : {}), ...(insuranceRows ? { insurance: insuranceRows } : {}), ...(leaveRows ? { leave: leaveRows } : {}),
     ...(attendanceEvents ? { attendanceEvents } : {}),
@@ -268,14 +281,28 @@ export async function listHrScopes(db: Database) {
 }
 
 export async function assignHrEmployee(db: Database, input: { userId: string; employeeNumber: string; position: string; attendanceMode: "general" | "scheduled"; revision?: number }, actor: HrActor) {
-  const existing = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(eq(hrEmployments.employeeUserId, input.userId)).orderBy(desc(hrEmployments.updatedAt)).limit(1);
-  if (existing.length && input.revision === undefined) throw new HrError(409, "重新啟用或修改既有員工需要 revision，請重新整理後再試。");
-  const employmentId = existing[0]?.id ?? crypto.randomUUID();
+  const [existing] = await db.select({ id: hrEmployments.id, archivedAt: hrEmployments.archivedAt }).from(hrEmployments)
+    .where(eq(hrEmployments.employeeUserId, input.userId))
+    .orderBy(sql`${hrEmployments.archivedAt} IS NULL DESC`, desc(hrEmployments.archivedAt), desc(hrEmployments.updatedAt), desc(hrEmployments.id))
+    .limit(1);
+  if (existing?.archivedAt === null) throw new HrError(409, "員工目前已在職，請改用編輯員工資料或出勤設定。 ");
+  if (existing && input.revision === undefined) throw new HrError(409, "重新啟用或修改既有員工需要 revision，請重新整理後再試。 ");
+  const employmentId = existing?.id ?? crypto.randomUUID();
   const revisionGuard = input.revision === undefined ? sql`` : sql` AND revision=${input.revision}`;
-  const mutations: SQL[] = existing.length
-    ? [sql`UPDATE hr_employments SET employee_number=${input.employeeNumber}, position=${input.position}, archived_at=NULL, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${employmentId}${revisionGuard} RETURNING id`, sql`INSERT INTO hr_employment_attendance_settings (employment_id, attendance_mode) VALUES (${employmentId}, ${input.attendanceMode}) ON CONFLICT (employment_id) DO UPDATE SET attendance_mode=excluded.attendance_mode RETURNING employment_id AS id`]
-    : [sql`INSERT INTO hr_employments (id, employee_user_id, employee_number, position) SELECT ${employmentId}, id, ${input.employeeNumber}, ${input.position} FROM users WHERE id=${input.userId} AND status IN ('active', 'invited') RETURNING id`, sql`INSERT INTO hr_employment_attendance_settings (employment_id, attendance_mode) VALUES (${employmentId}, ${input.attendanceMode}) RETURNING employment_id AS id`];
-  await write(db, mutations, employmentId, actor, "employee_assigned", "無法指派員工，資料可能已變更或已存在。", { allowEmptyMutationIndexes: new Set([1]), activity: { payload: { employmentId, userId: input.userId }, summary: "員工已指派" } });
+  const attendanceSettings = sql`INSERT INTO hr_employment_attendance_settings (employment_id, attendance_mode)
+    VALUES (${employmentId}, ${input.attendanceMode})
+    ON CONFLICT (employment_id) DO UPDATE SET
+      attendance_mode=excluded.attendance_mode,
+      monthly_rest_days=CASE WHEN excluded.attendance_mode='general' THEN NULL ELSE hr_employment_attendance_settings.monthly_rest_days END,
+      updated_at=CURRENT_TIMESTAMP
+    RETURNING employment_id AS id`;
+  const mutations: SQL[] = existing
+    ? [sql`UPDATE hr_employments SET employee_number=${input.employeeNumber}, position=${input.position}, archived_at=NULL, revision=revision+1, updated_at=CURRENT_TIMESTAMP
+        WHERE id=${employmentId} AND archived_at IS NOT NULL${revisionGuard} RETURNING id`, attendanceSettings]
+    : [sql`INSERT INTO hr_employments (id, employee_user_id, employee_number, position)
+        SELECT ${employmentId}, id, ${input.employeeNumber}, ${input.position} FROM users
+        WHERE id=${input.userId} AND status IN ('active', 'invited') RETURNING id`, attendanceSettings];
+  await write(db, mutations, employmentId, actor, "employee_assigned", "無法指派員工，資料可能已變更或已存在。", { activity: { payload: { employmentId, userId: input.userId }, summary: "員工已指派" } });
   return { id: input.userId, employmentId };
 }
 
@@ -298,12 +325,13 @@ export function updateHrEmploymentPosition(db: Database, id: string, input: { po
 }
 
 export function archiveHrEmployment(db: Database, id: string, revision: number, actor: HrActor) {
-  // 封存只改變 archived_at；revision 是並行控制用的 metadata，必須同步前進以失效舊的重新啟用請求。
-  return write(db, sql`UPDATE hr_employments SET archived_at=CURRENT_TIMESTAMP, revision=revision+1 WHERE id=${id} AND revision=${revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_archived", "員工不存在、已封存或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id }, summary: "員工已封存" } });
+  // 封存不改寫業務資料，但 updated_at 要跟著前進，讓多筆封存歷史能按最近一次狀態穩定選取。
+  return write(db, sql`UPDATE hr_employments SET archived_at=CURRENT_TIMESTAMP, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_archived", "員工不存在、已封存或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id }, summary: "員工已封存" } });
 }
 
 export function updateHrEmploymentAttendanceMode(db: Database, id: string, input: { attendanceMode: "general" | "scheduled"; monthlyRestDays: number | null | undefined; revision: number }, actor: HrActor) {
-  return write(db, [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${input.monthlyRestDays === undefined ? sql`monthly_rest_days` : input.monthlyRestDays}, updated_at=CURRENT_TIMESTAMP WHERE employment_id=${id} RETURNING employment_id AS id`], id, actor, "employment_attendance_mode_updated", "員工不存在、已封存、版本已過期或出勤設定不存在，請重新整理後再試。");
+  const monthlyRestDays = input.attendanceMode === "general" ? sql`NULL` : input.monthlyRestDays === undefined ? sql`monthly_rest_days` : sql`${input.monthlyRestDays}`;
+  return write(db, [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${monthlyRestDays}, updated_at=CURRENT_TIMESTAMP WHERE employment_id=${id} RETURNING employment_id AS id`], id, actor, "employment_attendance_mode_updated", "員工不存在、已封存、版本已過期或出勤設定不存在，請重新整理後再試。");
 }
 
 export function createHrAssignment(db: Database, input: { employmentId: string; scopeId: string; validFrom: string; validTo: string | null }, actor: HrActor) {
