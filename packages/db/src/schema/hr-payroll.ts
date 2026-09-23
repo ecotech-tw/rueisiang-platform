@@ -33,7 +33,6 @@ export const hrCompensationVersions = sqliteTable("hr_compensation_versions", {
 ]);
 
 /** 勞保與健保分開留存；每次加保、退保或級距變更都是不可覆寫的版本。 */
-/** 沒有平台帳號的排班支援人員也需要薪資版本；目前主要使用日薪。 */
 export const hrCompensationItems = sqliteTable("hr_compensation_items", {
   id: text("id").primaryKey(),
   compensationVersionId: text("compensation_version_id").notNull().references(() => hrCompensationVersions.id, { onDelete: "restrict" }),
@@ -62,6 +61,7 @@ export const hrCompensationItems = sqliteTable("hr_compensation_items", {
   check("ck_hr_compensation_items_flags", sql`${table.includeOvertime} IN (0, 1) AND ${table.includeInsurance} IN (0, 1) AND ${table.includeTax} IN (0, 1)`),
 ]);
 
+/** 沒有平台帳號的排班支援人員也需要薪資版本；新版本可選日薪或時薪，monthly 僅保留給既有歷史資料。 */
 export const hrWorkerCompensationVersions = sqliteTable("hr_worker_compensation_versions", {
   id: text("id").primaryKey(),
   workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),

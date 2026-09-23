@@ -566,17 +566,31 @@ export async function updateHrScheduleWorker(db: Database, id: string, input: { 
   return { id, revision: results[0]?.results?.length ? input.revision + 1 : input.revision };
 }
 
-export async function createHrWorkerCompensation(db: Database, input: { workerId: string; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; note: string }, actor: HrActor) {
+export type HrWorkerPayBasis = "daily" | "hourly";
+
+export async function createHrWorkerCompensation(db: Database, input: { workerId: string; validFrom: string; validTo: string | null; payBasis: HrWorkerPayBasis; baseAmountMinor: number; note: string }, actor: HrActor) {
+  if (input.payBasis !== "daily" && input.payBasis !== "hourly") throw new HrError(400, "支援人員敘薪方式只能是日薪或時薪。 ");
   if (!LOCAL_DATE.test(input.validFrom) || (input.validTo !== null && !LOCAL_DATE.test(input.validTo)) || (input.validTo !== null && input.validTo <= input.validFrom) || !Number.isSafeInteger(input.baseAmountMinor) || input.baseAmountMinor < 0) throw new HrError(400, "支援人員敘薪資料不正確。 ");
   const [worker] = await db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(eq(hrScheduleWorkers.id, input.workerId)).limit(1);
   if (!worker) throw new HrError(404, "找不到支援人員。 ");
-  const overlap = await db.select({ id: hrWorkerCompensationVersions.id }).from(hrWorkerCompensationVersions).where(and(eq(hrWorkerCompensationVersions.workerId, input.workerId), sql`${hrWorkerCompensationVersions.validFrom} < ${input.validTo ?? "9999-12-31"} AND (${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.validFrom})`)).limit(1);
+  const [[latest], [latestVersionNumber]] = await Promise.all([
+    db.select({ id: hrWorkerCompensationVersions.id, validFrom: hrWorkerCompensationVersions.validFrom, validTo: hrWorkerCompensationVersions.validTo, versionNumber: hrWorkerCompensationVersions.versionNumber }).from(hrWorkerCompensationVersions)
+      .where(eq(hrWorkerCompensationVersions.workerId, input.workerId))
+      .orderBy(desc(hrWorkerCompensationVersions.validFrom), desc(hrWorkerCompensationVersions.versionNumber)).limit(1),
+    db.select({ value: sql<number>`coalesce(max(${hrWorkerCompensationVersions.versionNumber}), 0)` }).from(hrWorkerCompensationVersions).where(eq(hrWorkerCompensationVersions.workerId, input.workerId)),
+  ]);
+  const closePrevious = latest && latest.validTo === null && latest.validFrom < input.validFrom ? latest : undefined;
+  const overlap = await db.select({ id: hrWorkerCompensationVersions.id }).from(hrWorkerCompensationVersions).where(and(
+    eq(hrWorkerCompensationVersions.workerId, input.workerId),
+    closePrevious ? sql`${hrWorkerCompensationVersions.id} <> ${closePrevious.id}` : undefined,
+    sql`${hrWorkerCompensationVersions.validFrom} < ${input.validTo ?? "9999-12-31"} AND (${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.validFrom})`,
+  )).limit(1);
   if (overlap.length) throw new HrError(409, "敘薪生效期間與既有版本重疊。 ");
-  const [latest] = await db.select({ value: sql<number>`coalesce(max(${hrWorkerCompensationVersions.versionNumber}), 0)` }).from(hrWorkerCompensationVersions).where(eq(hrWorkerCompensationVersions.workerId, input.workerId));
   const id = crypto.randomUUID();
-  const versionNumber = Number(latest?.value ?? 0) + 1;
+  const versionNumber = Number(latestVersionNumber?.value ?? 0) + 1;
   const row = activityRow({ entityType: "hr_schedule", entityId: input.workerId, source: "hr", eventType: "worker_compensation_created", summary: "支援人員敘薪已建立", actor });
   await runRawBatch(db, compileStatements([
+    ...(closePrevious ? [sql`UPDATE hr_worker_compensation_versions SET valid_to=${input.validFrom} WHERE id=${closePrevious.id} AND valid_to IS NULL AND valid_from < ${input.validFrom} RETURNING id`] : []),
     sql`INSERT INTO hr_worker_compensation_versions (id, worker_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, note, created_by) VALUES (${id}, ${input.workerId}, ${versionNumber}, ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${input.note}, ${actor.id}) RETURNING id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
   ]), false);

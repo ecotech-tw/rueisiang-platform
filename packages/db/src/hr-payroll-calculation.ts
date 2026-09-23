@@ -269,8 +269,14 @@ function splitOvertimeByTaipeiDate(start: string, end: string): Array<{ date: st
   }
   return result;
 }
-function scheduledHours(row: { standardMinutes?: number | null; startsAt: string; endsAt: string }) {
-  return Number.isInteger(row.standardMinutes) ? (row.standardMinutes as number) / 60 : secondsBetween(row.startsAt, row.endsAt) / 3600;
+function scheduledHours(row: { standardMinutes?: number | null; breakMinutes?: number | null; startsAt: string; endsAt: string }) {
+  const spanMinutes = secondsBetween(row.startsAt, row.endsAt) / 60;
+  if (!spanMinutes) return 0;
+  // standardMinutes 是發布排班時的計薪分鐘快照；休息不能讓計薪時數超過「時段扣休息」的上限。
+  const breakMinutes = Number.isInteger(row.breakMinutes) ? Math.max(0, row.breakMinutes as number) : 0;
+  const maximumPayableMinutes = Math.max(0, spanMinutes - breakMinutes);
+  const configuredMinutes = Number.isInteger(row.standardMinutes) ? Math.max(0, row.standardMinutes as number) : maximumPayableMinutes;
+  return Math.min(configuredMinutes, maximumPayableMinutes) / 60;
 }
 
 function taipeiDate(value: string): string {
@@ -587,7 +593,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleEntries.workDate} >= ${period.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
     ));
-  const scheduledWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes }).from(hrScheduleWorkerEntries)
+  const scheduledWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes }).from(hrScheduleWorkerEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
     .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
     .where(and(
@@ -757,7 +763,14 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const hours = dateRows.reduce((sum, row) => sum + scheduledHours(row), 0);
         if (!hours) calculationWarnings.add(`${workerName} 的特殊上班日 ${date} 缺少工時資料，薪資列為異常且不自動補 0。`);
         else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) amountMinor += Math.round(special.fixedAmountMinorSnapshot * hours);
-        else if (special.multiplierPpmSnapshot !== null) amountMinor += Math.floor((compensation.payBasis === "monthly" ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays) : compensation.baseAmountMinor) * special.multiplierPpmSnapshot / PPM);
+        else if (special.multiplierPpmSnapshot !== null) {
+          const baseAmount = compensation.payBasis === "monthly"
+            ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
+            : compensation.payBasis === "hourly"
+              ? Math.round(compensation.baseAmountMinor * hours)
+              : compensation.baseAmountMinor;
+          amountMinor += Math.floor(baseAmount * special.multiplierPpmSnapshot / PPM);
+        }
         if (special.allowanceQuantity) amountMinor += (JSON.parse(special.allowanceSnapshotJson) as Array<{ unitAmountMinor: number }>).reduce((sum, item) => sum + item.unitAmountMinor * special.allowanceQuantity, 0);
       } else if (compensation.payBasis === "monthly") {
         amountMinor += Math.floor(compensation.baseAmountMinor / monthlyDivisorDays);
@@ -805,7 +818,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           const entry = monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day);
           hours = entry && !entry.noWork ? entry.hoursHalfUnits / 2 : 0;
         } else if (special.workSourceSnapshot === "schedule") {
-          const scheduleRows = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes }).from(hrScheduleEntries)
+          const scheduleRows = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes }).from(hrScheduleEntries)
             .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
             .where(and(eq(hrScheduleEntries.employmentId, employee.employmentId), eq(hrScheduleEntries.workDate, day), eq(hrScheduleVersions.status, "published"), eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end), sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`));
           hours = scheduleRows.reduce((sum, row) => sum + scheduledHours(row), 0);

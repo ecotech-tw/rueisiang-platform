@@ -200,7 +200,8 @@ export interface ScheduleEmployee { employmentId: string; userId: string; employ
 export interface ScheduleWorker { id: string; name: string; active: boolean | number }
 export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; workDate: string; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; employeeNumber: string | null; personName: string; archivedAt: string | null; scopeName: string; shiftName: string }
 export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; calendar: HrCalendarDay[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
-export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; note: string }
+export type SupportWorkerPayBasis = "daily" | "hourly";
+export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | SupportWorkerPayBasis; baseAmountMinor: number; note: string }
 export interface ScheduleWorkerRecord { id: string; displayName: string; active: boolean | number; revision: number; compensation: WorkerCompensation[] }
 export interface ScheduleWorkerPageResponse { workers: ScheduleWorkerRecord[]; total: number; page: number; pageSize: number; hasMore: boolean }
 

@@ -275,7 +275,7 @@ function PayrollLineDetail({ line }: { line: PayrollLine }) {
 }
 
 function workerFormula(worker: PayrollRun["workers"][number]): string {
-  const basis = worker.payBasis === "monthly" ? "月薪 ÷ 30 天" : worker.payBasis === "hourly" ? "時薪 × 班表工時" : worker.payBasis === "mixed" ? "各敘薪版本分段計算" : "日薪 × 天數";
+  const basis = worker.payBasis === "monthly" ? "月薪 ÷ 30 天" : worker.payBasis === "hourly" ? "時薪 ×（排班時數 − 休息時間）" : worker.payBasis === "mixed" ? "各敘薪版本分段計算" : "日薪 × 排班日期";
   return `${basis}，依已發布排班 ${worker.scheduledDays} 天與有效敘薪計算 = ${money(worker.amountMinor)}`;
 }
 
