@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormHTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./Button.js";
-import { DialogContext } from "./dialog-context.js";
+import { DialogContext, type DialogCloseRef } from "./dialog-context.js";
 
 interface DialogProps {
   title: ReactNode;
@@ -12,6 +12,8 @@ interface DialogProps {
   backdropClassName?: string;
   bodyClassName?: string;
   onClose?: () => void;
+  /** 非 actions 的非同步 callback 要關閉 Dialog 時，也必須走同一個退場流程。 */
+  closeRequestRef?: DialogCloseRef;
   closeDisabled?: boolean;
   showClose?: boolean;
   closeLabel?: string;
@@ -36,6 +38,7 @@ export function Dialog({
   backdropClassName = "",
   bodyClassName = "",
   onClose,
+  closeRequestRef,
   closeDisabled = false,
   showClose = true,
   closeLabel = "關閉",
@@ -46,6 +49,7 @@ export function Dialog({
   const [closing, setClosing] = useState(false);
   const closingRef = useRef(false);
   const closeTimerRef = useRef<number | null>(null);
+  const closeAfterRef = useRef<(() => void) | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -53,27 +57,46 @@ export function Dialog({
    * 元件是由 page 的條件 render 控制，直接呼叫 onClose 會讓 DOM 立刻卸載，
    * CSS 還沒來得及播退場就消失。先留在畫面上跑完 180ms，再交回 page 收掉。
    */
-  const requestClose = useCallback(() => {
+  const requestClose = useCallback((force = false, afterClose?: () => void) => {
     const close = onCloseRef.current;
-    if (closingRef.current || closeDisabled || !close) return;
+    if (closingRef.current || (!force && closeDisabled) || !close) return;
 
     closingRef.current = true;
+    closeAfterRef.current = afterClose ?? null;
     const reducedMotion = typeof window === "undefined"
       || (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     if (reducedMotion) {
+      closeAfterRef.current = null;
       close();
+      afterClose?.();
       return;
     }
 
     setClosing(true);
     closeTimerRef.current = window.setTimeout(() => {
       closeTimerRef.current = null;
+      const finish = closeAfterRef.current;
+      closeAfterRef.current = null;
       onCloseRef.current?.();
+      finish?.();
     }, DIALOG_EXIT_DURATION_MS);
   }, [closeDisabled]);
 
+  // 非同步成功 callback 可能在 mutation 的 isPending 尚未翻成 false 時執行，
+  // 所以 ref 是明確的程式關閉路徑，仍播退場但不受手動關閉鎖定影響。
+  const forceClose = useCallback((afterClose?: () => void) => requestClose(true, afterClose), [requestClose]);
+
+  useEffect(() => {
+    if (!closeRequestRef) return;
+    closeRequestRef.current = forceClose;
+    return () => {
+      if (closeRequestRef.current === forceClose) closeRequestRef.current = null;
+    };
+  }, [closeRequestRef, forceClose]);
+
   useEffect(() => () => {
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    closeAfterRef.current = null;
   }, []);
 
   const cardClassName = ["modal-card", className, closing ? "closing" : ""].filter(Boolean).join(" ");
@@ -92,7 +115,7 @@ export function Dialog({
   const actionFooter = actions ? <div className="modal-actions">{actions}</div> : null;
 
   const dialog = (
-    <DialogContext.Provider value={{ onClose, requestClose }}>
+    <DialogContext.Provider value={{ onClose, requestClose: () => requestClose() }}>
       <div
         className={backdropClassNameValue}
         role="presentation"
@@ -115,7 +138,7 @@ export function Dialog({
             <Button
               variant="icon"
               icon="close"
-              onClick={requestClose}
+              onClick={() => requestClose()}
               disabled={closeDisabled || closing}
               title={closeLabel}
               aria-label={closeLabel}

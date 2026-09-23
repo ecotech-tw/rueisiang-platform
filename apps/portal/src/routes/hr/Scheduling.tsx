@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -116,13 +116,14 @@ function ScheduleEntryDialog({ data, day, dayType, defaultScopeId, onAdd, onClos
   }, [templates, dayType]);
   useEffect(() => { setPersonId(personKind === "employee" ? data.employees[0]?.employmentId ?? "" : data.workers[0]?.id ?? ""); }, [personKind, data.employees, data.workers]);
   const selectedShift = shifts.find((shift) => shift.versionId === shiftVersionId);
-  return <Dialog title={`${day} 新增排班`} onClose={onClose} formProps={{ onSubmit: (event) => {
+  const closeRequestRef = useRef<(() => void) | null>(null);
+  return <Dialog title={`${day} 新增排班`} onClose={onClose} closeRequestRef={closeRequestRef} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     if (!selectedShift) return;
     const entry = makeEntry(data, { personKind, personId, scopeId, shiftTemplateId: selectedShift.templateId }, day, selectedShift.dayType);
     if (!entry) return;
     onAdd(entry);
-    onClose();
+    (closeRequestRef.current ?? onClose)();
   } }} actions={<Button type="submit" icon="check" disabled={!selectedShift || !personId}>加入排班</Button>}>
     <SelectField label="人員類型" value={personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援人員" }]} onChange={(event) => setPersonKind(event.target.value as "employee" | "worker")} />
     <SelectField label="人員" value={personId} options={personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber} ${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
@@ -147,6 +148,7 @@ function CalendarDialog({ periodKey: key, days: initial, scopes, canWrite, onClo
   const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
   const toast = useToast();
+  const closeRequestRef = useRef<(() => void) | null>(null);
   const changed = days.some((day, index) => day.dayType !== initial[index]?.dayType || day.name !== initial[index]?.name || day.specialKind !== initial[index]?.specialKind || (day.specialScopeIds ?? []).join(",") !== (initial[index]?.specialScopeIds ?? []).join(","));
   const update = (date: string, patch: Partial<HrCalendarDay>) => {
     setDays((current) => current.map((day) => day.date === date ? { ...day, ...patch } : day));
@@ -157,7 +159,7 @@ function CalendarDialog({ periodKey: key, days: initial, scopes, canWrite, onClo
       await save.mutateAsync({ path: `/calendar/${key}`, method: "PUT", values: { days: days.map(({ date, dayType, name, specialKind, specialScopeIds }) => ({ date, dayType, name, specialKind, specialScopeIds })), knownDates: initial.filter((day) => day.overridden).map((day) => day.date) } });
       await onSaved();
       toast.show("行事曆已儲存。");
-      onClose();
+      (closeRequestRef.current ?? onClose)();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "行事曆儲存失敗，請稍後再試。");
     }
@@ -165,6 +167,7 @@ function CalendarDialog({ periodKey: key, days: initial, scopes, canWrite, onClo
   return <Dialog
     title={`${key} 行事曆`}
     onClose={onClose}
+    closeRequestRef={closeRequestRef}
     closeDisabled={save.isPending}
     actions={canWrite ? <Button loading={save.isPending} disabled={!changed} onClick={() => { void submit(); }}>儲存</Button> : undefined}
   >

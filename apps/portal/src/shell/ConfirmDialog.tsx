@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Button, Dialog } from "../ui/index.js";
+import type { DialogCloseRef } from "../ui/dialog-context.js";
 
 /**
  * 確認對話框。取代 `window.confirm`。
@@ -20,6 +21,7 @@ export function ConfirmDialog({
   pending = false,
   onConfirm,
   onCancel,
+  closeRequestRef,
 }: {
   title: string;
   children: React.ReactNode;
@@ -29,8 +31,11 @@ export function ConfirmDialog({
   pending?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  closeRequestRef?: DialogCloseRef;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const internalCloseRequestRef = useRef<DialogCloseRef["current"]>(null);
+  const dialogCloseRequestRef = closeRequestRef ?? internalCloseRequestRef;
 
   /*
    * 焦點落在「取消」而不是「確定」。這個對話框幾乎只用在破壞性動作上，
@@ -42,11 +47,11 @@ export function ConfirmDialog({
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape" && !pending) onCancel();
+      if (event.key === "Escape" && !pending) (dialogCloseRequestRef.current ?? onCancel)();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel, pending]);
+  }, [dialogCloseRequestRef, onCancel, pending]);
 
   return (
     <Dialog
@@ -56,6 +61,7 @@ export function ConfirmDialog({
       role="alertdialog"
       showClose={false}
       closeDisabled={pending}
+      closeRequestRef={dialogCloseRequestRef}
       onClose={onCancel}
       actions={
         <>

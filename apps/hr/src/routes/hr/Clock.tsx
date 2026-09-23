@@ -282,6 +282,7 @@ export function HrClock() {
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const confirmCloseRef = useRef<(() => void) | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
   const status = query.data;
   const demoLocationFailed = new URLSearchParams(routeLocation.search).get("demoLocation") === "failed";
@@ -356,8 +357,12 @@ export function HrClock() {
     setSuccessMessage("打卡成功，已更新今天的紀錄。");
   }
 
-  async function confirmClock() {
+  function closeConfirm() {
     setConfirmOpen(false);
+  }
+
+  async function confirmClock() {
+    // 關閉交給 Dialog 的退場流程；這裡只執行打卡，避免成功操作直接卸載 Dialog。
     await clockInOrOut();
   }
 
@@ -398,7 +403,7 @@ export function HrClock() {
         {clock.error ? <Alert tone="danger">{clock.error.message}</Alert> : null}
       </div> : null}
     </section>
-    {confirmOpen ? <Dialog title="確認打卡" role="alertdialog" onClose={() => setConfirmOpen(false)} actions={<><Button variant="secondary" onClick={() => setConfirmOpen(false)}>取消</Button><Button onClick={() => { void confirmClock(); }}>確認{actionLabel}打卡</Button></>}>
+    {confirmOpen ? <Dialog title="確認打卡" role="alertdialog" onClose={closeConfirm} closeRequestRef={confirmCloseRef} actions={<><Button variant="secondary" onClick={closeConfirm}>取消</Button><Button onClick={() => { (confirmCloseRef.current ?? closeConfirm)(); void confirmClock(); }}>確認{actionLabel}打卡</Button></>}>
       <p>確定要{actionLabel}打卡嗎？</p>
     </Dialog> : null}
   </div>;

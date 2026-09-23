@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
@@ -30,16 +30,17 @@ function currentCompensation(worker: ScheduleWorkerRecord) {
 
 function WorkerDialog({ worker, onClose }: { worker: ScheduleWorkerRecord | null; onClose: () => void }) {
   const save = useHrWrite();
+  const closeRequestRef = useRef<(() => void) | null>(null);
   const [displayName, setDisplayName] = useState(worker?.displayName ?? "");
   const [active, setActive] = useState(worker ? isActive(worker) : true);
   const isEditing = Boolean(worker);
-  return <Dialog title={worker ? `編輯支援人員 · ${worker.displayName}` : "新增支援人員"} onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
+  return <Dialog title={worker ? `編輯支援人員 · ${worker.displayName}` : "新增支援人員"} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     save.mutate({
       path: worker ? `/schedule-workers/${encodeURIComponent(worker.id)}` : "/schedule-workers",
       method: worker ? "PATCH" : "POST",
       values: worker ? { displayName, active, revision: worker.revision } : { displayName },
-    }, { onSuccess: onClose });
+    }, { onSuccess: () => { (closeRequestRef.current ?? onClose)(); } });
   } }} actions={<Button type="submit" loading={save.isPending}>儲存</Button>}>
     <TextField label="姓名" value={displayName} maxLength={100} required onChange={(event) => setDisplayName(event.target.value)} />
     {isEditing ? <SelectField label="狀態" value={active ? "active" : "inactive"} options={[{ value: "active", label: "啟用中" }, { value: "inactive", label: "已停用" }]} onChange={(event) => setActive(event.target.value === "active")} /> : null}

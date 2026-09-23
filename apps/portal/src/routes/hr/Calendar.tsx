@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -71,15 +71,16 @@ function AddDayDialog({ year, existing, scopes, onAdd, onClose }: { year: number
   const [specialScopeIds, setSpecialScopeIds] = useState<string[]>([]);
   const [name, setName] = useState("");
   const [message, setMessage] = useState<string | null>(null);
-  // 選到星期六日時預設改成「平日」，因為在週末新增一天，想做的幾乎一定是補班；特殊標記不改寫日期類型。
+  const closeRequestRef = useRef<(() => void) | null>(null);
+  // 選到星期六日時預設改成「平日」，特殊標記不改寫日期類型。
   useEffect(() => { setDayType(isWeekendDate(date) ? "weekday" : "holiday"); }, [date]);
   return <Dialog title={`${year} 年新增日期`} onClose={onClose} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     if (!date.startsWith(`${year}-`)) { setMessage(`請選擇 ${year} 年之內的日期。`); return; }
     if (existing.some((day) => day.date === date)) { setMessage("這一天已經在清單裡了，請直接修改那一列。"); return; }
     onAdd({ date, dayType, name: name.trim() || (specialKind === "typhoon_stop" ? "颱風停班" : ""), specialKind, specialScopeIds: specialKind === "typhoon_stop" ? specialScopeIds : [], overridden: true });
-    onClose();
-  } }} actions={<Button type="submit" icon="check">加入</Button>}>
+    (closeRequestRef.current ?? onClose)();
+  } }} closeRequestRef={closeRequestRef} actions={<Button type="submit" icon="check">加入</Button>}>
     <TextField label="日期" type="date" required min={`${year}-01-01`} max={`${year}-12-31`} value={date} onChange={(event) => setDate(event.target.value)} />
     <SelectField label="類型" value={dayType} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => setDayType(event.target.value as HrDayType)} />
     <SelectField label="特殊標記" value={specialKind} options={HR_CALENDAR_SPECIAL_KINDS.map((item) => ({ value: item, label: HR_CALENDAR_SPECIAL_KIND_LABELS[item] }))} onChange={(event) => { const value = event.target.value as HrCalendarSpecialKind; setSpecialKind(value); if (value !== "typhoon_stop") setSpecialScopeIds([]); if (value === "typhoon_stop" && !name.trim()) setName("颱風停班"); if (value !== "typhoon_stop" && name.trim() === "颱風停班") setName(""); }} />
@@ -96,12 +97,13 @@ function ImportDialog({ year, currentCount, onClose, onDone }: { year: number; c
   const [message, setMessage] = useState<string | null>(null);
   const run = useHrWrite<{ days: number; holidays: number; makeupWorkdays: number }>();
   const toast = useToast();
+  const closeRequestRef = useRef<(() => void) | null>(null);
   const submit = async () => {
     try {
       const result = await run.mutateAsync({ path: `/calendar/years/${year}/import`, method: "POST", values: {} });
       await onDone();
       toast.show(`${year} 年已匯入 ${result.holidays} 天假日、${result.makeupWorkdays} 天補班日。`);
-      onClose();
+      (closeRequestRef.current ?? onClose)();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "匯入失敗，請稍後再試。");
     }
@@ -109,6 +111,7 @@ function ImportDialog({ year, currentCount, onClose, onDone }: { year: number; c
   return <Dialog
     title={`匯入 ${year} 年行事曆`}
     onClose={onClose}
+    closeRequestRef={closeRequestRef}
     closeDisabled={run.isPending}
     actions={<Button loading={run.isPending} onClick={() => { void submit(); }}>開始匯入</Button>}
   >

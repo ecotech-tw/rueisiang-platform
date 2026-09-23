@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Alert, Button, Dialog, DropdownSelect, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import { Link } from "react-router";
@@ -50,6 +50,9 @@ export function HrBonusManagement() {
   const [deletingPolicy, setDeletingPolicy] = useState<BonusPolicy | null>(null);
   const [voidConfirmation, setVoidConfirmation] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const policyCloseRef = useRef<(() => void) | null>(null);
+  const deleteCloseRef = useRef<(() => void) | null>(null);
+  const voidCloseRef = useRef<(() => void) | null>(null);
   const editingPolicyVersionId = editingPolicy?.policyVersionId ?? null;
   // 第一版沒有可以回去的上一版；整個獎金設錯要用刪除，不是解除。
   const canVoidEditingPolicy = editingPolicy !== null && editingPolicy.versionNumber > 1 && editingPolicy.isLatest !== false;
@@ -95,7 +98,21 @@ export function HrBonusManagement() {
   }
 
   function closePolicyModal() {
-    if (!writePolicy.isPending && !voidPolicyVersion.isPending) setPolicyModalOpen(false);
+    setPolicyModalOpen(false);
+  }
+
+  function closeDeleteDialog() {
+    setDeletingPolicy(null);
+  }
+
+  function requestPolicyClose() {
+    if (policyCloseRef.current) policyCloseRef.current();
+    else setPolicyModalOpen(false);
+  }
+
+  function requestDeleteClose() {
+    if (deleteCloseRef.current) deleteCloseRef.current();
+    else setDeletingPolicy(null);
   }
 
   function startEdit(policy: BonusPolicy) {
@@ -169,19 +186,19 @@ export function HrBonusManagement() {
     const assignmentValues = bonusKind === "team_performance" ? { employeeAssignments, assignmentValidFrom } : { employeeUserIds: selectedEmployeeIds, assignmentValidFrom };
     const values = { name: policyName, scopeIds: policyScopeIds, scopeId: policyScopeIds[0], bonusKind, performancePeriod, ratePpm: Math.round(rate * 10_000), guaranteeMinor: amount * 100, ...assignmentValues };
     const editing = editingPolicyVersionId !== null;
-    writePolicy.mutate({ path: editing ? `/bonus/policies/${editingPolicyVersionId}` : "/bonus/policies", method: editing ? "PATCH" : "POST", values: editing ? { ...values, validFrom: assignmentValidFrom } : values }, { onSuccess: (result) => { setPolicyModalOpen(false); resetPolicyForm(); succeed(editing ? "獎金已更新。" : `獎金已建立${result.assignmentCount ? `，並套用到 ${result.assignmentCount} 位員工` : ""}。`); }, onError: fail });
+    writePolicy.mutate({ path: editing ? `/bonus/policies/${editingPolicyVersionId}` : "/bonus/policies", method: editing ? "PATCH" : "POST", values: editing ? { ...values, validFrom: assignmentValidFrom } : values }, { onSuccess: (result) => { requestPolicyClose(); succeed(editing ? "獎金已更新。" : `獎金已建立${result.assignmentCount ? `，並套用到 ${result.assignmentCount} 位員工` : ""}。`); }, onError: fail });
   }
 
   function confirmDelete() {
     if (!deletingPolicy) return;
-    deletePolicy.mutate({ path: `/bonus/policies/${deletingPolicy.policyVersionId}`, method: "DELETE", values: {} }, { onSuccess: () => { if (editingPolicyVersionId === deletingPolicy.policyVersionId) { resetPolicyForm(); setPolicyModalOpen(false); } setDeletingPolicy(null); succeed("獎金已停用；歷史薪資結果不受影響。"); }, onError: fail });
+    deletePolicy.mutate({ path: `/bonus/policies/${deletingPolicy.policyVersionId}`, method: "DELETE", values: {} }, { onSuccess: () => { if (editingPolicyVersionId === deletingPolicy.policyVersionId) requestPolicyClose(); requestDeleteClose(); succeed("獎金已停用；歷史薪資結果不受影響。"); }, onError: fail });
   }
 
   function confirmVoid() {
     if (!editingPolicy) return;
     voidPolicyVersion.mutate({ path: `/bonus/policies/${editingPolicy.policyVersionId}/void`, method: "POST", values: {} }, {
-      onSuccess: () => { setVoidConfirmation(false); setPolicyModalOpen(false); resetPolicyForm(); succeed("已解除最新的獎金版本，規則回到上一版。"); },
-      onError: (cause) => { setVoidConfirmation(false); fail(cause); },
+      onSuccess: () => { if (voidCloseRef.current) voidCloseRef.current(); else setVoidConfirmation(false); requestPolicyClose(); succeed("已解除最新的獎金版本，規則回到上一版。"); },
+      onError: (cause) => { if (voidCloseRef.current) voidCloseRef.current(); else setVoidConfirmation(false); fail(cause); },
     });
   }
 
@@ -217,7 +234,7 @@ export function HrBonusManagement() {
       {policies.data && policies.data.total > 0 ? <Pager page={policies.data.page} pageSize={policies.data.pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.max(1, Math.ceil(policies.data.total / policies.data.pageSize))} totalLabel={`共 ${policies.data.total.toLocaleString("zh-TW")} 筆`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
 
-    {policyModalOpen ? <Dialog className="hr-bonus-policy-dialog" title={editingPolicyVersionId ? "編輯獎金" : "新增獎金"} titleMeta={editingPolicyVersionId ? "調整後會套用到新的薪資計算" : "可在建立時直接套用員工"} onClose={closePolicyModal} closeDisabled={writePolicy.isPending} formProps={{ onSubmit: submitPolicy }} actions={<><Button variant="secondary" onClick={closePolicyModal} disabled={writePolicy.isPending || voidPolicyVersion.isPending}>取消</Button>{canVoidEditingPolicy ? <Button type="button" variant="danger" icon="history" className="hr-bonus-action-void" disabled={writePolicy.isPending || voidPolicyVersion.isPending} onClick={() => setVoidConfirmation(true)}>解除最新版本</Button> : null}<Button type="submit" icon={editingPolicyVersionId ? "edit" : "plus"} loading={writePolicy.isPending} disabled={voidPolicyVersion.isPending}>{editingPolicyVersionId ? "保存變更" : "建立獎金"}</Button></>}>
+    {policyModalOpen ? <Dialog className="hr-bonus-policy-dialog" title={editingPolicyVersionId ? "編輯獎金" : "新增獎金"} titleMeta={editingPolicyVersionId ? "調整後會套用到新的薪資計算" : "可在建立時直接套用員工"} onClose={closePolicyModal} closeRequestRef={policyCloseRef} closeDisabled={writePolicy.isPending} formProps={{ onSubmit: submitPolicy }} actions={<><Button variant="secondary" onClick={closePolicyModal} disabled={writePolicy.isPending || voidPolicyVersion.isPending}>取消</Button>{canVoidEditingPolicy ? <Button type="button" variant="danger" icon="history" className="hr-bonus-action-void" disabled={writePolicy.isPending || voidPolicyVersion.isPending} onClick={() => setVoidConfirmation(true)}>解除最新版本</Button> : null}<Button type="submit" icon={editingPolicyVersionId ? "edit" : "plus"} loading={writePolicy.isPending} disabled={voidPolicyVersion.isPending}>{editingPolicyVersionId ? "保存變更" : "建立獎金"}</Button></>}>
       <div className="admin-form hr-bonus-form">
         {employees.error ? <Alert tone="danger">{employees.error.message}</Alert> : null}
         {scopes.error ? <Alert tone="danger">{scopes.error.message}</Alert> : null}
@@ -248,6 +265,7 @@ export function HrBonusManagement() {
       title="解除最新獎金版本？"
       confirmLabel="解除版本"
       pending={voidPolicyVersion.isPending}
+      closeRequestRef={voidCloseRef}
       onCancel={() => setVoidConfirmation(false)}
       onConfirm={confirmVoid}
     >
@@ -255,6 +273,6 @@ export function HrBonusManagement() {
       <p className="muted">解除後規則回到上一版，套用員工也跟著還原；可重複解除，直到只剩第一版。</p>
     </ConfirmDialog> : null}
 
-    {deletingPolicy ? <Dialog title="刪除獎金？" role="alertdialog" onClose={() => { if (!deletePolicy.isPending) setDeletingPolicy(null); }} closeDisabled={deletePolicy.isPending} actions={<><Button variant="secondary" onClick={() => setDeletingPolicy(null)} disabled={deletePolicy.isPending}>取消</Button><Button variant="danger" icon="trash" loading={deletePolicy.isPending} onClick={confirmDelete}>刪除獎金</Button></>}><p>「{deletingPolicy.policyName}」將停用，不再套用到新的薪資計算；已保存的歷史薪資不會被刪除。</p></Dialog> : null}
+    {deletingPolicy ? <Dialog title="刪除獎金？" role="alertdialog" onClose={closeDeleteDialog} closeRequestRef={deleteCloseRef} closeDisabled={deletePolicy.isPending} actions={<><Button variant="secondary" onClick={closeDeleteDialog} disabled={deletePolicy.isPending}>取消</Button><Button variant="danger" icon="trash" loading={deletePolicy.isPending} onClick={confirmDelete}>刪除獎金</Button></>}><p>「{deletingPolicy.policyName}」將停用，不再套用到新的薪資計算；已保存的歷史薪資不會被刪除。</p></Dialog> : null}
   </div>;
 }

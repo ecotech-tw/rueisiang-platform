@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -31,10 +31,11 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
   const [message, setMessage] = useState("");
   const save = useHrWrite();
   const toast = useToast();
+  const closeRequestRef = useRef<(() => void) | null>(null);
   const employment = initialEmployment;
   const locationOptions = locations.map((location) => ({ value: location.id, label: `${location.name}${location.scopeName ? `（${location.scopeName}）` : ""}` }));
   const addLocation = () => { const next = locationOptions.find((option) => !selectedLocationIds.includes(option.value)); if (next) setSelectedLocationIds((current) => [...current, next.value]); };
-  return <Dialog title={`編輯 ${profile.employee.displayName} 的出勤範圍`} onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
+  return <Dialog title={`編輯 ${profile.employee.displayName} 的出勤範圍`} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     if (!employment) { setMessage("請選擇任職。"); return; }
     if (mode === "scheduled" && (!monthlyRestDays.trim() || !Number.isSafeInteger(Number(monthlyRestDays)) || Number(monthlyRestDays) < 0 || Number(monthlyRestDays) > 31)) { setMessage("請填寫 0～31 天的每月休假天數。"); return; }
@@ -47,7 +48,7 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
     save.mutate({ path: `/employments/${employment.id}/attendance-scope`, method: "PATCH", values: {
       attendanceMode: mode, monthlyRestDays: mode === "scheduled" ? Number(monthlyRestDays) : null, revision: employment.revision,
       locationIds: toAdd, assignmentsToEnd: toEnd.map((assignment) => ({ id: assignment.id, revision: assignment.revision })),
-    } }, { onSuccess: () => { toast.show("出勤範圍已更新。"); onClose(); } });
+    } }, { onSuccess: () => { toast.show("出勤範圍已更新。"); (closeRequestRef.current ?? onClose)(); } });
   } }} actions={<Button type="submit" icon="check" disabled={!employment} loading={save.isPending}>儲存</Button>}>
     <p>出勤範圍決定員工可在哪些辦公位置打卡；排班不會限制員工只能在當日排班位置打卡。移除辦公位置並儲存後，今天起停止可打卡，歷史資料仍會保留。</p>
     {!employment ? <Alert tone="danger">目前沒有活動員工資料，無法設定出勤範圍。</Alert> : null}

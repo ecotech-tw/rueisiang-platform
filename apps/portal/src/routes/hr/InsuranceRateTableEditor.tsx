@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Alert, Button, TextField } from "../../ui/index.js";
 import { useHrWrite, type InsuranceBracket, type InsuranceRateTableRecord } from "./api.js";
@@ -40,6 +40,7 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
   const [confirmDelete, setConfirmDelete] = useState(false);
   const save = useHrWrite();
   const remove = useHrWrite();
+  const closeRequestRef = useRef<((afterClose?: () => void) => void) | null>(null);
 
   useEffect(() => { onBusy?.(save.isPending || remove.isPending); }, [onBusy, remove.isPending, save.isPending]);
 
@@ -76,7 +77,11 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
   };
   const confirmRemove = () => {
     if (!isExistingDraft) return;
-    remove.mutate({ path: `/insurance-rates/${table.id}`, method: "DELETE", values: { contentHash: table.contentHash } }, { onSuccess: () => { setConfirmDelete(false); (onDeleted ?? onSaved)?.(); } });
+    remove.mutate({ path: `/insurance-rates/${table.id}`, method: "DELETE", values: { contentHash: table.contentHash } }, { onSuccess: () => {
+      const afterDelete = onDeleted ?? onSaved;
+      if (closeRequestRef.current) closeRequestRef.current(afterDelete);
+      else { setConfirmDelete(false); afterDelete?.(); }
+    } });
   };
 
   return <>
@@ -110,6 +115,6 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
         <Button type="submit" loading={save.isPending}>儲存</Button>
       </div>
     </form>
-    {confirmDelete ? <ConfirmDialog title={`刪除${SCHEME_LABEL[scheme]}級距草稿？`} pending={remove.isPending} onCancel={() => setConfirmDelete(false)} onConfirm={confirmRemove}><p>這只會刪除尚未啟用的待審閱版本，不會影響目前啟用或歷史級距。</p></ConfirmDialog> : null}
+    {confirmDelete ? <ConfirmDialog title={`刪除${SCHEME_LABEL[scheme]}級距草稿？`} pending={remove.isPending} closeRequestRef={closeRequestRef} onCancel={() => setConfirmDelete(false)} onConfirm={confirmRemove}><p>這只會刪除尚未啟用的待審閱版本，不會影響目前啟用或歷史級距。</p></ConfirmDialog> : null}
   </>;
 }
