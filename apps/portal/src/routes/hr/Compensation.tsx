@@ -47,8 +47,7 @@ function nextDay(date: string): string {
 }
 
 function currentEmployment(employments: Employment[]): Employment | undefined {
-  const today = taipeiToday();
-  return employments.find((employment) => employment.hiredOn <= today && (employment.endedOn === null || today < employment.endedOn)) ?? employments[0];
+  return employments.find((employment) => !employment.archivedAt);
 }
 
 /**
@@ -110,16 +109,13 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   // 換一位員工就重新帶入那個人目前的敘薪當預設值，不沿用上一個人的金額與項目。
   useEffect(() => {
     const today = taipeiToday();
-    // 任職已結束的人，今天已經落在任職期間外；後端要求版本整段都在任職期間內，
-    // 所以改從到職日起算，並把任職結束日帶成迄日，否則一定存不進去。
-    const endedOn = employment?.endedOn ?? null;
-    const start = !employment ? today : employment.hiredOn > today || (endedOn && today >= endedOn) ? employment.hiredOn : today;
+    const start = today;
     /*
      * 敘薪版本依序銜接：一般更新是上一版生效日的次日；若要修正較早版本，
      * 先依序解除較新的版本，直到第一版也能被修正。
      */
     setValidFrom(expectedValidFrom ?? start);
-    setValidTo(endedOn ?? "");
+    setValidTo("");
     setPayBasis(templateVersion?.payBasis ?? "monthly");
     setBaseAmount(templateVersion ? String(templateVersion.baseAmountMinor / 100) : "");
     setItems((templateVersion?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
@@ -157,13 +153,10 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
         setMessage(`更新敘薪的生效日只能是 ${expectedValidFrom}（上一筆生效日的次日）；若要修正上一筆，請先解除最新敘薪。`);
         return;
       }
-      // 期間不合法時後端只回一句籠統的 409；先在這裡講清楚是哪一段超出任職期間。
-      if (validFrom < employment.hiredOn) { setMessage(`生效日不能早於到職日 ${employment.hiredOn}。`); return; }
-      if (employment.endedOn && (!validTo || validTo > employment.endedOn)) { setMessage(`任職已於 ${employment.endedOn} 結束，迄日要填到 ${employment.endedOn}（含）之前。`); return; }
       if (validTo && validTo <= validFrom) { setMessage("迄日必須晚於生效日。"); return; }
       /*
        * 後端會自動把「還沒結束、而且比新版本早開始」的那一版收尾，所以只有這兩種情況才是真的撞期。
-       * 不先擋的話使用者只會看到一句「任職不存在、薪資期間重疊或資料不合法」，不知道要改哪裡。
+       * 不先擋的話使用者只會看到一句「員工主檔不存在、薪資期間重疊或資料不合法」，不知道要改哪裡。
        */
       const newEnd = validTo || "9999-12-31";
       const overlapping = employmentVersions.filter((version) => !version.voidedAt).find((version) => {
@@ -210,7 +203,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     {isEditing ? <p className="form-hint">更新敘薪時員工欄位已鎖定，避免誤改到其他員工。</p> : null}
     {userId && profile.isPending ? <p className="muted">載入目前敘薪…</p> : null}
     {userId && !profile.isPending && !employment ? <Alert tone="warning">這位員工沒有任職紀錄，請先在員工列表建立任職。</Alert> : null}
-    {employment ? <p className="form-hint">任職期間 {employment.hiredOn}～{employment.endedOn ?? "目前"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
+    {employment ? <p className="form-hint">目前職位「{employment.position}」；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
     <div className="field-grid">
       <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
       <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />
@@ -297,7 +290,7 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Emp
   if (profile.isLoading) return <HrSkeletonTableRow columns={6} />;
   return <tr>
     <td><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
-    <td>{employment ? `${employment.hiredOn}～${employment.endedOn ?? "目前"}` : "尚無任職"}</td>
+    <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td>{current ? PAY_BASIS_LABEL[current.payBasis] : allVoided ? "已全部撤回" : "尚未設定"}</td>
     <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}</td>
     <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : allVoided ? "已全部撤回" : "—"}</td>

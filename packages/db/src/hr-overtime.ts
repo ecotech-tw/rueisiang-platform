@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
-import { hrEmployees, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
+import { hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrOvertimeRequests } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
 import { users } from "./schema/auth.js";
@@ -40,16 +40,14 @@ function taipeiDate(timestamp: number) {
   return formatTaipeiDate(timestamp);
 }
 
-async function employmentForInterval(db: Database, userId: string, start: string, end: string) {
-  const startMs = stamp(start);
-  const endMs = stamp(end);
-  const endDate = taipeiDate(endMs - 1000);
+async function employmentForInterval(db: Database, userId: string, start: string, end: string, expectedEmploymentId?: string) {
+  stamp(start);
+  stamp(end);
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(
     eq(hrEmployments.employeeUserId, userId),
-    sql`${hrEmployments.hiredOn} <= ${taipeiDate(startMs)}`,
-    sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${endDate})`,
-  )).orderBy(desc(hrEmployments.hiredOn)).limit(1);
-  if (!row) throw new HrError(400, "整段加班時間不在同一段有效任職期間內。 ");
+    expectedEmploymentId ? eq(hrEmployments.id, expectedEmploymentId) : sql`${hrEmployments.archivedAt} IS NULL`,
+  )).limit(1);
+  if (!row) throw new HrError(400, "員工沒有活動的 hr_employments，暫時無法建立加班申請。 ");
   return row.id;
 }
 
@@ -68,10 +66,13 @@ async function ensureScope(db: Database, employmentId: string, scopeId: string |
   if (!row) throw new HrError(400, "加班指定的營運據點不在員工有效 Scope 指派內。 ");
 }
 
-const fields = { request: hrOvertimeRequests, employeeNumber: hrEmployees.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` };
+const fields = { request: hrOvertimeRequests, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` };
 
-export async function listHrOvertimeRequests(db: Database, employeeUserId?: string) {
-  return db.select(fields).from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(employeeUserId ? eq(hrEmployments.employeeUserId, employeeUserId) : undefined).orderBy(desc(hrOvertimeRequests.requestedStart));
+export async function listHrOvertimeRequests(db: Database, employeeUserId?: string, includeArchived = false) {
+  return db.select(fields).from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(and(
+    includeArchived ? undefined : sql`${hrEmployments.archivedAt} IS NULL`,
+    employeeUserId ? eq(hrEmployments.employeeUserId, employeeUserId) : undefined,
+  )).orderBy(desc(hrOvertimeRequests.requestedStart));
 }
 
 export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInput, actor: HrActor, options: HrOvertimeRequestCreateOptions = {}) {
@@ -84,8 +85,6 @@ export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInp
   if (!input.reason.trim() || input.reason.length > 1000) throw new HrError(400, "加班原因必填。 ");
   const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd);
   await ensureScope(db, employmentId, input.scopeId ?? null, input.requestedStart, input.requestedEnd);
-  const startDate = taipeiDate(startMs);
-  const endDate = taipeiDate(endMs - 1000);
   const id = crypto.randomUUID();
   const autoApprove = options.autoApprove === true;
   if (autoApprove && input.employeeUserId === actor.id) throw new HrError(409, "申請人不可透過後台直接核准自己的加班申請。 ");
@@ -105,8 +104,7 @@ export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInp
         SELECT 1 FROM hr_employments AS current_employment
         WHERE current_employment.id=${employmentId}
           AND current_employment.employee_user_id=${input.employeeUserId}
-          AND current_employment.hired_on <= ${startDate}
-          AND (current_employment.ended_on IS NULL OR current_employment.ended_on > ${endDate})
+          AND current_employment.archived_at IS NULL
       )
         AND NOT EXISTS (
         SELECT 1 FROM hr_overtime_requests AS existing_request
@@ -114,10 +112,10 @@ export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInp
           AND existing_request.status IN ('draft', 'pending', 'approved')
           AND existing_request.requested_start < ${input.requestedEnd}
           AND existing_request.requested_end > ${input.requestedStart}
-      ) RETURNING id`, id, actor, "overtime_request_created", "相同或重疊的加班時段已存在、任職期間無效或資料不合法。 ");
+      ) RETURNING id`, id, actor, "overtime_request_created", "相同或重疊的加班時段、活動員工或資料不合法。 ");
   } catch (error) {
     if (error instanceof HrError) throw error;
-    if (error instanceof Error && /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed/.test(error.message)) throw new HrError(409, "相同或重疊的加班時段已存在、任職期間無效或資料不合法。 ");
+    if (error instanceof Error && /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed/.test(error.message)) throw new HrError(409, "相同或重疊的加班時段、活動員工或資料不合法。 ");
     throw error;
   }
   return { id };
@@ -135,30 +133,18 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
 
   let actualStart: string | null = null;
   let actualEnd: string | null = null;
-  let actualStartDate: string | null = null;
-  let actualEndDate: string | null = null;
   if (decision === "approved") {
     actualStart = actual?.start ?? current.requestedStart;
     actualEnd = actual?.end ?? current.requestedEnd;
     const actualStartMs = stamp(actualStart);
     const actualEndMs = stamp(actualEnd);
     if (actualEndMs <= actualStartMs || (actualEndMs - actualStartMs) % (30 * 60 * 1000) !== 0 || actualStart < current.requestedStart || actualEnd > current.requestedEnd) throw new HrError(400, "核定加班實際時段必須以 0.5 小時為單位，且是申請時段內的完整區間。 ");
-    actualStartDate = taipeiDate(actualStartMs);
-    actualEndDate = taipeiDate(actualEndMs - 1000);
-    const actualEmploymentId = await employmentForInterval(db, current.employeeUserId, actualStart, actualEnd);
-    if (actualEmploymentId !== current.employmentId) throw new HrError(400, "核定加班實際時段不可跨越任職紀錄。 ");
+    const actualEmploymentId = await employmentForInterval(db, current.employeeUserId, actualStart, actualEnd, current.employmentId);
+    if (actualEmploymentId !== current.employmentId) throw new HrError(400, "核定加班實際時段的員工資料不一致。 ");
     await ensureScope(db, current.employmentId, current.scopeId, actualStart, actualEnd);
   }
-  const approvalEmploymentGuard = decision === "approved" ? sql`
-      AND EXISTS (
-        SELECT 1 FROM hr_employments
-        WHERE id=hr_overtime_requests.employment_id
-          AND employee_user_id <> ${actor.id}
-          AND hired_on <= ${actualStartDate}
-          AND (ended_on IS NULL OR ended_on > ${actualEndDate})
-      )` : sql``;
   await writeHrMutation(db, sql`UPDATE hr_overtime_requests SET
     status=${decision}, actual_start=${actualStart}, actual_end=${actualEnd}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, decision_reason=${comment.trim()}
-    WHERE id=${id} AND status='pending' AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_overtime_requests.employment_id AND employee_user_id <> ${actor.id})${approvalEmploymentGuard} RETURNING id`, id, actor, "overtime_request_reviewed", "加班申請不存在、申請人不可自審、任職期間無效或已完成處理。 ");
+    WHERE id=${id} AND status='pending' AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_overtime_requests.employment_id AND employee_user_id <> ${actor.id}) RETURNING id`, id, actor, "overtime_request_reviewed", "加班申請不存在、申請人不可自審或已完成處理。 ");
   return { id, status: decision };
 }

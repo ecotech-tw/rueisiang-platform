@@ -6,11 +6,13 @@ export interface Employee {
   employeeNumber: string;
   displayName: string;
   email: string;
+  position: string;
   supervisorUserId?: string | null;
   userStatus: "invited" | "active" | "disabled";
+  employmentStatus: "active" | "inactive";
   revision: number;
 }
-export interface Employment { id: string; employeeUserId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string; revision: number }
+export interface Employment { id: string; employeeUserId: string; employeeNumber: string; position: string; supervisorUserId: string | null; archivedAt: string | null; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null; revision: number }
 export interface Assignment { id: string; employmentId: string; scopeName: string; validFrom: string; validTo: string | null; revision: number }
 export interface AttendanceAssignment {
   id: string;
@@ -21,7 +23,7 @@ export interface AttendanceAssignment {
   validTo: string | null;
   revision: number;
 }
-export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; assignments: Assignment[]; attendanceAssignments?: AttendanceAssignment[] }
+export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[] }
 export interface NamedOption { id: string; name: string }
 export interface Candidate { userId: string; displayName: string; email: string; status: "invited" | "active" }
 export interface AttendanceLocation {

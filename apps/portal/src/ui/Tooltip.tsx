@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 interface TooltipProps {
   /** 提示內容。純文字；需要標題與段落的是 Material 的 rich tooltip，不要用這個撐。 */
@@ -95,6 +96,23 @@ export function Tooltip({ label, children, className = "", focusable = true }: T
     };
   }, [anchor]);
 
+  // HR 表格外層有 overflow:hidden 與 backdrop-filter；即使是 fixed，放在原 DOM 樹仍可能被裁掉，
+  // 所以提示本體要 portal 到 body，再用 viewport 座標定位。
+  const tooltip = anchor ? (
+    <span
+      ref={tipRef}
+      className="tooltip"
+      role="tooltip"
+      id={id}
+      style={placement
+        ? { left: placement.left, top: placement.top }
+        // 還沒量到尺寸前先藏起來，不然會先在左上角閃一下。
+        : { left: 0, top: 0, visibility: "hidden" }}
+    >
+      {label}
+    </span>
+  ) : null;
+
   return (
     <span
       className={`tooltip-anchor ${className}`.trim()}
@@ -106,20 +124,7 @@ export function Tooltip({ label, children, className = "", focusable = true }: T
       onBlur={hide}
     >
       {children}
-      {anchor ? (
-        <span
-          ref={tipRef}
-          className="tooltip"
-          role="tooltip"
-          id={id}
-          style={placement
-            ? { left: placement.left, top: placement.top }
-            // 還沒量到尺寸前先藏起來，不然會先在左上角閃一下。
-            : { left: 0, top: 0, visibility: "hidden" }}
-        >
-          {label}
-        </span>
-      ) : null}
+      {tooltip && typeof document !== "undefined" ? createPortal(tooltip, document.body) : null}
     </span>
   );
 }

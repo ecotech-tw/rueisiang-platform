@@ -6,11 +6,14 @@ export interface Employee {
   employeeNumber: string;
   displayName: string;
   email: string;
+  position: string;
   supervisorUserId?: string | null;
+  supervisorName?: string | null;
   userStatus: "invited" | "active" | "disabled";
+  employmentStatus: "active" | "inactive";
   revision: number;
 }
-export interface Employment { id: string; employeeUserId: string; hiredOn: string; endedOn: string | null; seniorityStartOn: string; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null; revision: number }
+export interface Employment { id: string; employeeUserId: string; employeeNumber: string; position: string; supervisorUserId: string | null; supervisorName?: string | null; archivedAt: string | null; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null; revision: number }
 export interface Assignment { id: string; employmentId: string; scopeName: string; validFrom: string; validTo: string | null; revision: number }
 export interface AttendanceAssignment {
   id: string;
@@ -140,7 +143,7 @@ export interface HrAnnualLeavePolicy { id: string; policyKey: string; versionNum
 export interface HrAnnualLeaveBracket { id: string; policyVersionId: string; minServiceMonths: number; maxServiceMonths: number | null; entitledDays: number; label: string }
 export interface HrAnnualLeaveEntitlement { id: string; employmentId: string; employeeUserId: string; employeeNumber: string; employeeName: string; serviceMonths: number; periodStart: string; periodEnd: string; entitledHalfHours: number; balanceHalfHours: number; usedHalfHours: number; debitHalfHours: number; status: "open" | "settled"; settledAt: string | null }
 export interface HrAnnualLeaveLedgerEntry { id: string; entryKind: "grant" | "leave_request" | "manual_adjustment" | "settlement" | "settlement_reversal"; deltaHalfHours: number; sourceKey: string; leaveRequestId: string | null; note: string; createdBy: string | null; createdAt: string }
-export interface HrAnnualLeaveEntitlementDetail extends HrAnnualLeaveEntitlement { seniorityStartOn: string; policyVersionNumber: number; policyValidFrom: string; policyValidTo: string | null; policyBasis: "anniversary"; policyDailyMinutes: number; policyMinimumUnitMinutes: number; policyCarryoverAllowed: number; policyNote: string; bracketMinServiceMonths: number; bracketMaxServiceMonths: number | null; bracketEntitledDays: number; bracketLabel: string; ledger: HrAnnualLeaveLedgerEntry[] }
+export interface HrAnnualLeaveEntitlementDetail extends HrAnnualLeaveEntitlement { serviceStartOn: string; policyVersionNumber: number; policyValidFrom: string; policyValidTo: string | null; policyBasis: "anniversary"; policyDailyMinutes: number; policyMinimumUnitMinutes: number; policyCarryoverAllowed: number; policyNote: string; bracketMinServiceMonths: number; bracketMaxServiceMonths: number | null; bracketEntitledDays: number; bracketLabel: string; ledger: HrAnnualLeaveLedgerEntry[] }
 export interface HrAnnualLeaveResponse { entitlements: HrAnnualLeaveEntitlement[] }
 export interface HrRequestCenterResponse { leaves: HrLeaveRequest[]; overtime: HrOvertimeRequest[]; clockCorrections: FormRequest[] }
 export interface FormApproversResponse { approvers: FormApprover[]; defaultApproverUserId: string | null }
@@ -193,9 +196,9 @@ function clockOf(seconds: number) { return `${String(Math.floor(seconds / 3600))
 export function shiftTimeRange(shift: Pick<ScheduleShift, "startSecond" | "endSecond" | "endDayOffset">) {
   return `${clockOf(shift.startSecond)}–${clockOf(shift.endSecond)}${shift.endDayOffset ? " 次日" : ""}`;
 }
-export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string; hiredOn: string; endedOn: string | null; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null }
+export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null }
 export interface ScheduleWorker { id: string; name: string; active: boolean | number }
-export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; workDate: string; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; employeeNumber: string | null; personName: string; scopeName: string; shiftName: string }
+export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; workDate: string; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; employeeNumber: string | null; personName: string; archivedAt: string | null; scopeName: string; shiftName: string }
 export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; calendar: HrCalendarDay[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
 export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; note: string }
 export interface ScheduleWorkerRecord { id: string; displayName: string; active: boolean | number; revision: number; compensation: WorkerCompensation[] }
@@ -211,7 +214,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  * 敘薪、投保、獎金、薪資結算等管理頁共用的員工名單。
  * 用 employable 而不是 active：邀請中的員工還沒登入過平台，但照樣要敘薪、加保、算薪水。
  */
-export const HR_ROSTER_PATH = "/employees?page=1&pageSize=100&status=employable&sortField=name&sortDirection=asc";
+export const HR_ROSTER_PATH = "/employees?page=1&pageSize=100&status=employable&employmentStatus=active&sortField=name&sortDirection=asc";
 
 /**
  * 換條件（月份、分頁、篩選）時留著上一次的資料，頁面才不會整頁換成骨架再長回來；

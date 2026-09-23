@@ -33,13 +33,12 @@ function premiumLabel(amountMinor: number) {
 }
 
 /**
- * existing 決定生效日的預設值：新加保從到職日起算；已經有版本的人，同一個起日一定跟既有版本重疊，
- * 所以改從今天起算，存的時候由後端關閉前一個版本。
+ * existing 決定生效日的預設值：新加保與版本更新都從今天起算，存的時候由後端關閉前一個版本。
  */
 export function InsuranceEditor({ employment, existing, defaultSalary, defaultDependentCount, onClose }: { employment: Employment; existing: boolean; defaultSalary?: number; defaultDependentCount?: number; onClose: () => void }) {
   const currentYear = taipeiToday().slice(0, 4);
   const [status, setStatus] = useState<"enrolled" | "withdrawn">("enrolled");
-  const [validFrom, setValidFrom] = useState(existing ? taipeiToday() : employment.hiredOn);
+  const [validFrom, setValidFrom] = useState(taipeiToday());
   const [salary, setSalary] = useState(defaultSalary === undefined ? "" : String(defaultSalary));
   const [bracketSelections, setBracketSelections] = useState<Record<InsuranceScheme, string>>({ labor: AUTO_BRACKET, health: AUTO_BRACKET });
   const [dependents, setDependents] = useState(String(defaultDependentCount ?? 0));
@@ -112,8 +111,8 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
         scheme,
         status,
         validFrom,
-        // 在職的人不設訖日；任職已結束時後端要求版本在結束日前收尾，直接帶任職結束日，不另外讓人填。
-        validTo: employment.endedOn ?? null,
+        // 員工封存不改寫既有版本；版本自己的有效期間仍由敘薪／投保資料管理。
+        validTo: null,
         insuredAmountMinor: (amount(scheme) ?? 0) * 100,
         dependentCount: scheme === "health" ? healthDependents : 0,
         rateYear: Number(currentYear),

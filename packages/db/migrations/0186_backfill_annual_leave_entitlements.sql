@@ -1,44 +1,45 @@
 -- 既有員工的週年制特休回填。額度與 grant ledger 使用穩定 ID／source key，重跑不重複。
 -- 日期計算刻意以目標月份最後一天夾住日數，讓 2 月 29 日與服務層規則一致。
-WITH RECURSIVE milestones (employment_id, seniority_start_on, ended_on, service_months, period_start, period_end) AS (
+WITH RECURSIVE milestones (employment_id, service_start_on, archived_at, service_months, period_start, period_end) AS (
   SELECT
     e.id,
-    e.seniority_start_on,
-    e.ended_on,
+    service.service_start_on,
+    e.archived_at,
     6,
     date(
-      date(e.seniority_start_on, 'start of month', '+6 months'),
+      date(service.service_start_on, 'start of month', '+6 months'),
       printf('+%d days', min(
-        CAST(strftime('%d', e.seniority_start_on) AS INTEGER),
-        CAST(strftime('%d', date(e.seniority_start_on, 'start of month', '+7 months', '-1 day')) AS INTEGER)
+        CAST(strftime('%d', service.service_start_on) AS INTEGER),
+        CAST(strftime('%d', date(service.service_start_on, 'start of month', '+7 months', '-1 day')) AS INTEGER)
       ) - 1)
     ),
     date(
-      date(e.seniority_start_on, 'start of month', '+12 months'),
+      date(service.service_start_on, 'start of month', '+12 months'),
       printf('+%d days', min(
-        CAST(strftime('%d', e.seniority_start_on) AS INTEGER),
-        CAST(strftime('%d', date(e.seniority_start_on, 'start of month', '+13 months', '-1 day')) AS INTEGER)
+        CAST(strftime('%d', service.service_start_on) AS INTEGER),
+        CAST(strftime('%d', date(service.service_start_on, 'start of month', '+13 months', '-1 day')) AS INTEGER)
       ) - 1)
     )
   FROM hr_employments AS e
-  WHERE e.seniority_start_on <= date('now')
+  INNER JOIN hr_employment_service_periods AS service ON service.employment_id = e.id
+  WHERE service.service_start_on <= date('now')
   UNION ALL
   SELECT
     m.employment_id,
-    m.seniority_start_on,
-    m.ended_on,
+    m.service_start_on,
+    m.archived_at,
     CASE WHEN m.service_months = 6 THEN 12 ELSE m.service_months + 12 END,
     m.period_end,
     date(
       date(
-        m.seniority_start_on,
+        m.service_start_on,
         'start of month',
         '+' || (CASE WHEN m.service_months = 6 THEN 24 ELSE m.service_months + 24 END) || ' months'
       ),
       printf('+%d days', min(
-        CAST(strftime('%d', m.seniority_start_on) AS INTEGER),
+        CAST(strftime('%d', m.service_start_on) AS INTEGER),
         CAST(strftime('%d', date(
-          m.seniority_start_on,
+          m.service_start_on,
           'start of month',
           '+' || (CASE WHEN m.service_months = 6 THEN 25 ELSE m.service_months + 25 END) || ' months',
           '-1 day'
@@ -73,7 +74,7 @@ INNER JOIN hr_annual_leave_brackets AS b
   AND b.min_service_months <= m.service_months
   AND (b.max_service_months IS NULL OR b.max_service_months > m.service_months)
 WHERE m.period_start <= date('now')
-  AND (m.ended_on IS NULL OR m.period_start < m.ended_on);
+  AND (m.archived_at IS NULL OR m.period_start < substr(m.archived_at, 1, 10));
 --> statement-breakpoint
 INSERT OR IGNORE INTO hr_annual_leave_ledger (
   id, entitlement_id, entry_kind, delta_half_hours, source_key, note, created_by

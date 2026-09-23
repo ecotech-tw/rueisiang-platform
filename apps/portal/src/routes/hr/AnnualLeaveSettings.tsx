@@ -28,7 +28,7 @@ export function HrAnnualLeaveSettings() {
       <Panel title="目前生效版本" description="政策版本只新增、不覆寫已建立的歷史額度。">
         <div className="hr-annual-settings-overview">
           <div><span>版本</span><strong>v{current.versionNumber}</strong><small>自 {current.validFrom} 起生效</small></div>
-          <div><span>週期基準</span><strong>週年制</strong><small>依 seniorityStartOn 計算</small></div>
+          <div><span>週期基準</span><strong>週年制</strong><small>依服務年資起算日計算</small></div>
           <div><span>給薪日工時</span><strong>{(current.dailyMinutes / 60).toFixed(1)} 小時</strong><small>最小單位 {(current.minimumUnitMinutes / 60).toFixed(1)} 小時</small></div>
           <div><span>未休處理</span><strong>{current.carryoverAllowed ? "依政策遞延" : "不自動遞延"}</strong><small>每期額度獨立使用</small></div>
         </div>
@@ -39,7 +39,7 @@ export function HrAnnualLeaveSettings() {
         </tbody></table></div>
       </Panel>
       <Panel title="套用原則" description="申請與額度頁只呈現結果；規則集中在本頁供 HR 查核。">
-        <div className="hr-annual-principles"><div><strong>依任職年資起算</strong><span>以每筆 employment 的 seniorityStartOn 建立週年期別。</span></div><div><strong>核准才扣額度</strong><span>待審與駁回申請不會扣除；取消已核准申請會留下反向紀錄。</span></div><div><strong>不可跨期挪用</strong><span>每個週期獨立使用，跨週年申請必須拆成不同申請。</span></div></div>
+        <div className="hr-annual-principles"><div><strong>依任職年資起算</strong><span>以每筆 employment 的服務年資起算日建立週年期別。</span></div><div><strong>核准才扣額度</strong><span>待審與駁回申請不會扣除；取消已核准申請會留下反向紀錄。</span></div><div><strong>不可跨期挪用</strong><span>每個週期獨立使用，跨週年申請必須拆成不同申請。</span></div></div>
       </Panel>
     </> : null}
   </div>;

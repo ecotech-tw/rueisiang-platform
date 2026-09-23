@@ -5,7 +5,7 @@ import type { Database } from "./client.js";
 import { HR_DAY_TYPE_LABELS, isHrDayType, listHrCalendarMonth } from "./hr-calendar.js";
 import { HrError, type HrActor } from "./hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrEmployments, hrEmployees } from "./schema/hr-people.js";
+import { hrEmployments } from "./schema/hr-people.js";
 import { hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
 import {
   hrScheduleEntries,
@@ -136,7 +136,11 @@ async function saveEntriesAtomically(db: Database, version: { id: string; revisi
   const guard = sql`EXISTS (SELECT 1 FROM hr_schedule_versions WHERE id=${version.id} AND revision=${nextRevision} AND locked_at IS NULL)`;
   const statements = [
     sql`UPDATE hr_schedule_versions SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${version.id} AND revision=${version.revision} AND locked_at IS NULL RETURNING id`,
-    sql`DELETE FROM hr_schedule_entries WHERE schedule_version_id=${version.id} AND ${guard}`,
+    // 已封存員工的排班是歷史快照；只替換仍可編輯的活動員工，避免儲存其他人時連帶刪除歷史。
+    sql`DELETE FROM hr_schedule_entries
+      WHERE schedule_version_id=${version.id}
+        AND EXISTS (SELECT 1 FROM hr_employments AS employment WHERE employment.id=hr_schedule_entries.employment_id AND employment.archived_at IS NULL)
+        AND ${guard}`,
     sql`DELETE FROM hr_schedule_worker_entries WHERE schedule_version_id=${version.id} AND ${guard}`,
     ...entries.map((entry) => entry.personKind === "employee"
       ? sql`INSERT INTO hr_schedule_entries (id, schedule_version_id, employment_id, scope_id, shift_version_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, created_by)
@@ -175,8 +179,9 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     .innerJoin(hrShiftVersions, eq(hrShiftVersions.shiftTemplateId, hrShiftTemplates.id))
     .where(eq(hrShiftTemplates.active, 1));
   const shiftMap = new Map(latestShiftVersions(shiftRows).map((shift) => [`${shift.versionId}:${shift.scopeId}`, shift]));
-  const employmentRows = await db.select({ id: hrEmployments.id, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn, employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` }).from(hrEmployments)
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId));
+  const employmentRows = await db.select({ id: hrEmployments.id, employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` }).from(hrEmployments)
+    .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .where(sql`${hrEmployments.archivedAt} IS NULL`);
   const employmentMap = new Map(employmentRows.map((employment) => [employment.id, employment]));
   const attendanceSettings = await db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmploymentAttendanceSettings);
   const attendanceSettingMap = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting]));
@@ -191,7 +196,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     if (!shift || shift.scopeId !== entry.scopeId) throw new HrError(400, "班別未設定在這個營運據點。 ");
     if (entry.personKind === "employee") {
       const employment = entry.employmentId ? employmentMap.get(entry.employmentId) : undefined;
-      if (!employment || employment.hiredOn > entry.workDate || (employment.endedOn !== null && employment.endedOn <= entry.workDate)) throw new HrError(400, "排班人員沒有涵蓋該日期的有效任職。 ");
+      if (!employment) throw new HrError(400, "排班人員不是目前有效的員工。 ");
     } else {
       const worker = entry.workerId ? workerMap.get(entry.workerId) : undefined;
       if (!worker || !worker.active) throw new HrError(400, "臨時支援人員不存在或已停用。 ");
@@ -219,8 +224,8 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
   for (const employment of employmentRows) {
     const setting = attendanceSettingMap.get(employment.id);
     if (setting?.attendanceMode !== "scheduled" || setting.monthlyRestDays === null) continue;
-    const activeStart = employment.hiredOn > period.start ? employment.hiredOn : period.start;
-    const activeEnd = employment.endedOn && employment.endedOn < period.end ? employment.endedOn : period.end;
+    const activeStart = period.start;
+    const activeEnd = period.end;
     let activeDays = 0;
     for (let day = activeStart; day < activeEnd; day = addDays(day, 1)) activeDays += 1;
     const expectedRestDays = Math.min(setting.monthlyRestDays, activeDays);
@@ -275,9 +280,8 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
   ]);
   const selectedScopeId = scopeId && scopeId !== "all" ? scopeId : undefined;
   const [employeeEntries, workerEntries] = version ? await Promise.all([
-    db.select({ entry: hrScheduleEntries, employeeNumber: hrEmployees.employeeNumber, employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleEntries)
+    db.select({ entry: hrScheduleEntries, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleEntries)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleEntries.employmentId))
-      .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .innerJoin(scopes, eq(scopes.id, hrScheduleEntries.scopeId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleEntries.shiftVersionId))
@@ -290,15 +294,11 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrShiftVersions.shiftTemplateId))
       .where(and(eq(hrScheduleWorkerEntries.scheduleVersionId, version.id), selectedScopeId ? eq(hrScheduleWorkerEntries.scopeId, selectedScopeId) : undefined)),
   ]) : [[], []];
-  const employees = await db.select({ employmentId: hrEmployments.id, userId: hrEmployments.employeeUserId, employeeNumber: hrEmployees.employeeNumber, name: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, hiredOn: hrEmployments.hiredOn, endedOn: hrEmployments.endedOn, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmployments)
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
+  const employees = await db.select({ employmentId: hrEmployments.id, userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, name: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmployments)
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
-    .where(and(
-      sql`${hrEmployments.hiredOn} < ${period.end}`,
-      sql`${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${period.start}`,
-    ))
-    .orderBy(asc(hrEmployees.employeeNumber));
+    .where(sql`${hrEmployments.archivedAt} IS NULL`)
+    .orderBy(asc(hrEmployments.employeeNumber));
   return {
     periodKey,
     period,
@@ -309,8 +309,8 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
     employees,
     workers: workerRows,
     entries: [
-      ...employeeEntries.map(({ entry, employeeNumber, employeeName, scopeName, shiftName }) => ({ ...entry, personKind: "employee" as const, employeeNumber, personName: employeeName, scopeName, shiftName })),
-      ...workerEntries.map(({ entry, workerName, scopeName, shiftName }) => ({ ...entry, personKind: "worker" as const, employeeNumber: null, personName: workerName, scopeName, shiftName })),
+      ...employeeEntries.map(({ entry, employeeNumber, employeeName, archivedAt, scopeName, shiftName }) => ({ ...entry, personKind: "employee" as const, employeeNumber, personName: employeeName, archivedAt, scopeName, shiftName })),
+      ...workerEntries.map(({ entry, workerName, scopeName, shiftName }) => ({ ...entry, personKind: "worker" as const, employeeNumber: null, personName: workerName, archivedAt: null, scopeName, shiftName })),
     ],
   };
 }

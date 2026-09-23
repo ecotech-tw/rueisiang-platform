@@ -34,14 +34,14 @@ beforeEach(async () => {
   await db.insert(userRoleAssignments).values({ userId: "admin", roleId: "role-admin" });
   adminCookie = await sessionCookie("admin", "admin@example.test", "管理者");
   employeeCookie = await sessionCookie("employee", "employee@example.test", "員工");
-  const assigned = await request("/hr/employees", "POST", { userId: "employee", employeeNumber: "E-ANNUAL", hiredOn: "2025-03-01", seniorityStartOn: "2025-03-01" });
+  const assigned = await request("/hr/employees", "POST", { userId: "employee", employeeNumber: "E-ANNUAL", position: "一般職員", serviceStartOn: "2025-03-01" });
   expect(assigned.status, await assigned.clone().text()).toBe(201);
 });
 
 afterEach(() => d1.sqlite.close());
 
 describe("週年制特休額度", () => {
-  it("依 seniorityStartOn 建立滿半年、週年與半小時台帳", async () => {
+  it("依服務年資起算日建立滿半年、週年與半小時台帳", async () => {
     const db = createDatabase(d1 as never);
     await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
     const rows = await listHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
@@ -128,7 +128,6 @@ describe("週年制特休額度", () => {
   });
 
   it("核准待審請假前重新檢查任職期間，避免離職後仍生效", async () => {
-    const db = createDatabase(d1 as never);
     const leaveType = await request("/hr/leave-types", "POST", { name: "任職邊界測試假", defaultPayRatePpm: 1_000_000 });
     expect(leaveType.status, await leaveType.clone().text()).toBe(201);
     const leaveTypeId = (await leaveType.json() as { id: string }).id;
@@ -137,10 +136,8 @@ describe("週年制特休額度", () => {
     const requestId = (await pending.json() as { id: string }).id;
     const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string; revision: number }> };
     const employmentId = profile.employments[0]!.id;
-    const end = await request(`/hr/employments/${employmentId}/end`, "PATCH", { endedOn: "2026-02-01", revision: 1 });
-    expect(end.status).toBe(409);
-
-    await db.update(hrEmployments).set({ endedOn: "2026-02-01" }).where(eq(hrEmployments.id, employmentId));
+    const end = await request(`/hr/employments/${employmentId}/end`, "PATCH", { revision: 1 });
+    expect(end.status, await end.clone().text()).toBe(200);
     const reviewed = await request(`/hr/requests/leave/${requestId}/review`, "POST", { decision: "approved", comment: "核准" });
     expect(reviewed.status).toBe(400);
     expect((await reviewed.json() as { error: string }).error).toContain("請假日期不在有效任職期間內");
@@ -150,7 +147,7 @@ describe("週年制特休額度", () => {
     const db = createDatabase(d1 as never);
     const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
     const employmentId = profile.employments[0]!.id;
-    await db.update(hrEmployments).set({ endedOn: "2026-09-01" }).where(eq(hrEmployments.id, employmentId));
+    await db.update(hrEmployments).set({ archivedAt: "2026-09-01T00:00:00.000Z" }).where(eq(hrEmployments.id, employmentId));
     await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2026-09-01" });
     const rows = await db.select({ periodStart: hrAnnualLeaveEntitlements.periodStart }).from(hrAnnualLeaveEntitlements)
       .where(eq(hrAnnualLeaveEntitlements.employmentId, employmentId));
@@ -163,8 +160,9 @@ describe("週年制特休額度", () => {
     const employmentId = profile.employments[0]!.id;
     const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "測試月薪" });
     expect(compensation.status, await compensation.clone().text()).toBe(201);
-    const ended = await request(`/hr/employments/${employmentId}/end`, "PATCH", { endedOn: "2026-01-15", revision: 1 });
+    const ended = await request(`/hr/employments/${employmentId}/end`, "PATCH", { revision: 1 });
     expect(ended.status, await ended.clone().text()).toBe(200);
+    await db.update(hrEmployments).set({ archivedAt: "2026-01-15T00:00:00.000Z" }).where(eq(hrEmployments.id, employmentId));
 
     const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], requestId: "annual-settlement-termination" });
     expect(calculated.status, await calculated.clone().text()).toBe(200);

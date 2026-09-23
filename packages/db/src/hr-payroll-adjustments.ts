@@ -3,7 +3,7 @@ import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
-import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
+import { hrEmployments } from "./schema/hr-people.js";
 import { hrPayrollAdjustmentItems, hrPayrollAdjustments, hrPayrollPeriods, hrPayrollRuns, hrPayslips } from "./schema/hr-payroll-runs.js";
 import { users } from "./schema/auth.js";
 
@@ -39,7 +39,7 @@ async function ensureEditable(db: Database, employmentId: string, effectivePerio
   if (periodRow?.status === "closed" || closed) throw new HrError(409, "調整生效月份已結帳，請建立下一個月份的新調整。 ");
 }
 async function ensureEmployment(db: Database, employmentId: string) {
-  const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(eq(hrEmployments.id, employmentId)).limit(1);
+  const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, employmentId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
   if (!row) throw new HrError(404, "找不到任職紀錄。 ");
 }
 
@@ -48,7 +48,7 @@ const adjustmentJoinSelection = {
   adjustmentEffectivePeriodKey: hrPayrollAdjustments.effectivePeriodKey, adjustmentReason: hrPayrollAdjustments.reason, adjustmentCreatedBy: hrPayrollAdjustments.createdBy,
   adjustmentCreatedAt: hrPayrollAdjustments.createdAt, adjustmentUpdatedBy: hrPayrollAdjustments.updatedBy, adjustmentUpdatedAt: hrPayrollAdjustments.updatedAt, adjustmentRevision: hrPayrollAdjustments.revision,
   itemId: hrPayrollAdjustmentItems.id, itemAdjustmentId: hrPayrollAdjustmentItems.adjustmentId, itemName: hrPayrollAdjustmentItems.itemName, itemAmountMinor: hrPayrollAdjustmentItems.amountMinor, itemCreatedAt: hrPayrollAdjustmentItems.createdAt,
-  employeeNumber: hrEmployees.employeeNumber, employeeName: displayName,
+  employeeNumber: hrEmployments.employeeNumber, employeeName: displayName,
 };
 type JoinedAdjustmentRow = {
   adjustmentId: string; adjustmentEmploymentId: string; adjustmentSourcePeriodKey: string; adjustmentEffectivePeriodKey: string; adjustmentReason: string; adjustmentCreatedBy: string; adjustmentCreatedAt: string; adjustmentUpdatedBy: string; adjustmentUpdatedAt: string; adjustmentRevision: number;
@@ -65,8 +65,8 @@ export async function listHrPayrollAdjustments(db: Database, effectivePeriodKey?
   if (effectivePeriodKey) periodKey(effectivePeriodKey);
   const rawRows = await db.select(adjustmentJoinSelection).from(hrPayrollAdjustments)
     .innerJoin(hrPayrollAdjustmentItems, eq(hrPayrollAdjustmentItems.adjustmentId, hrPayrollAdjustments.id))
-    .innerJoin(hrEmployments, eq(hrEmployments.id, hrPayrollAdjustments.employmentId)).innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(effectivePeriodKey ? eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey) : undefined).orderBy(asc(hrPayrollAdjustments.effectivePeriodKey), asc(hrEmployees.employeeNumber), asc(hrPayrollAdjustments.createdAt));
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrPayrollAdjustments.employmentId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .where(effectivePeriodKey ? eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey) : undefined).orderBy(asc(hrPayrollAdjustments.effectivePeriodKey), asc(hrEmployments.employeeNumber), asc(hrPayrollAdjustments.createdAt));
   const rows = rawRows.map((row) => joinedAdjustment(row));
   const byId = new Map<string, { adjustment: typeof rows[number]["adjustment"]; employeeNumber: string; employeeName: string; items: typeof rows[number]["item"][] }>();
   for (const row of rows) {
@@ -105,7 +105,7 @@ export async function updateHrPayrollAdjustment(db: Database, id: string, input:
 export async function listHrPayrollAdjustmentsForPeriod(db: Database, effectivePeriodKey: string) {
   const rawRows = await db.select(adjustmentJoinSelection).from(hrPayrollAdjustments)
     .innerJoin(hrPayrollAdjustmentItems, eq(hrPayrollAdjustmentItems.adjustmentId, hrPayrollAdjustments.id)).innerJoin(hrEmployments, eq(hrEmployments.id, hrPayrollAdjustments.employmentId))
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey));
   const rows = rawRows.map((row) => joinedAdjustment(row));
   const byEmployment = new Map<string, Array<{ adjustment: typeof rows[number]["adjustment"]; item: typeof rows[number]["item"] }>>();

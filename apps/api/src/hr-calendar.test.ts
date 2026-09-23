@@ -135,7 +135,7 @@ describe("HR 行事曆與班別日型", () => {
       { dayType: "holiday", startTime: "11:00", endTime: "19:00" },
     ]);
     await db.insert(users).values({ id: "staff", email: "staff@example.test", displayName: "員工", status: "active" });
-    expect((await request("/hr/employees", "POST", { userId: "staff", employeeNumber: "E-CAL", hiredOn: "2026-01-01", seniorityStartOn: "2026-01-01" })).status).toBe(201);
+    expect((await request("/hr/employees", "POST", { userId: "staff", employeeNumber: "E-CAL", position: "一般職員", serviceStartOn: "2026-01-01" })).status).toBe(201);
     const detail = await (await request("/hr/employees/staff")).json() as { employments: Array<{ id: string }> };
     const employmentId = detail.employments[0]?.id;
     const holiday = (await listShifts()).find((shift) => shift.dayType === "holiday")!;
@@ -172,7 +172,7 @@ describe("行事曆整年管理與出缺勤", () => {
   /** 讓「自己」這個帳號成為一般辦公模式的在職員工，出缺勤才有東西可以判。 */
   async function officeEmployee() {
     await db.insert(users).values({ id: "self", email: "self@example.test", displayName: "本人", status: "active" });
-    expect((await request("/hr/employees", "POST", { userId: "self", employeeNumber: "E-CAL2", hiredOn: "2020-01-01", seniorityStartOn: "2020-01-01" })).status).toBe(201);
+    expect((await request("/hr/employees", "POST", { userId: "self", employeeNumber: "E-CAL2", position: "一般職員", serviceStartOn: "2020-01-01" })).status).toBe(201);
     return `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "self", email: "self@example.test", name: "本人", pictureUrl: "" }), SECRET))}`;
   }
   async function calendarOf(selfCookie: string, year: number, month: number) {

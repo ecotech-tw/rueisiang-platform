@@ -24,8 +24,8 @@ import {
   hrCompensationVersions,
   hrEmployeeAttendanceLocations,
   hrEmployeeScopes,
-  hrEmployees,
   hrEmployments,
+  hrEmploymentServicePeriods,
   hrEmploymentAttendanceSettings,
   hrInsuranceVersions,
   hrLeaveTypes,
@@ -114,6 +114,13 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
   await seedDevHr(db);
 }
 
+async function ensureDevServicePeriod(db: ReturnType<typeof createDatabase>, employmentId: string, serviceStartOn: string) {
+  await db.insert(hrEmploymentServicePeriods).values({ employmentId, serviceStartOn }).onConflictDoUpdate({
+    target: hrEmploymentServicePeriods.employmentId,
+    set: { serviceStartOn },
+  });
+}
+
 async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
   const [employee] = await db.select({ id: users.id }).from(users).where(eq(users.email, "chen@ecotech.tw")).limit(1);
   if (!employee) return;
@@ -125,29 +132,24 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
   // 示範主管也要有 HR 員工紀錄，否則員工雖看得到預設主管，送出申請時會被
   // ensureApprover 正確地擋下（審核者必須是啟用中的員工）。
   if (supervisor) {
-    await db.insert(hrEmployees).values({
-      userId: supervisor.id,
-      employeeNumber: "DEMO-WANG",
-    }).onConflictDoNothing();
     await db.insert(hrEmployments).values({
       id: "dev-employment-wang",
       employeeUserId: supervisor.id,
-      hiredOn: "2026-01-01",
-      seniorityStartOn: "2017-01-01",
+      employeeNumber: "DEMO-WANG",
+      position: "門市主管",
+      supervisorUserId: null,
     }).onConflictDoNothing();
+    await ensureDevServicePeriod(db, "dev-employment-wang", "2025-01-15");
   }
 
-  await db.insert(hrEmployees).values({
-    userId: employeeUserId,
-    employeeNumber: "DEMO-CHEN",
-    supervisorUserId: supervisor?.id ?? null,
-  }).onConflictDoNothing();
   await db.insert(hrEmployments).values({
     id: employmentId,
-    employeeUserId: employeeUserId,
-    hiredOn: "2026-01-01",
-    seniorityStartOn: "2026-01-01",
+    employeeUserId,
+    employeeNumber: "DEMO-CHEN",
+    position: "一般職員",
+    supervisorUserId: supervisor?.id ?? null,
   }).onConflictDoNothing();
+  await ensureDevServicePeriod(db, employmentId, "2025-03-01");
   await db.insert(hrAttendanceLocations).values({
     id: locationId,
     name: "示範台北辦公室",
@@ -176,14 +178,14 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
 
   const [newHire] = await db.select({ id: users.id }).from(users).where(eq(users.email, "newhire@ecotech.tw")).limit(1);
   if (newHire) {
-    await db.insert(hrEmployees).values({ userId: newHire.id, employeeNumber: "DEMO-NEW", supervisorUserId: supervisor?.id ?? null }).onConflictDoNothing();
-    await db.insert(hrEmployments).values({ id: "dev-employment-newhire", employeeUserId: newHire.id, hiredOn: "2026-08-01", seniorityStartOn: "2026-08-01" }).onConflictDoNothing();
+    await db.insert(hrEmployments).values({ id: "dev-employment-newhire", employeeUserId: newHire.id, employeeNumber: "DEMO-NEW", position: "一般職員", supervisorUserId: supervisor?.id ?? null }).onConflictDoNothing();
+    await ensureDevServicePeriod(db, "dev-employment-newhire", "2026-08-01");
     await db.insert(hrCompensationVersions).values({ id: "dev-comp-newhire-2026", employmentId: "dev-employment-newhire", versionNumber: 1, validFrom: "2026-08-01", validTo: null, payBasis: "monthly", baseAmountMinor: 3_200_000, note: "開發示範：新進同仁月薪 NT$32,000", createdBy: newHire.id }).onConflictDoNothing();
   }
   const [sixMonth] = await db.select({ id: users.id }).from(users).where(eq(users.email, "sixmonth@ecotech.tw")).limit(1);
   if (sixMonth) {
-    await db.insert(hrEmployees).values({ userId: sixMonth.id, employeeNumber: "DEMO-SIX", supervisorUserId: supervisor?.id ?? null }).onConflictDoNothing();
-    await db.insert(hrEmployments).values({ id: "dev-employment-sixmonth", employeeUserId: sixMonth.id, hiredOn: "2026-03-01", seniorityStartOn: "2026-03-01" }).onConflictDoNothing();
+    await db.insert(hrEmployments).values({ id: "dev-employment-sixmonth", employeeUserId: sixMonth.id, employeeNumber: "DEMO-SIX", position: "一般職員", supervisorUserId: supervisor?.id ?? null }).onConflictDoNothing();
+    await ensureDevServicePeriod(db, "dev-employment-sixmonth", "2026-03-01");
     await db.insert(hrCompensationVersions).values({ id: "dev-comp-sixmonth-2026", employmentId: "dev-employment-sixmonth", versionNumber: 1, validFrom: "2026-03-01", validTo: null, payBasis: "monthly", baseAmountMinor: 3_600_000, note: "開發示範：滿半年同仁月薪 NT$36,000", createdBy: sixMonth.id }).onConflictDoNothing();
   }
 
@@ -205,11 +207,8 @@ async function seedDevPayrollScenario(
   const ximenScopeId = DEV_ANALYTICS_SCOPES[0].id;
   const month = "2026-08";
 
-  await db.insert(hrEmployees).values({ userId: ids.linUserId, employeeNumber: "DEMO-LIN", supervisorUserId: ids.supervisorUserId }).onConflictDoUpdate({
-    target: hrEmployees.userId,
-    set: { employeeNumber: "DEMO-LIN", supervisorUserId: ids.supervisorUserId },
-  });
-  await db.insert(hrEmployments).values({ id: linEmploymentId, employeeUserId: ids.linUserId, hiredOn: "2026-01-01", seniorityStartOn: "2021-03-01" }).onConflictDoNothing();
+  await db.insert(hrEmployments).values({ id: linEmploymentId, employeeUserId: ids.linUserId, employeeNumber: "DEMO-LIN", position: "一般職員", supervisorUserId: ids.supervisorUserId }).onConflictDoNothing();
+  await ensureDevServicePeriod(db, linEmploymentId, "2025-03-01");
   await db.insert(hrEmployeeAttendanceLocations).values({ id: "dev-attendance-lin-office", employmentId: linEmploymentId, locationId: ids.locationId, validFrom: "2026-01-01" }).onConflictDoNothing();
   await db.insert(hrEmploymentAttendanceSettings).values({ employmentId: linEmploymentId, attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" })
     .onConflictDoUpdate({ target: hrEmploymentAttendanceSettings.employmentId, set: { attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" } });

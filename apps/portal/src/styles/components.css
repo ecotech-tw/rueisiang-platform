@@ -3215,22 +3215,36 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .toast span { flex: 1; min-width: 0; color: var(--color-ink); font-weight: 700; }
 .toast button {
-  width: 26px;
-  height: 26px;
   flex: none;
-  display: grid;
-  place-items: center;
-  padding: 0;
   border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--color-muted);
-  transition-property: background-color, color;
+  font: inherit;
+  transition-property: background-color, color, scale;
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
-.toast button:hover { background: --alpha(var(--toast-tint, var(--color-brand)) / 10%); color: var(--toast-tint, var(--color-brand)); }
-.toast button svg { width: 14px; height: 14px; }
+.toast button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.toast button:active { scale: .96; }
+.toast-action {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: --alpha(var(--toast-tint, var(--color-brand)) / 10%);
+  color: var(--toast-tint, var(--color-brand));
+  font-size: 12px;
+  font-weight: 700;
+}
+.toast-action:hover { background: --alpha(var(--toast-tint, var(--color-brand)) / 18%); }
+.toast-close {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-muted);
+}
+.toast-close:hover { background: --alpha(var(--toast-tint, var(--color-brand)) / 10%); color: var(--toast-tint, var(--color-brand)); }
+.toast-close svg { width: 14px; height: 14px; }
 .toast-success { --toast-tint: var(--color-ok); }
 .toast-info { --toast-tint: var(--color-info); }
 .toast-danger { --toast-tint: var(--color-brand-dark); }
@@ -3576,11 +3590,73 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .checkbox-field { display: inline-flex; align-items: center; gap: 8px; font-weight: 400; }
 .checkbox-field input { width: 18px; height: 18px; accent-color: var(--color-brand); }
 .hr-employee-management-dialog { width: min(720px, 100%); }
+.hr-employment-tabs {
+  display: flex;
+  align-self: flex-start;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--color-canvas);
+}
+.hr-employment-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition-property: background-color, color, box-shadow;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
+}
+.hr-employment-tabs button:hover { background: --alpha(var(--color-brand) / 5%); color: var(--color-brand-dark); }
+.hr-employment-tabs button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-employment-tabs button.active { background: var(--color-brand-soft); color: var(--color-brand-dark); font-weight: 700; box-shadow: 0 1px 2px --alpha(var(--color-ink) / 6%); }
+.hr-employment-tabs button span { min-width: 22px; padding: 2px 6px; border-radius: 999px; background: --alpha(var(--color-ink) / 7%); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+.hr-employment-tabs button.active span { background: --alpha(var(--color-brand) / 12%); }
+.hr-management-identity,
+.hr-management-current { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.hr-management-identity { padding: 12px 14px; border-radius: 12px; background: var(--color-canvas); }
+.hr-management-description { margin: 0; color: var(--color-muted); line-height: 1.65; }
+.hr-management-identity > div,
+.hr-management-current > div { display: grid; gap: 4px; min-width: 0; }
+.hr-management-identity strong { font-size: 16px; }
+.hr-management-identity span:not(.status),
+.hr-management-current span { color: var(--color-muted); font-size: 12px; }
+.hr-management-current { margin-top: 16px; padding: 16px; border: 1px solid var(--color-soft-line); border-radius: 14px; background: --alpha(var(--color-paper) / 56%); }
+.hr-management-current.is-empty { border-style: dashed; }
+.hr-management-current strong { color: var(--color-ink); font-size: 15px; }
+.eyebrow { color: var(--color-muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .hr-management-group { padding-top: 18px; border-top: 1px solid var(--color-soft-line); }
 .hr-management-group:first-of-type { padding-top: 0; border-top: 0; }
 .hr-management-group h3 { margin: 0 0 12px; font-size: 15px; }
-.hr-management-job { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-soft-line); }
-.hr-management-job p { margin: 0 0 10px; }
+.hr-management-history { display: grid; gap: 0; }
+.hr-management-job { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 0; padding: 13px 0; border-top: 1px solid var(--color-soft-line); }
+.hr-management-job > div { display: grid; gap: 4px; min-width: 0; }
+.hr-management-job span { color: var(--color-muted); font-size: 12px; }
+.hr-management-job-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: nowrap; gap: 8px; flex: none; }
+.hr-management-job-actions .status { flex: none; }
+.hr-management-assignment-actions { display: grid; gap: 6px; margin-top: 8px; }
+.hr-management-assignment { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.hr-management-assignment > span:first-child { color: var(--color-ink); font-size: 12px; }
+.hr-management-assignment > button { min-height: 28px; padding: 4px 9px; font-size: 12px; }
+@media (max-width: 560px) {
+  .hr-employment-tabs { width: 100%; }
+  .hr-employment-tabs button { flex: 1; justify-content: center; }
+  .hr-management-current,
+  .hr-management-job { align-items: stretch; flex-direction: column; }
+  .hr-management-current > button,
+  .hr-management-job-actions { align-self: flex-start; justify-content: flex-start; flex-wrap: wrap; }
+  .hr-management-assignment { align-items: flex-start; flex-direction: column; }
+}
 .hr-location-assignment-list { display: grid; gap: 7px; min-width: 220px; }
 .hr-location-assignment { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .hr-location-assignment > span { min-width: 0; }
@@ -3919,7 +3995,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   z-index: 90;
   /* 垂直位置由 JS 決定（上方放不下要翻到下方），這裡只負責水平置中。 */
   transform: translateX(-50%);
-  max-width: 280px;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
   padding: 6px 12px;
   border-radius: 10px;
   background: var(--color-ink);

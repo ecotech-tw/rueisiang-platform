@@ -59,14 +59,6 @@ function nextMonth(value: string) {
   const next = new Date(Date.UTC(year!, month!, 1));
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
 }
-function monthRange(value: string) {
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return { start: "", end: "" };
-  const [year, month] = value.split("-").map(Number);
-  const start = new Date(Date.UTC(year!, month! - 1, 1));
-  const end = new Date(Date.UTC(year!, month!, 1));
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
-}
-
 function readableLine(line: PayrollLine): string {
   if (line.lineKey.startsWith("bonus_")) return `業績獎金${stringValue(line.explanation.policyName) ? `｜${line.explanation.policyName}` : ""}`;
   if (line.lineKey.startsWith("salary_item_")) return stringValue(line.explanation.itemName) ?? "薪資項目";
@@ -325,8 +317,7 @@ export function HrPayrollSettlement() {
   const payrollTotals = useMemo(() => payrollResult?.employees.reduce((totals, employee) => ({ earningMinor: totals.earningMinor + employee.earningMinor, deductionMinor: totals.deductionMinor + employee.deductionMinor, netMinor: totals.netMinor + employee.netMinor }), { earningMinor: 0, deductionMinor: 0, netMinor: 0 }) ?? { earningMinor: 0, deductionMinor: 0, netMinor: 0 }, [payrollResult]);
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (runs.isPending) return <HrPageSkeleton variant="table" />;
-  const sourceRange = monthRange(periodKey);
-  const adjustmentEmployment = adjustmentProfile.data?.employments.find((employment) => employment.hiredOn < sourceRange.end && (!employment.endedOn || employment.endedOn > sourceRange.start));
+  const adjustmentEmployment = adjustmentProfile.data?.employments.find((employment) => !employment.archivedAt);
 
   function calculate() {
     setError(null);

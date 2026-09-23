@@ -121,7 +121,7 @@ export const hrScheduleVersions = sqliteTable("hr_schedule_versions", {
   check("ck_hr_schedule_versions_revision", sql`${table.revision} > 0`),
 ]);
 
-/** 沒有平台帳號的臨時支援人員只存在於排班，不會混入 users／hr_employees。 */
+/** 沒有平台帳號的臨時支援人員只存在於排班，不會混入 users／hr_employments。 */
 export const hrScheduleWorkers = sqliteTable("hr_schedule_workers", {
   id: text("id").primaryKey(),
   displayName: text("display_name").notNull(),

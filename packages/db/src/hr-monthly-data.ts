@@ -2,7 +2,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries } from "./schema/hr-payroll.js";
-import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
+import { hrEmployments } from "./schema/hr-people.js";
 import { hrPayrollPeriods, hrPayrollRuns, hrPayslips } from "./schema/hr-payroll-runs.js";
 import { users } from "./schema/auth.js";
 
@@ -61,10 +61,10 @@ async function ensureOpenPeriod(db: Database, date: string, employmentId?: strin
   }
 }
 
-async function ensureEmploymentOnDate(db: Database, employmentId: string, date: string) {
+async function ensureEmploymentActive(db: Database, employmentId: string) {
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
-    .where(and(eq(hrEmployments.id, employmentId), sql`${hrEmployments.hiredOn} <= ${date}`, sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} > ${date})`)).limit(1);
-  if (!row) throw new HrError(404, "找不到該日期有效的任職紀錄。 ");
+    .where(and(eq(hrEmployments.id, employmentId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
+  if (!row) throw new HrError(404, "找不到目前有效的員工紀錄。 ");
 }
 
 function validateDateInPeriod(date: string, periodKey: string, label: string) {
@@ -133,7 +133,7 @@ const leaveListFields = {
   entry: hrMonthlyLeaveEntries,
   leaveTypeName: hrLeaveTypes.name,
   employeeUserId: hrEmployments.employeeUserId,
-  employeeNumber: hrEmployees.employeeNumber,
+  employeeNumber: hrEmployments.employeeNumber,
   employeeName: displayName,
 };
 
@@ -144,15 +144,14 @@ export async function listHrMonthlyData(db: Database, periodKey: string, employe
     db.select(leaveListFields).from(hrMonthlyLeaveEntries)
       .innerJoin(hrLeaveTypes, eq(hrLeaveTypes.id, hrMonthlyLeaveEntries.leaveTypeId))
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrMonthlyLeaveEntries.employmentId))
-      .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .where(and(sql`${hrMonthlyLeaveEntries.leaveDate} >= ${range.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${range.end}`, employeeFilter))
-      .orderBy(asc(hrMonthlyLeaveEntries.leaveDate), asc(hrEmployees.employeeNumber)),
-    db.select({ entry: hrMonthlyHourlyEntries, employeeUserId: hrEmployments.employeeUserId, employeeNumber: hrEmployees.employeeNumber, employeeName: displayName })
+      .orderBy(asc(hrMonthlyLeaveEntries.leaveDate), asc(hrEmployments.employeeNumber)),
+    db.select({ entry: hrMonthlyHourlyEntries, employeeUserId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, employeeName: displayName })
       .from(hrMonthlyHourlyEntries).innerJoin(hrEmployments, eq(hrEmployments.id, hrMonthlyHourlyEntries.employmentId))
-      .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+      .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .where(and(sql`${hrMonthlyHourlyEntries.workDate} >= ${range.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${range.end}`, employeeFilter))
-      .orderBy(asc(hrMonthlyHourlyEntries.workDate), asc(hrEmployees.employeeNumber)),
+      .orderBy(asc(hrMonthlyHourlyEntries.workDate), asc(hrEmployments.employeeNumber)),
   ]);
   const leaveSummary = new Map<string, { leaveTypeId: string; leaveTypeName: string; employeeUserId: string; employeeNumber: string; employeeName: string; entryCount: number; dateSet: Set<string>; hoursHalfUnits: number; deductionAmount: number; payRatePpmTotal: number }>();
   for (const row of leaves) {
@@ -177,7 +176,7 @@ export async function createHrMonthlyLeave(db: Database, input: MonthlyLeaveInpu
   validateMoneyYuan(input.deductionAmount, "扣款金額");
   if ((input.note ?? "").length > 1000) throw new HrError(400, "假勤備註不可超過 1000 字。 ");
   await ensureOpenPeriod(db, input.leaveDate, input.employmentId);
-  await ensureEmploymentOnDate(db, input.employmentId, input.leaveDate);
+  await ensureEmploymentActive(db, input.employmentId);
   await ensureDailyLeaveCapacity(db, input);
   const [leaveType] = await db.select({ id: hrLeaveTypes.id, leaveKind: hrLeaveTypes.leaveKind }).from(hrLeaveTypes).where(and(eq(hrLeaveTypes.id, input.leaveTypeId), eq(hrLeaveTypes.active, 1))).limit(1);
   if (!leaveType) throw new HrError(404, "找不到啟用中的假別。 ");
@@ -200,7 +199,7 @@ export async function updateHrMonthlyLeave(db: Database, id: string, input: Omit
   if (!existing) throw new HrError(404, "找不到假勤資料。 ");
   await ensureOpenPeriod(db, existing.leaveDate, existing.employmentId);
   await ensureOpenPeriod(db, input.leaveDate, input.employmentId);
-  await ensureEmploymentOnDate(db, input.employmentId, input.leaveDate);
+  await ensureEmploymentActive(db, input.employmentId);
   await ensureDailyLeaveCapacity(db, input, id);
   const [type] = await db.select({ id: hrLeaveTypes.id, leaveKind: hrLeaveTypes.leaveKind }).from(hrLeaveTypes).where(and(eq(hrLeaveTypes.id, input.leaveTypeId), eq(hrLeaveTypes.active, 1))).limit(1);
   if (!type) throw new HrError(404, "找不到假別。 ");
@@ -217,7 +216,7 @@ export async function createHrMonthlyHourly(db: Database, input: MonthlyHourlyIn
   if (noWork && input.hoursHalfUnits !== 0) throw new HrError(400, "標記本期無工時時，工時必須為 0。 ");
   if (!noWork && input.hoursHalfUnits === 0) throw new HrError(400, "請輸入工時，或明確標記本期無工時。 ");
   await ensureOpenPeriod(db, input.workDate, input.employmentId);
-  await ensureEmploymentOnDate(db, input.employmentId, input.workDate);
+  await ensureEmploymentActive(db, input.employmentId);
   const id = crypto.randomUUID();
   return writeHrMutation(db, sql`INSERT INTO hr_monthly_hourly_entries
     (id, employment_id, work_date, hours_half_units, no_work, note, created_by, updated_by)
@@ -234,7 +233,7 @@ export async function updateHrMonthlyHourly(db: Database, id: string, input: Mon
   if (!existing) throw new HrError(404, "找不到月度工時資料。 ");
   await ensureOpenPeriod(db, existing.workDate, existing.employmentId);
   await ensureOpenPeriod(db, input.workDate, input.employmentId);
-  await ensureEmploymentOnDate(db, input.employmentId, input.workDate);
+  await ensureEmploymentActive(db, input.employmentId);
   return writeHrMutation(db, sql`UPDATE hr_monthly_hourly_entries SET
     employment_id=${input.employmentId}, work_date=${input.workDate}, hours_half_units=${input.hoursHalfUnits}, no_work=${noWork ? 1 : 0}, note=${input.note ?? ""}, updated_by=${actor.id}, updated_at=CURRENT_TIMESTAMP, revision=revision+1
     WHERE id=${id} AND revision=${input.revision} RETURNING id`, id, actor, "monthly_hourly_updated", "月度工時已變更、月份已結帳或版本過期，請重新整理。 ");

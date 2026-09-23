@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a7462aad-f4ef-49cf-9e4d-ed65ee78250f",
-  "prevId": "fa038246-6c2e-4062-98f1-8605cdbec3c7",
+  "id": "4b2a4738-9714-4572-8ffb-ccd575718870",
+  "prevId": "3b158933-e9f5-4ecf-9634-6157623588b0",
   "tables": {
     "auth_device_sessions": {
       "name": "auth_device_sessions",
@@ -4190,6 +4190,14 @@
           "notNull": false,
           "autoincrement": false
         },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -4205,14 +4213,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "CURRENT_TIMESTAMP"
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
         }
       },
       "indexes": {
@@ -4374,6 +4374,128 @@
         }
       }
     },
+    "hr_employment_actions": {
+      "name": "hr_employment_actions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "employee_user_id": {
+          "name": "employee_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "employment_id": {
+          "name": "employment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action_kind": {
+          "name": "action_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "before_ended_on": {
+          "name": "before_ended_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "after_ended_on": {
+          "name": "after_ended_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expected_revision": {
+          "name": "expected_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "undone_at": {
+          "name": "undone_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "undone_by": {
+          "name": "undone_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ended_scope_assignments": {
+          "name": "ended_scope_assignments",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "ended_attendance_assignments": {
+          "name": "ended_attendance_assignments",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "before_primary_assignment_id": {
+          "name": "before_primary_assignment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_hr_employment_actions_employee_created": {
+          "name": "idx_hr_employment_actions_employee_created",
+          "columns": [
+            "employee_user_id",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_employment_actions_kind": {
+          "name": "ck_hr_employment_actions_kind",
+          "value": "\"hr_employment_actions\".\"action_kind\" IN ('employee_assigned', 'employment_created', 'employment_ended')"
+        },
+        "ck_hr_employment_actions_revision": {
+          "name": "ck_hr_employment_actions_revision",
+          "value": "\"hr_employment_actions\".\"expected_revision\" > 0"
+        }
+      }
+    },
     "hr_employments": {
       "name": "hr_employments",
       "columns": {
@@ -4412,6 +4534,57 @@
           "notNull": true,
           "autoincrement": false
         },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revoked_by": {
+          "name": "revoked_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "employee_number": {
+          "name": "employee_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'一般職員'"
+        },
+        "supervisor_user_id": {
+          "name": "supervisor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -4427,14 +4600,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "CURRENT_TIMESTAMP"
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
         }
       },
       "indexes": {
@@ -4444,7 +4609,8 @@
             "employee_user_id",
             "hired_on"
           ],
-          "isUnique": true
+          "isUnique": true,
+          "where": "\"hr_employments\".\"revoked_at\" IS NULL"
         }
       },
       "foreignKeys": {
@@ -4457,6 +4623,19 @@
           ],
           "columnsTo": [
             "user_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "hr_employments_revoked_by_users_id_fk": {
+          "name": "hr_employments_revoked_by_users_id_fk",
+          "tableFrom": "hr_employments",
+          "tableTo": "users",
+          "columnsFrom": [
+            "revoked_by"
+          ],
+          "columnsTo": [
+            "id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -4994,15 +5173,15 @@
         }
       },
       "foreignKeys": {
-        "hr_clock_events_employee_user_id_hr_employees_user_id_fk": {
-          "name": "hr_clock_events_employee_user_id_hr_employees_user_id_fk",
+        "hr_clock_events_employee_user_id_users_id_fk": {
+          "name": "hr_clock_events_employee_user_id_users_id_fk",
           "tableFrom": "hr_clock_events",
-          "tableTo": "hr_employees",
+          "tableTo": "users",
           "columnsFrom": [
             "employee_user_id"
           ],
           "columnsTo": [
-            "user_id"
+            "id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -5457,15 +5636,15 @@
         }
       },
       "foreignKeys": {
-        "hr_form_requests_employee_user_id_hr_employees_user_id_fk": {
-          "name": "hr_form_requests_employee_user_id_hr_employees_user_id_fk",
+        "hr_form_requests_employee_user_id_users_id_fk": {
+          "name": "hr_form_requests_employee_user_id_users_id_fk",
           "tableFrom": "hr_form_requests",
-          "tableTo": "hr_employees",
+          "tableTo": "users",
           "columnsFrom": [
             "employee_user_id"
           ],
           "columnsTo": [
-            "user_id"
+            "id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -5519,583 +5698,6 @@
         "ck_hr_form_requests_reason": {
           "name": "ck_hr_form_requests_reason",
           "value": "length(trim(\"hr_form_requests\".\"reason\")) BETWEEN 1 AND 1000"
-        }
-      }
-    },
-    "hr_annual_leave_brackets": {
-      "name": "hr_annual_leave_brackets",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "policy_version_id": {
-          "name": "policy_version_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "min_service_months": {
-          "name": "min_service_months",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "max_service_months": {
-          "name": "max_service_months",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "entitled_days": {
-          "name": "entitled_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        }
-      },
-      "indexes": {
-        "idx_hr_annual_leave_bracket_start": {
-          "name": "idx_hr_annual_leave_bracket_start",
-          "columns": [
-            "policy_version_id",
-            "min_service_months"
-          ],
-          "isUnique": true
-        },
-        "idx_hr_annual_leave_bracket_policy": {
-          "name": "idx_hr_annual_leave_bracket_policy",
-          "columns": [
-            "policy_version_id",
-            "min_service_months"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "hr_annual_leave_brackets_policy_version_id_hr_annual_leave_policy_versions_id_fk": {
-          "name": "hr_annual_leave_brackets_policy_version_id_hr_annual_leave_policy_versions_id_fk",
-          "tableFrom": "hr_annual_leave_brackets",
-          "tableTo": "hr_annual_leave_policy_versions",
-          "columnsFrom": [
-            "policy_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "ck_hr_annual_leave_bracket_range": {
-          "name": "ck_hr_annual_leave_bracket_range",
-          "value": "\"hr_annual_leave_brackets\".\"min_service_months\" >= 6 AND (\"hr_annual_leave_brackets\".\"max_service_months\" IS NULL OR \"hr_annual_leave_brackets\".\"max_service_months\" > \"hr_annual_leave_brackets\".\"min_service_months\")"
-        },
-        "ck_hr_annual_leave_bracket_days": {
-          "name": "ck_hr_annual_leave_bracket_days",
-          "value": "\"hr_annual_leave_brackets\".\"entitled_days\" > 0 AND \"hr_annual_leave_brackets\".\"entitled_days\" <= 30"
-        },
-        "ck_hr_annual_leave_bracket_label": {
-          "name": "ck_hr_annual_leave_bracket_label",
-          "value": "length(\"hr_annual_leave_brackets\".\"label\") <= 100"
-        }
-      }
-    },
-    "hr_annual_leave_entitlements": {
-      "name": "hr_annual_leave_entitlements",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "employment_id": {
-          "name": "employment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "policy_version_id": {
-          "name": "policy_version_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "bracket_id": {
-          "name": "bracket_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "service_months": {
-          "name": "service_months",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "period_start": {
-          "name": "period_start",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "period_end": {
-          "name": "period_end",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "entitled_half_hours": {
-          "name": "entitled_half_hours",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'open'"
-        },
-        "settled_at": {
-          "name": "settled_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        }
-      },
-      "indexes": {
-        "idx_hr_annual_leave_entitlement_period": {
-          "name": "idx_hr_annual_leave_entitlement_period",
-          "columns": [
-            "employment_id",
-            "period_start"
-          ],
-          "isUnique": true
-        },
-        "idx_hr_annual_leave_entitlement_employee": {
-          "name": "idx_hr_annual_leave_entitlement_employee",
-          "columns": [
-            "employment_id",
-            "period_end"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "hr_annual_leave_entitlements_employment_id_hr_employments_id_fk": {
-          "name": "hr_annual_leave_entitlements_employment_id_hr_employments_id_fk",
-          "tableFrom": "hr_annual_leave_entitlements",
-          "tableTo": "hr_employments",
-          "columnsFrom": [
-            "employment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "hr_annual_leave_entitlements_policy_version_id_hr_annual_leave_policy_versions_id_fk": {
-          "name": "hr_annual_leave_entitlements_policy_version_id_hr_annual_leave_policy_versions_id_fk",
-          "tableFrom": "hr_annual_leave_entitlements",
-          "tableTo": "hr_annual_leave_policy_versions",
-          "columnsFrom": [
-            "policy_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "hr_annual_leave_entitlements_bracket_id_hr_annual_leave_brackets_id_fk": {
-          "name": "hr_annual_leave_entitlements_bracket_id_hr_annual_leave_brackets_id_fk",
-          "tableFrom": "hr_annual_leave_entitlements",
-          "tableTo": "hr_annual_leave_brackets",
-          "columnsFrom": [
-            "bracket_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "hr_annual_leave_entitlements_created_by_users_id_fk": {
-          "name": "hr_annual_leave_entitlements_created_by_users_id_fk",
-          "tableFrom": "hr_annual_leave_entitlements",
-          "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "ck_hr_annual_leave_entitlement_dates": {
-          "name": "ck_hr_annual_leave_entitlement_dates",
-          "value": "length(\"hr_annual_leave_entitlements\".\"period_start\") = 10 AND length(\"hr_annual_leave_entitlements\".\"period_end\") = 10 AND \"hr_annual_leave_entitlements\".\"period_end\" > \"hr_annual_leave_entitlements\".\"period_start\""
-        },
-        "ck_hr_annual_leave_entitlement_service": {
-          "name": "ck_hr_annual_leave_entitlement_service",
-          "value": "\"hr_annual_leave_entitlements\".\"service_months\" >= 6"
-        },
-        "ck_hr_annual_leave_entitlement_amount": {
-          "name": "ck_hr_annual_leave_entitlement_amount",
-          "value": "\"hr_annual_leave_entitlements\".\"entitled_half_hours\" > 0"
-        },
-        "ck_hr_annual_leave_entitlement_status": {
-          "name": "ck_hr_annual_leave_entitlement_status",
-          "value": "\"hr_annual_leave_entitlements\".\"status\" IN ('open', 'settled')"
-        }
-      }
-    },
-    "hr_annual_leave_ledger": {
-      "name": "hr_annual_leave_ledger",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "entitlement_id": {
-          "name": "entitlement_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "entry_kind": {
-          "name": "entry_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "delta_half_hours": {
-          "name": "delta_half_hours",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_key": {
-          "name": "source_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "leave_request_id": {
-          "name": "leave_request_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        }
-      },
-      "indexes": {
-        "idx_hr_annual_leave_ledger_source": {
-          "name": "idx_hr_annual_leave_ledger_source",
-          "columns": [
-            "source_key"
-          ],
-          "isUnique": true
-        },
-        "idx_hr_annual_leave_ledger_entitlement": {
-          "name": "idx_hr_annual_leave_ledger_entitlement",
-          "columns": [
-            "entitlement_id",
-            "created_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "hr_annual_leave_ledger_entitlement_id_hr_annual_leave_entitlements_id_fk": {
-          "name": "hr_annual_leave_ledger_entitlement_id_hr_annual_leave_entitlements_id_fk",
-          "tableFrom": "hr_annual_leave_ledger",
-          "tableTo": "hr_annual_leave_entitlements",
-          "columnsFrom": [
-            "entitlement_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "hr_annual_leave_ledger_leave_request_id_hr_leave_requests_id_fk": {
-          "name": "hr_annual_leave_ledger_leave_request_id_hr_leave_requests_id_fk",
-          "tableFrom": "hr_annual_leave_ledger",
-          "tableTo": "hr_leave_requests",
-          "columnsFrom": [
-            "leave_request_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "hr_annual_leave_ledger_created_by_users_id_fk": {
-          "name": "hr_annual_leave_ledger_created_by_users_id_fk",
-          "tableFrom": "hr_annual_leave_ledger",
-          "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "ck_hr_annual_leave_ledger_kind": {
-          "name": "ck_hr_annual_leave_ledger_kind",
-          "value": "\"hr_annual_leave_ledger\".\"entry_kind\" IN ('grant', 'leave_request', 'manual_adjustment', 'settlement', 'settlement_reversal')"
-        },
-        "ck_hr_annual_leave_ledger_delta": {
-          "name": "ck_hr_annual_leave_ledger_delta",
-          "value": "\"hr_annual_leave_ledger\".\"delta_half_hours\" <> 0"
-        },
-        "ck_hr_annual_leave_ledger_note": {
-          "name": "ck_hr_annual_leave_ledger_note",
-          "value": "length(\"hr_annual_leave_ledger\".\"note\") <= 1000"
-        }
-      }
-    },
-    "hr_annual_leave_policy_versions": {
-      "name": "hr_annual_leave_policy_versions",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "policy_key": {
-          "name": "policy_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'annual_leave'"
-        },
-        "version_number": {
-          "name": "version_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "valid_from": {
-          "name": "valid_from",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "valid_to": {
-          "name": "valid_to",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "basis": {
-          "name": "basis",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'anniversary'"
-        },
-        "daily_minutes": {
-          "name": "daily_minutes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 480
-        },
-        "minimum_unit_minutes": {
-          "name": "minimum_unit_minutes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 30
-        },
-        "carryover_allowed": {
-          "name": "carryover_allowed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        }
-      },
-      "indexes": {
-        "idx_hr_annual_leave_policy_version": {
-          "name": "idx_hr_annual_leave_policy_version",
-          "columns": [
-            "policy_key",
-            "version_number"
-          ],
-          "isUnique": true
-        },
-        "idx_hr_annual_leave_policy_period": {
-          "name": "idx_hr_annual_leave_policy_period",
-          "columns": [
-            "policy_key",
-            "valid_from"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "hr_annual_leave_policy_versions_created_by_users_id_fk": {
-          "name": "hr_annual_leave_policy_versions_created_by_users_id_fk",
-          "tableFrom": "hr_annual_leave_policy_versions",
-          "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "ck_hr_annual_leave_policy_dates": {
-          "name": "ck_hr_annual_leave_policy_dates",
-          "value": "length(\"hr_annual_leave_policy_versions\".\"valid_from\") = 10 AND (\"hr_annual_leave_policy_versions\".\"valid_to\" IS NULL OR (length(\"hr_annual_leave_policy_versions\".\"valid_to\") = 10 AND \"hr_annual_leave_policy_versions\".\"valid_to\" > \"hr_annual_leave_policy_versions\".\"valid_from\"))"
-        },
-        "ck_hr_annual_leave_policy_basis": {
-          "name": "ck_hr_annual_leave_policy_basis",
-          "value": "\"hr_annual_leave_policy_versions\".\"basis\" = 'anniversary'"
-        },
-        "ck_hr_annual_leave_policy_minutes": {
-          "name": "ck_hr_annual_leave_policy_minutes",
-          "value": "\"hr_annual_leave_policy_versions\".\"daily_minutes\" > 0 AND \"hr_annual_leave_policy_versions\".\"daily_minutes\" % \"hr_annual_leave_policy_versions\".\"minimum_unit_minutes\" = 0 AND \"hr_annual_leave_policy_versions\".\"minimum_unit_minutes\" = 30"
-        },
-        "ck_hr_annual_leave_policy_carryover": {
-          "name": "ck_hr_annual_leave_policy_carryover",
-          "value": "\"hr_annual_leave_policy_versions\".\"carryover_allowed\" IN (0, 1)"
-        },
-        "ck_hr_annual_leave_policy_note": {
-          "name": "ck_hr_annual_leave_policy_note",
-          "value": "length(\"hr_annual_leave_policy_versions\".\"note\") <= 1000"
         }
       }
     },
@@ -6922,13 +6524,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "leave_type_id": {
-          "name": "leave_type_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "leave_type": {
           "name": "leave_type",
           "type": "text",
@@ -6942,22 +6537,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "starts_at": {
-          "name": "starts_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "ends_at": {
-          "name": "ends_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
         },
         "starts_on": {
           "name": "starts_on",
@@ -7041,21 +6620,6 @@
             "starts_on"
           ],
           "isUnique": false
-        },
-        "idx_hr_leave_requests_employment_time": {
-          "name": "idx_hr_leave_requests_employment_time",
-          "columns": [
-            "employment_id",
-            "starts_at"
-          ],
-          "isUnique": false
-        },
-        "idx_hr_leave_requests_leave_type": {
-          "name": "idx_hr_leave_requests_leave_type",
-          "columns": [
-            "leave_type_id"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -7065,19 +6629,6 @@
           "tableTo": "hr_employments",
           "columnsFrom": [
             "employment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "hr_leave_requests_leave_type_id_hr_leave_types_id_fk": {
-          "name": "hr_leave_requests_leave_type_id_hr_leave_types_id_fk",
-          "tableFrom": "hr_leave_requests",
-          "tableTo": "hr_leave_types",
-          "columnsFrom": [
-            "leave_type_id"
           ],
           "columnsTo": [
             "id"
@@ -7157,14 +6708,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "leave_kind": {
-          "name": "leave_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'other'"
         },
         "default_pay_rate_ppm": {
           "name": "default_pay_rate_ppm",
@@ -7767,97 +7310,6 @@
         "ck_hr_worker_compensation_versions_note": {
           "name": "ck_hr_worker_compensation_versions_note",
           "value": "length(\"hr_worker_compensation_versions\".\"note\") <= 1000"
-        }
-      }
-    },
-    "hr_calendar_days": {
-      "name": "hr_calendar_days",
-      "columns": {
-        "date": {
-          "name": "date",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "day_type": {
-          "name": "day_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        }
-      },
-      "indexes": {
-        "idx_hr_calendar_days_type": {
-          "name": "idx_hr_calendar_days_type",
-          "columns": [
-            "day_type",
-            "date"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "hr_calendar_days_updated_by_users_id_fk": {
-          "name": "hr_calendar_days_updated_by_users_id_fk",
-          "tableFrom": "hr_calendar_days",
-          "tableTo": "users",
-          "columnsFrom": [
-            "updated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "ck_hr_calendar_days_date": {
-          "name": "ck_hr_calendar_days_date",
-          "value": "length(\"hr_calendar_days\".\"date\") = 10"
-        },
-        "ck_hr_calendar_days_type": {
-          "name": "ck_hr_calendar_days_type",
-          "value": "\"hr_calendar_days\".\"day_type\" IN ('weekday', 'weekend', 'holiday')"
-        },
-        "ck_hr_calendar_days_name": {
-          "name": "ck_hr_calendar_days_name",
-          "value": "length(\"hr_calendar_days\".\"name\") <= 100"
         }
       }
     },
@@ -9029,14 +8481,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "day_type": {
-          "name": "day_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'weekday'"
-        },
         "version_number": {
           "name": "version_number",
           "type": "integer",
@@ -9111,7 +8555,6 @@
           "name": "idx_hr_shift_versions_number",
           "columns": [
             "shift_template_id",
-            "day_type",
             "version_number"
           ],
           "isUnique": true

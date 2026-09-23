@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d90887a5-3668-4aa9-9072-3f8a4e3e6894",
+  "id": "645c6a65-389c-4bb0-a4cb-cfc53eeb3e2b",
   "prevId": "b5fb0c4e-9c02-402f-8345-b29d00bcf99d",
   "tables": {
     "auth_device_sessions": {
@@ -4374,6 +4374,105 @@
         }
       }
     },
+    "hr_employment_actions": {
+      "name": "hr_employment_actions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "employee_user_id": {
+          "name": "employee_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "employment_id": {
+          "name": "employment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action_kind": {
+          "name": "action_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "before_ended_on": {
+          "name": "before_ended_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "after_ended_on": {
+          "name": "after_ended_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expected_revision": {
+          "name": "expected_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "undone_at": {
+          "name": "undone_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "undone_by": {
+          "name": "undone_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_hr_employment_actions_employee_created": {
+          "name": "idx_hr_employment_actions_employee_created",
+          "columns": [
+            "employee_user_id",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_employment_actions_kind": {
+          "name": "ck_hr_employment_actions_kind",
+          "value": "\"hr_employment_actions\".\"action_kind\" IN ('employee_assigned', 'employment_created', 'employment_ended')"
+        },
+        "ck_hr_employment_actions_revision": {
+          "name": "ck_hr_employment_actions_revision",
+          "value": "\"hr_employment_actions\".\"expected_revision\" > 0"
+        }
+      }
+    },
     "hr_employments": {
       "name": "hr_employments",
       "columns": {
@@ -7134,97 +7233,6 @@
         }
       }
     },
-    "hr_calendar_days": {
-      "name": "hr_calendar_days",
-      "columns": {
-        "date": {
-          "name": "date",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "day_type": {
-          "name": "day_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        }
-      },
-      "indexes": {
-        "idx_hr_calendar_days_type": {
-          "name": "idx_hr_calendar_days_type",
-          "columns": [
-            "day_type",
-            "date"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "hr_calendar_days_updated_by_users_id_fk": {
-          "name": "hr_calendar_days_updated_by_users_id_fk",
-          "tableFrom": "hr_calendar_days",
-          "tableTo": "users",
-          "columnsFrom": [
-            "updated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "ck_hr_calendar_days_date": {
-          "name": "ck_hr_calendar_days_date",
-          "value": "length(\"hr_calendar_days\".\"date\") = 10"
-        },
-        "ck_hr_calendar_days_type": {
-          "name": "ck_hr_calendar_days_type",
-          "value": "\"hr_calendar_days\".\"day_type\" IN ('weekday', 'weekend', 'holiday')"
-        },
-        "ck_hr_calendar_days_name": {
-          "name": "ck_hr_calendar_days_name",
-          "value": "length(\"hr_calendar_days\".\"name\") <= 100"
-        }
-      }
-    },
     "hr_overtime_requests": {
       "name": "hr_overtime_requests",
       "columns": {
@@ -8393,14 +8401,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "day_type": {
-          "name": "day_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'weekday'"
-        },
         "version_number": {
           "name": "version_number",
           "type": "integer",
@@ -8475,7 +8475,6 @@
           "name": "idx_hr_shift_versions_number",
           "columns": [
             "shift_template_id",
-            "day_type",
             "version_number"
           ],
           "isUnique": true

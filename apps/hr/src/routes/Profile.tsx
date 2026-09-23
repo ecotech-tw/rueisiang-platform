@@ -4,19 +4,20 @@ import { Alert, Button, PageHeader } from "../ui/index.js";
 import { useHrQuery, type Profile as HrProfile } from "./hr/api.js";
 
 function ProfileDetails({ profile }: { profile: HrProfile }) {
+  const assignments = profile.assignments ?? [];
   return <>
     <h2>{profile.employee.employeeNumber} · {profile.employee.displayName}</h2>
     <p className="muted">帳號：{profile.employee.email}；登入狀態：{profile.employee.userStatus === "active" ? "啟用中" : profile.employee.userStatus === "invited" ? "待啟用" : "已停用"}</p>
-    <p className="muted">期間結束日不含當日；停用帳號不會刪除任職歷史。</p>
+    <p className="muted">員工資料封存後仍保留，供薪資、出勤與稽核歷史追溯。</p>
     <p className="hr-employee-supervisor">主管：<strong>{profile.employee.supervisorName ?? "尚未設定"}</strong></p>
-    <table className="data-table"><thead><tr><th>到職日</th><th>不再任職首日</th><th>年資認列日</th></tr></thead>
-      <tbody>{profile.employments.map((job) => <tr key={job.id}><td>{job.hiredOn}</td><td>{job.endedOn ?? "未設定"}</td><td>{job.seniorityStartOn}</td></tr>)}</tbody></table>
-    {!profile.employments.length ? <p>尚無任職紀錄。</p> : null}
+    <table className="data-table"><thead><tr><th>職位</th><th>出勤方式</th><th>狀態</th></tr></thead>
+      <tbody>{profile.employments.map((job) => <tr key={job.id}><td>{job.position}</td><td>{job.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</td><td>{job.archivedAt ? `已封存（${job.archivedAt}）` : "在職"}</td></tr>)}</tbody></table>
+    {!profile.employments.length ? <p>尚未建立員工資料。</p> : null}
     <h3>營運櫃點歸屬</h3>
     <table className="data-table"><thead><tr><th>櫃點</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
-      {profile.assignments.map((assignment) => <tr key={assignment.id}><td>{assignment.scopeName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}
+      {assignments.map((assignment) => <tr key={assignment.id}><td>{assignment.scopeName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}
     </tbody></table>
-    {!profile.assignments.length ? <p>尚無營運櫃點歸屬。</p> : null}
+    {!assignments.length ? <p>尚無營運櫃點歸屬。</p> : null}
     <h3>辦公位置指派</h3>
     <table className="data-table"><thead><tr><th>辦公位置</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
       {(profile.attendanceAssignments ?? []).map((assignment) => <tr key={assignment.id}><td>{assignment.locationName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}

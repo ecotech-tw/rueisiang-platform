@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
-import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
+import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrAnnualLeaveBrackets, hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrAnnualLeavePolicyVersions, hrCompensationVersions, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { users } from "./schema/auth.js";
 
@@ -128,27 +128,30 @@ function findBracket(brackets: Array<typeof hrAnnualLeaveBrackets.$inferSelect>,
 }
 
 /**
- * 依每筆 employment 的 seniorityStartOn 補建已取得的週年額度。
+ * 依每筆 employment 的服務年資起算日補建已取得的週年額度；起算日獨立保存，不放回任職主檔。
  * INSERT 與 grant ledger 都使用可重跑的唯一鍵，因此可在部署後、查詢前或排程重複執行。
  */
 export async function ensureHrAnnualLeaveEntitlements(db: Database, options: HrAnnualLeaveBackfillOptions = {}) {
   const asOfDate = options.asOfDate ?? todayUtc();
   assertDateOnly(asOfDate, "回填基準日");
+  const serviceStartOn = sql<string>`coalesce(${hrEmploymentServicePeriods.serviceStartOn}, substr(${hrEmployments.createdAt}, 1, 10))`;
   const employments = await db.select({
     id: hrEmployments.id,
-    seniorityStartOn: hrEmployments.seniorityStartOn,
-    endedOn: hrEmployments.endedOn,
-  }).from(hrEmployments).where(lte(hrEmployments.seniorityStartOn, asOfDate));
+    serviceStartOn,
+    archivedAt: hrEmployments.archivedAt,
+  }).from(hrEmployments)
+    .leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
+    .where(lte(serviceStartOn, asOfDate));
 
   let created = 0;
   let grants = 0;
   for (const employment of employments) {
     let serviceMonths = 6;
-    let periodStart = addCalendarMonths(employment.seniorityStartOn, serviceMonths);
-    const employmentEnd = employment.endedOn;
+    let periodStart = addCalendarMonths(employment.serviceStartOn, serviceMonths);
+    const employmentEnd = employment.archivedAt?.slice(0, 10) ?? null;
     while (isBeforeOrEqual(periodStart, asOfDate) && (!employmentEnd || periodStart < employmentEnd)) {
       const nextMonths = nextServiceMonths(serviceMonths);
-      const periodEnd = addCalendarMonths(employment.seniorityStartOn, nextMonths);
+      const periodEnd = addCalendarMonths(employment.serviceStartOn, nextMonths);
       // 政策版本開始日前的歷史週期沒有可套用的法定資料；保留日期序列並跳過，讓
       // 年資很久的既有員工仍能從第一個可追溯政策版本開始正確回填目前週期。
       const policy = await findPolicyAt(db, periodStart);
@@ -255,7 +258,7 @@ export async function listHrAnnualLeaveEntitlements(db: Database, options: { emp
     id: hrAnnualLeaveEntitlements.id,
     employmentId: hrAnnualLeaveEntitlements.employmentId,
     employeeUserId: hrEmployments.employeeUserId,
-    employeeNumber: hrEmployees.employeeNumber,
+    employeeNumber: hrEmployments.employeeNumber,
     employeeName,
     serviceMonths: hrAnnualLeaveEntitlements.serviceMonths,
     periodStart: hrAnnualLeaveEntitlements.periodStart,
@@ -265,7 +268,6 @@ export async function listHrAnnualLeaveEntitlements(db: Database, options: { emp
     settledAt: hrAnnualLeaveEntitlements.settledAt,
   }).from(hrAnnualLeaveEntitlements)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(options.employeeUserId ? eq(hrEmployments.employeeUserId, options.employeeUserId) : undefined)
     .orderBy(asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
@@ -299,9 +301,9 @@ export async function getHrAnnualLeaveEntitlementDetail(db: Database, entitlemen
     id: hrAnnualLeaveEntitlements.id,
     employmentId: hrAnnualLeaveEntitlements.employmentId,
     employeeUserId: hrEmployments.employeeUserId,
-    employeeNumber: hrEmployees.employeeNumber,
+    employeeNumber: hrEmployments.employeeNumber,
     employeeName,
-    seniorityStartOn: hrEmployments.seniorityStartOn,
+    serviceStartOn: sql<string>`coalesce(${hrEmploymentServicePeriods.serviceStartOn}, substr(${hrEmployments.createdAt}, 1, 10))`,
     serviceMonths: hrAnnualLeaveEntitlements.serviceMonths,
     periodStart: hrAnnualLeaveEntitlements.periodStart,
     periodEnd: hrAnnualLeaveEntitlements.periodEnd,
@@ -322,7 +324,7 @@ export async function getHrAnnualLeaveEntitlementDetail(db: Database, entitlemen
     bracketLabel: hrAnnualLeaveBrackets.label,
   }).from(hrAnnualLeaveEntitlements)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
+    .leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .innerJoin(hrAnnualLeavePolicyVersions, eq(hrAnnualLeavePolicyVersions.id, hrAnnualLeaveEntitlements.policyVersionId))
     .innerJoin(hrAnnualLeaveBrackets, eq(hrAnnualLeaveBrackets.id, hrAnnualLeaveEntitlements.bracketId))
@@ -382,11 +384,10 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
     employeeName,
     periodStart: hrAnnualLeaveEntitlements.periodStart,
     periodEnd: hrAnnualLeaveEntitlements.periodEnd,
-    endedOn: hrEmployments.endedOn,
+    archivedAt: hrEmployments.archivedAt,
     dailyMinutes: hrAnnualLeavePolicyVersions.dailyMinutes,
   }).from(hrAnnualLeaveEntitlements)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .innerJoin(hrAnnualLeavePolicyVersions, eq(hrAnnualLeavePolicyVersions.id, hrAnnualLeaveEntitlements.policyVersionId))
     .where(and(
@@ -397,8 +398,8 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
           ? lte(hrAnnualLeaveEntitlements.periodEnd, options.asOfDate)
           : and(gte(hrAnnualLeaveEntitlements.periodEnd, options.periodStart), lte(hrAnnualLeaveEntitlements.periodEnd, options.asOfDate)),
         options.periodStart === undefined
-          ? sql`${hrEmployments.endedOn} IS NOT NULL AND ${hrEmployments.endedOn} <= ${options.asOfDate}`
-          : sql`${hrEmployments.endedOn} IS NOT NULL AND ${hrEmployments.endedOn} >= ${options.periodStart} AND ${hrEmployments.endedOn} <= ${options.asOfDate}`,
+          ? sql`${hrEmployments.archivedAt} IS NOT NULL AND substr(${hrEmployments.archivedAt}, 1, 10) <= ${options.asOfDate}`
+          : sql`${hrEmployments.archivedAt} IS NOT NULL AND substr(${hrEmployments.archivedAt}, 1, 10) >= ${options.periodStart} AND substr(${hrEmployments.archivedAt}, 1, 10) <= ${options.asOfDate}`,
       ),
       options.employmentIds ? inArray(hrAnnualLeaveEntitlements.employmentId, options.employmentIds) : undefined,
     ))
@@ -415,8 +416,9 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
   return Promise.all(rows.map(async (row): Promise<HrAnnualLeaveSettlementCandidate> => {
     const unusedHalfHours = balanceById.get(row.entitlementId) ?? 0;
     if (unusedHalfHours < 0) throw new HrError(409, `${row.employeeName} 的特休台帳餘額低於 0，無法進行未休折現。`);
-    const settlementReason: "period_end" | "termination" = row.endedOn !== null && row.endedOn < row.periodEnd && row.endedOn <= options.asOfDate ? "termination" : "period_end";
-    const settlementDate = settlementReason === "period_end" ? previousDate(options.asOfDate) : previousDate(row.endedOn!);
+    const archiveDate = row.archivedAt?.slice(0, 10) ?? null;
+    const settlementReason: "period_end" | "termination" = archiveDate !== null && archiveDate < row.periodEnd && archiveDate <= options.asOfDate ? "termination" : "period_end";
+    const settlementDate = settlementReason === "period_end" ? previousDate(options.asOfDate) : previousDate(archiveDate!);
     const compensation = unusedHalfHours > 0 ? await monthlyCompensationAt(db, row.employmentId, settlementDate) : undefined;
     if (unusedHalfHours > 0 && !compensation) throw new HrError(409, `${row.employeeName} 的特休未休折現找不到 ${settlementDate} 適用的月薪版本，請先補齊薪資設定。`);
     const amountMinor = compensation ? Math.round(compensation.baseAmountMinor * unusedHalfHours / row.dailyMinutes) : 0;

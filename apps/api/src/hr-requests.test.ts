@@ -23,7 +23,7 @@ async function request(path: string, method = "GET", payload?: Record<string, un
 }
 
 async function assignEmployee() {
-  const response = await request("/hr/employees", "POST", { userId: "employee", employeeNumber: "E-REQUEST", hiredOn: "2026-01-01", seniorityStartOn: "2026-01-01" });
+  const response = await request("/hr/employees", "POST", { userId: "employee", employeeNumber: "E-REQUEST", position: "一般職員", serviceStartOn: "2026-01-01" });
   expect(response.status, await response.clone().text()).toBe(201);
 }
 
@@ -129,7 +129,7 @@ describe("HR 申請中心", () => {
   });
 
   it("HR 代登不允許申請人直接核准自己的請假與加班", async () => {
-    await request("/hr/employees", "POST", { userId: "admin", employeeNumber: "E-ADMIN", hiredOn: "2026-01-01", seniorityStartOn: "2026-01-01" });
+    await request("/hr/employees", "POST", { userId: "admin", employeeNumber: "E-ADMIN", position: "一般職員", serviceStartOn: "2026-01-01" });
     const leaveType = await request("/hr/leave-types", "POST", { name: "自審測試假", defaultPayRatePpm: 1_000_000 });
     const leaveTypeId = (await leaveType.json() as { id: string }).id;
     const leave = await request("/hr/requests/leave", "POST", { employeeUserId: "admin", leaveTypeId, startsAt: "2026-01-05T09:00", endsAt: "2026-01-05T09:30", reason: "自審測試" });

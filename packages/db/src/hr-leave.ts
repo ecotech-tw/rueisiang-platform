@@ -3,7 +3,7 @@ import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { allocateHrAnnualLeave } from "./hr-annual-leave.js";
 import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
-import { hrEmployees, hrEmployments } from "./schema/hr-people.js";
+import { hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrScheduleEntries, hrScheduleVersions } from "./schema/hr-scheduling.js";
 import { formatTaipeiDate, taipeiWallClockToUtc } from "./taipei-time.js";
@@ -45,7 +45,7 @@ interface NormalizedLeaveInterval {
 const requestFields = {
   request: hrLeaveRequests,
   employeeUserId: hrEmployments.employeeUserId,
-  employeeNumber: hrEmployees.employeeNumber,
+  employeeNumber: hrEmployments.employeeNumber,
   employeeName: displayName,
   leaveTypeKind: hrLeaveTypes.leaveKind,
 };
@@ -193,12 +193,11 @@ function normalizeInterval(startsAt: string, endsAt: string): NormalizedLeaveInt
   return { startsAt, endsAt, startsOn, endsOn: nextTaipeiDate(lastDate), durationMinutes: elapsedMinutes };
 }
 
-async function ensureEmploymentForPeriod(db: Database, employeeUserId: string, startsOn: string, endsOn: string) {
+async function ensureEmploymentForPeriod(db: Database, employeeUserId: string, _startsOn: string, _endsOn: string) {
   const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(
     eq(hrEmployments.employeeUserId, employeeUserId),
-    sql`${hrEmployments.hiredOn} <= ${startsOn}`,
-    sql`(${hrEmployments.endedOn} IS NULL OR ${hrEmployments.endedOn} >= ${endsOn})`,
-  )).orderBy(desc(hrEmployments.hiredOn)).limit(1);
+    sql`${hrEmployments.archivedAt} IS NULL`,
+  )).orderBy(desc(hrEmployments.updatedAt), desc(hrEmployments.id)).limit(1);
   if (!employment) throw new HrError(400, "請假日期不在有效任職期間內。 ");
   return employment.id;
 }
@@ -227,7 +226,6 @@ export async function calculateHrLeaveDuration(db: Database, input: HrLeaveDurat
 export async function listHrLeaveRequests(db: Database, employeeUserId?: string) {
   return db.select(requestFields).from(hrLeaveRequests)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
-    .innerJoin(hrEmployees, eq(hrEmployees.userId, hrEmployments.employeeUserId))
     .leftJoin(hrLeaveTypes, eq(hrLeaveTypes.id, hrLeaveRequests.leaveTypeId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(employeeUserId ? eq(hrEmployments.employeeUserId, employeeUserId) : undefined)
@@ -261,8 +259,7 @@ export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestIn
         SELECT 1 FROM hr_employments AS current_employment
         WHERE current_employment.id=${employmentId}
           AND current_employment.employee_user_id=${input.employeeUserId}
-          AND current_employment.hired_on <= ${interval.startsOn}
-          AND (current_employment.ended_on IS NULL OR current_employment.ended_on >= ${interval.endsOn})
+          AND current_employment.archived_at IS NULL
       )
         AND NOT EXISTS (
         SELECT 1 FROM hr_leave_requests AS existing_request
@@ -367,8 +364,6 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
         SELECT 1 FROM hr_employments
         WHERE id=hr_leave_requests.employment_id
           AND employee_user_id <> ${actor.id}
-          AND hired_on <= ${current.startsOn}
-          AND (ended_on IS NULL OR ended_on >= ${current.endsOn})
       )
     RETURNING id`;
   const statements = annualAllocation ? [sql`INSERT INTO hr_annual_leave_ledger
@@ -380,8 +375,6 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
         WHERE request.id=${id}
           AND request.status='pending'
           AND employment.employee_user_id <> ${actor.id}
-          AND employment.hired_on <= ${current.startsOn}
-          AND (employment.ended_on IS NULL OR employment.ended_on >= ${current.endsOn})
       )
       AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${annualAllocation.entitlementId}), 0) >= ${annualAllocation.durationHalfHours}
     RETURNING id`, updateStatement] : updateStatement;
