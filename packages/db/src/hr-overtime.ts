@@ -24,6 +24,11 @@ export interface HrOvertimeInput {
 
 export interface HrOvertimeActualInterval { start: string; end: string }
 
+export interface HrOvertimeRequestCreateOptions {
+  /** 後台代登目前直接核准；本人入口省略此選項則保留待審核狀態。 */
+  autoApprove?: boolean;
+}
+
 function stamp(value: string) {
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) throw new HrError(400, "加班時間必須是 YYYY-MM-DD HH:mm:ss。 ");
   const parsed = new Date(`${value.replace(" ", "T")}Z`);
@@ -70,7 +75,7 @@ export async function listHrOvertimeRequests(db: Database, employeeUserId?: stri
   )).orderBy(desc(hrOvertimeRequests.requestedStart));
 }
 
-export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInput, actor: HrActor) {
+export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInput, actor: HrActor, options: HrOvertimeRequestCreateOptions = {}) {
   const startMs = stamp(input.requestedStart);
   const endMs = stamp(input.requestedEnd);
   if (endMs <= startMs) throw new HrError(400, "加班結束時間必須晚於開始時間。 ");
@@ -81,13 +86,27 @@ export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInp
   const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd);
   await ensureScope(db, employmentId, input.scopeId ?? null, input.requestedStart, input.requestedEnd);
   const id = crypto.randomUUID();
+  const autoApprove = options.autoApprove === true;
+  if (autoApprove && input.employeeUserId === actor.id) throw new HrError(409, "申請人不可透過後台直接核准自己的加班申請。 ");
+  const status = autoApprove ? "approved" : "pending";
+  const actualStart = autoApprove ? input.requestedStart : null;
+  const actualEnd = autoApprove ? input.requestedEnd : null;
+  const reviewedBy = autoApprove ? actor.id : null;
+  const decisionReason = autoApprove ? "HR 後台建立後直接核准" : "";
   try {
     // overlap guard 放在 INSERT ... SELECT 內，和唯一鍵一起由同一個 D1 batch 仲裁，
-    // 不讓兩個同時送出的申請都通過先查後寫的 race。
+    // 不讓兩個同時送出的申請都通過先查後寫的 race。後台代登雖直接核准，仍保留
+    // approved／reviewed 欄位，讓未來本人入口切回 pending 時不必換資料模型。
     await writeHrMutation(db, sql`INSERT INTO hr_overtime_requests
-      (id, employment_id, scope_id, requested_start, requested_end, settlement_kind, status, rate_ppm, reason, created_by)
-      SELECT ${id}, ${employmentId}, ${input.scopeId ?? null}, ${input.requestedStart}, ${input.requestedEnd}, ${input.settlementKind}, 'pending', ${DEFAULT_OVERTIME_RATE_PPM}, ${input.reason.trim()}, ${actor.id}
-      WHERE NOT EXISTS (
+      (id, employment_id, scope_id, requested_start, requested_end, actual_start, actual_end, settlement_kind, status, rate_ppm, reason, reviewed_by, reviewed_at, decision_reason, created_by)
+      SELECT ${id}, ${employmentId}, ${input.scopeId ?? null}, ${input.requestedStart}, ${input.requestedEnd}, ${actualStart}, ${actualEnd}, ${input.settlementKind}, ${status}, ${DEFAULT_OVERTIME_RATE_PPM}, ${input.reason.trim()}, ${reviewedBy}, ${autoApprove ? sql`CURRENT_TIMESTAMP` : sql`NULL`}, ${decisionReason}, ${actor.id}
+      WHERE EXISTS (
+        SELECT 1 FROM hr_employments AS current_employment
+        WHERE current_employment.id=${employmentId}
+          AND current_employment.employee_user_id=${input.employeeUserId}
+          AND current_employment.archived_at IS NULL
+      )
+        AND NOT EXISTS (
         SELECT 1 FROM hr_overtime_requests AS existing_request
         WHERE existing_request.employment_id=${employmentId}
           AND existing_request.status IN ('draft', 'pending', 'approved')

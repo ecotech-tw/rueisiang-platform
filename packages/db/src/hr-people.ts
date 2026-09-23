@@ -280,7 +280,7 @@ export async function listHrScopes(db: Database) {
   return db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(and(eq(scopes.active, 1), eq(scopes.scopeKind, "store"), sql`${scopes.sourceType} <> 'shopee'`)).orderBy(asc(scopes.name));
 }
 
-export async function assignHrEmployee(db: Database, input: { userId: string; employeeNumber: string; position: string; attendanceMode: "general" | "scheduled"; revision?: number }, actor: HrActor) {
+export async function assignHrEmployee(db: Database, input: { userId: string; employeeNumber: string; position: string; attendanceMode: "general" | "scheduled"; serviceStartOn?: string; revision?: number }, actor: HrActor) {
   const [existing] = await db.select({ id: hrEmployments.id, archivedAt: hrEmployments.archivedAt }).from(hrEmployments)
     .where(eq(hrEmployments.employeeUserId, input.userId))
     .orderBy(sql`${hrEmployments.archivedAt} IS NULL DESC`, desc(hrEmployments.archivedAt), desc(hrEmployments.updatedAt), desc(hrEmployments.id))
@@ -296,13 +296,18 @@ export async function assignHrEmployee(db: Database, input: { userId: string; em
       monthly_rest_days=CASE WHEN excluded.attendance_mode='general' THEN NULL ELSE hr_employment_attendance_settings.monthly_rest_days END,
       updated_at=CURRENT_TIMESTAMP
     RETURNING employment_id AS id`;
+  const servicePeriod = sql`INSERT INTO hr_employment_service_periods (employment_id, service_start_on)
+    SELECT ${employmentId}, COALESCE(${input.serviceStartOn ?? null}, substr(CURRENT_TIMESTAMP, 1, 10))
+    WHERE NOT EXISTS (SELECT 1 FROM hr_employment_service_periods WHERE employment_id=${employmentId})
+    RETURNING employment_id AS id`;
   const mutations: SQL[] = existing
     ? [sql`UPDATE hr_employments SET employee_number=${input.employeeNumber}, position=${input.position}, archived_at=NULL, revision=revision+1, updated_at=CURRENT_TIMESTAMP
-        WHERE id=${employmentId} AND archived_at IS NOT NULL${revisionGuard} RETURNING id`, attendanceSettings]
+        WHERE id=${employmentId} AND archived_at IS NOT NULL${revisionGuard} RETURNING id`, attendanceSettings, servicePeriod]
     : [sql`INSERT INTO hr_employments (id, employee_user_id, employee_number, position)
         SELECT ${employmentId}, id, ${input.employeeNumber}, ${input.position} FROM users
-        WHERE id=${input.userId} AND status IN ('active', 'invited') RETURNING id`, attendanceSettings];
-  await write(db, mutations, employmentId, actor, "employee_assigned", "無法指派員工，資料可能已變更或已存在。", { activity: { payload: { employmentId, userId: input.userId }, summary: "員工已指派" } });
+        WHERE id=${input.userId} AND status IN ('active', 'invited') RETURNING id`, attendanceSettings, servicePeriod];
+  const mutationOptions: HrMutationOptions = { activity: { payload: { employmentId, userId: input.userId }, summary: "員工已指派" }, allowEmptyMutationIndexes: new Set([2]) };
+  await write(db, mutations, employmentId, actor, "employee_assigned", "無法指派員工，資料可能已變更或已存在。", mutationOptions);
   return { id: input.userId, employmentId };
 }
 

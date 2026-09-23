@@ -1,7 +1,8 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   createDatabase,
   ensureAssistantDefaults,
+  ensureHrAnnualLeaveEntitlements,
   formatCyberbizProductName,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
@@ -24,8 +25,12 @@ import {
   hrEmployeeAttendanceLocations,
   hrEmployeeScopes,
   hrEmployments,
+  hrEmploymentServicePeriods,
   hrEmploymentAttendanceSettings,
   hrInsuranceVersions,
+  hrLeaveTypes,
+  hrAnnualLeaveEntitlements,
+  hrAnnualLeaveLedger,
   hrLeaveRequests,
   hrOvertimeRequests,
   hrScheduleEntries,
@@ -59,6 +64,8 @@ export const DEV_ACCOUNTS = [
   { email: "eli-lin@ecotech.tw", name: "林瑞翔", role: "role-admin", note: "管理者，什麼都看得到" },
   { email: "wang@ecotech.tw", name: "王小明", role: "role-manager", note: "主管" },
   { email: "chen@ecotech.tw", name: "陳美玲", role: "role-staff", note: "一般同仁，可測試 HR 本人介面" },
+  { email: "newhire@ecotech.tw", name: "周子晴", role: "role-staff", note: "剛到職，尚未滿六個月" },
+  { email: "sixmonth@ecotech.tw", name: "許家豪", role: "role-staff", note: "已滿六個月但未滿一年" },
   { email: "lin@ecotech.tw", name: "林檢視", role: "role-viewer", note: "檢視者，只有唯讀權限" },
   { email: "none@ecotech.tw", name: "沒有角色", role: null, note: "登得進來但看不到任何項目" },
   { email: "left@ecotech.tw", name: "李離職", role: "role-viewer", note: "已停用，會被擋在門外" },
@@ -90,22 +97,28 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
   await seedDevCustomers(db);
   await seedDevWarehouse(db);
 
-  const existing = await db.select({ id: users.id }).from(users).limit(1);
-  if (!existing.length) {
-    for (const account of DEV_ACCOUNTS) {
-      const id = `dev-${account.email}`;
-      await db.insert(users).values({
-        id,
-        email: account.email,
-        googleName: account.name,
-        status: account.email === "left@ecotech.tw" ? "disabled" : "active",
-        lastLoginAt: "2026-08-17 09:12:44",
-      });
-      if (account.role) await db.insert(userRoleAssignments).values({ userId: id, roleId: account.role });
-    }
+  // 每次啟動都補齊缺少的開發帳號／角色，但不覆寫本機已存在的帳號資料，
+  // 讓新增 demo 情境可以直接套用到既有 local.sqlite。
+  for (const account of DEV_ACCOUNTS) {
+    const id = `dev-${account.email}`;
+    await db.insert(users).values({
+      id,
+      email: account.email,
+      googleName: account.name,
+      status: account.email === "left@ecotech.tw" ? "disabled" : "active",
+      lastLoginAt: "2026-08-17 09:12:44",
+    }).onConflictDoNothing();
+    if (account.role) await db.insert(userRoleAssignments).values({ userId: id, roleId: account.role }).onConflictDoNothing();
   }
 
   await seedDevHr(db);
+}
+
+async function ensureDevServicePeriod(db: ReturnType<typeof createDatabase>, employmentId: string, serviceStartOn: string) {
+  await db.insert(hrEmploymentServicePeriods).values({ employmentId, serviceStartOn }).onConflictDoUpdate({
+    target: hrEmploymentServicePeriods.employmentId,
+    set: { serviceStartOn },
+  });
 }
 
 async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
@@ -124,7 +137,9 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
       employeeUserId: supervisor.id,
       employeeNumber: "DEMO-WANG",
       position: "門市主管",
+      supervisorUserId: null,
     }).onConflictDoNothing();
+    await ensureDevServicePeriod(db, "dev-employment-wang", "2025-01-15");
   }
 
   await db.insert(hrEmployments).values({
@@ -134,6 +149,7 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
     position: "一般職員",
     supervisorUserId: supervisor?.id ?? null,
   }).onConflictDoNothing();
+  await ensureDevServicePeriod(db, employmentId, "2025-03-01");
   await db.insert(hrAttendanceLocations).values({
     id: locationId,
     name: "示範台北辦公室",
@@ -160,6 +176,19 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
   await db.insert(hrEmploymentAttendanceSettings).values({ employmentId, attendanceMode: "general", primaryAssignmentId: "dev-attendance-chen-office" })
     .onConflictDoUpdate({ target: hrEmploymentAttendanceSettings.employmentId, set: { attendanceMode: "general", primaryAssignmentId: "dev-attendance-chen-office" } });
 
+  const [newHire] = await db.select({ id: users.id }).from(users).where(eq(users.email, "newhire@ecotech.tw")).limit(1);
+  if (newHire) {
+    await db.insert(hrEmployments).values({ id: "dev-employment-newhire", employeeUserId: newHire.id, employeeNumber: "DEMO-NEW", position: "一般職員", supervisorUserId: supervisor?.id ?? null }).onConflictDoNothing();
+    await ensureDevServicePeriod(db, "dev-employment-newhire", "2026-08-01");
+    await db.insert(hrCompensationVersions).values({ id: "dev-comp-newhire-2026", employmentId: "dev-employment-newhire", versionNumber: 1, validFrom: "2026-08-01", validTo: null, payBasis: "monthly", baseAmountMinor: 3_200_000, note: "開發示範：新進同仁月薪 NT$32,000", createdBy: newHire.id }).onConflictDoNothing();
+  }
+  const [sixMonth] = await db.select({ id: users.id }).from(users).where(eq(users.email, "sixmonth@ecotech.tw")).limit(1);
+  if (sixMonth) {
+    await db.insert(hrEmployments).values({ id: "dev-employment-sixmonth", employeeUserId: sixMonth.id, employeeNumber: "DEMO-SIX", position: "一般職員", supervisorUserId: supervisor?.id ?? null }).onConflictDoNothing();
+    await ensureDevServicePeriod(db, "dev-employment-sixmonth", "2026-03-01");
+    await db.insert(hrCompensationVersions).values({ id: "dev-comp-sixmonth-2026", employmentId: "dev-employment-sixmonth", versionNumber: 1, validFrom: "2026-03-01", validTo: null, payBasis: "monthly", baseAmountMinor: 3_600_000, note: "開發示範：滿半年同仁月薪 NT$36,000", createdBy: sixMonth.id }).onConflictDoNothing();
+  }
+
   const [lin] = await db.select({ id: users.id }).from(users).where(eq(users.email, "eli-lin@ecotech.tw")).limit(1);
   if (!lin || !supervisor) return;
   await seedDevPayrollScenario(db, { linUserId: lin.id, supervisorUserId: supervisor.id, locationId });
@@ -179,6 +208,7 @@ async function seedDevPayrollScenario(
   const month = "2026-08";
 
   await db.insert(hrEmployments).values({ id: linEmploymentId, employeeUserId: ids.linUserId, employeeNumber: "DEMO-LIN", position: "一般職員", supervisorUserId: ids.supervisorUserId }).onConflictDoNothing();
+  await ensureDevServicePeriod(db, linEmploymentId, "2025-03-01");
   await db.insert(hrEmployeeAttendanceLocations).values({ id: "dev-attendance-lin-office", employmentId: linEmploymentId, locationId: ids.locationId, validFrom: "2026-01-01" }).onConflictDoNothing();
   await db.insert(hrEmploymentAttendanceSettings).values({ employmentId: linEmploymentId, attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" })
     .onConflictDoUpdate({ target: hrEmploymentAttendanceSettings.employmentId, set: { attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" } });
@@ -188,11 +218,34 @@ async function seedDevPayrollScenario(
     { id: "dev-insurance-lin-health-2026", employmentId: linEmploymentId, scheme: "health", versionNumber: 1, status: "enrolled", validFrom: "2026-01-01", validTo: null, insuredAmountMinor: 45_800_00, dependentCount: 0, rateYear: 2026, sourceKind: "manual", sourceUrl: "", note: "開發示範；正式金額請依官方級距與公司規則確認。", createdBy: ids.linUserId },
   ]).onConflictDoNothing();
 
+  await db.insert(hrLeaveTypes).values([
+    { id: "dev-leave-type-annual", name: "特休", leaveKind: "annual", defaultPayRatePpm: 1_000_000, createdBy: ids.linUserId },
+    { id: "dev-leave-type-unpaid", name: "無薪假", leaveKind: "other", defaultPayRatePpm: 0, createdBy: ids.linUserId },
+  ]).onConflictDoNothing();
+  const [annualLeaveType] = await db.select({ id: hrLeaveTypes.id }).from(hrLeaveTypes).where(eq(hrLeaveTypes.name, "特休")).limit(1);
+  const [unpaidLeaveType] = await db.select({ id: hrLeaveTypes.id }).from(hrLeaveTypes).where(eq(hrLeaveTypes.name, "無薪假")).limit(1);
+  if (!annualLeaveType || !unpaidLeaveType) return;
+
   // 兩筆核准假勤：一天給薪、一日無薪；payRatePpm 是申請時快照。
   await db.insert(hrLeaveRequests).values([
-    { id: "dev-leave-lin-paid", employmentId: linEmploymentId, leaveType: "特休", status: "approved", startsOn: `${month}-08`, endsOn: `${month}-09`, durationMinutes: 480, payRatePpm: 1_000_000, reason: "開發示範特休", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-07-20 09:00:00", createdBy: ids.linUserId },
-    { id: "dev-leave-lin-unpaid", employmentId: linEmploymentId, leaveType: "無薪假", status: "approved", startsOn: `${month}-20`, endsOn: `${month}-21`, durationMinutes: 480, payRatePpm: 0, reason: "開發示範無薪假", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-07-20 09:01:00", createdBy: ids.linUserId },
+    { id: "dev-leave-lin-paid", employmentId: linEmploymentId, leaveTypeId: annualLeaveType.id, leaveType: "特休", status: "approved", startsAt: `${month}-07 16:00:00`, endsAt: `${month}-08 16:00:00`, startsOn: `${month}-08`, endsOn: `${month}-09`, durationMinutes: 480, payRatePpm: 1_000_000, reason: "開發示範特休", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-07-20 09:00:00", createdBy: ids.linUserId },
+    { id: "dev-leave-lin-unpaid", employmentId: linEmploymentId, leaveTypeId: unpaidLeaveType.id, leaveType: "無薪假", status: "approved", startsAt: `${month}-19 16:00:00`, endsAt: `${month}-20 16:00:00`, startsOn: `${month}-20`, endsOn: `${month}-21`, durationMinutes: 480, payRatePpm: 0, reason: "開發示範無薪假", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-07-20 09:01:00", createdBy: ids.linUserId },
   ]).onConflictDoNothing();
+  await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2026-09-30", createdBy: ids.linUserId });
+  const [linEntitlement] = await db.select({ id: hrAnnualLeaveEntitlements.id }).from(hrAnnualLeaveEntitlements)
+    .where(and(eq(hrAnnualLeaveEntitlements.employmentId, linEmploymentId), eq(hrAnnualLeaveEntitlements.periodStart, "2026-03-01"))).limit(1);
+  if (linEntitlement) {
+    await db.insert(hrAnnualLeaveLedger).values({
+      id: "dev-annual-ledger-lin-leave",
+      entitlementId: linEntitlement.id,
+      entryKind: "leave_request",
+      deltaHalfHours: -16,
+      sourceKey: "leave-request:dev-leave-lin-paid",
+      leaveRequestId: "dev-leave-lin-paid",
+      note: "開發示範：核准特休一天",
+      createdBy: ids.supervisorUserId,
+    }).onConflictDoNothing();
+  }
   await db.insert(hrOvertimeRequests).values([
     { id: "dev-overtime-lin-1", employmentId: linEmploymentId, scopeId: null, requestedStart: "2026-08-05 10:00:00", requestedEnd: "2026-08-05 12:00:00", actualStart: "2026-08-05 10:00:00", actualEnd: "2026-08-05 12:00:00", settlementKind: "pay", status: "approved", ratePpm: 1_333_333, reason: "開發示範月結加班", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-08-06 09:00:00", createdBy: ids.linUserId },
     { id: "dev-overtime-lin-2", employmentId: linEmploymentId, scopeId: null, requestedStart: "2026-08-19 10:00:00", requestedEnd: "2026-08-19 11:30:00", actualStart: "2026-08-19 10:00:00", actualEnd: "2026-08-19 11:30:00", settlementKind: "pay", status: "approved", ratePpm: 1_333_333, reason: "開發示範盤點加班", reviewedBy: ids.supervisorUserId, reviewedAt: "2026-08-20 09:00:00", createdBy: ids.linUserId },

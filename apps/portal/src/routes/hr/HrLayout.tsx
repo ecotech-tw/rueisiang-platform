@@ -1,6 +1,7 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Navigate, NavLink, Outlet, useLocation } from "react-router";
+import { Navigate, Outlet, useLocation } from "react-router";
+import { GuardedNavLink } from "../../shell/UnsavedChanges.js";
 import { useSession } from "../../auth/session.js";
 import { Icon, type IconName } from "../../shell/icons.js";
 import { HrOverview } from "./Overview.js";
@@ -15,14 +16,18 @@ const EMPLOYEE_TABS = [
 
 const ATTENDANCE_TABS = [
   { label: "出勤紀錄", to: "/hr/attendance-records", permission: "hr:office:read" as const, icon: "calendar" as const, adminOnly: false },
+  { label: "假別管理", to: "/hr/leave-types", permission: "hr:payroll:read" as const, icon: "tag" as const, adminOnly: true },
+  { label: "特休額度", to: "/hr/annual-leave", permission: "hr:payroll:read" as const, icon: "calendar" as const, adminOnly: true },
+  { label: "特休政策", to: "/hr/annual-leave/settings", permission: "hr:payroll:read" as const, icon: "tune" as const, adminOnly: true },
   { label: "出勤範圍管理", to: "/hr/attendance-scope", permission: "hr:office:read" as const, icon: "people" as const, adminOnly: false },
-  { label: "據點管理", to: "/hr/attendance-settings", permission: "hr:office:read" as const, icon: "tune" as const, adminOnly: false, activePaths: ["/hr/overtime"] },
+  { label: "據點管理", to: "/hr/attendance-settings", permission: "hr:office:read" as const, icon: "tune" as const, adminOnly: false },
   { label: "特殊上班日", to: "/hr/special-workdays", permission: "hr:office:read" as const, icon: "calendar" as const, adminOnly: false },
 ];
 
 const SCHEDULING_TABS = [
   { label: "排班月曆", to: "/hr/scheduling", permission: "hr:schedule:read" as const, icon: "calendar" as const, adminOnly: false },
   { label: "班別管理", to: "/hr/scheduling/shifts", permission: "hr:schedule:read" as const, icon: "clock" as const, adminOnly: false },
+  { label: "行事曆", to: "/hr/scheduling/calendar", permission: "hr:schedule:read" as const, icon: "calendar" as const, adminOnly: false },
 ];
 
 const PAYROLL_TABS = [
@@ -57,8 +62,9 @@ type HrNavGroup = {
 
 const HR_PRIMARY_NAV: HrNavGroup[] = [
   { label: "儀表板", to: "/hr", icon: "analytics", permissions: OVERVIEW_PERMISSIONS, adminOnly: true, activePaths: ["/hr"] },
+  { label: "申請與審核", to: "/hr/requests", icon: "edit", permissions: ["hr:request:review"], activePaths: ["/hr/requests"] },
   { label: "員工", to: "/hr/employees", icon: "list", permissions: ["hr:employee:read"], activePaths: ["/hr/employees", "/hr/support-workers"], children: EMPLOYEE_TABS },
-  { label: "出勤", to: "/hr/attendance-records", icon: "clock", permissions: ["hr:office:read"], activePaths: ["/hr/attendance-records", "/hr/attendance-scope", "/hr/attendance-settings", "/hr/special-workdays", "/hr/overtime"], children: ATTENDANCE_TABS },
+  { label: "出勤", to: "/hr/attendance-records", icon: "clock", permissions: ["hr:office:read", "hr:payroll:read"], activePaths: ["/hr/attendance-records", "/hr/attendance-scope", "/hr/attendance-settings", "/hr/special-workdays", "/hr/leave-types", "/hr/annual-leave"], children: ATTENDANCE_TABS },
   { label: "排班", to: "/hr/scheduling", icon: "calendar", permissions: ["hr:schedule:read", "hr:office:read"], activePaths: ["/hr/scheduling"], children: SCHEDULING_TABS },
   { label: "薪資", to: "/hr/compensation", icon: "payments", permissions: ["hr:payroll:read", "hr:bonus:read", "hr:employee:read"], adminOnly: true, activePaths: ["/hr/compensation", "/hr/insurance", "/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/monthly-data"], children: PAYROLL_TABS },
 ];
@@ -96,19 +102,20 @@ export function HrLayout() {
   const { permissions, user } = useSession();
   const isHrAdministrator = user?.isHrAdministrator ?? false;
   // HRIS 是一套獨立管理系統：進到 /hr 後不再借用平台側欄，避免 CRM/WMS 導覽干擾人資流程。
+  const isRequests = pathname.includes("/requests");
   const isEmployee = pathname.includes("/employees") || pathname.includes("/support-workers");
-  const isAttendance = pathname.includes("/attendance-settings") || pathname.includes("/attendance-scope") || pathname.includes("/attendance-records") || pathname.includes("/special-workdays") || pathname.includes("/overtime");
+  const isAttendance = pathname.includes("/attendance-settings") || pathname.includes("/attendance-scope") || pathname.includes("/attendance-records") || pathname.includes("/special-workdays") || pathname.includes("/leave-types") || pathname.includes("/annual-leave");
   const isScheduling = pathname.includes("/scheduling");
   const isPayroll = pathname.includes("/compensation") || pathname.includes("/insurance") || pathname.includes("/bonus") || pathname.includes("/payroll-settlement") || pathname.includes("/monthly-data") || pathname.includes("/payroll-settings");
   const isOverview = pathname === "/hr" || pathname === "/hr/";
-  const current = isOverview ? "儀表板" : isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "薪資" : "員工管理";
+  const current = isOverview ? "儀表板" : isRequests ? "申請與審核" : isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "薪資" : "員工管理";
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const visiblePrimaryNav = HR_PRIMARY_NAV
-    .map((item) => {
-      const children = visibleChildren(item.children, permissions, isHrAdministrator);
-      const fallbackTo = children[0]?.to ?? item.to;
-      return { ...item, to: fallbackTo, children };
-    })
+    .map((item) => ({
+      ...item,
+      // 有子選單的項目只負責展開選單，不把第一個子頁當成預設轉址。
+      children: visibleChildren(item.children, permissions, isHrAdministrator),
+    }))
     .filter((item) => (item.permissions.some((permission) => permissions.has(permission)) || item.children.length > 0) && (!item.adminOnly || isHrAdministrator));
   const activeLabel = visiblePrimaryNav.find((item) => isActive(item.activePaths ?? [item.to], pathname))?.label ?? null;
 
@@ -186,18 +193,32 @@ export function HrLayout() {
         <span className="hr-system-nav-thumb" ref={thumbRef} aria-hidden="true" />
         {visiblePrimaryNav.map((item) => {
           const active = isActive(item.activePaths ?? [item.to], pathname);
+          const hasChildren = item.children.length > 0;
           const open = openMenu === item.label;
+          const submenuId = `hr-system-submenu-${item.to.replace(/^\/+/, "").replaceAll("/", "-")}`;
           return <div
             className={`hr-system-nav-item${active ? " active" : ""}${open ? " open" : ""}`}
             key={item.label}
-            onMouseEnter={() => setOpenMenu(item.label)}
-            onMouseLeave={() => setOpenMenu((current) => current === item.label ? null : current)}
-            onFocus={() => setOpenMenu(item.label)}
+            // 觸控裝置不應把合成 mouse 事件當成 hover，否則展開後可能立刻被離開事件收合。
+            onPointerEnter={(event) => { if (hasChildren && event.pointerType === "mouse") setOpenMenu(item.label); }}
+            onPointerLeave={(event) => { if (hasChildren && event.pointerType === "mouse") setOpenMenu((current) => current === item.label ? null : current); }}
+            onFocus={() => { if (hasChildren) setOpenMenu(item.label); }}
             onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) setOpenMenu((current) => current === item.label ? null : current);
+              if (hasChildren && !event.currentTarget.contains(event.relatedTarget)) setOpenMenu((current) => current === item.label ? null : current);
             }}
           >
-            <NavLink
+            {hasChildren ? <button
+              type="button"
+              className="hr-system-nav-link"
+              aria-haspopup="menu"
+              aria-expanded={open}
+              aria-controls={submenuId}
+              onClick={() => setOpenMenu(item.label)}
+            >
+              <Icon name={item.icon} />
+              <span>{item.label}</span>
+              <Icon name="chevronDown" className="hr-system-nav-chevron" />
+            </button> : <GuardedNavLink
               to={item.to}
               end={item.to === "/hr"}
               className="hr-system-nav-link"
@@ -205,10 +226,9 @@ export function HrLayout() {
             >
               <Icon name={item.icon} />
               <span>{item.label}</span>
-              {item.children.length ? <Icon name="chevronDown" className="hr-system-nav-chevron" /> : null}
-            </NavLink>
-            {item.children.length ? <div className="hr-system-submenu" role="menu" aria-label={`${item.label}子選單`}>
-              {item.children.map((child) => <NavLink
+            </GuardedNavLink>}
+            {hasChildren ? <div id={submenuId} className="hr-system-submenu" role="menu" aria-label={`${item.label}子選單`} aria-hidden={!open}>
+              {item.children.map((child) => <GuardedNavLink
                 key={child.to}
                 to={child.to}
                 className={() => `hr-system-submenu-link${isActiveChild(item.children, child, pathname) ? " active" : ""}`}
@@ -218,7 +238,7 @@ export function HrLayout() {
               >
                 <Icon name={child.icon} />
                 <span>{child.label}</span>
-              </NavLink>)}
+              </GuardedNavLink>)}
             </div> : null}
           </div>;
         })}
@@ -235,7 +255,7 @@ export function HrLayout() {
 export function HrLanding() {
   const { permissions, user } = useSession();
   const isHrAdministrator = user?.isHrAdministrator ?? false;
-  const target = permissions.has("hr:employee:read") ? "/hr/employees" : permissions.has("hr:office:read") ? "/hr/attendance-records" : permissions.has("hr:schedule:read") ? "/hr/scheduling" : isHrAdministrator && permissions.has("hr:payroll:read") ? "/hr/compensation" : isHrAdministrator && permissions.has("hr:bonus:read") ? "/hr/bonus" : "/";
+  const target = permissions.has("hr:employee:read") ? "/hr/employees" : permissions.has("hr:office:read") ? "/hr/attendance-records" : permissions.has("hr:schedule:read") ? "/hr/scheduling" : permissions.has("hr:request:review") ? "/hr/requests" : isHrAdministrator && permissions.has("hr:payroll:read") ? "/hr/compensation" : isHrAdministrator && permissions.has("hr:bonus:read") ? "/hr/bonus" : "/";
   if (isHrAdministrator && OVERVIEW_PERMISSIONS.some((permission) => permissions.has(permission))) return <HrOverview />;
   return <Navigate to={target} replace />;
 }

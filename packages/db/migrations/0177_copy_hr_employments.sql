@@ -70,3 +70,17 @@ SELECT
   `id`, `employee_user_id`, `employee_number`, `position`, `supervisor_user_id`,
   `archived_at`, `revision`, `created_at`, `updated_at`
 FROM `hr_employments`;
+--> statement-breakpoint
+-- 在舊日期欄位仍存在時保存服務年資起算日；後續交換任職主檔後沿用同一 employment id。
+CREATE TABLE `hr_employment_service_periods` (
+  `employment_id` text PRIMARY KEY NOT NULL,
+  `service_start_on` text NOT NULL,
+  `created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  `updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  FOREIGN KEY (`employment_id`) REFERENCES `hr_employments_v2`(`id`) ON UPDATE no action ON DELETE restrict,
+  CONSTRAINT "ck_hr_employment_service_periods_date" CHECK(length(`service_start_on`) = 10)
+);
+--> statement-breakpoint
+INSERT INTO `hr_employment_service_periods` (`employment_id`, `service_start_on`, `created_at`, `updated_at`)
+SELECT `id`, `seniority_start_on`, `created_at`, `updated_at`
+FROM `hr_employments`;

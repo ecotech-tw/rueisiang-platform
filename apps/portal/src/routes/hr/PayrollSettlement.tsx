@@ -19,7 +19,7 @@ const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日
 const ITEM_BASIS_LABEL: Record<string, string> = { monthly: "月給", daily: "每日", hourly: "每小時" };
 const LINE_LABELS: Record<string, string> = {
   base_salary: "本薪", overtime: "核准付薪加班", unpaid_leave: "無薪假扣款", booth_bonus: "櫃點獎金", attendance_summary: "出勤摘要",
-  labor_insurance: "勞保員工負擔", health_insurance: "健保員工負擔", special_workday: "特殊上班日薪資",
+  labor_insurance: "勞保員工負擔", health_insurance: "健保員工負擔", special_workday: "特殊上班日薪資", annual_leave_settlement: "未休特休折現",
 };
 
 function money(minor: number): string {
@@ -33,6 +33,9 @@ function formulaMoney(minor: number): string {
 }
 function deductionMoney(minor: number): string {
   return `-NT$ ${Math.abs(Math.round(minor / 100)).toLocaleString("zh-TW")}`;
+}
+function adjustmentMoney(minor: number): string {
+  return minor >= 0 ? money(minor) : deductionMoney(minor);
 }
 function percentage(ppm: number): string {
   return `${(ppm / 10_000).toFixed(4).replace(/\.?0+$/, "")}%`;
@@ -223,6 +226,11 @@ function lineDetails(line: PayrollLine): PayrollLineDetail[] {
     const entryCount = numberValue(explanation.entryCount);
     if (entryCount !== null) details.push({ label: "登記／申請筆數", value: `${entryCount} 筆` });
   }
+  if (line.lineKey === "annual_leave_settlement") {
+    details.push({ label: "折現基準", value: "結算日適用月薪 ÷ 30" });
+    const settlementItems = Array.isArray(explanation.settlementItems) ? explanation.settlementItems : [];
+    details.push({ label: "結算筆數", value: `${settlementItems.length} 筆` });
+  }
   if (line.lineKey === "special_workday" || line.lineKey.startsWith("special_allowance_")) {
     if (stringValue(explanation.rule)) details.push({ label: "套用規則", value: explanation.rule as string });
     const quantity = numberValue(explanation.quantity);
@@ -284,6 +292,7 @@ export function HrPayrollSettlement() {
   const [payrollResult, setPayrollResult] = useState<PayrollRun | null>(null);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [adjustmentUserId, setAdjustmentUserId] = useState("");
+  const [adjustmentDirection, setAdjustmentDirection] = useState<"earning" | "deduction">("deduction");
   const [adjustmentAmount, setAdjustmentAmount] = useState("");
   const [adjustmentEffectivePeriodKey, setAdjustmentEffectivePeriodKey] = useState(() => nextMonth(taipeiMonth()));
   const [adjustmentReason, setAdjustmentReason] = useState("勞健保員工負擔人工覆核");
@@ -320,7 +329,7 @@ export function HrPayrollSettlement() {
 
   return <div className="page hr-payroll-page">
     <PageHeader title="薪資結算" description="選擇月份試算，逐位確認薪資明細與計算公式，再進行結帳。" />
-    <Alert tone="info">先選月份試算；展開員工即可查看每一筆應發、扣款與公式。敘薪、月度資料與獎金政策請在各自的管理頁維護。</Alert>
+    <Alert tone="info">先選月份試算；展開員工即可查看每一筆應發、扣款與公式。週期終結或離職的未休特休會在該薪資期間列為折現，只有結帳後才會寫入額度台帳。敘薪、月度資料與獎金政策請在各自的管理頁維護。</Alert>
     {error ? <Alert tone="danger">{error}</Alert> : null}
     {closePayroll.error ? <Alert tone="danger">{closePayroll.error.message}</Alert> : null}
     {selectedRun.error ? <Alert tone="danger">{selectedRun.error.message}</Alert> : null}
@@ -372,10 +381,10 @@ export function HrPayrollSettlement() {
     >
       <div className="hr-payroll-secondary-content">
         <p className="muted">來源月份必須已有結帳結果；調整會在生效月份試算成為獨立明細，生效月份結帳後不可修改。</p>
-        <div className="admin-form toolbar hr-payroll-adjustment-form"><SelectField label="員工" value={adjustmentUserId} options={[{ label: "請選擇員工", value: "" }, ...employeeOptions.slice(1)]} onChange={(event) => setAdjustmentUserId(event.target.value)} /><TextField label="來源薪資月份" type="month" value={periodKey} onChange={(event) => setPeriodKey(event.target.value)} /><TextField label="生效薪資月份" type="month" value={adjustmentEffectivePeriodKey} onChange={(event) => setAdjustmentEffectivePeriodKey(event.target.value)} /><TextField label="扣款金額（元）" type="number" min="0" step="1" value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} /><TextField label="調整原因" value={adjustmentReason} maxLength={1000} onChange={(event) => setAdjustmentReason(event.target.value)} />{canCalculate ? <Button icon="plus" loading={createAdjustment.isPending} disabled={!adjustmentEmployment || adjustmentEffectivePeriodKey === periodKey || !Number.isSafeInteger(Number(adjustmentAmount)) || Number(adjustmentAmount) <= 0 || !adjustmentReason.trim()} onClick={() => createAdjustment.mutate({ path: "/payroll/adjustments", method: "POST", values: { employmentId: adjustmentEmployment?.id, sourcePeriodKey: periodKey, effectivePeriodKey: adjustmentEffectivePeriodKey, reason: adjustmentReason, items: [{ itemName: "勞健保員工負擔", amountMinor: -Math.round(Number(adjustmentAmount) * 100) }] } }, { onSuccess: () => { setAdjustmentAmount(""); void adjustments.refetch(); } })}>保存扣款</Button> : null}</div>
+        <div className="admin-form toolbar hr-payroll-adjustment-form"><SelectField label="員工" value={adjustmentUserId} options={[{ label: "請選擇員工", value: "" }, ...employeeOptions.slice(1)]} onChange={(event) => setAdjustmentUserId(event.target.value)} /><TextField label="來源薪資月份" type="month" value={periodKey} onChange={(event) => setPeriodKey(event.target.value)} /><TextField label="生效薪資月份" type="month" value={adjustmentEffectivePeriodKey} onChange={(event) => setAdjustmentEffectivePeriodKey(event.target.value)} /><SelectField label="調整類型" value={adjustmentDirection} options={[{ label: "扣回", value: "deduction" }, { label: "補發", value: "earning" }]} onChange={(event) => setAdjustmentDirection(event.target.value as "earning" | "deduction")} /><TextField label="調整金額（元）" type="number" min="0" step="1" value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} /><TextField label="調整原因" value={adjustmentReason} maxLength={1000} onChange={(event) => setAdjustmentReason(event.target.value)} />{canCalculate ? <Button icon="plus" loading={createAdjustment.isPending} disabled={!adjustmentEmployment || adjustmentEffectivePeriodKey === periodKey || !Number.isSafeInteger(Number(adjustmentAmount)) || Number(adjustmentAmount) <= 0 || !adjustmentReason.trim()} onClick={() => createAdjustment.mutate({ path: "/payroll/adjustments", method: "POST", values: { employmentId: adjustmentEmployment?.id, sourcePeriodKey: periodKey, effectivePeriodKey: adjustmentEffectivePeriodKey, reason: adjustmentReason, items: [{ itemName: adjustmentDirection === "earning" ? "薪資補發" : "勞健保員工負擔", amountMinor: (adjustmentDirection === "earning" ? 1 : -1) * Math.round(Number(adjustmentAmount) * 100) }] } }, { onSuccess: () => { setAdjustmentAmount(""); void adjustments.refetch(); } })}>保存{adjustmentDirection === "earning" ? "補發" : "扣回"}</Button> : null}</div>
         {createAdjustment.error ? <Alert tone="danger">{createAdjustment.error.message}</Alert> : null}
         {adjustments.error ? <Alert tone="danger">{adjustments.error.message}</Alert> : null}
-        {adjustments.data?.adjustments.length ? <div className={`table-scroll${adjustments.isPlaceholderData ? " is-refreshing" : ""}`}><table className="data-table compact"><thead><tr><th>員工</th><th>原因</th><th className="numeric">調整</th></tr></thead><tbody>{adjustments.data.adjustments.map((item) => <tr key={item.id}><td>{item.employeeName}</td><td>{item.reason}</td><td className="numeric">{item.items.map((line) => deductionMoney(line.amountMinor)).join("、")}</td></tr>)}</tbody></table></div> : <p className="form-hint">本月尚無人工薪資調整。</p>}
+        {adjustments.data?.adjustments.length ? <div className={`table-scroll${adjustments.isPlaceholderData ? " is-refreshing" : ""}`}><table className="data-table compact"><thead><tr><th>員工</th><th>原因</th><th className="numeric">調整</th></tr></thead><tbody>{adjustments.data.adjustments.map((item) => <tr key={item.id}><td>{item.employeeName}</td><td>{item.reason}</td><td className="numeric">{item.items.map((line) => adjustmentMoney(line.amountMinor)).join("、")}</td></tr>)}</tbody></table></div> : <p className="form-hint">本月尚無人工薪資調整。</p>}
       </div>
     </PayrollDisclosure>
 

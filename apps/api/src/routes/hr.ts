@@ -5,14 +5,17 @@ import {
   createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
-  listHrScopes, listHrSupervisorCandidates, reviewHrFormRequest,
+  listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
   assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker,
+  isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
-  createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
+  calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
+  createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
+  createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
   createDeviceSession, revokeDeviceSession,
 } from "@rueisiang/db";
@@ -312,6 +315,33 @@ function overtimeInput(input: Record<string, unknown>, employeeUserId: string) {
   if (!settlementKind) throw new HTTPException(400, { message: "加班結算方式不正確。" });
   return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), reason: text(input, "reason", "加班原因", 1000) } as const;
 }
+function leaveDateTimeValue(input: Record<string, unknown>, key: "startsAt" | "endsAt", alias: "startAt" | "endAt", label: string) {
+  const raw = input[key] ?? input[alias];
+  return dateTimeValue({ [key]: raw }, key, label);
+}
+function leaveDurationInput(input: Record<string, unknown>, employeeUserId: string) {
+  return {
+    employeeUserId,
+    startsAt: leaveDateTimeValue(input, "startsAt", "startAt", "請假開始時間"),
+    endsAt: leaveDateTimeValue(input, "endsAt", "endAt", "請假結束時間"),
+  } as const;
+}
+function leaveRequestInput(input: Record<string, unknown>, employeeUserId: string) {
+  return {
+    ...leaveDurationInput(input, employeeUserId),
+    leaveTypeId: text(input, "leaveTypeId", "假別"),
+    reason: nullableText(input, "reason", "請假原因", 1000) ?? "",
+  } as const;
+}
+function leaveTypeInput(input: Record<string, unknown>) {
+  const leaveKind = input.leaveKind === undefined ? "other" : input.leaveKind === "annual" ? "annual" : input.leaveKind === "other" ? "other" : null;
+  if (!leaveKind) throw new HTTPException(400, { message: "假別類型不正確。" });
+  return {
+    name: text(input, "name", "假別名稱", 80),
+    leaveKind,
+    defaultPayRatePpm: integerValue(input, "defaultPayRatePpm", "預設給薪比例（ppm）", 0, 1_000_000),
+  } as const;
+}
 function secondsFromTime(input: Record<string, unknown>, key: string) {
   const value = text(input, key, key === "startTime" ? "開始時間" : "結束時間", 5);
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) throw new HTTPException(400, { message: "班別時間必須是有效的 HH:mm。" });
@@ -319,11 +349,60 @@ function secondsFromTime(input: Record<string, unknown>, key: string) {
   const minute = Number(value.slice(3, 5));
   return hour * 3600 + minute * 60;
 }
-/** 班別的計薪工時就是它的長度，休息一律 0；這裡是唯一的來源。 */
+/** 未指定休息時維持歷史相容值 0；管理端班別表單會明確送出休息分鐘，避免偷偷改變既有計薪規則。 */
 function defaultShiftMinutes(input: Record<string, unknown>) {
   const start = secondsFromTime(input, "startTime");
   const end = secondsFromTime(input, "endTime");
-  return { start, end, standardMinutes: (end - start) / 60, breakMinutes: 0 };
+  const durationMinutes = (end - start) / 60;
+  const breakMinutes = input.breakMinutes === undefined ? 0 : integerValue(input, "breakMinutes", "休息時間", 0, durationMinutes);
+  const standardMinutes = input.standardMinutes === undefined ? durationMinutes - breakMinutes : integerValue(input, "standardMinutes", "計薪工時", 0, durationMinutes - breakMinutes);
+  return { start, end, standardMinutes, breakMinutes };
+}
+/** 一個班別的平日／週末／國定假日三組時間；值域與「平日必填」由 packages/db 的 assertShiftTimes 把關。 */
+function shiftTimes(input: Record<string, unknown>): HrShiftTime[] {
+  const value = input.times;
+  if (!Array.isArray(value) || !value.length || value.length > 3) throw new HTTPException(400, { message: "班別時間格式不正確。" });
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new HTTPException(400, { message: "班別時間格式不正確。" });
+    const entry = item as Record<string, unknown>;
+    if (!isHrDayType(entry.dayType)) throw new HTTPException(400, { message: "班別的日期類型不正確。" });
+    const defaults = defaultShiftMinutes(entry);
+    return { dayType: entry.dayType, startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes };
+  });
+}
+/**
+ * 前端讀到的那幾天。伺服器拿它跟 DB 現況比對，對不上就是中間有人改過。
+ *
+ * 沒送就是不檢查：匯入本來就打算整年換掉，硬要它先讀一次只是多一趟。
+ */
+function knownDates(input: Record<string, unknown>): string[] | undefined {
+  const value = input.knownDates;
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 366 || value.some((item) => typeof item !== "string")) throw new HTTPException(400, { message: "行事曆格式不正確。" });
+  return value as string[];
+}
+function calendarYear(value: string) {
+  const year = Number(value);
+  if (!/^\d{4}$/.test(value) || !Number.isInteger(year)) throw new HTTPException(400, { message: "行事曆年份不正確。" });
+  return year;
+}
+/**
+ * 行事曆送上來的日子；這裡只檢查形狀，哪些要寫成列由 packages/db 決定。
+ *
+ * 上限跟著路由走：月是 31，年是 366。寫死 31 的話整年那條路會在例外累積到 32 天時
+ * 永遠存不起來——光 2026 年匯入就有 16 筆，再加颱風假與公司自訂假很快就破——
+ * 而且匯入本身繞過這個檢查，等於做得出一個畫面自己救不回來的狀態。
+ */
+function calendarDays(input: Record<string, unknown>, maxDays: number): HrCalendarDayInput[] {
+  const value = input.days;
+  if (!Array.isArray(value) || value.length > maxDays) throw new HTTPException(400, { message: "行事曆格式不正確。" });
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new HTTPException(400, { message: "行事曆格式不正確。" });
+    const entry = item as Record<string, unknown>;
+    if (!isHrDayType(entry.dayType)) throw new HTTPException(400, { message: "行事曆的日期類型不正確。" });
+    if (typeof entry.date !== "string" || typeof entry.name !== "string") throw new HTTPException(400, { message: "行事曆格式不正確。" });
+    return { date: entry.date, dayType: entry.dayType, name: entry.name };
+  });
 }
 function stringArray(input: Record<string, unknown>, key: string, label: string, maxItems = 100) {
   const value = input[key];
@@ -429,6 +508,86 @@ export const hr = new Hono<AppEnv>()
   .get("/me/overtime", async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), c.get("user").id) }))
   .post("/me/overtime", async (c) => c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(await body(c), c.get("user").id), c.get("user")), 201))
   .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), undefined, true) }))
+  .get("/me/leave-requests", async (c) => c.json({ requests: await listHrLeaveRequests(c.get("db"), c.get("user").id) }))
+  .post("/me/leave-duration", async (c) => c.json(await calculateHrLeaveDuration(c.get("db"), leaveDurationInput(await body(c), c.get("user").id))))
+  .post("/me/leave-requests", async (c) => c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(await body(c), c.get("user").id), c.get("user")), 201))
+  .post("/me/leave-requests/:id/cancel", async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"))))
+  .get("/leave-types", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db"), true) });
+  })
+  .post("/leave-types", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await createHrLeaveType(c.get("db"), leaveTypeInput(await body(c)), c.get("user")), 201);
+  })
+  .patch("/leave-types/:id", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await updateHrLeaveType(c.get("db"), c.req.param("id"), leaveTypeInput(await body(c)), c.get("user")));
+  })
+  .post("/leave-types/:id/status", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await setHrLeaveTypeActive(c.get("db"), c.req.param("id"), booleanValue(input, "active", "啟用狀態"), c.get("user")));
+  })
+  .get("/annual-leave/policy", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await getHrAnnualLeavePolicy(c.get("db")));
+  })
+  .get("/annual-leave/entitlements", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ entitlements: await listHrAnnualLeaveEntitlements(c.get("db"), { employeeUserId: c.req.query("employeeUserId") || undefined }) });
+  })
+  .get("/annual-leave/entitlements/:id", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ entitlement: await getHrAnnualLeaveEntitlementDetail(c.get("db"), c.req.param("id")) });
+  })
+  .post("/annual-leave/backfill", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await ensureHrAnnualLeaveEntitlements(c.get("db"), { createdBy: c.get("user").id }));
+  })
+  .post("/annual-leave/adjustments", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await createHrAnnualLeaveAdjustment(c.get("db"), {
+      entitlementId: text(input, "entitlementId", "特休額度"),
+      deltaHalfHours: integerValue(input, "deltaHalfHours", "調整時數（半小時）", -100_000, 100_000),
+      reason: text(input, "reason", "調整原因", 1000),
+    }, c.get("user")));
+  })
+  /* 管理端申請中心是獨立入口；目前代登直接核准，但資料仍使用 pending／approved 審核狀態。 */
+  .get("/requests", requirePermission("hr:request:review"), async (c) => {
+    const [leaves, overtime, formRequests] = await Promise.all([
+      listHrLeaveRequests(c.get("db")),
+      listHrOvertimeRequests(c.get("db")),
+      listHrFormRequestsForHr(c.get("db")),
+    ]);
+    return c.json({ leaves, overtime, clockCorrections: formRequests });
+  })
+  .get("/requests/employees", requirePermission("hr:request:review"), async (c) => c.json(await listHrEmployees(c.get("db"), {
+    page: 1, pageSize: 100, search: "", status: "employable", sortField: "name", sortDirection: "asc",
+  })))
+  .get("/requests/leave-types", requirePermission("hr:request:review"), async (c) => c.json({ leaveTypes: await listHrLeaveTypes(c.get("db")) }))
+  .post("/requests/leave-duration", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    return c.json(await calculateHrLeaveDuration(c.get("db"), leaveDurationInput(input, text(input, "employeeUserId", "員工"))));
+  })
+  .post("/requests/leave", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    return c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(input, text(input, "employeeUserId", "員工")), c.get("user"), { autoApprove: true }), 201);
+  })
+  .post("/requests/overtime", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    const employeeUserId = text(input, "employeeUserId", "員工");
+    return c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(input, employeeUserId), c.get("user"), { autoApprove: true }), 201);
+  })
+  .post("/requests/leave/:id/review", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
+    if (!decision) throw new HTTPException(400, { message: "請假審核結果不正確。" });
+    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user")));
+  })
+  .post("/requests/leave/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true })))
   .post("/overtime/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
@@ -576,11 +735,21 @@ export const hr = new Hono<AppEnv>()
     period(validFrom, validTo);
     return c.json(await createHrWorkerCompensation(c.get("db"), { workerId: c.req.param("id"), validFrom, validTo, payBasis: payBasis(input), baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input) }, c.get("user")), 201);
   })
+  .get("/calendar/years/:year", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarYear(c.get("db"), calendarYear(c.req.param("year"))) }))
+  .put("/calendar/years/:year", requirePermission("hr:schedule:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await saveHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), calendarDays(input, 366), knownDates(input), c.get("user")));
+  })
+  .post("/calendar/years/:year/import", requirePermission("hr:schedule:write"), async (c) => c.json(await importHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), c.get("user"))))
+  .get("/calendar/:periodKey", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarMonth(c.get("db"), monthPeriodFromKey(c.req.param("periodKey"))) }))
+  .put("/calendar/:periodKey", requirePermission("hr:schedule:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await saveHrCalendarMonth(c.get("db"), monthPeriodFromKey(c.req.param("periodKey")), calendarDays(input, 31), knownDates(input), c.get("user")));
+  })
   .get("/shift-templates", requirePermission("hr:schedule:read"), async (c) => c.json(await listHrShifts(c.get("db"))))
   .patch("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    const defaults = defaultShiftMinutes(input);
-    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes, revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
+    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), times: shiftTimes(input), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
   })
   .delete("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
@@ -588,8 +757,7 @@ export const hr = new Hono<AppEnv>()
   })
   .post("/shift-templates", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    const defaults = defaultShiftMinutes(input);
-    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes }, c.get("user")), 201);
+    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), times: shiftTimes(input) }, c.get("user")), 201);
   })
   .patch("/employments/:id/attendance-scope", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);
@@ -682,7 +850,7 @@ export const hr = new Hono<AppEnv>()
   })
   .get("/payroll/monthly-data/leave-types", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
-    return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db")) });
+    return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db"), false, "other") });
   })
   .post("/payroll/monthly-data/leave-types", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
@@ -850,7 +1018,7 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await assignHrEmployee(c.get("db"), {
       userId: text(input, "userId", "使用者"), employeeNumber: text(input, "employeeNumber", "員工編號", 40),
-      position: text(input, "position", "職位", 100), attendanceMode: attendanceMode(input, true), revision: input.revision === undefined ? undefined : revision(input),
+      position: text(input, "position", "職位", 100), attendanceMode: attendanceMode(input, true), serviceStartOn: input.serviceStartOn === undefined ? undefined : date(input, "serviceStartOn")!, revision: input.revision === undefined ? undefined : revision(input),
     }, c.get("user")), 201);
   })
   .patch("/employees/:id", requirePermission("hr:employee:write"), async (c) => {
@@ -926,7 +1094,7 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await assignHrEmployee(c.get("db"), {
       userId: text(input, "userId", "員工"), employeeNumber: text(input, "employeeNumber", "員工編號", 40),
-      position: text(input, "position", "職位", 100), attendanceMode: attendanceMode(input, true), revision: input.revision === undefined ? undefined : revision(input),
+      position: text(input, "position", "職位", 100), attendanceMode: attendanceMode(input, true), serviceStartOn: input.serviceStartOn === undefined ? undefined : date(input, "serviceStartOn")!, revision: input.revision === undefined ? undefined : revision(input),
     }, c.get("user")), 201);
   })
   .patch("/employments/:id/attendance-mode", requirePermission("hr:office:write"), async (c) => {

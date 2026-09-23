@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, inArray, like, sql, type SQL } from "drizzle
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { HR_DAY_TYPE_LABELS, isHrDayType, listHrCalendarMonth } from "./hr-calendar.js";
 import { HrError, type HrActor } from "./hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
@@ -14,6 +15,7 @@ import {
   hrScopeShiftAssignments,
   hrShiftTemplates,
   hrShiftVersions,
+  type HrDayType,
 } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
 import { users } from "./schema/auth.js";
@@ -38,7 +40,14 @@ export interface SaveHrScheduleInput {
   entries: ScheduleEntryInput[];
 }
 
-function periodFromKey(periodKey: string) {
+/*
+ * 月份字串轉成半開區間。排班、行事曆與各自的路由共用，三邊的「一個月」才是同一個定義。
+ *
+ * 名字帶 month 是因為 hr-payroll-calculation.ts 另有一個私有的 periodFromKey，形狀不同
+ * （多回 year 與 month）。兩份都私有時相安無事，但這一份要 export 出去給路由用，
+ * 同名同輸入卻回不同東西的公開 API 遲早會被拿錯一個。
+ */
+export function monthPeriodFromKey(periodKey: string) {
   if (!PERIOD_KEY.test(periodKey)) throw new HrError(400, "排班月份格式不正確。 ");
   const [yearText, monthText] = periodKey.split("-");
   const year = Number(yearText);
@@ -68,14 +77,15 @@ function datePeriodContains(date: string, period: { start: string; end: string }
   return LOCAL_DATE.test(date) && date >= period.start && date < period.end;
 }
 
-function latestShiftVersions<T extends { templateId: string; scopeId: string; versionNumber: number }>(rows: T[]) {
+/** 每個「班別 × 據點 × 日型」各自取最新版本；日型要進 key，否則三組時間只會活下來一組。 */
+function latestShiftVersions<T extends { templateId: string; scopeId: string; dayType: HrDayType; versionNumber: number }>(rows: T[]) {
   const latest = new Map<string, T>();
   for (const row of rows) {
-    const key = `${row.templateId}:${row.scopeId}`;
+    const key = `${row.templateId}:${row.scopeId}:${row.dayType}`;
     const current = latest.get(key);
     if (!current || row.versionNumber > current.versionNumber) latest.set(key, row);
   }
-  return rows.filter((row) => latest.get(`${row.templateId}:${row.scopeId}`) === row);
+  return rows.filter((row) => latest.get(`${row.templateId}:${row.scopeId}:${row.dayType}`) === row);
 }
 
 function assertShiftMinutes(input: { standardMinutes: number; breakMinutes: number }, durationSeconds: number) {
@@ -157,6 +167,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     templateId: sql<string>`${hrShiftTemplates.id}`.as("schedule_shift_template_id"),
     scopeId: sql<string>`${hrScopeShiftAssignments.scopeId}`.as("schedule_shift_scope_id"),
     name: sql<string>`${hrShiftTemplates.name}`.as("schedule_shift_name"),
+    dayType: sql<HrDayType>`${hrShiftVersions.dayType}`.as("schedule_shift_day_type"),
     versionNumber: sql<number>`${hrShiftVersions.versionNumber}`.as("schedule_shift_version_number"),
     startSecond: hrShiftVersions.startSecond,
     endSecond: hrShiftVersions.endSecond,
@@ -238,6 +249,7 @@ function listHrScopeShiftRows(db: Database) {
       code: sql<string>`${hrShiftTemplates.code}`.as("schedule_shift_code"),
       name: sql<string>`${hrShiftTemplates.name}`.as("schedule_shift_name"),
       revision: sql<number>`${hrShiftTemplates.revision}`.as("schedule_shift_revision"),
+      dayType: sql<HrDayType>`${hrShiftVersions.dayType}`.as("schedule_shift_day_type"),
       versionNumber: sql<number>`${hrShiftVersions.versionNumber}`.as("schedule_shift_version_number"),
       startSecond: hrShiftVersions.startSecond,
       endSecond: hrShiftVersions.endSecond,
@@ -258,12 +270,13 @@ export async function listHrShifts(db: Database) {
 }
 
 export async function getHrSchedule(db: Database, periodKey: string, scopeId?: string) {
-  const period = periodFromKey(periodKey);
+  const period = monthPeriodFromKey(periodKey);
   const version = await latestScheduleVersion(db, period);
-  const [scopeRows, workerRows, shiftRows] = await Promise.all([
+  const [scopeRows, workerRows, shiftRows, calendar] = await Promise.all([
     listHrScheduleScopes(db),
     db.select({ id: hrScheduleWorkers.id, name: hrScheduleWorkers.displayName, active: hrScheduleWorkers.active }).from(hrScheduleWorkers).where(eq(hrScheduleWorkers.active, 1)).orderBy(asc(hrScheduleWorkers.displayName)),
     listHrScopeShiftRows(db),
+    listHrCalendarMonth(db, period),
   ]);
   const selectedScopeId = scopeId && scopeId !== "all" ? scopeId : undefined;
   const [employeeEntries, workerEntries] = version ? await Promise.all([
@@ -291,6 +304,7 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
     period,
     version: version ? { id: version.id, revision: version.revision, status: "published" as const, locked: version.lockedAt !== null, lockedAt: version.lockedAt } : null,
     scopes: scopeRows,
+    calendar,
     shifts: (selectedScopeId ? latestShiftVersions(shiftRows).filter((shift) => shift.scopeId === selectedScopeId) : latestShiftVersions(shiftRows)).map(({ versionNumber: _versionNumber, ...shift }) => shift),
     employees,
     workers: workerRows,
@@ -302,7 +316,7 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
 }
 
 export async function saveHrSchedule(db: Database, input: SaveHrScheduleInput, actor: HrActor) {
-  const period = periodFromKey(input.periodKey);
+  const period = monthPeriodFromKey(input.periodKey);
   const entries = await validateAndEnrichEntries(db, period, input.entries);
   let version = input.scheduleVersionId ? (await db.select().from(hrScheduleVersions).where(eq(hrScheduleVersions.id, input.scheduleVersionId)).limit(1))[0] : await getOrCreateScheduleVersion(db, period, actor);
   if (!version || version.periodStart !== period.start || version.periodEnd !== period.end || version.status !== "published") throw new HrError(404, "找不到指定月份的排班版本。 ");
@@ -311,7 +325,7 @@ export async function saveHrSchedule(db: Database, input: SaveHrScheduleInput, a
 }
 
 export async function setHrScheduleLock(db: Database, periodKey: string, input: { revision: number; locked: boolean }, actor: HrActor) {
-  const period = periodFromKey(periodKey);
+  const period = monthPeriodFromKey(periodKey);
   const version = await latestScheduleVersion(db, period);
   if (!version) throw new HrError(404, "指定月份尚未建立排班。 ");
   const row = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: input.locked ? "schedule_locked" : "schedule_unlocked", summary: input.locked ? "排班已鎖定" : "排班已開鎖", actor });
@@ -329,13 +343,18 @@ export async function setHrScheduleLock(db: Database, periodKey: string, input: 
  * 代碼在資料庫是全域唯一，但沒有任何地方拿它來查或顯示。讓人自己填的話，不同店各建一個
  * 「AM 早班」就會撞號，而錯誤訊息講的是一個使用者根本不在乎的欄位。
  */
-export interface HrShiftInput {
-  scopeId: string;
-  name: string;
+export interface HrShiftTime {
+  dayType: HrDayType;
   startSecond: number;
   endSecond: number;
   standardMinutes: number;
   breakMinutes: number;
+}
+
+export interface HrShiftInput {
+  scopeId: string;
+  name: string;
+  times: HrShiftTime[];
 }
 
 function assertSameDayShift(input: { startSecond: number; endSecond: number; standardMinutes: number; breakMinutes: number }) {
@@ -343,23 +362,46 @@ function assertSameDayShift(input: { startSecond: number; endSecond: number; sta
   assertShiftMinutes(input, input.endSecond - input.startSecond);
 }
 
+/**
+ * 平日那一組是必填的，因為它同時是所有沒設定的日型的退路（見 pickShiftForDay）。
+ *
+ * 允許只填週末而不填平日的話，一個平日按下去會找不到任何時間，排班頁只能給出
+ * 「這個班別在今天沒有時間」這種沒人看得懂的錯誤。
+ */
+function assertShiftTimes(times: HrShiftTime[]) {
+  if (!Array.isArray(times) || !times.length || times.length > 3) throw new HrError(400, "班別的時間組數不正確。 ");
+  const seen = new Set<HrDayType>();
+  for (const time of times) {
+    if (!isHrDayType(time.dayType)) throw new HrError(400, "班別的日期類型不正確。 ");
+    if (seen.has(time.dayType)) throw new HrError(400, `班別的${HR_DAY_TYPE_LABELS[time.dayType]}時間重複設定了。 `);
+    seen.add(time.dayType);
+    assertSameDayShift(time);
+  }
+  if (!seen.has("weekday")) throw new HrError(400, "班別一定要有平日時間，其他日型沒設定時會沿用它。 ");
+}
+
+function insertShiftVersion(versionId: string, templateId: string, time: HrShiftTime, versionNumber: number, actorId: string) {
+  return sql`INSERT INTO hr_shift_versions (id, shift_template_id, day_type, version_number, start_second, end_second, end_day_offset, standard_minutes, break_minutes, pay_factor_ppm, created_by)
+    VALUES (${versionId}, ${templateId}, ${time.dayType}, ${versionNumber}, ${time.startSecond}, ${time.endSecond}, 0, ${time.standardMinutes}, ${time.breakMinutes}, 1000000, ${actorId})`;
+}
+
 export async function createHrShift(db: Database, input: HrShiftInput, actor: HrActor) {
-  assertSameDayShift(input);
+  assertShiftTimes(input.times);
   const [scope] = await db.select({ id: scopes.id }).from(scopes).where(and(eq(scopes.id, input.scopeId), eq(scopes.scopeKind, "store"), eq(scopes.active, 1))).limit(1);
   if (!scope) throw new HrError(404, "找不到有效的營運據點。 ");
   const templateId = crypto.randomUUID();
-  const versionId = crypto.randomUUID();
+  const versionIds = new Map(input.times.map((time) => [time.dayType, crypto.randomUUID()]));
   const assignmentId = `${input.scopeId}:${templateId}`;
   const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
-  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_created", summary: "班別已建立", actor });
+  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_created", summary: "班別已建立", actor, payload: { name: input.name.trim(), dayTypes: input.times.map((time) => time.dayType) } });
   const statements = [
     sql`INSERT INTO hr_shift_templates (id, code, name, active, created_by) VALUES (${templateId}, ${templateId}, ${input.name.trim()}, 1, ${actor.id}) RETURNING id`,
-    sql`INSERT INTO hr_shift_versions (id, shift_template_id, version_number, start_second, end_second, end_day_offset, standard_minutes, break_minutes, pay_factor_ppm, created_by) VALUES (${versionId}, ${templateId}, 1, ${input.startSecond}, ${input.endSecond}, 0, ${input.standardMinutes}, ${input.breakMinutes}, 1000000, ${actor.id}) RETURNING id`,
+    ...input.times.map((time) => insertShiftVersion(versionIds.get(time.dayType)!, templateId, time, 1, actor.id)),
     sql`INSERT INTO hr_scope_shift_assignments (scope_id, shift_template_id, is_default, created_by) VALUES (${input.scopeId}, ${templateId}, 0, ${actor.id}) RETURNING scope_id AS id`,
-    sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
+    sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson})`,
   ].map((statement) => dialect.sqlToQuery(statement));
   await runRawBatch(db, statements, false);
-  return { id: templateId, versionId, assignmentId };
+  return { id: templateId, versionId: versionIds.get("weekday")!, assignmentId };
 }
 
 /**
@@ -383,22 +425,45 @@ async function assertShiftOwnedByScope(db: Database, templateId: string, scopeId
  * 人只看得到自己點進來的那一家。從班別管理頁建立的班別一定只屬於一家店。
  */
 export async function updateHrShift(db: Database, templateId: string, input: HrShiftInput & { revision: number }, actor: HrActor) {
-  assertSameDayShift(input);
+  assertShiftTimes(input.times);
   await assertShiftOwnedByScope(db, templateId, input.scopeId, "修改");
-  const [latest] = await db.select({ id: hrShiftVersions.id }).from(hrShiftVersions).where(eq(hrShiftVersions.shiftTemplateId, templateId)).orderBy(desc(hrShiftVersions.versionNumber)).limit(1);
-  if (!latest) throw new HrError(404, "找不到班別的時間設定。 ");
-  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), startSecond: input.startSecond, endSecond: input.endSecond, standardMinutes: input.standardMinutes, breakMinutes: input.breakMinutes } });
-  await runRawBatch(db, compileStatements([
+  const existing = await db.select({ id: hrShiftVersions.id, dayType: hrShiftVersions.dayType, versionNumber: hrShiftVersions.versionNumber })
+    .from(hrShiftVersions).where(eq(hrShiftVersions.shiftTemplateId, templateId)).orderBy(desc(hrShiftVersions.versionNumber));
+  if (!existing.length) throw new HrError(404, "找不到班別的時間設定。 ");
+  const latestByDayType = new Map<HrDayType, { id: string; versionNumber: number }>();
+  for (const version of existing) if (!latestByDayType.has(version.dayType)) latestByDayType.set(version.dayType, version);
+  const wanted = new Set(input.times.map((time) => time.dayType));
+  const removed = [...latestByDayType.entries()].filter(([dayType]) => !wanted.has(dayType));
+  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), times: input.times } });
+  /*
+   * 只有第一句真的改到一列，後面才動時間與寫紀錄；用 changes() 而不是再查一次 revision。
+   * 用「revision = 舊值 + 1」判斷會被併發騙過：別人先改成 2 之後，拿著舊值 1 的請求
+   * 算出來的也是 2，條件照樣成立，名稱沒改到、時間卻被蓋掉。
+   *
+   * changes() 看的是「上一句」，所以這條鏈成立的前提是**後面每一句都剛好動到一列**：
+   * UPDATE 與 DELETE 用主鍵、INSERT 一次一列，都滿足。加新句子時要維持這個性質，
+   * 否則從那一句之後的守衛全部失效。
+   */
+  const statements = [
     sql`UPDATE hr_shift_templates SET name=${input.name.trim()}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${templateId} AND revision=${input.revision} RETURNING id`,
-    /*
-     * 只有上一句真的改到一列，才動時間與寫紀錄；用 changes() 而不是再查一次 revision。
-     * 用「revision = 舊值 + 1」判斷會被併發騙過：別人先改成 2 之後，拿著舊值 1 的請求
-     * 算出來的也是 2，條件照樣成立，名稱沒改到、時間卻被蓋掉。
-     */
-    sql`UPDATE hr_shift_versions SET start_second=${input.startSecond}, end_second=${input.endSecond}, end_day_offset=0, standard_minutes=${input.standardMinutes}, break_minutes=${input.breakMinutes} WHERE id=${latest.id} AND changes() = 1`,
+    ...input.times.map((time) => {
+      const current = latestByDayType.get(time.dayType);
+      return current
+        ? sql`UPDATE hr_shift_versions SET start_second=${time.startSecond}, end_second=${time.endSecond}, end_day_offset=0, standard_minutes=${time.standardMinutes}, break_minutes=${time.breakMinutes} WHERE id=${current.id} AND changes() = 1`
+        : sql`INSERT INTO hr_shift_versions (id, shift_template_id, day_type, version_number, start_second, end_second, end_day_offset, standard_minutes, break_minutes, pay_factor_ppm, created_by)
+            SELECT ${crypto.randomUUID()}, ${templateId}, ${time.dayType}, 1, ${time.startSecond}, ${time.endSecond}, 0, ${time.standardMinutes}, ${time.breakMinutes}, 1000000, ${actor.id} WHERE changes() = 1`;
+    }),
+    ...removed.map(([, version]) => sql`DELETE FROM hr_shift_versions WHERE id=${version.id} AND changes() = 1`),
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
       SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson} WHERE changes() = 1`,
-  ]), true, "班別已被其他人修改，請重新整理後再改。 ");
+  ];
+  try {
+    await runRawBatch(db, compileStatements(statements), true, "班別已被其他人修改，請重新整理後再改。 ");
+  } catch (error) {
+    // 移掉某個日型的時間時，那組時間可能已經被排進班表；外鍵會擋下整批，換成看得懂的訊息。
+    if (error instanceof Error && /FOREIGN KEY/i.test(error.message)) throw new HrError(409, "要移除的那組時間已經排進班表，請先到排班月曆移除該日的排班。 ");
+    throw error;
+  }
   return { id: templateId, revision: input.revision + 1 };
 }
 

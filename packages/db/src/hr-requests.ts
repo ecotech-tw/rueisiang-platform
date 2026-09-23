@@ -100,6 +100,11 @@ export async function listHrFormRequests(db: Database, userId: string, allowAny 
   return { requests, reviewRequests };
 }
 
+/** 管理端申請中心需要看完整補打卡歷史，不只看目前待審核的列。 */
+export async function listHrFormRequestsForHr(db: Database) {
+  return db.select(formFields).from(hrFormRequests).orderBy(desc(hrFormRequests.createdAt));
+}
+
 export async function getHrFormRequest(db: Database, id: string, userId: string, allowAny = false) {
   const [request] = await db.select(formFields).from(hrFormRequests)
     .where(allowAny ? eq(hrFormRequests.id, id) : and(eq(hrFormRequests.id, id), or(eq(hrFormRequests.employeeUserId, userId), eq(hrFormRequests.approverUserId, userId))))

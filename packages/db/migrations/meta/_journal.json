@@ -1107,6 +1107,55 @@
       "when": 1790130753817,
       "tag": "0181_backfill_hr_employment_attendance_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "6",
+      "when": 1790132000000,
+      "tag": "0182_employment_service_periods",
+      "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "6",
+      "when": 1790132000001,
+      "tag": "0183_glorious_maginty",
+      "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "6",
+      "when": 1790132000002,
+      "tag": "0184_kind_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 185,
+      "version": "6",
+      "when": 1790132000003,
+      "tag": "0185_seed_annual_leave_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "6",
+      "when": 1790132000004,
+      "tag": "0186_backfill_annual_leave_entitlements",
+      "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "6",
+      "when": 1790132000005,
+      "tag": "0187_sour_blue_shield",
+      "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "6",
+      "when": 1790132000006,
+      "tag": "0188_backfill_hr_leave_request_times",
+      "breakpoints": true
     }
   ]
 }

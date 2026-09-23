@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { resolveDayTypes } from "./hr-calendar.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
@@ -8,6 +9,17 @@ import { hrScheduleEntries, hrScheduleVersions } from "./schema/hr-scheduling.js
 import { hrLeaveRequests } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
 import { formatTaipeiDate, taipeiDateFromUtcWallClock, taipeiMidnightUtc } from "./taipei-time.js";
+
+/**
+ * 一般辦公模式的人這天該不該上班。依行事曆的日型，不是星期幾。
+ *
+ * 這裡原本寫的是「星期一到五」，結果是國定假日沒打卡被報成缺勤、
+ * 補班日（星期六要上班）沒來反而什麼都不會說。排班模式的人不走這裡，
+ * 他們有沒有班表本來就是答案，而那張班表的時間已經是按日型挑過的。
+ */
+function expectedOnDayType(dayType: "weekday" | "weekend" | "holiday" | undefined) {
+  return dayType === "weekday";
+}
 
 export interface HrAttendanceLocationInput {
   name: string;
@@ -392,9 +404,10 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
   const scheduleByEmployment = new Map<string, CalendarSchedule[]>();
   for (const schedule of schedules) scheduleByEmployment.set(schedule.employmentId, [...(scheduleByEmployment.get(schedule.employmentId) ?? []), schedule]);
   const today = taipeiToday();
-  const days = Array.from({ length: lastDay }, (_, index) => {
+  const monthDates = Array.from({ length: lastDay }, (_, index) => `${year}-${String(month).padStart(2, "0")}-${String(index + 1).padStart(2, "0")}`);
+  const dayTypes = await resolveDayTypes(db, monthDates);
+  const days = monthDates.map((date, index) => {
     const day = index + 1;
-    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
     const dayEvents = eventDates.get(date) ?? [];
     const onLeave = leaves.some((leave) => leave.startsOn <= date && leave.endsOn > date);
@@ -405,7 +418,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
     const schedule = scheduledEmployment ? scheduleForDate(scheduleRows, date) : null;
     const previousOvernight = scheduledEmployment ? overnightScheduleForDate(scheduleRows, date) : null;
     const anomalyEvents = calendarEventsForDate(eventDates, date, schedule, previousOvernight);
-    const expected = employed && (scheduledEmployment ? Boolean(schedule) : weekday !== 0 && weekday !== 6);
+    const expected = employed && (scheduledEmployment ? Boolean(schedule) : expectedOnDayType(dayTypes.get(date)));
     const status = !employed ? "not-employed" : date > today ? "future" : onLeave ? "leave" : dayEvents.length ? "present" : date === today ? "open" : expected ? "missing" : "rest";
     const detectedAnomaly = status === "leave" || status === "future" || status === "rest" || status === "not-employed" || status === "open"
       ? null
@@ -414,6 +427,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
     return {
       date,
       weekday,
+      dayType: dayTypes.get(date) ?? "weekday",
       status: status as "not-employed" | "future" | "present" | "open" | "missing" | "rest" | "leave",
       eventCount: dayEvents.length,
       firstEventAt: dayEvents[0]?.occurredAt ?? null,
@@ -485,6 +499,7 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
   const leavesByUser = new Map<string, typeof leaves>();
   for (const leave of leaves) leavesByUser.set(leave.userId, [...(leavesByUser.get(leave.userId) ?? []), leave]);
   const today = taipeiToday();
+  const dayTypes = await resolveDayTypes(db, Array.from({ length: lastDay }, (_, index) => `${year}-${String(month).padStart(2, "0")}-${String(index + 1).padStart(2, "0")}`));
   let anomalyCount = 0;
   for (const userId of userIds) {
     const userEmployments = employments.filter((employment) => employment.userId === userId);
@@ -492,7 +507,6 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
     const userLeaves = leavesByUser.get(userId) ?? [];
     for (let day = 1; day <= lastDay; day += 1) {
       const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
       const dayEvents = userEvents.get(date) ?? [];
       const onLeave = userLeaves.some((leave) => leave.startsOn <= date && leave.endsOn > date);
       const activeEmployments = userEmployments;
@@ -502,7 +516,7 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
       const schedule = scheduledEmployment ? scheduleForDate(scheduleRows, date) : null;
       const previousOvernight = scheduledEmployment ? overnightScheduleForDate(scheduleRows, date) : null;
       const anomalyEvents = calendarEventsForDate(userEvents, date, schedule, previousOvernight);
-      const expected = employed && (scheduledEmployment ? Boolean(schedule) : weekday !== 0 && weekday !== 6);
+      const expected = employed && (scheduledEmployment ? Boolean(schedule) : expectedOnDayType(dayTypes.get(date)));
       const status = !employed ? "not-employed" : date > today ? "future" : onLeave ? "leave" : dayEvents.length ? "present" : date === today ? "open" : expected ? "missing" : "rest";
       if (status === "leave" || status === "future" || status === "rest" || status === "not-employed" || status === "open") continue;
       if (calendarAnomaly(anomalyEvents, schedule, expected, Boolean(scheduledEmployment))) anomalyCount += 1;

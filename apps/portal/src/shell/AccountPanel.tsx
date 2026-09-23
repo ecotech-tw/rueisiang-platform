@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { Link } from "react-router";
 import type { SessionUser } from "../auth/session.js";
 import { Icon } from "./icons.js";
+import { useGuardedAction, useGuardedClick } from "./UnsavedChanges.js";
 
 /** 平台 sidebar 與 HRIS 右上角共用同一顆頭像，Google 頭像的載入規則只寫一次。 */
 export function UserAvatar({ user }: { user: SessionUser }) {
@@ -65,6 +66,8 @@ const ROLE_LABEL: Record<string, string> = {
  */
 export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) {
   const [open, setOpen] = useState(false);
+  const guardedClick = useGuardedClick();
+  const guardedAction = useGuardedAction();
   const panelRef = useRef<HTMLDivElement>(null);
 
   useDismiss(panelRef, open, () => setOpen(false));
@@ -111,10 +114,10 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
             className="account-menu-item"
             role="menuitem"
             to="/me"
-            onClick={() => {
+            onClick={(event) => guardedClick(event, "/me", () => {
               setOpen(false);
               onNavigate();
-            }}
+            })}
           >
             <span aria-hidden="true">☺</span>
             個人資料
@@ -136,21 +139,22 @@ export function AccountPanel({ user, onLogout, onNavigate }: AccountPanelProps) 
           ) : null}
 
           {!user.isEmployee && user.permissions.includes("hr:request:review") ? (
-            <a
+            <Link
               className="account-menu-item"
               role="menuitem"
-              href={`${HR_APP_URL}/forms`}
-              onClick={() => {
+              to="/hr/requests"
+              onClick={(event) => guardedClick(event, "/hr/requests", () => {
                 setOpen(false);
                 onNavigate();
-              }}
+              })}
             >
-              <Icon name="report" className="account-menu-icon" />
-              補打卡審核
-            </a>
+              <Icon name="edit" className="account-menu-icon" />
+              申請與審核
+            </Link>
           ) : null}
 
-          <button type="button" className="account-menu-item danger" role="menuitem" onClick={onLogout}>
+          {/* 登出要在打 API 之前問；等 beforeunload 跳出來時 session 已經被砍掉了。 */}
+          <button type="button" className="account-menu-item danger" role="menuitem" onClick={() => { void guardedAction(onLogout); }}>
             <span aria-hidden="true">↪</span>
             登出
           </button>

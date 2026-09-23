@@ -181,6 +181,13 @@
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
+button.hr-system-nav-link {
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
 /* 選中那一格已經有 thumb 當底，不再疊 hover 的 state layer，否則玻璃會被染成一塊色。 */
 .hr-system-nav-item:not(.active) > .hr-system-nav-link:hover,
 .hr-system-nav-item.open:not(.active) > .hr-system-nav-link { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
@@ -228,15 +235,17 @@
     0 6px 18px --alpha(var(--color-brand) / 13%);
   -webkit-backdrop-filter: blur(28px) saturate(205%) contrast(110%);
   backdrop-filter: blur(28px) saturate(205%) contrast(110%);
+  visibility: hidden;
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, -6px);
-  transition-property: opacity, transform;
+  transition-property: opacity, transform, visibility;
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
 .hr-system-submenu { left: 50%; }
 .hr-system-nav-item.open .hr-system-submenu {
+  visibility: visible;
   opacity: 1;
   pointer-events: auto;
   transform: translate(-50%, 0);
@@ -334,6 +343,9 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   min-width: 0;
   min-height: 0;
   padding: 28px 36px 36px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
 }
 .hr-system-main:has(.page.fills) {
   height: 100%;
@@ -614,13 +626,18 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-system-nav {
     grid-column: 1 / -1;
     justify-self: stretch;
-    overflow-x: auto;
-    overflow-y: visible;
+    flex-wrap: wrap;
+    align-content: start;
+    overflow: visible;
   }
-  .hr-system-nav-item { flex: 1 0 auto; }
-  .hr-system-nav-link { justify-content: center; padding-inline: 12px; }
-  .hr-system-submenu { left: 0; transform: translate(0, -6px); }
-  .hr-system-nav-item.open .hr-system-submenu { transform: translate(0, 0); }
+  /* 手機不靠 hover：大項分欄排列，展開後把子選單放回流程，避免被橫向捲動容器裁掉。 */
+  .hr-system-nav-thumb { display: none; }
+  .hr-system-nav-item { flex: 1 1 calc(50% - 4px); min-width: 0; }
+  .hr-system-nav-item.open { flex-basis: 100%; }
+  .hr-system-nav-item.active > .hr-system-nav-link { background: --alpha(var(--color-paper) / 30%); box-shadow: var(--hr-glass-thumb-rim); }
+  .hr-system-nav-link { width: 100%; justify-content: center; padding-inline: 12px; }
+  .hr-system-submenu { left: 0; min-width: 0; width: 100%; transform: translate(0, -6px); }
+  .hr-system-nav-item.open .hr-system-submenu { position: static; margin-top: 4px; transform: translate(0, 0); }
   /* 讓頁首按鈕的 24px 陰影在小螢幕右側也有完整的繪製空間。 */
   .hr-system-main { padding: 20px 24px 28px; }
 }
@@ -1086,4 +1103,112 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .hr-calendar.quick .hr-calendar-entry:not(.current) {
   background: --alpha(var(--color-ink) / 6%);
   opacity: .72;
+}
+
+/* 申請中心是跨出勤／薪資的獨立工作區；表單與紀錄並列，避免再塞回員工內頁。 */
+.hr-request-page { gap: 18px; }
+.hr-request-view-tabs { width: min(100%, 420px); }
+.hr-request-layout { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(0, 1.1fr); align-items: start; gap: 18px; }
+.hr-request-form { display: grid; gap: 16px; }
+.hr-request-form .button-row { justify-content: flex-start; padding-top: 2px; }
+.hr-request-form textarea { min-height: 96px; resize: vertical; }
+.hr-request-kind-tabs { margin-bottom: 18px; }
+.hr-request-kind-tabs button { min-height: 40px; }
+.hr-request-process-panel { min-height: 100%; }
+.hr-request-process { display: grid; gap: 18px; margin: 0; padding: 4px 0 4px 22px; }
+.hr-request-process li { padding-left: 6px; color: var(--color-muted); }
+.hr-request-process li::marker { color: var(--color-brand); font-weight: 900; }
+.hr-request-process strong { display: block; margin-bottom: 3px; color: var(--color-ink); font-size: 14px; }
+.hr-request-process span { display: block; font-size: 13px; line-height: 1.65; }
+.hr-request-history-filter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.hr-request-history-filter button { min-height: 34px; padding: 0 10px; border: 0; border-radius: 999px; background: transparent; color: var(--color-muted); font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; transition-property: background-color, color, scale; transition-duration: 150ms; transition-timing-function: ease-out; }
+.hr-request-history-filter button:hover { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
+.hr-request-history-filter button.selected { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.hr-request-history-filter button:active { scale: .96; }
+.hr-request-history-filter button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-request-history-panel > .table-scroll { min-height: 0; }
+.hr-request-history-panel .data-table td:nth-child(5) { max-width: 240px; white-space: normal; }
+
+@media (max-width: 900px) {
+  .hr-request-layout { grid-template-columns: minmax(0, 1fr); }
+  .hr-request-history-panel > .panel-head { align-items: stretch; flex-direction: column; gap: 12px; }
+  .hr-request-history-filter { justify-content: flex-start; }
+}
+@media (max-width: 620px) {
+  .hr-request-page { gap: 14px; }
+  .hr-request-layout { gap: 14px; }
+  .hr-request-history-filter { overflow-x: auto; flex-wrap: nowrap; justify-content: flex-start; padding-bottom: 2px; }
+  .hr-request-history-filter button { flex: none; }
+}
+
+/* 假別是出勤主檔；保留足夠留白讓狀態與操作在窄螢幕仍可辨識。 */
+.hr-leave-types-page { gap: 18px; }
+.hr-leave-types-page .data-table td:first-child { min-width: 180px; }
+.hr-leave-types-page .data-table td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hr-leave-types-page .data-table td:last-child { min-width: 190px; }
+@media (max-width: 620px) {
+  .hr-leave-types-page { gap: 14px; }
+  .hr-leave-types-page .data-table td:last-child { min-width: 0; }
+}
+
+/* 特休額度先呈現員工目前可用資料；政策級距移至獨立的特休政策頁。 */
+.hr-annual-leave-page,
+.hr-annual-settings-page { gap: 18px; }
+.hr-annual-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.hr-annual-leave-page .data-table small,
+.hr-annual-settings-page small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 12px; line-height: 1.45; }
+.hr-annual-list-panel > .panel-head { align-items: center; }
+.hr-annual-view-tabs { width: 214px !important; }
+.hr-annual-leave-page .data-table th,
+.hr-annual-leave-page .data-table td { vertical-align: middle; }
+.hr-annual-leave-page .data-table td:first-child { min-width: 160px; }
+.hr-annual-leave-page .data-table td:nth-child(2) { min-width: 145px; }
+.hr-annual-leave-page .data-table td:nth-child(4) { min-width: 112px; white-space: nowrap; }
+.hr-annual-leave-page .data-table td:nth-child(5) { min-width: 168px; white-space: nowrap; }
+.hr-annual-balance { display: grid; gap: 2px; min-width: 118px; }
+.hr-annual-balance > strong { color: var(--color-brand-dark); font-size: 16px; font-variant-numeric: tabular-nums; }
+.hr-annual-progress { display: block; width: 100%; height: 5px; margin-top: 5px; overflow: hidden; border-radius: 999px; background: --alpha(var(--color-ink) / 10%); }
+.hr-annual-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--color-brand); }
+.hr-annual-row-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 190px; }
+.hr-annual-detail-dialog { width: min(760px, calc(100vw - 32px)); }
+.hr-annual-detail-dialog .modal-body { display: grid; gap: 18px; }
+.hr-annual-detail-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.hr-annual-detail-overview > div { display: grid; gap: 4px; padding: 13px 14px; border-radius: 14px; background: --alpha(var(--color-brand) / 7%); }
+.hr-annual-detail-overview span { color: var(--color-muted); font-size: 12px; }
+.hr-annual-detail-overview strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.hr-annual-detail-section { display: grid; gap: 10px; }
+.hr-annual-detail-section h3 { margin: 0; font-size: 15px; }
+.hr-annual-detail-section p { margin: 0; line-height: 1.7; }
+.hr-annual-detail-list { display: grid; gap: 8px; margin: 0; }
+.hr-annual-detail-list > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; padding-bottom: 8px; border-bottom: 1px solid --alpha(var(--color-ink) / 8%); }
+.hr-annual-detail-list dt { color: var(--color-muted); font-size: 13px; }
+.hr-annual-detail-list dd { margin: 0; overflow-wrap: anywhere; }
+.hr-annual-ledger-table th,
+.hr-annual-ledger-table td { white-space: nowrap; }
+.hr-annual-ledger-table td:last-child { white-space: normal; min-width: 220px; }
+.hr-annual-ledger-table code { color: var(--color-muted); font-size: 11px; }
+.hr-annual-ledger-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.hr-annual-settings-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.hr-annual-settings-overview > div { display: grid; gap: 4px; padding: 15px 16px; border-radius: 16px; background: --alpha(var(--color-brand) / 6%); }
+.hr-annual-settings-overview span { color: var(--color-muted); font-size: 12px; }
+.hr-annual-settings-overview strong { font-size: 17px; }
+.hr-annual-policy-table td:nth-child(2),
+.hr-annual-policy-table td:nth-child(3) { font-variant-numeric: tabular-nums; }
+.hr-annual-principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.hr-annual-principles > div { display: grid; gap: 6px; padding: 15px 16px; border-radius: 16px; background: --alpha(var(--color-paper) / 42%); box-shadow: 0 0 0 1px --alpha(var(--color-ink) / 6%) inset; }
+.hr-annual-principles strong { font-size: 14px; }
+.hr-annual-principles span { color: var(--color-muted); font-size: 13px; line-height: 1.6; }
+@media (max-width: 900px) {
+  .hr-annual-settings-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hr-annual-principles { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .hr-annual-leave-page,
+  .hr-annual-settings-page { gap: 14px; }
+  .hr-annual-settings-overview { grid-template-columns: minmax(0, 1fr); }
+  .hr-annual-header-actions { justify-content: flex-start; }
+  .hr-annual-list-panel > .panel-head { align-items: stretch; flex-direction: column; gap: 12px; }
+  .hr-annual-view-tabs { width: 100% !important; }
+  .hr-annual-detail-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hr-annual-detail-list > div { grid-template-columns: minmax(100px, 0.35fr) minmax(0, 1fr); }
 }

@@ -2706,15 +2706,18 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .salary-items-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-soft-line); }
 .salary-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
 .salary-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
-/* 班別清單沿用敘薪的「欄位標題／逐列編輯／底部新增與儲存」結構。 */
+/* 班別清單沿用敘薪的「逐列編輯／底部新增與儲存」結構，但一個班別是一張卡，卡裡才是三個日型。 */
 .shift-items { display: grid; gap: 10px; }
 .shift-items-label { color: var(--color-ink); font-size: 13px; font-weight: 600; }
-.shift-items-head,
-.shift-item-row { display: grid; grid-template-columns: minmax(0, 1fr) 118px 118px 44px; align-items: center; gap: 10px; }
-.shift-items-head { color: var(--color-muted); font-size: 12px; font-weight: 600; }
-.shift-item-row > .field { min-width: 0; margin: 0; }
-.shift-item-row > .field > span:first-child { display: none; }
-.shift-item-row > .icon-button { align-self: center; }
+/* 內距 5px ＋ 欄位 9px 圓角 = 卡片 14px：巢狀圓角同心，邊角才不會看起來歪一塊。 */
+.shift-group { display: grid; gap: 6px; padding: 5px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-paper); }
+.shift-group-head { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
+.shift-day-row { display: grid; grid-template-columns: 62px 108px 108px 100px 44px; align-items: center; gap: 8px; }
+.shift-day-row-empty { grid-template-columns: 62px minmax(0, 1fr) auto; }
+.shift-day-label { padding-left: 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; }
+.shift-group .field { min-width: 0; margin: 0; }
+.shift-group .field > span:first-child { display: none; }
+.shift-group .icon-button { align-self: center; }
 .shift-item-spacer { display: block; }
 .shift-item-note { grid-column: 1 / -1; margin-top: -4px; color: var(--color-muted); font-size: 12px; }
 .shift-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
@@ -2733,11 +2736,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .special-allowance-items .salary-item-row { grid-template-columns: minmax(0, 1fr) 44px; }
   .special-allowance-items .salary-item-row > .field:nth-child(2)::before { content: "補貼單價（元）"; }
   .special-allowance-items .salary-item-row > .icon-button { grid-column: 2; }
-  .shift-items-head { display: none; }
-  .shift-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 8px; }
-  .shift-item-row > .field:first-child { grid-column: 1 / -1; }
-  .shift-item-row > .field > span:first-child { display: block; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
-  .shift-item-row > .icon-button { align-self: end; margin-bottom: 2px; }
+  /* 窄螢幕放不下「標籤＋兩個時間＋按鈕」一橫排；日型標籤獨占一行，時間兩欄對半。 */
+  .shift-day-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: center; gap: 6px 8px; }
+  .shift-day-label { grid-column: 1 / -1; padding-left: 2px; }
+  .shift-day-row-empty { grid-template-columns: minmax(0, 1fr) auto; }
 }
 /* 對話框移到 body 之後用來補回頁面的樣式範圍；display: contents 才不會多出一層版面。 */
 .modal-scope { display: contents; }
@@ -4360,6 +4362,13 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-calendar:not(.weekdays) { flex: 1 0 auto; padding-top: 4px; }
 .hr-calendar-cell { min-height: 104px; padding: 7px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-canvas); overflow: hidden; }
 .hr-calendar-cell.empty { border-color: transparent; background: transparent; }
+/*
+ * 日型用 Material 的色調容器：淡底、深字，不是高彩度填滿。週末只要跟平日分得出來就好，
+ * 國定假日才該搶到視線——同一個月裡週末有八九天，假日通常只有一兩天。
+ */
+.hr-calendar-cell.day-weekend { background: --alpha(var(--color-ink) / 3%); }
+.hr-calendar-cell.day-holiday { border-color: var(--color-brand-soft); background: --alpha(var(--color-brand) / 7%); }
+.hr-calendar-holiday { display: block; overflow: hidden; margin-bottom: 2px; color: var(--color-brand-dark); font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .hr-calendar-date { display: flex; justify-content: space-between; align-items: center; color: var(--color-ink); }
 .hr-calendar-date button, .hr-calendar-entry button { border: 0; background: transparent; color: var(--color-muted); cursor: pointer; }
 .hr-calendar-date button { font-size: 18px; line-height: 1; }
@@ -4373,6 +4382,19 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-calendar-date .hr-quick-day { display: inline-grid; min-width: 28px; height: 28px; place-items: center; border-radius: 999px; }
 .hr-calendar-cell.today .hr-calendar-date strong,
 .hr-calendar-cell.today .hr-calendar-date .hr-quick-day { background: var(--color-brand); color: var(--color-canvas); }
+/* 行事曆編輯：一個月一次看完，所以是自己捲的一欄，不是整個對話框變得比螢幕長。 */
+.hr-calendar-editor { display: grid; gap: 4px; max-height: 52vh; overflow-y: auto; margin-top: 8px; }
+.hr-calendar-editor-row { display: grid; grid-template-columns: 54px 132px minmax(0, 1fr); align-items: center; gap: 10px; padding: 3px 6px; border-radius: 12px; }
+.hr-calendar-editor-row.day-weekend { background: --alpha(var(--color-ink) / 3%); }
+.hr-calendar-editor-row.day-holiday { background: --alpha(var(--color-brand) / 7%); }
+.hr-calendar-editor-row .field { min-width: 0; margin: 0; }
+.hr-calendar-editor-date { display: flex; align-items: baseline; gap: 5px; color: var(--color-ink); font-size: 14px; font-variant-numeric: tabular-nums; }
+.hr-calendar-editor-date small { color: var(--color-muted); font-size: 12px; }
+.field-note { margin: 0 0 4px; font-size: 12px; }
+@media (max-width: 560px) {
+  .hr-calendar-editor-row { grid-template-columns: 44px minmax(0, 1fr); gap: 6px 8px; }
+  .hr-calendar-editor-row .field:last-child { grid-column: 2; }
+}
 .hr-quick-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 8px 8px 16px; border-radius: 12px; background: --alpha(var(--color-brand) / 7%); }
 .hr-quick-bar > strong { color: var(--color-brand-dark); }
 .hr-quick-bar-empty { color: var(--color-warn); font-size: 13px; }
@@ -4588,3 +4610,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .hr-payroll-line-content { padding-inline: 12px; }
   .hr-payroll-result-body { padding-inline: 12px; }
 }
+/* 行事曆管理頁：年份切換與統計放同一條，跟排班月曆的月份切換用同一組元件。 */
+.hr-calendar-year-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-bottom: 12px; border-bottom: 1px solid var(--color-soft-line); }
+.hr-calendar-year-count { margin: 0; margin-inline-start: auto; color: var(--color-muted); font-size: 13px; }
+.hr-calendar-year-count strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
+.hr-calendar-year-bar .hr-schedule-status { margin: 0; }
+/* 表格裡的欄位不該撐出一格高度；拿掉標籤與外距，列高才跟其他資料表一致。 */
+.data-table .field { margin: 0; min-width: 0; }
+.data-table .field > span:first-child { display: none; }

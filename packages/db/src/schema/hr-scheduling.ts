@@ -11,6 +11,30 @@ const timestamps = () => ({
   revision: integer("revision").notNull().default(1),
 });
 
+/**
+ * 行事曆只存「例外」的日子，不存一整年。
+ *
+ * 「週六日是週末、其他是平日」用星期幾就算得出來，存 365 列只是把同一條規則抄一份，
+ * 之後兩邊還會對不起來。真正算不出來的只有國定假日與補班日——補班日是星期六卻要上班，
+ * 中秋看月亮——那些才寫進這張表，一列蓋掉那天的預設值。
+ *
+ * 所以「某天是哪一型」的唯一來源是 hr-calendar.ts 的 resolveDayTypes，不是這張表；
+ * 沒有對應列時它回傳星期幾算出來的預設值。任何地方都不要自己再寫一次星期幾的判斷。
+ */
+export const hrCalendarDays = sqliteTable("hr_calendar_days", {
+  date: text("date").primaryKey(),
+  dayType: text("day_type", { enum: ["weekday", "weekend", "holiday"] as const }).notNull(),
+  name: text("name").notNull().default(""),
+  updatedBy: text("updated_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_hr_calendar_days_type").on(table.dayType, table.date),
+  check("ck_hr_calendar_days_date", sql`length(${table.date}) = 10`),
+  check("ck_hr_calendar_days_type", sql`${table.dayType} IN ('weekday', 'weekend', 'holiday')`),
+  check("ck_hr_calendar_days_name", sql`length(${table.name}) <= 100`),
+]);
+
 /** 班次先做成版本；已發布的班表引用固定版本並保存工時快照，不會因為改名稱或工時而改歷史。 */
 export const hrShiftTemplates = sqliteTable("hr_shift_templates", {
   id: text("id").primaryKey(),
@@ -43,6 +67,14 @@ export const hrScopeShiftAssignments = sqliteTable("hr_scope_shift_assignments",
 export const hrShiftVersions = sqliteTable("hr_shift_versions", {
   id: text("id").primaryKey(),
   shiftTemplateId: text("shift_template_id").notNull().references(() => hrShiftTemplates.id, { onDelete: "restrict" }),
+  /*
+   * 同一個班別在平日、週末與國定假日各有一組時間。舊資料一律回填 weekday，那正是它原本的語意。
+   *
+   * 這裡刻意不加 CHECK：drizzle 對 SQLite 加約束會產出「建新表、搬資料、刪舊表」，而這張表被
+   * hr_schedule_entries 與 hr_schedule_worker_entries 用外鍵指著，DROP 在 D1 的單一 transaction
+   * 裡會連坐（見 CLAUDE.md 的 0023）。值域由 TS 的 enum 與 assertDayType 把關。
+   */
+  dayType: text("day_type", { enum: ["weekday", "weekend", "holiday"] as const }).notNull().default("weekday"),
   versionNumber: integer("version_number").notNull(),
   startSecond: integer("start_second").notNull(),
   endSecond: integer("end_second").notNull(),
@@ -53,7 +85,8 @@ export const hrShiftVersions = sqliteTable("hr_shift_versions", {
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
-  uniqueIndex("idx_hr_shift_versions_number").on(table.shiftTemplateId, table.versionNumber),
+  // 版本號是每個班別的每個日型各自數的：早班的平日版與週末版都可以是第 1 版。
+  uniqueIndex("idx_hr_shift_versions_number").on(table.shiftTemplateId, table.dayType, table.versionNumber),
   index("idx_hr_shift_versions_template").on(table.shiftTemplateId, table.createdAt),
   check("ck_hr_shift_versions_number", sql`${table.versionNumber} > 0`),
   check("ck_hr_shift_versions_start", sql`${table.startSecond} BETWEEN 0 AND 86399`),
@@ -282,6 +315,9 @@ export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   check("ck_hr_overtime_revision", sql`${table.revision} > 0`),
 ]);
 
+/** 平日／週末／國定假日。班別時間與行事曆共用同一組值，兩邊才對得起來。 */
+export type HrDayType = (typeof hrCalendarDays.$inferSelect)["dayType"];
+export type HrCalendarDay = typeof hrCalendarDays.$inferSelect;
 export type HrScopeShiftAssignment = typeof hrScopeShiftAssignments.$inferSelect;
 export type HrScheduleVersion = typeof hrScheduleVersions.$inferSelect;
 export type HrScheduleEntry = typeof hrScheduleEntries.$inferSelect;

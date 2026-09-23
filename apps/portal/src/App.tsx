@@ -21,13 +21,17 @@ import { HrInsuranceManagement } from "./routes/hr/InsuranceManagement.js";
 import { HrSpecialWorkdays } from "./routes/hr/SpecialWorkdays.js";
 import { HrAttendanceRecords } from "./routes/hr/AttendanceRecords.js";
 import { HrScheduling } from "./routes/hr/Scheduling.js";
+import { HrCalendar } from "./routes/hr/Calendar.js";
 import { HrShifts } from "./routes/hr/Shifts.js";
 import { HrSupportWorkers } from "./routes/hr/SupportWorkers.js";
 import { HrCompensationManagement } from "./routes/hr/Compensation.js";
 import { HrBonusManagement } from "./routes/hr/BonusManagement.js";
 import { HrPayrollSettlement } from "./routes/hr/PayrollSettlement.js";
 import { HrMonthlyData } from "./routes/hr/MonthlyData.js";
-import { HrOvertimeRequests } from "./routes/hr/OvertimeRequests.js";
+import { HrRequestCenter } from "./routes/hr/Requests.js";
+import { HrLeaveTypes } from "./routes/hr/LeaveTypes.js";
+import { HrAnnualLeave } from "./routes/hr/AnnualLeave.js";
+import { HrAnnualLeaveSettings } from "./routes/hr/AnnualLeaveSettings.js";
 import { ItemCategories } from "./routes/items/Categories.js";
 import { Items } from "./routes/items/Items.js";
 import { Payout } from "./routes/tools/Payout.js";
@@ -167,14 +171,20 @@ export function App() {
           <Route path="employees" element={<HrEmployees />} />
           <Route path="employees/:id" element={<HrEmployeeDetail />} />
           <Route path="support-workers" element={<HrSupportWorkers />} />
+          <Route path="requests" element={<HrRequestCenter />} />
+          <Route path="leave-types" element={<HrLeaveTypes />} />
+          <Route path="annual-leave" element={<HrAnnualLeave />} />
+          <Route path="annual-leave/settings" element={<HrAnnualLeaveSettings />} />
           <Route path="insurance" element={<HrInsuranceManagement />} />
           <Route path="attendance-settings" element={<HrAttendanceSettings />} />
           <Route path="attendance-scope" element={<HrAttendanceScopeManagement />} />
           <Route path="special-workdays" element={<HrSpecialWorkdays />} />
           <Route path="attendance-records" element={<HrAttendanceRecords />} />
-          <Route path="overtime" element={<HrOvertimeRequests />} />
+          {/* 舊網址相容：申請與審核已從出勤管理移到獨立工作區。 */}
+          <Route path="overtime" element={<Navigate to="/hr/requests?type=overtime" replace />} />
           <Route path="scheduling" element={<HrScheduling />} />
           <Route path="scheduling/shifts" element={<HrShifts />} />
+          <Route path="scheduling/calendar" element={<HrCalendar />} />
           {/* 舊網址相容：員工可打卡辦公位置改由出勤範圍管理維護。 */}
           <Route path="scheduling/locations" element={<Navigate to="/hr/attendance-scope" replace />} />
           <Route path="compensation" element={<HrCompensationManagement />} />
