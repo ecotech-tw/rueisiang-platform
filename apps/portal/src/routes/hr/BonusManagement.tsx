@@ -109,7 +109,7 @@ export function HrBonusManagement() {
     setGuarantee((policy.guaranteeMinor / 100).toString());
     setAssignmentValidFrom(today > policy.validFrom ? today : nextDate(policy.validFrom));
     const policyAssignments = (assignments.data?.assignments ?? []).filter((assignment) => assignment.policyVersionId === policy.policyVersionId);
-    setSelectedEmployeeIds(policy.bonusKind === "team_performance" ? policyAssignments.map((assignment) => assignment.employeeUserId) : []);
+    setSelectedEmployeeIds(policyAssignments.map((assignment) => assignment.employeeUserId));
     setSelectedEmployeeWeights(Object.fromEntries(policyAssignments.map((assignment) => [assignment.employeeUserId, String(assignment.assignment.weightUnits)])));
     setPolicyModalOpen(true);
   }
@@ -167,7 +167,7 @@ export function HrBonusManagement() {
     const employeeAssignments = selectedEmployeeIds.map((employeeUserId) => ({ employeeUserId, weightUnits: Number(selectedEmployeeWeights[employeeUserId] ?? "1") }));
     if (bonusKind === "team_performance" && employeeAssignments.some((assignment) => !Number.isSafeInteger(assignment.weightUnits) || assignment.weightUnits < 1 || assignment.weightUnits > 1000)) { setError("團體績效的員工權重必須是 1～1000 的整數。"); return; }
     const assignmentValues = bonusKind === "team_performance" ? { employeeAssignments, assignmentValidFrom } : { employeeUserIds: selectedEmployeeIds, assignmentValidFrom };
-    const values = { name: policyName, scopeIds: policyScopeIds, scopeId: policyScopeIds[0], bonusKind, performancePeriod, ratePpm: Math.round(rate * 10_000), guaranteeMinor: amount * 100, ...(editingPolicyVersionId && bonusKind !== "team_performance" ? {} : assignmentValues) };
+    const values = { name: policyName, scopeIds: policyScopeIds, scopeId: policyScopeIds[0], bonusKind, performancePeriod, ratePpm: Math.round(rate * 10_000), guaranteeMinor: amount * 100, ...assignmentValues };
     const editing = editingPolicyVersionId !== null;
     writePolicy.mutate({ path: editing ? `/bonus/policies/${editingPolicyVersionId}` : "/bonus/policies", method: editing ? "PATCH" : "POST", values: editing ? { ...values, validFrom: assignmentValidFrom } : values }, { onSuccess: (result) => { setPolicyModalOpen(false); resetPolicyForm(); succeed(editing ? "獎金已更新。" : `獎金已建立${result.assignmentCount ? `，並套用到 ${result.assignmentCount} 位員工` : ""}。`); }, onError: fail });
   }
@@ -227,13 +227,13 @@ export function HrBonusManagement() {
         <SelectField label="業績期間" value={performancePeriod} options={Object.entries(PERIOD_LABEL).map(([value, label]) => ({ value, label }))} onChange={(event) => setPerformancePeriod(event.target.value as BonusPolicy["performancePeriod"])} />
         <TextField label="百分比（%）" type="number" min="0" max="100" step="0.01" value={ratePercent} required onChange={(event) => setRatePercent(event.target.value)} />
         <TextField label="保底金額（元）" type="number" min="0" step="1" value={guarantee} required onChange={(event) => setGuarantee(event.target.value)} />
-        {!editingPolicyVersionId || bonusKind === "team_performance" ? <>
+        <>
           <div className="field hr-bonus-member-field"><span>{editingPolicyVersionId ? "套用員工與權重" : "建立時套用員工"}</span><small>{bonusKind === "team_performance" ? "按新增後選擇員工並調整分配權重；保存時會按這份清單建立套用紀錄。" : "按新增後選擇員工；個人績效不使用分配權重。"}</small><div className="hr-bonus-picker-list">{selectedEmployeeIds.map((employeeUserId, index) => {
             const employee = employeeOptions.find((option) => option.value === employeeUserId);
             return <div key={`${employeeUserId}-${index}`} className="hr-bonus-picker-row hr-bonus-employee-row"><DropdownSelect value={employeeUserId} aria-label="選擇員工" options={employeeOptions.map((option) => ({ ...option, disabled: selectedEmployeeIds.includes(option.value) && option.value !== employeeUserId }))} onChange={(event) => updateEmployee(index, event.target.value)} />{bonusKind === "team_performance" ? <div className="hr-bonus-weight-field"><input className="hr-bonus-weight-input" type="number" min="1" max="1000" step="1" value={selectedEmployeeWeights[employeeUserId] ?? "1"} aria-label={`${employee?.label ?? "員工"} 權重`} onChange={(event) => updateEmployeeWeight(employeeUserId, event.target.value)} /><span aria-hidden="true">份</span></div> : null}<Button type="button" variant="icon" icon="trash" aria-label="移除員工" title="移除員工" onClick={() => removeEmployee(index)} /></div>;
           })}{selectedEmployeeIds.length === 0 ? <p className="muted hr-bonus-picker-empty">尚未套用員工。</p> : null}<Button type="button" variant="chip-action" icon="plus" onClick={addEmployee} disabled={selectedEmployeeIds.length >= employeeOptions.length}>{selectedEmployeeIds.length ? "新增員工" : "新增第一位員工"}</Button></div></div>
           <TextField label={editingPolicyVersionId ? "變更生效日" : "員工套用生效日"} type="date" value={assignmentValidFrom} required={editingPolicyVersionId !== null || selectedEmployeeIds.length > 0} disabled={!editingPolicyVersionId && selectedEmployeeIds.length === 0} onChange={(event) => setAssignmentValidFrom(event.target.value)} />
-        </> : <p className="muted hr-bonus-edit-note">編輯後會從指定日期起套用新的規則，既有薪資結果不受影響。</p>}
+        </>
         {/*
           * 新版本的生效日必須晚於目前版本，所以當天改錯的人在這裡會被擋下來。
           * 那個限制是對的（同一天兩套規則沒有先後），但要在畫面上說出還有解除這條路。

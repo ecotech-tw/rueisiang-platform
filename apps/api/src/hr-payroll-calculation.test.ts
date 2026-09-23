@@ -379,6 +379,20 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(activePolicies.policies.some((policy) => policy.policyVersionId === createdBody.policyVersionId || policy.policyVersionId === updatedBody.policyVersionId)).toBe(false);
   });
 
+  it("編輯個人績效獎金時可以調整套用員工", async () => {
+    const created = await request("/hr/bonus/policies", "POST", { name: "個人績效可調整員工", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "individual_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0, employeeUserIds: ["dev-wang@ecotech.tw"], assignmentValidFrom: "2026-01-01" });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const createdBody = await created.json() as { policyVersionId: string };
+    const updated = await request(`/hr/bonus/policies/${createdBody.policyVersionId}`, "PATCH", { name: "個人績效可調整員工", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "individual_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0, validFrom: "2026-02-01", employeeUserIds: ["dev-eli-lin@ecotech.tw"] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const updatedBody = await updated.json() as { policyVersionId: string };
+    const assignments = await (await request("/hr/bonus/assignments")).json() as { assignments: Array<{ policyVersionId: string; employeeUserId: string; assignment: { validFrom: string; validTo: string | null } }> };
+    expect(assignments.assignments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ policyVersionId: createdBody.policyVersionId, employeeUserId: "dev-wang@ecotech.tw", assignment: expect.objectContaining({ validTo: "2026-02-01" }) }),
+      expect.objectContaining({ policyVersionId: updatedBody.policyVersionId, employeeUserId: "dev-eli-lin@ecotech.tw", assignment: expect.objectContaining({ validFrom: "2026-02-01", validTo: null }) }),
+    ]));
+  });
+
   it("解除最新 policy 版本會回到上一版，成員期間一併還原", async () => {
     const created = await request("/hr/bonus/policies", "POST", { name: "可解除 policy", scopeId: "cyberbiz:store:demo-ximen", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 20_000, guaranteeMinor: 0, employeeUserIds: ["dev-wang@ecotech.tw"], assignmentValidFrom: "2026-01-01" });
     expect(created.status, await created.clone().text()).toBe(201);
