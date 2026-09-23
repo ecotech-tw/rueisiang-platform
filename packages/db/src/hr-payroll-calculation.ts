@@ -763,7 +763,14 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const hours = dateRows.reduce((sum, row) => sum + scheduledHours(row), 0);
         if (!hours) calculationWarnings.add(`${workerName} 的特殊上班日 ${date} 缺少工時資料，薪資列為異常且不自動補 0。`);
         else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) amountMinor += Math.round(special.fixedAmountMinorSnapshot * hours);
-        else if (special.multiplierPpmSnapshot !== null) amountMinor += Math.floor((compensation.payBasis === "monthly" ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays) : compensation.baseAmountMinor) * special.multiplierPpmSnapshot / PPM);
+        else if (special.multiplierPpmSnapshot !== null) {
+          const baseAmount = compensation.payBasis === "monthly"
+            ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
+            : compensation.payBasis === "hourly"
+              ? Math.round(compensation.baseAmountMinor * hours)
+              : compensation.baseAmountMinor;
+          amountMinor += Math.floor(baseAmount * special.multiplierPpmSnapshot / PPM);
+        }
         if (special.allowanceQuantity) amountMinor += (JSON.parse(special.allowanceSnapshotJson) as Array<{ unitAmountMinor: number }>).reduce((sum, item) => sum + item.unitAmountMinor * special.allowanceQuantity, 0);
       } else if (compensation.payBasis === "monthly") {
         amountMinor += Math.floor(compensation.baseAmountMinor / monthlyDivisorDays);

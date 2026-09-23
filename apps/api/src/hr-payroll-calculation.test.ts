@@ -428,6 +428,29 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, payBasis: "hourly", scheduledDays: 2, amountMinor: 800_000 })]));
   });
 
+  it("支援人員時薪套用特殊上班日倍率時仍依排班工時計算", async () => {
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "特殊日時薪支援人員" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const workerId = (await worker.json() as { id: string }).id;
+    const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "hourly", baseAmountMinor: 50_000, note: "特殊日時薪測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const shift = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "特殊日時薪班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00", breakMinutes: 60 }] });
+    expect(shift.status, await shift.clone().text()).toBe(201);
+    const shiftVersionId = (await shift.json() as { versionId: string }).versionId;
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [{ personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId, workDate: "2026-09-03" }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const rule = await request("/hr/special-workdays/rules", "POST", { name: "特殊日時薪倍率", validFrom: "2026-09-01", wageKind: "multiplier", multiplierPpm: 2_000_000, overtimeRules: [], allowances: [] });
+    expect(rule.status, await rule.clone().text()).toBe(201);
+    const versionId = (await rule.json() as { versionId: string }).versionId;
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: versionId, assignments: [{ workerId, workDate: "2026-09-03", allowanceQuantity: 0 }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], requestId: "test-payroll-worker-hourly-special-multiplier-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; payBasis: string; scheduledDays: number; amountMinor: number }> } };
+    // 09:00–18:00 扣 60 分鐘休息＝8 小時；NT$500／時 × 2 倍。
+    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, payBasis: "hourly", scheduledDays: 1, amountMinor: 800_000 })]));
+  });
+
   it("封存員工的已發布排班可查且不會在儲存其他排班時被刪除", async () => {
     const scheduleResponse = await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen");
     expect(scheduleResponse.status, await scheduleResponse.clone().text()).toBe(200);
