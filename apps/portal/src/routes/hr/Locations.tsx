@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
+import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, DropdownSelect, FilterInput, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type Profile } from "./api.js";
@@ -29,6 +30,7 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
   const [monthlyRestDays, setMonthlyRestDays] = useState(String(initialEmployment?.monthlyRestDays ?? ""));
   const [message, setMessage] = useState("");
   const save = useHrWrite();
+  const toast = useToast();
   const employment = initialEmployment;
   const locationOptions = locations.map((location) => ({ value: location.id, label: `${location.name}${location.scopeName ? `（${location.scopeName}）` : ""}` }));
   const addLocation = () => { const next = locationOptions.find((option) => !selectedLocationIds.includes(option.value)); if (next) setSelectedLocationIds((current) => [...current, next.value]); };
@@ -45,7 +47,7 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
     save.mutate({ path: `/employments/${employment.id}/attendance-scope`, method: "PATCH", values: {
       attendanceMode: mode, monthlyRestDays: mode === "scheduled" ? Number(monthlyRestDays) : null, revision: employment.revision,
       locationIds: toAdd, assignmentsToEnd: toEnd.map((assignment) => ({ id: assignment.id, revision: assignment.revision })),
-    } }, { onSuccess: onClose });
+    } }, { onSuccess: () => { toast.show("出勤範圍已更新。"); onClose(); } });
   } }} actions={<Button type="submit" icon="check" disabled={!employment} loading={save.isPending}>儲存</Button>}>
     <p>出勤範圍決定員工可在哪些辦公位置打卡；排班不會限制員工只能在當日排班位置打卡。移除辦公位置並儲存後，今天起停止可打卡，歷史資料仍會保留。</p>
     {!employment ? <Alert tone="danger">目前沒有活動員工資料，無法設定出勤範圍。</Alert> : null}
