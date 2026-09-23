@@ -1,6 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
+import { desc, eq } from "drizzle-orm";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { userRoleAssignments, users } from "@rueisiang/db/schema";
+import { activityEvents, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -339,6 +340,51 @@ describe("HR 薪資與勞健保", () => {
     const rebuilt = await request(`/hr/special-workdays/rules/${firstBody.id}/versions`, "POST", { name: "可解除特殊日", validFrom: "2026-02-01", wageKind: "fixed_hourly", fixedAmountMinor: 45000, allowances: [], overtimeRules: [] });
     expect(rebuilt.status, await rebuilt.clone().text()).toBe(201);
     expect(await rebuilt.json()).toMatchObject({ versionNumber: 3 });
+  });
+
+  it("未套用的特殊上班日規則可以刪除，已有套用紀錄的規則只能停用", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const unused = await request("/hr/special-workdays/rules", "POST", { name: "未套用可刪除", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, allowances: [{ itemName: "餐費", unitAmountMinor: 10000 }], overtimeRules: [] });
+    expect(unused.status, await unused.clone().text()).toBe(201);
+    const unusedBody = await unused.json() as { id: string };
+    const unusedVersion = await request(`/hr/special-workdays/rules/${unusedBody.id}/versions`, "POST", { name: "未套用可刪除", validFrom: "2026-02-01", wageKind: "fixed_hourly", fixedAmountMinor: 30000, allowances: [], overtimeRules: [] });
+    expect(unusedVersion.status, await unusedVersion.clone().text()).toBe(201);
+    /*
+     * 拿過期的 revision 刪不動：中途有人加版本時，整條規則不該被連同對方那一版一起刪掉。
+     *
+     * 要斷言到**版本層**，不能只看規則列還在。刪除的語句順序是「先刪版本／補貼／加班級距，
+     * 最後那句才比對 revision」，所以只驗父列的話，整批 rollback 與「子列被刪光但父列留著」
+     * 兩種結果長得一模一樣——那正是 CLAUDE.md 為 0023 記下的那種假信心。
+     */
+    const stale = await request(`/hr/special-workdays/rules/${unusedBody.id}`, "DELETE", { revision: 999 });
+    expect(stale.status, await stale.clone().text()).toBe(409);
+    const survived = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; revision: number }; versions: Array<{ allowances: unknown[]; overtimeRules: unknown[] }> }> };
+    const current = survived.rules.find((item) => item.rule.id === unusedBody.id);
+    expect(current).toBeDefined();
+    expect(current!.versions).toHaveLength(2);
+    expect(current!.versions.flatMap((version) => version.allowances)).toHaveLength(1);
+
+    const deleted = await request(`/hr/special-workdays/rules/${unusedBody.id}`, "DELETE", { revision: current!.rule.revision });
+    expect(deleted.status, await deleted.clone().text()).toBe(200);
+    expect(await deleted.json()).toMatchObject({ id: unusedBody.id, deleted: true });
+    const afterDelete = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string } }> };
+    expect(afterDelete.rules.some((item) => item.rule.id === unusedBody.id)).toBe(false);
+    const db = createDatabase(d1 as never);
+    const [deleteEvent] = await db.select({ entityLabel: activityEvents.entityLabel, summary: activityEvents.summary, payloadJson: activityEvents.payloadJson })
+      .from(activityEvents).where(eq(activityEvents.eventType, "special_workday_rule_deleted")).orderBy(desc(activityEvents.createdAt)).limit(1);
+    expect(deleteEvent).toMatchObject({ entityLabel: "未套用可刪除", summary: "特殊上班日規則刪除", payloadJson: JSON.stringify({ ruleName: "未套用可刪除" }) });
+
+    const used = await request("/hr/special-workdays/rules", "POST", { name: "已有套用不可刪除", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, allowances: [], overtimeRules: [] });
+    expect(used.status, await used.clone().text()).toBe(201);
+    const usedBody = await used.json() as { id: string; versionId: string };
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: usedBody.versionId, assignments: [{ employmentId, workDate: "2026-01-15", allowanceQuantity: 0 }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const rejected = await request(`/hr/special-workdays/rules/${usedBody.id}`, "DELETE", { revision: 1 });
+    expect(rejected.status, await rejected.clone().text()).toBe(409);
+    const stillListed = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; active: number } }> };
+    expect(stillListed.rules).toEqual(expect.arrayContaining([expect.objectContaining({ rule: expect.objectContaining({ id: usedBody.id, active: 1 }) })]));
   });
 
   it("公司負擔規則會進入薪資扣款，結帳後同員工月份改用薪資調整", async () => {
