@@ -70,6 +70,13 @@ describe("HR 薪資與櫃點獎金試算", () => {
       expect.objectContaining({ lineKey: "labor_insurance", amountMinor: 114_500 }),
       expect.objectContaining({ lineKey: "health_insurance", amountMinor: 71_000 }),
     ]));
+    const labor = body.run.employees[0]!.lines.find((line) => line.lineKey === "labor_insurance");
+    expect(labor).toMatchObject({ explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("11.5%") }) });
+    expect(labor?.explanation.formulaDetail).toEqual(expect.stringContaining("1%"));
+    expect(labor?.explanation.components).toEqual(expect.arrayContaining([
+      expect.objectContaining({ component: "ordinary_accident", employeeAmountMinor: 105_300 }),
+      expect.objectContaining({ component: "employment", employeeAmountMinor: 9_200 }),
+    ]));
     const repeat = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-2026-08-lin" });
     expect((await repeat.json() as { run: { runId: string } }).run.runId).toBe(body.run.runId);
   });

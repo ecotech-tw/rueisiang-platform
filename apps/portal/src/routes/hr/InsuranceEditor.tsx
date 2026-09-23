@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "../../shell/Toast.js";
 import { Alert, Button, Dialog, Field, SelectField, TextField } from "../../ui/index.js";
-import { useHrInsuranceEstimate, useHrQuery, useHrWrite, type Employment, type InsuranceBracket, type InsuranceEstimateRequest, type InsuranceRateTableRecord } from "./api.js";
+import { useHrInsuranceEstimate, useHrQuery, useHrWrite, type Employment, type InsuranceBracket, type InsuranceContributionEstimate, type InsuranceEstimateRequest, type InsuranceRateTableRecord } from "./api.js";
 
 const INSURANCE_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };
 const SCHEMES = ["labor", "health"] as const;
@@ -30,6 +30,19 @@ function amountLabel(amount: number | undefined) {
 
 function premiumLabel(amountMinor: number) {
   return `-NT$ ${Math.round(amountMinor / 100).toLocaleString("zh-TW")}`;
+}
+function componentLabel(component: InsuranceContributionEstimate["components"][number]["component"]) {
+  if (component === "ordinary_accident") return "普通事故";
+  if (component === "employment") return "就業保險";
+  return "本人";
+}
+function estimateRateLabel(estimate: InsuranceContributionEstimate | undefined, includeDependents: boolean, dependentCount: number) {
+  if (!estimate || estimate.employeeRatePpm === null) return "—";
+  const components = estimate.components?.length ? estimate.components : [{ component: null, employeeRatePpm: estimate.employeeRatePpm, totalRatePpm: undefined, employeeSharePpm: undefined }];
+  const rates = components.map((component) => component.totalRatePpm !== undefined && component.employeeSharePpm !== undefined
+    ? `${componentLabel(component.component)} ${(component.totalRatePpm / 10_000).toFixed(2)}% × ${(component.employeeSharePpm / 10_000).toFixed(0)}%`
+    : `${componentLabel(component.component)} ${(component.employeeRatePpm / 10_000).toFixed(2)}%`);
+  return `${rates.join(" ＋ ")}${includeDependents && dependentCount > 0 ? `・含 ${dependentCount} 位眷屬` : ""}`;
 }
 
 /**
@@ -150,8 +163,8 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
         <div className="hr-insurance-estimate-title">員工每月扣款試算</div>
         {calculationPending ? <span className="muted">試算中…</span> : calculationError ? <span className="muted">暫時無法取得試算</span> : calculated ? <>
           <div className="hr-insurance-estimate-breakdown">
-            <div className="hr-insurance-estimate-row"><span>勞保<small className="muted">{laborEstimate?.employeeRatePpm === null || laborEstimate?.employeeRatePpm === undefined ? "—" : `員工負擔 ${(laborEstimate.employeeRatePpm / 10_000).toFixed(2)}%`}</small></span>{laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined ? <strong>{premiumLabel(laborEstimate.employeeAmountMinor)}</strong> : <span className="muted">尚未設定有效規則</span>}</div>
-            <div className="hr-insurance-estimate-row"><span>健保<small className="muted">{healthEstimate?.employeeRatePpm === null || healthEstimate?.employeeRatePpm === undefined ? "—" : `員工負擔 ${(healthEstimate.employeeRatePpm / 10_000).toFixed(2)}%${dependentCount > 0 ? `・含 ${dependentCount} 位眷屬` : ""}`}</small></span>{healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined ? <strong>{premiumLabel(healthEstimate.employeeAmountMinor)}</strong> : <span className="muted">尚未設定有效規則</span>}</div>
+            <div className="hr-insurance-estimate-row"><span>勞保<small className="muted">{estimateRateLabel(laborEstimate, false, 0)}</small></span>{laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined ? <strong>{premiumLabel(laborEstimate.employeeAmountMinor)}</strong> : <span className="muted">尚未設定有效規則</span>}</div>
+            <div className="hr-insurance-estimate-row"><span>健保<small className="muted">{estimateRateLabel(healthEstimate, true, dependentCount)}</small></span>{healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined ? <strong>{premiumLabel(healthEstimate.employeeAmountMinor)}</strong> : <span className="muted">尚未設定有效規則</span>}</div>
           </div>
           {totalPremium !== undefined ? <div className="hr-insurance-estimate-total"><span>合計</span><strong>{premiumLabel(totalPremium)}</strong></div> : null}
         </> : Number.isSafeInteger(dependentCount) && dependentCount >= 0 && dependentCount <= 3 ? <span className="muted">選擇級距後即可計算</span> : <span className="muted">請輸入有效的眷屬人數</span>}

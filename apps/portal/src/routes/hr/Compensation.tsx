@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
-import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceContributionRule, type SupportWorkerPayBasis } from "./api.js";
+import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceContributionComponent, type InsuranceContributionRule, type SupportWorkerPayBasis } from "./api.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
@@ -21,6 +21,20 @@ const ITEM_PRESETS = ["職務加給", "職務津貼", "伙食費", "全勤獎金
 const CUSTOM_ITEM = "__custom__";
 /** 每筆項目自己的計算單位；月給的津貼不會因為員工是日薪就被乘上出勤天數。 */
 const ITEM_BASIS_OPTIONS = [{ value: "monthly", label: "月" }, { value: "daily", label: "日" }, { value: "hourly", label: "時" }] as const;
+type ContributionTarget = "labor:ordinary_accident" | "labor:employment" | "health";
+const CONTRIBUTION_TARGETS: Array<{ value: ContributionTarget; label: string; scheme: "labor" | "health"; component: InsuranceContributionComponent | null }> = [
+  { value: "labor:ordinary_accident", label: "勞保普通事故保險", scheme: "labor", component: "ordinary_accident" },
+  { value: "labor:employment", label: "就業保險", scheme: "labor", component: "employment" },
+  { value: "health", label: "健保", scheme: "health", component: null },
+];
+function getContributionTarget(target: ContributionTarget) { return CONTRIBUTION_TARGETS.find((item) => item.value === target) ?? CONTRIBUTION_TARGETS[0]!; }
+function contributionLabel(rule: InsuranceContributionRule) {
+  if (rule.scheme === "health") return "健保";
+  if (rule.component === "ordinary_accident") return "勞保普通事故保險";
+  if (rule.component === "employment") return "就業保險";
+  return "勞保（舊版合併規則）";
+}
+function contributionPercent(value: number | undefined) { return value === undefined ? "—" : `${(value / 10_000).toFixed(4)}%`; }
 
 function money(minor: number): string {
   return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`;
@@ -332,7 +346,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   // 勞保／健保級距集中在「勞健保管理」的級距管理 modal；這裡只維護公司負擔規則。
   const contributionRules = useHrQuery<{ rules: InsuranceContributionRule[] }>("/insurance-contribution-rules", settingsOnly && canRead);
   const createContribution = useHrWrite();
-  const [contributionScheme, setContributionScheme] = useState<"labor" | "health">("labor");
+  const [contributionTarget, setContributionTarget] = useState<ContributionTarget>("labor:ordinary_accident");
   const [contributionFrom, setContributionFrom] = useState(taipeiToday().slice(0, 7) + "-01");
   const [employeeRate, setEmployeeRate] = useState("");
   const [employerRate, setEmployerRate] = useState("");
@@ -345,13 +359,19 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
     ? contributionRules.isPending
     : (permissions.has("hr:employee:read") && (employees.isPending || employeeTable.isPending)) || (permissions.has("hr:schedule:read") && workers.isPending);
   if (pageLoading) return <HrPageSkeleton variant="table" />;
+  const selectedContributionTarget = getContributionTarget(contributionTarget);
   return <div className="page">
     <PageHeader
       title={settingsOnly ? "制度設定" : "敘薪管理"}
       description={settingsOnly ? "管理公司採用的勞健保負擔規則；勞健保級距請從「勞健保管理」的級距管理進入。薪資結算只使用已保存的設定。" : "設定每位員工的薪資組成與生效版本；薪資變更不覆蓋歷史，薪資結算會讀取指定月份有效的敘薪版本。"}
     />
     {settingsOnly ? <>
-      <Panel><div className="panel-head"><div><h2>公司採用負擔規則</h2><p className="muted">系統已提供一般受僱者的標準分攤比例；若公司適用特殊身分類別，可在此建立覆核版本覆蓋系統預設。</p></div></div><div className="admin-form toolbar"><SelectField label="種類" value={contributionScheme} options={[{ value: "labor", label: "勞保" }, { value: "health", label: "健保" }]} onChange={(event) => setContributionScheme(event.target.value as "labor" | "health")} /><TextField label="生效日" type="date" value={contributionFrom} onChange={(event) => setContributionFrom(event.target.value)} /><TextField label="員工負擔（%）" type="number" min="0" max="100" step="0.0001" value={employeeRate} onChange={(event) => setEmployeeRate(event.target.value)} /><TextField label="雇主負擔（%）" type="number" min="0" max="100" step="0.0001" value={employerRate} onChange={(event) => setEmployerRate(event.target.value)} />{contributionScheme === "health" ? <TextField label="眷屬倍率（%）" type="number" min="0" max="100" step="0.0001" value={dependentRate} onChange={(event) => setDependentRate(event.target.value)} /> : null}{canWrite ? <Button icon="plus" loading={createContribution.isPending} disabled={!employeeRate || !employerRate} onClick={() => createContribution.mutate({ path: "/insurance-contribution-rules", method: "POST", values: { scheme: contributionScheme, validFrom: contributionFrom, validTo: null, employeeRatePpm: Math.round(Number(employeeRate) * 10_000), employerRatePpm: Math.round(Number(employerRate) * 10_000), dependentRatePpm: Math.round(Number(dependentRate || "100") * 10_000), sourceKind: "manual", note: "公司確認規則" } }, { onSuccess: () => { setEmployeeRate(""); setEmployerRate(""); void contributionRules.refetch(); } })}>保存負擔規則</Button> : null}</div>{contributionRules.error || createContribution.error ? <Alert tone="danger">{contributionRules.error?.message ?? createContribution.error?.message}</Alert> : null}<div className="table-scroll"><table className="data-table compact"><thead><tr><th>種類</th><th>生效日</th><th>員工</th><th>雇主</th><th>眷屬倍率</th><th>來源</th></tr></thead><tbody>{(contributionRules.data?.rules ?? []).map((rule) => <tr key={rule.id}><td>{rule.scheme === "labor" ? "勞保" : "健保"}</td><td>{rule.validFrom}</td><td>{(rule.employeeRatePpm / 10_000).toFixed(4)}%</td><td>{(rule.employerRatePpm / 10_000).toFixed(4)}%</td><td>{(rule.dependentRatePpm / 10_000).toFixed(4)}%</td><td><div className="hr-rate-source"><span className={`status ${rule.isSystemDefault ? "status-active" : "status-manual"}`}>{rule.isSystemDefault ? "系統預設" : "公司覆核"}</span>{rule.sourceUrl ? <a href={rule.sourceUrl} target="_blank" rel="noreferrer">官方資料</a> : null}</div></td></tr>)}</tbody></table></div></Panel>
+      <Panel>
+        <div className="panel-head"><div><h2>公司採用負擔規則</h2><p className="muted">勞保總基金費率 12.5%＝普通事故保險 11.5%＋就業保險 1%；兩項都是獨立基金，員工與雇主負擔各自套用。薪資試算會將兩筆員工金額分別四捨五入到元後再加總。若公司適用特殊身分類別，可在此建立覆核版本覆蓋對應項目。</p></div></div>
+        <div className="admin-form toolbar"><SelectField label="保險項目" value={contributionTarget} options={CONTRIBUTION_TARGETS.map((item) => ({ value: item.value, label: item.label }))} onChange={(event) => setContributionTarget(event.target.value as ContributionTarget)} /><TextField label="生效日" type="date" value={contributionFrom} onChange={(event) => setContributionFrom(event.target.value)} /><TextField label="員工實際負擔（%）" type="number" min="0" max="100" step="0.0001" value={employeeRate} onChange={(event) => setEmployeeRate(event.target.value)} /><TextField label="雇主實際負擔（%）" type="number" min="0" max="100" step="0.0001" value={employerRate} onChange={(event) => setEmployerRate(event.target.value)} />{selectedContributionTarget.scheme === "health" ? <TextField label="眷屬倍率（%）" type="number" min="0" max="100" step="0.0001" value={dependentRate} onChange={(event) => setDependentRate(event.target.value)} /> : null}{canWrite ? <Button icon="plus" loading={createContribution.isPending} disabled={!employeeRate || !employerRate} onClick={() => createContribution.mutate({ path: "/insurance-contribution-rules", method: "POST", values: { scheme: selectedContributionTarget.scheme, component: selectedContributionTarget.component, validFrom: contributionFrom, validTo: null, employeeRatePpm: Math.round(Number(employeeRate) * 10_000), employerRatePpm: Math.round(Number(employerRate) * 10_000), dependentRatePpm: selectedContributionTarget.scheme === "health" ? Math.round(Number(dependentRate || "100") * 10_000) : 0, sourceKind: "manual", note: `公司確認${selectedContributionTarget.label}規則` } }, { onSuccess: () => { setEmployeeRate(""); setEmployerRate(""); void contributionRules.refetch(); } })}>保存負擔規則</Button> : null}</div>
+        {contributionRules.error || createContribution.error ? <Alert tone="danger">{contributionRules.error?.message ?? createContribution.error?.message}</Alert> : null}
+        <div className="table-scroll"><table className="data-table compact"><thead><tr><th>保險項目</th><th>基金費率</th><th>員工分攤</th><th>雇主分攤</th><th>生效日</th><th>員工實際負擔</th><th>雇主實際負擔</th><th>眷屬倍率</th><th>來源</th></tr></thead><tbody>{(contributionRules.data?.rules ?? []).map((rule) => <tr key={rule.id}><td>{contributionLabel(rule)}</td><td>{contributionPercent(rule.totalRatePpm)}</td><td>{contributionPercent(rule.employeeSharePpm)}</td><td>{contributionPercent(rule.employerSharePpm)}</td><td>{rule.validFrom}</td><td>{contributionPercent(rule.employeeRatePpm)}</td><td>{contributionPercent(rule.employerRatePpm)}</td><td>{rule.scheme === "health" ? contributionPercent(rule.dependentRatePpm) : "—"}</td><td><div className="hr-rate-source"><span className={`status ${rule.isSystemDefault ? "status-active" : "status-manual"}`}>{rule.isSystemDefault ? "系統預設" : "公司覆核"}</span>{rule.sourceUrl ? <a href={rule.sourceUrl} target="_blank" rel="noreferrer">官方資料</a> : null}</div></td></tr>)}</tbody></table></div>
+      </Panel>
     </> : <>
       {!canWrite ? <Alert tone="info">目前帳號只有敘薪檢視權限，無法新增薪資版本。</Alert> : null}
       <Panel>

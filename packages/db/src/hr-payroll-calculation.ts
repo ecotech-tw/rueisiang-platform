@@ -4,7 +4,7 @@ import { activityRow } from "./activity.js";
 import { buildHrAnnualLeaveSettlementMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
 import { resolveDayTypes } from "./hr-calendar.js";
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
-import { calculateHrInsuranceEmployeeAmount, listHrInsuranceContributionRules } from "./hr-payroll.js";
+import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributionRules, listHrInsuranceContributionRules, resolveHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
 import { listHrSpecialWorkdaysForPayroll } from "./hr-special-workdays.js";
 import { HrError, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
@@ -1152,33 +1152,45 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const employeeInsurance = insurance.filter((row) => row.employmentId === employee.employmentId && row.status === "enrolled");
     for (const scheme of ["labor", "health"] as const) {
       const insuranceVersion = covering(employeeInsurance.filter((row) => row.scheme === scheme), period.start);
-      const contributionRule = covering(insuranceRules.filter((row) => row.scheme === scheme), period.start);
       if (!insuranceVersion || insuranceVersion.status !== "enrolled") continue;
-      if (!contributionRule) {
-        calculationWarnings.add(`${employee.employeeName} 的${scheme === "labor" ? "勞保" : "健保"}缺少有效負擔規則，請在保險設定完成審閱。`);
+      const contributionRules = resolveHrInsuranceContributionRules(insuranceRules, scheme, period.start);
+      if (!hasCompleteHrInsuranceContributionRules(scheme, contributionRules)) {
+        calculationWarnings.add(`${employee.employeeName} 的${scheme === "labor" ? "勞保" : "健保"}缺少完整有效負擔規則，請在保險設定完成審閱。`);
         continue;
       }
-      const employeeShare = calculateHrInsuranceEmployeeAmount({
+      const breakdown = calculateHrInsuranceEmployeeBreakdown({
         scheme,
         insuredAmountMinor: insuranceVersion.insuredAmountMinor,
-        employeeRatePpm: contributionRule.employeeRatePpm,
-        dependentRatePpm: contributionRule.dependentRatePpm,
         dependentCount: insuranceVersion.dependentCount,
+        rules: contributionRules,
       });
+      const employeeShare = breakdown.employeeAmountMinor;
       if (employeeShare > 0) {
-        const baseEmployeeAmountMinor = Math.floor(insuranceVersion.insuredAmountMinor * contributionRule.employeeRatePpm / PPM);
-        const baseEmployeeAmountYuan = Math.round(baseEmployeeAmountMinor / 100);
-        const dependentMultiplier = scheme === "health" ? 1 + insuranceVersion.dependentCount * contributionRule.dependentRatePpm / PPM : 1;
-        const baseFormula = `floor(${payrollFormulaMoney(insuranceVersion.insuredAmountMinor)} × ${payrollFormulaPercent(contributionRule.employeeRatePpm)}) 先四捨五入至元 = ${payrollFormulaMoney(baseEmployeeAmountYuan * 100)}`;
+        const calculationParts = breakdown.parts.map((part) => {
+          const rule = contributionRules.find((candidate) => candidate.id === part.ruleId);
+          const rateFormula = rule?.totalRatePpm !== undefined && rule.employeeSharePpm !== undefined
+            ? `${payrollFormulaMoney(insuranceVersion.insuredAmountMinor)} × ${payrollFormulaPercent(rule.totalRatePpm)} × ${payrollFormulaPercent(rule.employeeSharePpm)}`
+            : `${payrollFormulaMoney(insuranceVersion.insuredAmountMinor)} × ${payrollFormulaPercent(part.employeeRatePpm)}`;
+          return {
+            formula: `floor(${rateFormula}) 先四捨五入至元 = ${payrollFormulaMoney(part.baseEmployeeAmountYuan * 100)}`,
+            amountMinor: part.employeeAmountMinor,
+          };
+        });
+        const dependentRatePpm = scheme === "health" ? contributionRules[0]!.dependentRatePpm : 0;
+        const dependentMultiplier = breakdown.dependentMultiplier;
         const dependentMultiplierLabel = dependentMultiplier.toFixed(4).replace(/\.?0+$/, "");
         const formulaDetail = scheme === "health"
-          ? `${baseFormula} × ${dependentMultiplierLabel}（本人 1 + ${insuranceVersion.dependentCount} 位親屬 × ${payrollFormulaPercent(contributionRule.dependentRatePpm)}） = ${payrollFormulaMoney(employeeShare)}`
-          : `${baseFormula} = ${payrollFormulaMoney(employeeShare)}`;
+          ? `${calculationParts[0]?.formula ?? "依健保規則計算"} × ${dependentMultiplierLabel}（本人 1 + ${insuranceVersion.dependentCount} 位親屬 × ${payrollFormulaPercent(dependentRatePpm)}） = ${payrollFormulaMoney(employeeShare)}`
+          : `${calculationParts.map((part) => part.formula).join(" + ")} = ${payrollFormulaMoney(employeeShare)}`;
+        const sourceKind = contributionRules.every((rule) => rule.sourceKind === "official") ? "official" : "manual";
         lines.push({ lineKey: `${scheme}_insurance`, direction: "deduction", amountMinor: employeeShare, explanation: {
           scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount,
-          employeeRatePpm: contributionRule.employeeRatePpm, dependentRatePpm: contributionRule.dependentRatePpm,
-          baseEmployeeAmountMinor, baseEmployeeAmountYuan, dependentMultiplier, ruleId: contributionRule.id, sourceKind: contributionRule.sourceKind,
-          formulaDetail,
+          employeeRatePpm: contributionRules.reduce((sum, rule) => sum + rule.employeeRatePpm, 0), dependentRatePpm,
+          baseEmployeeAmountMinor: breakdown.parts.length === 1 ? breakdown.parts[0]!.baseEmployeeAmountMinor : undefined,
+          baseEmployeeAmountYuan: breakdown.parts.length === 1 ? breakdown.parts[0]!.baseEmployeeAmountYuan : undefined,
+          dependentMultiplier, ruleId: contributionRules.length === 1 ? contributionRules[0]!.id : null, ruleIds: contributionRules.map((rule) => rule.id), sourceKind,
+          components: breakdown.parts.map((part) => ({ component: part.component, ruleId: part.ruleId, employeeRatePpm: part.employeeRatePpm, employeeAmountMinor: part.employeeAmountMinor, totalRatePpm: part.totalRatePpm, employeeSharePpm: part.employeeSharePpm })),
+          calculationParts, formulaDetail,
         } });
       }
     }
