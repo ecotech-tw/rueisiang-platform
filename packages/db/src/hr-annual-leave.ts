@@ -269,7 +269,10 @@ export async function listHrAnnualLeaveEntitlements(db: Database, options: { emp
   }).from(hrAnnualLeaveEntitlements)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(options.employeeUserId ? eq(hrEmployments.employeeUserId, options.employeeUserId) : undefined)
+    .where(and(
+      isNull(hrEmployments.archivedAt),
+      options.employeeUserId ? eq(hrEmployments.employeeUserId, options.employeeUserId) : undefined,
+    ))
     .orderBy(asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
   if (!rows.length) return [];
 
@@ -328,7 +331,10 @@ export async function getHrAnnualLeaveEntitlementDetail(db: Database, entitlemen
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .innerJoin(hrAnnualLeavePolicyVersions, eq(hrAnnualLeavePolicyVersions.id, hrAnnualLeaveEntitlements.policyVersionId))
     .innerJoin(hrAnnualLeaveBrackets, eq(hrAnnualLeaveBrackets.id, hrAnnualLeaveEntitlements.bracketId))
-    .where(eq(hrAnnualLeaveEntitlements.id, entitlementId)).limit(1);
+    .where(and(
+      eq(hrAnnualLeaveEntitlements.id, entitlementId),
+      isNull(hrEmployments.archivedAt),
+    )).limit(1);
   if (!row) throw new HrError(404, "找不到特休額度週期。");
 
   const ledger = await db.select({

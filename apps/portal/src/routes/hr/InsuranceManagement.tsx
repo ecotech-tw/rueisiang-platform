@@ -67,7 +67,7 @@ export function HrInsuranceManagement() {
   const canWrite = isHrAdministrator && permissions.has("hr:employee:write");
   const year = today().slice(0, 4);
   const [employeeFilters, setEmployeeFilters] = useState({ page: 1, pageSize: 25, search: "", status: "all", sortField: "employeeNumber", sortDirection: "asc" as "asc" | "desc" });
-  const employeeTablePath = `/employees?page=${employeeFilters.page}&pageSize=${employeeFilters.pageSize}&search=${encodeURIComponent(employeeFilters.search)}&status=${employeeFilters.status}&sortField=${employeeFilters.sortField}&sortDirection=${employeeFilters.sortDirection}`;
+  const employeeTablePath = `/employees?page=${employeeFilters.page}&pageSize=${employeeFilters.pageSize}&search=${encodeURIComponent(employeeFilters.search)}&status=${employeeFilters.status}&employmentStatus=active&sortField=${employeeFilters.sortField}&sortDirection=${employeeFilters.sortDirection}`;
   const employeeTable = useHrQuery<EmployeePageResponse>(employeeTablePath, canRead);
   const [editing, setEditing] = useState<InsuranceEdit | null>(null);
   const [rateManagementOpen, setRateManagementOpen] = useState(false);
