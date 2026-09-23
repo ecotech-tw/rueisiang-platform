@@ -653,7 +653,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const employees = selectedEmployees.filter((employee) => employmentDaysForPeriod(employee, period).length > 0);
   const employeesWithoutPeriod = selectedEmployees.filter((employee) => !employees.includes(employee));
   if (input.employeeUserIds !== undefined && employeesWithoutPeriod.length) {
-    throw new HrError(400, `以下員工在 ${period.periodKey} 沒有在職區間，無法計算薪資：${employeesWithoutPeriod.map((employee) => employee.employeeName).join("、")}。`);
+    const employeeDetails = employeesWithoutPeriod.map((employee) => `${employee.employeeName}（服務年資起算日：${employee.serviceStartOn ?? "未設定"}）`).join("、");
+    throw new HrError(400, `以下員工在 ${period.periodKey} 沒有在職區間，無法計算薪資：${employeeDetails}。請至員工管理確認服務年資起算日。`);
   }
   const closedEmploymentIds = employees.length ? await db.select({ employmentId: hrPayslips.employmentId }).from(hrPayslips)
     .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId)).innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))

@@ -4,7 +4,7 @@ import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
+import { hrAnnualLeaveEntitlements, hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
 import { roles, userRoleAssignments, users } from "./schema/auth.js";
 
@@ -329,6 +329,25 @@ export function updateHrEmployeeSupervisor(db: Database, userId: string, input: 
 
 export function updateHrEmploymentPosition(db: Database, id: string, input: { position: string; revision: number }, actor: HrActor) {
   return write(db, sql`UPDATE hr_employments SET position=${input.position}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_position_updated", "員工不存在、已封存或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id, position: input.position }, summary: "職位已更新" } });
+}
+
+export async function updateHrEmploymentServicePeriod(db: Database, id: string, input: { serviceStartOn: string; revision: number }, actor: HrActor) {
+  const [currentServicePeriod] = await db.select({ serviceStartOn: hrEmploymentServicePeriods.serviceStartOn }).from(hrEmploymentServicePeriods)
+    .where(eq(hrEmploymentServicePeriods.employmentId, id)).limit(1);
+  const [existingEntitlement] = await db.select({ id: hrAnnualLeaveEntitlements.id }).from(hrAnnualLeaveEntitlements)
+    .where(eq(hrAnnualLeaveEntitlements.employmentId, id)).limit(1);
+  if (existingEntitlement) throw new HrError(409, "員工已有特休週期，不能直接修改服務年資起算日；請先依特休／薪資調整流程處理。 ");
+  return write(db, [
+    sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP
+      WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM hr_annual_leave_entitlements WHERE employment_id=${id}) RETURNING id`,
+    sql`INSERT INTO hr_employment_service_periods (employment_id, service_start_on)
+      VALUES (${id}, ${input.serviceStartOn})
+      ON CONFLICT (employment_id) DO UPDATE SET service_start_on=excluded.service_start_on, updated_at=CURRENT_TIMESTAMP
+      RETURNING employment_id AS id`,
+  ], id, actor, "employment_service_period_updated", "員工不存在、已封存、版本已過期或服務年資資料已變更，請重新整理後再試。", {
+    activity: { payload: { employmentId: id, beforeServiceStartOn: currentServicePeriod?.serviceStartOn ?? null, serviceStartOn: input.serviceStartOn }, summary: "服務年資起算日已更新" },
+  });
 }
 
 export function archiveHrEmployment(db: Database, id: string, revision: number, actor: HrActor) {

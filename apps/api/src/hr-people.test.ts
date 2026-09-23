@@ -28,7 +28,7 @@ async function assign(userId: string, employeeNumber = "E001", position = "一�
 async function profile(userId: string) {
   return await (await request(`/hr/employees/${userId}`)).json() as {
     employee: { userId: string; employeeNumber: string; position: string; supervisorUserId: string | null; employmentStatus: string; archivedAt: string | null };
-    employments: Array<{ id: string; employeeNumber: string; position: string; archivedAt: string | null; revision: number }>;
+    employments: Array<{ id: string; employeeNumber: string; position: string; serviceStartOn: string | null; archivedAt: string | null; revision: number }>;
   };
 }
 
@@ -62,6 +62,19 @@ describe("HR 扁平員工主檔", () => {
     expect(detail.employments).toHaveLength(1);
     expect(detail.employments[0]).toMatchObject({ id: result.employmentId, employeeNumber: "E001", position: "門市專員", archivedAt: null });
     expect((await (await request("/hr/candidates?search=self")).json() as { users: unknown[] }).users).toEqual([]);
+  });
+
+  it("可修正服務年資起算日，讓薪資使用核定的服務起算日", async () => {
+    const assigned = await assign("self");
+    const before = await profile("self");
+    const updated = await request(`/hr/employments/${assigned.employmentId}/service-period`, "PATCH", {
+      serviceStartOn: "2026-08-03", revision: before.employments[0]!.revision,
+    });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect((await profile("self")).employments[0]).toMatchObject({ serviceStartOn: "2026-08-03", revision: 2 });
+    const activity = d1.sqlite.prepare("SELECT payload_json FROM activity_events WHERE event_type='employment_service_period_updated'").get() as { payload_json: string };
+    expect(JSON.parse(activity.payload_json)).toMatchObject({ beforeServiceStartOn: expect.any(String), serviceStartOn: "2026-08-03" });
+    expect((await request(`/hr/employments/${assigned.employmentId}/service-period`, "PATCH", { serviceStartOn: "2026-08-03", revision: 1 })).status).toBe(409);
   });
 
   it("升遷／調職只更新 position，不建立新的 employmentId", async () => {
