@@ -3,9 +3,10 @@ import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
-import { groupShiftsByTemplate, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
+import { groupShiftsByTemplate, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { GuardedNavLink, useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
+import { CalendarScopePicker } from "./Calendar.js";
 
 function taipeiMonthStart() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -141,19 +142,19 @@ function ScheduleEntryDialog({ data, day, dayType, defaultScopeId, onAdd, onClos
  *
  * 放在排班月曆而不是另開一頁：會想到要標國定假日的時機，就是正在排那個月的班的時候。
  */
-function CalendarDialog({ periodKey: key, days: initial, canWrite, onClose, onSaved }: { periodKey: string; days: HrCalendarDay[]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
+function CalendarDialog({ periodKey: key, days: initial, scopes, canWrite, onClose, onSaved }: { periodKey: string; days: HrCalendarDay[]; scopes: HrScheduleResponse["scopes"]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
   const [days, setDays] = useState(initial);
   const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
   const toast = useToast();
-  const changed = days.some((day, index) => day.dayType !== initial[index]?.dayType || day.name !== initial[index]?.name);
+  const changed = days.some((day, index) => day.dayType !== initial[index]?.dayType || day.name !== initial[index]?.name || day.specialKind !== initial[index]?.specialKind || (day.specialScopeIds ?? []).join(",") !== (initial[index]?.specialScopeIds ?? []).join(","));
   const update = (date: string, patch: Partial<HrCalendarDay>) => {
     setDays((current) => current.map((day) => day.date === date ? { ...day, ...patch } : day));
     setMessage(null);
   };
   const submit = async () => {
     try {
-      await save.mutateAsync({ path: `/calendar/${key}`, method: "PUT", values: { days: days.map(({ date, dayType, name }) => ({ date, dayType, name })), knownDates: initial.filter((day) => day.overridden).map((day) => day.date) } });
+      await save.mutateAsync({ path: `/calendar/${key}`, method: "PUT", values: { days: days.map(({ date, dayType, name, specialKind, specialScopeIds }) => ({ date, dayType, name, specialKind, specialScopeIds })), knownDates: initial.filter((day) => day.overridden).map((day) => day.date) } });
       await onSaved();
       toast.show("行事曆已儲存。");
       onClose();
@@ -167,11 +168,13 @@ function CalendarDialog({ periodKey: key, days: initial, canWrite, onClose, onSa
     closeDisabled={save.isPending}
     actions={canWrite ? <Button loading={save.isPending} disabled={!changed} onClick={() => { void submit(); }}>儲存</Button> : undefined}
   >
-    <p className="muted field-note">週六日預設就是週末，不用特別標。這裡只需要標出國定假日與補班日。</p>
+    <p className="muted field-note">週六日預設就是週末，不用特別標。颱風停班不會刪除原排班，結算時會保留給薪紀錄。</p>
     <div className="hr-calendar-editor">
       {days.map((day) => <div className={`hr-calendar-editor-row day-${day.dayType}`} key={day.date}>
         <span className="hr-calendar-editor-date">{Number(day.date.slice(8))}<small>{["日", "一", "二", "三", "四", "五", "六"][new Date(`${day.date}T00:00:00Z`).getUTCDay()]}</small></span>
         <SelectField aria-label={`${day.date} 日期類型`} value={day.dayType} disabled={!canWrite || save.isPending} options={HR_DAY_TYPES.map((dayType) => ({ value: dayType, label: HR_DAY_TYPE_LABELS[dayType] }))} onChange={(event) => update(day.date, { dayType: event.target.value as HrDayType })} />
+        <SelectField aria-label={`${day.date} 特殊標記`} value={day.specialKind} disabled={!canWrite || save.isPending} options={HR_CALENDAR_SPECIAL_KINDS.map((kind) => ({ value: kind, label: HR_CALENDAR_SPECIAL_KIND_LABELS[kind] }))} onChange={(event) => { const specialKind = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind, specialScopeIds: specialKind === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(specialKind === "typhoon_stop" && !day.name.trim() ? { name: "颱風停班" } : {}), ...(specialKind !== "typhoon_stop" && day.name.trim() === "颱風停班" ? { name: "" } : {}) }); }} />
+        {day.specialKind === "typhoon_stop" ? <CalendarScopePicker scopeIds={day.specialScopeIds ?? []} scopes={scopes} disabled={!canWrite || save.isPending} onChange={(specialScopeIds) => update(day.date, { specialScopeIds })} /> : <span className="muted">—</span>}
         <TextField aria-label={`${day.date} 名稱`} maxLength={100} placeholder="例如：中秋節、補班日" value={day.name} disabled={!canWrite || save.isPending} onChange={(event) => update(day.date, { name: event.target.value })} />
       </div>)}
     </div>
@@ -361,7 +364,10 @@ export function HrScheduling() {
       <div className={`hr-calendar-scroll${loading ? " is-refreshing" : ""}`}>
       <div className={`hr-calendar${quick ? " quick" : ""}`}>
         {Array.from({ length: weekday(month) }, (_, index) => <div className="hr-calendar-cell empty" key={`empty-${index}`} />)}
-        {dates.map((day, index) => <div
+        {dates.map((day, index) => {
+          const calendarDay = dayTypeByDate.get(day);
+          const typhoonForScope = calendarDay?.specialKind === "typhoon_stop" && (!calendarDay.specialScopeIds?.length || scopeId === "all" || calendarDay.specialScopeIds.includes(scopeId));
+          return <div
           className={`hr-calendar-cell day-${dayTypeOf(day)}${quick && quickPicked(day) ? " picked" : ""}${day === today ? " today" : ""}`}
           key={day}
           /*
@@ -378,13 +384,15 @@ export function HrScheduling() {
           <div className="hr-calendar-date" {...(day === today ? { "aria-current": "date" as const } : {})}>{quick
             ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftTemplateId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
             : <><strong>{index + 1}</strong>{canEdit ? <button type="button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
-          {dayTypeByDate.get(day)?.name ? <span className="hr-calendar-holiday">{dayTypeByDate.get(day)!.name}</span> : null}
+          {typhoonForScope ? <span className="hr-calendar-holiday hr-calendar-typhoon">颱風停班</span> : null}
+          {calendarDay?.name && !(typhoonForScope && calendarDay.name === "颱風停班") ? <span className="hr-calendar-holiday">{calendarDay.name}</span> : null}
           <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${entry.archivedAt ? " archived" : ""}${quick && !entry.archivedAt && samePick(entry, quick, templateOf) ? " current" : ""}`} key={entry.id}><span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit && !entry.archivedAt ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
-        </div>)}
+        </div>;
+        })}
       </div>
       </div>
     </Panel>
     {addingDay && defaultScope ? <ScheduleEntryDialog data={data} day={addingDay} dayType={dayTypeOf(addingDay)} defaultScopeId={defaultScope} onAdd={(entry) => setDraftEntries((current) => [...current, entry])} onClose={() => setAddingDay(null)} /> : null}
-    {editingCalendar ? <CalendarDialog periodKey={key} days={data.calendar} canWrite={canWrite} onClose={() => setEditingCalendar(false)} onSaved={() => schedule.refetch()} /> : null}
+    {editingCalendar ? <CalendarDialog periodKey={key} days={data.calendar} scopes={data.scopes} canWrite={canWrite} onClose={() => setEditingCalendar(false)} onSaved={() => schedule.refetch()} /> : null}
   </div>;
 }

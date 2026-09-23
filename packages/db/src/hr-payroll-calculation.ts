@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { buildHrAnnualLeaveSettlementMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
-import { resolveDayTypes } from "./hr-calendar.js";
+import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes } from "./hr-calendar.js";
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributionRules, listHrInsuranceContributionRules, resolveHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
@@ -45,7 +45,7 @@ import {
 } from "./schema/hr-payroll-runs.js";
 import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments } from "./schema/hr-scheduling.js";
+import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
 import { scopes } from "./schema/reports.js";
@@ -174,7 +174,7 @@ export interface HrPayrollRunResult {
   status: "ready" | "closed";
   engineVersion: string;
   employees: HrPayrollEmployeeResult[];
-  workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }>;
+  workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null }>;
   warnings: string[];
 }
 
@@ -427,7 +427,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     OR EXISTS (SELECT 1 FROM hr_schedule_worker_entries AS selected_worker_entry
       WHERE selected_worker_entry.schedule_version_id = hr_schedule_versions.id
         AND selected_worker_entry.worker_id IN (${sql.join(workerIds.map((id) => sql`${id}`), sql`, `)}))`;
-  const [employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
+  const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({
       id: hrEmployments.id,
       employeeUserId: hrEmployments.employeeUserId,
@@ -436,6 +436,8 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select({ userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, supervisorUserId: hrEmployments.supervisorUserId, revision: hrEmployments.revision, updatedAt: hrEmployments.updatedAt }).from(hrEmployments).where(sql`${hrEmployments.id} IN (${employmentValues})`),
     db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
     db.select().from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, employmentIds)),
+    db.select().from(hrCalendarDays).where(sql`${hrCalendarDays.date} >= ${input.period.start} AND ${hrCalendarDays.date} < ${input.period.end}`),
+    db.select().from(hrCalendarDayScopes).where(sql`${hrCalendarDayScopes.date} >= ${input.period.start} AND ${hrCalendarDayScopes.date} < ${input.period.end}`),
     db.select().from(hrCompensationVersions).where(and(inArray(hrCompensationVersions.employmentId, employmentIds), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
     db.select().from(hrCompensationItems).where(sql`${hrCompensationItems.compensationVersionId} IN (SELECT id FROM hr_compensation_versions WHERE employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}) AND voided_at IS NULL AND valid_from < ${input.period.end} AND (valid_to IS NULL OR valid_to > ${input.period.start}))`),
     db.select().from(hrInsuranceVersions).where(and(inArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.validFrom} <= ${input.period.start}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} > ${input.period.start})`)),
@@ -476,7 +478,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   return stableJson({
     periodKey: input.period.periodKey,
     employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves,
-    annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions,
+    annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, calendarDays, calendarDayScopes,
     scheduleEntries: scheduleEntries.map(({ entry }) => entry),
     workerScheduleEntries: workerScheduleEntries.map(({ entry }) => entry),
     workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes,
@@ -532,7 +534,7 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
     status: run.run.status === "closed" ? "closed" : "ready",
     engineVersion: run.run.engineVersion,
     employees,
-    workers: workerResults.map((worker) => ({ workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, compensationVersionId: worker.compensationVersionId })),
+    workers: workerResults.map((worker) => ({ workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor, compensationVersionId: worker.compensationVersionId })),
     warnings: [...new Set([...(hasInsuranceDeduction ? [] : [PAYROLL_DEMO_WARNING]), ...persistedWarnings, ...warnings])],
   };
 }
@@ -679,7 +681,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   await ensureHrAnnualLeaveEntitlements(db, { asOfDate: period.end, createdBy: actor.id });
   const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds: employees.map((employee) => employee.employmentId) });
   // 臨時支援人員沒有 users／hr_employments，薪資資格來自已發布班表；不套用獎金 policy。
-  const scheduledEmployeeRows = await db.select({ employmentId: hrScheduleEntries.employmentId, workDate: hrScheduleEntries.workDate }).from(hrScheduleEntries)
+  const scheduledEmployeeRows = await db.select({ employmentId: hrScheduleEntries.employmentId, scopeId: hrScheduleEntries.scopeId, workDate: hrScheduleEntries.workDate, startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes }).from(hrScheduleEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
     .where(and(
       eq(hrScheduleVersions.status, "published"),
@@ -687,7 +689,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleEntries.workDate} >= ${period.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
     ));
-  const scheduledWorkerRowsAll = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes }).from(hrScheduleWorkerEntries)
+  const scheduledWorkerRowsAll = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, scopeId: hrScheduleWorkerEntries.scopeId, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes }).from(hrScheduleWorkerEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
     .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
     .where(and(
@@ -715,10 +717,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   if (closedWorkerRows.length) throw new HrError(409, "同一支援人員同一月份已有已結帳結果，請改用薪資調整。 ");
   const runName = requestedRunName ?? suggestedPayrollRunName(input.employeeUserIds, input.workerIds, [...selectedEmployees.map((employee) => employee.employeeName), ...new Set(scheduledWorkerRows.map((row) => row.workerName))]);
   const scheduledDatesByEmployment = new Map<string, Set<string>>();
+  const scheduledRowsByEmploymentDate = new Map<string, typeof scheduledEmployeeRows>();
   for (const row of scheduledEmployeeRows) {
     const dates = scheduledDatesByEmployment.get(row.employmentId) ?? new Set<string>();
     dates.add(row.workDate);
     scheduledDatesByEmployment.set(row.employmentId, dates);
+    const key = `${row.employmentId}:${row.workDate}`;
+    scheduledRowsByEmploymentDate.set(key, [...(scheduledRowsByEmploymentDate.get(key) ?? []), row]);
   }
   if (!employees.length && !scheduledWorkerRows.length) throw new HrError(400, "指定月份沒有符合條件的啟用中員工或已發布支援排班。 ");
 
@@ -743,6 +748,11 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     sql`${hrLeaveRequests.endsOn} > ${period.start}`,
   ));
   const monthlyData = await listHrMonthlyEntriesForPayroll(db, period.start, period.end);
+  const calendarDays = dateRange(period.start, period.end);
+  const calendarSpecials = await resolveCalendarSpecials(db, calendarDays);
+  const typhoonRowsForDate = <T extends { scopeId: string }>(date: string, rows: T[]) => rows.filter((row) => calendarSpecialAppliesToScope(calendarSpecials.get(date), row.scopeId));
+  const typhoonStopTouchesRows = <T extends { scopeId: string }>(date: string, rows: T[]) => typhoonRowsForDate(date, rows).length > 0;
+  const typhoonStopAppliesToRows = <T extends { scopeId: string }>(date: string, rows: T[]) => rows.length > 0 && typhoonRowsForDate(date, rows).length === rows.length;
   const missingCompensation = employees.flatMap((employee) => employmentDaysForPeriod(employee, period)
     .filter((day) => !covering(compensations.filter((row) => row.employmentId === employee.employmentId), day))
     .map((day) => `${employee.employeeName}（${day}）`));
@@ -750,7 +760,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const hourlyMissing = employees.flatMap((employee) => {
     const rows = compensations.filter((row) => row.employmentId === employee.employmentId);
     return employmentDaysForPeriod(employee, period)
-      .filter((day) => covering(rows, day)?.payBasis === "hourly" && !monthlyData.hourly.some((entry) => entry.employmentId === employee.employmentId && entry.workDate === day))
+      .filter((day) => covering(rows, day)?.payBasis === "hourly" && !monthlyData.hourly.some((entry) => entry.employmentId === employee.employmentId && entry.workDate === day) && !typhoonStopAppliesToRows(day, scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? []))
       .map((day) => `${employee.employeeName}（${day}）`);
   });
   if (hourlyMissing.length) throw new HrError(400, `以下時薪員工尚未逐日登記工時或明確標記無工時：${hourlyMissing.slice(0, 10).join("、")}${hourlyMissing.length > 10 ? "…" : ""}。`);
@@ -843,13 +853,12 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   for (const item of bonusAssignments) {
     membersByVersion.set(item.version.id, [...(membersByVersion.get(item.version.id) ?? []), { employmentId: item.member.employmentId, weightUnits: item.member.weightUnits }]);
   }
-  const calendarDays = dateRange(period.start, period.end);
   // 一般辦公模式的日支項目看的是這一份：行事曆說是平日的才算上班日，補班日在裡面、國定假日不在。
   const dayTypes = await resolveDayTypes(db, calendarDays);
   const workdayDates = new Set(calendarDays.filter((date) => dayTypes.get(date) === "weekday"));
   const statementRows: Array<{ employee: HrPayrollEmployeeResult; payslipId: string; lines: HrPayrollLineResult[]; compensationIds: string[]; insuranceIds: string[] }> = [];
   const calculationWarnings = new Set<string>();
-  type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null };
+  type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null };
   const workerStatements = new Map<string, WorkerStatement>();
   const workerRowsById = new Map<string, typeof scheduledWorkerRows>();
   for (const row of scheduledWorkerRows) workerRowsById.set(row.workerId, [...(workerRowsById.get(row.workerId) ?? []), row]);
@@ -860,6 +869,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const compensationIds = new Set<string>();
     const payBases = new Set<"monthly" | "daily" | "hourly">();
     let amountMinor = 0;
+    let typhoonStopDays = 0;
+    let typhoonStopPayMinor = 0;
     let missingCompensation = false;
     for (const date of dates) {
       const dateRows = rows.filter((row) => row.workDate === date);
@@ -871,6 +882,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       compensationIds.add(compensation.id);
       payBases.add(compensation.payBasis);
       const special = specialWorkdays.find((item) => item.workerId === workerId && item.workDate === date);
+      const typhoonRows = typhoonRowsForDate(date, dateRows);
+      const typhoonStop = typhoonStopTouchesRows(date, dateRows) && !special;
       if (special) {
         const hours = dateRows.reduce((sum, row) => sum + scheduledHours(row), 0);
         if (!hours) calculationWarnings.add(`${workerName} 的特殊上班日 ${date} 缺少工時資料，薪資列為異常且不自動補 0。`);
@@ -885,17 +898,23 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         }
         if (special.allowanceQuantity) amountMinor += (JSON.parse(special.allowanceSnapshotJson) as Array<{ unitAmountMinor: number }>).reduce((sum, item) => sum + item.unitAmountMinor * special.allowanceQuantity, 0);
       } else if (compensation.payBasis === "monthly") {
-        amountMinor += Math.floor(compensation.baseAmountMinor / monthlyDivisorDays);
+        const amount = Math.floor(compensation.baseAmountMinor / monthlyDivisorDays);
+        amountMinor += amount;
+        if (typhoonStop) { typhoonStopDays += 1; typhoonStopPayMinor += amount; }
       } else if (compensation.payBasis === "daily") {
         amountMinor += compensation.baseAmountMinor;
+        if (typhoonStop) { typhoonStopDays += 1; typhoonStopPayMinor += compensation.baseAmountMinor; }
       } else {
-        amountMinor += dateRows.reduce((sum, row) => sum + Math.round(compensation.baseAmountMinor * scheduledHours(row)), 0);
+        const amount = dateRows.reduce((sum, row) => sum + Math.round(compensation.baseAmountMinor * scheduledHours(row)), 0);
+        const typhoonAmount = typhoonRows.reduce((sum, row) => sum + Math.round(compensation.baseAmountMinor * scheduledHours(row)), 0);
+        amountMinor += amount;
+        if (typhoonStop) { typhoonStopDays += 1; typhoonStopPayMinor += typhoonAmount; }
       }
     }
     if (missingCompensation) calculationWarnings.add(`${workerName} 有排班日期找不到有效的支援人員敘薪，該日期薪資為 0。`);
     const payBasis = payBases.size === 1 ? [...payBases][0]! : payBases.size > 1 ? "mixed" : "daily";
     workerStatements.set(workerId, {
-      workerId, workerName, payBasis, scheduledDays: dates.length, amountMinor,
+      workerId, workerName, payBasis, scheduledDays: dates.length, amountMinor, typhoonStopDays, typhoonStopPayMinor,
       compensationVersionId: compensationIds.size === 1 ? [...compensationIds][0]! : null,
     });
   }
@@ -909,14 +928,23 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const lines: HrPayrollLineResult[] = [];
     let baseMinor = 0;
     let specialMinor = 0;
+    let typhoonStopMinor = 0;
     const baseCalculationParts = new Map<string, { payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; dayCount: number; hours: number; amountMinor: number; fullMonth: boolean; specialDailyBaseMinor: number }>();
     const specialCalculationParts: PayrollCalculationPart[] = [];
+    const typhoonStopCalculationParts: PayrollCalculationPart[] = [];
     const compensationItemTotals = new Map<string, number>();
     const itemCalculationParts = new Map<string, { amountBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; quantity: number; quantityUnit: "個月" | "天" | "小時"; amountMinor: number; fullMonth: boolean }>();
     const dailyMonthlyItems = new Map<string, (typeof compensationItems)[number]>();
     const specialAssignments = specialWorkdays.filter((item) => item.employmentId === employee.employmentId && employmentDaySet.has(item.workDate));
     const scheduledDates = scheduledDatesByEmployment.get(employee.employmentId) ?? new Set<string>();
     const specialDates = new Set(specialAssignments.map((item) => item.workDate));
+    // 月薪／日薪以工作日為單位，當日有任一排班落在停班範圍就把當日基薪移到明細；時薪混合據點則只把受影響排班工時自動補薪，其餘工時沿用人工紀錄。
+    const typhoonStopDatesForEmployee = calendarDays.filter((day) => {
+      if (!employmentDaySet.has(day) || specialDates.has(day)) return false;
+      const rows = scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? [];
+      return typhoonStopTouchesRows(day, rows);
+    });
+    const typhoonStopDateSet = new Set(typhoonStopDatesForEmployee);
     if (employeeCompensations.some((item) => item.payBasis === "daily") && scheduledDates.size === 0) {
       calculationWarnings.add(`${employee.employeeName} 為日薪制但本期沒有已發布排班，薪資為 0。`);
     }
@@ -924,8 +952,11 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const compensation = covering(employeeCompensations, day);
       if (!compensation) continue;
       // 日薪是買「已發布的工作日」，不能把整個計算期間誤當成出勤日；特殊上班日則由明確套用資料保留計薪機會。
-      if (compensation.payBasis === "daily" && !scheduledDates.has(day) && !specialDates.has(day)) continue;
+      if (compensation.payBasis === "daily" && !scheduledDates.has(day) && !specialDates.has(day) && !typhoonStopDateSet.has(day)) continue;
       const special = specialAssignments.find((item) => item.workDate === day);
+      const scheduledRowsForDay = scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? [];
+      const typhoonRowsForDay = typhoonRowsForDate(day, scheduledRowsForDay);
+      const typhoonStop = typhoonStopDateSet.has(day) && !special;
       if (special) {
         let hours = 0;
         if (special.workSourceSnapshot === "hourly") {
@@ -948,6 +979,34 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           specialMinor += amount;
           specialCalculationParts.push({ formula: `${day}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)})`, amountMinor: amount });
         }
+      } else if (typhoonStop) {
+        const hours = typhoonRowsForDay.reduce((sum, row) => sum + scheduledHours(row), 0);
+        const partialHourlyTyphoon = compensation.payBasis === "hourly" && typhoonRowsForDay.length < scheduledRowsForDay.length;
+        const hourlyEntry = compensation.payBasis === "hourly" ? monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day) : undefined;
+        const manualHours = partialHourlyTyphoon && hourlyEntry && !hourlyEntry.noWork ? hourlyEntry.hoursHalfUnits / 2 : 0;
+        if (partialHourlyTyphoon && manualHours > 0) {
+          const manualAmount = Math.round(compensation.baseAmountMinor * manualHours);
+          baseMinor += manualAmount;
+          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+          current.dayCount += 1;
+          current.hours += manualHours;
+          current.amountMinor += manualAmount;
+          baseCalculationParts.set(compensation.id, current);
+        }
+        const amount = compensation.payBasis === "monthly"
+          ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
+          : compensation.payBasis === "daily"
+            ? compensation.baseAmountMinor
+            : Math.round(compensation.baseAmountMinor * hours);
+        typhoonStopMinor += amount;
+        typhoonStopCalculationParts.push({
+          formula: compensation.payBasis === "monthly"
+            ? `${day}：颱風停班，floor(月薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天)`
+            : compensation.payBasis === "daily"
+              ? `${day}：颱風停班，日薪 ${payrollFormulaMoney(compensation.baseAmountMinor)}`
+              : `${day}：颱風停班適用排班，時薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × ${payrollFormulaHours(hours)} 小時`,
+          amountMinor: amount,
+        });
       } else if (compensation.payBasis === "monthly") {
         const amount = Math.floor(compensation.baseAmountMinor / monthlyDivisorDays);
         baseMinor += amount;
@@ -975,7 +1034,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         }
       }
       const entry = monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day);
-      const itemHours = entry && !entry.noWork ? entry.hoursHalfUnits / 2 : 0;
+      const scheduledTyphoonHours = typhoonStop ? typhoonRowsForDay.reduce((sum, row) => sum + scheduledHours(row), 0) : 0;
+      const entryHours = entry && !entry.noWork ? entry.hoursHalfUnits / 2 : 0;
+      const partialHourlyTyphoon = typhoonStop && compensation.payBasis === "hourly" && typhoonRowsForDay.length < scheduledRowsForDay.length;
+      const itemHours = partialHourlyTyphoon ? entryHours + scheduledTyphoonHours : entry && !entry.noWork ? entryHours : scheduledTyphoonHours;
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === compensation.id)) {
         /*
          * 日薪人員的月給項目整月照發，不按上班天數比例折算：日薪人員本來就只有排班日才進這個迴圈，
@@ -990,7 +1052,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const itemAmount = item.amountBasis === "monthly"
           ? Math.floor(item.amountMinor / monthlyDivisorDays)
           : item.amountBasis === "daily"
-            ? dailyItemAppliesOnWorkday(employee.attendanceMode, compensation.payBasis, day, scheduledDates, specialDates, workdayDates) ? item.amountMinor : 0
+            ? (typhoonStop || dailyItemAppliesOnWorkday(employee.attendanceMode, compensation.payBasis, day, scheduledDates, specialDates, workdayDates)) ? item.amountMinor : 0
             : Math.round(item.amountMinor * itemHours);
         compensationItemTotals.set(item.id, (compensationItemTotals.get(item.id) ?? 0) + itemAmount);
         if (itemAmount > 0) {
@@ -1015,9 +1077,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         ? fullMonthComp.baseAmountMinor
         : Math.round(fullMonthComp.baseAmountMinor * employedDays / monthlyDivisorDays);
       const specialDailyBase = specialAssignments.filter((item) => employmentDays.includes(item.workDate)).reduce((sum) => sum + Math.floor(fullMonthComp.baseAmountMinor / monthlyDivisorDays), 0);
-      baseMinor = Math.max(0, fullMonthBase - specialDailyBase);
+      const typhoonStopDailyBase = typhoonStopDatesForEmployee.reduce((sum) => sum + Math.floor(fullMonthComp.baseAmountMinor / monthlyDivisorDays), 0);
+      baseMinor = Math.max(0, fullMonthBase - specialDailyBase - typhoonStopDailyBase);
       baseCalculationParts.clear();
-      baseCalculationParts.set(fullMonthComp.id, { payBasis: "monthly", baseAmountMinor: fullMonthComp.baseAmountMinor, dayCount: employedDays, hours: 0, amountMinor: baseMinor, fullMonth: true, specialDailyBaseMinor: specialDailyBase });
+      baseCalculationParts.set(fullMonthComp.id, { payBasis: "monthly", baseAmountMinor: fullMonthComp.baseAmountMinor, dayCount: employedDays, hours: 0, amountMinor: baseMinor, fullMonth: true, specialDailyBaseMinor: specialDailyBase + typhoonStopDailyBase });
       // 只有月給的項目要跟著本薪一起用整月金額回推；日給與時給仍是上面逐日累加的結果。
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === fullMonthComp.id && candidate.amountBasis === "monthly")) {
         const amount = isFullPeriodEmployment
@@ -1053,7 +1116,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         calculationParts: itemParts, formulaDetail: payrollFormulaTotal(itemParts, amount),
       } });
     }
-    if (fullMonthComp?.payBasis === "hourly" && !monthlyData.hourly.some((item) => item.employmentId === employee.employmentId)) {
+    const hasHourlyWorkWithoutManualEntry = employmentDays.some((day) => covering(employeeCompensations, day)?.payBasis === "hourly" && !typhoonStopDateSet.has(day));
+    if (fullMonthComp?.payBasis === "hourly" && hasHourlyWorkWithoutManualEntry && !monthlyData.hourly.some((item) => item.employmentId === employee.employmentId)) {
       calculationWarnings.add(`${employee.employeeName} 為時薪制但尚未登記本期工時；請登記工時或明確標記本期無工時。`);
     }
     if (baseMinor > 0) {
@@ -1077,6 +1141,14 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         calculationParts: baseParts, formulaDetail: payrollFormulaTotal(baseParts, baseMinor),
       } });
     }
+    if (typhoonStopDatesForEmployee.length > 0) lines.push({ lineKey: "typhoon_stop_pay", direction: "earning", amountMinor: typhoonStopMinor, explanation: {
+      rule: "颱風停班日保留原已發布排班，未打卡仍依排班薪資給付；不刪除排班資料。",
+      dates: typhoonStopDatesForEmployee,
+      specialScopeIdsByDate: Object.fromEntries(typhoonStopDatesForEmployee.map((day) => [day, calendarSpecials.get(day)?.scopeIds ?? []])),
+      scheduledAssignmentCount: typhoonStopDatesForEmployee.reduce((sum, day) => sum + (scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? []).filter((row) => calendarSpecialAppliesToScope(calendarSpecials.get(day), row.scopeId)).length, 0),
+      calculationParts: typhoonStopCalculationParts,
+      formulaDetail: payrollFormulaTotal(typhoonStopCalculationParts, typhoonStopMinor),
+    } });
     const annualLeaveSettlementParts: PayrollCalculationPart[] = employeeAnnualLeaveSettlements
       .filter((settlement) => settlement.unusedHalfHours > 0 && settlement.baseAmountMinor !== null)
       .map((settlement) => ({
@@ -1347,7 +1419,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ...compensationIds.map((id) => db.insert(hrPayslipCompensationLinks).values({ payslipId, compensationVersionId: id })),
     ...insuranceIds.map((id) => db.insert(hrPayslipInsuranceLinks).values({ payslipId, insuranceVersionId: id })),
   ]),
-  ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor })),
+  ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
   db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: "hr-payroll-demo-v2" } }))];
   try {
     await db.batch(batchStatements(statements));

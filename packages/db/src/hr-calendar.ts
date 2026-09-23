@@ -1,9 +1,10 @@
-import { and, asc, gte, lt, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { HrError, type HrActor } from "./hr-people.js";
-import { hrCalendarDays, type HrDayType } from "./schema/hr-scheduling.js";
+import { hrCalendarDayScopes, hrCalendarDays, HR_CALENDAR_SPECIAL_KINDS, type HrCalendarSpecialKind, type HrDayType } from "./schema/hr-scheduling.js";
+import { scopes } from "./schema/reports.js";
 
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_TYPES = ["weekday", "weekend", "holiday"] as const;
@@ -12,6 +13,10 @@ export const HR_DAY_TYPE_LABELS: Record<HrDayType, string> = { weekday: "平日"
 
 export function isHrDayType(value: unknown): value is HrDayType {
   return typeof value === "string" && (DAY_TYPES as readonly string[]).includes(value);
+}
+
+export function isHrCalendarSpecialKind(value: unknown): value is HrCalendarSpecialKind {
+  return typeof value === "string" && (HR_CALENDAR_SPECIAL_KINDS as readonly string[]).includes(value);
 }
 
 /**
@@ -30,14 +35,17 @@ export interface HrCalendarDayView {
   date: string;
   dayType: HrDayType;
   name: string;
+  specialKind: HrCalendarSpecialKind;
+  /** 空陣列代表所有門市／地區；有值時只套用到指定 scope。 */
+  specialScopeIds: string[];
   /** 這天有沒有被行事曆蓋過。前端用它區分「排定的國定假日」與「星期幾推出來的週末」。 */
   overridden: boolean;
 }
 
-function toView(date: string, override: { dayType: HrDayType; name: string } | undefined): HrCalendarDayView {
+function toView(date: string, override: { dayType: HrDayType; name: string; specialKind: HrCalendarSpecialKind; specialScopeIds: string[] } | undefined): HrCalendarDayView {
   return override
-    ? { date, dayType: override.dayType, name: override.name, overridden: true }
-    : { date, dayType: defaultDayType(date), name: "", overridden: false };
+    ? { date, dayType: override.dayType, name: override.name, specialKind: override.specialKind, specialScopeIds: override.specialScopeIds, overridden: true }
+    : { date, dayType: defaultDayType(date), name: "", specialKind: "none", specialScopeIds: [], overridden: false };
 }
 
 /** 半開區間 [start, endExclusive)，與 periodFromKey 的期間定義一致。 */
@@ -51,11 +59,19 @@ async function loadOverridesInclusive(db: Database, first: string, last: string)
 }
 
 async function selectOverrides(db: Database, where: ReturnType<typeof and>) {
-  const rows = await db.select({ date: hrCalendarDays.date, dayType: hrCalendarDays.dayType, name: hrCalendarDays.name })
+  const rows = await db.select({ date: hrCalendarDays.date, dayType: hrCalendarDays.dayType, name: hrCalendarDays.name, specialKind: hrCalendarDays.specialKind })
     .from(hrCalendarDays)
     .where(where)
     .orderBy(asc(hrCalendarDays.date));
-  return new Map(rows.map((row) => [row.date, { dayType: row.dayType, name: row.name }]));
+  const scopeRows = rows.length
+    ? await db.select({ date: hrCalendarDayScopes.date, scopeId: hrCalendarDayScopes.scopeId })
+      .from(hrCalendarDayScopes)
+      .where(inArray(hrCalendarDayScopes.date, rows.map((row) => row.date)))
+      .orderBy(asc(hrCalendarDayScopes.date), asc(hrCalendarDayScopes.scopeId))
+    : [];
+  const scopeIdsByDate = new Map<string, string[]>();
+  for (const row of scopeRows) scopeIdsByDate.set(row.date, [...(scopeIdsByDate.get(row.date) ?? []), row.scopeId]);
+  return new Map(rows.map((row) => [row.date, { dayType: row.dayType, name: row.name, specialKind: row.specialKind, specialScopeIds: scopeIdsByDate.get(row.date) ?? [] }]));
 }
 
 /**
@@ -71,6 +87,34 @@ export async function resolveDayTypes(db: Database, dates: string[]): Promise<Ma
   if (!first || !last) return new Map();
   const overrides = await loadOverridesInclusive(db, first, last);
   return new Map(wanted.map((date) => [date, overrides.get(date)?.dayType ?? defaultDayType(date)]));
+}
+
+/** 颱風停班是行事曆的薪資標記，不改變「這天是平日／週末／國定假日」的日型。 */
+export interface HrCalendarSpecial {
+  kind: HrCalendarSpecialKind;
+  /** 空陣列代表全域；有值時只適用指定門市／地區。 */
+  scopeIds: string[];
+}
+
+export async function resolveCalendarSpecials(db: Database, dates: string[]): Promise<Map<string, HrCalendarSpecial>> {
+  const wanted = [...new Set(dates)].sort();
+  const first = wanted[0];
+  const last = wanted[wanted.length - 1];
+  if (!first || !last) return new Map();
+  const overrides = await loadOverridesInclusive(db, first, last);
+  return new Map(wanted.map((date) => [date, {
+    kind: overrides.get(date)?.specialKind ?? "none",
+    scopeIds: overrides.get(date)?.specialScopeIds ?? [],
+  }]));
+}
+
+export async function resolveCalendarSpecialKinds(db: Database, dates: string[]): Promise<Map<string, HrCalendarSpecialKind>> {
+  const specials = await resolveCalendarSpecials(db, dates);
+  return new Map([...specials].map(([date, special]) => [date, special.kind]));
+}
+
+export function calendarSpecialAppliesToScope(special: HrCalendarSpecial | undefined, scopeId: string | null | undefined) {
+  return special?.kind === "typhoon_stop" && (special.scopeIds.length === 0 || (scopeId !== null && scopeId !== undefined && special.scopeIds.includes(scopeId)));
 }
 
 /** 一個月的每一天（含預設值），給行事曆設定與排班月曆共用。 */
@@ -90,6 +134,8 @@ export interface HrCalendarDayInput {
   date: string;
   dayType: HrDayType;
   name: string;
+  specialKind?: HrCalendarSpecialKind;
+  specialScopeIds?: string[];
 }
 
 /**
@@ -107,10 +153,17 @@ function toOverrides(days: HrCalendarDayInput[], range: { start: string; end: st
     if (seen.has(day.date)) throw new HrError(400, "行事曆有重複的日期。 ");
     seen.add(day.date);
     if (!isHrDayType(day.dayType)) throw new HrError(400, "行事曆的日期類型不正確。 ");
+    const specialKind = day.specialKind ?? "none";
+    if (!isHrCalendarSpecialKind(specialKind)) throw new HrError(400, "行事曆的特殊標記不正確。 ");
+    const rawSpecialScopeIds = day.specialScopeIds ?? [];
+    if (!Array.isArray(rawSpecialScopeIds)) throw new HrError(400, "颱風停班的適用門市／地區不正確。 ");
+    const specialScopeIds = [...new Set(rawSpecialScopeIds)].sort();
+    if (specialScopeIds.length > 100 || specialScopeIds.some((scopeId) => typeof scopeId !== "string" || scopeId.trim() === "" || scopeId.length > 200)) throw new HrError(400, "颱風停班的適用門市／地區不正確。 ");
+    if (specialKind !== "typhoon_stop" && specialScopeIds.length) throw new HrError(400, "適用門市／地區只能套用於颱風停班。 ");
     const name = day.name.trim();
     if (name.length > 100) throw new HrError(400, "行事曆的名稱過長。 ");
-    if (day.dayType === defaultDayType(day.date) && !name) continue;
-    overrides.push({ ...day, name });
+    if (day.dayType === defaultDayType(day.date) && !name && specialKind === "none") continue;
+    overrides.push({ ...day, name, specialKind, specialScopeIds });
   }
   return overrides;
 }
@@ -140,13 +193,23 @@ async function assertCalendarUnchanged(db: Database, range: { start: string; end
  * 刪掉整段而不是逐日比對，是因為「取消一個假日」跟「沒送這一天」在資料上要是同一件事；
  * 兩種語意分開的話，前端少送一天就會留下一列刪不掉的舊假日。
  */
+async function assertCalendarScopesExist(db: Database, overrides: HrCalendarDayInput[]) {
+  const scopeIds = [...new Set(overrides.flatMap((day) => day.specialScopeIds ?? []))];
+  if (!scopeIds.length) return;
+  const existing = await db.select({ id: scopes.id }).from(scopes).where(and(inArray(scopes.id, scopeIds), eq(scopes.scopeKind, "store")));
+  if (existing.length !== scopeIds.length) throw new HrError(400, "颱風停班的適用門市／地區不存在。 ");
+}
+
 async function replaceCalendarRange(db: Database, range: { start: string; end: string }, overrides: HrCalendarDayInput[], actor: HrActor, summary: string, payload: Record<string, unknown>, knownDates?: string[]) {
   await assertCalendarUnchanged(db, range, knownDates);
+  await assertCalendarScopesExist(db, overrides);
   const row = activityRow({ entityType: "hr_schedule", entityId: range.start, source: "hr", eventType: "calendar_saved", summary, actor, payload });
   const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
   const statements = [
+    sql`DELETE FROM hr_calendar_day_scopes WHERE date >= ${range.start} AND date < ${range.end}`,
     sql`DELETE FROM hr_calendar_days WHERE date >= ${range.start} AND date < ${range.end}`,
-    ...overrides.map((day) => sql`INSERT INTO hr_calendar_days (date, day_type, name, updated_by) VALUES (${day.date}, ${day.dayType}, ${day.name}, ${actor.id})`),
+    ...overrides.map((day) => sql`INSERT INTO hr_calendar_days (date, day_type, name, special_kind, updated_by) VALUES (${day.date}, ${day.dayType}, ${day.name}, ${day.specialKind ?? "none"}, ${actor.id})`),
+    ...overrides.flatMap((day) => (day.specialScopeIds ?? []).map((scopeId) => sql`INSERT INTO hr_calendar_day_scopes (date, scope_id) VALUES (${day.date}, ${scopeId})`)),
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
       VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson})`,
   ].map((statement) => dialect.sqlToQuery(statement));

@@ -10,7 +10,7 @@ import {
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
-  isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
+  isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
   calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
@@ -415,7 +415,11 @@ function calendarDays(input: Record<string, unknown>, maxDays: number): HrCalend
     const entry = item as Record<string, unknown>;
     if (!isHrDayType(entry.dayType)) throw new HTTPException(400, { message: "行事曆的日期類型不正確。" });
     if (typeof entry.date !== "string" || typeof entry.name !== "string") throw new HTTPException(400, { message: "行事曆格式不正確。" });
-    return { date: entry.date, dayType: entry.dayType, name: entry.name };
+    const specialKind = entry.specialKind === undefined || entry.specialKind === null || entry.specialKind === "" ? "none" : entry.specialKind;
+    if (!isHrCalendarSpecialKind(specialKind)) throw new HTTPException(400, { message: "行事曆的特殊標記不正確。" });
+    const specialScopeIds = entry.specialScopeIds === undefined || entry.specialScopeIds === null ? [] : entry.specialScopeIds;
+    if (!Array.isArray(specialScopeIds) || specialScopeIds.length > 100 || specialScopeIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(specialScopeIds).size !== specialScopeIds.length) throw new HTTPException(400, { message: "颱風停班的適用門市／地區不正確。" });
+    return { date: entry.date, dayType: entry.dayType, name: entry.name, specialKind, specialScopeIds };
   });
 }
 function stringArray(input: Record<string, unknown>, key: string, label: string, maxItems = 100) {
@@ -753,13 +757,13 @@ export const hr = new Hono<AppEnv>()
     period(validFrom, validTo);
     return c.json(await createHrWorkerCompensation(c.get("db"), { workerId: c.req.param("id"), validFrom, validTo, payBasis: workerPayBasis(input), baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input) }, c.get("user")), 201);
   })
-  .get("/calendar/years/:year", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarYear(c.get("db"), calendarYear(c.req.param("year"))) }))
+  .get("/calendar/years/:year", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarYear(c.get("db"), calendarYear(c.req.param("year"))), scopes: await listHrScopes(c.get("db")) }))
   .put("/calendar/years/:year", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
     return c.json(await saveHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), calendarDays(input, 366), knownDates(input), c.get("user")));
   })
   .post("/calendar/years/:year/import", requirePermission("hr:schedule:write"), async (c) => c.json(await importHrCalendarYear(c.get("db"), calendarYear(c.req.param("year")), c.get("user"))))
-  .get("/calendar/:periodKey", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarMonth(c.get("db"), monthPeriodFromKey(c.req.param("periodKey"))) }))
+  .get("/calendar/:periodKey", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarMonth(c.get("db"), monthPeriodFromKey(c.req.param("periodKey"))), scopes: await listHrScopes(c.get("db")) }))
   .put("/calendar/:periodKey", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
     return c.json(await saveHrCalendarMonth(c.get("db"), monthPeriodFromKey(c.req.param("periodKey")), calendarDays(input, 31), knownDates(input), c.get("user")));

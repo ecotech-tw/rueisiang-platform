@@ -424,6 +424,7 @@
 .hr-clock-calendar-details-head strong { font-size: 14px; }
 .hr-clock-calendar-details-head span { color: var(--color-muted); font-size: 12px; }
 .hr-clock-calendar-empty-detail { margin: 0; color: var(--color-muted); font-size: 12px; }
+.hr-clock-calendar-special { margin: 0; padding: 6px 8px; border-radius: 8px; background: --alpha(var(--color-secondary) / 12%); color: var(--color-ink); font-size: 12px; }
 .hr-clock-calendar-events { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
 .hr-clock-calendar-events li { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 4px 8px; min-width: 0; padding: 6px 8px; border-radius: 8px; background: var(--color-paper); }
 .hr-clock-calendar-events li span { color: var(--color-muted); font-size: 11px; }
@@ -524,6 +525,7 @@
 .hr-clock-calendar-day.future,
 .hr-clock-calendar-day.leave,
 .hr-clock-calendar-day.not-employed { background: transparent; color: var(--color-muted); opacity: .52; }
+.hr-clock-calendar-day.typhoon-stop:not(.selected) { background: --alpha(var(--color-secondary) / 10%); color: var(--color-ink); opacity: 1; }
 .hr-clock-calendar-day:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-clock-calendar-day:hover { background: --alpha(var(--color-brand) / 7%); }
 .hr-clock-calendar-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; padding-top: 8px; color: var(--color-muted); font-size: 11px; }

@@ -85,9 +85,12 @@ export interface ClockCalendarEvent {
   locationName: string | null;
   distanceMeters: number | null;
 }
+export type HrCalendarSpecialKind = "none" | "typhoon_stop";
 export interface ClockCalendarDay {
   date: string;
   weekday: number;
+  specialKind: HrCalendarSpecialKind;
+  specialScopeIds: string[];
   status: "not-employed" | "future" | "present" | "open" | "missing" | "rest" | "leave";
   eventCount: number;
   firstEventAt: string | null;

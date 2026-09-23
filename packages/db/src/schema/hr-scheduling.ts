@@ -11,6 +11,9 @@ const timestamps = () => ({
   revision: integer("revision").notNull().default(1),
 });
 
+export const HR_CALENDAR_SPECIAL_KINDS = ["none", "typhoon_stop"] as const;
+export type HrCalendarSpecialKind = (typeof HR_CALENDAR_SPECIAL_KINDS)[number];
+
 /**
  * 行事曆只存「例外」的日子，不存一整年。
  *
@@ -25,6 +28,7 @@ export const hrCalendarDays = sqliteTable("hr_calendar_days", {
   date: text("date").primaryKey(),
   dayType: text("day_type", { enum: ["weekday", "weekend", "holiday"] as const }).notNull(),
   name: text("name").notNull().default(""),
+  specialKind: text("special_kind", { enum: HR_CALENDAR_SPECIAL_KINDS }).notNull().default("none"),
   updatedBy: text("updated_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -32,7 +36,18 @@ export const hrCalendarDays = sqliteTable("hr_calendar_days", {
   index("idx_hr_calendar_days_type").on(table.dayType, table.date),
   check("ck_hr_calendar_days_date", sql`length(${table.date}) = 10`),
   check("ck_hr_calendar_days_type", sql`${table.dayType} IN ('weekday', 'weekend', 'holiday')`),
+  check("ck_hr_calendar_days_special_kind", sql`${table.specialKind} IN ('none', 'typhoon_stop')`),
   check("ck_hr_calendar_days_name", sql`length(${table.name}) <= 100`),
+]);
+
+/** 颱風停班可只套用到部分門市；沒有子列代表所有門市／地區。 */
+export const hrCalendarDayScopes = sqliteTable("hr_calendar_day_scopes", {
+  date: text("date").notNull().references(() => hrCalendarDays.date, { onDelete: "cascade" }),
+  scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.date, table.scopeId] }),
+  index("idx_hr_calendar_day_scopes_scope").on(table.scopeId, table.date),
 ]);
 
 /** 班次先做成版本；已發布的班表引用固定版本並保存工時快照，不會因為改名稱或工時而改歷史。 */

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrCalendarResponse, type HrDayType } from "./api.js";
+import { Alert, Button, Dialog, DropdownSelect, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrCalendarResponse, type HrCalendarSpecialKind, type HrDayType, type ScheduleScope } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 
@@ -21,6 +21,7 @@ function taipeiYear() { return Number(new Intl.DateTimeFormat("en-CA", { timeZon
  * 但不一樣的方式有兩種，混在一起看不出差別。
  */
 function rowKind(day: HrCalendarDay): { tone: "warning" | "neutral"; label: string } {
+  if (day.specialKind === "typhoon_stop") return { tone: "warning", label: "颱風停班" };
   return day.dayType === "weekday" && isWeekendDate(day.date)
     ? { tone: "warning", label: "補班日" }
     : { tone: "neutral", label: HR_DAY_TYPE_LABELS[day.dayType] };
@@ -32,7 +33,29 @@ function sortByDate(days: HrCalendarDay[]) {
 
 function sameDays(a: HrCalendarDay[], b: HrCalendarDay[]) {
   if (a.length !== b.length) return false;
-  return a.every((day, index) => day.date === b[index]?.date && day.dayType === b[index]?.dayType && day.name === b[index]?.name);
+  return a.every((day, index) => day.date === b[index]?.date && day.dayType === b[index]?.dayType && day.name === b[index]?.name && day.specialKind === b[index]?.specialKind && (day.specialScopeIds ?? []).join(",") === (b[index]?.specialScopeIds ?? []).join(","));
+}
+
+function scopeLabel(scopeId: string, scopes: ScheduleScope[]) {
+  return scopes.find((scope) => scope.id === scopeId)?.name ?? `${scopeId}（已停用）`;
+}
+
+/** 空清單是「全部門市／地區」；有值才顯示可逐一調整的 scope。 */
+export function CalendarScopePicker({ scopeIds, scopes, disabled, onChange }: { scopeIds: string[]; scopes: ScheduleScope[]; disabled?: boolean; onChange: (scopeIds: string[]) => void }) {
+  const addScope = () => {
+    const next = scopes.find((scope) => !scopeIds.includes(scope.id));
+    if (next) onChange([...scopeIds, next.id]);
+  };
+  const updateScope = (index: number, value: string) => onChange(scopeIds.map((scopeId, currentIndex) => currentIndex === index ? value : scopeId));
+  return <div className="hr-calendar-scope-picker">
+    {scopeIds.length === 0
+      ? <span className="muted">全部門市／地區</span>
+      : scopeIds.map((scopeId, index) => <div className="hr-calendar-scope-row" key={`${scopeId}-${index}`}><DropdownSelect value={scopeId} aria-label={`適用門市／地區 ${index + 1}`} disabled={disabled} options={[
+        ...scopes.map((scope) => ({ value: scope.id, label: scope.name, disabled: scopeIds.includes(scope.id) && scope.id !== scopeId })),
+        ...(scopes.some((scope) => scope.id === scopeId) ? [] : [{ value: scopeId, label: scopeLabel(scopeId, scopes), disabled: true }]),
+      ]} onChange={(event) => updateScope(index, event.target.value)} /><Button type="button" variant="icon" icon="trash" aria-label={`移除適用門市 ${scopeLabel(scopeId, scopes)}`} title="移除適用門市／地區" disabled={disabled} onClick={() => onChange(scopeIds.filter((_, currentIndex) => currentIndex !== index))} /></div>)}
+    <Button type="button" variant="chip-action" icon="plus" disabled={disabled || scopeIds.length >= scopes.length} onClick={addScope}>{scopeIds.length ? "新增門市／地區" : "指定門市／地區"}</Button>
+  </div>;
 }
 
 /**
@@ -41,23 +64,28 @@ function sameDays(a: HrCalendarDay[], b: HrCalendarDay[]) {
  * 沒有另外做一顆「新增補班日」的按鈕：那會變成第二條寫入路徑，而它做的事跟這裡
  * 完全一樣，只是先幫你把類型填成平日。選錯類型是看得見也改得回來的。
  */
-function AddDayDialog({ year, existing, onAdd, onClose }: { year: number; existing: HrCalendarDay[]; onAdd: (day: HrCalendarDay) => void; onClose: () => void }) {
+function AddDayDialog({ year, existing, scopes, onAdd, onClose }: { year: number; existing: HrCalendarDay[]; scopes: ScheduleScope[]; onAdd: (day: HrCalendarDay) => void; onClose: () => void }) {
   const [date, setDate] = useState(`${year}-01-01`);
   const [dayType, setDayType] = useState<HrDayType>("holiday");
+  const [specialKind, setSpecialKind] = useState<HrCalendarSpecialKind>("none");
+  const [specialScopeIds, setSpecialScopeIds] = useState<string[]>([]);
   const [name, setName] = useState("");
   const [message, setMessage] = useState<string | null>(null);
-  // 選到星期六日時預設改成「平日」，因為在週末新增一天，想做的幾乎一定是補班。
+  // 選到星期六日時預設改成「平日」，因為在週末新增一天，想做的幾乎一定是補班；特殊標記不改寫日期類型。
   useEffect(() => { setDayType(isWeekendDate(date) ? "weekday" : "holiday"); }, [date]);
   return <Dialog title={`${year} 年新增日期`} onClose={onClose} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     if (!date.startsWith(`${year}-`)) { setMessage(`請選擇 ${year} 年之內的日期。`); return; }
     if (existing.some((day) => day.date === date)) { setMessage("這一天已經在清單裡了，請直接修改那一列。"); return; }
-    onAdd({ date, dayType, name: name.trim(), overridden: true });
+    onAdd({ date, dayType, name: name.trim() || (specialKind === "typhoon_stop" ? "颱風停班" : ""), specialKind, specialScopeIds: specialKind === "typhoon_stop" ? specialScopeIds : [], overridden: true });
     onClose();
   } }} actions={<Button type="submit" icon="check">加入</Button>}>
     <TextField label="日期" type="date" required min={`${year}-01-01`} max={`${year}-12-31`} value={date} onChange={(event) => setDate(event.target.value)} />
     <SelectField label="類型" value={dayType} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => setDayType(event.target.value as HrDayType)} />
-    <TextField label="名稱" maxLength={100} placeholder="例如：中秋節、補行上班" value={name} onChange={(event) => setName(event.target.value)} />
+    <SelectField label="特殊標記" value={specialKind} options={HR_CALENDAR_SPECIAL_KINDS.map((item) => ({ value: item, label: HR_CALENDAR_SPECIAL_KIND_LABELS[item] }))} onChange={(event) => { const value = event.target.value as HrCalendarSpecialKind; setSpecialKind(value); if (value !== "typhoon_stop") setSpecialScopeIds([]); if (value === "typhoon_stop" && !name.trim()) setName("颱風停班"); if (value !== "typhoon_stop" && name.trim() === "颱風停班") setName(""); }} />
+    {specialKind === "typhoon_stop" ? <div className="field"><span>適用門市／地區</span><small>不指定就是全部門市／地區；指定後只有該範圍的原排班照薪。</small><CalendarScopePicker scopeIds={specialScopeIds} scopes={scopes} onChange={setSpecialScopeIds} /></div> : null}
+    <TextField label="備註／名稱" maxLength={100} placeholder="例如：中秋節、補行上班；颱風停班可填公告名稱" value={name} onChange={(event) => setName(event.target.value)} />
+    {specialKind === "typhoon_stop" ? <p className="muted field-note">不會刪除原排班；薪資結算會將適用範圍內有排班的人列為「颱風停班給薪」。</p> : null}
     {isWeekendDate(date) && dayType === "weekday" ? <p className="muted field-note">這是星期{weekdayOf(date)}，設成平日之後當天沒打卡會算缺勤。</p> : null}
     {!isWeekendDate(date) && dayType === "weekend" ? <p className="muted field-note">這是星期{weekdayOf(date)}，設成週末之後當天不排班也不會算缺勤。</p> : null}
     {message ? <Alert tone="danger">{message}</Alert> : null}
@@ -94,7 +122,7 @@ function ImportDialog({ year, currentCount, onClose, onDone }: { year: number; c
 }
 
 export function HrCalendar() {
-  usePageTitle("行事曆");
+  usePageTitle("特殊工作日／假日設定");
   const { permissions } = useSession();
   const canRead = permissions.has("hr:schedule:read");
   const canWrite = permissions.has("hr:schedule:write");
@@ -141,7 +169,7 @@ export function HrCalendar() {
   const submit = async () => {
     try {
       // knownDates 是這次載入時伺服器給的那幾天；中間有人改過就會擋下來，不會把對方的修改沖掉。
-      await save.mutateAsync({ path: `/calendar/years/${year}`, method: "PUT", values: { days: days.map(({ date, dayType, name }) => ({ date, dayType, name })), knownDates: saved.map((day) => day.date) } });
+      await save.mutateAsync({ path: `/calendar/years/${year}`, method: "PUT", values: { days: days.map(({ date, dayType, name, specialKind, specialScopeIds }) => ({ date, dayType, name, specialKind, specialScopeIds })), knownDates: saved.map((day) => day.date) } });
       await calendar.refetch();
       setDraft(null);
       toast.show(`${year} 年行事曆已儲存。`);
@@ -156,10 +184,11 @@ export function HrCalendar() {
 
   const holidays = days.filter((day) => day.dayType === "holiday").length;
   const makeups = days.filter((day) => day.dayType === "weekday" && isWeekendDate(day.date)).length;
+  const typhoonStops = days.filter((day) => day.specialKind === "typhoon_stop").length;
   return <div className="page fills">
     <PageHeader
-      title="行事曆"
-      description="只需要登記國定假日與補班日。沒有登記的日子一律照星期幾算：週六日休息、其他上班。"
+      title="特殊工作日／假日設定"
+      description="設定國定假日、補班日與颱風停班。颱風停班不刪除原排班，薪資結算會依原排班保留給薪紀錄；其他未登記日子照星期幾計算。"
       /* 還在載入新年份時一律停用：這三顆的行為都依賴 saved，而 saved 還是上一年的。 */
       actions={canWrite ? <div className="button-row">
         <Button variant="secondary" icon="cloudSync" disabled={save.isPending || loading} onClick={() => setImporting(true)}>匯入政府行事曆</Button>
@@ -180,12 +209,12 @@ export function HrCalendar() {
           * 載入中時改成破折號而不是繼續顯示舊數字：位置跟寬度都在，版面不會跳，
           * 但不會把上一年的 16 天講成這一年的。
           */}
-        <p className="hr-calendar-year-count">國定假日 <strong>{loading ? "—" : holidays}</strong> 天 · 補班日 <strong>{loading ? "—" : makeups}</strong> 天</p>
+        <p className="hr-calendar-year-count">國定假日 <strong>{loading ? "—" : holidays}</strong> 天 · 補班日 <strong>{loading ? "—" : makeups}</strong> 天 · 颱風停班 <strong>{loading ? "—" : typhoonStops}</strong> 天</p>
         {changed ? <p className="hr-schedule-status"><StatusBadge tone="warning">尚未儲存</StatusBadge><span>按「儲存」才會生效。</span></p> : null}
       </div>
       {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
       <div className={`table-scroll${loading ? " is-refreshing" : ""}`}><table className="data-table"><thead><tr>
-        <th>日期</th><th>星期</th><th>類型</th><th>名稱</th><th className="numeric">操作</th>
+        <th>日期</th><th>星期</th><th>類型／特殊標記</th><th>適用門市／地區</th><th>備註／名稱</th><th className="numeric">操作</th>
       </tr></thead><tbody>
         {days.map((day) => {
           const kind = rowKind(day);
@@ -194,11 +223,21 @@ export function HrCalendar() {
             <td data-label="星期">{weekdayOf(day.date)}</td>
             <td data-label="類型">
               {canWrite
-                ? <SelectField aria-label={`${day.date} 類型`} value={day.dayType} disabled={save.isPending || loading} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => update(day.date, { dayType: event.target.value as HrDayType })} />
+                ? <>
+                  <SelectField aria-label={`${day.date} 類型`} value={day.dayType} disabled={save.isPending || loading} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => update(day.date, { dayType: event.target.value as HrDayType })} />
+                  <SelectField aria-label={`${day.date} 特殊標記`} value={day.specialKind} disabled={save.isPending || loading} options={HR_CALENDAR_SPECIAL_KINDS.map((item) => ({ value: item, label: HR_CALENDAR_SPECIAL_KIND_LABELS[item] }))} onChange={(event) => { const value = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind: value, specialScopeIds: value === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(value === "typhoon_stop" && !day.name.trim() ? { name: "颱風停班" } : {}), ...(value !== "typhoon_stop" && day.name.trim() === "颱風停班" ? { name: "" } : {}) }); }} />
+                </>
                 : <StatusBadge tone={kind.tone}>{kind.label}</StatusBadge>}
               {canWrite && kind.label === "補班日" ? <StatusBadge tone="warning">補班日</StatusBadge> : null}
             </td>
-            <td data-label="名稱">
+            <td data-label="適用門市／地區">
+              {day.specialKind === "typhoon_stop"
+                ? canWrite
+                  ? <CalendarScopePicker scopeIds={day.specialScopeIds ?? []} scopes={calendar.data?.scopes ?? []} disabled={save.isPending || loading} onChange={(specialScopeIds) => update(day.date, { specialScopeIds })} />
+                  : (day.specialScopeIds?.length ? day.specialScopeIds.map((scopeId) => scopeLabel(scopeId, calendar.data?.scopes ?? [])).join("、") : "全部門市／地區")
+                : <span className="muted">—</span>}
+            </td>
+            <td data-label="備註／名稱">
               {canWrite
                 ? <TextField aria-label={`${day.date} 名稱`} maxLength={100} placeholder="未命名" value={day.name} disabled={save.isPending || loading} onChange={(event) => update(day.date, { name: event.target.value })} />
                 : day.name || <span className="muted">未命名</span>}
@@ -211,9 +250,9 @@ export function HrCalendar() {
           </tr>;
         })}
       </tbody></table></div>
-      {!days.length && !loading ? <p className="muted table-note">{year} 年還沒有登記任何假日。可以按「匯入政府行事曆」一次帶進來。</p> : null}
+      {!days.length && !loading ? <p className="muted table-note">{year} 年還沒有登記任何特殊日期。可以按「匯入政府行事曆」一次帶進來，再手動標記颱風停班。</p> : null}
     </Panel>
-    {adding ? <AddDayDialog year={year} existing={days} onAdd={(day) => setDraft(sortByDate([...days, day]))} onClose={() => setAdding(false)} /> : null}
+    {adding ? <AddDayDialog year={year} existing={days} scopes={calendar.data?.scopes ?? []} onAdd={(day) => setDraft(sortByDate([...days, day]))} onClose={() => setAdding(false)} /> : null}
     {importing ? <ImportDialog year={year} currentCount={saved.length} onClose={() => setImporting(false)} onDone={() => calendar.refetch()} /> : null}
   </div>;
 }

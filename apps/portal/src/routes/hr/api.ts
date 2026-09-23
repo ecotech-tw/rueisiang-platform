@@ -104,6 +104,8 @@ export interface ClockMapLocation {
 export interface ClockCalendarDay {
   date: string;
   weekday: number;
+  specialKind?: HrCalendarSpecialKind;
+  specialScopeIds?: string[];
   status: "not-employed" | "future" | "present" | "open" | "missing" | "rest";
   eventCount: number;
   firstEventAt: string | null;
@@ -152,7 +154,7 @@ export interface FormApproversResponse { approvers: FormApprover[]; defaultAppro
 export interface PayrollLineCalculationPart { formula: string; amountMinor: number }
 export interface PayrollLine { lineKey: string; direction: "earning" | "deduction"; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }
 export interface PayrollEmployee { employmentId: string; employeeUserId: string; employeeNumber: string; employeeName: string; lines: PayrollLine[]; earningMinor: number; deductionMinor: number; netMinor: number; attendanceDays: number; missingPunchDays: number }
-export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }
+export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null }
 export interface PayrollWorkerCandidate { id: string; displayName: string }
 export interface PayrollRun { runId: string; runName: string; periodKey: string; payDate: string | null; status: "ready" | "closed"; engineVersion: string; employees: PayrollEmployee[]; workers: PayrollWorker[]; warnings: string[] }
 export type BonusKind = "team_performance" | "individual_performance";
@@ -170,11 +172,14 @@ export interface ScheduleScope { id: string; name: string }
 export type HrDayType = "weekday" | "weekend" | "holiday";
 export const HR_DAY_TYPE_LABELS: Record<HrDayType, string> = { weekday: "平日", weekend: "週末", holiday: "國定假日" };
 export const HR_DAY_TYPES: HrDayType[] = ["weekday", "weekend", "holiday"];
+export type HrCalendarSpecialKind = "none" | "typhoon_stop";
+export const HR_CALENDAR_SPECIAL_KIND_LABELS: Record<HrCalendarSpecialKind, string> = { none: "一般日期", typhoon_stop: "颱風停班（原排班照薪）" };
+export const HR_CALENDAR_SPECIAL_KINDS: HrCalendarSpecialKind[] = ["none", "typhoon_stop"];
 
 export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; dayType: HrDayType; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number }
 export interface HrShiftsResponse { scopes: ScheduleScope[]; shifts: ScheduleShift[] }
-export interface HrCalendarDay { date: string; dayType: HrDayType; name: string; overridden: boolean }
-export interface HrCalendarResponse { days: HrCalendarDay[] }
+export interface HrCalendarDay { date: string; dayType: HrDayType; name: string; specialKind: HrCalendarSpecialKind; specialScopeIds: string[]; overridden: boolean }
+export interface HrCalendarResponse { days: HrCalendarDay[]; scopes: ScheduleScope[] }
 
 /**
  * 一個班別在某個日型該用哪一組時間；沒設定該日型就退回平日。
