@@ -1105,14 +1105,17 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   opacity: .72;
 }
 
-/* 申請中心是跨出勤／薪資的獨立工作區；表單與紀錄沿用同一個可捲動頁面。 */
+/* 申請中心是跨出勤／薪資的獨立工作區；申請紀錄與審核集中在同一張表。 */
 .hr-request-page > * + * { margin-top: 18px; }
-.hr-request-view-tabs { width: min(100%, 420px); }
 .hr-request-form { display: grid; gap: 16px; }
-.hr-request-form .button-row { justify-content: flex-start; padding-top: 2px; }
+.hr-request-form .button-row { justify-content: flex-end; padding-top: 2px; }
 .hr-request-form textarea { min-height: 96px; resize: vertical; }
-.hr-request-kind-tabs { margin-bottom: 18px; }
+.hr-request-kind-picker { display: grid; gap: 8px; }
+.hr-request-kind-tabs { margin: 0; }
 .hr-request-kind-tabs button { min-height: 40px; }
+.hr-request-dialog { width: min(680px, 100%); }
+.hr-request-dialog-body { max-height: calc(100vh - 180px); }
+.hr-request-dialog .hr-request-form { padding-top: 2px; }
 .hr-request-history-filter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .hr-request-history-filter button { min-height: 34px; padding: 0 10px; border: 0; border-radius: 999px; background: transparent; color: var(--color-muted); font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; transition-property: background-color, color, scale; transition-duration: 150ms; transition-timing-function: ease-out; }
 .hr-request-history-filter button:hover { background: --alpha(var(--color-brand) / 7%); color: var(--color-brand-dark); }
@@ -1130,6 +1133,8 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-request-page > * + * { margin-top: 14px; }
   .hr-request-history-filter { overflow-x: auto; flex-wrap: nowrap; justify-content: flex-start; padding-bottom: 2px; }
   .hr-request-history-filter button { flex: none; }
+  .hr-request-form .button-row { justify-content: stretch; }
+  .hr-request-form .button-row > * { flex: 1; }
 }
 
 /* 假別是出勤主檔；保留足夠留白讓狀態與操作在窄螢幕仍可辨識。 */

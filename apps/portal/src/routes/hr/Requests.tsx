@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { useSession } from "../../auth/session.js";
+import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeRequest, type HrRequestCenterResponse } from "./api.js";
@@ -138,12 +139,19 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
   </Dialog>;
 }
 
-function LeaveForm({ employees, leaveTypes, onDone }: { employees: Employee[]; leaveTypes: LeaveType[]; onDone: () => void }) {
+interface RequestFormProps {
+  onClose: () => void;
+  onDone: () => void;
+  onPendingChange: (pending: boolean) => void;
+}
+
+function LeaveForm({ employees, leaveTypes, onClose, onDone, onPendingChange }: { employees: Employee[]; leaveTypes: LeaveType[] } & RequestFormProps) {
   const [employeeUserId, setEmployeeUserId] = useState("");
   const [leaveTypeId, setLeaveTypeId] = useState("");
   const [startsAt, setStartsAt] = useState(() => `${taipeiToday()}T09:00`);
   const [endsAt, setEndsAt] = useState(() => `${taipeiToday()}T18:00`);
   const [reason, setReason] = useState("");
+  const toast = useToast();
   const write = useHrWrite();
   const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.displayName}（${employee.employeeNumber}）` }))];
   const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : ""}` }))];
@@ -153,40 +161,72 @@ function LeaveForm({ employees, leaveTypes, onDone }: { employees: Employee[]; l
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!employeeUserId || !leaveTypeId || leaveDuration.isPending || !durationValid) return;
-    write.mutate({ path: "/requests/leave", method: "POST", values: { employeeUserId, leaveTypeId, startsAt, endsAt, reason } }, { onSuccess: () => { setReason(""); onDone(); } });
+    onPendingChange(true);
+    write.mutate({ path: "/requests/leave", method: "POST", values: { employeeUserId, leaveTypeId, startsAt, endsAt, reason } }, {
+      onSuccess: () => {
+        onPendingChange(false);
+        toast.show("請假申請成功，已回到申請紀錄。", "success");
+        onDone();
+      },
+      onError: () => onPendingChange(false),
+    });
   }
   return <form className="hr-request-form" onSubmit={submit}>
-    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} onChange={(event) => setEmployeeUserId(event.target.value)} />
-    <SelectField label="假別" required value={leaveTypeId} options={leaveTypeOptions} disabled={!leaveTypes.length} onChange={(event) => setLeaveTypeId(event.target.value)} />
-    <div className="form-grid two"><TextField label="開始日期與時間（台北）" type="datetime-local" step="1800" required value={startsAt} onChange={(event) => { const value = event.target.value; setStartsAt(value); if (endsAt && endsAt <= value) setEndsAt(""); }} /><TextField label="結束日期與時間（台北）" type="datetime-local" step="1800" required value={endsAt} min={startsAt} onChange={(event) => setEndsAt(event.target.value)} /></div>
+    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
+    <SelectField label="假別" required value={leaveTypeId} options={leaveTypeOptions} disabled={!leaveTypes.length || write.isPending} onChange={(event) => setLeaveTypeId(event.target.value)} />
+    <div className="form-grid two"><TextField label="開始日期與時間（台北）" type="datetime-local" step="1800" required value={startsAt} disabled={write.isPending} onChange={(event) => { const value = event.target.value; setStartsAt(value); if (endsAt && endsAt <= value) setEndsAt(""); }} /><TextField label="結束日期與時間（台北）" type="datetime-local" step="1800" required value={endsAt} min={startsAt} disabled={write.isPending} onChange={(event) => setEndsAt(event.target.value)} /></div>
     <p className="muted field-note">系統依工作日、班表與休息時間計算請假時數：{leaveDuration.isPending ? "計算中…" : leaveDuration.error ? leaveDuration.error.message : durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請先選擇有效的工作時間。"}</p>
-    <Field label="請假原因"><textarea rows={4} maxLength={1000} value={reason} onChange={(event) => setReason(event.target.value)} /></Field>
-    <div className="button-row"><Button type="submit" icon="plus" loading={write.isPending} disabled={!employees.length || !leaveTypes.length || leaveDuration.isPending || !durationValid}>建立請假申請</Button></div>
+    <Field label="請假原因"><textarea rows={4} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
+    <div className="button-row"><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" icon="plus" loading={write.isPending} disabled={!employees.length || !leaveTypes.length || leaveDuration.isPending || !durationValid}>建立請假申請</Button></div>
     {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
   </form>;
 }
 
-function OvertimeForm({ employees, onDone }: { employees: Employee[]; onDone: () => void }) {
+function OvertimeForm({ employees, onClose, onDone, onPendingChange }: { employees: Employee[] } & RequestFormProps) {
   const [employeeUserId, setEmployeeUserId] = useState("");
   const [requestedStart, setRequestedStart] = useState("");
   const [requestedEnd, setRequestedEnd] = useState("");
   const [settlementKind, setSettlementKind] = useState<"pay" | "compensatory">("pay");
   const [reason, setReason] = useState("");
+  const toast = useToast();
   const write = useHrWrite();
   const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.displayName}（${employee.employeeNumber}）` }))];
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!employeeUserId || !requestedStart || !requestedEnd || !reason.trim()) return;
-    write.mutate({ path: "/requests/overtime", method: "POST", values: { employeeUserId, requestedStart, requestedEnd, settlementKind, reason } }, { onSuccess: () => { setReason(""); onDone(); } });
+    onPendingChange(true);
+    write.mutate({ path: "/requests/overtime", method: "POST", values: { employeeUserId, requestedStart, requestedEnd, settlementKind, reason } }, {
+      onSuccess: () => {
+        onPendingChange(false);
+        toast.show("加班申請成功，已回到申請紀錄。", "success");
+        onDone();
+      },
+      onError: () => onPendingChange(false),
+    });
   }
   return <form className="hr-request-form" onSubmit={submit}>
-    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} onChange={(event) => setEmployeeUserId(event.target.value)} />
-    <div className="form-grid two"><TextField label="加班開始" type="datetime-local" required value={requestedStart} onChange={(event) => setRequestedStart(event.target.value)} /><TextField label="加班結束" type="datetime-local" required min={requestedStart} value={requestedEnd} onChange={(event) => setRequestedEnd(event.target.value)} /></div>
-    <SelectField label="結算方式" required value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} />
-    <Field label="加班原因" required><textarea rows={4} maxLength={1000} required value={reason} onChange={(event) => setReason(event.target.value)} /></Field>
-    <div className="button-row"><Button type="submit" icon="plus" loading={write.isPending} disabled={!employees.length}>建立加班申請</Button></div>
+    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
+    <div className="form-grid two"><TextField label="加班開始" type="datetime-local" required value={requestedStart} disabled={write.isPending} onChange={(event) => setRequestedStart(event.target.value)} /><TextField label="加班結束" type="datetime-local" required min={requestedStart} value={requestedEnd} disabled={write.isPending} onChange={(event) => setRequestedEnd(event.target.value)} /></div>
+    <SelectField label="結算方式" required value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={write.isPending} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} />
+    <Field label="加班原因" required><textarea rows={4} maxLength={1000} required value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
+    <div className="button-row"><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" icon="plus" loading={write.isPending} disabled={!employees.length}>建立加班申請</Button></div>
     {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
   </form>;
+}
+
+function CreateRequestDialog({ initialKind, employees, leaveTypes, onClose, onDone }: { initialKind: "leave" | "overtime"; employees: Employee[]; leaveTypes: LeaveType[]; onClose: () => void; onDone: () => void }) {
+  const [kind, setKind] = useState<"leave" | "overtime">(initialKind);
+  const [pending, setPending] = useState(false);
+  return <Dialog title="新增申請" titleMeta="建立後會出現在申請紀錄" className="hr-request-dialog" bodyClassName="hr-request-dialog-body" onClose={onClose} closeDisabled={pending}>
+    <div className="hr-request-kind-picker">
+      <span className="muted">申請類型</span>
+      <div className="segmented-control hr-request-kind-tabs" role="group" aria-label="申請類型">
+        <button type="button" className={kind === "leave" ? "selected" : ""} aria-pressed={kind === "leave"} disabled={pending} onClick={() => setKind("leave")}>請假</button>
+        <button type="button" className={kind === "overtime" ? "selected" : ""} aria-pressed={kind === "overtime"} disabled={pending} onClick={() => setKind("overtime")}>加班</button>
+      </div>
+    </div>
+    {kind === "leave" ? <LeaveForm employees={employees} leaveTypes={leaveTypes} onClose={onClose} onDone={onDone} onPendingChange={setPending} /> : <OvertimeForm employees={employees} onClose={onClose} onDone={onDone} onPendingChange={setPending} />}
+  </Dialog>;
 }
 
 export function HrRequestCenter() {
@@ -194,8 +234,9 @@ export function HrRequestCenter() {
   const { permissions } = useSession();
   const canAccess = permissions.has("hr:request:review");
   const [searchParams] = useSearchParams();
-  const [view, setView] = useState<"new" | "history">("new");
-  const [kind, setKind] = useState<"leave" | "overtime">(searchParams.get("type") === "overtime" ? "overtime" : "leave");
+  const navigate = useNavigate();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [initialKind] = useState<"leave" | "overtime">(searchParams.get("type") === "overtime" ? "overtime" : "leave");
   const [historyKind, setHistoryKind] = useState<HistoryKind>("all");
   const [reviewing, setReviewing] = useState<RequestRow | null>(null);
   const employees = useHrQuery<EmployeePageResponse>("/requests/employees", canAccess, { keepPreviousData: false });
@@ -207,25 +248,23 @@ export function HrRequestCenter() {
   if (!canAccess) return <Alert tone="danger">你沒有檢視 HR 申請的權限。</Alert>;
   if (employees.isPending || leaveTypes.isPending || requests.isPending) return <HrPageSkeleton variant="table" />;
 
+  function finishCreate() {
+    setCreateOpen(false);
+    setHistoryKind("all");
+    void navigate("/hr/requests", { replace: true });
+    void requests.refetch();
+  }
+
   return <div className="page hr-request-page">
-    <PageHeader title="申請與審核" description="申請中心獨立於儀表板、員工與出勤資料頁；目前 HR 代登送出後直接核准，未來員工前台可沿用同一套待審核流程。" />
+    <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" className="add-action" onClick={() => setCreateOpen(true)}>新增申請</Button>} />
     <Alert tone="info">核准後才會成為出勤與薪資計算的正式來源。後台代登目前會保存「已核准」狀態；員工前台上線後則由主管或 HR 進行審核。</Alert>
-    <div className="segmented-control hr-request-view-tabs" role="group" aria-label="申請中心工作區">
-      <button type="button" className={view === "new" ? "selected" : ""} aria-pressed={view === "new"} onClick={() => setView("new")}>新增申請</button>
-      <button type="button" className={view === "history" ? "selected" : ""} aria-pressed={view === "history"} onClick={() => setView("history")}>申請紀錄</button>
-    </div>
-    {view === "new" ? <Panel title="建立申請" description="先選擇申請類型，再指定員工與實際期間。">
-        <div className="segmented-control hr-request-kind-tabs" role="group" aria-label="申請類型">
-          <button type="button" className={kind === "leave" ? "selected" : ""} aria-pressed={kind === "leave"} onClick={() => setKind("leave")}>請假</button>
-          <button type="button" className={kind === "overtime" ? "selected" : ""} aria-pressed={kind === "overtime"} onClick={() => setKind("overtime")}>加班</button>
-        </div>
-        {employees.error || leaveTypes.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message}</Alert> : null}
-        {kind === "leave" ? <LeaveForm employees={employees.data?.employees ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onDone={() => { setView("history"); void requests.refetch(); }} /> : <OvertimeForm employees={employees.data?.employees ?? []} onDone={() => { setView("history"); void requests.refetch(); }} />}
-      </Panel> : <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可在此處理。" actions={<div className="hr-request-history-filter" role="group" aria-label="申請類型篩選">{(["all", "leave", "overtime", "clock_correction"] as const).map((value) => <button type="button" key={value} className={historyKind === value ? "selected" : ""} aria-pressed={historyKind === value} onClick={() => setHistoryKind(value)}>{value === "all" ? "全部" : REQUEST_KIND_LABEL[value]}</button>)}</div>}>
+    {employees.error || leaveTypes.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message}</Alert> : null}
+    <Panel className="hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可直接在此處理。" actions={<div className="hr-request-history-filter" role="group" aria-label="申請類型篩選">{(["all", "leave", "overtime", "clock_correction"] as const).map((value) => <button type="button" key={value} className={historyKind === value ? "selected" : ""} aria-pressed={historyKind === value} onClick={() => setHistoryKind(value)}>{value === "all" ? "全部" : REQUEST_KIND_LABEL[value]}</button>)}</div>}>
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <div className="table-scroll"><table className="data-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工">{row.employeeName}<small className="muted">{row.employeeNumber}</small></td><td data-label="期間">{row.period}</td><td data-label="內容">{row.detail}</td><td data-label="原因">{row.reason}</td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : row.kind === "leave" && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消請假</Button> : "—"}</td></tr>)}</tbody></table></div>
       {!filteredRows.length ? <p className="empty-state">目前沒有符合條件的申請紀錄。</p> : null}
-    </Panel>}
+    </Panel>
+    {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}
     {reviewing ? <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}
   </div>;
 }
