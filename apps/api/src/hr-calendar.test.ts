@@ -65,23 +65,26 @@ describe("HR 行事曆與班別日型", () => {
     expect(listed.days.find((day) => day.date === "2026-02-21")).toMatchObject({ dayType: "weekday", name: "補班日", overridden: true });
   });
 
-  it("颱風停班是保留排班的特殊標記，不改寫原本日型，且可限制適用門市", async () => {
+  it("災防停班是保留排班的特殊標記，只能套用平日，且可限制適用門市", async () => {
     await db.insert(scopes).values({ id: "scope-other", sourceType: "manual", scopeKind: "store", name: "其他櫃點", normalizedName: "其他櫃點" });
-    const saved = await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-17", dayType: "holiday", name: "颱風停班", specialKind: "typhoon_stop", specialScopeIds: ["scope"] }] });
+    const saved = await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-17", dayType: "weekday", name: "災防停班", specialKind: "typhoon_stop", specialScopeIds: ["scope"] }] });
     expect(saved.status, await saved.clone().text()).toBe(200);
     expect(await db.select({ date: hrCalendarDays.date, dayType: hrCalendarDays.dayType, specialKind: hrCalendarDays.specialKind }).from(hrCalendarDays)).toEqual([
-      { date: "2026-02-17", dayType: "holiday", specialKind: "typhoon_stop" },
+      { date: "2026-02-17", dayType: "weekday", specialKind: "typhoon_stop" },
     ]);
     expect(await db.select({ date: hrCalendarDayScopes.date, scopeId: hrCalendarDayScopes.scopeId }).from(hrCalendarDayScopes)).toEqual([{ date: "2026-02-17", scopeId: "scope" }]);
     const listed = await (await request("/hr/calendar/2026-02")).json() as { days: Array<{ date: string; dayType: string; specialKind: string; name: string; specialScopeIds: string[] }> };
-    expect(listed.days.find((day) => day.date === "2026-02-17")).toMatchObject({ dayType: "holiday", specialKind: "typhoon_stop", name: "颱風停班", specialScopeIds: ["scope"] });
+    expect(listed.days.find((day) => day.date === "2026-02-17")).toMatchObject({ dayType: "weekday", specialKind: "typhoon_stop", name: "災防停班", specialScopeIds: ["scope"] });
     expect((await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "holiday", name: "", specialKind: "storm" }] })).status).toBe(400);
-    expect((await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "holiday", name: "颱風停班", specialKind: "typhoon_stop", specialScopeIds: ["missing-scope"] }] })).status).toBe(400);
+    const invalidDayType = await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "holiday", name: "災防停班", specialKind: "typhoon_stop", specialScopeIds: ["scope"] }] });
+    expect(invalidDayType.status, await invalidDayType.clone().text()).toBe(400);
+    expect(await invalidDayType.text()).toContain("只能套用於平日");
+    expect((await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "weekday", name: "災防停班", specialKind: "typhoon_stop", specialScopeIds: ["missing-scope"] }] })).status).toBe(400);
   });
 
-  it("颱風停班的適用範圍只接受門市 scope", async () => {
+  it("災防停班的適用範圍只接受門市 scope", async () => {
     await db.insert(scopes).values({ id: "channel", sourceType: "manual", scopeKind: "channel", name: "測試通路", normalizedName: "測試通路" });
-    const response = await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "holiday", name: "颱風停班", specialKind: "typhoon_stop", specialScopeIds: ["channel"] }] });
+    const response = await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "weekday", name: "災防停班", specialKind: "typhoon_stop", specialScopeIds: ["channel"] }] });
     expect(response.status, await response.clone().text()).toBe(400);
     expect(await response.text()).toContain("適用門市／地區不存在");
   });
@@ -209,7 +212,7 @@ describe("行事曆整年管理與出缺勤", () => {
     // 2021-02-20 是星期六卻要補班；2021-02-11 是星期四的春節假期。
     const saved = await request("/hr/calendar/years/2021", "PUT", { days: [
       { date: "2021-02-11", dayType: "holiday", name: "春節" },
-      { date: "2021-02-19", dayType: "weekday", name: "颱風停班", specialKind: "typhoon_stop" },
+      { date: "2021-02-19", dayType: "weekday", name: "災防停班", specialKind: "typhoon_stop" },
       { date: "2021-02-20", dayType: "weekday", name: "補行上班" },
     ] });
     expect(saved.status, await saved.clone().text()).toBe(200);
@@ -252,7 +255,7 @@ describe("行事曆整年管理與出缺勤", () => {
       { id: "attendance-clock-in", employeeUserId: "self", employmentId: employment.id, scopeId: "scope", idempotencyKey: "attendance-clock-in", sourceKind: "manual", eventKind: "clock_in", occurredAt: "2021-02-17 01:00:00" },
       { id: "attendance-clock-out", employeeUserId: "self", employmentId: employment.id, scopeId: "scope", idempotencyKey: "attendance-clock-out", sourceKind: "manual", eventKind: "clock_out", occurredAt: "2021-02-17 09:00:00" },
     ]);
-    const saved = await request("/hr/calendar/2021-02", "PUT", { days: [{ date: "2021-02-17", dayType: "weekday", name: "颱風停班", specialKind: "typhoon_stop", specialScopeIds: ["scope"] }] });
+    const saved = await request("/hr/calendar/2021-02", "PUT", { days: [{ date: "2021-02-17", dayType: "weekday", name: "災防停班", specialKind: "typhoon_stop", specialScopeIds: ["scope"] }] });
     expect(saved.status, await saved.clone().text()).toBe(200);
 
     const days = await calendarOf(selfCookie, 2021, 2);

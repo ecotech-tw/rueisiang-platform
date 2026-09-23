@@ -648,7 +648,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ] });
     expect(updated.status, await updated.clone().text()).toBe(200);
     const db = createDatabase(d1 as never);
-    await db.insert(hrCalendarDays).values({ date: "2026-09-03", dayType: "weekday", name: "颱風停班", specialKind: "typhoon_stop", updatedBy: "dev-eli-lin@ecotech.tw" });
+    await db.insert(hrCalendarDays).values({ date: "2026-09-03", dayType: "weekday", name: "災防停班", specialKind: "typhoon_stop", updatedBy: "dev-eli-lin@ecotech.tw" });
     await db.insert(hrCalendarDayScopes).values({ date: "2026-09-03", scopeId: "cyberbiz:store:demo-ximen" });
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], requestId: "test-payroll-worker-2026-09" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
@@ -806,13 +806,13 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.run.warnings.some((warning) => warning.includes("日薪制但本期沒有已發布排班"))).toBe(false);
   });
 
-  it("颱風停班保留原排班並建立可追溯的給薪明細", async () => {
-    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "颱風停班測試" });
+  it("災防停班保留原排班並建立可追溯的給薪明細", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "災防停班測試" });
     expect(compensation.status, await compensation.clone().text()).toBe(201);
     const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
     expect(mode.status, await mode.clone().text()).toBe(200);
     const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ versionId: string }> };
-    const otherShiftResponse = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-xinyi", name: "颱風範圍測試班", times: [{ dayType: "weekday", startTime: "18:00", endTime: "23:00" }] });
+    const otherShiftResponse = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-xinyi", name: "災防範圍測試班", times: [{ dayType: "weekday", startTime: "18:00", endTime: "23:00" }] });
     expect(otherShiftResponse.status, await otherShiftResponse.clone().text()).toBe(201);
     const otherShift = await otherShiftResponse.json() as { versionId: string };
     const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
@@ -822,7 +822,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ] });
     expect(saved.status, await saved.clone().text()).toBe(200);
     const db = createDatabase(d1 as never);
-    await db.insert(hrCalendarDays).values({ date: "2026-09-03", dayType: "weekday", name: "颱風停班", specialKind: "typhoon_stop", updatedBy: "dev-eli-lin@ecotech.tw" });
+    await db.insert(hrCalendarDays).values({ date: "2026-09-03", dayType: "weekday", name: "災防停班", specialKind: "typhoon_stop", updatedBy: "dev-eli-lin@ecotech.tw" });
     await db.insert(hrCalendarDayScopes).values({ date: "2026-09-03", scopeId: "cyberbiz:store:demo-ximen" });
 
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-typhoon-stop-employee" });

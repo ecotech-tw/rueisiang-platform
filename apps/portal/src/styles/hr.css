@@ -222,7 +222,9 @@ button.hr-system-nav-link {
   z-index: 30;
   display: grid;
   gap: 3px;
+  width: max-content;
   min-width: 190px;
+  max-width: min(360px, calc(100vw - 32px));
   padding: 8px;
   border: 1px solid transparent;
   border-radius: 18px;
@@ -253,6 +255,8 @@ button.hr-system-nav-link {
 
 .hr-system-submenu-link {
   display: grid;
+  width: 100%;
+  min-width: 0;
   grid-template-columns: 20px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
@@ -282,6 +286,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 }
 .hr-system-submenu-link.danger { color: var(--color-brand-dark); }
 .hr-system-submenu-link svg { width: 19px; height: 19px; }
+.hr-system-submenu-link > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── 右上角帳號選單：頭像是觸發鈕，回平台與登出收在裡面 ─────────────── */
 .hr-user-menu { position: relative; justify-self: end; }
@@ -637,7 +642,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-system-nav-item.open { flex-basis: 100%; }
   .hr-system-nav-item.active > .hr-system-nav-link { background: --alpha(var(--color-paper) / 30%); box-shadow: var(--hr-glass-thumb-rim); }
   .hr-system-nav-link { width: 100%; justify-content: center; padding-inline: 12px; }
-  .hr-system-submenu { left: 0; min-width: 0; width: 100%; transform: translate(0, -6px); }
+  .hr-system-submenu { left: 0; width: 100%; min-width: 0; max-width: 100%; transform: translate(0, -6px); }
   .hr-system-nav-item.open .hr-system-submenu { position: static; margin-top: 4px; transform: translate(0, 0); }
   /* 讓頁首按鈕的 24px 陰影在小螢幕右側也有完整的繪製空間。 */
   .hr-system-main { padding: 20px 24px 28px; }
