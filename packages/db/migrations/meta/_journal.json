@@ -1156,6 +1156,13 @@
       "when": 1790132000006,
       "tag": "0188_backfill_hr_leave_request_times",
       "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "6",
+      "when": 1790132000007,
+      "tag": "0189_repair_hr_leave_request_schema",
+      "breakpoints": true
     }
   ]
 }
