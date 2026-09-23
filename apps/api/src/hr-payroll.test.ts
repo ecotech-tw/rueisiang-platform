@@ -351,12 +351,20 @@ describe("HR 薪資與勞健保", () => {
     const unusedBody = await unused.json() as { id: string };
     const unusedVersion = await request(`/hr/special-workdays/rules/${unusedBody.id}/versions`, "POST", { name: "未套用可刪除", validFrom: "2026-02-01", wageKind: "fixed_hourly", fixedAmountMinor: 30000, allowances: [], overtimeRules: [] });
     expect(unusedVersion.status, await unusedVersion.clone().text()).toBe(201);
-    // 拿過期的 revision 刪不動：中途有人加版本時，整條規則不該被連同對方那一版一起刪掉。
+    /*
+     * 拿過期的 revision 刪不動：中途有人加版本時，整條規則不該被連同對方那一版一起刪掉。
+     *
+     * 要斷言到**版本層**，不能只看規則列還在。刪除的語句順序是「先刪版本／補貼／加班級距，
+     * 最後那句才比對 revision」，所以只驗父列的話，整批 rollback 與「子列被刪光但父列留著」
+     * 兩種結果長得一模一樣——那正是 CLAUDE.md 為 0023 記下的那種假信心。
+     */
     const stale = await request(`/hr/special-workdays/rules/${unusedBody.id}`, "DELETE", { revision: 999 });
     expect(stale.status, await stale.clone().text()).toBe(409);
-    const survived = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; revision: number } }> };
+    const survived = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; revision: number }; versions: Array<{ allowances: unknown[]; overtimeRules: unknown[] }> }> };
     const current = survived.rules.find((item) => item.rule.id === unusedBody.id);
     expect(current).toBeDefined();
+    expect(current!.versions).toHaveLength(2);
+    expect(current!.versions.flatMap((version) => version.allowances)).toHaveLength(1);
 
     const deleted = await request(`/hr/special-workdays/rules/${unusedBody.id}`, "DELETE", { revision: current!.rule.revision });
     expect(deleted.status, await deleted.clone().text()).toBe(200);

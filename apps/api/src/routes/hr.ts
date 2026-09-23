@@ -683,7 +683,7 @@ export const hr = new Hono<AppEnv>()
   .post("/special-workdays/rules/:id/versions", requirePermission("hr:office:write"), async (c) => c.json(await createHrSpecialWorkdayRuleVersion(c.get("db"), c.req.param("id"), specialWorkdayRule(await body(c)), c.get("user")), 201))
   .delete("/special-workdays/rules/:id", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);
-    return c.json(await deleteHrSpecialWorkdayRule(c.get("db"), c.req.param("id"), integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER), c.get("user")));
+    return c.json(await deleteHrSpecialWorkdayRule(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
   })
   .post("/special-workdays/rules/:id/versions/:versionId/void", requirePermission("hr:office:write"), async (c) => c.json(await voidHrSpecialWorkdayRuleVersion(c.get("db"), c.req.param("id"), c.req.param("versionId"), c.get("user"))))
   .post("/special-workdays/rules/:id/status", requirePermission("hr:office:write"), async (c) => { const input = await body(c); return c.json(await setHrSpecialWorkdayRuleActive(c.get("db"), c.req.param("id"), booleanValue(input, "active", "啟用狀態"), c.get("user"))); })

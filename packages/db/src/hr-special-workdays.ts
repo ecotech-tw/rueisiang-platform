@@ -83,9 +83,9 @@ export async function createHrSpecialWorkdayRule(db: Database, input: SpecialWor
   await db.batch(statements as never); return { id: ruleId, versionId };
 }
 
-/** 只有從未套用過日期的規則才能物理刪除；已有套用紀錄時必須保留來源與快照。 */
 /**
- * 刪除整條規則。只有從沒被任何日期套用過的規則能刪。
+ * 刪除整條規則。只有從沒被任何日期套用過的規則能刪——已有套用紀錄時必須保留來源與快照，
+ * 那些是薪資算過的依據。
  *
  * revision 是必填的：刪除是「連同底下所有版本一起消失」，沒有樂觀鎖的話
  * A 開著頁面看到 v1、B 剛加了 v2 修正費率、A 按下刪除——v1 與 B 那版一起沒了，
