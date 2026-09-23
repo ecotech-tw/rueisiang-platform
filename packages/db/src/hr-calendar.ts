@@ -196,6 +196,58 @@ interface GovCalendarDay {
 
 export const HR_CALENDAR_SOURCE_URL = "https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data";
 
+const GOV_CALENDAR_GENERIC_DESCRIPTIONS = new Set(["補假", "放假", "調整放假", "補行上班", "調整上班"]);
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function addDays(date: string, amount: number) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + amount);
+  return value.toISOString().slice(0, 10);
+}
+
+function dateDistance(first: string, second: string) {
+  return Math.abs(Date.parse(`${first}T00:00:00Z`) - Date.parse(`${second}T00:00:00Z`)) / MILLISECONDS_PER_DAY;
+}
+
+/**
+ * 政府資料把補假原因獨立寫成「補假」，但同一段連假裡的週末節日才是原本的假日。
+ * 先找有名稱的週末節日，再退回最近的有名稱假日，才能處理連假中間隔著其他假日的情況。
+ */
+function govHolidayReason(date: string, source: ReadonlyMap<string, GovCalendarDay>) {
+  const nearby: Array<{ date: string; description: string }> = [];
+  for (const direction of [-1, 1]) {
+    let cursor = addDays(date, direction);
+    while (source.get(cursor)?.isHoliday) {
+      const rawDescription = source.get(cursor)?.description;
+      const description = typeof rawDescription === "string" ? rawDescription.trim() : "";
+      if (description && !GOV_CALENDAR_GENERIC_DESCRIPTIONS.has(description)) nearby.push({ date: cursor, description });
+      cursor = addDays(cursor, direction);
+    }
+  }
+  const weekendHolidays = nearby.filter((day) => defaultDayType(day.date) === "weekend");
+  const candidates = weekendHolidays.length ? weekendHolidays : nearby;
+  candidates.sort((a, b) => dateDistance(a.date, date) - dateDistance(b.date, date) || a.date.localeCompare(b.date));
+  return candidates[0]?.description;
+}
+
+function normalizedGovCalendar(year: number, source: readonly GovCalendarDay[]) {
+  const range = yearRange(year);
+  const days = new Map<string, GovCalendarDay>();
+  for (const day of source) {
+    /*
+     * isHoliday 也要驗型別，不能只看 truthiness。來源是第三方鏡像，萬一哪天變成字串
+     * "false"，每一天都 truthy，整年非週末的日子全會被寫成國定假日（約 250 列）——
+     * 之後全公司整年的出勤讀成「休息」、日支項目整年不發，而且哪裡都不會報錯。
+     */
+    if (typeof day?.date !== "string" || !/^\d{8}$/.test(day.date)) continue;
+    if (typeof day.isHoliday !== "boolean") continue;
+    const date = `${day.date.slice(0, 4)}-${day.date.slice(4, 6)}-${day.date.slice(6, 8)}`;
+    if (date < range.start || date >= range.end || days.has(date)) continue;
+    days.set(date, day);
+  }
+  return days;
+}
+
 /**
  * 把政府行事曆的一年轉成我們的例外清單。
  *
@@ -207,28 +259,17 @@ export const HR_CALENDAR_SOURCE_URL = "https://cdn.jsdelivr.net/gh/ruyut/TaiwanC
  * 測試直接餵資料進來，不必假造一個 fetch。
  */
 export function overridesFromGovCalendar(year: number, source: readonly GovCalendarDay[]): HrCalendarDayInput[] {
-  const range = yearRange(year);
-  // 同一天出現兩次就是兩筆撞主鍵的 INSERT，整個 D1 batch 會失敗，使用者拿到的是
-  // raw 的 UNIQUE constraint 500；手動儲存那條路早就在 toOverrides 擋掉重複了。
-  const seen = new Set<string>();
+  const sourceDays = normalizedGovCalendar(year, source);
   const overrides: HrCalendarDayInput[] = [];
-  for (const day of source) {
-    /*
-     * isHoliday 也要驗型別，不能只看 truthiness。來源是第三方鏡像，萬一哪天變成字串
-     * "false"，每一天都 truthy，整年非週末的日子全會被寫成國定假日（約 250 列）——
-     * 之後全公司整年的出勤讀成「休息」、日支項目整年不發，而且哪裡都不會報錯。
-     */
-    if (typeof day?.date !== "string" || !/^\d{8}$/.test(day.date)) continue;
-    if (typeof day.isHoliday !== "boolean") continue;
-    const date = `${day.date.slice(0, 4)}-${day.date.slice(4, 6)}-${day.date.slice(6, 8)}`;
-    if (date < range.start || date >= range.end || seen.has(date)) continue;
+  for (const [date, day] of sourceDays) {
     const fallback = defaultDayType(date);
     const dayType: HrDayType = day.isHoliday ? "holiday" : "weekday";
     // 放假的週六日、上班的平日都跟預設值一樣，存下去只會把這張表撐成 365 列。
     if (day.isHoliday && fallback === "weekend") continue;
     if (!day.isHoliday && fallback === "weekday") continue;
-    const name = typeof day.description === "string" ? day.description.trim().slice(0, 100) : "";
-    seen.add(date);
+    const description = typeof day.description === "string" ? day.description.trim().slice(0, 100) : "";
+    const reason = description === "補假" ? govHolidayReason(date, sourceDays) : undefined;
+    const name = reason ? `${reason}補假`.slice(0, 100) : description;
     overrides.push({ date, dayType, name: name || (dayType === "weekday" ? "補行上班" : "放假") });
   }
   return overrides.sort((a, b) => a.date.localeCompare(b.date));
