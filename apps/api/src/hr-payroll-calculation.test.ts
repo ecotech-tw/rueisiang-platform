@@ -73,6 +73,29 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await repeat.json() as { run: { runId: string } }).run.runId).toBe(body.run.runId);
   });
 
+  it("只按報到後的在職日驗證與計算員工薪資", async () => {
+    d1.sqlite.exec(`
+      UPDATE hr_employment_service_periods SET service_start_on='2026-08-03' WHERE employment_id='dev-employment-newhire';
+      UPDATE hr_compensation_versions SET valid_from='2026-08-03' WHERE id='dev-comp-newhire-2026';
+    `);
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-newhire@ecotech.tw"], requestId: "test-payroll-newhire-2026-08",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ employeeUserId: string; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const employee = body.run.employees[0]!;
+    const baseSalary = employee.lines.find((line) => line.lineKey === "base_salary");
+    expect(employee.employeeUserId).toBe("dev-newhire@ecotech.tw");
+    expect(baseSalary?.amountMinor).toBeGreaterThan(0);
+    expect(baseSalary?.explanation.formulaDetail).toEqual(expect.stringContaining("29 天"));
+
+    const noEmploymentPeriod = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-07", employeeUserIds: ["dev-newhire@ecotech.tw"], requestId: "test-payroll-newhire-2026-07",
+    });
+    expect(noEmploymentPeriod.status, await noEmploymentPeriod.clone().text()).toBe(400);
+    expect((await noEmploymentPeriod.json() as { error: string }).error).toContain("沒有在職區間");
+  });
+
   it("保存健保眷屬倍數與每筆薪資公式", async () => {
     d1.sqlite.exec("UPDATE hr_insurance_versions SET dependent_count = 2 WHERE id = 'dev-insurance-lin-health-2026'");
     const response = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-formula-snapshot" });

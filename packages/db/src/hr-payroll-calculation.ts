@@ -42,7 +42,7 @@ import {
   hrPayrollAdjustmentItems,
   hrPayrollAdjustments,
 } from "./schema/hr-payroll-runs.js";
-import { hrEmployments } from "./schema/hr-people.js";
+import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
@@ -360,7 +360,11 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
       WHERE selected_worker_entry.schedule_version_id = hr_schedule_versions.id
         AND selected_worker_entry.worker_id IN (${sql.join(workerIds.map((id) => sql`${id}`), sql`, `)}))`;
   const [employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
-    db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId }).from(hrEmployments).where(employmentFilter),
+    db.select({
+      id: hrEmployments.id,
+      employeeUserId: hrEmployments.employeeUserId,
+      serviceStartOn: hrEmploymentServicePeriods.serviceStartOn,
+    }).from(hrEmployments).leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id)).where(employmentFilter),
     db.select({ userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, supervisorUserId: hrEmployments.supervisorUserId, revision: hrEmployments.revision, updatedAt: hrEmployments.updatedAt }).from(hrEmployments).where(sql`${hrEmployments.id} IN (${employmentValues})`),
     db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
     db.select().from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, employmentIds)),
@@ -572,12 +576,19 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     employeeUserId: hrEmployments.employeeUserId,
     employeeNumber: hrEmployments.employeeNumber,
     employeeName: displayName,
+    serviceStartOn: hrEmploymentServicePeriods.serviceStartOn,
     attendanceMode: sql<string>`coalesce((SELECT attendance_mode FROM hr_employment_attendance_settings WHERE employment_id = ${hrEmployments.id}), 'general')`,
     employeeRevision: hrEmployments.revision,
   }).from(hrEmployments)
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
     .where(and(payrollEmploymentStatus, hrEmployableUser));
-  const employees = employeeRows.filter((row) => employeeSelected(row, input));
+  const selectedEmployees = employeeRows.filter((row) => employeeSelected(row, input));
+  const employees = selectedEmployees.filter((employee) => employmentDaysForPeriod(employee, period).length > 0);
+  const employeesWithoutPeriod = selectedEmployees.filter((employee) => !employees.includes(employee));
+  if (input.employeeUserIds !== undefined && employeesWithoutPeriod.length) {
+    throw new HrError(400, `以下員工在 ${period.periodKey} 沒有在職區間，無法計算薪資：${employeesWithoutPeriod.map((employee) => employee.employeeName).join("、")}。`);
+  }
   const closedEmploymentIds = employees.length ? await db.select({ employmentId: hrPayslips.employmentId }).from(hrPayslips)
     .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId)).innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
     .where(and(eq(hrPayrollPeriods.periodKey, period.periodKey), eq(hrPayrollRuns.status, "closed"), inArray(hrPayslips.employmentId, employees.map((employee) => employee.employmentId)))) : [];
@@ -631,13 +642,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     sql`${hrLeaveRequests.endsOn} > ${period.start}`,
   ));
   const monthlyData = await listHrMonthlyEntriesForPayroll(db, period.start, period.end);
-  const missingCompensation = employees.flatMap((employee) => overlapDays(period.start, period.end, period.start, null)
+  const missingCompensation = employees.flatMap((employee) => employmentDaysForPeriod(employee, period)
     .filter((day) => !covering(compensations.filter((row) => row.employmentId === employee.employmentId), day))
     .map((day) => `${employee.employeeName}（${day}）`));
   if (missingCompensation.length) throw new HrError(400, `以下員工在部分計算日沒有有效薪資基準：${missingCompensation.slice(0, 10).join("、")}${missingCompensation.length > 10 ? "…" : ""}。`);
   const hourlyMissing = employees.flatMap((employee) => {
     const rows = compensations.filter((row) => row.employmentId === employee.employmentId);
-    return overlapDays(period.start, period.end, period.start, null)
+    return employmentDaysForPeriod(employee, period)
       .filter((day) => covering(rows, day)?.payBasis === "hourly" && !monthlyData.hourly.some((entry) => entry.employmentId === employee.employmentId && entry.workDate === day))
       .map((day) => `${employee.employeeName}（${day}）`);
   });
@@ -789,7 +800,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   }
 
   for (const employee of employees) {
-    const employmentDays = overlapDays(period.start, period.end, period.start, null);
+    const employmentDays = employmentDaysForPeriod(employee, period);
     const employeeCompensations = compensations.filter((row) => row.employmentId === employee.employmentId);
     const employeeAnnualLeaveSettlements = annualLeaveSettlements.filter((settlement) => settlement.employmentId === employee.employmentId);
     const lines: HrPayrollLineResult[] = [];
@@ -895,7 +906,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     // 避免每一天 floor 造成完整月份少幾分：完整月份同一版月薪直接保留原額。
     const fullMonthComp = covering(employeeCompensations, period.start);
     if (fullMonthComp?.payBasis === "monthly" && fullMonthComp.validFrom <= period.start && (fullMonthComp.validTo === null || fullMonthComp.validTo >= period.end)) {
-      const employedDays = employeeDaysForPeriod(period);
+      const employedDays = employmentDays.length;
       const fullMonthBase = Math.round(fullMonthComp.baseAmountMinor * employedDays / monthlyDivisorDays);
       const specialDailyBase = specialAssignments.filter((item) => employmentDays.includes(item.workDate)).reduce((sum) => sum + Math.floor(fullMonthComp.baseAmountMinor / monthlyDivisorDays), 0);
       baseMinor = Math.max(0, fullMonthBase - specialDailyBase);
@@ -1130,8 +1141,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     } });
 
     const employeeClocks = clocks.filter((row) => row.employmentId === employee.employmentId);
-    const attendanceDays = new Set(employeeClocks.map((row) => taipeiDate(row.occurredAt)));
-    const missingPunchDays = calendarDays.filter((day) => employeeClocks.filter((row) => taipeiDate(row.occurredAt) === day).length === 1);
+    const employmentDaySet = new Set(employmentDays);
+    const attendanceDays = new Set(employeeClocks.map((row) => taipeiDate(row.occurredAt)).filter((day) => employmentDaySet.has(day)));
+    const missingPunchDays = employmentDays.filter((day) => employeeClocks.filter((row) => taipeiDate(row.occurredAt) === day).length === 1);
     const compensationIds = employeeCompensations.filter((row) => row.validFrom < period.end && (row.validTo === null || row.validTo > period.start)).map((row) => row.id);
     const insuranceIds = insurance.filter((row) => row.employmentId === employee.employmentId).map((row) => row.id);
     const employeeInsurance = insurance.filter((row) => row.employmentId === employee.employmentId && row.status === "enrolled");
@@ -1218,8 +1230,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   return getPayrollRunResult(db, runId, [...calculationWarnings]);
 }
 
-function employeeDaysForPeriod(period: { start: string; end: string }): number {
-  return overlapDays(period.start, period.end, period.start, null).length;
+function employmentDaysForPeriod(employee: { serviceStartOn: string | null }, period: { start: string; end: string }): string[] {
+  return overlapDays(period.start, period.end, employee.serviceStartOn ?? period.start, null);
 }
 
 /** 取得可選的獎金；來源與比例保留在 API，前端不另複製制度常數。 */
@@ -1642,6 +1654,7 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
           SELECT 1 FROM hr_employments AS employment
           INNER JOIN users AS account ON account.id=employment.employee_user_id
           WHERE account.status='active' AND employment.archived_at IS NULL
+            AND coalesce((SELECT service_start_on FROM hr_employment_service_periods WHERE employment_id=employment.id), ${period.start}) < ${period.end}
             AND NOT EXISTS (
               SELECT 1 FROM hr_payroll_closed_employees AS claim
               WHERE claim.period_key=${run.periodKey} AND claim.employment_id=employment.id
