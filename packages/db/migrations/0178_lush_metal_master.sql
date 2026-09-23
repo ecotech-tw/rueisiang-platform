@@ -5,11 +5,16 @@ CREATE TABLE `__hr_payroll_run_employees_backup` AS SELECT * FROM `hr_payroll_ru
 CREATE TABLE `__hr_payslip_compensation_links_backup` AS SELECT * FROM `hr_payslip_compensation_links`;--> statement-breakpoint
 CREATE TABLE `__hr_payslip_insurance_links_backup` AS SELECT * FROM `hr_payslip_insurance_links`;--> statement-breakpoint
 CREATE TABLE `__hr_payslip_lines_backup` AS SELECT * FROM `hr_payslip_lines`;--> statement-breakpoint
+CREATE TABLE `__hr_employment_attendance_settings_backup` AS SELECT * FROM `hr_employment_attendance_settings`;--> statement-breakpoint
+CREATE TABLE `__hr_payroll_adjustment_items_backup` AS SELECT * FROM `hr_payroll_adjustment_items`;--> statement-breakpoint
 DROP TABLE `hr_payslip_compensation_links`;--> statement-breakpoint
 DROP TABLE `hr_payslip_insurance_links`;--> statement-breakpoint
 DROP TABLE `hr_payslip_lines`;--> statement-breakpoint
 DROP TABLE `hr_compensation_items`;--> statement-breakpoint
 DROP TABLE `hr_payroll_run_employees`;--> statement-breakpoint
+-- These two child tables must be out of the schema before their referenced parents are rebuilt.
+DROP TABLE `hr_employment_attendance_settings`;--> statement-breakpoint
+DROP TABLE `hr_payroll_adjustment_items`;--> statement-breakpoint
 CREATE TABLE `__new_hr_employee_scopes` (
 	`id` text PRIMARY KEY NOT NULL,
 	`employment_id` text NOT NULL,
@@ -108,8 +113,7 @@ CREATE TABLE `__new_hr_employment_attendance_settings` (
 	CONSTRAINT "ck_hr_employment_attendance_settings_rest_days" CHECK("__new_hr_employment_attendance_settings"."monthly_rest_days" IS NULL OR "__new_hr_employment_attendance_settings"."monthly_rest_days" BETWEEN 0 AND 31)
 );
 --> statement-breakpoint
-INSERT INTO `__new_hr_employment_attendance_settings`("employment_id", "attendance_mode", "monthly_rest_days", "primary_assignment_id", "updated_at") SELECT "employment_id", "attendance_mode", "monthly_rest_days", "primary_assignment_id", "updated_at" FROM `hr_employment_attendance_settings`;--> statement-breakpoint
-DROP TABLE `hr_employment_attendance_settings`;--> statement-breakpoint
+INSERT INTO `__new_hr_employment_attendance_settings`("employment_id", "attendance_mode", "monthly_rest_days", "primary_assignment_id", "updated_at") SELECT "employment_id", "attendance_mode", "monthly_rest_days", "primary_assignment_id", "updated_at" FROM `__hr_employment_attendance_settings_backup`;--> statement-breakpoint
 ALTER TABLE `__new_hr_employment_attendance_settings` RENAME TO `hr_employment_attendance_settings`;--> statement-breakpoint
 CREATE TABLE `__new_hr_form_requests` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -443,6 +447,17 @@ INSERT INTO `__new_hr_payroll_adjustments`("id", "employment_id", "source_period
 DROP TABLE `hr_payroll_adjustments`;--> statement-breakpoint
 ALTER TABLE `__new_hr_payroll_adjustments` RENAME TO `hr_payroll_adjustments`;--> statement-breakpoint
 CREATE INDEX `idx_hr_payroll_adjustments_effective` ON `hr_payroll_adjustments` (`effective_period_key`,`employment_id`);--> statement-breakpoint
+CREATE TABLE `hr_payroll_adjustment_items` (
+  `id` text PRIMARY KEY NOT NULL,
+  `adjustment_id` text NOT NULL,
+  `item_name` text NOT NULL,
+  `amount_minor` integer NOT NULL,
+  `created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  FOREIGN KEY (`adjustment_id`) REFERENCES `hr_payroll_adjustments`(`id`) ON UPDATE no action ON DELETE restrict,
+  CONSTRAINT `ck_hr_payroll_adjustment_items_name` CHECK(length(trim(`item_name`)) BETWEEN 1 AND 100)
+);--> statement-breakpoint
+INSERT INTO `hr_payroll_adjustment_items` SELECT * FROM `__hr_payroll_adjustment_items_backup`;--> statement-breakpoint
+CREATE INDEX `idx_hr_payroll_adjustment_items_adjustment` ON `hr_payroll_adjustment_items` (`adjustment_id`);--> statement-breakpoint
 CREATE TABLE `__new_hr_payroll_closed_employees` (
 	`period_key` text NOT NULL,
 	`employment_id` text NOT NULL,
@@ -557,4 +572,6 @@ DROP TABLE `__hr_compensation_items_backup`;--> statement-breakpoint
 DROP TABLE `__hr_payroll_run_employees_backup`;--> statement-breakpoint
 DROP TABLE `__hr_payslip_compensation_links_backup`;--> statement-breakpoint
 DROP TABLE `__hr_payslip_insurance_links_backup`;--> statement-breakpoint
-DROP TABLE `__hr_payslip_lines_backup`;
+DROP TABLE `__hr_payslip_lines_backup`;--> statement-breakpoint
+DROP TABLE `__hr_employment_attendance_settings_backup`;--> statement-breakpoint
+DROP TABLE `__hr_payroll_adjustment_items_backup`;
