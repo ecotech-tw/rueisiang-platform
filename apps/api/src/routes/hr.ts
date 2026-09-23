@@ -6,7 +6,7 @@ import {
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
-  assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
+  assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
@@ -190,6 +190,11 @@ function employeeUserIds(input: Record<string, unknown>): string[] | undefined {
   if (input.employeeUserIds === undefined) return undefined;
   if (!Array.isArray(input.employeeUserIds) || input.employeeUserIds.length > 80 || input.employeeUserIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.employeeUserIds).size !== input.employeeUserIds.length) throw new HTTPException(400, { message: "指派員工格式不正確。" });
   return input.employeeUserIds as string[];
+}
+function payrollWorkerIds(input: Record<string, unknown>): string[] | undefined {
+  if (input.workerIds === undefined) return undefined;
+  if (!Array.isArray(input.workerIds) || input.workerIds.length > 100 || input.workerIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.workerIds).size !== input.workerIds.length) throw new HTTPException(400, { message: "指定支援人員格式不正確。" });
+  return input.workerIds as string[];
 }
 function bonusEmployeeAssignments(input: Record<string, unknown>): Array<{ employeeUserId: string; weightUnits: number }> | undefined {
   if (input.employeeAssignments === undefined) return undefined;
@@ -924,6 +929,12 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await updateHrPayrollAdjustment(c.get("db"), c.req.param("id"), { employmentId: text(input, "employmentId", "員工任職"), sourcePeriodKey: text(input, "sourcePeriodKey", "原薪資月份", 7), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "調整原因", 1000), items: adjustmentItems(input), revision: revision(input) }, c.get("user")));
   })
+  .get("/payroll/workers", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const rawPeriodKey = c.req.query("periodKey");
+    if (!rawPeriodKey) throw new HTTPException(400, { message: "計算月份必填。" });
+    return c.json({ workers: await listHrPayrollWorkerCandidates(c.get("db"), periodKey({ periodKey: rawPeriodKey })) });
+  })
   .get("/payroll/runs", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ runs: await listHrPayrollRuns(c.get("db")) });
@@ -943,12 +954,13 @@ export const hr = new Hono<AppEnv>()
     if (selectedUsers !== undefined && (!Array.isArray(selectedUsers) || selectedUsers.length > 100 || selectedUsers.some((id) => typeof id !== "string" || !id))) {
       throw new HTTPException(400, { message: "指定員工清單不正確。" });
     }
+    const selectedWorkers = payrollWorkerIds(input);
     const mode = input.attendanceMode === undefined || input.attendanceMode === "all" || input.attendanceMode === "general" || input.attendanceMode === "scheduled" ? input.attendanceMode : null;
     if (mode === null) throw new HTTPException(400, { message: "員工出勤方式篩選不正確。" });
     const payDate = input.payDate === undefined ? undefined : date(input, "payDate");
     const runName = input.runName === undefined ? undefined : text(input, "runName", "結算名稱", 20);
     return c.json({ run: await calculateHrPayroll(c.get("db"), {
-      periodKey: periodKey(input), payDate: payDate ?? undefined, runName, employeeUserIds: selectedUsers as string[] | undefined,
+      periodKey: periodKey(input), payDate: payDate ?? undefined, runName, employeeUserIds: selectedUsers as string[] | undefined, workerIds: selectedWorkers,
       attendanceMode: mode, requestId: input.requestId === undefined ? undefined : text(input, "requestId", "請求識別碼", 200),
       monthlyDivisorDays: optionalInteger(input, "monthlyDivisorDays", "月薪除數", 1, 366),
       standardDailyHours: input.standardDailyHours === undefined ? undefined : Number(input.standardDailyHours),

@@ -39,7 +39,7 @@ export {
 } from "./hr-payroll.js";
 export {
   assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, updateHrBonusPolicy, voidHrBonusPolicyVersion,
-  getHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns,
+  getHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   type AssignHrBonusPolicyInput, type CreateHrBonusPolicyInput, type HrBonusKind, type HrBonusPerformancePeriod, type HrPayrollCalculationInput, type HrPayrollEmployeeResult, type UpdateHrBonusPolicyInput,
   type HrPayrollLineResult, type HrPayrollRunResult,
 } from "./hr-payroll-calculation.js";

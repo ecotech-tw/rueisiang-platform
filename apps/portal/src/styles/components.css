@@ -4586,6 +4586,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-payroll-employee-option small { color: var(--color-muted); font-size: 12px; }
 .hr-payroll-employee-option-all { border-bottom: 1px solid var(--color-soft-line); border-radius: 0; }
 .hr-payroll-employee-picker { display: grid; gap: 2px; max-height: min(38vh, 360px); overflow-y: auto; padding: 5px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-canvas); }
+.hr-payroll-picker-group { display: grid; gap: 2px; }
+.hr-payroll-picker-group + .hr-payroll-picker-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--color-soft-line); }
+.hr-payroll-picker-group-title { padding: 6px 10px 3px; color: var(--color-muted); font-size: 12px; font-weight: 700; }
 .hr-payroll-picker-empty { margin: 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 
 @media (max-width: 760px) {

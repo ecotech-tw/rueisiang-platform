@@ -90,15 +90,16 @@ function shortenPayrollRunName(value: string): string {
     : value;
 }
 
-function suggestedPayrollRunName(employeeUserIds: string[] | null | undefined, employeeNames: string[]): string {
-  if (employeeUserIds === undefined || employeeUserIds === null) return "全體員工";
-  const names = employeeNames.map((name) => name.trim()).filter(Boolean).join("、");
-  return shortenPayrollRunName(names || "指定員工");
+function suggestedPayrollRunName(employeeUserIds: string[] | null | undefined, workerIds: string[] | null | undefined, peopleNames: string[]): string {
+  if ((employeeUserIds === undefined || employeeUserIds === null) && (workerIds === undefined || workerIds === null)) return "全體員工";
+  const names = peopleNames.map((name) => name.trim()).filter(Boolean).join("、");
+  return shortenPayrollRunName(names || "指定人員");
 }
 
 interface PayrollCalculationInputSnapshot {
   runName?: unknown;
   employeeUserIds?: unknown;
+  workerIds?: unknown;
 }
 
 function parsePayrollCalculationInput(value: string): PayrollCalculationInputSnapshot {
@@ -116,10 +117,16 @@ function payrollEmployeeUserIdsFromInput(input: PayrollCalculationInputSnapshot)
     : input.employeeUserIds === null ? null : undefined;
 }
 
-function payrollRunNameFromInput(value: string, employeeNames: string[] = []): string {
+function payrollWorkerIdsFromInput(input: PayrollCalculationInputSnapshot): string[] | null | undefined {
+  return Array.isArray(input.workerIds)
+    ? input.workerIds.filter((item): item is string => typeof item === "string")
+    : input.workerIds === null ? null : undefined;
+}
+
+function payrollRunNameFromInput(value: string, peopleNames: string[] = []): string {
   const input = parsePayrollCalculationInput(value);
   if (typeof input.runName === "string" && input.runName.trim()) return input.runName.trim();
-  return suggestedPayrollRunName(payrollEmployeeUserIdsFromInput(input), employeeNames);
+  return suggestedPayrollRunName(payrollEmployeeUserIdsFromInput(input), payrollWorkerIdsFromInput(input), peopleNames);
 }
 
 type HrPayrollEmployeeFilter = "all" | "general" | "scheduled";
@@ -129,6 +136,8 @@ export interface HrPayrollCalculationInput {
   payDate?: string;
   runName?: string;
   employeeUserIds?: string[];
+  /** 未提供時沿用舊 API 行為，納入該期間所有已發布排班的支援人員；提供空陣列代表不納入支援人員。 */
+  workerIds?: string[];
   attendanceMode?: HrPayrollEmployeeFilter;
   requestId?: string;
   monthlyDivisorDays?: number;
@@ -501,7 +510,7 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
   }
   return {
     runId,
-    runName: payrollRunNameFromInput(run.run.calculationInputJson, employees.map((employee) => employee.employeeName)),
+    runName: payrollRunNameFromInput(run.run.calculationInputJson, [...employees.map((employee) => employee.employeeName), ...workerResults.map((worker) => worker.workerName)]),
     periodKey: run.periodKey,
     payDate: run.run.payDate,
     status: run.run.status === "closed" ? "closed" : "ready",
@@ -646,7 +655,6 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   if (input.employeeUserIds !== undefined && employeesWithoutPeriod.length) {
     throw new HrError(400, `以下員工在 ${period.periodKey} 沒有在職區間，無法計算薪資：${employeesWithoutPeriod.map((employee) => employee.employeeName).join("、")}。`);
   }
-  const runName = requestedRunName ?? suggestedPayrollRunName(input.employeeUserIds, selectedEmployees.map((employee) => employee.employeeName));
   const closedEmploymentIds = employees.length ? await db.select({ employmentId: hrPayslips.employmentId }).from(hrPayslips)
     .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId)).innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
     .where(and(eq(hrPayrollPeriods.periodKey, period.periodKey), eq(hrPayrollRuns.status, "closed"), inArray(hrPayslips.employmentId, employees.map((employee) => employee.employmentId)))) : [];
@@ -662,7 +670,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleEntries.workDate} >= ${period.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
     ));
-  const scheduledWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes }).from(hrScheduleWorkerEntries)
+  const scheduledWorkerRowsAll = await db.select({ workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes }).from(hrScheduleWorkerEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
     .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
     .where(and(
@@ -671,6 +679,24 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleWorkerEntries.workDate} >= ${period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${period.end}`,
     ));
+  const requestedWorkerIds = input.workerIds;
+  const scheduledWorkerIdSet = new Set(scheduledWorkerRowsAll.map((row) => row.workerId));
+  const missingWorkerIds = requestedWorkerIds?.filter((workerId) => !scheduledWorkerIdSet.has(workerId)) ?? [];
+  if (missingWorkerIds.length) {
+    const missingWorkers = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inArray(hrScheduleWorkers.id, missingWorkerIds));
+    const namesById = new Map(missingWorkers.map((worker) => [worker.id, worker.displayName]));
+    throw new HrError(400, `以下支援人員在 ${period.periodKey} 沒有已發布排班，無法計算薪資：${missingWorkerIds.map((workerId) => namesById.get(workerId) ?? workerId).join("、")}。`);
+  }
+  const scheduledWorkerRows = requestedWorkerIds === undefined
+    ? scheduledWorkerRowsAll
+    : scheduledWorkerRowsAll.filter((row) => requestedWorkerIds.includes(row.workerId));
+  const selectedWorkerIds = [...new Set(scheduledWorkerRows.map((row) => row.workerId))];
+  const closedWorkerRows = selectedWorkerIds.length ? await db.select({ workerId: hrPayrollWorkerResults.workerId }).from(hrPayrollWorkerResults)
+    .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayrollWorkerResults.payrollRunId))
+    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
+    .where(and(eq(hrPayrollPeriods.periodKey, period.periodKey), eq(hrPayrollRuns.status, "closed"), inArray(hrPayrollWorkerResults.workerId, selectedWorkerIds))) : [];
+  if (closedWorkerRows.length) throw new HrError(409, "同一支援人員同一月份已有已結帳結果，請改用薪資調整。 ");
+  const runName = requestedRunName ?? suggestedPayrollRunName(input.employeeUserIds, input.workerIds, [...selectedEmployees.map((employee) => employee.employeeName), ...new Set(scheduledWorkerRows.map((row) => row.workerName))]);
   const scheduledDatesByEmployment = new Map<string, Set<string>>();
   for (const row of scheduledEmployeeRows) {
     const dates = scheduledDatesByEmployment.get(row.employmentId) ?? new Set<string>();
@@ -1285,6 +1311,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     payDate,
     runName,
     employeeUserIds: input.employeeUserIds ?? null,
+    workerIds: input.workerIds ?? null,
     attendanceMode: input.attendanceMode ?? "all",
     monthlyDivisorDays,
     standardDailyHours,
@@ -1312,6 +1339,23 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     throw error;
   }
   return getPayrollRunResult(db, runId, [...calculationWarnings]);
+}
+
+export async function listHrPayrollWorkerCandidates(db: Database, periodKey: string) {
+  const period = periodFromKey(periodKey);
+  const rows = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkerEntries)
+    .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
+    .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
+    .where(and(
+      eq(hrScheduleVersions.status, "published"),
+      eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end),
+      sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
+      sql`${hrScheduleWorkerEntries.workDate} >= ${period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${period.end}`,
+    ))
+    .orderBy(asc(hrScheduleWorkers.displayName), asc(hrScheduleWorkers.id));
+  const candidates = new Map<string, { id: string; displayName: string }>();
+  for (const row of rows) candidates.set(row.id, row);
+  return [...candidates.values()];
 }
 
 function employmentDaysForPeriod(employee: { serviceStartOn: string | null }, period: { start: string; end: string }): string[] {
@@ -1685,13 +1729,17 @@ export async function listHrPayrollRuns(db: Database) {
   const legacyEmployeeNames = legacyRunRows.length
     ? new Map((await db.select({ userId: users.id, employeeName: displayName }).from(users)).map((row) => [row.userId, row.employeeName]))
     : new Map<string, string>();
+  const legacyWorkerNames = legacyRunRows.length
+    ? new Map((await db.select({ workerId: hrScheduleWorkers.id, workerName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers)).map((row) => [row.workerId, row.workerName]))
+    : new Map<string, string>();
   return rows.map((row) => {
     const input = parsePayrollCalculationInput(row.calculationInputJson);
     const employeeNames = (payrollEmployeeUserIdsFromInput(input) ?? []).map((userId) => legacyEmployeeNames.get(userId) ?? "").filter(Boolean);
+    const workerNames = (payrollWorkerIdsFromInput(input) ?? []).map((workerId) => legacyWorkerNames.get(workerId) ?? "").filter(Boolean);
     return {
       run: {
         id: row.runId,
-        runName: payrollRunNameFromInput(row.calculationInputJson, employeeNames),
+        runName: payrollRunNameFromInput(row.calculationInputJson, [...employeeNames, ...workerNames]),
         payrollPeriodId: row.payrollPeriodId,
         versionNumber: row.versionNumber,
         requestId: row.requestId,
@@ -1729,9 +1777,9 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
   const annualLeaveSettlementMutations = buildHrAnnualLeaveSettlementMutations(annualLeaveSettlements, actor);
   const settlementMutationCount = annualLeaveSettlementMutations.length;
 
-  // 部分結算保持期間 open，讓尚未結算的員工仍可建立另一張試算；每次 claim 都在同一
-  // D1 batch 內完成，並以「所有當期可計薪的 active／invited 任職都已 claim」決定是否關閉期間，避免
-  // 只拿本次 payslip 數量和可計薪人數比較而提早結帳。
+  // 部分結算保持期間 open，讓尚未結算的員工與支援人員仍可建立另一張試算；每次 claim 都在同一
+  // D1 batch 內完成，並以「所有當期可計薪的人員都已 claim」決定是否關閉期間，避免
+  // 只拿本次薪資筆數和可計薪人數比較而提早結帳。
   const mutations = [
     ...annualLeaveSettlementMutations,
     sql`INSERT INTO hr_payroll_closed_employees (period_key, employment_id, payroll_run_id)
@@ -1739,10 +1787,23 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
       FROM hr_payslips AS payslip
       WHERE payslip.payroll_run_id=${runId}
       RETURNING employment_id`,
+    // 支援人員沒有正式員工的 closed claim 表；把同月份同一 worker 的既有結帳結果
+    // 放進這個和 status 更新同一個 mutation，避免兩張 ready 批次先後關帳造成重複付款。
     sql`UPDATE hr_payroll_runs SET status='closed', approved_by=${actor.id}, updated_at=CURRENT_TIMESTAMP
       WHERE id=${runId} AND status='ready' AND expected_count=completed_count
         AND expected_count = (SELECT count(*) FROM hr_payroll_run_employees WHERE payroll_run_id=${runId}) + (SELECT count(*) FROM hr_payroll_worker_results WHERE payroll_run_id=${runId})
         AND NOT EXISTS (SELECT 1 FROM hr_payroll_run_employees WHERE payroll_run_id=${runId} AND status <> 'succeeded')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM hr_payroll_worker_results AS selected_worker
+          INNER JOIN hr_payroll_worker_results AS closed_worker ON closed_worker.worker_id=selected_worker.worker_id
+          INNER JOIN hr_payroll_runs AS closed_run ON closed_run.id=closed_worker.payroll_run_id
+          INNER JOIN hr_payroll_periods AS closed_period ON closed_period.id=closed_run.payroll_period_id
+          WHERE selected_worker.payroll_run_id=${runId}
+            AND closed_run.status='closed'
+            AND closed_period.period_key=${run.periodKey}
+            AND closed_worker.payroll_run_id <> ${runId}
+        )
         AND EXISTS (SELECT 1 FROM hr_payroll_periods WHERE id=${run.payrollPeriodId} AND status='open') RETURNING id`,
     sql`UPDATE hr_payroll_periods
       SET status='closed', revision=revision+1, updated_at=CURRENT_TIMESTAMP
@@ -1757,9 +1818,27 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
               WHERE claim.period_key=${run.periodKey} AND claim.employment_id=employment.id
             )
         )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM hr_schedule_worker_entries AS worker_entry
+          INNER JOIN hr_schedule_versions AS worker_schedule ON worker_schedule.id=worker_entry.schedule_version_id
+          WHERE worker_schedule.status='published'
+            AND worker_schedule.period_start=${period.start} AND worker_schedule.period_end=${period.end}
+            AND worker_schedule.version_number=(SELECT max(latest_worker_schedule.version_number) FROM hr_schedule_versions AS latest_worker_schedule WHERE latest_worker_schedule.period_start=${period.start} AND latest_worker_schedule.period_end=${period.end} AND latest_worker_schedule.status='published')
+            AND worker_entry.work_date >= ${period.start} AND worker_entry.work_date < ${period.end}
+            AND NOT EXISTS (
+              SELECT 1
+              FROM hr_payroll_worker_results AS worker_result
+              INNER JOIN hr_payroll_runs AS worker_run ON worker_run.id=worker_result.payroll_run_id
+              INNER JOIN hr_payroll_periods AS worker_period ON worker_period.id=worker_run.payroll_period_id
+              WHERE worker_period.period_key=${run.periodKey}
+                AND worker_run.status='closed'
+                AND worker_result.worker_id=worker_entry.worker_id
+            )
+        )
       RETURNING id`,
   ];
-  await writeHrMutation(db, mutations, runId, actor, "payroll_run_closed", "薪資批次已結帳、來源已變更或同一員工同一月份已有結帳結果，請重新整理。 ", { allowEmptyMutationIndexes: new Set([settlementMutationCount, settlementMutationCount + 2]) });
+  await writeHrMutation(db, mutations, runId, actor, "payroll_run_closed", "薪資批次已結帳、來源已變更或同一員工／支援人員同一月份已有結帳結果，請重新整理。 ", { allowEmptyMutationIndexes: new Set([settlementMutationCount, settlementMutationCount + 2]) });
   return getPayrollRunResult(db, runId);
 }
 
