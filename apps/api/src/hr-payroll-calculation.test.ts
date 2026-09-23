@@ -203,6 +203,32 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
   });
 
+  it("2 月月中換月薪版本仍分配固定 30 日制補足日數", async () => {
+    d1.sqlite.exec(`
+      UPDATE hr_employment_service_periods SET service_start_on='2026-02-02' WHERE employment_id='dev-employment-newhire';
+      UPDATE hr_compensation_versions SET valid_from='2026-01-01', valid_to='2026-02-15', base_amount_minor=3000000 WHERE id='dev-comp-newhire-2026';
+      INSERT INTO hr_compensation_versions (id, employment_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, note, created_by)
+      VALUES ('test-feb-midmonth-new-comp', 'dev-employment-newhire', 2, '2026-02-15', NULL, 'monthly', 3600000, '二月月中調薪測試', 'dev-newhire@ecotech.tw');
+      INSERT INTO hr_compensation_items (id, compensation_version_id, item_name, amount_minor, item_kind, amount_basis, include_overtime, include_insurance, include_tax, created_by)
+      VALUES
+        ('test-feb-midmonth-old-item', 'dev-comp-newhire-2026', '前段月給津貼', 300000, 'fixed', 'monthly', 0, 0, 0, 'dev-newhire@ecotech.tw'),
+        ('test-feb-midmonth-new-item', 'test-feb-midmonth-new-comp', '後段月給津貼', 600000, 'fixed', 'monthly', 0, 0, 0, 'dev-newhire@ecotech.tw');
+    `);
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-02", employeeUserIds: ["dev-newhire@ecotech.tw"], requestId: "test-payroll-february-midmonth-version",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: { itemName?: string; formulaDetail?: string } }> }> } };
+    const lines = body.run.employees[0]!.lines;
+    const base = lines.find((line) => line.lineKey === "base_salary");
+    expect(base).toMatchObject({ amountMinor: 3_200_000, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("14 天") }) });
+    expect(base?.explanation.formulaDetail).toEqual(expect.stringContaining("15 天"));
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ amountMinor: 140_000, explanation: expect.objectContaining({ itemName: "前段月給津貼", formulaDetail: expect.stringContaining("14 天") }) }),
+      expect.objectContaining({ amountMinor: 300_000, explanation: expect.objectContaining({ itemName: "後段月給津貼", formulaDetail: expect.stringContaining("15 天") }) }),
+    ]));
+  });
+
   it("只按報到後的在職日驗證與計算員工薪資", async () => {
     const detail = await (await request("/hr/employees/dev-newhire@ecotech.tw")).json() as { employments: Array<{ id: string; revision: number }> };
     const servicePeriod = await request(`/hr/employments/${detail.employments[0]!.id}/service-period`, "PATCH", { serviceStartOn: "2026-09-10", revision: detail.employments[0]!.revision });

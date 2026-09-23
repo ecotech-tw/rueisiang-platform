@@ -1085,30 +1085,57 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       compensationItemTotals.set(item.id, item.amountMinor);
       itemCalculationParts.set(item.id, { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: 1, quantityUnit: "個月", amountMinor: item.amountMinor, fullMonth: false });
     }
-    // 只在整段在職日都套用同一版月薪時回推月薪，避免逐日 floor 造成少幾分；薪資版本若從到職日才生效也要走同一條規則。
+    // 只在月薪涵蓋整段在職日時回推月薪，避免逐日 floor 造成少幾分；薪資版本若從到職日才生效也要走同一條規則。
     const fullMonthComp = covering(employeeCompensations, period.start) ?? covering(employeeCompensations, employmentDays[0] ?? period.start);
-    const uniformMonthlyComp = employeeCompensations.find((candidate) => candidate.payBasis === "monthly" && employmentDays.every((day) => covering(employeeCompensations, day)?.id === candidate.id));
-    if (uniformMonthlyComp) {
-      const employedDays = employmentDays.length;
-      // 短月份未滿整月時補足 30 日基準；整月則直接給一個月，不把補足日數當成額外月份。
-      const prorationDays = isFullPeriodEmployment
-        ? calendarDays.length
-        : monthlyProrationDays(employedDays, calendarDays.length, monthlyDivisorDays);
-      const fullMonthBase = isFullPeriodEmployment
-        ? uniformMonthlyComp.baseAmountMinor
-        : Math.round(uniformMonthlyComp.baseAmountMinor * prorationDays / monthlyDivisorDays);
-      const specialDailyBase = specialAssignments.filter((item) => employmentDays.includes(item.workDate)).reduce((sum) => sum + Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays), 0);
-      const typhoonStopDailyBase = typhoonStopDatesForEmployee.reduce((sum) => sum + Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays), 0);
-      baseMinor = Math.max(0, fullMonthBase - specialDailyBase - typhoonStopDailyBase);
+    const monthlyCompensationSegments = new Map<string, { compensation: (typeof employeeCompensations)[number]; employedDays: number }>();
+    let allEmploymentDaysMonthly = employmentDays.length > 0;
+    for (const day of employmentDays) {
+      const compensation = covering(employeeCompensations, day);
+      if (!compensation || compensation.payBasis !== "monthly") {
+        allEmploymentDaysMonthly = false;
+        break;
+      }
+      const segment = monthlyCompensationSegments.get(compensation.id);
+      if (segment) segment.employedDays += 1;
+      else monthlyCompensationSegments.set(compensation.id, { compensation, employedDays: 1 });
+    }
+    const monthlySegments = [...monthlyCompensationSegments.values()];
+    const uniformMonthlyComp = allEmploymentDaysMonthly && monthlySegments.length === 1 ? monthlySegments[0]!.compensation : undefined;
+    const monthlyProrationDayCounts = !isFullPeriodEmployment && allEmploymentDaysMonthly
+      ? allocateMonthlyProrationDays(monthlySegments, calendarDays.length, monthlyDivisorDays)
+      : null;
+    if (uniformMonthlyComp && isFullPeriodEmployment) {
+      // 整月則直接給一個月，不把補足日數當成額外月份。
+      baseMinor = Math.max(0, uniformMonthlyComp.baseAmountMinor -
+        specialAssignments.reduce((sum) => sum + Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays), 0) -
+        typhoonStopDatesForEmployee.reduce((sum) => sum + Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays), 0));
       baseCalculationParts.clear();
-      baseCalculationParts.set(uniformMonthlyComp.id, { payBasis: "monthly", baseAmountMinor: uniformMonthlyComp.baseAmountMinor, dayCount: prorationDays, hours: 0, amountMinor: baseMinor, fullMonth: true, specialDailyBaseMinor: specialDailyBase + typhoonStopDailyBase });
-      // 只有月給的項目要跟著本薪一起用整月金額回推；日給與時給仍是上面逐日累加的結果。
+      baseCalculationParts.set(uniformMonthlyComp.id, { payBasis: "monthly", baseAmountMinor: uniformMonthlyComp.baseAmountMinor, dayCount: calendarDays.length, hours: 0, amountMinor: baseMinor, fullMonth: true, specialDailyBaseMinor: (specialAssignments.length + typhoonStopDatesForEmployee.length) * Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays) });
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === uniformMonthlyComp.id && candidate.amountBasis === "monthly")) {
-        const amount = isFullPeriodEmployment
-          ? item.amountMinor
-          : Math.round(item.amountMinor * prorationDays / monthlyDivisorDays);
-        compensationItemTotals.set(item.id, amount);
-        itemCalculationParts.set(item.id, { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: prorationDays, quantityUnit: "天", amountMinor: amount, fullMonth: true });
+        compensationItemTotals.set(item.id, item.amountMinor);
+        itemCalculationParts.set(item.id, { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: calendarDays.length, quantityUnit: "天", amountMinor: item.amountMinor, fullMonth: true });
+      }
+    } else if (monthlyProrationDayCounts) {
+      // 短月份的補足日數按各月薪版本實際在職日數比例分配，讓月中調薪也不會漏算補足日數。
+      baseMinor = 0;
+      baseCalculationParts.clear();
+      for (const { compensation } of monthlySegments) {
+        const prorationDays = monthlyProrationDayCounts.get(compensation.id)!;
+        const specialDailyBase = specialAssignments
+          .filter((item) => covering(employeeCompensations, item.workDate)?.id === compensation.id)
+          .reduce((sum) => sum + Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), 0);
+        const typhoonStopDailyBase = typhoonStopDatesForEmployee
+          .filter((day) => covering(employeeCompensations, day)?.id === compensation.id)
+          .reduce((sum) => sum + Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), 0);
+        const proratedBase = Math.round(compensation.baseAmountMinor * prorationDays / monthlyDivisorDays);
+        const amount = Math.max(0, proratedBase - specialDailyBase - typhoonStopDailyBase);
+        baseMinor += amount;
+        baseCalculationParts.set(compensation.id, { payBasis: "monthly", baseAmountMinor: compensation.baseAmountMinor, dayCount: prorationDays, hours: 0, amountMinor: amount, fullMonth: true, specialDailyBaseMinor: specialDailyBase + typhoonStopDailyBase });
+        for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === compensation.id && candidate.amountBasis === "monthly")) {
+          const itemAmount = Math.round(item.amountMinor * prorationDays / monthlyDivisorDays);
+          compensationItemTotals.set(item.id, itemAmount);
+          itemCalculationParts.set(item.id, { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: prorationDays, quantityUnit: "天", amountMinor: itemAmount, fullMonth: true });
+        }
       }
     }
     let compensationItemLineNumber = 0;
@@ -1487,9 +1514,30 @@ function employmentDaysForPeriod(employee: { serviceStartOn: string | null }, pe
   return overlapDays(period.start, period.end, employee.serviceStartOn ?? period.start, null);
 }
 
-function monthlyProrationDays(employedDays: number, calendarDayCount: number, monthlyDivisorDays: number): number {
-  // 固定 30 日制在 2 月不能直接少算 1～2 天；補足只用於未滿整月的比例計算。
-  return Math.min(monthlyDivisorDays, employedDays + Math.max(0, monthlyDivisorDays - calendarDayCount));
+function allocateMonthlyProrationDays<T extends { id: string }>(
+  segments: Array<{ compensation: T; employedDays: number }>,
+  calendarDayCount: number,
+  monthlyDivisorDays: number,
+): Map<string, number> {
+  const result = new Map(segments.map((segment) => [segment.compensation.id, segment.employedDays]));
+  const supplementDays = Math.max(0, monthlyDivisorDays - calendarDayCount);
+  const totalEmployedDays = segments.reduce((sum, segment) => sum + segment.employedDays, 0);
+  if (!supplementDays || totalEmployedDays === 0) return result;
+
+  const allocations = segments.map((segment, index) => {
+    const numerator = supplementDays * segment.employedDays;
+    return {
+      id: segment.compensation.id,
+      allocatedDays: Math.floor(numerator / totalEmployedDays),
+      remainder: numerator % totalEmployedDays,
+      index,
+    };
+  });
+  const remainingDays = supplementDays - allocations.reduce((sum, allocation) => sum + allocation.allocatedDays, 0);
+  for (const allocation of allocations) result.set(allocation.id, result.get(allocation.id)! + allocation.allocatedDays);
+  allocations.sort((left, right) => right.remainder - left.remainder || left.index - right.index);
+  for (const allocation of allocations.slice(0, remainingDays)) result.set(allocation.id, result.get(allocation.id)! + 1);
+  return result;
 }
 
 /** 取得可選的獎金；來源與比例保留在 API，前端不另複製制度常數。 */
