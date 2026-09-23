@@ -258,6 +258,26 @@ describe("政府行事曆轉換", () => {
     expect(overrides.map((day) => day.name)).toEqual(["放假", "補行上班"]);
   });
 
+  it("補假名稱會帶出同一段連假中的週末節日事由", () => {
+    const overrides = overridesFromGovCalendar(2026, [
+      { date: "20260403", isHoliday: true, description: "補假" },
+      { date: "20260404", isHoliday: true, description: "兒童節" },
+      { date: "20260405", isHoliday: true, description: "清明節" },
+      { date: "20260406", isHoliday: true, description: "補假" },
+    ]);
+    expect(overrides).toEqual([
+      { date: "2026-04-03", dayType: "holiday", name: "兒童節補假" },
+      { date: "2026-04-06", dayType: "holiday", name: "清明節補假" },
+    ]);
+  });
+
+  it("補假找不到同段連假的節日時保留原本名稱", () => {
+    const overrides = overridesFromGovCalendar(2027, [
+      { date: "20271231", isHoliday: true, description: "補假" },
+    ]);
+    expect(overrides).toEqual([{ date: "2027-12-31", dayType: "holiday", name: "補假" }]);
+  });
+
   it("匯入會整年換掉，並回報假日與補班日各幾天", async () => {
     await db.insert(users).values({ id: "importer", email: "importer@example.test", displayName: "匯入者", status: "active" });
     await request("/hr/calendar/years/2021", "PUT", { days: [{ date: "2021-06-01", dayType: "holiday", name: "舊的假日" }] });
