@@ -347,7 +347,7 @@ export function HrScheduling() {
               return [{ value: weekday.templateId, label: `${shiftLabel(weekday)}${extras.length ? ` 另設${extras.join("、")}` : ""}` }];
             })} onChange={(event) => setQuick({ ...quick, shiftTemplateId: event.target.value })} />
           : <span className="hr-quick-bar-empty">這個據點還沒有班別，<GuardedNavLink to="/hr/scheduling/shifts">前往班別管理</GuardedNavLink></span>}
-        <span className="hr-quick-bar-hint">點日期或排班內容排入或取消</span>
+        <span className="hr-quick-bar-hint">點日期或排班內容排入或取消；叉叉可移除</span>
         <span className="hr-quick-bar-count">已選 <b>{quickDays}</b> 天</span>
         {quickRest ? <span className={`hr-quick-bar-rest ${quickRest.matches ? "ok" : "warning"}`}>休 {quickRest.restDays}／約定 {quickRest.employee.monthlyRestDays} 天</span> : null}
         <Button variant="secondary" onClick={() => setQuick(null)}>結束</Button>
@@ -361,7 +361,7 @@ export function HrScheduling() {
           key={day}
           /*
            * 整格可點，但格子本身不是 <button>：日期鍵保留給鍵盤，避免做出巢狀按鈕。
-           * 快速排班時排班內容也屬於格子點擊範圍，方便直接點人員卡片切換當天排班。
+           * 快速排班時排班卡片本身也屬於格子點擊範圍，叉叉按鈕則保留移除動作。
            */
           onClick={quick ? (event) => { if (!(event.target as HTMLElement).closest("button")) toggleQuickDay(day); } : undefined}
         >
@@ -374,7 +374,7 @@ export function HrScheduling() {
             ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftTemplateId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
             : <><strong>{index + 1}</strong>{canEdit ? <button type="button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
           {dayTypeByDate.get(day)?.name ? <span className="hr-calendar-holiday">{dayTypeByDate.get(day)!.name}</span> : null}
-          <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${entry.archivedAt ? " archived" : ""}${quick && !entry.archivedAt && samePick(entry, quick, templateOf) ? " current" : ""}`} key={entry.id}><span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName} · {entry.scopeName}</small>{!quick && canEdit && !entry.archivedAt ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
+          <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${entry.archivedAt ? " archived" : ""}${quick && !entry.archivedAt && samePick(entry, quick, templateOf) ? " current" : ""}`} key={entry.id}><span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit && !entry.archivedAt ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
         </div>)}
       </div>
       </div>
