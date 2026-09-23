@@ -4368,7 +4368,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  */
 .hr-calendar-cell.day-weekend { background: --alpha(var(--color-ink) / 3%); }
 .hr-calendar-cell.day-holiday { border-color: var(--color-brand-soft); background: --alpha(var(--color-brand) / 7%); }
-.hr-calendar-holiday { display: block; overflow: hidden; margin-bottom: 2px; color: var(--color-brand-dark); font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.hr-calendar-holiday { display: block; overflow: hidden; margin-top: 6px; padding: 3px 6px; border-radius: 8px; background: --alpha(var(--color-brand) / 12%); color: var(--color-brand-dark); font-size: 11px; font-weight: 700; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .hr-calendar-date { display: flex; justify-content: space-between; align-items: center; color: var(--color-ink); }
 .hr-calendar-date button, .hr-calendar-entry button { border: 0; background: transparent; color: var(--color-muted); cursor: pointer; }
 .hr-calendar-date button { font-size: 18px; line-height: 1; }
