@@ -93,19 +93,26 @@ function overlapMinutes(startsAt: number, endsAt: number, rangeStart: number, ra
   return end > start ? (end - start) / 60_000 : 0;
 }
 
+export interface HrLeaveWorkdayBreakdown {
+  workMinutes: number;
+  standardMinutes: number;
+}
+
 /** 一般辦公沒有逐日班表時，以公司標準工作時段計算。 */
-function calculateStandardWorkMinutes(startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
-  const dates = datesBetween(startsOn, endsOn);
-  let durationMinutes = 0;
-  for (const date of dates) {
+function calculateStandardWorkdayBreakdown(startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
+  const breakdown = new Map<string, HrLeaveWorkdayBreakdown>();
+  for (const date of datesBetween(startsOn, endsOn)) {
     const workStart = canonicalTaipeiTime(date, STANDARD_WORKDAY_START, "一般辦公開始時間");
     const workEnd = canonicalTaipeiTime(date, STANDARD_WORKDAY_END, "一般辦公結束時間");
     const lunchStart = canonicalTaipeiTime(date, STANDARD_LUNCH_START, "一般辦公午休開始時間");
     const lunchEnd = canonicalTaipeiTime(date, STANDARD_LUNCH_END, "一般辦公午休結束時間");
-    durationMinutes += overlapMinutes(startsAt, endsAt, workStart, workEnd);
-    durationMinutes -= overlapMinutes(startsAt, endsAt, lunchStart, lunchEnd);
+    const standardMinutes = overlapMinutes(workStart, workEnd, workStart, workEnd) - overlapMinutes(workStart, workEnd, lunchStart, lunchEnd);
+    breakdown.set(date, {
+      workMinutes: overlapMinutes(startsAt, endsAt, workStart, workEnd) - overlapMinutes(startsAt, endsAt, lunchStart, lunchEnd),
+      standardMinutes,
+    });
   }
-  return durationMinutes;
+  return breakdown;
 }
 
 type LeaveScheduleRow = {
@@ -145,7 +152,7 @@ async function listPublishedLeaveSchedules(db: Database, employmentId: string, s
   return rows.filter((row) => latestVersion.get(`${row.periodStart}:${row.periodEnd}`) === row.versionNumber) as LeaveScheduleRow[];
 }
 
-function scheduleOverlapMinutes(row: LeaveScheduleRow, startsAt: number, endsAt: number) {
+function scheduleWindow(row: LeaveScheduleRow) {
   const scheduleStart = canonicalStoredTaipeiTime(row.startsAt, "排班開始時間");
   const scheduleEnd = canonicalStoredTaipeiTime(row.endsAt, "排班結束時間");
   if (scheduleEnd <= scheduleStart) throw new HrError(409, "排班結束時間必須晚於開始時間。 ");
@@ -161,22 +168,52 @@ function scheduleOverlapMinutes(row: LeaveScheduleRow, startsAt: number, endsAt:
       if (lunchStart >= scheduleStart && lunchStart + unpaidMinutes * 60_000 <= scheduleEnd) unpaidStart = lunchStart;
     }
   }
-  const unpaidEnd = unpaidStart + unpaidMinutes * 60_000;
-  return overlapMinutes(startsAt, endsAt, scheduleStart, scheduleEnd) - overlapMinutes(startsAt, endsAt, unpaidStart, unpaidEnd);
+  return {
+    scheduleStart,
+    scheduleEnd,
+    unpaidStart,
+    unpaidEnd: unpaidStart + unpaidMinutes * 60_000,
+    standardMinutes: Math.max(0, spanMinutes - unpaidMinutes),
+  };
 }
 
-function calculateScheduledWorkMinutes(rows: LeaveScheduleRow[], startsAt: number, endsAt: number) {
-  return rows.reduce((total, row) => total + scheduleOverlapMinutes(row, startsAt, endsAt), 0);
+function calculateScheduledWorkdayBreakdown(rows: LeaveScheduleRow[], startsAt: number, endsAt: number) {
+  const breakdown = new Map<string, HrLeaveWorkdayBreakdown>();
+  for (const row of rows) {
+    const window = scheduleWindow(row);
+    const current = breakdown.get(row.workDate) ?? { workMinutes: 0, standardMinutes: 0 };
+    current.workMinutes += overlapMinutes(startsAt, endsAt, window.scheduleStart, window.scheduleEnd)
+      - overlapMinutes(startsAt, endsAt, window.unpaidStart, window.unpaidEnd);
+    current.standardMinutes += window.standardMinutes;
+    breakdown.set(row.workDate, current);
+  }
+  return breakdown;
 }
 
-async function calculateLeaveWorkMinutes(db: Database, employmentId: string, startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
+async function calculateLeaveWorkdayBreakdown(db: Database, employmentId: string, startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
   const [setting] = await db.select({ attendanceMode: hrEmploymentAttendanceSettings.attendanceMode })
     .from(hrEmploymentAttendanceSettings)
     .where(eq(hrEmploymentAttendanceSettings.employmentId, employmentId))
     .limit(1);
   const schedules = await listPublishedLeaveSchedules(db, employmentId, startsOn, endsOn);
-  if (schedules.length || setting?.attendanceMode === "scheduled") return calculateScheduledWorkMinutes(schedules, startsAt, endsAt);
-  return calculateStandardWorkMinutes(startsAt, endsAt, startsOn, endsOn);
+  if (schedules.length || setting?.attendanceMode === "scheduled") return calculateScheduledWorkdayBreakdown(schedules, startsAt, endsAt);
+  return calculateStandardWorkdayBreakdown(startsAt, endsAt, startsOn, endsOn);
+}
+
+export async function calculateHrLeaveWorkdayBreakdown(db: Database, input: { employmentId: string; startsAt: string; endsAt: string; startsOn: string; endsOn: string }) {
+  return calculateLeaveWorkdayBreakdown(
+    db,
+    input.employmentId,
+    stamp(input.startsAt, "請假開始時間"),
+    stamp(input.endsAt, "請假結束時間"),
+    input.startsOn,
+    input.endsOn,
+  );
+}
+
+async function calculateLeaveWorkMinutes(db: Database, employmentId: string, startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
+  const breakdown = await calculateLeaveWorkdayBreakdown(db, employmentId, startsAt, endsAt, startsOn, endsOn);
+  return [...breakdown.values()].reduce((total, day) => total + day.workMinutes, 0);
 }
 
 function normalizeInterval(startsAt: string, endsAt: string): NormalizedLeaveInterval {

@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
 import { createDatabase } from "@rueisiang/db";
-import { hrCalendarDayScopes, hrCalendarDays, hrLeaveRequests, hrLeaveTypes, hrMonthlyLeaveEntries, hrOvertimeRequests, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
+import { hrCalendarDayScopes, hrCalendarDays, hrCompensationVersions, hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries, hrOvertimeRequests, hrScheduleEntries, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -79,6 +79,71 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
     const repeat = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-2026-08-lin" });
     expect((await repeat.json() as { run: { runId: string } }).run.runId).toBe(body.run.runId);
+  });
+
+  it("依核准請假的實際工作時數按比例計算扣款", async () => {
+    d1.sqlite.exec("UPDATE hr_leave_requests SET starts_at='2026-08-10 03:30:00', ends_at='2026-08-10 04:00:00', starts_on='2026-08-10', ends_on='2026-08-11', duration_minutes=30 WHERE id='dev-leave-lin-unpaid'");
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-partial-leave-2026-08",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const leaveLine = body.run.employees[0]!.lines.find((line) => line.lineKey === "unpaid_leave");
+    expect(leaveLine).toMatchObject({
+      amountMinor: 12_500,
+      explanation: expect.objectContaining({ entryCount: 1, formulaDetail: expect.stringContaining("0.5 小時 ÷ 8 小時") }),
+    });
+  });
+
+  it("排班變更時請假扣款不超過當日薪資", async () => {
+    const db = createDatabase(d1 as never);
+    const [unpaidLeave] = await db.select({ id: hrLeaveTypes.id, name: hrLeaveTypes.name }).from(hrLeaveTypes).where(eq(hrLeaveTypes.name, "無薪假")).limit(1);
+    expect(unpaidLeave).toBeDefined();
+    await db.insert(hrLeaveRequests).values({
+      id: "test-scheduled-leave-after-schedule-change", employmentId: "dev-employment-wang", leaveTypeId: unpaidLeave!.id, leaveType: unpaidLeave!.name,
+      status: "approved", startsAt: "2026-08-09 18:00:00", endsAt: "2026-08-10 02:00:00", startsOn: "2026-08-10", endsOn: "2026-08-11",
+      durationMinutes: 480, payRatePpm: 0, reason: "排班變更後扣款測試", reviewedBy: "dev-eli-lin@ecotech.tw", reviewedAt: "2026-08-10 12:00:00", createdBy: "dev-eli-lin@ecotech.tw",
+    });
+    // 原請假為 8 小時；結算前排班改成 6 小時，扣款最多只能是一整日 NT$1,500。
+    await db.update(hrScheduleEntries).set({ endsAt: "2026-08-10 08:00:00", standardMinutes: 360 }).where(eq(hrScheduleEntries.id, "dev-schedule-entry-wang-10"));
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-scheduled-leave-after-schedule-change",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "unpaid_leave", amountMinor: 150_000 }),
+    ]));
+  });
+
+  it("排班制時薪請假依該日標準工時計算", async () => {
+    const db = createDatabase(d1 as never);
+    const actor = "dev-eli-lin@ecotech.tw";
+    const [unpaidLeave] = await db.select({ id: hrLeaveTypes.id, name: hrLeaveTypes.name }).from(hrLeaveTypes).where(eq(hrLeaveTypes.name, "無薪假")).limit(1);
+    expect(unpaidLeave).toBeDefined();
+    await db.update(hrCompensationVersions).set({ payBasis: "hourly", baseAmountMinor: 100_000 }).where(eq(hrCompensationVersions.id, "dev-comp-wang-2026"));
+    await db.insert(hrMonthlyHourlyEntries).values(Array.from({ length: 31 }, (_, index) => {
+      const day = String(index + 1).padStart(2, "0");
+      const isScheduledDay = day === "10";
+      return {
+        id: `test-scheduled-hourly-${day}`, employmentId: "dev-employment-wang", workDate: `2026-08-${day}`,
+        hoursHalfUnits: isScheduledDay ? 12 : 0, noWork: isScheduledDay ? 0 : 1, note: "排班制時薪請假測試", createdBy: actor, updatedBy: actor,
+      };
+    }));
+    await db.insert(hrLeaveRequests).values({
+      id: "test-scheduled-hourly-leave", employmentId: "dev-employment-wang", leaveTypeId: unpaidLeave!.id, leaveType: unpaidLeave!.name,
+      status: "approved", startsAt: "2026-08-09 18:00:00", endsAt: "2026-08-09 18:30:00", startsOn: "2026-08-10", endsOn: "2026-08-11",
+      durationMinutes: 30, payRatePpm: 0, reason: "排班制時薪半小時測試", reviewedBy: actor, reviewedAt: "2026-08-10 12:00:00", createdBy: actor,
+    });
+    await db.update(hrScheduleEntries).set({ endsAt: "2026-08-10 08:00:00", standardMinutes: 360 }).where(eq(hrScheduleEntries.id, "dev-schedule-entry-wang-10"));
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-scheduled-hourly-leave",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "unpaid_leave", amountMinor: 50_000 }),
+    ]));
   });
 
   it("31 日月份整月月薪與月給項目不按 31／30 放大", async () => {

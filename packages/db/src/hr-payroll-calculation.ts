@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { buildHrAnnualLeaveSettlementMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
+import { calculateHrLeaveWorkdayBreakdown, type HrLeaveWorkdayBreakdown } from "./hr-leave.js";
 import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes } from "./hr-calendar.js";
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributionRules, listHrInsuranceContributionRules, resolveHrInsuranceContributionRules } from "./hr-payroll.js";
@@ -285,6 +286,20 @@ function overlapDays(start: string, end: string, from: string, to: string | null
   const lower = start > from ? start : from;
   const upper = to && to < end ? to : end;
   return lower < upper ? dateRange(lower, upper) : [];
+}
+
+function scaleLeaveWorkdayBreakdown(breakdown: Map<string, HrLeaveWorkdayBreakdown>, storedDurationMinutes: number) {
+  const calculatedDurationMinutes = [...breakdown.values()].reduce((total, day) => total + day.workMinutes, 0);
+  if (calculatedDurationMinutes <= 0) {
+    if (storedDurationMinutes > 0) throw new HrError(409, "核准請假找不到可扣款的工作時段，請先確認請假期間的排班資料。 ");
+    return breakdown;
+  }
+  // durationMinutes 是核准時保存的總工時；排班可能在結算前被修改，不能把舊工時放大到超過目前任一天的標準工時。
+  const scale = Math.min(1, storedDurationMinutes / calculatedDurationMinutes);
+  return new Map([...breakdown.entries()].map(([date, day]) => [date, {
+    ...day,
+    workMinutes: Math.min(day.standardMinutes, day.workMinutes * scale),
+  }] as const));
 }
 
 function secondsBetween(start: string, end: string): number {
@@ -919,6 +934,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     });
   }
 
+  const leaveWorkdayBreakdowns = new Map<string, Map<string, HrLeaveWorkdayBreakdown>>();
   for (const employee of employees) {
     const employmentDays = employmentDaysForPeriod(employee, period);
     const isFullPeriodEmployment = employmentDays.length === calendarDays.length;
@@ -1296,6 +1312,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
 
     const hasMonthlyLeaves = monthlyData.leaves.some((row) => row.employmentId === employee.employmentId);
     const monthlyLeaves = monthlyData.leaves.filter((row) => row.employmentId === employee.employmentId && employmentDaySet.has(row.leaveDate));
+    const approvedLeaves = leaves.filter((row) => row.employmentId === employee.employmentId);
+    const deductibleLeaves = approvedLeaves.filter((row) => row.payRatePpm < PPM);
     let leaveDeduction = 0;
     const leaveCalculationParts: PayrollCalculationPart[] = [];
     if (hasMonthlyLeaves) {
@@ -1307,23 +1325,36 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       }
     } else {
       // 舊 hr_leave_requests 只作歷史相容；新月份資料存在時不與人工登記重複扣款。
-      for (const leave of leaves.filter((row) => row.employmentId === employee.employmentId)) {
-        if (leave.payRatePpm >= PPM) continue;
+      for (const leave of deductibleLeaves) {
+        let breakdown = leaveWorkdayBreakdowns.get(leave.id);
+        if (!breakdown) {
+          const calculated = await calculateHrLeaveWorkdayBreakdown(db, {
+            employmentId: leave.employmentId,
+            startsAt: leave.startsAt,
+            endsAt: leave.endsAt,
+            startsOn: leave.startsOn,
+            endsOn: leave.endsOn,
+          });
+          breakdown = scaleLeaveWorkdayBreakdown(calculated, leave.durationMinutes);
+          leaveWorkdayBreakdowns.set(leave.id, breakdown);
+        }
         for (const day of overlapDays(period.start, period.end, leave.startsOn, leave.endsOn)) {
           if (!employmentDaySet.has(day)) continue;
+          const dayBreakdown = breakdown.get(day);
+          if (!dayBreakdown || dayBreakdown.workMinutes <= 0 || dayBreakdown.standardMinutes <= 0) continue;
           const compensation = covering(employeeCompensations, day);
           if (!compensation) continue;
           const daily = compensation.payBasis === "monthly"
             ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
-            : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * standardDailyHours);
-          const amount = Math.floor(daily * (PPM - leave.payRatePpm) / PPM);
+            : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * dayBreakdown.standardMinutes / 60);
+          const amount = Math.floor(daily * dayBreakdown.workMinutes / dayBreakdown.standardMinutes * (PPM - leave.payRatePpm) / PPM);
           leaveDeduction += amount;
-          if (amount > 0) leaveCalculationParts.push({ formula: `floor(${leave.leaveType} ${day}：${payrollFormulaMoney(daily)} × ${payrollFormulaPercent(PPM - leave.payRatePpm)})`, amountMinor: amount });
+          if (amount > 0) leaveCalculationParts.push({ formula: `floor(${leave.leaveType} ${day}：${payrollFormulaMoney(daily)} × ${payrollFormulaHours(dayBreakdown.workMinutes / 60)} 小時 ÷ ${payrollFormulaHours(dayBreakdown.standardMinutes / 60)} 小時 × ${payrollFormulaPercent(PPM - leave.payRatePpm)})`, amountMinor: amount });
         }
       }
     }
     if (leaveDeduction > 0) lines.push({ lineKey: "unpaid_leave", direction: "deduction", amountMinor: leaveDeduction, explanation: {
-      rule: hasMonthlyLeaves ? "月度人工扣款（整數元）" : "使用請假提交時凍結的 payRatePpm", period: input.periodKey, entryCount: monthlyLeaves.length,
+      rule: hasMonthlyLeaves ? "月度人工扣款（整數元）" : "依核准請假時數與提交時凍結的 payRatePpm", period: input.periodKey, entryCount: hasMonthlyLeaves ? monthlyLeaves.length : deductibleLeaves.length,
       calculationParts: leaveCalculationParts, formulaDetail: payrollFormulaTotal(leaveCalculationParts, leaveDeduction),
     } });
 
