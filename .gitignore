@@ -42,6 +42,9 @@ tools/shopee-sales-report-export/staging/
 tools/shopee-sales-report-export/reports/
 tools/shopee-sales-report-export/screenshots/
 
+# Agent runtime skill cache，不是 repo source 或共享規格
+.agents/skills/
+
 # 編輯器與作業系統
 .DS_Store
 Thumbs.db
