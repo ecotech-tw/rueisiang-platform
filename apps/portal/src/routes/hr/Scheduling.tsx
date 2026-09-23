@@ -31,6 +31,10 @@ function shiftLabel(shift: ScheduleShift) { return `${shift.name}（${shiftTimeR
  */
 interface QuickPick { personKind: "employee" | "worker"; personId: string; scopeId: string; shiftTemplateId: string }
 
+export function firstQuickPersonId(data: { employees: readonly { employmentId: string }[]; workers: readonly { id: string }[] }, personKind: QuickPick["personKind"]) {
+  return personKind === "employee" ? data.employees[0]?.employmentId ?? "" : data.workers[0]?.id ?? "";
+}
+
 /**
  * 把「人＋據點＋班別＋日期」組成月曆上的一筆排班。
  *
@@ -277,12 +281,12 @@ export function HrScheduling() {
    */
   const pickScope = (nextScopeId: string) => {
     setScopeId(nextScopeId);
-    if (quick) setQuick({ ...quick, scopeId: nextScopeId, shiftTemplateId: firstTemplateId(nextScopeId) });
+    setQuick((current) => current ? { ...current, scopeId: nextScopeId, shiftTemplateId: firstTemplateId(nextScopeId) } : current);
   };
   const openQuick = () => {
     const scope = defaultScope;
     setScopeId(scope);
-    setQuick({ personKind: "employee", personId: data.employees[0]?.employmentId ?? "", scopeId: scope, shiftTemplateId: firstTemplateId(scope) });
+    setQuick({ personKind: "employee", personId: firstQuickPersonId(data, "employee"), scopeId: scope, shiftTemplateId: firstTemplateId(scope) });
   };
   const toggleQuickDay = (day: string) => {
     // 鎖定的月份不能改草稿：畫面說已鎖定，草稿卻默默變了，解鎖後一按儲存就發布出去。
@@ -332,9 +336,10 @@ export function HrScheduling() {
         <strong>快速排班</strong>
         <SelectField aria-label="人員類型" value={quick.personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援人員" }]} onChange={(event) => {
           const personKind = event.target.value as "employee" | "worker";
-          setQuick({ ...quick, personKind, personId: (personKind === "employee" ? data.employees[0]?.employmentId : data.workers[0]?.id) ?? "" });
+          // DropdownSelect 沒有有效值時會顯示第一個選項的 placeholder；切換類型時要同步把預設人員寫進狀態，日期才可點。
+          setQuick((current) => current ? { ...current, personKind, personId: firstQuickPersonId(data, personKind) } : current);
         }} />
-        <SelectField aria-label="人員" value={quick.personId} options={quick.personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.name} ${employee.employeeNumber}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick({ ...quick, personId: event.target.value })} />
+        <SelectField aria-label="人員" value={quick.personId} options={quick.personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.name} ${employee.employeeNumber}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick((current) => current ? { ...current, personId: event.target.value } : current)} />
         {/*
           * 選班別而不是選某一組時間：點到哪一天就用那天的日型挑。所以 label
           * 只寫平日的時間做代表，後面再註明還有哪些日型有自己的時間。
@@ -345,7 +350,7 @@ export function HrScheduling() {
               if (!weekday) return [];
               const extras = versions.filter((shift) => shift.dayType !== "weekday").map((shift) => HR_DAY_TYPE_LABELS[shift.dayType]);
               return [{ value: weekday.templateId, label: `${shiftLabel(weekday)}${extras.length ? ` 另設${extras.join("、")}` : ""}` }];
-            })} onChange={(event) => setQuick({ ...quick, shiftTemplateId: event.target.value })} />
+            })} onChange={(event) => setQuick((current) => current ? { ...current, shiftTemplateId: event.target.value } : current)} />
           : <span className="hr-quick-bar-empty">這個據點還沒有班別，<GuardedNavLink to="/hr/scheduling/shifts">前往班別管理</GuardedNavLink></span>}
         <span className="hr-quick-bar-hint">點日期或排班內容排入或取消；叉叉可移除</span>
         <span className="hr-quick-bar-count">已選 <b>{quickDays}</b> 天</span>
