@@ -321,6 +321,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   transform: translateY(-6px);
 }
 .hr-user-menu.open .hr-user-dropdown {
+  visibility: visible;
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
