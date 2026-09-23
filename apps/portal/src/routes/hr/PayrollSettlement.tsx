@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type PayrollEmployee, type PayrollLine, type PayrollLineCalculationPart, type PayrollRun, type PayrollRunSummary, type Profile } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -13,6 +13,8 @@ interface PayrollDisclosureProps { className: string; summaryClassName?: string;
 type PayrollDisclosureState = "closed" | "opening" | "open" | "closing";
 
 const PAYROLL_DISCLOSURE_DURATION_MS = 220;
+const PAYROLL_RUN_NAME_MAX_LENGTH = 20;
+const PAYROLL_RUN_NAME_ELLIPSIS = "...";
 const RUN_STATUS: Record<string, string> = { calculating: "計算中", ready: "待覆核", approved: "已核准", closed: "已結帳", failed: "失敗" };
 const PERIOD_STATUS: Record<string, string> = { open: "開放中", closed: "已關閉" };
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪" };
@@ -284,6 +286,121 @@ function workerFormula(worker: PayrollRun["workers"][number]): string {
   return `${basis}，依已發布排班 ${worker.scheduledDays} 天與有效敘薪計算 = ${money(worker.amountMinor)}`;
 }
 
+type PayrollEmployeeSelectionMode = "all" | "selected";
+
+function shortenPayrollRunName(value: string): string {
+  const characters = Array.from(value);
+  return characters.length > PAYROLL_RUN_NAME_MAX_LENGTH
+    ? `${characters.slice(0, PAYROLL_RUN_NAME_MAX_LENGTH - PAYROLL_RUN_NAME_ELLIPSIS.length).join("")}${PAYROLL_RUN_NAME_ELLIPSIS}`
+    : value;
+}
+
+function suggestedPayrollRunName(selectionMode: PayrollEmployeeSelectionMode, employees: Employee[], selectedEmployeeIds: string[]): string {
+  if (selectionMode === "all") return "全體員工";
+  const names = employees.filter((employee) => selectedEmployeeIds.includes(employee.userId)).map((employee) => employee.displayName).join("、");
+  return shortenPayrollRunName(names || "選擇員工");
+}
+
+interface PayrollCalculationDialogProps {
+  employees: Employee[];
+  employeesPending: boolean;
+  employeesError: Error | null;
+  initialPeriodKey: string;
+  initialPayDate: string;
+  onClose: () => void;
+  onSuccess: (run: PayrollRun) => void;
+}
+
+function PayrollCalculationDialog({ employees, employeesPending, employeesError, initialPeriodKey, initialPayDate, onClose, onSuccess }: PayrollCalculationDialogProps) {
+  const [periodKey, setPeriodKey] = useState(initialPeriodKey);
+  const [payDate, setPayDate] = useState(initialPayDate);
+  const [selectionMode, setSelectionMode] = useState<PayrollEmployeeSelectionMode>("all");
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
+  const [runName, setRunName] = useState("全體員工");
+  const [nameCustomized, setNameCustomized] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const calculatePayroll = useHrWrite<{ run: PayrollRun }>();
+  const suggestedName = useMemo(() => suggestedPayrollRunName(selectionMode, employees, selectedEmployeeIds), [employees, selectedEmployeeIds, selectionMode]);
+  const selectedCount = selectionMode === "all" ? employees.length : selectedEmployeeIds.length;
+  const unselectedCount = Math.max(0, employees.length - selectedCount);
+
+  useEffect(() => {
+    if (!nameCustomized) setRunName(suggestedName);
+  }, [nameCustomized, suggestedName]);
+
+  function setAllEmployees(checked: boolean) {
+    setSelectionMode(checked ? "all" : "selected");
+    setSelectedEmployeeIds(checked ? employees.map((employee) => employee.userId) : []);
+  }
+
+  function toggleEmployee(userId: string, checked: boolean) {
+    const currentIds = selectionMode === "all" ? employees.map((employee) => employee.userId) : selectedEmployeeIds;
+    const nextIds = checked
+      ? [...new Set([...currentIds, userId])]
+      : currentIds.filter((id) => id !== userId);
+    setSelectedEmployeeIds(nextIds);
+    setSelectionMode(nextIds.length === employees.length && employees.length > 0 ? "all" : "selected");
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedName = runName.trim();
+    const nameLength = Array.from(trimmedName).length;
+    if (!periodKey) { setValidationError("請選擇計算月份。"); return; }
+    if (selectionMode === "selected" && selectedCount === 0) { setValidationError("請至少選擇一位員工，或改選全體員工。"); return; }
+    if (!trimmedName || nameLength > PAYROLL_RUN_NAME_MAX_LENGTH) { setValidationError(`結算名稱請填 1～${PAYROLL_RUN_NAME_MAX_LENGTH} 個字。`); return; }
+    setValidationError(null);
+    calculatePayroll.mutate({
+      path: "/payroll/calculate",
+      method: "POST",
+      values: {
+        periodKey,
+        payDate: payDate || undefined,
+        runName: trimmedName,
+        attendanceMode: "all",
+        employeeUserIds: selectionMode === "all" ? undefined : selectedEmployeeIds,
+        requestId: `portal-${crypto.randomUUID()}`,
+      },
+    }, { onSuccess: (result) => { onSuccess(result.run); onClose(); } });
+  }
+
+  return <Dialog
+    className="hr-payroll-create-dialog"
+    title="新增薪資試算"
+    titleMeta={`${periodKey || "尚未選擇月份"}・已選 ${selectedCount} 位員工`}
+    onClose={onClose}
+    closeDisabled={calculatePayroll.isPending}
+    formProps={{ onSubmit: submit }}
+    actions={<><Button variant="secondary" onClick={onClose} disabled={calculatePayroll.isPending}>取消</Button><Button type="submit" icon="payments" loading={calculatePayroll.isPending}>開始試算</Button></>}
+  >
+    <div className="form-grid two">
+      <TextField type="month" label="計算月份" value={periodKey} required onChange={(event) => setPeriodKey(event.target.value)} />
+      <TextField type="date" label="發薪日（選填）" value={payDate} onChange={(event) => setPayDate(event.target.value)} />
+    </div>
+    <TextField label="這次結算名稱" value={runName} maxLength={PAYROLL_RUN_NAME_MAX_LENGTH} required hint={`${Array.from(runName).length}/${PAYROLL_RUN_NAME_MAX_LENGTH}`} onChange={(event) => { setNameCustomized(true); setRunName(Array.from(event.target.value).slice(0, PAYROLL_RUN_NAME_MAX_LENGTH).join("")); }} />
+    <div className="hr-payroll-employee-picker-section">
+      <div className="hr-payroll-picker-heading"><div><strong>計算範圍</strong><small>可選全體，或複選本次要試算的員工。</small></div><span className="hr-payroll-picker-count">已選 {selectedCount} 人</span></div>
+      <div className="hr-payroll-scope-summary" aria-live="polite"><span>符合資格 <strong>{employees.length}</strong> 人</span><span>已選 <strong>{selectedCount}</strong> 人</span><span>未選 <strong>{unselectedCount}</strong> 人</span></div>
+      <label className={`hr-payroll-employee-option hr-payroll-employee-option-all${selectionMode === "all" ? " selected" : ""}`}>
+        <input type="checkbox" checked={selectionMode === "all"} onChange={(event) => setAllEmployees(event.target.checked)} />
+        <span><strong>全體員工</strong><small>納入全部符合資格的員工</small></span>
+      </label>
+      {employeesPending ? <p className="muted hr-payroll-picker-empty">正在載入符合資格的員工…</p> : employees.length ? <div className="hr-payroll-employee-picker" role="group" aria-label="選擇員工">
+        {employees.map((employee) => {
+          const checked = selectionMode === "all" || selectedEmployeeIds.includes(employee.userId);
+          return <label className={`hr-payroll-employee-option${checked ? " selected" : ""}`} key={employee.userId}>
+            <input type="checkbox" checked={checked} onChange={(event) => toggleEmployee(employee.userId, event.target.checked)} />
+            <span><strong>{employee.displayName}</strong><small>{employee.employeeNumber}・{employee.position || "未設定職位"}</small></span>
+          </label>;
+        })}
+      </div> : <p className="muted hr-payroll-picker-empty">目前沒有符合資格的員工；若有支援人員排班，仍可試算支援人員薪資。</p>}
+      {selectionMode === "selected" && unselectedCount > 0 ? <Alert tone="warning">這是部分結算；未選的 {unselectedCount} 位符合資格員工不會納入這次試算。</Alert> : null}
+    </div>
+    {employeesError ? <Alert tone="danger">員工名單載入失敗：{employeesError.message}</Alert> : null}
+    {validationError || calculatePayroll.error ? <Alert tone="danger">{validationError ?? calculatePayroll.error?.message}</Alert> : null}
+  </Dialog>;
+}
+
 export function HrPayrollSettlement() {
   usePageTitle("薪資結算");
   const { permissions, user } = useSession();
@@ -291,9 +408,8 @@ export function HrPayrollSettlement() {
   const canRead = isHrAdministrator && permissions.has("hr:payroll:read");
   const canCalculate = isHrAdministrator && permissions.has("hr:payroll:calculate");
   const [periodKey, setPeriodKey] = useState(taipeiMonth);
-  const [employeeUserId, setEmployeeUserId] = useState("__all__");
   const [payDate, setPayDate] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [showCalculationDialog, setShowCalculationDialog] = useState(false);
   const [payrollResult, setPayrollResult] = useState<PayrollRun | null>(null);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [adjustmentUserId, setAdjustmentUserId] = useState("");
@@ -306,7 +422,6 @@ export function HrPayrollSettlement() {
   const adjustmentProfile = useHrQuery<Profile>(adjustmentUserId ? `/employees/${encodeURIComponent(adjustmentUserId)}` : "/employees/__none__", canRead && Boolean(adjustmentUserId), { keepPreviousData: false });
   const adjustments = useHrQuery<{ adjustments: Array<{ id: string; employeeName: string; effectivePeriodKey: string; reason: string; items: Array<{ itemName: string; amountMinor: number }> }> }>(`/payroll/adjustments?effectivePeriodKey=${encodeURIComponent(adjustmentEffectivePeriodKey)}`, canRead && Boolean(adjustmentEffectivePeriodKey));
   const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, canRead && permissions.has("hr:employee:read"));
-  const calculatePayroll = useHrWrite<{ run: PayrollRun }>();
   const closePayroll = useHrWrite<{ run: PayrollRun }>();
   const createAdjustment = useHrWrite();
   useEffect(() => {
@@ -318,38 +433,23 @@ export function HrPayrollSettlement() {
     setAdjustmentEffectivePeriodKey(nextMonth(selectedRun.data.run.periodKey));
   }, [selectedRun.data]);
   useEffect(() => { setAdjustmentEffectivePeriodKey(nextMonth(periodKey)); }, [periodKey]);
-  const employeeOptions = useMemo(() => [{ label: "全部啟用員工", value: "__all__" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
+  const adjustmentEmployeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
   const payrollTotals = useMemo(() => payrollResult?.employees.reduce((totals, employee) => ({ earningMinor: totals.earningMinor + employee.earningMinor, deductionMinor: totals.deductionMinor + employee.deductionMinor, netMinor: totals.netMinor + employee.netMinor }), { earningMinor: 0, deductionMinor: 0, netMinor: 0 }) ?? { earningMinor: 0, deductionMinor: 0, netMinor: 0 }, [payrollResult]);
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (runs.isPending) return <HrPageSkeleton variant="table" />;
   const adjustmentEmployment = adjustmentProfile.data?.employments.find((employment) => !employment.archivedAt);
 
-  function calculate() {
-    setError(null);
-    calculatePayroll.mutate({ path: "/payroll/calculate", method: "POST", values: { periodKey, payDate: payDate || undefined, attendanceMode: "all", employeeUserIds: employeeUserId === "__all__" ? undefined : [employeeUserId], requestId: `portal-${crypto.randomUUID()}` } }, {
-      onSuccess: (result) => setPayrollResult(result.run),
-      onError: (cause) => setError(cause.message),
-    });
-  }
-
   return <div className="page hr-payroll-page">
-    <PageHeader title="薪資結算" description="選擇月份試算，逐位確認薪資明細與計算公式，再進行結帳。" />
+    <PageHeader title="薪資結算" description="建立試算版本，選擇員工範圍與結算名稱，再逐位確認薪資明細。" actions={canCalculate ? <Button icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
     <Alert tone="info">先選月份試算；展開員工即可查看每一筆應發、扣款與公式。週期終結或離職的未休特休會在該薪資期間列為折現，只有結帳後才會寫入額度台帳。敘薪、月度資料與獎金政策請在各自的管理頁維護。</Alert>
-    {error ? <Alert tone="danger">{error}</Alert> : null}
     {closePayroll.error ? <Alert tone="danger">{closePayroll.error.message}</Alert> : null}
     {selectedRun.error ? <Alert tone="danger">{selectedRun.error.message}</Alert> : null}
     {runs.error ? <Alert tone="danger">{runs.error.message}</Alert> : null}
 
-    <Panel className="hr-payroll-main-panel" title="試算薪資" description="每次試算會建立新的版本；完成後可在下方逐筆覆核。">
-      <div className="admin-form hr-payroll-calculate-form">
-        <TextField type="month" label="計算月份" value={periodKey} required onChange={(event) => setPeriodKey(event.target.value)} />
-        <TextField type="date" label="發薪日（選填）" value={payDate} onChange={(event) => setPayDate(event.target.value)} />
-        <SelectField label="員工" value={employeeUserId} options={employeeOptions} onChange={(event) => setEmployeeUserId(event.target.value)} />
-        {canCalculate ? <Button icon="payments" loading={calculatePayroll.isPending} disabled={!periodKey} onClick={calculate}>計算薪資</Button> : <p className="form-hint">目前帳號沒有執行薪資試算的權限。</p>}
-      </div>
+    <Panel className="hr-payroll-main-panel" title="試算結果" description="每次新增試算會建立新的版本；完成後可在下方逐筆覆核。">
       {payrollResult ? <div className="hr-payroll-result">
         <div className="hr-payroll-result-toolbar">
-          <div><strong>{payrollResult.periodKey}</strong><span>{payrollResult.status === "closed" ? "已結帳" : "待覆核"}{payrollResult.payDate ? `・發薪日 ${payrollResult.payDate}` : ""}</span></div>
+          <div><strong>{payrollResult.runName}</strong><span>{payrollResult.periodKey}・{payrollResult.status === "closed" ? "已結帳" : "待覆核"}{payrollResult.payDate ? `・發薪日 ${payrollResult.payDate}` : ""}</span></div>
           {canCalculate && payrollResult.status === "ready" ? <Button icon="check" loading={closePayroll.isPending} onClick={() => closePayroll.mutate({ path: `/payroll/runs/${payrollResult.runId}/close`, method: "POST", values: {} }, { onSuccess: (result) => setPayrollResult(result.run) })}>結帳此批次</Button> : null}
         </div>
         <div className="hr-payroll-overview" aria-label="薪資合計">
@@ -386,7 +486,7 @@ export function HrPayrollSettlement() {
     >
       <div className="hr-payroll-secondary-content">
         <p className="muted">來源月份必須已有結帳結果；調整會在生效月份試算成為獨立明細，生效月份結帳後不可修改。</p>
-        <div className="admin-form toolbar hr-payroll-adjustment-form"><SelectField label="員工" value={adjustmentUserId} options={[{ label: "請選擇員工", value: "" }, ...employeeOptions.slice(1)]} onChange={(event) => setAdjustmentUserId(event.target.value)} /><TextField label="來源薪資月份" type="month" value={periodKey} onChange={(event) => setPeriodKey(event.target.value)} /><TextField label="生效薪資月份" type="month" value={adjustmentEffectivePeriodKey} onChange={(event) => setAdjustmentEffectivePeriodKey(event.target.value)} /><SelectField label="調整類型" value={adjustmentDirection} options={[{ label: "扣回", value: "deduction" }, { label: "補發", value: "earning" }]} onChange={(event) => setAdjustmentDirection(event.target.value as "earning" | "deduction")} /><TextField label="調整金額（元）" type="number" min="0" step="1" value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} /><TextField label="調整原因" value={adjustmentReason} maxLength={1000} onChange={(event) => setAdjustmentReason(event.target.value)} />{canCalculate ? <Button icon="plus" loading={createAdjustment.isPending} disabled={!adjustmentEmployment || adjustmentEffectivePeriodKey === periodKey || !Number.isSafeInteger(Number(adjustmentAmount)) || Number(adjustmentAmount) <= 0 || !adjustmentReason.trim()} onClick={() => createAdjustment.mutate({ path: "/payroll/adjustments", method: "POST", values: { employmentId: adjustmentEmployment?.id, sourcePeriodKey: periodKey, effectivePeriodKey: adjustmentEffectivePeriodKey, reason: adjustmentReason, items: [{ itemName: adjustmentDirection === "earning" ? "薪資補發" : "勞健保員工負擔", amountMinor: (adjustmentDirection === "earning" ? 1 : -1) * Math.round(Number(adjustmentAmount) * 100) }] } }, { onSuccess: () => { setAdjustmentAmount(""); void adjustments.refetch(); } })}>保存{adjustmentDirection === "earning" ? "補發" : "扣回"}</Button> : null}</div>
+        <div className="admin-form toolbar hr-payroll-adjustment-form"><SelectField label="員工" value={adjustmentUserId} options={adjustmentEmployeeOptions} onChange={(event) => setAdjustmentUserId(event.target.value)} /><TextField label="來源薪資月份" type="month" value={periodKey} onChange={(event) => setPeriodKey(event.target.value)} /><TextField label="生效薪資月份" type="month" value={adjustmentEffectivePeriodKey} onChange={(event) => setAdjustmentEffectivePeriodKey(event.target.value)} /><SelectField label="調整類型" value={adjustmentDirection} options={[{ label: "扣回", value: "deduction" }, { label: "補發", value: "earning" }]} onChange={(event) => setAdjustmentDirection(event.target.value as "earning" | "deduction")} /><TextField label="調整金額（元）" type="number" min="0" step="1" value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} /><TextField label="調整原因" value={adjustmentReason} maxLength={1000} onChange={(event) => setAdjustmentReason(event.target.value)} />{canCalculate ? <Button icon="plus" loading={createAdjustment.isPending} disabled={!adjustmentEmployment || adjustmentEffectivePeriodKey === periodKey || !Number.isSafeInteger(Number(adjustmentAmount)) || Number(adjustmentAmount) <= 0 || !adjustmentReason.trim()} onClick={() => createAdjustment.mutate({ path: "/payroll/adjustments", method: "POST", values: { employmentId: adjustmentEmployment?.id, sourcePeriodKey: periodKey, effectivePeriodKey: adjustmentEffectivePeriodKey, reason: adjustmentReason, items: [{ itemName: adjustmentDirection === "earning" ? "薪資補發" : "勞健保員工負擔", amountMinor: (adjustmentDirection === "earning" ? 1 : -1) * Math.round(Number(adjustmentAmount) * 100) }] } }, { onSuccess: () => { setAdjustmentAmount(""); void adjustments.refetch(); } })}>保存{adjustmentDirection === "earning" ? "補發" : "扣回"}</Button> : null}</div>
         {createAdjustment.error ? <Alert tone="danger">{createAdjustment.error.message}</Alert> : null}
         {adjustments.error ? <Alert tone="danger">{adjustments.error.message}</Alert> : null}
         {adjustments.data?.adjustments.length ? <div className={`table-scroll${adjustments.isPlaceholderData ? " is-refreshing" : ""}`}><table className="data-table compact"><thead><tr><th>員工</th><th>原因</th><th className="numeric">調整</th></tr></thead><tbody>{adjustments.data.adjustments.map((item) => <tr key={item.id}><td>{item.employeeName}</td><td>{item.reason}</td><td className="numeric">{item.items.map((line) => adjustmentMoney(line.amountMinor)).join("、")}</td></tr>)}</tbody></table></div> : <p className="form-hint">本月尚無人工薪資調整。</p>}
@@ -398,8 +498,17 @@ export function HrPayrollSettlement() {
       summaryClassName="hr-payroll-secondary-summary"
       summary={<><span><strong>歷史試算批次</strong><small>{runs.data?.runs.length ? `${runs.data.runs.length} 個版本可供載入` : "查看過往月份與版本"}</small></span><PayrollDisclosureMarker className="hr-payroll-secondary-marker" /></>}
     >
-      <div className="hr-payroll-secondary-content"><div className="table-scroll"><table className="data-table"><thead><tr><th>月份</th><th>批次版本</th><th>狀態</th><th>期間</th><th>完成</th><th>引擎</th><th>建立時間</th><th>操作</th></tr></thead><tbody>{(runs.data?.runs ?? []).map((item) => <tr key={item.run.id}><td><strong>{item.periodKey}</strong></td><td>v{item.run.versionNumber}</td><td>{RUN_STATUS[item.run.status] ?? item.run.status}</td><td>{PERIOD_STATUS[item.periodStatus] ?? item.periodStatus}</td><td>{item.run.completedCount} / {item.run.expectedCount}</td><td>{item.run.engineVersion}</td><td>{item.run.createdAt}</td><td><Button variant="secondary" onClick={() => setSelectedRunId(item.run.id)}>載入結果</Button></td></tr>)}</tbody></table></div>{!runs.data?.runs.length ? <p className="empty-state">尚未產生薪資計算批次。</p> : null}</div>
+      <div className="hr-payroll-secondary-content"><div className="table-scroll"><table className="data-table"><thead><tr><th>結算名稱</th><th>月份</th><th>批次版本</th><th>狀態</th><th>期間</th><th>完成</th><th>引擎</th><th>建立時間</th><th>操作</th></tr></thead><tbody>{(runs.data?.runs ?? []).map((item) => <tr key={item.run.id}><td><strong>{item.run.runName}</strong></td><td><strong>{item.periodKey}</strong></td><td>v{item.run.versionNumber}</td><td>{RUN_STATUS[item.run.status] ?? item.run.status}</td><td>{PERIOD_STATUS[item.periodStatus] ?? item.periodStatus}</td><td>{item.run.completedCount} / {item.run.expectedCount}</td><td>{item.run.engineVersion}</td><td>{item.run.createdAt}</td><td><Button variant="secondary" onClick={() => setSelectedRunId(item.run.id)}>載入結果</Button></td></tr>)}</tbody></table></div>{!runs.data?.runs.length ? <p className="empty-state">尚未產生薪資計算批次。</p> : null}</div>
     </PayrollDisclosure>
-    <p className="form-hint">公式與輸入會隨試算批次保存；勞健保優先使用系統標準規則，特殊身分類別則以已覆核的公司版本為準。</p>
+    <p className="form-hint">公式、結算名稱與輸入會隨試算批次保存；勞健保優先使用系統標準規則，特殊身分類別則以已覆核的公司版本為準。</p>
+    {showCalculationDialog ? <PayrollCalculationDialog
+      employees={employees.data?.employees ?? []}
+      employeesPending={employees.isPending}
+      employeesError={employees.error instanceof Error ? employees.error : null}
+      initialPeriodKey={periodKey}
+      initialPayDate={payDate}
+      onClose={() => setShowCalculationDialog(false)}
+      onSuccess={(run) => { setPayrollResult(run); setPeriodKey(run.periodKey); setPayDate(run.payDate ?? ""); setAdjustmentEffectivePeriodKey(nextMonth(run.periodKey)); }}
+    /> : null}
   </div>;
 }

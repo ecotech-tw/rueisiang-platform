@@ -172,6 +172,32 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.runs.find((item) => item.run.requestId === "test-payroll-run-list-status")).toMatchObject({ run: { status: "ready" }, periodStatus: "open" });
   });
 
+  it("保存結算名稱、為指定員工產生預設名稱並限制名稱長度", async () => {
+    const selected = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-run-name-default",
+    });
+    expect(selected.status, await selected.clone().text()).toBe(200);
+    const selectedBody = await selected.json() as { run: { runId: string; runName: string } };
+    expect(selectedBody.run.runName).toBe("林瑞翔");
+
+    const custom = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], runName: "八月林瑞翔薪資", requestId: "test-payroll-run-name-custom",
+    });
+    expect(custom.status, await custom.clone().text()).toBe(200);
+    const customBody = await custom.json() as { run: { runId: string; runName: string } };
+    expect(customBody.run.runName).toBe("八月林瑞翔薪資");
+    expect((await (await request(`/hr/payroll/runs/${customBody.run.runId}`)).json() as { run: { runName: string } }).run.runName).toBe("八月林瑞翔薪資");
+
+    const listed = await request("/hr/payroll/runs");
+    const listedBody = await listed.json() as { runs: Array<{ run: { requestId: string; runName: string } }> };
+    expect(listedBody.runs.find((item) => item.run.requestId === "test-payroll-run-name-custom")?.run.runName).toBe("八月林瑞翔薪資");
+
+    const tooLong = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], runName: "字".repeat(21), requestId: "test-payroll-run-name-too-long",
+    });
+    expect(tooLong.status, await tooLong.clone().text()).toBe(400);
+  });
+
   it("按員工套用的 policy 自動計算櫃位業績獎金並四捨五入到元", async () => {
     const db = createDatabase(d1 as never);
     await db.delete(reportPayoutDaily);
