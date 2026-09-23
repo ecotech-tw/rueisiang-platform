@@ -274,6 +274,7 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
 - **不要在這台機器跑任何 wrangler 指令。** Windows on ARM 沒有 workerd，連 `wrangler whoami` 都會失敗。`wrangler dev`、`deploy`、`--dry-run`、`d1` 全部不行。設定檔的實機驗證只在 CI（Linux）上做。
 - **不要靠前端擋權限。** sidebar 顯示什麼、按鈕出不出現，純粹是外觀——SPA 的 JavaScript 全在使用者手上。任何會讀寫資料的路由都要自己掛 `requireAuth` / `requirePermission`。
 - **不要直接推 main。** 開分支 + `gh pr create`，一行修正也一樣。
+- **不要主動監看 GitHub CI。** Agent 不得執行 `gh run watch`、`gh pr checks --watch`，也不得用迴圈、定時 polling、背景工作或瀏覽器自動刷新持續查詢 workflow/check runs。這是為了避免不必要的 GitHub API 請求與服務濫用風險。Agent 可以 push branch、建立 PR，並在本機執行驗證；只有人類明確要求時，才可對指定 CI 做一次性狀態或 log 查詢，不得為等待完成而重複查詢。
 - **不要在路由裡長出第二份業務邏輯。** 已經在 `packages/db` 的東西不要複製一份到 `apps/api/src/routes`。
 - **不要在 Worker 程式碼裡用 `node:` 內建模組。** `apps/api/tsconfig.json` 的 `types` 只有 `@cloudflare/workers-types`，會被擋下。要用 Node 的只能在 `src/dev/`、`src/local-d1/`、測試檔裡。
 - **不要打開 `workerd` 的安裝腳本。** `pnpm-workspace.yaml` 刻意設 `workerd: false`，開著會讓整個 `pnpm install` 在這台機器直接失敗。
