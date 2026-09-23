@@ -605,7 +605,7 @@ function calculateAssignedBonus(
 }
 
 /**
- * 以明確輸入的示範規則試算薪資：月薪固定以 30 日制按在職日數計算、
+ * 以明確輸入的示範規則試算薪資：月薪整月按月薪給付，入職／離職未滿整月才以 30 日制按在職日數比例計算；
  * 核准付薪加班、申請上凍結的給薪比例；勞健保依系統預設或公司覆核的有效負擔規則計算。
  */
 export async function calculateHrPayroll(db: Database, input: HrPayrollCalculationInput, actor: HrActor): Promise<HrPayrollRunResult> {
@@ -859,6 +859,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
 
   for (const employee of employees) {
     const employmentDays = employmentDaysForPeriod(employee, period);
+    const isFullPeriodEmployment = employmentDays.length === calendarDays.length;
     const employmentDaySet = new Set(employmentDays);
     const employeeCompensations = compensations.filter((row) => row.employmentId === employee.employmentId);
     const employeeAnnualLeaveSettlements = annualLeaveSettlements.filter((settlement) => settlement.employmentId === employee.employmentId);
@@ -966,14 +967,19 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const fullMonthComp = covering(employeeCompensations, period.start);
     if (fullMonthComp?.payBasis === "monthly" && fullMonthComp.validFrom <= period.start && (fullMonthComp.validTo === null || fullMonthComp.validTo >= period.end)) {
       const employedDays = employmentDays.length;
-      const fullMonthBase = Math.round(fullMonthComp.baseAmountMinor * employedDays / monthlyDivisorDays);
+      // 月薪是「每月」的給付單位；只有入職／離職未滿整月才按固定 30 日制拆分。
+      const fullMonthBase = isFullPeriodEmployment
+        ? fullMonthComp.baseAmountMinor
+        : Math.round(fullMonthComp.baseAmountMinor * employedDays / monthlyDivisorDays);
       const specialDailyBase = specialAssignments.filter((item) => employmentDays.includes(item.workDate)).reduce((sum) => sum + Math.floor(fullMonthComp.baseAmountMinor / monthlyDivisorDays), 0);
       baseMinor = Math.max(0, fullMonthBase - specialDailyBase);
       baseCalculationParts.clear();
       baseCalculationParts.set(fullMonthComp.id, { payBasis: "monthly", baseAmountMinor: fullMonthComp.baseAmountMinor, dayCount: employedDays, hours: 0, amountMinor: baseMinor, fullMonth: true, specialDailyBaseMinor: specialDailyBase });
       // 只有月給的項目要跟著本薪一起用整月金額回推；日給與時給仍是上面逐日累加的結果。
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === fullMonthComp.id && candidate.amountBasis === "monthly")) {
-        const amount = Math.round(item.amountMinor * employedDays / monthlyDivisorDays);
+        const amount = isFullPeriodEmployment
+          ? item.amountMinor
+          : Math.round(item.amountMinor * employedDays / monthlyDivisorDays);
         compensationItemTotals.set(item.id, amount);
         itemCalculationParts.set(item.id, { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: employedDays, quantityUnit: "天", amountMinor: amount, fullMonth: true });
       }
@@ -986,7 +992,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const calculation = itemCalculationParts.get(item.id);
       const itemParts: PayrollCalculationPart[] = calculation ? [{
         formula: calculation.fullMonth
-          ? `round(月給 ${payrollFormulaMoney(calculation.baseAmountMinor)} × ${calculation.quantity} 天 ÷ ${monthlyDivisorDays} 天)`
+          ? calculation.quantity === calendarDays.length
+            ? `月給 ${payrollFormulaMoney(calculation.baseAmountMinor)} × 1 個月`
+            : `round(月給 ${payrollFormulaMoney(calculation.baseAmountMinor)} × ${calculation.quantity} 天 ÷ ${monthlyDivisorDays} 天)`
           : calculation.quantityUnit === "個月"
             ? `月給 ${payrollFormulaMoney(calculation.baseAmountMinor)} × 1 個月`
             : item.amountBasis === "monthly"
@@ -1010,7 +1018,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         .filter((part) => part.amountMinor > 0)
         .map((part) => ({
           formula: part.fullMonth
-            ? `round(月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × ${part.dayCount} 天 ÷ ${monthlyDivisorDays} 天)${part.specialDailyBaseMinor ? ` − 特殊日替代基薪 ${payrollFormulaMoney(part.specialDailyBaseMinor)}` : ""}`
+            ? part.dayCount === calendarDays.length
+              ? `月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × 1 個月${part.specialDailyBaseMinor ? ` − 特殊日替代基薪 ${payrollFormulaMoney(part.specialDailyBaseMinor)}` : ""}`
+              : `round(月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × ${part.dayCount} 天 ÷ ${monthlyDivisorDays} 天)${part.specialDailyBaseMinor ? ` − 特殊日替代基薪 ${payrollFormulaMoney(part.specialDailyBaseMinor)}` : ""}`
             : part.payBasis === "monthly"
               ? `每日 floor(${payrollFormulaMoney(part.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天) × ${part.dayCount} 天`
               : part.payBasis === "daily"
@@ -1020,7 +1030,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         }));
       lines.push({ lineKey: "base_salary", direction: "earning", amountMinor: baseMinor, explanation: {
         payBasis: fullMonthComp?.payBasis ?? "unknown", period: input.periodKey,
-        rule: fullMonthComp?.payBasis === "hourly" ? "依月度人工工時登記（0.5 小時單位）" : fullMonthComp?.payBasis === "daily" ? "依已發布排班日期計算；特殊上班日依套用資料" : "月薪固定以 30 日制按在職日數計算",
+        rule: fullMonthComp?.payBasis === "hourly" ? "依月度人工工時登記（0.5 小時單位）" : fullMonthComp?.payBasis === "daily" ? "依已發布排班日期計算；特殊上班日依套用資料" : "月薪整月按月薪給付；未滿整月按固定 30 日制按在職日數比例計算",
         calculationParts: baseParts, formulaDetail: payrollFormulaTotal(baseParts, baseMinor),
       } });
     }
@@ -1285,7 +1295,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const versionNumber = Number(latest?.value ?? 0) + 1;
   const periodInsert = db.insert(hrPayrollPeriods).values({ id: `payroll-period-${period.periodKey}`, periodKey: period.periodKey, attendanceStart: period.start, attendanceEnd: period.end, payDate, createdBy: actor.id }).onConflictDoNothing();
   const totalResults = statementRows.length + workerStatements.size;
-  const runInsert = db.insert(hrPayrollRuns).values({ id: runId, payrollPeriodId: `payroll-period-${period.periodKey}`, versionNumber, requestId, inputRevision: Math.max(1, ...employees.map((employee) => employee.employeeRevision)), payDate, calculationInputJson, sourceSnapshotJson, warningsJson: JSON.stringify([...calculationWarnings]), engineVersion: "hr-payroll-demo-v1", status: "ready", expectedCount: totalResults, completedCount: totalResults, createdBy: actor.id });
+  const runInsert = db.insert(hrPayrollRuns).values({ id: runId, payrollPeriodId: `payroll-period-${period.periodKey}`, versionNumber, requestId, inputRevision: Math.max(1, ...employees.map((employee) => employee.employeeRevision)), payDate, calculationInputJson, sourceSnapshotJson, warningsJson: JSON.stringify([...calculationWarnings]), engineVersion: "hr-payroll-demo-v2", status: "ready", expectedCount: totalResults, completedCount: totalResults, createdBy: actor.id });
   const statements = [periodInsert, runInsert, ...statementRows.flatMap(({ payslipId, employee, lines, compensationIds, insuranceIds }) => [
     db.insert(hrPayrollRunEmployees).values({ payrollRunId: runId, employmentId: employee.employmentId, inputRevision: 1, status: "succeeded" }),
     db.insert(hrPayslips).values({ id: payslipId, payrollRunId: runId, employmentId: employee.employmentId, employeeNumber: employee.employeeNumber, employeeName: employee.employeeName, earningMinor: employee.earningMinor, deductionMinor: employee.deductionMinor, netMinor: employee.netMinor }),
@@ -1294,7 +1304,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ...insuranceIds.map((id) => db.insert(hrPayslipInsuranceLinks).values({ payslipId, insuranceVersionId: id })),
   ]),
   ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor })),
-  db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: "hr-payroll-demo-v1" } }))];
+  db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: "hr-payroll-demo-v2" } }))];
   try {
     await db.batch(batchStatements(statements));
   } catch (error) {

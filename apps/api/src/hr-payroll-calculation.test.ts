@@ -62,9 +62,9 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.run.warnings).not.toContain("本版未計算勞健保扣款：員工尚未建立有效的加保版本。");
     expect(body.run.warnings.some((warning) => warning.includes("林瑞翔") && warning.includes("31 天缺少當月出金資料"))).toBe(true);
     expect(body.run.warnings.some((warning) => warning.includes("沒有涵蓋通路的已發布排班"))).toBe(false);
-    expect(body.run.employees[0]).toMatchObject({ employeeUserId: "dev-eli-lin@ecotech.tw", employeeName: "林瑞翔", earningMinor: 6_316_665, deductionMinor: 385_500, netMinor: 5_931_165 });
+    expect(body.run.employees[0]).toMatchObject({ employeeUserId: "dev-eli-lin@ecotech.tw", employeeName: "林瑞翔", earningMinor: 6_116_665, deductionMinor: 385_500, netMinor: 5_731_165 });
     expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
-      expect.objectContaining({ lineKey: "base_salary", amountMinor: 6_200_000 }),
+      expect.objectContaining({ lineKey: "base_salary", amountMinor: 6_000_000, explanation: expect.objectContaining({ formulaDetail: "月薪 NT$ 60,000 × 1 個月 = NT$ 60,000" }) }),
       expect.objectContaining({ lineKey: "overtime", amountMinor: 116_665 }),
       expect.objectContaining({ lineKey: "unpaid_leave", amountMinor: 200_000 }),
       expect.objectContaining({ lineKey: "labor_insurance", amountMinor: 114_500 }),
@@ -79,6 +79,28 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
     const repeat = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-2026-08-lin" });
     expect((await repeat.json() as { run: { runId: string } }).run.runId).toBe(body.run.runId);
+  });
+
+  it("31 日月份整月月薪與月給項目不按 31／30 放大", async () => {
+    const compensation = await request("/hr/employments/dev-employment-sixmonth/compensation", "POST", {
+      validFrom: "2026-03-02", payBasis: "monthly", baseAmountMinor: 3_600_000, note: "31 日月份整月月薪測試", items: [
+        { itemName: "職務加給", amountMinor: 200_000, itemKind: "fixed", amountBasis: "monthly", includeOvertime: false, includeInsurance: false, includeTax: false },
+        { itemName: "全勤獎金", amountMinor: 200_000, itemKind: "fixed", amountBasis: "monthly", includeOvertime: false, includeInsurance: false, includeTax: false },
+      ],
+    });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-sixmonth@ecotech.tw"], requestId: "test-payroll-full-month-31-days",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const employee = body.run.employees[0]!;
+    expect(employee.earningMinor).toBe(4_000_000);
+    expect(employee.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "base_salary", amountMinor: 3_600_000, explanation: expect.objectContaining({ formulaDetail: "月薪 NT$ 36,000 × 1 個月 = NT$ 36,000" }) }),
+      expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 200_000, explanation: expect.objectContaining({ formulaDetail: "月給 NT$ 2,000 × 1 個月 = NT$ 2,000" }) }),
+      expect.objectContaining({ lineKey: "salary_item_2", amountMinor: 200_000, explanation: expect.objectContaining({ formulaDetail: "月給 NT$ 2,000 × 1 個月 = NT$ 2,000" }) }),
+    ]));
   });
 
   it("只按報到後的在職日驗證與計算員工薪資", async () => {
