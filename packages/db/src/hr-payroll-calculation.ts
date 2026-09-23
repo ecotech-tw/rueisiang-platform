@@ -79,13 +79,55 @@ function payrollFormulaTotal(parts: PayrollCalculationPart[], totalMinor: number
   return `${expression || "依薪資規則計算"} = ${payrollFormulaMoney(totalMinor)}`;
 }
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
+const PAYROLL_RUN_NAME_MAX_LENGTH = 20;
+const PAYROLL_RUN_NAME_ELLIPSIS = "...";
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
+
+function shortenPayrollRunName(value: string): string {
+  const characters = Array.from(value);
+  return characters.length > PAYROLL_RUN_NAME_MAX_LENGTH
+    ? `${characters.slice(0, PAYROLL_RUN_NAME_MAX_LENGTH - PAYROLL_RUN_NAME_ELLIPSIS.length).join("")}${PAYROLL_RUN_NAME_ELLIPSIS}`
+    : value;
+}
+
+function suggestedPayrollRunName(employeeUserIds: string[] | null | undefined, employeeNames: string[]): string {
+  if (employeeUserIds === undefined || employeeUserIds === null) return "全體員工";
+  const names = employeeNames.map((name) => name.trim()).filter(Boolean).join("、");
+  return shortenPayrollRunName(names || "指定員工");
+}
+
+interface PayrollCalculationInputSnapshot {
+  runName?: unknown;
+  employeeUserIds?: unknown;
+}
+
+function parsePayrollCalculationInput(value: string): PayrollCalculationInputSnapshot {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as PayrollCalculationInputSnapshot : {};
+  } catch {
+    return {};
+  }
+}
+
+function payrollEmployeeUserIdsFromInput(input: PayrollCalculationInputSnapshot): string[] | null | undefined {
+  return Array.isArray(input.employeeUserIds)
+    ? input.employeeUserIds.filter((item): item is string => typeof item === "string")
+    : input.employeeUserIds === null ? null : undefined;
+}
+
+function payrollRunNameFromInput(value: string, employeeNames: string[] = []): string {
+  const input = parsePayrollCalculationInput(value);
+  if (typeof input.runName === "string" && input.runName.trim()) return input.runName.trim();
+  return suggestedPayrollRunName(payrollEmployeeUserIdsFromInput(input), employeeNames);
+}
 
 type HrPayrollEmployeeFilter = "all" | "general" | "scheduled";
 
 export interface HrPayrollCalculationInput {
   periodKey: string;
   payDate?: string;
+  runName?: string;
   employeeUserIds?: string[];
   attendanceMode?: HrPayrollEmployeeFilter;
   requestId?: string;
@@ -116,6 +158,7 @@ export interface HrPayrollEmployeeResult {
 
 export interface HrPayrollRunResult {
   runId: string;
+  runName: string;
   periodKey: string;
   payDate: string | null;
   status: "ready" | "closed";
@@ -456,7 +499,17 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
   } catch {
     persistedWarnings = ["此批次的試算提醒快照格式無法解析，請重新試算。"];
   }
-  return { runId, periodKey: run.periodKey, payDate: run.run.payDate, status: run.run.status === "closed" ? "closed" : "ready", engineVersion: run.run.engineVersion, employees, workers: workerResults.map((worker) => ({ workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, compensationVersionId: worker.compensationVersionId })), warnings: [...new Set([...(hasInsuranceDeduction ? [] : [PAYROLL_DEMO_WARNING]), ...persistedWarnings, ...warnings])] };
+  return {
+    runId,
+    runName: payrollRunNameFromInput(run.run.calculationInputJson, employees.map((employee) => employee.employeeName)),
+    periodKey: run.periodKey,
+    payDate: run.run.payDate,
+    status: run.run.status === "closed" ? "closed" : "ready",
+    engineVersion: run.run.engineVersion,
+    employees,
+    workers: workerResults.map((worker) => ({ workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, compensationVersionId: worker.compensationVersionId })),
+    warnings: [...new Set([...(hasInsuranceDeduction ? [] : [PAYROLL_DEMO_WARNING]), ...persistedWarnings, ...warnings])],
+  };
 }
 
 interface AssignedBonusPolicy {
@@ -557,6 +610,10 @@ function calculateAssignedBonus(
  */
 export async function calculateHrPayroll(db: Database, input: HrPayrollCalculationInput, actor: HrActor): Promise<HrPayrollRunResult> {
   const period = periodFromKey(input.periodKey);
+  const requestedRunName = input.runName?.trim();
+  if (input.runName !== undefined && (!requestedRunName || Array.from(requestedRunName).length > PAYROLL_RUN_NAME_MAX_LENGTH)) {
+    throw new HrError(400, `結算名稱必須是 1～${PAYROLL_RUN_NAME_MAX_LENGTH} 個字。`);
+  }
   const monthlyDivisorDays = 30;
   const standardDailyHours = input.standardDailyHours ?? 8;
   if ((input.monthlyDivisorDays !== undefined && input.monthlyDivisorDays !== 30) || !Number.isFinite(standardDailyHours) || standardDailyHours <= 0 || standardDailyHours > 24) {
@@ -589,6 +646,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   if (input.employeeUserIds !== undefined && employeesWithoutPeriod.length) {
     throw new HrError(400, `以下員工在 ${period.periodKey} 沒有在職區間，無法計算薪資：${employeesWithoutPeriod.map((employee) => employee.employeeName).join("、")}。`);
   }
+  const runName = requestedRunName ?? suggestedPayrollRunName(input.employeeUserIds, selectedEmployees.map((employee) => employee.employeeName));
   const closedEmploymentIds = employees.length ? await db.select({ employmentId: hrPayslips.employmentId }).from(hrPayslips)
     .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId)).innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
     .where(and(eq(hrPayrollPeriods.periodKey, period.periodKey), eq(hrPayrollRuns.status, "closed"), inArray(hrPayslips.employmentId, employees.map((employee) => employee.employmentId)))) : [];
@@ -1203,6 +1261,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const calculationInputJson = JSON.stringify({
     periodKey: input.periodKey,
     payDate,
+    runName,
     employeeUserIds: input.employeeUserIds ?? null,
     attendanceMode: input.attendanceMode ?? "all",
     monthlyDivisorDays,
@@ -1581,6 +1640,7 @@ export async function listHrPayrollRuns(db: Database) {
     payrollPeriodId: hrPayrollRuns.payrollPeriodId,
     versionNumber: hrPayrollRuns.versionNumber,
     requestId: hrPayrollRuns.requestId,
+    calculationInputJson: hrPayrollRuns.calculationInputJson,
     inputRevision: hrPayrollRuns.inputRevision,
     payDate: hrPayrollRuns.payDate,
     engineVersion: hrPayrollRuns.engineVersion,
@@ -1596,26 +1656,38 @@ export async function listHrPayrollRuns(db: Database) {
   }).from(hrPayrollRuns)
     .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
     .orderBy(desc(hrPayrollRuns.createdAt));
-  return rows.map((row) => ({
-    run: {
-      id: row.runId,
-      payrollPeriodId: row.payrollPeriodId,
-      versionNumber: row.versionNumber,
-      requestId: row.requestId,
-      inputRevision: row.inputRevision,
-      payDate: row.payDate,
-      engineVersion: row.engineVersion,
-      status: row.runStatus,
-      expectedCount: row.expectedCount,
-      completedCount: row.completedCount,
-      approvedBy: row.approvedBy,
-      createdBy: row.createdBy,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    },
-    periodKey: row.periodKey,
-    periodStatus: row.periodStatus,
-  }));
+  const legacyRunRows = rows.filter((row) => {
+    const input = parsePayrollCalculationInput(row.calculationInputJson);
+    return typeof input.runName !== "string" || !input.runName.trim();
+  });
+  const legacyEmployeeNames = legacyRunRows.length
+    ? new Map((await db.select({ userId: users.id, employeeName: displayName }).from(users)).map((row) => [row.userId, row.employeeName]))
+    : new Map<string, string>();
+  return rows.map((row) => {
+    const input = parsePayrollCalculationInput(row.calculationInputJson);
+    const employeeNames = (payrollEmployeeUserIdsFromInput(input) ?? []).map((userId) => legacyEmployeeNames.get(userId) ?? "").filter(Boolean);
+    return {
+      run: {
+        id: row.runId,
+        runName: payrollRunNameFromInput(row.calculationInputJson, employeeNames),
+        payrollPeriodId: row.payrollPeriodId,
+        versionNumber: row.versionNumber,
+        requestId: row.requestId,
+        inputRevision: row.inputRevision,
+        payDate: row.payDate,
+        engineVersion: row.engineVersion,
+        status: row.runStatus,
+        expectedCount: row.expectedCount,
+        completedCount: row.completedCount,
+        approvedBy: row.approvedBy,
+        createdBy: row.createdBy,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      },
+      periodKey: row.periodKey,
+      periodStatus: row.periodStatus,
+    };
+  });
 }
 
 export async function closeHrPayrollRun(db: Database, runId: string, actor: HrActor) {

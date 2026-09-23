@@ -941,8 +941,9 @@ export const hr = new Hono<AppEnv>()
     const mode = input.attendanceMode === undefined || input.attendanceMode === "all" || input.attendanceMode === "general" || input.attendanceMode === "scheduled" ? input.attendanceMode : null;
     if (mode === null) throw new HTTPException(400, { message: "員工出勤方式篩選不正確。" });
     const payDate = input.payDate === undefined ? undefined : date(input, "payDate");
+    const runName = input.runName === undefined ? undefined : text(input, "runName", "結算名稱", 20);
     return c.json({ run: await calculateHrPayroll(c.get("db"), {
-      periodKey: periodKey(input), payDate: payDate ?? undefined, employeeUserIds: selectedUsers as string[] | undefined,
+      periodKey: periodKey(input), payDate: payDate ?? undefined, runName, employeeUserIds: selectedUsers as string[] | undefined,
       attendanceMode: mode, requestId: input.requestId === undefined ? undefined : text(input, "requestId", "請求識別碼", 200),
       monthlyDivisorDays: optionalInteger(input, "monthlyDivisorDays", "月薪除數", 1, 366),
       standardDailyHours: input.standardDailyHours === undefined ? undefined : Number(input.standardDailyHours),

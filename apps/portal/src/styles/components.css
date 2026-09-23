@@ -4439,15 +4439,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 薪資結算：先看一個試算入口，再逐位展開薪資單；移除重複的摘要表，
  * 將公式放在每筆明細旁邊，覆核時不用在表格與卡片之間來回對照。
  */
-.hr-payroll-calculate-form {
-  align-items: flex-end;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--color-line);
-}
-.hr-payroll-calculate-form > .field { flex: 1 1 170px; min-width: 150px; }
-.hr-payroll-calculate-form > .primary-button,
-.hr-payroll-calculate-form > .ghost-button { min-height: var(--size-field); }
-.hr-payroll-calculate-form > .form-hint { flex: 1 1 220px; margin: 0; align-self: center; }
 .hr-payroll-result { display: grid; gap: 14px; margin-top: 20px; padding-top: 0; border-top: 0; }
 .hr-payroll-result-toolbar {
   display: flex;
@@ -4571,11 +4562,35 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-payroll-adjustment-form > .field { flex: 1 1 150px; min-width: 130px; }
 .hr-payroll-adjustment-form > .primary-button,
 .hr-payroll-adjustment-form > .ghost-button { min-height: var(--size-field); }
+.hr-payroll-create-dialog { width: min(720px, 100%); }
+.hr-payroll-create-dialog .modal-body { gap: 18px; }
+.hr-payroll-employee-picker-section { display: grid; gap: 10px; }
+.hr-payroll-picker-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hr-payroll-picker-heading > div { display: grid; gap: 2px; min-width: 0; }
+.hr-payroll-picker-heading strong { font-size: 14px; }
+.hr-payroll-picker-heading small { color: var(--color-muted); font-size: 12px; }
+.hr-payroll-picker-count,
+.hr-payroll-scope-summary span { color: var(--color-brand-dark); font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.hr-payroll-picker-count { flex: none; padding: 5px 10px; border-radius: 999px; background: var(--color-brand-soft); }
+.hr-payroll-scope-summary { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 9px 12px; border-radius: 10px; background: --alpha(var(--color-brand) / 6%); }
+.hr-payroll-scope-summary span { color: var(--color-muted); font-weight: 500; }
+.hr-payroll-scope-summary strong { color: var(--color-ink); font-weight: 700; }
+.hr-payroll-employee-option { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 10px; border-radius: 9px; cursor: pointer; transition-property: background-color, color; transition-duration: 120ms; transition-timing-function: ease-out; }
+.hr-payroll-employee-option:hover { background: --alpha(var(--color-brand) / 4%); }
+.hr-payroll-employee-option.selected { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.hr-payroll-employee-option input { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--color-brand); cursor: pointer; }
+.hr-payroll-employee-option input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-payroll-employee-option > span { display: grid; gap: 1px; min-width: 0; }
+.hr-payroll-employee-option strong,
+.hr-payroll-employee-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-payroll-employee-option small { color: var(--color-muted); font-size: 12px; }
+.hr-payroll-employee-option-all { border-bottom: 1px solid var(--color-soft-line); border-radius: 0; }
+.hr-payroll-employee-picker { display: grid; gap: 2px; max-height: min(38vh, 360px); overflow-y: auto; padding: 5px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-canvas); }
+.hr-payroll-picker-empty { margin: 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 
 @media (max-width: 760px) {
   .hr-payroll-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hr-payroll-line-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hr-payroll-calculate-form > .field,
   .hr-payroll-adjustment-form > .field { flex-basis: 100%; }
 }
 
