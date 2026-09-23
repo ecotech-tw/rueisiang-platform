@@ -85,4 +85,27 @@ describe("HR 新增式 migration", () => {
       expect(sqlite.prepare("PRAGMA table_info(hr_employments)").all().map((column) => (column as { name: string }).name)).not.toContain("hired_on");
     } finally { sqlite.close(); }
   });
+
+  it("扁平化前已存在的特休額度與 ledger 仍保留且改指向新的 employment parent", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    try {
+      sqlite.exec("PRAGMA foreign_keys=ON");
+      for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file < "0174_").sort()) apply(sqlite, file);
+      sqlite.exec("INSERT INTO users(id,email,status) VALUES ('u','u@example.test','active'); INSERT INTO hr_employees(user_id,employee_number) VALUES ('u','E1'); INSERT INTO hr_employments(id,employee_user_id,hired_on,seniority_start_on) VALUES ('employment-1','u','2020-01-01','2020-01-01');");
+      for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file >= "0174_" && file < "0179_").sort()) apply(sqlite, file);
+
+      // 這兩支在正式庫可能早於 0179 以外的 migration 已存在；模擬該狀態，
+      // 讓 entitlement 與 ledger 都有資料，避免空表掩蓋 DROP parent 的 FK 問題。
+      apply(sqlite, "0184_kind_hydra.sql");
+      apply(sqlite, "0185_seed_annual_leave_policy.sql");
+      sqlite.exec("INSERT INTO hr_annual_leave_entitlements(id,employment_id,policy_version_id,bracket_id,service_months,period_start,period_end,entitled_half_hours,status) VALUES ('entitlement-1','employment-1','annual-leave-policy-2017-v1','annual-leave-bracket-6m',6,'2026-01-01','2027-01-01',24,'open'); INSERT INTO hr_annual_leave_ledger(id,entitlement_id,entry_kind,delta_half_hours,source_key) VALUES ('ledger-1','entitlement-1','grant',24,'migration-test');");
+
+      apply(sqlite, "0179_swap_hr_employments.sql");
+      for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file >= "0180_" && file !== "0184_kind_hydra.sql" && file !== "0185_seed_annual_leave_policy.sql").sort()) apply(sqlite, file);
+
+      expect(sqlite.prepare("SELECT employment_id FROM hr_annual_leave_entitlements WHERE id='entitlement-1'").get()).toEqual({ employment_id: "employment-1" });
+      expect(sqlite.prepare("SELECT entitlement_id FROM hr_annual_leave_ledger WHERE id='ledger-1'").get()).toEqual({ entitlement_id: "entitlement-1" });
+      expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally { sqlite.close(); }
+  });
 });

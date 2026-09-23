@@ -1,3 +1,131 @@
+-- 0179 早於 0184 執行；全新資料庫先建立特休表所需的父表，避免
+-- SQLite 在移除舊 hr_employments 時解析到尚未存在的 foreign-key parent。
+CREATE TABLE IF NOT EXISTS `hr_annual_leave_policy_versions` (
+	`id` text PRIMARY KEY NOT NULL,
+	`policy_key` text DEFAULT 'annual_leave' NOT NULL,
+	`version_number` integer NOT NULL,
+	`valid_from` text NOT NULL,
+	`valid_to` text,
+	`basis` text DEFAULT 'anniversary' NOT NULL,
+	`daily_minutes` integer DEFAULT 480 NOT NULL,
+	`minimum_unit_minutes` integer DEFAULT 30 NOT NULL,
+	`carryover_allowed` integer DEFAULT 0 NOT NULL,
+	`note` text DEFAULT '' NOT NULL,
+	`created_by` text,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_hr_annual_leave_policy_dates" CHECK(length("hr_annual_leave_policy_versions"."valid_from") = 10 AND ("hr_annual_leave_policy_versions"."valid_to" IS NULL OR (length("hr_annual_leave_policy_versions"."valid_to") = 10 AND "hr_annual_leave_policy_versions"."valid_to" > "hr_annual_leave_policy_versions"."valid_from"))),
+	CONSTRAINT "ck_hr_annual_leave_policy_basis" CHECK("hr_annual_leave_policy_versions"."basis" = 'anniversary'),
+	CONSTRAINT "ck_hr_annual_leave_policy_minutes" CHECK("hr_annual_leave_policy_versions"."daily_minutes" > 0 AND "hr_annual_leave_policy_versions"."daily_minutes" % "hr_annual_leave_policy_versions"."minimum_unit_minutes" = 0 AND "hr_annual_leave_policy_versions"."minimum_unit_minutes" = 30),
+	CONSTRAINT "ck_hr_annual_leave_policy_carryover" CHECK("hr_annual_leave_policy_versions"."carryover_allowed" IN (0, 1)),
+	CONSTRAINT "ck_hr_annual_leave_policy_note" CHECK(length("hr_annual_leave_policy_versions"."note") <= 1000)
+);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `hr_annual_leave_brackets` (
+	`id` text PRIMARY KEY NOT NULL,
+	`policy_version_id` text NOT NULL,
+	`min_service_months` integer NOT NULL,
+	`max_service_months` integer,
+	`entitled_days` integer NOT NULL,
+	`label` text DEFAULT '' NOT NULL,
+	FOREIGN KEY (`policy_version_id`) REFERENCES `hr_annual_leave_policy_versions`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_hr_annual_leave_bracket_range" CHECK("hr_annual_leave_brackets"."min_service_months" >= 6 AND ("hr_annual_leave_brackets"."max_service_months" IS NULL OR "hr_annual_leave_brackets"."max_service_months" > "hr_annual_leave_brackets"."min_service_months")),
+	CONSTRAINT "ck_hr_annual_leave_bracket_days" CHECK("hr_annual_leave_brackets"."entitled_days" > 0 AND "hr_annual_leave_brackets"."entitled_days" <= 30),
+	CONSTRAINT "ck_hr_annual_leave_bracket_label" CHECK(length("hr_annual_leave_brackets"."label") <= 100)
+);--> statement-breakpoint
+-- 有些正式庫在這組扁平化 migration 之前已經建立特休表；0178 不會重建
+-- 尚未出現在當時 schema 的表，所以先把它們的資料與下游 ledger 搬到 v2。
+-- IF NOT EXISTS 也讓全新資料庫走同一條路徑，0184 再以 IF NOT EXISTS 略過重建。
+CREATE TABLE IF NOT EXISTS `hr_annual_leave_entitlements` (
+	`id` text PRIMARY KEY NOT NULL,
+	`employment_id` text NOT NULL,
+	`policy_version_id` text NOT NULL,
+	`bracket_id` text NOT NULL,
+	`service_months` integer NOT NULL,
+	`period_start` text NOT NULL,
+	`period_end` text NOT NULL,
+	`entitled_half_hours` integer NOT NULL,
+	`status` text DEFAULT 'open' NOT NULL,
+	`settled_at` text,
+	`created_by` text,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`employment_id`) REFERENCES `hr_employments`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`policy_version_id`) REFERENCES `hr_annual_leave_policy_versions`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`bracket_id`) REFERENCES `hr_annual_leave_brackets`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_hr_annual_leave_entitlement_dates" CHECK(length("hr_annual_leave_entitlements"."period_start") = 10 AND length("hr_annual_leave_entitlements"."period_end") = 10 AND "hr_annual_leave_entitlements"."period_end" > "hr_annual_leave_entitlements"."period_start"),
+	CONSTRAINT "ck_hr_annual_leave_entitlement_service" CHECK("hr_annual_leave_entitlements"."service_months" >= 6),
+	CONSTRAINT "ck_hr_annual_leave_entitlement_amount" CHECK("hr_annual_leave_entitlements"."entitled_half_hours" > 0),
+	CONSTRAINT "ck_hr_annual_leave_entitlement_status" CHECK("hr_annual_leave_entitlements"."status" IN ('open', 'settled'))
+);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `hr_annual_leave_ledger` (
+	`id` text PRIMARY KEY NOT NULL,
+	`entitlement_id` text NOT NULL,
+	`entry_kind` text NOT NULL,
+	`delta_half_hours` integer NOT NULL,
+	`source_key` text NOT NULL,
+	`leave_request_id` text,
+	`note` text DEFAULT '' NOT NULL,
+	`created_by` text,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`entitlement_id`) REFERENCES `hr_annual_leave_entitlements`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`leave_request_id`) REFERENCES `hr_leave_requests`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_hr_annual_leave_ledger_kind" CHECK("hr_annual_leave_ledger"."entry_kind" IN ('grant', 'leave_request', 'manual_adjustment', 'settlement', 'settlement_reversal')),
+	CONSTRAINT "ck_hr_annual_leave_ledger_delta" CHECK("hr_annual_leave_ledger"."delta_half_hours" <> 0),
+	CONSTRAINT "ck_hr_annual_leave_ledger_note" CHECK(length("hr_annual_leave_ledger"."note") <= 1000)
+);--> statement-breakpoint
+CREATE TABLE `__hr_annual_leave_entitlements_backup` AS SELECT * FROM `hr_annual_leave_entitlements`;--> statement-breakpoint
+CREATE TABLE `__hr_annual_leave_ledger_backup` AS SELECT * FROM `hr_annual_leave_ledger`;--> statement-breakpoint
+DROP TABLE `hr_annual_leave_ledger`;--> statement-breakpoint
+DROP TABLE `hr_annual_leave_entitlements`;--> statement-breakpoint
+CREATE TABLE `__new_hr_annual_leave_entitlements` (
+	`id` text PRIMARY KEY NOT NULL,
+	`employment_id` text NOT NULL,
+	`policy_version_id` text NOT NULL,
+	`bracket_id` text NOT NULL,
+	`service_months` integer NOT NULL,
+	`period_start` text NOT NULL,
+	`period_end` text NOT NULL,
+	`entitled_half_hours` integer NOT NULL,
+	`status` text DEFAULT 'open' NOT NULL,
+	`settled_at` text,
+	`created_by` text,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`employment_id`) REFERENCES `hr_employments_v2`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`policy_version_id`) REFERENCES `hr_annual_leave_policy_versions`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`bracket_id`) REFERENCES `hr_annual_leave_brackets`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_hr_annual_leave_entitlement_dates" CHECK(length("__new_hr_annual_leave_entitlements"."period_start") = 10 AND length("__new_hr_annual_leave_entitlements"."period_end") = 10 AND "__new_hr_annual_leave_entitlements"."period_end" > "__new_hr_annual_leave_entitlements"."period_start"),
+	CONSTRAINT "ck_hr_annual_leave_entitlement_service" CHECK("__new_hr_annual_leave_entitlements"."service_months" >= 6),
+	CONSTRAINT "ck_hr_annual_leave_entitlement_amount" CHECK("__new_hr_annual_leave_entitlements"."entitled_half_hours" > 0),
+	CONSTRAINT "ck_hr_annual_leave_entitlement_status" CHECK("__new_hr_annual_leave_entitlements"."status" IN ('open', 'settled'))
+);--> statement-breakpoint
+INSERT INTO `__new_hr_annual_leave_entitlements` SELECT * FROM `__hr_annual_leave_entitlements_backup`;--> statement-breakpoint
+ALTER TABLE `__new_hr_annual_leave_entitlements` RENAME TO `hr_annual_leave_entitlements`;--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_hr_annual_leave_entitlement_period` ON `hr_annual_leave_entitlements` (`employment_id`,`period_start`);--> statement-breakpoint
+CREATE INDEX `idx_hr_annual_leave_entitlement_employee` ON `hr_annual_leave_entitlements` (`employment_id`,`period_end`);--> statement-breakpoint
+CREATE TABLE `hr_annual_leave_ledger` (
+	`id` text PRIMARY KEY NOT NULL,
+	`entitlement_id` text NOT NULL,
+	`entry_kind` text NOT NULL,
+	`delta_half_hours` integer NOT NULL,
+	`source_key` text NOT NULL,
+	`leave_request_id` text,
+	`note` text DEFAULT '' NOT NULL,
+	`created_by` text,
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`entitlement_id`) REFERENCES `hr_annual_leave_entitlements`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`leave_request_id`) REFERENCES `hr_leave_requests`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_hr_annual_leave_ledger_kind" CHECK("hr_annual_leave_ledger"."entry_kind" IN ('grant', 'leave_request', 'manual_adjustment', 'settlement', 'settlement_reversal')),
+	CONSTRAINT "ck_hr_annual_leave_ledger_delta" CHECK("hr_annual_leave_ledger"."delta_half_hours" <> 0),
+	CONSTRAINT "ck_hr_annual_leave_ledger_note" CHECK(length("hr_annual_leave_ledger"."note") <= 1000)
+);--> statement-breakpoint
+INSERT INTO `hr_annual_leave_ledger` SELECT * FROM `__hr_annual_leave_ledger_backup`;--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_hr_annual_leave_ledger_source` ON `hr_annual_leave_ledger` (`source_key`);--> statement-breakpoint
+CREATE INDEX `idx_hr_annual_leave_ledger_entitlement` ON `hr_annual_leave_ledger` (`entitlement_id`,`created_at`);--> statement-breakpoint
+DROP TABLE `__hr_annual_leave_entitlements_backup`;--> statement-breakpoint
+DROP TABLE `__hr_annual_leave_ledger_backup`;--> statement-breakpoint
 -- 0178 已把所有下游 foreign key 指向 hr_employments_v2，現在才可以在 D1
 -- transaction 內移除舊父表。rename 會讓 SQLite 同步更新子表 foreign key 的 target name。
 DROP TABLE `hr_employments`;
