@@ -1,4 +1,6 @@
-CREATE TABLE `hr_calendar_days` (
+-- 0179 已完成 hr_shift_versions.day_type 的 schema 切換；正式庫在這支 migration
+-- 尚未成功記錄前就已經有 calendar／shift 的最終形狀，因此這裡只做冪等補建。
+CREATE TABLE IF NOT EXISTS `hr_calendar_days` (
 	`date` text PRIMARY KEY NOT NULL,
 	`day_type` text NOT NULL,
 	`name` text DEFAULT '' NOT NULL,
@@ -9,9 +11,5 @@ CREATE TABLE `hr_calendar_days` (
 	CONSTRAINT "ck_hr_calendar_days_date" CHECK(length("hr_calendar_days"."date") = 10),
 	CONSTRAINT "ck_hr_calendar_days_type" CHECK("hr_calendar_days"."day_type" IN ('weekday', 'weekend', 'holiday')),
 	CONSTRAINT "ck_hr_calendar_days_name" CHECK(length("hr_calendar_days"."name") <= 100)
-);
---> statement-breakpoint
-CREATE INDEX `idx_hr_calendar_days_type` ON `hr_calendar_days` (`day_type`,`date`);--> statement-breakpoint
-DROP INDEX `idx_hr_shift_versions_number`;--> statement-breakpoint
-ALTER TABLE `hr_shift_versions` ADD `day_type` text DEFAULT 'weekday' NOT NULL;--> statement-breakpoint
-CREATE UNIQUE INDEX `idx_hr_shift_versions_number` ON `hr_shift_versions` (`shift_template_id`,`day_type`,`version_number`);
+);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_hr_calendar_days_type` ON `hr_calendar_days` (`day_type`,`date`);
