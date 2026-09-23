@@ -275,8 +275,9 @@ export function hasCompleteHrInsuranceContributionRules(scheme: HrInsuranceSchem
   return scheme === "health" ? rules.length === 1 : rules.length === 1 ? rules[0]?.component === null : rules.length === LABOR_CONTRIBUTION_COMPONENTS.length && new Set(rules.map((rule) => rule.component)).size === LABOR_CONTRIBUTION_COMPONENTS.length;
 }
 
-function roundedInsuranceEmployeeAmount(insuredAmountMinor: number, employeeRatePpm: number) {
-  const baseEmployeeAmountMinor = Math.floor(insuredAmountMinor * employeeRatePpm / 1_000_000);
+function roundedInsuranceEmployeeAmount(insuredAmountMinor: number, employeeRatePpm: number, coverageDays = 30) {
+  const monthlyEmployeeAmountMinor = Math.floor(insuredAmountMinor * employeeRatePpm / 1_000_000);
+  const baseEmployeeAmountMinor = Math.floor(monthlyEmployeeAmountMinor * coverageDays / 30);
   const baseEmployeeAmountYuan = Math.round(baseEmployeeAmountMinor / 100);
   return { baseEmployeeAmountMinor, baseEmployeeAmountYuan, employeeAmountMinor: baseEmployeeAmountYuan * 100 };
 }
@@ -286,8 +287,10 @@ export interface HrInsuranceEmployeeAmountPart {
   baseEmployeeAmountMinor: number; baseEmployeeAmountYuan: number; employeeAmountMinor: number;
   totalRatePpm?: number; employeeSharePpm?: number;
 }
-export function calculateHrInsuranceEmployeeBreakdown(input: { scheme: HrInsuranceScheme; insuredAmountMinor: number; dependentCount: number; rules: Array<Pick<HrInsuranceContributionRuleRecord, "id" | "component" | "employeeRatePpm" | "dependentRatePpm" | "totalRatePpm" | "employeeSharePpm">> }): { employeeAmountMinor: number; dependentMultiplier: number; parts: HrInsuranceEmployeeAmountPart[] } {
-  const baseParts = input.rules.map((rule) => ({ ...rule, ...roundedInsuranceEmployeeAmount(input.insuredAmountMinor, rule.employeeRatePpm) }));
+export function calculateHrInsuranceEmployeeBreakdown(input: { scheme: HrInsuranceScheme; insuredAmountMinor: number; dependentCount: number; coverageDays?: number; rules: Array<Pick<HrInsuranceContributionRuleRecord, "id" | "component" | "employeeRatePpm" | "dependentRatePpm" | "totalRatePpm" | "employeeSharePpm">> }): { employeeAmountMinor: number; dependentMultiplier: number; parts: HrInsuranceEmployeeAmountPart[] } {
+  const coverageDays = input.scheme === "labor" ? input.coverageDays ?? 30 : 30;
+  if (!Number.isSafeInteger(coverageDays) || coverageDays < 0 || coverageDays > 30) throw new HrError(400, "勞保計費日數必須介於 0～30 日。 ");
+  const baseParts = input.rules.map((rule) => ({ ...rule, ...roundedInsuranceEmployeeAmount(input.insuredAmountMinor, rule.employeeRatePpm, coverageDays) }));
   if (input.scheme !== "health") return { employeeAmountMinor: baseParts.reduce((sum, part) => sum + part.employeeAmountMinor, 0), dependentMultiplier: 1, parts: baseParts.map((part) => ({ component: part.component, ruleId: part.id, employeeRatePpm: part.employeeRatePpm, baseEmployeeAmountMinor: part.baseEmployeeAmountMinor, baseEmployeeAmountYuan: part.baseEmployeeAmountYuan, employeeAmountMinor: part.employeeAmountMinor, totalRatePpm: part.totalRatePpm, employeeSharePpm: part.employeeSharePpm })) };
   const rule = baseParts[0];
   const dependentMultiplier = 1 + input.dependentCount * (rule?.dependentRatePpm ?? 1_000_000) / 1_000_000;
@@ -299,11 +302,14 @@ export function calculateHrInsuranceEmployeeBreakdown(input: { scheme: HrInsuran
  * 勞保兩個基金各自先四捨五入到元再加總；健保則先算本人保費四捨五入，再套用眷屬倍率。
  * 例如 40,100 級距的 11.5% × 20% 與 1% × 20% 分別是 922.3、80.2，結果為 922＋80＝1,002。
  */
-export function calculateHrInsuranceEmployeeAmount(input: { scheme: HrInsuranceScheme; insuredAmountMinor: number; employeeRatePpm: number; dependentRatePpm: number; dependentCount: number; components?: Array<{ employeeRatePpm: number }> }): number {
+export function calculateHrInsuranceEmployeeAmount(input: { scheme: HrInsuranceScheme; insuredAmountMinor: number; employeeRatePpm: number; dependentRatePpm: number; dependentCount: number; coverageDays?: number; components?: Array<{ employeeRatePpm: number }> }): number {
+  const coverageDays = input.scheme === "labor" ? input.coverageDays ?? 30 : 30;
+  if (!Number.isSafeInteger(coverageDays) || coverageDays < 0 || coverageDays > 30) throw new HrError(400, "勞保計費日數必須介於 0～30 日。 ");
   if (input.scheme === "labor" && input.components?.length) {
-    return input.components.reduce((sum, component) => sum + roundedInsuranceEmployeeAmount(input.insuredAmountMinor, component.employeeRatePpm).employeeAmountMinor, 0);
+    return input.components.reduce((sum, component) => sum + roundedInsuranceEmployeeAmount(input.insuredAmountMinor, component.employeeRatePpm, coverageDays).employeeAmountMinor, 0);
   }
-  const employeeAmountMinor = Math.floor(input.insuredAmountMinor * input.employeeRatePpm / 1_000_000);
+  const monthlyEmployeeAmountMinor = Math.floor(input.insuredAmountMinor * input.employeeRatePpm / 1_000_000);
+  const employeeAmountMinor = Math.floor(monthlyEmployeeAmountMinor * coverageDays / 30);
   const employeeAmountYuan = Math.round(employeeAmountMinor / 100);
   const dependentMultiplier = input.scheme === "health" ? 1 + input.dependentCount * input.dependentRatePpm / 1_000_000 : 1;
   return Math.round(employeeAmountYuan * dependentMultiplier) * 100;

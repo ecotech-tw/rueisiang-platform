@@ -81,6 +81,80 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await repeat.json() as { run: { runId: string } }).run.runId).toBe(body.run.runId);
   });
 
+  it("勞保月中到職按 30 日制計費，健保月底仍在保則收整月", async () => {
+    d1.sqlite.exec("UPDATE hr_insurance_versions SET valid_from='2026-02-10' WHERE employment_id='dev-employment-lin'");
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-02", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-insurance-midmonth-2026-02",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const lines = body.run.employees[0]!.lines;
+    const labor = lines.find((line) => line.lineKey === "labor_insurance");
+    const health = lines.find((line) => line.lineKey === "health_insurance");
+    expect(labor).toMatchObject({ amountMinor: 80_100, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("21 天 ÷ 30 天") }) });
+    expect(health).toMatchObject({ amountMinor: 71_000 });
+  });
+
+  it("二月 28 日到職的勞保按 3 日計費，不按 28 日比例", async () => {
+    d1.sqlite.exec("UPDATE hr_insurance_versions SET valid_from='2026-02-28' WHERE employment_id='dev-employment-lin'");
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-02", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-insurance-february-28-2026",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const lines = body.run.employees[0]!.lines;
+    const labor = lines.find((line) => line.lineKey === "labor_insurance");
+    expect(labor).toMatchObject({ amountMinor: 11_400, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("3 天 ÷ 30 天") }) });
+    expect(lines.find((line) => line.lineKey === "health_insurance")).toMatchObject({ amountMinor: 71_000 });
+  });
+
+  it("閏年 2 月 29 日到職的勞保按 2 日計費", async () => {
+    d1.sqlite.exec(`
+      INSERT INTO hr_insurance_contribution_rules (id, scheme, component, valid_from, valid_to, employee_rate_ppm, employer_rate_ppm, dependent_rate_ppm, source_kind, note, created_by)
+      VALUES
+        ('test-leap-labor-ordinary', 'labor', 'ordinary_accident', '2028-01-01', NULL, 23000, 80500, 0, 'manual', '閏年勞保測試', 'dev-eli-lin@ecotech.tw'),
+        ('test-leap-labor-employment', 'labor', 'employment', '2028-01-01', NULL, 2000, 7000, 0, 'manual', '閏年就保測試', 'dev-eli-lin@ecotech.tw'),
+        ('test-leap-health', 'health', NULL, '2028-01-01', NULL, 15510, 31020, 1000000, 'manual', '閏年健保測試', 'dev-eli-lin@ecotech.tw');
+      UPDATE hr_insurance_versions SET valid_from='2028-02-29', valid_to=NULL, rate_year=2028 WHERE employment_id='dev-employment-lin';
+    `);
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2028-02", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-insurance-leap-2028-02-29",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const lines = body.run.employees[0]!.lines;
+    expect(lines.find((line) => line.lineKey === "labor_insurance")).toMatchObject({ amountMinor: 7_600, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("2 天 ÷ 30 天") }) });
+    expect(lines.find((line) => line.lineKey === "health_insurance")).toMatchObject({ amountMinor: 71_000 });
+  });
+
+  it("3 月 31 日到職的勞保按 1 日計費", async () => {
+    d1.sqlite.exec("UPDATE hr_insurance_versions SET valid_from='2026-03-31' WHERE employment_id='dev-employment-lin'");
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-03", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-insurance-march-31",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    const lines = body.run.employees[0]!.lines;
+    expect(lines.find((line) => line.lineKey === "labor_insurance")).toMatchObject({ amountMinor: 3_800, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("1 天 ÷ 30 天") }) });
+    expect(lines.find((line) => line.lineKey === "health_insurance")).toMatchObject({ amountMinor: 71_000 });
+  });
+
+  it("健保月中退保不計當月，勞保計至退保當日", async () => {
+    const path = "/hr/employments/dev-employment-lin/insurance";
+    const enrolled = (scheme: "labor" | "health") => ({ scheme, status: "enrolled", validFrom: "2026-02-10", insuredAmountMinor: 4_580_000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "月中退保測試" });
+    const withdrawn = (scheme: "labor" | "health") => ({ scheme, status: "withdrawn", validFrom: "2026-02-20", insuredAmountMinor: 0, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "" });
+    expect((await request(path, "POST", { versions: [enrolled("labor"), enrolled("health")] })).status).toBe(201);
+    expect((await request(path, "POST", { versions: [withdrawn("labor"), withdrawn("health")] })).status).toBe(201);
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-02", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-insurance-withdrawn-2026-02",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    const lines = body.run.employees[0]!.lines;
+    expect(lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "labor_insurance", amountMinor: 76_300 })]));
+    expect(lines.some((line) => line.lineKey === "health_insurance")).toBe(false);
+  });
+
   it("依核准請假的實際工作時數按比例計算扣款", async () => {
     d1.sqlite.exec("UPDATE hr_leave_requests SET starts_at='2026-08-10 03:30:00', ends_at='2026-08-10 04:00:00', starts_on='2026-08-10', ends_on='2026-08-11', duration_minutes=30 WHERE id='dev-leave-lin-unpaid'");
     const response = await request("/hr/payroll/calculate", "POST", {
