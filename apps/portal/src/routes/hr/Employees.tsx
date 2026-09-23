@@ -215,7 +215,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onArchived, canOf
     fields: [{ key: "validTo", label: "指派結束日（不含當日）", type: "date" }],
   });
   const editEmployee = () => openEditor({
-    title: "編輯員工資料", path: `/employees/${data.employee.userId}`, method: "PATCH",
+    title: "編輯員工資料", path: `/employees/${data.employee.userId}`, method: "PATCH", successMessage: "員工任職資料已更新",
     initial: { employeeNumber: data.employee.employeeNumber, position: data.employee.position, revision: data.employee.revision },
     fields: [{ key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }],
   });
