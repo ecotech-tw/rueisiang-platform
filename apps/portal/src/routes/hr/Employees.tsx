@@ -219,6 +219,12 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onArchived, canOf
     initial: { employeeNumber: data.employee.employeeNumber, position: data.employee.position, revision: data.employee.revision },
     fields: [{ key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }],
   });
+  const editServicePeriod = (job: Employment) => openEditor({
+    title: "編輯服務年資起算日", path: `/employments/${job.id}/service-period`, method: "PATCH", successMessage: "服務年資起算日已更新",
+    initial: { serviceStartOn: job.serviceStartOn ?? "", revision: job.revision },
+    description: "請填人事資料核定的服務年資起算日；它會決定薪資試算與週年制特休的起算日，敘薪生效日不會自動改寫它。已有特休週期時不能直接修改。",
+    fields: [{ key: "serviceStartOn", label: "服務年資起算日", type: "date" }],
+  });
   const editSupervisor = () => openEditor({
     title: "設定主管", path: `/employees/${data.employee.userId}/supervisor`, method: "PATCH", successMessage: "主管已更新",
     initial: { supervisorUserId: data.employee.supervisorUserId ?? "", revision: data.employee.revision },
@@ -246,6 +252,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onArchived, canOf
     <div className="hr-management-group">
       <h3>員工主檔</h3>
       <EmploymentTable employments={visibleEmployments} />
+      {activeEmployment ? <Button variant="secondary" onClick={() => editServicePeriod(activeEmployment)}>編輯服務年資起算日</Button> : null}
     </div>
     <div className="hr-management-group">
       <h3>目前有效的資料指派</h3>

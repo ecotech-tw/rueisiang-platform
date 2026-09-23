@@ -39,6 +39,7 @@ users 1 ─── 0..1 hr_employments 1 ─── 0..1 hr_employment_service_per
 
 - 從既有 User 候選清單指派員工。
 - 編輯員工編號與目前職位。
+- 修正服務年資起算日（影響薪資試算與週年制特休）。
 - 設定或清除目前主管。
 - 查看、搜尋、排序與分頁員工。
 - 封存與重新啟用員工。
@@ -91,6 +92,7 @@ HRIS
 - 姓名、Email、帳號狀態來自 `users`。
 - 員工編號、職位、主管與 `employmentId` 來自同一筆 `hr_employments`。
 - 顯示封存時間與目前出勤設定；已封存員工仍可查閱下游歷史。
+- 活動任職可從員工管理 Dialog 修正服務年資起算日；該日期是薪資試算與週年制特休的在職起算下限，敘薪生效日不會自動改寫它。
 - 薪資、保險、假勤、打卡、工作範圍與排班使用相同 `employmentId` 查詢。
 
 ## 5. 狀態與異動規則
@@ -108,6 +110,10 @@ HRIS
 ### 升遷／調職
 
 編輯目前職位只更新 `hr_employments.position`；不新增任職列、不改 `employmentId`，也不自動建立敘薪版本。需要薪資變更時，由敘薪頁建立對應的 `hr_compensation_versions`。
+
+### 修正服務年資起算日
+
+HR 可在目前任職的 revision 保護下修正 `hr_employment_service_periods.service_start_on`。這只更新服務年資資料並前進 `hr_employments.revision`，不改寫敘薪版本；薪資試算會以修正後的日期判定該月份是否有在職區間。若敘薪生效日早於服務年資起算日，敘薪頁必須明確提示兩者差異。已有特休週期的任職不可直接修改，避免既有額度與台帳產生重疊；這類更正須依特休／薪資調整流程處理。
 
 ### 封存
 
@@ -131,7 +137,7 @@ HRIS
 | 操作 | 權限 |
 |---|---|
 | 查看員工列表與基本資料 | `hr:employee:read` |
-| 指派、編輯、封存、重新啟用 | `hr:employee:write` |
+| 指派、編輯、修正服務年資、封存、重新啟用 | `hr:employee:write` |
 | 設定主管 | `hr:employee:write` |
 | 出勤方式與位置設定 | `hr:office:write` |
 | 薪資、保險與敏感歷史 | 依各模組的獨立權限 |

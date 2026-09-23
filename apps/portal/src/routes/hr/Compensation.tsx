@@ -221,7 +221,8 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     {isEditing ? <p className="form-hint">更新敘薪時員工欄位已鎖定，避免誤改到其他員工。</p> : null}
     {userId && profile.isPending ? <p className="muted">載入目前敘薪…</p> : null}
     {userId && !profile.isPending && !employment ? <Alert tone="warning">這位員工沒有任職紀錄，請先在員工列表建立任職。</Alert> : null}
-    {employment ? <p className="form-hint">目前職位「{employment.position}」；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
+    {employment ? <p className="form-hint">目前職位「{employment.position}」；服務年資起算日 {employment.serviceStartOn ?? "未設定"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
+    {employment?.serviceStartOn && validFrom < employment.serviceStartOn ? <Alert tone="warning">這筆敘薪自 {validFrom} 生效，但服務年資起算日是 {employment.serviceStartOn}；該日期前不會被薪資試算視為在職日。若 {employment.serviceStartOn} 填錯，請先到員工管理修正。</Alert> : null}
     <div className="field-grid">
       <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
       <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />

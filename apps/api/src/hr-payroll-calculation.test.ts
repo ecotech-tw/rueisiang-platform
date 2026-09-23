@@ -104,10 +104,18 @@ describe("HR 薪資與櫃點獎金試算", () => {
   });
 
   it("只按報到後的在職日驗證與計算員工薪資", async () => {
-    d1.sqlite.exec(`
-      UPDATE hr_employment_service_periods SET service_start_on='2026-08-03' WHERE employment_id='dev-employment-newhire';
-      UPDATE hr_compensation_versions SET valid_from='2026-08-03' WHERE id='dev-comp-newhire-2026';
-    `);
+    const detail = await (await request("/hr/employees/dev-newhire@ecotech.tw")).json() as { employments: Array<{ id: string; revision: number }> };
+    const servicePeriod = await request(`/hr/employments/${detail.employments[0]!.id}/service-period`, "PATCH", { serviceStartOn: "2026-09-10", revision: detail.employments[0]!.revision });
+    expect(servicePeriod.status, await servicePeriod.clone().text()).toBe(200);
+    d1.sqlite.exec("UPDATE hr_compensation_versions SET valid_from='2026-08-03' WHERE id='dev-comp-newhire-2026'");
+    const mismatch = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-newhire@ecotech.tw"], requestId: "test-payroll-newhire-2026-08-mismatch",
+    });
+    expect(mismatch.status, await mismatch.clone().text()).toBe(400);
+    expect((await mismatch.json() as { error: string }).error).toContain("服務年資起算日：2026-09-10");
+    const correctedDetail = await (await request("/hr/employees/dev-newhire@ecotech.tw")).json() as { employments: Array<{ id: string; revision: number }> };
+    const corrected = await request(`/hr/employments/${correctedDetail.employments[0]!.id}/service-period`, "PATCH", { serviceStartOn: "2026-08-03", revision: correctedDetail.employments[0]!.revision });
+    expect(corrected.status, await corrected.clone().text()).toBe(200);
     const response = await request("/hr/payroll/calculate", "POST", {
       periodKey: "2026-08", employeeUserIds: ["dev-newhire@ecotech.tw"], requestId: "test-payroll-newhire-2026-08",
     });

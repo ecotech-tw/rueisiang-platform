@@ -8,7 +8,7 @@ import {
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
   assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
-  updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrFormRequest, updateHrAttendanceScope,
+  updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
   isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
@@ -1056,6 +1056,10 @@ export const hr = new Hono<AppEnv>()
   .patch("/employees/:id/supervisor", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
     return c.json(await updateHrEmployeeSupervisor(c.get("db"), c.req.param("id"), { supervisorUserId: nullableText(input, "supervisorUserId", "主管"), revision: revision(input) }, c.get("user")));
+  })
+  .patch("/employments/:id/service-period", requirePermission("hr:employee:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await updateHrEmploymentServicePeriod(c.get("db"), c.req.param("id"), { serviceStartOn: date(input, "serviceStartOn")!, revision: revision(input) }, c.get("user")));
   })
   .post("/employments/:id/compensation", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理薪資資料。" });

@@ -54,6 +54,17 @@ describe("週年制特休額度", () => {
     expect(Number(grants[0]?.count)).toBe(3);
   });
 
+  it("已有特休週期時不能直接修改服務年資起算日", async () => {
+    const db = createDatabase(d1 as never);
+    await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2026-01-01" });
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string; revision: number; serviceStartOn: string }> };
+    const employment = profile.employments[0]!;
+    const response = await request(`/hr/employments/${employment.id}/service-period`, "PATCH", { serviceStartOn: "2025-02-01", revision: employment.revision });
+    expect(response.status, await response.clone().text()).toBe(409);
+    expect((await response.json() as { error: string }).error).toContain("已有特休週期");
+    expect((await (await request("/hr/employees/employee")).json() as { employments: Array<{ serviceStartOn: string; revision: number }> }).employments[0]).toMatchObject({ serviceStartOn: "2025-03-01", revision: employment.revision });
+  });
+
   it("漏跑前一個月份時，下一次結帳會補算已到期的特休週期", async () => {
     const db = createDatabase(d1 as never);
     const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
