@@ -290,9 +290,16 @@ function overlapDays(start: string, end: string, from: string, to: string | null
 
 function scaleLeaveWorkdayBreakdown(breakdown: Map<string, HrLeaveWorkdayBreakdown>, storedDurationMinutes: number) {
   const calculatedDurationMinutes = [...breakdown.values()].reduce((total, day) => total + day.workMinutes, 0);
-  if (calculatedDurationMinutes <= 0) return breakdown;
-  const scale = storedDurationMinutes / calculatedDurationMinutes;
-  return new Map([...breakdown.entries()].map(([date, day]) => [date, { ...day, workMinutes: day.workMinutes * scale }] as const));
+  if (calculatedDurationMinutes <= 0) {
+    if (storedDurationMinutes > 0) throw new HrError(409, "核准請假找不到可扣款的工作時段，請先確認請假期間的排班資料。 ");
+    return breakdown;
+  }
+  // durationMinutes 是核准時保存的總工時；排班可能在結算前被修改，不能把舊工時放大到超過目前任一天的標準工時。
+  const scale = Math.min(1, storedDurationMinutes / calculatedDurationMinutes);
+  return new Map([...breakdown.entries()].map(([date, day]) => [date, {
+    ...day,
+    workMinutes: Math.min(day.standardMinutes, day.workMinutes * scale),
+  }] as const));
 }
 
 function secondsBetween(start: string, end: string): number {
@@ -1339,7 +1346,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           if (!compensation) continue;
           const daily = compensation.payBasis === "monthly"
             ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
-            : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * standardDailyHours);
+            : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * dayBreakdown.standardMinutes / 60);
           const amount = Math.floor(daily * dayBreakdown.workMinutes / dayBreakdown.standardMinutes * (PPM - leave.payRatePpm) / PPM);
           leaveDeduction += amount;
           if (amount > 0) leaveCalculationParts.push({ formula: `floor(${leave.leaveType} ${day}：${payrollFormulaMoney(daily)} × ${payrollFormulaHours(dayBreakdown.workMinutes / 60)} 小時 ÷ ${payrollFormulaHours(dayBreakdown.standardMinutes / 60)} 小時 × ${payrollFormulaPercent(PPM - leave.payRatePpm)})`, amountMinor: amount });
