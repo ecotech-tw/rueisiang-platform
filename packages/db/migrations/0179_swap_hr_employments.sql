@@ -3,6 +3,7 @@
 DROP INDEX `idx_hr_shift_versions_number`;--> statement-breakpoint
 ALTER TABLE `hr_shift_versions` ADD `day_type` text DEFAULT 'weekday' NOT NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX `idx_hr_shift_versions_number` ON `hr_shift_versions` (`shift_template_id`,`day_type`,`version_number`);--> statement-breakpoint
+ALTER TABLE `hr_leave_types` ADD `leave_kind` text DEFAULT 'other' NOT NULL;--> statement-breakpoint
 -- SQLite 在移除舊 hr_employments 時解析到尚未存在的 foreign-key parent。
 CREATE TABLE IF NOT EXISTS `hr_annual_leave_policy_versions` (
 	`id` text PRIMARY KEY NOT NULL,

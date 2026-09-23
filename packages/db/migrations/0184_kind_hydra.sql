@@ -82,5 +82,5 @@ CREATE TABLE IF NOT EXISTS `hr_annual_leave_policy_versions` (
 CREATE UNIQUE INDEX IF NOT EXISTS `idx_hr_annual_leave_policy_version` ON `hr_annual_leave_policy_versions` (`policy_key`,`version_number`);--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_hr_annual_leave_policy_period` ON `hr_annual_leave_policy_versions` (`policy_key`,`valid_from`);--> statement-breakpoint
 ALTER TABLE `hr_leave_requests` ADD `leave_type_id` text REFERENCES hr_leave_types(id);--> statement-breakpoint
-CREATE INDEX `idx_hr_leave_requests_leave_type` ON `hr_leave_requests` (`leave_type_id`);--> statement-breakpoint
-ALTER TABLE `hr_leave_types` ADD `leave_kind` text DEFAULT 'other' NOT NULL;
+CREATE INDEX `idx_hr_leave_requests_leave_type` ON `hr_leave_requests` (`leave_type_id`);
+-- leave_kind 已在 0179 建立；正式庫可能已先存在，這裡不重複 ALTER。
