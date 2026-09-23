@@ -1,4 +1,4 @@
-import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import type { Database } from "./client.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
@@ -568,10 +568,53 @@ export async function createHrInsuranceVersions(db: Database, inputs: HrInsuranc
       mutations.push(version.closePrevious);
     }
     mutations.push(version.insert);
+    if (version.markPrevious) mutations.push(version.markPrevious);
     ids.push(version.id);
   }
   await writeHrMutation(db, mutations, inputs[0]!.employmentId, actor, "insurance_version_created", "保險版本已變更、期間重疊或資料不合法，請重新整理。 ", { allowEmptyMutationIndexes });
   return { ids };
+}
+
+/** 解除最新勞健保版本但不刪除資料；重複呼叫可依序撤回到第一版，讓 HR 能在原生效日重建修正版。 */
+export async function voidHrInsuranceVersions(db: Database, employmentId: string, versionIds: string[], actor: HrActor) {
+  if (!versionIds.length || versionIds.length > 2 || new Set(versionIds).size !== versionIds.length) throw new HrError(400, "一次只能撤回一至兩筆勞健保版本。 ");
+  const versions = await db.select({
+    id: hrInsuranceVersions.id, scheme: hrInsuranceVersions.scheme, versionNumber: hrInsuranceVersions.versionNumber,
+    validFrom: hrInsuranceVersions.validFrom, voidedAt: hrInsuranceVersions.voidedAt,
+  }).from(hrInsuranceVersions).where(and(eq(hrInsuranceVersions.employmentId, employmentId), inArray(hrInsuranceVersions.id, versionIds)));
+  if (versions.length !== versionIds.length) throw new HrError(404, "找不到這個勞健保版本。 ");
+  if (versions.some((version) => version.voidedAt !== null)) throw new HrError(409, "這個勞健保版本已經撤回。 ");
+
+  const activeVersions = await db.select({
+    id: hrInsuranceVersions.id, scheme: hrInsuranceVersions.scheme, versionNumber: hrInsuranceVersions.versionNumber,
+    validFrom: hrInsuranceVersions.validFrom,
+  }).from(hrInsuranceVersions)
+    .where(and(eq(hrInsuranceVersions.employmentId, employmentId), sql`${hrInsuranceVersions.voidedAt} IS NULL`))
+    .orderBy(desc(hrInsuranceVersions.validFrom), desc(hrInsuranceVersions.versionNumber));
+  const latestByScheme = new Map<HrInsuranceScheme, string>();
+  for (const version of activeVersions) if (!latestByScheme.has(version.scheme)) latestByScheme.set(version.scheme, version.id);
+  if (versions.some((version) => latestByScheme.get(version.scheme) !== version.id)) throw new HrError(409, "只能撤回最新的勞健保版本；請先依序撤回較新的版本。 ");
+
+  const statements: SQL[] = [];
+  const allowEmptyMutationIndexes = new Set<number>();
+  for (const version of versions) {
+    statements.push(sql`UPDATE hr_insurance_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
+      WHERE id=${version.id} AND employment_id=${employmentId} AND voided_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM hr_insurance_versions AS newer
+          WHERE newer.employment_id=${employmentId} AND newer.scheme=${version.scheme} AND newer.voided_at IS NULL
+            AND (newer.valid_from > ${version.validFrom} OR (newer.valid_from = ${version.validFrom} AND newer.version_number > ${version.versionNumber})))
+      RETURNING id`);
+    const previous = activeVersions.find((candidate) => candidate.scheme === version.scheme && candidate.id !== version.id);
+    if (previous) {
+      allowEmptyMutationIndexes.add(statements.length);
+      // 舊版本沒有記錄是哪一版收尾；valid_to 也可能是人工設定，不能用日期猜測並延長歷史期間。
+      statements.push(sql`UPDATE hr_insurance_versions SET valid_to=superseded_valid_to, superseded_valid_to=NULL, superseded_by_version_id=NULL
+        WHERE id=${previous.id} AND employment_id=${employmentId} AND voided_at IS NULL AND superseded_by_version_id=${version.id}
+        RETURNING id`);
+    }
+  }
+  await writeHrMutation(db, statements, employmentId, actor, "insurance_version_voided", "勞健保版本已被其他人變更，請重新整理。 ", { allowEmptyMutationIndexes });
+  return { ids: versionIds, status: "voided" as const };
 }
 
 async function insuranceVersionStatements(db: Database, input: HrInsuranceInput, actor: HrActor) {
@@ -598,12 +641,16 @@ async function insuranceVersionStatements(db: Database, input: HrInsuranceInput,
     if (!officialTable) throw new HrError(officialTables.length ? 400 : 409, officialTables.length ? "投保金額必須對應已啟用官方級距與來源。 " : "指定年度尚未有已審閱啟用的官方級距，不能標記為官方來源。 ");
   }
   const [current] = await db.select({ id: hrInsuranceVersions.id, validFrom: hrInsuranceVersions.validFrom }).from(hrInsuranceVersions)
-    .where(and(eq(hrInsuranceVersions.employmentId, input.employmentId), eq(hrInsuranceVersions.scheme, input.scheme), sql`${hrInsuranceVersions.validTo} IS NULL`))
+    .where(and(eq(hrInsuranceVersions.employmentId, input.employmentId), eq(hrInsuranceVersions.scheme, input.scheme), sql`${hrInsuranceVersions.validTo} IS NULL`, sql`${hrInsuranceVersions.voidedAt} IS NULL`))
     .orderBy(desc(hrInsuranceVersions.validFrom)).limit(1);
   const id = crypto.randomUUID();
   const closePrevious = current && current.validFrom < input.validFrom
-    ? sql`UPDATE hr_insurance_versions SET valid_to=${input.validFrom}
-      WHERE id=${current.id} AND valid_to IS NULL AND valid_from < ${input.validFrom} RETURNING id`
+    ? sql`UPDATE hr_insurance_versions SET valid_to=${input.validFrom}, superseded_valid_to=valid_to
+      WHERE id=${current.id} AND valid_to IS NULL AND voided_at IS NULL AND valid_from < ${input.validFrom} RETURNING id`
+    : null;
+  const markPrevious = current && closePrevious
+    ? sql`UPDATE hr_insurance_versions SET superseded_by_version_id=${id}
+      WHERE id=${current.id} AND valid_to=${input.validFrom} AND voided_at IS NULL AND superseded_by_version_id IS NULL RETURNING id`
     : null;
   const insert = sql`INSERT INTO hr_insurance_versions
     (id, employment_id, scheme, version_number, status, valid_from, valid_to, insured_amount_minor, dependent_count, rate_year, source_kind, source_url, note, created_by)
@@ -619,8 +666,8 @@ async function insuranceVersionStatements(db: Database, input: HrInsuranceInput,
           AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(official_table.data_json) THEN json_extract(official_table.data_json, '$.brackets') ELSE '[]' END) AS official_bracket
             WHERE CAST(json_extract(official_bracket.value, '$.insuredAmount') AS INTEGER) * 100 = ${input.insuredAmountMinor})
       ))
-      AND NOT EXISTS (SELECT 1 FROM hr_insurance_versions WHERE employment_id=${input.employmentId} AND scheme=${input.scheme}
+      AND NOT EXISTS (SELECT 1 FROM hr_insurance_versions WHERE employment_id=${input.employmentId} AND scheme=${input.scheme} AND voided_at IS NULL
         AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
     RETURNING id`;
-  return { id, closePrevious, insert };
+  return { id, closePrevious, markPrevious, insert };
 }

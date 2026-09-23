@@ -1,7 +1,7 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie } from "@rueisiang/auth";
 import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, archiveHrEmployment, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
-  createHrCompensationVersion, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
+  createHrCompensationVersion, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, voidHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
   createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
@@ -1133,6 +1133,16 @@ export const hr = new Hono<AppEnv>()
       };
     });
     return c.json(await createHrInsuranceVersions(c.get("db"), versions, c.get("user")), 201);
+  })
+  .post("/employments/:id/insurance/void", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理勞健保資料。" });
+    const input = await body(c);
+    if (!Array.isArray(input.versionIds) || input.versionIds.length < 1 || input.versionIds.length > 2 || input.versionIds.some((value) => typeof value !== "string" || !value.trim()) || new Set(input.versionIds).size !== input.versionIds.length) throw new HTTPException(400, { message: "勞健保版本格式不正確。" });
+    return c.json(await voidHrInsuranceVersions(c.get("db"), c.req.param("id"), input.versionIds as string[], c.get("user")));
+  })
+  .post("/employments/:id/insurance/:versionId/void", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理勞健保資料。" });
+    return c.json(await voidHrInsuranceVersions(c.get("db"), c.req.param("id"), [c.req.param("versionId")], c.get("user")));
   })
   .post("/employments", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);

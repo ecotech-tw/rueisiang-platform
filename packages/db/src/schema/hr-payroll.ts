@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { users } from "./auth.js";
 import { hrEmployments } from "./hr-people.js";
 import { hrScheduleWorkers } from "./hr-scheduling.js";
@@ -32,7 +33,7 @@ export const hrCompensationVersions = sqliteTable("hr_compensation_versions", {
   check("ck_hr_compensation_versions_note", sql`length(${table.note}) <= 1000`),
 ]);
 
-/** 勞保與健保分開留存；每次加保、退保或級距變更都是不可覆寫的版本。 */
+/** 每個敘薪版本的薪資項目獨立留存，避免修改敘薪時覆寫歷史明細。 */
 export const hrCompensationItems = sqliteTable("hr_compensation_items", {
   id: text("id").primaryKey(),
   compensationVersionId: text("compensation_version_id").notNull().references(() => hrCompensationVersions.id, { onDelete: "restrict" }),
@@ -82,6 +83,7 @@ export const hrWorkerCompensationVersions = sqliteTable("hr_worker_compensation_
   check("ck_hr_worker_compensation_versions_note", sql`length(${table.note}) <= 1000`),
 ]);
 
+/** 勞保與健保分開留存；每次加保、退保或級距變更都是不可覆寫的版本，誤登時以 voidedAt 撤回。 */
 export const hrInsuranceVersions = sqliteTable("hr_insurance_versions", {
   id: text("id").primaryKey(),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
@@ -96,6 +98,11 @@ export const hrInsuranceVersions = sqliteTable("hr_insurance_versions", {
   sourceKind: text("source_kind", { enum: ["official", "manual"] as const }).notNull(),
   sourceUrl: text("source_url").notNull().default(""),
   note: text("note").notNull().default(""),
+  voidedAt: text("voided_at"),
+  voidedBy: text("voided_by").references(() => users.id, { onDelete: "restrict" }),
+  // 新版本關閉舊版本時先保存原迄日，撤回才能精確還原人工指定的期間。
+  supersededValidTo: text("superseded_valid_to"),
+  supersededByVersionId: text("superseded_by_version_id").references((): AnySQLiteColumn => hrInsuranceVersions.id, { onDelete: "restrict" }),
   ...historyTimestamps(),
 }, (table) => [
   uniqueIndex("idx_hr_insurance_versions_number").on(table.employmentId, table.scheme, table.versionNumber),

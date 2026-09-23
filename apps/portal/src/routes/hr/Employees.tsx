@@ -99,7 +99,7 @@ function InsuranceTable({ rows, heading = true }: { rows: InsuranceVersion[]; he
   return <>
     {heading ? <h3>勞健保加退保與異動歷史</h3> : null}
     <table className="data-table"><thead><tr><th>種類</th><th>狀態</th><th>生效期間</th><th className="numeric">投保金額</th><th>眷屬</th><th>級距來源</th></tr></thead><tbody>
-      {rows.map((row) => <tr key={row.id}><td>{INSURANCE_LABEL[row.scheme]}</td><td>{INSURANCE_STATUS_LABEL[row.status]}</td><td>{row.validFrom}～{row.validTo ?? "目前"}</td><td className="numeric">{money(row.insuredAmountMinor)}</td><td>{row.scheme === "health" ? row.dependentCount : "—"}</td><td>{row.sourceKind === "official" ? `官方 ${row.rateYear}` : `人工 ${row.rateYear}`}</td></tr>)}
+      {rows.map((row) => <tr key={row.id}><td>{INSURANCE_LABEL[row.scheme]}</td><td>{row.voidedAt ? "已撤回" : INSURANCE_STATUS_LABEL[row.status]}</td><td>{row.validFrom}～{row.validTo ?? "目前"}</td><td className="numeric">{money(row.insuredAmountMinor)}</td><td>{row.scheme === "health" ? row.dependentCount : "—"}</td><td>{row.sourceKind === "official" ? `官方 ${row.rateYear}` : `人工 ${row.rateYear}`}</td></tr>)}
     </tbody></table>
     {!rows.length ? <p>尚無勞健保資料。</p> : null}
   </>;

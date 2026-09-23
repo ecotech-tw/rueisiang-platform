@@ -237,7 +237,8 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     id: hrInsuranceVersions.id, employmentId: hrInsuranceVersions.employmentId, scheme: hrInsuranceVersions.scheme, versionNumber: hrInsuranceVersions.versionNumber,
     status: hrInsuranceVersions.status, validFrom: hrInsuranceVersions.validFrom, validTo: hrInsuranceVersions.validTo, insuredAmountMinor: hrInsuranceVersions.insuredAmountMinor,
     dependentCount: hrInsuranceVersions.dependentCount, rateYear: hrInsuranceVersions.rateYear, sourceKind: hrInsuranceVersions.sourceKind, sourceUrl: hrInsuranceVersions.sourceUrl,
-    note: hrInsuranceVersions.note, createdAt: hrInsuranceVersions.createdAt, createdBy: hrInsuranceVersions.createdBy,
+    note: hrInsuranceVersions.note, voidedAt: hrInsuranceVersions.voidedAt, voidedBy: hrInsuranceVersions.voidedBy,
+    createdAt: hrInsuranceVersions.createdAt, createdBy: hrInsuranceVersions.createdBy,
   }).from(hrInsuranceVersions).where(inArray(hrInsuranceVersions.employmentId, employmentIds)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
   const leaveRows = options.includeLeave ? await db.select({
     id: hrLeaveRequests.id, employmentId: hrLeaveRequests.employmentId, leaveType: hrLeaveRequests.leaveType, status: hrLeaveRequests.status,
