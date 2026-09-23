@@ -154,6 +154,23 @@ describe("週年制特休額度", () => {
     expect(rows.some((row) => row.periodStart === "2026-09-01")).toBe(false);
   });
 
+  it("封存員工不會出現在特休額度清單，但保留既有額度台帳", async () => {
+    const db = createDatabase(d1 as never);
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string; revision: number }> };
+    const employmentId = profile.employments[0]!.id;
+    await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
+    const beforeArchive = await listHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
+    const entitlement = beforeArchive[0]!;
+
+    const archived = await request(`/hr/employments/${employmentId}/archive`, "POST", { revision: profile.employments[0]!.revision });
+    expect(archived.status, await archived.clone().text()).toBe(200);
+
+    const listed = await (await request("/hr/annual-leave/entitlements")).json() as { entitlements: Array<{ id: string; employeeUserId: string }> };
+    expect(listed.entitlements.some((row) => row.id === entitlement.id || row.employeeUserId === "employee")).toBe(false);
+    expect((await request(`/hr/annual-leave/entitlements/${entitlement.id}`)).status).toBe(404);
+    expect(await db.select({ id: hrAnnualLeaveEntitlements.id }).from(hrAnnualLeaveEntitlements).where(eq(hrAnnualLeaveEntitlements.id, entitlement.id))).toEqual([{ id: entitlement.id }]);
+  });
+
   it("離職薪資期間用同一條折現流程結算未休特休", async () => {
     const db = createDatabase(d1 as never);
     const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string; revision: number }> };

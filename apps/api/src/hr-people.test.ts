@@ -91,6 +91,16 @@ describe("HR 扁平員工主檔", () => {
     expect(d1.sqlite.prepare("SELECT count(*) AS count FROM activity_events WHERE event_type='employment_archived'").get()).toEqual({ count: 1 });
   });
 
+  it("申請中心員工清單只列出活動員工", async () => {
+    const first = await assign("self", "E001");
+    const archived = await profile("self");
+    expect((await request(`/hr/employments/${first.employmentId}/archive`, "POST", { revision: archived.employments[0]!.revision })).status).toBe(200);
+    await assign("other", "E002");
+
+    const listed = await (await request("/hr/requests/employees")).json() as { employees: Array<{ userId: string }> };
+    expect(listed.employees.map((employee) => employee.userId)).toEqual(["other"]);
+  });
+
   it("重新指派同一位使用者會清除 archivedAt，不會建立第二筆任職", async () => {
     const first = await assign("self", "E001", "原職位");
     expect((await request(`/hr/employments/${first.employmentId}/archive`, "POST", { revision: (await profile("self")).employments[0]!.revision })).status).toBe(200);

@@ -564,7 +564,7 @@ export const hr = new Hono<AppEnv>()
     return c.json({ leaves, overtime, clockCorrections: formRequests });
   })
   .get("/requests/employees", requirePermission("hr:request:review"), async (c) => c.json(await listHrEmployees(c.get("db"), {
-    page: 1, pageSize: 100, search: "", status: "employable", sortField: "name", sortDirection: "asc",
+    page: 1, pageSize: 100, search: "", status: "employable", employmentStatus: "active", sortField: "name", sortDirection: "asc",
   })))
   .get("/requests/leave-types", requirePermission("hr:request:review"), async (c) => c.json({ leaveTypes: await listHrLeaveTypes(c.get("db")) }))
   .post("/requests/leave-duration", requirePermission("hr:request:review"), async (c) => {

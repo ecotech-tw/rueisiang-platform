@@ -318,7 +318,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   const canWrite = isHrAdministrator && permissions.has("hr:employee:write");
   const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, !settingsOnly && canRead && permissions.has("hr:employee:read"));
   const [employeeFilters, setEmployeeFilters] = useState({ page: 1, pageSize: 25, search: "", status: "all", sortField: "employeeNumber", sortDirection: "asc" as "asc" | "desc" });
-  const employeeTablePath = `/employees?page=${employeeFilters.page}&pageSize=${employeeFilters.pageSize}&search=${encodeURIComponent(employeeFilters.search)}&status=${employeeFilters.status}&sortField=${employeeFilters.sortField}&sortDirection=${employeeFilters.sortDirection}`;
+  const employeeTablePath = `/employees?page=${employeeFilters.page}&pageSize=${employeeFilters.pageSize}&search=${encodeURIComponent(employeeFilters.search)}&status=${employeeFilters.status}&employmentStatus=active&sortField=${employeeFilters.sortField}&sortDirection=${employeeFilters.sortDirection}`;
   const employeeTable = useHrQuery<EmployeePageResponse>(employeeTablePath, !settingsOnly && canRead && permissions.has("hr:employee:read"));
   const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers", !settingsOnly && canRead && permissions.has("hr:schedule:read"));
   // 勞保／健保級距集中在「勞健保管理」的級距管理 modal；這裡只維護公司負擔規則。
