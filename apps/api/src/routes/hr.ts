@@ -141,6 +141,11 @@ function insuranceScheme(input: Record<string, unknown>): "labor" | "health" {
   if (input.scheme === "labor" || input.scheme === "health") return input.scheme;
   throw new HTTPException(400, { message: "保險種類不正確。" });
 }
+function insuranceContributionComponent(input: Record<string, unknown>): "ordinary_accident" | "employment" | null {
+  if (input.component === undefined || input.component === null || input.component === "") return null;
+  if (input.component === "ordinary_accident" || input.component === "employment") return input.component;
+  throw new HTTPException(400, { message: "保險費項目不正確。" });
+}
 function insuranceRateSource(input: Record<string, unknown>) {
   const value = input.sourceUrl;
   if (value === undefined || value === null || value === "") return "";
@@ -803,7 +808,7 @@ export const hr = new Hono<AppEnv>()
   .post("/insurance-contribution-rules", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理保險負擔規則。" });
     const input = await body(c); const validFrom = date(input, "validFrom")!; const validTo = date(input, "validTo", true);
-    return c.json(await createHrInsuranceContributionRule(c.get("db"), { scheme: insuranceScheme(input), validFrom, validTo, employeeRatePpm: integerValue(input, "employeeRatePpm", "員工負擔費率（ppm）", 0, 1_000_000), employerRatePpm: integerValue(input, "employerRatePpm", "雇主負擔費率（ppm）", 0, 1_000_000), dependentRatePpm: integerValue(input, "dependentRatePpm", "眷屬倍率（ppm）", 0, 1_000_000), sourceKind: input.sourceKind === "official" ? "official" : "manual", note: noteValue(input) }, c.get("user")), 201);
+    return c.json(await createHrInsuranceContributionRule(c.get("db"), { scheme: insuranceScheme(input), component: insuranceContributionComponent(input), validFrom, validTo, employeeRatePpm: integerValue(input, "employeeRatePpm", "員工負擔費率（ppm）", 0, 1_000_000), employerRatePpm: integerValue(input, "employerRatePpm", "雇主負擔費率（ppm）", 0, 1_000_000), dependentRatePpm: integerValue(input, "dependentRatePpm", "眷屬倍率（ppm）", 0, 1_000_000), sourceKind: input.sourceKind === "official" ? "official" : "manual", note: noteValue(input) }, c.get("user")), 201);
   })
   .get("/insurance-rates", requirePermission("hr:employee:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

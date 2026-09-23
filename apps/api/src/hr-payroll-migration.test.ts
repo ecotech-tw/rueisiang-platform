@@ -53,4 +53,16 @@ describe("HR 薪資與出勤設定 migration", () => {
       expect(() => sqlite.exec("INSERT INTO hr_payroll_adjustments(id,employment_id,source_period_key,effective_period_key,reason,created_by,updated_by) VALUES ('adj-closed','j','2026-08','2026-08','結帳後修改','u','u')")).toThrow(/payroll_period_closed/);
     } finally { sqlite.close(); }
   });
+
+  it("0190 拆分勞保基金時保留既有合併規則", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    try {
+      sqlite.exec("PRAGMA foreign_keys=ON");
+      for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file < "0191").sort()) apply(sqlite, file);
+      sqlite.exec("INSERT INTO users(id,email) VALUES ('u','u@example.test'); INSERT INTO hr_insurance_contribution_rules(id,scheme,valid_from,employee_rate_ppm,employer_rate_ppm,dependent_rate_ppm,source_kind,note,created_by) VALUES ('legacy','labor','2026-01-01',25000,87500,0,'manual','舊版合併規則','u');");
+      apply(sqlite, "0191_curly_the_spike.sql");
+      expect(sqlite.prepare("SELECT scheme, component, employee_rate_ppm FROM hr_insurance_contribution_rules WHERE id='legacy'").get()).toEqual({ scheme: "labor", component: null, employee_rate_ppm: 25000 });
+      expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally { sqlite.close(); }
+  });
 });

@@ -5,6 +5,7 @@ import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrCompensationVersions, hrInsuranceContributionRules, hrInsuranceRateTables, hrInsuranceVersions } from "./schema/hr-payroll.js";
 
 export type HrInsuranceScheme = "labor" | "health";
+export type HrInsuranceContributionComponent = "ordinary_accident" | "employment";
 export type HrInsuranceBracket = {
   level: number;
   lowerSalary: number;
@@ -201,28 +202,35 @@ export interface HrInsuranceInput {
 
 /** 新狀態與關閉前一個開放版本放在同一個 D1 batch，避免歷史出現半截。 */
 export interface HrInsuranceContributionInput {
-  scheme: HrInsuranceScheme; validFrom: string; validTo: string | null; employeeRatePpm: number; employerRatePpm: number; dependentRatePpm: number; sourceKind: "official" | "manual"; note: string;
+  scheme: HrInsuranceScheme; component?: HrInsuranceContributionComponent | null; validFrom: string; validTo: string | null; employeeRatePpm: number; employerRatePpm: number; dependentRatePpm: number; sourceKind: "official" | "manual"; note: string;
 }
 export interface HrInsuranceContributionRuleRecord {
-  id: string; scheme: HrInsuranceScheme; validFrom: string; validTo: string | null; employeeRatePpm: number; employerRatePpm: number; dependentRatePpm: number; sourceKind: "official" | "manual"; note: string;
+  id: string; scheme: HrInsuranceScheme; component: HrInsuranceContributionComponent | null; validFrom: string; validTo: string | null; employeeRatePpm: number; employerRatePpm: number; dependentRatePpm: number; sourceKind: "official" | "manual"; note: string;
+  /** 系統預設另外保存基金總費率與分攤比例，讓制度設定不把兩種百分比混在一起。 */
+  totalRatePpm?: number; employeeSharePpm?: number; employerSharePpm?: number;
   createdBy?: string; createdAt?: string; sourceUrl?: string; isSystemDefault?: boolean;
 }
 
 /*
  * 一般受僱者的法定分攤比例由系統提供，不需要每家公司重新輸入。
- * 115 年（2026）標準：勞保普通事故 11.5%＋就業保險 1%，勞工負擔 20%；
+ * 115 年（2026）標準：勞保普通事故 11.5%＋就業保險 1%，兩個基金各自計算後才四捨五入；
  * 健保 5.17%，受僱者負擔 30%，眷屬按本人保費 100% 計。職災保險與特殊身分
  * 不在這個一般受僱者預設內；若公司適用特殊規則，仍可在制度設定建立覆核版本。
  */
 const SYSTEM_INSURANCE_CONTRIBUTION_RULES: HrInsuranceContributionRuleRecord[] = [
   {
-    id: "system-insurance-contribution-labor-2026", scheme: "labor", validFrom: "2026-01-01", validTo: null,
-    employeeRatePpm: 25_000, employerRatePpm: 87_500, dependentRatePpm: 0, sourceKind: "official",
-    sourceUrl: "https://www.bli.gov.tw/0102422.html", note: "系統預設／一般受僱者：勞保普通事故 11.5%＋就業保險 1%，勞工負擔 20%；職災保險另計。", isSystemDefault: true,
+    id: "system-insurance-contribution-labor-ordinary-accident-2026", scheme: "labor", component: "ordinary_accident", validFrom: "2026-01-01", validTo: null,
+    employeeRatePpm: 23_000, employerRatePpm: 80_500, dependentRatePpm: 0, totalRatePpm: 115_000, employeeSharePpm: 200_000, employerSharePpm: 700_000, sourceKind: "official",
+    sourceUrl: "https://www.bli.gov.tw/0102422.html", note: "系統預設／一般受僱者：勞保普通事故保險 11.5%，勞工負擔 20%、雇主負擔 70%；職災保險另計。", isSystemDefault: true,
   },
   {
-    id: "system-insurance-contribution-health-2026", scheme: "health", validFrom: "2026-01-01", validTo: null,
-    employeeRatePpm: 15_510, employerRatePpm: 31_020, dependentRatePpm: 1_000_000, sourceKind: "official",
+    id: "system-insurance-contribution-labor-employment-2026", scheme: "labor", component: "employment", validFrom: "2026-01-01", validTo: null,
+    employeeRatePpm: 2_000, employerRatePpm: 7_000, dependentRatePpm: 0, totalRatePpm: 10_000, employeeSharePpm: 200_000, employerSharePpm: 700_000, sourceKind: "official",
+    sourceUrl: "https://www.bli.gov.tw/0102422.html", note: "系統預設／一般受僱者：就業保險 1%，勞工負擔 20%、雇主負擔 70%。", isSystemDefault: true,
+  },
+  {
+    id: "system-insurance-contribution-health-2026", scheme: "health", component: null, validFrom: "2026-01-01", validTo: null,
+    employeeRatePpm: 15_510, employerRatePpm: 31_020, dependentRatePpm: 1_000_000, totalRatePpm: 51_700, employeeSharePpm: 300_000, employerSharePpm: 600_000, sourceKind: "official",
     sourceUrl: "https://www.nhi.gov.tw/ch/cp-19418-9eefb-2576-1.html", note: "系統預設／一般受僱者：健保費率 5.17%，受僱者負擔 30%，眷屬按本人保費 100% 計。", isSystemDefault: true,
   },
 ];
@@ -230,27 +238,85 @@ const SYSTEM_INSURANCE_CONTRIBUTION_RULES: HrInsuranceContributionRuleRecord[] =
 export interface HrInsuranceEstimateVersionInput {
   scheme: HrInsuranceScheme; status: "enrolled" | "withdrawn"; insuredAmountMinor: number; dependentCount: number;
 }
+export interface HrInsuranceContributionComponentEstimate {
+  component: HrInsuranceContributionComponent | null; ruleId: string; employeeRatePpm: number; employeeAmountMinor: number;
+  totalRatePpm?: number; employeeSharePpm?: number;
+}
 export interface HrInsuranceContributionEstimate {
   scheme: HrInsuranceScheme; status: "enrolled" | "withdrawn"; insuredAmountMinor: number; dependentCount: number; employeeAmountMinor: number | null;
-  ruleId: string | null; employeeRatePpm: number | null; dependentRatePpm: number | null;
+  ruleId: string | null; ruleIds: string[]; employeeRatePpm: number | null; dependentRatePpm: number | null; components: HrInsuranceContributionComponentEstimate[];
 }
+
+const LABOR_CONTRIBUTION_COMPONENTS: HrInsuranceContributionComponent[] = ["ordinary_accident", "employment"];
+
+function applicableContributionRules(rules: HrInsuranceContributionRuleRecord[], scheme: HrInsuranceScheme, validOn: string) {
+  return rules.filter((rule) => rule.scheme === scheme && rule.validFrom <= validOn && (rule.validTo === null || validOn < rule.validTo));
+}
+
 /**
- * 勞健保員工負擔以整數元計算：先將本人負擔四捨五入到元，再套用健保眷屬倍率。
- * 例如 42,000 × 1.551% = 651.42 元，1 位眷屬應為 651 × 2 = 1,302 元。
+ * 優先選公司覆核版本；新資料以兩個 component 各自找版本，讓只調整其中一個基金時另一個仍沿用系統規則。
+ * 舊資料 component=NULL 代表尚未拆項，只有在該期間沒有任何拆項規則時才作為相容的合併規則。
  */
-export function calculateHrInsuranceEmployeeAmount(input: { scheme: HrInsuranceScheme; insuredAmountMinor: number; employeeRatePpm: number; dependentRatePpm: number; dependentCount: number }): number {
+export function resolveHrInsuranceContributionRules(rules: HrInsuranceContributionRuleRecord[], scheme: HrInsuranceScheme, validOn: string): HrInsuranceContributionRuleRecord[] {
+  const applicable = applicableContributionRules(rules, scheme, validOn);
+  const priority = (left: HrInsuranceContributionRuleRecord, right: HrInsuranceContributionRuleRecord) => Number(Boolean(left.isSystemDefault)) - Number(Boolean(right.isSystemDefault));
+  const first = (candidates: HrInsuranceContributionRuleRecord[]) => candidates.sort((left, right) => priority(left, right))[0];
+  if (scheme === "health") return applicable.filter((rule) => rule.component === null).sort(priority).slice(0, 1);
+  const storedComponentRules = applicable.filter((rule) => rule.component !== null && !rule.isSystemDefault);
+  const legacy = first(applicable.filter((rule) => rule.component === null && !rule.isSystemDefault));
+  if (!storedComponentRules.length && legacy) return [legacy];
+  return LABOR_CONTRIBUTION_COMPONENTS.flatMap((component) => {
+    const rule = first(applicable.filter((item) => item.component === component));
+    return rule ? [rule] : [];
+  });
+}
+
+export function hasCompleteHrInsuranceContributionRules(scheme: HrInsuranceScheme, rules: HrInsuranceContributionRuleRecord[]) {
+  return scheme === "health" ? rules.length === 1 : rules.length === 1 ? rules[0]?.component === null : rules.length === LABOR_CONTRIBUTION_COMPONENTS.length && new Set(rules.map((rule) => rule.component)).size === LABOR_CONTRIBUTION_COMPONENTS.length;
+}
+
+function roundedInsuranceEmployeeAmount(insuredAmountMinor: number, employeeRatePpm: number) {
+  const baseEmployeeAmountMinor = Math.floor(insuredAmountMinor * employeeRatePpm / 1_000_000);
+  const baseEmployeeAmountYuan = Math.round(baseEmployeeAmountMinor / 100);
+  return { baseEmployeeAmountMinor, baseEmployeeAmountYuan, employeeAmountMinor: baseEmployeeAmountYuan * 100 };
+}
+
+export interface HrInsuranceEmployeeAmountPart {
+  component: HrInsuranceContributionComponent | null; ruleId: string | null; employeeRatePpm: number;
+  baseEmployeeAmountMinor: number; baseEmployeeAmountYuan: number; employeeAmountMinor: number;
+  totalRatePpm?: number; employeeSharePpm?: number;
+}
+export function calculateHrInsuranceEmployeeBreakdown(input: { scheme: HrInsuranceScheme; insuredAmountMinor: number; dependentCount: number; rules: Array<Pick<HrInsuranceContributionRuleRecord, "id" | "component" | "employeeRatePpm" | "dependentRatePpm" | "totalRatePpm" | "employeeSharePpm">> }): { employeeAmountMinor: number; dependentMultiplier: number; parts: HrInsuranceEmployeeAmountPart[] } {
+  const baseParts = input.rules.map((rule) => ({ ...rule, ...roundedInsuranceEmployeeAmount(input.insuredAmountMinor, rule.employeeRatePpm) }));
+  if (input.scheme !== "health") return { employeeAmountMinor: baseParts.reduce((sum, part) => sum + part.employeeAmountMinor, 0), dependentMultiplier: 1, parts: baseParts.map((part) => ({ component: part.component, ruleId: part.id, employeeRatePpm: part.employeeRatePpm, baseEmployeeAmountMinor: part.baseEmployeeAmountMinor, baseEmployeeAmountYuan: part.baseEmployeeAmountYuan, employeeAmountMinor: part.employeeAmountMinor, totalRatePpm: part.totalRatePpm, employeeSharePpm: part.employeeSharePpm })) };
+  const rule = baseParts[0];
+  const dependentMultiplier = 1 + input.dependentCount * (rule?.dependentRatePpm ?? 1_000_000) / 1_000_000;
+  const employeeAmountMinor = Math.round((rule?.baseEmployeeAmountYuan ?? 0) * dependentMultiplier) * 100;
+  return { employeeAmountMinor, dependentMultiplier, parts: rule ? [{ component: rule.component, ruleId: rule.id, employeeRatePpm: rule.employeeRatePpm, baseEmployeeAmountMinor: rule.baseEmployeeAmountMinor, baseEmployeeAmountYuan: rule.baseEmployeeAmountYuan, employeeAmountMinor, totalRatePpm: rule.totalRatePpm, employeeSharePpm: rule.employeeSharePpm }] : [] };
+}
+
+/**
+ * 勞保兩個基金各自先四捨五入到元再加總；健保則先算本人保費四捨五入，再套用眷屬倍率。
+ * 例如 40,100 級距的 11.5% × 20% 與 1% × 20% 分別是 922.3、80.2，結果為 922＋80＝1,002。
+ */
+export function calculateHrInsuranceEmployeeAmount(input: { scheme: HrInsuranceScheme; insuredAmountMinor: number; employeeRatePpm: number; dependentRatePpm: number; dependentCount: number; components?: Array<{ employeeRatePpm: number }> }): number {
+  if (input.scheme === "labor" && input.components?.length) {
+    return input.components.reduce((sum, component) => sum + roundedInsuranceEmployeeAmount(input.insuredAmountMinor, component.employeeRatePpm).employeeAmountMinor, 0);
+  }
   const employeeAmountMinor = Math.floor(input.insuredAmountMinor * input.employeeRatePpm / 1_000_000);
   const employeeAmountYuan = Math.round(employeeAmountMinor / 100);
   const dependentMultiplier = input.scheme === "health" ? 1 + input.dependentCount * input.dependentRatePpm / 1_000_000 : 1;
   return Math.round(employeeAmountYuan * dependentMultiplier) * 100;
 }
+
 export async function listHrInsuranceContributionRules(db: Database, validOn?: string): Promise<HrInsuranceContributionRuleRecord[]> {
   const rows = await db.select().from(hrInsuranceContributionRules).orderBy(desc(hrInsuranceContributionRules.validFrom), hrInsuranceContributionRules.scheme);
   const stored = rows.filter((row) => validOn === undefined || (row.validFrom <= validOn && (row.validTo === null || validOn < row.validTo)))
-    .map((row) => ({ ...row, isSystemDefault: false }));
+    .map((row) => ({ ...row, component: row.component ?? null, isSystemDefault: false }));
   const system = SYSTEM_INSURANCE_CONTRIBUTION_RULES.filter((rule) => validOn === undefined || (rule.validFrom <= validOn && (rule.validTo === null || validOn < rule.validTo)));
   return [...stored, ...system];
 }
+
 export async function estimateHrInsuranceContributions(db: Database, input: { validFrom: string; versions: HrInsuranceEstimateVersionInput[] }): Promise<HrInsuranceContributionEstimate[]> {
   if (!isDateOnly(input.validFrom)) throw new HrError(400, "試算生效日不正確。 ");
   if (!input.versions.length || input.versions.length > 2 || new Set(input.versions.map((version) => version.scheme)).size !== input.versions.length) throw new HrError(400, "試算投保版本格式不正確。 ");
@@ -259,22 +325,28 @@ export async function estimateHrInsuranceContributions(db: Database, input: { va
   }
   const rules = await listHrInsuranceContributionRules(db, input.validFrom);
   return input.versions.map((version) => {
-    if (version.status === "withdrawn") return { ...version, employeeAmountMinor: 0, ruleId: null, employeeRatePpm: null, dependentRatePpm: null };
-    const rule = rules.find((item) => item.scheme === version.scheme && item.validFrom <= input.validFrom && (item.validTo === null || input.validFrom < item.validTo));
-    if (!rule) return { ...version, employeeAmountMinor: null, ruleId: null, employeeRatePpm: null, dependentRatePpm: null };
-    return { ...version, employeeAmountMinor: calculateHrInsuranceEmployeeAmount({ scheme: version.scheme, insuredAmountMinor: version.insuredAmountMinor, employeeRatePpm: rule.employeeRatePpm, dependentRatePpm: rule.dependentRatePpm, dependentCount: version.dependentCount }), ruleId: rule.id, employeeRatePpm: rule.employeeRatePpm, dependentRatePpm: rule.dependentRatePpm };
+    if (version.status === "withdrawn") return { ...version, employeeAmountMinor: 0, ruleId: null, ruleIds: [], employeeRatePpm: null, dependentRatePpm: null, components: [] };
+    const selectedRules = resolveHrInsuranceContributionRules(rules, version.scheme, input.validFrom);
+    if (!hasCompleteHrInsuranceContributionRules(version.scheme, selectedRules)) return { ...version, employeeAmountMinor: null, ruleId: null, ruleIds: [], employeeRatePpm: null, dependentRatePpm: null, components: [] };
+    const breakdown = calculateHrInsuranceEmployeeBreakdown({ scheme: version.scheme, insuredAmountMinor: version.insuredAmountMinor, dependentCount: version.dependentCount, rules: selectedRules });
+    const components = breakdown.parts.map((part) => ({ component: part.component, ruleId: part.ruleId!, employeeRatePpm: part.employeeRatePpm, employeeAmountMinor: part.employeeAmountMinor, totalRatePpm: part.totalRatePpm, employeeSharePpm: part.employeeSharePpm }));
+    return { ...version, employeeAmountMinor: breakdown.employeeAmountMinor, ruleId: selectedRules.length === 1 ? selectedRules[0]!.id : null, ruleIds: selectedRules.map((rule) => rule.id), employeeRatePpm: selectedRules.reduce((sum, rule) => sum + rule.employeeRatePpm, 0), dependentRatePpm: version.scheme === "health" ? selectedRules[0]!.dependentRatePpm : 0, components };
   });
 }
+
 export async function createHrInsuranceContributionRule(db: Database, input: HrInsuranceContributionInput, actor: HrActor) {
+  const component = input.component ?? null;
   if (!isDateOnly(input.validFrom) || (input.validTo !== null && (!isDateOnly(input.validTo) || input.validTo <= input.validFrom))) throw new HrError(400, "費率生效／迄日不正確。 ");
+  if (input.scheme === "health" && component !== null || input.scheme === "labor" && component !== null && !LABOR_CONTRIBUTION_COMPONENTS.includes(component)) throw new HrError(400, "保險費項目不正確。 ");
   if (![input.employeeRatePpm, input.employerRatePpm, input.dependentRatePpm].every((value) => Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000)) throw new HrError(400, "保險負擔費率必須是 0～100% 的整數 ppm。 ");
   if (input.note.length > 1000 || (input.sourceKind !== "official" && input.sourceKind !== "manual")) throw new HrError(400, "保險負擔規則資料不正確。 ");
   if (input.sourceKind === "manual" && !input.note.trim()) throw new HrError(400, "人工保險負擔規則必須留下覆核備註。 ");
   const id = crypto.randomUUID();
   return writeHrMutation(db, sql`INSERT INTO hr_insurance_contribution_rules
-    (id, scheme, valid_from, valid_to, employee_rate_ppm, employer_rate_ppm, dependent_rate_ppm, source_kind, note, created_by)
-    SELECT ${id}, ${input.scheme}, ${input.validFrom}, ${input.validTo}, ${input.employeeRatePpm}, ${input.employerRatePpm}, ${input.dependentRatePpm}, ${input.sourceKind}, ${input.note}, ${actor.id}
+    (id, scheme, component, valid_from, valid_to, employee_rate_ppm, employer_rate_ppm, dependent_rate_ppm, source_kind, note, created_by)
+    SELECT ${id}, ${input.scheme}, ${component}, ${input.validFrom}, ${input.validTo}, ${input.employeeRatePpm}, ${input.employerRatePpm}, ${input.dependentRatePpm}, ${input.sourceKind}, ${input.note}, ${actor.id}
     WHERE NOT EXISTS (SELECT 1 FROM hr_insurance_contribution_rules WHERE scheme=${input.scheme}
+      AND ((component IS NULL AND ${component} IS NULL) OR component=${component})
       AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
     RETURNING id`, id, actor, "insurance_contribution_rule_created", "保險負擔規則已變更或期間重疊，請重新整理。 ");
 }

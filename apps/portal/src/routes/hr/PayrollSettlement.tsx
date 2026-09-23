@@ -40,6 +40,9 @@ function adjustmentMoney(minor: number): string {
 function percentage(ppm: number): string {
   return `${(ppm / 10_000).toFixed(4).replace(/\.?0+$/, "")}%`;
 }
+function insuranceComponentLabel(value: unknown): string {
+  return value === "ordinary_accident" ? "普通事故保險" : value === "employment" ? "就業保險" : "本人保費";
+}
 function hours(value: number): string {
   return value.toFixed(2).replace(/\.?0+$/, "");
 }
@@ -210,6 +213,8 @@ function lineDetails(line: PayrollLine): PayrollLineDetail[] {
     const dependentRate = numberValue(explanation.dependentRatePpm);
     if (insured !== null) details.push({ label: "投保金額", value: money(insured) });
     if (employeeRate !== null) details.push({ label: "本人負擔比例", value: percentage(employeeRate) });
+    const components = Array.isArray(explanation.components) ? explanation.components.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object") : [];
+    if (components.length > 1) details.push({ label: "分項計算", value: components.map((component) => `${insuranceComponentLabel(component.component)} ${typeof component.employeeAmountMinor === "number" ? money(component.employeeAmountMinor) : "—"}`).join(" ＋ ") });
     if (line.lineKey === "health_insurance" && dependentCount !== null) details.push({ label: "親屬人數", value: `${dependentCount} 人` });
     if (line.lineKey === "health_insurance" && dependentRate !== null) details.push({ label: "親屬負擔比例", value: percentage(dependentRate) });
     if (stringValue(explanation.sourceKind)) details.push({ label: "規則來源", value: explanation.sourceKind === "official" ? "官方" : "人工覆核" });

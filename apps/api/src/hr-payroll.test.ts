@@ -424,9 +424,24 @@ describe("HR 薪資與勞健保", () => {
     const systemRules = await request("/hr/insurance-contribution-rules");
     expect(systemRules.status, await systemRules.clone().text()).toBe(200);
     expect(await systemRules.json()).toMatchObject({ rules: expect.arrayContaining([
-      expect.objectContaining({ id: "system-insurance-contribution-labor-2026", scheme: "labor", employeeRatePpm: 25_000, isSystemDefault: true }),
-      expect.objectContaining({ id: "system-insurance-contribution-health-2026", scheme: "health", employeeRatePpm: 15_510, dependentRatePpm: 1_000_000, isSystemDefault: true }),
+      expect.objectContaining({ id: "system-insurance-contribution-labor-ordinary-accident-2026", scheme: "labor", component: "ordinary_accident", totalRatePpm: 115_000, employeeRatePpm: 23_000, isSystemDefault: true }),
+      expect.objectContaining({ id: "system-insurance-contribution-labor-employment-2026", scheme: "labor", component: "employment", totalRatePpm: 10_000, employeeRatePpm: 2_000, isSystemDefault: true }),
+      expect.objectContaining({ id: "system-insurance-contribution-health-2026", scheme: "health", component: null, employeeRatePpm: 15_510, dependentRatePpm: 1_000_000, isSystemDefault: true }),
     ]) });
+    const defaultLaborEstimate = await request("/hr/employments/dev-employment-lin/insurance/estimate", "POST", { validFrom: "2026-01-01", versions: [{ scheme: "labor", status: "enrolled", insuredAmountMinor: 4_010_000, dependentCount: 0 }] });
+    expect(defaultLaborEstimate.status, await defaultLaborEstimate.clone().text()).toBe(200);
+    expect(await defaultLaborEstimate.json()).toMatchObject({ estimates: [expect.objectContaining({ scheme: "labor", employeeAmountMinor: 100_200, employeeRatePpm: 25_000, components: [
+      expect.objectContaining({ component: "ordinary_accident", employeeAmountMinor: 92_200 }),
+      expect.objectContaining({ component: "employment", employeeAmountMinor: 8_000 }),
+    ] })] });
+    expect((await request("/hr/insurance-contribution-rules", "POST", { scheme: "labor", component: "ordinary_accident", validFrom: "2027-01-01", employeeRatePpm: 23000, employerRatePpm: 80500, dependentRatePpm: 0, sourceKind: "manual", note: "測試普通事故分項規則" })).status).toBe(201);
+    expect((await request("/hr/insurance-contribution-rules", "POST", { scheme: "labor", component: "employment", validFrom: "2027-01-01", employeeRatePpm: 2000, employerRatePpm: 7000, dependentRatePpm: 0, sourceKind: "manual", note: "測試就業保險分項規則" })).status).toBe(201);
+    const componentEstimate = await request("/hr/employments/dev-employment-lin/insurance/estimate", "POST", { validFrom: "2027-01-01", versions: [{ scheme: "labor", status: "enrolled", insuredAmountMinor: 4_010_000, dependentCount: 0 }] });
+    expect(componentEstimate.status, await componentEstimate.clone().text()).toBe(200);
+    expect(await componentEstimate.json()).toMatchObject({ estimates: [expect.objectContaining({ employeeAmountMinor: 100_200, components: expect.arrayContaining([
+      expect.objectContaining({ component: "ordinary_accident", employeeAmountMinor: 92_200 }),
+      expect.objectContaining({ component: "employment", employeeAmountMinor: 8_000 }),
+    ]) })] });
     await assign();
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
     const employmentId = profile.employments[0]!.id;

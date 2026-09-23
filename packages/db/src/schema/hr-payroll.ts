@@ -117,6 +117,8 @@ export const hrInsuranceVersions = sqliteTable("hr_insurance_versions", {
 export const hrInsuranceContributionRules = sqliteTable("hr_insurance_contribution_rules", {
   id: text("id").primaryKey(),
   scheme: text("scheme", { enum: ["labor", "health"] as const }).notNull(),
+  /** 舊資料為 NULL；勞保新規則以普通事故與就業保險分開保存。 */
+  component: text("component", { enum: ["ordinary_accident", "employment"] as const }),
   validFrom: text("valid_from").notNull(),
   validTo: text("valid_to"),
   employeeRatePpm: integer("employee_rate_ppm").notNull(),
@@ -127,7 +129,7 @@ export const hrInsuranceContributionRules = sqliteTable("hr_insurance_contributi
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
-  index("idx_hr_insurance_contribution_rules_period").on(table.scheme, table.validFrom, table.validTo),
+  index("idx_hr_insurance_contribution_rules_period").on(table.scheme, table.component, table.validFrom, table.validTo),
   check("ck_hr_insurance_contribution_rules_dates", sql`length(${table.validFrom}) = 10 AND (${table.validTo} IS NULL OR (length(${table.validTo}) = 10 AND ${table.validTo} > ${table.validFrom}))`),
   check("ck_hr_insurance_contribution_rules_rate", sql`${table.employeeRatePpm} BETWEEN 0 AND 1000000 AND ${table.employerRatePpm} BETWEEN 0 AND 1000000 AND ${table.dependentRatePpm} BETWEEN 0 AND 1000000`),
   check("ck_hr_insurance_contribution_rules_source", sql`${table.sourceKind} IN ('official', 'manual')`),
