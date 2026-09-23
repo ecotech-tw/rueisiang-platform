@@ -681,7 +681,10 @@ export const hr = new Hono<AppEnv>()
   .get("/special-workdays/rules", requirePermission("hr:office:read"), async (c) => c.json({ rules: await listHrSpecialWorkdayRules(c.get("db")) }))
   .post("/special-workdays/rules", requirePermission("hr:office:write"), async (c) => c.json(await createHrSpecialWorkdayRule(c.get("db"), specialWorkdayRule(await body(c)), c.get("user")), 201))
   .post("/special-workdays/rules/:id/versions", requirePermission("hr:office:write"), async (c) => c.json(await createHrSpecialWorkdayRuleVersion(c.get("db"), c.req.param("id"), specialWorkdayRule(await body(c)), c.get("user")), 201))
-  .delete("/special-workdays/rules/:id", requirePermission("hr:office:write"), async (c) => c.json(await deleteHrSpecialWorkdayRule(c.get("db"), c.req.param("id"), c.get("user"))))
+  .delete("/special-workdays/rules/:id", requirePermission("hr:office:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await deleteHrSpecialWorkdayRule(c.get("db"), c.req.param("id"), integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER), c.get("user")));
+  })
   .post("/special-workdays/rules/:id/versions/:versionId/void", requirePermission("hr:office:write"), async (c) => c.json(await voidHrSpecialWorkdayRuleVersion(c.get("db"), c.req.param("id"), c.req.param("versionId"), c.get("user"))))
   .post("/special-workdays/rules/:id/status", requirePermission("hr:office:write"), async (c) => { const input = await body(c); return c.json(await setHrSpecialWorkdayRuleActive(c.get("db"), c.req.param("id"), booleanValue(input, "active", "啟用狀態"), c.get("user"))); })
   .get("/special-workdays/assignments", requirePermission("hr:office:read"), async (c) => { const start = c.req.query("start"); const end = c.req.query("end"); if (start) date({ date: start }, "date"); if (end) date({ date: end }, "date"); if (start && end && end <= start) throw new HTTPException(400, { message: "查詢迄日必須晚於開始日。" }); return c.json({ assignments: await listHrSpecialWorkdayAssignments(c.get("db"), start, end) }); })

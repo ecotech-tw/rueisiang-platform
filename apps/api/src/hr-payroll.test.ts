@@ -351,7 +351,14 @@ describe("HR 薪資與勞健保", () => {
     const unusedBody = await unused.json() as { id: string };
     const unusedVersion = await request(`/hr/special-workdays/rules/${unusedBody.id}/versions`, "POST", { name: "未套用可刪除", validFrom: "2026-02-01", wageKind: "fixed_hourly", fixedAmountMinor: 30000, allowances: [], overtimeRules: [] });
     expect(unusedVersion.status, await unusedVersion.clone().text()).toBe(201);
-    const deleted = await request(`/hr/special-workdays/rules/${unusedBody.id}`, "DELETE", {});
+    // 拿過期的 revision 刪不動：中途有人加版本時，整條規則不該被連同對方那一版一起刪掉。
+    const stale = await request(`/hr/special-workdays/rules/${unusedBody.id}`, "DELETE", { revision: 999 });
+    expect(stale.status, await stale.clone().text()).toBe(409);
+    const survived = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; revision: number } }> };
+    const current = survived.rules.find((item) => item.rule.id === unusedBody.id);
+    expect(current).toBeDefined();
+
+    const deleted = await request(`/hr/special-workdays/rules/${unusedBody.id}`, "DELETE", { revision: current!.rule.revision });
     expect(deleted.status, await deleted.clone().text()).toBe(200);
     expect(await deleted.json()).toMatchObject({ id: unusedBody.id, deleted: true });
     const afterDelete = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string } }> };
@@ -366,7 +373,7 @@ describe("HR 薪資與勞健保", () => {
     const usedBody = await used.json() as { id: string; versionId: string };
     const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: usedBody.versionId, assignments: [{ employmentId, workDate: "2026-01-15", allowanceQuantity: 0 }] });
     expect(assigned.status, await assigned.clone().text()).toBe(201);
-    const rejected = await request(`/hr/special-workdays/rules/${usedBody.id}`, "DELETE", {});
+    const rejected = await request(`/hr/special-workdays/rules/${usedBody.id}`, "DELETE", { revision: 1 });
     expect(rejected.status, await rejected.clone().text()).toBe(409);
     const stillListed = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; active: number } }> };
     expect(stillListed.rules).toEqual(expect.arrayContaining([expect.objectContaining({ rule: expect.objectContaining({ id: usedBody.id, active: 1 }) })]));
