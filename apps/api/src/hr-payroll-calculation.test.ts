@@ -168,6 +168,41 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
   });
 
+  it("2 月未滿整月以固定 30 日制補足短月日數，閏年只補一天", async () => {
+    d1.sqlite.exec(`
+      UPDATE hr_employment_service_periods SET service_start_on='2026-02-01' WHERE employment_id='dev-employment-newhire';
+      UPDATE hr_compensation_versions SET valid_from='2026-01-01', base_amount_minor=3000000 WHERE id='dev-comp-newhire-2026';
+      INSERT INTO hr_compensation_items (id, compensation_version_id, item_name, amount_minor, item_kind, amount_basis, include_overtime, include_insurance, include_tax, created_by)
+      VALUES ('test-feb-monthly-item', 'dev-comp-newhire-2026', '月給津貼', 300000, 'fixed', 'monthly', 0, 0, 0, 'dev-newhire@ecotech.tw');
+    `);
+    const calculateEmployee = async (periodKey: string, requestId: string) => {
+      const response = await request("/hr/payroll/calculate", "POST", { periodKey, employeeUserIds: ["dev-newhire@ecotech.tw"], requestId });
+      expect(response.status, await response.clone().text()).toBe(200);
+      const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+      return body.run.employees[0]!;
+    };
+
+    const fullMonth = await calculateEmployee("2026-02", "test-payroll-february-full-month");
+    expect(fullMonth.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "base_salary", amountMinor: 3_000_000, explanation: expect.objectContaining({ formulaDetail: "月薪 NT$ 30,000 × 1 個月 = NT$ 30,000" }) }),
+      expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 300_000, explanation: expect.objectContaining({ formulaDetail: "月給 NT$ 3,000 × 1 個月 = NT$ 3,000" }) }),
+    ]));
+
+    d1.sqlite.exec("UPDATE hr_employment_service_periods SET service_start_on='2026-02-02' WHERE employment_id='dev-employment-newhire';");
+    const commonYear = await calculateEmployee("2026-02", "test-payroll-february-common-year");
+    expect(commonYear.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "base_salary", amountMinor: 2_900_000, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("29 天") }) }),
+      expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 290_000, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("29 天") }) }),
+    ]));
+
+    d1.sqlite.exec("UPDATE hr_employment_service_periods SET service_start_on='2028-02-02' WHERE employment_id='dev-employment-newhire';");
+    const leapYear = await calculateEmployee("2028-02", "test-payroll-february-leap-year");
+    expect(leapYear.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "base_salary", amountMinor: 2_900_000, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("29 天") }) }),
+      expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 290_000, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("29 天") }) }),
+    ]));
+  });
+
   it("只按報到後的在職日驗證與計算員工薪資", async () => {
     const detail = await (await request("/hr/employees/dev-newhire@ecotech.tw")).json() as { employments: Array<{ id: string; revision: number }> };
     const servicePeriod = await request(`/hr/employments/${detail.employments[0]!.id}/service-period`, "PATCH", { serviceStartOn: "2026-09-10", revision: detail.employments[0]!.revision });
