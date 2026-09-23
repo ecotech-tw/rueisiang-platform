@@ -62,7 +62,7 @@ function InsuranceRow({ employee, canWrite, onEdit }: { employee: Employee; canW
     ? `${current.status === "enrolled" ? "加保中" : "已退保"}／${money(current.insuredAmountMinor)}`
     : version?.voidedAt ? "已撤回"
       : "未設定";
-  const actionLabel = hasHistory ? "編輯勞健保" : "新增加保資料";
+  const actionLabel = hasHistory ? "建立勞健保新版本" : "新增加保資料";
   return <tr>
     <td data-label="員工"><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td data-label="目前職位">{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
