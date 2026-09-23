@@ -79,14 +79,44 @@ export async function listHrSpecialWorkdayAssignments(db: Database, periodStart?
 
 export async function createHrSpecialWorkdayRule(db: Database, input: SpecialWorkdayRuleInput, actor: HrActor) {
   validate(input); const ruleId = crypto.randomUUID(); const versionId = crypto.randomUUID(); const overtimeRules = normalizeOvertimeRules(input.overtimeRules);
-  const statements = [db.insert(hrSpecialWorkdayRules).values({ id: ruleId, name: input.name.trim(), createdBy: actor.id }), db.insert(hrSpecialWorkdayRuleVersions).values(versionValues(ruleId, 1, input, actor, versionId)), ...overtimeRules.map((rule) => db.insert(hrSpecialWorkdayOvertimeRules).values({ id: crypto.randomUUID(), ruleVersionId: versionId, fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.rateKind === "fixed_hourly" ? rule.fixedAmountMinor! : null, multiplierPpm: rule.rateKind === "multiplier" ? rule.multiplierPpm! : null })), ...input.allowances.map((item) => db.insert(hrSpecialWorkdayAllowances).values({ id: crypto.randomUUID(), ruleVersionId: versionId, itemName: item.itemName.trim(), unitAmountMinor: item.unitAmountMinor })), db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_rule_created", summary: "特殊上班日規則建立", actor }))];
+  const statements = [db.insert(hrSpecialWorkdayRules).values({ id: ruleId, name: input.name.trim(), createdBy: actor.id }), db.insert(hrSpecialWorkdayRuleVersions).values(versionValues(ruleId, 1, input, actor, versionId)), ...overtimeRules.map((rule) => db.insert(hrSpecialWorkdayOvertimeRules).values({ id: crypto.randomUUID(), ruleVersionId: versionId, fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.rateKind === "fixed_hourly" ? rule.fixedAmountMinor! : null, multiplierPpm: rule.rateKind === "multiplier" ? rule.multiplierPpm! : null })), ...input.allowances.map((item) => db.insert(hrSpecialWorkdayAllowances).values({ id: crypto.randomUUID(), ruleVersionId: versionId, itemName: item.itemName.trim(), unitAmountMinor: item.unitAmountMinor })), db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_rule_created", summary: "特殊上班日規則建立", actor, entityLabel: input.name.trim() }))];
   await db.batch(statements as never); return { id: ruleId, versionId };
+}
+
+/**
+ * 刪除整條規則。只有從沒被任何日期套用過的規則能刪——已有套用紀錄時必須保留來源與快照，
+ * 那些是薪資算過的依據。
+ *
+ * revision 是必填的：刪除是「連同底下所有版本一起消失」，沒有樂觀鎖的話
+ * A 開著頁面看到 v1、B 剛加了 v2 修正費率、A 按下刪除——v1 與 B 那版一起沒了，
+ * 而且回 200，沒有任何地方提示衝突。其他破壞性的 HR 端點都帶（班別帶 revision、
+ * 勞健保費率帶 contentHash），這裡不該是例外。
+ */
+export async function deleteHrSpecialWorkdayRule(db: Database, ruleId: string, revision: number, actor: HrActor) {
+  const [rule] = await db.select({ id: hrSpecialWorkdayRules.id, name: hrSpecialWorkdayRules.name }).from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, ruleId)).limit(1);
+  if (!rule) throw new HrError(404, "找不到特殊上班日規則。 ");
+  const [assignment] = await db.select({ id: hrSpecialWorkdayAssignments.id }).from(hrSpecialWorkdayAssignments)
+    .innerJoin(hrSpecialWorkdayRuleVersions, eq(hrSpecialWorkdayRuleVersions.id, hrSpecialWorkdayAssignments.ruleVersionId))
+    .where(eq(hrSpecialWorkdayRuleVersions.ruleId, ruleId)).limit(1);
+  if (assignment) throw new HrError(409, "特殊上班日規則已有日期套用紀錄，不能刪除；請改用停用。 ");
+  await writeHrMutation(db, [
+    // 版本彼此有自我外鍵；刪除前先清掉 superseded_by_version_id，才不會被 ON DELETE RESTRICT 擋住。
+    sql`UPDATE hr_special_workday_rule_versions SET superseded_by_version_id=NULL WHERE rule_id=${ruleId} RETURNING id`,
+    sql`DELETE FROM hr_special_workday_overtime_rules WHERE rule_version_id IN (SELECT id FROM hr_special_workday_rule_versions WHERE rule_id=${ruleId}) RETURNING id`,
+    sql`DELETE FROM hr_special_workday_allowances WHERE rule_version_id IN (SELECT id FROM hr_special_workday_rule_versions WHERE rule_id=${ruleId}) RETURNING id`,
+    sql`DELETE FROM hr_special_workday_rule_versions WHERE rule_id=${ruleId} RETURNING id`,
+    sql`DELETE FROM hr_special_workday_rules WHERE id=${ruleId} AND revision=${revision} RETURNING id`,
+  ], ruleId, actor, "special_workday_rule_deleted", "特殊上班日規則已被套用或已變更，不能刪除；請重新整理後再試。 ", {
+    allowEmptyMutationIndexes: new Set([0, 1, 2]),
+    activity: { entityLabel: rule.name, summary: "特殊上班日規則刪除", payload: { ruleName: rule.name } },
+  });
+  return { id: ruleId, deleted: true };
 }
 
 export async function createHrSpecialWorkdayRuleVersion(db: Database, ruleId: string, input: SpecialWorkdayRuleInput, actor: HrActor) {
   validate(input);
   const overtimeRules = normalizeOvertimeRules(input.overtimeRules);
-  const [rule] = await db.select({ id: hrSpecialWorkdayRules.id, active: hrSpecialWorkdayRules.active }).from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, ruleId)).limit(1);
+  const [rule] = await db.select({ id: hrSpecialWorkdayRules.id, name: hrSpecialWorkdayRules.name, active: hrSpecialWorkdayRules.active }).from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, ruleId)).limit(1);
   if (!rule) throw new HrError(404, "找不到特殊上班日規則。 ");
   if (!rule.active) throw new HrError(409, "規則已停用，不能建立新版本。 ");
   // 解除後要能在原生效日建立修正版，所以生效日只和仍有效的最新版本比較；編號則永遠取所有版本最大值。
@@ -114,7 +144,7 @@ export async function createHrSpecialWorkdayRuleVersion(db: Database, ruleId: st
       supersededByVersionId: versionId,
     }).where(and(eq(hrSpecialWorkdayRuleVersions.id, latest.id), sql`${hrSpecialWorkdayRuleVersions.voidedAt} IS NULL`))] : []),
     db.update(hrSpecialWorkdayRules).set({ updatedAt: sql`CURRENT_TIMESTAMP`, revision: sql`${hrSpecialWorkdayRules.revision} + 1` }).where(eq(hrSpecialWorkdayRules.id, ruleId)),
-    db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_rule_version_created", summary: "特殊上班日規則版本建立", actor })),
+    db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_rule_version_created", summary: "特殊上班日規則版本建立", actor, entityLabel: rule.name })),
   ];
   try {
     await db.batch(statements as never);
@@ -154,9 +184,15 @@ export async function voidHrSpecialWorkdayRuleVersion(db: Database, ruleId: stri
 }
 
 export async function setHrSpecialWorkdayRuleActive(db: Database, ruleId: string, active: boolean, actor: HrActor) {
-  const result = await db.update(hrSpecialWorkdayRules).set({ active: active ? 1 : 0, updatedAt: sql`CURRENT_TIMESTAMP`, revision: sql`${hrSpecialWorkdayRules.revision} + 1` }).where(eq(hrSpecialWorkdayRules.id, ruleId)).returning({ id: hrSpecialWorkdayRules.id });
-  if (!result.length) throw new HrError(404, "找不到特殊上班日規則。 ");
-  await db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: active ? "special_workday_rule_activated" : "special_workday_rule_deactivated", summary: active ? "特殊上班日規則啟用" : "特殊上班日規則停用", actor }));
+  /*
+   * 稽核要帶名稱。規則整條刪掉之後 entity_id 就是個查不到東西的 UUID，沒有名稱的話
+   * 搜「中秋加班」只會找到刪除那一筆，前面的建立、改版、停用全變成孤兒——那正是
+   * entity_label 這個欄位存在的理由。
+   */
+  const result = await db.update(hrSpecialWorkdayRules).set({ active: active ? 1 : 0, updatedAt: sql`CURRENT_TIMESTAMP`, revision: sql`${hrSpecialWorkdayRules.revision} + 1` }).where(eq(hrSpecialWorkdayRules.id, ruleId)).returning({ id: hrSpecialWorkdayRules.id, name: hrSpecialWorkdayRules.name });
+  const updated = result[0];
+  if (!updated) throw new HrError(404, "找不到特殊上班日規則。 ");
+  await db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: active ? "special_workday_rule_activated" : "special_workday_rule_deactivated", summary: active ? "特殊上班日規則啟用" : "特殊上班日規則停用", actor, entityLabel: updated.name }));
   return { id: ruleId, active };
 }
 
