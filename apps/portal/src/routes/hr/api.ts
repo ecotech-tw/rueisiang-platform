@@ -176,6 +176,11 @@ export type HrCalendarSpecialKind = "none" | "typhoon_stop";
 export const HR_CALENDAR_SPECIAL_KIND_LABELS: Record<HrCalendarSpecialKind, string> = { none: "一般日期", typhoon_stop: "災防停班（原排班照薪）" };
 export const HR_CALENDAR_SPECIAL_KINDS: HrCalendarSpecialKind[] = ["none", "typhoon_stop"];
 
+export function isDefaultHrCalendarSpecialName(name: string) {
+  const normalized = name.trim();
+  return normalized === "災防停班" || normalized === "颱風停班";
+}
+
 export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; dayType: HrDayType; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number }
 export interface HrShiftsResponse { scopes: ScheduleScope[]; shifts: ScheduleShift[] }
 export interface HrCalendarDay { date: string; dayType: HrDayType; name: string; specialKind: HrCalendarSpecialKind; specialScopeIds: string[]; overridden: boolean }

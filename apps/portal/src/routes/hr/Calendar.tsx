@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, DropdownSelect, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrCalendarResponse, type HrCalendarSpecialKind, type HrDayType, type ScheduleScope } from "./api.js";
+import { useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, isDefaultHrCalendarSpecialName, type HrCalendarDay, type HrCalendarResponse, type HrCalendarSpecialKind, type HrDayType, type ScheduleScope } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 
@@ -77,7 +77,7 @@ function AddDayDialog({ year, existing, scopes, onAdd, onClose }: { year: number
     if (value !== "weekday") {
       setSpecialKind("none");
       setSpecialScopeIds([]);
-      setName((current) => current.trim() === "災防停班" ? "" : current);
+      setName((current) => isDefaultHrCalendarSpecialName(current) ? "" : current);
     }
   };
   // 選到星期六日時預設改成「平日」；災防停班只允許套用在平日。
@@ -92,7 +92,7 @@ function AddDayDialog({ year, existing, scopes, onAdd, onClose }: { year: number
   } }} closeRequestRef={closeRequestRef} actions={<Button type="submit" icon="check">加入</Button>}>
     <TextField label="日期" type="date" required min={`${year}-01-01`} max={`${year}-12-31`} value={date} onChange={(event) => setDate(event.target.value)} />
     <SelectField label="類型" value={dayType} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => setSelectedDayType(event.target.value as HrDayType)} />
-    {dayType === "weekday" ? <SelectField label="災防標記" value={specialKind} options={HR_CALENDAR_SPECIAL_KINDS.map((item) => ({ value: item, label: HR_CALENDAR_SPECIAL_KIND_LABELS[item] }))} onChange={(event) => { const value = event.target.value as HrCalendarSpecialKind; setSpecialKind(value); if (value !== "typhoon_stop") setSpecialScopeIds([]); if (value === "typhoon_stop" && !name.trim()) setName("災防停班"); if (value !== "typhoon_stop" && name.trim() === "災防停班") setName(""); }} /> : null}
+    {dayType === "weekday" ? <SelectField label="災防標記" value={specialKind} options={HR_CALENDAR_SPECIAL_KINDS.map((item) => ({ value: item, label: HR_CALENDAR_SPECIAL_KIND_LABELS[item] }))} onChange={(event) => { const value = event.target.value as HrCalendarSpecialKind; setSpecialKind(value); if (value !== "typhoon_stop") setSpecialScopeIds([]); if (value === "typhoon_stop" && isDefaultHrCalendarSpecialName(name)) setName("災防停班"); if (value !== "typhoon_stop" && isDefaultHrCalendarSpecialName(name)) setName(""); }} /> : null}
     {dayType === "weekday" && specialKind === "typhoon_stop" ? <div className="field"><span>適用門市／地區</span><small>不指定就是全部門市／地區；指定後只有該範圍的原排班照薪。</small><CalendarScopePicker scopeIds={specialScopeIds} scopes={scopes} onChange={setSpecialScopeIds} /></div> : null}
     <TextField label="備註／名稱" maxLength={100} placeholder="例如：中秋節、補行上班；災防停班可填公告名稱" value={name} onChange={(event) => setName(event.target.value)} />
     {dayType === "weekday" && specialKind === "typhoon_stop" ? <p className="muted field-note">不會刪除原排班；薪資結算會將適用範圍內有排班的人列為「災防停班給薪」。</p> : null}
@@ -173,7 +173,7 @@ export function HrCalendar() {
   const updateDayType = (day: HrCalendarDay, dayType: HrDayType) => {
     update(day.date, dayType === "weekday"
       ? { dayType }
-      : { dayType, specialKind: "none", specialScopeIds: [], ...(day.name.trim() === "災防停班" ? { name: "" } : {}) });
+      : { dayType, specialKind: "none", specialScopeIds: [], ...(isDefaultHrCalendarSpecialName(day.name) ? { name: "" } : {}) });
   };
   const remove = (date: string) => {
     setDraft(sortByDate((draft ?? saved).filter((day) => day.date !== date)));
@@ -243,7 +243,7 @@ export function HrCalendar() {
               {canWrite
                 ? <div className="hr-calendar-type-fields">
                   <SelectField aria-label={`${day.date} 類型`} value={day.dayType} disabled={save.isPending || loading} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => updateDayType(day, event.target.value as HrDayType)} />
-                  {day.dayType === "weekday" ? <SelectField aria-label={`${day.date} 災防標記`} value={day.specialKind} disabled={save.isPending || loading} options={HR_CALENDAR_SPECIAL_KINDS.map((item) => ({ value: item, label: HR_CALENDAR_SPECIAL_KIND_LABELS[item] }))} onChange={(event) => { const value = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind: value, specialScopeIds: value === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(value === "typhoon_stop" && !day.name.trim() ? { name: "災防停班" } : {}), ...(value !== "typhoon_stop" && day.name.trim() === "災防停班" ? { name: "" } : {}) }); }} /> : null}
+                  {day.dayType === "weekday" ? <SelectField aria-label={`${day.date} 災防標記`} value={day.specialKind} disabled={save.isPending || loading} options={HR_CALENDAR_SPECIAL_KINDS.map((item) => ({ value: item, label: HR_CALENDAR_SPECIAL_KIND_LABELS[item] }))} onChange={(event) => { const value = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind: value, specialScopeIds: value === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(value === "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "災防停班" } : {}), ...(value !== "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "" } : {}) }); }} /> : null}
                 </div>
                 : <StatusBadge tone={kind.tone}>{kind.label}</StatusBadge>}
               {canWrite && kind.label === "補班日" ? <StatusBadge tone="warning">補班日</StatusBadge> : null}
