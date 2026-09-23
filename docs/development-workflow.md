@@ -27,6 +27,37 @@ Rueisiang/
 └─ rueisiang-platform-hr-payroll/      # 另一個 session：feat/hr-payroll-codex
 ```
 
+### Agent session 的自動 bootstrap（不可跳過）
+
+這套流程不要求人類先執行 PowerShell launcher；agent 可以自己完成 bootstrap，但必須把它當成
+修改前的硬性 gate。**在 gate 通過前只能唯讀盤點與管理 Git worktree，不能改 source、設定、
+資料庫或產物。**
+
+每個 session 的第一步固定執行：
+
+```text
+git rev-parse --show-toplevel
+git status --short --branch
+git symbolic-ref --short --quiet HEAD
+git worktree list --porcelain
+```
+
+判定與處理規則：
+
+1. 目前 top-level 是 canonical `rueisiang-platform` 時，agent 只能檢查狀態，不能在那裡修改，
+   也不能用 `git switch` 把它切到需求 branch。
+2. canonical worktree 乾淨時，agent 先同步 `origin/main`，再自己在 `Rueisiang\` 下建立 sibling：
+   `git worktree add -b feat/<需求名稱>-<agent> ..\rueisiang-platform-<需求名稱> origin/main`。
+3. canonical worktree 不乾淨時，agent 必須停止並請人類處理；不得自行 stash、reset、restore、
+   copy 未提交修改，或猜測哪些檔案屬於自己。
+4. 建立 sibling 後，該 sibling 是這個 session 唯一的 active worktree。所有 read、edit、write、
+   bash、測試與 build 都要指向它；不可回到 canonical 或其他 session 的目錄。
+5. 已在 sibling worktree 但 branch 是 detached、branch 不屬於本 session，或目錄狀態不明時，
+   一律停止，不自行切 branch、rebase 或清理。
+
+`pre-commit`、`pre-push` 與 CI 只能做後置 gate，不能取代這個 bootstrap；它們無法阻止 agent
+在 commit 之前已經修改錯誤目錄。
+
 建立 worktree：
 
 ```powershell
@@ -45,22 +76,12 @@ git worktree list
 `<需求名稱>` 由當次需求決定；兩個 worktree 不可以使用同一個 branch（Git 本來就會擋，
 但錯誤訊息出現時通常已經浪費了一輪）。
 
-`rueisiang-platform` 預設是人類的整合目錄，但不是保留區：**人類在當次對話明講之後，
-Codex 或 Claude 也可以在上面作業。** 要守住的不是「這個目錄屬於誰」，而是「一個工作
-目錄同時只有一個主人」——真正會出事的是兩個人同時在同一個目錄切 branch，不是誰的名字
-掛在資料夾上。
+`rueisiang-platform` 是人類整合目錄，不是 agent 的工作區。**Agent 永遠不得借用 canonical
+worktree，即使人類在 prompt 中明確要求直接在上面修改。** 這條規則用來避免 agent 自己切
+branch、覆蓋人類未提交修改，或讓下一個 session 接手一個不知情的 dirty worktree。
 
-借用的流程是**借了什麼樣子就還什麼樣子**：
-
-```powershell
-git rev-parse --abbrev-ref HEAD   # 借用前先記下它原本停在哪個 branch
-# …作業…
-git switch <原本那個 branch>       # 還之前切回去，並回報自己做了什麼
-```
-
-不要一律切回 `main`。主資料夾交出來時可能正停在某個整合或 feature branch 上，切成
-`main` 會讓人類下一次進來站在錯的分支；那時若還有未提交的修改，甚至切不回去。工作區
-不乾淨就先問，不要自己 stash 或 reset（stash stack 是共用的，見下面）。
+Agent 必須依照上面的 bootstrap 建立 sibling worktree。canonical worktree 若不乾淨就停止，
+不得 stash、reset、restore、copy 或清除其中任何未提交內容；由人類決定如何整理與交接。
 
 ### 做完要拆掉
 
@@ -135,10 +156,10 @@ git log --oneline --decorate HEAD..origin/main
 錯誤訊息——整個需求會做在別人的分支上，通常要到 push 或 review 才發現。這一行的成本是
 零，擋掉的是整輪重做。
 
-新需求必須從最新的 `origin/main` 建立 branch：
+新需求必須從最新的 `origin/main` 建立 sibling worktree 與 branch：
 
 ```powershell
-git switch -c feat/<需求名稱>-<agent> origin/main
+git worktree add -b feat/<需求名稱>-<agent> ..\rueisiang-platform-<需求名稱> origin/main
 ```
 
 若要繼續自己的既有 feature branch，確認工作區乾淨後才可更新：
@@ -198,7 +219,7 @@ worktree 之間共用同一個 stash stack。不要用裸的 `git stash` / `git 
 ## 二、誰能改什麼
 
 1. 啟動後先跑 `git rev-parse --show-toplevel` 確認路徑，再確認 branch。
-2. 只修改自己擁有的 worktree；主資料夾要人類當次明講才能借用。
+2. 只修改自己擁有的 sibling worktree；canonical `rueisiang-platform` 永遠是人類整合目錄，agent 不得借用。
 3. 不替另一個 agent 切 branch、rebase 或清除未提交修改。
 4. 交叉 review 唯讀，在自己的 worktree 或 detached review worktree 做；意見寫在 PR 上，
    不要進對方的目錄，也不要直接改對方的工作檔。
