@@ -41,6 +41,7 @@ export function StyleGuide() {
   const [page, setPage] = useState(3);
   const [message, setMessage] = useState("按下按鈕測試共用元件的互動狀態。");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const closeDialog = () => setDialogOpen(false);
 
   return (
     <div className="page style-guide">
@@ -197,8 +198,8 @@ export function StyleGuide() {
       {dialogOpen ? (
         <Dialog
           title="共用 Dialog 預覽"
-          onClose={() => setDialogOpen(false)}
-          actions={<Button type="button" onClick={() => setDialogOpen(false)}>完成</Button>}
+          onClose={closeDialog}
+          actions={<Button type="button" onClick={closeDialog}>完成</Button>}
         >
           <p>頁面只提供內容與 actions，遮罩、標題列、ARIA 與關閉按鈕由 Dialog 統一處理。</p>
         </Dialog>
