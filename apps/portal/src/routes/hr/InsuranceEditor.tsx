@@ -51,7 +51,8 @@ function estimateRateLabel(estimate: InsuranceContributionEstimate | undefined, 
 }
 
 /**
- * existing 決定生效日的預設值：一般新版本從今天起算；撤回後沿用被撤回版本的生效日，才能直接建立修正版。
+ * 生效日只提供預設值，儲存時仍以表單目前的值為準：初次加保沿用服務年資起算日，
+ * 一般新版本從今天起算；撤回後沿用被撤回版本的生效日，才能直接建立修正版。
  */
 export function InsuranceEditor({ employment, existing, insuranceVersions, defaultSalary, defaultDependentCount, onClose }: { employment: Employment; existing: boolean; insuranceVersions: InsuranceVersion[]; defaultSalary?: number; defaultDependentCount?: number; onClose: () => void }) {
   const latestInsuranceVersions = SCHEMES.map((scheme) => latestVersion(insuranceVersions, scheme)).filter((version): version is InsuranceVersion => Boolean(version));
@@ -60,7 +61,9 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
   const voidableVersions = SCHEMES.map((scheme) => latestVersion(activeInsuranceVersions, scheme)).filter((version): version is InsuranceVersion => Boolean(version));
   const firstInsuranceVersion = insuranceVersions.slice().sort((left, right) => left.validFrom.localeCompare(right.validFrom) || left.versionNumber - right.versionNumber)[0];
   const latestVoidedVersion = latestInsuranceVersions.filter((version) => version.voidedAt).sort((left, right) => right.versionNumber - left.versionNumber || right.validFrom.localeCompare(left.validFrom))[0];
-  const initialValidFrom = allVoided ? firstInsuranceVersion?.validFrom ?? taipeiToday() : latestVoidedVersion?.validFrom ?? taipeiToday();
+  const initialValidFrom = allVoided
+    ? firstInsuranceVersion?.validFrom ?? taipeiToday()
+    : latestVoidedVersion?.validFrom ?? (!existing ? employment.serviceStartOn ?? taipeiToday() : taipeiToday());
   const currentYear = taipeiToday().slice(0, 4);
   const [status, setStatus] = useState<"enrolled" | "withdrawn">("enrolled");
   const [validFrom, setValidFrom] = useState(initialValidFrom);
@@ -129,6 +132,8 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
   return <>
     <Dialog title={existing ? "編輯勞健保" : "新增加保資料"} titleMeta="勞保與健保一起建立版本" className="hr-insurance-dialog" onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending || voidInsurance.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
+    const submittedValidFrom = new FormData(event.currentTarget).get("validFrom");
+    if (typeof submittedValidFrom !== "string" || !submittedValidFrom) { setMessage("請填寫生效日。"); return; }
     const healthDependents = Number(dependents);
     if (status === "enrolled") {
       for (const scheme of SCHEMES) {
@@ -145,7 +150,7 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
       return {
         scheme,
         status,
-        validFrom,
+        validFrom: submittedValidFrom,
         // 員工封存不改寫既有版本；版本自己的有效期間仍由敘薪／投保資料管理。
         validTo: null,
         insuredAmountMinor: (amount(scheme) ?? 0) * 100,
@@ -166,7 +171,7 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
       <button type="button" className={status === "enrolled" ? "selected" : ""} onClick={() => setStatus("enrolled")}>加保／變更級距</button>
       <button type="button" className={status === "withdrawn" ? "selected" : ""} onClick={() => setStatus("withdrawn")}>退保</button>
     </div></Field>
-    <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
+    <TextField name="validFrom" label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
     {status === "enrolled" ? <>
       <TextField label="實際月薪（元）" type="number" min="0" step="1" value={salary} required onChange={(event) => setSalary(event.target.value)} hint="勞保／健保級距會依月薪自動帶入，也可以從下拉選單選擇其他級距。" />
       <div className="form-grid two">
