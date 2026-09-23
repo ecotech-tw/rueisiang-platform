@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
+import { useToast } from "../../shell/Toast.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceContributionRule } from "./api.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
@@ -105,6 +106,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const [voidConfirmation, setVoidConfirmation] = useState(false);
   const save = useHrWrite();
   const voidCompensation = useHrWrite();
+  const toast = useToast();
 
   // 換一位員工就重新帶入那個人目前的敘薪當預設值，不沿用上一個人的金額與項目。
   useEffect(() => {
@@ -136,7 +138,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const voidLatest = () => {
     if (!employment || !latestVersion || latestVersion.voidedAt) return;
     voidCompensation.mutate({ path: `/employments/${employment.id}/compensation/${latestVersion.id}/void`, method: "POST", values: {} }, {
-      onSuccess: () => { setVoidConfirmation(false); onClose(); },
+      onSuccess: () => { setVoidConfirmation(false); toast.show("已解除最新敘薪。"); onClose(); },
     });
   };
 
@@ -184,7 +186,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
         validFrom, validTo: validTo || null, payBasis, baseAmountMinor: draftAmountMinor(baseAmount), note,
         // 型態與三個納入與否不再讓人逐項設定：一律是固定項目，並納入加班基礎、勞保／健保級距與應稅所得。
         items: items.map((item) => ({ itemName: item.name.trim(), amountMinor: draftAmountMinor(item.amount), itemKind: "fixed", amountBasis: item.basis, includeOvertime: true, includeInsurance: true, includeTax: true })),
-      } }, { onSuccess: onClose });
+      } }, { onSuccess: () => { toast.show(latestVersion ? "敘薪已更新。" : "敘薪已新增。"); onClose(); } });
     } }}
     actions={<>
       {canVoid ? <Button variant="danger" icon="history" disabled={save.isPending || voidCompensation.isPending} onClick={() => setVoidConfirmation(true)}>解除最新敘薪</Button> : null}
@@ -265,11 +267,12 @@ function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerR
   const [amount, setAmount] = useState(current ? String(current.baseAmountMinor / 100) : "");
   const [note, setNote] = useState("");
   const save = useHrWrite();
+  const toast = useToast();
   return <Dialog title={`設定 ${worker.displayName} 的敘薪`} onClose={onClose} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     const numericAmount = Number(amount);
     if (!Number.isSafeInteger(numericAmount) || numericAmount < 0) return;
-    save.mutate({ path: `/schedule-workers/${worker.id}/compensation`, method: "POST", values: { validFrom, validTo: validTo || null, payBasis: "daily", baseAmountMinor: numericAmount * 100, note } }, { onSuccess: onClose });
+    save.mutate({ path: `/schedule-workers/${worker.id}/compensation`, method: "POST", values: { validFrom, validTo: validTo || null, payBasis: "daily", baseAmountMinor: numericAmount * 100, note } }, { onSuccess: () => { toast.show("支援人員敘薪已儲存。"); onClose(); } });
   } }} actions={<Button type="submit" loading={save.isPending}>儲存日薪</Button>}>
     <p>支援人員目前以日薪計算；不套用員工獎金 policy。敘薪版本不覆蓋歷史。</p>
     <TextField label="生效日" type="date" required value={validFrom} onChange={(event) => setValidFrom(event.target.value)} />
